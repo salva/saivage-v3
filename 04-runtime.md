@@ -1,0 +1,333 @@
+# Runtime
+
+The runtime is the non-LLM support software that drives agent
+dispatch, manages card state transitions, tracks processes, handles
+crashes, and provides the event bus. Agents do not control the
+runtime — the runtime controls agents.
+
+---
+
+## Startup Sequence
+
+1. **Discover project**: Walk up from `cwd` looking for
+   `.saivage/config.json`, or use `PROJECT_ROOT` / `SAIVAGE_ROOT`
+   environment variables. Set both env vars for subprocess
+   inheritance.
+
+2. **Load configuration**: Read `.saivage/saivage.json`, interpolate
+   `${ENV_VAR}` references, validate against the config schema
+   (see `06-configuration.md`).
+
+3. **Initialize model router**: Create provider instances from
+   config. Inject OAuth tokens for providers that use them. List
+   available providers to verify connectivity.
+
+4. **Initialize MCP runtime**: Register built-in MCP services
+   (plan, notes, filesystem, shell, git, process management).
+   Start configured external MCP servers
+   (see `06-configuration.md §MCP Servers`). Begin health
+   monitoring of external servers.
+
+5. **Single-instance guard**: Check `runtime.json` for a still-alive
+   PID. If alive and recent (< 14 days), abort with an error. Then
+   acquire an exclusive runtime lock via `O_CREAT|O_EXCL` on
+   `.saivage-work/tmp/state/runtime.lock`. This closes the TOCTOU
+   gap between the PID check and the first state write. If the lock
+   file exists but its PID is dead or its timestamp is stale
+   (> 14 days), the lock is removed and re-acquired.
+
+6. **Crash recovery**: Read old `runtime.json`. If the previous
+   process died mid-execution:
+   - Sweep stale `.tmp` files from the state directory.
+   - Reset any `in-progress` or `aborted` cards to `backlog`.
+   - If a card has a completed result file but was not yet
+     transitioned, mark it for archival by the planner.
+   - Clean stale notes from previous runs.
+   - Clean stale stash files older than 24 hours.
+
+7. **Event bus**: Create the in-process event bus for runtime event
+   distribution.
+
+8. **Write initial runtime state**: Persist `runtime.json` with
+   `status: "idle"`, current PID, and timestamp.
+
+9. **Start stuck-agent supervisor**: If enabled, begin periodic
+   stuck-agent detection (see §Stuck Agent Detection below).
+
+10. **Consume shutdown handoff**: If a previous shutdown left a
+    handoff summary, queue it as a startup directive for the
+    planner's first session.
+
+11. **Start server**: Bind the HTTP + WebSocket server
+    (see `08-server-api.md`).
+
+12. **Start Telegram bot**: If configured, connect the Telegram bot
+    and wire it to analyst chat sessions.
+
+13. **Start planner recovery loop**: Begin the autonomous planner
+    cycle (see §Recovery Loop below).
+
+```mermaid
+flowchart TD
+    S1[Discover project] --> S2[Load config]
+    S2 --> S3[Init model router + OAuth]
+    S3 --> S4[Init MCP runtime + services]
+    S4 --> S5[Single-instance guard + lock]
+    S5 --> S6[Crash recovery]
+    S6 --> S7[Event bus + initial state]
+    S7 --> S8[Stuck-agent supervisor]
+    S8 --> S9[Consume shutdown handoff]
+    S9 --> S10[Start server + Telegram]
+    S10 --> S11[Planner recovery loop]
+```
+
+---
+
+## Graceful Shutdown
+
+On `SIGINT` or `SIGTERM`:
+
+1. **Freeze runtime tracker**: Prevent agent activity callbacks from
+   racing the final state write.
+2. **Write shutdown summary**: Persist why the shutdown happened
+   (reason, requester, runtime uptime, active agents, current
+   card, plan state) so the next startup can hand off context
+   to the planner.
+3. **Stop stuck-agent supervisor**.
+4. **Shutdown MCP runtime**: Stop external MCP servers, close
+   connections.
+5. **Clear event bus**: Drain subscriptions.
+6. **Write final runtime state**: Set status to `idle`.
+7. **Release runtime lock**: Delete the lockfile.
+
+If the shutdown was requested explicitly (via the analyst or an
+external signal), a shutdown reason is persisted separately. On the
+next startup, the planner receives a handoff directive explaining
+what happened and why, so it can resume from the right context.
+
+---
+
+## Runtime Lock
+
+The runtime lock prevents concurrent instances from corrupting
+project state.
+
+- **Mechanism**: `O_CREAT|O_EXCL` atomic file creation at
+  `.saivage-work/tmp/state/runtime.lock`. Contains JSON with
+  `{ pid, started_at }`.
+- **Stale detection**: If the lockfile exists, check whether its PID
+  is alive (`kill(pid, 0)`). If the PID is dead or the recorded
+  `started_at` is older than 14 days, the lock is considered stale,
+  removed, and re-acquired.
+- **Release**: Lockfile is deleted on graceful shutdown and on fatal
+  error handlers (`uncaughtException`, `unhandledRejection`).
+- **Manual override**: If the lock is truly stuck, the user can
+  delete `.saivage-work/tmp/state/runtime.lock` manually.
+
+---
+
+## Runtime Loop
+
+The runtime does not have a single event loop — it is driven by
+agent completion events:
+
+1. When a goal becomes `active`, invoke its planner for initial
+   decomposition.
+2. When the planner finishes, queue the created terminal cards /
+   sub-goals based on `depends_on` and `priority`.
+3. Pick the next ready card from the queue and invoke the executor.
+4. When the executor finishes a card, check if more cards are ready.
+   If yes, execute the next one. If all sibling cards are terminal
+   (`done` / `failed`), re-invoke the planner.
+5. When the planner declares done, invoke the reviewer.
+6. When the reviewer passes, mark the goal `done` and check the
+   parent. When the reviewer fails, re-invoke the planner with
+   the assessment.
+
+### Dispatch rules
+
+- Only one planner, executor, or reviewer runs at a time (besides
+  the analyst).
+- The analyst is always available concurrently.
+- Global pause stops new dispatch but does not kill running
+  processes.
+- Card order within a goal is determined by `depends_on` first,
+  then `priority` (lower number = higher priority).
+
+---
+
+## Recovery Loop
+
+The planner runs inside a recovery loop that automatically restarts
+it when it exits without completing all work:
+
+1. Start the planner session.
+2. If the planner exits with `PLAN_COMPLETE`, check whether
+   **continuous improvement mode** is enabled:
+   - If disabled: stop the loop. Work is done.
+   - If enabled: queue a continuation directive telling the planner
+     to look for the next improvement cycle, then restart.
+3. If the planner exits for any other reason (failure, context
+   exhaustion, max compactions reached, nudge-out):
+   - Publish a `plan_updated` event.
+   - Wait a recovery delay (default: 60 seconds).
+   - Queue a recovery directive telling the planner to re-read
+     persisted state and continue.
+   - Restart the planner.
+4. If a **planner restart is explicitly requested** (by the analyst
+   via user command): cancel the current planner, queue the user's
+   reason as a directive, restart immediately without delay.
+5. On `SIGINT`/`SIGTERM`: cancel the planner and exit the loop.
+
+The recovery loop ensures the system keeps making progress even
+when individual planner sessions are interrupted.
+
+---
+
+## Stuck Agent Detection
+
+A background supervisor periodically checks whether any agent is
+stuck (making no progress):
+
+- **Interval**: Configurable, default 20 minutes.
+- **Method**: Feed recent runtime logs to a lightweight LLM and ask
+  for a structured verdict: `{ stuck, confidence, reason, evidence }`.
+- **Threshold**: After N consecutive "stuck" verdicts (default: 3),
+  the supervisor selects an abort target.
+- **Abort priority**: Lower-level agents are aborted first
+  (reviewer → executor → planner), so the planner can handle the
+  failure and retry or escalate.
+- **Force cancel**: If an aborted agent doesn't stop within 10
+  minutes, a second cancel signal is sent.
+- **Recovery**: When the supervisor detects the system is no longer
+  stuck, the consecutive counter resets.
+
+The supervisor only logs and acts on truly stuck situations. It
+does not interfere with long-running but progressing agents.
+
+---
+
+## Context Compaction
+
+When an agent's conversation approaches its model's context window
+limit, the runtime performs compaction:
+
+- **Trigger**: When estimated token count exceeds a configurable
+  percentage of the context window (default: 80%).
+- **Method**: Summarize the full conversation using a cheap LLM
+  call, then replace the history with the summary plus a directive
+  to re-read authoritative state from disk.
+- **Fallback**: If summarization fails, keep only the most recent
+  20% of messages plus a truncation notice.
+- **Limit**: Maximum compactions per agent session (default: 3).
+  After the limit, the agent is terminated and the recovery loop
+  restarts it with fresh context.
+- **Timeout**: Summarization calls have a generous timeout
+  (default: 20 minutes) to handle large conversations.
+
+---
+
+## Self-Check
+
+Agents periodically perform self-assessment during long-running
+work:
+
+- **Mechanism**: Every N tool-call rounds (configurable per role),
+  the runtime injects a progress-assessment prompt asking the agent
+  to evaluate whether it is making progress.
+- **Default frequencies**: Executor roles check every 15 rounds,
+  planner every 30 rounds, analyst never (chat-driven).
+- **Purpose**: Detect circular behavior, unnecessary repetition,
+  or goal drift before the stuck-agent supervisor needs to
+  intervene.
+
+---
+
+## Event Bus
+
+An in-process pub/sub system distributes runtime events to
+interested subscribers (chat agents, Telegram channels, web UI):
+
+### Event types
+
+| Event type         | Severity | When                                     |
+|--------------------|----------|------------------------------------------|
+| `goal_completed`   | info     | A goal transitions to `done`             |
+| `goal_failed`      | error    | A goal transitions to `failed`           |
+| `escalation`       | warning  | A planner escalates to its parent        |
+| `card_failed`      | warning  | A terminal card fails                    |
+| `review_complete`  | info     | A reviewer finishes assessment           |
+| `plan_updated`     | info     | The planner creates/modifies cards       |
+
+### Subscription features
+
+- **Filtering**: Subscribers specify minimum severity (`info`,
+  `warning`, `error`) and/or allowed event types.
+- **Pause/resume**: Subscriptions can be paused (e.g. when a
+  Telegram user is offline). Events are buffered up to a
+  configurable limit (default: 100). Oldest events are dropped
+  when the buffer is full.
+- **Timeout**: Event handlers have a delivery timeout (default: 5
+  seconds) to prevent slow handlers from blocking the bus.
+
+---
+
+## Process Registry
+
+The runtime maintains a registry of all external processes launched
+by executors:
+
+- Each process is tracked by ID, card association, PID, start time,
+  status, and output file paths.
+- Process output (stdout, stderr, combined log) is always written
+  to files under `.saivage-work/processes/<proc-id>/`.
+- When the planner is re-invoked, the registry provides the list of
+  still-running processes so the planner can decide to wait, kill,
+  or ignore them.
+- The analyst can tail, kill, or inspect any process through its
+  tools.
+
+---
+
+## Runtime State Persistence
+
+The runtime state file (`runtime.json`) is updated on every
+significant state change:
+
+```yaml
+status:           idle | running | paused | error
+pid:              number
+started_at:       ISO timestamp
+updated_at:       ISO timestamp
+current_card_id:  string | null
+active_agents:    AgentState[]
+```
+
+Each `AgentState` entry tracks:
+
+```yaml
+agent_id:         string
+agent_type:       planner | executor | reviewer | analyst
+task_id:          string | null
+started_at:       ISO timestamp
+```
+
+The runtime state file is the source of truth for crash recovery.
+It is written atomically (write to `.tmp`, then rename) to prevent
+corruption on crash.
+
+---
+
+## Stash
+
+When a tool call produces output too large for the LLM context
+window, the result is **stashed** — saved to a temporary file and
+replaced with a reference. The agent can then selectively read
+portions of the stashed content via `read_stash(path, offset,
+length)`.
+
+- Stash files are stored under `.saivage-work/tmp/stash/`.
+- Each file is named `<tool_name>_<short_uuid>.txt`.
+- Security: `read_stash` only allows reading from the stash
+  directory (path traversal is rejected).
+- Cleanup: Stash files older than 24 hours are removed on startup.
