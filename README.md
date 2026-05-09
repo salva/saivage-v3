@@ -15,3 +15,4 @@
 | [Data Model & File Tree](09-data-model.md) | Entity schemas, persistent metadata layout, generated output layout, cleanup policy. |
 | [UX Design](10-ux-design.md) | Web UI layout, navigation, section behavior, UX coverage checklist. |
 | [Decisions](11-decisions.md) | Deferred items, persistence summary, web UI summary. |
+| [Implementation Plan](12-implementation-plan.md) | Staged implementation plan with scope boundaries and acceptance criteria. |
