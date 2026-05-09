@@ -2,8 +2,8 @@
 
 ## Core Concept
 
-Replace the free-form planner/stage model (v2) with a **card-based work
-tree**. Cards are the single unit of planning, execution, and reporting.
+All work is organized as a **card-based work tree**. Cards are the
+single unit of planning, execution, and reporting.
 
 The leaderboard, the plan, and the task backlog all collapse into one
 structure: the card tree.
@@ -402,17 +402,13 @@ Structure`).
 
 ## 3. Agents and Runtime
 
-### Agent model — a major departure from v2
+### Agent model
 
-In v2, the agent was a single long-running LLM session with MCP tools
-(shell, filesystem, git, etc.) that decided what to do next and
-invoked itself recursively. The agent drove the loop.
-
-In v3, **the runtime drives the loop**. Agents are specialized,
-short-lived LLM sessions invoked by the runtime at specific points.
-They do their job, produce output, and return control. They do not
-invoke themselves or each other — the support software handles
-sequencing, card state transitions, and agent dispatch.
+**The runtime drives the loop.** Agents are specialized, short-lived
+LLM sessions invoked by the runtime at specific points. They do
+their job, produce output, and return control. They do not invoke
+themselves or each other — the support software handles sequencing,
+card state transitions, and agent dispatch.
 
 This means:
 - Agents have **specific lifetimes**. Planner, executor, and reviewer
@@ -701,7 +697,7 @@ The planner reads the review from its diary and decides.
 
 ### 3.5 Content supervisor (security layer)
 
-As in v2, a **content supervisor** screens all content coming from
+A **content supervisor** screens all content coming from
 external sources before it reaches any agent. This includes:
 
 - Command output (stdout/stderr from executed processes).
@@ -848,35 +844,7 @@ structuring (same as Telegram/chat).
 
 ---
 
-## 7. Migration from v2
-
-- Existing leaderboard entries → result cards (`done`, with metrics).
-- Existing configured work items → goal cards.
-- v2 stage history → archived, not migrated (too loosely structured).
-- Existing artifacts → linked to migrated cards where possible.
-
----
-
-## 8. What Changes from v2
-
-| v2                          | v3                                       |
-|-----------------------------|------------------------------------------|
-| Config work items (text)    | Project card (root) + goal cards         |
-| Planner generates stages    | Plan cards decompose goals recursively   |
-| Stages are flat sequence    | Goals nest recursively; depends_on for order|
-| Leaderboard is separate     | Leaderboard is a view over done cards    |
-| Tasks inside stages         | Terminal cards (code, test, arch…)    |
-| Free-form work requests     | Goals are recursive cards                |
-| Separate supervisor agent   | Depth-0 planner on the project card         |
-| No built-in review step     | Runtime triggers reviewer when planner declares done |
-| Agent roles are fixed       | Per-goal trio: Planner + Executor + Reviewer |
-| Agent drives the loop       | Runtime drives the loop, agents have scoped lifetimes |
-| Plan.json + stages/         | cards/ directory                         |
-| Fixed 2-level decomposition | Recursive: plan → goals/terminals → planner → review |
-
----
-
-## 9. Decisions / Deferred Items
+## 7. Decisions / Deferred Items
 
 1. **Card templates**: No templates for now.
 
