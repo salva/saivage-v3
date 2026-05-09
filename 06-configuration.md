@@ -168,7 +168,7 @@ Fields per provider:
 ```json
 {
   "runtime": {
-    "restartOnCrash": true,
+    "recoverAgentInvocations": true,
     "healthCheckIntervalMs": 30000,
     "idleShutdownMs": 300000,
     "maxGoalDepth": 5,
@@ -180,12 +180,12 @@ Fields per provider:
 
 | Field                   | Default  | Description                                       |
 |-------------------------|----------|---------------------------------------------------|
-| `restartOnCrash`        | `true`   | Auto-restart planner on non-PLAN_COMPLETE exit    |
+| `recoverAgentInvocations` | `true` | Retry interrupted planner/executor/reviewer invocations |
 | `healthCheckIntervalMs` | `30000`  | Health check frequency (30 seconds)               |
 | `idleShutdownMs`        | `300000` | Auto-shutdown after idle period (5 minutes)       |
 | `maxGoalDepth`          | `5`      | Maximum goal nesting depth                        |
 | `recoveryDelayMs`       | `60000`  | Delay before planner restart after failure         |
-| `continuousImprovement` | `false`  | Restart planner with improvement directive on PLAN_COMPLETE |
+| `continuousImprovement` | `false`  | Allow idle depth-0 planner to propose the next improvement cycle |
 
 ---
 

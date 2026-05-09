@@ -66,8 +66,8 @@ invoked to analyze the content:
 - **Allow**: Content passes both layers → delivered to the agent
   normally.
 - **Block**: Content is flagged as injection →
-  - The original content is **quarantined** (saved to
-    `.saivage-work/tmp/quarantine/<timestamp>_<source>.txt`).
+  - The original content is **quarantined** (saved under
+    `.saivage-work/quarantine/<quarantine-id>/`).
   - The agent receives a sanitized summary:
     *"Content from [source] was blocked by the content supervisor
     (reason: [reason]). The original has been quarantined."*
@@ -84,9 +84,9 @@ do not prevent the write.
 
 | Role     | Write territory                                   | Exclude                          |
 |----------|---------------------------------------------------|----------------------------------|
-| Analyst  | `.saivage-work/chat/`, `.saivage-work/notes/`     | Project source files             |
+| Analyst  | Chat sessions and notes via runtime APIs under `.saivage/agents/` and `.saivage/notes/` | Project source files             |
 | Planner  | Plan card diary (via runtime)                      | Source files, `.saivage/` directly|
-| Executor | Project files per card type, `.saivage-work/artifacts/`, `.saivage-work/processes/` | `.saivage/` directly, other cards' artifacts |
+| Executor | Project files per card type, `.saivage-work/cards/`, `.saivage-work/processes/` | `.saivage/` directly, other cards' artifacts |
 | Reviewer | Review reports (appended to plan card via runtime) | Source files, `.saivage/` directly|
 
 Territory enforcement means:
@@ -106,7 +106,7 @@ Certain files are protected from agent access regardless of role:
 |-----------------------------------|--------------------|
 | `.saivage/auth-profiles.json`     | No read, no write  |
 | `.saivage/saivage.json` (secrets) | Redacted on read   |
-| `.saivage-work/tmp/state/runtime.lock` | No write      |
+| `.saivage-work/tmp/runtime/runtime.lock` | No write      |
 
 API keys and tokens in config are redacted when served through the
 config API or when an agent reads the config file.

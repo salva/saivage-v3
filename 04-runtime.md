@@ -10,7 +10,7 @@ runtime — the runtime controls agents.
 ## Startup Sequence
 
 1. **Discover project**: Walk up from `cwd` looking for
-   `.saivage/config.json`, or use `PROJECT_ROOT` / `SAIVAGE_ROOT`
+  `.saivage/saivage.json`, or use `PROJECT_ROOT` / `SAIVAGE_ROOT`
    environment variables. Set both env vars for subprocess
    inheritance.
 
@@ -28,18 +28,18 @@ runtime — the runtime controls agents.
    (see `06-configuration.md §MCP Servers`). Begin health
    monitoring of external servers.
 
-5. **Single-instance guard**: Check `runtime.json` for a still-alive
-   PID. If alive and recent (< 14 days), abort with an error. Then
-   acquire an exclusive runtime lock via `O_CREAT|O_EXCL` on
-   `.saivage-work/tmp/state/runtime.lock`. This closes the TOCTOU
+5. **Single-instance guard**: Check `.saivage/runtime/state.json` for
+  a still-alive PID. If alive and recent (< 14 days), abort with an
+  error. Then acquire an exclusive runtime lock via `O_CREAT|O_EXCL`
+  on `.saivage-work/tmp/runtime/runtime.lock`. This closes the TOCTOU
    gap between the PID check and the first state write. If the lock
    file exists but its PID is dead or its timestamp is stale
    (> 14 days), the lock is removed and re-acquired.
 
-6. **Crash recovery**: Read old `runtime.json`. If the previous
-   process died mid-execution:
-   - Sweep stale `.tmp` files from the state directory.
-   - Reset any `in-progress` or `aborted` cards to `backlog`.
+6. **Crash recovery**: Read old `.saivage/runtime/state.json`. If the
+  previous process died mid-execution:
+  - Sweep stale `.tmp` files from `.saivage-work/tmp/runtime/`.
+  - Reset any `active` or `running` cards to `backlog`.
    - If a card has a completed result file but was not yet
      transitioned, mark it for archival by the planner.
    - Clean stale notes from previous runs.
@@ -48,8 +48,8 @@ runtime — the runtime controls agents.
 7. **Event bus**: Create the in-process event bus for runtime event
    distribution.
 
-8. **Write initial runtime state**: Persist `runtime.json` with
-   `status: "idle"`, current PID, and timestamp.
+8. **Write initial runtime state**: Persist `.saivage/runtime/state.json`
+  with `status: "idle"`, current PID, and timestamp.
 
 9. **Start stuck-agent supervisor**: If enabled, begin periodic
    stuck-agent detection (see §Stuck Agent Detection below).
@@ -64,8 +64,9 @@ runtime — the runtime controls agents.
 12. **Start Telegram bot**: If configured, connect the Telegram bot
     and wire it to analyst chat sessions.
 
-13. **Start planner recovery loop**: Begin the autonomous planner
-    cycle (see §Recovery Loop below).
+13. **Start runtime dispatcher**: Begin dispatching ready card work
+    and wrapping each agent invocation with recovery handling
+    (see §Agent Invocation Recovery below).
 
 ```mermaid
 flowchart TD
@@ -78,7 +79,7 @@ flowchart TD
     S7 --> S8[Stuck-agent supervisor]
     S8 --> S9[Consume shutdown handoff]
     S9 --> S10[Start server + Telegram]
-    S10 --> S11[Planner recovery loop]
+    S10 --> S11[Runtime dispatcher]
 ```
 
 ---
@@ -113,7 +114,7 @@ The runtime lock prevents concurrent instances from corrupting
 project state.
 
 - **Mechanism**: `O_CREAT|O_EXCL` atomic file creation at
-  `.saivage-work/tmp/state/runtime.lock`. Contains JSON with
+  `.saivage-work/tmp/runtime/runtime.lock`. Contains JSON with
   `{ pid, started_at }`.
 - **Stale detection**: If the lockfile exists, check whether its PID
   is alive (`kill(pid, 0)`). If the PID is dead or the recorded
@@ -122,7 +123,7 @@ project state.
 - **Release**: Lockfile is deleted on graceful shutdown and on fatal
   error handlers (`uncaughtException`, `unhandledRejection`).
 - **Manual override**: If the lock is truly stuck, the user can
-  delete `.saivage-work/tmp/state/runtime.lock` manually.
+  delete `.saivage-work/tmp/runtime/runtime.lock` manually.
 
 ---
 
@@ -137,8 +138,9 @@ agent completion events:
    sub-goals based on `depends_on` and `priority`.
 3. Pick the next ready card from the queue and invoke the executor.
 4. When the executor finishes a card, check if more cards are ready.
-   If yes, execute the next one. If all sibling cards are terminal
-   (`done` / `failed`), re-invoke the planner.
+  If yes, execute the next one. If all sibling cards have reached
+  terminal states (`done`, `failed`, or `cancelled`), re-invoke the
+  planner.
 5. When the planner declares done, invoke the reviewer.
 6. When the reviewer passes, mark the goal `done` and check the
    parent. When the reviewer fails, re-invoke the planner with
@@ -156,31 +158,34 @@ agent completion events:
 
 ---
 
-## Recovery Loop
+## Agent Invocation Recovery
 
-The planner runs inside a recovery loop that automatically restarts
-it when it exits without completing all work:
+Planner, executor, and reviewer sessions are discrete invocations
+started by the runtime. Each invocation runs inside a recovery wrapper:
 
-1. Start the planner session.
-2. If the planner exits with `PLAN_COMPLETE`, check whether
-   **continuous improvement mode** is enabled:
-   - If disabled: stop the loop. Work is done.
-   - If enabled: queue a continuation directive telling the planner
-     to look for the next improvement cycle, then restart.
-3. If the planner exits for any other reason (failure, context
-   exhaustion, max compactions reached, nudge-out):
-   - Publish a `plan_updated` event.
+1. Start the agent session for the current card and invocation reason.
+2. If the agent returns a valid structured result, apply the result and
+   continue the normal runtime loop.
+3. If the agent exits without a valid result (failure, context
+   exhaustion, max compactions reached, provider error, process abort):
+   - Persist the failure to the relevant card note or plan diary.
+   - Publish a runtime event.
    - Wait a recovery delay (default: 60 seconds).
-   - Queue a recovery directive telling the planner to re-read
-     persisted state and continue.
-   - Restart the planner.
-4. If a **planner restart is explicitly requested** (by the analyst
-   via user command): cancel the current planner, queue the user's
-   reason as a directive, restart immediately without delay.
-5. On `SIGINT`/`SIGTERM`: cancel the planner and exit the loop.
+   - Restart the same invocation with a recovery directive telling the
+     agent to re-read persisted state and continue from the last safe
+     point.
+4. If the analyst explicitly requests a restart, cancel the current
+   invocation, persist the user's reason, and restart immediately
+   without delay.
+5. On `SIGINT`/`SIGTERM`, cancel the active invocation, write shutdown
+   handoff, and stop dispatching.
 
-The recovery loop ensures the system keeps making progress even
-when individual planner sessions are interrupted.
+Continuous improvement mode applies only to the depth-0 project
+planner when the project is otherwise idle. In that mode, once all
+current top-level goals are terminal and no user work is queued, the
+runtime may invoke the project planner with an improvement directive.
+This does not change ordinary goal planning: goal planners are still
+invoked only at the defined card lifecycle points.
 
 ---
 
@@ -220,8 +225,8 @@ limit, the runtime performs compaction:
 - **Fallback**: If summarization fails, keep only the most recent
   20% of messages plus a truncation notice.
 - **Limit**: Maximum compactions per agent session (default: 3).
-  After the limit, the agent is terminated and the recovery loop
-  restarts it with fresh context.
+  After the limit, the agent is terminated and the invocation recovery
+  wrapper restarts it with fresh context.
 - **Timeout**: Summarization calls have a generous timeout
   (default: 20 minutes) to handle large conversations.
 
@@ -291,8 +296,8 @@ by executors:
 
 ## Runtime State Persistence
 
-The runtime state file (`runtime.json`) is updated on every
-significant state change:
+The runtime state file (`.saivage/runtime/state.json`) is updated on
+every significant state change:
 
 ```yaml
 status:           idle | running | paused | error

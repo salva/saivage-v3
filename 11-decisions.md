@@ -31,9 +31,8 @@ deferred from the initial design.
    require a plan card and passing review — no special treatment.
 
 7. **Artifact cleanup policy**: Keep the `retain` flag on
-   artifacts but do not define an automatic cleanup policy yet.
-   Manual cleanup or a future cleanup command can remove
-   `retain: false` artifacts after cards are done.
+   artifacts but do not define an automatic cleanup policy beyond
+   the safety rules in `09-data-model.md §Cleanup Policy`.
 
 8. **Attachment rendering**: Attachments (inline images, charts,
    HTML reports) render only in the web UI. Telegram can link to
@@ -55,19 +54,17 @@ deferred from the initial design.
 All data is stored as files on the local filesystem. There is no
 external database.
 
-- **`.saivage/`**: Project metadata, configuration, skills,
-  instructions. Contains `saivage.json`, `auth-profiles.json`,
-  `skills/`, `instructions/`.
-- **`.saivage-work/`**: Runtime outputs, artifacts, process logs,
-  chat logs, stash, quarantine, temporary state. Everything under
-  this directory is disposable and can be regenerated or cleaned up.
+- **`.saivage/`**: Persistent project metadata and state:
+  `project.json`, `saivage.json`, `auth-profiles.json`, card records,
+  plan diaries, notes, agent sessions, runtime state, skills,
+  instructions, and indexes.
+- **`.saivage-work/`**: Generated work products and disposable or
+  retainable outputs: artifacts, attachments, process logs, downloads,
+  stash, quarantine payloads, uploads, previews, and temporary runtime
+  files.
 
-The complete file tree structure is defined in `ux-design.md
-§File Tree Structure`.
-
-Cards, notes, and runtime state are serialized as JSON files under
-`.saivage-work/`. The file layout makes it easy to inspect state
-with standard tools (`cat`, `jq`, `find`).
+The authoritative schemas and file tree are defined in
+`09-data-model.md`.
 
 ---
 
@@ -75,8 +72,7 @@ with standard tools (`cat`, `jq`, `find`).
 
 The web UI is a **card-centric control room** for supervising the
 autonomous runtime. The detailed UX layout, navigation, section
-composition, data model, and visual design are defined in
-`ux-design.md`.
+composition, and visual design are defined in `10-ux-design.md`.
 
 Key principles:
 - A **left rail** provides section navigation (Dashboard, Cards,
