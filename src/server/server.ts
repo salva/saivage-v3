@@ -7,6 +7,10 @@
  *  - /health endpoint (no auth)
  *  - All route registrations (cards, runtime/config/notes, chats/files/debug)
  *  - WebSocket endpoint registration
+ *  - MCP server manager lifecycle
+ *  - Telegram bot lifecycle
+ *  - Notification router with WebSocket broadcast integration
+ *  - MCP status API endpoint
  *  - startServer() / stopServer() lifecycle functions
  *  - Server config read from saivage.json
  */
@@ -23,6 +27,10 @@ import { registerRuntimeConfigNotesRoutes } from './routes/runtime-config-notes.
 import { registerChatsFilesDebugRoutes } from './routes/chats-files-debug.js';
 import { registerWebSocket } from './websocket.js';
 import { loadConfig, type SaivageConfig } from '../agents/config-schema.js';
+import { McpManager } from '../mcp/index.js';
+import { TelegramBot } from '../telegram/index.js';
+import { createNotificationRouter } from '../notifications/index.js';
+import type { NotificationRouter } from '../notifications/index.js';
 
 // ── Types ─────────────────────────────────────────────────────
 
@@ -36,6 +44,9 @@ export interface ServerInstance {
   fastify: FastifyInstance;
   config: ServerConfig;
   saivageConfig: SaivageConfig;
+  mcpManager?: McpManager;
+  telegramBot?: TelegramBot;
+  notificationRouter?: NotificationRouter;
   stop: () => Promise<void>;
 }
 
@@ -130,9 +141,83 @@ export async function createServer(
   // Register WebSocket endpoint (auth checked internally on upgrade)
   registerWebSocket(fastify, projectRoot);
 
+  // ── MCP Manager Lifecycle ──────────────────────────────────
+
+  let mcpManager: McpManager | undefined;
+  try {
+    mcpManager = new McpManager(projectRoot);
+    // Start all autostart servers (disabled servers are skipped)
+    await mcpManager.startAll();
+    fastify.log.info('MCP manager started');
+  } catch (err) {
+    fastify.log.warn(
+      `MCP manager initialization failed (continuing without MCP): ${
+        err instanceof Error ? err.message : String(err)
+      }`,
+    );
+  }
+
+  // ── MCP Status API Endpoint ────────────────────────────────
+
+  fastify.get('/api/mcp/status', async (_request, reply) => {
+    if (!mcpManager) {
+      return reply.send({ servers: [] });
+    }
+    return reply.send({ servers: mcpManager.getStatus() });
+  });
+
+  // ── Telegram Bot Lifecycle ─────────────────────────────────
+
+  let telegramBot: TelegramBot | undefined;
+  const botToken = saivageConfig.telegram?.botToken;
+  if (botToken) {
+    try {
+      telegramBot = new TelegramBot(projectRoot);
+      await telegramBot.start();
+      fastify.log.info('Telegram bot started');
+    } catch (err) {
+      fastify.log.warn(
+        `Telegram bot initialization failed: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
+    }
+  }
+
+  // ── Notification Router ────────────────────────────────────
+
+  const notificationRouter = createNotificationRouter(
+    projectRoot,
+    telegramBot,
+  );
+
   // ── Shutdown ───────────────────────────────────────────────
 
   async function stop(): Promise<void> {
+    if (telegramBot) {
+      try {
+        await telegramBot.stop();
+        fastify.log.info('Telegram bot stopped');
+      } catch (err) {
+        fastify.log.warn(
+          `Telegram bot stop failed: ${
+            err instanceof Error ? err.message : String(err)
+          }`,
+        );
+      }
+    }
+    if (mcpManager) {
+      try {
+        await mcpManager.stopAll();
+        fastify.log.info('MCP manager stopped');
+      } catch (err) {
+        fastify.log.warn(
+          `MCP manager stop failed: ${
+            err instanceof Error ? err.message : String(err)
+          }`,
+        );
+      }
+    }
     await fastify.close();
   }
 
@@ -140,6 +225,9 @@ export async function createServer(
     fastify,
     config: serverConfig,
     saivageConfig,
+    mcpManager,
+    telegramBot,
+    notificationRouter,
     stop,
   };
 }
