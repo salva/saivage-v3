@@ -10,3 +10,4 @@ export * from './fake-agent.js';
 export * from './runtime.js';
 export * from './process-runner.js';
 export * from './cleanup.js';
+export * from '../agents/index.js';
