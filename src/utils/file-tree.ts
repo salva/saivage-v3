@@ -1,7 +1,11 @@
-import { mkdirSync, existsSync, writeFileSync, renameSync } from 'node:fs';
+import { mkdirSync, existsSync, writeFileSync, renameSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { randomBytes } from 'node:crypto';
 import type { ProjectConfig, CardRecord } from '../schemas/types.js';
+import {
+  isReadBlocked,
+  redactSecrets,
+} from './file-access-security.js';
 
 // ── Atomic Write Helper ──────────────────────────────────────
 
@@ -19,6 +23,60 @@ export function writeFileAtomic(targetPath: string, data: string): void {
 
   writeFileSync(tmpPath, data, 'utf-8');
   renameSync(tmpPath, targetPath);
+}
+
+// ── Atomic Read Helper ───────────────────────────────────────
+
+/**
+ * Read a project file with optional security checks.
+ *
+ * - When `redactSecrets` is true and the file is `.saivage/saivage.json`,
+ *   secret values (API keys, tokens) are replaced with `[REDACTED]`.
+ * - If the file is read-blocked (e.g., `.saivage/auth-profiles.json`),
+ *   an error is thrown with a descriptive message.
+ *
+ * This is the main file-read integration point for agents — it ensures
+ * agents cannot access blocked files and receive redacted configs.
+ *
+ * @param projectRoot - Absolute path to the project root.
+ * @param relativePath - Project-relative file path.
+ * @param opts - Options for security processing.
+ * @returns The file content (possibly redacted).
+ * @throws If the file is read-blocked or if the file does not exist.
+ */
+export function readProjectFileAtomic(
+  projectRoot: string,
+  relativePath: string,
+  opts?: { redactSecrets?: boolean },
+): string {
+  // Strip leading ./ for consistent path matching
+  const cleanPath = relativePath.replace(/^\.\//, '');
+
+  // Check if this file is entirely blocked from reading
+  if (isReadBlocked(cleanPath)) {
+    throw new Error(
+      `Access to "${cleanPath}" is blocked for security reasons. ` +
+      `This file contains sensitive authentication data and cannot be read by agents.`,
+    );
+  }
+
+  // Read the file
+  const absPath = join(projectRoot, cleanPath);
+  let content: string;
+  try {
+    content = readFileSync(absPath, 'utf-8');
+  } catch (err) {
+    throw new Error(
+      `Failed to read "${cleanPath}": ${(err as Error).message}`,
+    );
+  }
+
+  // Redact secrets if requested and the file is saivage.json
+  if (opts?.redactSecrets && cleanPath === '.saivage/saivage.json') {
+    content = redactSecrets(content);
+  }
+
+  return content;
 }
 
 // ── Default Content Factories ────────────────────────────────

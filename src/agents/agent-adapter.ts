@@ -30,6 +30,8 @@ import {
 import type { AgentMessage } from '../schemas/types.js';
 import { compactSession } from './compaction.js';
 import { invokeWithRecovery, type RecoveryContext } from './recovery.js';
+import type { ContentSupervisor } from '../utils/content-supervisor.js';
+import { getSafeFileForAgent, type SafeFileResult } from '../utils/file-access-security.js';
 
 // ── Types ─────────────────────────────────────────────────────
 
@@ -69,6 +71,7 @@ export class AgentAdapter {
   readonly eventBus?: EventEmitter;
 
   private llmCallFn: LlmCallFn | null = null;
+  private contentSupervisor?: ContentSupervisor;
 
   constructor(cfg: AgentAdapterConfig) {
     this.projectRoot = cfg.projectRoot;
@@ -86,6 +89,42 @@ export class AgentAdapter {
    */
   setLlmCallFn(fn: LlmCallFn): void {
     this.llmCallFn = fn;
+  }
+
+  /**
+   * Set the ContentSupervisor for screening external content before it
+   * enters agent contexts. When not set, content screening is bypassed
+   * (the adapter works as before).
+   */
+  setContentSupervisor(supervisor: ContentSupervisor): void {
+    this.contentSupervisor = supervisor;
+  }
+
+  /**
+   * Get the ContentSupervisor if one has been set.
+   */
+  getContentSupervisor(): ContentSupervisor | undefined {
+    return this.contentSupervisor;
+  }
+
+  /**
+   * Check whether a file read by an agent is safe, applying sensitive-file
+   * blocking and secret redaction.
+   *
+   * When the path is blocked (e.g., `.saivage/auth-profiles.json`),
+   * returns `blocked: true` with a reason. When the path needs secret
+   * redaction (`.saivage/saivage.json`), returns the redacted content.
+   * Otherwise returns the content as-is.
+   *
+   * This is the integration point between the file-access-security module
+   * and the agent adapter — agents that read files should use this method
+   * to get safe content.
+   */
+  getSafeFileContent(
+    filePath: string,
+    content: string,
+  ): SafeFileResult {
+    return getSafeFileForAgent(filePath, content);
   }
 
   /**

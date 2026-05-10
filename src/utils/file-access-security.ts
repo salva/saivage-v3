@@ -146,12 +146,14 @@ export function isRedacted(filePath: string): boolean {
  * is a JSON string literal.  Matched case-insensitively at the
  * JSON key position.
  *
- * Includes:
- *  - `apiKey`, `botToken`
- *  - any key whose base ends in `_key`, `_token`, `secret`, or `password`
+ * Matches:
+ *  - `apiKey`, `apiToken`, `botToken`, `accessToken`, `refreshToken`
+ *  - any key ending in `Token`, `Key`, `Secret`, `Password` (camelCase variants)
+ *  - any key with `_key`, `_token`, `_secret`, `_password` suffix
+ *  - standalone `secret`, `password`, `key` keys
  */
 const REDACT_KEY_PATTERN =
-  /\b(?:apiKey|botToken|(?:api_)?key|.*_(?:key|token|secret|password)|secret|password|accessToken|refreshToken)\b/i;
+  /\b(?:apiKey|apiToken|botToken|accessToken|refreshToken|(?:api_)?key|.*[A-Z](?:Token|Key|Secret|Password)|.*_(?:key|token|secret|password)|secret|password)\b/i;
 
 /**
  * Regex that matches a JSON key-value pair where the value is a
