@@ -18,9 +18,11 @@ runtime — the runtime controls agents.
    `${ENV_VAR}` references, validate against the config schema
    (see `06-configuration.md`).
 
-3. **Initialize model router**: Create provider instances from
-   config. Inject OAuth tokens for providers that use them. List
-   available providers to verify connectivity.
+3. **Initialize model router**: Create provider and account instances
+  from config. Inject OAuth tokens for providers and accounts that
+  use them. Discover or load each provider's model capabilities,
+  order providers by priority, and initialize per-candidate health
+  state for `provider/account/model` attempts.
 
 4. **Initialize MCP runtime**: Register built-in MCP services
    (plan, notes, filesystem, shell, git, process management).
@@ -81,6 +83,32 @@ flowchart TD
     S9 --> S10[Start server + Telegram]
     S10 --> S11[Runtime dispatcher]
 ```
+
+---
+
+## Model Router Resolution
+
+The router receives an agent role and resolves it into an ordered
+attempt chain. The chain is built from the role's configured model
+list, provider capabilities, provider priority, account priority, and
+current health state.
+
+For each requested model:
+
+1. Find all providers that can serve the model.
+2. Sort providers by priority, then skip providers whose candidate for
+   that model is still in cooldown.
+3. For each provider, sort eligible accounts by account priority, then
+   skip accounts whose candidate for that model is still in cooldown.
+4. Try each resulting `provider/account/model` candidate in order.
+
+If one provider or account fails, the router tries the next eligible
+provider or account for the same model. It moves to the next model only
+after every provider/account candidate for the current model is
+unavailable, failing, or in cooldown. Candidate failures use the same
+recovery-delay behavior as agent invocation recovery: failed candidates
+are not retried until their cooldown expires, and successful candidates
+clear their failure state.
 
 ---
 

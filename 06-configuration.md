@@ -26,39 +26,46 @@ resolved at load time.
 
 ## Models
 
-Assigns model specs to agent roles:
+Models are provider-independent model identities such as `gpt-5.5`,
+`kimi-k2.6`, or `deepseek-v4-pro`. They describe what capability the
+runtime wants, not which service account will serve the request.
+
+Each agent role receives an ordered list of acceptable models:
 
 ```json
 {
   "models": {
-    "analyst": "claude-sonnet-4-20250514",
-    "planner": "claude-sonnet-4-20250514",
-    "executor": "claude-sonnet-4-20250514",
-    "reviewer": "claude-sonnet-4-20250514",
-    "default": "claude-sonnet-4-20250514"
+    "planner": ["gpt-5.5", "kimi-k2.6"],
+    "executor": ["kimi-k2.6", "deepseek-v4-pro"],
+    "reviewer": ["gpt-5.5", "deepseek-v4-pro"],
+    "analyst": ["deepseek-v4-flash", "qwen3.5-plus"],
+    "default": ["deepseek-v4-flash"]
   }
 }
 ```
 
-`default` is used when a role has no explicit assignment.
+`default` is used when a role has no explicit assignment. A single
+string is accepted as shorthand for a one-item list, but the normalized
+configuration is always an ordered list.
 
 ### Model routing
 
-For advanced setups, models can be assigned via routing profiles:
+For advanced setups, models can be assigned via routing profiles. A
+routing profile still names models first. Provider and account
+selection happens later, after the runtime has matched the requested
+model against available provider capabilities.
 
 ```json
 {
   "models": {
     "profiles": {
       "heavy": {
-        "preferred": ["claude-sonnet-4-20250514"],
-        "allowed": ["gpt-4o"],
-        "preferredAccounts": ["account-1"],
-        "allowedAccounts": ["account-1", "account-2"]
+        "preferred": ["gpt-5.5", "kimi-k2.6"],
+        "allowed": ["deepseek-v4-pro"]
       },
       "light": {
-        "preferred": ["claude-haiku"],
-        "allowed": ["gpt-4o-mini"]
+        "preferred": ["deepseek-v4-flash"],
+        "allowed": ["qwen3.5-plus"]
       }
     },
     "routing": {
@@ -70,6 +77,19 @@ For advanced setups, models can be assigned via routing profiles:
   }
 }
 ```
+
+The runtime expands each role into an ordered candidate list:
+
+1. Iterate the role's configured models in order.
+2. For the current model, find providers that can serve that model.
+3. Order providers by configured priority, then current health state.
+4. For each provider, order accounts by account priority, then current
+  health state.
+5. Produce concrete `provider/account/model` candidates.
+
+The final candidate chain for an agent is therefore an ordered list of
+concrete `provider/account/model` attempts. The runtime applies the
+configured recovery policy to that chain.
 
 ### Model equivalents
 
@@ -86,47 +106,68 @@ Groups of interchangeable models for failover:
 }
 ```
 
-When a preferred model is unavailable, the router tries equivalent
-models before falling back to the `allowed` list.
+Model equivalents are optional. They are used only after the runtime
+has exhausted every working provider and account for the currently
+selected model. Equivalent models are tried before falling back to the
+profile's `allowed` list.
 
 ### Failover
 
-Per-model fallback chains:
+Per-model fallback chains define the next model to try after no
+provider/account can serve the current model:
 
 ```json
 {
   "models": {
     "failover": {
-      "claude-sonnet-4-20250514": ["gpt-4o", "claude-haiku"]
+      "gpt-5.5": ["kimi-k2.6", "deepseek-v4-pro"],
+      "kimi-k2.6": ["deepseek-v4-pro"]
     }
   }
 }
 ```
 
+Provider failure does not immediately advance to the next model. The
+router first tries the next provider/account that can serve the same
+model. It advances to the next model only after all eligible providers
+and accounts for the current model are unavailable, failing, or in
+cooldown.
+
 ---
 
 ## Providers
 
-Per-provider connection configuration:
+Providers are concrete services such as `github`, `opencode-go`, or
+`opencode`. A provider declares which models it can serve, how it is
+authenticated, and its priority relative to other providers. Each
+provider can have zero or more named accounts.
 
 ```json
 {
   "providers": {
-    "anthropic": {
-      "apiKey": "${ANTHROPIC_API_KEY}",
-      "baseUrl": "https://api.anthropic.com"
+    "github": {
+      "priority": 10,
+      "models": ["gpt-5.5", "gpt-5.5-mini"],
+      "accounts": {
+        "primary": {
+          "priority": 10,
+          "authProfile": "github-primary"
+        },
+        "secondary": {
+          "priority": 20,
+          "authProfile": "github-secondary"
+        }
+      }
     },
-    "openai": {
-      "apiKey": "${OPENAI_API_KEY}"
+    "opencode-go": {
+      "priority": 20,
+      "models": ["kimi-k2.6", "deepseek-v4-pro", "deepseek-v4-flash"],
+      "apiKey": "${OPENCODE_GO_API_KEY}"
     },
-    "openrouter": {
-      "apiKey": "${OPENROUTER_API_KEY}",
-      "baseUrl": "https://openrouter.ai/api/v1"
-    },
-    "custom-provider": {
-      "apiKey": "${CUSTOM_KEY}",
-      "baseUrl": "https://my-llm-proxy.internal/v1",
-      "authProfile": "my-oauth-profile"
+    "opencode": {
+      "priority": 30,
+      "models": ["kimi-k2.6", "deepseek-v4-pro", "qwen3.5-plus"],
+      "apiKey": "${OPENCODE_API_KEY}"
     }
   }
 }
@@ -134,14 +175,49 @@ Per-provider connection configuration:
 
 Fields per provider:
 
-| Field        | Required | Description                                 |
-|--------------|----------|---------------------------------------------|
-| `apiKey`     | yes*     | API key (supports `${ENV_VAR}` interpolation) |
-| `baseUrl`    | no       | Override the default API endpoint            |
-| `authProfile`| no       | Name of an OAuth profile for token refresh   |
-| `accounts`   | no       | Named sub-accounts for routing               |
+| Field         | Required | Description                                 |
+|---------------|----------|---------------------------------------------|
+| `models`      | yes*     | Models this provider can serve               |
+| `priority`    | no       | Lower numbers are tried first                |
+| `apiKey`      | yes**    | API key (supports `${ENV_VAR}` interpolation) |
+| `baseUrl`     | no       | Override the default API endpoint            |
+| `authProfile` | no       | Name of an OAuth profile for token refresh   |
+| `accounts`    | no       | Named sub-accounts for routing               |
+
+*`models` can be omitted only for providers whose model list is
+discovered at startup. Discovered models are cached with the provider
+health state.
+
+**`apiKey` can be omitted if `authProfile` is used instead, or if all
+traffic goes through named accounts.
+
+Fields per account:
+
+| Field         | Required | Description                                  |
+|---------------|----------|----------------------------------------------|
+| `priority`    | no       | Lower numbers are tried first within provider |
+| `apiKey`      | yes*     | Account-specific API key                      |
+| `baseUrl`     | no       | Account-specific endpoint override            |
+| `authProfile` | no       | Account-specific OAuth profile                |
+| `models`      | no       | Account-specific model subset or override     |
 
 *`apiKey` can be omitted if `authProfile` is used instead.
+
+If a provider has no `accounts`, the provider itself acts as a single
+implicit account. If accounts are configured, account-level settings
+override provider-level settings.
+
+### Provider recovery
+
+The router tracks health separately for each provider/account/model
+candidate. When a candidate fails, it enters the recovery delay policy
+defined by the runtime. While it is in cooldown, the router skips it
+and tries the next candidate. If every candidate for a model is in
+cooldown or fails, the router advances to the next configured model.
+
+Provider priority affects the initial order only. Runtime health can
+temporarily move a higher-priority provider behind a lower-priority
+provider until its cooldown expires.
 
 ---
 

@@ -42,7 +42,8 @@ The implementation target is the system defined by:
 - Add TypeScript project configuration, linting, formatting, and test
   runner.
 - Define shared schema/types package for cards, notes, diaries,
-  runtime state, process records, config, and API envelopes.
+  runtime state, process records, config, provider/account/model
+  routing, and API envelopes.
 - Add schema validation using a runtime validator.
 - Add fixture projects under `fixtures/` for tests.
 
@@ -167,7 +168,12 @@ The implementation target is the system defined by:
 
 - Implement provider abstraction and model router from
   `06-configuration.md`.
-- Load per-role model assignments and routing profiles.
+- Load per-role ordered model lists, provider capabilities, provider
+  priorities, account priorities, and routing profiles.
+- Resolve each agent role to an ordered `provider/account/model`
+  candidate chain.
+- Implement provider/account cooldown so a failing provider is skipped
+  before the router advances to the next model.
 - Implement structured result parsing for planner, executor, and
   reviewer responses.
 - Implement agent session/message persistence.
@@ -187,8 +193,13 @@ The implementation target is the system defined by:
 - Reviewer can pass/fail a goal and append assessment to the plan diary.
 - Invalid or partial model output produces a recoverable invocation
   failure, not corrupted card state.
-- Role-to-model routing chooses the configured provider/model and uses
-  fallback chains when the preferred model is unavailable.
+- Role-to-model routing first chooses a configured model, then tries
+  eligible providers/accounts for that model in priority order.
+- If a provider/account fails, the router tries the next eligible
+  provider/account for the same model before advancing to the next
+  configured model.
+- Failed provider/account/model candidates respect recovery delays and
+  are retried only after their cooldown expires.
 - Compaction triggers at the configured threshold and preserves enough
   state for recovery.
 
