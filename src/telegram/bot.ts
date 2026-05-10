@@ -60,6 +60,9 @@ const MAX_RETRIES = 5;
 const BASE_BACKOFF_MS = 1000;
 const MAX_BACKOFF_MS = 30_000;
 
+/** Maximum time to wait for the poll loop to exit in stop(). */
+const STOP_TIMEOUT_MS = 5_000;
+
 // ── Markdown-to-HTML Conversion ────────────────────────────────
 
 /**
@@ -311,6 +314,11 @@ export class TelegramBot {
 
   /**
    * Stop the bot polling loop and clean up.
+   *
+   * Sets running flag, aborts the AbortController (which cancels any
+   * in-flight sleep and causes the poll loop to check signal.aborted),
+   * and awaits the pollPromise with a hard timeout so callers are never
+   * stuck waiting on a blocked fetch.
    */
   async stop(): Promise<void> {
     if (!this.running) return;
@@ -324,9 +332,16 @@ export class TelegramBot {
 
     if (this.pollPromise) {
       try {
-        await this.pollPromise;
+        // Race the pollPromise against a timeout so stop() always resolves
+        // promptly. If a fetch is in-flight and the signal propagation takes
+        // time (or the network is slow), we don't want stop() to hang.
+        //
+        // We use raceWithTimeout so the timer is cleared when the pollPromise
+        // resolves first — this avoids leaving a dangling timer handle.
+        await raceWithTimeout(this.pollPromise, STOP_TIMEOUT_MS, 'Poll shutdown timeout');
       } catch {
-        // Ignore errors during shutdown
+        // Ignore errors during shutdown — the poll loop may have been
+        // stuck in a slow API call, but the process is shutting down.
       }
       this.pollPromise = null;
     }
@@ -550,10 +565,15 @@ export class TelegramBot {
 
   /**
    * Call a Telegram Bot API method.
+   *
+   * Accepts an optional AbortSignal. When the signal fires, the in-flight
+   * fetch is cancelled, allowing stop() to tear down the poll loop without
+   * waiting for the HTTP request to complete.
    */
   private async _telegramApi<T>(
     method: string,
     params: Record<string, unknown>,
+    signal?: AbortSignal,
   ): Promise<T | undefined> {
     const url = `${TELEGRAM_API_BASE}/bot${this.config.botToken}/${method}`;
 
@@ -561,6 +581,7 @@ export class TelegramBot {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(params),
+      signal,
     });
 
     const data = (await response.json()) as TelegramApiResponse<T>;
@@ -576,6 +597,9 @@ export class TelegramBot {
 
   /**
    * Call a Telegram Bot API method with automatic retries on network errors.
+   *
+   * Passes the AbortSignal through to _telegramApi → fetch so that aborting
+   * the controller cancels in-flight HTTP requests, not just the retry loop.
    */
   private async _telegramApiWithRetry<T>(
     method: string,
@@ -590,7 +614,7 @@ export class TelegramBot {
       }
 
       try {
-        return await this._telegramApi<T>(method, params);
+        return await this._telegramApi<T>(method, params, signal);
       } catch (err) {
         lastError = err instanceof Error ? err : new Error(String(err));
 
@@ -644,4 +668,39 @@ function sleepWithSignal(ms: number, signal: AbortSignal): Promise<void> {
 
     signal.addEventListener('abort', onAbort, { once: true });
   });
+}
+
+/**
+ * Race a promise against a timeout. If the promise settles first, the
+ * timeout is cleared (no dangling timer handle). If the timeout fires
+ * first, the returned promise is rejected with an Error carrying the
+ * given message.
+ */
+function raceWithTimeout<T>(
+  promise: Promise<T>,
+  timeoutMs: number,
+  message: string,
+): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => {
+      timer = undefined;
+      reject(new Error(message));
+    }, timeoutMs);
+  });
+
+  return Promise.race([
+    promise.then(
+      (value) => {
+        if (timer !== undefined) clearTimeout(timer);
+        return value;
+      },
+      (err) => {
+        if (timer !== undefined) clearTimeout(timer);
+        throw err;
+      },
+    ),
+    timeoutPromise,
+  ]);
 }
