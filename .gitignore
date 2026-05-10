@@ -1,4 +1,4 @@
-.saivage/
+.saivage/tmp/
 .saivage-work/
 /node_modules/
 /package-lock.json
