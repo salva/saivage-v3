@@ -11,6 +11,7 @@ export * from './runtime.js';
 export * from './process-runner.js';
 export * from './cleanup.js';
 export * from './heuristic-scanner.js';
+export * from './llm-scanner.js';
 export * from './quarantine.js';
 export * from './file-access-security.js';
 export * from './write-territories.js';
