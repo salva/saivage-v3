@@ -86,9 +86,7 @@ function addToQueue(saivageDir: string, note: NoteRecord): void {
 
 function removeFromQueue(saivageDir: string, cardId: string, noteId: string): void {
   const queue = readQueue(saivageDir);
-  queue.entries = queue.entries.filter(
-    (e) => !(e.card_id === cardId && e.note_id === noteId),
-  );
+  queue.entries = queue.entries.filter((e) => !(e.card_id === cardId && e.note_id === noteId));
   writeQueueAtomic(saivageDir, queue);
 }
 
@@ -167,11 +165,7 @@ export function getUnhandledNotesQueue(
  * After this, updateNote and deleteNote will throw.
  * Removes entry from notes queue.
  */
-export function markNoteHandled(
-  saivageDir: string,
-  cardId: string,
-  noteId: string,
-): NoteRecord {
+export function markNoteHandled(saivageDir: string, cardId: string, noteId: string): NoteRecord {
   const notes = getAllNotes(saivageDir, cardId);
   const idx = notes.findIndex((n) => n.id === noteId);
   if (idx === -1) {
@@ -209,9 +203,7 @@ export function updateNote(
   }
 
   if (notes[idx].handled) {
-    throw new Error(
-      `Cannot update handled note: ${noteId}. Notes are immutable after handling.`,
-    );
+    throw new Error(`Cannot update handled note: ${noteId}. Notes are immutable after handling.`);
   }
 
   const updated: NoteRecord = {
@@ -229,9 +221,7 @@ export function updateNote(
   // Update the queue entry's kind if kind changed
   if (changes.kind !== undefined) {
     const queue = readQueue(saivageDir);
-    const qIdx = queue.entries.findIndex(
-      (e) => e.card_id === cardId && e.note_id === noteId,
-    );
+    const qIdx = queue.entries.findIndex((e) => e.card_id === cardId && e.note_id === noteId);
     if (qIdx !== -1) {
       queue.entries[qIdx].kind = changes.kind;
       writeQueueAtomic(saivageDir, queue);
@@ -254,9 +244,7 @@ export function deleteNote(saivageDir: string, cardId: string, noteId: string): 
   }
 
   if (notes[idx].handled) {
-    throw new Error(
-      `Cannot delete handled note: ${noteId}. Notes are immutable after handling.`,
-    );
+    throw new Error(`Cannot delete handled note: ${noteId}. Notes are immutable after handling.`);
   }
 
   notes.splice(idx, 1);

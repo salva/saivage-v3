@@ -33,9 +33,7 @@ export function findProjectRoot(startDir?: string): string | null {
  * Returns the parsed JSON content, or null if no project found.
  * Throws if saivage.json exists but has invalid JSON syntax.
  */
-export function loadProjectConfig(
-  startDir?: string,
-): Record<string, unknown> | null {
+export function loadProjectConfig(startDir?: string): Record<string, unknown> | null {
   const root = findProjectRoot(startDir);
   if (root === null) {
     return null;
