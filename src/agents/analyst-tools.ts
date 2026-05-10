@@ -933,7 +933,7 @@ export async function restart_goal(
       data: {
         goalId: params.goalId,
         status: 'backlog',
-        cancelledDescendants: descendantIds,
+        descendantIds,
       },
     };
   } catch (err) {
