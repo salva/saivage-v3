@@ -1,0 +1,258 @@
+/**
+ * Saivage v3 WebSocket Connection Manager
+ *
+ * Manages a single WebSocket connection to the server at /ws,
+ * with auto-reconnect, visible connection state, and event
+ * dispatching to registered listeners.
+ *
+ * All messages use the JSON envelope per 08-server-api.md:
+ *   { "type": "message | activity | thinking | status | error", "content": { ... } }
+ */
+
+import type { WsConnectionState, WsEnvelope, WsEventType, ChatResponse } from './types';
+import { getAuthToken } from './auth';
+import { createLogger, type Logger } from '../utils/logger';
+
+// ── Re-export auth helper ────────────────────────────────────
+
+export { getAuthToken };
+
+// ── Types ─────────────────────────────────────────────────────
+
+export type WsEventHandler = (envelope: WsEnvelope) => void;
+
+export interface WsConnectionManager {
+  /** Current connection state (reactive ref). */
+  readonly state: { value: WsConnectionState };
+
+  /** The session ID assigned by the server on connect. */
+  readonly sessionId: { value: string | null };
+
+  /** Number of reconnection attempts in the current sequence. */
+  readonly reconnectAttempts: { value: number };
+
+  /** Connect (or reconnect) the WebSocket. */
+  connect(): void;
+
+  /** Disconnect and stop auto-reconnect. */
+  disconnect(): void;
+
+  /** Send a chat message to the analyst via WebSocket. */
+  sendMessage(text: string): void;
+
+  /** Register an event handler for all incoming events. */
+  onEvent(handler: WsEventHandler): () => void;
+
+  /** Register a handler for a specific event type. */
+  onType(type: WsEventType, handler: WsEventHandler): () => void;
+}
+
+// ── Configuration ─────────────────────────────────────────────
+
+const RECONNECT_BASE_MS = 1000;
+const RECONNECT_MAX_MS = 30_000;
+const RECONNECT_MULTIPLIER = 1.5;
+
+// ── Reactive Helpers ──────────────────────────────────────────
+// (Simple reactive refs without Pinia dependency, usable before store init.)
+
+function makeRef<T>(initial: T): { value: T } {
+  return { value: initial };
+}
+
+// ── Implementation ────────────────────────────────────────────
+
+export function createWsConnection(): WsConnectionManager {
+  // ── State ─────────────────────────────────────────────────
+
+  const state = makeRef<WsConnectionState>('offline');
+  const sessionId = makeRef<string | null>(null);
+  const reconnectAttempts = makeRef<number>(0);
+
+  let ws: WebSocket | null = null;
+  let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  let shouldReconnect = true;
+  const handlers = new Set<WsEventHandler>();
+
+  const log = createLogger('ws');
+
+  // ── Connection ────────────────────────────────────────────
+
+  function connect(): void {
+    if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) {
+      return;
+    }
+
+    shouldReconnect = true;
+    state.value = 'connecting';
+
+    try {
+      // Build WebSocket URL with auth token as query param for upgrade auth.
+      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      const wsUrl = new URL('/ws', `${protocol}//${window.location.host}`);
+      const token = getAuthToken();
+      if (token) {
+        wsUrl.searchParams.set('token', token);
+      }
+
+      ws = new WebSocket(wsUrl.toString());
+
+      ws.onopen = () => {
+        state.value = 'connected';
+        reconnectAttempts.value = 0;
+        log.info('WebSocket connected');
+      };
+
+      ws.onclose = (event) => {
+        log.warn(`WebSocket closed: code=${event.code} reason=${event.reason}`);
+        ws = null;
+
+        if (event.code === 1008) {
+          // Policy violation — authentication failure
+          state.value = 'unauthorized';
+          sessionId.value = null;
+          shouldReconnect = false;
+        } else if (shouldReconnect) {
+          state.value = 'connecting';
+          scheduleReconnect();
+        } else {
+          state.value = 'offline';
+        }
+      };
+
+      ws.onerror = () => {
+        log.error('WebSocket error');
+        // onclose will fire after onerror
+      };
+
+      ws.onmessage = (event) => {
+        try {
+          const data = typeof event.data === 'string'
+            ? event.data
+            : new TextDecoder().decode(event.data as ArrayBuffer);
+          const envelope = JSON.parse(data) as WsEnvelope;
+
+          // Extract session ID from connect status event
+          if (envelope.type === 'status' && envelope.content?.event === 'connected') {
+            sessionId.value = envelope.content.sessionId as string;
+          }
+
+          // Dispatch to all handlers
+          for (const handler of handlers) {
+            try {
+              handler(envelope);
+            } catch (err) {
+              log.error('WS event handler error', err);
+            }
+          }
+        } catch (err) {
+          log.error('Failed to parse WS message', err);
+        }
+      };
+    } catch (err) {
+      log.error('Failed to create WebSocket', err);
+      state.value = 'offline';
+      if (shouldReconnect) {
+        scheduleReconnect();
+      }
+    }
+  }
+
+  // ── Reconnection ──────────────────────────────────────────
+
+  function scheduleReconnect(): void {
+    if (reconnectTimer) clearTimeout(reconnectTimer);
+
+    const attempt = reconnectAttempts.value + 1;
+    reconnectAttempts.value = attempt;
+
+    const delay = Math.min(
+      RECONNECT_BASE_MS * Math.pow(RECONNECT_MULTIPLIER, attempt - 1),
+      RECONNECT_MAX_MS,
+    );
+
+    log.info(`Reconnecting in ${Math.round(delay / 1000)}s (attempt ${attempt})`);
+    reconnectTimer = setTimeout(() => {
+      reconnectTimer = null;
+      if (shouldReconnect) {
+        connect();
+      }
+    }, delay);
+  }
+
+  // ── Disconnect ────────────────────────────────────────────
+
+  function disconnect(): void {
+    shouldReconnect = false;
+    if (reconnectTimer) {
+      clearTimeout(reconnectTimer);
+      reconnectTimer = null;
+    }
+    if (ws) {
+      ws.close(1000, 'Client disconnect');
+      ws = null;
+    }
+    state.value = 'offline';
+    sessionId.value = null;
+    reconnectAttempts.value = 0;
+  }
+
+  // ── Send Message ──────────────────────────────────────────
+
+  function sendMessage(text: string): void {
+    if (!ws || ws.readyState !== WebSocket.OPEN) {
+      log.warn('Cannot send message: WebSocket not connected');
+      return;
+    }
+
+    const envelope: WsEnvelope = {
+      type: 'message',
+      content: { text },
+    };
+
+    ws.send(JSON.stringify(envelope));
+  }
+
+  // ── Event Handlers ────────────────────────────────────────
+
+  function onEvent(handler: WsEventHandler): () => void {
+    handlers.add(handler);
+    return () => {
+      handlers.delete(handler);
+    };
+  }
+
+  function onType(type: WsEventType, handler: WsEventHandler): () => void {
+    const wrapped: WsEventHandler = (envelope) => {
+      if (envelope.type === type) {
+        handler(envelope);
+      }
+    };
+    handlers.add(wrapped);
+    return () => {
+      handlers.delete(wrapped);
+    };
+  }
+
+  return {
+    state,
+    sessionId,
+    reconnectAttempts,
+    connect,
+    disconnect,
+    sendMessage,
+    onEvent,
+    onType,
+  };
+}
+
+// ── Module Singleton ──────────────────────────────────────────
+
+let _instance: WsConnectionManager | null = null;
+
+export function getWsConnection(): WsConnectionManager {
+  if (!_instance) {
+    _instance = createWsConnection();
+  }
+  return _instance;
+}
