@@ -1,0 +1,34 @@
+import { createApp } from 'vue';
+import { createPinia } from 'pinia';
+import { createRouter, createWebHistory, type RouteRecordRaw } from 'vue-router';
+import App from './App.vue';
+
+// Lazy-loaded route components (filled in by later tasks)
+const Dashboard = () => import('./views/DashboardView.vue');
+const Cards = () => import('./views/CardsView.vue');
+const Agents = () => import('./views/AgentsView.vue');
+const Files = () => import('./views/FilesView.vue');
+const Debug = () => import('./views/DebugView.vue');
+
+const routes: RouteRecordRaw[] = [
+  { path: '/', redirect: '/dashboard' },
+  { path: '/dashboard', name: 'dashboard', component: Dashboard },
+  { path: '/cards', name: 'cards', component: Cards },
+  { path: '/cards/:id', name: 'card-detail', component: Cards },
+  { path: '/agents', name: 'agents', component: Agents },
+  { path: '/agents/:id', name: 'agent-detail', component: Agents },
+  { path: '/files', name: 'files', component: Files },
+  { path: '/debug', name: 'debug', component: Debug },
+];
+
+const router = createRouter({
+  history: createWebHistory(),
+  routes,
+});
+
+const app = createApp(App);
+const pinia = createPinia();
+
+app.use(pinia);
+app.use(router);
+app.mount('#app');
