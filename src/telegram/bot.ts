@@ -91,8 +91,8 @@ export function convertMarkdownToHtml(markdown: string): string {
 
   // 1. Fenced code blocks: ``` ... ``` → <pre>...</pre>
   result = result.replace(/```([\s\S]*?)```/g, (_match, content: string) => {
-    // Trim trailing newlines inside the block
-    const trimmed = content.replace(/\n$/, '');
+    // Trim leading and trailing newlines inside the block
+    const trimmed = content.replace(/^\n/, '').replace(/\n$/, '');
     return `<pre>${escapeHtmlEntities(trimmed)}</pre>`;
   });
 
