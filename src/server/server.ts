@@ -5,6 +5,8 @@
  *  - Fastify instance creation with logger, CORS, static files
  *  - Auth plugin registration
  *  - /health endpoint (no auth)
+ *  - All route registrations (cards, runtime/config/notes, chats/files/debug)
+ *  - WebSocket endpoint registration
  *  - startServer() / stopServer() lifecycle functions
  *  - Server config read from saivage.json
  */
@@ -16,6 +18,10 @@ import fastifyStatic from '@fastify/static';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import authPlugin from './auth.js';
+import { registerCardRoutes } from './routes/cards.js';
+import { registerRuntimeConfigNotesRoutes } from './routes/runtime-config-notes.js';
+import { registerChatsFilesDebugRoutes } from './routes/chats-files-debug.js';
+import { registerWebSocket } from './websocket.js';
 import { loadConfig, type SaivageConfig } from '../agents/config-schema.js';
 
 // ── Types ─────────────────────────────────────────────────────
@@ -93,7 +99,7 @@ export async function createServer(
     },
   });
 
-  // Register plugins
+  // Register plugins (order matters: cors + websocket before routes)
   await fastify.register(cors);
   await fastify.register(websocket);
   await fastify.register(authPlugin);
@@ -113,8 +119,16 @@ export async function createServer(
     });
   }
 
-  // Register health endpoint
+  // Register health endpoint (no auth)
   registerHealth(fastify, saivageConfig);
+
+  // Register all API route handlers
+  registerCardRoutes(fastify, projectRoot);
+  registerRuntimeConfigNotesRoutes(fastify, projectRoot);
+  registerChatsFilesDebugRoutes(fastify, projectRoot);
+
+  // Register WebSocket endpoint (auth checked internally on upgrade)
+  registerWebSocket(fastify);
 
   // ── Shutdown ───────────────────────────────────────────────
 

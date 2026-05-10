@@ -1,4 +1,4 @@
-import { readdirSync, statSync, readFileSync, existsSync } from 'node:fs';
+import { readdirSync, statSync, readFileSync, existsSync, realpathSync } from 'node:fs';
 import { resolve, join, relative } from 'node:path';
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { readRuntimeState } from '../../utils/runtime-state.js';
@@ -8,6 +8,9 @@ import { isReadBlocked } from '../../utils/file-access-security.js';
 // ── Constants ─────────────────────────────────────────────────
 
 const MAX_FILE_SIZE_BYTES = 1_048_576; // 1 MB
+
+/** Safe pattern for session IDs: alphanumeric with hyphens and underscores. */
+const SAFE_SESSION_ID_RE = /^[a-zA-Z0-9_-]+$/;
 
 // ── Helpers ───────────────────────────────────────────────────
 
@@ -27,15 +30,40 @@ function resolveSafe(
     };
   }
 
+  const resolvedRoot = resolve(projectRoot);
   const normalized = requestedPath.startsWith('/') ? requestedPath : join(projectRoot, requestedPath);
   const resolved = resolve(normalized);
 
-  if (!resolved.startsWith(resolve(projectRoot) + '/') && resolved !== resolve(projectRoot)) {
+  if (!resolved.startsWith(resolvedRoot + '/') && resolved !== resolvedRoot) {
     return {
       safe: false,
       absolutePath: '',
       reason: 'Path is outside the project root.',
     };
+  }
+
+  // If the path exists on disk, resolve symlinks for true containment check.
+  // If it doesn't exist yet, we trust the naive containment check — the caller
+  // will handle the "not found" case with the appropriate status code.
+  if (existsSync(resolved)) {
+    try {
+      const realPath = realpathSync(resolved);
+      const realRoot = realpathSync(resolvedRoot);
+      if (!realPath.startsWith(realRoot + '/') && realPath !== realRoot) {
+        return {
+          safe: false,
+          absolutePath: '',
+          reason: 'Symlink target is outside the project root.',
+        };
+      }
+      return { safe: true, absolutePath: realPath };
+    } catch {
+      return {
+        safe: false,
+        absolutePath: '',
+        reason: 'Path cannot be resolved.',
+      };
+    }
   }
 
   return { safe: true, absolutePath: resolved };
@@ -94,6 +122,11 @@ export function registerChatsFilesDebugRoutes(
       const params = request.params as { sessionId: string };
       const sessionId = params.sessionId;
 
+      // Validate sessionId against safe pattern to prevent path traversal
+      if (!SAFE_SESSION_ID_RE.test(sessionId)) {
+        return reply.status(400).send({ error: 'Invalid session ID format.', sessionId });
+      }
+
       const messagesDir = join(projectRoot, '.saivage', 'agents', 'messages');
       const messagesPath = join(messagesDir, `${sessionId}.jsonl`);
       const messages: unknown[] = [];
@@ -125,6 +158,11 @@ export function registerChatsFilesDebugRoutes(
       const params = request.params as { sessionId: string };
       const sessionId = params.sessionId;
       const body = request.body as { content?: string };
+
+      // Validate sessionId against safe pattern
+      if (!SAFE_SESSION_ID_RE.test(sessionId)) {
+        return reply.status(400).send({ error: 'Invalid session ID format.', sessionId });
+      }
 
       if (!body.content) {
         return reply.status(400).send({ error: 'Message content is required' });
