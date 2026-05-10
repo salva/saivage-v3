@@ -336,13 +336,24 @@ export class CardStore {
 
   /**
    * Read a card by ID. Returns null if not found.
+   *
+   * The `blocks` field is merged from the global blocks index so that
+   * the returned card always reflects the current computed blocks,
+   * not any stale value persisted in the card file.
    */
   read(id: string): CardRecord | null {
     const cp = cardPath(this.projectRoot, id);
     if (!existsSync(cp)) {
       return null;
     }
-    return readJson<CardRecord>(cp);
+    const card = readJson<CardRecord>(cp);
+
+    // Merge the computed blocks from the blocks index
+    // so card.blocks always reflects the current state
+    const blocksIndex = this.loadBlocks();
+    card.blocks = blocksIndex[id] ?? [];
+
+    return card;
   }
 
   // ── CRUD: Update ─────────────────────────────────────────
@@ -799,6 +810,10 @@ export class CardStore {
     const siblings = this.loadChildren(id);
     const newChildren = [planId, ...siblings.filter((c) => c !== planId)];
     this.saveChildren(id, newChildren);
+
+    // Recompute blocks for consistency (plan cards have empty depends_on so
+    // this is harmless but consistent with create/update/delete pattern)
+    this.recomputeBlocks();
 
     return { goal: updatedGoal, plan };
   }

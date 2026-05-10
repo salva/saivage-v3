@@ -485,6 +485,80 @@ describe('Depends on / blocks consistency', () => {
     expect(blocks[a.id]).toContain(c.id);
     expect(blocks[b.id]).toContain(c.id);
   });
+
+  it('read() returns blocks merged from blocks index after depends_on set', () => {
+    const a = store.create(makeCard({ type: 'goal', title: 'Card A', parent: 'project' }));
+    const b = store.create(makeCard({ type: 'goal', title: 'Card B', parent: 'project' }));
+    store.update(b.id, { depends_on: [a.id] });
+    // read(B).blocks should not include anything (B has no dependents)
+    const bCard = store.read(b.id);
+    expect(bCard!.blocks).toEqual([]);
+    // read(A).blocks should include B (B depends on A, so A blocks B)
+    const aCard = store.read(a.id);
+    expect(aCard!.blocks).toContain(b.id);
+  });
+
+  it('read() returns updated blocks after deleting a blocking card', () => {
+    const a = store.create(makeCard({ type: 'goal', title: 'Card A', parent: 'project' }));
+    const b = store.create(
+      makeCard({
+        type: 'goal',
+        title: 'Card B',
+        parent: 'project',
+        depends_on: [a.id],
+      }),
+    );
+    // Before delete: A blocks B
+    const aBefore = store.read(a.id);
+    expect(aBefore!.blocks).toContain(b.id);
+
+    // Delete B (the dependent card)
+    store.delete(b.id);
+
+    // After delete: A should no longer block B (B is gone)
+    const aAfter = store.read(a.id);
+    expect(aAfter!.blocks).not.toContain(b.id);
+  });
+
+  it('read() returns updated blocks after clearing depends_on', () => {
+    const a = store.create(makeCard({ type: 'goal', title: 'Card A', parent: 'project' }));
+    const b = store.create(
+      makeCard({
+        type: 'goal',
+        title: 'Card B',
+        parent: 'project',
+        depends_on: [a.id],
+      }),
+    );
+    // Before update: A blocks B
+    const aBefore = store.read(a.id);
+    expect(aBefore!.blocks).toContain(b.id);
+
+    // Update B's depends_on to empty
+    store.update(b.id, { depends_on: [] });
+
+    // After update: A should no longer block B
+    const aAfter = store.read(a.id);
+    expect(aAfter!.blocks).not.toContain(b.id);
+  });
+
+  it('activateGoal calls recomputeBlocks for consistency', () => {
+    const goal = store.create(makeCard({ type: 'goal', title: 'Plan Goal', parent: 'project' }));
+    const { plan } = store.activateGoal(goal.id);
+
+    // Plan card has empty depends_on, so its blocks should be empty
+    const planCard = store.read(plan.id);
+    expect(planCard!.blocks).toEqual([]);
+
+    // Verify blocks index has an entry for the plan card
+    const blocksRaw = readFileSync(
+      join(tmpDir, '.saivage', 'cards', 'dependencies', 'blocks.json'),
+      'utf-8',
+    );
+    const blocks = JSON.parse(blocksRaw);
+    expect(blocks[plan.id]).toBeDefined();
+    expect(blocks[plan.id]).toEqual([]);
+  });
 });
 
 describe('Cycle detection', () => {
