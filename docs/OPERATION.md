@@ -13,11 +13,10 @@ SAIVAGE_API_TOKEN=your-token node dist/src/server/server.js
 The server listens on the configured host and port (from `.saivage/saivage.json`, defaults to `0.0.0.0:8080`).
 
 On startup:
-1. The runtime state file (`.saivage/runtime/state.json`) is initialized with `status: "idle"`.
-2. The runtime lock (`.saivage-work/tmp/runtime/runtime.lock`) is acquired.
-3. Crash recovery runs: any cards stuck in `active` or `running` status are reset to `backlog`.
-4. MCP servers with `autostart: true` are launched.
-5. If a Telegram bot token is configured, the bot starts polling.
+1. MCP servers with `autostart: true` are launched.
+2. If a Telegram bot token is configured, the bot starts polling.
+
+**Note:** The HTTP server and the runtime dispatch loop are separate concerns. Starting the HTTP server (above) makes the API, WebSocket, MCP status, and Telegram bot available, but does **not** automatically start the runtime dispatch loop. The runtime is started separately via `Runtime.startup()`, which initializes runtime state, acquires the lock, and performs crash recovery. The server can be fully operational for API queries and management while the runtime dispatch loop is not running.
 
 ### Stopping the Server
 
@@ -29,7 +28,7 @@ Send `SIGINT` or `SIGTERM` to the process (`Ctrl+C` in the terminal). The server
 4. Releases the runtime lock.
 5. Runs safe cleanup (removes stale temp files, stash items older than 24 hours, stale previews/uploads).
 
-To stop forcefully, send `SIGKILL`. This skips the graceful shutdown — the next startup will run crash recovery to reset any stuck cards.
+To stop forcefully, send `SIGKILL`. This skips the graceful shutdown — when the runtime dispatch loop is next started (via `Runtime.startup()`), crash recovery will run to reset any stuck cards.
 
 ## Runtime States
 
@@ -171,17 +170,19 @@ curl -X POST http://localhost:8080/api/runtime/resume \
 
 ### Crash Recovery
 
-Crash recovery runs automatically on every server startup. It:
+Crash recovery runs when the runtime dispatch loop is started (via `Runtime.startup()`), not on every HTTP server startup. If the runtime detects a previous crash (cards stuck in `active` or `running` status), it:
 
 1. Resets all cards with status `active` or `running` to `backlog`.
 2. Sweeps stale `.tmp` files from `.saivage-work/tmp/runtime/` (except `runtime.lock`).
 3. Cleans stale stash files, previews, and uploads older than 24 hours.
 
-This means: if the server crashes or is killed with `SIGKILL`, simply restart it. Cards will not be duplicated and no state corruption occurs because all state mutations are atomic (write-to-temp-then-rename).
+The HTTP server and the runtime dispatch loop are separate — the server can be up and serving API requests without the runtime dispatch loop running. Crash recovery is a Runtime concern, not an automatic HTTP server startup behavior.
+
+This means: if the system crashes or is killed with `SIGKILL`, simply restart the server and re-start the runtime dispatch loop. Cards will not be duplicated and no state corruption occurs because all state mutations are atomic (write-to-temp-then-rename).
 
 ### Manual Lock Cleanup
 
-If a stale runtime lock prevents startup:
+If a stale runtime lock prevents the runtime from starting:
 
 ```bash
 # 1. Verify the process is truly dead
@@ -194,7 +195,7 @@ ps aux | grep 12345
 # 2. Remove the lock
 rm .saivage-work/tmp/runtime/runtime.lock
 
-# 3. Start normally
+# 3. Start the runtime normally
 ```
 
 The lock has a 14-day maximum age — locks older than this are treated as stale even if the PID appears alive.
