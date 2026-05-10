@@ -12,4 +12,5 @@ export * from './process-runner.js';
 export * from './cleanup.js';
 export * from './heuristic-scanner.js';
 export * from './quarantine.js';
+export * from './file-access-security.js';
 export * from '../agents/index.js';
