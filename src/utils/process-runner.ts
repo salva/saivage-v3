@@ -95,8 +95,14 @@ function registryPath(projectRoot: string): string {
   return join(projectRoot, REGISTRY_FILE);
 }
 
+/**
+ * Resolve the status of a child process from its current state.
+ *
+ * IMPORTANT: Do NOT check proc.killed — it is set to true as soon
+ * as kill() is called, before the process actually exits. Only use
+ * signalCode and exitCode which are set after the 'exit' event fires.
+ */
 function resolveStatus(proc: ChildProcess): ProcessStatus {
-  if (proc.killed) return 'killed';
   if (proc.signalCode !== null) {
     return proc.signalCode === 'SIGKILL' || proc.signalCode === 'SIGTERM'
       ? 'killed'
@@ -179,27 +185,56 @@ function openOutputStreams(dir: string): {
   stderr: WriteStream;
   combined: WriteStream;
 } {
-  return {
-    stdout: createWriteStream(join(dir, 'stdout.log'), { flags: 'a' }),
-    stderr: createWriteStream(join(dir, 'stderr.log'), { flags: 'a' }),
-    combined: createWriteStream(join(dir, 'combined.log'), { flags: 'a' }),
-  };
+  const stdout = createWriteStream(join(dir, 'stdout.log'), { flags: 'a' });
+  const stderr = createWriteStream(join(dir, 'stderr.log'), { flags: 'a' });
+  const combined = createWriteStream(join(dir, 'combined.log'), { flags: 'a' });
+
+  // Suppress unhandled 'error' events: if the temp dir is cleaned up
+  // before the streams are fully closed (e.g., during test teardown),
+  // the resulting ENOENT on write/close would otherwise crash the process.
+  for (const stream of [stdout, stderr, combined]) {
+    stream.on('error', () => {});
+  }
+
+  return { stdout, stderr, combined };
 }
 
-function closeAllStreams(procId: string): void {
+/**
+ * Close all output streams and return a Promise that resolves when
+ * all streams have been fully flushed and closed (their 'close' event fires).
+ *
+ * This prevents the race condition where tests read output files before
+ * the write buffer has been flushed to disk.
+ */
+function closeAllStreams(procId: string): Promise<void> {
   const streams = outputStreams.get(procId);
-  if (streams) {
-    for (const stream of Object.values(streams)) {
-      try {
-        if (!stream.destroyed) stream.end();
-      } catch { /* ignore */ }
-    }
-    outputStreams.delete(procId);
+  if (!streams) return Promise.resolve();
+
+  outputStreams.delete(procId);
+
+  const closings: Promise<void>[] = [];
+  for (const stream of Object.values(streams)) {
+    if (stream.destroyed) continue;
+    closings.push(
+      new Promise<void>((resolve) => {
+        stream.on('close', () => resolve());
+        const safety = setTimeout(() => resolve(), 5000);
+        stream.on('close', () => clearTimeout(safety));
+        try {
+          stream.end();
+        } catch {
+          resolve();
+        }
+      }),
+    );
   }
+
+  return Promise.all(closings).then(() => undefined);
 }
 
 function finalizeProcess(procId: string): void {
-  closeAllStreams(procId);
+  // Fire-and-forget: close streams asynchronously
+  closeAllStreams(procId).catch(() => {});
   activeProcesses.delete(procId);
   pendingStreamCloses.delete(procId);
 }
@@ -209,12 +244,20 @@ function finalizeProcess(procId: string): void {
 /**
  * Spawn a child process, writing stdout/stderr/combined to files under
  * .saivage-work/processes/<proc-id>/.
+ *
+ * Throws an Error if the command string is empty, since an empty command
+ * produces an invalid ProcessRecord (Zod requires command length >= 1).
  */
 export function startProcess(
   projectRoot: string,
   command: string,
   options: ProcessStartOptions,
 ): ProcessRecord {
+  // Validate command upfront — empty string produces invalid ProcessRecord
+  if (!command || command.length === 0) {
+    throw new Error('command must not be empty');
+  }
+
   const id = generateId();
   const cwd = options.cwd ? resolve(options.cwd) : projectRoot;
   const dir = ensureProcessDir(projectRoot, id);
