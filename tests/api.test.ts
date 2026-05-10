@@ -311,7 +311,6 @@ describe('Cards API', () => {
   });
 
   it('POST /api/cards rejects terminal child under terminal parent', async () => {
-    // Create a terminal card
     const createRes = await fetch(url('/api/cards'), {
       method: 'POST',
       headers: { ...authHeader(authToken), 'content-type': 'application/json' },
@@ -319,7 +318,6 @@ describe('Cards API', () => {
     });
     const { card: terminalCard } = await createRes.json() as { card: { id: string } };
 
-    // Try to create a child under it
     const childRes = await fetch(url('/api/cards'), {
       method: 'POST',
       headers: { ...authHeader(authToken), 'content-type': 'application/json' },
@@ -421,7 +419,6 @@ describe('Config API', () => {
     expect(res.status).toBe(200);
     const body = await res.json() as Record<string, unknown>;
     expect(body.config).toBeDefined();
-    // The test config has apiKey: 'secret-key', which should be redacted
     const config = body.config as Record<string, unknown>;
     const providers = config.providers as Record<string, { apiKey?: string }> | undefined;
     if (providers && providers['test']) {
@@ -445,7 +442,6 @@ describe('Config API', () => {
 
 describe('Agents API', () => {
   beforeAll(() => {
-    // Write a test session and messages
     writeFileSync(
       join(SAIVAGE_DIR, 'agents', 'sessions', 'test-agent-1.json'),
       JSON.stringify({ id: 'test-agent-1', role: 'planner', status: 'done', started_at: new Date().toISOString() }),
@@ -479,7 +475,6 @@ describe('Agents API', () => {
 
 describe('Notes API', () => {
   beforeAll(() => {
-    // Create a test note
     const cardId = 'project';
     const noteLine = JSON.stringify({
       id: 'n-project-1',
@@ -550,7 +545,6 @@ describe('Chats API', () => {
   });
 
   it('GET /api/chats/:sessionId returns messages', async () => {
-    // Create a test session
     writeFileSync(
       join(SAIVAGE_DIR, 'agents', 'sessions', 'analyst-1.json'),
       JSON.stringify({ id: 'analyst-1', role: 'analyst', status: 'active', started_at: new Date().toISOString() }),
@@ -601,7 +595,6 @@ describe('Chats API', () => {
 
 describe('Files API', () => {
   beforeAll(() => {
-    // Create test files
     writeFileSync(join(TEST_ROOT, 'test-file.txt'), 'Hello World!');
     mkdirSync(join(TEST_ROOT, 'test-dir'), { recursive: true });
     writeFileSync(join(TEST_ROOT, 'test-dir', 'nested.txt'), 'nested');
@@ -635,7 +628,6 @@ describe('Files API', () => {
   });
 
   it('GET /api/files/content blocks sensitive files with 403', async () => {
-    // Create a sensitive file path
     mkdirSync(join(SAIVAGE_DIR), { recursive: true });
     writeFileSync(join(SAIVAGE_DIR, 'auth-profiles.json'), '{"secret": true}');
 
@@ -651,6 +643,24 @@ describe('Files API', () => {
   it('GET /api/files/content returns 404 for non-existent files', async () => {
     const res = await fetch(url('/api/files/content?path=nonexistent.txt'), { headers: authHeader(authToken) });
     expect(res.status).toBe(404);
+  });
+
+  it('GET /api/files/content redacts secrets in saivage.json', async () => {
+    const res = await fetch(url('/api/files/content?path=.saivage/saivage.json'), { headers: authHeader(authToken) });
+    expect(res.status).toBe(200);
+    const body = await res.json() as Record<string, unknown>;
+    expect(body.content).toBeDefined();
+    const content = body.content as string;
+    expect(content).not.toContain('secret-key');
+    expect(content).toContain('[REDACTED]');
+    expect(content).toContain('test-model');
+  });
+
+  it('GET /api/files/content returns plain content for non-sensitive files', async () => {
+    const res = await fetch(url('/api/files/content?path=test-file.txt'), { headers: authHeader(authToken) });
+    expect(res.status).toBe(200);
+    const body = await res.json() as Record<string, unknown>;
+    expect(body.content).toBe('Hello World!');
   });
 });
 
@@ -686,6 +696,14 @@ describe('Debug API', () => {
     const body = await res.json() as Record<string, unknown>;
     expect(body.events).toBeDefined();
   });
+
+  it('GET /api/debug/state does not leak config secrets', async () => {
+    const res = await fetch(url('/api/debug/state'), { headers: authHeader(authToken) });
+    expect(res.status).toBe(200);
+    const body = await res.json() as Record<string, unknown>;
+    const serialized = JSON.stringify(body);
+    expect(serialized).not.toContain('secret-key');
+  });
 });
 
 // ══════════════════════════════════════════════════════════════
@@ -707,13 +725,10 @@ describe('WebSocket', () => {
   it('rejects connection with invalid auth', (done) => {
     const ws = new WebSocket(`ws://127.0.0.1:${port}/ws?token=wrong-token`);
     let closed = false;
-    ws.on('open', () => {
-      // Connection may briefly open before server closes it
-    });
+    ws.on('open', () => {});
     ws.on('close', (code) => {
       if (!closed) {
         closed = true;
-        // Normal closure is 1000 or 1001; anything else indicates rejection
         expect(code).not.toBe(1000);
         done();
       }
@@ -729,9 +744,7 @@ describe('WebSocket', () => {
   it('rejects connection without auth', (done) => {
     const ws = new WebSocket(`ws://127.0.0.1:${port}/ws`);
     let closed = false;
-    ws.on('open', () => {
-      // Connection may briefly open before server closes it
-    });
+    ws.on('open', () => {});
     ws.on('close', (code) => {
       if (!closed) {
         closed = true;
@@ -770,13 +783,11 @@ describe('WebSocket', () => {
 
       if (!welcomeReceived && data.content.event === 'connected') {
         welcomeReceived = true;
-        // Send a chat message
         ws.send(JSON.stringify({ type: 'message', content: { text: 'Hello agent!' } }));
         return;
       }
 
       if (welcomeReceived && data.type === 'message') {
-        // Got echo back from server
         ws.close();
         done();
       }

@@ -3,7 +3,7 @@ import { resolve, join, relative } from 'node:path';
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { readRuntimeState } from '../../utils/runtime-state.js';
 import { CardStore } from '../../utils/card-store.js';
-import { isReadBlocked } from '../../utils/file-access-security.js';
+import { getSafeFileForAgent } from '../../utils/file-access-security.js';
 import { AnalystHandler } from '../../agents/analyst-handler.js';
 
 // ── Constants ─────────────────────────────────────────────────
@@ -78,11 +78,6 @@ function resolveSafe(
   }
 
   return { safe: true, absolutePath: resolved };
-}
-
-function isSensitiveFile(projectRoot: string, absolutePath: string): boolean {
-  const relPath = relative(projectRoot, absolutePath);
-  return isReadBlocked(relPath);
 }
 
 // ── Route Registration ────────────────────────────────────────
@@ -260,13 +255,6 @@ export function registerChatsFilesDebugRoutes(
         return reply.status(404).send({ error: 'File not found', path: requestedPath });
       }
 
-      if (isSensitiveFile(projectRoot, absolutePath)) {
-        return reply.status(403).send({
-          error: 'Access to this file is blocked for security reasons.',
-          path: requestedPath,
-        });
-      }
-
       const fileStat = statSync(absolutePath);
       if (fileStat.isDirectory()) {
         return reply.status(400).send({ error: 'Path is a directory', path: requestedPath });
@@ -281,12 +269,25 @@ export function registerChatsFilesDebugRoutes(
         });
       }
 
-      const content = readFileSync(absolutePath, 'utf-8');
+      const rawContent = readFileSync(absolutePath, 'utf-8');
+
+      // Apply file-access-security: blocks read-blocked files (auth-profiles.json)
+      // and redacts secrets in sensitive files (saivage.json).
+      const relPath = relative(projectRoot, absolutePath);
+      const safeResult = getSafeFileForAgent(relPath, rawContent);
+
+      if (safeResult.blocked) {
+        return reply.status(403).send({
+          error: safeResult.reason || 'Access to this file is blocked for security reasons.',
+          path: requestedPath,
+        });
+      }
+
       return reply.send({
         path: requestedPath,
         size: fileStat.size,
         contentType: 'text/plain',
-        content,
+        content: safeResult.safeContent,
       });
     } catch (err) {
       return reply.status(500).send({
@@ -314,6 +315,10 @@ export function registerChatsFilesDebugRoutes(
         depends_on: c.depends_on,
         blocks: c.blocks,
       }));
+
+      // NOTE: Debug state intentionally does NOT include raw config
+      // (saivage.json), which may contain secrets. The runtime state and
+      // card index are metadata-only and safe to expose.
 
       return reply.send({
         runtime: state,
