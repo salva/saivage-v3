@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import type { CardStatus, ArtifactRef, AttachmentRef } from '../schemas/types.js';
+import type { ArtifactRef } from '../schemas/types.js';
 
 // ── Structured Result Types ───────────────────────────────────
 
@@ -197,10 +197,6 @@ export function extractJson(raw: string): unknown {
 
 /**
  * Parse and validate a planner result from raw LLM output.
- *
- * @param raw - Raw text output from the planner agent.
- * @returns A validated PlannerResult.
- * @throws ResultParseError if the output cannot be parsed or validated.
  */
 export function parsePlannerResult(raw: string): PlannerResult {
   let obj: unknown;

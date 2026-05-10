@@ -1,5 +1,5 @@
 import { existsSync, readdirSync, rmSync, statSync } from 'node:fs';
-import { join, resolve, normalize, basename } from 'node:path';
+import { join, resolve, normalize } from 'node:path';
 import type { CardStore } from './card-store.js';
 
 // ── Types ─────────────────────────────────────────────────────
@@ -26,33 +26,6 @@ export interface CleanStaleProcessOptions {
   maxAgeMs?: number;
 }
 
-// ── Constants ─────────────────────────────────────────────────
-
-/** Subdirectories under .saivage-work/ that must NEVER be cleaned by general cleanup. */
-const PROTECTED_DIRS = new Set([
-  'artifacts/retained',
-  'attachments',
-  'downloads',
-  'quarantine',
-]);
-
-/** Subdirectories under .saivage-work/cards/<id>/ that must NEVER be cleaned. */
-const PROTECTED_CARD_SUBDIRS = new Set([
-  'artifacts',
-  'attachments',
-]);
-
-/** File names in .saivage-work/downloads/ that must NEVER be cleaned. */
-const PROTECTED_DOWNLOAD_FILES = new Set([
-  'review.json',
-  'meta.json',
-]);
-
-/** File names in .saivage-work/quarantine/ that must NEVER be cleaned. */
-const PROTECTED_QUARANTINE_FILES = new Set([
-  'meta.json',
-]);
-
 // ── Safety Helpers ────────────────────────────────────────────
 
 /**
@@ -71,68 +44,6 @@ function safeResolve(root: string, subpath: string): string | null {
   }
 
   return norm;
-}
-
-/**
- * Check whether a directory path is one of the protected subtrees.
- * Uses explicit path-component checks, never a blanket subtree rm.
- */
-function isProtectedDir(targetPath: string, saivageWorkDir: string): boolean {
-  const absWork = resolve(saivageWorkDir);
-  const absTarget = resolve(targetPath);
-
-  // Must be within .saivage-work/
-  if (!absTarget.startsWith(absWork + '/') && absTarget !== absWork) {
-    return true; // treat anything outside as protected
-  }
-
-  const relative = absTarget.slice(absWork.length + 1); // strip leading /
-
-  // Check downloads/ and quarantine/ protections
-  for (const protectedDir of PROTECTED_DIRS) {
-    if (relative === protectedDir || relative.startsWith(protectedDir + '/')) {
-      return true;
-    }
-  }
-
-  // Check card-level protections
-  // Pattern: cards/<cardId>/artifacts/... or cards/<cardId>/attachments/...
-  const cardMatch = relative.match(/^cards\/([^/]+)\/(.+)$/);
-  if (cardMatch) {
-    const cardSubpath = cardMatch[2];
-    for (const protectedSubdir of PROTECTED_CARD_SUBDIRS) {
-      if (cardSubpath === protectedSubdir || cardSubpath.startsWith(protectedSubdir + '/')) {
-        return true;
-      }
-    }
-  }
-
-  return false;
-}
-
-/**
- * Check whether a download review or quarantine metadata file would be touched.
- */
-function isProtectedFile(filePath: string, saivageWorkDir: string): boolean {
-  const absWork = resolve(saivageWorkDir);
-  const absFile = resolve(filePath);
-
-  if (!absFile.startsWith(absWork + '/')) return false;
-
-  const relative = absFile.slice(absWork.length + 1);
-  const fileName = basename(absFile);
-
-  // Protect downloads/review.json and downloads/meta.json
-  if (relative.startsWith('downloads/') && PROTECTED_DOWNLOAD_FILES.has(fileName)) {
-    return true;
-  }
-
-  // Protect quarantine/meta.json
-  if (relative.startsWith('quarantine/') && PROTECTED_QUARANTINE_FILES.has(fileName)) {
-    return true;
-  }
-
-  return false;
 }
 
 // ── Public API: cleanCardTmp ──────────────────────────────────
@@ -380,11 +291,6 @@ export function cleanStaleProcessOutput(options: CleanStaleProcessOptions): numb
 
     // Skip if too new
     if (st.mtimeMs >= cutoff) continue;
-
-    // Skip if we can't determine status (no combined.log mtime check failsafe)
-    // The directory mtime serves as proxy — if recently modified, skip
-    // Actually, let's check if the process might still be running via a
-    // simple heuristic: if the combined.log was modified recently, skip
 
     try {
       rmSync(procDir, { recursive: true, force: true });

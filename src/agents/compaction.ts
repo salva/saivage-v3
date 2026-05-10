@@ -1,11 +1,9 @@
-import type { AgentMessage, EntityLink } from '../schemas/types.js';
+import type { AgentMessage } from '../schemas/types.js';
 import {
   getSessionMessages,
   replaceSessionMessages,
   estimateMessageTokens,
-  getSession,
 } from './session-persistence.js';
-import type { RuntimeSection } from './config-schema.js';
 
 // ── Types ─────────────────────────────────────────────────────
 
@@ -90,11 +88,6 @@ export function needsCompaction(
  * 2. If summarization fails or is not available, fall back to keeping
  *    only the most recent keepFraction of messages plus a truncation notice.
  * 3. If max compactions reached, signal termination by returning maxReached=true.
- *
- * @param saivageDir - Path to .saivage/ directory.
- * @param sessionId - The session ID to compact.
- * @param options - Compaction options.
- * @returns CompactionResult with details.
  */
 export async function compactSession(
   saivageDir: string,

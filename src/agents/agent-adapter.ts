@@ -9,29 +9,26 @@
 
 import { EventEmitter } from 'node:events';
 import type { SaivageConfig, RuntimeSection } from './config-schema.js';
-import { loadConfig, getModelListForRole, getRuntimeConfig } from './config-schema.js';
+import { loadConfig, getRuntimeConfig } from './config-schema.js';
 import { ProviderRegistry, type Candidate } from './provider.js';
 import { ModelRouter } from './model-router.js';
 import {
   parsePlannerResult,
   parseExecutorResult,
   parseReviewerResult,
-  ResultParseError,
   type PlannerResult,
   type ExecutorResult,
   type ReviewerResult,
 } from './result-parser.js';
 import {
   createSession,
-  getSession,
   completeSession,
   appendMessage,
   getSessionMessages,
-  getSessionTokenCount,
   updateSessionModel,
 } from './session-persistence.js';
-import type { AgentSession, AgentMessage } from '../schemas/types.js';
-import { compactSession, resetCompactionState } from './compaction.js';
+import type { AgentMessage } from '../schemas/types.js';
+import { compactSession } from './compaction.js';
 import { invokeWithRecovery, type RecoveryContext } from './recovery.js';
 
 // ── Types ─────────────────────────────────────────────────────
@@ -93,12 +90,6 @@ export class AgentAdapter {
 
   /**
    * Invoke the planner agent for a goal.
-   *
-   * @param goalId - The goal card ID.
-   * @param planCardId - The plan card ID.
-   * @param systemPrompt - The system prompt for the planner.
-   * @param contextMessages - Additional context messages (card content, etc.)
-   * @returns Parsed PlannerResult.
    */
   async invokePlanner(
     goalId: string,
@@ -111,12 +102,6 @@ export class AgentAdapter {
 
   /**
    * Invoke the executor agent for a terminal card.
-   *
-   * @param cardId - The terminal card ID.
-   * @param goalId - The parent goal ID.
-   * @param systemPrompt - The system prompt for the executor.
-   * @param contextMessages - Additional context messages.
-   * @returns Parsed ExecutorResult.
    */
   async invokeExecutor(
     cardId: string,
@@ -129,12 +114,6 @@ export class AgentAdapter {
 
   /**
    * Invoke the reviewer agent for a goal.
-   *
-   * @param goalId - The goal card ID.
-   * @param planCardId - The plan card ID.
-   * @param systemPrompt - The system prompt for the reviewer.
-   * @param contextMessages - Additional context messages.
-   * @returns Parsed ReviewerResult.
    */
   async invokeReviewer(
     goalId: string,
@@ -226,9 +205,6 @@ export class AgentAdapter {
           // Update session model
           updateSessionModel(this.saivageDir, session.id, candidate.model);
 
-          // Get current messages including any recovery context
-          const messages = getSessionMessages(this.saivageDir, session.id);
-
           // Append recovery directive if this is a retry
           if (recoveryCtx.isRecovery && recoveryCtx.directive) {
             appendMessage(this.saivageDir, session.id, {
@@ -239,12 +215,11 @@ export class AgentAdapter {
           }
 
           // Check compaction
-          const tokenCount = getSessionTokenCount(this.saivageDir, session.id);
           const compactionResult = await compactSession(
             this.saivageDir,
             session.id,
             {
-              contextLimit: 128000, // reasonable default
+              contextLimit: 128000,
               threshold: this.runtimeConfig.compactionThreshold ?? 0.8,
               maxCompactions: this.runtimeConfig.maxCompactions ?? 3,
             },

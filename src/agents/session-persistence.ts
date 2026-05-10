@@ -6,7 +6,6 @@ import type {
   AgentSession,
   AgentMessage,
   AgentRole,
-  SessionStatus,
   MessageKind,
   MessageRole,
   EntityLink,
@@ -51,8 +50,7 @@ function nextMessageId(sessionId: string, count: number): string {
 
 /**
  * Estimate token count for a string.
- * Uses a rough heuristic: ~3.5 chars per token for English text,
- * ~1 token per character for code blocks.
+ * Uses a rough heuristic: ~3.5 chars per token for English text.
  * This is a fast approximation; for production use, a real tokenizer
  * should be plugged in.
  */
@@ -208,8 +206,8 @@ export function appendMessage(
   const mp = messagesPath(saivageDir, sessionId);
   const line = JSON.stringify(msg) + '\n';
   if (existsSync(mp)) {
-    const existing = readFileSync(mp, 'utf-8');
-    writeFileAtomic(mp, existing + line);
+    const existingContent = readFileSync(mp, 'utf-8');
+    writeFileAtomic(mp, existingContent + line);
   } else {
     writeFileAtomic(mp, line);
   }

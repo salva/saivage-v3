@@ -1,4 +1,4 @@
-import type { SaivageConfig, ModelsSection } from './config-schema.js';
+import type { SaivageConfig } from './config-schema.js';
 import { getModelListForRole } from './config-schema.js';
 import { ProviderRegistry, type Candidate } from './provider.js';
 
