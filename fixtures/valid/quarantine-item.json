@@ -1,0 +1,8 @@
+{
+  "id": "q-0001",
+  "review_id": "cr-0002",
+  "source_ref": "downloads/dl-0001/original.bin",
+  "stored_path": ".saivage-work/quarantine/q-0001/raw.bin",
+  "reason": "Prompt injection pattern detected in downloaded file",
+  "created_at": "2025-01-01T05:00:00.000Z"
+}

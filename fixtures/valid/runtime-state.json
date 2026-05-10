@@ -1,0 +1,12 @@
+{
+  "status": "running",
+  "project_id": "project",
+  "pid": 98765,
+  "started_at": "2025-01-01T00:00:00.000Z",
+  "current_card_id": "code-0001",
+  "current_agent_session_id": "session-0001",
+  "paused": false,
+  "queue": ["code-0001", "test-0001"],
+  "running_processes": ["proc-0001"],
+  "updated_at": "2025-01-01T03:00:00.000Z"
+}

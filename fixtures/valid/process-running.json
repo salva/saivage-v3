@@ -1,0 +1,13 @@
+{
+  "id": "proc-0002",
+  "card_id": "code-0002",
+  "command": "long-running-build.sh",
+  "cwd": "/work/saivage-v3",
+  "status": "running",
+  "started_at": "2025-01-01T05:00:00.000Z",
+  "required_for_card_completion": true,
+  "output_dir": ".saivage-work/processes/proc-0002/",
+  "stdout_path": ".saivage-work/processes/proc-0002/stdout.log",
+  "stderr_path": ".saivage-work/processes/proc-0002/stderr.log",
+  "combined_log_path": ".saivage-work/processes/proc-0002/combined.log"
+}

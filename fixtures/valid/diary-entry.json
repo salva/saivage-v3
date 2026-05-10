@@ -1,0 +1,13 @@
+{
+  "id": "diary-0001",
+  "plan_card_id": "plan-0001",
+  "invocation_id": "inv-0001",
+  "kind": "planner_decision",
+  "timestamp": "2025-01-01T01:00:00.000Z",
+  "input_summary": "Goal: Implement login with OAuth support",
+  "decision": "Create code card for OAuth implementation and a test card for verification",
+  "rationale": "OAuth is the standard approach; test card ensures quality",
+  "created_cards": ["code-0001", "test-0001"],
+  "updated_cards": [],
+  "reviewed_cards": []
+}

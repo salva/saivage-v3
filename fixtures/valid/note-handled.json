@@ -1,0 +1,10 @@
+{
+  "id": "note-0002",
+  "card_id": "code-0001",
+  "author": "executor",
+  "timestamp": "2025-01-01T03:45:00.000Z",
+  "content": "Bcrypt implementation complete. Tests pass.",
+  "kind": "progress",
+  "handled": true,
+  "handled_at": "2025-01-01T03:45:00.000Z"
+}

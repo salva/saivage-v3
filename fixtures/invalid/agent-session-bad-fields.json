@@ -1,0 +1,6 @@
+{
+  "id": "bad-session",
+  "role": "supervisor",
+  "status": "pending",
+  "started_at": "not-a-date"
+}

@@ -1,0 +1,55 @@
+{
+  "id": "code-0001",
+  "type": "code",
+  "parent": "goal-0001",
+  "depth": 2,
+  "title": "Implement OAuth flow",
+  "description": "Write OAuth authentication handler for Google and GitHub",
+  "status": "running",
+  "subtype": "backend",
+  "tags": ["auth", "backend"],
+  "priority": 2,
+  "urgency": "high",
+  "created_by": "planner",
+  "created_at": "2025-01-01T02:00:00.000Z",
+  "updated_at": "2025-01-01T03:00:00.000Z",
+  "assigned_to": "executor",
+  "depends_on": ["plan-0001"],
+  "blocks": ["test-0001"],
+  "related": [],
+  "acceptance": "OAuth flow works with Google and GitHub",
+  "artifacts": [
+    {
+      "id": "art-0001",
+      "card_id": "code-0001",
+      "path": ".saivage-work/cards/code-0001/artifacts/retained/auth.ts",
+      "type": "model",
+      "description": "Authentication module",
+      "retain": true,
+      "created_at": "2025-01-01T03:00:00.000Z"
+    },
+    {
+      "id": "art-0002",
+      "card_id": "code-0001",
+      "path": ".saivage-work/cards/code-0001/artifacts/working/tmp-log.txt",
+      "type": "log",
+      "description": "Temporary build log",
+      "retain": false,
+      "created_at": "2025-01-01T03:00:00.000Z"
+    }
+  ],
+  "attachments": [
+    {
+      "id": "att-0001",
+      "card_id": "code-0001",
+      "path": ".saivage-work/cards/code-0001/attachments/architecture.png",
+      "mime": "image/png",
+      "title": "Auth Architecture Diagram",
+      "description": "Flow diagram of OAuth integration",
+      "created_at": "2025-01-01T03:00:00.000Z"
+    }
+  ],
+  "estimate": "4 hours",
+  "started_at": "2025-01-01T02:30:00.000Z",
+  "retries": 1
+}

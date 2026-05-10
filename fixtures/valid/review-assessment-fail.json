@@ -1,0 +1,12 @@
+{
+  "id": "assessment-002",
+  "goal_card_id": "goal-0002",
+  "plan_card_id": "plan-0002",
+  "reviewer_session_id": "reviewer-0002",
+  "result": "fail",
+  "summary": "Acceptance criteria not fully met — missing error handling",
+  "achieved": ["Basic OAuth flow works"],
+  "missing": ["Error handling for expired tokens", "Rate limiting", "Logging of auth events"],
+  "evidence_card_ids": ["code-0002"],
+  "created_at": "2025-01-02T05:00:00.000Z"
+}

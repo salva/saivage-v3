@@ -1,0 +1,14 @@
+{
+  "id": "bad-msg",
+  "session_id": "",
+  "role": "moderator",
+  "kind": "poem",
+  "content": "",
+  "timestamp": "2025-01-01T00:00:00.000Z",
+  "links": [
+    {
+      "entity_type": "unknown-type",
+      "entity_id": ""
+    }
+  ]
+}

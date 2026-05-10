@@ -1,0 +1,13 @@
+{
+  "id": "proc-bad",
+  "card_id": "code-0001",
+  "command": "",
+  "cwd": 123,
+  "status": "sleeping",
+  "started_at": "2025-01-01T00:00:00.000Z",
+  "required_for_card_completion": "maybe",
+  "output_dir": "",
+  "stdout_path": "",
+  "stderr_path": "",
+  "combined_log_path": ""
+}

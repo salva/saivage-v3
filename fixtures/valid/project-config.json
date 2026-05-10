@@ -1,0 +1,11 @@
+{
+  "id": "project",
+  "name": "Test Project",
+  "context": "A test project for Saivage v3 schema validation",
+  "goals_summary": "Validate all schema types round-trip correctly",
+  "constraints": ["max 2 goals", "no external network"],
+  "max_goal_depth": 5,
+  "planner_enabled": true,
+  "created_at": "2025-01-01T00:00:00.000Z",
+  "updated_at": "2025-01-02T00:00:00.000Z"
+}

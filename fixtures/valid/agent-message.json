@@ -1,0 +1,20 @@
+{
+  "id": "msg-0001",
+  "session_id": "session-0001",
+  "role": "assistant",
+  "kind": "tool_call",
+  "content": "Running npm test on the authentication module",
+  "tool": "run_command",
+  "timestamp": "2025-01-01T03:00:00.000Z",
+  "links": [
+    {
+      "entity_type": "card",
+      "entity_id": "code-0001",
+      "label": "Auth module card"
+    },
+    {
+      "entity_type": "process",
+      "entity_id": "proc-0001"
+    }
+  ]
+}

@@ -1,0 +1,16 @@
+{
+  "id": "proc-0001",
+  "card_id": "code-0001",
+  "command": "npm test",
+  "cwd": "/work/saivage-v3",
+  "status": "exited",
+  "pid": 12345,
+  "started_at": "2025-01-01T04:00:00.000Z",
+  "completed_at": "2025-01-01T04:05:00.000Z",
+  "exit_code": 0,
+  "required_for_card_completion": true,
+  "output_dir": ".saivage-work/processes/proc-0001/",
+  "stdout_path": ".saivage-work/processes/proc-0001/stdout.log",
+  "stderr_path": ".saivage-work/processes/proc-0001/stderr.log",
+  "combined_log_path": ".saivage-work/processes/proc-0001/combined.log"
+}

@@ -1,0 +1,25 @@
+{
+  "id": "diary-0002",
+  "plan_card_id": "plan-0001",
+  "invocation_id": "inv-0002",
+  "kind": "review_assessment",
+  "timestamp": "2025-01-01T05:00:00.000Z",
+  "input_summary": "Review of goal-0001 completion",
+  "decision": "Append review assessment to diary",
+  "rationale": "Review passed — all acceptance criteria met",
+  "created_cards": [],
+  "updated_cards": ["goal-0001"],
+  "reviewed_cards": ["goal-0001"],
+  "assessment": {
+    "id": "rev-0001",
+    "goal_card_id": "goal-0001",
+    "plan_card_id": "plan-0001",
+    "reviewer_session_id": "reviewer-0001",
+    "result": "pass",
+    "summary": "All login acceptance criteria met — OAuth flow works end to end",
+    "achieved": ["Google OAuth flow implemented", "GitHub OAuth flow implemented", "Tests pass"],
+    "missing": [],
+    "evidence_card_ids": ["code-0001", "test-0001"],
+    "created_at": "2025-01-01T05:00:00.000Z"
+  }
+}

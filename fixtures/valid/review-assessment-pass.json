@@ -1,0 +1,12 @@
+{
+  "id": "assessment-001",
+  "goal_card_id": "goal-0001",
+  "plan_card_id": "plan-0001",
+  "reviewer_session_id": "reviewer-0001",
+  "result": "pass",
+  "summary": "All acceptance criteria met",
+  "achieved": ["OAuth flow implemented", "Tests pass"],
+  "missing": [],
+  "evidence_card_ids": ["code-0001", "test-0001"],
+  "created_at": "2025-01-01T05:00:00.000Z"
+}

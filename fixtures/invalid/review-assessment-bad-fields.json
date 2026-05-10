@@ -1,0 +1,12 @@
+{
+  "id": "assessment-003",
+  "goal_card_id": "",
+  "plan_card_id": "plan-0001",
+  "reviewer_session_id": "reviewer-0001",
+  "result": "maybe",
+  "summary": "",
+  "achieved": "not-array",
+  "missing": null,
+  "evidence_card_ids": 123,
+  "created_at": "2025-01-01T05:00:00.000Z"
+}
