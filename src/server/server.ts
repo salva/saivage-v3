@@ -128,7 +128,7 @@ export async function createServer(
   registerChatsFilesDebugRoutes(fastify, projectRoot);
 
   // Register WebSocket endpoint (auth checked internally on upgrade)
-  registerWebSocket(fastify);
+  registerWebSocket(fastify, projectRoot);
 
   // ── Shutdown ───────────────────────────────────────────────
 

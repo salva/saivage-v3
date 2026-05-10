@@ -124,7 +124,7 @@ beforeAll(async () => {
   registerCardRoutes(app, TEST_ROOT);
   registerRuntimeConfigNotesRoutes(app, TEST_ROOT);
   registerChatsFilesDebugRoutes(app, TEST_ROOT);
-  registerWebSocket(app);
+  registerWebSocket(app, TEST_ROOT);
 
   // Health
   app.get('/health', async (_req, reply) => {

@@ -10,6 +10,7 @@
 
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import type { WebSocket } from 'ws';
+import { AnalystHandler, getOrCreateAnalystSession } from '../agents/analyst-handler.js';
 
 // ── Types ─────────────────────────────────────────────────────
 
@@ -20,9 +21,25 @@ export interface WsEnvelope {
   content: Record<string, unknown>;
 }
 
+// ── Analyst Handler (lazy singleton) ──────────────────────────
+
+let _analystHandler: AnalystHandler | null = null;
+
+function getAnalystHandler(projectRoot: string): AnalystHandler {
+  if (!_analystHandler) {
+    _analystHandler = new AnalystHandler(projectRoot, (activity) => {
+      broadcast({ type: 'activity', content: activity as Record<string, unknown> });
+    });
+  }
+  return _analystHandler;
+}
+
 // ── Client Tracking ───────────────────────────────────────────
 
 const clients = new Set<WebSocket>();
+
+/** Map each WebSocket connection to its analyst session ID. */
+const wsSessions = new WeakMap<WebSocket, string>();
 
 export function broadcast(event: WsEnvelope): void {
   const data = JSON.stringify(event);
@@ -79,7 +96,7 @@ function checkAuth(request: FastifyRequest): boolean {
 
 // ── WebSocket Registration ────────────────────────────────────
 
-export function registerWebSocket(fastify: FastifyInstance): void {
+export function registerWebSocket(fastify: FastifyInstance, projectRoot: string): void {
   fastify.get(
     '/ws',
     { websocket: true },
@@ -93,42 +110,75 @@ export function registerWebSocket(fastify: FastifyInstance): void {
       // Connection accepted
       clients.add(ws);
 
-      // Send welcome message
+      // Auto-create analyst session for this connection
+      const { sessionId } = getOrCreateAnalystSession(projectRoot);
+      wsSessions.set(ws, sessionId);
+
+      // Send welcome message with session info
       sendToClient(ws, {
         type: 'status',
         content: {
           event: 'connected',
+          sessionId,
           timestamp: new Date().toISOString(),
           clientCount: clients.size,
         },
       });
 
       // Handle incoming messages (client → server)
-      ws.on('message', (raw: Buffer | ArrayBuffer | Buffer[]) => {
+      ws.on('message', async (raw: Buffer | ArrayBuffer | Buffer[]) => {
         try {
-          const data = typeof raw === 'string'
-            ? raw
-            : Buffer.isBuffer(raw)
-              ? raw.toString('utf-8')
-              : Buffer.concat(raw as Buffer[]).toString('utf-8');
-          const parsed = JSON.parse(data) as WsEnvelope;
+          const data =
+            typeof raw === 'string'
+              ? raw
+              : Buffer.isBuffer(raw)
+                ? raw.toString('utf-8')
+                : Buffer.concat(raw as Buffer[]).toString('utf-8');
+          const parsed = JSON.parse(data) as { type?: string; content?: Record<string, unknown> };
 
-          if (parsed.type === 'message') {
+          if (parsed.type === 'message' && parsed.content?.text) {
+            // Get or re-create session for this connection
+            let currentSessionId = wsSessions.get(ws);
+            if (!currentSessionId) {
+              const { sessionId: newId } = getOrCreateAnalystSession(projectRoot);
+              currentSessionId = newId;
+              wsSessions.set(ws, currentSessionId);
+            }
+
+            // Route through the analyst handler
+            const handler = getAnalystHandler(projectRoot);
+            const response = await handler.handleMessage(
+              currentSessionId,
+              String(parsed.content.text),
+            );
+
+            // Send the analyst response back
             sendToClient(ws, {
               type: 'message',
-              content: {
-                role: 'system',
-                text: 'Message received. Analyst routing is not yet implemented.',
-                timestamp: new Date().toISOString(),
-              },
+              content: response.message as Record<string, unknown>,
             });
+
+            // Also send any tool invocations as activity events
+            if (response.toolInvocations) {
+              for (const inv of response.toolInvocations) {
+                sendToClient(ws, {
+                  type: 'activity',
+                  content: {
+                    event: 'tool_invocation',
+                    tool: inv.tool,
+                    params: inv.params,
+                    result: inv.result,
+                  },
+                });
+              }
+            }
           }
-        } catch {
+        } catch (err) {
           sendToClient(ws, {
             type: 'error',
             content: {
-              error: 'Invalid message format',
-              details: 'Messages must be valid JSON with a "type" field.',
+              error: 'Failed to process message',
+              details: err instanceof Error ? err.message : String(err),
             },
           });
         }
@@ -136,10 +186,12 @@ export function registerWebSocket(fastify: FastifyInstance): void {
 
       ws.on('close', () => {
         clients.delete(ws);
+        wsSessions.delete(ws);
       });
 
       ws.on('error', () => {
         clients.delete(ws);
+        wsSessions.delete(ws);
       });
     },
   );
