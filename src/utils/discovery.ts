@@ -1,5 +1,5 @@
 import { accessSync, constants, readFileSync } from 'node:fs';
-import { resolve, dirname, join, sep } from 'node:path';
+import { resolve, dirname, join } from 'node:path';
 
 /**
  * Walk upward from startDir looking for .saivage/saivage.json.
@@ -9,6 +9,7 @@ import { resolve, dirname, join, sep } from 'node:path';
 export function findProjectRoot(startDir?: string): string | null {
   let current = resolve(startDir ?? process.cwd());
 
+  // eslint-disable-next-line no-constant-condition
   while (true) {
     const markerPath = join(current, '.saivage', 'saivage.json');
     try {
