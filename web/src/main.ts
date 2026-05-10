@@ -26,6 +26,9 @@ const router = createRouter({
   routes,
 });
 
+// Expose router for keyboard shortcut navigation in AppShell
+(window as unknown as Record<string, unknown>).__vueRouter = router;
+
 const app = createApp(App);
 const pinia = createPinia();
 

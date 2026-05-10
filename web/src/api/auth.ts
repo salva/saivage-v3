@@ -7,10 +7,12 @@
  *   3. VITE_SAIVAGE_API_TOKEN env variable
  */
 
+const TOKEN_KEY = 'saivage_api_token';
+
 export function getAuthToken(): string | null {
   // 1. localStorage override (set by the UI token entry component)
   if (typeof localStorage !== 'undefined') {
-    const local = localStorage.getItem('saivage_api_token');
+    const local = localStorage.getItem(TOKEN_KEY);
     if (local) return local;
   }
   // 2. URL query parameter
@@ -25,4 +27,24 @@ export function getAuthToken(): string | null {
     if (envToken) return envToken;
   }
   return null;
+}
+
+/**
+ * Set the API token in localStorage.
+ * Used by the API token entry dialog in the UI.
+ */
+export function setAuthToken(token: string): void {
+  if (typeof localStorage !== 'undefined') {
+    localStorage.setItem(TOKEN_KEY, token);
+  }
+}
+
+/**
+ * Clear the API token from localStorage.
+ * Used by the API token entry dialog in the UI.
+ */
+export function clearAuthToken(): void {
+  if (typeof localStorage !== 'undefined') {
+    localStorage.removeItem(TOKEN_KEY);
+  }
 }

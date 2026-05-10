@@ -1,7 +1,7 @@
 <template>
-  <router-view />
+  <AppShell />
 </template>
 
 <script setup lang="ts">
-// Root App shell — layout will be provided by the default layout in each view
+import AppShell from './components/layout/AppShell.vue';
 </script>
