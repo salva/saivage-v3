@@ -92,11 +92,12 @@ beforeAll(async () => {
     }),
   );
 
-  // Create a minimal saivage.json
+  // Create a minimal saivage.json (must include models section for loadConfig to pass)
   writeFileSync(
     join(SAIVAGE_DIR, 'saivage.json'),
     JSON.stringify({
       server: { port: 0, host: '127.0.0.1' },
+      models: { default: ['test-model'] },
       providers: {
         test: { priority: 10, models: ['test-model'], apiKey: 'secret-key' },
       },
@@ -174,8 +175,7 @@ describe('Auth rejection', () => {
     '/api/cards',
     '/api/cards/project',
     '/api/state',
-    // POST-only endpoint
-    // POST-only endpoint
+    '/api/agents/some-id/conversation',
     '/api/config',
     '/api/providers',
     '/api/notes',
@@ -416,24 +416,60 @@ describe('Runtime API', () => {
 // ══════════════════════════════════════════════════════════════
 
 describe('Config API', () => {
-  it('GET /api/config returns config or proper error', async () => {
+  it('GET /api/config returns config with redacted secrets', async () => {
     const res = await fetch(url('/api/config'), { headers: authHeader(authToken) });
-    // May succeed (200) or fail (500) depending on config validity,
-    // but should never be a 404 or auth error
-    expect([200, 500]).toContain(res.status);
-    if (res.status === 200) {
-      const body = await res.json() as Record<string, unknown>;
-      expect(body.config).toBeDefined();
+    expect(res.status).toBe(200);
+    const body = await res.json() as Record<string, unknown>;
+    expect(body.config).toBeDefined();
+    // The test config has apiKey: 'secret-key', which should be redacted
+    const config = body.config as Record<string, unknown>;
+    const providers = config.providers as Record<string, { apiKey?: string }> | undefined;
+    if (providers && providers['test']) {
+      expect(providers['test'].apiKey).toBe('[REDACTED]');
     }
   });
 
-  it('GET /api/providers endpoint exists', async () => {
+  it('GET /api/providers returns providers list', async () => {
     const res = await fetch(url('/api/providers'), { headers: authHeader(authToken) });
-    expect([200, 500]).toContain(res.status);
-    if (res.status === 200) {
-      const body = await res.json() as Record<string, unknown>;
-      expect(body.providers).toBeDefined();
-    }
+    expect(res.status).toBe(200);
+    const body = await res.json() as Record<string, unknown>;
+    expect(body.providers).toBeDefined();
+    const providers = body.providers as Record<string, unknown>;
+    expect(Object.keys(providers).length).toBeGreaterThanOrEqual(0);
+  });
+});
+
+// ══════════════════════════════════════════════════════════════
+// Agents / Conversation Endpoint
+// ══════════════════════════════════════════════════════════════
+
+describe('Agents API', () => {
+  beforeAll(() => {
+    // Write a test session and messages
+    writeFileSync(
+      join(SAIVAGE_DIR, 'agents', 'sessions', 'test-agent-1.json'),
+      JSON.stringify({ id: 'test-agent-1', role: 'planner', status: 'done', started_at: new Date().toISOString() }),
+    );
+    writeFileSync(
+      join(SAIVAGE_DIR, 'agents', 'messages', 'test-agent-1.jsonl'),
+      JSON.stringify({ id: 'msg-1', session_id: 'test-agent-1', role: 'user', kind: 'text', content: 'Plan something', timestamp: new Date().toISOString() }) + '\n' +
+      JSON.stringify({ id: 'msg-2', session_id: 'test-agent-1', role: 'assistant', kind: 'text', content: 'Done', timestamp: new Date().toISOString() }) + '\n',
+    );
+  });
+
+  it('GET /api/agents/:id/conversation returns session and messages', async () => {
+    const res = await fetch(url('/api/agents/test-agent-1/conversation'), { headers: authHeader(authToken) });
+    expect(res.status).toBe(200);
+    const body = await res.json() as Record<string, unknown>;
+    expect(body.session).toBeDefined();
+    expect(body.messages).toBeDefined();
+    expect(Array.isArray(body.messages)).toBe(true);
+    expect((body.messages as unknown[]).length).toBe(2);
+  });
+
+  it('GET /api/agents/:id/conversation returns 404 for unknown session', async () => {
+    const res = await fetch(url('/api/agents/unknown-agent/conversation'), { headers: authHeader(authToken) });
+    expect(res.status).toBe(404);
   });
 });
 

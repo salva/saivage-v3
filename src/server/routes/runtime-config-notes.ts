@@ -4,6 +4,8 @@ import { loadConfig, type ProviderEntry } from '../../agents/config-schema.js';
 import { getUnhandledNotesQueue, markNoteHandled, deleteNote, getNotes } from '../../utils/notes.js';
 import { redactSecrets } from '../../utils/file-access-security.js';
 import { CardStore } from '../../utils/card-store.js';
+import { existsSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
 
 // ── Helpers ───────────────────────────────────────────────────
 
@@ -19,6 +21,33 @@ function findCardForNote(
   const entry = queue.find((e: { note_id: string; card_id: string }) => e.note_id === noteId);
   return entry ? entry.card_id : null;
 }
+
+/** Read agent session file — returns null if not found or parse error. */
+function readAgentSession(projectRoot: string, sessionId: string): Record<string, unknown> | null {
+  const sessionPath = join(projectRoot, '.saivage', 'agents', 'sessions', `${sessionId}.json`);
+  if (!existsSync(sessionPath)) return null;
+  try {
+    return JSON.parse(readFileSync(sessionPath, 'utf-8')) as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+}
+
+/** Read agent message lines — returns empty array if not found or unparseable. */
+function readAgentMessages(projectRoot: string, sessionId: string): unknown[] {
+  const messagesPath = join(projectRoot, '.saivage', 'agents', 'messages', `${sessionId}.jsonl`);
+  if (!existsSync(messagesPath)) return [];
+  const messages: unknown[] = [];
+  for (const line of readFileSync(messagesPath, 'utf-8').split('\n')) {
+    if (line.trim()) {
+      try { messages.push(JSON.parse(line)); } catch { /* skip */ }
+    }
+  }
+  return messages;
+}
+
+/** Safe agent session ID validation pattern. */
+const SAFE_AGENT_ID_RE = /^[a-zA-Z0-9_-]+$/;
 
 // ── Route Registration ────────────────────────────────────────
 
@@ -112,9 +141,15 @@ export function registerRuntimeConfigNotesRoutes(
         warnings,
       });
     } catch (err) {
-      return reply.status(500).send({
-        error: 'Failed to read configuration',
-        message: err instanceof Error ? err.message : String(err),
+      // Return a partial/default config with a warning message
+      // instead of a 500 so the UI always has something to work with.
+      return reply.send({
+        config: {
+          server: { port: 8080, host: '0.0.0.0' },
+        },
+        warnings: [
+          `Configuration could not be fully loaded: ${err instanceof Error ? err.message : String(err)}`,
+        ],
       });
     }
   });
@@ -137,8 +172,40 @@ export function registerRuntimeConfigNotesRoutes(
 
       return reply.send({ providers });
     } catch (err) {
+      return reply.send({
+        providers: {},
+        warnings: [
+          `Providers could not be loaded: ${err instanceof Error ? err.message : String(err)}`,
+        ],
+      });
+    }
+  });
+
+  // ═══════════════════════════════════════════════════════════
+  // Agents / Conversation endpoint
+  // ═══════════════════════════════════════════════════════════
+
+  fastify.get('/api/agents/:id/conversation', async (request: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const params = request.params as { id: string };
+      const sessionId = params.id;
+
+      // Validate session ID
+      if (!SAFE_AGENT_ID_RE.test(sessionId)) {
+        return reply.status(400).send({ error: 'Invalid agent session ID' });
+      }
+
+      const session = readAgentSession(projectRoot, sessionId);
+      if (!session) {
+        return reply.status(404).send({ error: 'Agent session not found', sessionId });
+      }
+
+      const messages = readAgentMessages(projectRoot, sessionId);
+
+      return reply.send({ session, messages });
+    } catch (err) {
       return reply.status(500).send({
-        error: 'Failed to list providers',
+        error: 'Failed to read agent conversation',
         message: err instanceof Error ? err.message : String(err),
       });
     }
