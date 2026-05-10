@@ -1,0 +1,291 @@
+import { describe, it, expect, beforeEach, afterEach } from '@jest/globals';
+import { existsSync, readFileSync, readdirSync, rmSync, mkdtempSync } from 'node:fs';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
+import { initProjectTree, isInitialized, writeFileAtomic } from '../../src/utils/file-tree.js';
+
+let tmpDir: string;
+
+beforeEach(() => {
+  tmpDir = mkdtempSync(join(tmpdir(), 'saivage-test-'));
+});
+
+afterEach(() => {
+  rmSync(tmpDir, { recursive: true, force: true });
+});
+
+describe('isInitialized', () => {
+  it('returns false before init', () => {
+    expect(isInitialized(tmpDir)).toBe(false);
+  });
+
+  it('returns true after initProjectTree', () => {
+    initProjectTree(tmpDir);
+    expect(isInitialized(tmpDir)).toBe(true);
+  });
+});
+
+describe('initProjectTree', () => {
+  it('returns the project root', () => {
+    const result = initProjectTree(tmpDir);
+    expect(result.projectRoot).toBe(tmpDir);
+  });
+
+  it('creates project.json with valid ProjectConfig', () => {
+    initProjectTree(tmpDir);
+    const config = JSON.parse(
+      readFileSync(join(tmpDir, '.saivage', 'project.json'), 'utf-8'),
+    );
+    expect(config.id).toBe('project');
+    expect(typeof config.name).toBe('string');
+    expect(config.max_goal_depth).toBe(5);
+    expect(config.planner_enabled).toBe(true);
+    expect(config.context).toBe('');
+    expect(Array.isArray(config.constraints)).toBe(true);
+    expect(config.created_at).toBeDefined();
+    expect(config.updated_at).toBeDefined();
+  });
+
+  it('creates the project card at cards/by-id/project.json', () => {
+    initProjectTree(tmpDir);
+    const card = JSON.parse(
+      readFileSync(join(tmpDir, '.saivage', 'cards', 'by-id', 'project.json'), 'utf-8'),
+    );
+    expect(card.id).toBe('project');
+    expect(card.type).toBe('project');
+    expect(card.parent).toBeNull();
+    expect(card.depth).toBe(0);
+    expect(card.status).toBe('backlog');
+    expect(card.title).toBe('project');
+    expect(card.created_by).toBe('analyst');
+    expect(card.retries).toBe(0);
+    expect(card.artifacts).toEqual([]);
+    expect(card.attachments).toEqual([]);
+    expect(card.depends_on).toEqual([]);
+    expect(card.blocks).toEqual([]);
+    expect(card.related).toEqual([]);
+    expect(card.tags).toEqual([]);
+  });
+
+  it('creates cards/index.json with the project card entry', () => {
+    initProjectTree(tmpDir);
+    const index = JSON.parse(
+      readFileSync(join(tmpDir, '.saivage', 'cards', 'index.json'), 'utf-8'),
+    );
+    expect(index.cards.project).toBeDefined();
+    expect(index.cards.project.id).toBe('project');
+    expect(index.cards.project.type).toBe('project');
+    expect(index.cards.project.parent).toBeNull();
+    expect(index.cards.project.status).toBe('backlog');
+    expect(index.cards.project.title).toBe('project');
+  });
+
+  it('creates cards/tree/project.children.json with empty array', () => {
+    initProjectTree(tmpDir);
+    const children = JSON.parse(
+      readFileSync(
+        join(tmpDir, '.saivage', 'cards', 'tree', 'project.children.json'),
+        'utf-8',
+      ),
+    );
+    expect(children).toEqual([]);
+  });
+
+  it('creates cards/dependencies/depends-on.json as empty object', () => {
+    initProjectTree(tmpDir);
+    const deps = JSON.parse(
+      readFileSync(
+        join(tmpDir, '.saivage', 'cards', 'dependencies', 'depends-on.json'),
+        'utf-8',
+      ),
+    );
+    expect(deps).toEqual({});
+  });
+
+  it('creates cards/dependencies/blocks.json as empty object', () => {
+    initProjectTree(tmpDir);
+    const blks = JSON.parse(
+      readFileSync(
+        join(tmpDir, '.saivage', 'cards', 'dependencies', 'blocks.json'),
+        'utf-8',
+      ),
+    );
+    expect(blks).toEqual({});
+  });
+
+  it('creates notes/queue.json with empty entries', () => {
+    initProjectTree(tmpDir);
+    const queue = JSON.parse(
+      readFileSync(join(tmpDir, '.saivage', 'notes', 'queue.json'), 'utf-8'),
+    );
+    expect(queue).toEqual({ entries: [] });
+  });
+
+  it('creates views/leaderboard.json as empty array', () => {
+    initProjectTree(tmpDir);
+    const lb = JSON.parse(
+      readFileSync(join(tmpDir, '.saivage', 'views', 'leaderboard.json'), 'utf-8'),
+    );
+    expect(lb).toEqual([]);
+  });
+
+  it('creates views/saved-filters.json as empty array', () => {
+    initProjectTree(tmpDir);
+    const sf = JSON.parse(
+      readFileSync(join(tmpDir, '.saivage', 'views', 'saved-filters.json'), 'utf-8'),
+    );
+    expect(sf).toEqual([]);
+  });
+
+  it('creates skills/index.json as empty object', () => {
+    initProjectTree(tmpDir);
+    const skills = JSON.parse(
+      readFileSync(join(tmpDir, '.saivage', 'skills', 'index.json'), 'utf-8'),
+    );
+    expect(skills).toEqual({});
+  });
+
+  it('creates runtime/events.jsonl', () => {
+    initProjectTree(tmpDir);
+    expect(existsSync(join(tmpDir, '.saivage', 'runtime', 'events.jsonl'))).toBe(true);
+  });
+
+  it('creates runtime/errors.jsonl', () => {
+    initProjectTree(tmpDir);
+    expect(existsSync(join(tmpDir, '.saivage', 'runtime', 'errors.jsonl'))).toBe(true);
+  });
+
+  it('creates supervision/reviews.jsonl', () => {
+    initProjectTree(tmpDir);
+    expect(existsSync(join(tmpDir, '.saivage', 'supervision', 'reviews.jsonl'))).toBe(true);
+  });
+
+  it('creates supervision/quarantine-index.json', () => {
+    initProjectTree(tmpDir);
+    const qi = JSON.parse(
+      readFileSync(
+        join(tmpDir, '.saivage', 'supervision', 'quarantine-index.json'),
+        'utf-8',
+      ),
+    );
+    expect(qi).toEqual([]);
+  });
+
+  it('creates all .saivage/ directories', () => {
+    initProjectTree(tmpDir);
+    const saivageDirs = [
+      'skills',
+      'cards/by-id',
+      'cards/tree',
+      'cards/dependencies',
+      'cards/views',
+      'diaries',
+      'reviews/by-goal',
+      'notes/by-card',
+      'agents/sessions',
+      'agents/messages',
+      'runtime',
+      'supervision',
+      'views',
+      'instructions',
+    ];
+    for (const dir of saivageDirs) {
+      expect(existsSync(join(tmpDir, '.saivage', dir))).toBe(true);
+    }
+  });
+
+  it('creates all .saivage-work/ directories', () => {
+    initProjectTree(tmpDir);
+    const workDirs = [
+      'cards',
+      'processes',
+      'downloads',
+      'quarantine',
+      'tmp/runtime',
+      'tmp/stash',
+      'tmp/uploads',
+      'tmp/previews',
+    ];
+    for (const dir of workDirs) {
+      expect(existsSync(join(tmpDir, '.saivage-work', dir))).toBe(true);
+    }
+  });
+
+  it('is idempotent — calling twice does not change files', () => {
+    initProjectTree(tmpDir);
+    const cardBefore = readFileSync(
+      join(tmpDir, '.saivage', 'cards', 'by-id', 'project.json'),
+      'utf-8',
+    );
+    const configBefore = readFileSync(
+      join(tmpDir, '.saivage', 'project.json'),
+      'utf-8',
+    );
+    const indexBefore = readFileSync(
+      join(tmpDir, '.saivage', 'cards', 'index.json'),
+      'utf-8',
+    );
+
+    // Second call should be a no-op
+    initProjectTree(tmpDir);
+
+    const cardAfter = readFileSync(
+      join(tmpDir, '.saivage', 'cards', 'by-id', 'project.json'),
+      'utf-8',
+    );
+    const configAfter = readFileSync(
+      join(tmpDir, '.saivage', 'project.json'),
+      'utf-8',
+    );
+    const indexAfter = readFileSync(
+      join(tmpDir, '.saivage', 'cards', 'index.json'),
+      'utf-8',
+    );
+
+    expect(cardAfter).toBe(cardBefore);
+    expect(configAfter).toBe(configBefore);
+    expect(indexAfter).toBe(indexBefore);
+  });
+
+  it('does not create duplicate project cards on repeated calls', () => {
+    initProjectTree(tmpDir);
+    initProjectTree(tmpDir);
+    initProjectTree(tmpDir);
+
+    const index = JSON.parse(
+      readFileSync(join(tmpDir, '.saivage', 'cards', 'index.json'), 'utf-8'),
+    );
+    const cardIds = Object.keys(index.cards);
+    // Should only have 'project'
+    expect(cardIds).toEqual(['project']);
+  });
+});
+
+describe('writeFileAtomic', () => {
+  it('writes content to the target file', () => {
+    const targetPath = join(tmpDir, '.saivage', 'atomic-test.json');
+    writeFileAtomic(targetPath, JSON.stringify({ foo: 'bar' }));
+    const content = JSON.parse(readFileSync(targetPath, 'utf-8'));
+    expect(content).toEqual({ foo: 'bar' });
+  });
+
+  it('creates parent directories if needed', () => {
+    const targetPath = join(tmpDir, '.saivage', 'nested', 'deep', 'test.json');
+    writeFileAtomic(targetPath, '{"a": 1}');
+    expect(existsSync(targetPath)).toBe(true);
+    const content = JSON.parse(readFileSync(targetPath, 'utf-8'));
+    expect(content).toEqual({ a: 1 });
+  });
+
+  it('does not leave temp files behind', () => {
+    const dir = join(tmpDir, '.saivage', 'atomic-dir');
+    const targetPath = join(dir, 'final.json');
+    writeFileAtomic(targetPath, 'data');
+
+    // Read the directory — should only have final.json, no .tmp.* files
+    const files = readdirSync(dir);
+    const tmpFiles = files.filter((f: string) => f.startsWith('final.json.tmp'));
+    expect(tmpFiles.length).toBe(0);
+    expect(files).toEqual(['final.json']);
+  });
+});
