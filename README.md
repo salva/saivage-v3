@@ -1,6 +1,17 @@
 # Saivage v3 — Design Documents
 
-## Documents
+## Documentation
+
+| Document | Contents |
+|---|---|
+| [Install Guide](docs/INSTALL.md) | Prerequisites, installation, first run |
+| [Configuration](docs/CONFIGURATION.md) | Config file reference and examples |
+| [Operations Guide](docs/OPERATION.md) | Start/stop, runtime management, backup/recovery |
+| [Troubleshooting](docs/TROUBLESHOOTING.md) | Common issues and solutions |
+| [Release Checklist](docs/RELEASE-CHECKLIST.md) | Pre-release verification steps |
+| [Operator Runbook](docs/OPERATOR-RUNBOOK.md) | Daily ops and incident response |
+
+## Design Documents
 
 | Document | Contents |
 |---|---|
