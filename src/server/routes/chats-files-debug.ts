@@ -4,6 +4,7 @@ import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { readRuntimeState } from '../../utils/runtime-state.js';
 import { CardStore } from '../../utils/card-store.js';
 import { isReadBlocked } from '../../utils/file-access-security.js';
+import { AnalystHandler } from '../../agents/analyst-handler.js';
 
 // ── Constants ─────────────────────────────────────────────────
 
@@ -11,6 +12,16 @@ const MAX_FILE_SIZE_BYTES = 1_048_576; // 1 MB
 
 /** Safe pattern for session IDs: alphanumeric with hyphens and underscores. */
 const SAFE_SESSION_ID_RE = /^[a-zA-Z0-9_-]+$/;
+
+// ── Analyst handler lazy singleton ─────────────────────────────
+
+let _analystHandler: AnalystHandler | null = null;
+function getAnalystHandler(projectRoot: string): AnalystHandler {
+  if (!_analystHandler) {
+    _analystHandler = new AnalystHandler(projectRoot);
+  }
+  return _analystHandler;
+}
 
 // ── Helpers ───────────────────────────────────────────────────
 
@@ -168,19 +179,18 @@ export function registerChatsFilesDebugRoutes(
         return reply.status(400).send({ error: 'Message content is required' });
       }
 
-      return reply.status(202).send({
-        sessionId,
-        message: {
-          id: `msg-${Date.now()}`,
-          content: body.content,
-          role: 'user',
-          timestamp: new Date().toISOString(),
-        },
-        acknowledged: true,
+      // Route through analyst handler
+      const handler = getAnalystHandler(projectRoot);
+      const response = await handler.handleMessage(sessionId, body.content);
+
+      return reply.send({
+        sessionId: response.sessionId,
+        message: response.message,
+        toolInvocations: response.toolInvocations ?? [],
       });
     } catch (err) {
       return reply.status(500).send({
-        error: 'Failed to send message',
+        error: 'Failed to process chat message',
         message: err instanceof Error ? err.message : String(err),
       });
     }

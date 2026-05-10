@@ -571,11 +571,18 @@ describe('Chats API', () => {
     const res = await fetch(url('/api/chats/analyst-1'), {
       method: 'POST',
       headers: { ...authHeader(authToken), 'content-type': 'application/json' },
-      body: JSON.stringify({ content: 'Test message' }),
+      body: JSON.stringify({ content: 'What is the status?' }),
     });
-    expect(res.status).toBe(202);
+    expect(res.status).toBe(200);
     const body = await res.json() as Record<string, unknown>;
-    expect(body.acknowledged).toBe(true);
+    expect(body.sessionId).toBe('analyst-1');
+    expect(body.message).toBeDefined();
+    const msg = body.message as { role: string; content: string; timestamp: string };
+    expect(msg.role).toBe('assistant');
+    expect(msg.content).toBeDefined();
+    expect(msg.timestamp).toBeDefined();
+    expect(body.toolInvocations).toBeDefined();
+    expect(Array.isArray(body.toolInvocations)).toBe(true);
   });
 
   it('POST /api/chats/:sessionId rejects empty content', async () => {
