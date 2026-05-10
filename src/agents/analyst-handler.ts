@@ -399,7 +399,19 @@ function parseIntent(text: string): ParsedIntent | null {
     return { tool: 'edit_card', params };
   }
 
-  // "create" or "new" or "add" — after more specific commands
+  // "note" or "comment" or "directive" — MOVED BEFORE create/new/add
+  if (/\b(?:note|comment|directive)\b/i.test(text)) {
+    const ids = cardIds.filter((id) => id !== 'project');
+    const kind = extractNoteKind(text);
+    const params: Record<string, unknown> = {
+      kind: kind || 'comment',
+      content: text,
+    };
+    if (ids.length > 0) params.cardId = ids[0];
+    return { tool: 'add_note', params };
+  }
+
+  // "create" or "new" or "add" — MOVED AFTER note/comment/directive
   if (/\b(?:create|new|add)\b/i.test(text)) {
     const type = extractCardType(text);
     const title = extractTitle(text);
@@ -411,18 +423,6 @@ function parseIntent(text: string): ParsedIntent | null {
     const descMatch = text.match(/description\s*[:=]\s*(.+?)(?:\s+\w+\s*[:=]|\s*$)/i);
     if (descMatch) params.description = descMatch[1].trim();
     return { tool: 'create_card', params };
-  }
-
-  // "note" or "comment" or "directive"
-  if (/\b(?:note|comment|directive)\b/i.test(text)) {
-    const ids = cardIds.filter((id) => id !== 'project');
-    const kind = extractNoteKind(text);
-    const params: Record<string, unknown> = {
-      kind: kind || 'comment',
-      content: text,
-    };
-    if (ids.length > 0) params.cardId = ids[0];
-    return { tool: 'add_note', params };
   }
 
   // "tree" or "hierarchy"
@@ -459,7 +459,16 @@ function parseIntent(text: string): ParsedIntent | null {
     return { tool: 'get_card_output', params };
   }
 
-  // "list" or "show" + "cards"
+  // "detail" or "inspect" or "show card" or "look at" or "examine" — MOVED BEFORE list/show cards
+  if (/\b(?:detail|inspect|show\s+card|look\s+at|examine)\b/i.test(text)) {
+    const ids = cardIds.filter((id) => id !== 'project');
+    if (ids.length > 0) {
+      return { tool: 'get_card', params: { id: ids[0] } };
+    }
+    return { tool: 'get_card', params: {} };
+  }
+
+  // "list" or "show" + "cards" — MOVED AFTER detail/inspect/show card
   if (/\b(?:list|show)\b.*\b(?:card|task|item)s?\b/i.test(text)) {
     const status = extractStatus(text);
     const type = extractCardType(text);
@@ -471,15 +480,6 @@ function parseIntent(text: string): ParsedIntent | null {
     if (parent) params.parent = parent;
     if (tags.length > 0) params.tag = tags[0];
     return { tool: 'list_cards', params };
-  }
-
-  // "detail" or "inspect" or "show card" or "look at" or "examine"
-  if (/\b(?:detail|inspect|show\s+card|look\s+at|examine)\b/i.test(text)) {
-    const ids = cardIds.filter((id) => id !== 'project');
-    if (ids.length > 0) {
-      return { tool: 'get_card', params: { id: ids[0] } };
-    }
-    return { tool: 'get_card', params: {} };
   }
 
   // "status" or "state" or "overview" or "how's it going"
