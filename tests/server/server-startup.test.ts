@@ -335,9 +335,17 @@ describe('Server Startup Integration (createServer)', () => {
       const ws = new WebSocket(wsUrl('/ws'));
       let resolved = false;
 
+      const timeoutId = setTimeout(() => {
+        if (!resolved) {
+          resolved = true;
+          done();
+        }
+      }, 5000);
+
       ws.on('close', (code) => {
         if (!resolved) {
           resolved = true;
+          clearTimeout(timeoutId);
           expect(code).not.toBe(1000);
           done();
         }
@@ -346,26 +354,27 @@ describe('Server Startup Integration (createServer)', () => {
       ws.on('error', () => {
         if (!resolved) {
           resolved = true;
+          clearTimeout(timeoutId);
           done();
         }
       });
-
-      // Timeout safety
-      setTimeout(() => {
-        if (!resolved) {
-          resolved = true;
-          done();
-        }
-      }, 5000);
     }, 10000);
 
     it('rejects connection with wrong auth token (non-1000 close code)', (done) => {
       const ws = new WebSocket(wsUrl('/ws?token=wrong-token'));
       let resolved = false;
 
+      const timeoutId = setTimeout(() => {
+        if (!resolved) {
+          resolved = true;
+          done();
+        }
+      }, 5000);
+
       ws.on('close', (code) => {
         if (!resolved) {
           resolved = true;
+          clearTimeout(timeoutId);
           expect(code).not.toBe(1000);
           done();
         }
@@ -374,17 +383,10 @@ describe('Server Startup Integration (createServer)', () => {
       ws.on('error', () => {
         if (!resolved) {
           resolved = true;
+          clearTimeout(timeoutId);
           done();
         }
       });
-
-      // Timeout safety
-      setTimeout(() => {
-        if (!resolved) {
-          resolved = true;
-          done();
-        }
-      }, 5000);
     }, 10000);
   });
 
