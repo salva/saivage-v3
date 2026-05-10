@@ -1,8 +1,56 @@
 import { readFileSync, existsSync } from 'node:fs';
 import { resolve } from 'node:path';
-import type { ReviewAssessment, CardStatus } from '../schemas/types.js';
+import type { ReviewAssessment, CardStatus, ArtifactRef } from '../schemas/types.js';
 
 // ── Fake Agent Result Types ──────────────────────────────────
+
+/**
+ * Metadata for registering an artifact from a fake executor.
+ */
+export interface FakeArtifactDef {
+  /** Source file path to copy from (absolute or relative to project) */
+  sourceFile: string;
+  /** Artifact type */
+  type: ArtifactRef['type'];
+  /** Human-readable description */
+  description: string;
+  /** Whether to retain the artifact */
+  retain: boolean;
+}
+
+/**
+ * Metadata for registering an attachment from a fake executor.
+ */
+export interface FakeAttachmentDef {
+  /** Source file path to copy from (absolute or relative to project) */
+  sourceFile: string;
+  /** MIME type */
+  mime: string;
+  /** Display title */
+  title: string;
+  /** Optional description */
+  description?: string;
+}
+
+/**
+ * A scripted result returned by a fake executor invocation.
+ */
+export interface FakeExecutorResult {
+  /** ID of the card that was executed */
+  card_id: string;
+  /** The resulting status: 'done' or 'failed' */
+  status: 'done' | 'failed';
+  /** Optional error message for failed cards */
+  error?: string;
+  /** Optional result data */
+  result?: Record<string, unknown>;
+  /** Artifacts to register on the card after execution */
+  artifacts?: FakeArtifactDef[];
+  /** Attachments to register on the card after execution */
+  attachments?: FakeAttachmentDef[];
+}
+
+// ── Remaining types unchanged ────────────────────────────────
 
 /**
  * A scripted result returned by a fake planner invocation.
@@ -31,20 +79,6 @@ export interface FakePlannerResult {
   }>;
   /** Whether the planner declares the goal done (triggers reviewer) */
   declare_done: boolean;
-}
-
-/**
- * A scripted result returned by a fake executor invocation.
- */
-export interface FakeExecutorResult {
-  /** ID of the card that was executed */
-  card_id: string;
-  /** The resulting status: 'done' or 'failed' */
-  status: 'done' | 'failed';
-  /** Optional error message for failed cards */
-  error?: string;
-  /** Optional result data */
-  result?: Record<string, unknown>;
 }
 
 /**

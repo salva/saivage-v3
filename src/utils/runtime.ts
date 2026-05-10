@@ -1,6 +1,6 @@
 import { EventEmitter } from 'node:events';
 import { join } from 'node:path';
-import { existsSync, rmSync, readdirSync, statSync } from 'node:fs';
+import { existsSync, rmSync, readdirSync } from 'node:fs';
 import type {
   CardRecord,
   RuntimeState,
@@ -16,6 +16,14 @@ import {
 } from './runtime-state.js';
 import { acquireLock, releaseLock } from './runtime-lock.js';
 import { FakeAgentAdapter, type FakeAgentConfig } from './fake-agent.js';
+import {
+  killAllRunning,
+  listProcesses,
+  type ProcessListFilter,
+} from './process-runner.js';
+import { cleanAll, cleanStaleStash, cleanStalePreviews, cleanStaleUploads } from './cleanup.js';
+import { registerArtifact, registerAttachment } from './artifacts.js';
+import type { ProcessRecord } from '../schemas/types.js';
 
 // ── Types ─────────────────────────────────────────────────────
 
@@ -83,6 +91,10 @@ function now(): string {
   return new Date().toISOString();
 }
 
+function saivageWorkDir(projectRoot: string): string {
+  return join(projectRoot, '.saivage-work');
+}
+
 // ── Runtime Class ────────────────────────────────────────────
 
 export class Runtime extends EventEmitter {
@@ -94,6 +106,12 @@ export class Runtime extends EventEmitter {
   private _paused: boolean = false;
   private _running: boolean = false;
   private _shuttingDown: boolean = false;
+
+  /**
+   * Set of currently known running process IDs.
+   * Updated on process start, exit, kill, and on crash recovery.
+   */
+  readonly runningProcesses: Set<string> = new Set();
 
   constructor(config: RuntimeConfig) {
     super();
@@ -110,6 +128,91 @@ export class Runtime extends EventEmitter {
     return this._paused;
   }
 
+  // ── Process Lifecycle Tracking ─────────────────────────────
+
+  /**
+   * Track a new running process. Call after startProcess().
+   * Updates the in-memory set and persists to RuntimeState.
+   */
+  trackProcessStarted(procId: string): void {
+    this.runningProcesses.add(procId);
+    this._syncRunningProcesses();
+  }
+
+  /**
+   * Stop tracking a process (exited, failed, killed). Call after
+   * the process reaches a terminal state.
+   * Updates the in-memory set and persists to RuntimeState.
+   */
+  trackProcessStopped(procId: string): void {
+    this.runningProcesses.delete(procId);
+    this._syncRunningProcesses();
+  }
+
+  /**
+   * List currently tracked running processes via the process registry.
+   */
+  listRunningProcesses(filter?: ProcessListFilter): ProcessRecord[] {
+    return listProcesses(this.projectRoot, {
+      ...filter,
+      status: 'running',
+    });
+  }
+
+  /**
+   * Persist the current running_processes list to RuntimeState.
+   */
+  private _syncRunningProcesses(): void {
+    try {
+      updateRuntimeState(this.projectRoot, {
+        running_processes: Array.from(this.runningProcesses),
+      });
+    } catch {
+      // Best effort — state file may not exist yet during early startup
+    }
+  }
+
+  // ── Artifact / Attachment Registration ─────────────────────
+
+  /**
+   * Register an artifact on a card. Convenience wrapper around
+   * the standalone registerArtifact function.
+   */
+  registerArtifactOnCard(
+    cardId: string,
+    artifact: {
+      type: 'model' | 'data' | 'config' | 'log' | 'report' | 'other';
+      description: string;
+      retain: boolean;
+    },
+    sourceFile: string,
+  ) {
+    return registerArtifact(
+      saivageWorkDir(this.projectRoot),
+      this.cardStore,
+      cardId,
+      artifact,
+      sourceFile,
+    );
+  }
+
+  /**
+   * Register an attachment on a card. Convenience wrapper.
+   */
+  registerAttachmentOnCard(
+    cardId: string,
+    attachment: { mime: string; title: string; description?: string },
+    sourceFile: string,
+  ) {
+    return registerAttachment(
+      saivageWorkDir(this.projectRoot),
+      this.cardStore,
+      cardId,
+      attachment,
+      sourceFile,
+    );
+  }
+
   // ── Startup ───────────────────────────────────────────────
 
   /**
@@ -118,7 +221,8 @@ export class Runtime extends EventEmitter {
    * 2. Init/load runtime state
    * 3. Acquire runtime lock
    * 4. Crash recovery (reset active/running cards to backlog)
-   * 5. Write initial runtime state
+   * 5. Recover running_processes from saved state
+   * 6. Write initial runtime state
    */
   async startup(): Promise<void> {
     if (this._running) {
@@ -137,7 +241,20 @@ export class Runtime extends EventEmitter {
     // 3. Crash recovery
     this.performCrashRecovery();
 
-    // 4. Write initial state
+    // 4. Recover running_processes from saved state
+    //    (process output files survive, but actual PIDs are dead after crash)
+    if (state.running_processes && state.running_processes.length > 0) {
+      // On crash recovery, previously running processes are orphaned.
+      // We preserve their IDs in the running set for tracking purposes
+      // (the process-runner registry still has their records — they'll show
+      // as running until the operator/cleanup resolves them).
+      // But we don't auto-kill them here — they already died with the runtime.
+      // We simply clear them from the live tracking set since the OS processes are gone.
+      this.runningProcesses.clear();
+      this._syncRunningProcesses();
+    }
+
+    // 5. Write initial state
     state = initRuntimeState(this.projectRoot);
     this._status = 'idle';
     this._paused = false;
@@ -152,14 +269,26 @@ export class Runtime extends EventEmitter {
   /**
    * Graceful shutdown:
    * 1. Freeze tracker (stop new dispatch)
-   * 2. Write shutdown state (idle)
-   * 3. Release lock
+   * 2. Kill orphan running processes
+   * 3. Write shutdown state (idle)
+   * 4. Release lock
+   * 5. Run safe cleanup
    */
   async shutdown(): Promise<void> {
     if (!this._running) return;
 
     this._shuttingDown = true;
     this._running = false;
+
+    // Kill orphan processes
+    try {
+      const killedIds = await killAllRunning(this.projectRoot);
+      for (const id of killedIds) {
+        this.runningProcesses.delete(id);
+      }
+    } catch {
+      // Best effort
+    }
 
     // Write final idle state
     try {
@@ -183,6 +312,13 @@ export class Runtime extends EventEmitter {
     // Release lock
     try {
       releaseLock(this.projectRoot);
+    } catch {
+      // Best effort
+    }
+
+    // Run safe cleanup
+    try {
+      cleanAll(saivageWorkDir(this.projectRoot), this.cardStore);
     } catch {
       // Best effort
     }
@@ -264,25 +400,22 @@ export class Runtime extends EventEmitter {
     }
 
     // Clean stale stash files older than 24 hours
-    const stashDir = join(this.projectRoot, '.saivage-work', 'tmp', 'stash');
-    if (existsSync(stashDir)) {
-      try {
-        const entries = readdirSync(stashDir);
-        const cutoff = Date.now() - 24 * 60 * 60 * 1000;
-        for (const entry of entries) {
-          try {
-            const fullPath = join(stashDir, entry);
-            const st = statSync(fullPath);
-            if (st.mtimeMs < cutoff) {
-              rmSync(fullPath, { recursive: true, force: true });
-            }
-          } catch {
-            // ignore per-file errors
-          }
-        }
-      } catch {
-        // ignore broader errors
-      }
+    try {
+      cleanStaleStash(saivageWorkDir(this.projectRoot), 24 * 60 * 60 * 1000);
+    } catch {
+      // best effort
+    }
+
+    // Also clean stale previews/uploads
+    try {
+      cleanStalePreviews(saivageWorkDir(this.projectRoot), 24 * 60 * 60 * 1000);
+    } catch {
+      // best effort
+    }
+    try {
+      cleanStaleUploads(saivageWorkDir(this.projectRoot), 24 * 60 * 60 * 1000);
+    } catch {
+      // best effort
     }
   }
 
@@ -298,7 +431,9 @@ export class Runtime extends EventEmitter {
     const descendantIds = new Set(this.cardStore.getDescendantIds(goalId));
     descendantIds.add(goalId); // include the goal itself
 
-    const relevantCards = allCards.filter((c) => descendantIds.has(c.id) && isTerminal(c));
+    const relevantCards = allCards.filter(
+      (c) => descendantIds.has(c.id) && isTerminal(c),
+    );
 
     return buildReadyQueue(relevantCards);
   }
@@ -342,7 +477,11 @@ export class Runtime extends EventEmitter {
     let plannerDone = false;
     const MAX_ITERATIONS = 50; // safety limit to prevent infinite loops
 
-    for (let iter = 0; iter < MAX_ITERATIONS && !plannerDone && !this._shuttingDown; iter++) {
+    for (
+      let iter = 0;
+      iter < MAX_ITERATIONS && !plannerDone && !this._shuttingDown;
+      iter++
+    ) {
       if (this._paused) {
         this.emit('dispatch_blocked', { reason: 'paused', goalId });
         updateRuntimeState(this.projectRoot, { status: 'paused' });
@@ -394,12 +533,18 @@ export class Runtime extends EventEmitter {
             current_agent_session_id: null,
             queue: [],
           });
-          this.emit('goal_completed', { goalId, assessment: reviewResult.assessment });
+          this.emit('goal_completed', {
+            goalId,
+            assessment: reviewResult.assessment,
+          });
           return;
         } else {
           // Review failed — re-invoke planner
           plannerDone = false;
-          this.emit('review_failed', { goalId, assessment: reviewResult.assessment });
+          this.emit('review_failed', {
+            goalId,
+            assessment: reviewResult.assessment,
+          });
         }
       }
     }
@@ -432,7 +577,12 @@ export class Runtime extends EventEmitter {
         try {
           execResult = this.fakeAgent.invokeExecutor(card.id, goalId);
         } catch (err) {
-          this.emit('error', { cardId: card.id, goalId, phase: 'executor', error: err });
+          this.emit('error', {
+            cardId: card.id,
+            goalId,
+            phase: 'executor',
+            error: err,
+          });
           this.cardStore.setStatus(card.id, 'failed');
           // Failed terminal card re-invokes parent planner
           this.emit('card_failed', { cardId: card.id, goalId });
@@ -445,6 +595,52 @@ export class Runtime extends EventEmitter {
           result: execResult.result ?? null,
           error: execResult.error ?? null,
         });
+
+        // Register artifacts from executor result
+        if (execResult.artifacts && execResult.artifacts.length > 0) {
+          for (const artDef of execResult.artifacts) {
+            try {
+              this.registerArtifactOnCard(
+                card.id,
+                {
+                  type: artDef.type,
+                  description: artDef.description,
+                  retain: artDef.retain,
+                },
+                artDef.sourceFile,
+              );
+            } catch (err) {
+              this.emit('error', {
+                cardId: card.id,
+                phase: 'artifact_registration',
+                error: err,
+              });
+            }
+          }
+        }
+
+        // Register attachments from executor result
+        if (execResult.attachments && execResult.attachments.length > 0) {
+          for (const attDef of execResult.attachments) {
+            try {
+              this.registerAttachmentOnCard(
+                card.id,
+                {
+                  mime: attDef.mime,
+                  title: attDef.title,
+                  description: attDef.description,
+                },
+                attDef.sourceFile,
+              );
+            } catch (err) {
+              this.emit('error', {
+                cardId: card.id,
+                phase: 'attachment_registration',
+                error: err,
+              });
+            }
+          }
+        }
 
         if (execResult.status === 'failed') {
           this.emit('card_failed', { cardId: card.id, goalId });
@@ -469,7 +665,10 @@ export class Runtime extends EventEmitter {
     assessment: ReviewAssessment;
   } {
     const result = this.fakeAgent.invokeReviewer(goalId);
-    this.emit('review_complete', { goalId, assessment: result.assessment });
+    this.emit('review_complete', {
+      goalId,
+      assessment: result.assessment,
+    });
     return result;
   }
 
@@ -533,9 +732,11 @@ export class Runtime extends EventEmitter {
     if (plannerResult.updated_cards) {
       for (const update of plannerResult.updated_cards) {
         const changes: Partial<CardRecord> = {};
-        if (update.status !== undefined) changes.status = update.status as CardRecord['status'];
+        if (update.status !== undefined)
+          changes.status = update.status as CardRecord['status'];
         if (update.title !== undefined) changes.title = update.title;
-        if (update.description !== undefined) changes.description = update.description;
+        if (update.description !== undefined)
+          changes.description = update.description;
         this.cardStore.update(update.id, changes);
       }
     }
@@ -556,6 +757,22 @@ export class Runtime extends EventEmitter {
     }
     this._running = false;
     // Note: lock is intentionally NOT released (simulates a crash)
+  }
+
+  // ── Cleanup ────────────────────────────────────────────────
+
+  /**
+   * Run safe cleanup operations. Convenience wrapper around the
+   * cleanup module. Never removes retained artifacts, attachments,
+   * download reviews, or quarantine metadata.
+   */
+  runCleanup(options?: {
+    stashMaxAgeMs?: number;
+    processMaxAgeMs?: number;
+    previewsMaxAgeMs?: number;
+    uploadsMaxAgeMs?: number;
+  }) {
+    return cleanAll(saivageWorkDir(this.projectRoot), this.cardStore, options);
   }
 
   // ── Utility ────────────────────────────────────────────────
