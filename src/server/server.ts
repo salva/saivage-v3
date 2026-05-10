@@ -4,7 +4,7 @@
  * Provides:
  *  - Fastify instance creation with logger, CORS, static files
  *  - Auth plugin registration
- *  - /health endpoint (no auth)
+ *  - /health endpoint (no auth, reads actual runtime state)
  *  - All route registrations (cards, runtime/config/notes, chats/files/debug)
  *  - WebSocket endpoint registration
  *  - MCP server manager lifecycle
@@ -54,7 +54,19 @@ export interface ServerInstance {
 
 function registerHealth(fastify: FastifyInstance, _saivageConfig: SaivageConfig): void {
   fastify.get('/health', async (_request, _reply) => {
-    const runtimeStatus = 'idle'; // Will be wired to actual runtime later
+    let runtimeStatus = 'unknown';
+
+    // Read actual runtime state from .saivage/runtime/state.json
+    try {
+      const { readRuntimeState } = await import('../utils/runtime-state.js');
+      const state = readRuntimeState(process.cwd());
+      if (state) {
+        runtimeStatus = state.status;
+      }
+    } catch {
+      // File doesn't exist or can't be read — leave as 'unknown'
+    }
+
     return {
       status: 'ok',
       version: '0.1.0',

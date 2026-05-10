@@ -126,9 +126,19 @@ beforeAll(async () => {
   registerChatsFilesDebugRoutes(app, TEST_ROOT);
   registerWebSocket(app, TEST_ROOT);
 
-  // Health
+  // Health — uses the real registerHealth pattern: reads runtime state from disk
+  const { readRuntimeState } = await import('../src/utils/runtime-state.js');
   app.get('/health', async (_req, reply) => {
-    return reply.send({ status: 'ok', version: '0.1.0', project: 'test', runtime: 'idle' });
+    let runtimeStatus = 'unknown';
+    try {
+      const state = readRuntimeState(TEST_ROOT);
+      if (state) {
+        runtimeStatus = state.status;
+      }
+    } catch {
+      // leave as 'unknown'
+    }
+    return reply.send({ status: 'ok', version: '0.1.0', project: 'test', runtime: runtimeStatus });
   });
 
   await app.listen({ port: 0, host: '127.0.0.1' });
@@ -157,7 +167,17 @@ describe('/health endpoint', () => {
     const body = await res.json() as Record<string, unknown>;
     expect(body.status).toBe('ok');
     expect(body.version).toBe('0.1.0');
-    expect(body.runtime).toBeDefined();
+    const validRuntimeStatuses = ['idle', 'running', 'paused', 'error', 'unknown'];
+    expect(validRuntimeStatuses).toContain(body.runtime);
+  });
+
+  it('returns runtime value from actual state file', async () => {
+    // The test setup writes 'idle' to .saivage/runtime/state.json
+    const res = await fetch(url('/health'));
+    expect(res.status).toBe(200);
+    const body = await res.json() as Record<string, unknown>;
+    // With the state file present and containing status: 'idle', we should get 'idle'
+    expect(body.runtime).toBe('idle');
   });
 
   it('returns status with auth header (still works)', async () => {
