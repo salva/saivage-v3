@@ -15,11 +15,7 @@ function now(): string {
  * within a card's existing refs. ID format: '{prefix}-{cardId}-{seq}'
  * where seq is 1-based.
  */
-function nextSeq(
-  cardId: string,
-  prefix: 'art' | 'att',
-  existingIds: string[],
-): number {
+function nextSeq(cardId: string, prefix: 'art' | 'att', existingIds: string[]): number {
   const pattern = new RegExp(`^${prefix}-${escapeRegex(cardId)}-(\\d+)$`);
   const maxSeq = existingIds
     .map((id) => {
@@ -34,11 +30,7 @@ function escapeRegex(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
-function targetDir(
-  saivageWorkDir: string,
-  cardId: string,
-  subdir: string,
-): string {
+function targetDir(saivageWorkDir: string, cardId: string, subdir: string): string {
   const dir = join(saivageWorkDir, 'cards', cardId, subdir);
   mkdirSync(dir, { recursive: true });
   return dir;
@@ -230,10 +222,7 @@ export function getArtifactsByRetention(
  * @param cardId - Card ID
  * @returns Array of AttachmentRef (empty array if card not found or no attachments)
  */
-export function getAttachments(
-  store: CardStore,
-  cardId: string,
-): AttachmentRef[] {
+export function getAttachments(store: CardStore, cardId: string): AttachmentRef[] {
   const card = store.read(cardId);
   if (!card) {
     throw new Error(`Card '${cardId}' not found.`);
@@ -327,9 +316,7 @@ export function removeAttachment(
   }
 
   // Remove from card's attachments array
-  const updatedAttachments = card.attachments.filter(
-    (a) => a.id !== attachmentId,
-  );
+  const updatedAttachments = card.attachments.filter((a) => a.id !== attachmentId);
   store.update(cardId, { attachments: updatedAttachments });
 
   return true;

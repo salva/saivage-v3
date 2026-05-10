@@ -4,3 +4,7 @@ export * from './card-store.js';
 export * from './notes.js';
 export * from './diary.js';
 export * from './artifacts.js';
+export * from './runtime-state.js';
+export * from './runtime-lock.js';
+export * from './fake-agent.js';
+export * from './runtime.js';
