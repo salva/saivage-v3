@@ -71,7 +71,10 @@ export const cardRecordSchema = z.object({
   related: z.array(z.string()),
   acceptance: z.string(),
   result: z.record(z.string(), z.unknown()).nullable().optional(),
-  metrics: z.record(z.string(), z.union([z.number(), z.string(), z.boolean(), z.null()])).nullable().optional(),
+  metrics: z
+    .record(z.string(), z.union([z.number(), z.string(), z.boolean(), z.null()]))
+    .nullable()
+    .optional(),
   artifacts: z.array(artifactRefSchema),
   attachments: z.array(attachmentRefSchema),
   estimate: z.string().nullable().optional(),
@@ -149,12 +152,7 @@ export const noteAuthorSchema = z.enum([
   'runtime',
 ]);
 
-export const noteKindSchema = z.enum([
-  'comment',
-  'progress',
-  'directive',
-  'escalation',
-]);
+export const noteKindSchema = z.enum(['comment', 'progress', 'directive', 'escalation']);
 
 export const noteRecordSchema = z.object({
   id: z.string().min(1),
@@ -169,12 +167,7 @@ export const noteRecordSchema = z.object({
 
 // ── Process ──────────────────────────────────────────────────
 
-export const processStatusSchema = z.enum([
-  'running',
-  'exited',
-  'failed',
-  'killed',
-]);
+export const processStatusSchema = z.enum(['running', 'exited', 'failed', 'killed']);
 
 export const processRecordSchema = z.object({
   id: z.string().min(1),
@@ -248,12 +241,7 @@ export const agentMessageSchema = z.object({
 
 // ── Runtime State ────────────────────────────────────────────
 
-export const runtimeStatusSchema = z.enum([
-  'idle',
-  'running',
-  'paused',
-  'error',
-]);
+export const runtimeStatusSchema = z.enum(['idle', 'running', 'paused', 'error']);
 
 export const runtimeStateSchema = z.object({
   status: runtimeStatusSchema,

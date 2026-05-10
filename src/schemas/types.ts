@@ -134,13 +134,7 @@ export interface ReviewAssessment {
 
 // ── Notes ────────────────────────────────────────────────────
 
-export type NoteAuthor =
-  | 'user'
-  | 'analyst'
-  | 'planner'
-  | 'executor'
-  | 'reviewer'
-  | 'runtime';
+export type NoteAuthor = 'user' | 'analyst' | 'planner' | 'executor' | 'reviewer' | 'runtime';
 
 export type NoteKind = 'comment' | 'progress' | 'directive' | 'escalation';
 
@@ -178,12 +172,7 @@ export interface ProcessRecord {
 
 // ── Agent Session & Messages ─────────────────────────────────
 
-export type AgentRole =
-  | 'analyst'
-  | 'planner'
-  | 'executor'
-  | 'reviewer'
-  | 'content_supervisor';
+export type AgentRole = 'analyst' | 'planner' | 'executor' | 'reviewer' | 'content_supervisor';
 
 export type SessionStatus = 'active' | 'done' | 'failed';
 
@@ -247,13 +236,7 @@ export interface RuntimeState {
 
 // ── Content Supervision ──────────────────────────────────────
 
-export type SourceKind =
-  | 'command_output'
-  | 'file'
-  | 'download'
-  | 'web'
-  | 'api'
-  | 'tool';
+export type SourceKind = 'command_output' | 'file' | 'download' | 'web' | 'api' | 'tool';
 
 export type ReviewStatus = 'passed' | 'blocked' | 'sanitized';
 

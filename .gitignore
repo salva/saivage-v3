@@ -1,2 +1,5 @@
 .saivage/
 .saivage-work/
+node_modules/
+package-lock.json
+dist/
