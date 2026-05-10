@@ -1,5 +1,13 @@
-import { openSync, writeSync, closeSync, readFileSync, existsSync, unlinkSync } from 'node:fs';
-import { join } from 'node:path';
+import {
+  openSync,
+  writeSync,
+  closeSync,
+  readFileSync,
+  existsSync,
+  unlinkSync,
+  mkdirSync,
+} from 'node:fs';
+import { join, dirname } from 'node:path';
 import { constants } from 'node:fs';
 
 // ── Types ─────────────────────────────────────────────────────
@@ -68,6 +76,9 @@ function isPidAlive(pid: number): boolean {
 export function acquireLock(projectRoot: string, config?: LockConfig): LockPayload {
   const lp = lockPath(projectRoot, config);
 
+  // Ensure parent directory exists before attempting O_EXCL
+  mkdirSync(dirname(lp), { recursive: true });
+
   // First, try to acquire directly with O_EXCL
   try {
     const payload: LockPayload = {
@@ -121,6 +132,8 @@ export function acquireLock(projectRoot: string, config?: LockConfig): LockPaylo
  */
 export function releaseLock(projectRoot: string, config?: LockConfig): void {
   const lp = lockPath(projectRoot, config);
+  // Gracefully handle missing parent directory
+  if (!existsSync(dirname(lp))) return;
   if (existsSync(lp)) {
     unlinkSync(lp);
   }
@@ -135,6 +148,8 @@ export function releaseLock(projectRoot: string, config?: LockConfig): void {
  */
 export function isLocked(projectRoot: string, config?: LockConfig): boolean {
   const lp = lockPath(projectRoot, config);
+  // If parent directory doesn't exist, lock can't exist
+  if (!existsSync(dirname(lp))) return false;
   if (!existsSync(lp)) {
     return false;
   }
@@ -168,6 +183,8 @@ export function isLocked(projectRoot: string, config?: LockConfig): boolean {
  */
 export function removeStaleLock(projectRoot: string, config?: LockConfig): void {
   const lp = lockPath(projectRoot, config);
+  // Gracefully handle missing parent directory
+  if (!existsSync(dirname(lp))) return;
   if (!existsSync(lp)) {
     return;
   }

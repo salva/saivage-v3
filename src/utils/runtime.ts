@@ -1,15 +1,25 @@
 import { EventEmitter } from 'node:events';
 import { join } from 'node:path';
 import { existsSync, rmSync, readdirSync, statSync } from 'node:fs';
-import type { CardRecord, RuntimeState, ReviewAssessment } from '../schemas/types.js';
+import type {
+  CardRecord,
+  RuntimeState,
+  ReviewAssessment,
+  RuntimeStatus as RStatus,
+} from '../schemas/types.js';
 import { CardStore } from './card-store.js';
-import { initRuntimeState, readRuntimeState, saveRuntimeState } from './runtime-state.js';
+import {
+  initRuntimeState,
+  readRuntimeState,
+  saveRuntimeState,
+  updateRuntimeState,
+} from './runtime-state.js';
 import { acquireLock, releaseLock } from './runtime-lock.js';
 import { FakeAgentAdapter, type FakeAgentConfig } from './fake-agent.js';
 
 // ── Types ─────────────────────────────────────────────────────
 
-export type RuntimeStatus = 'idle' | 'running' | 'paused' | 'error';
+export type RuntimeStatus = RStatus;
 
 export interface RuntimeConfig {
   projectRoot: string;
@@ -185,34 +195,36 @@ export class Runtime extends EventEmitter {
 
   /**
    * Global pause: stops new dispatch. Does not kill running processes.
+   * Persists pause state to disk so it survives restart.
    */
   pause(): void {
     this._paused = true;
-    const state = readRuntimeState(this.projectRoot);
-    if (state) {
-      saveRuntimeState(this.projectRoot, {
-        ...state,
+    try {
+      updateRuntimeState(this.projectRoot, {
+        status: 'paused',
         paused: true,
         paused_at: now(),
-        updated_at: now(),
       });
+    } catch {
+      // best effort
     }
     this.emit('paused');
   }
 
   /**
    * Global resume: restores dispatch from current queue position.
+   * Persists resume state to disk.
    */
   resume(): void {
     this._paused = false;
-    const state = readRuntimeState(this.projectRoot);
-    if (state) {
-      saveRuntimeState(this.projectRoot, {
-        ...state,
+    try {
+      updateRuntimeState(this.projectRoot, {
+        status: 'idle',
         paused: false,
         paused_at: null,
-        updated_at: now(),
       });
+    } catch {
+      // best effort
     }
     this.emit('resumed');
   }
@@ -299,6 +311,9 @@ export class Runtime extends EventEmitter {
    * This is the main dispatch method. It simulates the full lifecycle
    * using fake agents.
    *
+   * Runtime state is persisted at key transitions so crash recovery
+   * can resume from the last known point.
+   *
    * @param goalId - The goal (or project) card ID to process.
    */
   async dispatchGoal(goalId: string): Promise<void> {
@@ -312,6 +327,12 @@ export class Runtime extends EventEmitter {
     try {
       const result = this.cardStore.activateGoal(goalId);
       planCard = result.plan;
+      // Persist: goal active, dispatch running
+      updateRuntimeState(this.projectRoot, {
+        status: 'running',
+        current_card_id: goalId,
+        queue: this.getReadyQueue(goalId).map((c) => c.id),
+      });
     } catch (err) {
       this.emit('error', { goalId, phase: 'activate', error: err });
       return;
@@ -324,6 +345,7 @@ export class Runtime extends EventEmitter {
     for (let iter = 0; iter < MAX_ITERATIONS && !plannerDone && !this._shuttingDown; iter++) {
       if (this._paused) {
         this.emit('dispatch_blocked', { reason: 'paused', goalId });
+        updateRuntimeState(this.projectRoot, { status: 'paused' });
         return;
       }
 
@@ -338,6 +360,12 @@ export class Runtime extends EventEmitter {
 
       // Apply planner's card mutations
       this.applyPlannerResult(goalId, plannerResult);
+
+      // Persist updated queue after planner mutations
+      updateRuntimeState(this.projectRoot, {
+        current_agent_session_id: `planner-${goalId}-${iter}`,
+        queue: this.getReadyQueue(goalId).map((c) => c.id),
+      });
 
       if (plannerResult.declare_done) {
         plannerDone = true;
@@ -359,6 +387,13 @@ export class Runtime extends EventEmitter {
         if (reviewResult.assessment.result === 'pass') {
           // Goal done!
           this.cardStore.setStatus(goalId, 'done');
+          // Persist final state
+          updateRuntimeState(this.projectRoot, {
+            status: 'idle',
+            current_card_id: null,
+            current_agent_session_id: null,
+            queue: [],
+          });
           this.emit('goal_completed', { goalId, assessment: reviewResult.assessment });
           return;
         } else {
@@ -388,6 +423,9 @@ export class Runtime extends EventEmitter {
 
         // Set card to running
         this.cardStore.setStatus(card.id, 'running');
+
+        // Persist current_card_id to track what's running
+        updateRuntimeState(this.projectRoot, { current_card_id: card.id });
 
         // Invoke executor
         let execResult;
@@ -439,6 +477,10 @@ export class Runtime extends EventEmitter {
 
   /**
    * Apply planner-requested card mutations: create cards, update cards.
+   *
+   * Note: cardStore.create() recomputes depth from the parent internally,
+   * so the depth: 0 here is overwritten — kept only for TypeScript compatibility
+   * with the Omit<CardRecord, 'created_at' | 'updated_at' | 'id'> type.
    */
   applyPlannerResult(
     goalId: string,
@@ -482,7 +524,7 @@ export class Runtime extends EventEmitter {
           artifacts: [],
           attachments: [],
           retries: 0,
-          depth: 0,
+          depth: 0, // overwritten by cardStore.create() — kept for TS compatibility
         });
       }
     }
