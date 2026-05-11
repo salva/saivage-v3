@@ -381,6 +381,25 @@ export interface WsEnvelope {
   content: Record<string, unknown>;
 }
 
+// ── Freeze / Resume ───────────────────────────────────────────
+
+/** Response from POST /api/runtime/freeze. */
+export interface FreezeResponse {
+  status: string;
+  freeze_id: string;
+  reason: string;
+  created_at: string;
+}
+
+/** Response from POST /api/runtime/resume-from-freeze. */
+export interface ResumeFromFreezeResponse {
+  status: string;
+  freeze_id: string;
+  restored_queue: string[];
+  restored_processes: string[];
+  restored_card_id: string | null;
+}
+
 // ── API Response Wrappers ─────────────────────────────────────
 
 export interface CardListResponse {

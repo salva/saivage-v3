@@ -29,6 +29,8 @@ import type {
   DebugErrorsResponse,
   DebugTimelineResponse,
   McpToolsResponse,
+  FreezeResponse,
+  ResumeFromFreezeResponse,
 } from './types';
 import { getAuthToken } from './auth';
 
@@ -166,6 +168,16 @@ export function pauseRuntime(): Promise<{ status: string }> {
 
 export function resumeRuntime(): Promise<{ status: string }> {
   return request<{ status: string }>('POST', '/api/runtime/resume');
+}
+
+// ── Freeze / Resume from Freeze ───────────────────────────────
+
+export function freezeRuntime(reason?: string): Promise<FreezeResponse> {
+  return request<FreezeResponse>('POST', '/api/runtime/freeze', undefined, reason ? { reason } : {});
+}
+
+export function resumeRuntimeFromFreeze(): Promise<ResumeFromFreezeResponse> {
+  return request<ResumeFromFreezeResponse>('POST', '/api/runtime/resume-from-freeze');
 }
 
 // ── Agents ────────────────────────────────────────────────────
