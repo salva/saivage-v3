@@ -73,18 +73,21 @@ const STOP_TIMEOUT_MS = 5_000;
  * |--------------------|------------------------------|
  * | ` ```block``` `    | `<pre>block</pre>`           |
  * | `` `code` ``       | `<code>code</code>`          |
- * | `# Header`         | `<b>Header</b>`             |
  * | `**bold**`         | `<b>bold</b>`                |
  * | `*italic*`         | `<i>italic</i>`              |
  * | `~~strike~~`       | `<s>strike</s>`              |
  * | `[text](url)`      | `<a href=\"url\">text</a>`    |
+ * | `# Header`         | `<b>Header</b>`             |
  * | `- item`           | `• item`                     |
  *
  * Process order: code blocks first (to protect their content),
- * then inline code, then headings, then formatting, then links,
- * then list items. Headings are processed before formatting to
- * prevent double-escaping when a heading contains formatting
- * markers (e.g., `# **bold**`).
+ * then inline code, then formatting (bold, italic, strikethrough),
+ * then links, then headings, then list items. Headings are processed
+ * after all formatting steps because their content may already contain
+ * HTML produced by prior steps (e.g., `# **bold**` → bold step
+ * produces `<b>bold</b>` → heading wraps in `<b>` tags). Headings
+ * use a simple `<b>$1</b>` replacement without escaping — prior
+ * format steps already escape their own content.
  */
 export function convertMarkdownToHtml(markdown: string): string {
   if (!markdown) return '';
@@ -103,31 +106,22 @@ export function convertMarkdownToHtml(markdown: string): string {
     return `<code>${escapeHtmlEntities(content)}</code>`;
   });
 
-  // 3. Headings: # Header at start of line → <b>Header</b>
-  //    MUST come before bold/italic/strikethrough/links to prevent
-  //    double-escaping. A heading like '# **<x>**' would have its
-  //    content captured and escaped by the bold step if headings
-  //    were processed later, causing double-escaping.
-  result = result.replace(/^#{1,6}\s+(.+)$/gm, (_match, content: string) => {
-    return `<b>${escapeHtmlEntities(content)}</b>`;
-  });
-
-  // 4. Bold: **text** → <b>text</b>
+  // 3. Bold: **text** → <b>text</b>
   result = result.replace(/\*\*(.+?)\*\*/g, (_match, content: string) => {
     return `<b>${escapeHtmlEntities(content)}</b>`;
   });
 
-  // 5. Italic: *text* → <i>text</i>  (but not inside words to avoid false positives)
+  // 4. Italic: *text* → <i>text</i>  (but not inside words to avoid false positives)
   result = result.replace(/(?<!\w)\*(.+?)\*(?!\w)/g, (_match, content: string) => {
     return `<i>${escapeHtmlEntities(content)}</i>`;
   });
 
-  // 6. Strikethrough: ~~text~~ → <s>text</s>
+  // 5. Strikethrough: ~~text~~ → <s>text</s>
   result = result.replace(/~~(.+?)~~/g, (_match, content: string) => {
     return `<s>${escapeHtmlEntities(content)}</s>`;
   });
 
-  // 7. Links: [text](url) → <a href="url">text</a>
+  // 6. Links: [text](url) → <a href="url">text</a>
   //    Escape both link text and URL to prevent HTML injection.
   result = result.replace(
     /\[([^\]]+)\]\(([^)]+)\)/g,
@@ -135,6 +129,14 @@ export function convertMarkdownToHtml(markdown: string): string {
       return `<a href="${escapeHtmlEntities(url)}">${escapeHtmlEntities(text)}</a>`;
     },
   );
+
+  // 7. Headings: # Header at start of line → <b>Header</b>
+  //    Processed AFTER all formatting steps because heading content may
+  //    already contain HTML from prior steps. No escaping is applied here
+  //    — prior format steps (bold, italic, strikethrough, links) already
+  //    escape their own content. Raw text in headings that wasn't matched
+  //    by prior steps is plain text and safe without additional escaping.
+  result = result.replace(/^#{1,6}\s+(.+)$/gm, '<b>$1</b>');
 
   // 8. Unordered list items: "- item" at start of line → "• item"
   result = result.replace(/^(\s*)-(\s+)/gm, '$1•$2');
