@@ -2,6 +2,7 @@ import { EventEmitter } from 'node:events';
 import { join } from 'node:path';
 import { existsSync, rmSync, readdirSync, readFileSync } from 'node:fs';
 import type {
+  FreezeManifest,
   CardRecord,
   RuntimeState,
   RuntimeStatus as RStatus,
@@ -15,6 +16,11 @@ import {
   saveRuntimeState,
   updateRuntimeState,
 } from './runtime-state.js';
+import {
+  saveFreezeManifest,
+  readFreezeManifest,
+  clearFreezeManifest,
+} from './freeze-manifest.js';
 import { acquireLock, releaseLock } from './runtime-lock.js';
 import { FakeAgentAdapter, type FakeAgentConfig } from './fake-agent.js';
 import type { AgentRuntime } from '../agents/agent-runtime.js';
@@ -148,6 +154,8 @@ const TRACKED_EVENT_KINDS: ReadonlySet<string> = new Set([
   'shutdown',
   'paused',
   'resumed',
+  'frozen',
+  'resumed_from_freeze',
   'goal_completed',
   'goal_failed',
   'escalation',
@@ -541,6 +549,24 @@ export class Runtime extends EventEmitter {
   async shutdown(): Promise<void> {
     if (!this._running) return;
 
+    // When frozen, release lock and skip cleanup — the freeze manifest
+    // preserves state for resume after upgrade.
+    if (this._status === 'frozen') {
+      try { releaseLock(this.projectRoot); } catch { /* best effort */ }
+      this._running = false;
+      this._shuttingDown = false;
+      this._status = 'idle';
+      this.emit('shutdown');
+      this._eventLogger.appendEvent({ kind: 'shutdown' });
+      if (this._ownsEventLogger) {
+        this._eventLogger.close();
+      }
+      if (this._ownsErrorLogger) {
+        this._errorLogger.close();
+      }
+      return;
+    }
+
     this._shuttingDown = true;
     this._running = false;
 
@@ -646,6 +672,162 @@ export class Runtime extends EventEmitter {
     this.emit('resumed');
     this._eventLogger.appendEvent({ kind: 'resumed' });
   }
+  // ── Freeze / Resume from Freeze ───────────────────────────
+
+  /**
+   * Freeze the runtime: stops new dispatch and persists a freeze manifest.
+   *
+   * The freeze captures the current runtime state so it can be resumed later.
+   * Freezing while idle saves a manifest with empty state (no-op freeze).
+   * Freezing while already frozen is idempotent (returns existing manifest).
+   * Freezing while paused also works — it upgrades pause to freeze.
+   *
+   * @param reason - Optional human-readable reason for the freeze.
+   * @returns The FreezeManifest that was persisted.
+   */
+  freeze(reason?: string): FreezeManifest {
+    // If already frozen, return existing manifest (idempotent)
+    if (this._status === 'frozen') {
+      const existing = readFreezeManifest(this.projectRoot);
+      if (existing) {
+        return existing;
+      }
+      // Manifest was somehow missing — still proceed as a fresh freeze
+    }
+
+    // 1. Stop new dispatch by setting status to frozen
+    this._status = 'frozen';
+    this._paused = true; // frozen implies paused (no dispatch)
+
+    // 2. Build freeze manifest from current state
+    const state = readRuntimeState(this.projectRoot);
+    const frozenAt = new Date();
+    const freezeId = `freeze-${frozenAt.toISOString().replace(/[:.]/g, '-')}`;
+
+    const manifest: FreezeManifest = {
+      freeze_id: freezeId,
+      reason: reason ?? 'operator requested freeze',
+      created_at: frozenAt.toISOString(),
+      status: 'frozen',
+      project_id: 'project',
+      pid: process.pid,
+      started_at: state?.started_at ?? frozenAt.toISOString(),
+      current_card_id: state?.current_card_id ?? null,
+      current_agent_session_id: state?.current_agent_session_id ?? null,
+      queue: state?.queue ?? [],
+      running_processes: state?.running_processes ?? [],
+      schema_version: 1,
+      runtime_version: '0.1.0',
+    };
+
+    // 3. Persist the freeze manifest
+    saveFreezeManifest(this.projectRoot, manifest);
+
+    // 4. Persist the updated runtime state (status = frozen)
+    try {
+      saveRuntimeState(this.projectRoot, {
+        status: 'frozen',
+        project_id: 'project',
+        pid: process.pid,
+        started_at: state?.started_at ?? frozenAt.toISOString(),
+        current_card_id: state?.current_card_id ?? null,
+        current_agent_session_id: state?.current_agent_session_id ?? null,
+        paused: true,
+        paused_at: frozenAt.toISOString(),
+        queue: state?.queue ?? [],
+        running_processes: state?.running_processes ?? [],
+        updated_at: frozenAt.toISOString(),
+      });
+    } catch {
+      // Best effort
+    }
+
+    // 5. Emit freeze event (for EventBus forwarding)
+    this.emit('frozen', { freeze_id: manifest.freeze_id, reason: manifest.reason });
+    this._eventLogger.appendEvent({ kind: 'frozen' as never });
+
+    return manifest;
+  }
+
+  /**
+   * Resume from a saved freeze manifest.
+   *
+   * Reads the freeze manifest, validates compatibility, restores runtime
+   * state, and clears the manifest on success.
+   *
+   * @returns An object describing what was restored.
+   * @throws If there is no freeze manifest to resume from.
+   */
+  resumeFromFreeze(): { freeze_id: string; restored_queue: string[]; restored_processes: string[]; restored_card_id: string | null } {
+    // 1. Check that a freeze manifest exists
+    const manifest = readFreezeManifest(this.projectRoot);
+    if (!manifest) {
+      throw new Error('Cannot resume: no freeze manifest found. The runtime is not frozen.');
+    }
+
+    // 2. Validate compatibility
+    // Check schema version compatibility (schema_version 1 is always compatible)
+    if (manifest.schema_version > 1) {
+      throw new Error(
+        `Cannot resume: freeze manifest schema version ${manifest.schema_version} is newer ` +
+        `than the supported version 1. Upgrade Saivage to resume this freeze.`
+      );
+    }
+
+    // Check runtime version (allow same major version)
+    const currentVersion = '0.1.0';
+    if (manifest.runtime_version !== currentVersion) {
+      // For now, warn but allow. In production, add a version compatibility check.
+      console.warn(
+        `Resuming from freeze created by runtime version ${manifest.runtime_version} ` +
+        `with current version ${currentVersion}. State may differ.`
+      );
+    }
+
+    // 3. Restore state from manifest
+    this._status = 'idle';
+    this._paused = false;
+
+    // Restore runtime state on disk
+    try {
+      saveRuntimeState(this.projectRoot, {
+        status: 'idle',
+        project_id: 'project',
+        pid: process.pid,
+        started_at: manifest.started_at,
+        current_card_id: manifest.current_card_id,
+        current_agent_session_id: manifest.current_agent_session_id,
+        paused: false,
+        paused_at: null,
+        queue: manifest.queue,
+        running_processes: manifest.running_processes,
+        updated_at: new Date().toISOString(),
+      });
+    } catch {
+      // Best effort
+    }
+
+    // 4. Restore in-memory process tracking
+    this.runningProcesses.clear();
+    for (const procId of manifest.running_processes) {
+      this.runningProcesses.add(procId);
+    }
+
+    // 5. Clear the manifest (resume is a one-time operation)
+    clearFreezeManifest(this.projectRoot);
+
+    // 6. Emit resume event
+    this.emit('resumed_from_freeze', { freeze_id: manifest.freeze_id });
+    this._eventLogger.appendEvent({ kind: 'resumed_from_freeze' as never });
+
+    return {
+      freeze_id: manifest.freeze_id,
+      restored_queue: manifest.queue,
+      restored_processes: manifest.running_processes,
+      restored_card_id: manifest.current_card_id,
+    };
+  }
+
 
   /**
    * Bridge method that forwards agent events (session_started, model_selected,
