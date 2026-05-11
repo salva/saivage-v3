@@ -165,6 +165,7 @@ describe('recoveryOptionsFromConfig', () => {
       maxCompactions: 3,
       compactionTimeoutMs: 1200000,
       compactionKeepFraction: 0.2,
+      selfCheck: { executor: 15, planner: 30, analyst: 0 },
     };
 
     const opts = recoveryOptionsFromConfig(runtimeConfig);
@@ -185,6 +186,7 @@ describe('recoveryOptionsFromConfig', () => {
       maxCompactions: 3,
       compactionTimeoutMs: 1200000,
       compactionKeepFraction: 0.2,
+      selfCheck: { executor: 15, planner: 30, analyst: 0 },
     };
 
     const opts = recoveryOptionsFromConfig(runtimeConfig, {

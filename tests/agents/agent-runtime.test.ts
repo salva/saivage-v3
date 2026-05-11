@@ -50,6 +50,7 @@ function writeMinimalConfig(tmpDir: string): void {
       compactionTimeoutMs: 1200000,
       compactionKeepFraction: 0.2,
       maxRecoveryRetries: 3,
+      selfCheck: { executor: 15, planner: 30, analyst: 0 },
     },
     security: {
       injectionScanner: true,

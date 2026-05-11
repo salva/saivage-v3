@@ -148,6 +148,13 @@ const serverSectionSchema = z.object({
   host: z.string().default('0.0.0.0'),
 });
 
+// Self-check configuration for the self-check mechanism
+const selfCheckSchema = z.object({
+  executor: z.number().int().nonnegative().default(15),
+  planner: z.number().int().nonnegative().default(30),
+  analyst: z.number().int().nonnegative().default(0),
+});
+
 // Runtime section
 const runtimeSectionSchema = z.object({
   recoverAgentInvocations: z.boolean().default(true),
@@ -163,6 +170,8 @@ const runtimeSectionSchema = z.object({
   compactionKeepFraction: z.number().min(0).max(1).default(0.2),
   // Recovery defaults
   maxRecoveryRetries: z.number().int().nonnegative().default(3),
+  // Self-check configuration
+  selfCheck: selfCheckSchema.default({}),
 });
 
 // Security section
@@ -233,6 +242,7 @@ export type ProviderEntry = z.infer<typeof providerEntrySchema>;
 export type ProviderAccount = z.infer<typeof providerAccountSchema>;
 export type RuntimeSection = z.infer<typeof runtimeSectionSchema>;
 export type ModelsSection = z.infer<typeof modelsSectionSchema>;
+export type SelfCheckConfig = z.infer<typeof selfCheckSchema>;
 
 // ── Model Params ──────────────────────────────────────────────
 
@@ -348,4 +358,17 @@ export function getModelListForRole(
  */
 export function getRuntimeConfig(config: SaivageConfig): RuntimeSection {
   return config.runtime;
+}
+
+/**
+ * Get the self-check round threshold for a role.
+ * Returns 0 (never) for unknown roles.
+ */
+export function getSelfCheckThreshold(
+  config: SaivageConfig,
+  role: string,
+): number {
+  const sc = config.runtime.selfCheck;
+  if (!sc) return 0;
+  return (sc as Record<string, number | undefined>)[role] ?? 0;
 }
