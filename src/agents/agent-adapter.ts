@@ -9,7 +9,7 @@
 
 import { EventEmitter } from 'node:events';
 import type { SaivageConfig, RuntimeSection } from './config-schema.js';
-import { loadConfig, getRuntimeConfig } from './config-schema.js';
+import { loadConfig, getRuntimeConfig, getModelParamsForRole } from './config-schema.js';
 import { ProviderRegistry, type Candidate } from './provider.js';
 import { ModelRouter } from './model-router.js';
 import {
@@ -34,6 +34,7 @@ import type { ContentSupervisor } from '../utils/content-supervisor.js';
 import { getSafeFileForAgent, type SafeFileResult } from '../utils/file-access-security.js';
 import type { AgentRuntime } from './agent-runtime.js';
 import { LlmClient } from './llm-client.js';
+import type { LlmCompleteOptions } from './llm-client.js';
 
 // Re-export the common AgentRuntime interface for consumers that
 // need to reference it without importing agent-runtime.ts directly.
@@ -63,6 +64,7 @@ export type LlmCallFn = (
   systemPrompt: string,
   messages: AgentMessage[],
   sessionId: string,
+  opts?: LlmCompleteOptions,
 ) => Promise<string>;
 
 // ── Agent Adapter ─────────────────────────────────────────────
@@ -192,6 +194,9 @@ export class AgentAdapter implements AgentRuntime {
       throw new Error(`No healthy candidates available for role '${role}'.`);
     }
 
+    // Get model params (temperature, max_tokens) for this role
+    const modelParams = getModelParamsForRole(this.config, role);
+
     // Create session
     const session = createSession(
       this.saivageDir,
@@ -278,12 +283,13 @@ export class AgentAdapter implements AgentRuntime {
             );
           }
 
-          // Make the LLM call
+          // Make the LLM call with role-specific temperature and max_tokens
           const rawResponse = await this.llmCallFn!(
             candidate,
             systemPrompt,
             getSessionMessages(this.saivageDir, session.id),
             session.id,
+            { temperature: modelParams.temperature, max_tokens: modelParams.maxTokens },
           );
 
           // Record assistant response
@@ -377,6 +383,7 @@ export class AgentAdapter implements AgentRuntime {
       systemPrompt: string,
       messages: AgentMessage[],
       sessionId: string,
+      opts?: LlmCompleteOptions,
     ): Promise<string> => {
       // Resolve baseUrl and apiKey from provider registry
       const provider = registry.get(candidate.provider);
@@ -406,7 +413,7 @@ export class AgentAdapter implements AgentRuntime {
         clientCache.set(cacheKey, client);
       }
 
-      return client.complete(candidate, systemPrompt, messages, sessionId);
+      return client.complete(candidate, systemPrompt, messages, sessionId, opts);
     };
   }
 }
