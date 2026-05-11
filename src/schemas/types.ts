@@ -301,7 +301,8 @@ export type AgentEventKind =
   | 'invocation_succeeded'
   | 'invocation_failed'
   | 'retry_attempted'
-  | 'compaction_triggered';
+  | 'compaction_triggered'
+  | 'self_check_triggered';
 
 export type EventKind = RuntimeEventKind | AgentEventKind;
 
@@ -423,6 +424,15 @@ export interface CompactionTriggeredEvent extends BaseEvent {
   tokens_after: number;
 }
 
+export interface SelfCheckTriggeredEvent extends BaseEvent {
+  kind: 'self_check_triggered';
+  session_id: string;
+  role: AgentRole;
+  rounds: number;
+  threshold: number;
+  response?: string | null;
+}
+
 export type RuntimeEvent =
   | StartedEvent
   | GoalCompletedEvent
@@ -442,6 +452,7 @@ export type AgentEvent =
   | InvocationSucceededEvent
   | InvocationFailedEvent
   | RetryAttemptedEvent
-  | CompactionTriggeredEvent;
+  | CompactionTriggeredEvent
+  | SelfCheckTriggeredEvent;
 
 export type LoggedEvent = RuntimeEvent | AgentEvent;
