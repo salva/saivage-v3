@@ -82,6 +82,38 @@ const modelsSectionSchema = z.object({
   inspector: modelListSchema.optional(),
   chat: modelListSchema.optional(),
   default: modelListSchema.optional(),
+  // Per-role temperature (0..2)
+  temperature: z
+    .object({
+      planner: z.number().min(0).max(2).optional(),
+      executor: z.number().min(0).max(2).optional(),
+      reviewer: z.number().min(0).max(2).optional(),
+      analyst: z.number().min(0).max(2).optional(),
+      manager: z.number().min(0).max(2).optional(),
+      coder: z.number().min(0).max(2).optional(),
+      researcher: z.number().min(0).max(2).optional(),
+      data_agent: z.number().min(0).max(2).optional(),
+      inspector: z.number().min(0).max(2).optional(),
+      chat: z.number().min(0).max(2).optional(),
+      default: z.number().min(0).max(2).optional(),
+    })
+    .optional(),
+  // Per-role max_tokens
+  max_tokens: z
+    .object({
+      planner: z.number().int().positive().optional(),
+      executor: z.number().int().positive().optional(),
+      reviewer: z.number().int().positive().optional(),
+      analyst: z.number().int().positive().optional(),
+      manager: z.number().int().positive().optional(),
+      coder: z.number().int().positive().optional(),
+      researcher: z.number().int().positive().optional(),
+      data_agent: z.number().int().positive().optional(),
+      inspector: z.number().int().positive().optional(),
+      chat: z.number().int().positive().optional(),
+      default: z.number().int().positive().optional(),
+    })
+    .optional(),
   // Routing profiles
   profiles: z.record(z.string(), routingProfileSchema).optional(),
   routing: z.record(z.string(), z.string()).optional(),
@@ -201,6 +233,38 @@ export type ProviderEntry = z.infer<typeof providerEntrySchema>;
 export type ProviderAccount = z.infer<typeof providerAccountSchema>;
 export type RuntimeSection = z.infer<typeof runtimeSectionSchema>;
 export type ModelsSection = z.infer<typeof modelsSectionSchema>;
+
+// ── Model Params ──────────────────────────────────────────────
+
+export interface ModelParams {
+  temperature: number;
+  maxTokens: number;
+}
+
+/**
+ * Get temperature and max_tokens for a role using the fallback chain:
+ * role-specific → models.default → hardcoded defaults (0.7, 4096)
+ */
+export function getModelParamsForRole(
+  config: SaivageConfig,
+  role: string,
+): ModelParams {
+  const models = config.models;
+  const tempMap = models.temperature ?? {};
+  const tokensMap = models.max_tokens ?? {};
+
+  const temperature =
+    (tempMap as Record<string, number | undefined>)[role] ??
+    (tempMap as Record<string, number | undefined>)['default'] ??
+    0.7;
+
+  const maxTokens =
+    (tokensMap as Record<string, number | undefined>)[role] ??
+    (tokensMap as Record<string, number | undefined>)['default'] ??
+    4096;
+
+  return { temperature, maxTokens };
+}
 
 // ── Loading ───────────────────────────────────────────────────
 
