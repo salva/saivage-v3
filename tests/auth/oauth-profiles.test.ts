@@ -17,7 +17,7 @@
  * - Both field formats coexist in the same file
  */
 
-import { describe, it, expect, afterEach } from '@jest/globals';
+import { describe, it, expect, afterEach, beforeEach, jest } from '@jest/globals';
 import {
   mkdtempSync,
   writeFileSync,
@@ -111,6 +111,66 @@ function shorthandJson(profiles: Record<string, Record<string, unknown>>): strin
     profiles,
   };
   return JSON.stringify(obj, null, 2);
+}
+
+
+// ── Mock fetch helpers ────────────────────────────────────────
+
+/** Install a mock for globalThis.fetch. Returns the mock. */
+function mockFetch(
+  responseFactory: (url: string, init: RequestInit) => Response | Promise<Response>,
+): jest.Mock {
+  const mock = jest.fn((url: string, init: RequestInit) => {
+    return Promise.resolve(responseFactory(url, init));
+  }) as jest.Mock;
+  (globalThis as Record<string, unknown>).fetch = mock;
+  return mock;
+}
+
+/** Restore the original globalThis.fetch (if saved). */
+function restoreFetch(originalFetch: typeof globalThis.fetch): void {
+  (globalThis as Record<string, unknown>).fetch = originalFetch;
+}
+
+/** Build a standard OAuth2 token success response. */
+function oauthTokenResponse(overrides: Record<string, unknown> = {}): object {
+  return {
+    access_token: 'new-access-token-abc',
+    token_type: 'Bearer',
+    expires_in: 3600,
+    refresh_token: 'new-refresh-token-xyz',
+    scope: 'read write',
+    ...overrides,
+  };
+}
+
+/** Build a mock Response object (Node 18+ compatible). */
+function mockResponse(
+  body: unknown,
+  status: number = 200,
+  ok: boolean = true,
+  headers: Record<string, string> = { 'Content-Type': 'application/json' },
+): Response {
+  return {
+    ok,
+    status,
+    statusText: ok ? 'OK' : status === 400 ? 'Bad Request' : 'Internal Server Error',
+    headers: new Headers(headers),
+    json: () => Promise.resolve(body),
+    text: () => Promise.resolve(
+      typeof body === 'string' ? body : JSON.stringify(body),
+    ),
+    // Minimal stubs
+    arrayBuffer: () => Promise.resolve(new ArrayBuffer(0)),
+    blob: () => Promise.resolve(new Blob()),
+    formData: () => Promise.resolve(new FormData()),
+    clone: function () { return this; },
+    body: null,
+    bodyUsed: false,
+    redirected: false,
+    type: 'basic' as ResponseType,
+    url: '',
+  } as Response;
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -610,15 +670,23 @@ describe('isProfileExpired', () => {
 });
 
 // ═══════════════════════════════════════════════════════════════
-// refreshAuthProfile
-//
-// NOTE: These tests have been updated to match the new signature
-// (refreshAuthProfile now returns AuthProfile | null instead of
-// throwing). The real behavior (HTTP POST to token endpoint) will
-// be tested properly in the test update task (t5).
+// refreshAuthProfile — mock-based HTTP tests
 // ═══════════════════════════════════════════════════════════════
 
 describe('refreshAuthProfile', () => {
+  let originalFetch: typeof globalThis.fetch;
+
+  beforeEach(() => {
+    originalFetch = globalThis.fetch;
+  });
+
+  afterEach(() => {
+    (globalThis as Record<string, unknown>).fetch = originalFetch;
+    jest.restoreAllMocks();
+  });
+
+  // ── Graceful pre-flight failures (no HTTP call needed) ──────
+
   it('returns null when the profile does not exist', async () => {
     const root = makeProjectRoot();
     const result = await refreshAuthProfile(root, 'nonexistent');
@@ -651,7 +719,9 @@ describe('refreshAuthProfile', () => {
     expect(result).toBeNull();
   });
 
-  it('accepts optional tokenEndpoint parameter and returns null on fetch failure', async () => {
+  // ── Successful refresh ──────────────────────────────────────
+
+  it('POSTs to tokenEndpoint with correct URL, method, headers, and form-encoded body', async () => {
     const root = makeProjectRoot();
     const profile = makeValidProfile({
       provider: 'test',
@@ -661,10 +731,395 @@ describe('refreshAuthProfile', () => {
     const content = canonicalJson({ 'p1': profile });
     writeAuthProfiles(root, content);
 
-    // With a bogus endpoint, the fetch will fail (connection refused / not found)
-    // and refreshAuthProfile should return null rather than throw
-    const result = await refreshAuthProfile(root, 'p1', 'http://127.0.0.1:19999/oauth/token');
+    const fetchMock = mockFetch((_url, _init) => {
+      return mockResponse(oauthTokenResponse(), 200);
+    });
+
+    await refreshAuthProfile(root, 'p1', 'https://example.com/oauth/token');
+
+    // Verify fetch was called
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    const callUrl = fetchMock.mock.calls[0][0] as string;
+    const callInit = fetchMock.mock.calls[0][1] as RequestInit;
+
+    // URL
+    expect(callUrl).toBe('https://example.com/oauth/token');
+
+    // Method
+    expect(callInit.method).toBe('POST');
+
+    // Headers
+    expect(callInit.headers).toBeDefined();
+    const headers = callInit.headers as Record<string, string>;
+    expect(headers['Content-Type']).toBe('application/x-www-form-urlencoded');
+    expect(headers['Accept']).toBe('application/json');
+
+    // Body — should contain form-encoded grant_type and refresh_token
+    const body = callInit.body as string;
+    expect(body).toContain('grant_type=refresh_token');
+    expect(body).toContain('refresh_token=original-rt');
+  });
+
+  it('parses valid OAuth2 JSON response and reads access_token, refresh_token, expires_in', async () => {
+    const root = makeProjectRoot();
+    const profile = makeValidProfile({
+      provider: 'test',
+      accessToken: 'original-at',
+      refreshToken: 'original-rt',
+      expiresAt: Date.now() - 1000, // already expired
+    });
+    const content = canonicalJson({ 'p1': profile });
+    writeAuthProfiles(root, content);
+
+    const beforeRefresh = Date.now();
+
+    mockFetch((_url, _init) => {
+      return mockResponse(
+        oauthTokenResponse({
+          access_token: 'fresh-at-token',
+          refresh_token: 'fresh-rt-token',
+          expires_in: 7200,
+        }),
+        200,
+      );
+    });
+
+    const result = await refreshAuthProfile(
+      root, 'p1', 'https://example.com/oauth/token',
+    );
+
+    expect(result).not.toBeNull();
+    expect(result!.accessToken).toBe('fresh-at-token');
+    expect(result!.refreshToken).toBe('fresh-rt-token');
+    // expiresAt should be computed from Date.now() + expires_in * 1000
+    expect(result!.expiresAt).toBeDefined();
+    expect(result!.expiresAt!).toBeGreaterThanOrEqual(beforeRefresh + 7200 * 1000 - 5000);
+    expect(result!.expiresAt!).toBeLessThanOrEqual(Date.now() + 7200 * 1000 + 5000);
+  });
+
+  it('saves updated profile via saveAuthProfile() and persists to disk', async () => {
+    const root = makeProjectRoot();
+    const profile = makeValidProfile({
+      provider: 'test',
+      accessToken: 'original-at',
+      refreshToken: 'original-rt',
+      expiresAt: Date.now() - 1000,
+    });
+    const content = canonicalJson({ 'p1': profile });
+    writeAuthProfiles(root, content);
+
+    mockFetch((_url, _init) => {
+      return mockResponse(
+        oauthTokenResponse({
+          access_token: 'persisted-at',
+          refresh_token: 'persisted-rt',
+          expires_in: 1800,
+        }),
+        200,
+      );
+    });
+
+    const result = await refreshAuthProfile(
+      root, 'p1', 'https://example.com/oauth/token',
+    );
+
+    expect(result).not.toBeNull();
+
+    // Re-load from disk — should have the updated tokens
+    const reloaded = await getAuthProfile(root, 'p1');
+    expect(reloaded).not.toBeNull();
+    expect(reloaded!.accessToken).toBe('persisted-at');
+    expect(reloaded!.refreshToken).toBe('persisted-rt');
+    expect(reloaded!.expiresAt).toBeDefined();
+  });
+
+  it('sets expiresAt to Date.now() + expires_in * 1000 from response', async () => {
+    const root = makeProjectRoot();
+    const profile = makeValidProfile({
+      provider: 'test',
+      accessToken: 'original-at',
+      refreshToken: 'original-rt',
+    });
+    const content = canonicalJson({ 'p1': profile });
+    writeAuthProfiles(root, content);
+
+    const beforeCall = Date.now();
+
+    mockFetch((_url, _init) => {
+      return mockResponse(
+        oauthTokenResponse({
+          access_token: 'expiry-at',
+          expires_in: 900, // 15 minutes
+        }),
+        200,
+      );
+    });
+
+    const result = await refreshAuthProfile(
+      root, 'p1', 'https://example.com/oauth/token',
+    );
+
+    expect(result).not.toBeNull();
+    const expectedMin = beforeCall + 900 * 1000;
+    const expectedMax = Date.now() + 900 * 1000;
+    expect(result!.expiresAt!).toBeGreaterThanOrEqual(expectedMin - 2000); // allow 2s clock drift
+    expect(result!.expiresAt!).toBeLessThanOrEqual(expectedMax + 2000);
+  });
+
+  it('falls back to original refreshToken when response does not include refresh_token', async () => {
+    const root = makeProjectRoot();
+    const profile = makeValidProfile({
+      provider: 'test',
+      accessToken: 'original-at',
+      refreshToken: 'keep-this-rt',
+    });
+    const content = canonicalJson({ 'p1': profile });
+    writeAuthProfiles(root, content);
+
+    mockFetch((_url, _init) => {
+      return mockResponse(
+        { access_token: 'new-at', expires_in: 3600 },
+        // No refresh_token → original should be kept
+        200,
+      );
+    });
+
+    const result = await refreshAuthProfile(
+      root, 'p1', 'https://example.com/oauth/token',
+    );
+
+    expect(result).not.toBeNull();
+    expect(result!.accessToken).toBe('new-at');
+    expect(result!.refreshToken).toBe('keep-this-rt');
+  });
+
+  it('falls back to original expiresAt when response does not include expires_in', async () => {
+    const root = makeProjectRoot();
+    const originalExpiry = Date.now() + 999_000;
+    const profile = makeValidProfile({
+      provider: 'test',
+      accessToken: 'original-at',
+      refreshToken: 'original-rt',
+      expiresAt: originalExpiry,
+    });
+    const content = canonicalJson({ 'p1': profile });
+    writeAuthProfiles(root, content);
+
+    mockFetch((_url, _init) => {
+      return mockResponse(
+        { access_token: 'new-at' },
+        // No expires_in → original expiresAt should be kept
+        200,
+      );
+    });
+
+    const result = await refreshAuthProfile(
+      root, 'p1', 'https://example.com/oauth/token',
+    );
+
+    expect(result).not.toBeNull();
+    expect(result!.expiresAt).toBe(originalExpiry);
+  });
+
+  // ── Graceful failure on HTTP errors ─────────────────────────
+
+  it('returns null on HTTP 400 (invalid_grant) and logs error', async () => {
+    const root = makeProjectRoot();
+    const profile = makeValidProfile({
+      provider: 'test',
+      accessToken: 'original-at',
+      refreshToken: 'original-rt',
+    });
+    const content = canonicalJson({ 'p1': profile });
+    writeAuthProfiles(root, content);
+
+    const consoleSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+
+    mockFetch((_url, _init) => {
+      return mockResponse(
+        { error: 'invalid_grant', error_description: 'Token expired/revoked' },
+        400,
+        false,
+      );
+    });
+
+    const result = await refreshAuthProfile(
+      root, 'p1', 'https://example.com/oauth/token',
+    );
+
     expect(result).toBeNull();
+    expect(consoleSpy).toHaveBeenCalledWith(
+      expect.stringContaining('HTTP 400'),
+    );
+
+    consoleSpy.mockRestore();
+  });
+
+  it('returns null on HTTP 500 (server error) and logs error', async () => {
+    const root = makeProjectRoot();
+    const profile = makeValidProfile({
+      provider: 'test',
+      accessToken: 'original-at',
+      refreshToken: 'original-rt',
+    });
+    const content = canonicalJson({ 'p1': profile });
+    writeAuthProfiles(root, content);
+
+    const consoleSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+
+    mockFetch((_url, _init) => {
+      return mockResponse(
+        'Internal Server Error',
+        500,
+        false,
+        { 'Content-Type': 'text/plain' },
+      );
+    });
+
+    const result = await refreshAuthProfile(
+      root, 'p1', 'https://example.com/oauth/token',
+    );
+
+    expect(result).toBeNull();
+    expect(consoleSpy).toHaveBeenCalledWith(
+      expect.stringContaining('HTTP 500'),
+    );
+
+    consoleSpy.mockRestore();
+  });
+
+  it('returns null on network error (fetch throws) and logs error', async () => {
+    const root = makeProjectRoot();
+    const profile = makeValidProfile({
+      provider: 'test',
+      accessToken: 'original-at',
+      refreshToken: 'original-rt',
+    });
+    const content = canonicalJson({ 'p1': profile });
+    writeAuthProfiles(root, content);
+
+    const consoleSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+
+    mockFetch((_url, _init) => {
+      throw new Error('ECONNREFUSED');
+    });
+
+    const result = await refreshAuthProfile(
+      root, 'p1', 'https://example.com/oauth/token',
+    );
+
+    expect(result).toBeNull();
+    expect(consoleSpy).toHaveBeenCalledWith(
+      expect.stringContaining('ECONNREFUSED'),
+    );
+
+    consoleSpy.mockRestore();
+  });
+
+  it('returns null on non-JSON response and logs error', async () => {
+    const root = makeProjectRoot();
+    const profile = makeValidProfile({
+      provider: 'test',
+      accessToken: 'original-at',
+      refreshToken: 'original-rt',
+    });
+    const content = canonicalJson({ 'p1': profile });
+    writeAuthProfiles(root, content);
+
+    const consoleSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+
+    // response.json() throws (simulating non-JSON response)
+    mockFetch((_url, _init) => {
+      return {
+        ok: true,
+        status: 200,
+        statusText: 'OK',
+        headers: new Headers({ 'Content-Type': 'text/html' }),
+        json: () => Promise.reject(new Error('Unexpected token <')),
+        text: () => Promise.resolve('<html>nope</html>'),
+        arrayBuffer: () => Promise.resolve(new ArrayBuffer(0)),
+        blob: () => Promise.resolve(new Blob()),
+        formData: () => Promise.resolve(new FormData()),
+        clone: function () { return this; },
+        body: null,
+        bodyUsed: false,
+        redirected: false,
+        type: 'basic' as ResponseType,
+        url: '',
+      } as Response;
+    });
+
+    const result = await refreshAuthProfile(
+      root, 'p1', 'https://example.com/oauth/token',
+    );
+
+    expect(result).toBeNull();
+    expect(consoleSpy).toHaveBeenCalledWith(
+      expect.stringContaining('non-JSON'),
+    );
+
+    consoleSpy.mockRestore();
+  });
+
+  it('returns null when response JSON is missing access_token and logs error', async () => {
+    const root = makeProjectRoot();
+    const profile = makeValidProfile({
+      provider: 'test',
+      accessToken: 'original-at',
+      refreshToken: 'original-rt',
+    });
+    const content = canonicalJson({ 'p1': profile });
+    writeAuthProfiles(root, content);
+
+    const consoleSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+
+    mockFetch((_url, _init) => {
+      return mockResponse(
+        { refresh_token: 'rt-only', expires_in: 3600 },
+        // No access_token field — malformed response
+        200,
+      );
+    });
+
+    const result = await refreshAuthProfile(
+      root, 'p1', 'https://example.com/oauth/token',
+    );
+
+    expect(result).toBeNull();
+    expect(consoleSpy).toHaveBeenCalledWith(
+      expect.stringContaining('missing access_token'),
+    );
+
+    consoleSpy.mockRestore();
+  });
+
+  it('returns null on network error as rejected promise (fetch throws via rejection)', async () => {
+    const root = makeProjectRoot();
+    const profile = makeValidProfile({
+      provider: 'test',
+      accessToken: 'original-at',
+      refreshToken: 'original-rt',
+    });
+    const content = canonicalJson({ 'p1': profile });
+    writeAuthProfiles(root, content);
+
+    const consoleSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+
+    // fetch returns a rejected promise
+    (globalThis as Record<string, unknown>).fetch = () =>
+      Promise.reject(new Error('ETIMEDOUT'));
+
+    const result = await refreshAuthProfile(
+      root, 'p1', 'https://example.com/oauth/token',
+    );
+
+    expect(result).toBeNull();
+    expect(consoleSpy).toHaveBeenCalledWith(
+      expect.stringContaining('ETIMEDOUT'),
+    );
+
+    consoleSpy.mockRestore();
   });
 });
 
