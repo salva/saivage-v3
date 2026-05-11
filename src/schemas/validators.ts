@@ -291,3 +291,22 @@ export const quarantineItemSchema = z.object({
   reason: z.string(),
   created_at: z.string().datetime(),
 });
+
+// ── Skills ───────────────────────────────────────────────────
+
+export const triggerTypeSchema = z.enum(['keyword', 'tool', 'path', 'tag']);
+
+export const skillTriggerSchema = z.object({
+  type: triggerTypeSchema,
+  pattern: z.string().min(1),
+});
+
+export const skillIndexEntrySchema = z.object({
+  name: z.string().min(1),
+  file: z.string().min(1),
+  target_agents: z.array(agentRoleSchema),
+  triggers: z.array(skillTriggerSchema),
+  updated_at: z.string().datetime(),
+});
+
+export const skillIndexSchema = z.array(skillIndexEntrySchema);

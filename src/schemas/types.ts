@@ -261,3 +261,20 @@ export interface QuarantineItem {
   reason: string;
   created_at: string;
 }
+
+// ── Skills ───────────────────────────────────────────────────
+
+export type TriggerType = 'keyword' | 'tool' | 'path' | 'tag';
+
+export interface SkillTrigger {
+  type: TriggerType;
+  pattern: string;
+}
+
+export interface SkillIndexEntry {
+  name: string;
+  file: string;
+  target_agents: AgentRole[];
+  triggers: SkillTrigger[];
+  updated_at: string;
+}
