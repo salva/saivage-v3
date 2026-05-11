@@ -299,6 +299,45 @@ export interface DebugTimelineEvent {
   data?: Record<string, unknown>;
 }
 
+// ── MCP ───────────────────────────────────────────────────────
+
+/** Invocation statistics for a single tool. */
+export interface McpToolInvocationStats {
+  total: number;
+  success: number;
+  error: number;
+  lastInvokedAt?: string;
+}
+
+/** A tool with its invocation statistics for UI display. */
+export interface McpToolWithStats {
+  name: string;
+  description?: string;
+  inputSchema: {
+    type: 'object';
+    properties?: Record<string, object>;
+    required?: string[];
+  };
+  stats: McpToolInvocationStats;
+}
+
+/** A server with its tools and stats for UI display. */
+export interface McpServerWithTools {
+  name: string;
+  transport: string;
+  status: string;
+  toolCount: number;
+  tools: McpToolWithStats[];
+}
+
+/** Response from GET /api/mcp/tools. */
+export interface McpToolsResponse {
+  tools: any[];
+  servers: string[];
+  invocationStats: Record<string, McpToolInvocationStats>;
+  serverDetails: McpServerWithTools[];
+}
+
 // ── Chat ──────────────────────────────────────────────────────
 
 export interface ChatSession {

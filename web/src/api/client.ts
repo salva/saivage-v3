@@ -28,6 +28,7 @@ import type {
   DebugStateResponse,
   DebugErrorsResponse,
   DebugTimelineResponse,
+  McpToolsResponse,
 } from './types';
 import { getAuthToken } from './auth';
 
@@ -237,6 +238,12 @@ export function getDebugErrors(): Promise<DebugErrorsResponse> {
 
 export function getDebugTimeline(): Promise<DebugTimelineResponse> {
   return request<DebugTimelineResponse>('GET', '/api/debug/timeline');
+}
+
+// ── MCP ───────────────────────────────────────────────────────
+
+export function getMcpTools(): Promise<McpToolsResponse> {
+  return request<McpToolsResponse>('GET', '/api/mcp/tools');
 }
 
 export { ApiError };
