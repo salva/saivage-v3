@@ -7,6 +7,7 @@
  *  - /health endpoint (no auth, reads actual runtime state)
  *  - All route registrations (cards, runtime/config/notes, chats/files/debug, events)
  *  - Runtime dispatch/status routes (conditionally registered with ActiveRuntime)
+ *  - Freeze/resume routes (always registered, work with or without ActiveRuntime)
  *  - WebSocket endpoint registration
  *  - MCP server manager lifecycle
  *  - Telegram bot lifecycle
@@ -36,6 +37,12 @@ import { TelegramBot } from '../telegram/index.js';
 import { createNotificationRouter } from '../notifications/index.js';
 import type { NotificationRouter } from '../notifications/index.js';
 import { ActiveRuntime } from '../utils/active-runtime.js';
+import {
+  saveFreezeManifest,
+  readFreezeManifest,
+  clearFreezeManifest,
+} from '../utils/freeze-manifest.js';
+import type { FreezeManifest } from '../schemas/types.js';
 
 // ── Types ─────────────────────────────────────────────────────
 
@@ -174,23 +181,31 @@ export function getServerConfig(projectRoot: string): ServerConfig {
 // ── Runtime Dispatch & Status Routes ─────────────────────────
 
 /**
- * Register runtime dispatch and status routes that use the ActiveRuntime.
+ * Register runtime dispatch, status, freeze, and resume-from-freeze routes.
  *
- * POST /api/runtime/dispatch — dispatches a goal through ActiveRuntime
- * GET  /api/runtime/status   — returns runtime status from ActiveRuntime or state file
+ * POST /api/runtime/dispatch        — dispatches a goal through ActiveRuntime
+ * GET  /api/runtime/status          — returns runtime status from ActiveRuntime or state file
+ * POST /api/runtime/freeze          — freezes the runtime (stops dispatch, persists manifest)
+ * POST /api/runtime/resume-from-freeze — resumes from a saved freeze manifest
  *
- * These routes are registered AFTER all other routes so they have access to
- * the ActiveRuntime from the closure.
+ * Freeze/resume-from-freeze endpoints work with or without ActiveRuntime.
+ * When no ActiveRuntime is provided, they use file-based freeze-manifest operations directly.
  */
 function registerRuntimeDispatchRoutes(
   fastify: FastifyInstance,
   projectRoot: string,
-  activeRuntime: ActiveRuntime,
+  activeRuntime?: ActiveRuntime,
 ): void {
   // ── POST /api/runtime/dispatch ────────────────────────────
 
   // eslint-disable-next-line @typescript-eslint/no-misused-promises
   fastify.post('/api/runtime/dispatch', async (request, reply) => {
+    if (!activeRuntime) {
+      return reply.status(503).send({
+        error: 'No active runtime available. Dispatch requires a running ActiveRuntime.',
+      });
+    }
+
     try {
       const body = request.body as { goalId?: string };
       if (!body.goalId) {
@@ -221,17 +236,167 @@ function registerRuntimeDispatchRoutes(
 
   fastify.get('/api/runtime/status', async (_request, reply) => {
     try {
-      const status = activeRuntime.getStatus();
+      if (activeRuntime) {
+        const status = activeRuntime.getStatus();
+        return reply.send({
+          runtime: status.status,
+          paused: status.paused,
+          currentCardId: status.currentCardId,
+          goalCount: status.goalCount,
+        });
+      }
+
+      // Fallback: read from state file
+      const { readRuntimeState } = await import('../utils/runtime-state.js');
+      const state = readRuntimeState(projectRoot);
       return reply.send({
-        runtime: status.status,
-        paused: status.paused,
-        currentCardId: status.currentCardId,
-        goalCount: status.goalCount,
+        runtime: state?.status ?? 'unknown',
+        paused: state?.paused ?? false,
+        currentCardId: state?.current_card_id ?? null,
+        goalCount: 0,
       });
     } catch (err) {
       return reply.status(500).send({
         error: 'Failed to get runtime status',
         message: err instanceof Error ? err.message : String(err),
+      });
+    }
+  });
+
+  // ── POST /api/runtime/freeze ───────────────────────────────
+
+  // eslint-disable-next-line @typescript-eslint/no-misused-promises
+  fastify.post('/api/runtime/freeze', async (request, reply) => {
+    try {
+      const body = request.body as { reason?: string } | undefined;
+      const reason = body?.reason;
+
+      if (activeRuntime) {
+        // Use ActiveRuntime path if available
+        const manifest = activeRuntime.freeze(reason);
+        return reply.send({
+          status: 'frozen',
+          freeze_id: manifest.freeze_id,
+          reason: manifest.reason,
+          created_at: manifest.created_at,
+        });
+      }
+
+      // Fallback: Direct file operations (no live runtime dispatcher)
+      const existing = readFreezeManifest(projectRoot);
+      if (existing) {
+        return reply.send({
+          status: 'already_frozen',
+          freeze_id: existing.freeze_id,
+          reason: existing.reason,
+          created_at: existing.created_at,
+        });
+      }
+
+      const { readRuntimeState, updateRuntimeState } = await import('../utils/runtime-state.js');
+      const state = readRuntimeState(projectRoot);
+      if (!state) {
+        return reply.status(400).send({
+          error: 'Cannot freeze: runtime state not initialized.',
+        });
+      }
+
+      const now = new Date();
+      const freezeId = `freeze-${now.toISOString().replace(/[:.]/g, '-')}`;
+
+      const manifest: FreezeManifest = {
+        freeze_id: freezeId,
+        reason: reason ?? 'operator requested freeze',
+        created_at: now.toISOString(),
+        status: 'frozen',
+        project_id: 'project',
+        pid: process.pid,
+        started_at: state.started_at,
+        current_card_id: state.current_card_id ?? null,
+        current_agent_session_id: state.current_agent_session_id ?? null,
+        queue: state.queue,
+        running_processes: state.running_processes,
+        schema_version: 1,
+        runtime_version: '0.1.0',
+      };
+
+      saveFreezeManifest(projectRoot, manifest);
+      updateRuntimeState(projectRoot, {
+        status: 'frozen' as never,
+        paused: true,
+        paused_at: now.toISOString(),
+      });
+
+      return reply.send({
+        status: 'frozen',
+        freeze_id: manifest.freeze_id,
+        reason: manifest.reason,
+        created_at: manifest.created_at,
+      });
+    } catch (err) {
+      return reply.status(500).send({
+        error: 'Failed to freeze runtime',
+        message: err instanceof Error ? err.message : String(err),
+      });
+    }
+  });
+
+  // ── POST /api/runtime/resume-from-freeze ────────────────────
+
+  // eslint-disable-next-line @typescript-eslint/no-misused-promises
+  fastify.post('/api/runtime/resume-from-freeze', async (_request, reply) => {
+    try {
+      if (activeRuntime) {
+        // Use ActiveRuntime path if available
+        const result = activeRuntime.resumeFromFreeze();
+        return reply.send({
+          status: 'resumed',
+          freeze_id: result.freeze_id,
+          restored_queue: result.restored_queue,
+          restored_processes: result.restored_processes,
+          restored_card_id: result.restored_card_id,
+        });
+      }
+
+      // Fallback: Direct file operations
+      const manifest = readFreezeManifest(projectRoot);
+      if (!manifest) {
+        return reply.status(400).send({
+          error: 'Cannot resume from freeze: no freeze manifest found. The runtime is not frozen.',
+        });
+      }
+
+      const { updateRuntimeState } = await import('../utils/runtime-state.js');
+
+      updateRuntimeState(projectRoot, {
+        status: 'idle',
+        current_card_id: manifest.current_card_id,
+        current_agent_session_id: manifest.current_agent_session_id,
+        paused: false,
+        paused_at: null,
+        queue: manifest.queue,
+        running_processes: manifest.running_processes,
+      });
+
+      clearFreezeManifest(projectRoot);
+
+      return reply.send({
+        status: 'resumed',
+        freeze_id: manifest.freeze_id,
+        restored_queue: manifest.queue,
+        restored_processes: manifest.running_processes,
+        restored_card_id: manifest.current_card_id,
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      if (message.includes('no freeze manifest found')) {
+        return reply.status(400).send({
+          error: 'Cannot resume from freeze: no freeze manifest found. The runtime is not frozen.',
+        });
+      }
+      return reply.status(500).send({
+        error: 'Failed to resume from freeze',
+        message,
       });
     }
   });
@@ -318,31 +483,10 @@ export async function createServer(
   registerChatsFilesDebugRoutes(fastify, projectRoot);
   registerEventsRoute(fastify, projectRoot);
 
-  // Register runtime dispatch/status routes when ActiveRuntime is available.
-  // These are registered AFTER the other routes to ensure the closure works.
-  if (activeRuntime) {
-    registerRuntimeDispatchRoutes(fastify, projectRoot, activeRuntime);
-  } else {
-    // When no ActiveRuntime, provide a GET /api/runtime/status fallback
-    // that reads from the state file directly.
-    fastify.get('/api/runtime/status', async (_request, reply) => {
-      try {
-        const { readRuntimeState } = await import('../utils/runtime-state.js');
-        const state = readRuntimeState(projectRoot);
-        return reply.send({
-          runtime: state?.status ?? 'unknown',
-          paused: state?.paused ?? false,
-          currentCardId: state?.current_card_id ?? null,
-          goalCount: 0,
-        });
-      } catch (err) {
-        return reply.status(500).send({
-          error: 'Failed to get runtime status',
-          message: err instanceof Error ? err.message : String(err),
-        });
-      }
-    });
-  }
+  // Register runtime dispatch, status, freeze, and resume-from-freeze routes.
+  // These are always registered — freeze/resume work with or without ActiveRuntime,
+  // while dispatch returns 503 when no ActiveRuntime is available.
+  registerRuntimeDispatchRoutes(fastify, projectRoot, activeRuntime);
 
   // Register WebSocket endpoint (auth checked internally on upgrade)
   registerWebSocket(fastify, projectRoot);

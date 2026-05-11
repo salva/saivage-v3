@@ -543,19 +543,17 @@ describe('Server without ActiveRuntime (createRuntime=false)', () => {
       expect(typeof body.runtime).toBe('string');
     });
 
-    it('POST /api/runtime/dispatch is NOT available without ActiveRuntime', async () => {
-      // The dispatch route is only registered when ActiveRuntime is present.
-      // Without ActiveRuntime, this path falls through to the SPA static
-      // fallback handler which serves index.html (text/html, not JSON).
-      // We verify the response is NOT a JSON API response.
+    it('POST /api/runtime/dispatch returns 503 when ActiveRuntime not available', async () => {
+      // The dispatch route is always registered now but returns a 503
+      // JSON error when no ActiveRuntime is available.
       const res = await fetch(baseUrl('/api/runtime/dispatch'), {
         method: 'POST',
         headers: { ...authHeaders(), 'content-type': 'application/json' },
         body: JSON.stringify({ goalId: 'goal-1' }),
       });
-      const ct = res.headers.get('content-type') || '';
-      const isJson = ct.includes('application/json');
-      expect(isJson).toBe(false);
+      expect(res.status).toBe(503);
+      const body = await res.json() as Record<string, unknown>;
+      expect(body.error).toContain('No active runtime available');
     });
 
     it('server still functions normally without ActiveRuntime', () => {
