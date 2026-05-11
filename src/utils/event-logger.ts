@@ -34,6 +34,21 @@ export interface EventFilter {
   limit?: number;
 }
 
+// ── Event Input Type ─────────────────────────────────────────
+
+/**
+ * Input type for appendEvent. Accepts any object with a `kind` field
+ * matching an EventKind, plus optional overrides for id/timestamp
+ * and any other fields the specific event variant needs.
+ */
+export type AppendEventInput = {
+  kind: EventKind;
+  id?: string;
+  timestamp?: string;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  [key: string]: any;
+};
+
 // ── Helpers ──────────────────────────────────────────────────
 
 function getGoalId(e: LoggedEvent): string | undefined {
@@ -82,7 +97,7 @@ export class EventLogger {
    * Append an event to the log. The event gets an auto-generated id and
    * timestamp if not already provided. Returns the full event object.
    */
-  appendEvent(event: Omit<LoggedEvent, 'id' | 'timestamp'> & { id?: string; timestamp?: string }): LoggedEvent {
+  appendEvent(event: AppendEventInput): LoggedEvent {
     const fullEvent: LoggedEvent = {
       ...event,
       id: event.id ?? nextEventId(),

@@ -31,6 +31,7 @@ import {
 import { cleanAll, cleanStaleStash, cleanStalePreviews, cleanStaleUploads } from './cleanup.js';
 import { registerArtifact, registerAttachment } from './artifacts.js';
 import type { ProcessRecord } from '../schemas/types.js';
+import { EventLogger } from './event-logger.js';
 
 // ── Types ─────────────────────────────────────────────────────
 
@@ -124,6 +125,9 @@ export class Runtime extends EventEmitter {
   /** Optional SkillsEngine for skill-matched prompt injection */
   private _skillsEngine: SkillsEngine | null = null;
 
+  /** Persistent event logger for all runtime events */
+  private _eventLogger: EventLogger;
+
   /**
    * Set of currently known running process IDs.
    * Updated on process start, exit, kill, and on crash recovery.
@@ -142,6 +146,7 @@ export class Runtime extends EventEmitter {
     this.cardStore = new CardStore(config.projectRoot);
     this.agentRuntime = agentRuntime ?? new FakeAgentAdapter(config.fakeAgentConfig);
     this._skillsEngine = config.skillsEngine ?? new SkillsEngine({ projectRoot: config.projectRoot });
+    this._eventLogger = new EventLogger(join(config.projectRoot, '.saivage'));
   }
 
   get status(): RuntimeStatus {
@@ -150,6 +155,10 @@ export class Runtime extends EventEmitter {
 
   get paused(): boolean {
     return this._paused;
+  }
+
+  get eventLogger(): EventLogger {
+    return this._eventLogger;
   }
 
   // ── Process Lifecycle Tracking ─────────────────────────────
@@ -286,6 +295,10 @@ export class Runtime extends EventEmitter {
     this._shuttingDown = false;
 
     this.emit('started', { projectRoot: this.projectRoot });
+    this._eventLogger.appendEvent({
+      kind: 'started',
+      project_root: this.projectRoot,
+    });
   }
 
   // ── Shutdown ──────────────────────────────────────────────
@@ -349,6 +362,8 @@ export class Runtime extends EventEmitter {
 
     this._status = 'idle';
     this.emit('shutdown');
+    this._eventLogger.appendEvent({ kind: 'shutdown' });
+    this._eventLogger.close();
   }
 
   // ── Pause / Resume ────────────────────────────────────────
@@ -369,6 +384,7 @@ export class Runtime extends EventEmitter {
       // best effort
     }
     this.emit('paused');
+    this._eventLogger.appendEvent({ kind: 'paused' });
   }
 
   /**
@@ -387,6 +403,7 @@ export class Runtime extends EventEmitter {
       // best effort
     }
     this.emit('resumed');
+    this._eventLogger.appendEvent({ kind: 'resumed' });
   }
 
   // ── Crash Recovery ────────────────────────────────────────
@@ -478,6 +495,7 @@ export class Runtime extends EventEmitter {
   async dispatchGoal(goalId: string): Promise<void> {
     if (this._paused) {
       this.emit('dispatch_blocked', { reason: 'paused', goalId });
+      this._eventLogger.appendEvent({ kind: 'dispatch_blocked', reason: 'paused', goal_id: goalId });
       return;
     }
 
@@ -494,6 +512,12 @@ export class Runtime extends EventEmitter {
       });
     } catch (err) {
       this.emit('error', { goalId, phase: 'activate', error: err });
+      this._eventLogger.appendEvent({
+        kind: 'error',
+        goal_id: goalId,
+        phase: 'activate',
+        error_message: err instanceof Error ? err.message : String(err),
+      });
       return;
     }
 
@@ -508,6 +532,7 @@ export class Runtime extends EventEmitter {
     ) {
       if (this._paused) {
         this.emit('dispatch_blocked', { reason: 'paused', goalId });
+        this._eventLogger.appendEvent({ kind: 'dispatch_blocked', reason: 'paused', goal_id: goalId });
         updateRuntimeState(this.projectRoot, { status: 'paused' });
         return;
       }
@@ -548,6 +573,12 @@ export class Runtime extends EventEmitter {
         plannerResult = result instanceof Promise ? await result : result;
       } catch (err) {
         this.emit('error', { goalId, phase: 'planner', error: err });
+        this._eventLogger.appendEvent({
+          kind: 'error',
+          goal_id: goalId,
+          phase: 'planner',
+          error_message: err instanceof Error ? err.message : String(err),
+        });
         break;
       }
 
@@ -570,6 +601,7 @@ export class Runtime extends EventEmitter {
       if (this._shuttingDown) break;
       if (this._paused) {
         this.emit('dispatch_blocked', { reason: 'paused', goalId });
+        this._eventLogger.appendEvent({ kind: 'dispatch_blocked', reason: 'paused', goal_id: goalId });
         return;
       }
 
@@ -591,6 +623,11 @@ export class Runtime extends EventEmitter {
             goalId,
             assessment: reviewResult.assessment,
           });
+          this._eventLogger.appendEvent({
+            kind: 'goal_completed',
+            goal_id: goalId,
+            assessment: reviewResult.assessment,
+          });
           return;
         } else {
           // Review failed — re-invoke planner
@@ -599,12 +636,18 @@ export class Runtime extends EventEmitter {
             goalId,
             assessment: reviewResult.assessment,
           });
+          this._eventLogger.appendEvent({
+            kind: 'review_failed',
+            goal_id: goalId,
+            assessment: reviewResult.assessment,
+          });
         }
       }
     }
 
     if (this._shuttingDown) {
       this.emit('dispatch_interrupted', { goalId, reason: 'shutdown' });
+      this._eventLogger.appendEvent({ kind: 'dispatch_interrupted', goal_id: goalId, reason: 'shutdown' });
     }
   }
 
@@ -659,9 +702,17 @@ export class Runtime extends EventEmitter {
             phase: 'executor',
             error: err,
           });
+          this._eventLogger.appendEvent({
+            kind: 'error',
+            card_id: card.id,
+            goal_id: goalId,
+            phase: 'executor',
+            error_message: err instanceof Error ? err.message : String(err),
+          });
           this.cardStore.setStatus(card.id, 'failed');
           // Failed terminal card re-invokes parent planner
           this.emit('card_failed', { cardId: card.id, goalId });
+          this._eventLogger.appendEvent({ kind: 'card_failed', card_id: card.id, goal_id: goalId });
           return; // stop processing siblings, planner will be re-invoked
         }
 
@@ -691,6 +742,12 @@ export class Runtime extends EventEmitter {
                 phase: 'artifact_registration',
                 error: err,
               });
+              this._eventLogger.appendEvent({
+                kind: 'error',
+                card_id: card.id,
+                phase: 'artifact_registration',
+                error_message: err instanceof Error ? err.message : String(err),
+              });
             }
           }
         }
@@ -714,12 +771,19 @@ export class Runtime extends EventEmitter {
                 phase: 'attachment_registration',
                 error: err,
               });
+              this._eventLogger.appendEvent({
+                kind: 'error',
+                card_id: card.id,
+                phase: 'attachment_registration',
+                error_message: err instanceof Error ? err.message : String(err),
+              });
             }
           }
         }
 
         if (execResult.status === 'failed') {
           this.emit('card_failed', { cardId: card.id, goalId });
+          this._eventLogger.appendEvent({ kind: 'card_failed', card_id: card.id, goal_id: goalId });
           return; // stop processing, planner will handle failure
         }
       }
@@ -771,6 +835,11 @@ export class Runtime extends EventEmitter {
     const result = await this.agentRuntime.invokeReviewer(goalId, planCardId, reviewerPrompt);
     this.emit('review_complete', {
       goalId,
+      assessment: result.assessment,
+    });
+    this._eventLogger.appendEvent({
+      kind: 'review_complete',
+      goal_id: goalId,
       assessment: result.assessment,
     });
     return result;
