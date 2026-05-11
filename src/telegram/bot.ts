@@ -102,13 +102,19 @@ export function convertMarkdownToHtml(markdown: string): string {
   });
 
   // 3. Bold: **text** → <b>text</b>
-  result = result.replace(/\*\*(.+?)\*\*/g, '<b>$1</b>');
+  result = result.replace(/\*\*(.+?)\*\*/g, (_match, content: string) => {
+    return `<b>${escapeHtmlEntities(content)}</b>`;
+  });
 
   // 4. Italic: *text* → <i>text</i>  (but not inside words to avoid false positives)
-  result = result.replace(/(?<!\w)\*(.+?)\*(?!\w)/g, '<i>$1</i>');
+  result = result.replace(/(?<!\w)\*(.+?)\*(?!\w)/g, (_match, content: string) => {
+    return `<i>${escapeHtmlEntities(content)}</i>`;
+  });
 
   // 5. Strikethrough: ~~text~~ → <s>text</s>
-  result = result.replace(/~~(.+?)~~/g, '<s>$1</s>');
+  result = result.replace(/~~(.+?)~~/g, (_match, content: string) => {
+    return `<s>${escapeHtmlEntities(content)}</s>`;
+  });
 
   // 6. Links: [text](url) → <a href="url">text</a>
   //    Escape both link text and URL to prevent HTML injection.
@@ -120,7 +126,9 @@ export function convertMarkdownToHtml(markdown: string): string {
   );
 
   // 7. Headings: # Header at start of line → <b>Header</b>
-  result = result.replace(/^#{1,6}\s+(.+)$/gm, '<b>$1</b>');
+  result = result.replace(/^#{1,6}\s+(.+)$/gm, (_match, content: string) => {
+    return `<b>${escapeHtmlEntities(content)}</b>`;
+  });
 
   // 8. Unordered list items: "- item" at start of line → "• item"
   result = result.replace(/^(\s*)-(\s+)/gm, '$1•$2');
