@@ -4,7 +4,6 @@ import { existsSync, rmSync, readdirSync } from 'node:fs';
 import type {
   CardRecord,
   RuntimeState,
-  ReviewAssessment,
   RuntimeStatus as RStatus,
 } from '../schemas/types.js';
 import { CardStore } from './card-store.js';
@@ -16,6 +15,8 @@ import {
 } from './runtime-state.js';
 import { acquireLock, releaseLock } from './runtime-lock.js';
 import { FakeAgentAdapter, type FakeAgentConfig } from './fake-agent.js';
+import type { AgentRuntime } from '../agents/agent-runtime.js';
+import type { PlannerResult } from '../agents/result-parser.js';
 import {
   killAllRunning,
   listProcesses,
@@ -31,6 +32,11 @@ export type RuntimeStatus = RStatus;
 
 export interface RuntimeConfig {
   projectRoot: string;
+  /**
+   * Configuration for the FakeAgentAdapter.
+   * Only used when no explicit AgentRuntime is injected via the constructor.
+   * When an agentRuntime is passed, this field is ignored.
+   */
   fakeAgentConfig: FakeAgentConfig;
 }
 
@@ -100,7 +106,7 @@ function saivageWorkDir(projectRoot: string): string {
 export class Runtime extends EventEmitter {
   readonly projectRoot: string;
   readonly cardStore: CardStore;
-  readonly fakeAgent: FakeAgentAdapter;
+  readonly agentRuntime: AgentRuntime;
 
   private _status: RuntimeStatus = 'idle';
   private _paused: boolean = false;
@@ -113,11 +119,17 @@ export class Runtime extends EventEmitter {
    */
   readonly runningProcesses: Set<string> = new Set();
 
-  constructor(config: RuntimeConfig) {
+  /**
+   * @param config       Runtime configuration (projectRoot, fakeAgentConfig, etc.)
+   * @param agentRuntime Optional AgentRuntime implementation.
+   *                     If not provided, a FakeAgentAdapter is created internally
+   *                     from config.fakeAgentConfig (backward compatibility).
+   */
+  constructor(config: RuntimeConfig, agentRuntime?: AgentRuntime) {
     super();
     this.projectRoot = config.projectRoot;
     this.cardStore = new CardStore(config.projectRoot);
-    this.fakeAgent = new FakeAgentAdapter(config.fakeAgentConfig);
+    this.agentRuntime = agentRuntime ?? new FakeAgentAdapter(config.fakeAgentConfig);
   }
 
   get status(): RuntimeStatus {
@@ -444,7 +456,7 @@ export class Runtime extends EventEmitter {
    * Run the full goal flow: planner → executor → reviewer loop.
    *
    * This is the main dispatch method. It simulates the full lifecycle
-   * using fake agents.
+   * using an AgentRuntime implementation (fake or real).
    *
    * Runtime state is persisted at key transitions so crash recovery
    * can resume from the last known point.
@@ -489,9 +501,10 @@ export class Runtime extends EventEmitter {
       }
 
       // Step 2: Invoke the planner
-      let plannerResult;
+      let plannerResult: PlannerResult;
       try {
-        plannerResult = this.fakeAgent.invokePlanner(goalId);
+        const result = this.agentRuntime.invokePlanner(goalId);
+        plannerResult = result instanceof Promise ? await result : result;
       } catch (err) {
         this.emit('error', { goalId, phase: 'planner', error: err });
         break;
@@ -521,7 +534,7 @@ export class Runtime extends EventEmitter {
 
       // Step 4: If planner declared done, invoke reviewer
       if (plannerDone) {
-        const reviewResult = this.invokeReviewer(goalId, planCard.id);
+        const reviewResult = await this.invokeReviewer(goalId, planCard.id);
 
         if (reviewResult.assessment.result === 'pass') {
           // Goal done!
@@ -575,7 +588,8 @@ export class Runtime extends EventEmitter {
         // Invoke executor
         let execResult;
         try {
-          execResult = this.fakeAgent.invokeExecutor(card.id, goalId);
+          const result = this.agentRuntime.invokeExecutor(card.id, goalId);
+          execResult = result instanceof Promise ? await result : result;
         } catch (err) {
           this.emit('error', {
             cardId: card.id,
@@ -607,7 +621,7 @@ export class Runtime extends EventEmitter {
                   description: artDef.description,
                   retain: artDef.retain,
                 },
-                artDef.sourceFile,
+                artDef.sourceFile ?? '',
               );
             } catch (err) {
               this.emit('error', {
@@ -630,7 +644,7 @@ export class Runtime extends EventEmitter {
                   title: attDef.title,
                   description: attDef.description,
                 },
-                attDef.sourceFile,
+                attDef.sourceFile ?? '',
               );
             } catch (err) {
               this.emit('error', {
@@ -657,14 +671,22 @@ export class Runtime extends EventEmitter {
 
   /**
    * Invoke reviewer and record the assessment.
+   * Works with both synchronous (fake) and asynchronous (real LLM)
+   * AgentRuntime implementations.
    */
-  invokeReviewer(
+  async invokeReviewer(
     goalId: string,
-    _planCardId: string,
-  ): {
-    assessment: ReviewAssessment;
-  } {
-    const result = this.fakeAgent.invokeReviewer(goalId);
+    planCardId: string,
+  ): Promise<{
+    assessment: {
+      result: 'pass' | 'fail';
+      summary: string;
+      achieved: string[];
+      missing: string[];
+      evidence_card_ids: string[];
+    };
+  }> {
+    const result = await this.agentRuntime.invokeReviewer(goalId, planCardId);
     this.emit('review_complete', {
       goalId,
       assessment: result.assessment,
@@ -683,24 +705,7 @@ export class Runtime extends EventEmitter {
    */
   applyPlannerResult(
     goalId: string,
-    plannerResult: {
-      created_cards?: Array<{
-        id?: string;
-        type: string;
-        title: string;
-        description: string;
-        status: string;
-        depends_on: string[];
-        priority: number;
-        tags?: string[];
-      }>;
-      updated_cards?: Array<{
-        id: string;
-        status?: string;
-        title?: string;
-        description?: string;
-      }>;
-    },
+    plannerResult: PlannerResult,
   ): void {
     // Create new cards
     if (plannerResult.created_cards) {
