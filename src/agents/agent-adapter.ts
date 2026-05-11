@@ -9,7 +9,7 @@
 
 import { EventEmitter } from 'node:events';
 import type { SaivageConfig, RuntimeSection } from './config-schema.js';
-import { loadConfig, getRuntimeConfig, getModelParamsForRole } from './config-schema.js';
+import { loadConfig, getRuntimeConfig, getModelParamsForRole, getSelfCheckThreshold } from './config-schema.js';
 import { ProviderRegistry, type Candidate } from './provider.js';
 import { ModelRouter } from './model-router.js';
 import {
@@ -36,6 +36,7 @@ import type { AgentRuntime } from './agent-runtime.js';
 import { LlmClient } from './llm-client.js';
 import type { LlmCompleteOptions } from './llm-client.js';
 import { EventLogger } from '../utils/event-logger.js';
+import { buildSelfCheckPrompt } from './system-prompt.js';
 
 // Re-export the common AgentRuntime interface for consumers that
 // need to reference it without importing agent-runtime.ts directly.
@@ -85,6 +86,10 @@ export class AgentAdapter implements AgentRuntime {
   private llmCallFn: LlmCallFn | null = null;
   private contentSupervisor?: ContentSupervisor;
   private llmClientCache: Map<string, LlmClient> = new Map();
+
+  // Self-check round tracking
+  private roundCounters: Map<string, number> = new Map();
+  private lastRole: string | null = null;
 
   constructor(cfg: AgentAdapterConfig) {
     this.projectRoot = cfg.projectRoot;
@@ -151,6 +156,73 @@ export class AgentAdapter implements AgentRuntime {
     return getSafeFileForAgent(filePath, content);
   }
 
+  // ── Self-Check Mechanism ────────────────────────────────────
+
+  /**
+   * Check if a self-check is due for this role and inject the prompt.
+   * Increments the per-role round counter on every invocation.
+   * When the counter reaches the configured threshold (and threshold > 0),
+   * appends the self-check prompt to the system prompt and logs an event.
+   *
+   * Returns the modified system prompt (with self-check appended) or
+   * the original system prompt unchanged.
+   */
+  private applySelfCheck(
+    role: AgentRole,
+    systemPrompt: string,
+    sessionId: string,
+  ): string {
+    const key = role;
+    const current = (this.roundCounters.get(key) ?? 0) + 1;
+    this.roundCounters.set(key, current);
+
+    // Get threshold from config (0 = never)
+    const threshold = getSelfCheckThreshold(this.config, role);
+    if (threshold <= 0) return systemPrompt;
+
+    // Check if threshold is met
+    if (current % threshold !== 0) return systemPrompt;
+
+    // Append self-check prompt
+    const selfCheckPrompt = buildSelfCheckPrompt(role, current, threshold);
+    const modifiedPrompt = systemPrompt + '\n\n' + selfCheckPrompt;
+
+    // Log self_check_triggered event
+    if (this.eventLogger) {
+      this.eventLogger.appendEvent({
+        kind: 'self_check_triggered',
+        session_id: sessionId,
+        role: role as unknown as import('../schemas/types.js').AgentRole,
+        rounds: current,
+        threshold,
+      });
+    }
+    if (this.eventBus) {
+      this.eventBus.emit('self_check_triggered', {
+        session_id: sessionId,
+        role,
+        rounds: current,
+        threshold,
+      });
+    }
+
+    return modifiedPrompt;
+  }
+
+  /**
+   * Reset round counters when the role changes between invocations.
+   * Called at the start of each invokeAgent call.
+   */
+  private resetOnRoleChange(role: AgentRole): void {
+    if (this.lastRole !== null && this.lastRole !== role) {
+      // Role changed — reset all round counters
+      this.roundCounters.clear();
+    }
+    this.lastRole = role;
+  }
+
+  // ── Invocation Methods ──────────────────────────────────────
+
   /**
    * Invoke the planner agent for a goal.
    */
@@ -203,6 +275,9 @@ export class AgentAdapter implements AgentRuntime {
       throw new Error('No LLM call function registered. Call setLlmCallFn() first.');
     }
 
+    // Self-check: reset counters on role change and apply self-check prompt
+    this.resetOnRoleChange(role);
+
     // Resolve candidate chain
     const candidates = this.router.resolve(role);
     if (candidates.length === 0) {
@@ -238,6 +313,9 @@ export class AgentAdapter implements AgentRuntime {
         card_id: cardId,
       });
     }
+
+    // Apply self-check to system prompt (after session is created so we have session.id)
+    systemPrompt = this.applySelfCheck(role, systemPrompt, session.id);
 
     // Append context messages to session
     for (const msg of contextMessages) {
