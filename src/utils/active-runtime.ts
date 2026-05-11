@@ -5,9 +5,9 @@
  * This is the class used by the Saivage server (or other long-lived processes)
  * that want real LLM calls instead of the default FakeAgentAdapter.
  *
- * A single EventLogger instance is created and shared across the Runtime and
- * AgentAdapter, avoiding dual EventLogger instances writing to the same
- * events.jsonl file.
+ * A single EventLogger and ErrorLogger instance is created and shared across
+ * the Runtime and AgentAdapter, avoiding dual instances writing to the same
+ * events.jsonl and errors.jsonl files.
  */
 
 import { join } from 'node:path';
@@ -18,6 +18,7 @@ import {
 } from './runtime.js';
 import { AgentAdapter } from '../agents/agent-adapter.js';
 import { EventLogger } from './event-logger.js';
+import { ErrorLogger } from './error-logger.js';
 import {
   loadConfig,
   type SaivageConfig,
@@ -30,6 +31,7 @@ export class ActiveRuntime {
   private _runtime: Runtime;
   private _agentAdapter: AgentAdapter;
   private _eventLogger: EventLogger;
+  private _errorLogger: ErrorLogger;
   private _projectRoot: string;
   private _config: SaivageConfig;
 
@@ -58,6 +60,10 @@ export class ActiveRuntime {
     // and AgentAdapter to avoid dual writers on the same events.jsonl file.
     this._eventLogger = new EventLogger(saivageDir);
 
+    // Create the shared ErrorLogger — a single instance for both Runtime
+    // and AgentAdapter to avoid dual writers on the same errors.jsonl file.
+    this._errorLogger = new ErrorLogger(saivageDir);
+
     // Create the AgentAdapter with config and shared EventLogger
     this._agentAdapter = new AgentAdapter({
       projectRoot,
@@ -70,14 +76,15 @@ export class ActiveRuntime {
     this._agentAdapter.setLlmCallFn(this._agentAdapter.createLlmCallFn());
 
     // Create the Runtime with the AgentAdapter as agentRuntime implementation.
-    // Pass the shared EventLogger via RuntimeConfig so Runtime does not create
-    // its own. The fakeAgentConfig is required by RuntimeConfig but won't be
-    // used since we pass an explicit AgentRuntime.
+    // Pass the shared EventLogger and ErrorLogger via RuntimeConfig so Runtime
+    // does not create its own. The fakeAgentConfig is required by RuntimeConfig
+    // but won't be used since we pass an explicit AgentRuntime.
     const runtimeConfig: RuntimeConfig = {
       projectRoot,
       fakeAgentConfig: { mapping: {}, fixtureDir: '' },
       skillsEngine: undefined,
       eventLogger: this._eventLogger,
+      errorLogger: this._errorLogger,
     };
 
     this._runtime = new Runtime(runtimeConfig, this._agentAdapter);
@@ -90,13 +97,15 @@ export class ActiveRuntime {
     await this._runtime.startup();
   }
 
-  /** Stop the runtime gracefully: shutdown, release lock, cleanup, close event logger. */
+  /** Stop the runtime gracefully: shutdown, release lock, cleanup, close event and error loggers. */
   async stop(): Promise<void> {
     await this._runtime.shutdown();
     // Close the shared event logger after the runtime shutdown has completed.
     // Runtime.shutdown() skips calling close() on shared EventLoggers since
     // lifecycle management is the owner's responsibility (us).
     this._eventLogger.close();
+    // Same for the shared error logger.
+    this._errorLogger.close();
   }
 
   // ── Dispatch ─────────────────────────────────────────────────
@@ -152,6 +161,11 @@ export class ActiveRuntime {
   /** Returns the shared EventLogger. */
   get eventLogger(): EventLogger {
     return this._eventLogger;
+  }
+
+  /** Returns the shared ErrorLogger. */
+  get errorLogger(): ErrorLogger {
+    return this._errorLogger;
   }
 
   /** Returns the AgentAdapter with the wired LlmCallFn. */

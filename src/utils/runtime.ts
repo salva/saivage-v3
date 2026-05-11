@@ -32,6 +32,7 @@ import { cleanAll, cleanStaleStash, cleanStalePreviews, cleanStaleUploads } from
 import { registerArtifact, registerAttachment } from './artifacts.js';
 import type { ProcessRecord } from '../schemas/types.js';
 import { EventLogger } from './event-logger.js';
+import { ErrorLogger } from './error-logger.js';
 
 // ── Types ─────────────────────────────────────────────────────
 
@@ -51,6 +52,10 @@ export interface RuntimeConfig {
    *  instead of creating its own. This avoids dual instances writing to the same
    *  events.jsonl file when an ActiveRuntime already created one. */
   eventLogger?: EventLogger;
+  /** Optional ErrorLogger — when provided, the Runtime uses this shared instance
+   *  instead of creating its own. This avoids dual instances writing to the same
+   *  errors.jsonl file when an ActiveRuntime already created one. */
+  errorLogger?: ErrorLogger;
 }
 
 // ── Helpers ───────────────────────────────────────────────────
@@ -139,6 +144,16 @@ export class Runtime extends EventEmitter {
    */
   private _ownsEventLogger: boolean;
 
+  /** Persistent error logger for all runtime error events */
+  private _errorLogger: ErrorLogger;
+
+  /**
+   * Whether this Runtime created the ErrorLogger (and owns its lifecycle).
+   * When false, the ErrorLogger was injected via RuntimeConfig and the
+   * owner (e.g. ActiveRuntime) is responsible for calling close().
+   */
+  private _ownsErrorLogger: boolean;
+
   /**
    * Set of currently known running process IDs.
    * Updated on process start, exit, kill, and on crash recovery.
@@ -165,6 +180,14 @@ export class Runtime extends EventEmitter {
       this._eventLogger = new EventLogger(join(config.projectRoot, '.saivage'));
       this._ownsEventLogger = true;
     }
+
+    if (config.errorLogger) {
+      this._errorLogger = config.errorLogger;
+      this._ownsErrorLogger = false;
+    } else {
+      this._errorLogger = new ErrorLogger(join(config.projectRoot, '.saivage'));
+      this._ownsErrorLogger = true;
+    }
   }
 
   get status(): RuntimeStatus {
@@ -177,6 +200,10 @@ export class Runtime extends EventEmitter {
 
   get eventLogger(): EventLogger {
     return this._eventLogger;
+  }
+
+  get errorLogger(): ErrorLogger {
+    return this._errorLogger;
   }
 
   // ── Process Lifecycle Tracking ─────────────────────────────
@@ -388,6 +415,11 @@ export class Runtime extends EventEmitter {
     if (this._ownsEventLogger) {
       this._eventLogger.close();
     }
+
+    // Same pattern for ErrorLogger
+    if (this._ownsErrorLogger) {
+      this._errorLogger.close();
+    }
   }
 
   // ── Pause / Resume ────────────────────────────────────────
@@ -535,12 +567,18 @@ export class Runtime extends EventEmitter {
         queue: this.getReadyQueue(goalId).map((c) => c.id),
       });
     } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : String(err);
       this.emit('error', { goalId, phase: 'activate', error: err });
       this._eventLogger.appendEvent({
         kind: 'error',
         goal_id: goalId,
         phase: 'activate',
-        error_message: err instanceof Error ? err.message : String(err),
+        error_message: errorMessage,
+      });
+      this._errorLogger.appendError({
+        message: errorMessage,
+        goalId,
+        phase: 'activate',
       });
       return;
     }
@@ -596,12 +634,18 @@ export class Runtime extends EventEmitter {
         const result = this.agentRuntime.invokePlanner(goalId, planCard.id, plannerPrompt);
         plannerResult = result instanceof Promise ? await result : result;
       } catch (err) {
+        const errorMessage = err instanceof Error ? err.message : String(err);
         this.emit('error', { goalId, phase: 'planner', error: err });
         this._eventLogger.appendEvent({
           kind: 'error',
           goal_id: goalId,
           phase: 'planner',
-          error_message: err instanceof Error ? err.message : String(err),
+          error_message: errorMessage,
+        });
+        this._errorLogger.appendError({
+          message: errorMessage,
+          goalId,
+          phase: 'planner',
         });
         break;
       }
@@ -720,6 +764,7 @@ export class Runtime extends EventEmitter {
           const result = this.agentRuntime.invokeExecutor(card.id, goalId, executorPrompt);
           execResult = result instanceof Promise ? await result : result;
         } catch (err) {
+          const errorMessage = err instanceof Error ? err.message : String(err);
           this.emit('error', {
             cardId: card.id,
             goalId,
@@ -731,7 +776,13 @@ export class Runtime extends EventEmitter {
             card_id: card.id,
             goal_id: goalId,
             phase: 'executor',
-            error_message: err instanceof Error ? err.message : String(err),
+            error_message: errorMessage,
+          });
+          this._errorLogger.appendError({
+            message: errorMessage,
+            cardId: card.id,
+            goalId,
+            phase: 'executor',
           });
           this.cardStore.setStatus(card.id, 'failed');
           // Failed terminal card re-invokes parent planner
@@ -761,6 +812,7 @@ export class Runtime extends EventEmitter {
                 artDef.sourceFile ?? '',
               );
             } catch (err) {
+              const errorMessage = err instanceof Error ? err.message : String(err);
               this.emit('error', {
                 cardId: card.id,
                 phase: 'artifact_registration',
@@ -770,7 +822,12 @@ export class Runtime extends EventEmitter {
                 kind: 'error',
                 card_id: card.id,
                 phase: 'artifact_registration',
-                error_message: err instanceof Error ? err.message : String(err),
+                error_message: errorMessage,
+              });
+              this._errorLogger.appendError({
+                message: errorMessage,
+                cardId: card.id,
+                phase: 'artifact_registration',
               });
             }
           }
@@ -790,6 +847,7 @@ export class Runtime extends EventEmitter {
                 attDef.sourceFile ?? '',
               );
             } catch (err) {
+              const errorMessage = err instanceof Error ? err.message : String(err);
               this.emit('error', {
                 cardId: card.id,
                 phase: 'attachment_registration',
@@ -799,7 +857,12 @@ export class Runtime extends EventEmitter {
                 kind: 'error',
                 card_id: card.id,
                 phase: 'attachment_registration',
-                error_message: err instanceof Error ? err.message : String(err),
+                error_message: errorMessage,
+              });
+              this._errorLogger.appendError({
+                message: errorMessage,
+                cardId: card.id,
+                phase: 'attachment_registration',
               });
             }
           }
