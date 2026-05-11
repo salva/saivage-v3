@@ -11,6 +11,8 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import type { WebSocket } from 'ws';
 import { AnalystHandler, getOrCreateAnalystSession } from '../agents/analyst-handler.js';
+import type { EventBus } from '../utils/event-bus.js';
+import type { LoggedEvent } from '../schemas/types.js';
 
 // ── Types ─────────────────────────────────────────────────────
 
@@ -228,26 +230,40 @@ export function createRuntimeEnvelope(
   }
 }
 
+/**
+ * Wire runtime events to WebSocket broadcast via the EventBus.
+ *
+ * Subscribes to the Runtime's EventBus with no filter (minSeverity: 'info'),
+ * so all events that pass through the Runtime are broadcast to connected
+ * WebSocket clients.
+ *
+ * The subscription handler receives `LoggedEvent` objects, extracts the
+ * event kind and spreads remaining fields as data, then broadcasts via
+ * the existing `createRuntimeEnvelope` + `broadcast()` pipeline.
+ *
+ * Backward compatibility: the Runtime's `emit()` override ensures that all
+ * `runtime.on(eventName, handler)` listeners continue to work. This function
+ * replaces the previous pattern of calling `runtime.on()` for each tracked
+ * event with a single EventBus subscription.
+ *
+ * @param runtime  An object with an `eventBus` property pointing to the
+ *                 Runtime's EventBus instance.
+ */
 export function wireRuntimeEvents(runtime: {
   on: (event: string, handler: (...args: unknown[]) => void) => void;
+  eventBus: EventBus;
 }): void {
-  const trackedEvents = [
-    'started', 'shutdown', 'paused', 'resumed',
-    'goal_completed', 'goal_failed', 'escalation',
-    'card_failed', 'review_complete', 'plan_updated',
-    'error', 'dispatch_blocked',
-    'session_started', 'model_selected',
-    'invocation_succeeded', 'invocation_failed',
-    'retry_attempted', 'compaction_triggered',
-  ];
-
-  for (const eventName of trackedEvents) {
-    runtime.on(eventName, (data: unknown) => {
-      const payload = data && typeof data === 'object'
-        ? (data as Record<string, unknown>)
-        : { raw: data };
-      const envelope = createRuntimeEnvelope(eventName, payload);
+  // Subscribe to the EventBus — all events (minSeverity: 'info'), no kind filter.
+  // The handler receives a LoggedEvent, extracts kind + remaining fields,
+  // creates a WsEnvelope via createRuntimeEnvelope, and broadcasts.
+  runtime.eventBus.subscribe({
+    minSeverity: 'info',
+    handler: (event: LoggedEvent) => {
+      // Extract 'kind', 'id', and 'timestamp' from the LoggedEvent; spread
+      // remaining fields as the envelope data.
+      const { kind, id, timestamp, ...data } = event as LoggedEvent & Record<string, unknown>;
+      const envelope = createRuntimeEnvelope(kind, data as Record<string, unknown>);
       broadcast(envelope);
-    });
-  }
+    },
+  });
 }

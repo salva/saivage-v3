@@ -5,6 +5,8 @@ import type {
   CardRecord,
   RuntimeState,
   RuntimeStatus as RStatus,
+  EventKind,
+  LoggedEvent,
 } from '../schemas/types.js';
 import { CardStore } from './card-store.js';
 import {
@@ -33,6 +35,7 @@ import { registerArtifact, registerAttachment } from './artifacts.js';
 import type { ProcessRecord } from '../schemas/types.js';
 import { EventLogger } from './event-logger.js';
 import { ErrorLogger } from './error-logger.js';
+import { EventBus } from './event-bus.js';
 
 // ── Types ─────────────────────────────────────────────────────
 
@@ -121,12 +124,53 @@ function saivageWorkDir(projectRoot: string): string {
   return join(projectRoot, '.saivage-work');
 }
 
+/**
+ * Runtime event kinds that are forwarded to the EventBus.
+ *
+ * Only events with these names (passed to `this.emit(name, data)`) are
+ * forwarded. Unknown event names are ignored by the EventBus bridge.
+ */
+const TRACKED_EVENT_KINDS: ReadonlySet<string> = new Set([
+  'started',
+  'shutdown',
+  'paused',
+  'resumed',
+  'goal_completed',
+  'goal_failed',
+  'escalation',
+  'card_failed',
+  'review_complete',
+  'review_failed',
+  'plan_updated',
+  'error',
+  'dispatch_blocked',
+  'dispatch_interrupted',
+  'session_started',
+  'model_selected',
+  'invocation_succeeded',
+  'invocation_failed',
+  'retry_attempted',
+  'compaction_triggered',
+  'self_check_triggered',
+]);
+
 // ── Runtime Class ────────────────────────────────────────────
 
 export class Runtime extends EventEmitter {
   readonly projectRoot: string;
   readonly cardStore: CardStore;
   readonly agentRuntime: AgentRuntime;
+
+  /**
+   * EventBus for subscription-based event distribution.
+   *
+   * All tracked runtime events (via `this.emit(eventName, data)`) are
+   * automatically forwarded to this EventBus as `LoggedEvent` objects.
+   *
+   * Consumers (e.g. WebSocket broadcast) should subscribe to this EventBus
+   * instead of using `runtime.on()` for structured event distribution.
+   */
+  readonly eventBus: EventBus;
 
   private _status: RuntimeStatus = 'idle';
   private _paused: boolean = false;
@@ -174,6 +218,7 @@ export class Runtime extends EventEmitter {
     this.cardStore = new CardStore(config.projectRoot, config.maxGoalDepth);
     this.agentRuntime = agentRuntime ?? new FakeAgentAdapter(config.fakeAgentConfig);
     this._skillsEngine = config.skillsEngine ?? new SkillsEngine({ projectRoot: config.projectRoot });
+    this.eventBus = new EventBus();
 
     if (config.eventLogger) {
       this._eventLogger = config.eventLogger;
@@ -206,6 +251,44 @@ export class Runtime extends EventEmitter {
 
   get errorLogger(): ErrorLogger {
     return this._errorLogger;
+  }
+
+  // ── EventEmitter.emit() Override ──────────────────────────
+
+  /**
+   * Override EventEmitter.emit() to forward tracked runtime events
+   * to the EventBus as LoggedEvent objects.
+   *
+   * The original EventEmitter behavior is preserved (all existing
+   * `runtime.on(eventName, handler)` listeners continue to work).
+   *
+   * Forwarding logic:
+   * - Only events whose name is in `TRACKED_EVENT_KINDS` are forwarded.
+   * - The first argument (if it's an object) is spread into the LoggedEvent.
+   * - If the first argument is not an object, it's wrapped as `{ raw: arg }`.
+   *
+   * @param eventName  The event name (e.g. 'goal_completed', 'error').
+   * @param args       Event payload(s) — forwarded to both super.emit() and EventBus.
+   */
+  emit(eventName: string, ...args: unknown[]): boolean {
+    // Call the original EventEmitter.emit() for backward compatibility
+    const emitted = super.emit(eventName, ...args);
+
+    // Forward to EventBus for tracked event kinds
+    if (TRACKED_EVENT_KINDS.has(eventName)) {
+      const data = args[0] && typeof args[0] === 'object'
+        ? (args[0] as Record<string, unknown>)
+        : { raw: args[0] };
+
+      this.eventBus.emit({
+        id: `evt-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        kind: eventName as EventKind,
+        timestamp: new Date().toISOString(),
+        ...data,
+      } as unknown as LoggedEvent);
+    }
+
+    return emitted;
   }
 
   // ── Process Lifecycle Tracking ─────────────────────────────
