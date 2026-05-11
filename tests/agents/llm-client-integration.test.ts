@@ -12,6 +12,7 @@
  * - Adapter + Router full flow
  * - Streaming mode (SSE)
  * - Account-level config overrides
+ * - Config temperature/max_tokens flow through AgentAdapter
  */
 
 import { describe, it, expect, beforeAll, afterEach } from '@jest/globals';
@@ -722,6 +723,225 @@ describe('Account-level Provider Config Overrides', () => {
       );
 
       expect(cap.headers['authorization']).toBe('Bearer sk-provider-level');
+    } finally {
+      await closeServer(server);
+      if (tempDir) cleanupDir(tempDir);
+    }
+  });
+});
+
+// ── Config temperature/max_tokens flow through AgentAdapter ──────
+
+describe('Config temperature/max_tokens flowing through AgentAdapter', () => {
+  let tempDir: string;
+
+  afterEach(() => {
+    if (tempDir) cleanupDir(tempDir);
+  });
+
+  // Shared planner result that parses cleanly
+  function plannerContent() {
+    return JSON.stringify({
+      created_cards: [],
+      updated_cards: [],
+      declare_done: true,
+    });
+  }
+
+  // ── TC1: Default temperature (0.7) and max_tokens (4096) ─────
+
+  it('should send default temperature 0.7 and max_tokens 4096 when not overridden in config', async () => {
+    const { server, port, cap } = await createMockServer((_req, res) => {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(okResp(plannerContent())));
+    });
+
+    try {
+      tempDir = makeTempDir();
+      writeSaivageJson(tempDir, {
+        models: { planner: ['test-model'], default: ['test-model'] },
+        providers: {
+          'test-provider': {
+            priority: 10,
+            models: ['test-model'],
+            baseUrl: `http://localhost:${port}`,
+            apiKey: 'sk-test',
+          },
+        },
+        runtime: { recoveryDelayMs: 10, maxRecoveryRetries: 0 },
+      });
+
+      const adapter = createAgentAdapter(tempDir);
+      adapter.setLlmCallFn(adapter.createLlmCallFn());
+      await adapter.invokePlanner('goal-tc1', 'plan-tc1', sp(), msgs());
+
+      const body = JSON.parse(cap.body);
+      expect(body.temperature).toBe(0.7);
+      expect(body.max_tokens).toBe(4096);
+    } finally {
+      await closeServer(server);
+      if (tempDir) cleanupDir(tempDir);
+    }
+  });
+
+  // ── TC2: Per-role temperature override ──────────────────────
+
+  it('should send per-role temperature override when models.temperature.planner is set', async () => {
+    const { server, port, cap } = await createMockServer((_req, res) => {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(okResp(plannerContent())));
+    });
+
+    try {
+      tempDir = makeTempDir();
+      writeSaivageJson(tempDir, {
+        models: {
+          planner: ['test-model'],
+          default: ['test-model'],
+          temperature: { planner: 0.3 },
+          max_tokens: { planner: 2000 },
+        },
+        providers: {
+          'test-provider': {
+            priority: 10,
+            models: ['test-model'],
+            baseUrl: `http://localhost:${port}`,
+            apiKey: 'sk-test',
+          },
+        },
+        runtime: { recoveryDelayMs: 10, maxRecoveryRetries: 0 },
+      });
+
+      const adapter = createAgentAdapter(tempDir);
+      adapter.setLlmCallFn(adapter.createLlmCallFn());
+      await adapter.invokePlanner('goal-tc2', 'plan-tc2', sp(), msgs());
+
+      const body = JSON.parse(cap.body);
+      expect(body.temperature).toBe(0.3);
+      expect(body.max_tokens).toBe(2000);
+    } finally {
+      await closeServer(server);
+      if (tempDir) cleanupDir(tempDir);
+    }
+  });
+
+  // ── TC3: Per-role max_tokens override with default temperature ──
+
+  it('should send per-role max_tokens override and fall back to default temperature', async () => {
+    const { server, port, cap } = await createMockServer((_req, res) => {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(okResp(plannerContent())));
+    });
+
+    try {
+      tempDir = makeTempDir();
+      writeSaivageJson(tempDir, {
+        models: {
+          planner: ['test-model'],
+          default: ['test-model'],
+          temperature: { default: 0.5 },
+          max_tokens: { planner: 8192 },
+        },
+        providers: {
+          'test-provider': {
+            priority: 10,
+            models: ['test-model'],
+            baseUrl: `http://localhost:${port}`,
+            apiKey: 'sk-test',
+          },
+        },
+        runtime: { recoveryDelayMs: 10, maxRecoveryRetries: 0 },
+      });
+
+      const adapter = createAgentAdapter(tempDir);
+      adapter.setLlmCallFn(adapter.createLlmCallFn());
+      await adapter.invokePlanner('goal-tc3', 'plan-tc3', sp(), msgs());
+
+      const body = JSON.parse(cap.body);
+      expect(body.temperature).toBe(0.5);   // from models.default
+      expect(body.max_tokens).toBe(8192);   // from per-role planner
+    } finally {
+      await closeServer(server);
+      if (tempDir) cleanupDir(tempDir);
+    }
+  });
+
+  // ── TC4: models.default fallback ────────────────────────────
+
+  it('should use models.default temperature and max_tokens when no per-role values', async () => {
+    const { server, port, cap } = await createMockServer((_req, res) => {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(okResp(plannerContent())));
+    });
+
+    try {
+      tempDir = makeTempDir();
+      writeSaivageJson(tempDir, {
+        models: {
+          planner: ['test-model'],
+          default: ['test-model'],
+          temperature: { default: 0.2 },
+          max_tokens: { default: 1000 },
+        },
+        providers: {
+          'test-provider': {
+            priority: 10,
+            models: ['test-model'],
+            baseUrl: `http://localhost:${port}`,
+            apiKey: 'sk-test',
+          },
+        },
+        runtime: { recoveryDelayMs: 10, maxRecoveryRetries: 0 },
+      });
+
+      const adapter = createAgentAdapter(tempDir);
+      adapter.setLlmCallFn(adapter.createLlmCallFn());
+      await adapter.invokePlanner('goal-tc4', 'plan-tc4', sp(), msgs());
+
+      const body = JSON.parse(cap.body);
+      expect(body.temperature).toBe(0.2);
+      expect(body.max_tokens).toBe(1000);
+    } finally {
+      await closeServer(server);
+      if (tempDir) cleanupDir(tempDir);
+    }
+  });
+
+  // ── TC5: Full fallback chain (role overrides default) ───────
+
+  it('should use per-role temp and default max_tokens when role overrides only temperature', async () => {
+    const { server, port, cap } = await createMockServer((_req, res) => {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(okResp(plannerContent())));
+    });
+
+    try {
+      tempDir = makeTempDir();
+      writeSaivageJson(tempDir, {
+        models: {
+          planner: ['test-model'],
+          default: ['test-model'],
+          temperature: { planner: 0.1 },
+          max_tokens: { default: 2048 },
+        },
+        providers: {
+          'test-provider': {
+            priority: 10,
+            models: ['test-model'],
+            baseUrl: `http://localhost:${port}`,
+            apiKey: 'sk-test',
+          },
+        },
+        runtime: { recoveryDelayMs: 10, maxRecoveryRetries: 0 },
+      });
+
+      const adapter = createAgentAdapter(tempDir);
+      adapter.setLlmCallFn(adapter.createLlmCallFn());
+      await adapter.invokePlanner('goal-tc5', 'plan-tc5', sp(), msgs());
+
+      const body = JSON.parse(cap.body);
+      expect(body.temperature).toBe(0.1);    // from per-role planner
+      expect(body.max_tokens).toBe(2048);    // from models.default
     } finally {
       await closeServer(server);
       if (tempDir) cleanupDir(tempDir);
