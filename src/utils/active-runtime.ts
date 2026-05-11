@@ -24,7 +24,7 @@ import {
   type SaivageConfig,
 } from '../agents/config-schema.js';
 import type { McpManager } from '../mcp/mcp-manager.js';
-import type { RuntimeState } from '../schemas/types.js';
+import type { RuntimeState, FreezeManifest } from '../schemas/types.js';
 
 // ── ActiveRuntime ──────────────────────────────────────────────
 
@@ -153,6 +153,23 @@ export class ActiveRuntime {
   /** Resume the runtime: restores dispatch from current queue position. */
   resume(): void {
     this._runtime.resume();
+  }
+
+  // ── Freeze / Resume from Freeze ──────────────────────────────
+
+  /** Freeze the runtime: stops dispatch and persists a freeze manifest. */
+  freeze(reason?: string): FreezeManifest {
+    return this._runtime.freeze(reason);
+  }
+
+  /** Resume from a saved freeze manifest. */
+  resumeFromFreeze(): { freeze_id: string; restored_queue: string[]; restored_processes: string[]; restored_card_id: string | null } {
+    return this._runtime.resumeFromFreeze();
+  }
+
+  /** Check if the runtime is currently frozen. */
+  get isFrozen(): boolean {
+    return this._runtime.status === 'frozen';
   }
 
   // ── Status ───────────────────────────────────────────────────
