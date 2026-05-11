@@ -136,6 +136,9 @@ export class SkillsEngine {
   /** Cache TTL in ms (60 seconds) */
   private readonly _cacheTTL: number = 60_000;
 
+  /** In-memory cache for planner instructions */
+  private _plannerInstrCache: { content: string; loadedAt: number } | null = null;
+
   constructor(options?: SkillEngineOptions) {
     this.projectRoot = options?.projectRoot
       ? resolve(options.projectRoot)
@@ -305,20 +308,31 @@ export class SkillsEngine {
    * ```
    *
    * Returns empty string if the file does not exist.
+   *
+   * Results are cached with the same TTL as skill files (60 seconds).
    */
   async loadPlannerInstructions(): Promise<string> {
+    // Check cache first
+    if (this._plannerInstrCache && Date.now() - this._plannerInstrCache.loadedAt < this._cacheTTL) {
+      return this._plannerInstrCache.content;
+    }
+
     const instrPath = join(this.projectRoot, '.saivage', 'instructions', 'planner.md');
 
     if (!existsSync(instrPath)) {
+      this._plannerInstrCache = { content: '', loadedAt: Date.now() };
       return '';
     }
 
     const content = await readFile(instrPath, 'utf-8');
     if (!content.trim()) {
+      this._plannerInstrCache = { content: '', loadedAt: Date.now() };
       return '';
     }
 
-    return `--- PLANNER INSTRUCTIONS ---\n${content}\n--- END PLANNER INSTRUCTIONS ---`;
+    const result = `--- PLANNER INSTRUCTIONS ---\n${content}\n--- END PLANNER INSTRUCTIONS ---`;
+    this._plannerInstrCache = { content: result, loadedAt: Date.now() };
+    return result;
   }
 
   // ── Private Helpers ─────────────────────────────────────────
