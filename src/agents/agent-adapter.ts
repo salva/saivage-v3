@@ -37,6 +37,7 @@ import { LlmClient } from './llm-client.js';
 import type { LlmCompleteOptions } from './llm-client.js';
 import { EventLogger } from '../utils/event-logger.js';
 import { buildSelfCheckPrompt } from './system-prompt.js';
+import type { McpManager } from '../mcp/mcp-manager.js';
 
 // Re-export the common AgentRuntime interface for consumers that
 // need to reference it without importing agent-runtime.ts directly.
@@ -93,6 +94,9 @@ export class AgentAdapter implements AgentRuntime {
   /** Set of session IDs that have been cancelled (blocks retry in candidate loop) */
   private _cancelledSessions: Set<string> = new Set();
 
+  /** MCP manager reference for tool invocation. */
+  private _mcpManager: McpManager | undefined;
+
   // Self-check round tracking
   private roundCounters: Map<string, number> = new Map();
   private lastRole: string | null = null;
@@ -140,6 +144,104 @@ export class AgentAdapter implements AgentRuntime {
    */
   getContentSupervisor(): ContentSupervisor | undefined {
     return this.contentSupervisor;
+  }
+
+  /**
+   * Set the McpManager for MCP tool invocation capability.
+   * Must be called before callMcpTool() can be used.
+   */
+  setMcpManager(mcpManager: McpManager): void {
+    this._mcpManager = mcpManager;
+  }
+
+  /**
+   * Get the McpManager if one has been set.
+   */
+  getMcpManager(): McpManager | undefined {
+    return this._mcpManager;
+  }
+
+  /**
+   * Invoke an MCP tool on a running server through the McpManager.
+   *
+   * This is the integration point that agents use to call external
+   * MCP tools at execution time. The flow is:
+   *
+   * 1. Validates that the McpManager has been configured.
+   * 2. Dynamically imports the McpManager module (avoiding circular
+   *    dependencies at module load time).
+   * 3. Calls `McpManager.invokeTool(serverName, toolName, args)`.
+   * 4. Screens the result through ContentSupervisor (if configured).
+   * 5. Returns the screened result, or throws a structured error.
+   *
+   * @param serverName - The configured MCP server name.
+   * @param toolName   - The tool to invoke.
+   * @param args       - Tool arguments as a key-value record.
+   * @returns The screened tool result.
+   * @throws If the McpManager has not been configured.
+   * @throws If the ContentSupervisor blocks the response.
+   * @throws McpInvokeError subclasses for MCP-level errors.
+   */
+  async callMcpTool(
+    serverName: string,
+    toolName: string,
+    args: Record<string, unknown>,
+  ): Promise<unknown> {
+    // 1. Validate that McpManager is configured
+    if (!this._mcpManager) {
+      throw new Error(
+        'MCP manager not configured. Call setMcpManager() first.',
+      );
+    }
+
+    // 2. Dynamically import the McpManager module to get error types
+    //    for instanceof checks without creating a circular import at
+    //    module load time.
+    const { McpInvokeError } = await import('../mcp/mcp-manager.js');
+
+    // 3. Call invokeTool on the McpManager
+    let result: unknown;
+    try {
+      result = await this._mcpManager.invokeTool(
+        serverName,
+        toolName,
+        args,
+      );
+    } catch (err) {
+      // McpInvokeError subclasses are already structured — re-throw as-is
+      if (err instanceof McpInvokeError) {
+        throw err;
+      }
+      // Wrap unexpected errors
+      throw new Error(
+        `MCP tool invocation failed for '${toolName}' on '${serverName}': ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
+    }
+
+    // 4. Screen the result through ContentSupervisor if configured
+    if (this.contentSupervisor && !this.contentSupervisor.isScreeningDisabled()) {
+      const screenResult = await this.contentSupervisor.screenContent({
+        sourceKind: 'tool',
+        sourceRef: `mcp:${serverName}/${toolName}`,
+        content: JSON.stringify(result),
+      });
+
+      if (screenResult.status === 'blocked') {
+        throw new Error(
+          `MCP tool response blocked by content supervisor: ${screenResult.summary}`,
+        );
+      }
+
+      // If sanitized, return the original result (the supervisor
+      // doesn't modify content in "sanitized" mode — it just records
+      // the pass). For future sanitize-and-rewrite support, we could
+      // parse screenResult content here.
+    }
+
+    // 5. Return the screened result
+    return result;
   }
 
   /**
