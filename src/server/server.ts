@@ -310,6 +310,17 @@ export async function createServer(
     return reply.send({ servers: mcpManager.getStatus() });
   });
 
+  // ── MCP Tools API Endpoint ─────────────────────────────────
+
+  fastify.get('/api/mcp/tools', async (_request, reply) => {
+    if (!mcpManager) {
+      return reply.send({ tools: [], servers: [] });
+    }
+    const tools = mcpManager.getTools();
+    const servers = mcpManager.getToolServers();
+    return reply.send({ tools, servers });
+  });
+
   // ── Telegram Bot Lifecycle ─────────────────────────────────
 
   let telegramBot: TelegramBot | undefined;
