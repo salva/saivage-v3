@@ -64,16 +64,13 @@ export function registerEventsRoute(
         contentFilter.session_id = query.session_id;
       }
 
-      // Get total matching events (without offset/limit, so total
-      // counts events matching the content filters BEFORE pagination)
-      const total = eventLogger.getEvents(contentFilter).length;
+      // Single getEvents() call: get ALL matching events (no offset/limit),
+      // then apply pagination in JavaScript
+      const allMatching = eventLogger.getEvents(contentFilter);
+      const total = allMatching.length;
 
-      // Get the paginated slice
-      const events = eventLogger.getEvents({
-        ...contentFilter,
-        offset,
-        limit,
-      });
+      // Apply pagination as a slice
+      const events = allMatching.slice(offset, offset + limit);
 
       // Clean up the EventLogger's flush timer
       eventLogger.close();
