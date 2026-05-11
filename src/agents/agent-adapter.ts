@@ -445,202 +445,215 @@ export class AgentAdapter implements AgentRuntime {
       const candidateChain = this.router.resolve(role);
       let lastError: Error | null = null;
 
-      for (const candidate of candidateChain) {
-        // Check if session was cancelled before trying this candidate
-        if (this._cancelledSessions.has(session.id)) {
-          throw new Error(
-            `Agent invocation cancelled for session ${session.id}. ` +
-            `Role: ${role}, goal: ${goalId}, card: ${cardId}`,
-          );
-        }
-
-        // Check if candidate is healthy
-        if (!this.registry.isHealthy(candidate)) {
-          continue;
-        }
-
-        try {
-          // Update session model
-          updateSessionModel(this.saivageDir, session.id, candidate.model);
-
-          // Log model_selected event
-          if (this.eventLogger) {
-            this.eventLogger.appendEvent({
-              kind: 'model_selected',
-              session_id: session.id,
-              provider: candidate.provider,
-              model: candidate.model,
-              role: role as unknown as import('../schemas/types.js').AgentRole,
-            });
-          }
-          if (this.eventBus) {
-            this.eventBus.emit('model_selected', {
-              session_id: session.id,
-              provider: candidate.provider,
-              model: candidate.model,
-              role,
-            });
-          }
-
-          // Append recovery directive if this is a retry
-          if (recoveryCtx.isRecovery && recoveryCtx.directive) {
-            appendMessage(this.saivageDir, session.id, {
-              role: 'system',
-              kind: 'model_recovered',
-              content: recoveryCtx.directive,
-            });
-          }
-
-          // Check compaction
-          const compactionResult = await compactSession(
-            this.saivageDir,
-            session.id,
-            {
-              contextLimit: 128000,
-              threshold: this.runtimeConfig.compactionThreshold ?? 0.8,
-              maxCompactions: this.runtimeConfig.maxCompactions ?? 3,
-            },
-          );
-
-          if (compactionResult.maxReached) {
-            throw new Error(
-              `Max compactions (${this.runtimeConfig.maxCompactions ?? 3}) reached for session ${session.id}. ` +
-                `Session must be restarted with fresh context.`,
-            );
-          }
-
-          // Log compaction_triggered event
-          if (this.eventLogger && compactionResult.compacted) {
-            this.eventLogger.appendEvent({
-              kind: 'compaction_triggered',
-              session_id: session.id,
-              role: role as unknown as import('../schemas/types.js').AgentRole,
-              tokens_before: compactionResult.tokensBefore,
-              tokens_after: compactionResult.tokensAfter,
-            });
-          }
-          if (this.eventBus && compactionResult.compacted) {
-            this.eventBus.emit('compaction_triggered', {
-              session_id: session.id,
-              role,
-              tokens_before: compactionResult.tokensBefore,
-              tokens_after: compactionResult.tokensAfter,
-            });
-          }
-
-          // Create AbortController for this call so cancelSession can abort it
-          const abortController = new AbortController();
-          this._abortControllers.set(session.id, abortController);
-
-          // Capture start time for duration measurement
-          const callStart = Date.now();
-
-          try {
-            // Make the LLM call with role-specific temperature, max_tokens, and signal
-            const rawResponse = await this.llmCallFn!(
-              candidate,
-              systemPrompt,
-              getSessionMessages(this.saivageDir, session.id),
-              session.id,
-              { temperature: modelParams.temperature, max_tokens: modelParams.maxTokens, signal: abortController.signal },
-            );
-
-            // Compute actual call duration
-            const callDuration = Date.now() - callStart;
-
-            // Record assistant response
-            appendMessage(this.saivageDir, session.id, {
-              role: 'assistant',
-              kind: 'text',
-              content: rawResponse,
-            });
-
-            // Parse the result
-            const parsed = parser(rawResponse);
-
-            // Mark candidate as succeeded
-            this.registry.markSucceeded(candidate);
-
-            // Log invocation_succeeded event
-            if (this.eventLogger) {
-              this.eventLogger.appendEvent({
-                kind: 'invocation_succeeded',
-                session_id: session.id,
-                role: role as unknown as import('../schemas/types.js').AgentRole,
-                attempt: recoveryCtx.attempt,
-                duration_ms: callDuration,
-              });
-            }
-            if (this.eventBus) {
-              this.eventBus.emit('invocation_succeeded', {
-                session_id: session.id,
-                role,
-                attempt: recoveryCtx.attempt,
-                duration_ms: callDuration,
-              });
-            }
-
-            return parsed;
-          } finally {
-            this._abortControllers.delete(session.id);
-            this._cancelledSessions.delete(session.id);
-          }
-        } catch (err) {
-          // Mark candidate as failed
-          this.registry.markFailed(candidate, this.runtimeConfig.recoveryDelayMs ?? 60000);
-
-          lastError = err instanceof Error ? err : new Error(String(err));
-
-          // Record failure in session
-          appendMessage(this.saivageDir, session.id, {
-            role: 'system',
-            kind: 'model_issue',
-            content: `Candidate ${candidate.provider}/${candidate.account ?? '_'}/${candidate.model} failed: ${lastError.message}`,
-          });
-
-          // Log invocation_failed event
-          if (this.eventLogger) {
-            this.eventLogger.appendEvent({
-              kind: 'invocation_failed',
-              session_id: session.id,
-              role: role as unknown as import('../schemas/types.js').AgentRole,
-              attempt: recoveryCtx.attempt,
-              error_message: lastError.message,
-            });
-          }
-          if (this.eventBus) {
-            this.eventBus.emit('invocation_failed', {
-              session_id: session.id,
-              role,
-              attempt: recoveryCtx.attempt,
-              error_message: lastError.message,
-            });
-          }
-
-          // Check if session was cancelled — if so, stop retrying
+      try {
+        for (const candidate of candidateChain) {
+          // Check if session was cancelled before trying this candidate
           if (this._cancelledSessions.has(session.id)) {
-            // Emit a clear error that this session was cancelled
-            if (this.eventLogger) {
-              this.eventLogger.appendEvent({
-                kind: 'session_cancelled',
-                session_id: session.id,
-                role: role as unknown as import('../schemas/types.js').AgentRole,
-                note: 'Stopped retry loop due to session cancellation',
-              });
-            }
             throw new Error(
               `Agent invocation cancelled for session ${session.id}. ` +
               `Role: ${role}, goal: ${goalId}, card: ${cardId}`,
             );
           }
 
-          // Continue to next candidate
-          continue;
-        }
-      }
+          // Check if candidate is healthy
+          if (!this.registry.isHealthy(candidate)) {
+            continue;
+          }
 
-      // All candidates exhausted
-      throw lastError ?? new Error(`All candidates exhausted for role '${role}'.`);
+          try {
+            // Update session model
+            updateSessionModel(this.saivageDir, session.id, candidate.model);
+
+            // Log model_selected event
+            if (this.eventLogger) {
+              this.eventLogger.appendEvent({
+                kind: 'model_selected',
+                session_id: session.id,
+                provider: candidate.provider,
+                model: candidate.model,
+                role: role as unknown as import('../schemas/types.js').AgentRole,
+              });
+            }
+            if (this.eventBus) {
+              this.eventBus.emit('model_selected', {
+                session_id: session.id,
+                provider: candidate.provider,
+                model: candidate.model,
+                role,
+              });
+            }
+
+            // Append recovery directive if this is a retry
+            if (recoveryCtx.isRecovery && recoveryCtx.directive) {
+              appendMessage(this.saivageDir, session.id, {
+                role: 'system',
+                kind: 'model_recovered',
+                content: recoveryCtx.directive,
+              });
+            }
+
+            // Check compaction
+            const compactionResult = await compactSession(
+              this.saivageDir,
+              session.id,
+              {
+                contextLimit: 128000,
+                threshold: this.runtimeConfig.compactionThreshold ?? 0.8,
+                maxCompactions: this.runtimeConfig.maxCompactions ?? 3,
+              },
+            );
+
+            if (compactionResult.maxReached) {
+              throw new Error(
+                `Max compactions (${this.runtimeConfig.maxCompactions ?? 3}) reached for session ${session.id}. ` +
+                  `Session must be restarted with fresh context.`,
+              );
+            }
+
+            // Log compaction_triggered event
+            if (this.eventLogger && compactionResult.compacted) {
+              this.eventLogger.appendEvent({
+                kind: 'compaction_triggered',
+                session_id: session.id,
+                role: role as unknown as import('../schemas/types.js').AgentRole,
+                tokens_before: compactionResult.tokensBefore,
+                tokens_after: compactionResult.tokensAfter,
+              });
+            }
+            if (this.eventBus && compactionResult.compacted) {
+              this.eventBus.emit('compaction_triggered', {
+                session_id: session.id,
+                role,
+                tokens_before: compactionResult.tokensBefore,
+                tokens_after: compactionResult.tokensAfter,
+              });
+            }
+
+            // Create AbortController for this call so cancelSession can abort it
+            const abortController = new AbortController();
+            this._abortControllers.set(session.id, abortController);
+
+            // Capture start time for duration measurement
+            const callStart = Date.now();
+
+            try {
+              // Make the LLM call with role-specific temperature, max_tokens, and signal
+              const rawResponse = await this.llmCallFn!(
+                candidate,
+                systemPrompt,
+                getSessionMessages(this.saivageDir, session.id),
+                session.id,
+                { temperature: modelParams.temperature, max_tokens: modelParams.maxTokens, signal: abortController.signal },
+              );
+
+              // Compute actual call duration
+              const callDuration = Date.now() - callStart;
+
+              // Record assistant response
+              appendMessage(this.saivageDir, session.id, {
+                role: 'assistant',
+                kind: 'text',
+                content: rawResponse,
+              });
+
+              // Parse the result
+              const parsed = parser(rawResponse);
+
+              // Mark candidate as succeeded
+              this.registry.markSucceeded(candidate);
+
+              // Log invocation_succeeded event
+              if (this.eventLogger) {
+                this.eventLogger.appendEvent({
+                  kind: 'invocation_succeeded',
+                  session_id: session.id,
+                  role: role as unknown as import('../schemas/types.js').AgentRole,
+                  attempt: recoveryCtx.attempt,
+                  duration_ms: callDuration,
+                });
+              }
+              if (this.eventBus) {
+                this.eventBus.emit('invocation_succeeded', {
+                  session_id: session.id,
+                  role,
+                  attempt: recoveryCtx.attempt,
+                  duration_ms: callDuration,
+                });
+              }
+
+              // Clean up the cancelled flag — the call succeeded, so cancellation is moot
+              this._cancelledSessions.delete(session.id);
+
+              return parsed;
+            } finally {
+              this._abortControllers.delete(session.id);
+            }
+          } catch (err) {
+            // Mark candidate as failed
+            this.registry.markFailed(candidate, this.runtimeConfig.recoveryDelayMs ?? 60000);
+
+            lastError = err instanceof Error ? err : new Error(String(err));
+
+            // Record failure in session
+            appendMessage(this.saivageDir, session.id, {
+              role: 'system',
+              kind: 'model_issue',
+              content: `Candidate ${candidate.provider}/${candidate.account ?? '_'}/${candidate.model} failed: ${lastError.message}`,
+            });
+
+            // Log invocation_failed event
+            if (this.eventLogger) {
+              this.eventLogger.appendEvent({
+                kind: 'invocation_failed',
+                session_id: session.id,
+                role: role as unknown as import('../schemas/types.js').AgentRole,
+                attempt: recoveryCtx.attempt,
+                error_message: lastError.message,
+              });
+            }
+            if (this.eventBus) {
+              this.eventBus.emit('invocation_failed', {
+                session_id: session.id,
+                role,
+                attempt: recoveryCtx.attempt,
+                error_message: lastError.message,
+              });
+            }
+
+            // Check if session was cancelled — if so, stop retrying
+            if (this._cancelledSessions.has(session.id)) {
+              // Emit a clear error that this session was cancelled
+              if (this.eventLogger) {
+                this.eventLogger.appendEvent({
+                  kind: 'session_cancelled',
+                  session_id: session.id,
+                  role: role as unknown as import('../schemas/types.js').AgentRole,
+                  note: 'Stopped retry loop due to session cancellation',
+                });
+              }
+              throw new Error(
+                `Agent invocation cancelled for session ${session.id}. ` +
+                `Role: ${role}, goal: ${goalId}, card: ${cardId}`,
+              );
+            }
+
+            // Continue to next candidate
+            continue;
+          }
+        }
+
+        // All candidates exhausted
+        throw lastError ?? new Error(`All candidates exhausted for role '${role}'.`);
+      } finally {
+        // Clean up cancellation state for this session.
+        // This covers:
+        // - Pre-candidate cancellation (the check at the top of the loop threw)
+        // - Cancellation during an LLM call (the post-error catch threw)
+        // - Normal candidate exhaustion
+        // - The success path cleans up early (before `return parsed`), so
+        //   this final cleanup is a no-op for success.
+        this._cancelledSessions.delete(session.id);
+      }
     };
 
     // Invoke with recovery
