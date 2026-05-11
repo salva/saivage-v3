@@ -789,4 +789,105 @@ describe('Runtime Integration', () => {
       expect(queue2[1].id).toBe(c2.id);
     });
   });
+
+  // ═══════════════════════════════════════════════════════════════
+  // AC 7: Goal with per-goal instructions_file dispatch
+  // ═══════════════════════════════════════════════════════════════
+
+  describe('AC 7: Goal with per-goal instructions_file dispatch', () => {
+    it('dispatches a depth > 0 goal with instructions_file set', async () => {
+      // Reuse the happy-goal fixture since we just need the planner to work
+      createHappyPathFixture();
+      const store = new CardStore(tmpDir);
+
+      // Create a depth-1 goal card with instructions_file set
+      const goal = store.create({
+        id: 'goal-instr',
+        type: 'goal',
+        parent: 'project',
+        depth: 1,
+        title: 'Goal With Instructions',
+        description: 'A goal that has custom planner instructions',
+        status: 'backlog',
+        tags: [],
+        priority: 1,
+        urgency: 'normal',
+        created_by: 'analyst',
+        depends_on: [],
+        blocks: [],
+        related: [],
+        acceptance: 'Testing instructions_file',
+        artifacts: [],
+        attachments: [],
+        retries: 0,
+        instructions_file: 'my-goal-instructions.md',
+      });
+
+      // Write a instructions file at the project root
+      writeFileSync(join(tmpDir, 'my-goal-instructions.md'),
+        '# Special instructions\nBe thorough.', 'utf-8');
+
+      runtime = new Runtime(makeDefaultConfig({ 'goal-instr': 'happy-goal' }));
+      await runtime.startup();
+
+      await runtime.dispatchGoal('goal-instr');
+
+      // Should complete successfully
+      const done = store.read('goal-instr');
+      expect(done!.status).toBe('done');
+
+      await runtime.shutdown();
+    });
+
+    it('depth > 0 goal without instructions_file still works', async () => {
+      createHappyPathFixture();
+      const store = new CardStore(tmpDir);
+
+      // Create a depth-1 goal WITHOUT instructions_file
+      const goal = store.create({
+        id: 'goal-no-instr',
+        type: 'goal',
+        parent: 'project',
+        depth: 1,
+        title: 'Goal Without Instructions',
+        description: 'A goal without custom planner instructions',
+        status: 'backlog',
+        tags: [],
+        priority: 1,
+        urgency: 'normal',
+        created_by: 'analyst',
+        depends_on: [],
+        blocks: [],
+        related: [],
+        acceptance: 'Testing no instructions',
+        artifacts: [],
+        attachments: [],
+        retries: 0,
+      });
+
+      runtime = new Runtime(makeDefaultConfig({ 'goal-no-instr': 'happy-goal' }));
+      await runtime.startup();
+
+      await runtime.dispatchGoal('goal-no-instr');
+
+      const done = store.read('goal-no-instr');
+      expect(done!.status).toBe('done');
+
+      await runtime.shutdown();
+    });
+
+    it('depth-0 project planner still works unchanged', async () => {
+      createHappyPathFixture();
+
+      runtime = new Runtime(makeDefaultConfig({ project: 'happy-goal' }));
+      await runtime.startup();
+
+      await runtime.dispatchGoal('project');
+
+      const project = runtime.cardStore.read('project');
+      expect(project!.status).toBe('done');
+
+      await runtime.shutdown();
+    });
+  });
 });

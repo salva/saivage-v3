@@ -567,6 +567,56 @@ describe('SkillsEngine', () => {
     });
   });
 
+  // ═══════════════ loadPlannerInstructions() — custom path ═══════
+
+  describe('loadPlannerInstructions() — custom path', () => {
+    it('loads custom path when customFilePath provided', async () => {
+      const instrDir = join(tmpDir, 'my-goal-instructions');
+      mkdirSync(instrDir, { recursive: true });
+      writeFileSync(join(instrDir, 'custom.md'),
+        '# Custom\nDo things differently', 'utf-8');
+      const result = await engine.loadPlannerInstructions('my-goal-instructions/custom.md');
+      expect(result).toContain('--- PLANNER INSTRUCTIONS ---');
+      expect(result).toContain('# Custom');
+      expect(result).toContain('Do things differently');
+      expect(result).toContain('--- END PLANNER INSTRUCTIONS ---');
+    });
+
+    it("returns '' when custom path does not exist", async () => {
+      const result = await engine.loadPlannerInstructions('nonexistent/path.md');
+      expect(result).toBe('');
+    });
+
+    it("returns '' for empty custom file", async () => {
+      const instrDir = join(tmpDir, 'empty');
+      mkdirSync(instrDir, { recursive: true });
+      writeFileSync(join(instrDir, 'empty.md'), '   \n  ', 'utf-8');
+      expect(await engine.loadPlannerInstructions('empty/empty.md')).toBe('');
+    });
+
+    it('default path still works when customFilePath omitted', async () => {
+      const instrDir = join(tmpDir, '.saivage', 'instructions');
+      mkdirSync(instrDir, { recursive: true });
+      writeFileSync(join(instrDir, 'planner.md'),
+        '# Default\nDefault strategy', 'utf-8');
+      const result = await engine.loadPlannerInstructions();
+      expect(result).toContain('--- PLANNER INSTRUCTIONS ---');
+      expect(result).toContain('# Default');
+      expect(result).toContain('Default strategy');
+    });
+
+    it('custom path does not populate default cache', async () => {
+      // Load a custom path first
+      const d1 = join(tmpDir, 'c1');
+      mkdirSync(d1, { recursive: true });
+      writeFileSync(join(d1, 'a.md'), 'Custom A', 'utf-8');
+      await engine.loadPlannerInstructions('c1/a.md');
+
+      // Default path should still be '' since planner.md doesn't exist
+      expect(await engine.loadPlannerInstructions()).toBe('');
+    });
+  });
+
   // ═══════════════ System Prompt Integration ═══════════════
 
   describe('System Prompt Integration', () => {
