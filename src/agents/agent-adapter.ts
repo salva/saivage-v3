@@ -33,6 +33,10 @@ import { invokeWithRecovery, type RecoveryContext } from './recovery.js';
 import type { ContentSupervisor } from '../utils/content-supervisor.js';
 import { getSafeFileForAgent, type SafeFileResult } from '../utils/file-access-security.js';
 
+// Re-export the common AgentRuntime interface for consumers that
+// need to reference it without importing agent-runtime.ts directly.
+export type { AgentRuntime } from './agent-runtime.js';
+
 // ── Types ─────────────────────────────────────────────────────
 
 export type AgentRole = 'planner' | 'executor' | 'reviewer' | 'analyst';
