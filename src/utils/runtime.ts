@@ -1,6 +1,6 @@
 import { EventEmitter } from 'node:events';
 import { join } from 'node:path';
-import { existsSync, rmSync, readdirSync } from 'node:fs';
+import { existsSync, rmSync, readdirSync, readFileSync } from 'node:fs';
 import type {
   CardRecord,
   RuntimeState,
@@ -36,6 +36,12 @@ import type { ProcessRecord } from '../schemas/types.js';
 import { EventLogger } from './event-logger.js';
 import { ErrorLogger } from './error-logger.js';
 import { EventBus } from './event-bus.js';
+import {
+  StuckAgentSupervisor,
+  DEFAULT_SUPERVISOR_CONFIG,
+  type SupervisorConfig,
+  type SupervisorDeps,
+} from './stuck-agent-supervisor.js';
 
 // ── Types ─────────────────────────────────────────────────────
 
@@ -61,6 +67,8 @@ export interface RuntimeConfig {
   errorLogger?: ErrorLogger;
   /** Optional maximum goal depth (default: 5). When set, overrides the CardStore default. */
   maxGoalDepth?: number;
+  /** Optional StuckAgentSupervisor configuration. Default: enabled with defaults. */
+  supervisorConfig?: SupervisorConfig;
 }
 
 // ── Helpers ───────────────────────────────────────────────────
@@ -122,6 +130,11 @@ function now(): string {
 
 function saivageWorkDir(projectRoot: string): string {
   return join(projectRoot, '.saivage-work');
+}
+
+/** Return the path to the events.jsonl file for a given project root. */
+function eventsLogPath(projectRoot: string): string {
+  return join(projectRoot, '.saivage', 'runtime', 'events.jsonl');
 }
 
 /**
@@ -211,6 +224,9 @@ export class Runtime extends EventEmitter {
    */
   readonly runningProcesses: Set<string> = new Set();
 
+  /** Stuck-agent supervisor instance */
+  private _supervisor: StuckAgentSupervisor;
+
   /**
    * @param config       Runtime configuration (projectRoot, fakeAgentConfig, etc.)
    * @param agentRuntime Optional AgentRuntime implementation.
@@ -240,6 +256,75 @@ export class Runtime extends EventEmitter {
       this._errorLogger = new ErrorLogger(join(config.projectRoot, '.saivage'));
       this._ownsErrorLogger = true;
     }
+
+    // ── Stuck-Agent Supervisor ───────────────────────────────
+
+    // Build supervisor dependencies wired to Runtime internals
+    const supervisorDeps: SupervisorDeps = {
+      getRecentLogs: (maxLines: number) => {
+        // Read recent log lines directly from the events.jsonl file.
+        // EventLogger doesn't expose a convenience method for tailing,
+        // so we read the file directly.
+        try {
+          const logPath = eventsLogPath(this.projectRoot);
+          if (!existsSync(logPath)) return '';
+          const raw = readFileSync(logPath, 'utf-8');
+          const allLines = raw.split('\n').filter(Boolean);
+          const recent = allLines.slice(-maxLines);
+          return recent.join('\n');
+        } catch {
+          return '';
+        }
+      },
+      getActiveSessions: () => {
+        // Get active sessions from runtime state
+        try {
+          const state = readRuntimeState(this.projectRoot);
+          if (state && state.current_agent_session_id) {
+            // Derive the role from the session ID prefix convention
+            // (e.g. "planner-goalId-iter", "executor-cardId-goalId-iter")
+            const sessionId = state.current_agent_session_id;
+            let role = 'executor';
+            if (sessionId.startsWith('planner-')) {
+              role = 'planner';
+            } else if (sessionId.startsWith('reviewer-')) {
+              role = 'reviewer';
+            }
+            return [{ role, sessionId }];
+          }
+        } catch {
+          // ignore
+        }
+        return [];
+      },
+      abortSession: (_sessionId: string) => {
+        // TODO: AgentRuntime does not yet expose cancelSession/forceCancelSession.
+        // Once those methods are added to the AgentRuntime interface and
+        // implemented in AgentAdapter/FakeAgentAdapter, wire them here.
+        // For now this is a no-op — the supervisor will fall through to
+        // force-cancel after the timeout.
+      },
+      forceCancelSession: (_sessionId: string) => {
+        // TODO: AgentRuntime does not yet expose cancelSession/forceCancelSession.
+        // Same as abortSession above — wire when the interface is extended.
+      },
+      emitEvent: (kind: string, data: Record<string, unknown>) => {
+        this.emit(kind, data);
+        // Also log to EventLogger for persistence
+        this._eventLogger.appendEvent({
+          kind: kind as never,
+          ...data,
+        } as never);
+      },
+      isShuttingDown: () => this._shuttingDown,
+    };
+
+    const mergedSupervisorConfig: SupervisorConfig = {
+      ...DEFAULT_SUPERVISOR_CONFIG,
+      ...config.supervisorConfig,
+    };
+
+    this._supervisor = new StuckAgentSupervisor(mergedSupervisorConfig, supervisorDeps);
   }
 
   get status(): RuntimeStatus {
@@ -256,6 +341,11 @@ export class Runtime extends EventEmitter {
 
   get errorLogger(): ErrorLogger {
     return this._errorLogger;
+  }
+
+  /** Stuck-agent supervisor instance */
+  get supervisor(): StuckAgentSupervisor {
+    return this._supervisor;
   }
 
   // ── EventEmitter.emit() Override ──────────────────────────
@@ -391,6 +481,7 @@ export class Runtime extends EventEmitter {
    * 4. Crash recovery (reset active/running cards to backlog)
    * 5. Recover running_processes from saved state
    * 6. Write initial runtime state
+   * 7. Start stuck-agent supervisor
    */
   async startup(): Promise<void> {
     if (this._running) {
@@ -434,17 +525,21 @@ export class Runtime extends EventEmitter {
       kind: 'started',
       project_root: this.projectRoot,
     });
+
+    // 6. Start stuck-agent supervisor
+    this._supervisor.start();
   }
 
   // ── Shutdown ──────────────────────────────────────────────
 
   /**
    * Graceful shutdown:
-   * 1. Freeze tracker (stop new dispatch)
-   * 2. Kill orphan running processes
-   * 3. Write shutdown state (idle)
-   * 4. Release lock
-   * 5. Run safe cleanup
+   * 1. Stop stuck-agent supervisor
+   * 2. Freeze tracker (stop new dispatch)
+   * 3. Kill orphan running processes
+   * 4. Write shutdown state (idle)
+   * 5. Release lock
+   * 6. Run safe cleanup
    */
   async shutdown(): Promise<void> {
     if (!this._running) return;
@@ -452,7 +547,10 @@ export class Runtime extends EventEmitter {
     this._shuttingDown = true;
     this._running = false;
 
-    // Kill orphan processes
+    // 1. Stop stuck-agent supervisor first (before killing processes)
+    this._supervisor.stop();
+
+    // 2. Kill orphan processes
     try {
       const killedIds = await killAllRunning(this.projectRoot);
       for (const id of killedIds) {
@@ -462,7 +560,7 @@ export class Runtime extends EventEmitter {
       // Best effort
     }
 
-    // Write final idle state
+    // 3. Write final idle state
     try {
       saveRuntimeState(this.projectRoot, {
         status: 'idle',
@@ -481,14 +579,14 @@ export class Runtime extends EventEmitter {
       // Best effort
     }
 
-    // Release lock
+    // 4. Release lock
     try {
       releaseLock(this.projectRoot);
     } catch {
       // Best effort
     }
 
-    // Run safe cleanup
+    // 5. Run safe cleanup
     try {
       cleanAll(saivageWorkDir(this.projectRoot), this.cardStore);
     } catch {
