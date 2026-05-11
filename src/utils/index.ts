@@ -8,6 +8,7 @@ export * from './runtime-state.js';
 export * from './runtime-lock.js';
 export * from './fake-agent.js';
 export * from './runtime.js';
+export * from './active-runtime.js';
 export * from './process-runner.js';
 export * from './cleanup.js';
 export * from './heuristic-scanner.js';
