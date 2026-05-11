@@ -19,6 +19,95 @@
 import { ChildProcess, spawn } from 'node:child_process';
 import { loadConfig, type SaivageConfig } from '../agents/config-schema.js';
 
+// ── MCP Protocol Types ────────────────────────────────────────
+
+/** MCP tool annotations (behavior hints). */
+export interface McpToolAnnotations {
+  /** Human-readable title for the tool. */
+  title?: string;
+  /** Tool does not modify its environment (default: false). */
+  readOnlyHint?: boolean;
+  /** Tool may perform destructive updates (default: true). */
+  destructiveHint?: boolean;
+  /** Repeated calls with the same arguments have no additional effect (default: false). */
+  idempotentHint?: boolean;
+  /** Tool interacts with external entities (default: true). */
+  openWorldHint?: boolean;
+}
+
+/** MCP Tool definition as returned by tools/list. */
+export interface McpToolDefinition {
+  /** Unique identifier for the tool (programmatic use). */
+  name: string;
+  /** Human-readable display name. */
+  title?: string;
+  /** Human-readable description of the tool. */
+  description?: string;
+  /** JSON Schema object defining the expected parameters for the tool. */
+  inputSchema: {
+    type: 'object';
+    properties?: Record<string, object>;
+    required?: string[];
+  };
+  /** Optional JSON Schema object defining the structure of the tool's output. */
+  outputSchema?: {
+    type: 'object';
+    properties?: Record<string, object>;
+    required?: string[];
+  };
+  /** Optional additional tool information. */
+  annotations?: McpToolAnnotations;
+  /** Extension metadata. */
+  _meta?: Record<string, unknown>;
+}
+
+/** MCP JSON-RPC 2.0 request message. */
+export interface McpJsonRpcRequest {
+  jsonrpc: '2.0';
+  id: number | string;
+  method: string;
+  params?: Record<string, unknown>;
+}
+
+/** MCP JSON-RPC 2.0 success response message. */
+export interface McpJsonRpcResponse {
+  jsonrpc: '2.0';
+  id: number | string;
+  result: unknown;
+}
+
+/** MCP JSON-RPC 2.0 error response message. */
+export interface McpJsonRpcError {
+  jsonrpc: '2.0';
+  id: number | string;
+  error: {
+    code: number;
+    message: string;
+    data?: unknown;
+  };
+}
+
+/** Response payload from tools/list. */
+export interface ListToolsResult {
+  /** Array of tool definitions returned by the server. */
+  tools: McpToolDefinition[];
+  /** Opaque cursor for pagination; absent on the last page. */
+  nextCursor?: string;
+}
+
+/** Parameters sent with the initialize request. */
+export interface McpInitializeParams {
+  /** The protocol version the client supports. */
+  protocolVersion: string;
+  /** Client capabilities. */
+  capabilities: Record<string, unknown>;
+  /** Information about the client. */
+  clientInfo: {
+    name: string;
+    version: string;
+  };
+}
+
 // ── Types ─────────────────────────────────────────────────────
 
 /** Transport type for an MCP server. */
@@ -35,6 +124,8 @@ export interface McpServerStatus {
   pid?: number;
   error?: string;
   startedAt?: string;
+  /** Number of tools discovered from this server (if any). */
+  tools_count?: number;
 }
 
 /** Internal record for a running server. */

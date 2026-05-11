@@ -7,4 +7,11 @@ export type {
   McpTransport,
   McpStatus,
   McpServerStatus,
+  McpToolAnnotations,
+  McpToolDefinition,
+  McpJsonRpcRequest,
+  McpJsonRpcResponse,
+  McpJsonRpcError,
+  ListToolsResult,
+  McpInitializeParams,
 } from './mcp-manager.js';
