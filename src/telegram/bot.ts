@@ -76,7 +76,7 @@ const STOP_TIMEOUT_MS = 5_000;
  * | `**bold**`         | `<b>bold</b>`                |
  * | `*italic*`         | `<i>italic</i>`              |
  * | `~~strike~~`       | `<s>strike</s>`              |
- * | `[text](url)`      | `<a href="url">text</a>`    |
+ * | `[text](url)`      | `<a href=\"url\">text</a>`    |
  * | `# Header`         | `<b>Header</b>`             |
  * | `- item`           | `• item`                     |
  *
@@ -111,7 +111,13 @@ export function convertMarkdownToHtml(markdown: string): string {
   result = result.replace(/~~(.+?)~~/g, '<s>$1</s>');
 
   // 6. Links: [text](url) → <a href="url">text</a>
-  result = result.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2">$1</a>');
+  //    Escape both link text and URL to prevent HTML injection.
+  result = result.replace(
+    /\[([^\]]+)\]\(([^)]+)\)/g,
+    (_match, text: string, url: string) => {
+      return `<a href="${escapeHtmlEntities(url)}">${escapeHtmlEntities(text)}</a>`;
+    },
+  );
 
   // 7. Headings: # Header at start of line → <b>Header</b>
   result = result.replace(/^#{1,6}\s+(.+)$/gm, '<b>$1</b>');
@@ -353,6 +359,8 @@ export class TelegramBot {
    * Handles:
    * - Markdown-to-HTML conversion (if parseMode is 'Markdown' — input is
    *   Markdown, output is sent as Telegram HTML)
+   * - HTML entity escaping (if parseMode is 'HTML' — input is escaped so
+   *   Telegram does not interpret unintended HTML tags)
    * - Message splitting for long messages
    * - Sending chunks sequentially with minimal delay
    */
@@ -372,7 +380,9 @@ export class TelegramBot {
       parseMode = 'HTML';
     } else if (options?.parseMode === 'HTML') {
       parseMode = 'HTML';
-      processedText = text;
+      // Escape HTML entities in user-supplied text so Telegram doesn't
+      // interpret unintended HTML tags when using parse_mode=HTML.
+      processedText = escapeHtmlEntities(text);
     }
 
     // Split long messages
@@ -395,9 +405,12 @@ export class TelegramBot {
   /**
    * Send a notification about a card event.
    *
-   * Format: "**Notification**: [title] — cardId: cardId — attachments: names..."
+   * Format: "<b>Notification</b>: [title] — cardId: cardId — attachments: names..."
    * Attachments are mentioned by name only, never rendered inline.
    * Not split — kept as a single message under 4096 chars.
+   *
+   * All user-controlled fields (title, cardId, attachment names, details) are
+   * HTML-escaped to prevent injection when using Telegram's HTML parse mode.
    */
   async sendNotification(
     chatId: number,
@@ -413,15 +426,15 @@ export class TelegramBot {
     let text = `<b>Notification</b>: ${escapeHtmlEntities(notification.title)}`;
 
     if (notification.cardId) {
-      text += ` — cardId: ${notification.cardId}`;
+      text += ` — cardId: ${escapeHtmlEntities(notification.cardId)}`;
     }
 
     if (notification.attachments && notification.attachments.length > 0) {
-      text += ` — attachments: ${notification.attachments.join(', ')}`;
+      text += ` — attachments: ${notification.attachments.map(a => escapeHtmlEntities(a)).join(', ')}`;
     }
 
     if (notification.details) {
-      text += `\n${notification.details}`;
+      text += `\n${escapeHtmlEntities(notification.details)}`;
     }
 
     // Ensure single message under 4096
