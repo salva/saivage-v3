@@ -1,6 +1,12 @@
 import { readFileSync, existsSync } from 'node:fs';
 import { resolve } from 'node:path';
-import type { ReviewAssessment, CardStatus, ArtifactRef } from '../schemas/types.js';
+import type { ReviewAssessment, CardStatus, ArtifactRef, AgentMessage } from '../schemas/types.js';
+import type { AgentRuntime } from '../agents/agent-runtime.js';
+import type {
+  PlannerResult,
+  ExecutorResult,
+  ReviewerResult,
+} from '../agents/result-parser.js';
 
 // ── Fake Agent Result Types ──────────────────────────────────
 
@@ -114,9 +120,61 @@ export interface FakeAgentConfig {
   fixtureDir: string;
 }
 
+// ── Conversion helpers ───────────────────────────────────────
+
+function convertPlannerResult(raw: FakePlannerResult): PlannerResult {
+  return {
+    plan_card_id: raw.plan_card_id,
+    created_cards: (raw.created_cards ?? []).map((c) => ({
+      ...c,
+      status: c.status as string,
+    })),
+    updated_cards: (raw.updated_cards ?? []).map((u) => ({
+      ...u,
+      status: u.status as string | undefined,
+    })),
+    declare_done: raw.declare_done,
+    summary: undefined,
+  };
+}
+
+function convertExecutorResult(raw: FakeExecutorResult): ExecutorResult {
+  return {
+    card_id: raw.card_id,
+    status: raw.status,
+    error: raw.error,
+    result: raw.result,
+    artifacts: (raw.artifacts ?? []).map((a) => ({
+      type: a.type,
+      description: a.description,
+      retain: a.retain,
+      sourceFile: a.sourceFile,
+    })),
+    attachments: (raw.attachments ?? []).map((a) => ({
+      mime: a.mime,
+      title: a.title,
+      description: a.description,
+      sourceFile: a.sourceFile,
+    })),
+    summary: undefined,
+  };
+}
+
+function convertReviewerResult(raw: FakeReviewerResult): ReviewerResult {
+  return {
+    assessment: {
+      result: raw.assessment.result,
+      summary: raw.assessment.summary,
+      achieved: raw.assessment.achieved,
+      missing: raw.assessment.missing,
+      evidence_card_ids: raw.assessment.evidence_card_ids,
+    },
+  };
+}
+
 // ── FakeAgentAdapter ──────────────────────────────────────────
 
-export class FakeAgentAdapter {
+export class FakeAgentAdapter implements AgentRuntime {
   private config: FakeAgentConfig;
   /** Per-fixture invocation counters */
   private plannerCounters: Map<string, number>;
@@ -143,7 +201,9 @@ export class FakeAgentAdapter {
     // Look up by exact ID first, then fall back to '*' wildcard
     const name = this.config.mapping[id] ?? this.config.mapping['*'];
     if (!name) {
-      throw new Error(`No FakeAgent fixture mapping for '${id}' and no '*' wildcard configured.`);
+      throw new Error(
+        `No FakeAgent fixture mapping for '${id}' and no '*' wildcard configured.`,
+      );
     }
     return this.loadFixture(name);
   }
@@ -152,19 +212,38 @@ export class FakeAgentAdapter {
 
   /**
    * Return a scripted planner result for the given goal/plan card.
-   * Each call increments an invocation counter for the fixture, so
-   * successive calls return different results from the fixture's
-   * `planner[]` array.
+   *
+   * Overload 1 (backward compat): called with just goalId, returns FakePlannerResult.
+   * Overload 2 (AgentRuntime): called with optional planCardId/systemPrompt/contextMessages,
+   *   returns PlannerResult.
+   *
+   * TypeScript resolves to the first matching overload, so existing callers
+   * with just `invokePlanner(goalId)` get FakePlannerResult.
    */
-  invokePlanner(goalId: string): FakePlannerResult {
+  invokePlanner(goalId: string): FakePlannerResult;
+  invokePlanner(
+    goalId: string,
+    planCardId?: string,
+    systemPrompt?: string,
+    contextMessages?: AgentMessage[],
+  ): PlannerResult;
+  invokePlanner(
+    goalId: string,
+    _planCardId?: string,
+    _systemPrompt?: string,
+    _contextMessages?: AgentMessage[],
+  ): FakePlannerResult | PlannerResult {
     const fixture = this.resolveFixture(goalId);
     if (!fixture.planner || fixture.planner.length === 0) {
-      throw new Error(`FakeAgent fixture '${fixture.name}' has no planner results.`);
+      throw new Error(
+        `FakeAgent fixture '${fixture.name}' has no planner results.`,
+      );
     }
     const count = this.plannerCounters.get(fixture.name) ?? 0;
     if (count >= fixture.planner.length) {
       throw new Error(
-        `FakeAgent fixture '${fixture.name}' exhausted planner results (called ${count + 1} times, only ${fixture.planner.length} available).`,
+        `FakeAgent fixture '${fixture.name}' exhausted planner results ` +
+          `(called ${count + 1} times, only ${fixture.planner.length} available).`,
       );
     }
     const result = fixture.planner[count];
@@ -176,12 +255,29 @@ export class FakeAgentAdapter {
 
   /**
    * Return a scripted executor result for the given card.
-   * Looks up the card_id in the fixture's `executor` map.
+   *
+   * Overload 1 (backward compat): called with (cardId, goalId), returns FakeExecutorResult.
+   * Overload 2 (AgentRuntime): called with optional systemPrompt/contextMessages,
+   *   returns ExecutorResult.
    */
-  invokeExecutor(cardId: string, goalId: string): FakeExecutorResult {
+  invokeExecutor(cardId: string, goalId: string): FakeExecutorResult;
+  invokeExecutor(
+    cardId: string,
+    goalId: string,
+    systemPrompt?: string,
+    contextMessages?: AgentMessage[],
+  ): ExecutorResult;
+  invokeExecutor(
+    cardId: string,
+    goalId: string,
+    _systemPrompt?: string,
+    _contextMessages?: AgentMessage[],
+  ): FakeExecutorResult | ExecutorResult {
     const fixture = this.resolveFixture(goalId);
     if (!fixture.executor) {
-      throw new Error(`FakeAgent fixture '${fixture.name}' has no executor results.`);
+      throw new Error(
+        `FakeAgent fixture '${fixture.name}' has no executor results.`,
+      );
     }
     const result = fixture.executor[cardId];
     if (!result) {
@@ -196,22 +292,66 @@ export class FakeAgentAdapter {
 
   /**
    * Return a scripted reviewer assessment for the given goal.
-   * Each call increments an invocation counter for the fixture.
+   *
+   * Overload 1 (backward compat): called with just goalId, returns FakeReviewerResult.
+   * Overload 2 (AgentRuntime): called with optional planCardId/systemPrompt/contextMessages,
+   *   returns ReviewerResult.
    */
-  invokeReviewer(goalId: string): FakeReviewerResult {
+  invokeReviewer(goalId: string): FakeReviewerResult;
+  invokeReviewer(
+    goalId: string,
+    planCardId?: string,
+    systemPrompt?: string,
+    contextMessages?: AgentMessage[],
+  ): ReviewerResult;
+  invokeReviewer(
+    goalId: string,
+    _planCardId?: string,
+    _systemPrompt?: string,
+    _contextMessages?: AgentMessage[],
+  ): FakeReviewerResult | ReviewerResult {
     const fixture = this.resolveFixture(goalId);
     if (!fixture.reviewer || fixture.reviewer.length === 0) {
-      throw new Error(`FakeAgent fixture '${fixture.name}' has no reviewer results.`);
+      throw new Error(
+        `FakeAgent fixture '${fixture.name}' has no reviewer results.`,
+      );
     }
     const count = this.reviewerCounters.get(fixture.name) ?? 0;
     if (count >= fixture.reviewer.length) {
       throw new Error(
-        `FakeAgent fixture '${fixture.name}' exhausted reviewer results (called ${count + 1} times, only ${fixture.reviewer.length} available).`,
+        `FakeAgent fixture '${fixture.name}' exhausted reviewer results ` +
+          `(called ${count + 1} times, only ${fixture.reviewer.length} available).`,
       );
     }
     const result = fixture.reviewer[count];
     this.reviewerCounters.set(fixture.name, count + 1);
     return result;
+  }
+
+  // ── AgentRuntime helpers (convert old types to new) ───────
+
+  /**
+   * Convert a FakePlannerResult to a PlannerResult.
+   * Used by callers that need the AgentRuntime-compatible type.
+   */
+  toPlannerResult(raw: FakePlannerResult): PlannerResult {
+    return convertPlannerResult(raw);
+  }
+
+  /**
+   * Convert a FakeExecutorResult to an ExecutorResult.
+   * Used by callers that need the AgentRuntime-compatible type.
+   */
+  toExecutorResult(raw: FakeExecutorResult): ExecutorResult {
+    return convertExecutorResult(raw);
+  }
+
+  /**
+   * Convert a FakeReviewerResult to a ReviewerResult.
+   * Used by callers that need the AgentRuntime-compatible type.
+   */
+  toReviewerResult(raw: FakeReviewerResult): ReviewerResult {
+    return convertReviewerResult(raw);
   }
 
   // ── Reset ─────────────────────────────────────────────────
