@@ -55,6 +55,7 @@ export interface CardRecord {
   description: string;
   status: CardStatus;
   subtype?: string | null;
+  instructions_file?: string | null;
   tags: string[];
   priority: number;
   urgency: Urgency;

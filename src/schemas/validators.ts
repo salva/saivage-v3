@@ -59,6 +59,7 @@ export const cardRecordSchema = z.object({
   description: z.string(),
   status: cardStatusSchema,
   subtype: z.string().nullable().optional(),
+  instructions_file: z.string().nullable().optional(),
   tags: z.array(z.string()),
   priority: z.number().int(),
   urgency: urgencySchema,
