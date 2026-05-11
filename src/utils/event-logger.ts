@@ -187,12 +187,9 @@ export class EventLogger {
 
   /**
    * Synchronous flush (for shutdown or before reads).
+   * Does NOT kill the periodic flush timer — that only happens in close().
    */
   flushSync(): void {
-    if (this.flushTimer) {
-      clearInterval(this.flushTimer);
-      this.flushTimer = null;
-    }
     this.flush();
   }
 
@@ -200,6 +197,10 @@ export class EventLogger {
    * Close the logger: flush and stop the flush timer.
    */
   close(): void {
-    this.flushSync();
+    if (this.flushTimer) {
+      clearInterval(this.flushTimer);
+      this.flushTimer = null;
+    }
+    this.flush();
   }
 }

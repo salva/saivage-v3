@@ -331,6 +331,9 @@ export class AgentAdapter implements AgentRuntime {
             });
           }
 
+          // Capture start time for duration measurement
+          const callStart = Date.now();
+
           // Make the LLM call with role-specific temperature and max_tokens
           const rawResponse = await this.llmCallFn!(
             candidate,
@@ -339,6 +342,9 @@ export class AgentAdapter implements AgentRuntime {
             session.id,
             { temperature: modelParams.temperature, max_tokens: modelParams.maxTokens },
           );
+
+          // Compute actual call duration
+          const callDuration = Date.now() - callStart;
 
           // Record assistant response
           appendMessage(this.saivageDir, session.id, {
@@ -360,7 +366,7 @@ export class AgentAdapter implements AgentRuntime {
               session_id: session.id,
               role: role as unknown as import('../schemas/types.js').AgentRole,
               attempt: recoveryCtx.attempt,
-              duration_ms: 0,
+              duration_ms: callDuration,
             });
           }
 
