@@ -278,3 +278,169 @@ export interface SkillIndexEntry {
   triggers: SkillTrigger[];
   updated_at: string;
 }
+
+// ── Runtime Events ────────────────────────────────────────────
+
+export type RuntimeEventKind =
+  | 'started'
+  | 'goal_completed'
+  | 'card_failed'
+  | 'review_complete'
+  | 'review_failed'
+  | 'dispatch_blocked'
+  | 'dispatch_interrupted'
+  | 'paused'
+  | 'resumed'
+  | 'shutdown'
+  | 'error';
+
+export type AgentEventKind =
+  | 'session_started'
+  | 'model_selected'
+  | 'invocation_succeeded'
+  | 'invocation_failed'
+  | 'retry_attempted'
+  | 'compaction_triggered';
+
+export type EventKind = RuntimeEventKind | AgentEventKind;
+
+export interface BaseEvent {
+  id: string;
+  kind: EventKind;
+  timestamp: string;
+  session_id?: string;
+  goal_id?: string;
+  card_id?: string;
+}
+
+export interface StartedEvent extends BaseEvent {
+  kind: 'started';
+  project_root: string;
+}
+
+export interface GoalCompletedEvent extends BaseEvent {
+  kind: 'goal_completed';
+  goal_id: string;
+  assessment?: ReviewAssessment;
+}
+
+export interface CardFailedEvent extends BaseEvent {
+  kind: 'card_failed';
+  card_id: string;
+  goal_id: string;
+}
+
+export interface ReviewCompleteEvent extends BaseEvent {
+  kind: 'review_complete';
+  goal_id: string;
+  assessment?: ReviewAssessment;
+}
+
+export interface ReviewFailedEvent extends BaseEvent {
+  kind: 'review_failed';
+  goal_id: string;
+  assessment?: ReviewAssessment;
+}
+
+export interface DispatchBlockedEvent extends BaseEvent {
+  kind: 'dispatch_blocked';
+  reason: string;
+  goal_id: string;
+}
+
+export interface DispatchInterruptedEvent extends BaseEvent {
+  kind: 'dispatch_interrupted';
+  goal_id: string;
+  reason: string;
+}
+
+export interface PausedEvent extends BaseEvent {
+  kind: 'paused';
+}
+
+export interface ResumedEvent extends BaseEvent {
+  kind: 'resumed';
+}
+
+export interface ShutdownEvent extends BaseEvent {
+  kind: 'shutdown';
+}
+
+export interface ErrorEvent extends BaseEvent {
+  kind: 'error';
+  goal_id?: string;
+  card_id?: string;
+  phase?: string;
+  error_message: string;
+}
+
+export interface SessionStartedEvent extends BaseEvent {
+  kind: 'session_started';
+  session_id: string;
+  role: AgentRole;
+  goal_id: string;
+  card_id: string;
+}
+
+export interface ModelSelectedEvent extends BaseEvent {
+  kind: 'model_selected';
+  session_id: string;
+  provider: string;
+  model: string;
+  role: AgentRole;
+}
+
+export interface InvocationSucceededEvent extends BaseEvent {
+  kind: 'invocation_succeeded';
+  session_id: string;
+  role: AgentRole;
+  attempt: number;
+  duration_ms: number;
+}
+
+export interface InvocationFailedEvent extends BaseEvent {
+  kind: 'invocation_failed';
+  session_id: string;
+  role: AgentRole;
+  attempt: number;
+  error_message: string;
+}
+
+export interface RetryAttemptedEvent extends BaseEvent {
+  kind: 'retry_attempted';
+  session_id: string;
+  role: AgentRole;
+  attempt: number;
+  directive?: string;
+}
+
+export interface CompactionTriggeredEvent extends BaseEvent {
+  kind: 'compaction_triggered';
+  session_id: string;
+  role: AgentRole;
+  tokens_before: number;
+  tokens_after: number;
+}
+
+export type RuntimeEvent =
+  | StartedEvent
+  | GoalCompletedEvent
+  | CardFailedEvent
+  | ReviewCompleteEvent
+  | ReviewFailedEvent
+  | DispatchBlockedEvent
+  | DispatchInterruptedEvent
+  | PausedEvent
+  | ResumedEvent
+  | ShutdownEvent
+  | ErrorEvent;
+
+export type AgentEvent =
+  | SessionStartedEvent
+  | ModelSelectedEvent
+  | InvocationSucceededEvent
+  | InvocationFailedEvent
+  | RetryAttemptedEvent
+  | CompactionTriggeredEvent;
+
+export type LoggedEvent = RuntimeEvent | AgentEvent;

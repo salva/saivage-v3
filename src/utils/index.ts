@@ -16,4 +16,5 @@ export * from './quarantine.js';
 export * from './content-supervisor.js';
 export * from './file-access-security.js';
 export * from './write-territories.js';
+export * from './event-logger.js';
 export * from '../agents/index.js';

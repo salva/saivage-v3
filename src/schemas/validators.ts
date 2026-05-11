@@ -310,3 +310,191 @@ export const skillIndexEntrySchema = z.object({
 });
 
 export const skillIndexSchema = z.array(skillIndexEntrySchema);
+
+// ── Event Log ─────────────────────────────────────────────────
+
+export const runtimeEventKindSchema = z.enum([
+  'started',
+  'goal_completed',
+  'card_failed',
+  'review_complete',
+  'review_failed',
+  'dispatch_blocked',
+  'dispatch_interrupted',
+  'paused',
+  'resumed',
+  'shutdown',
+  'error',
+]);
+
+export const agentEventKindSchema = z.enum([
+  'session_started',
+  'model_selected',
+  'invocation_succeeded',
+  'invocation_failed',
+  'retry_attempted',
+  'compaction_triggered',
+]);
+
+export const eventKindSchema = z.union([runtimeEventKindSchema, agentEventKindSchema]);
+
+export const baseEventSchema = z.object({
+  id: z.string().min(1),
+  kind: eventKindSchema,
+  timestamp: z.string().datetime(),
+  session_id: z.string().optional(),
+  goal_id: z.string().optional(),
+  card_id: z.string().optional(),
+});
+
+export const startedEventSchema = baseEventSchema.extend({
+  kind: z.literal('started'),
+  project_root: z.string(),
+});
+
+export const goalCompletedEventSchema = baseEventSchema.extend({
+  kind: z.literal('goal_completed'),
+  goal_id: z.string(),
+  assessment: reviewAssessmentSchema.optional(),
+});
+
+export const cardFailedEventSchema = baseEventSchema.extend({
+  kind: z.literal('card_failed'),
+  card_id: z.string(),
+  goal_id: z.string(),
+});
+
+export const reviewCompleteEventSchema = baseEventSchema.extend({
+  kind: z.literal('review_complete'),
+  goal_id: z.string(),
+  assessment: reviewAssessmentSchema.optional(),
+});
+
+export const reviewFailedEventSchema = baseEventSchema.extend({
+  kind: z.literal('review_failed'),
+  goal_id: z.string(),
+  assessment: reviewAssessmentSchema.optional(),
+});
+
+export const dispatchBlockedEventSchema = baseEventSchema.extend({
+  kind: z.literal('dispatch_blocked'),
+  reason: z.string(),
+  goal_id: z.string(),
+});
+
+export const dispatchInterruptedEventSchema = baseEventSchema.extend({
+  kind: z.literal('dispatch_interrupted'),
+  goal_id: z.string(),
+  reason: z.string(),
+});
+
+export const pausedEventSchema = baseEventSchema.extend({
+  kind: z.literal('paused'),
+});
+
+export const resumedEventSchema = baseEventSchema.extend({
+  kind: z.literal('resumed'),
+});
+
+export const shutdownEventSchema = baseEventSchema.extend({
+  kind: z.literal('shutdown'),
+});
+
+export const errorEventSchema = baseEventSchema.extend({
+  kind: z.literal('error'),
+  goal_id: z.string().optional(),
+  card_id: z.string().optional(),
+  phase: z.string().optional(),
+  error_message: z.string(),
+});
+
+export const sessionStartedEventSchema = baseEventSchema.extend({
+  kind: z.literal('session_started'),
+  session_id: z.string(),
+  role: agentRoleSchema,
+  goal_id: z.string(),
+  card_id: z.string(),
+});
+
+export const modelSelectedEventSchema = baseEventSchema.extend({
+  kind: z.literal('model_selected'),
+  session_id: z.string(),
+  provider: z.string(),
+  model: z.string(),
+  role: agentRoleSchema,
+});
+
+export const invocationSucceededEventSchema = baseEventSchema.extend({
+  kind: z.literal('invocation_succeeded'),
+  session_id: z.string(),
+  role: agentRoleSchema,
+  attempt: z.number().int().nonnegative(),
+  duration_ms: z.number().int().nonnegative(),
+});
+
+export const invocationFailedEventSchema = baseEventSchema.extend({
+  kind: z.literal('invocation_failed'),
+  session_id: z.string(),
+  role: agentRoleSchema,
+  attempt: z.number().int().nonnegative(),
+  error_message: z.string(),
+});
+
+export const retryAttemptedEventSchema = baseEventSchema.extend({
+  kind: z.literal('retry_attempted'),
+  session_id: z.string(),
+  role: agentRoleSchema,
+  attempt: z.number().int().nonnegative(),
+  directive: z.string().optional(),
+});
+
+export const compactionTriggeredEventSchema = baseEventSchema.extend({
+  kind: z.literal('compaction_triggered'),
+  session_id: z.string(),
+  role: agentRoleSchema,
+  tokens_before: z.number().int().nonnegative(),
+  tokens_after: z.number().int().nonnegative(),
+});
+
+export const runtimeEventSchema = z.discriminatedUnion('kind', [
+  startedEventSchema,
+  goalCompletedEventSchema,
+  cardFailedEventSchema,
+  reviewCompleteEventSchema,
+  reviewFailedEventSchema,
+  dispatchBlockedEventSchema,
+  dispatchInterruptedEventSchema,
+  pausedEventSchema,
+  resumedEventSchema,
+  shutdownEventSchema,
+  errorEventSchema,
+]);
+
+export const agentEventSchema = z.discriminatedUnion('kind', [
+  sessionStartedEventSchema,
+  modelSelectedEventSchema,
+  invocationSucceededEventSchema,
+  invocationFailedEventSchema,
+  retryAttemptedEventSchema,
+  compactionTriggeredEventSchema,
+]);
+
+export const loggedEventSchema = z.discriminatedUnion('kind', [
+  startedEventSchema,
+  goalCompletedEventSchema,
+  cardFailedEventSchema,
+  reviewCompleteEventSchema,
+  reviewFailedEventSchema,
+  dispatchBlockedEventSchema,
+  dispatchInterruptedEventSchema,
+  pausedEventSchema,
+  resumedEventSchema,
+  shutdownEventSchema,
+  errorEventSchema,
+  sessionStartedEventSchema,
+  modelSelectedEventSchema,
+  invocationSucceededEventSchema,
+  invocationFailedEventSchema,
+  retryAttemptedEventSchema,
+  compactionTriggeredEventSchema,
+]);
