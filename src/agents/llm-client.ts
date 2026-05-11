@@ -3,10 +3,55 @@
  *
  * Supports non-streaming and streaming (SSE/NDJSON) modes with structured
  * error types for auth, rate-limit, server, timeout, and parse failures.
+ *
+ * Also supports tool/function calling via the OpenAI `tools` parameter.
  */
 
 import type { Candidate } from './provider.js';
 import type { AgentMessage } from '../schemas/types.js';
+
+// ── Tool Calling Types ────────────────────────────────────────
+
+/**
+ * JSON Schema description of a single function parameter.
+ */
+export interface ToolFunctionDefinition {
+  name: string;
+  description: string;
+  parameters: Record<string, unknown>; // JSON Schema object
+}
+
+/**
+ * A tool definition in OpenAI-compatible format.
+ */
+export interface ToolDefinition {
+  type: 'function';
+  function: ToolFunctionDefinition;
+}
+
+/**
+ * A tool call returned by the LLM.
+ */
+export interface ToolCall {
+  id: string;
+  type: 'function';
+  function: {
+    name: string;
+    arguments: string; // JSON string
+  };
+}
+
+/**
+ * Structured result from a chat completions call.
+ */
+export interface LlmCompleteResult {
+  /** The text content of the assistant's reply (null if tool_calls only). */
+  content: string | null;
+  /** Any tool calls the assistant wants to make. */
+  toolCalls: ToolCall[];
+  /** Why the model stopped generating. */
+  finishReason: 'stop' | 'tool_calls' | 'length' | null;
+}
 
 // ── Options ───────────────────────────────────────────────────
 
@@ -15,6 +60,16 @@ export interface LlmCompleteOptions {
   max_tokens?: number;
   stream?: boolean;
   signal?: AbortSignal;
+  /** Array of tool definitions for function calling. */
+  tools?: ToolDefinition[];
+  /**
+   * Controls which tool is called.
+   * - 'auto': model decides between generating text or calling a tool
+   * - 'none': model will not call a tool
+   * - 'required': model must call one of the provided tools
+   * - {type:'function', function:{name:'...'}}: force a specific tool
+   */
+  tool_choice?: 'auto' | 'none' | 'required' | { type: 'function'; function: { name: string } };
 }
 
 // ── Structured Error Types ────────────────────────────────────
@@ -77,6 +132,7 @@ export class LlmParseError extends Error {
 interface ChatMessage {
   role: 'system' | 'user' | 'assistant' | 'tool';
   content: string;
+  tool_calls?: ToolCall[];
 }
 
 interface ChatCompletionRequest {
@@ -85,12 +141,22 @@ interface ChatCompletionRequest {
   temperature: number;
   max_tokens: number;
   stream: boolean;
+  tools?: ToolDefinition[];
+  tool_choice?: unknown;
 }
 
 interface ChatCompletionChoice {
   index: number;
-  message?: { role: string; content: string };
-  delta?: { role?: string; content?: string };
+  message?: {
+    role: string;
+    content: string | null;
+    tool_calls?: ToolCall[];
+  };
+  delta?: {
+    role?: string;
+    content?: string;
+    tool_calls?: ToolCall[];
+  };
   finish_reason?: string | null;
 }
 
@@ -151,8 +217,8 @@ export class LlmClient {
    * @param systemPrompt The system-level prompt.
    * @param messages     The conversation messages so far (AgentMessage format).
    * @param sessionId    The session identifier (for logging / header use).
-   * @param opts         Optional overrides for temperature, max_tokens, stream, signal.
-   * @returns            The raw text content from the assistant's response.
+   * @param opts         Optional overrides for temperature, max_tokens, stream, signal, tools.
+   * @returns            A structured result with content, toolCalls, and finishReason.
    */
   async complete(
     candidate: Candidate,
@@ -160,11 +226,13 @@ export class LlmClient {
     messages: AgentMessage[],
     sessionId: string,
     opts?: LlmCompleteOptions,
-  ): Promise<string> {
+  ): Promise<LlmCompleteResult> {
     const temperature = opts?.temperature ?? 0.7;
     const maxTokens = opts?.max_tokens ?? 4096;
     const stream = opts?.stream ?? false;
     const signal = opts?.signal;
+    const tools = opts?.tools;
+    const toolChoice = opts?.tool_choice;
 
     // Build the message array: system prompt first, then conversation
     const apiMessages: ChatMessage[] = [
@@ -182,6 +250,14 @@ export class LlmClient {
       max_tokens: maxTokens,
       stream,
     };
+
+    // Include tools and tool_choice if provided
+    if (tools && tools.length > 0) {
+      requestBody.tools = tools;
+      if (toolChoice !== undefined) {
+        requestBody.tool_choice = toolChoice;
+      }
+    }
 
     const url = `${this.baseUrl}/v1/chat/completions`;
 
@@ -230,15 +306,17 @@ export class LlmClient {
         );
       }
 
-      const content = parsed.choices[0]?.message?.content;
-      if (content === undefined || content === null) {
-        throw new LlmParseError(
-          'Chat completions response has no message content',
-          rawText,
-        );
-      }
+      const choice = parsed.choices[0];
+      const finishReason = (choice.finish_reason as 'stop' | 'tool_calls' | 'length' | null) ?? null;
+      const message = choice.message;
 
-      return content;
+      // Extract text content (may be null when tool_calls are present)
+      const content = message?.content ?? null;
+
+      // Extract tool_calls if present
+      const toolCalls: ToolCall[] = message?.tool_calls ?? [];
+
+      return { content, toolCalls, finishReason };
     } catch (err) {
       // Re-throw structured errors as-is
       if (
@@ -307,12 +385,25 @@ export class LlmClient {
    *   data: {"id":"...","choices":[{"delta":{"content":"hello"}}]}
    *   data: {"id":"...","choices":[{"delta":{"content":" world"}}]}
    *   data: [DONE]
+   *
+   * Also handles tool_calls deltas:
+   *   data: {"id":"...","choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_xxx","type":"function","function":{"name":"get_weather","arguments":""}}]}}]}
+   *   data: {"id":"...","choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"{\"loc"}}]}}]}
    */
-  private async readStream(body: ReadableStream<Uint8Array>): Promise<string> {
+  private async readStream(body: ReadableStream<Uint8Array>): Promise<LlmCompleteResult> {
     const reader = body.getReader();
     const decoder = new TextDecoder();
-    const chunks: string[] = [];
+    const contentChunks: string[] = [];
     let buffer = '';
+    let finishReason: 'stop' | 'tool_calls' | 'length' | null = null;
+
+    // Accumulate tool_calls by index
+    const toolCallAccumulators: Map<number, {
+      id?: string;
+      type?: string;
+      name?: string;
+      arguments: string;
+    }> = new Map();
 
     try {
       while (true) {
@@ -337,27 +428,54 @@ export class LlmClient {
 
           // Stream done signal
           if (data === '[DONE]') {
-            // Flush remaining buffer if any
-            if (buffer.trim().startsWith('data: ')) {
-              const remaining = buffer.trim().slice(6).trim();
-              if (remaining !== '[DONE]') {
-                try {
-                  const parsed = JSON.parse(remaining);
-                  const content = parsed?.choices?.[0]?.delta?.content;
-                  if (content) chunks.push(content);
-                } catch {
-                  // skip unparseable
-                }
-              }
-            }
-            return chunks.join('');
+            return this.buildStreamResult(contentChunks, toolCallAccumulators, finishReason);
           }
 
           try {
-            const parsed = JSON.parse(data);
-            const content = parsed?.choices?.[0]?.delta?.content;
-            if (content) {
-              chunks.push(content);
+            const parsed = JSON.parse(data) as {
+              choices?: Array<{
+                delta?: {
+                  content?: string;
+                  tool_calls?: Array<{
+                    index: number;
+                    id?: string;
+                    type?: string;
+                    function?: { name?: string; arguments?: string };
+                  }>;
+                };
+                finish_reason?: string | null;
+              }>;
+            };
+
+            const choice = parsed.choices?.[0];
+            if (!choice) continue;
+
+            if (choice.finish_reason) {
+              finishReason = choice.finish_reason as 'stop' | 'tool_calls' | 'length';
+            }
+
+            const delta = choice.delta;
+            if (!delta) continue;
+
+            // Accumulate text content
+            if (delta.content) {
+              contentChunks.push(delta.content);
+            }
+
+            // Accumulate tool_calls deltas
+            if (delta.tool_calls) {
+              for (const tc of delta.tool_calls) {
+                const index = tc.index;
+                let acc = toolCallAccumulators.get(index);
+                if (!acc) {
+                  acc = { arguments: '' };
+                  toolCallAccumulators.set(index, acc);
+                }
+                if (tc.id) acc.id = tc.id;
+                if (tc.type) acc.type = tc.type;
+                if (tc.function?.name) acc.name = tc.function.name;
+                if (tc.function?.arguments) acc.arguments += tc.function.arguments;
+              }
             }
           } catch {
             // Skip unparseable lines — could be comments or keepalives
@@ -372,9 +490,15 @@ export class LlmClient {
           const data = trimmed.slice(6).trim();
           if (data !== '[DONE]') {
             try {
-              const parsed = JSON.parse(data);
-              const content = parsed?.choices?.[0]?.delta?.content;
-              if (content) chunks.push(content);
+              const parsed = JSON.parse(data) as {
+                choices?: Array<{
+                  delta?: { content?: string; tool_calls?: Array<{ index: number; id?: string; type?: string; function?: { name?: string; arguments?: string } }> };
+                  finish_reason?: string | null;
+                }>;
+              };
+              const choice = parsed.choices?.[0];
+              if (choice?.delta?.content) contentChunks.push(choice.delta.content);
+              if (choice?.finish_reason) finishReason = choice.finish_reason as 'stop' | 'tool_calls' | 'length';
             } catch {
               // skip
             }
@@ -382,7 +506,7 @@ export class LlmClient {
         }
       }
 
-      return chunks.join('');
+      return this.buildStreamResult(contentChunks, toolCallAccumulators, finishReason);
     } catch (err) {
       if (err instanceof LlmTimeoutError || err instanceof LlmServerError) {
         throw err;
@@ -394,6 +518,34 @@ export class LlmClient {
         `Error reading LLM stream: ${err instanceof Error ? err.message : String(err)}`,
       );
     }
+  }
+
+  /**
+   * Build a final LlmCompleteResult from accumulated stream data.
+   */
+  private buildStreamResult(
+    contentChunks: string[],
+    toolCallAccumulators: Map<number, { id?: string; type?: string; name?: string; arguments: string }>,
+    finishReason: 'stop' | 'tool_calls' | 'length' | null,
+  ): LlmCompleteResult {
+    const content = contentChunks.length > 0 ? contentChunks.join('') : null;
+
+    // Build tool_calls from accumulators
+    const toolCalls: ToolCall[] = [];
+    const sortedIndices = [...toolCallAccumulators.keys()].sort((a, b) => a - b);
+    for (const index of sortedIndices) {
+      const acc = toolCallAccumulators.get(index)!;
+      toolCalls.push({
+        id: acc.id ?? `call_${index}`,
+        type: (acc.type as 'function') ?? 'function',
+        function: {
+          name: acc.name ?? '',
+          arguments: acc.arguments,
+        },
+      });
+    }
+
+    return { content, toolCalls, finishReason };
   }
 }
 

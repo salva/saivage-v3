@@ -3,26 +3,9 @@ import { existsSync, readFileSync } from 'node:fs';
 import { writeFileAtomic } from '../utils/file-tree.js';
 import { agentSessionSchema, agentMessageSchema } from '../schemas/validators.js';
 import type { AgentSession, AgentMessage, MessageRole, MessageKind } from '../schemas/types.js';
-import {
-  create_card,
-  edit_card,
-  move_card,
-  delete_card,
-  add_note,
-  list_cards,
-  get_card,
-  get_tree,
-  get_plan_diary,
-  get_card_output,
-  get_status,
-  pause_runtime,
-  resume_runtime,
-  abort_goal,
-  restart_card,
-  restart_goal,
-  kill_process,
-} from './analyst-tools.js';
 import type { ToolResult, ToolContext } from './analyst-tools.js';
+import { TOOL_REGISTRY } from './analyst-llm-resolver.js';
+import { LlmIntentResolver } from './analyst-llm-resolver.js';
 
 // ── Exported Types ─────────────────────────────────────────────
 
@@ -771,36 +754,18 @@ const HELP_TEXT =
   'manage notes, control the runtime (pause/resume/abort/restart), inspect ' +
   'processes and outputs, and show the card tree. Try asking me something specific!';
 
-type ToolFn = (ctx: ToolContext, params: Record<string, unknown>) => Promise<ToolResult>;
 
-const TOOL_REGISTRY: Record<string, ToolFn> = {
-  create_card: create_card as unknown as ToolFn,
-  edit_card: edit_card as unknown as ToolFn,
-  move_card: move_card as unknown as ToolFn,
-  delete_card: delete_card as unknown as ToolFn,
-  add_note: add_note as unknown as ToolFn,
-  list_cards: list_cards as unknown as ToolFn,
-  get_card: get_card as unknown as ToolFn,
-  get_tree: get_tree as unknown as ToolFn,
-  get_plan_diary: get_plan_diary as unknown as ToolFn,
-  get_card_output: get_card_output as unknown as ToolFn,
-  get_status: get_status as unknown as ToolFn,
-  pause_runtime: pause_runtime as unknown as ToolFn,
-  resume_runtime: resume_runtime as unknown as ToolFn,
-  abort_goal: abort_goal as unknown as ToolFn,
-  restart_card: restart_card as unknown as ToolFn,
-  restart_goal: restart_goal as unknown as ToolFn,
-  kill_process: kill_process as unknown as ToolFn,
-};
 
 export class AnalystHandler {
   private projectRoot: string;
   private onActivity?: ActivityCallback;
   private lastIntent: Map<string, ParsedIntent> = new Map();
+  private llmResolver: LlmIntentResolver;
 
   constructor(projectRoot: string, onActivity?: ActivityCallback) {
     this.projectRoot = projectRoot;
     this.onActivity = onActivity;
+    this.llmResolver = new LlmIntentResolver(projectRoot);
   }
 
   async handleMessage(sessionId: string, userContent: string): Promise<AnalystResponse> {
@@ -819,10 +784,44 @@ export class AnalystHandler {
       content: userContent,
     });
 
-    // 3. Parse intent
-    let intent = parseIntent(userContent);
+    // 3. Load conversation history for LLM context
+    const messages = readMessages(this.projectRoot, sessionId);
 
-    // 4. Check for confirmation of a previous preview
+    // 4. Try LLM-based intent resolution FIRST
+    const resolvedIntent = await this.llmResolver.resolve(userContent, messages);
+
+    // 5. Handle LLM chat response (text response without tool call)
+    if (resolvedIntent && resolvedIntent.source === 'help' && resolvedIntent.llmResponse) {
+      const responseContent = resolvedIntent.llmResponse;
+      const msg = appendMessage(this.projectRoot, sessionId, {
+        role: 'assistant',
+        kind: 'text',
+        content: responseContent,
+      });
+
+      return {
+        sessionId,
+        message: {
+          id: msg.id,
+          role: 'assistant',
+          kind: 'text',
+          content: responseContent,
+          timestamp: msg.timestamp,
+        },
+      };
+    }
+
+    // 6. Try to get an intent: first from LLM, then from regex fallback
+    let intent: ParsedIntent | null = null;
+
+    if (resolvedIntent && resolvedIntent.source === 'llm') {
+      intent = {
+        tool: resolvedIntent.tool,
+        params: resolvedIntent.params,
+      };
+    }
+
+    // 7. Check for confirmation of a previous preview (before regex fallback)
     if (!intent) {
       const lower = userContent.trim().toLowerCase();
       if (lower === 'yes' || lower === 'confirm' || lower === 'proceed' || lower === 'ok') {
@@ -837,10 +836,15 @@ export class AnalystHandler {
       }
     }
 
+    // 8. Regex fallback — used when LLM is unavailable or returned no useful intent
+    if (!intent) {
+      intent = parseIntent(userContent);
+    }
+
     const toolInvocations: AnalystResponse['toolInvocations'] = [];
 
     try {
-      // 5. No intent matched — return help text
+      // 9. No intent matched — return help text
       if (!intent) {
         const responseContent = HELP_TEXT;
         const msg = appendMessage(this.projectRoot, sessionId, {
@@ -861,7 +865,7 @@ export class AnalystHandler {
         };
       }
 
-      // 6. Execute the tool
+      // 10. Execute the tool
       const toolFn = TOOL_REGISTRY[intent.tool];
       if (!toolFn) {
         const errorContent = `❌ Unknown tool: ${intent.tool}`;
@@ -919,7 +923,7 @@ export class AnalystHandler {
         result,
       });
 
-      // 7. If result has a preview, store the intent for later confirmation
+      // 11. If result has a preview, store the intent for later confirmation
       if (result.preview) {
         this.lastIntent.set(sessionId, intent);
         const responseContent = buildResponse(intent.tool, result);
@@ -943,7 +947,7 @@ export class AnalystHandler {
         };
       }
 
-      // 8. Build and persist the assistant response
+      // 12. Build and persist the assistant response
       const responseContent = buildResponse(intent.tool, result);
       const msg = appendMessage(this.projectRoot, sessionId, {
         role: 'assistant',

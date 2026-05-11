@@ -896,7 +896,11 @@ export class AgentAdapter implements AgentRuntime {
         clientCache.set(cacheKey, client);
       }
 
-      return client.complete(candidate, systemPrompt, messages, sessionId, opts);
+      const result = await client.complete(candidate, systemPrompt, messages, sessionId, opts);
+      // The standard agent pipeline expects a plain text response for parsing.
+      // Extract content; if the LLM returned tool_calls, stringify the result
+      // so the calling code (planner/executor/reviewer) can still work with it.
+      return result.content ?? JSON.stringify({ toolCalls: result.toolCalls });
     };
   }
 }
