@@ -34,9 +34,11 @@ const ARTIFACT_TYPES: readonly string[] = [
  *
  * The planner decomposes goals into cards, manages the card tree,
  * and declares goals done when acceptance criteria are met.
+ *
+ * @param skills Optional formatted skills string to append at the end
  */
-export function buildPlannerPrompt(): string {
-  return `${SAIVAGE_INTRO}
+export function buildPlannerPrompt(skills?: string): string {
+  const prompt = `${SAIVAGE_INTRO}
 
 ## Your Role — Planner
 
@@ -95,6 +97,11 @@ Wrap it in a \`\`\`json code block or return raw JSON.
 - **Update, don't duplicate**: If a card already exists, use \`updated_cards\` to change its status or details — don't create a duplicate.
 - **Leave comments**: Use the \`summary\` field for your reasoning so the system can audit your decisions.
 - **Don't declare done prematurely**: Review all acceptance criteria before setting \`declare_done: true\`.`;
+
+  if (skills && skills.length > 0) {
+    return prompt + '\n\n' + skills;
+  }
+  return prompt;
 }
 
 // ── Executor Prompt ───────────────────────────────────────────
@@ -106,14 +113,15 @@ Wrap it in a \`\`\`json code block or return raw JSON.
  * guidance to help the executor produce more appropriate results.
  *
  * @param cardType Optional card type for targeted guidance
+ * @param skills Optional formatted skills string to append at the end
  */
-export function buildExecutorPrompt(cardType?: string): string {
+export function buildExecutorPrompt(cardType?: string, skills?: string): string {
   const typeGuidance = cardType ? buildTypeGuidance(cardType) : '';
   const typeNote = cardType
     ? `\n### Card Type: \`${cardType}\`\n${typeGuidance}`
     : '';
 
-  return `${SAIVAGE_INTRO}
+  let result = `${SAIVAGE_INTRO}
 
 ## Your Role — Executor
 
@@ -176,6 +184,11 @@ block or return raw JSON.
 - **Error reporting**: If you fail, be specific. Include file paths, line
   numbers, error messages, and root-cause analysis in the \`error\` field.
 - **Test your work**: If the project has tests, run them after making changes.`;
+
+  if (skills && skills.length > 0) {
+    result += '\n\n' + skills;
+  }
+  return result;
 }
 
 /**
@@ -238,9 +251,11 @@ function buildTypeGuidance(cardType: string): string {
  *
  * The reviewer evaluates whether a goal's acceptance criteria have been
  * met by examining the completed cards and their results.
+ *
+ * @param skills Optional formatted skills string to append at the end
  */
-export function buildReviewerPrompt(): string {
-  return `${SAIVAGE_INTRO}
+export function buildReviewerPrompt(skills?: string): string {
+  const prompt = `${SAIVAGE_INTRO}
 
 ## Your Role — Reviewer
 
@@ -286,6 +301,11 @@ block or return raw JSON.
   children. Check that \`depends_on\` chains are fully resolved.
 - **Check artifacts**: Verify that promised artifacts exist and match their
   descriptions.`;
+
+  if (skills && skills.length > 0) {
+    return prompt + '\n\n' + skills;
+  }
+  return prompt;
 }
 
 // ── Exports ───────────────────────────────────────────────────
