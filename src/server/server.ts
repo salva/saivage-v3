@@ -84,21 +84,29 @@ function registerHealth(fastify: FastifyInstance, _saivageConfig: SaivageConfig)
 // ── Server Config from saivage.json ───────────────────────────
 
 export function getServerConfig(projectRoot: string): ServerConfig {
+  let host = '0.0.0.0';
+  let port = 8080;
+
   try {
     const { config } = loadConfig(projectRoot);
-    return {
-      host: config.server.host,
-      port: config.server.port,
-      projectRoot,
-    };
+    host = config.server.host ?? host;
+    port = config.server.port ?? port;
   } catch {
-    // Fallback defaults if config doesn't exist
-    return {
-      host: '0.0.0.0',
-      port: 8080,
-      projectRoot,
-    };
+    // Use defaults
   }
+
+  // Environment variable overrides (set by CLI or by user)
+  if (process.env['SAIVAGE_HOST']) {
+    host = process.env['SAIVAGE_HOST'];
+  }
+  if (process.env['SAIVAGE_PORT']) {
+    const parsed = parseInt(process.env['SAIVAGE_PORT'], 10);
+    if (!isNaN(parsed) && parsed >= 1 && parsed <= 65535) {
+      port = parsed;
+    }
+  }
+
+  return { host, port, projectRoot };
 }
 
 // ── Runtime Dispatch & Status Routes ─────────────────────────
