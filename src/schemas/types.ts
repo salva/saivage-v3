@@ -296,7 +296,12 @@ export type RuntimeEventKind =
   | 'paused'
   | 'resumed'
   | 'shutdown'
-  | 'error';
+  | 'error'
+  | 'stuck_supervisor_started'
+  | 'stuck_supervisor_stopped'
+  | 'stuck_verdict'
+  | 'abort_target_selected'
+  | 'force_cancel_sent';
 
 export type AgentEventKind =
   | 'session_started'
@@ -399,6 +404,46 @@ export interface ErrorEvent extends BaseEvent {
   error_message: string;
 }
 
+// ── Stuck Agent Supervisor Events ─────────────────────────────
+
+export interface StuckSupervisorStartedEvent extends BaseEvent {
+  kind: 'stuck_supervisor_started';
+  interval_ms: number;
+  consecutive_threshold: number;
+}
+
+export interface StuckSupervisorStoppedEvent extends BaseEvent {
+  kind: 'stuck_supervisor_stopped';
+  checks_performed: number;
+}
+
+export interface StuckVerdictEvent extends BaseEvent {
+  kind: 'stuck_verdict';
+  verdict: boolean;
+  confidence: number;
+  reason: string;
+  evidence: string[];
+  consecutive_count: number;
+  threshold: number;
+}
+
+export interface AbortTargetSelectedEvent extends BaseEvent {
+  kind: 'abort_target_selected';
+  target_role: string;
+  target_session_id: string;
+  reason: string;
+  consecutive_count: number;
+}
+
+export interface ForceCancelSentEvent extends BaseEvent {
+  kind: 'force_cancel_sent';
+  target_role: string;
+  target_session_id: string;
+  reason: string;
+}
+
+// ── Agent Events ──────────────────────────────────────────────
+
 export interface SessionStartedEvent extends BaseEvent {
   kind: 'session_started';
   session_id: string;
@@ -470,7 +515,12 @@ export type RuntimeEvent =
   | PausedEvent
   | ResumedEvent
   | ShutdownEvent
-  | ErrorEvent;
+  | ErrorEvent
+  | StuckSupervisorStartedEvent
+  | StuckSupervisorStoppedEvent
+  | StuckVerdictEvent
+  | AbortTargetSelectedEvent
+  | ForceCancelSentEvent;
 
 export type AgentEvent =
   | SessionStartedEvent

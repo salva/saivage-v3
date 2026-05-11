@@ -20,4 +20,5 @@ export * from './write-territories.js';
 export * from './event-logger.js';
 export * from './error-logger.js';
 export * from './event-bus.js';
+export * from './stuck-agent-supervisor.js';
 export * from '../agents/index.js';

@@ -60,6 +60,13 @@ export const SEVERITY_ORDER: SeverityLevel[] = [
  * | `dispatch_blocked`    | warning  |
  * | `dispatch_interrupted` | warning |
  * | `error`               | error    |
+ *
+ * Stuck-agent supervisor events:
+ * | `stuck_supervisor_started` | info    |
+ * | `stuck_supervisor_stopped` | info    |
+ * | `stuck_verdict`            | warning |
+ * | `abort_target_selected`    | warning |
+ * | `force_cancel_sent`        | error   |
  */
 export const RUNTIME_SEVERITY_MAP: Record<RuntimeEventKind, SeverityLevel> = {
   started: 'info',
@@ -76,6 +83,11 @@ export const RUNTIME_SEVERITY_MAP: Record<RuntimeEventKind, SeverityLevel> = {
   dispatch_blocked: 'warning',
   dispatch_interrupted: 'warning',
   error: 'error',
+  stuck_supervisor_started: 'info',
+  stuck_supervisor_stopped: 'info',
+  stuck_verdict: 'warning',
+  abort_target_selected: 'warning',
+  force_cancel_sent: 'error',
 };
 
 /**

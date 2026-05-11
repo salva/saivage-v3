@@ -152,6 +152,11 @@ const TRACKED_EVENT_KINDS: ReadonlySet<string> = new Set([
   'retry_attempted',
   'compaction_triggered',
   'self_check_triggered',
+  'stuck_supervisor_started',
+  'stuck_supervisor_stopped',
+  'stuck_verdict',
+  'abort_target_selected',
+  'force_cancel_sent',
 ]);
 
 // ── Runtime Class ────────────────────────────────────────────
