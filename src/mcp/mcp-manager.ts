@@ -25,6 +25,7 @@
 
 import { ChildProcess, spawn } from 'node:child_process';
 import { loadConfig, type SaivageConfig } from '../agents/config-schema.js';
+import { EventLogger } from '../utils/event-logger.js';
 import * as readline from 'node:readline';
 
 // ── MCP Protocol Types ────────────────────────────────────────
@@ -298,11 +299,47 @@ export class McpManager {
   private discoveryErrors: Map<string, string> = new Map();
   /** Auto-incrementing JSON-RPC message ID counter. */
   private nextMsgId = 1;
+  /** Optional EventLogger for recording MCP tool invocations. */
+  private _eventLogger?: EventLogger;
+  
 
   constructor(projectRoot: string) {
     this.projectRoot = projectRoot;
     const { config } = loadConfig(projectRoot);
     this.servers = normalizeMcpServers(config);
+  }
+
+  // ── Event Logger ────────────────────────────────────────────
+
+  /**
+   * Attach an EventLogger for recording MCP tool invocations.
+   * When set, every tools/call invocation will be logged with
+   * server name, tool name, success/failure, and duration.
+   */
+  setEventLogger(logger: EventLogger): void {
+    this._eventLogger = logger;
+  }
+
+  /**
+   * Log an MCP tool invocation event through the attached EventLogger.
+   * No-op if no EventLogger is attached.
+   */
+  private _logInvocation(
+    server: string,
+    tool: string,
+    success: boolean,
+    durationMs: number,
+    error?: string,
+  ): void {
+    if (!this._eventLogger) return;
+    this._eventLogger.appendEvent({
+      kind: 'mcp_tool_invocation' as import('../schemas/types.js').EventKind,
+      server,
+      tool,
+      success,
+      duration_ms: durationMs,
+      error,
+    });
   }
 
   // ── Public API ──────────────────────────────────────────────
@@ -529,12 +566,33 @@ export class McpManager {
     }
 
     // 4. Dispatch to transport-specific implementation
+    const startTime = Date.now();
     const timeoutMs = options?.timeoutMs ?? MCP_INVOKE_TIMEOUT_MS;
 
     if (cfg.transport === 'stdio') {
-      return this._invokeToolStdio(serverName, toolName, args, cfg, timeoutMs);
+      try {
+        const result = await this._invokeToolStdio(serverName, toolName, args, cfg, timeoutMs);
+        const durationMs = Date.now() - startTime;
+        this._logInvocation(serverName, toolName, true, durationMs);
+        return result;
+      } catch (err) {
+        const durationMs = Date.now() - startTime;
+        const errorMsg = err instanceof Error ? err.message : String(err);
+        this._logInvocation(serverName, toolName, false, durationMs, errorMsg);
+        throw err;
+      }
     } else {
-      return this._invokeToolSse(serverName, toolName, args, cfg, timeoutMs);
+      try {
+        const result = await this._invokeToolSse(serverName, toolName, args, cfg, timeoutMs);
+        const durationMs = Date.now() - startTime;
+        this._logInvocation(serverName, toolName, true, durationMs);
+        return result;
+      } catch (err) {
+        const durationMs = Date.now() - startTime;
+        const errorMsg = err instanceof Error ? err.message : String(err);
+        this._logInvocation(serverName, toolName, false, durationMs, errorMsg);
+        throw err;
+      }
     }
   }
 

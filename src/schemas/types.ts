@@ -312,7 +312,8 @@ export type AgentEventKind =
   | 'compaction_triggered'
   | 'self_check_triggered'
   | 'session_cancelled'
-  | 'session_force_cancelled';
+  | 'session_force_cancelled'
+  | 'mcp_tool_invocation';
 
 export type EventKind = RuntimeEventKind | AgentEventKind;
 
@@ -513,6 +514,15 @@ export interface SessionForceCancelledEvent extends BaseEvent {
   session_id: string;
 }
 
+export interface McpToolInvocationEvent extends BaseEvent {
+  kind: 'mcp_tool_invocation';
+  server: string;
+  tool: string;
+  success: boolean;
+  duration_ms: number;
+  error?: string;
+}
+
 export type RuntimeEvent =
   | StartedEvent
   | GoalCompletedEvent
@@ -543,6 +553,7 @@ export type AgentEvent =
   | CompactionTriggeredEvent
   | SelfCheckTriggeredEvent
   | SessionCancelledEvent
-  | SessionForceCancelledEvent;
+  | SessionForceCancelledEvent
+  | McpToolInvocationEvent;
 
 export type LoggedEvent = RuntimeEvent | AgentEvent;

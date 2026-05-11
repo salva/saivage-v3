@@ -105,6 +105,7 @@ export const AGENT_SEVERITY_MAP: Record<AgentEventKind, SeverityLevel> = {
   self_check_triggered: 'info',
   session_cancelled: 'warning',
   session_force_cancelled: 'error',
+  mcp_tool_invocation: 'info',
 };
 
 /**
