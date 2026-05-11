@@ -12,6 +12,7 @@
  *   8. startAll skips disabled, starts autostart
  *   9. startServer starts and stopServer stops gracefully
  *   10. restartServer stops then starts
+ *   11. Tool discovery: getTools(), getServerTools(), getToolServers(), tools_count in status, stop clears cache
  */
 
 import { describe, it, expect, beforeEach, afterEach, beforeAll, jest } from '@jest/globals';
@@ -516,5 +517,101 @@ describe('McpManager health check', () => {
     // We verify healthCheck runs without throwing and returns a boolean.
     const healthy = await mgr.healthCheck('test-stdio');
     expect(typeof healthy).toBe('boolean');
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════
+// Suite 6: Tool Discovery
+// ═══════════════════════════════════════════════════════════════
+
+describe('McpManager tool discovery', () => {
+  let McpManager: Awaited<ReturnType<typeof importMcpManager>>['McpManager'];
+
+  beforeAll(async () => {
+    const mod = await importMcpManager();
+    McpManager = mod.McpManager;
+  });
+
+  beforeEach(() => {
+    mockSpawn.mockClear();
+    nextPid = 12345;
+  });
+
+  it('getTools() returns empty array initially', () => {
+    const root = makeProjectRoot();
+    writeSaivageJson(root, {});
+    const mgr = new McpManager(root);
+    expect(mgr.getTools()).toEqual([]);
+    expect(mgr.getToolServers()).toEqual([]);
+  });
+
+  it('getServerTools returns undefined for unknown server', () => {
+    const root = makeProjectRoot();
+    writeSaivageJson(root, {});
+    const mgr = new McpManager(root);
+    expect(mgr.getServerTools('nonexistent')).toBeUndefined();
+  });
+
+  it('tools_count appears in status for running server', async () => {
+    const root = makeProjectRoot();
+    writeSaivageJson(root, {
+      mcpServers: {
+        'test-stdio': stdioConfig(),
+      },
+    });
+    const mgr = new McpManager(root);
+    await mgr.startServer('test-stdio');
+
+    const status = mgr.getServerStatus('test-stdio');
+    expect(status).toBeDefined();
+    expect(status!).toHaveProperty('tools_count');
+    expect(typeof status!.tools_count).toBe('number');
+
+    await mgr.stopServer('test-stdio');
+  });
+
+  it('stopServer clears tool cache', async () => {
+    const root = makeProjectRoot();
+    writeSaivageJson(root, {
+      mcpServers: {
+        'test-stdio': stdioConfig(),
+      },
+    });
+    const mgr = new McpManager(root);
+    await mgr.startServer('test-stdio');
+
+    // Start populates tools_cache (even if empty from failed discovery)
+    await mgr.stopServer('test-stdio');
+
+    // After stop, getToolServers should not include the stopped server
+    expect(mgr.getServerTools('test-stdio')).toBeUndefined();
+    expect(mgr.getToolServers()).not.toContain('test-stdio');
+  });
+
+  it('getTools() returns empty after server stopped without discovery', async () => {
+    const root = makeProjectRoot();
+    writeSaivageJson(root, {
+      mcpServers: {
+        'test-stdio': stdioConfig(),
+      },
+    });
+    const mgr = new McpManager(root);
+    await mgr.startServer('test-stdio');
+    await mgr.stopServer('test-stdio');
+
+    expect(mgr.getTools()).toEqual([]);
+  });
+
+  it('tools_count defaults to 0 for disabled servers', () => {
+    const root = makeProjectRoot();
+    writeSaivageJson(root, {
+      mcpServers: {
+        'test-disabled': stdioConfig({ disabled: true }),
+      },
+    });
+    const mgr = new McpManager(root);
+    const status = mgr.getServerStatus('test-disabled')!;
+    // Disabled servers don't have tools_count field
+    expect(status.tools_count).toBeUndefined();
   });
 });
