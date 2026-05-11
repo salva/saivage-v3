@@ -827,6 +827,7 @@ export class Runtime extends EventEmitter {
               this._errorLogger.appendError({
                 message: errorMessage,
                 cardId: card.id,
+                goalId,
                 phase: 'artifact_registration',
               });
             }
@@ -862,6 +863,7 @@ export class Runtime extends EventEmitter {
               this._errorLogger.appendError({
                 message: errorMessage,
                 cardId: card.id,
+                goalId,
                 phase: 'attachment_registration',
               });
             }
