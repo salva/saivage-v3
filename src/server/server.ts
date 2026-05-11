@@ -9,6 +9,7 @@
  *  - WebSocket endpoint registration
  *  - MCP server manager lifecycle
  *  - Telegram bot lifecycle
+ *  - ActiveRuntime lifecycle (optional, controlled by createRuntime flag)
  *  - Notification router with WebSocket broadcast integration
  *  - MCP status API endpoint
  *  - startServer() / stopServer() lifecycle functions
@@ -31,6 +32,7 @@ import { McpManager } from '../mcp/index.js';
 import { TelegramBot } from '../telegram/index.js';
 import { createNotificationRouter } from '../notifications/index.js';
 import type { NotificationRouter } from '../notifications/index.js';
+import { ActiveRuntime } from '../utils/active-runtime.js';
 
 // ── Types ─────────────────────────────────────────────────────
 
@@ -47,6 +49,7 @@ export interface ServerInstance {
   mcpManager?: McpManager;
   telegramBot?: TelegramBot;
   notificationRouter?: NotificationRouter;
+  activeRuntime?: ActiveRuntime;
   stop: () => Promise<void>;
 }
 
@@ -100,6 +103,7 @@ export function getServerConfig(projectRoot: string): ServerConfig {
 
 export async function createServer(
   projectRoot: string,
+  createRuntime?: boolean,
 ): Promise<ServerInstance> {
   const serverConfig = getServerConfig(projectRoot);
 
@@ -196,6 +200,23 @@ export async function createServer(
     }
   }
 
+  // ── ActiveRuntime Lifecycle ────────────────────────────────
+
+  let activeRuntime: ActiveRuntime | undefined;
+  if (createRuntime) {
+    try {
+      activeRuntime = new ActiveRuntime(projectRoot);
+      await activeRuntime.start();
+      fastify.log.info('ActiveRuntime started');
+    } catch (err) {
+      fastify.log.warn(
+        `ActiveRuntime initialization failed (continuing without runtime): ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
+    }
+  }
+
   // ── Notification Router ────────────────────────────────────
 
   const notificationRouter = createNotificationRouter(
@@ -206,6 +227,18 @@ export async function createServer(
   // ── Shutdown ───────────────────────────────────────────────
 
   async function stop(): Promise<void> {
+    if (activeRuntime) {
+      try {
+        await activeRuntime.stop();
+        fastify.log.info('ActiveRuntime stopped');
+      } catch (err) {
+        fastify.log.warn(
+          `ActiveRuntime stop failed: ${
+            err instanceof Error ? err.message : String(err)
+          }`,
+        );
+      }
+    }
     if (telegramBot) {
       try {
         await telegramBot.stop();
@@ -240,6 +273,7 @@ export async function createServer(
     mcpManager,
     telegramBot,
     notificationRouter,
+    activeRuntime,
     stop,
   };
 }
@@ -251,8 +285,9 @@ export async function createServer(
  */
 export async function startServer(
   projectRoot: string,
+  createRuntime?: boolean,
 ): Promise<ServerInstance> {
-  const server = await createServer(projectRoot);
+  const server = await createServer(projectRoot, createRuntime);
   await server.fastify.listen({
     host: server.config.host,
     port: server.config.port,
