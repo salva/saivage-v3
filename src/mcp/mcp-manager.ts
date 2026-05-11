@@ -13,11 +13,16 @@
  * check. Disabled servers are skipped. Autostart servers are started on
  * startAll().
  *
+ * Also performs MCP tool discovery via the tools/list protocol after server
+ * startup. Cached tool definitions are exposed via getTools(),
+ * getServerTools(), and getToolServers().
+ *
  * See 06-configuration.md § MCP Servers and 12-implementation-plan.md Stage 9.
  */
 
 import { ChildProcess, spawn } from 'node:child_process';
 import { loadConfig, type SaivageConfig } from '../agents/config-schema.js';
+import * as readline from 'node:readline';
 
 // ── MCP Protocol Types ────────────────────────────────────────
 
@@ -148,6 +153,10 @@ interface McpServerConfig {
 // ── Constants ─────────────────────────────────────────────────
 
 const SIGTERM_TIMEOUT_MS = 3_000; // Wait 3 s after SIGTERM before SIGKILL
+const MCP_DISCOVERY_TIMEOUT_MS = 10_000; // Timeout for init+tools/list handshake
+const MCP_PROTOCOL_VERSION = '2025-06-18';
+const CLIENT_NAME = 'saivage-mcp-manager';
+const CLIENT_VERSION = '0.1.0';
 
 // ── Helpers ───────────────────────────────────────────────────
 
@@ -181,6 +190,14 @@ export class McpManager {
   private statusOverrides: Map<string, { status: McpStatus; error?: string }> = new Map();
   /** Timestamps of last successful start per server. */
   private startedAt: Map<string, string> = new Map();
+  /** Cached tool definitions per server name. */
+  private toolsCache: Map<string, McpToolDefinition[]> = new Map();
+  /** Servers that have completed init+tools/list successfully. */
+  private toolsCacheInitialized: Set<string> = new Set();
+  /** Discovery error messages per server (not surfaced as status changes). */
+  private discoveryErrors: Map<string, string> = new Map();
+  /** Auto-incrementing JSON-RPC message ID counter. */
+  private nextMsgId = 1;
 
   constructor(projectRoot: string) {
     this.projectRoot = projectRoot;
@@ -208,6 +225,10 @@ export class McpManager {
    *
    * If the server is disabled, silently skips (no error).
    * If the server is already running, does nothing.
+   *
+   * After the server is started, performs MCP tool discovery
+   * (init handshake + tools/list). Discovery failures are recorded
+   * but do not change the server status if the process is still alive.
    */
   async startServer(name: string): Promise<void> {
     const cfg = this.servers[name];
@@ -238,6 +259,21 @@ export class McpManager {
     } else {
       await this._startSse(name, cfg);
     }
+
+    // ── Tool Discovery ─────────────────────────────────────────
+    // Only attempt discovery if the server handle is still present
+    // (it may have been removed by an immediate exit during _startStdio).
+    if (this.handles.has(name)) {
+      try {
+        await this._discoverTools(name);
+      } catch (err) {
+        const errMsg =
+          err instanceof Error ? err.message : String(err);
+        // Record the discovery error for diagnostics but don't change
+        // the server status — the process is still running.
+        this.discoveryErrors.set(name, errMsg);
+      }
+    }
   }
 
   /**
@@ -245,6 +281,8 @@ export class McpManager {
    *
    * For stdio: sends SIGTERM, waits 3 s, then SIGKILL if still alive.
    * For sse: aborts the AbortController to close the connection.
+   *
+   * Clears the cached tool list for this server.
    */
   async stopServer(name: string): Promise<void> {
     const handle = this.handles.get(name);
@@ -258,6 +296,9 @@ export class McpManager {
       // Config removed after start — just clean up the handle
       await this._killHandle(handle);
       this.handles.delete(name);
+      this.toolsCache.delete(name);
+      this.toolsCacheInitialized.delete(name);
+      this.discoveryErrors.delete(name);
       return;
     }
 
@@ -269,6 +310,11 @@ export class McpManager {
 
     this.handles.delete(name);
     this.statusOverrides.set(name, { status: 'stopped' });
+
+    // Clear tool cache on stop
+    this.toolsCache.delete(name);
+    this.toolsCacheInitialized.delete(name);
+    this.discoveryErrors.delete(name);
   }
 
   /**
@@ -301,6 +347,31 @@ export class McpManager {
   getServerStatus(name: string): McpServerStatus | undefined {
     if (!this.servers[name]) return undefined;
     return this._buildStatus(name);
+  }
+
+  /**
+   * Return merged tool definitions from all servers.
+   */
+  getTools(): McpToolDefinition[] {
+    const all: McpToolDefinition[] = [];
+    for (const tools of this.toolsCache.values()) {
+      all.push(...tools);
+    }
+    return all;
+  }
+
+  /**
+   * Return cached tool definitions for a specific server.
+   */
+  getServerTools(name: string): McpToolDefinition[] | undefined {
+    return this.toolsCache.get(name);
+  }
+
+  /**
+   * Return server names that have cached tool definitions.
+   */
+  getToolServers(): string[] {
+    return Array.from(this.toolsCache.keys());
   }
 
   /**
@@ -361,10 +432,17 @@ export class McpManager {
           // Clean exit with code 0 — treat as stopped, not error
           this.handles.delete(name);
           this.statusOverrides.set(name, { status: 'stopped' });
+          // Clean up tool cache on exit
+          this.toolsCache.delete(name);
+          this.toolsCacheInitialized.delete(name);
+          this.discoveryErrors.delete(name);
           return;
         }
         this.handles.delete(name);
         this.statusOverrides.set(name, { status: 'error', error: errMsg });
+        this.toolsCache.delete(name);
+        this.toolsCacheInitialized.delete(name);
+        this.discoveryErrors.delete(name);
       }
     });
 
@@ -374,6 +452,9 @@ export class McpManager {
         const errMsg = `Process error: ${_err.message}`;
         this.handles.delete(name);
         this.statusOverrides.set(name, { status: 'error', error: errMsg });
+        this.toolsCache.delete(name);
+        this.toolsCacheInitialized.delete(name);
+        this.discoveryErrors.delete(name);
       }
     });
   }
@@ -412,9 +493,384 @@ export class McpManager {
     }
   }
 
+  // ── Private: Tool Discovery ─────────────────────────────────
+
+  /**
+   * Discover tools from a running MCP server by performing the init
+   * handshake followed by tools/list. Dispatches to the appropriate
+   * transport-specific implementation.
+   */
+  private async _discoverTools(name: string): Promise<void> {
+    const cfg = this.servers[name];
+    if (!cfg) return;
+
+    if (cfg.transport === 'stdio') {
+      await this._discoverToolsStdio(name);
+    } else {
+      await this._discoverToolsSse(name, cfg);
+    }
+  }
+
+  /**
+   * Discover tools from a stdio MCP server via the init + tools/list
+   * JSON-RPC handshake over the process's stdin/stdout.
+   */
+  private async _discoverToolsStdio(name: string): Promise<void> {
+    const handle = this.handles.get(name);
+    if (!handle || !handle.process) {
+      throw new Error('Server process is not running');
+    }
+
+    const proc = handle.process;
+    if (!proc.stdin || !proc.stdout) {
+      throw new Error('Server process has no stdin/stdout');
+    }
+
+    // Collect tools across paginated responses
+    const tools: McpToolDefinition[] = [];
+
+    // Set up readline on stdout
+    const rl = readline.createInterface({
+      input: proc.stdout,
+      crlfDelay: Infinity,
+    });
+
+    // Set up a timeout for the entire discovery sequence
+    const abortController = new AbortController();
+    const timeoutId = setTimeout(() => {
+      abortController.abort();
+    }, MCP_DISCOVERY_TIMEOUT_MS);
+
+    // Track whether the readline closed while we were waiting.
+    // We'll use this to decide if we should await the close event.
+    let rlClosed = false;
+    const onRlClose = () => {
+      rlClosed = true;
+    };
+    rl.once('close', onRlClose);
+
+    try {
+      // ── Step 1: Initialize ─────────────────────────────────
+      const initId = this.nextMsgId++;
+      const initReq: McpJsonRpcRequest = {
+        jsonrpc: '2.0',
+        id: initId,
+        method: 'initialize',
+        params: {
+          protocolVersion: MCP_PROTOCOL_VERSION,
+          capabilities: {},
+          clientInfo: {
+            name: CLIENT_NAME,
+            version: CLIENT_VERSION,
+          },
+        },
+      };
+      proc.stdin.write(JSON.stringify(initReq) + '\n');
+
+      // Read lines until we get the init response or timeout
+      const initResponse = await this._readResponse(
+        rl,
+        initId,
+        abortController.signal,
+      );
+
+      if (!initResponse) {
+        throw new Error('Server did not respond to initialize request');
+      }
+
+      if ('error' in initResponse && initResponse.error) {
+        const err = initResponse.error as { message: string; code: number };
+        throw new Error(
+          `Initialize failed: ${err.message} (code ${err.code})`,
+        );
+      }
+
+      // ── Step 2: Send initialized notification ──────────────
+      const initializedNotification = {
+        jsonrpc: '2.0',
+        method: 'notifications/initialized',
+      };
+      proc.stdin.write(JSON.stringify(initializedNotification) + '\n');
+
+      // ── Step 3: tools/list ─────────────────────────────────
+      let cursor: string | undefined;
+      let firstPage = true;
+
+      do {
+        const listId = this.nextMsgId++;
+        const listReq: McpJsonRpcRequest = {
+          jsonrpc: '2.0',
+          id: listId,
+          method: 'tools/list',
+        };
+        // Include cursor param on subsequent pages
+        if (!firstPage && cursor) {
+          listReq.params = { cursor };
+        }
+        firstPage = false;
+
+        proc.stdin.write(JSON.stringify(listReq) + '\n');
+
+        const listResponse = await this._readResponse(
+          rl,
+          listId,
+          abortController.signal,
+        );
+
+        if (!listResponse) {
+          throw new Error('Server did not respond to tools/list request');
+        }
+
+        if ('error' in listResponse && listResponse.error) {
+          const err = listResponse.error as { message: string; code: number };
+          throw new Error(
+            `tools/list failed: ${err.message} (code ${err.code})`,
+          );
+        }
+
+        const result = listResponse.result as
+          | (Record<string, unknown> & {
+              tools?: McpToolDefinition[];
+              nextCursor?: string;
+            })
+          | undefined;
+        if (result && Array.isArray(result.tools)) {
+          tools.push(...result.tools);
+          cursor = result.nextCursor;
+        } else {
+          cursor = undefined;
+        }
+      } while (cursor);
+
+      // ── Cache and mark initialized ─────────────────────────
+      this.toolsCache.set(name, tools);
+      this.toolsCacheInitialized.add(name);
+    } finally {
+      clearTimeout(timeoutId);
+      // Close the readline interface to stop listening on stdout
+      rl.close();
+      // Wait for close only if it hasn't already closed
+      if (!rlClosed) {
+        await new Promise<void>((resolve) => {
+          const onClose = () => {
+            clearTimeout(fallback);
+            resolve();
+          };
+          const fallback = setTimeout(() => {
+            rl.removeListener('close', onClose);
+            resolve();
+          }, 100);
+          rl.once('close', onClose);
+        });
+      }
+    }
+  }
+
+  /**
+   * Read lines from the readline interface until we find a JSON-RPC
+   * response matching the given request ID. Returns the parsed message
+   * or null if the signal is aborted or the interface closes.
+   *
+   * All non-matching messages (notifications, other responses) are
+   * silently skipped.
+   */
+  private _readResponse(
+    rl: readline.Interface,
+    requestId: number | string,
+    signal: AbortSignal,
+  ): Promise<Record<string, unknown> | null> {
+    return new Promise((resolve) => {
+      const onAbort = () => {
+        cleanup();
+        resolve(null);
+      };
+
+      let lineHandler: ((line: string) => void) | null = null;
+      let closeHandler: (() => void) | null = null;
+
+      const cleanup = () => {
+        signal.removeEventListener('abort', onAbort);
+        if (lineHandler) rl.removeListener('line', lineHandler);
+        if (closeHandler) rl.removeListener('close', closeHandler);
+      };
+
+      if (signal.aborted) {
+        resolve(null);
+        return;
+      }
+
+      signal.addEventListener('abort', onAbort);
+
+      lineHandler = (line: string) => {
+        // Skip blank lines
+        if (!line.trim()) return;
+
+        try {
+          const msg = JSON.parse(line) as Record<string, unknown>;
+
+          // Check if this is the response we're waiting for
+          if (
+            msg.id === requestId &&
+            typeof msg.jsonrpc === 'string'
+          ) {
+            cleanup();
+            resolve(msg);
+          }
+          // Otherwise, it's a notification or a response for another
+          // request — skip it silently.
+        } catch {
+          // Non-JSON line (server logging to stdout?) — skip
+        }
+      };
+
+      rl.on('line', lineHandler);
+
+      closeHandler = () => {
+        cleanup();
+        // readline closed before we got our response
+        resolve(null);
+      };
+
+      rl.on('close', closeHandler);
+    });
+  }
+
+  /**
+   * Discover tools from an SSE (Streamable HTTP) MCP server via
+   * HTTP POST init + tools/list.
+   */
+  private async _discoverToolsSse(
+    name: string,
+    cfg: McpServerConfig,
+  ): Promise<void> {
+    if (!cfg.url) {
+      throw new Error('SSE server has no URL configured');
+    }
+
+    const handle = this.handles.get(name);
+    const signal = handle?.abortController?.signal;
+
+    const tools: McpToolDefinition[] = [];
+
+    // ── Step 1: Initialize via HTTP POST ────────────────────
+    const initId = this.nextMsgId++;
+    const initReq: McpJsonRpcRequest = {
+      jsonrpc: '2.0',
+      id: initId,
+      method: 'initialize',
+      params: {
+        protocolVersion: MCP_PROTOCOL_VERSION,
+        capabilities: {},
+        clientInfo: {
+          name: CLIENT_NAME,
+          version: CLIENT_VERSION,
+        },
+      },
+    };
+
+    const initResp = await fetch(cfg.url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Accept: 'application/json, text/event-stream',
+      },
+      body: JSON.stringify(initReq),
+      signal,
+    });
+
+    if (!initResp.ok) {
+      throw new Error(
+        `Initialize HTTP POST returned status ${initResp.status}`,
+      );
+    }
+
+    const initBody = (await initResp.json()) as Record<string, unknown>;
+
+    if (initBody.error) {
+      const err = initBody.error as { message: string; code: number };
+      throw new Error(
+        `Initialize failed: ${err.message} (code ${err.code})`,
+      );
+    }
+
+    // ── Step 2: Send initialized notification ───────────────
+    const initializedNotification = {
+      jsonrpc: '2.0',
+      method: 'notifications/initialized',
+    };
+
+    await fetch(cfg.url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(initializedNotification),
+      signal,
+    });
+    // Notifications return HTTP 202; we don't need to parse the body
+
+    // ── Step 3: tools/list ──────────────────────────────────
+    let cursor: string | undefined;
+    let firstPage = true;
+
+    do {
+      const listId = this.nextMsgId++;
+      const listReq: McpJsonRpcRequest = {
+        jsonrpc: '2.0',
+        id: listId,
+        method: 'tools/list',
+      };
+      if (!firstPage && cursor) {
+        listReq.params = { cursor };
+      }
+      firstPage = false;
+
+      const listResp = await fetch(cfg.url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Accept: 'application/json, text/event-stream',
+        },
+        body: JSON.stringify(listReq),
+        signal,
+      });
+
+      if (!listResp.ok) {
+        throw new Error(
+          `tools/list HTTP POST returned status ${listResp.status}`,
+        );
+      }
+
+      const listBody = (await listResp.json()) as Record<string, unknown>;
+
+      if (listBody.error) {
+        const err = listBody.error as { message: string; code: number };
+        throw new Error(
+          `tools/list failed: ${err.message} (code ${err.code})`,
+        );
+      }
+
+      const result = listBody.result as
+        | (Record<string, unknown> & {
+            tools?: McpToolDefinition[];
+            nextCursor?: string;
+          })
+        | undefined;
+
+      if (result && Array.isArray(result.tools)) {
+        tools.push(...result.tools);
+        cursor = result.nextCursor;
+      } else {
+        cursor = undefined;
+      }
+    } while (cursor);
+
+    // ── Cache and mark initialized ─────────────────────────
+    this.toolsCache.set(name, tools);
+    this.toolsCacheInitialized.add(name);
+  }
+
   // ── Private: Stop ───────────────────────────────────────────
 
-  private async _stopStdio(name: string, proc: ChildProcess): Promise<void> {
+  private async _stopStdio(_name: string, proc: ChildProcess): Promise<void> {
     if (proc.killed || proc.exitCode !== null) {
       // Already dead — just clean up
       return;
@@ -522,12 +978,14 @@ export class McpManager {
     // Error override
     const override = this.statusOverrides.get(name);
     if (override && override.status === 'error') {
+      const tools = this.toolsCache.get(name);
       return {
         name,
         transport: cfg.transport,
         status: 'error',
         error: override.error,
         startedAt: this.startedAt.get(name),
+        tools_count: tools?.length ?? 0,
       };
     }
 
@@ -554,6 +1012,7 @@ export class McpManager {
 
     if (cfg.transport === 'stdio' && handle.process) {
       const proc = handle.process;
+      const tools = this.toolsCache.get(name);
       if (proc.killed || proc.exitCode !== null) {
         return {
           name,
@@ -564,6 +1023,7 @@ export class McpManager {
             ? 'Process was killed'
             : `Process exited with code ${proc.exitCode}`,
           startedAt: this.startedAt.get(name),
+          tools_count: tools?.length ?? 0,
         };
       }
       return {
@@ -572,16 +1032,19 @@ export class McpManager {
         status: 'running',
         pid: proc.pid ?? undefined,
         startedAt: this.startedAt.get(name),
+        tools_count: tools?.length ?? 0,
       };
     }
 
     if (cfg.transport === 'sse') {
+      const tools = this.toolsCache.get(name);
       if (handle.abortController && handle.abortController.signal.aborted) {
         return {
           name,
           transport: cfg.transport,
           status: 'stopped',
           startedAt: this.startedAt.get(name),
+          tools_count: tools?.length ?? 0,
         };
       }
       return {
@@ -589,6 +1052,7 @@ export class McpManager {
         transport: cfg.transport,
         status: 'running',
         startedAt: this.startedAt.get(name),
+        tools_count: tools?.length ?? 0,
       };
     }
 
