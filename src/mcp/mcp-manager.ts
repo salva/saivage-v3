@@ -311,7 +311,18 @@ export class McpManager {
     lastInvokedAt?: string;
   }> = new Map();
 
-  
+  /**
+   * Per-server stdio invocation queue.
+   *
+   * Each entry is a promise representing the tail of the invocation
+   * chain for that server. Concurrent invokeTool() calls to the same
+   * stdio server are serialized by chaining onto this promise so that
+   * only one invocation writes to stdin / reads from stdout at a time.
+   *
+   * The stored promise is always settled (via .catch(() => {})) so
+   * errors in one invocation never break the chain for subsequent ones.
+   */
+  private _invocationQueues: Map<string, Promise<void>> = new Map();
 
   constructor(projectRoot: string) {
     this.projectRoot = projectRoot;
@@ -490,6 +501,9 @@ export class McpManager {
     this.toolsCache.delete(name);
     this.toolsCacheInitialized.delete(name);
     this.discoveryErrors.delete(name);
+
+    // Clear invocation queue for this server on stop
+    this._invocationQueues.delete(name);
   }
 
   /**
@@ -608,8 +622,11 @@ export class McpManager {
     const timeoutMs = options?.timeoutMs ?? MCP_INVOKE_TIMEOUT_MS;
 
     if (cfg.transport === 'stdio') {
+      // -- Stdio: serialize via per-server invocation queue ----
       try {
-        const result = await this._invokeToolStdio(serverName, toolName, args, cfg, timeoutMs);
+        const result = await this._enqueueStdioInvocation(serverName, async () => {
+          return await this._invokeToolStdio(serverName, toolName, args, cfg, timeoutMs);
+        });
         const durationMs = Date.now() - startTime;
         this._recordInvocation(serverName, toolName, true);
         this._logInvocation(serverName, toolName, true, durationMs);
@@ -622,6 +639,7 @@ export class McpManager {
         throw err;
       }
     } else {
+      // -- SSE: invoke directly, no serialization needed -------
       try {
         const result = await this._invokeToolSse(serverName, toolName, args, cfg, timeoutMs);
         const durationMs = Date.now() - startTime;
@@ -660,6 +678,37 @@ export class McpManager {
     }
 
     return false;
+  }
+
+  // ── Private: Invocation Queue ─────────────────────────────
+
+  /**
+   * Enqueue a stdio tool invocation so that concurrent calls to the
+   * same server are serialized.  The `fn` callback performs the actual
+   * stdio exchange (write request to stdin, read response from stdout).
+   *
+   * The queue is per-server.  If a previous invocation threw an error,
+   * the chain continues — no single failure can stall the queue.
+   *
+   * @param serverName  Server whose queue to use.
+   * @param fn          Callback that performs the stdio invocation.
+   * @returns           The result of `fn()` (or its rejection).
+   */
+  private _enqueueStdioInvocation<T>(serverName: string, fn: () => Promise<T>): Promise<T> {
+    // Get the current tail, default to an immediately-resolved promise
+    const prev = this._invocationQueues.get(serverName) ?? Promise.resolve();
+
+    // Chain: always call fn() regardless of whether prev failed.
+    // This ensures a single error never breaks the queue.
+    const next = prev.then(() => fn(), () => fn());
+
+    // Store a *settled* promise as the new tail so errors don't propagate
+    // to subsequent links in the chain.  .catch(() => {}) swallows the
+    // rejection and produces a resolved promise.
+    this._invocationQueues.set(serverName, next.catch(() => {}) as Promise<void>);
+
+    // Return the actual promise so the caller gets the real result or error.
+    return next;
   }
 
   // ── Private: Tool Invocation ──────────────────────────────
