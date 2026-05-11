@@ -47,6 +47,10 @@ export interface RuntimeConfig {
   fakeAgentConfig: FakeAgentConfig;
   /** Optional SkillsEngine for injecting matched skills into agent prompts */
   skillsEngine?: SkillsEngine;
+  /** Optional EventLogger — when provided, the Runtime uses this shared instance
+   *  instead of creating its own. This avoids dual instances writing to the same
+   *  events.jsonl file when an ActiveRuntime already created one. */
+  eventLogger?: EventLogger;
 }
 
 // ── Helpers ───────────────────────────────────────────────────
@@ -129,6 +133,13 @@ export class Runtime extends EventEmitter {
   private _eventLogger: EventLogger;
 
   /**
+   * Whether this Runtime created the EventLogger (and owns its lifecycle).
+   * When false, the EventLogger was injected via RuntimeConfig and the
+   * owner (e.g. ActiveRuntime) is responsible for calling close().
+   */
+  private _ownsEventLogger: boolean;
+
+  /**
    * Set of currently known running process IDs.
    * Updated on process start, exit, kill, and on crash recovery.
    */
@@ -146,7 +157,14 @@ export class Runtime extends EventEmitter {
     this.cardStore = new CardStore(config.projectRoot);
     this.agentRuntime = agentRuntime ?? new FakeAgentAdapter(config.fakeAgentConfig);
     this._skillsEngine = config.skillsEngine ?? new SkillsEngine({ projectRoot: config.projectRoot });
-    this._eventLogger = new EventLogger(join(config.projectRoot, '.saivage'));
+
+    if (config.eventLogger) {
+      this._eventLogger = config.eventLogger;
+      this._ownsEventLogger = false;
+    } else {
+      this._eventLogger = new EventLogger(join(config.projectRoot, '.saivage'));
+      this._ownsEventLogger = true;
+    }
   }
 
   get status(): RuntimeStatus {
@@ -363,7 +381,13 @@ export class Runtime extends EventEmitter {
     this._status = 'idle';
     this.emit('shutdown');
     this._eventLogger.appendEvent({ kind: 'shutdown' });
-    this._eventLogger.close();
+
+    // Only close the EventLogger if we own it (not shared).
+    // When an external EventLogger is injected, lifecycle management
+    // is the owner's responsibility (e.g. ActiveRuntime).
+    if (this._ownsEventLogger) {
+      this._eventLogger.close();
+    }
   }
 
   // ── Pause / Resume ────────────────────────────────────────

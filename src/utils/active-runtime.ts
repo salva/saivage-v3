@@ -4,6 +4,10 @@
  *
  * This is the class used by the Saivage server (or other long-lived processes)
  * that want real LLM calls instead of the default FakeAgentAdapter.
+ *
+ * A single EventLogger instance is created and shared across the Runtime and
+ * AgentAdapter, avoiding dual EventLogger instances writing to the same
+ * events.jsonl file.
  */
 
 import { join } from 'node:path';
@@ -50,7 +54,8 @@ export class ActiveRuntime {
       }
     }
 
-    // Create the shared EventLogger
+    // Create the shared EventLogger — a single instance for both Runtime
+    // and AgentAdapter to avoid dual writers on the same events.jsonl file.
     this._eventLogger = new EventLogger(saivageDir);
 
     // Create the AgentAdapter with config and shared EventLogger
@@ -65,11 +70,14 @@ export class ActiveRuntime {
     this._agentAdapter.setLlmCallFn(this._agentAdapter.createLlmCallFn());
 
     // Create the Runtime with the AgentAdapter as agentRuntime implementation.
-    // The fakeAgentConfig is required by RuntimeConfig but won't be used
-    // since we pass an explicit AgentRuntime.
+    // Pass the shared EventLogger via RuntimeConfig so Runtime does not create
+    // its own. The fakeAgentConfig is required by RuntimeConfig but won't be
+    // used since we pass an explicit AgentRuntime.
     const runtimeConfig: RuntimeConfig = {
       projectRoot,
       fakeAgentConfig: { mapping: {}, fixtureDir: '' },
+      skillsEngine: undefined,
+      eventLogger: this._eventLogger,
     };
 
     this._runtime = new Runtime(runtimeConfig, this._agentAdapter);
@@ -85,7 +93,9 @@ export class ActiveRuntime {
   /** Stop the runtime gracefully: shutdown, release lock, cleanup, close event logger. */
   async stop(): Promise<void> {
     await this._runtime.shutdown();
-    // Close the shared event logger after runtime shutdown (which already closes its own)
+    // Close the shared event logger after the runtime shutdown has completed.
+    // Runtime.shutdown() skips calling close() on shared EventLoggers since
+    // lifecycle management is the owner's responsibility (us).
     this._eventLogger.close();
   }
 
