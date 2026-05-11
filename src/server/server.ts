@@ -363,6 +363,16 @@ export async function createServer(
     );
   }
 
+  // ── Wire McpManager into ActiveRuntime ─────────────────────
+  // After both ActiveRuntime and McpManager are created, wire them
+  // together so agents can invoke MCP tools at execution time and
+  // MCP tool invocations are logged through the shared EventLogger.
+
+  if (activeRuntime && mcpManager) {
+    activeRuntime.agentAdapter.setMcpManager(mcpManager);
+    mcpManager.setEventLogger(activeRuntime.eventLogger);
+  }
+
   // ── MCP Status API Endpoint ────────────────────────────────
 
   fastify.get('/api/mcp/status', async (_request, reply) => {

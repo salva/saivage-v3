@@ -830,7 +830,7 @@ export class Runtime extends EventEmitter {
               cardDescription: goalCard.description,
               tags: goalCard.tags,
               filePaths: [],
-              availableTools: ['create_card', 'edit_card', 'move_card', 'delete_card', 'add_note', 'list_cards', 'get_card', 'load_skill'],
+              availableTools: ['create_card', 'edit_card', 'move_card', 'delete_card', 'add_note', 'list_cards', 'get_card', 'load_skill', 'mcp_tool_call'],
               targetRole: 'planner',
             });
             const combinedSkills = [plannerInstr, skillsContent].filter(Boolean).join('\n\n');
@@ -961,7 +961,7 @@ export class Runtime extends EventEmitter {
                 cardDescription: card.description,
                 tags: card.tags,
                 filePaths: [],
-                availableTools: ['start_process', 'wait_process', 'start_and_wait', 'tail_output', 'kill_process', 'list_processes', 'download_file', 'load_skill'],
+                availableTools: ['start_process', 'wait_process', 'start_and_wait', 'tail_output', 'kill_process', 'list_processes', 'download_file', 'load_skill', 'mcp_tool_call'],
                 targetRole: 'executor',
               });
               if (skillsContent) {
@@ -1121,7 +1121,7 @@ export class Runtime extends EventEmitter {
           cardDescription: '',
           tags: [],
           filePaths: [],
-          availableTools: ['review', 'load_skill'],
+          availableTools: ['review', 'load_skill', 'mcp_tool_call'],
           targetRole: 'reviewer',
         });
         if (skillsContent) {

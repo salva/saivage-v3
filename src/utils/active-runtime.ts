@@ -23,6 +23,7 @@ import {
   loadConfig,
   type SaivageConfig,
 } from '../agents/config-schema.js';
+import type { McpManager } from '../mcp/mcp-manager.js';
 import type { RuntimeState } from '../schemas/types.js';
 
 // ── ActiveRuntime ──────────────────────────────────────────────
@@ -39,8 +40,11 @@ export class ActiveRuntime {
    * @param projectRoot  Absolute path to the project root
    * @param config       Optional SaivageConfig. If not provided, loaded via loadConfig().
    *                     Falls back to a minimal config if loadConfig() fails.
+   * @param mcpManager   Optional McpManager for MCP tool invocation.
+   *                     Wired into AgentAdapter for agent MCP tool calls, and
+   *                     receives the shared EventLogger for invocation logging.
    */
-  constructor(projectRoot: string, config?: SaivageConfig) {
+  constructor(projectRoot: string, config?: SaivageConfig, mcpManager?: McpManager) {
     this._projectRoot = projectRoot;
     const saivageDir = join(projectRoot, '.saivage');
 
@@ -102,6 +106,16 @@ export class ActiveRuntime {
     // so agent events (session_started, model_selected, etc.) propagate
     // through the Runtime's EventEmitter to WebSocket clients.
     this._agentAdapter.setEventBus(this._runtime);
+
+    // Wire McpManager into AgentAdapter's callMcpTool
+    if (mcpManager) {
+      this._agentAdapter.setMcpManager(mcpManager);
+    }
+
+    // Wire EventLogger into McpManager for MCP tool invocation logging
+    if (mcpManager) {
+      mcpManager.setEventLogger(this._eventLogger);
+    }
   }
 
   // ── Lifecycle ────────────────────────────────────────────────

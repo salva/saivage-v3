@@ -206,7 +206,8 @@ block or return raw JSON.
   listed in \`artifacts\` with \`retain: true\` if it should persist.
 - **Error reporting**: If you fail, be specific. Include file paths, line
   numbers, error messages, and root-cause analysis in the \`error\` field.
-- **Test your work**: If the project has tests, run them after making changes.`;
+- **Test your work**: If the project has tests, run them after making changes.
+- **Use MCP tools**: You can invoke external MCP tools via the \`mcp_tool_call\` tool. Use this to query databases, call APIs, or invoke any MCP server tool available to you. Provide the \`serverName\`, \`toolName\`, and \`args\` parameters.`;
 
   if (skills && skills.length > 0) {
     result += '\n\n' + skills;
