@@ -39,14 +39,16 @@ export const useRuntimeStore = defineStore('runtime', () => {
   const status = computed<RuntimeStatus>(() => runtime.value?.status ?? 'idle');
   const isRunning = computed(() => status.value === 'running');
   const isPaused = computed(() => runtime.value?.paused ?? false);
+  const isFrozen = computed(() => runtime.value?.status === 'frozen');
   const currentCardId = computed(() => runtime.value?.current_card_id ?? null);
   const currentAgentSessionId = computed(() => runtime.value?.current_agent_session_id ?? null);
   const queueLength = computed(() => runtime.value?.queue?.length ?? 0);
   const runningProcessCount = computed(() => runtime.value?.running_processes?.length ?? 0);
 
-  /** Status display chip: running / idle / paused / error. */
+  /** Status display chip: running / idle / paused / frozen / error. */
   const statusLabel = computed<string>(() => {
     if (!runtime.value) return 'unknown';
+    if (runtime.value.status === 'frozen') return 'frozen';
     if (runtime.value.paused) return 'paused';
     return runtime.value.status;
   });
@@ -163,6 +165,7 @@ export const useRuntimeStore = defineStore('runtime', () => {
     status,
     isRunning,
     isPaused,
+    isFrozen,
     currentCardId,
     currentAgentSessionId,
     queueLength,

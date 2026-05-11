@@ -217,7 +217,7 @@ export interface AgentMessage {
 
 // ── Runtime State ─────────────────────────────────────────────
 
-export type RuntimeStatus = 'idle' | 'running' | 'paused' | 'error';
+export type RuntimeStatus = 'idle' | 'running' | 'paused' | 'error' | 'frozen';
 
 export interface RuntimeState {
   status: RuntimeStatus;
@@ -231,6 +231,8 @@ export interface RuntimeState {
   queue: string[];
   running_processes: string[];
   updated_at: string;
+  /** Reason for freeze, set when status is 'frozen'. */
+  frozen_reason?: string | null;
 }
 
 export interface CardIndex {

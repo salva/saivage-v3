@@ -2,6 +2,7 @@ import { readdirSync, statSync, readFileSync, existsSync, realpathSync } from 'n
 import { resolve, join, relative } from 'node:path';
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { readRuntimeState } from '../../utils/runtime-state.js';
+import { readFreezeManifest } from '../../utils/freeze-manifest.js';
 import { CardStore } from '../../utils/card-store.js';
 import { getSafeFileForAgent } from '../../utils/file-access-security.js';
 import { AnalystHandler } from '../../agents/analyst-handler.js';
@@ -304,6 +305,15 @@ export function registerChatsFilesDebugRoutes(
   fastify.get('/api/debug/state', async (_request: FastifyRequest, reply: FastifyReply) => {
     try {
       const state = readRuntimeState(projectRoot);
+
+      // If runtime is frozen, inject the freeze reason from the manifest
+      if (state && state.status === 'frozen') {
+        const manifest = readFreezeManifest(projectRoot);
+        if (manifest) {
+          state.frozen_reason = manifest.reason;
+        }
+      }
+
       const cards = store.list();
       const cardIndex = cards.map((c) => ({
         id: c.id,

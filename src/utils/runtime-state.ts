@@ -28,6 +28,7 @@ function defaultRuntimeState(): RuntimeState {
     queue: [],
     running_processes: [],
     updated_at: now,
+    frozen_reason: null,
   };
 }
 

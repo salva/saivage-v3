@@ -18,11 +18,21 @@
         <template v-else>
           <section class="debug-section">
             <h4 class="debug-section-title">Runtime State</h4>
+            <div v-if="debugRuntime?.status === 'frozen'" class="freeze-banner">
+              <div class="freeze-banner-text">
+                <strong>❄ Runtime Frozen</strong>
+                <span class="freeze-reason">{{ debugRuntime.frozen_reason || 'No reason provided' }}</span>
+              </div>
+            </div>
             <div v-if="debugRuntime" class="debug-grid">
               <div class="dg-item"><span class="dg-key">Status:</span><span class="dg-value">{{ debugRuntime.status }}</span></div>
               <div class="dg-item"><span class="dg-key">PID:</span><span class="dg-value">{{ debugRuntime.pid }}</span></div>
               <div class="dg-item"><span class="dg-key">Started:</span><span class="dg-value">{{ fmtDate(debugRuntime.started_at) }}</span></div>
               <div class="dg-item"><span class="dg-key">Paused:</span><span class="dg-value">{{ debugRuntime.paused ? 'Yes' : 'No' }}</span></div>
+              <div v-if="debugRuntime?.status === 'frozen'" class="dg-item">
+                <span class="dg-key">Frozen:</span>
+                <span class="dg-value freeze-value">Yes</span>
+              </div>
               <div class="dg-item"><span class="dg-key">Current Card:</span><span class="dg-value mono">{{ debugRuntime.current_card_id || 'none' }}</span></div>
               <div class="dg-item"><span class="dg-key">Agent Session:</span><span class="dg-value mono">{{ debugRuntime.current_agent_session_id || 'none' }}</span></div>
               <div class="dg-item"><span class="dg-key">Running Procs:</span><span class="dg-value">{{ debugRuntime.running_processes?.length || 0 }}</span></div>
@@ -251,6 +261,13 @@ onUnmounted(() => {
 .dg-value { font-size:12px; color:#c9d1d9; }
 .dg-value.mono { font-family:'SF Mono',monospace; font-size:11px; color:#58a6ff; }
 .mono { font-family:'SF Mono',monospace; }
+
+/* ── Freeze Banner ── */
+.freeze-banner { display:flex; align-items:center; gap:10px; padding:12px 16px; background:#1a1d2e; border:1px solid #5a4fcf; border-radius:8px; margin-bottom:12px; }
+.freeze-banner-text { font-size:14px; color:#c9d1d9; display:flex; flex-direction:column; gap:2px; }
+.freeze-reason { font-size:12px; color:#8b949e; font-style:italic; }
+.freeze-value { color:#7c6ff0; font-weight:600; }
+
 .card-summary-bars { display:flex; flex-direction:column; gap:4px; margin-bottom:12px; }
 .csb-row { display:grid; grid-template-columns:80px 1fr 40px; gap:8px; align-items:center; }
 .csb-label { font-size:11px; color:#8b949e; text-transform:capitalize; text-align:right; }

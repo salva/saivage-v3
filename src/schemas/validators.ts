@@ -256,6 +256,7 @@ export const runtimeStateSchema = z.object({
   queue: z.array(z.string()),
   running_processes: z.array(z.string()),
   updated_at: z.string().datetime(),
+  frozen_reason: z.string().nullable().optional(),
 });
 
 export const freezeManifestSchema = z.object({

@@ -249,6 +249,8 @@ export interface RuntimeState {
   queue: string[];
   running_processes: string[];
   updated_at: string;
+  /** Reason for freeze, populated when status is 'frozen' from the freeze manifest. */
+  frozen_reason?: string | null;
 }
 
 // ── Content Supervision ──────────────────────────────────────
