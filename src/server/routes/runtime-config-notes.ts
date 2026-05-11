@@ -54,6 +54,8 @@ const SAFE_AGENT_ID_RE = /^[a-zA-Z0-9_-]+$/;
 export function registerRuntimeConfigNotesRoutes(
   fastify: FastifyInstance,
   projectRoot: string,
+  onPause?: () => void,
+  onResume?: () => void,
 ): void {
   const store = new CardStore(projectRoot);
 
@@ -102,6 +104,8 @@ export function registerRuntimeConfigNotesRoutes(
         paused: true,
         paused_at: new Date().toISOString(),
       });
+      // Notify ActiveRuntime if callback provided (for in-memory _paused flag)
+      onPause?.();
       return reply.send({ status: 'paused' });
     } catch (err) {
       return reply.status(500).send({
@@ -118,6 +122,8 @@ export function registerRuntimeConfigNotesRoutes(
         paused: false,
         paused_at: null,
       });
+      // Notify ActiveRuntime if callback provided (for in-memory _paused flag)
+      onResume?.();
       return reply.send({ status: 'resumed' });
     } catch (err) {
       return reply.status(500).send({

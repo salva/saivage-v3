@@ -6,6 +6,7 @@
  *  - Auth plugin registration
  *  - /health endpoint (no auth, reads actual runtime state)
  *  - All route registrations (cards, runtime/config/notes, chats/files/debug)
+ *  - Runtime dispatch/status routes (conditionally registered with ActiveRuntime)
  *  - WebSocket endpoint registration
  *  - MCP server manager lifecycle
  *  - Telegram bot lifecycle
@@ -99,6 +100,72 @@ export function getServerConfig(projectRoot: string): ServerConfig {
   }
 }
 
+// ── Runtime Dispatch & Status Routes ─────────────────────────
+
+/**
+ * Register runtime dispatch and status routes that use the ActiveRuntime.
+ *
+ * POST /api/runtime/dispatch — dispatches a goal through ActiveRuntime
+ * GET  /api/runtime/status   — returns runtime status from ActiveRuntime or state file
+ *
+ * These routes are registered AFTER all other routes so they have access to
+ * the ActiveRuntime from the closure.
+ */
+function registerRuntimeDispatchRoutes(
+  fastify: FastifyInstance,
+  projectRoot: string,
+  activeRuntime: ActiveRuntime,
+): void {
+  // ── POST /api/runtime/dispatch ────────────────────────────
+
+  // eslint-disable-next-line @typescript-eslint/no-misused-promises
+  fastify.post('/api/runtime/dispatch', async (request, reply) => {
+    try {
+      const body = request.body as { goalId?: string };
+      if (!body.goalId) {
+        return reply.status(400).send({ error: 'goalId is required' });
+      }
+
+      // Check the goal exists
+      const goal = activeRuntime.runtime.cardStore.read(body.goalId);
+      if (!goal) {
+        return reply.status(404).send({ error: 'Goal not found', goalId: body.goalId });
+      }
+
+      // Dispatch asynchronously (fire and forget — runtime runs in background)
+      activeRuntime.dispatchGoal(body.goalId).catch((err: unknown) => {
+        fastify.log.error({ goalId: body.goalId, err }, 'Goal dispatch failed');
+      });
+
+      return reply.send({ status: 'dispatched', goalId: body.goalId });
+    } catch (err) {
+      return reply.status(500).send({
+        error: 'Failed to dispatch goal',
+        message: err instanceof Error ? err.message : String(err),
+      });
+    }
+  });
+
+  // ── GET /api/runtime/status ───────────────────────────────
+
+  fastify.get('/api/runtime/status', async (_request, reply) => {
+    try {
+      const status = activeRuntime.getStatus();
+      return reply.send({
+        runtime: status.status,
+        paused: status.paused,
+        currentCardId: status.currentCardId,
+        goalCount: status.goalCount,
+      });
+    } catch (err) {
+      return reply.status(500).send({
+        error: 'Failed to get runtime status',
+        message: err instanceof Error ? err.message : String(err),
+      });
+    }
+  });
+}
+
 // ── Server Factory ────────────────────────────────────────────
 
 export async function createServer(
@@ -149,10 +216,61 @@ export async function createServer(
   // Register health endpoint (no auth)
   registerHealth(fastify, saivageConfig);
 
-  // Register all API route handlers
+  // ── ActiveRuntime Lifecycle ────────────────────────────────
+
+  let activeRuntime: ActiveRuntime | undefined;
+  if (createRuntime) {
+    try {
+      activeRuntime = new ActiveRuntime(projectRoot);
+      await activeRuntime.start();
+      fastify.log.info('ActiveRuntime started');
+    } catch (err) {
+      fastify.log.warn(
+        `ActiveRuntime initialization failed (continuing without runtime): ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
+    }
+  }
+
+  // Register all API route handlers.
+  // Pass pause/resume callbacks that also control the ActiveRuntime's
+  // in-memory _paused flag, so both the state file and the runtime's
+  // internal state stay in sync.
   registerCardRoutes(fastify, projectRoot);
-  registerRuntimeConfigNotesRoutes(fastify, projectRoot);
+  registerRuntimeConfigNotesRoutes(
+    fastify,
+    projectRoot,
+    activeRuntime ? () => activeRuntime.pause() : undefined,
+    activeRuntime ? () => activeRuntime.resume() : undefined,
+  );
   registerChatsFilesDebugRoutes(fastify, projectRoot);
+
+  // Register runtime dispatch/status routes when ActiveRuntime is available.
+  // These are registered AFTER the other routes to ensure the closure works.
+  if (activeRuntime) {
+    registerRuntimeDispatchRoutes(fastify, projectRoot, activeRuntime);
+  } else {
+    // When no ActiveRuntime, provide a GET /api/runtime/status fallback
+    // that reads from the state file directly.
+    fastify.get('/api/runtime/status', async (_request, reply) => {
+      try {
+        const { readRuntimeState } = await import('../utils/runtime-state.js');
+        const state = readRuntimeState(projectRoot);
+        return reply.send({
+          runtime: state?.status ?? 'unknown',
+          paused: state?.paused ?? false,
+          currentCardId: state?.current_card_id ?? null,
+          goalCount: 0,
+        });
+      } catch (err) {
+        return reply.status(500).send({
+          error: 'Failed to get runtime status',
+          message: err instanceof Error ? err.message : String(err),
+        });
+      }
+    });
+  }
 
   // Register WebSocket endpoint (auth checked internally on upgrade)
   registerWebSocket(fastify, projectRoot);
@@ -194,23 +312,6 @@ export async function createServer(
     } catch (err) {
       fastify.log.warn(
         `Telegram bot initialization failed: ${
-          err instanceof Error ? err.message : String(err)
-        }`,
-      );
-    }
-  }
-
-  // ── ActiveRuntime Lifecycle ────────────────────────────────
-
-  let activeRuntime: ActiveRuntime | undefined;
-  if (createRuntime) {
-    try {
-      activeRuntime = new ActiveRuntime(projectRoot);
-      await activeRuntime.start();
-      fastify.log.info('ActiveRuntime started');
-    } catch (err) {
-      fastify.log.warn(
-        `ActiveRuntime initialization failed (continuing without runtime): ${
           err instanceof Error ? err.message : String(err)
         }`,
       );
