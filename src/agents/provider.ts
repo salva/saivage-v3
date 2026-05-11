@@ -75,6 +75,7 @@ export class Account {
   readonly priority: number;
   readonly apiKey?: string;
   readonly baseUrl?: string;
+  readonly tokenEndpoint?: string;
   readonly authProfile?: string;
   readonly models?: string[]; // subset override
 
@@ -83,6 +84,7 @@ export class Account {
     this.priority = entry.priority ?? 100;
     this.apiKey = entry.apiKey;
     this.baseUrl = entry.baseUrl;
+    this.tokenEndpoint = entry.tokenEndpoint;
     this.authProfile = entry.authProfile;
     this.models = entry.models;
   }
@@ -104,6 +106,27 @@ export class Account {
   effectiveBaseUrl(providerBaseUrl?: string): string | undefined {
     return this.baseUrl ?? providerBaseUrl;
   }
+
+  /**
+   * Compute the effective OAuth token endpoint.
+   * Resolution order: account → provider → inferred from provider baseUrl.
+   */
+  effectiveTokenEndpoint(
+    providerTokenEndpoint?: string,
+    providerBaseUrl?: string,
+  ): string | undefined {
+    if (this.tokenEndpoint) return this.tokenEndpoint;
+    if (providerTokenEndpoint) return providerTokenEndpoint;
+    if (providerBaseUrl) {
+      try {
+        const url = new URL(providerBaseUrl);
+        return `${url.origin}/oauth/token`;
+      } catch {
+        return undefined;
+      }
+    }
+    return undefined;
+  }
 }
 
 // ── Provider ──────────────────────────────────────────────────
@@ -114,6 +137,7 @@ export class Provider {
   readonly models: Set<string>;
   readonly apiKey?: string;
   readonly baseUrl?: string;
+  readonly tokenEndpoint?: string;
   readonly authProfile?: string;
   readonly accounts: Account[];
   /** Implicit account when no explicit accounts are configured */
@@ -125,6 +149,7 @@ export class Provider {
     this.models = new Set(entry.models ?? []);
     this.apiKey = entry.apiKey;
     this.baseUrl = entry.baseUrl;
+    this.tokenEndpoint = entry.tokenEndpoint;
     this.authProfile = entry.authProfile;
 
     // Build account list
@@ -141,6 +166,7 @@ export class Provider {
       priority: 0,
       apiKey: entry.apiKey,
       baseUrl: entry.baseUrl,
+      tokenEndpoint: entry.tokenEndpoint,
       authProfile: entry.authProfile,
     });
   }

@@ -128,6 +128,7 @@ const providerAccountSchema = z.object({
   priority: z.number().int().optional(),
   apiKey: z.string().optional(),
   baseUrl: z.string().optional(),
+  tokenEndpoint: z.string().optional(),
   authProfile: z.string().optional(),
   models: z.array(z.string()).optional(),
 });
@@ -138,6 +139,7 @@ const providerEntrySchema = z.object({
   models: z.array(z.string()).optional(),
   apiKey: z.string().optional(),
   baseUrl: z.string().optional(),
+  tokenEndpoint: z.string().optional(),
   authProfile: z.string().optional(),
   accounts: z.record(z.string(), providerAccountSchema).optional(),
 });
@@ -243,6 +245,30 @@ export type ProviderAccount = z.infer<typeof providerAccountSchema>;
 export type RuntimeSection = z.infer<typeof runtimeSectionSchema>;
 export type ModelsSection = z.infer<typeof modelsSectionSchema>;
 export type SelfCheckConfig = z.infer<typeof selfCheckSchema>;
+
+// ── Token Endpoint Resolution ─────────────────────────────────
+
+/**
+ * Resolve the effective OAuth token endpoint URI.
+ *
+ * Resolution order:
+ * 1. If tokenEndpoint is explicitly set, use it.
+ * 2. Otherwise, infer from baseUrl as `{origin}/oauth/token`.
+ * 3. If neither is usable, return undefined.
+ */
+export function resolveTokenEndpoint(
+  tokenEndpoint: string | undefined,
+  baseUrl: string | undefined,
+): string | undefined {
+  if (tokenEndpoint) return tokenEndpoint;
+  if (!baseUrl) return undefined;
+  try {
+    const url = new URL(baseUrl);
+    return `${url.origin}/oauth/token`;
+  } catch {
+    return undefined;
+  }
+}
 
 // ── Model Params ──────────────────────────────────────────────
 
