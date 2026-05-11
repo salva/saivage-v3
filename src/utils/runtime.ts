@@ -56,6 +56,8 @@ export interface RuntimeConfig {
    *  instead of creating its own. This avoids dual instances writing to the same
    *  errors.jsonl file when an ActiveRuntime already created one. */
   errorLogger?: ErrorLogger;
+  /** Optional maximum goal depth (default: 5). When set, overrides the CardStore default. */
+  maxGoalDepth?: number;
 }
 
 // ── Helpers ───────────────────────────────────────────────────
@@ -169,7 +171,7 @@ export class Runtime extends EventEmitter {
   constructor(config: RuntimeConfig, agentRuntime?: AgentRuntime) {
     super();
     this.projectRoot = config.projectRoot;
-    this.cardStore = new CardStore(config.projectRoot);
+    this.cardStore = new CardStore(config.projectRoot, config.maxGoalDepth);
     this.agentRuntime = agentRuntime ?? new FakeAgentAdapter(config.fakeAgentConfig);
     this._skillsEngine = config.skillsEngine ?? new SkillsEngine({ projectRoot: config.projectRoot });
 
@@ -620,8 +622,13 @@ export class Runtime extends EventEmitter {
       // Step 2: Invoke the planner
       let plannerResult: PlannerResult;
       try {
+        // Get goal card for depth context
+        const goalCardForDepth = this.cardStore.read(goalId);
+        const currentDepth = goalCardForDepth?.depth;
+        const maxDepth = this.cardStore.maxDepth;
+
         // Build planner prompt with matched skills
-        let plannerPrompt = buildPlannerPrompt();
+        let plannerPrompt = buildPlannerPrompt(undefined, currentDepth, maxDepth);
         try {
           // Get the goal card for match context
           const goalCard = this.cardStore.read(goalId);
@@ -645,7 +652,7 @@ export class Runtime extends EventEmitter {
             });
             const combinedSkills = [plannerInstr, skillsContent].filter(Boolean).join('\n\n');
             if (combinedSkills) {
-              plannerPrompt = buildPlannerPrompt(combinedSkills);
+              plannerPrompt = buildPlannerPrompt(combinedSkills, currentDepth, maxDepth);
             }
           }
         } catch {
