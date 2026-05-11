@@ -376,11 +376,12 @@ export async function createServer(
 
   fastify.get('/api/mcp/tools', async (_request, reply) => {
     if (!mcpManager) {
-      return reply.send({ tools: [], servers: [] });
+      return reply.send({ tools: [], servers: [], invocationStats: {} });
     }
     const tools = mcpManager.getTools();
     const servers = mcpManager.getToolServers();
-    return reply.send({ tools, servers });
+    const invocationStats = mcpManager.getInvocationStats();
+    return reply.send({ tools, servers, invocationStats });
   });
 
   // ── Telegram Bot Lifecycle ─────────────────────────────────

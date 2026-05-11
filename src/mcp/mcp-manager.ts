@@ -18,7 +18,8 @@
  * getServerTools(), and getToolServers().
  *
  * invokeTool() enables execution-time MCP tool invocation over both stdio
- * and SSE transports with structured error types.
+ * and SSE transports with structured error types. Invocation statistics
+ * are tracked per server:tool key and exposed via getInvocationStats().
  *
  * See 06-configuration.md § MCP Servers and 12-implementation-plan.md Stage 9.
  */
@@ -301,6 +302,15 @@ export class McpManager {
   private nextMsgId = 1;
   /** Optional EventLogger for recording MCP tool invocations. */
   private _eventLogger?: EventLogger;
+  /** Invocation statistics per server:tool key.
+   *  Key format: `${serverName}:${toolName}` */
+  private _invocationStats: Map<string, {
+    total: number;
+    success: number;
+    error: number;
+    lastInvokedAt?: string;
+  }> = new Map();
+
   
 
   constructor(projectRoot: string) {
@@ -340,6 +350,34 @@ export class McpManager {
       duration_ms: durationMs,
       error,
     });
+  }
+
+  // ── Invocation Statistics ───────────────────────────────────
+
+  /**
+   * Record an MCP tool invocation in the internal statistics map.
+   * Called on every invokeTool() success or failure.
+   */
+  private _recordInvocation(serverName: string, toolName: string, success: boolean): void {
+    const key = `${serverName}:${toolName}`;
+    const current = this._invocationStats.get(key) ?? { total: 0, success: 0, error: 0 };
+    current.total++;
+    if (success) current.success++;
+    else current.error++;
+    current.lastInvokedAt = new Date().toISOString();
+    this._invocationStats.set(key, current);
+  }
+
+  /**
+   * Return invocation statistics for all tools that have been invoked
+   * during this session. Key format is `${serverName}:${toolName}`.
+   */
+  getInvocationStats(): Record<string, { total: number; success: number; error: number; lastInvokedAt?: string }> {
+    const out: Record<string, { total: number; success: number; error: number; lastInvokedAt?: string }> = {};
+    for (const [key, val] of this._invocationStats) {
+      out[key] = val;
+    }
+    return out;
   }
 
   // ── Public API ──────────────────────────────────────────────
@@ -573,11 +611,13 @@ export class McpManager {
       try {
         const result = await this._invokeToolStdio(serverName, toolName, args, cfg, timeoutMs);
         const durationMs = Date.now() - startTime;
+        this._recordInvocation(serverName, toolName, true);
         this._logInvocation(serverName, toolName, true, durationMs);
         return result;
       } catch (err) {
         const durationMs = Date.now() - startTime;
         const errorMsg = err instanceof Error ? err.message : String(err);
+        this._recordInvocation(serverName, toolName, false);
         this._logInvocation(serverName, toolName, false, durationMs, errorMsg);
         throw err;
       }
@@ -585,11 +625,13 @@ export class McpManager {
       try {
         const result = await this._invokeToolSse(serverName, toolName, args, cfg, timeoutMs);
         const durationMs = Date.now() - startTime;
+        this._recordInvocation(serverName, toolName, true);
         this._logInvocation(serverName, toolName, true, durationMs);
         return result;
       } catch (err) {
         const durationMs = Date.now() - startTime;
         const errorMsg = err instanceof Error ? err.message : String(err);
+        this._recordInvocation(serverName, toolName, false);
         this._logInvocation(serverName, toolName, false, durationMs, errorMsg);
         throw err;
       }
