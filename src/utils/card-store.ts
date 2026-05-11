@@ -89,8 +89,12 @@ function blocksPath(projectRoot: string): string {
 export class CardStore {
   private projectRoot: string;
 
-  constructor(projectRoot: string) {
+  /** Maximum allowed card nesting depth (default 5 per 11-decisions.md #10). */
+  readonly maxDepth: number;
+
+  constructor(projectRoot: string, maxDepth?: number) {
     this.projectRoot = projectRoot;
+    this.maxDepth = maxDepth !== undefined && maxDepth > 0 ? maxDepth : 5;
   }
 
   // ── Index Helpers ─────────────────────────────────────────
@@ -264,6 +268,13 @@ export class CardStore {
       depth = parentCard.depth + 1;
     }
 
+    // Enforce max depth
+    if (depth > this.maxDepth) {
+      throw new Error(
+        `Cannot create card at depth ${depth}. Maximum allowed depth is ${this.maxDepth}. Reduce nesting depth by reorganizing the card hierarchy.`,
+      );
+    }
+
     const card: CardRecord = {
       id,
       type: input.type,
@@ -407,6 +418,13 @@ export class CardStore {
           throw new Error(`Parent card '${changes.parent}' not found.`);
         }
         newDepth = newParent.depth + 1;
+      }
+
+      // Enforce max depth
+      if (newDepth > this.maxDepth) {
+        throw new Error(
+          `Cannot update card '${id}' to depth ${newDepth}. Maximum allowed depth is ${this.maxDepth}. Choose a parent at a shallower level.`,
+        );
       }
     }
 
@@ -763,12 +781,23 @@ export class CardStore {
     // Activate the goal
     const updatedGoal = this.update(id, { status: 'active' });
 
+    // Compute plan depth — depth checks are at depth computation time, not here
+    // (activateGoal creates the plan card directly without going through create())
+    const planDepth = updatedGoal.depth + 1;
+
+    // Enforce max depth for plan card
+    if (planDepth > this.maxDepth) {
+      throw new Error(
+        `Cannot activate goal '${id}': the plan card would be at depth ${planDepth}, exceeding maximum allowed depth ${this.maxDepth}. Reduce nesting depth before activating this goal.`,
+      );
+    }
+
     // Create plan card
     const plan: CardRecord = {
       id: planId,
       type: 'plan',
       parent: id,
-      depth: updatedGoal.depth + 1,
+      depth: planDepth,
       title: `Plan for ${updatedGoal.title}`,
       description: '',
       status: 'backlog',
