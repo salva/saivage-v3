@@ -103,7 +103,7 @@ export class AgentAdapter implements AgentRuntime {
     this.config = cfg.config;
     this.runtimeConfig = getRuntimeConfig(cfg.config);
     this.registry = new ProviderRegistry(cfg.config);
-    this.router = new ModelRouter(cfg.config, this.registry);
+    this.router = new ModelRouter(cfg.config, this.registry, cfg.projectRoot);
     this.eventBus = cfg.eventBus;
     this.eventLogger = cfg.eventLogger;
   }
@@ -348,7 +348,7 @@ export class AgentAdapter implements AgentRuntime {
     this.resetOnRoleChange(role);
 
     // Resolve candidate chain
-    const candidates = this.router.resolve(role);
+    const candidates = await this.router.resolve(role);
     if (candidates.length === 0) {
       throw new Error(`No healthy candidates available for role '${role}'.`);
     }
@@ -442,7 +442,7 @@ export class AgentAdapter implements AgentRuntime {
     // Define the agent function
     const agentFn = async (recoveryCtx: RecoveryContext) => {
       // Try each candidate in order
-      const candidateChain = this.router.resolve(role);
+      const candidateChain = await this.router.resolve(role);
       let lastError: Error | null = null;
 
       try {

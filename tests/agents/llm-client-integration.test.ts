@@ -442,7 +442,7 @@ describe('AgentAdapter + Router + LlmClient Full Integration', () => {
       // Verify router resolves candidates
       const registry = new ProviderRegistry(config);
       const router = new ModelRouter(config, registry);
-      const candidates = router.resolve('planner');
+      const candidates = await router.resolve('planner');
       expect(candidates.length).toBeGreaterThan(0);
       expect(candidates[0].provider).toBe('test-provider');
       expect(candidates[0].model).toBe('test-model');

@@ -75,7 +75,7 @@ beforeEach(() => {
 afterEach(() => cleanup());
 
 describe('Integration: Config → Router → Parsing', () => {
-  it('should load config and resolve role to candidates', () => {
+  it('should load config and resolve role to candidates', async () => {
     writeConfig({
       models: {
         planner: ['gpt-5.5', 'kimi-k2.6'],
@@ -104,19 +104,19 @@ describe('Integration: Config → Router → Parsing', () => {
     const router = new ModelRouter(config, registry);
 
     // Planner should get github/primary/gpt-5.5 first
-    const plannerChain = router.resolve('planner');
+    const plannerChain = await router.resolve('planner');
     expect(plannerChain.length).toBeGreaterThanOrEqual(3);
     expect(plannerChain[0].provider).toBe('github');
     expect(plannerChain[0].account).toBe('primary');
     expect(plannerChain[0].model).toBe('gpt-5.5');
 
     // Executor should get opencode/kimi-k2.6
-    const executorChain = router.resolve('executor');
+    const executorChain = await router.resolve('executor');
     expect(executorChain).toHaveLength(1);
     expect(executorChain[0].model).toBe('kimi-k2.6');
   });
 
-  it('should flow from config → router → parse planner result', () => {
+  it('should flow from config → router → parse planner result', async () => {
     writeConfig({
       models: { planner: ['gpt-5.5'] },
       providers: {
@@ -129,7 +129,7 @@ describe('Integration: Config → Router → Parsing', () => {
     const router = new ModelRouter(config, registry);
 
     // Resolve candidates for planner
-    const chain = router.resolve('planner');
+    const chain = await router.resolve('planner');
     expect(chain.length).toBeGreaterThan(0);
 
     // Simulate parsing a planner response
@@ -154,7 +154,7 @@ describe('Integration: Config → Router → Parsing', () => {
     expect(parsed.declare_done).toBe(false);
   });
 
-  it('should flow from config → router → parse executor result', () => {
+  it('should flow from config → router → parse executor result', async () => {
     writeConfig({
       models: { executor: ['kimi-k2.6'] },
       providers: {
@@ -166,7 +166,7 @@ describe('Integration: Config → Router → Parsing', () => {
     const registry = new ProviderRegistry(config);
     const router = new ModelRouter(config, registry);
 
-    const chain = router.resolve('executor');
+    const chain = await router.resolve('executor');
     expect(chain.length).toBeGreaterThan(0);
 
     const rawResponse = JSON.stringify({
@@ -185,7 +185,7 @@ describe('Integration: Config → Router → Parsing', () => {
     expect(parsed.artifacts[0].type).toBe('report');
   });
 
-  it('should flow from config → router → parse reviewer result', () => {
+  it('should flow from config → router → parse reviewer result', async () => {
     writeConfig({
       models: { reviewer: ['gpt-5.5'] },
       providers: {
@@ -197,7 +197,7 @@ describe('Integration: Config → Router → Parsing', () => {
     const registry = new ProviderRegistry(config);
     const router = new ModelRouter(config, registry);
 
-    const chain = router.resolve('reviewer');
+    const chain = await router.resolve('reviewer');
     expect(chain.length).toBeGreaterThan(0);
 
     const rawResponse = JSON.stringify({
@@ -228,7 +228,7 @@ describe('Integration: Config → Router → Parsing', () => {
     const registry = new ProviderRegistry(config);
     const router = new ModelRouter(config, registry);
 
-    const chain = router.resolve('executor');
+    const chain = await router.resolve('executor');
     expect(chain.length).toBeGreaterThan(0);
 
     const session = createSession(SAIVAGE_DIR, 'executor', 'goal-1', 'card-1');
@@ -263,7 +263,7 @@ describe('Integration: Config → Router → Parsing', () => {
     expect(persistedMessages.length).toBeGreaterThan(0);
   });
 
-  it('should handle provider cooldown in integration flow', () => {
+  it('should handle provider cooldown in integration flow', async () => {
     writeConfig({
       models: { planner: ['gpt-5.5'] },
       providers: {
@@ -282,7 +282,7 @@ describe('Integration: Config → Router → Parsing', () => {
     );
 
     const router = new ModelRouter(config, registry);
-    const chain = router.resolve('planner');
+    const chain = await router.resolve('planner');
 
     // Should skip github (cooldown) and use opencode
     expect(chain).toHaveLength(1);

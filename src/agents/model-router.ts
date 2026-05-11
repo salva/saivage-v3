@@ -1,6 +1,11 @@
 import type { SaivageConfig } from './config-schema.js';
 import { getModelListForRole } from './config-schema.js';
-import { ProviderRegistry, type Candidate } from './provider.js';
+import { ProviderRegistry, type Candidate, type Provider, type Account } from './provider.js';
+import {
+  getAuthProfile,
+  refreshAuthProfile,
+  isProfileExpired,
+} from '../auth/oauth-profiles.js';
 
 // ── Model Router ──────────────────────────────────────────────
 
@@ -11,10 +16,16 @@ import { ProviderRegistry, type Candidate } from './provider.js';
 export class ModelRouter {
   private registry: ProviderRegistry;
   private config: SaivageConfig;
+  private projectRoot?: string;
 
-  constructor(config: SaivageConfig, registry: ProviderRegistry) {
+  constructor(
+    config: SaivageConfig,
+    registry: ProviderRegistry,
+    projectRoot?: string,
+  ) {
     this.config = config;
     this.registry = registry;
+    this.projectRoot = projectRoot;
   }
 
   /**
@@ -34,7 +45,7 @@ export class ModelRouter {
    * If failover chains are configured, they are tried after
    * equivalents are exhausted.
    */
-  resolve(role: string): Candidate[] {
+  async resolve(role: string): Promise<Candidate[]> {
     const modelList = getModelListForRole(this.config, role);
     const candidates: Candidate[] = [];
 
@@ -53,7 +64,7 @@ export class ModelRouter {
       seenModels.add(model);
 
       // Add candidates for this model
-      const modelCandidates = this.resolveModel(model);
+      const modelCandidates = await this.resolveModel(model);
       candidates.push(...modelCandidates);
 
       // If we found healthy candidates, we're done
@@ -65,7 +76,7 @@ export class ModelRouter {
         for (const eqModel of eqGroup) {
           if (eqModel === model || seenModels.has(eqModel)) continue;
           seenModels.add(eqModel);
-          const eqCandidates = this.resolveModel(eqModel);
+          const eqCandidates = await this.resolveModel(eqModel);
           if (eqCandidates.length > 0) {
             candidates.push(...eqCandidates);
             break; // Use first equivalent group that works
@@ -79,7 +90,7 @@ export class ModelRouter {
         for (const foModel of chain) {
           if (seenModels.has(foModel)) continue;
           seenModels.add(foModel);
-          const foCandidates = this.resolveModel(foModel);
+          const foCandidates = await this.resolveModel(foModel);
           if (foCandidates.length > 0) {
             candidates.push(...foCandidates);
             break;
@@ -94,17 +105,30 @@ export class ModelRouter {
   /**
    * Resolve a single model to its healthy candidates.
    * Providers sorted by priority, then accounts sorted by priority.
+   * Also checks for expired OAuth auth profiles and refreshes them
+   * before including candidates. Accounts with unrecoverable auth
+   * failures are skipped.
    */
-  private resolveModel(model: string): Candidate[] {
+  private async resolveModel(model: string): Promise<Candidate[]> {
     const candidates: Candidate[] = [];
     const providers = this.registry.getProvidersForModel(model);
 
     for (const provider of providers) {
       const acctCandidates = provider.getCandidatesForModel(model);
       for (const c of acctCandidates) {
-        if (this.registry.isHealthy(c)) {
-          candidates.push(c);
+        if (!this.registry.isHealthy(c)) continue;
+
+        // Find the account to check auth
+        const account = c.account != null
+          ? provider.getAllAccounts().find((a) => a.name === c.account)
+          : provider.implicitAccount;
+
+        if (account) {
+          const authOk = await this.ensureAuthNotExpired(provider, account);
+          if (!authOk) continue; // Skip this account if auth can't be refreshed
         }
+
+        candidates.push(c);
       }
     }
 
@@ -112,11 +136,84 @@ export class ModelRouter {
   }
 
   /**
+   * Check whether a provider/account has an expired OAuth auth profile,
+   * and attempt to refresh it if needed.
+   *
+   * @returns true if the account is usable (auth is ok or not needed),
+   *          false if auth is required but could not be refreshed.
+   */
+  private async ensureAuthNotExpired(
+    provider: Provider,
+    account: Account,
+  ): Promise<boolean> {
+    const authProfileName = account.authProfile ?? provider.authProfile;
+    if (!authProfileName || !this.projectRoot) {
+      // No auth profile configured, or no project root — account is usable
+      return true;
+    }
+
+    try {
+      const profile = await getAuthProfile(this.projectRoot, authProfileName);
+      if (!profile) {
+        // Auth profile configured but not found — can't use this account
+        console.error(
+          `[model-router] Auth profile '${authProfileName}' not found for ` +
+          `provider '${provider.name}' account '${account.name}'. Skipping.`,
+        );
+        return false;
+      }
+
+      if (!isProfileExpired(profile)) {
+        // Not expired — usable as-is
+        return true;
+      }
+
+      // Profile is expired — attempt refresh
+      const tokenEndpoint = account.effectiveTokenEndpoint(
+        provider.tokenEndpoint,
+        account.effectiveBaseUrl(provider.baseUrl),
+      );
+
+      console.error(
+        `[model-router] Auth profile '${authProfileName}' is expired. ` +
+        `Refreshing for provider '${provider.name}' account '${account.name}'...`,
+      );
+
+      const refreshed = await refreshAuthProfile(
+        this.projectRoot,
+        authProfileName,
+        tokenEndpoint,
+      );
+
+      if (!refreshed) {
+        console.error(
+          `[model-router] Failed to refresh expired auth profile '${authProfileName}' ` +
+          `for provider '${provider.name}' account '${account.name}'. Skipping.`,
+        );
+        return false;
+      }
+
+      console.error(
+        `[model-router] Refreshed expired auth profile '${authProfileName}' ` +
+        `for provider '${provider.name}' account '${account.name}'.`,
+      );
+      return true;
+    } catch (err) {
+      console.error(
+        `[model-router] Error checking auth profile '${authProfileName}' ` +
+        `for provider '${provider.name}' account '${account.name}': ` +
+        `${err instanceof Error ? err.message : String(err)}`,
+      );
+      return false;
+    }
+  }
+
+  /**
    * Get the next healthy candidate for a role, skipping ones
    * that are in cooldown. Returns null if none available.
    */
-  nextCandidate(role: string): Candidate | null {
-    const chain = this.resolve(role);
+  async nextCandidate(role: string): Promise<Candidate | null> {
+    const chain = await this.resolve(role);
     return chain.length > 0 ? chain[0] : null;
   }
 
