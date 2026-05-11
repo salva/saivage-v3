@@ -27,6 +27,21 @@ const ARTIFACT_TYPES: readonly string[] = [
   'model', 'data', 'config', 'log', 'report', 'other',
 ];
 
+// ── Helpers ───────────────────────────────────────────────────
+
+/**
+ * Build a depth context section for the planner prompt.
+ * Only includes the section when both depth values are provided.
+ */
+function buildDepthContext(currentDepth?: number, maxDepth?: number): string {
+  if (currentDepth === undefined || maxDepth === undefined) return '';
+  return `### Goal Depth Context
+Current goal depth: ${currentDepth}
+Maximum allowed depth: ${maxDepth}
+You must plan within this limit — do not create goal cards that would exceed the maximum depth.
+`;
+}
+
 // ── Planner Prompt ────────────────────────────────────────────
 
 /**
@@ -36,15 +51,23 @@ const ARTIFACT_TYPES: readonly string[] = [
  * and declares goals done when acceptance criteria are met.
  *
  * @param skills Optional formatted skills string to append at the end
+ * @param currentDepth Optional current goal depth for depth limit enforcement
+ * @param maxDepth Optional maximum allowed goal depth
  */
-export function buildPlannerPrompt(skills?: string): string {
+export function buildPlannerPrompt(
+  skills?: string,
+  currentDepth?: number,
+  maxDepth?: number,
+): string {
+  const depthContext = buildDepthContext(currentDepth, maxDepth);
+
   const prompt = `${SAIVAGE_INTRO}
 
 ## Your Role — Planner
 
 You are the **Planner** agent. Your job is to decompose goals into concrete,
 executable cards, manage the card tree, and decide when a goal is complete.
-
+${depthContext}
 ### Responsibilities
 1. **Decompose goals**: Break down high-level goals into sub-cards of type:
    \`${CARD_TYPES.join('`, `')}\`.  Prefer terminal (leaf) types — only use
