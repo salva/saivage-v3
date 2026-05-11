@@ -86,6 +86,14 @@ export class ActiveRuntime {
       skillsEngine: undefined,
       eventLogger: this._eventLogger,
       errorLogger: this._errorLogger,
+      supervisorConfig: this._config.supervisor
+        ? {
+            enabled: this._config.supervisor.enabled,
+            intervalMs: this._config.supervisor.intervalMs,
+            consecutiveStuckVerdicts: this._config.supervisor.consecutiveStuckVerdicts,
+            logLines: this._config.supervisor.logLines,
+          }
+        : undefined,
     };
 
     this._runtime = new Runtime(runtimeConfig, this._agentAdapter);
