@@ -229,6 +229,9 @@ export function wireRuntimeEvents(runtime: {
     'goal_completed', 'goal_failed', 'escalation',
     'card_failed', 'review_complete', 'plan_updated',
     'error', 'dispatch_blocked',
+    'session_started', 'model_selected',
+    'invocation_succeeded', 'invocation_failed',
+    'retry_attempted', 'compaction_triggered',
   ];
 
   for (const eventName of trackedEvents) {
