@@ -331,6 +331,38 @@ block or return raw JSON.
   return prompt;
 }
 
+// ── Self-Check Prompt ─────────────────────────────────────────
+
+/**
+ * Build a self-check prompt asking the agent to evaluate progress.
+ * This is injected by the runtime every N tool-call rounds.
+ *
+ * @param role - The agent's role ('executor', 'planner', 'analyst')
+ * @param rounds - Number of tool-call rounds since last self-check
+ * @param threshold - The configured frequency threshold
+ */
+export function buildSelfCheckPrompt(
+  role: string,
+  rounds: number,
+  threshold: number,
+): string {
+  return `## Self-Check Assessment
+
+You have completed ${rounds} tool-call rounds since the last check (threshold: ${threshold}).
+Please evaluate your current state:
+
+1. **Progress**: Are you making meaningful progress toward the goal? If not, what is blocking you?
+2. **Circular behavior**: Have you entered a loop, repeating the same actions without progress?
+3. **Redundancy**: Are you doing unnecessary work, revisiting already-solved problems?
+4. **Goal drift**: Are you still on-topic, or have you drifted from the original objective?
+
+If everything is on track, respond with: \`\`\`json\n{"self_check": "ok", "summary": "..."}\n\`\`\`
+
+If there are issues, respond with: \`\`\`json\n{"self_check": "stuck", "summary": "...", "issues": ["..."]}\n\`\`\`
+
+If you need to escalate, respond with: \`\`\`json\n{"self_check": "escalate", "summary": "...", "issues": ["..."], "reason": "..."}\n\`\`\``;
+}
+
 // ── Exports ───────────────────────────────────────────────────
 
 /**
@@ -340,4 +372,5 @@ export const systemPromptBuilder = {
   buildPlannerPrompt,
   buildExecutorPrompt,
   buildReviewerPrompt,
+  buildSelfCheckPrompt,
 } as const;
