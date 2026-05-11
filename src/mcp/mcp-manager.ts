@@ -17,6 +17,9 @@
  * startup. Cached tool definitions are exposed via getTools(),
  * getServerTools(), and getToolServers().
  *
+ * invokeTool() enables execution-time MCP tool invocation over both stdio
+ * and SSE transports with structured error types.
+ *
  * See 06-configuration.md § MCP Servers and 12-implementation-plan.md Stage 9.
  */
 
@@ -113,6 +116,101 @@ export interface McpInitializeParams {
   };
 }
 
+/** Result of a tools/call invocation. */
+export interface ToolsCallResult {
+  /** MCP content items returned by the tool. */
+  content: Array<{
+    type: string;
+    [key: string]: unknown;
+  }>;
+  /** Whether the LLM should make a followup request. */
+  isError?: boolean;
+  /** Structured error content for agents. */
+  structuredContent?: Record<string, unknown>;
+}
+
+// ── Structured Error Types ──────────────────────────────────
+
+/** Base error class for MCP tool invocation failures. */
+export class McpInvokeError extends Error {
+  /** Machine-readable error code for routing / display. */
+  public readonly code: string;
+  /** Suggested HTTP status code for API responses. */
+  public readonly statusCode: number;
+
+  constructor(message: string, code: string, statusCode: number) {
+    super(message);
+    this.name = 'McpInvokeError';
+    this.code = code;
+    this.statusCode = statusCode;
+  }
+}
+
+/** The requested MCP server is not configured or not currently running. */
+export class ServerNotRunningError extends McpInvokeError {
+  constructor(serverName: string) {
+    super(
+      `MCP server '${serverName}' is not running`,
+      'SERVER_NOT_RUNNING',
+      404,
+    );
+    this.name = 'ServerNotRunningError';
+  }
+}
+
+/** The requested tool does not exist on the MCP server. */
+export class ToolNotFoundError extends McpInvokeError {
+  constructor(serverName: string, toolName: string) {
+    super(
+      `Tool '${toolName}' not found on MCP server '${serverName}'`,
+      'TOOL_NOT_FOUND',
+      404,
+    );
+    this.name = 'ToolNotFoundError';
+  }
+}
+
+/** The arguments passed to the tool are invalid according to its schema. */
+export class InvalidArgumentsError extends McpInvokeError {
+  public readonly data: unknown;
+
+  constructor(serverName: string, toolName: string, data?: unknown) {
+    const dataStr =
+      data !== undefined ? `: ${JSON.stringify(data)}` : '';
+    super(
+      `Invalid arguments for tool '${toolName}' on server '${serverName}'${dataStr}`,
+      'INVALID_ARGUMENTS',
+      400,
+    );
+    this.name = 'InvalidArgumentsError';
+    this.data = data;
+  }
+}
+
+/** The MCP tool invocation timed out before receiving a response. */
+export class TimeoutError extends McpInvokeError {
+  constructor(serverName: string, toolName: string, timeoutMs: number) {
+    super(
+      `Tool '${toolName}' on server '${serverName}' timed out after ${timeoutMs}ms`,
+      'TIMEOUT',
+      408,
+    );
+    this.name = 'TimeoutError';
+  }
+}
+
+/** A transport-level error occurred (connection lost, process died, etc.). */
+export class TransportError extends McpInvokeError {
+  constructor(serverName: string, detail: string) {
+    super(
+      `Transport error on MCP server '${serverName}': ${detail}`,
+      'TRANSPORT_ERROR',
+      502,
+    );
+    this.name = 'TransportError';
+  }
+}
+
 // ── Types ─────────────────────────────────────────────────────
 
 /** Transport type for an MCP server. */
@@ -154,6 +252,8 @@ interface McpServerConfig {
 
 const SIGTERM_TIMEOUT_MS = 3_000; // Wait 3 s after SIGTERM before SIGKILL
 const MCP_DISCOVERY_TIMEOUT_MS = 10_000; // Timeout for init+tools/list handshake
+/** Default timeout for tools/call invocations. */
+export const MCP_INVOKE_TIMEOUT_MS = 30_000;
 const MCP_PROTOCOL_VERSION = '2025-06-18';
 const CLIENT_NAME = 'saivage-mcp-manager';
 const CLIENT_VERSION = '0.1.0';
@@ -375,6 +475,70 @@ export class McpManager {
   }
 
   /**
+   * Invoke an MCP tool on a running server.
+   *
+   * Sends a `tools/call` JSON-RPC request over the appropriate transport
+   * (stdio or SSE) and returns the result. The response is screened for
+   * structured error codes and mapped to typed exceptions.
+   *
+   * @param serverName  - The configured MCP server name.
+   * @param toolName    - The tool to invoke (must exist in the tools cache).
+   * @param args        - Tool arguments as a key-value record.
+   * @param options     - Optional overrides (e.g. timeoutMs).
+   * @returns           - The tool result (typically `result.content` or the
+   *                      full JSON-RPC result object).
+   * @throws {ServerNotRunningError}  Server is not configured or not running.
+   * @throws {ToolNotFoundError}      Tool not found in the server's tool list.
+   * @throws {InvalidArgumentsError}  Server returned JSON-RPC error -32602.
+   * @throws {TimeoutError}           Invocation exceeded timeout.
+   * @throws {TransportError}         Transport-level failure (connection, process).
+   * @throws {McpInvokeError}         Other JSON-RPC error returned by the server.
+   */
+  async invokeTool(
+    serverName: string,
+    toolName: string,
+    args: Record<string, unknown>,
+    options?: { timeoutMs?: number },
+  ): Promise<unknown> {
+    // 1. Check server is configured
+    const cfg = this.servers[serverName];
+    if (!cfg) {
+      throw new ServerNotRunningError(serverName);
+    }
+
+    // 2. Check server is running
+    const handle = this.handles.get(serverName);
+    if (!handle) {
+      throw new ServerNotRunningError(serverName);
+    }
+
+    if (cfg.transport === 'stdio') {
+      if (!handle.process || handle.process.killed || handle.process.exitCode !== null) {
+        throw new ServerNotRunningError(serverName);
+      }
+    } else {
+      if (!handle.abortController || handle.abortController.signal.aborted) {
+        throw new ServerNotRunningError(serverName);
+      }
+    }
+
+    // 3. Check tool exists in cache
+    const serverTools = this.toolsCache.get(serverName);
+    if (!serverTools || !serverTools.some((t) => t.name === toolName)) {
+      throw new ToolNotFoundError(serverName, toolName);
+    }
+
+    // 4. Dispatch to transport-specific implementation
+    const timeoutMs = options?.timeoutMs ?? MCP_INVOKE_TIMEOUT_MS;
+
+    if (cfg.transport === 'stdio') {
+      return this._invokeToolStdio(serverName, toolName, args, cfg, timeoutMs);
+    } else {
+      return this._invokeToolSse(serverName, toolName, args, cfg, timeoutMs);
+    }
+  }
+
+  /**
    * Health check a specific server.
    *
    * - stdio: process must be running (pid alive, not exited with an error code).
@@ -396,6 +560,245 @@ export class McpManager {
     }
 
     return false;
+  }
+
+  // ── Private: Tool Invocation ──────────────────────────────
+
+  /**
+   * Invoke a tool on a stdio MCP server.
+   *
+   * Creates a temporary readline interface on the process's stdout,
+   * writes the tools/call JSON-RPC request to stdin, and reads the
+   * matching response.
+   */
+  private async _invokeToolStdio(
+    serverName: string,
+    toolName: string,
+    args: Record<string, unknown>,
+    _cfg: McpServerConfig,
+    timeoutMs: number,
+  ): Promise<unknown> {
+    const handle = this.handles.get(serverName);
+    const proc = handle!.process!;
+
+    if (!proc.stdin || !proc.stdout) {
+      throw new TransportError(
+        serverName,
+        'Process has no stdin/stdout pipes',
+      );
+    }
+
+    const rl = readline.createInterface({
+      input: proc.stdout,
+      crlfDelay: Infinity,
+    });
+
+    const abortController = new AbortController();
+    const timeoutId = setTimeout(() => {
+      abortController.abort();
+    }, timeoutMs);
+
+    let rlClosed = false;
+    const onRlClose = () => {
+      rlClosed = true;
+    };
+    rl.once('close', onRlClose);
+
+    try {
+      const requestId = this.nextMsgId++;
+      const request: McpJsonRpcRequest = {
+        jsonrpc: '2.0',
+        id: requestId,
+        method: 'tools/call',
+        params: { name: toolName, arguments: args },
+      };
+
+      proc.stdin.write(JSON.stringify(request) + '\n');
+
+      const response = await this._readResponse(
+        rl,
+        requestId,
+        abortController.signal,
+      );
+
+      if (!response) {
+        if (abortController.signal.aborted) {
+          throw new TimeoutError(serverName, toolName, timeoutMs);
+        }
+        throw new TransportError(
+          serverName,
+          'stdio stream closed before response received',
+        );
+      }
+
+      return this._processToolsCallResponse(
+        response,
+        serverName,
+        toolName,
+      );
+    } finally {
+      clearTimeout(timeoutId);
+      rl.close();
+      if (!rlClosed) {
+        await new Promise<void>((resolve) => {
+          const onClose = () => {
+            clearTimeout(fallback);
+            resolve();
+          };
+          const fallback = setTimeout(() => {
+            rl.removeListener('close', onClose);
+            resolve();
+          }, 100);
+          rl.once('close', onClose);
+        });
+      }
+    }
+  }
+
+  /**
+   * Invoke a tool on an SSE MCP server.
+   *
+   * Sends the tools/call JSON-RPC request via HTTP POST to the server's
+   * configured URL.
+   */
+  private async _invokeToolSse(
+    serverName: string,
+    toolName: string,
+    args: Record<string, unknown>,
+    cfg: McpServerConfig,
+    timeoutMs: number,
+  ): Promise<unknown> {
+    if (!cfg.url) {
+      throw new TransportError(serverName, 'No URL configured for SSE server');
+    }
+
+    const handle = this.handles.get(serverName);
+    const signal = handle?.abortController?.signal;
+
+    // Create a timeout AbortController that respects the existing signal
+    const invokeAbort = new AbortController();
+    const timeoutId = setTimeout(() => {
+      invokeAbort.abort();
+    }, timeoutMs);
+
+    // If the server's abortController fires, also abort our request
+    if (signal) {
+      const onServerAbort = () => {
+        invokeAbort.abort();
+      };
+      signal.addEventListener('abort', onServerAbort, { once: true });
+    }
+
+    try {
+      const requestId = this.nextMsgId++;
+      const request: McpJsonRpcRequest = {
+        jsonrpc: '2.0',
+        id: requestId,
+        method: 'tools/call',
+        params: { name: toolName, arguments: args },
+      };
+
+      let resp: Response;
+      try {
+        resp = await fetch(cfg.url, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Accept: 'application/json, text/event-stream',
+          },
+          body: JSON.stringify(request),
+          signal: invokeAbort.signal,
+        });
+      } catch (err) {
+        if (invokeAbort.signal.aborted) {
+          throw new TimeoutError(serverName, toolName, timeoutMs);
+        }
+        throw new TransportError(
+          serverName,
+          `HTTP POST failed: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+
+      if (!resp.ok) {
+        throw new TransportError(
+          serverName,
+          `tools/call HTTP POST returned status ${resp.status}`,
+        );
+      }
+
+      let body: Record<string, unknown>;
+      try {
+        body = (await resp.json()) as Record<string, unknown>;
+      } catch (err) {
+        throw new TransportError(
+          serverName,
+          `Failed to parse JSON response: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+
+      return this._processToolsCallResponse(body, serverName, toolName);
+    } finally {
+      clearTimeout(timeoutId);
+    }
+  }
+
+  /**
+   * Process a tools/call JSON-RPC response, mapping error codes to
+   * structured error types. Returns result.content (or the full result
+   * if content is absent) on success.
+   */
+  private _processToolsCallResponse(
+    response: Record<string, unknown>,
+    serverName: string,
+    toolName: string,
+  ): unknown {
+    // Check for JSON-RPC error
+    if (response.error) {
+      const err = response.error as {
+        code: number;
+        message: string;
+        data?: unknown;
+      };
+
+      // JSON-RPC code -32602 = Invalid Params (invalid arguments)
+      if (err.code === -32602) {
+        throw new InvalidArgumentsError(serverName, toolName, err.data);
+      }
+
+      // Other error codes
+      throw new McpInvokeError(
+        `MCP server '${serverName}' returned error for tool '${toolName}': ${err.message} (code ${err.code})`,
+        `MCP_ERROR_${err.code}`,
+        502,
+      );
+    }
+
+    const result = response.result as
+      | (Record<string, unknown> & {
+          content?: unknown;
+          isError?: boolean;
+        })
+      | undefined;
+
+    if (!result) {
+      throw new McpInvokeError(
+        `MCP server '${serverName}' returned a response with no result for tool '${toolName}'`,
+        'MCP_NO_RESULT',
+        502,
+      );
+    }
+
+    // If the tool itself reports an error via isError flag
+    if (result.isError === true) {
+      throw new McpInvokeError(
+        `Tool '${toolName}' on server '${serverName}' reported an error`,
+        'TOOL_EXECUTION_ERROR',
+        422,
+      );
+    }
+
+    // Return content if present, otherwise return the full result
+    return result.content !== undefined ? result.content : result;
   }
 
   // ── Private: Start ──────────────────────────────────────────
@@ -667,75 +1070,6 @@ export class McpManager {
   }
 
   /**
-   * Read lines from the readline interface until we find a JSON-RPC
-   * response matching the given request ID. Returns the parsed message
-   * or null if the signal is aborted or the interface closes.
-   *
-   * All non-matching messages (notifications, other responses) are
-   * silently skipped.
-   */
-  private _readResponse(
-    rl: readline.Interface,
-    requestId: number | string,
-    signal: AbortSignal,
-  ): Promise<Record<string, unknown> | null> {
-    return new Promise((resolve) => {
-      const onAbort = () => {
-        cleanup();
-        resolve(null);
-      };
-
-      let lineHandler: ((line: string) => void) | null = null;
-      let closeHandler: (() => void) | null = null;
-
-      const cleanup = () => {
-        signal.removeEventListener('abort', onAbort);
-        if (lineHandler) rl.removeListener('line', lineHandler);
-        if (closeHandler) rl.removeListener('close', closeHandler);
-      };
-
-      if (signal.aborted) {
-        resolve(null);
-        return;
-      }
-
-      signal.addEventListener('abort', onAbort);
-
-      lineHandler = (line: string) => {
-        // Skip blank lines
-        if (!line.trim()) return;
-
-        try {
-          const msg = JSON.parse(line) as Record<string, unknown>;
-
-          // Check if this is the response we're waiting for
-          if (
-            msg.id === requestId &&
-            typeof msg.jsonrpc === 'string'
-          ) {
-            cleanup();
-            resolve(msg);
-          }
-          // Otherwise, it's a notification or a response for another
-          // request — skip it silently.
-        } catch {
-          // Non-JSON line (server logging to stdout?) — skip
-        }
-      };
-
-      rl.on('line', lineHandler);
-
-      closeHandler = () => {
-        cleanup();
-        // readline closed before we got our response
-        resolve(null);
-      };
-
-      rl.on('close', closeHandler);
-    });
-  }
-
-  /**
    * Discover tools from an SSE (Streamable HTTP) MCP server via
    * HTTP POST init + tools/list.
    */
@@ -868,6 +1202,75 @@ export class McpManager {
     this.toolsCacheInitialized.add(name);
   }
 
+  /**
+   * Read lines from the readline interface until we find a JSON-RPC
+   * response matching the given request ID. Returns the parsed message
+   * or null if the signal is aborted or the interface closes.
+   *
+   * All non-matching messages (notifications, other responses) are
+   * silently skipped.
+   */
+  private _readResponse(
+    rl: readline.Interface,
+    requestId: number | string,
+    signal: AbortSignal,
+  ): Promise<Record<string, unknown> | null> {
+    return new Promise((resolve) => {
+      const onAbort = () => {
+        cleanup();
+        resolve(null);
+      };
+
+      let lineHandler: ((line: string) => void) | null = null;
+      let closeHandler: (() => void) | null = null;
+
+      const cleanup = () => {
+        signal.removeEventListener('abort', onAbort);
+        if (lineHandler) rl.removeListener('line', lineHandler);
+        if (closeHandler) rl.removeListener('close', closeHandler);
+      };
+
+      if (signal.aborted) {
+        resolve(null);
+        return;
+      }
+
+      signal.addEventListener('abort', onAbort);
+
+      lineHandler = (line: string) => {
+        // Skip blank lines
+        if (!line.trim()) return;
+
+        try {
+          const msg = JSON.parse(line) as Record<string, unknown>;
+
+          // Check if this is the response we're waiting for
+          if (
+            msg.id === requestId &&
+            typeof msg.jsonrpc === 'string'
+          ) {
+            cleanup();
+            resolve(msg);
+          }
+          // Otherwise, it's a notification or a response for another
+          // request — skip it silently.
+        } catch {
+          // Non-JSON line (server logging to stdout?) — skip
+        }
+      };
+
+      rl.on('line', lineHandler);
+
+      closeHandler = () => {
+        cleanup();
+        // readline closed before we got our response
+        resolve(null);
+      };
+
+      rl.on('close', closeHandler);
+    });
+  }
+
   // ── Private: Stop ───────────────────────────────────────────
 
   private async _stopStdio(_name: string, proc: ChildProcess): Promise<void> {
@@ -996,6 +1399,7 @@ export class McpManager {
         transport: cfg.transport,
         status: 'stopped',
         startedAt: this.startedAt.get(name),
+        tools_count: 0,
       };
     }
 
@@ -1007,6 +1411,7 @@ export class McpManager {
         transport: cfg.transport,
         status: 'stopped',
         startedAt: this.startedAt.get(name),
+        tools_count: 0,
       };
     }
 
