@@ -22,6 +22,7 @@ import {
   buildExecutorPrompt,
   buildReviewerPrompt,
 } from '../agents/system-prompt.js';
+import { SkillsEngine } from '../agents/skills-engine.js';
 import {
   killAllRunning,
   listProcesses,
@@ -43,6 +44,8 @@ export interface RuntimeConfig {
    * When an agentRuntime is passed, this field is ignored.
    */
   fakeAgentConfig: FakeAgentConfig;
+  /** Optional SkillsEngine for injecting matched skills into agent prompts */
+  skillsEngine?: SkillsEngine;
 }
 
 // ── Helpers ───────────────────────────────────────────────────
@@ -118,6 +121,9 @@ export class Runtime extends EventEmitter {
   private _running: boolean = false;
   private _shuttingDown: boolean = false;
 
+  /** Optional SkillsEngine for skill-matched prompt injection */
+  private _skillsEngine: SkillsEngine | null = null;
+
   /**
    * Set of currently known running process IDs.
    * Updated on process start, exit, kill, and on crash recovery.
@@ -135,6 +141,7 @@ export class Runtime extends EventEmitter {
     this.projectRoot = config.projectRoot;
     this.cardStore = new CardStore(config.projectRoot);
     this.agentRuntime = agentRuntime ?? new FakeAgentAdapter(config.fakeAgentConfig);
+    this._skillsEngine = config.skillsEngine ?? new SkillsEngine({ projectRoot: config.projectRoot });
   }
 
   get status(): RuntimeStatus {
@@ -508,7 +515,32 @@ export class Runtime extends EventEmitter {
       // Step 2: Invoke the planner
       let plannerResult: PlannerResult;
       try {
-        const plannerPrompt = buildPlannerPrompt();
+        // Build planner prompt with matched skills
+        let plannerPrompt = buildPlannerPrompt();
+        try {
+          // Get the goal card for match context
+          const goalCard = this.cardStore.read(goalId);
+          if (goalCard && this._skillsEngine) {
+            // Load planner instructions (unconditional for depth-0)
+            const plannerInstr = await this._skillsEngine.loadPlannerInstructions();
+            // Match skills for planner role
+            const skillsContent = await this._skillsEngine.selectAndFormat({
+              goalDescription: goalCard.description,
+              cardDescription: goalCard.description,
+              tags: goalCard.tags,
+              filePaths: [],
+              availableTools: ['create_card', 'edit_card', 'move_card', 'delete_card', 'add_note', 'list_cards', 'get_card'],
+              targetRole: 'planner',
+            });
+            const combinedSkills = [plannerInstr, skillsContent].filter(Boolean).join('\n\n');
+            if (combinedSkills) {
+              plannerPrompt = buildPlannerPrompt(combinedSkills);
+            }
+          }
+        } catch {
+          // Skills engine failure should not break dispatch — use plain prompt
+        }
+
         const result = this.agentRuntime.invokePlanner(goalId, planCard.id, plannerPrompt);
         plannerResult = result instanceof Promise ? await result : result;
       } catch (err) {
@@ -578,6 +610,7 @@ export class Runtime extends EventEmitter {
    */
   private async executeReadyCards(goalId: string): Promise<void> {
     let readyCards = this.getReadyQueue(goalId);
+    const goalCard = this.cardStore.read(goalId);
 
     while (readyCards.length > 0 && !this._shuttingDown) {
       if (this._paused) return;
@@ -594,7 +627,26 @@ export class Runtime extends EventEmitter {
         // Invoke executor
         let execResult;
         try {
-          const executorPrompt = buildExecutorPrompt(card.type);
+          // Build executor prompt with matched skills
+          let executorPrompt = buildExecutorPrompt(card.type);
+          try {
+            if (this._skillsEngine) {
+              const skillsContent = await this._skillsEngine.selectAndFormat({
+                goalDescription: goalCard?.description ?? '',
+                cardDescription: card.description,
+                tags: card.tags,
+                filePaths: [],
+                availableTools: ['start_process', 'wait_process', 'start_and_wait', 'tail_output', 'kill_process', 'list_processes', 'download_file'],
+                targetRole: 'executor',
+              });
+              if (skillsContent) {
+                executorPrompt = buildExecutorPrompt(card.type, skillsContent);
+              }
+            }
+          } catch {
+            // Skills engine failure should not break dispatch
+          }
+
           const result = this.agentRuntime.invokeExecutor(card.id, goalId, executorPrompt);
           execResult = result instanceof Promise ? await result : result;
         } catch (err) {
@@ -693,7 +745,26 @@ export class Runtime extends EventEmitter {
       evidence_card_ids: string[];
     };
   }> {
-    const reviewerPrompt = buildReviewerPrompt();
+    // Build reviewer prompt with matched skills
+    let reviewerPrompt = buildReviewerPrompt();
+    try {
+      if (this._skillsEngine) {
+        const skillsContent = await this._skillsEngine.selectAndFormat({
+          goalDescription: '',
+          cardDescription: '',
+          tags: [],
+          filePaths: [],
+          availableTools: ['review'],
+          targetRole: 'reviewer',
+        });
+        if (skillsContent) {
+          reviewerPrompt = buildReviewerPrompt(skillsContent);
+        }
+      }
+    } catch {
+      // Skills engine failure should not break dispatch
+    }
+
     const result = await this.agentRuntime.invokeReviewer(goalId, planCardId, reviewerPrompt);
     this.emit('review_complete', {
       goalId,
