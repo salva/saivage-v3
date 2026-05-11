@@ -273,6 +273,7 @@ export class CardStore {
       description: input.description,
       status: input.status,
       subtype: input.subtype ?? null,
+      instructions_file: input.instructions_file ?? null,
       tags: input.tags,
       priority: input.priority,
       urgency: input.urgency,
