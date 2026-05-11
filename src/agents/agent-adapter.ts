@@ -32,6 +32,7 @@ import { compactSession } from './compaction.js';
 import { invokeWithRecovery, type RecoveryContext } from './recovery.js';
 import type { ContentSupervisor } from '../utils/content-supervisor.js';
 import { getSafeFileForAgent, type SafeFileResult } from '../utils/file-access-security.js';
+import type { AgentRuntime } from './agent-runtime.js';
 
 // Re-export the common AgentRuntime interface for consumers that
 // need to reference it without importing agent-runtime.ts directly.
@@ -65,7 +66,7 @@ export type LlmCallFn = (
 
 // ── Agent Adapter ─────────────────────────────────────────────
 
-export class AgentAdapter {
+export class AgentAdapter implements AgentRuntime {
   readonly projectRoot: string;
   readonly saivageDir: string;
   readonly config: SaivageConfig;
