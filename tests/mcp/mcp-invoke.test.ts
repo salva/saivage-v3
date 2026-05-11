@@ -620,3 +620,269 @@ describe('AgentAdapter callMcpTool + ContentSupervisor', () => {
     proc.kill();
   });
 });
+
+// ═══════════════════ Suite 8: Stdio Invocation Queue ══════════
+
+describe('Stdio invocation queue', () => {
+  let McpManager: any, TransportError: any, TimeoutError: any;
+
+  beforeAll(async () => {
+    const m = await impMcp();
+    McpManager = m.McpManager;
+    TransportError = m.TransportError;
+    TimeoutError = m.TimeoutError;
+  });
+
+  const stdioTools = [
+    { name: 'greet', description: 'Hi', inputSchema: { type: 'object', properties: { name: { type: 'string' } } } },
+    { name: 'add', description: 'Add', inputSchema: { type: 'object', properties: { a: { type: 'number' }, b: { type: 'number' } } } },
+  ];
+
+  /**
+   * Helper: create an MCP script where each tools/call writes its name
+   * to a shared order log so we can verify serialization order.
+   */
+  function orderingScript(): string {
+    return `
+const rl = require('readline').createInterface({ input: process.stdin });
+const order = [];
+rl.on('line', (line) => {
+  let req;
+  try { req = JSON.parse(line); } catch { return; }
+  if (req.method === 'initialize') {
+    process.stdout.write(JSON.stringify({ jsonrpc:'2.0', id:req.id, result:{ protocolVersion:'2025-06-18', capabilities:{}, serverInfo:{ name:'test', version:'1.0' } } }) + '\\n');
+  } else if (req.method === 'tools/list') {
+    process.stdout.write(JSON.stringify({ jsonrpc:'2.0', id:req.id, result:{ tools:[ {name:'greet',description:'Hi',inputSchema:{type:'object',properties:{name:{type:'string'}}}}, {name:'add',description:'Add',inputSchema:{type:'object',properties:{a:{type:'number'},b:{type:'number'}}}} ] } }) + '\\n');
+  } else if (req.method === 'tools/call') {
+    const toolName = req.params && req.params.name;
+    // Simulate async processing — add a delay so concurrent calls would overlap
+    // This delay plus the queue ensures we can verify ordering
+    const delay = toolName === 'greet' ? 200 : 50;
+    setTimeout(() => {
+      order.push(toolName);
+      if (toolName === 'greet') {
+        const name = (req.params.arguments && req.params.arguments.name) || 'unknown';
+        process.stdout.write(JSON.stringify({ jsonrpc:'2.0', id:req.id, result:{ content:[{type:'text',text:'Hello '+name+' (order:'+order.join(',')+')'}] } }) + '\\n');
+      } else if (toolName === 'add') {
+        const a = (req.params.arguments && req.params.arguments.a) || 0;
+        const b = (req.params.arguments && req.params.arguments.b) || 0;
+        process.stdout.write(JSON.stringify({ jsonrpc:'2.0', id:req.id, result:{ content:[{type:'text',text:String(a+b)+' (order:'+order.join(',')+')'}] } }) + '\\n');
+      }
+    }, delay);
+  }
+});
+`;
+  }
+
+  /**
+   * Helper: create a script where the first tools/call always fails,
+   * but subsequent ones succeed. Used to test error propagation.
+   */
+  function errorThenOkScript(): string {
+    return `
+const rl = require('readline').createInterface({ input: process.stdin });
+let callCount = 0;
+rl.on('line', (line) => {
+  let req;
+  try { req = JSON.parse(line); } catch { return; }
+  if (req.method === 'initialize') {
+    process.stdout.write(JSON.stringify({ jsonrpc:'2.0', id:req.id, result:{ protocolVersion:'2025-06-18', capabilities:{}, serverInfo:{ name:'test', version:'1.0' } } }) + '\\n');
+  } else if (req.method === 'tools/list') {
+    process.stdout.write(JSON.stringify({ jsonrpc:'2.0', id:req.id, result:{ tools:[ {name:'greet',description:'Hi',inputSchema:{type:'object',properties:{name:{type:'string'}}}} ] } }) + '\\n');
+  } else if (req.method === 'tools/call') {
+    callCount++;
+    const toolName = req.params && req.params.name;
+    if (callCount === 1) {
+      // First call: return an error
+      process.stdout.write(JSON.stringify({ jsonrpc:'2.0', id:req.id, error:{ code:-32603, message:'Internal error on first call' } }) + '\\n');
+    } else {
+      const name = (req.params.arguments && req.params.arguments.name) || 'unknown';
+      process.stdout.write(JSON.stringify({ jsonrpc:'2.0', id:req.id, result:{ content:[{type:'text',text:'Hello '+name+' (call #'+callCount+')'}] } }) + '\\n');
+    }
+  }
+});
+`;
+  }
+
+  it('serializes concurrent calls to the same stdio server (ordering test)', async () => {
+    const r = makeProjectRoot();
+    writeSaivageJson(r, { mcpServers: { 'stdio': stdioCfg({ command: 'node', args: ['-e', '1'] }) } });
+    const mgr = new McpManager(r);
+    const proc = await setupRealProc(mgr, 'stdio', r, orderingScript(), stdioTools);
+
+    // Dispatch two concurrent calls
+    const [res1, res2] = await Promise.all([
+      mgr.invokeTool('stdio', 'greet', { name: 'First' }),
+      mgr.invokeTool('stdio', 'add', { a: 10, b: 20 }),
+    ]);
+
+    // Both should return (no timeouts)
+    expect(res1).toBeDefined();
+    expect(res2).toBeDefined();
+
+    // Extract text content to verify they're correct
+    const text1 = Array.isArray(res1) ? (res1[0] as any)?.text : '';
+    const text2 = Array.isArray(res2) ? (res2[0] as any)?.text : '';
+
+    // The first dispatched is greet (200ms delay), second is add (50ms delay)
+    // If serialized, order should be: greet first, add second
+    // If NOT serialized, add (50ms) would complete before greet (200ms)
+    // But because of the queue, greet should go first
+    expect(text1).toContain('Hello');
+    expect(text1).toContain('greet');
+    expect(text2).toContain('30');
+
+    // The ordering marker in the response confirms serialization
+    // 'greet,add' means greet was processed before add (serialized)
+    // 'add,greet' would mean add was processed before greet (NOT serialized)
+    // The server processes tools/call in FIFO order from stdin
+    // The queue ensures the second invokeTool waits for the first to complete
+    expect(text1).toContain('order:greet');
+    expect(text2).toContain('add');
+
+    // Verify stats were recorded
+    const stats = mgr.getInvocationStats();
+    expect(stats['stdio:greet']).toBeDefined();
+    expect(stats['stdio:add']).toBeDefined();
+    expect(stats['stdio:greet'].success).toBe(1);
+    expect(stats['stdio:add'].success).toBe(1);
+
+    proc.kill();
+  }, 15000);
+
+  it('concurrent calls to different stdio servers do NOT block each other', async () => {
+    const r = makeProjectRoot();
+    writeSaivageJson(r, {
+      mcpServers: {
+        'srv1': stdioCfg({ command: 'node', args: ['-e', '1'] }),
+        'srv2': stdioCfg({ command: 'node', args: ['-e', '1'] }),
+      },
+    });
+    const mgr = new McpManager(r);
+    const proc1 = await setupRealProc(mgr, 'srv1', r, orderingScript(), stdioTools);
+    const proc2 = await setupRealProc(mgr, 'srv2', r, orderingScript(), stdioTools);
+
+    const start = Date.now();
+    const [res1, res2] = await Promise.all([
+      mgr.invokeTool('srv1', 'greet', { name: 'From1' }),
+      mgr.invokeTool('srv2', 'greet', { name: 'From2' }),
+    ]);
+    const elapsed = Date.now() - start;
+
+    // Both should succeed
+    expect(res1).toBeDefined();
+    expect(res2).toBeDefined();
+
+    const text1 = Array.isArray(res1) ? (res1[0] as any)?.text : '';
+    const text2 = Array.isArray(res2) ? (res2[0] as any)?.text : '';
+    expect(text1).toContain('From1');
+    expect(text2).toContain('From2');
+
+    // With different servers, the calls should run in parallel.
+    // Each greet call has 200ms server delay, so if serialized it would take ~400ms.
+    // If parallel, it takes ~200ms (the max of the two).
+    // We check elapsed < 350ms to confirm parallelism.
+    expect(elapsed).toBeLessThan(350);
+
+    proc1.kill();
+    proc2.kill();
+  }, 15000);
+
+  it('SSE concurrent calls are NOT serialized', async () => {
+    const r = makeProjectRoot();
+    writeSaivageJson(r, { mcpServers: { 'sse': sseCfg() } });
+    const mgr = new McpManager(r);
+    const mi = mgr as unknown as Record<string, unknown>;
+
+    (mi.handles as Map<string, unknown>).set('sse', { abortController: new AbortController() });
+    (mi.toolsCache as Map<string, unknown[]>).set('sse', stdioTools);
+    (mi.toolsCacheInitialized as Set<string>).add('sse');
+    (mi.startedAt as Map<string, string>).set('sse', new Date().toISOString());
+
+    let concurrent = 0;
+    let maxConcurrent = 0;
+
+    (globalThis as any).fetch = async (_url: string, init?: any) => {
+      concurrent++;
+      if (concurrent > maxConcurrent) maxConcurrent = concurrent;
+      // Simulate a 100ms server delay
+      await new Promise(r => setTimeout(r, 100));
+      concurrent--;
+      return {
+        ok: true, status: 200,
+        json: async () => ({ jsonrpc: '2.0', id: 1, result: { content: [{ type: 'text', text: 'SSE result' }] } }),
+      } as Response;
+    };
+
+    const start = Date.now();
+    const [res1, res2, res3] = await Promise.all([
+      mgr.invokeTool('sse', 'greet', {}),
+      mgr.invokeTool('sse', 'greet', {}),
+      mgr.invokeTool('sse', 'greet', {}),
+    ]);
+    const elapsed = Date.now() - start;
+
+    // All should succeed
+    expect(res1).toEqual([{ type: 'text', text: 'SSE result' }]);
+    expect(res2).toEqual([{ type: 'text', text: 'SSE result' }]);
+    expect(res3).toEqual([{ type: 'text', text: 'SSE result' }]);
+
+    // If parallel, maxConcurrent should be > 1
+    expect(maxConcurrent).toBeGreaterThan(1);
+
+    // If parallel, elapsed should be ~100ms (not 300ms)
+    expect(elapsed).toBeLessThan(250);
+
+    delete (globalThis as any).fetch;
+  }, 15000);
+
+  it('error in one queued call does not break subsequent calls', async () => {
+    const r = makeProjectRoot();
+    writeSaivageJson(r, { mcpServers: { 'stdio': stdioCfg({ command: 'node', args: ['-e', '1'] }) } });
+    const mgr = new McpManager(r);
+    const proc = await setupRealProc(mgr, 'stdio', r, errorThenOkScript(), stdioTools);
+
+    // First call should fail
+    await expect(mgr.invokeTool('stdio', 'greet', { name: 'Fail' })).rejects.toThrow();
+
+    // Second call should succeed despite the first one failing
+    const res = await mgr.invokeTool('stdio', 'greet', { name: 'AfterFail' });
+    expect(res).toBeDefined();
+    const text = Array.isArray(res) ? (res[0] as any)?.text : '';
+    expect(text).toContain('AfterFail');
+
+    // Stats should show one error and one success
+    const stats = mgr.getInvocationStats();
+    expect(stats['stdio:greet'].total).toBe(2);
+    expect(stats['stdio:greet'].success).toBe(1);
+    expect(stats['stdio:greet'].error).toBe(1);
+
+    proc.kill();
+  }, 15000);
+
+  it('concurrent quick calls all return correct results without timeout', async () => {
+    const r = makeProjectRoot();
+    writeSaivageJson(r, { mcpServers: { 'stdio': stdioCfg({ command: 'node', args: ['-e', '1'] }) } });
+    const mgr = new McpManager(r);
+    const proc = await setupRealProc(mgr, 'stdio', r, mcpScript(), stdioTools);
+
+    // Fire 5 concurrent calls to the same server
+    const promises = [
+      mgr.invokeTool('stdio', 'greet', { name: 'A' }),
+      mgr.invokeTool('stdio', 'add', { a: 1, b: 2 }),
+      mgr.invokeTool('stdio', 'greet', { name: 'B' }),
+      mgr.invokeTool('stdio', 'add', { a: 10, b: 20 }),
+      mgr.invokeTool('stdio', 'greet', { name: 'C' }),
+    ];
+
+    const results = await Promise.all(promises);
+    expect(results).toHaveLength(5);
+    expect(results[0]).toEqual([{ type: 'text', text: 'Hello A' }]);
+    expect(results[1]).toEqual([{ type: 'text', text: '3' }]);
+    expect(results[2]).toEqual([{ type: 'text', text: 'Hello B' }]);
+    expect(results[3]).toEqual([{ type: 'text', text: '30' }]);
+    expect(results[4]).toEqual([{ type: 'text', text: 'Hello C' }]);
+
+    proc.kill();
+  }, 15000);
+});
