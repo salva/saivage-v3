@@ -76,7 +76,14 @@ function getApiToken(): string | undefined {
 
 function checkAuth(request: FastifyRequest): boolean {
   const token = getApiToken();
-  if (!token) return true; // No token configured → auth disabled
+  if (!token) {
+    // No token configured — development mode.
+    // Server startup (validateDevModeHost in server.ts) ensures that
+    // only localhost binds are allowed in this mode, so this pass-through
+    // is safe: external connections cannot reach the server without auth
+    // because the server refuses to bind to non-local addresses.
+    return true;
+  }
 
   // Check Authorization: Bearer <token>
   const authHeader = request.headers.authorization;

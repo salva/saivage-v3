@@ -15,6 +15,7 @@
  *  - MCP status API endpoint
  *  - startServer() / stopServer() lifecycle functions
  *  - Server config read from saivage.json
+ *  - Dev-mode host validation when SAIVAGE_API_TOKEN is unset
  */
 
 import Fastify, { type FastifyInstance } from 'fastify';
@@ -53,6 +54,67 @@ export interface ServerInstance {
   notificationRouter?: NotificationRouter;
   activeRuntime?: ActiveRuntime;
   stop: () => Promise<void>;
+}
+
+// ── Dev-Mode Host Validation ──────────────────────────────────
+
+/**
+ * Check whether a host string is a loopback / localhost address.
+ *
+ * Returns true for:
+ *   - '127.0.0.1'
+ *   - 'localhost'
+ *   - '::1'       (IPv6 loopback)
+ *   - '0:0:0:0:0:0:0:1' (IPv6 loopback full form)
+ *
+ * Returns false for:
+ *   - '0.0.0.0'   (all interfaces — dangerous without auth)
+ *   - Any other IP or hostname
+ */
+export function isLocalhost(host: string): boolean {
+  // Canonical IPv4 loopback
+  if (host === '127.0.0.1') return true;
+
+  // Hostname form
+  if (host === 'localhost') return true;
+
+  // IPv6 loopback (compressed / full)
+  if (host === '::1' || host === '0:0:0:0:0:0:0:1') return true;
+
+  return false;
+}
+
+/**
+ * Validate that the server host binding is safe when no API token is set.
+ *
+ * - If SAIVAGE_API_TOKEN is set → any host is allowed (production-ready).
+ * - If SAIVAGE_API_TOKEN is NOT set → warn about dev mode and only allow
+ *   localhost / 127.0.0.1 / ::1.  Non-localhost binds (e.g. 0.0.0.0) throw.
+ *
+ * This implements the fail-closed security behaviour from 05-security.md
+ * and future.md #23: the auth plugin should fail closed for non-local binds
+ * when SAIVAGE_API_TOKEN is unset.
+ */
+export function validateDevModeHost(host: string | undefined): void {
+  const token = process.env['SAIVAGE_API_TOKEN'];
+  if (token) {
+    return; // Token is set — any host is fine
+  }
+
+  // No token — warn about dev mode
+  console.warn(
+    '⚠  SAIVAGE_API_TOKEN is not set. Server is running in DEVELOPMENT MODE with auth disabled.\n' +
+    '   Set SAIVAGE_API_TOKEN to a secure random string for production use.',
+  );
+
+  const resolvedHost = host ?? '0.0.0.0';
+  if (!isLocalhost(resolvedHost)) {
+    throw new Error(
+      `Cannot bind to ${resolvedHost} without SAIVAGE_API_TOKEN. ` +
+      `For development, bind to 127.0.0.1 or localhost. ` +
+      `For production, set SAIVAGE_API_TOKEN.`,
+    );
+  }
 }
 
 // ── Health Endpoint ───────────────────────────────────────────
@@ -404,12 +466,21 @@ export async function createServer(
 
 /**
  * Create and start the server, listening on the configured host:port.
+ *
+ * Before listening, validates that the host binding is safe when no
+ * SAIVAGE_API_TOKEN is configured (dev-mode host validation).
+ * Non-localhost binds without a token will cause this function to throw.
  */
 export async function startServer(
   projectRoot: string,
   createRuntime?: boolean,
 ): Promise<ServerInstance> {
   const server = await createServer(projectRoot, createRuntime);
+
+  // Validate dev-mode host binding before listening.
+  // If SAIVAGE_API_TOKEN is unset and the host is non-localhost, this throws.
+  validateDevModeHost(server.config.host);
+
   await server.fastify.listen({
     host: server.config.host,
     port: server.config.port,
