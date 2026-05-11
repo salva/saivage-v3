@@ -462,6 +462,24 @@ export class Runtime extends EventEmitter {
     this._eventLogger.appendEvent({ kind: 'resumed' });
   }
 
+  /**
+   * Bridge method that forwards agent events (session_started, model_selected,
+   * invocation_succeeded, invocation_failed, retry_attempted, compaction_triggered)
+   * from the AgentAdapter through the Runtime's EventEmitter so they can be
+   * broadcast to WebSocket clients by wireRuntimeEvents().
+   *
+   * This method intentionally does NOT call _eventLogger.appendEvent() because
+   * the AgentAdapter already logs these agent events directly to EventLogger
+   * for persistent storage. Calling it here would create duplicate entries
+   * in events.jsonl.
+   *
+   * @param name - The agent event name (e.g. 'session_started', 'model_selected')
+   * @param data - Event payload with event-specific fields
+   */
+  emitAgentEvent(name: string, data: Record<string, unknown>): void {
+    this.emit(name, data);
+  }
+
   // ── Crash Recovery ────────────────────────────────────────
 
   /**
