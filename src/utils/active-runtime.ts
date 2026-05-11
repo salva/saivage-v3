@@ -65,6 +65,7 @@ export class ActiveRuntime {
     this._errorLogger = new ErrorLogger(saivageDir);
 
     // Create the AgentAdapter with config and shared EventLogger
+    // (eventBus is not passed yet because the Runtime doesn't exist yet)
     this._agentAdapter = new AgentAdapter({
       projectRoot,
       saivageDir,
@@ -88,6 +89,11 @@ export class ActiveRuntime {
     };
 
     this._runtime = new Runtime(runtimeConfig, this._agentAdapter);
+
+    // Wire the Runtime EventEmitter as the AgentAdapter's event bus
+    // so agent events (session_started, model_selected, etc.) propagate
+    // through the Runtime's EventEmitter to WebSocket clients.
+    this._agentAdapter.setEventBus(this._runtime);
   }
 
   // ── Lifecycle ────────────────────────────────────────────────

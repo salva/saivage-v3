@@ -79,7 +79,7 @@ export class AgentAdapter implements AgentRuntime {
   readonly runtimeConfig: RuntimeSection;
   readonly registry: ProviderRegistry;
   readonly router: ModelRouter;
-  readonly eventBus?: EventEmitter;
+  eventBus?: EventEmitter;
   readonly eventLogger?: EventLogger;
 
   private llmCallFn: LlmCallFn | null = null;
@@ -95,6 +95,16 @@ export class AgentAdapter implements AgentRuntime {
     this.router = new ModelRouter(cfg.config, this.registry);
     this.eventBus = cfg.eventBus;
     this.eventLogger = cfg.eventLogger;
+  }
+
+  /**
+   * Set or replace the event bus after construction.
+   * Called by ActiveRuntime to wire the Runtime as the event bus
+   * so agent events (session_started, model_selected, etc.) propagate
+   * through the Runtime's EventEmitter to WebSocket clients.
+   */
+  setEventBus(eventBus: EventEmitter): void {
+    this.eventBus = eventBus;
   }
 
   /**
@@ -220,6 +230,14 @@ export class AgentAdapter implements AgentRuntime {
         card_id: cardId,
       });
     }
+    if (this.eventBus) {
+      this.eventBus.emit('session_started', {
+        session_id: session.id,
+        role,
+        goal_id: goalId,
+        card_id: cardId,
+      });
+    }
 
     // Append context messages to session
     for (const msg of contextMessages) {
@@ -263,6 +281,14 @@ export class AgentAdapter implements AgentRuntime {
             directive: _ctx.directive,
           });
         }
+        if (this.eventBus) {
+          this.eventBus.emit('retry_attempted', {
+            session_id: session.id,
+            role,
+            attempt,
+            directive: _ctx.directive,
+          });
+        }
       },
     };
 
@@ -290,6 +316,14 @@ export class AgentAdapter implements AgentRuntime {
               provider: candidate.provider,
               model: candidate.model,
               role: role as unknown as import('../schemas/types.js').AgentRole,
+            });
+          }
+          if (this.eventBus) {
+            this.eventBus.emit('model_selected', {
+              session_id: session.id,
+              provider: candidate.provider,
+              model: candidate.model,
+              role,
             });
           }
 
@@ -326,6 +360,14 @@ export class AgentAdapter implements AgentRuntime {
               kind: 'compaction_triggered',
               session_id: session.id,
               role: role as unknown as import('../schemas/types.js').AgentRole,
+              tokens_before: compactionResult.tokensBefore,
+              tokens_after: compactionResult.tokensAfter,
+            });
+          }
+          if (this.eventBus && compactionResult.compacted) {
+            this.eventBus.emit('compaction_triggered', {
+              session_id: session.id,
+              role,
               tokens_before: compactionResult.tokensBefore,
               tokens_after: compactionResult.tokensAfter,
             });
@@ -369,6 +411,14 @@ export class AgentAdapter implements AgentRuntime {
               duration_ms: callDuration,
             });
           }
+          if (this.eventBus) {
+            this.eventBus.emit('invocation_succeeded', {
+              session_id: session.id,
+              role,
+              attempt: recoveryCtx.attempt,
+              duration_ms: callDuration,
+            });
+          }
 
           return parsed;
         } catch (err) {
@@ -390,6 +440,14 @@ export class AgentAdapter implements AgentRuntime {
               kind: 'invocation_failed',
               session_id: session.id,
               role: role as unknown as import('../schemas/types.js').AgentRole,
+              attempt: recoveryCtx.attempt,
+              error_message: lastError.message,
+            });
+          }
+          if (this.eventBus) {
+            this.eventBus.emit('invocation_failed', {
+              session_id: session.id,
+              role,
               attempt: recoveryCtx.attempt,
               error_message: lastError.message,
             });
