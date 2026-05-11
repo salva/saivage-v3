@@ -8,6 +8,8 @@ import type {
   RuntimeStatus as RStatus,
   EventKind,
   LoggedEvent,
+  HandoffSummary,
+  FreezeProcessEntry,
 } from '../schemas/types.js';
 import { CardStore } from './card-store.js';
 import {
@@ -685,7 +687,16 @@ export class Runtime extends EventEmitter {
    * @param reason - Optional human-readable reason for the freeze.
    * @returns The FreezeManifest that was persisted.
    */
-  freeze(reason?: string): FreezeManifest {
+  private buildFreezeProcessEntries(
+    procIds: string[],
+    defaultAction: "kill" | "reattach" | "detach" = "reattach",
+  ): FreezeProcessEntry[] {
+    return procIds.map((id) => ({ id, action: defaultAction }));
+  }
+
+  freeze(reason?: string,
+    defaultProcessAction: "kill" | "reattach" | "detach" = "reattach",
+  ): FreezeManifest {
     // If already frozen, return existing manifest (idempotent)
     if (this._status === 'frozen') {
       const existing = readFreezeManifest(this.projectRoot);
@@ -704,6 +715,19 @@ export class Runtime extends EventEmitter {
     const frozenAt = new Date();
     const freezeId = `freeze-${frozenAt.toISOString().replace(/[:.]/g, '-')}`;
 
+    // Collect handoff summaries from active agent sessions
+    let handoffSummaries: HandoffSummary[] = [];
+    try {
+      const raw = this.agentRuntime.getActiveSessionHandoffs();
+      handoffSummaries = raw instanceof Promise ? [] : raw;
+    } catch {
+      // Best effort — handoff collection should not block freeze
+    }
+
+    // Build process entries with classification
+    const processIds = state?.running_processes ?? [];
+    const runningProcesses = this.buildFreezeProcessEntries(processIds, defaultProcessAction);
+
     const manifest: FreezeManifest = {
       freeze_id: freezeId,
       reason: reason ?? 'operator requested freeze',
@@ -715,7 +739,8 @@ export class Runtime extends EventEmitter {
       current_card_id: state?.current_card_id ?? null,
       current_agent_session_id: state?.current_agent_session_id ?? null,
       queue: state?.queue ?? [],
-      running_processes: state?.running_processes ?? [],
+      running_processes: runningProcesses,
+      handoff_summaries: handoffSummaries,
       schema_version: 1,
       runtime_version: '0.1.0',
     };
@@ -735,7 +760,7 @@ export class Runtime extends EventEmitter {
         paused: true,
         paused_at: frozenAt.toISOString(),
         queue: state?.queue ?? [],
-        running_processes: state?.running_processes ?? [],
+        running_processes: processIds,
         updated_at: frozenAt.toISOString(),
       });
     } catch {
@@ -788,6 +813,9 @@ export class Runtime extends EventEmitter {
     this._status = 'idle';
     this._paused = false;
 
+    // Extract process IDs from FreezeProcessEntry[] (discard action for in-memory tracking)
+    const processIds = manifest.running_processes.map((p) => p.id);
+
     // Restore runtime state on disk
     try {
       saveRuntimeState(this.projectRoot, {
@@ -800,7 +828,7 @@ export class Runtime extends EventEmitter {
         paused: false,
         paused_at: null,
         queue: manifest.queue,
-        running_processes: manifest.running_processes,
+        running_processes: processIds,
         updated_at: new Date().toISOString(),
       });
     } catch {
@@ -809,25 +837,55 @@ export class Runtime extends EventEmitter {
 
     // 4. Restore in-memory process tracking
     this.runningProcesses.clear();
-    for (const procId of manifest.running_processes) {
+    for (const procId of processIds) {
       this.runningProcesses.add(procId);
     }
 
-    // 5. Clear the manifest (resume is a one-time operation)
+    // 5. Inject handoff summaries into resumed agent context
+    const handoffSummaries = manifest.handoff_summaries ?? [];
+    if (handoffSummaries.length > 0 && manifest.current_agent_session_id) {
+      const handoffText = handoffSummaries
+        .map(
+          (h) =>
+            `[Handoff] Session: ${h.session_id}, Role: ${h.role}, ` +
+            `Last action: ${h.last_action}, Next action: ${h.next_action}, ` +
+            `Context: ${h.context_summary}`,
+        )
+        .join('\n');
+      this._resumeHandoffContext = handoffText;
+    }
+
+    // 6. Clear the manifest (resume is a one-time operation)
     clearFreezeManifest(this.projectRoot);
 
-    // 6. Emit resume event
+    // 7. Emit resume event
     this.emit('resumed_from_freeze', { freeze_id: manifest.freeze_id });
     this._eventLogger.appendEvent({ kind: 'resumed_from_freeze' as never });
 
     return {
       freeze_id: manifest.freeze_id,
       restored_queue: manifest.queue,
-      restored_processes: manifest.running_processes,
+      restored_processes: processIds,
       restored_card_id: manifest.current_card_id,
     };
   }
 
+
+  /**
+   * Handoff context text injected during resumeFromFreeze().
+   * The dispatch loop passes this into the next agent invocation
+   * as context messages.
+   */
+  private _resumeHandoffContext: string | null = null;
+
+  /**
+   * Get the resume handoff context (if any) and clear it.
+   */
+  consumeResumeHandoffContext(): string | null {
+    const ctx = this._resumeHandoffContext;
+    this._resumeHandoffContext = null;
+    return ctx;
+  }
 
   /**
    * Bridge method that forwards agent events (session_started, model_selected,

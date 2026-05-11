@@ -24,10 +24,12 @@ import {
   createSession,
   completeSession,
   appendMessage,
+  getSession,
   getSessionMessages,
+  listSessions,
   updateSessionModel,
 } from './session-persistence.js';
-import type { AgentMessage } from '../schemas/types.js';
+import type { AgentMessage, HandoffSummary } from '../schemas/types.js';
 import { compactSession } from './compaction.js';
 import { invokeWithRecovery, type RecoveryContext } from './recovery.js';
 import type { ContentSupervisor } from '../utils/content-supervisor.js';
@@ -390,6 +392,57 @@ export class AgentAdapter implements AgentRuntime {
     }
 
     return controller !== undefined;
+  }
+
+  // ── Handoff Summary ─────────────────────────────────────────
+
+  /**
+   * Get a handoff summary for a specific active session.
+   * Reads the session metadata and last message to produce a structured summary.
+   * Returns null if the session is not found or not active.
+   */
+  getHandoffSummary(sessionId: string): HandoffSummary | null {
+    try {
+      const session = getSession(this.saivageDir, sessionId);
+      if (!session || session.status !== 'active') return null;
+
+      // Read the last few messages to build context
+      const messages = getSessionMessages(this.saivageDir, sessionId);
+      const lastUserMsg = [...messages].reverse().find((m) => m.role === 'user');
+      const lastAssistantMsg = [...messages].reverse().find((m) => m.role === 'assistant');
+
+      return {
+        session_id: sessionId,
+        role: session.role as HandoffSummary['role'],
+        last_action: lastAssistantMsg
+          ? `Produced response: ${lastAssistantMsg.content.substring(0, 200)}`
+          : 'Session started',
+        next_action: lastUserMsg
+          ? `Processing: ${lastUserMsg.content.substring(0, 200)}`
+          : 'Awaiting user input',
+        context_summary: `Goal: ${session.goal_card_id ?? 'N/A'}, Card: ${session.card_id ?? 'N/A'}`,
+      };
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Get handoff summaries for all currently active sessions.
+   * Used by Runtime.freeze() to collect agent checkpoints.
+   */
+  getActiveSessionHandoffs(): HandoffSummary[] {
+    try {
+      const ids = listSessions(this.saivageDir);
+      const summaries: HandoffSummary[] = [];
+      for (const id of ids) {
+        const summary = this.getHandoffSummary(id);
+        if (summary) summaries.push(summary);
+      }
+      return summaries;
+    } catch {
+      return [];
+    }
   }
 
   // ── Invocation Methods ──────────────────────────────────────

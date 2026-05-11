@@ -315,7 +315,8 @@ function registerRuntimeDispatchRoutes(
         current_card_id: state.current_card_id ?? null,
         current_agent_session_id: state.current_agent_session_id ?? null,
         queue: state.queue,
-        running_processes: state.running_processes,
+        running_processes: (state.running_processes ?? []).map((id) => ({ id, action: "reattach" })),
+        handoff_summaries: [],
         schema_version: 1,
         runtime_version: '0.1.0',
       };
@@ -375,7 +376,7 @@ function registerRuntimeDispatchRoutes(
         paused: false,
         paused_at: null,
         queue: manifest.queue,
-        running_processes: manifest.running_processes,
+        running_processes: manifest.running_processes.map((p) => p.id),
       });
 
       clearFreezeManifest(projectRoot);
@@ -384,7 +385,7 @@ function registerRuntimeDispatchRoutes(
         status: 'resumed',
         freeze_id: manifest.freeze_id,
         restored_queue: manifest.queue,
-        restored_processes: manifest.running_processes,
+        restored_processes: manifest.running_processes.map((p) => p.id),
         restored_card_id: manifest.current_card_id,
       });
     } catch (err) {

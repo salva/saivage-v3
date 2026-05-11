@@ -8,7 +8,7 @@
  *   saivage start [--create-runtime] [--port <port>] [--host <host>]
  *                                      Start the Saivage server
  *   saivage status                     Show runtime state
- *   saivage freeze [reason]            Freeze the runtime with an optional reason
+ *   saivage freeze [reason] [--kill-processes]            Freeze the runtime with an optional reason
  *   saivage resume                     Resume the runtime from a freeze manifest
  *   saivage help                       Print usage information
  */
@@ -18,6 +18,7 @@ import { parseArgs } from 'node:util';
 // ── Types ──────────────────────────────────────────────────────
 
 interface CliOptions {
+  "kill-processes"?: boolean;
   force?: boolean;
   'create-runtime'?: boolean;
   port?: string;
@@ -46,6 +47,7 @@ Usage:
   saivage freeze [reason]
       Freeze the runtime. Persists a freeze manifest and stops dispatch.
       Optional reason string describes why the freeze was requested.
+        --kill-processes  Default process action to "kill" instead of "reattach".
 
   saivage resume
       Resume the runtime from a saved freeze manifest.
@@ -87,7 +89,8 @@ function parseCommand(rawArgs: string[]): {
           force:      { type: 'boolean' as const },
           'create-runtime': { type: 'boolean' as const },
           port:       { type: 'string' as const },
-          host:       { type: 'string' as const },
+          host:       { type: "string" as const },
+          "kill-processes": { type: "boolean" as const },
         },
         allowPositionals: false,
         strict: true,
@@ -226,7 +229,8 @@ async function handleFreeze(freezeArgs: string[]): Promise<void> {
     return;
   }
 
-  const reason = freezeArgs.length > 0 ? freezeArgs.join(' ') : undefined;
+  const reason = freezeArgs.length > 0 ? freezeArgs.join(" ") : undefined;
+  const killProcesses = freezeArgs.includes("--kill-processes");
   const state = readRuntimeState(projectRoot);
   if (!state) {
     console.error('Cannot freeze: runtime state not initialized.');
@@ -248,7 +252,8 @@ async function handleFreeze(freezeArgs: string[]): Promise<void> {
     current_card_id: state.current_card_id ?? null,
     current_agent_session_id: state.current_agent_session_id ?? null,
     queue: state.queue,
-    running_processes: state.running_processes,
+    running_processes: state.running_processes.map((id) => ({ id, action: (killProcesses ? "kill" : "reattach") as "kill" | "reattach" | "detach" })),
+    handoff_summaries: [],
     schema_version: 1,
     runtime_version: '0.1.0',
   };
@@ -293,7 +298,7 @@ async function handleResume(): Promise<void> {
     paused: false,
     paused_at: null,
     queue: manifest.queue,
-    running_processes: manifest.running_processes,
+    running_processes: manifest.running_processes.map((p) => p.id),
   });
 
   clearFreezeManifest(projectRoot);

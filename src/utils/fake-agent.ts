@@ -1,6 +1,6 @@
 import { readFileSync, existsSync } from 'node:fs';
 import { resolve } from 'node:path';
-import type { ReviewAssessment, CardStatus, ArtifactRef, AgentMessage } from '../schemas/types.js';
+import type { ReviewAssessment, CardStatus, ArtifactRef, AgentMessage, HandoffSummary } from '../schemas/types.js';
 import type { AgentRuntime } from '../agents/agent-runtime.js';
 import type {
   PlannerResult,
@@ -224,6 +224,24 @@ export class FakeAgentAdapter implements AgentRuntime {
    */
   forceCancelSession(_sessionId: string): boolean {
     return false;
+  }
+
+  // ── Handoff Summary Stubs ─────────────────────────────────
+
+  /**
+   * Stub: fake agents don't have real sessions, so no handoff summary.
+   * Returns null.
+   */
+  getHandoffSummary(_sessionId: string): HandoffSummary | null {
+    return null;
+  }
+
+  /**
+   * Stub: fake agents don't maintain active session state.
+   * Returns empty array.
+   */
+  getActiveSessionHandoffs(): HandoffSummary[] {
+    return [];
   }
 
   // ── Planner ───────────────────────────────────────────────

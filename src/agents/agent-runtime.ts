@@ -12,7 +12,7 @@ import type {
   ExecutorResult,
   ReviewerResult,
 } from './result-parser.js';
-import type { AgentMessage } from '../schemas/types.js';
+import type { AgentMessage, HandoffSummary } from '../schemas/types.js';
 
 /**
  * Common interface for agent invocation, implemented by both
@@ -82,4 +82,19 @@ export interface AgentRuntime {
    * false otherwise.
    */
   forceCancelSession(sessionId: string): boolean | Promise<boolean>;
+
+  /**
+   * Get a handoff summary for a specific active session.
+   * Returns a structured handoff describing the agent's last action,
+   * next intended action, and a brief context summary.
+   * Returns null if the session is not found or not active.
+   */
+  getHandoffSummary(sessionId: string): HandoffSummary | null | Promise<HandoffSummary | null>;
+
+  /**
+   * Get handoff summaries for all currently active sessions.
+   * Used by Runtime.freeze() to collect agent checkpoints before persisting
+   * the freeze manifest.
+   */
+  getActiveSessionHandoffs(): HandoffSummary[] | Promise<HandoffSummary[]>;
 }

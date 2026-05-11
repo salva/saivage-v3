@@ -221,6 +221,19 @@ export interface AgentMessage {
 
 export type RuntimeStatus = 'idle' | 'running' | 'paused' | 'error' | 'frozen';
 
+export interface HandoffSummary {
+  session_id: string;
+  role: AgentRole;
+  last_action: string;
+  next_action: string;
+  context_summary: string;
+}
+
+export interface FreezeProcessEntry {
+  id: string;
+  action: 'kill' | 'reattach' | 'detach';
+}
+
 export interface FreezeManifest {
   freeze_id: string;
   reason: string;
@@ -232,7 +245,8 @@ export interface FreezeManifest {
   current_card_id: string | null;
   current_agent_session_id: string | null;
   queue: string[];
-  running_processes: string[];
+  running_processes: FreezeProcessEntry[];
+  handoff_summaries: HandoffSummary[];
   schema_version: number;
   runtime_version: string;
 }

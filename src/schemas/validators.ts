@@ -259,6 +259,19 @@ export const runtimeStateSchema = z.object({
   frozen_reason: z.string().nullable().optional(),
 });
 
+export const handoffSummarySchema = z.object({
+  session_id: z.string().min(1),
+  role: agentRoleSchema,
+  last_action: z.string(),
+  next_action: z.string(),
+  context_summary: z.string(),
+});
+
+export const freezeProcessEntrySchema = z.object({
+  id: z.string().min(1),
+  action: z.enum(['kill', 'reattach', 'detach']),
+});
+
 export const freezeManifestSchema = z.object({
   freeze_id: z.string().min(1),
   reason: z.string(),
@@ -270,7 +283,8 @@ export const freezeManifestSchema = z.object({
   current_card_id: z.string().nullable(),
   current_agent_session_id: z.string().nullable(),
   queue: z.array(z.string()),
-  running_processes: z.array(z.string()),
+  running_processes: z.array(freezeProcessEntrySchema),
+  handoff_summaries: z.array(handoffSummarySchema),
   schema_version: z.number().int().positive(),
   runtime_version: z.string().min(1),
 });
