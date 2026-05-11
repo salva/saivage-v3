@@ -456,6 +456,81 @@ describe('Server with ActiveRuntime (createRuntime=true)', () => {
       expect(body.paused).toBe(false);
     });
   });
+
+  // ══════════════════════════════════════════════════════════
+  // AC: POST /api/runtime/freeze and resume-from-freeze
+  // ══════════════════════════════════════════════════════════
+
+  describe('Freeze / Resume via API', () => {
+    it('POST /api/runtime/freeze creates a freeze manifest', async () => {
+      const res = await fetch(baseUrl('/api/runtime/freeze'), {
+        method: 'POST',
+        headers: { ...authHeaders(), 'content-type': 'application/json' },
+        body: JSON.stringify({ reason: 'API freeze test' }),
+      });
+      expect(res.status).toBe(200);
+
+      const body = await res.json();
+      expect(body.status).toBe('frozen');
+      expect(body.freeze_id).toBeDefined();
+      expect(body.reason).toBe('API freeze test');
+      expect(body.created_at).toBeDefined();
+    });
+
+    it('POST /api/runtime/freeze when already frozen returns existing', async () => {
+      const res = await fetch(baseUrl('/api/runtime/freeze'), {
+        method: 'POST',
+        headers: { ...authHeaders(), 'content-type': 'application/json' },
+        body: JSON.stringify({ reason: 'second freeze' }),
+      });
+      expect(res.status).toBe(200);
+
+      const body = await res.json();
+      expect(body.status).toBe('frozen');
+      // Already frozen, so reason stays as the first one
+    });
+
+    it('POST /api/runtime/resume-from-freeze restores state', async () => {
+      const res = await fetch(baseUrl('/api/runtime/resume-from-freeze'), {
+        method: 'POST',
+        headers: authHeaders(),
+      });
+      expect(res.status).toBe(200);
+
+      const body = await res.json();
+      expect(body.status).toBe('resumed');
+      expect(body.freeze_id).toBeDefined();
+      expect(body.restored_queue).toBeDefined();
+      expect(body.restored_processes).toBeDefined();
+    });
+
+    it('POST /api/runtime/resume-from-freeze after resume returns error', async () => {
+      const res = await fetch(baseUrl('/api/runtime/resume-from-freeze'), {
+        method: 'POST',
+        headers: authHeaders(),
+      });
+      expect(res.status).toBe(400);
+
+      const body = await res.json();
+      expect(body.error).toContain('no freeze manifest found');
+    });
+
+    it('freeze requires auth', async () => {
+      const res = await fetch(baseUrl('/api/runtime/freeze'), {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ reason: 'unauth freeze' }),
+      });
+      expect(res.status).toBe(401);
+    });
+
+    it('resume-from-freeze requires auth', async () => {
+      const res = await fetch(baseUrl('/api/runtime/resume-from-freeze'), {
+        method: 'POST',
+      });
+      expect(res.status).toBe(401);
+    });
+  });
 });
 
 // ═══════════════════════════════════════════════════════════════
