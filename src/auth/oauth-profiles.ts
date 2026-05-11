@@ -283,52 +283,120 @@ export function isProfileExpired(
 }
 
 /**
- * Attempt to refresh an OAuth token.
+ * Attempt to refresh an OAuth token by POSTing the refresh token
+ * to the provider's token endpoint.
  *
- * CURRENT IMPLEMENTATION: Logs a warning and returns the existing profile
- * unchanged. A full implementation would make an HTTP POST to the
- * provider's token endpoint with the refresh token and update the stored
- * profile.
+ * On success, saves the updated profile via saveAuthProfile() and
+ * returns the updated profile.
  *
- * The structure supports future implementation:
- * - Read the provider config to determine token endpoint
- * - POST the refresh token
- * - Parse the new access token, refresh token, and expiry
- * - Save the updated profile via saveAuthProfile()
+ * On failure (network error, invalid grant, missing refresh token),
+ * logs the error and returns null. Never throws.
  *
  * @param projectRoot - Project root directory.
  * @param name - The profile name to refresh.
- * @returns The profile (unchanged in current implementation).
+ * @param tokenEndpoint - The OAuth token endpoint URL. If omitted,
+ *                        the refresh is gracefully skipped (logged and
+ *                        returns null) since there is no endpoint to call.
+ * @returns The refreshed profile on success, null on failure.
  */
 export async function refreshAuthProfile(
   projectRoot: string,
   name: string,
-): Promise<AuthProfile> {
+  tokenEndpoint?: string,
+): Promise<AuthProfile | null> {
   const profile = await getAuthProfile(projectRoot, name);
   if (!profile) {
-    throw new Error(`Auth profile '${name}' not found.`);
+    console.error(
+      `[oauth-profiles] Refresh failed: Auth profile '${name}' not found.`,
+    );
+    return null;
   }
 
   if (!profile.refreshToken) {
-    throw new Error(
-      `Auth profile '${name}' has no refresh token. Unable to refresh.`,
+    console.error(
+      `[oauth-profiles] Refresh failed: Auth profile '${name}' has no refresh token.`,
     );
+    return null;
   }
 
-  // TODO: In a full implementation, this would:
-  // 1. Look up provider config for token endpoint
-  // 2. POST refresh token to the endpoint
-  // 3. Parse response for new tokens
-  // 4. Save via saveAuthProfile()
-  //
-  // For now, log a warning and return unchanged.
-  console.warn(
-    `[oauth-profiles] Token refresh for '${name}' is not yet implemented. ` +
-      `Returning existing profile. Profile expires at: ` +
-      `${profile.expiresAt ? new Date(profile.expiresAt).toISOString() : 'never'}.`,
-  );
+  if (!tokenEndpoint) {
+    console.error(
+      `[oauth-profiles] Refresh failed: No token endpoint available for profile '${name}'. ` +
+        `Configure tokenEndpoint in the provider or account config.`,
+    );
+    return null;
+  }
 
-  return profile;
+  try {
+    const body = new URLSearchParams({
+      grant_type: 'refresh_token',
+      refresh_token: profile.refreshToken,
+    });
+
+    console.error(
+      `[oauth-profiles] Refreshing token for '${name}' at ${tokenEndpoint}...`,
+    );
+
+    const response = await fetch(tokenEndpoint, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        Accept: 'application/json',
+      },
+      body: body.toString(),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text().catch(() => '');
+      console.error(
+        `[oauth-profiles] Token refresh failed for '${name}' (HTTP ${response.status}): ${errorText.slice(0, 500)}`,
+      );
+      return null;
+    }
+
+    const data = await response.json().catch(() => null);
+    if (!data) {
+      console.error(
+        `[oauth-profiles] Token refresh for '${name}' returned non-JSON response.`,
+      );
+      return null;
+    }
+
+    const accessToken = data.access_token;
+    if (!accessToken) {
+      console.error(
+        `[oauth-profiles] Token refresh response for '${name}' is missing access_token. ` +
+          `Response: ${JSON.stringify(data).slice(0, 500)}`,
+      );
+      return null;
+    }
+
+    // Build the updated profile
+    const updatedProfile: AuthProfile = {
+      type: profile.type,
+      provider: profile.provider,
+      accessToken,
+      refreshToken: data.refresh_token ?? profile.refreshToken,
+      expiresAt: data.expires_in
+        ? Date.now() + data.expires_in * 1000
+        : profile.expiresAt,
+    };
+
+    // Save via saveAuthProfile() — writes with mode 0o600
+    await saveAuthProfile(projectRoot, name, updatedProfile);
+
+    console.error(
+      `[oauth-profiles] Token refreshed successfully for '${name}'. ` +
+        `New expiry: ${updatedProfile.expiresAt ? new Date(updatedProfile.expiresAt).toISOString() : 'never'}.`,
+    );
+
+    return updatedProfile;
+  } catch (err) {
+    console.error(
+      `[oauth-profiles] Token refresh failed for '${name}': ${err instanceof Error ? err.message : String(err)}`,
+    );
+    return null;
+  }
 }
 
 /**

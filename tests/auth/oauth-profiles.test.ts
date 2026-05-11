@@ -611,56 +611,60 @@ describe('isProfileExpired', () => {
 
 // ═══════════════════════════════════════════════════════════════
 // refreshAuthProfile
+//
+// NOTE: These tests have been updated to match the new signature
+// (refreshAuthProfile now returns AuthProfile | null instead of
+// throwing). The real behavior (HTTP POST to token endpoint) will
+// be tested properly in the test update task (t5).
 // ═══════════════════════════════════════════════════════════════
 
 describe('refreshAuthProfile', () => {
-  it('returns the existing profile unchanged', async () => {
+  it('returns null when the profile does not exist', async () => {
     const root = makeProjectRoot();
-    const profile = makeValidProfile({
-      provider: 'refresh-test',
-      accessToken: 'original-at',
-      refreshToken: 'original-rt',
-    });
-    const content = canonicalJson({ 'p1': profile });
-    writeAuthProfiles(root, content);
-
-    const result = await refreshAuthProfile(root, 'p1');
-    expect(result).toBeDefined();
-    expect(result.provider).toBe('refresh-test');
-    expect(result.accessToken).toBe('original-at');
-    expect(result.refreshToken).toBe('original-rt');
-    // Profile is returned unchanged (refresh is stub)
+    const result = await refreshAuthProfile(root, 'nonexistent');
+    expect(result).toBeNull();
   });
 
-  it('throws when the profile does not exist', async () => {
-    const root = makeProjectRoot();
-    await expect(refreshAuthProfile(root, 'nonexistent')).rejects.toThrow(/not found/i);
-  });
-
-  it('throws when the profile has no refresh token', async () => {
+  it('returns null when the profile has no refresh token', async () => {
     const root = makeProjectRoot();
     const profile = makeValidProfile();
     delete (profile as Partial<AuthProfile>).refreshToken;
     const content = canonicalJson({ 'no-rt': profile });
     writeAuthProfiles(root, content);
 
-    await expect(refreshAuthProfile(root, 'no-rt')).rejects.toThrow(/no refresh token/i);
+    const result = await refreshAuthProfile(root, 'no-rt');
+    expect(result).toBeNull();
   });
 
-  it('does not modify the stored file', async () => {
+  it('returns null when no token endpoint is provided (profile exists and has refresh token)', async () => {
     const root = makeProjectRoot();
     const profile = makeValidProfile({
+      provider: 'test',
       accessToken: 'original-at',
-      refreshToken: 'rt-xyz',
+      refreshToken: 'original-rt',
     });
     const content = canonicalJson({ 'p1': profile });
     writeAuthProfiles(root, content);
 
-    await refreshAuthProfile(root, 'p1');
+    // Without a tokenEndpoint, refresh is gracefully skipped
+    const result = await refreshAuthProfile(root, 'p1');
+    expect(result).toBeNull();
+  });
 
-    // Re-read from disk — should be unchanged
-    const result = await loadAuthProfiles(root);
-    expect(result!.profiles['p1'].accessToken).toBe('original-at');
+  it('accepts optional tokenEndpoint parameter and returns null on fetch failure', async () => {
+    const root = makeProjectRoot();
+    const profile = makeValidProfile({
+      provider: 'test',
+      accessToken: 'original-at',
+      refreshToken: 'original-rt',
+    });
+    const content = canonicalJson({ 'p1': profile });
+    writeAuthProfiles(root, content);
+
+    // With a bogus endpoint, the fetch will fail (connection refused / not found)
+    // and refreshAuthProfile should return null rather than throw
+    const result = await refreshAuthProfile(root, 'p1', 'http://127.0.0.1:19999/oauth/token');
+    expect(result).toBeNull();
   });
 });
 
