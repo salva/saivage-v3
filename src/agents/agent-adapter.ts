@@ -137,8 +137,8 @@ export class AgentAdapter implements AgentRuntime {
    */
   async invokePlanner(
     goalId: string,
-    planCardId: string,
-    systemPrompt: string,
+    planCardId: string = '',
+    systemPrompt: string = '',
     contextMessages: AgentMessage[] = [],
   ): Promise<PlannerResult> {
     return this.invokeAgent('planner', goalId, planCardId, systemPrompt, contextMessages, parsePlannerResult);
@@ -150,7 +150,7 @@ export class AgentAdapter implements AgentRuntime {
   async invokeExecutor(
     cardId: string,
     goalId: string,
-    systemPrompt: string,
+    systemPrompt: string = '',
     contextMessages: AgentMessage[] = [],
   ): Promise<ExecutorResult> {
     return this.invokeAgent('executor', goalId, cardId, systemPrompt, contextMessages, parseExecutorResult);
@@ -161,8 +161,8 @@ export class AgentAdapter implements AgentRuntime {
    */
   async invokeReviewer(
     goalId: string,
-    planCardId: string,
-    systemPrompt: string,
+    planCardId: string = '',
+    systemPrompt: string = '',
     contextMessages: AgentMessage[] = [],
   ): Promise<ReviewerResult> {
     return this.invokeAgent('reviewer', goalId, planCardId, systemPrompt, contextMessages, parseReviewerResult);

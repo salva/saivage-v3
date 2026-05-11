@@ -18,6 +18,11 @@ import { FakeAgentAdapter, type FakeAgentConfig } from './fake-agent.js';
 import type { AgentRuntime } from '../agents/agent-runtime.js';
 import type { PlannerResult } from '../agents/result-parser.js';
 import {
+  buildPlannerPrompt,
+  buildExecutorPrompt,
+  buildReviewerPrompt,
+} from '../agents/system-prompt.js';
+import {
   killAllRunning,
   listProcesses,
   type ProcessListFilter,
@@ -503,7 +508,8 @@ export class Runtime extends EventEmitter {
       // Step 2: Invoke the planner
       let plannerResult: PlannerResult;
       try {
-        const result = this.agentRuntime.invokePlanner(goalId);
+        const plannerPrompt = buildPlannerPrompt();
+        const result = this.agentRuntime.invokePlanner(goalId, planCard.id, plannerPrompt);
         plannerResult = result instanceof Promise ? await result : result;
       } catch (err) {
         this.emit('error', { goalId, phase: 'planner', error: err });
@@ -588,7 +594,8 @@ export class Runtime extends EventEmitter {
         // Invoke executor
         let execResult;
         try {
-          const result = this.agentRuntime.invokeExecutor(card.id, goalId);
+          const executorPrompt = buildExecutorPrompt(card.type);
+          const result = this.agentRuntime.invokeExecutor(card.id, goalId, executorPrompt);
           execResult = result instanceof Promise ? await result : result;
         } catch (err) {
           this.emit('error', {
@@ -686,7 +693,8 @@ export class Runtime extends EventEmitter {
       evidence_card_ids: string[];
     };
   }> {
-    const result = await this.agentRuntime.invokeReviewer(goalId, planCardId);
+    const reviewerPrompt = buildReviewerPrompt();
+    const result = await this.agentRuntime.invokeReviewer(goalId, planCardId, reviewerPrompt);
     this.emit('review_complete', {
       goalId,
       assessment: result.assessment,
