@@ -72,8 +72,9 @@ describe('SelfCheckTriggeredEvent type', () => {
 
     // response is optional via `?`, so omitting it yields undefined at runtime
     const withoutResponse = makeEvent();
-    delete (withoutResponse as Record<string, unknown>).response;
-    expect(withoutResponse.response).toBeUndefined();
+    // Use a type-safe spread to test the optional property
+    const { response: _r, ...rest } = withoutResponse;
+    expect((rest as typeof withoutResponse).response).toBeUndefined();
   });
 
   it('can represent a planner self-check at 30 rounds', () => {
