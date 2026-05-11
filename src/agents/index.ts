@@ -6,3 +6,4 @@ export * from './session-persistence.js';
 export * from './compaction.js';
 export * from './recovery.js';
 export * from './agent-adapter.js';
+export * from './llm-client.js';
