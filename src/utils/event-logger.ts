@@ -32,6 +32,7 @@ export interface EventFilter {
   session_id?: string;
   since?: string; // ISO timestamp — return events after this time
   limit?: number;
+  offset?: number; // number of events to skip before applying limit
 }
 
 // ── Event Input Type ─────────────────────────────────────────
@@ -113,6 +114,13 @@ export class EventLogger {
   /**
    * Get events, with optional filtering.
    * Reads from the persisted file, so it reflects all events.
+   *
+   * Filtering order:
+   * 1. Apply all content filters (kind, goal_id, card_id, session_id, since).
+   * 2. Apply offset (default 0) to skip the first N matching events.
+   * 3. Apply limit to cap the returned slice (if undefined or negative, no cap).
+   *
+   * Events are returned in file order (chronological, oldest first).
    */
   getEvents(filter?: EventFilter): LoggedEvent[] {
     // Flush buffer first to ensure all events are on disk
@@ -135,7 +143,7 @@ export class EventLogger {
       }
     }
 
-    // Apply filters
+    // Step 1: Apply content filters
     if (filter) {
       if (filter.kind) {
         const kinds = Array.isArray(filter.kind) ? filter.kind : [filter.kind];
@@ -153,8 +161,18 @@ export class EventLogger {
       if (filter.since) {
         events = events.filter((e) => e.timestamp >= filter.since!);
       }
+    }
+
+    // Step 2 & 3: Apply offset and limit pagination
+    if (filter) {
+      const offset = filter.offset ?? 0;
+      const effectiveOffset = Math.max(0, offset);
+
       if (filter.limit !== undefined && filter.limit >= 0) {
-        events = events.slice(-filter.limit);
+        events = events.slice(effectiveOffset, effectiveOffset + filter.limit);
+      } else {
+        // No limit (undefined or negative) — return everything after offset
+        events = events.slice(effectiveOffset);
       }
     }
 
