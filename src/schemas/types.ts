@@ -285,11 +285,14 @@ export interface SkillIndexEntry {
 export type RuntimeEventKind =
   | 'started'
   | 'goal_completed'
+  | 'goal_failed'
   | 'card_failed'
   | 'review_complete'
   | 'review_failed'
   | 'dispatch_blocked'
   | 'dispatch_interrupted'
+  | 'escalation'
+  | 'plan_updated'
   | 'paused'
   | 'resumed'
   | 'shutdown'
@@ -326,6 +329,12 @@ export interface GoalCompletedEvent extends BaseEvent {
   assessment?: ReviewAssessment;
 }
 
+export interface GoalFailedEvent extends BaseEvent {
+  kind: 'goal_failed';
+  goal_id: string;
+  error_message?: string;
+}
+
 export interface CardFailedEvent extends BaseEvent {
   kind: 'card_failed';
   card_id: string;
@@ -354,6 +363,20 @@ export interface DispatchInterruptedEvent extends BaseEvent {
   kind: 'dispatch_interrupted';
   goal_id: string;
   reason: string;
+}
+
+export interface EscalationEvent extends BaseEvent {
+  kind: 'escalation';
+  goal_id: string;
+  reason?: string;
+  message?: string;
+}
+
+export interface PlanUpdatedEvent extends BaseEvent {
+  kind: 'plan_updated';
+  goal_id: string;
+  plan_card_id?: string;
+  changes?: string[];
 }
 
 export interface PausedEvent extends BaseEvent {
@@ -436,11 +459,14 @@ export interface SelfCheckTriggeredEvent extends BaseEvent {
 export type RuntimeEvent =
   | StartedEvent
   | GoalCompletedEvent
+  | GoalFailedEvent
   | CardFailedEvent
   | ReviewCompleteEvent
   | ReviewFailedEvent
   | DispatchBlockedEvent
   | DispatchInterruptedEvent
+  | EscalationEvent
+  | PlanUpdatedEvent
   | PausedEvent
   | ResumedEvent
   | ShutdownEvent

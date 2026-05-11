@@ -48,12 +48,15 @@ export const SEVERITY_ORDER: SeverityLevel[] = [
  * |-----------------------|----------|
  * | `started`             | info     |
  * | `goal_completed`      | info     |
+ * | `goal_failed`         | error    |
  * | `review_complete`     | info     |
+ * | `review_failed`       | warning  |
  * | `paused`              | info     |
  * | `resumed`             | info     |
  * | `shutdown`            | info     |
  * | `card_failed`         | warning  |
- * | `review_failed`       | warning  |
+ * | `escalation`          | warning  |
+ * | `plan_updated`        | info     |
  * | `dispatch_blocked`    | warning  |
  * | `dispatch_interrupted` | warning |
  * | `error`               | error    |
@@ -61,12 +64,15 @@ export const SEVERITY_ORDER: SeverityLevel[] = [
 export const RUNTIME_SEVERITY_MAP: Record<RuntimeEventKind, SeverityLevel> = {
   started: 'info',
   goal_completed: 'info',
+  goal_failed: 'error',
   review_complete: 'info',
   review_failed: 'warning',
   shutdown: 'info',
   paused: 'info',
   resumed: 'info',
   card_failed: 'warning',
+  escalation: 'warning',
+  plan_updated: 'info',
   dispatch_blocked: 'warning',
   dispatch_interrupted: 'warning',
   error: 'error',
