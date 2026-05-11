@@ -631,8 +631,8 @@ export class Runtime extends EventEmitter {
             // Depth > 0 without instructions_file gets empty string (no instructions).
             const plannerInstr = goalCard.depth === 0
               ? await this._skillsEngine.loadPlannerInstructions()
-              : goalCard.instructions_file
-                ? await this._skillsEngine.loadPlannerInstructions(goalCard.instructions_file)
+              : (goalCard.instructions_file && goalCard.instructions_file.trim())
+                ? await this._skillsEngine.loadPlannerInstructions(goalCard.instructions_file.trim())
                 : '';
             // Match skills for planner role
             const skillsContent = await this._skillsEngine.selectAndFormat({
