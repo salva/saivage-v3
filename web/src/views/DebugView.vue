@@ -5,14 +5,14 @@
         v-for="tab in tabs"
         :key="tab.id"
         class="debug-tab"
-        :class="{ active: activeTab === tab.id }"
+        :class="{ active: localActiveTab === tab.id }"
         @click="setTab(tab.id)"
       >{{ tab.label }}</button>
     </div>
 
     <div class="debug-content">
       <!-- State Tab -->
-      <div v-if="activeTab === 'state'" class="debug-tab-content">
+      <div v-if="localActiveTab === 'state'" class="debug-tab-content">
         <div v-if="loading" class="debug-loading">Loading state...</div>
         <div v-else-if="error" class="debug-error">{{ error }}</div>
         <template v-else>
@@ -55,7 +55,7 @@
       </div>
 
       <!-- Errors Tab -->
-      <div v-if="activeTab === 'errors'" class="debug-tab-content">
+      <div v-if="localActiveTab === 'errors'" class="debug-tab-content">
         <div v-if="loading" class="debug-loading">Loading errors...</div>
         <div v-else-if="errorsTotal === 0 && errors.length === 0" class="debug-empty">No errors recorded.</div>
         <div v-else class="errors-list">
@@ -75,7 +75,7 @@
       </div>
 
       <!-- Timeline Tab -->
-      <div v-if="activeTab === 'timeline'" class="debug-tab-content">
+      <div v-if="localActiveTab === 'timeline'" class="debug-tab-content">
         <div v-if="loading" class="debug-loading">Loading timeline...</div>
         <div v-else-if="sortedTimeline.length === 0" class="debug-empty">No timeline events.</div>
         <div v-else class="timeline-list">
@@ -87,36 +87,112 @@
           </div>
         </div>
       </div>
+
+      <!-- MCP Tab -->
+      <div v-if="localActiveTab === 'mcp'" class="debug-tab-content">
+        <div v-if="mcpStore.loading" class="debug-loading">Loading MCP tools...</div>
+        <div v-else-if="mcpStore.error" class="debug-error">{{ mcpStore.error }}</div>
+        <div v-else-if="mcpStore.serverCount === 0" class="debug-empty">No MCP servers configured or running.</div>
+        <div v-else class="mcp-content">
+          <!-- Summary Row -->
+          <section class="debug-section">
+            <h4 class="debug-section-title">Summary</h4>
+            <div class="debug-grid">
+              <div class="dg-item"><span class="dg-key">Servers:</span><span class="dg-value">{{ mcpStore.serverCount }}</span></div>
+              <div class="dg-item"><span class="dg-key">Tools:</span><span class="dg-value">{{ mcpStore.toolCount }}</span></div>
+              <div class="dg-item"><span class="dg-key">Invocations:</span><span class="dg-value">{{ mcpStore.totalInvocations }} ({{ mcpStore.totalErrors }} errors)</span></div>
+              <div v-if="mcpStore.lastRefreshed" class="dg-item"><span class="dg-key">Last Refreshed:</span><span class="dg-value">{{ fmtDate(mcpStore.lastRefreshed) }}</span></div>
+            </div>
+          </section>
+
+          <!-- Per-Server Sections -->
+          <section v-for="server in mcpStore.servers" :key="server.name" class="debug-section">
+            <h4 class="debug-section-title">
+              {{ server.name }}
+              <span class="mcp-server-badge" :class="'mcp-status-' + server.status">{{ server.status }}</span>
+              <span class="mcp-server-transport">{{ server.transport }}</span>
+              <span class="mcp-tool-count">{{ server.toolCount }} tools</span>
+            </h4>
+
+            <div v-if="server.tools.length === 0" class="debug-empty" style="padding:8px;font-size:12px;">No tools discovered.</div>
+
+            <div v-for="tool in server.tools" :key="tool.name" class="mcp-tool-card">
+              <div class="mcp-tool-name-row">
+                <span class="mcp-tool-name">{{ tool.name }}</span>
+                <span class="mcp-tool-desc">{{ tool.description || 'No description' }}</span>
+              </div>
+              <div class="mcp-tool-stats">
+                <span class="mcp-stat-item" title="Total invocations">
+                  <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><circle cx="6" cy="6" r="5" stroke="currentColor" stroke-width="1"/><line x1="6" y1="3" x2="6" y2="7" stroke="currentColor" stroke-width="1"/><line x1="4" y1="9" x2="8" y2="9" stroke="currentColor" stroke-width="1"/></svg>
+                  {{ tool.stats.total }}
+                </span>
+                <span class="mcp-stat-item mcp-stat-success" title="Successful invocations">✓ {{ tool.stats.success }}</span>
+                <span class="mcp-stat-item mcp-stat-error" title="Failed invocations">✗ {{ tool.stats.error }}</span>
+                <span v-if="tool.stats.lastInvokedAt" class="mcp-stat-item mcp-stat-time" title="Last invoked">{{ fmtDate(tool.stats.lastInvokedAt) }}</span>
+              </div>
+            </div>
+          </section>
+
+          <!-- Invocation Stats Table -->
+          <section v-if="Object.keys(mcpStore.invocationStats).length > 0" class="debug-section">
+            <h4 class="debug-section-title">All Invocation Stats</h4>
+            <div class="mcp-stats-table">
+              <div class="mcp-stats-header">
+                <span class="mcp-stats-cell">Key</span>
+                <span class="mcp-stats-cell">Total</span>
+                <span class="mcp-stats-cell">Success</span>
+                <span class="mcp-stats-cell">Error</span>
+                <span class="mcp-stats-cell">Last</span>
+              </div>
+              <div v-for="(stats, key) in mcpStore.invocationStats" :key="key" class="mcp-stats-row">
+                <span class="mcp-stats-cell mono">{{ key }}</span>
+                <span class="mcp-stats-cell">{{ stats.total }}</span>
+                <span class="mcp-stats-cell mcp-stat-success">{{ stats.success }}</span>
+                <span class="mcp-stats-cell mcp-stat-error">{{ stats.error }}</span>
+                <span class="mcp-stats-cell mcp-stat-time">{{ stats.lastInvokedAt ? fmtDate(stats.lastInvokedAt) : '-' }}</span>
+              </div>
+            </div>
+          </section>
+        </div>
+      </div>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted } from 'vue';
+import { computed, onMounted, onUnmounted, ref } from 'vue';
 import { storeToRefs } from 'pinia';
 import { useDebugStore } from '../stores/debug';
+import { useMcpStore } from '../stores/mcp';
 import type { DebugError } from '../api/types';
 import { createLogger } from '../utils/logger';
 
 const log = createLogger('view:debug');
 const debugStore = useDebugStore();
+const mcpStore = useMcpStore();
 const {
   debugRuntime, debugCards, debugTotalCards,
   errors, errorsTotal, errorsBySource,
-  sortedTimeline, loading, error, activeTab,
+  sortedTimeline, loading, error,
 } = storeToRefs(debugStore);
+
+type TabId = 'state' | 'errors' | 'timeline' | 'mcp';
 
 const tabs = [
   { id: 'state' as const, label: 'State' },
   { id: 'errors' as const, label: 'Errors' },
   { id: 'timeline' as const, label: 'Timeline' },
+  { id: 'mcp' as const, label: 'MCP' },
 ];
 
-function setTab(tab: 'state' | 'errors' | 'timeline'): void {
-  debugStore.setActiveTab(tab);
+const localActiveTab = ref<TabId>('state');
+
+function setTab(tab: TabId): void {
+  localActiveTab.value = tab;
   if (tab === 'state') debugStore.fetchState().catch(() => {});
   else if (tab === 'errors') debugStore.fetchErrors().catch(() => {});
   else if (tab === 'timeline') debugStore.fetchTimeline().catch(() => {});
+  else if (tab === 'mcp') mcpStore.fetchMcpData().catch(() => {});
 }
 
 interface CardStatusEntry { status: string; count: number }
@@ -147,6 +223,13 @@ function fmtJson(data: Record<string, unknown>): string {
 onMounted(async () => {
   debugStore.setupWsListener();
   await debugStore.fetchAll();
+
+  mcpStore.fetchMcpData().catch(() => {});
+  mcpStore.startPolling(15000);
+});
+
+onUnmounted(() => {
+  mcpStore.stopPolling();
 });
 </script>
 
@@ -218,4 +301,32 @@ onMounted(async () => {
 .tl-event-card { font-size:10px; color:#8b949e; }
 .tl-event-time { font-size:10px; color:#484f58; margin-left:auto; }
 .tl-event-data { width:100%; margin-top:4px; padding:6px; background:#0d1117; border:1px solid #21262d; border-radius:4px; font-size:10px; font-family:'SF Mono',monospace; line-height:1.4; white-space:pre-wrap; word-break:break-word; color:#8b949e; max-height:100px; overflow-y:auto; }
+
+/* ── MCP Styles ── */
+.mcp-server-badge { font-size:10px; font-weight:600; padding:1px 5px; border-radius:4px; text-transform:uppercase; margin-left:8px; }
+.mcp-server-badge.mcp-status-running { background:#1a2418; color:#7ee787; }
+.mcp-server-badge.mcp-status-stopped { background:#21262d; color:#8b949e; }
+.mcp-server-badge.mcp-status-error { background:#241818; color:#f85149; }
+.mcp-server-transport { font-size:10px; color:#484f58; margin-left:6px; font-family:'SF Mono',monospace; }
+.mcp-tool-count { font-size:10px; color:#8b949e; margin-left:6px; }
+.mcp-tool-card { padding:8px 12px; background:#161b22; border:1px solid #21262d; border-radius:6px; margin-bottom:6px; }
+.mcp-tool-name-row { display:flex; align-items:baseline; gap:8px; margin-bottom:4px; }
+.mcp-tool-name { font-family:'SF Mono',monospace; font-size:13px; color:#58a6ff; font-weight:500; }
+.mcp-tool-desc { font-size:11px; color:#8b949e; }
+.mcp-tool-stats { display:flex; gap:12px; align-items:center; }
+.mcp-stat-item { font-size:11px; color:#8b949e; display:flex; align-items:center; gap:3px; }
+.mcp-stat-item.mcp-stat-success { color:#7ee787; }
+.mcp-stat-item.mcp-stat-error { color:#f85149; }
+.mcp-stat-item.mcp-stat-time { font-size:10px; color:#484f58; }
+.mcp-stats-table { display:flex; flex-direction:column; font-size:11px; }
+.mcp-stats-header,.mcp-stats-row { display:grid; grid-template-columns:2fr 60px 60px 60px 120px; gap:8px; padding:4px 8px; }
+.mcp-stats-header { color:#8b949e; font-weight:600; border-bottom:1px solid #21262d; }
+.mcp-stats-row { border-bottom:1px solid #161b22; }
+.mcp-stats-row:hover { background:#161b22; }
+.mcp-stats-cell { color:#c9d1d9; }
+.mcp-stats-cell.mono { font-family:'SF Mono',monospace; font-size:10px; color:#58a6ff; }
+.mcp-stats-cell.mcp-stat-success { color:#7ee787; }
+.mcp-stats-cell.mcp-stat-error { color:#f85149; }
+.mcp-stats-cell.mcp-stat-time { color:#484f58; }
+.mcp-content { padding:0; }
 </style>
