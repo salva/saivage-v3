@@ -66,4 +66,20 @@ export interface AgentRuntime {
     systemPrompt?: string,
     contextMessages?: AgentMessage[],
   ): ReviewerResult | Promise<ReviewerResult>;
+
+  /**
+   * Request a graceful cancellation of an in-flight agent session.
+   * For the real AgentAdapter, this sends an abort signal to the LLM call's
+   * AbortController. Returns true if the session was found and cancellation
+   * was initiated, false if the session was not tracked.
+   */
+  cancelSession(sessionId: string): boolean | Promise<boolean>;
+
+  /**
+   * Force-cancel an agent session — a stronger signal than cancelSession.
+   * Used when the agent hasn't stopped after the force-cancel timeout.
+   * Returns true if the session was found and force-cancel was initiated,
+   * false otherwise.
+   */
+  forceCancelSession(sessionId: string): boolean | Promise<boolean>;
 }

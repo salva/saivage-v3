@@ -170,6 +170,8 @@ const TRACKED_EVENT_KINDS: ReadonlySet<string> = new Set([
   'stuck_verdict',
   'abort_target_selected',
   'force_cancel_sent',
+  'session_cancelled',
+  'session_force_cancelled',
 ]);
 
 // ── Runtime Class ────────────────────────────────────────────
@@ -297,16 +299,11 @@ export class Runtime extends EventEmitter {
         }
         return [];
       },
-      abortSession: (_sessionId: string) => {
-        // TODO: AgentRuntime does not yet expose cancelSession/forceCancelSession.
-        // Once those methods are added to the AgentRuntime interface and
-        // implemented in AgentAdapter/FakeAgentAdapter, wire them here.
-        // For now this is a no-op — the supervisor will fall through to
-        // force-cancel after the timeout.
+      abortSession: (sessionId: string) => {
+        this.agentRuntime.cancelSession(sessionId);
       },
-      forceCancelSession: (_sessionId: string) => {
-        // TODO: AgentRuntime does not yet expose cancelSession/forceCancelSession.
-        // Same as abortSession above — wire when the interface is extended.
+      forceCancelSession: (sessionId: string) => {
+        this.agentRuntime.forceCancelSession(sessionId);
       },
       emitEvent: (kind: string, data: Record<string, unknown>) => {
         this.emit(kind, data);

@@ -243,6 +243,12 @@ describe('Runtime Adapter Wiring', () => {
             },
           };
         },
+        cancelSession(_sessionId: string) {
+          return false;
+        },
+        forceCancelSession(_sessionId: string) {
+          return false;
+        },
       };
 
       // Construct Runtime with the minimal AgentRuntime

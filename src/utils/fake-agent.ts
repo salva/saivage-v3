@@ -208,6 +208,24 @@ export class FakeAgentAdapter implements AgentRuntime {
     return this.loadFixture(name);
   }
 
+  // ── Session Cancellation ───────────────────────────────────
+
+  /**
+   * Stub: cancelSession is a no-op for fake agents since they don't
+   * make real LLM calls. Returns false (session not found / not cancelled).
+   */
+  cancelSession(_sessionId: string): boolean {
+    return false;
+  }
+
+  /**
+   * Stub: forceCancelSession is a no-op for fake agents since they don't
+   * make real LLM calls. Returns false.
+   */
+  forceCancelSession(_sessionId: string): boolean {
+    return false;
+  }
+
   // ── Planner ───────────────────────────────────────────────
 
   /**

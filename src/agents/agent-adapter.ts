@@ -87,6 +87,9 @@ export class AgentAdapter implements AgentRuntime {
   private contentSupervisor?: ContentSupervisor;
   private llmClientCache: Map<string, LlmClient> = new Map();
 
+  /** Map of sessionId -> AbortController for in-flight LLM calls */
+  private _abortControllers: Map<string, AbortController> = new Map();
+
   // Self-check round tracking
   private roundCounters: Map<string, number> = new Map();
   private lastRole: string | null = null;
@@ -219,6 +222,63 @@ export class AgentAdapter implements AgentRuntime {
       this.roundCounters.clear();
     }
     this.lastRole = role;
+  }
+
+  // ── Session Cancellation ────────────────────────────────────
+
+  /**
+   * Request a graceful cancellation of an in-flight agent session.
+   * Aborts the in-flight LLM call via AbortController.
+   * Returns true if the session was found and abort was triggered.
+   */
+  cancelSession(sessionId: string): boolean {
+    const controller = this._abortControllers.get(sessionId);
+    if (!controller) {
+      return false;
+    }
+
+    controller.abort();
+    this._abortControllers.delete(sessionId);
+
+    // Emit session_cancelled event
+    if (this.eventLogger) {
+      this.eventLogger.appendEvent({
+        kind: 'session_cancelled',
+        session_id: sessionId,
+      });
+    }
+    if (this.eventBus) {
+      this.eventBus.emit('session_cancelled', { session_id: sessionId });
+    }
+
+    return true;
+  }
+
+  /**
+   * Force-cancel an agent session — a stronger signal than cancelSession.
+   * Logs the forced abort and emits a 'session_force_cancelled' event.
+   * Returns true if the session was tracked (even if already cleaned up).
+   */
+  forceCancelSession(sessionId: string): boolean {
+    // Try graceful cancel first in case the controller still exists
+    const controller = this._abortControllers.get(sessionId);
+    if (controller) {
+      controller.abort();
+      this._abortControllers.delete(sessionId);
+    }
+
+    // Emit session_force_cancelled event
+    if (this.eventLogger) {
+      this.eventLogger.appendEvent({
+        kind: 'session_force_cancelled',
+        session_id: sessionId,
+      });
+    }
+    if (this.eventBus) {
+      this.eventBus.emit('session_force_cancelled', { session_id: sessionId });
+    }
+
+    return controller !== undefined;
   }
 
   // ── Invocation Methods ──────────────────────────────────────
@@ -451,54 +511,62 @@ export class AgentAdapter implements AgentRuntime {
             });
           }
 
+          // Create AbortController for this call so cancelSession can abort it
+          const abortController = new AbortController();
+          this._abortControllers.set(session.id, abortController);
+
           // Capture start time for duration measurement
           const callStart = Date.now();
 
-          // Make the LLM call with role-specific temperature and max_tokens
-          const rawResponse = await this.llmCallFn!(
-            candidate,
-            systemPrompt,
-            getSessionMessages(this.saivageDir, session.id),
-            session.id,
-            { temperature: modelParams.temperature, max_tokens: modelParams.maxTokens },
-          );
+          try {
+            // Make the LLM call with role-specific temperature, max_tokens, and signal
+            const rawResponse = await this.llmCallFn!(
+              candidate,
+              systemPrompt,
+              getSessionMessages(this.saivageDir, session.id),
+              session.id,
+              { temperature: modelParams.temperature, max_tokens: modelParams.maxTokens, signal: abortController.signal },
+            );
 
-          // Compute actual call duration
-          const callDuration = Date.now() - callStart;
+            // Compute actual call duration
+            const callDuration = Date.now() - callStart;
 
-          // Record assistant response
-          appendMessage(this.saivageDir, session.id, {
-            role: 'assistant',
-            kind: 'text',
-            content: rawResponse,
-          });
-
-          // Parse the result
-          const parsed = parser(rawResponse);
-
-          // Mark candidate as succeeded
-          this.registry.markSucceeded(candidate);
-
-          // Log invocation_succeeded event
-          if (this.eventLogger) {
-            this.eventLogger.appendEvent({
-              kind: 'invocation_succeeded',
-              session_id: session.id,
-              role: role as unknown as import('../schemas/types.js').AgentRole,
-              attempt: recoveryCtx.attempt,
-              duration_ms: callDuration,
+            // Record assistant response
+            appendMessage(this.saivageDir, session.id, {
+              role: 'assistant',
+              kind: 'text',
+              content: rawResponse,
             });
-          }
-          if (this.eventBus) {
-            this.eventBus.emit('invocation_succeeded', {
-              session_id: session.id,
-              role,
-              attempt: recoveryCtx.attempt,
-              duration_ms: callDuration,
-            });
-          }
 
-          return parsed;
+            // Parse the result
+            const parsed = parser(rawResponse);
+
+            // Mark candidate as succeeded
+            this.registry.markSucceeded(candidate);
+
+            // Log invocation_succeeded event
+            if (this.eventLogger) {
+              this.eventLogger.appendEvent({
+                kind: 'invocation_succeeded',
+                session_id: session.id,
+                role: role as unknown as import('../schemas/types.js').AgentRole,
+                attempt: recoveryCtx.attempt,
+                duration_ms: callDuration,
+              });
+            }
+            if (this.eventBus) {
+              this.eventBus.emit('invocation_succeeded', {
+                session_id: session.id,
+                role,
+                attempt: recoveryCtx.attempt,
+                duration_ms: callDuration,
+              });
+            }
+
+            return parsed;
+          } finally {
+            this._abortControllers.delete(session.id);
+          }
         } catch (err) {
           // Mark candidate as failed
           this.registry.markFailed(candidate, this.runtimeConfig.recoveryDelayMs ?? 60000);

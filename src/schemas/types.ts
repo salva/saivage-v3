@@ -310,7 +310,9 @@ export type AgentEventKind =
   | 'invocation_failed'
   | 'retry_attempted'
   | 'compaction_triggered'
-  | 'self_check_triggered';
+  | 'self_check_triggered'
+  | 'session_cancelled'
+  | 'session_force_cancelled';
 
 export type EventKind = RuntimeEventKind | AgentEventKind;
 
@@ -501,6 +503,16 @@ export interface SelfCheckTriggeredEvent extends BaseEvent {
   response?: string | null;
 }
 
+export interface SessionCancelledEvent extends BaseEvent {
+  kind: 'session_cancelled';
+  session_id: string;
+}
+
+export interface SessionForceCancelledEvent extends BaseEvent {
+  kind: 'session_force_cancelled';
+  session_id: string;
+}
+
 export type RuntimeEvent =
   | StartedEvent
   | GoalCompletedEvent
@@ -529,6 +541,8 @@ export type AgentEvent =
   | InvocationFailedEvent
   | RetryAttemptedEvent
   | CompactionTriggeredEvent
-  | SelfCheckTriggeredEvent;
+  | SelfCheckTriggeredEvent
+  | SessionCancelledEvent
+  | SessionForceCancelledEvent;
 
 export type LoggedEvent = RuntimeEvent | AgentEvent;
