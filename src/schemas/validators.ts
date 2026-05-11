@@ -242,7 +242,7 @@ export const agentMessageSchema = z.object({
 
 // ── Runtime State ────────────────────────────────────────────
 
-export const runtimeStatusSchema = z.enum(['idle', 'running', 'paused', 'error']);
+export const runtimeStatusSchema = z.enum(['idle', 'running', 'paused', 'error', 'frozen']);
 
 export const runtimeStateSchema = z.object({
   status: runtimeStatusSchema,
@@ -256,6 +256,22 @@ export const runtimeStateSchema = z.object({
   queue: z.array(z.string()),
   running_processes: z.array(z.string()),
   updated_at: z.string().datetime(),
+});
+
+export const freezeManifestSchema = z.object({
+  freeze_id: z.string().min(1),
+  reason: z.string(),
+  created_at: z.string().datetime(),
+  status: z.literal('frozen'),
+  project_id: z.literal('project'),
+  pid: z.number().int().positive(),
+  started_at: z.string().datetime(),
+  current_card_id: z.string().nullable(),
+  current_agent_session_id: z.string().nullable(),
+  queue: z.array(z.string()),
+  running_processes: z.array(z.string()),
+  schema_version: z.number().int().positive(),
+  runtime_version: z.string().min(1),
 });
 
 // ── Content Supervision ──────────────────────────────────────

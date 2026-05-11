@@ -219,7 +219,23 @@ export interface AgentMessage {
 
 // ── Runtime State ────────────────────────────────────────────
 
-export type RuntimeStatus = 'idle' | 'running' | 'paused' | 'error';
+export type RuntimeStatus = 'idle' | 'running' | 'paused' | 'error' | 'frozen';
+
+export interface FreezeManifest {
+  freeze_id: string;
+  reason: string;
+  created_at: string;
+  status: 'frozen';
+  project_id: 'project';
+  pid: number;
+  started_at: string;
+  current_card_id: string | null;
+  current_agent_session_id: string | null;
+  queue: string[];
+  running_processes: string[];
+  schema_version: number;
+  runtime_version: string;
+}
 
 export interface RuntimeState {
   status: RuntimeStatus;
