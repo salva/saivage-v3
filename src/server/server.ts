@@ -386,12 +386,45 @@ export async function createServer(
 
   fastify.get('/api/mcp/tools', async (_request, reply) => {
     if (!mcpManager) {
-      return reply.send({ tools: [], servers: [], invocationStats: {} });
+      return reply.send({
+        tools: [],
+        servers: [],
+        invocationStats: {},
+        serverDetails: [],
+      });
     }
     const tools = mcpManager.getTools();
     const servers = mcpManager.getToolServers();
     const invocationStats = mcpManager.getInvocationStats();
-    return reply.send({ tools, servers, invocationStats });
+
+    // Build per-server detailed data
+    const serverDetails = mcpManager.getStatus().map((status) => {
+      const toolDefs = mcpManager.getServerTools(status.name) ?? [];
+      const toolList = toolDefs.map((td) => {
+        const statsKey = `${status.name}:${td.name}`;
+        const stats = invocationStats[statsKey] ?? {
+          total: 0,
+          success: 0,
+          error: 0,
+        };
+        return {
+          name: td.name,
+          description: td.description,
+          inputSchema: td.inputSchema,
+          stats,
+        };
+      });
+
+      return {
+        name: status.name,
+        transport: status.transport,
+        status: status.status,
+        toolCount: toolDefs.length,
+        tools: toolList,
+      };
+    });
+
+    return reply.send({ tools, servers, invocationStats, serverDetails });
   });
 
   // ── Telegram Bot Lifecycle ─────────────────────────────────
