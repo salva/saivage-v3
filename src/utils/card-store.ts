@@ -32,6 +32,23 @@ const TERMINAL_TYPES: ReadonlySet<CardType> = new Set<CardType>([
 
 const PLAN_CARD_ID_PREFIX = 'plan-';
 
+/**
+ * Valid card status transitions per 02-card-lifecycle.md.
+ *
+ * Any state can transition to itself (self-transition, a no-op).
+ * The transition map encodes all valid state machine edges.
+ */
+const VALID_TRANSITIONS: Record<CardStatus, CardStatus[]> = {
+  drafting: ['backlog', 'cancelled'],
+  backlog: ['active', 'cancelled'],
+  active: ['running', 'cancelled', 'backlog'],
+  running: ['done', 'failed', 'blocked', 'cancelled', 'backlog'],
+  blocked: ['running', 'cancelled'],
+  done: ['backlog', 'cancelled'],
+  failed: ['backlog', 'cancelled'],
+  cancelled: ['drafting'],
+};
+
 // ── Helpers ───────────────────────────────────────────────────
 
 function readJson<T>(filePath: string): T {
@@ -741,9 +758,38 @@ export class CardStore {
   // ── Status Transitions ───────────────────────────────────
 
   /**
-   * Set the status of a card. Validates the status value.
+   * Validate that a status transition is allowed per the lifecycle state
+   * machine defined in 02-card-lifecycle.md.
+   *
+   * @param from - Current card status
+   * @param to   - Desired new status
+   * @throws Error if the transition is not valid
+   */
+  validateTransition(from: CardStatus, to: CardStatus): void {
+    // Self-transition is always a no-op
+    if (from === to) return;
+
+    const allowed = VALID_TRANSITIONS[from];
+    if (allowed && allowed.includes(to)) return;
+
+    const validList = allowed ? allowed.join(', ') : 'none';
+    throw new Error(
+      `Invalid transition: ${from} → ${to}. Valid transitions from ${from} are: ${validList}.`,
+    );
+  }
+
+  /**
+   * Set the status of a card. Validates the transition against the
+   * lifecycle state machine before applying it.
    */
   setStatus(id: string, newStatus: CardStatus): CardRecord {
+    const card = this.read(id);
+    if (!card) {
+      throw new Error(`Card '${id}' not found.`);
+    }
+
+    this.validateTransition(card.status, newStatus);
+
     return this.update(id, { status: newStatus });
   }
 

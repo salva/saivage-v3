@@ -216,6 +216,8 @@ describe('Analyst Tools', () => {
       expect(cards.map((c) => c.id)).toEqual(expect.arrayContaining(['project', 'goal-1']));
     });
     it('filters by status=done, returns only done cards', async () => {
+      store.setStatus('code-1', 'active');
+      store.setStatus('code-1', 'running');
       store.setStatus('code-1', 'done');
       const r = await list_cards(ctx(projectRoot, store), { status: 'done' });
       expect(r.success).toBe(true);
@@ -316,6 +318,8 @@ describe('Analyst Tools', () => {
 
   describe('restart_card', () => {
     it('returns preview when confirmed !== true', async () => {
+      store.setStatus('code-1', 'active');
+      store.setStatus('code-1', 'running');
       store.setStatus('code-1', 'done');
       const r = await restart_card(ctx(projectRoot, store), { id: 'code-1' });
       expect(r.success).toBe(true);
@@ -328,6 +332,8 @@ describe('Analyst Tools', () => {
       expect(r.error).toContain('status');
     });
     it('sets card to backlog with cleared result', async () => {
+      store.setStatus('code-1', 'active');
+      store.setStatus('code-1', 'running');
       store.setStatus('code-1', 'done');
       const r = await restart_card(ctx(projectRoot, store), { id: 'code-1', confirmed: true });
       expect(r.success).toBe(true);
@@ -344,6 +350,7 @@ describe('Analyst Tools', () => {
       expect(r.preview!.type).toBe('restart_goal');
     });
     it('resets goal to backlog, cancels running children', async () => {
+      store.setStatus('code-1', 'active');
       store.setStatus('code-1', 'running');
       const r = await restart_goal(ctx(projectRoot, store), { goalId: 'goal-1', confirmed: true });
       expect(r.success).toBe(true);

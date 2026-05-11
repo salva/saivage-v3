@@ -700,9 +700,12 @@ describe('Status Transitions', () => {
   });
 
   it('setStatus persists to disk', () => {
+    // Create a card with status 'backlog', then use a two-step valid
+    // transition (backlog → active → running) to reach 'running'.
     const card = store.create(
       makeCard({ type: 'goal', title: 'Persist Status', parent: 'project' }),
     );
+    store.setStatus(card.id, 'active');
     store.setStatus(card.id, 'running');
     const reloaded = store.read(card.id);
     expect(reloaded!.status).toBe('running');

@@ -779,6 +779,8 @@ describe('Runtime Integration', () => {
       expect(queue[1].id).toBe(c1.id); // priority 5
 
       // Now mark c1 as done, c2 should become ready
+      store.setStatus(c1.id, 'active');
+      store.setStatus(c1.id, 'running');
       store.setStatus(c1.id, 'done');
 
       const queue2 = runtime.getReadyQueue(goal.id);

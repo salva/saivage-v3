@@ -1129,7 +1129,8 @@ export class Runtime extends EventEmitter {
         const reviewResult = await this.invokeReviewer(goalId, planCard.id);
 
         if (reviewResult.assessment.result === 'pass') {
-          // Goal done!
+          // Goal done! Transition through running per lifecycle spec.
+          this.cardStore.setStatus(goalId, 'running');
           this.cardStore.setStatus(goalId, 'done');
           // Persist final state
           updateRuntimeState(this.projectRoot, {
@@ -1183,7 +1184,11 @@ export class Runtime extends EventEmitter {
       for (const card of readyCards) {
         if (this._shuttingDown || this._paused) return;
 
-        // Set card to running
+        // Transition card to running via the lifecycle state machine.
+        // backlog → active → running (backlog must go through active first)
+        if (card.status === 'backlog') {
+          this.cardStore.setStatus(card.id, 'active');
+        }
         this.cardStore.setStatus(card.id, 'running');
 
         // Persist current_card_id to track what's running
