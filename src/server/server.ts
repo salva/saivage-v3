@@ -5,7 +5,7 @@
  *  - Fastify instance creation with logger, CORS, static files
  *  - Auth plugin registration
  *  - /health endpoint (no auth, reads actual runtime state)
- *  - All route registrations (cards, runtime/config/notes, chats/files/debug)
+ *  - All route registrations (cards, runtime/config/notes, chats/files/debug, events)
  *  - Runtime dispatch/status routes (conditionally registered with ActiveRuntime)
  *  - WebSocket endpoint registration
  *  - MCP server manager lifecycle
@@ -27,6 +27,7 @@ import authPlugin from './auth.js';
 import { registerCardRoutes } from './routes/cards.js';
 import { registerRuntimeConfigNotesRoutes } from './routes/runtime-config-notes.js';
 import { registerChatsFilesDebugRoutes } from './routes/chats-files-debug.js';
+import { registerEventsRoute } from './routes/events.js';
 import { registerWebSocket } from './websocket.js';
 import { loadConfig, type SaivageConfig } from '../agents/config-schema.js';
 import { McpManager } from '../mcp/index.js';
@@ -245,6 +246,7 @@ export async function createServer(
     activeRuntime ? () => activeRuntime.resume() : undefined,
   );
   registerChatsFilesDebugRoutes(fastify, projectRoot);
+  registerEventsRoute(fastify, projectRoot);
 
   // Register runtime dispatch/status routes when ActiveRuntime is available.
   // These are registered AFTER the other routes to ensure the closure works.
