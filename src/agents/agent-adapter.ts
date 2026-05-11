@@ -35,6 +35,7 @@ import { getSafeFileForAgent, type SafeFileResult } from '../utils/file-access-s
 import type { AgentRuntime } from './agent-runtime.js';
 import { LlmClient } from './llm-client.js';
 import type { LlmCompleteOptions } from './llm-client.js';
+import { EventLogger } from '../utils/event-logger.js';
 
 // Re-export the common AgentRuntime interface for consumers that
 // need to reference it without importing agent-runtime.ts directly.
@@ -53,6 +54,8 @@ export interface AgentAdapterConfig {
   config: SaivageConfig;
   /** Optional event bus for publishing events */
   eventBus?: EventEmitter;
+  /** Optional EventLogger for emitting agent events */
+  eventLogger?: EventLogger;
 }
 
 /**
@@ -77,6 +80,7 @@ export class AgentAdapter implements AgentRuntime {
   readonly registry: ProviderRegistry;
   readonly router: ModelRouter;
   readonly eventBus?: EventEmitter;
+  readonly eventLogger?: EventLogger;
 
   private llmCallFn: LlmCallFn | null = null;
   private contentSupervisor?: ContentSupervisor;
@@ -90,6 +94,7 @@ export class AgentAdapter implements AgentRuntime {
     this.registry = new ProviderRegistry(cfg.config);
     this.router = new ModelRouter(cfg.config, this.registry);
     this.eventBus = cfg.eventBus;
+    this.eventLogger = cfg.eventLogger;
   }
 
   /**
@@ -205,6 +210,17 @@ export class AgentAdapter implements AgentRuntime {
       cardId,
     );
 
+    // Log session_started event
+    if (this.eventLogger) {
+      this.eventLogger.appendEvent({
+        kind: 'session_started',
+        session_id: session.id,
+        role: role as unknown as import('../schemas/types.js').AgentRole,
+        goal_id: goalId,
+        card_id: cardId,
+      });
+    }
+
     // Append context messages to session
     for (const msg of contextMessages) {
       appendMessage(this.saivageDir, session.id, {
@@ -237,6 +253,16 @@ export class AgentAdapter implements AgentRuntime {
         } catch {
           // Best effort
         }
+        // Log retry_attempted event
+        if (this.eventLogger) {
+          this.eventLogger.appendEvent({
+            kind: 'retry_attempted',
+            session_id: session.id,
+            role: role as unknown as import('../schemas/types.js').AgentRole,
+            attempt,
+            directive: _ctx.directive,
+          });
+        }
       },
     };
 
@@ -255,6 +281,17 @@ export class AgentAdapter implements AgentRuntime {
         try {
           // Update session model
           updateSessionModel(this.saivageDir, session.id, candidate.model);
+
+          // Log model_selected event
+          if (this.eventLogger) {
+            this.eventLogger.appendEvent({
+              kind: 'model_selected',
+              session_id: session.id,
+              provider: candidate.provider,
+              model: candidate.model,
+              role: role as unknown as import('../schemas/types.js').AgentRole,
+            });
+          }
 
           // Append recovery directive if this is a retry
           if (recoveryCtx.isRecovery && recoveryCtx.directive) {
@@ -283,6 +320,17 @@ export class AgentAdapter implements AgentRuntime {
             );
           }
 
+          // Log compaction_triggered event
+          if (this.eventLogger && compactionResult.compacted) {
+            this.eventLogger.appendEvent({
+              kind: 'compaction_triggered',
+              session_id: session.id,
+              role: role as unknown as import('../schemas/types.js').AgentRole,
+              tokens_before: compactionResult.tokensBefore,
+              tokens_after: compactionResult.tokensAfter,
+            });
+          }
+
           // Make the LLM call with role-specific temperature and max_tokens
           const rawResponse = await this.llmCallFn!(
             candidate,
@@ -305,6 +353,17 @@ export class AgentAdapter implements AgentRuntime {
           // Mark candidate as succeeded
           this.registry.markSucceeded(candidate);
 
+          // Log invocation_succeeded event
+          if (this.eventLogger) {
+            this.eventLogger.appendEvent({
+              kind: 'invocation_succeeded',
+              session_id: session.id,
+              role: role as unknown as import('../schemas/types.js').AgentRole,
+              attempt: recoveryCtx.attempt,
+              duration_ms: 0,
+            });
+          }
+
           return parsed;
         } catch (err) {
           // Mark candidate as failed
@@ -318,6 +377,17 @@ export class AgentAdapter implements AgentRuntime {
             kind: 'model_issue',
             content: `Candidate ${candidate.provider}/${candidate.account ?? '_'}/${candidate.model} failed: ${lastError.message}`,
           });
+
+          // Log invocation_failed event
+          if (this.eventLogger) {
+            this.eventLogger.appendEvent({
+              kind: 'invocation_failed',
+              session_id: session.id,
+              role: role as unknown as import('../schemas/types.js').AgentRole,
+              attempt: recoveryCtx.attempt,
+              error_message: lastError.message,
+            });
+          }
 
           // Continue to next candidate
           continue;
