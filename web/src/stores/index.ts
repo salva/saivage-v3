@@ -5,9 +5,10 @@
  *   import { useCardStore, useRuntimeStore } from '@/stores';
  */
 
-export { useWsStore } from './ws';
-export { useCardStore } from './cards';
-export { useRuntimeStore } from './runtime';
 export { useAgentStore } from './agents';
-export { useFileStore } from './files';
+export { useCardStore } from './cards';
 export { useDebugStore } from './debug';
+export { useFileStore } from './files';
+export { useMcpStore } from './mcp';
+export { useRuntimeStore } from './runtime';
+export { useWsStore } from './ws';
