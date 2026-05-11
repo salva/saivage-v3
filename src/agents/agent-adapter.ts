@@ -33,6 +33,7 @@ import { invokeWithRecovery, type RecoveryContext } from './recovery.js';
 import type { ContentSupervisor } from '../utils/content-supervisor.js';
 import { getSafeFileForAgent, type SafeFileResult } from '../utils/file-access-security.js';
 import type { AgentRuntime } from './agent-runtime.js';
+import { LlmClient } from './llm-client.js';
 
 // Re-export the common AgentRuntime interface for consumers that
 // need to reference it without importing agent-runtime.ts directly.
@@ -77,6 +78,7 @@ export class AgentAdapter implements AgentRuntime {
 
   private llmCallFn: LlmCallFn | null = null;
   private contentSupervisor?: ContentSupervisor;
+  private llmClientCache: Map<string, LlmClient> = new Map();
 
   constructor(cfg: AgentAdapterConfig) {
     this.projectRoot = cfg.projectRoot;
@@ -348,6 +350,60 @@ export class AgentAdapter implements AgentRuntime {
    */
   getRegistry(): ProviderRegistry {
     return this.registry;
+  }
+
+  // ── LlmCallFn Factory ───────────────────────────────────────
+
+  /**
+   * Create an LlmCallFn that uses this adapter's configured providers.
+   * The returned function resolves the candidate's baseUrl and apiKey
+   * from the provider registry and delegates to LlmClient.
+   *
+   * The provider configuration hierarchy is:
+   * 1. Account-level overrides (account.baseUrl, account.apiKey)
+   * 2. Provider-level defaults (provider.baseUrl, provider.apiKey)
+   *
+   * LlmClient instances are cached by resolved baseUrl to avoid
+   * creating a new client for every invocation.
+   */
+  createLlmCallFn(): LlmCallFn {
+    // Capture references so the closure doesn't rely on `this` at call time
+    const registry = this.registry;
+    const clientCache = this.llmClientCache;
+
+    return async (
+      candidate: Candidate,
+      systemPrompt: string,
+      messages: AgentMessage[],
+      sessionId: string,
+    ): Promise<string> => {
+      // Resolve baseUrl and apiKey from provider registry
+      const provider = registry.get(candidate.provider);
+      if (!provider) {
+        throw new Error(
+          `Provider '${candidate.provider}' not found in registry. ` +
+            `Cannot resolve baseUrl/apiKey for candidate.`,
+        );
+      }
+
+      // Find the account for this candidate (or implicit account)
+      const account = candidate.account != null
+        ? (provider.getAllAccounts().find((a) => a.name === candidate.account) ??
+            provider.implicitAccount)
+        : provider.implicitAccount;
+
+      const baseUrl = account.effectiveBaseUrl(provider.baseUrl) ?? 'https://api.openai.com';
+      const apiKey = account.effectiveApiKey(provider.apiKey);
+
+      // Get or create cached LlmClient for this baseUrl
+      let client = clientCache.get(baseUrl);
+      if (!client) {
+        client = new LlmClient(baseUrl, apiKey);
+        clientCache.set(baseUrl, client);
+      }
+
+      return client.complete(candidate, systemPrompt, messages, sessionId);
+    };
   }
 }
 
