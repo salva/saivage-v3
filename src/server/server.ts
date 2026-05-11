@@ -4,7 +4,7 @@
  * Provides:
  *  - Fastify instance creation with logger, CORS, static files
  *  - Auth plugin registration
- *  - /health endpoint (no auth, reads actual runtime state)
+ *  - /health endpoint (no auth, reads actual runtime state, frozen status, frozen_reason)
  *  - All route registrations (cards, runtime/config/notes, chats/files/debug, events)
  *  - Runtime dispatch/status routes (conditionally registered with ActiveRuntime)
  *  - Freeze/resume routes (always registered, work with or without ActiveRuntime)
@@ -17,6 +17,7 @@
  *  - startServer() / stopServer() lifecycle functions
  *  - Server config read from saivage.json
  *  - Dev-mode host validation when SAIVAGE_API_TOKEN is unset
+ *  - VitePress documentation static serving at /docs/ from docs/.vitepress/dist/
  */
 
 import Fastify, { type FastifyInstance } from 'fastify';
@@ -129,6 +130,7 @@ export function validateDevModeHost(host: string | undefined): void {
 function registerHealth(fastify: FastifyInstance, _saivageConfig: SaivageConfig): void {
   fastify.get('/health', async (_request, _reply) => {
     let runtimeStatus = 'unknown';
+    let frozenReason: string | undefined;
 
     // Read actual runtime state from .saivage/runtime/state.json
     try {
@@ -136,17 +138,32 @@ function registerHealth(fastify: FastifyInstance, _saivageConfig: SaivageConfig)
       const state = readRuntimeState(process.cwd());
       if (state) {
         runtimeStatus = state.status;
+
+        // When frozen, also read the freeze manifest for the reason
+        if (state.status === 'frozen') {
+          const { readFreezeManifest: readFm } = await import('../utils/freeze-manifest.js');
+          const manifest = readFm(process.cwd());
+          if (manifest) {
+            frozenReason = manifest.reason;
+          }
+        }
       }
     } catch {
       // File doesn't exist or can't be read — leave as 'unknown'
     }
 
-    return {
+    const response: Record<string, unknown> = {
       status: 'ok',
       version: '0.1.0',
       project: 'saivage-v3',
       runtime: runtimeStatus,
     };
+
+    if (frozenReason !== undefined) {
+      response.frozen_reason = frozenReason;
+    }
+
+    return response;
   });
 }
 
@@ -435,7 +452,7 @@ export async function createServer(
   await fastify.register(websocket);
   await fastify.register(authPlugin);
 
-  // Register static file serving for SPA if web/dist/ exists
+  // ── Register static file serving for SPA if web/dist/ exists
   const webDistDir = join(projectRoot, 'web', 'dist');
   if (existsSync(webDistDir)) {
     await fastify.register(fastifyStatic, {
@@ -447,6 +464,34 @@ export async function createServer(
     // SPA fallback: non-matching GETs -> index.html
     fastify.setNotFoundHandler((_request, reply) => {
       reply.sendFile('index.html');
+    });
+  }
+
+  // ── Register VitePress docs serving at /docs/
+  // Must be registered AFTER the SPA static serving so that /docs/ routes
+  // take priority over the SPA not-found handler.  If the VitePress build
+  // output exists, @fastify/static serves it; otherwise an explicit catch-all
+  // returns a helpful 404 (the SPA fallback must not swallow /docs/ requests).
+  const docsDistDir = join(projectRoot, 'docs', '.vitepress', 'dist');
+  if (existsSync(docsDistDir)) {
+    await fastify.register(fastifyStatic, {
+      root: docsDistDir,
+      prefix: '/docs/',
+      wildcard: false,
+    });
+  } else {
+    // VitePress not built — return a graceful 404 for any /docs/ request
+    fastify.get('/docs/*', async (_request, reply) => {
+      return reply.status(404).send({
+        error: 'Documentation not built. Run vitepress build docs/ to generate.',
+      });
+    });
+
+    // Also handle exact /docs (no trailing slash)
+    fastify.get('/docs', async (_request, reply) => {
+      return reply.status(404).send({
+        error: 'Documentation not built. Run vitepress build docs/ to generate.',
+      });
     });
   }
 
