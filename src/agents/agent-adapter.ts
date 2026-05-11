@@ -363,8 +363,9 @@ export class AgentAdapter implements AgentRuntime {
    * 1. Account-level overrides (account.baseUrl, account.apiKey)
    * 2. Provider-level defaults (provider.baseUrl, provider.apiKey)
    *
-   * LlmClient instances are cached by resolved baseUrl to avoid
-   * creating a new client for every invocation.
+   * LlmClient instances are cached by a combined key of
+   * `${baseUrl}:${apiKey}` to handle the case where two accounts
+   * share the same baseUrl but use different API keys.
    */
   createLlmCallFn(): LlmCallFn {
     // Capture references so the closure doesn't rely on `this` at call time
@@ -395,11 +396,14 @@ export class AgentAdapter implements AgentRuntime {
       const baseUrl = account.effectiveBaseUrl(provider.baseUrl) ?? 'https://api.openai.com';
       const apiKey = account.effectiveApiKey(provider.apiKey);
 
-      // Get or create cached LlmClient for this baseUrl
-      let client = clientCache.get(baseUrl);
+      // Use a composite key that includes the apiKey so accounts sharing a
+      // baseUrl with different credentials get separate cached LlmClients.
+      const cacheKey = apiKey != null ? `${baseUrl}:${apiKey}` : baseUrl;
+
+      let client = clientCache.get(cacheKey);
       if (!client) {
         client = new LlmClient(baseUrl, apiKey);
-        clientCache.set(baseUrl, client);
+        clientCache.set(cacheKey, client);
       }
 
       return client.complete(candidate, systemPrompt, messages, sessionId);
