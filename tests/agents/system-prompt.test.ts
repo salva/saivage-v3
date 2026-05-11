@@ -187,4 +187,48 @@ describe('System Prompt Builder', () => {
       expect(reviewerPrompt).toContain('Reviewer');
     });
   });
+
+  // ═══════════════════════════════════════════════════════════════
+  // Planner Prompt Depth Context
+  // ═══════════════════════════════════════════════════════════════
+
+  describe('Planner Prompt Depth Context', () => {
+    it('includes current depth and max depth when both provided', () => {
+      const prompt = buildPlannerPrompt(undefined, 3, 5);
+      expect(prompt).toContain('Goal Depth Context');
+      expect(prompt).toContain('Current goal depth: 3');
+      expect(prompt).toContain('Maximum allowed depth: 5');
+    });
+
+    it('does not include depth context when no depth arguments provided', () => {
+      const prompt = buildPlannerPrompt();
+      expect(prompt).not.toContain('Goal Depth Context');
+    });
+
+    it('does not include depth context when only currentDepth provided', () => {
+      const prompt = buildPlannerPrompt(undefined, 3);
+      expect(prompt).not.toContain('Goal Depth Context');
+    });
+
+    it('does not include depth context when only maxDepth provided', () => {
+      const prompt = buildPlannerPrompt(undefined, undefined, 5);
+      expect(prompt).not.toContain('Goal Depth Context');
+    });
+
+    it('includes depth context via systemPromptBuilder namespace', () => {
+      const prompt = systemPromptBuilder.buildPlannerPrompt(undefined, 3, 5);
+      expect(prompt).toContain('Goal Depth Context');
+      expect(prompt).toContain('Current goal depth: 3');
+      expect(prompt).toContain('Maximum allowed depth: 5');
+    });
+
+    it('works with skills combined with depth context', () => {
+      const skills = '### Available Skills\n- skill-a: description of skill a';
+      const prompt = buildPlannerPrompt(skills, 2, 4);
+      expect(prompt).toContain('Goal Depth Context');
+      expect(prompt).toContain('Current goal depth: 2');
+      expect(prompt).toContain('Maximum allowed depth: 4');
+      expect(prompt).toContain('### Available Skills');
+    });
+  });
 });

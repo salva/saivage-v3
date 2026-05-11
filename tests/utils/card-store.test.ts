@@ -740,3 +740,199 @@ describe('Edge Cases', () => {
     expect(card.depth).toBe(0);
   });
 });
+
+// ── Recursion Depth Limit ────────────────────────────────────
+
+describe('Recursion Depth Limit', () => {
+  describe('create depth enforcement (default maxDepth=5)', () => {
+    it('create rejects card beyond maxDepth=5 (depth 6)', () => {
+      // Build chain: project(d0) -> g1(d1) -> g2(d2) -> g3(d3) -> g4(d4) -> g5(d5)
+      const g1 = store.create(makeCard({ type: 'goal', title: 'G1', parent: 'project' }));
+      expect(g1.depth).toBe(1);
+      const g2 = store.create(makeCard({ type: 'goal', title: 'G2', parent: g1.id }));
+      expect(g2.depth).toBe(2);
+      const g3 = store.create(makeCard({ type: 'goal', title: 'G3', parent: g2.id }));
+      expect(g3.depth).toBe(3);
+      const g4 = store.create(makeCard({ type: 'goal', title: 'G4', parent: g3.id }));
+      expect(g4.depth).toBe(4);
+      const g5 = store.create(makeCard({ type: 'goal', title: 'G5', parent: g4.id }));
+      expect(g5.depth).toBe(5);
+
+      // Creating child under g5 would be depth 6, exceeding maxDepth=5
+      expect(() =>
+        store.create(makeCard({ type: 'goal', title: 'G6', parent: g5.id })),
+      ).toThrow(/Maximum allowed depth is 5/);
+    });
+
+    it('create allows card at exactly maxDepth (depth 5)', () => {
+      const g1 = store.create(makeCard({ type: 'goal', title: 'G1', parent: 'project' }));
+      const g2 = store.create(makeCard({ type: 'goal', title: 'G2', parent: g1.id }));
+      const g3 = store.create(makeCard({ type: 'goal', title: 'G3', parent: g2.id }));
+      const g4 = store.create(makeCard({ type: 'goal', title: 'G4', parent: g3.id }));
+      const g5 = store.create(makeCard({ type: 'goal', title: 'G5', parent: g4.id }));
+      expect(g5.depth).toBe(5);
+    });
+
+    it('create rejects code card at depth 6 (terminal types also checked)', () => {
+      const g1 = store.create(makeCard({ type: 'goal', title: 'G1', parent: 'project' }));
+      const g2 = store.create(makeCard({ type: 'goal', title: 'G2', parent: g1.id }));
+      const g3 = store.create(makeCard({ type: 'goal', title: 'G3', parent: g2.id }));
+      const g4 = store.create(makeCard({ type: 'goal', title: 'G4', parent: g3.id }));
+      const g5 = store.create(makeCard({ type: 'goal', title: 'G5', parent: g4.id }));
+      // Try a code card at depth 6
+      expect(() =>
+        store.create(makeCard({ type: 'code', title: 'C6', parent: g5.id })),
+      ).toThrow(/Maximum allowed depth is 5/);
+    });
+
+    it('create allows depth-0 card (parent=null) regardless of maxDepth', () => {
+      const card = store.create(makeCard({ type: 'goal', title: 'Root', parent: null }));
+      expect(card.depth).toBe(0);
+    });
+  });
+
+  describe('custom maxDepth via constructor', () => {
+    it('CardStore with custom maxDepth=3 works', () => {
+      // Create a separate store with custom maxDepth
+      const tmpDir2 = mkdtempSync(join(tmpdir(), 'saivage-cs-'));
+      initProjectTree(tmpDir2);
+      const store3 = new CardStore(tmpDir2, 3);
+
+      // Depth 3 should succeed
+      const g1 = store3.create(makeCard({ type: 'goal', title: 'G1', parent: 'project' }));
+      expect(g1.depth).toBe(1);
+      const g2 = store3.create(makeCard({ type: 'goal', title: 'G2', parent: g1.id }));
+      expect(g2.depth).toBe(2);
+      const g3 = store3.create(makeCard({ type: 'goal', title: 'G3', parent: g2.id }));
+      expect(g3.depth).toBe(3);
+
+      // Depth 4 should fail
+      expect(() =>
+        store3.create(makeCard({ type: 'goal', title: 'G4', parent: g3.id })),
+      ).toThrow(/Maximum allowed depth is 3/);
+
+      rmSync(tmpDir2, { recursive: true, force: true });
+    });
+
+    it('CardStore with maxDepth=1 rejects depth 2', () => {
+      const tmpDir2 = mkdtempSync(join(tmpdir(), 'saivage-cs-'));
+      initProjectTree(tmpDir2);
+      const store1 = new CardStore(tmpDir2, 1);
+
+      const g1 = store1.create(makeCard({ type: 'goal', title: 'G1', parent: 'project' }));
+      expect(g1.depth).toBe(1);
+
+      expect(() =>
+        store1.create(makeCard({ type: 'goal', title: 'G2', parent: g1.id })),
+      ).toThrow(/Maximum allowed depth is 1/);
+
+      rmSync(tmpDir2, { recursive: true, force: true });
+    });
+
+    it('maxDepth is exposed as readonly property', () => {
+      expect(store.maxDepth).toBe(5);
+
+      const tmpDir2 = mkdtempSync(join(tmpdir(), 'saivage-cs-'));
+      initProjectTree(tmpDir2);
+      const store3 = new CardStore(tmpDir2, 3);
+      expect(store3.maxDepth).toBe(3);
+
+      rmSync(tmpDir2, { recursive: true, force: true });
+    });
+
+    it('maxDepth defaults to 5 when not provided', () => {
+      const defaultStore = new CardStore(tmpDir);
+      expect(defaultStore.maxDepth).toBe(5);
+    });
+
+    it('maxDepth defaults to 5 when 0 or negative provided', () => {
+      const tmpDir2 = mkdtempSync(join(tmpdir(), 'saivage-cs-'));
+      initProjectTree(tmpDir2);
+
+      const storeZero = new CardStore(tmpDir2, 0);
+      expect(storeZero.maxDepth).toBe(5);
+
+      const storeNeg = new CardStore(tmpDir2, -1);
+      expect(storeNeg.maxDepth).toBe(5);
+
+      rmSync(tmpDir2, { recursive: true, force: true });
+    });
+  });
+
+  describe('update depth enforcement', () => {
+    it('update rejects parent change that would exceed maxDepth', () => {
+      // Create chain: project(d0) -> z1(d1) -> z2(d2) -> z3(d3) -> z4(d4) -> z5(d5)
+      const z1 = store.create(makeCard({ type: 'goal', title: 'Z1', parent: 'project' }));
+      const z2 = store.create(makeCard({ type: 'goal', title: 'Z2', parent: z1.id }));
+      const z3 = store.create(makeCard({ type: 'goal', title: 'Z3', parent: z2.id }));
+      const z4 = store.create(makeCard({ type: 'goal', title: 'Z4', parent: z3.id }));
+      const z5 = store.create(makeCard({ type: 'goal', title: 'Z5', parent: z4.id }));
+      expect(z5.depth).toBe(5);
+
+      // z4 is at depth 4, its parent is z3 at depth 3.
+      // Update z4's parent to z5 (depth 5): newDepth = 5+1 = 6 > maxDepth=5
+      expect(() => store.update(z4.id, { parent: z5.id })).toThrow(
+        /Maximum allowed depth is 5/,
+      );
+    });
+
+    it('update allows parent change that stays within maxDepth', () => {
+      // Create chain to depth 4
+      const a1 = store.create(makeCard({ type: 'goal', title: 'A1', parent: 'project' }));
+      const a2 = store.create(makeCard({ type: 'goal', title: 'A2', parent: a1.id }));
+      const a3 = store.create(makeCard({ type: 'goal', title: 'A3', parent: a2.id }));
+      const a4 = store.create(makeCard({ type: 'goal', title: 'A4', parent: a3.id }));
+      expect(a4.depth).toBe(4);
+
+      // Create separate branch card at depth 1
+      const b1 = store.create(makeCard({ type: 'goal', title: 'B1', parent: 'project' }));
+
+      // Move a4 to b1: newDepth = 1+1 = 2 (well within maxDepth=5)
+      const updated = store.update(a4.id, { parent: b1.id });
+      expect(updated.depth).toBe(2);
+      expect(updated.parent).toBe(b1.id);
+    });
+
+    it('update setting parent to null sets depth to 0', () => {
+      const g1 = store.create(makeCard({ type: 'goal', title: 'G1', parent: 'project' }));
+      expect(g1.depth).toBe(1);
+      const updated = store.update(g1.id, { parent: null });
+      expect(updated.depth).toBe(0);
+    });
+
+    it('update without parent change does not trigger depth check', () => {
+      const g1 = store.create(makeCard({ type: 'goal', title: 'G1', parent: 'project' }));
+      const g2 = store.create(makeCard({ type: 'goal', title: 'G2', parent: g1.id }));
+      // Update title only — should succeed even though g2 is at depth 2
+      const updated = store.update(g2.id, { title: 'Updated G2' });
+      expect(updated.title).toBe('Updated G2');
+      expect(updated.depth).toBe(2);
+    });
+  });
+
+  describe('activateGoal depth enforcement', () => {
+    it('rejects activateGoal when plan card would exceed maxDepth', () => {
+      // Build chain to depth 5, then try to activate — plan would be at depth 6
+      const g1 = store.create(makeCard({ type: 'goal', title: 'G1', parent: 'project' }));
+      const g2 = store.create(makeCard({ type: 'goal', title: 'G2', parent: g1.id }));
+      const g3 = store.create(makeCard({ type: 'goal', title: 'G3', parent: g2.id }));
+      const g4 = store.create(makeCard({ type: 'goal', title: 'G4', parent: g3.id }));
+      const g5 = store.create(makeCard({ type: 'goal', title: 'G5', parent: g4.id }));
+      expect(g5.depth).toBe(5);
+
+      // Activating g5 would create a plan at depth 6 > maxDepth=5
+      expect(() => store.activateGoal(g5.id)).toThrow(/exceeding maximum allowed depth 5/);
+    });
+
+    it('activateGoal on depth-4 goal creates plan at depth 5 (ok)', () => {
+      const g1 = store.create(makeCard({ type: 'goal', title: 'G1', parent: 'project' }));
+      const g2 = store.create(makeCard({ type: 'goal', title: 'G2', parent: g1.id }));
+      const g3 = store.create(makeCard({ type: 'goal', title: 'G3', parent: g2.id }));
+      const g4 = store.create(makeCard({ type: 'goal', title: 'G4', parent: g3.id }));
+      expect(g4.depth).toBe(4);
+
+      const result = store.activateGoal(g4.id);
+      expect(result.plan.depth).toBe(5);
+    });
+  });
+});
