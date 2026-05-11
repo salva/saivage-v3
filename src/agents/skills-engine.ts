@@ -136,8 +136,8 @@ export class SkillsEngine {
   /** Cache TTL in ms (60 seconds) */
   private readonly _cacheTTL: number = 60_000;
 
-  /** In-memory cache for planner instructions */
-  private _plannerInstrCache: { content: string; loadedAt: number } | null = null;
+  /** In-memory cache for the default planner instructions (.saivage/instructions/planner.md) */
+  private _defaultPlannerInstrCache: { content: string; loadedAt: number } | null = null;
 
   constructor(options?: SkillEngineOptions) {
     this.projectRoot = options?.projectRoot
@@ -296,42 +296,79 @@ export class SkillsEngine {
   }
 
   /**
-   * Load the planner instructions file from .saivage/instructions/planner.md.
-   * This content is UNCONDITIONAL — loaded for the depth-0 planner regardless
-   * of trigger matching.
+   * Load the planner instructions file.
    *
-   * Returns formatted content:
+   * When `customFilePath` is provided and non-empty, reads that file (resolved
+   * relative to `projectRoot`). Returns the content formatted as a delimited
+   * block. No caching is applied for custom paths.
+   *
+   * When `customFilePath` is not provided, empty, or undefined, reads the
+   * default path `.saivage/instructions/planner.md` and caches the result
+   * with the same TTL as skill files (60 seconds).
+   *
+   * Format (both paths):
    * ```
    * --- PLANNER INSTRUCTIONS ---
    * <content>
    * --- END PLANNER INSTRUCTIONS ---
    * ```
    *
-   * Returns empty string if the file does not exist.
-   *
-   * Results are cached with the same TTL as skill files (60 seconds).
+   * Returns empty string if the file does not exist or is empty.
    */
-  async loadPlannerInstructions(): Promise<string> {
+  async loadPlannerInstructions(customFilePath?: string): Promise<string> {
+    if (customFilePath && customFilePath.trim() !== '') {
+      return this._loadCustomPlannerInstructions(customFilePath.trim());
+    }
+    return this._loadDefaultPlannerInstructions();
+  }
+
+  /**
+   * Load a custom planner instructions file. Always reads directly —
+   * no caching for custom paths.
+   */
+  private async _loadCustomPlannerInstructions(filePath: string): Promise<string> {
+    const resolvedPath = resolve(this.projectRoot, filePath);
+
+    if (!existsSync(resolvedPath)) {
+      return '';
+    }
+
+    const content = await readFile(resolvedPath, 'utf-8');
+    if (!content.trim()) {
+      return '';
+    }
+
+    return `--- PLANNER INSTRUCTIONS ---\n${content}\n--- END PLANNER INSTRUCTIONS ---`;
+  }
+
+  /**
+   * Load the default planner instructions from .saivage/instructions/planner.md.
+   * Cached with the same TTL as skill files.
+   */
+  private async _loadDefaultPlannerInstructions(): Promise<string> {
     // Check cache first
-    if (this._plannerInstrCache && Date.now() - this._plannerInstrCache.loadedAt < this._cacheTTL) {
-      return this._plannerInstrCache.content;
+    if (
+      this._defaultPlannerInstrCache &&
+      Date.now() - this._defaultPlannerInstrCache.loadedAt < this._cacheTTL
+    ) {
+      return this._defaultPlannerInstrCache.content;
     }
 
     const instrPath = join(this.projectRoot, '.saivage', 'instructions', 'planner.md');
 
     if (!existsSync(instrPath)) {
-      this._plannerInstrCache = { content: '', loadedAt: Date.now() };
+      this._defaultPlannerInstrCache = { content: '', loadedAt: Date.now() };
       return '';
     }
 
     const content = await readFile(instrPath, 'utf-8');
     if (!content.trim()) {
-      this._plannerInstrCache = { content: '', loadedAt: Date.now() };
+      this._defaultPlannerInstrCache = { content: '', loadedAt: Date.now() };
       return '';
     }
 
     const result = `--- PLANNER INSTRUCTIONS ---\n${content}\n--- END PLANNER INSTRUCTIONS ---`;
-    this._plannerInstrCache = { content: result, loadedAt: Date.now() };
+    this._defaultPlannerInstrCache = { content: result, loadedAt: Date.now() };
     return result;
   }
 
