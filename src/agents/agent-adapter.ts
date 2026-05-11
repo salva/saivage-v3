@@ -90,6 +90,9 @@ export class AgentAdapter implements AgentRuntime {
   /** Map of sessionId -> AbortController for in-flight LLM calls */
   private _abortControllers: Map<string, AbortController> = new Map();
 
+  /** Set of session IDs that have been cancelled (blocks retry in candidate loop) */
+  private _cancelledSessions: Set<string> = new Set();
+
   // Self-check round tracking
   private roundCounters: Map<string, number> = new Map();
   private lastRole: string | null = null;
@@ -228,7 +231,8 @@ export class AgentAdapter implements AgentRuntime {
 
   /**
    * Request a graceful cancellation of an in-flight agent session.
-   * Aborts the in-flight LLM call via AbortController.
+   * Aborts the in-flight LLM call via AbortController and adds the
+   * session to the cancelled set so the retry loop stops.
    * Returns true if the session was found and abort was triggered.
    */
   cancelSession(sessionId: string): boolean {
@@ -239,6 +243,7 @@ export class AgentAdapter implements AgentRuntime {
 
     controller.abort();
     this._abortControllers.delete(sessionId);
+    this._cancelledSessions.add(sessionId);
 
     // Emit session_cancelled event
     if (this.eventLogger) {
@@ -256,7 +261,8 @@ export class AgentAdapter implements AgentRuntime {
 
   /**
    * Force-cancel an agent session — a stronger signal than cancelSession.
-   * Logs the forced abort and emits a 'session_force_cancelled' event.
+   * Logs the forced abort, emits a 'session_force_cancelled' event, and
+   * adds the session to the cancelled set so the retry loop stops.
    * Returns true if the session was tracked (even if already cleaned up).
    */
   forceCancelSession(sessionId: string): boolean {
@@ -266,6 +272,9 @@ export class AgentAdapter implements AgentRuntime {
       controller.abort();
       this._abortControllers.delete(sessionId);
     }
+
+    // Add to cancelled set to prevent retry loop from trying new candidates
+    this._cancelledSessions.add(sessionId);
 
     // Emit session_force_cancelled event
     if (this.eventLogger) {
@@ -437,6 +446,14 @@ export class AgentAdapter implements AgentRuntime {
       let lastError: Error | null = null;
 
       for (const candidate of candidateChain) {
+        // Check if session was cancelled before trying this candidate
+        if (this._cancelledSessions.has(session.id)) {
+          throw new Error(
+            `Agent invocation cancelled for session ${session.id}. ` +
+            `Role: ${role}, goal: ${goalId}, card: ${cardId}`,
+          );
+        }
+
         // Check if candidate is healthy
         if (!this.registry.isHealthy(candidate)) {
           continue;
@@ -566,6 +583,7 @@ export class AgentAdapter implements AgentRuntime {
             return parsed;
           } finally {
             this._abortControllers.delete(session.id);
+            this._cancelledSessions.delete(session.id);
           }
         } catch (err) {
           // Mark candidate as failed
@@ -597,6 +615,23 @@ export class AgentAdapter implements AgentRuntime {
               attempt: recoveryCtx.attempt,
               error_message: lastError.message,
             });
+          }
+
+          // Check if session was cancelled — if so, stop retrying
+          if (this._cancelledSessions.has(session.id)) {
+            // Emit a clear error that this session was cancelled
+            if (this.eventLogger) {
+              this.eventLogger.appendEvent({
+                kind: 'session_cancelled',
+                session_id: session.id,
+                role: role as unknown as import('../schemas/types.js').AgentRole,
+                note: 'Stopped retry loop due to session cancellation',
+              });
+            }
+            throw new Error(
+              `Agent invocation cancelled for session ${session.id}. ` +
+              `Role: ${role}, goal: ${goalId}, card: ${cardId}`,
+            );
           }
 
           // Continue to next candidate
