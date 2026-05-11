@@ -19,4 +19,5 @@ export * from './file-access-security.js';
 export * from './write-territories.js';
 export * from './event-logger.js';
 export * from './error-logger.js';
+export * from './event-bus.js';
 export * from '../agents/index.js';
