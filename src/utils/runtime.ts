@@ -626,11 +626,14 @@ export class Runtime extends EventEmitter {
           // Get the goal card for match context
           const goalCard = this.cardStore.read(goalId);
           if (goalCard && this._skillsEngine) {
-            // Only load planner instructions for depth-0 (project-level) planner
-            // per 07-skills.md and 03-agents.md
+            // Depth-0 planner always uses .saivage/instructions/planner.md.
+            // Depth > 0 with instructions_file uses that custom path.
+            // Depth > 0 without instructions_file gets empty string (no instructions).
             const plannerInstr = goalCard.depth === 0
               ? await this._skillsEngine.loadPlannerInstructions()
-              : '';
+              : goalCard.instructions_file
+                ? await this._skillsEngine.loadPlannerInstructions(goalCard.instructions_file)
+                : '';
             // Match skills for planner role
             const skillsContent = await this._skillsEngine.selectAndFormat({
               goalDescription: goalCard.description,
