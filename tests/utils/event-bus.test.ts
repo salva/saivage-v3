@@ -127,6 +127,18 @@ describe('RUNTIME_SEVERITY_MAP', () => {
   it('maps error → error', () => {
     expect(RUNTIME_SEVERITY_MAP.error).toBe('error');
   });
+
+  it('maps goal_failed → error', () => {
+    expect(getSeverity('goal_failed' as EventKind)).toBe('error');
+  });
+
+  it('maps escalation → warning', () => {
+    expect(getSeverity('escalation' as EventKind)).toBe('warning');
+  });
+
+  it('maps plan_updated → info', () => {
+    expect(getSeverity('plan_updated' as EventKind)).toBe('info');
+  });
 });
 
 // ═══════════════════════════════════════════════════════════════
