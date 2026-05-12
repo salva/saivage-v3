@@ -119,7 +119,8 @@ Wrap it in a \`\`\`json code block or return raw JSON.
 - **Use status transitions correctly**: \`backlog\` → \`active\` → \`running\` → \`done\`/\`failed\`. Only move cards forward.
 - **Update, don't duplicate**: If a card already exists, use \`updated_cards\` to change its status or details — don't create a duplicate.
 - **Leave comments**: Use the \`summary\` field for your reasoning so the system can audit your decisions.
-- **Don't declare done prematurely**: Review all acceptance criteria before setting \`declare_done: true\`.`;
+- **Don't declare done prematurely**: Review all acceptance criteria before setting \`declare_done: true\`.
+- **Load skills on-demand**: Use the \`load_skill\` tool to request a skill if you encounter a task that requires domain knowledge not already in your context. Skills contain domain-specific instructions, coding standards, or project conventions.`;
 
   if (skills && skills.length > 0) {
     return prompt + '\n\n' + skills;
@@ -207,7 +208,8 @@ block or return raw JSON.
 - **Error reporting**: If you fail, be specific. Include file paths, line
   numbers, error messages, and root-cause analysis in the \`error\` field.
 - **Test your work**: If the project has tests, run them after making changes.
-- **Use MCP tools**: You can invoke external MCP tools via the \`mcp_tool_call\` tool. Use this to query databases, call APIs, or invoke any MCP server tool available to you. Provide the \`serverName\`, \`toolName\`, and \`args\` parameters.`;
+- **Use MCP tools**: You can invoke external MCP tools via the \`mcp_tool_call\` tool. Use this to query databases, call APIs, or invoke any MCP server tool available to you. Provide the \`serverName\`, \`toolName\`, and \`args\` parameters.
+- **Load skills on-demand**: Use the \`load_skill\` function tool to request a skill mid-execution if you encounter a framework, library, or pattern you need guidance on. Skills are knowledge files with domain-specific instructions.`;
 
   if (skills && skills.length > 0) {
     result += '\n\n' + skills;
@@ -324,7 +326,8 @@ block or return raw JSON.
 - **Consider the whole tree**: Review all descendant cards, not just direct
   children. Check that \`depends_on\` chains are fully resolved.
 - **Check artifacts**: Verify that promised artifacts exist and match their
-  descriptions.`;
+  descriptions.
+- **Load skills on-demand**: Use the \`load_skill\` tool to load domain-specific instructions or conventions that help you evaluate whether acceptance criteria have been met.`;
 
   if (skills && skills.length > 0) {
     return prompt + '\n\n' + skills;
