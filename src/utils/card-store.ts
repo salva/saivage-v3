@@ -32,9 +32,14 @@ const TERMINAL_TYPES: ReadonlySet<CardType> = new Set<CardType>([
 
 /**
  * States in which cards cannot be edited at all (except for a status-only
- * change via setStatus, which triggers a lifecycle transition).
+ * change via setStatus, which triggers a lifecycle transition, and
+ * system-managed fields such as artifacts, attachments, result, metrics,
+ * error, and timing fields).
  *
- * Per 02-card-lifecycle.md: done, failed, and cancelled are non-editable.
+ * Per 02-card-lifecycle.md: done, failed, and cancelled are non-editable
+ * from a user perspective, but runtime system operations (artifact
+ * registration, result reporting, etc.) must still be able to update
+ * outcome/metadata fields.
  */
 const TERMINAL_STATES: ReadonlySet<CardStatus> = new Set<CardStatus>([
   'done',
@@ -62,6 +67,26 @@ const CRITICAL_FIELDS: ReadonlySet<string> = new Set([
   'depth',
   'id',
   'created_at',
+]);
+
+/**
+ * Fields that can always be updated regardless of card status.
+ * These are system-managed runtime/outcome fields as opposed to
+ * user-editable card content.
+ *
+ * - artifacts / attachments: registered by the runtime after card completion
+ * - result / metrics / error: set by executor upon completion
+ * - completed_at / duration_ms / started_at: timing fields set by runtime
+ */
+const ALWAYS_ALLOWED_FIELDS: ReadonlySet<string> = new Set([
+  'artifacts',
+  'attachments',
+  'result',
+  'metrics',
+  'error',
+  'completed_at',
+  'duration_ms',
+  'started_at',
 ]);
 
 /**
@@ -443,7 +468,9 @@ export class CardStore {
    * State-based permission checks per 02-card-lifecycle.md:
    * - drafting / backlog: full editing allowed
    * - active / running / blocked: non-critical fields only
-   * - done / failed / cancelled: only status changes (via setStatus)
+   * - done / failed / cancelled: only status changes (via setStatus) and
+   *   system-managed runtime fields (artifacts, attachments, result,
+   *   metrics, error, completed_at, duration_ms, started_at)
    */
   update(id: string, changes: Partial<CardRecord>): CardRecord {
     const existing = this.read(id);
@@ -454,13 +481,14 @@ export class CardStore {
     // ── State-based permission check ───────────────────────
 
     if (TERMINAL_STATES.has(existing.status)) {
-      // done / failed / cancelled: only allow status-only changes
-      // (self-transition or reopen via setStatus)
-      const nonStatusKeys = Object.keys(changes).filter(k => k !== 'status');
-      if (nonStatusKeys.length > 0) {
-        throw new Error(
-          `Card '${id}' is in status '${existing.status}'. Cards in this state cannot be edited. Use setStatus() to reopen the card first.`,
-        );
+      // done / failed / cancelled: only allow status-only changes and
+      // system-managed runtime/outcome fields (ALWAYS_ALLOWED_FIELDS)
+      for (const key of Object.keys(changes)) {
+        if (key !== 'status' && !ALWAYS_ALLOWED_FIELDS.has(key)) {
+          throw new Error(
+            `Card '${id}' is in status '${existing.status}'. Cards in this state cannot be edited. Use setStatus() to reopen the card first.`,
+          );
+        }
       }
     } else if (!FULL_EDIT_STATES.has(existing.status)) {
       // active / running / blocked: non-critical fields only
