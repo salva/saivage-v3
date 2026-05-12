@@ -1,0 +1,1 @@
+import{_ as a,o as t,c as o,ae as r}from"./chunks/framework.B2ul6ABY.js";const g=JSON.parse('{"title":"Saivage v3","description":"","frontmatter":{},"headers":[],"relativePath":"index.md","filePath":"index.md"}'),s={name:"index.md"};function i(n,e,l,c,h,d){return t(),o("div",null,[...e[0]||(e[0]=[r("",10)])])}const m=a(s,[["render",i]]);export{g as __pageData,m as default};
