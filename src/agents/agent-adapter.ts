@@ -36,10 +36,12 @@ import type { ContentSupervisor } from '../utils/content-supervisor.js';
 import { getSafeFileForAgent, type SafeFileResult } from '../utils/file-access-security.js';
 import type { AgentRuntime } from './agent-runtime.js';
 import { LlmClient } from './llm-client.js';
-import type { LlmCompleteOptions } from './llm-client.js';
+import type { LlmCompleteOptions, ToolDefinition } from './llm-client.js';
 import { EventLogger } from '../utils/event-logger.js';
 import { buildSelfCheckPrompt } from './system-prompt.js';
 import type { McpManager } from '../mcp/mcp-manager.js';
+import { SkillsEngine } from './skills-engine.js';
+import { loadSkill, LOAD_SKILL_TOOL_DEFINITIONS, LoadSkillError, PERMITTED_ROLES } from './skill-tools.js';
 
 // Re-export the common AgentRuntime interface for consumers that
 // need to reference it without importing agent-runtime.ts directly.
@@ -98,6 +100,9 @@ export class AgentAdapter implements AgentRuntime {
 
   /** MCP manager reference for tool invocation. */
   private _mcpManager: McpManager | undefined;
+
+  /** SkillsEngine reference for on-demand skill loading via load_skill tool. */
+  private _skillsEngine: SkillsEngine | undefined;
 
   // Self-check round tracking
   private roundCounters: Map<string, number> = new Map();
@@ -161,6 +166,35 @@ export class AgentAdapter implements AgentRuntime {
    */
   getMcpManager(): McpManager | undefined {
     return this._mcpManager;
+  }
+
+  /**
+   * Set the SkillsEngine for on-demand skill loading.
+   * Must be called before the load_skill tool can be used by agents.
+   */
+  setSkillsEngine(engine: SkillsEngine): void {
+    this._skillsEngine = engine;
+  }
+
+  /**
+   * Get the SkillsEngine if one has been set.
+   */
+  getSkillsEngine(): SkillsEngine | undefined {
+    return this._skillsEngine;
+  }
+
+  /**
+   * Build the list of tool definitions available to a given agent role.
+   *
+   * Per 07-skills.md §On-Demand Loading: planner, executor, and reviewer
+   * agents can call load_skill to load skills mid-session. The analyst role
+   * is not permitted and receives an empty tools array.
+   */
+  private buildToolsForRole(role: AgentRole): ToolDefinition[] {
+    if ((PERMITTED_ROLES as readonly string[]).includes(role)) {
+      return LOAD_SKILL_TOOL_DEFINITIONS;
+    }
+    return [];
   }
 
   /**
@@ -484,6 +518,183 @@ export class AgentAdapter implements AgentRuntime {
   }
 
   /**
+   * Parse a raw LLM response to check if it is a tool_calls JSON payload.
+   *
+   * When the LLM calls tools (finish_reason = 'tool_calls'), the content
+   * is null and createLlmCallFn serializes the tool calls as:
+   *   {"toolCalls": [{id, type, function: {name, arguments}}]}
+   *
+   * Returns the parsed tool calls array, or null if the response is
+   * not a tool_calls payload.
+   */
+  private parseToolCallsFromResponse(
+    rawResponse: string,
+  ): Array<{ id: string; type: string; function: { name: string; arguments: string } }> | null {
+    try {
+      const parsed = JSON.parse(rawResponse);
+      if (
+        parsed &&
+        typeof parsed === 'object' &&
+        Array.isArray(parsed.toolCalls) &&
+        parsed.toolCalls.length > 0
+      ) {
+        return parsed.toolCalls;
+      }
+    } catch {
+      // Not JSON — normal text response
+    }
+    return null;
+  }
+
+  /**
+   * Process a single tool call and return the tool result message.
+   * Handles load_skill and unknown tools.
+   */
+  private async processToolCall(
+    tc: { id: string; type: string; function: { name: string; arguments: string } },
+    role: AgentRole,
+    sessionId: string,
+  ): Promise<{ role: 'tool'; kind: 'tool_result' | 'tool_error'; content: string; tool: string }> {
+    if (tc.function.name === 'load_skill') {
+      // Parse arguments
+      let args: { name?: string } = {};
+      try {
+        args = JSON.parse(tc.function.arguments);
+      } catch {
+        // Invalid JSON arguments — treat as missing name
+      }
+
+      const skillName = args.name ?? '';
+
+      try {
+        if (!this._skillsEngine) {
+          throw new Error('SkillsEngine not configured. Call setSkillsEngine() first.');
+        }
+
+        const result = await loadSkill(skillName, role, this._skillsEngine);
+
+        return {
+          role: 'tool',
+          kind: 'tool_result',
+          content: result.skill_content,
+          tool: `load_skill:${skillName}`,
+        };
+      } catch (err) {
+        const errorMsg = err instanceof LoadSkillError
+          ? err.message
+          : `Error loading skill '${skillName}': ${err instanceof Error ? err.message : String(err)}`;
+        return {
+          role: 'tool',
+          kind: 'tool_error',
+          content: errorMsg,
+          tool: `load_skill:${skillName}`,
+        };
+      }
+    }
+
+    // Unknown tool
+    return {
+      role: 'tool',
+      kind: 'tool_error',
+      content: `Unknown tool '${tc.function.name}'. Available tools: load_skill.`,
+      tool: tc.function.name,
+    };
+  }
+
+  /**
+   * Handle tool calls from the LLM response and re-invoke the LLM
+   * with tool results injected into the conversation.
+   *
+   * This implements a tool-call loop: the LLM may request tools,
+   * the runtime executes them, and the LLM continues with the results.
+   * The loop has a maximum number of rounds to prevent infinite recursion.
+   *
+   * @returns The final text response after all tool calls have been resolved.
+   */
+  private async handleToolCallsLoop(
+    rawResponse: string,
+    role: AgentRole,
+    sessionId: string,
+    candidate: Candidate,
+    systemPrompt: string,
+    modelParams: { temperature: number; maxTokens: number },
+    abortController: AbortController,
+  ): Promise<string> {
+    let currentResponse = rawResponse;
+    const MAX_TOOL_ROUNDS = 5;
+    // Track calls to detect infinite loops (same tool name + same args)
+    const previousCalls = new Set<string>();
+
+    for (let toolRound = 0; toolRound < MAX_TOOL_ROUNDS; toolRound++) {
+      const toolCalls = this.parseToolCallsFromResponse(currentResponse);
+      if (!toolCalls) {
+        // Not a tool_calls response — it's the final text
+        return currentResponse;
+      }
+
+      // Detect if this exact set of tool calls has been made before
+      const callFingerprint = toolCalls
+        .map((tc) => `${tc.function.name}:${tc.function.arguments}`)
+        .sort()
+        .join('||');
+      if (previousCalls.has(callFingerprint)) {
+        // Same tool calls would repeat — break to prevent infinite loop
+        return currentResponse;
+      }
+      previousCalls.add(callFingerprint);
+
+      // Record the assistant message containing the tool_calls
+      appendMessage(this.saivageDir, sessionId, {
+        role: 'assistant',
+        kind: 'tool_call',
+        content: JSON.stringify({ toolCalls }),
+        tool: toolCalls.map((tc) => tc.function.name).join(','),
+      });
+
+      // Process each tool call and collect tool result messages
+      const toolMessages: Array<{
+        role: 'tool';
+        kind: 'tool_result' | 'tool_error';
+        content: string;
+        tool: string;
+      }> = [];
+
+      for (const tc of toolCalls) {
+        const toolMsg = await this.processToolCall(tc, role, sessionId);
+        toolMessages.push(toolMsg);
+      }
+
+      // Append tool messages to session
+      for (const msg of toolMessages) {
+        appendMessage(this.saivageDir, sessionId, {
+          role: msg.role,
+          kind: msg.kind,
+          content: msg.content,
+          tool: msg.tool,
+        });
+      }
+
+      // Call LLM again with tool results injected into the conversation
+      // Note: we pass tools but NOT tool_choice on follow-up calls —
+      // the model should produce a text response after receiving tool results.
+      currentResponse = await this.llmCallFn!(
+        candidate,
+        systemPrompt,
+        getSessionMessages(this.saivageDir, sessionId),
+        sessionId,
+        {
+          temperature: modelParams.temperature,
+          max_tokens: modelParams.maxTokens,
+          signal: abortController.signal,
+          // Don't pass tools on follow-up — model has the results
+        },
+      );
+    }
+
+    return currentResponse;
+  }
+
+  /**
    * Core agent invocation logic with model routing, session management,
    * compaction, and recovery.
    */
@@ -510,6 +721,10 @@ export class AgentAdapter implements AgentRuntime {
 
     // Get model params (temperature, max_tokens) for this role
     const modelParams = getModelParamsForRole(this.config, role);
+
+    // Build tool definitions for this role
+    const tools = this.buildToolsForRole(role);
+    const tool_choice: 'auto' | undefined = tools.length > 0 ? 'auto' : undefined;
 
     // Create session
     const session = createSession(
@@ -692,27 +907,47 @@ export class AgentAdapter implements AgentRuntime {
             const callStart = Date.now();
 
             try {
-              // Make the LLM call with role-specific temperature, max_tokens, and signal
+              // Build LLM opts with tools for this role
+              const llmOpts: LlmCompleteOptions = {
+                temperature: modelParams.temperature,
+                max_tokens: modelParams.maxTokens,
+                signal: abortController.signal,
+                ...(tools.length > 0 ? { tools, tool_choice } : {}),
+              };
+
+              // Make the LLM call with role-specific temperature, max_tokens, tools, and signal
               const rawResponse = await this.llmCallFn!(
                 candidate,
                 systemPrompt,
                 getSessionMessages(this.saivageDir, session.id),
                 session.id,
-                { temperature: modelParams.temperature, max_tokens: modelParams.maxTokens, signal: abortController.signal },
+                llmOpts,
+              );
+
+              // Handle tool calls: if the LLM requested tools, execute them
+              // and loop until we get a final text response
+              const finalResponse = await this.handleToolCallsLoop(
+                rawResponse,
+                role,
+                session.id,
+                candidate,
+                systemPrompt,
+                modelParams,
+                abortController,
               );
 
               // Compute actual call duration
               const callDuration = Date.now() - callStart;
 
-              // Record assistant response
+              // Record assistant response (the final text, not tool calls)
               appendMessage(this.saivageDir, session.id, {
                 role: 'assistant',
                 kind: 'text',
-                content: rawResponse,
+                content: finalResponse,
               });
 
               // Parse the result
-              const parsed = parser(rawResponse);
+              const parsed = parser(finalResponse);
 
               // Mark candidate as succeeded
               this.registry.markSucceeded(candidate);
@@ -798,7 +1033,7 @@ export class AgentAdapter implements AgentRuntime {
         }
 
         // All candidates exhausted
-        throw lastError ?? new Error(`All candidates exhausted for role '${role}'.`);
+                throw lastError ?? new Error(`All candidates exhausted for role '${role}'.`);
       } finally {
         // Clean up cancellation state for this session.
         // This covers:
