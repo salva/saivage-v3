@@ -8,6 +8,7 @@
  */
 
 import { SkillsEngine } from './skills-engine.js';
+import type { ToolDefinition } from './llm-client.js';
 
 // ── Types ─────────────────────────────────────────────────────
 
@@ -47,6 +48,46 @@ export const PERMITTED_ROLES: readonly string[] = [
   'executor',
   'reviewer',
 ] as const;
+
+// ── Tool Definition ───────────────────────────────────────────
+
+/**
+ * OpenAI function-calling tool definition for the load_skill tool.
+ *
+ * Agents (planner, executor, reviewer) can invoke this tool mid-session
+ * to load a skill that was not preloaded via trigger matching.
+ *
+ * The tool accepts a single required parameter:
+ * - name: The name of the skill to load (must match an entry in the skills index)
+ */
+export const LOAD_SKILL_TOOL_DEFINITION: ToolDefinition = {
+  type: 'function',
+  function: {
+    name: 'load_skill',
+    description:
+      'Load a skill on-demand during an agent session. Skills provide domain-specific instructions, coding standards, or project conventions. Use this when you encounter a situation that requires a skill not already in your context. Provide the skill name to load its content.',
+    parameters: {
+      type: 'object',
+      properties: {
+        name: {
+          type: 'string',
+          description:
+            'The name of the skill to load (must match an entry in the skills index)',
+        },
+      },
+      required: ['name'],
+      additionalProperties: false,
+    },
+  },
+};
+
+/**
+ * Convenience array containing the load_skill tool definition.
+ * Use this when constructing the tools list for an LLM call.
+ */
+export const LOAD_SKILL_TOOL_DEFINITIONS: ToolDefinition[] = [
+  LOAD_SKILL_TOOL_DEFINITION,
+];
 
 // ── Delimited Block Format ────────────────────────────────────
 
