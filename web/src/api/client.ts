@@ -31,6 +31,8 @@ import type {
   McpToolsResponse,
   FreezeResponse,
   ResumeFromFreezeResponse,
+  ProcessListResponse,
+  ProcessDetailResponse,
 } from './types';
 import { getAuthToken } from './auth';
 
@@ -236,6 +238,22 @@ export function listFiles(path?: string): Promise<FilesListResponse> {
 
 export function getFileContent(path: string): Promise<FileContent> {
   return request<FileContent>('GET', '/api/files/content', { path });
+}
+
+// ── Processes ─────────────────────────────────────────────────
+
+/**
+ * List all processes.
+ */
+export function listProcesses(): Promise<ProcessListResponse> {
+  return request<ProcessListResponse>('GET', '/api/processes');
+}
+
+/**
+ * Get a single process by ID.
+ */
+export function getProcess(processId: string): Promise<ProcessDetailResponse> {
+  return request<ProcessDetailResponse>('GET', `/api/processes/${encodeURIComponent(processId)}`);
 }
 
 // ── Debug ─────────────────────────────────────────────────────

@@ -502,6 +502,16 @@ export interface DebugTimelineResponse {
   total: number;
 }
 
+/** Response from GET /api/processes. */
+export interface ProcessListResponse {
+  processes: ProcessRecord[];
+}
+
+/** Response from GET /api/processes/:id. */
+export interface ProcessDetailResponse {
+  process: ProcessRecord;
+}
+
 // ── Card Create/Update Payloads ───────────────────────────────
 
 export interface CreateCardPayload {
