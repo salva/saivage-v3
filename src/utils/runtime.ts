@@ -76,7 +76,7 @@ export interface RuntimeConfig {
   /** Optional maximum goal depth (default: 5). When set, overrides the CardStore default. */
   maxGoalDepth?: number;
   /** Optional StuckAgentSupervisor configuration. Default: enabled with defaults. */
-  supervisorConfig?: SupervisorConfig;
+  supervisorConfig?: Partial<SupervisorConfig>;
   /**
    * Enable continuous improvement mode: when all top-level goals are terminal
    * and the system is idle, the runtime auto-invokes the project planner with

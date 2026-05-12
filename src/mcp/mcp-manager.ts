@@ -762,7 +762,7 @@ export class McpManager {
         params: { name: toolName, arguments: args },
       };
 
-      proc.stdin.write(JSON.stringify(request) + '\n');
+      this._safeWrite(proc.stdin, JSON.stringify(request) + '\n', serverName);
 
       const response = await this._readResponse(
         rl,
@@ -1009,6 +1009,17 @@ export class McpManager {
         this.discoveryErrors.delete(name);
       }
     });
+
+    // Suppress EPIPE/stream errors on stdin/stdout — they occur
+    // naturally when a bad command exits early.  The 'exit' handler
+    // above already cleans up the handle and status so there is no
+    // need for an uncaught exception to crash the process.
+    if (proc.stdin) {
+      proc.stdin.on('error', () => { /* EPIPE expected on early exit */ });
+    }
+    if (proc.stdout) {
+      proc.stdout.on('error', () => { /* stream closed by early exit */ });
+    }
   }
 
   private async _startSse(name: string, cfg: McpServerConfig): Promise<void> {
@@ -1117,7 +1128,7 @@ export class McpManager {
           },
         },
       };
-      proc.stdin.write(JSON.stringify(initReq) + '\n');
+      this._safeWrite(proc.stdin, JSON.stringify(initReq) + '\n', name);
 
       // Read lines until we get the init response or timeout
       const initResponse = await this._readResponse(
@@ -1142,7 +1153,7 @@ export class McpManager {
         jsonrpc: '2.0',
         method: 'notifications/initialized',
       };
-      proc.stdin.write(JSON.stringify(initializedNotification) + '\n');
+      this._safeWrite(proc.stdin, JSON.stringify(initializedNotification) + '\n', name);
 
       // ── Step 3: tools/list ─────────────────────────────────
       let cursor: string | undefined;
@@ -1161,7 +1172,7 @@ export class McpManager {
         }
         firstPage = false;
 
-        proc.stdin.write(JSON.stringify(listReq) + '\n');
+        this._safeWrite(proc.stdin, JSON.stringify(listReq) + '\n', name);
 
         const listResponse = await this._readResponse(
           rl,
@@ -1349,6 +1360,33 @@ export class McpManager {
     // ── Cache and mark initialized ─────────────────────────
     this.toolsCache.set(name, tools);
     this.toolsCacheInitialized.add(name);
+  }
+
+  /**
+   * Safely write data to a process stdin stream, catching EPIPE/stream errors
+   * and converting them to TransportError exceptions.
+   *
+   * This prevents uncaught EPIPE crashes when a bad stdio command exits
+   * before or during the MCP handshake. The 'exit' handler in _startStdio
+   * already cleans up the handle and status on process exit.
+   */
+  private _safeWrite(stream: NodeJS.WritableStream, data: string, serverName: string): void {
+    if (stream.writable) {
+      try {
+        stream.write(data);
+      } catch (err) {
+        // EPIPE or similar write-after-close errors -> graceful manager error
+        throw new TransportError(
+          serverName,
+          `stdio write failed (process may have exited early): ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+    } else {
+      throw new TransportError(
+        serverName,
+        'Process stdin is not writable (process exited before discovery/invocation)',
+      );
+    }
   }
 
   /**

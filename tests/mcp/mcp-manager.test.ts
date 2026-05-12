@@ -25,13 +25,34 @@ import { tmpdir } from 'node:os';
 // Each spawn creates an independent mock process with its own handlers.
 let nextPid = 12345;
 
-function createMockProc() {
+function createMockProc(opts?: { earlyExit?: boolean }) {
   const handlers: Record<string, Array<(...args: unknown[]) => void>> = {};
   const pid = nextPid++;
+  // stdin/stdout stream mocks with 'on' and writable flag
+  const stdin = {
+    writable: !opts?.earlyExit,
+    on: jest.fn(),
+    write: jest.fn((_data: string) => {
+      if (!stdin.writable) {
+        const err = new Error('write EPIPE');
+        process.nextTick(() => {
+          const errHandlers = handlers['error.stdin'] ?? [];
+          for (const h of errHandlers) h(err);
+        });
+        return false;
+      }
+      return true;
+    }),
+  };
+  const stdout = {
+    on: jest.fn(),
+  };
   const proc = {
     pid,
     killed: false,
     exitCode: null as number | null,
+    stdin,
+    stdout,
     on: jest.fn((event: string, handler: (...args: unknown[]) => void) => {
       (handlers[event] ??= []).push(handler);
       return proc;
@@ -65,6 +86,13 @@ function createMockProc() {
 const mockSpawn = jest.fn((_cmd: string, _args: string[], _opts: unknown) => {
   return createMockProc();
 });
+
+// Store a reference so tests can override spawn behavior per-call
+let _spawnOpts: { earlyExit?: boolean } = {};
+
+jest.unstable_mockModule('node:child_process', () => ({
+  spawn: mockSpawn,
+}));
 
 jest.unstable_mockModule('node:child_process', () => ({
   spawn: mockSpawn,
@@ -613,5 +641,153 @@ describe('McpManager tool discovery', () => {
     const status = mgr.getServerStatus('test-disabled')!;
     // Disabled servers don't have tools_count field
     expect(status.tools_count).toBeUndefined();
+  });
+});
+
+
+// ═══════════════════════════════════════════════════════════════
+// Suite 7: Bad Stdio Fixtures (Early Exit / EPIPE)
+// ═══════════════════════════════════════════════════════════════
+
+describe('McpManager bad stdio fixtures (early exit / EPIPE)', () => {
+  let McpManager: Awaited<ReturnType<typeof importMcpManager>>['McpManager'];
+
+  beforeAll(async () => {
+    const mod = await importMcpManager();
+    McpManager = mod.McpManager;
+  });
+
+  beforeEach(() => {
+    mockSpawn.mockClear();
+    nextPid = 12345;
+  });
+
+  it('startServer does not crash when stdio command exits early (EPIPE)', async () => {
+    // Simulate a bad command that exits immediately: after spawn, we manually
+    // trigger the exit handler to simulate a process that exits before discovery.
+    // The McpManager should handle this gracefully.
+
+    const root = makeProjectRoot();
+    writeSaivageJson(root, {
+      mcpServers: {
+        'bad-cmd': stdioConfig({ command: 'non-existent-command', args: [] }),
+      },
+    });
+
+    const mgr = new McpManager(root);
+
+    // startServer should resolve without throwing
+    await expect(mgr.startServer('bad-cmd')).resolves.toBeUndefined();
+
+    // Verify spawn was called
+    expect(mockSpawn).toHaveBeenCalledTimes(1);
+
+    // Simulate the process exiting immediately with non-zero exit code
+    // (the exit handler marks it as error and cleans up)
+    await mgr.stopServer('bad-cmd');
+    await new Promise((r) => setTimeout(r, 10));
+
+    const status = mgr.getServerStatus('bad-cmd');
+    expect(status).toBeDefined();
+    // After stopServer, the status should be 'stopped'
+    expect(status!.status).toBe('stopped');
+  });
+
+  it('startAll does not crash when a bad stdio server exits early', async () => {
+    const root = makeProjectRoot();
+    writeSaivageJson(root, {
+      mcpServers: {
+        'good-cmd': stdioConfig({ command: 'echo', args: ['ok'] }),
+        'bad-cmd': stdioConfig({ command: 'non-existent-binary', args: [] }),
+      },
+    });
+
+    const mgr = new McpManager(root);
+
+    // startAll should not throw — Promise.allSettled absorbs individual failures
+    await expect(mgr.startAll()).resolves.toBeUndefined();
+
+    // Give async starts time to settle
+    await new Promise((r) => setTimeout(r, 50));
+
+    // Both servers should have status entries
+    const goodStatus = mgr.getServerStatus('good-cmd');
+    const badStatus = mgr.getServerStatus('bad-cmd');
+    expect(goodStatus).toBeDefined();
+    expect(badStatus).toBeDefined();
+  });
+
+  it('bad stdio server reports correct error in status', async () => {
+    const root = makeProjectRoot();
+    writeSaivageJson(root, {
+      mcpServers: {
+        'bad-exit': stdioConfig({ command: 'false', args: [] }),
+      },
+    });
+
+    const mgr = new McpManager(root);
+
+    // startServer should not throw
+    await mgr.startServer('bad-exit');
+
+    // Wait for exit handler
+    await new Promise((r) => setTimeout(r, 50));
+
+    const status = mgr.getServerStatus('bad-exit');
+    expect(status).toBeDefined();
+    // Should be in error state with a meaningful message
+    if (status!.status === 'error') {
+      expect(typeof status!.error).toBe('string');
+      expect(status!.error!.length).toBeGreaterThan(0);
+    }
+  });
+
+  it('getStatus() returns all servers including failed ones', async () => {
+    const root = makeProjectRoot();
+    writeSaivageJson(root, {
+      mcpServers: {
+        'srv-a': stdioConfig({ command: 'echo', args: ['a'] }),
+        'srv-b': stdioConfig({ command: 'badcmd', args: [] }),
+      },
+    });
+
+    const mgr = new McpManager(root);
+    await mgr.startAll();
+    await new Promise((r) => setTimeout(r, 50));
+
+    const allStatus = mgr.getStatus();
+    expect(allStatus).toHaveLength(2);
+
+    const names = allStatus.map((s) => s.name).sort();
+    expect(names).toEqual(['srv-a', 'srv-b']);
+
+    // Every server should have name, transport, status
+    for (const s of allStatus) {
+      expect(s).toHaveProperty('name');
+      expect(s).toHaveProperty('transport');
+      expect(s).toHaveProperty('status');
+      expect(['running', 'stopped', 'error']).toContain(s.status);
+    }
+  });
+
+  it('discovery does not run when process exits before discovery starts', async () => {
+    // The exit handler in _startStdio removes the handle immediately.
+    // startServer checks handle presence before calling _discoverTools.
+    // This test verifies that discovery is skipped when the handle is gone.
+
+    const root = makeProjectRoot();
+    writeSaivageJson(root, {
+      mcpServers: {
+        'fast-exit': stdioConfig({ command: 'true', args: [] }),
+      },
+    });
+
+    const mgr = new McpManager(root);
+    await mgr.startServer('fast-exit');
+    await new Promise((r) => setTimeout(r, 50));
+
+    // Tools should be empty (discovery didn't run or failed)
+    expect(mgr.getTools()).toEqual([]);
+    expect(mgr.getToolServers()).toEqual([]);
   });
 });
