@@ -106,7 +106,7 @@ Minimal example:
 }
 ```
 
-See **[CONFIGURATION.md](CONFIGURATION.md)** for the full config reference with all sections and examples.
+See **[CONFIGURATION.md](configuration.md)** for the full config reference with all sections and examples.
 
 > **Secret handling**: Fields named `apiKey`, `apiToken`, `botToken`, etc. can use `${ENV_VAR}` syntax to reference environment variables instead of hardcoding secrets. The API server redacts literal secrets in `.saivage/saivage.json` when serving config through `/api/config`.
 
@@ -161,7 +161,7 @@ SAIVAGE_API_TOKEN=test node dist/src/server/server.js
 
 ## Next Steps
 
-- Create a goal card via `POST /api/cards` — see **[OPERATION.md](OPERATION.md)** for API usage.
+- Create a goal card via `POST /api/cards` — see **[OPERATION.md](operation.md)** for API usage.
 - Open the web UI at `http://localhost:8080/` (if you built the web frontend).
-- Read **[CONFIGURATION.md](CONFIGURATION.md)** to configure models, providers, MCP servers, Telegram, and notifications.
-- Read **[OPERATION.md](OPERATION.md)** to learn about runtime management, backup, and recovery.
+- Read **[CONFIGURATION.md](configuration.md)** to configure models, providers, MCP servers, Telegram, and notifications.
+- Read **[OPERATION.md](operation.md)** to learn about runtime management, backup, and recovery.
