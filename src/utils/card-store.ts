@@ -820,12 +820,12 @@ export class CardStore {
     const existingPlan = this.read(planId);
     if (existingPlan) {
       // Goal already has a plan — just activate the goal
-      const updatedGoal = this.update(id, { status: 'active' });
+      const updatedGoal = this.setStatus(id, 'active');
       return { goal: updatedGoal, plan: existingPlan };
     }
 
     // Activate the goal
-    const updatedGoal = this.update(id, { status: 'active' });
+    const updatedGoal = this.setStatus(id, 'active');
 
     // Compute plan depth — depth checks are at depth computation time, not here
     // (activateGoal creates the plan card directly without going through create())
