@@ -142,6 +142,30 @@ const mockProcessDetached: ProcessRecord = {
   process_group_id: 42,
 };
 
+/** A process with process_group_id = 0 (falsy but valid — must still render Group row). */
+const mockProcessGroupIdZero: ProcessRecord = {
+  id: 'proc-zero-group',
+  card_id: 'card-zero',
+  command: 'echo "zero group"',
+  cwd: '/work/saivage-v3',
+  status: 'running',
+  pid: 9999,
+  started_at: '2025-06-01T11:00:00Z',
+  completed_at: null,
+  exit_code: null,
+  required_for_card_completion: false,
+  output_dir: '/work/saivage-v3/.saivage-work/processes/proc-zero-group',
+  stdout_path: '/work/saivage-v3/.saivage-work/processes/proc-zero-group/stdout.log',
+  stderr_path: '/work/saivage-v3/.saivage-work/processes/proc-zero-group/stderr.log',
+  combined_log_path: '/work/saivage-v3/.saivage-work/processes/proc-zero-group/combined.log',
+  agent_session_id: null,
+  goal_id: null,
+  launch_reason: null,
+  owner_kind: null,
+  background_policy: null,
+  process_group_id: 0,
+};
+
 // ── Router factory ────────────────────────────────────────────
 
 function makeRouter() {
@@ -235,7 +259,7 @@ describe('DebugView — processes tab', () => {
     expect(detailTexts.some((t) => t.includes('npm test'))).toBe(true);
     expect(detailTexts.some((t) => t.includes('card-goal-1'))).toBe(true);
     expect(detailTexts.some((t) => t.includes('12345'))).toBe(true);
-    expect(detailTexts.some((t) => t.includes('Yes'))).toBe(true); // required_for_card_completion
+    expect(detailTexts.some((t) => t.includes('Yes'))).toBe(true);
   });
 
   it('renders ownership/session context fields when present', async () => {
@@ -273,7 +297,7 @@ describe('DebugView — processes tab', () => {
     // Core fields should still be present
     expect(detailTexts.some((t) => t.includes('echo "hello"'))).toBe(true);
     expect(detailTexts.some((t) => t.includes('card-ops-1'))).toBe(true);
-    expect(detailTexts.some((t) => t.includes('No'))).toBe(true); // required_for_card_completion
+    expect(detailTexts.some((t) => t.includes('No'))).toBe(true);
 
     // Ownership fields should NOT appear
     expect(detailTexts.some((t) => t.startsWith('Agent Session:'))).toBe(false);
@@ -299,6 +323,29 @@ describe('DebugView — processes tab', () => {
     expect(detailTexts.some((t) => t.includes('Policy:') && t.includes('detach'))).toBe(true);
     expect(detailTexts.some((t) => t.includes('Group:') && t.includes('42'))).toBe(true);
     expect(detailTexts.some((t) => t.includes('Owner:') && t.includes('runtime'))).toBe(true);
+  });
+
+  it('renders Group row when process_group_id is 0 (falsy-but-valid metadata)', async () => {
+    const wrapper = await mountDebugView();
+    vi.mocked(listProcesses).mockResolvedValue({
+      processes: [mockProcessGroupIdZero],
+    });
+    clickProcessesTab(wrapper);
+    await flushPromises();
+
+    const card = wrapper.find('.process-card');
+    expect(card.exists()).toBe(true);
+
+    // The process card should render
+    expect(card.find('.process-id').text()).toBe('proc-zero-group');
+
+    const details = card.findAll('.pd-row');
+    const detailTexts = details.map((d) => d.text());
+
+    // process_group_id = 0 is falsy in JS, but the template uses != null
+    // (loose not-equal to null), which treats 0 as non-null.
+    // The Group row MUST render with the value "0".
+    expect(detailTexts.some((t) => t.includes('Group:') && t.includes('0'))).toBe(true);
   });
 
   it('displays multiple process cards when multiple processes exist', async () => {

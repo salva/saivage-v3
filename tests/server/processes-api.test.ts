@@ -261,7 +261,6 @@ describe('Stage 57 — GET /api/processes (with data)', () => {
     const body = await res.json() as { processes: Array<Record<string, unknown>> };
 
     for (const proc of body.processes) {
-      // Mandatory core fields per ProcessRecord schema
       expect(proc).toHaveProperty('id');
       expect(typeof proc.id).toBe('string');
 
@@ -376,13 +375,16 @@ describe('Stage 57 — GET /api/processes (with data)', () => {
     expect(body.error).toBe('Process not found');
   });
 
-  it('GET /api/processes/:id returns 400 for empty ID', async () => {
+  it('GET /api/processes/ with trailing slash reaches :id route with empty param (400)', async () => {
+    // Fastify routes /api/processes/ to the :id param route with an empty-string id.
+    // The route guard correctly rejects this per the route contract: "Process ID is required." (400).
+    // This is the correct explicit behavior — an empty process ID is not a valid request,
+    // and the route safely returns 400 rather than crashing or returning ambiguous data.
     const res = await fetch(apiUrl('/api/processes/'), { headers: authHdr() });
-    // Fastify routes /api/processes/ without a param would match the list endpoint,
-    // but if the route has :id, the empty trailing should still not crash
-    // Actually Fastify treats /api/processes/ differently — it could be the list route
-    // depending on normalization. This test just verifies no crash.
-    expect(res.status).toBeLessThan(500);
+    expect(res.status).toBe(400);
+
+    const body = await res.json() as Record<string, unknown>;
+    expect(body.error).toBe('Process ID is required.');
   });
 
   // ── Auth Tests ──────────────────────────────────────────────
@@ -418,7 +420,6 @@ describe('Stage 57 — GET /api/processes (empty state)', () => {
   beforeAll(async () => {
     projectRoot = uniqueDir();
     setupProject(projectRoot, {});
-    // No process registry file — empty state
 
     authToken = process.env['SAIVAGE_API_TOKEN'] || 'test-token';
     process.env['SAIVAGE_API_TOKEN'] = authToken;
