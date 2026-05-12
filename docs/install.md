@@ -31,6 +31,23 @@ cd saivage-v3
 npm install
 ```
 
+> **⚠ IMPORTANT — NODE_ENV gotcha**: npm's default behaviour is to skip
+> `devDependencies` when `NODE_ENV` is set to `production` in your shell
+> environment.  If your install is missing `jest`, `typescript`,
+> `pino-pretty`, or other dev tools, check your environment first:
+>
+> ```bash
+> echo $NODE_ENV
+> ```
+>
+> If it prints `production`, either unset it or override it for the install:
+>
+> ```bash
+> unset NODE_ENV && npm install
+> # or
+> NODE_ENV=development npm install
+> ```
+
 ### 3. Build the Web UI (optional)
 
 If you want the Web Control Room (Vue SPA served by the same process):
