@@ -41,7 +41,7 @@ import { EventLogger } from '../utils/event-logger.js';
 import { buildSelfCheckPrompt } from './system-prompt.js';
 import type { McpManager } from '../mcp/mcp-manager.js';
 import { SkillsEngine } from './skills-engine.js';
-import { loadSkill, LOAD_SKILL_TOOL_DEFINITIONS, LoadSkillError, PERMITTED_ROLES } from './skill-tools.js';
+import { loadSkill, LOAD_SKILL_TOOL_DEFINITIONS, ALL_TOOL_DEFINITIONS, LoadSkillError, PERMITTED_ROLES } from './skill-tools.js';
 
 // Re-export the common AgentRuntime interface for consumers that
 // need to reference it without importing agent-runtime.ts directly.
@@ -192,7 +192,7 @@ export class AgentAdapter implements AgentRuntime {
    */
   private buildToolsForRole(role: AgentRole): ToolDefinition[] {
     if ((PERMITTED_ROLES as readonly string[]).includes(role)) {
-      return LOAD_SKILL_TOOL_DEFINITIONS;
+      return ALL_TOOL_DEFINITIONS;
     }
     return [];
   }

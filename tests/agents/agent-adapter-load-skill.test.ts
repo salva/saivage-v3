@@ -156,19 +156,19 @@ describe('AgentAdapter load_skill tool', () => {
 
     it('returns tools including load_skill for planner', () => {
       const tools = callBuildToolsForRole('planner');
-      expect(tools).toHaveLength(1);
+      expect(tools).toHaveLength(2);
       expect(tools[0].function.name).toBe('load_skill');
     });
 
     it('returns tools including load_skill for executor', () => {
       const tools = callBuildToolsForRole('executor');
-      expect(tools).toHaveLength(1);
+      expect(tools).toHaveLength(2);
       expect(tools[0].function.name).toBe('load_skill');
     });
 
     it('returns tools including load_skill for reviewer', () => {
       const tools = callBuildToolsForRole('reviewer');
-      expect(tools).toHaveLength(1);
+      expect(tools).toHaveLength(2);
       expect(tools[0].function.name).toBe('load_skill');
     });
 
@@ -489,7 +489,7 @@ describe('AgentAdapter load_skill tool', () => {
 
     it('builds tools for planner and includes load_skill', () => {
       const tools = callBuildToolsForRole('planner');
-      expect(tools).toHaveLength(1);
+      expect(tools).toHaveLength(2);
       expect(tools[0].function.name).toBe('load_skill');
     });
 
