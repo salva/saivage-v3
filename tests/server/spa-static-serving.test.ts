@@ -1,5 +1,5 @@
 /**
- * Stage fix-static-spa-serving — SPA Static Serving Integration Tests
+ * Stage fix-static-spa-serving + stage-53 hardening — SPA Static Serving Integration Tests
  *
  * Verifies that the SPA and docs static serving works correctly when
  * projectRoot differs from the Saivage installation (package root).
@@ -16,8 +16,10 @@
  *   3. GET /health returns 200
  *   4. GET /api/runtime/status returns 200
  *   5. GET /docs/ returns 200 with VitePress content (not swallowed by SPA fallback)
+ *   6. API routes return structured JSON, not SPA HTML
+ *   7. WebSocket upgrade works with static serving enabled
  *
- * All requests use fastify.inject() — no actual HTTP server needed.
+ * All requests use fastify.inject() / fastify.injectWS() — no actual HTTP server needed.
  */
 
 import { describe, it, expect, beforeAll, afterAll } from '@jest/globals';
@@ -31,6 +33,7 @@ import {
 import { join, dirname } from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
+import type { WebSocket } from 'ws';
 
 // ── Helpers ───────────────────────────────────────────────────
 
@@ -362,6 +365,26 @@ describe('SPA static serving (projectRoot ≠ packageRoot)', () => {
       expect(body).toHaveProperty('runtime');
       expect(body.runtime).toBe('idle');
     });
+
+    it('returns application/json content-type with structured status', async () => {
+      const res = await server.fastify.inject({
+        method: 'GET',
+        url: '/api/runtime/status',
+      });
+      expect(res.statusCode).toBe(200);
+      const ct = res.headers['content-type'] || '';
+      expect(ct).toContain('application/json');
+
+      const body = JSON.parse(res.body) as Record<string, unknown>;
+      expect(body).toHaveProperty('runtime');
+      expect(body).toHaveProperty('paused');
+      expect(body).toHaveProperty('currentCardId');
+      expect(body).toHaveProperty('goalCount');
+      // Must have the expected typed fields
+      expect(typeof body.runtime).toBe('string');
+      expect(typeof body.paused).toBe('boolean');
+      expect(typeof body.goalCount).toBe('number');
+    });
   });
 
   // ──────────────────────────────────────────────────────────
@@ -437,6 +460,19 @@ describe('SPA static serving (projectRoot ≠ packageRoot)', () => {
       expect(res.body).not.toContain('<div id="app">');
     });
 
+    it('GET /api/state response is valid JSON with cardIndex and runtime', async () => {
+      const res = await server.fastify.inject({
+        method: 'GET',
+        url: '/api/state',
+      });
+      expect(res.statusCode).toBe(200);
+      expect(() => JSON.parse(res.body)).not.toThrow();
+      const body = JSON.parse(res.body) as Record<string, unknown>;
+      // The /api/state endpoint returns cardIndex and runtime objects
+      expect(body).toHaveProperty('cardIndex');
+      expect(body).toHaveProperty('runtime');
+    });
+
     it('GET /ws does not return SPA HTML', async () => {
       const res = await server.fastify.inject({
         method: 'GET',
@@ -444,6 +480,180 @@ describe('SPA static serving (projectRoot ≠ packageRoot)', () => {
       });
       // WebSocket upgrade endpoint should not return SPA HTML
       expect(res.body).not.toContain('<div id="app">');
+    });
+  });
+
+  // ──────────────────────────────────────────────────────────
+  // 7. WebSocket upgrade works with static serving enabled
+  // ──────────────────────────────────────────────────────────
+
+  describe('WebSocket /ws upgrade (static serving enabled)', () => {
+    it('injectWS upgrades successfully when SAIVAGE_API_TOKEN is unset (dev mode)', async () => {
+      // In dev mode (no SAIVAGE_API_TOKEN), the WebSocket auth passes through.
+      // injectWS simulates a real WebSocket upgrade handshake.
+      const ws: WebSocket = await (server.fastify as any).injectWS('/ws');
+      expect(ws).toBeDefined();
+      expect(ws.readyState).toBe(ws.OPEN); // WebSocket.OPEN = 1
+      // Gracefully close after test
+      ws.close();
+    }, 10000);
+
+    it('injectWS sends welcome message with connected status on upgrade', async () => {
+      const messages: string[] = [];
+      const ws: WebSocket = await (server.fastify as any).injectWS('/ws', {}, {
+        onOpen: (socket: WebSocket) => {
+          socket.on('message', (data: Buffer | string) => {
+            messages.push(typeof data === 'string' ? data : data.toString('utf-8'));
+          });
+        },
+      });
+
+      // Wait a short time for the welcome message to arrive
+      await new Promise(resolve => setTimeout(resolve, 200));
+
+      expect(messages.length).toBeGreaterThanOrEqual(1);
+      const welcomeMessage = JSON.parse(messages[0]!) as Record<string, unknown>;
+      expect(welcomeMessage.type).toBe('status');
+      expect(welcomeMessage.content).toHaveProperty('event', 'connected');
+      expect(welcomeMessage.content).toHaveProperty('sessionId');
+      expect(welcomeMessage.content).toHaveProperty('clientCount');
+      ws.close();
+    }, 10000);
+
+    it('WebSocket upgrade with valid auth token succeeds when SAIVAGE_API_TOKEN is set', async () => {
+      const prevToken = process.env['SAIVAGE_API_TOKEN'];
+      process.env['SAIVAGE_API_TOKEN'] = 'hardening-test-token';
+
+      try {
+        // Use onOpen to capture the welcome message that is sent
+        // immediately after the connection is established
+        const messages: string[] = [];
+        const ws: WebSocket = await (server.fastify as any).injectWS(
+          '/ws?token=hardening-test-token',
+          {},
+          {
+            onOpen: (socket: WebSocket) => {
+              socket.on('message', (data: Buffer | string) => {
+                messages.push(typeof data === 'string' ? data : data.toString('utf-8'));
+              });
+            },
+          },
+        );
+
+        expect(ws).toBeDefined();
+        expect(ws.readyState).toBe(ws.OPEN);
+
+        // Wait for the welcome message
+        await new Promise(resolve => setTimeout(resolve, 200));
+        expect(messages.length).toBeGreaterThanOrEqual(1);
+
+        const welcomeMessage = JSON.parse(messages[0]!) as Record<string, unknown>;
+        expect(welcomeMessage.type).toBe('status');
+        expect(welcomeMessage.content).toHaveProperty('event', 'connected');
+
+        ws.close();
+      } finally {
+        if (prevToken) {
+          process.env['SAIVAGE_API_TOKEN'] = prevToken;
+        } else {
+          delete process.env['SAIVAGE_API_TOKEN'];
+        }
+      }
+    }, 10000);
+
+    it('WebSocket with invalid auth token gets closed when SAIVAGE_API_TOKEN is set', async () => {
+      const prevToken = process.env['SAIVAGE_API_TOKEN'];
+      process.env['SAIVAGE_API_TOKEN'] = 'hardening-test-token';
+
+      try {
+        // Connect with a wrong token
+        const closeEvents: { code: number; reason: string }[] = [];
+        const ws: WebSocket = await (server.fastify as any).injectWS('/ws?token=wrong-token', {}, {
+          onOpen: (socket: WebSocket) => {
+            // Watch for the close frame
+            socket.on('close', (code: number, reason: Buffer) => {
+              closeEvents.push({
+                code,
+                reason: reason.toString('utf-8'),
+              });
+            });
+          },
+        });
+
+        // Wait for the auth failure close
+        await new Promise(resolve => setTimeout(resolve, 300));
+
+        // The server should close the connection with 1008 (Policy Violation)
+        // when auth fails
+        if (closeEvents.length > 0) {
+          expect(closeEvents[0]!.code).toBe(1008);
+          expect(closeEvents[0]!.reason).toBe('Authentication failed');
+        } else {
+          // If no close event fired yet, the socket may still be open because
+          // injectWS simulates the upgrade. The close happens asynchronously.
+          // At minimum, the socket should not still be OPEN after timeout.
+          expect(ws.readyState).not.toBe(ws.OPEN);
+        }
+
+        try { ws.close(); } catch { /* may already be closed */ }
+      } finally {
+        if (prevToken) {
+          process.env['SAIVAGE_API_TOKEN'] = prevToken;
+        } else {
+          delete process.env['SAIVAGE_API_TOKEN'];
+        }
+      }
+    }, 10000);
+  });
+
+  // ──────────────────────────────────────────────────────────
+  // 8. API routes function correctly alongside static serving
+  // ──────────────────────────────────────────────────────────
+
+  describe('API routes function alongside static serving', () => {
+    it('GET /api/runtime/status returns correct JSON regardless of static serving', async () => {
+      const res = await server.fastify.inject({
+        method: 'GET',
+        url: '/api/runtime/status',
+      });
+      expect(res.statusCode).toBe(200);
+      const ct = res.headers['content-type'] || '';
+      expect(ct).toContain('application/json');
+
+      const body = JSON.parse(res.body) as Record<string, unknown>;
+      // These are the documented fields from registerRuntimeDispatchRoutes
+      expect(body).toHaveProperty('runtime');
+      expect(body).toHaveProperty('paused');
+      expect(body).toHaveProperty('currentCardId');
+      expect(body).toHaveProperty('goalCount');
+    });
+
+    it('GET /api/runtime/status body is JSON, not swallowed by SPA fallback', async () => {
+      const res = await server.fastify.inject({
+        method: 'GET',
+        url: '/api/runtime/status',
+      });
+      expect(res.statusCode).toBe(200);
+      // SPA fallback serves index.html which always has <div id="app">
+      expect(res.body).not.toContain('<div id="app">');
+      // Should be valid parseable JSON
+      expect(() => JSON.parse(res.body)).not.toThrow();
+    });
+
+    it('POST /api/runtime/freeze handles request without SPA interference', async () => {
+      // POST /api/runtime/freeze should respond with JSON, not SPA HTML
+      const res = await server.fastify.inject({
+        method: 'POST',
+        url: '/api/runtime/freeze',
+        payload: { reason: 'hardening-test' },
+      });
+      // The response should be JSON from the freeze endpoint, not SPA HTML
+      expect(res.body).not.toContain('<div id="app">');
+      // It should be valid JSON
+      expect(() => JSON.parse(res.body)).not.toThrow();
+      const body = JSON.parse(res.body) as Record<string, unknown>;
+      // Should have a status field
+      expect(body).toHaveProperty('status');
     });
   });
 });
