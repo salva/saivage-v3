@@ -17,11 +17,14 @@ import type {
   DebugStateResponse,
   DebugErrorsResponse,
   DebugTimelineResponse,
+  ProcessRecord,
+  ProcessListResponse,
 } from '../api/types';
 import {
   getDebugState,
   getDebugErrors,
   getDebugTimeline,
+  listProcesses,
   ApiError,
 } from '../api/client';
 import { useWsStore } from './ws';
@@ -55,6 +58,10 @@ export const useDebugStore = defineStore('debug', () => {
   // Timeline
   const timelineEvents = ref<DebugTimelineEvent[]>([]);
   const timelineTotal = ref(0);
+
+  // Processes
+  const processes = ref<ProcessRecord[]>([]);
+  const processesLoading = ref(false);
 
   // Shared
   const loading = ref(false);
@@ -161,6 +168,22 @@ export const useDebugStore = defineStore('debug', () => {
     }
   }
 
+  /** Fetch process list. */
+  async function fetchProcesses(): Promise<void> {
+    processesLoading.value = true;
+    error.value = null;
+    try {
+      const response: ProcessListResponse = await listProcesses();
+      processes.value = response.processes;
+    } catch (err) {
+      const msg = err instanceof ApiError ? err.message : 'Failed to fetch processes';
+      error.value = msg;
+      log.error('fetchProcesses', msg);
+    } finally {
+      processesLoading.value = false;
+    }
+  }
+
   /** Fetch all debug data at once. */
   async function fetchAll(): Promise<void> {
     await Promise.allSettled([fetchState(), fetchErrors(), fetchTimeline()]);
@@ -220,6 +243,8 @@ export const useDebugStore = defineStore('debug', () => {
     errorsTotal: readonly(errorsTotal),
     timelineEvents: readonly(timelineEvents),
     timelineTotal: readonly(timelineTotal),
+    processes: readonly(processes),
+    processesLoading: readonly(processesLoading),
     loading: readonly(loading),
     error: readonly(error),
     activeTab,
@@ -234,6 +259,7 @@ export const useDebugStore = defineStore('debug', () => {
     fetchState,
     fetchErrors,
     fetchTimeline,
+    fetchProcesses,
     fetchAll,
     setActiveTab,
     setupWsListener,

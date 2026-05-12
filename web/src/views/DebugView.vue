@@ -165,6 +165,35 @@
           </section>
         </div>
       </div>
+
+      <!-- Processes Tab -->
+      <div v-if="localActiveTab === 'processes'" class="debug-tab-content">
+        <div v-if="processesLoading" class="debug-loading">Loading processes...</div>
+        <div v-else-if="processes.length === 0" class="debug-empty">No processes found.</div>
+        <div v-else class="processes-list">
+          <div v-for="proc in processes" :key="proc.id" class="process-card">
+            <div class="process-header">
+              <span class="process-id mono">{{ proc.id }}</span>
+              <span class="process-status-badge" :class="'ps-' + proc.status">{{ proc.status }}</span>
+            </div>
+            <div class="process-details">
+              <div class="pd-row"><span class="pd-key">Command:</span><span class="pd-value mono">{{ proc.command }}</span></div>
+              <div class="pd-row"><span class="pd-key">Card:</span><span class="pd-value mono">{{ proc.card_id }}</span></div>
+              <div class="pd-row"><span class="pd-key">PID:</span><span class="pd-value mono">{{ proc.pid ?? '-' }}</span></div>
+              <div v-if="proc.agent_session_id" class="pd-row"><span class="pd-key">Agent Session:</span><span class="pd-value mono">{{ proc.agent_session_id }}</span></div>
+              <div v-if="proc.goal_id" class="pd-row"><span class="pd-key">Goal:</span><span class="pd-value mono">{{ proc.goal_id }}</span></div>
+              <div v-if="proc.launch_reason" class="pd-row"><span class="pd-key">Reason:</span><span class="pd-value">{{ proc.launch_reason }}</span></div>
+              <div v-if="proc.owner_kind" class="pd-row"><span class="pd-key">Owner:</span><span class="pd-value mono">{{ proc.owner_kind }}</span></div>
+              <div v-if="proc.background_policy" class="pd-row"><span class="pd-key">Policy:</span><span class="pd-value mono">{{ proc.background_policy }}</span></div>
+              <div v-if="proc.process_group_id != null" class="pd-row"><span class="pd-key">Group:</span><span class="pd-value mono">{{ proc.process_group_id }}</span></div>
+              <div class="pd-row"><span class="pd-key">Started:</span><span class="pd-value">{{ fmtDate(proc.started_at) }}</span></div>
+              <div v-if="proc.completed_at" class="pd-row"><span class="pd-key">Completed:</span><span class="pd-value">{{ fmtDate(proc.completed_at) }}</span></div>
+              <div v-if="proc.exit_code != null" class="pd-row"><span class="pd-key">Exit Code:</span><span class="pd-value mono">{{ proc.exit_code }}</span></div>
+              <div class="pd-row"><span class="pd-key">Required:</span><span class="pd-value">{{ proc.required_for_card_completion ? 'Yes' : 'No' }}</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
   </div>
 </template>
@@ -184,14 +213,16 @@ const {
   debugRuntime, debugCards, debugTotalCards,
   errors, errorsTotal, errorsBySource,
   sortedTimeline, loading, error,
+  processes, processesLoading,
 } = storeToRefs(debugStore);
 
-type TabId = 'state' | 'errors' | 'timeline' | 'mcp';
+type TabId = 'state' | 'errors' | 'timeline' | 'mcp' | 'processes';
 
 const tabs = [
   { id: 'state' as const, label: 'State' },
   { id: 'errors' as const, label: 'Errors' },
   { id: 'timeline' as const, label: 'Timeline' },
+  { id: 'processes' as const, label: 'Processes' },
   { id: 'mcp' as const, label: 'MCP' },
 ];
 
@@ -202,6 +233,7 @@ function setTab(tab: TabId): void {
   if (tab === 'state') debugStore.fetchState().catch(() => {});
   else if (tab === 'errors') debugStore.fetchErrors().catch(() => {});
   else if (tab === 'timeline') debugStore.fetchTimeline().catch(() => {});
+  else if (tab === 'processes') debugStore.fetchProcesses().catch(() => {});
   else if (tab === 'mcp') mcpStore.fetchMcpData().catch(() => {});
 }
 
@@ -346,4 +378,20 @@ onUnmounted(() => {
 .mcp-stats-cell.mcp-stat-error { color:#f85149; }
 .mcp-stats-cell.mcp-stat-time { color:#484f58; }
 .mcp-content { padding:0; }
+
+/* ── Processes Styles ── */
+.processes-list { display:flex; flex-direction:column; gap:10px; }
+.process-card { background:#161b22; border:1px solid #21262d; border-radius:6px; overflow:hidden; }
+.process-header { display:flex; align-items:center; gap:8px; padding:8px 12px; background:#1c2128; border-bottom:1px solid #30363d; }
+.process-id { font-size:13px; color:#58a6ff; }
+.process-status-badge { font-size:10px; font-weight:600; padding:2px 7px; border-radius:4px; text-transform:uppercase; }
+.process-status-badge.ps-running { background:#1a2418; color:#7ee787; }
+.process-status-badge.ps-exited { background:#1c2738; color:#58a6ff; }
+.process-status-badge.ps-failed { background:#241818; color:#f85149; }
+.process-status-badge.ps-killed { background:#241f18; color:#d29922; }
+.process-details { padding:8px 12px; display:flex; flex-direction:column; gap:4px; }
+.pd-row { display:flex; gap:8px; font-size:12px; align-items:baseline; }
+.pd-key { color:#8b949e; min-width:90px; flex-shrink:0; }
+.pd-value { color:#c9d1d9; word-break:break-all; }
+.pd-value.mono { font-family:'SF Mono',monospace; font-size:11px; color:#58a6ff; }
 </style>
