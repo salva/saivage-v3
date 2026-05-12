@@ -11,7 +11,8 @@
     "typecheck": "tsc --noEmit",
     "lint": "eslint src/",
     "format": "prettier --check src/",
-    "format:fix": "prettier --write src/"
+    "format:fix": "prettier --write src/",
+    "docs:build": "vitepress build docs"
   },
   "dependencies": {
     "@fastify/cors": "^11.2.0",
@@ -31,7 +32,8 @@
     "jest": "^29.7.0",
     "prettier": "^3.8.3",
     "ts-jest": "^29.4.9",
-    "typescript": "^5.9.3"
+    "typescript": "^5.9.3",
+    "vitepress": "^1.6.4"
   },
   "jest": {
     "preset": "ts-jest/presets/default-esm",
