@@ -1437,3 +1437,377 @@ describe('Recursion Depth Limit', () => {
     });
   });
 });
+
+// ── State-based Permissions ───────────────────────────────────
+
+describe('State-based permissions', () => {
+  // ── Helper: transition a card through a chain of states ──
+  function transitionTo(store: CardStore, cardId: string, targetStatus: CardStatus): CardRecord {
+    const card = store.read(cardId)!;
+    const currentStatus = card.status;
+
+    // Build a path through the state machine
+    const paths: Record<string, CardStatus[]> = {
+      drafting: ['drafting'],
+      backlog: ['drafting', 'backlog'],
+      active: ['drafting', 'backlog', 'active'],
+      running: ['drafting', 'backlog', 'active', 'running'],
+      blocked: ['drafting', 'backlog', 'active', 'running', 'blocked'],
+      done: ['drafting', 'backlog', 'active', 'running', 'done'],
+      failed: ['drafting', 'backlog', 'active', 'running', 'failed'],
+      cancelled: ['drafting', 'cancelled'],
+    };
+
+    const neededPath = paths[targetStatus];
+    if (!neededPath) throw new Error(`No path defined for ${targetStatus}`);
+
+    for (const step of neededPath) {
+      if (step === currentStatus) continue;
+      if (step === 'drafting' && currentStatus === 'drafting') continue;
+      store.setStatus(cardId, step);
+    }
+
+    return store.read(cardId)!;
+  }
+
+  // ── 1. done/failed/cancelled — reject any non-status edit ──
+  describe('update() — terminal states reject non-status edits', () => {
+    const terminalStatuses: CardStatus[] = ['done', 'failed', 'cancelled'];
+
+    for (const status of terminalStatuses) {
+      it(`rejects title update on ${status} card`, () => {
+        const card = store.create(makeCard({ type: 'goal', title: `${status} card`, parent: 'project', status: 'drafting' }));
+        transitionTo(store, card.id, status);
+        expect(() => store.update(card.id, { title: 'New Title' }))
+          .toThrow(/cannot be edited/);
+      });
+
+      it(`rejects description update on ${status} card`, () => {
+        const card = store.create(makeCard({ type: 'goal', title: `${status} card`, parent: 'project', status: 'drafting' }));
+        transitionTo(store, card.id, status);
+        expect(() => store.update(card.id, { description: 'New desc' }))
+          .toThrow(/cannot be edited/);
+      });
+
+      it(`rejects priority update on ${status} card`, () => {
+        const card = store.create(makeCard({ type: 'goal', title: `${status} card`, parent: 'project', status: 'drafting' }));
+        transitionTo(store, card.id, status);
+        expect(() => store.update(card.id, { priority: 10 }))
+          .toThrow(/cannot be edited/);
+      });
+
+      it(`status-only change on ${status} succeeds via setStatus`, () => {
+        const card = store.create(makeCard({ type: 'goal', title: `${status} card`, parent: 'project', status: 'drafting' }));
+        transitionTo(store, card.id, status);
+        // Status-only change (self-transition or reopen) should still work
+        // For done/failed → backlog, for cancelled → drafting
+        const reopenTarget: CardStatus = status === 'cancelled' ? 'drafting' : 'backlog';
+        const updated = store.setStatus(card.id, reopenTarget);
+        expect(updated.status).toBe(reopenTarget);
+      });
+    }
+
+    it('error message mentions state and "cannot be edited" for done', () => {
+      const card = store.create(makeCard({ type: 'goal', title: 'Done card', parent: 'project', status: 'drafting' }));
+      transitionTo(store, card.id, 'done');
+      expect(() => store.update(card.id, { title: 'Changed' }))
+        .toThrow(/Card '.*' is in status 'done'. Cards in this state cannot be edited/);
+    });
+
+    it('rejects multiple-field updates on terminal cards', () => {
+      const card = store.create(makeCard({ type: 'goal', title: 'Multi', parent: 'project', status: 'drafting' }));
+      transitionTo(store, card.id, 'failed');
+      expect(() => store.update(card.id, { title: 'X', description: 'Y' }))
+        .toThrow(/cannot be edited/);
+    });
+  });
+
+  // ── 2. drafting — allow full editing ──
+  describe('update() — drafting allows full editing', () => {
+    it('allows title update on drafting card', () => {
+      const card = store.create(makeCard({ type: 'goal', title: 'Draft', parent: 'project', status: 'drafting' }));
+      const updated = store.update(card.id, { title: 'New Draft Title' });
+      expect(updated.title).toBe('New Draft Title');
+    });
+
+    it('allows description update on drafting card', () => {
+      const card = store.create(makeCard({ type: 'goal', title: 'Draft', parent: 'project', status: 'drafting' }));
+      const updated = store.update(card.id, { description: 'A new description' });
+      expect(updated.description).toBe('A new description');
+    });
+
+    it('allows priority update on drafting card', () => {
+      const card = store.create(makeCard({ type: 'goal', title: 'Draft', parent: 'project', status: 'drafting' }));
+      const updated = store.update(card.id, { priority: 42 });
+      expect(updated.priority).toBe(42);
+    });
+
+    it('allows type update on drafting card (no children)', () => {
+      const card = store.create(makeCard({ type: 'goal', title: 'Draft', parent: 'project', status: 'drafting' }));
+      const updated = store.update(card.id, { type: 'code' });
+      expect(updated.type).toBe('code');
+    });
+
+    it('allows parent update on drafting card', () => {
+      const card = store.create(makeCard({ type: 'goal', title: 'Draft', parent: 'project', status: 'drafting' }));
+      const otherParent = store.create(makeCard({ type: 'goal', title: 'Other Parent', parent: 'project' }));
+      const updated = store.update(card.id, { parent: otherParent.id });
+      expect(updated.parent).toBe(otherParent.id);
+    });
+  });
+
+  // ── 3. backlog — allow full editing ──
+  describe('update() — backlog allows full editing', () => {
+    it('allows title update on backlog card', () => {
+      const card = store.create(makeCard({ type: 'goal', title: 'Backlog', parent: 'project' })); // default status=backlog
+      const updated = store.update(card.id, { title: 'New Backlog Title' });
+      expect(updated.title).toBe('New Backlog Title');
+    });
+
+    it('allows depends_on update on backlog card', () => {
+      const dep = store.create(makeCard({ type: 'goal', title: 'Dep', parent: 'project' }));
+      const card = store.create(makeCard({ type: 'goal', title: 'Backlog', parent: 'project' }));
+      const updated = store.update(card.id, { depends_on: [dep.id] });
+      expect(updated.depends_on).toEqual([dep.id]);
+    });
+
+    it('allows type update on backlog card (no children)', () => {
+      const card = store.create(makeCard({ type: 'goal', title: 'Backlog', parent: 'project' }));
+      const updated = store.update(card.id, { type: 'test' });
+      expect(updated.type).toBe('test');
+    });
+
+    it('allows priority update on backlog card', () => {
+      const card = store.create(makeCard({ type: 'goal', title: 'Backlog', parent: 'project' }));
+      const updated = store.update(card.id, { priority: 99 });
+      expect(updated.priority).toBe(99);
+    });
+  });
+
+  // ── 4. active/running/blocked — allow non-critical changes ──
+  describe('update() — active/running/blocked allow non-critical changes', () => {
+    const limitedEditStates: CardStatus[] = ['active', 'running', 'blocked'];
+
+    for (const status of limitedEditStates) {
+      it(`allows title update on ${status} card`, () => {
+        const card = store.create(makeCard({ type: 'goal', title: `${status} Title`, parent: 'project', status: 'drafting' }));
+        transitionTo(store, card.id, status);
+        const updated = store.update(card.id, { title: 'Updated Title' });
+        expect(updated.title).toBe('Updated Title');
+      });
+
+      it(`allows description update on ${status} card`, () => {
+        const card = store.create(makeCard({ type: 'goal', title: `${status} Desc`, parent: 'project', status: 'drafting' }));
+        transitionTo(store, card.id, status);
+        const updated = store.update(card.id, { description: 'Updated desc' });
+        expect(updated.description).toBe('Updated desc');
+      });
+
+      it(`allows priority update on ${status} card`, () => {
+        const card = store.create(makeCard({ type: 'goal', title: `${status} Prio`, parent: 'project', status: 'drafting' }));
+        transitionTo(store, card.id, status);
+        const updated = store.update(card.id, { priority: 77 });
+        expect(updated.priority).toBe(77);
+      });
+
+      it(`allows urgency update on ${status} card`, () => {
+        const card = store.create(makeCard({ type: 'goal', title: `${status} Urg`, parent: 'project', status: 'drafting' }));
+        transitionTo(store, card.id, status);
+        const updated = store.update(card.id, { urgency: 'critical' });
+        expect(updated.urgency).toBe('critical');
+      });
+
+      it(`allows tags update on ${status} card`, () => {
+        const card = store.create(makeCard({ type: 'goal', title: `${status} Tags`, parent: 'project', status: 'drafting' }));
+        transitionTo(store, card.id, status);
+        const updated = store.update(card.id, { tags: ['urgent', 'frontend'] });
+        expect(updated.tags).toEqual(['urgent', 'frontend']);
+      });
+    }
+  });
+
+  // ── 5. active/running/blocked — reject critical field changes ──
+  describe('update() — active/running/blocked reject critical field changes', () => {
+    const limitedEditStates: CardStatus[] = ['active', 'running', 'blocked'];
+
+    for (const status of limitedEditStates) {
+      it(`rejects type change on ${status} card`, () => {
+        const card = store.create(makeCard({ type: 'goal', title: `${status} Type`, parent: 'project', status: 'drafting' }));
+        transitionTo(store, card.id, status);
+        expect(() => store.update(card.id, { type: 'code' }))
+          .toThrow(/Field 'type' cannot be changed/);
+      });
+
+      it(`rejects parent change on ${status} card`, () => {
+        const card = store.create(makeCard({ type: 'goal', title: `${status} Parent`, parent: 'project', status: 'drafting' }));
+        transitionTo(store, card.id, status);
+        const other = store.create(makeCard({ type: 'goal', title: 'Other', parent: 'project' }));
+        expect(() => store.update(card.id, { parent: other.id }))
+          .toThrow(/Field 'parent' cannot be changed/);
+      });
+
+      it(`rejects depends_on change on ${status} card`, () => {
+        const card = store.create(makeCard({ type: 'goal', title: `${status} Deps`, parent: 'project', status: 'drafting' }));
+        transitionTo(store, card.id, status);
+        const dep = store.create(makeCard({ type: 'goal', title: 'Dep', parent: 'project' }));
+        expect(() => store.update(card.id, { depends_on: [dep.id] }))
+          .toThrow(/Field 'depends_on' cannot be changed/);
+      });
+    }
+
+    it('error message mentions field name and "cannot be changed"', () => {
+      const card = store.create(makeCard({ type: 'goal', title: 'Active Card', parent: 'project', status: 'drafting' }));
+      transitionTo(store, card.id, 'active');
+      expect(() => store.update(card.id, { type: 'code' }))
+        .toThrow(/Field 'type' cannot be changed on a card in status 'active'/);
+    });
+  });
+
+  // ── 6. done/failed/cancelled — reject deletion ──
+  describe('delete() — terminal states reject deletion', () => {
+    const terminalStatuses: CardStatus[] = ['done', 'failed', 'cancelled'];
+
+    for (const status of terminalStatuses) {
+      it(`rejects deletion of ${status} card`, () => {
+        const card = store.create(makeCard({ type: 'goal', title: `${status} card`, parent: 'project', status: 'drafting' }));
+        transitionTo(store, card.id, status);
+        // Ensure no children (required for delete to be attempted)
+        expect(() => store.delete(card.id))
+          .toThrow(/cannot be deleted/);
+      });
+    }
+
+    it('error message mentions state and "cannot be deleted" for done', () => {
+      const card = store.create(makeCard({ type: 'goal', title: 'Done Del', parent: 'project', status: 'drafting' }));
+      transitionTo(store, card.id, 'done');
+      expect(() => store.delete(card.id))
+        .toThrow(/Cannot delete card '.*' because it is in status 'done'. Cards in done status cannot be deleted/);
+    });
+  });
+
+  // ── 7. non-terminal states — allow deletion ──
+  describe('delete() — non-terminal states allow deletion', () => {
+    const deletableStates: CardStatus[] = ['drafting', 'backlog', 'active', 'running', 'blocked'];
+
+    for (const status of deletableStates) {
+      it(`allows deletion of ${status} card`, () => {
+        const card = store.create(makeCard({ type: 'goal', title: `${status} card`, parent: 'project', status: 'drafting' }));
+        if (status !== 'drafting') {
+          transitionTo(store, card.id, status);
+        }
+        // No children, so delete should succeed
+        store.delete(card.id);
+        expect(store.read(card.id)).toBeNull();
+      });
+    }
+  });
+
+  // ── 8. done/failed/cancelled parent — reject child creation ──
+  describe('create() — terminal-state parents reject child creation', () => {
+    const terminalStatuses: CardStatus[] = ['done', 'failed', 'cancelled'];
+
+    for (const status of terminalStatuses) {
+      it(`rejects creating child under ${status} parent`, () => {
+        const parent = store.create(makeCard({ type: 'goal', title: `${status} Parent`, parent: 'project', status: 'drafting' }));
+        transitionTo(store, parent.id, status);
+        expect(() => store.create(makeCard({ type: 'goal', title: 'Child', parent: parent.id })))
+          .toThrow(/Cannot create child under card/);
+      });
+    }
+
+    it('error message mentions parent state for done', () => {
+      const parent = store.create(makeCard({ type: 'goal', title: 'Done Parent', parent: 'project', status: 'drafting' }));
+      transitionTo(store, parent.id, 'done');
+      expect(() => store.create(makeCard({ type: 'goal', title: 'Child', parent: parent.id })))
+        .toThrow(/Cannot create child under card '.*' because it is in status 'done'/);
+    });
+  });
+
+  // ── 9. non-terminal parents — allow child creation ──
+  describe('create() — non-terminal-state parents allow child creation', () => {
+    const creatableStates: CardStatus[] = ['drafting', 'backlog', 'active', 'running', 'blocked'];
+
+    for (const status of creatableStates) {
+      it(`allows creating child under ${status} parent`, () => {
+        const parent = store.create(makeCard({ type: 'goal', title: `${status} Parent`, parent: 'project', status: 'drafting' }));
+        if (status !== 'drafting') {
+          transitionTo(store, parent.id, status);
+        }
+        const child = store.create(makeCard({ type: 'code', title: 'Child Card', parent: parent.id }));
+        expect(child.parent).toBe(parent.id);
+        expect(store.listChildren(parent.id)).toContain(child.id);
+      });
+    }
+  });
+
+  // ── 10. setStatus reopen flow ──
+  describe('setStatus() — reopen from terminal states', () => {
+    it('done → backlog (reopen via setStatus works)', () => {
+      const card = store.create(makeCard({ type: 'goal', title: 'Reopen Done', parent: 'project', status: 'drafting' }));
+      transitionTo(store, card.id, 'done');
+      const updated = store.setStatus(card.id, 'backlog');
+      expect(updated.status).toBe('backlog');
+      // After reopen, should be editable again
+      const edited = store.update(card.id, { title: 'Reopened and Edited' });
+      expect(edited.title).toBe('Reopened and Edited');
+    });
+
+    it('failed → backlog (reopen via setStatus works)', () => {
+      const card = store.create(makeCard({ type: 'goal', title: 'Reopen Failed', parent: 'project', status: 'drafting' }));
+      transitionTo(store, card.id, 'failed');
+      const updated = store.setStatus(card.id, 'backlog');
+      expect(updated.status).toBe('backlog');
+      const edited = store.update(card.id, { description: 'Reopened failed card' });
+      expect(edited.description).toBe('Reopened failed card');
+    });
+
+    it('cancelled → drafting (reopen via setStatus works)', () => {
+      const card = store.create(makeCard({ type: 'goal', title: 'Reopen Cancelled', parent: 'project', status: 'drafting' }));
+      store.setStatus(card.id, 'cancelled');
+      const updated = store.setStatus(card.id, 'drafting');
+      expect(updated.status).toBe('drafting');
+      const edited = store.update(card.id, { priority: 5 });
+      expect(edited.priority).toBe(5);
+    });
+
+    it('done → cancelled (archival transition via setStatus works)', () => {
+      const card = store.create(makeCard({ type: 'goal', title: 'Archive Done', parent: 'project', status: 'drafting' }));
+      transitionTo(store, card.id, 'done');
+      const updated = store.setStatus(card.id, 'cancelled');
+      expect(updated.status).toBe('cancelled');
+    });
+
+    it('failed → cancelled (archival transition via setStatus works)', () => {
+      const card = store.create(makeCard({ type: 'goal', title: 'Archive Failed', parent: 'project', status: 'drafting' }));
+      transitionTo(store, card.id, 'failed');
+      const updated = store.setStatus(card.id, 'cancelled');
+      expect(updated.status).toBe('cancelled');
+    });
+  });
+
+  // ── Edge cases ──
+  describe('Edge cases for state permissions', () => {
+    it('status-only self-transition on done card succeeds', () => {
+      const card = store.create(makeCard({ type: 'goal', title: 'Self Done', parent: 'project', status: 'drafting' }));
+      transitionTo(store, card.id, 'done');
+      const updated = store.update(card.id, { status: 'done' });
+      expect(updated.status).toBe('done');
+    });
+
+    it('updateDependsOn on terminal card is rejected (calls update internally)', () => {
+      const card = store.create(makeCard({ type: 'goal', title: 'Term Deps', parent: 'project', status: 'drafting' }));
+      transitionTo(store, card.id, 'done');
+      const dep = store.create(makeCard({ type: 'goal', title: 'Dep', parent: 'project' }));
+      expect(() => store.updateDependsOn(card.id, [dep.id]))
+        .toThrow(/cannot be edited/);
+    });
+
+    it('updateDependsOn on limited-edit card is rejected (critical field)', () => {
+      const card = store.create(makeCard({ type: 'goal', title: 'Limited Deps', parent: 'project', status: 'drafting' }));
+      transitionTo(store, card.id, 'active');
+      const dep = store.create(makeCard({ type: 'goal', title: 'Dep', parent: 'project' }));
+      expect(() => store.updateDependsOn(card.id, [dep.id]))
+        .toThrow(/Field 'depends_on' cannot be changed/);
+    });
+  });
+});
