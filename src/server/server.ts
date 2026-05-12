@@ -448,8 +448,11 @@ export async function createServer(
     try {
       await import('pino-pretty');
       transportOpt = { target: 'pino-pretty', options: { colorize: true } };
-    } catch {
-      // pino-pretty not available — fall back to standard JSON transport
+    } catch (err) {
+      // pino-pretty not available -- fall back to standard JSON transport
+      console.warn(
+        `pino-pretty not available, falling back to JSON transport: ${err instanceof Error ? err.message : String(err)}`,
+      );
     }
   }
 
