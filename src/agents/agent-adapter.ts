@@ -548,13 +548,54 @@ export class AgentAdapter implements AgentRuntime {
 
   /**
    * Process a single tool call and return the tool result message.
-   * Handles load_skill and unknown tools.
+   * Handles mcp_tool_call, load_skill, and unknown tools.
    */
   private async processToolCall(
     tc: { id: string; type: string; function: { name: string; arguments: string } },
     role: AgentRole,
     sessionId: string,
   ): Promise<{ role: 'tool'; kind: 'tool_result' | 'tool_error'; content: string; tool: string }> {
+    if (tc.function.name === 'mcp_tool_call') {
+      // Parse arguments
+      let args: { serverName?: string; toolName?: string; args?: Record<string, unknown> } = {};
+      try {
+        args = JSON.parse(tc.function.arguments);
+      } catch {
+        // Invalid JSON arguments
+      }
+
+      const serverName = args.serverName ?? '';
+      const toolName = args.toolName ?? '';
+      const toolArgs = args.args ?? {};
+
+      if (!serverName || !toolName) {
+        return {
+          role: 'tool',
+          kind: 'tool_error',
+          content: 'mcp_tool_call requires both "serverName" and "toolName" parameters.',
+          tool: 'mcp_tool_call',
+        };
+      }
+
+      try {
+        const result = await this.callMcpTool(serverName, toolName, toolArgs);
+        return {
+          role: 'tool',
+          kind: 'tool_result',
+          content: typeof result === 'string' ? result : JSON.stringify(result),
+          tool: `mcp_tool_call:${serverName}/${toolName}`,
+        };
+      } catch (err) {
+        const errorMsg = err instanceof Error ? err.message : String(err);
+        return {
+          role: 'tool',
+          kind: 'tool_error',
+          content: `MCP tool call failed: ${errorMsg}`,
+          tool: `mcp_tool_call:${serverName}/${toolName}`,
+        };
+      }
+    }
+
     if (tc.function.name === 'load_skill') {
       // Parse arguments
       let args: { name?: string } = {};
@@ -596,7 +637,7 @@ export class AgentAdapter implements AgentRuntime {
     return {
       role: 'tool',
       kind: 'tool_error',
-      content: `Unknown tool '${tc.function.name}'. Available tools: load_skill.`,
+      content: `Unknown tool '${tc.function.name}'. Available tools: load_skill, mcp_tool_call.`,
       tool: tc.function.name,
     };
   }
