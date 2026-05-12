@@ -88,6 +88,7 @@ export class ActiveRuntime {
       projectRoot,
       fakeAgentConfig: { mapping: {}, fixtureDir: '' },
       skillsEngine: undefined,
+      continuousImprovement: this._config.runtime.continuousImprovement,
       eventLogger: this._eventLogger,
       errorLogger: this._errorLogger,
       supervisorConfig: this._config.supervisor

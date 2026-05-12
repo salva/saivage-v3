@@ -77,6 +77,12 @@ export interface RuntimeConfig {
   maxGoalDepth?: number;
   /** Optional StuckAgentSupervisor configuration. Default: enabled with defaults. */
   supervisorConfig?: SupervisorConfig;
+  /**
+   * Enable continuous improvement mode: when all top-level goals are terminal
+   * and the system is idle, the runtime auto-invokes the project planner with
+   * an improvement directive to propose new goals. Default: false.
+   */
+  continuousImprovement?: boolean;
 }
 
 // ── Helpers ───────────────────────────────────────────────────
@@ -90,6 +96,9 @@ const TERMINAL_TYPES: ReadonlySet<string> = new Set([
   'research',
   'ops',
 ]);
+
+/** Card statuses that are considered terminal (no further work expected). */
+const TERMINAL_STATUSES: ReadonlySet<string> = new Set(['done', 'failed', 'cancelled']);
 
 function isTerminal(card: CardRecord): boolean {
   return TERMINAL_TYPES.has(card.type);
@@ -134,6 +143,48 @@ function buildReadyQueue(cards: CardRecord[]): CardRecord[] {
 
 function now(): string {
   return new Date().toISOString();
+}
+
+/**
+ * Build the improvement directive string that tells the project planner
+ * to review completed goals and propose new ones.
+ *
+ * @param completedGoals - List of top-level goal cards that have reached terminal states.
+ */
+function buildImprovementDirective(completedGoals: CardRecord[]): string {
+  const goalSummaries = completedGoals
+    .map(
+      (g) =>
+        `- **${g.title}** (${g.id}): ${g.description || 'No description'}
+` +
+        `  Status: ${g.status}
+` +
+        `  Acceptance: ${g.acceptance || 'Not specified'}`,
+    )
+    .join('\n');
+
+  return [
+    '## Continuous Improvement Directive',
+    '',
+    'This is an automated improvement invocation. All current top-level goals have reached',
+    'terminal states (done, failed, or cancelled). The system is idle.',
+    '',
+    '### Completed Goals',
+    '',
+    goalSummaries,
+    '',
+    '### Instructions',
+    '',
+    '1. Review the completed goals above.',
+    '2. Consider what improvements, new features, or bug fixes could enhance the project.',
+    '3. Propose new goal cards for any worthwhile improvements you identify.',
+    '4. You may also create cards to revisit failed goals with a revised approach.',
+    '5. If no improvements are warranted, set declare_done to true to stay idle.',
+    '6. Be incremental — propose 1-3 goals at most per invocation.',
+    '',
+    'This is a depth-0 (project-level) planning session. The system will invoke this',
+    'improvement cycle again after all proposed goals complete.',
+  ].join('\n');
 }
 
 function saivageWorkDir(projectRoot: string): string {
@@ -182,6 +233,7 @@ const TRACKED_EVENT_KINDS: ReadonlySet<string> = new Set([
   'force_cancel_sent',
   'session_cancelled',
   'session_force_cancelled',
+  'improvement_invoked',
 ]);
 
 // ── Runtime Class ────────────────────────────────────────────
@@ -240,6 +292,17 @@ export class Runtime extends EventEmitter {
   private _supervisor: StuckAgentSupervisor;
 
   /**
+   * When true, the runtime may invoke the depth-0 project planner with an
+   * improvement directive when all top-level goals are terminal.
+   */
+  private _continuousImprovement: boolean;
+
+  /**
+   * Guard to prevent concurrent improvement dispatches.
+   */
+  private _improvementDispatchInProgress: boolean = false;
+
+  /**
    * @param config       Runtime configuration (projectRoot, fakeAgentConfig, etc.)
    * @param agentRuntime Optional AgentRuntime implementation.
    *                     If not provided, a FakeAgentAdapter is created internally
@@ -252,6 +315,7 @@ export class Runtime extends EventEmitter {
     this.agentRuntime = agentRuntime ?? new FakeAgentAdapter(config.fakeAgentConfig);
     this._skillsEngine = config.skillsEngine ?? new SkillsEngine({ projectRoot: config.projectRoot });
     this.eventBus = new EventBus();
+    this._continuousImprovement = config.continuousImprovement ?? false;
 
     if (config.eventLogger) {
       this._eventLogger = config.eventLogger;
@@ -535,6 +599,10 @@ export class Runtime extends EventEmitter {
 
     // 6. Start stuck-agent supervisor
     this._supervisor.start();
+
+    // 7. After startup, if continuous improvement is enabled,
+    //    check if we should invoke the improvement planner immediately.
+    void this._checkContinuousImprovement();
   }
 
   // ── Shutdown ──────────────────────────────────────────────
@@ -1148,6 +1216,9 @@ export class Runtime extends EventEmitter {
             goal_id: goalId,
             assessment: reviewResult.assessment,
           });
+
+          // After goal completes, check continuous improvement mode
+          await this._checkContinuousImprovement();
           return;
         } else {
           // Review failed — re-invoke planner
@@ -1484,5 +1555,112 @@ export class Runtime extends EventEmitter {
    */
   getState(): RuntimeState | null {
     return readRuntimeState(this.projectRoot);
+  }
+
+  // ── Continuous Improvement ────────────────────────────
+
+  /**
+   * After a goal completes or on startup, check if continuous improvement mode
+   * is enabled and all top-level goals are terminal. If so, invoke the project
+   * planner with an improvement directive to propose new goals.
+   *
+   * Guards:
+   * - Only runs when _continuousImprovement is true
+   * - Only runs when not paused and not shutting down
+   * - Only runs when not already dispatching an improvement (prevents re-entry)
+   * - Only runs when all top-level goals (type='goal', parent='project') are terminal
+   */
+  private async _checkContinuousImprovement(): Promise<void> {
+    // Guard: feature must be enabled
+    if (!this._continuousImprovement) return;
+
+    // Guard: no dispatch during pause or shutdown
+    if (this._paused) return;
+    if (this._shuttingDown) return;
+
+    // Guard: prevent concurrent improvement dispatches
+    if (this._improvementDispatchInProgress) return;
+
+    // Check: all top-level goals must be terminal
+    const allCards = this.cardStore.list();
+
+    // Get all goals that are direct children of 'project'
+    const topLevelGoals = allCards.filter(
+      (c) => c.type === 'goal' && c.parent === 'project',
+    );
+
+    // If there are no top-level goals, there's nothing to improve
+    if (topLevelGoals.length === 0) return;
+
+    // All top-level goals must be in terminal states
+    const allTerminal = topLevelGoals.every((g) => TERMINAL_STATUSES.has(g.status));
+    if (!allTerminal) return;
+
+    // All guards passed — invoke the project planner
+    this._improvementDispatchInProgress = true;
+
+    try {
+      // Emit event before dispatch so listeners can react
+      this.emit('improvement_invoked', {
+        goalIds: topLevelGoals.map((g) => g.id),
+      });
+      this._eventLogger.appendEvent({
+        kind: 'improvement_invoked' as never,
+        goal_ids: topLevelGoals.map((g) => g.id),
+      });
+
+      // Build an improvement directive for the project planner
+      const improvementDirective = buildImprovementDirective(topLevelGoals);
+
+      // Get the project card for depth context
+      const projectGoal = this.cardStore.read('project');
+      const currentDepth = projectGoal?.depth ?? 0;
+      const maxDepth = this.cardStore.maxDepth;
+
+      // Build planner prompt with the improvement directive
+      const plannerPrompt = buildPlannerPrompt(improvementDirective, currentDepth, maxDepth);
+
+      // Activate the project goal to get/create the plan card
+      const planCardResult = this.cardStore.activateGoal('project');
+      const planCardId = planCardResult.plan.id;
+
+      // Invoke the planner using the agentRuntime
+      const result = this.agentRuntime.invokePlanner('project', planCardId, plannerPrompt);
+      const plannerResult = result instanceof Promise ? await result : result;
+
+      // Apply the planner's card mutations
+      this.applyPlannerResult('project', plannerResult);
+
+      // Log the improvement dispatch
+      this.emit('plan_updated', {
+        goalId: 'project',
+        source: 'continuous-improvement',
+      });
+      this._eventLogger.appendEvent({
+        kind: 'plan_updated' as never,
+        goal_id: 'project',
+        source: 'continuous-improvement',
+      });
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      this.emit('error', {
+        goalId: 'project',
+        phase: 'continuous-improvement',
+        error: err,
+      });
+      this._eventLogger.appendEvent({
+        kind: 'error' as never,
+        goal_id: 'project',
+        phase: 'continuous-improvement',
+        error_message: errorMessage,
+      });
+      this._errorLogger.appendError({
+        message: errorMessage,
+        goalId: 'project',
+        phase: 'continuous-improvement',
+      });
+    } finally {
+      this._improvementDispatchInProgress = false;
+    }
   }
 }
