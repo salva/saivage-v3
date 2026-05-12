@@ -1617,8 +1617,19 @@ export class Runtime extends EventEmitter {
       const currentDepth = projectGoal?.depth ?? 0;
       const maxDepth = this.cardStore.maxDepth;
 
-      // Build planner prompt with the improvement directive
-      const plannerPrompt = buildPlannerPrompt(improvementDirective, currentDepth, maxDepth);
+      // Build planner prompt with improvement directive + planner instructions
+      let promptContent = improvementDirective;
+      try {
+        const plannerInstr = this._skillsEngine
+          ? await this._skillsEngine.loadPlannerInstructions()
+          : '';
+        if (plannerInstr) {
+          promptContent = improvementDirective + '\n\n' + plannerInstr;
+        }
+      } catch {
+        // If planner instructions can't be loaded, proceed with just the improvement directive
+      }
+      const plannerPrompt = buildPlannerPrompt(promptContent, currentDepth, maxDepth);
 
       // Activate the project goal to get/create the plan card
       const planCardResult = this.cardStore.activateGoal('project');
