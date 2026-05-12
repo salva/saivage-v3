@@ -24,6 +24,16 @@ export interface ProcessStartOptions {
   env?: Record<string, string>;
   /** Whether this process is required for card completion */
   requiredForCardCompletion?: boolean;
+  /** Agent session ID launching this process */
+  agentSessionId?: string;
+  /** Goal ID associated with this process */
+  goalId?: string;
+  /** Human-readable reason for launching */
+  launchReason?: string;
+  /** Who owns this process */
+  ownerKind?: 'agent' | 'operator' | 'runtime';
+  /** Background execution policy */
+  backgroundPolicy?: 'foreground' | 'background_required' | 'background_optional' | 'detach' | 'kill_on_freeze';
 }
 
 export interface ProcessWaitResult {
@@ -320,6 +330,12 @@ export function startProcess(
     stdout_path: stdoutPath,
     stderr_path: stderrPath,
     combined_log_path: combinedLogPath,
+    agent_session_id: options.agentSessionId ?? null,
+    goal_id: options.goalId ?? null,
+    launch_reason: options.launchReason ?? null,
+    owner_kind: options.ownerKind ?? null,
+    background_policy: options.backgroundPolicy ?? null,
+    process_group_id: null,
   };
 
   // Persist immediately

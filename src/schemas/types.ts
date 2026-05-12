@@ -169,6 +169,18 @@ export interface ProcessRecord {
   stdout_path: string;
   stderr_path: string;
   combined_log_path: string;
+  /** Agent session ID that launched this process (null if launched outside an agent context) */
+  agent_session_id?: string | null;
+  /** Goal ID associated with this process */
+  goal_id?: string | null;
+  /** Human-readable reason this process was launched */
+  launch_reason?: string | null;
+  /** Who/what owns this process: 'agent', 'operator', 'runtime', or null */
+  owner_kind?: 'agent' | 'operator' | 'runtime' | null;
+  /** Background execution policy: 'foreground', 'background_required', 'background_optional', 'detach', 'kill_on_freeze', or null */
+  background_policy?: 'foreground' | 'background_required' | 'background_optional' | 'detach' | 'kill_on_freeze' | null;
+  /** Numeric process group ID for grouping related processes */
+  process_group_id?: number | null;
 }
 
 // ── Agent Session & Messages ─────────────────────────────────

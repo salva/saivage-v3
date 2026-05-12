@@ -185,6 +185,12 @@ export const processRecordSchema = z.object({
   stdout_path: z.string().min(1),
   stderr_path: z.string().min(1),
   combined_log_path: z.string().min(1),
+  agent_session_id: z.string().nullable().optional(),
+  goal_id: z.string().nullable().optional(),
+  launch_reason: z.string().nullable().optional(),
+  owner_kind: z.enum(['agent', 'operator', 'runtime']).nullable().optional(),
+  background_policy: z.enum(['foreground', 'background_required', 'background_optional', 'detach', 'kill_on_freeze']).nullable().optional(),
+  process_group_id: z.number().int().nonnegative().nullable().optional(),
 });
 
 // ── Agent Session & Messages ─────────────────────────────────
