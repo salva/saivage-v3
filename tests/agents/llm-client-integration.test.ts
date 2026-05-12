@@ -198,7 +198,10 @@ describe('LlmClient Integration with Mock HTTP Server', () => {
         { temperature: 0.5, max_tokens: 500 },
       );
 
-      expect(result).toBe('Hello from test model!');
+      // result is LlmCompleteResult with .content, .toolCalls, .finishReason
+      expect(result.content).toBe('Hello from test model!');
+      expect(result.toolCalls).toEqual([]);
+      expect(result.finishReason).toBe('stop');
       expect(cap.method).toBe('POST');
       expect(cap.url).toBe('/v1/chat/completions');
       expect(cap.headers['content-type']).toBe('application/json');
@@ -367,7 +370,7 @@ describe('LlmClient Integration with Mock HTTP Server', () => {
     }
   });
 
-  it('should throw LlmParseError when message content is null', async () => {
+  it('should return result with null content when message content is null', async () => {
     const { server, port } = await createMockServer((_req, res) => {
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({
@@ -383,9 +386,10 @@ describe('LlmClient Integration with Mock HTTP Server', () => {
 
     try {
       const client = new LlmClient(`http://localhost:${port}`);
-      await expect(
-        client.complete(cand(), sp(), msgs(), 'sess-null'),
-      ).rejects.toThrow(LlmParseError);
+      const result = await client.complete(cand(), sp(), msgs(), 'sess-null');
+      expect(result.content).toBeNull();
+      expect(result.toolCalls).toEqual([]);
+      expect(result.finishReason).toBe('stop');
     } finally {
       await closeServer(server);
     }
@@ -558,7 +562,7 @@ describe('LlmClient Streaming Mode', () => {
       const result = await client.complete(
         cand(), sp(), msgs(), 'sess-stream-1', { stream: true },
       );
-      expect(result).toBe('Hello world from streaming model!');
+      expect(result.content).toBe('Hello world from streaming model!');
     } finally {
       await closeServer(server);
     }
@@ -580,7 +584,7 @@ describe('LlmClient Streaming Mode', () => {
       const result = await client.complete(
         cand(), sp(), msgs(), 'sess-stream-2', { stream: true },
       );
-      expect(result).toBe('partial done');
+      expect(result.content).toBe('partial done');
     } finally {
       await closeServer(server);
     }
