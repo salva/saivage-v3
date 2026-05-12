@@ -472,12 +472,16 @@ export async function createServer(
   // take priority over the SPA not-found handler.  If the VitePress build
   // output exists, @fastify/static serves it; otherwise an explicit catch-all
   // returns a helpful 404 (the SPA fallback must not swallow /docs/ requests).
+  //
+  // Pass decorateReply: false because @fastify/static may have already been
+  // registered for the SPA above, which decorates reply.sendFile() once.
   const docsDistDir = join(projectRoot, 'docs', '.vitepress', 'dist');
   if (existsSync(docsDistDir)) {
     await fastify.register(fastifyStatic, {
       root: docsDistDir,
       prefix: '/docs/',
       wildcard: false,
+      decorateReply: false,
     });
   } else {
     // VitePress not built — return a graceful 404 for any /docs/ request

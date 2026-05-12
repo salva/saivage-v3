@@ -8,6 +8,7 @@
  *   3. API auth acceptance via Bearer and ?token= query param
  *   4. WebSocket connectivity with auth (welcome message, rejection without token)
  *   5. Static file serving of the web SPA from web/dist/
+ *   6. VitePress docs serving at /docs/ from docs/.vitepress/dist/
  */
 
 import { describe, it, expect, beforeAll, afterAll } from '@jest/globals';
@@ -163,6 +164,15 @@ function setupProjectDir(root: string): void {
     const tmpWebDist = join(root, 'web', 'dist');
     mkdirSync(dirname(tmpWebDist), { recursive: true });
     cpSync(realWebDist, tmpWebDist, { recursive: true });
+  }
+
+  // Copy docs/.vitepress/dist/ into the temp dir so fastifyStatic can serve
+  // the VitePress documentation at /docs/.
+  const realDocsDist = join(PROJECT_ROOT, 'docs', '.vitepress', 'dist');
+  if (existsSync(realDocsDist)) {
+    const tmpDocsDist = join(root, 'docs', '.vitepress', 'dist');
+    mkdirSync(dirname(tmpDocsDist), { recursive: true });
+    cpSync(realDocsDist, tmpDocsDist, { recursive: true });
   }
 }
 
@@ -416,7 +426,54 @@ describe('Server Startup Integration (createServer)', () => {
   });
 
   // ══════════════════════════════════════════════════════════
-  // 5. Server Lifecycle
+  // 5. VitePress Docs Serving
+  // ══════════════════════════════════════════════════════════
+
+  describe('VitePress Docs Serving', () => {
+    it('GET /docs/ returns 200 and serves VitePress index page', async () => {
+      const res = await fetch(baseUrl('/docs/'));
+      expect(res.status).toBe(200);
+    });
+
+    it('GET /docs/ response contains VitePress generated content', async () => {
+      const res = await fetch(baseUrl('/docs/'));
+      expect(res.status).toBe(200);
+      const text = await res.text();
+      // VitePress-generated pages contain the app mount div
+      expect(text).toContain('<div id="app">');
+      // VitePress meta tag confirms it's a VitePress build
+      expect(text).toContain('content="VitePress');
+      // Navigation text from the config
+      expect(text).toContain('Saivage v3');
+    });
+
+    it('GET /docs/ response has text/html content type', async () => {
+      const res = await fetch(baseUrl('/docs/'));
+      expect(res.status).toBe(200);
+      const ct = res.headers.get('content-type') || '';
+      expect(ct).toContain('text/html');
+    });
+
+    it('GET /docs/install.html returns 200 and serves Install page', async () => {
+      const res = await fetch(baseUrl('/docs/install.html'));
+      expect(res.status).toBe(200);
+    });
+
+    it('GET /docs/install.html response contains Install-specific VitePress content', async () => {
+      const res = await fetch(baseUrl('/docs/install.html'));
+      expect(res.status).toBe(200);
+      const text = await res.text();
+      // VitePress meta tag
+      expect(text).toContain('content="VitePress');
+      // Install guide heading content
+      expect(text).toContain('Installation Guide');
+      // Navigation text
+      expect(text).toContain('Saivage v3');
+    });
+  });
+
+  // ══════════════════════════════════════════════════════════
+  // 6. Server Lifecycle
   // ══════════════════════════════════════════════════════════
 
   describe('Server Lifecycle', () => {
