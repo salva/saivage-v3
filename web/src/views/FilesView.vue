@@ -116,13 +116,15 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted } from 'vue';
+import { onMounted, watch } from 'vue';
+import { useRoute } from 'vue-router';
 import { storeToRefs } from 'pinia';
 import { useFileStore } from '../stores/files';
 import { createLogger } from '../utils/logger';
 
 const log = createLogger('view:files');
 
+const route = useRoute();
 const fileStore = useFileStore();
 const {
   metaFiles, metaLoading, metaBreadcrumbs,
@@ -180,9 +182,28 @@ async function fetchOutputFiles(): Promise<void> {
   try { await fileStore.fetchOutputFiles(); } catch { /* error in store */ }
 }
 
+/**
+ * If the route carries a `?path=` query param that points inside
+ * .saivage-work/, navigate the output panel there.  This enables the
+ * DebugView "Browse in Files" button to open a specific quarantine
+ * directory without cross-view coupling beyond the route query.
+ */
+function applyQueryPath(): void {
+  const p = route.query.path;
+  if (typeof p === 'string' && p.startsWith('.saivage-work/')) {
+    log.info('applyQueryPath navigating output panel to', p);
+    fileStore.navigateOutput(p).catch(() => {});
+  }
+}
+
 onMounted(() => {
   fetchMetaFiles();
   fetchOutputFiles();
+  applyQueryPath();
+});
+
+watch(() => route.query.path, () => {
+  applyQueryPath();
 });
 </script>
 
