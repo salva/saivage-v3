@@ -232,4 +232,27 @@ describe('Process Runner Smoke Tests', () => {
     const tail = tailOutput(r, result.id);
     expect(tail).toContain('persistent-data');
   });
+
+  it('startProcess includes new ownership fields when provided', async () => {
+    const r = setup();
+    const rec = startProcess(r, 'echo ownership-test', {
+      cardId: 'card-own-smoke',
+      agentSessionId: 'session-smoke',
+      goalId: 'goal-smoke',
+      launchReason: 'smoke test',
+      ownerKind: 'runtime',
+      backgroundPolicy: 'detach',
+    });
+    await waitProcess(r, rec.id);
+    await sleep(200);
+
+    const proc = getProcess(r, rec.id);
+    expect(proc).not.toBeNull();
+    expect(proc!.agent_session_id).toBe('session-smoke');
+    expect(proc!.goal_id).toBe('goal-smoke');
+    expect(proc!.launch_reason).toBe('smoke test');
+    expect(proc!.owner_kind).toBe('runtime');
+    expect(proc!.background_policy).toBe('detach');
+    expect(proc!.process_group_id).toBeNull();
+  });
 });

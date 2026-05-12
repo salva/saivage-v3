@@ -11,6 +11,7 @@
  * - Registry persistence: save/load round-trip, Zod validation
  * - Restart survival: output files survive, registry survives
  * - Edge cases: failed commands, spawn errors, concurrent processes
+ * - Backward compatibility: new ownership fields
  */
 import { describe, it, expect, beforeEach, afterEach } from '@jest/globals';
 import { mkdtempSync, rmSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
@@ -153,6 +154,39 @@ describe('Process Runner', () => {
       killProcess(root, rec1.id);
       killProcess(root, rec2.id);
       killProcess(root, rec3.id);
+    });
+
+    it('includes new ownership fields from ProcessStartOptions', () => {
+      const rec = startProcess(root, 'sleep 3', {
+        cardId: 'card-own',
+        agentSessionId: 'session-test-123',
+        goalId: 'goal-test-456',
+        launchReason: 'test executor tool call',
+        ownerKind: 'agent',
+        backgroundPolicy: 'foreground',
+      });
+
+      expect(rec.agent_session_id).toBe('session-test-123');
+      expect(rec.goal_id).toBe('goal-test-456');
+      expect(rec.launch_reason).toBe('test executor tool call');
+      expect(rec.owner_kind).toBe('agent');
+      expect(rec.background_policy).toBe('foreground');
+      expect(rec.process_group_id).toBeNull();
+
+      killProcess(root, rec.id);
+    });
+
+    it('sets new fields to null when not provided', () => {
+      const rec = startProcess(root, 'sleep 3', { cardId: 'card-null' });
+
+      expect(rec.agent_session_id).toBeNull();
+      expect(rec.goal_id).toBeNull();
+      expect(rec.launch_reason).toBeNull();
+      expect(rec.owner_kind).toBeNull();
+      expect(rec.background_policy).toBeNull();
+      expect(rec.process_group_id).toBeNull();
+
+      killProcess(root, rec.id);
     });
   });
 
@@ -502,12 +536,17 @@ describe('Process Runner', () => {
       expect(stored.status).toBe('exited');
     });
 
-    it('round-trips all ProcessRecord fields', async () => {
+    it('round-trips all ProcessRecord fields including new ownership fields', async () => {
       const rec = startProcess(root, 'sleep 30', {
         cardId: 'card-rt',
         cwd: '/tmp',
         env: { FOO: 'bar' },
         requiredForCardCompletion: false,
+        agentSessionId: 'session-rt',
+        goalId: 'goal-rt',
+        launchReason: 'round-trip test',
+        ownerKind: 'agent',
+        backgroundPolicy: 'foreground',
       });
 
       await sleep(100);
@@ -529,6 +568,12 @@ describe('Process Runner', () => {
       expect(stored.stdout_path).toBe(rec.stdout_path);
       expect(stored.stderr_path).toBe(rec.stderr_path);
       expect(stored.combined_log_path).toBe(rec.combined_log_path);
+      expect(stored.agent_session_id).toBe('session-rt');
+      expect(stored.goal_id).toBe('goal-rt');
+      expect(stored.launch_reason).toBe('round-trip test');
+      expect(stored.owner_kind).toBe('agent');
+      expect(stored.background_policy).toBe('foreground');
+      expect(stored.process_group_id).toBeNull();
 
       await killProcess(root, rec.id);
     });
@@ -766,6 +811,51 @@ describe('Process Runner', () => {
       expect(stillRunning.length).toBe(1);
 
       await killProcess(root, running.id);
+    });
+  });
+
+  // ═══════════════════════════════════════════════════════════════
+  // New Fields Backward Compatibility
+  // ═══════════════════════════════════════════════════════════════
+
+  describe('New fields backward compatibility', () => {
+    it('schema validates ProcessRecords without new fields (backward compat)', () => {
+      const oldStyleRecord: ProcessRecord = {
+        id: 'proc-old-style',
+        card_id: 'card-1',
+        command: 'echo test',
+        cwd: root,
+        status: 'exited',
+        pid: 12345,
+        started_at: new Date().toISOString(),
+        completed_at: new Date().toISOString(),
+        exit_code: 0,
+        required_for_card_completion: true,
+        output_dir: join(root, '.saivage-work/processes/proc-old-style'),
+        stdout_path: join(root, '.saivage-work/processes/proc-old-style/stdout.log'),
+        stderr_path: join(root, '.saivage-work/processes/proc-old-style/stderr.log'),
+        combined_log_path: join(root, '.saivage-work/processes/proc-old-style/combined.log'),
+      };
+
+      // Should save without error (backward compatible)
+      expect(() => saveRegistry(root, [oldStyleRecord])).not.toThrow();
+
+      // Loading should succeed
+      const reg = loadRegistry(root);
+      expect(reg.has('proc-old-style')).toBe(true);
+    });
+
+    it('ProcessStartOptions without new fields still works', () => {
+      const rec = startProcess(root, 'sleep 2', { cardId: 'card-old-options' });
+      expect(rec.card_id).toBe('card-old-options');
+      expect(rec.required_for_card_completion).toBe(true);
+      // New fields default to null
+      expect(rec.agent_session_id).toBeNull();
+      expect(rec.goal_id).toBeNull();
+      expect(rec.launch_reason).toBeNull();
+      expect(rec.owner_kind).toBeNull();
+      expect(rec.background_policy).toBeNull();
+      killProcess(root, rec.id);
     });
   });
 
