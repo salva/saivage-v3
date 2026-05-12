@@ -5,7 +5,7 @@
  *  - Fastify instance creation with logger, CORS, static files
  *  - Auth plugin registration
  *  - /health endpoint (no auth, reads actual runtime state, frozen status, frozen_reason)
- *  - All route registrations (cards, runtime/config/notes, chats/files/debug, events)
+ *  - All route registrations (cards, runtime/config/notes, chats/files/debug, events, processes)
  *  - Runtime dispatch/status routes (conditionally registered with ActiveRuntime)
  *  - Freeze/resume routes (always registered, work with or without ActiveRuntime)
  *  - WebSocket endpoint registration
@@ -31,6 +31,7 @@ import { registerCardRoutes } from './routes/cards.js';
 import { registerRuntimeConfigNotesRoutes } from './routes/runtime-config-notes.js';
 import { registerChatsFilesDebugRoutes } from './routes/chats-files-debug.js';
 import { registerEventsRoute } from './routes/events.js';
+import { registerProcessRoutes } from './routes/processes.js';
 import { registerWebSocket } from './websocket.js';
 import { loadConfig, type SaivageConfig } from '../agents/config-schema.js';
 import { McpManager } from '../mcp/index.js';
@@ -548,6 +549,7 @@ export async function createServer(
   );
   registerChatsFilesDebugRoutes(fastify, projectRoot);
   registerEventsRoute(fastify, projectRoot);
+  registerProcessRoutes(fastify, projectRoot);
 
   // Register runtime dispatch, status, freeze, and resume-from-freeze routes.
   // These are always registered — freeze/resume work with or without ActiveRuntime,
