@@ -438,12 +438,25 @@ export async function createServer(
     saivageConfig = {} as SaivageConfig;
   }
 
+  // Determine logger transport for development mode.
+  // When NODE_ENV=development and pino-pretty is available, use the pretty-print
+  // transport for human-readable logs.  When pino-pretty is not installed, fall
+  // back to standard JSON transport without crashing so tests and tooling that
+  // happen to set NODE_ENV=development still work.
+  let transportOpt: { target: string; options: Record<string, unknown> } | undefined;
+  if (process.env['NODE_ENV'] === 'development') {
+    try {
+      await import('pino-pretty');
+      transportOpt = { target: 'pino-pretty', options: { colorize: true } };
+    } catch {
+      // pino-pretty not available — fall back to standard JSON transport
+    }
+  }
+
   const fastify = Fastify({
     logger: {
       level: process.env['LOG_LEVEL'] ?? 'info',
-      transport: process.env['NODE_ENV'] === 'development'
-        ? { target: 'pino-pretty', options: { colorize: true } }
-        : undefined,
+      transport: transportOpt,
     },
   });
 
