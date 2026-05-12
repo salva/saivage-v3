@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { initProjectTree } from '../../src/utils/file-tree.js';
 import { CardStore } from '../../src/utils/card-store.js';
-import type { CardRecord } from '../../src/schemas/types.js';
+import type { CardRecord, CardStatus } from '../../src/schemas/types.js';
 
 // ── Helpers ───────────────────────────────────────────────────
 
@@ -709,6 +709,504 @@ describe('Status Transitions', () => {
     store.setStatus(card.id, 'running');
     const reloaded = store.read(card.id);
     expect(reloaded!.status).toBe('running');
+  });
+
+  // ── validateTransition unit tests ─────────────────────────
+  describe('validateTransition unit tests', () => {
+    it('allows drafting → backlog', () => {
+      expect(() => store.validateTransition('drafting', 'backlog')).not.toThrow();
+    });
+    it('allows drafting → cancelled', () => {
+      expect(() => store.validateTransition('drafting', 'cancelled')).not.toThrow();
+    });
+    it('allows backlog → active', () => {
+      expect(() => store.validateTransition('backlog', 'active')).not.toThrow();
+    });
+    it('allows backlog → cancelled', () => {
+      expect(() => store.validateTransition('backlog', 'cancelled')).not.toThrow();
+    });
+    it('allows active → running', () => {
+      expect(() => store.validateTransition('active', 'running')).not.toThrow();
+    });
+    it('allows active → cancelled', () => {
+      expect(() => store.validateTransition('active', 'cancelled')).not.toThrow();
+    });
+    it('allows active → backlog', () => {
+      expect(() => store.validateTransition('active', 'backlog')).not.toThrow();
+    });
+    it('allows running → done', () => {
+      expect(() => store.validateTransition('running', 'done')).not.toThrow();
+    });
+    it('allows running → failed', () => {
+      expect(() => store.validateTransition('running', 'failed')).not.toThrow();
+    });
+    it('allows running → blocked', () => {
+      expect(() => store.validateTransition('running', 'blocked')).not.toThrow();
+    });
+    it('allows running → cancelled', () => {
+      expect(() => store.validateTransition('running', 'cancelled')).not.toThrow();
+    });
+    it('allows running → backlog', () => {
+      expect(() => store.validateTransition('running', 'backlog')).not.toThrow();
+    });
+    it('allows blocked → running', () => {
+      expect(() => store.validateTransition('blocked', 'running')).not.toThrow();
+    });
+    it('allows blocked → cancelled', () => {
+      expect(() => store.validateTransition('blocked', 'cancelled')).not.toThrow();
+    });
+    it('allows done → backlog', () => {
+      expect(() => store.validateTransition('done', 'backlog')).not.toThrow();
+    });
+    it('allows done → cancelled', () => {
+      expect(() => store.validateTransition('done', 'cancelled')).not.toThrow();
+    });
+    it('allows failed → backlog', () => {
+      expect(() => store.validateTransition('failed', 'backlog')).not.toThrow();
+    });
+    it('allows failed → cancelled', () => {
+      expect(() => store.validateTransition('failed', 'cancelled')).not.toThrow();
+    });
+    it('allows cancelled → drafting', () => {
+      expect(() => store.validateTransition('cancelled', 'drafting')).not.toThrow();
+    });
+
+    it('self-transition drafting → drafting is a no-op', () => {
+      expect(() => store.validateTransition('drafting', 'drafting')).not.toThrow();
+    });
+    it('self-transition backlog → backlog is a no-op', () => {
+      expect(() => store.validateTransition('backlog', 'backlog')).not.toThrow();
+    });
+    it('self-transition active → active is a no-op', () => {
+      expect(() => store.validateTransition('active', 'active')).not.toThrow();
+    });
+    it('self-transition running → running is a no-op', () => {
+      expect(() => store.validateTransition('running', 'running')).not.toThrow();
+    });
+    it('self-transition blocked → blocked is a no-op', () => {
+      expect(() => store.validateTransition('blocked', 'blocked')).not.toThrow();
+    });
+    it('self-transition done → done is a no-op', () => {
+      expect(() => store.validateTransition('done', 'done')).not.toThrow();
+    });
+    it('self-transition failed → failed is a no-op', () => {
+      expect(() => store.validateTransition('failed', 'failed')).not.toThrow();
+    });
+    it('self-transition cancelled → cancelled is a no-op', () => {
+      expect(() => store.validateTransition('cancelled', 'cancelled')).not.toThrow();
+    });
+
+    it('rejects drafting → done with valid transitions listed', () => {
+      expect(() => store.validateTransition('drafting', 'done')).toThrow(/Invalid transition/);
+      expect(() => store.validateTransition('drafting', 'done')).toThrow(/backlog, cancelled/);
+    });
+    it('rejects drafting → running', () => {
+      expect(() => store.validateTransition('drafting', 'running')).toThrow(/Invalid transition/);
+    });
+    it('rejects backlog → done', () => {
+      expect(() => store.validateTransition('backlog', 'done')).toThrow(/Invalid transition/);
+    });
+    it('rejects backlog → running', () => {
+      expect(() => store.validateTransition('backlog', 'running')).toThrow(/Invalid transition/);
+    });
+    it('rejects active → done', () => {
+      expect(() => store.validateTransition('active', 'done')).toThrow(/Invalid transition/);
+    });
+    it('rejects active → failed', () => {
+      expect(() => store.validateTransition('active', 'failed')).toThrow(/Invalid transition/);
+    });
+    it('rejects blocked → done', () => {
+      expect(() => store.validateTransition('blocked', 'done')).toThrow(/Invalid transition/);
+    });
+    it('rejects blocked → active', () => {
+      expect(() => store.validateTransition('blocked', 'active')).toThrow(/Invalid transition/);
+    });
+    it('rejects done → running', () => {
+      expect(() => store.validateTransition('done', 'running')).toThrow(/Invalid transition/);
+    });
+    it('rejects done → active', () => {
+      expect(() => store.validateTransition('done', 'active')).toThrow(/Invalid transition/);
+    });
+    it('rejects failed → running', () => {
+      expect(() => store.validateTransition('failed', 'running')).toThrow(/Invalid transition/);
+    });
+    it('rejects failed → active', () => {
+      expect(() => store.validateTransition('failed', 'active')).toThrow(/Invalid transition/);
+    });
+    it('rejects cancelled → backlog', () => {
+      expect(() => store.validateTransition('cancelled', 'backlog')).toThrow(/Invalid transition/);
+    });
+    it('rejects cancelled → running', () => {
+      expect(() => store.validateTransition('cancelled', 'running')).toThrow(/Invalid transition/);
+    });
+  });
+
+  // ── Valid transitions via setStatus ───────────────────────
+  describe('Valid transitions via setStatus', () => {
+    it('drafting → backlog (valid)', () => {
+      const card = store.create(makeCard({ type: 'goal', title: 'T1', parent: 'project', status: 'drafting' }));
+      const updated = store.setStatus(card.id, 'backlog');
+      expect(updated.status).toBe('backlog');
+    });
+    it('drafting → cancelled (valid)', () => {
+      const card = store.create(makeCard({ type: 'goal', title: 'T1', parent: 'project', status: 'drafting' }));
+      const updated = store.setStatus(card.id, 'cancelled');
+      expect(updated.status).toBe('cancelled');
+    });
+    it('backlog → active (valid)', () => {
+      const card = store.create(makeCard({ type: 'goal', title: 'T2', parent: 'project' }));
+      const updated = store.setStatus(card.id, 'active');
+      expect(updated.status).toBe('active');
+    });
+    it('backlog → cancelled (valid)', () => {
+      const card = store.create(makeCard({ type: 'goal', title: 'T2', parent: 'project' }));
+      const updated = store.setStatus(card.id, 'cancelled');
+      expect(updated.status).toBe('cancelled');
+    });
+    it('active → running (valid)', () => {
+      const card = store.create(makeCard({ type: 'goal', title: 'T3', parent: 'project', status: 'drafting' }));
+      store.setStatus(card.id, 'backlog');
+      store.setStatus(card.id, 'active');
+      const updated = store.setStatus(card.id, 'running');
+      expect(updated.status).toBe('running');
+    });
+    it('active → cancelled (valid)', () => {
+      const card = store.create(makeCard({ type: 'goal', title: 'T3', parent: 'project', status: 'drafting' }));
+      store.setStatus(card.id, 'backlog');
+      store.setStatus(card.id, 'active');
+      const updated = store.setStatus(card.id, 'cancelled');
+      expect(updated.status).toBe('cancelled');
+    });
+    it('active → backlog (valid)', () => {
+      const card = store.create(makeCard({ type: 'goal', title: 'T3', parent: 'project', status: 'drafting' }));
+      store.setStatus(card.id, 'backlog');
+      store.setStatus(card.id, 'active');
+      const updated = store.setStatus(card.id, 'backlog');
+      expect(updated.status).toBe('backlog');
+    });
+    it('running → done (valid)', () => {
+      const card = store.create(makeCard({ type: 'goal', title: 'T4', parent: 'project', status: 'drafting' }));
+      store.setStatus(card.id, 'backlog');
+      store.setStatus(card.id, 'active');
+      store.setStatus(card.id, 'running');
+      const updated = store.setStatus(card.id, 'done');
+      expect(updated.status).toBe('done');
+    });
+    it('running → failed (valid)', () => {
+      const card = store.create(makeCard({ type: 'goal', title: 'T5', parent: 'project', status: 'drafting' }));
+      store.setStatus(card.id, 'backlog');
+      store.setStatus(card.id, 'active');
+      store.setStatus(card.id, 'running');
+      const updated = store.setStatus(card.id, 'failed');
+      expect(updated.status).toBe('failed');
+    });
+    it('running → blocked (valid)', () => {
+      const card = store.create(makeCard({ type: 'goal', title: 'T6', parent: 'project', status: 'drafting' }));
+      store.setStatus(card.id, 'backlog');
+      store.setStatus(card.id, 'active');
+      store.setStatus(card.id, 'running');
+      const updated = store.setStatus(card.id, 'blocked');
+      expect(updated.status).toBe('blocked');
+    });
+    it('running → cancelled (valid)', () => {
+      const card = store.create(makeCard({ type: 'goal', title: 'T7', parent: 'project', status: 'drafting' }));
+      store.setStatus(card.id, 'backlog');
+      store.setStatus(card.id, 'active');
+      store.setStatus(card.id, 'running');
+      const updated = store.setStatus(card.id, 'cancelled');
+      expect(updated.status).toBe('cancelled');
+    });
+    it('running → backlog (valid)', () => {
+      const card = store.create(makeCard({ type: 'goal', title: 'T8', parent: 'project', status: 'drafting' }));
+      store.setStatus(card.id, 'backlog');
+      store.setStatus(card.id, 'active');
+      store.setStatus(card.id, 'running');
+      const updated = store.setStatus(card.id, 'backlog');
+      expect(updated.status).toBe('backlog');
+    });
+    it('blocked → running (valid)', () => {
+      const card = store.create(makeCard({ type: 'goal', title: 'T9', parent: 'project', status: 'drafting' }));
+      store.setStatus(card.id, 'backlog');
+      store.setStatus(card.id, 'active');
+      store.setStatus(card.id, 'running');
+      store.setStatus(card.id, 'blocked');
+      const updated = store.setStatus(card.id, 'running');
+      expect(updated.status).toBe('running');
+    });
+    it('blocked → cancelled (valid)', () => {
+      const card = store.create(makeCard({ type: 'goal', title: 'T10', parent: 'project', status: 'drafting' }));
+      store.setStatus(card.id, 'backlog');
+      store.setStatus(card.id, 'active');
+      store.setStatus(card.id, 'running');
+      store.setStatus(card.id, 'blocked');
+      const updated = store.setStatus(card.id, 'cancelled');
+      expect(updated.status).toBe('cancelled');
+    });
+    it('done → backlog (valid)', () => {
+      const card = store.create(makeCard({ type: 'goal', title: 'T11', parent: 'project', status: 'drafting' }));
+      store.setStatus(card.id, 'backlog');
+      store.setStatus(card.id, 'active');
+      store.setStatus(card.id, 'running');
+      store.setStatus(card.id, 'done');
+      const updated = store.setStatus(card.id, 'backlog');
+      expect(updated.status).toBe('backlog');
+    });
+    it('done → cancelled (valid)', () => {
+      const card = store.create(makeCard({ type: 'goal', title: 'T12', parent: 'project', status: 'drafting' }));
+      store.setStatus(card.id, 'backlog');
+      store.setStatus(card.id, 'active');
+      store.setStatus(card.id, 'running');
+      store.setStatus(card.id, 'done');
+      const updated = store.setStatus(card.id, 'cancelled');
+      expect(updated.status).toBe('cancelled');
+    });
+    it('failed → backlog (valid)', () => {
+      const card = store.create(makeCard({ type: 'goal', title: 'T13', parent: 'project', status: 'drafting' }));
+      store.setStatus(card.id, 'backlog');
+      store.setStatus(card.id, 'active');
+      store.setStatus(card.id, 'running');
+      store.setStatus(card.id, 'failed');
+      const updated = store.setStatus(card.id, 'backlog');
+      expect(updated.status).toBe('backlog');
+    });
+    it('failed → cancelled (valid)', () => {
+      const card = store.create(makeCard({ type: 'goal', title: 'T14', parent: 'project', status: 'drafting' }));
+      store.setStatus(card.id, 'backlog');
+      store.setStatus(card.id, 'active');
+      store.setStatus(card.id, 'running');
+      store.setStatus(card.id, 'failed');
+      const updated = store.setStatus(card.id, 'cancelled');
+      expect(updated.status).toBe('cancelled');
+    });
+    it('cancelled → drafting (valid)', () => {
+      const card = store.create(makeCard({ type: 'goal', title: 'T15', parent: 'project', status: 'drafting' }));
+      store.setStatus(card.id, 'cancelled');
+      const updated = store.setStatus(card.id, 'drafting');
+      expect(updated.status).toBe('drafting');
+    });
+  });
+
+  // ── Invalid transitions throw ─────────────────────────────
+  describe('Invalid transitions throw', () => {
+    it('drafting → done throws', () => {
+      const card = store.create(makeCard({ type: 'goal', title: 'Inv1', parent: 'project', status: 'drafting' }));
+      expect(() => store.setStatus(card.id, 'done')).toThrow(/Invalid transition/);
+    });
+    it('drafting → running throws', () => {
+      const card = store.create(makeCard({ type: 'goal', title: 'Inv2', parent: 'project', status: 'drafting' }));
+      expect(() => store.setStatus(card.id, 'running')).toThrow(/Invalid transition/);
+    });
+    it('backlog → done throws', () => {
+      const card = store.create(makeCard({ type: 'goal', title: 'Inv3', parent: 'project' }));
+      expect(() => store.setStatus(card.id, 'done')).toThrow(/Invalid transition/);
+    });
+    it('backlog → running throws', () => {
+      const card = store.create(makeCard({ type: 'goal', title: 'Inv4', parent: 'project' }));
+      expect(() => store.setStatus(card.id, 'running')).toThrow(/Invalid transition/);
+    });
+    it('active → done throws', () => {
+      const card = store.create(makeCard({ type: 'goal', title: 'Inv5', parent: 'project', status: 'drafting' }));
+      store.setStatus(card.id, 'backlog');
+      store.setStatus(card.id, 'active');
+      expect(() => store.setStatus(card.id, 'done')).toThrow(/Invalid transition/);
+    });
+    it('active → failed throws', () => {
+      const card = store.create(makeCard({ type: 'goal', title: 'Inv6', parent: 'project', status: 'drafting' }));
+      store.setStatus(card.id, 'backlog');
+      store.setStatus(card.id, 'active');
+      expect(() => store.setStatus(card.id, 'failed')).toThrow(/Invalid transition/);
+    });
+    it('blocked → done throws', () => {
+      const card = store.create(makeCard({ type: 'goal', title: 'Inv7', parent: 'project', status: 'drafting' }));
+      store.setStatus(card.id, 'backlog');
+      store.setStatus(card.id, 'active');
+      store.setStatus(card.id, 'running');
+      store.setStatus(card.id, 'blocked');
+      expect(() => store.setStatus(card.id, 'done')).toThrow(/Invalid transition/);
+    });
+    it('blocked → active throws', () => {
+      const card = store.create(makeCard({ type: 'goal', title: 'Inv8', parent: 'project', status: 'drafting' }));
+      store.setStatus(card.id, 'backlog');
+      store.setStatus(card.id, 'active');
+      store.setStatus(card.id, 'running');
+      store.setStatus(card.id, 'blocked');
+      expect(() => store.setStatus(card.id, 'active')).toThrow(/Invalid transition/);
+    });
+    it('done → running throws', () => {
+      const card = store.create(makeCard({ type: 'goal', title: 'Inv9', parent: 'project', status: 'drafting' }));
+      store.setStatus(card.id, 'backlog');
+      store.setStatus(card.id, 'active');
+      store.setStatus(card.id, 'running');
+      store.setStatus(card.id, 'done');
+      expect(() => store.setStatus(card.id, 'running')).toThrow(/Invalid transition/);
+    });
+    it('done → active throws', () => {
+      const card = store.create(makeCard({ type: 'goal', title: 'Inv10', parent: 'project', status: 'drafting' }));
+      store.setStatus(card.id, 'backlog');
+      store.setStatus(card.id, 'active');
+      store.setStatus(card.id, 'running');
+      store.setStatus(card.id, 'done');
+      expect(() => store.setStatus(card.id, 'active')).toThrow(/Invalid transition/);
+    });
+    it('failed → running throws', () => {
+      const card = store.create(makeCard({ type: 'goal', title: 'Inv11', parent: 'project', status: 'drafting' }));
+      store.setStatus(card.id, 'backlog');
+      store.setStatus(card.id, 'active');
+      store.setStatus(card.id, 'running');
+      store.setStatus(card.id, 'failed');
+      expect(() => store.setStatus(card.id, 'running')).toThrow(/Invalid transition/);
+    });
+    it('failed → active throws', () => {
+      const card = store.create(makeCard({ type: 'goal', title: 'Inv12', parent: 'project', status: 'drafting' }));
+      store.setStatus(card.id, 'backlog');
+      store.setStatus(card.id, 'active');
+      store.setStatus(card.id, 'running');
+      store.setStatus(card.id, 'failed');
+      expect(() => store.setStatus(card.id, 'active')).toThrow(/Invalid transition/);
+    });
+    it('cancelled → backlog throws', () => {
+      const card = store.create(makeCard({ type: 'goal', title: 'Inv13', parent: 'project', status: 'drafting' }));
+      store.setStatus(card.id, 'cancelled');
+      expect(() => store.setStatus(card.id, 'backlog')).toThrow(/Invalid transition/);
+    });
+    it('cancelled → running throws', () => {
+      const card = store.create(makeCard({ type: 'goal', title: 'Inv14', parent: 'project', status: 'drafting' }));
+      store.setStatus(card.id, 'cancelled');
+      expect(() => store.setStatus(card.id, 'running')).toThrow(/Invalid transition/);
+    });
+  });
+
+  // ── Self-transitions are no-ops ───────────────────────────
+  describe('Self-transitions are no-ops', () => {
+    it('drafting → drafting is no-op', () => {
+      const card = store.create(makeCard({ type: 'goal', title: 'S1', parent: 'project', status: 'drafting' }));
+      const updated = store.setStatus(card.id, 'drafting');
+      expect(updated.status).toBe('drafting');
+    });
+    it('backlog → backlog is no-op', () => {
+      const card = store.create(makeCard({ type: 'goal', title: 'S2', parent: 'project' }));
+      const updated = store.setStatus(card.id, 'backlog');
+      expect(updated.status).toBe('backlog');
+    });
+    it('active → active is no-op', () => {
+      const card = store.create(makeCard({ type: 'goal', title: 'S3', parent: 'project', status: 'drafting' }));
+      store.setStatus(card.id, 'backlog');
+      store.setStatus(card.id, 'active');
+      const updated = store.setStatus(card.id, 'active');
+      expect(updated.status).toBe('active');
+    });
+    it('running → running is no-op', () => {
+      const card = store.create(makeCard({ type: 'goal', title: 'S4', parent: 'project', status: 'drafting' }));
+      store.setStatus(card.id, 'backlog');
+      store.setStatus(card.id, 'active');
+      store.setStatus(card.id, 'running');
+      const updated = store.setStatus(card.id, 'running');
+      expect(updated.status).toBe('running');
+    });
+    it('blocked → blocked is no-op', () => {
+      const card = store.create(makeCard({ type: 'goal', title: 'S5', parent: 'project', status: 'drafting' }));
+      store.setStatus(card.id, 'backlog');
+      store.setStatus(card.id, 'active');
+      store.setStatus(card.id, 'running');
+      store.setStatus(card.id, 'blocked');
+      const updated = store.setStatus(card.id, 'blocked');
+      expect(updated.status).toBe('blocked');
+    });
+    it('done → done is no-op', () => {
+      const card = store.create(makeCard({ type: 'goal', title: 'S6', parent: 'project', status: 'drafting' }));
+      store.setStatus(card.id, 'backlog');
+      store.setStatus(card.id, 'active');
+      store.setStatus(card.id, 'running');
+      store.setStatus(card.id, 'done');
+      const updated = store.setStatus(card.id, 'done');
+      expect(updated.status).toBe('done');
+    });
+    it('failed → failed is no-op', () => {
+      const card = store.create(makeCard({ type: 'goal', title: 'S7', parent: 'project', status: 'drafting' }));
+      store.setStatus(card.id, 'backlog');
+      store.setStatus(card.id, 'active');
+      store.setStatus(card.id, 'running');
+      store.setStatus(card.id, 'failed');
+      const updated = store.setStatus(card.id, 'failed');
+      expect(updated.status).toBe('failed');
+    });
+    it('cancelled → cancelled is no-op', () => {
+      const card = store.create(makeCard({ type: 'goal', title: 'S8', parent: 'project', status: 'drafting' }));
+      store.setStatus(card.id, 'cancelled');
+      const updated = store.setStatus(card.id, 'cancelled');
+      expect(updated.status).toBe('cancelled');
+    });
+  });
+
+  // ── Cancellation from every non-terminal state ────────────
+  describe('Cancellation from every non-terminal state', () => {
+    it('drafting → cancelled works', () => {
+      const card = store.create(makeCard({ type: 'goal', title: 'C1', parent: 'project', status: 'drafting' }));
+      const updated = store.setStatus(card.id, 'cancelled');
+      expect(updated.status).toBe('cancelled');
+    });
+    it('backlog → cancelled works', () => {
+      const card = store.create(makeCard({ type: 'goal', title: 'C2', parent: 'project' }));
+      const updated = store.setStatus(card.id, 'cancelled');
+      expect(updated.status).toBe('cancelled');
+    });
+    it('active → cancelled works', () => {
+      const card = store.create(makeCard({ type: 'goal', title: 'C3', parent: 'project', status: 'drafting' }));
+      store.setStatus(card.id, 'backlog');
+      store.setStatus(card.id, 'active');
+      const updated = store.setStatus(card.id, 'cancelled');
+      expect(updated.status).toBe('cancelled');
+    });
+    it('running → cancelled works', () => {
+      const card = store.create(makeCard({ type: 'goal', title: 'C4', parent: 'project', status: 'drafting' }));
+      store.setStatus(card.id, 'backlog');
+      store.setStatus(card.id, 'active');
+      store.setStatus(card.id, 'running');
+      const updated = store.setStatus(card.id, 'cancelled');
+      expect(updated.status).toBe('cancelled');
+    });
+    it('blocked → cancelled works', () => {
+      const card = store.create(makeCard({ type: 'goal', title: 'C5', parent: 'project', status: 'drafting' }));
+      store.setStatus(card.id, 'backlog');
+      store.setStatus(card.id, 'active');
+      store.setStatus(card.id, 'running');
+      store.setStatus(card.id, 'blocked');
+      const updated = store.setStatus(card.id, 'cancelled');
+      expect(updated.status).toBe('cancelled');
+    });
+  });
+
+  // ── Reopen transitions ────────────────────────────────────
+  describe('Reopen transitions', () => {
+    it('done → backlog (reopen) works', () => {
+      const card = store.create(makeCard({ type: 'goal', title: 'R1', parent: 'project', status: 'drafting' }));
+      store.setStatus(card.id, 'backlog');
+      store.setStatus(card.id, 'active');
+      store.setStatus(card.id, 'running');
+      store.setStatus(card.id, 'done');
+      const updated = store.setStatus(card.id, 'backlog');
+      expect(updated.status).toBe('backlog');
+    });
+    it('failed → backlog (reopen) works', () => {
+      const card = store.create(makeCard({ type: 'goal', title: 'R2', parent: 'project', status: 'drafting' }));
+      store.setStatus(card.id, 'backlog');
+      store.setStatus(card.id, 'active');
+      store.setStatus(card.id, 'running');
+      store.setStatus(card.id, 'failed');
+      const updated = store.setStatus(card.id, 'backlog');
+      expect(updated.status).toBe('backlog');
+    });
+    it('cancelled → drafting (reopen) works', () => {
+      const card = store.create(makeCard({ type: 'goal', title: 'R3', parent: 'project', status: 'drafting' }));
+      store.setStatus(card.id, 'cancelled');
+      const updated = store.setStatus(card.id, 'drafting');
+      expect(updated.status).toBe('drafting');
+    });
+  });
+
+  // ── Edge: nonexistent card ────────────────────────────────
+  it('setStatus on nonexistent card throws', () => {
+    expect(() => store.setStatus('nonexistent', 'active')).toThrow(/Card 'nonexistent' not found/);
   });
 });
 
