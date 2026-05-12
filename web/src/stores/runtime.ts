@@ -34,6 +34,9 @@ export const useRuntimeStore = defineStore('runtime', () => {
   const loading = ref(false);
   const error = ref<string | null>(null);
 
+  /** Saved status before an optimistic pause, so resume can restore it. */
+  let statusBeforePause: RuntimeStatus | null = null;
+
   // ── Convenience getters ────────────────────────────────────
 
   const status = computed<RuntimeStatus>(() => runtime.value?.status ?? 'idle');
@@ -86,6 +89,7 @@ export const useRuntimeStore = defineStore('runtime', () => {
       log.info('Runtime paused:', response.status);
       // Optimistic update
       if (runtime.value) {
+        statusBeforePause = runtime.value.status;
         runtime.value = { ...runtime.value, paused: true, status: 'paused' };
       }
     } catch (err) {
@@ -103,7 +107,9 @@ export const useRuntimeStore = defineStore('runtime', () => {
       const response = await resumeRuntime();
       log.info('Runtime resumed:', response.status);
       if (runtime.value) {
-        runtime.value = { ...runtime.value, paused: false };
+        const restoredStatus = statusBeforePause ?? runtime.value.status;
+        runtime.value = { ...runtime.value, paused: false, status: restoredStatus };
+        statusBeforePause = null;
       }
     } catch (err) {
       const msg = err instanceof ApiError ? err.message : 'Failed to resume runtime';
@@ -116,6 +122,8 @@ export const useRuntimeStore = defineStore('runtime', () => {
   // ── WebSocket Integration ──────────────────────────────────
 
   let wsUnsubscribe: (() => void) | null = null;
+  /** Saved status before a WS-driven pause, so the resumed handler can restore it. */
+  let wsStatusBeforePause: RuntimeStatus | null = null;
 
   function setupWsListener(): void {
     if (wsUnsubscribe) return;
@@ -137,12 +145,21 @@ export const useRuntimeStore = defineStore('runtime', () => {
       // Runtime paused/resumed
       if (event === 'runtime-paused' || event === 'runtime-resumed') {
         if (runtime.value) {
+          if (event === 'runtime-paused') {
+            wsStatusBeforePause = runtime.value.status;
+          }
+          const restoredStatus = event === 'runtime-resumed'
+            ? (wsStatusBeforePause ?? runtime.value.status)
+            : 'paused';
           runtime.value = {
             ...runtime.value,
             paused: event === 'runtime-paused',
-            status: event === 'runtime-paused' ? 'paused' : runtime.value.status,
+            status: restoredStatus,
             paused_at: event === 'runtime-paused' ? new Date().toISOString() : null,
           };
+          if (event === 'runtime-resumed') {
+            wsStatusBeforePause = null;
+          }
         }
       }
 
