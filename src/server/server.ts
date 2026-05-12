@@ -26,6 +26,7 @@ import websocket from '@fastify/websocket';
 import fastifyStatic from '@fastify/static';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import authPlugin from './auth.js';
 import { registerCardRoutes } from './routes/cards.js';
 import { registerRuntimeConfigNotesRoutes } from './routes/runtime-config-notes.js';
@@ -469,8 +470,15 @@ export async function createServer(
   await fastify.register(websocket);
   await fastify.register(authPlugin);
 
+  // Resolve package root relative to this file.
+  // When compiled (dist/src/server/server.js), go up 3 levels to reach package root.
+  // When running via ts-jest from source (src/server/server.ts), go up 2 levels.
+  const _thisFile = fileURLToPath(import.meta.url);
+  const _inDist = _thisFile.includes('/dist/src/') || _thisFile.includes('\\dist\\src\\');
+  const packageRoot = fileURLToPath(new URL(_inDist ? '../../..' : '../..', import.meta.url));
+
   // ── Register static file serving for SPA if web/dist/ exists
-  const webDistDir = join(projectRoot, 'web', 'dist');
+  const webDistDir = join(packageRoot, 'web', 'dist');
   if (existsSync(webDistDir)) {
     await fastify.register(fastifyStatic, {
       root: webDistDir,
@@ -492,7 +500,7 @@ export async function createServer(
   //
   // Pass decorateReply: false because @fastify/static may have already been
   // registered for the SPA above, which decorates reply.sendFile() once.
-  const docsDistDir = join(projectRoot, 'docs', '.vitepress', 'dist');
+  const docsDistDir = join(packageRoot, 'docs', '.vitepress', 'dist');
   if (existsSync(docsDistDir)) {
     await fastify.register(fastifyStatic, {
       root: docsDistDir,
