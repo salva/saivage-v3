@@ -1809,5 +1809,78 @@ describe('State-based permissions', () => {
       expect(() => store.updateDependsOn(card.id, [dep.id]))
         .toThrow(/Field 'depends_on' cannot be changed/);
     });
+
+    // ── ALWAYS_ALLOWED_FIELDS tests ──
+    describe('ALWAYS_ALLOWED_FIELDS on terminal-state cards', () => {
+      it('allows artifacts update on done card', () => {
+        const card = store.create(makeCard({ type: 'goal', title: 'Art Test', parent: 'project', status: 'drafting' }));
+        transitionTo(store, card.id, 'done');
+        const ref = { id: 'art-test-1', card_id: card.id, path: '/tmp/test.txt', type: 'log' as const, description: 'Test artifact', retain: false, created_at: new Date().toISOString() };
+        const updated = store.update(card.id, { artifacts: [ref] });
+        expect(updated.artifacts).toHaveLength(1);
+        expect(updated.artifacts[0].id).toBe('art-test-1');
+      });
+
+      it('allows attachments update on done card', () => {
+        const card = store.create(makeCard({ type: 'goal', title: 'Att Test', parent: 'project', status: 'drafting' }));
+        transitionTo(store, card.id, 'done');
+        const ref = { id: 'att-test-1', card_id: card.id, path: '/tmp/test.txt', mime: 'text/plain', title: 'Test attachment', created_at: new Date().toISOString() };
+        const updated = store.update(card.id, { attachments: [ref] });
+        expect(updated.attachments).toHaveLength(1);
+        expect(updated.attachments[0].id).toBe('att-test-1');
+      });
+
+      it('allows result update on failed card', () => {
+        const card = store.create(makeCard({ type: 'goal', title: 'Result Test', parent: 'project', status: 'drafting' }));
+        transitionTo(store, card.id, 'failed');
+        const updated = store.update(card.id, { result: { score: 0.95, accuracy: 0.92 } });
+        expect(updated.result).toEqual({ score: 0.95, accuracy: 0.92 });
+      });
+
+      it('allows metrics update on done card', () => {
+        const card = store.create(makeCard({ type: 'goal', title: 'Metrics Test', parent: 'project', status: 'drafting' }));
+        transitionTo(store, card.id, 'done');
+        const updated = store.update(card.id, { metrics: { loss: 0.01, epoch: 10 } });
+        expect(updated.metrics).toEqual({ loss: 0.01, epoch: 10 });
+      });
+
+      it('allows error update on failed card', () => {
+        const card = store.create(makeCard({ type: 'goal', title: 'Error Test', parent: 'project', status: 'drafting' }));
+        transitionTo(store, card.id, 'failed');
+        const updated = store.update(card.id, { error: 'Out of memory' });
+        expect(updated.error).toBe('Out of memory');
+      });
+
+      it('allows completed_at update on done card', () => {
+        const card = store.create(makeCard({ type: 'goal', title: 'Time Test', parent: 'project', status: 'drafting' }));
+        transitionTo(store, card.id, 'done');
+        const ts = new Date().toISOString();
+        const updated = store.update(card.id, { completed_at: ts });
+        expect(updated.completed_at).toBe(ts);
+      });
+
+      it('allows duration_ms update on done card', () => {
+        const card = store.create(makeCard({ type: 'goal', title: 'Duration Test', parent: 'project', status: 'drafting' }));
+        transitionTo(store, card.id, 'done');
+        const updated = store.update(card.id, { duration_ms: 12345 });
+        expect(updated.duration_ms).toBe(12345);
+      });
+
+      it('allows started_at update on cancelled card', () => {
+        const card = store.create(makeCard({ type: 'goal', title: 'Started Test', parent: 'project', status: 'drafting' }));
+        store.setStatus(card.id, 'cancelled');
+        const ts = new Date().toISOString();
+        const updated = store.update(card.id, { started_at: ts });
+        expect(updated.started_at).toBe(ts);
+      });
+
+      it('rejects mixing allowed field with disallowed field on done card', () => {
+        const card = store.create(makeCard({ type: 'goal', title: 'Mixed', parent: 'project', status: 'drafting' }));
+        transitionTo(store, card.id, 'done');
+        // artifacts is allowed, title is not
+        expect(() => store.update(card.id, { artifacts: [], title: 'New Title' }))
+          .toThrow(/cannot be edited/);
+      });
+    });
   });
 });
