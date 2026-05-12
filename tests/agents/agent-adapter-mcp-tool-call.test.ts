@@ -28,6 +28,7 @@ import {
   ToolNotFoundError,
   InvalidArgumentsError,
   TransportError,
+  TimeoutError,
 } from '../../src/mcp/mcp-manager.js';
 
 // ── Helpers ───────────────────────────────────────────────────
@@ -569,6 +570,59 @@ describe('AgentAdapter mcp_tool_call tool', () => {
       expect(result.kind).toBe('tool_error');
       expect(result.content).toContain('MCP tool call failed');
       expect(result.content).toContain('Transport error');
+      expect(result.tool).toBe('mcp_tool_call:git/status');
+    });
+
+    // ── TimeoutError ──────────────────────────────────────────
+
+    it('returns tool_error when mock throws TimeoutError', async () => {
+      mockMcpManager.invokeTool.mockRejectedValueOnce(
+        new TimeoutError('git', 'status', 30000),
+      );
+
+      const tc = {
+        id: 'call_to',
+        type: 'function' as const,
+        function: {
+          name: 'mcp_tool_call',
+          arguments: '{"serverName":"git","toolName":"status","args":{}}',
+        },
+      };
+
+      const result = await callProcessToolCall(tc, 'executor');
+
+      expect(result.role).toBe('tool');
+      expect(result.kind).toBe('tool_error');
+      expect(result.content).toContain('MCP tool call failed');
+      expect(result.content).toContain('timed out');
+      expect(result.tool).toBe('mcp_tool_call:git/status');
+    });
+
+    // ── Content-supervisor-blocked error ──────────────────────
+
+    it('returns tool_error when callMcpTool throws a content-supervisor-blocked error', async () => {
+      // The callMcpTool method throws 'blocked by content supervisor' errors
+      // when the ContentSupervisor.screenContent returns status='blocked'.
+      // These come through as regular Error objects from callMcpTool's catch.
+      mockMcpManager.invokeTool.mockRejectedValueOnce(
+        new Error('MCP tool response blocked by content supervisor: inappropriate content detected'),
+      );
+
+      const tc = {
+        id: 'call_cs_block',
+        type: 'function' as const,
+        function: {
+          name: 'mcp_tool_call',
+          arguments: '{"serverName":"git","toolName":"status","args":{}}',
+        },
+      };
+
+      const result = await callProcessToolCall(tc, 'executor');
+
+      expect(result.role).toBe('tool');
+      expect(result.kind).toBe('tool_error');
+      expect(result.content).toContain('MCP tool call failed');
+      expect(result.content).toContain('blocked by content supervisor');
       expect(result.tool).toBe('mcp_tool_call:git/status');
     });
 
