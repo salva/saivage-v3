@@ -28,6 +28,8 @@ import type {
   DebugStateResponse,
   DebugErrorsResponse,
   DebugTimelineResponse,
+  DoctorResponse,
+  SupervisionResponse,
   McpToolsResponse,
   FreezeResponse,
   ResumeFromFreezeResponse,
@@ -268,6 +270,14 @@ export function getDebugErrors(): Promise<DebugErrorsResponse> {
 
 export function getDebugTimeline(): Promise<DebugTimelineResponse> {
   return request<DebugTimelineResponse>('GET', '/api/debug/timeline');
+}
+
+export function getDoctor(): Promise<DoctorResponse> {
+  return request<DoctorResponse>('GET', '/api/debug/doctor');
+}
+
+export function getDebugSupervision(): Promise<SupervisionResponse> {
+  return request<SupervisionResponse>('GET', '/api/debug/supervision');
 }
 
 // ── MCP ───────────────────────────────────────────────────────

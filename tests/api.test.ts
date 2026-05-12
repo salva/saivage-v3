@@ -204,7 +204,7 @@ describe('Auth rejection', () => {
     '/api/files/content?path=package.json',
     '/api/debug/state',
     '/api/debug/errors',
-    '/api/debug/timeline',
+    '/api/debug/timeline', '/api/debug/doctor', '/api/debug/supervision',
   ];
 
   for (const ep of endpoints) {
@@ -726,6 +726,107 @@ describe('Debug API', () => {
   });
 });
 
+// ══════════════════════════════════════════════════════════════
+// Doctor Endpoint Tests
+// ══════════════════════════════════════════════════════════════
+
+describe('Doctor API', () => {
+  it('GET /api/debug/doctor returns doctor checks', async () => {
+    const res = await fetch(url('/api/debug/doctor'), { headers: authHeader(authToken) });
+    expect(res.status).toBe(200);
+    const body = await res.json() as Record<string, unknown>;
+    expect(body.status).toBeDefined();
+    expect(['ok', 'issues_found']).toContain(body.status);
+    expect(body.checks).toBeDefined();
+    expect(Array.isArray(body.checks)).toBe(true);
+    expect(body.issues).toBeDefined();
+    expect(Array.isArray(body.issues)).toBe(true);
+  });
+
+  it('GET /api/debug/doctor returns checks with correct shape', async () => {
+    const res = await fetch(url('/api/debug/doctor'), { headers: authHeader(authToken) });
+    expect(res.status).toBe(200);
+    const body = await res.json() as Record<string, unknown>;
+    const checks = body.checks as Array<{ name: string; passed: boolean; details?: string }>;
+    for (const check of checks) {
+      expect(check.name).toBeDefined();
+      expect(typeof check.passed).toBe('boolean');
+      expect(typeof check.name).toBe('string');
+    }
+  });
+
+  it('GET /api/debug/doctor requires auth', async () => {
+    const res = await fetch(url('/api/debug/doctor'));
+    expect(res.status).toBe(401);
+  });
+});
+
+// ══════════════════════════════════════════════════════════════
+// Supervision Endpoint Tests
+// ══════════════════════════════════════════════════════════════
+
+describe('Supervision API', () => {
+  it('GET /api/debug/supervision returns supervision data structure', async () => {
+    const res = await fetch(url('/api/debug/supervision'), { headers: authHeader(authToken) });
+    expect(res.status).toBe(200);
+    const body = await res.json() as Record<string, unknown>;
+    expect(body.reviews).toBeDefined();
+    expect(Array.isArray(body.reviews)).toBe(true);
+    expect(body.quarantine).toBeDefined();
+    expect(Array.isArray(body.quarantine)).toBe(true);
+    expect(body.stats).toBeDefined();
+    const stats = body.stats as Record<string, unknown>;
+    expect(typeof stats.total).toBe('number');
+    expect(typeof stats.blocked).toBe('number');
+    expect(typeof stats.passed).toBe('number');
+    expect(typeof stats.sanitized).toBe('number');
+    expect(stats.byRisk).toBeDefined();
+    expect(stats.bySourceKind).toBeDefined();
+  });
+
+  it('GET /api/debug/supervision returns empty data when no reviews exist', async () => {
+    const res = await fetch(url('/api/debug/supervision'), { headers: authHeader(authToken) });
+    expect(res.status).toBe(200);
+    const body = await res.json() as Record<string, unknown>;
+    const stats = body.stats as Record<string, unknown>;
+    expect(stats.total).toBe(0);
+    expect(stats.blocked).toBe(0);
+    expect(stats.passed).toBe(0);
+  });
+
+  it('GET /api/debug/supervision requires auth', async () => {
+    const res = await fetch(url('/api/debug/supervision'));
+    expect(res.status).toBe(401);
+  });
+
+  it('GET /api/debug/supervision quarantine entries have safe shape (no stored_path)', async () => {
+    const res = await fetch(url('/api/debug/supervision'), { headers: authHeader(authToken) });
+    expect(res.status).toBe(200);
+    const body = await res.json() as Record<string, unknown>;
+    const quarantine = body.quarantine as Array<Record<string, unknown>>;
+    for (const entry of quarantine) {
+      expect(entry.quarantine_id).toBeDefined();
+      expect(entry.review_id).toBeDefined();
+      expect(entry.source_ref).toBeDefined();
+      expect(entry.risk).toBeDefined();
+      expect(entry.created_at).toBeDefined();
+      // stored_path must NOT be exposed in the API
+      expect(entry.stored_path).toBeUndefined();
+    }
+  });
+
+  it('GET /api/debug/supervision does not leak raw content', async () => {
+    const res = await fetch(url('/api/debug/supervision'), { headers: authHeader(authToken) });
+    expect(res.status).toBe(200);
+    const text = await res.text();
+    // Raw content should never appear in the supervision endpoint
+    expect(text).not.toContain('raw.bin');
+    expect(text).not.toContain('.saivage-work/quarantine');
+  });
+});
+
+// ══════════════════════════════════════════════════════════════
+// WebSocket Tests
 // ══════════════════════════════════════════════════════════════
 // WebSocket Tests
 // ══════════════════════════════════════════════════════════════

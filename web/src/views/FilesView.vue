@@ -84,6 +84,15 @@
           </div>
           <div v-if="outputFiles.length === 0 && !outputLoading" class="panel-empty">No files</div>
         </div>
+
+        <!-- Quarantine shortcut -->
+        <div class="quarantine-footer">
+          <div class="quarantine-footer-label">Quarantine</div>
+          <button
+            class="quarantine-footer-btn"
+            @click="fileStore.navigateOutput('.saivage-work/quarantine')"
+          >Browse .saivage-work/quarantine/</button>
+        </div>
       </section>
     </div>
 
@@ -217,4 +226,10 @@ onMounted(() => {
 .md-view :deep(.inline-code) { background:#21262d; padding:1px 5px; border-radius:3px; font-size:12px; font-family:'SF Mono',monospace; color:#d2a8ff; }
 .md-view :deep(strong) { color:#f0f6fc; }
 .plain-view { margin:0; padding:12px; background:#0d1117; border:1px solid #21262d; border-radius:4px; font-size:12px; font-family:'SF Mono',monospace; line-height:1.5; white-space:pre-wrap; word-break:break-word; color:#c9d1d9; }
+
+/* ── Quarantine Footer ── */
+.quarantine-footer { display:flex; align-items:center; gap:8px; padding:8px 12px; background:#1a1f24; border-top:1px solid #30363d; flex-shrink:0; }
+.quarantine-footer-label { font-size:10px; font-weight:600; color:#d29922; text-transform:uppercase; letter-spacing:.05em; }
+.quarantine-footer-btn { background:none; border:1px solid #30363d; border-radius:4px; color:#8b949e; cursor:pointer; font-size:11px; font-family:'SF Mono',monospace; padding:3px 8px; transition:all .15s; }
+.quarantine-footer-btn:hover { color:#d29922; border-color:#d29922; }
 </style>

@@ -313,6 +313,63 @@ export interface DebugTimelineEvent {
   data?: Record<string, unknown>;
 }
 
+// ── Doctor & Supervision ─────────────────────────────────────
+
+export interface DoctorCheck {
+  name: string;
+  passed: boolean;
+  details?: string;
+}
+
+export interface DoctorIssue {
+  severity: 'error' | 'warning';
+  message: string;
+}
+
+export interface DoctorResponse {
+  status: 'ok' | 'issues_found';
+  checks: DoctorCheck[];
+  issues: DoctorIssue[];
+}
+
+export type SourceKind = 'command_output' | 'file' | 'download' | 'web' | 'api' | 'tool';
+export type ReviewStatus = 'passed' | 'blocked' | 'sanitized';
+export type RiskLevel = 'low' | 'medium' | 'high';
+
+export interface ContentReview {
+  id: string;
+  source_kind: SourceKind;
+  source_ref: string;
+  status: ReviewStatus;
+  summary: string;
+  risk: RiskLevel;
+  quarantine_id?: string | null;
+  created_at: string;
+}
+
+export interface QuarantineSummaryEntry {
+  quarantine_id: string;
+  review_id: string;
+  source_ref: string;
+  risk: RiskLevel;
+  created_at: string;
+}
+
+export interface SupervisionStats {
+  total: number;
+  blocked: number;
+  passed: number;
+  sanitized: number;
+  byRisk: Record<string, number>;
+  bySourceKind: Record<string, number>;
+}
+
+export interface SupervisionResponse {
+  reviews: ContentReview[];
+  quarantine: QuarantineSummaryEntry[];
+  stats: SupervisionStats;
+}
+
 // ── MCP ───────────────────────────────────────────────────────
 
 /** Invocation statistics for a single tool. */

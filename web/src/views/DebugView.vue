@@ -104,7 +104,6 @@
         <div v-else-if="mcpStore.error" class="debug-error">{{ mcpStore.error }}</div>
         <div v-else-if="mcpStore.serverCount === 0" class="debug-empty">No MCP servers configured or running.</div>
         <div v-else class="mcp-content">
-          <!-- Summary Row -->
           <section class="debug-section">
             <h4 class="debug-section-title">Summary</h4>
             <div class="debug-grid">
@@ -114,8 +113,6 @@
               <div v-if="mcpStore.lastRefreshed" class="dg-item"><span class="dg-key">Last Refreshed:</span><span class="dg-value">{{ fmtDate(mcpStore.lastRefreshed) }}</span></div>
             </div>
           </section>
-
-          <!-- Per-Server Sections -->
           <section v-for="server in mcpStore.servers" :key="server.name" class="debug-section">
             <h4 class="debug-section-title">
               {{ server.name }}
@@ -123,9 +120,7 @@
               <span class="mcp-server-transport">{{ server.transport }}</span>
               <span class="mcp-tool-count">{{ server.toolCount }} tools</span>
             </h4>
-
             <div v-if="server.tools.length === 0" class="debug-empty" style="padding:8px;font-size:12px;">No tools discovered.</div>
-
             <div v-for="tool in server.tools" :key="tool.name" class="mcp-tool-card">
               <div class="mcp-tool-name-row">
                 <span class="mcp-tool-name">{{ tool.name }}</span>
@@ -142,8 +137,6 @@
               </div>
             </div>
           </section>
-
-          <!-- Invocation Stats Table -->
           <section v-if="Object.keys(mcpStore.invocationStats).length > 0" class="debug-section">
             <h4 class="debug-section-title">All Invocation Stats</h4>
             <div class="mcp-stats-table">
@@ -194,12 +187,130 @@
           </div>
         </div>
       </div>
+
+      <!-- Supervision Tab: Doctor + Quarantine -->
+      <div v-if="localActiveTab === 'supervision'" class="debug-tab-content">
+        <section class="debug-section">
+          <div class="debug-section-header">
+            <h4 class="debug-section-title">Doctor Diagnostics</h4>
+            <button class="sv-fetch-btn" :disabled="doctorLoading" @click="debugStore.fetchDoctor()">Fetch</button>
+          </div>
+          <div v-if="doctorLoading" class="debug-loading" style="padding:16px;">Running diagnostics...</div>
+          <div v-else-if="doctorStatus === null && doctorChecks.length === 0" class="debug-empty" style="padding:16px;">
+            No diagnostics run yet. Click Fetch to check card/index consistency.
+          </div>
+          <template v-else>
+            <div class="doctor-status-banner" :class="doctorStatus === 'ok' ? 'doctor-ok' : 'doctor-issues'">
+              <span class="doctor-status-icon">{{ doctorStatus === 'ok' ? '✓' : '⚠' }}</span>
+              <span class="doctor-status-text">
+                {{ doctorStatus === 'ok' ? 'All checks passed' : 'Issues found' }}
+                ({{ doctorChecks.length }} checks)
+              </span>
+            </div>
+            <div class="doctor-checks-list">
+              <div v-for="check in doctorChecks" :key="check.name" class="doctor-check-item" :class="check.passed ? 'check-passed' : 'check-failed'">
+                <span class="check-icon">{{ check.passed ? '✓' : '✗' }}</span>
+                <div class="check-body">
+                  <span class="check-name">{{ check.name }}</span>
+                  <span v-if="check.details" class="check-details">{{ check.details }}</span>
+                </div>
+              </div>
+            </div>
+            <div v-if="doctorIssues.length > 0" class="doctor-issues">
+              <h5 class="doctor-issues-title">Issues ({{ doctorIssues.length }})</h5>
+              <div v-for="(issue, idx) in doctorIssues" :key="idx" class="doctor-issue-item" :class="'issue-' + issue.severity">
+                <span class="issue-severity-badge" :class="'iss-' + issue.severity">{{ issue.severity }}</span>
+                <span class="issue-message">{{ issue.message }}</span>
+              </div>
+            </div>
+          </template>
+        </section>
+
+        <section class="debug-section">
+          <div class="debug-section-header">
+            <h4 class="debug-section-title">Content Supervision</h4>
+            <button class="sv-fetch-btn" :disabled="supervisionLoading" @click="debugStore.fetchSupervision()">Fetch</button>
+          </div>
+          <div v-if="supervisionLoading" class="debug-loading" style="padding:16px;">Loading supervision data...</div>
+          <div v-else-if="supervisionStats === null" class="debug-empty" style="padding:16px;">
+            No supervision data loaded yet. Click Fetch to load.
+          </div>
+          <template v-else>
+            <div class="sv-stats-grid">
+              <div class="sv-stat-card sv-stat-total">
+                <span class="sv-stat-num">{{ supervisionStats.total }}</span>
+                <span class="sv-stat-label">Total Reviews</span>
+              </div>
+              <div class="sv-stat-card sv-stat-blocked">
+                <span class="sv-stat-num">{{ supervisionStats.blocked }}</span>
+                <span class="sv-stat-label">Blocked</span>
+              </div>
+              <div class="sv-stat-card sv-stat-passed">
+                <span class="sv-stat-num">{{ supervisionStats.passed }}</span>
+                <span class="sv-stat-label">Passed</span>
+              </div>
+              <div class="sv-stat-card sv-stat-sanitized">
+                <span class="sv-stat-num">{{ supervisionStats.sanitized }}</span>
+                <span class="sv-stat-label">Sanitized</span>
+              </div>
+            </div>
+            <div v-if="Object.keys(supervisionStats.byRisk).length" class="sv-sub-section">
+              <h5 class="sv-sub-title">By Risk</h5>
+              <div class="sv-pills">
+                <span v-for="(count, risk) in supervisionStats.byRisk" :key="risk" class="sv-pill" :class="'risk-' + risk">
+                  {{ risk }}: {{ count }}
+                </span>
+              </div>
+            </div>
+            <div v-if="Object.keys(supervisionStats.bySourceKind).length" class="sv-sub-section">
+              <h5 class="sv-sub-title">By Source</h5>
+              <div class="sv-pills">
+                <span v-for="(count, kind) in supervisionStats.bySourceKind" :key="kind" class="sv-pill sv-pill-kind">
+                  {{ kind }}: {{ count }}
+                </span>
+              </div>
+            </div>
+            <div v-if="supervisionReviews.length > 0" class="sv-sub-section">
+              <h5 class="sv-sub-title">Recent Reviews ({{ supervisionReviews.length }})</h5>
+              <div class="sv-review-list">
+                <div v-for="review in supervisionReviews.slice(0, 20)" :key="review.id" class="sv-review-item" :class="'sv-review-' + review.status">
+                  <span class="sv-review-status-badge" :class="'sv-st-' + review.status">{{ review.status }}</span>
+                  <div class="sv-review-body">
+                    <span class="sv-review-summary">{{ review.summary }}</span>
+                    <div class="sv-review-meta">
+                      <span class="sv-review-source">{{ review.source_ref }}</span>
+                      <span class="sv-review-risk" :class="'risk-' + review.risk">{{ review.risk }}</span>
+                      <span class="sv-review-time">{{ fmtDate(review.created_at) }}</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div v-if="supervisionQuarantine.length > 0" class="sv-sub-section">
+              <h5 class="sv-sub-title">Quarantine Index ({{ supervisionQuarantine.length }})</h5>
+              <div class="sv-quarantine-list">
+                <div v-for="entry in supervisionQuarantine" :key="entry.quarantine_id" class="sv-q-item">
+                  <div class="sv-q-header">
+                    <span class="sv-q-id mono">{{ entry.quarantine_id.slice(0, 12) }}...</span>
+                    <span class="sv-q-risk" :class="'risk-' + entry.risk">{{ entry.risk }}</span>
+                  </div>
+                  <div class="sv-q-meta">
+                    <span class="sv-q-source mono">{{ entry.source_ref }}</span>
+                    <span class="sv-q-time">{{ fmtDate(entry.created_at) }}</span>
+                  </div>
+                  <button class="sv-q-browse-btn" @click="browseQuarantineItem(entry.quarantine_id)">Browse in Files</button>
+                </div>
+              </div>
+            </div>
+          </template>
+        </section>
+      </div>
     </div>
   </div>
 </template>
-
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from 'vue';
+import { useRouter } from 'vue-router';
 import { storeToRefs } from 'pinia';
 import { useDebugStore } from '../stores/debug';
 import { useMcpStore } from '../stores/mcp';
@@ -209,20 +320,24 @@ import { createLogger } from '../utils/logger';
 const log = createLogger('view:debug');
 const debugStore = useDebugStore();
 const mcpStore = useMcpStore();
+const router = useRouter();
 const {
   debugRuntime, debugCards, debugTotalCards,
   errors, errorsTotal, errorsBySource,
   sortedTimeline, loading, error,
   processes, processesLoading,
+  doctorStatus, doctorChecks, doctorIssues, doctorLoading,
+  supervisionReviews, supervisionQuarantine, supervisionStats, supervisionLoading,
 } = storeToRefs(debugStore);
 
-type TabId = 'state' | 'errors' | 'timeline' | 'mcp' | 'processes';
+type TabId = 'state' | 'errors' | 'timeline' | 'mcp' | 'processes' | 'supervision';
 
 const tabs = [
   { id: 'state' as const, label: 'State' },
   { id: 'errors' as const, label: 'Errors' },
   { id: 'timeline' as const, label: 'Timeline' },
   { id: 'processes' as const, label: 'Processes' },
+  { id: 'supervision' as const, label: 'Supervision' },
   { id: 'mcp' as const, label: 'MCP' },
 ];
 
@@ -234,7 +349,15 @@ function setTab(tab: TabId): void {
   else if (tab === 'errors') debugStore.fetchErrors().catch(() => {});
   else if (tab === 'timeline') debugStore.fetchTimeline().catch(() => {});
   else if (tab === 'processes') debugStore.fetchProcesses().catch(() => {});
-  else if (tab === 'mcp') mcpStore.fetchMcpData().catch(() => {});
+  else if (tab === 'supervision') {
+    debugStore.fetchDoctor().catch(() => {});
+    debugStore.fetchSupervision().catch(() => {});
+  } else if (tab === 'mcp') mcpStore.fetchMcpData().catch(() => {});
+}
+
+function browseQuarantineItem(quarantineId: string): void {
+  const path = '.saivage-work/quarantine/' + quarantineId;
+  router.push({ name: 'files', query: { path } });
 }
 
 interface CardStatusEntry { status: string; count: number }
@@ -265,7 +388,6 @@ function fmtJson(data: Record<string, unknown>): string {
 onMounted(async () => {
   debugStore.setupWsListener();
   await debugStore.fetchAll();
-
   mcpStore.fetchMcpData().catch(() => {});
   mcpStore.startPolling(15000);
 });
@@ -274,10 +396,9 @@ onUnmounted(() => {
   mcpStore.stopPolling();
 });
 </script>
-
 <style scoped>
 .debug-layout { height:100%; display:flex; flex-direction:column; overflow:hidden; }
-.debug-tabs { display:flex; gap:2px; padding:8px 12px; background:#161b22; border-bottom:1px solid #30363d; flex-shrink:0; }
+.debug-tabs { display:flex; gap:2px; padding:8px 12px; background:#161b22; border-bottom:1px solid #30363d; flex-shrink:0; flex-wrap:wrap; }
 .debug-tab { padding:5px 16px; font-size:12px; font-weight:500; color:#8b949e; background:none; border:none; border-radius:4px; cursor:pointer; font-family:inherit; transition:all .15s; }
 .debug-tab:hover { color:#c9d1d9; background:#21262d; }
 .debug-tab.active { background:#30363d; color:#f0f6fc; }
@@ -286,7 +407,8 @@ onUnmounted(() => {
 .debug-loading,.debug-empty,.debug-error { padding:32px; text-align:center; color:#8b949e; font-size:13px; }
 .debug-error { color:#f85149; }
 .debug-section { margin-bottom:24px; }
-.debug-section-title { font-size:12px; font-weight:600; color:#8b949e; text-transform:uppercase; letter-spacing:.03em; margin:0 0 10px 0; }
+.debug-section-header { display:flex; align-items:center; justify-content:space-between; margin-bottom:10px; }
+.debug-section-title { font-size:12px; font-weight:600; color:#8b949e; text-transform:uppercase; letter-spacing:.03em; margin:0; }
 .debug-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(250px,1fr)); gap:6px; }
 .dg-item { display:flex; gap:8px; }
 .dg-key { font-size:12px; color:#8b949e; }
@@ -294,7 +416,6 @@ onUnmounted(() => {
 .dg-value.mono { font-family:'SF Mono',monospace; font-size:11px; color:#58a6ff; }
 .mono { font-family:'SF Mono',monospace; }
 
-/* ── Freeze Banner ── */
 .freeze-banner { display:flex; align-items:center; gap:10px; padding:12px 16px; background:#1a1d2e; border:1px solid #5a4fcf; border-radius:8px; margin-bottom:12px; }
 .freeze-banner-text { font-size:14px; color:#c9d1d9; display:flex; flex-direction:column; gap:2px; }
 .freeze-reason { font-size:12px; color:#8b949e; font-style:italic; }
@@ -351,7 +472,6 @@ onUnmounted(() => {
 .tl-event-time { font-size:10px; color:#484f58; margin-left:auto; }
 .tl-event-data { width:100%; margin-top:4px; padding:6px; background:#0d1117; border:1px solid #21262d; border-radius:4px; font-size:10px; font-family:'SF Mono',monospace; line-height:1.4; white-space:pre-wrap; word-break:break-word; color:#8b949e; max-height:100px; overflow-y:auto; }
 
-/* ── MCP Styles ── */
 .mcp-server-badge { font-size:10px; font-weight:600; padding:1px 5px; border-radius:4px; text-transform:uppercase; margin-left:8px; }
 .mcp-server-badge.mcp-status-running { background:#1a2418; color:#7ee787; }
 .mcp-server-badge.mcp-status-stopped { background:#21262d; color:#8b949e; }
@@ -379,7 +499,6 @@ onUnmounted(() => {
 .mcp-stats-cell.mcp-stat-time { color:#484f58; }
 .mcp-content { padding:0; }
 
-/* ── Processes Styles ── */
 .processes-list { display:flex; flex-direction:column; gap:10px; }
 .process-card { background:#161b22; border:1px solid #21262d; border-radius:6px; overflow:hidden; }
 .process-header { display:flex; align-items:center; gap:8px; padding:8px 12px; background:#1c2128; border-bottom:1px solid #30363d; }
@@ -394,4 +513,88 @@ onUnmounted(() => {
 .pd-key { color:#8b949e; min-width:90px; flex-shrink:0; }
 .pd-value { color:#c9d1d9; word-break:break-all; }
 .pd-value.mono { font-family:'SF Mono',monospace; font-size:11px; color:#58a6ff; }
+
+/* ── Supervision Tab Styles ── */
+.sv-fetch-btn { padding:3px 12px; font-size:11px; color:#58a6ff; background:#1c2738; border:1px solid #30363d; border-radius:4px; cursor:pointer; font-family:inherit; transition:all .15s; }
+.sv-fetch-btn:hover:not(:disabled) { background:#253548; border-color:#58a6ff; }
+.sv-fetch-btn:disabled { opacity:.5; cursor:not-allowed; }
+
+.doctor-status-banner { display:flex; align-items:center; gap:8px; padding:10px 14px; border-radius:6px; margin-bottom:12px; }
+.doctor-status-banner.doctor-ok { background:#1a2418; border:1px solid #3fb950; }
+.doctor-status-banner.doctor-issues { background:#241f18; border:1px solid #d29922; }
+.doctor-status-icon { font-size:16px; }
+.doctor-ok .doctor-status-icon { color:#7ee787; }
+.doctor-issues .doctor-status-icon { color:#d29922; }
+.doctor-status-text { font-size:13px; color:#c9d1d9; }
+
+.doctor-checks-list { display:flex; flex-direction:column; gap:4px; margin-bottom:12px; }
+.doctor-check-item { display:flex; align-items:flex-start; gap:8px; padding:6px 10px; border-radius:4px; }
+.doctor-check-item.check-passed { background:#161b22; }
+.doctor-check-item.check-failed { background:#241818; border:1px solid #3d1f1f; }
+.check-icon { font-size:12px; margin-top:1px; flex-shrink:0; }
+.check-passed .check-icon { color:#7ee787; }
+.check-failed .check-icon { color:#f85149; }
+.check-body { display:flex; flex-direction:column; gap:2px; }
+.check-name { font-size:12px; color:#c9d1d9; font-family:'SF Mono',monospace; font-size:11px; }
+.check-details { font-size:11px; color:#8b949e; }
+
+.doctor-issues { margin-top:12px; }
+.doctor-issues-title { font-size:11px; font-weight:600; color:#f85149; margin:0 0 6px 0; }
+.doctor-issue-item { display:flex; align-items:flex-start; gap:8px; padding:6px 10px; border-radius:4px; margin-bottom:4px; background:#1a1818; }
+.issue-severity-badge { font-size:10px; font-weight:600; padding:1px 5px; border-radius:3px; text-transform:uppercase; flex-shrink:0; }
+.iss-error { background:#241818; color:#f85149; }
+.iss-warning { background:#241f18; color:#d29922; }
+.issue-message { font-size:12px; color:#c9d1d9; }
+
+.sv-stats-grid { display:grid; grid-template-columns:repeat(4,1fr); gap:8px; margin-bottom:16px; }
+.sv-stat-card { padding:12px; border-radius:6px; text-align:center; display:flex; flex-direction:column; gap:4px; }
+.sv-stat-total { background:#161b22; border:1px solid #30363d; }
+.sv-stat-blocked { background:#241818; border:1px solid #3d1f1f; }
+.sv-stat-passed { background:#1a2418; border:1px solid #254025; }
+.sv-stat-sanitized { background:#1c2738; border:1px solid #253548; }
+.sv-stat-num { font-size:22px; font-weight:700; font-family:'SF Mono',monospace; }
+.sv-stat-total .sv-stat-num { color:#f0f6fc; }
+.sv-stat-blocked .sv-stat-num { color:#f85149; }
+.sv-stat-passed .sv-stat-num { color:#7ee787; }
+.sv-stat-sanitized .sv-stat-num { color:#58a6ff; }
+.sv-stat-label { font-size:10px; color:#8b949e; text-transform:uppercase; letter-spacing:.04em; }
+
+.sv-sub-section { margin-top:16px; }
+.sv-sub-title { font-size:11px; font-weight:600; color:#8b949e; margin:0 0 8px 0; }
+.sv-pills { display:flex; gap:6px; flex-wrap:wrap; }
+.sv-pill { font-size:10px; padding:2px 8px; border-radius:10px; font-family:'SF Mono',monospace; background:#21262d; color:#c9d1d9; }
+.sv-pill.risk-low { background:#1a2418; color:#7ee787; }
+.sv-pill.risk-medium { background:#241f18; color:#d29922; }
+.sv-pill.risk-high { background:#241818; color:#f85149; }
+.sv-pill-kind { background:#1c2738; color:#58a6ff; }
+
+.sv-review-list { display:flex; flex-direction:column; gap:4px; }
+.sv-review-item { display:flex; align-items:flex-start; gap:8px; padding:8px 10px; border-radius:4px; border-left:3px solid transparent; background:#161b22; }
+.sv-review-item.sv-review-passed { border-left-color:#7ee787; }
+.sv-review-item.sv-review-blocked { border-left-color:#f85149; }
+.sv-review-item.sv-review-sanitized { border-left-color:#58a6ff; }
+.sv-review-status-badge { font-size:9px; font-weight:600; padding:1px 5px; border-radius:3px; text-transform:uppercase; flex-shrink:0; font-family:'SF Mono',monospace; }
+.sv-st-passed { background:#1a2418; color:#7ee787; }
+.sv-st-blocked { background:#241818; color:#f85149; }
+.sv-st-sanitized { background:#1c2738; color:#58a6ff; }
+.sv-review-body { flex:1; display:flex; flex-direction:column; gap:2px; }
+.sv-review-summary { font-size:12px; color:#c9d1d9; }
+.sv-review-meta { display:flex; gap:8px; align-items:center; }
+.sv-review-source { font-size:10px; color:#8b949e; font-family:'SF Mono',monospace; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:200px; }
+.sv-review-risk { font-size:9px; padding:0 5px; border-radius:3px; }
+.sv-review-risk.risk-low { background:#1a2418; color:#7ee787; }
+.sv-review-risk.risk-medium { background:#241f18; color:#d29922; }
+.sv-review-risk.risk-high { background:#241818; color:#f85149; }
+.sv-review-time { font-size:10px; color:#484f58; margin-left:auto; }
+
+.sv-quarantine-list { display:flex; flex-direction:column; gap:4px; }
+.sv-q-item { padding:8px 10px; background:#161b22; border:1px solid #21262d; border-radius:4px; }
+.sv-q-header { display:flex; align-items:center; gap:6px; margin-bottom:4px; }
+.sv-q-id { font-size:11px; color:#58a6ff; }
+.sv-q-risk { font-size:9px; padding:0 5px; border-radius:3px; }
+.sv-q-meta { display:flex; gap:8px; align-items:center; margin-bottom:6px; }
+.sv-q-source { font-size:10px; color:#8b949e; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:250px; }
+.sv-q-time { font-size:10px; color:#484f58; margin-left:auto; }
+.sv-q-browse-btn { padding:2px 8px; font-size:10px; color:#d29922; background:none; border:1px solid #30363d; border-radius:3px; cursor:pointer; font-family:inherit; transition:all .15s; }
+.sv-q-browse-btn:hover { color:#e2b451; border-color:#d29922; background:#241f18; }
 </style>

@@ -1,9 +1,10 @@
 /**
  * Pinia store for debug information.
  *
- * Exposes runtime state dump, errors list, and timeline view.
- * All data is read-only for inspection purposes — actions should
- * link back to the relevant card or process.
+ * Exposes runtime state dump, errors list, timeline view, doctor
+ * diagnostics, and content supervision data. All data is read-only
+ * for inspection purposes — actions should link back to the
+ * relevant card or process.
  */
 
 import { defineStore } from 'pinia';
@@ -17,6 +18,13 @@ import type {
   DebugStateResponse,
   DebugErrorsResponse,
   DebugTimelineResponse,
+  DoctorCheck,
+  DoctorIssue,
+  DoctorResponse,
+  ContentReview,
+  QuarantineSummaryEntry,
+  SupervisionStats,
+  SupervisionResponse,
   ProcessRecord,
   ProcessListResponse,
 } from '../api/types';
@@ -24,6 +32,8 @@ import {
   getDebugState,
   getDebugErrors,
   getDebugTimeline,
+  getDoctor,
+  getDebugSupervision,
   listProcesses,
   ApiError,
 } from '../api/client';
@@ -63,12 +73,24 @@ export const useDebugStore = defineStore('debug', () => {
   const processes = ref<ProcessRecord[]>([]);
   const processesLoading = ref(false);
 
+  // Doctor
+  const doctorStatus = ref<'ok' | 'issues_found' | null>(null);
+  const doctorChecks = ref<DoctorCheck[]>([]);
+  const doctorIssues = ref<DoctorIssue[]>([]);
+  const doctorLoading = ref(false);
+
+  // Supervision
+  const supervisionReviews = ref<ContentReview[]>([]);
+  const supervisionQuarantine = ref<QuarantineSummaryEntry[]>([]);
+  const supervisionStats = ref<SupervisionStats | null>(null);
+  const supervisionLoading = ref(false);
+
   // Shared
   const loading = ref(false);
   const error = ref<string | null>(null);
 
   /** Which debug tab is active. */
-  const activeTab = ref<'state' | 'errors' | 'timeline'>('state');
+  const activeTab = ref<'state' | 'errors' | 'timeline' | 'supervision'>('state');
 
   // ── Getters ────────────────────────────────────────────────
 
@@ -113,6 +135,39 @@ export const useDebugStore = defineStore('debug', () => {
       (c) => c.status === 'failed' || c.status === 'blocked',
     ),
   );
+
+  /** Doctor checks that failed. */
+  const failedChecks = computed(() =>
+    doctorChecks.value.filter((c) => !c.passed),
+  );
+
+  /** Doctor issues by severity. */
+  const doctorIssuesBySeverity = computed(() => {
+    const map = new Map<'error' | 'warning', DoctorIssue[]>();
+    for (const issue of doctorIssues.value) {
+      const list = map.get(issue.severity);
+      if (list) {
+        list.push(issue);
+      } else {
+        map.set(issue.severity, [issue]);
+      }
+    }
+    return map;
+  });
+
+  /** Supervision reviews grouped by status. */
+  const reviewsByStatus = computed(() => {
+    const map = new Map<string, ContentReview[]>();
+    for (const r of supervisionReviews.value) {
+      const list = map.get(r.status);
+      if (list) {
+        list.push(r);
+      } else {
+        map.set(r.status, [r]);
+      }
+    }
+    return map;
+  });
 
   // ── Actions ────────────────────────────────────────────────
 
@@ -184,12 +239,48 @@ export const useDebugStore = defineStore('debug', () => {
     }
   }
 
+  /** Fetch doctor diagnostics. */
+  async function fetchDoctor(): Promise<void> {
+    doctorLoading.value = true;
+    error.value = null;
+    try {
+      const response: DoctorResponse = await getDoctor();
+      doctorStatus.value = response.status;
+      doctorChecks.value = response.checks;
+      doctorIssues.value = response.issues;
+    } catch (err) {
+      const msg = err instanceof ApiError ? err.message : 'Failed to fetch doctor diagnostics';
+      error.value = msg;
+      log.error('fetchDoctor', msg);
+    } finally {
+      doctorLoading.value = false;
+    }
+  }
+
+  /** Fetch supervision data (content reviews + quarantine index). */
+  async function fetchSupervision(): Promise<void> {
+    supervisionLoading.value = true;
+    error.value = null;
+    try {
+      const response: SupervisionResponse = await getDebugSupervision();
+      supervisionReviews.value = response.reviews;
+      supervisionQuarantine.value = response.quarantine;
+      supervisionStats.value = response.stats;
+    } catch (err) {
+      const msg = err instanceof ApiError ? err.message : 'Failed to fetch supervision data';
+      error.value = msg;
+      log.error('fetchSupervision', msg);
+    } finally {
+      supervisionLoading.value = false;
+    }
+  }
+
   /** Fetch all debug data at once. */
   async function fetchAll(): Promise<void> {
     await Promise.allSettled([fetchState(), fetchErrors(), fetchTimeline()]);
   }
 
-  function setActiveTab(tab: 'state' | 'errors' | 'timeline'): void {
+  function setActiveTab(tab: 'state' | 'errors' | 'timeline' | 'supervision'): void {
     activeTab.value = tab;
   }
 
@@ -245,6 +336,14 @@ export const useDebugStore = defineStore('debug', () => {
     timelineTotal: readonly(timelineTotal),
     processes: readonly(processes),
     processesLoading: readonly(processesLoading),
+    doctorStatus: readonly(doctorStatus),
+    doctorChecks: readonly(doctorChecks),
+    doctorIssues: readonly(doctorIssues),
+    doctorLoading: readonly(doctorLoading),
+    supervisionReviews: readonly(supervisionReviews),
+    supervisionQuarantine: readonly(supervisionQuarantine),
+    supervisionStats: readonly(supervisionStats),
+    supervisionLoading: readonly(supervisionLoading),
     loading: readonly(loading),
     error: readonly(error),
     activeTab,
@@ -254,12 +353,17 @@ export const useDebugStore = defineStore('debug', () => {
     errorsBySeverity,
     sortedTimeline,
     problemCards,
+    failedChecks,
+    doctorIssuesBySeverity,
+    reviewsByStatus,
 
     // Actions
     fetchState,
     fetchErrors,
     fetchTimeline,
     fetchProcesses,
+    fetchDoctor,
+    fetchSupervision,
     fetchAll,
     setActiveTab,
     setupWsListener,

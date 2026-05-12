@@ -6,6 +6,10 @@ import { readFreezeManifest } from '../../utils/freeze-manifest.js';
 import { CardStore } from '../../utils/card-store.js';
 import { getSafeFileForAgent } from '../../utils/file-access-security.js';
 import { AnalystHandler } from '../../agents/analyst-handler.js';
+import {
+  listRecentReviews,
+  listQuarantineIndex,
+} from '../../utils/quarantine.js';
 
 // ── Constants ─────────────────────────────────────────────────
 
@@ -107,6 +111,8 @@ export function registerChatsFilesDebugRoutes(
   projectRoot: string,
 ): void {
   const store = new CardStore(projectRoot);
+  const saivageDir = join(projectRoot, '.saivage');
+  const saivageWorkDir = join(projectRoot, '.saivage-work');
 
   // ═══════════════════════════════════════════════════════════
   // Chat endpoints
@@ -748,6 +754,66 @@ export function registerChatsFilesDebugRoutes(
     } catch (err) {
       return reply.status(500).send({
         error: 'Failed to run doctor consistency check',
+        message: err instanceof Error ? err.message : String(err),
+      });
+    }
+  });
+
+  // ═══════════════════════════════════════════════════════════
+  // Supervision endpoint — content supervision & quarantine
+  // ═══════════════════════════════════════════════════════════
+
+  fastify.get('/api/debug/supervision', async (_request: FastifyRequest, reply: FastifyReply) => {
+    try {
+      // Read recent content reviews and quarantine index safely.
+      // These utilities read from .saivage/supervision/ and return
+      // typed, validated data — no raw path exposure.
+      const reviews = listRecentReviews(saivageDir, 50);
+      const quarantineIndex = listQuarantineIndex(saivageDir);
+
+      // Aggregate statistics for the UI summary
+      const blockedCount = reviews.filter((r) => r.status === 'blocked').length;
+      const passedCount = reviews.filter((r) => r.status === 'passed').length;
+      const sanitizedCount = reviews.filter((r) => r.status === 'sanitized').length;
+
+      // Risk breakdown
+      const byRisk: Record<string, number> = {};
+      for (const r of reviews) {
+        byRisk[r.risk] = (byRisk[r.risk] || 0) + 1;
+      }
+
+      // Source kind breakdown
+      const bySourceKind: Record<string, number> = {};
+      for (const r of reviews) {
+        bySourceKind[r.source_kind] = (bySourceKind[r.source_kind] || 0) + 1;
+      }
+
+      // Summary does NOT include stored_path from quarantine items —
+      // that's an internal path. The UI uses the quarantine_id to
+      // navigate via /api/files against the quarantine directory.
+      const quarantineSummary = quarantineIndex.map((entry) => ({
+        quarantine_id: entry.quarantine_id,
+        review_id: entry.review_id,
+        source_ref: entry.source_ref,
+        risk: entry.risk,
+        created_at: entry.created_at,
+      }));
+
+      return reply.send({
+        reviews,
+        quarantine: quarantineSummary,
+        stats: {
+          total: reviews.length,
+          blocked: blockedCount,
+          passed: passedCount,
+          sanitized: sanitizedCount,
+          byRisk,
+          bySourceKind,
+        },
+      });
+    } catch (err) {
+      return reply.status(500).send({
+        error: 'Failed to read supervision data',
         message: err instanceof Error ? err.message : String(err),
       });
     }
