@@ -30,6 +30,43 @@ const TERMINAL_TYPES: ReadonlySet<CardType> = new Set<CardType>([
   'ops',
 ]);
 
+/**
+ * States in which cards cannot be edited at all (except for a status-only
+ * change via setStatus, which triggers a lifecycle transition).
+ *
+ * Per 02-card-lifecycle.md: done, failed, and cancelled are non-editable.
+ */
+const TERMINAL_STATES: ReadonlySet<CardStatus> = new Set<CardStatus>([
+  'done',
+  'failed',
+  'cancelled',
+]);
+
+/**
+ * Fields considered "structural" and immutable when a card is in a
+ * limited-edit state (active, running, blocked).  Drafting and backlog
+ * cards can edit all fields.  Terminal-state cards cannot edit anything.
+ *
+ * Per 02-card-lifecycle.md Permissions by State table.
+ */
+const CRITICAL_FIELDS: ReadonlySet<string> = new Set([
+  'type',
+  'parent',
+  'depends_on',
+  'depth',
+  'id',
+  'created_at',
+]);
+
+/**
+ * States in which editing is allowed for the full card (all fields).
+ * Per 02-card-lifecycle.md: drafting → yes, backlog → yes.
+ */
+const FULL_EDIT_STATES: ReadonlySet<CardStatus> = new Set<CardStatus>([
+  'drafting',
+  'backlog',
+]);
+
 const PLAN_CARD_ID_PREFIX = 'plan-';
 
 /**
@@ -271,6 +308,12 @@ export class CardStore {
           `Cannot create child under terminal card '${input.parent}' (type: ${parentCard.type}). Terminal cards cannot have children.`,
         );
       }
+      // State-based permission: cannot create children under terminal-state parents
+      if (TERMINAL_STATES.has(parentCard.status)) {
+        throw new Error(
+          `Cannot create child under card '${input.parent}' because it is in status '${parentCard.status}'. Children cannot be created under cards in ${parentCard.status} status.`,
+        );
+      }
     }
 
     // Compute depth
@@ -390,12 +433,40 @@ export class CardStore {
   /**
    * Update a card's fields. Does not change id, type, created_at.
    * Recomputes blocks automatically if depends_on changed.
+   *
+   * State-based permission checks per 02-card-lifecycle.md:
+   * - drafting / backlog: full editing allowed
+   * - active / running / blocked: non-critical fields only
+   * - done / failed / cancelled: only status changes (via setStatus)
    */
   update(id: string, changes: Partial<CardRecord>): CardRecord {
     const existing = this.read(id);
     if (!existing) {
       throw new Error(`Card '${id}' not found.`);
     }
+
+    // ── State-based permission check ───────────────────────
+
+    if (TERMINAL_STATES.has(existing.status)) {
+      // done / failed / cancelled: only allow status-only changes
+      // (self-transition or reopen via setStatus)
+      const nonStatusKeys = Object.keys(changes).filter(k => k !== 'status');
+      if (nonStatusKeys.length > 0) {
+        throw new Error(
+          `Card '${id}' is in status '${existing.status}'. Cards in this state cannot be edited. Use setStatus() to reopen the card first.`,
+        );
+      }
+    } else if (!FULL_EDIT_STATES.has(existing.status)) {
+      // active / running / blocked: non-critical fields only
+      for (const key of Object.keys(changes)) {
+        if (CRITICAL_FIELDS.has(key)) {
+          throw new Error(
+            `Field '${key}' cannot be changed on a card in status '${existing.status}'. Cards in this state allow editing: status, title, description, priority, urgency, tags, and other non-structural fields.`,
+          );
+        }
+      }
+    }
+    // drafting / backlog: no restriction — all fields are editable
 
     // Disallow changing type to terminal while card has children
     if (changes.type !== undefined && changes.type !== existing.type) {
@@ -533,11 +604,19 @@ export class CardStore {
    * - Cannot delete project card (id: 'project')
    * - Cannot delete a card that has children
    * - Cannot delete a plan card
+   * - Cannot delete a card in a terminal state (done/failed/cancelled)
    */
   delete(id: string): void {
     const card = this.read(id);
     if (!card) {
       throw new Error(`Card '${id}' not found.`);
+    }
+
+    // State-based permission: cannot delete terminal-state cards
+    if (TERMINAL_STATES.has(card.status)) {
+      throw new Error(
+        `Cannot delete card '${id}' because it is in status '${card.status}'. Cards in ${card.status} status cannot be deleted.`,
+      );
     }
 
     if (id === 'project') {
@@ -763,7 +842,7 @@ export class CardStore {
    *
    * @param from - Current card status
    * @param to   - Desired new status
-   * @throws Error if the transition is not valid
+   * @throws Error if the status transition is not valid
    */
   validateTransition(from: CardStatus, to: CardStatus): void {
     // Self-transition is always a no-op
