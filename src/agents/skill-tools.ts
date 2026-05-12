@@ -49,7 +49,7 @@ export const PERMITTED_ROLES: readonly string[] = [
   'reviewer',
 ] as const;
 
-// ── Tool Definition ───────────────────────────────────────────
+// ── Tool Definitions ─────────────────────────────────────────
 
 /**
  * OpenAI function-calling tool definition for the load_skill tool.
@@ -87,6 +87,67 @@ export const LOAD_SKILL_TOOL_DEFINITION: ToolDefinition = {
  */
 export const LOAD_SKILL_TOOL_DEFINITIONS: ToolDefinition[] = [
   LOAD_SKILL_TOOL_DEFINITION,
+];
+
+/**
+ * OpenAI function-calling tool definition for the mcp_tool_call tool.
+ *
+ * Agents (planner, executor, reviewer) can invoke this tool to call an
+ * MCP (Model Context Protocol) tool exposed by a configured MCP server.
+ * This allows the agent to interact with external systems such as git,
+ * filesystem tools, databases, package registries, or other MCP-provided
+ * capabilities that are configured in the runtime environment.
+ *
+ * The tool accepts three parameters:
+ * - serverName: The name of the configured MCP server to call
+ * - toolName:   The name of the tool to invoke on the MCP server
+ * - args:       Optional arguments to pass to the tool as a key-value object
+ */
+export const MCP_TOOL_CALL_TOOL_DEFINITION: ToolDefinition = {
+  type: 'function',
+  function: {
+    name: 'mcp_tool_call',
+    description:
+      'Call an MCP (Model Context Protocol) tool on a configured MCP server. MCP tools provide access to git operations, filesystem tools, databases, package registries, and other external capabilities. Provide the server name, tool name, and optional arguments to invoke the tool. Results are returned as tool_result content.',
+    parameters: {
+      type: 'object',
+      properties: {
+        serverName: {
+          type: 'string',
+          description: 'The name of the configured MCP server to call',
+        },
+        toolName: {
+          type: 'string',
+          description: 'The name of the tool to invoke on the MCP server',
+        },
+        args: {
+          type: 'object',
+          description:
+            'Optional arguments to pass to the tool as key-value pairs',
+          additionalProperties: true,
+        },
+      },
+      required: ['serverName', 'toolName'],
+      additionalProperties: false,
+    },
+  },
+};
+
+/**
+ * Convenience array containing only the mcp_tool_call tool definition.
+ * Use this when you only need the MCP tool call capability.
+ */
+export const MCP_TOOL_CALL_TOOL_DEFINITIONS: ToolDefinition[] = [
+  MCP_TOOL_CALL_TOOL_DEFINITION,
+];
+
+/**
+ * Convenience array containing all available tool definitions.
+ * Combines both load_skill and mcp_tool_call for use by buildToolsForRole.
+ */
+export const ALL_TOOL_DEFINITIONS: ToolDefinition[] = [
+  ...LOAD_SKILL_TOOL_DEFINITIONS,
+  ...MCP_TOOL_CALL_TOOL_DEFINITIONS,
 ];
 
 // ── Delimited Block Format ────────────────────────────────────
