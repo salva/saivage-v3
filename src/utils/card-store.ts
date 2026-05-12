@@ -47,7 +47,13 @@ const TERMINAL_STATES: ReadonlySet<CardStatus> = new Set<CardStatus>([
  * limited-edit state (active, running, blocked).  Drafting and backlog
  * cards can edit all fields.  Terminal-state cards cannot edit anything.
  *
- * Per 02-card-lifecycle.md Permissions by State table.
+ * Per 02-card-lifecycle.md Permissions by State table:
+ * - drafting → Card editable? yes
+ * - backlog  → Card editable? yes (User can: reprioritize, edit, add notes)
+ * - active   → Card editable? no
+ * - running  → Card editable? no
+ * - blocked  → Card editable? no
+ * - done/failed/cancelled → Card editable? no
  */
 const CRITICAL_FIELDS: ReadonlySet<string> = new Set([
   'type',
@@ -59,8 +65,8 @@ const CRITICAL_FIELDS: ReadonlySet<string> = new Set([
 ]);
 
 /**
- * States in which editing is allowed for the full card (all fields).
- * Per 02-card-lifecycle.md: drafting → yes, backlog → yes.
+ * States in which full editing is allowed (all fields changeable).
+ * Per 02-card-lifecycle.md: drafting and backlog have Card editable? yes.
  */
 const FULL_EDIT_STATES: ReadonlySet<CardStatus> = new Set<CardStatus>([
   'drafting',
