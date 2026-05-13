@@ -475,7 +475,14 @@ describe('Stage 54 — /api/debug/supervision empty state', () => {
     const body = await res.json() as {
       reviews: unknown[];
       quarantine: unknown[];
-      stats: { total: number; blocked: number; passed: number; sanitized: number };
+      stats: {
+        total: number;
+        blocked: number;
+        passed: number;
+        sanitized: number;
+        byRisk: Record<string, number>;
+        bySourceKind: Record<string, number>;
+      };
     };
 
     expect(body.reviews).toEqual([]);
