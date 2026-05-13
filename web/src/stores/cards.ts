@@ -154,7 +154,48 @@ export const useCardStore = defineStore('cards', () => {
     return columns;
   });
 
+  // ── Optimistic mutation guard ──────────────────────────────
+
+  /**
+   * Monotonically-increasing generation counter incremented on every
+   * optimistic mutation.  Background fetchCards calls capture the current
+   * generation when they start; they discard their response if the
+   * generation has moved on by the time the response arrives.
+   */
+  let mutationGen = 0;
+
+  /** Bump the generation counter and return the new value. */
+  function bumpGen(): number {
+    return ++mutationGen;
+  }
+
+  /**
+   * Execute a background fetchCards, but only apply the result if no
+   * optimistic mutations have occurred since the fetch was initiated.
+   */
+  function safeBackgroundRefresh(genAtStart: number): void {
+    fetchCardsInternal()
+      .then((response) => {
+        if (mutationGen !== genAtStart) return; // stale — discard
+        cards.value = response.cards;
+        total.value = response.total;
+      })
+      .catch(() => {
+        // Background refresh failure is non-fatal; optimistic state stands.
+      });
+  }
+
   // ── Actions ────────────────────────────────────────────────
+
+  /** Internal helper: perform the API call and return the response. */
+  async function fetchCardsInternal(params?: {
+    status?: string;
+    type?: string;
+    parent?: string;
+    tag?: string;
+  }): Promise<CardListResponse> {
+    return listCards(params);
+  }
 
   /** Fetch the full card list (optionally with filters). */
   async function fetchCards(params?: {
@@ -166,7 +207,7 @@ export const useCardStore = defineStore('cards', () => {
     loading.value = true;
     error.value = null;
     try {
-      const response: CardListResponse = await listCards(params);
+      const response: CardListResponse = await fetchCardsInternal(params);
       cards.value = response.cards;
       total.value = response.total;
     } catch (err) {
@@ -291,7 +332,8 @@ export const useCardStore = defineStore('cards', () => {
 
       // ── Optimistic local updates for card mutations ──────
       // Apply optimistic updates first (synchronous, instant UI feedback),
-      // then fire a background fetchCards for eventual consistency.
+      // then fire a background refresh gated by a generation counter so
+      // stale responses cannot overwrite more recent optimistic / refresh state.
 
       if (event === 'card-created' && content.card) {
         const newCard = content.card as CardRecord;
@@ -300,8 +342,9 @@ export const useCardStore = defineStore('cards', () => {
           cards.value = [newCard, ...cards.value];
           total.value++;
         }
-        // Background truth refresh
-        fetchCards().catch(() => {});
+        // Background truth refresh — discard if a newer mutation happened
+        const gen = bumpGen();
+        safeBackgroundRefresh(gen);
       } else if (event === 'card-updated' && content.card) {
         const updated = content.card as CardRecord;
         const idx = cards.value.findIndex((c) => c.id === updated.id);
@@ -312,8 +355,9 @@ export const useCardStore = defineStore('cards', () => {
         if (currentCard.value?.id === updated.id) {
           currentCard.value = updated;
         }
-        // Background truth refresh
-        fetchCards().catch(() => {});
+        // Background truth refresh — discard if a newer mutation happened
+        const gen = bumpGen();
+        safeBackgroundRefresh(gen);
       } else if (event === 'card-deleted' && content.id) {
         const deletedId = content.id as string;
         const beforeLen = cards.value.length;
@@ -325,8 +369,9 @@ export const useCardStore = defineStore('cards', () => {
           currentChildren.value = [];
           currentAncestorIds.value = [];
         }
-        // Background truth refresh
-        fetchCards().catch(() => {});
+        // Background truth refresh — discard if a newer mutation happened
+        const gen = bumpGen();
+        safeBackgroundRefresh(gen);
       }
     });
   }
