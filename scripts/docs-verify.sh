@@ -11,6 +11,8 @@ set -euo pipefail
 #   - anything.md   → anything.html  (standard mapping)
 #   Add a new docs/*.md page and it is automatically verified.
 #   No hardcoded page list to keep in sync.
+#   The landing page (index.html) is also explicitly verified as a
+#   hardcoded check, independent of the auto-discovery loop.
 
 DIST="docs/.vitepress/dist"
 
@@ -49,6 +51,16 @@ for f in "${EXPECTED_FILES[@]}"; do
     ALL_OK=false
   fi
 done
+
+# Explicit landing-page check (hardcoded, independent of auto-discovery)
+echo ""
+echo "==> Explicit landing-page check: $DIST/index.html"
+if [ -f "$DIST/index.html" ] && [ -s "$DIST/index.html" ]; then
+  echo "  ✓ index.html (landing page present and non-empty)"
+else
+  echo "  ✗ MISSING or EMPTY: index.html (landing page)"
+  ALL_OK=false
+fi
 
 echo ""
 if $ALL_OK; then
