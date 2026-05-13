@@ -31,6 +31,7 @@
     "format": "prettier --check src/",
     "format:fix": "prettier --write src/",
     "docs:build": "vitepress build docs",
+    "docs:verify": "bash scripts/docs-verify.sh",
     "build": "tsc && npm run docs:build && cd web && npm run build"
   },
   "dependencies": {
