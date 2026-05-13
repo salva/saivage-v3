@@ -14,6 +14,7 @@
     "web:test:debugview": "cd web && npx vitest run src/__tests__/debug-view",
     "web:test:cardsview": "cd web && npx vitest run src/__tests__/cards-view",
     "web:test:agentsview": "cd web && npx vitest run src/__tests__/agents-view",
+    "web:test:dashboardview": "cd web && npx vitest run src/__tests__/dashboard-view",
     "web:test:filesview": "cd web && npx vitest run src/__tests__/files-view",
     "web:test:stores": "cd web && npx vitest run src/__tests__/runtime-store.test.ts src/__tests__/ws-store.test.ts src/__tests__/card-store.test.ts src/__tests__/agents-store.test.ts src/__tests__/files-store.test.ts src/__tests__/mcp-store.test.ts",
     "web:test:store:runtime": "cd web && npx vitest run src/__tests__/runtime-store.test.ts",
