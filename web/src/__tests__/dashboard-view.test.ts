@@ -9,6 +9,7 @@
  *  4. Runtime status panel renders with sections (Current Work, Workers, Queue, etc.)
  *  5. Runtime refresh button triggers fetchState and updates display
  *  6. Error display when runtime fetch fails
+ *  7. Incident-state variants: frozen, error, connecting, unauthorized WS states
  *
  * The API client and WebSocket store are fully mocked — no server needed.
  */
@@ -492,6 +493,106 @@ describe('DashboardView', () => {
         },
       });
       expect(w.find('.status-chip').classes()).toContain('rt-paused');
+    });
+  });
+
+  describe('incident-state variants — operator-visible states', () => {
+    it('shows rt-frozen status chip with frozen_reason when runtime is frozen', async () => {
+      const frozenRuntime: RuntimeState = {
+        ...mockRuntimeState,
+        status: 'frozen',
+        paused: false,
+        frozen_reason: 'security_halt: suspicious process detected',
+        running_processes: [],
+        queue: [],
+        current_card_id: null,
+        current_agent_session_id: null,
+      };
+      const w = await mountDashboard({
+        runtimeResponse: { runtime: frozenRuntime, cardIndex: mockCardIndex },
+      });
+      const chip = w.find('.status-chip');
+      expect(chip.exists()).toBe(true);
+      expect(chip.text().trim()).toBe('frozen');
+      expect(chip.classes()).toContain('rt-frozen');
+    });
+
+    it('shows rt-error status chip when runtime status is error', async () => {
+      const errorRuntime: RuntimeState = {
+        ...mockRuntimeState,
+        status: 'error',
+        paused: false,
+        running_processes: [],
+        current_card_id: null,
+      };
+      const w = await mountDashboard({
+        runtimeResponse: { runtime: errorRuntime, cardIndex: mockCardIndex },
+      });
+      const chip = w.find('.status-chip');
+      expect(chip.exists()).toBe(true);
+      expect(chip.text().trim()).toBe('error');
+      expect(chip.classes()).toContain('rt-error');
+    });
+
+    it('frozen status label takes precedence over paused flag', async () => {
+      const frozenPausedRuntime: RuntimeState = {
+        ...mockRuntimeState,
+        status: 'frozen',
+        paused: true,
+        paused_at: '2025-06-01T12:00:00Z',
+        frozen_reason: 'freeze-on-pause escalation',
+      };
+      const w = await mountDashboard({
+        runtimeResponse: { runtime: frozenPausedRuntime, cardIndex: mockCardIndex },
+      });
+      const chip = w.find('.status-chip');
+      expect(chip.text().trim()).toBe('frozen');
+      expect(chip.classes()).toContain('rt-frozen');
+      expect(chip.classes()).not.toContain('rt-paused');
+    });
+
+    it('shows OFFLINE badge and disabled chat when WebSocket is in connecting state', async () => {
+      _wsConnectionState.value = 'connecting';
+      mockWsIsConnected = false;
+      const w = await mountDashboard({ keepWsState: true, chatSessionsResponse: { sessions: [] } });
+      // In connecting state, the dashboard treats non-'connected' as OFFLINE
+      expect(w.find('.session-badge.offline').exists()).toBe(true);
+      expect(w.find('.session-badge.offline').text()).toBe('OFFLINE');
+      // Chat input should be disabled
+      expect(w.find('.chat-input').attributes('disabled')).toBeDefined();
+      // Placeholder should indicate need to connect
+      expect(w.find('.chat-input').attributes('placeholder')).toContain('Connect to chat');
+    });
+
+    it('shows OFFLINE badge and disabled chat when WebSocket is unauthorized', async () => {
+      _wsConnectionState.value = 'unauthorized';
+      mockWsIsConnected = false;
+      const w = await mountDashboard({ keepWsState: true, chatSessionsResponse: { sessions: [] } });
+      expect(w.find('.session-badge.offline').exists()).toBe(true);
+      expect(w.find('.chat-input').attributes('disabled')).toBeDefined();
+    });
+
+    it('error banner displays when runtime fetch fails and status panel is hidden behind error', async () => {
+      vi.mocked(getRuntimeState).mockRejectedValueOnce(new ApiError(500, 'Internal Server Error', {}));
+      const w = await mountDashboard({});
+      await flushPromises();
+      // error banner visible
+      const banner = w.find('.error-banner');
+      expect(banner.exists()).toBe(true);
+      expect(banner.text()).toContain('Internal Server Error');
+      // status chip NOT rendered (template shows error banner instead of status sections)
+      expect(w.find('.status-chip').exists()).toBe(false);
+    });
+
+    it('rt-unknown status chip renders when runtime is null and not loading', async () => {
+      // Provide runtime=null so statusLabel returns 'unknown'
+      const w = await mountDashboard({
+        runtimeResponse: { runtime: null, cardIndex: { total: 0, byStatus: {}, byType: {} } },
+      });
+      const chip = w.find('.status-chip');
+      expect(chip.exists()).toBe(true);
+      expect(chip.classes()).toContain('rt-unknown');
+      expect(chip.text().trim()).toBe('unknown');
     });
   });
 });

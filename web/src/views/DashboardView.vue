@@ -1041,12 +1041,14 @@ onUnmounted(() => {
 .rt-running { color: #7ee787; border-color: #238636; background: #1a2418; }
 .rt-idle { color: #8b949e; border-color: #484f58; background: #21262d; }
 .rt-paused { color: #d29922; border-color: #9e6a03; background: #241f18; }
+.rt-frozen { color: #79c0ff; border-color: #1f6feb; background: #0d1c33; }
 .rt-error { color: #f85149; border-color: #da3633; background: #241818; }
 .rt-unknown { color: #8b949e; border-color: #484f58; background: #21262d; }
 
 .rt-running .chip-dot { background: #7ee787; }
 .rt-idle .chip-dot { background: #8b949e; }
 .rt-paused .chip-dot { background: #d29922; }
+.rt-frozen .chip-dot { background: #79c0ff; }
 .rt-error .chip-dot { background: #f85149; }
 .rt-unknown .chip-dot { background: #8b949e; }
 
