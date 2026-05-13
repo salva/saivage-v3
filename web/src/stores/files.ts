@@ -156,14 +156,25 @@ export const useFileStore = defineStore('files', () => {
 
   // ── Actions: File Content ──────────────────────────────────
 
+  /**
+   * Fetch file content and display in viewer.
+   *
+   * Sets viewedFilePath BEFORE awaiting the network call so the viewer
+   * shell appears immediately with a loading indicator, then populates
+   * viewedFile on success.
+   */
   async function fetchFileContent(path: string): Promise<void> {
     contentLoading.value = true;
     error.value = null;
+    // Show viewer shell immediately with loading state
+    viewedFile.value = null;
+    viewedFilePath.value = path;
     try {
       const response: FileContent = await getFileContent(path);
       viewedFile.value = response;
-      viewedFilePath.value = path;
     } catch (err) {
+      // Clear viewer path on error so the viewer shell closes
+      viewedFilePath.value = '';
       const msg = err instanceof ApiError ? err.message : 'Failed to fetch file content';
       error.value = msg;
       log.error('fetchFileContent', msg);
