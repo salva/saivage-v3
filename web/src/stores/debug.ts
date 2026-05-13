@@ -277,7 +277,57 @@ export const useDebugStore = defineStore('debug', () => {
 
   /** Fetch all debug data at once. */
   async function fetchAll(): Promise<void> {
-    await Promise.allSettled([fetchState(), fetchErrors(), fetchTimeline()]);
+    loading.value = true;
+    error.value = null;
+
+    const results = await Promise.allSettled([
+      (async () => {
+        try {
+          const response: DebugStateResponse = await getDebugState();
+          debugRuntime.value = response.runtime;
+          debugCards.value = response.cards;
+          debugTotalCards.value = response.totalCards;
+        } catch (err) {
+          const msg = err instanceof ApiError ? err.message : 'Failed to fetch debug state';
+          log.error('fetchState', msg);
+          throw err;
+        }
+      })(),
+      (async () => {
+        try {
+          const response: DebugErrorsResponse = await getDebugErrors();
+          errors.value = response.errors;
+          errorsTotal.value = response.total;
+        } catch (err) {
+          const msg = err instanceof ApiError ? err.message : 'Failed to fetch debug errors';
+          log.error('fetchErrors', msg);
+          throw err;
+        }
+      })(),
+      (async () => {
+        try {
+          const response: DebugTimelineResponse = await getDebugTimeline();
+          timelineEvents.value = response.events;
+          timelineTotal.value = response.total;
+        } catch (err) {
+          const msg = err instanceof ApiError ? err.message : 'Failed to fetch debug timeline';
+          log.error('fetchTimeline', msg);
+          throw err;
+        }
+      })(),
+    ]);
+
+    const failures = results
+      .filter((r): r is PromiseRejectedResult => r.status === 'rejected')
+      .map((r) => (r.reason instanceof ApiError ? r.reason.message : 'Failed to fetch debug data'));
+
+    if (failures.length > 0) {
+      error.value = failures.length >= 3
+        ? 'Failed to fetch debug data'
+        : failures.join('; ');
+    }
+
+    loading.value = false;
   }
 
   function setActiveTab(tab: 'state' | 'errors' | 'timeline' | 'supervision'): void {

@@ -67,6 +67,7 @@
       <!-- Errors Tab -->
       <div v-if="localActiveTab === 'errors'" class="debug-tab-content">
         <div v-if="loading" class="debug-loading">Loading errors...</div>
+        <div v-else-if="error" class="debug-error">{{ error }}</div>
         <div v-else-if="errorsTotal === 0 && errors.length === 0" class="debug-empty">No errors recorded.</div>
         <div v-else class="errors-list">
           <div v-for="entry in errorSourceEntries" :key="entry.source" class="error-source-group">
@@ -87,6 +88,7 @@
       <!-- Timeline Tab -->
       <div v-if="localActiveTab === 'timeline'" class="debug-tab-content">
         <div v-if="loading" class="debug-loading">Loading timeline...</div>
+        <div v-else-if="error" class="debug-error">{{ error }}</div>
         <div v-else-if="sortedTimeline.length === 0" class="debug-empty">No timeline events.</div>
         <div v-else class="timeline-list">
           <div v-for="event in sortedTimeline" :key="event.timestamp + event.type + (event.card_id || '')" class="tl-event">
