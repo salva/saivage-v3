@@ -105,6 +105,18 @@ What to watch for:
 - `/api/state` showing a growing number of cards stuck in `running` or `active` without progress.
 - `/api/debug/errors` growing rapidly.
 
+### Web Verification Commands
+
+The root `package.json` includes scripts for verifying the web control room independently of the server runtime. These are useful when investigating UI issues or validating a deployment without running the full backend test suite:
+
+- `npm run web:typecheck` — run TypeScript checks on the web SPA sources.
+- `npm run web:test` — run the full web test suite (vitest, under `web/`).
+- `npm run web:test:sweep` — comprehensive sweep: all control-room view tests plus store tests.
+- `npm run web:test:control-room` — run all view-level tests (dashboard, cards, agents, files, debug).
+- `npm run web:test:stores` — run all Pinia store tests.
+
+These commands use vitest scoped to `web/` and do not invoke the Jest-based backend suite, so they are safe to run without triggering long-running integration tests.
+
 ## Backup and Recovery
 
 ### What to Back Up
