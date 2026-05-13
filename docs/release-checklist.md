@@ -18,6 +18,18 @@ A step-by-step checklist for preparing a release candidate.
   ```
   Expected: no output (zero errors, zero warnings).
 
+- [ ] **Web UI typecheck passes**
+  ```bash
+  npm run web:typecheck
+  ```
+  Expected: no output (zero errors, zero warnings). Runs `tsc --noEmit` in the `web/` SPA sub-project.
+
+- [ ] **Web UI tests pass**
+  ```bash
+  npm run web:test:sweep
+  ```
+  Expected: all view suites and store suites pass. This is the primary web SPA verification sweep. See `package.json` for focused suites (e.g. `web:test:debugview`, `web:test:stores`) when iterating on a single area.
+
 - [ ] **Lint passes**
   ```bash
   npm run lint
