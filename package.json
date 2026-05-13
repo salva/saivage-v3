@@ -25,6 +25,7 @@
     "web:test:store:agents": "cd web && npx vitest run src/__tests__/agents-store.test.ts",
     "web:test:store:files": "cd web && npx vitest run src/__tests__/files-store.test.ts",
     "web:test:store:mcp": "cd web && npx vitest run src/__tests__/mcp-store.test.ts",
+    "web:test:sweep": "npm run web:test:control-room && npm run web:test:stores",
     "lint": "eslint src/",
     "format": "prettier --check src/",
     "format:fix": "prettier --write src/",
