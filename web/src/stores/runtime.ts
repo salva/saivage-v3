@@ -89,7 +89,11 @@ export const useRuntimeStore = defineStore('runtime', () => {
       log.info('Runtime paused:', response.status);
       // Optimistic update
       if (runtime.value) {
-        statusBeforePause = runtime.value.status;
+        // Only save the pre-pause status on the first pause;
+        // repeated pause() calls must not overwrite it with 'paused'.
+        if (!runtime.value.paused) {
+          statusBeforePause = runtime.value.status;
+        }
         runtime.value = { ...runtime.value, paused: true, status: 'paused' };
       }
     } catch (err) {
@@ -146,7 +150,11 @@ export const useRuntimeStore = defineStore('runtime', () => {
       if (event === 'runtime-paused' || event === 'runtime-resumed') {
         if (runtime.value) {
           if (event === 'runtime-paused') {
-            wsStatusBeforePause = runtime.value.status;
+            // Only save the pre-pause status on the first pause event;
+            // repeated runtime-paused events must not overwrite it.
+            if (!runtime.value.paused) {
+              wsStatusBeforePause = runtime.value.status;
+            }
           }
           const restoredStatus = event === 'runtime-resumed'
             ? (wsStatusBeforePause ?? runtime.value.status)

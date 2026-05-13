@@ -9,6 +9,8 @@
  *  3. Optimistic pause/resume actions and error handling
  *  4. WebSocket-driven runtime-state/status updates via setupWsListener +
  *     ws store onType('status') path
+ *  5. Repeated pause/resume edge cases (statusBeforePause correctness)
+ *  6. statusLabel precedence for mixed paused/error/frozen states
  *
  * These tests mock the API client layer (../api/client) and the ws store
  * (../stores/ws) so we verify store-side logic without a running server.
@@ -500,6 +502,260 @@ describe('useRuntimeStore', () => {
     });
   });
 
+  // ── Repeated pause/resume edge cases ────────────────────────
+
+  describe('repeated pause/resume edge cases', () => {
+    it('repeated pause() does not corrupt the preserved pre-pause status', async () => {
+      const store = setupStore();
+      vi.mocked(getRuntimeState).mockResolvedValue(mockRuntimeStateResponse);
+      await store.fetchState();
+      expect(store.status).toBe('running');
+
+      // First pause — API succeeds
+      vi.mocked(pauseRuntime).mockResolvedValue({ status: 'paused' });
+      await store.pause();
+      expect(store.status).toBe('paused');
+      expect(store.isPaused).toBe(true);
+
+      // Second pause — already paused, but operator calls again
+      vi.mocked(pauseRuntime).mockResolvedValue({ status: 'paused' });
+      await store.pause();
+
+      // Resume — should restore the ORIGINAL pre-pause status ('running'),
+      // NOT 'paused' (which would happen if statusBeforePause was overwritten)
+      vi.mocked(resumeRuntime).mockResolvedValue({ status: 'resumed' });
+      await store.resume();
+
+      expect(store.isPaused).toBe(false);
+      expect(store.status).toBe('running');
+      expect(store.statusLabel).toBe('running');
+    });
+
+    it('resume after repeated pause restores original pre-pause status', async () => {
+      const store = setupStore();
+      vi.mocked(getRuntimeState).mockResolvedValue(mockRuntimeStateResponse);
+      await store.fetchState();
+      expect(store.status).toBe('running');
+
+      // Pause three times in a row
+      vi.mocked(pauseRuntime).mockResolvedValue({ status: 'paused' });
+      await store.pause();
+      await store.pause();
+      await store.pause();
+
+      expect(store.isPaused).toBe(true);
+
+      // Resume — must restore to 'running', not 'paused'
+      vi.mocked(resumeRuntime).mockResolvedValue({ status: 'resumed' });
+      await store.resume();
+
+      expect(store.isPaused).toBe(false);
+      expect(store.status).toBe('running');
+      expect(store.statusLabel).toBe('running');
+    });
+
+    it('repeated pause/resume cycles preserve correct status each time', async () => {
+      const store = setupStore();
+      vi.mocked(getRuntimeState).mockResolvedValue(mockRuntimeStateResponse);
+      await store.fetchState();
+      expect(store.status).toBe('running');
+
+      // Cycle 1: pause → resume
+      vi.mocked(pauseRuntime).mockResolvedValue({ status: 'paused' });
+      await store.pause();
+      expect(store.status).toBe('paused');
+
+      vi.mocked(resumeRuntime).mockResolvedValue({ status: 'resumed' });
+      await store.resume();
+      expect(store.status).toBe('running');
+
+      // Cycle 2: pause (repeated) → resume
+      await store.pause();
+      await store.pause(); // double pause
+      expect(store.status).toBe('paused');
+
+      await store.resume();
+      expect(store.status).toBe('running');
+      expect(store.statusLabel).toBe('running');
+    });
+
+    it('repeated pause when starting from idle preserves idle status', async () => {
+      const store = setupStore();
+      vi.mocked(getRuntimeState).mockResolvedValue({
+        runtime: mockRuntimeStateIdle,
+        cardIndex: mockCardIndex,
+      });
+      await store.fetchState();
+      expect(store.status).toBe('idle');
+
+      // Double pause from idle
+      vi.mocked(pauseRuntime).mockResolvedValue({ status: 'paused' });
+      await store.pause();
+      await store.pause();
+
+      // Resume — should restore 'idle', not 'paused'
+      vi.mocked(resumeRuntime).mockResolvedValue({ status: 'resumed' });
+      await store.resume();
+
+      expect(store.isPaused).toBe(false);
+      expect(store.status).toBe('idle');
+    });
+  });
+
+  // ── statusLabel precedence ──────────────────────────────────
+
+  describe('statusLabel precedence for mixed states', () => {
+    it('statusLabel returns "frozen" when status is frozen and not paused', async () => {
+      const store = setupStore();
+      vi.mocked(getRuntimeState).mockResolvedValue({
+        runtime: mockRuntimeStateFrozen,
+        cardIndex: mockCardIndex,
+      });
+      await store.fetchState();
+
+      expect(store.runtime?.status).toBe('frozen');
+      expect(store.runtime?.paused).toBe(false);
+      expect(store.statusLabel).toBe('frozen');
+    });
+
+    it('statusLabel returns "paused" when paused is true (regardless of underlying status)', async () => {
+      const store = setupStore();
+      vi.mocked(getRuntimeState).mockResolvedValue(mockRuntimeStateResponse);
+      await store.fetchState();
+      expect(store.status).toBe('running');
+
+      vi.mocked(pauseRuntime).mockResolvedValue({ status: 'paused' });
+      await store.pause();
+
+      // After optimistic pause, status is 'paused' and paused is true
+      expect(store.runtime?.paused).toBe(true);
+      expect(store.status).toBe('paused');
+      expect(store.statusLabel).toBe('paused');
+    });
+
+    it('statusLabel returns "frozen" when both paused=true and status=frozen (frozen takes precedence)', async () => {
+      // Simulate a server response where the runtime is both paused and frozen
+      // (e.g., supervisor froze a paused runtime)
+      const store = setupStore();
+      vi.mocked(getRuntimeState).mockResolvedValue({
+        runtime: {
+          ...mockRuntimeStateFrozen,
+          paused: true,
+          status: 'frozen' as const,
+          paused_at: '2025-06-01T10:00:00Z',
+        },
+        cardIndex: mockCardIndex,
+      });
+      await store.fetchState();
+
+      expect(store.runtime?.paused).toBe(true);
+      expect(store.runtime?.status).toBe('frozen');
+      // Frozen is a more critical state — it takes precedence in statusLabel
+      expect(store.statusLabel).toBe('frozen');
+    });
+
+    it('statusLabel returns "paused" when both paused=true and status=error (paused takes precedence over error)', async () => {
+      // Simulate server state: runtime was in 'error' state and operator paused it
+      const store = setupStore();
+      vi.mocked(getRuntimeState).mockResolvedValue({
+        runtime: {
+          status: 'error' as const,
+          project_id: 'saivage-v3',
+          pid: 1234,
+          started_at: '2025-06-01T08:00:00Z',
+          current_card_id: null,
+          current_agent_session_id: null,
+          paused: true,
+          paused_at: '2025-06-01T10:00:00Z',
+          queue: [],
+          running_processes: [],
+          updated_at: '2025-06-01T10:00:00Z',
+        },
+        cardIndex: mockCardIndex,
+      });
+      await store.fetchState();
+
+      expect(store.runtime?.paused).toBe(true);
+      expect(store.runtime?.status).toBe('error');
+      // Paused takes precedence over error — operator action is foregrounded
+      expect(store.statusLabel).toBe('paused');
+    });
+
+    it('statusLabel returns "error" when status is error and not paused', async () => {
+      const store = setupStore();
+      vi.mocked(getRuntimeState).mockResolvedValue({
+        runtime: {
+          status: 'error' as const,
+          project_id: 'saivage-v3',
+          pid: 1234,
+          started_at: '2025-06-01T08:00:00Z',
+          current_card_id: null,
+          current_agent_session_id: null,
+          paused: false,
+          paused_at: null,
+          queue: [],
+          running_processes: [],
+          updated_at: '2025-06-01T10:00:00Z',
+        },
+        cardIndex: mockCardIndex,
+      });
+      await store.fetchState();
+
+      expect(store.statusLabel).toBe('error');
+    });
+
+    it('statusLabel precedence order: frozen > paused > status string', async () => {
+      // Test all three tiers explicitly in one test
+      const store = setupStore();
+
+      // Tier 1: frozen trumps everything
+      vi.mocked(getRuntimeState).mockResolvedValue({
+        runtime: {
+          status: 'frozen' as const,
+          project_id: 'saivage-v3',
+          pid: 1234,
+          started_at: '2025-06-01T08:00:00Z',
+          current_card_id: null,
+          current_agent_session_id: null,
+          paused: true,
+          paused_at: '2025-06-01T10:00:00Z',
+          queue: [],
+          running_processes: [],
+          updated_at: '2025-06-01T10:00:00Z',
+          frozen_reason: 'rate limit',
+        },
+        cardIndex: mockCardIndex,
+      });
+      await store.fetchState();
+      expect(store.statusLabel).toBe('frozen');
+
+      // Tier 2: paused trumps running/idle/error
+      vi.mocked(getRuntimeState).mockResolvedValue({
+        runtime: {
+          status: 'error' as const,
+          project_id: 'saivage-v3',
+          pid: 1234,
+          started_at: '2025-06-01T08:00:00Z',
+          current_card_id: null,
+          current_agent_session_id: null,
+          paused: true,
+          paused_at: '2025-06-01T10:00:00Z',
+          queue: [],
+          running_processes: [],
+          updated_at: '2025-06-01T10:00:00Z',
+        },
+        cardIndex: mockCardIndex,
+      });
+      await store.fetchState();
+      expect(store.statusLabel).toBe('paused');
+
+      // Tier 3: fallback to status string
+      vi.mocked(getRuntimeState).mockResolvedValue(mockRuntimeStateResponse);
+      await store.fetchState();
+      expect(store.statusLabel).toBe('running');
+    });
+  });
+
   // ── WebSocket-driven updates ────────────────────────────────
 
   describe('setupWsListener — WebSocket events', () => {
@@ -600,6 +856,27 @@ describe('useRuntimeStore', () => {
       expect(store.status).toBe('paused');
 
       // Resume via WS event — status should be restored to 'running'
+      fireWsEvent('status', { event: 'runtime-resumed' });
+      expect(store.isPaused).toBe(false);
+      expect(store.status).toBe('running');
+    });
+
+    it('WS repeated pause does not corrupt preserved pre-pause status', () => {
+      const store = setupStore();
+      store.setupWsListener();
+
+      fireWsEvent('status', {
+        event: 'runtime-state',
+        runtime: mockRuntimeState,
+      });
+      expect(store.status).toBe('running');
+
+      // Two runtime-paused events in a row
+      fireWsEvent('status', { event: 'runtime-paused' });
+      fireWsEvent('status', { event: 'runtime-paused' });
+      expect(store.isPaused).toBe(true);
+
+      // Resume — should restore to 'running', not 'paused'
       fireWsEvent('status', { event: 'runtime-resumed' });
       expect(store.isPaused).toBe(false);
       expect(store.status).toBe('running');
