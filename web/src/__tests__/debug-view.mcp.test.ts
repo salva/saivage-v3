@@ -220,6 +220,30 @@ async function mountDebugViewWithMcpData(response: McpToolsResponse) {
   return wrapper;
 }
 
+/**
+ * Mount DebugView with the MCP store in an error state.
+ * Uses a plain Error (not ApiError) so the store falls back to
+ * its generic "Failed to fetch MCP tools" message.
+ */
+async function mountDebugViewWithMcpError() {
+  setActivePinia(createPinia());
+
+  const mcpStore = useMcpStore();
+  vi.mocked(getMcpTools).mockRejectedValue(new Error('NetworkError: Connection refused'));
+  await mcpStore.fetchMcpData();
+  // After rejection, loading=false and error='Failed to fetch MCP tools' (generic fallback)
+
+  const router = makeRouter();
+  const wrapper = mount(DebugView, {
+    global: {
+      plugins: [createPinia(), router],
+    },
+  });
+
+  await flushPromises();
+  return wrapper;
+}
+
 function clickMcpTab(wrapper: ReturnType<typeof mount>) {
   const tabs = wrapper.findAll('.debug-tab');
   const mcpTab = tabs.find((t) => t.text() === 'MCP');
@@ -304,6 +328,100 @@ describe('DebugView — MCP tab', () => {
     neverResolve!();
     // Swallow the hanging fetch
     fetchPromise.catch(() => {});
+  });
+
+  // ── Error state ─────────────────────────────────────────────
+
+  it('renders error message when MCP store has an error', async () => {
+    const wrapper = await mountDebugViewWithMcpError();
+    clickMcpTab(wrapper);
+    await flushPromises();
+
+    // Should show the error element with the generic fallback error message
+    // (the store uses 'Failed to fetch MCP tools' for non-ApiError exceptions)
+    const errorEl = wrapper.find('.debug-error');
+    expect(errorEl.exists()).toBe(true);
+    expect(errorEl.text()).toBe('Failed to fetch MCP tools');
+
+    // The error element should NOT show loading text
+    expect(wrapper.find('.debug-loading').exists()).toBe(false);
+
+    // The error element should NOT show empty-server text
+    expect(wrapper.find('.debug-empty').exists()).toBe(false);
+  });
+
+  it('renders ApiError message when MCP store catches an ApiError', async () => {
+    // Simulate an ApiError (as thrown by the API client) — the store
+    // preserves the ApiError message rather than using the generic fallback.
+    const { ApiError } = await import('../api/client');
+    setActivePinia(createPinia());
+
+    const mcpStore = useMcpStore();
+    const apiErr = new (ApiError as any)(502, 'Bad Gateway: upstream MCP broker unavailable');
+    vi.mocked(getMcpTools).mockRejectedValue(apiErr);
+    await mcpStore.fetchMcpData();
+
+    const router = makeRouter();
+    const wrapper = mount(DebugView, {
+      global: {
+        plugins: [createPinia(), router],
+      },
+    });
+    await flushPromises();
+
+    clickMcpTab(wrapper);
+    await flushPromises();
+
+    // The store should preserve the ApiError message (not the generic fallback)
+    const errorEl = wrapper.find('.debug-error');
+    expect(errorEl.exists()).toBe(true);
+    expect(errorEl.text()).toBe('Bad Gateway: upstream MCP broker unavailable');
+  });
+
+  it('shows error state only after loading completes (not during loading)', async () => {
+    // Verify that when loading is true, we see the loading element, not error
+    // (v-if vs v-else-if priority). The store sets error to the generic
+    // fallback for plain Error rejections.
+
+    setActivePinia(createPinia());
+    const mcpStore = useMcpStore();
+
+    // Create a promise that rejects after a delay to capture the loading state
+    let rejectFn: (err: Error) => void;
+    const delayedRejection = new Promise<McpToolsResponse>((_resolve, reject) => {
+      rejectFn = reject;
+    });
+    vi.mocked(getMcpTools).mockReturnValue(delayedRejection);
+
+    // Start fetch — loading becomes true
+    const fetchPromise = mcpStore.fetchMcpData();
+    // loading is now true, error is null
+
+    const router = makeRouter();
+    const wrapper = mount(DebugView, {
+      global: {
+        plugins: [createPinia(), router],
+      },
+    });
+    await flushPromises();
+
+    clickMcpTab(wrapper);
+    await flushPromises();
+
+    // While loading, we should see the loading element, NOT the error element
+    expect(wrapper.find('.debug-loading').exists()).toBe(true);
+    expect(wrapper.find('.debug-error').exists()).toBe(false);
+
+    // Now reject the promise — loading becomes false, error becomes set
+    rejectFn!(new Error('Connection refused'));
+    try { await fetchPromise; } catch {}
+
+    await flushPromises();
+
+    // Now we should see the error element with the generic fallback
+    expect(wrapper.find('.debug-loading').exists()).toBe(false);
+    expect(wrapper.find('.debug-error').exists()).toBe(true);
+    expect(wrapper.find('.debug-error').text()).toBe('Failed to fetch MCP tools');
   });
 
   // ── Empty / zero-server state ───────────────────────────────
