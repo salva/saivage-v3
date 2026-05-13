@@ -9,6 +9,8 @@
   "scripts": {
     "test": "NODE_OPTIONS=--experimental-vm-modules jest --passWithNoTests",
     "typecheck": "tsc --noEmit",
+    "web:typecheck": "cd web && npm run typecheck",
+    "web:test": "cd web && npm run test",
     "lint": "eslint src/",
     "format": "prettier --check src/",
     "format:fix": "prettier --write src/",
