@@ -32,6 +32,13 @@ import { createLogger } from '../utils/logger';
 
 const log = createLogger('store:cards');
 
+/** Extract a human-readable error message from any thrown value. */
+function errorMessage(err: unknown, fallback: string): string {
+  if (err instanceof ApiError) return err.message;
+  if (err instanceof Error) return err.message;
+  return fallback;
+}
+
 // ── Helpers ────────────────────────────────────────────────────
 
 /** Build a tree from a flat card list using parent/children relationships. */
@@ -163,7 +170,7 @@ export const useCardStore = defineStore('cards', () => {
       cards.value = response.cards;
       total.value = response.total;
     } catch (err) {
-      const msg = err instanceof ApiError ? err.message : 'Failed to fetch cards';
+      const msg = errorMessage(err, 'Failed to fetch cards');
       error.value = msg;
       log.error('fetchCards', msg);
       throw err;
@@ -182,7 +189,7 @@ export const useCardStore = defineStore('cards', () => {
       currentChildren.value = response.children;
       currentAncestorIds.value = response.ancestorIds;
     } catch (err) {
-      const msg = err instanceof ApiError ? err.message : 'Failed to fetch card detail';
+      const msg = errorMessage(err, 'Failed to fetch card detail');
       error.value = msg;
       log.error('fetchCardDetail', msg);
       throw err;
@@ -201,7 +208,7 @@ export const useCardStore = defineStore('cards', () => {
       total.value++;
       return response.card;
     } catch (err) {
-      const msg = err instanceof ApiError ? err.message : 'Failed to create card';
+      const msg = errorMessage(err, 'Failed to create card');
       error.value = msg;
       log.error('addCard', msg);
       throw err;
@@ -223,7 +230,7 @@ export const useCardStore = defineStore('cards', () => {
       }
       return response.card;
     } catch (err) {
-      const msg = err instanceof ApiError ? err.message : 'Failed to update card';
+      const msg = errorMessage(err, 'Failed to update card');
       error.value = msg;
       log.error('editCard', msg);
       throw err;
@@ -235,15 +242,17 @@ export const useCardStore = defineStore('cards', () => {
     error.value = null;
     try {
       await deleteCard(id);
+      const beforeLen = cards.value.length;
       cards.value = cards.value.filter((c) => c.id !== id && c.parent !== id);
-      total.value--;
+      const removedCount = beforeLen - cards.value.length;
+      total.value = Math.max(0, total.value - removedCount);
       if (currentCard.value?.id === id) {
         currentCard.value = null;
         currentChildren.value = [];
         currentAncestorIds.value = [];
       }
     } catch (err) {
-      const msg = err instanceof ApiError ? err.message : 'Failed to delete card';
+      const msg = errorMessage(err, 'Failed to delete card');
       error.value = msg;
       log.error('removeCard', msg);
       throw err;
@@ -280,11 +289,9 @@ export const useCardStore = defineStore('cards', () => {
       const content = envelope.content || {};
       const event = content.event as string;
 
-      // Handle card mutations broadcast by the server
-      if (event === 'card-created' || event === 'card-updated' || event === 'card-deleted') {
-        // Refresh the card list
-        fetchCards().catch(() => {});
-      }
+      // ── Optimistic local updates for card mutations ──────
+      // Apply optimistic updates first (synchronous, instant UI feedback),
+      // then fire a background fetchCards for eventual consistency.
 
       if (event === 'card-created' && content.card) {
         const newCard = content.card as CardRecord;
@@ -293,9 +300,9 @@ export const useCardStore = defineStore('cards', () => {
           cards.value = [newCard, ...cards.value];
           total.value++;
         }
-      }
-
-      if (event === 'card-updated' && content.card) {
+        // Background truth refresh
+        fetchCards().catch(() => {});
+      } else if (event === 'card-updated' && content.card) {
         const updated = content.card as CardRecord;
         const idx = cards.value.findIndex((c) => c.id === updated.id);
         if (idx !== -1) {
@@ -305,17 +312,21 @@ export const useCardStore = defineStore('cards', () => {
         if (currentCard.value?.id === updated.id) {
           currentCard.value = updated;
         }
-      }
-
-      if (event === 'card-deleted' && content.id) {
+        // Background truth refresh
+        fetchCards().catch(() => {});
+      } else if (event === 'card-deleted' && content.id) {
         const deletedId = content.id as string;
+        const beforeLen = cards.value.length;
         cards.value = cards.value.filter((c) => c.id !== deletedId && c.parent !== deletedId);
-        total.value = Math.max(0, total.value - 1);
+        const removedCount = beforeLen - cards.value.length;
+        total.value = Math.max(0, total.value - removedCount);
         if (currentCard.value?.id === deletedId) {
           currentCard.value = null;
           currentChildren.value = [];
           currentAncestorIds.value = [];
         }
+        // Background truth refresh
+        fetchCards().catch(() => {});
       }
     });
   }
