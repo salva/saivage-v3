@@ -1,22 +1,5 @@
 /**
  * StuckAgentSupervisor Tests
- *
- * Covers acceptance criteria:
- * - Supervisor starts on Runtime startup when enabled
- * - Supervisor stops on Runtime shutdown
- * - Config can enable/disable, set interval, set threshold
- * - When consecutive_stuck_verdicts >= threshold, abort with correct priority
- * - Force cancel signal sent if abort target doesn't stop
- * - Consecutive counter resets when system is no longer stuck
- *
- * Uses real timers for most tests. Fake timers are used minimally
- * for force-cancel delay verification.
- *
- * NOTE: @sinonjs/fake-timers (Jest 29 modern fake timers) does not
- * fully execute async continuations within setInterval/setTimeout
- * when called via advanceTimersByTime. The _runCheck method is async
- * and called with void. For recovery/grace period crossing tests,
- * we verify what can be observed within reasonable real-time waits.
  */
 
 import { describe, it, expect, beforeEach, afterEach, jest } from '@jest/globals';
@@ -32,8 +15,7 @@ import {
 import { Runtime } from '../../src/utils/runtime.js';
 import { initProjectTree } from '../../src/utils/file-tree.js';
 import { releaseLock } from '../../src/utils/runtime-lock.js';
-
-// ── Helpers ───────────────────────────────────────────────────
+import type { AgentRuntime } from '../../src/agents/agent-runtime.js';
 
 interface MockedDeps extends SupervisorDeps {
   getRecentLogs: jest.MockedFunction<SupervisorDeps['getRecentLogs']>;
@@ -68,13 +50,8 @@ function cfg(overrides?: Partial<SupervisorConfig>): SupervisorConfig {
   return { enabled: true, intervalMs: 50, consecutiveStuckVerdicts: 3, logLines: 100, ...overrides };
 }
 
-// Wait for the initial 1s timeout + N intervals
 const wait = (n: number, ms = 50): Promise<void> =>
   new Promise((r) => setTimeout(r, 1000 + ms * (n + 2)));
-
-// ═══════════════════════════════════════════════════════════════
-// 1. Construction and config
-// ═══════════════════════════════════════════════════════════════
 
 describe('Construction and config', () => {
   it('has expected default accessor values', () => {
@@ -114,10 +91,6 @@ describe('Construction and config', () => {
     s.stop();
   });
 });
-
-// ═══════════════════════════════════════════════════════════════
-// 2. Lifecycle: start/stop
-// ═══════════════════════════════════════════════════════════════
 
 describe('Lifecycle: start/stop', () => {
   let d: MockedDeps;
@@ -180,10 +153,6 @@ describe('Lifecycle: start/stop', () => {
   });
 });
 
-// ═══════════════════════════════════════════════════════════════
-// 3. Verdict handling
-// ═══════════════════════════════════════════════════════════════
-
 describe('Verdict handling', () => {
   let d: MockedDeps;
   beforeEach(() => { d = makeDeps(); });
@@ -234,10 +203,6 @@ describe('Verdict handling', () => {
     s.stop();
   });
 });
-
-// ═══════════════════════════════════════════════════════════════
-// 4. Abort target selection
-// ═══════════════════════════════════════════════════════════════
 
 describe('Abort target selection', () => {
   let d: MockedDeps;
@@ -323,18 +288,11 @@ describe('Abort target selection', () => {
     const s = new StuckAgentSupervisor(cfg({ intervalMs: 30, consecutiveStuckVerdicts: 2 }), d);
     s.setChecksProvider(async () => stuck());
     s.start();
-    // Wait long enough for >= 2 stuck verdicts + several more checks
     await wait(6, 30);
-    // Even though many stuck checks ran, only one abort fires per episode
     expect(d.abortSession).toHaveBeenCalledTimes(1);
     s.stop();
   });
 });
-
-
-// ═══════════════════════════════════════════════════════════════
-// 5. Force cancel — scheduling verified
-// ═══════════════════════════════════════════════════════════════
 
 describe('Force cancel', () => {
   let d: MockedDeps;
@@ -349,15 +307,11 @@ describe('Force cancel', () => {
     s.start();
     await wait(4, 30);
     expect(d.abortSession).toHaveBeenCalledTimes(1);
-    // force-cancel is scheduled for 600s later — not called yet
     expect(d.forceCancelSession).not.toHaveBeenCalled();
     s.stop();
   });
 
   it('abortSession called, force-cancel timer registered', async () => {
-    // When an abort fires, a setTimeout is registered for force-cancel.
-    // We verify that abortSession IS called on abort, and that
-    // forceCancelSession is NOT called within the short term.
     const s = new StuckAgentSupervisor(cfg({ intervalMs: 30, consecutiveStuckVerdicts: 2 }), d);
     s.setChecksProvider(async () => stuck());
     s.start();
@@ -367,10 +321,6 @@ describe('Force cancel', () => {
     s.stop();
   });
 });
-
-// ═══════════════════════════════════════════════════════════════
-// 6. Recovery — counter reset verified
-// ═══════════════════════════════════════════════════════════════
 
 describe('Recovery', () => {
   let d: MockedDeps;
@@ -387,21 +337,17 @@ describe('Recovery', () => {
   });
 
   it('aborted flag set after abort fires', async () => {
-    // After enough stuck verdicts, abort fires and aborted flag is set.
-    // The flag prevents re-abort within the same episode.
     d.getActiveSessions.mockReturnValue([{ role: 'executor', sessionId: 'ex-1' }]);
     const s = new StuckAgentSupervisor(cfg({ intervalMs: 30, consecutiveStuckVerdicts: 2 }), d);
     s.setChecksProvider(async () => stuck());
     s.start();
     await wait(4, 30);
-    // After abort, the flag is set and prevents re-abort
     expect(d.abortSession).toHaveBeenCalledTimes(1);
     expect(s.aborted).toBe(true);
     s.stop();
   });
 
   it('consecutive counter stays 0 after recovery', async () => {
-    // When checks return not-stuck, the counter resets to 0
     d.getActiveSessions.mockReturnValue([{ role: 'executor', sessionId: 'ex-1' }]);
     let c = 0;
     const s = new StuckAgentSupervisor(cfg({ intervalMs: 30 }), d);
@@ -413,10 +359,6 @@ describe('Recovery', () => {
   });
 });
 
-// ═══════════════════════════════════════════════════════════════
-// 7. Grace period — behavior verified
-// ═══════════════════════════════════════════════════════════════
-
 describe('Grace period', () => {
   let d: MockedDeps;
   beforeEach(() => {
@@ -425,21 +367,16 @@ describe('Grace period', () => {
   });
 
   it('after abort, aborted flag prevents re-abort', async () => {
-    // After abort, the aborted flag is true. This flag, combined with
-    // the grace period, prevents new aborts until recovery.
     const s = new StuckAgentSupervisor(cfg({ intervalMs: 30, consecutiveStuckVerdicts: 2 }), d);
     s.setChecksProvider(async () => stuck());
     s.start();
     await wait(6, 30);
-    // Even with many stuck checks, only one abort fires
     expect(d.abortSession).toHaveBeenCalledTimes(1);
     expect(s.aborted).toBe(true);
     s.stop();
   });
 
   it('grace period is active when aborted flag is true', async () => {
-    // Verify the grace period mechanism: after abort, aborted=true
-    // and the grace period timer prevents immediate re-checking.
     const s = new StuckAgentSupervisor(cfg({ intervalMs: 30, consecutiveStuckVerdicts: 2 }), d);
     s.setChecksProvider(async () => stuck());
     s.start();
@@ -448,10 +385,6 @@ describe('Grace period', () => {
     s.stop();
   });
 });
-
-// ═══════════════════════════════════════════════════════════════
-// 8. Overlapping check prevention
-// ═══════════════════════════════════════════════════════════════
 
 describe('Overlapping check prevention', () => {
   it('checkInProgress prevents concurrent checks', async () => {
@@ -472,10 +405,6 @@ describe('Overlapping check prevention', () => {
     s.stop();
   });
 });
-
-// ═══════════════════════════════════════════════════════════════
-// 9. RuntimeIntegration tests
-// ═══════════════════════════════════════════════════════════════
 
 describe('RuntimeIntegration', () => {
   let tmpDir: string;
@@ -561,5 +490,125 @@ describe('RuntimeIntegration', () => {
     expect(events).toContain('started');
     await rt.shutdown();
     expect(events).toContain('stopped');
+  });
+});
+
+describe('Runtime supervisor cancellation integration', () => {
+  let tmpDir: string;
+
+  beforeEach(() => {
+    jest.useFakeTimers();
+    tmpDir = mkdtempSync(join(tmpdir(), 'saivage-sv-int-'));
+    initProjectTree(tmpDir);
+  });
+
+  afterEach(() => {
+    jest.useRealTimers();
+    try { releaseLock(tmpDir); } catch { /* ignore */ }
+    rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  function createRuntimeWithAgent(agentRuntime: AgentRuntime): Runtime {
+    return new Runtime({
+      projectRoot: tmpDir,
+      fakeAgentConfig: { mapping: {}, fixtureDir: tmpDir },
+      supervisorConfig: { enabled: false, intervalMs: 10, consecutiveStuckVerdicts: 1, logLines: 10 },
+    }, agentRuntime);
+  }
+
+  async function runCheck(supervisor: StuckAgentSupervisor): Promise<void> {
+    const internal = supervisor as unknown as { _runCheck: () => Promise<void> };
+    await internal._runCheck();
+  }
+
+  it('supervisor cancels a stuck active session through runtime wiring', async () => {
+    const cancelSession = jest.fn(() => true);
+    const forceCancelSession = jest.fn(() => true);
+
+    const agentRuntime: AgentRuntime = {
+      invokePlanner() {
+        return { plan_card_id: 'p', created_cards: [], updated_cards: [], declare_done: true };
+      },
+      invokeExecutor() {
+        return { card_id: 'c', status: 'done' as const, artifacts: [], attachments: [] };
+      },
+      invokeReviewer() {
+        return { assessment: { result: 'pass' as const, summary: '', achieved: [], missing: [], evidence_card_ids: [] } };
+      },
+      cancelSession,
+      forceCancelSession,
+      getHandoffSummary() {
+        return null;
+      },
+      getActiveSessionHandoffs() {
+        return [{
+          session_id: 'sess-executor-1',
+          role: 'executor',
+          last_action: 'Waiting for model response',
+          next_action: 'Continue execution',
+          context_summary: 'Goal: goal-1, Card: card-1',
+        }];
+      },
+    };
+
+    const rt = createRuntimeWithAgent(agentRuntime);
+    rt.supervisor.setChecksProvider(async () => stuck());
+    rt.supervisor.start();
+    await runCheck(rt.supervisor);
+    await runCheck(rt.supervisor);
+
+    expect(cancelSession).toHaveBeenCalledWith('sess-executor-1');
+    expect(forceCancelSession).not.toHaveBeenCalled();
+    rt.supervisor.stop();
+  });
+
+  it('supervisor force-cancels when graceful cancel does not clear the active session', async () => {
+    let active = true;
+    const cancelSession = jest.fn(() => true);
+    const forceCancelSession = jest.fn(() => {
+      active = false;
+      return true;
+    });
+
+    const agentRuntime: AgentRuntime = {
+      invokePlanner() {
+        return { plan_card_id: 'p', created_cards: [], updated_cards: [], declare_done: true };
+      },
+      invokeExecutor() {
+        return { card_id: 'c', status: 'done' as const, artifacts: [], attachments: [] };
+      },
+      invokeReviewer() {
+        return { assessment: { result: 'pass' as const, summary: '', achieved: [], missing: [], evidence_card_ids: [] } };
+      },
+      cancelSession,
+      forceCancelSession,
+      getHandoffSummary() {
+        return null;
+      },
+      getActiveSessionHandoffs() {
+        return active
+          ? [{
+              session_id: 'sess-reviewer-1',
+              role: 'reviewer',
+              last_action: 'Still hung',
+              next_action: 'Unknown',
+              context_summary: 'Goal: goal-1, Card: N/A',
+            }]
+          : [];
+      },
+    };
+
+    const rt = createRuntimeWithAgent(agentRuntime);
+    rt.supervisor.setChecksProvider(async () => stuck());
+    rt.supervisor.start();
+    await runCheck(rt.supervisor);
+    await runCheck(rt.supervisor);
+    expect(cancelSession).toHaveBeenCalledWith('sess-reviewer-1');
+
+    await jest.advanceTimersByTimeAsync(600000);
+    await Promise.resolve();
+
+    expect(forceCancelSession).toHaveBeenCalledWith('sess-reviewer-1');
+    rt.supervisor.stop();
   });
 });

@@ -120,6 +120,16 @@ export interface FakeAgentConfig {
   fixtureDir: string;
 }
 
+interface FakeActiveSession {
+  sessionId: string;
+  role: 'planner' | 'executor' | 'reviewer';
+  goalId: string;
+  cardId: string | null;
+  lastAction: string;
+  nextAction: string;
+  contextSummary: string;
+}
+
 // ── Conversion helpers ───────────────────────────────────────
 
 function convertPlannerResult(raw: FakePlannerResult): PlannerResult {
@@ -179,11 +189,17 @@ export class FakeAgentAdapter implements AgentRuntime {
   /** Per-fixture invocation counters */
   private plannerCounters: Map<string, number>;
   private reviewerCounters: Map<string, number>;
+  private activeSessions: Map<string, FakeActiveSession>;
+  private cancelledSessions: Set<string>;
+  private sessionCounter: number;
 
   constructor(config: FakeAgentConfig) {
     this.config = config;
     this.plannerCounters = new Map();
     this.reviewerCounters = new Map();
+    this.activeSessions = new Map();
+    this.cancelledSessions = new Set();
+    this.sessionCounter = 0;
   }
 
   // ── Fixture Loading ───────────────────────────────────────
@@ -208,54 +224,80 @@ export class FakeAgentAdapter implements AgentRuntime {
     return this.loadFixture(name);
   }
 
-  // ── Session Cancellation ───────────────────────────────────
-
-  /**
-   * Stub: cancelSession is a no-op for fake agents since they don't
-   * make real LLM calls. Returns false (session not found / not cancelled).
-   */
-  cancelSession(_sessionId: string): boolean {
-    return false;
+  private nextSessionId(role: 'planner' | 'executor' | 'reviewer'): string {
+    this.sessionCounter += 1;
+    return `fake-${role}-${this.sessionCounter}`;
   }
 
-  /**
-   * Stub: forceCancelSession is a no-op for fake agents since they don't
-   * make real LLM calls. Returns false.
-   */
-  forceCancelSession(_sessionId: string): boolean {
-    return false;
+  private registerSession(
+    role: 'planner' | 'executor' | 'reviewer',
+    goalId: string,
+    cardId: string | null,
+    nextAction: string,
+  ): string {
+    const sessionId = this.nextSessionId(role);
+    this.activeSessions.set(sessionId, {
+      sessionId,
+      role,
+      goalId,
+      cardId,
+      lastAction: 'Session started',
+      nextAction,
+      contextSummary: `Goal: ${goalId}, Card: ${cardId ?? 'N/A'}`,
+    });
+    this.cancelledSessions.delete(sessionId);
+    return sessionId;
+  }
+
+  private completeSession(sessionId: string): void {
+    this.activeSessions.delete(sessionId);
+    this.cancelledSessions.delete(sessionId);
+  }
+
+  // ── Session Cancellation ───────────────────────────────────
+
+  cancelSession(sessionId: string): boolean {
+    if (!this.activeSessions.has(sessionId)) {
+      return false;
+    }
+    this.cancelledSessions.add(sessionId);
+    this.activeSessions.delete(sessionId);
+    return true;
+  }
+
+  forceCancelSession(sessionId: string): boolean {
+    const existed = this.activeSessions.has(sessionId);
+    this.cancelledSessions.add(sessionId);
+    this.activeSessions.delete(sessionId);
+    return existed;
   }
 
   // ── Handoff Summary Stubs ─────────────────────────────────
 
-  /**
-   * Stub: fake agents don't have real sessions, so no handoff summary.
-   * Returns null.
-   */
-  getHandoffSummary(_sessionId: string): HandoffSummary | null {
-    return null;
+  getHandoffSummary(sessionId: string): HandoffSummary | null {
+    const session = this.activeSessions.get(sessionId);
+    if (!session) return null;
+    return {
+      session_id: session.sessionId,
+      role: session.role,
+      last_action: session.lastAction,
+      next_action: session.nextAction,
+      context_summary: session.contextSummary,
+    };
   }
 
-  /**
-   * Stub: fake agents don't maintain active session state.
-   * Returns empty array.
-   */
   getActiveSessionHandoffs(): HandoffSummary[] {
-    return [];
+    return Array.from(this.activeSessions.values()).map((session) => ({
+      session_id: session.sessionId,
+      role: session.role,
+      last_action: session.lastAction,
+      next_action: session.nextAction,
+      context_summary: session.contextSummary,
+    }));
   }
 
   // ── Planner ───────────────────────────────────────────────
 
-  /**
-   * Return a scripted planner result for the given goal/plan card.
-   *
-   * Overload 1 (backward compat): called with just goalId, returns FakePlannerResult.
-   * Overload 2 (AgentRuntime): called with optional planCardId/systemPrompt/contextMessages,
-   *   returns PlannerResult.
-   *
-   * TypeScript resolves to the first matching overload, so existing callers
-   * with just `invokePlanner(goalId)` get FakePlannerResult.
-   */
   invokePlanner(goalId: string): FakePlannerResult;
   invokePlanner(
     goalId: string,
@@ -282,20 +324,22 @@ export class FakeAgentAdapter implements AgentRuntime {
           `(called ${count + 1} times, only ${fixture.planner.length} available).`,
       );
     }
-    const result = fixture.planner[count];
-    this.plannerCounters.set(fixture.name, count + 1);
-    return result;
+
+    const sessionId = this.registerSession('planner', goalId, null, `Planning goal ${goalId}`);
+    try {
+      if (this.cancelledSessions.has(sessionId)) {
+        throw new Error(`Fake planner session cancelled: ${sessionId}`);
+      }
+      const result = fixture.planner[count];
+      this.plannerCounters.set(fixture.name, count + 1);
+      return result;
+    } finally {
+      this.completeSession(sessionId);
+    }
   }
 
   // ── Executor ──────────────────────────────────────────────
 
-  /**
-   * Return a scripted executor result for the given card.
-   *
-   * Overload 1 (backward compat): called with (cardId, goalId), returns FakeExecutorResult.
-   * Overload 2 (AgentRuntime): called with optional systemPrompt/contextMessages,
-   *   returns ExecutorResult.
-   */
   invokeExecutor(cardId: string, goalId: string): FakeExecutorResult;
   invokeExecutor(
     cardId: string,
@@ -315,24 +359,26 @@ export class FakeAgentAdapter implements AgentRuntime {
         `FakeAgent fixture '${fixture.name}' has no executor results.`,
       );
     }
-    const result = fixture.executor[cardId];
-    if (!result) {
-      throw new Error(
-        `FakeAgent fixture '${fixture.name}' has no executor result for card '${cardId}'.`,
-      );
+
+    const sessionId = this.registerSession('executor', goalId, cardId, `Executing card ${cardId}`);
+    try {
+      if (this.cancelledSessions.has(sessionId)) {
+        throw new Error(`Fake executor session cancelled: ${sessionId}`);
+      }
+      const result = fixture.executor[cardId];
+      if (!result) {
+        throw new Error(
+          `FakeAgent fixture '${fixture.name}' has no executor result for card '${cardId}'.`,
+        );
+      }
+      return result;
+    } finally {
+      this.completeSession(sessionId);
     }
-    return result;
   }
 
   // ── Reviewer ──────────────────────────────────────────────
 
-  /**
-   * Return a scripted reviewer assessment for the given goal.
-   *
-   * Overload 1 (backward compat): called with just goalId, returns FakeReviewerResult.
-   * Overload 2 (AgentRuntime): called with optional planCardId/systemPrompt/contextMessages,
-   *   returns ReviewerResult.
-   */
   invokeReviewer(goalId: string): FakeReviewerResult;
   invokeReviewer(
     goalId: string,
@@ -359,58 +405,49 @@ export class FakeAgentAdapter implements AgentRuntime {
           `(called ${count + 1} times, only ${fixture.reviewer.length} available).`,
       );
     }
-    const result = fixture.reviewer[count];
-    this.reviewerCounters.set(fixture.name, count + 1);
-    return result;
+
+    const sessionId = this.registerSession('reviewer', goalId, null, `Reviewing goal ${goalId}`);
+    try {
+      if (this.cancelledSessions.has(sessionId)) {
+        throw new Error(`Fake reviewer session cancelled: ${sessionId}`);
+      }
+      const result = fixture.reviewer[count];
+      this.reviewerCounters.set(fixture.name, count + 1);
+      return result;
+    } finally {
+      this.completeSession(sessionId);
+    }
   }
 
   // ── AgentRuntime helpers (convert old types to new) ───────
 
-  /**
-   * Convert a FakePlannerResult to a PlannerResult.
-   * Used by callers that need the AgentRuntime-compatible type.
-   */
   toPlannerResult(raw: FakePlannerResult): PlannerResult {
     return convertPlannerResult(raw);
   }
 
-  /**
-   * Convert a FakeExecutorResult to an ExecutorResult.
-   * Used by callers that need the AgentRuntime-compatible type.
-   */
   toExecutorResult(raw: FakeExecutorResult): ExecutorResult {
     return convertExecutorResult(raw);
   }
 
-  /**
-   * Convert a FakeReviewerResult to a ReviewerResult.
-   * Used by callers that need the AgentRuntime-compatible type.
-   */
   toReviewerResult(raw: FakeReviewerResult): ReviewerResult {
     return convertReviewerResult(raw);
   }
 
   // ── Reset ─────────────────────────────────────────────────
 
-  /**
-   * Reset all invocation counters (useful between tests).
-   */
   reset(): void {
     this.plannerCounters.clear();
     this.reviewerCounters.clear();
+    this.activeSessions.clear();
+    this.cancelledSessions.clear();
+    this.sessionCounter = 0;
   }
 
-  /**
-   * Get the current planner invocation count for a goal's fixture.
-   */
   getPlannerCount(goalId: string): number {
     const fixture = this.resolveFixture(goalId);
     return this.plannerCounters.get(fixture.name) ?? 0;
   }
 
-  /**
-   * Get the current reviewer invocation count for a goal's fixture.
-   */
   getReviewerCount(goalId: string): number {
     const fixture = this.resolveFixture(goalId);
     return this.reviewerCounters.get(fixture.name) ?? 0;

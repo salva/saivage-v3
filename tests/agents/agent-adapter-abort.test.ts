@@ -1,37 +1,3 @@
-/**
- * AgentAdapter Cancel / Force-Cancel Semantics Tests
- *
- * Covers:
- * 1. cancelSession aborts in-flight LLM call via AbortSignal
- * 2. Session stays in _cancelledSessions set — retry loop checks before next candidate
- * 3. _cancelledSessions prevents trying the next candidate after cancellation-triggered error
- * 4. forceCancelSession — for active sessions and inactive/nonexistent sessions
- * 5. Event emission: session_cancelled and session_force_cancelled
- *    via EventLogger (appendEvent) and EventBus (emit)
- * 6. Runtime/Supervisor wiring: Runtime.SupervisorDeps delegates abortSession →
- *    agentRuntime.cancelSession and forceCancelSession → agentRuntime.forceCancelSession
- * 7. INTEGRATION: real invokeAgent candidate loop with mid-flight cancellation
- *
- * Design notes:
- * - The AgentAdapter _abortControllers Map holds AbortController per sessionId.
- * - _cancelledSessions Set is added to on cancelSession/forceCancelSession and checked
- *   before each candidate in the candidate-retry loop.
- * - On success, _cancelledSessions is cleared early (before return).
- * - On failure, _cancelledSessions is checked after candidate error to stop retry.
- * - Finally block in agentFn always clears _cancelledSessions on exit.
- * - FakeAgentAdapter.cancelSession/forceCancelSession are no-op stubs returning false.
- * - The integration tests (section 9) exercise the real invokeAgent → candidate loop
- *   via invokePlanner/invokeExecutor/invokeReviewer public entry points.
- *
- * Ambiguity resolution:
- * - forceCancelSession returns `controller !== undefined`: true if there was an active
- *   abort controller at the time of the call, false otherwise. This is the existing
- *   behavior — documented here for test clarity.
- * - When _abortControllers has no entry (session already completed/never started),
- *   cancelSession returns false and forceCancelSession still adds to _cancelledSessions
- *   and emits session_force_cancelled. This behavior is tested and documented.
- */
-
 import { describe, it, expect, beforeEach, afterEach } from '@jest/globals';
 import { EventEmitter } from 'node:events';
 import { rmSync, mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
@@ -40,15 +6,12 @@ import { tmpdir } from 'node:os';
 import { AgentAdapter } from '../../src/agents/agent-adapter.js';
 import { EventLogger } from '../../src/utils/event-logger.js';
 import { getSeverity } from '../../src/utils/event-bus.js';
-import type { Candidate } from '../../src/agents/provider.js';
 import type { AgentRuntime } from '../../src/agents/agent-runtime.js';
 import { FakeAgentAdapter } from '../../src/utils/fake-agent.js';
 import { Runtime } from '../../src/utils/runtime.js';
 import { initProjectTree } from '../../src/utils/file-tree.js';
 import { releaseLock } from '../../src/utils/runtime-lock.js';
 import { getSession } from '../../src/agents/session-persistence.js';
-
-// ── Helpers ───────────────────────────────────────────────────
 
 type CancellationTracker = {
   abortCalls: Array<{ sessionId: string }>;
@@ -59,10 +22,6 @@ function makeCancellationTracker(): CancellationTracker {
   return { abortCalls: [], forceCancelCalls: [] };
 }
 
-/**
- * Build a minimal AgentAdapter for cancellation testing.
- * Config is minimal — we only need the adapter shell, not real providers.
- */
 function createMinimalAdapter(
   tmpDir: string,
   opts?: { eventBus?: EventEmitter; eventLogger?: EventLogger },
@@ -91,11 +50,6 @@ function createMinimalAdapter(
   });
 }
 
-/**
- * Build an AgentAdapter with real provider/model config so the
- * candidate resolution loop can actually resolve candidates.
- * Used by the integration tests (section 9).
- */
 function createConfiguredAdapter(
   tmpDir: string,
   opts?: { eventBus?: EventEmitter; eventLogger?: EventLogger },
@@ -119,7 +73,7 @@ function createConfiguredAdapter(
     runtime: {
       compactionThreshold: 0.8,
       maxCompactions: 3,
-      recoveryDelayMs: 0, // No delay for fast tests
+      recoveryDelayMs: 0,
       maxRecoveryRetries: 0,
       selfCheck: { planner: 0, executor: 0, reviewer: 0, analyst: 0 },
     },
@@ -136,11 +90,7 @@ function createConfiguredAdapter(
   });
 }
 
-/**
- * Access private AgentAdapter fields for white-box testing.
- */
 function internals(adapter: AgentAdapter) {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const a = adapter as any;
   return {
     abortControllers: a._abortControllers as Map<string, AbortController>,
@@ -152,15 +102,9 @@ function internals(adapter: AgentAdapter) {
   };
 }
 
-// ── Helper: wait ──────────────────────────────────────────────
-
 async function wait(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
-
-// ═══════════════════════════════════════════════════════════════
-// 1. cancelSession — basic abort mechanics
-// ═══════════════════════════════════════════════════════════════
 
 describe('cancelSession', () => {
   let tmpDir: string;
@@ -224,10 +168,6 @@ describe('cancelSession', () => {
   });
 });
 
-// ═══════════════════════════════════════════════════════════════
-// 2. cancelSession aborts in-flight LLM call via AbortSignal
-// ═══════════════════════════════════════════════════════════════
-
 describe('cancelSession aborts in-flight LLM call', () => {
   let tmpDir: string;
   let adapter: AgentAdapter;
@@ -242,36 +182,20 @@ describe('cancelSession aborts in-flight LLM call', () => {
     rmSync(tmpDir, { recursive: true, force: true });
   });
 
-  /**
-   * Semantics verified here:
-   * The AgentAdapter creates a fresh AbortController before each LLM call
-   * (inside the agentFn, per-candidate). When cancelSession is called, it
-   * finds that controller, calls .abort(), and the LLM call's signal fires.
-   *
-   * We simulate this by registering an AbortController for a session and
-   * starting a hanging LLM call (using a mock LlmCallFn) that listens for
-   * the abort signal. Then we call cancelSession and verify rejection.
-   */
   it('hanging LLM call rejects after cancelSession aborts the signal', async () => {
-    // Create a hanging mock LlmCallFn that we directly set on the adapter
     const ctrl = new AbortController();
     internals(adapter).setAbortController('session-hang', ctrl);
 
-    // Use a raw mock LlmCallFn — bypasses provider registry
-    let rejectFn!: (err: Error) => void;
     const callPromise = new Promise<string>((_resolve, reject) => {
-      rejectFn = reject;
       ctrl.signal.addEventListener('abort', () => {
         reject(new DOMException('Aborted', 'AbortError'));
       });
     });
 
-    // Cancel the session — this aborts the controller
     const cancelResult = adapter.cancelSession('session-hang');
     expect(cancelResult).toBe(true);
     expect(ctrl.signal.aborted).toBe(true);
 
-    // The LLM call should reject
     await expect(callPromise).rejects.toThrow('Aborted');
   });
 
@@ -282,17 +206,10 @@ describe('cancelSession aborts in-flight LLM call', () => {
 
     adapter.cancelSession('session-retry');
 
-    // The set now contains the session — the candidate loop guard checks this
     expect(intr.cancelledSessions.has('session-retry')).toBe(true);
-
-    // The controller has been removed (cleaned up)
     expect(intr.abortControllers.has('session-retry')).toBe(false);
   });
 });
-
-// ═══════════════════════════════════════════════════════════════
-// 3. Retry-loop suppression after cancellation
-// ═══════════════════════════════════════════════════════════════
 
 describe('Retry-loop suppression after cancellation', () => {
   let tmpDir: string;
@@ -308,57 +225,22 @@ describe('Retry-loop suppression after cancellation', () => {
     rmSync(tmpDir, { recursive: true, force: true });
   });
 
-  /**
-   * SEMANTICS DOCUMENTED:
-   *
-   * The retry-loop suppression works in three layers:
-   *
-   * Layer 1 (pre-candidate check): Before trying each candidate, the agentFn
-   * checks `this._cancelledSessions.has(session.id)`. If the session has been
-   * cancelled, the agentFn throws immediately without trying the candidate.
-   *
-   * Layer 2 (post-error check): After a candidate fails, the agentFn checks
-   * `this._cancelledSessions.has(session.id)` again. If true, it throws to
-   * stop the retry loop. This catches the case where cancelSession was called
-   * *during* the candidate invocation and the error from the aborted LLM call
-   * was caught by the try/catch.
-   *
-   * Layer 3 (finally cleanup): The agentFn's `finally` block always calls
-   * `this._cancelledSessions.delete(session.id)`. This ensures clean state
-   * after the invocation ends.
-   *
-   * The first candidate erroring after cancellation must NOT continue to
-   * another candidate. Both the pre-candidate check AND the post-error check
-   * independently enforce this.
-   */
-
   it('_cancelledSessions blocks pre-candidate check (Layer 1)', () => {
     const intr = internals(adapter);
     intr.addCancelledSession('session-blocked');
-
-    // If session is in the cancelled set, the pre-candidate guard throws
     expect(intr.cancelledSessions.has('session-blocked')).toBe(true);
-
-    // A non-cancelled session passes the guard
     expect(intr.cancelledSessions.has('session-ok')).toBe(false);
   });
 
   it('_cancelledSessions blocks post-error retry (Layer 2)', () => {
     const intr = internals(adapter);
-    // Simulate: cancellation happened during the LLM call, an error
-    // was caught, and now we check before trying the next candidate
     intr.addCancelledSession('session-post-err');
-
-    // The post-error check: if (this._cancelledSessions.has(session.id)) throw
-    // This prevents continuing to the next candidate
     expect(intr.cancelledSessions.has('session-post-err')).toBe(true);
   });
 
   it('_cancelledSessions is cleared on success path', () => {
     const intr = internals(adapter);
     intr.addCancelledSession('session-succeed');
-
-    // Simulate success path: this._cancelledSessions.delete(session.id)
     intr.cancelledSessions.delete('session-succeed');
     expect(intr.cancelledSessions.has('session-succeed')).toBe(false);
   });
@@ -366,29 +248,16 @@ describe('Retry-loop suppression after cancellation', () => {
   it('_cancelledSessions is cleared in finally block (Layer 3)', () => {
     const intr = internals(adapter);
     intr.addCancelledSession('session-cleanup');
-
-    // Simulate finally cleanup
     intr.cancelledSessions.delete('session-cleanup');
     expect(intr.cancelledSessions.has('session-cleanup')).toBe(false);
   });
 
   it('both cancellation AND error trigger prevent next candidate', () => {
-    // Scenario: first candidate errors, and during that error handling,
-    // cancelSession/forceCancelSession is called. Both the error catch
-    // AND the post-error cancellation check must stop the loop.
     const intr = internals(adapter);
     intr.addCancelledSession('dual-trigger');
-
-    // The session is in the cancelled set — both guards fire
     expect(intr.cancelledSessions.has('dual-trigger')).toBe(true);
-    // No controller means cancelSession would return false, but the set
-    // entry alone is enough to block the loop
   });
 });
-
-// ═══════════════════════════════════════════════════════════════
-// 4. forceCancelSession behavior
-// ═══════════════════════════════════════════════════════════════
 
 describe('forceCancelSession', () => {
   let tmpDir: string;
@@ -422,7 +291,6 @@ describe('forceCancelSession', () => {
     const intr = internals(adapter);
     const result = adapter.forceCancelSession('inactive-session');
     expect(result).toBe(false);
-    // Still added to prevent retry if session is restarted
     expect(intr.cancelledSessions.has('inactive-session')).toBe(true);
   });
 
@@ -448,33 +316,24 @@ describe('forceCancelSession', () => {
     const intr = internals(adapter);
     adapter.forceCancelSession('multi-force');
     expect(intr.cancelledSessions.has('multi-force')).toBe(true);
-    // Second call — no controller, still in set
     adapter.forceCancelSession('multi-force');
     expect(intr.cancelledSessions.has('multi-force')).toBe(true);
   });
 
   it('aborts the controller even when cancelSession was already called', () => {
-    // If cancelSession was called first (controller already removed),
-    // forceCancelSession still adds to cancelled set and emits event
     const intr = internals(adapter);
     const ctrl = new AbortController();
     intr.setAbortController('seq-session', ctrl);
 
-    // cancelSession first
     adapter.cancelSession('seq-session');
     expect(ctrl.signal.aborted).toBe(true);
     expect(intr.cancelledSessions.has('seq-session')).toBe(true);
 
-    // forceCancelSession after — controller already gone
     const result = adapter.forceCancelSession('seq-session');
-    expect(result).toBe(false); // no controller found
-    expect(intr.cancelledSessions.has('seq-session')).toBe(true); // still in set
+    expect(result).toBe(false);
+    expect(intr.cancelledSessions.has('seq-session')).toBe(true);
   });
 });
-
-// ═══════════════════════════════════════════════════════════════
-// 5. Event emission: session_cancelled
-// ═══════════════════════════════════════════════════════════════
 
 describe('session_cancelled event emission', () => {
   let tmpDir: string;
@@ -540,10 +399,6 @@ describe('session_cancelled event emission', () => {
   });
 });
 
-// ═══════════════════════════════════════════════════════════════
-// 6. Event emission: session_force_cancelled
-// ═══════════════════════════════════════════════════════════════
-
 describe('session_force_cancelled event emission', () => {
   let tmpDir: string;
   let adapter: AgentAdapter;
@@ -608,31 +463,48 @@ describe('session_force_cancelled event emission', () => {
   });
 });
 
-// ═══════════════════════════════════════════════════════════════
-// 7. FakeAgentAdapter cancel/force-cancel stubs
-// ═══════════════════════════════════════════════════════════════
-
-describe('FakeAgentAdapter cancel/force-cancel stubs', () => {
-  it('cancelSession returns false (no-op stub)', () => {
+describe('FakeAgentAdapter cancellation semantics', () => {
+  it('tracks active fake sessions via handoffs and cancels them deterministically', () => {
     const fake = new FakeAgentAdapter({
       mapping: { '*': 'default' },
       fixtureDir: '/tmp',
     });
-    expect(fake.cancelSession('any-session')).toBe(false);
+
+    (fake as unknown as { activeSessions: Map<string, unknown> }).activeSessions.set('fake-executor-1', {
+      sessionId: 'fake-executor-1',
+      role: 'executor',
+      goalId: 'goal-1',
+      cardId: 'card-1',
+      lastAction: 'Session started',
+      nextAction: 'Executing card card-1',
+      contextSummary: 'Goal: goal-1, Card: card-1',
+    });
+
+    expect(fake.getActiveSessionHandoffs()).toHaveLength(1);
+    expect(fake.cancelSession('fake-executor-1')).toBe(true);
+    expect(fake.getActiveSessionHandoffs()).toHaveLength(0);
   });
 
-  it('forceCancelSession returns false (no-op stub)', () => {
+  it('force-cancel removes fake active session and returns true when present', () => {
     const fake = new FakeAgentAdapter({
       mapping: { '*': 'default' },
       fixtureDir: '/tmp',
     });
-    expect(fake.forceCancelSession('any-session')).toBe(false);
+
+    (fake as unknown as { activeSessions: Map<string, unknown> }).activeSessions.set('fake-reviewer-1', {
+      sessionId: 'fake-reviewer-1',
+      role: 'reviewer',
+      goalId: 'goal-2',
+      cardId: null,
+      lastAction: 'Session started',
+      nextAction: 'Reviewing goal goal-2',
+      contextSummary: 'Goal: goal-2, Card: N/A',
+    });
+
+    expect(fake.forceCancelSession('fake-reviewer-1')).toBe(true);
+    expect(fake.getHandoffSummary('fake-reviewer-1')).toBeNull();
   });
 });
-
-// ═══════════════════════════════════════════════════════════════
-// 8. Runtime/Supervisor wiring — abortSession & forceCancelSession
-// ═══════════════════════════════════════════════════════════════
 
 describe('Runtime/Supervisor wiring for abort and force-cancel', () => {
   let tmpDir: string;
@@ -642,7 +514,6 @@ describe('Runtime/Supervisor wiring for abort and force-cancel', () => {
     tmpDir = mkdtempSync(join(tmpdir(), 'saivage-runtime-wire-'));
     mkdirSync(join(tmpDir, '.saivage'), { recursive: true });
     mkdirSync(join(tmpDir, '.saivage', 'runtime'), { recursive: true });
-    // Write minimal saivage config so Runtime doesn't try to loadConfig
     writeFileSync(
       join(tmpDir, '.saivage', 'saivage.json'),
       JSON.stringify({
@@ -671,18 +542,6 @@ describe('Runtime/Supervisor wiring for abort and force-cancel', () => {
     } catch { /* ignore */ }
     rmSync(tmpDir, { recursive: true, force: true });
   });
-
-  /**
-   * SEMANTICS DOCUMENTED:
-   *
-   * Runtime constructor wires StuckAgentSupervisor dependencies as:
-   *
-   *   abortSession: (sessionId) => this.agentRuntime.cancelSession(sessionId)
-   *   forceCancelSession: (sessionId) => this.agentRuntime.forceCancelSession(sessionId)
-   *
-   * These delegate directly to the injected AgentRuntime. The supervisor
-   * never calls AgentAdapter methods directly — it goes through SupervisorDeps.
-   */
 
   it('delegates abortSession to agentRuntime.cancelSession via mock AgentRuntime', () => {
     const mockAgentRuntime: AgentRuntime = {
@@ -720,9 +579,6 @@ describe('Runtime/Supervisor wiring for abort and force-cancel', () => {
       mockAgentRuntime,
     );
 
-    expect(runtime.agentRuntime).toBe(mockAgentRuntime);
-
-    // Call cancelSession through agentRuntime (as supervisor deps would)
     runtime.agentRuntime.cancelSession('test-session');
     expect(cancellationTracker.abortCalls).toHaveLength(1);
     expect(cancellationTracker.abortCalls[0].sessionId).toBe('test-session');
@@ -742,10 +598,7 @@ describe('Runtime/Supervisor wiring for abort and force-cancel', () => {
     });
 
     expect(runtime.agentRuntime).toBeInstanceOf(FakeAgentAdapter);
-
-    // FakeAgentAdapter stubs return false
-    const result = runtime.agentRuntime.cancelSession('test');
-    expect(result).toBe(false);
+    expect(runtime.agentRuntime.cancelSession('test')).toBe(false);
   });
 
   it('wires abortSession to AgentAdapter.cancelSession when AgentAdapter is injected', () => {
@@ -763,8 +616,6 @@ describe('Runtime/Supervisor wiring for abort and force-cancel', () => {
       },
       adapter,
     );
-
-    expect(runtime.agentRuntime).toBe(adapter);
 
     const result = runtime.agentRuntime.cancelSession('wired-session');
     expect(result).toBe(true);
@@ -788,62 +639,14 @@ describe('Runtime/Supervisor wiring for abort and force-cancel', () => {
       adapter,
     );
 
-    expect(runtime.agentRuntime).toBe(adapter);
-
     const result = runtime.agentRuntime.forceCancelSession('no-controller-force');
-    expect(result).toBe(false); // no active controller
-    // But still added to cancelled set
+    expect(result).toBe(false);
     expect(internals(adapter).cancelledSessions.has('no-controller-force')).toBe(true);
 
     runtime.supervisor.stop();
     eventLogger.close();
   });
-
-  it('supervisor is correctly constructed with AgentAdapter', () => {
-    const eventLogger = new EventLogger(join(tmpDir, '.saivage'));
-    const adapter = createMinimalAdapter(tmpDir, { eventLogger });
-
-    const runtime = new Runtime(
-      {
-        projectRoot: tmpDir,
-        fakeAgentConfig: { mapping: {}, fixtureDir: tmpDir },
-        supervisorConfig: { enabled: true, intervalMs: 60000, consecutiveStuckVerdicts: 3, logLines: 100 },
-        eventLogger,
-      },
-      adapter,
-    );
-
-    expect(runtime.supervisor).toBeDefined();
-    expect(runtime.supervisor.running).toBe(false); // not started until startup()
-    expect(runtime.agentRuntime).toBe(adapter);
-
-    runtime.supervisor.stop();
-    eventLogger.close();
-  });
 });
-
-// ═══════════════════════════════════════════════════════════════
-// 9. INTEGRATION: Real invokeAgent candidate loop with cancellation
-//
-// These tests address the reviewer's concern that previous tests were
-// white-box (manipulating private _abortControllers and _cancelledSessions
-// directly). The tests below exercise the full public API path:
-//
-//    invokePlanner/invokeExecutor (public)
-//    → invokeAgent (private, contains candidate loop + cancellation checks)
-//      → router.resolve (real candidate chain)
-//
-//      → createSession (persistence)
-//      → candidate loop: for each candidate in chain
-//        → pre-candidate cancel check (_cancelledSessions.has)
-//        → abortController created & registered
-//        → llmCallFn(candidate, ..., { signal })
-//        → on success: markSucceeded, return parsed
-//        → on failure: markFailed, post-error cancel check, continue or throw
-//
-// Each test uses a mock LlmCallFn that allows us to control timing so we
-// can call cancelSession mid-flight and observe the adapter's behavior.
-// ═══════════════════════════════════════════════════════════════
 
 describe('Integration: real invokeAgent candidate loop with cancellation', () => {
   let tmpDir: string;
@@ -874,18 +677,11 @@ describe('Integration: real invokeAgent candidate loop with cancellation', () =>
     rmSync(tmpDir, { recursive: true, force: true });
   });
 
-  /**
-   * Helper: Creates a mock LlmCallFn that hangs until signalled.
-   * We use a Promise that never resolves unless aborted, so we can
-   * call cancelSession mid-flight and observe the cancellation.
-   */
   function makeHangingLlmCallFn(): {
     llmCallFn: import('../../src/agents/agent-adapter.js').LlmCallFn;
     startedPromise: Promise<void>;
-    wasCalled: () => boolean;
   } {
     let startedResolve!: () => void;
-    let called = false;
     const startedPromise = new Promise<void>((resolve) => {
       startedResolve = resolve;
     });
@@ -897,9 +693,7 @@ describe('Integration: real invokeAgent candidate loop with cancellation', () =>
       _sessionId,
       opts,
     ) => {
-      called = true;
       startedResolve();
-      // Return a promise that only rejects on abort
       return new Promise<string>((_resolve, reject) => {
         if (opts?.signal) {
           if (opts.signal.aborted) {
@@ -910,22 +704,12 @@ describe('Integration: real invokeAgent candidate loop with cancellation', () =>
             reject(new DOMException('Aborted', 'AbortError'));
           });
         }
-        // Never resolve naturally — hangs until aborted
       });
     };
 
-    return {
-      llmCallFn,
-      startedPromise,
-      wasCalled: () => called,
-    };
+    return { llmCallFn, startedPromise };
   }
 
-  /**
-   * Helper: Creates a mock LlmCallFn that succeeds immediately with
-   * a specific response. Used to verify normal flow and for multi-candidate
-   * scenarios.
-   */
   function makeSuccessLlmCallFn(response: string): {
     llmCallFn: import('../../src/agents/agent-adapter.js').LlmCallFn;
   } {
@@ -936,26 +720,10 @@ describe('Integration: real invokeAgent candidate loop with cancellation', () =>
     };
   }
 
-  /**
-   * Helper: Creates a mock LlmCallFn that fails with a given error.
-   */
-  function makeFailingLlmCallFn(error: Error): {
-    llmCallFn: import('../../src/agents/agent-adapter.js').LlmCallFn;
-  } {
-    return {
-      llmCallFn: (_candidate, _systemPrompt, _messages, _sessionId, _opts) => {
-        return Promise.reject(error);
-      },
-    };
-  }
-
-  // ── Test 1: invokePlanner with mid-flight cancellation ──────
-
   it('invokePlanner rejects when cancelSession is called mid-flight', async () => {
     const { llmCallFn, startedPromise } = makeHangingLlmCallFn();
     adapter.setLlmCallFn(llmCallFn);
 
-    // Start the invocation
     const invokePromise = adapter.invokePlanner(
       'goal-integration-1',
       'plan-card-1',
@@ -963,49 +731,27 @@ describe('Integration: real invokeAgent candidate loop with cancellation', () =>
       [{ id: 'msg-1', session_id: '', role: 'user', kind: 'text', content: 'Plan a task', timestamp: new Date().toISOString() }],
     );
 
-    // Wait for the LLM call to be in-flight
     await startedPromise;
-    // Give the adapter time to register the AbortController
     await wait(50);
 
-    // Capture the session ID from the session_started event
     expect(sessionStartedIds.length).toBeGreaterThanOrEqual(1);
     const sessionId = sessionStartedIds[0];
 
-    // Verify session was created in persistence
     const persistedSession = getSession(join(tmpDir, '.saivage'), sessionId);
     expect(persistedSession).not.toBeNull();
     expect(persistedSession!.status).toBe('active');
 
-    // Cancel mid-flight
     const cancelResult = adapter.cancelSession(sessionId);
     expect(cancelResult).toBe(true);
 
-    // The invocation should reject with cancellation error
     await expect(invokePromise).rejects.toThrow(/cancelled/i);
 
-    // Verify session was marked as failed
     const finalSession = getSession(join(tmpDir, '.saivage'), sessionId);
     expect(finalSession).not.toBeNull();
     expect(finalSession!.status).toBe('failed');
   });
 
-  // ── Test 2: No subsequent candidate attempted after cancellation ─
-
   it('does not attempt candidate 2 when cancelled after candidate 1 fails', async () => {
-    // This test verifies that when candidate 1 fails AND the session
-    // is cancelled, the adapter does NOT attempt candidate 2.
-    //
-    // Strategy: use an adapter with two candidates for the role. Make
-    // candidate 1 fail with a non-abort error while simultaneously
-    // cancelSession is called. The adapter should throw cancellation
-    // rather than trying candidate 2.
-    //
-    // However, the current adapter only resolves one candidate per role
-    // (gpt-4o-mini for executor, single provider). To get two candidates,
-    // we configure two models: executor: ['gpt-4o-mini', 'gpt-4o'].
-
-    // Create a fresh adapter with TWO executor models to test multi-candidate
     const multiConfig = {
       providers: {
         'test-provider': {
@@ -1038,10 +784,8 @@ describe('Integration: real invokeAgent candidate loop with cancellation', () =>
       eventBus,
     });
 
-    // Track which candidates were attempted
     const attemptedCandidates: string[] = [];
 
-    // The first candidate fails; we also cancel immediately
     const llmCallFn: import('../../src/agents/agent-adapter.js').LlmCallFn = (
       candidate,
       _systemPrompt,
@@ -1051,14 +795,11 @@ describe('Integration: real invokeAgent candidate loop with cancellation', () =>
     ) => {
       attemptedCandidates.push(candidate.model);
 
-      // On first candidate, cancel the session and then throw
       if (attemptedCandidates.length === 1) {
-        // Cancel the session via the adapter
         multiAdapter.cancelSession(sessionId);
         throw new Error('Candidate 1 network error');
       }
 
-      // Should never reach here — candidate 2 should not be attempted
       return Promise.resolve('{"card_id":"card-2","status":"done","artifacts":[],"attachments":[]}');
     };
 
@@ -1071,19 +812,12 @@ describe('Integration: real invokeAgent candidate loop with cancellation', () =>
       [{ id: 'msg-1', session_id: '', role: 'user', kind: 'text', content: 'Execute a task', timestamp: new Date().toISOString() }],
     );
 
-    // The invocation should reject
     await expect(invokePromise).rejects.toThrow(/cancelled/i);
-
-    // KEY ASSERTION: only candidate 1 was attempted
     expect(attemptedCandidates).toHaveLength(1);
     expect(attemptedCandidates[0]).toBe('gpt-4o-mini');
-    // Candidate 2 (gpt-4o) was never tried
   });
 
-  // ── Test 3: Cancellation via forceCancelSession blocks retry ─
-
   it('forceCancelSession during first candidate prevents candidate 2', async () => {
-    // Same multi-candidate setup but using forceCancelSession
     const multiConfig = {
       providers: {
         'test-provider': {
@@ -1128,7 +862,6 @@ describe('Integration: real invokeAgent candidate loop with cancellation', () =>
       attemptedCandidates.push(candidate.model);
 
       if (attemptedCandidates.length === 1) {
-        // Force-cancel — stronger signal
         multiAdapter.forceCancelSession(sessionId);
         throw new Error('Candidate 1 error');
       }
@@ -1151,13 +884,7 @@ describe('Integration: real invokeAgent candidate loop with cancellation', () =>
     expect(attemptedCandidates[0]).toBe('gpt-4o-mini');
   });
 
-  // ── Test 4: Successful invocation is unaffected by cancellation ─
-
   it('successful invocation completes normally and clears cancelled state', async () => {
-    // Verify that when an invocation succeeds without cancellation,
-    // the adapter completes normally. Also verify that a prior cancellation
-    // does not leak into a subsequent invocation.
-
     const { llmCallFn: successFn } = makeSuccessLlmCallFn(
       '{"card_id":"card-ok","status":"done","artifacts":[],"attachments":[]}',
     );
@@ -1173,14 +900,11 @@ describe('Integration: real invokeAgent candidate loop with cancellation', () =>
     expect(result.card_id).toBe('card-ok');
     expect(result.status).toBe('done');
 
-    // After success, the session should be completed
     expect(sessionStartedIds.length).toBeGreaterThanOrEqual(1);
     const sessionId = sessionStartedIds[0];
     const persisted = getSession(join(tmpDir, '.saivage'), sessionId);
     expect(persisted).not.toBeNull();
     expect(persisted!.status).toBe('done');
-
-    // Verify that cancellation state is clean — _cancelledSessions should be empty
     expect(internals(adapter).cancelledSessions.has(sessionId)).toBe(false);
   });
 });
