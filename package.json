@@ -28,6 +28,7 @@
     "web:test:sweep": "npm run web:test:control-room && npm run web:test:stores",
     "web:test:sweep:full": "npm run web:test:sweep && npm run web:test:store:card-burst",
     "preflight": "npm run web:test:sweep && npm run docs:verify",
+    "preflight:full": "npm run preflight && npm run web:test:store:card-burst",
     "lint": "eslint src/",
     "format": "prettier --check src/",
     "format:fix": "prettier --write src/",
