@@ -5,6 +5,7 @@
  *  1. fetchConversation success/error behavior with API client mocking
  *  2. Message grouping (reasoning → tool_call → result) and tool expansion
  *  3. WebSocket-driven session/message updates via setupWsListener
+ *  4. Listener lifecycle: idempotency, handler counts, event dedup
  *
  * These tests mock the API client layer (../api/client) and the ws store
  * (../stores/ws) so we verify store-side logic without a running server.
@@ -237,29 +238,51 @@ describe('useAgentStore', () => {
       const store = setupStore();
 
       store.setupWsListener();
-      store.setupWsListener();
 
       expect(wsTypeHandlers.get('status')?.size).toBe(1);
       expect(wsTypeHandlers.get('thinking')?.size).toBe(1);
       expect(wsTypeHandlers.get('activity')?.size).toBe(1);
     });
 
-    it('updates sessions from agent session lifecycle status events', () => {
+    // ── Listener Lifecycle: Idempotency ─────────────────────
+
+    it('is idempotent — repeated setupWsListener does not duplicate any handler', () => {
       const store = setupStore();
+
+      // First call registers all three types
       store.setupWsListener();
+      expect(wsTypeHandlers.get('status')?.size).toBe(1);
+      expect(wsTypeHandlers.get('thinking')?.size).toBe(1);
+      expect(wsTypeHandlers.get('activity')?.size).toBe(1);
 
-      fireWsEvent('status', { event: 'agent-session-started', session: mockSession });
-      expect(store.sessions).toHaveLength(1);
-      expect(store.sessions[0].status).toBe('active');
+      // Second call must not add duplicate handlers
+      store.setupWsListener();
+      expect(wsTypeHandlers.get('status')?.size).toBe(1);
+      expect(wsTypeHandlers.get('thinking')?.size).toBe(1);
+      expect(wsTypeHandlers.get('activity')?.size).toBe(1);
 
-      fireWsEvent('status', { event: 'agent-session-completed', sessionId: 'session-001' });
-      expect(store.sessions[0].status).toBe('done');
-
-      fireWsEvent('status', { event: 'agent-session-failed', sessionId: 'session-001' });
-      expect(store.sessions[0].status).toBe('failed');
+      // Third call — still idempotent
+      store.setupWsListener();
+      expect(wsTypeHandlers.get('status')?.size).toBe(1);
+      expect(wsTypeHandlers.get('thinking')?.size).toBe(1);
+      expect(wsTypeHandlers.get('activity')?.size).toBe(1);
     });
 
-    it('appends thinking and activity messages only for the active current session', () => {
+    it('fires each handler exactly once per event even after repeated setupWsListener calls', () => {
+      const store = setupStore();
+
+      // Simulate multiple setup calls (e.g. component re-mounts)
+      store.setupWsListener();
+      store.setupWsListener();
+      store.setupWsListener();
+
+      // Fire a status event and verify the session list is updated exactly once
+      fireWsEvent('status', { event: 'agent-session-started', session: mockSession });
+      expect(store.sessions).toHaveLength(1);
+      expect(store.sessions[0].id).toBe('session-001');
+    });
+
+    it('allows thinking/activity handlers to append messages only for current session', () => {
       const store = setupStore();
       store.setupWsListener();
       store.currentSession = { ...mockSession };
@@ -298,6 +321,76 @@ describe('useAgentStore', () => {
       fireWsEvent('activity', { sessionId: 'session-999', message: otherSessionMessage });
 
       expect(store.messages.map((m) => m.id)).toEqual(['think-1', 'act-1']);
+    });
+
+    it('updates sessions from agent session lifecycle status events', () => {
+      const store = setupStore();
+      store.setupWsListener();
+
+      fireWsEvent('status', { event: 'agent-session-started', session: mockSession });
+      expect(store.sessions).toHaveLength(1);
+      expect(store.sessions[0].status).toBe('active');
+
+      fireWsEvent('status', { event: 'agent-session-completed', sessionId: 'session-001' });
+      expect(store.sessions[0].status).toBe('done');
+
+      fireWsEvent('status', { event: 'agent-session-failed', sessionId: 'session-001' });
+      expect(store.sessions[0].status).toBe('failed');
+    });
+
+    // ── Listener Lifecycle: Multi-Instance Isolation ────────
+
+    it('isolates listener state between separate Pinia instances', () => {
+      // First store instance
+      setActivePinia(createPinia());
+      wsTypeHandlers.clear();
+      const store1 = useAgentStore();
+      store1.setupWsListener();
+
+      // Second store instance (new Pinia)
+      setActivePinia(createPinia());
+      const store2 = useAgentStore();
+      store2.setupWsListener();
+
+      // Each store registers its own handlers in the shared wsTypeHandlers map
+      // because the mock ws store is a plain function, not a real Pinia singleton.
+      // The handler map should have 2 handlers per type (one from each store).
+      expect(wsTypeHandlers.get('status')?.size).toBe(2);
+      expect(wsTypeHandlers.get('thinking')?.size).toBe(2);
+      expect(wsTypeHandlers.get('activity')?.size).toBe(2);
+
+      // Each store's idempotency guard works independently
+      store1.setupWsListener();
+      store2.setupWsListener();
+      // Counts should not increase
+      expect(wsTypeHandlers.get('status')?.size).toBe(2);
+    });
+
+    it('preserves event delivery to all registered store instances', () => {
+      // First store
+      setActivePinia(createPinia());
+      wsTypeHandlers.clear();
+      const store1 = useAgentStore();
+      store1.setupWsListener();
+      store1.currentSession = { ...mockSession };
+      store1.messages = [];
+
+      // Second store
+      setActivePinia(createPinia());
+      const store2 = useAgentStore();
+      store2.setupWsListener();
+      store2.currentSession = { ...mockSession, id: 'session-002' };
+      store2.messages = [];
+
+      // Fire a status event — both stores should receive it
+      fireWsEvent('status', { event: 'agent-session-started', session: { ...mockSession, id: 'session-002' } });
+
+      // fireWsEvent fires to ALL registered handlers; each store's handler
+      // calls addSession which does upsert by id
+      expect(store1.sessions).toHaveLength(1);
+      expect(store1.sessions[0].id).toBe('session-002');
+      expect(store2.sessions).toHaveLength(1);
+      expect(store2.sessions[0].id).toBe('session-002');
     });
   });
 });

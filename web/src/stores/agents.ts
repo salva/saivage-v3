@@ -204,12 +204,22 @@ export const useAgentStore = defineStore('agents', () => {
 
   // ── WebSocket Integration ──────────────────────────────────
 
-  let wsUnsubscribe: (() => void) | null = null;
+  /** Unsubscriber for the status event type. */
+  let statusUnsubscribe: (() => void) | null = null;
+  /** Unsubscriber for the thinking event type. */
+  let thinkingUnsubscribe: (() => void) | null = null;
+  /** Unsubscriber for the activity event type. */
+  let activityUnsubscribe: (() => void) | null = null;
 
   function setupWsListener(): void {
-    if (wsUnsubscribe) return;
+    // Idempotent — if any listener is already registered, skip.
+    // All three are registered together in one pass, so checking
+    // just the first is sufficient.
+    if (statusUnsubscribe) return;
+
     const ws = useWsStore();
-    wsUnsubscribe = ws.onType('status', (envelope) => {
+
+    statusUnsubscribe = ws.onType('status', (envelope) => {
       const content = envelope.content || {};
       const event = content.event as string;
 
@@ -227,7 +237,7 @@ export const useAgentStore = defineStore('agents', () => {
     });
 
     // Listen for thinking/activity events for agent messages
-    ws.onType('thinking', (envelope) => {
+    thinkingUnsubscribe = ws.onType('thinking', (envelope) => {
       const content = envelope.content || {};
       if (content.sessionId && content.message) {
         const msg = content.message as AgentMessage;
@@ -237,7 +247,7 @@ export const useAgentStore = defineStore('agents', () => {
       }
     });
 
-    ws.onType('activity', (envelope) => {
+    activityUnsubscribe = ws.onType('activity', (envelope) => {
       const content = envelope.content || {};
       if (content.sessionId && content.message) {
         const msg = content.message as AgentMessage;
