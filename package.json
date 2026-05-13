@@ -11,6 +11,7 @@
     "typecheck": "tsc --noEmit",
     "web:typecheck": "cd web && npm run typecheck",
     "web:test": "cd web && npm run test",
+    "web:test:control-room": "npm run web:test:dashboardview && npm run web:test:cardsview && npm run web:test:agentsview && npm run web:test:filesview && npm run web:test:debugview",
     "web:test:debugview": "cd web && npx vitest run src/__tests__/debug-view",
     "web:test:cardsview": "cd web && npx vitest run src/__tests__/cards-view",
     "web:test:agentsview": "cd web && npx vitest run src/__tests__/agents-view",
