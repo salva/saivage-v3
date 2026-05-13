@@ -335,4 +335,161 @@ describe('useCardStore', () => {
       expect(s.cards).toEqual([A]); expect(s.total).toBe(1);
     });
   });
+
+  describe('WS-triggered background refresh with active filters', () => {
+    it('passes active filter params to background refresh after card-created', async () => {
+      const s = setupStore();
+      // Set up filtered state
+      s.filterStatus = 'active';
+      s.filterType = 'code';
+      s.cards = [A, E]; // only active+code cards
+      s.total = 2;
+
+      // The background refresh is async; mock listCards to return all cards
+      // (simulating what happens when filters are NOT passed)
+      const allCards = [A, B, C, D, E];
+      vi.mocked(listCards).mockResolvedValue(mlr(allCards, 5));
+
+      s.setupWsListener();
+
+      // Fire a WS card-updated event, which triggers safeBackgroundRefresh
+      fireWsEvent('status', { event: 'card-updated', card: { ...A, title: 'Alpha WS' } });
+
+      // The optimistic update should have applied synchronously
+      expect(s.cards[0].title).toBe('Alpha WS');
+
+      // Wait for the background refresh promise to settle
+      // Use a microtask flush: await a resolved promise
+      await Promise.resolve();
+      // Need to wait for the .then() chain to execute
+      await new Promise(r => setTimeout(r, 10));
+
+      // After the background refresh resolves, verify that listCards was called
+      // WITH the active filter params (status=active, type=code), NOT without params.
+      // This is the key assertion: the background refresh must preserve filters.
+      const calls = vi.mocked(listCards).mock.calls;
+      // The last call should be from the background refresh
+      const lastCall = calls[calls.length - 1];
+      // If the bug is present, lastCall would be [undefined] or [{}]
+      // If fixed, lastCall should be [{ status: 'active', type: 'code' }]
+      expect(lastCall).toBeDefined();
+      const params = lastCall[0];
+      expect(params).toBeDefined();
+      expect(params).toHaveProperty('status', 'active');
+      expect(params).toHaveProperty('type', 'code');
+    });
+
+    it('passes active filter params to background refresh after card-deleted', async () => {
+      const s = setupStore();
+      s.filterStatus = 'done';
+      s.cards = [B]; // only done card
+      s.total = 1;
+
+      vi.mocked(listCards).mockResolvedValue(mlr([A, B, E], 3));
+
+      s.setupWsListener();
+      fireWsEvent('status', { event: 'card-deleted', id: 'card-x' });
+
+      await Promise.resolve();
+      await new Promise(r => setTimeout(r, 10));
+
+      const calls = vi.mocked(listCards).mock.calls;
+      const lastCall = calls[calls.length - 1];
+      expect(lastCall).toBeDefined();
+      const params = lastCall[0];
+      expect(params).toBeDefined();
+      expect(params).toHaveProperty('status', 'done');
+    });
+
+    it('passes active filter params to background refresh after card-created', async () => {
+      const s = setupStore();
+      s.filterTag = 'urgent';
+      s.cards = [D];
+      s.total = 1;
+
+      vi.mocked(listCards).mockResolvedValue(mlr([A, B, C, D, E], 5));
+
+      s.setupWsListener();
+      const newCard = makeCard({ id: 'card-f', tags: ['urgent'], status: 'active' });
+      fireWsEvent('status', { event: 'card-created', card: newCard });
+
+      await Promise.resolve();
+      await new Promise(r => setTimeout(r, 10));
+
+      const calls = vi.mocked(listCards).mock.calls;
+      const lastCall = calls[calls.length - 1];
+      expect(lastCall).toBeDefined();
+      const params = lastCall[0];
+      expect(params).toBeDefined();
+      expect(params).toHaveProperty('tag', 'urgent');
+    });
+
+    it('background refresh with no active filters calls listCards with no params', async () => {
+      const s = setupStore();
+      // No filters set
+      s.cards = [A, B, E];
+      s.total = 3;
+
+      vi.mocked(listCards).mockResolvedValue(mlr([A, B, C, D, E], 5));
+
+      s.setupWsListener();
+      fireWsEvent('status', { event: 'card-updated', card: { ...A, title: 'Changed' } });
+
+      await Promise.resolve();
+      await new Promise(r => setTimeout(r, 10));
+
+      const calls = vi.mocked(listCards).mock.calls;
+      const lastCall = calls[calls.length - 1];
+      expect(lastCall).toBeDefined();
+      const params = lastCall[0];
+      // With no active filters, params should be undefined or empty
+      expect(params == null || Object.keys(params).length === 0).toBe(true);
+    });
+
+    it('filteredCards still returns correct results after background refresh with filters', async () => {
+      const s = setupStore();
+      s.filterStatus = 'active';
+      s.cards = [A, E]; // active cards only
+      s.total = 2;
+
+      // Background refresh returns all cards
+      vi.mocked(listCards).mockResolvedValue(mlr([A, E], 2)); // server respects filters
+
+      s.setupWsListener();
+      fireWsEvent('status', { event: 'card-updated', card: { ...A, title: 'Updated Alpha' } });
+
+      await Promise.resolve();
+      await new Promise(r => setTimeout(r, 10));
+
+      // filteredCards should still only show active cards
+      const filtered = s.filteredCards;
+      expect(filtered.map(c => c.id)).toEqual(['card-a', 'card-e']);
+      expect(filtered.every(c => c.status === 'active')).toBe(true);
+    });
+
+    it('board reflects filtered cards after background refresh', async () => {
+      const s = setupStore();
+      s.filterStatus = 'done';
+      s.cards = [B]; // only done card
+      s.total = 1;
+
+      // Server returns only done cards (respects filter)
+      vi.mocked(listCards).mockResolvedValue(mlr([B], 1));
+
+      s.setupWsListener();
+      fireWsEvent('status', { event: 'card-updated', card: { ...B, title: 'Updated Beta' } });
+
+      await Promise.resolve();
+      await new Promise(r => setTimeout(r, 10));
+
+      // board should only contain the filtered cards
+      const b = s.board;
+      // All non-done columns should be empty
+      expect(b.get('active')).toEqual([]);
+      expect(b.get('drafting')).toEqual([]);
+      expect(b.get('blocked')).toEqual([]);
+      // Done column should have B
+      expect(b.get('done')?.map(c => c.id)).toEqual(['card-b']);
+    });
+  });
 });

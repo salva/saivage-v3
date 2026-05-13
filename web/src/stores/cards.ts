@@ -172,9 +172,24 @@ export const useCardStore = defineStore('cards', () => {
   /**
    * Execute a background fetchCards, but only apply the result if no
    * optimistic mutations have occurred since the fetch was initiated.
+   * Preserves active filter parameters so filtered views are not replaced
+   * by the full card list after a WS-triggered refresh.
    */
   function safeBackgroundRefresh(genAtStart: number): void {
-    fetchCardsInternal()
+    // Capture the current filter values so the background refresh
+    // respects whatever filter is active in the UI.
+    const params: {
+      status?: string;
+      type?: string;
+      parent?: string;
+      tag?: string;
+    } = {};
+    if (filterStatus.value) params.status = filterStatus.value;
+    if (filterType.value) params.type = filterType.value;
+    if (filterParent.value) params.parent = filterParent.value;
+    if (filterTag.value) params.tag = filterTag.value;
+
+    fetchCardsInternal(Object.keys(params).length > 0 ? params : undefined)
       .then((response) => {
         if (mutationGen !== genAtStart) return; // stale — discard
         cards.value = response.cards;
