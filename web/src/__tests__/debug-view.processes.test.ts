@@ -179,6 +179,10 @@ function makeRouter() {
 
 // ── Mount helper ──────────────────────────────────────────────
 
+/**
+ * Mount DebugView with default mocks (empty process list, successful
+ * state/errors/timeline/mcp fetches).
+ */
 async function mountDebugView() {
   setActivePinia(createPinia());
 
@@ -190,6 +194,41 @@ async function mountDebugView() {
   });
 
   // Wait for any onMounted side-effects to settle
+  await flushPromises();
+  return wrapper;
+}
+
+/**
+ * Mount DebugView with listProcesses pre-configured to reject so
+ * the Processes tab renders the error state.
+ */
+async function mountDebugViewWithProcessesError() {
+  setActivePinia(createPinia());
+
+  const { getDebugState, getDebugErrors, getDebugTimeline, getMcpTools, getDoctor, getDebugSupervision } = await import('../api/client');
+
+  // Minimal valid data for other tabs
+  vi.mocked(getDebugState).mockResolvedValue({
+    runtime: { status: 'running', pid: 1, started_at: new Date().toISOString(), paused: false, current_card_id: null, current_agent_session_id: null, running_processes: [], queue: [] },
+    cards: [],
+    totalCards: 0,
+  });
+  vi.mocked(getDebugErrors).mockResolvedValue({ errors: [], total: 0 });
+  vi.mocked(getDebugTimeline).mockResolvedValue({ events: [], total: 0 });
+  vi.mocked(getMcpTools).mockResolvedValue({ tools: [], servers: [], invocationStats: {}, serverDetails: [] });
+  vi.mocked(getDoctor).mockResolvedValue({ status: 'ok', checks: [], issues: [] });
+  vi.mocked(getDebugSupervision).mockResolvedValue({ reviews: [], quarantine: [], stats: { total: 0, blocked: 0, passed: 0, sanitized: 0, byRisk: {}, bySourceKind: {} } });
+
+  // listProcesses rejects
+  vi.mocked(listProcesses).mockRejectedValue(new Error('Backend unavailable'));
+
+  const router = makeRouter();
+  const wrapper = mount(DebugView, {
+    global: {
+      plugins: [createPinia(), router],
+    },
+  });
+
   await flushPromises();
   return wrapper;
 }
@@ -389,5 +428,83 @@ describe('DebugView — processes tab', () => {
     const detailTexts = details.map((d) => d.text());
 
     expect(detailTexts.some((t) => t.includes('PID:') && t.includes('-'))).toBe(true);
+  });
+});
+
+// ── Processes-tab fetch-failure tests ─────────────────────────
+
+describe('DebugView — processes tab error state', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockPush.mockClear();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('shows explicit error state when listProcesses fetch fails', async () => {
+    const wrapper = await mountDebugViewWithProcessesError();
+
+    // Click the Processes tab — this triggers fetchProcesses() in the store,
+    // which will reject and set error.value
+    clickProcessesTab(wrapper);
+    await flushPromises();
+
+    // The Processes tab should now render the error state, not the empty state
+    const errorEl = wrapper.find('.debug-error');
+    expect(errorEl.exists()).toBe(true);
+    expect(errorEl.text()).toContain('Failed to fetch processes');
+
+    // Must NOT show the empty message when there's an error
+    const emptyEl = wrapper.find('.debug-empty');
+    if (emptyEl.exists()) {
+      expect(emptyEl.text()).not.toBe('No processes found.');
+    }
+  });
+
+  it('shows error state instead of empty state when fetch fails then Process tab is revisited', async () => {
+    const wrapper = await mountDebugViewWithProcessesError();
+
+    // Switch to Processes tab → error state
+    clickProcessesTab(wrapper);
+    await flushPromises();
+    expect(wrapper.find('.debug-error').exists()).toBe(true);
+
+    // Switch away to State tab, then back to Processes
+    const stateTab = wrapper.findAll('.debug-tab').find((t) => t.text() === 'State');
+    if (stateTab) {
+      await stateTab.trigger('click');
+      await flushPromises();
+    }
+
+    // The error ref is shared across debug store tabs, so State tab also shows it.
+    // But when we return to Processes, the same error should still be visible.
+    clickProcessesTab(wrapper);
+    await flushPromises();
+    expect(wrapper.find('.debug-error').exists()).toBe(true);
+  });
+
+  it('error state on Processes tab does not affect MCP tab', async () => {
+    const wrapper = await mountDebugViewWithProcessesError();
+
+    // Processes tab: error state
+    clickProcessesTab(wrapper);
+    await flushPromises();
+    expect(wrapper.find('.debug-error').exists()).toBe(true);
+
+    // MCP tab: should show its own loading/empty state, not the processes error
+    const mcpTab = wrapper.findAll('.debug-tab').find((t) => t.text() === 'MCP');
+    if (mcpTab) {
+      await mcpTab.trigger('click');
+      await flushPromises();
+    }
+
+    // MCP errors are tracked independently (mcpStore.error, not debugStore.error)
+    const mcpContent = wrapper.find('.debug-tab-content');
+    expect(mcpContent.exists()).toBe(true);
+    // MCP tab uses mcpStore.error which is independent — should not show "Failed to fetch processes"
+    const mcpText = mcpContent.text();
+    expect(mcpText).not.toContain('Failed to fetch processes');
   });
 });

@@ -164,6 +164,7 @@
       <!-- Processes Tab -->
       <div v-if="localActiveTab === 'processes'" class="debug-tab-content">
         <div v-if="processesLoading" class="debug-loading">Loading processes...</div>
+        <div v-else-if="error" class="debug-error">{{ error }}</div>
         <div v-else-if="processes.length === 0" class="debug-empty">No processes found.</div>
         <div v-else class="processes-list">
           <div v-for="proc in processes" :key="proc.id" class="process-card">
