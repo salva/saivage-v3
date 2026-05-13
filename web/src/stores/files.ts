@@ -29,7 +29,7 @@ function buildBreadcrumbs(currentPath: string, root: string): { label: string; p
     return crumbs;
   }
 
-  const relative = currentPath.slice(root.length).replace(/^\/+/, '');
+  const relative = currentPath.slice(root.length).replace(/^\/+/, '').replace(/\/+$/, '');
   if (!relative) return crumbs;
 
   const parts = relative.split('/');
