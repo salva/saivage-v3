@@ -50,18 +50,24 @@ function groupIntoSteps(messages: AgentMessage[]): MessageStep[] {
       current.toolResult = msg;
       steps.push(current);
       current = {};
-    } else if (msg.kind === 'text' || msg.kind === 'activity' || msg.kind === 'model_issue' || msg.kind === 'model_repair' || msg.kind === 'model_recovered') {
-      // If we have an existing partial step, push it first
+    } else if (msg.kind === 'text' || msg.kind === 'activity') {
+      // If we have an existing partial step, push it first.
+      // Then set this message as the reasoning slot for the next
+      // tool_call step so text/activity → tool_call → result are
+      // grouped into a single step.
       if (current.reasoning || current.toolCall) {
         steps.push(current);
         current = {};
       }
-      // For standalone messages, create a step with just reasoning
-      if (msg.role === 'assistant' || msg.role === 'system') {
-        steps.push({ reasoning: msg });
-      } else if (msg.role === 'user') {
-        steps.push({ reasoning: msg });
+      current.reasoning = msg;
+    } else if (msg.kind === 'model_issue' || msg.kind === 'model_repair' || msg.kind === 'model_recovered') {
+      // Model lifecycle events are standalone — push any partial
+      // step, then push the model event on its own.
+      if (current.reasoning || current.toolCall) {
+        steps.push(current);
+        current = {};
       }
+      steps.push({ reasoning: msg });
     }
   }
 
