@@ -175,6 +175,50 @@ cat .saivage-work/tmp/processes/<procId>/output.txt
 
 ---
 
+## UI / Control-Room Incidents
+
+When the web control room (dashboard, cards, agents, files, or debug views)
+behaves unexpectedly — blank pages, stale data, broken navigation — verify the
+web frontend independently from the running server with these root-level
+commands. They exercise the SPA, stores, and views without requiring a running
+server.
+
+**Fast type-check first (catches import/typo breakage):**
+```bash
+npm run typecheck       # root TypeScript
+npm run web:typecheck   # web/ TypeScript
+```
+
+**Quick aggregate sweep (stores + all five control-room views):**
+```bash
+npm run web:test:sweep
+```
+
+**Individual views** (target a specific failing area):
+```bash
+npm run web:test:dashboardview
+npm run web:test:cardsview
+npm run web:test:agentsview
+npm run web:test:filesview
+npm run web:test:debugview
+```
+
+**Individual stores** (runtime, cards, agents, files, MCP, WebSocket):
+```bash
+npm run web:test:stores
+```
+
+**Full sweep including card-burst stress test:**
+```bash
+npm run web:test:sweep:full
+```
+
+Run these before chasing server-side issues — many "control room down"
+incidents are actually front-end regressions that these commands catch in
+seconds.
+
+---
+
 ## Config Changes Don't Take Effect
 
 **Symptom:** Updated `.saivage/saivage.json` but changes aren't reflected.
