@@ -4,6 +4,17 @@
  * Manages the cards list, detail view, tree structure, board layout,
  * filters, and all CRUD actions. Subscribes to WebSocket status events
  * for live card updates.
+ *
+ * ── Search / Derived View Semantics ────────────────────────────
+ *
+ * filteredCards is the single source of truth for what the operator
+ * sees.  It applies server-backed filters (status, type, tag, parent)
+ * first, then the client-side searchQuery, then sorts.
+ *
+ * All derived views — cardTree, board, and the views that consume them
+ * (Tree, Board, Leaderboard, Timeline) — derive exclusively from
+ * filteredCards so that any active filter or search term is
+ * predictably reflected in every presentation.
  */
 
 import { defineStore } from 'pinia';
@@ -122,12 +133,20 @@ export const useCardStore = defineStore('cards', () => {
     return [...result].sort(sortCards);
   });
 
-  /** Cards organized into rows by depth for tree rendering. */
+  /**
+   * Cards organized into rows by depth for tree rendering.
+   * Derived from filteredCards so that any active filter or search
+   * consistently reduces the visible tree.
+   */
   const cardTree = computed<CardRecord[]>(() => {
-    return buildTree(cards.value);
+    return buildTree(filteredCards.value);
   });
 
-  /** Board view: cards grouped by status. */
+  /**
+   * Board view: cards grouped by status.
+   * Derived from filteredCards so that the board reflects active
+   * filters instead of always showing every card.
+   */
   const board = computed<Map<CardStatus, CardRecord[]>>(() => {
     const columns = new Map<CardStatus, CardRecord[]>();
     const statuses: CardStatus[] = [
@@ -143,7 +162,7 @@ export const useCardStore = defineStore('cards', () => {
     for (const s of statuses) {
       columns.set(s, []);
     }
-    for (const card of cards.value) {
+    for (const card of filteredCards.value) {
       const col = columns.get(card.status);
       if (col) col.push(card);
     }

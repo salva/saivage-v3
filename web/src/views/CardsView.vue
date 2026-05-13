@@ -96,7 +96,7 @@
         <!-- Timeline View -->
         <CardsTimelineView
           v-else-if="activeView === 'timeline'"
-          :cards="cards"
+          :cards="filteredCards"
           @select="selectCard"
         />
       </div>

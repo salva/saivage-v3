@@ -492,4 +492,160 @@ describe('useCardStore', () => {
       expect(b.get('done')?.map(c => c.id)).toEqual(['card-b']);
     });
   });
+
+  // ── Search versus derived views ─────────────────────────────
+
+  describe('search and derived views alignment', () => {
+    it('cardTree derives from filteredCards (respects searchQuery)', () => {
+      const s = setupStore();
+      // A and C are a parent-child pair; B is unrelated
+      s.cards = [A, B, C]; // A = parent, C = child-of-A, B = unrelated
+
+      // Without search, tree has A and B as roots, C as child of A
+      expect(s.cardTree).toHaveLength(2);
+      const nodeA = s.cardTree.find(c => c.id === 'card-a') as any;
+      expect(nodeA.children).toHaveLength(1);
+      expect(nodeA.children[0].id).toBe('card-c');
+
+      // Apply a search that only matches card B ("Beta")
+      s.searchQuery = 'beta';
+
+      // filteredCards should only have B
+      expect(s.filteredCards.map(c => c.id)).toEqual(['card-b']);
+
+      // cardTree must derive from filteredCards — only B appears
+      expect(s.cardTree).toHaveLength(1);
+      expect(s.cardTree[0].id).toBe('card-b');
+    });
+
+    it('cardTree derives from filteredCards (respects filterStatus)', () => {
+      const s = setupStore();
+      const root = makeCard({ id: 'root', type: 'project', status: 'active' });
+      const child = makeCard({ id: 'child', type: 'code', status: 'done', parent: 'root' });
+      const other = makeCard({ id: 'other', type: 'test', status: 'done' });
+      s.cards = [root, child, other];
+
+      // Filter to only 'done' cards — root (active) drops out
+      s.filterStatus = 'done';
+
+      // filteredCards: child (done) and other (done), sorted by priority
+      expect(s.filteredCards.map(c => c.id).sort()).toEqual(['child', 'other']);
+
+      // cardTree from filteredCards: child should NOT be nested under root
+      // because root is not in the filtered set
+      const tree = s.cardTree;
+      // Count how many cards appear in the tree (flat)
+      const countInTree = (nodes: any[]): number => {
+        let n = nodes.length;
+        for (const node of nodes) {
+          if (node.children?.length) n += countInTree(node.children);
+        }
+        return n;
+      };
+      expect(countInTree(tree)).toBe(2); // child + other, both as roots
+    });
+
+    it('board derives from filteredCards (respects searchQuery)', () => {
+      const s = setupStore();
+      s.cards = [A, B, C, D, E];
+      // A=active, B=done, C=drafting, D=blocked, E=active
+
+      // No filters — all columns populated
+      expect(s.board.get('active')?.length).toBe(2); // A, E
+      expect(s.board.get('done')?.length).toBe(1);   // B
+
+      // Search for "alpha" only
+      s.searchQuery = 'alpha';
+
+      // filteredCards: only A
+      expect(s.filteredCards.map(c => c.id)).toEqual(['card-a']);
+
+      // board: only active column has A, all others empty
+      expect(s.board.get('active')?.map(c => c.id)).toEqual(['card-a']);
+      expect(s.board.get('done')).toEqual([]);
+      expect(s.board.get('drafting')).toEqual([]);
+      expect(s.board.get('blocked')).toEqual([]);
+      expect(s.board.get('running')).toEqual([]);
+    });
+
+    it('board derives from filteredCards (respects filterStatus)', () => {
+      const s = setupStore();
+      s.cards = [A, B, C, D, E];
+      // Filter to only done cards
+      s.filterStatus = 'done';
+
+      // board: only done column has B
+      expect(s.board.get('active')).toEqual([]);
+      expect(s.board.get('done')?.map(c => c.id)).toEqual(['card-b']);
+      expect(s.board.get('drafting')).toEqual([]);
+    });
+
+    it('board derives from filteredCards (respects combined status+search)', () => {
+      const s = setupStore();
+      const activeAlpha = makeCard({ id: 'aa', title: 'Alpha code', status: 'active', priority: 8 });
+      const activeOther = makeCard({ id: 'ao', title: 'Zebra', status: 'active', priority: 3 });
+      const doneAlpha = makeCard({ id: 'da', title: 'Alpha doc', status: 'done', priority: 5 });
+      s.cards = [activeAlpha, activeOther, doneAlpha];
+
+      // Filter status=active AND searchQuery=alpha
+      s.filterStatus = 'active';
+      s.searchQuery = 'alpha';
+
+      // filteredCards: only activeAlpha
+      expect(s.filteredCards.map(c => c.id)).toEqual(['aa']);
+
+      // board: only active column has activeAlpha
+      expect(s.board.get('active')?.map(c => c.id)).toEqual(['aa']);
+      expect(s.board.get('done')).toEqual([]);
+    });
+
+    it('filteredCards + board + cardTree all align on WS live refresh', async () => {
+      const s = setupStore();
+      s.filterStatus = 'active';
+      s.cards = [A, E]; // A and E are active
+      s.total = 2;
+
+      // Mock server to return only active cards (respects filter)
+      vi.mocked(listCards).mockResolvedValue(mlr([A, E], 2));
+
+      s.setupWsListener();
+
+      // Fire WS update — this triggers safeBackgroundRefresh
+      fireWsEvent('status', { event: 'card-updated', card: { ...A, title: 'Alpha Live' } });
+
+      await Promise.resolve();
+      await new Promise(r => setTimeout(r, 10));
+
+      // All three derived views should agree
+      const filtered = s.filteredCards;
+      expect(filtered.map(c => c.id)).toEqual(['card-a', 'card-e']);
+      expect(filtered.every(c => c.status === 'active')).toBe(true);
+
+      // cardTree from filteredCards
+      expect(s.cardTree).toHaveLength(2);
+
+      // board from filteredCards — only active column populated
+      expect(s.board.get('active')?.length).toBe(2);
+      expect(s.board.get('done')).toEqual([]);
+      expect(s.board.get('drafting')).toEqual([]);
+      expect(s.board.get('blocked')).toEqual([]);
+    });
+
+    it('searchQuery is client-side only — does not trigger server fetch', () => {
+      const s = setupStore();
+      s.cards = [A, B, C, D, E];
+
+      // Clear any previous mock calls
+      vi.mocked(listCards).mockClear();
+
+      // Set searchQuery (client-side only)
+      s.searchQuery = 'alpha';
+
+      // filteredCards should filter client-side
+      expect(s.filteredCards.map(c => c.id)).toEqual(['card-a']);
+
+      // But listCards should NOT have been called — searchQuery is client-side
+      expect(listCards).not.toHaveBeenCalled();
+    });
+  });
 });
