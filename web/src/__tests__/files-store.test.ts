@@ -871,4 +871,77 @@ describe('useFileStore', () => {
       expect(store.contentLoading).toBe(false);
     });
   });
+
+  // ── File Content Recovery Path ──────────────────────────────
+  //
+  // Covers: failed fetchFileContent → clearViewedFile → successful fetchFileContent
+  // Verifies the store correctly recovers (viewedFile/viewedFilePath populated,
+  // stale error cleared) after a user dismisses a failed file viewer and
+  // opens another file.
+
+  describe('file content recovery path (fail → clearViewedFile → success)', () => {
+    it('recovers after failed fetch: clearViewedFile resets viewer, subsequent fetch succeeds with clean state', async () => {
+      const store = setupStore();
+
+      // Step 1: Initial fetchFileContent fails (e.g. protected/quarantined file)
+      vi.mocked(getFileContent).mockRejectedValueOnce(
+        new ApiError(403, 'Content blocked by supervisor', { code: 'BLOCKED' }),
+      );
+      await store.fetchFileContent('.saivage-work/quarantine/bad.txt');
+
+      // After failure: error is set, content is not loaded
+      expect(store.error).toBe('Content blocked by supervisor');
+      expect(store.viewedFile).toBeNull();
+      expect(store.viewedFilePath).toBe('');
+      expect(store.contentLoading).toBe(false);
+
+      // Step 2: User dismisses the error / file viewer
+      store.clearViewedFile();
+
+      // After clear: viewedFile/viewedFilePath are reset.
+      // clearViewedFile only resets viewer state; stale error persists here
+      // (the UI may also clear the error separately or it gets cleared by the next fetch).
+      expect(store.viewedFile).toBeNull();
+      expect(store.viewedFilePath).toBe('');
+
+      // Step 3: User opens a different (valid) file — recovery fetch succeeds
+      vi.mocked(getFileContent).mockResolvedValueOnce(jsonContent);
+      await store.fetchFileContent('.saivage/plan.json');
+
+      // After recovery: file content is populated, and error from the prior failure
+      // is cleared (fetchFileContent resets error at the start of each call).
+      expect(store.viewedFile).toEqual(jsonContent);
+      expect(store.viewedFilePath).toBe('.saivage/plan.json');
+      expect(store.error).toBeNull();
+      expect(store.contentLoading).toBe(false);
+    });
+
+    it('does not clear error on clearViewedFile alone — error only clears on next fetch', async () => {
+      const store = setupStore();
+
+      // Fail a fetch
+      vi.mocked(getFileContent).mockRejectedValueOnce(
+        new ApiError(500, 'Server error', {}),
+      );
+      await store.fetchFileContent('.saivage/bad.json');
+
+      expect(store.error).toBe('Server error');
+      expect(store.viewedFile).toBeNull();
+
+      // Clear viewer — error persists
+      store.clearViewedFile();
+      expect(store.error).toBe('Server error');
+      expect(store.viewedFile).toBeNull();
+      expect(store.viewedFilePath).toBe('');
+
+      // Second fetch succeeds — now error is cleared
+      vi.mocked(getFileContent).mockResolvedValueOnce(markdownContent);
+      await store.fetchFileContent('.saivage-work/report.md');
+
+      expect(store.error).toBeNull();
+      expect(store.viewedFile).toEqual(markdownContent);
+      expect(store.viewedFilePath).toBe('.saivage-work/report.md');
+    });
+  });
+
 });
