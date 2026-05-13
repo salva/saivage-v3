@@ -95,13 +95,15 @@ import type {
 const mockStateResponse: DebugStateResponse = {
   runtime: {
     status: 'running',
+    project_id: 'saivage-v3',
     pid: 1234,
     started_at: '2025-06-01T10:00:00Z',
     paused: false,
     current_card_id: 'card-active-1',
     current_agent_session_id: 'session-1',
-    running_processes: [{ id: 'p-1', card_id: 'card-active-1', status: 'running' }],
-    queue: [{ id: 'card-pending-1' }, { id: 'card-pending-2' }],
+    running_processes: ['p-1'],
+    queue: ['card-pending-1', 'card-pending-2'],
+    updated_at: '2025-06-01T10:00:00Z',
   },
   cards: [
     {
@@ -116,7 +118,7 @@ const mockStateResponse: DebugStateResponse = {
     },
     {
       id: 'card-done-1',
-      type: 'task' as const,
+      type: 'ops' as const,
       parent: 'card-active-1',
       status: 'done' as const,
       title: 'Completed task',

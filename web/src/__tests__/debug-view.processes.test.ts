@@ -209,7 +209,7 @@ async function mountDebugViewWithProcessesError() {
 
   // Minimal valid data for other tabs
   vi.mocked(getDebugState).mockResolvedValue({
-    runtime: { status: 'running', pid: 1, started_at: new Date().toISOString(), paused: false, current_card_id: null, current_agent_session_id: null, running_processes: [], queue: [] },
+    runtime: { status: 'running', project_id: 'saivage-v3', pid: 1, started_at: new Date().toISOString(), paused: false, current_card_id: null, current_agent_session_id: null, running_processes: [], queue: [], updated_at: new Date().toISOString() },
     cards: [],
     totalCards: 0,
   });
