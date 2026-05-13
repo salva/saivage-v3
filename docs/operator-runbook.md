@@ -42,6 +42,30 @@ curl -H "Authorization: Bearer $SAIVAGE_API_TOKEN" http://localhost:8080/api/deb
 
 Shows recent runtime events: goal starts, card transitions, agent invocations, errors.
 
+### Local Verification Commands
+
+When investigating control room issues or verifying the codebase after changes, the following root-level npm scripts provide focused web verification without running the full backend test suite:
+
+```bash
+# Full web SPA sweep (all view suites + all store suites)
+npm run web:test:sweep
+
+# All control room view suites (no store tests)
+npm run web:test:control-room
+
+# Focused view suites (run individually during incident triage)
+npm run web:test:debugview      # Debug view + supervision tab
+npm run web:test:cardsview      # Cards management view
+npm run web:test:agentsview     # Agent sessions view
+npm run web:test:filesview      # Files browser view
+npm run web:test:dashboardview  # Dashboard overview
+
+# TypeScript typecheck (catches type errors without running tests)
+npm run web:typecheck
+```
+
+These commands exercise the Web Control Room SPA without touching backend agent logic, the Telegram polling test suite, or MCP integration tests. Use `web:test:sweep` for a comprehensive check and the focused view suites for triaging specific UI areas.
+
 ## Incident Response
 
 ### 1. Server Not Responding
