@@ -10,6 +10,8 @@
  *  6. Visible presentation: error state
  *  7. Visible presentation: empty tree state
  *  8. Visible presentation: detail mode rendering
+ *  9. Debounced search: 300ms debounce propagates searchQuery → store → API
+ * 10. Filter-select: changing a filter triggers applyFilters → store → API
  *
  * The API client, WebSocket store, and child card components are fully
  * mocked — no server needed.
@@ -417,6 +419,245 @@ describe('CardsView', () => {
     it('hides toolbar when in detail mode', async () => {
       const { wrapper } = await mountCardsView({ initialRoute: '/cards/code-1' });
       expect(wrapper.find('.cards-toolbar').exists()).toBe(false);
+    });
+  });
+
+  // ── Debounced search behavior ───────────────────────────────
+  describe('debounced search behavior', () => {
+    beforeEach(() => {
+      vi.useFakeTimers();
+    });
+
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it('does NOT call listCards immediately on search input (before debounce)', async () => {
+      const { wrapper } = await mountCardsView();
+
+      // Clear the initial fetchCards call from mount
+      vi.mocked(listCards).mockClear();
+
+      const searchInput = wrapper.find('.search-input');
+      await searchInput.setValue('CardsView');
+
+      // Immediately after typing — listCards should NOT have been called yet
+      // (the 300ms debounce hasn't fired)
+      expect(listCards).not.toHaveBeenCalled();
+    });
+
+    it('calls listCards with search query after 300ms debounce', async () => {
+      const { wrapper } = await mountCardsView();
+
+      // Clear the initial fetchCards call from mount
+      vi.mocked(listCards).mockClear();
+
+      const searchInput = wrapper.find('.search-input');
+      await searchInput.setValue('CardsView');
+
+      // Advance time by exactly 300ms
+      vi.advanceTimersByTime(300);
+
+      // Now the debounce should have fired — applyFilters → fetchCards → listCards
+      expect(listCards).toHaveBeenCalledTimes(1);
+    });
+
+    it('resets the debounce timer on subsequent keystrokes', async () => {
+      const { wrapper } = await mountCardsView();
+
+      // Clear the initial fetchCards call from mount
+      vi.mocked(listCards).mockClear();
+
+      const searchInput = wrapper.find('.search-input');
+
+      // Type 'C'
+      await searchInput.setValue('C');
+      // Advance 200ms — not enough for the 300ms debounce
+      vi.advanceTimersByTime(200);
+      expect(listCards).not.toHaveBeenCalled();
+
+      // Type 'a' (now value = 'Ca') — this should reset the timer
+      await searchInput.setValue('Ca');
+      // Advance 200ms again — still not enough from the second keystroke
+      vi.advanceTimersByTime(200);
+      expect(listCards).not.toHaveBeenCalled();
+
+      // Advance to 300ms total from second keystroke (200 + 100 more)
+      vi.advanceTimersByTime(100);
+      expect(listCards).toHaveBeenCalledTimes(1);
+    });
+
+    it('sets the search input value correctly when debounce fires', async () => {
+      const { wrapper } = await mountCardsView();
+
+      // Clear initial
+      vi.mocked(listCards).mockClear();
+
+      const searchInput = wrapper.find('.search-input');
+      await searchInput.setValue('Saivage');
+
+      vi.advanceTimersByTime(300);
+
+      // The input value should still be 'Saivage'
+      expect((searchInput.element as HTMLInputElement).value).toBe('Saivage');
+      // listCards should have been called
+      expect(listCards).toHaveBeenCalled();
+    });
+
+    it('cancels pending debounce on rapid typing — only final query fires', async () => {
+      const { wrapper } = await mountCardsView();
+
+      vi.mocked(listCards).mockClear();
+
+      const searchInput = wrapper.find('.search-input');
+
+      // Rapid typing — each keystroke resets the 300ms timer
+      await searchInput.setValue('S');
+      vi.advanceTimersByTime(100);
+      await searchInput.setValue('Sa');
+      vi.advanceTimersByTime(100);
+      await searchInput.setValue('Sai');
+      vi.advanceTimersByTime(100);
+      await searchInput.setValue('Saiv');
+      vi.advanceTimersByTime(100);
+
+      // Still no calls — timer keeps resetting
+      expect(listCards).not.toHaveBeenCalled();
+
+      // Now let the final debounce fire
+      vi.advanceTimersByTime(300);
+      expect(listCards).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  // ── Filter-select triggers store/API interaction ────────────
+  describe('filter-select triggers store interaction', () => {
+    it('changing status filter calls applyFilters → listCards with status param', async () => {
+      const { wrapper } = await mountCardsView();
+
+      // Clear the initial fetchCards from mount
+      vi.mocked(listCards).mockClear();
+
+      const filterSelects = wrapper.findAll('.filter-select');
+      // Status is the first filter-select
+      const statusSelect = filterSelects[0];
+
+      // Select 'done' status
+      await statusSelect.setValue('done');
+
+      // applyFilters is synchronous (calls fetchCards and catches the promise)
+      // Wait for microtasks
+      await flushPromises();
+
+      expect(listCards).toHaveBeenCalledWith(
+        expect.objectContaining({ status: 'done' }),
+      );
+    });
+
+    it('changing type filter calls applyFilters → listCards with type param', async () => {
+      const { wrapper } = await mountCardsView();
+
+      vi.mocked(listCards).mockClear();
+
+      const filterSelects = wrapper.findAll('.filter-select');
+      // Type is the second filter-select
+      const typeSelect = filterSelects[1];
+
+      await typeSelect.setValue('test');
+
+      await flushPromises();
+
+      expect(listCards).toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'test' }),
+      );
+    });
+
+    it('changing tag filter calls applyFilters → listCards with tag param', async () => {
+      const { wrapper } = await mountCardsView();
+
+      vi.mocked(listCards).mockClear();
+
+      const filterSelects = wrapper.findAll('.filter-select');
+      // Tag is the third filter-select
+      const tagSelect = filterSelects[2];
+
+      await tagSelect.setValue('core');
+
+      await flushPromises();
+
+      expect(listCards).toHaveBeenCalledWith(
+        expect.objectContaining({ tag: 'core' }),
+      );
+    });
+
+    it('selecting "All Statuses" (empty string) calls listCards without status param', async () => {
+      const { wrapper } = await mountCardsView();
+
+      vi.mocked(listCards).mockClear();
+
+      const filterSelects = wrapper.findAll('.filter-select');
+      const statusSelect = filterSelects[0];
+
+      // First select a specific status
+      await statusSelect.setValue('done');
+      await flushPromises();
+      expect(listCards).toHaveBeenCalledWith(
+        expect.objectContaining({ status: 'done' }),
+      );
+
+      vi.mocked(listCards).mockClear();
+
+      // Then reset to "All Statuses"
+      await statusSelect.setValue('');
+      await flushPromises();
+
+      // Should be called without status (undefined is converted to not-appearing by store)
+      const lastCall = vi.mocked(listCards).mock.calls[vi.mocked(listCards).mock.calls.length - 1];
+      expect(lastCall).toBeDefined();
+      const params = lastCall[0] || {};
+      expect(params.status).toBeUndefined();
+    });
+
+    it('combined filter changes accumulate params in listCards call', async () => {
+      const { wrapper } = await mountCardsView();
+
+      vi.mocked(listCards).mockClear();
+
+      const filterSelects = wrapper.findAll('.filter-select');
+      const statusSelect = filterSelects[0];
+      const typeSelect = filterSelects[1];
+
+      // Set status first
+      await statusSelect.setValue('active');
+      await flushPromises();
+
+      // Clear again
+      vi.mocked(listCards).mockClear();
+
+      // Now also set type — this should call listCards with both params
+      await typeSelect.setValue('code');
+      await flushPromises();
+
+      // The component sets all filters on the store before calling applyFilters,
+      // so the call should include both
+      expect(listCards).toHaveBeenCalledWith(
+        expect.objectContaining({ status: 'active', type: 'code' }),
+      );
+    });
+
+    it('filter select change triggers a single listCards call', async () => {
+      const { wrapper } = await mountCardsView();
+
+      vi.mocked(listCards).mockClear();
+
+      const filterSelects = wrapper.findAll('.filter-select');
+      const statusSelect = filterSelects[0];
+
+      await statusSelect.setValue('done');
+      await flushPromises();
+
+      // Should fire exactly one additional listCards call (beyond the initial mount)
+      expect(listCards).toHaveBeenCalledTimes(1);
     });
   });
 });
