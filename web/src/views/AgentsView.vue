@@ -86,7 +86,11 @@ function fmtDate(ts: string): string { try { return new Date(ts).toLocaleString(
 function selectSession(id: string): void { selectedSessionId.value = id; }
 
 watch(() => route.params.id, (nid) => {
-  if (nid && typeof nid === 'string') selectedSessionId.value = nid;
+  if (nid && typeof nid === 'string') {
+    selectedSessionId.value = nid;
+  } else {
+    selectedSessionId.value = null;
+  }
 }, { immediate: true });
 
 onMounted(() => {

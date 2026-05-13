@@ -5,10 +5,11 @@
  *  1. Operator interaction: selecting a session and returning to the list (back)
  *  2. Operator interaction: clicking session cards selects the correct session
  *  3. Operator interaction: navigating to detail view via route param
- *  4. Visible presentation: loading state
- *  5. Visible presentation: error state
- *  6. Visible presentation: empty state (no sessions)
- *  7. Visible presentation: role-grouped session list rendering with status-based styling
+ *  4. Operator interaction: route transition from /agents/:id to /agents clears detail
+ *  5. Visible presentation: loading state
+ *  6. Visible presentation: error state
+ *  7. Visible presentation: empty state (no sessions)
+ *  8. Visible presentation: role-grouped session list rendering with status-based styling
  *
  * The API client, WebSocket store, and child AgentConversationView are fully
  * mocked — no server needed.
@@ -401,6 +402,59 @@ describe('AgentsView', () => {
       expect(wrapper.find('.detail-header-bar').exists()).toBe(true);
       expect(wrapper.find('.agent-session-id').text()).toBe('planner-1');
       expect(wrapper.find('.mock-conversation-view').exists()).toBe(true);
+    });
+
+    it('clears detail selection and shows list when navigating from /agents/:id to /agents via router', async () => {
+      // Start on detail route
+      const { wrapper, router } = await mountAgentsView({
+        sessions: allSessions,
+        initialRoute: '/agents/planner-1',
+      });
+
+      // Verify detail view is shown
+      expect(wrapper.find('.detail-header-bar').exists()).toBe(true);
+      expect(wrapper.find('.agent-session-id').text()).toBe('planner-1');
+
+      // Navigate to /agents via router (simulating browser back/forward or programmatic nav)
+      await router.push('/agents');
+      await flushPromises();
+
+      // Detail selection MUST be cleared; list view MUST be shown
+      expect(wrapper.find('.detail-header-bar').exists()).toBe(false);
+      expect(wrapper.find('.agents-content').exists()).toBe(true);
+      expect(wrapper.findAll('.session-card').length).toBeGreaterThanOrEqual(1);
+    });
+
+    it('clears detail and shows list on back navigation from /agents/:id to /agents and then re-enters detail correctly', async () => {
+      // Start on list
+      const { wrapper, router } = await mountAgentsView({
+        sessions: allSessions,
+        initialRoute: '/agents',
+      });
+
+      // Navigate to detail
+      await router.push('/agents/reviewer-1');
+      await flushPromises();
+      expect(wrapper.find('.detail-header-bar').exists()).toBe(true);
+      expect(wrapper.find('.agent-session-id').text()).toBe('reviewer-1');
+
+      // Navigate back to list
+      await router.push('/agents');
+      await flushPromises();
+      expect(wrapper.find('.detail-header-bar').exists()).toBe(false);
+      expect(wrapper.find('.agents-content').exists()).toBe(true);
+
+      // Navigate to a different detail
+      await router.push('/agents/executor-1');
+      await flushPromises();
+      expect(wrapper.find('.detail-header-bar').exists()).toBe(true);
+      expect(wrapper.find('.agent-session-id').text()).toBe('executor-1');
+
+      // Navigate back to list again
+      await router.push('/agents');
+      await flushPromises();
+      expect(wrapper.find('.detail-header-bar').exists()).toBe(false);
+      expect(wrapper.find('.agents-content').exists()).toBe(true);
     });
   });
 
