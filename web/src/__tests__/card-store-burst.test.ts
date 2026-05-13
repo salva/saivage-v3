@@ -203,8 +203,8 @@ describe('card-store WS burst consistency', () => {
     expect(idSet.size).toBe(ids.length);
   });
 
-  // ── Scenario 2: Delete-then-fetchCards-returns-stale — gen guard discards it ──
-  it('does not allow a stale fetchCards to re-introduce a deleted card', async () => {
+  // ── Scenario 2: Gen guard discards a fetch from a superseded mutation ──
+  it('discards a background fetch from a superseded mutation when a newer mutation arrives before fetch resolution', async () => {
     const s = setupStore();
 
     // Start with F1 and F2
@@ -215,7 +215,7 @@ describe('card-store WS burst consistency', () => {
 
     s.setupWsListener();
 
-    // Control fetch resolution
+    // Control fetch resolution order
     const deferreds: Array<{
       resolve: (v: CardListResponse) => void;
       reject: (e: Error) => void;
@@ -230,28 +230,42 @@ describe('card-store WS burst consistency', () => {
       });
     });
 
-    // Fire a delete that triggers a background fetch (gen bumped to 1)
+    // --- Step 1: Delete F2 via WS.  Optimistic removal bumps gen to 1.
+    //             Background fetch call#0 is dispatched.
     fireWsEvent('status', { event: 'card-deleted', id: 'card-f2' });
     expect(s.cards.map((c) => c.id)).toEqual(['card-f1']);
     expect(s.total).toBe(1);
 
-    // Resolve the background fetch with STALE data that still includes F2
-    // This resolve happens while gen is still 1, so it WILL apply.
-    // But the data is stale — the server hasn't propagated the delete yet.
-    // The gen guard can't help here because no new mutation occurred after the delete.
-    // This is expected eventual-consistency behavior: a subsequent fetch will correct it.
+    // --- Step 2: Before call#0 resolves, create F3 via WS.
+    //             This bumps gen to 2 and dispatches background fetch call#1.
+    fireWsEvent('status', { event: 'card-created', card: F3 });
+    expect(s.cards.map((c) => c.id).sort()).toEqual(['card-f1', 'card-f3']);
+    expect(s.total).toBe(2);
+
+    // --- Step 3: Resolve call#0 (from delete, gen=1).
+    //             Current gen is 2, so this response MUST be discarded.
+    //             It returns stale server data that still includes F2.
     deferreds[0].resolve(mlr([F1, F2]));
 
     await vi.waitFor(() => {}, { timeout: 500 });
 
-    // Since no further mutations happened, the gen guard allows this fetch.
-    // This is correct: if the server data is stale, we accept it and rely on
-    // eventual consistency (the next WS event or user refresh will correct).
-    // The key invariant: if ANOTHER mutation happened between delete and fetch
-    // resolution, the stale fetch would be discarded (tested in Scenario 1).
-    //
-    // For this scenario, no further mutation happened, so the fetch is "current"
-    // per the gen guard. The stale server data is a separate concern.
+    // The stale fetch (call#0) must NOT overwrite state.
+    // F3 must still be present, F2 must still be absent.
+    expect(s.cards.map((c) => c.id).sort()).toEqual(['card-f1', 'card-f3']);
+    expect(s.total).toBe(2);
+    expect(s.cards.find((c) => c.id === 'card-f2')).toBeUndefined();
+    expect(s.cards.find((c) => c.id === 'card-f3')).toBeDefined();
+
+    // --- Step 4: Resolve call#1 (from create F3, gen=2).
+    //             Current gen is still 2, so this response applies.
+    deferreds[1].resolve(mlr([F1, F3]));
+
+    await vi.waitFor(() => {}, { timeout: 500 });
+
+    // Final state: consistent — F1 and F3 only, no F2.
+    expect(s.cards.map((c) => c.id).sort()).toEqual(['card-f1', 'card-f3']);
+    expect(s.total).toBe(2);
+    expect(s.cards.find((c) => c.id === 'card-f2')).toBeUndefined();
   });
 
   // ── Scenario 3: Rapid duplicate creates must not add the same card twice ──
