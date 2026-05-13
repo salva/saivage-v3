@@ -5,6 +5,13 @@
  * diagnostics, and content supervision data. All data is read-only
  * for inspection purposes — actions should link back to the
  * relevant card or process.
+ *
+ * Error handling is per-fetch where possible:
+ *  - fetchState / fetchErrors / fetchTimeline share `loading` and `error`
+ *    (they are loaded together via fetchAll on mount).
+ *  - fetchProcesses, fetchDoctor, fetchSupervision each have their own
+ *    loading AND error ref so a failed fetch in one pane does not bleed
+ *    into unrelated operator views.
  */
 
 import { defineStore } from 'pinia';
@@ -69,23 +76,26 @@ export const useDebugStore = defineStore('debug', () => {
   const timelineEvents = ref<DebugTimelineEvent[]>([]);
   const timelineTotal = ref(0);
 
-  // Processes
+  // Processes (per-fetch loading + error)
   const processes = ref<ProcessRecord[]>([]);
   const processesLoading = ref(false);
+  const processesError = ref<string | null>(null);
 
-  // Doctor
+  // Doctor (per-fetch loading + error)
   const doctorStatus = ref<'ok' | 'issues_found' | null>(null);
   const doctorChecks = ref<DoctorCheck[]>([]);
   const doctorIssues = ref<DoctorIssue[]>([]);
   const doctorLoading = ref(false);
+  const doctorError = ref<string | null>(null);
 
-  // Supervision
+  // Supervision (per-fetch loading + error)
   const supervisionReviews = ref<ContentReview[]>([]);
   const supervisionQuarantine = ref<QuarantineSummaryEntry[]>([]);
   const supervisionStats = ref<SupervisionStats | null>(null);
   const supervisionLoading = ref(false);
+  const supervisionError = ref<string | null>(null);
 
-  // Shared
+  // Shared (used by fetchState / fetchErrors / fetchTimeline / fetchAll)
   const loading = ref(false);
   const error = ref<string | null>(null);
 
@@ -223,26 +233,26 @@ export const useDebugStore = defineStore('debug', () => {
     }
   }
 
-  /** Fetch process list. */
+  /** Fetch process list. Uses per-fetch error (processesError), not shared. */
   async function fetchProcesses(): Promise<void> {
     processesLoading.value = true;
-    error.value = null;
+    processesError.value = null;
     try {
       const response: ProcessListResponse = await listProcesses();
       processes.value = response.processes;
     } catch (err) {
       const msg = err instanceof ApiError ? err.message : 'Failed to fetch processes';
-      error.value = msg;
+      processesError.value = msg;
       log.error('fetchProcesses', msg);
     } finally {
       processesLoading.value = false;
     }
   }
 
-  /** Fetch doctor diagnostics. */
+  /** Fetch doctor diagnostics. Uses per-fetch error (doctorError), not shared. */
   async function fetchDoctor(): Promise<void> {
     doctorLoading.value = true;
-    error.value = null;
+    doctorError.value = null;
     try {
       const response: DoctorResponse = await getDoctor();
       doctorStatus.value = response.status;
@@ -250,17 +260,17 @@ export const useDebugStore = defineStore('debug', () => {
       doctorIssues.value = response.issues;
     } catch (err) {
       const msg = err instanceof ApiError ? err.message : 'Failed to fetch doctor diagnostics';
-      error.value = msg;
+      doctorError.value = msg;
       log.error('fetchDoctor', msg);
     } finally {
       doctorLoading.value = false;
     }
   }
 
-  /** Fetch supervision data (content reviews + quarantine index). */
+  /** Fetch supervision data (content reviews + quarantine index). Uses per-fetch error. */
   async function fetchSupervision(): Promise<void> {
     supervisionLoading.value = true;
-    error.value = null;
+    supervisionError.value = null;
     try {
       const response: SupervisionResponse = await getDebugSupervision();
       supervisionReviews.value = response.reviews;
@@ -268,14 +278,14 @@ export const useDebugStore = defineStore('debug', () => {
       supervisionStats.value = response.stats;
     } catch (err) {
       const msg = err instanceof ApiError ? err.message : 'Failed to fetch supervision data';
-      error.value = msg;
+      supervisionError.value = msg;
       log.error('fetchSupervision', msg);
     } finally {
       supervisionLoading.value = false;
     }
   }
 
-  /** Fetch all debug data at once. */
+  /** Fetch all debug data at once (state + errors + timeline). */
   async function fetchAll(): Promise<void> {
     loading.value = true;
     error.value = null;
@@ -386,14 +396,17 @@ export const useDebugStore = defineStore('debug', () => {
     timelineTotal: readonly(timelineTotal),
     processes: readonly(processes),
     processesLoading: readonly(processesLoading),
+    processesError: readonly(processesError),
     doctorStatus: readonly(doctorStatus),
     doctorChecks: readonly(doctorChecks),
     doctorIssues: readonly(doctorIssues),
     doctorLoading: readonly(doctorLoading),
+    doctorError: readonly(doctorError),
     supervisionReviews: readonly(supervisionReviews),
     supervisionQuarantine: readonly(supervisionQuarantine),
     supervisionStats: readonly(supervisionStats),
     supervisionLoading: readonly(supervisionLoading),
+    supervisionError: readonly(supervisionError),
     loading: readonly(loading),
     error: readonly(error),
     activeTab,

@@ -181,7 +181,7 @@ describe('useDebugStore — supervision/doctor', () => {
       await store.fetchDoctor();
 
       expect(store.doctorStatus).toBeNull();
-      expect(store.error).toBe('Failed to fetch doctor diagnostics');
+      expect(store.doctorError).toBe('Failed to fetch doctor diagnostics');
       expect(store.doctorLoading).toBe(false);
     });
   });
@@ -223,7 +223,7 @@ describe('useDebugStore — supervision/doctor', () => {
       await store.fetchSupervision();
 
       expect(store.supervisionStats).toBeNull();
-      expect(store.error).toBe('Failed to fetch supervision data');
+      expect(store.supervisionError).toBe('Failed to fetch supervision data');
       expect(store.supervisionLoading).toBe(false);
     });
   });

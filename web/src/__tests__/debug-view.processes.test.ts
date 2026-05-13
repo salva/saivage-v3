@@ -200,7 +200,7 @@ async function mountDebugView() {
 
 /**
  * Mount DebugView with listProcesses pre-configured to reject so
- * the Processes tab renders the error state.
+ * the Processes tab renders the per-fetch error state (processesError).
  */
 async function mountDebugViewWithProcessesError() {
   setActivePinia(createPinia());
@@ -478,11 +478,62 @@ describe('DebugView — processes tab error state', () => {
       await flushPromises();
     }
 
-    // The error ref is shared across debug store tabs, so State tab also shows it.
+    // With per-fetch error isolation, the State tab should NOT show
+    // the processes error — it uses its own shared error ref.
     // But when we return to Processes, the same error should still be visible.
     clickProcessesTab(wrapper);
     await flushPromises();
     expect(wrapper.find('.debug-error').exists()).toBe(true);
+  });
+
+  it('processes fetch failure does NOT bleed error into State tab', async () => {
+    const wrapper = await mountDebugViewWithProcessesError();
+
+    // Switch to Processes tab → error state (processesError is set)
+    clickProcessesTab(wrapper);
+    await flushPromises();
+    expect(wrapper.find('.debug-error').exists()).toBe(true);
+    expect(wrapper.find('.debug-error').text()).toContain('Failed to fetch processes');
+
+    // Switch to State tab — should NOT show the processes error
+    // because State tab reads from the shared `error` ref, not `processesError`
+    const stateTab = wrapper.findAll('.debug-tab').find((t) => t.text() === 'State');
+    if (stateTab) {
+      await stateTab.trigger('click');
+      await flushPromises();
+    }
+
+    // State tab should show runtime data (not the processes error)
+    const stateContent = wrapper.find('.debug-tab-content');
+    expect(stateContent.exists()).toBe(true);
+    const stateText = stateContent.text();
+    expect(stateText).not.toContain('Failed to fetch processes');
+    // It should show the loaded state data
+    expect(stateText).toContain('Runtime State');
+    expect(stateText).toContain('running');
+  });
+
+  it('processes fetch failure does NOT bleed error into Errors tab', async () => {
+    const wrapper = await mountDebugViewWithProcessesError();
+
+    // Switch to Processes tab → error state
+    clickProcessesTab(wrapper);
+    await flushPromises();
+    expect(wrapper.find('.debug-error').text()).toContain('Failed to fetch processes');
+
+    // Switch to Errors tab — should NOT show the processes error
+    const errorsTab = wrapper.findAll('.debug-tab').find((t) => t.text() === 'Errors');
+    if (errorsTab) {
+      await errorsTab.trigger('click');
+      await flushPromises();
+    }
+
+    const errorsContent = wrapper.find('.debug-tab-content');
+    expect(errorsContent.exists()).toBe(true);
+    const errorsText = errorsContent.text();
+    expect(errorsText).not.toContain('Failed to fetch processes');
+    // Errors tab should show its own data (empty, since we mocked empty)
+    expect(errorsText).toContain('No errors recorded');
   });
 
   it('error state on Processes tab does not affect MCP tab', async () => {

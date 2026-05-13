@@ -161,10 +161,10 @@
         </div>
       </div>
 
-      <!-- Processes Tab -->
+      <!-- Processes Tab (per-pane error via processesError) -->
       <div v-if="localActiveTab === 'processes'" class="debug-tab-content">
         <div v-if="processesLoading" class="debug-loading">Loading processes...</div>
-        <div v-else-if="error" class="debug-error">{{ error }}</div>
+        <div v-else-if="processesError" class="debug-error">{{ processesError }}</div>
         <div v-else-if="processes.length === 0" class="debug-empty">No processes found.</div>
         <div v-else class="processes-list">
           <div v-for="proc in processes" :key="proc.id" class="process-card">
@@ -199,6 +199,7 @@
             <button class="sv-fetch-btn" :disabled="doctorLoading" @click="debugStore.fetchDoctor()">Fetch</button>
           </div>
           <div v-if="doctorLoading" class="debug-loading" style="padding:16px;">Running diagnostics...</div>
+          <div v-else-if="doctorError" class="debug-error" style="padding:16px;">{{ doctorError }}</div>
           <div v-else-if="doctorStatus === null && doctorChecks.length === 0" class="debug-empty" style="padding:16px;">
             No diagnostics run yet. Click Fetch to check card/index consistency.
           </div>
@@ -235,6 +236,7 @@
             <button class="sv-fetch-btn" :disabled="supervisionLoading" @click="debugStore.fetchSupervision()">Fetch</button>
           </div>
           <div v-if="supervisionLoading" class="debug-loading" style="padding:16px;">Loading supervision data...</div>
+          <div v-else-if="supervisionError" class="debug-error" style="padding:16px;">{{ supervisionError }}</div>
           <div v-else-if="supervisionStats === null" class="debug-empty" style="padding:16px;">
             No supervision data loaded yet. Click Fetch to load.
           </div>
@@ -328,9 +330,10 @@ const {
   debugRuntime, debugCards, debugTotalCards,
   errors, errorsTotal, errorsBySource,
   sortedTimeline, loading, error,
-  processes, processesLoading,
-  doctorStatus, doctorChecks, doctorIssues, doctorLoading,
-  supervisionReviews, supervisionQuarantine, supervisionStats, supervisionLoading,
+  processes, processesLoading, processesError,
+  doctorStatus, doctorChecks, doctorIssues, doctorLoading, doctorError,
+  supervisionReviews, supervisionQuarantine, supervisionStats,
+  supervisionLoading, supervisionError,
 } = storeToRefs(debugStore);
 
 type TabId = 'state' | 'errors' | 'timeline' | 'mcp' | 'processes' | 'supervision';

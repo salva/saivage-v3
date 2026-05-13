@@ -638,9 +638,30 @@ describe('DebugView — integration', () => {
     await clickTab(wrapper, 'Errors');
     expect(visibleTabContentText(wrapper)).toContain('Failed to fetch debug errors');
 
-    // But MCP tab should work fine
+    // MCP tab should work fine (mcpStore.error is independent)
     await clickTab(wrapper, 'MCP');
     expect(visibleTabContentText(wrapper)).toContain('filesystem');
+
+    // Processes tab: its error is per-fetch (processesError), so the shared
+    // debug-store error from State/Errors should NOT bleed into it.
+    // However, clicking Processes triggers fetchProcesses() which also rejects
+    // in this mount, so it WILL show its own error.
+    await clickTab(wrapper, 'Processes');
+    const processesText = visibleTabContentText(wrapper);
+    expect(processesText).toContain('Failed to fetch processes');
+    // But it should NOT contain the State/Errors error messages
+    expect(processesText).not.toContain('Failed to fetch debug data');
+    expect(processesText).not.toContain('Failed to fetch debug errors');
+
+    // Supervision tab: doctorError and supervisionError are also per-fetch.
+    // Click triggers both fetches which reject, so doctor error shows first.
+    await clickTab(wrapper, 'Supervision');
+    const supervisionText = visibleTabContentText(wrapper);
+    // Doctor section error should be the first error rendered
+    expect(supervisionText).toContain('Failed to fetch doctor diagnostics');
+    // But should NOT contain other pane errors
+    expect(supervisionText).not.toContain('Failed to fetch debug data');
+    expect(supervisionText).not.toContain('Failed to fetch processes');
   });
 
   it('tabs maintain independent loading/error state after switching', async () => {
@@ -665,6 +686,19 @@ describe('DebugView — integration', () => {
     await clickTab(wrapper, 'MCP');
     expect(visibleTabContentText(wrapper)).toContain('Failed to fetch MCP tools');
     expect(visibleTabContentText(wrapper)).not.toContain('Runtime State');
+
+    // Processes tab: should show its own loaded data (not MCP error)
+    await clickTab(wrapper, 'Processes');
+    const processesText = visibleTabContentText(wrapper);
+    expect(processesText).toContain('proc-int-1');
+    expect(processesText).not.toContain('Failed to fetch MCP tools');
+    expect(processesText).not.toContain('Failed to fetch debug state');
+
+    // Supervision tab: should show doctor data (not MCP error)
+    await clickTab(wrapper, 'Supervision');
+    const supervisionText = visibleTabContentText(wrapper);
+    expect(supervisionText).toContain('Doctor Diagnostics');
+    expect(supervisionText).not.toContain('Failed to fetch MCP tools');
   });
 
   // ── Cross-store: debug store's shared loading ref ────────────
@@ -726,6 +760,97 @@ describe('DebugView — integration', () => {
     // State tab should now show data
     await clickTab(wrapper, 'State');
     expect(visibleTabContentText(wrapper)).toContain('Runtime State');
+  });
+
+  // ── Per-pane error isolation ────────────────────────────────
+
+  it('processesError does not leak into State, Errors, or Timeline panes', async () => {
+    // Set up: all debug fetches succeed, but listProcesses fails
+    setActivePinia(createPinia());
+
+    vi.mocked(getDebugState).mockResolvedValue(mockStateResponse);
+    vi.mocked(getDebugErrors).mockResolvedValue(mockErrorsResponse);
+    vi.mocked(getDebugTimeline).mockResolvedValue(mockTimelineResponse);
+    vi.mocked(getMcpTools).mockResolvedValue(mockMcpResponse);
+    vi.mocked(getDoctor).mockResolvedValue(mockDoctorOk);
+    vi.mocked(getDebugSupervision).mockResolvedValue(mockSupervisionResponse);
+    vi.mocked(listProcesses).mockRejectedValue(new Error('Process fetch failed'));
+
+    const router = makeRouter();
+    const wrapper = mount(DebugView, {
+      global: {
+        plugins: [createPinia(), router],
+      },
+    });
+    await flushPromises();
+
+    // State tab: loaded successfully (fetchAll succeeded)
+    expect(visibleTabContentText(wrapper)).toContain('Runtime State');
+    expect(visibleTabContentText(wrapper)).not.toContain('Process fetch failed');
+
+    // Errors tab: loaded successfully
+    await clickTab(wrapper, 'Errors');
+    const errorsText = visibleTabContentText(wrapper);
+    expect(errorsText).toContain('runtime');
+    expect(errorsText).not.toContain('Process fetch failed');
+
+    // Timeline tab: loaded successfully
+    await clickTab(wrapper, 'Timeline');
+    const timelineText = visibleTabContentText(wrapper);
+    expect(timelineText).toContain('process_launched');
+    expect(timelineText).not.toContain('Process fetch failed');
+
+    // Processes tab: shows its own error
+    await clickTab(wrapper, 'Processes');
+    const processesText = visibleTabContentText(wrapper);
+    expect(processesText).toContain('Failed to fetch processes');
+
+    // Go back to State — should still be clean
+    await clickTab(wrapper, 'State');
+    const stateAgain = visibleTabContentText(wrapper);
+    expect(stateAgain).toContain('Runtime State');
+    expect(stateAgain).not.toContain('Failed to fetch processes');
+  });
+
+  it('doctorError does not leak into State or other non-supervision panes', async () => {
+    // All fetches succeed except doctor
+    setActivePinia(createPinia());
+
+    vi.mocked(getDebugState).mockResolvedValue(mockStateResponse);
+    vi.mocked(getDebugErrors).mockResolvedValue(mockErrorsResponse);
+    vi.mocked(getDebugTimeline).mockResolvedValue(mockTimelineResponse);
+    vi.mocked(getMcpTools).mockResolvedValue(mockMcpResponse);
+    vi.mocked(getDoctor).mockRejectedValue(new Error('Doctor failed'));
+    vi.mocked(getDebugSupervision).mockResolvedValue(mockSupervisionResponse);
+    vi.mocked(listProcesses).mockResolvedValue(mockProcessesResponse);
+
+    const router = makeRouter();
+    const wrapper = mount(DebugView, {
+      global: {
+        plugins: [createPinia(), router],
+      },
+    });
+    await flushPromises();
+
+    // State tab: loaded successfully
+    expect(visibleTabContentText(wrapper)).toContain('Runtime State');
+    expect(visibleTabContentText(wrapper)).not.toContain('Doctor failed');
+
+    // Processes tab: loaded successfully
+    await clickTab(wrapper, 'Processes');
+    const processesText = visibleTabContentText(wrapper);
+    expect(processesText).toContain('proc-int-1');
+    expect(processesText).not.toContain('Doctor failed');
+
+    // Supervision tab: doctor section shows error, supervision section shows data
+    await clickTab(wrapper, 'Supervision');
+    const supervisionText = visibleTabContentText(wrapper);
+    expect(supervisionText).toContain('Failed to fetch doctor diagnostics');
+    expect(supervisionText).toContain('Content Supervision');
+    // Doctor error should NOT leak into State tab when switching back
+    await clickTab(wrapper, 'State');
+    expect(visibleTabContentText(wrapper)).toContain('Runtime State');
+    expect(visibleTabContentText(wrapper)).not.toContain('Failed to fetch doctor diagnostics');
   });
 
   // ── Edge cases ──────────────────────────────────────────────
