@@ -87,7 +87,7 @@ function selectSession(id: string): void { selectedSessionId.value = id; }
 
 watch(() => route.params.id, (nid) => {
   if (nid && typeof nid === 'string') selectedSessionId.value = nid;
-});
+}, { immediate: true });
 
 onMounted(() => {
   agentStore.setupWsListener();
