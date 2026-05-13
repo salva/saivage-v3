@@ -307,6 +307,56 @@ export interface QuarantineItem {
   created_at: string;
 }
 
+// ── Doctor Diagnostics (API response types) ──────────────────
+
+/** A single doctor diagnostic check result. */
+export interface DoctorCheck {
+  name: string;
+  passed: boolean;
+  details?: string;
+}
+
+/** A single issue found by the doctor. */
+export interface DoctorIssue {
+  severity: 'error' | 'warning';
+  message: string;
+}
+
+/** Response shape for GET /api/debug/doctor. */
+export interface DoctorResponse {
+  status: 'ok' | 'issues_found';
+  checks: DoctorCheck[];
+  issues: DoctorIssue[];
+}
+
+// ── Supervision API Response Types ───────────────────────────
+
+/** Public summary entry for a quarantined item (internal fields like stored_path excluded). */
+export interface QuarantineSummaryEntry {
+  quarantine_id: string;
+  review_id: string;
+  source_ref: string;
+  risk: RiskLevel;
+  created_at: string;
+}
+
+/** Aggregated supervision statistics. */
+export interface SupervisionStats {
+  total: number;
+  blocked: number;
+  passed: number;
+  sanitized: number;
+  byRisk: Record<string, number>;
+  bySourceKind: Record<string, number>;
+}
+
+/** Response shape for GET /api/debug/supervision. */
+export interface SupervisionResponse {
+  reviews: ContentReview[];
+  quarantine: QuarantineSummaryEntry[];
+  stats: SupervisionStats;
+}
+
 // ── Skills ───────────────────────────────────────────────────
 
 export type TriggerType = 'keyword' | 'tool' | 'path' | 'tag';

@@ -314,6 +314,15 @@ export interface DebugTimelineEvent {
 }
 
 // ── Doctor & Supervision ─────────────────────────────────────
+//
+// These types mirror the shared schema definitions in src/schemas/types.ts:
+//   DoctorCheck, DoctorIssue, DoctorResponse,
+//   SourceKind, ReviewStatus, RiskLevel, ContentReview,
+//   QuarantineSummaryEntry, SupervisionStats, SupervisionResponse.
+//
+// The web frontend is a separate compilation unit (Vite / bundler) and
+// cannot directly import from the server-side src/schemas/.  Keep these
+// definitions aligned with the shared schema to prevent contract drift.
 
 export interface DoctorCheck {
   name: string;
@@ -444,7 +453,6 @@ export interface ChatResponse {
 export type WsConnectionState = 'connected' | 'connecting' | 'offline' | 'unauthorized';
 
 export type WsEventType = 'message' | 'activity' | 'thinking' | 'status' | 'error';
-
 export interface WsEnvelope {
   type: WsEventType;
   content: Record<string, unknown>;

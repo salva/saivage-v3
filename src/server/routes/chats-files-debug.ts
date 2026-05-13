@@ -10,6 +10,11 @@ import {
   listRecentReviews,
   listQuarantineIndex,
 } from '../../utils/quarantine.js';
+import type {
+  DoctorCheck,
+  DoctorIssue,
+  DoctorResponse,
+} from '../../schemas/types.js';
 
 // ── Constants ─────────────────────────────────────────────────
 
@@ -83,25 +88,6 @@ function resolveSafe(
   }
 
   return { safe: true, absolutePath: resolved };
-}
-
-// ── Doctor Types ───────────────────────────────────────────────
-
-interface DoctorCheck {
-  name: string;
-  passed: boolean;
-  details?: string;
-}
-
-interface DoctorIssue {
-  severity: 'error' | 'warning';
-  message: string;
-}
-
-interface DoctorResponse {
-  status: 'ok' | 'issues_found';
-  checks: DoctorCheck[];
-  issues: DoctorIssue[];
 }
 
 // ── Route Registration ────────────────────────────────────────
