@@ -19,6 +19,7 @@
     "web:test:store:runtime": "cd web && npx vitest run src/__tests__/runtime-store.test.ts",
     "web:test:store:ws": "cd web && npx vitest run src/__tests__/ws-store.test.ts",
     "web:test:store:cards": "cd web && npx vitest run src/__tests__/card-store.test.ts",
+    "web:test:store:card-burst": "cd web && npx vitest run src/__tests__/card-store-burst.test.ts",
     "web:test:store:agents": "cd web && npx vitest run src/__tests__/agents-store.test.ts",
     "web:test:store:files": "cd web && npx vitest run src/__tests__/files-store.test.ts",
     "web:test:store:mcp": "cd web && npx vitest run src/__tests__/mcp-store.test.ts",
