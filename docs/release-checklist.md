@@ -85,23 +85,17 @@ A step-by-step checklist for preparing a release candidate.
 
 ## Build and Packaging
 
-- [ ] **TypeScript compilation succeeds**
+- [ ] **Root build succeeds**
   ```bash
-  npx tsc
+  npm run build
   ```
-  Check that `dist/` directory is populated with compiled JS files.
-
-- [ ] **Web UI builds** (if including web frontend)
-  ```bash
-  cd web && npm run build && cd ..
-  ```
-  Check that `web/dist/` directory exists with `index.html` and assets.
+  Check that `dist/`, `docs/.vitepress/dist/`, and `web/dist/` are populated.
 
 - [ ] **No stale state in the repository**
   ```bash
   git status
   ```
-  Ensure `.saivage/` and `.saivage-work/` are in `.gitignore` and not committed. No `dist/` files should be committed (handled by `.gitignore`).
+  Ensure `.saivage/` and `.saivage-work/` are in `.gitignore` and not committed. No generated build output should be committed unless explicitly intended.
 
 - [ ] **Package dependencies are clean**
   ```bash
@@ -125,9 +119,9 @@ Perform this on a fresh clone to simulate a new user's experience:
   ```
   Must complete without errors.
 
-- [ ] **TypeScript compiles**
+- [ ] **Root build succeeds**
   ```bash
-  npx tsc
+  npm run build
   ```
 
 - [ ] **Create minimal config**
@@ -135,14 +129,18 @@ Perform this on a fresh clone to simulate a new user's experience:
   mkdir -p .saivage
   cat > .saivage/saivage.json << 'EOF'
   {
-    "server": { "host": "0.0.0.0", "port": 8080 }
+    "server": { "host": "0.0.0.0", "port": 8080 },
+    "models": { "default": ["test-model"] },
+    "providers": {
+      "test": { "models": ["test-model"], "priority": 10, "apiKey": "${TEST_API_KEY}" }
+    }
   }
   EOF
   ```
 
 - [ ] **Server starts and responds**
   ```bash
-  SAIVAGE_API_TOKEN=test node dist/src/server/server.js &
+  TEST_API_KEY=dummy SAIVAGE_API_TOKEN=test ./bin/saivage.js start &
   sleep 2
   curl http://localhost:8080/health
   ```
@@ -171,6 +169,12 @@ Perform this on a fresh clone to simulate a new user's experience:
   ```bash
   curl http://localhost:8080/
   # → HTML of index.html
+  ```
+
+- [ ] **Docs serve** (if built)
+  ```bash
+  curl http://localhost:8080/docs/
+  # → HTML of VitePress docs
   ```
 
 - [ ] **Clean up test instance**

@@ -33,7 +33,7 @@ npm install
 
 > **⚠ IMPORTANT — NODE_ENV gotcha**: npm's default behaviour is to skip
 > `devDependencies` when `NODE_ENV` is set to `production` in your shell
-> environment.  If your install is missing `jest`, `typescript`,
+> environment. If your install is missing `jest`, `typescript`,
 > `pino-pretty`, or other dev tools, check your environment first:
 >
 > ```bash
@@ -48,34 +48,23 @@ npm install
 > NODE_ENV=development npm install
 > ```
 
-### 3. Build the Web UI (optional)
+### 3. Build the project artifacts
 
-If you want the Web Control Room (Vue SPA served by the same process):
+Build the compiled server, VitePress docs, and Web UI from the repo root:
 
 ```bash
-cd web
-npm install
 npm run build
-cd ..
 ```
 
-After building, the `web/dist/` directory will exist and the server will automatically serve it as a single-page application at `/`.
+This produces:
 
-If you skip the web UI build, the API server still works fine — you can interact with it entirely via `curl` or any HTTP client.
+- `dist/` — compiled TypeScript runtime and CLI
+- `docs/.vitepress/dist/` — built operator docs served at `/docs/`
+- `web/dist/` — built Web Control Room SPA served at `/`
 
-### 4. Compile TypeScript
+If you only need the server/runtime JS during development, `npx tsc` still works as a narrower compile step, but `npm run build` is the canonical release-candidate build path.
 
-Saivage v3 is written in TypeScript (ES modules, NodeNext resolution). Compile with:
-
-```bash
-npx tsc
-```
-
-This writes compiled JavaScript to `dist/`. The main server entry point is `dist/src/server/server.js`.
-
-There is no `npm run build` script in the root package — `npx tsc` is the canonical build command.
-
-### 5. Configure the environment
+### 4. Configure the environment
 
 #### Required
 
@@ -95,7 +84,7 @@ export LOG_LEVEL="debug"
 export NODE_ENV="development"
 ```
 
-### 6. Create the project configuration
+### 5. Create the project configuration
 
 Create `.saivage/saivage.json` in the project root. At minimum, this file must contain model and provider configuration so agents can invoke LLMs.
 
@@ -127,15 +116,27 @@ See **[CONFIGURATION.md](configuration.md)** for the full config reference with 
 
 > **Secret handling**: Fields named `apiKey`, `apiToken`, `botToken`, etc. can use `${ENV_VAR}` syntax to reference environment variables instead of hardcoding secrets. The API server redacts literal secrets in `.saivage/saivage.json` when serving config through `/api/config`.
 
-### 7. Start the server
+### 6. Start the server
+
+Use the CLI entrypoint:
 
 ```bash
-SAIVAGE_API_TOKEN=test node dist/src/server/server.js
+SAIVAGE_API_TOKEN=test ./bin/saivage.js start
 ```
 
-The server listens on the configured host and port (default `0.0.0.0:8080`).
+Or, after installing/linking the package bin:
 
-### 8. Verify it's working
+```bash
+SAIVAGE_API_TOKEN=test saivage start
+```
+
+The server listens on the configured host and port (default `0.0.0.0:8080`). Add `--create-runtime` if you also want to start the active runtime dispatch loop:
+
+```bash
+SAIVAGE_API_TOKEN=test ./bin/saivage.js start --create-runtime
+```
+
+### 7. Verify it's working
 
 ```bash
 curl http://localhost:8080/health
@@ -152,17 +153,17 @@ Expected response:
 }
 ```
 
-The `runtime` field reflects the actual runtime state read from `.saivage/runtime/state.json`. It will show `idle` on a fresh project start.
+The `runtime` field reflects the actual runtime state read from `.saivage/runtime/state.json`. It will show `idle` or `unknown` on a fresh project start depending on whether the runtime state has been initialized yet.
 
 ## First Run
 
 On first startup:
 
-1. The server creates `.saivage/runtime/state.json` with default idle state.
-2. The runtime lock file is created at `.saivage-work/tmp/runtime/runtime.lock`.
-3. The card store initializes empty (no cards exist yet).
-4. If `mcpServers` with `autostart: true` are configured, the MCP manager starts those servers.
-5. If a Telegram bot token is configured, the bot starts polling.
+1. The server reads `.saivage/saivage.json` for configuration.
+2. If the runtime dispatch loop is started, it creates or updates `.saivage/runtime/state.json`.
+3. If `mcpServers` with `autostart: true` are configured, the MCP manager starts those servers.
+4. If a Telegram bot token is configured, the bot starts polling.
+5. If built artifacts exist, the server serves the Web Control Room at `/` and docs at `/docs/`.
 
 ## Development Mode
 
@@ -173,7 +174,7 @@ For development with automatic rebuild on changes, you can use `tsc --watch`:
 npx tsc --watch
 
 # Terminal 2: run server (restart manually when you want to pick up changes)
-SAIVAGE_API_TOKEN=test node dist/src/server/server.js
+SAIVAGE_API_TOKEN=test ./bin/saivage.js start
 ```
 
 ## Next Steps
