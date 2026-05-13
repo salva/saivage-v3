@@ -136,9 +136,18 @@ export const useWsStore = defineStore('ws', () => {
 
   // ── Send Message ───────────────────────────────────────────
 
+  /**
+   * Send a chat message via the WebSocket connection.
+   *
+   * Only sends when the connection manager has been initialized
+   * (via connect()) and the underlying WebSocket is open.  If
+   * called before connect(), the message is silently dropped
+   * with a warning — callers should guard with isConnected().
+   */
   function sendMessage(text: string): void {
     if (!conn) {
-      conn = getWsConnection();
+      log.warn('sendMessage called before connect(); message dropped');
+      return;
     }
     conn.sendMessage(text);
   }
