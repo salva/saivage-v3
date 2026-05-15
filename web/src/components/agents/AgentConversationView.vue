@@ -18,9 +18,12 @@
         </div>
       </div>
 
+      <div v-if="conversationWarning" class="conv-warning">
+        {{ conversationWarning }}
+      </div>
+
       <div class="conv-messages">
         <div v-for="(step, idx) in steps" :key="idx" class="conv-step">
-          <!-- Text / reasoning message -->
           <div
             v-if="step.reasoning"
             class="conv-message"
@@ -32,11 +35,19 @@
             </div>
             <div class="msg-content" v-html="renderContent(step.reasoning)"></div>
             <div v-if="step.reasoning.links?.length" class="msg-links">
-              <span v-for="link in step.reasoning.links" :key="link.entity_id" class="msg-link">{{ link.label || link.entity_id }}</span>
+              <button
+                v-for="link in step.reasoning.links"
+                :key="`${link.entity_type}:${link.entity_id}`"
+                type="button"
+                class="msg-link"
+                :class="`msg-link-${link.entity_type}`"
+                @click="navigateToLink(link)"
+              >
+                {{ linkLabel(link) }}
+              </button>
             </div>
           </div>
 
-          <!-- Tool call -->
           <div
             v-if="step.toolCall"
             class="conv-message tool-call"
@@ -50,7 +61,6 @@
             <pre v-if="expandedToolCalls.has(step.toolCall.id)" class="tc-body">{{ step.toolCall.content }}</pre>
           </div>
 
-          <!-- Tool result -->
           <div
             v-if="step.toolResult"
             class="conv-message tool-result"
@@ -71,17 +81,19 @@
 
 <script setup lang="ts">
 import { computed, watch, onMounted } from 'vue';
+import { useRouter } from 'vue-router';
 import { storeToRefs } from 'pinia';
 import { useAgentStore } from '../../stores/agents';
-import type { AgentMessage } from '../../api/types';
+import type { AgentMessage, EntityLink } from '../../api/types';
 import { createLogger } from '../../utils/logger';
 
 const log = createLogger('comp:agent-conv');
 
 const props = defineProps<{ sessionId: string }>();
 
+const router = useRouter();
 const agentStore = useAgentStore();
-const { currentSession, messages, steps, expandedToolCalls, loading, error } = storeToRefs(agentStore);
+const { currentSession, steps, expandedToolCalls, loading, error, conversationWarning } = storeToRefs(agentStore);
 const errorMsg = computed(() => error.value);
 
 function fmtTime(ts: string): string {
@@ -105,6 +117,31 @@ function renderContent(msg: AgentMessage): string {
   return esc(msg.content);
 }
 
+function linkLabel(link: EntityLink): string {
+  return link.label || `${link.entity_type}: ${link.entity_id}`;
+}
+
+function navigateToLink(link: EntityLink): void {
+  if (link.entity_type === 'card') {
+    router.push({ name: 'card-detail', params: { id: link.entity_id } });
+    return;
+  }
+
+  if (link.entity_type === 'process') {
+    router.push({ name: 'debug', query: { tab: 'processes', process: link.entity_id } });
+    return;
+  }
+
+  if (link.entity_type === 'artifact' || link.entity_type === 'attachment') {
+    router.push({ name: 'files', query: { path: link.entity_id } });
+    return;
+  }
+
+  if (link.entity_type === 'quarantine') {
+    router.push({ name: 'files', query: { path: link.entity_id } });
+  }
+}
+
 onMounted(async () => {
   try { await agentStore.fetchConversation(props.sessionId); } catch (err) { log.error('fetch', err); }
 });
@@ -117,6 +154,7 @@ watch(() => props.sessionId, async (nid) => {
 .conversation-container { flex:1; display:flex; flex-direction:column; overflow:hidden; }
 .conv-loading,.conv-error,.conv-empty { padding:32px; text-align:center; color:#8b949e; font-size:13px; }
 .conv-error { color:#f85149; }
+.conv-warning { margin: 12px 16px 0; padding: 10px 12px; border: 1px solid #9e6a03; background: #241f18; color: #d29922; border-radius: 6px; font-size: 12px; }
 .conv-header { display:flex; align-items:center; justify-content:space-between; padding:8px 16px; background:#161b22; border-bottom:1px solid #30363d; flex-shrink:0; }
 .conv-info { display:flex; align-items:center; gap:8px; }
 .conv-role { font-size:12px; font-weight:600; color:#f0f6fc; text-transform:capitalize; }
@@ -143,8 +181,9 @@ watch(() => props.sessionId, async (nid) => {
 .msg-content :deep(.code-block) { background:#0d1117; border:1px solid #30363d; border-radius:4px; padding:10px 12px; margin:8px 0; overflow-x:auto; font-size:12px; font-family:'SF Mono',monospace; }
 .msg-content :deep(.inline-code) { background:#21262d; padding:1px 5px; border-radius:3px; font-size:12px; font-family:'SF Mono',monospace; color:#d2a8ff; }
 .msg-content :deep(strong) { color:#f0f6fc; }
-.msg-links { display:flex; gap:4px; margin-top:6px; }
-.msg-link { font-size:11px; padding:2px 6px; background:#1c2738; color:#58a6ff; border-radius:4px; }
+.msg-links { display:flex; gap:4px; margin-top:6px; flex-wrap: wrap; }
+.msg-link { font-size:11px; padding:2px 6px; background:#1c2738; color:#58a6ff; border-radius:4px; border: 1px solid #30363d; cursor: pointer; }
+.msg-link:hover { filter: brightness(1.15); }
 .tool-call,.tool-result { padding:0; overflow:hidden; border:1px solid #21262d; border-radius:6px; }
 .tc-header,.tr-header { display:flex; align-items:center; gap:8px; padding:8px 12px; cursor:pointer; user-select:none; transition:background .1s; }
 .tc-header:hover,.tr-header:hover { background:#21262d; }

@@ -1,8 +1,19 @@
 <template>
   <div class="files-layout">
-    <!-- Dual-pane layout -->
+    <div v-if="isStale || unauthorized" class="files-global-banner" :class="unauthorized ? 'banner-error' : 'banner-warning'">
+      <template v-if="unauthorized">
+        API access is unauthorized. Re-enter a valid token to browse files; public docs at /docs/ remain available.
+      </template>
+      <template v-else>
+        File listings may be stale. Refresh either pane to resync with the authoritative REST snapshot.
+      </template>
+    </div>
+
+    <div v-if="listError" class="files-global-banner banner-error">
+      {{ listError }}
+    </div>
+
     <div class="files-panels">
-      <!-- Metadata browser (.saivage/) -->
       <section class="file-panel">
         <div class="panel-header">
           <h3 class="panel-title">Metadata</h3>
@@ -10,7 +21,6 @@
           <button class="panel-refresh-btn" :disabled="metaLoading" @click="fetchMetaFiles" title="Refresh">*</button>
         </div>
 
-        <!-- Breadcrumbs -->
         <div class="file-breadcrumbs">
           <span
             v-for="(crumb, idx) in metaBreadcrumbs"
@@ -23,7 +33,6 @@
           </span>
         </div>
 
-        <!-- File list -->
         <div v-if="metaLoading" class="panel-loading">Loading...</div>
         <div v-else class="file-list">
           <div
@@ -44,7 +53,6 @@
         </div>
       </section>
 
-      <!-- Output browser (.saivage-work/) -->
       <section class="file-panel">
         <div class="panel-header">
           <h3 class="panel-title">Output</h3>
@@ -52,7 +60,6 @@
           <button class="panel-refresh-btn" :disabled="outputLoading" @click="fetchOutputFiles" title="Refresh">*</button>
         </div>
 
-        <!-- Breadcrumbs -->
         <div class="file-breadcrumbs">
           <span
             v-for="(crumb, idx) in outputBreadcrumbs"
@@ -65,7 +72,6 @@
           </span>
         </div>
 
-        <!-- File list -->
         <div v-if="outputLoading" class="panel-loading">Loading...</div>
         <div v-else class="file-list">
           <div
@@ -85,7 +91,6 @@
           <div v-if="outputFiles.length === 0 && !outputLoading" class="panel-empty">No files</div>
         </div>
 
-        <!-- Quarantine shortcut -->
         <div class="quarantine-footer">
           <div class="quarantine-footer-label">Quarantine</div>
           <button
@@ -96,19 +101,19 @@
       </section>
     </div>
 
-    <!-- File content viewer -->
     <div v-if="viewedFilePath" class="file-viewer">
       <div class="viewer-header">
         <span class="viewer-path">{{ viewedFilePath }}</span>
         <button class="viewer-close-btn" @click="fileStore.clearViewedFile()">X</button>
       </div>
       <div v-if="contentLoading" class="viewer-loading">Loading...</div>
+      <div v-else-if="viewerState !== 'ready'" class="viewer-state" :class="viewerStateClass">
+        <strong>{{ viewerStateTitle }}</strong>
+        <span>{{ viewerStateMessage }}</span>
+      </div>
       <div v-else-if="viewedFile" class="viewer-content">
-        <!-- JSON content -->
         <pre v-if="isJsonContent" class="json-view">{{ fmtJson(viewedFile.content) }}</pre>
-        <!-- Markdown content -->
         <div v-else-if="isMarkdownContent" class="md-view" v-html="renderMarkdown(viewedFile.content)"></div>
-        <!-- Plain content -->
         <pre v-else class="plain-view">{{ viewedFile.content }}</pre>
       </div>
     </div>
@@ -116,7 +121,7 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, watch } from 'vue';
+import { onMounted, watch, computed } from 'vue';
 import { useRoute } from 'vue-router';
 import { storeToRefs } from 'pinia';
 import { useFileStore } from '../stores/files';
@@ -131,8 +136,40 @@ const {
   outputFiles, outputLoading, outputBreadcrumbs,
   viewedFile, viewedFilePath, contentLoading,
   isJsonContent, isMarkdownContent,
-  error,
+  listError, viewerError, viewerState,
+  isStale, unauthorized,
 } = storeToRefs(fileStore);
+
+const viewerStateTitle = computed(() => {
+  switch (viewerState.value) {
+    case 'blocked': return 'Preview blocked';
+    case 'missing': return 'File not found';
+    case 'binary': return 'Binary preview unavailable';
+    case 'too-large': return 'Preview too large';
+    case 'directory': return 'Directory selected';
+    case 'error': return 'Preview failed';
+    default: return 'Preview unavailable';
+  }
+});
+
+const viewerStateMessage = computed(() => {
+  if (viewerError.value) return viewerError.value;
+  switch (viewerState.value) {
+    case 'blocked': return 'This file cannot be previewed safely through the control room.';
+    case 'missing': return 'The selected file is no longer available at this path.';
+    case 'binary': return 'Download or inspect this artifact through a supported non-text workflow.';
+    case 'too-large': return 'The file is too large for inline preview; narrow the workflow or inspect logs/artifacts elsewhere.';
+    case 'directory': return 'Select a file instead of a directory to open an inline preview.';
+    case 'error': return 'The server could not load this file preview.';
+    default: return 'No preview is available for this selection.';
+  }
+});
+
+const viewerStateClass = computed(() => {
+  return viewerState.value === 'blocked' || viewerState.value === 'error' || viewerState.value === 'missing'
+    ? 'viewer-state-error'
+    : 'viewer-state-warning';
+});
 
 function fileIcon(name: string): string {
   const ext = name.split('.').pop()?.toLowerCase();
@@ -175,19 +212,13 @@ function renderMarkdown(text: string): string {
 }
 
 async function fetchMetaFiles(): Promise<void> {
-  try { await fileStore.fetchMetaFiles(); } catch { /* error in store */ }
+  try { await fileStore.fetchMetaFiles(); } catch { }
 }
 
 async function fetchOutputFiles(): Promise<void> {
-  try { await fileStore.fetchOutputFiles(); } catch { /* error in store */ }
+  try { await fileStore.fetchOutputFiles(); } catch { }
 }
 
-/**
- * If the route carries a `?path=` query param that points inside
- * .saivage-work/, navigate the output panel there.  This enables the
- * DebugView "Browse in Files" button to open a specific quarantine
- * directory without cross-view coupling beyond the route query.
- */
 function applyQueryPath(): void {
   const p = route.query.path;
   if (typeof p === 'string' && p.startsWith('.saivage-work/')) {
@@ -197,6 +228,7 @@ function applyQueryPath(): void {
 }
 
 onMounted(() => {
+  fileStore.setupWsListener();
   fetchMetaFiles();
   fetchOutputFiles();
   applyQueryPath();
@@ -209,6 +241,9 @@ watch(() => route.query.path, () => {
 
 <style scoped>
 .files-layout { height:100%; display:flex; flex-direction:column; overflow:hidden; }
+.files-global-banner { margin: 12px 12px 0; padding: 10px 12px; border-radius: 6px; font-size: 12px; }
+.banner-warning { background:#241f18; border:1px solid #9e6a03; color:#d29922; }
+.banner-error { background:#241818; border:1px solid #da3633; color:#f85149; }
 .files-panels { flex:1; display:flex; overflow:hidden; }
 .file-panel { flex:1; display:flex; flex-direction:column; border-right:1px solid #30363d; overflow:hidden; }
 .file-panel:last-child { border-right:none; }
@@ -229,17 +264,19 @@ watch(() => route.query.path, () => {
 .file-entry { display:flex; align-items:center; gap:8px; padding:6px 12px; cursor:pointer; transition:background .1s; border-bottom:1px solid #21262d; }
 .file-entry:hover { background:#161b22; }
 .file-entry.is-dir .entry-name { color:#58a6ff; font-weight:500; }
-.entry-icon { font-size:13px; width:22px; text-align:center; flex-shrink:0; font-family:'SF Mono',monospace; color:#8b949e; font-size:10px; }
+.entry-icon { width:22px; text-align:center; flex-shrink:0; font-family:'SF Mono',monospace; color:#8b949e; font-size:10px; }
 .entry-name { font-size:12px; color:#c9d1d9; flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .entry-size { font-size:10px; color:#484f58; font-family:'SF Mono',monospace; }
 .entry-modified { font-size:10px; color:#484f58; }
-/* Viewer */
 .file-viewer { border-top:1px solid #30363d; max-height:40%; overflow:hidden; display:flex; flex-direction:column; }
 .viewer-header { display:flex; align-items:center; justify-content:space-between; padding:6px 12px; background:#161b22; border-bottom:1px solid #30363d; flex-shrink:0; }
 .viewer-path { font-size:11px; color:#58a6ff; font-family:'SF Mono',monospace; }
 .viewer-close-btn { background:none; border:1px solid #30363d; border-radius:4px; color:#8b949e; cursor:pointer; width:24px; height:24px; font-size:14px; display:flex; align-items:center; justify-content:center; }
 .viewer-close-btn:hover { color:#f85149; border-color:#f85149; }
 .viewer-loading { padding:16px; text-align:center; color:#484f58; font-size:12px; }
+.viewer-state { padding: 16px; display:flex; flex-direction:column; gap:6px; font-size:12px; }
+.viewer-state-error { color:#f85149; background:#241818; }
+.viewer-state-warning { color:#d29922; background:#241f18; }
 .viewer-content { flex:1; overflow:auto; padding:12px; }
 .json-view { margin:0; padding:12px; background:#0d1117; border:1px solid #21262d; border-radius:4px; font-size:12px; font-family:'SF Mono',monospace; line-height:1.5; white-space:pre-wrap; word-break:break-word; color:#c9d1d9; }
 .md-view { font-size:13px; line-height:1.6; color:#c9d1d9; }
@@ -247,8 +284,6 @@ watch(() => route.query.path, () => {
 .md-view :deep(.inline-code) { background:#21262d; padding:1px 5px; border-radius:3px; font-size:12px; font-family:'SF Mono',monospace; color:#d2a8ff; }
 .md-view :deep(strong) { color:#f0f6fc; }
 .plain-view { margin:0; padding:12px; background:#0d1117; border:1px solid #21262d; border-radius:4px; font-size:12px; font-family:'SF Mono',monospace; line-height:1.5; white-space:pre-wrap; word-break:break-word; color:#c9d1d9; }
-
-/* ── Quarantine Footer ── */
 .quarantine-footer { display:flex; align-items:center; gap:8px; padding:8px 12px; background:#1a1f24; border-top:1px solid #30363d; flex-shrink:0; }
 .quarantine-footer-label { font-size:10px; font-weight:600; color:#d29922; text-transform:uppercase; letter-spacing:.05em; }
 .quarantine-footer-btn { background:none; border:1px solid #30363d; border-radius:4px; color:#8b949e; cursor:pointer; font-size:11px; font-family:'SF Mono',monospace; padding:3px 8px; transition:all .15s; }
