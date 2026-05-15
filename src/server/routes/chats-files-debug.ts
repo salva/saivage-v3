@@ -16,24 +16,21 @@ import type {
   DoctorResponse,
 } from '../../schemas/types.js';
 
-// ── Constants ─────────────────────────────────────────────────
-
-const MAX_FILE_SIZE_BYTES = 1_048_576; // 1 MB
-
-/** Safe pattern for session IDs: alphanumeric with hyphens and underscores. */
+const MAX_FILE_SIZE_BYTES = 1_048_576;
 const SAFE_SESSION_ID_RE = /^[a-zA-Z0-9_-]+$/;
+const BINARY_SAMPLE_BYTES = 4096;
 
-// ── Analyst handler lazy singleton ─────────────────────────────
+const analystHandlersByRoot = new Map<string, AnalystHandler>();
 
-let _analystHandler: AnalystHandler | null = null;
 function getAnalystHandler(projectRoot: string): AnalystHandler {
-  if (!_analystHandler) {
-    _analystHandler = new AnalystHandler(projectRoot);
+  const root = resolve(projectRoot);
+  let handler = analystHandlersByRoot.get(root);
+  if (!handler) {
+    handler = new AnalystHandler(root);
+    analystHandlersByRoot.set(root, handler);
   }
-  return _analystHandler;
+  return handler;
 }
-
-// ── Helpers ───────────────────────────────────────────────────
 
 function resolveSafe(
   projectRoot: string,
@@ -53,9 +50,9 @@ function resolveSafe(
 
   const resolvedRoot = resolve(projectRoot);
   const normalized = requestedPath.startsWith('/') ? requestedPath : join(projectRoot, requestedPath);
-  const resolved = resolve(normalized);
+  const resolvedPath = resolve(normalized);
 
-  if (!resolved.startsWith(resolvedRoot + '/') && resolved !== resolvedRoot) {
+  if (!resolvedPath.startsWith(resolvedRoot + '/') && resolvedPath !== resolvedRoot) {
     return {
       safe: false,
       absolutePath: '',
@@ -63,12 +60,9 @@ function resolveSafe(
     };
   }
 
-  // If the path exists on disk, resolve symlinks for true containment check.
-  // If it doesn't exist yet, we trust the naive containment check — the caller
-  // will handle the "not found" case with the appropriate status code.
-  if (existsSync(resolved)) {
+  if (existsSync(resolvedPath)) {
     try {
-      const realPath = realpathSync(resolved);
+      const realPath = realpathSync(resolvedPath);
       const realRoot = realpathSync(resolvedRoot);
       if (!realPath.startsWith(realRoot + '/') && realPath !== realRoot) {
         return {
@@ -87,10 +81,29 @@ function resolveSafe(
     }
   }
 
-  return { safe: true, absolutePath: resolved };
+  return { safe: true, absolutePath: resolvedPath };
 }
 
-// ── Route Registration ────────────────────────────────────────
+function isBinaryBuffer(buffer: Buffer): boolean {
+  const length = Math.min(buffer.length, BINARY_SAMPLE_BYTES);
+  if (length === 0) {
+    return false;
+  }
+
+  let suspicious = 0;
+  for (let i = 0; i < length; i++) {
+    const byte = buffer[i];
+    if (byte === 0) {
+      return true;
+    }
+    const isPrintable = byte === 9 || byte === 10 || byte === 13 || (byte >= 32 && byte <= 126);
+    if (!isPrintable) {
+      suspicious += 1;
+    }
+  }
+
+  return suspicious / length > 0.3;
+}
 
 export function registerChatsFilesDebugRoutes(
   fastify: FastifyInstance,
@@ -98,11 +111,6 @@ export function registerChatsFilesDebugRoutes(
 ): void {
   const store = new CardStore(projectRoot);
   const saivageDir = join(projectRoot, '.saivage');
-  const saivageWorkDir = join(projectRoot, '.saivage-work');
-
-  // ═══════════════════════════════════════════════════════════
-  // Chat endpoints
-  // ═══════════════════════════════════════════════════════════
 
   fastify.get('/api/chats', async (_request: FastifyRequest, reply: FastifyReply) => {
     try {
@@ -114,6 +122,9 @@ export function registerChatsFilesDebugRoutes(
         for (const file of files) {
           try {
             const data = JSON.parse(readFileSync(join(sessionsDir, file), 'utf-8'));
+            if ((data.role || 'analyst') !== 'analyst') {
+              continue;
+            }
             sessions.push({
               id: data.id || file.replace('.json', ''),
               role: data.role || 'analyst',
@@ -121,7 +132,6 @@ export function registerChatsFilesDebugRoutes(
               started_at: data.started_at || '',
             });
           } catch {
-            // Skip unparseable files
           }
         }
       }
@@ -140,7 +150,6 @@ export function registerChatsFilesDebugRoutes(
       const params = request.params as { sessionId: string };
       const sessionId = params.sessionId;
 
-      // Validate sessionId against safe pattern to prevent path traversal
       if (!SAFE_SESSION_ID_RE.test(sessionId)) {
         return reply.status(400).send({ error: 'Invalid session ID format.', sessionId });
       }
@@ -156,7 +165,6 @@ export function registerChatsFilesDebugRoutes(
             try {
               messages.push(JSON.parse(line));
             } catch {
-              // Skip
             }
           }
         }
@@ -177,7 +185,6 @@ export function registerChatsFilesDebugRoutes(
       const sessionId = params.sessionId;
       const body = request.body as { content?: string };
 
-      // Validate sessionId against safe pattern
       if (!SAFE_SESSION_ID_RE.test(sessionId)) {
         return reply.status(400).send({ error: 'Invalid session ID format.', sessionId });
       }
@@ -186,7 +193,6 @@ export function registerChatsFilesDebugRoutes(
         return reply.status(400).send({ error: 'Message content is required' });
       }
 
-      // Route through analyst handler
       const handler = getAnalystHandler(projectRoot);
       const response = await handler.handleMessage(sessionId, body.content);
 
@@ -202,10 +208,6 @@ export function registerChatsFilesDebugRoutes(
       });
     }
   });
-
-  // ═══════════════════════════════════════════════════════════
-  // Files endpoints
-  // ═══════════════════════════════════════════════════════════
 
   fastify.get('/api/files', async (request: FastifyRequest, reply: FastifyReply) => {
     try {
@@ -281,10 +283,15 @@ export function registerChatsFilesDebugRoutes(
         });
       }
 
-      const rawContent = readFileSync(absolutePath, 'utf-8');
+      const rawBuffer = readFileSync(absolutePath);
+      if (isBinaryBuffer(rawBuffer)) {
+        return reply.status(415).send({
+          error: 'Binary or non-text file cannot be previewed.',
+          path: requestedPath,
+        });
+      }
 
-      // Apply file-access-security: blocks read-blocked files (auth-profiles.json)
-      // and redacts secrets in sensitive files (saivage.json).
+      const rawContent = rawBuffer.toString('utf-8');
       const relPath = relative(projectRoot, absolutePath);
       const safeResult = getSafeFileForAgent(relPath, rawContent);
 
@@ -309,15 +316,9 @@ export function registerChatsFilesDebugRoutes(
     }
   });
 
-  // ═══════════════════════════════════════════════════════════
-  // Debug endpoints
-  // ═══════════════════════════════════════════════════════════
-
   fastify.get('/api/debug/state', async (_request: FastifyRequest, reply: FastifyReply) => {
     try {
       const state = readRuntimeState(projectRoot);
-
-      // If runtime is frozen, inject the freeze reason from the manifest
       if (state && state.status === 'frozen') {
         const manifest = readFreezeManifest(projectRoot);
         if (manifest) {
@@ -336,10 +337,6 @@ export function registerChatsFilesDebugRoutes(
         depends_on: c.depends_on,
         blocks: c.blocks,
       }));
-
-      // NOTE: Debug state intentionally does NOT include raw config
-      // (saivage.json), which may contain secrets. The runtime state and
-      // card index are metadata-only and safe to expose.
 
       return reply.send({
         runtime: state,
@@ -365,7 +362,6 @@ export function registerChatsFilesDebugRoutes(
           try {
             errors.push(JSON.parse(line));
           } catch {
-            // skip
           }
         }
       }
@@ -390,7 +386,6 @@ export function registerChatsFilesDebugRoutes(
           try {
             events.push(JSON.parse(line));
           } catch {
-            // skip
           }
         }
       }
@@ -404,10 +399,6 @@ export function registerChatsFilesDebugRoutes(
     }
   });
 
-  // ═══════════════════════════════════════════════════════════
-  // Doctor endpoint — card/index consistency checks
-  // ═══════════════════════════════════════════════════════════
-
   fastify.get('/api/debug/doctor', async (_request: FastifyRequest, reply: FastifyReply) => {
     try {
       const indexPath = join(projectRoot, '.saivage', 'cards', 'index.json');
@@ -417,7 +408,6 @@ export function registerChatsFilesDebugRoutes(
       const checks: DoctorCheck[] = [];
       const issues: DoctorIssue[] = [];
 
-      // Load index if it exists
       let indexCards: Record<string, { id: string; parent: string | null }> = {};
       let indexExists = false;
       if (existsSync(indexPath)) {
@@ -435,7 +425,6 @@ export function registerChatsFilesDebugRoutes(
             severity: 'error',
             message: 'Index file (.saivage/cards/index.json) is not valid JSON.',
           });
-          // Can't continue with other checks without a valid index
           return reply.send({
             status: 'issues_found',
             checks,
@@ -444,7 +433,6 @@ export function registerChatsFilesDebugRoutes(
         }
       }
 
-      // Discover card files on disk
       let diskCardIds: Set<string> = new Set();
       let byIdExists = false;
       if (existsSync(byIdDir)) {
@@ -453,11 +441,8 @@ export function registerChatsFilesDebugRoutes(
           const files = readdirSync(byIdDir).filter((f: string) => f.endsWith('.json'));
           diskCardIds = new Set(files.map((f: string) => f.replace('.json', '')));
         } catch {
-          // If we can't read the directory, treat as empty
         }
       }
-
-      // ── Check 1: index_entries_have_card_files ──────────────
 
       const indexIds = Object.keys(indexCards);
       const missingCardFiles: string[] = [];
@@ -495,8 +480,6 @@ export function registerChatsFilesDebugRoutes(
         });
       }
 
-      // ── Check 2: card_files_have_index_entries ──────────────
-
       const missingIndexEntries: string[] = [];
 
       for (const id of diskCardIds) {
@@ -531,13 +514,9 @@ export function registerChatsFilesDebugRoutes(
         });
       }
 
-      // ── Check 3: child_parent_consistency ────────────────────
-
       let childParentOk = true;
       const childParentIssues: string[] = [];
 
-      // For every card that has children in the tree directory, verify
-      // each child's parent field points back to the parent card.
       if (existsSync(treeDir)) {
         try {
           const treeFiles = readdirSync(treeDir).filter(
@@ -567,7 +546,6 @@ export function registerChatsFilesDebugRoutes(
               const childCardPath = join(byIdDir, `${childId}.json`);
 
               if (!existsSync(childCardPath)) {
-                // Already caught by check 1 — don't double-report but note the inconsistency
                 childParentOk = false;
                 childParentIssues.push(
                   `Child '${childId}' listed in tree/${treeFile} has no card file.`,
@@ -604,8 +582,6 @@ export function registerChatsFilesDebugRoutes(
             }
           }
 
-          // Also check: for every card that has a parent in its card file,
-          // verify that it appears in the parent's children list
           for (const id of Object.keys(indexCards)) {
             const cardFilePath = join(byIdDir, `${id}.json`);
             if (!existsSync(cardFilePath)) continue;
@@ -628,15 +604,10 @@ export function registerChatsFilesDebugRoutes(
                       });
                     }
                   } catch {
-                    // Already reported above
                   }
                 }
-                // If parent tree file doesn't exist, that's a problem too
-                // but the card might have been created without write to tree
-                // (this is an index integrity issue, not always an error)
               }
             } catch {
-              // Already caught
             }
           }
         } catch {
@@ -669,11 +640,6 @@ export function registerChatsFilesDebugRoutes(
         });
       }
 
-      // ── Check 4: no_duplicate_ids ────────────────────────────
-
-      // Index is a Record<string, ...> so JSON parse guarantees no duplicate keys.
-      // But check the by-id/ directory for duplicate .json filenames (accounting
-      // for case-sensitivity issues on different filesystems).
       let duplicateOk = true;
       const duplicateIds: string[] = [];
 
@@ -728,8 +694,6 @@ export function registerChatsFilesDebugRoutes(
         });
       }
 
-      // ── Determine overall status ─────────────────────────────
-
       const allPassed = checks.every((c) => c.passed);
 
       return reply.send({
@@ -745,38 +709,25 @@ export function registerChatsFilesDebugRoutes(
     }
   });
 
-  // ═══════════════════════════════════════════════════════════
-  // Supervision endpoint — content supervision & quarantine
-  // ═══════════════════════════════════════════════════════════
-
   fastify.get('/api/debug/supervision', async (_request: FastifyRequest, reply: FastifyReply) => {
     try {
-      // Read recent content reviews and quarantine index safely.
-      // These utilities read from .saivage/supervision/ and return
-      // typed, validated data — no raw path exposure.
       const reviews = listRecentReviews(saivageDir, 50);
       const quarantineIndex = listQuarantineIndex(saivageDir);
 
-      // Aggregate statistics for the UI summary
       const blockedCount = reviews.filter((r) => r.status === 'blocked').length;
       const passedCount = reviews.filter((r) => r.status === 'passed').length;
       const sanitizedCount = reviews.filter((r) => r.status === 'sanitized').length;
 
-      // Risk breakdown
       const byRisk: Record<string, number> = {};
       for (const r of reviews) {
         byRisk[r.risk] = (byRisk[r.risk] || 0) + 1;
       }
 
-      // Source kind breakdown
       const bySourceKind: Record<string, number> = {};
       for (const r of reviews) {
         bySourceKind[r.source_kind] = (bySourceKind[r.source_kind] || 0) + 1;
       }
 
-      // Summary does NOT include stored_path from quarantine items —
-      // that's an internal path. The UI uses the quarantine_id to
-      // navigate via /api/files against the quarantine directory.
       const quarantineSummary = quarantineIndex.map((entry) => ({
         quarantine_id: entry.quarantine_id,
         review_id: entry.review_id,

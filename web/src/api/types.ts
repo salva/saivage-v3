@@ -11,7 +11,6 @@
 export type CardType =
   | 'project'
   | 'goal'
-  | 'plan'
   | 'architecture'
   | 'code'
   | 'test'
@@ -89,6 +88,35 @@ export interface AttachmentRef {
   created_at: string;
 }
 
+export interface GeneratedFileRef {
+  path: string;
+  source: 'artifact' | 'attachment' | 'result.generated_files' | 'result.artifact_paths';
+  artifactId?: string;
+  attachmentId?: string;
+  artifactType?: ArtifactRef['type'];
+  description?: string;
+  retain?: boolean;
+  exists?: boolean;
+  size?: number;
+  modifiedAt?: string;
+}
+
+export interface VerificationCommandRef {
+  command: string;
+  process_id: string | null;
+  status: string | null;
+  exit_code: number | null;
+  timed_out: boolean | null;
+}
+
+export interface CardEvidence {
+  generatedFiles: GeneratedFileRef[];
+  verificationCommands: VerificationCommandRef[];
+  artifactPaths: string[];
+  toolErrors: string[];
+  parseFailure?: Record<string, unknown>;
+}
+
 // ── Notes ─────────────────────────────────────────────────────
 
 export type NoteAuthor = 'user' | 'analyst' | 'planner' | 'executor' | 'reviewer' | 'runtime';
@@ -113,7 +141,7 @@ export interface NoteQueueEntry {
   note?: NoteRecord;
 }
 
-// ── Plan Diary & Review ───────────────────────────────────────
+// ── Goal Diary & Review ───────────────────────────────────────
 
 export type DiaryEntryKind =
   | 'planner_invocation'
@@ -124,7 +152,7 @@ export type DiaryEntryKind =
 
 export interface DiaryEntry {
   id: string;
-  plan_card_id: string;
+  goal_card_id: string;
   invocation_id: string;
   kind: DiaryEntryKind;
   timestamp: string;
@@ -141,7 +169,6 @@ export interface DiaryEntry {
 export interface ReviewAssessment {
   id: string;
   goal_card_id: string;
-  plan_card_id: string;
   reviewer_session_id: string;
   result: 'pass' | 'fail';
   summary: string;
@@ -170,17 +197,11 @@ export interface ProcessRecord {
   stdout_path: string;
   stderr_path: string;
   combined_log_path: string;
-  /** Agent session ID that launched this process (null if launched outside an agent context) */
   agent_session_id?: string | null;
-  /** Goal ID associated with this process */
   goal_id?: string | null;
-  /** Human-readable reason this process was launched */
   launch_reason?: string | null;
-  /** Who/what owns this process: 'agent', 'operator', 'runtime', or null */
   owner_kind?: 'agent' | 'operator' | 'runtime' | null;
-  /** Background execution policy: 'foreground', 'background_required', 'background_optional', 'detach', 'kill_on_freeze', or null */
   background_policy?: 'foreground' | 'background_required' | 'background_optional' | 'detach' | 'kill_on_freeze' | null;
-  /** Numeric process group ID for grouping related processes */
   process_group_id?: number | null;
 }
 
@@ -243,7 +264,6 @@ export interface RuntimeState {
   queue: string[];
   running_processes: string[];
   updated_at: string;
-  /** Reason for freeze, set when status is 'frozen'. */
   frozen_reason?: string | null;
 }
 
@@ -307,22 +327,14 @@ export interface DebugError {
 }
 
 export interface DebugTimelineEvent {
-  type: string;
+  id?: string;
+  kind: string;
   card_id?: string;
+  goal_id?: string;
+  session_id?: string;
   timestamp: string;
-  data?: Record<string, unknown>;
+  [key: string]: unknown;
 }
-
-// ── Doctor & Supervision ─────────────────────────────────────
-//
-// These types mirror the shared schema definitions in src/schemas/types.ts:
-//   DoctorCheck, DoctorIssue, DoctorResponse,
-//   SourceKind, ReviewStatus, RiskLevel, ContentReview,
-//   QuarantineSummaryEntry, SupervisionStats, SupervisionResponse.
-//
-// The web frontend is a separate compilation unit (Vite / bundler) and
-// cannot directly import from the server-side src/schemas/.  Keep these
-// definitions aligned with the shared schema to prevent contract drift.
 
 export interface DoctorCheck {
   name: string;
@@ -381,7 +393,6 @@ export interface SupervisionResponse {
 
 // ── MCP ───────────────────────────────────────────────────────
 
-/** Invocation statistics for a single tool. */
 export interface McpToolInvocationStats {
   total: number;
   success: number;
@@ -389,7 +400,6 @@ export interface McpToolInvocationStats {
   lastInvokedAt?: string;
 }
 
-/** A tool with its invocation statistics for UI display. */
 export interface McpToolWithStats {
   name: string;
   description?: string;
@@ -401,7 +411,6 @@ export interface McpToolWithStats {
   stats: McpToolInvocationStats;
 }
 
-/** A server with its tools and stats for UI display. */
 export interface McpServerWithTools {
   name: string;
   transport: string;
@@ -410,7 +419,6 @@ export interface McpServerWithTools {
   tools: McpToolWithStats[];
 }
 
-/** Response from GET /api/mcp/tools. */
 export interface McpToolsResponse {
   tools: any[];
   servers: string[];
@@ -450,7 +458,7 @@ export interface ChatResponse {
 
 // ── WebSocket ─────────────────────────────────────────────────
 
-export type WsConnectionState = 'connected' | 'connecting' | 'offline' | 'unauthorized';
+export type WsConnectionState = 'connected' | 'connecting' | 'offline' | 'unauthorized' | 'no-token';
 
 export type WsEventType = 'message' | 'activity' | 'thinking' | 'status' | 'error';
 export interface WsEnvelope {
@@ -460,7 +468,6 @@ export interface WsEnvelope {
 
 // ── Freeze / Resume ───────────────────────────────────────────
 
-/** Response from POST /api/runtime/freeze. */
 export interface FreezeResponse {
   status: string;
   freeze_id: string;
@@ -468,7 +475,6 @@ export interface FreezeResponse {
   created_at: string;
 }
 
-/** Response from POST /api/runtime/resume-from-freeze. */
 export interface ResumeFromFreezeResponse {
   status: string;
   freeze_id: string;
@@ -488,6 +494,7 @@ export interface CardDetailResponse {
   card: CardRecord;
   children: CardRecord[];
   ancestorIds: string[];
+  evidence?: CardEvidence;
 }
 
 export interface CardCreateResponse {
@@ -516,6 +523,10 @@ export interface ProvidersResponse {
 export interface AgentConversationResponse {
   session: AgentSession;
   messages: AgentMessage[];
+}
+
+export interface AgentSessionsResponse {
+  sessions: AgentSession[];
 }
 
 export interface NotesListResponse {
@@ -567,12 +578,10 @@ export interface DebugTimelineResponse {
   total: number;
 }
 
-/** Response from GET /api/processes. */
 export interface ProcessListResponse {
   processes: ProcessRecord[];
 }
 
-/** Response from GET /api/processes/:id. */
 export interface ProcessDetailResponse {
   process: ProcessRecord;
 }

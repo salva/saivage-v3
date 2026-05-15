@@ -1,3 +1,5 @@
+import { existsSync, statSync } from 'node:fs';
+import { isAbsolute, relative, resolve } from 'node:path';
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { CardStore } from '../../utils/card-store.js';
 import type { CardRecord, CardStatus, CardType, NoteRecord } from '../../schemas/types.js';
@@ -5,6 +7,184 @@ import { getNotes } from '../../utils/notes.js';
 
 function saivageDir(projectRoot: string): string {
   return `${projectRoot}/.saivage`;
+}
+
+interface GeneratedFileRef {
+  path: string;
+  source: 'artifact' | 'attachment' | 'result.generated_files' | 'result.artifact_paths';
+  artifactId?: string;
+  attachmentId?: string;
+  artifactType?: CardRecord['artifacts'][number]['type'];
+  description?: string;
+  retain?: boolean;
+  exists?: boolean;
+  size?: number;
+  modifiedAt?: string;
+}
+
+interface VerificationCommandRef {
+  command: string;
+  process_id: string | null;
+  status: string | null;
+  exit_code: number | null;
+  timed_out: boolean | null;
+}
+
+interface CardEvidence {
+  generatedFiles: GeneratedFileRef[];
+  verificationCommands: VerificationCommandRef[];
+  artifactPaths: string[];
+  toolErrors: string[];
+  parseFailure?: Record<string, unknown>;
+}
+
+function toProjectRelativePath(projectRoot: string, rawPath: unknown): string | null {
+  if (typeof rawPath !== 'string' || rawPath.trim().length === 0) {
+    return null;
+  }
+
+  const trimmed = rawPath.trim();
+  const resolvedRoot = resolve(projectRoot);
+  const candidate = isAbsolute(trimmed) ? resolve(trimmed) : resolve(projectRoot, trimmed);
+  if (!candidate.startsWith(resolvedRoot + '/') && candidate !== resolvedRoot) {
+    return null;
+  }
+
+  const rel = relative(resolvedRoot, candidate).replace(/\\/g, '/');
+  if (!rel || rel.startsWith('..') || rel.includes('/../') || rel === '.') {
+    return null;
+  }
+
+  return rel;
+}
+
+function getFileMetadata(projectRoot: string, relPath: string): Pick<GeneratedFileRef, 'exists' | 'size' | 'modifiedAt'> {
+  const absolutePath = resolve(projectRoot, relPath);
+  if (!existsSync(absolutePath)) {
+    return { exists: false };
+  }
+
+  try {
+    const stats = statSync(absolutePath);
+    return {
+      exists: true,
+      size: stats.isFile() ? stats.size : undefined,
+      modifiedAt: stats.mtime.toISOString(),
+    };
+  } catch {
+    return { exists: false };
+  }
+}
+
+function normalizeVerificationCommands(result: Record<string, unknown> | null | undefined): VerificationCommandRef[] {
+  const commands = result?.['verification_commands'];
+  if (!Array.isArray(commands)) {
+    return [];
+  }
+
+  return commands
+    .map((entry) => {
+      if (!entry || typeof entry !== 'object') {
+        return null;
+      }
+      const data = entry as Record<string, unknown>;
+      const command = typeof data['command'] === 'string' ? data['command'] : null;
+      if (!command) {
+        return null;
+      }
+      return {
+        command,
+        process_id: typeof data['process_id'] === 'string'
+          ? data['process_id']
+          : typeof data['processId'] === 'string'
+            ? data['processId']
+            : typeof data['id'] === 'string'
+              ? data['id']
+              : null,
+        status: typeof data['status'] === 'string' ? data['status'] : null,
+        exit_code: typeof data['exit_code'] === 'number'
+          ? data['exit_code']
+          : typeof data['exitCode'] === 'number'
+            ? data['exitCode']
+            : null,
+        timed_out: typeof data['timed_out'] === 'boolean'
+          ? data['timed_out']
+          : typeof data['timedOut'] === 'boolean'
+            ? data['timedOut']
+            : null,
+      } satisfies VerificationCommandRef;
+    })
+    .filter((entry): entry is VerificationCommandRef => entry !== null);
+}
+
+function buildCardEvidence(projectRoot: string, card: CardRecord): CardEvidence {
+  const result = card.result && typeof card.result === 'object'
+    ? card.result as Record<string, unknown>
+    : null;
+
+  const generatedFiles: GeneratedFileRef[] = [];
+  const seenPaths = new Set<string>();
+  const artifactPaths: string[] = [];
+
+  function addPath(path: unknown, source: GeneratedFileRef['source'], extras: Omit<GeneratedFileRef, 'path' | 'source'> = {}): void {
+    const relPath = toProjectRelativePath(projectRoot, path);
+    if (!relPath || seenPaths.has(relPath)) {
+      return;
+    }
+    seenPaths.add(relPath);
+    generatedFiles.push({
+      path: relPath,
+      source,
+      ...extras,
+      ...getFileMetadata(projectRoot, relPath),
+    });
+  }
+
+  for (const artifact of card.artifacts) {
+    addPath(artifact.path, 'artifact', {
+      artifactId: artifact.id,
+      artifactType: artifact.type,
+      description: artifact.description,
+      retain: artifact.retain,
+    });
+  }
+
+  for (const attachment of card.attachments) {
+    addPath(attachment.path, 'attachment', {
+      attachmentId: attachment.id,
+      description: attachment.description || attachment.title,
+    });
+  }
+
+  const resultGeneratedFiles = Array.isArray(result?.['generated_files']) ? result?.['generated_files'] as unknown[] : [];
+  for (const path of resultGeneratedFiles) {
+    addPath(path, 'result.generated_files');
+  }
+
+  const resultArtifactPaths = Array.isArray(result?.['artifact_paths']) ? result?.['artifact_paths'] as unknown[] : [];
+  for (const path of resultArtifactPaths) {
+    const relPath = toProjectRelativePath(projectRoot, path);
+    if (relPath && !artifactPaths.includes(relPath)) {
+      artifactPaths.push(relPath);
+    }
+    addPath(path, 'result.artifact_paths');
+  }
+
+  const toolErrors = Array.isArray(result?.['tool_errors'])
+    ? result['tool_errors'].filter((entry): entry is string => typeof entry === 'string')
+    : [];
+
+  const parseFailure = result?.['parse_failure'];
+
+  return {
+    generatedFiles,
+    verificationCommands: normalizeVerificationCommands(result),
+    artifactPaths,
+    toolErrors,
+    parseFailure: parseFailure && typeof parseFailure === 'object'
+      ? parseFailure as Record<string, unknown>
+      : undefined,
+  };
 }
 
 function enrichCardWithNotes(
@@ -88,6 +268,7 @@ export function registerCardRoutes(
         card: enrichCardWithNotes(store, projectRoot, card),
         children,
         ancestorIds: store.getAncestors(params.id),
+        evidence: buildCardEvidence(projectRoot, card),
       });
     } catch (err) {
       request.log.error(err, 'Failed to read card');
@@ -127,7 +308,7 @@ export function registerCardRoutes(
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       request.log.error(err, 'Failed to create card');
-      const clientError = message.includes('validation') || message.includes('Cannot create') || message.includes('Plan cards')
+      const clientError = message.includes('validation') || message.includes('Cannot create') || message.includes('Plan cards') || message.includes('Planning state lives')
         || message.includes('not found') || message.includes('cycle');
       return reply.status(clientError ? 400 : 500).send({
         error: clientError ? 'Card creation failed' : 'Failed to create card',
