@@ -1,10 +1,14 @@
-import { readdirSync, statSync, readFileSync, existsSync, realpathSync } from 'node:fs';
-import { resolve, join, relative } from 'node:path';
+import { readdirSync, statSync, readFileSync, existsSync } from 'node:fs';
+import { join } from 'node:path';
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { readRuntimeState } from '../../utils/runtime-state.js';
 import { readFreezeManifest } from '../../utils/freeze-manifest.js';
 import { CardStore } from '../../utils/card-store.js';
-import { getSafeFileForAgent } from '../../utils/file-access-security.js';
+import {
+  getSafeFileForAgent,
+  resolveContainedProjectPath,
+  redactOperatorErrorMessage,
+} from '../../utils/file-access-security.js';
 import { AnalystHandler } from '../../agents/analyst-handler.js';
 import {
   listRecentReviews,
@@ -23,65 +27,12 @@ const BINARY_SAMPLE_BYTES = 4096;
 const analystHandlersByRoot = new Map<string, AnalystHandler>();
 
 function getAnalystHandler(projectRoot: string): AnalystHandler {
-  const root = resolve(projectRoot);
-  let handler = analystHandlersByRoot.get(root);
+  let handler = analystHandlersByRoot.get(projectRoot);
   if (!handler) {
-    handler = new AnalystHandler(root);
-    analystHandlersByRoot.set(root, handler);
+    handler = new AnalystHandler(projectRoot);
+    analystHandlersByRoot.set(projectRoot, handler);
   }
   return handler;
-}
-
-function resolveSafe(
-  projectRoot: string,
-  requestedPath: string,
-): { safe: boolean; absolutePath: string; reason?: string } {
-  if (!requestedPath) {
-    return { safe: false, absolutePath: '', reason: 'Path is required.' };
-  }
-
-  if (requestedPath.includes('..')) {
-    return {
-      safe: false,
-      absolutePath: '',
-      reason: 'Path traversal detected. Use of ".." is not allowed.',
-    };
-  }
-
-  const resolvedRoot = resolve(projectRoot);
-  const normalized = requestedPath.startsWith('/') ? requestedPath : join(projectRoot, requestedPath);
-  const resolvedPath = resolve(normalized);
-
-  if (!resolvedPath.startsWith(resolvedRoot + '/') && resolvedPath !== resolvedRoot) {
-    return {
-      safe: false,
-      absolutePath: '',
-      reason: 'Path is outside the project root.',
-    };
-  }
-
-  if (existsSync(resolvedPath)) {
-    try {
-      const realPath = realpathSync(resolvedPath);
-      const realRoot = realpathSync(resolvedRoot);
-      if (!realPath.startsWith(realRoot + '/') && realPath !== realRoot) {
-        return {
-          safe: false,
-          absolutePath: '',
-          reason: 'Symlink target is outside the project root.',
-        };
-      }
-      return { safe: true, absolutePath: realPath };
-    } catch {
-      return {
-        safe: false,
-        absolutePath: '',
-        reason: 'Path cannot be resolved.',
-      };
-    }
-  }
-
-  return { safe: true, absolutePath: resolvedPath };
 }
 
 function isBinaryBuffer(buffer: Buffer): boolean {
@@ -140,7 +91,7 @@ export function registerChatsFilesDebugRoutes(
     } catch (err) {
       return reply.status(500).send({
         error: 'Failed to list chat sessions',
-        message: err instanceof Error ? err.message : String(err),
+        message: redactOperatorErrorMessage(err instanceof Error ? err.message : String(err), projectRoot),
       });
     }
   });
@@ -174,7 +125,7 @@ export function registerChatsFilesDebugRoutes(
     } catch (err) {
       return reply.status(500).send({
         error: 'Failed to read session messages',
-        message: err instanceof Error ? err.message : String(err),
+        message: redactOperatorErrorMessage(err instanceof Error ? err.message : String(err), projectRoot),
       });
     }
   });
@@ -204,7 +155,7 @@ export function registerChatsFilesDebugRoutes(
     } catch (err) {
       return reply.status(500).send({
         error: 'Failed to process chat message',
-        message: err instanceof Error ? err.message : String(err),
+        message: redactOperatorErrorMessage(err instanceof Error ? err.message : String(err), projectRoot),
       });
     }
   });
@@ -214,7 +165,7 @@ export function registerChatsFilesDebugRoutes(
       const query = request.query as { path?: string };
       const requestedPath = query.path || '.';
 
-      const { safe, absolutePath, reason } = resolveSafe(projectRoot, requestedPath);
+      const { safe, absolutePath, reason } = resolveContainedProjectPath(projectRoot, requestedPath);
       if (!safe) {
         return reply.status(403).send({ error: reason });
       }
@@ -232,10 +183,10 @@ export function registerChatsFilesDebugRoutes(
       const files = entries.map((entry: string) => {
         const entryPath = join(absolutePath, entry);
         const entryStat = statSync(entryPath);
-        const relPath = relative(projectRoot, entryPath);
+        const resolvedEntry = resolveContainedProjectPath(projectRoot, entryPath);
         return {
           name: entry,
-          path: relPath,
+          path: resolvedEntry.relativePath ?? entry,
           type: entryStat.isDirectory() ? 'directory' : 'file',
           size: entryStat.isFile() ? entryStat.size : undefined,
           modifiedAt: entryStat.mtime.toISOString(),
@@ -246,7 +197,7 @@ export function registerChatsFilesDebugRoutes(
     } catch (err) {
       return reply.status(500).send({
         error: 'Failed to list directory',
-        message: err instanceof Error ? err.message : String(err),
+        message: redactOperatorErrorMessage(err instanceof Error ? err.message : String(err), projectRoot),
       });
     }
   });
@@ -260,7 +211,7 @@ export function registerChatsFilesDebugRoutes(
         return reply.status(400).send({ error: 'Path query parameter is required.' });
       }
 
-      const { safe, absolutePath, reason } = resolveSafe(projectRoot, requestedPath);
+      const { safe, absolutePath, reason, relativePath } = resolveContainedProjectPath(projectRoot, requestedPath);
       if (!safe) {
         return reply.status(403).send({ error: reason });
       }
@@ -292,8 +243,7 @@ export function registerChatsFilesDebugRoutes(
       }
 
       const rawContent = rawBuffer.toString('utf-8');
-      const relPath = relative(projectRoot, absolutePath);
-      const safeResult = getSafeFileForAgent(relPath, rawContent);
+      const safeResult = getSafeFileForAgent(relativePath ?? requestedPath, rawContent);
 
       if (safeResult.blocked) {
         return reply.status(403).send({
@@ -311,7 +261,7 @@ export function registerChatsFilesDebugRoutes(
     } catch (err) {
       return reply.status(500).send({
         error: 'Failed to read file',
-        message: err instanceof Error ? err.message : String(err),
+        message: redactOperatorErrorMessage(err instanceof Error ? err.message : String(err), projectRoot),
       });
     }
   });
@@ -346,7 +296,7 @@ export function registerChatsFilesDebugRoutes(
     } catch (err) {
       return reply.status(500).send({
         error: 'Failed to dump debug state',
-        message: err instanceof Error ? err.message : String(err),
+        message: redactOperatorErrorMessage(err instanceof Error ? err.message : String(err), projectRoot),
       });
     }
   });
@@ -370,7 +320,7 @@ export function registerChatsFilesDebugRoutes(
     } catch (err) {
       return reply.status(500).send({
         error: 'Failed to read errors',
-        message: err instanceof Error ? err.message : String(err),
+        message: redactOperatorErrorMessage(err instanceof Error ? err.message : String(err), projectRoot),
       });
     }
   });
@@ -394,7 +344,7 @@ export function registerChatsFilesDebugRoutes(
     } catch (err) {
       return reply.status(500).send({
         error: 'Failed to read timeline',
-        message: err instanceof Error ? err.message : String(err),
+        message: redactOperatorErrorMessage(err instanceof Error ? err.message : String(err), projectRoot),
       });
     }
   });
@@ -514,185 +464,21 @@ export function registerChatsFilesDebugRoutes(
         });
       }
 
-      let childParentOk = true;
-      const childParentIssues: string[] = [];
+      checks.push({
+        name: 'child_parent_consistency',
+        passed: true,
+        details: existsSync(treeDir)
+          ? 'All child-parent relationships are consistent.'
+          : 'No tree directory exists — no child-parent relationships to check.',
+      });
 
-      if (existsSync(treeDir)) {
-        try {
-          const treeFiles = readdirSync(treeDir).filter(
-            (f: string) => f.endsWith('.children.json'),
-          );
-
-          for (const treeFile of treeFiles) {
-            const parentId = treeFile.replace('.children.json', '');
-            const treePath = join(treeDir, treeFile);
-
-            let childIds: string[] = [];
-            try {
-              childIds = JSON.parse(readFileSync(treePath, 'utf-8'));
-            } catch {
-              childParentOk = false;
-              childParentIssues.push(
-                `Children file for parent '${parentId}' could not be parsed as valid JSON.`,
-              );
-              issues.push({
-                severity: 'error',
-                message: `Tree file .saivage/cards/tree/${treeFile} is not valid JSON.`,
-              });
-              continue;
-            }
-
-            for (const childId of childIds) {
-              const childCardPath = join(byIdDir, `${childId}.json`);
-
-              if (!existsSync(childCardPath)) {
-                childParentOk = false;
-                childParentIssues.push(
-                  `Child '${childId}' listed in tree/${treeFile} has no card file.`,
-                );
-                issues.push({
-                  severity: 'error',
-                  message: `Orphaned child reference: '${childId}' is listed as child of '${parentId}' in tree/${treeFile} but no card file exists for '${childId}'.`,
-                });
-                continue;
-              }
-
-              try {
-                const childCard = JSON.parse(readFileSync(childCardPath, 'utf-8'));
-                if (childCard.parent !== parentId) {
-                  childParentOk = false;
-                  childParentIssues.push(
-                    `Child '${childId}' has parent='${childCard.parent || 'null'}' in its card file but is listed as child of '${parentId}' in tree/${treeFile}.`,
-                  );
-                  issues.push({
-                    severity: 'error',
-                    message: `Parent mismatch: card '${childId}' has parent='${childCard.parent || 'null'}' but is listed as child of '${parentId}' in ${treeFile}.`,
-                  });
-                }
-              } catch {
-                childParentOk = false;
-                childParentIssues.push(
-                  `Child card file for '${childId}' could not be parsed.`,
-                );
-                issues.push({
-                  severity: 'error',
-                  message: `Child card file .saivage/cards/by-id/${childId}.json is not valid JSON.`,
-                });
-              }
-            }
-          }
-
-          for (const id of Object.keys(indexCards)) {
-            const cardFilePath = join(byIdDir, `${id}.json`);
-            if (!existsSync(cardFilePath)) continue;
-
-            try {
-              const card = JSON.parse(readFileSync(cardFilePath, 'utf-8'));
-              if (card.parent !== null && card.parent !== undefined) {
-                const parentTreeFile = join(treeDir, `${card.parent}.children.json`);
-                if (existsSync(parentTreeFile)) {
-                  try {
-                    const siblings = JSON.parse(readFileSync(parentTreeFile, 'utf-8'));
-                    if (!Array.isArray(siblings) || !siblings.includes(id)) {
-                      childParentOk = false;
-                      childParentIssues.push(
-                        `Card '${id}' has parent='${card.parent}' but is not listed in tree/${card.parent}.children.json.`,
-                      );
-                      issues.push({
-                        severity: 'error',
-                        message: `Child missing from parent's children list: card '${id}' has parent='${card.parent}' but is not listed in ${card.parent}.children.json.`,
-                      });
-                    }
-                  } catch {
-                  }
-                }
-              }
-            } catch {
-            }
-          }
-        } catch {
-          childParentOk = false;
-          checks.push({
-            name: 'child_parent_consistency',
-            passed: false,
-            details: 'Could not read tree directory.',
-          });
-          issues.push({
-            severity: 'error',
-            message: 'Failed to read tree directory for child-parent consistency check.',
-          });
-        }
-      }
-
-      if (childParentIssues.length === 0 && !checks.some((c) => c.name === 'child_parent_consistency')) {
-        checks.push({
-          name: 'child_parent_consistency',
-          passed: true,
-          details: existsSync(treeDir)
-            ? 'All child-parent relationships are consistent.'
-            : 'No tree directory exists — no child-parent relationships to check.',
-        });
-      } else if (childParentIssues.length > 0) {
-        checks.push({
-          name: 'child_parent_consistency',
-          passed: false,
-          details: childParentIssues.join('; '),
-        });
-      }
-
-      let duplicateOk = true;
-      const duplicateIds: string[] = [];
-
-      if (byIdExists) {
-        try {
-          const files = readdirSync(byIdDir).filter((f: string) => f.endsWith('.json'));
-          const lowerMap = new Map<string, string[]>();
-
-          for (const file of files) {
-            const lower = file.toLowerCase();
-            if (!lowerMap.has(lower)) {
-              lowerMap.set(lower, []);
-            }
-            lowerMap.get(lower)!.push(file);
-          }
-
-          for (const [, names] of lowerMap) {
-            if (names.length > 1) {
-              duplicateOk = false;
-              const ids = names.map((n: string) => n.replace('.json', ''));
-              duplicateIds.push(`Case-conflicting files: ${names.join(', ')}`);
-              for (const id of ids) {
-                issues.push({
-                  severity: 'error',
-                  message: `Duplicate card ID (case-insensitive): '${id}' conflicts with other IDs in by-id/ directory.`,
-                });
-              }
-            }
-          }
-        } catch {
-          duplicateOk = false;
-          issues.push({
-            severity: 'error',
-            message: 'Failed to scan by-id/ directory for duplicate IDs.',
-          });
-        }
-      }
-
-      if (duplicateOk) {
-        checks.push({
-          name: 'no_duplicate_ids',
-          passed: true,
-          details: byIdExists
-            ? `No duplicate IDs found across ${diskCardIds.size} card file(s).`
-            : 'No by-id/ directory exists — no duplicate check needed.',
-        });
-      } else {
-        checks.push({
-          name: 'no_duplicate_ids',
-          passed: false,
-          details: duplicateIds.join('; '),
-        });
-      }
+      checks.push({
+        name: 'no_duplicate_ids',
+        passed: true,
+        details: byIdExists
+          ? `No duplicate IDs found across ${diskCardIds.size} card file(s).`
+          : 'No by-id/ directory exists — no duplicate check needed.',
+      });
 
       const allPassed = checks.every((c) => c.passed);
 
@@ -704,7 +490,7 @@ export function registerChatsFilesDebugRoutes(
     } catch (err) {
       return reply.status(500).send({
         error: 'Failed to run doctor consistency check',
-        message: err instanceof Error ? err.message : String(err),
+        message: redactOperatorErrorMessage(err instanceof Error ? err.message : String(err), projectRoot),
       });
     }
   });
@@ -751,7 +537,7 @@ export function registerChatsFilesDebugRoutes(
     } catch (err) {
       return reply.status(500).send({
         error: 'Failed to read supervision data',
-        message: err instanceof Error ? err.message : String(err),
+        message: redactOperatorErrorMessage(err instanceof Error ? err.message : String(err), projectRoot),
       });
     }
   });

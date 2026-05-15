@@ -13,8 +13,7 @@ import type { WebSocket } from 'ws';
 import { AnalystHandler, getOrCreateAnalystSession } from '../agents/analyst-handler.js';
 import type { EventBus } from '../utils/event-bus.js';
 import type { LoggedEvent } from '../schemas/types.js';
-
-// ── Types ─────────────────────────────────────────────────────
+import { redactOperatorErrorMessage } from '../utils/file-access-security.js';
 
 export type WsEventType = 'message' | 'activity' | 'thinking' | 'status' | 'error';
 
@@ -22,8 +21,6 @@ export interface WsEnvelope {
   type: WsEventType;
   content: Record<string, unknown>;
 }
-
-// ── Analyst Handler (lazy singleton) ──────────────────────────
 
 let _analystHandler: AnalystHandler | null = null;
 
@@ -36,12 +33,9 @@ function getAnalystHandler(projectRoot: string): AnalystHandler {
   return _analystHandler;
 }
 
-// ── Client Tracking ───────────────────────────────────────────
-
 const clients = new Set<WebSocket>();
-
-/** Map each WebSocket connection to its analyst session ID. */
 const wsSessions = new WeakMap<WebSocket, string>();
+const wiredEventBuses = new WeakSet<object>();
 
 export function broadcast(event: WsEnvelope): void {
   const data = JSON.stringify(event);
@@ -51,7 +45,6 @@ export function broadcast(event: WsEnvelope): void {
         ws.send(data);
       }
     } catch {
-      // Silently drop dead clients
     }
   }
 }
@@ -62,15 +55,12 @@ export function sendToClient(ws: WebSocket, event: WsEnvelope): void {
       ws.send(JSON.stringify(event));
     }
   } catch {
-    // Silently drop
   }
 }
 
 export function getClientCount(): number {
   return clients.size;
 }
-
-// ── Auth Check Helper ─────────────────────────────────────────
 
 function getApiToken(): string | undefined {
   return process.env['SAIVAGE_API_TOKEN'];
@@ -79,15 +69,9 @@ function getApiToken(): string | undefined {
 function checkAuth(request: FastifyRequest): boolean {
   const token = getApiToken();
   if (!token) {
-    // No token configured — development mode.
-    // Server startup (validateDevModeHost in server.ts) ensures that
-    // only localhost binds are allowed in this mode, so this pass-through
-    // is safe: external connections cannot reach the server without auth
-    // because the server refuses to bind to non-local addresses.
     return true;
   }
 
-  // Check Authorization: Bearer <token>
   const authHeader = request.headers.authorization;
   if (authHeader) {
     const parts = authHeader.split(' ');
@@ -96,7 +80,6 @@ function checkAuth(request: FastifyRequest): boolean {
     }
   }
 
-  // Check ?token= query parameter
   const queryToken = (request.query as Record<string, string> | undefined)?.['token'];
   if (queryToken === token) return true;
 
@@ -117,29 +100,21 @@ function rejectUnauthorizedWebSocket(ws: WebSocket): void {
   }
 }
 
-// ── WebSocket Registration ────────────────────────────────────
-
 export function registerWebSocket(fastify: FastifyInstance, projectRoot: string): void {
   fastify.get(
     '/ws',
     { websocket: true },
     (ws: WebSocket, request: FastifyRequest) => {
-      // Auth check — if fails, send the expected policy-violation close frame
-      // but clear ws's internal close timer so rejected upgrades do not keep
-      // Jest workers alive.
       if (!checkAuth(request)) {
         rejectUnauthorizedWebSocket(ws);
         return;
       }
 
-      // Connection accepted
       clients.add(ws);
 
-      // Auto-create analyst session for this connection
       const { sessionId } = getOrCreateAnalystSession(projectRoot);
       wsSessions.set(ws, sessionId);
 
-      // Send welcome message with session info
       sendToClient(ws, {
         type: 'status',
         content: {
@@ -150,7 +125,6 @@ export function registerWebSocket(fastify: FastifyInstance, projectRoot: string)
         },
       });
 
-      // Handle incoming messages (client → server)
       ws.on('message', async (raw: Buffer | ArrayBuffer | Buffer[]) => {
         try {
           const data =
@@ -162,7 +136,6 @@ export function registerWebSocket(fastify: FastifyInstance, projectRoot: string)
           const parsed = JSON.parse(data) as { type?: string; content?: Record<string, unknown> };
 
           if (parsed.type === 'message' && parsed.content?.text) {
-            // Get or re-create session for this connection
             let currentSessionId = wsSessions.get(ws);
             if (!currentSessionId) {
               const { sessionId: newId } = getOrCreateAnalystSession(projectRoot);
@@ -170,20 +143,17 @@ export function registerWebSocket(fastify: FastifyInstance, projectRoot: string)
               wsSessions.set(ws, currentSessionId);
             }
 
-            // Route through the analyst handler
             const handler = getAnalystHandler(projectRoot);
             const response = await handler.handleMessage(
               currentSessionId,
               String(parsed.content.text),
             );
 
-            // Send the analyst response back
             sendToClient(ws, {
               type: 'message',
               content: response.message as Record<string, unknown>,
             });
 
-            // Also send any tool invocations as activity events
             if (response.toolInvocations) {
               for (const inv of response.toolInvocations) {
                 sendToClient(ws, {
@@ -203,7 +173,7 @@ export function registerWebSocket(fastify: FastifyInstance, projectRoot: string)
             type: 'error',
             content: {
               error: 'Failed to process message',
-              details: err instanceof Error ? err.message : String(err),
+              details: redactOperatorErrorMessage(err instanceof Error ? err.message : String(err), projectRoot),
             },
           });
         }
@@ -221,8 +191,6 @@ export function registerWebSocket(fastify: FastifyInstance, projectRoot: string)
     },
   );
 }
-
-// ── Event Bus Integration Helpers ─────────────────────────────
 
 export function createRuntimeEnvelope(
   eventName: string,
@@ -246,37 +214,19 @@ export function createRuntimeEnvelope(
   }
 }
 
-/**
- * Wire runtime events to WebSocket broadcast via the EventBus.
- *
- * Subscribes to the Runtime's EventBus with no filter (minSeverity: 'info'),
- * so all events that pass through the Runtime are broadcast to connected
- * WebSocket clients.
- *
- * The subscription handler receives `LoggedEvent` objects, extracts the
- * event kind and spreads remaining fields as data, then broadcasts via
- * the existing `createRuntimeEnvelope` + `broadcast()` pipeline.
- *
- * Backward compatibility: the Runtime's `emit()` override ensures that all
- * `runtime.on(eventName, handler)` listeners continue to work. This function
- * replaces the previous pattern of calling `runtime.on()` for each tracked
- * event with a single EventBus subscription.
- *
- * @param runtime  An object with an `eventBus` property pointing to the
- *                 Runtime's EventBus instance.
- */
 export function wireRuntimeEvents(runtime: {
   on: (event: string, handler: (...args: unknown[]) => void) => void;
   eventBus: EventBus;
 }): void {
-  // Subscribe to the EventBus — all events (minSeverity: 'info'), no kind filter.
-  // The handler receives a LoggedEvent, extracts kind + remaining fields,
-  // creates a WsEnvelope via createRuntimeEnvelope, and broadcasts.
+  const eventBusRef = runtime.eventBus as object;
+  if (wiredEventBuses.has(eventBusRef)) {
+    return;
+  }
+
+  wiredEventBuses.add(eventBusRef);
   runtime.eventBus.subscribe({
     minSeverity: 'info',
     handler: (event: LoggedEvent) => {
-      // Extract 'kind', 'id', and 'timestamp' from the LoggedEvent; spread
-      // remaining fields as the envelope data.
       const { kind, id, timestamp, ...data } = event as LoggedEvent & Record<string, unknown>;
       const envelope = createRuntimeEnvelope(kind, data as Record<string, unknown>);
       broadcast(envelope);

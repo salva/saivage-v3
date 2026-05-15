@@ -15,7 +15,8 @@
  * path traversal is rejected.
  */
 
-import { normalize, resolve, sep } from 'node:path';
+import { existsSync, realpathSync } from 'node:fs';
+import { normalize, relative, resolve, sep } from 'node:path';
 
 // ── Sensitive Path Constants ──────────────────────────────────
 
@@ -61,30 +62,15 @@ export const REDACT_PATHS: ReadonlySet<string> = new Set([
 
 // ── Path Sanitization ─────────────────────────────────────────
 
-/**
- * Strip leading `./`, normalize `..` segments, and return a clean
- * project-relative path with no trailing slashes.
- *
- * Note: Node's `path.normalize` preserves leading `../` segments
- * that go beyond the current directory root. For example:
- *   normalize('foo/../../bar') → '../bar'
- *   normalize('.saivage/../.saivage/auth-profiles.json') → '.saivage/auth-profiles.json'
- *
- * @param filePath - A raw file path, possibly with `./` prefix or `..` segments.
- * @returns The sanitized path string.
- */
 export function sanitizeFilePath(filePath: string): string {
   if (!filePath) return '';
 
-  // Normalize: collapse ., .., and doubling of slashes
   let cleaned = normalize(filePath);
 
-  // Strip a leading './' if present after normalization
   if (cleaned.startsWith('./')) {
     cleaned = cleaned.slice(2);
   }
 
-  // Strip trailing slashes
   cleaned = cleaned.replace(/[/\\]+$/, '');
 
   return cleaned;
@@ -92,48 +78,21 @@ export function sanitizeFilePath(filePath: string): string {
 
 // ── Sensitive Path Detection ──────────────────────────────────
 
-/**
- * Check whether a given project-relative file path is in the
- * sensitive paths set.
- *
- * Normalizes the path before checking (resolves `..`, strips `./`).
- *
- * @param filePath - A project-relative or absolute file path.
- * @returns `true` if the path matches a known sensitive path.
- */
 export function isSensitivePath(filePath: string): boolean {
   const clean = sanitizeFilePath(filePath);
   return SENSITIVE_PATHS.has(clean);
 }
 
-/**
- * Check whether reading the given file should be entirely blocked.
- *
- * @param filePath - A project-relative or absolute file path.
- * @returns `true` if the path is in the read-blocked set.
- */
 export function isReadBlocked(filePath: string): boolean {
   const clean = sanitizeFilePath(filePath);
   return READ_BLOCKED_PATHS.has(clean);
 }
 
-/**
- * Check whether writing to the given file should be entirely blocked.
- *
- * @param filePath - A project-relative or absolute file path.
- * @returns `true` if the path is in the write-blocked set.
- */
 export function isWriteBlocked(filePath: string): boolean {
   const clean = sanitizeFilePath(filePath);
   return WRITE_BLOCKED_PATHS.has(clean);
 }
 
-/**
- * Check whether the given file should be redacted on read.
- *
- * @param filePath - A project-relative or absolute file path.
- * @returns `true` if the path is in the redact set.
- */
 export function isRedacted(filePath: string): boolean {
   const clean = sanitizeFilePath(filePath);
   return REDACT_PATHS.has(clean);
@@ -141,104 +100,198 @@ export function isRedacted(filePath: string): boolean {
 
 // ── Secret Redaction ──────────────────────────────────────────
 
-/**
- * Field names (keys) that trigger redaction when their value
- * is a JSON string literal.  Matched case-insensitively at the
- * JSON key position.
- *
- * Matches:
- *  - `apiKey`, `apiToken`, `botToken`, `accessToken`, `refreshToken`
- *  - any key ending in `Token`, `Key`, `Secret`, `Password` (camelCase variants)
- *  - any key with `_key`, `_token`, `_secret`, `_password` suffix
- *  - standalone `secret`, `password`, `key` keys
- */
 const REDACT_KEY_PATTERN =
   /\b(?:apiKey|apiToken|botToken|accessToken|refreshToken|(?:api_)?key|.*[A-Z](?:Token|Key|Secret|Password)|.*_(?:key|token|secret|password)|secret|password)\b/i;
 
-/**
- * Regex that matches a JSON key-value pair where the value is a
- * quoted string and the key is a secret-sounding name.
- *
- * Captures:
- *   $1 — the full key part including quotes:  "keyName"
- *   $2 — whitespace before the colon
- *   $3 — whitespace after the colon (before the value)
- *   $4 — the value content (without quotes)
- *
- * Values containing `${...}` (env-var references) are NOT redacted.
- */
 const REDACT_VALUE_RE =
   /("(?:[^"\\]|\\.)*")(\s*):(\s*)"((?:[^"\\]|\\.)*)"/gi;
 
-/**
- * Redact API keys, tokens, and other secrets from a string.
- *
- * Works on:
- *  - JSON content: replaces values of secret-sounding keys with `[REDACTED]`
- *  - Plain strings: leaves them unchanged (caller should redact manually
- *    if needed, but the primary use-case is config JSON).
- *
- * Rules:
- *  - Keys matching `REDACT_KEY_PATTERN` have their string values replaced.
- *  - Values that contain `${...}` patterns (env-var references) are
- *    never redacted — they are already references, not literal secrets.
- *  - Raw non-JSON strings are returned unmodified.
- *
- * @param content - The raw content string (typically JSON config content).
- * @returns The content with secret values replaced by `[REDACTED]`.
- */
+const CREDENTIAL_LITERAL_RE = /\b(sk-[^\s"\\]+|tid=[^\s"\\]+|ghu_[A-Za-z0-9_]+|rt_[^\s"\\]+)\b/g;
+
 export function redactSecrets(content: string): string {
   if (!content) return content;
 
   return content.replace(REDACT_VALUE_RE, (_match, keyPart, wsBefore, wsAfter, valuePart) => {
-    // Strip quotes from key for matching
     const keyInner = keyPart.slice(1, -1);
 
-    // Check if this key looks like a secret
     if (!REDACT_KEY_PATTERN.test(keyInner)) {
-      // Not a secret key — leave unchanged
       return `${keyPart}${wsBefore}:${wsAfter}"${valuePart}"`;
     }
 
-    // Check if the value is an env-var reference (${ENV_VAR})
-    // These are already safe — they resolve at runtime
     if (/\$\{[^}]+\}/.test(valuePart)) {
       return `${keyPart}${wsBefore}:${wsAfter}"${valuePart}"`;
     }
 
-    // Redact the value, preserving original whitespace around colon
     return `${keyPart}${wsBefore}:${wsAfter}"[REDACTED]"`;
   });
 }
 
+export function redactCredentialLiterals(content: string): string {
+  if (!content) return content;
+  return content.replace(CREDENTIAL_LITERAL_RE, (match) => {
+    const prefix = match.startsWith('sk-') ? 'sk' :
+      match.startsWith('tid=') ? 'tid' :
+        match.startsWith('ghu_') ? 'ghu' :
+          match.startsWith('rt_') ? 'rt' : 'credential';
+    return `${prefix}-[REDACTED]`;
+  });
+}
+
+export function redactOperatorErrorMessage(message: string, projectRoot?: string): string {
+  let redacted = redactCredentialLiterals(message);
+  if (projectRoot) {
+    const resolvedRoot = resolve(projectRoot);
+    redacted = redacted.split(resolvedRoot).join('[PROJECT_ROOT]');
+  }
+  return redacted.replace(/([A-Za-z]:)?(?:\/[^\s:]+)+/g, (pathLike) => {
+    if (pathLike === '[PROJECT_ROOT]') {
+      return pathLike;
+    }
+    return pathLike.startsWith('.saivage') || pathLike.startsWith('.saivage-work')
+      ? pathLike
+      : '[PATH_REDACTED]';
+  });
+}
+
+export function redactCommandForOperator(command: string): string {
+  return redactCredentialLiterals(command);
+}
+
+// ── Shared containment helpers ────────────────────────────────
+
+export interface SafeProjectPathResult {
+  safe: boolean;
+  absolutePath: string;
+  relativePath?: string;
+  reason?: string;
+}
+
+export function resolveContainedProjectPath(
+  projectRoot: string,
+  requestedPath: string,
+): SafeProjectPathResult {
+  if (!requestedPath) {
+    return { safe: false, absolutePath: '', reason: 'Path is required.' };
+  }
+
+  if (requestedPath.includes('..')) {
+    return {
+      safe: false,
+      absolutePath: '',
+      reason: 'Path traversal detected. Use of ".." is not allowed.',
+    };
+  }
+
+  const resolvedRoot = resolve(projectRoot);
+  const normalized = requestedPath.startsWith('/') ? requestedPath : resolve(projectRoot, requestedPath);
+  const resolvedPath = resolve(normalized);
+
+  if (!resolvedPath.startsWith(resolvedRoot + sep) && resolvedPath !== resolvedRoot) {
+    return {
+      safe: false,
+      absolutePath: '',
+      reason: 'Path is outside the project root.',
+    };
+  }
+
+  if (existsSync(resolvedPath)) {
+    try {
+      const realPath = realpathSync(resolvedPath);
+      const realRoot = realpathSync(resolvedRoot);
+      if (!realPath.startsWith(realRoot + sep) && realPath !== realRoot) {
+        return {
+          safe: false,
+          absolutePath: '',
+          reason: 'Symlink target is outside the project root.',
+        };
+      }
+      const rel = relative(realRoot, realPath).replace(/\\/g, '/');
+      return {
+        safe: true,
+        absolutePath: realPath,
+        relativePath: rel === '' ? '.' : rel,
+      };
+    } catch {
+      return {
+        safe: false,
+        absolutePath: '',
+        reason: 'Path cannot be resolved.',
+      };
+    }
+  }
+
+  const rel = relative(resolvedRoot, resolvedPath).replace(/\\/g, '/');
+  return {
+    safe: true,
+    absolutePath: resolvedPath,
+    relativePath: rel === '' ? '.' : rel,
+  };
+}
+
+export function toContainedRelativePath(projectRoot: string, rawPath: unknown): string | null {
+  if (typeof rawPath !== 'string' || rawPath.trim().length === 0) {
+    return null;
+  }
+
+  const resolvedRoot = resolve(projectRoot);
+  const candidate = rawPath.trim();
+  const absolutePath = candidate.startsWith('/') ? resolve(candidate) : resolve(projectRoot, candidate);
+
+  if (!absolutePath.startsWith(resolvedRoot + sep) && absolutePath !== resolvedRoot) {
+    return null;
+  }
+
+  return relative(resolvedRoot, absolutePath).replace(/\\/g, '/');
+}
+
+export type SafeFileSensitivity = 'normal' | 'sensitive-blocked' | 'sensitive-redacted';
+
+export interface SafeGeneratedFileClassification {
+  sensitivity: SafeFileSensitivity;
+  blocked: boolean;
+  previewable: boolean;
+  downloadable: boolean;
+  redactedOnly: boolean;
+}
+
+export function classifyGeneratedFilePath(filePath: string): SafeGeneratedFileClassification {
+  if (isReadBlocked(filePath)) {
+    return {
+      sensitivity: 'sensitive-blocked',
+      blocked: true,
+      previewable: false,
+      downloadable: false,
+      redactedOnly: false,
+    };
+  }
+
+  if (isRedacted(filePath)) {
+    return {
+      sensitivity: 'sensitive-redacted',
+      blocked: false,
+      previewable: true,
+      downloadable: false,
+      redactedOnly: true,
+    };
+  }
+
+  return {
+    sensitivity: 'normal',
+    blocked: false,
+    previewable: true,
+    downloadable: true,
+    redactedOnly: false,
+  };
+}
+
 // ── Stash Path Security ───────────────────────────────────────
 
-/**
- * Verify that a requested file path is safely within the stash
- * directory.
- *
- * According to 04-runtime.md § Stash:
- *  - read_stash only allows reading from the stash directory
- *  - Path traversal (..) is rejected
- *  - Absolute paths outside stashDir are rejected
- *
- * Both paths are resolved to absolute paths before comparison.
- *
- * @param stashDir - The absolute path to the stash directory
- *                   (e.g. `/project/.saivage-work/tmp/stash`).
- * @param requestedPath - The file path requested by the caller.
- * @returns `true` if the path resolves inside stashDir, `false` otherwise.
- */
 export function isStashPathAllowed(stashDir: string, requestedPath: string): boolean {
   if (!requestedPath || !stashDir) return false;
 
-  // Resolve both to absolute paths
   const resolvedStash = resolve(stashDir);
   const resolvedRequested = resolve(stashDir, requestedPath);
 
-  // Normalize trailing separator: both paths should have the same
-  // trailing-sep treatment. We add a trailing sep to stashDir to
-  // prevent prefix matches like /stash-foo when we mean /stash.
   const stashNorm = resolvedStash.endsWith(sep) ? resolvedStash : resolvedStash + sep;
   const reqNorm = resolvedRequested.endsWith(sep) ? resolvedRequested : resolvedRequested + sep;
 
@@ -247,35 +300,16 @@ export function isStashPathAllowed(stashDir: string, requestedPath: string): boo
 
 // ── Safe File Access for Agents ───────────────────────────────
 
-/**
- * Result from `getSafeFileForAgent()`.
- */
 export interface SafeFileResult {
-  /** Whether the file is entirely blocked. */
   blocked: boolean;
-  /** The safe content (redacted if necessary, or original). */
   safeContent?: string;
-  /** Human-readable reason if blocked or redacted. */
   reason?: string;
 }
 
-/**
- * Main API for file access checks from agents.
- *
- * This is called before an agent reads a file. It:
- *  1. Checks if the path is read-blocked → returns blocked:true
- *  2. Checks if the path needs secret redaction → returns redacted content
- *  3. Otherwise returns the content as-is
- *
- * @param filePath - Project-relative path to the file being read.
- * @param content  - The raw file content (only needed for redactable paths).
- * @returns A `SafeFileResult` describing what the agent should receive.
- */
 export function getSafeFileForAgent(
   filePath: string,
   content: string,
 ): SafeFileResult {
-  // 1. Check read-blocked
   if (isReadBlocked(filePath)) {
     return {
       blocked: true,
@@ -283,7 +317,6 @@ export function getSafeFileForAgent(
     };
   }
 
-  // 2. Check if redaction is needed
   if (isRedacted(filePath)) {
     return {
       blocked: false,
@@ -292,7 +325,6 @@ export function getSafeFileForAgent(
     };
   }
 
-  // 3. Safe — return content as-is
   return {
     blocked: false,
     safeContent: content,

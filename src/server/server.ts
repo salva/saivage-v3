@@ -1,25 +1,3 @@
-/**
- * Core Fastify server module.
- *
- * Provides:
- *  - Fastify instance creation with logger, CORS, static files
- *  - Auth plugin registration
- *  - /health endpoint (no auth, reads actual runtime state, frozen status, frozen_reason)
- *  - All route registrations (cards, runtime/config/notes, chats/files/debug, events, processes)
- *  - Runtime dispatch/status routes (conditionally registered with ActiveRuntime)
- *  - Freeze/resume routes (always registered, work with or without ActiveRuntime)
- *  - WebSocket endpoint registration
- *  - MCP server manager lifecycle
- *  - Telegram bot lifecycle
- *  - ActiveRuntime lifecycle (optional, controlled by createRuntime flag)
- *  - Notification router with WebSocket broadcast integration
- *  - MCP status API endpoint
- *  - startServer() / stopServer() lifecycle functions
- *  - Server config read from saivage.json
- *  - Dev-mode host validation when SAIVAGE_API_TOKEN is unset
- *  - VitePress documentation static serving at /docs/ from docs/.vitepress/dist/
- */
-
 import Fastify, { type FastifyInstance } from 'fastify';
 import cors from '@fastify/cors';
 import websocket from '@fastify/websocket';
@@ -33,7 +11,7 @@ import { registerRuntimeConfigNotesRoutes } from './routes/runtime-config-notes.
 import { registerChatsFilesDebugRoutes } from './routes/chats-files-debug.js';
 import { registerEventsRoute } from './routes/events.js';
 import { registerProcessRoutes } from './routes/processes.js';
-import { registerWebSocket } from './websocket.js';
+import { registerWebSocket, wireRuntimeEvents } from './websocket.js';
 import { loadConfig, type SaivageConfig } from '../agents/config-schema.js';
 import { McpManager } from '../mcp/index.js';
 import { TelegramBot } from '../telegram/index.js';
@@ -46,8 +24,6 @@ import {
   clearFreezeManifest,
 } from '../utils/freeze-manifest.js';
 import type { FreezeManifest } from '../schemas/types.js';
-
-// ── Types ─────────────────────────────────────────────────────
 
 export interface ServerConfig {
   host: string;
@@ -66,52 +42,19 @@ export interface ServerInstance {
   stop: () => Promise<void>;
 }
 
-// ── Dev-Mode Host Validation ──────────────────────────────────
-
-/**
- * Check whether a host string is a loopback / localhost address.
- *
- * Returns true for:
- *   - '127.0.0.1'
- *   - 'localhost'
- *   - '::1'       (IPv6 loopback)
- *   - '0:0:0:0:0:0:0:1' (IPv6 loopback full form)
- *
- * Returns false for:
- *   - '0.0.0.0'   (all interfaces — dangerous without auth)
- *   - Any other IP or hostname
- */
 export function isLocalhost(host: string): boolean {
-  // Canonical IPv4 loopback
   if (host === '127.0.0.1') return true;
-
-  // Hostname form
   if (host === 'localhost') return true;
-
-  // IPv6 loopback (compressed / full)
   if (host === '::1' || host === '0:0:0:0:0:0:0:1') return true;
-
   return false;
 }
 
-/**
- * Validate that the server host binding is safe when no API token is set.
- *
- * - If SAIVAGE_API_TOKEN is set → any host is allowed (production-ready).
- * - If SAIVAGE_API_TOKEN is NOT set → warn about dev mode and only allow
- *   localhost / 127.0.0.1 / ::1.  Non-localhost binds (e.g. 0.0.0.0) throw.
- *
- * This implements the fail-closed security behaviour from 05-security.md
- * and future.md #23: the auth plugin should fail closed for non-local binds
- * when SAIVAGE_API_TOKEN is unset.
- */
 export function validateDevModeHost(host: string | undefined): void {
   const token = process.env['SAIVAGE_API_TOKEN'];
   if (token) {
-    return; // Token is set — any host is fine
+    return;
   }
 
-  // No token — warn about dev mode
   console.warn(
     '⚠  SAIVAGE_API_TOKEN is not set. Server is running in DEVELOPMENT MODE with auth disabled.\n' +
     '   Set SAIVAGE_API_TOKEN to a secure random string for production use.',
@@ -127,31 +70,28 @@ export function validateDevModeHost(host: string | undefined): void {
   }
 }
 
-// ── Health Endpoint ───────────────────────────────────────────
-
-function registerHealth(fastify: FastifyInstance, _saivageConfig: SaivageConfig): void {
+function registerHealth(
+  fastify: FastifyInstance,
+  projectRoot: string,
+  _saivageConfig: SaivageConfig,
+): void {
   fastify.get('/health', async (_request, _reply) => {
     let runtimeStatus = 'unknown';
     let frozenReason: string | undefined;
 
-    // Read actual runtime state from .saivage/runtime/state.json
     try {
       const { readRuntimeState } = await import('../utils/runtime-state.js');
-      const state = readRuntimeState(process.cwd());
+      const state = readRuntimeState(projectRoot);
       if (state) {
         runtimeStatus = state.status;
-
-        // When frozen, also read the freeze manifest for the reason
         if (state.status === 'frozen') {
-          const { readFreezeManifest: readFm } = await import('../utils/freeze-manifest.js');
-          const manifest = readFm(process.cwd());
+          const manifest = readFreezeManifest(projectRoot);
           if (manifest) {
             frozenReason = manifest.reason;
           }
         }
       }
     } catch {
-      // File doesn't exist or can't be read — leave as 'unknown'
     }
 
     const response: Record<string, unknown> = {
@@ -169,8 +109,6 @@ function registerHealth(fastify: FastifyInstance, _saivageConfig: SaivageConfig)
   });
 }
 
-// ── Server Config from saivage.json ───────────────────────────
-
 export function getServerConfig(projectRoot: string): ServerConfig {
   let host = '0.0.0.0';
   let port = 8080;
@@ -180,10 +118,8 @@ export function getServerConfig(projectRoot: string): ServerConfig {
     host = config.server.host ?? host;
     port = config.server.port ?? port;
   } catch {
-    // Use defaults
   }
 
-  // Environment variable overrides (set by CLI or by user)
   if (process.env['SAIVAGE_HOST']) {
     host = process.env['SAIVAGE_HOST'];
   }
@@ -197,27 +133,11 @@ export function getServerConfig(projectRoot: string): ServerConfig {
   return { host, port, projectRoot };
 }
 
-// ── Runtime Dispatch & Status Routes ─────────────────────────
-
-/**
- * Register runtime dispatch, status, freeze, and resume-from-freeze routes.
- *
- * POST /api/runtime/dispatch        — dispatches a goal through ActiveRuntime
- * GET  /api/runtime/status          — returns runtime status from ActiveRuntime or state file
- * POST /api/runtime/freeze          — freezes the runtime (stops dispatch, persists manifest)
- * POST /api/runtime/resume-from-freeze — resumes from a saved freeze manifest
- *
- * Freeze/resume-from-freeze endpoints work with or without ActiveRuntime.
- * When no ActiveRuntime is provided, they use file-based freeze-manifest operations directly.
- */
 function registerRuntimeDispatchRoutes(
   fastify: FastifyInstance,
   projectRoot: string,
   activeRuntime?: ActiveRuntime,
 ): void {
-  // ── POST /api/runtime/dispatch ────────────────────────────
-
-  // eslint-disable-next-line @typescript-eslint/no-misused-promises
   fastify.post('/api/runtime/dispatch', async (request, reply) => {
     if (!activeRuntime) {
       return reply.status(503).send({
@@ -231,13 +151,11 @@ function registerRuntimeDispatchRoutes(
         return reply.status(400).send({ error: 'goalId is required' });
       }
 
-      // Check the goal exists
       const goal = activeRuntime.runtime.cardStore.read(body.goalId);
       if (!goal) {
         return reply.status(404).send({ error: 'Goal not found', goalId: body.goalId });
       }
 
-      // Dispatch asynchronously (fire and forget — runtime runs in background)
       activeRuntime.dispatchGoal(body.goalId).catch((err: unknown) => {
         fastify.log.error({ goalId: body.goalId, err }, 'Goal dispatch failed');
       });
@@ -251,8 +169,6 @@ function registerRuntimeDispatchRoutes(
     }
   });
 
-  // ── GET /api/runtime/status ───────────────────────────────
-
   fastify.get('/api/runtime/status', async (_request, reply) => {
     try {
       if (activeRuntime) {
@@ -265,7 +181,6 @@ function registerRuntimeDispatchRoutes(
         });
       }
 
-      // Fallback: read from state file
       const { readRuntimeState } = await import('../utils/runtime-state.js');
       const state = readRuntimeState(projectRoot);
       return reply.send({
@@ -282,16 +197,12 @@ function registerRuntimeDispatchRoutes(
     }
   });
 
-  // ── POST /api/runtime/freeze ───────────────────────────────
-
-  // eslint-disable-next-line @typescript-eslint/no-misused-promises
   fastify.post('/api/runtime/freeze', async (request, reply) => {
     try {
       const body = request.body as { reason?: string } | undefined;
       const reason = body?.reason;
 
       if (activeRuntime) {
-        // Use ActiveRuntime path if available
         const manifest = activeRuntime.freeze(reason);
         return reply.send({
           status: 'frozen',
@@ -301,7 +212,6 @@ function registerRuntimeDispatchRoutes(
         });
       }
 
-      // Fallback: Direct file operations (no live runtime dispatcher)
       const existing = readFreezeManifest(projectRoot);
       if (existing) {
         return reply.send({
@@ -334,7 +244,7 @@ function registerRuntimeDispatchRoutes(
         current_card_id: state.current_card_id ?? null,
         current_agent_session_id: state.current_agent_session_id ?? null,
         queue: state.queue,
-        running_processes: (state.running_processes ?? []).map((id) => ({ id, action: "reattach" })),
+        running_processes: (state.running_processes ?? []).map((id) => ({ id, action: 'reattach' })),
         handoff_summaries: [],
         schema_version: 1,
         runtime_version: '0.1.0',
@@ -361,13 +271,9 @@ function registerRuntimeDispatchRoutes(
     }
   });
 
-  // ── POST /api/runtime/resume-from-freeze ────────────────────
-
-  // eslint-disable-next-line @typescript-eslint/no-misused-promises
   fastify.post('/api/runtime/resume-from-freeze', async (_request, reply) => {
     try {
       if (activeRuntime) {
-        // Use ActiveRuntime path if available
         const result = activeRuntime.resumeFromFreeze();
         return reply.send({
           status: 'resumed',
@@ -378,7 +284,6 @@ function registerRuntimeDispatchRoutes(
         });
       }
 
-      // Fallback: Direct file operations
       const manifest = readFreezeManifest(projectRoot);
       if (!manifest) {
         return reply.status(400).send({
@@ -422,36 +327,26 @@ function registerRuntimeDispatchRoutes(
   });
 }
 
-// ── Server Factory ────────────────────────────────────────────
-
 export async function createServer(
   projectRoot: string,
   createRuntime?: boolean,
 ): Promise<ServerInstance> {
   const serverConfig = getServerConfig(projectRoot);
 
-  // Load saivage config for other consumers
   let saivageConfig: SaivageConfig;
   try {
     const { config } = loadConfig(projectRoot);
     saivageConfig = config;
   } catch {
-    // Use a minimal default config
     saivageConfig = {} as SaivageConfig;
   }
 
-  // Determine logger transport for development mode.
-  // When NODE_ENV=development and pino-pretty is available, use the pretty-print
-  // transport for human-readable logs.  When pino-pretty is not installed, fall
-  // back to standard JSON transport without crashing so tests and tooling that
-  // happen to set NODE_ENV=development still work.
   let transportOpt: { target: string; options: Record<string, unknown> } | undefined;
   if (process.env['NODE_ENV'] === 'development') {
     try {
       await import('pino-pretty');
       transportOpt = { target: 'pino-pretty', options: { colorize: true } };
     } catch (err) {
-      // pino-pretty not available -- fall back to standard JSON transport
       console.warn(
         `pino-pretty not available, falling back to JSON transport: ${err instanceof Error ? err.message : String(err)}`,
       );
@@ -465,19 +360,14 @@ export async function createServer(
     },
   });
 
-  // Register plugins (order matters: cors + websocket before routes)
   await fastify.register(cors);
   await fastify.register(websocket);
   await fastify.register(authPlugin);
 
-  // Resolve package root relative to this file.
-  // When compiled (dist/src/server/server.js), go up 3 levels to reach package root.
-  // When running via ts-jest from source (src/server/server.ts), go up 2 levels.
-  const _thisFile = fileURLToPath(import.meta.url);
-  const _inDist = _thisFile.includes('/dist/src/') || _thisFile.includes('\\dist\\src\\');
-  const packageRoot = fileURLToPath(new URL(_inDist ? '../../..' : '../..', import.meta.url));
+  const thisFile = fileURLToPath(import.meta.url);
+  const inDist = thisFile.includes('/dist/src/') || thisFile.includes('\\dist\\src\\');
+  const packageRoot = fileURLToPath(new URL(inDist ? '../../..' : '../..', import.meta.url));
 
-  // ── Register static file serving for SPA if web/dist/ exists
   const webDistDir = join(packageRoot, 'web', 'dist');
   if (existsSync(webDistDir)) {
     await fastify.register(fastifyStatic, {
@@ -486,20 +376,11 @@ export async function createServer(
       wildcard: false,
     });
 
-    // SPA fallback: non-matching GETs -> index.html
     fastify.setNotFoundHandler((_request, reply) => {
       reply.sendFile('index.html');
     });
   }
 
-  // ── Register VitePress docs serving at /docs/
-  // Must be registered AFTER the SPA static serving so that /docs/ routes
-  // take priority over the SPA not-found handler.  If the VitePress build
-  // output exists, @fastify/static serves it; otherwise an explicit catch-all
-  // returns a helpful 404 (the SPA fallback must not swallow /docs/ requests).
-  //
-  // Pass decorateReply: false because @fastify/static may have already been
-  // registered for the SPA above, which decorates reply.sendFile() once.
   const docsDistDir = join(packageRoot, 'docs', '.vitepress', 'dist');
   if (existsSync(docsDistDir)) {
     await fastify.register(fastifyStatic, {
@@ -509,14 +390,12 @@ export async function createServer(
       decorateReply: false,
     });
   } else {
-    // VitePress not built — return a graceful 404 for any /docs/ request
     fastify.get('/docs/*', async (_request, reply) => {
       return reply.status(404).send({
         error: 'Documentation not built. Run vitepress build docs/ to generate.',
       });
     });
 
-    // Also handle exact /docs (no trailing slash)
     fastify.get('/docs', async (_request, reply) => {
       return reply.status(404).send({
         error: 'Documentation not built. Run vitepress build docs/ to generate.',
@@ -524,16 +403,14 @@ export async function createServer(
     });
   }
 
-  // Register health endpoint (no auth)
-  registerHealth(fastify, saivageConfig);
-
-  // ── ActiveRuntime Lifecycle ────────────────────────────────
+  registerHealth(fastify, projectRoot, saivageConfig);
 
   let activeRuntime: ActiveRuntime | undefined;
   if (createRuntime) {
     try {
       activeRuntime = new ActiveRuntime(projectRoot);
       await activeRuntime.start();
+      wireRuntimeEvents(activeRuntime.runtime);
       fastify.log.info('ActiveRuntime started');
     } catch (err) {
       fastify.log.warn(
@@ -544,10 +421,6 @@ export async function createServer(
     }
   }
 
-  // Register all API route handlers.
-  // Pass pause/resume callbacks that also control the ActiveRuntime's
-  // in-memory _paused flag, so both the state file and the runtime's
-  // internal state stay in sync.
   registerCardRoutes(fastify, projectRoot);
   registerRuntimeConfigNotesRoutes(
     fastify,
@@ -558,21 +431,12 @@ export async function createServer(
   registerChatsFilesDebugRoutes(fastify, projectRoot);
   registerEventsRoute(fastify, projectRoot);
   registerProcessRoutes(fastify, projectRoot);
-
-  // Register runtime dispatch, status, freeze, and resume-from-freeze routes.
-  // These are always registered — freeze/resume work with or without ActiveRuntime,
-  // while dispatch returns 503 when no ActiveRuntime is available.
   registerRuntimeDispatchRoutes(fastify, projectRoot, activeRuntime);
-
-  // Register WebSocket endpoint (auth checked internally on upgrade)
   registerWebSocket(fastify, projectRoot);
-
-  // ── MCP Manager Lifecycle ──────────────────────────────────
 
   let mcpManager: McpManager | undefined;
   try {
     mcpManager = new McpManager(projectRoot);
-    // Start all autostart servers (disabled servers are skipped)
     await mcpManager.startAll();
     fastify.log.info('MCP manager started');
   } catch (err) {
@@ -583,17 +447,10 @@ export async function createServer(
     );
   }
 
-  // ── Wire McpManager into ActiveRuntime ─────────────────────
-  // After both ActiveRuntime and McpManager are created, wire them
-  // together so agents can invoke MCP tools at execution time and
-  // MCP tool invocations are logged through the shared EventLogger.
-
   if (activeRuntime && mcpManager) {
     activeRuntime.agentAdapter.setMcpManager(mcpManager);
     mcpManager.setEventLogger(activeRuntime.eventLogger);
   }
-
-  // ── MCP Status API Endpoint ────────────────────────────────
 
   fastify.get('/api/mcp/status', async (_request, reply) => {
     if (!mcpManager) {
@@ -601,8 +458,6 @@ export async function createServer(
     }
     return reply.send({ servers: mcpManager.getStatus() });
   });
-
-  // ── MCP Tools API Endpoint ─────────────────────────────────
 
   fastify.get('/api/mcp/tools', async (_request, reply) => {
     if (!mcpManager) {
@@ -617,7 +472,6 @@ export async function createServer(
     const servers = mcpManager.getToolServers();
     const invocationStats = mcpManager.getInvocationStats();
 
-    // Build per-server detailed data
     const serverDetails = mcpManager.getStatus().map((status) => {
       const toolDefs = mcpManager.getServerTools(status.name) ?? [];
       const toolList = toolDefs.map((td) => {
@@ -647,8 +501,6 @@ export async function createServer(
     return reply.send({ tools, servers, invocationStats, serverDetails });
   });
 
-  // ── Telegram Bot Lifecycle ─────────────────────────────────
-
   let telegramBot: TelegramBot | undefined;
   const botToken = saivageConfig.telegram?.botToken;
   if (botToken) {
@@ -665,14 +517,10 @@ export async function createServer(
     }
   }
 
-  // ── Notification Router ────────────────────────────────────
-
   const notificationRouter = createNotificationRouter(
     projectRoot,
     telegramBot,
   );
-
-  // ── Shutdown ───────────────────────────────────────────────
 
   async function stop(): Promise<void> {
     if (activeRuntime) {
@@ -726,23 +574,11 @@ export async function createServer(
   };
 }
 
-// ── Convenience Lifecycle Functions ───────────────────────────
-
-/**
- * Create and start the server, listening on the configured host:port.
- *
- * Before listening, validates that the host binding is safe when no
- * SAIVAGE_API_TOKEN is configured (dev-mode host validation).
- * Non-localhost binds without a token will cause this function to throw.
- */
 export async function startServer(
   projectRoot: string,
   createRuntime?: boolean,
 ): Promise<ServerInstance> {
   const server = await createServer(projectRoot, createRuntime);
-
-  // Validate dev-mode host binding before listening.
-  // If SAIVAGE_API_TOKEN is unset and the host is non-localhost, this throws.
   validateDevModeHost(server.config.host);
 
   await server.fastify.listen({
@@ -752,9 +588,6 @@ export async function startServer(
   return server;
 }
 
-/**
- * Stop a running server.
- */
 export async function stopServer(server: ServerInstance): Promise<void> {
   await server.stop();
 }

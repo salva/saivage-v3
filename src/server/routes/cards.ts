@@ -1,9 +1,14 @@
 import { existsSync, statSync } from 'node:fs';
-import { isAbsolute, relative, resolve } from 'node:path';
+import { resolve } from 'node:path';
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { CardStore } from '../../utils/card-store.js';
 import type { CardRecord, CardStatus, CardType, NoteRecord } from '../../schemas/types.js';
 import { getNotes } from '../../utils/notes.js';
+import {
+  toContainedRelativePath,
+  classifyGeneratedFilePath,
+  type SafeFileSensitivity,
+} from '../../utils/file-access-security.js';
 
 function saivageDir(projectRoot: string): string {
   return `${projectRoot}/.saivage`;
@@ -20,6 +25,11 @@ interface GeneratedFileRef {
   exists?: boolean;
   size?: number;
   modifiedAt?: string;
+  previewable: boolean;
+  downloadable: boolean;
+  blocked: boolean;
+  redactedOnly: boolean;
+  sensitivity: SafeFileSensitivity;
 }
 
 interface VerificationCommandRef {
@@ -36,26 +46,6 @@ interface CardEvidence {
   artifactPaths: string[];
   toolErrors: string[];
   parseFailure?: Record<string, unknown>;
-}
-
-function toProjectRelativePath(projectRoot: string, rawPath: unknown): string | null {
-  if (typeof rawPath !== 'string' || rawPath.trim().length === 0) {
-    return null;
-  }
-
-  const trimmed = rawPath.trim();
-  const resolvedRoot = resolve(projectRoot);
-  const candidate = isAbsolute(trimmed) ? resolve(trimmed) : resolve(projectRoot, trimmed);
-  if (!candidate.startsWith(resolvedRoot + '/') && candidate !== resolvedRoot) {
-    return null;
-  }
-
-  const rel = relative(resolvedRoot, candidate).replace(/\\/g, '/');
-  if (!rel || rel.startsWith('..') || rel.includes('/../') || rel === '.') {
-    return null;
-  }
-
-  return rel;
 }
 
 function getFileMetadata(projectRoot: string, relPath: string): Pick<GeneratedFileRef, 'exists' | 'size' | 'modifiedAt'> {
@@ -126,17 +116,19 @@ function buildCardEvidence(projectRoot: string, card: CardRecord): CardEvidence 
   const seenPaths = new Set<string>();
   const artifactPaths: string[] = [];
 
-  function addPath(path: unknown, source: GeneratedFileRef['source'], extras: Omit<GeneratedFileRef, 'path' | 'source'> = {}): void {
-    const relPath = toProjectRelativePath(projectRoot, path);
+  function addPath(path: unknown, source: GeneratedFileRef['source'], extras: Omit<GeneratedFileRef, 'path' | 'source' | 'previewable' | 'downloadable' | 'blocked' | 'redactedOnly' | 'sensitivity'> = {}): void {
+    const relPath = toContainedRelativePath(projectRoot, path);
     if (!relPath || seenPaths.has(relPath)) {
       return;
     }
     seenPaths.add(relPath);
+    const classification = classifyGeneratedFilePath(relPath);
     generatedFiles.push({
       path: relPath,
       source,
       ...extras,
       ...getFileMetadata(projectRoot, relPath),
+      ...classification,
     });
   }
 
@@ -163,7 +155,7 @@ function buildCardEvidence(projectRoot: string, card: CardRecord): CardEvidence 
 
   const resultArtifactPaths = Array.isArray(result?.['artifact_paths']) ? result?.['artifact_paths'] as unknown[] : [];
   for (const path of resultArtifactPaths) {
-    const relPath = toProjectRelativePath(projectRoot, path);
+    const relPath = toContainedRelativePath(projectRoot, path);
     if (relPath && !artifactPaths.includes(relPath)) {
       artifactPaths.push(relPath);
     }
