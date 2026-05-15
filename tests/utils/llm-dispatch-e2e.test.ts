@@ -16,7 +16,7 @@
  * AC 6: All existing tests pass with zero regressions
  */
 
-import { describe, it, expect, afterAll } from '@jest/globals';
+import { describe, it, expect, afterEach } from '@jest/globals';
 import { createServer, type Server, type IncomingMessage, type ServerResponse } from 'node:http';
 import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -24,8 +24,6 @@ import { tmpdir } from 'node:os';
 import { randomBytes } from 'node:crypto';
 import { initProjectTree } from '../../src/utils/file-tree.js';
 import { ActiveRuntime } from '../../src/utils/active-runtime.js';
-
-// ── Types ─────────────────────────────────────────────────────
 
 interface CapturedRequest {
   body: string;
@@ -40,8 +38,6 @@ interface MockServerHandle {
   port: number;
   captures: CapturedRequest[];
 }
-
-// ── Mock Server Helper ────────────────────────────────────────
 
 function createMockLlmServer(
   responses: Array<{
@@ -97,8 +93,6 @@ function createMockLlmServer(
   });
 }
 
-// ── OpenAI-compatible Response Builder ────────────────────────
-
 function okResp(content: string, model = 'test-model'): string {
   return JSON.stringify({
     id: 'chatcmpl-e2e-test',
@@ -116,10 +110,7 @@ function okResp(content: string, model = 'test-model'): string {
   });
 }
 
-// ── Fixture JSON payloads ─────────────────────────────────────
-
 const PLANNER_RESPONSE_1 = JSON.stringify({
-  plan_card_id: 'plan-e2e-llm-goal',
   created_cards: [
     {
       id: 'code-e2e-llm-1',
@@ -142,15 +133,14 @@ const PLANNER_RESPONSE_1 = JSON.stringify({
     },
   ],
   updated_cards: [],
-  declare_done: false,
+  status: 'continue',
   summary: 'Created two cards for LLM dispatch',
 });
 
 const PLANNER_RESPONSE_2 = JSON.stringify({
-  plan_card_id: 'plan-e2e-llm-goal',
   created_cards: [],
   updated_cards: [],
-  declare_done: true,
+  status: 'done',
   summary: 'All work is complete, declaring done',
 });
 
@@ -182,8 +172,6 @@ const REVIEWER_RESPONSE = JSON.stringify({
   },
 });
 
-// ── Content ───────────────────────────────────────────────────
-
 const SKILL_CONTENT = `# E2E Skill
 This skill tests that skills are injected into system prompts during LLM dispatch.`;
 
@@ -192,8 +180,6 @@ These are the default instructions for all depth-0 planners wiring test.`;
 
 const CUSTOM_PLANNER_INSTRUCTIONS = `# Custom Goal Instructions
 These are per-goal instructions for depth > 0 goals.`;
-
-// ── Helpers ───────────────────────────────────────────────────
 
 function makeTempDir(): string {
   const dir = join(
@@ -234,6 +220,7 @@ function setupProject(projectRoot: string, mockPort: number): void {
           },
         },
         runtime: {
+          autoDispatchBacklog: false,
           recoveryDelayMs: 10,
           maxRecoveryRetries: 0,
         },
@@ -272,20 +259,35 @@ function setupProject(projectRoot: string, mockPort: number): void {
   );
 
   writeFileSync(
+    join(sd, 'instructions', 'executor.md'),
+    '# Executor Instructions\nExecutor default instructions for e2e tests.',
+    'utf-8',
+  );
+
+  writeFileSync(
+    join(sd, 'instructions', 'reviewer.md'),
+    '# Reviewer Instructions\nReviewer default instructions for e2e tests.',
+    'utf-8',
+  );
+
+  writeFileSync(
     join(projectRoot, 'e2e-custom-instructions.md'),
     CUSTOM_PLANNER_INSTRUCTIONS,
     'utf-8',
   );
 }
 
-// ── Test Suite ─────────────────────────────────────────────────
-
 describe('E2E LLM Dispatch Pipeline', () => {
   let tmpDir: string;
-  let mock: MockServerHandle;
+  let mock: MockServerHandle | null = null;
 
-  afterAll(() => {
+  afterEach(async () => {
+    if (mock) {
+      await new Promise<void>((resolve) => mock!.server.close(() => resolve()));
+      mock = null;
+    }
     if (tmpDir) cleanupDir(tmpDir);
+    tmpDir = '';
   });
 
   it('should dispatch a depth-1 goal with custom instructions_file through the full LLM pipeline', async () => {
@@ -335,13 +337,11 @@ describe('E2E LLM Dispatch Pipeline', () => {
     await activeRuntime.dispatchGoal('e2e-llm-goal');
     await activeRuntime.stop();
 
-    // AC 4: Goal completed
     expect(goalCompleted).toBe(true);
     const finalGoal = store.read('e2e-llm-goal');
     expect(finalGoal).not.toBeNull();
     expect(finalGoal!.status).toBe('done');
 
-    // Terminal cards created and executed
     const card1 = store.read('code-e2e-llm-1');
     expect(card1).not.toBeNull();
     expect(card1!.status).toBe('done');
@@ -350,10 +350,8 @@ describe('E2E LLM Dispatch Pipeline', () => {
     expect(card2).not.toBeNull();
     expect(card2!.status).toBe('done');
 
-    // AC 1: 5 requests (planner, exec1, exec2, planner2, reviewer)
     expect(mock.captures.length).toBe(5);
 
-    // AC 2: Each request hits the right endpoint
     for (const cap of mock.captures) {
       expect(cap.method).toBe('POST');
       expect(cap.url).toBe('/v1/chat/completions');
@@ -367,51 +365,41 @@ describe('E2E LLM Dispatch Pipeline', () => {
       expect(parsed.messages.length).toBeGreaterThan(0);
     }
 
-    // AC 3: System prompts include skills and instructions
-    // First planner request
     const plannerReq1 = JSON.parse(mock.captures[0].body);
     const systemMsg = plannerReq1.messages[0];
     expect(systemMsg.role).toBe('system');
 
-    // Skill block present
     expect(systemMsg.content).toContain('--- SKILL: e2e-test-skill ---');
     expect(systemMsg.content).toContain('--- END SKILL ---');
     expect(systemMsg.content).toContain(
       'This skill tests that skills are injected into system prompts',
     );
 
-    // Custom planner instructions (depth > 0 with instructions_file)
     expect(systemMsg.content).toContain('--- PLANNER INSTRUCTIONS ---');
     expect(systemMsg.content).toContain('--- END PLANNER INSTRUCTIONS ---');
     expect(systemMsg.content).toContain('Custom Goal Instructions');
     expect(systemMsg.content).toContain('per-goal instructions for depth > 0 goals');
-
-    // Default instructions should NOT be present
     expect(systemMsg.content).not.toContain('default instructions for all depth-0 planners');
 
-    // Second planner call also has skills and instructions
     const plannerReq2 = JSON.parse(mock.captures[3].body);
     const systemMsg2 = plannerReq2.messages[0];
     expect(systemMsg2.role).toBe('system');
     expect(systemMsg2.content).toContain('--- SKILL: e2e-test-skill ---');
     expect(systemMsg2.content).toContain('--- PLANNER INSTRUCTIONS ---');
+    expect(systemMsg2.content).toContain('Custom Goal Instructions');
+    expect(systemMsg2.content).not.toContain('default instructions for all depth-0 planners');
 
-    // Executor call has skills
     const execReq1 = JSON.parse(mock.captures[1].body);
     const execSysMsg = execReq1.messages[0];
     expect(execSysMsg.role).toBe('system');
+    expect(execSysMsg.content).toContain('Executor default instructions for e2e tests');
     expect(execSysMsg.content).toContain('--- SKILL: e2e-test-skill ---');
 
-    // Reviewer completes successfully — the mock server returned a valid
-    // reviewer response and it was parsed correctly. We don't assert skills
-    // on the reviewer call because the current invokeReviewer passes empty
-    // goalDescription/cardDescription, making keyword-triggered skills
-    // impossible to match for reviewers in the default path. The skill
-    // matching for reviewer should be addressed separately.
     const reviewerReq = JSON.parse(mock.captures[4].body);
     const revSysMsg = reviewerReq.messages[0];
     expect(revSysMsg.role).toBe('system');
-    // Reviewer response was parsed and goal completed — pipeline works
+    expect(revSysMsg.content).toContain('Reviewer default instructions for e2e tests');
+    expect(revSysMsg.content).toContain('--- SKILL: e2e-test-skill ---');
   });
 
   it('mock server should return valid OpenAI-compatible responses', async () => {
@@ -448,7 +436,7 @@ describe('E2E LLM Dispatch Pipeline', () => {
       const innerJson = JSON.parse(body.choices[0].message.content);
       expect(innerJson.created_cards).toBeDefined();
       expect(innerJson.created_cards).toHaveLength(2);
-      expect(innerJson.declare_done).toBe(false);
+      expect(innerJson.status).toBe('continue');
 
       expect(testMock.captures.length).toBe(1);
       expect(testMock.captures[0].method).toBe('POST');
@@ -477,7 +465,6 @@ describe('E2E LLM Dispatch Pipeline', () => {
       goalCompleted = true;
     });
 
-    // Dispatch the project card — it is depth 0
     await activeRuntime.dispatchGoal('project');
     await activeRuntime.stop();
 

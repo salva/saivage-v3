@@ -69,18 +69,19 @@ describe('CardDetailView generated file inspection', () => {
   it('shows blocked preview message', async () => {
     const pinia = createPinia();
     primeStore(pinia);
-    vi.mocked(getFileContent).mockRejectedValue(new ApiError(403, 'blocked'));
+    vi.mocked(getFileContent).mockReturnValue(Promise.reject(new ApiError(403, 'blocked')) as ReturnType<typeof getFileContent>);
     const wrapper = mount(CardDetailView, { props: { cardId: 'card-1' }, global: { plugins: [pinia] } });
     await flushPromises();
     await wrapper.findAll('.generated-file-row')[1].trigger('click');
     await flushPromises();
+    expect(getFileContent).toHaveBeenCalledWith('.saivage/auth-profiles.json');
     expect(wrapper.text()).toContain('Preview blocked by file-access security.');
   });
 
   it('shows missing preview message', async () => {
     const pinia = createPinia();
     primeStore(pinia);
-    vi.mocked(getFileContent).mockRejectedValue(new ApiError(404, 'missing'));
+    vi.mocked(getFileContent).mockReturnValue(Promise.reject(new ApiError(404, 'missing')) as ReturnType<typeof getFileContent>);
     const wrapper = mount(CardDetailView, { props: { cardId: 'card-1' }, global: { plugins: [pinia] } });
     await flushPromises();
     await wrapper.findAll('.generated-file-row')[0].trigger('click');

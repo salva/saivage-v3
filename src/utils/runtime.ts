@@ -707,6 +707,15 @@ export class Runtime extends EventEmitter {
   }
 
   emitAgentEvent(name: string, data: Record<string, unknown>): void {
+    if (name === 'session_started' && typeof data.session_id === 'string') {
+      try {
+        updateRuntimeState(this.projectRoot, {
+          current_agent_session_id: data.session_id,
+        });
+      } catch {
+        // Best effort
+      }
+    }
     this.emit(name, data);
   }
 
