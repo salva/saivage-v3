@@ -83,6 +83,11 @@ const outputStreams = new Map<
  */
 const pendingStreamCloses = new Map<string, number>();
 
+/**
+ * Track stream flush completion promises so waiters can observe durable output.
+ */
+const streamCloseWaiters = new Map<string, Promise<void>>();
+
 // ── Helpers ───────────────────────────────────────────────────
 
 function generateId(): string {
@@ -126,15 +131,36 @@ function resolveStatus(proc: ChildProcess): ProcessStatus {
 
 function resolveExitCode(proc: ChildProcess): number | null {
   if (proc.exitCode !== null) return proc.exitCode;
-  if (proc.signalCode !== null) return null; // killed by signal, no exit code
+  if (proc.signalCode !== null) return null;
   return null;
+}
+
+function signalProcessTree(child: ChildProcess, signal: NodeJS.Signals): boolean {
+  if (!child.pid) return false;
+  try {
+    process.kill(-child.pid, signal);
+    return true;
+  } catch {
+    try {
+      return child.kill(signal);
+    } catch {
+      return false;
+    }
+  }
+}
+
+async function waitForDurableOutput(procId: string): Promise<void> {
+  const waiter = streamCloseWaiters.get(procId);
+  if (!waiter) return;
+  try {
+    await waiter;
+  } catch {
+    // Best effort only; callers still get process status even if flush tracking fails.
+  }
 }
 
 // ── Registry Persistence ──────────────────────────────────────
 
-/**
- * Load the process registry from disk.
- */
 export function loadRegistry(projectRoot: string): Map<string, ProcessRecord> {
   const rp = registryPath(projectRoot);
   if (!existsSync(rp)) {
@@ -159,10 +185,6 @@ export function loadRegistry(projectRoot: string): Map<string, ProcessRecord> {
   return map;
 }
 
-/**
- * Save the process registry to disk atomically.
- * Validates each record with Zod before writing.
- */
 export function saveRegistry(projectRoot: string, records: ProcessRecord[]): void {
   for (const rec of records) {
     const parsed = processRecordSchema.safeParse(rec);
@@ -199,9 +221,6 @@ function openOutputStreams(dir: string): {
   const stderr = createWriteStream(join(dir, 'stderr.log'), { flags: 'a' });
   const combined = createWriteStream(join(dir, 'combined.log'), { flags: 'a' });
 
-  // Suppress unhandled 'error' events: if the temp dir is cleaned up
-  // before the streams are fully closed (e.g., during test teardown),
-  // the resulting ENOENT on write/close would otherwise crash the process.
   for (const stream of [stdout, stderr, combined]) {
     stream.on('error', () => {});
   }
@@ -209,13 +228,6 @@ function openOutputStreams(dir: string): {
   return { stdout, stderr, combined };
 }
 
-/**
- * Close all output streams and return a Promise that resolves when
- * all streams have been fully flushed and closed (their 'close' event fires).
- *
- * This prevents the race condition where tests read output files before
- * the write buffer has been flushed to disk.
- */
 function closeAllStreams(procId: string): Promise<void> {
   const streams = outputStreams.get(procId);
   if (!streams) return Promise.resolve();
@@ -229,6 +241,7 @@ function closeAllStreams(procId: string): Promise<void> {
       new Promise<void>((resolve) => {
         stream.on('close', () => resolve());
         const safety = setTimeout(() => resolve(), 5000);
+        safety.unref();
         stream.on('close', () => clearTimeout(safety));
         try {
           stream.end();
@@ -243,27 +256,27 @@ function closeAllStreams(procId: string): Promise<void> {
 }
 
 function finalizeProcess(procId: string): void {
-  // Fire-and-forget: close streams asynchronously
-  closeAllStreams(procId).catch(() => {});
+  const child = activeProcesses.get(procId);
+  if (child) {
+    child.stdout?.destroy();
+    child.stderr?.destroy();
+    child.stdin?.destroy();
+  }
+  const closePromise = closeAllStreams(procId).finally(() => {
+    streamCloseWaiters.delete(procId);
+  });
+  streamCloseWaiters.set(procId, closePromise);
   activeProcesses.delete(procId);
   pendingStreamCloses.delete(procId);
 }
 
 // ── Public API: startProcess ──────────────────────────────────
 
-/**
- * Spawn a child process, writing stdout/stderr/combined to files under
- * .saivage-work/processes/<proc-id>/.
- *
- * Throws an Error if the command string is empty, since an empty command
- * produces an invalid ProcessRecord (Zod requires command length >= 1).
- */
 export function startProcess(
   projectRoot: string,
   command: string,
   options: ProcessStartOptions,
 ): ProcessRecord {
-  // Validate command upfront — empty string produces invalid ProcessRecord
   if (!command || command.length === 0) {
     throw new Error('command must not be empty');
   }
@@ -277,7 +290,6 @@ export function startProcess(
   const combinedLogPath = join(dir, 'combined.log');
 
   const streams = openOutputStreams(dir);
-  // Track pending stream ends: stdout + stderr = 2
   pendingStreamCloses.set(id, 2);
 
   const childEnv = {
@@ -291,17 +303,15 @@ export function startProcess(
     cwd,
     env: childEnv,
     stdio: ['ignore', 'pipe', 'pipe'],
-    detached: false,
+    detached: true,
   });
 
-  // Pipe stdout
   if (child.stdout) {
     child.stdout.pipe(streams.stdout);
     child.stdout.pipe(streams.combined, { end: false });
     child.stdout.on('end', () => onStreamEnd(id));
   }
 
-  // Pipe stderr
   if (child.stderr) {
     child.stderr.pipe(streams.stderr);
     child.stderr.pipe(streams.combined, { end: false });
@@ -335,13 +345,11 @@ export function startProcess(
     launch_reason: options.launchReason ?? null,
     owner_kind: options.ownerKind ?? null,
     background_policy: options.backgroundPolicy ?? null,
-    process_group_id: null,
+    process_group_id: child.pid ?? null,
   };
 
-  // Persist immediately
   upsertRegistryRecord(projectRoot, record);
 
-  // Handle process exit
   child.on('exit', (exitCode, signalCode) => {
     const finalStatus: ProcessStatus =
       signalCode === 'SIGKILL' || signalCode === 'SIGTERM'
@@ -357,32 +365,29 @@ export function startProcess(
       completed_at: now(),
     };
 
-    // Update registry synchronously
     try {
       upsertRegistryRecord(projectRoot, updatedRecord);
-    } catch { /* best effort */ }
+    } catch {}
 
-    // If no streams to wait for, clean up
     const pending = pendingStreamCloses.get(id);
     if (pending !== undefined && pending <= 0) {
       finalizeProcess(id);
     }
 
-    // Safety timeout: force cleanup after 5 seconds
-    setTimeout(() => {
+    const cleanupTimer = setTimeout(() => {
       if (activeProcesses.has(id) || outputStreams.has(id)) {
         finalizeProcess(id);
       }
     }, 5000);
+    cleanupTimer.unref();
   });
 
-  // Handle spawn errors
   child.on('error', (err) => {
     const errorMsg = `[process-runner] spawn error: ${err.message}\n`;
     try {
       streams.stderr.write(errorMsg);
       streams.combined.write(errorMsg);
-    } catch { /* ignore */ }
+    } catch {}
 
     const updatedRecord: ProcessRecord = {
       ...record,
@@ -395,13 +400,12 @@ export function startProcess(
 
     try {
       upsertRegistryRecord(projectRoot, updatedRecord);
-    } catch { /* best effort */ }
+    } catch {}
   });
 
   return record;
 }
 
-/** Called when a single stdout or stderr stream ends. */
 function onStreamEnd(procId: string): void {
   const current = pendingStreamCloses.get(procId);
   if (current === undefined) return;
@@ -416,11 +420,6 @@ function onStreamEnd(procId: string): void {
 
 // ── Public API: waitProcess ───────────────────────────────────
 
-/**
- * Wait for a process to exit, with an optional timeout.
- *
- * CRITICAL: A timed-out wait does NOT kill the process.
- */
 export function waitProcess(
   projectRoot: string,
   procId: string,
@@ -444,24 +443,28 @@ export function waitProcess(
         return;
       }
 
-      resolve({
-        id: procId,
-        status: record.status,
-        exitCode: record.exit_code ?? null,
-        timedOut: false,
-        waitDurationMs: Date.now() - waitStart,
+      void waitForDurableOutput(procId).finally(() => {
+        resolve({
+          id: procId,
+          status: record.status,
+          exitCode: record.exit_code ?? null,
+          timedOut: false,
+          waitDurationMs: Date.now() - waitStart,
+        });
       });
       return;
     }
 
     const currentStatus = resolveStatus(child);
     if (currentStatus !== 'running') {
-      resolve({
-        id: procId,
-        status: currentStatus,
-        exitCode: resolveExitCode(child),
-        timedOut: false,
-        waitDurationMs: Date.now() - waitStart,
+      void waitForDurableOutput(procId).finally(() => {
+        resolve({
+          id: procId,
+          status: currentStatus,
+          exitCode: resolveExitCode(child),
+          timedOut: false,
+          waitDurationMs: Date.now() - waitStart,
+        });
       });
       return;
     }
@@ -491,12 +494,14 @@ export function waitProcess(
           waitDurationMs: Date.now() - waitStart,
         });
       } else {
-        resolve({
-          id: procId,
-          status: resolveStatus(child),
-          exitCode: resolveExitCode(child),
-          timedOut: false,
-          waitDurationMs: Date.now() - waitStart,
+        void waitForDurableOutput(procId).finally(() => {
+          resolve({
+            id: procId,
+            status: resolveStatus(child),
+            exitCode: resolveExitCode(child),
+            timedOut: false,
+            waitDurationMs: Date.now() - waitStart,
+          });
         });
       }
     };
@@ -576,7 +581,7 @@ export async function killProcess(
     throw new Error(`Process '${procId}' not found in registry.`);
   }
 
-  const killed = child.kill('SIGTERM');
+  const killed = signalProcessTree(child, 'SIGTERM');
   if (!killed) {
     throw new Error(`Failed to send SIGTERM to process '${procId}'.`);
   }
@@ -584,14 +589,13 @@ export async function killProcess(
   const waitResult = await waitProcess(projectRoot, procId, graceMs);
 
   if (waitResult.timedOut || waitResult.status === 'running') {
-    const forcedKill = child.kill('SIGKILL');
+    const forcedKill = signalProcessTree(child, 'SIGKILL');
     if (!forcedKill) {
       throw new Error(`Failed to send SIGKILL to process '${procId}'.`);
     }
     await waitProcess(projectRoot, procId, 2000);
   }
 
-  // Allow microtask tick for exit handler to flush registry
   await new Promise((r) => setTimeout(r, 50));
 
   const registry = loadRegistry(projectRoot);
@@ -612,7 +616,6 @@ export function listProcesses(
   const registry = loadRegistry(projectRoot);
   const records = Array.from(registry.values());
 
-  // Merge in-memory state
   for (const [procId, child] of activeProcesses) {
     const memStatus = resolveStatus(child);
     if (memStatus !== 'running') continue;
@@ -699,7 +702,7 @@ export async function killAllRunning(projectRoot: string): Promise<string[]> {
       try {
         child.kill('SIGKILL');
         killedIds.push(procId);
-      } catch { /* ignore */ }
+      } catch {}
     }
   }
 
