@@ -44,6 +44,7 @@ import type { ProcessRecord } from '../schemas/types.js';
 import { EventLogger } from './event-logger.js';
 import { ErrorLogger } from './error-logger.js';
 import { EventBus } from './event-bus.js';
+import { PlannerControlService } from './planner-control.js';
 import {
   StuckAgentSupervisor,
   DEFAULT_SUPERVISOR_CONFIG,
@@ -61,6 +62,7 @@ export interface RuntimeConfig {
   errorLogger?: ErrorLogger;
   maxGoalDepth?: number;
   supervisorConfig?: Partial<SupervisorConfig>;
+  autoDispatchBacklog?: boolean;
   continuousImprovement?: boolean;
 }
 
@@ -190,6 +192,7 @@ export class Runtime extends EventEmitter {
   readonly cardStore: CardStore;
   readonly agentRuntime: AgentRuntime;
   readonly eventBus: EventBus;
+  readonly plannerControl: PlannerControlService;
 
   private _status: RuntimeStatus = 'idle';
   private _paused: boolean = false;
@@ -203,6 +206,7 @@ export class Runtime extends EventEmitter {
   readonly runningProcesses: Set<string> = new Set();
   private _supervisor: StuckAgentSupervisor;
   private _continuousImprovement: boolean;
+  private _autoDispatchBacklog: boolean;
   private _improvementDispatchInProgress: boolean = false;
 
   constructor(config: RuntimeConfig, agentRuntime?: AgentRuntime) {
@@ -212,7 +216,9 @@ export class Runtime extends EventEmitter {
     this.agentRuntime = agentRuntime ?? new FakeAgentAdapter(config.fakeAgentConfig);
     this._skillsEngine = config.skillsEngine ?? new SkillsEngine({ projectRoot: config.projectRoot });
     this.eventBus = new EventBus();
+    this.plannerControl = new PlannerControlService(config.projectRoot);
     this._continuousImprovement = config.continuousImprovement ?? false;
+    this._autoDispatchBacklog = config.autoDispatchBacklog ?? false;
 
     if (config.eventLogger) {
       this._eventLogger = config.eventLogger;
@@ -429,6 +435,9 @@ export class Runtime extends EventEmitter {
     });
 
     this._supervisor.start();
+    if (this._autoDispatchBacklog) {
+      void this._autoDispatchFirstBacklogGoal();
+    }
     void this._checkContinuousImprovement();
   }
 
@@ -767,7 +776,7 @@ export class Runtime extends EventEmitter {
     let planCard: CardRecord;
     try {
       const result = this.cardStore.activateGoal(goalId);
-      planCard = result.plan;
+      planCard = result.goal;
       updateRuntimeState(this.projectRoot, {
         status: 'running',
         current_card_id: goalId,
@@ -790,6 +799,8 @@ export class Runtime extends EventEmitter {
       return;
     }
 
+    const plannerScope = goalId === 'project' ? 'project' : 'goal';
+    let plannerFrame = this.plannerControl.ensureFrame(planCard.id, plannerScope);
     let plannerDone = false;
     const MAX_ITERATIONS = 50;
 
@@ -804,6 +815,10 @@ export class Runtime extends EventEmitter {
         updateRuntimeState(this.projectRoot, { status: 'paused' });
         return;
       }
+
+      plannerFrame = this.plannerControl.updateFrame(plannerFrame.frame_id, {
+        status: 'running',
+      });
 
       let plannerResult: PlannerResult;
       try {
@@ -837,10 +852,13 @@ export class Runtime extends EventEmitter {
           // use plain prompt
         }
 
-        const result = this.agentRuntime.invokePlanner(goalId, planCard.id, plannerPrompt);
+        const result = this.agentRuntime.invokePlanner(goalId, plannerPrompt);
         plannerResult = result instanceof Promise ? await result : result;
       } catch (err) {
         const errorMessage = err instanceof Error ? err.message : String(err);
+        this.plannerControl.updateFrame(plannerFrame.frame_id, {
+          status: 'failed',
+        });
         this.emit('error', { goalId, phase: 'planner', error: err });
         this._eventLogger.appendEvent({
           kind: 'error',
@@ -863,10 +881,11 @@ export class Runtime extends EventEmitter {
         queue: this.getReadyQueue(goalId).map((c) => c.id),
       });
 
-      if (plannerResult.declare_done) {
-        plannerDone = true;
-      } else {
-        await this.executeReadyCards(goalId);
+      const execution = await this.executeReadyCards(goalId, plannerFrame, plannerScope);
+      plannerFrame = this.plannerControl.readFrame(plannerFrame.frame_id) ?? plannerFrame;
+
+      if (execution.failed) {
+        plannerDone = false;
       }
 
       if (this._shuttingDown) break;
@@ -876,12 +895,86 @@ export class Runtime extends EventEmitter {
         return;
       }
 
+      const hasUnfinishedChildWork = this.cardStore
+        .list()
+        .some((card) => card.parent === goalId && card.status !== 'done' && card.status !== 'failed' && card.status !== 'cancelled');
+      const hasGoalDispatch = execution.dispatchedGoal;
+      const hasTerminalDispatchOnly = execution.executedTerminal && !execution.dispatchedGoal && !execution.failed;
+      const createdCardIds = (plannerResult.created_cards ?? [])
+        .map((card) => card.id)
+        .filter((id): id is string => Boolean(id));
+
+      if (plannerResult.status === 'blocked') {
+        this.cardStore.setStatus(goalId, 'running');
+        this.cardStore.setStatus(goalId, 'blocked');
+        this.cardStore.update(goalId, {
+          result: {
+            ...(this.cardStore.read(goalId)?.result ?? {}),
+            planning: {
+              status: 'blocked',
+              blocked_reason: plannerResult.blocked_reason ?? null,
+              created_cards: createdCardIds,
+            },
+          },
+        });
+        this.plannerControl.updateFrame(plannerFrame.frame_id, {
+          status: 'blocked',
+        });
+        updateRuntimeState(this.projectRoot, {
+          status: 'idle',
+          current_card_id: null,
+          current_agent_session_id: null,
+          queue: [],
+        });
+        return;
+      }
+
+      if (
+        plannerResult.status === 'done' &&
+        !hasGoalDispatch &&
+        (!hasUnfinishedChildWork || hasTerminalDispatchOnly || createdCardIds.length === 0)
+      ) {
+        plannerDone = true;
+      } else {
+        plannerDone = false;
+        this.cardStore.update(goalId, {
+          result: {
+            ...(this.cardStore.read(goalId)?.result ?? {}),
+            planning: {
+              status: 'continue',
+              planner_declared_done: plannerResult.status === 'done',
+              has_unfinished_child_work: hasUnfinishedChildWork,
+              resume_reason: hasGoalDispatch ? 'dispatch_completed' : 'review_completed',
+              created_cards: createdCardIds,
+            },
+          },
+        });
+      }
+
       if (plannerDone) {
         const reviewResult = await this.invokeReviewer(goalId, planCard.id);
 
         if (reviewResult.assessment.result === 'pass') {
-          this.cardStore.setStatus(goalId, 'running');
-          this.cardStore.setStatus(goalId, 'done');
+          if (this.cardStore.read(goalId)?.status !== 'done') {
+            this.cardStore.setStatus(goalId, 'running');
+            this.cardStore.setStatus(goalId, 'done');
+          }
+          this.cardStore.update(goalId, {
+            result: {
+              ...(this.cardStore.read(goalId)?.result ?? {}),
+              planning: {
+                status: 'done',
+                created_cards: [],
+                review_summary: reviewResult.assessment.summary,
+              },
+            },
+          });
+          this.plannerControl.updateFrame(plannerFrame.frame_id, {
+            status: 'completed',
+            resume_reason: 'review_completed',
+            waiting_on_dispatch_ids: [],
+            last_resume_cursor: now(),
+          });
           updateRuntimeState(this.projectRoot, {
             status: 'idle',
             current_card_id: null,
@@ -902,6 +995,10 @@ export class Runtime extends EventEmitter {
           return;
         } else {
           plannerDone = false;
+          this.plannerControl.updateFrame(plannerFrame.frame_id, {
+            status: 'resumable',
+            resume_reason: 'review_completed',
+          });
           this.emit('review_failed', {
             goalId,
             assessment: reviewResult.assessment,
@@ -921,15 +1018,83 @@ export class Runtime extends EventEmitter {
     }
   }
 
-  private async executeReadyCards(goalId: string): Promise<void> {
-    let readyCards = this.getReadyQueue(goalId);
+  private async executeReadyCards(
+    goalId: string,
+    plannerFrame?: { frame_id: string },
+    plannerScope?: 'project' | 'goal',
+  ): Promise<{ dispatchedGoal: boolean; executedTerminal: boolean; failed: boolean }> {
+    const getReadyDispatchCards = (): CardRecord[] => {
+      const allCards = this.cardStore.list();
+      const terminalReady = this.getReadyQueue(goalId);
+      const directReadyGoals = this.cardStore.listChildren(goalId)
+        .map((id) => this.cardStore.read(id))
+        .filter((card): card is CardRecord => {
+          if (!card || card.type !== 'goal') return false;
+          if (card.status !== 'backlog' && card.status !== 'active') return false;
+          return card.depends_on.every((depId) => {
+            const dep = allCards.find((candidate) => candidate.id === depId);
+            return dep?.status === 'done';
+          });
+        });
+      return [...directReadyGoals, ...terminalReady].sort((a, b) => {
+        if (a.depends_on.length !== b.depends_on.length) return a.depends_on.length - b.depends_on.length;
+        if (a.priority !== b.priority) return a.priority - b.priority;
+        return a.created_at.localeCompare(b.created_at);
+      });
+    };
+
+    let readyCards = getReadyDispatchCards();
     const goalCard = this.cardStore.read(goalId);
+    let dispatchedGoal = false;
+    let executedTerminal = false;
+    let failed = false;
 
     while (readyCards.length > 0 && !this._shuttingDown) {
-      if (this._paused) return;
+      if (this._paused) return { dispatchedGoal, executedTerminal, failed };
 
       for (const card of readyCards) {
-        if (this._shuttingDown || this._paused) return;
+        if (this._shuttingDown || this._paused) return { dispatchedGoal, executedTerminal, failed };
+
+        if (!plannerFrame || !plannerScope) {
+          throw new Error('Planner control frame is required to execute ready cards.');
+        }
+
+        const dispatch = this.plannerControl.createDispatch({
+          parentFrameId: plannerFrame.frame_id,
+          parentCardId: goalId,
+          targetCardId: card.id,
+          targetKind: card.type === 'goal' ? 'goal' : 'terminal_card',
+          requestedByScope: plannerScope,
+          idempotencyKey: `${goalId}:${card.id}:dispatch`,
+        });
+        this.plannerControl.markDispatchRunning(dispatch.dispatch_id);
+
+        if (card.type === 'goal') {
+          await this.dispatchGoal(card.id);
+          const completedCard = this.cardStore.read(card.id);
+          const outcome = completedCard?.status === 'done'
+            ? 'done'
+            : completedCard?.status === 'blocked'
+              ? 'blocked'
+              : completedCard?.status === 'cancelled'
+                ? 'cancelled'
+                : 'failed';
+          this.plannerControl.markDispatchCompleted(dispatch.dispatch_id, outcome === 'done' ? 'completed' : outcome, {
+            outcome,
+            summary: `Child goal ${card.id} finished with status ${completedCard?.status ?? 'unknown'}.`,
+            child_result: completedCard?.result ?? null,
+            review: null,
+            artifacts: completedCard?.artifacts ?? [],
+            attachments: completedCard?.attachments ?? [],
+            evidence_card_ids: completedCard ? [card.id, ...this.cardStore.getDescendantIds(card.id)] : [card.id],
+            error: completedCard?.error ?? null,
+          });
+          dispatchedGoal = true;
+          if (outcome !== 'done') {
+            return { dispatchedGoal, executedTerminal, failed };
+          }
+          continue;
+        }
 
         if (card.status === 'backlog') {
           this.cardStore.setStatus(card.id, 'active');
@@ -982,9 +1147,20 @@ export class Runtime extends EventEmitter {
             phase: 'executor',
           });
           this.cardStore.setStatus(card.id, 'failed');
+          this.plannerControl.markDispatchCompleted(dispatch.dispatch_id, 'failed', {
+            outcome: 'failed',
+            summary: `Terminal card ${card.id} execution failed before producing a result.`,
+            child_result: null,
+            review: null,
+            artifacts: [],
+            attachments: [],
+            evidence_card_ids: [card.id],
+            error: errorMessage,
+          });
           this.emit('card_failed', { cardId: card.id, goalId });
           this._eventLogger.appendEvent({ kind: 'card_failed', card_id: card.id, goal_id: goalId });
-          return;
+          failed = true;
+          return { dispatchedGoal, executedTerminal, failed };
         }
 
         this.cardStore.update(card.id, {
@@ -1063,17 +1239,33 @@ export class Runtime extends EventEmitter {
           }
         }
 
+        executedTerminal = true;
+        const completedCard = this.cardStore.read(card.id);
+        const outcome = execResult.status === 'done' ? 'done' : 'failed';
+        this.plannerControl.markDispatchCompleted(dispatch.dispatch_id, outcome === 'done' ? 'completed' : outcome, {
+          outcome,
+          summary: `Terminal card ${card.id} finished with status ${execResult.status}.`,
+          child_result: execResult.result ?? null,
+          review: null,
+          artifacts: completedCard?.artifacts ?? [],
+          attachments: completedCard?.attachments ?? [],
+          evidence_card_ids: [card.id],
+          error: execResult.error ?? null,
+        });
+
         if (execResult.status === 'failed') {
           this.emit('card_failed', { cardId: card.id, goalId });
           this._eventLogger.appendEvent({ kind: 'card_failed', card_id: card.id, goal_id: goalId });
-          return;
+          failed = true;
+          return { dispatchedGoal, executedTerminal, failed };
         }
       }
 
-      readyCards = this.getReadyQueue(goalId);
+      readyCards = getReadyDispatchCards();
     }
-  }
 
+    return { dispatchedGoal, executedTerminal, failed };
+  }
   async invokeReviewer(
     goalId: string,
     planCardId: string,
@@ -1105,7 +1297,7 @@ export class Runtime extends EventEmitter {
       // ignore
     }
 
-    const result = await this.agentRuntime.invokeReviewer(goalId, planCardId, reviewerPrompt);
+    const result = await this.agentRuntime.invokeReviewer(goalId, reviewerPrompt);
     this.emit('review_complete', {
       goalId,
       assessment: result.assessment,
@@ -1183,6 +1375,21 @@ export class Runtime extends EventEmitter {
     return readRuntimeState(this.projectRoot);
   }
 
+  private async _autoDispatchFirstBacklogGoal(): Promise<void> {
+    const nextGoal = this.cardStore
+      .list()
+      .filter((card) => card.type === 'goal' && card.parent === 'project' && card.status === 'backlog')
+      .sort((a, b) => a.priority - b.priority)[0];
+
+    if (!nextGoal || this._paused || this._shuttingDown) return;
+
+    try {
+      await this.dispatchGoal(nextGoal.id);
+    } catch {
+      // best effort auto-dispatch
+    }
+  }
+
   private async _checkContinuousImprovement(): Promise<void> {
     if (!this._continuousImprovement) return;
     if (this._paused) return;
@@ -1229,9 +1436,9 @@ export class Runtime extends EventEmitter {
       const plannerPrompt = buildPlannerPrompt(promptContent, currentDepth, maxDepth);
 
       const planCardResult = this.cardStore.activateGoal('project');
-      const planCardId = planCardResult.plan.id;
+      const planCardId = planCardResult.goal.id;
 
-      const result = this.agentRuntime.invokePlanner('project', planCardId, plannerPrompt);
+      const result = this.agentRuntime.invokePlanner('project', plannerPrompt);
       const plannerResult = result instanceof Promise ? await result : result;
 
       this.applyPlannerResult('project', plannerResult);

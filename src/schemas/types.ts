@@ -3,7 +3,6 @@
 export type CardType =
   | 'project'
   | 'goal'
-  | 'plan'
   | 'architecture'
   | 'code'
   | 'test'
@@ -79,6 +78,51 @@ export interface CardRecord {
   retries: number;
 }
 
+export type PlannerFrameStatus = 'running' | 'suspended' | 'resumable' | 'completed' | 'blocked' | 'failed';
+export type PlannerResumeReason = 'dispatch_completed' | 'review_completed' | 'operator_unblocked' | 'none';
+export type PlannerDispatchStatus = 'queued' | 'running' | 'completed' | 'failed' | 'blocked' | 'cancelled' | 'timed_out';
+
+export interface PlannerFrameRecord {
+  frame_id: string;
+  planner_card_id: string;
+  planner_role: 'planner';
+  planner_scope: 'project' | 'goal';
+  status: PlannerFrameStatus;
+  resume_reason: PlannerResumeReason;
+  waiting_on_dispatch_ids: string[];
+  last_resume_cursor: string | null;
+  last_dispatch_id: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface PlannerDispatchCompletion {
+  outcome: 'done' | 'failed' | 'blocked' | 'cancelled' | 'timed_out';
+  summary: string;
+  child_result: Record<string, unknown> | null;
+  review: ReviewAssessment | null;
+  artifacts: ArtifactRef[];
+  attachments: AttachmentRef[];
+  evidence_card_ids: string[];
+  error: string | null;
+}
+
+export interface PlannerDispatchRecord {
+  dispatch_id: string;
+  parent_frame_id: string;
+  parent_card_id: string;
+  target_card_id: string;
+  target_kind: 'goal' | 'terminal_card';
+  requested_by_role: 'planner';
+  requested_by_scope: 'project' | 'goal';
+  status: PlannerDispatchStatus;
+  completion: PlannerDispatchCompletion | null;
+  idempotency_key: string;
+  created_at: string;
+  started_at: string | null;
+  completed_at: string | null;
+}
+
 // ── Project Configuration ────────────────────────────────────
 
 export interface ProjectConfig {
@@ -93,7 +137,7 @@ export interface ProjectConfig {
   updated_at: string;
 }
 
-// ── Plan Diary ───────────────────────────────────────────────
+// ── Goal Diary ───────────────────────────────────────────────
 
 export type DiaryKind =
   | 'planner_invocation'
@@ -104,7 +148,7 @@ export type DiaryKind =
 
 export interface DiaryEntry {
   id: string;
-  plan_card_id: string;
+  goal_card_id: string;
   invocation_id: string;
   kind: DiaryKind;
   timestamp: string;
@@ -123,7 +167,6 @@ export interface DiaryEntry {
 export interface ReviewAssessment {
   id: string;
   goal_card_id: string;
-  plan_card_id: string;
   reviewer_session_id: string;
   result: 'pass' | 'fail';
   summary: string;
@@ -169,24 +212,15 @@ export interface ProcessRecord {
   stdout_path: string;
   stderr_path: string;
   combined_log_path: string;
-  /** Agent session ID that launched this process (null if launched outside an agent context) */
   agent_session_id?: string | null;
-  /** Goal ID associated with this process */
   goal_id?: string | null;
-  /** Human-readable reason this process was launched */
   launch_reason?: string | null;
-  /** Who/what owns this process: 'agent', 'operator', 'runtime', or null */
   owner_kind?: 'agent' | 'operator' | 'runtime' | null;
-  /** Background execution policy: 'foreground', 'background_required', 'background_optional', 'detach', 'kill_on_freeze', or null */
   background_policy?: 'foreground' | 'background_required' | 'background_optional' | 'detach' | 'kill_on_freeze' | null;
-  /** Numeric process group ID for grouping related processes */
   process_group_id?: number | null;
 }
 
-// ── Agent Session & Messages ─────────────────────────────────
-
 export type AgentRole = 'analyst' | 'planner' | 'executor' | 'reviewer' | 'content_supervisor';
-
 export type SessionStatus = 'active' | 'done' | 'failed';
 
 export interface AgentSession {
@@ -201,7 +235,6 @@ export interface AgentSession {
 }
 
 export type MessageRole = 'user' | 'assistant' | 'system' | 'tool';
-
 export type MessageKind =
   | 'text'
   | 'activity'
@@ -225,11 +258,10 @@ export interface AgentMessage {
   kind: MessageKind;
   content: string;
   tool?: string;
+  tool_call_id?: string;
   timestamp: string;
   links?: EntityLink[];
 }
-
-// ── Runtime State ────────────────────────────────────────────
 
 export type RuntimeStatus = 'idle' | 'running' | 'paused' | 'error' | 'frozen';
 
@@ -275,16 +307,11 @@ export interface RuntimeState {
   queue: string[];
   running_processes: string[];
   updated_at: string;
-  /** Reason for freeze, populated when status is 'frozen' from the freeze manifest. */
   frozen_reason?: string | null;
 }
 
-// ── Content Supervision ──────────────────────────────────────
-
 export type SourceKind = 'command_output' | 'file' | 'download' | 'web' | 'api' | 'tool';
-
 export type ReviewStatus = 'passed' | 'blocked' | 'sanitized';
-
 export type RiskLevel = 'low' | 'medium' | 'high';
 
 export interface ContentReview {
@@ -307,31 +334,23 @@ export interface QuarantineItem {
   created_at: string;
 }
 
-// ── Doctor Diagnostics (API response types) ──────────────────
-
-/** A single doctor diagnostic check result. */
 export interface DoctorCheck {
   name: string;
   passed: boolean;
   details?: string;
 }
 
-/** A single issue found by the doctor. */
 export interface DoctorIssue {
   severity: 'error' | 'warning';
   message: string;
 }
 
-/** Response shape for GET /api/debug/doctor. */
 export interface DoctorResponse {
   status: 'ok' | 'issues_found';
   checks: DoctorCheck[];
   issues: DoctorIssue[];
 }
 
-// ── Supervision API Response Types ───────────────────────────
-
-/** Public summary entry for a quarantined item (internal fields like stored_path excluded). */
 export interface QuarantineSummaryEntry {
   quarantine_id: string;
   review_id: string;
@@ -340,7 +359,6 @@ export interface QuarantineSummaryEntry {
   created_at: string;
 }
 
-/** Aggregated supervision statistics. */
 export interface SupervisionStats {
   total: number;
   blocked: number;
@@ -350,14 +368,11 @@ export interface SupervisionStats {
   bySourceKind: Record<string, number>;
 }
 
-/** Response shape for GET /api/debug/supervision. */
 export interface SupervisionResponse {
   reviews: ContentReview[];
   quarantine: QuarantineSummaryEntry[];
   stats: SupervisionStats;
 }
-
-// ── Skills ───────────────────────────────────────────────────
 
 export type TriggerType = 'keyword' | 'tool' | 'path' | 'tag';
 
@@ -373,8 +388,6 @@ export interface SkillIndexEntry {
   triggers: SkillTrigger[];
   updated_at: string;
 }
-
-// ── Runtime Events ────────────────────────────────────────────
 
 export type RuntimeEventKind =
   | 'started'
@@ -477,7 +490,6 @@ export interface EscalationEvent extends BaseEvent {
 export interface PlanUpdatedEvent extends BaseEvent {
   kind: 'plan_updated';
   goal_id: string;
-  plan_card_id?: string;
   changes?: string[];
 }
 
@@ -500,8 +512,6 @@ export interface ErrorEvent extends BaseEvent {
   phase?: string;
   error_message: string;
 }
-
-// ── Stuck Agent Supervisor Events ─────────────────────────────
 
 export interface StuckSupervisorStartedEvent extends BaseEvent {
   kind: 'stuck_supervisor_started';
@@ -538,8 +548,6 @@ export interface ForceCancelSentEvent extends BaseEvent {
   target_session_id: string;
   reason: string;
 }
-
-// ── Agent Events ──────────────────────────────────────────────
 
 export interface SessionStartedEvent extends BaseEvent {
   kind: 'session_started';
