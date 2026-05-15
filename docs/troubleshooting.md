@@ -1,200 +1,168 @@
-# Saivage v3 — Troubleshooting Guide
+# Saivage v3 — Troubleshooting
 
-Common issues and their solutions.
+Use this guide for current source-verified failure modes and operator-visible states.
 
-## Server Won't Start
+## Unauthorized API or WebSocket access
 
-### Port Conflict
+### Symptoms
 
-**Symptom:** `EADDRINUSE` error on startup.
+- `401 Unauthorized` from `/api/*`
+- UI shows unauthorized or no-token state
+- WebSocket does not connect
 
-**Solution:**
+### What to check
+
+1. Confirm the server token is configured:
+   ```bash
+   echo "$SAIVAGE_API_TOKEN"
+   ```
+2. Confirm the client is sending either:
+   - `Authorization: Bearer <token>`
+   - `?token=<token>`
+3. Confirm `/health` works without auth.
+4. Confirm `/docs/` is still reachable publicly.
+
+### Notes
+
+Docs and health are public surfaces. Unauthorized API access does not imply the server is fully down.
+
+## Runtime shows `frozen`
+
+### Symptoms
+
+- `/health` returns `runtime: "frozen"`
+- runtime status remains frozen after maintenance
+
+### Recovery
+
+Inspect current status:
+
 ```bash
-# Check what's using the port
-lsof -i :8080
-
-# Change the port in .saivage/saivage.json
-# {
-#   "server": { "port": 3000 }
-# }
+curl http://localhost:8080/health
+curl -H "Authorization: Bearer $SAIVAGE_API_TOKEN" http://localhost:8080/api/runtime/status
 ```
 
-### Missing Config File
+Resume from freeze:
 
-**Symptom:** `Configuration not found at /path/.saivage/saivage.json`
-
-**Solution:** Create `.saivage/saivage.json` with at minimum a `server` section:
-```json
-{
-  "server": { "host": "0.0.0.0", "port": 8080 }
-}
+```bash
+curl -X POST http://localhost:8080/api/runtime/resume-from-freeze \
+  -H "Authorization: Bearer $SAIVAGE_API_TOKEN"
 ```
 
-### Invalid Config JSON
+If no freeze manifest exists, the server returns a client error rather than guessing a restore path.
 
-**Symptom:** `Failed to parse saivage.json: ...`
+## Runtime is degraded or in `error`
 
-**Solution:** Validate the JSON with `node -e "JSON.parse(require('fs').readFileSync('.saivage/saivage.json','utf-8'))"` or `cat .saivage/saivage.json | python3 -m json.tool`.
+### Symptoms
 
-### Config Validation Failure
+- `/health` reports `error`
+- Dashboard shows degraded runtime messaging
+- work stops advancing
 
-**Symptom:** `Configuration validation failed: ...`
+### What to do
 
-**Solution:** The error message includes the path and issue (e.g., `server.port: Expected number, received string`). Fix the field in `.saivage/saivage.json`.
+1. Open Debug or query:
+   ```bash
+   curl -H "Authorization: Bearer $SAIVAGE_API_TOKEN" http://localhost:8080/api/debug/errors
+   curl -H "Authorization: Bearer $SAIVAGE_API_TOKEN" http://localhost:8080/api/debug/timeline
+   curl -H "Authorization: Bearer $SAIVAGE_API_TOKEN" http://localhost:8080/api/debug/doctor
+   ```
+2. Check current card and queue state.
+3. Inspect affected card detail evidence and failed agent sessions.
+4. Pause or freeze before manual repair if state is still changing.
 
-### Stale Runtime Lock
+## UI is stale, reconnecting, or offline
 
-**Symptom:** `Runtime lock is held by PID 12345 (started ...). Cannot acquire lock.`
+### Symptoms
 
-**Solution:** If PID 12345 is no longer running (verify with `ps aux | grep 12345`), remove the lock:
+- stale banner or stale status
+- reconnecting indicator
+- live updates stop
+
+### What to know
+
+REST fetches are authoritative after reload or reconnect. WebSocket events are an acceleration path, not the only truth source.
+
+### What to do
+
+1. Refresh the current view.
+2. Recheck `/health`.
+3. Verify the API token if the state became unauthorized.
+4. Use Debug to inspect recent events or process state.
+
+## Generated file preview is blocked or redacted
+
+### Symptoms
+
+- card detail says preview blocked
+- Files view returns 403
+- preview shows `[REDACTED]`
+
+### Expected causes
+
+- blocked sensitive file such as `.saivage/auth-profiles.json`
+- redacted-only file such as `.saivage/saivage.json`
+- containment violation
+- oversized file
+- binary file
+
+### What to do
+
+- treat blocked/redacted states as expected safety behavior first;
+- inspect file metadata in card detail or Files view;
+- avoid bypassing the API unless you are in a controlled maintenance or forensic workflow.
+
+## File preview says file not found
+
+A file may have been recorded as evidence but later removed from the workspace.
+
+Check the card detail evidence list first, then verify whether the file still exists inside the project tree.
+
+## Process details look incomplete
+
+### Symptoms
+
+- `cwd` is `null`
+- log refs are `null`
+- command text is redacted
+
+### Explanation
+
+Process APIs intentionally expose safe `ProcessView` data only. Absolute paths outside containment and secret-bearing command strings are suppressed or redacted.
+
+This is expected behavior, not necessarily a process registry failure.
+
+## Docs do not load under `/docs/`
+
+### Symptoms
+
+- `/docs/` returns 404 with a docs-not-built message
+
+### What to do
+
+Build or verify docs:
+
 ```bash
-rm .saivage-work/tmp/runtime/runtime.lock
-```
-Then restart. Locks older than 14 days are automatically treated as stale.
-
-### Missing API Token
-
-**Symptom:** Server starts but all `/api/*` requests return `401 Unauthorized`.
-
-**Solution:** Either:
-1. Set `SAIVAGE_API_TOKEN` when starting the server, or
-2. If you intentionally want open access, leave `SAIVAGE_API_TOKEN` unset (the server runs with no auth).
-
----
-
-## API Returns 401
-
-**Symptom:** `{"error":"Unauthorized","statusCode":401}`
-
-**Solution:**
-1. Verify `SAIVAGE_API_TOKEN` is set in the server's environment.
-2. Verify you're sending the correct token in the `Authorization: Bearer <token>` header.
-3. If using query parameter, ensure `?token=<value>` matches exactly.
-4. The `/health` endpoint does not require auth — test it first to confirm the server is running.
-
----
-
-## Health Endpoint Shows Unexpected Runtime Status
-
-**Symptom:** `/health` returns `runtime: "idle"` but you expect `running`.
-
-**Solution:** The health endpoint reads from `.saivage/runtime/state.json`. Check the file directly:
-```bash
-cat .saivage/runtime/state.json
-```
-If the file is stale or doesn't exist, the `/health` endpoint returns `"unknown"`. This is expected behavior — the health endpoint reports truthfully what's on disk, not a guess.
-
----
-
-## Card Operations Fail
-
-**Symptom:** `POST /api/cards` returns `400` with a validation message.
-
-**Solution:** Check the card fields:
-- `type` must be a valid card type (`architecture`, `code`, `test`, `doc`, `data`, `research`, `ops`, `plan`, `project`).
-- `parent` must be an existing card ID if provided.
-- Plan cards (`type: "plan"`) cannot be created without a parent.
-
-### Card Not Found
-
-**Symptom:** `{"error":"Card not found","cardId":"..."}`
-
-**Solution:** List all cards to verify the ID:
-```bash
-curl -H "Authorization: Bearer token" http://localhost:8080/api/cards
-```
-
-### Card Store Integrity
-
-If card operations fail unexpectedly, check the card store files:
-```bash
-ls .saivage/cards/by-id/
-cat .saivage/cards/index.json
-```
-Verify that every card referenced in the index has a corresponding file under `by-id/`.
-
----
-
-## Agent Produces No Output
-
-**Symptom:** Cards stuck in `running` or `active` status, no agent output.
-
-**Solutions:**
-1. **Check model configuration**: Verify the model names in `models` match what's in `providers`. Model strings should be provider-specific.
-2. **Check provider API keys**: If using `${ENV_VAR}` references, verify the environment variable is set in the server's environment.
-3. **Check network**: The server needs outbound HTTPS access to LLM provider APIs.
-4. **Check logs**: Look for API error responses in the server's stdout logs.
-5. **Check debug state**: `GET /api/debug/state` shows current card statuses and execution state.
-
----
-
-## MCP Servers Fail to Start
-
-**Symptom:** `MCP manager initialization failed (continuing without MCP): ...`
-
-**Solutions:**
-1. **Check command path**: The `command` field in `mcpServers.<name>` must be an executable on the server's PATH or an absolute path.
-2. **Check transport type**: Must be `"stdio"` or `"sse"`.
-3. **Check environment**: Use the `env` field to pass needed environment variables.
-4. **Check MCP status**: `GET /api/mcp/status` shows which servers are running and their statuses.
-5. **Disable problematic servers**: Set `"disabled": true` on a server to prevent startup.
-
----
-
-## Telegram Bot Doesn't Respond
-
-**Symptom:** Bot starts but doesn't respond to messages.
-
-**Solutions:**
-1. **Check bot token**: Verify the `botToken` is correct and not expired.
-2. **Check allowed user IDs**: If `allowedUserIds` is set, only those users can interact with the bot. Add your user ID to the list.
-3. **Check network**: The bot uses long polling — outbound HTTPS to `api.telegram.org` is required.
-4. **Check logs**: Look for Telegram API errors in the server stdout.
-
----
-
-## WebSocket Disconnects
-
-**Symptom:** WebSocket connection drops frequently.
-
-**Solutions:**
-1. **Check auth**: WebSocket connections require authentication (same token as API). Include `?token=<value>` in the WebSocket URL.
-2. **Check network stability**: WebSocket connections expect a stable connection. Proxy servers with short idle timeouts may drop them.
-3. **Check server logs**: Look for WebSocket-related errors.
-
----
-
-## Large Files Can't Be Read via API
-
-**Symptom:** `GET /api/files/content?path=largefile.log` returns `413`.
-
-**Solution:** The file content API has a 1 MB limit (`MAX_FILE_SIZE_BYTES = 1_048_576`). For larger files, read them directly from the filesystem:
-```bash
-cat .saivage-work/tmp/processes/<procId>/output.txt
+npm run docs:verify
 ```
 
----
+If you only want the VitePress build itself:
 
-## UI / Control-Room Incidents
-
-When the web control room (dashboard, cards, agents, files, or debug views)
-behaves unexpectedly — blank pages, stale data, broken navigation — verify the
-web frontend independently from the running server with these root-level
-commands. They exercise the SPA, stores, and views without requiring a running
-server.
-
-**Fast type-check first (catches import/typo breakage):**
 ```bash
-npm run typecheck       # root TypeScript
-npm run web:typecheck   # web/ TypeScript
+npm run docs:build
 ```
 
-**Quick aggregate sweep (stores + all five control-room views):**
+## Control-room regression checks
+
+When a UI problem is suspected, use the scoped web verification commands first:
+
 ```bash
+npm run web:typecheck
 npm run web:test:sweep
 ```
 
-**Individual views** (target a specific failing area):
+Focused suites:
+
 ```bash
 npm run web:test:dashboardview
 npm run web:test:cardsview
@@ -203,87 +171,17 @@ npm run web:test:filesview
 npm run web:test:debugview
 ```
 
-**Individual stores** (runtime, cards, agents, files, MCP, WebSocket):
-```bash
-npm run web:test:stores
-```
+## Server starts without auth but is not reachable remotely
 
-**Full sweep including card-burst stress test:**
-```bash
-npm run web:test:sweep:full
-```
+If `SAIVAGE_API_TOKEN` is unset, Saivage only permits tokenless startup on localhost-style bindings. Bind to localhost for development or configure a token for non-localhost use.
 
-Run these before chasing server-side issues — many "control room down"
-incidents are actually front-end regressions that these commands catch in
-seconds.
+## When direct file edits are justified
 
----
+Direct edits to `.saivage/` should be a controlled last resort. Prefer:
 
-## Config Changes Don't Take Effect
+1. API status checks
+2. Debug routes
+3. UI evidence and process inspection
+4. pause/freeze before mutation
 
-**Symptom:** Updated `.saivage/saivage.json` but changes aren't reflected.
-
-**Solution:** Most configuration is loaded at server startup and cached in memory. Restart the server for changes to take effect:
-```bash
-# Stop (Ctrl+C), then start again
-SAIVAGE_API_TOKEN=your-token node dist/src/server/server.js
-```
-
-Exception: The `/api/runtime/pause` and `/api/runtime/resume` endpoints change runtime state at runtime — these don't require restart.
-
----
-
-## Runtime Stuck After Crash
-
-**Symptom:** Server won't start after a crash, lock-related error.
-
-**Solution:**
-```bash
-# 1. Verify the process is truly dead
-ps aux | grep saivage
-
-# 2. If dead, remove the stale lock
-rm .saivage-work/tmp/runtime/runtime.lock
-
-# 3. Restart (crash recovery will run automatically)
-SAIVAGE_API_TOKEN=your-token node dist/src/server/server.js
-```
-
----
-
-## Where to Find Logs
-
-| Log Type | Location |
-|---|---|
-| Server logs | stdout (pino JSON or pretty-printed) |
-| Process output | `.saivage-work/tmp/processes/<procId>/` |
-| Error log | `.saivage/runtime/errors.jsonl` |
-| Event timeline | `.saivage/runtime/events.jsonl` |
-| Content reviews | `.saivage/supervision/reviews.jsonl` |
-
-### Increasing Log Verbosity
-
-```bash
-LOG_LEVEL=debug SAIVAGE_API_TOKEN=test node dist/src/server/server.js
-```
-
-For trace-level (very verbose):
-```bash
-LOG_LEVEL=trace NODE_ENV=development SAIVAGE_API_TOKEN=test node dist/src/server/server.js
-```
-
----
-
-## File Access Security Issues
-
-### auth-profiles.json Blocked
-
-**Symptom:** `GET /api/files/content?path=.saivage/auth-profiles.json` returns `403`.
-
-**Solution:** This is by design. `auth-profiles.json` contains OAuth credentials and is blocked from all API read access. Access it directly on the filesystem if needed (with appropriate filesystem permissions).
-
-### saivage.json Secrets Redacted
-
-**Symptom:** `GET /api/config` shows `"[REDACTED]"` for API key values.
-
-**Solution:** This is by design. The config API redacts literal secret values. Use environment variable references (`${ENV_VAR}`) for secrets so they are never in the config file as plaintext. The API serves redacted config to prevent secret leakage.
+Only edit state files directly after you have stabilized the runtime and identified a concrete repair need.

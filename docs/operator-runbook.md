@@ -1,284 +1,252 @@
 # Saivage v3 — Operator Runbook
 
-A concise runbook for operators managing a Saivage v3 instance in production.
+This runbook is the current operator workflow guide for the Web Control Room and runtime recovery.
 
-## Daily Operations
+## 1. Open the system safely
 
-### Check Runtime Health
+### Public surfaces
+
+These remain available without API auth:
+
+- `/health`
+- `/`
+- `/docs/`
+
+### Protected surfaces
+
+When `SAIVAGE_API_TOKEN` is configured, `/api/*` and `/ws` require the token.
+
+In the Web Control Room:
+
+- use the token control when API requests are unauthorized;
+- the Docs link remains usable even if API auth is missing.
+
+## 2. Read health before changing state
+
+Quick checks:
 
 ```bash
 curl http://localhost:8080/health
+curl -H "Authorization: Bearer $SAIVAGE_API_TOKEN" http://localhost:8080/api/runtime/status
 ```
 
-Expected: HTTP 200 with `status: "ok"` and `runtime` reporting `idle`, `running`, or `paused`. Investigate if `runtime` is `"error"` or `"unknown"`.
+Interpret runtime states conservatively:
 
-### Check Running State
+- `unknown` — runtime state is missing or unreadable
+- `idle` — no active dispatch is running
+- `running` — active dispatch or goal work is in progress
+- `paused` — new dispatch is paused
+- `frozen` — operator freeze/handoff state is recorded
+- `error` — degraded or failed runtime state needs attention
 
-```bash
-curl -H "Authorization: Bearer $SAIVAGE_API_TOKEN" http://localhost:8080/api/state
-```
+## 3. Use the Web Control Room by workflow
 
-Review:
-- `runtime.status` — should not be stuck in `running` for extended periods without progress.
-- `cardIndex.total` — growing without corresponding `done` cards may indicate a loop.
-- `cardIndex.byStatus` — large numbers in `active`/`running` without progress suggest a problem.
+### Dashboard
 
-### Review Recent Errors
-
-```bash
-curl -H "Authorization: Bearer $SAIVAGE_API_TOKEN" http://localhost:8080/api/debug/errors
-```
+Use Dashboard as the operating picture.
 
 Look for:
-- Repeated API failures to model providers.
-- MCP server crashes.
-- Card store integrity errors.
 
-### Review Event Timeline
+- runtime summary and current state
+- queue and activity context where shown
+- analyst chat state
+- degraded or unauthorized banners
 
-```bash
-curl -H "Authorization: Bearer $SAIVAGE_API_TOKEN" http://localhost:8080/api/debug/timeline
-```
+Expected UI states include:
 
-Shows recent runtime events: goal starts, card transitions, agent invocations, errors.
+- connected/live
+- reconnecting
+- unauthorized
+- no-token
+- stale
+- degraded
 
-### Local Verification Commands
+These states are intentional signals. They are not success states.
 
-When investigating control room issues or verifying the codebase after changes, the following root-level npm scripts provide focused web verification without running the full backend test suite:
+### Cards and card detail
 
-```bash
-# Full web SPA sweep (all view suites + all store suites)
-npm run web:test:sweep
+Use Cards to:
 
-# All control room view suites (no store tests)
-npm run web:test:control-room
+- browse by status or type;
+- open card detail;
+- inspect parent/child context where shown;
+- identify blocked, failed, or stale work.
 
-# Focused view suites (run individually during incident triage)
-npm run web:test:debugview      # Debug view + supervision tab
-npm run web:test:cardsview      # Cards management view
-npm run web:test:agentsview     # Agent sessions view
-npm run web:test:filesview      # Files browser view
-npm run web:test:dashboardview  # Dashboard overview
+Use **card detail** for evidence review. This is the supported surface for:
 
-# TypeScript typecheck (catches type errors without running tests)
-npm run web:typecheck
-```
+- generated file metadata
+- verification commands
+- tool errors
+- parse-failure context
 
-These commands exercise the Web Control Room SPA without touching backend agent logic, the Telegram polling test suite, or MCP integration tests. Use `web:test:sweep` for a comprehensive check and the focused view suites for triaging specific UI areas.
+Do not use an empty queue alone as evidence that planning is complete.
 
-## Incident Response
+### Generated files and evidence
 
-### 1. Server Not Responding
+When reviewing generated files in card detail, expect one of these outcomes:
 
-**Checklist:**
+- previewable text file
+- redacted-only preview
+- blocked preview
+- missing file
+- binary or unpreviewable file
 
-```bash
-# Is the process running?
-ps aux | grep saivage
+Examples:
 
-# Is the port open?
-lsof -i :8080
-# or
-ss -tlnp | grep 8080
+- `.saivage/auth-profiles.json` is blocked
+- `.saivage/saivage.json` is redacted-only
 
-# Check the lock file
-cat .saivage-work/tmp/runtime/runtime.lock
+### Agents
 
-# Check recent logs (if logging to file)
-journalctl -u saivage --since "5 minutes ago"
-```
+Use Agents to inspect planner, executor, reviewer, and analyst sessions.
 
-**If process is dead:**
-1. Check for stale lock: if PID in lock file doesn't match any running process, remove the lock.
-2. Restart: `SAIVAGE_API_TOKEN=... node dist/src/server/server.js`.
-3. Crash recovery resets stuck cards automatically.
+Operators should be able to:
 
-**If process is alive but not responding:**
-1. Check system resource usage (CPU, memory).
-2. Check for infinite loops or runaway processes.
-3. Send `SIGTERM` for graceful shutdown, wait 30 seconds, then `SIGKILL` if needed.
-4. Restart.
+- find running or failed sessions
+- open a conversation
+- inspect linked cards, files, and process context
+- distinguish model/tool failure from successful completion
 
-### 2. Runtime Stuck or Paused Unexpectedly
+Conversation links may route to:
 
-**Check state:**
+- card detail
+- Files view
+- Debug process context
 
-```bash
-curl -H "Authorization: Bearer $SAIVAGE_API_TOKEN" http://localhost:8080/api/debug/state
-```
+### Files
 
-**If paused:**
-```bash
-curl -X POST http://localhost:8080/api/runtime/resume \
-  -H "Authorization: Bearer $SAIVAGE_API_TOKEN"
-```
+Use Files for contained project browsing and safe text preview.
 
-**If running but stuck:**
-1. Check `.saivage/runtime/state.json` for `current_card_id`.
-2. Check the card's status and result:
-   ```bash
-   curl -H "Authorization: Bearer $SAIVAGE_API_TOKEN" \
-     http://localhost:8080/api/cards/<card-id>
-   ```
-3. If the card has `error` set, fix the underlying issue and reset the card to `backlog`:
-   ```bash
-   curl -X PATCH http://localhost:8080/api/cards/<card-id> \
-     -H "Authorization: Bearer $SAIVAGE_API_TOKEN" \
-     -H "Content-Type: application/json" \
-     -d '{"status":"backlog"}'
-   ```
+Operators should expect explicit states for:
 
-**If stale lock prevents restart:**
-```bash
-# Verify PID is dead
-cat .saivage-work/tmp/runtime/runtime.lock
-# → {"pid":12345,"started_at":"..."}
-ps aux | grep 12345
+- unauthorized API access
+- blocked preview
+- not found
+- binary/unpreviewable content
+- redacted content
 
-# If PID is dead, remove lock
-rm .saivage-work/tmp/runtime/runtime.lock
-```
+Prefer Files or card-detail evidence links over raw filesystem inspection during routine operations.
 
-### 3. Card Corruption or Inconsistency
+### Debug
 
-**Check integrity:**
+Use Debug for recovery and diagnostics:
+
+- runtime state
+- recent errors
+- event timeline
+- doctor checks
+- supervision and quarantine information
+- MCP status/tools
+- processes
+
+If the UI reports degraded, frozen, stale, or repeated agent failures, Debug is the first operator destination.
+
+### Docs
+
+Docs are public and separately served under `/docs/` when built. They remain available even if the API token is missing or invalid.
+
+## 4. Runtime control procedures
+
+### Pause before low-risk maintenance
 
 ```bash
-# List all cards
-curl -H "Authorization: Bearer $SAIVAGE_API_TOKEN" http://localhost:8080/api/cards
-
-# Check a specific card
-curl -H "Authorization: Bearer $SAIVAGE_API_TOKEN" \
-  http://localhost:8080/api/cards/<card-id>
-```
-
-**Manual repair:**
-
-Card files are stored under `.saivage/cards/by-id/<card-id>.json`. The index is at `.saivage/cards/index.json`. To fix a card:
-
-1. Stop the server.
-2. Edit the card's JSON file directly:
-   ```bash
-   nano .saivage/cards/by-id/<card-id>.json
-   ```
-3. Fix the `status` field or other corrupted data.
-4. Restart the server.
-
-**After repair:**
-```bash
-curl -H "Authorization: Bearer $SAIVAGE_API_TOKEN" http://localhost:8080/api/state
-```
-
-### 4. Security Incident (Suspected Injection)
-
-**Immediate steps:**
-
-1. **Check quarantine:**
-   ```bash
-   ls .saivage-work/quarantine/
-   ```
-   Each subdirectory is a quarantined content item. Check `meta.json` for the reason and source.
-
-2. **Review supervision logs:**
-   ```bash
-   cat .saivage/supervision/reviews.jsonl | tail -20
-   ```
-
-3. **Review quarantine index:**
-   ```bash
-   cat .saivage/supervision/quarantine-index.json
-   ```
-
-4. **Disable external content sources if needed:**
-   - Set MCP servers to `"disabled": true` in `.saivage/saivage.json`.
-   - Restart the server.
-
-5. **Review agent conversations for signs of compromise:**
-   ```bash
-   ls .saivage/agents/sessions/
-   ls .saivage/agents/messages/
-   ```
-
-### 5. Model Provider Outage
-
-**Symptom:** Cards stuck, error logs showing API failures to a provider.
-
-**Response:**
-1. Check `/api/debug/errors` for the specific error.
-2. If a provider is down, configure an alternative provider in `.saivage/saivage.json`:
-   - Add a new provider entry or account.
-   - Update `failover` chains to route around the down provider.
-3. Restart the server.
-4. Reset stuck cards to `backlog`.
-
-## Backup Procedure
-
-```bash
-# 1. Pause if you want a consistent snapshot
 curl -X POST http://localhost:8080/api/runtime/pause \
   -H "Authorization: Bearer $SAIVAGE_API_TOKEN"
-
-# 2. Copy persistent state
-cp -a .saivage .saivage-backup-$(date +%Y%m%d)
-
-# 3. Optionally copy work outputs
-cp -a .saivage-work .saivage-work-backup-$(date +%Y%m%d)
-
-# 4. Resume
-curl -X POST http://localhost:8080/api/runtime/resume \
-  -H "Authorization: Bearer $SAIVAGE_API_TOKEN"
 ```
 
-> **Note:** `.saivage/saivage.json` may contain plaintext API keys. Store backups securely!
+Use pause when you want to stop new dispatch without creating a freeze handoff.
 
-## Recovery from Backup
+### Freeze before handoff or disruptive maintenance
 
 ```bash
-# 1. Stop the server (Ctrl+C or kill)
+curl -X POST http://localhost:8080/api/runtime/freeze \
+  -H "Authorization: Bearer $SAIVAGE_API_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"reason":"operator handoff"}'
+```
 
-# 2. Restore
-rm -rf .saivage
-cp -a .saivage-backup-20260510 .saivage
+Use freeze when you want a recorded handoff manifest and a clear `frozen` state.
 
-# 3. Start server
-SAIVAGE_API_TOKEN=your-token node dist/src/server/server.js &
+### Resume from freeze
 
-# 4. Verify
-curl http://localhost:8080/health
-curl -H "Authorization: Bearer $SAIVAGE_API_TOKEN" http://localhost:8080/api/state
-
-# 5. Resume if needed
-curl -X POST http://localhost:8080/api/runtime/resume \
+```bash
+curl -X POST http://localhost:8080/api/runtime/resume-from-freeze \
   -H "Authorization: Bearer $SAIVAGE_API_TOKEN"
 ```
 
-## Quick Reference: Key Endpoints
+Resume from freeze restores queue and process references from the freeze manifest when present.
 
-| Endpoint | Method | Auth | Purpose |
-|---|---|---|---|
-| `/health` | GET | No | Health check |
-| `/api/state` | GET | Yes | Runtime state + card index |
-| `/api/cards` | GET/POST | Yes | List/create cards |
-| `/api/cards/:id` | GET/PATCH/DELETE | Yes | Read/update/delete a card |
-| `/api/config` | GET | Yes | Config (secrets redacted) |
-| `/api/providers` | GET | Yes | Provider status summary |
-| `/api/runtime/pause` | POST | Yes | Pause dispatch |
-| `/api/runtime/resume` | POST | Yes | Resume dispatch |
-| `/api/debug/state` | GET | Yes | Full debug state dump |
-| `/api/debug/errors` | GET | Yes | Recent error log |
-| `/api/debug/timeline` | GET | Yes | Event timeline |
-| `/api/chats` | GET | Yes | List chat sessions |
-| `/api/chats/:id` | GET/POST | Yes | Read/post chat messages |
-| `/api/files` | GET | Yes | List directory |
-| `/api/files/content` | GET | Yes | Read file (blocked/redacted) |
-| `/api/notes` | GET/DELETE | Yes | List/clear notes |
-| `/api/mcp/status` | GET | Yes | MCP server statuses |
-| `/api/agents/:id/conversation` | GET | Yes | Agent session + messages |
+## 5. Degraded-state workflow
 
-## Environment Variables
+If runtime or UI state is degraded:
 
-| Variable | Required | Default | Description |
-|---|---|---|---|
-| `SAIVAGE_API_TOKEN` | For production | (none) | API auth token. If unset, no auth required. |
-| `LOG_LEVEL` | No | `info` | Pino log level: `trace`, `debug`, `info`, `warn`, `error` |
-| `NODE_ENV` | No | — | Set to `development` for pretty-printed logs |
+1. Check `/health`.
+2. Check `/api/runtime/status`.
+3. Open Debug and inspect errors, timeline, doctor, supervision, and processes.
+4. Open affected card detail or agent conversation for evidence.
+5. Pause or freeze before manual intervention if state is still mutating.
+6. Only then consider direct filesystem inspection.
+
+## 6. Unauthorized, stale, and offline workflow
+
+### Unauthorized
+
+- verify `SAIVAGE_API_TOKEN` on the server;
+- re-enter the token in the UI;
+- confirm `/health` still works publicly;
+- confirm Docs remain reachable under `/docs/`.
+
+### Stale or reconnecting
+
+- refresh the relevant view;
+- treat REST reload as authoritative after reconnect;
+- use Debug if stale or reconnecting state persists.
+
+### Offline
+
+- verify the server process and port binding;
+- verify docs and SPA serving separately from API runtime state;
+- use process inspection and logs if the server is up but runtime is not advancing.
+
+## 7. Safe process inspection
+
+Inspect processes through Debug or process APIs rather than raw registry files.
+
+Expect process views to show:
+
+- redacted commands
+- contained relative cwd/log refs
+- whether logs are viewable
+- whether a running process is terminable
+
+Do not treat the process API as a general shell interface.
+
+## 8. Local verification commands
+
+```bash
+npm run docs:verify
+npm run web:typecheck
+npm run web:test:sweep
+npm run typecheck
+```
+
+Focused web checks:
+
+```bash
+npm run web:test:dashboardview
+npm run web:test:cardsview
+npm run web:test:agentsview
+npm run web:test:filesview
+npm run web:test:debugview
+```
+
+## 9. When manual filesystem access is justified
+
+Manual `.saivage/` or `.saivage-work/` inspection is a fallback, not the normal workflow.
+
+Use it only when:
+
+- the server is unavailable,
+- the Debug/API surfaces are degraded or insufficient,
+- you are performing controlled repair after pausing or freezing,
+- you need direct backup or forensic capture.

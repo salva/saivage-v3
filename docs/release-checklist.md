@@ -1,197 +1,84 @@
 # Saivage v3 — Release Checklist
 
-A step-by-step checklist for preparing a release candidate.
+Use this checklist to verify a release candidate against the current repaired system rather than against historical plans.
 
-## Pre-Release Verification
+## Documentation gates
 
-### Automated Checks
+- [ ] Active docs reflect current source and tests.
+- [ ] No active doc presents historical generated plans or remediation notes as current authority.
+- [ ] `docs/documentation-inventory.md` is updated when doc scope changes.
+- [ ] Historical material is either excluded from active guidance or clearly labeled via [Historical Artifacts](/historical-artifacts).
+- [ ] `README.md` links to current docs, not obsolete design-era references.
 
-- [ ] **All tests pass**
+## Documentation build and verification
+
+- [ ] Run docs verification:
   ```bash
-  npm test
+  npm run docs:verify
   ```
-  Expected: all suites pass, output shows `Tests: N passed, N total`.
+- [ ] If needed, run the raw VitePress build separately:
+  ```bash
+  npm run docs:build
+  ```
+- [ ] Confirm `/docs/` serves built docs in a running server build.
 
-- [ ] **TypeScript typecheck passes**
+## Core checks
+
+- [ ] TypeScript typecheck passes:
   ```bash
   npm run typecheck
   ```
-  Expected: no output (zero errors, zero warnings).
-
-- [ ] **Web UI typecheck passes**
+- [ ] Web typecheck passes:
   ```bash
   npm run web:typecheck
   ```
-  Expected: no output (zero errors, zero warnings). Runs `tsc --noEmit` in the `web/` SPA sub-project.
-
-- [ ] **Web UI tests pass**
+- [ ] Web sweep passes:
   ```bash
   npm run web:test:sweep
   ```
-  Expected: all view suites and store suites pass. This is the primary web SPA verification sweep. See `package.json` for focused suites (e.g. `web:test:debugview`, `web:test:stores`) when iterating on a single area.
-
-- [ ] **Lint passes**
+- [ ] Test suite passes at the chosen release scope:
   ```bash
-  npm run lint
-  ```
-  Expected: no output (zero errors, zero warnings).
-
-- [ ] **Format check passes** (if configured)
-  ```bash
-  npm run format
-  ```
-  Expected: no output (all files match prettier config).
-
-### Security Review
-
-- [ ] **No secrets leaked in API responses**
-  ```bash
-  # Verify auth-profiles.json is blocked
-  curl -sv http://localhost:8080/api/files/content?path=.saivage/auth-profiles.json 2>&1 | grep "403"
-
-  # Verify saivage.json secrets are redacted
-  curl -H "Authorization: Bearer $SAIVAGE_API_TOKEN" http://localhost:8080/api/config | grep -c "REDACTED"
-  ```
-  The config API must NOT return literal API keys — only `[REDACTED]` placeholders or `${ENV_VAR}` references.
-
-- [ ] **Auth token is set in environment for production**
-  ```bash
-  echo $SAIVAGE_API_TOKEN
-  ```
-  Must not be empty. A production server with no token runs in open mode.
-
-- [ ] **Path traversal protection verified**
-  ```bash
-  # Should return 403
-  curl "http://localhost:8080/api/files/content?path=../etc/passwd"
-  curl "http://localhost:8080/api/files/content?path=.saivage/../etc/passwd"
+  npm test
   ```
 
-- [ ] **Content supervisor can be enabled**
-  Verify `security.injectionScanner` in `.saivage/saivage.json` is `true` for production.
+## Security and containment checks
 
-- [ ] **WebSocket rejects unauthenticated connections**
-  Attempt a WebSocket connection without a token — the upgrade must be rejected.
+- [ ] `/health` is public and reports runtime from the configured project root.
+- [ ] `/api/*` is token-protected when `SAIVAGE_API_TOKEN` is configured.
+- [ ] `/ws` rejects unauthorized connections when auth is enabled.
+- [ ] `.saivage/auth-profiles.json` is blocked from file preview.
+- [ ] `.saivage/saivage.json` is redacted rather than exposing literal secrets.
+- [ ] path traversal attempts are rejected by file APIs.
+- [ ] process views expose safe redacted metadata rather than raw registry internals.
 
-### Documentation Check
+## Operator workflow checks
 
-- [ ] **INSTALL.md** is up to date with current prerequisites and steps.
-- [ ] **CONFIGURATION.md** reflects the actual config schema (verify against `src/agents/config-schema.ts`).
-- [ ] **OPERATION.md** covers start/stop, runtime states, backup, and recovery.
-- [ ] **TROUBLESHOOTING.md** covers known issues with real error messages.
-- [ ] **RELEASE-CHECKLIST.md** (this file) is current.
-- [ ] **OPERATOR-RUNBOOK.md** covers daily operations and incident response.
-- [ ] **README.md** links to all docs in `docs/`.
+- [ ] Dashboard shows meaningful unauthorized, reconnecting, stale, and degraded states.
+- [ ] Cards detail exposes generated-file evidence and verification-command inspection.
+- [ ] Agents view supports conversation inspection and linked-entity navigation.
+- [ ] Files view surfaces blocked, missing, redacted, and unauthorized states intentionally.
+- [ ] Debug exposes state, events, errors, supervision, MCP, and process diagnostics.
+- [ ] Docs nav is visible from the control room and does not require API auth.
 
-## Build and Packaging
+## Runtime control checks
 
-- [ ] **Root build succeeds**
+- [ ] Pause and resume behave as documented.
+- [ ] Freeze records a freeze state and reason.
+- [ ] `resume-from-freeze` restores from a valid manifest.
+- [ ] Operators are not forced to infer completion from empty queues alone.
+
+## Build and serving
+
+- [ ] Root build succeeds:
   ```bash
   npm run build
   ```
-  Check that `dist/`, `docs/.vitepress/dist/`, and `web/dist/` are populated.
+- [ ] SPA serves from `/`.
+- [ ] Docs serve from `/docs/`.
+- [ ] Built artifacts are not committed unintentionally.
 
-- [ ] **No stale state in the repository**
-  ```bash
-  git status
-  ```
-  Ensure `.saivage/` and `.saivage-work/` are in `.gitignore` and not committed. No generated build output should be committed unless explicitly intended.
+## Final sign-off
 
-- [ ] **Package dependencies are clean**
-  ```bash
-  npm ls --depth=0
-  ```
-  No extraneous or missing dependencies.
-
-## Clean Checkout Test
-
-Perform this on a fresh clone to simulate a new user's experience:
-
-- [ ] **Clone to a fresh directory**
-  ```bash
-  git clone <repo> /tmp/saivage-test
-  cd /tmp/saivage-test
-  ```
-
-- [ ] **npm install succeeds**
-  ```bash
-  npm install
-  ```
-  Must complete without errors.
-
-- [ ] **Root build succeeds**
-  ```bash
-  npm run build
-  ```
-
-- [ ] **Create minimal config**
-  ```bash
-  mkdir -p .saivage
-  cat > .saivage/saivage.json << 'EOF'
-  {
-    "server": { "host": "0.0.0.0", "port": 8080 },
-    "models": { "default": ["test-model"] },
-    "providers": {
-      "test": { "models": ["test-model"], "priority": 10, "apiKey": "${TEST_API_KEY}" }
-    }
-  }
-  EOF
-  ```
-
-- [ ] **Server starts and responds**
-  ```bash
-  TEST_API_KEY=dummy SAIVAGE_API_TOKEN=test ./bin/saivage.js start &
-  sleep 2
-  curl http://localhost:8080/health
-  ```
-
-- [ ] **Health endpoint returns 200**
-  Expected response:
-  ```json
-  {
-    "status": "ok",
-    "version": "0.1.0",
-    "project": "saivage-v3",
-    "runtime": "idle"
-  }
-  ```
-
-- [ ] **API endpoints are accessible**
-  ```bash
-  curl -H "Authorization: Bearer test" http://localhost:8080/api/cards
-  # → {"cards":[],"total":0}
-
-  curl -H "Authorization: Bearer test" http://localhost:8080/api/state
-  # → {"runtime":{...},"cardIndex":{"total":0,...}}
-  ```
-
-- [ ] **Web UI serves** (if built)
-  ```bash
-  curl http://localhost:8080/
-  # → HTML of index.html
-  ```
-
-- [ ] **Docs serve** (if built)
-  ```bash
-  curl http://localhost:8080/docs/
-  # → HTML of VitePress docs
-  ```
-
-- [ ] **Clean up test instance**
-  ```bash
-  kill %1
-  rm -rf /tmp/saivage-test
-  ```
-
-## Final Checklist
-
-- [ ] Version number in `package.json` is updated.
-- [ ] Changelog or release notes are written (if applicable).
-- [ ] All items above are checked.
-- [ ] Release is tagged in git (if applicable).
-
-## Sign-Off
-
-| Date | Release Version | Verified By | Notes |
-|---|---|---|---|
-| | | | |
+- [ ] Versioning/release notes are updated as needed.
+- [ ] Known follow-ups are documented explicitly.
+- [ ] No release decision relies on stale design-era or generated-plan assumptions.

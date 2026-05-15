@@ -8,8 +8,8 @@ export default defineConfig({
   themeConfig: {
     nav: [
       { text: 'Home', link: '/' },
-      { text: 'Install', link: '/install' },
-      { text: 'Reference', link: '/configuration' },
+      { text: 'Runbook', link: '/operator-runbook' },
+      { text: 'Docs Policy', link: '/documentation-inventory' },
     ],
 
     sidebar: {
@@ -18,26 +18,24 @@ export default defineConfig({
           text: 'Getting Started',
           items: [
             { text: 'Install', link: '/install' },
-          ],
-        },
-        {
-          text: 'Reference',
-          items: [
             { text: 'Configuration', link: '/configuration' },
-            { text: 'Operation', link: '/operation' },
           ],
         },
         {
-          text: 'Operations',
+          text: 'Operate Saivage',
           items: [
             { text: 'Operator Runbook', link: '/operator-runbook' },
+            { text: 'Operation Guide', link: '/operation' },
+            { text: 'Goal Planning Runtime', link: '/goal-planning-runtime' },
             { text: 'Troubleshooting', link: '/troubleshooting' },
           ],
         },
         {
-          text: 'Release',
+          text: 'Release and Governance',
           items: [
             { text: 'Release Checklist', link: '/release-checklist' },
+            { text: 'Documentation Inventory', link: '/documentation-inventory' },
+            { text: 'Historical Artifacts', link: '/historical-artifacts' },
           ],
         },
       ],
