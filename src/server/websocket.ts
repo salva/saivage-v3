@@ -10,7 +10,6 @@
 
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import type { WebSocket } from 'ws';
-import { resolve } from 'node:path';
 import { AnalystHandler, getOrCreateAnalystSession } from '../agents/analyst-handler.js';
 import type { EventBus } from '../utils/event-bus.js';
 import type { LoggedEvent } from '../schemas/types.js';
@@ -26,18 +25,15 @@ export interface WsEnvelope {
 
 // ── Analyst Handler (lazy singleton) ──────────────────────────
 
-const analystHandlersByRoot = new Map<string, AnalystHandler>();
+let _analystHandler: AnalystHandler | null = null;
 
 function getAnalystHandler(projectRoot: string): AnalystHandler {
-  const root = resolve(projectRoot);
-  let handler = analystHandlersByRoot.get(root);
-  if (!handler) {
-    handler = new AnalystHandler(root, (activity) => {
+  if (!_analystHandler) {
+    _analystHandler = new AnalystHandler(projectRoot, (activity) => {
       broadcast({ type: 'activity', content: activity as Record<string, unknown> });
     });
-    analystHandlersByRoot.set(root, handler);
   }
-  return handler;
+  return _analystHandler;
 }
 
 // ── Client Tracking ───────────────────────────────────────────
@@ -46,29 +42,6 @@ const clients = new Set<WebSocket>();
 
 /** Map each WebSocket connection to its analyst session ID. */
 const wsSessions = new WeakMap<WebSocket, string>();
-
-function unrefWebSocketCloseTimer(ws: WebSocket): void {
-  (ws as unknown as { _closeTimer?: { unref?: () => void } })._closeTimer?.unref?.();
-}
-
-function closeAndUnrefWebSocket(ws: WebSocket): void {
-  try {
-    if (ws.readyState === ws.OPEN || ws.readyState === ws.CONNECTING) {
-      ws.close();
-      unrefWebSocketCloseTimer(ws);
-    }
-  } catch {
-    // best effort
-  }
-}
-
-export function closeAllTrackedWebSockets(): void {
-  for (const ws of Array.from(clients)) {
-    closeAndUnrefWebSocket(ws);
-    clients.delete(ws);
-    wsSessions.delete(ws);
-  }
-}
 
 export function broadcast(event: WsEnvelope): void {
   const data = JSON.stringify(event);
@@ -133,10 +106,6 @@ function checkAuth(request: FastifyRequest): boolean {
 // ── WebSocket Registration ────────────────────────────────────
 
 export function registerWebSocket(fastify: FastifyInstance, projectRoot: string): void {
-  fastify.addHook('onClose', async () => {
-    closeAllTrackedWebSockets();
-  });
-
   fastify.get(
     '/ws',
     { websocket: true },
@@ -144,14 +113,13 @@ export function registerWebSocket(fastify: FastifyInstance, projectRoot: string)
       // Auth check — if fails, close with 1008
       if (!checkAuth(request)) {
         ws.close(1008, 'Authentication failed');
-        unrefWebSocketCloseTimer(ws);
         return;
       }
 
       // Connection accepted
       clients.add(ws);
 
-      // Bind this connection to the global web analyst session.
+      // Auto-create analyst session for this connection
       const { sessionId } = getOrCreateAnalystSession(projectRoot);
       wsSessions.set(ws, sessionId);
 
@@ -178,7 +146,7 @@ export function registerWebSocket(fastify: FastifyInstance, projectRoot: string)
           const parsed = JSON.parse(data) as { type?: string; content?: Record<string, unknown> };
 
           if (parsed.type === 'message' && parsed.content?.text) {
-            // Get or re-create the global analyst session for this connection.
+            // Get or re-create session for this connection
             let currentSessionId = wsSessions.get(ws);
             if (!currentSessionId) {
               const { sessionId: newId } = getOrCreateAnalystSession(projectRoot);
