@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { mount, flushPromises } from '@vue/test-utils';
 import { createPinia, setActivePinia } from 'pinia';
 import type { Pinia } from 'pinia';
+import type { FileContent } from '../api/types';
 import CardDetailView from '../components/cards/CardDetailView.vue';
 import { useCardStore } from '../stores/cards';
 
@@ -18,6 +19,11 @@ vi.mock('../api/client', () => ({
 import { getFileContent, ApiError } from '../api/client';
 
 vi.mock('../utils/logger', () => ({ createLogger: () => ({ error: vi.fn() }) }));
+
+const mockedGetFileContent = vi.mocked(getFileContent) as unknown as {
+  mockResolvedValue(value: FileContent): void;
+  mockRejectedValue(error: unknown): void;
+};
 
 function primeStore(pinia: Pinia, redactedOnly = false) {
   setActivePinia(pinia);
@@ -57,7 +63,7 @@ describe('CardDetailView generated file inspection', () => {
   it('loads read-only preview for selected file', async () => {
     const pinia = createPinia();
     primeStore(pinia);
-    vi.mocked(getFileContent).mockResolvedValue({ path: 'reports/generated.txt', size: 12, contentType: 'text/plain', content: 'hello world' });
+    mockedGetFileContent.mockResolvedValue({ path: 'reports/generated.txt', size: 12, contentType: 'text/plain', content: 'hello world' });
     const wrapper = mount(CardDetailView, { props: { cardId: 'card-1' }, global: { plugins: [pinia] } });
     await flushPromises();
     await wrapper.findAll('.generated-file-row')[0].trigger('click');
@@ -69,7 +75,7 @@ describe('CardDetailView generated file inspection', () => {
   it('shows blocked preview message', async () => {
     const pinia = createPinia();
     primeStore(pinia);
-    vi.mocked(getFileContent).mockReturnValue(Promise.reject(new ApiError(403, 'blocked')) as ReturnType<typeof getFileContent>);
+    mockedGetFileContent.mockRejectedValue(new ApiError(403, 'blocked', {}));
     const wrapper = mount(CardDetailView, { props: { cardId: 'card-1' }, global: { plugins: [pinia] } });
     await flushPromises();
     await wrapper.findAll('.generated-file-row')[1].trigger('click');
@@ -81,7 +87,7 @@ describe('CardDetailView generated file inspection', () => {
   it('shows missing preview message', async () => {
     const pinia = createPinia();
     primeStore(pinia);
-    vi.mocked(getFileContent).mockReturnValue(Promise.reject(new ApiError(404, 'missing')) as ReturnType<typeof getFileContent>);
+    mockedGetFileContent.mockRejectedValue(new ApiError(404, 'missing', {}));
     const wrapper = mount(CardDetailView, { props: { cardId: 'card-1' }, global: { plugins: [pinia] } });
     await flushPromises();
     await wrapper.findAll('.generated-file-row')[0].trigger('click');
@@ -92,7 +98,7 @@ describe('CardDetailView generated file inspection', () => {
   it('shows redaction notice when preview content is redacted', async () => {
     const pinia = createPinia();
     primeStore(pinia, true);
-    vi.mocked(getFileContent).mockResolvedValue({ path: '.saivage/saivage.json', size: 12, contentType: 'text/plain', content: '{"apiKey":"[REDACTED]"}' });
+    mockedGetFileContent.mockResolvedValue({ path: '.saivage/saivage.json', size: 12, contentType: 'text/plain', content: '{"apiKey":"[REDACTED]"}' });
     const wrapper = mount(CardDetailView, { props: { cardId: 'card-1' }, global: { plugins: [pinia] } });
     await flushPromises();
     await wrapper.find('.generated-file-row').trigger('click');

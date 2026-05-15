@@ -1116,6 +1116,7 @@ export class Runtime extends EventEmitter {
           let executorPrompt = buildExecutorPrompt(card.type);
           try {
             if (this._skillsEngine) {
+              const instructionContent = await this._skillsEngine.loadInstructions('executor');
               const skillsContent = await this._skillsEngine.selectAndFormat({
                 goalDescription: goalCard?.description ?? '',
                 cardDescription: card.description,
@@ -1124,8 +1125,9 @@ export class Runtime extends EventEmitter {
                 availableTools: ['start_process', 'wait_process', 'start_and_wait', 'tail_output', 'kill_process', 'list_processes', 'download_file', 'load_skill', 'mcp_tool_call'],
                 targetRole: 'executor',
               });
-              if (skillsContent) {
-                executorPrompt = buildExecutorPrompt(card.type, skillsContent);
+              const combinedSkills = [instructionContent, skillsContent].filter(Boolean).join('\n\n');
+              if (combinedSkills) {
+                executorPrompt = buildExecutorPrompt(card.type, combinedSkills);
               }
             }
           } catch {
@@ -1290,16 +1292,19 @@ export class Runtime extends EventEmitter {
     let reviewerPrompt = buildReviewerPrompt();
     try {
       if (this._skillsEngine) {
+        const goalCard = this.cardStore.read(goalId);
+        const instructionContent = await this._skillsEngine.loadInstructions('reviewer');
         const skillsContent = await this._skillsEngine.selectAndFormat({
-          goalDescription: '',
-          cardDescription: '',
-          tags: [],
+          goalDescription: goalCard?.description ?? '',
+          cardDescription: goalCard?.description ?? '',
+          tags: goalCard?.tags ?? [],
           filePaths: [],
           availableTools: ['review', 'load_skill', 'mcp_tool_call'],
           targetRole: 'reviewer',
         });
-        if (skillsContent) {
-          reviewerPrompt = buildReviewerPrompt(skillsContent);
+        const combinedSkills = [instructionContent, skillsContent].filter(Boolean).join('\n\n');
+        if (combinedSkills) {
+          reviewerPrompt = buildReviewerPrompt(combinedSkills);
         }
       }
     } catch {
