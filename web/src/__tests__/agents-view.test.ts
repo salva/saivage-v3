@@ -1,10 +1,10 @@
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import { mount, flushPromises } from '@vue/test-utils';
 import { createPinia, setActivePinia } from 'pinia';
-import { ref } from 'vue';
 import { createRouter, createWebHistory } from 'vue-router';
 import AgentsView from '../views/AgentsView.vue';
 import AgentConversationView from '../components/agents/AgentConversationView.vue';
+import { useAgentStore } from '../stores/agents';
 import type { AgentSession, AgentRole } from '../api/types';
 
 const apiMockState = vi.hoisted(() => ({
@@ -13,19 +13,21 @@ const apiMockState = vi.hoisted(() => ({
     session: null as AgentSession | null,
     messages: [] as any[],
   },
+  listError: null as Error | null,
 }));
 
 let wsTypeHandlers = new Map<string, Set<(envelope: any) => void>>();
 
 function resetTestState() {
   wsTypeHandlers = new Map();
+  apiMockState.listError = null;
 }
 
 vi.mock('../stores/ws', () => ({
   useWsStore: () => ({
-    connectionState: ref('connected'),
-    get sessionId() { return 'sess-agents-001'; },
-    reconnectAttempts: ref(0),
+    connectionState: 'connected',
+    sessionId: 'sess-agents-001',
+    reconnectAttempts: 0,
     onType: (type: string, handler: (envelope: any) => void) => {
       let set = wsTypeHandlers.get(type);
       if (!set) { set = new Set(); wsTypeHandlers.set(type, set); }
@@ -38,6 +40,7 @@ vi.mock('../stores/ws', () => ({
     isConnecting: () => false,
     connect: vi.fn(),
     disconnect: vi.fn(),
+    stale: false,
   }),
 }));
 
@@ -50,7 +53,10 @@ vi.mock('../api/client', () => {
     get isUnauthorized(): boolean { return this.status === 401; }
   };
   return {
-    listAgentSessions: vi.fn(async () => ({ sessions: apiMockState.sessions })),
+    listAgentSessions: vi.fn(async () => {
+      if (apiMockState.listError) throw apiMockState.listError;
+      return { sessions: apiMockState.sessions };
+    }),
     getAgentConversation: vi.fn(async () => apiMockState.conversation),
     ApiError,
   };
@@ -91,9 +97,11 @@ function makeRouter() {
 async function mountAgentsView(opts?: {
   sessions?: AgentSession[];
   initialRoute?: string;
+  listError?: Error | null;
 }) {
   resetTestState();
   apiMockState.sessions = opts?.sessions ?? [];
+  apiMockState.listError = opts?.listError ?? null;
   apiMockState.conversation = {
     session: plannerSession,
     messages: [
@@ -142,6 +150,22 @@ describe('AgentsView', () => {
   it('shows empty state when no sessions exist', async () => {
     const { wrapper } = await mountAgentsView({ sessions: [] });
     expect(wrapper.find('.agents-empty').exists()).toBe(true);
+  });
+
+  it('shows unauthorized messaging for 401 responses', async () => {
+    const { ApiError } = await import('../api/client');
+    const { wrapper } = await mountAgentsView({ listError: new ApiError(401, 'Unauthorized', {}) });
+    expect(wrapper.find('.agents-unauthorized').exists()).toBe(true);
+    expect(wrapper.text()).toContain('valid API token');
+  });
+
+  it('shows stale messaging when the agents store is stale', async () => {
+    const { wrapper } = await mountAgentsView({ sessions: allSessions });
+    const store = useAgentStore();
+    store.lastFetchedAt = '2025-06-01T00:00:00Z' as any;
+    await flushPromises();
+    expect(wrapper.find('.agents-stale').exists()).toBe(true);
+    expect(wrapper.text()).toContain('stale');
   });
 
   it('opens detail view when a session card is clicked', async () => {

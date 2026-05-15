@@ -10,8 +10,17 @@
 
     <template v-else>
       <div v-if="loading" class="agents-loading">Loading agents...</div>
-      <div v-else-if="errorMsg" class="agents-error">{{ errorMsg }}</div>
+      <div v-else-if="unauthorized" class="agents-state agents-unauthorized">
+        Agent sessions are unavailable until a valid API token is provided.
+      </div>
+      <div v-else-if="errorMsg" class="agents-state agents-error">{{ errorMsg }}</div>
       <div v-else class="agents-content">
+        <div v-if="isStale" class="agents-state agents-stale">
+          Agent session data is stale. Refresh or wait for reconnect to resync with the authoritative REST state.
+        </div>
+        <div v-if="conversationWarning" class="agents-state agents-warning">
+          {{ conversationWarning }}
+        </div>
         <template v-for="entry in roleEntries" :key="entry.role">
           <div class="role-section">
             <h3 class="role-heading">
@@ -33,8 +42,8 @@
                   <span class="session-status-badge" :class="'s-' + session.status">{{ session.status }}</span>
                 </div>
                 <div class="session-meta">
-                  <span v-if="session.goal_card_id" class="session-goal">Goal: {{ session.goal_card_id.slice(0,12) }}</span>
-                  <span v-if="session.card_id" class="session-card-ref">Card: {{ session.card_id.slice(0,12) }}</span>
+                  <span v-if="session.goal_card_id" class="session-goal">Goal: {{ session.goal_card_id }}</span>
+                  <span v-if="session.card_id" class="session-card-ref">Card: {{ session.card_id }}</span>
                 </div>
                 <div class="session-time">
                   Started: {{ fmtDate(session.started_at) }}
@@ -62,7 +71,7 @@ import AgentConversationView from '../components/agents/AgentConversationView.vu
 const log = createLogger('view:agents');
 const route = useRoute();
 const agentStore = useAgentStore();
-const { sessions, sessionsByRole, loading, error } = storeToRefs(agentStore);
+const { sessionsByRole, loading, error, unauthorized, isStale, conversationWarning } = storeToRefs(agentStore);
 const errorMsg = computed(() => error.value);
 
 const selectedSessionId = ref<string | null>(null);
@@ -95,13 +104,19 @@ watch(() => route.params.id, (nid) => {
 
 onMounted(() => {
   agentStore.setupWsListener();
+  agentStore.fetchSessions().catch((err) => {
+    log.warn('fetchSessions failed', err);
+  });
 });
 </script>
 
 <style scoped>
 .agents-layout { height:100%; display:flex; flex-direction:column; }
-.agents-loading,.agents-error,.agents-empty { padding:32px; text-align:center; color:#8b949e; font-size:13px; }
+.agents-loading,.agents-empty,.agents-state { padding:32px; text-align:center; color:#8b949e; font-size:13px; }
 .agents-error { color:#f85149; }
+.agents-unauthorized { color:#ffb86b; }
+.agents-stale { margin:0 16px 12px; padding:12px 16px; border:1px solid #30363d; border-radius:8px; background:#161b22; text-align:left; }
+.agents-warning { margin:0 16px 12px; padding:12px 16px; border:1px solid #5a4a1a; border-radius:8px; background:#201a10; color:#ffb86b; text-align:left; }
 .agents-content { flex:1; overflow-y:auto; padding:16px; }
 .role-section { margin-bottom:20px; }
 .role-heading { display:flex; align-items:center; gap:8px; font-size:13px; font-weight:600; color:#f0f6fc; margin:0 0 10px 0; text-transform:capitalize; }
