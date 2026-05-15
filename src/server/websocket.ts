@@ -22,22 +22,24 @@ export interface WsEnvelope {
   content: Record<string, unknown>;
 }
 
-let _analystHandler: AnalystHandler | null = null;
+const analystHandlersByRoot = new Map<string, AnalystHandler>();
 
 function getAnalystHandler(projectRoot: string): AnalystHandler {
-  if (!_analystHandler) {
-    _analystHandler = new AnalystHandler(projectRoot, (activity) => {
+  let handler = analystHandlersByRoot.get(projectRoot);
+  if (!handler) {
+    handler = new AnalystHandler(projectRoot, (activity) => {
       broadcast({ type: 'activity', content: activity as Record<string, unknown> });
     });
+    analystHandlersByRoot.set(projectRoot, handler);
   }
-  return _analystHandler;
+  return handler;
 }
 
 const clients = new Set<WebSocket>();
 const wsSessions = new WeakMap<WebSocket, string>();
 const wiredEventBuses = new WeakSet<object>();
 
-export function resetWebSocketState(): void {
+export function resetWebSocketState(projectRoot?: string): void {
   for (const ws of clients) {
     try {
       ws.removeAllListeners();
@@ -48,7 +50,13 @@ export function resetWebSocketState(): void {
     }
   }
   clients.clear();
-  _analystHandler = null;
+
+  if (projectRoot) {
+    analystHandlersByRoot.delete(projectRoot);
+    return;
+  }
+
+  analystHandlersByRoot.clear();
 }
 
 export function broadcast(event: WsEnvelope): void {
@@ -115,6 +123,10 @@ function rejectUnauthorizedWebSocket(ws: WebSocket): void {
 }
 
 export function registerWebSocket(fastify: FastifyInstance, projectRoot: string): void {
+  fastify.addHook('onClose', async () => {
+    resetWebSocketState(projectRoot);
+  });
+
   fastify.get(
     '/ws',
     { websocket: true },
