@@ -47,7 +47,7 @@ describe('AgentAdapter executor fallback integration', () => {
     jest.restoreAllMocks();
   });
 
-  it('uses fallback after malformed final executor JSON and marks the session done with preserved evidence', async () => {
+  it('uses fallback after malformed final executor JSON and marks the session failed with preserved evidence', async () => {
     const llmCallFn = jest.fn<import('../../src/agents/agent-adapter.js').LlmCallFn>()
       .mockResolvedValueOnce(JSON.stringify({
         toolCalls: [
@@ -106,7 +106,7 @@ describe('AgentAdapter executor fallback integration', () => {
 
     const [sessionId] = listSessions(join(tmpDir, '.saivage'));
     expect(sessionId).toBeDefined();
-    expect(getSession(join(tmpDir, '.saivage'), sessionId)!.status).toBe('done');
+    expect(getSession(join(tmpDir, '.saivage'), sessionId)!.status).toBe('failed');
     const messages = getSessionMessages(join(tmpDir, '.saivage'), sessionId);
     expect(messages.some((message) => message.kind === 'tool_result' && message.tool === 'write_project_file')).toBe(true);
     expect(messages.some((message) => message.kind === 'tool_result' && message.tool === 'run_project_command')).toBe(true);

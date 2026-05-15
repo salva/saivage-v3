@@ -41,15 +41,40 @@ import type { LlmCompleteOptions, ToolDefinition } from './llm-client.js';
 import { resolveLlmTransportConfig } from './llm-transport.js';
 import { EventLogger } from '../utils/event-logger.js';
 import { buildSelfCheckPrompt } from './system-prompt.js';
-import type { McpManager } from '../mcp/mcp-manager.js';
+import type { McpManager, McpToolDefinition } from '../mcp/mcp-manager.js';
 import { SkillsEngine } from './skills-engine.js';
-import { loadSkill, ALL_TOOL_DEFINITIONS, LoadSkillError, PERMITTED_ROLES } from './skill-tools.js';
-import { processWorkspaceToolCall } from './workspace-tools.js';
+import { loadSkill, LoadSkillError, LOAD_SKILL_TOOL_DEFINITION } from './skill-tools.js';
+import { processWorkspaceToolCall, READ_ONLY_WORKSPACE_TOOL_DEFINITIONS, WORKSPACE_TOOL_DEFINITIONS } from './workspace-tools.js';
 
 export type { AgentRuntime } from './agent-runtime.js';
 export type AgentRole = 'planner' | 'executor' | 'reviewer' | 'analyst';
 export interface AgentAdapterConfig { projectRoot: string; saivageDir: string; config: SaivageConfig; eventBus?: EventEmitter; eventLogger?: EventLogger; }
 export type LlmCallFn = (candidate: Candidate, systemPrompt: string, messages: AgentMessage[], sessionId: string, opts?: LlmCompleteOptions) => Promise<string>;
+
+const MCP_TOOL_CALL_TOOL_DEFINITION: ToolDefinition = {
+  type: 'function',
+  function: {
+    name: 'mcp_tool_call',
+    description: 'Call an approved MCP (Model Context Protocol) tool on a configured MCP server. Availability is role- and policy-scoped at runtime.',
+    parameters: {
+      type: 'object',
+      properties: {
+        serverName: { type: 'string', description: 'Configured MCP server name' },
+        toolName: { type: 'string', description: 'Tool name on that MCP server' },
+        args: { type: 'object', description: 'Optional tool arguments', additionalProperties: true },
+      },
+      required: ['serverName', 'toolName'],
+      additionalProperties: false,
+    },
+  },
+};
+
+const TOOL_MATRIX: Record<AgentRole, ToolDefinition[]> = {
+  planner: [LOAD_SKILL_TOOL_DEFINITION, ...READ_ONLY_WORKSPACE_TOOL_DEFINITIONS, MCP_TOOL_CALL_TOOL_DEFINITION],
+  executor: [LOAD_SKILL_TOOL_DEFINITION, ...WORKSPACE_TOOL_DEFINITIONS, MCP_TOOL_CALL_TOOL_DEFINITION],
+  reviewer: [LOAD_SKILL_TOOL_DEFINITION, ...READ_ONLY_WORKSPACE_TOOL_DEFINITIONS, MCP_TOOL_CALL_TOOL_DEFINITION],
+  analyst: [],
+};
 
 export class AgentAdapter implements AgentRuntime {
   readonly projectRoot: string;
@@ -91,13 +116,32 @@ export class AgentAdapter implements AgentRuntime {
   getSkillsEngine(): SkillsEngine | undefined { return this._skillsEngine; }
 
   private buildToolsForRole(role: AgentRole): ToolDefinition[] {
-    if ((PERMITTED_ROLES as readonly string[]).includes(role)) return ALL_TOOL_DEFINITIONS;
-    return [];
+    return TOOL_MATRIX[role] ?? [];
   }
 
-  async callMcpTool(serverName: string, toolName: string, args: Record<string, unknown>): Promise<unknown> {
+  private getMcpToolDefinition(serverName: string, toolName: string): McpToolDefinition | null {
+    if (!this._mcpManager) return null;
+    const tools = this._mcpManager.getServerTools(serverName);
+    return tools?.find((tool) => tool.name === toolName) ?? null;
+  }
+
+  private isMcpToolAllowed(role: AgentRole, definition: McpToolDefinition | null): boolean {
+    if (role === 'analyst') return false;
+    if (role === 'executor') return true;
+    if (!definition) return false;
+    const annotations = definition.annotations ?? {};
+    const readOnly = annotations.readOnlyHint === true;
+    const destructive = annotations.destructiveHint === true;
+    return readOnly && !destructive;
+  }
+
+  async callMcpTool(role: AgentRole, serverName: string, toolName: string, args: Record<string, unknown>): Promise<unknown> {
     if (!this._mcpManager) throw new Error('MCP manager not configured. Call setMcpManager() first.');
     const { McpInvokeError } = await import('../mcp/mcp-manager.js');
+    const toolDefinition = this.getMcpToolDefinition(serverName, toolName);
+    if (!this.isMcpToolAllowed(role, toolDefinition)) {
+      throw new Error(`Role '${role}' is not permitted to call MCP tool '${serverName}/${toolName}'.`);
+    }
     let result: unknown;
     try {
       result = await this._mcpManager.invokeTool(serverName, toolName, args);
@@ -200,7 +244,7 @@ export class AgentAdapter implements AgentRuntime {
       const toolArgs = args.args ?? {};
       if (!serverName || !toolName) return { role: 'tool', kind: 'tool_error', content: 'mcp_tool_call requires both "serverName" and "toolName" parameters.', tool: 'mcp_tool_call', tool_call_id: tc.id };
       try {
-        const result = await this.callMcpTool(serverName, toolName, toolArgs);
+        const result = await this.callMcpTool(role, serverName, toolName, toolArgs);
         return { role: 'tool', kind: 'tool_result', content: typeof result === 'string' ? result : JSON.stringify(result), tool: `mcp_tool_call:${serverName}/${toolName}`, tool_call_id: tc.id };
       } catch (err) {
         const errorMsg = err instanceof Error ? err.message : String(err);
@@ -229,7 +273,7 @@ export class AgentAdapter implements AgentRuntime {
         return { role: 'tool', kind: 'tool_error', content: `${tc.function.name} failed: ${err instanceof Error ? err.message : String(err)}`, tool: tc.function.name, tool_call_id: tc.id };
       }
     }
-    return { role: 'tool', kind: 'tool_error', content: `Unknown tool '${tc.function.name}'. Available tools: load_skill, mcp_tool_call, list_project_files, read_project_file, write_project_file, run_project_command.`, tool: tc.function.name, tool_call_id: tc.id };
+    return { role: 'tool', kind: 'tool_error', content: `Unknown tool '${tc.function.name}'.`, tool: tc.function.name, tool_call_id: tc.id };
   }
 
   private async handleToolCallsLoop(rawResponse: string, role: AgentRole, sessionId: string, candidate: Candidate, systemPrompt: string, modelParams: { temperature: number; maxTokens: number }, abortController: AbortController, invocation?: { goalId?: string; cardId?: string }): Promise<string> {
@@ -240,7 +284,10 @@ export class AgentAdapter implements AgentRuntime {
       const toolCalls = this.parseToolCallsFromResponse(currentResponse);
       if (!toolCalls) return currentResponse;
       const callFingerprint = toolCalls.map((tc) => `${tc.function.name}:${tc.function.arguments}`).sort().join('||');
-      if (previousCalls.has(callFingerprint)) return currentResponse;
+      if (previousCalls.has(callFingerprint)) {
+        appendMessage(this.saivageDir, sessionId, { role: 'system', kind: 'model_issue', content: `Repeated tool-call fingerprint detected; stopping tool loop as no-progress diagnostic: ${callFingerprint}` });
+        return currentResponse;
+      }
       previousCalls.add(callFingerprint);
       appendMessage(this.saivageDir, sessionId, { role: 'assistant', kind: 'tool_call', content: JSON.stringify({ toolCalls }), tool: toolCalls.map((tc) => tc.function.name).join(',') });
       const toolMessages: Array<{ role: 'tool'; kind: 'tool_result' | 'tool_error'; content: string; tool: string; tool_call_id: string }> = [];
@@ -249,6 +296,7 @@ export class AgentAdapter implements AgentRuntime {
       const followUpTools = this.buildToolsForRole(role);
       currentResponse = await this.llmCallFn!(candidate, systemPrompt, getSessionMessages(this.saivageDir, sessionId), sessionId, { temperature: modelParams.temperature, max_tokens: modelParams.maxTokens, signal: abortController.signal, ...(followUpTools.length > 0 ? { tools: followUpTools, tool_choice: 'auto' } : {}) });
     }
+    appendMessage(this.saivageDir, sessionId, { role: 'system', kind: 'model_issue', content: `Maximum tool-call rounds exceeded (${MAX_TOOL_ROUNDS}); stopping as no-progress diagnostic.` });
     return currentResponse;
   }
 
@@ -350,8 +398,10 @@ export class AgentAdapter implements AgentRuntime {
     const attempts = await invokeWithRecovery(agentFn, recoveryOpts);
     const lastAttempt = attempts[attempts.length - 1];
     if (lastAttempt.success && lastAttempt.result !== undefined) {
-      completeSession(this.saivageDir, session.id, 'done');
-      return lastAttempt.result as T;
+      const resultValue = lastAttempt.result as T;
+      const shouldMarkFailed = role === 'executor' && typeof resultValue === 'object' && resultValue !== null && 'status' in (resultValue as Record<string, unknown>) && (resultValue as Record<string, unknown>).status === 'failed';
+      completeSession(this.saivageDir, session.id, shouldMarkFailed ? 'failed' : 'done');
+      return resultValue;
     }
     completeSession(this.saivageDir, session.id, 'failed');
     throw lastAttempt.error ?? new Error(`Agent '${role}' invocation failed after ${attempts.length} attempts.`);

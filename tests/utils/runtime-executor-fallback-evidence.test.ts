@@ -15,19 +15,9 @@ class StubAgentRuntime implements AgentRuntime {
     private readonly executorResult: ExecutorResult,
     private readonly reviewerResult: ReviewerResult,
   ) {}
-
-  invokePlanner(): Promise<PlannerResult> {
-    return Promise.resolve(this.plannerResult);
-  }
-
-  invokeExecutor(): Promise<ExecutorResult> {
-    return Promise.resolve(this.executorResult);
-  }
-
-  invokeReviewer(): Promise<ReviewerResult> {
-    return Promise.resolve(this.reviewerResult);
-  }
-
+  invokePlanner(): Promise<PlannerResult> { return Promise.resolve(this.plannerResult); }
+  invokeExecutor(): Promise<ExecutorResult> { return Promise.resolve(this.executorResult); }
+  invokeReviewer(): Promise<ReviewerResult> { return Promise.resolve(this.reviewerResult); }
   cancelSession(): boolean { return false; }
   forceCancelSession(): boolean { return false; }
   getHandoffSummary(): HandoffSummary | null { return null; }
@@ -50,7 +40,7 @@ describe('Runtime executor fallback evidence persistence', () => {
     rmSync(projectRoot, { recursive: true, force: true });
   });
 
-  it('stores fallback result evidence and registers generated file artifacts for parent inspection', async () => {
+  it('stores fallback result evidence and does not silently complete the parent goal', async () => {
     const plannerResult: PlannerResult = {
       status: 'done',
       created_cards: [{
@@ -70,29 +60,14 @@ describe('Runtime executor fallback evidence persistence', () => {
       error: 'Executor final response was malformed or missing required status; preserved tool evidence via fallback result.',
       summary: 'fallback preserved tool evidence',
       artifacts: [
-        {
-          type: 'other',
-          description: 'Generated file: generated/output.txt',
-          retain: true,
-          path: 'generated/output.txt',
-        },
+        { type: 'other', description: 'Generated file: generated/output.txt', retain: true, path: 'generated/output.txt' },
       ],
       attachments: [
-        {
-          mime: 'text/plain',
-          title: 'command output',
-          path: 'logs/command-tail.txt',
-        },
+        { mime: 'text/plain', title: 'command output', path: 'logs/command-tail.txt' },
       ],
       result: {
         generated_files: ['generated/output.txt'],
-        verification_commands: [{
-          command: 'npm test -- result-parser',
-          process_id: 'proc-55',
-          status: 'exited',
-          exit_code: 0,
-          timed_out: false,
-        }],
+        verification_commands: [{ command: 'npm test -- result-parser', process_id: 'proc-55', status: 'exited', exit_code: 0, timed_out: false }],
         artifact_paths: ['generated/output.txt'],
         tool_errors: [],
         parse_failure: {
@@ -111,56 +86,35 @@ describe('Runtime executor fallback evidence persistence', () => {
       },
     };
 
-    const agentRuntime = new StubAgentRuntime(plannerResult, executorResult, reviewerResult);
-    const runtime = new Runtime({
-      projectRoot,
-      fakeAgentConfig: { mapping: {}, fixtureDir: '' },
-    }, agentRuntime);
-
+    const runtime = new Runtime({ projectRoot, fakeAgentConfig: { mapping: {}, fixtureDir: '' } }, new StubAgentRuntime(plannerResult, executorResult, reviewerResult));
     await runtime.startup();
     await runtime.dispatchGoal('project');
     await runtime.shutdown();
 
     const codeCard = runtime.cardStore.read('code-1') as CardRecord;
     expect(codeCard.status).toBe('failed');
+    expect(runtime.cardStore.read('project')?.status).not.toBe('done');
     expect(codeCard.result).toEqual(expect.objectContaining({
       generated_files: ['generated/output.txt'],
-      verification_commands: [expect.objectContaining({
-        command: 'npm test -- result-parser',
-        process_id: 'proc-55',
-        status: 'exited',
-        exit_code: 0,
-        timed_out: false,
-      })],
+      verification_commands: [expect.objectContaining({ command: 'npm test -- result-parser', process_id: 'proc-55', status: 'exited', exit_code: 0, timed_out: false })],
       artifact_paths: ['generated/output.txt'],
       parse_failure: expect.objectContaining({ raw_response: '{"card_id":"code-1"}' }),
     }));
     expect(codeCard.artifacts).toEqual(expect.arrayContaining([
-      expect.objectContaining({
-        description: 'Generated file: generated/output.txt',
-        path: expect.stringContaining('/.saivage-work/cards/code-1/artifacts/retained/output.txt'),
-      }),
+      expect.objectContaining({ description: 'Generated file: generated/output.txt', path: expect.stringContaining('/.saivage-work/cards/code-1/artifacts/retained/output.txt') }),
     ]));
     expect(codeCard.attachments).toEqual(expect.arrayContaining([
-      expect.objectContaining({
-        title: 'command output',
-        path: expect.stringContaining('/.saivage-work/cards/code-1/attachments/command-tail.txt'),
-      }),
+      expect.objectContaining({ title: 'command output', path: expect.stringContaining('/.saivage-work/cards/code-1/attachments/command-tail.txt') }),
     ]));
 
     const frame = runtime.plannerControl.listFrames().find((entry) => entry.planner_card_id === 'project');
-    expect(frame).toBeDefined();
     const dispatch = runtime.plannerControl.listDispatches({ parent_frame_id: frame!.frame_id, target_card_id: 'code-1' })[0];
-    expect(dispatch).toBeDefined();
     expect(dispatch.completion?.child_result).toEqual(expect.objectContaining({
       generated_files: ['generated/output.txt'],
       verification_commands: [expect.objectContaining({ command: 'npm test -- result-parser' })],
     }));
     expect(dispatch.completion?.artifacts).toEqual(expect.arrayContaining([
-      expect.objectContaining({
-        description: 'Generated file: generated/output.txt',
-        path: expect.stringContaining('/.saivage-work/cards/code-1/artifacts/retained/output.txt'),
-      }),
+      expect.objectContaining({ description: 'Generated file: generated/output.txt', path: expect.stringContaining('/.saivage-work/cards/code-1/artifacts/retained/output.txt') }),
     ]));
   });
 });
