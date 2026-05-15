@@ -31,10 +31,9 @@ import {
   saveRegistry,
   cleanupProcessOutput,
   cleanupAllCompleted,
+  killAllRunning,
 } from '../../src/utils/process-runner.js';
-import type { ProcessRecord, ProcessStatus } from '../../src/schemas/types.js';
-
-// ── Helpers ───────────────────────────────────────────────────
+import type { ProcessRecord } from '../../src/schemas/types.js';
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -46,20 +45,16 @@ describe('Process Runner', () => {
     initProjectTree(root);
   });
 
-  afterEach(() => {
+  afterEach(async () => {
     try {
+      await killAllRunning(root);
       rmSync(root, { recursive: true, force: true });
     } catch {
-      // ignore
     }
   });
 
-  // ═══════════════════════════════════════════════════════════════
-  // startProcess
-  // ═══════════════════════════════════════════════════════════════
-
   describe('startProcess', () => {
-    it('spawns a process and returns a valid ProcessRecord', () => {
+    it('spawns a process and returns a valid ProcessRecord', async () => {
       const rec = startProcess(root, 'sleep 5', { cardId: 'card-test' });
 
       expect(rec.id).toMatch(/^proc-/);
@@ -77,8 +72,7 @@ describe('Process Runner', () => {
       expect(rec.stderr_path).toContain('stderr.log');
       expect(rec.combined_log_path).toContain('combined.log');
 
-      // Clean up
-      killProcess(root, rec.id);
+      await killProcess(root, rec.id);
     });
 
     it('creates output files on disk for stdout/stderr/combined', async () => {
@@ -86,11 +80,9 @@ describe('Process Runner', () => {
         cardId: 'card-out',
       });
 
-      // Wait for process to finish
       await waitProcess(root, rec.id);
       await sleep(500);
 
-      // Verify output files exist
       expect(existsSync(rec.stdout_path)).toBe(true);
       expect(existsSync(rec.stderr_path)).toBe(true);
       expect(existsSync(rec.combined_log_path)).toBe(true);
@@ -100,14 +92,14 @@ describe('Process Runner', () => {
       expect(combined).toContain('hello stderr');
     });
 
-    it('generates unique process IDs', () => {
+    it('generates unique process IDs', async () => {
       const rec1 = startProcess(root, 'sleep 5', { cardId: 'card-1' });
       const rec2 = startProcess(root, 'sleep 5', { cardId: 'card-1' });
 
       expect(rec1.id).not.toBe(rec2.id);
 
-      killProcess(root, rec1.id);
-      killProcess(root, rec2.id);
+      await killProcess(root, rec1.id);
+      await killProcess(root, rec2.id);
     });
 
     it('marks process as failed when command exits with non-zero', async () => {
@@ -122,7 +114,7 @@ describe('Process Runner', () => {
       expect(reloaded!.exit_code).toBe(42);
     });
 
-    it('persists to the registry immediately on start', () => {
+    it('persists to the registry immediately on start', async () => {
       const rec = startProcess(root, 'sleep 10', { cardId: 'card-reg' });
 
       const registry = loadRegistry(root);
@@ -132,10 +124,10 @@ describe('Process Runner', () => {
       expect(stored.id).toBe(rec.id);
       expect(stored.status).toBe('running');
 
-      killProcess(root, rec.id);
+      await killProcess(root, rec.id);
     });
 
-    it('respects required_for_card_completion option', () => {
+    it('respects required_for_card_completion option', async () => {
       const rec1 = startProcess(root, 'sleep 3', {
         cardId: 'card-opt',
         requiredForCardCompletion: false,
@@ -149,14 +141,14 @@ describe('Process Runner', () => {
       expect(rec2.required_for_card_completion).toBe(true);
 
       const rec3 = startProcess(root, 'sleep 3', { cardId: 'card-opt' });
-      expect(rec3.required_for_card_completion).toBe(true); // default
+      expect(rec3.required_for_card_completion).toBe(true);
 
-      killProcess(root, rec1.id);
-      killProcess(root, rec2.id);
-      killProcess(root, rec3.id);
+      await killProcess(root, rec1.id);
+      await killProcess(root, rec2.id);
+      await killProcess(root, rec3.id);
     });
 
-    it('includes new ownership fields from ProcessStartOptions', () => {
+    it('includes new ownership fields from ProcessStartOptions', async () => {
       const rec = startProcess(root, 'sleep 3', {
         cardId: 'card-own',
         agentSessionId: 'session-test-123',
@@ -171,12 +163,12 @@ describe('Process Runner', () => {
       expect(rec.launch_reason).toBe('test executor tool call');
       expect(rec.owner_kind).toBe('agent');
       expect(rec.background_policy).toBe('foreground');
-      expect(rec.process_group_id).toBeNull();
+      expect(rec.process_group_id).toEqual(expect.any(Number));
 
-      killProcess(root, rec.id);
+      await killProcess(root, rec.id);
     });
 
-    it('sets new fields to null when not provided', () => {
+    it('sets new fields to null when not provided', async () => {
       const rec = startProcess(root, 'sleep 3', { cardId: 'card-null' });
 
       expect(rec.agent_session_id).toBeNull();
@@ -184,15 +176,11 @@ describe('Process Runner', () => {
       expect(rec.launch_reason).toBeNull();
       expect(rec.owner_kind).toBeNull();
       expect(rec.background_policy).toBeNull();
-      expect(rec.process_group_id).toBeNull();
+      expect(rec.process_group_id).toEqual(expect.any(Number));
 
-      killProcess(root, rec.id);
+      await killProcess(root, rec.id);
     });
   });
-
-  // ═══════════════════════════════════════════════════════════════
-  // waitProcess
-  // ═══════════════════════════════════════════════════════════════
 
   describe('waitProcess', () => {
     it('waits for a process to complete and returns exited status', async () => {
@@ -217,10 +205,8 @@ describe('Process Runner', () => {
     it('returns the current status for already-exited process', async () => {
       const rec = startProcess(root, 'echo quick', { cardId: 'card-done' });
 
-      // Let it finish
       await sleep(200);
 
-      // Wait should return immediately with the final status
       const result = await waitProcess(root, rec.id);
       expect(result.timedOut).toBe(false);
       expect(['exited', 'failed']).toContain(result.status);
@@ -234,12 +220,10 @@ describe('Process Runner', () => {
       expect(result.status).toBe('running');
       expect(result.exitCode).toBeNull();
 
-      // CRITICAL: process must still be alive
       const proc = getProcess(root, rec.id);
       expect(proc).not.toBeNull();
       expect(proc!.status).toBe('running');
 
-      // Clean up
       await killProcess(root, rec.id);
     });
 
@@ -265,10 +249,6 @@ describe('Process Runner', () => {
     });
   });
 
-  // ═══════════════════════════════════════════════════════════════
-  // startAndWait
-  // ═══════════════════════════════════════════════════════════════
-
   describe('startAndWait', () => {
     it('starts and waits for a quick command', async () => {
       const result = await startAndWait(root, 'echo "hello world"', {
@@ -293,7 +273,6 @@ describe('Process Runner', () => {
       expect(result.timedOut).toBe(true);
       expect(result.status).toBe('running');
 
-      // Clean up
       await killProcess(root, result.id);
     });
 
@@ -305,13 +284,8 @@ describe('Process Runner', () => {
     });
   });
 
-  // ═══════════════════════════════════════════════════════════════
-  // tailOutput
-  // ═══════════════════════════════════════════════════════════════
-
   describe('tailOutput', () => {
     it('returns last N lines of process output', async () => {
-      // Generate 20 lines of output
       const cmd = Array.from({ length: 20 }, (_, i) => `echo "line_${i}"`).join(' && ');
       const result = await startAndWait(root, cmd, { cardId: 'card-tail' });
       await sleep(300);
@@ -340,7 +314,6 @@ describe('Process Runner', () => {
       await sleep(200);
 
       const tail = tailOutput(root, rec.id);
-      // "true" produces no output; could be empty or contain trailing newline
       expect(typeof tail).toBe('string');
     });
 
@@ -356,7 +329,6 @@ describe('Process Runner', () => {
     });
 
     it('works for running processes with partial output', async () => {
-      // Start a process that writes, then sleeps
       const rec = startProcess(root, 'echo "partial-output" && sleep 10', {
         cardId: 'card-partial',
       });
@@ -377,10 +349,6 @@ describe('Process Runner', () => {
     });
   });
 
-  // ═══════════════════════════════════════════════════════════════
-  // killProcess
-  // ═══════════════════════════════════════════════════════════════
-
   describe('killProcess', () => {
     it('kills a running process via SIGTERM', async () => {
       const rec = startProcess(root, 'sleep 30', { cardId: 'card-kill' });
@@ -388,6 +356,18 @@ describe('Process Runner', () => {
 
       const killed = await killProcess(root, rec.id);
       expect(killed.status).toBe('killed');
+    });
+
+    it('returns only after the registry is durably updated without arbitrary sleeps', async () => {
+      const rec = startProcess(root, 'sleep 30', { cardId: 'card-kill-durable' });
+      await sleep(100);
+
+      const killed = await killProcess(root, rec.id);
+      expect(killed.status).toBe('killed');
+
+      const fromRegistry = getProcess(root, rec.id);
+      expect(fromRegistry).not.toBeNull();
+      expect(fromRegistry!.status).toBe('killed');
     });
 
     it('throws for nonexistent process ID', async () => {
@@ -401,14 +381,12 @@ describe('Process Runner', () => {
       await waitProcess(root, rec.id);
       await sleep(200);
 
-      // Killing an already-exited process should return the record
       const result = await killProcess(root, rec.id);
       expect(result.id).toBe(rec.id);
       expect(['exited', 'failed']).toContain(result.status);
     });
 
     it('escalates to SIGKILL if SIGTERM times out', async () => {
-      // Create a process that ignores SIGTERM
       const rec = startProcess(
         root,
         'trap "" TERM; sleep 10',
@@ -416,7 +394,6 @@ describe('Process Runner', () => {
       );
       await sleep(300);
 
-      // Use a very short grace period to force escalation
       const killed = await killProcess(root, rec.id, 500);
       expect(killed.status).toBe('killed');
     });
@@ -432,10 +409,6 @@ describe('Process Runner', () => {
       expect(fromReg!.status).toBe('killed');
     });
   });
-
-  // ═══════════════════════════════════════════════════════════════
-  // listProcesses
-  // ═══════════════════════════════════════════════════════════════
 
   describe('listProcesses', () => {
     it('returns all processes', async () => {
@@ -484,7 +457,6 @@ describe('Process Runner', () => {
       const running = startProcess(root, 'sleep 30', { cardId: 'card-multi' });
       await sleep(100);
 
-      // Filter for both exited and running
       const filtered = listProcesses(root, {
         status: ['exited', 'running'],
       });
@@ -516,10 +488,6 @@ describe('Process Runner', () => {
       expect(result).toEqual([]);
     });
   });
-
-  // ═══════════════════════════════════════════════════════════════
-  // Registry Persistence
-  // ═══════════════════════════════════════════════════════════════
 
   describe('Registry persistence', () => {
     it('saves and loads the registry correctly', async () => {
@@ -573,13 +541,12 @@ describe('Process Runner', () => {
       expect(stored.launch_reason).toBe('round-trip test');
       expect(stored.owner_kind).toBe('agent');
       expect(stored.background_policy).toBe('foreground');
-      expect(stored.process_group_id).toBeNull();
+      expect(stored.process_group_id).toEqual(expect.any(Number));
 
       await killProcess(root, rec.id);
     });
 
     it('saveRegistry validates records with Zod', () => {
-      // Valid records should save fine
       const validRecords: ProcessRecord[] = [
         {
           id: 'proc-test-valid',
@@ -601,13 +568,11 @@ describe('Process Runner', () => {
 
       expect(() => saveRegistry(root, validRecords)).not.toThrow();
 
-      // Verify it was persisted
       const reg = loadRegistry(root);
       expect(reg.has('proc-test-valid')).toBe(true);
     });
 
     it('saveRegistry throws on invalid records', () => {
-      // Missing required fields
       const invalidRecords = [
         { id: 'proc-bad', card_id: 'card-1' },
       ];
@@ -622,7 +587,7 @@ describe('Process Runner', () => {
       writeFileSync(regPath, 'this is not valid json {{{', 'utf-8');
 
       const reg = loadRegistry(root);
-      expect(reg.size).toBe(0); // Should return empty map
+      expect(reg.size).toBe(0);
     });
 
     it('loadRegistry filters out records that fail Zod validation', () => {
@@ -669,22 +634,15 @@ describe('Process Runner', () => {
     it('registry survives updating an existing record', async () => {
       const rec = startProcess(root, 'sleep 10', { cardId: 'card-update' });
 
-      // First save: running
       let reg = loadRegistry(root);
       expect(reg.get(rec.id)!.status).toBe('running');
 
-      // Kill it — this triggers a registry update
       await killProcess(root, rec.id);
 
-      // Second load: should be killed
       reg = loadRegistry(root);
       expect(reg.get(rec.id)!.status).toBe('killed');
     });
   });
-
-  // ═══════════════════════════════════════════════════════════════
-  // Restart Survival (output persistence)
-  // ═══════════════════════════════════════════════════════════════
 
   describe('Output survival (restart simulation)', () => {
     it('output files survive — can be read after process completes', async () => {
@@ -712,7 +670,6 @@ describe('Process Runner', () => {
       const result2 = await startAndWait(root, 'echo b', { cardId: 'card-b' });
       await sleep(200);
 
-      // Simulate "restart" — just reload the registry fresh
       const reg = loadRegistry(root);
       expect(reg.size).toBe(2);
 
@@ -733,15 +690,10 @@ describe('Process Runner', () => {
       );
       await sleep(200);
 
-      // tailOutput reads from combined.log on disk
       const tail = tailOutput(root, result.id);
       expect(tail).toContain('persistent-data-42');
     });
   });
-
-  // ═══════════════════════════════════════════════════════════════
-  // getProcess
-  // ═══════════════════════════════════════════════════════════════
 
   describe('getProcess', () => {
     it('returns process by ID', async () => {
@@ -759,10 +711,6 @@ describe('Process Runner', () => {
     });
   });
 
-  // ═══════════════════════════════════════════════════════════════
-  // cleanupProcessOutput / cleanupAllCompleted
-  // ═══════════════════════════════════════════════════════════════
-
   describe('cleanupProcessOutput', () => {
     it('removes output dir for completed process', async () => {
       const result = await startAndWait(root, 'echo cleanup-test', {
@@ -779,14 +727,14 @@ describe('Process Runner', () => {
       expect(existsSync(proc!.output_dir)).toBe(false);
     });
 
-    it('returns false for running process', () => {
+    it('returns false for running process', async () => {
       const rec = startProcess(root, 'sleep 30', { cardId: 'card-running-clean' });
 
       const cleaned = cleanupProcessOutput(root, rec.id);
       expect(cleaned).toBe(false);
       expect(existsSync(rec.output_dir)).toBe(true);
 
-      killProcess(root, rec.id);
+      await killProcess(root, rec.id);
     });
 
     it('returns false for nonexistent process', () => {
@@ -806,17 +754,12 @@ describe('Process Runner', () => {
       const count = cleanupAllCompleted(root);
       expect(count).toBe(2);
 
-      // Running process dir should still exist
       const stillRunning = listProcesses(root, { status: 'running' });
       expect(stillRunning.length).toBe(1);
 
       await killProcess(root, running.id);
     });
   });
-
-  // ═══════════════════════════════════════════════════════════════
-  // New Fields Backward Compatibility
-  // ═══════════════════════════════════════════════════════════════
 
   describe('New fields backward compatibility', () => {
     it('schema validates ProcessRecords without new fields (backward compat)', () => {
@@ -837,31 +780,24 @@ describe('Process Runner', () => {
         combined_log_path: join(root, '.saivage-work/processes/proc-old-style/combined.log'),
       };
 
-      // Should save without error (backward compatible)
       expect(() => saveRegistry(root, [oldStyleRecord])).not.toThrow();
 
-      // Loading should succeed
       const reg = loadRegistry(root);
       expect(reg.has('proc-old-style')).toBe(true);
     });
 
-    it('ProcessStartOptions without new fields still works', () => {
+    it('ProcessStartOptions without new fields still works', async () => {
       const rec = startProcess(root, 'sleep 2', { cardId: 'card-old-options' });
       expect(rec.card_id).toBe('card-old-options');
       expect(rec.required_for_card_completion).toBe(true);
-      // New fields default to null
       expect(rec.agent_session_id).toBeNull();
       expect(rec.goal_id).toBeNull();
       expect(rec.launch_reason).toBeNull();
       expect(rec.owner_kind).toBeNull();
       expect(rec.background_policy).toBeNull();
-      killProcess(root, rec.id);
+      await killProcess(root, rec.id);
     });
   });
-
-  // ═══════════════════════════════════════════════════════════════
-  // Edge Cases
-  // ═══════════════════════════════════════════════════════════════
 
   describe('Edge cases', () => {
     it('handles SIGTERM signal correctly', async () => {
@@ -870,7 +806,6 @@ describe('Process Runner', () => {
       });
       await sleep(300);
 
-      // Kill with short grace to force SIGKILL escalation
       const killed = await killProcess(root, rec.id, 500);
       expect(killed.status).toBe('killed');
     });
@@ -881,23 +816,18 @@ describe('Process Runner', () => {
         records.push(startProcess(root, 'sleep 3', { cardId: `card-${i}` }));
       }
 
-      // All should be in the registry
       const reg = loadRegistry(root);
       expect(reg.size).toBe(10);
 
-      // Kill them all
       for (const rec of records) {
         try {
           await killProcess(root, rec.id);
         } catch {
-          // already dead
         }
       }
     });
 
     it('handles empty command gracefully', () => {
-      // Empty command should throw a validation error since Zod requires
-      // command.length >= 1 in the ProcessRecord schema
       expect(() => startProcess(root, '', { cardId: 'card-empty-cmd' })).toThrow(
         /command must not be empty/,
       );
@@ -950,11 +880,10 @@ describe('Process Runner', () => {
       const rec = startProcess(root, 'sleep 2', { cardId: 'card-duration' });
 
       const result = await waitProcess(root, rec.id);
-      expect(result.waitDurationMs).toBeGreaterThanOrEqual(1500); // ~2s sleep
+      expect(result.waitDurationMs).toBeGreaterThanOrEqual(1500);
     });
 
     it('handles process that ignores SIGTERM and requires SIGKILL', async () => {
-      // Start a process with a trap that ignores SIGTERM
       const rec = startProcess(
         root,
         'trap "" TERM; sleep 10',
@@ -962,36 +891,26 @@ describe('Process Runner', () => {
       );
       await sleep(300);
 
-      // Kill with very short grace — should escalate to SIGKILL
       const killed = await killProcess(root, rec.id, 500);
       expect(killed.status).toBe('killed');
     });
   });
 
-  // ═══════════════════════════════════════════════════════════════
-  // Acceptance Criteria — Stage 3
-  // ═══════════════════════════════════════════════════════════════
-
   describe('Stage 3 Acceptance Criteria', () => {
     it('AC1: Long-running commands can be started, tailed, waited on, and killed', async () => {
-      // Start a long-running command (use 0.3s sleep intervals so test stays fast)
       const rec = startProcess(root, 'for i in $(seq 1 5); do echo "iter_$i"; sleep 0.3; done', {
         cardId: 'card-ac1',
       });
 
-      // Wait for some output
       await sleep(600);
 
-      // Tail the output while running
       const midTail = tailOutput(root, rec.id);
       expect(midTail).toContain('iter_1');
 
-      // Wait for it to complete
       const waitResult = await waitProcess(root, rec.id);
       expect(waitResult.status).toBe('exited');
       expect(waitResult.timedOut).toBe(false);
 
-      // Final tail
       const finalTail = tailOutput(root, rec.id);
       expect(finalTail).toContain('iter_5');
     }, 30000);
@@ -1000,22 +919,18 @@ describe('Process Runner', () => {
       const rec = startProcess(root, 'sleep 30', { cardId: 'card-ac2' });
       await sleep(100);
 
-      // Wait with a short timeout
       const result = await waitProcess(root, rec.id, 500);
       expect(result.timedOut).toBe(true);
       expect(result.status).toBe('running');
 
-      // Process must still be running in registry
       const proc = getProcess(root, rec.id);
       expect(proc).not.toBeNull();
       expect(proc!.status).toBe('running');
 
-      // Clean up
       await killProcess(root, rec.id);
     });
 
     it('AC3: Process output survives runtime restart (via file persistence)', async () => {
-      // Run a process that produces identifiable output
       const result = await startAndWait(
         root,
         'echo "survive-restart-abc123"',
@@ -1023,20 +938,16 @@ describe('Process Runner', () => {
       );
       await sleep(200);
 
-      // The combined.log path should exist on disk
       const proc = getProcess(root, result.id);
       expect(proc).not.toBeNull();
       expect(existsSync(proc!.combined_log_path)).toBe(true);
 
-      // Read directly from disk (simulating what a new runtime would do)
       const content = readFileSync(proc!.combined_log_path, 'utf-8');
       expect(content).toContain('survive-restart-abc123');
 
-      // tailOutput also reads from disk
       const tail = tailOutput(root, result.id);
       expect(tail).toContain('survive-restart-abc123');
 
-      // Registry also survives — reload from disk
       const reg = loadRegistry(root);
       expect(reg.has(result.id)).toBe(true);
       expect(reg.get(result.id)!.status).toBe('exited');

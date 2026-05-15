@@ -63,29 +63,12 @@ const REGISTRY_FILE = '.saivage/runtime/processes.json';
 
 // ── In-Memory State ───────────────────────────────────────────
 
-/**
- * Active child process handles kept in memory.
- * Key: process ID, Value: ChildProcess handle.
- */
 const activeProcesses = new Map<string, ChildProcess>();
-
-/**
- * Active write streams for process output files.
- * Key: process ID, Value: { stdout, stderr, combined }.
- */
 const outputStreams = new Map<
   string,
   { stdout: WriteStream; stderr: WriteStream; combined: WriteStream }
 >();
-
-/**
- * Track pending stream closes for each process.
- */
 const pendingStreamCloses = new Map<string, number>();
-
-/**
- * Track stream flush completion promises so waiters can observe durable output.
- */
 const streamCloseWaiters = new Map<string, Promise<void>>();
 
 // ── Helpers ───────────────────────────────────────────────────
@@ -110,13 +93,6 @@ function registryPath(projectRoot: string): string {
   return join(projectRoot, REGISTRY_FILE);
 }
 
-/**
- * Resolve the status of a child process from its current state.
- *
- * IMPORTANT: Do NOT check proc.killed — it is set to true as soon
- * as kill() is called, before the process actually exits. Only use
- * signalCode and exitCode which are set after the 'exit' event fires.
- */
 function resolveStatus(proc: ChildProcess): ProcessStatus {
   if (proc.signalCode !== null) {
     return proc.signalCode === 'SIGKILL' || proc.signalCode === 'SIGTERM'
@@ -155,8 +131,42 @@ async function waitForDurableOutput(procId: string): Promise<void> {
   try {
     await waiter;
   } catch {
-    // Best effort only; callers still get process status even if flush tracking fails.
   }
+}
+
+function waitForProcessRecord(
+  projectRoot: string,
+  procId: string,
+  predicate: (record: ProcessRecord) => boolean,
+  timeoutMs: number,
+): Promise<ProcessRecord | null> {
+  return new Promise((resolve) => {
+    const deadline = Date.now() + timeoutMs;
+
+    const check = () => {
+      const record = getProcess(projectRoot, procId);
+      if (record && predicate(record)) {
+        cleanup();
+        resolve(record);
+        return;
+      }
+      if (Date.now() >= deadline) {
+        cleanup();
+        resolve(record ?? null);
+      }
+    };
+
+    const cleanup = () => {
+      clearInterval(interval);
+      clearTimeout(timeout);
+    };
+
+    const interval = setInterval(check, 25);
+    interval.unref();
+    const timeout = setTimeout(check, timeoutMs);
+    timeout.unref();
+    check();
+  });
 }
 
 // ── Registry Persistence ──────────────────────────────────────
@@ -596,10 +606,12 @@ export async function killProcess(
     await waitProcess(projectRoot, procId, 2000);
   }
 
-  await new Promise((r) => setTimeout(r, 50));
-
-  const registry = loadRegistry(projectRoot);
-  const record = registry.get(procId);
+  const record = await waitForProcessRecord(
+    projectRoot,
+    procId,
+    (candidate) => candidate.status !== 'running',
+    5000,
+  );
   if (!record) {
     throw new Error(`Process '${procId}' not found in registry after kill.`);
   }
