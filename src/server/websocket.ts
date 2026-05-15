@@ -37,6 +37,20 @@ const clients = new Set<WebSocket>();
 const wsSessions = new WeakMap<WebSocket, string>();
 const wiredEventBuses = new WeakSet<object>();
 
+export function resetWebSocketState(): void {
+  for (const ws of clients) {
+    try {
+      ws.removeAllListeners();
+      if (ws.readyState === ws.OPEN || ws.readyState === ws.CONNECTING) {
+        ws.close();
+      }
+    } catch {
+    }
+  }
+  clients.clear();
+  _analystHandler = null;
+}
+
 export function broadcast(event: WsEnvelope): void {
   const data = JSON.stringify(event);
   for (const ws of clients) {
