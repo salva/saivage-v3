@@ -125,6 +125,22 @@ function setupSkeletonProject(root: string): void {
   writeFileSync(join(sd, 'runtime', 'errors.jsonl'), '');
 }
 
+function waitForWebSocketClose(ws: WebSocket): Promise<void> {
+  return new Promise((resolve) => {
+    let settled = false;
+    const finish = () => {
+      if (!settled) {
+        settled = true;
+        resolve();
+      }
+    };
+
+    ws.once('close', finish);
+    ws.once('error', finish);
+    ws.close();
+  });
+}
+
 describe('SPA static serving (projectRoot ≠ packageRoot)', () => {
   let fakeProjectRoot: string;
   let otherCwd: string;
@@ -217,7 +233,7 @@ describe('SPA static serving (projectRoot ≠ packageRoot)', () => {
     it('injectWS upgrades successfully', async () => {
       const ws: WebSocket = await (server.fastify as any).injectWS('/ws');
       expect(ws.readyState).toBe(ws.OPEN);
-      ws.close();
+      await waitForWebSocketClose(ws);
     }, 10000);
   });
 });
