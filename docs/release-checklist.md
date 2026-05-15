@@ -73,6 +73,10 @@ Use this checklist to verify a release candidate against the current repaired sy
   ```bash
   npm run build
   ```
+- [ ] Built server starts through the current CLI entrypoint:
+  ```bash
+  SAIVAGE_API_TOKEN=test ./bin/saivage.js start
+  ```
 - [ ] SPA serves from `/`.
 - [ ] Docs serve from `/docs/`.
 - [ ] Built artifacts are not committed unintentionally.

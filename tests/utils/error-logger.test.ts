@@ -492,7 +492,7 @@ describe('Runtime Integration — Error Propagation', () => {
         },
       ],
       executor: {
-        'code-happy-1': { card_id: 'code-happy-1', status: 'done' },
+        'code-happy-1': { card_id: 'code-happy-1', status: 'done', result: { evidence: 'happy card completed' } },
       },
       reviewer: makePassReviewer('goal-happy', 'plan-goal-happy', ['code-happy-1']),
     };

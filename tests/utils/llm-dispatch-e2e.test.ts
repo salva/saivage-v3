@@ -172,6 +172,43 @@ const REVIEWER_RESPONSE = JSON.stringify({
   },
 });
 
+const PROJECT_PLANNER_RESPONSE_1 = JSON.stringify({
+  created_cards: [
+    {
+      id: 'code-project-evidence-1',
+      type: 'code',
+      title: 'Produce project evidence',
+      description: 'Produce durable evidence for project-level completion',
+      status: 'backlog',
+      depends_on: [],
+      priority: 1,
+      tags: ['e2e'],
+    },
+  ],
+  updated_cards: [],
+  status: 'continue',
+  summary: 'Created project-level evidence card',
+});
+
+const PROJECT_EXECUTOR_RESPONSE_1 = JSON.stringify({
+  card_id: 'code-project-evidence-1',
+  status: 'done',
+  result: { evidence: 'project-level evidence complete' },
+  artifacts: [],
+  attachments: [],
+  summary: 'Produced project evidence',
+});
+
+const PROJECT_REVIEWER_RESPONSE = JSON.stringify({
+  assessment: {
+    result: 'pass',
+    summary: 'Project-level criteria met',
+    achieved: ['Project evidence produced'],
+    missing: [],
+    evidence_card_ids: ['code-project-evidence-1'],
+  },
+});
+
 const SKILL_CONTENT = `# E2E Skill
 This skill tests that skills are injected into system prompts during LLM dispatch.`;
 
@@ -450,8 +487,10 @@ describe('E2E LLM Dispatch Pipeline', () => {
 
   it('project card (depth 0) should use default planner instructions', async () => {
     mock = await createMockLlmServer([
+      { body: okResp(PROJECT_PLANNER_RESPONSE_1) },
+      { body: okResp(PROJECT_EXECUTOR_RESPONSE_1) },
       { body: okResp(PLANNER_RESPONSE_2) },
-      { body: okResp(REVIEWER_RESPONSE) },
+      { body: okResp(PROJECT_REVIEWER_RESPONSE) },
     ]);
 
     tmpDir = makeTempDir();

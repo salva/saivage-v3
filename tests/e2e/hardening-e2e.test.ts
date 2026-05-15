@@ -496,8 +496,8 @@ describe('E2E — Crash and Restart Recovery', () => {
         },
       ],
       executor: {
-        'code-crash-1': { card_id: 'code-crash-1', status: 'done' },
-        'code-crash-2': { card_id: 'code-crash-2', status: 'done' },
+        'code-crash-1': { card_id: 'code-crash-1', status: 'done', result: { evidence: 'crash recovery card 1 completed' } },
+        'code-crash-2': { card_id: 'code-crash-2', status: 'done', result: { evidence: 'crash recovery card 2 completed' } },
       },
       reviewer: [
         {

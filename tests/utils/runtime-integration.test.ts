@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { initProjectTree } from '../../src/utils/file-tree.js';
 import { CardStore } from '../../src/utils/card-store.js';
 import { Runtime } from '../../src/utils/runtime.js';
+import { readRuntimeState } from '../../src/utils/runtime-state.js';
 import { FakeAgentAdapter } from '../../src/utils/fake-agent.js';
 import type { FakeAgentFixture } from '../../src/utils/fake-agent.js';
 import {
@@ -25,6 +26,16 @@ function makeFixtureDir(tmpDir: string): string {
 
 function writeFixture(dir: string, name: string, fixture: FakeAgentFixture): void {
   writeFileSync(join(dir, `${name}.json`), JSON.stringify(fixture, null, 2), 'utf-8');
+}
+
+async function waitFor(condition: () => boolean, timeoutMs = 2000): Promise<void> {
+  const startedAt = Date.now();
+  while (!condition()) {
+    if (Date.now() - startedAt > timeoutMs) {
+      throw new Error('Timed out waiting for condition');
+    }
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
 }
 
 // ── Test Suite ────────────────────────────────────────────────
@@ -56,7 +67,6 @@ describe('Runtime Integration', () => {
       name: 'happy-goal',
       planner: [
         {
-          plan_card_id: 'plan-goal-1',
           created_cards: [
             {
               id: 'code-happy-1',
@@ -77,24 +87,39 @@ describe('Runtime Integration', () => {
               priority: 2,
             },
           ],
-          declare_done: false,
+          status: 'done',
         },
         {
-          plan_card_id: 'plan-goal-1',
           updated_cards: [],
-          declare_done: true,
+          status: 'done',
+        },
+        {
+          updated_cards: [],
+          status: 'done',
         },
       ],
       executor: {
-        'code-happy-1': { card_id: 'code-happy-1', status: 'done' },
-        'code-happy-2': { card_id: 'code-happy-2', status: 'done' },
+        'code-happy-1': { card_id: 'code-happy-1', status: 'done', result: { evidence: 'happy feature implemented' } },
+        'code-happy-2': { card_id: 'code-happy-2', status: 'done', result: { evidence: 'happy feature tests added' } },
       },
       reviewer: [
         {
           assessment: {
             id: 'review-001',
             goal_card_id: 'goal-1',
-            plan_card_id: 'plan-goal-1',
+            reviewer_session_id: 'rev-session-1',
+            result: 'pass',
+            summary: 'All acceptance criteria met.',
+            achieved: ['Happy path implemented', 'Tests passing'],
+            missing: [],
+            evidence_card_ids: ['code-happy-1', 'code-happy-2'],
+            created_at: new Date().toISOString(),
+          },
+        },
+        {
+          assessment: {
+            id: 'review-002',
+            goal_card_id: 'goal-1',
             reviewer_session_id: 'rev-session-1',
             result: 'pass',
             summary: 'All acceptance criteria met.',
@@ -114,7 +139,6 @@ describe('Runtime Integration', () => {
       name: 'review-fail-goal',
       planner: [
         {
-          plan_card_id: 'plan-goal-2',
           created_cards: [
             {
               id: 'code-rf-1',
@@ -126,15 +150,13 @@ describe('Runtime Integration', () => {
               priority: 1,
             },
           ],
-          declare_done: false,
+          status: 'done',
         },
         {
-          plan_card_id: 'plan-goal-2',
           updated_cards: [],
-          declare_done: true,
+          status: 'done',
         },
         {
-          plan_card_id: 'plan-goal-2',
           created_cards: [
             {
               id: 'code-rf-2',
@@ -146,24 +168,26 @@ describe('Runtime Integration', () => {
               priority: 1,
             },
           ],
-          declare_done: false,
+          status: 'done',
         },
         {
-          plan_card_id: 'plan-goal-2',
           updated_cards: [],
-          declare_done: true,
+          status: 'done',
+        },
+        {
+          updated_cards: [],
+          status: 'done',
         },
       ],
       executor: {
-        'code-rf-1': { card_id: 'code-rf-1', status: 'done' },
-        'code-rf-2': { card_id: 'code-rf-2', status: 'done' },
+        'code-rf-1': { card_id: 'code-rf-1', status: 'done', result: { evidence: 'initial implementation completed' } },
+        'code-rf-2': { card_id: 'code-rf-2', status: 'done', result: { evidence: 'review correction completed' } },
       },
       reviewer: [
         {
           assessment: {
             id: 'review-rf-001',
             goal_card_id: 'goal-2',
-            plan_card_id: 'plan-goal-2',
             reviewer_session_id: 'rev-session-2',
             result: 'fail',
             summary: 'Missing edge case handling.',
@@ -177,7 +201,19 @@ describe('Runtime Integration', () => {
           assessment: {
             id: 'review-rf-002',
             goal_card_id: 'goal-2',
-            plan_card_id: 'plan-goal-2',
+            reviewer_session_id: 'rev-session-2',
+            result: 'pass',
+            summary: 'All criteria met after corrections.',
+            achieved: ['Edge case handling', 'Error logging', 'Basic implementation'],
+            missing: [],
+            evidence_card_ids: ['code-rf-1', 'code-rf-2'],
+            created_at: new Date().toISOString(),
+          },
+        },
+        {
+          assessment: {
+            id: 'review-rf-003',
+            goal_card_id: 'goal-2',
             reviewer_session_id: 'rev-session-2',
             result: 'pass',
             summary: 'All criteria met after corrections.',
@@ -197,7 +233,6 @@ describe('Runtime Integration', () => {
       name: 'exec-fail-goal',
       planner: [
         {
-          plan_card_id: 'plan-goal-3',
           created_cards: [
             {
               id: 'code-ef-1',
@@ -209,10 +244,9 @@ describe('Runtime Integration', () => {
               priority: 1,
             },
           ],
-          declare_done: false,
+          status: 'continue',
         },
         {
-          plan_card_id: 'plan-goal-3',
           created_cards: [
             {
               id: 'code-ef-2',
@@ -224,24 +258,39 @@ describe('Runtime Integration', () => {
               priority: 1,
             },
           ],
-          declare_done: false,
+          status: 'done',
         },
         {
-          plan_card_id: 'plan-goal-3',
           updated_cards: [],
-          declare_done: true,
+          status: 'done',
+        },
+        {
+          updated_cards: [],
+          status: 'done',
         },
       ],
       executor: {
         'code-ef-1': { card_id: 'code-ef-1', status: 'failed', error: 'Build error' },
-        'code-ef-2': { card_id: 'code-ef-2', status: 'done' },
+        'code-ef-2': { card_id: 'code-ef-2', status: 'done', result: { evidence: 'replacement implementation completed' } },
       },
       reviewer: [
         {
           assessment: {
             id: 'review-ef-001',
             goal_card_id: 'goal-3',
-            plan_card_id: 'plan-goal-3',
+            reviewer_session_id: 'rev-session-3',
+            result: 'pass',
+            summary: 'Replacement works.',
+            achieved: ['Replacement implemented'],
+            missing: [],
+            evidence_card_ids: ['code-ef-2'],
+            created_at: new Date().toISOString(),
+          },
+        },
+        {
+          assessment: {
+            id: 'review-ef-002',
+            goal_card_id: 'goal-3',
             reviewer_session_id: 'rev-session-3',
             result: 'pass',
             summary: 'Replacement works.',
@@ -261,7 +310,6 @@ describe('Runtime Integration', () => {
       name: 'crash-recovery',
       planner: [
         {
-          plan_card_id: 'plan-goal-1',
           created_cards: [
             {
               id: 'code-resume-1',
@@ -273,23 +321,38 @@ describe('Runtime Integration', () => {
               priority: 1,
             },
           ],
-          declare_done: false,
+          status: 'done',
         },
         {
-          plan_card_id: 'plan-goal-1',
           updated_cards: [],
-          declare_done: true,
+          status: 'done',
+        },
+        {
+          updated_cards: [],
+          status: 'done',
         },
       ],
       executor: {
-        'code-resume-1': { card_id: 'code-resume-1', status: 'done' },
+        'code-resume-1': { card_id: 'code-resume-1', status: 'done', result: { evidence: 'crash recovery execution completed' } },
       },
       reviewer: [
         {
           assessment: {
             id: 'review-cr-001',
             goal_card_id: 'goal-1',
-            plan_card_id: 'plan-goal-1',
+            reviewer_session_id: 'rev-session-cr',
+            result: 'pass',
+            summary: 'Crash recovery test passed.',
+            achieved: ['Goal completed after crash'],
+            missing: [],
+            evidence_card_ids: ['code-resume-1'],
+            created_at: new Date().toISOString(),
+          },
+        },
+        {
+          assessment: {
+            id: 'review-cr-002',
+            goal_card_id: 'goal-1',
             reviewer_session_id: 'rev-session-cr',
             result: 'pass',
             summary: 'Crash recovery test passed.',
@@ -314,11 +377,130 @@ describe('Runtime Integration', () => {
     writeFixture(fixtureDir, 'lock-test', fixture);
   }
 
+  function createPlannerPlanCardFixture(): void {
+    const fixture: FakeAgentFixture = {
+      name: 'planner-plan-card-goal',
+      planner: [
+        {
+          status: 'done',
+          created_cards: [
+            {
+              id: 'research-plan-card-1',
+              type: 'research',
+              title: 'Inspect context',
+              description: 'Inspect the current goal context',
+              status: 'backlog',
+              depends_on: [],
+              priority: 0,
+            },
+            {
+              id: 'research-plan-card-2',
+              type: 'research',
+              title: 'Define next executable implementation step',
+              description: 'Define the next implementation step',
+              status: 'backlog',
+              depends_on: ['research-plan-card-1'],
+              priority: 1,
+            },
+          ],
+          summary: 'Created two research cards.',
+        },
+        {
+          updated_cards: [],
+          status: 'done',
+          summary: 'Research is complete.',
+        },
+        {
+          updated_cards: [],
+          status: 'done',
+          summary: 'Research is complete.',
+        },
+        {
+          updated_cards: [],
+          status: 'done',
+          summary: 'Research is complete.',
+        },
+      ],
+      executor: {
+        'research-plan-card-1': { card_id: 'research-plan-card-1', status: 'done', result: { evidence: 'context inspected' } },
+        'research-plan-card-2': { card_id: 'research-plan-card-2', status: 'done', result: { evidence: 'next implementation step defined' } },
+      },
+      reviewer: [
+        {
+          assessment: {
+            id: 'review-plan-card-001',
+            goal_card_id: 'goal-plan-card',
+            reviewer_session_id: 'rev-plan-card',
+            result: 'pass',
+            summary: 'Goal completed.',
+            achieved: ['Research completed', 'Next implementation step defined'],
+            missing: [],
+            evidence_card_ids: ['research-plan-card-1', 'research-plan-card-2'],
+            created_at: new Date().toISOString(),
+          },
+        },
+      ],
+    };
+    writeFixture(fixtureDir, 'planner-plan-card-goal', fixture);
+  }
+
+  function createBlockedPlannerFixture(): void {
+    const fixture: FakeAgentFixture = {
+      name: 'blocked-planner-goal',
+      planner: [
+        {
+          status: 'blocked',
+          blocked_reason: 'Needs parent planner to choose a different strategy.',
+          created_cards: [],
+          updated_cards: [],
+          summary: 'No viable local next step.',
+        },
+      ],
+      executor: {},
+      reviewer: [],
+    };
+    writeFixture(fixtureDir, 'blocked-planner-goal', fixture);
+  }
+
+  function createPlannerMarksGoalDoneFixture(): void {
+    const fixture: FakeAgentFixture = {
+      name: 'planner-marks-goal-done',
+      planner: [
+        {
+          status: 'done',
+          updated_cards: [
+            { id: 'goal-planner-done', status: 'done' },
+          ],
+          summary: 'Goal acceptance is already satisfied.',
+        },
+      ],
+      reviewer: [
+        {
+          assessment: {
+            id: 'review-planner-done-001',
+            goal_card_id: 'goal-planner-done',
+            reviewer_session_id: 'rev-planner-done',
+            result: 'pass',
+            summary: 'Goal completed.',
+            achieved: ['Goal done'],
+            missing: [],
+            evidence_card_ids: ['goal-planner-done'],
+            created_at: new Date().toISOString(),
+          },
+        },
+      ],
+    };
+    writeFixture(fixtureDir, 'planner-marks-goal-done', fixture);
+  }
+
   function makeDefaultConfig(overrides?: Record<string, string>) {
     const mapping: Record<string, string> = {
       'goal-1': 'happy-goal',
       'goal-2': 'review-fail-goal',
       'goal-3': 'exec-fail-goal',
+      'goal-plan-card': 'planner-plan-card-goal',
+      'goal-blocked': 'blocked-planner-goal',
+      'goal-planner-done': 'planner-marks-goal-done',
       project: 'happy-goal',
       ...overrides,
     };
@@ -383,12 +565,26 @@ describe('Runtime Integration', () => {
     });
   }
 
-  // ═══════════════════════════════════════════════════════════════
-  // AC 1: A fixture goal can move from backlog to done through
-  //       planner, executor, and reviewer fixture results
-  // ═══════════════════════════════════════════════════════════════
-
   describe('AC 1: Full goal flow (backlog → done)', () => {
+    it('auto-dispatches the first backlog top-level goal on startup when enabled', async () => {
+      createHappyPathFixture();
+      const store = new CardStore(tmpDir);
+      makeGoalCard(store, 'goal-1', 'Happy Goal');
+
+      runtime = new Runtime({
+        ...makeDefaultConfig(),
+        autoDispatchBacklog: true,
+      });
+
+      await runtime.startup();
+      await waitFor(() => store.read('goal-1')?.status === 'done');
+
+      expect(store.read('code-happy-1')?.status).toBe('done');
+      expect(store.read('code-happy-2')?.status).toBe('done');
+
+      await runtime.shutdown();
+    });
+
     it('moves a goal from backlog to done through planner, executor, and reviewer', async () => {
       createHappyPathFixture();
       const store = new CardStore(tmpDir);
@@ -404,12 +600,10 @@ describe('Runtime Integration', () => {
 
       await runtime.dispatchGoal('goal-1');
 
-      // Verify the goal reached 'done'
       const goal = store.read('goal-1');
       expect(goal).not.toBeNull();
       expect(goal!.status).toBe('done');
 
-      // Verify terminal cards were processed
       const card1 = store.read('code-happy-1');
       expect(card1).not.toBeNull();
       expect(card1!.status).toBe('done');
@@ -418,7 +612,6 @@ describe('Runtime Integration', () => {
       expect(card2).not.toBeNull();
       expect(card2!.status).toBe('done');
 
-      // No failures
       expect(events).not.toContain('card_failed');
       expect(events).not.toContain('review_failed');
       expect(events).toContain('goal_completed');
@@ -427,10 +620,93 @@ describe('Runtime Integration', () => {
     });
   });
 
-  // ═══════════════════════════════════════════════════════════════
-  // AC 2: A reviewer failure re-invokes the planner and
-  //       correction cards run before the next review
-  // ═══════════════════════════════════════════════════════════════
+  describe('Planner goal-owned planning contract', () => {
+    it('allows blocked goals to be reopened to backlog for replanning', () => {
+      const store = new CardStore(tmpDir);
+      makeGoalCard(store, 'goal-reopen', 'Reopen Blocked Goal');
+      store.setStatus('goal-reopen', 'active');
+      store.setStatus('goal-reopen', 'running');
+      store.setStatus('goal-reopen', 'blocked');
+
+      store.setStatus('goal-reopen', 'backlog');
+
+      expect(store.read('goal-reopen')!.status).toBe('backlog');
+    });
+
+    it('stores planner progress on goal planning state', async () => {
+      createPlannerPlanCardFixture();
+      const store = new CardStore(tmpDir);
+      makeGoalCard(store, 'goal-plan-card', 'Planner Plan Card Goal');
+
+      runtime = new Runtime(makeDefaultConfig());
+      await runtime.startup();
+      await runtime.dispatchGoal('goal-plan-card');
+
+      const goal = store.read('goal-plan-card');
+      expect(goal!.status).toBe('done');
+      expect(store.read('research-plan-card-1')!.status).toBe('done');
+      expect(store.read('plan-goal-plan-card')).toBeNull();
+      expect(store.read('plan-1')).toBeNull();
+      expect(goal!.result?.planning).toMatchObject({
+        status: 'done',
+      });
+      expect((goal!.result?.planning as { created_cards?: string[] }).created_cards).toEqual([]);
+
+      await runtime.shutdown();
+    });
+
+    it('marks a goal blocked when the planner returns blocked', async () => {
+      createBlockedPlannerFixture();
+      const store = new CardStore(tmpDir);
+      makeGoalCard(store, 'goal-blocked', 'Blocked Goal');
+
+      const fakeAgent = new FakeAgentAdapter({
+        mapping: { 'goal-blocked': 'blocked-planner-goal' },
+        fixtureDir,
+      });
+      runtime = new Runtime({
+        projectRoot: tmpDir,
+        fakeAgentConfig: { mapping: { 'goal-blocked': 'blocked-planner-goal' }, fixtureDir },
+      }, fakeAgent);
+      await runtime.startup();
+      await runtime.dispatchGoal('goal-blocked');
+
+      const goal = store.read('goal-blocked');
+      expect(goal!.status).toBe('blocked');
+      expect(goal!.result?.planning).toMatchObject({
+        status: 'blocked',
+        blocked_reason: 'Needs parent planner to choose a different strategy.',
+      });
+      expect(fakeAgent.getPlannerCount('goal-blocked')).toBe(1);
+
+      await runtime.shutdown();
+    });
+
+    it('idles persisted runtime state when planner already marked reviewed goal done', async () => {
+      createPlannerMarksGoalDoneFixture();
+      const store = new CardStore(tmpDir);
+      makeGoalCard(store, 'goal-planner-done', 'Planner Done Goal');
+
+      runtime = new Runtime(makeDefaultConfig());
+      await runtime.startup();
+
+      const completedEvents: string[] = [];
+      runtime.on('goal_completed', () => completedEvents.push('goal_completed'));
+
+      await runtime.dispatchGoal('goal-planner-done');
+
+      expect(store.read('goal-planner-done')!.status).toBe('done');
+      expect(completedEvents).toContain('goal_completed');
+      expect(readRuntimeState(tmpDir)).toMatchObject({
+        status: 'idle',
+        current_card_id: null,
+        current_agent_session_id: null,
+        queue: [],
+      });
+
+      await runtime.shutdown();
+    });
+  });
 
   describe('AC 2: Reviewer failure → planner re-invoked → correction cards', () => {
     it('re-invokes planner after reviewer failure and runs correction cards', async () => {
@@ -451,16 +727,13 @@ describe('Runtime Integration', () => {
       await runtime.dispatchGoal('goal-2');
       await goalCompleted;
 
-      // Verify the goal reached 'done'
       const goal = store.read('goal-2');
       expect(goal!.status).toBe('done');
 
-      // Verify correction card was created and executed
       const correctionCard = store.read('code-rf-2');
       expect(correctionCard).not.toBeNull();
       expect(correctionCard!.status).toBe('done');
 
-      // Verify reviewer was re-invoked
       expect(reviewFailedEvents.length).toBeGreaterThanOrEqual(1);
 
       await runtime.shutdown();
@@ -480,7 +753,6 @@ describe('Runtime Integration', () => {
 
       await runtime.dispatchGoal('goal-2');
 
-      // Both cards should be done, the original and the correction
       const origCard = store.read('code-rf-1');
       const corrCard = store.read('code-rf-2');
       expect(origCard!.status).toBe('done');
@@ -491,10 +763,6 @@ describe('Runtime Integration', () => {
       await runtime.shutdown();
     });
   });
-
-  // ═══════════════════════════════════════════════════════════════
-  // AC 3: A failed terminal card re-invokes the parent planner
-  // ═══════════════════════════════════════════════════════════════
 
   describe('AC 3: Failed terminal card re-invokes parent planner', () => {
     it('re-invokes planner after a terminal card fails', async () => {
@@ -515,21 +783,17 @@ describe('Runtime Integration', () => {
       await runtime.dispatchGoal('goal-3');
       await goalCompleted;
 
-      // The failing card should be in 'failed' status
       const failedCard = store.read('code-ef-1');
       expect(failedCard!.status).toBe('failed');
       expect(failedCard!.error).toBe('Build error');
 
-      // The replacement card should have been created and executed
       const replCard = store.read('code-ef-2');
       expect(replCard).not.toBeNull();
       expect(replCard!.status).toBe('done');
 
-      // Card failed event was emitted
       expect(cardFailedEvents.length).toBeGreaterThanOrEqual(1);
       expect(cardFailedEvents[0].cardId).toBe('code-ef-1');
 
-      // Goal still completes via replacement
       const goal = store.read('goal-3');
       expect(goal!.status).toBe('done');
 
@@ -537,24 +801,16 @@ describe('Runtime Integration', () => {
     });
   });
 
-  // ═══════════════════════════════════════════════════════════════
-  // AC 4: A second runtime instance cannot acquire the lock
-  //       while the first is alive
-  // ═══════════════════════════════════════════════════════════════
-
   describe('AC 4: Exclusive lock — second instance rejected', () => {
     it('prevents second instance from acquiring lock while first is alive', () => {
       createLockFixture();
 
-      // First instance acquires lock
       const payload1 = acquireLock(tmpDir);
       expect(payload1.pid).toBe(process.pid);
       expect(isLocked(tmpDir)).toBe(true);
 
-      // Second instance should fail
       expect(() => acquireLock(tmpDir)).toThrow(/Cannot acquire lock/);
 
-      // Release and verify second instance can now acquire
       releaseLock(tmpDir);
       expect(isLocked(tmpDir)).toBe(false);
 
@@ -563,11 +819,6 @@ describe('Runtime Integration', () => {
       releaseLock(tmpDir);
     });
   });
-
-  // ═══════════════════════════════════════════════════════════════
-  // AC 5: Stale locks are removed only when the PID is dead or
-  //       older than configured age bound
-  // ═══════════════════════════════════════════════════════════════
 
   describe('AC 5: Stale lock detection', () => {
     it('removes lock when PID is dead', () => {
@@ -578,10 +829,8 @@ describe('Runtime Integration', () => {
       const deadPayload = { pid: 99999, started_at: new Date().toISOString() };
       writeFileSync(lockPath, JSON.stringify(deadPayload, null, 2), 'utf-8');
 
-      // The dead PID lock should not block acquisition
       expect(() => acquireLock(tmpDir)).not.toThrow();
 
-      // Clean up
       releaseLock(tmpDir);
     });
 
@@ -591,12 +840,10 @@ describe('Runtime Integration', () => {
       const lockPath = join(tmpDir, '.saivage-work', 'tmp', 'runtime', 'runtime.lock');
       mkdirSync(join(tmpDir, '.saivage-work', 'tmp', 'runtime'), { recursive: true });
 
-      // Create a lock with an old timestamp (30 days ago) but our own PID
       const oldDate = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
       const oldPayload = { pid: process.pid, started_at: oldDate };
       writeFileSync(lockPath, JSON.stringify(oldPayload, null, 2), 'utf-8');
 
-      // Should remove stale lock and acquire
       expect(() => acquireLock(tmpDir)).not.toThrow();
 
       releaseLock(tmpDir);
@@ -608,19 +855,15 @@ describe('Runtime Integration', () => {
       const lockPath = join(tmpDir, '.saivage-work', 'tmp', 'runtime', 'runtime.lock');
       mkdirSync(join(tmpDir, '.saivage-work', 'tmp', 'runtime'), { recursive: true });
 
-      // Fresh lock with current PID — should NOT be removed
       const freshPayload = { pid: process.pid, started_at: new Date().toISOString() };
       writeFileSync(lockPath, JSON.stringify(freshPayload, null, 2), 'utf-8');
       expect(existsSync(lockPath)).toBe(true);
 
       removeStaleLock(tmpDir);
-      // Should still exist because PID is alive and recent
       expect(existsSync(lockPath)).toBe(true);
 
-      // Clean up
       releaseLock(tmpDir);
 
-      // Dead PID lock — SHOULD be removed by removeStaleLock
       const deadPayload = { pid: 99999, started_at: new Date().toISOString() };
       writeFileSync(lockPath, JSON.stringify(deadPayload, null, 2), 'utf-8');
       expect(existsSync(lockPath)).toBe(true);
@@ -635,7 +878,6 @@ describe('Runtime Integration', () => {
       acquireLock(tmpDir);
       expect(isLocked(tmpDir)).toBe(true);
 
-      // removeStaleLock should NOT remove the live lock
       removeStaleLock(tmpDir);
       expect(isLocked(tmpDir)).toBe(true);
 
@@ -643,28 +885,20 @@ describe('Runtime Integration', () => {
     });
   });
 
-  // ═══════════════════════════════════════════════════════════════
-  // AC 6: After simulated crash, active and running cards are
-  //       reset to backlog and the runtime can resume
-  // ═══════════════════════════════════════════════════════════════
-
   describe('AC 6: Crash recovery', () => {
     it('resets active and running cards to backlog after crash', () => {
       createHappyPathFixture();
       const store = new CardStore(tmpDir);
       makeGoalCard(store, 'goal-1', 'Crash Goal');
 
-      // Set some cards to active/running
       store.setStatus('goal-1', 'active');
       makeTerminalCard(store, 'code-crash-1', 'goal-1', {
         status: 'running',
       });
 
-      // Simulate crash
       runtime = new Runtime(makeDefaultConfig());
       runtime.simulateCrash();
 
-      // Verify cards were reset
       const goal = store.read('goal-1');
       expect(goal!.status).toBe('backlog');
 
@@ -677,25 +911,20 @@ describe('Runtime Integration', () => {
       const store = new CardStore(tmpDir);
       makeGoalCard(store, 'goal-1', 'Resume Goal');
 
-      // Set some cards to active/running then simulate crash
       store.setStatus('goal-1', 'active');
       makeTerminalCard(store, 'code-resume-1', 'goal-1', {
         status: 'running',
       });
 
-      // Create a new runtime that simulates crash recovery
       runtime = new Runtime(makeDefaultConfig({ 'goal-1': 'crash-recovery' }));
 
-      // Manually call crash recovery (as startup would)
       runtime.performCrashRecovery();
 
-      // Verify cards are back to backlog
       const goal = store.read('goal-1');
       expect(goal!.status).toBe('backlog');
       const card = store.read('code-resume-1');
       expect(card!.status).toBe('backlog');
 
-      // Now do a full startup and dispatch — should work fine
       await runtime.startup();
       await runtime.dispatchGoal('goal-1');
 
@@ -705,8 +934,6 @@ describe('Runtime Integration', () => {
       await runtime.shutdown();
     });
   });
-
-  // ── Pause/Resume ─────────────────────────────────────────────
 
   describe('Pause / Resume', () => {
     it('pause stops dispatch, resume allows it', async () => {
@@ -717,26 +944,21 @@ describe('Runtime Integration', () => {
       runtime = new Runtime(makeDefaultConfig());
       await runtime.startup();
 
-      // Pause
       runtime.pause();
       expect(runtime.paused).toBe(true);
 
-      // Try to dispatch while paused — should emit dispatch_blocked
       const blockedEvents: unknown[] = [];
       runtime.on('dispatch_blocked', (data) => blockedEvents.push(data));
 
       await runtime.dispatchGoal('goal-1');
       expect(blockedEvents.length).toBeGreaterThanOrEqual(1);
 
-      // Goal should NOT have been processed
       const goal = store.read('goal-1');
       expect(goal!.status).toBe('backlog');
 
-      // Resume
       runtime.resume();
       expect(runtime.paused).toBe(false);
 
-      // Now dispatch should work
       await runtime.dispatchGoal('goal-1');
       const goalAfter = store.read('goal-1');
       expect(goalAfter!.status).toBe('done');
@@ -745,14 +967,11 @@ describe('Runtime Integration', () => {
     });
   });
 
-  // ── Queue Ordering ───────────────────────────────────────────
-
   describe('Queue ordering', () => {
     it('sorts ready cards by depends_on then priority', () => {
       const store = new CardStore(tmpDir);
       const goal = makeGoalCard(store, 'goal-q', 'Queue Goal');
 
-      // Create cards with dependencies and varying priorities
       const c1 = makeTerminalCard(store, 'code-q-1', goal.id, {
         title: 'Q1 - no deps, priority 5',
         priority: 5,
@@ -772,38 +991,27 @@ describe('Runtime Integration', () => {
       runtime = new Runtime(makeDefaultConfig());
       const queue = runtime.getReadyQueue(goal.id);
 
-      // Only c1 and c3 are ready; c2 blocked (depends_on c1 not done)
-      // Sort: depends_on.length: c1(0)=c3(0), then priority: c3(2) < c1(5)
       expect(queue.length).toBe(2);
-      expect(queue[0].id).toBe(c3.id); // priority 2 before priority 5
-      expect(queue[1].id).toBe(c1.id); // priority 5
+      expect(queue[0].id).toBe(c3.id);
+      expect(queue[1].id).toBe(c1.id);
 
-      // Now mark c1 as done, c2 should become ready
       store.setStatus(c1.id, 'active');
       store.setStatus(c1.id, 'running');
       store.setStatus(c1.id, 'done');
 
       const queue2 = runtime.getReadyQueue(goal.id);
-      // c3 (priority 2, 0 deps) and c2 (priority 1, 1 dep)
-      // Sort by depends_on.length first: c3(0) < c2(1), so c3 first
       expect(queue2.length).toBe(2);
       expect(queue2[0].id).toBe(c3.id);
       expect(queue2[1].id).toBe(c2.id);
     });
   });
 
-  // ═══════════════════════════════════════════════════════════════
-  // AC 7: Goal with per-goal instructions_file dispatch
-  // ═══════════════════════════════════════════════════════════════
-
   describe('AC 7: Goal with per-goal instructions_file dispatch', () => {
     it('dispatches a depth > 0 goal with instructions_file set', async () => {
-      // Reuse the happy-goal fixture since we just need the planner to work
       createHappyPathFixture();
       const store = new CardStore(tmpDir);
 
-      // Create a depth-1 goal card with instructions_file set
-      const goal = store.create({
+      store.create({
         id: 'goal-instr',
         type: 'goal',
         parent: 'project',
@@ -825,7 +1033,6 @@ describe('Runtime Integration', () => {
         instructions_file: 'my-goal-instructions.md',
       });
 
-      // Write a instructions file at the project root
       writeFileSync(join(tmpDir, 'my-goal-instructions.md'),
         '# Special instructions\nBe thorough.', 'utf-8');
 
@@ -834,7 +1041,6 @@ describe('Runtime Integration', () => {
 
       await runtime.dispatchGoal('goal-instr');
 
-      // Should complete successfully
       const done = store.read('goal-instr');
       expect(done!.status).toBe('done');
 
@@ -845,8 +1051,7 @@ describe('Runtime Integration', () => {
       createHappyPathFixture();
       const store = new CardStore(tmpDir);
 
-      // Create a depth-1 goal WITHOUT instructions_file
-      const goal = store.create({
+      store.create({
         id: 'goal-no-instr',
         type: 'goal',
         parent: 'project',
