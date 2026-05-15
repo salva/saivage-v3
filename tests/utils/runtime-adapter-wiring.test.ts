@@ -10,8 +10,6 @@ import { releaseLock } from '../../src/utils/runtime-lock.js';
 import type { CardRecord } from '../../src/schemas/types.js';
 import type { AgentRuntime } from '../../src/agents/agent-runtime.js';
 
-// ── Helpers ───────────────────────────────────────────────────
-
 function makeFixtureDir(tmpDir: string): string {
   const dir = join(tmpDir, 'fixtures');
   mkdirSync(dir, { recursive: true });
@@ -45,8 +43,6 @@ function makeGoalCard(store: CardStore, id: string, title: string): CardRecord {
   });
 }
 
-// ── Test Suite ────────────────────────────────────────────────
-
 describe('Runtime Adapter Wiring', () => {
   let tmpDir: string;
   let fixtureDir: string;
@@ -67,14 +63,11 @@ describe('Runtime Adapter Wiring', () => {
     rmSync(tmpDir, { recursive: true, force: true });
   });
 
-  // ── Happy-path fixture ──────────────────────────────────────
-
   function createHappyPathFixture(): void {
     const fixture: FakeAgentFixture = {
       name: 'happy-goal',
       planner: [
         {
-          plan_card_id: 'plan-goal-1',
           created_cards: [
             {
               id: 'code-happy-1',
@@ -86,12 +79,19 @@ describe('Runtime Adapter Wiring', () => {
               priority: 1,
             },
           ],
-          declare_done: false,
+          status: 'continue',
         },
         {
-          plan_card_id: 'plan-goal-1',
           updated_cards: [],
-          declare_done: true,
+          status: 'done',
+        },
+        {
+          updated_cards: [],
+          status: 'done',
+        },
+        {
+          updated_cards: [],
+          status: 'done',
         },
       ],
       executor: {
@@ -102,11 +102,36 @@ describe('Runtime Adapter Wiring', () => {
           assessment: {
             id: 'review-happy-1',
             goal_card_id: 'goal-1',
-            plan_card_id: 'plan-goal-1',
             reviewer_session_id: 'rev-session',
             result: 'pass',
             summary: 'All acceptance criteria met.',
             achieved: ['Happy path implemented'],
+            missing: [],
+            evidence_card_ids: ['code-happy-1'],
+            created_at: new Date().toISOString(),
+          },
+        },
+        {
+          assessment: {
+            id: 'review-happy-2',
+            goal_card_id: 'goal-1',
+            reviewer_session_id: 'rev-session-2',
+            result: 'pass',
+            summary: 'All acceptance criteria met.',
+            achieved: ['Happy path implemented'],
+            missing: [],
+            evidence_card_ids: ['code-happy-1'],
+            created_at: new Date().toISOString(),
+          },
+        },
+        {
+          assessment: {
+            id: 'review-repeat-3',
+            goal_card_id: 'goal-1',
+            reviewer_session_id: 'rev-session-3',
+            result: 'pass',
+            summary: 'Repeated pass review.',
+            achieved: ['Done'],
             missing: [],
             evidence_card_ids: ['code-happy-1'],
             created_at: new Date().toISOString(),
@@ -130,10 +155,6 @@ describe('Runtime Adapter Wiring', () => {
     };
   }
 
-  // ═══════════════════════════════════════════════════════════════
-  // AC 1: Runtime constructor accepts injected AgentRuntime
-  // ═══════════════════════════════════════════════════════════════
-
   describe('Dependency injection: Runtime accepts AgentRuntime', () => {
     it('Runtime constructor accepts FakeAgentAdapter as AgentRuntime', () => {
       createHappyPathFixture();
@@ -143,10 +164,7 @@ describe('Runtime Adapter Wiring', () => {
         fixtureDir,
       });
 
-      // Construct Runtime with explicit agentRuntime
       runtime = new Runtime(makeConfig(), fakeAgent);
-
-      // Verify the injected adapter is used
       expect(runtime.agentRuntime).toBe(fakeAgent);
     });
 
@@ -170,12 +188,10 @@ describe('Runtime Adapter Wiring', () => {
 
       await runtime.dispatchGoal('goal-1');
 
-      // Verify the goal reached 'done'
       const goal = store.read('goal-1');
       expect(goal).not.toBeNull();
       expect(goal!.status).toBe('done');
 
-      // Verify the terminal card was executed
       const card = store.read('code-happy-1');
       expect(card).not.toBeNull();
       expect(card!.status).toBe('done');
@@ -213,14 +229,12 @@ describe('Runtime Adapter Wiring', () => {
     });
 
     it('any object implementing AgentRuntime can be injected', () => {
-      // Create a minimal AgentRuntime implementation
       const minimalRt: AgentRuntime = {
         invokePlanner(_goalId: string) {
           return {
-            plan_card_id: 'plan-test',
             created_cards: [],
             updated_cards: [],
-            declare_done: true,
+            status: 'done',
             summary: 'done',
           };
         },
@@ -257,16 +271,10 @@ describe('Runtime Adapter Wiring', () => {
         },
       };
 
-      // Construct Runtime with the minimal AgentRuntime
       runtime = new Runtime(makeConfig(), minimalRt);
       expect(runtime.agentRuntime).toBe(minimalRt);
     });
   });
-
-  // ═══════════════════════════════════════════════════════════════
-  // AC 2: Runtime still works without explicit agentRuntime
-  //       (backward-compatible with config.fakeAgentConfig)
-  // ═══════════════════════════════════════════════════════════════
 
   describe('Backward compatibility: Runtime without explicit agentRuntime', () => {
     it('Runtime creates FakeAgentAdapter internally when no agentRuntime passed', () => {
@@ -274,7 +282,6 @@ describe('Runtime Adapter Wiring', () => {
 
       runtime = new Runtime(makeConfig());
 
-      // agentRuntime should exist and be a FakeAgentAdapter
       expect(runtime.agentRuntime).toBeDefined();
       expect(runtime.agentRuntime).toBeInstanceOf(FakeAgentAdapter);
     });
@@ -284,7 +291,6 @@ describe('Runtime Adapter Wiring', () => {
       const store = new CardStore(tmpDir);
       makeGoalCard(store, 'goal-1', 'Happy Goal');
 
-      // No agentRuntime passed — Runtime auto-creates FakeAgentAdapter
       runtime = new Runtime(makeConfig());
       await runtime.startup();
 
@@ -303,14 +309,8 @@ describe('Runtime Adapter Wiring', () => {
     });
   });
 
-  // ═══════════════════════════════════════════════════════════════
-  // AC 3: Injected adapter runs fixture-driven goal flow
-  //       (backlog → plan → exec → review → done)
-  // ═══════════════════════════════════════════════════════════════
-
   describe('Full fixture-driven goal flow with injected adapter', () => {
     it('completes the lifecycle: backlog → plan → exec → review → done', async () => {
-      // Create the source file that will be referenced as an artifact
       mkdirSync(join(tmpDir, 'src'), { recursive: true });
       writeFileSync(join(tmpDir, 'src', 'test.ts'), '// test file', 'utf-8');
 
@@ -318,7 +318,6 @@ describe('Runtime Adapter Wiring', () => {
         name: 'lifecycle-goal',
         planner: [
           {
-            plan_card_id: 'plan-goal-lifecycle',
             created_cards: [
               {
                 id: 'code-lifecycle-1',
@@ -330,12 +329,15 @@ describe('Runtime Adapter Wiring', () => {
                 priority: 1,
               },
             ],
-            declare_done: false,
+            status: 'continue',
           },
           {
-            plan_card_id: 'plan-goal-lifecycle',
             updated_cards: [],
-            declare_done: true,
+            status: 'done',
+          },
+          {
+            updated_cards: [],
+            status: 'done',
           },
         ],
         executor: {
@@ -358,7 +360,6 @@ describe('Runtime Adapter Wiring', () => {
             assessment: {
               id: 'review-lifecycle-1',
               goal_card_id: 'goal-lifecycle',
-              plan_card_id: 'plan-goal-lifecycle',
               reviewer_session_id: 'rev-session-lc',
               result: 'pass',
               summary: 'Lifecycle test passed.',
@@ -375,7 +376,6 @@ describe('Runtime Adapter Wiring', () => {
       const store = new CardStore(tmpDir);
       const goal = makeGoalCard(store, 'goal-lifecycle', 'Lifecycle Goal');
 
-      // Verify initial state
       expect(goal.status).toBe('backlog');
 
       const fakeAgent = new FakeAgentAdapter({
@@ -386,7 +386,6 @@ describe('Runtime Adapter Wiring', () => {
       runtime = new Runtime(makeConfig(), fakeAgent);
       await runtime.startup();
 
-      // After startup, goal should still be backlog (startup only resets active/running)
       const goalAfterStartup = store.read('goal-lifecycle');
       expect(goalAfterStartup!.status).toBe('backlog');
 
@@ -397,11 +396,9 @@ describe('Runtime Adapter Wiring', () => {
 
       await runtime.dispatchGoal('goal-lifecycle');
 
-      // Verify goal reached 'done'
       const finalGoal = store.read('goal-lifecycle');
       expect(finalGoal!.status).toBe('done');
 
-      // Verify the terminal card was executed
       const card = store.read('code-lifecycle-1');
       expect(card!.status).toBe('done');
       expect(card!.result).toEqual({ success: true });

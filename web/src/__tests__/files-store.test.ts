@@ -19,7 +19,6 @@
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import { setActivePinia, createPinia } from 'pinia';
 
-// ── Mock the API client ───────────────────────────────────────
 vi.mock('../api/client', () => ({
   listFiles: vi.fn(),
   getFileContent: vi.fn(),
@@ -37,17 +36,29 @@ vi.mock('../api/client', () => ({
   },
 }));
 
+const wsReconnectHandlers = new Set<() => void>();
+
+vi.mock('../stores/ws', () => ({
+  useWsStore: vi.fn(() => ({
+    onReconnect: (handler: () => void) => {
+      wsReconnectHandlers.add(handler);
+      return () => wsReconnectHandlers.delete(handler);
+    },
+  })),
+}));
+
 import { listFiles, getFileContent, ApiError } from '../api/client';
 import { useFileStore } from '../stores/files';
 
-// ── Helpers ───────────────────────────────────────────────────
-
 function setupStore() {
   setActivePinia(createPinia());
+  wsReconnectHandlers.clear();
   return useFileStore();
 }
 
-// ── Fixtures ──────────────────────────────────────────────────
+function fireReconnect() {
+  for (const handler of wsReconnectHandlers) handler();
+}
 
 const mockMetaRootFiles = {
   path: '.saivage',
@@ -63,13 +74,6 @@ const mockMetaNestedFiles = {
   files: [
     { name: 'card-001.json', path: '.saivage/cards/card-001.json', type: 'file' as const, size: 4096, modifiedAt: '2025-01-02T00:00:00Z' },
     { name: 'card-002.json', path: '.saivage/cards/card-002.json', type: 'file' as const, size: 1024, modifiedAt: '2025-01-02T01:00:00Z' },
-  ],
-};
-
-const mockMetaDeepFiles = {
-  path: '.saivage/cards/sub/leaf',
-  files: [
-    { name: 'notes.md', path: '.saivage/cards/sub/leaf/notes.md', type: 'file' as const, size: 256, modifiedAt: '2025-01-03T00:00:00Z' },
   ],
 };
 
@@ -123,18 +127,15 @@ const plainTextContent = {
   content: 'Line 1\nLine 2\nLine 3',
 };
 
-// ── Tests ─────────────────────────────────────────────────────
-
 describe('useFileStore', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    wsReconnectHandlers.clear();
   });
 
   afterEach(() => {
     vi.restoreAllMocks();
   });
-
-  // ── Initial State ───────────────────────────────────────────
 
   describe('initial state', () => {
     it('has correct default paths and empty state', () => {
@@ -143,11 +144,9 @@ describe('useFileStore', () => {
       expect(store.metaPath).toBe('.saivage');
       expect(store.metaFiles).toEqual([]);
       expect(store.metaLoading).toBe(false);
-
       expect(store.outputPath).toBe('.saivage-work');
       expect(store.outputFiles).toEqual([]);
       expect(store.outputLoading).toBe(false);
-
       expect(store.viewedFile).toBeNull();
       expect(store.viewedFilePath).toBe('');
       expect(store.contentLoading).toBe(false);
@@ -177,12 +176,9 @@ describe('useFileStore', () => {
     });
   });
 
-  // ── Breadcrumbs ─────────────────────────────────────────────
-
   describe('breadcrumbs', () => {
     it('metaBreadcrumbs shows root-only when metaPath is root', () => {
       const store = setupStore();
-      // metaPath defaults to '.saivage', breadcrumbs should be root only
       expect(store.metaBreadcrumbs).toEqual([
         { label: '.saivage', path: '.saivage' },
       ]);
@@ -190,7 +186,6 @@ describe('useFileStore', () => {
 
     it('metaBreadcrumbs shows root + nested path when metaPath is nested', () => {
       const store = setupStore();
-      // Manually set metaPath to a nested directory
       store.$patch({ metaPath: '.saivage/cards/sub/leaf' });
 
       expect(store.metaBreadcrumbs).toEqual([
@@ -213,7 +208,6 @@ describe('useFileStore', () => {
 
     it('metaBreadcrumbs returns root-only when path does not start with root', () => {
       const store = setupStore();
-      // Path that doesn't start with the root should fall back
       store.$patch({ metaPath: 'some/other/path' });
 
       expect(store.metaBreadcrumbs).toEqual([
@@ -234,7 +228,6 @@ describe('useFileStore', () => {
 
     it('outputBreadcrumbs at root contains only root entry', () => {
       const store = setupStore();
-      // outputPath defaults to '.saivage-work'
       expect(store.outputBreadcrumbs).toEqual([
         { label: '.saivage-work', path: '.saivage-work' },
       ]);
@@ -244,7 +237,6 @@ describe('useFileStore', () => {
       const store = setupStore();
       store.$patch({ metaPath: '.saivage/cards/' });
 
-      // Should normalize and produce same result as without trailing slash
       const crumbs = store.metaBreadcrumbs;
       expect(crumbs).toEqual([
         { label: '.saivage', path: '.saivage' },
@@ -270,8 +262,6 @@ describe('useFileStore', () => {
       ]);
     });
   });
-
-  // ── fetchMetaFiles ──────────────────────────────────────────
 
   describe('fetchMetaFiles()', () => {
     it('populates metaFiles and metaPath on success', async () => {
@@ -332,8 +322,6 @@ describe('useFileStore', () => {
     });
   });
 
-  // ── fetchOutputFiles ────────────────────────────────────────
-
   describe('fetchOutputFiles()', () => {
     it('populates outputFiles and outputPath on success', async () => {
       const store = setupStore();
@@ -357,8 +345,6 @@ describe('useFileStore', () => {
       expect(store.error).toBe('Not found');
     });
   });
-
-  // ── Navigation Actions ──────────────────────────────────────
 
   describe('navigateMeta()', () => {
     it('sets metaPath and fetches files for the given path', async () => {
@@ -397,9 +383,8 @@ describe('useFileStore', () => {
   describe('navigateMetaUp()', () => {
     it('goes to parent directory from nested path', async () => {
       const store = setupStore();
-      // Start at nested path
       store.$patch({ metaPath: '.saivage/cards/sub' });
-      vi.mocked(listFiles).mockResolvedValue(mockMetaNestedFiles); // cards/
+      vi.mocked(listFiles).mockResolvedValue(mockMetaNestedFiles);
 
       await store.navigateMetaUp();
 
@@ -409,12 +394,10 @@ describe('useFileStore', () => {
 
     it('does nothing when already at root', async () => {
       const store = setupStore();
-      // metaPath defaults to '.saivage' (root)
       vi.mocked(listFiles).mockResolvedValue(mockMetaRootFiles);
 
       await store.navigateMetaUp();
 
-      // Should not call listFiles since we bail out
       expect(listFiles).not.toHaveBeenCalled();
     });
 
@@ -464,8 +447,6 @@ describe('useFileStore', () => {
     });
   });
 
-  // ── fetchFileContent ────────────────────────────────────────
-
   describe('fetchFileContent()', () => {
     it('sets viewedFile and viewedFilePath on success', async () => {
       const store = setupStore();
@@ -504,6 +485,7 @@ describe('useFileStore', () => {
       expect(store.error).toBe('Protected content — requires supervisor approval');
       expect(store.contentLoading).toBe(false);
       expect(store.viewedFile).toBeNull();
+      expect(store.viewedFilePath).toBe('.saivage-work/quarantine/bad.txt');
     });
 
     it('sets error on generic Error failure', async () => {
@@ -515,16 +497,15 @@ describe('useFileStore', () => {
       expect(store.error).toBe('Failed to fetch file content');
       expect(store.contentLoading).toBe(false);
       expect(store.viewedFile).toBeNull();
+      expect(store.viewedFilePath).toBe('.saivage/nonexistent.txt');
     });
 
     it('clears previous error on successful fetch', async () => {
       const store = setupStore();
-      // First, set up an error
       vi.mocked(getFileContent).mockRejectedValueOnce(new Error('First fail'));
       await store.fetchFileContent('.saivage/fail.txt');
       expect(store.error).toBe('Failed to fetch file content');
 
-      // Then, succeed
       vi.mocked(getFileContent).mockResolvedValueOnce(jsonContent);
       await store.fetchFileContent('.saivage/plan.json');
 
@@ -532,8 +513,6 @@ describe('useFileStore', () => {
       expect(store.viewedFile).toEqual(jsonContent);
     });
   });
-
-  // ── clearViewedFile ─────────────────────────────────────────
 
   describe('clearViewedFile()', () => {
     it('resets viewedFile and viewedFilePath', async () => {
@@ -558,8 +537,6 @@ describe('useFileStore', () => {
       expect(store.viewedFilePath).toBe('');
     });
   });
-
-  // ── JSON Content Detection ──────────────────────────────────
 
   describe('isJsonContent', () => {
     it('detects JSON via application/json contentType', async () => {
@@ -612,8 +589,6 @@ describe('useFileStore', () => {
       expect(store.isJsonContent).toBe(false);
     });
   });
-
-  // ── Markdown Content Detection ──────────────────────────────
 
   describe('isMarkdownContent', () => {
     it('detects Markdown via .md extension', async () => {
@@ -671,8 +646,6 @@ describe('useFileStore', () => {
       expect(store.isMarkdownContent).toBe(true);
     });
   });
-
-  // ── Error Handling: Protected Content & Failed Fetch ────────
 
   describe('error handling — protected content and failed fetch', () => {
     it('sets error message from ApiError with protected content message in listFiles', async () => {
@@ -756,20 +729,16 @@ describe('useFileStore', () => {
     it('error is cleared when a subsequent call succeeds', async () => {
       const store = setupStore();
 
-      // First call fails
       vi.mocked(listFiles).mockRejectedValueOnce(new Error('Temporary failure'));
       await store.fetchMetaFiles();
       expect(store.error).toBe('Failed to list metadata files');
 
-      // Second call succeeds
       vi.mocked(listFiles).mockResolvedValueOnce(mockMetaRootFiles);
       await store.fetchMetaFiles();
       expect(store.error).toBeNull();
       expect(store.metaFiles).toEqual(mockMetaRootFiles.files);
     });
   });
-
-  // ── Navigation Error Propagation ────────────────────────────
 
   describe('navigation error propagation', () => {
     it('navigateMeta sets error on failure', async () => {
@@ -798,12 +767,9 @@ describe('useFileStore', () => {
       await store.navigateMetaUp();
 
       expect(store.error).toBe('Parent failed');
-      // Path should still be updated to the parent
       expect(store.metaPath).toBe('.saivage');
     });
   });
-
-  // ── Deep Breadcrumb Paths ───────────────────────────────────
 
   describe('deep breadcrumb paths', () => {
     it('handles deeply nested meta path', () => {
@@ -833,8 +799,6 @@ describe('useFileStore', () => {
     });
   });
 
-  // ── Quarantine Browse Scenario ──────────────────────────────
-
   describe('quarantine browse scenario', () => {
     it('browses quarantine directory via navigateOutput', async () => {
       const store = setupStore();
@@ -850,8 +814,6 @@ describe('useFileStore', () => {
 
       expect(store.outputPath).toBe('.saivage-work/quarantine');
       expect(store.outputFiles).toEqual(quarantineFiles.files);
-
-      // Breadcrumbs reflect quarantine path
       expect(store.outputBreadcrumbs).toEqual([
         { label: '.saivage-work', path: '.saivage-work' },
         { label: 'quarantine', path: '.saivage-work/quarantine' },
@@ -872,69 +834,52 @@ describe('useFileStore', () => {
     });
   });
 
-  // ── File Content Recovery Path ──────────────────────────────
-  //
-  // Covers: failed fetchFileContent → clearViewedFile → successful fetchFileContent
-  // Verifies the store correctly recovers (viewedFile/viewedFilePath populated,
-  // stale error cleared) after a user dismisses a failed file viewer and
-  // opens another file.
-
   describe('file content recovery path (fail → clearViewedFile → success)', () => {
     it('recovers after failed fetch: clearViewedFile resets viewer, subsequent fetch succeeds with clean state', async () => {
       const store = setupStore();
 
-      // Step 1: Initial fetchFileContent fails (e.g. protected/quarantined file)
       vi.mocked(getFileContent).mockRejectedValueOnce(
         new ApiError(403, 'Content blocked by supervisor', { code: 'BLOCKED' }),
       );
       await store.fetchFileContent('.saivage-work/quarantine/bad.txt');
 
-      // After failure: error is set, content is not loaded
       expect(store.error).toBe('Content blocked by supervisor');
       expect(store.viewedFile).toBeNull();
-      expect(store.viewedFilePath).toBe('');
+      expect(store.viewedFilePath).toBe('.saivage-work/quarantine/bad.txt');
       expect(store.contentLoading).toBe(false);
 
-      // Step 2: User dismisses the error / file viewer
       store.clearViewedFile();
 
-      // After clear: viewedFile/viewedFilePath are reset.
-      // clearViewedFile only resets viewer state; stale error persists here
-      // (the UI may also clear the error separately or it gets cleared by the next fetch).
       expect(store.viewedFile).toBeNull();
       expect(store.viewedFilePath).toBe('');
 
-      // Step 3: User opens a different (valid) file — recovery fetch succeeds
       vi.mocked(getFileContent).mockResolvedValueOnce(jsonContent);
       await store.fetchFileContent('.saivage/plan.json');
 
-      // After recovery: file content is populated, and error from the prior failure
-      // is cleared (fetchFileContent resets error at the start of each call).
       expect(store.viewedFile).toEqual(jsonContent);
       expect(store.viewedFilePath).toBe('.saivage/plan.json');
       expect(store.error).toBeNull();
       expect(store.contentLoading).toBe(false);
     });
 
-    it('does not clear error on clearViewedFile alone — error only clears on next fetch', async () => {
+    it('clearViewedFile clears viewer-specific error state but not shared fetch error until next fetch', async () => {
       const store = setupStore();
 
-      // Fail a fetch
       vi.mocked(getFileContent).mockRejectedValueOnce(
         new ApiError(500, 'Server error', {}),
       );
       await store.fetchFileContent('.saivage/bad.json');
 
       expect(store.error).toBe('Server error');
+      expect(store.viewerError).toBe('Server error');
       expect(store.viewedFile).toBeNull();
 
-      // Clear viewer — error persists
       store.clearViewedFile();
       expect(store.error).toBe('Server error');
+      expect(store.viewerError).toBeNull();
       expect(store.viewedFile).toBeNull();
       expect(store.viewedFilePath).toBe('');
 
-      // Second fetch succeeds — now error is cleared
       vi.mocked(getFileContent).mockResolvedValueOnce(markdownContent);
       await store.fetchFileContent('.saivage-work/report.md');
 
@@ -944,4 +889,26 @@ describe('useFileStore', () => {
     });
   });
 
+  describe('setupWsListener()', () => {
+    it('registers one reconnect handler idempotently and refreshes current views on reconnect', async () => {
+      const store = setupStore();
+      store.viewedFilePath = '.saivage/plan.json';
+      vi.mocked(listFiles)
+        .mockResolvedValueOnce(mockMetaRootFiles)
+        .mockResolvedValueOnce(mockOutputRootFiles);
+      vi.mocked(getFileContent).mockResolvedValueOnce(jsonContent);
+
+      store.setupWsListener();
+      store.setupWsListener();
+      expect(wsReconnectHandlers.size).toBe(1);
+
+      fireReconnect();
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(listFiles).toHaveBeenNthCalledWith(1, '.saivage');
+      expect(listFiles).toHaveBeenNthCalledWith(2, '.saivage-work');
+      expect(getFileContent).toHaveBeenCalledWith('.saivage/plan.json');
+    });
+  });
 });

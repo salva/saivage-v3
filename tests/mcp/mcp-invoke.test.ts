@@ -11,8 +11,6 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { spawn as realSpawn } from 'node:child_process';
 
-// ── Mocks ─────────────────────────────────────────────────────
-
 let nextPid = 12345;
 
 function createMockProc() {
@@ -43,8 +41,6 @@ function createMockProc() {
 const mockSpawn = jest.fn(() => createMockProc());
 
 jest.unstable_mockModule('node:child_process', () => ({ spawn: mockSpawn }));
-
-// ── Helpers ───────────────────────────────────────────────────
 
 const testRoots: string[] = [];
 
@@ -110,11 +106,6 @@ rl.on('line', (line) => {
 `;
 }
 
-/**
- * Spawn a real Node process running the MCP server script,
- * set up the handle manually, and inject tools.
- * Uses realSpawn (imported before mocking) to bypass the jest mock.
- */
 async function setupRealProc(mgr: unknown, serverName: string, root: string, script: string, toolDefs: unknown[]) {
   const m = mgr as Record<string, unknown>;
   const sp = join(root, 'mcp-' + serverName + '.js');
@@ -137,8 +128,6 @@ afterEach(() => {
 });
 
 async function impMcp() { return await import('../../src/mcp/mcp-manager.js'); }
-
-// ═══════════════════ Suite 1: Error Types ════════════════════
 
 describe('Error Types', () => {
   let McpInvokeError: any, ServerNotRunningError: any, ToolNotFoundError: any;
@@ -229,8 +218,6 @@ describe('Error Types', () => {
   });
 });
 
-// ═══════════════════ Suite 2: invokeTool Validation ══════════
-
 describe('invokeTool validation', () => {
   let McpManager: any, ServerNotRunningError: any, ToolNotFoundError: any;
 
@@ -272,8 +259,6 @@ describe('invokeTool validation', () => {
     await expect(mgr.invokeTool('srv1', 'anything', {})).rejects.toThrow(ToolNotFoundError);
   });
 });
-
-// ═══════════════════ Suite 3: invokeTool stdio ═══════════════
 
 describe('invokeTool stdio transport', () => {
   let McpManager: any, InvalidArgumentsError: any, McpInvokeError: any;
@@ -364,8 +349,6 @@ describe('invokeTool stdio transport', () => {
   });
 });
 
-// ═══════════════════ Suite 4: invokeTool SSE ═════════════════
-
 describe('invokeTool SSE transport', () => {
   let McpManager: any, TransportError: any, TimeoutError: any;
 
@@ -424,9 +407,7 @@ describe('invokeTool SSE transport', () => {
     const mgr = new McpManager(r);
     setupSseHandle(mgr, 'sse');
 
-    // Mock fetch that respects AbortSignal
     (globalThis as any).fetch = async (_url: string, init?: any) => {
-      // Return a promise that rejects when the signal aborts
       return new Promise((_resolve, reject) => {
         if (init?.signal) {
           init.signal.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')));
@@ -437,8 +418,6 @@ describe('invokeTool SSE transport', () => {
     await expect(mgr.invokeTool('sse', 'greet', {}, { timeoutMs: 500 })).rejects.toThrow(TimeoutError);
   });
 });
-
-// ═══════════════════ Suite 5: Invocation Stats ═══════════════
 
 describe('Invocation stats tracking', () => {
   let McpManager: any;
@@ -492,8 +471,6 @@ describe('Invocation stats tracking', () => {
   });
 });
 
-// ═══════════════════ Suite 6: Event Logging ══════════════════
-
 describe('Event logging for MCP invocations', () => {
   let McpManager: any;
 
@@ -541,8 +518,6 @@ describe('Event logging for MCP invocations', () => {
   });
 });
 
-// ═══════════════════ Suite 7: AgentAdapter + ContentSupervisor ═
-
 describe('AgentAdapter callMcpTool + ContentSupervisor', () => {
   let AgentAdapter: any, McpManager: any;
 
@@ -566,11 +541,11 @@ describe('AgentAdapter callMcpTool + ContentSupervisor', () => {
     const r = makeProjectRoot();
     writeSaivageJson(r, { mcpServers: { 'stdio': stdioCfg({ command: 'node', args: ['-e', '1'] }) } });
     const mgr = new McpManager(r);
-    const tools = [{ name: 'greet', description: 'Hi', inputSchema: { type: 'object', properties: {} } }];
+    const tools = [{ name: 'greet', description: 'Hi', inputSchema: { type: 'object', properties: {}, annotations: { readOnlyHint: true } } }];
     const proc = await setupRealProc(mgr, 'stdio', r, mcpScript(), tools);
     const adapter = makeAdapter(r);
     adapter.setMcpManager(mgr);
-    const res = await adapter.callMcpTool('stdio', 'greet', { name: 'Agent' });
+    const res = await adapter.callMcpTool('executor', 'stdio', 'greet', { name: 'Agent' });
     expect(res).toEqual([{ type: 'text', text: 'Hello Agent' }]);
     proc.kill();
   });
@@ -579,7 +554,7 @@ describe('AgentAdapter callMcpTool + ContentSupervisor', () => {
     const r = makeProjectRoot();
     writeSaivageJson(r, {});
     const adapter = makeAdapter(r);
-    await expect(adapter.callMcpTool('s', 't', {})).rejects.toThrow('MCP manager not configured');
+    await expect(adapter.callMcpTool('executor', 's', 't', {})).rejects.toThrow('MCP manager not configured');
   });
 
   it('ContentSupervisor: when disabled, passes through', async () => {
@@ -596,7 +571,7 @@ describe('AgentAdapter callMcpTool + ContentSupervisor', () => {
     mkdirSync(swd, { recursive: true });
     const cs = new ContentSupervisor({ enabled: false, maxScanLengthBytes: 10000, saivageDir: sd, saivageWorkDir: swd });
     adapter.setContentSupervisor(cs);
-    const res = await adapter.callMcpTool('stdio', 'greet', { name: 'Safe' });
+    const res = await adapter.callMcpTool('executor', 'stdio', 'greet', { name: 'Safe' });
     expect(res).toEqual([{ type: 'text', text: 'Hello Safe' }]);
     proc.kill();
   });
@@ -615,13 +590,11 @@ describe('AgentAdapter callMcpTool + ContentSupervisor', () => {
     mkdirSync(swd, { recursive: true });
     const cs = new ContentSupervisor({ enabled: true, maxScanLengthBytes: 10000, saivageDir: sd, saivageWorkDir: swd });
     adapter.setContentSupervisor(cs);
-    const res = await adapter.callMcpTool('stdio', 'greet', { name: 'Safe' });
+    const res = await adapter.callMcpTool('executor', 'stdio', 'greet', { name: 'Safe' });
     expect(res).toEqual([{ type: 'text', text: 'Hello Safe' }]);
     proc.kill();
   });
 });
-
-// ═══════════════════ Suite 8: Stdio Invocation Queue ══════════
 
 describe('Stdio invocation queue', () => {
   let McpManager: any, TransportError: any, TimeoutError: any;
@@ -638,10 +611,6 @@ describe('Stdio invocation queue', () => {
     { name: 'add', description: 'Add', inputSchema: { type: 'object', properties: { a: { type: 'number' }, b: { type: 'number' } } } },
   ];
 
-  /**
-   * Helper: create an MCP script where each tools/call writes its name
-   * to a shared order log so we can verify serialization order.
-   */
   function orderingScript(): string {
     return `
 const rl = require('readline').createInterface({ input: process.stdin });
@@ -655,8 +624,6 @@ rl.on('line', (line) => {
     process.stdout.write(JSON.stringify({ jsonrpc:'2.0', id:req.id, result:{ tools:[ {name:'greet',description:'Hi',inputSchema:{type:'object',properties:{name:{type:'string'}}}}, {name:'add',description:'Add',inputSchema:{type:'object',properties:{a:{type:'number'},b:{type:'number'}}}} ] } }) + '\\n');
   } else if (req.method === 'tools/call') {
     const toolName = req.params && req.params.name;
-    // Simulate async processing — add a delay so concurrent calls would overlap
-    // This delay plus the queue ensures we can verify ordering
     const delay = toolName === 'greet' ? 200 : 50;
     setTimeout(() => {
       order.push(toolName);
@@ -674,10 +641,6 @@ rl.on('line', (line) => {
 `;
   }
 
-  /**
-   * Helper: create a script where the first tools/call always fails,
-   * but subsequent ones succeed. Used to test error propagation.
-   */
   function errorThenOkScript(): string {
     return `
 const rl = require('readline').createInterface({ input: process.stdin });
@@ -691,9 +654,7 @@ rl.on('line', (line) => {
     process.stdout.write(JSON.stringify({ jsonrpc:'2.0', id:req.id, result:{ tools:[ {name:'greet',description:'Hi',inputSchema:{type:'object',properties:{name:{type:'string'}}}} ] } }) + '\\n');
   } else if (req.method === 'tools/call') {
     callCount++;
-    const toolName = req.params && req.params.name;
     if (callCount === 1) {
-      // First call: return an error
       process.stdout.write(JSON.stringify({ jsonrpc:'2.0', id:req.id, error:{ code:-32603, message:'Internal error on first call' } }) + '\\n');
     } else {
       const name = (req.params.arguments && req.params.arguments.name) || 'unknown';
@@ -710,37 +671,23 @@ rl.on('line', (line) => {
     const mgr = new McpManager(r);
     const proc = await setupRealProc(mgr, 'stdio', r, orderingScript(), stdioTools);
 
-    // Dispatch two concurrent calls
     const [res1, res2] = await Promise.all([
       mgr.invokeTool('stdio', 'greet', { name: 'First' }),
       mgr.invokeTool('stdio', 'add', { a: 10, b: 20 }),
     ]);
 
-    // Both should return (no timeouts)
     expect(res1).toBeDefined();
     expect(res2).toBeDefined();
 
-    // Extract text content to verify they're correct
     const text1 = Array.isArray(res1) ? (res1[0] as any)?.text : '';
     const text2 = Array.isArray(res2) ? (res2[0] as any)?.text : '';
 
-    // The first dispatched is greet (200ms delay), second is add (50ms delay)
-    // If serialized, order should be: greet first, add second
-    // If NOT serialized, add (50ms) would complete before greet (200ms)
-    // But because of the queue, greet should go first
     expect(text1).toContain('Hello');
     expect(text1).toContain('greet');
     expect(text2).toContain('30');
-
-    // The ordering marker in the response confirms serialization
-    // 'greet,add' means greet was processed before add (serialized)
-    // 'add,greet' would mean add was processed before greet (NOT serialized)
-    // The server processes tools/call in FIFO order from stdin
-    // The queue ensures the second invokeTool waits for the first to complete
     expect(text1).toContain('order:greet');
     expect(text2).toContain('add');
 
-    // Verify stats were recorded
     const stats = mgr.getInvocationStats();
     expect(stats['stdio:greet']).toBeDefined();
     expect(stats['stdio:add']).toBeDefined();
@@ -769,7 +716,6 @@ rl.on('line', (line) => {
     ]);
     const elapsed = Date.now() - start;
 
-    // Both should succeed
     expect(res1).toBeDefined();
     expect(res2).toBeDefined();
 
@@ -777,11 +723,6 @@ rl.on('line', (line) => {
     const text2 = Array.isArray(res2) ? (res2[0] as any)?.text : '';
     expect(text1).toContain('From1');
     expect(text2).toContain('From2');
-
-    // With different servers, the calls should run in parallel.
-    // Each greet call has 200ms server delay, so if serialized it would take ~400ms.
-    // If parallel, it takes ~200ms (the max of the two).
-    // We check elapsed < 350ms to confirm parallelism.
     expect(elapsed).toBeLessThan(350);
 
     proc1.kill();
@@ -805,7 +746,6 @@ rl.on('line', (line) => {
     (globalThis as any).fetch = async (_url: string, init?: any) => {
       concurrent++;
       if (concurrent > maxConcurrent) maxConcurrent = concurrent;
-      // Simulate a 100ms server delay
       await new Promise(r => setTimeout(r, 100));
       concurrent--;
       return {
@@ -822,15 +762,10 @@ rl.on('line', (line) => {
     ]);
     const elapsed = Date.now() - start;
 
-    // All should succeed
     expect(res1).toEqual([{ type: 'text', text: 'SSE result' }]);
     expect(res2).toEqual([{ type: 'text', text: 'SSE result' }]);
     expect(res3).toEqual([{ type: 'text', text: 'SSE result' }]);
-
-    // If parallel, maxConcurrent should be > 1
     expect(maxConcurrent).toBeGreaterThan(1);
-
-    // If parallel, elapsed should be ~100ms (not 300ms)
     expect(elapsed).toBeLessThan(250);
 
     delete (globalThis as any).fetch;
@@ -842,16 +777,13 @@ rl.on('line', (line) => {
     const mgr = new McpManager(r);
     const proc = await setupRealProc(mgr, 'stdio', r, errorThenOkScript(), stdioTools);
 
-    // First call should fail
     await expect(mgr.invokeTool('stdio', 'greet', { name: 'Fail' })).rejects.toThrow();
 
-    // Second call should succeed despite the first one failing
     const res = await mgr.invokeTool('stdio', 'greet', { name: 'AfterFail' });
     expect(res).toBeDefined();
     const text = Array.isArray(res) ? (res[0] as any)?.text : '';
     expect(text).toContain('AfterFail');
 
-    // Stats should show one error and one success
     const stats = mgr.getInvocationStats();
     expect(stats['stdio:greet'].total).toBe(2);
     expect(stats['stdio:greet'].success).toBe(1);
@@ -866,7 +798,6 @@ rl.on('line', (line) => {
     const mgr = new McpManager(r);
     const proc = await setupRealProc(mgr, 'stdio', r, mcpScript(), stdioTools);
 
-    // Fire 5 concurrent calls to the same server
     const promises = [
       mgr.invokeTool('stdio', 'greet', { name: 'A' }),
       mgr.invokeTool('stdio', 'add', { a: 1, b: 2 }),

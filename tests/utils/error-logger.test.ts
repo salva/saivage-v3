@@ -17,8 +17,6 @@ import { releaseLock } from '../../src/utils/runtime-lock.js';
 import type { FakeAgentFixture } from '../../src/utils/fake-agent.js';
 import type { CardRecord } from '../../src/schemas/types.js';
 
-// ── Helpers ───────────────────────────────────────────────────
-
 function makeFixtureDir(tmpDir: string): string {
   const dir = join(tmpDir, 'fixtures');
   mkdirSync(dir, { recursive: true });
@@ -52,10 +50,9 @@ function makeGoalCard(store: CardStore, id: string, title: string): CardRecord {
   });
 }
 
-// Shared reviewer for fixtures that need one
 function makePassReviewer(
   goalId: string,
-  planId: string,
+  _planId: string,
   evidenceIds: string[],
 ): FakeAgentFixture['reviewer'] {
   return [
@@ -63,8 +60,33 @@ function makePassReviewer(
       assessment: {
         id: `review-${goalId}`,
         goal_card_id: goalId,
-        plan_card_id: planId,
         reviewer_session_id: `rev-${goalId}`,
+        result: 'pass',
+        summary: 'All good.',
+        achieved: ['Done'],
+        missing: [],
+        evidence_card_ids: evidenceIds,
+        created_at: new Date().toISOString(),
+      },
+    },
+    {
+      assessment: {
+        id: `review-${goalId}-repeat`,
+        goal_card_id: goalId,
+        reviewer_session_id: `rev-${goalId}-repeat`,
+        result: 'pass',
+        summary: 'All good.',
+        achieved: ['Done'],
+        missing: [],
+        evidence_card_ids: evidenceIds,
+        created_at: new Date().toISOString(),
+      },
+    },
+    {
+      assessment: {
+        id: `review-${goalId}-repeat-3`,
+        goal_card_id: goalId,
+        reviewer_session_id: `rev-${goalId}-repeat-3`,
         result: 'pass',
         summary: 'All good.',
         achieved: ['Done'],
@@ -75,8 +97,6 @@ function makePassReviewer(
     },
   ];
 }
-
-// ── Test Suite 1: ErrorLogger Basics ──────────────────────────
 
 describe('ErrorLogger', () => {
   let tmpDir: string;
@@ -95,8 +115,6 @@ describe('ErrorLogger', () => {
     rmSync(tmpDir, { recursive: true, force: true });
   });
 
-  // ── AC: writes a record to errors.jsonl with correct fields ─
-
   it('writes a record to errors.jsonl with correct fields', () => {
     const input: ErrorInput = {
       message: 'Something went wrong',
@@ -108,7 +126,6 @@ describe('ErrorLogger', () => {
     const record = errorLogger.appendError(input);
     errorLogger.flushSync();
 
-    // Verify the returned record
     expect(record.id).toBeTruthy();
     expect(record.id.startsWith('err-')).toBe(true);
     expect(record.kind).toBe('error');
@@ -118,7 +135,6 @@ describe('ErrorLogger', () => {
     expect(record.goalId).toBe('goal-1');
     expect(record.phase).toBe('executor');
 
-    // Verify the file was written
     const logPath = errorLogger.getErrorsPath();
     expect(existsSync(logPath)).toBe(true);
 
@@ -136,8 +152,6 @@ describe('ErrorLogger', () => {
     expect(parsed.phase).toBe('executor');
   });
 
-  // ── AC: getErrors() reads back written records ──────────────
-
   it('getErrors() reads back written records', () => {
     errorLogger.appendError({ message: 'Error 1', cardId: 'c1' });
     errorLogger.appendError({ message: 'Error 2', cardId: 'c2' });
@@ -151,14 +165,10 @@ describe('ErrorLogger', () => {
     expect(errors[1].cardId).toBe('c2');
   });
 
-  // ── AC: getErrorsPath() returns the correct path ────────────
-
   it('getErrorsPath() returns the correct path', () => {
     const path = errorLogger.getErrorsPath();
     expect(path).toBe(join(saivageDir, 'runtime', 'errors.jsonl'));
   });
-
-  // ── AC: filter by cardId works ──────────────────────────────
 
   it('filter by cardId works', () => {
     errorLogger.appendError({ message: 'Error for c1', cardId: 'card-a' });
@@ -175,8 +185,6 @@ describe('ErrorLogger', () => {
     expect(filteredB[0].message).toBe('Error for c2');
   });
 
-  // ── AC: filter by goalId works ──────────────────────────────
-
   it('filter by goalId works', () => {
     errorLogger.appendError({ message: 'Goal 1 error', goalId: 'goal-1' });
     errorLogger.appendError({ message: 'Goal 2 error', goalId: 'goal-2' });
@@ -188,8 +196,6 @@ describe('ErrorLogger', () => {
     expect(filtered.every((e) => e.goalId === 'goal-1')).toBe(true);
   });
 
-  // ── AC: filter by phase works ───────────────────────────────
-
   it('filter by phase works', () => {
     errorLogger.appendError({ message: 'Planner error', phase: 'planner' });
     errorLogger.appendError({ message: 'Executor error', phase: 'executor' });
@@ -200,8 +206,6 @@ describe('ErrorLogger', () => {
     expect(filtered.length).toBe(1);
     expect(filtered[0].message).toBe('Executor error');
   });
-
-  // ── AC: filter by since works ───────────────────────────────
 
   it('filter by since works', () => {
     const baseTime = new Date('2025-01-01T00:00:00Z').toISOString();
@@ -223,8 +227,6 @@ describe('ErrorLogger', () => {
     expect(filtered[0].message).toBe('New error');
   });
 
-  // ── AC: filter by limit works ───────────────────────────────
-
   it('filter by limit works', () => {
     for (let i = 0; i < 10; i++) {
       errorLogger.appendError({ message: `Error ${i}` });
@@ -232,14 +234,11 @@ describe('ErrorLogger', () => {
     errorLogger.flushSync();
 
     const limited = errorLogger.getErrors({ limit: 3 });
-    // limit returns the N most recent
     expect(limited.length).toBe(3);
     expect(limited[0].message).toBe('Error 7');
     expect(limited[1].message).toBe('Error 8');
     expect(limited[2].message).toBe('Error 9');
   });
-
-  // ── AC: filter limit=0 returns all ──────────────────────────
 
   it('filter with limit=0 returns all records', () => {
     errorLogger.appendError({ message: 'Error A' });
@@ -250,8 +249,6 @@ describe('ErrorLogger', () => {
     expect(all.length).toBe(2);
   });
 
-  // ── AC: multiple appendError calls persist all records ──────
-
   it('multiple appendError calls persist all records', () => {
     for (let i = 0; i < 50; i++) {
       errorLogger.appendError({ message: `Error ${i}`, cardId: `card-${i % 5}` });
@@ -261,47 +258,35 @@ describe('ErrorLogger', () => {
     const errors = errorLogger.getErrors();
     expect(errors.length).toBe(50);
 
-    // Verify all messages are present
     const messages = new Set(errors.map((e) => e.message));
     for (let i = 0; i < 50; i++) {
       expect(messages.has(`Error ${i}`)).toBe(true);
     }
   });
 
-  // ── AC: empty file returns empty array ──────────────────────
-
   it('empty file returns empty array', () => {
-    // No errors appended — getErrors handles the file-not-exists case
     const errors = errorLogger.getErrors();
     expect(errors).toEqual([]);
   });
-
-  // ── AC: close() stops the flush timer and flushes ──────────
 
   it('close() stops the flush timer and flushes buffered records', () => {
     errorLogger.appendError({ message: 'Test' });
     errorLogger.close();
 
-    // After close, the flush in close() should have written the buffered record
     const errors = errorLogger.getErrors();
     expect(errors.length).toBe(1);
     expect(errors[0].message).toBe('Test');
   });
-
-  // ── AC: auto-generated timestamp is ISO format ─────────────
 
   it('auto-generated timestamp is valid ISO string', () => {
     const record = errorLogger.appendError({ message: 'Test timestamp' });
     const parsed = Date.parse(record.timestamp);
     expect(isNaN(parsed)).toBe(false);
 
-    // Should be a recent timestamp
     const tsMs = new Date(record.timestamp).getTime();
     const nowMs = Date.now();
-    expect(nowMs - tsMs).toBeLessThan(5000); // within 5 seconds
+    expect(nowMs - tsMs).toBeLessThan(5000);
   });
-
-  // ── AC: error with extra fields preserves them ─────────────
 
   it('preserves extra fields on the error record', () => {
     errorLogger.appendError({
@@ -317,8 +302,6 @@ describe('ErrorLogger', () => {
     expect(errors[0].nested).toEqual({ foo: 'bar' });
   });
 
-  // ── AC: id generation is unique ────────────────────────────
-
   it('generates unique error IDs', () => {
     const ids = new Set<string>();
     for (let i = 0; i < 100; i++) {
@@ -328,24 +311,18 @@ describe('ErrorLogger', () => {
     expect(ids.size).toBe(100);
   });
 
-  // ── AC: skips malformed lines in the file ──────────────────
-
   it('skips malformed lines in the file', () => {
     errorLogger.appendError({ message: 'Valid error' });
     errorLogger.flushSync();
 
-    // Manually write a malformed line to the file
     const logPath = errorLogger.getErrorsPath();
     const existing = readFileSync(logPath, 'utf-8');
     writeFileSync(logPath, existing + 'NOT VALID JSON\n');
 
     const errors = errorLogger.getErrors();
-    // Should still get the valid record, skipping the malformed line
     expect(errors.length).toBe(1);
     expect(errors[0].message).toBe('Valid error');
   });
-
-  // ── AC: filter combinations (AND) work ─────────────────────
 
   it('filter combinations AND together', () => {
     errorLogger.appendError({ message: 'A', cardId: 'c1', goalId: 'g1', phase: 'planner' });
@@ -362,8 +339,6 @@ describe('ErrorLogger', () => {
     expect(filtered.map((e) => e.message).sort()).toEqual(['A', 'B']);
   });
 
-  // ── AC: filter with limit and other criteria ───────────────
-
   it('filter with limit and other criteria', () => {
     for (let i = 0; i < 5; i++) {
       errorLogger.appendError({ message: `E${i}`, cardId: 'cX' });
@@ -378,12 +353,8 @@ describe('ErrorLogger', () => {
     expect(filtered.map((e) => e.message)).toEqual(['E2', 'E3', 'E4']);
   });
 
-  // ── AC: flushSync writes buffered records to disk ──────────
-
   it('flushSync writes buffered records to disk immediately', () => {
     errorLogger.appendError({ message: 'Buffered' });
-
-    // After flushSync, the record must be on disk
     errorLogger.flushSync();
 
     const logPath = errorLogger.getErrorsPath();
@@ -391,8 +362,6 @@ describe('ErrorLogger', () => {
     expect(content).toContain('Buffered');
   });
 });
-
-// ── Test Suite 2: Runtime Integration ─────────────────────────
 
 describe('Runtime Integration — Error Propagation', () => {
   let tmpDir: string;
@@ -414,8 +383,6 @@ describe('Runtime Integration — Error Propagation', () => {
     rmSync(tmpDir, { recursive: true, force: true });
   });
 
-  // ── AC: errorLogger.getter is exposed on Runtime ───────────
-
   it('errorLogger getter is exposed on Runtime', () => {
     runtime = new Runtime({
       projectRoot: tmpDir,
@@ -429,8 +396,6 @@ describe('Runtime Integration — Error Propagation', () => {
     expect(runtime.errorLogger).toBeInstanceOf(ErrorLogger);
     runtime.errorLogger.close();
   });
-
-  // ── AC: runtime.errorLogger.appendError() writes to errors.jsonl ─
 
   it('runtime.errorLogger.appendError() writes to errors.jsonl', () => {
     runtime = new Runtime({
@@ -459,8 +424,6 @@ describe('Runtime Integration — Error Propagation', () => {
     runtime.errorLogger.close();
   });
 
-  // ── AC: getErrors() returns records via runtime.errorLogger ─
-
   it('runtime.errorLogger.getErrors() returns persisted records', () => {
     runtime = new Runtime({
       projectRoot: tmpDir,
@@ -482,8 +445,6 @@ describe('Runtime Integration — Error Propagation', () => {
     runtime.errorLogger.close();
   });
 
-  // ── AC: errorLogger path is within project .saivage/runtime/ ─
-
   it('errorLogger.getErrorsPath() points to .saivage/runtime/errors.jsonl', () => {
     runtime = new Runtime({
       projectRoot: tmpDir,
@@ -499,14 +460,11 @@ describe('Runtime Integration — Error Propagation', () => {
     runtime.errorLogger.close();
   });
 
-  // ── AC: after successful dispatchGoal, errorLogger is accessible ─
-
   it('after successful dispatchGoal, errorLogger is accessible', async () => {
     const fixture: FakeAgentFixture = {
       name: 'happy-err-test',
       planner: [
         {
-          plan_card_id: 'plan-goal-happy',
           created_cards: [
             {
               id: 'code-happy-1',
@@ -518,12 +476,19 @@ describe('Runtime Integration — Error Propagation', () => {
               priority: 1,
             },
           ],
-          declare_done: false,
+          status: 'continue',
         },
         {
-          plan_card_id: 'plan-goal-happy',
           updated_cards: [],
-          declare_done: true,
+          status: 'done',
+        },
+        {
+          updated_cards: [],
+          status: 'done',
+        },
+        {
+          updated_cards: [],
+          status: 'done',
         },
       ],
       executor: {
@@ -547,27 +512,20 @@ describe('Runtime Integration — Error Propagation', () => {
     await runtime.startup();
     await runtime.dispatchGoal('goal-happy');
 
-    // Check the goal completed
     const goal = store.read('goal-happy');
     expect(goal!.status).toBe('done');
 
-    // errorLogger.getErrors() works correctly (happy path, no errors logged)
     const errors = runtime.errorLogger.getErrors();
     expect(Array.isArray(errors)).toBe(true);
 
     await runtime.shutdown();
   });
 
-  // ── AC: executor throw during dispatchGoal logs to errors.jsonl ─
-
   it('executor throw during dispatchGoal logs to errors.jsonl and events.jsonl', async () => {
-    // Planner 1: creates card, does NOT declare done → executor runs → throws
-    // Planner 2: declares done → reviewer invoked
     const fixture: FakeAgentFixture = {
       name: 'throw-err',
       planner: [
         {
-          plan_card_id: 'plan-goal-throw',
           created_cards: [
             {
               id: 'code-throw-1',
@@ -579,15 +537,17 @@ describe('Runtime Integration — Error Propagation', () => {
               priority: 1,
             },
           ],
-          declare_done: false, // let the executor run!
+          status: 'continue',
         },
         {
-          plan_card_id: 'plan-goal-throw',
           updated_cards: [],
-          declare_done: true,
+          status: 'done',
+        },
+        {
+          updated_cards: [],
+          status: 'done',
         },
       ],
-      // No 'code-throw-1' in executor — invokeExecutor will throw
       executor: {},
       reviewer: makePassReviewer('goal-throw', 'plan-goal-throw', []),
     };
@@ -610,21 +570,16 @@ describe('Runtime Integration — Error Propagation', () => {
     await runtime.startup();
     await runtime.dispatchGoal('goal-throw');
 
-    // Should have emitted an error event for the executor exception
     expect(errorEvents.length).toBeGreaterThanOrEqual(1);
 
-    // Verify errors.jsonl has entries from the catch block
     const errors = runtime.errorLogger.getErrors();
     expect(errors.length).toBeGreaterThanOrEqual(1);
 
-    // At least one error should be for the executor phase
     const execErrors = errors.filter((e) => e.phase === 'executor');
     expect(execErrors.length).toBeGreaterThanOrEqual(1);
 
     await runtime.shutdown();
   });
-
-  // ── AC: injected errorLogger used instead of creating new one ─
 
   it('injected errorLogger is used instead of creating a new one', () => {
     const injected = new ErrorLogger(join(tmpDir, '.saivage'));
@@ -638,10 +593,8 @@ describe('Runtime Integration — Error Propagation', () => {
       errorLogger: injected,
     });
 
-    // Should use the injected instance
     expect(runtime.errorLogger).toBe(injected);
 
-    // Append and verify it writes through the injected instance
     injected.appendError({ message: 'Before shutdown' });
     injected.flushSync();
     const errors = runtime.errorLogger.getErrors();
@@ -650,8 +603,6 @@ describe('Runtime Integration — Error Propagation', () => {
     runtime.errorLogger.close();
   });
 });
-
-// ── Test Suite 3: JSONL Format Compatibility ──────────────────
 
 describe('ErrorLogger — JSONL Format Compatibility', () => {
   let tmpDir: string;
@@ -669,8 +620,6 @@ describe('ErrorLogger — JSONL Format Compatibility', () => {
     errorLogger.close();
     rmSync(tmpDir, { recursive: true, force: true });
   });
-
-  // ── AC: every line is valid JSON with kind=error, timestamp, message ─
 
   it('every line in errors.jsonl is valid JSON with kind=error, timestamp, message', () => {
     errorLogger.appendError({
@@ -696,40 +645,25 @@ describe('ErrorLogger — JSONL Format Compatibility', () => {
     expect(lines.length).toBe(3);
 
     for (const line of lines) {
-      // Each line must be valid JSON
       let parsed: ErrorRecord;
       expect(() => {
         parsed = JSON.parse(line) as ErrorRecord;
       }).not.toThrow();
 
       parsed = JSON.parse(line) as ErrorRecord;
-
-      // Must have kind: 'error'
       expect(parsed.kind).toBe('error');
-
-      // Must have a valid timestamp
       expect(parsed.timestamp).toBeTruthy();
       expect(typeof parsed.timestamp).toBe('string');
       const tsMs = Date.parse(parsed.timestamp);
       expect(isNaN(tsMs)).toBe(false);
-
-      // Must have a message
       expect(parsed.message).toBeTruthy();
       expect(typeof parsed.message).toBe('string');
-
-      // Must have an id
       expect(parsed.id).toBeTruthy();
       expect(typeof parsed.id).toBe('string');
     }
   });
 
-  // ── AC: file format matches what GET /api/debug/errors expects ─
-
   it('file format matches what GET /api/debug/errors expects', () => {
-    // The endpoint reads errors.jsonl with readFileSync, splits by newline,
-    // filters empty lines, and JSON.parses each line.
-    // Simulate the exact same read pattern.
-
     errorLogger.appendError({
       message: 'API test error',
       cardId: 'api-card',
@@ -755,17 +689,10 @@ describe('ErrorLogger — JSONL Format Compatibility', () => {
     expect(record.phase).toBe('reviewer');
   });
 
-  // ── AC: getErrors handles file-not-found gracefully ────────
-
   it('getErrors handles file-not-found gracefully (endpoint-compatible)', () => {
-    // When no errors have been flushed, the file doesn't exist yet.
-    // The endpoint uses existsSync check before reading, which is the
-    // same pattern getErrors() uses. Both handle this gracefully.
     const errors = errorLogger.getErrors();
     expect(errors).toEqual([]);
   });
-
-  // ── AC: no trailing content after the last JSONL record ─────
 
   it('no trailing characters after records, each line is self-contained', () => {
     errorLogger.appendError({ message: 'Line 1' });
@@ -773,21 +700,15 @@ describe('ErrorLogger — JSONL Format Compatibility', () => {
     errorLogger.flushSync();
 
     const content = readFileSync(errorLogger.getErrorsPath(), 'utf-8');
-
-    // Lines should be separated by \n, each line should parse
     const lines = content.split('\n');
-    // Filter out trailing empty line from final \n
     const nonEmptyLines = lines.filter((l) => l.trim() !== '');
     expect(nonEmptyLines.length).toBe(2);
 
-    // Each line should be valid JSON
     for (const line of nonEmptyLines) {
       expect(() => JSON.parse(line)).not.toThrow();
     }
   });
 });
-
-// ── Test Suite 4: ErrorLogger + EventLogger Consistency ──────
 
 describe('ErrorLogger + EventLogger consistency', () => {
   let tmpDir: string;
@@ -806,13 +727,10 @@ describe('ErrorLogger + EventLogger consistency', () => {
   it('Runtime with both loggers writes to both files when executor throws', async () => {
     const fixtureDir = makeFixtureDir(tmpDir);
 
-    // Planner 1: creates card, does NOT declare done → executor runs → throws
-    // Planner 2: declares done → reviewer invoked
     const fixture: FakeAgentFixture = {
       name: 'dual-log',
       planner: [
         {
-          plan_card_id: 'plan-goal-dl',
           created_cards: [
             {
               id: 'code-dl-missing',
@@ -824,15 +742,17 @@ describe('ErrorLogger + EventLogger consistency', () => {
               priority: 1,
             },
           ],
-          declare_done: false,
+          status: 'continue',
         },
         {
-          plan_card_id: 'plan-goal-dl',
           updated_cards: [],
-          declare_done: true,
+          status: 'done',
+        },
+        {
+          updated_cards: [],
+          status: 'done',
         },
       ],
-      // No executor entries — invokeExecutor will throw
       executor: {},
       reviewer: makePassReviewer('goal-dl', 'plan-goal-dl', []),
     };
@@ -849,17 +769,14 @@ describe('ErrorLogger + EventLogger consistency', () => {
       },
     });
 
-    // Handle the error event to prevent unhandled 'error' crash
     const errorEvents: unknown[] = [];
     runtime.on('error', (data) => errorEvents.push(data));
 
     await runtime.startup();
     await runtime.dispatchGoal('goal-dl');
 
-    // Should have emitted at least one error event
     expect(errorEvents.length).toBeGreaterThanOrEqual(1);
 
-    // errors.jsonl should have entries from the catch block
     const errors = runtime.errorLogger.getErrors();
     expect(errors.length).toBeGreaterThanOrEqual(1);
 
@@ -868,10 +785,8 @@ describe('ErrorLogger + EventLogger consistency', () => {
     );
     expect(executorErrors.length).toBeGreaterThanOrEqual(1);
 
-    // Flush the event logger before reading events.jsonl
     runtime.eventLogger.flushSync();
 
-    // events.jsonl should exist and have error events too
     const eventsPath = join(saivageDir, 'runtime', 'events.jsonl');
     expect(existsSync(eventsPath)).toBe(true);
 

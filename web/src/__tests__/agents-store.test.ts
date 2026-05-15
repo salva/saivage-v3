@@ -1,20 +1,9 @@
-/**
- * Bounded client-layer unit tests for the agent session Pinia store.
- *
- * Tests cover:
- *  1. fetchConversation success/error behavior with API client mocking
- *  2. Message grouping (reasoning → tool_call → result) and tool expansion
- *  3. WebSocket-driven session/message updates via setupWsListener
- *  4. Listener lifecycle: idempotency, handler counts, event dedup
- *
- * These tests mock the API client layer (../api/client) and the ws store
- * (../stores/ws) so we verify store-side logic without a running server.
- */
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import { setActivePinia, createPinia } from 'pinia';
 import { useAgentStore } from '../stores/agents';
 
 vi.mock('../api/client', () => ({
+  listAgentSessions: vi.fn(),
   getAgentConversation: vi.fn(),
   ApiError: class extends Error {
     status: number;
@@ -30,15 +19,20 @@ vi.mock('../api/client', () => ({
   },
 }));
 
-import { getAgentConversation, ApiError } from '../api/client';
+import { listAgentSessions, getAgentConversation, ApiError } from '../api/client';
 
 const wsTypeHandlers = new Map<string, Set<(envelope: any) => void>>();
+const wsReconnectHandlers = new Set<() => void>();
 
 function fireWsEvent(type: string, content: Record<string, unknown>) {
   const handlers = wsTypeHandlers.get(type);
   if (handlers) {
     for (const h of handlers) h({ type, content });
   }
+}
+
+function fireReconnect() {
+  for (const h of wsReconnectHandlers) h();
 }
 
 vi.mock('../stores/ws', () => ({
@@ -52,12 +46,17 @@ vi.mock('../stores/ws', () => ({
       set.add(handler);
       return () => set?.delete(handler);
     },
+    onReconnect: (handler: () => void) => {
+      wsReconnectHandlers.add(handler);
+      return () => wsReconnectHandlers.delete(handler);
+    },
   })),
 }));
 
 function setupStore() {
   setActivePinia(createPinia());
   wsTypeHandlers.clear();
+  wsReconnectHandlers.clear();
   return useAgentStore();
 }
 
@@ -72,7 +71,6 @@ const mockSession = {
   model: 'claude-sonnet-4',
 };
 
-// 6 messages: text → tool_call → tool_result → model_issue → tool_call → tool_error
 const mockMessages = [
   {
     id: 'msg-1',
@@ -145,10 +143,35 @@ describe('useAgentStore', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     wsTypeHandlers.clear();
+    wsReconnectHandlers.clear();
   });
 
   afterEach(() => {
     vi.restoreAllMocks();
+  });
+
+  describe('fetchSessions()', () => {
+    it('loads persisted sessions from the API', async () => {
+      const store = setupStore();
+      vi.mocked(listAgentSessions).mockResolvedValue({ sessions: [mockSession] });
+
+      await store.fetchSessions();
+
+      expect(listAgentSessions).toHaveBeenCalledOnce();
+      expect(store.sessions).toEqual([mockSession]);
+      expect(store.loading).toBe(false);
+      expect(store.error).toBeNull();
+    });
+
+    it('sets API error text when session list fetch fails', async () => {
+      const store = setupStore();
+      vi.mocked(listAgentSessions).mockRejectedValue(new ApiError(500, 'Failed to list agent sessions', {}));
+
+      await expect(store.fetchSessions()).rejects.toThrow('Failed to list agent sessions');
+
+      expect(store.error).toBe('Failed to list agent sessions');
+      expect(store.loading).toBe(false);
+    });
   });
 
   describe('fetchConversation()', () => {
@@ -193,22 +216,13 @@ describe('useAgentStore', () => {
 
       await store.fetchConversation('session-001');
 
-      // With fix: msg-1(text)+msg-2(tool_call)+msg-3(tool_result) in step 0,
-      // msg-4(model_issue) standalone in step 1,
-      // msg-5(tool_call)+msg-6(tool_error) in step 2 (no prior reasoning for this tool_call)
       const steps = store.steps;
       expect(steps).toHaveLength(3);
-
-      // Step 0: reasoning → tool_call → tool_result
       expect(steps[0].reasoning?.id).toBe('msg-1');
       expect(steps[0].toolCall?.id).toBe('msg-2');
       expect(steps[0].toolResult?.id).toBe('msg-3');
-
-      // Step 1: model_issue standalone
       expect(steps[1].reasoning?.id).toBe('msg-4');
       expect(steps[1].toolCall).toBeUndefined();
-
-      // Step 2: tool_call → tool_error (no reasoning since model_issue was standalone)
       expect(steps[2].toolCall?.id).toBe('msg-5');
       expect(steps[2].toolResult?.id).toBe('msg-6');
     });
@@ -242,41 +256,38 @@ describe('useAgentStore', () => {
       expect(wsTypeHandlers.get('status')?.size).toBe(1);
       expect(wsTypeHandlers.get('thinking')?.size).toBe(1);
       expect(wsTypeHandlers.get('activity')?.size).toBe(1);
+      expect(wsReconnectHandlers.size).toBe(1);
     });
-
-    // ── Listener Lifecycle: Idempotency ─────────────────────
 
     it('is idempotent — repeated setupWsListener does not duplicate any handler', () => {
       const store = setupStore();
 
-      // First call registers all three types
       store.setupWsListener();
       expect(wsTypeHandlers.get('status')?.size).toBe(1);
       expect(wsTypeHandlers.get('thinking')?.size).toBe(1);
       expect(wsTypeHandlers.get('activity')?.size).toBe(1);
+      expect(wsReconnectHandlers.size).toBe(1);
 
-      // Second call must not add duplicate handlers
       store.setupWsListener();
       expect(wsTypeHandlers.get('status')?.size).toBe(1);
       expect(wsTypeHandlers.get('thinking')?.size).toBe(1);
       expect(wsTypeHandlers.get('activity')?.size).toBe(1);
+      expect(wsReconnectHandlers.size).toBe(1);
 
-      // Third call — still idempotent
       store.setupWsListener();
       expect(wsTypeHandlers.get('status')?.size).toBe(1);
       expect(wsTypeHandlers.get('thinking')?.size).toBe(1);
       expect(wsTypeHandlers.get('activity')?.size).toBe(1);
+      expect(wsReconnectHandlers.size).toBe(1);
     });
 
     it('fires each handler exactly once per event even after repeated setupWsListener calls', () => {
       const store = setupStore();
 
-      // Simulate multiple setup calls (e.g. component re-mounts)
       store.setupWsListener();
       store.setupWsListener();
       store.setupWsListener();
 
-      // Fire a status event and verify the session list is updated exactly once
       fireWsEvent('status', { event: 'agent-session-started', session: mockSession });
       expect(store.sessions).toHaveLength(1);
       expect(store.sessions[0].id).toBe('session-001');
@@ -338,59 +349,63 @@ describe('useAgentStore', () => {
       expect(store.sessions[0].status).toBe('failed');
     });
 
-    // ── Listener Lifecycle: Multi-Instance Isolation ────────
-
     it('isolates listener state between separate Pinia instances', () => {
-      // First store instance
       setActivePinia(createPinia());
       wsTypeHandlers.clear();
+      wsReconnectHandlers.clear();
       const store1 = useAgentStore();
       store1.setupWsListener();
 
-      // Second store instance (new Pinia)
       setActivePinia(createPinia());
       const store2 = useAgentStore();
       store2.setupWsListener();
 
-      // Each store registers its own handlers in the shared wsTypeHandlers map
-      // because the mock ws store is a plain function, not a real Pinia singleton.
-      // The handler map should have 2 handlers per type (one from each store).
       expect(wsTypeHandlers.get('status')?.size).toBe(2);
       expect(wsTypeHandlers.get('thinking')?.size).toBe(2);
       expect(wsTypeHandlers.get('activity')?.size).toBe(2);
+      expect(wsReconnectHandlers.size).toBe(2);
 
-      // Each store's idempotency guard works independently
       store1.setupWsListener();
       store2.setupWsListener();
-      // Counts should not increase
       expect(wsTypeHandlers.get('status')?.size).toBe(2);
     });
 
     it('preserves event delivery to all registered store instances', () => {
-      // First store
       setActivePinia(createPinia());
       wsTypeHandlers.clear();
+      wsReconnectHandlers.clear();
       const store1 = useAgentStore();
       store1.setupWsListener();
       store1.currentSession = { ...mockSession };
       store1.messages = [];
 
-      // Second store
       setActivePinia(createPinia());
       const store2 = useAgentStore();
       store2.setupWsListener();
       store2.currentSession = { ...mockSession, id: 'session-002' };
       store2.messages = [];
 
-      // Fire a status event — both stores should receive it
       fireWsEvent('status', { event: 'agent-session-started', session: { ...mockSession, id: 'session-002' } });
 
-      // fireWsEvent fires to ALL registered handlers; each store's handler
-      // calls addSession which does upsert by id
       expect(store1.sessions).toHaveLength(1);
       expect(store1.sessions[0].id).toBe('session-002');
       expect(store2.sessions).toHaveLength(1);
       expect(store2.sessions[0].id).toBe('session-002');
+    });
+
+    it('refreshes sessions and the active conversation on reconnect', async () => {
+      const store = setupStore();
+      store.currentSession = { ...mockSession };
+      vi.mocked(listAgentSessions).mockResolvedValue({ sessions: [mockSession] });
+      vi.mocked(getAgentConversation).mockResolvedValue(mockConversationResponse);
+
+      store.setupWsListener();
+      fireReconnect();
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(listAgentSessions).toHaveBeenCalledOnce();
+      expect(getAgentConversation).toHaveBeenCalledWith('session-001');
     });
   });
 });
