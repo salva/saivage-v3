@@ -35,6 +35,14 @@ function getAnalystHandler(projectRoot: string): AnalystHandler {
   return handler;
 }
 
+export function resetChatRouteState(projectRoot?: string): void {
+  if (projectRoot) {
+    analystHandlersByRoot.delete(projectRoot);
+    return;
+  }
+  analystHandlersByRoot.clear();
+}
+
 function isBinaryBuffer(buffer: Buffer): boolean {
   const length = Math.min(buffer.length, BINARY_SAMPLE_BYTES);
   if (length === 0) {
@@ -62,6 +70,10 @@ export function registerChatsFilesDebugRoutes(
 ): void {
   const store = new CardStore(projectRoot);
   const saivageDir = join(projectRoot, '.saivage');
+
+  fastify.addHook('onClose', async () => {
+    resetChatRouteState(projectRoot);
+  });
 
   fastify.get('/api/chats', async (_request: FastifyRequest, reply: FastifyReply) => {
     try {

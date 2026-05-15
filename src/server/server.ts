@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url';
 import authPlugin from './auth.js';
 import { registerCardRoutes } from './routes/cards.js';
 import { registerRuntimeConfigNotesRoutes } from './routes/runtime-config-notes.js';
-import { registerChatsFilesDebugRoutes } from './routes/chats-files-debug.js';
+import { registerChatsFilesDebugRoutes, resetChatRouteState } from './routes/chats-files-debug.js';
 import { registerEventsRoute } from './routes/events.js';
 import { registerProcessRoutes } from './routes/processes.js';
 import { registerWebSocket, resetWebSocketState, wireRuntimeEvents } from './websocket.js';
@@ -559,6 +559,7 @@ export async function createServer(
         );
       }
     }
+    resetChatRouteState(projectRoot);
     resetWebSocketState();
     await fastify.close();
   }
