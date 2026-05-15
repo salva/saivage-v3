@@ -165,6 +165,39 @@ describe('buildExecutorFallbackResult', () => {
     expect(fallback!.result?.parse_failure).toEqual(expect.objectContaining({ message: expect.stringContaining('preserved tool evidence') }));
   });
 
+  it('preserves tool errors, artifact paths, raw malformed response, and partial path-based artifacts/attachments', () => {
+    const sessionMessages: AgentMessage[] = [
+      msg({ tool: 'write_project_file', content: JSON.stringify({ path: 'dist/output.txt', written: true, bytes: 12 }) }),
+      msg({ tool: 'run_project_command', content: JSON.stringify({ id: 'cmd-7', command: 'npm run verify', status: 'failed', exitCode: 2, timedOut: true }) }),
+      msg({ kind: 'tool_error', tool: 'run_project_command', content: 'command crashed after producing output' }),
+    ];
+    const raw = JSON.stringify({
+      card_id: 'code-2',
+      artifacts: [{ type: 'log', description: 'stderr capture', retain: true, path: 'logs/stderr.log' }],
+      attachments: [{ mime: 'text/plain', title: 'command tail', path: 'logs/tail.txt' }],
+      result: { partial_artifact: true },
+      summary: 'malformed final payload',
+    });
+
+    const fallback = buildExecutorFallbackResult(raw, { cardId: 'code-2', sessionMessages });
+
+    expect(fallback).not.toBeNull();
+    expect(fallback!.artifacts).toEqual(expect.arrayContaining([
+      expect.objectContaining({ path: 'logs/stderr.log' }),
+      expect.objectContaining({ sourceFile: 'dist/output.txt', path: 'dist/output.txt' }),
+    ]));
+    expect(fallback!.attachments).toEqual([
+      expect.objectContaining({ path: 'logs/tail.txt', title: 'command tail' }),
+    ]);
+    expect(fallback!.result?.artifact_paths).toEqual(expect.arrayContaining(['logs/stderr.log', 'dist/output.txt']));
+    expect(fallback!.result?.tool_errors).toEqual(['run_project_command: command crashed after producing output']);
+    expect(fallback!.result?.verification_commands).toEqual([
+      expect.objectContaining({ command: 'npm run verify', process_id: 'cmd-7', status: 'failed', exit_code: 2, timed_out: true }),
+    ]);
+    expect(fallback!.result?.parse_failure).toEqual(expect.objectContaining({ raw_response: raw }));
+    expect(fallback!.result?.partial_artifact).toBe(true);
+  });
+
   it('returns null when there is no tool or partial evidence to preserve', () => {
     const fallback = buildExecutorFallbackResult('not json', { cardId: 'code-1', sessionMessages: [] });
     expect(fallback).toBeNull();

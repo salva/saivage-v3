@@ -1,5 +1,5 @@
 import { EventEmitter } from 'node:events';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { existsSync, rmSync, readdirSync, readFileSync } from 'node:fs';
 import type {
   FreezeManifest,
@@ -151,6 +151,11 @@ function saivageWorkDir(projectRoot: string): string {
 
 function eventsLogPath(projectRoot: string): string {
   return join(projectRoot, '.saivage', 'runtime', 'events.jsonl');
+}
+
+function resolveEvidenceSourcePath(projectRoot: string, filePath: string): string {
+  if (!filePath) return filePath;
+  return existsSync(filePath) ? filePath : resolve(projectRoot, filePath);
 }
 
 const TRACKED_EVENT_KINDS: ReadonlySet<string> = new Set([
@@ -386,7 +391,7 @@ export class Runtime extends EventEmitter {
       this.cardStore,
       cardId,
       artifact,
-      sourceFile,
+      resolveEvidenceSourcePath(this.projectRoot, sourceFile),
     );
   }
 
@@ -400,7 +405,7 @@ export class Runtime extends EventEmitter {
       this.cardStore,
       cardId,
       attachment,
-      sourceFile,
+      resolveEvidenceSourcePath(this.projectRoot, sourceFile),
     );
   }
 
@@ -1183,6 +1188,7 @@ export class Runtime extends EventEmitter {
         if (execResult.artifacts && execResult.artifacts.length > 0) {
           for (const artDef of execResult.artifacts) {
             try {
+              const sourceFile = artDef.sourceFile ?? artDef.path ?? '';
               this.registerArtifactOnCard(
                 card.id,
                 {
@@ -1190,7 +1196,7 @@ export class Runtime extends EventEmitter {
                   description: artDef.description,
                   retain: artDef.retain,
                 },
-                artDef.sourceFile ?? '',
+                sourceFile,
               );
             } catch (err) {
               const errorMessage = err instanceof Error ? err.message : String(err);
@@ -1225,7 +1231,7 @@ export class Runtime extends EventEmitter {
                   title: attDef.title,
                   description: attDef.description,
                 },
-                attDef.sourceFile ?? '',
+                attDef.sourceFile ?? attDef.path ?? '',
               );
             } catch (err) {
               const errorMessage = err instanceof Error ? err.message : String(err);
