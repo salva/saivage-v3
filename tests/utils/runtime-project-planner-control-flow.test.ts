@@ -1,11 +1,161 @@
 import { describe, it, expect, beforeEach, afterEach } from '@jest/globals';
-import { existsSync, readFileSync, rmSync, mkdtempSync, mkdirSync, writeFileSync, readdirSync } from 'node:fs';
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { initProjectTree } from '../../src/utils/file-tree.js';
+import { PlannerControlService } from '../../src/utils/planner-control.js';
 import { Runtime } from '../../src/utils/runtime.js';
 import { FakeAgentAdapter, type FakeAgentFixture } from '../../src/utils/fake-agent.js';
 import { releaseLock } from '../../src/utils/runtime-lock.js';
+
+describe('PlannerControlService invariants', () => {
+  let tmpDir: string;
+  let service: PlannerControlService;
+
+  beforeEach(() => {
+    tmpDir = mkdtempSync(join(tmpdir(), 'saivage-pc-'));
+    initProjectTree(tmpDir);
+    service = new PlannerControlService(tmpDir);
+  });
+
+  afterEach(() => {
+    rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it('ensureFrame creates a queued frame', () => {
+    const frame = service.ensureFrame('project', 'project');
+    expect(frame.status).toBe('queued');
+  });
+
+  it('creating a dispatch suspends the parent frame and records waiting ids', () => {
+    const frame = service.ensureFrame('goal-1', 'goal');
+    const dispatch = service.createDispatch({
+      parentFrameId: frame.frame_id,
+      parentCardId: 'goal-1',
+      targetCardId: 'code-1',
+      targetKind: 'terminal_card',
+      requestedByScope: 'goal',
+      idempotencyKey: 'goal-1:code-1',
+    });
+
+    const updatedFrame = service.readFrame(frame.frame_id);
+    expect(updatedFrame?.status).toBe('suspended');
+    expect(updatedFrame?.waiting_on_dispatch_ids).toContain(dispatch.dispatch_id);
+  });
+
+  it('rejects completed dispatch without completion evidence', () => {
+    const frame = service.ensureFrame('goal-1', 'goal');
+    const dispatch = service.createDispatch({
+      parentFrameId: frame.frame_id,
+      parentCardId: 'goal-1',
+      targetCardId: 'code-1',
+      targetKind: 'terminal_card',
+      requestedByScope: 'goal',
+      idempotencyKey: 'goal-1:code-1',
+    });
+
+    expect(() =>
+      service.markDispatchCompleted(
+        dispatch.dispatch_id,
+        'completed',
+        null as never,
+      ),
+    ).toThrow(/cannot complete without durable completion evidence/i);
+  });
+
+  it('rejects completed dispatch whose outcome does not match status', () => {
+    const frame = service.ensureFrame('goal-1', 'goal');
+    const dispatch = service.createDispatch({
+      parentFrameId: frame.frame_id,
+      parentCardId: 'goal-1',
+      targetCardId: 'code-1',
+      targetKind: 'terminal_card',
+      requestedByScope: 'goal',
+      idempotencyKey: 'goal-1:code-1',
+    });
+
+    expect(() =>
+      service.markDispatchCompleted(dispatch.dispatch_id, 'failed', {
+        outcome: 'done',
+        summary: 'wrong',
+        child_result: null,
+        review: null,
+        artifacts: [],
+        attachments: [],
+        evidence_card_ids: [],
+        error: 'bad',
+      }),
+    ).toThrow(/requires completion outcome 'failed'/i);
+  });
+
+  it('keeps the parent suspended while other waiting dispatches remain', () => {
+    const frame = service.ensureFrame('goal-1', 'goal');
+    const one = service.createDispatch({
+      parentFrameId: frame.frame_id,
+      parentCardId: 'goal-1',
+      targetCardId: 'code-1',
+      targetKind: 'terminal_card',
+      requestedByScope: 'goal',
+      idempotencyKey: 'goal-1:code-1',
+    });
+    service.createDispatch({
+      parentFrameId: frame.frame_id,
+      parentCardId: 'goal-1',
+      targetCardId: 'code-2',
+      targetKind: 'terminal_card',
+      requestedByScope: 'goal',
+      idempotencyKey: 'goal-1:code-2',
+    });
+
+    service.markDispatchCompleted(one.dispatch_id, 'completed', {
+      outcome: 'done',
+      summary: 'done',
+      child_result: { ok: true },
+      review: null,
+      artifacts: [],
+      attachments: [],
+      evidence_card_ids: ['code-1'],
+      error: null,
+    });
+
+    const updatedFrame = service.readFrame(frame.frame_id);
+    expect(updatedFrame?.status).toBe('suspended');
+    expect(updatedFrame?.waiting_on_dispatch_ids).toHaveLength(1);
+    expect(updatedFrame?.resume_reason).toBe('none');
+  });
+
+  it('makes the parent resumable only after durable completion is written and all waiting ids are cleared', () => {
+    const frame = service.ensureFrame('goal-1', 'goal');
+    const dispatch = service.createDispatch({
+      parentFrameId: frame.frame_id,
+      parentCardId: 'goal-1',
+      targetCardId: 'code-1',
+      targetKind: 'terminal_card',
+      requestedByScope: 'goal',
+      idempotencyKey: 'goal-1:code-1',
+    });
+
+    service.markDispatchCompleted(dispatch.dispatch_id, 'completed', {
+      outcome: 'done',
+      summary: 'done',
+      child_result: { ok: true },
+      review: null,
+      artifacts: [],
+      attachments: [],
+      evidence_card_ids: ['code-1'],
+      error: null,
+    });
+
+    const persistedDispatch = service.readDispatch(dispatch.dispatch_id);
+    const updatedFrame = service.readFrame(frame.frame_id);
+    expect(persistedDispatch?.completion).not.toBeNull();
+    expect(persistedDispatch?.completed_at).not.toBeNull();
+    expect(updatedFrame?.status).toBe('resumable');
+    expect(updatedFrame?.waiting_on_dispatch_ids).toEqual([]);
+    expect(updatedFrame?.resume_reason).toBe('dispatch_completed');
+    expect(updatedFrame?.last_resume_cursor).toBe(persistedDispatch?.completed_at ?? null);
+  });
+});
 
 describe('Runtime project planner control flow', () => {
   let tmpDir: string;

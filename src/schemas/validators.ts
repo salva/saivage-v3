@@ -79,7 +79,33 @@ export const cardRecordSchema = z.object({
   retries: z.number().int().nonnegative(),
 });
 
-export const plannerFrameStatusSchema = z.enum(['running', 'suspended', 'resumable', 'completed', 'blocked', 'failed']);
+export const cardIndexEntrySchema = z.object({
+  id: z.string().min(1),
+  type: cardTypeSchema,
+  parent: z.string().nullable(),
+  status: cardStatusSchema,
+  title: z.string().min(1),
+});
+
+export const cardIndexSchema = z.object({
+  cards: z.record(z.string(), cardIndexEntrySchema),
+}).superRefine((value, ctx) => {
+  for (const [key, entry] of Object.entries(value.cards)) {
+    if (entry.id !== key) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['cards', key, 'id'],
+        message: `Card index entry id '${entry.id}' does not match key '${key}'.`,
+      });
+    }
+  }
+});
+
+export const cardChildrenIndexSchema = z.array(z.string().min(1));
+export const cardDependencyIndexSchema = z.record(z.string(), z.array(z.string().min(1)));
+export const cardBlocksIndexSchema = z.record(z.string(), z.array(z.string().min(1)));
+
+export const plannerFrameStatusSchema = z.enum(['queued', 'running', 'suspended', 'resumable', 'completed', 'blocked', 'failed']);
 export const plannerResumeReasonSchema = z.enum(['dispatch_completed', 'review_completed', 'operator_unblocked', 'none']);
 export const plannerDispatchStatusSchema = z.enum(['queued', 'running', 'completed', 'failed', 'blocked', 'cancelled', 'timed_out']);
 
@@ -136,6 +162,57 @@ export const plannerDispatchRecordSchema = z.object({
   created_at: z.string().datetime(),
   started_at: z.string().datetime().nullable(),
   completed_at: z.string().datetime().nullable(),
+}).superRefine((dispatch, ctx) => {
+  const terminalStatuses = new Set(['completed', 'failed', 'blocked', 'cancelled', 'timed_out']);
+  if (terminalStatuses.has(dispatch.status)) {
+    if (dispatch.completion === null) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['completion'],
+        message: `Planner dispatch '${dispatch.dispatch_id}' in terminal status '${dispatch.status}' requires completion evidence.`,
+      });
+    }
+    if (dispatch.completed_at === null) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['completed_at'],
+        message: `Planner dispatch '${dispatch.dispatch_id}' in terminal status '${dispatch.status}' requires completed_at.`,
+      });
+    }
+  }
+
+  if ((dispatch.status === 'queued' || dispatch.status === 'running') && dispatch.completion !== null) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['completion'],
+      message: `Planner dispatch '${dispatch.dispatch_id}' in non-terminal status '${dispatch.status}' cannot carry terminal completion evidence.`,
+    });
+  }
+
+  if (dispatch.status === 'queued' && dispatch.started_at !== null) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['started_at'],
+      message: `Planner dispatch '${dispatch.dispatch_id}' cannot have started_at while still queued.`,
+    });
+  }
+
+  const expectedOutcomeByStatus: Partial<Record<typeof dispatch.status, import('./types.js').PlannerDispatchCompletion['outcome']>> = {
+    completed: 'done',
+    failed: 'failed',
+    blocked: 'blocked',
+    cancelled: 'cancelled',
+    timed_out: 'timed_out',
+  };
+
+  const expectedOutcome = expectedOutcomeByStatus[dispatch.status];
+  if (expectedOutcome && dispatch.completion && dispatch.completion.outcome !== expectedOutcome) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['completion', 'outcome'],
+      message: `Planner dispatch '${dispatch.dispatch_id}' status '${dispatch.status}' requires completion.outcome '${expectedOutcome}', received '${dispatch.completion.outcome}'.`,
+    });
+  }
 });
 
 export const projectConfigSchema = z.object({

@@ -5,7 +5,6 @@ import type {
   PlannerDispatchRecord,
   PlannerDispatchStatus,
   PlannerFrameRecord,
-  PlannerFrameStatus,
   PlannerResumeReason,
 } from '../schemas/types.js';
 import {
@@ -84,19 +83,20 @@ export class PlannerControlService {
     if (existing) {
       return existing;
     }
+    const createdAt = now();
     const timestamp = Date.now();
     return this.upsertFrame({
       frame_id: `frm-${plannerCardId}-${timestamp}`,
       planner_card_id: plannerCardId,
       planner_role: 'planner',
       planner_scope: plannerScope,
-      status: 'running',
+      status: 'queued',
       resume_reason: 'none',
       waiting_on_dispatch_ids: [],
       last_resume_cursor: null,
       last_dispatch_id: null,
-      created_at: now(),
-      updated_at: now(),
+      created_at: createdAt,
+      updated_at: createdAt,
     });
   }
 
@@ -159,6 +159,7 @@ export class PlannerControlService {
     );
     if (existing) return existing;
 
+    const createdAt = now();
     const dispatch: PlannerDispatchRecord = {
       dispatch_id: `dsp-${params.targetCardId}-${Date.now()}`,
       parent_frame_id: params.parentFrameId,
@@ -170,7 +171,7 @@ export class PlannerControlService {
       status: 'queued',
       completion: null,
       idempotency_key: params.idempotencyKey,
-      created_at: now(),
+      created_at: createdAt,
       started_at: null,
       completed_at: null,
     };
@@ -213,22 +214,43 @@ export class PlannerControlService {
   ): PlannerDispatchRecord {
     const current = this.readDispatch(dispatchId);
     if (!current) throw new Error(`Planner dispatch '${dispatchId}' not found.`);
+
+    if (!completion) {
+      throw new Error(`Planner dispatch '${dispatchId}' cannot complete without durable completion evidence.`);
+    }
+
+    const expectedOutcomeByStatus: Record<typeof status, PlannerDispatchCompletion['outcome']> = {
+      completed: 'done',
+      failed: 'failed',
+      blocked: 'blocked',
+      cancelled: 'cancelled',
+      timed_out: 'timed_out',
+    };
+    const expectedOutcome = expectedOutcomeByStatus[status];
+    if (completion.outcome !== expectedOutcome) {
+      throw new Error(
+        `Planner dispatch '${dispatchId}' status '${status}' requires completion outcome '${expectedOutcome}', received '${completion.outcome}'.`,
+      );
+    }
+
+    const completionTime = now();
     const updated = this.upsertDispatch({
       ...current,
       status,
       completion,
-      completed_at: now(),
-      started_at: current.started_at ?? now(),
+      completed_at: completionTime,
+      started_at: current.started_at ?? completionTime,
     });
 
     const frame = this.readFrame(updated.parent_frame_id);
     if (frame) {
+      const remainingWaiting = frame.waiting_on_dispatch_ids.filter((id) => id !== dispatchId);
       this.updateFrame(frame.frame_id, {
-        status: 'resumable',
-        resume_reason: resumeReason,
-        waiting_on_dispatch_ids: frame.waiting_on_dispatch_ids.filter((id) => id !== dispatchId),
+        status: remainingWaiting.length === 0 ? 'resumable' : 'suspended',
+        resume_reason: remainingWaiting.length === 0 ? resumeReason : 'none',
+        waiting_on_dispatch_ids: remainingWaiting,
         last_dispatch_id: dispatchId,
-        last_resume_cursor: updated.completed_at,
+        last_resume_cursor: remainingWaiting.length === 0 ? updated.completed_at : frame.last_resume_cursor,
       });
     }
 

@@ -78,7 +78,23 @@ export interface CardRecord {
   retries: number;
 }
 
-export type PlannerFrameStatus = 'running' | 'suspended' | 'resumable' | 'completed' | 'blocked' | 'failed';
+export interface CardIndexEntry {
+  id: string;
+  type: CardType;
+  parent: string | null;
+  status: CardStatus;
+  title: string;
+}
+
+export interface CardIndex {
+  cards: Record<string, CardIndexEntry>;
+}
+
+export type CardChildrenIndex = string[];
+export type CardDependencyIndex = Record<string, string[]>;
+export type CardBlocksIndex = Record<string, string[]>;
+
+export type PlannerFrameStatus = 'queued' | 'running' | 'suspended' | 'resumable' | 'completed' | 'blocked' | 'failed';
 export type PlannerResumeReason = 'dispatch_completed' | 'review_completed' | 'operator_unblocked' | 'none';
 export type PlannerDispatchStatus = 'queued' | 'running' | 'completed' | 'failed' | 'blocked' | 'cancelled' | 'timed_out';
 

@@ -1,22 +1,23 @@
 import { readFileSync, existsSync, unlinkSync } from 'node:fs';
 import { join } from 'node:path';
-import { cardRecordSchema } from '../schemas/validators.js';
+import {
+  cardBlocksIndexSchema,
+  cardChildrenIndexSchema,
+  cardDependencyIndexSchema,
+  cardIndexSchema,
+  cardRecordSchema,
+} from '../schemas/validators.js';
 import { writeFileAtomic } from './file-tree.js';
-import type { CardRecord, CardType, CardStatus } from '../schemas/types.js';
-
-// ── Index Types ───────────────────────────────────────────────
-
-export interface CardIndexEntry {
-  id: string;
-  type: string;
-  parent: string | null;
-  status: string;
-  title: string;
-}
-
-export interface CardIndex {
-  cards: Record<string, CardIndexEntry>;
-}
+import type {
+  CardBlocksIndex,
+  CardChildrenIndex,
+  CardDependencyIndex,
+  CardIndex,
+  CardIndexEntry,
+  CardRecord,
+  CardStatus,
+  CardType,
+} from '../schemas/types.js';
 
 // ── Constants ─────────────────────────────────────────────────
 
@@ -30,36 +31,12 @@ const TERMINAL_TYPES: ReadonlySet<CardType> = new Set<CardType>([
   'ops',
 ]);
 
-/**
- * States in which cards cannot be edited at all (except for a status-only
- * change via setStatus, which triggers a lifecycle transition, and
- * system-managed fields such as artifacts, attachments, result, metrics,
- * error, and timing fields).
- *
- * Per 02-card-lifecycle.md: done, failed, and cancelled are non-editable
- * from a user perspective, but runtime system operations (artifact
- * registration, result reporting, etc.) must still be able to update
- * outcome/metadata fields.
- */
 const TERMINAL_STATES: ReadonlySet<CardStatus> = new Set<CardStatus>([
   'done',
   'failed',
   'cancelled',
 ]);
 
-/**
- * Fields considered "structural" and immutable when a card is in a
- * limited-edit state (active, running, blocked).  Drafting and backlog
- * cards can edit all fields.  Terminal-state cards cannot edit anything.
- *
- * Per 02-card-lifecycle.md Permissions by State table:
- * - drafting → Card editable? yes
- * - backlog  → Card editable? yes (User can: reprioritize, edit, add notes)
- * - active   → Card editable? no
- * - running  → Card editable? no
- * - blocked  → Card editable? no
- * - done/failed/cancelled → Card editable? no
- */
 const CRITICAL_FIELDS: ReadonlySet<string> = new Set([
   'type',
   'parent',
@@ -69,15 +46,6 @@ const CRITICAL_FIELDS: ReadonlySet<string> = new Set([
   'created_at',
 ]);
 
-/**
- * Fields that can always be updated regardless of card status.
- * These are system-managed runtime/outcome fields as opposed to
- * user-editable card content.
- *
- * - artifacts / attachments: registered by the runtime after card completion
- * - result / metrics / error: set by executor upon completion
- * - completed_at / duration_ms / started_at: timing fields set by runtime
- */
 const ALWAYS_ALLOWED_FIELDS: ReadonlySet<string> = new Set([
   'artifacts',
   'attachments',
@@ -89,29 +57,17 @@ const ALWAYS_ALLOWED_FIELDS: ReadonlySet<string> = new Set([
   'started_at',
 ]);
 
-/**
- * States in which full editing is allowed (all fields changeable).
- * Per 02-card-lifecycle.md: drafting and backlog have Card editable? yes.
- */
 const FULL_EDIT_STATES: ReadonlySet<CardStatus> = new Set<CardStatus>([
   'drafting',
   'backlog',
 ]);
 
-const PLAN_CARD_ID_PREFIX = 'plan-';
-
-/**
- * Valid card status transitions per 02-card-lifecycle.md.
- *
- * Any state can transition to itself (self-transition, a no-op).
- * The transition map encodes all valid state machine edges.
- */
 const VALID_TRANSITIONS: Record<CardStatus, CardStatus[]> = {
   drafting: ['backlog', 'cancelled'],
   backlog: ['active', 'cancelled'],
   active: ['running', 'cancelled', 'backlog'],
   running: ['done', 'failed', 'blocked', 'cancelled', 'backlog'],
-  blocked: ['running', 'cancelled'],
+  blocked: ['backlog', 'running', 'cancelled'],
   done: ['backlog', 'cancelled'],
   failed: ['backlog', 'cancelled'],
   cancelled: ['drafting'],
@@ -119,8 +75,8 @@ const VALID_TRANSITIONS: Record<CardStatus, CardStatus[]> = {
 
 // ── Helpers ───────────────────────────────────────────────────
 
-function readJson<T>(filePath: string): T {
-  return JSON.parse(readFileSync(filePath, 'utf-8')) as T;
+function readJson(filePath: string): unknown {
+  return JSON.parse(readFileSync(filePath, 'utf-8')) as unknown;
 }
 
 function writeJson(filePath: string, data: unknown): void {
@@ -145,6 +101,10 @@ function generateId(type: string, existingIds: string[]): string {
 
 function now(): string {
   return new Date().toISOString();
+}
+
+function formatValidationError(scope: string, path: string, error: { message: string }): Error {
+  return new Error(`${scope} at '${path}' is invalid: ${error.message}`);
 }
 
 // ── File Path Helpers ─────────────────────────────────────────
@@ -174,7 +134,6 @@ function blocksPath(projectRoot: string): string {
 export class CardStore {
   private projectRoot: string;
 
-  /** Maximum allowed card nesting depth (default 5 per 11-decisions.md #10). */
   readonly maxDepth: number;
 
   constructor(projectRoot: string, maxDepth?: number) {
@@ -182,39 +141,82 @@ export class CardStore {
     this.maxDepth = maxDepth !== undefined && maxDepth > 0 ? maxDepth : 5;
   }
 
+  private parseCardIndex(raw: unknown, path: string): CardIndex {
+    const parsed = cardIndexSchema.safeParse(raw);
+    if (!parsed.success) {
+      throw formatValidationError('Card index', path, parsed.error);
+    }
+    return parsed.data;
+  }
+
+  private parseChildrenIndex(raw: unknown, path: string): CardChildrenIndex {
+    const parsed = cardChildrenIndexSchema.safeParse(raw);
+    if (!parsed.success) {
+      throw formatValidationError('Card children index', path, parsed.error);
+    }
+    return parsed.data;
+  }
+
+  private parseDependencyIndex(raw: unknown, path: string, label: string): CardDependencyIndex {
+    const parsed = cardDependencyIndexSchema.safeParse(raw);
+    if (!parsed.success) {
+      throw formatValidationError(label, path, parsed.error);
+    }
+    return parsed.data;
+  }
+
+  private parseBlocksIndex(raw: unknown, path: string): CardBlocksIndex {
+    const parsed = cardBlocksIndexSchema.safeParse(raw);
+    if (!parsed.success) {
+      throw formatValidationError('Card blocks index', path, parsed.error);
+    }
+    return parsed.data;
+  }
+
+  private parseCardRecord(raw: unknown, path: string): CardRecord {
+    const parsed = cardRecordSchema.safeParse(raw);
+    if (!parsed.success) {
+      throw formatValidationError('Card record', path, parsed.error);
+    }
+    return parsed.data;
+  }
+
   // ── Index Helpers ─────────────────────────────────────────
 
   private loadIndex(): CardIndex {
-    return readJson<CardIndex>(indexPath(this.projectRoot));
+    const path = indexPath(this.projectRoot);
+    return this.parseCardIndex(readJson(path), path);
   }
 
   private saveIndex(index: CardIndex): void {
     writeJson(indexPath(this.projectRoot), index);
   }
 
-  private loadChildren(parentId: string): string[] {
+  private loadChildren(parentId: string): CardChildrenIndex {
     const cp = childrenPath(this.projectRoot, parentId);
     if (!existsSync(cp)) return [];
-    return readJson<string[]>(cp);
+    return this.parseChildrenIndex(readJson(cp), cp);
   }
 
-  private saveChildren(parentId: string, children: string[]): void {
+  private saveChildren(parentId: string, children: CardChildrenIndex): void {
     writeJson(childrenPath(this.projectRoot, parentId), children);
   }
 
-  private loadDependsOn(): Record<string, string[]> {
-    return readJson<Record<string, string[]>>(dependsOnPath(this.projectRoot));
+  private loadDependsOn(): CardDependencyIndex {
+    const path = dependsOnPath(this.projectRoot);
+    return this.parseDependencyIndex(readJson(path), path, 'Card dependency index');
   }
 
-  private saveDependsOn(deps: Record<string, string[]>): void {
+  private saveDependsOn(deps: CardDependencyIndex): void {
     writeJson(dependsOnPath(this.projectRoot), deps);
   }
 
-  private loadBlocks(): Record<string, string[]> {
-    return readJson<Record<string, string[]>>(blocksPath(this.projectRoot));
+  private loadBlocks(): CardBlocksIndex {
+    const path = blocksPath(this.projectRoot);
+    return this.parseBlocksIndex(readJson(path), path);
   }
 
-  private saveBlocks(blks: Record<string, string[]>): void {
+  private saveBlocks(blks: CardBlocksIndex): void {
     writeJson(blocksPath(this.projectRoot), blks);
   }
 
@@ -268,11 +270,9 @@ export class CardStore {
   }
 
   private removeFromDependsOnAll(cardId: string): void {
-    // Remove cardId from the depends_on index (its own entry)
     const deps = this.loadDependsOn();
     delete deps[cardId];
 
-    // Also remove cardId from every other card's depends_on list
     for (const key of Object.keys(deps)) {
       deps[key] = deps[key].filter((id) => id !== cardId);
       if (deps[key].length === 0) {
@@ -282,23 +282,17 @@ export class CardStore {
     this.saveDependsOn(deps);
   }
 
-  // ── CRUD: Create ─────────────────────────────────────────
-
-  /**
-   * Create a new card.
-   *
-   * @param input - Card fields. `id` is optional; auto-generated if not provided.
-   *   'project' cards always get id 'project'. Plan cards cannot be created
-   *   manually (use activateGoal).
-   */
   create(
     input: Omit<CardRecord, 'created_at' | 'updated_at' | 'id'> & {
       id?: string;
     },
   ): CardRecord {
+    if ((input as { type: string }).type === 'plan') {
+      throw new Error('Plan cards are no longer created. Planning state lives on goal cards.');
+    }
+
     const nowStamp = now();
 
-    // Determine ID
     let id: string;
     if (input.id) {
       id = input.id;
@@ -310,7 +304,6 @@ export class CardStore {
       id = generateId(input.type, existingIds);
     }
 
-    // Enforce: singleton project
     if (input.type === 'project') {
       const index = this.loadIndex();
       const existingProject = Object.values(index.cards).find((c) => c.type === 'project');
@@ -321,14 +314,6 @@ export class CardStore {
       }
     }
 
-    // Enforce: plan cards cannot be created manually
-    if (input.type === 'plan') {
-      throw new Error(
-        'Plan cards cannot be created manually. Use activateGoal() to auto-create a plan card.',
-      );
-    }
-
-    // Enforce: terminal cards cannot have children (create with parent check)
     if (input.parent !== null) {
       const parentCard = this.read(input.parent);
       if (!parentCard) {
@@ -339,7 +324,6 @@ export class CardStore {
           `Cannot create child under terminal card '${input.parent}' (type: ${parentCard.type}). Terminal cards cannot have children.`,
         );
       }
-      // State-based permission: cannot create children under terminal-state parents
       if (TERMINAL_STATES.has(parentCard.status)) {
         throw new Error(
           `Cannot create child under card '${input.parent}' because it is in status '${parentCard.status}'. Children cannot be created under cards in ${parentCard.status} status.`,
@@ -347,7 +331,6 @@ export class CardStore {
       }
     }
 
-    // Compute depth
     let depth: number;
     if (input.parent === null) {
       depth = 0;
@@ -359,7 +342,6 @@ export class CardStore {
       depth = parentCard.depth + 1;
     }
 
-    // Enforce max depth
     if (depth > this.maxDepth) {
       throw new Error(
         `Cannot create card at depth ${depth}. Maximum allowed depth is ${this.maxDepth}. Reduce nesting depth by reorganizing the card hierarchy.`,
@@ -399,13 +381,11 @@ export class CardStore {
       retries: input.retries,
     };
 
-    // Validate
     const parsed = cardRecordSchema.safeParse(card);
     if (!parsed.success) {
       throw new Error(`Card validation failed: ${parsed.error.message}`);
     }
 
-    // Check dependency cycles before writing
     if (card.depends_on.length > 0) {
       const cycle = this.detectCycles(card.id, card.depends_on);
       if (cycle.length > 0) {
@@ -413,76 +393,44 @@ export class CardStore {
       }
     }
 
-    // Write card file
     this.writeCard(card);
-
-    // Update index
     this.addToIndex(card);
 
-    // Update parent's children list
     if (card.parent !== null) {
       this.addToChildren(card.parent, card.id);
     }
 
-    // Update depends_on
     if (card.depends_on.length > 0) {
       this.addToDependsOn(card.id, card.depends_on);
     }
 
-    // Recompute blocks
     this.recomputeBlocks();
 
     return card;
   }
 
-  // ── CRUD: Read ───────────────────────────────────────────
-
-  /**
-   * Read a card by ID. Returns null if not found.
-   *
-   * The `blocks` field is merged from the global blocks index so that
-   * the returned card always reflects the current computed blocks,
-   * not any stale value persisted in the card file.
-   */
   read(id: string): CardRecord | null {
     const cp = cardPath(this.projectRoot, id);
     if (!existsSync(cp)) {
       return null;
     }
-    const card = readJson<CardRecord>(cp);
-
-    // Merge the computed blocks from the blocks index
-    // so card.blocks always reflects the current state
+    const card = this.parseCardRecord(readJson(cp), cp);
     const blocksIndex = this.loadBlocks();
     card.blocks = blocksIndex[id] ?? [];
-
     return card;
   }
 
-  // ── CRUD: Update ─────────────────────────────────────────
-
-  /**
-   * Update a card's fields. Does not change id, type, created_at.
-   * Recomputes blocks automatically if depends_on changed.
-   *
-   * State-based permission checks per 02-card-lifecycle.md:
-   * - drafting / backlog: full editing allowed
-   * - active / running / blocked: non-critical fields only
-   * - done / failed / cancelled: only status changes (via setStatus) and
-   *   system-managed runtime fields (artifacts, attachments, result,
-   *   metrics, error, completed_at, duration_ms, started_at)
-   */
   update(id: string, changes: Partial<CardRecord>): CardRecord {
     const existing = this.read(id);
     if (!existing) {
       throw new Error(`Card '${id}' not found.`);
     }
 
-    // ── State-based permission check ───────────────────────
+    if ((changes as { type?: string }).type === 'plan') {
+      throw new Error('Cannot change card type to plan: planning state lives on goal cards.');
+    }
 
     if (TERMINAL_STATES.has(existing.status)) {
-      // done / failed / cancelled: only allow status-only changes and
-      // system-managed runtime/outcome fields (ALWAYS_ALLOWED_FIELDS)
       for (const key of Object.keys(changes)) {
         if (key !== 'status' && !ALWAYS_ALLOWED_FIELDS.has(key)) {
           throw new Error(
@@ -491,7 +439,6 @@ export class CardStore {
         }
       }
     } else if (!FULL_EDIT_STATES.has(existing.status)) {
-      // active / running / blocked: non-critical fields only
       for (const key of Object.keys(changes)) {
         if (CRITICAL_FIELDS.has(key)) {
           throw new Error(
@@ -500,9 +447,7 @@ export class CardStore {
         }
       }
     }
-    // drafting / backlog: no restriction — all fields are editable
 
-    // Disallow changing type to terminal while card has children
     if (changes.type !== undefined && changes.type !== existing.type) {
       if (isTerminal(changes.type)) {
         const children = this.loadChildren(id);
@@ -514,7 +459,6 @@ export class CardStore {
       }
     }
 
-    // Disallow changing parent to a terminal card
     if (changes.parent !== undefined && changes.parent !== existing.parent) {
       if (changes.parent !== null) {
         const newParent = this.read(changes.parent);
@@ -529,7 +473,6 @@ export class CardStore {
       }
     }
 
-    // Recompute depth if parent changed
     let newDepth = existing.depth;
     if (changes.parent !== undefined && changes.parent !== existing.parent) {
       if (changes.parent === null) {
@@ -542,7 +485,6 @@ export class CardStore {
         newDepth = newParent.depth + 1;
       }
 
-      // Enforce max depth
       if (newDepth > this.maxDepth) {
         throw new Error(
           `Cannot update card '${id}' to depth ${newDepth}. Maximum allowed depth is ${this.maxDepth}. Choose a parent at a shallower level.`,
@@ -550,35 +492,26 @@ export class CardStore {
       }
     }
 
-    // Determine which depends_on to use
     const newDependsOn =
       changes.depends_on !== undefined ? changes.depends_on : existing.depends_on;
 
-    // Build the updated card
     const updated: CardRecord = {
       ...existing,
       ...changes,
-      id: existing.id, // immutable
+      id: existing.id,
       type: changes.type ?? existing.type,
-      created_at: existing.created_at, // immutable
+      created_at: existing.created_at,
       updated_at: now(),
       depth: newDepth,
       depends_on: newDependsOn,
-      blocks: existing.blocks, // will be recomputed
+      blocks: existing.blocks,
     };
 
-    // Disallow changing type to plan manually
-    if (changes.type === 'plan' && existing.type !== 'plan') {
-      throw new Error(`Cannot change card type to 'plan' manually. Plan cards are auto-created.`);
-    }
-
-    // Validate
     const parsed = cardRecordSchema.safeParse(updated);
     if (!parsed.success) {
       throw new Error(`Card validation failed: ${parsed.error.message}`);
     }
 
-    // Check dependency cycles if depends_on changed
     if (changes.depends_on !== undefined) {
       const cycle = this.detectCycles(id, newDependsOn);
       if (cycle.length > 0) {
@@ -586,7 +519,6 @@ export class CardStore {
       }
     }
 
-    // Update parent/children tracking if parent changed
     if (changes.parent !== undefined && changes.parent !== existing.parent) {
       if (existing.parent !== null) {
         this.removeFromChildren(existing.parent, id);
@@ -596,10 +528,8 @@ export class CardStore {
       }
     }
 
-    // Write card
     this.writeCard(updated);
 
-    // Update index
     const index = this.loadIndex();
     index.cards[id] = {
       id: updated.id,
@@ -610,43 +540,27 @@ export class CardStore {
     };
     this.saveIndex(index);
 
-    // Update depends_on if changed
     if (changes.depends_on !== undefined) {
       if (newDependsOn.length > 0) {
         this.addToDependsOn(id, newDependsOn);
       } else {
-        // Remove empty entry
         const deps = this.loadDependsOn();
         delete deps[id];
         this.saveDependsOn(deps);
       }
     }
 
-    // Recompute blocks
     this.recomputeBlocks();
 
-    // Re-read the card to get the updated blocks
     return this.read(id)!;
   }
 
-  // ── CRUD: Delete ─────────────────────────────────────────
-
-  /**
-   * Delete a card and clean up all references.
-   *
-   * Guards:
-   * - Cannot delete project card (id: 'project')
-   * - Cannot delete a card that has children
-   * - Cannot delete a plan card
-   * - Cannot delete a card in a terminal state (done/failed/cancelled)
-   */
   delete(id: string): void {
     const card = this.read(id);
     if (!card) {
       throw new Error(`Card '${id}' not found.`);
     }
 
-    // State-based permission: cannot delete terminal-state cards
     if (TERMINAL_STATES.has(card.status)) {
       throw new Error(
         `Cannot delete card '${id}' because it is in status '${card.status}'. Cards in ${card.status} status cannot be deleted.`,
@@ -657,13 +571,6 @@ export class CardStore {
       throw new Error('Cannot delete the project card.');
     }
 
-    if (card.type === 'plan') {
-      throw new Error(
-        'Cannot delete a plan card directly. Plan cards are managed by their goal lifecycle.',
-      );
-    }
-
-    // Check for children
     const children = this.loadChildren(id);
     if (children.length > 0) {
       throw new Error(
@@ -671,38 +578,26 @@ export class CardStore {
       );
     }
 
-    // Remove from parent's children list
     if (card.parent !== null) {
       this.removeFromChildren(card.parent, id);
     }
 
-    // Remove from index
     this.removeFromIndex(id);
-
-    // Remove from depends_on / blocks
     this.removeFromDependsOnAll(id);
 
-    // Remove children file if it exists
     const cp = childrenPath(this.projectRoot, id);
     if (existsSync(cp)) {
       unlinkSync(cp);
     }
 
-    // Remove card file
     const cfp = cardPath(this.projectRoot, id);
     if (existsSync(cfp)) {
       unlinkSync(cfp);
     }
 
-    // Recompute blocks
     this.recomputeBlocks();
   }
 
-  // ── List ─────────────────────────────────────────────────
-
-  /**
-   * List all card records.
-   */
   list(): CardRecord[] {
     const index = this.loadIndex();
     const cards: CardRecord[] = [];
@@ -715,19 +610,10 @@ export class CardStore {
     return cards;
   }
 
-  /**
-   * List child IDs of a given parent.
-   */
   listChildren(parentId: string): string[] {
     return this.loadChildren(parentId);
   }
 
-  // ── Hierarchy Queries ────────────────────────────────────
-
-  /**
-   * Get ancestors of a card, ordered root → parent.
-   * Returns empty array for the root card.
-   */
   getAncestors(id: string): string[] {
     const ancestors: string[] = [];
     let current = this.read(id);
@@ -741,17 +627,11 @@ export class CardStore {
     return ancestors;
   }
 
-  /**
-   * Check whether `id` is a descendant of `ancestorId`.
-   */
   isDescendantOf(id: string, ancestorId: string): boolean {
     const ancestors = this.getAncestors(id);
     return ancestors.includes(ancestorId);
   }
 
-  /**
-   * Get all descendant IDs recursively.
-   */
   getDescendantIds(id: string): string[] {
     const result: string[] = [];
     const stack = [...this.loadChildren(id)];
@@ -766,31 +646,19 @@ export class CardStore {
     return result;
   }
 
-  // ── Dependency Management ────────────────────────────────
-
-  /**
-   * Update the depends_on for a card. Validates no cycles.
-   */
   updateDependsOn(id: string, newDependsOn: string[]): CardRecord {
     return this.update(id, { depends_on: newDependsOn });
   }
 
-  /**
-   * Recompute the blocks index from scratch.
-   * blocks[c] = list of all cards that have c in their depends_on
-   */
   recomputeBlocks(): void {
     const deps = this.loadDependsOn();
     const allCards = this.loadIndex();
-    const blocks: Record<string, string[]> = {};
+    const blocks: CardBlocksIndex = {};
 
-    // Initialize blocks for all cards
     for (const cardId of Object.keys(allCards.cards)) {
       blocks[cardId] = [];
     }
 
-    // For each card that has depends_on, add this card to the blocks of
-    // each dependency
     for (const [cardId, dependsOnList] of Object.entries(deps)) {
       for (const dep of dependsOnList) {
         if (blocks[dep]) {
@@ -804,30 +672,20 @@ export class CardStore {
     this.saveBlocks(blocks);
   }
 
-  /**
-   * Detect if adding the given depends_on list to `id` would create a cycle.
-   * Returns the cycle path as an array of card IDs if found, or an empty array.
-   *
-   * This simulates what the dependency graph would look like after the change.
-   */
   detectCycles(id: string, newDependsOn: string[]): string[] {
-    // Build the full dependency graph as it would be after the change
     const deps = this.loadDependsOn();
     const graph: Record<string, string[]> = {};
 
-    // Copy existing deps
     for (const [cardId, dependsOnList] of Object.entries(deps)) {
       graph[cardId] = [...dependsOnList];
     }
 
-    // Apply the new depends_on
     if (newDependsOn.length > 0) {
       graph[id] = [...newDependsOn];
     } else {
       delete graph[id];
     }
 
-    // Also ensure all known cards are in the graph (even with empty deps)
     const allCards = this.loadIndex();
     for (const cardId of Object.keys(allCards.cards)) {
       if (!(cardId in graph)) {
@@ -835,13 +693,11 @@ export class CardStore {
       }
     }
 
-    // DFS-based cycle detection
     const visited = new Set<string>();
     const stack = new Set<string>();
 
     function dfs(node: string, path: string[]): string[] | null {
       if (stack.has(node)) {
-        // Found a cycle: extract it from the path
         const cycleStart = path.indexOf(node);
         return [...path.slice(cycleStart), node];
       }
@@ -863,23 +719,11 @@ export class CardStore {
       return null;
     }
 
-    // Start DFS from the target card
     const result = dfs(id, []);
     return result ?? [];
   }
 
-  // ── Status Transitions ───────────────────────────────────
-
-  /**
-   * Validate that a status transition is allowed per the lifecycle state
-   * machine defined in 02-card-lifecycle.md.
-   *
-   * @param from - Current card status
-   * @param to   - Desired new status
-   * @throws Error if the status transition is not valid
-   */
   validateTransition(from: CardStatus, to: CardStatus): void {
-    // Self-transition is always a no-op
     if (from === to) return;
 
     const allowed = VALID_TRANSITIONS[from];
@@ -891,10 +735,6 @@ export class CardStore {
     );
   }
 
-  /**
-   * Set the status of a card. Validates the transition against the
-   * lifecycle state machine before applying it.
-   */
   setStatus(id: string, newStatus: CardStatus): CardRecord {
     const card = this.read(id);
     if (!card) {
@@ -906,19 +746,7 @@ export class CardStore {
     return this.update(id, { status: newStatus });
   }
 
-  // ── Activation & Plan Card ───────────────────────────────
-
-  /**
-   * Activate a goal (or the project card): transition to 'active' and
-   * auto-create a plan card as its first child.
-   *
-   * Returns both the updated goal card and the new plan card.
-   *
-   * Plan card ID format: `plan-{goalId}`
-   * Plan card is always the first child of the goal.
-   * Only one plan per goal.
-   */
-  activateGoal(id: string): { goal: CardRecord; plan: CardRecord } {
+  activateGoal(id: string): { goal: CardRecord } {
     const goal = this.read(id);
     if (!goal) {
       throw new Error(`Goal '${id}' not found.`);
@@ -928,82 +756,28 @@ export class CardStore {
       throw new Error(`activateGoal requires a project or goal card, got type '${goal.type}'.`);
     }
 
-    // Check if a plan already exists for this goal
-    const planId = `${PLAN_CARD_ID_PREFIX}${id}`;
-    const existingPlan = this.read(planId);
-    if (existingPlan) {
-      // Goal already has a plan — just activate the goal
-      const updatedGoal = this.setStatus(id, 'active');
-      return { goal: updatedGoal, plan: existingPlan };
+    const activeGoal = goal.status === 'active' || goal.status === 'running'
+      ? goal
+      : this.setStatus(id, 'active');
+    const existingResult = activeGoal.result && typeof activeGoal.result === 'object' ? activeGoal.result : {};
+    if (existingResult.planning && typeof existingResult.planning === 'object') {
+      return { goal: activeGoal };
     }
 
-    // Activate the goal
-    const updatedGoal = this.setStatus(id, 'active');
+    const updatedGoal = this.update(id, {
+      result: {
+        ...existingResult,
+        planning: {
+          status: 'continue',
+          summary: null,
+          blocked_reason: null,
+          created_cards: [],
+          updated_cards: [],
+          updated_at: new Date().toISOString(),
+        },
+      },
+    });
 
-    // Compute plan depth — depth checks are at depth computation time, not here
-    // (activateGoal creates the plan card directly without going through create())
-    const planDepth = updatedGoal.depth + 1;
-
-    // Enforce max depth for plan card
-    if (planDepth > this.maxDepth) {
-      throw new Error(
-        `Cannot activate goal '${id}': the plan card would be at depth ${planDepth}, exceeding maximum allowed depth ${this.maxDepth}. Reduce nesting depth before activating this goal.`,
-      );
-    }
-
-    // Create plan card
-    const plan: CardRecord = {
-      id: planId,
-      type: 'plan',
-      parent: id,
-      depth: planDepth,
-      title: `Plan for ${updatedGoal.title}`,
-      description: '',
-      status: 'backlog',
-      tags: [],
-      priority: 0,
-      urgency: 'normal',
-      created_by: 'planner',
-      created_at: now(),
-      updated_at: now(),
-      assigned_to: null,
-      depends_on: [],
-      blocks: [],
-      related: [],
-      acceptance: '',
-      result: null,
-      metrics: null,
-      artifacts: [],
-      attachments: [],
-      estimate: null,
-      started_at: null,
-      completed_at: null,
-      duration_ms: null,
-      error: null,
-      retries: 0,
-    };
-
-    // Validate
-    const parsed = cardRecordSchema.safeParse(plan);
-    if (!parsed.success) {
-      throw new Error(`Plan card validation failed: ${parsed.error.message}`);
-    }
-
-    // Write plan card
-    this.writeCard(plan);
-
-    // Add to index
-    this.addToIndex(plan);
-
-    // Add to parent's children — prepend to make it the first child
-    const siblings = this.loadChildren(id);
-    const newChildren = [planId, ...siblings.filter((c) => c !== planId)];
-    this.saveChildren(id, newChildren);
-
-    // Recompute blocks for consistency (plan cards have empty depends_on so
-    // this is harmless but consistent with create/update/delete pattern)
-    this.recomputeBlocks();
-
-    return { goal: updatedGoal, plan };
+    return { goal: updatedGoal };
   }
 }
