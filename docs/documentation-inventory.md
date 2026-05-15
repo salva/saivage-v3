@@ -15,7 +15,7 @@ This inventory reconciles Saivage v3 documentation after validated repair stages
 
 Primary anchors used for this inventory:
 
-- Docs build and serving: `package.json`, `scripts/docs-verify.sh`, `src/server/server.ts`, `tests/server/spa-static-serving.test.ts`
+- Docs build and serving: `package.json`, `scripts/docs-verify.sh`, `docs/.vitepress/config.ts`, `src/server/server.ts`, `tests/server/spa-static-serving.test.ts`
 - Auth, public docs, and WebSocket protection: `src/server/auth.ts`, `src/server/websocket.ts`, `tests/server/auth-mode.test.ts`, `web/src/__tests__/nav-rail.test.ts`
 - Runtime controls and freeze/resume: `src/server/server.ts`, `src/server/routes/runtime-config-notes.ts`, `src/utils/runtime-state.js`, `src/utils/freeze-manifest.js`
 - Card detail evidence and safe generated-file inspection: `src/server/routes/cards.ts`, `src/server/routes/chats-files-debug.ts`, `tests/server/generated-file-inspection.test.ts`, `web/src/__tests__/card-detail-view.test.ts`
@@ -37,6 +37,7 @@ Primary anchors used for this inventory:
 | `docs/release-checklist.md` | current | Release verification gates aligned to current scripts and documentation policy. |
 | `docs/documentation-inventory.md` | current | This inventory. |
 | `docs/historical-artifacts.md` | current | Index and labeling policy for non-authoritative historical material. |
+| `docs/.vitepress/config.ts` | current | Active VitePress navigation/build config for the live docs surface; defines docs base path plus the current nav and sidebar information architecture for active pages. Verified against `package.json` (`docs:build`), `scripts/docs-verify.sh`, and current docs page set. |
 
 ## Historical docs retained but non-authoritative
 
@@ -85,6 +86,7 @@ The following previously missing or insufficient topics are now covered in activ
 - Safe process views and process-control constraints
 - Historical-artifact labeling policy
 - Documentation inventory and authority boundaries
+- Active docs navigation/build config coverage for the live docs IA
 
 ## Documentation policy
 
