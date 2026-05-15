@@ -103,6 +103,20 @@ function checkAuth(request: FastifyRequest): boolean {
   return false;
 }
 
+function rejectUnauthorizedWebSocket(ws: WebSocket): void {
+  ws.close(1008, 'Authentication failed');
+
+  const wsWithPrivateState = ws as WebSocket & {
+    _closeTimer?: NodeJS.Timeout;
+  };
+  const closeTimer = wsWithPrivateState._closeTimer;
+  if (closeTimer) {
+    clearTimeout(closeTimer);
+    closeTimer.unref();
+    wsWithPrivateState._closeTimer = undefined;
+  }
+}
+
 // ── WebSocket Registration ────────────────────────────────────
 
 export function registerWebSocket(fastify: FastifyInstance, projectRoot: string): void {
@@ -110,9 +124,11 @@ export function registerWebSocket(fastify: FastifyInstance, projectRoot: string)
     '/ws',
     { websocket: true },
     (ws: WebSocket, request: FastifyRequest) => {
-      // Auth check — if fails, close with 1008
+      // Auth check — if fails, send the expected policy-violation close frame
+      // but clear ws's internal close timer so rejected upgrades do not keep
+      // Jest workers alive.
       if (!checkAuth(request)) {
-        ws.close(1008, 'Authentication failed');
+        rejectUnauthorizedWebSocket(ws);
         return;
       }
 
