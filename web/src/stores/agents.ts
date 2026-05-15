@@ -14,12 +14,14 @@ import type {
   AgentRole,
   AgentStatus,
   AgentConversationResponse,
+  FreshnessState,
 } from '../api/types';
-import { getAgentConversation, ApiError } from '../api/client';
+import { listAgentSessions, getAgentConversation, ApiError } from '../api/client';
 import { useWsStore } from './ws';
 import { createLogger } from '../utils/logger';
 
 const log = createLogger('store:agents');
+const STALE_AFTER_MS = 30_000;
 
 // ── Helpers ────────────────────────────────────────────────────
 
@@ -39,7 +41,6 @@ function groupIntoSteps(messages: AgentMessage[]): MessageStep[] {
 
   for (const msg of messages) {
     if (msg.kind === 'tool_call') {
-      // If there's already a tool_call in current, push and start new
       if (current.toolCall) {
         steps.push(current);
         current = { toolCall: msg };
@@ -51,18 +52,12 @@ function groupIntoSteps(messages: AgentMessage[]): MessageStep[] {
       steps.push(current);
       current = {};
     } else if (msg.kind === 'text' || msg.kind === 'activity') {
-      // If we have an existing partial step, push it first.
-      // Then set this message as the reasoning slot for the next
-      // tool_call step so text/activity → tool_call → result are
-      // grouped into a single step.
       if (current.reasoning || current.toolCall) {
         steps.push(current);
         current = {};
       }
       current.reasoning = msg;
     } else if (msg.kind === 'model_issue' || msg.kind === 'model_repair' || msg.kind === 'model_recovered') {
-      // Model lifecycle events are standalone — push any partial
-      // step, then push the model event on its own.
       if (current.reasoning || current.toolCall) {
         steps.push(current);
         current = {};
@@ -71,12 +66,15 @@ function groupIntoSteps(messages: AgentMessage[]): MessageStep[] {
     }
   }
 
-  // Don't lose a trailing partial step
   if (current.reasoning || current.toolCall || current.toolResult) {
     steps.push(current);
   }
 
   return steps;
+}
+
+function nowIso(): string {
+  return new Date().toISOString();
 }
 
 // ── Store ──────────────────────────────────────────────────────
@@ -90,6 +88,11 @@ export const useAgentStore = defineStore('agents', () => {
   const currentSession = ref<AgentSession | null>(null);
   const loading = ref(false);
   const error = ref<string | null>(null);
+  const lastFetchedAt = ref<string | null>(null);
+  const lastWsEventAt = ref<string | null>(null);
+  const lastUpdatedBy = ref<FreshnessState['lastUpdatedBy']>('unknown');
+  const unauthorized = ref(false);
+  const conversationWarning = ref<string | null>(null);
 
   /** Which tool calls are expanded (by message id). */
   const expandedToolCalls = ref<Set<string>>(new Set());
@@ -97,6 +100,11 @@ export const useAgentStore = defineStore('agents', () => {
   // ── Getters ────────────────────────────────────────────────
 
   const steps = computed<MessageStep[]>(() => groupIntoSteps(messages.value));
+  const isStale = computed(() => {
+    const latest = lastWsEventAt.value ?? lastFetchedAt.value;
+    if (!latest) return false;
+    return Date.now() - new Date(latest).getTime() > STALE_AFTER_MS;
+  });
 
   /** Sessions grouped by role. */
   const sessionsByRole = computed<Map<AgentRole, AgentSession[]>>(() => {
@@ -120,19 +128,62 @@ export const useAgentStore = defineStore('agents', () => {
     sessions.value.filter((s) => s.status !== 'active'),
   );
 
+  const attentionSessions = computed<AgentSession[]>(() =>
+    sessions.value.filter((s) => s.status === 'failed'),
+  );
+
+  function markRestSync(): void {
+    lastFetchedAt.value = nowIso();
+    lastUpdatedBy.value = 'rest';
+  }
+
+  function markWsSync(): void {
+    lastWsEventAt.value = nowIso();
+    lastUpdatedBy.value = lastFetchedAt.value ? 'mixed' : 'ws';
+  }
+
   // ── Actions ────────────────────────────────────────────────
+
+  /** Fetch persisted agent sessions for initial page load or refresh. */
+  async function fetchSessions(): Promise<void> {
+    loading.value = true;
+    error.value = null;
+    unauthorized.value = false;
+    try {
+      const response = await listAgentSessions();
+      sessions.value = response.sessions;
+      markRestSync();
+    } catch (err) {
+      const msg = err instanceof ApiError ? err.message : 'Failed to fetch agent sessions';
+      error.value = msg;
+      unauthorized.value = err instanceof ApiError && err.isUnauthorized;
+      log.error('fetchSessions', msg);
+      throw err;
+    } finally {
+      loading.value = false;
+    }
+  }
 
   /** Fetch conversation for a specific agent session. */
   async function fetchConversation(sessionId: string): Promise<void> {
     loading.value = true;
     error.value = null;
+    conversationWarning.value = null;
+    unauthorized.value = false;
     try {
       const response: AgentConversationResponse = await getAgentConversation(sessionId);
       currentSession.value = response.session;
       messages.value = response.messages;
+      if (response.messages.length === 0) {
+        conversationWarning.value = 'No recorded conversation messages were returned for this session.';
+      } else if (response.messages.some((msg) => msg.kind === 'model_issue')) {
+        conversationWarning.value = 'Conversation includes model/tool recovery events; inspect for incomplete or repaired output.';
+      }
+      markRestSync();
     } catch (err) {
       const msg = err instanceof ApiError ? err.message : 'Failed to fetch agent conversation';
       error.value = msg;
+      unauthorized.value = err instanceof ApiError && err.isUnauthorized;
       log.error('fetchConversation', msg);
       throw err;
     } finally {
@@ -148,7 +199,6 @@ export const useAgentStore = defineStore('agents', () => {
     } else {
       sessions.value.push(session);
     }
-    // Trigger reactivity
     sessions.value = [...sessions.value];
   }
 
@@ -166,6 +216,9 @@ export const useAgentStore = defineStore('agents', () => {
         status,
         completed_at: status !== 'active' ? new Date().toISOString() : null,
       };
+      if (status === 'failed') {
+        conversationWarning.value = 'This session failed. Inspect tool/model messages and linked evidence before treating work as complete.';
+      }
     }
   }
 
@@ -173,6 +226,10 @@ export const useAgentStore = defineStore('agents', () => {
   function appendMessage(message: AgentMessage): void {
     if (currentSession.value && message.session_id === currentSession.value.id) {
       messages.value = [...messages.value, message];
+      markWsSync();
+      if (message.kind === 'tool_error' || message.kind === 'model_issue') {
+        conversationWarning.value = 'Conversation includes tool/model failures or repairs; inspect linked evidence carefully.';
+      }
     }
   }
 
@@ -204,24 +261,27 @@ export const useAgentStore = defineStore('agents', () => {
 
   // ── WebSocket Integration ──────────────────────────────────
 
-  /** Unsubscriber for the status event type. */
   let statusUnsubscribe: (() => void) | null = null;
-  /** Unsubscriber for the thinking event type. */
   let thinkingUnsubscribe: (() => void) | null = null;
-  /** Unsubscriber for the activity event type. */
   let activityUnsubscribe: (() => void) | null = null;
+  let reconnectUnsubscribe: (() => void) | null = null;
 
   function setupWsListener(): void {
-    // Idempotent — if any listener is already registered, skip.
-    // All three are registered together in one pass, so checking
-    // just the first is sufficient.
-    if (statusUnsubscribe) return;
-
     const ws = useWsStore();
+    if (!reconnectUnsubscribe) {
+      reconnectUnsubscribe = ws.onReconnect(() => {
+        fetchSessions().catch(() => {});
+        if (currentSession.value?.id) {
+          fetchConversation(currentSession.value.id).catch(() => {});
+        }
+      });
+    }
+    if (statusUnsubscribe) return;
 
     statusUnsubscribe = ws.onType('status', (envelope) => {
       const content = envelope.content || {};
       const event = content.event as string;
+      markWsSync();
 
       if (event === 'agent-session-started' && content.session) {
         addSession(content.session as AgentSession);
@@ -236,7 +296,6 @@ export const useAgentStore = defineStore('agents', () => {
       }
     });
 
-    // Listen for thinking/activity events for agent messages
     thinkingUnsubscribe = ws.onType('thinking', (envelope) => {
       const content = envelope.content || {};
       if (content.sessionId && content.message) {
@@ -266,14 +325,22 @@ export const useAgentStore = defineStore('agents', () => {
     loading,
     error,
     expandedToolCalls,
+    lastFetchedAt,
+    lastWsEventAt,
+    lastUpdatedBy,
+    unauthorized,
+    conversationWarning,
 
     // Getters
     steps,
     sessionsByRole,
     activeSessions,
     completedSessions,
+    attentionSessions,
+    isStale,
 
     // Actions
+    fetchSessions,
     fetchConversation,
     addSession,
     updateSessionStatus,

@@ -19,7 +19,8 @@
     <div class="nav-footer">
       <button
         class="nav-link api-token-btn"
-        title="API Token"
+        title="API token for API/WebSocket access — public docs do not require a token"
+        aria-label="Manage API token for API and WebSocket access"
         @click="$emit('open-token')"
       >
         <span class="nav-icon">
@@ -37,7 +38,8 @@
         target="_blank"
         rel="noopener"
         class="nav-link"
-        title="Docs"
+        title="Open public docs in a new tab"
+        aria-label="Docs (opens in a new tab; public docs do not require API token)"
       >
         <span class="nav-icon">
           <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
@@ -48,6 +50,7 @@
           </svg>
         </span>
         <span class="nav-label">Docs</span>
+        <span class="nav-external" aria-hidden="true">↗</span>
       </a>
     </div>
   </nav>
@@ -71,8 +74,8 @@ const route = useRoute();
 function isActive(id: string): boolean {
   const item = props.navItems.find((n) => n.id === id);
   if (!item) return false;
-  const routeName = route.name as string;
-  const routePath = route.path;
+  const routeName = typeof route.name === 'string' ? route.name : '';
+  const routePath = typeof route.path === 'string' ? route.path : '';
   return item.activePatterns.some(
     (pattern) =>
       routeName.startsWith(pattern) || routePath.startsWith(pattern),
@@ -182,5 +185,10 @@ function isActive(id: string): boolean {
 .api-token-btn {
   background: none;
   border: none;
+}
+
+.nav-external {
+  font-size: 9px;
+  color: #484f58;
 }
 </style>

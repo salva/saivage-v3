@@ -6,37 +6,39 @@
     </div>
 
     <div class="header-right">
-      <!-- WebSocket connection indicator -->
       <span
         class="status-chip ws-chip"
         :class="`ws-${connectionState}`"
-        :title="wsTooltip"
+        :title="liveUpdateDetail"
       >
         <span class="chip-dot"></span>
-        {{ wsLabel }}
+        {{ liveUpdateLabel || wsLabel }}
       </span>
 
-      <!-- Runtime status chip -->
       <span
-        v-if="runtimeStatus"
-        class="status-chip"
-        :class="`rt-${runtimeStatus}`"
-        :title="runtimeTooltip"
+        class="status-chip runtime-chip"
+        :class="runtimeChipClass"
+        :title="runtimeModeDetail"
       >
         <span class="chip-dot"></span>
-        {{ runtimeStatusLabel }}
+        {{ runtimeModeLabel || runtimeStatusLabel }}
       </span>
 
-      <!-- Global pause chip -->
+      <span v-if="stateCueLabel" class="status-chip cue-chip" :class="cueClass" :title="stateCueDetail">
+        <span class="chip-dot"></span>
+        {{ stateCueLabel }}
+      </span>
+
       <button
         v-if="isPaused !== null"
         class="status-chip pause-chip"
-        :class="{ paused: isPaused }"
-        :title="isPaused ? 'Runtime is paused — click to resume' : 'Click to pause runtime'"
+        :class="{ paused: isPaused, disabled: Boolean(pauseDisabledReason) }"
+        :title="pauseTitle"
+        :disabled="Boolean(pauseDisabledReason)"
         @click="togglePause"
       >
-        <span class="chip-icon">{{ isPaused ? '⏸' : '▶' }}</span>
-        {{ isPaused ? 'PAUSED' : 'LIVE' }}
+        <span class="chip-icon">{{ isPaused ? '▶' : '⏸' }}</span>
+        {{ isPaused ? 'Resume' : 'Pause' }}
       </button>
     </div>
   </header>
@@ -52,7 +54,15 @@ const props = defineProps<{
   connectionState: WsConnectionState;
   runtimeStatus: string | null;
   runtimeStatusLabel: string;
+  liveUpdateLabel?: string;
+  liveUpdateDetail?: string;
+  runtimeModeLabel?: string;
+  runtimeModeDetail?: string;
   isPaused: boolean | null;
+  isStale?: boolean;
+  isUnauthorized?: boolean;
+  hasToken?: boolean;
+  pauseDisabledReason?: string | null;
 }>();
 
 const emit = defineEmits<{
@@ -64,27 +74,44 @@ const wsLabel = computed(() => {
     connected: 'WS LIVE',
     connecting: 'WS CONNECTING',
     offline: 'WS OFFLINE',
+    'no-token': 'NO TOKEN',
     unauthorized: 'WS UNAUTH',
   };
   return labels[props.connectionState] ?? 'WS ?';
 });
 
-const wsTooltip = computed(() => {
-  const tooltips: Record<string, string> = {
-    connected: 'WebSocket connected — live updates active',
-    connecting: 'WebSocket connecting...',
-    offline: 'WebSocket offline — no live updates',
-    unauthorized: 'WebSocket unauthorized — check API token',
-  };
-  return tooltips[props.connectionState] ?? '';
+const runtimeChipClass = computed(() => `rt-${props.runtimeStatus || 'unknown'}`);
+const stateCueLabel = computed(() => {
+  if (!props.hasToken) return 'Docs public / API locked';
+  if (props.isUnauthorized) return 'Unauthorized';
+  if (props.isStale) return 'Stale snapshot';
+  if (props.runtimeStatus === 'frozen') return 'Frozen';
+  if (props.runtimeStatus === 'error') return 'Degraded';
+  return null;
 });
-
-const runtimeTooltip = computed(() => {
-  if (!props.runtimeStatus) return '';
-  return `Runtime: ${props.runtimeStatusLabel}`;
+const stateCueDetail = computed(() => {
+  if (!props.hasToken) return 'API token affects API and WebSocket access only. Public docs remain available at /docs/.';
+  if (props.isUnauthorized) return 'API and WebSocket access were rejected. Re-enter a valid token.';
+  if (props.isStale) return 'You are viewing an older runtime snapshot. Refresh to resync authoritative REST state.';
+  if (props.runtimeStatus === 'frozen') return props.runtimeModeDetail || 'Runtime is frozen and needs operator attention.';
+  if (props.runtimeStatus === 'error') return props.runtimeModeDetail || 'Runtime reported an error state.';
+  return '';
+});
+const cueClass = computed(() => {
+  if (!props.hasToken) return 'cue-no-token';
+  if (props.isUnauthorized) return 'cue-unauthorized';
+  if (props.isStale) return 'cue-stale';
+  if (props.runtimeStatus === 'frozen') return 'cue-frozen';
+  if (props.runtimeStatus === 'error') return 'cue-degraded';
+  return 'cue-neutral';
+});
+const pauseTitle = computed(() => {
+  if (props.pauseDisabledReason) return props.pauseDisabledReason;
+  return props.isPaused ? 'Runtime is paused — click to resume' : 'Pause runtime';
 });
 
 function togglePause(): void {
+  if (props.pauseDisabledReason) return;
   emit('toggle-pause');
 }
 </script>
@@ -94,7 +121,7 @@ function togglePause(): void {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  height: 48px;
+  min-height: 48px;
   padding: 0 16px;
   background: #161b22;
   border-bottom: 1px solid #30363d;
@@ -134,6 +161,8 @@ function togglePause(): void {
   align-items: center;
   gap: 8px;
   flex-shrink: 0;
+  flex-wrap: wrap;
+  justify-content: flex-end;
 }
 
 .status-chip {
@@ -163,7 +192,6 @@ function togglePause(): void {
   font-size: 10px;
 }
 
-/* WebSocket states */
 .ws-connected {
   color: #3fb950;
   border-color: #238636;
@@ -172,7 +200,8 @@ function togglePause(): void {
   color: #d29922;
   border-color: #9e6a03;
 }
-.ws-offline {
+.ws-offline,
+.ws-no-token {
   color: #8b949e;
   border-color: #484f58;
 }
@@ -181,12 +210,12 @@ function togglePause(): void {
   border-color: #da3633;
 }
 
-/* Runtime states */
 .rt-running {
   color: #3fb950;
   border-color: #238636;
 }
-.rt-idle {
+.rt-idle,
+.rt-unknown {
   color: #8b949e;
   border-color: #484f58;
 }
@@ -198,14 +227,28 @@ function togglePause(): void {
   color: #f85149;
   border-color: #da3633;
 }
-.rt-unknown {
-  color: #8b949e;
+.rt-frozen {
+  color: #79c0ff;
+  border-color: #1f6feb;
 }
 
-/* Pause chip */
+.cue-chip.cue-no-token,
+.cue-chip.cue-stale {
+  color: #d29922;
+  border-color: #9e6a03;
+}
+.cue-chip.cue-unauthorized,
+.cue-chip.cue-degraded {
+  color: #f85149;
+  border-color: #da3633;
+}
+.cue-chip.cue-frozen {
+  color: #79c0ff;
+  border-color: #1f6feb;
+}
+
 .pause-chip {
   cursor: pointer;
-  border: 1px solid transparent;
   transition: all 0.15s;
   color: #3fb950;
   border-color: #238636;
@@ -216,7 +259,12 @@ function togglePause(): void {
   border-color: #9e6a03;
 }
 
-.pause-chip:hover {
+.pause-chip.disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.pause-chip:hover:not(:disabled) {
   filter: brightness(1.2);
 }
 </style>

@@ -8,11 +8,13 @@
 
 import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
-import type { FileEntry, FileContent, FilesListResponse } from '../api/types';
+import type { FileEntry, FileContent, FilesListResponse, FreshnessState } from '../api/types';
 import { listFiles, getFileContent, ApiError } from '../api/client';
+import { useWsStore } from './ws';
 import { createLogger } from '../utils/logger';
 
 const log = createLogger('store:files');
+const STALE_AFTER_MS = 30_000;
 
 // ── Constants ──────────────────────────────────────────────────
 
@@ -42,6 +44,10 @@ function buildBreadcrumbs(currentPath: string, root: string): { label: string; p
   return crumbs;
 }
 
+function nowIso(): string {
+  return new Date().toISOString();
+}
+
 // ── Store ──────────────────────────────────────────────────────
 
 export const useFileStore = defineStore('files', () => {
@@ -51,19 +57,28 @@ export const useFileStore = defineStore('files', () => {
   const metaPath = ref<string>(METADATA_ROOT);
   const metaFiles = ref<FileEntry[]>([]);
   const metaLoading = ref(false);
+  const metaLastFetchedAt = ref<string | null>(null);
 
   // Output browser (.saivage-work/)
   const outputPath = ref<string>(OUTPUT_ROOT);
   const outputFiles = ref<FileEntry[]>([]);
   const outputLoading = ref(false);
+  const outputLastFetchedAt = ref<string | null>(null);
 
   // File content viewer
   const viewedFile = ref<FileContent | null>(null);
   const viewedFilePath = ref<string>('');
   const contentLoading = ref(false);
+  const viewerLastFetchedAt = ref<string | null>(null);
+  const viewerState = ref<'idle' | 'ready' | 'blocked' | 'missing' | 'binary' | 'too-large' | 'directory' | 'error'>('idle');
 
   // Shared
   const error = ref<string | null>(null);
+  const listError = ref<string | null>(null);
+  const viewerError = ref<string | null>(null);
+  const unauthorized = ref(false);
+  const lastWsEventAt = ref<string | null>(null);
+  const lastUpdatedBy = ref<FreshnessState['lastUpdatedBy']>('unknown');
 
   // ── Getters ────────────────────────────────────────────────
 
@@ -79,30 +94,54 @@ export const useFileStore = defineStore('files', () => {
   const isJsonContent = computed<boolean>(() => {
     if (!viewedFile.value) return false;
     const ct = viewedFile.value.contentType;
-    return ct === 'application/json' ||
-      ct.includes('+json') ||
-      viewedFilePath.value.endsWith('.json');
+    return ct === 'application/json'
+      || ct.includes('+json')
+      || viewedFilePath.value.endsWith('.json');
   });
 
   /** Detects if viewed file should be rendered as Markdown. */
   const isMarkdownContent = computed<boolean>(() => {
-    return viewedFilePath.value.endsWith('.md') ||
-      viewedFile.value?.contentType === 'text/markdown';
+    return viewedFilePath.value.endsWith('.md')
+      || viewedFile.value?.contentType === 'text/markdown';
   });
+
+  const lastFetchedAt = computed(() => viewerLastFetchedAt.value ?? outputLastFetchedAt.value ?? metaLastFetchedAt.value);
+  const isStale = computed(() => {
+    const latest = lastWsEventAt.value ?? lastFetchedAt.value;
+    if (!latest) return false;
+    return Date.now() - new Date(latest).getTime() > STALE_AFTER_MS;
+  });
+
+  function markRestSync(target: 'meta' | 'output' | 'viewer'): void {
+    const now = nowIso();
+    if (target === 'meta') metaLastFetchedAt.value = now;
+    if (target === 'output') outputLastFetchedAt.value = now;
+    if (target === 'viewer') viewerLastFetchedAt.value = now;
+    lastUpdatedBy.value = 'rest';
+  }
+
+  function handleApiError(err: unknown, fallback: string): string {
+    unauthorized.value = err instanceof ApiError && err.isUnauthorized;
+    if (err instanceof ApiError) return err.message;
+    return fallback;
+  }
 
   // ── Actions: Metadata Browser ──────────────────────────────
 
   async function fetchMetaFiles(path?: string): Promise<void> {
     metaLoading.value = true;
     error.value = null;
+    listError.value = null;
     const p = path || metaPath.value;
     try {
       const response: FilesListResponse = await listFiles(p);
       metaFiles.value = response.files;
       metaPath.value = response.path;
+      markRestSync('meta');
     } catch (err) {
-      const msg = err instanceof ApiError ? err.message : 'Failed to list metadata files';
+      const msg = handleApiError(err, 'Failed to list metadata files');
       error.value = msg;
+      listError.value = msg;
       log.error('fetchMetaFiles', msg);
     } finally {
       metaLoading.value = false;
@@ -127,14 +166,17 @@ export const useFileStore = defineStore('files', () => {
   async function fetchOutputFiles(path?: string): Promise<void> {
     outputLoading.value = true;
     error.value = null;
+    listError.value = null;
     const p = path || outputPath.value;
     try {
       const response: FilesListResponse = await listFiles(p);
       outputFiles.value = response.files;
       outputPath.value = response.path;
+      markRestSync('output');
     } catch (err) {
-      const msg = err instanceof ApiError ? err.message : 'Failed to list output files';
+      const msg = handleApiError(err, 'Failed to list output files');
       error.value = msg;
+      listError.value = msg;
       log.error('fetchOutputFiles', msg);
     } finally {
       outputLoading.value = false;
@@ -156,27 +198,32 @@ export const useFileStore = defineStore('files', () => {
 
   // ── Actions: File Content ──────────────────────────────────
 
-  /**
-   * Fetch file content and display in viewer.
-   *
-   * Sets viewedFilePath BEFORE awaiting the network call so the viewer
-   * shell appears immediately with a loading indicator, then populates
-   * viewedFile on success.
-   */
   async function fetchFileContent(path: string): Promise<void> {
     contentLoading.value = true;
     error.value = null;
-    // Show viewer shell immediately with loading state
+    viewerError.value = null;
+    viewerState.value = 'idle';
     viewedFile.value = null;
     viewedFilePath.value = path;
     try {
       const response: FileContent = await getFileContent(path);
       viewedFile.value = response;
+      viewerState.value = 'ready';
+      markRestSync('viewer');
     } catch (err) {
-      // Clear viewer path on error so the viewer shell closes
-      viewedFilePath.value = '';
-      const msg = err instanceof ApiError ? err.message : 'Failed to fetch file content';
+      const msg = handleApiError(err, 'Failed to fetch file content');
       error.value = msg;
+      viewerError.value = msg;
+      if (err instanceof ApiError) {
+        if (err.status === 403) viewerState.value = 'blocked';
+        else if (err.status === 404) viewerState.value = 'missing';
+        else if (err.status === 415) viewerState.value = 'binary';
+        else if (err.status === 413) viewerState.value = 'too-large';
+        else if (err.status === 400) viewerState.value = 'directory';
+        else viewerState.value = 'error';
+      } else {
+        viewerState.value = 'error';
+      }
       log.error('fetchFileContent', msg);
     } finally {
       contentLoading.value = false;
@@ -186,6 +233,23 @@ export const useFileStore = defineStore('files', () => {
   function clearViewedFile(): void {
     viewedFile.value = null;
     viewedFilePath.value = '';
+    viewerState.value = 'idle';
+    viewerError.value = null;
+  }
+
+  let reconnectUnsubscribe: (() => void) | null = null;
+  function setupWsListener(): void {
+    if (reconnectUnsubscribe) return;
+    const ws = useWsStore();
+    reconnectUnsubscribe = ws.onReconnect(() => {
+      lastWsEventAt.value = nowIso();
+      lastUpdatedBy.value = 'mixed';
+      fetchMetaFiles().catch(() => {});
+      fetchOutputFiles().catch(() => {});
+      if (viewedFilePath.value) {
+        fetchFileContent(viewedFilePath.value).catch(() => {});
+      }
+    });
   }
 
   return {
@@ -200,6 +264,17 @@ export const useFileStore = defineStore('files', () => {
     viewedFilePath,
     contentLoading,
     error,
+    listError,
+    viewerError,
+    viewerState,
+    lastFetchedAt,
+    metaLastFetchedAt,
+    outputLastFetchedAt,
+    viewerLastFetchedAt,
+    lastWsEventAt,
+    lastUpdatedBy,
+    unauthorized,
+    isStale,
 
     // Getters
     metaBreadcrumbs,
@@ -216,5 +291,6 @@ export const useFileStore = defineStore('files', () => {
     navigateOutputUp,
     fetchFileContent,
     clearViewedFile,
+    setupWsListener,
   };
 });

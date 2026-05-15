@@ -13,7 +13,15 @@
         :connection-state="wsConnectionState"
         :runtime-status="runtimeStatus"
         :runtime-status-label="runtimeStatusLabel"
+        :live-update-label="liveUpdateLabel"
+        :live-update-detail="liveUpdateDetail"
+        :runtime-mode-label="runtimeModeLabel"
+        :runtime-mode-detail="runtimeDetail"
         :is-paused="isPaused"
+        :is-stale="isRuntimeStale"
+        :is-unauthorized="runtimeUnauthorized"
+        :has-token="hasToken"
+        :pause-disabled-reason="pauseDisabledReason"
         @toggle-pause="handleTogglePause"
       />
 
@@ -44,21 +52,27 @@ import WorkspaceHeader from './WorkspaceHeader.vue';
 import ApiTokenEntry from '../auth/ApiTokenEntry.vue';
 import { useWsStore } from '../../stores/ws';
 import { useRuntimeStore } from '../../stores/runtime';
+import { getAuthToken } from '../../api/auth';
 import type { WsConnectionState } from '../../api/types';
-
-// ── Pinia Stores ──────────────────────────────────────────
 
 const wsStore = useWsStore();
 const runtimeStore = useRuntimeStore();
 const { connectionState } = storeToRefs(wsStore);
-const { statusLabel, isPaused, status } = storeToRefs(runtimeStore);
-
-// ── Router ────────────────────────────────────────────────
+const {
+  statusLabel,
+  isPaused,
+  status,
+  liveUpdateLabel,
+  liveUpdateDetail,
+  runtimeModeLabel,
+  runtimeDetail,
+  isStale,
+  unauthorized,
+  pauseActionDisabledReason,
+} = storeToRefs(runtimeStore);
 
 const route = useRoute();
 const router = useRouter();
-
-// ── Navigation Items ──────────────────────────────────────
 
 const navItems: NavItem[] = [
   {
@@ -127,16 +141,11 @@ const navItems: NavItem[] = [
   },
 ];
 
-// ── Docs link ─────────────────────────────────────────────
-
-const docsHref = computed<string | null>(() => null);
-
-// ── App State ─────────────────────────────────────────────
+const docsHref = computed<string>(() => '/docs/');
 
 const showTokenDialog = ref(false);
 const projectName = computed(() => 'saivage-v3');
-
-// ── Header Props ──────────────────────────────────────────
+const hasToken = computed(() => Boolean(getAuthToken()));
 
 const sectionLabels: Record<string, string> = {
   dashboard: 'Dashboard',
@@ -156,10 +165,14 @@ const currentSectionTitle = computed(() => {
 const wsConnectionState = computed<WsConnectionState>(() => connectionState.value);
 const runtimeStatus = computed<string | null>(() => status.value ?? null);
 const runtimeStatusLabel = computed(() => statusLabel.value);
-
-// ── Pause/Resume ──────────────────────────────────────────
+const isRuntimeStale = computed(() => isStale.value);
+const runtimeUnauthorized = computed(() => unauthorized.value);
+const pauseDisabledReason = computed(() => pauseActionDisabledReason.value);
 
 async function handleTogglePause(): Promise<void> {
+  if (pauseDisabledReason.value) {
+    return;
+  }
   try {
     if (isPaused.value) {
       await runtimeStore.resume();
@@ -171,14 +184,12 @@ async function handleTogglePause(): Promise<void> {
   }
 }
 
-// ── Keyboard Shortcuts ────────────────────────────────────
-
 function handleKeydown(event: KeyboardEvent): void {
   const target = event.target as HTMLElement;
   if (
-    target.tagName === 'INPUT' ||
-    target.tagName === 'TEXTAREA' ||
-    target.isContentEditable
+    target.tagName === 'INPUT'
+    || target.tagName === 'TEXTAREA'
+    || target.isContentEditable
   ) {
     return;
   }
@@ -200,16 +211,14 @@ function handleKeydown(event: KeyboardEvent): void {
     }
   }
 
-  // Slash to focus chat
   if (key === '/' && !event.ctrlKey && !event.metaKey) {
     window.dispatchEvent(new CustomEvent('saivage:focus-chat'));
   }
 }
 
-// ── Lifecycle ─────────────────────────────────────────────
-
 onMounted(() => {
   wsStore.connect();
+  runtimeStore.setupWsListener();
   runtimeStore.fetchState().catch(() => {
     // Runtime may not be running; that's fine
   });
@@ -242,7 +251,6 @@ onUnmounted(() => {
   background: #0d1117;
 }
 
-/* Route transition */
 .fade-enter-active,
 .fade-leave-active {
   transition: opacity 0.15s ease;

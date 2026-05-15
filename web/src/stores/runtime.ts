@@ -12,6 +12,7 @@ import type {
   RuntimeState,
   RuntimeStatus,
   CardIndex,
+  FreshnessState,
 } from '../api/types';
 import {
   getRuntimeState,
@@ -19,10 +20,16 @@ import {
   resumeRuntime,
   ApiError,
 } from '../api/client';
+import { getAuthToken } from '../api/auth';
 import { useWsStore } from './ws';
 import { createLogger } from '../utils/logger';
 
 const log = createLogger('store:runtime');
+const STALE_AFTER_MS = 30_000;
+
+function nowIso(): string {
+  return new Date().toISOString();
+}
 
 // ── Store ──────────────────────────────────────────────────────
 
@@ -33,6 +40,10 @@ export const useRuntimeStore = defineStore('runtime', () => {
   const cardIndex = ref<CardIndex>({ total: 0, byStatus: {}, byType: {} });
   const loading = ref(false);
   const error = ref<string | null>(null);
+  const lastFetchedAt = ref<string | null>(null);
+  const lastWsEventAt = ref<string | null>(null);
+  const lastUpdatedBy = ref<FreshnessState['lastUpdatedBy']>('unknown');
+  const unauthorized = ref(false);
 
   /** Saved status before an optimistic pause, so resume can restore it. */
   let statusBeforePause: RuntimeStatus | null = null;
@@ -47,6 +58,11 @@ export const useRuntimeStore = defineStore('runtime', () => {
   const currentAgentSessionId = computed(() => runtime.value?.current_agent_session_id ?? null);
   const queueLength = computed(() => runtime.value?.queue?.length ?? 0);
   const runningProcessCount = computed(() => runtime.value?.running_processes?.length ?? 0);
+  const isStale = computed(() => {
+    const latest = lastWsEventAt.value ?? lastFetchedAt.value;
+    if (!latest) return false;
+    return Date.now() - new Date(latest).getTime() > STALE_AFTER_MS;
+  });
 
   /** Status display chip: running / idle / paused / frozen / error. */
   const statusLabel = computed<string>(() => {
@@ -60,6 +76,70 @@ export const useRuntimeStore = defineStore('runtime', () => {
   const failedBlocked = computed<number>(
     () => (cardIndex.value.byStatus['failed'] ?? 0) + (cardIndex.value.byStatus['blocked'] ?? 0),
   );
+  const runtimeModeLabel = computed(() => {
+    if (isFrozen.value) return 'Frozen';
+    if (isPaused.value) return 'Paused';
+    return statusLabel.value === 'unknown'
+      ? 'Unknown'
+      : statusLabel.value.charAt(0).toUpperCase() + statusLabel.value.slice(1);
+  });
+  const runtimeDetail = computed(() => {
+    if (unauthorized.value) return 'Runtime snapshot unavailable until a valid API token is provided.';
+    if (!getAuthToken()) return 'Enter an API token to load runtime state and receive live updates.';
+    if (isFrozen.value) return runtime.value?.frozen_reason || 'Runtime is frozen and needs operator attention.';
+    if (status.value === 'error') return 'Runtime reported an error state. Inspect Debug for recovery evidence.';
+    if (isPaused.value) return 'Runtime is paused. Resume to continue queued work.';
+    if (isStale.value) return 'Runtime snapshot is stale. Refresh to resync with the authoritative REST state.';
+    if (!runtime.value) return 'Runtime state has not been loaded yet.';
+    return 'REST snapshot is authoritative; live updates may accelerate status changes.';
+  });
+  const liveUpdateState = computed<'live' | 'connecting' | 'offline' | 'unauthorized' | 'no-token' | 'stale'>(() => {
+    const ws = useWsStore();
+    if (!getAuthToken()) return 'no-token';
+    if (ws.connectionState === 'unauthorized' || unauthorized.value) return 'unauthorized';
+    if (ws.connectionState === 'connecting') return 'connecting';
+    if (ws.connectionState === 'offline') return isStale.value ? 'stale' : 'offline';
+    if (isStale.value || ws.stale) return 'stale';
+    return 'live';
+  });
+  const liveUpdateLabel = computed(() => {
+    switch (liveUpdateState.value) {
+      case 'live': return 'Live updates connected';
+      case 'connecting': return 'Live updates reconnecting';
+      case 'offline': return 'Live updates offline';
+      case 'unauthorized': return 'Live updates unauthorized';
+      case 'no-token': return 'No API token';
+      case 'stale': return 'Live updates stale';
+    }
+  });
+  const liveUpdateDetail = computed(() => {
+    switch (liveUpdateState.value) {
+      case 'live': return 'WebSocket is connected. REST remains the source of truth after refresh/reconnect.';
+      case 'connecting': return 'Trying to reconnect WebSocket live updates.';
+      case 'offline': return 'Using the last REST snapshot only until live updates reconnect.';
+      case 'unauthorized': return 'Token was rejected for API/WebSocket access.';
+      case 'no-token': return 'Docs are public, but API and WebSocket access require a token.';
+      case 'stale': return 'Live updates have gone quiet; refresh to confirm current runtime truth.';
+    }
+  });
+  const pauseActionDisabledReason = computed(() => {
+    if (loading.value) return 'Runtime state is still loading.';
+    if (unauthorized.value) return 'Pause/resume requires a valid API token.';
+    if (!getAuthToken()) return 'Enter an API token before controlling runtime.';
+    if (!runtime.value) return 'Runtime state is unavailable.';
+    if (status.value === 'error' && !isPaused.value) return 'Runtime is in an error state; inspect Debug before pausing.';
+    return null;
+  });
+
+  function markRestSync(): void {
+    lastFetchedAt.value = nowIso();
+    lastUpdatedBy.value = 'rest';
+  }
+
+  function markWsSync(): void {
+    lastWsEventAt.value = nowIso();
+    lastUpdatedBy.value = lastFetchedAt.value ? 'mixed' : 'ws';
+  }
 
   // ── Actions ────────────────────────────────────────────────
 
@@ -67,13 +147,16 @@ export const useRuntimeStore = defineStore('runtime', () => {
   async function fetchState(): Promise<void> {
     loading.value = true;
     error.value = null;
+    unauthorized.value = false;
     try {
       const response = await getRuntimeState();
       runtime.value = response.runtime;
       cardIndex.value = response.cardIndex;
+      markRestSync();
     } catch (err) {
       const msg = err instanceof ApiError ? err.message : 'Failed to fetch runtime state';
       error.value = msg;
+      unauthorized.value = err instanceof ApiError && err.isUnauthorized;
       log.error('fetchState', msg);
       throw err;
     } finally {
@@ -89,16 +172,16 @@ export const useRuntimeStore = defineStore('runtime', () => {
       log.info('Runtime paused:', response.status);
       // Optimistic update
       if (runtime.value) {
-        // Only save the pre-pause status on the first pause;
-        // repeated pause() calls must not overwrite it with 'paused'.
         if (!runtime.value.paused) {
           statusBeforePause = runtime.value.status;
         }
         runtime.value = { ...runtime.value, paused: true, status: 'paused' };
+        markRestSync();
       }
     } catch (err) {
       const msg = err instanceof ApiError ? err.message : 'Failed to pause runtime';
       error.value = msg;
+      unauthorized.value = err instanceof ApiError && err.isUnauthorized;
       log.error('pause', msg);
       throw err;
     }
@@ -114,10 +197,12 @@ export const useRuntimeStore = defineStore('runtime', () => {
         const restoredStatus = statusBeforePause ?? runtime.value.status;
         runtime.value = { ...runtime.value, paused: false, status: restoredStatus };
         statusBeforePause = null;
+        markRestSync();
       }
     } catch (err) {
       const msg = err instanceof ApiError ? err.message : 'Failed to resume runtime';
       error.value = msg;
+      unauthorized.value = err instanceof ApiError && err.isUnauthorized;
       log.error('resume', msg);
       throw err;
     }
@@ -126,15 +211,22 @@ export const useRuntimeStore = defineStore('runtime', () => {
   // ── WebSocket Integration ──────────────────────────────────
 
   let wsUnsubscribe: (() => void) | null = null;
+  let reconnectUnsubscribe: (() => void) | null = null;
   /** Saved status before a WS-driven pause, so the resumed handler can restore it. */
   let wsStatusBeforePause: RuntimeStatus | null = null;
 
   function setupWsListener(): void {
-    if (wsUnsubscribe) return;
     const ws = useWsStore();
+    if (!reconnectUnsubscribe) {
+      reconnectUnsubscribe = ws.onReconnect(() => {
+        fetchState().catch(() => {});
+      });
+    }
+    if (wsUnsubscribe) return;
     wsUnsubscribe = ws.onType('status', (envelope) => {
       const content = envelope.content || {};
       const event = content.event as string;
+      markWsSync();
 
       // Full state update
       if (event === 'runtime-state') {
@@ -150,8 +242,6 @@ export const useRuntimeStore = defineStore('runtime', () => {
       if (event === 'runtime-paused' || event === 'runtime-resumed') {
         if (runtime.value) {
           if (event === 'runtime-paused') {
-            // Only save the pre-pause status on the first pause event;
-            // repeated runtime-paused events must not overwrite it.
             if (!runtime.value.paused) {
               wsStatusBeforePause = runtime.value.status;
             }
@@ -173,7 +263,6 @@ export const useRuntimeStore = defineStore('runtime', () => {
 
       // Card-level updates that affect runtime view
       if (event === 'card-status-changed' && content.card) {
-        // Refresh to get updated card index
         fetchState().catch(() => {});
       }
     });
@@ -185,6 +274,10 @@ export const useRuntimeStore = defineStore('runtime', () => {
     cardIndex: readonly(cardIndex),
     loading: readonly(loading),
     error: readonly(error),
+    lastFetchedAt: readonly(lastFetchedAt),
+    lastWsEventAt: readonly(lastWsEventAt),
+    lastUpdatedBy: readonly(lastUpdatedBy),
+    unauthorized: readonly(unauthorized),
 
     // Getters
     status,
@@ -198,6 +291,13 @@ export const useRuntimeStore = defineStore('runtime', () => {
     statusLabel,
     doneGoals,
     failedBlocked,
+    isStale,
+    runtimeModeLabel,
+    runtimeDetail,
+    liveUpdateState,
+    liveUpdateLabel,
+    liveUpdateDetail,
+    pauseActionDisabledReason,
 
     // Actions
     fetchState,
