@@ -1,15 +1,25 @@
 # Saivage v3 — Design Documents
 
+
+## Current Verified v3 Behavior
+
+The current recovery-cycle verification confirms these operator-relevant behaviors:
+
+- Durable planner-control frames and dispatch records under `.saivage/runtime/` allow project and goal planners to suspend while child work runs, then resume and create follow-up work when acceptance criteria remain incomplete.
+- Executor evidence fallback preserves generated files, verification commands, tool errors, artifact paths, and parse-failure context when workspace/tool work succeeded but the executor's final JSON is malformed.
+- Card detail generated-file inspection is available through `GET /api/cards/:id` and the Web Control Room card detail view. Evidence enrichment is detail-route only; list/board views must fetch card detail for generated-file metadata.
+
 ## Documentation
 
 | Document | Contents |
 |---|---|
-| [Install Guide](docs/INSTALL.md) | Prerequisites, installation, first run |
-| [Configuration](docs/CONFIGURATION.md) | Config file reference and examples |
-| [Operations Guide](docs/OPERATION.md) | Start/stop, runtime management, backup/recovery |
-| [Troubleshooting](docs/TROUBLESHOOTING.md) | Common issues and solutions |
-| [Release Checklist](docs/RELEASE-CHECKLIST.md) | Pre-release verification steps |
-| [Operator Runbook](docs/OPERATOR-RUNBOOK.md) | Daily ops and incident response |
+| [Install Guide](docs/install.md) | Prerequisites, installation, first run |
+| [Configuration](docs/configuration.md) | Config file reference and examples |
+| [Operations Guide](docs/operation.md) | Start/stop, runtime management, backup/recovery |
+| [Troubleshooting](docs/troubleshooting.md) | Common issues and solutions |
+| [Release Checklist](docs/release-checklist.md) | Pre-release verification steps |
+| [Operator Runbook](docs/operator-runbook.md) | Daily ops and incident response |
+| [Full Codebase Review Remediation Plan](docs/full-codebase-review-remediation-plan.md) | Review findings, staged fixes, and validation loop |
 
 ## Design Documents
 

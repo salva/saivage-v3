@@ -15,8 +15,9 @@ The server listens on the configured host and port (from `.saivage/saivage.json`
 On startup:
 1. MCP servers with `autostart: true` are launched.
 2. If a Telegram bot token is configured, the bot starts polling.
+3. If the server is started with `--create-runtime`, the ActiveRuntime starts and dispatches the first backlog top-level goal when `runtime.autoDispatchBacklog` is enabled.
 
-**Note:** The HTTP server and the runtime dispatch loop are separate concerns. Starting the HTTP server (above) makes the API, WebSocket, MCP status, and Telegram bot available, but does **not** automatically start the runtime dispatch loop. The runtime is started separately via `Runtime.startup()`, which initializes runtime state, acquires the lock, and performs crash recovery. The server can be fully operational for API queries and management while the runtime dispatch loop is not running.
+**Note:** The HTTP server and the runtime dispatch loop are separate concerns. Starting the HTTP server without `--create-runtime` makes the API, WebSocket, MCP status, and Telegram bot available but leaves goal dispatch idle. Starting with `--create-runtime` creates an ActiveRuntime, initializes runtime state, performs crash recovery, and kicks the backlog scheduler.
 
 ### Stopping the Server
 
@@ -29,6 +30,23 @@ Send `SIGINT` or `SIGTERM` to the process (`Ctrl+C` in the terminal). The server
 5. Runs safe cleanup (removes stale temp files, stash items older than 24 hours, stale previews/uploads).
 
 To stop forcefully, send `SIGKILL`. This skips the graceful shutdown — when the runtime dispatch loop is next started (via `Runtime.startup()`), crash recovery will run to reset any stuck cards.
+
+## Planner Control and Evidence Inspection
+
+Current verified v3 behavior keeps project and goal planners in control across child work:
+
+- Planner frames and dispatch records are persisted under `.saivage/runtime/planner-frames/` and `.saivage/runtime/planner-dispatches/`.
+- When a planner dispatches child goal or terminal-card work, the parent frame is suspended while the child runs and becomes resumable after the dispatch completes.
+- The resumed planner can create and dispatch additional top-level or child work when acceptance criteria remain incomplete; lack of ready queue items is not, by itself, strategic project completion.
+
+Executor evidence is also hardened for malformed final responses. If an executor already produced workspace/tool evidence before returning malformed or incomplete JSON, Saivage synthesizes a failed-but-evidenced result that preserves generated files, verification command metadata, tool errors, artifact paths, and parse-failure context.
+
+Operators can inspect generated-file evidence from the card detail route/UI:
+
+- `GET /api/cards/:id` includes an `evidence` object with normalized `generatedFiles`, `verificationCommands`, `toolErrors`, and optional `parseFailure`.
+- The card list route (`GET /api/cards`) does not include this generated-file evidence; list/board consumers must fetch card detail to inspect it.
+- The Web Control Room card detail view shows a **Generated Files & Evidence** section with read-only previews for text files.
+- Preview access remains workspace-contained and applies existing file-access protections: `.saivage/auth-profiles.json` is blocked, `.saivage/saivage.json` is redacted, oversized files are rejected, and binary/non-text files return an unpreviewable state.
 
 ## Runtime States
 
@@ -188,9 +206,9 @@ Crash recovery runs when the runtime dispatch loop is started (via `Runtime.star
 2. Sweeps stale `.tmp` files from `.saivage-work/tmp/runtime/` (except `runtime.lock`).
 3. Cleans stale stash files, previews, and uploads older than 24 hours.
 
-The HTTP server and the runtime dispatch loop are separate — the server can be up and serving API requests without the runtime dispatch loop running. Crash recovery is a Runtime concern, not an automatic HTTP server startup behavior.
+The HTTP server and the runtime dispatch loop are separate. The server can be up and serving API requests without the runtime dispatch loop running, but a server started with `--create-runtime` starts the runtime and kicks backlog dispatch automatically.
 
-This means: if the system crashes or is killed with `SIGKILL`, simply restart the server and re-start the runtime dispatch loop. Cards will not be duplicated and no state corruption occurs because all state mutations are atomic (write-to-temp-then-rename).
+This means: if the system crashes or is killed with `SIGKILL`, simply restart the server with `--create-runtime`. Cards will not be duplicated and no state corruption occurs because all state mutations are atomic (write-to-temp-then-rename).
 
 ### Manual Lock Cleanup
 
