@@ -229,18 +229,12 @@ describe('loadAuthProfiles', () => {
     expect(result!.profiles['shorthand-profile'].provider).toBe('shorthand-provider');
   });
 
-  it('loads the real auth-profiles.json from the project', async () => {
-    const result = await loadAuthProfiles('/work/saivage-v3');
-    expect(result).not.toBeNull();
-    expect(result!.version).toBe(1);
-    // The real file uses shorthand field names
-    const profileNames = Object.keys(result!.profiles);
-    expect(profileNames.length).toBeGreaterThanOrEqual(1);
-    for (const name of profileNames) {
-      const profile = result!.profiles[name];
-      expect(profile.accessToken).toBeTruthy();
-      expect(profile.provider).toBeTruthy();
-    }
+  it('returns null from an isolated project root without auth-profiles.json', async () => {
+    const root = makeProjectRoot();
+    expect(existsSync(join(root, '.saivage', 'auth-profiles.json'))).toBe(false);
+
+    const result = await loadAuthProfiles(root);
+    expect(result).toBeNull();
   });
 
   it('sets file mode to 0600 after reading', async () => {
