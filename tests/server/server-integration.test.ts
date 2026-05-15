@@ -120,6 +120,7 @@ describe('Server Integration — MCP Status API', () => {
   let app: FastifyInstance;
   let port: number;
   let authToken: string;
+  let mcpManager: { startAll(): Promise<void>; stopAll(): Promise<void>; getStatus(): unknown[] } | undefined;
 
   beforeAll(async () => {
     projectRoot = uniqueDir();
@@ -172,7 +173,6 @@ describe('Server Integration — MCP Status API', () => {
     // Register MCP status endpoint manually (matching server.ts)
     const { McpManager } = await import('../../src/mcp/mcp-manager.js');
 
-    let mcpManager: InstanceType<typeof McpManager> | undefined;
     try {
       mcpManager = new McpManager(projectRoot);
       await mcpManager.startAll();
@@ -192,6 +192,9 @@ describe('Server Integration — MCP Status API', () => {
   }, 30000);
 
   afterAll(async () => {
+    if (mcpManager) {
+      await mcpManager.stopAll();
+    }
     if (app) {
       await app.close();
     }
@@ -274,6 +277,12 @@ describe('Server Integration — MCP Tools API', () => {
   let app: FastifyInstance;
   let port: number;
   let authToken: string;
+  let mcpManager: {
+    startAll(): Promise<void>;
+    stopAll(): Promise<void>;
+    getTools(): unknown[];
+    getToolServers(): string[];
+  } | undefined;
 
   beforeAll(async () => {
     projectRoot = uniqueDir();
@@ -326,7 +335,6 @@ describe('Server Integration — MCP Tools API', () => {
     // Register MCP tools endpoint manually (matching server.ts)
     const { McpManager } = await import('../../src/mcp/mcp-manager.js');
 
-    let mcpManager: InstanceType<typeof McpManager> | undefined;
     try {
       mcpManager = new McpManager(projectRoot);
       await mcpManager.startAll();
@@ -348,6 +356,9 @@ describe('Server Integration — MCP Tools API', () => {
   }, 30000);
 
   afterAll(async () => {
+    if (mcpManager) {
+      await mcpManager.stopAll();
+    }
     if (app) {
       await app.close();
     }
