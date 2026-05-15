@@ -52,7 +52,8 @@ A planner frame represents a specific project-planner or goal-planner invocation
 {
   "frame_id": "frm_...",
   "planner_card_id": "project | goal-*",
-  "planner_role": "project_planner | goal_planner",
+  "planner_role": "planner",
+  "planner_scope": "project | goal",
   "status": "running | suspended | resumable | completed | blocked | failed",
   "resume_reason": "dispatch_completed | review_completed | operator_unblocked | none",
   "waiting_on_dispatch_ids": ["dsp_..."],
@@ -61,6 +62,8 @@ A planner frame represents a specific project-planner or goal-planner invocation
   "updated_at": "ISO-8601"
 }
 ```
+
+`planner_role` is source-grounded in the current `AgentRole` model, which only has a single `planner` role in `src/schemas/types.ts`. The project-vs-goal distinction in this contract is a proposed `planner_scope` (or equivalent frame metadata) layered on top of that current role, not a claim that separate `project_planner` and `goal_planner` runtime `AgentRole` values already exist.
 
 #### Dispatch record
 
@@ -74,6 +77,7 @@ A dispatch record is the durable handle returned when a planner dispatches child
   "target_card_id": "goal-* | code-* | test-* | ...",
   "target_kind": "goal | terminal_card",
   "requested_by_role": "planner",
+  "requested_by_scope": "project | goal",
   "status": "queued | running | completed | failed | blocked | cancelled | timed_out",
   "completion": {
     "outcome": "done | failed | blocked | cancelled | timed_out",
@@ -137,10 +141,12 @@ Tool names are prefixed `planner.` below for clarity; actual server naming can p
 
 ## Roles and permissions
 
+Current source-grounded runtime identity comes from `AgentRole` in `src/schemas/types.ts`, which defines a single planner role: `planner`. This contract therefore treats project-vs-goal authority as proposed planner-frame scope metadata (for example `planner_scope: "project" | "goal"`) or an equivalent logical permission scope layered on top of the current `planner` role. References below to project-planner scope and goal-planner scope describe that proposed scope metadata, not existing runtime `AgentRole` enum members.
+
 For this contract, runtime-facing permissions are:
 
-- `project_planner`: full inspect, create/update, dispatch, wait/observe, artifact inspection, review request on project and descendant scope.
-- `goal_planner`: full inspect, create/update, dispatch, wait/observe, artifact inspection, review request within its own goal subtree.
+- `planner` with `planner_scope=project`: full inspect, create/update, dispatch, wait/observe, artifact inspection, review request on project and descendant scope.
+- `planner` with `planner_scope=goal`: full inspect, create/update, dispatch, wait/observe, artifact inspection, review request within its own goal subtree.
 - `reviewer`: inspect state/results/artifacts and submit review outcomes only.
 - `executor`: inspect assigned context and publish result/artifact evidence for assigned target only; no strategic create/dispatch.
 - `operator`: global inspect plus administrative override tools outside this stage’s core contract.
@@ -153,7 +159,7 @@ Permission checks must be explicit per tool and subtree-aware.
 
 Purpose: read runtime-level status, current frame, queue snapshots, and dispatch summary.
 
-Permissions: `project_planner`, `goal_planner`, `reviewer`, `operator`
+Permissions: `planner` (project or goal scope), `reviewer`, `operator`
 
 Idempotency: idempotent, read-only.
 
@@ -224,7 +230,7 @@ Idempotency: idempotent, read-only.
 
 Purpose: inspect a whole subtree for strategic planning decisions.
 
-Permissions: planners, reviewer, operator.
+Permissions: `planner` (project or goal scope), `reviewer`, `operator`.
 
 Idempotency: idempotent, read-only.
 
@@ -271,7 +277,7 @@ These tools reuse `CardStore` validation rules for type, parent, depth, dependen
 
 Purpose: create a goal child under `project` or another goal.
 
-Permissions: `project_planner`, `goal_planner` in scope, `operator`.
+Permissions: `planner` with project scope, `planner` with goal scope in its subtree, `operator`.
 
 Idempotency: idempotent when `idempotency_key` or caller-supplied `card_id` repeats with the same normalized payload; otherwise `CONFLICT`.
 
@@ -304,7 +310,7 @@ Errors: `INVALID_ARGUMENTS`, `INVALID_STATE`, `CONFLICT`, `FORBIDDEN`.
 
 Purpose: create terminal or non-terminal child work under a goal, subject to current `CardStore` constraints.
 
-Permissions: `project_planner`, `goal_planner`, `operator`.
+Permissions: `planner` in scope, `operator`.
 
 Idempotency: same as `create_goal`.
 
@@ -337,7 +343,7 @@ Input schema:
 
 Purpose: mutate editable fields on an existing card.
 
-Permissions: planners in scope, operator.
+Permissions: `planner` in scope, `operator`.
 
 Idempotency: idempotent when same normalized patch repeats.
 
@@ -371,7 +377,7 @@ These are mandatory because card CRUD alone cannot restore parent planner contro
 
 Purpose: dispatch a goal child and suspend the current parent frame on its result.
 
-Permissions: `project_planner`, `goal_planner` within scope, `operator`.
+Permissions: `planner` in scope, `operator`.
 
 Idempotency: idempotent by `idempotency_key`; repeated identical requests return the existing dispatch record instead of creating duplicate execution.
 
@@ -421,7 +427,7 @@ Errors:
 
 Purpose: dispatch one terminal child card explicitly.
 
-Permissions: planners in scope, operator.
+Permissions: `planner` in scope, `operator`.
 
 Idempotency: same as `dispatch_goal`.
 
@@ -431,7 +437,7 @@ Input schema mirrors `dispatch_goal` but requires `card_id` and target must be a
 
 Purpose: optional convenience tool to dispatch all currently ready terminal children under a planner-owned goal in one explicit step.
 
-Permissions: planners in scope, operator.
+Permissions: `planner` in scope, `operator`.
 
 Idempotency: returns the same active dispatch set when retried with the same `idempotency_key` and same ready-set fingerprint.
 
@@ -443,7 +449,7 @@ Important rule: this is still explicit dispatch. The runtime must not treat inte
 
 Purpose: suspend until a dispatched child reaches a terminal outcome, then return the structured completion payload that resumes the same planner frame.
 
-Permissions: planners in scope, operator.
+Permissions: `planner` in scope, `operator`.
 
 Idempotency: safe to retry. If already completed, returns completion immediately.
 
@@ -544,7 +550,7 @@ Evidence rule: these tools must work even when an executor’s final JSON is mal
 
 Purpose: explicitly request reviewer assessment for a goal or project.
 
-Permissions: planners in scope, operator.
+Permissions: `planner` in scope, `operator`.
 
 Idempotency: one active review request per target card and evidence generation; repeated equivalent requests return existing review handle.
 
@@ -807,7 +813,7 @@ The next implementation stage should cover both runtime semantics and tool-surfa
     - invalid status transitions rejected
 
 12. **Role scope enforcement**
-    - goal planner cannot dispatch sibling subtree outside scope
+    - goal-scoped planner frame cannot dispatch sibling subtree outside scope
     - reviewer cannot create or dispatch strategic work
     - executor cannot mutate unrelated cards
 
