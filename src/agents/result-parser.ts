@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import type { ArtifactRef } from '../schemas/types.js';
+import type { AgentMessage } from '../schemas/types.js';
 
 // ── Structured Result Types ───────────────────────────────────
 
@@ -23,14 +24,16 @@ export interface PlannerCardUpdate {
   description?: string;
 }
 
+export type PlannerStatus = 'continue' | 'done' | 'blocked';
+
 export interface PlannerResult {
-  plan_card_id?: string;
+  status: PlannerStatus;
+  /** Human-readable reason when status is `blocked`. */
+  blocked_reason?: string;
   /** Cards to create as children */
   created_cards: PlannerCardCreate[];
   /** Cards to update */
   updated_cards: PlannerCardUpdate[];
-  /** Whether the planner declares the goal done */
-  declare_done: boolean;
   /** Summary of the planner's reasoning */
   summary?: string;
 }
@@ -62,6 +65,11 @@ export interface ExecutorResult {
   attachments: ExecutorAttachmentDef[];
   /** Summary of work done */
   summary?: string;
+}
+
+export interface ExecutorFallbackContext {
+  cardId: string;
+  sessionMessages: AgentMessage[];
 }
 
 // ── Reviewer Result ───────────────────────────────────────────
@@ -111,12 +119,12 @@ const plannerCardUpdateSchema = z.object({
 });
 
 const rawPlannerResultSchema = z.object({
-  plan_card_id: z.string().optional(),
+  status: z.enum(['continue', 'done', 'blocked']),
+  blocked_reason: z.string().nullable().optional(),
   created_cards: z.array(plannerCardCreateSchema).optional().default([]),
   updated_cards: z.array(plannerCardUpdateSchema).optional().default([]),
-  declare_done: z.boolean().optional().default(false),
   summary: z.string().optional(),
-});
+}).strict();
 
 const executorArtifactDefSchema = z.object({
   type: z.enum(['model', 'data', 'config', 'log', 'report', 'other']),
@@ -153,6 +161,165 @@ const rawReviewerResultSchema = z.object({
     evidence_card_ids: z.array(z.string()).optional().default([]),
   }),
 });
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === 'object' && !Array.isArray(value);
+}
+
+function parseJsonObject(value: string): Record<string, unknown> | null {
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    return isRecord(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function collectWorkspaceToolEvidence(messages: AgentMessage[]): {
+  generatedFiles: string[];
+  verifiedCommands: Array<{ command?: string; id?: string; status?: string; exitCode?: number | null; timedOut?: boolean }>;
+  toolErrors: string[];
+  toolActivityCount: number;
+} {
+  const generatedFiles = new Set<string>();
+  const verifiedCommands: Array<{ command?: string; id?: string; status?: string; exitCode?: number | null; timedOut?: boolean }> = [];
+  const toolErrors: string[] = [];
+  let toolActivityCount = 0;
+
+  for (const message of messages) {
+    if (!message.tool) continue;
+
+    if (message.kind === 'tool_result') {
+      toolActivityCount++;
+      const parsed = parseJsonObject(message.content);
+      if (message.tool === 'write_project_file' && parsed && typeof parsed.path === 'string') {
+        generatedFiles.add(parsed.path);
+      }
+      if (message.tool === 'run_project_command' && parsed) {
+        verifiedCommands.push({
+          command: typeof parsed.command === 'string' ? parsed.command : undefined,
+          id: typeof parsed.id === 'string' ? parsed.id : undefined,
+          status: typeof parsed.status === 'string' ? parsed.status : undefined,
+          exitCode: typeof parsed.exitCode === 'number' || parsed.exitCode === null ? parsed.exitCode as number | null : undefined,
+          timedOut: typeof parsed.timedOut === 'boolean' ? parsed.timedOut : undefined,
+        });
+      }
+    }
+
+    if (message.kind === 'tool_error') {
+      toolErrors.push(`${message.tool}: ${message.content}`);
+    }
+  }
+
+  return {
+    generatedFiles: [...generatedFiles],
+    verifiedCommands,
+    toolErrors,
+    toolActivityCount,
+  };
+}
+
+function extractPartialExecutorResult(raw: string): Partial<ExecutorResult> {
+  try {
+    const obj = extractJson(raw);
+    if (!isRecord(obj)) return {};
+
+    const artifacts = Array.isArray(obj.artifacts)
+      ? obj.artifacts
+        .map((item) => executorArtifactDefSchema.safeParse(item))
+        .filter((result) => result.success)
+        .map((result) => result.data)
+      : [];
+    const attachments = Array.isArray(obj.attachments)
+      ? obj.attachments
+        .map((item) => executorAttachmentDefSchema.safeParse(item))
+        .filter((result) => result.success)
+        .map((result) => result.data)
+      : [];
+
+    return {
+      card_id: typeof obj.card_id === 'string' ? obj.card_id : undefined,
+      error: typeof obj.error === 'string' ? obj.error : undefined,
+      result: isRecord(obj.result) ? obj.result : undefined,
+      artifacts,
+      attachments,
+      summary: typeof obj.summary === 'string' ? obj.summary : undefined,
+    };
+  } catch {
+    return {};
+  }
+}
+
+export function buildExecutorFallbackResult(
+  raw: string,
+  context: ExecutorFallbackContext,
+): ExecutorResult | null {
+  const evidence = collectWorkspaceToolEvidence(context.sessionMessages);
+  const partial = extractPartialExecutorResult(raw);
+
+  const artifactPaths = new Set(
+    (partial.artifacts ?? [])
+      .map((artifact) => artifact.sourceFile ?? artifact.path)
+      .filter((path): path is string => Boolean(path)),
+  );
+  for (const file of evidence.generatedFiles) {
+    artifactPaths.add(file);
+  }
+
+  const generatedFileArtifacts: ExecutorArtifactDef[] = evidence.generatedFiles
+    .filter((file) => !(partial.artifacts ?? []).some((artifact) => artifact.sourceFile === file || artifact.path === file))
+    .map((file) => ({
+      type: 'other',
+      description: `Generated file: ${file}`,
+      retain: true,
+      sourceFile: file,
+      path: file,
+    }));
+
+  const hadEvidence =
+    evidence.toolActivityCount > 0 ||
+    evidence.generatedFiles.length > 0 ||
+    evidence.verifiedCommands.length > 0 ||
+    (partial.artifacts?.length ?? 0) > 0 ||
+    (partial.attachments?.length ?? 0) > 0;
+
+  if (!hadEvidence) {
+    return null;
+  }
+
+  const verification = evidence.verifiedCommands.map((command, index) => ({
+    command: command.command ?? `tool-call-${index + 1}`,
+    process_id: command.id ?? null,
+    status: command.status ?? null,
+    exit_code: command.exitCode ?? null,
+    timed_out: command.timedOut ?? null,
+  }));
+
+  const parseFailure = {
+    message: 'Executor final response was malformed or missing required status; preserved tool evidence via fallback result.',
+    raw_response: raw,
+  };
+
+  const toolErrors = evidence.toolErrors;
+  const error = partial.error ?? toolErrors[0] ?? parseFailure.message;
+
+  return {
+    card_id: partial.card_id ?? context.cardId,
+    status: 'failed',
+    error,
+    summary: partial.summary ?? parseFailure.message,
+    artifacts: [...(partial.artifacts ?? []), ...generatedFileArtifacts],
+    attachments: partial.attachments ?? [],
+    result: {
+      ...(partial.result ?? {}),
+      generated_files: evidence.generatedFiles,
+      verification_commands: verification,
+      artifact_paths: [...artifactPaths],
+      tool_errors: toolErrors,
+      parse_failure: parseFailure,
+    },
+  };
+}
 
 // ── Parsers ───────────────────────────────────────────────────
 
@@ -223,10 +390,10 @@ export function parsePlannerResult(raw: string): PlannerResult {
   }
 
   return {
-    plan_card_id: parsed.data.plan_card_id,
+    status: parsed.data.status,
+    blocked_reason: parsed.data.blocked_reason ?? undefined,
     created_cards: parsed.data.created_cards,
     updated_cards: parsed.data.updated_cards,
-    declare_done: parsed.data.declare_done,
     summary: parsed.data.summary,
   };
 }
