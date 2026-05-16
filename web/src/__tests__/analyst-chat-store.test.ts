@@ -11,7 +11,7 @@ vi.mock('../api/client', () => ({
 
 describe('analyst chat store', () => {
   beforeEach(() => {
-    localStorage.clear();
+    window.localStorage.clear();
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2025-01-01T00:00:00Z'));
     setActivePinia(createPinia());
@@ -23,6 +23,7 @@ describe('analyst chat store', () => {
     expect(sessionId).toBe('card-card-7-1735689600000');
     expect(store.syntheticHint.sessionId).toBe(sessionId);
     expect(store.syntheticHint.content).toContain('card card-7');
+    expect(store.unsavedSessionIds.has(sessionId)).toBe(true);
   });
 
   it('synthetic hint queue drains exactly once', async () => {
@@ -33,5 +34,14 @@ describe('analyst chat store', () => {
     const second = store.consumeSyntheticHint(sessionId);
     expect(first).toContain('Treat the card as the default subject');
     expect(second).toBeNull();
+  });
+
+  it('keeps new chats local until first send', async () => {
+    const store = useAnalystChat();
+    const sessionId = store.createNewChat();
+    await store.selectSession(sessionId);
+    expect(store.activeSessionId).toBe(sessionId);
+    expect(store.messages).toEqual([]);
+    expect(store.messagesError).toBeNull();
   });
 });

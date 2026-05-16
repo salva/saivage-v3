@@ -106,6 +106,7 @@ export const useAnalystChat = defineStore('analyst-chat', () => {
   const pendingToolInvocations = ref<PendingToolInvocation[]>([]);
   const messageBadges = ref<Record<string, TimelineBadge[]>>({});
   const pendingCardSeed = ref<{ sessionId: string; cardId: string } | null>(null);
+  const unsavedSessionIds = ref<Set<string>>(new Set());
 
   const hasDraft = computed(() => draft.value.trim().length > 0);
   const activeSession = computed(() => sessions.value.find((session) => session.id === activeSessionId.value) ?? null);
@@ -124,6 +125,23 @@ export const useAnalystChat = defineStore('analyst-chat', () => {
       status: 'active',
       started_at: nowIso(),
     }, ...sessions.value];
+  }
+
+  function markSessionUnsaved(sessionId: string): void {
+    const next = new Set(unsavedSessionIds.value);
+    next.add(sessionId);
+    unsavedSessionIds.value = next;
+  }
+
+  function markSessionSaved(sessionId: string): void {
+    if (!unsavedSessionIds.value.has(sessionId)) return;
+    const next = new Set(unsavedSessionIds.value);
+    next.delete(sessionId);
+    unsavedSessionIds.value = next;
+  }
+
+  function isUnsavedSession(sessionId: string | null): boolean {
+    return Boolean(sessionId && unsavedSessionIds.value.has(sessionId));
   }
 
   function setDrawerOpen(open: boolean): void {
@@ -162,12 +180,25 @@ export const useAnalystChat = defineStore('analyst-chat', () => {
   async function selectSession(sessionId: string): Promise<void> {
     activeSessionId.value = sessionId;
     ensureSessionInList(sessionId);
+    if (isUnsavedSession(sessionId)) {
+      messages.value = [];
+      messagesError.value = null;
+      messagesLoading.value = false;
+      return;
+    }
     await fetchMessages(sessionId);
   }
 
   async function fetchMessages(sessionId = activeSessionId.value): Promise<void> {
     if (!sessionId) {
       messages.value = [];
+      return;
+    }
+    if (isUnsavedSession(sessionId)) {
+      activeSessionId.value = sessionId;
+      messages.value = [];
+      messagesError.value = null;
+      messagesLoading.value = false;
       return;
     }
     activeSessionId.value = sessionId;
@@ -192,6 +223,7 @@ export const useAnalystChat = defineStore('analyst-chat', () => {
     messages.value = [];
     messagesError.value = null;
     ensureSessionInList(sessionId);
+    markSessionUnsaved(sessionId);
     return sessionId;
   }
 
@@ -203,6 +235,7 @@ export const useAnalystChat = defineStore('analyst-chat', () => {
     activeSessionId.value = sessionId;
     messages.value = [];
     ensureSessionInList(sessionId);
+    markSessionUnsaved(sessionId);
     return sessionId;
   }
 
@@ -229,6 +262,7 @@ export const useAnalystChat = defineStore('analyst-chat', () => {
       const payload = hint ? `${hint}\n\n${content}` : content;
       draft.value = '';
       const response = await sendChatMessage(sessionId, payload);
+      markSessionSaved(sessionId);
       const baseTimestamp = nowIso();
       const optimistic = {
         id: String((response.message as { id?: string }).id ?? `${sessionId}-assistant-${Date.now()}`),
@@ -363,6 +397,7 @@ export const useAnalystChat = defineStore('analyst-chat', () => {
     messageBadges,
     pendingCardSeed,
     hasDraft,
+    unsavedSessionIds,
     fetchSessions,
     selectSession,
     fetchMessages,

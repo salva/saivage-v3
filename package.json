@@ -27,6 +27,7 @@
     "web:test:store:agents": "cd web && npx vitest run src/__tests__/agents-store.test.ts",
     "web:test:store:files": "cd web && npx vitest run src/__tests__/files-store.test.ts",
     "web:test:store:mcp": "cd web && npx vitest run src/__tests__/mcp-store.test.ts",
+    "web:test:wave-l": "cd web && npx vitest run src/__tests__/analyst-chat-panel.test.ts src/__tests__/analyst-chat-store.test.ts src/__tests__/app-shell-analyst-drawer.test.ts",
     "web:test:sweep": "npm run web:test:control-room && npm run web:test:stores",
     "web:test:sweep:full": "npm run web:test:sweep && npm run web:test:store:card-burst",
     "preflight": "npm run web:test:sweep && npm run docs:verify",

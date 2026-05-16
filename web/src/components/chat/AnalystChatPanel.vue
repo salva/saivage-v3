@@ -157,9 +157,8 @@ async function handleSessionChange(event: Event): Promise<void> {
   await chat.selectSession(value);
 }
 
-async function handleNewChat(): Promise<void> {
-  const sessionId = chat.createNewChat();
-  await chat.selectSession(sessionId).catch(() => {});
+function handleNewChat(): void {
+  chat.createNewChat();
 }
 
 function handleDraftInput(event: Event): void {

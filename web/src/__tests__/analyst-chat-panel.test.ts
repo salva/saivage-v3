@@ -16,6 +16,11 @@ vi.mock('../api/client', () => ({
 
 describe('AnalystChatPanel', () => {
   beforeEach(() => {
+    window.localStorage.clear();
+    vi.useRealTimers();
+    listChatSessions.mockReset();
+    getChatMessages.mockReset();
+    sendChatMessage.mockReset();
     listChatSessions.mockResolvedValue({ sessions: [{ id: 'chat-1', role: 'analyst', status: 'active', started_at: '2025-01-01T00:00:00Z' }] });
     getChatMessages.mockResolvedValue({
       sessionId: 'chat-1',
@@ -52,5 +57,18 @@ describe('AnalystChatPanel', () => {
     await textarea.trigger('keydown', { key: 'Enter', shiftKey: false });
     await flushPromises();
     expect(sendChatMessage).toHaveBeenCalledWith('chat-1', 'please inspect');
+  });
+
+  it('does not fetch messages for a fresh unsaved new chat and shows empty state', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2025-01-01T00:00:00Z'));
+    const wrapper = mount(AnalystChatPanel, { global: { plugins: [createPinia()] } });
+    await flushPromises();
+    getChatMessages.mockClear();
+    await wrapper.find('button.secondary-btn').trigger('click');
+    await flushPromises();
+    expect(getChatMessages).not.toHaveBeenCalled();
+    expect(wrapper.text()).toContain('No messages yet. Ask the analyst something.');
+    expect((wrapper.find('textarea').element as HTMLTextAreaElement).value).toBe('');
   });
 });
