@@ -234,7 +234,54 @@ export class Runtime extends EventEmitter {
     this.emit('review_complete', { goalId, assessment: result.assessment }); this._eventLogger.appendEvent({ kind: 'review_complete', goal_id: goalId, assessment: result.assessment }); return result;
   }
 
-  applyPlannerResult(goalId: string, plannerResult: PlannerResult): void { if (plannerResult.created_cards) for (const cardDef of plannerResult.created_cards) this.cardStore.create({ id: cardDef.id, type: cardDef.type as CardRecord['type'], parent: goalId, title: cardDef.title, description: cardDef.description, status: cardDef.status as CardRecord['status'], depends_on: cardDef.depends_on, priority: cardDef.priority, tags: cardDef.tags ?? [], urgency: 'normal', created_by: 'planner', blocks: [], related: [], acceptance: '', artifacts: [], attachments: [], retries: 0, depth: 0 }); if (plannerResult.updated_cards) for (const update of plannerResult.updated_cards) { const changes: Partial<CardRecord> = {}; if (update.status !== undefined) changes.status = update.status as CardRecord['status']; if (update.title !== undefined) changes.title = update.title; if (update.description !== undefined) changes.description = update.description; this.cardStore.update(update.id, changes); } }
+  applyPlannerResult(goalId: string, plannerResult: PlannerResult): void {
+    if (plannerResult.created_cards) {
+      for (const cardDef of plannerResult.created_cards) {
+        this.cardStore.create({
+          id: cardDef.id,
+          type: cardDef.type as CardRecord['type'],
+          parent: goalId,
+          title: cardDef.title,
+          description: cardDef.description,
+          status: cardDef.status as CardRecord['status'],
+          depends_on: cardDef.depends_on,
+          priority: cardDef.priority,
+          tags: cardDef.tags ?? [],
+          urgency: 'normal',
+          created_by: 'planner',
+          blocks: [],
+          related: [],
+          acceptance: '',
+          artifacts: [],
+          attachments: [],
+          retries: 0,
+          depth: 0,
+        });
+      }
+    }
+
+    if (plannerResult.updated_cards) {
+      for (const update of plannerResult.updated_cards) {
+        const trackedChanges: Partial<CardRecord> = {};
+        const untrackedChanges: Partial<CardRecord> = {};
+
+        if (update.title !== undefined) trackedChanges.title = update.title;
+        if (update.description !== undefined) trackedChanges.description = update.description;
+        if (update.status !== undefined) untrackedChanges.status = update.status as CardRecord['status'];
+
+        if (Object.keys(trackedChanges).length > 0) {
+          this.cardStore.mutateCard(update.id, trackedChanges, {
+            actor: 'planner',
+            surface: 'runtime',
+            reason: 'planner updated card',
+          });
+        }
+        if (Object.keys(untrackedChanges).length > 0) {
+          this.cardStore.update(update.id, untrackedChanges);
+        }
+      }
+    }
+  }
   simulateCrash(): void { const allCards = this.cardStore.list(); for (const card of allCards) if (card.status === 'active' || card.status === 'running') this.cardStore.setStatus(card.id, 'backlog'); this._running = false; }
   runCleanup(options?: { stashMaxAgeMs?: number; processMaxAgeMs?: number; previewsMaxAgeMs?: number; uploadsMaxAgeMs?: number; }) { return cleanAll(saivageWorkDir(this.projectRoot), this.cardStore, options); }
   getState(): RuntimeState | null { return readRuntimeState(this.projectRoot); }

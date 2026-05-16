@@ -24,6 +24,8 @@ export type CardStatus =
 export type Urgency = 'low' | 'normal' | 'high' | 'critical';
 
 export type CreatedBy = 'user' | 'analyst' | 'planner';
+export type NoteAuthor = 'user' | 'analyst' | 'planner' | 'executor' | 'reviewer' | 'runtime';
+export type ControlActionSurface = 'web-chat' | 'telegram' | 'rest' | 'cli' | 'runtime' | 'web-ui';
 
 export interface ArtifactRef {
   id: string;
@@ -61,6 +63,7 @@ export interface CardRecord {
   created_by: CreatedBy;
   created_at: string;
   updated_at: string;
+  version_seq: number;
   assigned_to?: string | null;
   depends_on: string[];
   blocks: string[];
@@ -76,6 +79,18 @@ export interface CardRecord {
   duration_ms?: number | null;
   error?: string | null;
   retries: number;
+}
+
+export interface CardHistoryEntry {
+  card_id: string;
+  version_seq: number;
+  snapshot: CardRecord;
+  changed_at: string;
+  changed_by_actor: NoteAuthor;
+  changed_by_surface: ControlActionSurface;
+  change_reason: string | null;
+  changed_fields: string[];
+  change_summary: string;
 }
 
 export interface CardIndexEntry {
@@ -139,8 +154,6 @@ export interface PlannerDispatchRecord {
   completed_at: string | null;
 }
 
-// ── Project Configuration ────────────────────────────────────
-
 export interface ProjectConfig {
   id: 'project';
   name: string;
@@ -152,8 +165,6 @@ export interface ProjectConfig {
   created_at: string;
   updated_at: string;
 }
-
-// ── Goal Diary ───────────────────────────────────────────────
 
 export type DiaryKind =
   | 'planner_invocation'
@@ -178,8 +189,6 @@ export interface DiaryEntry {
   raw?: Record<string, unknown>;
 }
 
-// ── Review Assessment ────────────────────────────────────────
-
 export interface ReviewAssessment {
   id: string;
   goal_card_id: string;
@@ -191,10 +200,6 @@ export interface ReviewAssessment {
   evidence_card_ids: string[];
   created_at: string;
 }
-
-// ── Notes ────────────────────────────────────────────────────
-
-export type NoteAuthor = 'user' | 'analyst' | 'planner' | 'executor' | 'reviewer' | 'runtime';
 
 export type NoteKind = 'comment' | 'progress' | 'directive' | 'escalation';
 
@@ -217,14 +222,6 @@ export interface NotesQueueEntry {
 }
 
 export interface NotesQueue {
-  /**
-   * Canonical owner of operator-note identity allocation.
-   *
-   * IDs are minted as n-<cardId>-<sequence> using this queue-owned monotonic
-   * sequence, not by counting remaining note rows. The value is advanced on
-   * note creation and never decremented during acknowledge/delete/clear so note
-   * IDs remain stable and non-reused across reloads and operator workflows.
-   */
   next_note_sequence: number;
   entries: NotesQueueEntry[];
 }
@@ -232,8 +229,6 @@ export interface NotesQueue {
 export interface NotesQueueResolvedEntry extends NotesQueueEntry {
   note: NoteRecord;
 }
-
-// ── Process ──────────────────────────────────────────────────
 
 export type ProcessStatus = 'running' | 'exited' | 'failed' | 'killed';
 
@@ -275,15 +270,7 @@ export interface AgentSession {
 }
 
 export type MessageRole = 'user' | 'assistant' | 'system' | 'tool';
-export type MessageKind =
-  | 'text'
-  | 'activity'
-  | 'tool_call'
-  | 'tool_result'
-  | 'tool_error'
-  | 'model_issue'
-  | 'model_repair'
-  | 'model_recovered';
+export type MessageKind = 'text' | 'activity' | 'tool_call' | 'tool_result' | 'tool_error' | 'model_issue' | 'model_repair' | 'model_recovered';
 
 export interface EntityLink {
   entity_type: 'card' | 'process' | 'artifact' | 'attachment' | 'quarantine';
@@ -429,39 +416,8 @@ export interface SkillIndexEntry {
   updated_at: string;
 }
 
-export type RuntimeEventKind =
-  | 'started'
-  | 'goal_completed'
-  | 'goal_failed'
-  | 'card_failed'
-  | 'review_complete'
-  | 'review_failed'
-  | 'dispatch_blocked'
-  | 'dispatch_interrupted'
-  | 'escalation'
-  | 'plan_updated'
-  | 'paused'
-  | 'resumed'
-  | 'shutdown'
-  | 'error'
-  | 'stuck_supervisor_started'
-  | 'stuck_supervisor_stopped'
-  | 'stuck_verdict'
-  | 'abort_target_selected'
-  | 'force_cancel_sent';
-
-export type AgentEventKind =
-  | 'session_started'
-  | 'model_selected'
-  | 'invocation_succeeded'
-  | 'invocation_failed'
-  | 'retry_attempted'
-  | 'compaction_triggered'
-  | 'self_check_triggered'
-  | 'session_cancelled'
-  | 'session_force_cancelled'
-  | 'mcp_tool_invocation';
-
+export type RuntimeEventKind = 'started' | 'goal_completed' | 'goal_failed' | 'card_failed' | 'review_complete' | 'review_failed' | 'dispatch_blocked' | 'dispatch_interrupted' | 'escalation' | 'plan_updated' | 'paused' | 'resumed' | 'shutdown' | 'error' | 'stuck_supervisor_started' | 'stuck_supervisor_stopped' | 'stuck_verdict' | 'abort_target_selected' | 'force_cancel_sent';
+export type AgentEventKind = 'session_started' | 'model_selected' | 'invocation_succeeded' | 'invocation_failed' | 'retry_attempted' | 'compaction_triggered' | 'self_check_triggered' | 'session_cancelled' | 'session_force_cancelled' | 'mcp_tool_invocation';
 export type EventKind = RuntimeEventKind | AgentEventKind;
 
 export interface BaseEvent {
@@ -473,229 +429,36 @@ export interface BaseEvent {
   card_id?: string;
 }
 
-export interface StartedEvent extends BaseEvent {
-  kind: 'started';
-  project_root: string;
-}
+export interface StartedEvent extends BaseEvent { kind: 'started'; project_root: string; }
+export interface GoalCompletedEvent extends BaseEvent { kind: 'goal_completed'; goal_id: string; assessment?: ReviewAssessment; }
+export interface GoalFailedEvent extends BaseEvent { kind: 'goal_failed'; goal_id: string; error_message?: string; }
+export interface CardFailedEvent extends BaseEvent { kind: 'card_failed'; card_id: string; goal_id: string; }
+export interface ReviewCompleteEvent extends BaseEvent { kind: 'review_complete'; goal_id: string; assessment?: ReviewAssessment; }
+export interface ReviewFailedEvent extends BaseEvent { kind: 'review_failed'; goal_id: string; assessment?: ReviewAssessment; }
+export interface DispatchBlockedEvent extends BaseEvent { kind: 'dispatch_blocked'; reason: string; goal_id: string; }
+export interface DispatchInterruptedEvent extends BaseEvent { kind: 'dispatch_interrupted'; goal_id: string; reason: string; }
+export interface EscalationEvent extends BaseEvent { kind: 'escalation'; goal_id: string; reason?: string; message?: string; }
+export interface PlanUpdatedEvent extends BaseEvent { kind: 'plan_updated'; goal_id: string; changes?: string[]; }
+export interface PausedEvent extends BaseEvent { kind: 'paused'; }
+export interface ResumedEvent extends BaseEvent { kind: 'resumed'; }
+export interface ShutdownEvent extends BaseEvent { kind: 'shutdown'; }
+export interface ErrorEvent extends BaseEvent { kind: 'error'; goal_id?: string; card_id?: string; phase?: string; error_message: string; }
+export interface StuckSupervisorStartedEvent extends BaseEvent { kind: 'stuck_supervisor_started'; interval_ms: number; consecutive_threshold: number; }
+export interface StuckSupervisorStoppedEvent extends BaseEvent { kind: 'stuck_supervisor_stopped'; checks_performed: number; }
+export interface StuckVerdictEvent extends BaseEvent { kind: 'stuck_verdict'; verdict: boolean; confidence: number; reason: string; evidence: string[]; consecutive_count: number; threshold: number; }
+export interface AbortTargetSelectedEvent extends BaseEvent { kind: 'abort_target_selected'; target_role: string; target_session_id: string; reason: string; consecutive_count: number; }
+export interface ForceCancelSentEvent extends BaseEvent { kind: 'force_cancel_sent'; target_role: string; target_session_id: string; reason: string; }
+export interface SessionStartedEvent extends BaseEvent { kind: 'session_started'; session_id: string; role: AgentRole; goal_id: string; card_id: string; }
+export interface ModelSelectedEvent extends BaseEvent { kind: 'model_selected'; session_id: string; provider: string; model: string; role: AgentRole; }
+export interface InvocationSucceededEvent extends BaseEvent { kind: 'invocation_succeeded'; session_id: string; role: AgentRole; attempt: number; duration_ms: number; }
+export interface InvocationFailedEvent extends BaseEvent { kind: 'invocation_failed'; session_id: string; role: AgentRole; attempt: number; error_message: string; }
+export interface RetryAttemptedEvent extends BaseEvent { kind: 'retry_attempted'; session_id: string; role: AgentRole; attempt: number; directive?: string; }
+export interface CompactionTriggeredEvent extends BaseEvent { kind: 'compaction_triggered'; session_id: string; role: AgentRole; tokens_before: number; tokens_after: number; }
+export interface SelfCheckTriggeredEvent extends BaseEvent { kind: 'self_check_triggered'; session_id: string; role: AgentRole; rounds: number; threshold: number; response?: string | null; }
+export interface SessionCancelledEvent extends BaseEvent { kind: 'session_cancelled'; session_id: string; }
+export interface SessionForceCancelledEvent extends BaseEvent { kind: 'session_force_cancelled'; session_id: string; }
+export interface McpToolInvocationEvent extends BaseEvent { kind: 'mcp_tool_invocation'; server: string; tool: string; success: boolean; duration_ms: number; error?: string; }
 
-export interface GoalCompletedEvent extends BaseEvent {
-  kind: 'goal_completed';
-  goal_id: string;
-  assessment?: ReviewAssessment;
-}
-
-export interface GoalFailedEvent extends BaseEvent {
-  kind: 'goal_failed';
-  goal_id: string;
-  error_message?: string;
-}
-
-export interface CardFailedEvent extends BaseEvent {
-  kind: 'card_failed';
-  card_id: string;
-  goal_id: string;
-}
-
-export interface ReviewCompleteEvent extends BaseEvent {
-  kind: 'review_complete';
-  goal_id: string;
-  assessment?: ReviewAssessment;
-}
-
-export interface ReviewFailedEvent extends BaseEvent {
-  kind: 'review_failed';
-  goal_id: string;
-  assessment?: ReviewAssessment;
-}
-
-export interface DispatchBlockedEvent extends BaseEvent {
-  kind: 'dispatch_blocked';
-  reason: string;
-  goal_id: string;
-}
-
-export interface DispatchInterruptedEvent extends BaseEvent {
-  kind: 'dispatch_interrupted';
-  goal_id: string;
-  reason: string;
-}
-
-export interface EscalationEvent extends BaseEvent {
-  kind: 'escalation';
-  goal_id: string;
-  reason?: string;
-  message?: string;
-}
-
-export interface PlanUpdatedEvent extends BaseEvent {
-  kind: 'plan_updated';
-  goal_id: string;
-  changes?: string[];
-}
-
-export interface PausedEvent extends BaseEvent {
-  kind: 'paused';
-}
-
-export interface ResumedEvent extends BaseEvent {
-  kind: 'resumed';
-}
-
-export interface ShutdownEvent extends BaseEvent {
-  kind: 'shutdown';
-}
-
-export interface ErrorEvent extends BaseEvent {
-  kind: 'error';
-  goal_id?: string;
-  card_id?: string;
-  phase?: string;
-  error_message: string;
-}
-
-export interface StuckSupervisorStartedEvent extends BaseEvent {
-  kind: 'stuck_supervisor_started';
-  interval_ms: number;
-  consecutive_threshold: number;
-}
-
-export interface StuckSupervisorStoppedEvent extends BaseEvent {
-  kind: 'stuck_supervisor_stopped';
-  checks_performed: number;
-}
-
-export interface StuckVerdictEvent extends BaseEvent {
-  kind: 'stuck_verdict';
-  verdict: boolean;
-  confidence: number;
-  reason: string;
-  evidence: string[];
-  consecutive_count: number;
-  threshold: number;
-}
-
-export interface AbortTargetSelectedEvent extends BaseEvent {
-  kind: 'abort_target_selected';
-  target_role: string;
-  target_session_id: string;
-  reason: string;
-  consecutive_count: number;
-}
-
-export interface ForceCancelSentEvent extends BaseEvent {
-  kind: 'force_cancel_sent';
-  target_role: string;
-  target_session_id: string;
-  reason: string;
-}
-
-export interface SessionStartedEvent extends BaseEvent {
-  kind: 'session_started';
-  session_id: string;
-  role: AgentRole;
-  goal_id: string;
-  card_id: string;
-}
-
-export interface ModelSelectedEvent extends BaseEvent {
-  kind: 'model_selected';
-  session_id: string;
-  provider: string;
-  model: string;
-  role: AgentRole;
-}
-
-export interface InvocationSucceededEvent extends BaseEvent {
-  kind: 'invocation_succeeded';
-  session_id: string;
-  role: AgentRole;
-  attempt: number;
-  duration_ms: number;
-}
-
-export interface InvocationFailedEvent extends BaseEvent {
-  kind: 'invocation_failed';
-  session_id: string;
-  role: AgentRole;
-  attempt: number;
-  error_message: string;
-}
-
-export interface RetryAttemptedEvent extends BaseEvent {
-  kind: 'retry_attempted';
-  session_id: string;
-  role: AgentRole;
-  attempt: number;
-  directive?: string;
-}
-
-export interface CompactionTriggeredEvent extends BaseEvent {
-  kind: 'compaction_triggered';
-  session_id: string;
-  role: AgentRole;
-  tokens_before: number;
-  tokens_after: number;
-}
-
-export interface SelfCheckTriggeredEvent extends BaseEvent {
-  kind: 'self_check_triggered';
-  session_id: string;
-  role: AgentRole;
-  rounds: number;
-  threshold: number;
-  response?: string | null;
-}
-
-export interface SessionCancelledEvent extends BaseEvent {
-  kind: 'session_cancelled';
-  session_id: string;
-}
-
-export interface SessionForceCancelledEvent extends BaseEvent {
-  kind: 'session_force_cancelled';
-  session_id: string;
-}
-
-export interface McpToolInvocationEvent extends BaseEvent {
-  kind: 'mcp_tool_invocation';
-  server: string;
-  tool: string;
-  success: boolean;
-  duration_ms: number;
-  error?: string;
-}
-
-export type RuntimeEvent =
-  | StartedEvent
-  | GoalCompletedEvent
-  | GoalFailedEvent
-  | CardFailedEvent
-  | ReviewCompleteEvent
-  | ReviewFailedEvent
-  | DispatchBlockedEvent
-  | DispatchInterruptedEvent
-  | EscalationEvent
-  | PlanUpdatedEvent
-  | PausedEvent
-  | ResumedEvent
-  | ShutdownEvent
-  | ErrorEvent
-  | StuckSupervisorStartedEvent
-  | StuckSupervisorStoppedEvent
-  | StuckVerdictEvent
-  | AbortTargetSelectedEvent
-  | ForceCancelSentEvent;
-
-export type AgentEvent =
-  | SessionStartedEvent
-  | ModelSelectedEvent
-  | InvocationSucceededEvent
-  | InvocationFailedEvent
-  | RetryAttemptedEvent
-  | CompactionTriggeredEvent
-  | SelfCheckTriggeredEvent
-  | SessionCancelledEvent
-  | SessionForceCancelledEvent
-  | McpToolInvocationEvent;
-
+export type RuntimeEvent = StartedEvent | GoalCompletedEvent | GoalFailedEvent | CardFailedEvent | ReviewCompleteEvent | ReviewFailedEvent | DispatchBlockedEvent | DispatchInterruptedEvent | EscalationEvent | PlanUpdatedEvent | PausedEvent | ResumedEvent | ShutdownEvent | ErrorEvent | StuckSupervisorStartedEvent | StuckSupervisorStoppedEvent | StuckVerdictEvent | AbortTargetSelectedEvent | ForceCancelSentEvent;
+export type AgentEvent = SessionStartedEvent | ModelSelectedEvent | InvocationSucceededEvent | InvocationFailedEvent | RetryAttemptedEvent | CompactionTriggeredEvent | SelfCheckTriggeredEvent | SessionCancelledEvent | SessionForceCancelledEvent | McpToolInvocationEvent;
 export type LoggedEvent = RuntimeEvent | AgentEvent;

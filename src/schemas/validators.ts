@@ -1,52 +1,16 @@
 import { z } from 'zod';
 
-export const cardTypeSchema = z.enum([
-  'project',
-  'goal',
-  'architecture',
-  'code',
-  'test',
-  'doc',
-  'data',
-  'research',
-  'ops',
-]);
-
-export const cardStatusSchema = z.enum([
-  'drafting',
-  'backlog',
-  'active',
-  'running',
-  'blocked',
-  'done',
-  'failed',
-  'cancelled',
-]);
-
+export const cardTypeSchema = z.enum(['project','goal','architecture','code','test','doc','data','research','ops']);
+export const cardStatusSchema = z.enum(['drafting','backlog','active','running','blocked','done','failed','cancelled']);
 export const urgencySchema = z.enum(['low', 'normal', 'high', 'critical']);
 export const createdBySchema = z.enum(['user', 'analyst', 'planner']);
+export const noteAuthorSchema = z.enum(['user', 'analyst', 'planner', 'executor', 'reviewer', 'runtime']);
+export const controlActionSurfaceSchema = z.enum(['web-chat', 'telegram', 'rest', 'cli', 'runtime', 'web-ui']);
 
-export const artifactRefSchema = z.object({
-  id: z.string().min(1),
-  card_id: z.string().min(1),
-  path: z.string().min(1),
-  type: z.enum(['model', 'data', 'config', 'log', 'report', 'other']),
-  description: z.string(),
-  retain: z.boolean(),
-  created_at: z.string().datetime(),
-});
+export const artifactRefSchema = z.object({ id: z.string().min(1), card_id: z.string().min(1), path: z.string().min(1), type: z.enum(['model', 'data', 'config', 'log', 'report', 'other']), description: z.string(), retain: z.boolean(), created_at: z.string().datetime() });
+export const attachmentRefSchema = z.object({ id: z.string().min(1), card_id: z.string().min(1), path: z.string().min(1), mime: z.string().min(1), title: z.string().min(1), description: z.string().optional(), created_at: z.string().datetime() });
 
-export const attachmentRefSchema = z.object({
-  id: z.string().min(1),
-  card_id: z.string().min(1),
-  path: z.string().min(1),
-  mime: z.string().min(1),
-  title: z.string().min(1),
-  description: z.string().optional(),
-  created_at: z.string().datetime(),
-});
-
-export const cardRecordSchema = z.object({
+export const cardRecordSchema: z.ZodType<import('./types.js').CardRecord> = z.lazy(() => z.object({
   id: z.string().min(1),
   type: cardTypeSchema,
   parent: z.string().nullable(),
@@ -62,6 +26,7 @@ export const cardRecordSchema = z.object({
   created_by: createdBySchema,
   created_at: z.string().datetime(),
   updated_at: z.string().datetime(),
+  version_seq: z.number().int().positive(),
   assigned_to: z.string().nullable().optional(),
   depends_on: z.array(z.string()),
   blocks: z.array(z.string()),
@@ -77,347 +42,66 @@ export const cardRecordSchema = z.object({
   duration_ms: z.number().int().nonnegative().nullable().optional(),
   error: z.string().nullable().optional(),
   retries: z.number().int().nonnegative(),
-});
+}));
 
-export const cardIndexEntrySchema = z.object({
-  id: z.string().min(1),
-  type: cardTypeSchema,
-  parent: z.string().nullable(),
-  status: cardStatusSchema,
-  title: z.string().min(1),
-});
+export const cardHistoryEntrySchema: z.ZodType<import('./types.js').CardHistoryEntry> = z.lazy(() => z.object({
+  card_id: z.string().min(1),
+  version_seq: z.number().int().positive(),
+  snapshot: cardRecordSchema,
+  changed_at: z.string().datetime(),
+  changed_by_actor: noteAuthorSchema,
+  changed_by_surface: controlActionSurfaceSchema,
+  change_reason: z.string().nullable(),
+  changed_fields: z.array(z.string()),
+  change_summary: z.string(),
+}));
 
-export const cardIndexSchema = z.object({
-  cards: z.record(z.string(), cardIndexEntrySchema),
-}).superRefine((value, ctx) => {
-  for (const [key, entry] of Object.entries(value.cards)) {
-    if (entry.id !== key) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ['cards', key, 'id'],
-        message: `Card index entry id '${entry.id}' does not match key '${key}'.`,
-      });
-    }
-  }
-});
-
+export const cardIndexEntrySchema = z.object({ id: z.string().min(1), type: cardTypeSchema, parent: z.string().nullable(), status: cardStatusSchema, title: z.string().min(1) });
+export const cardIndexSchema = z.object({ cards: z.record(z.string(), cardIndexEntrySchema) }).superRefine((value, ctx) => { for (const [key, entry] of Object.entries(value.cards)) if (entry.id !== key) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['cards', key, 'id'], message: `Card index entry id '${entry.id}' does not match key '${key}'.` }); });
 export const cardChildrenIndexSchema = z.array(z.string().min(1));
 export const cardDependencyIndexSchema = z.record(z.string(), z.array(z.string().min(1)));
 export const cardBlocksIndexSchema = z.record(z.string(), z.array(z.string().min(1)));
-
 export const plannerFrameStatusSchema = z.enum(['queued', 'running', 'suspended', 'resumable', 'completed', 'blocked', 'failed']);
 export const plannerResumeReasonSchema = z.enum(['dispatch_completed', 'review_completed', 'operator_unblocked', 'none']);
 export const plannerDispatchStatusSchema = z.enum(['queued', 'running', 'completed', 'failed', 'blocked', 'cancelled', 'timed_out']);
-
-export const reviewAssessmentSchema: z.ZodType<import('./types.js').ReviewAssessment> = z.lazy(() =>
-  z.object({
-    id: z.string().min(1),
-    goal_card_id: z.string().min(1),
-    reviewer_session_id: z.string().min(1),
-    result: z.enum(['pass', 'fail']),
-    summary: z.string(),
-    achieved: z.array(z.string()),
-    missing: z.array(z.string()),
-    evidence_card_ids: z.array(z.string()),
-    created_at: z.string().datetime(),
-  }),
-);
-
-export const plannerDispatchCompletionSchema = z.object({
-  outcome: z.enum(['done', 'failed', 'blocked', 'cancelled', 'timed_out']),
-  summary: z.string(),
-  child_result: z.record(z.string(), z.unknown()).nullable(),
-  review: reviewAssessmentSchema.nullable(),
-  artifacts: z.array(artifactRefSchema),
-  attachments: z.array(attachmentRefSchema),
-  evidence_card_ids: z.array(z.string()),
-  error: z.string().nullable(),
-});
-
-export const plannerFrameRecordSchema = z.object({
-  frame_id: z.string().min(1),
-  planner_card_id: z.string().min(1),
-  planner_role: z.literal('planner'),
-  planner_scope: z.enum(['project', 'goal']),
-  status: plannerFrameStatusSchema,
-  resume_reason: plannerResumeReasonSchema,
-  waiting_on_dispatch_ids: z.array(z.string()),
-  last_resume_cursor: z.string().datetime().nullable(),
-  last_dispatch_id: z.string().nullable(),
-  created_at: z.string().datetime(),
-  updated_at: z.string().datetime(),
-});
-
-export const plannerDispatchRecordSchema = z.object({
-  dispatch_id: z.string().min(1),
-  parent_frame_id: z.string().min(1),
-  parent_card_id: z.string().min(1),
-  target_card_id: z.string().min(1),
-  target_kind: z.enum(['goal', 'terminal_card']),
-  requested_by_role: z.literal('planner'),
-  requested_by_scope: z.enum(['project', 'goal']),
-  status: plannerDispatchStatusSchema,
-  completion: plannerDispatchCompletionSchema.nullable(),
-  idempotency_key: z.string().min(1),
-  created_at: z.string().datetime(),
-  started_at: z.string().datetime().nullable(),
-  completed_at: z.string().datetime().nullable(),
-}).superRefine((dispatch, ctx) => {
-  const terminalStatuses = new Set(['completed', 'failed', 'blocked', 'cancelled', 'timed_out']);
-  if (terminalStatuses.has(dispatch.status)) {
-    if (dispatch.completion === null) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ['completion'],
-        message: `Planner dispatch '${dispatch.dispatch_id}' in terminal status '${dispatch.status}' requires completion evidence.`,
-      });
-    }
-    if (dispatch.completed_at === null) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ['completed_at'],
-        message: `Planner dispatch '${dispatch.dispatch_id}' in terminal status '${dispatch.status}' requires completed_at.`,
-      });
-    }
-  }
-
-  if ((dispatch.status === 'queued' || dispatch.status === 'running') && dispatch.completion !== null) {
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      path: ['completion'],
-      message: `Planner dispatch '${dispatch.dispatch_id}' in non-terminal status '${dispatch.status}' cannot carry terminal completion evidence.`,
-    });
-  }
-
-  if (dispatch.status === 'queued' && dispatch.started_at !== null) {
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      path: ['started_at'],
-      message: `Planner dispatch '${dispatch.dispatch_id}' cannot have started_at while still queued.`,
-    });
-  }
-
-  const expectedOutcomeByStatus: Partial<Record<typeof dispatch.status, import('./types.js').PlannerDispatchCompletion['outcome']>> = {
-    completed: 'done',
-    failed: 'failed',
-    blocked: 'blocked',
-    cancelled: 'cancelled',
-    timed_out: 'timed_out',
-  };
-
-  const expectedOutcome = expectedOutcomeByStatus[dispatch.status];
-  if (expectedOutcome && dispatch.completion && dispatch.completion.outcome !== expectedOutcome) {
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      path: ['completion', 'outcome'],
-      message: `Planner dispatch '${dispatch.dispatch_id}' status '${dispatch.status}' requires completion.outcome '${expectedOutcome}', received '${dispatch.completion.outcome}'.`,
-    });
-  }
-});
-
-export const projectConfigSchema = z.object({
-  id: z.literal('project'),
-  name: z.string().min(1),
-  context: z.string(),
-  goals_summary: z.string(),
-  constraints: z.array(z.string()),
-  max_goal_depth: z.number().int().min(0),
-  planner_enabled: z.boolean(),
-  created_at: z.string().datetime(),
-  updated_at: z.string().datetime(),
-});
-
-export const diaryKindSchema = z.enum([
-  'planner_invocation',
-  'planner_decision',
-  'card_mutation',
-  'review_assessment',
-  'failure_handling',
-]);
-
-export const diaryEntrySchema = z.object({
-  id: z.string().min(1),
-  goal_card_id: z.string().min(1),
-  invocation_id: z.string().min(1),
-  kind: diaryKindSchema,
-  timestamp: z.string().datetime(),
-  input_summary: z.string().optional(),
-  decision: z.string().optional(),
-  rationale: z.string().optional(),
-  created_cards: z.array(z.string()).optional(),
-  updated_cards: z.array(z.string()).optional(),
-  reviewed_cards: z.array(z.string()).optional(),
-  assessment: reviewAssessmentSchema.optional(),
-  raw: z.record(z.string(), z.unknown()).optional(),
-});
-
-export const noteAuthorSchema = z.enum(['user', 'analyst', 'planner', 'executor', 'reviewer', 'runtime']);
+export const reviewAssessmentSchema: z.ZodType<import('./types.js').ReviewAssessment> = z.lazy(() => z.object({ id: z.string().min(1), goal_card_id: z.string().min(1), reviewer_session_id: z.string().min(1), result: z.enum(['pass', 'fail']), summary: z.string(), achieved: z.array(z.string()), missing: z.array(z.string()), evidence_card_ids: z.array(z.string()), created_at: z.string().datetime() }));
+export const plannerDispatchCompletionSchema = z.object({ outcome: z.enum(['done', 'failed', 'blocked', 'cancelled', 'timed_out']), summary: z.string(), child_result: z.record(z.string(), z.unknown()).nullable(), review: reviewAssessmentSchema.nullable(), artifacts: z.array(artifactRefSchema), attachments: z.array(attachmentRefSchema), evidence_card_ids: z.array(z.string()), error: z.string().nullable() });
+export const plannerFrameRecordSchema = z.object({ frame_id: z.string().min(1), planner_card_id: z.string().min(1), planner_role: z.literal('planner'), planner_scope: z.enum(['project', 'goal']), status: plannerFrameStatusSchema, resume_reason: plannerResumeReasonSchema, waiting_on_dispatch_ids: z.array(z.string()), last_resume_cursor: z.string().datetime().nullable(), last_dispatch_id: z.string().nullable(), created_at: z.string().datetime(), updated_at: z.string().datetime() });
+export const plannerDispatchRecordSchema = z.object({ dispatch_id: z.string().min(1), parent_frame_id: z.string().min(1), parent_card_id: z.string().min(1), target_card_id: z.string().min(1), target_kind: z.enum(['goal', 'terminal_card']), requested_by_role: z.literal('planner'), requested_by_scope: z.enum(['project', 'goal']), status: plannerDispatchStatusSchema, completion: plannerDispatchCompletionSchema.nullable(), idempotency_key: z.string().min(1), created_at: z.string().datetime(), started_at: z.string().datetime().nullable(), completed_at: z.string().datetime().nullable() });
+export const projectConfigSchema = z.object({ id: z.literal('project'), name: z.string().min(1), context: z.string(), goals_summary: z.string(), constraints: z.array(z.string()), max_goal_depth: z.number().int().min(0), planner_enabled: z.boolean(), created_at: z.string().datetime(), updated_at: z.string().datetime() });
+export const diaryKindSchema = z.enum(['planner_invocation', 'planner_decision', 'card_mutation', 'review_assessment', 'failure_handling']);
+export const diaryEntrySchema = z.object({ id: z.string().min(1), goal_card_id: z.string().min(1), invocation_id: z.string().min(1), kind: diaryKindSchema, timestamp: z.string().datetime(), input_summary: z.string().optional(), decision: z.string().optional(), rationale: z.string().optional(), created_cards: z.array(z.string()).optional(), updated_cards: z.array(z.string()).optional(), reviewed_cards: z.array(z.string()).optional(), assessment: reviewAssessmentSchema.optional(), raw: z.record(z.string(), z.unknown()).optional() });
 export const noteKindSchema = z.enum(['comment', 'progress', 'directive', 'escalation']);
-export const noteRecordSchema = z.object({
-  id: z.string().min(1),
-  card_id: z.string().min(1),
-  author: noteAuthorSchema,
-  timestamp: z.string().datetime(),
-  content: z.string(),
-  kind: noteKindSchema,
-  handled: z.boolean(),
-  handled_at: z.string().datetime().nullable().optional(),
-});
-export const notesQueueEntrySchema = z.object({
-  card_id: z.string().min(1),
-  note_id: z.string().min(1),
-  timestamp: z.string().datetime(),
-  kind: noteKindSchema,
-});
-export const notesQueueSchema = z.object({
-  next_note_sequence: z.number().int().positive(),
-  entries: z.array(notesQueueEntrySchema),
-});
-
+export const noteRecordSchema = z.object({ id: z.string().min(1), card_id: z.string().min(1), author: noteAuthorSchema, timestamp: z.string().datetime(), content: z.string(), kind: noteKindSchema, handled: z.boolean(), handled_at: z.string().datetime().nullable().optional() });
+export const notesQueueEntrySchema = z.object({ card_id: z.string().min(1), note_id: z.string().min(1), timestamp: z.string().datetime(), kind: noteKindSchema });
+export const notesQueueSchema = z.object({ next_note_sequence: z.number().int().positive(), entries: z.array(notesQueueEntrySchema) });
 export const processStatusSchema = z.enum(['running', 'exited', 'failed', 'killed']);
-export const processRecordSchema = z.object({
-  id: z.string().min(1),
-  card_id: z.string().min(1),
-  command: z.string().min(1),
-  cwd: z.string().min(1),
-  status: processStatusSchema,
-  pid: z.number().int().nullable().optional(),
-  started_at: z.string().datetime(),
-  completed_at: z.string().datetime().nullable().optional(),
-  exit_code: z.number().int().nullable().optional(),
-  required_for_card_completion: z.boolean(),
-  output_dir: z.string().min(1),
-  stdout_path: z.string().min(1),
-  stderr_path: z.string().min(1),
-  combined_log_path: z.string().min(1),
-  agent_session_id: z.string().nullable().optional(),
-  goal_id: z.string().nullable().optional(),
-  launch_reason: z.string().nullable().optional(),
-  owner_kind: z.enum(['agent', 'operator', 'runtime']).nullable().optional(),
-  background_policy: z.enum(['foreground', 'background_required', 'background_optional', 'detach', 'kill_on_freeze']).nullable().optional(),
-  process_group_id: z.number().int().nonnegative().nullable().optional(),
-});
-
+export const processRecordSchema = z.object({ id: z.string().min(1), card_id: z.string().min(1), command: z.string().min(1), cwd: z.string().min(1), status: processStatusSchema, pid: z.number().int().nullable().optional(), started_at: z.string().datetime(), completed_at: z.string().datetime().nullable().optional(), exit_code: z.number().int().nullable().optional(), required_for_card_completion: z.boolean(), output_dir: z.string().min(1), stdout_path: z.string().min(1), stderr_path: z.string().min(1), combined_log_path: z.string().min(1), agent_session_id: z.string().nullable().optional(), goal_id: z.string().nullable().optional(), launch_reason: z.string().nullable().optional(), owner_kind: z.enum(['agent', 'operator', 'runtime']).nullable().optional(), background_policy: z.enum(['foreground', 'background_required', 'background_optional', 'detach', 'kill_on_freeze']).nullable().optional(), process_group_id: z.number().int().nonnegative().nullable().optional() });
 export const agentRoleSchema = z.enum(['analyst', 'planner', 'executor', 'reviewer', 'content_supervisor']);
 export const sessionStatusSchema = z.enum(['active', 'done', 'failed']);
-export const agentSessionSchema = z.object({
-  id: z.string().min(1),
-  role: agentRoleSchema,
-  goal_card_id: z.string().nullable().optional(),
-  card_id: z.string().nullable().optional(),
-  status: sessionStatusSchema,
-  started_at: z.string().datetime(),
-  completed_at: z.string().datetime().nullable().optional(),
-  model: z.string().optional(),
-});
-
+export const agentSessionSchema = z.object({ id: z.string().min(1), role: agentRoleSchema, goal_card_id: z.string().nullable().optional(), card_id: z.string().nullable().optional(), status: sessionStatusSchema, started_at: z.string().datetime(), completed_at: z.string().datetime().nullable().optional(), model: z.string().optional() });
 export const messageRoleSchema = z.enum(['user', 'assistant', 'system', 'tool']);
 export const messageKindSchema = z.enum(['text', 'activity', 'tool_call', 'tool_result', 'tool_error', 'model_issue', 'model_repair', 'model_recovered']);
-export const entityLinkSchema = z.object({
-  entity_type: z.enum(['card', 'process', 'artifact', 'attachment', 'quarantine']),
-  entity_id: z.string().min(1),
-  label: z.string().optional(),
-});
-export const agentMessageSchema = z.object({
-  id: z.string().min(1),
-  session_id: z.string().min(1),
-  role: messageRoleSchema,
-  kind: messageKindSchema,
-  content: z.string(),
-  tool: z.string().optional(),
-  tool_call_id: z.string().optional(),
-  timestamp: z.string().datetime(),
-  links: z.array(entityLinkSchema).optional(),
-});
-
+export const entityLinkSchema = z.object({ entity_type: z.enum(['card', 'process', 'artifact', 'attachment', 'quarantine']), entity_id: z.string().min(1), label: z.string().optional() });
+export const agentMessageSchema = z.object({ id: z.string().min(1), session_id: z.string().min(1), role: messageRoleSchema, kind: messageKindSchema, content: z.string(), tool: z.string().optional(), tool_call_id: z.string().optional(), timestamp: z.string().datetime(), links: z.array(entityLinkSchema).optional() });
 export const runtimeStatusSchema = z.enum(['idle', 'running', 'paused', 'error', 'frozen']);
-export const runtimeStateSchema = z.object({
-  status: runtimeStatusSchema,
-  project_id: z.literal('project'),
-  pid: z.number().int().positive(),
-  started_at: z.string().datetime(),
-  current_card_id: z.string().nullable().optional(),
-  current_agent_session_id: z.string().nullable().optional(),
-  paused: z.boolean(),
-  paused_at: z.string().datetime().nullable().optional(),
-  queue: z.array(z.string()),
-  running_processes: z.array(z.string()),
-  updated_at: z.string().datetime(),
-  frozen_reason: z.string().nullable().optional(),
-});
-
-export const handoffSummarySchema = z.object({
-  session_id: z.string().min(1),
-  role: agentRoleSchema,
-  last_action: z.string(),
-  next_action: z.string(),
-  context_summary: z.string(),
-});
-export const freezeProcessEntrySchema = z.object({
-  id: z.string().min(1),
-  action: z.enum(['kill', 'reattach', 'detach']),
-});
-export const freezeManifestSchema = z.object({
-  freeze_id: z.string().min(1),
-  reason: z.string(),
-  created_at: z.string().datetime(),
-  status: z.literal('frozen'),
-  project_id: z.literal('project'),
-  pid: z.number().int().positive(),
-  started_at: z.string().datetime(),
-  current_card_id: z.string().nullable(),
-  current_agent_session_id: z.string().nullable(),
-  queue: z.array(z.string()),
-  running_processes: z.array(freezeProcessEntrySchema),
-  handoff_summaries: z.array(handoffSummarySchema),
-  schema_version: z.number().int().positive(),
-  runtime_version: z.string().min(1),
-});
-
+export const runtimeStateSchema = z.object({ status: runtimeStatusSchema, project_id: z.literal('project'), pid: z.number().int().positive(), started_at: z.string().datetime(), current_card_id: z.string().nullable().optional(), current_agent_session_id: z.string().nullable().optional(), paused: z.boolean(), paused_at: z.string().datetime().nullable().optional(), queue: z.array(z.string()), running_processes: z.array(z.string()), updated_at: z.string().datetime(), frozen_reason: z.string().nullable().optional() });
+export const handoffSummarySchema = z.object({ session_id: z.string().min(1), role: agentRoleSchema, last_action: z.string(), next_action: z.string(), context_summary: z.string() });
+export const freezeProcessEntrySchema = z.object({ id: z.string().min(1), action: z.enum(['kill', 'reattach', 'detach']) });
+export const freezeManifestSchema = z.object({ freeze_id: z.string().min(1), reason: z.string(), created_at: z.string().datetime(), status: z.literal('frozen'), project_id: z.literal('project'), pid: z.number().int().positive(), started_at: z.string().datetime(), current_card_id: z.string().nullable(), current_agent_session_id: z.string().nullable(), queue: z.array(z.string()), running_processes: z.array(freezeProcessEntrySchema), handoff_summaries: z.array(handoffSummarySchema), schema_version: z.number().int().positive(), runtime_version: z.string().min(1) });
 export const sourceKindSchema = z.enum(['command_output', 'file', 'download', 'web', 'api', 'tool']);
 export const reviewStatusSchema = z.enum(['passed', 'blocked', 'sanitized']);
 export const riskLevelSchema = z.enum(['low', 'medium', 'high']);
-export const contentReviewSchema = z.object({
-  id: z.string().min(1),
-  source_kind: sourceKindSchema,
-  source_ref: z.string().min(1),
-  status: reviewStatusSchema,
-  summary: z.string(),
-  risk: riskLevelSchema,
-  quarantine_id: z.string().nullable().optional(),
-  created_at: z.string().datetime(),
-});
-export const quarantineItemSchema = z.object({
-  id: z.string().min(1),
-  review_id: z.string().min(1),
-  source_ref: z.string().min(1),
-  stored_path: z.string().min(1),
-  reason: z.string(),
-  created_at: z.string().datetime(),
-});
-
+export const contentReviewSchema = z.object({ id: z.string().min(1), source_kind: sourceKindSchema, source_ref: z.string().min(1), status: reviewStatusSchema, summary: z.string(), risk: riskLevelSchema, quarantine_id: z.string().nullable().optional(), created_at: z.string().datetime() });
+export const quarantineItemSchema = z.object({ id: z.string().min(1), review_id: z.string().min(1), source_ref: z.string().min(1), stored_path: z.string().min(1), reason: z.string(), created_at: z.string().datetime() });
 export const triggerTypeSchema = z.enum(['keyword', 'tool', 'path', 'tag']);
 export const skillTriggerSchema = z.object({ type: triggerTypeSchema, pattern: z.string().min(1) });
-export const skillIndexEntrySchema = z.object({
-  name: z.string().min(1),
-  file: z.string().min(1),
-  target_agents: z.array(agentRoleSchema),
-  triggers: z.array(skillTriggerSchema),
-  updated_at: z.string().datetime(),
-});
+export const skillIndexEntrySchema = z.object({ name: z.string().min(1), file: z.string().min(1), target_agents: z.array(agentRoleSchema), triggers: z.array(skillTriggerSchema), updated_at: z.string().datetime() });
 export const skillIndexSchema = z.array(skillIndexEntrySchema);
-
 export const runtimeEventKindSchema = z.enum(['started', 'goal_completed', 'card_failed', 'review_complete', 'review_failed', 'dispatch_blocked', 'dispatch_interrupted', 'paused', 'resumed', 'shutdown', 'error']);
 export const agentEventKindSchema = z.enum(['session_started', 'model_selected', 'invocation_succeeded', 'invocation_failed', 'retry_attempted', 'compaction_triggered']);
 export const eventKindSchema = z.union([runtimeEventKindSchema, agentEventKindSchema]);
-export const baseEventSchema = z.object({
-  id: z.string().min(1),
-  kind: eventKindSchema,
-  timestamp: z.string().datetime(),
-  session_id: z.string().optional(),
-  goal_id: z.string().optional(),
-  card_id: z.string().optional(),
-});
+export const baseEventSchema = z.object({ id: z.string().min(1), kind: eventKindSchema, timestamp: z.string().datetime(), session_id: z.string().optional(), goal_id: z.string().optional(), card_id: z.string().optional() });
 export const startedEventSchema = baseEventSchema.extend({ kind: z.literal('started'), project_root: z.string() });
 export const goalCompletedEventSchema = baseEventSchema.extend({ kind: z.literal('goal_completed'), goal_id: z.string(), assessment: reviewAssessmentSchema.optional() });
 export const cardFailedEventSchema = baseEventSchema.extend({ kind: z.literal('card_failed'), card_id: z.string(), goal_id: z.string() });
