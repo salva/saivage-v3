@@ -234,6 +234,11 @@ export class AnalystHandler {
     if (duplicateResponse) return duplicateResponse;
     appendMessage(this.projectRoot, sessionId, { role: 'user', kind: 'text', content: userContent });
 
+    const deterministicIntent = parseIntent(userContent);
+    if (deterministicIntent && ['pause_runtime', 'resume_runtime'].includes(deterministicIntent.tool)) {
+      return await this.runOfflineFallback(sessionId, userContent);
+    }
+
     const llmAvailable = await this.llmResolver.isAvailable();
     if (llmAvailable) {
       return await this.runAnalystLoop(sessionId, userContent);
@@ -357,6 +362,8 @@ export class AnalystHandler {
     const userIndex = messages.length - 1 - lastUserIndex;
     const lastUser = messages[userIndex];
     if (lastUser.content !== userContent) return null;
+    const interveningUser = messages.slice(userIndex + 1).some((msg) => msg.role === 'user');
+    if (interveningUser) return null;
     const lastAssistant = messages.slice(userIndex + 1).find((msg) => msg.role === 'assistant' && msg.kind === 'text');
     if (!lastAssistant) return null;
     const ageMs = Date.now() - Date.parse(lastUser.timestamp);
@@ -374,14 +381,26 @@ export class AnalystHandler {
   }
 }
 
-interface CachedHandler { handler: AnalystHandler; activeRuntime?: ActiveRuntime; }
+interface CachedHandler {
+  handler: AnalystHandler;
+  activeRuntime?: ActiveRuntime;
+  onActivity?: ActivityCallback;
+  actor: ActorRole;
+  surface: ControlActionSurface;
+}
 const analystHandlersByRoot = new Map<string, CachedHandler>();
 
 export function getAnalystHandler(projectRoot: string, opts?: { activeRuntime?: ActiveRuntime; onActivity?: ActivityCallback; actor?: ActorRole; surface?: ControlActionSurface }): AnalystHandler {
+  const actor = opts?.actor ?? 'analyst';
+  const surface = opts?.surface ?? 'web-chat';
   const cached = analystHandlersByRoot.get(projectRoot);
-  if (cached && cached.activeRuntime === opts?.activeRuntime) return cached.handler;
-  const handler = new AnalystHandler(projectRoot, opts?.onActivity, opts?.activeRuntime, opts?.actor ?? 'analyst', opts?.surface ?? 'web-chat');
-  analystHandlersByRoot.set(projectRoot, { handler, activeRuntime: opts?.activeRuntime });
+  if (cached
+    && cached.activeRuntime === opts?.activeRuntime
+    && cached.onActivity === opts?.onActivity
+    && cached.actor === actor
+    && cached.surface === surface) return cached.handler;
+  const handler = new AnalystHandler(projectRoot, opts?.onActivity, opts?.activeRuntime, actor, surface);
+  analystHandlersByRoot.set(projectRoot, { handler, activeRuntime: opts?.activeRuntime, onActivity: opts?.onActivity, actor, surface });
   return handler;
 }
 

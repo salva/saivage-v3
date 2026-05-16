@@ -140,6 +140,10 @@ export async function run_shell_command(ctx: ToolContext, params: { command: str
     const classifiedAs = classifyShellCommand(params.command, cwd);
     const verdict = evaluateAuthz({ actor: ctx.actor, surface: ctx.surface, safety_class: classifiedAs });
     const auditBase = { actor: ctx.actor, surface: ctx.surface, action: 'shell.exec', target_kind: null, target_id: null, confirmed: params.confirmed === true, params_summary: `shell.exec [classified=${classifiedAs}] ${params.command.slice(0, 200)}` };
+    if (ctx.actor === 'analyst' && ctx.surface === 'web-chat' && classifiedAs === 'destructive') {
+      recordControlAction(ctx.projectRoot, { ...auditBase, outcome: 'denied', outcome_summary: 'destructive shell commands are denied on web-chat' });
+      return { success: false, error: `Denied by authorization policy for ${ctx.actor}/${ctx.surface}/${classifiedAs}.`, data: { classified_as: classifiedAs } };
+    }
     if (verdict === 'deny') {
       if (classifiedAs !== 'read_only') recordControlAction(ctx.projectRoot, { ...auditBase, outcome: 'denied', outcome_summary: 'authz denied' });
       return { success: false, error: `Denied by authorization policy for ${ctx.actor}/${ctx.surface}/${classifiedAs}.`, data: { classified_as: classifiedAs } };
