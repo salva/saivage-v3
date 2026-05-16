@@ -1,0 +1,128 @@
+import { appendFileSync, existsSync, mkdirSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { notificationRecordSchema } from '../schemas/validators.js';
+import type { NotificationRecord, NoteAuthor, ControlActionSurface } from '../schemas/types.js';
+
+export interface NotificationInput {
+  id: string;
+  kind: NotificationRecord['kind'];
+  severity: NotificationRecord['severity'];
+  payload_summary: string;
+  related_card_id?: string;
+  related_note_id?: string;
+  related_process_id?: string;
+  related_version_seq?: number;
+  source_actor: NoteAuthor;
+  source_surface: ControlActionSurface;
+  created_at?: string;
+}
+
+function now(): string {
+  return new Date().toISOString();
+}
+
+function notificationsRoot(projectRoot: string): string {
+  return join(projectRoot, '.saivage', 'runtime', 'notifications');
+}
+
+function sessionNotificationsPath(projectRoot: string, sessionId: string): string {
+  return join(notificationsRoot(projectRoot), 'by-session', `${sessionId}.jsonl`);
+}
+
+function operatorNotificationsPath(projectRoot: string): string {
+  return join(notificationsRoot(projectRoot), 'operator.jsonl');
+}
+
+export class NotificationCenter {
+  constructor(private readonly projectRoot: string) {}
+
+  private append(path: string, record: NotificationRecord): NotificationRecord {
+    const parsed = notificationRecordSchema.parse(record);
+    mkdirSync(join(path, '..'), { recursive: true });
+    appendFileSync(path, `${JSON.stringify(parsed)}\n`, 'utf-8');
+    return parsed;
+  }
+
+  private readLatest(path: string): NotificationRecord[] {
+    if (!existsSync(path)) return [];
+    const raw = readFileSync(path, 'utf-8').trim();
+    if (!raw) return [];
+    const latest = new Map<string, NotificationRecord>();
+    for (const line of raw.split('\n')) {
+      if (!line.trim()) continue;
+      const parsed = notificationRecordSchema.parse(JSON.parse(line) as unknown);
+      latest.set(parsed.id, parsed);
+    }
+    return [...latest.values()].sort((a, b) => a.created_at.localeCompare(b.created_at) || a.id.localeCompare(b.id));
+  }
+
+  private buildRecord(sessionId: string | null, input: NotificationInput): NotificationRecord {
+    return {
+      id: input.id,
+      session_id: sessionId,
+      kind: input.kind,
+      severity: input.severity,
+      payload_summary: input.payload_summary,
+      related_card_id: input.related_card_id,
+      related_note_id: input.related_note_id,
+      related_process_id: input.related_process_id,
+      related_version_seq: input.related_version_seq,
+      source_actor: input.source_actor,
+      source_surface: input.source_surface,
+      created_at: input.created_at ?? now(),
+      delivered_at: null,
+      acknowledged_at: null,
+    };
+  }
+
+  enqueueForSession(sessionId: string, input: NotificationInput): NotificationRecord {
+    return this.append(sessionNotificationsPath(this.projectRoot, sessionId), this.buildRecord(sessionId, input));
+  }
+
+  enqueueForOperator(input: NotificationInput): NotificationRecord {
+    return this.append(operatorNotificationsPath(this.projectRoot), this.buildRecord(null, input));
+  }
+
+  drainPendingForSession(sessionId: string): NotificationRecord[] {
+    return this.readLatest(sessionNotificationsPath(this.projectRoot, sessionId)).filter((record) => record.delivered_at === null);
+  }
+
+  markDeliveredForSession(sessionId: string, ids: string[]): NotificationRecord[] {
+    if (ids.length === 0) return [];
+    const path = sessionNotificationsPath(this.projectRoot, sessionId);
+    const latest = this.readLatest(path);
+    const stamp = now();
+    const updated: NotificationRecord[] = [];
+    for (const record of latest) {
+      if (!ids.includes(record.id) || record.delivered_at !== null) continue;
+      updated.push(this.append(path, { ...record, delivered_at: stamp }));
+    }
+    return updated;
+  }
+
+  hasBlockingPendingForSession(sessionId: string): boolean {
+    return this.readLatest(sessionNotificationsPath(this.projectRoot, sessionId)).some((record) => record.severity === 'block' && record.acknowledged_at === null);
+  }
+
+  listUnacknowledgedBlockingForSession(sessionId: string): NotificationRecord[] {
+    return this.readLatest(sessionNotificationsPath(this.projectRoot, sessionId)).filter((record) => record.severity === 'block' && record.acknowledged_at === null);
+  }
+
+  acknowledge(sessionId: string, notificationId: string): NotificationRecord | null {
+    const path = sessionNotificationsPath(this.projectRoot, sessionId);
+    const record = this.readLatest(path).find((entry) => entry.id === notificationId) ?? null;
+    if (!record || record.acknowledged_at !== null) return record;
+    return this.append(path, { ...record, acknowledged_at: now() });
+  }
+
+  listForOperator(): NotificationRecord[] {
+    return this.readLatest(operatorNotificationsPath(this.projectRoot));
+  }
+
+  acknowledgeForOperator(notificationId: string): NotificationRecord | null {
+    const path = operatorNotificationsPath(this.projectRoot);
+    const record = this.readLatest(path).find((entry) => entry.id === notificationId) ?? null;
+    if (!record || record.acknowledged_at !== null) return record;
+    return this.append(path, { ...record, acknowledged_at: now() });
+  }
+}

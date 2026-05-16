@@ -56,6 +56,23 @@ export const cardHistoryEntrySchema: z.ZodType<import('./types.js').CardHistoryE
   change_summary: z.string(),
 }));
 
+export const notificationRecordSchema: z.ZodType<import('./types.js').NotificationRecord> = z.object({
+  id: z.string().min(1),
+  session_id: z.string().nullable(),
+  kind: z.enum(['card_changed', 'note_added', 'process_state', 'runtime_state', 'config_changed']),
+  severity: z.enum(['info', 'warn', 'block']),
+  payload_summary: z.string().min(1),
+  related_card_id: z.string().min(1).optional(),
+  related_note_id: z.string().min(1).optional(),
+  related_process_id: z.string().min(1).optional(),
+  related_version_seq: z.number().int().positive().optional(),
+  source_actor: noteAuthorSchema,
+  source_surface: controlActionSurfaceSchema,
+  created_at: z.string().datetime(),
+  delivered_at: z.string().datetime().nullable(),
+  acknowledged_at: z.string().datetime().nullable(),
+});
+
 export const cardIndexEntrySchema = z.object({ id: z.string().min(1), type: cardTypeSchema, parent: z.string().nullable(), status: cardStatusSchema, title: z.string().min(1) });
 export const cardIndexSchema = z.object({ cards: z.record(z.string(), cardIndexEntrySchema) }).superRefine((value, ctx) => { for (const [key, entry] of Object.entries(value.cards)) if (entry.id !== key) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['cards', key, 'id'], message: `Card index entry id '${entry.id}' does not match key '${key}'.` }); });
 export const cardChildrenIndexSchema = z.array(z.string().min(1));
@@ -98,7 +115,7 @@ export const triggerTypeSchema = z.enum(['keyword', 'tool', 'path', 'tag']);
 export const skillTriggerSchema = z.object({ type: triggerTypeSchema, pattern: z.string().min(1) });
 export const skillIndexEntrySchema = z.object({ name: z.string().min(1), file: z.string().min(1), target_agents: z.array(agentRoleSchema), triggers: z.array(skillTriggerSchema), updated_at: z.string().datetime() });
 export const skillIndexSchema = z.array(skillIndexEntrySchema);
-export const runtimeEventKindSchema = z.enum(['started', 'goal_completed', 'card_failed', 'review_complete', 'review_failed', 'dispatch_blocked', 'dispatch_interrupted', 'paused', 'resumed', 'shutdown', 'error']);
+export const runtimeEventKindSchema = z.enum(['started', 'goal_completed', 'card_failed', 'review_complete', 'review_failed', 'dispatch_blocked', 'dispatch_interrupted', 'dispatch_held_for_notification', 'paused', 'resumed', 'shutdown', 'error']);
 export const agentEventKindSchema = z.enum(['session_started', 'model_selected', 'invocation_succeeded', 'invocation_failed', 'retry_attempted', 'compaction_triggered']);
 export const eventKindSchema = z.union([runtimeEventKindSchema, agentEventKindSchema]);
 export const baseEventSchema = z.object({ id: z.string().min(1), kind: eventKindSchema, timestamp: z.string().datetime(), session_id: z.string().optional(), goal_id: z.string().optional(), card_id: z.string().optional() });

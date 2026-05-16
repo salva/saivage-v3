@@ -93,6 +93,23 @@ export interface CardHistoryEntry {
   change_summary: string;
 }
 
+export interface NotificationRecord {
+  id: string;
+  session_id: string | null;
+  kind: 'card_changed' | 'note_added' | 'process_state' | 'runtime_state' | 'config_changed';
+  severity: 'info' | 'warn' | 'block';
+  payload_summary: string;
+  related_card_id?: string;
+  related_note_id?: string;
+  related_process_id?: string;
+  related_version_seq?: number;
+  source_actor: NoteAuthor;
+  source_surface: ControlActionSurface;
+  created_at: string;
+  delivered_at: string | null;
+  acknowledged_at: string | null;
+}
+
 export interface CardIndexEntry {
   id: string;
   type: CardType;
@@ -416,7 +433,7 @@ export interface SkillIndexEntry {
   updated_at: string;
 }
 
-export type RuntimeEventKind = 'started' | 'goal_completed' | 'goal_failed' | 'card_failed' | 'review_complete' | 'review_failed' | 'dispatch_blocked' | 'dispatch_interrupted' | 'escalation' | 'plan_updated' | 'paused' | 'resumed' | 'shutdown' | 'error' | 'stuck_supervisor_started' | 'stuck_supervisor_stopped' | 'stuck_verdict' | 'abort_target_selected' | 'force_cancel_sent';
+export type RuntimeEventKind = 'started' | 'goal_completed' | 'goal_failed' | 'card_failed' | 'review_complete' | 'review_failed' | 'dispatch_blocked' | 'dispatch_interrupted' | 'dispatch_held_for_notification' | 'escalation' | 'plan_updated' | 'paused' | 'resumed' | 'shutdown' | 'error' | 'stuck_supervisor_started' | 'stuck_supervisor_stopped' | 'stuck_verdict' | 'abort_target_selected' | 'force_cancel_sent';
 export type AgentEventKind = 'session_started' | 'model_selected' | 'invocation_succeeded' | 'invocation_failed' | 'retry_attempted' | 'compaction_triggered' | 'self_check_triggered' | 'session_cancelled' | 'session_force_cancelled' | 'mcp_tool_invocation';
 export type EventKind = RuntimeEventKind | AgentEventKind;
 

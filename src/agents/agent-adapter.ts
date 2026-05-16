@@ -1,12 +1,3 @@
-/**
- * Agent Adapter — Wires model router, result parsing, session persistence,
- * compaction, and recovery into a cohesive agent invocation layer.
- *
- * This is the integration point between the runtime and the LLM providers.
- * The ActiveRuntime uses this adapter instead of the FakeAgentAdapter when
- * real LLM calls are desired.
- */
-
 import { EventEmitter } from 'node:events';
 import type { SaivageConfig, RuntimeSection } from './config-schema.js';
 import { loadConfig, getRuntimeConfig, getModelParamsForRole, getSelfCheckThreshold } from './config-schema.js';
@@ -30,7 +21,7 @@ import {
   listSessions,
   updateSessionModel,
 } from './session-persistence.js';
-import type { AgentMessage, HandoffSummary } from '../schemas/types.js';
+import type { AgentMessage, HandoffSummary, NotificationRecord } from '../schemas/types.js';
 import { compactSession } from './compaction.js';
 import { invokeWithRecovery, type RecoveryContext } from './recovery.js';
 import type { ContentSupervisor } from '../utils/content-supervisor.js';
@@ -45,6 +36,7 @@ import type { McpManager, McpToolDefinition } from '../mcp/mcp-manager.js';
 import { SkillsEngine } from './skills-engine.js';
 import { loadSkill, LoadSkillError, LOAD_SKILL_TOOL_DEFINITION } from './skill-tools.js';
 import { processWorkspaceToolCall, READ_ONLY_WORKSPACE_TOOL_DEFINITIONS, WORKSPACE_TOOL_DEFINITIONS } from './workspace-tools.js';
+import { NotificationCenter } from '../utils/notification-center.js';
 
 export type { AgentRuntime } from './agent-runtime.js';
 export type AgentRole = 'planner' | 'executor' | 'reviewer' | 'analyst';
@@ -83,6 +75,7 @@ export class AgentAdapter implements AgentRuntime {
   readonly runtimeConfig: RuntimeSection;
   readonly registry: ProviderRegistry;
   readonly router: ModelRouter;
+  readonly notificationCenter: NotificationCenter;
   eventBus?: EventEmitter;
   readonly eventLogger?: EventLogger;
   private llmCallFn: LlmCallFn | null = null;
@@ -102,6 +95,7 @@ export class AgentAdapter implements AgentRuntime {
     this.runtimeConfig = getRuntimeConfig(cfg.config);
     this.registry = new ProviderRegistry(cfg.config);
     this.router = new ModelRouter(cfg.config, this.registry, cfg.projectRoot);
+    this.notificationCenter = new NotificationCenter(cfg.projectRoot);
     this.eventBus = cfg.eventBus;
     this.eventLogger = cfg.eventLogger;
   }
@@ -115,40 +109,17 @@ export class AgentAdapter implements AgentRuntime {
   setSkillsEngine(engine: SkillsEngine): void { this._skillsEngine = engine; }
   getSkillsEngine(): SkillsEngine | undefined { return this._skillsEngine; }
 
-  private buildToolsForRole(role: AgentRole): ToolDefinition[] {
-    return TOOL_MATRIX[role] ?? [];
-  }
-
-  private getMcpToolDefinition(serverName: string, toolName: string): McpToolDefinition | null {
-    if (!this._mcpManager) return null;
-    const tools = this._mcpManager.getServerTools(serverName);
-    return tools?.find((tool) => tool.name === toolName) ?? null;
-  }
-
-  private isMcpToolAllowed(role: AgentRole, definition: McpToolDefinition | null): boolean {
-    if (role === 'analyst') return false;
-    if (role === 'executor') return true;
-    if (!definition) return false;
-    const annotations = definition.annotations ?? {};
-    const readOnly = annotations.readOnlyHint === true;
-    const destructive = annotations.destructiveHint === true;
-    return readOnly && !destructive;
-  }
+  private buildToolsForRole(role: AgentRole): ToolDefinition[] { return TOOL_MATRIX[role] ?? []; }
+  private getMcpToolDefinition(serverName: string, toolName: string): McpToolDefinition | null { if (!this._mcpManager) return null; const tools = this._mcpManager.getServerTools(serverName); return tools?.find((tool) => tool.name === toolName) ?? null; }
+  private isMcpToolAllowed(role: AgentRole, definition: McpToolDefinition | null): boolean { if (role === 'analyst') return false; if (role === 'executor') return true; if (!definition) return false; const annotations = definition.annotations ?? {}; const readOnly = annotations.readOnlyHint === true; const destructive = annotations.destructiveHint === true; return readOnly && !destructive; }
 
   async callMcpTool(role: AgentRole, serverName: string, toolName: string, args: Record<string, unknown>): Promise<unknown> {
     if (!this._mcpManager) throw new Error('MCP manager not configured. Call setMcpManager() first.');
     const { McpInvokeError } = await import('../mcp/mcp-manager.js');
     const toolDefinition = this.getMcpToolDefinition(serverName, toolName);
-    if (!this.isMcpToolAllowed(role, toolDefinition)) {
-      throw new Error(`Role '${role}' is not permitted to call MCP tool '${serverName}/${toolName}'.`);
-    }
+    if (!this.isMcpToolAllowed(role, toolDefinition)) throw new Error(`Role '${role}' is not permitted to call MCP tool '${serverName}/${toolName}'.`);
     let result: unknown;
-    try {
-      result = await this._mcpManager.invokeTool(serverName, toolName, args);
-    } catch (err) {
-      if (err instanceof McpInvokeError) throw err;
-      throw new Error(`MCP tool invocation failed for '${toolName}' on '${serverName}': ${err instanceof Error ? err.message : String(err)}`);
-    }
+    try { result = await this._mcpManager.invokeTool(serverName, toolName, args); } catch (err) { if (err instanceof McpInvokeError) throw err; throw new Error(`MCP tool invocation failed for '${toolName}' on '${serverName}': ${err instanceof Error ? err.message : String(err)}`); }
     if (this.contentSupervisor && !this.contentSupervisor.isScreeningDisabled()) {
       const screenResult = await this.contentSupervisor.screenContent({ sourceKind: 'tool', sourceRef: `mcp:${serverName}/${toolName}`, content: JSON.stringify(result) });
       if (screenResult.status === 'blocked') throw new Error(`MCP tool response blocked by content supervisor: ${screenResult.summary}`);
@@ -172,24 +143,8 @@ export class AgentAdapter implements AgentRuntime {
   }
 
   private resetOnRoleChange(role: AgentRole): void { if (this.lastRole !== null && this.lastRole !== role) this.roundCounters.clear(); this.lastRole = role; }
-  cancelSession(sessionId: string): boolean {
-    const controller = this._abortControllers.get(sessionId);
-    if (!controller) return false;
-    controller.abort();
-    this._abortControllers.delete(sessionId);
-    this._cancelledSessions.add(sessionId);
-    if (this.eventLogger) this.eventLogger.appendEvent({ kind: 'session_cancelled', session_id: sessionId });
-    if (this.eventBus) this.eventBus.emit('session_cancelled', { session_id: sessionId });
-    return true;
-  }
-  forceCancelSession(sessionId: string): boolean {
-    const controller = this._abortControllers.get(sessionId);
-    if (controller) { controller.abort(); this._abortControllers.delete(sessionId); }
-    this._cancelledSessions.add(sessionId);
-    if (this.eventLogger) this.eventLogger.appendEvent({ kind: 'session_force_cancelled', session_id: sessionId });
-    if (this.eventBus) this.eventBus.emit('session_force_cancelled', { session_id: sessionId });
-    return controller !== undefined;
-  }
+  cancelSession(sessionId: string): boolean { const controller = this._abortControllers.get(sessionId); if (!controller) return false; controller.abort(); this._abortControllers.delete(sessionId); this._cancelledSessions.add(sessionId); if (this.eventLogger) this.eventLogger.appendEvent({ kind: 'session_cancelled', session_id: sessionId }); if (this.eventBus) this.eventBus.emit('session_cancelled', { session_id: sessionId }); return true; }
+  forceCancelSession(sessionId: string): boolean { const controller = this._abortControllers.get(sessionId); if (controller) { controller.abort(); this._abortControllers.delete(sessionId); } this._cancelledSessions.add(sessionId); if (this.eventLogger) this.eventLogger.appendEvent({ kind: 'session_force_cancelled', session_id: sessionId }); if (this.eventBus) this.eventBus.emit('session_force_cancelled', { session_id: sessionId }); return controller !== undefined; }
 
   getHandoffSummary(sessionId: string): HandoffSummary | null {
     try {
@@ -198,42 +153,27 @@ export class AgentAdapter implements AgentRuntime {
       const messages = getSessionMessages(this.saivageDir, sessionId);
       const lastUserMsg = [...messages].reverse().find((m) => m.role === 'user');
       const lastAssistantMsg = [...messages].reverse().find((m) => m.role === 'assistant');
-      return {
-        session_id: sessionId,
-        role: session.role as HandoffSummary['role'],
-        last_action: lastAssistantMsg ? `Produced response: ${lastAssistantMsg.content.substring(0, 200)}` : 'Session started',
-        next_action: lastUserMsg ? `Processing: ${lastUserMsg.content.substring(0, 200)}` : 'Awaiting user input',
-        context_summary: `Goal: ${session.goal_card_id ?? 'N/A'}, Card: ${session.card_id ?? 'N/A'}`,
-      };
+      return { session_id: sessionId, role: session.role as HandoffSummary['role'], last_action: lastAssistantMsg ? `Produced response: ${lastAssistantMsg.content.substring(0, 200)}` : 'Session started', next_action: lastUserMsg ? `Processing: ${lastUserMsg.content.substring(0, 200)}` : 'Awaiting user input', context_summary: `Goal: ${session.goal_card_id ?? 'N/A'}, Card: ${session.card_id ?? 'N/A'}` };
     } catch { return null; }
   }
 
   getActiveSessionHandoffs(): HandoffSummary[] {
-    try {
-      const ids = listSessions(this.saivageDir);
-      const summaries: HandoffSummary[] = [];
-      for (const id of ids) { const summary = this.getHandoffSummary(id); if (summary) summaries.push(summary); }
-      return summaries;
-    } catch { return []; }
+    try { const ids = listSessions(this.saivageDir); const summaries: HandoffSummary[] = []; for (const id of ids) { const summary = this.getHandoffSummary(id); if (summary) summaries.push(summary); } return summaries; } catch { return []; }
   }
 
-  async invokePlanner(goalId: string, systemPrompt: string = '', contextMessages: AgentMessage[] = []): Promise<PlannerResult> {
-    return this.invokeAgent('planner', goalId, goalId, systemPrompt, contextMessages, parsePlannerResult);
-  }
-  async invokeExecutor(cardId: string, goalId: string, systemPrompt: string = '', contextMessages: AgentMessage[] = []): Promise<ExecutorResult> {
-    return this.invokeAgent('executor', goalId, cardId, systemPrompt, contextMessages, parseExecutorResult);
-  }
-  async invokeReviewer(goalId: string, systemPrompt: string = '', contextMessages: AgentMessage[] = []): Promise<ReviewerResult> {
-    return this.invokeAgent('reviewer', goalId, goalId, systemPrompt, contextMessages, parseReviewerResult);
+  async invokePlanner(goalId: string, systemPrompt: string = '', contextMessages: AgentMessage[] = []): Promise<PlannerResult> { return this.invokeAgent('planner', goalId, goalId, systemPrompt, contextMessages, parsePlannerResult); }
+  async invokeExecutor(cardId: string, goalId: string, systemPrompt: string = '', contextMessages: AgentMessage[] = []): Promise<ExecutorResult> { return this.invokeAgent('executor', goalId, cardId, systemPrompt, contextMessages, parseExecutorResult); }
+  async invokeReviewer(goalId: string, systemPrompt: string = '', contextMessages: AgentMessage[] = []): Promise<ReviewerResult> { return this.invokeAgent('reviewer', goalId, goalId, systemPrompt, contextMessages, parseReviewerResult); }
+
+  async reinvokeSession(sessionId: string, systemPrompt: string = '', contextMessages: AgentMessage[] = []): Promise<ExecutorResult | ReviewerResult> {
+    const session = getSession(this.saivageDir, sessionId);
+    if (!session) throw new Error(`Session not found: ${sessionId}`);
+    if (session.role === 'executor') return this.invokeExecutor(session.card_id ?? session.goal_card_id ?? '', session.goal_card_id ?? '', systemPrompt, contextMessages);
+    if (session.role === 'reviewer') return this.invokeReviewer(session.goal_card_id ?? '', systemPrompt, contextMessages);
+    throw new Error(`Session '${sessionId}' is not reinvokable.`);
   }
 
-  private parseToolCallsFromResponse(rawResponse: string): Array<{ id: string; type: string; function: { name: string; arguments: string } }> | null {
-    try {
-      const parsed = JSON.parse(rawResponse);
-      if (parsed && typeof parsed === 'object' && Array.isArray(parsed.toolCalls) && parsed.toolCalls.length > 0) return parsed.toolCalls;
-    } catch {}
-    return null;
-  }
+  private parseToolCallsFromResponse(rawResponse: string): Array<{ id: string; type: string; function: { name: string; arguments: string } }> | null { try { const parsed = JSON.parse(rawResponse); if (parsed && typeof parsed === 'object' && Array.isArray(parsed.toolCalls) && parsed.toolCalls.length > 0) return parsed.toolCalls; } catch {} return null; }
 
   private async processToolCall(tc: { id: string; type: string; function: { name: string; arguments: string } }, role: AgentRole, sessionId: string, invocation?: { goalId?: string; cardId?: string }): Promise<{ role: 'tool'; kind: 'tool_result' | 'tool_error'; content: string; tool: string; tool_call_id: string }> {
     if (tc.function.name === 'mcp_tool_call') {
@@ -243,61 +183,57 @@ export class AgentAdapter implements AgentRuntime {
       const toolName = args.toolName ?? '';
       const toolArgs = args.args ?? {};
       if (!serverName || !toolName) return { role: 'tool', kind: 'tool_error', content: 'mcp_tool_call requires both "serverName" and "toolName" parameters.', tool: 'mcp_tool_call', tool_call_id: tc.id };
-      try {
-        const result = await this.callMcpTool(role, serverName, toolName, toolArgs);
-        return { role: 'tool', kind: 'tool_result', content: typeof result === 'string' ? result : JSON.stringify(result), tool: `mcp_tool_call:${serverName}/${toolName}`, tool_call_id: tc.id };
-      } catch (err) {
-        const errorMsg = err instanceof Error ? err.message : String(err);
-        return { role: 'tool', kind: 'tool_error', content: `MCP tool call failed: ${errorMsg}`, tool: `mcp_tool_call:${serverName}/${toolName}`, tool_call_id: tc.id };
-      }
+      try { const result = await this.callMcpTool(role, serverName, toolName, toolArgs); return { role: 'tool', kind: 'tool_result', content: typeof result === 'string' ? result : JSON.stringify(result), tool: `mcp_tool_call:${serverName}/${toolName}`, tool_call_id: tc.id }; } catch (err) { const errorMsg = err instanceof Error ? err.message : String(err); return { role: 'tool', kind: 'tool_error', content: `MCP tool call failed: ${errorMsg}`, tool: `mcp_tool_call:${serverName}/${toolName}`, tool_call_id: tc.id }; }
     }
     if (tc.function.name === 'load_skill') {
       let args: { name?: string } = {};
       try { args = JSON.parse(tc.function.arguments); } catch {}
       const skillName = args.name ?? '';
-      try {
-        if (!this._skillsEngine) throw new Error('SkillsEngine not configured. Call setSkillsEngine() first.');
-        const result = await loadSkill(skillName, role, this._skillsEngine);
-        return { role: 'tool', kind: 'tool_result', content: result.skill_content, tool: `load_skill:${skillName}`, tool_call_id: tc.id };
-      } catch (err) {
-        const errorMsg = err instanceof LoadSkillError ? err.message : `Error loading skill '${skillName}': ${err instanceof Error ? err.message : String(err)}`;
-        return { role: 'tool', kind: 'tool_error', content: errorMsg, tool: `load_skill:${skillName}`, tool_call_id: tc.id };
-      }
+      try { if (!this._skillsEngine) throw new Error('SkillsEngine not configured. Call setSkillsEngine() first.'); const result = await loadSkill(skillName, role, this._skillsEngine); return { role: 'tool', kind: 'tool_result', content: result.skill_content, tool: `load_skill:${skillName}`, tool_call_id: tc.id }; } catch (err) { const errorMsg = err instanceof LoadSkillError ? err.message : `Error loading skill '${skillName}': ${err instanceof Error ? err.message : String(err)}`; return { role: 'tool', kind: 'tool_error', content: errorMsg, tool: `load_skill:${skillName}`, tool_call_id: tc.id }; }
     }
     if (tc.function.name === 'list_project_files' || tc.function.name === 'read_project_file' || tc.function.name === 'write_project_file' || tc.function.name === 'run_project_command') {
-      try {
-        if (role !== 'executor' && (tc.function.name === 'write_project_file' || tc.function.name === 'run_project_command')) throw new Error(`${tc.function.name} is only available to executor agents.`);
-        const result = await processWorkspaceToolCall(tc.function.name, tc.function.arguments, { projectRoot: this.projectRoot, sessionId, goalId: invocation?.goalId, cardId: invocation?.cardId });
-        return { role: 'tool', kind: 'tool_result', content: typeof result === 'string' ? result : JSON.stringify(result), tool: tc.function.name, tool_call_id: tc.id };
-      } catch (err) {
-        return { role: 'tool', kind: 'tool_error', content: `${tc.function.name} failed: ${err instanceof Error ? err.message : String(err)}`, tool: tc.function.name, tool_call_id: tc.id };
-      }
+      try { if (role !== 'executor' && (tc.function.name === 'write_project_file' || tc.function.name === 'run_project_command')) throw new Error(`${tc.function.name} is only available to executor agents.`); const result = await processWorkspaceToolCall(tc.function.name, tc.function.arguments, { projectRoot: this.projectRoot, sessionId, goalId: invocation?.goalId, cardId: invocation?.cardId }); return { role: 'tool', kind: 'tool_result', content: typeof result === 'string' ? result : JSON.stringify(result), tool: tc.function.name, tool_call_id: tc.id }; } catch (err) { return { role: 'tool', kind: 'tool_error', content: `${tc.function.name} failed: ${err instanceof Error ? err.message : String(err)}`, tool: tc.function.name, tool_call_id: tc.id }; }
     }
     return { role: 'tool', kind: 'tool_error', content: `Unknown tool '${tc.function.name}'.`, tool: tc.function.name, tool_call_id: tc.id };
   }
 
-  private async handleToolCallsLoop(rawResponse: string, role: AgentRole, sessionId: string, candidate: Candidate, systemPrompt: string, modelParams: { temperature: number; maxTokens: number }, abortController: AbortController, invocation?: { goalId?: string; cardId?: string }): Promise<string> {
+  private formatNotificationGuidance(notification: NotificationRecord): string {
+    const related = [notification.related_card_id ? `card=${notification.related_card_id}` : null, notification.related_note_id ? `note=${notification.related_note_id}` : null, notification.related_process_id ? `process=${notification.related_process_id}` : null, notification.related_version_seq ? `version=${notification.related_version_seq}` : null].filter(Boolean).join(', ');
+    return `- [${notification.kind}] ${notification.payload_summary}${related ? ` (${related})` : ''}. Use diff_card/get_note/list_card_history as needed, then acknowledge_notification("${notification.id}") once adjusted.`;
+  }
+
+  private buildNotificationInjectionMessage(notifications: NotificationRecord[], sessionId: string): AgentMessage {
+    const lines = ['## Operator updates since your last turn', '', ...notifications.map((notification) => this.formatNotificationGuidance(notification))];
+    return { id: `msg-${sessionId}-notification-injection`, session_id: sessionId, role: 'user', kind: 'text', content: lines.join('\n'), timestamp: new Date().toISOString() };
+  }
+
+  private buildModelMessages(sessionId: string): { messages: AgentMessage[]; drainedIds: string[] } {
+    const pending = this.notificationCenter.drainPendingForSession(sessionId);
+    const baseMessages = getSessionMessages(this.saivageDir, sessionId);
+    if (pending.length === 0) return { messages: baseMessages, drainedIds: [] };
+    return { messages: [this.buildNotificationInjectionMessage(pending, sessionId), ...baseMessages], drainedIds: pending.map((notification) => notification.id) };
+  }
+
+  private async handleToolCallsLoop(rawResponse: string, role: AgentRole, sessionId: string, candidate: Candidate, systemPrompt: string, modelParams: { temperature: number; maxTokens: number }, abortController: AbortController, invocation?: { goalId?: string; cardId?: string }): Promise<{ response: string; transportSucceeded: boolean }> {
     let currentResponse = rawResponse;
     const MAX_TOOL_ROUNDS = 5;
     const previousCalls = new Set<string>();
     for (let toolRound = 0; toolRound < MAX_TOOL_ROUNDS; toolRound++) {
       const toolCalls = this.parseToolCallsFromResponse(currentResponse);
-      if (!toolCalls) return currentResponse;
+      if (!toolCalls) return { response: currentResponse, transportSucceeded: true };
       const callFingerprint = toolCalls.map((tc) => `${tc.function.name}:${tc.function.arguments}`).sort().join('||');
-      if (previousCalls.has(callFingerprint)) {
-        appendMessage(this.saivageDir, sessionId, { role: 'system', kind: 'model_issue', content: `Repeated tool-call fingerprint detected; stopping tool loop as no-progress diagnostic: ${callFingerprint}` });
-        return currentResponse;
-      }
+      if (previousCalls.has(callFingerprint)) { appendMessage(this.saivageDir, sessionId, { role: 'system', kind: 'model_issue', content: `Repeated tool-call fingerprint detected; stopping tool loop as no-progress diagnostic: ${callFingerprint}` }); return { response: currentResponse, transportSucceeded: true }; }
       previousCalls.add(callFingerprint);
       appendMessage(this.saivageDir, sessionId, { role: 'assistant', kind: 'tool_call', content: JSON.stringify({ toolCalls }), tool: toolCalls.map((tc) => tc.function.name).join(',') });
       const toolMessages: Array<{ role: 'tool'; kind: 'tool_result' | 'tool_error'; content: string; tool: string; tool_call_id: string }> = [];
       for (const tc of toolCalls) toolMessages.push(await this.processToolCall(tc, role, sessionId, invocation));
       for (const msg of toolMessages) appendMessage(this.saivageDir, sessionId, { role: msg.role, kind: msg.kind, content: msg.content, tool: msg.tool, tool_call_id: msg.tool_call_id });
       const followUpTools = this.buildToolsForRole(role);
-      currentResponse = await this.llmCallFn!(candidate, systemPrompt, getSessionMessages(this.saivageDir, sessionId), sessionId, { temperature: modelParams.temperature, max_tokens: modelParams.maxTokens, signal: abortController.signal, ...(followUpTools.length > 0 ? { tools: followUpTools, tool_choice: 'auto' } : {}) });
+      const modelMessages = this.buildModelMessages(sessionId).messages;
+      currentResponse = await this.llmCallFn!(candidate, systemPrompt, modelMessages, sessionId, { temperature: modelParams.temperature, max_tokens: modelParams.maxTokens, signal: abortController.signal, ...(followUpTools.length > 0 ? { tools: followUpTools, tool_choice: 'auto' } : {}) });
     }
     appendMessage(this.saivageDir, sessionId, { role: 'system', kind: 'model_issue', content: `Maximum tool-call rounds exceeded (${MAX_TOOL_ROUNDS}); stopping as no-progress diagnostic.` });
-    return currentResponse;
+    return { response: currentResponse, transportSucceeded: true };
   }
 
   private async invokeAgent<T>(role: AgentRole, goalId: string, cardId: string, systemPrompt: string, contextMessages: AgentMessage[], parser: (raw: string) => T): Promise<T> {
@@ -313,21 +249,7 @@ export class AgentAdapter implements AgentRuntime {
     if (this.eventBus) this.eventBus.emit('session_started', { session_id: session.id, role, goal_id: goalId, card_id: cardId });
     systemPrompt = this.applySelfCheck(role, systemPrompt, session.id);
     for (const msg of contextMessages) appendMessage(this.saivageDir, session.id, { role: msg.role, kind: msg.kind, content: msg.content, tool: msg.tool, links: msg.links });
-    const recoveryOpts = {
-      recoveryDelayMs: this.runtimeConfig.recoveryDelayMs ?? 60000,
-      maxRetries: this.runtimeConfig.maxRecoveryRetries ?? 3,
-      publishEvents: true,
-      eventBus: this.eventBus,
-      cardId,
-      goalId,
-      sessionId: session.id,
-      agentRole: role,
-      persistFailure: (error: Error, attempt: number, _ctx: RecoveryContext) => {
-        try { appendMessage(this.saivageDir, session.id, { role: 'system', kind: 'model_issue', content: `Agent invocation failed (attempt ${attempt}): ${redactCredentialLiterals(error.message)}` }); } catch {}
-        if (this.eventLogger) this.eventLogger.appendEvent({ kind: 'retry_attempted', session_id: session.id, role: role as unknown as import('../schemas/types.js').AgentRole, attempt, directive: _ctx.directive });
-        if (this.eventBus) this.eventBus.emit('retry_attempted', { session_id: session.id, role, attempt, directive: _ctx.directive });
-      },
-    };
+    const recoveryOpts = { recoveryDelayMs: this.runtimeConfig.recoveryDelayMs ?? 60000, maxRetries: this.runtimeConfig.maxRecoveryRetries ?? 3, publishEvents: true, eventBus: this.eventBus, cardId, goalId, sessionId: session.id, agentRole: role, persistFailure: (error: Error, attempt: number, _ctx: RecoveryContext) => { try { appendMessage(this.saivageDir, session.id, { role: 'system', kind: 'model_issue', content: `Agent invocation failed (attempt ${attempt}): ${redactCredentialLiterals(error.message)}` }); } catch {} if (this.eventLogger) this.eventLogger.appendEvent({ kind: 'retry_attempted', session_id: session.id, role: role as unknown as import('../schemas/types.js').AgentRole, attempt, directive: _ctx.directive }); if (this.eventBus) this.eventBus.emit('retry_attempted', { session_id: session.id, role, attempt, directive: _ctx.directive }); } };
     const agentFn = async (recoveryCtx: RecoveryContext) => {
       const candidateChain = await this.router.resolve(role);
       let lastError: Error | null = null;
@@ -349,51 +271,33 @@ export class AgentAdapter implements AgentRuntime {
             const callStart = Date.now();
             try {
               const llmOpts: LlmCompleteOptions = { temperature: modelParams.temperature, max_tokens: modelParams.maxTokens, signal: abortController.signal, ...(tools.length > 0 ? { tools, tool_choice } : {}) };
-              const rawResponse = await this.llmCallFn!(candidate, systemPrompt, getSessionMessages(this.saivageDir, session.id), session.id, llmOpts);
-              const finalResponse = await this.handleToolCallsLoop(rawResponse, role, session.id, candidate, systemPrompt, modelParams, abortController, { goalId, cardId });
+              const firstTurn = this.buildModelMessages(session.id);
+              const rawResponse = await this.llmCallFn!(candidate, systemPrompt, firstTurn.messages, session.id, llmOpts);
+              const loopResult = await this.handleToolCallsLoop(rawResponse, role, session.id, candidate, systemPrompt, modelParams, abortController, { goalId, cardId });
+              if (firstTurn.drainedIds.length > 0 && loopResult.transportSucceeded) this.notificationCenter.markDeliveredForSession(session.id, firstTurn.drainedIds);
+              const finalResponse = loopResult.response;
               const callDuration = Date.now() - callStart;
               appendMessage(this.saivageDir, session.id, { role: 'assistant', kind: 'text', content: finalResponse });
               let parsed: T;
-              try {
-                parsed = parser(finalResponse);
-              } catch (err) {
-                if (role === 'executor') {
-                  const fallback = buildExecutorFallbackResult(finalResponse, { cardId, sessionMessages: getSessionMessages(this.saivageDir, session.id) });
-                  if (fallback) {
-                    appendMessage(this.saivageDir, session.id, { role: 'system', kind: 'model_issue', content: `Executor result fallback constructed after parse failure: ${err instanceof Error ? redactCredentialLiterals(err.message) : 'unknown parse error'}` });
-                    parsed = fallback as T;
-                  } else {
-                    throw err;
-                  }
-                } else {
-                  throw err;
-                }
-              }
+              try { parsed = parser(finalResponse); } catch (err) { if (role === 'executor') { const fallback = buildExecutorFallbackResult(finalResponse, { cardId, sessionMessages: getSessionMessages(this.saivageDir, session.id) }); if (fallback) { appendMessage(this.saivageDir, session.id, { role: 'system', kind: 'model_issue', content: `Executor result fallback constructed after parse failure: ${err instanceof Error ? redactCredentialLiterals(err.message) : 'unknown parse error'}` }); parsed = fallback as T; } else throw err; } else throw err; }
               this.registry.markSucceeded(candidate);
               if (this.eventLogger) this.eventLogger.appendEvent({ kind: 'invocation_succeeded', session_id: session.id, role: role as unknown as import('../schemas/types.js').AgentRole, attempt: recoveryCtx.attempt, duration_ms: callDuration });
               if (this.eventBus) this.eventBus.emit('invocation_succeeded', { session_id: session.id, role, attempt: recoveryCtx.attempt, duration_ms: callDuration });
               this._cancelledSessions.delete(session.id);
               return parsed;
-            } finally {
-              this._abortControllers.delete(session.id);
-            }
+            } finally { this._abortControllers.delete(session.id); }
           } catch (err) {
             this.registry.markFailed(candidate, this.runtimeConfig.recoveryDelayMs ?? 60000);
             lastError = err instanceof Error ? err : new Error(String(err));
             appendMessage(this.saivageDir, session.id, { role: 'system', kind: 'model_issue', content: `Candidate ${candidate.provider}/${candidate.account ?? '_'}/${candidate.model} failed: ${redactCredentialLiterals(lastError.message)}` });
             if (this.eventLogger) this.eventLogger.appendEvent({ kind: 'invocation_failed', session_id: session.id, role: role as unknown as import('../schemas/types.js').AgentRole, attempt: recoveryCtx.attempt, error_message: redactCredentialLiterals(lastError.message) });
             if (this.eventBus) this.eventBus.emit('invocation_failed', { session_id: session.id, role, attempt: recoveryCtx.attempt, error_message: redactCredentialLiterals(lastError.message) });
-            if (this._cancelledSessions.has(session.id)) {
-              if (this.eventLogger) this.eventLogger.appendEvent({ kind: 'session_cancelled', session_id: session.id, role: role as unknown as import('../schemas/types.js').AgentRole, note: 'Stopped retry loop due to session cancellation' });
-              throw new Error(`Agent invocation cancelled for session ${session.id}. Role: ${role}, goal: ${goalId}, card: ${cardId}`);
-            }
+            if (this._cancelledSessions.has(session.id)) { if (this.eventLogger) this.eventLogger.appendEvent({ kind: 'session_cancelled', session_id: session.id, role: role as unknown as import('../schemas/types.js').AgentRole, note: 'Stopped retry loop due to session cancellation' }); throw new Error(`Agent invocation cancelled for session ${session.id}. Role: ${role}, goal: ${goalId}, card: ${cardId}`); }
             continue;
           }
         }
         throw lastError ?? new Error(`All candidates exhausted for role '${role}'.`);
-      } finally {
-        this._cancelledSessions.delete(session.id);
-      }
+      } finally { this._cancelledSessions.delete(session.id); }
     };
     const attempts = await invokeWithRecovery(agentFn, recoveryOpts);
     const lastAttempt = attempts[attempts.length - 1];
