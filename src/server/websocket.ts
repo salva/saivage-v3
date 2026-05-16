@@ -10,7 +10,7 @@
 
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import type { WebSocket } from 'ws';
-import { AnalystHandler, getOrCreateAnalystSession } from '../agents/analyst-handler.js';
+import { getOrCreateAnalystSession, getAnalystHandler, resetAnalystHandlerCache } from '../agents/analyst-handler.js';
 import type { EventBus, EventBusSubscription } from '../utils/event-bus.js';
 import type { LoggedEvent } from '../schemas/types.js';
 import { redactOperatorErrorMessage } from '../utils/file-access-security.js';
@@ -21,20 +21,6 @@ export type WsEventType = 'message' | 'activity' | 'thinking' | 'status' | 'erro
 export interface WsEnvelope {
   type: WsEventType;
   content: Record<string, unknown>;
-}
-
-const analystHandlersByRoot = new Map<string, { handler: AnalystHandler; activeRuntime?: ActiveRuntime }>();
-
-function getAnalystHandler(projectRoot: string, activeRuntime?: ActiveRuntime): AnalystHandler {
-  const cached = analystHandlersByRoot.get(projectRoot);
-  if (cached && cached.activeRuntime === activeRuntime) {
-    return cached.handler;
-  }
-  const handler = new AnalystHandler(projectRoot, (activity) => {
-    broadcast({ type: 'activity', content: activity as Record<string, unknown> });
-  }, activeRuntime);
-  analystHandlersByRoot.set(projectRoot, { handler, activeRuntime });
-  return handler;
 }
 
 const clients = new Set<WebSocket>();
@@ -53,12 +39,7 @@ export function resetWebSocketState(projectRoot?: string): void {
   }
   clients.clear();
 
-  if (projectRoot) {
-    analystHandlersByRoot.delete(projectRoot);
-    return;
-  }
-
-  analystHandlersByRoot.clear();
+  resetAnalystHandlerCache(projectRoot);
 }
 
 export function resetRuntimeEventSubscriptions(runtime?: { eventBus: EventBus }): void {
@@ -148,11 +129,32 @@ export function broadcastControlActionRecorded(payload: {
   target_id: string | null;
   outcome: string;
   created_at: string;
+  actor?: string;
+  surface?: string;
 }): void {
   broadcast({
     type: 'activity',
     content: {
       event: 'control_action_recorded',
+      ...payload,
+    },
+  });
+}
+
+export function broadcastAnalystToolInvoked(payload: {
+  sessionId: string;
+  tool: string;
+  success: boolean;
+  summary: string;
+  classified_as?: string;
+  related_card_id?: string;
+  related_note_id?: string;
+  related_process_id?: string;
+}): void {
+  broadcast({
+    type: 'activity',
+    content: {
+      event: 'analyst_tool_invoked',
       ...payload,
     },
   });
@@ -260,7 +262,12 @@ export function registerWebSocket(fastify: FastifyInstance, projectRoot: string,
               wsSessions.set(ws, currentSessionId);
             }
 
-            const handler = getAnalystHandler(projectRoot, activeRuntime);
+            const handler = getAnalystHandler(projectRoot, {
+              activeRuntime,
+              onActivity: (activity) => {
+                broadcast({ type: 'activity', content: activity as unknown as Record<string, unknown> });
+              },
+            });
             const response = await handler.handleMessage(
               currentSessionId,
               String(parsed.content.text),

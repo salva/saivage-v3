@@ -5,7 +5,15 @@
         <h3 class="section-heading">Card history</h3>
         <p class="panel-copy">Inspect tracked versions, fetch a full prior snapshot, and compare it to the current card.</p>
       </div>
-      <button type="button" class="retry-btn" @click="reloadAll">Refresh history</button>
+      <div class="panel-header-actions">
+        <button
+          type="button"
+          class="filter-chip"
+          :class="{ active: analystOnly }"
+          @click="analystOnly = !analystOnly"
+        >by analyst</button>
+        <button type="button" class="retry-btn" @click="reloadAll">Refresh history</button>
+      </div>
     </div>
 
     <div v-if="cardHistoryLoading" class="empty-evidence">Loading card history…</div>
@@ -13,12 +21,12 @@
       <strong>{{ cardHistoryError.kind === 'unauthorized' ? 'Unauthorized' : 'Card history unavailable' }}</strong>
       <div>{{ cardHistoryError.message }}</div>
     </div>
-    <div v-else-if="cardHistory.length === 0" class="empty-evidence">No tracked card history exists yet for this card.</div>
+    <div v-else-if="filteredHistory.length === 0" class="empty-evidence">No tracked card history exists yet for this card.</div>
     <template v-else>
       <div class="history-layout">
         <div class="history-list">
           <button
-            v-for="entry in cardHistory"
+            v-for="entry in filteredHistory"
             :key="entry.version_seq"
             type="button"
             class="history-item"
@@ -28,6 +36,7 @@
             <div class="history-item-top">
               <span class="badge subtle">v{{ entry.version_seq }}</span>
               <span class="badge">{{ entry.changed_by_actor }}</span>
+              <span v-if="isAnalystEntry(entry)" class="badge analyst-badge">analyst (web-chat)</span>
               <span class="badge subtle">{{ entry.changed_by_surface }}</span>
             </div>
             <div class="history-summary">{{ entry.change_summary }}</div>
@@ -75,12 +84,15 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, watch } from 'vue';
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import { storeToRefs } from 'pinia';
 import { useCardStore } from '../../stores/cards';
+import { useWsStore } from '../../stores/ws';
+import type { CardHistoryHeader } from '../../api/types';
 
 const props = defineProps<{ cardId: string }>();
 const cardStore = useCardStore();
+const wsStore = useWsStore();
 const {
   cardHistory,
   cardHistoryLoading,
@@ -94,9 +106,15 @@ const {
   cardHistoryDiffError,
 } = storeToRefs(cardStore);
 
+const analystOnly = ref(false);
 const activeDetailError = computed(() => cardHistoryEntryError.value ?? cardHistoryDiffError.value);
+const filteredHistory = computed(() => analystOnly.value ? cardHistory.value.filter((entry) => isAnalystEntry(entry)) : cardHistory.value);
 const secretLikeKeyPattern = /(token|secret|password|authorization|auth[_-]?profile|provider|env|config)/i;
 const secretLikeValuePattern = /(sk-[A-Za-z0-9_-]+|bearer\s+[A-Za-z0-9._-]+|api[_-]?key|token|secret|password|auth[_-]?profile|env\[[^\]]+\]|process\.env)/i;
+
+function isAnalystEntry(entry: CardHistoryHeader): boolean {
+  return entry.changed_by_actor === 'analyst' && entry.changed_by_surface === 'web-chat';
+}
 
 function fmtDate(ts: string): string {
   try { return new Date(ts).toLocaleString(); } catch { return ts; }
@@ -134,7 +152,7 @@ function fmtJson(value: unknown): string {
 
 async function loadHistory(): Promise<void> {
   await cardStore.fetchCardHistoryForCard(props.cardId);
-  const firstSeq = cardStore.cardHistory[0]?.version_seq;
+  const firstSeq = filteredHistory.value[0]?.version_seq ?? cardStore.cardHistory[0]?.version_seq;
   if (firstSeq && cardStore.cardHistorySelectedSeq !== firstSeq) {
     await cardStore.selectCardHistoryVersion(props.cardId, firstSeq);
   }
@@ -148,24 +166,51 @@ async function reloadAll(): Promise<void> {
   await loadHistory();
 }
 
+const unsubscribe = wsStore.onType('activity', (envelope) => {
+  const event = envelope.content?.event;
+  const cardId = typeof envelope.content?.card_id === 'string'
+    ? envelope.content.card_id
+    : typeof envelope.content?.related_card_id === 'string'
+      ? envelope.content.related_card_id
+      : null;
+  if ((event === 'card_history_appended' || event === 'analyst_tool_invoked') && cardId === props.cardId) {
+    void loadHistory().catch(() => {});
+  }
+});
+
 onMounted(async () => {
   await loadHistory();
+});
+
+onUnmounted(() => {
+  unsubscribe();
 });
 
 watch(() => props.cardId, async () => {
   cardStore.clearCardHistoryState();
   await loadHistory();
 });
+
+watch(analystOnly, async () => {
+  const firstSeq = filteredHistory.value[0]?.version_seq;
+  if (firstSeq) {
+    await cardStore.selectCardHistoryVersion(props.cardId, firstSeq);
+  }
+});
 </script>
 
 <style scoped>
 .panel-header-row { display:flex; justify-content:space-between; gap:12px; align-items:flex-start; margin-bottom:10px; }
+.panel-header-actions { display:flex; gap:8px; align-items:center; }
 .panel-copy { margin:4px 0 0; color:#8b949e; font-size:12px; }
+.filter-chip { border:1px solid #30363d; background:#161b22; color:#c9d1d9; border-radius:999px; padding:6px 10px; cursor:pointer; }
+.filter-chip.active { border-color:#58a6ff; color:#58a6ff; }
 .history-layout { display:grid; grid-template-columns:minmax(240px, 320px) 1fr; gap:16px; }
 .history-list { display:flex; flex-direction:column; gap:8px; }
 .history-item { text-align:left; padding:10px 12px; background:#161b22; border:1px solid #21262d; border-radius:6px; color:#c9d1d9; cursor:pointer; }
 .history-item.selected { border-color:#58a6ff; }
 .history-item-top { display:flex; gap:6px; flex-wrap:wrap; margin-bottom:8px; }
+.analyst-badge { background:#1c2738; color:#79c0ff; }
 .history-summary { font-size:13px; color:#f0f6fc; margin-bottom:4px; }
 .history-fields,.history-time { font-size:11px; color:#8b949e; }
 .history-detail { min-width:0; }

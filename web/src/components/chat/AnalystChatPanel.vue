@@ -26,7 +26,7 @@
       <div v-if="messagesLoading" class="state-panel">Loading analyst messages…</div>
       <div v-else-if="messagesError" class="state-panel error" role="alert">{{ messagesErrorLabel }}</div>
       <div v-else-if="!activeSessionId" class="state-panel">Select a session or start a new chat.</div>
-      <div v-else-if="timelineItems.length === 0" class="state-panel">No messages yet. Ask the analyst something.</div>
+      <div v-else-if="timelineItems.length === 0 && pendingToolInvocationsForActiveSession.length === 0" class="state-panel">No messages yet. Ask the analyst something.</div>
       <div v-else class="message-list">
         <article
           v-for="item in timelineItems"
@@ -271,6 +271,7 @@ onMounted(() => {
 
 .tool-chip.pending {
   cursor: default;
+  border-color: #58a6ff;
 }
 
 .tool-chip-detail {

@@ -336,27 +336,26 @@ export const useAnalystChat = defineStore('analyst-chat', () => {
       : typeof payload.sessionId === 'string'
         ? payload.sessionId
         : null;
-    const relatedCardId = typeof payload.card_id === 'string'
-      ? payload.card_id
-      : typeof payload.related_card_id === 'string'
-        ? payload.related_card_id
-        : null;
 
     if (event === 'analyst_tool_invoked' && payloadSessionId) {
-      pendingToolInvocations.value = [
-        ...pendingToolInvocations.value.filter((item) => item.id !== String(payload.id ?? `${payloadSessionId}:${payload.tool}:${payload.summary}`)),
-        {
-          id: String(payload.id ?? `${payloadSessionId}:${payload.tool}:${payload.summary}`),
-          sessionId: payloadSessionId,
-          tool: String(payload.tool ?? 'tool'),
-          classifiedAs: typeof payload.classified_as === 'string' ? payload.classified_as : null,
-          success: payload.success !== false,
-          summary: String(payload.summary ?? ''),
-          relatedCardId,
-        },
-      ];
+      const tool = typeof payload.tool === 'string' ? payload.tool : 'tool';
+      const success = payload.success === true;
+      const summary = typeof payload.summary === 'string' ? payload.summary : 'tool invoked';
+      const classifiedAs = typeof payload.classified_as === 'string' ? payload.classified_as : null;
+      const relatedCardId = typeof payload.related_card_id === 'string' ? payload.related_card_id : null;
+      const next = pendingToolInvocations.value.filter((item) => !(item.sessionId === payloadSessionId && item.tool === tool && item.summary === summary));
+      next.push({
+        id: `${payloadSessionId}-${tool}-${Date.now()}`,
+        sessionId: payloadSessionId,
+        tool,
+        classifiedAs,
+        success,
+        summary,
+        relatedCardId,
+      });
+      pendingToolInvocations.value = next.slice(-12);
       if (payloadSessionId === activeSessionId.value) {
-        addBadgeForActiveSession(`🔧 ${String(payload.tool ?? 'tool')}: ${String(payload.summary ?? '')}`, 'tool-invoked');
+        addBadgeForActiveSession(`${tool}: ${summary}`, 'tool-invoked');
       }
       return;
     }
@@ -366,24 +365,33 @@ export const useAnalystChat = defineStore('analyst-chat', () => {
     }
 
     if (event === 'card_history_appended') {
-      const version = payload.version_seq ?? payload.related_version_seq ?? '?';
-      addBadgeForActiveSession(`✅ card updated to v${String(version)}`, 'card-history');
-    } else if (event === 'notification_added') {
-      addBadgeForActiveSession('📝 note added', 'notification');
-    } else if (event === 'notification_acknowledged') {
-      addBadgeForActiveSession('🧹 notification acknowledged', 'notification-ack');
-    } else if (event === 'control_action_recorded') {
-      addBadgeForActiveSession('📜 audit recorded', 'control-action');
+      addBadgeForActiveSession('card history updated', 'card-history');
+      void fetchMessages().catch(() => {});
+      return;
+    }
+    if (event === 'notification_added') {
+      addBadgeForActiveSession('notification added', 'notification');
+      return;
+    }
+    if (event === 'notification_acknowledged') {
+      addBadgeForActiveSession('notification acknowledged', 'notification-ack');
+      return;
+    }
+    if (event === 'control_action_recorded') {
+      addBadgeForActiveSession('control action recorded', 'control-action');
+      if (payloadSessionId === activeSessionId.value || activeSessionId.value) {
+        void fetchMessages().catch(() => {});
+      }
     }
   }
 
   return {
-    DRAWER_STORAGE_KEY,
     sessions,
     activeSessionId,
     activeSession,
     messages,
     draft,
+    hasDraft,
     drawerOpen,
     drawerWidth,
     sessionsLoading,
@@ -396,16 +404,15 @@ export const useAnalystChat = defineStore('analyst-chat', () => {
     pendingToolInvocations,
     messageBadges,
     pendingCardSeed,
-    hasDraft,
     unsavedSessionIds,
-    fetchSessions,
-    selectSession,
-    fetchMessages,
-    createNewChat,
     setDrawerOpen,
     toggleDrawer,
     setDrawerWidth,
     setDraft,
+    fetchSessions,
+    selectSession,
+    fetchMessages,
+    createNewChat,
     seedCardContext,
     consumeSyntheticHint,
     sendMessage,

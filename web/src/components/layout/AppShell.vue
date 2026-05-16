@@ -38,6 +38,8 @@
       </div>
     </div>
 
+    <AnalystToaster />
+
     <ApiTokenEntry
       :visible="showTokenDialog"
       @close="showTokenDialog = false"
@@ -55,6 +57,7 @@ import type { NavItem } from '../nav/types';
 import WorkspaceHeader from './WorkspaceHeader.vue';
 import ApiTokenEntry from '../auth/ApiTokenEntry.vue';
 import AnalystChatPanel from '../chat/AnalystChatPanel.vue';
+import AnalystToaster from '../chat/AnalystToaster.vue';
 import { useWsStore } from '../../stores/ws';
 import { useRuntimeStore } from '../../stores/runtime';
 import { useAnalystChat } from '../../stores/analystChat';

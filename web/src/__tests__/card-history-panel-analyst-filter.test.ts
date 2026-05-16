@@ -1,0 +1,38 @@
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { mount, flushPromises } from '@vue/test-utils';
+import { createPinia, setActivePinia } from 'pinia';
+import CardHistoryPanel from '../components/cards/CardHistoryPanel.vue';
+
+vi.mock('../api/client', () => ({
+  listCards: vi.fn(), getCard: vi.fn(), createCard: vi.fn(), updateCard: vi.fn(), deleteCard: vi.fn(),
+  listCardHistory: vi.fn(), getCardHistoryEntry: vi.fn(), getCardDiff: vi.fn(),
+  ApiError: class extends Error { status: number; body: Record<string, unknown>; constructor(status: number, message: string, body: Record<string, unknown> = {}) { super(message); this.status = status; this.body = body; } get isUnauthorized() { return this.status === 401; } get isNotFound() { return this.status === 404; } },
+}));
+vi.mock('../stores/ws', () => ({ useWsStore: () => ({ onType: vi.fn(() => vi.fn()) }) }));
+
+import { listCardHistory, getCardHistoryEntry, getCardDiff } from '../api/client';
+
+describe('CardHistoryPanel analyst filter', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    setActivePinia(createPinia());
+  });
+
+  it('filters down to analyst-authored entries only', async () => {
+    vi.mocked(listCardHistory).mockResolvedValue({ history: [
+      { card_id: 'card-1', version_seq: 2, changed_at: '2025-01-01T00:00:00Z', changed_by_actor: 'analyst', changed_by_surface: 'web-chat', change_reason: 'update', changed_fields: ['acceptance'], change_summary: 'analyst update' },
+      { card_id: 'card-1', version_seq: 1, changed_at: '2025-01-01T00:00:00Z', changed_by_actor: 'planner', changed_by_surface: 'runtime', change_reason: 'update', changed_fields: ['title'], change_summary: 'planner update' },
+    ], total: 2 });
+    vi.mocked(getCardHistoryEntry).mockResolvedValue({ entry: { card_id: 'card-1', version_seq: 2, changed_at: '2025-01-01T00:00:00Z', changed_by_actor: 'analyst', changed_by_surface: 'web-chat', change_reason: 'update', changed_fields: ['acceptance'], change_summary: 'analyst update', snapshot: { id: 'card-1' } as any } });
+    vi.mocked(getCardDiff).mockResolvedValue({ card_id: 'card-1', from: 2, to: 3, diff: [] });
+
+    const wrapper = mount(CardHistoryPanel, { props: { cardId: 'card-1' }, global: { plugins: [createPinia()] } });
+    await flushPromises();
+    expect(wrapper.text()).toContain('planner update');
+    await wrapper.find('.filter-chip').trigger('click');
+    await flushPromises();
+    expect(wrapper.text()).toContain('analyst update');
+    expect(wrapper.text()).toContain('analyst (web-chat)');
+    expect(wrapper.text()).not.toContain('planner update');
+  });
+});

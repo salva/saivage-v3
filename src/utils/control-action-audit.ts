@@ -86,6 +86,8 @@ export function recordControlAction(projectRoot: string, entry: Omit<ControlActi
     target_id: parsed.target_id,
     outcome: parsed.outcome,
     created_at: parsed.created_at,
+    actor: parsed.actor,
+    surface: parsed.surface,
   });
   return parsed;
 }
