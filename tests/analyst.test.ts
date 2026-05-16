@@ -3,7 +3,7 @@ import Fastify, { type FastifyInstance } from 'fastify';
 import cors from '@fastify/cors';
 import websocket from '@fastify/websocket';
 import WebSocket from 'ws';
-import { existsSync, mkdirSync, rmSync, writeFileSync, readFileSync } from 'node:fs';
+import { existsSync, mkdirSync, rmSync, writeFileSync, readFileSync, unlinkSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
@@ -148,6 +148,20 @@ describe('Analyst Tools', () => {
     expect(after?.paused_at).toBe('2025-01-01T00:00:00.000Z');
     expect(after?.frozen_reason).toBe('operator requested freeze');
     expect(after).toEqual(before);
+  });
+
+  it('returns actionable error when analyst pause_runtime has no runtime state', async () => {
+    unlinkSync(join(projectRoot, '.saivage', 'runtime', 'state.json'));
+    const result = await pause_runtime(ctx(projectRoot, store), {});
+    expect(result.success).toBe(false);
+    expect(result.error).toContain('runtime state is not initialized');
+  });
+
+  it('returns actionable error when analyst resume_runtime has no runtime state', async () => {
+    unlinkSync(join(projectRoot, '.saivage', 'runtime', 'state.json'));
+    const result = await resume_runtime(ctx(projectRoot, store), {});
+    expect(result.success).toBe(false);
+    expect(result.error).toContain('runtime state is not initialized');
   });
 });
 

@@ -422,12 +422,7 @@ export async function createServer(
   }
 
   registerCardRoutes(fastify, projectRoot);
-  registerRuntimeConfigNotesRoutes(
-    fastify,
-    projectRoot,
-    activeRuntime ? () => activeRuntime.pause() : undefined,
-    activeRuntime ? () => activeRuntime.resume() : undefined,
-  );
+  registerRuntimeConfigNotesRoutes(fastify, projectRoot, activeRuntime);
   registerChatsFilesDebugRoutes(fastify, projectRoot);
   registerEventsRoute(fastify, projectRoot);
   registerProcessRoutes(fastify, projectRoot);

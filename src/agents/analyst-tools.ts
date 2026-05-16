@@ -9,10 +9,11 @@ import {
   getDiaryEntries,
   deleteDiary,
 } from '../utils/diary.js';
+import { readRuntimeState } from '../utils/runtime-state.js';
 import {
-  readRuntimeState,
-  updateRuntimeState,
-} from '../utils/runtime-state.js';
+  pauseRuntimeControl,
+  resumeRuntimeControl,
+} from '../utils/runtime-control.js';
 import {
   listProcesses,
   tailOutput,
@@ -474,28 +475,19 @@ export async function get_status(ctx: ToolContext, _params: Record<string, never
 }
 
 export async function pause_runtime(ctx: ToolContext, _params: Record<string, never>): Promise<ToolResult> {
-  try {
-    const state = updateRuntimeState(ctx.projectRoot, { status: 'paused', paused: true, paused_at: now() });
-    return { success: true, data: { status: state.status, paused: state.paused } };
-  } catch (err) {
-    return { success: false, error: err instanceof Error ? err.message : String(err) };
+  const result = pauseRuntimeControl({ projectRoot: ctx.projectRoot });
+  if (!result.ok) {
+    return { success: false, error: result.message ?? result.error ?? 'Failed to pause runtime' };
   }
+  return { success: true, data: { status: result.status, paused: result.paused } };
 }
 
 export async function resume_runtime(ctx: ToolContext, _params: Record<string, never>): Promise<ToolResult> {
-  try {
-    const current = readRuntimeState(ctx.projectRoot);
-    if (current?.status === 'frozen') {
-      return {
-        success: false,
-        error: 'Runtime is frozen. Use POST /api/runtime/resume-from-freeze to restore from the freeze manifest before resuming dispatch.',
-      };
-    }
-    const state = updateRuntimeState(ctx.projectRoot, { status: 'idle', paused: false, paused_at: null });
-    return { success: true, data: { status: state.status, paused: state.paused } };
-  } catch (err) {
-    return { success: false, error: err instanceof Error ? err.message : String(err) };
+  const result = resumeRuntimeControl({ projectRoot: ctx.projectRoot });
+  if (!result.ok) {
+    return { success: false, error: result.message ?? result.error ?? 'Failed to resume runtime' };
   }
+  return { success: true, data: { status: result.status, paused: result.paused } };
 }
 
 export async function abort_goal(ctx: ToolContext, params: { goalId: string; confirmed?: boolean }): Promise<ToolResult> {

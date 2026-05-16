@@ -1,5 +1,10 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
-import { readRuntimeState, updateRuntimeState } from '../../utils/runtime-state.js';
+import { readRuntimeState } from '../../utils/runtime-state.js';
+import {
+  pauseRuntimeControl,
+  resumeRuntimeControl,
+} from '../../utils/runtime-control.js';
+import type { ActiveRuntime } from '../../utils/active-runtime.js';
 import { loadConfig, type ProviderEntry } from '../../agents/config-schema.js';
 import {
   getReconciledUnhandledNotesQueue,
@@ -39,13 +44,11 @@ function readAgentMessages(projectRoot: string, sessionId: string): unknown[] {
 }
 
 const SAFE_AGENT_ID_RE = /^[a-zA-Z0-9_-]+$/;
-const RESUME_FROM_FREEZE_MESSAGE = 'Runtime is frozen. Use POST /api/runtime/resume-from-freeze to restore from the freeze manifest before resuming dispatch.';
 
 export function registerRuntimeConfigNotesRoutes(
   fastify: FastifyInstance,
   projectRoot: string,
-  onPause?: () => void,
-  onResume?: () => void,
+  activeRuntime?: ActiveRuntime,
 ): void {
   const store = new CardStore(projectRoot);
 
@@ -84,45 +87,26 @@ export function registerRuntimeConfigNotesRoutes(
   });
 
   fastify.post('/api/runtime/pause', async (_request: FastifyRequest, reply: FastifyReply) => {
-    try {
-      updateRuntimeState(projectRoot, {
-        status: 'paused',
-        paused: true,
-        paused_at: new Date().toISOString(),
-      });
-      onPause?.();
-      return reply.send({ status: 'paused' });
-    } catch (err) {
-      return reply.status(500).send({
-        error: 'Failed to pause runtime',
-        message: err instanceof Error ? err.message : String(err),
+    const result = pauseRuntimeControl({ projectRoot, activeRuntime });
+    if (!result.ok) {
+      return reply.status(result.statusCode ?? 500).send({
+        error: result.error ?? 'Failed to pause runtime',
+        message: result.message,
       });
     }
+    return reply.send({ status: 'paused' });
   });
 
   fastify.post('/api/runtime/resume', async (_request: FastifyRequest, reply: FastifyReply) => {
-    try {
-      const current = readRuntimeState(projectRoot);
-      if (current?.status === 'frozen') {
-        return reply.status(400).send({
-          error: 'Runtime is frozen',
-          message: RESUME_FROM_FREEZE_MESSAGE,
-          action: 'resume-from-freeze',
-        });
-      }
-      updateRuntimeState(projectRoot, {
-        status: 'idle',
-        paused: false,
-        paused_at: null,
-      });
-      onResume?.();
-      return reply.send({ status: 'resumed' });
-    } catch (err) {
-      return reply.status(500).send({
-        error: 'Failed to resume runtime',
-        message: err instanceof Error ? err.message : String(err),
+    const result = resumeRuntimeControl({ projectRoot, activeRuntime });
+    if (!result.ok) {
+      return reply.status(result.statusCode ?? 500).send({
+        error: result.error ?? 'Failed to resume runtime',
+        message: result.message,
+        ...(result.action ? { action: result.action } : {}),
       });
     }
+    return reply.send({ status: 'resumed' });
   });
 
   fastify.get('/api/config', async (_request: FastifyRequest, reply: FastifyReply) => {

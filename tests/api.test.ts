@@ -3,7 +3,7 @@ import Fastify, { type FastifyInstance } from 'fastify';
 import cors from '@fastify/cors';
 import websocket from '@fastify/websocket';
 import WebSocket from 'ws';
-import { existsSync, mkdirSync, rmSync, writeFileSync, readFileSync } from 'node:fs';
+import { existsSync, mkdirSync, rmSync, writeFileSync, readFileSync, unlinkSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { getClientCount } from '../src/server/websocket.js';
@@ -96,6 +96,26 @@ describe('runtime config and notes routes', () => {
     expect(state.status).toBe('idle');
     expect(state.paused).toBe(false);
     expect(state.paused_at).toBeNull();
+  });
+
+  it('returns actionable 503 when pause is requested without runtime state', async () => {
+    unlinkSync(join(SAIVAGE_DIR, 'runtime', 'state.json'));
+    const res = await fetch(url('/api/runtime/pause'), { method: 'POST', headers: authHeader(authToken) });
+    expect(res.status).toBe(503);
+    const body = await res.json() as { error: string; message: string };
+    expect(body.error).toBe('Runtime state is unavailable');
+    expect(body.message).toContain('Start the runtime or initialize runtime state first');
+  });
+
+  it('returns actionable 503 when resume is requested without runtime state', async () => {
+    const res = await fetch(url('/api/runtime/resume'), { method: 'POST', headers: authHeader(authToken) });
+    expect(res.status).toBe(503);
+    const body = await res.json() as { error: string; message: string };
+    expect(body.error).toBe('Runtime state is unavailable');
+    expect(body.message).toContain('Start the runtime or restore runtime state first');
+
+    const now = new Date().toISOString();
+    writeFileSync(join(SAIVAGE_DIR, 'runtime', 'state.json'), JSON.stringify({ status: 'idle', project_id: 'project', pid: process.pid, started_at: now, current_card_id: null, current_agent_session_id: null, paused: false, paused_at: null, queue: [], running_processes: [], updated_at: now }));
   });
 
   it('lists notes without returning note undefined and reconciles stale queue entries', async () => {

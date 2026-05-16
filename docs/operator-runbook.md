@@ -147,6 +147,8 @@ Docs are public and separately served under `/docs/` when built. They remain ava
 
 ## 4. Runtime control procedures
 
+Pause/resume semantics are shared across REST endpoints and analyst chat tools. Choose the surface that fits your workflow, but expect the same validation results.
+
 ### Pause before low-risk maintenance
 
 ```bash
@@ -156,6 +158,10 @@ curl -X POST http://localhost:8080/api/runtime/pause \
 
 Use pause when you want to stop new dispatch without creating a freeze handoff.
 
+- With a live `ActiveRuntime`, pause updates the live in-memory runtime authority.
+- Without a live runtime authority, pause updates persisted runtime state only.
+- If runtime state is missing entirely, pause now fails with an actionable error instead of inventing replacement state.
+
 ### Resume only from pause or idle
 
 ```bash
@@ -163,7 +169,12 @@ curl -X POST http://localhost:8080/api/runtime/resume \
   -H "Authorization: Bearer $SAIVAGE_API_TOKEN"
 ```
 
-Generic resume is for paused or idle runtime state. If the runtime is `frozen`, this endpoint now rejects the request with `400` and instructs you to use `/api/runtime/resume-from-freeze`.
+Generic resume is for paused or idle runtime state.
+
+- With a live `ActiveRuntime`, resume propagates through the live runtime authority.
+- Without a live runtime authority, resume updates persisted runtime state only.
+- If the runtime is `frozen`, this endpoint rejects the request with `400` and instructs you to use `/api/runtime/resume-from-freeze`.
+- If runtime state is unavailable, resume returns an actionable unavailable-state error.
 
 ### Freeze before handoff or disruptive maintenance
 

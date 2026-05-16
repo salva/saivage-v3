@@ -66,6 +66,13 @@ If no `ActiveRuntime` is attached, the server falls back to runtime state on dis
 
 ## Runtime control endpoints
 
+Accepted shared pause/resume semantics now apply equally to REST controls and analyst chat tools:
+
+- **live + `ActiveRuntime` available**: pause/resume propagates through the live runtime authority and updates in-memory dispatch state;
+- **live + no `ActiveRuntime` available**: pause/resume operates on persisted runtime state only, which is valid for server-only inspection/control setups;
+- **frozen**: generic resume is rejected and operators must use `POST /api/runtime/resume-from-freeze`;
+- **runtime state unavailable**: pause/resume returns an actionable error instead of creating replacement state implicitly.
+
 ### Pause
 
 ```bash
