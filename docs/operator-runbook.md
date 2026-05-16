@@ -132,6 +132,7 @@ Prefer Files or card-detail evidence links over raw filesystem inspection during
 Use Debug for recovery and diagnostics:
 
 - runtime state
+- Operator Control panel for runtime pause/resume and notes queue actions
 - recent errors
 - event timeline
 - doctor checks
@@ -140,6 +141,35 @@ Use Debug for recovery and diagnostics:
 - processes
 
 If the UI reports degraded, frozen, stale, or repeated agent failures, Debug is the first operator destination.
+
+#### Debug → Operator Control
+
+The **Operator Control** tab is the supported UI for authenticated note handling and generic runtime pause/resume.
+
+Runtime controls:
+
+- use **Pause runtime** to stop new dispatch;
+- use **Resume runtime** only when the runtime is paused or idle;
+- if runtime state is unavailable, the panel tells you to start or restore runtime state first;
+- if runtime is frozen, generic resume stays blocked and the panel directs you to the resume-from-freeze workflow.
+
+Notes controls:
+
+- **Acknowledge** removes the note from the unhandled queue but preserves note history on the card;
+- **Delete** removes an unhandled note from card history and queue;
+- **Clear all** deletes only the current unhandled notes returned by the notes API.
+
+Expected panel states:
+
+- loading
+- empty queue
+- stale/partial refresh warning
+- unauthorized
+- runtime unavailable
+- frozen resume guidance
+- success banners after note/runtime actions
+
+The panel uses authenticated server APIs only. It does not read raw `.saivage` note or runtime files from the browser.
 
 ### Docs
 
@@ -238,6 +268,8 @@ If runtime or UI state is degraded:
 - refresh the relevant view;
 - treat REST reload as authoritative after reconnect;
 - use Debug if stale or reconnecting state persists.
+
+For the Debug Operator Control panel specifically, a stale banner means the last refresh partially failed or another actor changed note/runtime state. Use **Refresh** before repeating a mutation.
 
 ### Offline
 

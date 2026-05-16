@@ -9,9 +9,9 @@
  * Error handling is per-fetch where possible:
  *  - fetchState / fetchErrors / fetchTimeline share `loading` and `error`
  *    (they are loaded together via fetchAll on mount).
- *  - fetchProcesses, fetchDoctor, fetchSupervision each have their own
- *    loading AND error ref so a failed fetch in one pane does not bleed
- *    into unrelated operator views.
+ *  - fetchProcesses, fetchDoctor, fetchSupervision, and operator controls
+ *    each keep separate loading/error state so failures do not bleed into
+ *    unrelated operator views.
  */
 
 import { defineStore } from 'pinia';
@@ -34,6 +34,8 @@ import type {
   SupervisionResponse,
   ProcessRecord,
   ProcessListResponse,
+  NoteQueueEntry,
+  NotesListResponse,
 } from '../api/types';
 import {
   getDebugState,
@@ -42,12 +44,38 @@ import {
   getDoctor,
   getDebugSupervision,
   listProcesses,
+  listNotes,
+  acknowledgeNote,
+  deleteNote,
+  clearAllNotes,
+  pauseRuntime,
+  resumeRuntime,
   ApiError,
 } from '../api/client';
 import { useWsStore } from './ws';
 import { createLogger } from '../utils/logger';
 
 const log = createLogger('store:debug');
+
+const OPERATOR_STALE_AGE_MS = 60_000;
+
+function operatorErrorMessage(err: unknown): string {
+  if (err instanceof ApiError) {
+    if (err.status === 401) {
+      return 'Unauthorized. Provide a valid Saivage API token and refresh the page.';
+    }
+    if (err.status === 503) {
+      return 'Runtime control is unavailable because runtime state is not initialized. Start the runtime or restore runtime state first.';
+    }
+    if (err.status === 400 && err.body.action === 'resume-from-freeze') {
+      return 'Runtime is frozen. Generic resume is blocked. Use the resume-from-freeze workflow to restore from the freeze manifest before resuming dispatch.';
+    }
+    if (typeof err.message === 'string' && err.message.trim()) {
+      return err.message;
+    }
+  }
+  return 'Operator control request failed.';
+}
 
 export const useDebugStore = defineStore('debug', () => {
   const debugRuntime = ref<RuntimeState | null>(null);
@@ -84,6 +112,20 @@ export const useDebugStore = defineStore('debug', () => {
   const supervisionStats = ref<SupervisionStats | null>(null);
   const supervisionLoading = ref(false);
   const supervisionError = ref<string | null>(null);
+
+  const operatorNotes = ref<NoteQueueEntry[]>([]);
+  const operatorNotesTotal = ref(0);
+  const operatorNotesLoading = ref(false);
+  const operatorNotesError = ref<string | null>(null);
+  const runtimeControlLoading = ref<'pause' | 'resume' | null>(null);
+  const runtimeControlError = ref<string | null>(null);
+  const runtimeControlSuccess = ref<string | null>(null);
+  const operatorNoteActionLoading = ref<Record<string, 'acknowledge' | 'delete'>>({});
+  const operatorClearLoading = ref(false);
+  const operatorLastFetchedAt = ref<string | null>(null);
+  const operatorStale = ref(false);
+  const operatorUnauthorized = ref(false);
+  const operatorPartialWarning = ref<string | null>(null);
 
   const loading = ref(false);
   const error = ref<string | null>(null);
@@ -154,6 +196,23 @@ export const useDebugStore = defineStore('debug', () => {
     return map;
   });
 
+  const operatorDataFreshnessLabel = computed(() => {
+    if (!operatorLastFetchedAt.value) return null;
+    const ageMs = Date.now() - new Date(operatorLastFetchedAt.value).getTime();
+    if (Number.isNaN(ageMs)) return null;
+    return ageMs > OPERATOR_STALE_AGE_MS ? 'stale' : 'fresh';
+  });
+
+  function markOperatorSuccess(message: string): void {
+    runtimeControlSuccess.value = message;
+    runtimeControlError.value = null;
+  }
+
+  function markOperatorError(message: string): void {
+    runtimeControlError.value = message;
+    runtimeControlSuccess.value = null;
+  }
+
   async function fetchState(): Promise<void> {
     loading.value = true;
     error.value = null;
@@ -166,6 +225,7 @@ export const useDebugStore = defineStore('debug', () => {
       const msg = err instanceof ApiError ? err.message : 'Failed to fetch debug state';
       error.value = msg;
       log.error('fetchState', msg);
+      throw err;
     } finally {
       loading.value = false;
     }
@@ -182,6 +242,7 @@ export const useDebugStore = defineStore('debug', () => {
       const msg = err instanceof ApiError ? err.message : 'Failed to fetch debug errors';
       error.value = msg;
       log.error('fetchErrors', msg);
+      throw err;
     } finally {
       loading.value = false;
     }
@@ -198,6 +259,7 @@ export const useDebugStore = defineStore('debug', () => {
       const msg = err instanceof ApiError ? err.message : 'Failed to fetch debug timeline';
       error.value = msg;
       log.error('fetchTimeline', msg);
+      throw err;
     } finally {
       loading.value = false;
     }
@@ -252,44 +314,204 @@ export const useDebugStore = defineStore('debug', () => {
     }
   }
 
+  async function fetchNotes(): Promise<void> {
+    operatorNotesLoading.value = true;
+    operatorNotesError.value = null;
+    try {
+      const response: NotesListResponse = await listNotes();
+      operatorNotes.value = response.notes;
+      operatorNotesTotal.value = response.total;
+      operatorUnauthorized.value = false;
+      if (!runtimeControlLoading.value) {
+        runtimeControlError.value = null;
+      }
+    } catch (err) {
+      const msg = operatorErrorMessage(err);
+      operatorNotesError.value = msg;
+      if (err instanceof ApiError && err.status === 401) {
+        operatorUnauthorized.value = true;
+        runtimeControlError.value = msg;
+      }
+      log.error('fetchNotes', msg);
+      throw err;
+    } finally {
+      operatorNotesLoading.value = false;
+    }
+  }
+
+  async function fetchOperatorControl(): Promise<void> {
+    operatorPartialWarning.value = null;
+    const hadPriorData = operatorNotes.value.length > 0 || debugRuntime.value !== null || operatorLastFetchedAt.value !== null;
+
+    const [notesResult, stateResult] = await Promise.allSettled([
+      fetchNotes(),
+      fetchState(),
+    ]);
+
+    const notesFailed = notesResult.status === 'rejected';
+    const stateFailed = stateResult.status === 'rejected';
+
+    if (!notesFailed && !stateFailed) {
+      operatorStale.value = false;
+      operatorLastFetchedAt.value = new Date().toISOString();
+      return;
+    }
+
+    if (hadPriorData) {
+      operatorStale.value = true;
+    }
+
+    if (notesFailed && !stateFailed) {
+      operatorPartialWarning.value = 'Runtime state refreshed, but notes could not be loaded.';
+    } else if (!notesFailed && stateFailed) {
+      operatorPartialWarning.value = 'Notes refreshed, but runtime state could not be loaded.';
+      operatorLastFetchedAt.value = new Date().toISOString();
+    } else if (notesFailed && stateFailed) {
+      operatorPartialWarning.value = 'This panel may be stale. Refresh to reconcile with server state.';
+    }
+  }
+
+  async function acknowledgeOperatorNote(noteId: string): Promise<void> {
+    runtimeControlError.value = null;
+    runtimeControlSuccess.value = null;
+    operatorNoteActionLoading.value = { ...operatorNoteActionLoading.value, [noteId]: 'acknowledge' };
+    try {
+      await acknowledgeNote(noteId);
+      operatorNotes.value = operatorNotes.value.filter((entry) => entry.note_id !== noteId);
+      operatorNotesTotal.value = operatorNotes.value.length;
+      operatorUnauthorized.value = false;
+      operatorStale.value = false;
+      markOperatorSuccess('Note acknowledged.');
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 404) {
+        operatorStale.value = true;
+        markOperatorError('That note is no longer in the unhandled queue. Refreshing notes.');
+        await fetchNotes().catch(() => {});
+      } else if (err instanceof ApiError && err.status === 401) {
+        operatorUnauthorized.value = true;
+        markOperatorError('Unauthorized. Provide a valid Saivage API token and refresh the page.');
+      } else {
+        markOperatorError(operatorErrorMessage(err));
+      }
+    } finally {
+      const next = { ...operatorNoteActionLoading.value };
+      delete next[noteId];
+      operatorNoteActionLoading.value = next;
+    }
+  }
+
+  async function deleteOperatorNote(noteId: string): Promise<void> {
+    runtimeControlError.value = null;
+    runtimeControlSuccess.value = null;
+    operatorNoteActionLoading.value = { ...operatorNoteActionLoading.value, [noteId]: 'delete' };
+    try {
+      await deleteNote(noteId);
+      operatorNotes.value = operatorNotes.value.filter((entry) => entry.note_id !== noteId);
+      operatorNotesTotal.value = operatorNotes.value.length;
+      operatorUnauthorized.value = false;
+      operatorStale.value = false;
+      markOperatorSuccess('Note deleted.');
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 404) {
+        operatorStale.value = true;
+        markOperatorError('That note is no longer in the unhandled queue. Refreshing notes.');
+        await fetchNotes().catch(() => {});
+      } else if (err instanceof ApiError && err.status === 400) {
+        operatorStale.value = true;
+        markOperatorError('This note was already handled. Refreshing notes.');
+        await fetchNotes().catch(() => {});
+      } else if (err instanceof ApiError && err.status === 401) {
+        operatorUnauthorized.value = true;
+        markOperatorError('Unauthorized. Provide a valid Saivage API token and refresh the page.');
+      } else {
+        markOperatorError(operatorErrorMessage(err));
+      }
+    } finally {
+      const next = { ...operatorNoteActionLoading.value };
+      delete next[noteId];
+      operatorNoteActionLoading.value = next;
+    }
+  }
+
+  async function clearOperatorNotes(): Promise<void> {
+    runtimeControlError.value = null;
+    runtimeControlSuccess.value = null;
+    operatorClearLoading.value = true;
+    try {
+      const response = await clearAllNotes();
+      operatorNotes.value = [];
+      operatorNotesTotal.value = 0;
+      operatorUnauthorized.value = false;
+      operatorStale.value = false;
+      markOperatorSuccess(`Cleared ${response.deleted} unhandled notes.`);
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 401) {
+        operatorUnauthorized.value = true;
+      }
+      markOperatorError(operatorErrorMessage(err));
+    } finally {
+      operatorClearLoading.value = false;
+    }
+  }
+
+  async function pauseOperatorRuntime(): Promise<void> {
+    runtimeControlLoading.value = 'pause';
+    runtimeControlError.value = null;
+    runtimeControlSuccess.value = null;
+    try {
+      await pauseRuntime();
+      operatorUnauthorized.value = false;
+      markOperatorSuccess('Runtime pause requested successfully.');
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 401) {
+        operatorUnauthorized.value = true;
+      }
+      markOperatorError(operatorErrorMessage(err));
+    } finally {
+      runtimeControlLoading.value = null;
+      await fetchState().catch(() => {});
+    }
+  }
+
+  async function resumeOperatorRuntime(): Promise<void> {
+    runtimeControlLoading.value = 'resume';
+    runtimeControlError.value = null;
+    runtimeControlSuccess.value = null;
+    try {
+      await resumeRuntime();
+      operatorUnauthorized.value = false;
+      markOperatorSuccess('Runtime resume requested successfully.');
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 401) {
+        operatorUnauthorized.value = true;
+      }
+      markOperatorError(operatorErrorMessage(err));
+    } finally {
+      runtimeControlLoading.value = null;
+      await fetchState().catch(() => {});
+    }
+  }
+
   async function fetchAll(): Promise<void> {
     loading.value = true;
     error.value = null;
 
     const results = await Promise.allSettled([
       (async () => {
-        try {
-          const response: DebugStateResponse = await getDebugState();
-          debugRuntime.value = response.runtime;
-          debugCards.value = response.cards;
-          debugTotalCards.value = response.totalCards;
-        } catch (err) {
-          const msg = err instanceof ApiError ? err.message : 'Failed to fetch debug state';
-          log.error('fetchState', msg);
-          throw err;
-        }
+        const response: DebugStateResponse = await getDebugState();
+        debugRuntime.value = response.runtime;
+        debugCards.value = response.cards;
+        debugTotalCards.value = response.totalCards;
       })(),
       (async () => {
-        try {
-          const response: DebugErrorsResponse = await getDebugErrors();
-          errors.value = response.errors;
-          errorsTotal.value = response.total;
-        } catch (err) {
-          const msg = err instanceof ApiError ? err.message : 'Failed to fetch debug errors';
-          log.error('fetchErrors', msg);
-          throw err;
-        }
+        const response: DebugErrorsResponse = await getDebugErrors();
+        errors.value = response.errors;
+        errorsTotal.value = response.total;
       })(),
       (async () => {
-        try {
-          const response: DebugTimelineResponse = await getDebugTimeline();
-          timelineEvents.value = response.events;
-          timelineTotal.value = response.total;
-        } catch (err) {
-          const msg = err instanceof ApiError ? err.message : 'Failed to fetch debug timeline';
-          log.error('fetchTimeline', msg);
-          throw err;
-        }
+        const response: DebugTimelineResponse = await getDebugTimeline();
+        timelineEvents.value = response.events;
+        timelineTotal.value = response.total;
       })(),
     ]);
 
@@ -365,6 +587,20 @@ export const useDebugStore = defineStore('debug', () => {
     supervisionStats: readonly(supervisionStats),
     supervisionLoading: readonly(supervisionLoading),
     supervisionError: readonly(supervisionError),
+    operatorNotes: readonly(operatorNotes),
+    operatorNotesTotal: readonly(operatorNotesTotal),
+    operatorNotesLoading: readonly(operatorNotesLoading),
+    operatorNotesError: readonly(operatorNotesError),
+    runtimeControlLoading: readonly(runtimeControlLoading),
+    runtimeControlError: readonly(runtimeControlError),
+    runtimeControlSuccess: readonly(runtimeControlSuccess),
+    operatorNoteActionLoading: readonly(operatorNoteActionLoading),
+    operatorClearLoading: readonly(operatorClearLoading),
+    operatorLastFetchedAt: readonly(operatorLastFetchedAt),
+    operatorStale: readonly(operatorStale),
+    operatorUnauthorized: readonly(operatorUnauthorized),
+    operatorPartialWarning: readonly(operatorPartialWarning),
+    operatorDataFreshnessLabel,
     loading: readonly(loading),
     error: readonly(error),
     activeTab,
@@ -381,6 +617,13 @@ export const useDebugStore = defineStore('debug', () => {
     fetchProcesses,
     fetchDoctor,
     fetchSupervision,
+    fetchNotes,
+    fetchOperatorControl,
+    acknowledgeOperatorNote,
+    deleteOperatorNote,
+    clearOperatorNotes,
+    pauseOperatorRuntime,
+    resumeOperatorRuntime,
     fetchAll,
     setActiveTab,
     setupWsListener,

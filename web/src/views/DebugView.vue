@@ -63,6 +63,123 @@
         </template>
       </div>
 
+      <div v-if="localActiveTab === 'operator'" class="debug-tab-content">
+        <section class="debug-section">
+          <div class="debug-section-header operator-header">
+            <div>
+              <h4 class="debug-section-title">Runtime Controls</h4>
+              <p class="operator-subtitle">Use authenticated runtime controls and then refresh to reconcile server state.</p>
+            </div>
+            <div class="operator-actions-inline">
+              <button class="sv-fetch-btn" :disabled="operatorPanelBusy" @click="refreshOperatorControl">Refresh</button>
+            </div>
+          </div>
+
+          <div v-if="operatorLastFetchedAt" class="operator-freshness" role="status">
+            Last refreshed {{ fmtDate(operatorLastFetchedAt) }}
+            <span v-if="operatorDataFreshnessLabel === 'stale'">(stale)</span>
+          </div>
+          <div v-else class="operator-freshness" role="status">Not refreshed yet.</div>
+
+          <div v-if="operatorStale || operatorPartialWarning" class="operator-banner operator-banner-warning" role="status">
+            {{ operatorPartialWarning || runtimeControlError || 'This panel may be stale. Refresh to reconcile with server state.' }}
+          </div>
+          <div v-if="operatorUnauthorized" class="operator-banner operator-banner-error" role="alert">
+            Unauthorized. Provide a valid Saivage API token and refresh the page.
+          </div>
+          <div v-else-if="runtimeControlError && !operatorStale && !operatorPartialWarning" class="operator-banner operator-banner-error" role="alert">
+            {{ runtimeControlError }}
+          </div>
+          <div v-if="runtimeControlSuccess" class="operator-banner operator-banner-success" role="status">
+            {{ runtimeControlSuccess }}
+          </div>
+
+          <div v-if="loading && !debugRuntime" class="debug-loading">Loading runtime control state...</div>
+          <div v-else class="operator-runtime-card">
+            <div class="operator-runtime-summary">
+              <div class="dg-item"><span class="dg-key">Status:</span><span class="operator-status-badge" :class="'status-' + runtimeStatusTone">{{ runtimeStatusLabel }}</span></div>
+              <div class="dg-item"><span class="dg-key">Dispatch:</span><span class="dg-value">{{ runtimeDispatchLabel }}</span></div>
+              <div class="dg-item"><span class="dg-key">Current Card:</span><span class="dg-value mono">{{ debugRuntime?.current_card_id || 'none' }}</span></div>
+              <div class="dg-item"><span class="dg-key">Agent Session:</span><span class="dg-value mono">{{ debugRuntime?.current_agent_session_id || 'none' }}</span></div>
+            </div>
+
+            <div v-if="debugRuntime?.status === 'frozen'" class="freeze-banner operator-freeze-guidance" role="alert">
+              <div class="freeze-banner-text">
+                <strong>Runtime is frozen.</strong>
+                <span class="freeze-reason">Generic resume is disabled; use the documented resume-from-freeze workflow after reviewing the freeze manifest.</span>
+              </div>
+            </div>
+
+            <div v-if="!debugRuntime" class="debug-empty operator-empty-runtime">
+              Runtime state is unavailable. Start the runtime or restore runtime state before using pause/resume controls.
+            </div>
+
+            <div class="operator-runtime-buttons">
+              <button
+                class="operator-button"
+                :disabled="pauseDisabled"
+                @click="debugStore.pauseOperatorRuntime()"
+              >{{ runtimeControlLoading === 'pause' ? 'Pausing...' : 'Pause runtime' }}</button>
+              <button
+                class="operator-button"
+                :disabled="resumeDisabled"
+                @click="debugStore.resumeOperatorRuntime()"
+              >{{ runtimeControlLoading === 'resume' ? 'Resuming...' : 'Resume runtime' }}</button>
+            </div>
+
+            <div v-if="!debugRuntime" class="operator-help-text">Runtime control is unavailable because runtime state is not initialized. Start the runtime or restore runtime state first.</div>
+            <div v-else-if="debugRuntime.status === 'frozen'" class="operator-help-text">Frozen runtime cannot be resumed here. Use resume-from-freeze.</div>
+          </div>
+        </section>
+
+        <section class="debug-section">
+          <div class="debug-section-header operator-header">
+            <div>
+              <h4 class="debug-section-title">Operator Notes ({{ operatorNotesTotal }})</h4>
+              <p class="operator-subtitle">Inspect current unhandled notes and acknowledge or delete them through the notes API.</p>
+            </div>
+            <div class="operator-actions-inline">
+              <button class="sv-fetch-btn" :disabled="operatorPanelBusy" @click="refreshNotes">Refresh</button>
+              <button class="sv-fetch-btn operator-danger-button" :disabled="clearNotesDisabled" @click="confirmClearNotes">{{ operatorClearLoading ? 'Clearing...' : 'Clear all' }}</button>
+            </div>
+          </div>
+
+          <div v-if="operatorNotesLoading && operatorNotesTotal === 0" class="debug-loading">Loading operator notes...</div>
+          <div v-else-if="operatorNotesError && operatorNotesTotal === 0" class="debug-error">{{ operatorNotesError }}</div>
+          <div v-else-if="operatorNotes.length === 0" class="debug-empty">No unhandled operator notes.</div>
+          <div v-else class="operator-notes-list">
+            <article v-for="entry in operatorNotes" :key="entry.note_id" class="operator-note-card">
+              <div class="operator-note-header">
+                <span class="operator-note-kind">{{ entry.kind }}</span>
+                <span class="operator-note-author">{{ entry.note?.author || 'unknown author' }}</span>
+                <span class="operator-note-time">{{ fmtDate(entry.timestamp) }}</span>
+              </div>
+              <div class="operator-note-body">
+                {{ entry.note?.content || 'Note details unavailable after reconciliation. Refresh notes.' }}
+              </div>
+              <div class="operator-note-meta">
+                <span class="mono">Card {{ entry.card_id }}</span>
+                <span class="mono">Note {{ entry.note_id }}</span>
+              </div>
+              <div class="operator-note-actions">
+                <button
+                  class="operator-button"
+                  :disabled="noteButtonsDisabled(entry.note_id)"
+                  :aria-label="`Acknowledge note ${entry.note_id}`"
+                  @click="debugStore.acknowledgeOperatorNote(entry.note_id)"
+                >{{ operatorNoteActionLoading[entry.note_id] === 'acknowledge' ? 'Acknowledging...' : 'Acknowledge' }}</button>
+                <button
+                  class="operator-button operator-danger-button"
+                  :disabled="noteButtonsDisabled(entry.note_id)"
+                  :aria-label="`Delete note ${entry.note_id}`"
+                  @click="debugStore.deleteOperatorNote(entry.note_id)"
+                >{{ operatorNoteActionLoading[entry.note_id] === 'delete' ? 'Deleting...' : 'Delete' }}</button>
+              </div>
+            </article>
+          </div>
+        </section>
+      </div>
+
       <div v-if="localActiveTab === 'errors'" class="debug-tab-content">
         <div v-if="loading" class="debug-loading">Loading errors...</div>
         <div v-else-if="error" class="debug-error">{{ error }}</div>
@@ -328,12 +445,17 @@ const {
   doctorStatus, doctorChecks, doctorIssues, doctorLoading, doctorError,
   supervisionReviews, supervisionQuarantine, supervisionStats,
   supervisionLoading, supervisionError,
+  operatorNotes, operatorNotesTotal, operatorNotesLoading, operatorNotesError,
+  runtimeControlLoading, runtimeControlError, runtimeControlSuccess,
+  operatorNoteActionLoading, operatorClearLoading, operatorLastFetchedAt,
+  operatorStale, operatorUnauthorized, operatorPartialWarning, operatorDataFreshnessLabel,
 } = storeToRefs(debugStore);
 
-type TabId = 'state' | 'errors' | 'timeline' | 'mcp' | 'processes' | 'supervision';
+type TabId = 'state' | 'operator' | 'errors' | 'timeline' | 'mcp' | 'processes' | 'supervision';
 
 const tabs = [
   { id: 'state' as const, label: 'State' },
+  { id: 'operator' as const, label: 'Operator Control' },
   { id: 'errors' as const, label: 'Errors' },
   { id: 'timeline' as const, label: 'Timeline' },
   { id: 'processes' as const, label: 'Processes' },
@@ -343,9 +465,62 @@ const tabs = [
 
 const localActiveTab = ref<TabId>('state');
 
+const runtimeStatusLabel = computed(() => {
+  if (!debugRuntime.value) return 'Unavailable';
+  if (debugRuntime.value.status === 'frozen') return 'Frozen';
+  if (debugRuntime.value.status === 'paused') return 'Paused';
+  if (debugRuntime.value.status === 'running') return 'Running';
+  if (debugRuntime.value.status === 'idle') return 'Idle';
+  return 'Error';
+});
+
+const runtimeStatusTone = computed(() => {
+  if (!debugRuntime.value) return 'unavailable';
+  return debugRuntime.value.status;
+});
+
+const runtimeDispatchLabel = computed(() => {
+  if (!debugRuntime.value) return 'Unknown';
+  return debugRuntime.value.paused ? 'Paused' : 'Dispatch active';
+});
+
+const operatorPanelBusy = computed(() => (
+  operatorNotesLoading.value || runtimeControlLoading.value !== null || operatorClearLoading.value
+));
+
+const pauseDisabled = computed(() => (
+  operatorUnauthorized.value || runtimeControlLoading.value !== null || !debugRuntime.value
+));
+
+const resumeDisabled = computed(() => (
+  operatorUnauthorized.value || runtimeControlLoading.value !== null || !debugRuntime.value || debugRuntime.value.status === 'frozen'
+));
+
+const clearNotesDisabled = computed(() => (
+  operatorUnauthorized.value || operatorNotes.value.length === 0 || operatorClearLoading.value || Object.keys(operatorNoteActionLoading.value).length > 0
+));
+
+function noteButtonsDisabled(noteId: string): boolean {
+  return operatorUnauthorized.value || operatorClearLoading.value || Boolean(operatorNoteActionLoading.value[noteId]);
+}
+
+async function refreshOperatorControl(): Promise<void> {
+  await debugStore.fetchOperatorControl().catch(() => {});
+}
+
+async function refreshNotes(): Promise<void> {
+  await debugStore.fetchNotes().catch(() => {});
+}
+
+async function confirmClearNotes(): Promise<void> {
+  if (!window.confirm('Clear all unhandled operator notes?')) return;
+  await debugStore.clearOperatorNotes();
+}
+
 function setTab(tab: TabId): void {
   localActiveTab.value = tab;
   if (tab === 'state') debugStore.fetchState().catch(() => {});
+  else if (tab === 'operator') debugStore.fetchOperatorControl().catch(() => {});
   else if (tab === 'errors') debugStore.fetchErrors().catch(() => {});
   else if (tab === 'timeline') debugStore.fetchTimeline().catch(() => {});
   else if (tab === 'processes') debugStore.fetchProcesses().catch(() => {});
@@ -434,6 +609,40 @@ onUnmounted(() => {
 .freeze-banner-text { font-size:14px; color:#c9d1d9; display:flex; flex-direction:column; gap:2px; }
 .freeze-reason { font-size:12px; color:#8b949e; font-style:italic; }
 .freeze-value { color:#7c6ff0; font-weight:600; }
+.operator-header { align-items:flex-start; gap:16px; }
+.operator-subtitle { margin:6px 0 0; font-size:12px; color:#8b949e; }
+.operator-actions-inline { display:flex; gap:8px; flex-wrap:wrap; }
+.operator-freshness { margin-bottom:10px; font-size:12px; color:#8b949e; }
+.operator-banner { margin-bottom:10px; padding:10px 12px; border-radius:6px; font-size:12px; line-height:1.5; }
+.operator-banner-success { background:#1a2418; border:1px solid #254025; color:#7ee787; }
+.operator-banner-warning { background:#241f18; border:1px solid #5e4b16; color:#e3b341; }
+.operator-banner-error { background:#241818; border:1px solid #5a2525; color:#ff938a; }
+.operator-runtime-card { background:#161b22; border:1px solid #21262d; border-radius:8px; padding:16px; }
+.operator-runtime-summary { display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:8px; margin-bottom:12px; }
+.operator-freeze-guidance { margin-top:4px; }
+.operator-empty-runtime { padding:20px 0; }
+.operator-runtime-buttons { display:flex; gap:10px; flex-wrap:wrap; margin-top:12px; }
+.operator-button { padding:7px 14px; font-size:12px; color:#c9d1d9; background:#21262d; border:1px solid #30363d; border-radius:6px; cursor:pointer; font-family:inherit; transition:all .15s; }
+.operator-button:hover:not(:disabled) { background:#30363d; color:#f0f6fc; }
+.operator-button:disabled, .operator-danger-button:disabled, .sv-fetch-btn:disabled { opacity:.5; cursor:not-allowed; }
+.operator-danger-button { color:#ff938a; }
+.operator-help-text { margin-top:10px; font-size:12px; color:#8b949e; }
+.operator-status-badge { display:inline-flex; align-items:center; border-radius:999px; padding:2px 8px; font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:.03em; }
+.operator-status-badge.status-running { background:#1a2418; color:#7ee787; }
+.operator-status-badge.status-paused { background:#1c2738; color:#58a6ff; }
+.operator-status-badge.status-idle { background:#21262d; color:#c9d1d9; }
+.operator-status-badge.status-error { background:#241818; color:#f85149; }
+.operator-status-badge.status-frozen { background:#1a1d2e; color:#b7a7ff; }
+.operator-status-badge.status-unavailable { background:#21262d; color:#8b949e; }
+.operator-notes-list { display:flex; flex-direction:column; gap:10px; }
+.operator-note-card { background:#161b22; border:1px solid #21262d; border-radius:8px; padding:12px; }
+.operator-note-header { display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-bottom:8px; }
+.operator-note-kind { font-size:10px; font-weight:600; text-transform:uppercase; border-radius:999px; padding:2px 8px; background:#1c2738; color:#58a6ff; }
+.operator-note-author { font-size:12px; color:#c9d1d9; }
+.operator-note-time { margin-left:auto; font-size:11px; color:#8b949e; }
+.operator-note-body { font-size:13px; color:#c9d1d9; white-space:pre-wrap; word-break:break-word; margin-bottom:8px; }
+.operator-note-meta { display:flex; gap:12px; flex-wrap:wrap; font-size:11px; color:#8b949e; margin-bottom:10px; }
+.operator-note-actions { display:flex; gap:8px; flex-wrap:wrap; }
 .card-summary-bars { display:flex; flex-direction:column; gap:4px; margin-bottom:12px; }
 .csb-row { display:grid; grid-template-columns:80px 1fr 40px; gap:8px; align-items:center; }
 .csb-label { font-size:11px; color:#8b949e; text-transform:capitalize; text-align:right; }
@@ -526,7 +735,6 @@ onUnmounted(() => {
 .pd-value.mono { font-family:'SF Mono',monospace; font-size:11px; color:#58a6ff; }
 .sv-fetch-btn { padding:3px 12px; font-size:11px; color:#58a6ff; background:#1c2738; border:1px solid #30363d; border-radius:4px; cursor:pointer; font-family:inherit; transition:all .15s; }
 .sv-fetch-btn:hover:not(:disabled) { background:#253548; border-color:#58a6ff; }
-.sv-fetch-btn:disabled { opacity:.5; cursor:not-allowed; }
 .doctor-status-banner { display:flex; align-items:center; gap:8px; padding:10px 14px; border-radius:6px; margin-bottom:12px; }
 .doctor-status-banner.doctor-ok { background:#1a2418; border:1px solid #3fb950; }
 .doctor-status-banner.doctor-issues { background:#241f18; border:1px solid #d29922; }
@@ -599,4 +807,10 @@ onUnmounted(() => {
 .sv-q-time { font-size:10px; color:#484f58; margin-left:auto; }
 .sv-q-browse-btn { padding:2px 8px; font-size:10px; color:#d29922; background:none; border:1px solid #30363d; border-radius:3px; cursor:pointer; font-family:inherit; transition:all .15s; }
 .sv-q-browse-btn:hover { color:#e2b451; border-color:#d29922; background:#241f18; }
+@media (max-width: 720px) {
+  .operator-runtime-buttons,
+  .operator-note-actions,
+  .operator-actions-inline { flex-direction:column; align-items:stretch; }
+  .operator-note-time { margin-left:0; }
+}
 </style>

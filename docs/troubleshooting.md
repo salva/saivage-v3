@@ -26,6 +26,8 @@ Use this guide for current source-verified failure modes and operator-visible st
 
 Docs and health are public surfaces. Unauthorized API access does not imply the server is fully down.
 
+If the Debug **Operator Control** tab shows `Unauthorized. Provide a valid Saivage API token and refresh the page.`, re-enter the token before retrying note or runtime-control actions.
+
 ## Runtime shows `frozen`
 
 ### Symptoms
@@ -33,6 +35,7 @@ Docs and health are public surfaces. Unauthorized API access does not imply the 
 - `/health` returns `runtime: "frozen"`
 - runtime status remains frozen after maintenance
 - `POST /api/runtime/resume` returns `400 Runtime is frozen`
+- Debug Operator Control disables generic Resume and shows resume-from-freeze guidance
 
 ### Recovery
 
@@ -52,12 +55,31 @@ curl -X POST http://localhost:8080/api/runtime/resume-from-freeze \
 
 If no freeze manifest exists, the server returns a client error rather than guessing a restore path.
 
+## Runtime control says unavailable
+
+### Symptoms
+
+- Debug Operator Control shows `Runtime state is unavailable...`
+- pause or resume returns `503`
+- runtime summary is missing even though the server is up
+
+### What it means
+
+Runtime control does not synthesize runtime state. The runtime has not been initialized, or persisted runtime state is missing.
+
+### What to do
+
+1. Start the runtime normally, or restore the expected runtime state if you are recovering from a controlled stop.
+2. Refresh the Debug Operator Control panel.
+3. If runtime state should exist but does not, inspect server/runtime startup logs before editing state files.
+
 ## Notes queue returns errors or missing rows
 
 ### Symptoms
 
 - `GET /api/notes` returns `500 Failed to list notes`
 - operators previously saw stale note rows disappear after refresh
+- Debug Operator Control shows stale-note action feedback such as `That note is no longer in the unhandled queue. Refreshing notes.`
 
 ### What it means
 
@@ -69,8 +91,9 @@ Saivage now validates `.saivage/notes/queue.json` as a persisted record.
 ### What to do
 
 1. Retry `GET /api/notes` once in case stale queue entries were auto-reconciled.
-2. If the endpoint still returns `500`, inspect `.saivage/notes/queue.json` for schema damage only after pausing or freezing if runtime state is still changing.
-3. Preserve card note files under `.saivage/notes/by-card/` before manual repair.
+2. Use the Operator Control **Refresh** action if the stale note message came from a concurrent acknowledge/delete.
+3. If the endpoint still returns `500`, inspect `.saivage/notes/queue.json` for schema damage only after pausing or freezing if runtime state is still changing.
+4. Preserve card note files under `.saivage/notes/by-card/` before manual repair.
 
 ## Runtime is degraded or in `error`
 
@@ -99,6 +122,7 @@ Saivage now validates `.saivage/notes/queue.json` as a persisted record.
 - stale banner or stale status
 - reconnecting indicator
 - live updates stop
+- Debug Operator Control shows `This panel may be stale...` or a partial refresh warning
 
 ### What to know
 
@@ -110,6 +134,7 @@ REST fetches are authoritative after reload or reconnect. WebSocket events are a
 2. Recheck `/health`.
 3. Verify the API token if the state became unauthorized.
 4. Use Debug to inspect recent events or process state.
+5. If Operator Control still shows a partial refresh warning, treat the successfully refreshed section as current and retry only after reconciling the failed side.
 
 ## Generated file preview is blocked or redacted
 
