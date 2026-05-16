@@ -11,6 +11,7 @@ import {
   redactOperatorErrorMessage,
   toContainedRelativePath,
 } from '../../utils/file-access-security.js';
+import { runMutatingRoute } from './runtime-config-notes.js';
 
 interface ProcessLogRefs {
   stdout: string | null;
@@ -139,6 +140,16 @@ function processRouteMessage(err: unknown, projectRoot: string): string {
   return redactOperatorErrorMessage(err instanceof Error ? err.message : String(err), projectRoot);
 }
 
+function terminatePreview(procId: string) {
+  return {
+    type: 'process.kill',
+    summary: `Terminate process '${procId}'.`,
+    affectedCards: [],
+    affectedProcesses: [{ id: procId, command: '(pending)', status: 'unknown' }],
+    warnings: [],
+  };
+}
+
 export function registerProcessRoutes(
   fastify: FastifyInstance,
   projectRoot: string,
@@ -183,52 +194,42 @@ export function registerProcessRoutes(
   });
 
   fastify.post('/api/processes/:id/terminate', async (request: FastifyRequest, reply: FastifyReply) => {
-    try {
-      const params = request.params as { id: string };
-      const procId = params.id;
+    const params = request.params as { id: string };
+    const procId = params.id;
+    return runMutatingRoute({
+      request,
+      reply,
+      projectRoot,
+      action: 'process.kill',
+      safety_class: 'destructive',
+      target_kind: 'process',
+      target_id: procId ?? null,
+      preview: terminatePreview(procId ?? ''),
+      mutate: async () => {
+        try {
+          if (!procId) {
+            return { ok: false, statusCode: 400, error: 'Process ID is required.', body: { error: 'Process ID is required.' }, outcomeSummary: 'missing process id' };
+          }
 
-      if (!procId) {
-        return reply.status(400).send({ error: 'Process ID is required.' });
-      }
+          const current = getProcess(projectRoot, procId);
+          if (!current) {
+            return { ok: false, statusCode: 404, error: 'Process not found', body: { error: 'Process not found', processId: procId }, outcomeSummary: 'process not found' };
+          }
 
-      const current = getProcess(projectRoot, procId);
-      if (!current) {
-        return reply.status(404).send({
-          error: 'Process not found',
-          processId: procId,
-        });
-      }
+          if (current.status !== 'running') {
+            return { ok: false, statusCode: 409, error: 'Process has already ended.', body: { error: 'Process has already ended.', terminated: false, message: 'Process has already ended.', process: toProcessView(projectRoot, current) }, outcomeSummary: 'process already ended' };
+          }
 
-      if (current.status !== 'running') {
-        return reply.status(409).send({
-          error: 'Process has already ended.',
-          terminated: false,
-          message: 'Process has already ended.',
-          process: toProcessView(projectRoot, current),
-        });
-      }
+          const terminatedRecord = await killProcess(projectRoot, procId);
+          if (terminatedRecord.status === 'running') {
+            return { ok: false, statusCode: 503, error: 'Process termination unavailable', body: { error: 'Process termination unavailable', terminated: false, message: 'Process is recorded as running, but this server has no live child process attached. Refresh, then inspect host process state before manual cleanup.', process: toProcessView(projectRoot, terminatedRecord) }, outcomeSummary: 'process termination unavailable' };
+          }
 
-      const terminatedRecord = await killProcess(projectRoot, procId);
-      if (terminatedRecord.status === 'running') {
-        return reply.status(503).send({
-          error: 'Process termination unavailable',
-          terminated: false,
-          message:
-            'Process is recorded as running, but this server has no live child process attached. Refresh, then inspect host process state before manual cleanup.',
-          process: toProcessView(projectRoot, terminatedRecord),
-        });
-      }
-
-      return reply.send({
-        terminated: true,
-        message: `Termination requested for ${procId}. Status is now ${terminatedRecord.status}.`,
-        process: toProcessView(projectRoot, terminatedRecord),
-      });
-    } catch (err) {
-      return reply.status(500).send({
-        error: 'Failed to terminate process',
-        message: processRouteMessage(err, projectRoot),
-      });
-    }
+          return { ok: true, body: { terminated: true, message: `Termination requested for ${procId}. Status is now ${terminatedRecord.status}.`, process: toProcessView(projectRoot, terminatedRecord) }, outcomeSummary: 'process terminated' };
+        } catch (err) {
+          return { ok: false, statusCode: 500, error: processRouteMessage(err, projectRoot), body: { error: 'Failed to terminate process', message: processRouteMessage(err, projectRoot) }, outcomeSummary: 'failed to terminate process' };
+        }
+      },
+    });
   });
 }
