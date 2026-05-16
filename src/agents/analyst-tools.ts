@@ -21,6 +21,7 @@ import {
   getProcess,
 } from '../utils/process-runner.js';
 import type { CardRecord, CardType, CardStatus, NoteKind, NoteAuthor } from '../schemas/types.js';
+import type { ActiveRuntime } from '../utils/active-runtime.js';
 
 export interface ActionPreview {
   type: string;
@@ -41,6 +42,7 @@ export interface ToolContext {
   projectRoot: string;
   store?: CardStore;
   sessionId?: string;
+  activeRuntime?: ActiveRuntime;
 }
 
 function saivageDir(projectRoot: string): string {
@@ -475,7 +477,7 @@ export async function get_status(ctx: ToolContext, _params: Record<string, never
 }
 
 export async function pause_runtime(ctx: ToolContext, _params: Record<string, never>): Promise<ToolResult> {
-  const result = pauseRuntimeControl({ projectRoot: ctx.projectRoot });
+  const result = pauseRuntimeControl({ projectRoot: ctx.projectRoot, activeRuntime: ctx.activeRuntime });
   if (!result.ok) {
     return { success: false, error: result.message ?? result.error ?? 'Failed to pause runtime' };
   }
@@ -483,7 +485,7 @@ export async function pause_runtime(ctx: ToolContext, _params: Record<string, ne
 }
 
 export async function resume_runtime(ctx: ToolContext, _params: Record<string, never>): Promise<ToolResult> {
-  const result = resumeRuntimeControl({ projectRoot: ctx.projectRoot });
+  const result = resumeRuntimeControl({ projectRoot: ctx.projectRoot, activeRuntime: ctx.activeRuntime });
   if (!result.ok) {
     return { success: false, error: result.message ?? result.error ?? 'Failed to resume runtime' };
   }
