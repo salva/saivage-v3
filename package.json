@@ -8,6 +8,7 @@
   },
   "scripts": {
     "test": "NODE_OPTIONS=--experimental-vm-modules jest --passWithNoTests",
+    "test:direct": "NODE_OPTIONS=--experimental-vm-modules node ./node_modules/jest/bin/jest.js --passWithNoTests",
     "test:runtime-open-handle-shard": "NODE_OPTIONS=--experimental-vm-modules jest --config tests/utils/jest-open-handle-shard.config.cjs tests/utils/runtime-continuous-improvement.test.ts tests/utils/runtime-executor-fallback-evidence.test.ts tests/utils/runtime-integration.test.ts tests/utils/runtime-project-planner-control-flow.test.ts tests/utils/security-integration.test.ts tests/utils/stuck-agent-supervisor.test.ts tests/utils/types-self-check.test.ts tests/utils/write-territories.test.ts --maxWorkers=8",
     "typecheck": "tsc --noEmit",
     "web:typecheck": "cd web && npm run typecheck",

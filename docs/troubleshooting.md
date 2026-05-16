@@ -152,6 +152,35 @@ If you only want the VitePress build itself:
 npm run docs:build
 ```
 
+## Jest test run warns after success
+
+### Symptoms
+
+- tests pass, then Jest prints `Jest did not exit one second after the test run has completed`
+- or npm prints `A worker process has failed to exit gracefully and has been force exited`
+
+### What to know
+
+Stage-19 comparison evidence distinguishes two cases:
+
+- direct Jest (`npm run test:direct`) and `npx jest` still reproduce the focused `tests/api.test.ts` + `tests/server/active-runtime-server.test.ts` warning, but the instrumented child Jest worker reaches `beforeExit` with only stdio sockets and a closed Jest watchman probe;
+- `npm test` adds a separate parent-process npm shell wrapper `ChildProcess` handle (`sh -c ... jest ...`) that remains in the npm wrapper process even after that child reports `exit` and `close`.
+
+That means `npm test` can show a wrapper-owned warning that is not evidence of a new Saivage teardown regression by itself.
+
+### What to do
+
+1. Use the direct validation path first:
+   ```bash
+   npm run test:direct
+   ```
+2. If you need to compare npm wrapper behavior, run:
+   ```bash
+   npm test
+   ```
+3. Treat wrapper-only npm warnings separately from app-owned handle evidence.
+4. If the direct path starts showing new open handles beyond stdio sockets and the closed watchman probe, capture fresh diagnostics before changing teardown code.
+
 ## Control-room regression checks
 
 When a UI problem is suspected, use the scoped web verification commands first:

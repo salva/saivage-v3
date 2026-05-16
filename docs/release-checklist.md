@@ -36,10 +36,15 @@ Use this checklist to verify a release candidate against the current repaired sy
   ```bash
   npm run web:test:sweep
   ```
-- [ ] Test suite passes at the chosen release scope:
+- [ ] Release test suite passes on the direct Jest validation path:
+  ```bash
+  npm run test:direct
+  ```
+- [ ] If you also run the npm wrapper path, record its behavior separately:
   ```bash
   npm test
   ```
+  Current stage-19 evidence shows `npm test` can still emit Jest's post-run forced-exit/open-handle warning because npm keeps a shell-launched Jest `ChildProcess` handle in the parent wrapper process even after that child reports `exit` and `close`. Treat that wrapper-owned warning as separate from the direct release-validation path unless newer evidence shows an app-owned handle.
 
 ## Security and containment checks
 
