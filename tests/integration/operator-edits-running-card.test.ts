@@ -6,7 +6,7 @@ import { initProjectTree } from '../../src/utils/file-tree.js';
 import { AgentAdapter, type LlmCallFn } from '../../src/agents/agent-adapter.js';
 import type { SaivageConfig } from '../../src/agents/config-schema.js';
 import { CardStore } from '../../src/utils/card-store.js';
-import { getSessionMessages } from '../../src/agents/session-persistence.js';
+import { getSessionMessages, getSession } from '../../src/agents/session-persistence.js';
 
 function createAdapter(tmpDir: string): AgentAdapter {
   const minimalConfig = { providers: {}, models: { routes: [] }, server: { port: 8080, host: '0.0.0.0' }, runtime: { compactionThreshold: 0.8, maxCompactions: 3, recoveryDelayMs: 60000, maxRecoveryRetries: 0, selfCheck: { planner: 0, executor: 0, reviewer: 0, analyst: 0 } }, security: {}, supervisor: {} } as unknown as SaivageConfig;
@@ -24,32 +24,50 @@ describe('operator edits running card integration', () => {
 
       const adapter = createAdapter(root);
       jest.spyOn(adapter.router, 'resolve').mockResolvedValue([{ provider: 'test', account: 'default', model: 'fake-model' }]);
-      const responses = [
-        JSON.stringify({ toolCalls: [
-          { id: 'tc-1', type: 'function', function: { name: 'diff_card', arguments: JSON.stringify({ cardId: 'code-1' }) } },
-          { id: 'tc-2', type: 'function', function: { name: 'get_card_history_entry', arguments: JSON.stringify({ cardId: 'code-1', version_seq: 1 }) } },
-          { id: 'tc-3', type: 'function', function: { name: 'acknowledge_notification', arguments: JSON.stringify({ notificationId: 'card_changed-test' }) } },
-        ] }),
-        JSON.stringify({ card_id: 'code-1', status: 'done', artifacts: [], attachments: [], summary: 'adjusted after operator edit' }),
-      ];
-      const llmCall = jest.fn<LlmCallFn>(async () => responses.shift() ?? '{}');
-      adapter.setLlmCallFn(llmCall);
+
+      let sessionIdFromHook = '';
+      let injectedNotificationId = '';
+      let llmTurn = 0;
+
       adapter.setAfterSessionCreatedHook((sessionId) => {
-        const notification = store.mutateCard('code-1', { description: 'after', acceptance: 'b' }, { actor: 'analyst', surface: 'web-chat', reason: 'operator edit' });
-        void notification;
-        const delivered = adapter.notificationCenter.drainPendingForSession(sessionId);
-        if (delivered[0]) {
-          adapter.notificationCenter.acknowledge(sessionId, delivered[0].id);
-        }
-        adapter.notificationCenter.enqueueForSession(sessionId, { id: 'card_changed-test', kind: 'card_changed', severity: 'block', payload_summary: 'Card code-1 updated by analyst', related_card_id: 'code-1', related_version_seq: 2, source_actor: 'analyst', source_surface: 'web-chat' });
+        sessionIdFromHook = sessionId;
+        store.update('code-1', { status: 'running' });
+        store.mutateCard('code-1', { description: 'after', acceptance: 'b' }, { actor: 'analyst', surface: 'web-chat', reason: 'operator edit' });
+        const pending = adapter.notificationCenter.drainPendingForSession(sessionId);
+        expect(pending).toHaveLength(1);
+        injectedNotificationId = pending[0]?.id ?? '';
+        expect(injectedNotificationId).toMatch(/^card_changed-/);
+        expect(pending[0]?.related_card_id).toBe('code-1');
+        expect(pending[0]?.related_version_seq).toBe(2);
       });
+
+      const llmCall = jest.fn<LlmCallFn>(async (_candidate, _systemPrompt, messages, _sessionId) => {
+        const injectionMessage = messages.find((message) => message.kind === 'text' && message.content.includes('## Operator updates since your last turn'));
+        expect(injectionMessage).toBeTruthy();
+        expect(injectionMessage?.content).toContain(injectedNotificationId);
+        if (llmTurn === 0) {
+          llmTurn += 1;
+          return JSON.stringify({ toolCalls: [
+            { id: 'tc-1', type: 'function', function: { name: 'diff_card', arguments: JSON.stringify({ cardId: 'code-1' }) } },
+            { id: 'tc-2', type: 'function', function: { name: 'get_card_history_entry', arguments: JSON.stringify({ cardId: 'code-1', version_seq: 1 }) } },
+            { id: 'tc-3', type: 'function', function: { name: 'acknowledge_notification', arguments: JSON.stringify({ notificationId: injectedNotificationId }) } },
+          ] });
+        }
+        expect(adapter.notificationCenter.hasBlockingPendingForSession(sessionIdFromHook)).toBe(false);
+        return JSON.stringify({ card_id: 'code-1', status: 'done', artifacts: [], attachments: [], summary: 'adjusted after operator edit' });
+      });
+      adapter.setLlmCallFn(llmCall);
 
       const result = await adapter.invokeExecutor('code-1', 'goal-1', 'system prompt');
       expect(result.status).toBe('done');
-      const sessionId = llmCall.mock.calls[0]?.[3] as string;
-      const messages = getSessionMessages(join(root, '.saivage'), sessionId);
+      expect(adapter.notificationCenter.hasBlockingPendingForSession(sessionIdFromHook)).toBe(false);
+
+      const session = getSession(join(root, '.saivage'), sessionIdFromHook);
+      expect(session?.status).toBe('done');
+
+      const messages = getSessionMessages(join(root, '.saivage'), sessionIdFromHook);
       expect(messages.some((message) => message.kind === 'tool_call' && message.content.includes('diff_card'))).toBe(true);
-      expect(messages.some((message) => message.kind === 'tool_result' && message.tool === 'acknowledge_notification')).toBe(true);
+      expect(messages.some((message) => message.kind === 'tool_result' && message.tool === 'acknowledge_notification' && message.content.includes(injectedNotificationId))).toBe(true);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

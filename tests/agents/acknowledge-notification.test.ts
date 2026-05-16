@@ -35,17 +35,22 @@ describe('acknowledge_notification', () => {
       center.enqueueForSession('sess-other', { id: 'n-other', kind: 'card_changed', severity: 'block', payload_summary: 'other', source_actor: 'analyst', source_surface: 'web-chat' });
       center.enqueueForOperator({ id: 'n-operator', kind: 'runtime_state', severity: 'info', payload_summary: 'operator', source_actor: 'analyst', source_surface: 'web-ui' });
 
-      const missing = await acknowledge_notification({ projectRoot: root, store, actor: 'executor', surface: 'runtime' }, { notificationId: 'n-own' });
-      expect(missing.success).toBe(false);
-      expect(missing.error).toMatch(/requires ToolContext\.sessionId/);
+      const missingSession = await acknowledge_notification({ projectRoot: root, store, actor: 'executor', surface: 'runtime' }, { notificationId: 'n-own' });
+      expect(missingSession.success).toBe(false);
+      expect(missingSession.error).toBe('acknowledge_notification requires ToolContext.sessionId.');
 
-      const cross = await acknowledge_notification(ctx(root, store, 'sess-own'), { notificationId: 'n-other' });
-      expect(cross.success).toBe(false);
-      expect(cross.error).toMatch(/was not found for session 'sess-own'/);
+      const crossSession = await acknowledge_notification(ctx(root, store, 'sess-own'), { notificationId: 'n-other' });
+      expect(crossSession.success).toBe(false);
+      expect(crossSession.error).toBe("Notification 'n-other' belongs to a different session and cannot be acknowledged by session 'sess-own'.");
       expect(center.listUnacknowledgedBlockingForSession('sess-other')[0]?.acknowledged_at).toBeNull();
 
-      const operator = await acknowledge_notification(ctx(root, store, 'sess-own'), { notificationId: 'n-operator' });
-      expect(operator.success).toBe(false);
+      const operatorSurface = await acknowledge_notification(ctx(root, store, 'sess-own'), { notificationId: 'n-operator' });
+      expect(operatorSurface.success).toBe(false);
+      expect(operatorSurface.error).toBe("Notification 'n-operator' belongs to the operator surface and cannot be acknowledged by session 'sess-own'.");
+
+      const missingId = await acknowledge_notification(ctx(root, store, 'sess-own'), { notificationId: 'n-missing' });
+      expect(missingId.success).toBe(false);
+      expect(missingId.error).toBe("Notification 'n-missing' does not exist.");
 
       const own = await acknowledge_notification(ctx(root, store, 'sess-own'), { notificationId: 'n-own' });
       expect(own.success).toBe(true);
@@ -56,8 +61,10 @@ describe('acknowledge_notification', () => {
       expect(handled.success).toBe(true);
 
       const lines = readFileSync(join(root, '.saivage', 'runtime', 'control-actions.jsonl'), 'utf-8').trim().split('\n').map((line) => JSON.parse(line));
-      expect(lines).toHaveLength(5);
+      expect(lines).toHaveLength(6);
+      expect(lines.filter((line) => line.action === 'notification.acknowledge')).toHaveLength(5);
       expect(lines.map((line) => line.action)).toEqual(expect.arrayContaining(['notification.acknowledge','note.mark_handled']));
+      expect(lines.filter((line) => line.action === 'notification.acknowledge' && line.outcome === 'ok')).toHaveLength(1);
     } finally { rmSync(root, { recursive: true, force: true }); }
   });
 });

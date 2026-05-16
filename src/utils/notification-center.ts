@@ -1,4 +1,4 @@
-import { appendFileSync, existsSync, mkdirSync, readFileSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdirSync, readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { notificationRecordSchema } from '../schemas/validators.js';
 import type { NotificationRecord, NoteAuthor, ControlActionSurface } from '../schemas/types.js';
@@ -16,6 +16,8 @@ export interface NotificationInput {
   source_surface: ControlActionSurface;
   created_at?: string;
 }
+
+export type NotificationOwnership = 'caller-session' | 'other-session' | 'operator-surface' | 'missing';
 
 function now(): string {
   return new Date().toISOString();
@@ -106,6 +108,26 @@ export class NotificationCenter {
 
   listUnacknowledgedBlockingForSession(sessionId: string): NotificationRecord[] {
     return this.readLatest(sessionNotificationsPath(this.projectRoot, sessionId)).filter((record) => record.severity === 'block' && record.acknowledged_at === null);
+  }
+
+  classifyForSession(sessionId: string, notificationId: string): NotificationOwnership {
+    const sessionRecord = this.readLatest(sessionNotificationsPath(this.projectRoot, sessionId)).find((entry) => entry.id === notificationId) ?? null;
+    if (sessionRecord) return 'caller-session';
+
+    const operatorRecord = this.readLatest(operatorNotificationsPath(this.projectRoot)).find((entry) => entry.id === notificationId) ?? null;
+    if (operatorRecord) return 'operator-surface';
+
+    const bySessionRoot = join(notificationsRoot(this.projectRoot), 'by-session');
+    if (existsSync(bySessionRoot)) {
+      for (const fileName of readdirSync(bySessionRoot)) {
+        if (fileName === `${sessionId}.jsonl` || !fileName.endsWith('.jsonl')) continue;
+        const path = join(bySessionRoot, fileName);
+        const record = this.readLatest(path).find((entry) => entry.id === notificationId) ?? null;
+        if (record) return 'other-session';
+      }
+    }
+
+    return 'missing';
   }
 
   acknowledge(sessionId: string, notificationId: string): NotificationRecord | null {
