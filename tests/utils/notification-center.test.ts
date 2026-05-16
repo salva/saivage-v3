@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from '@jest/globals';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { initProjectTree } from '../../src/utils/file-tree.js';
@@ -43,6 +43,27 @@ describe('NotificationCenter', () => {
     expect(acked?.acknowledged_at).toEqual(expect.any(String));
   });
 
+  it('recreates pending, delivered, and acknowledged state without duplicating latest user-visible records for the same id', () => {
+    enqueue('n-1', 'sess-1', 'block');
+    enqueue('n-2', 'sess-1', 'warn');
+    center.markDeliveredForSession('sess-1', ['n-1']);
+    center.acknowledge('sess-1', 'n-1');
+
+    const path = join(projectRoot, '.saivage', 'runtime', 'notifications', 'by-session', 'sess-1.jsonl');
+    const rawLines = readFileSync(path, 'utf-8').trim().split('\n').filter(Boolean);
+    expect(rawLines).toHaveLength(4);
+
+    const reopened = new NotificationCenter(projectRoot);
+    expect(reopened.drainPendingForSession('sess-1').map((item) => item.id)).toEqual(['n-2']);
+    expect(reopened.hasBlockingPendingForSession('sess-1')).toBe(false);
+    expect(reopened.listUnacknowledgedBlockingForSession('sess-1')).toEqual([]);
+
+    const latestN1 = reopened.acknowledge('sess-1', 'n-1');
+    expect(latestN1?.delivered_at).toEqual(expect.any(String));
+    expect(latestN1?.acknowledged_at).toEqual(expect.any(String));
+    expect(reopened.markDeliveredForSession('sess-1', ['n-1'])).toEqual([]);
+  });
+
   it('preserves ordering across multiple records and blocking queries only return unacknowledged block items', () => {
     enqueue('n-1', 'sess-1', 'warn');
     enqueue('n-2', 'sess-1', 'block');
@@ -54,7 +75,7 @@ describe('NotificationCenter', () => {
     expect(center.listUnacknowledgedBlockingForSession('sess-1').map((item) => item.id)).toEqual(['n-3']);
   });
 
-  it('operator notifications are independent from session queues', () => {
+  it('operator notifications are independent from session queues and latest-entry-per-id wins after recreation', () => {
     enqueue('n-1', 'sess-1');
     center.enqueueForOperator({
       id: 'op-1',
@@ -64,18 +85,26 @@ describe('NotificationCenter', () => {
       source_actor: 'analyst',
       source_surface: 'web-ui',
     });
-    expect(center.drainPendingForSession('sess-1').map((item) => item.id)).toEqual(['n-1']);
-    expect(center.listForOperator().map((item) => item.id)).toEqual(['op-1']);
     center.acknowledgeForOperator('op-1');
-    expect(center.listForOperator()[0]?.acknowledged_at).toEqual(expect.any(String));
-    expect(center.drainPendingForSession('sess-1').map((item) => item.id)).toEqual(['n-1']);
+
+    const reopened = new NotificationCenter(projectRoot);
+    expect(reopened.drainPendingForSession('sess-1').map((item) => item.id)).toEqual(['n-1']);
+    expect(reopened.listForOperator().map((item) => item.id)).toEqual(['op-1']);
+    expect(reopened.listForOperator()[0]?.acknowledged_at).toEqual(expect.any(String));
+    expect(reopened.drainPendingForSession('sess-1').map((item) => item.id)).toEqual(['n-1']);
   });
 
-  it('is restart-safe by reopening and replaying pending state from disk', () => {
+  it('is restart-safe by reopening and replaying pending state from disk without pre-marking delivery', () => {
     enqueue('n-1', 'sess-99', 'block');
-    center.markDeliveredForSession('sess-99', []);
     const reopened = new NotificationCenter(projectRoot);
-    expect(reopened.drainPendingForSession('sess-99').map((item) => item.id)).toEqual(['n-1']);
+    const firstDrain = reopened.drainPendingForSession('sess-99');
+    const secondDrain = reopened.drainPendingForSession('sess-99');
+    expect(firstDrain.map((item) => item.id)).toEqual(['n-1']);
+    expect(secondDrain.map((item) => item.id)).toEqual(['n-1']);
     expect(reopened.hasBlockingPendingForSession('sess-99')).toBe(true);
+    reopened.markDeliveredForSession('sess-99', ['n-1']);
+    const afterMark = new NotificationCenter(projectRoot);
+    expect(afterMark.drainPendingForSession('sess-99')).toEqual([]);
+    expect(afterMark.hasBlockingPendingForSession('sess-99')).toBe(true);
   });
 });

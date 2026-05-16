@@ -130,4 +130,37 @@ describe('notes queue schema and reconciliation', () => {
     expect(readNotesFile('goal-1')).toHaveLength(2);
     expect(warnSpy).toHaveBeenCalled();
   });
+
+  it('reconciles stale queue entries without exposing undefined notes, preserves note files, and safely reuses reconciled next_note_sequence state', () => {
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const kept = appendNote(saivageDir, 'goal-1', { author: 'user', content: 'Keep me', kind: 'directive' });
+    const stale = appendNote(saivageDir, 'goal-1', { author: 'user', content: 'Stale only in queue', kind: 'comment' });
+    writeFileSync(
+      join(saivageDir, 'notes', 'queue.json'),
+      JSON.stringify({
+        next_note_sequence: 1,
+        entries: [
+          { card_id: kept.card_id, note_id: kept.id, timestamp: kept.timestamp, kind: kept.kind },
+          { card_id: stale.card_id, note_id: stale.id, timestamp: stale.timestamp, kind: 'progress' },
+          { card_id: stale.card_id, note_id: 'n-goal-1-999', timestamp: stale.timestamp, kind: stale.kind },
+        ],
+      }, null, 2) + '\n',
+    );
+
+    const resolved = getReconciledUnhandledNotesQueue(saivageDir);
+    expect(resolved).toHaveLength(1);
+    expect(resolved[0]).toMatchObject({ card_id: 'goal-1', note_id: kept.id, note: { id: kept.id, content: 'Keep me' } });
+    expect((resolved[0] as { note?: unknown }).note).toBeDefined();
+    expect(readNotesFile('goal-1').map((note) => note.id).sort()).toEqual([kept.id, stale.id].sort());
+    expect(readQueueFile()).toEqual({
+      next_note_sequence: 1,
+      entries: [{ card_id: kept.card_id, note_id: kept.id, timestamp: kept.timestamp, kind: kept.kind }],
+    });
+
+    const appended = appendNote(saivageDir, 'goal-1', { author: 'analyst', content: 'Fresh after reconcile', kind: 'progress' });
+    expect(appended.id).toBe('n-goal-1-1');
+    expect(readQueueFile().next_note_sequence).toBe(2);
+    expect(readNotesFile('goal-1').map((note) => note.id)).toEqual([kept.id, stale.id, appended.id]);
+    expect(warnSpy).toHaveBeenCalled();
+  });
 });
