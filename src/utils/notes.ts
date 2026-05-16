@@ -1,6 +1,7 @@
 import { existsSync, readFileSync, unlinkSync } from 'node:fs';
 import { join } from 'node:path';
-import { noteRecordSchema, notesQueueSchema } from '../schemas/validators.js';
+import { ZodError } from 'zod';
+import { noteRecordSchema, notesQueueEntrySchema, notesQueueSchema } from '../schemas/validators.js';
 import type {
   NoteRecord,
   NoteAuthor,
@@ -27,17 +28,86 @@ function createEmptyQueue(): NotesQueue {
   };
 }
 
+function summarizeZodError(error: ZodError): string {
+  return error.issues
+    .map((issue) => `${issue.path.length > 0 ? issue.path.join('.') : '<root>'}: ${issue.message}`)
+    .join('; ');
+}
+
+function extractQueueEntryCandidates(value: unknown): unknown[] {
+  if (!value || typeof value !== 'object') {
+    return [];
+  }
+  const candidateEntries = (value as { entries?: unknown }).entries;
+  return Array.isArray(candidateEntries) ? candidateEntries : [];
+}
+
+function computeSafeNextNoteSequence(entries: NotesQueueEntry[], candidateValue: unknown): number {
+  let nextSequence = 1;
+  if (candidateValue && typeof candidateValue === 'object') {
+    const rawNext = (candidateValue as { next_note_sequence?: unknown }).next_note_sequence;
+    if (typeof rawNext === 'number' && Number.isInteger(rawNext) && rawNext > 0) {
+      nextSequence = rawNext;
+    }
+  }
+
+  for (const entry of entries) {
+    const suffix = Number(entry.note_id.match(/-(\d+)$/)?.[1] ?? NaN);
+    if (Number.isInteger(suffix) && suffix >= nextSequence) {
+      nextSequence = suffix + 1;
+    }
+  }
+  return nextSequence;
+}
+
+function reconcileQueueShape(rawValue: unknown, reason: string): NotesQueue {
+  const entries: NotesQueueEntry[] = [];
+  let droppedInvalidEntries = 0;
+  for (const candidate of extractQueueEntryCandidates(rawValue)) {
+    const parsed = notesQueueEntrySchema.safeParse(candidate);
+    if (parsed.success) {
+      entries.push(parsed.data);
+    } else {
+      droppedInvalidEntries += 1;
+    }
+  }
+
+  const reconciled: NotesQueue = {
+    next_note_sequence: computeSafeNextNoteSequence(entries, rawValue),
+    entries,
+  };
+
+  const detail = droppedInvalidEntries > 0
+    ? ` Dropped ${droppedInvalidEntries} invalid queue entr${droppedInvalidEntries === 1 ? 'y' : 'ies'}.`
+    : '';
+  console.error(`Notes queue malformed at ${reason}; reconciled to a valid queue.${detail}`);
+  return reconciled;
+}
+
 function readQueue(saivageDir: string): NotesQueue {
   const path = queuePath(saivageDir);
   if (!existsSync(path)) {
     return createEmptyQueue();
   }
-  const raw = readFileSync(path, 'utf-8');
-  const parsed = notesQueueSchema.safeParse(JSON.parse(raw));
-  if (!parsed.success) {
-    throw new Error(`NotesQueue validation failed: ${parsed.error.message}`);
+
+  let rawValue: unknown;
+  try {
+    rawValue = JSON.parse(readFileSync(path, 'utf-8'));
+  } catch (error) {
+    const reconciled = createEmptyQueue();
+    console.error(`Notes queue at ${path} is not valid JSON; resetting to empty queue: ${error instanceof Error ? error.message : String(error)}`);
+    writeQueueAtomic(saivageDir, reconciled);
+    return reconciled;
   }
-  return parsed.data;
+
+  const parsed = notesQueueSchema.safeParse(rawValue);
+  if (parsed.success) {
+    return parsed.data;
+  }
+
+  const reconciled = reconcileQueueShape(rawValue, `${path} (${summarizeZodError(parsed.error)})`);
+  writeQueueAtomic(saivageDir, reconciled);
+  return reconciled;
 }
 
 function writeQueueAtomic(saivageDir: string, queue: NotesQueue): void {
@@ -93,7 +163,10 @@ function getAllNotes(saivageDir: string, cardId: string): NoteRecord[] {
 function resolveQueueEntry(saivageDir: string, entry: NotesQueueEntry): NotesQueueResolvedEntry | null {
   const notes = getAllNotes(saivageDir, entry.card_id);
   const note = notes.find((candidate) => candidate.id === entry.note_id);
-  if (!note || note.handled) {
+  if (!note) {
+    return null;
+  }
+  if (note.handled) {
     return null;
   }
   if (
@@ -175,6 +248,7 @@ export function getReconciledUnhandledNotesQueue(saivageDir: string): NotesQueue
   const queue = readQueue(saivageDir);
   const { resolved, removed } = reconcileQueueEntries(saivageDir, queue);
   if (removed.length > 0) {
+    console.warn(`Removed ${removed.length} stale notes queue entr${removed.length === 1 ? 'y' : 'ies'} from ${queuePath(saivageDir)} because the backing note was missing, handled, or mismatched.`);
     writeQueueAtomic(saivageDir, {
       next_note_sequence: queue.next_note_sequence,
       entries: resolved.map(({ note: _note, ...entry }) => entry),
