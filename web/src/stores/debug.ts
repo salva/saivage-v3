@@ -49,12 +49,7 @@ import { createLogger } from '../utils/logger';
 
 const log = createLogger('store:debug');
 
-// ── Store ──────────────────────────────────────────────────────
-
 export const useDebugStore = defineStore('debug', () => {
-  // ── State ──────────────────────────────────────────────────
-
-  // State dump
   const debugRuntime = ref<RuntimeState | null>(null);
   const debugCards = ref<Array<{
     id: string;
@@ -68,43 +63,33 @@ export const useDebugStore = defineStore('debug', () => {
   }>>([]);
   const debugTotalCards = ref(0);
 
-  // Errors
   const errors = ref<DebugError[]>([]);
   const errorsTotal = ref(0);
 
-  // Timeline
   const timelineEvents = ref<DebugTimelineEvent[]>([]);
   const timelineTotal = ref(0);
 
-  // Processes (per-fetch loading + error)
   const processes = ref<ProcessRecord[]>([]);
   const processesLoading = ref(false);
   const processesError = ref<string | null>(null);
 
-  // Doctor (per-fetch loading + error)
   const doctorStatus = ref<'ok' | 'issues_found' | null>(null);
   const doctorChecks = ref<DoctorCheck[]>([]);
   const doctorIssues = ref<DoctorIssue[]>([]);
   const doctorLoading = ref(false);
   const doctorError = ref<string | null>(null);
 
-  // Supervision (per-fetch loading + error)
   const supervisionReviews = ref<ContentReview[]>([]);
   const supervisionQuarantine = ref<QuarantineSummaryEntry[]>([]);
   const supervisionStats = ref<SupervisionStats | null>(null);
   const supervisionLoading = ref(false);
   const supervisionError = ref<string | null>(null);
 
-  // Shared (used by fetchState / fetchErrors / fetchTimeline / fetchAll)
   const loading = ref(false);
   const error = ref<string | null>(null);
 
-  /** Which debug tab is active. */
   const activeTab = ref<'state' | 'errors' | 'timeline' | 'supervision'>('state');
 
-  // ── Getters ────────────────────────────────────────────────
-
-  /** Errors grouped by source for the errors list. */
   const errorsBySource = computed<Map<string, DebugError[]>>(() => {
     const map = new Map<string, DebugError[]>();
     for (const e of errors.value) {
@@ -118,7 +103,6 @@ export const useDebugStore = defineStore('debug', () => {
     return map;
   });
 
-  /** Errors grouped by severity. */
   const errorsBySeverity = computed<Map<string, DebugError[]>>(() => {
     const map = new Map<string, DebugError[]>();
     for (const e of errors.value) {
@@ -132,26 +116,18 @@ export const useDebugStore = defineStore('debug', () => {
     return map;
   });
 
-  /** Timeline events sorted by timestamp (newest first). */
   const sortedTimeline = computed<DebugTimelineEvent[]>(() =>
     [...timelineEvents.value].sort(
       (a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime(),
     ),
   );
 
-  /** Cards with errors or blocked status. */
   const problemCards = computed(() =>
-    debugCards.value.filter(
-      (c) => c.status === 'failed' || c.status === 'blocked',
-    ),
+    debugCards.value.filter((c) => c.status === 'failed' || c.status === 'blocked'),
   );
 
-  /** Doctor checks that failed. */
-  const failedChecks = computed(() =>
-    doctorChecks.value.filter((c) => !c.passed),
-  );
+  const failedChecks = computed(() => doctorChecks.value.filter((c) => !c.passed));
 
-  /** Doctor issues by severity. */
   const doctorIssuesBySeverity = computed(() => {
     const map = new Map<'error' | 'warning', DoctorIssue[]>();
     for (const issue of doctorIssues.value) {
@@ -165,7 +141,6 @@ export const useDebugStore = defineStore('debug', () => {
     return map;
   });
 
-  /** Supervision reviews grouped by status. */
   const reviewsByStatus = computed(() => {
     const map = new Map<string, ContentReview[]>();
     for (const r of supervisionReviews.value) {
@@ -179,9 +154,6 @@ export const useDebugStore = defineStore('debug', () => {
     return map;
   });
 
-  // ── Actions ────────────────────────────────────────────────
-
-  /** Fetch the full debug state dump. */
   async function fetchState(): Promise<void> {
     loading.value = true;
     error.value = null;
@@ -199,7 +171,6 @@ export const useDebugStore = defineStore('debug', () => {
     }
   }
 
-  /** Fetch the errors list. */
   async function fetchErrors(): Promise<void> {
     loading.value = true;
     error.value = null;
@@ -216,7 +187,6 @@ export const useDebugStore = defineStore('debug', () => {
     }
   }
 
-  /** Fetch timeline events. */
   async function fetchTimeline(): Promise<void> {
     loading.value = true;
     error.value = null;
@@ -233,7 +203,6 @@ export const useDebugStore = defineStore('debug', () => {
     }
   }
 
-  /** Fetch process list. Uses per-fetch error (processesError), not shared. */
   async function fetchProcesses(): Promise<void> {
     processesLoading.value = true;
     processesError.value = null;
@@ -249,7 +218,6 @@ export const useDebugStore = defineStore('debug', () => {
     }
   }
 
-  /** Fetch doctor diagnostics. Uses per-fetch error (doctorError), not shared. */
   async function fetchDoctor(): Promise<void> {
     doctorLoading.value = true;
     doctorError.value = null;
@@ -267,7 +235,6 @@ export const useDebugStore = defineStore('debug', () => {
     }
   }
 
-  /** Fetch supervision data (content reviews + quarantine index). Uses per-fetch error. */
   async function fetchSupervision(): Promise<void> {
     supervisionLoading.value = true;
     supervisionError.value = null;
@@ -285,7 +252,6 @@ export const useDebugStore = defineStore('debug', () => {
     }
   }
 
-  /** Fetch all debug data at once (state + errors + timeline). */
   async function fetchAll(): Promise<void> {
     loading.value = true;
     error.value = null;
@@ -332,9 +298,7 @@ export const useDebugStore = defineStore('debug', () => {
       .map((r) => (r.reason instanceof ApiError ? r.reason.message : 'Failed to fetch debug data'));
 
     if (failures.length > 0) {
-      error.value = failures.length >= 3
-        ? 'Failed to fetch debug data'
-        : failures.join('; ');
+      error.value = failures.length >= 3 ? 'Failed to fetch debug data' : failures.join('; ');
     }
 
     loading.value = false;
@@ -344,31 +308,26 @@ export const useDebugStore = defineStore('debug', () => {
     activeTab.value = tab;
   }
 
-  // ── WebSocket Integration ──────────────────────────────────
-
   let wsUnsubscribe: (() => void) | null = null;
 
   function setupWsListener(): void {
     if (wsUnsubscribe) return;
     const ws = useWsStore();
 
-    // Route all incoming events to the timeline for debugging
     wsUnsubscribe = ws.onType('status', (envelope) => {
       const content = envelope.content || {};
       const event = content.event as string;
 
-      // Add to timeline
       timelineEvents.value = [
         {
-          type: `ws:${event}`,
+          kind: `ws:${event}`,
           card_id: content.cardId as string | undefined,
           timestamp: new Date().toISOString(),
-          data: content,
+          ...content,
         },
         ...timelineEvents.value,
-      ].slice(0, 500); // Cap at 500 events
+      ].slice(0, 500);
 
-      // Track errors from status events
       if (event === 'error' && content.message) {
         errors.value = [
           {
@@ -386,7 +345,6 @@ export const useDebugStore = defineStore('debug', () => {
   }
 
   return {
-    // State
     debugRuntime: readonly(debugRuntime),
     debugCards: readonly(debugCards),
     debugTotalCards: readonly(debugTotalCards),
@@ -410,8 +368,6 @@ export const useDebugStore = defineStore('debug', () => {
     loading: readonly(loading),
     error: readonly(error),
     activeTab,
-
-    // Getters
     errorsBySource,
     errorsBySeverity,
     sortedTimeline,
@@ -419,8 +375,6 @@ export const useDebugStore = defineStore('debug', () => {
     failedChecks,
     doctorIssuesBySeverity,
     reviewsByStatus,
-
-    // Actions
     fetchState,
     fetchErrors,
     fetchTimeline,

@@ -11,7 +11,6 @@
     </div>
 
     <div class="debug-content">
-      <!-- State Tab -->
       <div v-if="localActiveTab === 'state'" class="debug-tab-content">
         <div v-if="loading" class="debug-loading">Loading state...</div>
         <div v-else-if="error" class="debug-error">{{ error }}</div>
@@ -64,7 +63,6 @@
         </template>
       </div>
 
-      <!-- Errors Tab -->
       <div v-if="localActiveTab === 'errors'" class="debug-tab-content">
         <div v-if="loading" class="debug-loading">Loading errors...</div>
         <div v-else-if="error" class="debug-error">{{ error }}</div>
@@ -85,22 +83,22 @@
         </div>
       </div>
 
-      <!-- Timeline Tab -->
       <div v-if="localActiveTab === 'timeline'" class="debug-tab-content">
         <div v-if="loading" class="debug-loading">Loading timeline...</div>
         <div v-else-if="error" class="debug-error">{{ error }}</div>
         <div v-else-if="sortedTimeline.length === 0" class="debug-empty">No timeline events.</div>
         <div v-else class="timeline-list">
-          <div v-for="event in sortedTimeline" :key="event.timestamp + event.type + (event.card_id || '')" class="tl-event">
-            <span class="tl-event-type">{{ event.type }}</span>
-            <span v-if="event.card_id" class="tl-event-card mono">{{ event.card_id.slice(0,12) }}</span>
+          <div v-for="event in sortedTimeline" :key="timelineKey(event)" class="tl-event">
+            <span class="tl-event-type">{{ formatEventKind(event.kind) }}</span>
+            <span v-if="event.card_id" class="tl-event-card mono">Card: {{ event.card_id }}</span>
+            <span v-if="event.goal_id" class="tl-event-card mono">Goal: {{ event.goal_id }}</span>
+            <span v-if="event.session_id" class="tl-event-card mono">Session: {{ event.session_id }}</span>
             <span class="tl-event-time">{{ fmtDate(event.timestamp) }}</span>
-            <pre v-if="event.data && Object.keys(event.data).length" class="tl-event-data">{{ fmtJson(event.data) }}</pre>
+            <pre v-if="Object.keys(timelineDetails(event)).length" class="tl-event-data">{{ fmtJson(timelineDetails(event)) }}</pre>
           </div>
         </div>
       </div>
 
-      <!-- MCP Tab -->
       <div v-if="localActiveTab === 'mcp'" class="debug-tab-content">
         <div v-if="mcpStore.loading" class="debug-loading">Loading MCP tools...</div>
         <div v-else-if="mcpStore.error" class="debug-error">{{ mcpStore.error }}</div>
@@ -161,7 +159,6 @@
         </div>
       </div>
 
-      <!-- Processes Tab (per-pane error via processesError) -->
       <div v-if="localActiveTab === 'processes'" class="debug-tab-content">
         <div v-if="processesLoading" class="debug-loading">Loading processes...</div>
         <div v-else-if="processesError" class="debug-error">{{ processesError }}</div>
@@ -191,7 +188,6 @@
         </div>
       </div>
 
-      <!-- Supervision Tab: Doctor + Quarantine -->
       <div v-if="localActiveTab === 'supervision'" class="debug-tab-content">
         <section class="debug-section">
           <div class="debug-section-header">
@@ -319,10 +315,8 @@ import { useRouter } from 'vue-router';
 import { storeToRefs } from 'pinia';
 import { useDebugStore } from '../stores/debug';
 import { useMcpStore } from '../stores/mcp';
-import type { DebugError } from '../api/types';
-import { createLogger } from '../utils/logger';
+import type { DebugError, DebugTimelineEvent } from '../api/types';
 
-const log = createLogger('view:debug');
 const debugStore = useDebugStore();
 const mcpStore = useMcpStore();
 const router = useRouter();
@@ -375,7 +369,7 @@ const cardStatusEntries = computed<CardStatusEntry[]>(() => {
   return Object.entries(counts).map(([status, count]) => ({ status, count }));
 });
 
-const maxStatusCount = computed(() => Math.max(...cardStatusEntries.value.map(e => e.count), 1));
+const maxStatusCount = computed(() => Math.max(...cardStatusEntries.value.map((e) => e.count), 1));
 
 interface ErrorSourceEntry { source: string; errors: DebugError[] }
 const errorSourceEntries = computed<ErrorSourceEntry[]>(() => {
@@ -389,6 +383,21 @@ const errorSourceEntries = computed<ErrorSourceEntry[]>(() => {
 function fmtDate(ts: string): string { try { return new Date(ts).toLocaleString(); } catch { return ts; } }
 function fmtJson(data: Record<string, unknown>): string {
   try { return JSON.stringify(data, null, 2); } catch { return String(data); }
+}
+function formatEventKind(kind: string): string {
+  return kind.replace(/_/g, ' ');
+}
+function timelineKey(event: DebugTimelineEvent): string {
+  return String(event.id || `${event.timestamp}:${event.kind}:${event.card_id || event.goal_id || event.session_id || ''}`);
+}
+function timelineDetails(event: DebugTimelineEvent): Record<string, unknown> {
+  const details: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(event)) {
+    if (['id', 'kind', 'timestamp', 'card_id', 'goal_id', 'session_id'].includes(key)) continue;
+    if (value === undefined || value === null) continue;
+    details[key] = value;
+  }
+  return details;
 }
 
 onMounted(async () => {
@@ -421,12 +430,10 @@ onUnmounted(() => {
 .dg-value { font-size:12px; color:#c9d1d9; }
 .dg-value.mono { font-family:'SF Mono',monospace; font-size:11px; color:#58a6ff; }
 .mono { font-family:'SF Mono',monospace; }
-
 .freeze-banner { display:flex; align-items:center; gap:10px; padding:12px 16px; background:#1a1d2e; border:1px solid #5a4fcf; border-radius:8px; margin-bottom:12px; }
 .freeze-banner-text { font-size:14px; color:#c9d1d9; display:flex; flex-direction:column; gap:2px; }
 .freeze-reason { font-size:12px; color:#8b949e; font-style:italic; }
 .freeze-value { color:#7c6ff0; font-weight:600; }
-
 .card-summary-bars { display:flex; flex-direction:column; gap:4px; margin-bottom:12px; }
 .csb-row { display:grid; grid-template-columns:80px 1fr 40px; gap:8px; align-items:center; }
 .csb-label { font-size:11px; color:#8b949e; text-transform:capitalize; text-align:right; }
@@ -477,7 +484,6 @@ onUnmounted(() => {
 .tl-event-card { font-size:10px; color:#8b949e; }
 .tl-event-time { font-size:10px; color:#484f58; margin-left:auto; }
 .tl-event-data { width:100%; margin-top:4px; padding:6px; background:#0d1117; border:1px solid #21262d; border-radius:4px; font-size:10px; font-family:'SF Mono',monospace; line-height:1.4; white-space:pre-wrap; word-break:break-word; color:#8b949e; max-height:100px; overflow-y:auto; }
-
 .mcp-server-badge { font-size:10px; font-weight:600; padding:1px 5px; border-radius:4px; text-transform:uppercase; margin-left:8px; }
 .mcp-server-badge.mcp-status-running { background:#1a2418; color:#7ee787; }
 .mcp-server-badge.mcp-status-stopped { background:#21262d; color:#8b949e; }
@@ -504,7 +510,6 @@ onUnmounted(() => {
 .mcp-stats-cell.mcp-stat-error { color:#f85149; }
 .mcp-stats-cell.mcp-stat-time { color:#484f58; }
 .mcp-content { padding:0; }
-
 .processes-list { display:flex; flex-direction:column; gap:10px; }
 .process-card { background:#161b22; border:1px solid #21262d; border-radius:6px; overflow:hidden; }
 .process-header { display:flex; align-items:center; gap:8px; padding:8px 12px; background:#1c2128; border-bottom:1px solid #30363d; }
@@ -519,12 +524,9 @@ onUnmounted(() => {
 .pd-key { color:#8b949e; min-width:90px; flex-shrink:0; }
 .pd-value { color:#c9d1d9; word-break:break-all; }
 .pd-value.mono { font-family:'SF Mono',monospace; font-size:11px; color:#58a6ff; }
-
-/* ── Supervision Tab Styles ── */
 .sv-fetch-btn { padding:3px 12px; font-size:11px; color:#58a6ff; background:#1c2738; border:1px solid #30363d; border-radius:4px; cursor:pointer; font-family:inherit; transition:all .15s; }
 .sv-fetch-btn:hover:not(:disabled) { background:#253548; border-color:#58a6ff; }
 .sv-fetch-btn:disabled { opacity:.5; cursor:not-allowed; }
-
 .doctor-status-banner { display:flex; align-items:center; gap:8px; padding:10px 14px; border-radius:6px; margin-bottom:12px; }
 .doctor-status-banner.doctor-ok { background:#1a2418; border:1px solid #3fb950; }
 .doctor-status-banner.doctor-issues { background:#241f18; border:1px solid #d29922; }
@@ -532,7 +534,6 @@ onUnmounted(() => {
 .doctor-ok .doctor-status-icon { color:#7ee787; }
 .doctor-issues .doctor-status-icon { color:#d29922; }
 .doctor-status-text { font-size:13px; color:#c9d1d9; }
-
 .doctor-checks-list { display:flex; flex-direction:column; gap:4px; margin-bottom:12px; }
 .doctor-check-item { display:flex; align-items:flex-start; gap:8px; padding:6px 10px; border-radius:4px; }
 .doctor-check-item.check-passed { background:#161b22; }
@@ -543,7 +544,6 @@ onUnmounted(() => {
 .check-body { display:flex; flex-direction:column; gap:2px; }
 .check-name { font-size:12px; color:#c9d1d9; font-family:'SF Mono',monospace; font-size:11px; }
 .check-details { font-size:11px; color:#8b949e; }
-
 .doctor-issues { margin-top:12px; }
 .doctor-issues-title { font-size:11px; font-weight:600; color:#f85149; margin:0 0 6px 0; }
 .doctor-issue-item { display:flex; align-items:flex-start; gap:8px; padding:6px 10px; border-radius:4px; margin-bottom:4px; background:#1a1818; }
@@ -551,7 +551,6 @@ onUnmounted(() => {
 .iss-error { background:#241818; color:#f85149; }
 .iss-warning { background:#241f18; color:#d29922; }
 .issue-message { font-size:12px; color:#c9d1d9; }
-
 .sv-stats-grid { display:grid; grid-template-columns:repeat(4,1fr); gap:8px; margin-bottom:16px; }
 .sv-stat-card { padding:12px; border-radius:6px; text-align:center; display:flex; flex-direction:column; gap:4px; }
 .sv-stat-total { background:#161b22; border:1px solid #30363d; }
@@ -564,7 +563,6 @@ onUnmounted(() => {
 .sv-stat-passed .sv-stat-num { color:#7ee787; }
 .sv-stat-sanitized .sv-stat-num { color:#58a6ff; }
 .sv-stat-label { font-size:10px; color:#8b949e; text-transform:uppercase; letter-spacing:.04em; }
-
 .sv-sub-section { margin-top:16px; }
 .sv-sub-title { font-size:11px; font-weight:600; color:#8b949e; margin:0 0 8px 0; }
 .sv-pills { display:flex; gap:6px; flex-wrap:wrap; }
@@ -573,7 +571,6 @@ onUnmounted(() => {
 .sv-pill.risk-medium { background:#241f18; color:#d29922; }
 .sv-pill.risk-high { background:#241818; color:#f85149; }
 .sv-pill-kind { background:#1c2738; color:#58a6ff; }
-
 .sv-review-list { display:flex; flex-direction:column; gap:4px; }
 .sv-review-item { display:flex; align-items:flex-start; gap:8px; padding:8px 10px; border-radius:4px; border-left:3px solid transparent; background:#161b22; }
 .sv-review-item.sv-review-passed { border-left-color:#7ee787; }
@@ -592,7 +589,6 @@ onUnmounted(() => {
 .sv-review-risk.risk-medium { background:#241f18; color:#d29922; }
 .sv-review-risk.risk-high { background:#241818; color:#f85149; }
 .sv-review-time { font-size:10px; color:#484f58; margin-left:auto; }
-
 .sv-quarantine-list { display:flex; flex-direction:column; gap:4px; }
 .sv-q-item { padding:8px 10px; background:#161b22; border:1px solid #21262d; border-radius:4px; }
 .sv-q-header { display:flex; align-items:center; gap:6px; margin-bottom:4px; }

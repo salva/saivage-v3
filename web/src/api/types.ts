@@ -6,8 +6,6 @@
  * stores, and Vue components.
  */
 
-// ── Core Card Types ───────────────────────────────────────────
-
 export type CardType =
   | 'project'
   | 'goal'
@@ -66,8 +64,6 @@ export interface CardRecord {
   notes?: NoteRecord[];
 }
 
-// ── Artifacts & Attachments ───────────────────────────────────
-
 export interface ArtifactRef {
   id: string;
   card_id: string;
@@ -99,6 +95,11 @@ export interface GeneratedFileRef {
   exists?: boolean;
   size?: number;
   modifiedAt?: string;
+  previewable?: boolean;
+  downloadable?: boolean;
+  blocked?: boolean;
+  redactedOnly?: boolean;
+  sensitivity?: 'normal' | 'restricted' | 'secret';
 }
 
 export interface VerificationCommandRef {
@@ -116,8 +117,6 @@ export interface CardEvidence {
   toolErrors: string[];
   parseFailure?: Record<string, unknown>;
 }
-
-// ── Notes ─────────────────────────────────────────────────────
 
 export type NoteAuthor = 'user' | 'analyst' | 'planner' | 'executor' | 'reviewer' | 'runtime';
 export type NoteKind = 'comment' | 'progress' | 'directive' | 'escalation';
@@ -140,8 +139,6 @@ export interface NoteQueueEntry {
   kind: NoteKind;
   note?: NoteRecord;
 }
-
-// ── Goal Diary & Review ───────────────────────────────────────
 
 export type DiaryEntryKind =
   | 'planner_invocation'
@@ -178,8 +175,6 @@ export interface ReviewAssessment {
   created_at: string;
 }
 
-// ── Processes ─────────────────────────────────────────────────
-
 export type ProcessStatus = 'running' | 'exited' | 'failed' | 'killed';
 
 export interface ProcessRecord {
@@ -204,8 +199,6 @@ export interface ProcessRecord {
   background_policy?: 'foreground' | 'background_required' | 'background_optional' | 'detach' | 'kill_on_freeze' | null;
   process_group_id?: number | null;
 }
-
-// ── Agent Session & Messages ──────────────────────────────────
 
 export type AgentRole = 'analyst' | 'planner' | 'executor' | 'reviewer' | 'content_supervisor';
 export type AgentStatus = 'active' | 'done' | 'failed';
@@ -248,8 +241,6 @@ export interface AgentMessage {
   links?: EntityLink[];
 }
 
-// ── Runtime State ─────────────────────────────────────────────
-
 export type RuntimeStatus = 'idle' | 'running' | 'paused' | 'error' | 'frozen';
 
 export interface RuntimeState {
@@ -273,8 +264,6 @@ export interface CardIndex {
   byType: Record<string, number>;
 }
 
-// ── Configuration ─────────────────────────────────────────────
-
 export interface ProviderEntry {
   priority: number;
   models: string[];
@@ -282,8 +271,6 @@ export interface ProviderEntry {
   hasAccounts: number;
   status: string;
 }
-
-// ── Files ─────────────────────────────────────────────────────
 
 export interface FileEntry {
   name: string;
@@ -299,8 +286,6 @@ export interface FileContent {
   contentType: string;
   content: string;
 }
-
-// ── Debug ─────────────────────────────────────────────────────
 
 export interface DebugState {
   runtime: RuntimeState | null;
@@ -391,8 +376,6 @@ export interface SupervisionResponse {
   stats: SupervisionStats;
 }
 
-// ── MCP ───────────────────────────────────────────────────────
-
 export interface McpToolInvocationStats {
   total: number;
   success: number;
@@ -426,8 +409,6 @@ export interface McpToolsResponse {
   serverDetails: McpServerWithTools[];
 }
 
-// ── Chat ──────────────────────────────────────────────────────
-
 export interface ChatSession {
   id: string;
   role: string;
@@ -456,8 +437,6 @@ export interface ChatResponse {
   }>;
 }
 
-// ── WebSocket ─────────────────────────────────────────────────
-
 export type WsConnectionState = 'connected' | 'connecting' | 'offline' | 'unauthorized' | 'no-token';
 
 export type WsEventType = 'message' | 'activity' | 'thinking' | 'status' | 'error';
@@ -466,7 +445,14 @@ export interface WsEnvelope {
   content: Record<string, unknown>;
 }
 
-// ── Freeze / Resume ───────────────────────────────────────────
+export type DataAuthority = 'rest' | 'ws' | 'mixed' | 'unknown';
+
+export interface FreshnessState {
+  lastFetchedAt: string | null;
+  lastWsEventAt: string | null;
+  lastUpdatedBy: DataAuthority;
+  isStale: boolean;
+}
 
 export interface FreezeResponse {
   status: string;
@@ -482,8 +468,6 @@ export interface ResumeFromFreezeResponse {
   restored_processes: string[];
   restored_card_id: string | null;
 }
-
-// ── API Response Wrappers ─────────────────────────────────────
 
 export interface CardListResponse {
   cards: CardRecord[];
@@ -585,8 +569,6 @@ export interface ProcessListResponse {
 export interface ProcessDetailResponse {
   process: ProcessRecord;
 }
-
-// ── Card Create/Update Payloads ───────────────────────────────
 
 export interface CreateCardPayload {
   type: CardType;

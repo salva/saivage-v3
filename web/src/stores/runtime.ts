@@ -31,11 +31,7 @@ function nowIso(): string {
   return new Date().toISOString();
 }
 
-// ── Store ──────────────────────────────────────────────────────
-
 export const useRuntimeStore = defineStore('runtime', () => {
-  // ── State ──────────────────────────────────────────────────
-
   const runtime = ref<RuntimeState | null>(null);
   const cardIndex = ref<CardIndex>({ total: 0, byStatus: {}, byType: {} });
   const loading = ref(false);
@@ -45,10 +41,7 @@ export const useRuntimeStore = defineStore('runtime', () => {
   const lastUpdatedBy = ref<FreshnessState['lastUpdatedBy']>('unknown');
   const unauthorized = ref(false);
 
-  /** Saved status before an optimistic pause, so resume can restore it. */
   let statusBeforePause: RuntimeStatus | null = null;
-
-  // ── Convenience getters ────────────────────────────────────
 
   const status = computed<RuntimeStatus>(() => runtime.value?.status ?? 'idle');
   const isRunning = computed(() => status.value === 'running');
@@ -64,7 +57,6 @@ export const useRuntimeStore = defineStore('runtime', () => {
     return Date.now() - new Date(latest).getTime() > STALE_AFTER_MS;
   });
 
-  /** Status display chip: running / idle / paused / frozen / error. */
   const statusLabel = computed<string>(() => {
     if (!runtime.value) return 'unknown';
     if (runtime.value.status === 'frozen') return 'frozen';
@@ -141,9 +133,6 @@ export const useRuntimeStore = defineStore('runtime', () => {
     lastUpdatedBy.value = lastFetchedAt.value ? 'mixed' : 'ws';
   }
 
-  // ── Actions ────────────────────────────────────────────────
-
-  /** Fetch current runtime state from the API. */
   async function fetchState(): Promise<void> {
     loading.value = true;
     error.value = null;
@@ -164,13 +153,11 @@ export const useRuntimeStore = defineStore('runtime', () => {
     }
   }
 
-  /** Pause the runtime globally. */
   async function pause(): Promise<void> {
     error.value = null;
     try {
       const response = await pauseRuntime();
       log.info('Runtime paused:', response.status);
-      // Optimistic update
       if (runtime.value) {
         if (!runtime.value.paused) {
           statusBeforePause = runtime.value.status;
@@ -187,7 +174,6 @@ export const useRuntimeStore = defineStore('runtime', () => {
     }
   }
 
-  /** Resume the runtime. */
   async function resume(): Promise<void> {
     error.value = null;
     try {
@@ -208,11 +194,8 @@ export const useRuntimeStore = defineStore('runtime', () => {
     }
   }
 
-  // ── WebSocket Integration ──────────────────────────────────
-
   let wsUnsubscribe: (() => void) | null = null;
   let reconnectUnsubscribe: (() => void) | null = null;
-  /** Saved status before a WS-driven pause, so the resumed handler can restore it. */
   let wsStatusBeforePause: RuntimeStatus | null = null;
 
   function setupWsListener(): void {
@@ -228,7 +211,6 @@ export const useRuntimeStore = defineStore('runtime', () => {
       const event = content.event as string;
       markWsSync();
 
-      // Full state update
       if (event === 'runtime-state') {
         if (content.runtime) {
           runtime.value = content.runtime as RuntimeState;
@@ -238,7 +220,6 @@ export const useRuntimeStore = defineStore('runtime', () => {
         }
       }
 
-      // Runtime paused/resumed
       if (event === 'runtime-paused' || event === 'runtime-resumed') {
         if (runtime.value) {
           if (event === 'runtime-paused') {
@@ -261,7 +242,6 @@ export const useRuntimeStore = defineStore('runtime', () => {
         }
       }
 
-      // Card-level updates that affect runtime view
       if (event === 'card-status-changed' && content.card) {
         fetchState().catch(() => {});
       }
@@ -269,7 +249,6 @@ export const useRuntimeStore = defineStore('runtime', () => {
   }
 
   return {
-    // State
     runtime: readonly(runtime),
     cardIndex: readonly(cardIndex),
     loading: readonly(loading),
@@ -278,8 +257,6 @@ export const useRuntimeStore = defineStore('runtime', () => {
     lastWsEventAt: readonly(lastWsEventAt),
     lastUpdatedBy: readonly(lastUpdatedBy),
     unauthorized: readonly(unauthorized),
-
-    // Getters
     status,
     isRunning,
     isPaused,
@@ -298,8 +275,6 @@ export const useRuntimeStore = defineStore('runtime', () => {
     liveUpdateLabel,
     liveUpdateDetail,
     pauseActionDisabledReason,
-
-    // Actions
     fetchState,
     pause,
     resume,
