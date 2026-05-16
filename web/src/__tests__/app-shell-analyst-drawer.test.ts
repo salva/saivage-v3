@@ -57,8 +57,12 @@ describe('AppShell analyst drawer', () => {
     const wrapper = mount(AppShell, { attachTo: document.body, global: { plugins: [createPinia(), router] } });
     const button = wrapper.get('.analyst-chip');
     expect(button.attributes('aria-expanded')).toBe('false');
+    const panelId = button.attributes('aria-controls');
+    expect(panelId).toBe('analyst-chat-panel');
     await button.trigger('click');
     await flushPromises();
+    const panel = wrapper.get(`#${panelId}`);
+    expect(panel.attributes('role')).toBe('dialog');
     expect(localStorage.getItem('analyst-chat:drawer-state')).toContain('"open":true');
     expect(button.attributes('aria-expanded')).toBe('true');
     expect(document.activeElement).toBe(wrapper.get('textarea').element);

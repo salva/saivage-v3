@@ -1,5 +1,6 @@
 <template>
   <aside
+    id="analyst-chat-panel"
     class="analyst-chat-panel"
     :class="{ open: drawerOpen }"
     :style="panelStyle"
