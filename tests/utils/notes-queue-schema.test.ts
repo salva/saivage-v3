@@ -131,7 +131,7 @@ describe('notes queue schema and reconciliation', () => {
     expect(warnSpy).toHaveBeenCalled();
   });
 
-  it('reconciles stale queue entries without exposing undefined notes, preserves note files, and safely reuses reconciled next_note_sequence state', () => {
+  it('reconciles stale queue entries without exposing undefined notes, preserves note files, and advances next_note_sequence past existing note ids', () => {
     const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
     const kept = appendNote(saivageDir, 'goal-1', { author: 'user', content: 'Keep me', kind: 'directive' });
     const stale = appendNote(saivageDir, 'goal-1', { author: 'user', content: 'Stale only in queue', kind: 'comment' });
@@ -153,13 +153,13 @@ describe('notes queue schema and reconciliation', () => {
     expect((resolved[0] as { note?: unknown }).note).toBeDefined();
     expect(readNotesFile('goal-1').map((note) => note.id).sort()).toEqual([kept.id, stale.id].sort());
     expect(readQueueFile()).toEqual({
-      next_note_sequence: 1,
+      next_note_sequence: 3,
       entries: [{ card_id: kept.card_id, note_id: kept.id, timestamp: kept.timestamp, kind: kept.kind }],
     });
 
     const appended = appendNote(saivageDir, 'goal-1', { author: 'analyst', content: 'Fresh after reconcile', kind: 'progress' });
-    expect(appended.id).toBe('n-goal-1-1');
-    expect(readQueueFile().next_note_sequence).toBe(2);
+    expect(appended.id).toBe('n-goal-1-3');
+    expect(readQueueFile().next_note_sequence).toBe(4);
     expect(readNotesFile('goal-1').map((note) => note.id)).toEqual([kept.id, stale.id, appended.id]);
     expect(warnSpy).toHaveBeenCalled();
   });

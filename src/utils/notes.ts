@@ -42,6 +42,11 @@ function extractQueueEntryCandidates(value: unknown): unknown[] {
   return Array.isArray(candidateEntries) ? candidateEntries : [];
 }
 
+function extractNoteSequenceSuffix(noteId: string): number | null {
+  const suffix = Number(noteId.match(/-(\d+)$/)?.[1] ?? NaN);
+  return Number.isInteger(suffix) && suffix > 0 ? suffix : null;
+}
+
 function computeSafeNextNoteSequence(entries: NotesQueueEntry[], candidateValue: unknown): number {
   let nextSequence = 1;
   if (candidateValue && typeof candidateValue === 'object') {
@@ -52,8 +57,8 @@ function computeSafeNextNoteSequence(entries: NotesQueueEntry[], candidateValue:
   }
 
   for (const entry of entries) {
-    const suffix = Number(entry.note_id.match(/-(\d+)$/)?.[1] ?? NaN);
-    if (Number.isInteger(suffix) && suffix >= nextSequence) {
+    const suffix = extractNoteSequenceSuffix(entry.note_id);
+    if (suffix !== null && suffix >= nextSequence) {
       nextSequence = suffix + 1;
     }
   }
@@ -138,6 +143,34 @@ function writeAllNotes(saivageDir: string, cardId: string, notes: NoteRecord[]):
   const path = notesFilePath(saivageDir, cardId);
   const content = notes.map((n) => JSON.stringify(noteRecordSchema.parse(n))).join('\n') + (notes.length > 0 ? '\n' : '');
   writeFileAtomic(path, content);
+}
+
+function collectMaxPersistedNoteSequence(saivageDir: string, cardIds: Iterable<string>): number {
+  let maxSequence = 0;
+  for (const cardId of cardIds) {
+    for (const note of getAllNotes(saivageDir, cardId)) {
+      const suffix = extractNoteSequenceSuffix(note.id);
+      if (suffix !== null && suffix > maxSequence) {
+        maxSequence = suffix;
+      }
+    }
+  }
+  return maxSequence;
+}
+
+function computeReconciledNextNoteSequence(
+  saivageDir: string,
+  queue: NotesQueue,
+  resolvedEntries: NotesQueueResolvedEntry[],
+): number {
+  const maxPersistedSequence = collectMaxPersistedNoteSequence(
+    saivageDir,
+    new Set([
+      ...queue.entries.map((entry) => entry.card_id),
+      ...resolvedEntries.map((entry) => entry.card_id),
+    ]),
+  );
+  return Math.max(queue.next_note_sequence, maxPersistedSequence + 1);
 }
 
 function generateNoteId(cardId: string, queue: NotesQueue): string {
@@ -250,7 +283,7 @@ export function getReconciledUnhandledNotesQueue(saivageDir: string): NotesQueue
   if (removed.length > 0) {
     console.warn(`Removed ${removed.length} stale notes queue entr${removed.length === 1 ? 'y' : 'ies'} from ${queuePath(saivageDir)} because the backing note was missing, handled, or mismatched.`);
     writeQueueAtomic(saivageDir, {
-      next_note_sequence: queue.next_note_sequence,
+      next_note_sequence: computeReconciledNextNoteSequence(saivageDir, queue, resolved),
       entries: resolved.map(({ note: _note, ...entry }) => entry),
     });
   }
