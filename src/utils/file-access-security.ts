@@ -1,24 +1,35 @@
 import { existsSync, lstatSync, realpathSync, statSync } from 'node:fs';
 import { normalize, relative, resolve, sep } from 'node:path';
-import { looksLikeSecretPath as sharedLooksLikeSecretPath } from './secret-paths.js';
+import {
+  looksLikeSecretPath as sharedLooksLikeSecretPath,
+  assertNotSecretPath,
+} from './secret-paths.js';
 
-export const SENSITIVE_PATHS: ReadonlySet<string> = new Set([
-  '.saivage/auth-profiles.json',
+const NON_SECRET_SENSITIVE_PATHS: ReadonlySet<string> = new Set([
   '.saivage/saivage.json',
   '.saivage-work/tmp/runtime/runtime.lock',
 ]);
 
-export const READ_BLOCKED_PATHS: ReadonlySet<string> = new Set([
-  '.saivage/auth-profiles.json',
+const NON_SECRET_WRITE_BLOCKED_PATHS: ReadonlySet<string> = new Set([
+  '.saivage-work/tmp/runtime/runtime.lock',
 ]);
 
+const NON_SECRET_REDACT_PATHS: ReadonlySet<string> = new Set([
+  '.saivage/saivage.json',
+]);
+
+export const SENSITIVE_PATHS: ReadonlySet<string> = new Set([
+  ...NON_SECRET_SENSITIVE_PATHS,
+]);
+
+export const READ_BLOCKED_PATHS: ReadonlySet<string> = new Set([]);
+
 export const WRITE_BLOCKED_PATHS: ReadonlySet<string> = new Set([
-  '.saivage/auth-profiles.json',
-  '.saivage-work/tmp/runtime/runtime.lock',
+  ...NON_SECRET_WRITE_BLOCKED_PATHS,
 ]);
 
 export const REDACT_PATHS: ReadonlySet<string> = new Set([
-  '.saivage/saivage.json',
+  ...NON_SECRET_REDACT_PATHS,
 ]);
 
 export function sanitizeFilePath(filePath: string): string {
@@ -37,22 +48,30 @@ export function sanitizeFilePath(filePath: string): string {
 
 export function isSensitivePath(filePath: string): boolean {
   const clean = sanitizeFilePath(filePath);
-  return SENSITIVE_PATHS.has(clean);
+  return sharedLooksLikeSecretPath(clean) || NON_SECRET_SENSITIVE_PATHS.has(clean);
 }
 
 export function isReadBlocked(filePath: string): boolean {
   const clean = sanitizeFilePath(filePath);
-  return READ_BLOCKED_PATHS.has(clean);
+  try {
+    assertNotSecretPath(clean);
+    return false;
+  } catch {
+    return true;
+  }
 }
 
 export function isWriteBlocked(filePath: string): boolean {
   const clean = sanitizeFilePath(filePath);
-  return WRITE_BLOCKED_PATHS.has(clean);
+  if (sharedLooksLikeSecretPath(clean)) {
+    return true;
+  }
+  return NON_SECRET_WRITE_BLOCKED_PATHS.has(clean);
 }
 
 export function isRedacted(filePath: string): boolean {
   const clean = sanitizeFilePath(filePath);
-  return REDACT_PATHS.has(clean);
+  return NON_SECRET_REDACT_PATHS.has(clean);
 }
 
 export function looksLikeSecretPath(filePath: string): boolean {
