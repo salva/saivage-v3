@@ -2,10 +2,10 @@ import { describe, expect, it } from '@jest/globals';
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { list_directory, read_file, type ToolContext } from '../../src/agents/analyst-tools.js';
+import { list_directory, read_file, run_shell_command, type ToolContext } from '../../src/agents/analyst-tools.js';
 
-function ctx(root: string): ToolContext {
-  return { projectRoot: root, actor: 'analyst', surface: 'web-chat' };
+function ctx(root: string, surface: ToolContext['surface'] = 'web-chat'): ToolContext {
+  return { projectRoot: root, actor: 'analyst', surface };
 }
 
 describe('analyst inspection tools secret-path policy', () => {
@@ -101,6 +101,31 @@ describe('analyst inspection tools secret-path policy', () => {
       expect(data.entries.some((entry) => entry.name === '.AWS')).toBe(false);
       expect(data.entries).toContainEqual({ name: '<redacted>', count: 2 });
       expect(data.entries).toContainEqual(expect.objectContaining({ name: 'safe-dir' }));
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('run_shell_command secret-bearing paths stay preview-only and do not leak real secret path names', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'wave-k-inspect-'));
+    try {
+      const result = await run_shell_command(ctx(root), { command: 'cat .saivage/auth-profiles.json apiKey=super-secret' });
+      expect(result.success).toBe(true);
+      expect(result.preview).toBeTruthy();
+      expect(result.error).toBeUndefined();
+      expect(JSON.stringify(result)).not.toMatch(/auth-profiles\.json/i);
+      expect(JSON.stringify(result)).toContain('[SECRET_PATH]');
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('run_shell_command is unavailable on telegram', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'wave-k-inspect-'));
+    try {
+      const result = await run_shell_command(ctx(root, 'telegram'), { command: 'ls' });
+      expect(result.success).toBe(false);
+      expect(result.error).toMatch(/not available on Telegram/i);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

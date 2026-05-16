@@ -214,6 +214,10 @@ export class AnalystHandler {
     this.llmResolver = new LlmIntentResolver(projectRoot);
   }
 
+  getAvailableToolNames(): string[] {
+    return Object.keys(TOOL_REGISTRY).filter((name) => !(this.surface === 'telegram' && name === 'run_shell_command'));
+  }
+
   async handleMessage(sessionId: string, userContent: string): Promise<AnalystResponse> {
     const previous = this.sessionQueues.get(sessionId) ?? Promise.resolve(null as never);
     const next = previous.catch(() => null as never).then(() => this.handleMessageSerial(sessionId, userContent));

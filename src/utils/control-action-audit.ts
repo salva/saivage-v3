@@ -61,6 +61,7 @@ export function listControlActions(projectRoot: string, filters?: { card_id?: st
     .map((entry) => ({
       ...entry,
       params_summary: sanitizeAuditText(entry.params_summary),
+      outcome_summary: sanitizeAuditText(entry.outcome_summary),
       error: entry.error ? sanitizeAuditText(entry.error) : undefined,
     }))
     .filter((entry) => (filters?.card_id ? entry.target_id === filters.card_id : true))
@@ -74,6 +75,7 @@ export function recordControlAction(projectRoot: string, entry: Omit<ControlActi
     id: entry.id ?? randomUUID(),
     created_at: entry.created_at ?? new Date().toISOString(),
     params_summary: sanitizeAuditText(entry.params_summary),
+    outcome_summary: sanitizeAuditText(entry.outcome_summary),
     error: entry.error ? sanitizeAuditText(entry.error) : undefined,
   });
   const path = auditPath(projectRoot);

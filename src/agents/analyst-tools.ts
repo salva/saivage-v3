@@ -36,6 +36,7 @@ function cardSummary(card: CardRecord) { return { id: card.id, title: card.title
 function normalizeParentValue(value: unknown): string | null | undefined { if (value === null) return null; if (typeof value !== 'string') return undefined; const trimmed = value.trim(); if (!trimmed) return undefined; if (trimmed.toLowerCase() === 'null') return null; return trimmed; }
 function defaultParentForCreate(store: CardStore, type: CardType): string | null | undefined { if (type === 'project') return null; if (type === 'goal') return store.read('project') ? 'project' : undefined; const activeGoals = store.list().filter((card) => card.type === 'goal' && ['active', 'running', 'backlog', 'drafting', 'blocked'].includes(card.status)).sort((a, b) => a.priority - b.priority); if (activeGoals.length === 1) return activeGoals[0].id; const allGoals = store.list().filter((card) => card.type === 'goal').sort((a, b) => a.priority - b.priority); if (allGoals.length === 1) return allGoals[0].id; return store.read('project') ? 'project' : undefined; }
 function paramsSummary(params: unknown): string { return stableStringify(params); }
+function summarizeShellCommand(command: string): string { return redactShellText(command).split(/\s+/).map((token) => { try { return looksLikeSecretPath(resolvePath(token)) ? '[SECRET_PATH]' : token; } catch { return token; } }).join(' ').slice(0, 200); }
 
 async function runMutatingTool<P extends { confirmed?: boolean; preview_hash?: string }>(ctx: ToolContext, params: P, spec: MutatingSpec<P>): Promise<ToolResult> {
   const verdict = evaluateAuthz({ actor: ctx.actor, surface: ctx.surface, safety_class: spec.safety_class });
@@ -71,7 +72,7 @@ function buildKillPreview(projectRoot: string, _store: CardStore, processId: str
 function redactShellText(value: string): string { return redactCredentialLiterals(redactSecrets(value)); }
 function summarizeShellOutcome(exitCode: number | null, truncated: boolean, timedOut: boolean): string { return timedOut ? 'command timed out' : `exit=${exitCode === null ? 'null' : String(exitCode)}${truncated ? ' truncated' : ''}`; }
 function captureLimited(buffer: Buffer, limit: number): { text: string; truncated: boolean; truncatedBytes: number } { if (buffer.length <= limit) return { text: buffer.toString('utf8'), truncated: false, truncatedBytes: 0 }; const sliced = buffer.subarray(0, limit).toString('utf8'); const truncatedBytes = buffer.length - limit; return { text: `${sliced}\n[truncated ${truncatedBytes} bytes]`, truncated: true, truncatedBytes }; }
-function buildShellPreview(command: string, cwd: string, classifiedAs: ShellSafetyClass): ShellExecPreview { return { type: 'shell.exec', summary: `Run ${classifiedAs} shell command in ${cwd}: ${command.slice(0, 200)}`, affectedCards: [], affectedProcesses: [], warnings: classifiedAs === 'destructive' ? ['This command is classified as destructive.'] : [], classified_as: classifiedAs, command, cwd }; }
+function buildShellPreview(command: string, cwd: string, classifiedAs: ShellSafetyClass): ShellExecPreview { const safeCommand = summarizeShellCommand(command); return { type: 'shell.exec', summary: `Run ${classifiedAs} shell command in ${cwd}: ${safeCommand}`, affectedCards: [], affectedProcesses: [], warnings: classifiedAs === 'destructive' ? ['This command is classified as destructive.'] : [], classified_as: classifiedAs, command: safeCommand, cwd }; }
 async function runShellCommandWithCapture(command: string, cwd: string, timeoutMs: number, maxOutputBytes: number): Promise<{ exitCode: number | null; durationMs: number; stdout: string; stderr: string; truncated: boolean; timedOut: boolean }> { return await new Promise((resolveResult) => { const startedAt = Date.now(); const child = spawn('bash', ['-lc', command], { cwd, env: sanitizedEnv(), timeout: timeoutMs, killSignal: 'SIGKILL' }); const stdoutChunks: Buffer[] = []; const stderrChunks: Buffer[] = []; let stdoutBytes = 0; let stderrBytes = 0; let timedOut = false; child.stdout.on('data', (chunk) => { const buf = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk); if (stdoutBytes < maxOutputBytes) stdoutChunks.push(buf); stdoutBytes += buf.length; }); child.stderr.on('data', (chunk) => { const buf = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk); if (stderrBytes < maxOutputBytes) stderrChunks.push(buf); stderrBytes += buf.length; }); child.on('error', (error) => { resolveResult({ exitCode: null, durationMs: Date.now() - startedAt, stdout: '', stderr: redactShellText(error.message), truncated: false, timedOut: false }); }); child.on('spawn', () => { if (child.stdin) child.stdin.end(); }); child.on('close', (code, signal) => { timedOut = signal === 'SIGKILL' && Date.now() - startedAt >= timeoutMs; const stdoutCapture = captureLimited(Buffer.concat(stdoutChunks), maxOutputBytes); const stderrCapture = captureLimited(Buffer.concat(stderrChunks), maxOutputBytes); resolveResult({ exitCode: timedOut ? null : code, durationMs: Date.now() - startedAt, stdout: redactShellText(stdoutCapture.text), stderr: redactShellText(stderrCapture.text || (timedOut ? `Command timed out after ${timeoutMs}ms.` : '')), truncated: stdoutCapture.truncated || stderrCapture.truncated || stdoutBytes > maxOutputBytes || stderrBytes > maxOutputBytes, timedOut }); }); }); }
 
 export async function create_card(ctx: ToolContext, params: { type: CardType; parent: string | null; title: string; description: string; status?: CardStatus; tags?: string[]; priority?: number; urgency?: 'low' | 'normal' | 'high' | 'critical'; acceptance?: string; depends_on?: string[]; related?: string[]; id?: string; confirmed?: boolean; preview_hash?: string; }): Promise<ToolResult> { return runMutatingTool(ctx, params, { action: 'card.create', safety_class: 'low', target_kind: 'card', getTargetId: (p) => p.id ?? null, run: async () => { try { const store = getStore(ctx); const parent = normalizeParentValue(params.parent) ?? defaultParentForCreate(store, params.type); if (parent === undefined) return { success: false, error: `Cannot create ${params.type} card without a parent. Inspect the card tree and provide an existing parent ID.` }; if (parent !== null && !store.read(parent)) return { success: false, error: `Parent card '${parent}' does not exist.` }; const card = store.create({ type: params.type, parent, depth: 0, title: params.title, description: params.description, status: params.status ?? 'drafting', tags: params.tags ?? [], priority: params.priority ?? 0, urgency: params.urgency ?? 'normal', created_by: 'analyst', acceptance: params.acceptance ?? '', depends_on: params.depends_on ?? [], related: params.related ?? [], blocks: [], artifacts: [], attachments: [], retries: 0, ...(params.id ? { id: params.id } : {}) }); return { success: true, data: card }; } catch (err) { return { success: false, error: err instanceof Error ? err.message : String(err) }; } } }); }
@@ -106,29 +107,22 @@ export async function restart_card(ctx: ToolContext, params: { id: string; confi
 export async function restart_goal(ctx: ToolContext, params: { goalId: string; confirmed?: boolean; preview_hash?: string }): Promise<ToolResult> { return runMutatingTool(ctx, params, { action: 'goal.restart', safety_class: 'destructive', target_kind: 'card', getTargetId: (p) => p.goalId, preview: () => buildRestartGoalPreview(ctx.projectRoot, getStore(ctx), params.goalId), run: async () => { const store = getStore(ctx); try { const goal = store.read(params.goalId); if (!goal) return { success: false, error: `Goal '${params.goalId}' not found.` }; for (const id of store.getDescendantIds(params.goalId)) { try { const child = store.read(id); if (child && (child.status === 'running' || child.status === 'active')) store.setStatus(id, 'cancelled'); } catch {} } try { deleteDiary(saivageDir(ctx.projectRoot), params.goalId); } catch {} store.update(params.goalId, { status: 'backlog', result: null, error: null, completed_at: null }); return { success: true, data: { goalId: params.goalId, status: 'backlog', descendantIds: store.getDescendantIds(params.goalId) } }; } catch (err) { return { success: false, error: err instanceof Error ? err.message : String(err) }; } } }); }
 export async function kill_process(ctx: ToolContext, params: { processId: string; confirmed?: boolean; preview_hash?: string }): Promise<ToolResult> { return runMutatingTool(ctx, params, { action: 'process.kill', safety_class: 'destructive', target_kind: 'process', getTargetId: (p) => p.processId, preview: () => buildKillPreview(ctx.projectRoot, getStore(ctx), params.processId), run: async () => { try { return { success: true, data: await killProc(ctx.projectRoot, params.processId) }; } catch (err) { return { success: false, error: err instanceof Error ? err.message : String(err) }; } } }); }
 
-// ── Inspection tools (read-only, broad scope) ────────────────────────────────
-// These exist so the analyst can investigate the runtime, the project, and any
-// host-visible file the saivage service can see. Shell inspection is bounded and
-// classified separately; project work must still be delegated via cards/notes.
-
 const FILE_READ_MAX_BYTES = 1_000_000;
 const FILE_READ_DEFAULT_BYTES = 200_000;
 const LIST_DIR_DEFAULT_ENTRIES = 500;
 const JSONL_TAIL_DEFAULT = 50;
 const JSONL_TAIL_MAX = 1000;
-const FILE_BINARY_SAMPLE = 4096;
 
 function isBinarySample(buf: Buffer): boolean {
-  const n = Math.min(buf.length, FILE_BINARY_SAMPLE);
-  if (n === 0) return false;
+  if (buf.length === 0) return false;
   let suspicious = 0;
-  for (let i = 0; i < n; i += 1) {
+  const sample = Math.min(buf.length, 1024);
+  for (let i = 0; i < sample; i += 1) {
     const b = buf[i];
     if (b === 0) return true;
-    const printable = b === 9 || b === 10 || b === 13 || (b >= 32 && b <= 126);
-    if (!printable) suspicious += 1;
+    if (b < 7 || (b > 14 && b < 32)) suspicious += 1;
   }
-  return suspicious / n > 0.3;
+  return suspicious / sample > 0.3;
 }
 
 export async function run_shell_command(ctx: ToolContext, params: { command: string; cwd?: string; timeoutMs?: number; maxOutputBytes?: number; confirmed?: boolean; preview_hash?: string }): Promise<ToolResult> {
@@ -139,30 +133,26 @@ export async function run_shell_command(ctx: ToolContext, params: { command: str
     if (!existsSync(cwd) || !statSync(cwd).isDirectory()) return { success: false, error: `cwd is not a directory: ${cwd}` };
     const classifiedAs = classifyShellCommand(params.command, cwd);
     const verdict = evaluateAuthz({ actor: ctx.actor, surface: ctx.surface, safety_class: classifiedAs });
-    const auditBase = { actor: ctx.actor, surface: ctx.surface, action: 'shell.exec', target_kind: null, target_id: null, confirmed: params.confirmed === true, params_summary: `shell.exec [classified=${classifiedAs}] ${params.command.slice(0, 200)}` };
-    if (ctx.actor === 'analyst' && ctx.surface === 'web-chat' && classifiedAs === 'destructive') {
-      recordControlAction(ctx.projectRoot, { ...auditBase, outcome: 'denied', outcome_summary: 'destructive shell commands are denied on web-chat' });
-      return { success: false, error: `Denied by authorization policy for ${ctx.actor}/${ctx.surface}/${classifiedAs}.`, data: { classified_as: classifiedAs } };
-    }
+    const auditBase = { actor: ctx.actor, surface: ctx.surface, action: 'shell.exec', target_kind: null, target_id: null, confirmed: params.confirmed === true, params_summary: `shell.exec [classified=${classifiedAs}] ${summarizeShellCommand(params.command)}` };
     if (verdict === 'deny') {
-      if (classifiedAs !== 'read_only') recordControlAction(ctx.projectRoot, { ...auditBase, outcome: 'denied', outcome_summary: 'authz denied' });
+      recordControlAction(ctx.projectRoot, { ...auditBase, outcome: 'denied', outcome_summary: `shell denied [classified=${classifiedAs}]` });
       return { success: false, error: `Denied by authorization policy for ${ctx.actor}/${ctx.surface}/${classifiedAs}.`, data: { classified_as: classifiedAs } };
     }
     if (verdict === 'preview_only') {
       const previewHash = hashPreviewParams(params);
-      const preview = buildShellPreview(params.command, cwd, classifiedAs);
+      const preview = buildShellPreview(redactShellText(params.command), cwd, classifiedAs);
       preview.preview_hash = previewHash;
       if (params.confirmed !== true || params.preview_hash !== previewHash) {
-        if (classifiedAs !== 'read_only') recordControlAction(ctx.projectRoot, { ...auditBase, outcome: 'rejected', outcome_summary: 'preview-only: confirmation and matching preview_hash required' });
+        recordControlAction(ctx.projectRoot, { ...auditBase, outcome: 'rejected', outcome_summary: `shell preview required [classified=${classifiedAs}]` });
         return { success: true, preview };
       }
     }
     const timeoutMs = Math.min(Math.max(1, params.timeoutMs ?? 15_000), 60_000);
     const maxOutputBytes = Math.min(Math.max(1, params.maxOutputBytes ?? 65_536), 1_048_576);
     const result = await runShellCommandWithCapture(params.command, cwd, timeoutMs, maxOutputBytes);
-    const payload = { classified_as: classifiedAs, exit_code: result.exitCode, duration_ms: result.durationMs, stdout: result.stdout, stderr: result.stderr, truncated: result.truncated, cwd, command: params.command };
+    const payload = { classified_as: classifiedAs, exit_code: result.exitCode, duration_ms: result.durationMs, stdout: result.stdout, stderr: result.stderr, truncated: result.truncated, cwd, command: redactShellText(params.command) };
     if (classifiedAs !== 'read_only') {
-      recordControlAction(ctx.projectRoot, { ...auditBase, outcome: result.exitCode === 0 && !result.timedOut ? 'ok' : 'error', outcome_summary: summarizeShellOutcome(result.exitCode, result.truncated, result.timedOut), ...(result.exitCode === 0 && !result.timedOut ? {} : { error: result.stderr || 'shell command failed' }) });
+      recordControlAction(ctx.projectRoot, { ...auditBase, outcome: result.exitCode === 0 && !result.timedOut ? 'ok' : 'error', outcome_summary: `${summarizeShellOutcome(result.exitCode, result.truncated, result.timedOut)} stdout=${result.stdout} stderr=${result.stderr}`.slice(0, 2000), ...(result.exitCode === 0 && !result.timedOut ? {} : { error: result.stderr || `shell command failed: ${summarizeShellOutcome(result.exitCode, result.truncated, result.timedOut)}` }) });
     }
     if (result.timedOut) return { success: false, error: `Command timed out after ${timeoutMs}ms.`, data: payload };
     return { success: result.exitCode === 0, ...(result.exitCode === 0 ? { data: payload } : { error: result.stderr || `Command exited with code ${result.exitCode}`, data: payload }) };
@@ -238,7 +228,7 @@ function readJsonlTail(path: string, limit: number): { entries: unknown[]; total
   const tail = lines.slice(-limit);
   const entries: unknown[] = [];
   for (const line of tail) {
-    try { entries.push(JSON.parse(line)); } catch { /* ignore malformed lines */ }
+    try { entries.push(JSON.parse(line)); } catch { }
   }
   return { entries, total: lines.length };
 }
@@ -247,7 +237,7 @@ export async function read_runtime_events(ctx: ToolContext, params: { limit?: nu
   try {
     const limit = Math.min(Math.max(1, params.limit ?? JSONL_TAIL_DEFAULT), JSONL_TAIL_MAX);
     const { entries, total } = readJsonlTail(join(ctx.projectRoot, '.saivage', 'runtime', 'events.jsonl'), limit);
-    const filtered = params.kind ? entries.filter((e) => (e as { kind?: string })?.kind === params.kind) : entries;
+    const filtered = params.kind ? entries.filter((e) => typeof e === 'object' && e !== null && (e as Record<string, unknown>)['kind'] === params.kind) : entries;
     return { success: true, data: { total_lines: total, returned: filtered.length, events: filtered } };
   } catch (err) {
     return { success: false, error: err instanceof Error ? err.message : String(err) };

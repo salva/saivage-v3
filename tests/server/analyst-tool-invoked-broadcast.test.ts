@@ -74,7 +74,7 @@ describe('analyst_tool_invoked broadcast', () => {
     } finally { rmSync(root, { recursive: true, force: true }); }
   });
 
-  it('broadcasts denied destructive shell payload with classification', async () => {
+  it('broadcasts previewed destructive shell payload with classification', async () => {
     const root = setupRoot();
     try {
       const handler = new AnalystHandler(root, undefined, undefined, 'analyst', 'web-chat');
@@ -83,7 +83,15 @@ describe('analyst_tool_invoked broadcast', () => {
       const payload = broadcastAnalystToolInvoked.mock.calls.at(-1)?.[0] as BroadcastPayload;
       expect(payload.tool).toBe('run_shell_command');
       expect(payload.classified_as).toBe('destructive');
-      expect(payload.success).toBe(false);
+      expect(payload.success).toBe(true);
+    } finally { rmSync(root, { recursive: true, force: true }); }
+  });
+
+  it('does not expose run_shell_command in telegram tool registration', async () => {
+    const root = setupRoot();
+    try {
+      const handler = new AnalystHandler(root, undefined, undefined, 'analyst', 'telegram');
+      expect(handler.getAvailableToolNames()).not.toContain('run_shell_command');
     } finally { rmSync(root, { recursive: true, force: true }); }
   });
 });

@@ -154,4 +154,4 @@ export class LlmIntentResolver {
   }
 }
 
-export { TOOL_REGISTRY };
+export { TOOL_REGISTRY, ANALYST_SYSTEM_PROMPT };
