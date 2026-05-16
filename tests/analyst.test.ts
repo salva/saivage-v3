@@ -8,7 +8,7 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
 import { CardStore } from '../src/utils/card-store.js';
-import { initRuntimeState } from '../src/utils/runtime-state.js';
+import { initRuntimeState, readRuntimeState, updateRuntimeState } from '../src/utils/runtime-state.js';
 import { startProcess, waitProcess } from '../src/utils/process-runner.js';
 
 import {
@@ -121,6 +121,33 @@ describe('Analyst Tools', () => {
     const r = await kill_process(ctx(projectRoot, store), { processId: proc.id });
     expect(r.success).toBe(true);
     expect(r.preview).toBeDefined();
+  });
+
+  it('refuses resume_runtime while frozen and preserves frozen persisted state', async () => {
+    updateRuntimeState(projectRoot, {
+      status: 'frozen',
+      paused: true,
+      paused_at: '2025-01-01T00:00:00.000Z',
+      frozen_reason: 'operator requested freeze',
+    });
+
+    const before = readRuntimeState(projectRoot);
+    expect(before).not.toBeNull();
+    expect(before?.status).toBe('frozen');
+
+    const result = await resume_runtime(ctx(projectRoot, store), {});
+
+    expect(result.success).toBe(false);
+    expect(result.error).toContain('resume-from-freeze');
+    expect(result.error).toContain('Runtime is frozen');
+
+    const after = readRuntimeState(projectRoot);
+    expect(after).not.toBeNull();
+    expect(after?.status).toBe('frozen');
+    expect(after?.paused).toBe(true);
+    expect(after?.paused_at).toBe('2025-01-01T00:00:00.000Z');
+    expect(after?.frozen_reason).toBe('operator requested freeze');
+    expect(after).toEqual(before);
   });
 });
 
