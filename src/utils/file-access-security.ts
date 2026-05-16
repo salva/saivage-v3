@@ -1,22 +1,5 @@
-/**
- * File Access Security
- *
- * Implements sensitive file blocking and secret redaction as
- * described in 05-security.md § "Sensitive File Protection":
- *
- * | Path                                | Protection         |
- * |-------------------------------------|--------------------|
- * | .saivage/auth-profiles.json         | No read, no write  |
- * | .saivage/saivage.json (secrets)     | Redacted on read   |
- * | .saivage-work/tmp/runtime/runtime.lock | No write        |
- *
- * Also implements stash path security per 04-runtime.md § Stash:
- * read_stash only allows reading from the stash directory;
- * path traversal is rejected.
- */
-
 import { existsSync, lstatSync, realpathSync, statSync } from 'node:fs';
-import { normalize, relative, resolve, sep } from 'node:path';
+import { basename, normalize, relative, resolve, sep } from 'node:path';
 
 export const SENSITIVE_PATHS: ReadonlySet<string> = new Set([
   '.saivage/auth-profiles.json',
@@ -36,6 +19,25 @@ export const WRITE_BLOCKED_PATHS: ReadonlySet<string> = new Set([
 export const REDACT_PATHS: ReadonlySet<string> = new Set([
   '.saivage/saivage.json',
 ]);
+
+const SECRET_PATH_PATTERNS: ReadonlyArray<RegExp> = [
+  /(?:^|\/)auth-profiles\.json$/i,
+  /(?:^|\/)id_rsa$/i,
+  /(?:^|\/)id_ed25519$/i,
+  /(?:^|\/)[^/]+\.(?:pem|key|pfx)$/i,
+  /(?:^|\/)\.env(?:\.[^/]+)?$/i,
+  /(?:^|\/)credentials$/i,
+  /(?:^|\/)cookies\.txt$/i,
+];
+
+const SECRET_PATH_FRAGMENTS = [
+  '/.saivage/auth-profiles',
+  '/.ssh/',
+  '/.aws/',
+  '/.config/gcloud/',
+  '/.npmrc',
+  '/.pypirc',
+];
 
 export function sanitizeFilePath(filePath: string): string {
   if (!filePath) return '';
@@ -71,13 +73,20 @@ export function isRedacted(filePath: string): boolean {
   return REDACT_PATHS.has(clean);
 }
 
+export function looksLikeSecretPath(filePath: string): boolean {
+  if (!filePath) return false;
+  const normalized = sanitizeFilePath(resolve(filePath)).replace(/\\/g, '/').toLowerCase();
+  if (SECRET_PATH_FRAGMENTS.some((fragment) => normalized.includes(fragment.toLowerCase()))) return true;
+  return SECRET_PATH_PATTERNS.some((pattern) => pattern.test(normalized)) || /(?:^|\/)\.git\/(?:.*(?:token|auth)|objects\/)/i.test(normalized) || basename(normalized) === '.npmrc' || basename(normalized) === '.pypirc';
+}
+
 const REDACT_KEY_PATTERN =
   /\b(?:apiKey|apiToken|botToken|accessToken|refreshToken|(?:api_)?key|.*[A-Z](?:Token|Key|Secret|Password)|.*_(?:key|token|secret|password)|secret|password)\b/i;
 
 const REDACT_VALUE_RE =
   /("(?:[^"\\]|\\.)*")(\s*):(\s*)"((?:[^"\\]|\\.)*)"/gi;
 
-const CREDENTIAL_LITERAL_RE = /\b(sk-[^\s"\\]+|tid=[^\s"\\]+|ghu_[A-Za-z0-9_]+|rt_[^\s"\\]+)\b/g;
+const CREDENTIAL_LITERAL_RE = /\b(sk-[^\s"\\]+|tid=[^\s"\\]+|ghu_[A-Za-z0-9_]+|rt_[^\s"\\]+|tok_[^\s"\\]+)\b/g;
 
 export function redactSecrets(content: string): string {
   if (!content) return content;
@@ -103,7 +112,8 @@ export function redactCredentialLiterals(content: string): string {
     const prefix = match.startsWith('sk-') ? 'sk' :
       match.startsWith('tid=') ? 'tid' :
         match.startsWith('ghu_') ? 'ghu' :
-          match.startsWith('rt_') ? 'rt' : 'credential';
+          match.startsWith('rt_') ? 'rt' :
+            match.startsWith('tok_') ? 'tok' : 'credential';
     return `${prefix}-[REDACTED]`;
   });
 }

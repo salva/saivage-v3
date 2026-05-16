@@ -1,7 +1,3 @@
-/**
- * Analyst Tool Schemas — OpenAI-compatible function definitions for analyst and agent-accessible tools.
- */
-
 import type { ToolDefinition } from './llm-client.js';
 
 function str(description: string): Record<string, unknown> { return { type: 'string', description }; }
@@ -14,7 +10,7 @@ function tool(name: string, description: string, properties: Record<string, unkn
 
 export const ANALYST_TOOL_DEFINITIONS: ToolDefinition[] = [
   tool('create_card','Create a new card in the card tree.',{ type: str('The card type.'), parent: str('The ID of the parent card. Use null only for a root project card.'), title: str('A short title.'), description: str('A detailed description.'), status: str('Optional initial status.'), tags: arr(str('A tag string'),'Optional tags.'), priority: int('Optional priority value.'), urgency: str('Optional urgency level.'), acceptance: str('Optional acceptance criteria text.'), depends_on: arr(str('A card ID'),'Optional dependency list.'), id: str('Optional pre-assigned card ID.') },['type','title','description']),
-  tool('edit_card','Edit an existing card.',{ id: str('The ID of the card to edit.'), title: str('New title.'), description: str('New description.'), status: str('New status.'), tags: arr(str('A tag string'),'New tags.'), priority: int('New priority.'), urgency: str('New urgency level.'), acceptance: str('New acceptance criteria.'), depends_on: arr(str('A card ID'),'New dependency list.') },['id']),
+  tool('edit_card','Edit an existing card.',{ id: str('The ID of the card to edit.'), title: str('New title.'), description: str('New description.'), status: str('New status.'), tags: arr(str('A tag string'),'New tags.'), priority: int('New priority.'), urgency: str('New urgency level.'), acceptance: str('New acceptance criteria.'), depends_on: arr(str('A card ID'),'New dependency list.'), confirmed: bool('Set true to confirm a preview-only action.'), preview_hash: str('Preview hash returned by a prior preview response.') },['id']),
   tool('move_card','Re-parent a card in the tree.',{ id: str('The ID of the card to move.'), newParent: str('The ID of the new parent card. Use null to move to root level.') },['id','newParent']),
   tool('delete_card','Delete a card and all its descendants.',{ id: str('The ID of the card to delete.') },['id']),
   tool('add_note','Add a note to a card.',{ cardId: str('The ID of the card to add the note to.'), content: str('The text content of the note.'), kind: str('The kind of note.') },['cardId','content']),
@@ -37,6 +33,15 @@ export const ANALYST_TOOL_DEFINITIONS: ToolDefinition[] = [
   tool('restart_card','Restart a completed, failed, or cancelled card.',{ id: str('The ID of the card to restart.') },['id']),
   tool('restart_goal','Restart a goal.',{ goalId: str('The ID of the goal card to restart.') },['goalId']),
   tool('kill_process','Kill a running external process by its process ID.',{ processId: str('The ID of the process to kill.') },['processId']),
+  tool('read_file','Read the contents of any file the saivage service can see on the host. Returns up to maxBytes bytes (default 200000, max 1000000). Binary files return content=null with binary=true. Use absolute paths or paths relative to the saivage server cwd.',{ path: str('Absolute or relative file path.'), maxBytes: int('Max bytes to read (default 200000, max 1000000).') },['path']),
+  tool('list_directory','List the contents of any directory the saivage service can see on the host. Use absolute paths or paths relative to the saivage server cwd.',{ path: str('Absolute or relative directory path.'), maxEntries: int('Max entries to return (default 500, max 5000).') },['path']),
+  tool('run_shell_command','Run a bounded inspection shell command. Destructive commands are denied on web-chat and must not be used to mutate project source or runtime state.',{ command: str('Shell command to inspect the host or project state.'), cwd: str('Optional working directory. Defaults to the project root.'), timeoutMs: int('Optional timeout in milliseconds (default 15000, max 60000).'), maxOutputBytes: int('Optional per-stream output cap in bytes (default 65536, max 1048576).'), confirmed: bool('Set true to confirm a preview-only action.'), preview_hash: str('Preview hash returned by a prior preview response.') },['command']),
+  tool('read_runtime_events','Tail the project runtime events log (.saivage/runtime/events.jsonl). Optionally filter by event kind.',{ limit: int('Number of recent events (default 50, max 1000).'), kind: str('Optional event kind filter.') },[]),
+  tool('read_runtime_errors','Tail the project runtime errors log (.saivage/runtime/errors.jsonl).',{ limit: int('Number of recent errors (default 50, max 1000).') },[]),
+  tool('read_control_actions','Tail the control-action audit log (.saivage/runtime/control-actions.jsonl). Shows mutating actions performed by analyst/planner/operator.',{ limit: int('Number of recent entries (default 50, max 1000).'), since: str('Optional ISO timestamp; only return entries created at or after this time.') },[]),
+  tool('list_processes_tool','List all runtime processes (not card-scoped). Optionally filter by status (running, finished, failed, killed) or cardId.',{ status: str('Optional status filter.'), cardId: str('Optional card-scope filter.') },[]),
+  tool('list_agent_sessions','List all agent sessions in the project (analyst, planner, executor, etc.), not just the current analyst session.',{},[]),
+  tool('read_agent_session','Read a specific agent session\'s metadata and most recent persisted messages. Useful for inspecting what other agents (planner, executor, etc.) have been doing.',{ sessionId: str('The session ID to inspect.'), lastN: int('How many most-recent messages to return (default 50, max 1000).') },['sessionId']),
 ];
 
 export const ANALYST_TOOL_NAMES: string[] = ANALYST_TOOL_DEFINITIONS.map((t) => t.function.name);
