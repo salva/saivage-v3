@@ -9,6 +9,7 @@ import { tmpdir } from 'node:os';
 import { getClientCount } from '../src/server/websocket.js';
 import { resetChatRouteState } from '../src/server/routes/chats-files-debug.js';
 import { appendNote } from '../src/utils/notes.js';
+import { createServer, type ServerInstance } from '../src/server/server.js';
 
 const TEST_ROOT = join(tmpdir(), `saivage-api-test-${Date.now()}`);
 const SAIVAGE_DIR = join(TEST_ROOT, '.saivage');
@@ -25,24 +26,29 @@ function url(path: string): string {
   return `http://127.0.0.1:${port}${path}`;
 }
 
-beforeAll(async () => {
-  mkdirSync(join(SAIVAGE_DIR, 'cards', 'by-id'), { recursive: true });
-  mkdirSync(join(SAIVAGE_DIR, 'cards', 'tree'), { recursive: true });
-  mkdirSync(join(SAIVAGE_DIR, 'cards', 'dependencies'), { recursive: true });
-  mkdirSync(join(SAIVAGE_DIR, 'notes', 'by-card'), { recursive: true });
-  mkdirSync(join(SAIVAGE_DIR, 'runtime'), { recursive: true });
-  mkdirSync(join(SAIVAGE_DIR, 'agents', 'sessions'), { recursive: true });
-  mkdirSync(join(SAIVAGE_DIR, 'agents', 'messages'), { recursive: true });
+function initializeProjectRoot(root: string): void {
+  const saivageDir = join(root, '.saivage');
+  mkdirSync(join(saivageDir, 'cards', 'by-id'), { recursive: true });
+  mkdirSync(join(saivageDir, 'cards', 'tree'), { recursive: true });
+  mkdirSync(join(saivageDir, 'cards', 'dependencies'), { recursive: true });
+  mkdirSync(join(saivageDir, 'notes', 'by-card'), { recursive: true });
+  mkdirSync(join(saivageDir, 'runtime'), { recursive: true });
+  mkdirSync(join(saivageDir, 'agents', 'sessions'), { recursive: true });
+  mkdirSync(join(saivageDir, 'agents', 'messages'), { recursive: true });
 
   const now = new Date().toISOString();
-  writeFileSync(join(SAIVAGE_DIR, 'cards', 'by-id', 'project.json'), JSON.stringify({ id: 'project', type: 'project', parent: null, depth: 0, title: 'project', description: '', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', created_at: now, updated_at: now, depends_on: [], blocks: [], related: [], acceptance: '', artifacts: [], attachments: [], retries: 0 }));
-  writeFileSync(join(SAIVAGE_DIR, 'cards', 'index.json'), JSON.stringify({ cards: { project: { id: 'project', type: 'project', parent: null, status: 'backlog', title: 'project' } } }));
-  writeFileSync(join(SAIVAGE_DIR, 'cards', 'tree', 'project.children.json'), JSON.stringify([]));
-  writeFileSync(join(SAIVAGE_DIR, 'cards', 'dependencies', 'depends-on.json'), JSON.stringify({}));
-  writeFileSync(join(SAIVAGE_DIR, 'cards', 'dependencies', 'blocks.json'), JSON.stringify({}));
-  writeFileSync(join(SAIVAGE_DIR, 'notes', 'queue.json'), JSON.stringify({ next_note_sequence: 1, entries: [] }));
-  writeFileSync(join(SAIVAGE_DIR, 'runtime', 'state.json'), JSON.stringify({ status: 'idle', project_id: 'project', pid: process.pid, started_at: now, current_card_id: null, current_agent_session_id: null, paused: false, paused_at: null, queue: [], running_processes: [], updated_at: now }));
-  writeFileSync(join(SAIVAGE_DIR, 'saivage.json'), JSON.stringify({ server: { port: 0, host: '127.0.0.1' }, models: { default: ['test-model'] }, providers: { test: { priority: 10, models: ['test-model'], apiKey: 'secret-key' } } }));
+  writeFileSync(join(saivageDir, 'cards', 'by-id', 'project.json'), JSON.stringify({ id: 'project', type: 'project', parent: null, depth: 0, title: 'project', description: '', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', created_at: now, updated_at: now, depends_on: [], blocks: [], related: [], acceptance: '', artifacts: [], attachments: [], retries: 0 }));
+  writeFileSync(join(saivageDir, 'cards', 'index.json'), JSON.stringify({ cards: { project: { id: 'project', type: 'project', parent: null, status: 'backlog', title: 'project' } } }));
+  writeFileSync(join(saivageDir, 'cards', 'tree', 'project.children.json'), JSON.stringify([]));
+  writeFileSync(join(saivageDir, 'cards', 'dependencies', 'depends-on.json'), JSON.stringify({}));
+  writeFileSync(join(saivageDir, 'cards', 'dependencies', 'blocks.json'), JSON.stringify({}));
+  writeFileSync(join(saivageDir, 'notes', 'queue.json'), JSON.stringify({ next_note_sequence: 1, entries: [] }));
+  writeFileSync(join(saivageDir, 'runtime', 'state.json'), JSON.stringify({ status: 'idle', project_id: 'project', pid: process.pid, started_at: now, current_card_id: null, current_agent_session_id: null, paused: false, paused_at: null, queue: [], running_processes: [], updated_at: now }));
+  writeFileSync(join(saivageDir, 'saivage.json'), JSON.stringify({ server: { port: 0, host: '127.0.0.1' }, models: { default: ['test-model'] }, providers: { test: { priority: 10, models: ['test-model'], apiKey: 'secret-key' } } }));
+}
+
+beforeAll(async () => {
+  initializeProjectRoot(TEST_ROOT);
 
   authToken = process.env['SAIVAGE_API_TOKEN'] || 'test-token';
   process.env['SAIVAGE_API_TOKEN'] = authToken;
@@ -168,56 +174,71 @@ describe('runtime config and notes routes', () => {
   });
 });
 
-describe('Lifecycle cleanup', () => {
-  it('direct app.close() runs route onClose and closes websocket clients', async () => {
-    const lifecycleRoot = join(tmpdir(), `saivage-api-lifecycle-${Date.now()}`);
-    const sd = join(lifecycleRoot, '.saivage');
-    mkdirSync(join(sd, 'cards', 'by-id'), { recursive: true });
-    mkdirSync(join(sd, 'cards', 'tree'), { recursive: true });
-    mkdirSync(join(sd, 'cards', 'dependencies'), { recursive: true });
-    mkdirSync(join(sd, 'notes', 'by-card'), { recursive: true });
-    mkdirSync(join(sd, 'runtime'), { recursive: true });
-    mkdirSync(join(sd, 'agents', 'sessions'), { recursive: true });
-    mkdirSync(join(sd, 'agents', 'messages'), { recursive: true });
-    const now = new Date().toISOString();
-    writeFileSync(join(sd, 'cards', 'by-id', 'project.json'), JSON.stringify({ id: 'project', type: 'project', parent: null, depth: 0, title: 'project', description: '', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', created_at: now, updated_at: now, depends_on: [], blocks: [], related: [], acceptance: '', artifacts: [], attachments: [], retries: 0 }));
-    writeFileSync(join(sd, 'cards', 'index.json'), JSON.stringify({ cards: { project: { id: 'project', type: 'project', parent: null, status: 'backlog', title: 'project' } } }));
-    writeFileSync(join(sd, 'cards', 'tree', 'project.children.json'), JSON.stringify([]));
-    writeFileSync(join(sd, 'cards', 'dependencies', 'depends-on.json'), JSON.stringify({}));
-    writeFileSync(join(sd, 'cards', 'dependencies', 'blocks.json'), JSON.stringify({}));
-    writeFileSync(join(sd, 'notes', 'queue.json'), JSON.stringify({ next_note_sequence: 1, entries: [] }));
-    writeFileSync(join(sd, 'runtime', 'state.json'), JSON.stringify({ status: 'idle', project_id: 'project', pid: process.pid, started_at: now, current_card_id: null, current_agent_session_id: null, paused: false, paused_at: null, queue: [], running_processes: [], updated_at: now }));
-    writeFileSync(join(sd, 'saivage.json'), JSON.stringify({ server: { port: 0, host: '127.0.0.1' }, models: { default: ['test-model'] }, providers: { test: { priority: 10, models: ['test-model'], apiKey: 'secret-key' } } }));
+describe('server factory docs and lifecycle cleanup', () => {
+  it('isolates /docs from the SPA fallback', async () => {
+    const docsRoot = join(tmpdir(), `saivage-api-docs-${Date.now()}`);
+    initializeProjectRoot(docsRoot);
 
-    const localApp = Fastify({ logger: false });
+    let server: ServerInstance | undefined;
     try {
-      await localApp.register(cors);
-      await localApp.register(websocket);
-      const { default: authPlugin } = await import('../src/server/auth.js');
-      await localApp.register(authPlugin);
-      const { registerCardRoutes } = await import('../src/server/routes/cards.js');
-      const { registerRuntimeConfigNotesRoutes } = await import('../src/server/routes/runtime-config-notes.js');
-      const { registerChatsFilesDebugRoutes } = await import('../src/server/routes/chats-files-debug.js');
-      const { registerWebSocket } = await import('../src/server/websocket.js');
-      registerCardRoutes(localApp, lifecycleRoot);
-      registerRuntimeConfigNotesRoutes(localApp, lifecycleRoot);
-      registerChatsFilesDebugRoutes(localApp, lifecycleRoot);
-      registerWebSocket(localApp, lifecycleRoot);
-      await localApp.listen({ port: 0, host: '127.0.0.1' });
-      const localPort = (localApp.server.address() as { port: number }).port;
+      server = await createServer(docsRoot, false);
+      await server.fastify.listen({ port: 0, host: '127.0.0.1' });
+      const localPort = (server.fastify.server.address() as { port: number }).port;
 
-      const ws = new WebSocket(`ws://127.0.0.1:${localPort}/ws?token=${authToken}`);
-      await new Promise<void>((resolve, reject) => {
-        ws.once('message', () => resolve());
-        ws.once('error', reject);
+      const res = await fetch(`http://127.0.0.1:${localPort}/docs`, {
+        headers: authHeader(authToken),
+        redirect: 'manual',
       });
-      await fetch(`http://127.0.0.1:${localPort}/api/chats/lifecycle-close`, { method: 'POST', headers: { ...authHeader(authToken), 'content-type': 'application/json' }, body: JSON.stringify({ content: 'list all cards' }) });
-      expect(getClientCount()).toBeGreaterThan(0);
-      await localApp.close();
-      ws.terminate();
-      resetChatRouteState(lifecycleRoot);
+
+      expect([302, 404]).toContain(res.status);
+      if (res.status === 302) {
+        expect(res.headers.get('location')).toBe('/docs/');
+      } else {
+        expect(await res.json()).toEqual({
+          error: 'Documentation not built. Run vitepress build docs/ to generate.',
+        });
+      }
     } finally {
-      try { await localApp.close(); } catch {}
+      try { await server?.stop(); } catch {}
+      try { rmSync(docsRoot, { recursive: true, force: true }); } catch {}
+    }
+  });
+
+  it('server.stop() runs route cleanup and closes websocket clients for createServer()', async () => {
+    const lifecycleRoot = join(tmpdir(), `saivage-api-lifecycle-${Date.now()}`);
+    initializeProjectRoot(lifecycleRoot);
+
+    let server: ServerInstance | undefined;
+    let ws: WebSocket | undefined;
+
+    try {
+      server = await createServer(lifecycleRoot, false);
+      await server.fastify.listen({ port: 0, host: '127.0.0.1' });
+      const localPort = (server.fastify.server.address() as { port: number }).port;
+
+      ws = new WebSocket(`ws://127.0.0.1:${localPort}/ws?token=${authToken}`);
+      await new Promise<void>((resolve, reject) => {
+        ws!.once('message', () => resolve());
+        ws!.once('error', reject);
+      });
+
+      const chatRes = await fetch(`http://127.0.0.1:${localPort}/api/chats/lifecycle-close`, {
+        method: 'POST',
+        headers: { ...authHeader(authToken), 'content-type': 'application/json' },
+        body: JSON.stringify({ content: 'list all cards' }),
+      });
+      expect(chatRes.status).toBeGreaterThanOrEqual(200);
+      expect(chatRes.status).toBeLessThan(500);
+      expect(getClientCount()).toBeGreaterThan(0);
+
+      await server.stop();
+      server = undefined;
+      ws = undefined;
+      expect(getClientCount()).toBe(0);
+    } finally {
+      try { ws?.terminate(); } catch {}
+      try { await server?.stop(); } catch {}
+      try { resetChatRouteState(lifecycleRoot); } catch {}
       try { rmSync(lifecycleRoot, { recursive: true, force: true }); } catch {}
     }
   }, 10000);

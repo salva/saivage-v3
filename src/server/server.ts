@@ -1,4 +1,4 @@
-import Fastify, { type FastifyInstance } from 'fastify';
+import Fastify, { type FastifyInstance, type FastifyReply, type FastifyRequest } from 'fastify';
 import cors from '@fastify/cors';
 import websocket from '@fastify/websocket';
 import fastifyStatic from '@fastify/static';
@@ -368,6 +368,30 @@ export async function createServer(
   const inDist = thisFile.includes('/dist/src/') || thisFile.includes('\\dist\\src\\');
   const packageRoot = fileURLToPath(new URL(inDist ? '../../..' : '../..', import.meta.url));
 
+  const docsDistDir = join(packageRoot, 'docs', '.vitepress', 'dist');
+  const docsBuilt = existsSync(docsDistDir);
+  if (docsBuilt) {
+    await fastify.register(fastifyStatic, {
+      root: docsDistDir,
+      prefix: '/docs/',
+      wildcard: false,
+      decorateReply: false,
+    });
+
+    fastify.get('/docs', async (_request, reply) => {
+      return reply.redirect('/docs/');
+    });
+  } else {
+    const docsUnavailable = async (_request: FastifyRequest, reply: FastifyReply) => {
+      return reply.status(404).send({
+        error: 'Documentation not built. Run vitepress build docs/ to generate.',
+      });
+    };
+
+    fastify.get('/docs/*', docsUnavailable);
+    fastify.get('/docs', docsUnavailable);
+  }
+
   const webDistDir = join(packageRoot, 'web', 'dist');
   if (existsSync(webDistDir)) {
     await fastify.register(fastifyStatic, {
@@ -376,30 +400,16 @@ export async function createServer(
       wildcard: false,
     });
 
-    fastify.setNotFoundHandler((_request, reply) => {
+    fastify.setNotFoundHandler((request, reply) => {
+      if (request.url === '/docs' || request.url.startsWith('/docs/')) {
+        if (docsBuilt) {
+          return reply.callNotFound();
+        }
+        return reply.status(404).send({
+          error: 'Documentation not built. Run vitepress build docs/ to generate.',
+        });
+      }
       reply.sendFile('index.html');
-    });
-  }
-
-  const docsDistDir = join(packageRoot, 'docs', '.vitepress', 'dist');
-  if (existsSync(docsDistDir)) {
-    await fastify.register(fastifyStatic, {
-      root: docsDistDir,
-      prefix: '/docs/',
-      wildcard: false,
-      decorateReply: false,
-    });
-  } else {
-    fastify.get('/docs/*', async (_request, reply) => {
-      return reply.status(404).send({
-        error: 'Documentation not built. Run vitepress build docs/ to generate.',
-      });
-    });
-
-    fastify.get('/docs', async (_request, reply) => {
-      return reply.status(404).send({
-        error: 'Documentation not built. Run vitepress build docs/ to generate.',
-      });
     });
   }
 
