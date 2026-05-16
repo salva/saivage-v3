@@ -150,6 +150,18 @@ describe('queue validation and reconciliation', () => {
     expect(() => getUnhandledNotesQueue(saivageDir)).toThrow(/NotesQueue validation failed/);
   });
 
+  it('does not auto-repair legacy queue files missing next_note_sequence', () => {
+    const note = appendNote(saivageDir, 'goal-1', { author: 'user', content: 'Legacy queue owner', kind: 'comment' });
+    writeFileSync(
+      join(saivageDir, 'notes', 'queue.json'),
+      JSON.stringify({
+        entries: [{ card_id: note.card_id, note_id: note.id, timestamp: note.timestamp, kind: note.kind }],
+      }, null, 2) + '\n',
+    );
+    expect(() => getUnhandledNotesQueue(saivageDir)).toThrow(/next_note_sequence/);
+    expect(() => getReconciledUnhandledNotesQueue(saivageDir)).toThrow(/next_note_sequence/);
+  });
+
   it('reconciles stale queue entries whose note file is missing', () => {
     appendNote(saivageDir, 'goal-1', { author: 'user', content: 'Keep me', kind: 'comment' });
     writeFileSync(join(saivageDir, 'notes', 'queue.json'), JSON.stringify({

@@ -243,6 +243,24 @@ Current note identity invariants:
 - IDs are monotonic and never reused after acknowledge, delete, clear-all, or reload;
 - operators may safely reference a note ID from the Debug UI or API without risking that the same ID later targets a different note.
 
+NotesQueue is the owner and validation path for note-queue persistence:
+
+- the canonical queue shape is `{ next_note_sequence, entries }` and is validated by the NotesQueue schema before use;
+- older `{ entries: [...] }` queue files are not accepted and are not auto-repaired at runtime;
+- the current repository tree scan for this stage found no active checked-in `queue.json` records that still needed this repair.
+
+If an operator encounters an older active `.saivage/notes/queue.json` without `next_note_sequence`, use this explicit repair path instead of adding a compatibility shim:
+
+1. Pause or freeze the runtime so note state stops changing.
+2. Preserve the current `.saivage/notes/queue.json` and `.saivage/notes/by-card/*.jsonl` files before editing.
+3. Rebuild queue entries from the current unhandled note JSONL records under `.saivage/notes/by-card/`.
+4. Inspect every existing note ID matching `n-<cardId>-<sequence>` and choose `next_note_sequence` greater than every numeric `<sequence>` suffix found across all cards.
+5. Write a new canonical `.saivage/notes/queue.json` with that `next_note_sequence` and the rebuilt unhandled `entries`.
+6. Validate the regenerated file against the NotesQueue schema before resuming or reloading.
+7. Resume/reload only after validation succeeds.
+
+If you cannot safely determine the highest existing numeric suffix, or note files are incomplete/corrupted, stop and escalate with the affected queue file and card note records instead of guessing.
+
 Use note actions with this meaning:
 
 - acknowledge: preserves the note in card history and removes it from the unhandled queue;

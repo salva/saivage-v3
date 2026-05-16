@@ -89,12 +89,28 @@ Saivage now validates `.saivage/notes/queue.json` as a persisted record.
 - stale queue entries pointing at missing or handled notes are reconciled away on read instead of returning `note: undefined`;
 - note IDs are allocated from the queue-owned monotonic `next_note_sequence`, so an old stale note ID cannot later target a newly created note.
 
+The canonical NotesQueue record is:
+
+```json
+{
+  "next_note_sequence": 1,
+  "entries": []
+}
+```
+
+Older active queue files with only `{ "entries": [...] }` are not supported by a runtime fallback reader.
+
 ### What to do
 
 1. Retry `GET /api/notes` once in case stale queue entries were auto-reconciled.
 2. Use the Operator Control **Refresh** action if the stale note message came from a concurrent acknowledge/delete.
 3. If the endpoint still returns `500`, inspect `.saivage/notes/queue.json` for schema damage only after pausing or freezing if runtime state is still changing.
 4. Preserve card note files under `.saivage/notes/by-card/` before manual repair.
+5. If `queue.json` is an older active file missing `next_note_sequence`, explicitly regenerate it from current unhandled `.saivage/notes/by-card/*.jsonl` records:
+   - rebuild `entries` from unhandled notes only;
+   - set `next_note_sequence` greater than every numeric suffix already present in existing `n-<cardId>-<sequence>` note IDs;
+   - validate the regenerated queue against the NotesQueue schema before resuming or reloading.
+6. If you cannot safely determine the correct next sequence or note files are damaged, escalate with the affected queue file and card note records instead of guessing.
 
 ## Runtime is degraded or in `error`
 
