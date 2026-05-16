@@ -1,9 +1,11 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { CardStore } from '../../utils/card-store.js';
-import type { CardRecord, CardStatus, CardType } from '../../schemas/types.js';
+import type { CardRecord, CardStatus, CardType, CardHistoryEntry } from '../../schemas/types.js';
 import { runMutatingRoute } from './runtime-config-notes.js';
+import { redactCredentialLiterals, redactSecrets } from '../../utils/file-access-security.js';
 
 const TRACKED_UPDATE_FIELDS = new Set(['title','description','acceptance','depends_on','related','estimate','parent','assigned_to','type','subtype','instructions_file','tags','priority','urgency']);
+const INLINE_SECRET_RE = /(api(?:[_-]?key|[_-]?token)?|token|secret|password)\s*=\s*("[^"]*"|'[^']*'|\S+)/gi;
 
 function createPreview(body: Record<string, unknown>) {
   return {
@@ -35,12 +37,80 @@ function deletePreview(id: string) {
   };
 }
 
+function redactInlineSecrets(content: string): string {
+  return content.replace(INLINE_SECRET_RE, (_match, key: string) => `${key}=[REDACTED]`);
+}
+
+function redactValue<T>(value: T): T {
+  if (typeof value === 'string') return redactCredentialLiterals(redactInlineSecrets(redactSecrets(value))) as T;
+  if (Array.isArray(value)) return value.map((item) => redactValue(item)) as T;
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(Object.entries(value as Record<string, unknown>).map(([key, entryValue]) => [key, redactValue(entryValue)])) as T;
+  }
+  return value;
+}
+
+function historyHeader(entry: CardHistoryEntry) {
+  return {
+    card_id: entry.card_id,
+    version_seq: entry.version_seq,
+    changed_at: entry.changed_at,
+    changed_by_actor: entry.changed_by_actor,
+    changed_by_surface: entry.changed_by_surface,
+    change_reason: entry.change_reason,
+    changed_fields: entry.changed_fields,
+    change_summary: entry.change_summary,
+  };
+}
+
 export function registerCardRoutes(fastify: FastifyInstance, projectRoot: string): void {
   const store = new CardStore(projectRoot);
   const inputDefaults: Omit<CardRecord, 'id' | 'created_at' | 'updated_at' | 'version_seq'> = { type: 'code', parent: null, depth: 0, title: '', description: '', status: 'backlog', subtype: null, instructions_file: null, tags: [], priority: 0, urgency: 'normal', created_by: 'user', assigned_to: null, depends_on: [], blocks: [], related: [], acceptance: '', result: null, metrics: null, artifacts: [], attachments: [], estimate: null, started_at: null, completed_at: null, duration_ms: null, error: null, retries: 0 };
 
   fastify.get('/api/cards', async (_request, reply) => reply.send({ cards: store.list(), total: store.list().length }));
   fastify.get('/api/cards/:id', async (request: FastifyRequest, reply: FastifyReply) => { const params = request.params as { id: string }; const card = store.read(params.id); if (!card) return reply.status(404).send({ error: 'Card not found', cardId: params.id }); return reply.send({ card, children: store.listChildren(params.id).map((childId) => store.read(childId)).filter((c): c is CardRecord => c !== null), ancestorIds: store.getAncestors(params.id) }); });
+  fastify.get('/api/cards/:id/history', async (request: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const params = request.params as { id: string };
+      const card = store.read(params.id);
+      if (!card) return reply.status(404).send({ error: 'Card not found', cardId: params.id });
+      const history = store.listCardHistory(params.id).map((entry) => redactValue(historyHeader(entry)));
+      return reply.send({ history, total: history.length });
+    } catch (err) {
+      return reply.status(500).send({ error: 'Failed to list card history', message: err instanceof Error ? err.message : String(err) });
+    }
+  });
+  fastify.get('/api/cards/:id/history/:seq', async (request: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const params = request.params as { id: string; seq: string };
+      const card = store.read(params.id);
+      if (!card) return reply.status(404).send({ error: 'Card not found', cardId: params.id });
+      const seq = Number.parseInt(params.seq, 10);
+      if (!Number.isInteger(seq) || seq <= 0) return reply.status(400).send({ error: 'Invalid version sequence', version_seq: params.seq });
+      const entry = store.listCardHistory(params.id).find((candidate) => candidate.version_seq === seq);
+      if (!entry) return reply.status(404).send({ error: 'Card history entry not found', cardId: params.id, version_seq: seq });
+      return reply.send({ entry: redactValue(entry) });
+    } catch (err) {
+      return reply.status(500).send({ error: 'Failed to get card history entry', message: err instanceof Error ? err.message : String(err) });
+    }
+  });
+  fastify.get('/api/cards/:id/diff', async (request: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const params = request.params as { id: string };
+      const query = request.query as { from?: string; to?: string };
+      const card = store.read(params.id);
+      if (!card) return reply.status(404).send({ error: 'Card not found', cardId: params.id });
+      const from = Number.parseInt(String(query.from ?? ''), 10);
+      const to = Number.parseInt(String(query.to ?? ''), 10);
+      if (!Number.isInteger(from) || from <= 0 || !Number.isInteger(to) || to <= 0) return reply.status(400).send({ error: 'from and to query parameters are required positive integers' });
+      const diff = redactValue(store.diffCard(params.id, from, to));
+      return reply.send({ diff, from, to, card_id: params.id });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      if (message.includes('not found') || message.includes('has no version')) return reply.status(404).send({ error: 'Card diff source not found', message });
+      return reply.status(500).send({ error: 'Failed to diff card', message });
+    }
+  });
 
   fastify.post('/api/cards', async (request: FastifyRequest, reply: FastifyReply) => runMutatingRoute({
     request,

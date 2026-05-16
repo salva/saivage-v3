@@ -31,6 +31,7 @@ import type {
   NoteAuthor,
 } from '../schemas/types.js';
 import { enqueueCardMutationNotifications } from './notification-triggers.js';
+import { broadcastCardHistoryAppended } from '../server/websocket.js';
 
 export interface CardMutationContext {
   actor: NoteAuthor;
@@ -621,6 +622,12 @@ export class CardStore {
     }
     this.recomputeBlocks();
     const persisted = this.read(id)!;
+    broadcastCardHistoryAppended({
+      card_id: persisted.id,
+      version_seq: historyEntry.version_seq,
+      changed_fields: [...changedFields],
+      changed_at: historyEntry.changed_at,
+    });
     enqueueCardMutationNotifications(this.projectRoot, persisted, changedFields as string[], { actor: ctx.actor, surface: ctx.surface });
     return persisted;
   }

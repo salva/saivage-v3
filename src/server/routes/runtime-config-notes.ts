@@ -4,18 +4,30 @@ import { pauseRuntimeControl, resumeRuntimeControl } from '../../utils/runtime-c
 import type { ActiveRuntime } from '../../utils/active-runtime.js';
 import { loadConfig, type ProviderEntry } from '../../agents/config-schema.js';
 import { getReconciledUnhandledNotesQueue, findUnhandledNoteCardId, markNoteHandled, deleteNote } from '../../utils/notes.js';
-import { redactSecrets } from '../../utils/file-access-security.js';
+import { redactCredentialLiterals, redactSecrets } from '../../utils/file-access-security.js';
 import { CardStore } from '../../utils/card-store.js';
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { evaluateAuthz, type ActorRole, type SafetyClass } from '../../agents/authz.js';
-import { recordControlAction, stableStringify, hashPreviewParams } from '../../utils/control-action-audit.js';
+import { recordControlAction, stableStringify, hashPreviewParams, listControlActions } from '../../utils/control-action-audit.js';
 import { freezeRuntimePersisted } from '../../agents/analyst-tools.js';
 import { readFreezeManifest, clearFreezeManifest } from '../../utils/freeze-manifest.js';
+import { NotificationCenter } from '../../utils/notification-center.js';
+
+const INLINE_SECRET_RE = /(api(?:[_-]?key|[_-]?token)?|token|secret|password)\s*=\s*("[^"]*"|'[^']*'|\S+)/gi;
 
 function saivageDir(projectRoot: string): string { return `${projectRoot}/.saivage`; }
 function actorFromRequest(_request: FastifyRequest): ActorRole { return 'user'; }
 function paramsSummary(value: unknown): string { return stableStringify(value); }
+function redactInlineSecrets(content: string): string { return content.replace(INLINE_SECRET_RE, (_match, key: string) => `${key}=[REDACTED]`); }
+function redactValue<T>(value: T): T {
+  if (typeof value === 'string') return redactCredentialLiterals(redactInlineSecrets(redactSecrets(value))) as T;
+  if (Array.isArray(value)) return value.map((item) => redactValue(item)) as T;
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(Object.entries(value as Record<string, unknown>).map(([key, entryValue]) => [key, redactValue(entryValue)])) as T;
+  }
+  return value;
+}
 
 export interface MutatingRouteResult {
   statusCode?: number;
@@ -77,7 +89,46 @@ const SAFE_AGENT_ID_RE = /^[a-zA-Z0-9_-]+$/;
 
 export function registerRuntimeConfigNotesRoutes(fastify: FastifyInstance, projectRoot: string, activeRuntime?: ActiveRuntime): void {
   const store = new CardStore(projectRoot);
+  const notifications = new NotificationCenter(projectRoot);
   fastify.get('/api/state', async (_request, reply) => { try { const state = readRuntimeState(projectRoot); if (!state) return reply.send({ runtime: null, cardIndex: { total: 0, byStatus: {}, byType: {} } }); const cards = store.list(); const byStatus: Record<string, number> = {}; const byType: Record<string, number> = {}; for (const card of cards) { byStatus[card.status] = (byStatus[card.status] || 0) + 1; byType[card.type] = (byType[card.type] || 0) + 1; } return reply.send({ runtime: state, cardIndex: { total: cards.length, byStatus, byType } }); } catch (err) { return reply.status(500).send({ error: 'Failed to read runtime state', message: err instanceof Error ? err.message : String(err) }); } });
+  fastify.get('/api/notifications', async (_request, reply) => {
+    try {
+      const items = notifications.listForOperator().map((record) => redactValue(record));
+      return reply.send({ notifications: items, total: items.length });
+    } catch (err) {
+      return reply.status(500).send({ error: 'Failed to list notifications', message: err instanceof Error ? err.message : String(err) });
+    }
+  });
+  fastify.post('/api/notifications/:id/acknowledge', async (request, reply) => runMutatingRoute({
+    request,
+    reply,
+    projectRoot,
+    action: 'notification.acknowledge',
+    safety_class: 'low',
+    target_kind: 'session',
+    target_id: (request.params as { id: string }).id,
+    mutate: async () => {
+      try {
+        const notificationId = (request.params as { id: string }).id;
+        const existing = notifications.listForOperator().find((item) => item.id === notificationId) ?? null;
+        if (!existing) return { ok: false, statusCode: 404, error: 'Notification not found', body: { error: 'Notification not found', notificationId }, outcomeSummary: 'notification not found' };
+        const updated = notifications.acknowledgeForOperator(notificationId);
+        return { ok: true, body: { notification: redactValue(updated ?? existing) }, outcomeSummary: 'notification acknowledged' };
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        return { ok: false, statusCode: 500, error: message, body: { error: 'Failed to acknowledge notification', message }, outcomeSummary: message };
+      }
+    },
+  }));
+  fastify.get('/api/control-actions', async (request, reply) => {
+    try {
+      const query = request.query as { card_id?: string; since?: string };
+      const actions = listControlActions(projectRoot, { card_id: query.card_id, since: query.since }).map((entry) => redactValue(entry));
+      return reply.send({ control_actions: actions, total: actions.length });
+    } catch (err) {
+      return reply.status(500).send({ error: 'Failed to list control actions', message: err instanceof Error ? err.message : String(err) });
+    }
+  });
   fastify.post('/api/runtime/pause', async (request, reply) => runMutatingRoute({ request, reply, projectRoot, action: 'runtime.pause', safety_class: 'low', target_kind: 'runtime', target_id: 'project', mutate: async () => { const result = pauseRuntimeControl({ projectRoot, activeRuntime }); if (!result.ok) return { ok: false, statusCode: result.statusCode ?? 500, error: result.message ?? result.error, body: { error: result.error ?? 'Failed to pause runtime', message: result.message } }; return { ok: true, body: { status: 'paused' } }; } }));
   fastify.post('/api/runtime/resume', async (request, reply) => runMutatingRoute({ request, reply, projectRoot, action: 'runtime.resume', safety_class: 'low', target_kind: 'runtime', target_id: 'project', mutate: async () => { const result = resumeRuntimeControl({ projectRoot, activeRuntime }); if (!result.ok) return { ok: false, statusCode: result.statusCode ?? 500, error: result.message ?? result.error, body: { error: result.error ?? 'Failed to resume runtime', message: result.message, ...(result.action ? { action: result.action } : {}) } }; return { ok: true, body: { status: 'resumed' } }; } }));
   fastify.post('/api/runtime/freeze', async (request, reply) => runMutatingRoute({ request, reply, projectRoot, action: 'runtime.freeze', safety_class: 'destructive', target_kind: 'runtime', target_id: 'project', mutate: async () => { try { const body = request.body as { reason?: string } | undefined; const reason = body?.reason; if (activeRuntime) { const manifest = activeRuntime.freeze(reason); return { ok: true, body: { status: 'frozen', freeze_id: manifest.freeze_id, reason: manifest.reason, created_at: manifest.created_at } }; } const existing = readFreezeManifest(projectRoot); if (existing) return { ok: true, body: { status: 'already_frozen', freeze_id: existing.freeze_id, reason: existing.reason, created_at: existing.created_at } }; const result = freezeRuntimePersisted(projectRoot, reason); if (!result.success) return { ok: false, statusCode: 400, error: result.error, body: { error: result.error } }; const state = readRuntimeState(projectRoot); return { ok: true, body: { status: 'frozen', freeze_id: 'persisted-freeze', reason: state?.frozen_reason, created_at: (result.data as { created_at: string }).created_at } }; } catch (err) { return { ok: false, statusCode: 500, error: err instanceof Error ? err.message : String(err), body: { error: 'Failed to freeze runtime', message: err instanceof Error ? err.message : String(err) } }; } } }));

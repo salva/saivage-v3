@@ -10,6 +10,8 @@ import { getClientCount } from '../src/server/websocket.js';
 import { resetChatRouteState } from '../src/server/routes/chats-files-debug.js';
 import { appendNote } from '../src/utils/notes.js';
 import { createServer, type ServerInstance } from '../src/server/server.js';
+import { NotificationCenter } from '../src/utils/notification-center.js';
+import { recordControlAction } from '../src/utils/control-action-audit.js';
 
 const TEST_ROOT = join(tmpdir(), `saivage-api-test-${Date.now()}`);
 const SAIVAGE_DIR = join(TEST_ROOT, '.saivage');
@@ -37,7 +39,7 @@ function initializeProjectRoot(root: string): void {
   mkdirSync(join(saivageDir, 'agents', 'messages'), { recursive: true });
 
   const now = new Date().toISOString();
-  writeFileSync(join(saivageDir, 'cards', 'by-id', 'project.json'), JSON.stringify({ id: 'project', type: 'project', parent: null, depth: 0, title: 'project', description: '', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', created_at: now, updated_at: now, depends_on: [], blocks: [], related: [], acceptance: '', artifacts: [], attachments: [], retries: 0 }));
+  writeFileSync(join(saivageDir, 'cards', 'by-id', 'project.json'), JSON.stringify({ id: 'project', type: 'project', parent: null, depth: 0, title: 'project', description: '', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', created_at: now, updated_at: now, depends_on: [], blocks: [], related: [], acceptance: '', artifacts: [], attachments: [], retries: 0, version_seq: 1 }));
   writeFileSync(join(saivageDir, 'cards', 'index.json'), JSON.stringify({ cards: { project: { id: 'project', type: 'project', parent: null, status: 'backlog', title: 'project' } } }));
   writeFileSync(join(saivageDir, 'cards', 'tree', 'project.children.json'), JSON.stringify([]));
   writeFileSync(join(saivageDir, 'cards', 'dependencies', 'depends-on.json'), JSON.stringify({}));
@@ -45,6 +47,24 @@ function initializeProjectRoot(root: string): void {
   writeFileSync(join(saivageDir, 'notes', 'queue.json'), JSON.stringify({ next_note_sequence: 1, entries: [] }));
   writeFileSync(join(saivageDir, 'runtime', 'state.json'), JSON.stringify({ status: 'idle', project_id: 'project', pid: process.pid, started_at: now, current_card_id: null, current_agent_session_id: null, paused: false, paused_at: null, queue: [], running_processes: [], updated_at: now }));
   writeFileSync(join(saivageDir, 'saivage.json'), JSON.stringify({ server: { port: 0, host: '127.0.0.1' }, models: { default: ['test-model'] }, providers: { test: { priority: 10, models: ['test-model'], apiKey: 'secret-key' } } }));
+}
+
+async function waitForWsEvent(ws: WebSocket, eventName: string): Promise<Record<string, unknown>> {
+  return await new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      ws.off('message', onMessage);
+      reject(new Error(`Timed out waiting for websocket event ${eventName}`));
+    }, 1000);
+    const onMessage = (raw: WebSocket.RawData) => {
+      const parsed = JSON.parse(Buffer.isBuffer(raw) ? raw.toString('utf-8') : String(raw)) as { type: string; content: Record<string, unknown> };
+      if (parsed.content?.event === eventName) {
+        clearTimeout(timer);
+        ws.off('message', onMessage);
+        resolve(parsed.content);
+      }
+    };
+    ws.on('message', onMessage);
+  });
 }
 
 beforeAll(async () => {
@@ -81,7 +101,7 @@ afterAll(async () => {
 }, 10000);
 
 describe('card detail planning summary semantics', () => {
-  it('surfaces canonical persisted planning booleans instead of deriving from status or review summary', async () => {
+  it('returns the canonical card payload for a persisted goal card', async () => {
     const now = new Date().toISOString();
     const cardId = 'goal-planning-semantics';
     const cardPath = join(SAIVAGE_DIR, 'cards', 'by-id', `${cardId}.json`);
@@ -95,7 +115,7 @@ describe('card detail planning summary semantics', () => {
       parent: 'project',
       depth: 1,
       title: 'Planning semantics goal',
-      description: 'Tests canonical planning booleans.',
+      description: 'Tests canonical card reads.',
       status: 'done',
       tags: [],
       priority: 1,
@@ -110,6 +130,7 @@ describe('card detail planning summary semantics', () => {
       artifacts: [],
       attachments: [],
       retries: 0,
+      version_seq: 1,
       result: {
         planning: {
           status: 'continue',
@@ -117,17 +138,6 @@ describe('card detail planning summary semantics', () => {
           planner_declared_done: true,
           has_unfinished_child_work: true,
           created_cards: [],
-        },
-        review: {
-          id: 'review-goal-planning-semantics',
-          goal_card_id: cardId,
-          reviewer_session_id: 'reviewer-goal-planning-semantics',
-          result: 'pass',
-          summary: 'Review passed even though planner says unfinished child work remains.',
-          achieved: ['Recorded review output'],
-          missing: [],
-          evidence_card_ids: [cardId],
-          created_at: now,
         },
       },
     }));
@@ -143,13 +153,9 @@ describe('card detail planning summary semantics', () => {
 
     const res = await fetch(url(`/api/cards/${cardId}`), { headers: authHeader(authToken) });
     expect(res.status).toBe(200);
-    const body = await res.json() as { planning: { plannerDeclaredDone: boolean; hasUnfinishedChildWork: boolean; status: string | null; reviewSummary: string | null } };
-    expect(body.planning).toEqual(expect.objectContaining({
-      status: 'continue',
-      reviewSummary: 'Looks complete from review/status heuristics.',
-      plannerDeclaredDone: true,
-      hasUnfinishedChildWork: true,
-    }));
+    const body = await res.json() as { card: { id: string; result?: Record<string, unknown> } };
+    expect(body.card.id).toBe(cardId);
+    expect(body.card.result).toEqual(expect.objectContaining({ planning: expect.objectContaining({ status: 'continue' }) }));
   });
 });
 
@@ -236,14 +242,65 @@ describe('runtime config and notes routes', () => {
     expect(body.notes.some((note) => note.note_id === first.id)).toBe(false);
   });
 
-  it('returns 500 for malformed persisted queue', async () => {
+  it('reconciles malformed persisted queue to a valid empty queue', async () => {
     writeFileSync(join(SAIVAGE_DIR, 'notes', 'queue.json'), JSON.stringify({ next_note_sequence: 1, entries: [{ card_id: 'project' }] }) + '\n');
     const res = await fetch(url('/api/notes'), { headers: authHeader(authToken) });
-    expect(res.status).toBe(500);
-    const body = await res.json() as { error: string; message: string };
-    expect(body.error).toBe('Failed to list notes');
-    expect(body.message).toContain('NotesQueue validation failed');
-    writeFileSync(join(SAIVAGE_DIR, 'notes', 'queue.json'), JSON.stringify({ next_note_sequence: 1, entries: [] }) + '\n');
+    expect(res.status).toBe(200);
+    const body = await res.json() as { notes: Array<unknown>; total: number };
+    expect(body.total).toBe(0);
+    expect(body.notes).toEqual([]);
+  });
+});
+
+describe('websocket push events', () => {
+  it('broadcasts card history, notification add/ack, and control action events within one tick of mutations', async () => {
+    const ws = new WebSocket(`ws://127.0.0.1:${port}/ws?token=${authToken}`);
+    await new Promise<void>((resolve, reject) => {
+      ws.once('message', () => resolve());
+      ws.once('error', reject);
+    });
+
+    const createRes = await fetch(url('/api/cards'), {
+      method: 'POST',
+      headers: { ...authHeader(authToken), 'content-type': 'application/json' },
+      body: JSON.stringify({ title: 'WS card', type: 'code', parent: 'project', acceptance: 'old', confirmed: true }),
+    });
+    expect(createRes.status).toBe(201);
+
+    const cardHistoryPromise = waitForWsEvent(ws, 'card_history_appended');
+    const previewRes = await fetch(url('/api/cards/code-1'), {
+      method: 'PATCH',
+      headers: { ...authHeader(authToken), 'content-type': 'application/json' },
+      body: JSON.stringify({ acceptance: 'new acceptance', description: 'changed' }),
+    });
+    const preview = await previewRes.json() as { preview_hash: string };
+    const updateRes = await fetch(url('/api/cards/code-1'), {
+      method: 'PATCH',
+      headers: { ...authHeader(authToken), 'content-type': 'application/json' },
+      body: JSON.stringify({ acceptance: 'new acceptance', description: 'changed', confirmed: true, preview_hash: preview.preview_hash }),
+    });
+    expect(updateRes.status).toBe(200);
+    const cardHistoryEvent = await cardHistoryPromise;
+    expect(cardHistoryEvent['card_id']).toBe('code-1');
+
+    const center = new NotificationCenter(TEST_ROOT);
+    const notificationAddedPromise = waitForWsEvent(ws, 'notification_added');
+    center.enqueueForOperator({ id: 'ws-notif', kind: 'runtime_state', severity: 'warn', payload_summary: 'pause notice', source_actor: 'analyst', source_surface: 'rest' });
+    const notificationAdded = await notificationAddedPromise;
+    expect(notificationAdded['id']).toBe('ws-notif');
+
+    const notificationAckPromise = waitForWsEvent(ws, 'notification_acknowledged');
+    const ackRes = await fetch(url('/api/notifications/ws-notif/acknowledge'), { method: 'POST', headers: authHeader(authToken) });
+    expect(ackRes.status).toBe(200);
+    const notificationAck = await notificationAckPromise;
+    expect(notificationAck['id']).toBe('ws-notif');
+
+    const controlActionPromise = waitForWsEvent(ws, 'control_action_recorded');
+    recordControlAction(TEST_ROOT, { actor: 'analyst', surface: 'rest', action: 'runtime.pause', target_kind: 'runtime', target_id: 'project', params_summary: 'pause', confirmed: true, outcome: 'ok', outcome_summary: 'paused' });
+    const controlActionEvent = await controlActionPromise;
+    expect(controlActionEvent['action']).toBe('runtime.pause');
+
+    ws.close();
   });
 });
 

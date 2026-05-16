@@ -2,6 +2,7 @@ import { appendFileSync, existsSync, mkdirSync, readFileSync, readdirSync } from
 import { join } from 'node:path';
 import { notificationRecordSchema } from '../schemas/validators.js';
 import type { NotificationRecord, NoteAuthor, ControlActionSurface } from '../schemas/types.js';
+import { broadcastNotificationAcknowledged, broadcastNotificationAdded } from '../server/websocket.js';
 
 export interface NotificationInput {
   id: string;
@@ -78,11 +79,33 @@ export class NotificationCenter {
   }
 
   enqueueForSession(sessionId: string, input: NotificationInput): NotificationRecord {
-    return this.append(sessionNotificationsPath(this.projectRoot, sessionId), this.buildRecord(sessionId, input));
+    const record = this.append(sessionNotificationsPath(this.projectRoot, sessionId), this.buildRecord(sessionId, input));
+    broadcastNotificationAdded({
+      id: record.id,
+      kind: record.kind,
+      severity: record.severity,
+      related_card_id: record.related_card_id,
+      related_note_id: record.related_note_id,
+      related_process_id: record.related_process_id,
+      related_version_seq: record.related_version_seq,
+      created_at: record.created_at,
+    });
+    return record;
   }
 
   enqueueForOperator(input: NotificationInput): NotificationRecord {
-    return this.append(operatorNotificationsPath(this.projectRoot), this.buildRecord(null, input));
+    const record = this.append(operatorNotificationsPath(this.projectRoot), this.buildRecord(null, input));
+    broadcastNotificationAdded({
+      id: record.id,
+      kind: record.kind,
+      severity: record.severity,
+      related_card_id: record.related_card_id,
+      related_note_id: record.related_note_id,
+      related_process_id: record.related_process_id,
+      related_version_seq: record.related_version_seq,
+      created_at: record.created_at,
+    });
+    return record;
   }
 
   drainPendingForSession(sessionId: string): NotificationRecord[] {
@@ -134,7 +157,16 @@ export class NotificationCenter {
     const path = sessionNotificationsPath(this.projectRoot, sessionId);
     const record = this.readLatest(path).find((entry) => entry.id === notificationId) ?? null;
     if (!record || record.acknowledged_at !== null) return record;
-    return this.append(path, { ...record, acknowledged_at: now() });
+    const updated = this.append(path, { ...record, acknowledged_at: now() });
+    broadcastNotificationAcknowledged({
+      id: updated.id,
+      kind: updated.kind,
+      related_card_id: updated.related_card_id,
+      related_note_id: updated.related_note_id,
+      related_process_id: updated.related_process_id,
+      acknowledged_at: updated.acknowledged_at ?? updated.created_at,
+    });
+    return updated;
   }
 
   listForOperator(): NotificationRecord[] {
@@ -145,6 +177,15 @@ export class NotificationCenter {
     const path = operatorNotificationsPath(this.projectRoot);
     const record = this.readLatest(path).find((entry) => entry.id === notificationId) ?? null;
     if (!record || record.acknowledged_at !== null) return record;
-    return this.append(path, { ...record, acknowledged_at: now() });
+    const updated = this.append(path, { ...record, acknowledged_at: now() });
+    broadcastNotificationAcknowledged({
+      id: updated.id,
+      kind: updated.kind,
+      related_card_id: updated.related_card_id,
+      related_note_id: updated.related_note_id,
+      related_process_id: updated.related_process_id,
+      acknowledged_at: updated.acknowledged_at ?? updated.created_at,
+    });
+    return updated;
   }
 }

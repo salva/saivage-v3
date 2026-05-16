@@ -90,6 +90,74 @@ export function broadcast(event: WsEnvelope): void {
   }
 }
 
+export function broadcastCardHistoryAppended(payload: {
+  card_id: string;
+  version_seq: number;
+  changed_fields: string[];
+  changed_at: string;
+}): void {
+  broadcast({
+    type: 'activity',
+    content: {
+      event: 'card_history_appended',
+      ...payload,
+    },
+  });
+}
+
+export function broadcastNotificationAdded(payload: {
+  id: string;
+  kind: string;
+  severity: string;
+  related_card_id?: string;
+  related_note_id?: string;
+  related_process_id?: string;
+  related_version_seq?: number;
+  created_at: string;
+}): void {
+  broadcast({
+    type: 'activity',
+    content: {
+      event: 'notification_added',
+      ...payload,
+    },
+  });
+}
+
+export function broadcastNotificationAcknowledged(payload: {
+  id: string;
+  kind: string;
+  related_card_id?: string;
+  related_note_id?: string;
+  related_process_id?: string;
+  acknowledged_at: string;
+}): void {
+  broadcast({
+    type: 'activity',
+    content: {
+      event: 'notification_acknowledged',
+      ...payload,
+    },
+  });
+}
+
+export function broadcastControlActionRecorded(payload: {
+  id: string;
+  action: string;
+  target_kind: string | null;
+  target_id: string | null;
+  outcome: string;
+  created_at: string;
+}): void {
+  broadcast({
+    type: 'activity',
+    content: {
+      event: 'control_action_recorded',
+      ...payload,
+    },
+  });
+}
+
 export function sendToClient(ws: WebSocket, event: WsEnvelope): void {
   try {
     if (ws.readyState === ws.OPEN) {
