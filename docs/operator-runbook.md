@@ -2,7 +2,7 @@
 
 This runbook is the current operator workflow guide for the Web Control Room, analyst control surface, and runtime recovery.
 
-For the dedicated analyst operator guide covering the chat panel, shell policy, secret-path denylist, card-detail entry point, and live attribution behavior, see [Analyst Operator Guide](/analyst).
+For the dedicated analyst operator guide covering the chat panel, shell policy, secret-path denylist, card-detail entry point, live attribution behavior, and focused web validation cadence, see [Analyst Operator Guide](/analyst).
 
 ## 1. Open the system safely
 
@@ -178,6 +178,33 @@ Analyst filesystem inspection uses one centralized secret-path policy. Requests 
 For directory listings, secret-bearing child entries are omitted entirely. The response includes `redacted_count`, and when one or more entries were suppressed the listing appends a single `<redacted>` summary row with the hidden count. Operators should treat that as an intentional safety boundary, not missing data.
 
 For shell-command classification, commands that target denylisted secret-bearing paths are treated as unsafe and denied on web chat by default. See [Analyst Operator Guide](/analyst) for the full analyst shell and chat behavior.
+
+### Focused analyst web validation
+
+When validating shipped analyst UI behavior from Waves L-M, run the focused suites with **Vitest from `/work/saivage-v3/web`** (or the root wrapper that delegates there), not root Jest.
+
+Relevant suites:
+
+- `analyst-chat-panel.test.ts`
+- `analyst-chat-store.test.ts`
+- `app-shell-analyst-drawer.test.ts`
+- `analyst-toaster.test.ts`
+- `card-detail-view.test.ts`
+- `card-history-panel-analyst-filter.test.ts`
+- `ws-store.test.ts`
+
+Preferred commands:
+
+```bash
+cd /work/saivage-v3/web
+npm test -- src/__tests__/analyst-chat-panel.test.ts src/__tests__/analyst-chat-store.test.ts src/__tests__/app-shell-analyst-drawer.test.ts src/__tests__/analyst-toaster.test.ts src/__tests__/card-detail-view.test.ts src/__tests__/card-history-panel-analyst-filter.test.ts src/__tests__/ws-store.test.ts
+```
+
+or:
+
+```bash
+npm run web:test:analyst-ui
+```
 
 ### Generated files and evidence
 

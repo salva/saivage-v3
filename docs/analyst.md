@@ -163,6 +163,41 @@ When the analyst invokes a visible operator-facing tool action, the transcript c
 
 The app shell shows a small analyst-action toaster for live analyst mutations and related broadcasts. Use it as a freshness signal, then inspect the updated card, history, or notifications view for the authoritative state.
 
+## Focused web validation cadence
+
+Wave L-M analyst web validation runs under **Vitest from `/work/saivage-v3/web`**, not root Jest.
+
+Use these suites for focused analyst UI regression checks:
+
+- `src/__tests__/analyst-chat-panel.test.ts` — AnalystChatPanel rendering, tool chips, composer, unsaved new-chat behavior
+- `src/__tests__/analyst-chat-store.test.ts` — analyst chat Pinia store seeding, synthetic hint draining, local new-chat state
+- `src/__tests__/app-shell-analyst-drawer.test.ts` — persistent app-shell drawer entry points and keyboard shortcut
+- `src/__tests__/analyst-toaster.test.ts` — live analyst mutation toaster behavior
+- `src/__tests__/card-detail-view.test.ts` — card detail live refresh, `analyst_tool_invoked` reactions, and attribution-adjacent updates
+- `src/__tests__/card-history-panel-analyst-filter.test.ts` — analyst-authored card history filtering and attribution copy
+- `src/__tests__/ws-store.test.ts` — WebSocket store routing, reconnect, stale, and unauthorized behavior used by the analyst surfaces
+
+Canonical focused command from the web workspace:
+
+```bash
+cd /work/saivage-v3/web
+npm test -- src/__tests__/analyst-chat-panel.test.ts \
+  src/__tests__/analyst-chat-store.test.ts \
+  src/__tests__/app-shell-analyst-drawer.test.ts \
+  src/__tests__/analyst-toaster.test.ts \
+  src/__tests__/card-detail-view.test.ts \
+  src/__tests__/card-history-panel-analyst-filter.test.ts \
+  src/__tests__/ws-store.test.ts
+```
+
+Optional root convenience wrapper:
+
+```bash
+npm run web:test:analyst-ui
+```
+
+Do **not** try to run these Vue/Pinia suites through root `npm test`; the root Jest config only targets `tests/` and is not the Wave L-M analyst web validation path.
+
 ## Related operator docs
 
 - [Operator Runbook](/operator-runbook)

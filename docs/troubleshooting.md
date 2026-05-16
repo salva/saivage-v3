@@ -2,7 +2,7 @@
 
 Use this guide for current source-verified failure modes and operator-visible states.
 
-For analyst-specific behavior such as chat-panel entry points, shell-command safety classes, the secret-path denylist, card-context seeding, and live attribution signals, see [Analyst Operator Guide](/analyst).
+For analyst-specific behavior such as chat-panel entry points, shell-command safety classes, the secret-path denylist, card-context seeding, live attribution signals, and focused web validation cadence, see [Analyst Operator Guide](/analyst).
 
 ## Unauthorized API or WebSocket access
 
@@ -157,6 +157,34 @@ Generic resume is intentionally rejected for `frozen` and `error` states. This i
 - use the blocked reason shown in card detail to distinguish containment vs sensitivity problems;
 - avoid bypassing the API unless you are in a controlled maintenance or forensic workflow.
 - if the question is specifically about analyst inspection boundaries, confirm the request against the [Analyst Operator Guide](/analyst).
+
+## Focused analyst web validation command confusion
+
+### Symptoms
+
+- an operator tries to validate analyst web UI regressions with root `npm test`
+- Jest reports no matching suites for Vue analyst files under `web/src/__tests__`
+- validation evidence does not clearly show whether analyst chat/card live-update suites actually ran
+
+### Meaning
+
+Root `npm test` is a Jest runner scoped to the backend `tests/` tree. The shipped analyst web UI suites run under **Vitest from `/work/saivage-v3/web`**.
+
+### What to do
+
+1. Run the focused analyst web suites from `/work/saivage-v3/web`:
+
+```bash
+npm test -- src/__tests__/analyst-chat-panel.test.ts src/__tests__/analyst-chat-store.test.ts src/__tests__/app-shell-analyst-drawer.test.ts src/__tests__/analyst-toaster.test.ts src/__tests__/card-detail-view.test.ts src/__tests__/card-history-panel-analyst-filter.test.ts src/__tests__/ws-store.test.ts
+```
+
+2. Or use the root delegating wrapper:
+
+```bash
+npm run web:test:analyst-ui
+```
+
+3. If validation notes mention root Jest for these suites, correct the record and rerun with Vitest before accepting the result.
 
 ## Card detail shows missing or incomplete evidence
 
