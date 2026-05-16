@@ -177,7 +177,7 @@ Analyst filesystem inspection uses one centralized secret-path policy. Requests 
 
 For directory listings, secret-bearing child entries are omitted entirely. The response includes `redacted_count`, and when one or more entries were suppressed the listing appends a single `<redacted>` summary row with the hidden count. Operators should treat that as an intentional safety boundary, not missing data.
 
-For shell-command classification, commands that target denylisted secret-bearing paths are treated as unsafe and denied on web chat by default. See [Analyst Operator Guide](/analyst) for the full analyst shell and chat behavior.
+For shell-command classification, commands that target denylisted secret-bearing paths are treated as unsafe. On analyst web chat they do not execute by default and instead return preview-only confirmation semantics under authz; on Telegram they remain denied/unavailable. See [Analyst Operator Guide](/analyst) for the full analyst shell and chat behavior.
 
 ### Focused analyst web validation
 

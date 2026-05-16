@@ -55,7 +55,7 @@ When entries were hidden, the response reports a `redacted_count` and appends a 
 
 ### Shell commands
 
-If a shell command targets a denylisted secret-bearing path, the command is classified as unsafe and denied on web chat by default.
+If a shell command targets a denylisted secret-bearing path, the command is classified as unsafe. On analyst web chat, unsafe secret-targeting commands do not execute by default and return preview-only/confirmation semantics under authz; on Telegram they remain unavailable.
 
 ## Shell-command classification rules
 
@@ -65,7 +65,7 @@ Possible classes:
 
 - **`read_only`** — pure inspection; allowed on web chat; not audited as a mutating control action
 - **`low`** — non-read-only but not obviously destructive; allowed on web chat; audited
-- **`destructive`** — unsafe host mutation or secret-targeting behavior; denied on web chat by default
+- **`destructive`** — unsafe host mutation or secret-targeting behavior; preview-only on analyst web chat by default, and denied on Telegram
 
 ### Read-only examples
 
@@ -97,9 +97,9 @@ Examples:
 
 These are still inspection-oriented commands. Their output is bounded, timeout-limited, and redacted before persistence.
 
-### Destructive or denied examples
+### Destructive or preview-only examples
 
-Examples of commands treated as destructive and denied on web chat by default:
+Examples of commands treated as destructive on analyst web chat, so they do not execute by default and instead return a redacted preview/confirmation flow under authz:
 
 - `sudo systemctl restart saivage`
 - `rm -rf .saivage-work/tmp`
@@ -109,6 +109,8 @@ Examples of commands treated as destructive and denied on web chat by default:
 - `git reset --hard`
 - `git push --force`
 - `cat .saivage/auth-profiles.json`
+
+On Telegram, destructive shell commands remain denied/unavailable.
 
 ## Delegation invariant
 
