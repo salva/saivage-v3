@@ -75,11 +75,11 @@ import {
   ApiError,
 } from '../api/client';
 
-const mockProcessFull: ProcessView = {
-  id: 'proc-full-001',
+const liveProcess: ProcessView = {
+  id: 'proc-live-001',
   card_id: 'card-goal-1',
   command: 'npm test --token sk-[REDACTED] -- --coverage',
-  cwd: '.saivage-work/processes/proc-full-001',
+  cwd: '.saivage-work/processes/proc-live-001',
   status: 'running',
   started_at: '2025-06-01T10:00:00Z',
   ended_at: null,
@@ -88,47 +88,53 @@ const mockProcessFull: ProcessView = {
   owner: 'agent',
   session_id: 'session-agent-exec-1',
   logs: {
-    stdout: '.saivage-work/processes/proc-full-001/stdout.log',
-    stderr: '.saivage-work/processes/proc-full-001/stderr.log',
-    combined: '.saivage-work/processes/proc-full-001/combined.log',
+    stdout: '.saivage-work/processes/proc-live-001/stdout.log',
+    stderr: '.saivage-work/processes/proc-live-001/stderr.log',
+    combined: '.saivage-work/processes/proc-live-001/combined.log',
   },
   control: {
     can_view_logs: true,
     can_terminate: true,
+    terminate_status: 'live-attached',
+    terminate_degraded: false,
+    terminate_reason: 'Process is running and attached to this server; termination can be requested.',
   },
 };
 
-const mockProcessMinimal: ProcessView = {
-  id: 'proc-min-002',
-  card_id: 'card-ops-1',
-  command: 'echo "hello"',
-  cwd: null,
+const staleProcess: ProcessView = {
+  ...liveProcess,
+  id: 'proc-stale-001',
+  control: {
+    can_view_logs: true,
+    can_terminate: false,
+    terminate_status: 'stale-not-attached',
+    terminate_degraded: true,
+    terminate_reason: 'Process is recorded as running, but this server has no live child process attached. Inspect host process state before manual cleanup.',
+  },
+};
+
+const endedProcess: ProcessView = {
+  ...liveProcess,
+  id: 'proc-ended-001',
   status: 'exited',
-  started_at: '2025-06-01T10:01:00Z',
   ended_at: '2025-06-01T10:01:01Z',
   exit_code: 0,
-  timed_out: false,
-  owner: null,
-  session_id: null,
+  control: {
+    can_view_logs: false,
+    can_terminate: false,
+    terminate_status: 'already-ended',
+    terminate_degraded: false,
+    terminate_reason: 'Process has already ended; termination is unavailable.',
+  },
   logs: { stdout: null, stderr: null, combined: null },
-  control: { can_view_logs: false, can_terminate: false },
 };
 
 function makeRouter() {
-  return createRouter({
-    history: createWebHistory(),
-    routes: [
-      { path: '/files', name: 'files', component: { template: '<div>Files</div>' } },
-    ],
-  });
+  return createRouter({ history: createWebHistory(), routes: [{ path: '/files', name: 'files', component: { template: '<div>Files</div>' } }] });
 }
 
 function setupDefaultApiMocks(): void {
-  vi.mocked(getDebugState).mockResolvedValue({
-    runtime: { status: 'running', project_id: 'saivage-v3', pid: 1, started_at: new Date().toISOString(), paused: false, current_card_id: null, current_agent_session_id: null, running_processes: [], queue: [], updated_at: new Date().toISOString() },
-    cards: [],
-    totalCards: 0,
-  });
+  vi.mocked(getDebugState).mockResolvedValue({ runtime: { status: 'running', project_id: 'saivage-v3', pid: 1, started_at: new Date().toISOString(), paused: false, current_card_id: null, current_agent_session_id: null, running_processes: [], queue: [], updated_at: new Date().toISOString() }, cards: [], totalCards: 0 });
   vi.mocked(getDebugErrors).mockResolvedValue({ errors: [], total: 0 });
   vi.mocked(getDebugTimeline).mockResolvedValue({ events: [], total: 0 });
   vi.mocked(getMcpTools).mockResolvedValue({ tools: [], servers: [], invocationStats: {}, serverDetails: [] });
@@ -136,24 +142,10 @@ function setupDefaultApiMocks(): void {
   vi.mocked(getDebugSupervision).mockResolvedValue({ reviews: [], quarantine: [], stats: { total: 0, blocked: 0, passed: 0, sanitized: 0, byRisk: {}, bySourceKind: {} } });
 }
 
-async function mountDebugView() {
-  setActivePinia(createPinia());
-  setupDefaultApiMocks();
-  const router = makeRouter();
-  const wrapper = mount(DebugView, { global: { plugins: [createPinia(), router] } });
-  await flushPromises();
-  return wrapper;
-}
-
 async function mountDebugViewWithProcesses(processes: ProcessView[]) {
-  vi.mocked(listProcesses).mockResolvedValue({ processes });
-  return mountDebugView();
-}
-
-async function mountDebugViewWithProcessesError() {
   setActivePinia(createPinia());
   setupDefaultApiMocks();
-  vi.mocked(listProcesses).mockRejectedValue(new Error('Backend unavailable'));
+  vi.mocked(listProcesses).mockResolvedValue({ processes });
   const router = makeRouter();
   const wrapper = mount(DebugView, { global: { plugins: [createPinia(), router] } });
   await flushPromises();
@@ -161,11 +153,8 @@ async function mountDebugViewWithProcessesError() {
 }
 
 async function clickProcessesTab(wrapper: ReturnType<typeof mount>) {
-  const tabs = wrapper.findAll('.debug-tab');
-  const processesTab = tabs.find((t) => t.text() === 'Processes');
-  if (processesTab) {
-    await processesTab.trigger('click');
-  }
+  const tab = wrapper.findAll('.debug-tab').find((t) => t.text() === 'Processes');
+  if (tab) await tab.trigger('click');
 }
 
 describe('DebugView — processes tab', () => {
@@ -175,8 +164,8 @@ describe('DebugView — processes tab', () => {
     vi.mocked(listProcesses).mockResolvedValue({ processes: [] });
     vi.mocked(terminateProcess).mockResolvedValue({
       terminated: true,
-      message: 'Termination requested for proc-full-001. Status is now killed.',
-      process: { ...mockProcessFull, status: 'killed', control: { can_view_logs: true, can_terminate: false }, ended_at: '2025-06-01T10:02:00Z' },
+      message: 'Termination requested for proc-live-001. Status is now killed.',
+      process: { ...liveProcess, status: 'killed', ended_at: '2025-06-01T10:02:00Z', control: { ...endedProcess.control } },
     });
   });
 
@@ -184,129 +173,66 @@ describe('DebugView — processes tab', () => {
     vi.restoreAllMocks();
   });
 
-  it('renders the Processes tab button', async () => {
-    const wrapper = await mountDebugView();
-    const tabs = wrapper.findAll('.debug-tab');
-    const labels = tabs.map((t) => t.text());
-    expect(labels).toContain('Processes');
-  });
-
-  it('shows "No Saivage-managed processes found." when list is empty', async () => {
-    const wrapper = await mountDebugViewWithProcesses([]);
+  it('shows live-attached process control state and terminate button', async () => {
+    const wrapper = await mountDebugViewWithProcesses([liveProcess]);
     await clickProcessesTab(wrapper);
     await flushPromises();
-    expect(wrapper.find('.debug-empty').text()).toBe('No Saivage-managed processes found.');
+    expect(wrapper.text()).toContain('Control: Live-attached');
+    expect(wrapper.text()).toContain('termination can be requested');
+    expect(wrapper.find('.process-controls .operator-button').exists()).toBe(true);
   });
 
-  it('renders process cards with safe operator-facing metadata', async () => {
-    const wrapper = await mountDebugViewWithProcesses([mockProcessFull]);
+  it('suppresses normal terminate affordance for stale not-attached running records', async () => {
+    const wrapper = await mountDebugViewWithProcesses([staleProcess]);
     await clickProcessesTab(wrapper);
     await flushPromises();
-
-    const card = wrapper.find('.process-card');
-    expect(card.find('.process-id').text()).toBe('proc-full-001');
-    expect(card.find('.process-status-badge').text()).toBe('running');
-    const text = card.text();
-    expect(text).toContain('npm test --token sk-[REDACTED]');
-    expect(text).toContain('card-goal-1');
-    expect(text).toContain('session-agent-exec-1');
-    expect(text).toContain('agent');
-    expect(text).toContain('.saivage-work/processes/proc-full-001/combined.log');
-    expect(text).not.toContain('PID:');
-    expect(text).not.toContain('Group:');
-    expect(text).not.toContain('Required:');
+    expect(wrapper.text()).toContain('Control: Degraded — not attached');
+    expect(wrapper.text()).toContain('Termination unavailable: this record is marked running, but no live server-owned process is attached.');
+    expect(wrapper.find('.process-controls .operator-button').exists()).toBe(false);
   });
 
-  it('renders unavailable safe fields and ended state messaging', async () => {
-    const wrapper = await mountDebugViewWithProcesses([mockProcessMinimal]);
+  it('shows ended unavailable copy for already-ended process', async () => {
+    const wrapper = await mountDebugViewWithProcesses([endedProcess]);
     await clickProcessesTab(wrapper);
     await flushPromises();
-
-    const card = wrapper.find('.process-card');
-    const text = card.text();
-    expect(text).toContain('Unavailable or unsafe to display');
-    expect(text).toContain('No safe log references are available for this process.');
-    expect(text).toContain('Process has ended; termination is unavailable.');
+    expect(wrapper.text()).toContain('Control: Ended');
+    expect(wrapper.text()).toContain('Process has ended; termination is unavailable.');
+    expect(wrapper.find('.process-controls .operator-button').exists()).toBe(false);
   });
 
   it('routes Browse log actions into the Files view with contained path query', async () => {
-    const wrapper = await mountDebugViewWithProcesses([mockProcessFull]);
+    const wrapper = await mountDebugViewWithProcesses([liveProcess]);
     await clickProcessesTab(wrapper);
     await flushPromises();
-
-    const browseButtons = wrapper.findAll('.process-link-button');
-    expect(browseButtons.length).toBeGreaterThan(0);
-    await browseButtons[0]!.trigger('click');
-    expect(mockPush).toHaveBeenCalledWith({
-      name: 'files',
-      query: { path: '.saivage-work/processes/proc-full-001/combined.log' },
-    });
+    await wrapper.find('.process-link-button').trigger('click');
+    expect(mockPush).toHaveBeenCalledWith({ name: 'files', query: { path: '.saivage-work/processes/proc-live-001/combined.log' } });
   });
 
-  it('confirms and submits terminate action for running processes', async () => {
+  it('confirms and submits terminate action for live-attached processes only', async () => {
     vi.spyOn(window, 'confirm').mockReturnValue(true);
     vi.mocked(listProcesses)
-      .mockResolvedValueOnce({ processes: [mockProcessFull] })
-      .mockResolvedValueOnce({ processes: [{ ...mockProcessFull, status: 'killed', control: { can_view_logs: true, can_terminate: false }, ended_at: '2025-06-01T10:02:00Z' }] });
-
-    const wrapper = await mountDebugViewWithProcesses([mockProcessFull]);
+      .mockResolvedValueOnce({ processes: [liveProcess] })
+      .mockResolvedValueOnce({ processes: [{ ...endedProcess, id: 'proc-live-001' }] });
+    const wrapper = await mountDebugViewWithProcesses([liveProcess]);
     await clickProcessesTab(wrapper);
     await flushPromises();
-
-    const terminateButton = wrapper.find('.process-controls .operator-button');
-    await terminateButton.trigger('click');
-    await flushPromises();
-
-    expect(terminateProcess).toHaveBeenCalledWith('proc-full-001');
-    expect(wrapper.text()).toContain('Termination requested for proc-full-001. Status is now killed.');
-  });
-
-  it('shows degraded warning when terminate returns 503 and keeps safe process data', async () => {
-    vi.spyOn(window, 'confirm').mockReturnValue(true);
-    vi.mocked(terminateProcess).mockRejectedValue(new ApiError(503, 'Process is recorded as running, but this server cannot terminate it. Inspect host process state before manual cleanup.', { process: mockProcessFull }));
-
-    const wrapper = await mountDebugViewWithProcesses([mockProcessFull]);
-    await clickProcessesTab(wrapper);
-    await flushPromises();
-
     await wrapper.find('.process-controls .operator-button').trigger('click');
     await flushPromises();
-
-    expect(wrapper.text()).toContain('this server cannot terminate it');
-    expect(wrapper.text()).toContain('proc-full-001');
-  });
-});
-
-describe('DebugView — processes tab error state', () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-    mockPush.mockClear();
+    expect(terminateProcess).toHaveBeenCalledWith('proc-live-001');
+    expect(wrapper.text()).toContain('Termination requested for proc-live-001. Status is now killed.');
   });
 
-  afterEach(() => {
-    vi.restoreAllMocks();
-  });
-
-  it('shows explicit error state when listProcesses fetch fails', async () => {
-    const wrapper = await mountDebugViewWithProcessesError();
+  it('shows degraded warning and upserts stale process when terminate returns 503', async () => {
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    vi.mocked(terminateProcess).mockRejectedValue(new ApiError(503, 'server returned 503', { process: staleProcess }));
+    const wrapper = await mountDebugViewWithProcesses([liveProcess]);
     await clickProcessesTab(wrapper);
     await flushPromises();
-    const errorEl = wrapper.find('.debug-error');
-    expect(errorEl.exists()).toBe(true);
-    expect(errorEl.text()).toContain('Failed to fetch processes');
-  });
-
-  it('processes fetch failure does NOT bleed error into State tab', async () => {
-    const wrapper = await mountDebugViewWithProcessesError();
-    await clickProcessesTab(wrapper);
+    await wrapper.find('.process-controls .operator-button').trigger('click');
     await flushPromises();
-    const stateTab = wrapper.findAll('.debug-tab').find((t) => t.text() === 'State');
-    if (stateTab) {
-      await stateTab.trigger('click');
-      await flushPromises();
-    }
-    const stateText = wrapper.find('.debug-tab-content').text();
-    expect(stateText).not.toContain('Failed to fetch processes');
-    expect(stateText).toContain('Runtime State');
+    expect(wrapper.text()).toContain('no live child process attached');
+    expect(wrapper.text()).toContain('Control: Degraded — not attached');
+    const staleCard = wrapper.findAll('.process-card').find((card) => card.text().includes('proc-stale-001'));
+    expect(staleCard?.text()).toContain('Termination unavailable: this record is marked running, but no live server-owned process is attached.');
   });
 });

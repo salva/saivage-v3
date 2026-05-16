@@ -330,10 +330,13 @@ export const useDebugStore = defineStore('debug', () => {
           if (process) {
             upsertProcess(process);
           }
-          processControlError.value = err.message;
-          processStale.value = err.status === 503;
           if (err.status === 409) {
+            processControlError.value = 'Process has already ended. Refreshing process list.';
+            processStale.value = false;
             await fetchProcesses();
+          } else {
+            processControlError.value = 'Process is recorded as running, but this server has no live child process attached. Refresh, then inspect host process state before manual cleanup.';
+            processStale.value = true;
           }
         } else {
           processControlError.value = err.message || 'Process control request failed.';

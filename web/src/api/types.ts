@@ -198,9 +198,18 @@ export interface ProcessLogRefs {
   combined: string | null;
 }
 
+export type ProcessControlAvailabilityStatus =
+  | 'live-attached'
+  | 'stale-not-attached'
+  | 'already-ended'
+  | 'unknown';
+
 export interface ProcessControlAvailability {
   can_view_logs: boolean;
   can_terminate: boolean;
+  terminate_status: ProcessControlAvailabilityStatus;
+  terminate_degraded: boolean;
+  terminate_reason: string;
 }
 
 export interface ProcessView {

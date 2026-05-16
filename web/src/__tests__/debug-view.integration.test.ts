@@ -181,6 +181,9 @@ const mockProcessesResponse: ProcessListResponse = {
       control: {
         can_view_logs: true,
         can_terminate: true,
+        terminate_status: 'live-attached',
+        terminate_degraded: false,
+        terminate_reason: 'Process is running and attached to this server; termination can be requested.',
       },
     },
   ],

@@ -13,55 +13,33 @@ import { processRecordSchema } from '../schemas/validators.js';
 import type { ProcessRecord, ProcessStatus } from '../schemas/types.js';
 import { writeFileAtomic } from './file-tree.js';
 
-// ── Types ─────────────────────────────────────────────────────
-
 export interface ProcessStartOptions {
-  /** Card ID this process is associated with */
   cardId: string;
-  /** Working directory for the child process */
   cwd?: string;
-  /** Environment variables to merge into the child's environment */
   env?: Record<string, string>;
-  /** Whether this process is required for card completion */
   requiredForCardCompletion?: boolean;
-  /** Agent session ID launching this process */
   agentSessionId?: string;
-  /** Goal ID associated with this process */
   goalId?: string;
-  /** Human-readable reason for launching */
   launchReason?: string;
-  /** Who owns this process */
   ownerKind?: 'agent' | 'operator' | 'runtime';
-  /** Background execution policy */
   backgroundPolicy?: 'foreground' | 'background_required' | 'background_optional' | 'detach' | 'kill_on_freeze';
 }
 
 export interface ProcessWaitResult {
-  /** Process ID */
   id: string;
-  /** Final status after waiting */
   status: ProcessStatus;
-  /** Exit code (if exited normally) */
   exitCode: number | null;
-  /** Whether the wait timed out */
   timedOut: boolean;
-  /** Duration from wait call to resolution, in milliseconds */
   waitDurationMs: number;
 }
 
 export interface ProcessListFilter {
-  /** Filter by card_id */
   cardId?: string;
-  /** Filter by status */
   status?: ProcessStatus | ProcessStatus[];
 }
 
-// ── Constants ─────────────────────────────────────────────────
-
 const PROCESSES_DIR = '.saivage-work/processes';
 const REGISTRY_FILE = '.saivage/runtime/processes.json';
-
-// ── In-Memory State ───────────────────────────────────────────
 
 const activeProcesses = new Map<string, ChildProcess>();
 const outputStreams = new Map<
@@ -70,8 +48,6 @@ const outputStreams = new Map<
 >();
 const pendingStreamCloses = new Map<string, number>();
 const streamCloseWaiters = new Map<string, Promise<void>>();
-
-// ── Helpers ───────────────────────────────────────────────────
 
 function generateId(): string {
   return `proc-${randomBytes(6).toString('hex')}`;
@@ -103,6 +79,11 @@ function resolveStatus(proc: ChildProcess): ProcessStatus {
     return proc.exitCode === 0 ? 'exited' : 'failed';
   }
   return 'running';
+}
+
+export function isProcessLiveAttached(procId: string): boolean {
+  const child = activeProcesses.get(procId);
+  return Boolean(child && resolveStatus(child) === 'running');
 }
 
 function resolveExitCode(proc: ChildProcess): number | null {
@@ -169,8 +150,6 @@ function waitForProcessRecord(
   });
 }
 
-// ── Registry Persistence ──────────────────────────────────────
-
 export function loadRegistry(projectRoot: string): Map<string, ProcessRecord> {
   const rp = registryPath(projectRoot);
   if (!existsSync(rp)) {
@@ -213,8 +192,6 @@ function upsertRegistryRecord(projectRoot: string, record: ProcessRecord): void 
   const records = Array.from(existing.values());
   saveRegistry(projectRoot, records);
 }
-
-// ── Output Stream Management ──────────────────────────────────
 
 function ensureProcessDir(projectRoot: string, procId: string): string {
   const dir = processDir(projectRoot, procId);
@@ -279,8 +256,6 @@ function finalizeProcess(procId: string): void {
   activeProcesses.delete(procId);
   pendingStreamCloses.delete(procId);
 }
-
-// ── Public API: startProcess ──────────────────────────────────
 
 export function startProcess(
   projectRoot: string,
@@ -428,8 +403,6 @@ function onStreamEnd(procId: string): void {
   }
 }
 
-// ── Public API: waitProcess ───────────────────────────────────
-
 export function waitProcess(
   projectRoot: string,
   procId: string,
@@ -530,8 +503,6 @@ export function waitProcess(
   });
 }
 
-// ── Public API: startAndWait ──────────────────────────────────
-
 export async function startAndWait(
   projectRoot: string,
   command: string,
@@ -541,8 +512,6 @@ export async function startAndWait(
   const record = startProcess(projectRoot, command, options);
   return waitProcess(projectRoot, record.id, timeoutMs);
 }
-
-// ── Public API: tailOutput ────────────────────────────────────
 
 export function tailOutput(
   projectRoot: string,
@@ -564,8 +533,6 @@ export function tailOutput(
 
   return allLines.slice(-lines).join('\n');
 }
-
-// ── Public API: killProcess ───────────────────────────────────
 
 export async function killProcess(
   projectRoot: string,
@@ -619,8 +586,6 @@ export async function killProcess(
   return record;
 }
 
-// ── Public API: listProcesses ─────────────────────────────────
-
 export function listProcesses(
   projectRoot: string,
   filter?: ProcessListFilter,
@@ -653,8 +618,6 @@ export function listProcesses(
   return filtered;
 }
 
-// ── Public API: getProcess ────────────────────────────────────
-
 export function getProcess(
   projectRoot: string,
   procId: string,
@@ -662,8 +625,6 @@ export function getProcess(
   const registry = loadRegistry(projectRoot);
   return registry.get(procId) ?? null;
 }
-
-// ── Public API: cleanupProcessOutput ──────────────────────────
 
 export function cleanupProcessOutput(projectRoot: string, procId: string): boolean {
   const registry = loadRegistry(projectRoot);
@@ -684,8 +645,6 @@ export function cleanupProcessOutput(projectRoot: string, procId: string): boole
   return true;
 }
 
-// ── Public API: cleanupAllCompleted ───────────────────────────
-
 export function cleanupAllCompleted(projectRoot: string): number {
   const registry = loadRegistry(projectRoot);
   let count = 0;
@@ -700,8 +659,6 @@ export function cleanupAllCompleted(projectRoot: string): number {
 
   return count;
 }
-
-// ── Public API: killAllRunning ────────────────────────────────
 
 export async function killAllRunning(projectRoot: string): Promise<string[]> {
   const killedIds: string[] = [];

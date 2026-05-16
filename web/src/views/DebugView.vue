@@ -317,6 +317,11 @@
               <div v-if="proc.timed_out" class="pd-row"><span class="pd-key">Timed out:</span><span class="pd-value">Yes</span></div>
             </div>
 
+            <div class="process-availability" :class="availabilityClass(proc)">
+              <div class="process-subtitle">Control: {{ availabilityLabel(proc) }}</div>
+              <div class="process-availability-reason">{{ proc.control.terminate_reason }}</div>
+            </div>
+
             <div class="process-logs">
               <div class="process-subtitle">Logs</div>
               <div v-if="!proc.control.can_view_logs" class="process-empty-note">No safe log references are available for this process.</div>
@@ -334,13 +339,13 @@
 
             <div class="process-controls">
               <button
-                v-if="proc.control.can_terminate"
+                v-if="showTerminateButton(proc)"
                 class="operator-button operator-danger-button"
                 :disabled="Boolean(processTerminateLoading[proc.id]) || processUnauthorized"
-                :aria-label="`Terminate process ${proc.id}`"
+                :aria-label="`Terminate live-attached process ${proc.id}`"
                 @click="confirmTerminateProcess(proc.id)"
               >{{ processTerminateLoading[proc.id] ? 'Terminating...' : 'Terminate process' }}</button>
-              <div v-else class="process-empty-note">{{ proc.status === 'running' ? 'Termination is unavailable for this process.' : 'Process has ended; termination is unavailable.' }}</div>
+              <div v-else class="process-empty-note">{{ terminateUnavailableCopy(proc) }}</div>
             </div>
           </div>
         </div>
@@ -557,7 +562,7 @@ async function confirmClearNotes(): Promise<void> {
 }
 
 async function confirmTerminateProcess(processId: string): Promise<void> {
-  if (!window.confirm(`Terminate process ${processId}? This sends a termination request to a Saivage-managed running process.`)) {
+  if (!window.confirm(`Terminate process ${processId}? This sends a termination request to a live Saivage-managed process attached to this server. The server will re-check availability before signaling.`)) {
     return;
   }
   await debugStore.terminateOperatorProcess(processId);
@@ -591,6 +596,51 @@ function processLogEntries(proc: ProcessView): Array<{ key: string; label: strin
     { key: 'stdout', label: 'Stdout', value: proc.logs.stdout },
     { key: 'stderr', label: 'Stderr', value: proc.logs.stderr },
   ];
+}
+
+function showTerminateButton(proc: ProcessView): boolean {
+  return !processUnauthorized.value
+    && proc.control.can_terminate
+    && proc.control.terminate_status === 'live-attached';
+}
+
+function availabilityLabel(proc: ProcessView): string {
+  switch (proc.control.terminate_status) {
+    case 'live-attached':
+      return 'Live-attached';
+    case 'stale-not-attached':
+      return 'Degraded — not attached';
+    case 'already-ended':
+      return 'Ended';
+    default:
+      return 'Unknown';
+  }
+}
+
+function availabilityClass(proc: ProcessView): string {
+  switch (proc.control.terminate_status) {
+    case 'live-attached':
+      return 'process-availability-live';
+    case 'stale-not-attached':
+      return 'process-availability-warning';
+    case 'already-ended':
+      return 'process-availability-ended';
+    default:
+      return 'process-availability-unknown';
+  }
+}
+
+function terminateUnavailableCopy(proc: ProcessView): string {
+  switch (proc.control.terminate_status) {
+    case 'stale-not-attached':
+      return 'Termination unavailable: this record is marked running, but no live server-owned process is attached. Refresh, then inspect host process state before manual cleanup.';
+    case 'already-ended':
+      return 'Process has ended; termination is unavailable.';
+    case 'unknown':
+      return 'Termination availability is unknown. Refresh and inspect server status before manual cleanup.';
+    default:
+      return 'Termination is unavailable for this process.';
+  }
 }
 
 interface CardStatusEntry { status: string; count: number }
@@ -753,125 +803,25 @@ onUnmounted(() => {
 .mcp-server-transport { font-size:10px; color:#484f58; margin-left:6px; font-family:'SF Mono',monospace; }
 .mcp-tool-count { font-size:10px; color:#8b949e; margin-left:6px; }
 .mcp-tool-card { padding:8px 12px; background:#161b22; border:1px solid #21262d; border-radius:6px; margin-bottom:6px; }
-.mcp-tool-name-row { display:flex; align-items:baseline; gap:8px; margin-bottom:4px; }
-.mcp-tool-name { font-family:'SF Mono',monospace; font-size:13px; color:#58a6ff; font-weight:500; }
-.mcp-tool-desc { font-size:11px; color:#8b949e; }
-.mcp-tool-stats { display:flex; gap:12px; align-items:center; }
-.mcp-stat-item { font-size:11px; color:#8b949e; display:flex; align-items:center; gap:3px; }
-.mcp-stat-item.mcp-stat-success { color:#7ee787; }
-.mcp-stat-item.mcp-stat-error { color:#f85149; }
-.mcp-stat-item.mcp-stat-time { font-size:10px; color:#484f58; }
-.mcp-stats-table { display:flex; flex-direction:column; font-size:11px; }
-.mcp-stats-header,.mcp-stats-row { display:grid; grid-template-columns:2fr 60px 60px 60px 120px; gap:8px; padding:4px 8px; }
-.mcp-stats-header { color:#8b949e; font-weight:600; border-bottom:1px solid #21262d; }
-.mcp-stats-row { border-bottom:1px solid #161b22; }
-.mcp-stats-row:hover { background:#161b22; }
-.mcp-stats-cell { color:#c9d1d9; }
-.mcp-stats-cell.mono { font-family:'SF Mono',monospace; font-size:10px; color:#58a6ff; }
-.mcp-stats-cell.mcp-stat-success { color:#7ee787; }
-.mcp-stats-cell.mcp-stat-error { color:#f85149; }
-.mcp-stats-cell.mcp-stat-time { color:#484f58; }
-.processes-list { display:flex; flex-direction:column; gap:10px; }
-.process-header { display:flex; align-items:center; gap:8px; padding-bottom:8px; margin-bottom:8px; border-bottom:1px solid #30363d; flex-wrap:wrap; }
-.process-id { font-size:13px; color:#58a6ff; }
-.process-status-badge { font-size:10px; font-weight:600; padding:2px 7px; border-radius:4px; text-transform:uppercase; }
+.process-header { display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-bottom:10px; }
+.process-status-badge { font-size:10px; font-weight:600; padding:2px 8px; border-radius:999px; text-transform:uppercase; }
 .process-status-badge.ps-running { background:#1a2418; color:#7ee787; }
 .process-status-badge.ps-exited { background:#1c2738; color:#58a6ff; }
 .process-status-badge.ps-failed { background:#241818; color:#f85149; }
 .process-status-badge.ps-killed { background:#241f18; color:#d29922; }
-.process-time { font-size:11px; color:#8b949e; margin-left:auto; }
-.process-details, .process-logs, .process-controls { display:flex; flex-direction:column; gap:4px; }
-.process-logs, .process-controls { margin-top:10px; }
+.process-time { margin-left:auto; font-size:11px; color:#8b949e; }
+.process-details, .process-logs { display:flex; flex-direction:column; gap:6px; margin-bottom:12px; }
 .process-subtitle { font-size:11px; font-weight:600; color:#8b949e; text-transform:uppercase; }
-.pd-row { display:flex; gap:8px; font-size:12px; align-items:flex-start; }
-.pd-key { color:#8b949e; min-width:110px; flex-shrink:0; }
-.pd-value { color:#c9d1d9; word-break:break-word; }
-.pd-value.mono { color:#58a6ff; }
-.wrap { white-space:pre-wrap; overflow-wrap:anywhere; }
-.process-empty-note { font-size:12px; color:#8b949e; }
-.process-link-button { margin-left:8px; padding:2px 8px; font-size:10px; color:#58a6ff; background:#1c2738; border:1px solid #30363d; border-radius:4px; cursor:pointer; }
-.process-link-button:hover { background:#253548; }
-.sv-fetch-btn { padding:3px 12px; font-size:11px; color:#58a6ff; background:#1c2738; border:1px solid #30363d; border-radius:4px; cursor:pointer; font-family:inherit; transition:all .15s; }
-.sv-fetch-btn:hover:not(:disabled) { background:#253548; border-color:#58a6ff; }
-.doctor-status-banner { display:flex; align-items:center; gap:8px; padding:10px 14px; border-radius:6px; margin-bottom:12px; }
-.doctor-status-banner.doctor-ok { background:#1a2418; border:1px solid #3fb950; }
-.doctor-status-banner.doctor-issues { background:#241f18; border:1px solid #d29922; }
-.doctor-status-icon { font-size:16px; }
-.doctor-ok .doctor-status-icon { color:#7ee787; }
-.doctor-issues .doctor-status-icon { color:#d29922; }
-.doctor-status-text { font-size:13px; color:#c9d1d9; }
-.doctor-checks-list { display:flex; flex-direction:column; gap:4px; margin-bottom:12px; }
-.doctor-check-item { display:flex; align-items:flex-start; gap:8px; padding:6px 10px; border-radius:4px; }
-.doctor-check-item.check-passed { background:#161b22; }
-.doctor-check-item.check-failed { background:#241818; border:1px solid #3d1f1f; }
-.check-icon { font-size:12px; margin-top:1px; flex-shrink:0; }
-.check-passed .check-icon { color:#7ee787; }
-.check-failed .check-icon { color:#f85149; }
-.check-body { display:flex; flex-direction:column; gap:2px; }
-.check-name { font-size:11px; color:#c9d1d9; font-family:'SF Mono',monospace; }
-.check-details { font-size:11px; color:#8b949e; }
-.doctor-issues { margin-top:12px; }
-.doctor-issues-title { font-size:11px; font-weight:600; color:#f85149; margin:0 0 6px 0; }
-.doctor-issue-item { display:flex; align-items:flex-start; gap:8px; padding:6px 10px; border-radius:4px; margin-bottom:4px; background:#1a1818; }
-.issue-severity-badge { font-size:10px; font-weight:600; padding:1px 5px; border-radius:3px; text-transform:uppercase; flex-shrink:0; }
-.iss-error { background:#241818; color:#f85149; }
-.iss-warning { background:#241f18; color:#d29922; }
-.issue-message { font-size:12px; color:#c9d1d9; }
-.sv-stats-grid { display:grid; grid-template-columns:repeat(4,1fr); gap:8px; margin-bottom:16px; }
-.sv-stat-card { padding:12px; border-radius:6px; text-align:center; display:flex; flex-direction:column; gap:4px; }
-.sv-stat-total { background:#161b22; border:1px solid #30363d; }
-.sv-stat-blocked { background:#241818; border:1px solid #3d1f1f; }
-.sv-stat-passed { background:#1a2418; border:1px solid #254025; }
-.sv-stat-sanitized { background:#1c2738; border:1px solid #253548; }
-.sv-stat-num { font-size:22px; font-weight:700; font-family:'SF Mono',monospace; }
-.sv-stat-total .sv-stat-num { color:#f0f6fc; }
-.sv-stat-blocked .sv-stat-num { color:#f85149; }
-.sv-stat-passed .sv-stat-num { color:#7ee787; }
-.sv-stat-sanitized .sv-stat-num { color:#58a6ff; }
-.sv-stat-label { font-size:10px; color:#8b949e; text-transform:uppercase; letter-spacing:.04em; }
-.sv-sub-section { margin-top:16px; }
-.sv-sub-title { font-size:11px; font-weight:600; color:#8b949e; margin:0 0 8px 0; }
-.sv-pills { display:flex; gap:6px; flex-wrap:wrap; }
-.sv-pill { font-size:10px; padding:2px 8px; border-radius:10px; font-family:'SF Mono',monospace; background:#21262d; color:#c9d1d9; }
-.sv-pill.risk-low { background:#1a2418; color:#7ee787; }
-.sv-pill.risk-medium { background:#241f18; color:#d29922; }
-.sv-pill.risk-high { background:#241818; color:#f85149; }
-.sv-pill-kind { background:#1c2738; color:#58a6ff; }
-.sv-review-list { display:flex; flex-direction:column; gap:4px; }
-.sv-review-item { display:flex; align-items:flex-start; gap:8px; padding:8px 10px; border-radius:4px; border-left:3px solid transparent; background:#161b22; }
-.sv-review-item.sv-review-passed { border-left-color:#7ee787; }
-.sv-review-item.sv-review-blocked { border-left-color:#f85149; }
-.sv-review-item.sv-review-sanitized { border-left-color:#58a6ff; }
-.sv-review-status-badge { font-size:9px; font-weight:600; padding:1px 5px; border-radius:3px; text-transform:uppercase; flex-shrink:0; font-family:'SF Mono',monospace; }
-.sv-st-passed { background:#1a2418; color:#7ee787; }
-.sv-st-blocked { background:#241818; color:#f85149; }
-.sv-st-sanitized { background:#1c2738; color:#58a6ff; }
-.sv-review-body { flex:1; display:flex; flex-direction:column; gap:2px; }
-.sv-review-summary { font-size:12px; color:#c9d1d9; }
-.sv-review-meta { display:flex; gap:8px; align-items:center; }
-.sv-review-source { font-size:10px; color:#8b949e; font-family:'SF Mono',monospace; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:200px; }
-.sv-review-risk { font-size:9px; padding:0 5px; border-radius:3px; }
-.sv-review-risk.risk-low { background:#1a2418; color:#7ee787; }
-.sv-review-risk.risk-medium { background:#241f18; color:#d29922; }
-.sv-review-risk.risk-high { background:#241818; color:#f85149; }
-.sv-review-time { font-size:10px; color:#484f58; margin-left:auto; }
-.sv-quarantine-list { display:flex; flex-direction:column; gap:4px; }
-.sv-q-item { padding:8px 10px; background:#161b22; border:1px solid #21262d; border-radius:4px; }
-.sv-q-header { display:flex; align-items:center; gap:6px; margin-bottom:4px; }
-.sv-q-id { font-size:11px; color:#58a6ff; }
-.sv-q-risk { font-size:9px; padding:0 5px; border-radius:3px; }
-.sv-q-meta { display:flex; gap:8px; align-items:center; margin-bottom:6px; }
-.sv-q-source { font-size:10px; color:#8b949e; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:250px; }
-.sv-q-time { font-size:10px; color:#484f58; margin-left:auto; }
-.sv-q-browse-btn { padding:2px 8px; font-size:10px; color:#d29922; background:none; border:1px solid #30363d; border-radius:3px; cursor:pointer; font-family:inherit; transition:all .15s; }
-.sv-q-browse-btn:hover { color:#e2b451; border-color:#d29922; background:#241f18; }
-@media (max-width: 720px) {
-  .operator-runtime-buttons,
-  .operator-note-actions,
-  .operator-actions-inline,
-  .sv-review-meta,
-  .pd-row { flex-direction:column; align-items:flex-start; }
-  .operator-note-time, .process-time { margin-left:0; }
-  .sv-stats-grid { grid-template-columns:repeat(2,1fr); }
-}
+.process-availability { margin-bottom:12px; padding:10px 12px; border-radius:6px; border:1px solid #30363d; }
+.process-availability-live { background:#1a2418; border-color:#254025; color:#7ee787; }
+.process-availability-warning, .process-availability-unknown { background:#241f18; border-color:#5e4b16; color:#e3b341; }
+.process-availability-ended { background:#161b22; border-color:#30363d; color:#8b949e; }
+.process-availability-reason { margin-top:4px; font-size:12px; line-height:1.5; color:inherit; }
+.pd-row { display:flex; gap:8px; align-items:flex-start; }
+.pd-key { min-width:120px; font-size:12px; color:#8b949e; }
+.pd-value { font-size:12px; color:#c9d1d9; }
+.wrap { word-break:break-word; white-space:pre-wrap; }
+.process-link-button, .sv-fetch-btn, .sv-q-browse-btn { margin-left:8px; padding:4px 8px; font-size:11px; color:#58a6ff; background:#0d1117; border:1px solid #30363d; border-radius:4px; cursor:pointer; }
+.process-empty-note { font-size:12px; color:#8b949e; line-height:1.5; }
+.process-controls { margin-top:8px; }
 </style>

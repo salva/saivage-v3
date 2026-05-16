@@ -1,5 +1,10 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
-import { listProcesses, getProcess, killProcess } from '../../utils/process-runner.js';
+import {
+  listProcesses,
+  getProcess,
+  killProcess,
+  isProcessLiveAttached,
+} from '../../utils/process-runner.js';
 import type { ProcessRecord } from '../../schemas/types.js';
 import {
   redactCommandForOperator,
@@ -13,9 +18,18 @@ interface ProcessLogRefs {
   combined: string | null;
 }
 
+export type ProcessControlAvailabilityStatus =
+  | 'live-attached'
+  | 'stale-not-attached'
+  | 'already-ended'
+  | 'unknown';
+
 interface ProcessControlAvailability {
   can_view_logs: boolean;
   can_terminate: boolean;
+  terminate_status: ProcessControlAvailabilityStatus;
+  terminate_degraded: boolean;
+  terminate_reason: string;
 }
 
 export interface ProcessView {
@@ -52,12 +66,57 @@ function safeCwd(projectRoot: string, cwd: string | null | undefined): string | 
   return toContainedRelativePath(projectRoot, cwd);
 }
 
+function toProcessControlAvailability(record: ProcessRecord, canViewLogs: boolean): ProcessControlAvailability {
+  if (record.status !== 'running') {
+    return {
+      can_view_logs: canViewLogs,
+      can_terminate: false,
+      terminate_status: 'already-ended',
+      terminate_degraded: false,
+      terminate_reason: 'Process has already ended; termination is unavailable.',
+    };
+  }
+
+  try {
+    const liveAttached = isProcessLiveAttached(record.id);
+    if (liveAttached) {
+      return {
+        can_view_logs: canViewLogs,
+        can_terminate: true,
+        terminate_status: 'live-attached',
+        terminate_degraded: false,
+        terminate_reason:
+          'Process is running and attached to this server; termination can be requested.',
+      };
+    }
+
+    return {
+      can_view_logs: canViewLogs,
+      can_terminate: false,
+      terminate_status: 'stale-not-attached',
+      terminate_degraded: true,
+      terminate_reason:
+        'Process is recorded as running, but this server has no live child process attached. Inspect host process state before manual cleanup.',
+    };
+  } catch {
+    return {
+      can_view_logs: canViewLogs,
+      can_terminate: false,
+      terminate_status: 'unknown',
+      terminate_degraded: true,
+      terminate_reason:
+        'Process control availability could not be confirmed. Refresh and inspect server status before manual cleanup.',
+    };
+  }
+}
+
 function toProcessView(projectRoot: string, record: ProcessRecord): ProcessView {
   const logs = {
     stdout: safeLogRef(projectRoot, record.stdout_path),
     stderr: safeLogRef(projectRoot, record.stderr_path),
     combined: safeLogRef(projectRoot, record.combined_log_path),
   };
+  const canViewLogs = Boolean(logs.stdout || logs.stderr || logs.combined);
 
   return {
     id: record.id,
@@ -72,10 +131,7 @@ function toProcessView(projectRoot: string, record: ProcessRecord): ProcessView 
     command: redactCommandForOperator(record.command),
     cwd: safeCwd(projectRoot, record.cwd),
     logs,
-    control: {
-      can_view_logs: Boolean(logs.stdout || logs.stderr || logs.combined),
-      can_terminate: record.status === 'running',
-    },
+    control: toProcessControlAvailability(record, canViewLogs),
   };
 }
 
@@ -158,7 +214,7 @@ export function registerProcessRoutes(
           error: 'Process termination unavailable',
           terminated: false,
           message:
-            'Process is recorded as running, but no live server-owned child process is available to terminate. Inspect host process state before manual cleanup.',
+            'Process is recorded as running, but this server has no live child process attached. Refresh, then inspect host process state before manual cleanup.',
           process: toProcessView(projectRoot, terminatedRecord),
         });
       }

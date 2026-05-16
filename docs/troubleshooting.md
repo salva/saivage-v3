@@ -204,12 +204,12 @@ This is expected behavior, not necessarily a process registry failure.
 ### Symptoms
 
 - `POST /api/processes/:id/terminate` returns `503`
-- Debug → Processes says the process is recorded as running but cannot be terminated by this server
-- the process card may still show `status: running`
+- Debug → Processes shows `Control: Degraded — not attached`
+- the process card may still show `status: running` but no normal terminate button
 
 ### Explanation
 
-The persisted process registry and the current server's live child-process map disagree. This commonly happens after restart, crash, or other degraded recovery paths. The API intentionally does not claim termination success when no live server-owned child process is attached.
+The durable registry still says the process is running, but the current server has no live child process attached for that record. This commonly happens after restart, crash, or other degraded recovery paths. Debug list/detail availability is advisory, and `POST /api/processes/:id/terminate` remains authoritative.
 
 ### What to do
 
@@ -217,6 +217,21 @@ The persisted process registry and the current server's live child-process map d
 2. Inspect server logs and current host process state.
 3. Pause or freeze other work before manual cleanup if the runtime is still mutating.
 4. Only after host verification should you perform manual process cleanup or remove stale artifacts.
+
+## Process terminate returns already ended
+
+### Symptoms
+
+- `POST /api/processes/:id/terminate` returns `409`
+- Debug → Processes shows `Control: Ended`
+
+### Explanation
+
+The process ended before the server accepted the terminate request, or the record was already non-running.
+
+### What to do
+
+Refresh the process list and continue from the ended record state. Repeated terminate attempts are not useful.
 
 ## Docs do not load under `/docs/`
 

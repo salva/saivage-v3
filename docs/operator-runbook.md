@@ -312,7 +312,7 @@ Expected process view fields:
 - contained project-relative `cwd`
 - contained project-relative log refs under `logs`
 - `status`, `owner`, `session_id`, `card_id`, `started_at`, `ended_at`, `exit_code`, `timed_out`
-- `control.can_view_logs` and `control.can_terminate`
+- `control.can_view_logs`, `control.can_terminate`, `control.terminate_status`, `control.terminate_degraded`, and `control.terminate_reason`
 
 Safe process views do not expose raw absolute paths, output directories, process groups, or unredacted command strings.
 
@@ -322,7 +322,14 @@ If a safe log ref is present, use the Files view/API with that contained relativ
 
 ### Terminating a process
 
-If **Terminate process** is shown in Debug → Processes, it applies only to a Saivage-managed running child process owned by the current server instance.
+Debug → Processes now distinguishes advisory control availability before you call `POST /api/processes/:id/terminate`:
+
+- `Control: Live-attached` — the record is running and this server still has a live child process attached; a normal **Terminate process** action is shown.
+- `Control: Degraded — not attached` — the registry still says running, but this server has no live child process attached; no normal terminate button is shown.
+- `Control: Ended` — the process has already ended; termination is unavailable.
+- `Control: Unknown` — the server could not confirm availability; treat this like degraded state and inspect first.
+
+If **Terminate process** is shown, it applies only to a live Saivage-managed child process attached to the current server instance.
 
 Supported outcomes:
 
@@ -330,11 +337,13 @@ Supported outcomes:
 - already ended: the API returns an already-ended message and the UI refreshes the process state;
 - unavailable/degraded: the record still says `running`, but this server has no live child process to signal.
 
-Unavailable termination commonly indicates restart or crash disagreement between the persisted registry and the live in-memory child-process map. In that case:
+Stale/not-attached means the durable registry and the current server's live child-process map disagree, commonly after restart, crash, or manual recovery. In that case:
 
 1. Refresh Debug → Processes.
 2. Inspect host process state and server logs.
 3. Pause or freeze other work before manual cleanup if needed.
+
+`POST /api/processes/:id/terminate` remains authoritative and can still return `409` or `503` because list/detail data can race with process exit or restart state.
 
 Do not treat the process API as a general shell interface or host process manager.
 
