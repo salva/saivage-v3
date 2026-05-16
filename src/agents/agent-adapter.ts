@@ -3,24 +3,8 @@ import type { SaivageConfig, RuntimeSection } from './config-schema.js';
 import { loadConfig, getRuntimeConfig, getModelParamsForRole, getSelfCheckThreshold } from './config-schema.js';
 import { ProviderRegistry, type Candidate } from './provider.js';
 import { ModelRouter } from './model-router.js';
-import {
-  parsePlannerResult,
-  parseExecutorResult,
-  parseReviewerResult,
-  buildExecutorFallbackResult,
-  type PlannerResult,
-  type ExecutorResult,
-  type ReviewerResult,
-} from './result-parser.js';
-import {
-  createSession,
-  completeSession,
-  appendMessage,
-  getSession,
-  getSessionMessages,
-  listSessions,
-  updateSessionModel,
-} from './session-persistence.js';
+import { parsePlannerResult, parseExecutorResult, parseReviewerResult, buildExecutorFallbackResult, type PlannerResult, type ExecutorResult, type ReviewerResult } from './result-parser.js';
+import { createSession, completeSession, appendMessage, getSession, getSessionMessages, listSessions, updateSessionModel } from './session-persistence.js';
 import type { AgentMessage, HandoffSummary, NotificationRecord } from '../schemas/types.js';
 import { compactSession } from './compaction.js';
 import { invokeWithRecovery, type RecoveryContext } from './recovery.js';
@@ -37,6 +21,8 @@ import { SkillsEngine } from './skills-engine.js';
 import { loadSkill, LoadSkillError, LOAD_SKILL_TOOL_DEFINITION } from './skill-tools.js';
 import { processWorkspaceToolCall, READ_ONLY_WORKSPACE_TOOL_DEFINITIONS, WORKSPACE_TOOL_DEFINITIONS } from './workspace-tools.js';
 import { NotificationCenter } from '../utils/notification-center.js';
+import * as analystTools from './analyst-tools.js';
+import { ANALYST_TOOL_DEFINITIONS } from './analyst-tool-schemas.js';
 
 export type { AgentRuntime } from './agent-runtime.js';
 export type AgentRole = 'planner' | 'executor' | 'reviewer' | 'analyst';
@@ -44,29 +30,30 @@ export interface AgentAdapterConfig { projectRoot: string; saivageDir: string; c
 export type LlmCallFn = (candidate: Candidate, systemPrompt: string, messages: AgentMessage[], sessionId: string, opts?: LlmCompleteOptions) => Promise<string>;
 type SessionCreatedHook = (sessionId: string) => void | Promise<void>;
 
-const MCP_TOOL_CALL_TOOL_DEFINITION: ToolDefinition = {
-  type: 'function',
-  function: {
-    name: 'mcp_tool_call',
-    description: 'Call an approved MCP (Model Context Protocol) tool on a configured MCP server. Availability is role- and policy-scoped at runtime.',
-    parameters: {
-      type: 'object',
-      properties: {
-        serverName: { type: 'string', description: 'Configured MCP server name' },
-        toolName: { type: 'string', description: 'Tool name on that MCP server' },
-        args: { type: 'object', description: 'Optional tool arguments', additionalProperties: true },
-      },
-      required: ['serverName', 'toolName'],
-      additionalProperties: false,
-    },
-  },
+const MCP_TOOL_CALL_TOOL_DEFINITION: ToolDefinition = { type: 'function', function: { name: 'mcp_tool_call', description: 'Call an approved MCP (Model Context Protocol) tool on a configured MCP server. Availability is role- and policy-scoped at runtime.', parameters: { type: 'object', properties: { serverName: { type: 'string', description: 'Configured MCP server name' }, toolName: { type: 'string', description: 'Tool name on that MCP server' }, args: { type: 'object', description: 'Optional tool arguments', additionalProperties: true } }, required: ['serverName', 'toolName'], additionalProperties: false } } };
+
+const AGENT_TOOL_NAMES_BY_ROLE: Record<AgentRole, string[]> = {
+  analyst: ['list_card_history','get_card_history_entry','diff_card','list_notes','get_note','mark_note_handled','acknowledge_notification'],
+  planner: ['list_card_history','get_card_history_entry','diff_card','list_notes','get_note','mark_note_handled','acknowledge_notification'],
+  executor: ['list_card_history','get_card_history_entry','diff_card','list_notes','get_note','mark_note_handled','acknowledge_notification'],
+  reviewer: ['list_card_history','get_card_history_entry','diff_card','list_notes','get_note','mark_note_handled','acknowledge_notification'],
 };
 
 const TOOL_MATRIX: Record<AgentRole, ToolDefinition[]> = {
-  planner: [LOAD_SKILL_TOOL_DEFINITION, ...READ_ONLY_WORKSPACE_TOOL_DEFINITIONS, MCP_TOOL_CALL_TOOL_DEFINITION],
-  executor: [LOAD_SKILL_TOOL_DEFINITION, ...WORKSPACE_TOOL_DEFINITIONS, MCP_TOOL_CALL_TOOL_DEFINITION],
-  reviewer: [LOAD_SKILL_TOOL_DEFINITION, ...READ_ONLY_WORKSPACE_TOOL_DEFINITIONS, MCP_TOOL_CALL_TOOL_DEFINITION],
-  analyst: [],
+  planner: [LOAD_SKILL_TOOL_DEFINITION, ...READ_ONLY_WORKSPACE_TOOL_DEFINITIONS, ...ANALYST_TOOL_DEFINITIONS.filter((tool) => AGENT_TOOL_NAMES_BY_ROLE.planner.includes(tool.function.name)), MCP_TOOL_CALL_TOOL_DEFINITION],
+  executor: [LOAD_SKILL_TOOL_DEFINITION, ...WORKSPACE_TOOL_DEFINITIONS, ...ANALYST_TOOL_DEFINITIONS.filter((tool) => AGENT_TOOL_NAMES_BY_ROLE.executor.includes(tool.function.name)), MCP_TOOL_CALL_TOOL_DEFINITION],
+  reviewer: [LOAD_SKILL_TOOL_DEFINITION, ...READ_ONLY_WORKSPACE_TOOL_DEFINITIONS, ...ANALYST_TOOL_DEFINITIONS.filter((tool) => AGENT_TOOL_NAMES_BY_ROLE.reviewer.includes(tool.function.name)), MCP_TOOL_CALL_TOOL_DEFINITION],
+  analyst: [...ANALYST_TOOL_DEFINITIONS.filter((tool) => AGENT_TOOL_NAMES_BY_ROLE.analyst.includes(tool.function.name))],
+};
+
+const RUNTIME_AGENT_TOOL_REGISTRY: Record<string, (ctx: analystTools.ToolContext, params: Record<string, unknown>) => Promise<analystTools.ToolResult>> = {
+  list_card_history: analystTools.list_card_history as unknown as (ctx: analystTools.ToolContext, params: Record<string, unknown>) => Promise<analystTools.ToolResult>,
+  get_card_history_entry: analystTools.get_card_history_entry as unknown as (ctx: analystTools.ToolContext, params: Record<string, unknown>) => Promise<analystTools.ToolResult>,
+  diff_card: analystTools.diff_card as unknown as (ctx: analystTools.ToolContext, params: Record<string, unknown>) => Promise<analystTools.ToolResult>,
+  list_notes: analystTools.list_notes as unknown as (ctx: analystTools.ToolContext, params: Record<string, unknown>) => Promise<analystTools.ToolResult>,
+  get_note: analystTools.get_note as unknown as (ctx: analystTools.ToolContext, params: Record<string, unknown>) => Promise<analystTools.ToolResult>,
+  mark_note_handled: analystTools.mark_note_handled as unknown as (ctx: analystTools.ToolContext, params: Record<string, unknown>) => Promise<analystTools.ToolResult>,
+  acknowledge_notification: analystTools.acknowledge_notification as unknown as (ctx: analystTools.ToolContext, params: Record<string, unknown>) => Promise<analystTools.ToolResult>,
 };
 
 export class AgentAdapter implements AgentRuntime {
@@ -131,54 +118,29 @@ export class AgentAdapter implements AgentRuntime {
   }
 
   getSafeFileContent(filePath: string, content: string): SafeFileResult { return getSafeFileForAgent(filePath, content); }
-
-  private applySelfCheck(role: AgentRole, systemPrompt: string, sessionId: string): string {
-    const key = role;
-    const current = (this.roundCounters.get(key) ?? 0) + 1;
-    this.roundCounters.set(key, current);
-    const threshold = getSelfCheckThreshold(this.config, role);
-    if (threshold <= 0 || current % threshold !== 0) return systemPrompt;
-    const selfCheckPrompt = buildSelfCheckPrompt(role, current, threshold);
-    const modifiedPrompt = systemPrompt + '\n\n' + selfCheckPrompt;
-    if (this.eventLogger) this.eventLogger.appendEvent({ kind: 'self_check_triggered', session_id: sessionId, role: role as unknown as import('../schemas/types.js').AgentRole, rounds: current, threshold });
-    if (this.eventBus) this.eventBus.emit('self_check_triggered', { session_id: sessionId, role, rounds: current, threshold });
-    return modifiedPrompt;
-  }
-
+  private applySelfCheck(role: AgentRole, systemPrompt: string, sessionId: string): string { const key = role; const current = (this.roundCounters.get(key) ?? 0) + 1; this.roundCounters.set(key, current); const threshold = getSelfCheckThreshold(this.config, role); if (threshold <= 0 || current % threshold !== 0) return systemPrompt; const selfCheckPrompt = buildSelfCheckPrompt(role, current, threshold); const modifiedPrompt = systemPrompt + '\n\n' + selfCheckPrompt; if (this.eventLogger) this.eventLogger.appendEvent({ kind: 'self_check_triggered', session_id: sessionId, role: role as unknown as import('../schemas/types.js').AgentRole, rounds: current, threshold }); if (this.eventBus) this.eventBus.emit('self_check_triggered', { session_id: sessionId, role, rounds: current, threshold }); return modifiedPrompt; }
   private resetOnRoleChange(role: AgentRole): void { if (this.lastRole !== null && this.lastRole !== role) this.roundCounters.clear(); this.lastRole = role; }
   cancelSession(sessionId: string): boolean { const controller = this._abortControllers.get(sessionId); if (!controller) return false; controller.abort(); this._abortControllers.delete(sessionId); this._cancelledSessions.add(sessionId); if (this.eventLogger) this.eventLogger.appendEvent({ kind: 'session_cancelled', session_id: sessionId }); if (this.eventBus) this.eventBus.emit('session_cancelled', { session_id: sessionId }); return true; }
   forceCancelSession(sessionId: string): boolean { const controller = this._abortControllers.get(sessionId); if (controller) { controller.abort(); this._abortControllers.delete(sessionId); } this._cancelledSessions.add(sessionId); if (this.eventLogger) this.eventLogger.appendEvent({ kind: 'session_force_cancelled', session_id: sessionId }); if (this.eventBus) this.eventBus.emit('session_force_cancelled', { session_id: sessionId }); return controller !== undefined; }
-
-  getHandoffSummary(sessionId: string): HandoffSummary | null {
-    try {
-      const session = getSession(this.saivageDir, sessionId);
-      if (!session || session.status !== 'active') return null;
-      const messages = getSessionMessages(this.saivageDir, sessionId);
-      const lastUserMsg = [...messages].reverse().find((m) => m.role === 'user');
-      const lastAssistantMsg = [...messages].reverse().find((m) => m.role === 'assistant');
-      return { session_id: sessionId, role: session.role as HandoffSummary['role'], last_action: lastAssistantMsg ? `Produced response: ${lastAssistantMsg.content.substring(0, 200)}` : 'Session started', next_action: lastUserMsg ? `Processing: ${lastUserMsg.content.substring(0, 200)}` : 'Awaiting user input', context_summary: `Goal: ${session.goal_card_id ?? 'N/A'}, Card: ${session.card_id ?? 'N/A'}` };
-    } catch { return null; }
-  }
-
-  getActiveSessionHandoffs(): HandoffSummary[] {
-    try { const ids = listSessions(this.saivageDir); const summaries: HandoffSummary[] = []; for (const id of ids) { const summary = this.getHandoffSummary(id); if (summary) summaries.push(summary); } return summaries; } catch { return []; }
-  }
-
+  getHandoffSummary(sessionId: string): HandoffSummary | null { try { const session = getSession(this.saivageDir, sessionId); if (!session || session.status !== 'active') return null; const messages = getSessionMessages(this.saivageDir, sessionId); const lastUserMsg = [...messages].reverse().find((m) => m.role === 'user'); const lastAssistantMsg = [...messages].reverse().find((m) => m.role === 'assistant'); return { session_id: sessionId, role: session.role as HandoffSummary['role'], last_action: lastAssistantMsg ? `Produced response: ${lastAssistantMsg.content.substring(0, 200)}` : 'Session started', next_action: lastUserMsg ? `Processing: ${lastUserMsg.content.substring(0, 200)}` : 'Awaiting user input', context_summary: `Goal: ${session.goal_card_id ?? 'N/A'}, Card: ${session.card_id ?? 'N/A'}` }; } catch { return null; } }
+  getActiveSessionHandoffs(): HandoffSummary[] { try { const ids = listSessions(this.saivageDir); const summaries: HandoffSummary[] = []; for (const id of ids) { const summary = this.getHandoffSummary(id); if (summary) summaries.push(summary); } return summaries; } catch { return []; } }
   async invokePlanner(goalId: string, systemPrompt: string = '', contextMessages: AgentMessage[] = []): Promise<PlannerResult> { return this.invokeAgent('planner', goalId, goalId, systemPrompt, contextMessages, parsePlannerResult); }
   async invokeExecutor(cardId: string, goalId: string, systemPrompt: string = '', contextMessages: AgentMessage[] = []): Promise<ExecutorResult> { return this.invokeAgent('executor', goalId, cardId, systemPrompt, contextMessages, parseExecutorResult); }
   async invokeReviewer(goalId: string, systemPrompt: string = '', contextMessages: AgentMessage[] = []): Promise<ReviewerResult> { return this.invokeAgent('reviewer', goalId, goalId, systemPrompt, contextMessages, parseReviewerResult); }
-
-  async reinvokeSession(sessionId: string, systemPrompt: string = '', contextMessages: AgentMessage[] = []): Promise<ExecutorResult | ReviewerResult> {
-    const session = getSession(this.saivageDir, sessionId);
-    if (!session) throw new Error(`Session not found: ${sessionId}`);
-    if (session.role === 'executor') return this.invokeExecutor(session.card_id ?? session.goal_card_id ?? '', session.goal_card_id ?? '', systemPrompt, contextMessages);
-    if (session.role === 'reviewer') return this.invokeReviewer(session.goal_card_id ?? '', systemPrompt, contextMessages);
-    throw new Error(`Session '${sessionId}' is not reinvokable.`);
-  }
-
+  async reinvokeSession(sessionId: string, systemPrompt: string = '', contextMessages: AgentMessage[] = []): Promise<ExecutorResult | ReviewerResult> { const session = getSession(this.saivageDir, sessionId); if (!session) throw new Error(`Session not found: ${sessionId}`); if (session.role === 'executor') return this.invokeExecutor(session.card_id ?? session.goal_card_id ?? '', session.goal_card_id ?? '', systemPrompt, contextMessages); if (session.role === 'reviewer') return this.invokeReviewer(session.goal_card_id ?? '', systemPrompt, contextMessages); throw new Error(`Session '${sessionId}' is not reinvokable.`); }
   private parseToolCallsFromResponse(rawResponse: string): Array<{ id: string; type: string; function: { name: string; arguments: string } }> | null { try { const parsed = JSON.parse(rawResponse); if (parsed && typeof parsed === 'object' && Array.isArray(parsed.toolCalls) && parsed.toolCalls.length > 0) return parsed.toolCalls; } catch {} return null; }
 
   private async processToolCall(tc: { id: string; type: string; function: { name: string; arguments: string } }, role: AgentRole, sessionId: string, invocation?: { goalId?: string; cardId?: string }): Promise<{ role: 'tool'; kind: 'tool_result' | 'tool_error'; content: string; tool: string; tool_call_id: string }> {
+    if (RUNTIME_AGENT_TOOL_REGISTRY[tc.function.name]) {
+      let args: Record<string, unknown> = {};
+      try { args = JSON.parse(tc.function.arguments); } catch {}
+      try {
+        const result = await RUNTIME_AGENT_TOOL_REGISTRY[tc.function.name]({ projectRoot: this.projectRoot, actor: role, surface: 'runtime', sessionId }, args);
+        return { role: 'tool', kind: result.success ? 'tool_result' : 'tool_error', content: JSON.stringify(result), tool: tc.function.name, tool_call_id: tc.id };
+      } catch (err) {
+        return { role: 'tool', kind: 'tool_error', content: JSON.stringify({ success: false, error: err instanceof Error ? err.message : String(err) }), tool: tc.function.name, tool_call_id: tc.id };
+      }
+    }
     if (tc.function.name === 'mcp_tool_call') {
       let args: { serverName?: string; toolName?: string; args?: Record<string, unknown> } = {};
       try { args = JSON.parse(tc.function.arguments); } catch {}
@@ -205,39 +167,9 @@ export class AgentAdapter implements AgentRuntime {
     return `- [${notification.kind}] ${notification.payload_summary}${related ? ` (${related})` : ''}. Use diff_card/get_note/list_card_history as needed, then acknowledge_notification("${notification.id}") once adjusted.`;
   }
 
-  private buildNotificationInjectionMessage(notifications: NotificationRecord[], sessionId: string): AgentMessage {
-    const lines = ['## Operator updates since your last turn', '', ...notifications.map((notification) => this.formatNotificationGuidance(notification))];
-    return { id: `msg-${sessionId}-notification-injection`, session_id: sessionId, role: 'user', kind: 'text', content: lines.join('\n'), timestamp: new Date().toISOString() };
-  }
-
-  private buildModelMessages(sessionId: string): { messages: AgentMessage[]; drainedIds: string[] } {
-    const pending = this.notificationCenter.drainPendingForSession(sessionId);
-    const baseMessages = getSessionMessages(this.saivageDir, sessionId);
-    if (pending.length === 0) return { messages: baseMessages, drainedIds: [] };
-    return { messages: [this.buildNotificationInjectionMessage(pending, sessionId), ...baseMessages], drainedIds: pending.map((notification) => notification.id) };
-  }
-
-  private async handleToolCallsLoop(rawResponse: string, role: AgentRole, sessionId: string, candidate: Candidate, systemPrompt: string, modelParams: { temperature: number; maxTokens: number }, abortController: AbortController, invocation?: { goalId?: string; cardId?: string }): Promise<{ response: string; transportSucceeded: boolean }> {
-    let currentResponse = rawResponse;
-    const MAX_TOOL_ROUNDS = 5;
-    const previousCalls = new Set<string>();
-    for (let toolRound = 0; toolRound < MAX_TOOL_ROUNDS; toolRound++) {
-      const toolCalls = this.parseToolCallsFromResponse(currentResponse);
-      if (!toolCalls) return { response: currentResponse, transportSucceeded: true };
-      const callFingerprint = toolCalls.map((tc) => `${tc.function.name}:${tc.function.arguments}`).sort().join('||');
-      if (previousCalls.has(callFingerprint)) { appendMessage(this.saivageDir, sessionId, { role: 'system', kind: 'model_issue', content: `Repeated tool-call fingerprint detected; stopping tool loop as no-progress diagnostic: ${callFingerprint}` }); return { response: currentResponse, transportSucceeded: true }; }
-      previousCalls.add(callFingerprint);
-      appendMessage(this.saivageDir, sessionId, { role: 'assistant', kind: 'tool_call', content: JSON.stringify({ toolCalls }), tool: toolCalls.map((tc) => tc.function.name).join(',') });
-      const toolMessages: Array<{ role: 'tool'; kind: 'tool_result' | 'tool_error'; content: string; tool: string; tool_call_id: string }> = [];
-      for (const tc of toolCalls) toolMessages.push(await this.processToolCall(tc, role, sessionId, invocation));
-      for (const msg of toolMessages) appendMessage(this.saivageDir, sessionId, { role: msg.role, kind: msg.kind, content: msg.content, tool: msg.tool, tool_call_id: msg.tool_call_id });
-      const followUpTools = this.buildToolsForRole(role);
-      const modelMessages = this.buildModelMessages(sessionId).messages;
-      currentResponse = await this.llmCallFn!(candidate, systemPrompt, modelMessages, sessionId, { temperature: modelParams.temperature, max_tokens: modelParams.maxTokens, signal: abortController.signal, ...(followUpTools.length > 0 ? { tools: followUpTools, tool_choice: 'auto' } : {}) });
-    }
-    appendMessage(this.saivageDir, sessionId, { role: 'system', kind: 'model_issue', content: `Maximum tool-call rounds exceeded (${MAX_TOOL_ROUNDS}); stopping as no-progress diagnostic.` });
-    return { response: currentResponse, transportSucceeded: true };
-  }
+  private buildNotificationInjectionMessage(notifications: NotificationRecord[], sessionId: string): AgentMessage { const lines = ['## Operator updates since your last turn', '', ...notifications.map((notification) => this.formatNotificationGuidance(notification))]; return { id: `msg-${sessionId}-notification-injection`, session_id: sessionId, role: 'user', kind: 'text', content: lines.join('\n'), timestamp: new Date().toISOString() }; }
+  private buildModelMessages(sessionId: string): { messages: AgentMessage[]; drainedIds: string[] } { const pending = this.notificationCenter.drainPendingForSession(sessionId); const baseMessages = getSessionMessages(this.saivageDir, sessionId); if (pending.length === 0) return { messages: baseMessages, drainedIds: [] }; return { messages: [this.buildNotificationInjectionMessage(pending, sessionId), ...baseMessages], drainedIds: pending.map((notification) => notification.id) }; }
+  private async handleToolCallsLoop(rawResponse: string, role: AgentRole, sessionId: string, candidate: Candidate, systemPrompt: string, modelParams: { temperature: number; maxTokens: number }, abortController: AbortController, invocation?: { goalId?: string; cardId?: string }): Promise<{ response: string; transportSucceeded: boolean }> { let currentResponse = rawResponse; const MAX_TOOL_ROUNDS = 5; const previousCalls = new Set<string>(); for (let toolRound = 0; toolRound < MAX_TOOL_ROUNDS; toolRound++) { const toolCalls = this.parseToolCallsFromResponse(currentResponse); if (!toolCalls) return { response: currentResponse, transportSucceeded: true }; const callFingerprint = toolCalls.map((tc) => `${tc.function.name}:${tc.function.arguments}`).sort().join('||'); if (previousCalls.has(callFingerprint)) { appendMessage(this.saivageDir, sessionId, { role: 'system', kind: 'model_issue', content: `Repeated tool-call fingerprint detected; stopping tool loop as no-progress diagnostic: ${callFingerprint}` }); return { response: currentResponse, transportSucceeded: true }; } previousCalls.add(callFingerprint); appendMessage(this.saivageDir, sessionId, { role: 'assistant', kind: 'tool_call', content: JSON.stringify({ toolCalls }), tool: toolCalls.map((tc) => tc.function.name).join(',') }); const toolMessages: Array<{ role: 'tool'; kind: 'tool_result' | 'tool_error'; content: string; tool: string; tool_call_id: string }> = []; for (const tc of toolCalls) toolMessages.push(await this.processToolCall(tc, role, sessionId, invocation)); for (const msg of toolMessages) appendMessage(this.saivageDir, sessionId, { role: msg.role, kind: msg.kind, content: msg.content, tool: msg.tool, tool_call_id: msg.tool_call_id }); const followUpTools = this.buildToolsForRole(role); const modelMessages = this.buildModelMessages(sessionId).messages; currentResponse = await this.llmCallFn!(candidate, systemPrompt, modelMessages, sessionId, { temperature: modelParams.temperature, max_tokens: modelParams.maxTokens, signal: abortController.signal, ...(followUpTools.length > 0 ? { tools: followUpTools, tool_choice: 'auto' } : {}) }); } appendMessage(this.saivageDir, sessionId, { role: 'system', kind: 'model_issue', content: `Maximum tool-call rounds exceeded (${MAX_TOOL_ROUNDS}); stopping as no-progress diagnostic.` }); return { response: currentResponse, transportSucceeded: true }; }
 
   private async invokeAgent<T>(role: AgentRole, goalId: string, cardId: string, systemPrompt: string, contextMessages: AgentMessage[], parser: (raw: string) => T): Promise<T> {
     if (!this.llmCallFn) throw new Error('No LLM call function registered. Call setLlmCallFn() first.');
@@ -305,35 +237,14 @@ export class AgentAdapter implements AgentRuntime {
     };
     const attempts = await invokeWithRecovery(agentFn, recoveryOpts);
     const lastAttempt = attempts[attempts.length - 1];
-    if (lastAttempt.success && lastAttempt.result !== undefined) {
-      const resultValue = lastAttempt.result as T;
-      const shouldMarkFailed = role === 'executor' && typeof resultValue === 'object' && resultValue !== null && 'status' in (resultValue as Record<string, unknown>) && (resultValue as Record<string, unknown>).status === 'failed';
-      completeSession(this.saivageDir, session.id, shouldMarkFailed ? 'failed' : 'done');
-      return resultValue;
-    }
+    if (lastAttempt.success && lastAttempt.result !== undefined) { const resultValue = lastAttempt.result as T; const shouldMarkFailed = role === 'executor' && typeof resultValue === 'object' && resultValue !== null && 'status' in (resultValue as Record<string, unknown>) && (resultValue as Record<string, unknown>).status === 'failed'; completeSession(this.saivageDir, session.id, shouldMarkFailed ? 'failed' : 'done'); return resultValue; }
     completeSession(this.saivageDir, session.id, 'failed');
     throw lastAttempt.error ?? new Error(`Agent '${role}' invocation failed after ${attempts.length} attempts.`);
   }
 
   getRouter(): ModelRouter { return this.router; }
   getRegistry(): ProviderRegistry { return this.registry; }
-  createLlmCallFn(): LlmCallFn {
-    const registry = this.registry;
-    const clientCache = this.llmClientCache;
-    const projectRoot = this.projectRoot;
-    return async (candidate: Candidate, systemPrompt: string, messages: AgentMessage[], sessionId: string, opts?: LlmCompleteOptions): Promise<string> => {
-      const { baseUrl, apiKey, cacheKey } = await resolveLlmTransportConfig(projectRoot, registry, candidate);
-      let client = clientCache.get(cacheKey);
-      if (!client) { client = new LlmClient(baseUrl, apiKey); clientCache.set(cacheKey, client); }
-      const result = await client.complete(candidate, systemPrompt, messages, sessionId, opts);
-      return result.content ?? JSON.stringify({ toolCalls: result.toolCalls });
-    };
-  }
+  createLlmCallFn(): LlmCallFn { const registry = this.registry; const clientCache = this.llmClientCache; const projectRoot = this.projectRoot; return async (candidate: Candidate, systemPrompt: string, messages: AgentMessage[], sessionId: string, opts?: LlmCompleteOptions): Promise<string> => { const { baseUrl, apiKey, cacheKey } = await resolveLlmTransportConfig(projectRoot, registry, candidate); let client = clientCache.get(cacheKey); if (!client) { client = new LlmClient(baseUrl, apiKey); clientCache.set(cacheKey, client); } const result = await client.complete(candidate, systemPrompt, messages, sessionId, opts); return result.content ?? JSON.stringify({ toolCalls: result.toolCalls }); }; }
 }
 
-export function createAgentAdapter(projectRoot: string, eventBus?: EventEmitter): AgentAdapter {
-  const saivageDir = `${projectRoot}/.saivage`;
-  const { config, warnings } = loadConfig(projectRoot);
-  if (warnings.length > 0 && eventBus) for (const warning of warnings) eventBus.emit('config_warning', { warning });
-  return new AgentAdapter({ projectRoot, saivageDir, config, eventBus });
-}
+export function createAgentAdapter(projectRoot: string, eventBus?: EventEmitter): AgentAdapter { const saivageDir = `${projectRoot}/.saivage`; const { config, warnings } = loadConfig(projectRoot); if (warnings.length > 0 && eventBus) for (const warning of warnings) eventBus.emit('config_warning', { warning }); return new AgentAdapter({ projectRoot, saivageDir, config, eventBus }); }
