@@ -19,10 +19,17 @@ function notesFilePath(saivageDir: string, cardId: string): string {
   return join(saivageDir, 'notes', 'by-card', `${cardId}.jsonl`);
 }
 
+function createEmptyQueue(): NotesQueue {
+  return {
+    next_note_sequence: 1,
+    entries: [],
+  };
+}
+
 function readQueue(saivageDir: string): NotesQueue {
   const path = queuePath(saivageDir);
   if (!existsSync(path)) {
-    return { entries: [] };
+    return createEmptyQueue();
   }
   const raw = readFileSync(path, 'utf-8');
   const parsed = notesQueueSchema.safeParse(JSON.parse(raw));
@@ -62,9 +69,8 @@ function writeAllNotes(saivageDir: string, cardId: string, notes: NoteRecord[]):
   writeFileAtomic(path, content);
 }
 
-function generateNoteId(cardId: string, existingNotes: NoteRecord[]): string {
-  const seq = existingNotes.length + 1;
-  return `n-${cardId}-${seq}`;
+function generateNoteId(cardId: string, queue: NotesQueue): string {
+  return `n-${cardId}-${queue.next_note_sequence}`;
 }
 
 function addToQueue(saivageDir: string, note: NoteRecord): void {
@@ -136,9 +142,10 @@ export function appendNote(
     kind: NoteKind;
   },
 ): NoteRecord {
+  const queue = readQueue(saivageDir);
   const existing = getAllNotes(saivageDir, cardId);
   const newNote: NoteRecord = {
-    id: generateNoteId(cardId, existing),
+    id: generateNoteId(cardId, queue),
     card_id: cardId,
     author: note.author,
     timestamp: new Date().toISOString(),
@@ -150,7 +157,14 @@ export function appendNote(
   noteRecordSchema.parse(newNote);
   existing.push(newNote);
   writeAllNotes(saivageDir, cardId, existing);
-  addToQueue(saivageDir, newNote);
+  queue.next_note_sequence += 1;
+  queue.entries.push({
+    card_id: newNote.card_id,
+    note_id: newNote.id,
+    timestamp: newNote.timestamp,
+    kind: newNote.kind,
+  });
+  writeQueueAtomic(saivageDir, queue);
   return newNote;
 }
 
@@ -170,7 +184,10 @@ export function getReconciledUnhandledNotesQueue(saivageDir: string): NotesQueue
   const queue = readQueue(saivageDir);
   const { resolved, removed } = reconcileQueueEntries(saivageDir, queue);
   if (removed.length > 0) {
-    writeQueueAtomic(saivageDir, { entries: resolved.map(({ note: _note, ...entry }) => entry) });
+    writeQueueAtomic(saivageDir, {
+      next_note_sequence: queue.next_note_sequence,
+      entries: resolved.map(({ note: _note, ...entry }) => entry),
+    });
   }
   return resolved;
 }

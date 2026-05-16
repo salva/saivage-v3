@@ -237,6 +237,12 @@ Current backend behavior:
 - stale queue entries that point at missing or handled notes are removed during reconciliation;
 - malformed persisted queue files return a controlled `500` instead of returning partial `note: undefined` rows.
 
+Current note identity invariants:
+
+- note IDs are minted by the NotesQueue-owned `next_note_sequence` field in `.saivage/notes/queue.json`;
+- IDs are monotonic and never reused after acknowledge, delete, clear-all, or reload;
+- operators may safely reference a note ID from the Debug UI or API without risking that the same ID later targets a different note.
+
 Use note actions with this meaning:
 
 - acknowledge: preserves the note in card history and removes it from the unhandled queue;

@@ -86,7 +86,8 @@ Runtime control does not synthesize runtime state. The runtime has not been init
 Saivage now validates `.saivage/notes/queue.json` as a persisted record.
 
 - malformed queue entries are rejected with a controlled `500`;
-- stale queue entries pointing at missing or handled notes are reconciled away on read instead of returning `note: undefined`.
+- stale queue entries pointing at missing or handled notes are reconciled away on read instead of returning `note: undefined`;
+- note IDs are allocated from the queue-owned monotonic `next_note_sequence`, so an old stale note ID cannot later target a newly created note.
 
 ### What to do
 

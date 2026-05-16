@@ -40,7 +40,7 @@ beforeAll(async () => {
   writeFileSync(join(SAIVAGE_DIR, 'cards', 'tree', 'project.children.json'), JSON.stringify([]));
   writeFileSync(join(SAIVAGE_DIR, 'cards', 'dependencies', 'depends-on.json'), JSON.stringify({}));
   writeFileSync(join(SAIVAGE_DIR, 'cards', 'dependencies', 'blocks.json'), JSON.stringify({}));
-  writeFileSync(join(SAIVAGE_DIR, 'notes', 'queue.json'), JSON.stringify({ entries: [] }));
+  writeFileSync(join(SAIVAGE_DIR, 'notes', 'queue.json'), JSON.stringify({ next_note_sequence: 1, entries: [] }));
   writeFileSync(join(SAIVAGE_DIR, 'runtime', 'state.json'), JSON.stringify({ status: 'idle', project_id: 'project', pid: process.pid, started_at: now, current_card_id: null, current_agent_session_id: null, paused: false, paused_at: null, queue: [], running_processes: [], updated_at: now }));
   writeFileSync(join(SAIVAGE_DIR, 'saivage.json'), JSON.stringify({ server: { port: 0, host: '127.0.0.1' }, models: { default: ['test-model'] }, providers: { test: { priority: 10, models: ['test-model'], apiKey: 'secret-key' } } }));
 
@@ -121,8 +121,8 @@ describe('runtime config and notes routes', () => {
   it('lists notes without returning note undefined and reconciles stale queue entries', async () => {
     appendNote(SAIVAGE_DIR, 'project', { author: 'user', content: 'Real note', kind: 'comment' });
     const queuePath = join(SAIVAGE_DIR, 'notes', 'queue.json');
-    const queue = JSON.parse(readFileSync(queuePath, 'utf-8')) as { entries: Array<Record<string, unknown>> };
-    queue.entries.push({ card_id: 'missing-card', note_id: 'n-missing-card-1', timestamp: new Date().toISOString(), kind: 'comment' });
+    const queue = JSON.parse(readFileSync(queuePath, 'utf-8')) as { next_note_sequence: number; entries: Array<Record<string, unknown>> };
+    queue.entries.push({ card_id: 'missing-card', note_id: 'n-missing-card-999', timestamp: new Date().toISOString(), kind: 'comment' });
     writeFileSync(queuePath, JSON.stringify(queue, null, 2) + '\n');
 
     const res = await fetch(url('/api/notes'), { headers: authHeader(authToken) });
@@ -130,17 +130,41 @@ describe('runtime config and notes routes', () => {
     const body = await res.json() as { notes: Array<{ note: { content: string } }>; total: number };
     expect(body.total).toBe(1);
     expect(body.notes[0].note.content).toBe('Real note');
-    expect(JSON.parse(readFileSync(queuePath, 'utf-8'))).toEqual({ entries: [expect.objectContaining({ card_id: 'project' })] });
+    expect(JSON.parse(readFileSync(queuePath, 'utf-8'))).toEqual({ next_note_sequence: 2, entries: [expect.objectContaining({ card_id: 'project' })] });
+  });
+
+  it('does not allow a stale deleted note id to target a newly created note', async () => {
+    const queuePath = join(SAIVAGE_DIR, 'notes', 'queue.json');
+    writeFileSync(queuePath, JSON.stringify({ next_note_sequence: 1, entries: [] }, null, 2) + '\n');
+    const notesPath = join(SAIVAGE_DIR, 'notes', 'by-card', 'project.jsonl');
+    if (existsSync(notesPath)) {
+      unlinkSync(notesPath);
+    }
+
+    const first = appendNote(SAIVAGE_DIR, 'project', { author: 'user', content: 'First note', kind: 'comment' });
+    const deleteRes = await fetch(url(`/api/notes/${encodeURIComponent(first.id)}`), { method: 'DELETE', headers: authHeader(authToken) });
+    expect(deleteRes.status).toBe(204);
+
+    const replacement = appendNote(SAIVAGE_DIR, 'project', { author: 'user', content: 'Replacement note', kind: 'comment' });
+    expect(replacement.id).not.toBe(first.id);
+
+    const staleDelete = await fetch(url(`/api/notes/${encodeURIComponent(first.id)}`), { method: 'DELETE', headers: authHeader(authToken) });
+    expect(staleDelete.status).toBe(404);
+
+    const listRes = await fetch(url('/api/notes'), { headers: authHeader(authToken) });
+    const body = await listRes.json() as { notes: Array<{ note_id: string; note: { content: string } }> };
+    expect(body.notes.some((note) => note.note_id === replacement.id && note.note.content === 'Replacement note')).toBe(true);
+    expect(body.notes.some((note) => note.note_id === first.id)).toBe(false);
   });
 
   it('returns 500 for malformed persisted queue', async () => {
-    writeFileSync(join(SAIVAGE_DIR, 'notes', 'queue.json'), JSON.stringify({ entries: [{ card_id: 'project' }] }) + '\n');
+    writeFileSync(join(SAIVAGE_DIR, 'notes', 'queue.json'), JSON.stringify({ next_note_sequence: 1, entries: [{ card_id: 'project' }] }) + '\n');
     const res = await fetch(url('/api/notes'), { headers: authHeader(authToken) });
     expect(res.status).toBe(500);
     const body = await res.json() as { error: string; message: string };
     expect(body.error).toBe('Failed to list notes');
     expect(body.message).toContain('NotesQueue validation failed');
-    writeFileSync(join(SAIVAGE_DIR, 'notes', 'queue.json'), JSON.stringify({ entries: [] }) + '\n');
+    writeFileSync(join(SAIVAGE_DIR, 'notes', 'queue.json'), JSON.stringify({ next_note_sequence: 1, entries: [] }) + '\n');
   });
 });
 
@@ -161,7 +185,7 @@ describe('Lifecycle cleanup', () => {
     writeFileSync(join(sd, 'cards', 'tree', 'project.children.json'), JSON.stringify([]));
     writeFileSync(join(sd, 'cards', 'dependencies', 'depends-on.json'), JSON.stringify({}));
     writeFileSync(join(sd, 'cards', 'dependencies', 'blocks.json'), JSON.stringify({}));
-    writeFileSync(join(sd, 'notes', 'queue.json'), JSON.stringify({ entries: [] }));
+    writeFileSync(join(sd, 'notes', 'queue.json'), JSON.stringify({ next_note_sequence: 1, entries: [] }));
     writeFileSync(join(sd, 'runtime', 'state.json'), JSON.stringify({ status: 'idle', project_id: 'project', pid: process.pid, started_at: now, current_card_id: null, current_agent_session_id: null, paused: false, paused_at: null, queue: [], running_processes: [], updated_at: now }));
     writeFileSync(join(sd, 'saivage.json'), JSON.stringify({ server: { port: 0, host: '127.0.0.1' }, models: { default: ['test-model'] }, providers: { test: { priority: 10, models: ['test-model'], apiKey: 'secret-key' } } }));
 

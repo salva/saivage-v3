@@ -270,6 +270,7 @@ export const notesQueueEntrySchema = z.object({
   kind: noteKindSchema,
 });
 export const notesQueueSchema = z.object({
+  next_note_sequence: z.number().int().positive(),
   entries: z.array(notesQueueEntrySchema),
 });
 

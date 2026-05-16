@@ -38,14 +38,14 @@ function ensureQueueExists(): void {
   const queueJsonPath = join(saivageDir, 'notes', 'queue.json');
   if (!existsSync(queueJsonPath)) {
     mkdirSync(join(saivageDir, 'notes'), { recursive: true });
-    writeFileSync(queueJsonPath, JSON.stringify({ entries: [] }, null, 2) + '\n', 'utf-8');
+    writeFileSync(queueJsonPath, JSON.stringify({ next_note_sequence: 1, entries: [] }, null, 2) + '\n', 'utf-8');
   }
 }
 
-function readQueueFile(): { entries: Array<{ card_id: string; note_id: string; timestamp: string; kind: string }>; } {
+function readQueueFile(): { next_note_sequence: number; entries: Array<{ card_id: string; note_id: string; timestamp: string; kind: string }>; } {
   const path = join(saivageDir, 'notes', 'queue.json');
   if (existsSync(path)) return JSON.parse(readFileSync(path, 'utf-8'));
-  return { entries: [] };
+  return { next_note_sequence: 1, entries: [] };
 }
 
 function readNotesFile(cardId: string): NoteRecord[] {
@@ -70,18 +70,49 @@ describe('appendNote', () => {
     expect(existsSync(join(saivageDir, 'notes', 'by-card', 'goal-1.jsonl'))).toBe(true);
     expect(readNotesFile('goal-1')[0].id).toBe('n-goal-1-1');
     const queue = readQueueFile();
+    expect(queue.next_note_sequence).toBe(2);
     expect(queue.entries.length).toBe(1);
     expect(queue.entries[0].card_id).toBe('goal-1');
     expect(queue.entries[0].note_id).toBe('n-goal-1-1');
     expect(queue.entries[0].kind).toBe('comment');
   });
 
-  it('appends to existing JSONL file with incrementing sequence', () => {
+  it('appends to existing JSONL file with monotonic sequence', () => {
     appendNote(saivageDir, 'goal-1', { author: 'user', content: 'First', kind: 'comment' });
     const note2 = appendNote(saivageDir, 'goal-1', { author: 'executor', content: 'Second', kind: 'progress' });
     expect(note2.id).toBe('n-goal-1-2');
     expect(readNotesFile('goal-1').length).toBe(2);
+    expect(readQueueFile().next_note_sequence).toBe(3);
     expect(readQueueFile().entries.length).toBe(2);
+  });
+
+  it('does not reuse a deleted note id for a newly created note', () => {
+    const note1 = appendNote(saivageDir, 'goal-1', { author: 'user', content: 'First', kind: 'comment' });
+    appendNote(saivageDir, 'goal-1', { author: 'user', content: 'Second', kind: 'comment' });
+    deleteNote(saivageDir, 'goal-1', note1.id);
+    const replacement = appendNote(saivageDir, 'goal-1', { author: 'user', content: 'Replacement', kind: 'comment' });
+    expect(replacement.id).toBe('n-goal-1-3');
+    expect(replacement.id).not.toBe(note1.id);
+    expect(readQueueFile().next_note_sequence).toBe(4);
+  });
+
+  it('does not reuse an acknowledged note id for a newly created note after reload', () => {
+    const original = appendNote(saivageDir, 'goal-1', { author: 'user', content: 'Ack me', kind: 'comment' });
+    markNoteHandled(saivageDir, 'goal-1', original.id);
+    const queueBeforeReload = readQueueFile();
+    expect(queueBeforeReload.next_note_sequence).toBe(2);
+    const replacement = appendNote(saivageDir, 'goal-1', { author: 'user', content: 'After reload', kind: 'comment' });
+    expect(replacement.id).toBe('n-goal-1-2');
+    expect(replacement.id).not.toBe(original.id);
+  });
+
+  it('does not reuse cleared note ids after deleteAllNotes', () => {
+    appendNote(saivageDir, 'goal-1', { author: 'user', content: 'One', kind: 'comment' });
+    appendNote(saivageDir, 'goal-1', { author: 'user', content: 'Two', kind: 'comment' });
+    deleteAllNotes(saivageDir, 'goal-1');
+    const replacement = appendNote(saivageDir, 'goal-1', { author: 'user', content: 'Three', kind: 'comment' });
+    expect(replacement.id).toBe('n-goal-1-3');
+    expect(readQueueFile().next_note_sequence).toBe(4);
   });
 });
 
@@ -102,10 +133,11 @@ describe('getNotes', () => {
 describe('getUnhandledNotes', () => {
   beforeEach(() => ensureQueueExists());
   it('returns only unhandled notes', () => {
-    appendNote(saivageDir, 'goal-1', { author: 'user', content: 'Unhandled 1', kind: 'comment' });
-    appendNote(saivageDir, 'goal-1', { author: 'user', content: 'Will be handled', kind: 'comment' });
+    const first = appendNote(saivageDir, 'goal-1', { author: 'user', content: 'Unhandled 1', kind: 'comment' });
+    const second = appendNote(saivageDir, 'goal-1', { author: 'user', content: 'Will be handled', kind: 'comment' });
     appendNote(saivageDir, 'goal-1', { author: 'user', content: 'Unhandled 2', kind: 'escalation' });
-    markNoteHandled(saivageDir, 'goal-1', 'n-goal-1-2');
+    expect(first.id).toBe('n-goal-1-1');
+    markNoteHandled(saivageDir, 'goal-1', second.id);
     expect(getUnhandledNotes(saivageDir, 'goal-1').map((n) => n.content)).toEqual(['Unhandled 1', 'Unhandled 2']);
   });
 });
@@ -121,9 +153,10 @@ describe('queue validation and reconciliation', () => {
   it('reconciles stale queue entries whose note file is missing', () => {
     appendNote(saivageDir, 'goal-1', { author: 'user', content: 'Keep me', kind: 'comment' });
     writeFileSync(join(saivageDir, 'notes', 'queue.json'), JSON.stringify({
+      next_note_sequence: readQueueFile().next_note_sequence,
       entries: [
         ...readQueueFile().entries,
-        { card_id: 'missing-card', note_id: 'n-missing-card-1', timestamp: new Date().toISOString(), kind: 'comment' },
+        { card_id: 'missing-card', note_id: 'n-missing-card-999', timestamp: new Date().toISOString(), kind: 'comment' },
       ],
     }, null, 2) + '\n');
     const resolved = getReconciledUnhandledNotesQueue(saivageDir);
@@ -131,6 +164,7 @@ describe('queue validation and reconciliation', () => {
     expect(resolved[0].note.content).toBe('Keep me');
     expect(readQueueFile().entries).toHaveLength(1);
     expect(readQueueFile().entries[0].card_id).toBe('goal-1');
+    expect(readQueueFile().next_note_sequence).toBe(2);
   });
 
   it('reconciles queue entries that point at handled notes', () => {
@@ -142,14 +176,15 @@ describe('queue validation and reconciliation', () => {
     writeFileSync(join(saivageDir, 'notes', 'by-card', 'goal-1.jsonl'), notes.map((n) => JSON.stringify(n)).join('\n') + '\n');
     expect(getReconciledUnhandledNotesQueue(saivageDir)).toEqual([]);
     expect(readQueueFile().entries).toEqual([]);
+    expect(readQueueFile().next_note_sequence).toBe(2);
   });
 });
 
 describe('markNoteHandled', () => {
   beforeEach(() => ensureQueueExists());
   it('sets handled=true and handled_at', () => {
-    appendNote(saivageDir, 'goal-1', { author: 'user', content: 'Test note', kind: 'comment' });
-    const marked = markNoteHandled(saivageDir, 'goal-1', 'n-goal-1-1');
+    const created = appendNote(saivageDir, 'goal-1', { author: 'user', content: 'Test note', kind: 'comment' });
+    const marked = markNoteHandled(saivageDir, 'goal-1', created.id);
     expect(marked.handled).toBe(true);
     expect(marked.handled_at).toBeDefined();
   });
@@ -158,8 +193,8 @@ describe('markNoteHandled', () => {
 describe('updateNote', () => {
   beforeEach(() => ensureQueueExists());
   it('updates kind on unhandled note and updates queue', () => {
-    appendNote(saivageDir, 'goal-1', { author: 'user', content: 'Content', kind: 'comment' });
-    const updated = updateNote(saivageDir, 'goal-1', 'n-goal-1-1', { kind: 'escalation' });
+    const created = appendNote(saivageDir, 'goal-1', { author: 'user', content: 'Content', kind: 'comment' });
+    const updated = updateNote(saivageDir, 'goal-1', created.id, { kind: 'escalation' });
     expect(updated.kind).toBe('escalation');
     expect(readQueueFile().entries[0].kind).toBe('escalation');
   });
@@ -168,23 +203,25 @@ describe('updateNote', () => {
 describe('deleteNote', () => {
   beforeEach(() => ensureQueueExists());
   it('deletes unhandled note', () => {
-    appendNote(saivageDir, 'goal-1', { author: 'user', content: 'To delete', kind: 'comment' });
-    appendNote(saivageDir, 'goal-1', { author: 'user', content: 'To keep', kind: 'progress' });
-    deleteNote(saivageDir, 'goal-1', 'n-goal-1-1');
+    const toDelete = appendNote(saivageDir, 'goal-1', { author: 'user', content: 'To delete', kind: 'comment' });
+    const toKeep = appendNote(saivageDir, 'goal-1', { author: 'user', content: 'To keep', kind: 'progress' });
+    deleteNote(saivageDir, 'goal-1', toDelete.id);
     const notes = getNotes(saivageDir, 'goal-1');
     expect(notes).toHaveLength(1);
-    expect(notes[0].id).toBe('n-goal-1-2');
+    expect(notes[0].id).toBe(toKeep.id);
+    expect(toKeep.id).toBe('n-goal-1-2');
   });
 });
 
 describe('deleteAllNotes', () => {
   beforeEach(() => ensureQueueExists());
-  it('removes all queue entries for the card', () => {
+  it('removes all queue entries for the card while preserving sequence ownership', () => {
     appendNote(saivageDir, 'goal-1', { author: 'user', content: 'G1 note', kind: 'comment' });
     appendNote(saivageDir, 'goal-2', { author: 'user', content: 'G2 note', kind: 'comment' });
     appendNote(saivageDir, 'goal-1', { author: 'user', content: 'G1 second', kind: 'directive' });
     deleteAllNotes(saivageDir, 'goal-1');
     expect(readQueueFile().entries).toHaveLength(1);
     expect(readQueueFile().entries[0].card_id).toBe('goal-2');
+    expect(readQueueFile().next_note_sequence).toBe(4);
   });
 });

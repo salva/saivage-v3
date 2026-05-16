@@ -217,6 +217,15 @@ export interface NotesQueueEntry {
 }
 
 export interface NotesQueue {
+  /**
+   * Canonical owner of operator-note identity allocation.
+   *
+   * IDs are minted as n-<cardId>-<sequence> using this queue-owned monotonic
+   * sequence, not by counting remaining note rows. The value is advanced on
+   * note creation and never decremented during acknowledge/delete/clear so note
+   * IDs remain stable and non-reused across reloads and operator workflows.
+   */
+  next_note_sequence: number;
   entries: NotesQueueEntry[];
 }
 
