@@ -1,5 +1,5 @@
 import { describe, expect, it } from '@jest/globals';
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { CardStore } from '../../src/utils/card-store.js';
@@ -26,7 +26,7 @@ function ctx(root: string, store: CardStore, surface: ToolContext['surface'] = '
 
 function readAudit(root: string) {
   const path = join(root, '.saivage', 'runtime', 'control-actions.jsonl');
-  if (!readFileSync) return [];
+  if (!existsSync(path)) return [];
   const raw = readFileSync(path, 'utf8');
   return raw.trim().split('\n').filter(Boolean).map((line) => JSON.parse(line));
 }
@@ -46,6 +46,17 @@ describe('run_shell_command', () => {
     } finally { rmSync(root, { recursive: true, force: true }); }
   });
 
+  it('rejects Telegram surface at the tool layer without relying on authz rules', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'wave-j-shell-'));
+    try {
+      const store = setup(root);
+      const result = await run_shell_command(ctx(root, store, 'telegram'), { command: 'ls /tmp' });
+      expect(result.success).toBe(false);
+      expect(result.error).toMatch(/not available on Telegram/i);
+      expect(readAudit(root)).toHaveLength(0);
+    } finally { rmSync(root, { recursive: true, force: true }); }
+  });
+
   it('allows read_only commands without audit', async () => {
     const root = mkdtempSync(join(tmpdir(), 'wave-j-shell-'));
     try {
@@ -53,7 +64,7 @@ describe('run_shell_command', () => {
       const result = await run_shell_command(ctx(root, store), { command: 'ls /tmp' });
       expect(result.success).toBe(true);
       expect((result.data as { classified_as: string }).classified_as).toBe('read_only');
-      expect(join(root, '.saivage', 'runtime', 'control-actions.jsonl')).toBeTruthy();
+      expect(readAudit(root)).toHaveLength(0);
     } finally { rmSync(root, { recursive: true, force: true }); }
   });
 
@@ -64,6 +75,7 @@ describe('run_shell_command', () => {
       const result = await run_shell_command(ctx(root, store), { command: 'node --version' });
       expect(result.success).toBe(true);
       expect((result.data as { classified_as: string }).classified_as).toBe('read_only');
+      expect(readAudit(root)).toHaveLength(0);
     } finally { rmSync(root, { recursive: true, force: true }); }
   });
 
@@ -100,6 +112,7 @@ describe('run_shell_command', () => {
       expect(data.truncated).toBe(true);
       expect(data.stdout).toMatch(/\[truncated /);
       expect(data.stdout).not.toContain('tok_live_1234567890');
+      expect(data.stdout).toContain('tok-[REDACTED]');
     } finally { rmSync(root, { recursive: true, force: true }); }
   });
 

@@ -88,10 +88,19 @@ const REDACT_VALUE_RE =
 
 const CREDENTIAL_LITERAL_RE = /\b(sk-[^\s"\\]+|tid=[^\s"\\]+|ghu_[A-Za-z0-9_]+|rt_[^\s"\\]+|tok_[^\s"\\]+)\b/g;
 
+function redactCredentialMatch(match: string): string {
+  const prefix = match.startsWith('sk-') ? 'sk' :
+    match.startsWith('tid=') ? 'tid' :
+      match.startsWith('ghu_') ? 'ghu' :
+        match.startsWith('rt_') ? 'rt' :
+          match.startsWith('tok_') ? 'tok' : 'credential';
+  return `${prefix}-[REDACTED]`;
+}
+
 export function redactSecrets(content: string): string {
   if (!content) return content;
 
-  return content.replace(REDACT_VALUE_RE, (_match, keyPart, wsBefore, wsAfter, valuePart) => {
+  const jsonRedacted = content.replace(REDACT_VALUE_RE, (_match, keyPart, wsBefore, wsAfter, valuePart) => {
     const keyInner = keyPart.slice(1, -1);
 
     if (!REDACT_KEY_PATTERN.test(keyInner)) {
@@ -104,18 +113,13 @@ export function redactSecrets(content: string): string {
 
     return `${keyPart}${wsBefore}:${wsAfter}"[REDACTED]"`;
   });
+
+  return jsonRedacted.replace(CREDENTIAL_LITERAL_RE, redactCredentialMatch);
 }
 
 export function redactCredentialLiterals(content: string): string {
   if (!content) return content;
-  return content.replace(CREDENTIAL_LITERAL_RE, (match) => {
-    const prefix = match.startsWith('sk-') ? 'sk' :
-      match.startsWith('tid=') ? 'tid' :
-        match.startsWith('ghu_') ? 'ghu' :
-          match.startsWith('rt_') ? 'rt' :
-            match.startsWith('tok_') ? 'tok' : 'credential';
-    return `${prefix}-[REDACTED]`;
-  });
+  return content.replace(CREDENTIAL_LITERAL_RE, redactCredentialMatch);
 }
 
 export function redactOperatorErrorMessage(message: string, projectRoot?: string): string {
