@@ -32,21 +32,23 @@ function readAudit(root: string) {
 }
 
 describe('run_shell_command', () => {
-  it('denies destructive sudo command and audits denied outcome', async () => {
+  it('returns preview-only flow for destructive sudo command on web-chat and audits rejected outcome', async () => {
     const root = mkdtempSync(join(tmpdir(), 'wave-j-shell-'));
     try {
       const store = setup(root);
       const result = await run_shell_command(ctx(root, store), { command: 'sudo systemctl restart x' });
-      expect(result.success).toBe(false);
-      expect(result.error).toMatch(/Denied by authorization policy/);
+      expect(result.success).toBe(true);
+      expect(result.preview?.type).toBe('shell.exec');
+      expect(result.preview?.classified_as).toBe('destructive');
+      expect(result.preview?.preview_hash).toBeTruthy();
       const audit = readAudit(root);
       expect(audit).toHaveLength(1);
-      expect(audit[0].outcome).toBe('denied');
+      expect(audit[0].outcome).toBe('rejected');
       expect(audit[0].action).toBe('shell.exec');
     } finally { rmSync(root, { recursive: true, force: true }); }
   });
 
-  it('denies secret-bearing path shell reads on web-chat', async () => {
+  it('returns preview-only flow for secret-bearing path shell reads on web-chat', async () => {
     const root = mkdtempSync(join(tmpdir(), 'wave-j-shell-'));
     try {
       const store = setup(root);
@@ -54,11 +56,13 @@ describe('run_shell_command', () => {
       mkdirSync(secretDir, { recursive: true });
       writeFileSync(join(secretDir, 'auth-profiles.json'), '{"token":"secret"}');
       const result = await run_shell_command(ctx(root, store), { command: 'cat .saivage/auth-profiles.json' });
-      expect(result.success).toBe(false);
-      expect(result.error).toMatch(/Denied by authorization policy/);
+      expect(result.success).toBe(true);
+      expect(result.preview?.type).toBe('shell.exec');
+      expect(result.preview?.classified_as).toBe('destructive');
+      expect(result.preview?.preview_hash).toBeTruthy();
       const audit = readAudit(root);
       expect(audit).toHaveLength(1);
-      expect(audit[0].outcome).toBe('denied');
+      expect(audit[0].outcome).toBe('rejected');
     } finally { rmSync(root, { recursive: true, force: true }); }
   });
 
