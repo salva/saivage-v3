@@ -85,4 +85,24 @@ describe('analyst inspection tools secret-path policy', () => {
       rmSync(root, { recursive: true, force: true });
     }
   });
+
+  it('list_directory omits standalone secret directory child names and reports a single redacted summary', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'wave-k-inspect-'));
+    try {
+      mkdirSync(join(root, '.ssh'), { recursive: true });
+      mkdirSync(join(root, '.AWS'), { recursive: true });
+      mkdirSync(join(root, 'safe-dir'), { recursive: true });
+
+      const result = await list_directory(ctx(root), { path: root });
+      expect(result.success).toBe(true);
+      const data = result.data as { redacted_count: number; entries: Array<{ name: string; count?: number }> };
+      expect(data.redacted_count).toBe(2);
+      expect(data.entries.some((entry) => entry.name === '.ssh')).toBe(false);
+      expect(data.entries.some((entry) => entry.name === '.AWS')).toBe(false);
+      expect(data.entries).toContainEqual({ name: '<redacted>', count: 2 });
+      expect(data.entries).toContainEqual(expect.objectContaining({ name: 'safe-dir' }));
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
 });

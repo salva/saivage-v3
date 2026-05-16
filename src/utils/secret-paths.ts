@@ -41,6 +41,8 @@ function hasSecretFragment(normalizedLowerPath: string): boolean {
     const bareFragment = lowerFragment.slice(1);
     return normalizedLowerPath === lowerFragment
       || normalizedLowerPath === bareFragment
+      || normalizedLowerPath.endsWith(lowerFragment)
+      || normalizedLowerPath.endsWith(`/${bareFragment}`)
       || normalizedLowerPath.startsWith(`${lowerFragment}/`)
       || normalizedLowerPath.startsWith(`${bareFragment}/`)
       || normalizedLowerPath.includes(`${lowerFragment}/`);

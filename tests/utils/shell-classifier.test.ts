@@ -21,6 +21,8 @@ describe('shell classifier', () => {
     ['echo hi > ".saivage/auth-profiles.json"', '/work/saivage-v3', 'destructive'],
     ['FOO=bar cat ".saivage/auth-profiles.json"', '/work/saivage-v3', 'destructive'],
     ['cat .AWS/credentials', '/work/saivage-v3', 'destructive'],
+    ['cat .ssh', '/work/saivage-v3', 'destructive'],
+    ['ls .AWS', '/work/saivage-v3', 'destructive'],
     ['cat ./.config/../.config/gcloud/application_default_credentials.json', '/work/saivage-v3', 'destructive'],
     ['cat C:/Users/test/.ssh/config', '/work', 'destructive'],
     ['cat C:/Users/test/.git/objects/ab/cd', '/work', 'destructive'],
