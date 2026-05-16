@@ -10,11 +10,15 @@ import type {
   CardStatus,
   CardListResponse,
   CardDetailResponse,
-  CardCreateResponse,
-  CardUpdateResponse,
   CreateCardPayload,
   UpdateCardPayload,
   CardEvidence,
+  CardLifecycleSummary,
+  CardReviewSummary,
+  CardPlanningSummary,
+  DispatchSummary,
+  DetailErrorState,
+  DetailFreshnessState,
 } from '../api/types';
 import {
   listCards,
@@ -33,6 +37,25 @@ function errorMessage(err: unknown, fallback: string): string {
   if (err instanceof ApiError) return err.message;
   if (err instanceof Error) return err.message;
   return fallback;
+}
+
+function buildDetailError(err: unknown, fallback: string): DetailErrorState {
+  if (err instanceof ApiError) {
+    if (err.isUnauthorized) {
+      return { kind: 'unauthorized', status: err.status, message: err.message || 'Unauthorized.' };
+    }
+    if (err.isNotFound) {
+      return { kind: 'not-found', status: err.status, message: err.message || 'Card not found.' };
+    }
+    if (err.status >= 500) {
+      return { kind: 'server', status: err.status, message: err.message || fallback };
+    }
+    return { kind: 'unknown', status: err.status, message: err.message || fallback };
+  }
+  if (err instanceof Error) {
+    return { kind: 'network', status: null, message: err.message || fallback };
+  }
+  return { kind: 'unknown', status: null, message: fallback };
 }
 
 function buildTree(cards: CardRecord[]): CardRecord[] {
@@ -71,6 +94,16 @@ export const useCardStore = defineStore('cards', () => {
   const currentChildren = ref<CardRecord[]>([]);
   const currentAncestorIds = ref<string[]>([]);
   const currentEvidence = ref<CardEvidence | null>(null);
+  const currentLifecycle = ref<CardLifecycleSummary | null>(null);
+  const currentReview = ref<CardReviewSummary | null>(null);
+  const currentPlanning = ref<CardPlanningSummary | null>(null);
+  const currentDispatches = ref<DispatchSummary | null>(null);
+  const currentDetailError = ref<DetailErrorState | null>(null);
+  const currentDetailFreshness = ref<DetailFreshnessState>({
+    isStale: false,
+    lastLoadedAt: null,
+    staleReason: null,
+  });
 
   const filterStatus = ref<CardStatus | ''>('');
   const filterType = ref<CardType | ''>('');
@@ -113,6 +146,39 @@ export const useCardStore = defineStore('cards', () => {
   let mutationGen = 0;
   function bumpGen(): number { return ++mutationGen; }
 
+  function resetDetailFreshness(): void {
+    currentDetailFreshness.value = {
+      isStale: false,
+      lastLoadedAt: new Date().toISOString(),
+      staleReason: null,
+    };
+  }
+
+  function markDetailStale(reason: DetailFreshnessState['staleReason']): void {
+    currentDetailFreshness.value = {
+      ...currentDetailFreshness.value,
+      isStale: true,
+      staleReason: reason,
+    };
+  }
+
+  function clearCurrentDetail(): void {
+    currentCard.value = null;
+    currentChildren.value = [];
+    currentAncestorIds.value = [];
+    currentEvidence.value = null;
+    currentLifecycle.value = null;
+    currentReview.value = null;
+    currentPlanning.value = null;
+    currentDispatches.value = null;
+    currentDetailError.value = null;
+    currentDetailFreshness.value = {
+      isStale: false,
+      lastLoadedAt: null,
+      staleReason: null,
+    };
+  }
+
   function safeBackgroundRefresh(genAtStart: number): void {
     const params: { status?: string; type?: string; parent?: string; tag?: string } = {};
     if (filterStatus.value) params.status = filterStatus.value;
@@ -153,16 +219,29 @@ export const useCardStore = defineStore('cards', () => {
   async function fetchCardDetail(id: string): Promise<void> {
     loading.value = true;
     error.value = null;
+    currentDetailError.value = null;
     try {
       const response: CardDetailResponse = await getCard(id);
       currentCard.value = response.card;
       currentChildren.value = response.children;
       currentAncestorIds.value = response.ancestorIds;
       currentEvidence.value = response.evidence ?? null;
+      currentLifecycle.value = response.lifecycle;
+      currentReview.value = response.review;
+      currentPlanning.value = response.planning;
+      currentDispatches.value = response.dispatches;
+      resetDetailFreshness();
     } catch (err) {
-      const msg = errorMessage(err, 'Failed to fetch card detail');
-      error.value = msg;
-      log.error('fetchCardDetail', msg);
+      const detailErr = buildDetailError(err, 'Failed to fetch card detail');
+      error.value = detailErr.message;
+      if (currentCard.value?.id === id) {
+        currentDetailError.value = detailErr;
+        markDetailStale('refresh-failed');
+      } else {
+        clearCurrentDetail();
+        currentDetailError.value = detailErr;
+      }
+      log.error('fetchCardDetail', detailErr.message);
       throw err;
     } finally {
       loading.value = false;
@@ -209,10 +288,7 @@ export const useCardStore = defineStore('cards', () => {
       const removedCount = beforeLen - cards.value.length;
       total.value = Math.max(0, total.value - removedCount);
       if (currentCard.value?.id === id) {
-        currentCard.value = null;
-        currentChildren.value = [];
-        currentAncestorIds.value = [];
-        currentEvidence.value = null;
+        clearCurrentDetail();
       }
     } catch (err) {
       const msg = errorMessage(err, 'Failed to delete card');
@@ -263,7 +339,10 @@ export const useCardStore = defineStore('cards', () => {
           cards.value[idx] = updated;
           cards.value = [...cards.value];
         }
-        if (currentCard.value?.id === updated.id) currentCard.value = updated;
+        if (currentCard.value?.id === updated.id) {
+          currentCard.value = updated;
+          markDetailStale('ws-card-updated');
+        }
         const gen = bumpGen();
         safeBackgroundRefresh(gen);
       } else if (event === 'card-deleted' && content.id) {
@@ -273,10 +352,7 @@ export const useCardStore = defineStore('cards', () => {
         const removedCount = beforeLen - cards.value.length;
         total.value = Math.max(0, total.value - removedCount);
         if (currentCard.value?.id === deletedId) {
-          currentCard.value = null;
-          currentChildren.value = [];
-          currentAncestorIds.value = [];
-          currentEvidence.value = null;
+          clearCurrentDetail();
         }
         const gen = bumpGen();
         safeBackgroundRefresh(gen);
@@ -293,6 +369,12 @@ export const useCardStore = defineStore('cards', () => {
     currentChildren,
     currentAncestorIds,
     currentEvidence,
+    currentLifecycle,
+    currentReview,
+    currentPlanning,
+    currentDispatches,
+    currentDetailError,
+    currentDetailFreshness,
     filterStatus,
     filterType,
     filterParent,
@@ -309,5 +391,6 @@ export const useCardStore = defineStore('cards', () => {
     applyFilters,
     clearFilters,
     setupWsListener,
+    markDetailStale,
   };
 });

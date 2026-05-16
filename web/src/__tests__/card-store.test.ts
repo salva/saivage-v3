@@ -1,13 +1,13 @@
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import { setActivePinia, createPinia } from 'pinia';
-import type { CardRecord, CardListResponse, CardDetailResponse, CardCreateResponse, CardUpdateResponse, CardEvidence } from '../api/types';
+import type { CardRecord, CardListResponse, CardDetailResponse, CardCreateResponse, CardUpdateResponse, CardEvidence, CardLifecycleSummary, CardReviewSummary, DispatchSummary } from '../api/types';
 
 vi.mock('../api/client', () => ({
   listCards: vi.fn(), getCard: vi.fn(), createCard: vi.fn(), updateCard: vi.fn(), deleteCard: vi.fn(),
-  ApiError: class extends Error { status: number; body: Record<string, unknown>; constructor(status: number, message: string, body: Record<string, unknown> = {}) { super(message); this.name='ApiError'; this.status=status; this.body=body; } },
+  ApiError: class extends Error { status: number; body: Record<string, unknown>; constructor(status: number, message: string, body: Record<string, unknown> = {}) { super(message); this.name='ApiError'; this.status=status; this.body=body; } get isUnauthorized() { return this.status === 401; } get isNotFound() { return this.status === 404; } },
 }));
 
-import { listCards, getCard, createCard, updateCard, deleteCard } from '../api/client';
+import { getCard, deleteCard, ApiError } from '../api/client';
 const wsTypeHandlers = new Map<string, Set<(e: any) => void>>();
 vi.mock('../stores/ws', () => ({ useWsStore: vi.fn(() => ({ onType: (type: string, handler: (e: any) => void) => { let set = wsTypeHandlers.get(type); if (!set) { set = new Set(); wsTypeHandlers.set(type, set); } set.add(handler); return () => set?.delete(handler); } })) }));
 import { useCardStore } from '../stores/cards';
@@ -17,7 +17,7 @@ function makeCard(overrides: Partial<CardRecord> = {}): CardRecord { const id = 
 function mlr(cards: CardRecord[], total?: number): CardListResponse { return { cards, total: total ?? cards.length }; }
 function mcr(card: CardRecord): CardCreateResponse { return { card }; }
 function mur(card: CardRecord): CardUpdateResponse { return { card }; }
-function mdr(card: CardRecord, children: CardRecord[] = [], ancestorIds: string[] = [], evidence?: CardEvidence): CardDetailResponse { return { card, children, ancestorIds, evidence }; }
+function mdr(card: CardRecord, children: CardRecord[] = [], ancestorIds: string[] = [], evidence?: CardEvidence, lifecycle?: CardLifecycleSummary, review?: CardReviewSummary, dispatches?: DispatchSummary): CardDetailResponse { return { card, children, ancestorIds, evidence, lifecycle: lifecycle || { status: card.status, terminal: false, phase: 'ready', explanation: 'test', completionState: 'in-progress', error: null, startedAt: null, completedAt: null, durationMs: null, retries: 0, childCounts: { drafting: 0, backlog: 0, active: 0, running: 0, blocked: 0, done: 0, failed: 0, cancelled: 0 }, hasActiveChildren: false, hasBlockingChildren: false, dependencyIds: [], blockedByDependencyIds: [] }, review: review || { status: 'not-run', review: null, evidenceStatus: 'none', summary: 'No reviewer assessment is recorded for this card.' }, planning: null, dispatches: dispatches || { outgoing: [], incoming: [] } }; }
 
 const A = makeCard({ id: 'card-a', title: 'Alpha' });
 
@@ -25,23 +25,46 @@ describe('useCardStore evidence support', () => {
   beforeEach(() => { vi.clearAllMocks(); wsTypeHandlers.clear(); });
   afterEach(() => { vi.restoreAllMocks(); });
 
-  it('stores evidence from fetchCardDetail', async () => {
+  it('stores evidence and typed detail fields from fetchCardDetail', async () => {
     const s = setupStore();
     const evidence: CardEvidence = {
-      generatedFiles: [{ path: 'reports/out.txt', source: 'result.generated_files', exists: true }],
+      generatedFiles: [{ path: 'reports/out.txt', source: 'result.generated_files', exists: true, availabilityReason: 'ok' }],
       verificationCommands: [{ command: 'npm test', process_id: 'p1', status: 'completed', exit_code: 0, timed_out: false }],
       artifactPaths: ['reports/out.txt'],
       toolErrors: [],
+      summary: { state: 'present', summary: 'Evidence was recorded for this card.', hasRecordedEvidence: true, hasDurableEvidence: true, missingCount: 0, blockedCount: 0, redactedCount: 0, fileCount: 1, verificationCount: 1, toolErrorCount: 0, parseRecovered: false },
     };
-    vi.mocked(getCard).mockResolvedValue(mdr(A, [], [], evidence));
+    const review: CardReviewSummary = { status: 'passed', review: { id: 'rev-1', goal_card_id: 'card-a', reviewer_session_id: 'sess-1', result: 'pass', summary: 'ok', achieved: ['done'], missing: [], evidence_card_ids: ['card-a'], created_at: '2025-01-01T00:00:00Z' }, evidenceStatus: 'recorded', summary: 'ok' };
+    vi.mocked(getCard).mockResolvedValue(mdr(A, [], [], evidence, undefined, review, undefined));
     await s.fetchCardDetail('card-a');
     expect(s.currentEvidence).toEqual(evidence);
+    expect(s.currentReview?.status).toBe('passed');
+    expect(s.currentLifecycle?.status).toBe('active');
+    expect(s.currentDetailFreshness.isStale).toBe(false);
+  });
+
+  it('records structured unauthorized detail error', async () => {
+    const s = setupStore();
+    vi.mocked(getCard).mockRejectedValue(new ApiError(401, 'Unauthorized', {}));
+    await expect(s.fetchCardDetail('card-a')).rejects.toBeTruthy();
+    expect(s.currentDetailError).toEqual({ kind: 'unauthorized', status: 401, message: 'Unauthorized' });
+  });
+
+  it('marks current detail stale on websocket card-updated events', async () => {
+    const s = setupStore();
+    s.currentCard = A;
+    s.setupWsListener();
+    const handler = Array.from(wsTypeHandlers.get('status') || [])[0];
+    handler({ type: 'status', content: { event: 'card-updated', card: { ...A, title: 'Changed' } } });
+    expect(s.currentCard?.title).toBe('Changed');
+    expect(s.currentDetailFreshness.isStale).toBe(true);
+    expect(s.currentDetailFreshness.staleReason).toBe('ws-card-updated');
   });
 
   it('clears evidence when deleting current card', async () => {
     const s = setupStore();
     s.currentCard = A;
-    s.currentEvidence = { generatedFiles: [], verificationCommands: [], artifactPaths: [], toolErrors: [] };
+    s.currentEvidence = { generatedFiles: [], verificationCommands: [], artifactPaths: [], toolErrors: [], summary: { state: 'none-recorded', summary: 'none', hasRecordedEvidence: false, hasDurableEvidence: false, missingCount: 0, blockedCount: 0, redactedCount: 0, fileCount: 0, verificationCount: 0, toolErrorCount: 0, parseRecovered: false } };
     vi.mocked(deleteCard).mockResolvedValue(undefined);
     await s.removeCard('card-a');
     expect(s.currentEvidence).toBeNull();

@@ -92,6 +92,7 @@ export interface GeneratedFileRef {
   blocked?: boolean;
   redactedOnly?: boolean;
   sensitivity?: SafeFileSensitivity;
+  availabilityReason?: string;
 }
 
 export interface VerificationCommandRef {
@@ -102,12 +103,108 @@ export interface VerificationCommandRef {
   timed_out: boolean | null;
 }
 
+export type CardEvidenceState = 'none-recorded' | 'partial' | 'present' | 'missing-files' | 'blocked' | 'redacted' | 'incomplete';
+
+export interface CardEvidenceSummary {
+  state: CardEvidenceState;
+  summary: string;
+  hasRecordedEvidence: boolean;
+  hasDurableEvidence: boolean;
+  missingCount: number;
+  blockedCount: number;
+  redactedCount: number;
+  fileCount: number;
+  verificationCount: number;
+  toolErrorCount: number;
+  parseRecovered: boolean;
+}
+
 export interface CardEvidence {
   generatedFiles: GeneratedFileRef[];
   verificationCommands: VerificationCommandRef[];
   artifactPaths: string[];
   toolErrors: string[];
   parseFailure?: Record<string, unknown>;
+  summary: CardEvidenceSummary;
+}
+
+export interface ReviewAssessment {
+  id: string;
+  goal_card_id: string;
+  reviewer_session_id: string;
+  result: 'pass' | 'fail';
+  summary: string;
+  achieved: string[];
+  missing: string[];
+  evidence_card_ids: string[];
+  created_at: string;
+}
+
+export interface CardLifecycleSummary {
+  status: CardStatus;
+  terminal: boolean;
+  phase: 'drafting' | 'planned' | 'ready' | 'running' | 'blocked' | 'completed' | 'failed' | 'cancelled';
+  explanation: string;
+  completionState: 'not-started' | 'in-progress' | 'blocked' | 'failed' | 'cancelled' | 'marked-done';
+  error: string | null;
+  startedAt: string | null;
+  completedAt: string | null;
+  durationMs: number | null;
+  retries: number;
+  childCounts: Record<CardStatus, number>;
+  hasActiveChildren: boolean;
+  hasBlockingChildren: boolean;
+  dependencyIds: string[];
+  blockedByDependencyIds: string[];
+}
+
+export interface CardReviewSummary {
+  status: 'not-run' | 'passed' | 'failed' | 'incomplete';
+  review: ReviewAssessment | null;
+  evidenceStatus: 'none' | 'partial' | 'recorded';
+  summary: string;
+}
+
+export interface CardPlanningSummary {
+  status: string | null;
+  summary: string | null;
+  blockedReason: string | null;
+  createdCardIds: string[];
+  updatedCardIds: string[];
+  reviewSummary: string | null;
+  hasUnfinishedChildWork: boolean;
+  plannerDeclaredDone: boolean;
+}
+
+export interface DispatchSummaryItem {
+  dispatchId: string;
+  direction: 'outgoing' | 'incoming';
+  parentCardId: string;
+  targetCardId: string;
+  targetKind: 'goal' | 'terminal_card';
+  status: 'queued' | 'running' | 'completed' | 'failed' | 'blocked' | 'cancelled' | 'timed_out';
+  outcome: 'done' | 'failed' | 'blocked' | 'cancelled' | 'timed_out' | null;
+  summary: string | null;
+  error: string | null;
+  evidenceCardIds: string[];
+  completedAt: string | null;
+}
+
+export interface DispatchSummary {
+  outgoing: DispatchSummaryItem[];
+  incoming: DispatchSummaryItem[];
+}
+
+export interface DetailErrorState {
+  kind: 'unauthorized' | 'not-found' | 'server' | 'network' | 'unknown';
+  status: number | null;
+  message: string;
+}
+
+export interface DetailFreshnessState {
+  isStale: boolean;
+  lastLoadedAt: string | null;
+  staleReason: 'ws-card-updated' | 'refresh-failed' | null;
 }
 
 export type NoteAuthor = 'user' | 'analyst' | 'planner' | 'executor' | 'reviewer' | 'runtime';
@@ -153,18 +250,6 @@ export interface DiaryEntry {
   reviewed_cards?: string[];
   assessment?: ReviewAssessment;
   raw?: Record<string, unknown>;
-}
-
-export interface ReviewAssessment {
-  id: string;
-  goal_card_id: string;
-  reviewer_session_id: string;
-  result: 'pass' | 'fail';
-  summary: string;
-  achieved: string[];
-  missing: string[];
-  evidence_card_ids: string[];
-  created_at: string;
 }
 
 export type ProcessStatus = 'running' | 'exited' | 'failed' | 'killed';
@@ -501,7 +586,16 @@ export interface ResumeFromFreezeResponse {
 }
 
 export interface CardListResponse { cards: CardRecord[]; total: number; }
-export interface CardDetailResponse { card: CardRecord; children: CardRecord[]; ancestorIds: string[]; evidence?: CardEvidence; }
+export interface CardDetailResponse {
+  card: CardRecord;
+  children: CardRecord[];
+  ancestorIds: string[];
+  evidence?: CardEvidence;
+  lifecycle: CardLifecycleSummary;
+  review: CardReviewSummary;
+  planning: CardPlanningSummary | null;
+  dispatches: DispatchSummary;
+}
 export interface CardCreateResponse { card: CardRecord; }
 export interface CardUpdateResponse { card: CardRecord; }
 export interface RuntimeStateResponse { runtime: RuntimeState | null; cardIndex: CardIndex; }

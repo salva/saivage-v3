@@ -1,7 +1,11 @@
 <template>
   <div class="card-detail-container">
     <div v-if="loading" class="detail-loading">Loading card...</div>
-    <div v-else-if="errorMsg" class="detail-error">{{ errorMsg }}</div>
+    <div v-else-if="detailError" class="detail-callout error" role="alert">
+      <strong>{{ detailErrorTitle }}</strong>
+      <div>{{ detailError.message }}</div>
+      <button type="button" class="retry-btn" @click="reloadDetail">Retry</button>
+    </div>
     <template v-else-if="currentCard">
       <section class="detail-section header-section">
         <div class="detail-title-row">
@@ -10,6 +14,14 @@
           <span class="detail-status-chip" :class="'status-' + currentCard.status">{{ currentCard.status }}</span>
         </div>
         <div class="detail-id">ID: {{ currentCard.id }}</div>
+        <div class="detail-callout" role="status">{{ lifecycle?.explanation || statusExplainer(currentCard.status) }}</div>
+        <div v-if="detailFreshness.isStale" class="detail-callout warning" role="status">
+          This card detail may be stale. Refresh to reload canonical card and evidence data from the server.
+          <button type="button" class="retry-btn" @click="reloadDetail">Refresh card</button>
+        </div>
+        <div v-if="lifecycle?.error || currentCard.error" class="detail-callout error" role="alert">
+          Card error: {{ lifecycle?.error || currentCard.error }}
+        </div>
       </section>
 
       <section v-if="currentCard.description" class="detail-section">
@@ -22,30 +34,79 @@
         <div class="meta-grid">
           <div class="meta-item"><span class="meta-key">Created</span><span class="meta-value">{{ fmtDate(currentCard.created_at) }}</span></div>
           <div class="meta-item"><span class="meta-key">Updated</span><span class="meta-value">{{ fmtDate(currentCard.updated_at) }}</span></div>
-          <div v-if="currentCard.started_at" class="meta-item"><span class="meta-key">Started</span><span class="meta-value">{{ fmtDate(currentCard.started_at) }}</span></div>
-          <div v-if="currentCard.completed_at" class="meta-item"><span class="meta-key">Completed</span><span class="meta-value">{{ fmtDate(currentCard.completed_at) }}</span></div>
+          <div v-if="currentCard.started_at || lifecycle?.startedAt" class="meta-item"><span class="meta-key">Started</span><span class="meta-value">{{ fmtDate(currentCard.started_at || lifecycle?.startedAt || '') }}</span></div>
+          <div v-if="currentCard.completed_at || lifecycle?.completedAt" class="meta-item"><span class="meta-key">Completed</span><span class="meta-value">{{ fmtDate(currentCard.completed_at || lifecycle?.completedAt || '') }}</span></div>
           <div class="meta-item"><span class="meta-key">Priority</span><span class="meta-value" :class="{ high: currentCard.priority > 5 }">{{ currentCard.priority }} / 10</span></div>
           <div class="meta-item"><span class="meta-key">Urgency</span><span class="meta-value">{{ currentCard.urgency }}</span></div>
+          <div v-if="currentCard.assigned_to" class="meta-item"><span class="meta-key">Assigned to</span><span class="meta-value">{{ currentCard.assigned_to }}</span></div>
+          <div v-if="lifecycle?.durationMs != null" class="meta-item"><span class="meta-key">Duration</span><span class="meta-value">{{ lifecycle.durationMs }} ms</span></div>
+          <div class="meta-item"><span class="meta-key">Retries</span><span class="meta-value">{{ lifecycle?.retries ?? currentCard.retries }}</span></div>
         </div>
       </section>
 
-      <section v-if="currentCard.notes && currentCard.notes.length" class="detail-section">
-        <h3 class="section-heading">Notes & Activity</h3>
-        <div class="notes-list">
-          <div v-for="note in currentCard.notes" :key="note.id" class="note-item" :class="{ 'note-handled': note.handled }">
-            <div class="note-header">
-              <span class="note-author">{{ note.author }}</span>
-              <span class="note-kind-badge">{{ note.kind }}</span>
-              <span class="note-time">{{ fmtDate(note.timestamp) }}</span>
-            </div>
-            <div class="note-content" v-html="renderMarkdown(note.content)"></div>
+      <section class="detail-section">
+        <h3 class="section-heading">Completion &amp; blockers</h3>
+        <div class="meta-grid">
+          <div class="meta-item"><span class="meta-key">Completion state</span><span class="meta-value">{{ completionLabel }}</span></div>
+          <div class="meta-item"><span class="meta-key">Evidence readiness</span><span class="meta-value">{{ evidence?.summary.summary || 'No evidence summary returned.' }}</span></div>
+          <div class="meta-item"><span class="meta-key">Child work</span><span class="meta-value">{{ childWorkSummary }}</span></div>
+        </div>
+        <div v-if="currentCard.depends_on.length" class="link-list-row">
+          <span class="meta-key">Blocking dependencies</span>
+          <div class="pill-list">
+            <button v-for="depId in currentCard.depends_on" :key="depId" type="button" class="nav-pill" @click="navigateCard(depId)">{{ depId }}</button>
           </div>
         </div>
+        <div v-if="currentCard.blocks.length" class="link-list-row">
+          <span class="meta-key">Cards blocked by this card</span>
+          <div class="pill-list">
+            <button v-for="blockId in currentCard.blocks" :key="blockId" type="button" class="nav-pill" @click="navigateCard(blockId)">{{ blockId }}</button>
+          </div>
+        </div>
+        <div v-if="planning" class="planning-summary">
+          <strong>Planning</strong>
+          <div>Status: {{ planning.status || 'unknown' }}</div>
+          <div v-if="planning.summary">{{ planning.summary }}</div>
+          <div v-if="planning.blockedReason" class="detail-callout warning">Blocked reason: {{ planning.blockedReason }}</div>
+          <div v-if="planning.reviewSummary">Review summary: {{ planning.reviewSummary }}</div>
+          <div v-if="planning.hasUnfinishedChildWork" class="detail-callout warning">Planner declared work done, but unfinished child work is still indicated.</div>
+        </div>
       </section>
 
-      <section v-if="hasEvidenceSection" class="detail-section">
-        <h3 class="section-heading">Generated Files &amp; Evidence</h3>
-        <div class="evidence-summary">{{ generatedFiles.length }} files, {{ verificationCommands.length }} checks</div>
+      <section class="detail-section">
+        <h3 class="section-heading">Hierarchy</h3>
+        <div v-if="currentAncestorIds.length" class="link-list-row">
+          <span class="meta-key">Ancestors</span>
+          <div class="pill-list">
+            <button v-for="ancestorId in currentAncestorIds" :key="ancestorId" type="button" class="nav-pill" @click="navigateCard(ancestorId)">{{ ancestorId }}</button>
+          </div>
+        </div>
+        <div v-if="currentChildren.length" class="children-list">
+          <button v-for="child in currentChildren" :key="child.id" type="button" class="child-row" @click="navigateCard(child.id)">
+            <span class="generated-file-main">
+              <span class="generated-file-path">{{ child.id }}</span>
+              <span class="badge">{{ child.type }}</span>
+              <span class="badge" :class="statusBadgeClass(child.status)">{{ child.status }}</span>
+            </span>
+            <span class="generated-file-description">{{ child.title }}</span>
+          </button>
+        </div>
+        <div v-else class="empty-evidence">No child cards are recorded for this card.</div>
+      </section>
+
+      <section class="detail-section">
+        <h3 class="section-heading">Evidence &amp; generated files</h3>
+        <div class="evidence-summary">{{ evidenceSummaryLine }}</div>
+
+        <div class="pill-list summary-pills">
+          <span class="badge">Files: {{ generatedFiles.length }}</span>
+          <span class="badge">Checks: {{ verificationCommands.length }}</span>
+          <span class="badge">Tool errors: {{ evidence?.toolErrors.length || 0 }}</span>
+          <span v-if="evidence?.summary.missingCount" class="badge warning">Missing files: {{ evidence.summary.missingCount }}</span>
+          <span v-if="evidence?.summary.blockedCount" class="badge error">Blocked: {{ evidence.summary.blockedCount }}</span>
+          <span v-if="evidence?.summary.redactedCount" class="badge warning">Redacted: {{ evidence.summary.redactedCount }}</span>
+          <span v-if="evidence?.summary.parseRecovered" class="badge warning">Parse recovery</span>
+        </div>
 
         <div v-if="evidence?.parseFailure" class="preview-notice warning">Executor final response was malformed; generated files and verification evidence were recovered from tool activity.</div>
         <div v-if="evidence?.toolErrors?.length" class="preview-notice error">
@@ -60,7 +121,7 @@
             type="button"
             class="generated-file-row"
             :class="{ selected: selectedPath === file.path, disabled: isPreviewDisabled(file) }"
-            :aria-label="`Preview generated file ${file.path}`"
+            :aria-label="`Preview generated file ${file.path}, ${fileStateLabel(file)}`"
             @click="openPreviewForFile(file)"
           >
             <span class="generated-file-main">
@@ -68,18 +129,19 @@
               <span class="badge">{{ sourceLabel(file.source) }}</span>
               <span v-if="file.artifactType" class="badge subtle">{{ file.artifactType }}</span>
               <span v-if="file.retain" class="badge success">retained</span>
-              <span v-if="file.exists === false" class="badge warning">missing</span>
+              <span v-if="file.exists === false && !file.blocked" class="badge warning">missing</span>
               <span v-if="file.blocked" class="badge error">blocked</span>
               <span v-else-if="file.redactedOnly" class="badge warning">redacted</span>
               <span v-else-if="file.previewable === false" class="badge subtle">non-previewable</span>
             </span>
             <span v-if="file.description" class="generated-file-description">{{ file.description }}</span>
+            <span v-if="file.availabilityReason" class="generated-file-description">{{ file.availabilityReason }}</span>
           </button>
         </div>
-        <div v-else class="empty-evidence">No generated files were recorded for this card.</div>
+        <div v-else class="empty-evidence">{{ emptyEvidenceMessage }}</div>
 
         <div class="preview-panel" aria-live="polite">
-          <div v-if="previewState.status === 'idle'" class="preview-empty">Select a generated file to preview it.</div>
+          <div v-if="previewState.status === 'idle'" class="preview-empty">Select a generated file to preview safe text content.</div>
           <div v-else-if="previewState.status === 'loading'" class="preview-empty">Loading preview…</div>
           <template v-else-if="previewState.status === 'ready'">
             <div class="preview-header">
@@ -98,14 +160,76 @@
           </template>
         </div>
 
-        <div v-if="verificationCommands.length" class="verification-section">
+        <div class="verification-section">
           <h4 class="subheading">Verification Commands</h4>
-          <div v-for="command in verificationCommands" :key="`${command.command}-${command.process_id}`" class="verification-row">
+          <div v-if="verificationCommands.length" v-for="command in verificationCommands" :key="`${command.command}-${command.process_id}`" class="verification-row">
             <code class="generated-file-path">{{ command.command }}</code>
             <span class="badge">{{ command.status || 'unknown' }}</span>
-            <span class="badge" :class="command.exit_code === 0 ? 'success' : command.exit_code == null ? 'subtle' : 'error'">exit {{ command.exit_code ?? '?' }}</span>
+            <span class="badge" :class="command.exit_code === 0 ? 'success' : command.exit_code == null ? 'subtle' : 'error'">{{ verificationOutcome(command) }}</span>
             <span v-if="command.timed_out" class="badge warning">timed out</span>
-            <span v-if="command.process_id" class="badge subtle">{{ command.process_id }}</span>
+            <span v-if="command.process_id" class="badge subtle">process {{ command.process_id }}</span>
+          </div>
+          <div v-else class="empty-evidence">No verification commands were recorded for this card.</div>
+        </div>
+      </section>
+
+      <section class="detail-section">
+        <h3 class="section-heading">Review result</h3>
+        <div class="detail-callout" :class="reviewCalloutClass">
+          <strong>{{ reviewTitle }}</strong>
+          <div>{{ review?.summary || 'No review result was returned by the card detail API.' }}</div>
+        </div>
+        <template v-if="review?.review">
+          <div v-if="review.review.achieved.length" class="list-block">
+            <div class="meta-key">Achieved</div>
+            <ul><li v-for="item in review.review.achieved" :key="item">{{ item }}</li></ul>
+          </div>
+          <div class="list-block">
+            <div class="meta-key">Missing</div>
+            <ul v-if="review.review.missing.length"><li v-for="item in review.review.missing" :key="item">{{ item }}</li></ul>
+            <div v-else class="empty-evidence">No missing items recorded.</div>
+          </div>
+          <div v-if="review.review.evidence_card_ids.length" class="link-list-row">
+            <span class="meta-key">Evidence cards</span>
+            <div class="pill-list">
+              <button v-for="evidenceId in review.review.evidence_card_ids" :key="evidenceId" type="button" class="nav-pill" @click="navigateCard(evidenceId)">{{ evidenceId }}</button>
+            </div>
+          </div>
+        </template>
+      </section>
+
+      <section class="detail-section" v-if="dispatches && (dispatches.outgoing.length || dispatches.incoming.length)">
+        <h3 class="section-heading">Dispatch summary</h3>
+        <div v-if="dispatches.outgoing.length" class="list-block">
+          <div class="meta-key">Outgoing dispatches</div>
+          <div v-for="dispatch in dispatches.outgoing" :key="dispatch.dispatchId" class="verification-row">
+            <button type="button" class="nav-pill" @click="navigateCard(dispatch.targetCardId)">{{ dispatch.targetCardId }}</button>
+            <span class="badge">{{ dispatch.status }}</span>
+            <span v-if="dispatch.outcome" class="badge subtle">{{ dispatch.outcome }}</span>
+            <span>{{ dispatch.summary || 'No completion summary recorded.' }}</span>
+          </div>
+        </div>
+        <div v-if="dispatches.incoming.length" class="list-block">
+          <div class="meta-key">Incoming dispatches</div>
+          <div v-for="dispatch in dispatches.incoming" :key="dispatch.dispatchId" class="verification-row">
+            <button type="button" class="nav-pill" @click="navigateCard(dispatch.parentCardId)">{{ dispatch.parentCardId }}</button>
+            <span class="badge">{{ dispatch.status }}</span>
+            <span v-if="dispatch.outcome" class="badge subtle">{{ dispatch.outcome }}</span>
+            <span>{{ dispatch.summary || 'No completion summary recorded.' }}</span>
+          </div>
+        </div>
+      </section>
+
+      <section v-if="currentCard.notes && currentCard.notes.length" class="detail-section">
+        <h3 class="section-heading">Notes &amp; Activity</h3>
+        <div class="notes-list">
+          <div v-for="note in currentCard.notes" :key="note.id" class="note-item" :class="{ 'note-handled': note.handled }">
+            <div class="note-header">
+              <span class="note-author">{{ note.author }}</span>
+              <span class="note-kind-badge">{{ note.kind }}</span>
+              <span class="note-time">{{ fmtDate(note.timestamp) }}</span>
+            </div>
+            <div class="note-content" v-html="renderMarkdown(note.content)"></div>
           </div>
         </div>
       </section>
@@ -123,30 +247,108 @@ import { ref, computed, watch, onMounted } from 'vue';
 import { useCardStore } from '../../stores/cards';
 import { storeToRefs } from 'pinia';
 import { getFileContent, ApiError } from '../../api/client';
-import type { GeneratedFileRef, VerificationCommandRef } from '../../api/types';
+import type { GeneratedFileRef, VerificationCommandRef, DetailErrorState, CardStatus } from '../../api/types';
 import { createLogger } from '../../utils/logger';
 
 const log = createLogger('comp:card-detail');
 const props = defineProps<{ cardId: string }>();
 const emit = defineEmits<{ navigate: [id: string] }>();
 const cardStore = useCardStore();
-const { currentCard, currentEvidence: evidence, loading, error } = storeToRefs(cardStore);
-const errorMsg = computed(() => error.value);
+const {
+  currentCard,
+  currentChildren,
+  currentAncestorIds,
+  currentEvidence: evidence,
+  currentLifecycle: lifecycle,
+  currentReview: review,
+  currentPlanning: planning,
+  currentDispatches: dispatches,
+  currentDetailError,
+  currentDetailFreshness,
+  loading,
+} = storeToRefs(cardStore);
+
+const detailError = computed<DetailErrorState | null>(() => currentDetailError.value);
+const detailFreshness = computed(() => currentDetailFreshness.value);
 
 const selectedPath = ref<string | null>(null);
 const previewState = ref<{ status: 'idle' } | { status: 'loading'; path: string } | { status: 'ready'; path: string; size: number; contentType: string; content: string; redactedHint: boolean } | { status: 'missing' | 'blocked' | 'directory' | 'too_large' | 'binary' | 'error'; path: string; message: string }>({ status: 'idle' });
 
 const TYPE_ICONS: Record<string, string> = { project: '(P)', goal: '(G)', architecture: '(A)', code: '(C)', test: '(T)', doc: '(D)', data: '(DA)', research: '(R)', ops: '(O)' };
 function typeIcon(type: string): string { return TYPE_ICONS[type] || '(?)'; }
-function fmtDate(ts: string): string { try { return new Date(ts).toLocaleString(); } catch { return ts; } }
+function fmtDate(ts: string): string { try { return ts ? new Date(ts).toLocaleString() : ''; } catch { return ts; } }
 function fmtJson(obj: Record<string, unknown>): string { try { return JSON.stringify(obj, null, 2); } catch { return String(obj); } }
 function esc(text: string): string { return text.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 function renderMarkdown(text: string): string { return esc(text).replace(/\n/g, '<br>'); }
 function sourceLabel(source: string): string { return source.replace('result.', ''); }
+function statusBadgeClass(status: CardStatus): string { return `status-${status}`; }
+function statusExplainer(status: CardStatus): string {
+  const map: Record<CardStatus, string> = {
+    drafting: 'This card is still being shaped and may not be dispatchable.',
+    backlog: 'This card is planned but not started.',
+    active: 'This card is active but not necessarily executing now.',
+    running: 'This card is running. Evidence may be incomplete until the active work finishes.',
+    blocked: 'This card is blocked. Check blockers, tool errors, review findings, and notes before retrying.',
+    done: 'This card is marked done. Review evidence and verification below before treating it as accepted.',
+    failed: 'This card failed. Inspect error, tool errors, verification commands, and agent/review context.',
+    cancelled: 'This card was cancelled and should not be treated as completed work.',
+  };
+  return map[status];
+}
 
 const generatedFiles = computed<GeneratedFileRef[]>(() => evidence.value?.generatedFiles ?? []);
 const verificationCommands = computed<VerificationCommandRef[]>(() => evidence.value?.verificationCommands ?? []);
-const hasEvidenceSection = computed(() => generatedFiles.value.length > 0 || verificationCommands.value.length > 0 || !!evidence.value?.parseFailure || !!evidence.value?.toolErrors?.length);
+const completionLabel = computed(() => {
+  if (review.value?.status === 'passed') return 'Review passed';
+  if (review.value?.status === 'failed') return 'Review failed';
+  if (evidence.value?.summary.state === 'incomplete') return 'Evidence incomplete';
+  return lifecycle.value?.completionState || 'unknown';
+});
+const childWorkSummary = computed(() => {
+  if (!lifecycle.value) return 'No child summary available.';
+  const counts = lifecycle.value.childCounts;
+  const total = Object.values(counts).reduce((sum, n) => sum + n, 0);
+  return `${total} children: ${counts.active + counts.running} active/running, ${counts.blocked + counts.failed} blocked/failed, ${counts.done} done`;
+});
+const evidenceSummaryLine = computed(() => evidence.value?.summary.summary || 'The card detail API did not return evidence for this card.');
+const emptyEvidenceMessage = computed(() => {
+  if (!evidence.value) return 'The card detail API did not return evidence for this card.';
+  if (evidence.value.summary.state === 'incomplete') return 'Evidence is missing for this terminal or blocked state. Inspect agent and review context before accepting completion.';
+  return 'No generated files or verification commands are recorded yet.';
+});
+const detailErrorTitle = computed(() => {
+  switch (detailError.value?.kind) {
+    case 'unauthorized': return 'Unauthorized';
+    case 'not-found': return 'Card not found';
+    case 'server': return 'Card detail unavailable';
+    case 'network': return 'Network error';
+    default: return 'Card detail error';
+  }
+});
+const reviewTitle = computed(() => {
+  switch (review.value?.status) {
+    case 'passed': return 'Review passed';
+    case 'failed': return 'Review failed';
+    case 'incomplete': return 'Review incomplete';
+    default: return 'Not reviewed';
+  }
+});
+const reviewCalloutClass = computed(() => review.value?.status === 'passed' ? 'success' : review.value?.status === 'failed' ? 'error' : 'warning');
+
+function verificationOutcome(command: VerificationCommandRef): string {
+  if (command.timed_out) return 'timed out';
+  if (command.exit_code === 0) return 'pass';
+  if (command.exit_code == null) return 'unknown exit';
+  return `fail (${command.exit_code})`;
+}
+
+function fileStateLabel(file: GeneratedFileRef): string {
+  if (file.blocked) return 'blocked';
+  if (file.exists === false) return 'missing';
+  if (file.redactedOnly) return 'redacted';
+  if (file.previewable === false) return 'non-previewable';
+  return 'available';
+}
 
 function isPreviewDisabled(file: GeneratedFileRef): boolean {
   return file.blocked === true || file.previewable === false;
@@ -163,11 +365,11 @@ async function openPreview(path: string, force = false): Promise<void> {
   } catch (err) {
     const apiErr = err as ApiError;
     let status: 'missing' | 'blocked' | 'directory' | 'too_large' | 'binary' | 'error' = 'error';
-    let message = 'Could not load preview.';
-    if (apiErr?.status === 404) { status = 'missing'; message = 'File was recorded as evidence but is not present in the workspace.'; }
-    else if (apiErr?.status === 403) { status = 'blocked'; message = 'Preview blocked by file-access security.'; }
+    let message = 'Could not load preview. Refresh the card and retry; use Debug if the error persists.';
+    if (apiErr?.status === 404) { status = 'missing'; message = 'File was recorded as evidence but is no longer present in the workspace.'; }
+    else if (apiErr?.status === 403) { status = 'blocked'; message = 'Preview blocked by file-access security. Use controlled maintenance procedures before direct inspection.'; }
     else if (apiErr?.status === 400) { status = 'directory'; message = 'This evidence path points to a directory, not a previewable file.'; }
-    else if (apiErr?.status === 413) { status = 'too_large'; message = 'File is too large to preview.'; }
+    else if (apiErr?.status === 413) { status = 'too_large'; message = 'File is too large to preview in the control room.'; }
     else if (apiErr?.status === 415) { status = 'binary'; message = 'Binary or non-text file cannot be previewed here.'; }
     else if (apiErr instanceof Error && apiErr.message) { message = apiErr.message; }
     previewState.value = { status, path, message };
@@ -181,7 +383,7 @@ function openPreviewForFile(file: GeneratedFileRef): void {
       status: 'blocked',
       path: file.path,
       message: file.blocked
-        ? 'Preview blocked by file-access security.'
+        ? (file.availabilityReason || 'Preview blocked by file-access security. Use controlled maintenance procedures before direct inspection.')
         : 'This evidence is classified as non-previewable by the server.',
     };
     return;
@@ -190,19 +392,19 @@ function openPreviewForFile(file: GeneratedFileRef): void {
 }
 
 function navigateCard(id: string): void { emit('navigate', id); }
+async function reloadDetail(): Promise<void> { try { await cardStore.fetchCardDetail(props.cardId); } catch (err) { log.error('fetch', err); } }
 
-onMounted(async () => { try { await cardStore.fetchCardDetail(props.cardId); } catch (err) { log.error('fetch', err); } });
+onMounted(async () => { await reloadDetail(); });
 watch(() => props.cardId, async (nid) => {
   selectedPath.value = null;
   previewState.value = { status: 'idle' };
-  if (nid) { try { await cardStore.fetchCardDetail(nid); } catch (err) { log.error('fetch', err); } }
+  if (nid) { await reloadDetail(); }
 });
 </script>
 
 <style scoped>
 .card-detail-container { flex:1; overflow-y:auto; padding:20px; }
-.detail-loading,.detail-error,.preview-empty { padding:16px; color:#8b949e; font-size:13px; }
-.detail-error { color:#f85149; }
+.detail-loading,.preview-empty { padding:16px; color:#8b949e; font-size:13px; }
 .detail-section { margin-bottom:20px; padding-bottom:16px; border-bottom:1px solid #21262d; }
 .section-heading,.subheading { font-size:12px; font-weight:600; color:#8b949e; text-transform:uppercase; margin:0 0 10px 0; }
 .header-section { padding-bottom:12px; }
@@ -223,19 +425,23 @@ watch(() => props.cardId, async (nid) => {
 .meta-item { display:flex; flex-direction:column; gap:2px; }
 .meta-key { font-size:11px; color:#8b949e; }
 .meta-value { font-size:13px; color:#c9d1d9; }
-.notes-list,.generated-files-list { display:flex; flex-direction:column; gap:8px; }
-.note-item,.generated-file-row,.verification-row { background:#161b22; border:1px solid #21262d; border-radius:6px; padding:10px 12px; }
-.generated-file-row { text-align:left; cursor:pointer; }
+.notes-list,.generated-files-list,.children-list { display:flex; flex-direction:column; gap:8px; }
+.note-item,.generated-file-row,.verification-row,.child-row { background:#161b22; border:1px solid #21262d; border-radius:6px; padding:10px 12px; }
+.generated-file-row,.child-row { text-align:left; cursor:pointer; }
 .generated-file-row.selected { border-color:#58a6ff; }
 .generated-file-row.disabled { opacity:.9; }
 .generated-file-main { display:flex; flex-wrap:wrap; gap:8px; align-items:center; }
-.generated-file-description,.note-content,.evidence-summary { color:#8b949e; font-size:12px; }
+.generated-file-description,.note-content,.evidence-summary,.planning-summary { color:#8b949e; font-size:12px; }
 .preview-panel { margin-top:12px; }
 .preview-header { display:flex; gap:12px; flex-wrap:wrap; margin-bottom:8px; color:#8b949e; font-size:12px; }
-.preview-notice { padding:10px 12px; border-radius:6px; background:#1c2738; color:#c9d1d9; margin-bottom:8px; }
-.preview-notice.warning { background:#241f18; }
-.preview-notice.error { background:#241818; }
+.preview-notice,.detail-callout { padding:10px 12px; border-radius:6px; background:#1c2738; color:#c9d1d9; margin-bottom:8px; }
+.preview-notice.warning,.detail-callout.warning { background:#241f18; }
+.preview-notice.error,.detail-callout.error { background:#241818; }
+.detail-callout.success { background:#1a2418; }
 .preview-content,.detail-json { background:#0d1117; border:1px solid #21262d; border-radius:4px; padding:12px; font-size:12px; line-height:1.5; overflow-x:auto; white-space:pre-wrap; word-break:break-word; color:#c9d1d9; margin:0; }
-.retry-btn { padding:6px 10px; background:#21262d; border:1px solid #30363d; color:#c9d1d9; border-radius:4px; cursor:pointer; }
+.retry-btn,.nav-pill { padding:6px 10px; background:#21262d; border:1px solid #30363d; color:#c9d1d9; border-radius:4px; cursor:pointer; }
 .empty-evidence { color:#8b949e; font-size:13px; padding:8px 0; }
+.pill-list { display:flex; flex-wrap:wrap; gap:8px; }
+.link-list-row,.list-block { margin-top:10px; }
+.note-header { display:flex; gap:10px; flex-wrap:wrap; margin-bottom:6px; }
 </style>

@@ -72,14 +72,36 @@ Use Cards to:
 - inspect parent/child context where shown;
 - identify blocked, failed, or stale work.
 
-Use **card detail** for evidence review. This is the supported surface for:
+Use **card detail** as the supported operator inspection surface for:
 
-- generated file metadata
-- verification commands
-- tool errors
-- parse-failure context
+- lifecycle explanation and completion/blocker state
+- parent/child hierarchy and evidence-card navigation
+- generated file metadata and preview eligibility
+- verification commands and process IDs
+- review result summary and evidence-card IDs
+- planner status and dispatch completion summaries
+- tool errors and parse-failure recovery
 
 Do not use an empty queue alone as evidence that planning is complete.
+
+### Card detail evidence and review workflow
+
+Read card detail in this order:
+
+1. **Lifecycle / Completion & blockers** — confirms whether the card is only marked done, actively blocked, failed, or independently reviewed.
+2. **Hierarchy** — shows ancestors and children so operators can inspect related work without raw state-file reads.
+3. **Evidence & generated files** — shows aggregate evidence state:
+   - `No operator-facing evidence is recorded yet`
+   - `This terminal or blocked card has no operator-facing evidence recorded`
+   - missing files
+   - blocked files with reasons
+   - redacted evidence
+   - parse-recovered / tool-error partial evidence
+4. **Verification commands** — confirms pass/fail/unknown/timed-out command results.
+5. **Review result** — confirms whether a reviewer passed or failed the card and which evidence-card IDs were cited.
+6. **Dispatch summary** — confirms child dispatch outcomes where recorded.
+
+If the detail view shows **This card detail may be stale**, refresh the card before acting on evidence or completion state.
 
 ### Generated files and evidence
 
@@ -87,9 +109,10 @@ When reviewing generated files in card detail, expect one of these outcomes:
 
 - previewable text file
 - redacted-only preview
-- blocked preview
+- blocked preview with a reason
 - missing file
 - binary or unpreviewable file
+- incomplete/no-evidence warning for a blocked/done/failed card
 
 Examples:
 
@@ -147,35 +170,6 @@ Use Debug for recovery and diagnostics:
 
 If the UI reports degraded, frozen, stale, or repeated agent failures, Debug is the first operator destination.
 
-#### Debug → Operator Control
-
-The **Operator Control** tab is the supported UI for authenticated note handling and generic runtime pause/resume.
-
-Runtime controls:
-
-- use **Pause runtime** to stop new dispatch;
-- use **Resume runtime** only when the runtime is paused or idle;
-- if runtime state is unavailable, the panel tells you to start or restore runtime state first;
-- if runtime is frozen, generic resume stays blocked and the panel directs you to the resume-from-freeze workflow.
-
-Notes controls:
-
-- **Acknowledge** removes the note from the unhandled queue but preserves note history on the card;
-- **Delete** removes an unhandled note from card history and queue;
-- **Clear all** deletes only the current unhandled notes returned by the notes API.
-
-Expected panel states:
-
-- loading
-- empty queue
-- stale/partial refresh warning
-- unauthorized
-- runtime unavailable
-- frozen resume guidance
-- success banners after note/runtime actions
-
-The panel uses authenticated server APIs only. It does not read raw `.saivage` note or runtime files from the browser.
-
 ## 4. Runtime control procedures
 
 Pause/resume validation is shared across REST endpoints and analyst tools. Server-hosted analyst chat/WebSocket controls receive the live `ActiveRuntime` when the server was started with runtime creation, so they have the same in-memory pause/resume effect as REST. Direct analyst-tool utility use without an injected live runtime falls back to canonical persisted-state control and returns the same frozen/unavailable validation results.
@@ -187,25 +181,12 @@ curl -X POST http://localhost:8080/api/runtime/pause \
   -H "Authorization: Bearer $SAIVAGE_API_TOKEN"
 ```
 
-Use pause when you want to stop new dispatch without creating a freeze handoff.
-
-- With a live `ActiveRuntime` (REST or server-hosted analyst chat/WebSocket), pause updates the live in-memory runtime authority.
-- Without a live runtime authority, pause updates persisted runtime state only.
-- If runtime state is missing entirely, pause now fails with an actionable error instead of inventing replacement state.
-
 ### Resume only from pause or idle
 
 ```bash
 curl -X POST http://localhost:8080/api/runtime/resume \
   -H "Authorization: Bearer $SAIVAGE_API_TOKEN"
 ```
-
-Generic resume is for paused or idle runtime state.
-
-- With a live `ActiveRuntime` (REST or server-hosted analyst chat/WebSocket), resume propagates through the live runtime authority.
-- Without a live runtime authority, resume updates persisted runtime state only.
-- If the runtime is `frozen`, this endpoint rejects the request with `400` and instructs you to use `/api/runtime/resume-from-freeze`.
-- If runtime state is unavailable, resume returns an actionable unavailable-state error.
 
 ### Freeze before handoff or disruptive maintenance
 
@@ -216,16 +197,12 @@ curl -X POST http://localhost:8080/api/runtime/freeze \
   -d '{"reason":"operator handoff"}'
 ```
 
-Use freeze when you want a recorded handoff manifest and a clear `frozen` state.
-
 ### Resume from freeze
 
 ```bash
 curl -X POST http://localhost:8080/api/runtime/resume-from-freeze \
   -H "Authorization: Bearer $SAIVAGE_API_TOKEN"
 ```
-
-Resume from freeze restores queue and process references from the freeze manifest when present.
 
 ## 5. Operator notes queue
 
@@ -237,36 +214,6 @@ Current backend behavior:
 - `GET /api/notes` returns only reconciled unhandled notes with an attached `note` record;
 - stale queue entries that point at missing or handled notes are removed during reconciliation;
 - malformed persisted queue files return a controlled `500` instead of returning partial `note: undefined` rows.
-
-Current note identity invariants:
-
-- note IDs are minted by the NotesQueue-owned `next_note_sequence` field in `.saivage/notes/queue.json`;
-- IDs are monotonic and never reused after acknowledge, delete, clear-all, or reload;
-- operators may safely reference a note ID from the Debug UI or API without risking that the same ID later targets a different note.
-
-NotesQueue is the owner and validation path for note-queue persistence:
-
-- the canonical queue shape is `{ next_note_sequence, entries }` and is validated by the NotesQueue schema before use;
-- older `{ entries: [...] }` queue files are not accepted and are not auto-repaired at runtime;
-- the current repository tree scan for this stage found no active checked-in `queue.json` records that still needed this repair.
-
-If an operator encounters an older active `.saivage/notes/queue.json` without `next_note_sequence`, use this explicit repair path instead of adding a compatibility shim:
-
-1. Pause or freeze the runtime so note state stops changing.
-2. Preserve the current `.saivage/notes/queue.json` and `.saivage/notes/by-card/*.jsonl` files before editing.
-3. Rebuild queue entries from the current unhandled note JSONL records under `.saivage/notes/by-card/`.
-4. Inspect every existing note ID matching `n-<cardId>-<sequence>` and choose `next_note_sequence` greater than every numeric `<sequence>` suffix found across all cards.
-5. Write a new canonical `.saivage/notes/queue.json` with that `next_note_sequence` and the rebuilt unhandled `entries`.
-6. Validate the regenerated file against the NotesQueue schema before resuming or reloading.
-7. Resume/reload only after validation succeeds.
-
-If you cannot safely determine the highest existing numeric suffix, or note files are incomplete/corrupted, stop and escalate with the affected queue file and card note records instead of guessing.
-
-Use note actions with this meaning:
-
-- acknowledge: preserves the note in card history and removes it from the unhandled queue;
-- delete: removes an unhandled note from both card history and queue;
-- clear unhandled: deletes only currently unhandled queued notes.
 
 ## 6. Degraded-state workflow
 
@@ -287,92 +234,17 @@ If runtime or UI state is degraded:
 - re-enter the token in the UI;
 - confirm `/health` still works publicly;
 - confirm Docs remain reachable under `/docs/`.
+- in card detail, `Unauthorized` means the detail API could not be read; it does not mean the card has no evidence.
 
 ### Stale or reconnecting
 
 - refresh the relevant view;
 - treat REST reload as authoritative after reconnect;
 - use Debug if stale or reconnecting state persists.
-
-For the Debug Operator Control panel specifically, a stale banner means the last refresh partially failed or another actor changed note/runtime state. Use **Refresh** before repeating a mutation.
+- in card detail, a stale banner after a card-updated event means status may have changed after the last evidence fetch.
 
 ### Offline
 
 - verify the server process and port binding;
 - verify docs and SPA serving separately from API runtime state;
 - use process inspection and logs if the server is up but runtime is not advancing.
-
-## 8. Safe process inspection
-
-Inspect processes through Debug → Processes or the process APIs rather than raw registry files.
-
-Expected process view fields:
-
-- redacted `command`
-- contained project-relative `cwd`
-- contained project-relative log refs under `logs`
-- `status`, `owner`, `session_id`, `card_id`, `started_at`, `ended_at`, `exit_code`, `timed_out`
-- `control.can_view_logs`, `control.can_terminate`, `control.terminate_status`, `control.terminate_degraded`, and `control.terminate_reason`
-
-Safe process views do not expose raw absolute paths, output directories, process groups, or unredacted command strings.
-
-`cwd: null` or `logs.*: null` means the value is absent or unsafe to display. Treat that as expected safety behavior.
-
-If a safe log ref is present, use the Files view/API with that contained relative path to inspect the log.
-
-### Terminating a process
-
-Debug → Processes now distinguishes advisory control availability before you call `POST /api/processes/:id/terminate`:
-
-- `Control: Live-attached` — the record is running and this server still has a live child process attached; a normal **Terminate process** action is shown.
-- `Control: Degraded — not attached` — the registry still says running, but this server has no live child process attached; no normal terminate button is shown.
-- `Control: Ended` — the process has already ended; termination is unavailable.
-- `Control: Unknown` — the server could not confirm availability; treat this like degraded state and inspect first.
-
-If **Terminate process** is shown, it applies only to a live Saivage-managed child process attached to the current server instance.
-
-Supported outcomes:
-
-- success: the process record transitions to a non-running status and the UI refreshes;
-- already ended: the API returns an already-ended message and the UI refreshes the process state;
-- unavailable/degraded: the record still says `running`, but this server has no live child process to signal.
-
-Stale/not-attached means the durable registry and the current server's live child-process map disagree, commonly after restart, crash, or manual recovery. In that case:
-
-1. Refresh Debug → Processes.
-2. Inspect host process state and server logs.
-3. Pause or freeze other work before manual cleanup if needed.
-
-`POST /api/processes/:id/terminate` remains authoritative and can still return `409` or `503` because list/detail data can race with process exit or restart state.
-
-Do not treat the process API as a general shell interface or host process manager.
-
-## 9. Local verification commands
-
-```bash
-npm run docs:verify
-npm run web:typecheck
-npm run web:test:sweep
-npm run typecheck
-```
-
-Focused web checks:
-
-```bash
-npm run web:test:dashboardview
-npm run web:test:cardsview
-npm run web:test:agentsview
-npm run web:test:filesview
-npm run web:test:debugview
-```
-
-## 10. When manual filesystem access is justified
-
-Manual `.saivage/` or `.saivage-work/` inspection is a fallback, not the normal workflow.
-
-Use it only when:
-
-- the server is unavailable,
-- the Debug/API surfaces are degraded or insufficient,
-- you are performing controlled repair after pausing or freezing,
-- you need direct backup or forensic capture.

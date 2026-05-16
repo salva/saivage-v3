@@ -1,6 +1,15 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { CardStore } from '../../utils/card-store.js';
-import type { CardRecord, CardStatus, CardType, NoteRecord } from '../../schemas/types.js';
+import { PlannerControlService } from '../../utils/planner-control.js';
+import type {
+  CardRecord,
+  CardStatus,
+  CardType,
+  NoteRecord,
+  PlannerDispatchRecord,
+  PlannerFrameRecord,
+  ReviewAssessment,
+} from '../../schemas/types.js';
 import { getNotes } from '../../utils/notes.js';
 import {
   getContainedFileMetadata,
@@ -28,6 +37,7 @@ interface GeneratedFileRef {
   blocked: boolean;
   redactedOnly: boolean;
   sensitivity: SafeFileSensitivity;
+  availabilityReason?: string;
 }
 
 interface VerificationCommandRef {
@@ -38,12 +48,92 @@ interface VerificationCommandRef {
   timed_out: boolean | null;
 }
 
+type CardEvidenceState = 'none-recorded' | 'partial' | 'present' | 'missing-files' | 'blocked' | 'redacted' | 'incomplete';
+
+interface CardEvidenceSummary {
+  state: CardEvidenceState;
+  summary: string;
+  hasRecordedEvidence: boolean;
+  hasDurableEvidence: boolean;
+  missingCount: number;
+  blockedCount: number;
+  redactedCount: number;
+  fileCount: number;
+  verificationCount: number;
+  toolErrorCount: number;
+  parseRecovered: boolean;
+}
+
 interface CardEvidence {
   generatedFiles: GeneratedFileRef[];
   verificationCommands: VerificationCommandRef[];
   artifactPaths: string[];
   toolErrors: string[];
   parseFailure?: Record<string, unknown>;
+  summary: CardEvidenceSummary;
+}
+
+interface CardLifecycleSummary {
+  status: CardStatus;
+  terminal: boolean;
+  phase:
+    | 'drafting'
+    | 'planned'
+    | 'ready'
+    | 'running'
+    | 'blocked'
+    | 'completed'
+    | 'failed'
+    | 'cancelled';
+  explanation: string;
+  completionState: 'not-started' | 'in-progress' | 'blocked' | 'failed' | 'cancelled' | 'marked-done';
+  error: string | null;
+  startedAt: string | null;
+  completedAt: string | null;
+  durationMs: number | null;
+  retries: number;
+  childCounts: Record<CardStatus, number>;
+  hasActiveChildren: boolean;
+  hasBlockingChildren: boolean;
+  dependencyIds: string[];
+  blockedByDependencyIds: string[];
+}
+
+interface CardReviewSummary {
+  status: 'not-run' | 'passed' | 'failed' | 'incomplete';
+  review: ReviewAssessment | null;
+  evidenceStatus: 'none' | 'partial' | 'recorded';
+  summary: string;
+}
+
+interface CardPlanningSummary {
+  status: string | null;
+  summary: string | null;
+  blockedReason: string | null;
+  createdCardIds: string[];
+  updatedCardIds: string[];
+  reviewSummary: string | null;
+  hasUnfinishedChildWork: boolean;
+  plannerDeclaredDone: boolean;
+}
+
+interface DispatchSummaryItem {
+  dispatchId: string;
+  direction: 'outgoing' | 'incoming';
+  parentCardId: string;
+  targetCardId: string;
+  targetKind: PlannerDispatchRecord['target_kind'];
+  status: PlannerDispatchRecord['status'];
+  outcome: NonNullable<PlannerDispatchRecord['completion']>['outcome'] | null;
+  summary: string | null;
+  error: string | null;
+  evidenceCardIds: string[];
+  completedAt: string | null;
+}
+
+interface DispatchSummary {
+  outgoing: DispatchSummaryItem[];
+  incoming: DispatchSummaryItem[];
 }
 
 function normalizeVerificationCommands(result: Record<string, unknown> | null | undefined): VerificationCommandRef[] {
@@ -87,6 +177,60 @@ function normalizeVerificationCommands(result: Record<string, unknown> | null | 
     .filter((entry): entry is VerificationCommandRef => entry !== null);
 }
 
+function summarizeEvidence(card: CardRecord, evidence: Omit<CardEvidence, 'summary'>): CardEvidenceSummary {
+  const generatedFiles = evidence.generatedFiles;
+  const verificationCommands = evidence.verificationCommands;
+  const missingCount = generatedFiles.filter((file) => file.exists === false && file.blocked !== true).length;
+  const blockedCount = generatedFiles.filter((file) => file.blocked === true).length;
+  const redactedCount = generatedFiles.filter((file) => file.redactedOnly === true).length;
+  const parseRecovered = !!evidence.parseFailure;
+  const hasRecordedEvidence = generatedFiles.length > 0
+    || verificationCommands.length > 0
+    || evidence.toolErrors.length > 0
+    || parseRecovered;
+  const hasDurableEvidence = card.artifacts.length > 0
+    || card.attachments.length > 0
+    || (card.result !== null && card.result !== undefined);
+
+  let state: CardEvidenceState = 'present';
+  let summary = 'Evidence was recorded for this card.';
+
+  if (!hasRecordedEvidence) {
+    state = card.status === 'done' || card.status === 'failed' || card.status === 'blocked'
+      ? 'incomplete'
+      : 'none-recorded';
+    summary = state === 'incomplete'
+      ? 'This terminal or blocked card has no operator-facing evidence recorded.'
+      : 'No operator-facing evidence is recorded yet.';
+  } else if (blockedCount > 0) {
+    state = 'blocked';
+    summary = `${blockedCount} recorded evidence path${blockedCount === 1 ? ' is' : 's are'} blocked by file-access security.`;
+  } else if (missingCount > 0) {
+    state = 'missing-files';
+    summary = `${missingCount} recorded evidence file${missingCount === 1 ? ' is' : 's are'} missing from the workspace.`;
+  } else if (redactedCount > 0) {
+    state = 'redacted';
+    summary = `${redactedCount} recorded evidence file${redactedCount === 1 ? ' is' : 's are'} available only with redaction.`;
+  } else if (parseRecovered || evidence.toolErrors.length > 0) {
+    state = 'partial';
+    summary = 'Evidence was partially recovered from tool activity or includes tool errors.';
+  }
+
+  return {
+    state,
+    summary,
+    hasRecordedEvidence,
+    hasDurableEvidence,
+    missingCount,
+    blockedCount,
+    redactedCount,
+    fileCount: generatedFiles.length,
+    verificationCount: verificationCommands.length,
+    toolErrorCount: evidence.toolErrors.length,
+    parseRecovered,
+  };
+}
+
 function buildCardEvidence(projectRoot: string, card: CardRecord): CardEvidence {
   const result = card.result && typeof card.result === 'object'
     ? card.result as Record<string, unknown>
@@ -111,6 +255,7 @@ function buildCardEvidence(projectRoot: string, card: CardRecord): CardEvidence 
       exists: blocked ? false : metadata.exists,
       size: blocked ? undefined : metadata.size,
       modifiedAt: blocked ? undefined : metadata.modifiedAt,
+      availabilityReason: metadata.reason,
       ...classification,
       blocked,
       previewable: blocked ? false : classification.previewable,
@@ -154,7 +299,7 @@ function buildCardEvidence(projectRoot: string, card: CardRecord): CardEvidence 
 
   const parseFailure = result?.['parse_failure'];
 
-  return {
+  const baseEvidence = {
     generatedFiles,
     verificationCommands: normalizeVerificationCommands(result),
     artifactPaths,
@@ -162,6 +307,184 @@ function buildCardEvidence(projectRoot: string, card: CardRecord): CardEvidence 
     parseFailure: parseFailure && typeof parseFailure === 'object'
       ? parseFailure as Record<string, unknown>
       : undefined,
+  };
+
+  return {
+    ...baseEvidence,
+    summary: summarizeEvidence(card, baseEvidence),
+  };
+}
+
+function buildChildCounts(children: CardRecord[]): Record<CardStatus, number> {
+  return {
+    drafting: children.filter((child) => child.status === 'drafting').length,
+    backlog: children.filter((child) => child.status === 'backlog').length,
+    active: children.filter((child) => child.status === 'active').length,
+    running: children.filter((child) => child.status === 'running').length,
+    blocked: children.filter((child) => child.status === 'blocked').length,
+    done: children.filter((child) => child.status === 'done').length,
+    failed: children.filter((child) => child.status === 'failed').length,
+    cancelled: children.filter((child) => child.status === 'cancelled').length,
+  };
+}
+
+function buildLifecycleSummary(card: CardRecord, children: CardRecord[]): CardLifecycleSummary {
+  const childCounts = buildChildCounts(children);
+  const hasActiveChildren = childCounts.active + childCounts.running > 0;
+  const hasBlockingChildren = childCounts.blocked + childCounts.failed > 0;
+  const blockedByDependencyIds = card.depends_on;
+
+  const phaseByStatus: Record<CardStatus, CardLifecycleSummary['phase']> = {
+    drafting: 'drafting',
+    backlog: 'planned',
+    active: 'ready',
+    running: 'running',
+    blocked: 'blocked',
+    done: 'completed',
+    failed: 'failed',
+    cancelled: 'cancelled',
+  };
+
+  const completionStateByStatus: Record<CardStatus, CardLifecycleSummary['completionState']> = {
+    drafting: 'not-started',
+    backlog: 'not-started',
+    active: 'in-progress',
+    running: 'in-progress',
+    blocked: 'blocked',
+    done: 'marked-done',
+    failed: 'failed',
+    cancelled: 'cancelled',
+  };
+
+  const explanationByStatus: Record<CardStatus, string> = {
+    drafting: 'This card is still being shaped and is not yet dispatchable.',
+    backlog: 'This card is planned but has not started.',
+    active: 'This card is active and may be waiting for execution or evidence.',
+    running: 'This card is currently running and evidence may still be incomplete.',
+    blocked: 'This card is blocked and needs blocker resolution before it can complete.',
+    done: 'This card is marked done; review and evidence determine whether operators should accept completion.',
+    failed: 'This card failed and should not be treated as accepted work.',
+    cancelled: 'This card was cancelled and should not be treated as completed work.',
+  };
+
+  return {
+    status: card.status,
+    terminal: card.status === 'done' || card.status === 'failed' || card.status === 'cancelled',
+    phase: phaseByStatus[card.status],
+    explanation: explanationByStatus[card.status],
+    completionState: completionStateByStatus[card.status],
+    error: card.error ?? null,
+    startedAt: card.started_at ?? null,
+    completedAt: card.completed_at ?? null,
+    durationMs: card.duration_ms ?? null,
+    retries: card.retries,
+    childCounts,
+    hasActiveChildren,
+    hasBlockingChildren,
+    dependencyIds: card.depends_on,
+    blockedByDependencyIds,
+  };
+}
+
+function buildReviewSummary(card: CardRecord): CardReviewSummary {
+  const result = card.result && typeof card.result === 'object'
+    ? card.result as Record<string, unknown>
+    : null;
+  const rawReview = result?.['review'];
+  if (!rawReview || typeof rawReview !== 'object') {
+    return {
+      status: 'not-run',
+      review: null,
+      evidenceStatus: 'none',
+      summary: 'No reviewer assessment is recorded for this card.',
+    };
+  }
+
+  const review = rawReview as ReviewAssessment;
+  const evidenceStatus = review.evidence_card_ids.length === 0
+    ? 'none'
+    : review.summary.length === 0
+      ? 'partial'
+      : 'recorded';
+
+  return {
+    status: review.result === 'pass' ? 'passed' : 'failed',
+    review,
+    evidenceStatus,
+    summary: review.summary || 'Reviewer assessment was recorded without a summary.',
+  };
+}
+
+function buildPlanningSummary(card: CardRecord): CardPlanningSummary | null {
+  const result = card.result && typeof card.result === 'object'
+    ? card.result as Record<string, unknown>
+    : null;
+  const rawPlanning = result?.['planning'];
+  if (!rawPlanning || typeof rawPlanning !== 'object') {
+    return null;
+  }
+
+  const planning = rawPlanning as Record<string, unknown>;
+  const status = typeof planning['status'] === 'string' ? planning['status'] : null;
+  const summary = typeof planning['summary'] === 'string' ? planning['summary'] : null;
+  const blockedReason = typeof planning['blocked_reason'] === 'string' ? planning['blocked_reason'] : null;
+  const reviewSummary = typeof planning['review_summary'] === 'string' ? planning['review_summary'] : null;
+  const createdCardIds = Array.isArray(planning['created_cards'])
+    ? planning['created_cards'].flatMap((entry) => {
+      if (typeof entry === 'string') return [entry];
+      if (entry && typeof entry === 'object' && typeof (entry as Record<string, unknown>)['id'] === 'string') {
+        return [(entry as Record<string, unknown>)['id'] as string];
+      }
+      return [];
+    })
+    : [];
+  const updatedCardIds = Array.isArray(planning['updated_cards'])
+    ? planning['updated_cards'].flatMap((entry) => {
+      if (typeof entry === 'string') return [entry];
+      if (entry && typeof entry === 'object' && typeof (entry as Record<string, unknown>)['id'] === 'string') {
+        return [(entry as Record<string, unknown>)['id'] as string];
+      }
+      return [];
+    })
+    : [];
+
+  const plannerDeclaredDone = status === 'done';
+  const hasUnfinishedChildWork = plannerDeclaredDone
+    ? reviewSummary === null && card.status !== 'done'
+    : false;
+
+  return {
+    status,
+    summary,
+    blockedReason,
+    createdCardIds,
+    updatedCardIds,
+    reviewSummary,
+    hasUnfinishedChildWork,
+    plannerDeclaredDone,
+  };
+}
+
+function summarizeDispatch(dispatch: PlannerDispatchRecord, direction: 'outgoing' | 'incoming'): DispatchSummaryItem {
+  return {
+    dispatchId: dispatch.dispatch_id,
+    direction,
+    parentCardId: dispatch.parent_card_id,
+    targetCardId: dispatch.target_card_id,
+    targetKind: dispatch.target_kind,
+    status: dispatch.status,
+    outcome: dispatch.completion?.outcome ?? null,
+    summary: dispatch.completion?.summary ?? null,
+    error: dispatch.completion?.error ?? null,
+    evidenceCardIds: dispatch.completion?.evidence_card_ids ?? [],
+    completedAt: dispatch.completed_at,
+  };
+}
+
+function buildDispatchSummary(plannerControl: PlannerControlService, cardId: string): DispatchSummary {
+  return {
+    outgoing: plannerControl.listDispatches({ parent_card_id: cardId }).map((dispatch) => summarizeDispatch(dispatch, 'outgoing')),
+    incoming: plannerControl.listDispatches({ target_card_id: cardId }).map((dispatch) => summarizeDispatch(dispatch, 'incoming')),
   };
 }
 
@@ -179,6 +502,7 @@ export function registerCardRoutes(
   projectRoot: string,
 ): void {
   const store = new CardStore(projectRoot);
+  const plannerControl = new PlannerControlService(projectRoot);
 
   const inputDefaults: Omit<CardRecord, 'id' | 'created_at' | 'updated_at'> = {
     type: 'code',
@@ -247,6 +571,10 @@ export function registerCardRoutes(
         children,
         ancestorIds: store.getAncestors(params.id),
         evidence: buildCardEvidence(projectRoot, card),
+        lifecycle: buildLifecycleSummary(card, children),
+        review: buildReviewSummary(card),
+        planning: buildPlanningSummary(card),
+        dispatches: buildDispatchSummary(plannerControl, params.id),
       });
     } catch (err) {
       request.log.error(err, 'Failed to read card');
