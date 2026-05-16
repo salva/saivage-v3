@@ -11,7 +11,7 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach } from '@jest/globals';
-import { rmSync, mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
+import { rmSync, mkdtempSync, writeFileSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { initProjectTree } from '../../src/utils/file-tree.js';
@@ -115,10 +115,6 @@ describe('ActiveRuntime', () => {
     }
   });
 
-  // ═════════════════════════════════════════════════════════════
-  // AC: Construction and basic accessors
-  // ═════════════════════════════════════════════════════════════
-
   describe('Construction and accessors', () => {
     it('creates an ActiveRuntime with a temp project root', () => {
       activeRuntime = new ActiveRuntime(tmpDir);
@@ -141,25 +137,23 @@ describe('ActiveRuntime', () => {
       activeRuntime = new ActiveRuntime(tmpDir);
       const store = activeRuntime.runtime.cardStore;
       expect(store).toBeDefined();
-      // Project card should exist (created by initProjectTree)
       const project = store.read('project');
       expect(project).not.toBeNull();
       expect(project!.type).toBe('project');
     });
-  });
 
-  // ═════════════════════════════════════════════════════════════
-  // AC: start/stop lifecycle and lock management
-  // ═════════════════════════════════════════════════════════════
+    it('shares one SkillsEngine with the AgentAdapter for load_skill calls', () => {
+      activeRuntime = new ActiveRuntime(tmpDir);
+      expect(activeRuntime.skillsEngine).toBeDefined();
+      expect(activeRuntime.agentAdapter.getSkillsEngine()).toBe(activeRuntime.skillsEngine);
+    });
+  });
 
   describe('start/stop lifecycle', () => {
     it('start() acquires the runtime lock', async () => {
       activeRuntime = new ActiveRuntime(tmpDir);
       await activeRuntime.start();
-
-      // Lock should be held
       expect(isLocked(tmpDir)).toBe(true);
-
       await activeRuntime.stop();
     });
 
@@ -187,15 +181,25 @@ describe('ActiveRuntime', () => {
       activeRuntime = new ActiveRuntime(tmpDir);
       await activeRuntime.start();
       await activeRuntime.stop();
-
-      // Second stop should not throw
       await activeRuntime.stop();
     });
-  });
 
-  // ═════════════════════════════════════════════════════════════
-  // AC: pause/resume and state changes
-  // ═════════════════════════════════════════════════════════════
+    it('stop() after freeze clears frozen state and releases the lock', async () => {
+      activeRuntime = new ActiveRuntime(tmpDir);
+      await activeRuntime.start();
+      activeRuntime.freeze('unit test freeze');
+
+      const statePath = join(tmpDir, '.saivage', 'runtime', 'state.json');
+      expect(JSON.parse(readFileSync(statePath, 'utf-8')).status).toBe('frozen');
+      expect(isLocked(tmpDir)).toBe(true);
+
+      await activeRuntime.stop();
+
+      expect(isLocked(tmpDir)).toBe(false);
+      expect(JSON.parse(readFileSync(statePath, 'utf-8')).status).toBe('frozen');
+      expect(activeRuntime.getStatus().status).toBe('idle');
+    });
+  });
 
   describe('pause / resume', () => {
     beforeEach(async () => {
@@ -211,9 +215,6 @@ describe('ActiveRuntime', () => {
       activeRuntime.pause();
       const status = activeRuntime.getStatus();
       expect(status.paused).toBe(true);
-      // Note: the Runtime._status field is only updated on disk (via
-      // updateRuntimeState), not in the in-memory _status field. So
-      // status.status stays 'idle'. paused is the in-memory flag.
     });
 
     it('resume() sets paused to false', () => {
@@ -224,21 +225,15 @@ describe('ActiveRuntime', () => {
     });
 
     it('pause and resume are idempotent', () => {
-      // Double pause
       activeRuntime.pause();
       activeRuntime.pause();
       expect(activeRuntime.getStatus().paused).toBe(true);
 
-      // Double resume
       activeRuntime.resume();
       activeRuntime.resume();
       expect(activeRuntime.getStatus().paused).toBe(false);
     });
   });
-
-  // ═════════════════════════════════════════════════════════════
-  // AC: dispatchGoal delegation to Runtime
-  // ═════════════════════════════════════════════════════════════
 
   describe('dispatchGoal', () => {
     beforeEach(async () => {
@@ -251,7 +246,6 @@ describe('ActiveRuntime', () => {
     });
 
     it('dispatchGoal exists and is callable (method presence)', () => {
-      // Just verify the method exists and has the right signature
       expect(typeof activeRuntime.dispatchGoal).toBe('function');
     });
 
@@ -262,38 +256,26 @@ describe('ActiveRuntime', () => {
       activeRuntime.pause();
       expect(activeRuntime.getStatus().paused).toBe(true);
 
-      // Dispatch should be blocked (the runtime emits dispatch_blocked but
-      // doesn't throw — it just returns early)
       await activeRuntime.dispatchGoal('goal-test-paused');
 
-      // Goal should still be in backlog
       const goal = store.read('goal-test-paused');
       expect(goal!.status).toBe('backlog');
 
-      // Resume and verify no crash
       activeRuntime.resume();
     });
   });
-
-  // ═════════════════════════════════════════════════════════════
-  // AC: getStatus reflects runtime state
-  // ═════════════════════════════════════════════════════════════
 
   describe('getStatus', () => {
     it('getStatus reports goalCount correctly', () => {
       activeRuntime = new ActiveRuntime(tmpDir);
       const store = new CardStore(tmpDir);
 
-      // Before creating goals — should be 0
       expect(activeRuntime.getStatus().goalCount).toBe(0);
 
-      // Create a goal
       makeGoalCard(store, 'goal-status-1', 'Status Test Goal 1');
-      // Need a fresh ActiveRuntime to pick up the card (card store reads from disk)
       const ar2 = new ActiveRuntime(tmpDir);
       expect(ar2.getStatus().goalCount).toBe(1);
 
-      // Create another goal
       makeGoalCard(store, 'goal-status-2', 'Status Test Goal 2');
       const ar3 = new ActiveRuntime(tmpDir);
       expect(ar3.getStatus().goalCount).toBe(2);
