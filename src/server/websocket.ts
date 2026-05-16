@@ -11,7 +11,7 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import type { WebSocket } from 'ws';
 import { AnalystHandler, getOrCreateAnalystSession } from '../agents/analyst-handler.js';
-import type { EventBus } from '../utils/event-bus.js';
+import type { EventBus, EventBusSubscription } from '../utils/event-bus.js';
 import type { LoggedEvent } from '../schemas/types.js';
 import { redactOperatorErrorMessage } from '../utils/file-access-security.js';
 
@@ -37,7 +37,7 @@ function getAnalystHandler(projectRoot: string): AnalystHandler {
 
 const clients = new Set<WebSocket>();
 const wsSessions = new WeakMap<WebSocket, string>();
-const wiredEventBuses = new WeakSet<object>();
+const runtimeEventSubscriptions = new Map<object, EventBusSubscription>();
 
 export function resetWebSocketState(projectRoot?: string): void {
   for (const ws of clients) {
@@ -57,6 +57,23 @@ export function resetWebSocketState(projectRoot?: string): void {
   }
 
   analystHandlersByRoot.clear();
+}
+
+export function resetRuntimeEventSubscriptions(runtime?: { eventBus: EventBus }): void {
+  if (runtime) {
+    const key = runtime.eventBus as object;
+    const subscription = runtimeEventSubscriptions.get(key);
+    if (subscription) {
+      subscription.unsubscribe();
+      runtimeEventSubscriptions.delete(key);
+    }
+    return;
+  }
+
+  for (const [key, subscription] of runtimeEventSubscriptions.entries()) {
+    subscription.unsubscribe();
+    runtimeEventSubscriptions.delete(key);
+  }
 }
 
 export function broadcast(event: WsEnvelope): void {
@@ -82,6 +99,10 @@ export function sendToClient(ws: WebSocket, event: WsEnvelope): void {
 
 export function getClientCount(): number {
   return clients.size;
+}
+
+export function getRuntimeEventSubscriptionCount(): number {
+  return runtimeEventSubscriptions.size;
 }
 
 function getApiToken(): string | undefined {
@@ -245,12 +266,11 @@ export function wireRuntimeEvents(runtime: {
   eventBus: EventBus;
 }): void {
   const eventBusRef = runtime.eventBus as object;
-  if (wiredEventBuses.has(eventBusRef)) {
+  if (runtimeEventSubscriptions.has(eventBusRef)) {
     return;
   }
 
-  wiredEventBuses.add(eventBusRef);
-  runtime.eventBus.subscribe({
+  const subscription = runtime.eventBus.subscribe({
     minSeverity: 'info',
     handler: (event: LoggedEvent) => {
       const { kind, id, timestamp, ...data } = event as LoggedEvent & Record<string, unknown>;
@@ -258,4 +278,6 @@ export function wireRuntimeEvents(runtime: {
       broadcast(envelope);
     },
   });
+
+  runtimeEventSubscriptions.set(eventBusRef, subscription);
 }

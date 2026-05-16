@@ -11,7 +11,7 @@ import { registerRuntimeConfigNotesRoutes } from './routes/runtime-config-notes.
 import { registerChatsFilesDebugRoutes, resetChatRouteState } from './routes/chats-files-debug.js';
 import { registerEventsRoute } from './routes/events.js';
 import { registerProcessRoutes } from './routes/processes.js';
-import { registerWebSocket, resetWebSocketState, wireRuntimeEvents } from './websocket.js';
+import { registerWebSocket, resetRuntimeEventSubscriptions, resetWebSocketState, wireRuntimeEvents } from './websocket.js';
 import { loadConfig, type SaivageConfig } from '../agents/config-schema.js';
 import { McpManager } from '../mcp/index.js';
 import { TelegramBot } from '../telegram/index.js';
@@ -525,6 +525,9 @@ export async function createServer(
   async function stop(): Promise<void> {
     resetChatRouteState(projectRoot);
     resetWebSocketState();
+    if (activeRuntime) {
+      resetRuntimeEventSubscriptions(activeRuntime.runtime);
+    }
 
     try {
       await fastify.close();

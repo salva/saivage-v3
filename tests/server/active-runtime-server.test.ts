@@ -26,8 +26,7 @@ import { fileURLToPath } from 'node:url';
 import type { ServerInstance } from '../../src/server/server.js';
 import { isLocked, releaseLock } from '../../src/utils/runtime-lock.js';
 import { CardStore } from '../../src/utils/card-store.js';
-
-// ── Helpers ───────────────────────────────────────────────────
+import { getRuntimeEventSubscriptionCount } from '../../src/server/websocket.js';
 
 const AUTH_TOKEN = 'ar-server-test-token-' + Math.random().toString(36).slice(2, 8);
 
@@ -297,6 +296,10 @@ describe('Server with ActiveRuntime (createRuntime=true)', () => {
       const status = server.activeRuntime!.getStatus();
       expect(status.status).toBe('idle');
       expect(status.paused).toBe(false);
+    });
+
+    it('registers exactly one runtime event subscription while running', () => {
+      expect(getRuntimeEventSubscriptionCount()).toBe(1);
     });
   });
 
