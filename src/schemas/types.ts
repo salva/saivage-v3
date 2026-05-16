@@ -110,6 +110,21 @@ export interface NotificationRecord {
   acknowledged_at: string | null;
 }
 
+export interface ControlActionAuditEntry {
+  id: string;
+  actor: NoteAuthor;
+  surface: ControlActionSurface;
+  action: string;
+  target_kind: 'card' | 'note' | 'process' | 'runtime' | 'config' | 'session' | null;
+  target_id: string | null;
+  params_summary: string;
+  confirmed: boolean;
+  outcome: 'ok' | 'error' | 'denied' | 'rejected' | 'preview';
+  outcome_summary: string;
+  error?: string;
+  created_at: string;
+}
+
 export interface CardIndexEntry {
   id: string;
   type: CardType;

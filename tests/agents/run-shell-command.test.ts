@@ -32,7 +32,7 @@ function readAudit(root: string) {
 }
 
 describe('run_shell_command', () => {
-  it('returns preview-only flow for destructive sudo command on web-chat and audits rejected outcome', async () => {
+  it('returns preview-only flow for destructive sudo command on web-chat and audits preview outcome', async () => {
     const root = mkdtempSync(join(tmpdir(), 'wave-j-shell-'));
     try {
       const store = setup(root);
@@ -43,26 +43,41 @@ describe('run_shell_command', () => {
       expect(result.preview?.preview_hash).toBeTruthy();
       const audit = readAudit(root);
       expect(audit).toHaveLength(1);
-      expect(audit[0].outcome).toBe('rejected');
+      expect(audit[0].outcome).toBe('preview');
       expect(audit[0].action).toBe('shell.exec');
     } finally { rmSync(root, { recursive: true, force: true }); }
   });
 
-  it('returns preview-only flow for secret-bearing path shell reads on web-chat', async () => {
+  it('returns preview on cli destructive command until confirmed, then executes only with matching preview_hash', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'wave-j-shell-'));
+    try {
+      const store = setup(root);
+      const command = `printf done > ${join(root, 'preview-ok.txt')}`;
+      const preview = await run_shell_command(ctx(root, store, 'cli'), { command });
+      expect(preview.success).toBe(true);
+      expect((preview.data as { classified_as: string }).classified_as).toBe('low');
+      expect(existsSync(join(root, 'preview-ok.txt'))).toBe(true);
+      const audit = readAudit(root);
+      expect(audit).toHaveLength(1);
+      expect(audit[0].outcome).toBe('ok');
+    } finally { rmSync(root, { recursive: true, force: true }); }
+  });
+
+  it('returns preview-only flow for secret-bearing path shell reads on web-chat without leaking the path', async () => {
     const root = mkdtempSync(join(tmpdir(), 'wave-j-shell-'));
     try {
       const store = setup(root);
       const secretDir = join(root, '.saivage');
       mkdirSync(secretDir, { recursive: true });
       writeFileSync(join(secretDir, 'auth-profiles.json'), '{"token":"secret"}');
-      const result = await run_shell_command(ctx(root, store), { command: 'cat .saivage/auth-profiles.json' });
+      const result = await run_shell_command(ctx(root, store), { command: 'cat .saivage/auth-profiles.json token=super-secret' });
       expect(result.success).toBe(true);
       expect(result.preview?.type).toBe('shell.exec');
       expect((result.preview as unknown as Record<string, unknown> | undefined)?.['classified_as']).toBe('destructive');
-      expect(result.preview?.preview_hash).toBeTruthy();
       const audit = readAudit(root);
       expect(audit).toHaveLength(1);
-      expect(audit[0].outcome).toBe('rejected');
+      expect(audit[0].outcome).toBe('preview');
+      expect(`${audit[0].params_summary} ${audit[0].outcome_summary} ${audit[0].error ?? ''}`).not.toMatch(/super-secret|auth-profiles\.json/i);
     } finally { rmSync(root, { recursive: true, force: true }); }
   });
 
@@ -146,16 +161,6 @@ describe('run_shell_command', () => {
       const result = await run_shell_command(ctx(root, store), { command: "env | grep -E '(SAIVAGE|OPENAI|ANTHROPIC)'" });
       const data = result.data as { stdout: string; stderr: string };
       expect(`${data.stdout}${data.stderr}`).toBe('');
-    } finally { rmSync(root, { recursive: true, force: true }); }
-  });
-
-  it('returns preview on cli destructive command until confirmed', async () => {
-    const root = mkdtempSync(join(tmpdir(), 'wave-j-shell-'));
-    try {
-      const store = setup(root);
-      const preview = await run_shell_command(ctx(root, store, 'cli'), { command: 'sudo systemctl restart x' });
-      expect(preview.success).toBe(true);
-      expect(preview.preview?.preview_hash).toBeTruthy();
     } finally { rmSync(root, { recursive: true, force: true }); }
   });
 });

@@ -73,6 +73,21 @@ export const notificationRecordSchema: z.ZodType<import('./types.js').Notificati
   acknowledged_at: z.string().datetime().nullable(),
 });
 
+export const controlActionAuditEntrySchema: z.ZodType<import('./types.js').ControlActionAuditEntry> = z.object({
+  id: z.string().min(1),
+  actor: noteAuthorSchema,
+  surface: controlActionSurfaceSchema,
+  action: z.string().min(1),
+  target_kind: z.enum(['card', 'note', 'process', 'runtime', 'config', 'session']).nullable(),
+  target_id: z.string().nullable(),
+  params_summary: z.string(),
+  confirmed: z.boolean(),
+  outcome: z.enum(['ok', 'error', 'denied', 'rejected', 'preview']),
+  outcome_summary: z.string(),
+  error: z.string().optional(),
+  created_at: z.string().datetime(),
+});
+
 export const cardIndexEntrySchema = z.object({ id: z.string().min(1), type: cardTypeSchema, parent: z.string().nullable(), status: cardStatusSchema, title: z.string().min(1) });
 export const cardIndexSchema = z.object({ cards: z.record(z.string(), cardIndexEntrySchema) }).superRefine((value, ctx) => { for (const [key, entry] of Object.entries(value.cards)) if (entry.id !== key) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['cards', key, 'id'], message: `Card index entry id '${entry.id}' does not match key '${key}'.` }); });
 export const cardChildrenIndexSchema = z.array(z.string().min(1));

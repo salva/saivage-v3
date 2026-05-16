@@ -139,12 +139,16 @@ export async function run_shell_command(ctx: ToolContext, params: { command: str
       return { success: false, error: `Denied by authorization policy for ${ctx.actor}/${ctx.surface}/${classifiedAs}.`, data: { classified_as: classifiedAs } };
     }
     if (verdict === 'preview_only') {
-      const previewHash = hashPreviewParams(params);
       const preview = buildShellPreview(redactShellText(params.command), cwd, classifiedAs);
+      const previewHash = hashPreviewParams({ command: params.command, cwd, timeoutMs: params.timeoutMs, maxOutputBytes: params.maxOutputBytes });
       preview.preview_hash = previewHash;
-      if (params.confirmed !== true || params.preview_hash !== previewHash) {
-        recordControlAction(ctx.projectRoot, { ...auditBase, outcome: 'rejected', outcome_summary: `shell preview required [classified=${classifiedAs}]` });
+      if (params.confirmed !== true) {
+        recordControlAction(ctx.projectRoot, { ...auditBase, outcome: 'preview', outcome_summary: `shell preview generated [classified=${classifiedAs}]` });
         return { success: true, preview };
+      }
+      if (params.preview_hash !== previewHash) {
+        recordControlAction(ctx.projectRoot, { ...auditBase, outcome: 'rejected', outcome_summary: `shell preview rejected: preview_hash mismatch [classified=${classifiedAs}]` });
+        return { success: false, error: 'Preview confirmation rejected: matching preview_hash required.', preview, data: { classified_as: classifiedAs } };
       }
     }
     const timeoutMs = Math.min(Math.max(1, params.timeoutMs ?? 15_000), 60_000);
