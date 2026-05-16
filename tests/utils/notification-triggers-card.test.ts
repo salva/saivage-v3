@@ -12,6 +12,7 @@ describe('Wave C notification triggers - card mutations', () => {
   let store: CardStore;
   let center: NotificationCenter;
   let goalId: string;
+  let subgoalId: string;
   let codeId: string;
 
   beforeEach(() => {
@@ -41,9 +42,28 @@ describe('Wave C notification triggers - card mutations', () => {
       depth: 0,
       blocks: [],
     }).id;
+    subgoalId = store.create({
+      type: 'goal',
+      parent: goalId,
+      title: 'Subgoal',
+      description: 'Subgoal desc',
+      status: 'active',
+      tags: [],
+      priority: 1,
+      urgency: 'normal',
+      created_by: 'planner',
+      depends_on: [],
+      related: [],
+      acceptance: 'Subgoal acceptance',
+      artifacts: [],
+      attachments: [],
+      retries: 0,
+      depth: 0,
+      blocks: [],
+    }).id;
     codeId = store.create({
       type: 'code',
-      parent: goalId,
+      parent: subgoalId,
       title: 'Code',
       description: 'Code desc',
       status: 'active',
@@ -89,6 +109,39 @@ describe('Wave C notification triggers - card mutations', () => {
     expect(operatorNotifications).toHaveLength(1);
     expect(operatorNotifications[0].kind).toBe('card_changed');
     expect(operatorNotifications[0].severity).toBe('block');
+  });
+
+  it('mutating a goal card notifies active descendant work scoped to that goal', () => {
+    const saivageDir = join(projectRoot, '.saivage');
+    const childId = store.create({
+      type: 'test',
+      parent: subgoalId,
+      title: 'Nested test',
+      description: 'Nested desc',
+      status: 'active',
+      tags: [],
+      priority: 1,
+      urgency: 'normal',
+      created_by: 'planner',
+      depends_on: [],
+      related: [],
+      acceptance: 'Nested acceptance',
+      artifacts: [],
+      attachments: [],
+      retries: 0,
+      depth: 0,
+      blocks: [],
+    }).id;
+    const executor = createSession(saivageDir, 'executor', goalId, childId);
+
+    store.mutateCard(goalId, { acceptance: 'Updated goal acceptance' }, { actor: 'analyst', surface: 'web-chat', reason: 'tighten goal criteria' });
+
+    const notifications = center.drainPendingForSession(executor.id);
+    expect(notifications).toHaveLength(1);
+    expect(notifications[0].kind).toBe('card_changed');
+    expect(notifications[0].severity).toBe('block');
+    expect(notifications[0].related_card_id).toBe(goalId);
+    expect(center.listForOperator()).toHaveLength(1);
   });
 
   it('non-blocking tracked mutation sends warn severity', () => {

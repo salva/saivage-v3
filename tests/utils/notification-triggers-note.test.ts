@@ -14,6 +14,8 @@ describe('Wave C notification triggers - notes', () => {
   let center: NotificationCenter;
   let cardId: string;
   let goalId: string;
+  let subgoalId: string;
+  let store: CardStore;
 
   beforeEach(() => {
     projectRoot = mkdtempSync(join(tmpdir(), 'saivage-wave-c-note-'));
@@ -21,7 +23,7 @@ describe('Wave C notification triggers - notes', () => {
     saivageDir = join(projectRoot, '.saivage');
     mkdirSync(join(saivageDir, 'agents', 'sessions'), { recursive: true });
     mkdirSync(join(saivageDir, 'agents', 'messages'), { recursive: true });
-    const store = new CardStore(projectRoot);
+    store = new CardStore(projectRoot);
     goalId = store.create({
       type: 'goal',
       parent: 'project',
@@ -41,9 +43,28 @@ describe('Wave C notification triggers - notes', () => {
       depth: 0,
       blocks: [],
     }).id;
+    subgoalId = store.create({
+      type: 'goal',
+      parent: goalId,
+      title: 'Subgoal',
+      description: 'Subgoal desc',
+      status: 'active',
+      tags: [],
+      priority: 1,
+      urgency: 'normal',
+      created_by: 'planner',
+      depends_on: [],
+      related: [],
+      acceptance: 'Subgoal acceptance',
+      artifacts: [],
+      attachments: [],
+      retries: 0,
+      depth: 0,
+      blocks: [],
+    }).id;
     cardId = store.create({
       type: 'code',
-      parent: goalId,
+      parent: subgoalId,
       title: 'Code',
       description: 'Code desc',
       status: 'active',
@@ -83,6 +104,52 @@ describe('Wave C notification triggers - notes', () => {
     expect(executorNotifications[0].payload_summary).not.toContain('123');
     expect(center.listForOperator()).toHaveLength(1);
     expect(center.listForOperator()[0].severity).toBe('warn');
+  });
+
+  it('directive and escalation notes on a goal notify descendant sessions under that goal', () => {
+    const childId = store.create({
+      type: 'test',
+      parent: subgoalId,
+      title: 'Nested test',
+      description: 'Nested desc',
+      status: 'active',
+      tags: [],
+      priority: 1,
+      urgency: 'normal',
+      created_by: 'planner',
+      depends_on: [],
+      related: [],
+      acceptance: 'Nested acceptance',
+      artifacts: [],
+      attachments: [],
+      retries: 0,
+      depth: 0,
+      blocks: [],
+    }).id;
+    const executor = createSession(saivageDir, 'executor', goalId, childId);
+    const reviewer = createSession(saivageDir, 'reviewer', goalId, childId);
+
+    const directive = appendNote(saivageDir, goalId, { author: 'analyst', kind: 'directive', content: 'Adjust implementation plan' });
+    let executorNotifications = center.drainPendingForSession(executor.id);
+    let reviewerNotifications = center.drainPendingForSession(reviewer.id);
+    expect(executorNotifications).toHaveLength(1);
+    expect(reviewerNotifications).toHaveLength(1);
+    expect(executorNotifications[0].severity).toBe('warn');
+    expect(executorNotifications[0].related_note_id).toBe(directive.id);
+    expect(reviewerNotifications[0].severity).toBe('warn');
+    center.markDeliveredForSession(executor.id, executorNotifications.map((notification) => notification.id));
+    center.markDeliveredForSession(reviewer.id, reviewerNotifications.map((notification) => notification.id));
+
+    const escalation = appendNote(saivageDir, goalId, { author: 'analyst', kind: 'escalation', content: 'Stop work and reassess scope' });
+    executorNotifications = center.drainPendingForSession(executor.id);
+    reviewerNotifications = center.drainPendingForSession(reviewer.id);
+    expect(executorNotifications).toHaveLength(1);
+    expect(reviewerNotifications).toHaveLength(1);
+    expect(executorNotifications[0].severity).toBe('block');
+    expect(executorNotifications[0].related_note_id).toBe(escalation.id);
+    expect(reviewerNotifications[0].severity).toBe('block');
+
+    expect(center.listForOperator()).toHaveLength(2);
   });
 
   it('escalation note enqueues block severity', () => {
