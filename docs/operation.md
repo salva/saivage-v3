@@ -66,10 +66,10 @@ If no `ActiveRuntime` is attached, the server falls back to runtime state on dis
 
 ## Runtime control endpoints
 
-Accepted shared pause/resume semantics now apply equally to REST controls and analyst chat tools:
+Accepted shared pause/resume validation now applies to REST controls and analyst tools. Live in-memory propagation applies when the caller is wired to the server-owned `ActiveRuntime` (REST routes and server-hosted analyst chat/WebSocket when runtime creation is enabled):
 
 - **live + `ActiveRuntime` available**: pause/resume propagates through the live runtime authority and updates in-memory dispatch state;
-- **live + no `ActiveRuntime` available**: pause/resume operates on persisted runtime state only, which is valid for server-only inspection/control setups;
+- **no injected `ActiveRuntime`**: pause/resume operates on persisted runtime state only, which is valid for server-only inspection/control setups and direct utility contexts;
 - **frozen**: generic resume is rejected and operators must use `POST /api/runtime/resume-from-freeze`;
 - **runtime state unavailable**: pause/resume returns an actionable error instead of creating replacement state implicitly.
 

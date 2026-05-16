@@ -6,6 +6,8 @@ import type { AgentSession, AgentMessage, MessageRole, MessageKind } from '../sc
 import type { ToolResult, ToolContext } from './analyst-tools.js';
 import { TOOL_REGISTRY } from './analyst-llm-resolver.js';
 import { LlmIntentResolver } from './analyst-llm-resolver.js';
+import { CardStore } from '../utils/card-store.js';
+import type { ActiveRuntime } from '../utils/active-runtime.js';
 
 // ── Exported Types ─────────────────────────────────────────────
 
@@ -144,28 +146,21 @@ function writeSession(projectRoot: string, session: AgentSession): void {
 
 // ── Public: getOrCreateAnalystSession ──────────────────────────
 
+export const GLOBAL_ANALYST_SESSION_ID = 'analyst';
+
 export function getOrCreateAnalystSession(
   projectRoot: string,
   sessionId?: string,
 ): { session: AgentSession; sessionId: string } {
-  if (sessionId) {
-    const existing = readSession(projectRoot, sessionId);
-    if (existing) {
-      return { session: existing, sessionId: existing.id };
-    }
-    const session: AgentSession = {
-      id: sessionId,
-      role: 'analyst',
-      status: 'active',
-      started_at: now(),
-    };
-    writeSession(projectRoot, session);
-    return { session, sessionId: session.id };
+  const resolvedSessionId = sessionId || GLOBAL_ANALYST_SESSION_ID;
+
+  const existing = readSession(projectRoot, resolvedSessionId);
+  if (existing) {
+    return { session: existing, sessionId: existing.id };
   }
 
-  const autoId = `analyst-${Date.now()}`;
   const session: AgentSession = {
-    id: autoId,
+    id: resolvedSessionId,
     role: 'analyst',
     status: 'active',
     started_at: now(),
@@ -213,14 +208,37 @@ function extractPriority(text: string): number | undefined {
 }
 
 function extractCardType(text: string): string | undefined {
-  const types = ['goal', 'plan', 'architecture', 'code', 'test', 'doc', 'data', 'research', 'ops'];
-  const lower = text.toLowerCase();
+  const types = ['architecture', 'code', 'test', 'doc', 'data', 'research', 'ops', 'goal'];
+  const lower = text
+    .toLowerCase()
+    .replace(/\b(?:goal|architecture|code|test|doc|data|research|ops)-[a-z0-9]+\b/g, ' ');
+
+  for (const t of types) {
+    const explicitPattern = new RegExp(`\\b${t}\\s+(?:card|task|work|item|goal)\\b`, 'i');
+    if (explicitPattern.test(lower)) return t;
+  }
+
   for (const t of types) {
     const pattern = new RegExp(`\\b${t}\\b`, 'i');
     if (pattern.test(lower)) return t;
   }
   if (/\bproject\b/i.test(lower)) return 'project';
   return undefined;
+}
+
+function refineIntentFromUserContent(intent: ParsedIntent, userContent: string): ParsedIntent {
+  if (intent.tool !== 'create_card') return intent;
+
+  const explicitType = extractCardType(userContent);
+  if (!explicitType || explicitType === intent.params.type) return intent;
+
+  return {
+    ...intent,
+    params: {
+      ...intent.params,
+      type: explicitType,
+    },
+  };
 }
 
 function extractTags(text: string): string[] {
@@ -406,6 +424,19 @@ function parseIntent(text: string): ParsedIntent | null {
     const descMatch = text.match(/description\s*[:=]\s*(.+?)(?:\s+\w+\s*[:=]|\s*$)/i);
     if (descMatch) params.description = descMatch[1].trim();
     return { tool: 'create_card', params };
+  }
+
+  // "can you see the current cards" / "what cards exist"
+  if (
+    /\b(?:see|current|existing|available|what)\b.*\b(?:card|task|item)s?\b/i.test(text) ||
+    /\b(?:card|task|item)s?\b.*\b(?:exist|available|current)\b/i.test(text)
+  ) {
+    return { tool: 'get_tree', params: {} };
+  }
+
+  // "objectives" / "project objective"
+  if (/\bobjectives?\b/i.test(text)) {
+    return { tool: 'get_card', params: { id: 'project' } };
   }
 
   // "tree" or "hierarchy"
@@ -761,20 +792,44 @@ export class AnalystHandler {
   private onActivity?: ActivityCallback;
   private lastIntent: Map<string, ParsedIntent> = new Map();
   private llmResolver: LlmIntentResolver;
+  private sessionQueues: Map<string, Promise<AnalystResponse>> = new Map();
+  private activeRuntime?: ActiveRuntime;
 
-  constructor(projectRoot: string, onActivity?: ActivityCallback) {
+  constructor(projectRoot: string, onActivity?: ActivityCallback, activeRuntime?: ActiveRuntime) {
     this.projectRoot = projectRoot;
     this.onActivity = onActivity;
+    this.activeRuntime = activeRuntime;
     this.llmResolver = new LlmIntentResolver(projectRoot);
   }
 
   async handleMessage(sessionId: string, userContent: string): Promise<AnalystResponse> {
+    const previous = this.sessionQueues.get(sessionId) ?? Promise.resolve(null as never);
+    const next = previous
+      .catch(() => null as never)
+      .then(() => this.handleMessageSerial(sessionId, userContent));
+    this.sessionQueues.set(sessionId, next);
+    try {
+      return await next;
+    } finally {
+      if (this.sessionQueues.get(sessionId) === next) {
+        this.sessionQueues.delete(sessionId);
+      }
+    }
+  }
+
+  private async handleMessageSerial(sessionId: string, userContent: string): Promise<AnalystResponse> {
     // 1. Load or create session
     let session = readSession(this.projectRoot, sessionId);
     if (!session) {
       const created = getOrCreateAnalystSession(this.projectRoot, sessionId);
       session = created.session;
       sessionId = created.sessionId;
+    }
+
+    const priorMessages = readMessages(this.projectRoot, sessionId);
+    const duplicateResponse = this.findRecentDuplicateResponse(priorMessages, userContent);
+    if (duplicateResponse) {
+      return duplicateResponse;
     }
 
     // 2. Persist user message
@@ -788,7 +843,11 @@ export class AnalystHandler {
     const messages = readMessages(this.projectRoot, sessionId);
 
     // 4. Try LLM-based intent resolution FIRST
-    const resolvedIntent = await this.llmResolver.resolve(userContent, messages);
+    const resolvedIntent = await this.llmResolver.resolve(
+      userContent,
+      messages,
+      this.buildProjectContext(),
+    );
 
     // 5. Handle LLM chat response (text response without tool call)
     if (resolvedIntent && resolvedIntent.source === 'help' && resolvedIntent.llmResponse) {
@@ -839,6 +898,10 @@ export class AnalystHandler {
     // 8. Regex fallback — used when LLM is unavailable or returned no useful intent
     if (!intent) {
       intent = parseIntent(userContent);
+    }
+
+    if (intent) {
+      intent = refineIntentFromUserContent(intent, userContent);
     }
 
     const toolInvocations: AnalystResponse['toolInvocations'] = [];
@@ -901,6 +964,7 @@ export class AnalystHandler {
       const ctx: ToolContext = {
         projectRoot: this.projectRoot,
         sessionId,
+        activeRuntime: this.activeRuntime,
       };
 
       const result = await toolFn(ctx, intent.params);
@@ -985,6 +1049,50 @@ export class AnalystHandler {
           timestamp: msg.timestamp,
         },
       };
+    }
+  }
+
+  private findRecentDuplicateResponse(messages: AgentMessage[], userContent: string): AnalystResponse | null {
+    const lastUserIndex = [...messages].reverse().findIndex((msg) => msg.role === 'user');
+    if (lastUserIndex < 0) return null;
+    const userIndex = messages.length - 1 - lastUserIndex;
+    const lastUser = messages[userIndex];
+    if (lastUser.content !== userContent) return null;
+
+    const lastAssistant = messages.slice(userIndex + 1).find((msg) => msg.role === 'assistant');
+    if (!lastAssistant) return null;
+
+    const ageMs = Date.now() - Date.parse(lastUser.timestamp);
+    if (!Number.isFinite(ageMs) || ageMs > 5000) return null;
+
+    return {
+      sessionId: lastAssistant.session_id,
+      message: {
+        id: lastAssistant.id,
+        role: 'assistant',
+        kind: 'text',
+        content: lastAssistant.content,
+        timestamp: lastAssistant.timestamp,
+      },
+    };
+  }
+
+  private buildProjectContext(): string {
+    try {
+      const store = new CardStore(this.projectRoot);
+      return JSON.stringify({ projectRoot: this.projectRoot, cards: store.list().map((card) => ({
+        id: card.id,
+        type: card.type,
+        parent: card.parent,
+        status: card.status,
+        title: card.title,
+        description: card.description,
+        acceptance: card.acceptance,
+        priority: card.priority,
+        tags: card.tags,
+      })) }, null, 2);
+    } catch {
+      return `Project root: ${this.projectRoot}`;
     }
   }
 }

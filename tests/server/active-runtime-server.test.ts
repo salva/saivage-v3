@@ -460,6 +460,29 @@ describe('Server with ActiveRuntime (createRuntime=true)', () => {
     });
   });
 
+
+
+    it('analyst chat pause/resume controls ActiveRuntime in-memory state', async () => {
+      const pauseRes = await fetch(baseUrl('/api/chats/runtime-control-live'), {
+        method: 'POST',
+        headers: { ...authHeaders(), 'content-type': 'application/json' },
+        body: JSON.stringify({ content: 'pause runtime' }),
+      });
+      expect(pauseRes.status).toBe(200);
+      const pauseBody = await pauseRes.json() as { toolInvocations?: Array<{ tool: string }> };
+      expect(pauseBody.toolInvocations?.some((inv) => inv.tool === 'pause_runtime')).toBe(true);
+      expect(server.activeRuntime!.getStatus().paused).toBe(true);
+
+      const resumeRes = await fetch(baseUrl('/api/chats/runtime-control-live'), {
+        method: 'POST',
+        headers: { ...authHeaders(), 'content-type': 'application/json' },
+        body: JSON.stringify({ content: 'resume runtime' }),
+      });
+      expect(resumeRes.status).toBe(200);
+      const resumeBody = await resumeRes.json() as { toolInvocations?: Array<{ tool: string }> };
+      expect(resumeBody.toolInvocations?.some((inv) => inv.tool === 'resume_runtime')).toBe(true);
+      expect(server.activeRuntime!.getStatus().paused).toBe(false);
+    });
   // ══════════════════════════════════════════════════════════
   // AC: POST /api/runtime/freeze and resume-from-freeze
   // ══════════════════════════════════════════════════════════

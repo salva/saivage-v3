@@ -14,6 +14,7 @@ import { AnalystHandler, getOrCreateAnalystSession } from '../agents/analyst-han
 import type { EventBus, EventBusSubscription } from '../utils/event-bus.js';
 import type { LoggedEvent } from '../schemas/types.js';
 import { redactOperatorErrorMessage } from '../utils/file-access-security.js';
+import type { ActiveRuntime } from '../utils/active-runtime.js';
 
 export type WsEventType = 'message' | 'activity' | 'thinking' | 'status' | 'error';
 
@@ -22,16 +23,17 @@ export interface WsEnvelope {
   content: Record<string, unknown>;
 }
 
-const analystHandlersByRoot = new Map<string, AnalystHandler>();
+const analystHandlersByRoot = new Map<string, { handler: AnalystHandler; activeRuntime?: ActiveRuntime }>();
 
-function getAnalystHandler(projectRoot: string): AnalystHandler {
-  let handler = analystHandlersByRoot.get(projectRoot);
-  if (!handler) {
-    handler = new AnalystHandler(projectRoot, (activity) => {
-      broadcast({ type: 'activity', content: activity as Record<string, unknown> });
-    });
-    analystHandlersByRoot.set(projectRoot, handler);
+function getAnalystHandler(projectRoot: string, activeRuntime?: ActiveRuntime): AnalystHandler {
+  const cached = analystHandlersByRoot.get(projectRoot);
+  if (cached && cached.activeRuntime === activeRuntime) {
+    return cached.handler;
   }
+  const handler = new AnalystHandler(projectRoot, (activity) => {
+    broadcast({ type: 'activity', content: activity as Record<string, unknown> });
+  }, activeRuntime);
+  analystHandlersByRoot.set(projectRoot, { handler, activeRuntime });
   return handler;
 }
 
@@ -143,7 +145,7 @@ function rejectUnauthorizedWebSocket(ws: WebSocket): void {
   }
 }
 
-export function registerWebSocket(fastify: FastifyInstance, projectRoot: string): void {
+export function registerWebSocket(fastify: FastifyInstance, projectRoot: string, activeRuntime?: ActiveRuntime): void {
   fastify.addHook('onClose', async () => {
     resetWebSocketState(projectRoot);
   });
@@ -190,7 +192,7 @@ export function registerWebSocket(fastify: FastifyInstance, projectRoot: string)
               wsSessions.set(ws, currentSessionId);
             }
 
-            const handler = getAnalystHandler(projectRoot);
+            const handler = getAnalystHandler(projectRoot, activeRuntime);
             const response = await handler.handleMessage(
               currentSessionId,
               String(parsed.content.text),

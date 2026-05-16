@@ -423,11 +423,11 @@ export async function createServer(
 
   registerCardRoutes(fastify, projectRoot);
   registerRuntimeConfigNotesRoutes(fastify, projectRoot, activeRuntime);
-  registerChatsFilesDebugRoutes(fastify, projectRoot);
+  registerChatsFilesDebugRoutes(fastify, projectRoot, activeRuntime);
   registerEventsRoute(fastify, projectRoot);
   registerProcessRoutes(fastify, projectRoot);
   registerRuntimeDispatchRoutes(fastify, projectRoot, activeRuntime);
-  registerWebSocket(fastify, projectRoot);
+  registerWebSocket(fastify, projectRoot, activeRuntime);
 
   let mcpManager: McpManager | undefined;
   try {

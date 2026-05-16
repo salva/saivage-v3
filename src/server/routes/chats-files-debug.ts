@@ -14,6 +14,7 @@ import {
   listRecentReviews,
   listQuarantineIndex,
 } from '../../utils/quarantine.js';
+import type { ActiveRuntime } from '../../utils/active-runtime.js';
 import type {
   DoctorCheck,
   DoctorIssue,
@@ -24,14 +25,15 @@ const MAX_FILE_SIZE_BYTES = 1_048_576;
 const SAFE_SESSION_ID_RE = /^[a-zA-Z0-9_-]+$/;
 const BINARY_SAMPLE_BYTES = 4096;
 
-const analystHandlersByRoot = new Map<string, AnalystHandler>();
+const analystHandlersByRoot = new Map<string, { handler: AnalystHandler; activeRuntime?: ActiveRuntime }>();
 
-function getAnalystHandler(projectRoot: string): AnalystHandler {
-  let handler = analystHandlersByRoot.get(projectRoot);
-  if (!handler) {
-    handler = new AnalystHandler(projectRoot);
-    analystHandlersByRoot.set(projectRoot, handler);
+function getAnalystHandler(projectRoot: string, activeRuntime?: ActiveRuntime): AnalystHandler {
+  const cached = analystHandlersByRoot.get(projectRoot);
+  if (cached && cached.activeRuntime === activeRuntime) {
+    return cached.handler;
   }
+  const handler = new AnalystHandler(projectRoot, undefined, activeRuntime);
+  analystHandlersByRoot.set(projectRoot, { handler, activeRuntime });
   return handler;
 }
 
@@ -67,6 +69,7 @@ function isBinaryBuffer(buffer: Buffer): boolean {
 export function registerChatsFilesDebugRoutes(
   fastify: FastifyInstance,
   projectRoot: string,
+  activeRuntime?: ActiveRuntime,
 ): void {
   const store = new CardStore(projectRoot);
   const saivageDir = join(projectRoot, '.saivage');
@@ -156,7 +159,7 @@ export function registerChatsFilesDebugRoutes(
         return reply.status(400).send({ error: 'Message content is required' });
       }
 
-      const handler = getAnalystHandler(projectRoot);
+      const handler = getAnalystHandler(projectRoot, activeRuntime);
       const response = await handler.handleMessage(sessionId, body.content);
 
       return reply.send({

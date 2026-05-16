@@ -147,7 +147,7 @@ Docs are public and separately served under `/docs/` when built. They remain ava
 
 ## 4. Runtime control procedures
 
-Pause/resume semantics are shared across REST endpoints and analyst chat tools. Choose the surface that fits your workflow, but expect the same validation results.
+Pause/resume validation is shared across REST endpoints and analyst tools. Server-hosted analyst chat/WebSocket controls receive the live `ActiveRuntime` when the server was started with runtime creation, so they have the same in-memory pause/resume effect as REST. Direct analyst-tool utility use without an injected live runtime falls back to canonical persisted-state control and returns the same frozen/unavailable validation results.
 
 ### Pause before low-risk maintenance
 
@@ -158,7 +158,7 @@ curl -X POST http://localhost:8080/api/runtime/pause \
 
 Use pause when you want to stop new dispatch without creating a freeze handoff.
 
-- With a live `ActiveRuntime`, pause updates the live in-memory runtime authority.
+- With a live `ActiveRuntime` (REST or server-hosted analyst chat/WebSocket), pause updates the live in-memory runtime authority.
 - Without a live runtime authority, pause updates persisted runtime state only.
 - If runtime state is missing entirely, pause now fails with an actionable error instead of inventing replacement state.
 
@@ -171,7 +171,7 @@ curl -X POST http://localhost:8080/api/runtime/resume \
 
 Generic resume is for paused or idle runtime state.
 
-- With a live `ActiveRuntime`, resume propagates through the live runtime authority.
+- With a live `ActiveRuntime` (REST or server-hosted analyst chat/WebSocket), resume propagates through the live runtime authority.
 - Without a live runtime authority, resume updates persisted runtime state only.
 - If the runtime is `frozen`, this endpoint rejects the request with `400` and instructs you to use `/api/runtime/resume-from-freeze`.
 - If runtime state is unavailable, resume returns an actionable unavailable-state error.
