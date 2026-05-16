@@ -100,6 +100,11 @@ beforeAll(async () => {
   await fetch(url('/api/cards'), {
     method: 'POST',
     headers: { ...authHeader(authToken), 'content-type': 'application/json' },
+    body: JSON.stringify({ id: 'dependency-1', title: 'Dependency card', type: 'task', parent: 'goal-1', acceptance: 'dependency acceptance', confirmed: true }),
+  });
+  await fetch(url('/api/cards'), {
+    method: 'POST',
+    headers: { ...authHeader(authToken), 'content-type': 'application/json' },
     body: JSON.stringify({ id: 'code-1', title: 'Tracked card', type: 'code', parent: 'goal-1', description: 'before', acceptance: 'accept initial', confirmed: true }),
   });
 }, 30000);
@@ -257,6 +262,102 @@ describe('cross-surface card mutation regression', () => {
       expect(rawSessionNotifications).not.toContain('secret-cross-surface-123');
     } finally {
       socket.close();
+    }
+  });
+
+  it('treats instructions_file and depends_on mutations as blocking across websocket and REST surfaces', async () => {
+    const instructionsSocketState = await openWebSocketEvents();
+    try {
+      const instructionsRes = await fetch(url('/api/cards/code-1'), {
+        method: 'PATCH',
+        headers: { ...authHeader(authToken), 'content-type': 'application/json' },
+        body: JSON.stringify({ instructions_file: 'docs/runbook.md' }),
+      });
+      expect(instructionsRes.status).toBe(200);
+      const instructionsBody = await instructionsRes.json() as { card: { version_seq: number; instructions_file: string } };
+      expect(instructionsBody.card.version_seq).toBe(4);
+      expect(instructionsBody.card.instructions_file).toBe('docs/runbook.md');
+
+      await waitForActivityCount(instructionsSocketState.events, 5);
+      const instructionsActivity = instructionsSocketState.events.filter((entry) => entry.type === 'activity');
+      const instructionsNotifications = instructionsActivity.filter((entry) => entry.content['event'] === 'notification_added');
+      expect(instructionsNotifications).toHaveLength(3);
+      expect(instructionsNotifications.every((entry) => entry.content['severity'] === 'block')).toBe(true);
+      expect(instructionsNotifications.every((entry) => entry.content['related_card_id'] === 'code-1')).toBe(true);
+      expect(instructionsNotifications.every((entry) => entry.content['related_version_seq'] === 4)).toBe(true);
+
+      const instructionsHistoryEvent = instructionsActivity.find((entry) => entry.content['event'] === 'card_history_appended');
+      expect(instructionsHistoryEvent?.content).toMatchObject({
+        card_id: 'code-1',
+        version_seq: 4,
+        changed_fields: ['instructions_file'],
+      });
+
+      const instructionsNotificationsRes = await fetch(url('/api/notifications'), { headers: authHeader(authToken) });
+      expect(instructionsNotificationsRes.status).toBe(200);
+      const instructionsNotificationsBody = await instructionsNotificationsRes.json() as { notifications: Array<{ related_card_id: string; related_version_seq: number; severity: string; payload_summary: string }> };
+      const instructionsOperatorNotification = instructionsNotificationsBody.notifications.find((entry) => entry.related_card_id === 'code-1' && entry.related_version_seq === 4);
+      expect(instructionsOperatorNotification?.severity).toBe('block');
+      expect(instructionsOperatorNotification?.payload_summary).toContain('instructions_file');
+
+      const instructionsHistoryRes = await fetch(url('/api/cards/code-1/history'), { headers: authHeader(authToken) });
+      expect(instructionsHistoryRes.status).toBe(200);
+      const instructionsHistoryBody = await instructionsHistoryRes.json() as { total: number; history: Array<Record<string, unknown>> };
+      expect(instructionsHistoryBody.total).toBe(3);
+      expect(instructionsHistoryBody.history[0]?.['version_seq']).toBe(3);
+      expect(instructionsHistoryBody.history[0]?.['changed_fields']).toEqual(['instructions_file']);
+
+      const instructionsEntryRes = await fetch(url('/api/cards/code-1/history/3'), { headers: authHeader(authToken) });
+      expect(instructionsEntryRes.status).toBe(200);
+      const instructionsEntryBody = await instructionsEntryRes.json() as { entry: { snapshot: { instructions_file: string | null } } };
+      expect(instructionsEntryBody.entry.snapshot.instructions_file).toBeNull();
+
+      const instructionsDiffRes = await fetch(url('/api/cards/code-1/diff?from=3&to=4'), { headers: authHeader(authToken) });
+      expect(instructionsDiffRes.status).toBe(200);
+      const instructionsDiffBody = await instructionsDiffRes.json() as { diff: Array<{ field: string; before: unknown; after: unknown }> };
+      expect(instructionsDiffBody.diff).toContainEqual({ field: 'instructions_file', before: null, after: 'docs/runbook.md' });
+
+      const instructionsAuditRes = await fetch(url('/api/control-actions?card_id=code-1'), { headers: authHeader(authToken) });
+      expect(instructionsAuditRes.status).toBe(200);
+      const instructionsAuditBody = await instructionsAuditRes.json() as { control_actions: Array<{ action: string; target_id: string; outcome: string; params_summary: string }> };
+      const instructionsUpdateAction = instructionsAuditBody.control_actions.find((entry) => entry.action === 'card.update' && entry.target_id === 'code-1' && entry.params_summary.includes('instructions_file'));
+      expect(instructionsUpdateAction?.outcome).toBe('ok');
+    } finally {
+      instructionsSocketState.socket.close();
+    }
+
+    const dependsOnSocketState = await openWebSocketEvents();
+    try {
+      const dependsOnRes = await fetch(url('/api/cards/code-1'), {
+        method: 'PATCH',
+        headers: { ...authHeader(authToken), 'content-type': 'application/json' },
+        body: JSON.stringify({ depends_on: ['dependency-1'] }),
+      });
+      expect(dependsOnRes.status).toBe(200);
+      const dependsOnBody = await dependsOnRes.json() as { card: { version_seq: number; depends_on: string[] } };
+      expect(dependsOnBody.card.version_seq).toBe(5);
+      expect(dependsOnBody.card.depends_on).toEqual(['dependency-1']);
+
+      await waitForActivityCount(dependsOnSocketState.events, 5);
+      const dependsOnActivity = dependsOnSocketState.events.filter((entry) => entry.type === 'activity');
+      const dependsOnNotifications = dependsOnActivity.filter((entry) => entry.content['event'] === 'notification_added');
+      expect(dependsOnNotifications).toHaveLength(3);
+      expect(dependsOnNotifications.every((entry) => entry.content['severity'] === 'block')).toBe(true);
+      expect(dependsOnNotifications.every((entry) => entry.content['related_card_id'] === 'code-1')).toBe(true);
+      expect(dependsOnNotifications.every((entry) => entry.content['related_version_seq'] === 5)).toBe(true);
+
+      const dependsOnNotificationsRes = await fetch(url('/api/notifications'), { headers: authHeader(authToken) });
+      expect(dependsOnNotificationsRes.status).toBe(200);
+      const dependsOnNotificationsBody = await dependsOnNotificationsRes.json() as { notifications: Array<{ related_card_id: string; related_version_seq: number; severity: string; payload_summary: string }> };
+      const dependsOnOperatorNotification = dependsOnNotificationsBody.notifications.find((entry) => entry.related_card_id === 'code-1' && entry.related_version_seq === 5);
+      expect(dependsOnOperatorNotification?.severity).toBe('block');
+      expect(dependsOnOperatorNotification?.payload_summary).toContain('depends_on');
+
+      const rawSessionNotifications = readFileSync(join(TEST_ROOT, '.saivage', 'runtime', 'notifications', 'by-session', `${executorSessionId}.jsonl`), 'utf-8');
+      expect(rawSessionNotifications).not.toContain('secret-cross-surface-123');
+      expect(rawSessionNotifications).not.toContain('top-secret');
+    } finally {
+      dependsOnSocketState.socket.close();
     }
   });
 });
