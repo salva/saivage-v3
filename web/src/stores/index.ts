@@ -1,11 +1,9 @@
 /**
  * Pinia stores barrel export.
- *
- * Import individual stores from this file for convenience:
- *   import { useCardStore, useRuntimeStore } from '@/stores';
  */
 
 export { useAgentStore } from './agents';
+export { useAnalystChat } from './analystChat';
 export { useCardStore } from './cards';
 export { useDebugStore } from './debug';
 export { useFileStore } from './files';

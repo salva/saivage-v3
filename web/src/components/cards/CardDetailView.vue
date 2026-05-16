@@ -12,6 +12,7 @@
           <span class="detail-type-badge" :class="'type-' + currentCard.type">{{ typeIcon(currentCard.type) }} {{ currentCard.type }}</span>
           <h1 class="detail-title">{{ currentCard.title }}</h1>
           <span class="detail-status-chip" :class="'status-' + currentCard.status">{{ currentCard.status }}</span>
+          <button type="button" class="discuss-btn" @click="openAnalystForCard">Discuss with analyst</button>
         </div>
         <div class="detail-id">ID: {{ currentCard.id }}</div>
         <div class="detail-callout" role="status">{{ lifecycle?.explanation || statusExplainer(currentCard.status) }}</div>
@@ -248,6 +249,7 @@
 
 <script setup lang="ts">
 import { ref, computed, watch, onMounted } from 'vue';
+import { useAnalystChat } from '../../stores/analystChat';
 import { useCardStore } from '../../stores/cards';
 import { storeToRefs } from 'pinia';
 import { getFileContent, ApiError } from '../../api/client';
@@ -260,6 +262,7 @@ const log = createLogger('comp:card-detail');
 const props = defineProps<{ cardId: string }>();
 const emit = defineEmits<{ navigate: [id: string] }>();
 const cardStore = useCardStore();
+const analystChat = useAnalystChat();
 const {
   currentCard,
   currentChildren,
@@ -401,6 +404,20 @@ function openPreviewForFile(file: GeneratedFileRef): void {
 function navigateCard(id: string): void { emit('navigate', id); }
 async function reloadDetail(): Promise<void> { try { await cardStore.fetchCardDetail(props.cardId); } catch (err) { log.error('fetch', err); } }
 
+async function openAnalystForCard(): Promise<void> {
+  if (!currentCard.value) return;
+  if (analystChat.hasDraft && typeof window !== 'undefined') {
+    const shouldReseed = window.confirm('You have an in-progress analyst draft. Reseed the chat with this card context?');
+    if (!shouldReseed) {
+      analystChat.setDrawerOpen(true);
+      return;
+    }
+  }
+  analystChat.setDrawerOpen(true);
+  analystChat.seedCardContext(currentCard.value);
+  await analystChat.fetchMessages(analystChat.activeSessionId).catch(() => {});
+}
+
 onMounted(async () => { await reloadDetail(); });
 watch(() => props.cardId, async (nid) => {
   selectedPath.value = null;
@@ -452,4 +469,15 @@ watch(() => props.cardId, async (nid) => {
 .pill-list { display:flex; flex-wrap:wrap; gap:8px; }
 .link-list-row,.list-block { margin-top:10px; }
 .note-header { display:flex; gap:10px; flex-wrap:wrap; margin-bottom:6px; }
+
+
+.discuss-btn {
+  margin-left: auto;
+  border: 1px solid #1f6feb;
+  background: #0d1117;
+  color: #79c0ff;
+  border-radius: 999px;
+  padding: 6px 10px;
+  cursor: pointer;
+}
 </style>

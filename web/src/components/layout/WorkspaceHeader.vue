@@ -6,6 +6,16 @@
     </div>
 
     <div class="header-right">
+      <button
+        class="status-chip analyst-chip"
+        type="button"
+        :title="analystButtonTitle"
+        @click="emit('toggle-analyst')"
+      >
+        <span class="chip-icon">💬</span>
+        Analyst
+      </button>
+
       <span
         class="status-chip ws-chip"
         :class="`ws-${connectionState}`"
@@ -67,8 +77,10 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   'toggle-pause': [];
+  'toggle-analyst': [];
 }>();
 
+const analystButtonTitle = 'Open persistent analyst chat (Ctrl/Cmd+J)';
 const wsLabel = computed(() => {
   const labels: Record<string, string> = {
     connected: 'WS LIVE',
@@ -181,6 +193,12 @@ function togglePause(): void {
   color: #8b949e;
 }
 
+.analyst-chip {
+  cursor: pointer;
+  color: #79c0ff;
+  border-color: #1f6feb;
+}
+
 .chip-dot {
   width: 6px;
   height: 6px;
@@ -264,7 +282,8 @@ function togglePause(): void {
   cursor: not-allowed;
 }
 
-.pause-chip:hover:not(:disabled) {
+.pause-chip:hover:not(:disabled),
+.analyst-chip:hover {
   filter: brightness(1.2);
 }
 </style>
