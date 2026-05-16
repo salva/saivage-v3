@@ -12,6 +12,7 @@ import { randomBytes } from 'node:crypto';
 import { processRecordSchema } from '../schemas/validators.js';
 import type { ProcessRecord, ProcessStatus } from '../schemas/types.js';
 import { writeFileAtomic } from './file-tree.js';
+import { enqueueProcessKillNotifications } from './notification-triggers.js';
 
 export interface ProcessStartOptions {
   cardId: string;
@@ -583,6 +584,7 @@ export async function killProcess(
     throw new Error(`Process '${procId}' not found in registry after kill.`);
   }
 
+  enqueueProcessKillNotifications(projectRoot, record, { actor: 'analyst', surface: 'web-chat' });
   return record;
 }
 

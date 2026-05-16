@@ -10,6 +10,7 @@ import type {
   NotesQueueResolvedEntry,
 } from '../schemas/types.js';
 import { writeFileAtomic } from './file-tree.js';
+import { enqueueNoteNotifications } from './notification-triggers.js';
 
 function queuePath(saivageDir: string): string {
   return join(saivageDir, 'notes', 'queue.json');
@@ -71,17 +72,6 @@ function writeAllNotes(saivageDir: string, cardId: string, notes: NoteRecord[]):
 
 function generateNoteId(cardId: string, queue: NotesQueue): string {
   return `n-${cardId}-${queue.next_note_sequence}`;
-}
-
-function addToQueue(saivageDir: string, note: NoteRecord): void {
-  const queue = readQueue(saivageDir);
-  queue.entries.push({
-    card_id: note.card_id,
-    note_id: note.id,
-    timestamp: note.timestamp,
-    kind: note.kind,
-  });
-  writeQueueAtomic(saivageDir, queue);
 }
 
 function removeFromQueue(saivageDir: string, cardId: string, noteId: string): void {
@@ -165,6 +155,7 @@ export function appendNote(
     kind: newNote.kind,
   });
   writeQueueAtomic(saivageDir, queue);
+  enqueueNoteNotifications(join(saivageDir, '..'), newNote, { actor: newNote.author, surface: 'runtime' });
   return newNote;
 }
 

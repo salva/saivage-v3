@@ -1,5 +1,6 @@
 import { readRuntimeState, updateRuntimeState } from './runtime-state.js';
 import type { ActiveRuntime } from './active-runtime.js';
+import { enqueueRuntimeStateNotifications } from './notification-triggers.js';
 
 /**
  * Shared runtime-control authority for pause/resume semantics.
@@ -53,26 +54,28 @@ export function pauseRuntimeControl(ctx: RuntimeControlContext): RuntimeControlR
         paused: current.paused,
       };
     }
+    let status: string;
+    let paused: boolean;
     if (ctx.activeRuntime) {
       ctx.activeRuntime.pause();
-      const status = ctx.activeRuntime.getStatus();
-      return {
-        ok: true,
-        code: 'paused',
-        status: status.status,
-        paused: status.paused,
-      };
+      const runtimeStatus = ctx.activeRuntime.getStatus();
+      status = runtimeStatus.status;
+      paused = runtimeStatus.paused;
+    } else {
+      const state = updateRuntimeState(ctx.projectRoot, {
+        status: 'paused',
+        paused: true,
+        paused_at: new Date().toISOString(),
+      });
+      status = state.status;
+      paused = state.paused;
     }
-    const state = updateRuntimeState(ctx.projectRoot, {
-      status: 'paused',
-      paused: true,
-      paused_at: new Date().toISOString(),
-    });
+    enqueueRuntimeStateNotifications(ctx.projectRoot, 'paused', { actor: 'runtime', surface: 'runtime' });
     return {
       ok: true,
       code: 'paused',
-      status: state.status,
-      paused: state.paused,
+      status,
+      paused,
     };
   } catch (err) {
     return {
@@ -107,26 +110,28 @@ export function resumeRuntimeControl(ctx: RuntimeControlContext): RuntimeControl
         action: 'resume-from-freeze',
       };
     }
+    let status: string;
+    let paused: boolean;
     if (ctx.activeRuntime) {
       ctx.activeRuntime.resume();
-      const status = ctx.activeRuntime.getStatus();
-      return {
-        ok: true,
-        code: 'resumed',
-        status: status.status,
-        paused: status.paused,
-      };
+      const runtimeStatus = ctx.activeRuntime.getStatus();
+      status = runtimeStatus.status;
+      paused = runtimeStatus.paused;
+    } else {
+      const state = updateRuntimeState(ctx.projectRoot, {
+        status: 'idle',
+        paused: false,
+        paused_at: null,
+      });
+      status = state.status;
+      paused = state.paused;
     }
-    const state = updateRuntimeState(ctx.projectRoot, {
-      status: 'idle',
-      paused: false,
-      paused_at: null,
-    });
+    enqueueRuntimeStateNotifications(ctx.projectRoot, 'resumed', { actor: 'runtime', surface: 'runtime' });
     return {
       ok: true,
       code: 'resumed',
-      status: state.status,
-      paused: state.paused,
+      status,
+      paused,
     };
   } catch (err) {
     return {

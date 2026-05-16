@@ -30,6 +30,7 @@ import type {
   ControlActionSurface,
   NoteAuthor,
 } from '../schemas/types.js';
+import { enqueueCardMutationNotifications } from './notification-triggers.js';
 
 export interface CardMutationContext {
   actor: NoteAuthor;
@@ -619,7 +620,9 @@ export class CardStore {
       }
     }
     this.recomputeBlocks();
-    return this.read(id)!;
+    const persisted = this.read(id)!;
+    enqueueCardMutationNotifications(this.projectRoot, persisted, changedFields as string[], { actor: ctx.actor, surface: ctx.surface });
+    return persisted;
   }
 
   listCardHistory(id: string): CardHistoryEntry[] {
