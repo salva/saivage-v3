@@ -279,11 +279,12 @@ function setupCommonMocks(): void {
 }
 
 async function mountDebugView() {
-  setActivePinia(createPinia());
+  const pinia = createPinia();
+  setActivePinia(pinia);
   const router = makeRouter();
   const wrapper = mount(DebugView, {
     global: {
-      plugins: [createPinia(), router],
+      plugins: [pinia, router],
     },
   });
   await flushPromises();
@@ -466,7 +467,7 @@ describe('DebugView — integration', () => {
     expect(wrapper.text()).toContain('Unauthorized. Provide a valid Saivage API token and refresh the page.');
   });
 
-  it('shows stale queue banner and refreshes notes after 404 note mutation', async () => {
+  it('shows exact stale queue action message after 404 note deletion and refreshes notes', async () => {
     vi.mocked(deleteNote).mockRejectedValueOnce(new ApiError(404, 'Note not found', {}));
     vi.mocked(listNotes).mockResolvedValueOnce(mockNotesResponse).mockResolvedValueOnce({ notes: [], total: 0 });
 
@@ -477,7 +478,8 @@ describe('DebugView — integration', () => {
     await button.trigger('click');
     await flushPromises();
 
-    expect(wrapper.text()).toContain('This panel may be stale. Refresh to reconcile with server state.');
+    expect(wrapper.text()).toContain('That note is no longer in the unhandled queue. Refreshing notes.');
+    expect(wrapper.text()).not.toContain('This panel may be stale. Refresh to reconcile with server state.');
     expect(wrapper.text()).toContain('No unhandled operator notes.');
   });
 

@@ -322,7 +322,7 @@ export const useDebugStore = defineStore('debug', () => {
       operatorNotes.value = response.notes;
       operatorNotesTotal.value = response.total;
       operatorUnauthorized.value = false;
-      if (!runtimeControlLoading.value) {
+      if (!runtimeControlLoading.value && !operatorStale.value) {
         runtimeControlError.value = null;
       }
     } catch (err) {

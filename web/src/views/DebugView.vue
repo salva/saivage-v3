@@ -81,13 +81,13 @@
           </div>
           <div v-else class="operator-freshness" role="status">Not refreshed yet.</div>
 
-          <div v-if="operatorStale || operatorPartialWarning" class="operator-banner operator-banner-warning" role="status">
-            {{ operatorPartialWarning || runtimeControlError || 'This panel may be stale. Refresh to reconcile with server state.' }}
+          <div v-if="operatorWarningBannerMessage" class="operator-banner operator-banner-warning" role="status">
+            {{ operatorWarningBannerMessage }}
           </div>
           <div v-if="operatorUnauthorized" class="operator-banner operator-banner-error" role="alert">
             Unauthorized. Provide a valid Saivage API token and refresh the page.
           </div>
-          <div v-else-if="runtimeControlError && !operatorStale && !operatorPartialWarning" class="operator-banner operator-banner-error" role="alert">
+          <div v-else-if="runtimeControlError && !operatorWarningBannerMessage" class="operator-banner operator-banner-error" role="alert">
             {{ runtimeControlError }}
           </div>
           <div v-if="runtimeControlSuccess" class="operator-banner operator-banner-success" role="status">
@@ -487,6 +487,19 @@ const runtimeDispatchLabel = computed(() => {
 const operatorPanelBusy = computed(() => (
   operatorNotesLoading.value || runtimeControlLoading.value !== null || operatorClearLoading.value
 ));
+
+const operatorWarningBannerMessage = computed(() => {
+  if (!operatorStale.value && !operatorPartialWarning.value) {
+    return null;
+  }
+  if (runtimeControlError.value) {
+    return runtimeControlError.value;
+  }
+  if (operatorPartialWarning.value) {
+    return operatorPartialWarning.value;
+  }
+  return 'This panel may be stale. Refresh to reconcile with server state.';
+});
 
 const pauseDisabled = computed(() => (
   operatorUnauthorized.value || runtimeControlLoading.value !== null || !debugRuntime.value
