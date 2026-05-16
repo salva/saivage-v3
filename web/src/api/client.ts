@@ -37,6 +37,12 @@ import type {
   ProcessListResponse,
   ProcessDetailResponse,
   ProcessTerminateResponse,
+  CardHistoryListResponse,
+  CardHistoryEntryResponse,
+  CardDiffResponse,
+  NotificationsListResponse,
+  NotificationAcknowledgeResponse,
+  ControlActionsListResponse,
 } from './types';
 import { getAuthToken } from './auth';
 
@@ -141,6 +147,21 @@ export function getCard(id: string): Promise<CardDetailResponse> {
   return request<CardDetailResponse>('GET', `/api/cards/${encodeURIComponent(id)}`);
 }
 
+export function listCardHistory(id: string): Promise<CardHistoryListResponse> {
+  return request<CardHistoryListResponse>('GET', `/api/cards/${encodeURIComponent(id)}/history`);
+}
+
+export function getCardHistoryEntry(id: string, seq: number): Promise<CardHistoryEntryResponse> {
+  return request<CardHistoryEntryResponse>('GET', `/api/cards/${encodeURIComponent(id)}/history/${seq}`);
+}
+
+export function getCardDiff(id: string, from: number, to: number): Promise<CardDiffResponse> {
+  return request<CardDiffResponse>('GET', `/api/cards/${encodeURIComponent(id)}/diff`, {
+    from: String(from),
+    to: String(to),
+  });
+}
+
 export function createCard(payload: CreateCardPayload): Promise<CardCreateResponse> {
   return request<CardCreateResponse>('POST', '/api/cards', undefined, payload);
 }
@@ -203,6 +224,18 @@ export function deleteNote(noteId: string): Promise<void> {
 
 export function clearAllNotes(): Promise<NotesClearResponse> {
   return request<NotesClearResponse>('DELETE', '/api/notes');
+}
+
+export function listNotifications(): Promise<NotificationsListResponse> {
+  return request<NotificationsListResponse>('GET', '/api/notifications');
+}
+
+export function acknowledgeNotification(notificationId: string): Promise<NotificationAcknowledgeResponse> {
+  return request<NotificationAcknowledgeResponse>('POST', `/api/notifications/${encodeURIComponent(notificationId)}/acknowledge`);
+}
+
+export function listControlActions(query?: { card_id?: string; since?: string }): Promise<ControlActionsListResponse> {
+  return request<ControlActionsListResponse>('GET', '/api/control-actions', query as Record<string, string> | undefined);
 }
 
 export function listChatSessions(): Promise<ChatSessionsResponse> {

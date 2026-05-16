@@ -128,6 +128,9 @@
           </div>
         </section>
 
+        <NotificationsPanel />
+        <PendingConfirmationsPanel />
+
         <section class="debug-section">
           <div class="debug-section-header operator-header">
             <div>
@@ -158,18 +161,12 @@
                 <span class="mono">Note {{ entry.note_id }}</span>
               </div>
               <div class="operator-note-actions">
-                <button
-                  class="operator-button"
-                  :disabled="noteButtonsDisabled(entry.note_id)"
-                  :aria-label="`Acknowledge note ${entry.note_id}`"
-                  @click="debugStore.acknowledgeOperatorNote(entry.note_id)"
-                >{{ operatorNoteActionLoading[entry.note_id] === 'acknowledge' ? 'Acknowledging...' : 'Acknowledge' }}</button>
-                <button
-                  class="operator-button operator-danger-button"
-                  :disabled="noteButtonsDisabled(entry.note_id)"
-                  :aria-label="`Delete note ${entry.note_id}`"
-                  @click="debugStore.deleteOperatorNote(entry.note_id)"
-                >{{ operatorNoteActionLoading[entry.note_id] === 'delete' ? 'Deleting...' : 'Delete' }}</button>
+                <button class="operator-button" :disabled="noteButtonsDisabled(entry.note_id)" :aria-label="`Acknowledge note ${entry.note_id}`" @click="debugStore.acknowledgeOperatorNote(entry.note_id)">
+                  {{ operatorNoteActionLoading[entry.note_id] === 'acknowledge' ? 'Acknowledging...' : 'Acknowledge' }}
+                </button>
+                <button class="operator-button operator-danger-button" :disabled="noteButtonsDisabled(entry.note_id)" :aria-label="`Delete note ${entry.note_id}`" @click="debugStore.deleteOperatorNote(entry.note_id)">
+                  {{ operatorNoteActionLoading[entry.note_id] === 'delete' ? 'Deleting...' : 'Delete' }}
+                </button>
               </div>
             </article>
           </div>
@@ -240,10 +237,7 @@
                 <span class="mcp-tool-desc">{{ tool.description || 'No description' }}</span>
               </div>
               <div class="mcp-tool-stats">
-                <span class="mcp-stat-item" title="Total invocations">
-                  <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><circle cx="6" cy="6" r="5" stroke="currentColor" stroke-width="1"/><line x1="6" y1="3" x2="6" y2="7" stroke="currentColor" stroke-width="1"/><line x1="4" y1="9" x2="8" y2="9" stroke="currentColor" stroke-width="1"/></svg>
-                  {{ tool.stats.total }}
-                </span>
+                <span class="mcp-stat-item" title="Total invocations"><svg width="12" height="12" viewBox="0 0 12 12" fill="none"><circle cx="6" cy="6" r="5" stroke="currentColor" stroke-width="1"/><line x1="6" y1="3" x2="6" y2="7" stroke="currentColor" stroke-width="1"/><line x1="4" y1="9" x2="8" y2="9" stroke="currentColor" stroke-width="1"/></svg>{{ tool.stats.total }}</span>
                 <span class="mcp-stat-item mcp-stat-success" title="Successful invocations">✓ {{ tool.stats.success }}</span>
                 <span class="mcp-stat-item mcp-stat-error" title="Failed invocations">✗ {{ tool.stats.error }}</span>
                 <span v-if="tool.stats.lastInvokedAt" class="mcp-stat-item mcp-stat-time" title="Last invoked">{{ fmtDate(tool.stats.lastInvokedAt) }}</span>
@@ -283,18 +277,10 @@
           </div>
         </div>
 
-        <div v-if="processUnauthorized" class="operator-banner operator-banner-error" role="alert">
-          Unauthorized. Provide a valid Saivage API token and refresh the page.
-        </div>
-        <div v-else-if="processControlError" class="operator-banner" :class="processStale ? 'operator-banner-warning' : 'operator-banner-error'" :role="processStale ? 'status' : 'alert'">
-          {{ processControlError }}
-        </div>
-        <div v-if="processControlSuccess" class="operator-banner operator-banner-success" role="status">
-          {{ processControlSuccess }}
-        </div>
-        <div v-if="processStale && !processControlError" class="operator-banner operator-banner-warning" role="status">
-          Process state may be stale. Refresh to reconcile with server state.
-        </div>
+        <div v-if="processUnauthorized" class="operator-banner operator-banner-error" role="alert">Unauthorized. Provide a valid Saivage API token and refresh the page.</div>
+        <div v-else-if="processControlError" class="operator-banner" :class="processStale ? 'operator-banner-warning' : 'operator-banner-error'" :role="processStale ? 'status' : 'alert'">{{ processControlError }}</div>
+        <div v-if="processControlSuccess" class="operator-banner operator-banner-success" role="status">{{ processControlSuccess }}</div>
+        <div v-if="processStale && !processControlError" class="operator-banner operator-banner-warning" role="status">Process state may be stale. Refresh to reconcile with server state.</div>
 
         <div v-if="processesLoading" class="debug-loading">Loading processes...</div>
         <div v-else-if="processesError" class="debug-error">{{ processesError }}</div>
@@ -328,23 +314,16 @@
               <div v-else>
                 <div v-for="logEntry in processLogEntries(proc)" :key="logEntry.key" class="pd-row">
                   <span class="pd-key">{{ logEntry.label }}:</span>
-                  <span v-if="logEntry.value" class="pd-value mono wrap">
-                    {{ logEntry.value }}
-                    <button class="process-link-button" @click="browseProcessLog(logEntry.value)">Browse</button>
-                  </span>
+                  <span v-if="logEntry.value" class="pd-value mono wrap">{{ logEntry.value }} <button class="process-link-button" @click="browseProcessLog(logEntry.value)">Browse</button></span>
                   <span v-else class="pd-value">Not available</span>
                 </div>
               </div>
             </div>
 
             <div class="process-controls">
-              <button
-                v-if="showTerminateButton(proc)"
-                class="operator-button operator-danger-button"
-                :disabled="Boolean(processTerminateLoading[proc.id]) || processUnauthorized"
-                :aria-label="`Terminate live-attached process ${proc.id}`"
-                @click="confirmTerminateProcess(proc.id)"
-              >{{ processTerminateLoading[proc.id] ? 'Terminating...' : 'Terminate process' }}</button>
+              <button v-if="showTerminateButton(proc)" class="operator-button operator-danger-button" :disabled="Boolean(processTerminateLoading[proc.id]) || processUnauthorized" :aria-label="`Terminate live-attached process ${proc.id}`" @click="confirmTerminateProcess(proc.id)">
+                {{ processTerminateLoading[proc.id] ? 'Terminating...' : 'Terminate process' }}
+              </button>
               <div v-else class="process-empty-note">{{ terminateUnavailableCopy(proc) }}</div>
             </div>
           </div>
@@ -353,94 +332,28 @@
 
       <div v-if="localActiveTab === 'supervision'" class="debug-tab-content">
         <section class="debug-section">
-          <div class="debug-section-header">
-            <h4 class="debug-section-title">Doctor Diagnostics</h4>
-            <button class="sv-fetch-btn" :disabled="doctorLoading" @click="debugStore.fetchDoctor()">Fetch</button>
-          </div>
+          <div class="debug-section-header"><h4 class="debug-section-title">Doctor Diagnostics</h4><button class="sv-fetch-btn" :disabled="doctorLoading" @click="debugStore.fetchDoctor()">Fetch</button></div>
           <div v-if="doctorLoading" class="debug-loading" style="padding:16px;">Running diagnostics...</div>
           <div v-else-if="doctorError" class="debug-error" style="padding:16px;">{{ doctorError }}</div>
-          <div v-else-if="doctorStatus === null && doctorChecks.length === 0" class="debug-empty" style="padding:16px;">
-            No diagnostics run yet. Click Fetch to check card/index consistency.
-          </div>
+          <div v-else-if="doctorStatus === null && doctorChecks.length === 0" class="debug-empty" style="padding:16px;">No diagnostics run yet. Click Fetch to check card/index consistency.</div>
           <template v-else>
-            <div class="doctor-status-banner" :class="doctorStatus === 'ok' ? 'doctor-ok' : 'doctor-issues'">
-              <span class="doctor-status-icon">{{ doctorStatus === 'ok' ? '✓' : '⚠' }}</span>
-              <span class="doctor-status-text">{{ doctorStatus === 'ok' ? 'All checks passed' : 'Issues found' }} ({{ doctorChecks.length }} checks)</span>
-            </div>
-            <div class="doctor-checks-list">
-              <div v-for="check in doctorChecks" :key="check.name" class="doctor-check-item" :class="check.passed ? 'check-passed' : 'check-failed'">
-                <span class="check-icon">{{ check.passed ? '✓' : '✗' }}</span>
-                <div class="check-body">
-                  <span class="check-name">{{ check.name }}</span>
-                  <span v-if="check.details" class="check-details">{{ check.details }}</span>
-                </div>
-              </div>
-            </div>
-            <div v-if="doctorIssues.length > 0" class="doctor-issues">
-              <h5 class="doctor-issues-title">Issues ({{ doctorIssues.length }})</h5>
-              <div v-for="(issue, idx) in doctorIssues" :key="idx" class="doctor-issue-item" :class="'issue-' + issue.severity">
-                <span class="issue-severity-badge" :class="'iss-' + issue.severity">{{ issue.severity }}</span>
-                <span class="issue-message">{{ issue.message }}</span>
-              </div>
-            </div>
+            <div class="doctor-status-banner" :class="doctorStatus === 'ok' ? 'doctor-ok' : 'doctor-issues'"><span class="doctor-status-icon">{{ doctorStatus === 'ok' ? '✓' : '⚠' }}</span><span class="doctor-status-text">{{ doctorStatus === 'ok' ? 'All checks passed' : 'Issues found' }} ({{ doctorChecks.length }} checks)</span></div>
+            <div class="doctor-checks-list"><div v-for="check in doctorChecks" :key="check.name" class="doctor-check-item" :class="check.passed ? 'check-passed' : 'check-failed'"><span class="check-icon">{{ check.passed ? '✓' : '✗' }}</span><div class="check-body"><span class="check-name">{{ check.name }}</span><span v-if="check.details" class="check-details">{{ check.details }}</span></div></div></div>
+            <div v-if="doctorIssues.length > 0" class="doctor-issues"><h5 class="doctor-issues-title">Issues ({{ doctorIssues.length }})</h5><div v-for="(issue, idx) in doctorIssues" :key="idx" class="doctor-issue-item" :class="'issue-' + issue.severity"><span class="issue-severity-badge" :class="'iss-' + issue.severity">{{ issue.severity }}</span><span class="issue-message">{{ issue.message }}</span></div></div>
           </template>
         </section>
 
         <section class="debug-section">
-          <div class="debug-section-header">
-            <h4 class="debug-section-title">Content Supervision</h4>
-            <button class="sv-fetch-btn" :disabled="supervisionLoading" @click="debugStore.fetchSupervision()">Fetch</button>
-          </div>
+          <div class="debug-section-header"><h4 class="debug-section-title">Content Supervision</h4><button class="sv-fetch-btn" :disabled="supervisionLoading" @click="debugStore.fetchSupervision()">Fetch</button></div>
           <div v-if="supervisionLoading" class="debug-loading" style="padding:16px;">Loading supervision data...</div>
           <div v-else-if="supervisionError" class="debug-error" style="padding:16px;">{{ supervisionError }}</div>
           <div v-else-if="supervisionStats === null" class="debug-empty" style="padding:16px;">No supervision data loaded yet. Click Fetch to load.</div>
           <template v-else>
-            <div class="sv-stats-grid">
-              <div class="sv-stat-card sv-stat-total"><span class="sv-stat-num">{{ supervisionStats.total }}</span><span class="sv-stat-label">Total Reviews</span></div>
-              <div class="sv-stat-card sv-stat-blocked"><span class="sv-stat-num">{{ supervisionStats.blocked }}</span><span class="sv-stat-label">Blocked</span></div>
-              <div class="sv-stat-card sv-stat-passed"><span class="sv-stat-num">{{ supervisionStats.passed }}</span><span class="sv-stat-label">Passed</span></div>
-              <div class="sv-stat-card sv-stat-sanitized"><span class="sv-stat-num">{{ supervisionStats.sanitized }}</span><span class="sv-stat-label">Sanitized</span></div>
-            </div>
-            <div v-if="Object.keys(supervisionStats.byRisk).length" class="sv-sub-section">
-              <h5 class="sv-sub-title">By Risk</h5>
-              <div class="sv-pills"><span v-for="(count, risk) in supervisionStats.byRisk" :key="risk" class="sv-pill" :class="'risk-' + risk">{{ risk }}: {{ count }}</span></div>
-            </div>
-            <div v-if="Object.keys(supervisionStats.bySourceKind).length" class="sv-sub-section">
-              <h5 class="sv-sub-title">By Source</h5>
-              <div class="sv-pills"><span v-for="(count, kind) in supervisionStats.bySourceKind" :key="kind" class="sv-pill sv-pill-kind">{{ kind }}: {{ count }}</span></div>
-            </div>
-            <div v-if="supervisionReviews.length > 0" class="sv-sub-section">
-              <h5 class="sv-sub-title">Recent Reviews ({{ supervisionReviews.length }})</h5>
-              <div class="sv-review-list">
-                <div v-for="review in supervisionReviews.slice(0, 20)" :key="review.id" class="sv-review-item" :class="'sv-review-' + review.status">
-                  <span class="sv-review-status-badge" :class="'sv-st-' + review.status">{{ review.status }}</span>
-                  <div class="sv-review-body">
-                    <span class="sv-review-summary">{{ review.summary }}</span>
-                    <div class="sv-review-meta">
-                      <span class="sv-review-source">{{ review.source_ref }}</span>
-                      <span class="sv-review-risk" :class="'risk-' + review.risk">{{ review.risk }}</span>
-                      <span class="sv-review-time">{{ fmtDate(review.created_at) }}</span>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-            <div v-if="supervisionQuarantine.length > 0" class="sv-sub-section">
-              <h5 class="sv-sub-title">Quarantine Index ({{ supervisionQuarantine.length }})</h5>
-              <div class="sv-quarantine-list">
-                <div v-for="entry in supervisionQuarantine" :key="entry.quarantine_id" class="sv-q-item">
-                  <div class="sv-q-header">
-                    <span class="sv-q-id mono">{{ entry.quarantine_id.slice(0, 12) }}...</span>
-                    <span class="sv-q-risk" :class="'risk-' + entry.risk">{{ entry.risk }}</span>
-                  </div>
-                  <div class="sv-q-meta">
-                    <span class="sv-q-source mono">{{ entry.source_ref }}</span>
-                    <span class="sv-q-time">{{ fmtDate(entry.created_at) }}</span>
-                  </div>
-                  <button class="sv-q-browse-btn" @click="browseQuarantineItem(entry.quarantine_id)">Browse in Files</button>
-                </div>
-              </div>
-            </div>
+            <div class="sv-stats-grid"><div class="sv-stat-card sv-stat-total"><span class="sv-stat-num">{{ supervisionStats.total }}</span><span class="sv-stat-label">Total Reviews</span></div><div class="sv-stat-card sv-stat-blocked"><span class="sv-stat-num">{{ supervisionStats.blocked }}</span><span class="sv-stat-label">Blocked</span></div><div class="sv-stat-card sv-stat-passed"><span class="sv-stat-num">{{ supervisionStats.passed }}</span><span class="sv-stat-label">Passed</span></div><div class="sv-stat-card sv-stat-sanitized"><span class="sv-stat-num">{{ supervisionStats.sanitized }}</span><span class="sv-stat-label">Sanitized</span></div></div>
+            <div v-if="Object.keys(supervisionStats.byRisk).length" class="sv-sub-section"><h5 class="sv-sub-title">By Risk</h5><div class="sv-pills"><span v-for="(count, risk) in supervisionStats.byRisk" :key="risk" class="sv-pill" :class="'risk-' + risk">{{ risk }}: {{ count }}</span></div></div>
+            <div v-if="Object.keys(supervisionStats.bySourceKind).length" class="sv-sub-section"><h5 class="sv-sub-title">By Source</h5><div class="sv-pills"><span v-for="(count, kind) in supervisionStats.bySourceKind" :key="kind" class="sv-pill sv-pill-kind">{{ kind }}: {{ count }}</span></div></div>
+            <div v-if="supervisionReviews.length > 0" class="sv-sub-section"><h5 class="sv-sub-title">Recent Reviews ({{ supervisionReviews.length }})</h5><div class="sv-review-list"><div v-for="review in supervisionReviews.slice(0, 20)" :key="review.id" class="sv-review-item" :class="'sv-review-' + review.status"><span class="sv-review-status-badge" :class="'sv-st-' + review.status">{{ review.status }}</span><div class="sv-review-body"><span class="sv-review-summary">{{ review.summary }}</span><div class="sv-review-meta"><span class="sv-review-source">{{ review.source_ref }}</span><span class="sv-review-risk" :class="'risk-' + review.risk">{{ review.risk }}</span><span class="sv-review-time">{{ fmtDate(review.created_at) }}</span></div></div></div></div></div>
+            <div v-if="supervisionQuarantine.length > 0" class="sv-sub-section"><h5 class="sv-sub-title">Quarantine Index ({{ supervisionQuarantine.length }})</h5><div class="sv-quarantine-list"><div v-for="entry in supervisionQuarantine" :key="entry.quarantine_id" class="sv-q-item"><div class="sv-q-header"><span class="sv-q-id mono">{{ entry.quarantine_id.slice(0, 12) }}...</span><span class="sv-q-risk" :class="'risk-' + entry.risk">{{ entry.risk }}</span></div><div class="sv-q-meta"><span class="sv-q-source mono">{{ entry.source_ref }}</span><span class="sv-q-time">{{ fmtDate(entry.created_at) }}</span></div><button class="sv-q-browse-btn" @click="browseQuarantineItem(entry.quarantine_id)">Browse in Files</button></div></div></div>
           </template>
         </section>
       </div>
@@ -455,6 +368,8 @@ import { storeToRefs } from 'pinia';
 import { useDebugStore } from '../stores/debug';
 import { useMcpStore } from '../stores/mcp';
 import type { DebugError, DebugTimelineEvent, ProcessView } from '../api/types';
+import NotificationsPanel from '../components/cards/NotificationsPanel.vue';
+import PendingConfirmationsPanel from '../components/cards/PendingConfirmationsPanel.vue';
 
 const debugStore = useDebugStore();
 const mcpStore = useMcpStore();
@@ -475,7 +390,6 @@ const {
 } = storeToRefs(debugStore);
 
 type TabId = 'state' | 'operator' | 'errors' | 'timeline' | 'mcp' | 'processes' | 'supervision';
-
 const tabs = [
   { id: 'state' as const, label: 'State' },
   { id: 'operator' as const, label: 'Operator Control' },
@@ -487,87 +401,26 @@ const tabs = [
 ];
 
 const localActiveTab = ref<TabId>('state');
-
-const runtimeStatusLabel = computed(() => {
-  if (!debugRuntime.value) return 'Unavailable';
-  if (debugRuntime.value.status === 'frozen') return 'Frozen';
-  if (debugRuntime.value.status === 'paused') return 'Paused';
-  if (debugRuntime.value.status === 'running') return 'Running';
-  if (debugRuntime.value.status === 'idle') return 'Idle';
-  return 'Error';
-});
-
-const runtimeStatusTone = computed(() => {
-  if (!debugRuntime.value) return 'unavailable';
-  return debugRuntime.value.status;
-});
-
-const runtimeDispatchLabel = computed(() => {
-  if (!debugRuntime.value) return 'Unknown';
-  return debugRuntime.value.paused ? 'Paused' : 'Dispatch active';
-});
-
-const operatorPanelBusy = computed(() => (
-  operatorNotesLoading.value || runtimeControlLoading.value !== null || operatorClearLoading.value
-));
-
+const runtimeStatusLabel = computed(() => !debugRuntime.value ? 'Unavailable' : debugRuntime.value.status === 'frozen' ? 'Frozen' : debugRuntime.value.status === 'paused' ? 'Paused' : debugRuntime.value.status === 'running' ? 'Running' : debugRuntime.value.status === 'idle' ? 'Idle' : 'Error');
+const runtimeStatusTone = computed(() => !debugRuntime.value ? 'unavailable' : debugRuntime.value.status);
+const runtimeDispatchLabel = computed(() => !debugRuntime.value ? 'Unknown' : debugRuntime.value.paused ? 'Paused' : 'Dispatch active');
+const operatorPanelBusy = computed(() => operatorNotesLoading.value || runtimeControlLoading.value !== null || operatorClearLoading.value);
 const operatorWarningBannerMessage = computed(() => {
-  if (!operatorStale.value && !operatorPartialWarning.value) {
-    return null;
-  }
-  if (runtimeControlError.value) {
-    return runtimeControlError.value;
-  }
-  if (operatorPartialWarning.value) {
-    return operatorPartialWarning.value;
-  }
+  if (!operatorStale.value && !operatorPartialWarning.value) return null;
+  if (runtimeControlError.value) return runtimeControlError.value;
+  if (operatorPartialWarning.value) return operatorPartialWarning.value;
   return 'This panel may be stale. Refresh to reconcile with server state.';
 });
+const pauseDisabled = computed(() => operatorUnauthorized.value || runtimeControlLoading.value !== null || !debugRuntime.value);
+const resumeDisabled = computed(() => operatorUnauthorized.value || runtimeControlLoading.value !== null || !debugRuntime.value || debugRuntime.value.status === 'frozen');
+const clearNotesDisabled = computed(() => operatorUnauthorized.value || operatorNotes.value.length === 0 || operatorClearLoading.value || Object.keys(operatorNoteActionLoading.value).length > 0);
+const sortedProcesses = computed(() => [...processes.value].sort((a, b) => { if (a.status === 'running' && b.status !== 'running') return -1; if (a.status !== 'running' && b.status === 'running') return 1; return new Date(b.started_at).getTime() - new Date(a.started_at).getTime(); }));
 
-const pauseDisabled = computed(() => (
-  operatorUnauthorized.value || runtimeControlLoading.value !== null || !debugRuntime.value
-));
-
-const resumeDisabled = computed(() => (
-  operatorUnauthorized.value || runtimeControlLoading.value !== null || !debugRuntime.value || debugRuntime.value.status === 'frozen'
-));
-
-const clearNotesDisabled = computed(() => (
-  operatorUnauthorized.value || operatorNotes.value.length === 0 || operatorClearLoading.value || Object.keys(operatorNoteActionLoading.value).length > 0
-));
-
-const sortedProcesses = computed(() => {
-  return [...processes.value].sort((a, b) => {
-    if (a.status === 'running' && b.status !== 'running') return -1;
-    if (a.status !== 'running' && b.status === 'running') return 1;
-    return new Date(b.started_at).getTime() - new Date(a.started_at).getTime();
-  });
-});
-
-function noteButtonsDisabled(noteId: string): boolean {
-  return operatorUnauthorized.value || operatorClearLoading.value || Boolean(operatorNoteActionLoading.value[noteId]);
-}
-
-async function refreshOperatorControl(): Promise<void> {
-  await debugStore.fetchOperatorControl().catch(() => {});
-}
-
-async function refreshNotes(): Promise<void> {
-  await debugStore.fetchNotes().catch(() => {});
-}
-
-async function confirmClearNotes(): Promise<void> {
-  if (!window.confirm('Clear all unhandled operator notes?')) return;
-  await debugStore.clearOperatorNotes();
-}
-
-async function confirmTerminateProcess(processId: string): Promise<void> {
-  if (!window.confirm(`Terminate process ${processId}? This sends a termination request to a live Saivage-managed process attached to this server. The server will re-check availability before signaling.`)) {
-    return;
-  }
-  await debugStore.terminateOperatorProcess(processId);
-}
-
+function noteButtonsDisabled(noteId: string): boolean { return operatorUnauthorized.value || operatorClearLoading.value || Boolean(operatorNoteActionLoading.value[noteId]); }
+async function refreshOperatorControl(): Promise<void> { await debugStore.fetchOperatorControl().catch(() => {}); }
+async function refreshNotes(): Promise<void> { await debugStore.fetchNotes().catch(() => {}); }
+async function confirmClearNotes(): Promise<void> { if (!window.confirm('Clear all unhandled operator notes?')) return; await debugStore.clearOperatorNotes(); }
+async function confirmTerminateProcess(processId: string): Promise<void> { if (!window.confirm(`Terminate process ${processId}? This sends a termination request to a live Saivage-managed process attached to this server. The server will re-check availability before signaling.`)) return; await debugStore.terminateOperatorProcess(processId); }
 function setTab(tab: TabId): void {
   localActiveTab.value = tab;
   if (tab === 'state') debugStore.fetchState().catch(() => {});
@@ -575,120 +428,36 @@ function setTab(tab: TabId): void {
   else if (tab === 'errors') debugStore.fetchErrors().catch(() => {});
   else if (tab === 'timeline') debugStore.fetchTimeline().catch(() => {});
   else if (tab === 'processes') debugStore.fetchProcesses().catch(() => {});
-  else if (tab === 'supervision') {
-    debugStore.fetchDoctor().catch(() => {});
-    debugStore.fetchSupervision().catch(() => {});
-  } else if (tab === 'mcp') mcpStore.fetchMcpData().catch(() => {});
+  else if (tab === 'supervision') { debugStore.fetchDoctor().catch(() => {}); debugStore.fetchSupervision().catch(() => {}); }
+  else if (tab === 'mcp') mcpStore.fetchMcpData().catch(() => {});
 }
-
-function browseQuarantineItem(quarantineId: string): void {
-  const path = '.saivage-work/quarantine/' + quarantineId;
-  router.push({ name: 'files', query: { path } });
-}
-
-function browseProcessLog(path: string): void {
-  router.push({ name: 'files', query: { path } });
-}
-
-function processLogEntries(proc: ProcessView): Array<{ key: string; label: string; value: string | null }> {
-  return [
-    { key: 'combined', label: 'Combined', value: proc.logs.combined },
-    { key: 'stdout', label: 'Stdout', value: proc.logs.stdout },
-    { key: 'stderr', label: 'Stderr', value: proc.logs.stderr },
-  ];
-}
-
-function showTerminateButton(proc: ProcessView): boolean {
-  return !processUnauthorized.value
-    && proc.control.can_terminate
-    && proc.control.terminate_status === 'live-attached';
-}
-
-function availabilityLabel(proc: ProcessView): string {
-  switch (proc.control.terminate_status) {
-    case 'live-attached':
-      return 'Live-attached';
-    case 'stale-not-attached':
-      return 'Degraded — not attached';
-    case 'already-ended':
-      return 'Ended';
-    default:
-      return 'Unknown';
-  }
-}
-
-function availabilityClass(proc: ProcessView): string {
-  switch (proc.control.terminate_status) {
-    case 'live-attached':
-      return 'process-availability-live';
-    case 'stale-not-attached':
-      return 'process-availability-warning';
-    case 'already-ended':
-      return 'process-availability-ended';
-    default:
-      return 'process-availability-unknown';
-  }
-}
-
+function browseQuarantineItem(quarantineId: string): void { router.push({ name: 'files', query: { path: '.saivage-work/quarantine/' + quarantineId } }); }
+function browseProcessLog(path: string): void { router.push({ name: 'files', query: { path } }); }
+function processLogEntries(proc: ProcessView): Array<{ key: string; label: string; value: string | null }> { return [{ key: 'combined', label: 'Combined', value: proc.logs.combined }, { key: 'stdout', label: 'Stdout', value: proc.logs.stdout }, { key: 'stderr', label: 'Stderr', value: proc.logs.stderr }]; }
+function showTerminateButton(proc: ProcessView): boolean { return !processUnauthorized.value && proc.control.can_terminate && proc.control.terminate_status === 'live-attached'; }
+function availabilityLabel(proc: ProcessView): string { return proc.control.terminate_status === 'live-attached' ? 'Live-attached' : proc.control.terminate_status === 'stale-not-attached' ? 'Degraded — not attached' : proc.control.terminate_status === 'already-ended' ? 'Ended' : 'Unknown'; }
+function availabilityClass(proc: ProcessView): string { return proc.control.terminate_status === 'live-attached' ? 'process-availability-live' : proc.control.terminate_status === 'stale-not-attached' ? 'process-availability-warning' : proc.control.terminate_status === 'already-ended' ? 'process-availability-ended' : 'process-availability-unknown'; }
 function terminateUnavailableCopy(proc: ProcessView): string {
   switch (proc.control.terminate_status) {
-    case 'stale-not-attached':
-      return 'Termination unavailable: this record is marked running, but no live server-owned process is attached. Refresh, then inspect host process state before manual cleanup.';
-    case 'already-ended':
-      return 'Process has ended; termination is unavailable.';
-    case 'unknown':
-      return 'Termination availability is unknown. Refresh and inspect server status before manual cleanup.';
-    default:
-      return 'Termination is unavailable for this process.';
+    case 'stale-not-attached': return 'Termination unavailable: this record is marked running, but no live server-owned process is attached. Refresh, then inspect host process state before manual cleanup.';
+    case 'already-ended': return 'Process has ended; termination is unavailable.';
+    case 'unknown': return 'Termination availability is unknown. Refresh and inspect server status before manual cleanup.';
+    default: return 'Termination is unavailable for this process.';
   }
 }
-
 interface CardStatusEntry { status: string; count: number }
-const cardStatusEntries = computed<CardStatusEntry[]>(() => {
-  const counts: Record<string, number> = {};
-  for (const card of debugCards.value) {
-    counts[card.status] = (counts[card.status] || 0) + 1;
-  }
-  return Object.entries(counts).map(([status, count]) => ({ status, count }));
-});
-
+const cardStatusEntries = computed<CardStatusEntry[]>(() => { const counts: Record<string, number> = {}; for (const card of debugCards.value) counts[card.status] = (counts[card.status] || 0) + 1; return Object.entries(counts).map(([status, count]) => ({ status, count })); });
 const maxStatusCount = computed(() => Math.max(...cardStatusEntries.value.map((e) => e.count), 1));
-
 interface ErrorSourceEntry { source: string; errors: DebugError[] }
-const errorSourceEntries = computed<ErrorSourceEntry[]>(() => {
-  const entries: ErrorSourceEntry[] = [];
-  for (const [source, errs] of errorsBySource.value) {
-    entries.push({ source, errors: errs });
-  }
-  return entries;
-});
-
+const errorSourceEntries = computed<ErrorSourceEntry[]>(() => { const entries: ErrorSourceEntry[] = []; for (const [source, errs] of errorsBySource.value) entries.push({ source, errors: errs }); return entries; });
 function fmtDate(ts: string): string { try { return new Date(ts).toLocaleString(); } catch { return ts; } }
 function fmtJson(data: Record<string, unknown>): string { try { return JSON.stringify(data, null, 2); } catch { return String(data); } }
 function formatEventKind(kind: string): string { return kind.replace(/_/g, ' '); }
-function timelineKey(event: DebugTimelineEvent): string {
-  return String(event.id || `${event.timestamp}:${event.kind}:${event.card_id || event.goal_id || event.session_id || ''}`);
-}
-function timelineDetails(event: DebugTimelineEvent): Record<string, unknown> {
-  const details: Record<string, unknown> = {};
-  for (const [key, value] of Object.entries(event)) {
-    if (['id', 'kind', 'timestamp', 'card_id', 'goal_id', 'session_id'].includes(key)) continue;
-    if (value === undefined || value === null) continue;
-    details[key] = value;
-  }
-  return details;
-}
+function timelineKey(event: DebugTimelineEvent): string { return String(event.id || `${event.timestamp}:${event.kind}:${event.card_id || event.goal_id || event.session_id || ''}`); }
+function timelineDetails(event: DebugTimelineEvent): Record<string, unknown> { const details: Record<string, unknown> = {}; for (const [key, value] of Object.entries(event)) { if (['id', 'kind', 'timestamp', 'card_id', 'goal_id', 'session_id'].includes(key)) continue; if (value === undefined || value === null) continue; details[key] = value; } return details; }
 
-onMounted(async () => {
-  debugStore.setupWsListener();
-  await debugStore.fetchAll();
-  mcpStore.fetchMcpData().catch(() => {});
-  mcpStore.startPolling(15000);
-});
-
-onUnmounted(() => {
-  mcpStore.stopPolling();
-});
+onMounted(async () => { debugStore.setupWsListener(); await debugStore.fetchAll(); mcpStore.fetchMcpData().catch(() => {}); mcpStore.startPolling(15000); });
+onUnmounted(() => { mcpStore.stopPolling(); });
 </script>
 
 <style scoped>

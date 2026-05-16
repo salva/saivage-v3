@@ -19,6 +19,9 @@ import type {
   DispatchSummary,
   DetailErrorState,
   DetailFreshnessState,
+  CardHistoryHeader,
+  CardHistoryEntry,
+  CardDiffRow,
 } from '../api/types';
 import {
   listCards,
@@ -26,6 +29,9 @@ import {
   createCard,
   updateCard,
   deleteCard,
+  listCardHistory,
+  getCardHistoryEntry,
+  getCardDiff,
   ApiError,
 } from '../api/client';
 import { useWsStore } from './ws';
@@ -56,6 +62,10 @@ function buildDetailError(err: unknown, fallback: string): DetailErrorState {
     return { kind: 'network', status: null, message: err.message || fallback };
   }
   return { kind: 'unknown', status: null, message: fallback };
+}
+
+function buildPanelError(err: unknown, fallback: string): DetailErrorState {
+  return buildDetailError(err, fallback);
 }
 
 function buildTree(cards: CardRecord[]): CardRecord[] {
@@ -105,6 +115,18 @@ export const useCardStore = defineStore('cards', () => {
     staleReason: null,
   });
 
+  const cardHistory = ref<CardHistoryHeader[]>([]);
+  const cardHistoryLoading = ref(false);
+  const cardHistoryError = ref<DetailErrorState | null>(null);
+  const cardHistorySelectedSeq = ref<number | null>(null);
+  const cardHistoryEntry = ref<CardHistoryEntry | null>(null);
+  const cardHistoryEntryLoading = ref(false);
+  const cardHistoryEntryError = ref<DetailErrorState | null>(null);
+  const cardHistoryDiff = ref<CardDiffRow[]>([]);
+  const cardHistoryDiffLoading = ref(false);
+  const cardHistoryDiffError = ref<DetailErrorState | null>(null);
+  const staleNotificationByCard = ref<Record<string, boolean>>({});
+
   const filterStatus = ref<CardStatus | ''>('');
   const filterType = ref<CardType | ''>('');
   const filterParent = ref<string>('');
@@ -143,6 +165,11 @@ export const useCardStore = defineStore('cards', () => {
     return columns;
   });
 
+  const currentCardHasStaleWarning = computed(() => {
+    const cardId = currentCard.value?.id;
+    return cardId ? staleNotificationByCard.value[cardId] === true : false;
+  });
+
   let mutationGen = 0;
   function bumpGen(): number { return ++mutationGen; }
 
@@ -177,6 +204,25 @@ export const useCardStore = defineStore('cards', () => {
       lastLoadedAt: null,
       staleReason: null,
     };
+    clearCardHistoryState();
+  }
+
+  function clearCardHistoryState(): void {
+    cardHistory.value = [];
+    cardHistoryLoading.value = false;
+    cardHistoryError.value = null;
+    cardHistorySelectedSeq.value = null;
+    cardHistoryEntry.value = null;
+    cardHistoryEntryLoading.value = false;
+    cardHistoryEntryError.value = null;
+    cardHistoryDiff.value = [];
+    cardHistoryDiffLoading.value = false;
+    cardHistoryDiffError.value = null;
+  }
+
+  function setCardStaleNotification(cardId: string | null | undefined, stale: boolean): void {
+    if (!cardId) return;
+    staleNotificationByCard.value = { ...staleNotificationByCard.value, [cardId]: stale };
   }
 
   function safeBackgroundRefresh(genAtStart: number): void {
@@ -245,6 +291,58 @@ export const useCardStore = defineStore('cards', () => {
       throw err;
     } finally {
       loading.value = false;
+    }
+  }
+
+  async function fetchCardHistoryForCard(cardId: string): Promise<void> {
+    cardHistoryLoading.value = true;
+    cardHistoryError.value = null;
+    try {
+      const response = await listCardHistory(cardId);
+      cardHistory.value = response.history;
+      if (response.history.length === 0) {
+        cardHistorySelectedSeq.value = null;
+        cardHistoryEntry.value = null;
+        cardHistoryDiff.value = [];
+      }
+    } catch (err) {
+      cardHistoryError.value = buildPanelError(err, 'Failed to load card history');
+      throw err;
+    } finally {
+      cardHistoryLoading.value = false;
+    }
+  }
+
+  async function selectCardHistoryVersion(cardId: string, seq: number): Promise<void> {
+    cardHistorySelectedSeq.value = seq;
+    cardHistoryEntryLoading.value = true;
+    cardHistoryEntryError.value = null;
+    cardHistoryDiffLoading.value = true;
+    cardHistoryDiffError.value = null;
+    try {
+      const [entryResponse, diffResponse] = await Promise.all([
+        getCardHistoryEntry(cardId, seq),
+        getCardDiff(cardId, seq, currentCard.value?.version_seq ?? seq + 1),
+      ]);
+      cardHistoryEntry.value = entryResponse.entry;
+      cardHistoryDiff.value = diffResponse.diff;
+    } catch (err) {
+      const panelError = buildPanelError(err, 'Failed to load card history details');
+      cardHistoryEntryError.value = panelError;
+      cardHistoryDiffError.value = panelError;
+      throw err;
+    } finally {
+      cardHistoryEntryLoading.value = false;
+      cardHistoryDiffLoading.value = false;
+    }
+  }
+
+  async function refreshCardHistory(cardId?: string): Promise<void> {
+    const id = cardId ?? currentCard.value?.id;
+    if (!id) return;
+    await fetchCardHistoryForCard(id);
+    if (cardHistorySelectedSeq.value != null) {
+      await selectCardHistoryVersion(id, cardHistorySelectedSeq.value);
     }
   }
 
@@ -319,7 +417,7 @@ export const useCardStore = defineStore('cards', () => {
   function setupWsListener(): void {
     if (wsUnsubscribe) return;
     const ws = useWsStore();
-    wsUnsubscribe = ws.onType('status', (envelope) => {
+    wsUnsubscribe = ws.onType('activity', (envelope) => {
       const content = envelope.content || {};
       const event = content.event as string;
 
@@ -356,6 +454,22 @@ export const useCardStore = defineStore('cards', () => {
         }
         const gen = bumpGen();
         safeBackgroundRefresh(gen);
+      } else if (event === 'card_history_appended') {
+        const cardId = content.card_id as string | undefined;
+        if (cardId && currentCard.value?.id === cardId) {
+          void refreshCardHistory(cardId).catch(() => {});
+          markDetailStale('ws-card-updated');
+        }
+      } else if (event === 'notification_added') {
+        const relatedCardId = (content.related_card_id as string | undefined) ?? null;
+        if (relatedCardId) {
+          setCardStaleNotification(relatedCardId, true);
+        }
+      } else if (event === 'notification_acknowledged') {
+        const relatedCardId = (content.related_card_id as string | undefined) ?? null;
+        if (relatedCardId) {
+          setCardStaleNotification(relatedCardId, false);
+        }
       }
     });
   }
@@ -375,6 +489,18 @@ export const useCardStore = defineStore('cards', () => {
     currentDispatches,
     currentDetailError,
     currentDetailFreshness,
+    cardHistory,
+    cardHistoryLoading,
+    cardHistoryError,
+    cardHistorySelectedSeq,
+    cardHistoryEntry,
+    cardHistoryEntryLoading,
+    cardHistoryEntryError,
+    cardHistoryDiff,
+    cardHistoryDiffLoading,
+    cardHistoryDiffError,
+    staleNotificationByCard,
+    currentCardHasStaleWarning,
     filterStatus,
     filterType,
     filterParent,
@@ -385,6 +511,9 @@ export const useCardStore = defineStore('cards', () => {
     board,
     fetchCards,
     fetchCardDetail,
+    fetchCardHistoryForCard,
+    selectCardHistoryVersion,
+    refreshCardHistory,
     addCard,
     editCard,
     removeCard,
@@ -392,5 +521,7 @@ export const useCardStore = defineStore('cards', () => {
     clearFilters,
     setupWsListener,
     markDetailStale,
+    clearCardHistoryState,
+    setCardStaleNotification,
   };
 });

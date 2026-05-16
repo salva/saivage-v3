@@ -22,6 +22,23 @@ export type CardStatus =
 export type CardUrgency = 'low' | 'normal' | 'high' | 'critical';
 export type CardCreator = 'user' | 'analyst' | 'planner';
 export type SafeFileSensitivity = 'normal' | 'sensitive-blocked' | 'sensitive-redacted';
+export type NoteAuthor = 'user' | 'analyst' | 'planner' | 'executor' | 'reviewer' | 'runtime';
+export type NoteKind = 'comment' | 'progress' | 'directive' | 'escalation';
+export type ControlActionSurface = 'web-chat' | 'telegram' | 'rest' | 'cli' | 'runtime' | 'web-ui';
+export type NotificationSeverity = 'info' | 'warn' | 'block';
+export type NotificationKind = 'card_changed' | 'note_added' | 'process_state' | 'runtime_state' | 'config_changed';
+export type ControlActionOutcome = 'ok' | 'error' | 'denied' | 'rejected';
+
+export interface NoteRecord {
+  id: string;
+  card_id: string;
+  author: NoteAuthor;
+  timestamp: string;
+  content: string;
+  kind: NoteKind;
+  handled: boolean;
+  handled_at?: string | null;
+}
 
 export interface CardRecord {
   id: string;
@@ -32,12 +49,14 @@ export interface CardRecord {
   description: string;
   status: CardStatus;
   subtype?: string | null;
+  instructions_file?: string | null;
   tags: string[];
   priority: number;
   urgency: CardUrgency;
   created_by: CardCreator;
   created_at: string;
   updated_at: string;
+  version_seq?: number;
   assigned_to?: string | null;
   depends_on: string[];
   blocks: string[];
@@ -207,26 +226,65 @@ export interface DetailFreshnessState {
   staleReason: 'ws-card-updated' | 'refresh-failed' | null;
 }
 
-export type NoteAuthor = 'user' | 'analyst' | 'planner' | 'executor' | 'reviewer' | 'runtime';
-export type NoteKind = 'comment' | 'progress' | 'directive' | 'escalation';
-
-export interface NoteRecord {
-  id: string;
-  card_id: string;
-  author: NoteAuthor;
-  timestamp: string;
-  content: string;
-  kind: NoteKind;
-  handled: boolean;
-  handled_at?: string | null;
-}
-
 export interface NoteQueueEntry {
   card_id: string;
   note_id: string;
   timestamp: string;
   kind: NoteKind;
   note?: NoteRecord;
+}
+
+export interface CardHistoryHeader {
+  card_id: string;
+  version_seq: number;
+  changed_at: string;
+  changed_by_actor: NoteAuthor;
+  changed_by_surface: ControlActionSurface;
+  change_reason: string | null;
+  changed_fields: string[];
+  change_summary: string;
+}
+
+export interface CardHistoryEntry extends CardHistoryHeader {
+  snapshot: CardRecord;
+}
+
+export interface CardDiffRow {
+  field: string;
+  before: unknown;
+  after: unknown;
+}
+
+export interface NotificationRecord {
+  id: string;
+  session_id: string | null;
+  kind: NotificationKind;
+  severity: NotificationSeverity;
+  payload_summary: string;
+  related_card_id?: string;
+  related_note_id?: string;
+  related_process_id?: string;
+  related_version_seq?: number;
+  source_actor: NoteAuthor;
+  source_surface: ControlActionSurface;
+  created_at: string;
+  delivered_at: string | null;
+  acknowledged_at: string | null;
+}
+
+export interface ControlActionAuditEntry {
+  id: string;
+  actor: NoteAuthor;
+  surface: ControlActionSurface;
+  action: string;
+  target_kind: 'card' | 'note' | 'process' | 'runtime' | 'config' | 'session' | null;
+  target_id: string | null;
+  params_summary: string;
+  confirmed: boolean;
+  outcome: ControlActionOutcome;
+  outcome_summary: string;
+  error?: string;
+  created_at: string;
 }
 
 export type DiaryEntryKind =
@@ -598,6 +656,9 @@ export interface CardDetailResponse {
 }
 export interface CardCreateResponse { card: CardRecord; }
 export interface CardUpdateResponse { card: CardRecord; }
+export interface CardHistoryListResponse { history: CardHistoryHeader[]; total: number; }
+export interface CardHistoryEntryResponse { entry: CardHistoryEntry; }
+export interface CardDiffResponse { diff: CardDiffRow[]; from: number; to: number; card_id: string; }
 export interface RuntimeStateResponse { runtime: RuntimeState | null; cardIndex: CardIndex; }
 export interface ConfigResponse { config: Record<string, unknown>; warnings?: string[]; }
 export interface ProvidersResponse { providers: Record<string, ProviderEntry>; warnings?: string[]; }
@@ -605,6 +666,9 @@ export interface AgentConversationResponse { session: AgentSession; messages: Ag
 export interface AgentSessionsResponse { sessions: AgentSession[]; }
 export interface NotesListResponse { notes: NoteQueueEntry[]; total: number; }
 export interface NotesClearResponse { deleted: number; noteIds: string[]; }
+export interface NotificationsListResponse { notifications: NotificationRecord[]; total: number; }
+export interface NotificationAcknowledgeResponse { notification: NotificationRecord; }
+export interface ControlActionsListResponse { control_actions: ControlActionAuditEntry[]; total: number; }
 export interface ChatSessionsResponse { sessions: ChatSession[]; }
 export interface ChatMessagesResponse { sessionId: string; messages: ChatMessage[]; }
 export interface FilesListResponse { path: string; files: FileEntry[]; }
@@ -638,6 +702,7 @@ export interface CreateCardPayload {
   retries?: number;
   subtype?: string;
   assigned_to?: string;
+  instructions_file?: string;
 }
 
 export interface UpdateCardPayload {
@@ -659,4 +724,5 @@ export interface UpdateCardPayload {
   assigned_to?: string | null;
   type?: CardType;
   subtype?: string | null;
+  instructions_file?: string | null;
 }

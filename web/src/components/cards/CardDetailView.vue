@@ -19,6 +19,7 @@
           This card detail may be stale. Refresh to reload canonical card and evidence data from the server.
           <button type="button" class="retry-btn" @click="reloadDetail">Refresh card</button>
         </div>
+        <StaleWarningRibbon v-if="currentCardHasStaleWarning" />
         <div v-if="lifecycle?.error || currentCard.error" class="detail-callout error" role="alert">
           Card error: {{ lifecycle?.error || currentCard.error }}
         </div>
@@ -34,6 +35,7 @@
         <div class="meta-grid">
           <div class="meta-item"><span class="meta-key">Created</span><span class="meta-value">{{ fmtDate(currentCard.created_at) }}</span></div>
           <div class="meta-item"><span class="meta-key">Updated</span><span class="meta-value">{{ fmtDate(currentCard.updated_at) }}</span></div>
+          <div class="meta-item"><span class="meta-key">Version</span><span class="meta-value">{{ currentCard.version_seq ?? 'unknown' }}</span></div>
           <div v-if="currentCard.started_at || lifecycle?.startedAt" class="meta-item"><span class="meta-key">Started</span><span class="meta-value">{{ fmtDate(currentCard.started_at || lifecycle?.startedAt || '') }}</span></div>
           <div v-if="currentCard.completed_at || lifecycle?.completedAt" class="meta-item"><span class="meta-key">Completed</span><span class="meta-value">{{ fmtDate(currentCard.completed_at || lifecycle?.completedAt || '') }}</span></div>
           <div class="meta-item"><span class="meta-key">Priority</span><span class="meta-value" :class="{ high: currentCard.priority > 5 }">{{ currentCard.priority }} / 10</span></div>
@@ -43,6 +45,8 @@
           <div class="meta-item"><span class="meta-key">Retries</span><span class="meta-value">{{ lifecycle?.retries ?? currentCard.retries }}</span></div>
         </div>
       </section>
+
+      <CardHistoryPanel :card-id="currentCard.id" />
 
       <section class="detail-section">
         <h3 class="section-heading">Completion &amp; blockers</h3>
@@ -249,6 +253,8 @@ import { storeToRefs } from 'pinia';
 import { getFileContent, ApiError } from '../../api/client';
 import type { GeneratedFileRef, VerificationCommandRef, DetailErrorState, CardStatus } from '../../api/types';
 import { createLogger } from '../../utils/logger';
+import CardHistoryPanel from './CardHistoryPanel.vue';
+import StaleWarningRibbon from './StaleWarningRibbon.vue';
 
 const log = createLogger('comp:card-detail');
 const props = defineProps<{ cardId: string }>();
@@ -265,6 +271,7 @@ const {
   currentDispatches: dispatches,
   currentDetailError,
   currentDetailFreshness,
+  currentCardHasStaleWarning,
   loading,
 } = storeToRefs(cardStore);
 
@@ -277,7 +284,7 @@ const previewState = ref<{ status: 'idle' } | { status: 'loading'; path: string 
 const TYPE_ICONS: Record<string, string> = { project: '(P)', goal: '(G)', architecture: '(A)', code: '(C)', test: '(T)', doc: '(D)', data: '(DA)', research: '(R)', ops: '(O)' };
 function typeIcon(type: string): string { return TYPE_ICONS[type] || '(?)'; }
 function fmtDate(ts: string): string { try { return ts ? new Date(ts).toLocaleString() : ''; } catch { return ts; } }
-function fmtJson(obj: Record<string, unknown>): string { try { return JSON.stringify(obj, null, 2); } catch { return String(obj); } }
+function fmtJson(obj: unknown): string { try { return JSON.stringify(obj, null, 2); } catch { return String(obj); } }
 function esc(text: string): string { return text.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 function renderMarkdown(text: string): string { return esc(text).replace(/\n/g, '<br>'); }
 function sourceLabel(source: string): string { return source.replace('result.', ''); }
@@ -398,7 +405,7 @@ onMounted(async () => { await reloadDetail(); });
 watch(() => props.cardId, async (nid) => {
   selectedPath.value = null;
   previewState.value = { status: 'idle' };
-  if (nid) { await reloadDetail(); }
+  if (nid) await reloadDetail();
 });
 </script>
 
@@ -438,7 +445,8 @@ watch(() => props.cardId, async (nid) => {
 .preview-notice.warning,.detail-callout.warning { background:#241f18; }
 .preview-notice.error,.detail-callout.error { background:#241818; }
 .detail-callout.success { background:#1a2418; }
-.preview-content,.detail-json { background:#0d1117; border:1px solid #21262d; border-radius:4px; padding:12px; font-size:12px; line-height:1.5; overflow-x:auto; white-space:pre-wrap; word-break:break-word; color:#c9d1d9; margin:0; }
+.detail-json { background:#0d1117; border:1px solid #21262d; border-radius:4px; padding:12px; font-size:12px; line-height:1.5; overflow-x:auto; white-space:pre-wrap; word-break:break-word; color:#c9d1d9; margin:0; }
+.preview-content { background:#0d1117; border:1px solid #21262d; border-radius:4px; padding:12px; font-size:12px; line-height:1.5; overflow-x:auto; white-space:pre-wrap; word-break:break-word; color:#c9d1d9; margin:0; }
 .retry-btn,.nav-pill { padding:6px 10px; background:#21262d; border:1px solid #30363d; color:#c9d1d9; border-radius:4px; cursor:pointer; }
 .empty-evidence { color:#8b949e; font-size:13px; padding:8px 0; }
 .pill-list { display:flex; flex-wrap:wrap; gap:8px; }

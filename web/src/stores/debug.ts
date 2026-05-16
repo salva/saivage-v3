@@ -5,13 +5,6 @@
  * diagnostics, and content supervision data. All data is read-only
  * for inspection purposes — actions should link back to the
  * relevant card or process.
- *
- * Error handling is per-fetch where possible:
- *  - fetchState / fetchErrors / fetchTimeline share `loading` and `error`
- *    (they are loaded together via fetchAll on mount).
- *  - fetchProcesses, fetchDoctor, fetchSupervision, and operator controls
- *    each keep separate loading/error state so failures do not bleed into
- *    unrelated operator views.
  */
 
 import { defineStore } from 'pinia';
@@ -36,6 +29,10 @@ import type {
   ProcessListResponse,
   NoteQueueEntry,
   NotesListResponse,
+  NotificationRecord,
+  NotificationsListResponse,
+  ControlActionAuditEntry,
+  ControlActionsListResponse,
 } from '../api/types';
 import {
   getDebugState,
@@ -51,13 +48,15 @@ import {
   clearAllNotes,
   pauseRuntime,
   resumeRuntime,
+  listNotifications,
+  acknowledgeNotification,
+  listControlActions,
   ApiError,
 } from '../api/client';
 import { useWsStore } from './ws';
 import { createLogger } from '../utils/logger';
 
 const log = createLogger('store:debug');
-
 const OPERATOR_STALE_AGE_MS = 60_000;
 
 function operatorErrorMessage(err: unknown): string {
@@ -76,6 +75,10 @@ function operatorErrorMessage(err: unknown): string {
     }
   }
   return 'Operator control request failed.';
+}
+
+function buildPanelState(err: unknown): 'unauthorized' | 'error' {
+  return err instanceof ApiError && err.status === 401 ? 'unauthorized' : 'error';
 }
 
 export const useDebugStore = defineStore('debug', () => {
@@ -123,6 +126,20 @@ export const useDebugStore = defineStore('debug', () => {
   const operatorNotesTotal = ref(0);
   const operatorNotesLoading = ref(false);
   const operatorNotesError = ref<string | null>(null);
+
+  const notifications = ref<NotificationRecord[]>([]);
+  const notificationsTotal = ref(0);
+  const notificationsLoading = ref(false);
+  const notificationsError = ref<string | null>(null);
+  const notificationsState = ref<'idle' | 'success' | 'empty' | 'unauthorized' | 'error'>('idle');
+  const notificationActionLoading = ref<Record<string, boolean>>({});
+
+  const controlActions = ref<ControlActionAuditEntry[]>([]);
+  const controlActionsTotal = ref(0);
+  const controlActionsLoading = ref(false);
+  const controlActionsError = ref<string | null>(null);
+  const controlActionsState = ref<'idle' | 'success' | 'empty' | 'unauthorized' | 'error'>('idle');
+
   const runtimeControlLoading = ref<'pause' | 'resume' | null>(null);
   const runtimeControlError = ref<string | null>(null);
   const runtimeControlSuccess = ref<string | null>(null);
@@ -135,18 +152,17 @@ export const useDebugStore = defineStore('debug', () => {
 
   const loading = ref(false);
   const error = ref<string | null>(null);
-
   const activeTab = ref<'state' | 'errors' | 'timeline' | 'supervision'>('state');
+
+  const pendingConfirmations = computed(() => {
+    return controlActions.value.filter((entry) => entry.outcome === 'rejected' && entry.outcome_summary.toLowerCase().includes('preview-only'));
+  });
 
   const errorsBySource = computed<Map<string, DebugError[]>>(() => {
     const map = new Map<string, DebugError[]>();
     for (const e of errors.value) {
       const list = map.get(e.source);
-      if (list) {
-        list.push(e);
-      } else {
-        map.set(e.source, [e]);
-      }
+      if (list) list.push(e); else map.set(e.source, [e]);
     }
     return map;
   });
@@ -155,36 +171,23 @@ export const useDebugStore = defineStore('debug', () => {
     const map = new Map<string, DebugError[]>();
     for (const e of errors.value) {
       const list = map.get(e.severity);
-      if (list) {
-        list.push(e);
-      } else {
-        map.set(e.severity, [e]);
-      }
+      if (list) list.push(e); else map.set(e.severity, [e]);
     }
     return map;
   });
 
   const sortedTimeline = computed<DebugTimelineEvent[]>(() =>
-    [...timelineEvents.value].sort(
-      (a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime(),
-    ),
+    [...timelineEvents.value].sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()),
   );
 
-  const problemCards = computed(() =>
-    debugCards.value.filter((c) => c.status === 'failed' || c.status === 'blocked'),
-  );
-
+  const problemCards = computed(() => debugCards.value.filter((c) => c.status === 'failed' || c.status === 'blocked'));
   const failedChecks = computed(() => doctorChecks.value.filter((c) => !c.passed));
 
   const doctorIssuesBySeverity = computed(() => {
     const map = new Map<'error' | 'warning', DoctorIssue[]>();
     for (const issue of doctorIssues.value) {
       const list = map.get(issue.severity);
-      if (list) {
-        list.push(issue);
-      } else {
-        map.set(issue.severity, [issue]);
-      }
+      if (list) list.push(issue); else map.set(issue.severity, [issue]);
     }
     return map;
   });
@@ -193,11 +196,7 @@ export const useDebugStore = defineStore('debug', () => {
     const map = new Map<string, ContentReview[]>();
     for (const r of supervisionReviews.value) {
       const list = map.get(r.status);
-      if (list) {
-        list.push(r);
-      } else {
-        map.set(r.status, [r]);
-      }
+      if (list) list.push(r); else map.set(r.status, [r]);
     }
     return map;
   });
@@ -222,11 +221,7 @@ export const useDebugStore = defineStore('debug', () => {
   function upsertProcess(process: ProcessView): void {
     const index = processes.value.findIndex((entry) => entry.id === process.id);
     if (index >= 0) {
-      processes.value = [
-        ...processes.value.slice(0, index),
-        process,
-        ...processes.value.slice(index + 1),
-      ];
+      processes.value = [...processes.value.slice(0, index), process, ...processes.value.slice(index + 1)];
       return;
     }
     processes.value = [...processes.value, process];
@@ -296,9 +291,7 @@ export const useDebugStore = defineStore('debug', () => {
     } catch (err) {
       const msg = err instanceof ApiError ? err.message : 'Failed to fetch processes';
       processesError.value = msg;
-      if (err instanceof ApiError && err.status === 401) {
-        processUnauthorized.value = true;
-      }
+      if (err instanceof ApiError && err.status === 401) processUnauthorized.value = true;
       log.error('fetchProcesses', msg);
     } finally {
       processesLoading.value = false;
@@ -327,9 +320,7 @@ export const useDebugStore = defineStore('debug', () => {
           await fetchProcesses();
         } else if (err.status === 409 || err.status === 503) {
           const process = err.body['process'] as ProcessView | undefined;
-          if (process) {
-            upsertProcess(process);
-          }
+          if (process) upsertProcess(process);
           if (err.status === 409) {
             processControlError.value = 'Process has already ended. Refreshing process list.';
             processStale.value = false;
@@ -395,9 +386,7 @@ export const useDebugStore = defineStore('debug', () => {
       operatorNotes.value = response.notes;
       operatorNotesTotal.value = response.total;
       operatorUnauthorized.value = false;
-      if (!runtimeControlLoading.value && !operatorStale.value) {
-        runtimeControlError.value = null;
-      }
+      if (!runtimeControlLoading.value && !operatorStale.value) runtimeControlError.value = null;
     } catch (err) {
       const msg = operatorErrorMessage(err);
       operatorNotesError.value = msg;
@@ -412,36 +401,61 @@ export const useDebugStore = defineStore('debug', () => {
     }
   }
 
+  async function fetchNotifications(): Promise<void> {
+    notificationsLoading.value = true;
+    notificationsError.value = null;
+    try {
+      const response: NotificationsListResponse = await listNotifications();
+      notifications.value = response.notifications;
+      notificationsTotal.value = response.total;
+      notificationsState.value = response.notifications.length === 0 ? 'empty' : 'success';
+    } catch (err) {
+      notificationsError.value = operatorErrorMessage(err);
+      notificationsState.value = buildPanelState(err);
+      throw err;
+    } finally {
+      notificationsLoading.value = false;
+    }
+  }
+
+  async function fetchControlActions(): Promise<void> {
+    controlActionsLoading.value = true;
+    controlActionsError.value = null;
+    try {
+      const response: ControlActionsListResponse = await listControlActions();
+      controlActions.value = response.control_actions;
+      controlActionsTotal.value = response.total;
+      controlActionsState.value = response.control_actions.length === 0 ? 'empty' : 'success';
+    } catch (err) {
+      controlActionsError.value = operatorErrorMessage(err);
+      controlActionsState.value = buildPanelState(err);
+      throw err;
+    } finally {
+      controlActionsLoading.value = false;
+    }
+  }
+
   async function fetchOperatorControl(): Promise<void> {
     operatorPartialWarning.value = null;
-    const hadPriorData = operatorNotes.value.length > 0 || debugRuntime.value !== null || operatorLastFetchedAt.value !== null;
+    const hadPriorData = operatorNotes.value.length > 0 || notifications.value.length > 0 || controlActions.value.length > 0 || debugRuntime.value !== null || operatorLastFetchedAt.value !== null;
 
-    const [notesResult, stateResult] = await Promise.allSettled([
+    const [notesResult, stateResult, notificationsResult, controlActionsResult] = await Promise.allSettled([
       fetchNotes(),
       fetchState(),
+      fetchNotifications(),
+      fetchControlActions(),
     ]);
 
-    const notesFailed = notesResult.status === 'rejected';
-    const stateFailed = stateResult.status === 'rejected';
-
-    if (!notesFailed && !stateFailed) {
+    const failures = [notesResult, stateResult, notificationsResult, controlActionsResult].filter((result) => result.status === 'rejected');
+    if (failures.length === 0) {
       operatorStale.value = false;
       operatorLastFetchedAt.value = new Date().toISOString();
       return;
     }
 
-    if (hadPriorData) {
-      operatorStale.value = true;
-    }
-
-    if (notesFailed && !stateFailed) {
-      operatorPartialWarning.value = 'Runtime state refreshed, but notes could not be loaded.';
-    } else if (!notesFailed && stateFailed) {
-      operatorPartialWarning.value = 'Notes refreshed, but runtime state could not be loaded.';
-      operatorLastFetchedAt.value = new Date().toISOString();
-    } else if (notesFailed && stateFailed) {
-      operatorPartialWarning.value = 'This panel may be stale. Refresh to reconcile with server state.';
-    }
+    if (hadPriorData) operatorStale.value = true;
+    operatorPartialWarning.value = 'This panel may be stale. Refresh to reconcile with server state.';
+    if (failures.length < 4) operatorLastFetchedAt.value = new Date().toISOString();
   }
 
   async function acknowledgeOperatorNote(noteId: string): Promise<void> {
@@ -518,12 +532,27 @@ export const useDebugStore = defineStore('debug', () => {
       operatorStale.value = false;
       markOperatorSuccess(`Cleared ${response.deleted} unhandled notes.`);
     } catch (err) {
-      if (err instanceof ApiError && err.status === 401) {
-        operatorUnauthorized.value = true;
-      }
+      if (err instanceof ApiError && err.status === 401) operatorUnauthorized.value = true;
       markOperatorError(operatorErrorMessage(err));
     } finally {
       operatorClearLoading.value = false;
+    }
+  }
+
+  async function acknowledgeOperatorNotification(notificationId: string): Promise<void> {
+    notificationActionLoading.value = { ...notificationActionLoading.value, [notificationId]: true };
+    try {
+      await acknowledgeNotification(notificationId);
+      notifications.value = notifications.value.filter((item) => item.id !== notificationId);
+      notificationsTotal.value = notifications.value.length;
+      notificationsState.value = notifications.value.length === 0 ? 'empty' : 'success';
+    } catch (err) {
+      notificationsError.value = operatorErrorMessage(err);
+      notificationsState.value = buildPanelState(err);
+    } finally {
+      const next = { ...notificationActionLoading.value };
+      delete next[notificationId];
+      notificationActionLoading.value = next;
     }
   }
 
@@ -536,9 +565,7 @@ export const useDebugStore = defineStore('debug', () => {
       operatorUnauthorized.value = false;
       markOperatorSuccess('Runtime pause requested successfully.');
     } catch (err) {
-      if (err instanceof ApiError && err.status === 401) {
-        operatorUnauthorized.value = true;
-      }
+      if (err instanceof ApiError && err.status === 401) operatorUnauthorized.value = true;
       markOperatorError(operatorErrorMessage(err));
     } finally {
       runtimeControlLoading.value = null;
@@ -555,9 +582,7 @@ export const useDebugStore = defineStore('debug', () => {
       operatorUnauthorized.value = false;
       markOperatorSuccess('Runtime resume requested successfully.');
     } catch (err) {
-      if (err instanceof ApiError && err.status === 401) {
-        operatorUnauthorized.value = true;
-      }
+      if (err instanceof ApiError && err.status === 401) operatorUnauthorized.value = true;
       markOperatorError(operatorErrorMessage(err));
     } finally {
       runtimeControlLoading.value = null;
@@ -604,37 +629,31 @@ export const useDebugStore = defineStore('debug', () => {
   }
 
   let wsUnsubscribe: (() => void) | null = null;
-
   function setupWsListener(): void {
     if (wsUnsubscribe) return;
     const ws = useWsStore();
 
-    wsUnsubscribe = ws.onType('status', (envelope) => {
+    wsUnsubscribe = ws.onType('activity', (envelope) => {
       const content = envelope.content || {};
       const event = content.event as string;
 
-      timelineEvents.value = [
-        {
-          kind: `ws:${event}`,
-          card_id: content.cardId as string | undefined,
-          timestamp: new Date().toISOString(),
-          ...content,
-        },
-        ...timelineEvents.value,
-      ].slice(0, 500);
+      timelineEvents.value = [{ kind: `ws:${event}`, card_id: content.cardId as string | undefined, timestamp: new Date().toISOString(), ...content }, ...timelineEvents.value].slice(0, 500);
 
+      if (event === 'notification_added' || event === 'notification_acknowledged') {
+        void fetchNotifications().catch(() => {});
+      }
+      if (event === 'control_action_recorded') {
+        void fetchControlActions().catch(() => {});
+      }
       if (event === 'error' && content.message) {
-        errors.value = [
-          {
-            source: content.source as string || 'runtime',
-            type: content.errorType as string || 'runtime-error',
-            severity: content.severity as string || 'error',
-            message: content.message as string,
-            details: content.details as string | undefined,
-            timestamp: new Date().toISOString(),
-          },
-          ...errors.value,
-        ].slice(0, 200);
+        errors.value = [{
+          source: content.source as string || 'runtime',
+          type: content.errorType as string || 'runtime-error',
+          severity: content.severity as string || 'error',
+          message: content.message as string,
+          details: content.details as string | undefined,
+          timestamp: new Date().toISOString(),
+        }, ...errors.value].slice(0, 200);
       }
     });
   }
@@ -669,6 +688,18 @@ export const useDebugStore = defineStore('debug', () => {
     operatorNotesTotal: readonly(operatorNotesTotal),
     operatorNotesLoading: readonly(operatorNotesLoading),
     operatorNotesError: readonly(operatorNotesError),
+    notifications: readonly(notifications),
+    notificationsTotal: readonly(notificationsTotal),
+    notificationsLoading: readonly(notificationsLoading),
+    notificationsError: readonly(notificationsError),
+    notificationsState: readonly(notificationsState),
+    notificationActionLoading: readonly(notificationActionLoading),
+    controlActions: readonly(controlActions),
+    controlActionsTotal: readonly(controlActionsTotal),
+    controlActionsLoading: readonly(controlActionsLoading),
+    controlActionsError: readonly(controlActionsError),
+    controlActionsState: readonly(controlActionsState),
+    pendingConfirmations,
     runtimeControlLoading: readonly(runtimeControlLoading),
     runtimeControlError: readonly(runtimeControlError),
     runtimeControlSuccess: readonly(runtimeControlSuccess),
@@ -697,10 +728,13 @@ export const useDebugStore = defineStore('debug', () => {
     fetchDoctor,
     fetchSupervision,
     fetchNotes,
+    fetchNotifications,
+    fetchControlActions,
     fetchOperatorControl,
     acknowledgeOperatorNote,
     deleteOperatorNote,
     clearOperatorNotes,
+    acknowledgeOperatorNotification,
     pauseOperatorRuntime,
     resumeOperatorRuntime,
     fetchAll,

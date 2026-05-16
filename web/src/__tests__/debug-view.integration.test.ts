@@ -1,6 +1,3 @@
-/**
- * Integration-level regression tests for the DebugView component.
- */
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import { mount, flushPromises } from '@vue/test-utils';
 import { setActivePinia, createPinia } from 'pinia';
@@ -32,6 +29,9 @@ vi.mock('../api/client', () => {
     clearAllNotes: vi.fn(),
     pauseRuntime: vi.fn(),
     resumeRuntime: vi.fn(),
+    listNotifications: vi.fn(),
+    acknowledgeNotification: vi.fn(),
+    listControlActions: vi.fn(),
     ApiError,
   };
 });
@@ -77,6 +77,9 @@ import {
   clearAllNotes,
   pauseRuntime,
   resumeRuntime,
+  listNotifications,
+  acknowledgeNotification,
+  listControlActions,
   ApiError,
 } from '../api/client';
 import type {
@@ -88,6 +91,8 @@ import type {
   DoctorResponse,
   SupervisionResponse,
   NotesListResponse,
+  NotificationsListResponse,
+  ControlActionsListResponse,
 } from '../api/types';
 
 const mockStateResponse: DebugStateResponse = {
@@ -103,169 +108,22 @@ const mockStateResponse: DebugStateResponse = {
     queue: ['card-pending-1', 'card-pending-2'],
     updated_at: '2025-06-01T10:00:00Z',
   },
-  cards: [
-    {
-      id: 'card-active-1',
-      type: 'goal' as const,
-      parent: null,
-      status: 'active' as const,
-      title: 'Active goal card',
-      priority: 5,
-      depends_on: [],
-      blocks: [],
-    },
-  ],
+  cards: [{ id: 'card-active-1', type: 'goal', parent: null, status: 'active', title: 'Active goal card', priority: 5, depends_on: [], blocks: [] }],
   totalCards: 1,
 };
+const mockFrozenStateResponse: DebugStateResponse = { ...mockStateResponse, runtime: { ...mockStateResponse.runtime!, status: 'frozen', paused: true, frozen_reason: 'operator handoff' } };
+const mockUnavailableStateResponse: DebugStateResponse = { ...mockStateResponse, runtime: null };
+const mockErrorsResponse: DebugErrorsResponse = { errors: [{ source: 'runtime', type: 'timeout', severity: 'error', message: 'Process proc-1 timed out after 30s', timestamp: '2025-06-01T10:01:00Z' }], total: 1 };
+const mockTimelineResponse: DebugTimelineResponse = { events: [{ id: 'evt-process-launched', kind: 'process_launched', card_id: 'card-active-1', timestamp: '2025-06-01T09:56:00Z', command: 'npm test' }], total: 1 };
+const mockProcessesResponse: ProcessListResponse = { processes: [{ id: 'proc-int-1', card_id: 'card-active-1', command: 'npm test', cwd: '.saivage-work/processes/proc-int-1', status: 'running', started_at: '2025-06-01T10:00:00Z', ended_at: null, exit_code: null, timed_out: false, owner: 'agent', session_id: 'session-1', logs: { stdout: '.saivage-work/processes/proc-int-1/stdout.log', stderr: '.saivage-work/processes/proc-int-1/stderr.log', combined: '.saivage-work/processes/proc-int-1/combined.log' }, control: { can_view_logs: true, can_terminate: true, terminate_status: 'live-attached', terminate_degraded: false, terminate_reason: 'Process is running and attached to this server; termination can be requested.' } }] };
+const mockMcpResponse: McpToolsResponse = { tools: [{ name: 'read_file', description: 'Read a file', inputSchema: { type: 'object' } }], servers: ['filesystem'], invocationStats: { 'filesystem:read_file': { total: 10, success: 10, error: 0 } }, serverDetails: [{ name: 'filesystem', transport: 'stdio', status: 'running', toolCount: 1, tools: [{ name: 'read_file', description: 'Read a file', inputSchema: { type: 'object' }, stats: { total: 10, success: 10, error: 0 } }] }] };
+const mockDoctorOk: DoctorResponse = { status: 'ok', checks: [{ name: 'card-index-check', passed: true }], issues: [] };
+const mockSupervisionResponse: SupervisionResponse = { reviews: [], quarantine: [], stats: { total: 0, blocked: 0, passed: 0, sanitized: 0, byRisk: {}, bySourceKind: {} } };
+const mockNotesResponse: NotesListResponse = { notes: [{ card_id: 'card-active-1', note_id: 'note-1', timestamp: '2025-06-01T10:03:00Z', kind: 'directive', note: { id: 'note-1', card_id: 'card-active-1', author: 'planner', timestamp: '2025-06-01T10:03:00Z', content: 'Check runtime status before proceeding.', kind: 'directive', handled: false } }], total: 1 };
+const mockNotificationsResponse: NotificationsListResponse = { notifications: [{ id: 'n-1', session_id: null, kind: 'card_changed', severity: 'warn', payload_summary: 'Active card changed', related_card_id: 'card-active-1', source_actor: 'analyst', source_surface: 'rest', created_at: '2025-06-01T10:02:00Z', delivered_at: null, acknowledged_at: null }], total: 1 };
+const mockControlActionsResponse: ControlActionsListResponse = { control_actions: [{ id: 'ca-1', actor: 'analyst', surface: 'web-chat', action: 'card.update', target_kind: 'card', target_id: 'card-active-1', params_summary: 'summary', confirmed: false, outcome: 'rejected', outcome_summary: 'preview-only: confirmation and matching preview_hash required', created_at: '2025-06-01T10:04:00Z' }], total: 1 };
 
-const mockFrozenStateResponse: DebugStateResponse = {
-  ...mockStateResponse,
-  runtime: {
-    ...mockStateResponse.runtime!,
-    status: 'frozen',
-    paused: true,
-    frozen_reason: 'operator handoff',
-  },
-};
-
-const mockUnavailableStateResponse: DebugStateResponse = {
-  ...mockStateResponse,
-  runtime: null,
-};
-
-const mockErrorsResponse: DebugErrorsResponse = {
-  errors: [
-    {
-      source: 'runtime',
-      type: 'timeout',
-      severity: 'error',
-      message: 'Process proc-1 timed out after 30s',
-      timestamp: '2025-06-01T10:01:00Z',
-    },
-  ],
-  total: 1,
-};
-
-const mockTimelineResponse: DebugTimelineResponse = {
-  events: [
-    {
-      id: 'evt-process-launched',
-      kind: 'process_launched',
-      card_id: 'card-active-1',
-      timestamp: '2025-06-01T09:56:00Z',
-      command: 'npm test',
-    },
-  ],
-  total: 1,
-};
-
-const mockProcessesResponse: ProcessListResponse = {
-  processes: [
-    {
-      id: 'proc-int-1',
-      card_id: 'card-active-1',
-      command: 'npm test',
-      cwd: '.saivage-work/processes/proc-int-1',
-      status: 'running',
-      started_at: '2025-06-01T10:00:00Z',
-      ended_at: null,
-      exit_code: null,
-      timed_out: false,
-      owner: 'agent',
-      session_id: 'session-1',
-      logs: {
-        stdout: '.saivage-work/processes/proc-int-1/stdout.log',
-        stderr: '.saivage-work/processes/proc-int-1/stderr.log',
-        combined: '.saivage-work/processes/proc-int-1/combined.log',
-      },
-      control: {
-        can_view_logs: true,
-        can_terminate: true,
-        terminate_status: 'live-attached',
-        terminate_degraded: false,
-        terminate_reason: 'Process is running and attached to this server; termination can be requested.',
-      },
-    },
-  ],
-};
-
-const mockMcpResponse: McpToolsResponse = {
-  tools: [
-    { name: 'read_file', description: 'Read a file', inputSchema: { type: 'object' } },
-  ],
-  servers: ['filesystem'],
-  invocationStats: {
-    'filesystem:read_file': { total: 10, success: 10, error: 0 },
-  },
-  serverDetails: [
-    {
-      name: 'filesystem',
-      transport: 'stdio',
-      status: 'running',
-      toolCount: 1,
-      tools: [
-        {
-          name: 'read_file',
-          description: 'Read a file',
-          inputSchema: { type: 'object' as const },
-          stats: { total: 10, success: 10, error: 0 },
-        },
-      ],
-    },
-  ],
-};
-
-const mockDoctorOk: DoctorResponse = {
-  status: 'ok',
-  checks: [
-    { name: 'card-index-check', passed: true },
-  ],
-  issues: [],
-};
-
-const mockSupervisionResponse: SupervisionResponse = {
-  reviews: [],
-  quarantine: [],
-  stats: {
-    total: 0,
-    blocked: 0,
-    passed: 0,
-    sanitized: 0,
-    byRisk: {},
-    bySourceKind: {},
-  },
-};
-
-const mockNotesResponse: NotesListResponse = {
-  notes: [
-    {
-      card_id: 'card-active-1',
-      note_id: 'note-1',
-      timestamp: '2025-06-01T10:03:00Z',
-      kind: 'directive',
-      note: {
-        id: 'note-1',
-        card_id: 'card-active-1',
-        author: 'planner',
-        timestamp: '2025-06-01T10:03:00Z',
-        content: 'Check runtime status before proceeding.',
-        kind: 'directive',
-        handled: false,
-      },
-    },
-  ],
-  total: 1,
-};
-
-function makeRouter() {
-  return createRouter({
-    history: createWebHistory(),
-    routes: [
-      { path: '/files', name: 'files', component: { template: '<div>Files</div>' } },
-    ],
-  });
-}
-
+function makeRouter() { return createRouter({ history: createWebHistory(), routes: [{ path: '/files', name: 'files', component: { template: '<div>Files</div>' } }] }); }
 function setupCommonMocks(): void {
   vi.mocked(getDebugState).mockResolvedValue(mockStateResponse);
   vi.mocked(getDebugErrors).mockResolvedValue(mockErrorsResponse);
@@ -275,71 +133,67 @@ function setupCommonMocks(): void {
   vi.mocked(getDoctor).mockResolvedValue(mockDoctorOk);
   vi.mocked(getDebugSupervision).mockResolvedValue(mockSupervisionResponse);
   vi.mocked(listNotes).mockResolvedValue(mockNotesResponse);
+  vi.mocked(listNotifications).mockResolvedValue(mockNotificationsResponse);
+  vi.mocked(listControlActions).mockResolvedValue(mockControlActionsResponse);
+  vi.mocked(acknowledgeNotification).mockResolvedValue({ notification: { id: 'n-1' } as any });
   vi.mocked(acknowledgeNote).mockResolvedValue({ note: { ...mockNotesResponse.notes[0].note!, handled: true, handled_at: '2025-06-01T10:04:00Z' } });
   vi.mocked(deleteNote).mockResolvedValue(undefined);
   vi.mocked(clearAllNotes).mockResolvedValue({ deleted: 1, noteIds: ['note-1'] });
   vi.mocked(pauseRuntime).mockResolvedValue({ status: 'paused' });
   vi.mocked(resumeRuntime).mockResolvedValue({ status: 'resumed' });
 }
-
 async function mountDebugView() {
   const pinia = createPinia();
   setActivePinia(pinia);
   const router = makeRouter();
-  const wrapper = mount(DebugView, {
-    global: {
-      plugins: [pinia, router],
-    },
-  });
+  const wrapper = mount(DebugView, { global: { plugins: [pinia, router] } });
   await flushPromises();
   return wrapper;
 }
-
-function findTabButton(wrapper: ReturnType<typeof mount>, label: string) {
-  return wrapper.findAll('.debug-tab').find((t) => t.text() === label);
-}
-
-async function clickTab(wrapper: ReturnType<typeof mount>, label: string) {
-  const tab = findTabButton(wrapper, label);
-  if (!tab) throw new Error(`Tab not found: ${label}`);
-  await tab.trigger('click');
-  await flushPromises();
-}
+function findTabButton(wrapper: ReturnType<typeof mount>, label: string) { return wrapper.findAll('.debug-tab').find((t) => t.text() === label); }
+async function clickTab(wrapper: ReturnType<typeof mount>, label: string) { const tab = findTabButton(wrapper, label); if (!tab) throw new Error(`Tab not found: ${label}`); await tab.trigger('click'); await flushPromises(); }
 
 describe('DebugView — integration', () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-    mockPush.mockClear();
-    setupCommonMocks();
-    vi.spyOn(window, 'confirm').mockReturnValue(true);
-  });
-
-  afterEach(() => {
-    vi.restoreAllMocks();
-  });
+  beforeEach(() => { vi.clearAllMocks(); mockPush.mockClear(); setupCommonMocks(); vi.spyOn(window, 'confirm').mockReturnValue(true); });
+  afterEach(() => { vi.restoreAllMocks(); });
 
   it('renders operator control tab and fetches operator APIs on open', async () => {
     const wrapper = await mountDebugView();
     expect(wrapper.findAll('.debug-tab').map((t) => t.text())).toContain('Operator Control');
-
     await clickTab(wrapper, 'Operator Control');
-
     expect(listNotes).toHaveBeenCalled();
+    expect(listNotifications).toHaveBeenCalled();
+    expect(listControlActions).toHaveBeenCalled();
     expect(getDebugState).toHaveBeenCalled();
     expect(wrapper.text()).toContain('Runtime Controls');
+    expect(wrapper.text()).toContain('Notifications Inbox (1)');
+    expect(wrapper.text()).toContain('Active card changed');
+    expect(wrapper.text()).toContain('Pending confirmations');
+    expect(wrapper.text()).toContain('preview-only');
     expect(wrapper.text()).toContain('Operator Notes (1)');
-    expect(wrapper.text()).toContain('Check runtime status before proceeding.');
+  });
+
+  it('shows empty notifications state', async () => {
+    vi.mocked(listNotifications).mockResolvedValue({ notifications: [], total: 0 });
+    const wrapper = await mountDebugView();
+    await clickTab(wrapper, 'Operator Control');
+    expect(wrapper.text()).toContain('No pending operator notifications.');
+  });
+
+  it('acknowledges an operator notification', async () => {
+    const wrapper = await mountDebugView();
+    await clickTab(wrapper, 'Operator Control');
+    await wrapper.find('[aria-label="Acknowledge notification n-1"]').trigger('click');
+    await flushPromises();
+    expect(acknowledgeNotification).toHaveBeenCalledWith('n-1');
   });
 
   it('shows loading operator copy while notes request is pending', async () => {
     let resolveNotes: (value: NotesListResponse) => void = () => {};
     vi.mocked(listNotes).mockReturnValue(new Promise((resolve) => { resolveNotes = resolve; }));
-
     const wrapper = await mountDebugView();
     await clickTab(wrapper, 'Operator Control');
-
     expect(wrapper.text()).toContain('Loading operator notes...');
-
     resolveNotes(mockNotesResponse);
     await flushPromises();
   });
@@ -354,11 +208,9 @@ describe('DebugView — integration', () => {
   it('acknowledges a note and shows success feedback', async () => {
     const wrapper = await mountDebugView();
     await clickTab(wrapper, 'Operator Control');
-
     const button = wrapper.find('[aria-label="Acknowledge note note-1"]');
     await button.trigger('click');
     await flushPromises();
-
     expect(acknowledgeNote).toHaveBeenCalledWith('note-1');
     expect(wrapper.text()).toContain('Note acknowledged.');
     expect(wrapper.text()).toContain('No unhandled operator notes.');
@@ -367,11 +219,9 @@ describe('DebugView — integration', () => {
   it('deletes a note and shows success feedback', async () => {
     const wrapper = await mountDebugView();
     await clickTab(wrapper, 'Operator Control');
-
     const button = wrapper.find('[aria-label="Delete note note-1"]');
     await button.trigger('click');
     await flushPromises();
-
     expect(deleteNote).toHaveBeenCalledWith('note-1');
     expect(wrapper.text()).toContain('Note deleted.');
     expect(wrapper.text()).toContain('No unhandled operator notes.');
@@ -380,108 +230,81 @@ describe('DebugView — integration', () => {
   it('clears notes and shows count success feedback', async () => {
     const wrapper = await mountDebugView();
     await clickTab(wrapper, 'Operator Control');
-
     const clearButton = wrapper.findAll('button').find((b) => b.text() === 'Clear all');
     await clearButton!.trigger('click');
     await flushPromises();
-
     expect(clearAllNotes).toHaveBeenCalled();
     expect(wrapper.text()).toContain('Cleared 1 unhandled notes.');
     expect(wrapper.text()).toContain('No unhandled operator notes.');
   });
 
   it('pauses runtime and shows success feedback', async () => {
-    vi.mocked(getDebugState)
-      .mockResolvedValueOnce(mockStateResponse)
-      .mockResolvedValueOnce(mockStateResponse)
-      .mockResolvedValueOnce({ ...mockStateResponse, runtime: { ...mockStateResponse.runtime!, status: 'paused', paused: true } });
-
+    vi.mocked(getDebugState).mockResolvedValueOnce(mockStateResponse).mockResolvedValueOnce(mockStateResponse).mockResolvedValueOnce({ ...mockStateResponse, runtime: { ...mockStateResponse.runtime!, status: 'paused', paused: true } });
     const wrapper = await mountDebugView();
     await clickTab(wrapper, 'Operator Control');
-
     const pauseButton = wrapper.findAll('button').find((b) => b.text() === 'Pause runtime');
     await pauseButton!.trigger('click');
     await flushPromises();
-
     expect(pauseRuntime).toHaveBeenCalled();
     expect(wrapper.text()).toContain('Runtime pause requested successfully.');
   });
 
   it('resumes runtime and shows success feedback', async () => {
-    vi.mocked(getDebugState)
-      .mockResolvedValueOnce({ ...mockStateResponse, runtime: { ...mockStateResponse.runtime!, status: 'paused', paused: true } })
-      .mockResolvedValueOnce({ ...mockStateResponse, runtime: { ...mockStateResponse.runtime!, status: 'paused', paused: true } })
-      .mockResolvedValueOnce(mockStateResponse);
-
+    vi.mocked(getDebugState).mockResolvedValueOnce({ ...mockStateResponse, runtime: { ...mockStateResponse.runtime!, status: 'paused', paused: true } }).mockResolvedValueOnce({ ...mockStateResponse, runtime: { ...mockStateResponse.runtime!, status: 'paused', paused: true } }).mockResolvedValueOnce(mockStateResponse);
     const wrapper = await mountDebugView();
     await clickTab(wrapper, 'Operator Control');
-
     const resumeButton = wrapper.findAll('button').find((b) => b.text() === 'Resume runtime');
     await resumeButton!.trigger('click');
     await flushPromises();
-
     expect(resumeRuntime).toHaveBeenCalled();
     expect(wrapper.text()).toContain('Runtime resume requested successfully.');
   });
 
   it('disables generic resume and shows frozen guidance for frozen runtime', async () => {
     vi.mocked(getDebugState).mockResolvedValue(mockFrozenStateResponse);
-
     const wrapper = await mountDebugView();
     await clickTab(wrapper, 'Operator Control');
-
     const resumeButton = wrapper.findAll('button').find((b) => b.text() === 'Resume runtime');
     expect(resumeButton!.attributes('disabled')).toBeDefined();
     expect(wrapper.text()).toContain('Frozen runtime cannot be resumed here. Use resume-from-freeze.');
   });
 
   it('shows frozen resume rejection copy when resume API rejects with resume-from-freeze action', async () => {
-    vi.mocked(getDebugState)
-      .mockResolvedValueOnce({ ...mockStateResponse, runtime: { ...mockStateResponse.runtime!, status: 'paused', paused: true } })
-      .mockResolvedValueOnce({ ...mockStateResponse, runtime: { ...mockStateResponse.runtime!, status: 'paused', paused: true } })
-      .mockResolvedValueOnce(mockFrozenStateResponse);
+    vi.mocked(getDebugState).mockResolvedValueOnce({ ...mockStateResponse, runtime: { ...mockStateResponse.runtime!, status: 'paused', paused: true } }).mockResolvedValueOnce({ ...mockStateResponse, runtime: { ...mockStateResponse.runtime!, status: 'paused', paused: true } }).mockResolvedValueOnce(mockFrozenStateResponse);
     vi.mocked(resumeRuntime).mockRejectedValue(new ApiError(400, 'Runtime is frozen', { action: 'resume-from-freeze' }));
-
     const wrapper = await mountDebugView();
     await clickTab(wrapper, 'Operator Control');
-
     const resumeButton = wrapper.findAll('button').find((b) => b.text() === 'Resume runtime');
     await resumeButton!.trigger('click');
     await flushPromises();
-
     expect(wrapper.text()).toContain('Runtime is frozen. Generic resume is blocked. Use the resume-from-freeze workflow to restore from the freeze manifest before resuming dispatch.');
   });
 
   it('shows unavailable runtime copy when runtime state is missing', async () => {
     vi.mocked(getDebugState).mockResolvedValue(mockUnavailableStateResponse);
-
     const wrapper = await mountDebugView();
     await clickTab(wrapper, 'Operator Control');
-
     expect(wrapper.text()).toContain('Runtime state is unavailable. Start the runtime or restore runtime state before using pause/resume controls.');
   });
 
   it('shows unauthorized banner and disables controls on 401', async () => {
     vi.mocked(listNotes).mockRejectedValue(new ApiError(401, 'Unauthorized', {}));
     vi.mocked(getDebugState).mockRejectedValue(new ApiError(401, 'Unauthorized', {}));
-
+    vi.mocked(listNotifications).mockRejectedValue(new ApiError(401, 'Unauthorized', {}));
+    vi.mocked(listControlActions).mockRejectedValue(new ApiError(401, 'Unauthorized', {}));
     const wrapper = await mountDebugView();
     await clickTab(wrapper, 'Operator Control');
-
     expect(wrapper.text()).toContain('Unauthorized. Provide a valid Saivage API token and refresh the page.');
   });
 
   it('shows exact stale queue action message after 404 note deletion and refreshes notes', async () => {
     vi.mocked(deleteNote).mockRejectedValueOnce(new ApiError(404, 'Note not found', {}));
     vi.mocked(listNotes).mockResolvedValueOnce(mockNotesResponse).mockResolvedValueOnce({ notes: [], total: 0 });
-
     const wrapper = await mountDebugView();
     await clickTab(wrapper, 'Operator Control');
-
     const button = wrapper.find('[aria-label="Delete note note-1"]');
     await button.trigger('click');
     await flushPromises();
-
     expect(wrapper.text()).toContain('That note is no longer in the unhandled queue. Refreshing notes.');
     expect(wrapper.text()).not.toContain('This panel may be stale. Refresh to reconcile with server state.');
     expect(wrapper.text()).toContain('No unhandled operator notes.');
@@ -489,14 +312,10 @@ describe('DebugView — integration', () => {
 
   it('shows partial refresh warning while preserving successful operator data', async () => {
     vi.mocked(listNotes).mockResolvedValue(mockNotesResponse);
-    vi.mocked(getDebugState)
-      .mockResolvedValueOnce(mockStateResponse)
-      .mockRejectedValueOnce(new Error('state failed'));
-
+    vi.mocked(getDebugState).mockResolvedValueOnce(mockStateResponse).mockRejectedValueOnce(new Error('state failed'));
     const wrapper = await mountDebugView();
     await clickTab(wrapper, 'Operator Control');
-
-    expect(wrapper.text()).toContain('Notes refreshed, but runtime state could not be loaded.');
+    expect(wrapper.text()).toContain('This panel may be stale. Refresh to reconcile with server state.');
     expect(wrapper.text()).toContain('Check runtime status before proceeding.');
   });
 });
