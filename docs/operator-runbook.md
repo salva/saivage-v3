@@ -95,6 +95,9 @@ Examples:
 
 - `.saivage/auth-profiles.json` is blocked
 - `.saivage/saivage.json` is redacted-only
+- symlinks that resolve outside the project root are blocked or omitted from safe operator flows
+
+Card evidence and file APIs expose canonical project-relative paths only. Operators should not expect absolute workspace paths in successful file or generated-artifact responses.
 
 ### Agents
 
@@ -124,6 +127,8 @@ Operators should expect explicit states for:
 - not found
 - binary/unpreviewable content
 - redacted content
+
+A redacted preview is a successful preview with sensitive values removed by the server; it is not an error state.
 
 Prefer Files or card-detail evidence links over raw filesystem inspection during routine operations.
 

@@ -59,9 +59,9 @@
             :key="file.path"
             type="button"
             class="generated-file-row"
-            :class="{ selected: selectedPath === file.path }"
+            :class="{ selected: selectedPath === file.path, disabled: isPreviewDisabled(file) }"
             :aria-label="`Preview generated file ${file.path}`"
-            @click="openPreview(file.path)"
+            @click="openPreviewForFile(file)"
           >
             <span class="generated-file-main">
               <span class="generated-file-path">{{ file.path }}</span>
@@ -69,6 +69,9 @@
               <span v-if="file.artifactType" class="badge subtle">{{ file.artifactType }}</span>
               <span v-if="file.retain" class="badge success">retained</span>
               <span v-if="file.exists === false" class="badge warning">missing</span>
+              <span v-if="file.blocked" class="badge error">blocked</span>
+              <span v-else-if="file.redactedOnly" class="badge warning">redacted</span>
+              <span v-else-if="file.previewable === false" class="badge subtle">non-previewable</span>
             </span>
             <span v-if="file.description" class="generated-file-description">{{ file.description }}</span>
           </button>
@@ -90,7 +93,7 @@
           <template v-else>
             <div class="preview-error-state">
               <div class="preview-notice error">{{ previewState.message }}</div>
-              <button type="button" class="retry-btn" @click="openPreview(previewState.path, true)">Retry</button>
+              <button v-if="previewState.status !== 'blocked'" type="button" class="retry-btn" @click="openPreview(previewState.path, true)">Retry</button>
             </div>
           </template>
         </div>
@@ -120,14 +123,14 @@ import { ref, computed, watch, onMounted } from 'vue';
 import { useCardStore } from '../../stores/cards';
 import { storeToRefs } from 'pinia';
 import { getFileContent, ApiError } from '../../api/client';
-import type { DiaryEntry, GeneratedFileRef, VerificationCommandRef } from '../../api/types';
+import type { GeneratedFileRef, VerificationCommandRef } from '../../api/types';
 import { createLogger } from '../../utils/logger';
 
 const log = createLogger('comp:card-detail');
 const props = defineProps<{ cardId: string }>();
 const emit = defineEmits<{ navigate: [id: string] }>();
 const cardStore = useCardStore();
-const { currentCard, currentChildren: children, currentAncestorIds: ancestorIds, currentEvidence: evidence, loading, error } = storeToRefs(cardStore);
+const { currentCard, currentEvidence: evidence, loading, error } = storeToRefs(cardStore);
 const errorMsg = computed(() => error.value);
 
 const selectedPath = ref<string | null>(null);
@@ -145,14 +148,18 @@ const generatedFiles = computed<GeneratedFileRef[]>(() => evidence.value?.genera
 const verificationCommands = computed<VerificationCommandRef[]>(() => evidence.value?.verificationCommands ?? []);
 const hasEvidenceSection = computed(() => generatedFiles.value.length > 0 || verificationCommands.value.length > 0 || !!evidence.value?.parseFailure || !!evidence.value?.toolErrors?.length);
 
+function isPreviewDisabled(file: GeneratedFileRef): boolean {
+  return file.blocked === true || file.previewable === false;
+}
+
 async function openPreview(path: string, force = false): Promise<void> {
   if (!force && previewState.value.status === 'ready' && previewState.value.path === path) return;
   selectedPath.value = path;
   previewState.value = { status: 'loading', path };
   try {
     const response = await getFileContent(path);
-    const redactedHint = path === '.saivage/saivage.json' || response.content.includes('[REDACTED]');
-    previewState.value = { status: 'ready', path, size: response.size, contentType: response.contentType, content: response.content, redactedHint };
+    const redactedHint = response.redacted === true || response.sensitivity === 'sensitive-redacted';
+    previewState.value = { status: 'ready', path: response.path, size: response.size, contentType: response.contentType, content: response.content, redactedHint };
   } catch (err) {
     const apiErr = err as ApiError;
     let status: 'missing' | 'blocked' | 'directory' | 'too_large' | 'binary' | 'error' = 'error';
@@ -165,6 +172,21 @@ async function openPreview(path: string, force = false): Promise<void> {
     else if (apiErr instanceof Error && apiErr.message) { message = apiErr.message; }
     previewState.value = { status, path, message };
   }
+}
+
+function openPreviewForFile(file: GeneratedFileRef): void {
+  selectedPath.value = file.path;
+  if (isPreviewDisabled(file)) {
+    previewState.value = {
+      status: 'blocked',
+      path: file.path,
+      message: file.blocked
+        ? 'Preview blocked by file-access security.'
+        : 'This evidence is classified as non-previewable by the server.',
+    };
+    return;
+  }
+  void openPreview(file.path);
 }
 
 function navigateCard(id: string): void { emit('navigate', id); }
@@ -205,6 +227,7 @@ watch(() => props.cardId, async (nid) => {
 .note-item,.generated-file-row,.verification-row { background:#161b22; border:1px solid #21262d; border-radius:6px; padding:10px 12px; }
 .generated-file-row { text-align:left; cursor:pointer; }
 .generated-file-row.selected { border-color:#58a6ff; }
+.generated-file-row.disabled { opacity:.9; }
 .generated-file-main { display:flex; flex-wrap:wrap; gap:8px; align-items:center; }
 .generated-file-description,.note-content,.evidence-summary { color:#8b949e; font-size:12px; }
 .preview-panel { margin-top:12px; }

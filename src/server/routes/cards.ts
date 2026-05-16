@@ -1,11 +1,9 @@
-import { existsSync, statSync } from 'node:fs';
-import { resolve } from 'node:path';
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { CardStore } from '../../utils/card-store.js';
 import type { CardRecord, CardStatus, CardType, NoteRecord } from '../../schemas/types.js';
 import { getNotes } from '../../utils/notes.js';
 import {
-  toContainedRelativePath,
+  getContainedFileMetadata,
   classifyGeneratedFilePath,
   type SafeFileSensitivity,
 } from '../../utils/file-access-security.js';
@@ -46,24 +44,6 @@ interface CardEvidence {
   artifactPaths: string[];
   toolErrors: string[];
   parseFailure?: Record<string, unknown>;
-}
-
-function getFileMetadata(projectRoot: string, relPath: string): Pick<GeneratedFileRef, 'exists' | 'size' | 'modifiedAt'> {
-  const absolutePath = resolve(projectRoot, relPath);
-  if (!existsSync(absolutePath)) {
-    return { exists: false };
-  }
-
-  try {
-    const stats = statSync(absolutePath);
-    return {
-      exists: true,
-      size: stats.isFile() ? stats.size : undefined,
-      modifiedAt: stats.mtime.toISOString(),
-    };
-  } catch {
-    return { exists: false };
-  }
 }
 
 function normalizeVerificationCommands(result: Record<string, unknown> | null | undefined): VerificationCommandRef[] {
@@ -116,19 +96,25 @@ function buildCardEvidence(projectRoot: string, card: CardRecord): CardEvidence 
   const seenPaths = new Set<string>();
   const artifactPaths: string[] = [];
 
-  function addPath(path: unknown, source: GeneratedFileRef['source'], extras: Omit<GeneratedFileRef, 'path' | 'source' | 'previewable' | 'downloadable' | 'blocked' | 'redactedOnly' | 'sensitivity'> = {}): void {
-    const relPath = toContainedRelativePath(projectRoot, path);
-    if (!relPath || seenPaths.has(relPath)) {
+  function addPath(path: unknown, source: GeneratedFileRef['source'], extras: Omit<GeneratedFileRef, 'path' | 'source' | 'exists' | 'size' | 'modifiedAt' | 'previewable' | 'downloadable' | 'blocked' | 'redactedOnly' | 'sensitivity'> = {}): void {
+    const metadata = getContainedFileMetadata(projectRoot, path);
+    if (!metadata || seenPaths.has(metadata.path)) {
       return;
     }
-    seenPaths.add(relPath);
-    const classification = classifyGeneratedFilePath(relPath);
+    seenPaths.add(metadata.path);
+    const classification = classifyGeneratedFilePath(metadata.path);
+    const blocked = metadata.blocked === true || classification.blocked;
     generatedFiles.push({
-      path: relPath,
+      path: metadata.path,
       source,
       ...extras,
-      ...getFileMetadata(projectRoot, relPath),
+      exists: blocked ? false : metadata.exists,
+      size: blocked ? undefined : metadata.size,
+      modifiedAt: blocked ? undefined : metadata.modifiedAt,
       ...classification,
+      blocked,
+      previewable: blocked ? false : classification.previewable,
+      downloadable: blocked ? false : classification.downloadable,
     });
   }
 
@@ -155,9 +141,9 @@ function buildCardEvidence(projectRoot: string, card: CardRecord): CardEvidence 
 
   const resultArtifactPaths = Array.isArray(result?.['artifact_paths']) ? result?.['artifact_paths'] as unknown[] : [];
   for (const path of resultArtifactPaths) {
-    const relPath = toContainedRelativePath(projectRoot, path);
-    if (relPath && !artifactPaths.includes(relPath)) {
-      artifactPaths.push(relPath);
+    const metadata = getContainedFileMetadata(projectRoot, path);
+    if (metadata && !metadata.blocked && !artifactPaths.includes(metadata.path)) {
+      artifactPaths.push(metadata.path);
     }
     addPath(path, 'result.artifact_paths');
   }

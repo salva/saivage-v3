@@ -144,4 +144,32 @@ describe('FilesView', () => {
 
     expect(wrapper.find('.json-view').exists()).toBe(true);
   });
+
+  it('shows redaction notice for successful redacted preview', async () => {
+    vi.mocked(getFileContent).mockResolvedValue({
+      path: '.saivage/saivage.json',
+      size: 100,
+      contentType: 'application/json',
+      content: '{"apiKey":"[REDACTED]"}',
+      redacted: true,
+      sensitivity: 'sensitive-redacted',
+    });
+    const { wrapper } = await mountFilesView({
+      listFilesImpl: async (path?: string) => {
+        if (path === '.saivage') {
+          return {
+            path: '.saivage',
+            files: [{ name: 'saivage.json', path: '.saivage/saivage.json', type: 'file', size: 100, modifiedAt: '2025-06-01T12:00:00Z' }],
+          };
+        }
+        if (path === '.saivage-work') return mockOutputRootFiles;
+        return { path: path ?? '', files: [] };
+      },
+    });
+
+    await wrapper.findAll('.file-list')[0].findAll('.file-entry')[0].trigger('click');
+    await flushPromises();
+
+    expect(wrapper.text()).toContain('Sensitive values were redacted by the server.');
+  });
 });

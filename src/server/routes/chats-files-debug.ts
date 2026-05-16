@@ -1,4 +1,4 @@
-import { readdirSync, statSync, readFileSync, existsSync } from 'node:fs';
+import { readdirSync, lstatSync, statSync, readFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { readRuntimeState } from '../../utils/runtime-state.js';
@@ -180,35 +180,53 @@ export function registerChatsFilesDebugRoutes(
       const query = request.query as { path?: string };
       const requestedPath = query.path || '.';
 
-      const { safe, absolutePath, reason } = resolveContainedProjectPath(projectRoot, requestedPath);
+      const { safe, absolutePath, reason, relativePath } = resolveContainedProjectPath(projectRoot, requestedPath);
       if (!safe) {
         return reply.status(403).send({ error: reason });
       }
 
+      const responsePath = relativePath ?? '.';
+
       if (!existsSync(absolutePath)) {
-        return reply.status(404).send({ error: 'Path not found', path: requestedPath });
+        return reply.status(404).send({ error: 'Path not found', path: responsePath });
       }
 
       const pathStat = statSync(absolutePath);
       if (!pathStat.isDirectory()) {
-        return reply.status(400).send({ error: 'Path is not a directory', path: requestedPath });
+        return reply.status(400).send({ error: 'Path is not a directory', path: responsePath });
       }
 
       const entries = readdirSync(absolutePath);
-      const files = entries.map((entry: string) => {
-        const entryPath = join(absolutePath, entry);
-        const entryStat = statSync(entryPath);
-        const resolvedEntry = resolveContainedProjectPath(projectRoot, entryPath);
-        return {
-          name: entry,
-          path: resolvedEntry.relativePath ?? entry,
-          type: entryStat.isDirectory() ? 'directory' : 'file',
-          size: entryStat.isFile() ? entryStat.size : undefined,
-          modifiedAt: entryStat.mtime.toISOString(),
-        };
+      const files = entries.flatMap((entry: string) => {
+        const lexicalEntryPath = join(responsePath === '.' ? '' : responsePath, entry).replace(/^$/, entry).replace(/\\/g, '/');
+        const containedEntry = resolveContainedProjectPath(projectRoot, lexicalEntryPath);
+        if (!containedEntry.safe || !containedEntry.relativePath || !existsSync(containedEntry.absolutePath)) {
+          return [];
+        }
+
+        try {
+          const linkStats = lstatSync(join(absolutePath, entry));
+          if (linkStats.isSymbolicLink()) {
+            const resolvedLink = resolveContainedProjectPath(projectRoot, join(absolutePath, entry));
+            if (!resolvedLink.safe) {
+              return [];
+            }
+          }
+
+          const entryStat = statSync(containedEntry.absolutePath);
+          return [{
+            name: entry,
+            path: containedEntry.relativePath,
+            type: entryStat.isDirectory() ? 'directory' : 'file',
+            size: entryStat.isFile() ? entryStat.size : undefined,
+            modifiedAt: entryStat.mtime.toISOString(),
+          }];
+        } catch {
+          return [];
+        }
       });
 
-      return reply.send({ path: requestedPath, files });
+      return reply.send({ path: responsePath, files });
     } catch (err) {
       return reply.status(500).send({
         error: 'Failed to list directory',
@@ -231,19 +249,21 @@ export function registerChatsFilesDebugRoutes(
         return reply.status(403).send({ error: reason });
       }
 
+      const responsePath = relativePath ?? '.';
+
       if (!existsSync(absolutePath)) {
-        return reply.status(404).send({ error: 'File not found', path: requestedPath });
+        return reply.status(404).send({ error: 'File not found', path: responsePath });
       }
 
       const fileStat = statSync(absolutePath);
       if (fileStat.isDirectory()) {
-        return reply.status(400).send({ error: 'Path is a directory', path: requestedPath });
+        return reply.status(400).send({ error: 'Path is a directory', path: responsePath });
       }
 
       if (fileStat.size > MAX_FILE_SIZE_BYTES) {
         return reply.status(413).send({
           error: `File exceeds maximum size of ${MAX_FILE_SIZE_BYTES} bytes.`,
-          path: requestedPath,
+          path: responsePath,
           size: fileStat.size,
           maxSize: MAX_FILE_SIZE_BYTES,
         });
@@ -253,25 +273,27 @@ export function registerChatsFilesDebugRoutes(
       if (isBinaryBuffer(rawBuffer)) {
         return reply.status(415).send({
           error: 'Binary or non-text file cannot be previewed.',
-          path: requestedPath,
+          path: responsePath,
         });
       }
 
       const rawContent = rawBuffer.toString('utf-8');
-      const safeResult = getSafeFileForAgent(relativePath ?? requestedPath, rawContent);
+      const safeResult = getSafeFileForAgent(responsePath, rawContent);
 
       if (safeResult.blocked) {
         return reply.status(403).send({
           error: safeResult.reason || 'Access to this file is blocked for security reasons.',
-          path: requestedPath,
+          path: responsePath,
         });
       }
 
       return reply.send({
-        path: requestedPath,
+        path: responsePath,
         size: fileStat.size,
         contentType: 'text/plain',
         content: safeResult.safeContent,
+        redacted: Boolean(safeResult.reason),
+        sensitivity: safeResult.reason ? 'sensitive-redacted' : 'normal',
       });
     } catch (err) {
       return reply.status(500).send({

@@ -160,6 +160,7 @@ REST fetches are authoritative after reload or reconnect. WebSocket events are a
 - card detail says preview blocked
 - Files view returns 403
 - preview shows `[REDACTED]`
+- Files view or card preview shows a redaction notice on a successful response
 
 ### Expected causes
 
@@ -168,11 +169,13 @@ REST fetches are authoritative after reload or reconnect. WebSocket events are a
 - containment violation
 - oversized file
 - binary file
+- symlink that resolves outside the project root
 
 ### What to do
 
 - treat blocked/redacted states as expected safety behavior first;
 - inspect file metadata in card detail or Files view;
+- note that successful file responses use canonical project-relative paths, not absolute workspace paths;
 - avoid bypassing the API unless you are in a controlled maintenance or forensic workflow.
 
 ## File preview says file not found

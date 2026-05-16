@@ -112,6 +112,7 @@
         <span>{{ viewerStateMessage }}</span>
       </div>
       <div v-else-if="viewedFile" class="viewer-content">
+        <div v-if="viewedFile.redacted" class="viewer-redaction-notice">Sensitive values were redacted by the server.</div>
         <pre v-if="isJsonContent" class="json-view">{{ fmtJson(viewedFile.content) }}</pre>
         <div v-else-if="isMarkdownContent" class="md-view" v-html="renderMarkdown(viewedFile.content)"></div>
         <pre v-else class="plain-view">{{ viewedFile.content }}</pre>
@@ -278,6 +279,7 @@ watch(() => route.query.path, () => {
 .viewer-state-error { color:#f85149; background:#241818; }
 .viewer-state-warning { color:#d29922; background:#241f18; }
 .viewer-content { flex:1; overflow:auto; padding:12px; }
+.viewer-redaction-notice { margin-bottom:8px; padding:10px 12px; border-radius:6px; background:#1c2738; color:#c9d1d9; font-size:12px; }
 .json-view { margin:0; padding:12px; background:#0d1117; border:1px solid #21262d; border-radius:4px; font-size:12px; font-family:'SF Mono',monospace; line-height:1.5; white-space:pre-wrap; word-break:break-word; color:#c9d1d9; }
 .md-view { font-size:13px; line-height:1.6; color:#c9d1d9; }
 .md-view :deep(.code-block) { background:#0d1117; border:1px solid #30363d; border-radius:4px; padding:10px 12px; margin:8px 0; overflow-x:auto; font-size:12px; font-family:'SF Mono',monospace; }

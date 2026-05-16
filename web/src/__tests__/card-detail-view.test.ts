@@ -32,11 +32,11 @@ function primeStore(pinia: Pinia, redactedOnly = false) {
   store.currentChildren = [];
   store.currentAncestorIds = [];
   store.currentEvidence = redactedOnly
-    ? { generatedFiles: [{ path: '.saivage/saivage.json', source: 'result.artifact_paths', exists: true }], verificationCommands: [], artifactPaths: [], toolErrors: [] }
+    ? { generatedFiles: [{ path: '.saivage/saivage.json', source: 'result.artifact_paths', exists: true, redactedOnly: true, previewable: true, blocked: false, sensitivity: 'sensitive-redacted' }], verificationCommands: [], artifactPaths: [], toolErrors: [] }
     : {
       generatedFiles: [
-        { path: 'reports/generated.txt', source: 'result.generated_files', exists: true },
-        { path: '.saivage/auth-profiles.json', source: 'result.artifact_paths', exists: true },
+        { path: 'reports/generated.txt', source: 'result.generated_files', exists: true, previewable: true, blocked: false, sensitivity: 'normal' },
+        { path: '.saivage/auth-profiles.json', source: 'result.artifact_paths', exists: false, previewable: false, blocked: true, downloadable: false, sensitivity: 'sensitive-blocked' },
       ],
       verificationCommands: [{ command: 'npm test', process_id: 'p1', status: 'completed', exit_code: 0, timed_out: false }],
       artifactPaths: ['reports/generated.txt'],
@@ -72,15 +72,15 @@ describe('CardDetailView generated file inspection', () => {
     expect(wrapper.text()).toContain('hello world');
   });
 
-  it('shows blocked preview message', async () => {
+  it('uses evidence classification badges and avoids preview request for blocked file', async () => {
     const pinia = createPinia();
     primeStore(pinia);
-    mockedGetFileContent.mockRejectedValue(new ApiError(403, 'blocked', {}));
     const wrapper = mount(CardDetailView, { props: { cardId: 'card-1' }, global: { plugins: [pinia] } });
     await flushPromises();
+    expect(wrapper.text()).toContain('blocked');
     await wrapper.findAll('.generated-file-row')[1].trigger('click');
     await flushPromises();
-    expect(getFileContent).toHaveBeenCalledWith('.saivage/auth-profiles.json');
+    expect(getFileContent).not.toHaveBeenCalledWith('.saivage/auth-profiles.json');
     expect(wrapper.text()).toContain('Preview blocked by file-access security.');
   });
 
@@ -98,7 +98,7 @@ describe('CardDetailView generated file inspection', () => {
   it('shows redaction notice when preview content is redacted', async () => {
     const pinia = createPinia();
     primeStore(pinia, true);
-    mockedGetFileContent.mockResolvedValue({ path: '.saivage/saivage.json', size: 12, contentType: 'text/plain', content: '{"apiKey":"[REDACTED]"}' });
+    mockedGetFileContent.mockResolvedValue({ path: '.saivage/saivage.json', size: 12, contentType: 'text/plain', content: '{"apiKey":"[REDACTED]"}', redacted: true, sensitivity: 'sensitive-redacted' });
     const wrapper = mount(CardDetailView, { props: { cardId: 'card-1' }, global: { plugins: [pinia] } });
     await flushPromises();
     await wrapper.find('.generated-file-row').trigger('click');

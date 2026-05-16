@@ -1,11 +1,3 @@
-/**
- * Shared TypeScript types for the Saivage v3 Web Control Room.
- *
- * These types mirror the schemas in 09-data-model.md and the API response
- * shapes from 08-server-api.md. They are used by the API client, Pinia
- * stores, and Vue components.
- */
-
 export type CardType =
   | 'project'
   | 'goal'
@@ -28,8 +20,8 @@ export type CardStatus =
   | 'cancelled';
 
 export type CardUrgency = 'low' | 'normal' | 'high' | 'critical';
-
 export type CardCreator = 'user' | 'analyst' | 'planner';
+export type SafeFileSensitivity = 'normal' | 'sensitive-blocked' | 'sensitive-redacted';
 
 export interface CardRecord {
   id: string;
@@ -99,7 +91,7 @@ export interface GeneratedFileRef {
   downloadable?: boolean;
   blocked?: boolean;
   redactedOnly?: boolean;
-  sensitivity?: 'normal' | 'restricted' | 'secret';
+  sensitivity?: SafeFileSensitivity;
 }
 
 export interface VerificationCommandRef {
@@ -285,6 +277,8 @@ export interface FileContent {
   size: number;
   contentType: string;
   content: string;
+  redacted?: boolean;
+  sensitivity?: SafeFileSensitivity;
 }
 
 export interface DebugState {
@@ -438,13 +432,8 @@ export interface ChatResponse {
 }
 
 export type WsConnectionState = 'connected' | 'connecting' | 'offline' | 'unauthorized' | 'no-token';
-
 export type WsEventType = 'message' | 'activity' | 'thinking' | 'status' | 'error';
-export interface WsEnvelope {
-  type: WsEventType;
-  content: Record<string, unknown>;
-}
-
+export interface WsEnvelope { type: WsEventType; content: Record<string, unknown>; }
 export type DataAuthority = 'rest' | 'ws' | 'mixed' | 'unknown';
 
 export interface FreshnessState {
@@ -469,106 +458,29 @@ export interface ResumeFromFreezeResponse {
   restored_card_id: string | null;
 }
 
-export interface CardListResponse {
-  cards: CardRecord[];
-  total: number;
-}
-
-export interface CardDetailResponse {
-  card: CardRecord;
-  children: CardRecord[];
-  ancestorIds: string[];
-  evidence?: CardEvidence;
-}
-
-export interface CardCreateResponse {
-  card: CardRecord;
-}
-
-export interface CardUpdateResponse {
-  card: CardRecord;
-}
-
-export interface RuntimeStateResponse {
-  runtime: RuntimeState | null;
-  cardIndex: CardIndex;
-}
-
-export interface ConfigResponse {
-  config: Record<string, unknown>;
-  warnings?: string[];
-}
-
-export interface ProvidersResponse {
-  providers: Record<string, ProviderEntry>;
-  warnings?: string[];
-}
-
-export interface AgentConversationResponse {
-  session: AgentSession;
-  messages: AgentMessage[];
-}
-
-export interface AgentSessionsResponse {
-  sessions: AgentSession[];
-}
-
-export interface NotesListResponse {
-  notes: NoteQueueEntry[];
-  total: number;
-}
-
-export interface NotesClearResponse {
-  deleted: number;
-  noteIds: string[];
-}
-
-export interface ChatSessionsResponse {
-  sessions: ChatSession[];
-}
-
-export interface ChatMessagesResponse {
-  sessionId: string;
-  messages: ChatMessage[];
-}
-
-export interface FilesListResponse {
-  path: string;
-  files: FileEntry[];
-}
-
+export interface CardListResponse { cards: CardRecord[]; total: number; }
+export interface CardDetailResponse { card: CardRecord; children: CardRecord[]; ancestorIds: string[]; evidence?: CardEvidence; }
+export interface CardCreateResponse { card: CardRecord; }
+export interface CardUpdateResponse { card: CardRecord; }
+export interface RuntimeStateResponse { runtime: RuntimeState | null; cardIndex: CardIndex; }
+export interface ConfigResponse { config: Record<string, unknown>; warnings?: string[]; }
+export interface ProvidersResponse { providers: Record<string, ProviderEntry>; warnings?: string[]; }
+export interface AgentConversationResponse { session: AgentSession; messages: AgentMessage[]; }
+export interface AgentSessionsResponse { sessions: AgentSession[]; }
+export interface NotesListResponse { notes: NoteQueueEntry[]; total: number; }
+export interface NotesClearResponse { deleted: number; noteIds: string[]; }
+export interface ChatSessionsResponse { sessions: ChatSession[]; }
+export interface ChatMessagesResponse { sessionId: string; messages: ChatMessage[]; }
+export interface FilesListResponse { path: string; files: FileEntry[]; }
 export interface DebugStateResponse {
   runtime: RuntimeState | null;
-  cards: Array<{
-    id: string;
-    type: CardType;
-    parent: string | null;
-    status: CardStatus;
-    title: string;
-    priority: number;
-    depends_on: string[];
-    blocks: string[];
-  }>;
+  cards: Array<{ id: string; type: CardType; parent: string | null; status: CardStatus; title: string; priority: number; depends_on: string[]; blocks: string[] }>;
   totalCards: number;
 }
-
-export interface DebugErrorsResponse {
-  errors: DebugError[];
-  total: number;
-}
-
-export interface DebugTimelineResponse {
-  events: DebugTimelineEvent[];
-  total: number;
-}
-
-export interface ProcessListResponse {
-  processes: ProcessRecord[];
-}
-
-export interface ProcessDetailResponse {
-  process: ProcessRecord;
-}
+export interface DebugErrorsResponse { errors: DebugError[]; total: number; }
+export interface DebugTimelineResponse { events: DebugTimelineEvent[]; total: number; }
+export interface ProcessListResponse { processes: ProcessRecord[]; }
+export interface ProcessDetailResponse { process: ProcessRecord; }
 
 export interface CreateCardPayload {
   type: CardType;

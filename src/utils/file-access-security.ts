@@ -15,52 +15,27 @@
  * path traversal is rejected.
  */
 
-import { existsSync, realpathSync } from 'node:fs';
+import { existsSync, lstatSync, realpathSync, statSync } from 'node:fs';
 import { normalize, relative, resolve, sep } from 'node:path';
 
-// ── Sensitive Path Constants ──────────────────────────────────
-
-/**
- * Normalized, project-relative paths that are sensitive.
- *
- * These are matched after normalization so that variants like:
- *   .saivage/auth-profiles.json
- *   ./saivage/auth-profiles.json
- *   .saivage/auth-profiles.json/../auth-profiles.json
- * all resolve to the same canonical entry.
- */
 export const SENSITIVE_PATHS: ReadonlySet<string> = new Set([
   '.saivage/auth-profiles.json',
   '.saivage/saivage.json',
   '.saivage-work/tmp/runtime/runtime.lock',
 ]);
 
-/**
- * Paths that are entirely blocked from read access.
- * Currently only auth-profiles.json.
- */
 export const READ_BLOCKED_PATHS: ReadonlySet<string> = new Set([
   '.saivage/auth-profiles.json',
 ]);
 
-/**
- * Paths that are entirely blocked from write access.
- * auth-profiles.json AND runtime.lock.
- */
 export const WRITE_BLOCKED_PATHS: ReadonlySet<string> = new Set([
   '.saivage/auth-profiles.json',
   '.saivage-work/tmp/runtime/runtime.lock',
 ]);
 
-/**
- * Paths whose content must be redacted on read.
- * Only saivage.json (contains secrets like API keys).
- */
 export const REDACT_PATHS: ReadonlySet<string> = new Set([
   '.saivage/saivage.json',
 ]);
-
-// ── Path Sanitization ─────────────────────────────────────────
 
 export function sanitizeFilePath(filePath: string): string {
   if (!filePath) return '';
@@ -75,8 +50,6 @@ export function sanitizeFilePath(filePath: string): string {
 
   return cleaned;
 }
-
-// ── Sensitive Path Detection ──────────────────────────────────
 
 export function isSensitivePath(filePath: string): boolean {
   const clean = sanitizeFilePath(filePath);
@@ -97,8 +70,6 @@ export function isRedacted(filePath: string): boolean {
   const clean = sanitizeFilePath(filePath);
   return REDACT_PATHS.has(clean);
 }
-
-// ── Secret Redaction ──────────────────────────────────────────
 
 const REDACT_KEY_PATTERN =
   /\b(?:apiKey|apiToken|botToken|accessToken|refreshToken|(?:api_)?key|.*[A-Z](?:Token|Key|Secret|Password)|.*_(?:key|token|secret|password)|secret|password)\b/i;
@@ -157,12 +128,20 @@ export function redactCommandForOperator(command: string): string {
   return redactCredentialLiterals(command);
 }
 
-// ── Shared containment helpers ────────────────────────────────
-
 export interface SafeProjectPathResult {
   safe: boolean;
   absolutePath: string;
   relativePath?: string;
+  reason?: string;
+}
+
+export interface SafeContainedFileMetadata {
+  path: string;
+  exists: boolean;
+  type?: 'file' | 'directory';
+  size?: number;
+  modifiedAt?: string;
+  blocked?: boolean;
   reason?: string;
 }
 
@@ -228,20 +207,74 @@ export function resolveContainedProjectPath(
   };
 }
 
+export function getContainedFileMetadata(projectRoot: string, rawPath: unknown): SafeContainedFileMetadata | null {
+  if (typeof rawPath !== 'string' || rawPath.trim().length === 0) {
+    return null;
+  }
+
+  const resolved = resolveContainedProjectPath(projectRoot, rawPath.trim());
+  if (!resolved.safe || !resolved.relativePath) {
+    const fallback = toContainedRelativePath(projectRoot, rawPath);
+    if (!fallback) {
+      return null;
+    }
+    return {
+      path: fallback,
+      exists: false,
+      blocked: true,
+      reason: resolved.reason,
+    };
+  }
+
+  if (!existsSync(resolved.absolutePath)) {
+    return {
+      path: resolved.relativePath,
+      exists: false,
+    };
+  }
+
+  try {
+    const linkStats = lstatSync(resolved.absolutePath);
+    if (linkStats.isSymbolicLink()) {
+      const realRoot = realpathSync(resolve(projectRoot));
+      const realPath = realpathSync(resolved.absolutePath);
+      if (!realPath.startsWith(realRoot + sep) && realPath !== realRoot) {
+        return {
+          path: resolved.relativePath,
+          exists: false,
+          blocked: true,
+          reason: 'Symlink target is outside the project root.',
+        };
+      }
+    }
+
+    const stats = statSync(resolved.absolutePath);
+    return {
+      path: resolved.relativePath,
+      exists: true,
+      type: stats.isDirectory() ? 'directory' : 'file',
+      size: stats.isFile() ? stats.size : undefined,
+      modifiedAt: stats.mtime.toISOString(),
+    };
+  } catch {
+    return {
+      path: resolved.relativePath,
+      exists: false,
+    };
+  }
+}
+
 export function toContainedRelativePath(projectRoot: string, rawPath: unknown): string | null {
   if (typeof rawPath !== 'string' || rawPath.trim().length === 0) {
     return null;
   }
 
-  const resolvedRoot = resolve(projectRoot);
-  const candidate = rawPath.trim();
-  const absolutePath = candidate.startsWith('/') ? resolve(candidate) : resolve(projectRoot, candidate);
-
-  if (!absolutePath.startsWith(resolvedRoot + sep) && absolutePath !== resolvedRoot) {
+  const resolved = resolveContainedProjectPath(projectRoot, rawPath.trim());
+  if (!resolved.safe || !resolved.relativePath) {
     return null;
   }
 
-  return relative(resolvedRoot, absolutePath).replace(/\\/g, '/');
+  return resolved.relativePath;
 }
 
 export type SafeFileSensitivity = 'normal' | 'sensitive-blocked' | 'sensitive-redacted';
@@ -284,8 +317,6 @@ export function classifyGeneratedFilePath(filePath: string): SafeGeneratedFileCl
   };
 }
 
-// ── Stash Path Security ───────────────────────────────────────
-
 export function isStashPathAllowed(stashDir: string, requestedPath: string): boolean {
   if (!requestedPath || !stashDir) return false;
 
@@ -297,8 +328,6 @@ export function isStashPathAllowed(stashDir: string, requestedPath: string): boo
 
   return reqNorm.startsWith(stashNorm);
 }
-
-// ── Safe File Access for Agents ───────────────────────────────
 
 export interface SafeFileResult {
   blocked: boolean;
