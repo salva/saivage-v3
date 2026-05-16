@@ -1,20 +1,25 @@
 import { basename, normalize, resolve } from 'node:path';
 
 export const SECRET_BASENAMES: readonly RegExp[] = [
-  /^auth-profiles\.json$/i,
-  /^id_rsa$/i,
-  /^id_ed25519$/i,
+  /^auth-profiles(?:\.[^/]+)?$/i,
+  /^id_rsa(?:\.pub)?$/i,
+  /^id_ed25519(?:\.pub)?$/i,
   /^[^/]+\.(?:pem|key|pfx)$/i,
   /^\.env(?:\.[^/]+)?$/i,
   /^credentials$/i,
   /^cookies\.txt$/i,
+  /^\.npmrc$/i,
+  /^\.pypirc$/i,
 ];
 
 export const SECRET_PATH_FRAGMENTS: readonly string[] = [
   '/.saivage/auth-profiles',
-  '/.ssh/',
-  '/.aws/',
-  '/.config/gcloud/',
+  '/.ssh',
+  '/.aws',
+  '/.config/gcloud',
+  '/.git/objects',
+  '/.git/token',
+  '/.git/auth',
   '/.npmrc',
   '/.pypirc',
 ];
@@ -30,16 +35,27 @@ function normalizePath(path: string): string {
   return normalize(resolve(path)).replace(/\\/g, '/');
 }
 
+function hasSecretFragment(normalizedLowerPath: string): boolean {
+  return SECRET_PATH_FRAGMENTS.some((fragment) => {
+    const lowerFragment = fragment.toLowerCase();
+    const bareFragment = lowerFragment.slice(1);
+    return normalizedLowerPath === lowerFragment
+      || normalizedLowerPath === bareFragment
+      || normalizedLowerPath.startsWith(`${lowerFragment}/`)
+      || normalizedLowerPath.startsWith(`${bareFragment}/`)
+      || normalizedLowerPath.includes(`${lowerFragment}/`);
+  });
+}
+
 export function looksLikeSecretPath(absolutePath: string): boolean {
   if (!absolutePath) return false;
   const normalized = normalizePath(absolutePath);
   const lower = normalized.toLowerCase();
   const base = basename(lower);
 
-  if (SECRET_PATH_FRAGMENTS.some((fragment) => lower.includes(fragment.toLowerCase()))) return true;
+  if (hasSecretFragment(lower)) return true;
   if (SECRET_BASENAMES.some((pattern) => pattern.test(base))) return true;
-  if (/(?:^|\/)\.git\/(?:.*(?:token|auth)|objects\/)/i.test(lower)) return true;
-  if (base === '.npmrc' || base === '.pypirc') return true;
+  if (/(?:^|\/)\.git\/(?:.*(?:token|auth)(?:[^/]*|\/.*)|objects(?:\/.*)?)$/i.test(lower)) return true;
 
   return false;
 }
