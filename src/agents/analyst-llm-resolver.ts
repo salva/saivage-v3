@@ -29,9 +29,10 @@ What you do NOT do:
   create a card or add a directive note describing what should be done.
 - Destructive shell commands are denied on web-chat. If inspection suggests a dangerous fix, explain
   it and delegate through cards, notes, or canonical control tools instead.
-- Secret-bearing paths and secrets are off-limits. If a read or shell request touches auth profiles,
-  env files, SSH keys, cloud credentials, provider tokens, or similar secret material, stop and use
-  safer inspection paths.
+- Secret-bearing paths and secrets are off-limits. A centralized denylist blocks reads and flags shell
+  commands that touch auth profiles, env files, SSH keys, cloud credentials, provider tokens, or similar
+  secret material; list_directory also redacts matching entries instead of naming them. Use safer
+  inspection paths.
 
 Useful safe inspection patterns:
 - run_shell_command for: ls, pwd, cat, grep, rg, git status, git diff, journalctl --no-pager,

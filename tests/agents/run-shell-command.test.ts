@@ -46,6 +46,22 @@ describe('run_shell_command', () => {
     } finally { rmSync(root, { recursive: true, force: true }); }
   });
 
+  it('denies secret-bearing path shell reads on web-chat', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'wave-j-shell-'));
+    try {
+      const store = setup(root);
+      const secretDir = join(root, '.saivage');
+      mkdirSync(secretDir, { recursive: true });
+      writeFileSync(join(secretDir, 'auth-profiles.json'), '{"token":"secret"}');
+      const result = await run_shell_command(ctx(root, store), { command: 'cat .saivage/auth-profiles.json' });
+      expect(result.success).toBe(false);
+      expect(result.error).toMatch(/Denied by authorization policy/);
+      const audit = readAudit(root);
+      expect(audit).toHaveLength(1);
+      expect(audit[0].outcome).toBe('denied');
+    } finally { rmSync(root, { recursive: true, force: true }); }
+  });
+
   it('rejects Telegram surface at the tool layer without relying on authz rules', async () => {
     const root = mkdtempSync(join(tmpdir(), 'wave-j-shell-'));
     try {

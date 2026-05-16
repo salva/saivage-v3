@@ -168,6 +168,12 @@ Read card detail in this order:
 
 If the detail view shows **This card detail may be stale**, refresh the card before acting on evidence or completion state.
 
+### Analyst secret-path denylist
+
+Analyst filesystem inspection uses one centralized secret-path policy. Requests that target secret-bearing paths are denied before file contents are read. The denylist covers auth profiles, env files, SSH keys, cloud credential locations, `.npmrc`, `.pypirc`, and similar secret material.
+
+For directory listings, secret-bearing child entries are omitted entirely. The response includes `redacted_count`, and when one or more entries were suppressed the listing appends a single `<redacted>` summary row with the hidden count. Operators should treat that as an intentional safety boundary, not missing data.
+
 ### Generated files and evidence
 
 When reviewing generated files in card detail, expect one of these outcomes:

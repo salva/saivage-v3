@@ -15,6 +15,7 @@ import { evaluateAuthz } from './authz.js';
 import { hashPreviewParams, recordControlAction, stableStringify } from '../utils/control-action-audit.js';
 import { listControlActions } from '../utils/control-action-audit.js';
 import { redactCredentialLiterals, redactSecrets } from '../utils/file-access-security.js';
+import { SecretPathError, assertNotSecretPath, looksLikeSecretPath } from '../utils/secret-paths.js';
 import { classifyShellCommand, sanitizedEnv, type ShellSafetyClass } from '../utils/shell-classifier.js';
 
 export interface ActionPreview { type: string; summary: string; affectedCards: Array<{ id: string; title: string; type: string; status: string }>; affectedProcesses: Array<{ id: string; command: string; status: string }>; warnings: string[]; preview_hash?: string; }
@@ -170,6 +171,7 @@ export async function read_file(_ctx: ToolContext, params: { path: string; maxBy
   try {
     if (typeof params.path !== 'string' || params.path.length === 0) return { success: false, error: 'path is required.' };
     const abs = resolvePath(params.path);
+    assertNotSecretPath(abs);
     if (!existsSync(abs)) return { success: false, error: `Path not found: ${abs}` };
     const st = statSync(abs);
     if (st.isDirectory()) return { success: false, error: `Path is a directory; use list_directory instead: ${abs}` };
@@ -183,6 +185,7 @@ export async function read_file(_ctx: ToolContext, params: { path: string; maxBy
     }
     return { success: true, data: { path: abs, size: st.size, binary: false, truncated, bytes_returned: sliced.length, content: sliced.toString('utf-8'), modified_at: st.mtime.toISOString() } };
   } catch (err) {
+    if (err instanceof SecretPathError) return { success: false, error: err.message };
     return { success: false, error: err instanceof Error ? err.message : String(err) };
   }
 }
@@ -191,6 +194,7 @@ export async function list_directory(_ctx: ToolContext, params: { path: string; 
   try {
     if (typeof params.path !== 'string' || params.path.length === 0) return { success: false, error: 'path is required.' };
     const abs = resolvePath(params.path);
+    assertNotSecretPath(abs);
     if (!existsSync(abs)) return { success: false, error: `Path not found: ${abs}` };
     const st = statSync(abs);
     if (!st.isDirectory()) return { success: false, error: `Path is not a directory: ${abs}` };
@@ -198,19 +202,27 @@ export async function list_directory(_ctx: ToolContext, params: { path: string; 
     const names = readdirSync(abs).sort();
     const truncated = names.length > cap;
     const slice = truncated ? names.slice(0, cap) : names;
-    const entries = slice.map((name) => {
+    const entries: Array<Record<string, unknown>> = [];
+    let redactedCount = 0;
+    for (const name of slice) {
       const child = join(abs, name);
+      if (looksLikeSecretPath(child)) {
+        redactedCount += 1;
+        continue;
+      }
       try {
         const ls = lstatSync(child);
         const symlink = ls.isSymbolicLink();
         const cs = symlink ? statSync(child) : ls;
-        return { name, type: cs.isDirectory() ? 'directory' : cs.isFile() ? 'file' : 'other', size: cs.isFile() ? cs.size : undefined, symlink, modified_at: cs.mtime.toISOString() };
+        entries.push({ name, type: cs.isDirectory() ? 'directory' : cs.isFile() ? 'file' : 'other', size: cs.isFile() ? cs.size : undefined, symlink, modified_at: cs.mtime.toISOString() });
       } catch (err) {
-        return { name, type: 'unreadable', error: err instanceof Error ? err.message : String(err) };
+        entries.push({ name, type: 'unreadable', error: err instanceof Error ? err.message : String(err) });
       }
-    });
-    return { success: true, data: { path: abs, total_entries: names.length, truncated, entries } };
+    }
+    if (redactedCount > 0) entries.push({ name: '<redacted>', count: redactedCount });
+    return { success: true, data: { path: abs, total_entries: names.length, truncated, redacted_count: redactedCount, entries } };
   } catch (err) {
+    if (err instanceof SecretPathError) return { success: false, error: err.message };
     return { success: false, error: err instanceof Error ? err.message : String(err) };
   }
 }

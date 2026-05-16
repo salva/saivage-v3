@@ -1,5 +1,6 @@
 import { existsSync, lstatSync, realpathSync, statSync } from 'node:fs';
-import { basename, normalize, relative, resolve, sep } from 'node:path';
+import { normalize, relative, resolve, sep } from 'node:path';
+import { looksLikeSecretPath as sharedLooksLikeSecretPath } from './secret-paths.js';
 
 export const SENSITIVE_PATHS: ReadonlySet<string> = new Set([
   '.saivage/auth-profiles.json',
@@ -19,25 +20,6 @@ export const WRITE_BLOCKED_PATHS: ReadonlySet<string> = new Set([
 export const REDACT_PATHS: ReadonlySet<string> = new Set([
   '.saivage/saivage.json',
 ]);
-
-const SECRET_PATH_PATTERNS: ReadonlyArray<RegExp> = [
-  /(?:^|\/)auth-profiles\.json$/i,
-  /(?:^|\/)id_rsa$/i,
-  /(?:^|\/)id_ed25519$/i,
-  /(?:^|\/)[^/]+\.(?:pem|key|pfx)$/i,
-  /(?:^|\/)\.env(?:\.[^/]+)?$/i,
-  /(?:^|\/)credentials$/i,
-  /(?:^|\/)cookies\.txt$/i,
-];
-
-const SECRET_PATH_FRAGMENTS = [
-  '/.saivage/auth-profiles',
-  '/.ssh/',
-  '/.aws/',
-  '/.config/gcloud/',
-  '/.npmrc',
-  '/.pypirc',
-];
 
 export function sanitizeFilePath(filePath: string): string {
   if (!filePath) return '';
@@ -74,10 +56,7 @@ export function isRedacted(filePath: string): boolean {
 }
 
 export function looksLikeSecretPath(filePath: string): boolean {
-  if (!filePath) return false;
-  const normalized = sanitizeFilePath(resolve(filePath)).replace(/\\/g, '/').toLowerCase();
-  if (SECRET_PATH_FRAGMENTS.some((fragment) => normalized.includes(fragment.toLowerCase()))) return true;
-  return SECRET_PATH_PATTERNS.some((pattern) => pattern.test(normalized)) || /(?:^|\/)\.git\/(?:.*(?:token|auth)|objects\/)/i.test(normalized) || basename(normalized) === '.npmrc' || basename(normalized) === '.pypirc';
+  return sharedLooksLikeSecretPath(filePath);
 }
 
 const REDACT_KEY_PATTERN =

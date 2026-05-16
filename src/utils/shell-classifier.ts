@@ -1,5 +1,5 @@
 import { resolve } from 'node:path';
-import { looksLikeSecretPath } from './file-access-security.js';
+import { looksLikeSecretPath } from './secret-paths.js';
 
 export type ShellSafetyClass = 'read_only' | 'low' | 'destructive';
 
@@ -212,6 +212,7 @@ function classifySegment(tokens: string[], cwd: string): ShellSafetyClass {
     if ((token === '>' || token === '>>') && i + 1 < tokens.length) {
       const target = resolve(cwd, tokens[i + 1]);
       if (isSystemPath(target)) return 'destructive';
+      if (looksLikeSecretPath(target)) return 'destructive';
     }
     if (!token.startsWith('-')) {
       const resolved = resolve(cwd, token);
