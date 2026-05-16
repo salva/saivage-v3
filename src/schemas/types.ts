@@ -209,6 +209,21 @@ export interface NoteRecord {
   handled_at?: string | null;
 }
 
+export interface NotesQueueEntry {
+  card_id: string;
+  note_id: string;
+  timestamp: string;
+  kind: NoteKind;
+}
+
+export interface NotesQueue {
+  entries: NotesQueueEntry[];
+}
+
+export interface NotesQueueResolvedEntry extends NotesQueueEntry {
+  note: NoteRecord;
+}
+
 // ── Process ──────────────────────────────────────────────────
 
 export type ProcessStatus = 'running' | 'exited' | 'failed' | 'killed';

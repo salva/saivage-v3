@@ -156,6 +156,15 @@ curl -X POST http://localhost:8080/api/runtime/pause \
 
 Use pause when you want to stop new dispatch without creating a freeze handoff.
 
+### Resume only from pause or idle
+
+```bash
+curl -X POST http://localhost:8080/api/runtime/resume \
+  -H "Authorization: Bearer $SAIVAGE_API_TOKEN"
+```
+
+Generic resume is for paused or idle runtime state. If the runtime is `frozen`, this endpoint now rejects the request with `400` and instructs you to use `/api/runtime/resume-from-freeze`.
+
 ### Freeze before handoff or disruptive maintenance
 
 ```bash
@@ -176,7 +185,24 @@ curl -X POST http://localhost:8080/api/runtime/resume-from-freeze \
 
 Resume from freeze restores queue and process references from the freeze manifest when present.
 
-## 5. Degraded-state workflow
+## 5. Operator notes queue
+
+Unhandled notes are stored per card and indexed in `.saivage/notes/queue.json`.
+
+Current backend behavior:
+
+- queue reads/writes are schema-validated;
+- `GET /api/notes` returns only reconciled unhandled notes with an attached `note` record;
+- stale queue entries that point at missing or handled notes are removed during reconciliation;
+- malformed persisted queue files return a controlled `500` instead of returning partial `note: undefined` rows.
+
+Use note actions with this meaning:
+
+- acknowledge: preserves the note in card history and removes it from the unhandled queue;
+- delete: removes an unhandled note from both card history and queue;
+- clear unhandled: deletes only currently unhandled queued notes.
+
+## 6. Degraded-state workflow
 
 If runtime or UI state is degraded:
 
@@ -187,7 +213,7 @@ If runtime or UI state is degraded:
 5. Pause or freeze before manual intervention if state is still mutating.
 6. Only then consider direct filesystem inspection.
 
-## 6. Unauthorized, stale, and offline workflow
+## 7. Unauthorized, stale, and offline workflow
 
 ### Unauthorized
 
@@ -208,7 +234,7 @@ If runtime or UI state is degraded:
 - verify docs and SPA serving separately from API runtime state;
 - use process inspection and logs if the server is up but runtime is not advancing.
 
-## 7. Safe process inspection
+## 8. Safe process inspection
 
 Inspect processes through Debug or process APIs rather than raw registry files.
 
@@ -221,7 +247,7 @@ Expect process views to show:
 
 Do not treat the process API as a general shell interface.
 
-## 8. Local verification commands
+## 9. Local verification commands
 
 ```bash
 npm run docs:verify
@@ -240,7 +266,7 @@ npm run web:test:filesview
 npm run web:test:debugview
 ```
 
-## 9. When manual filesystem access is justified
+## 10. When manual filesystem access is justified
 
 Manual `.saivage/` or `.saivage-work/` inspection is a fallback, not the normal workflow.
 

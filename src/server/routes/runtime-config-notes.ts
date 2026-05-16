@@ -1,28 +1,21 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { readRuntimeState, updateRuntimeState } from '../../utils/runtime-state.js';
 import { loadConfig, type ProviderEntry } from '../../agents/config-schema.js';
-import { getUnhandledNotesQueue, markNoteHandled, deleteNote, getNotes } from '../../utils/notes.js';
+import {
+  getReconciledUnhandledNotesQueue,
+  findUnhandledNoteCardId,
+  markNoteHandled,
+  deleteNote,
+} from '../../utils/notes.js';
 import { redactSecrets } from '../../utils/file-access-security.js';
 import { CardStore } from '../../utils/card-store.js';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
-
-// ── Helpers ───────────────────────────────────────────────────
 
 function saivageDir(projectRoot: string): string {
   return `${projectRoot}/.saivage`;
 }
 
-function findCardForNote(
-  projectRoot: string,
-  noteId: string,
-): string | null {
-  const queue = getUnhandledNotesQueue(saivageDir(projectRoot));
-  const entry = queue.find((e: { note_id: string; card_id: string }) => e.note_id === noteId);
-  return entry ? entry.card_id : null;
-}
-
-/** Read agent session file — returns null if not found or parse error. */
 function readAgentSession(projectRoot: string, sessionId: string): Record<string, unknown> | null {
   const sessionPath = join(projectRoot, '.saivage', 'agents', 'sessions', `${sessionId}.json`);
   if (!existsSync(sessionPath)) return null;
@@ -33,7 +26,6 @@ function readAgentSession(projectRoot: string, sessionId: string): Record<string
   }
 }
 
-/** Read agent message lines — returns empty array if not found or unparseable. */
 function readAgentMessages(projectRoot: string, sessionId: string): unknown[] {
   const messagesPath = join(projectRoot, '.saivage', 'agents', 'messages', `${sessionId}.jsonl`);
   if (!existsSync(messagesPath)) return [];
@@ -46,10 +38,8 @@ function readAgentMessages(projectRoot: string, sessionId: string): unknown[] {
   return messages;
 }
 
-/** Safe agent session ID validation pattern. */
 const SAFE_AGENT_ID_RE = /^[a-zA-Z0-9_-]+$/;
-
-// ── Route Registration ────────────────────────────────────────
+const RESUME_FROM_FREEZE_MESSAGE = 'Runtime is frozen. Use POST /api/runtime/resume-from-freeze to restore from the freeze manifest before resuming dispatch.';
 
 export function registerRuntimeConfigNotesRoutes(
   fastify: FastifyInstance,
@@ -58,10 +48,6 @@ export function registerRuntimeConfigNotesRoutes(
   onResume?: () => void,
 ): void {
   const store = new CardStore(projectRoot);
-
-  // ═══════════════════════════════════════════════════════════
-  // Runtime endpoints
-  // ═══════════════════════════════════════════════════════════
 
   fastify.get('/api/state', async (_request: FastifyRequest, reply: FastifyReply) => {
     try {
@@ -104,7 +90,6 @@ export function registerRuntimeConfigNotesRoutes(
         paused: true,
         paused_at: new Date().toISOString(),
       });
-      // Notify ActiveRuntime if callback provided (for in-memory _paused flag)
       onPause?.();
       return reply.send({ status: 'paused' });
     } catch (err) {
@@ -117,12 +102,19 @@ export function registerRuntimeConfigNotesRoutes(
 
   fastify.post('/api/runtime/resume', async (_request: FastifyRequest, reply: FastifyReply) => {
     try {
+      const current = readRuntimeState(projectRoot);
+      if (current?.status === 'frozen') {
+        return reply.status(400).send({
+          error: 'Runtime is frozen',
+          message: RESUME_FROM_FREEZE_MESSAGE,
+          action: 'resume-from-freeze',
+        });
+      }
       updateRuntimeState(projectRoot, {
         status: 'idle',
         paused: false,
         paused_at: null,
       });
-      // Notify ActiveRuntime if callback provided (for in-memory _paused flag)
       onResume?.();
       return reply.send({ status: 'resumed' });
     } catch (err) {
@@ -132,10 +124,6 @@ export function registerRuntimeConfigNotesRoutes(
       });
     }
   });
-
-  // ═══════════════════════════════════════════════════════════
-  // Config endpoints
-  // ═══════════════════════════════════════════════════════════
 
   fastify.get('/api/config', async (_request: FastifyRequest, reply: FastifyReply) => {
     try {
@@ -147,8 +135,6 @@ export function registerRuntimeConfigNotesRoutes(
         warnings,
       });
     } catch (err) {
-      // Return a partial/default config with a warning message
-      // instead of a 500 so the UI always has something to work with.
       return reply.send({
         config: {
           server: { port: 8080, host: '0.0.0.0' },
@@ -187,16 +173,37 @@ export function registerRuntimeConfigNotesRoutes(
     }
   });
 
-  // ═══════════════════════════════════════════════════════════
-  // Agents / Conversation endpoint
-  // ═══════════════════════════════════════════════════════════
+  fastify.get('/api/agents', async (_request: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const sessionsDir = join(projectRoot, '.saivage', 'agents', 'sessions');
+      const sessions: Record<string, unknown>[] = [];
+
+      if (existsSync(sessionsDir)) {
+        const files = readdirSync(sessionsDir).filter((file) => file.endsWith('.json'));
+        for (const file of files) {
+          const sessionId = file.slice(0, -'.json'.length);
+          if (!SAFE_AGENT_ID_RE.test(sessionId)) continue;
+
+          const session = readAgentSession(projectRoot, sessionId);
+          if (session) sessions.push(session);
+        }
+      }
+
+      sessions.sort((a, b) => String(b['started_at'] ?? '').localeCompare(String(a['started_at'] ?? '')));
+      return reply.send({ sessions });
+    } catch (err) {
+      return reply.status(500).send({
+        error: 'Failed to list agent sessions',
+        message: err instanceof Error ? err.message : String(err),
+      });
+    }
+  });
 
   fastify.get('/api/agents/:id/conversation', async (request: FastifyRequest, reply: FastifyReply) => {
     try {
       const params = request.params as { id: string };
       const sessionId = params.id;
 
-      // Validate session ID
       if (!SAFE_AGENT_ID_RE.test(sessionId)) {
         return reply.status(400).send({ error: 'Invalid agent session ID' });
       }
@@ -207,7 +214,6 @@ export function registerRuntimeConfigNotesRoutes(
       }
 
       const messages = readAgentMessages(projectRoot, sessionId);
-
       return reply.send({ session, messages });
     } catch (err) {
       return reply.status(500).send({
@@ -217,20 +223,10 @@ export function registerRuntimeConfigNotesRoutes(
     }
   });
 
-  // ═══════════════════════════════════════════════════════════
-  // Notes endpoints
-  // ═══════════════════════════════════════════════════════════
-
   fastify.get('/api/notes', async (_request: FastifyRequest, reply: FastifyReply) => {
     try {
-      const queue = getUnhandledNotesQueue(saivageDir(projectRoot));
-      const enriched = queue.map((entry: { card_id: string; note_id: string; timestamp: string; kind: string }) => {
-        const notes = getNotes(saivageDir(projectRoot), entry.card_id);
-        const note = notes.find((n: { id: string }) => n.id === entry.note_id);
-        return { ...entry, note };
-      });
-
-      return reply.send({ notes: enriched, total: enriched.length });
+      const notes = getReconciledUnhandledNotesQueue(saivageDir(projectRoot));
+      return reply.send({ notes, total: notes.length });
     } catch (err) {
       return reply.status(500).send({
         error: 'Failed to list notes',
@@ -243,7 +239,7 @@ export function registerRuntimeConfigNotesRoutes(
     try {
       const params = request.params as { id: string };
       const noteId = params.id;
-      const cardId = findCardForNote(projectRoot, noteId);
+      const cardId = findUnhandledNoteCardId(saivageDir(projectRoot), noteId);
       if (!cardId) {
         return reply.status(404).send({ error: 'Note not found', noteId });
       }
@@ -264,7 +260,7 @@ export function registerRuntimeConfigNotesRoutes(
     try {
       const params = request.params as { id: string };
       const noteId = params.id;
-      const cardId = findCardForNote(projectRoot, noteId);
+      const cardId = findUnhandledNoteCardId(saivageDir(projectRoot), noteId);
       if (!cardId) {
         return reply.status(404).send({ error: 'Note not found', noteId });
       }
@@ -286,20 +282,12 @@ export function registerRuntimeConfigNotesRoutes(
 
   fastify.delete('/api/notes', async (_request: FastifyRequest, reply: FastifyReply) => {
     try {
-      const queue = getUnhandledNotesQueue(saivageDir(projectRoot));
+      const queue = getReconciledUnhandledNotesQueue(saivageDir(projectRoot));
       const deletedIds: string[] = [];
 
       for (const entry of queue) {
-        try {
-          const notes = getNotes(saivageDir(projectRoot), entry.card_id);
-          const note = notes.find((n: { id: string; handled: boolean }) => n.id === entry.note_id);
-          if (note && !note.handled) {
-            deleteNote(saivageDir(projectRoot), entry.card_id, entry.note_id);
-            deletedIds.push(entry.note_id);
-          }
-        } catch {
-          // Skip
-        }
+        deleteNote(saivageDir(projectRoot), entry.card_id, entry.note_id);
+        deletedIds.push(entry.note_id);
       }
 
       return reply.send({ deleted: deletedIds.length, noteIds: deletedIds });

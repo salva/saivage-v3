@@ -32,6 +32,7 @@ Docs and health are public surfaces. Unauthorized API access does not imply the 
 
 - `/health` returns `runtime: "frozen"`
 - runtime status remains frozen after maintenance
+- `POST /api/runtime/resume` returns `400 Runtime is frozen`
 
 ### Recovery
 
@@ -50,6 +51,26 @@ curl -X POST http://localhost:8080/api/runtime/resume-from-freeze \
 ```
 
 If no freeze manifest exists, the server returns a client error rather than guessing a restore path.
+
+## Notes queue returns errors or missing rows
+
+### Symptoms
+
+- `GET /api/notes` returns `500 Failed to list notes`
+- operators previously saw stale note rows disappear after refresh
+
+### What it means
+
+Saivage now validates `.saivage/notes/queue.json` as a persisted record.
+
+- malformed queue entries are rejected with a controlled `500`;
+- stale queue entries pointing at missing or handled notes are reconciled away on read instead of returning `note: undefined`.
+
+### What to do
+
+1. Retry `GET /api/notes` once in case stale queue entries were auto-reconciled.
+2. If the endpoint still returns `500`, inspect `.saivage/notes/queue.json` for schema damage only after pausing or freezing if runtime state is still changing.
+3. Preserve card note files under `.saivage/notes/by-card/` before manual repair.
 
 ## Runtime is degraded or in `error`
 

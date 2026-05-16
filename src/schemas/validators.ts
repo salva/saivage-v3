@@ -263,6 +263,15 @@ export const noteRecordSchema = z.object({
   handled: z.boolean(),
   handled_at: z.string().datetime().nullable().optional(),
 });
+export const notesQueueEntrySchema = z.object({
+  card_id: z.string().min(1),
+  note_id: z.string().min(1),
+  timestamp: z.string().datetime(),
+  kind: noteKindSchema,
+});
+export const notesQueueSchema = z.object({
+  entries: z.array(notesQueueEntrySchema),
+});
 
 export const processStatusSchema = z.enum(['running', 'exited', 'failed', 'killed']);
 export const processRecordSchema = z.object({
