@@ -180,7 +180,8 @@ export function resolveContainedProjectPath(
       if (!realPath.startsWith(realRoot + sep) && realPath !== realRoot) {
         return {
           safe: false,
-          absolutePath: '',
+          absolutePath: resolvedPath,
+          relativePath: relative(resolvedRoot, resolvedPath).replace(/\\/g, '/') || '.',
           reason: 'Symlink target is outside the project root.',
         };
       }
@@ -214,7 +215,7 @@ export function getContainedFileMetadata(projectRoot: string, rawPath: unknown):
 
   const resolved = resolveContainedProjectPath(projectRoot, rawPath.trim());
   if (!resolved.safe || !resolved.relativePath) {
-    const fallback = toContainedRelativePath(projectRoot, rawPath);
+    const fallback = resolved.relativePath ?? toContainedRelativePath(projectRoot, rawPath);
     if (!fallback) {
       return null;
     }
