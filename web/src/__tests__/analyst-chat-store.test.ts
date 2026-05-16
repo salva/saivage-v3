@@ -3,14 +3,16 @@ import { createPinia, setActivePinia } from 'pinia';
 import { useAnalystChat } from '../stores/analystChat';
 import type { ChatMessage } from '../api/types';
 
-const listChatSessions = vi.fn();
-const getChatMessages = vi.fn();
-const sendChatMessage = vi.fn();
+const apiMocks = vi.hoisted(() => ({
+  listChatSessions: vi.fn(),
+  getChatMessages: vi.fn(),
+  sendChatMessage: vi.fn(),
+}));
 
 vi.mock('../api/client', () => ({
-  listChatSessions,
-  getChatMessages,
-  sendChatMessage,
+  listChatSessions: apiMocks.listChatSessions,
+  getChatMessages: apiMocks.getChatMessages,
+  sendChatMessage: apiMocks.sendChatMessage,
   ApiError: class extends Error { status: number; body: Record<string, unknown>; constructor(status: number, message: string, body: Record<string, unknown> = {}) { super(message); this.status = status; this.body = body; } get isUnauthorized() { return this.status === 401; } },
 }));
 
@@ -20,12 +22,12 @@ describe('analyst chat store', () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2025-01-01T00:00:00Z'));
     setActivePinia(createPinia());
-    listChatSessions.mockReset();
-    getChatMessages.mockReset();
-    sendChatMessage.mockReset();
-    listChatSessions.mockResolvedValue({ sessions: [] });
-    getChatMessages.mockResolvedValue({ sessionId: 'chat-1', messages: [] as ChatMessage[] });
-    sendChatMessage.mockResolvedValue({ sessionId: 'chat-1', message: { id: 'm1', content: 'reply', timestamp: '2025-01-01T00:00:00Z' } });
+    apiMocks.listChatSessions.mockReset();
+    apiMocks.getChatMessages.mockReset();
+    apiMocks.sendChatMessage.mockReset();
+    apiMocks.listChatSessions.mockResolvedValue({ sessions: [] });
+    apiMocks.getChatMessages.mockResolvedValue({ sessionId: 'chat-1', messages: [] as ChatMessage[] });
+    apiMocks.sendChatMessage.mockResolvedValue({ sessionId: 'chat-1', message: { id: 'm1', content: 'reply', timestamp: '2025-01-01T00:00:00Z' } });
   });
 
   it('seedCardContext produces stable session id shape', () => {
@@ -61,7 +63,7 @@ describe('analyst chat store', () => {
     await store.selectSession('chat-1');
     store.ingestWsEvent({ event: 'analyst_tool_invoked', sessionId: 'chat-1', tool: 'read_file', summary: 'opened docs', success: true });
 
-    getChatMessages.mockResolvedValueOnce({
+    apiMocks.getChatMessages.mockResolvedValueOnce({
       sessionId: 'chat-1',
       messages: [
         { id: 'assistant-1', session_id: 'chat-1', role: 'assistant', kind: 'text', content: 'still thinking', timestamp: '2025-01-01T00:00:01Z' },
@@ -70,7 +72,7 @@ describe('analyst chat store', () => {
     await store.fetchMessages('chat-1');
     expect(store.pendingToolInvocations).toHaveLength(1);
 
-    getChatMessages.mockResolvedValueOnce({
+    apiMocks.getChatMessages.mockResolvedValueOnce({
       sessionId: 'chat-1',
       messages: [
         { id: 'tool-1', session_id: 'chat-1', role: 'tool', kind: 'tool_call', tool: 'read_file', content: JSON.stringify({ toolCalls: [{ tool: 'read_file', params: { path: 'docs/analyst.md' } }] }), timestamp: '2025-01-01T00:00:02Z' },
@@ -85,7 +87,7 @@ describe('analyst chat store', () => {
     await store.selectSession('chat-1');
     store.ingestWsEvent({ event: 'analyst_tool_invoked', sessionId: 'chat-1', tool: 'read_file', summary: 'opened docs', success: true });
 
-    getChatMessages.mockResolvedValueOnce({
+    apiMocks.getChatMessages.mockResolvedValueOnce({
       sessionId: 'chat-2',
       messages: [
         { id: 'tool-2', session_id: 'chat-2', role: 'tool', kind: 'tool_call', tool: 'read_file', content: JSON.stringify({ toolCalls: [{ tool: 'read_file', params: { path: 'README.md' } }] }), timestamp: '2025-01-01T00:00:02Z' },
