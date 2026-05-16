@@ -21,6 +21,7 @@ type BroadcastPayload = {
   success: boolean;
   summary: string;
   classified_as?: string;
+  related_card_id?: string;
 };
 
 function setupRoot(): string {
@@ -57,33 +58,49 @@ describe('analyst_tool_invoked broadcast', () => {
       expect(payload.tool).toBe('read_file');
       expect(payload.success).toBe(true);
       expect(payload.summary).toMatch(/read file/i);
+      expect(payload.summary.length).toBeLessThanOrEqual(200);
     } finally { rmSync(root, { recursive: true, force: true }); }
   });
 
-  it('broadcasts edit_card payload', async () => {
+  it('broadcasts edit_card payload and preserves related card id', async () => {
     const root = setupRoot();
     try {
       const handler = new AnalystHandler(root, undefined, undefined, 'analyst', 'web-chat');
       await handler['runOfflineFallback']('s2', 'edit card c-1 title updated');
-      expect(broadcastAnalystToolInvoked).toHaveBeenCalled();
       const payload = broadcastAnalystToolInvoked.mock.calls.at(-1)?.[0] as BroadcastPayload;
       expect(payload.tool).toBe('edit_card');
       expect(payload.success).toBe(true);
       expect(payload.summary.length).toBeGreaterThan(0);
       expect(payload.summary.length).toBeLessThanOrEqual(200);
+      expect(payload.related_card_id).toBe('c-1');
     } finally { rmSync(root, { recursive: true, force: true }); }
   });
 
-  it('broadcasts previewed destructive shell payload with classification', async () => {
+  it('broadcasts previewed destructive shell payload with classification and redacted secret paths', async () => {
     const root = setupRoot();
     try {
       const handler = new AnalystHandler(root, undefined, undefined, 'analyst', 'web-chat');
-      await handler['runOfflineFallback']('s3', 'sudo systemctl restart x');
-      expect(broadcastAnalystToolInvoked).toHaveBeenCalled();
+      await handler['runOfflineFallback']('s3', 'cat .saivage/auth-profiles.json apiKey=super-secret');
       const payload = broadcastAnalystToolInvoked.mock.calls.at(-1)?.[0] as BroadcastPayload;
       expect(payload.tool).toBe('run_shell_command');
       expect(payload.classified_as).toBe('destructive');
       expect(payload.success).toBe(true);
+      expect(payload.summary).toContain('[SECRET_PATH]');
+      expect(payload.summary).not.toMatch(/auth-profiles\.json|super-secret/i);
+      expect(payload.summary.length).toBeLessThanOrEqual(200);
+    } finally { rmSync(root, { recursive: true, force: true }); }
+  });
+
+  it('broadcasts failed shell payload without leaking command output or secret-bearing filenames', async () => {
+    const root = setupRoot();
+    try {
+      const handler = new AnalystHandler(root, undefined, undefined, 'analyst', 'web-chat');
+      await handler['runOfflineFallback']('s4', 'run shell command python3 -c "import sys; sys.stderr.write(\'apiKey=secret-456 .env\'); sys.exit(2)"');
+      const payload = broadcastAnalystToolInvoked.mock.calls.at(-1)?.[0] as BroadcastPayload;
+      expect(payload.tool).toBe('run_shell_command');
+      expect(payload.success).toBe(false);
+      expect(payload.summary).not.toMatch(/secret-456|\.env/);
+      expect(payload.summary.length).toBeLessThanOrEqual(200);
     } finally { rmSync(root, { recursive: true, force: true }); }
   });
 

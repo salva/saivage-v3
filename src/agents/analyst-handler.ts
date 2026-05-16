@@ -9,7 +9,7 @@ import { LlmIntentResolver } from './analyst-llm-resolver.js';
 import { CardStore } from '../utils/card-store.js';
 import type { ActiveRuntime } from '../utils/active-runtime.js';
 import type { ActorRole } from './authz.js';
-import { redactCredentialLiterals, redactSecrets } from '../utils/file-access-security.js';
+import { sanitizeAnalystText } from '../utils/analyst-sanitization.js';
 import { broadcastAnalystToolInvoked } from '../server/websocket.js';
 
 export interface ActivityCallback {
@@ -126,9 +126,9 @@ function parseIntent(text: string): ParsedIntent | null {
   if (/\bobjectives?\b/i.test(text)) return { tool: 'get_card', params: { id: 'project' } };
   if (/\b(?:tree|hierarchy)\b/i.test(text)) { const rootMatch = text.match(/(?:from|root|of)\s+([a-zA-Z]+-[a-zA-Z0-9]+|project)/i); const params: Record<string, unknown> = {}; if (rootMatch) params.rootId = rootMatch[1]; return { tool: 'get_tree', params }; }
   if (/\b(?:diary|plan\s*log)\b/i.test(text)) { const goalIds = extractGoalIds(text); if (goalIds.length > 0) return { tool: 'get_plan_diary', params: { goalId: goalIds[0] } }; return { tool: 'get_plan_diary', params: {} }; }
-  if (/\b(?:output|log|stdout|stderr)\b/i.test(text) && !/\b(?:create|edit|delete|move)\b/i.test(text)) { const ids = cardIds.filter((id) => id !== 'project'); const procIds = extractProcessIds(text); const lines = extractLines(text); const params: Record<string, unknown> = {}; if (procIds.length > 0) params.processId = procIds[0]; if (ids.length > 0) params.cardId = ids[0]; if (lines !== undefined) params.lines = lines; return { tool: 'get_card_output', params }; }
   if (/\b(read|inspect|show|open)\b.*\b(file|README|package\.json|tsconfig|json|md|log)\b/i.test(text) || /\bREADME\.md\b/i.test(text)) { const pathMatch = text.match(/((?:[A-Za-z0-9_.-]+\/)*[A-Za-z0-9_.-]+\.[A-Za-z0-9_-]+)/); const path = pathMatch?.[1] ?? (text.match(/\bREADME(?:\.md)?\b/i)?.[0] ?? null); if (path) return { tool: 'read_file', params: { path } }; }
-  if (/\b(run|exec(?:ute)?)\b.*\b(shell|command)\b/i.test(text) || /^(sudo|ls|pwd|cat|grep|rg|git\s+status|git\s+diff)\b/i.test(text.trim())) { return { tool: 'run_shell_command', params: { command: text.trim() } }; }
+  if (/\b(run|exec(?:ute)?)\b.*\b(shell|command)\b/i.test(text) || /^(sudo|ls|pwd|cat|grep|rg|git\s+status|git\s+diff|python3?)\b/i.test(text.trim())) { return { tool: 'run_shell_command', params: { command: text.trim() } }; }
+  if (/\b(?:output|log|stdout|stderr)\b/i.test(text) && !/\b(?:create|edit|delete|move)\b/i.test(text)) { const ids = cardIds.filter((id) => id !== 'project'); const procIds = extractProcessIds(text); const lines = extractLines(text); const params: Record<string, unknown> = {}; if (procIds.length > 0) params.processId = procIds[0]; if (ids.length > 0) params.cardId = ids[0]; if (lines !== undefined) params.lines = lines; return { tool: 'get_card_output', params }; }
   if (/\b(?:detail|inspect|show\s+card|look\s+at|examine)\b/i.test(text)) { const ids = cardIds.filter((id) => id !== 'project'); if (ids.length > 0) return { tool: 'get_card', params: { id: ids[0] } }; return { tool: 'get_card', params: {} }; }
   if (/\b(?:list|show)\b.*\b(?:card|task|item)s?\b/i.test(text)) { const status = extractStatus(text); const type = extractCardType(text); const parent = extractParentId(text); const tags = extractTags(text); const params: Record<string, unknown> = {}; if (status) params.status = status; if (type && type !== 'project') params.type = type; if (parent) params.parent = parent; if (tags.length > 0) params.tag = tags[0]; return { tool: 'list_cards', params }; }
   if (/\b(?:status|state|overview|how.*going|progress)\b/i.test(text)) return { tool: 'get_status', params: {} };
@@ -137,13 +137,14 @@ function parseIntent(text: string): ParsedIntent | null {
 }
 
 function summarizeForBroadcast(tool: string, result: ToolResult): { summary: string; classified_as?: string; related_card_id?: string; related_note_id?: string; related_process_id?: string } {
-  const limit = (value: string): string => redactCredentialLiterals(redactSecrets(value)).replace(/\s+/g, ' ').trim().slice(0, 200);
   const data = result.data && typeof result.data === 'object' ? result.data as Record<string, unknown> : null;
   const preview = result.preview && typeof result.preview === 'object' ? result.preview as unknown as Record<string, unknown> : null;
   const source = data ?? preview ?? {};
   const auditSource = data?.['audit_entry'] && typeof data['audit_entry'] === 'object' ? data['audit_entry'] as ControlActionAuditEntry : null;
   const classified_as = typeof source['classified_as'] === 'string' ? String(source['classified_as']) : undefined;
-  const related_card_id = typeof source['card_id'] === 'string' ? String(source['card_id']) : typeof source['id'] === 'string' && (tool === 'edit_card' || tool === 'get_card') ? String(source['id']) : typeof source['related_card_id'] === 'string' ? String(source['related_card_id']) : auditSource?.target_kind === 'card' && auditSource.target_id ? auditSource.target_id : undefined;
+  const relatedCardFromData = typeof data?.['id'] === 'string' && (tool === 'edit_card' || tool === 'get_card' || tool === 'create_card') ? String(data['id']) : undefined;
+  const relatedCardFromPreview = Array.isArray(preview?.['affectedCards']) && preview['affectedCards'].length > 0 && preview['affectedCards'][0] && typeof (preview['affectedCards'][0] as Record<string, unknown>)['id'] === 'string' ? String((preview['affectedCards'][0] as Record<string, unknown>)['id']) : undefined;
+  const related_card_id = typeof source['card_id'] === 'string' ? String(source['card_id']) : relatedCardFromData ?? relatedCardFromPreview ?? (typeof source['related_card_id'] === 'string' ? String(source['related_card_id']) : auditSource?.target_kind === 'card' && auditSource.target_id ? auditSource.target_id : undefined);
   const related_note_id = typeof source['note_id'] === 'string' ? String(source['note_id']) : typeof source['related_note_id'] === 'string' ? String(source['related_note_id']) : auditSource?.target_kind === 'note' && auditSource.target_id ? auditSource.target_id : undefined;
   const related_process_id = typeof source['process_id'] === 'string' ? String(source['process_id']) : typeof source['related_process_id'] === 'string' ? String(source['related_process_id']) : auditSource?.target_kind === 'process' && auditSource.target_id ? auditSource.target_id : undefined;
 
@@ -159,13 +160,16 @@ function summarizeForBroadcast(tool: string, result: ToolResult): { summary: str
     const path = typeof data['path'] === 'string' ? data['path'] : 'directory';
     const count = Array.isArray(data['entries']) ? data['entries'].length : 0;
     summary = `listed directory ${path} (${count} entries)`;
-  } else if (tool === 'run_shell_command' && data) {
-    const code = data['exit_code'];
-    const command = typeof data['command'] === 'string' ? data['command'] : 'shell command';
-    summary = `${classified_as ?? 'shell'} ${command} exit=${code === null ? 'null' : String(code)}`;
+  } else if (tool === 'run_shell_command') {
+    if (preview) {
+      summary = typeof preview['summary'] === 'string' ? preview['summary'] : 'shell preview generated';
+    } else if (data) {
+      const code = data['exit_code'];
+      summary = `${classified_as ?? 'shell'} command exit=${code === null ? 'null' : String(code)}`;
+    }
   }
 
-  return { summary: limit(summary), classified_as, related_card_id, related_note_id, related_process_id };
+  return { summary: sanitizeAnalystText(summary, 200), classified_as, related_card_id, related_note_id, related_process_id };
 }
 
 function broadcastToolInvocation(sessionId: string, tool: string, result: ToolResult): void {

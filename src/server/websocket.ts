@@ -14,6 +14,7 @@ import { getOrCreateAnalystSession, getAnalystHandler, resetAnalystHandlerCache 
 import type { EventBus, EventBusSubscription } from '../utils/event-bus.js';
 import type { LoggedEvent } from '../schemas/types.js';
 import { redactOperatorErrorMessage } from '../utils/file-access-security.js';
+import { sanitizeAnalystPayload, sanitizeAnalystText } from '../utils/analyst-sanitization.js';
 import type { ActiveRuntime } from '../utils/active-runtime.js';
 
 export type WsEventType = 'message' | 'activity' | 'thinking' | 'status' | 'error';
@@ -24,6 +25,7 @@ export interface WsEnvelope {
 }
 
 const clients = new Set<WebSocket>();
+const authenticatedClients = new Set<WebSocket>();
 const wsSessions = new WeakMap<WebSocket, string>();
 const runtimeEventSubscriptions = new Map<object, EventBusSubscription>();
 
@@ -38,6 +40,7 @@ export function resetWebSocketState(projectRoot?: string): void {
     }
   }
   clients.clear();
+  authenticatedClients.clear();
 
   resetAnalystHandlerCache(projectRoot);
 }
@@ -61,7 +64,7 @@ export function resetRuntimeEventSubscriptions(runtime?: { eventBus: EventBus })
 
 export function broadcast(event: WsEnvelope): void {
   const data = JSON.stringify(event);
-  for (const ws of clients) {
+  for (const ws of authenticatedClients) {
     try {
       if (ws.readyState === ws.OPEN) {
         ws.send(data);
@@ -156,6 +159,7 @@ export function broadcastAnalystToolInvoked(payload: {
     content: {
       event: 'analyst_tool_invoked',
       ...payload,
+      summary: sanitizeAnalystText(payload.summary, 200),
     },
   });
 }
@@ -230,6 +234,7 @@ export function registerWebSocket(fastify: FastifyInstance, projectRoot: string,
       }
 
       clients.add(ws);
+      authenticatedClients.add(ws);
 
       const { sessionId } = getOrCreateAnalystSession(projectRoot);
       wsSessions.set(ws, sessionId);
@@ -240,7 +245,7 @@ export function registerWebSocket(fastify: FastifyInstance, projectRoot: string,
           event: 'connected',
           sessionId,
           timestamp: new Date().toISOString(),
-          clientCount: clients.size,
+          clientCount: authenticatedClients.size,
         },
       });
 
@@ -265,7 +270,8 @@ export function registerWebSocket(fastify: FastifyInstance, projectRoot: string,
             const handler = getAnalystHandler(projectRoot, {
               activeRuntime,
               onActivity: (activity) => {
-                broadcast({ type: 'activity', content: activity as unknown as Record<string, unknown> });
+                const sanitizedActivity = sanitizeAnalystPayload(activity) as Record<string, unknown>;
+                broadcast({ type: 'activity', content: sanitizedActivity });
               },
             });
             const response = await handler.handleMessage(
@@ -275,7 +281,7 @@ export function registerWebSocket(fastify: FastifyInstance, projectRoot: string,
 
             sendToClient(ws, {
               type: 'message',
-              content: response.message as Record<string, unknown>,
+              content: sanitizeAnalystPayload(response.message) as Record<string, unknown>,
             });
 
             if (response.toolInvocations) {
@@ -285,8 +291,35 @@ export function registerWebSocket(fastify: FastifyInstance, projectRoot: string,
                   content: {
                     event: 'tool_invocation',
                     tool: inv.tool,
-                    params: inv.params,
-                    result: inv.result,
+                    params: sanitizeAnalystPayload(inv.params),
+                    result: sanitizeAnalystPayload({
+                      success: inv.result.success,
+                      error: inv.result.error,
+                      preview: inv.result.preview
+                        ? {
+                            type: inv.result.preview.type,
+                            summary: inv.result.preview.summary,
+                            warnings: inv.result.preview.warnings,
+                            classified_as: (inv.result.preview as unknown as Record<string, unknown>)['classified_as'],
+                          }
+                        : undefined,
+                      data: inv.result.data && typeof inv.result.data === 'object'
+                        ? {
+                            classified_as: (inv.result.data as Record<string, unknown>)['classified_as'],
+                            exit_code: (inv.result.data as Record<string, unknown>)['exit_code'],
+                            duration_ms: (inv.result.data as Record<string, unknown>)['duration_ms'],
+                            truncated: (inv.result.data as Record<string, unknown>)['truncated'],
+                            stdout: (inv.result.data as Record<string, unknown>)['stdout'],
+                            stderr: (inv.result.data as Record<string, unknown>)['stderr'],
+                            command: (inv.result.data as Record<string, unknown>)['command'],
+                            cwd: (inv.result.data as Record<string, unknown>)['cwd'],
+                            path: (inv.result.data as Record<string, unknown>)['path'],
+                            binary: (inv.result.data as Record<string, unknown>)['binary'],
+                            size: (inv.result.data as Record<string, unknown>)['size'],
+                            modified_at: (inv.result.data as Record<string, unknown>)['modified_at'],
+                          }
+                        : inv.result.data,
+                    }),
                   },
                 });
               }
@@ -297,7 +330,7 @@ export function registerWebSocket(fastify: FastifyInstance, projectRoot: string,
             type: 'error',
             content: {
               error: 'Failed to process message',
-              details: redactOperatorErrorMessage(err instanceof Error ? err.message : String(err), projectRoot),
+              details: sanitizeAnalystText(redactOperatorErrorMessage(err instanceof Error ? err.message : String(err), projectRoot), 200),
             },
           });
         }
@@ -305,11 +338,13 @@ export function registerWebSocket(fastify: FastifyInstance, projectRoot: string,
 
       ws.on('close', () => {
         clients.delete(ws);
+        authenticatedClients.delete(ws);
         wsSessions.delete(ws);
       });
 
       ws.on('error', () => {
         clients.delete(ws);
+        authenticatedClients.delete(ws);
         wsSessions.delete(ws);
       });
     },

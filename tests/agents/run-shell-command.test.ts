@@ -39,7 +39,7 @@ describe('run_shell_command', () => {
       const result = await run_shell_command(ctx(root, store), { command: 'sudo systemctl restart x' });
       expect(result.success).toBe(true);
       expect(result.preview?.type).toBe('shell.exec');
-      expect(result.preview?.classified_as).toBe('destructive');
+      expect((result.preview as unknown as Record<string, unknown> | undefined)?.['classified_as']).toBe('destructive');
       expect(result.preview?.preview_hash).toBeTruthy();
       const audit = readAudit(root);
       expect(audit).toHaveLength(1);
@@ -58,7 +58,7 @@ describe('run_shell_command', () => {
       const result = await run_shell_command(ctx(root, store), { command: 'cat .saivage/auth-profiles.json' });
       expect(result.success).toBe(true);
       expect(result.preview?.type).toBe('shell.exec');
-      expect(result.preview?.classified_as).toBe('destructive');
+      expect((result.preview as unknown as Record<string, unknown> | undefined)?.['classified_as']).toBe('destructive');
       expect(result.preview?.preview_hash).toBeTruthy();
       const audit = readAudit(root);
       expect(audit).toHaveLength(1);
