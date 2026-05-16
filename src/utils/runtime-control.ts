@@ -1,6 +1,7 @@
 import { readRuntimeState, updateRuntimeState } from './runtime-state.js';
 import type { ActiveRuntime } from './active-runtime.js';
 import { enqueueRuntimeStateNotifications } from './notification-triggers.js';
+import type { RuntimeState } from '../schemas/types.js';
 
 /**
  * Shared runtime-control authority for pause/resume semantics.
@@ -34,6 +35,15 @@ export interface RuntimeControlResult {
   action?: 'resume-from-freeze';
 }
 
+function mirrorRuntimeState(projectRoot: string, runtimeStatus: { status: RuntimeState['status']; paused: boolean }): { status: string; paused: boolean } {
+  const state = updateRuntimeState(projectRoot, {
+    status: runtimeStatus.status,
+    paused: runtimeStatus.paused,
+    paused_at: runtimeStatus.paused ? new Date().toISOString() : null,
+  });
+  return { status: state.status, paused: state.paused };
+}
+
 export function pauseRuntimeControl(ctx: RuntimeControlContext): RuntimeControlResult {
   try {
     const current = readRuntimeState(ctx.projectRoot);
@@ -59,8 +69,12 @@ export function pauseRuntimeControl(ctx: RuntimeControlContext): RuntimeControlR
     if (ctx.activeRuntime) {
       ctx.activeRuntime.pause();
       const runtimeStatus = ctx.activeRuntime.getStatus();
-      status = runtimeStatus.status;
-      paused = runtimeStatus.paused;
+      const mirrored = mirrorRuntimeState(ctx.projectRoot, {
+        status: runtimeStatus.status,
+        paused: runtimeStatus.paused,
+      });
+      status = mirrored.status;
+      paused = mirrored.paused;
     } else {
       const state = updateRuntimeState(ctx.projectRoot, {
         status: 'paused',
@@ -115,8 +129,12 @@ export function resumeRuntimeControl(ctx: RuntimeControlContext): RuntimeControl
     if (ctx.activeRuntime) {
       ctx.activeRuntime.resume();
       const runtimeStatus = ctx.activeRuntime.getStatus();
-      status = runtimeStatus.status;
-      paused = runtimeStatus.paused;
+      const mirrored = mirrorRuntimeState(ctx.projectRoot, {
+        status: runtimeStatus.status,
+        paused: runtimeStatus.paused,
+      });
+      status = mirrored.status;
+      paused = mirrored.paused;
     } else {
       const state = updateRuntimeState(ctx.projectRoot, {
         status: 'idle',

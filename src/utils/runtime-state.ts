@@ -32,6 +32,25 @@ function defaultRuntimeState(): RuntimeState {
   };
 }
 
+function normalizeRuntimeState(raw: unknown): RuntimeState {
+  const base = defaultRuntimeState();
+  const merged = {
+    ...base,
+    ...(raw && typeof raw === 'object' ? raw as Record<string, unknown> : {}),
+    current_card_id: raw && typeof raw === 'object' && 'current_card_id' in (raw as Record<string, unknown>) ? (raw as Record<string, unknown>).current_card_id as string | null : base.current_card_id,
+    current_agent_session_id: raw && typeof raw === 'object' && 'current_agent_session_id' in (raw as Record<string, unknown>) ? (raw as Record<string, unknown>).current_agent_session_id as string | null : base.current_agent_session_id,
+    paused_at: raw && typeof raw === 'object' && 'paused_at' in (raw as Record<string, unknown>) ? (raw as Record<string, unknown>).paused_at as string | null : base.paused_at,
+    queue: Array.isArray((raw as Record<string, unknown> | null)?.queue) ? (raw as Record<string, unknown>).queue as string[] : base.queue,
+    running_processes: Array.isArray((raw as Record<string, unknown> | null)?.running_processes) ? (raw as Record<string, unknown>).running_processes as string[] : base.running_processes,
+    frozen_reason: raw && typeof raw === 'object' && 'frozen_reason' in (raw as Record<string, unknown>) ? (raw as Record<string, unknown>).frozen_reason as string | null : base.frozen_reason,
+  };
+  const parsed = runtimeStateSchema.safeParse(merged);
+  if (!parsed.success) {
+    throw new Error(`RuntimeState validation failed: ${parsed.error.message}`);
+  }
+  return parsed.data;
+}
+
 // ── Public API ────────────────────────────────────────────────
 
 /**
@@ -78,11 +97,7 @@ export function readRuntimeState(projectRoot: string): RuntimeState | null {
   }
   const raw = readFileSync(sp, 'utf-8');
   const obj = JSON.parse(raw);
-  const parsed = runtimeStateSchema.safeParse(obj);
-  if (!parsed.success) {
-    throw new Error(`RuntimeState validation failed: ${parsed.error.message}`);
-  }
-  return parsed.data;
+  return normalizeRuntimeState(obj);
 }
 
 /**
