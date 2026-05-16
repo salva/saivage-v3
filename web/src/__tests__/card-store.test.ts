@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import { setActivePinia, createPinia } from 'pinia';
-import type { CardRecord, CardListResponse, CardDetailResponse, CardCreateResponse, CardUpdateResponse, CardEvidence, CardLifecycleSummary, CardReviewSummary, DispatchSummary } from '../api/types';
+import type { CardRecord, CardListResponse, CardDetailResponse, CardCreateResponse, CardUpdateResponse, CardEvidence, CardLifecycleSummary, CardReviewSummary, DispatchSummary, CardPlanningSummary } from '../api/types';
 
 vi.mock('../api/client', () => ({
   listCards: vi.fn(), getCard: vi.fn(), createCard: vi.fn(), updateCard: vi.fn(), deleteCard: vi.fn(),
@@ -17,7 +17,7 @@ function makeCard(overrides: Partial<CardRecord> = {}): CardRecord { const id = 
 function mlr(cards: CardRecord[], total?: number): CardListResponse { return { cards, total: total ?? cards.length }; }
 function mcr(card: CardRecord): CardCreateResponse { return { card }; }
 function mur(card: CardRecord): CardUpdateResponse { return { card }; }
-function mdr(card: CardRecord, children: CardRecord[] = [], ancestorIds: string[] = [], evidence?: CardEvidence, lifecycle?: CardLifecycleSummary, review?: CardReviewSummary, dispatches?: DispatchSummary): CardDetailResponse { return { card, children, ancestorIds, evidence, lifecycle: lifecycle || { status: card.status, terminal: false, phase: 'ready', explanation: 'test', completionState: 'in-progress', error: null, startedAt: null, completedAt: null, durationMs: null, retries: 0, childCounts: { drafting: 0, backlog: 0, active: 0, running: 0, blocked: 0, done: 0, failed: 0, cancelled: 0 }, hasActiveChildren: false, hasBlockingChildren: false, dependencyIds: [], blockedByDependencyIds: [] }, review: review || { status: 'not-run', review: null, evidenceStatus: 'none', summary: 'No reviewer assessment is recorded for this card.' }, planning: null, dispatches: dispatches || { outgoing: [], incoming: [] } }; }
+function mdr(card: CardRecord, children: CardRecord[] = [], ancestorIds: string[] = [], evidence?: CardEvidence, lifecycle?: CardLifecycleSummary, review?: CardReviewSummary, dispatches?: DispatchSummary, planning: CardPlanningSummary | null = null): CardDetailResponse { return { card, children, ancestorIds, evidence, lifecycle: lifecycle || { status: card.status, terminal: false, phase: 'ready', explanation: 'test', completionState: 'in-progress', error: null, startedAt: null, completedAt: null, durationMs: null, retries: 0, childCounts: { drafting: 0, backlog: 0, active: 0, running: 0, blocked: 0, done: 0, failed: 0, cancelled: 0 }, hasActiveChildren: false, hasBlockingChildren: false, dependencyIds: [], blockedByDependencyIds: [] }, review: review || { status: 'not-run', review: null, evidenceStatus: 'none', summary: 'No reviewer assessment is recorded for this card.' }, planning, dispatches: dispatches || { outgoing: [], incoming: [] } }; }
 
 const A = makeCard({ id: 'card-a', title: 'Alpha' });
 
@@ -35,11 +35,15 @@ describe('useCardStore evidence support', () => {
       summary: { state: 'present', summary: 'Evidence was recorded for this card.', hasRecordedEvidence: true, hasDurableEvidence: true, missingCount: 0, blockedCount: 0, redactedCount: 0, fileCount: 1, verificationCount: 1, toolErrorCount: 0, parseRecovered: false },
     };
     const review: CardReviewSummary = { status: 'passed', review: { id: 'rev-1', goal_card_id: 'card-a', reviewer_session_id: 'sess-1', result: 'pass', summary: 'ok', achieved: ['done'], missing: [], evidence_card_ids: ['card-a'], created_at: '2025-01-01T00:00:00Z' }, evidenceStatus: 'recorded', summary: 'ok' };
-    vi.mocked(getCard).mockResolvedValue(mdr(A, [], [], evidence, undefined, review, undefined));
+    const planning: CardPlanningSummary = { status: 'continue', summary: null, blockedReason: null, createdCardIds: [], updatedCardIds: [], reviewSummary: 'misleading review summary', plannerDeclaredDone: true, hasUnfinishedChildWork: true };
+    vi.mocked(getCard).mockResolvedValue(mdr(A, [], [], evidence, undefined, review, undefined, planning));
     await s.fetchCardDetail('card-a');
     expect(s.currentEvidence).toEqual(evidence);
     expect(s.currentReview?.status).toBe('passed');
     expect(s.currentLifecycle?.status).toBe('active');
+    expect(s.currentPlanning).toEqual(planning);
+    expect(s.currentPlanning?.hasUnfinishedChildWork).toBe(true);
+    expect(s.currentPlanning?.plannerDeclaredDone).toBe(true);
     expect(s.currentDetailFreshness.isStale).toBe(false);
   });
 

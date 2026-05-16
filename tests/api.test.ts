@@ -80,6 +80,79 @@ afterAll(async () => {
   try { rmSync(TEST_ROOT, { recursive: true, force: true }); } catch {}
 }, 10000);
 
+describe('card detail planning summary semantics', () => {
+  it('surfaces canonical persisted planning booleans instead of deriving from status or review summary', async () => {
+    const now = new Date().toISOString();
+    const cardId = 'goal-planning-semantics';
+    const cardPath = join(SAIVAGE_DIR, 'cards', 'by-id', `${cardId}.json`);
+    const indexPath = join(SAIVAGE_DIR, 'cards', 'index.json');
+    const projectChildrenPath = join(SAIVAGE_DIR, 'cards', 'tree', 'project.children.json');
+    const cardChildrenPath = join(SAIVAGE_DIR, 'cards', 'tree', `${cardId}.children.json`);
+
+    writeFileSync(cardPath, JSON.stringify({
+      id: cardId,
+      type: 'goal',
+      parent: 'project',
+      depth: 1,
+      title: 'Planning semantics goal',
+      description: 'Tests canonical planning booleans.',
+      status: 'done',
+      tags: [],
+      priority: 1,
+      urgency: 'normal',
+      created_by: 'planner',
+      created_at: now,
+      updated_at: now,
+      depends_on: [],
+      blocks: [],
+      related: [],
+      acceptance: '',
+      artifacts: [],
+      attachments: [],
+      retries: 0,
+      result: {
+        planning: {
+          status: 'continue',
+          review_summary: 'Looks complete from review/status heuristics.',
+          planner_declared_done: true,
+          has_unfinished_child_work: true,
+          created_cards: [],
+        },
+        review: {
+          id: 'review-goal-planning-semantics',
+          goal_card_id: cardId,
+          reviewer_session_id: 'reviewer-goal-planning-semantics',
+          result: 'pass',
+          summary: 'Review passed even though planner says unfinished child work remains.',
+          achieved: ['Recorded review output'],
+          missing: [],
+          evidence_card_ids: [cardId],
+          created_at: now,
+        },
+      },
+    }));
+
+    writeFileSync(indexPath, JSON.stringify({
+      cards: {
+        project: { id: 'project', type: 'project', parent: null, status: 'backlog', title: 'project' },
+        [cardId]: { id: cardId, type: 'goal', parent: 'project', status: 'done', title: 'Planning semantics goal' },
+      },
+    }));
+    writeFileSync(projectChildrenPath, JSON.stringify([cardId]));
+    writeFileSync(cardChildrenPath, JSON.stringify([]));
+
+    const res = await fetch(url(`/api/cards/${cardId}`), { headers: authHeader(authToken) });
+    expect(res.status).toBe(200);
+    const body = await res.json() as { planning: { plannerDeclaredDone: boolean; hasUnfinishedChildWork: boolean; status: string | null; reviewSummary: string | null } };
+    expect(body.planning).toEqual(expect.objectContaining({
+      status: 'continue',
+      reviewSummary: 'Looks complete from review/status heuristics.',
+      plannerDeclaredDone: true,
+      hasUnfinishedChildWork: true,
+    }));
+  });
+});
+
 describe('runtime config and notes routes', () => {
   it('rejects generic resume from frozen state with actionable 400', async () => {
     const now = new Date().toISOString();

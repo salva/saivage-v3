@@ -448,9 +448,14 @@ function buildPlanningSummary(card: CardRecord): CardPlanningSummary | null {
     })
     : [];
 
-  const plannerDeclaredDone = status === 'done';
-  const hasUnfinishedChildWork = plannerDeclaredDone
-    ? reviewSummary === null && card.status !== 'done'
+  // Surface canonical persisted runtime/planner-control semantics when present.
+  // Conservative fallback: absent booleans remain false rather than inventing
+  // unfinished child work from status, review summary, or queue/card state.
+  const plannerDeclaredDone = typeof planning['planner_declared_done'] === 'boolean'
+    ? planning['planner_declared_done']
+    : false;
+  const hasUnfinishedChildWork = typeof planning['has_unfinished_child_work'] === 'boolean'
+    ? planning['has_unfinished_child_work']
     : false;
 
   return {

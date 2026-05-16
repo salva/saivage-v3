@@ -16,7 +16,7 @@ import { getFileContent, ApiError } from '../api/client';
 vi.mock('../utils/logger', () => ({ createLogger: () => ({ error: vi.fn() }) }));
 const mockedGetFileContent = vi.mocked(getFileContent) as unknown as { mockResolvedValue(value: FileContent): void; mockRejectedValue(error: unknown): void; };
 
-function primeStore(pinia: Pinia, opts?: { redactedOnly?: boolean; detailError?: any; stale?: boolean; review?: CardReviewSummary; }) {
+function primeStore(pinia: Pinia, opts?: { redactedOnly?: boolean; detailError?: any; stale?: boolean; review?: CardReviewSummary; hasUnfinishedChildWork?: boolean; plannerDeclaredDone?: boolean; }) {
   setActivePinia(pinia);
   const store = useCardStore();
   store.currentCard = { id: 'card-1', type: 'code', parent: null, depth: 0, title: 'Card 1', description: '', status: 'done', tags: [], priority: 1, urgency: 'normal', created_by: 'user', created_at: '2025-01-01T00:00:00Z', updated_at: '2025-01-01T00:00:00Z', depends_on: ['goal-1'], blocks: [], related: [], acceptance: '', artifacts: [], attachments: [], retries: 0, notes: [] } as any;
@@ -27,7 +27,7 @@ function primeStore(pinia: Pinia, opts?: { redactedOnly?: boolean; detailError?:
     : { generatedFiles: [ { path: 'reports/generated.txt', source: 'result.generated_files', exists: true, previewable: true, blocked: false, sensitivity: 'normal' }, { path: '.saivage/auth-profiles.json', source: 'result.artifact_paths', exists: false, previewable: false, blocked: true, downloadable: false, sensitivity: 'sensitive-blocked', availabilityReason: 'Path is outside the project root.' } ], verificationCommands: [{ command: 'npm test', process_id: 'p1', status: 'completed', exit_code: 0, timed_out: false }], artifactPaths: ['reports/generated.txt'], toolErrors: ['tool warning'], parseFailure: { message: 'bad json' }, summary: { state: 'blocked', summary: '1 recorded evidence path is blocked by file-access security.', hasRecordedEvidence: true, hasDurableEvidence: true, missingCount: 0, blockedCount: 1, redactedCount: 0, fileCount: 2, verificationCount: 1, toolErrorCount: 1, parseRecovered: true } };
   store.currentLifecycle = { status: 'done', terminal: true, phase: 'completed', explanation: 'This card is marked done; review and evidence determine whether operators should accept completion.', completionState: 'marked-done', error: null, startedAt: null, completedAt: null, durationMs: null, retries: 0, childCounts: { drafting: 0, backlog: 0, active: 0, running: 1, blocked: 0, done: 0, failed: 0, cancelled: 0 }, hasActiveChildren: true, hasBlockingChildren: false, dependencyIds: ['goal-1'], blockedByDependencyIds: ['goal-1'] };
   store.currentReview = opts?.review || { status: 'not-run', review: null, evidenceStatus: 'none', summary: 'No review result was returned by the card detail API.' };
-  store.currentPlanning = { status: 'done', summary: 'Planner completed', blockedReason: null, createdCardIds: ['child-1'], updatedCardIds: [], reviewSummary: null, hasUnfinishedChildWork: false, plannerDeclaredDone: true };
+  store.currentPlanning = { status: 'done', summary: 'Planner completed', blockedReason: null, createdCardIds: ['child-1'], updatedCardIds: [], reviewSummary: null, hasUnfinishedChildWork: opts?.hasUnfinishedChildWork ?? false, plannerDeclaredDone: opts?.plannerDeclaredDone ?? true };
   store.currentDispatches = { outgoing: [{ dispatchId: 'd1', direction: 'outgoing', parentCardId: 'card-1', targetCardId: 'child-1', targetKind: 'terminal_card', status: 'completed', outcome: 'done', summary: 'done', error: null, evidenceCardIds: ['child-1'], completedAt: '2025-01-01T00:00:00Z' }], incoming: [] };
   store.currentDetailError = opts?.detailError || null;
   store.currentDetailFreshness = { isStale: opts?.stale || false, lastLoadedAt: '2025-01-01T00:00:00Z', staleReason: opts?.stale ? 'ws-card-updated' : null };
@@ -48,6 +48,14 @@ describe('CardDetailView generated file inspection', () => {
     expect(wrapper.text()).toContain('Review result');
     expect(wrapper.text()).toContain('Dispatch summary');
     expect(wrapper.text()).toContain('child-1');
+  });
+
+  it('renders unfinished child work warning from planning summary returned by the API/store', async () => {
+    const pinia = createPinia();
+    primeStore(pinia, { hasUnfinishedChildWork: true, plannerDeclaredDone: true });
+    const wrapper = mount(CardDetailView, { props: { cardId: 'card-1' }, global: { plugins: [pinia] } });
+    await flushPromises();
+    expect(wrapper.text()).toContain('Planner declared work done, but unfinished child work is still indicated.');
   });
 
   it('loads read-only preview for selected file', async () => {
