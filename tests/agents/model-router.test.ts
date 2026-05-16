@@ -14,6 +14,7 @@ import { tmpdir } from 'node:os';
 
 import { ModelRouter } from '../../src/agents/model-router.js';
 import { ProviderRegistry } from '../../src/agents/provider.js';
+import { resolveLlmTransportConfig } from '../../src/agents/llm-transport.js';
 import type { SaivageConfig } from '../../src/agents/config-schema.js';
 
 function mockConfig(overrides: Partial<SaivageConfig> = {}): SaivageConfig {
@@ -27,6 +28,7 @@ function mockConfig(overrides: Partial<SaivageConfig> = {}): SaivageConfig {
       idleShutdownMs: 300000,
       maxGoalDepth: 5,
       recoveryDelayMs: 60000,
+      autoDispatchBacklog: true,
       continuousImprovement: false,
       compactionThreshold: 0.8,
       maxCompactions: 3,
@@ -48,8 +50,6 @@ function mockConfig(overrides: Partial<SaivageConfig> = {}): SaivageConfig {
     ...overrides,
   };
 }
-
-// ── Auth profile test helpers ─────────────────────────────────
 
 let testRoots: string[] = [];
 
@@ -110,7 +110,6 @@ describe('ModelRouter', () => {
       const router = new ModelRouter(cfg, registry);
 
       const chain = await router.resolve('planner');
-      // Should be: github/primary/gpt-5.5, github/secondary/gpt-5.5, opencode/_/kimi-k2.6
       expect(chain.length).toBeGreaterThanOrEqual(3);
       expect(chain[0]).toEqual({ provider: 'github', account: 'primary', model: 'gpt-5.5' });
       expect(chain[1]).toEqual({ provider: 'github', account: 'secondary', model: 'gpt-5.5' });
@@ -133,7 +132,6 @@ describe('ModelRouter', () => {
         },
       });
       const registry = new ProviderRegistry(cfg);
-      // Mark github candidate as failed
       registry.markFailed(
         { provider: 'github', account: 'primary', model: 'gpt-5.5' },
         60000,
@@ -141,7 +139,6 @@ describe('ModelRouter', () => {
       const router = new ModelRouter(cfg, registry);
 
       const chain = await router.resolve('planner');
-      // github/primary is in cooldown — should skip to opencode
       expect(chain).toHaveLength(1);
       expect(chain[0].provider).toBe('opencode');
     });
@@ -161,7 +158,6 @@ describe('ModelRouter', () => {
         },
       });
       const registry = new ProviderRegistry(cfg);
-      // Mark github (only provider for gpt-5.5) as failed
       registry.markFailed(
         { provider: 'github', account: null, model: 'gpt-5.5' },
         60000,
@@ -169,7 +165,6 @@ describe('ModelRouter', () => {
       const router = new ModelRouter(cfg, registry);
 
       const chain = await router.resolve('planner');
-      // gpt-5.5 has no healthy candidates → advance to kimi-k2.6
       expect(chain).toHaveLength(1);
       expect(chain[0].model).toBe('kimi-k2.6');
       expect(chain[0].provider).toBe('opencode');
@@ -193,7 +188,6 @@ describe('ModelRouter', () => {
         },
       });
       const registry = new ProviderRegistry(cfg);
-      // Mark all gpt-5.5 candidates as failed
       registry.markFailed(
         { provider: 'github', account: null, model: 'gpt-5.5' },
         60000,
@@ -201,7 +195,6 @@ describe('ModelRouter', () => {
       const router = new ModelRouter(cfg, registry);
 
       const chain = await router.resolve('planner');
-      // Should try claude-sonnet-4 as equivalent
       expect(chain.length).toBeGreaterThan(0);
       expect(chain[0].model).toBe('claude-sonnet-4');
     });
@@ -231,7 +224,6 @@ describe('ModelRouter', () => {
       const router = new ModelRouter(cfg, registry);
 
       const chain = await router.resolve('planner');
-      // Should try deepseek-v4-pro via failover
       expect(chain.length).toBeGreaterThan(0);
       expect(chain[0].model).toBe('deepseek-v4-pro');
     });
@@ -300,19 +292,16 @@ describe('ModelRouter', () => {
       expect(chain[0].model).toBe('deepseek-v4-pro');
     });
 
-    // ── Auth profile integration tests ────────────────────────
-
     describe('auth profile integration', () => {
       it('includes a candidate when auth profile is valid (not expired)', async () => {
         const root = makeProjectRoot();
-        // Write auth profile with future expiry
         writeAuthProfileFile(root, {
           'my-oauth': {
             type: 'oauth',
             provider: 'github',
             accessToken: 'gh-at-123',
             refreshToken: 'gh-rt-456',
-            expiresAt: Date.now() + 3600_000, // 1 hour from now
+            expiresAt: Date.now() + 3600_000,
           },
         });
 
@@ -341,7 +330,6 @@ describe('ModelRouter', () => {
             github: {
               priority: 10,
               models: ['gpt-5.5'],
-              // no authProfile
             },
           },
         });
@@ -353,16 +341,15 @@ describe('ModelRouter', () => {
         expect(chain[0].provider).toBe('github');
       });
 
-      it('skips an account when auth profile is expired and refresh fails', async () => {
+      it('keeps expired auth-profile candidates in the router chain so transport resolution can own refresh/failure', async () => {
         const root = makeProjectRoot();
-        // Write auth profile with past expiry (already expired)
         writeAuthProfileFile(root, {
           'my-oauth': {
             type: 'oauth',
             provider: 'github',
             accessToken: 'gh-at-expired',
             refreshToken: 'gh-rt-expired',
-            expiresAt: Date.now() - 100_000, // expired 100s ago
+            expiresAt: Date.now() - 100_000,
           },
         });
 
@@ -377,25 +364,20 @@ describe('ModelRouter', () => {
             opencode: {
               priority: 20,
               models: ['gpt-5.5'],
-              // no auth profile — should be used as fallback
             },
           },
         });
         const registry = new ProviderRegistry(cfg);
-
-        // No tokenEndpoint configured → refreshAuthProfile will fail gracefully
         const router = new ModelRouter(cfg, registry, root);
 
         const chain = await router.resolve('planner');
-        // github with expired auth should be skipped; opencode should be used
-        expect(chain).toHaveLength(1);
-        expect(chain[0].provider).toBe('opencode');
+        expect(chain).toHaveLength(2);
+        expect(chain[0].provider).toBe('github');
+        expect(chain[1].provider).toBe('opencode');
       });
 
-      it('skips an account when auth profile name is configured but file does not exist', async () => {
+      it('keeps configured auth-profile candidates in the router chain even when the file does not exist', async () => {
         const root = makeProjectRoot();
-        // No auth-profiles.json file at all
-
         const cfg = mockConfig({
           models: { planner: ['gpt-5.5'] },
           providers: {
@@ -414,54 +396,17 @@ describe('ModelRouter', () => {
         const router = new ModelRouter(cfg, registry, root);
 
         const chain = await router.resolve('planner');
-        // github with missing auth profile should be skipped
-        expect(chain).toHaveLength(1);
-        expect(chain[0].provider).toBe('opencode');
+        expect(chain).toHaveLength(2);
+        expect(chain[0].provider).toBe('github');
+        expect(chain[1].provider).toBe('opencode');
       });
 
-      it('skips an account when profile exists but has no refresh token (and is expired)', async () => {
+      it('resolves static-API-key providers without reading auth profiles during transport resolution', async () => {
         const root = makeProjectRoot();
-        // Profile without refresh token and with past expiry
-        writeAuthProfileFile(root, {
-          'no-rt-profile': {
-            type: 'oauth',
-            provider: 'github',
-            accessToken: 'gh-at-no-rt',
-            // No refreshToken
-            expiresAt: Date.now() - 100_000,
-          },
-        });
-
-        const cfg = mockConfig({
-          models: { planner: ['gpt-5.5'] },
-          providers: {
-            github: {
-              priority: 10,
-              models: ['gpt-5.5'],
-              authProfile: 'no-rt-profile',
-            },
-            opencode: {
-              priority: 20,
-              models: ['gpt-5.5'],
-            },
-          },
-        });
-        const registry = new ProviderRegistry(cfg);
-        const router = new ModelRouter(cfg, registry, root);
-
-        const chain = await router.resolve('planner');
-        // github with expired + no refresh token should be skipped
-        expect(chain).toHaveLength(1);
-        expect(chain[0].provider).toBe('opencode');
-      });
-
-      it('skips an account when profile name is configured but profile not in file', async () => {
-        const root = makeProjectRoot();
-        // Auth file exists with a different profile
         writeAuthProfileFile(root, {
           'other-profile': {
             type: 'oauth',
-            provider: 'other',
+            provider: 'github',
             accessToken: 'other-at',
           },
         });
@@ -472,21 +417,19 @@ describe('ModelRouter', () => {
             github: {
               priority: 10,
               models: ['gpt-5.5'],
+              apiKey: 'static-api-key',
+              baseUrl: 'https://example.invalid/v1',
               authProfile: 'my-oauth',
-            },
-            opencode: {
-              priority: 20,
-              models: ['gpt-5.5'],
             },
           },
         });
         const registry = new ProviderRegistry(cfg);
         const router = new ModelRouter(cfg, registry, root);
 
-        const chain = await router.resolve('planner');
-        // github with profile name that doesn't match should be skipped
-        expect(chain).toHaveLength(1);
-        expect(chain[0].provider).toBe('opencode');
+        const candidate = (await router.resolve('planner'))[0];
+        const transport = await resolveLlmTransportConfig(root, registry, candidate);
+        expect(transport.apiKey).toBe('static-api-key');
+        expect(transport.baseUrl).toBe('https://example.invalid/v1');
       });
 
       it('uses account-level authProfile when set (overrides provider-level)', async () => {
@@ -497,7 +440,7 @@ describe('ModelRouter', () => {
             provider: 'github',
             accessToken: 'acct-at-valid',
             refreshToken: 'acct-rt-valid',
-            expiresAt: Date.now() + 3600_000, // not expired
+            expiresAt: Date.now() + 3600_000,
           },
         });
 
@@ -514,7 +457,6 @@ describe('ModelRouter', () => {
                 },
                 secondary: {
                   priority: 20,
-                  // no authProfile → inherits from provider (none here)
                 },
               },
             },
@@ -524,7 +466,6 @@ describe('ModelRouter', () => {
         const router = new ModelRouter(cfg, registry, root);
 
         const chain = await router.resolve('planner');
-        // primary has valid auth, secondary has no auth → both should appear
         expect(chain.length).toBe(2);
         expect(chain[0].provider).toBe('github');
         expect(chain[0].account).toBe('primary');

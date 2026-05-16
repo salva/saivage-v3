@@ -100,14 +100,12 @@ describe('ActiveRuntime', () => {
   });
 
   afterEach(() => {
-    // Release any leftover lock
     try {
       releaseLock(tmpDir);
     } catch {
       // ignore
     }
 
-    // Clean up temp dir
     try {
       rmSync(tmpDir, { recursive: true, force: true });
     } catch {
@@ -146,6 +144,47 @@ describe('ActiveRuntime', () => {
       activeRuntime = new ActiveRuntime(tmpDir);
       expect(activeRuntime.skillsEngine).toBeDefined();
       expect(activeRuntime.agentAdapter.getSkillsEngine()).toBe(activeRuntime.skillsEngine);
+    });
+
+    it('start() keeps router resolution network-free even with an expired auth profile configured', async () => {
+      writeFileSync(
+        join(tmpDir, '.saivage', 'saivage.json'),
+        JSON.stringify({
+          server: { port: 8080, host: '127.0.0.1' },
+          models: { default: ['test-model'] },
+          providers: {
+            test: {
+              priority: 10,
+              models: ['test-model'],
+              authProfile: 'oauth-test-profile',
+            },
+          },
+        }, null, 2),
+      );
+      writeFileSync(
+        join(tmpDir, '.saivage', 'auth-profiles.json'),
+        JSON.stringify({
+          version: 1,
+          profiles: {
+            'oauth-test-profile': {
+              type: 'oauth',
+              provider: 'test',
+              access: 'stale-token',
+              refresh: 'refresh-token',
+              expires: Date.now() - 60_000,
+            },
+          },
+        }, null, 2),
+      );
+
+      activeRuntime = new ActiveRuntime(tmpDir);
+      await activeRuntime.start();
+
+      const candidates = await activeRuntime.agentAdapter.router.resolve('planner');
+      expect(candidates).toHaveLength(1);
+      expect(candidates[0]).toEqual({ provider: 'test', account: null, model: 'test-model' });
+
+      await activeRuntime.stop();
     });
   });
 
