@@ -225,6 +225,11 @@ export const useCardStore = defineStore('cards', () => {
     staleNotificationByCard.value = { ...staleNotificationByCard.value, [cardId]: stale };
   }
 
+  function clearCurrentCardStaleNotification(cardId: string | null | undefined): void {
+    if (!cardId) return;
+    setCardStaleNotification(cardId, false);
+  }
+
   function safeBackgroundRefresh(genAtStart: number): void {
     const params: { status?: string; type?: string; parent?: string; tag?: string } = {};
     if (filterStatus.value) params.status = filterStatus.value;
@@ -277,6 +282,7 @@ export const useCardStore = defineStore('cards', () => {
       currentPlanning.value = response.planning;
       currentDispatches.value = response.dispatches;
       resetDetailFreshness();
+      clearCurrentCardStaleNotification(response.card.id);
     } catch (err) {
       const detailErr = buildDetailError(err, 'Failed to fetch card detail');
       error.value = detailErr.message;
@@ -300,6 +306,7 @@ export const useCardStore = defineStore('cards', () => {
     try {
       const response = await listCardHistory(cardId);
       cardHistory.value = response.history;
+      clearCurrentCardStaleNotification(cardId);
       if (response.history.length === 0) {
         cardHistorySelectedSeq.value = null;
         cardHistoryEntry.value = null;
@@ -368,12 +375,17 @@ export const useCardStore = defineStore('cards', () => {
       const idx = cards.value.findIndex((c) => c.id === id);
       if (idx !== -1) cards.value[idx] = response.card;
       if (currentCard.value?.id === id) currentCard.value = response.card;
+      clearCurrentCardStaleNotification(id);
       return response.card;
     } catch (err) {
       const msg = errorMessage(err, 'Failed to update card');
       error.value = msg;
       log.error('editCard', msg);
       throw err;
+    } finally {
+      if (currentCard.value?.id === id) {
+        clearCurrentCardStaleNotification(id);
+      }
     }
   }
 
@@ -438,7 +450,8 @@ export const useCardStore = defineStore('cards', () => {
           cards.value = [...cards.value];
         }
         if (currentCard.value?.id === updated.id) {
-          currentCard.value = updated;
+          currentCard.value = { ...currentCard.value, ...updated };
+          clearCurrentCardStaleNotification(updated.id);
           markDetailStale('ws-card-updated');
         }
         const gen = bumpGen();
@@ -458,6 +471,7 @@ export const useCardStore = defineStore('cards', () => {
         const cardId = content.card_id as string | undefined;
         if (cardId && currentCard.value?.id === cardId) {
           void refreshCardHistory(cardId).catch(() => {});
+          clearCurrentCardStaleNotification(cardId);
           markDetailStale('ws-card-updated');
         }
       } else if (event === 'notification_added') {

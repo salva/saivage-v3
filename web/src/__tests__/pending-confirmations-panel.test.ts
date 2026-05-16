@@ -45,6 +45,34 @@ describe('PendingConfirmationsPanel', () => {
     expect(wrapper.text()).toContain('card.update');
     expect(wrapper.text()).toContain('web-chat');
     expect(wrapper.text()).toContain('analyst');
+    expect(wrapper.findAll('button').map((button) => button.text())).toEqual(['Refresh']);
+  });
+
+  it('filters out non-preview or non-rejected audit entries', async () => {
+    vi.mocked(listControlActions).mockResolvedValue({
+      control_actions: [
+        {
+          id: 'ca-keep', actor: 'analyst', surface: 'web-chat', action: 'card.update', target_kind: 'card', target_id: 'card-1', params_summary: 'summary', confirmed: false, outcome: 'rejected', outcome_summary: 'preview-only: confirmation required', created_at: '2025-01-01T00:00:00Z',
+        },
+        {
+          id: 'ca-non-preview', actor: 'analyst', surface: 'rest', action: 'card.update', target_kind: 'card', target_id: 'card-2', params_summary: 'summary', confirmed: false, outcome: 'rejected', outcome_summary: 'hard rejection without preview', created_at: '2025-01-01T00:00:00Z',
+        },
+        {
+          id: 'ca-non-rejected', actor: 'analyst', surface: 'web-chat', action: 'card.update', target_kind: 'card', target_id: 'card-3', params_summary: 'summary', confirmed: true, outcome: 'ok', outcome_summary: 'preview-only but already applied', created_at: '2025-01-01T00:00:00Z',
+        },
+      ],
+      total: 3,
+    });
+
+    const wrapper = mount(PendingConfirmationsPanel, { global: { plugins: [createPinia()] } });
+    await flushPromises();
+
+    expect(wrapper.text()).toContain('preview-only: confirmation required');
+    expect(wrapper.text()).not.toContain('hard rejection without preview');
+    expect(wrapper.text()).not.toContain('already applied');
+    expect(wrapper.text()).toContain('card-1');
+    expect(wrapper.text()).not.toContain('card-2');
+    expect(wrapper.text()).not.toContain('card-3');
   });
 
   it('renders loading state while control actions request is pending', async () => {

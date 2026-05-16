@@ -95,13 +95,41 @@ const {
 } = storeToRefs(cardStore);
 
 const activeDetailError = computed(() => cardHistoryEntryError.value ?? cardHistoryDiffError.value);
+const secretLikeKeyPattern = /(token|secret|password|authorization|auth[_-]?profile|provider|env|config)/i;
+const secretLikeValuePattern = /(sk-[A-Za-z0-9_-]+|bearer\s+[A-Za-z0-9._-]+|api[_-]?key|token|secret|password|auth[_-]?profile|env\[[^\]]+\]|process\.env)/i;
 
 function fmtDate(ts: string): string {
   try { return new Date(ts).toLocaleString(); } catch { return ts; }
 }
 
+function sanitizeForDisplay(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map((item) => sanitizeForDisplay(item));
+  }
+
+  if (value && typeof value === 'object') {
+    const sanitizedEntries = Object.entries(value as Record<string, unknown>).map(([key, entryValue]) => {
+      if (secretLikeKeyPattern.test(key)) {
+        return [key, '[redacted]'];
+      }
+      return [key, sanitizeForDisplay(entryValue)];
+    });
+    return Object.fromEntries(sanitizedEntries);
+  }
+
+  if (typeof value === 'string' && secretLikeValuePattern.test(value)) {
+    return '[redacted]';
+  }
+
+  return value;
+}
+
 function fmtJson(value: unknown): string {
-  try { return JSON.stringify(value, null, 2); } catch { return String(value); }
+  try {
+    return JSON.stringify(sanitizeForDisplay(value), null, 2);
+  } catch {
+    return String(sanitizeForDisplay(value));
+  }
 }
 
 async function loadHistory(): Promise<void> {
