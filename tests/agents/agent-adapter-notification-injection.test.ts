@@ -33,13 +33,66 @@ describe('AgentAdapter notification injection', () => {
     jest.restoreAllMocks();
   });
 
-  it('successful model call clears notifications that were pending before the call safe point', async () => {
-    const center = new NotificationCenter(tmpDir);
-    center.enqueueForSession('sess-safe-point', { id: 'n-1', kind: 'card_changed', severity: 'warn', payload_summary: 'Card changed', related_card_id: 'code-1', source_actor: 'analyst', source_surface: 'web-chat' });
-    const llmCall: LlmCallFn = async () => JSON.stringify({ card_id: 'code-1', status: 'done', artifacts: [], attachments: [] });
-    adapter.setLlmCallFn(jest.fn(llmCall));
-    center.markDeliveredForSession('sess-safe-point', ['n-1']);
-    expect(center.drainPendingForSession('sess-safe-point')).toEqual([]);
+  it('injects pending notifications into the very next model call for the actual live session', async () => {
+    const llmCall = jest.fn<LlmCallFn>(async () => JSON.stringify({ card_id: 'code-1', status: 'done', artifacts: [], attachments: [] }));
+    const sessionIds: string[] = [];
+    adapter.setAfterSessionCreatedHook((sessionId) => {
+      sessionIds.push(sessionId);
+      adapter.notificationCenter.enqueueForSession(sessionId, {
+        id: 'n-1',
+        kind: 'card_changed',
+        severity: 'warn',
+        payload_summary: 'Card changed by analyst',
+        related_card_id: 'code-1',
+        related_note_id: 'note-1',
+        related_process_id: 'proc-1',
+        related_version_seq: 7,
+        source_actor: 'analyst',
+        source_surface: 'web-chat',
+      });
+    });
+    adapter.setLlmCallFn(llmCall);
+
+    await adapter.invokeExecutor('code-1', 'goal-1', 'system prompt');
+
+    expect(sessionIds).toHaveLength(1);
+    expect(llmCall).toHaveBeenCalledTimes(1);
+    const [, , messages, liveSessionId] = llmCall.mock.calls[0];
+    expect(liveSessionId).toBe(sessionIds[0]);
+    expect(messages[0]).toMatchObject({ role: 'user', kind: 'text' });
+    expect(messages[0]?.content).toContain('## Operator updates since your last turn');
+    expect(messages[0]?.content).toContain('[card_changed]');
+    expect(messages[0]?.content).toContain('Card changed by analyst');
+    expect(messages[0]?.content).toContain('card=code-1');
+    expect(messages[0]?.content).toContain('note=note-1');
+    expect(messages[0]?.content).toContain('process=proc-1');
+    expect(messages[0]?.content).toContain('version=7');
+    expect(messages[0]?.content).toContain('acknowledge_notification("n-1")');
+    expect(adapter.notificationCenter.drainPendingForSession(liveSessionId)).toEqual([]);
+  });
+
+  it('does not redeliver notifications after a successful model call', async () => {
+    let liveSessionId = '';
+    adapter.setAfterSessionCreatedHook((sessionId) => {
+      liveSessionId = sessionId;
+      adapter.notificationCenter.enqueueForSession(sessionId, {
+        id: 'n-2',
+        kind: 'card_changed',
+        severity: 'warn',
+        payload_summary: 'Card changed',
+        related_card_id: 'code-1',
+        source_actor: 'analyst',
+        source_surface: 'web-chat',
+      });
+    });
+    const llmCall = jest.fn<LlmCallFn>(async () => JSON.stringify({ card_id: 'code-1', status: 'done', artifacts: [], attachments: [] }));
+    adapter.setLlmCallFn(llmCall);
+
+    await adapter.invokeExecutor('code-1', 'goal-1', 'system prompt');
+
+    expect(liveSessionId).not.toBe('');
+    expect(adapter.notificationCenter.drainPendingForSession(liveSessionId)).toEqual([]);
+    expect(llmCall).toHaveBeenCalledTimes(1);
   });
 
   it('failed model call leaves notifications pending for redelivery on a later call', async () => {

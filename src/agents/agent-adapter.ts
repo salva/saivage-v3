@@ -42,6 +42,7 @@ export type { AgentRuntime } from './agent-runtime.js';
 export type AgentRole = 'planner' | 'executor' | 'reviewer' | 'analyst';
 export interface AgentAdapterConfig { projectRoot: string; saivageDir: string; config: SaivageConfig; eventBus?: EventEmitter; eventLogger?: EventLogger; }
 export type LlmCallFn = (candidate: Candidate, systemPrompt: string, messages: AgentMessage[], sessionId: string, opts?: LlmCompleteOptions) => Promise<string>;
+type SessionCreatedHook = (sessionId: string) => void | Promise<void>;
 
 const MCP_TOOL_CALL_TOOL_DEFINITION: ToolDefinition = {
   type: 'function',
@@ -87,6 +88,7 @@ export class AgentAdapter implements AgentRuntime {
   private _skillsEngine: SkillsEngine | undefined;
   private roundCounters: Map<string, number> = new Map();
   private lastRole: string | null = null;
+  private afterSessionCreatedHook: SessionCreatedHook | null = null;
 
   constructor(cfg: AgentAdapterConfig) {
     this.projectRoot = cfg.projectRoot;
@@ -108,6 +110,7 @@ export class AgentAdapter implements AgentRuntime {
   getMcpManager(): McpManager | undefined { return this._mcpManager; }
   setSkillsEngine(engine: SkillsEngine): void { this._skillsEngine = engine; }
   getSkillsEngine(): SkillsEngine | undefined { return this._skillsEngine; }
+  setAfterSessionCreatedHook(hook: SessionCreatedHook | null): void { this.afterSessionCreatedHook = hook; }
 
   private buildToolsForRole(role: AgentRole): ToolDefinition[] { return TOOL_MATRIX[role] ?? []; }
   private getMcpToolDefinition(serverName: string, toolName: string): McpToolDefinition | null { if (!this._mcpManager) return null; const tools = this._mcpManager.getServerTools(serverName); return tools?.find((tool) => tool.name === toolName) ?? null; }
@@ -245,6 +248,7 @@ export class AgentAdapter implements AgentRuntime {
     const tools = this.buildToolsForRole(role);
     const tool_choice: 'auto' | undefined = tools.length > 0 ? 'auto' : undefined;
     const session = createSession(this.saivageDir, role as import('../schemas/types.js').AgentRole, goalId, cardId);
+    await this.afterSessionCreatedHook?.(session.id);
     if (this.eventLogger) this.eventLogger.appendEvent({ kind: 'session_started', session_id: session.id, role: role as unknown as import('../schemas/types.js').AgentRole, goal_id: goalId, card_id: cardId });
     if (this.eventBus) this.eventBus.emit('session_started', { session_id: session.id, role, goal_id: goalId, card_id: cardId });
     systemPrompt = this.applySelfCheck(role, systemPrompt, session.id);
