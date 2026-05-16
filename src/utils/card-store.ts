@@ -624,7 +624,7 @@ export class CardStore {
     const persisted = this.read(id)!;
     broadcastCardHistoryAppended({
       card_id: persisted.id,
-      version_seq: historyEntry.version_seq,
+      version_seq: persisted.version_seq,
       changed_fields: [...changedFields],
       changed_at: historyEntry.changed_at,
     });

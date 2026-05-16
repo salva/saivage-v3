@@ -282,6 +282,7 @@ describe('websocket push events', () => {
     expect(updateRes.status).toBe(200);
     const cardHistoryEvent = await cardHistoryPromise;
     expect(cardHistoryEvent['card_id']).toBe('code-1');
+    expect(cardHistoryEvent['version_seq']).toBe(2);
 
     const center = new NotificationCenter(TEST_ROOT);
     const notificationAddedPromise = waitForWsEvent(ws, 'notification_added');
