@@ -1,10 +1,11 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { mount, flushPromises } from '@vue/test-utils';
 import { createPinia, setActivePinia } from 'pinia';
 import type { Pinia } from 'pinia';
-import type { FileContent, CardReviewSummary } from '../api/types';
+import type { FileContent, CardReviewSummary, WsEnvelope } from '../api/types';
 import CardDetailView from '../components/cards/CardDetailView.vue';
 import { useCardStore } from '../stores/cards';
+import { useWsStore } from '../stores/ws';
 
 vi.mock('../api/client', () => ({
   listCards: vi.fn(), getCard: vi.fn(), createCard: vi.fn(), updateCard: vi.fn(), deleteCard: vi.fn(),
@@ -12,7 +13,7 @@ vi.mock('../api/client', () => ({
   ApiError: class extends Error { status: number; body: Record<string, unknown>; constructor(status: number, message: string, body: Record<string, unknown> = {}) { super(message); this.status = status; this.body = body; } get isUnauthorized() { return this.status === 401; } get isNotFound() { return this.status === 404; } },
 }));
 
-import { getFileContent, ApiError } from '../api/client';
+import { getFileContent } from '../api/client';
 vi.mock('../utils/logger', () => ({ createLogger: () => ({ error: vi.fn() }) }));
 const mockedGetFileContent = vi.mocked(getFileContent) as unknown as { mockResolvedValue(value: FileContent): void; mockRejectedValue(error: unknown): void; };
 
@@ -31,12 +32,22 @@ function primeStore(pinia: Pinia, opts?: { redactedOnly?: boolean; detailError?:
   store.currentDispatches = { outgoing: [{ dispatchId: 'd1', direction: 'outgoing', parentCardId: 'card-1', targetCardId: 'child-1', targetKind: 'terminal_card', status: 'completed', outcome: 'done', summary: 'done', error: null, evidenceCardIds: ['child-1'], completedAt: '2025-01-01T00:00:00Z' }], incoming: [] };
   store.currentDetailError = opts?.detailError || null;
   store.currentDetailFreshness = { isStale: opts?.stale || false, lastLoadedAt: '2025-01-01T00:00:00Z', staleReason: opts?.stale ? 'ws-card-updated' : null };
+  store.cardHistory = [{ version_seq: 2, changed_fields: ['title'], change_summary: 'updated title', changed_at: '2025-01-01T00:00:00Z', changed_by_actor: 'analyst', changed_by_surface: 'web-chat', change_reason: 'reason' } as any];
+  store.cardHistorySelectedSeq = 2;
   store.fetchCardDetail = vi.fn(async () => undefined) as any;
+  store.fetchCardHistoryForCard = vi.fn(async () => undefined) as any;
+  store.selectCardHistoryVersion = vi.fn(async () => undefined) as any;
   return store;
 }
 
+function invokeHandler(handler: ((envelope: WsEnvelope) => void) | null, envelope: WsEnvelope) {
+  if (!handler) throw new Error('missing activity handler');
+  handler(envelope);
+}
+
 describe('CardDetailView generated file inspection', () => {
-  beforeEach(() => { vi.clearAllMocks(); });
+  beforeEach(() => { vi.clearAllMocks(); vi.useFakeTimers(); });
+  afterEach(() => { vi.useRealTimers(); });
 
   it('renders lifecycle, hierarchy, evidence, and dispatch summaries', async () => {
     const pinia = createPinia();
@@ -106,5 +117,62 @@ describe('CardDetailView generated file inspection', () => {
     const wrapper = mount(CardDetailView, { props: { cardId: 'card-1' }, global: { plugins: [pinia] } });
     await flushPromises();
     expect(wrapper.text()).toContain('This card detail may be stale');
+  });
+
+  it('soft-refreshes and highlights on matching activity events', async () => {
+    const pinia = createPinia();
+    const store = primeStore(pinia);
+    const wsStore = useWsStore();
+    let activityHandler: ((envelope: WsEnvelope) => void) | null = null;
+    vi.spyOn(wsStore, 'onType').mockImplementation(((type: string, handler: (envelope: WsEnvelope) => void) => {
+      if (type === 'activity') activityHandler = handler;
+      return vi.fn();
+    }) as any);
+
+    const wrapper = mount(CardDetailView, { props: { cardId: 'card-1' }, global: { plugins: [pinia] } });
+    await flushPromises();
+    expect(store.fetchCardDetail).toHaveBeenCalledTimes(1);
+
+    invokeHandler(activityHandler, { type: 'activity', timestamp: new Date().toISOString(), content: { event: 'card_history_appended', card_id: 'card-1' } } as WsEnvelope);
+    await flushPromises();
+
+    expect(store.fetchCardDetail).toHaveBeenCalledTimes(2);
+    expect(store.fetchCardHistoryForCard).toHaveBeenCalledWith('card-1');
+    expect(store.selectCardHistoryVersion).toHaveBeenCalledWith('card-1', 2);
+    expect(wrapper.get('[data-testid="card-detail-highlight"]').classes()).toContain('live-highlight');
+
+    vi.advanceTimersByTime(1800);
+    await flushPromises();
+    expect(wrapper.get('[data-testid="card-detail-highlight"]').classes()).not.toContain('live-highlight');
+
+    invokeHandler(activityHandler, { type: 'activity', timestamp: new Date().toISOString(), content: { event: 'analyst_tool_invoked', related_card_id: 'card-1' } } as WsEnvelope);
+    await flushPromises();
+    expect(store.fetchCardDetail).toHaveBeenCalledTimes(3);
+  });
+
+  it('ignores unrelated events and cleans up websocket subscription on unmount', async () => {
+    const pinia = createPinia();
+    const store = primeStore(pinia);
+    const wsStore = useWsStore();
+    let activityHandler: ((envelope: WsEnvelope) => void) | null = null;
+    const unsubscribe = vi.fn();
+    vi.spyOn(wsStore, 'onType').mockImplementation(((type: string, handler: (envelope: WsEnvelope) => void) => {
+      if (type === 'activity') activityHandler = handler;
+      return unsubscribe;
+    }) as any);
+
+    const wrapper = mount(CardDetailView, { props: { cardId: 'card-1' }, global: { plugins: [pinia] } });
+    await flushPromises();
+
+    invokeHandler(activityHandler, { type: 'activity', timestamp: new Date().toISOString(), content: { event: 'card_history_appended', card_id: 'card-2' } } as WsEnvelope);
+    await flushPromises();
+    expect(store.fetchCardDetail).toHaveBeenCalledTimes(1);
+
+    await wrapper.setProps({ cardId: 'card-2' });
+    await flushPromises();
+    expect(unsubscribe.mock.calls.length).toBeGreaterThanOrEqual(2);
+
+    wrapper.unmount();
+    expect(unsubscribe.mock.calls.length).toBeGreaterThanOrEqual(3);
   });
 });

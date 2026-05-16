@@ -7,7 +7,7 @@
       <button type="button" class="retry-btn" @click="reloadDetail">Retry</button>
     </div>
     <template v-else-if="currentCard">
-      <section class="detail-section header-section">
+      <section class="detail-section header-section" :class="{ 'live-highlight': liveHighlighted }" data-testid="card-detail-highlight">
         <div class="detail-title-row">
           <span class="detail-type-badge" :class="'type-' + currentCard.type">{{ typeIcon(currentCard.type) }} {{ currentCard.type }}</span>
           <h1 class="detail-title">{{ currentCard.title }}</h1>
@@ -248,12 +248,13 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch, onMounted } from 'vue';
+import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue';
 import { useAnalystChat } from '../../stores/analystChat';
 import { useCardStore } from '../../stores/cards';
+import { useWsStore } from '../../stores/ws';
 import { storeToRefs } from 'pinia';
 import { getFileContent, ApiError } from '../../api/client';
-import type { GeneratedFileRef, VerificationCommandRef, DetailErrorState, CardStatus } from '../../api/types';
+import type { GeneratedFileRef, VerificationCommandRef, DetailErrorState, CardStatus, WsEnvelope } from '../../api/types';
 import { createLogger } from '../../utils/logger';
 import CardHistoryPanel from './CardHistoryPanel.vue';
 import StaleWarningRibbon from './StaleWarningRibbon.vue';
@@ -263,6 +264,7 @@ const props = defineProps<{ cardId: string }>();
 const emit = defineEmits<{ navigate: [id: string] }>();
 const cardStore = useCardStore();
 const analystChat = useAnalystChat();
+const wsStore = useWsStore();
 const {
   currentCard,
   currentChildren,
@@ -276,13 +278,18 @@ const {
   currentDetailFreshness,
   currentCardHasStaleWarning,
   loading,
+  cardHistorySelectedSeq,
 } = storeToRefs(cardStore);
 
 const detailError = computed<DetailErrorState | null>(() => currentDetailError.value);
 const detailFreshness = computed(() => currentDetailFreshness.value);
 
 const selectedPath = ref<string | null>(null);
+const liveHighlighted = ref(false);
 const previewState = ref<{ status: 'idle' } | { status: 'loading'; path: string } | { status: 'ready'; path: string; size: number; contentType: string; content: string; redactedHint: boolean } | { status: 'missing' | 'blocked' | 'directory' | 'too_large' | 'binary' | 'error'; path: string; message: string }>({ status: 'idle' });
+let wsUnsubscribe: (() => void) | null = null;
+let highlightTimer: ReturnType<typeof setTimeout> | null = null;
+let refreshTicket = 0;
 
 const TYPE_ICONS: Record<string, string> = { project: '(P)', goal: '(G)', architecture: '(A)', code: '(C)', test: '(T)', doc: '(D)', data: '(DA)', research: '(R)', ops: '(O)' };
 function typeIcon(type: string): string { return TYPE_ICONS[type] || '(?)'; }
@@ -404,6 +411,59 @@ function openPreviewForFile(file: GeneratedFileRef): void {
 function navigateCard(id: string): void { emit('navigate', id); }
 async function reloadDetail(): Promise<void> { try { await cardStore.fetchCardDetail(props.cardId); } catch (err) { log.error('fetch', err); } }
 
+function clearHighlightTimer(): void {
+  if (highlightTimer) {
+    clearTimeout(highlightTimer);
+    highlightTimer = null;
+  }
+}
+
+function pulseHighlight(): void {
+  clearHighlightTimer();
+  liveHighlighted.value = true;
+  highlightTimer = setTimeout(() => {
+    liveHighlighted.value = false;
+    highlightTimer = null;
+  }, 1800);
+}
+
+async function softRefreshForCard(cardId: string): Promise<void> {
+  const ticket = ++refreshTicket;
+  const selectedSeq = cardHistorySelectedSeq.value;
+  pulseHighlight();
+  await Promise.allSettled([
+    cardStore.fetchCardDetail(cardId),
+    cardStore.fetchCardHistoryForCard(cardId),
+  ]);
+  if (refreshTicket !== ticket) return;
+  if (selectedSeq != null) {
+    const historyStillContainsSelection = cardStore.cardHistory.some((entry) => entry.version_seq === selectedSeq);
+    if (historyStillContainsSelection) {
+      await cardStore.selectCardHistoryVersion(cardId, selectedSeq).catch(() => {});
+    }
+  }
+}
+
+function isMatchingCardActivity(envelope: WsEnvelope): boolean {
+  const content = envelope.content || {};
+  const event = typeof content.event === 'string' ? content.event : null;
+  if (event === 'card_history_appended') {
+    return content.card_id === props.cardId;
+  }
+  if (event === 'analyst_tool_invoked') {
+    return content.related_card_id === props.cardId;
+  }
+  return false;
+}
+
+function subscribeToActivity(): void {
+  wsUnsubscribe?.();
+  wsUnsubscribe = wsStore.onType('activity', (envelope) => {
+    if (!isMatchingCardActivity(envelope)) return;
+    void softRefreshForCard(props.cardId).catch((err) => log.error('soft refresh failed', err));
+  });
+}
+
 async function openAnalystForCard(): Promise<void> {
   if (!currentCard.value) return;
   if (analystChat.hasDraft && typeof window !== 'undefined') {
@@ -418,8 +478,24 @@ async function openAnalystForCard(): Promise<void> {
   await analystChat.fetchMessages(analystChat.activeSessionId).catch(() => {});
 }
 
-onMounted(async () => { await reloadDetail(); });
-watch(() => props.cardId, async (nid) => {
+onMounted(async () => {
+  subscribeToActivity();
+  await reloadDetail();
+});
+
+onBeforeUnmount(() => {
+  wsUnsubscribe?.();
+  wsUnsubscribe = null;
+  clearHighlightTimer();
+});
+
+watch(() => props.cardId, async (nid, oldId) => {
+  if (oldId !== undefined) {
+    wsUnsubscribe?.();
+  }
+  subscribeToActivity();
+  liveHighlighted.value = false;
+  clearHighlightTimer();
   selectedPath.value = null;
   previewState.value = { status: 'idle' };
   if (nid) await reloadDetail();
@@ -430,6 +506,7 @@ watch(() => props.cardId, async (nid) => {
 .card-detail-container { flex:1; overflow-y:auto; padding:20px; }
 .detail-loading,.preview-empty { padding:16px; color:#8b949e; font-size:13px; }
 .detail-section { margin-bottom:20px; padding-bottom:16px; border-bottom:1px solid #21262d; }
+.detail-section.live-highlight { border-color:#1f6feb; box-shadow:0 0 0 1px rgba(31,111,235,.45), 0 0 16px rgba(31,111,235,.18); transition:box-shadow .2s ease, border-color .2s ease; }
 .section-heading,.subheading { font-size:12px; font-weight:600; color:#8b949e; text-transform:uppercase; margin:0 0 10px 0; }
 .header-section { padding-bottom:12px; }
 .detail-title-row { display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
@@ -469,8 +546,6 @@ watch(() => props.cardId, async (nid) => {
 .pill-list { display:flex; flex-wrap:wrap; gap:8px; }
 .link-list-row,.list-block { margin-top:10px; }
 .note-header { display:flex; gap:10px; flex-wrap:wrap; margin-bottom:6px; }
-
-
 .discuss-btn {
   margin-left: auto;
   border: 1px solid #1f6feb;
