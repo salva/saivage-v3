@@ -22,8 +22,9 @@
         :is-unauthorized="runtimeUnauthorized"
         :has-token="hasToken"
         :pause-disabled-reason="pauseDisabledReason"
+        :analyst-drawer-open="analystChat.drawerOpen"
         @toggle-pause="handleTogglePause"
-        @toggle-analyst="analystChat.toggleDrawer()"
+        @toggle-analyst="toggleAnalystDrawer"
       />
 
       <div class="workspace-row">
@@ -127,6 +128,10 @@ async function handleTogglePause(): Promise<void> {
   } catch {}
 }
 
+function toggleAnalystDrawer(): void {
+  analystChat.toggleDrawer();
+}
+
 function handleKeydown(event: KeyboardEvent): void {
   const target = event.target as HTMLElement;
   if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable) return;
@@ -134,7 +139,7 @@ function handleKeydown(event: KeyboardEvent): void {
   const map: Record<string, string> = { '1': 'dashboard', '2': 'cards', '3': 'agents', '4': 'files', '5': 'debug' };
   if ((event.ctrlKey || event.metaKey) && key.toLowerCase() === 'j') {
     event.preventDefault();
-    analystChat.toggleDrawer();
+    toggleAnalystDrawer();
     return;
   }
   if (map[key] && !event.ctrlKey && !event.metaKey && !event.altKey) {

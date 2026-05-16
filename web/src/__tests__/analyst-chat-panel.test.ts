@@ -16,6 +16,7 @@ vi.mock('../api/client', () => ({
 
 describe('AnalystChatPanel', () => {
   beforeEach(() => {
+    document.body.innerHTML = '';
     window.localStorage.clear();
     vi.useRealTimers();
     listChatSessions.mockReset();
@@ -34,21 +35,35 @@ describe('AnalystChatPanel', () => {
   });
 
   it('renders messages and tool chips with expand/collapse', async () => {
-    const wrapper = mount(AnalystChatPanel, { global: { plugins: [createPinia()] } });
+    const wrapper = mount(AnalystChatPanel, { attachTo: document.body, global: { plugins: [createPinia()] } });
     await flushPromises();
     await wrapper.find('select').setValue('chat-1');
     await flushPromises();
     expect(wrapper.text()).toContain('hello');
     const chips = wrapper.findAll('.tool-chip');
     expect(chips[0].text()).toContain('read_file');
+    expect(chips[0].attributes('aria-expanded')).toBe('false');
     await chips[0].trigger('click');
+    expect(chips[0].attributes('aria-expanded')).toBe('true');
+    expect(chips[0].attributes('aria-label')).toContain('Collapse analyst tool call details');
     expect(wrapper.find('.tool-chip-detail').text()).toContain('README.md');
     await chips[0].trigger('click');
     expect(wrapper.find('.tool-chip-detail').exists()).toBe(false);
+    wrapper.unmount();
   });
 
-  it('submits composer on Enter', async () => {
-    const wrapper = mount(AnalystChatPanel, { global: { plugins: [createPinia()] } });
+  it('focuses the composer after starting a new chat', async () => {
+    const wrapper = mount(AnalystChatPanel, { attachTo: document.body, global: { plugins: [createPinia()] } });
+    await flushPromises();
+    const textarea = wrapper.find('textarea').element as HTMLTextAreaElement;
+    await wrapper.find('button.secondary-btn').trigger('click');
+    await flushPromises();
+    expect(document.activeElement).toBe(textarea);
+    wrapper.unmount();
+  });
+
+  it('submits composer on Enter and keeps focus on the composer', async () => {
+    const wrapper = mount(AnalystChatPanel, { attachTo: document.body, global: { plugins: [createPinia()] } });
     await flushPromises();
     await wrapper.find('select').setValue('chat-1');
     await flushPromises();
@@ -57,12 +72,14 @@ describe('AnalystChatPanel', () => {
     await textarea.trigger('keydown', { key: 'Enter', shiftKey: false });
     await flushPromises();
     expect(sendChatMessage).toHaveBeenCalledWith('chat-1', 'please inspect');
+    expect(document.activeElement).toBe(textarea.element);
+    wrapper.unmount();
   });
 
   it('does not fetch messages for a fresh unsaved new chat and shows empty state', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2025-01-01T00:00:00Z'));
-    const wrapper = mount(AnalystChatPanel, { global: { plugins: [createPinia()] } });
+    const wrapper = mount(AnalystChatPanel, { attachTo: document.body, global: { plugins: [createPinia()] } });
     await flushPromises();
     getChatMessages.mockClear();
     await wrapper.find('button.secondary-btn').trigger('click');
@@ -70,5 +87,6 @@ describe('AnalystChatPanel', () => {
     expect(getChatMessages).not.toHaveBeenCalled();
     expect(wrapper.text()).toContain('No messages yet. Ask the analyst something.');
     expect((wrapper.find('textarea').element as HTMLTextAreaElement).value).toBe('');
+    wrapper.unmount();
   });
 });

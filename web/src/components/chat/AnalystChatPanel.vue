@@ -1,8 +1,15 @@
 <template>
-  <aside class="analyst-chat-panel" :class="{ open: drawerOpen }" :style="panelStyle" aria-label="Analyst chat panel">
+  <aside
+    class="analyst-chat-panel"
+    :class="{ open: drawerOpen }"
+    :style="panelStyle"
+    role="dialog"
+    aria-label="Analyst chat panel"
+    aria-modal="false"
+  >
     <div class="chat-header">
       <div>
-        <h2>Analyst</h2>
+        <h2 id="analyst-chat-title">Analyst</h2>
         <p class="subtle">Persistent operator chat and inspection transcript.</p>
       </div>
       <div class="chat-header-actions">
@@ -15,29 +22,46 @@
           <option value="">Select session</option>
           <option v-for="session in sessions" :key="session.id" :value="session.id">{{ session.id }}</option>
         </select>
-        <button type="button" class="secondary-btn" @click="handleNewChat">New chat</button>
+        <button
+          type="button"
+          class="secondary-btn"
+          aria-label="Start a new analyst chat"
+          @click="handleNewChat"
+        >
+          New chat
+        </button>
       </div>
     </div>
 
     <div class="chat-body">
-      <div v-if="sessionsLoading" class="state-panel">Loading analyst sessions…</div>
+      <div v-if="sessionsLoading" class="state-panel" role="status">Loading analyst sessions…</div>
       <div v-else-if="sessionsError" class="state-panel error" role="alert">{{ sessionsError.message }}</div>
 
-      <div v-if="messagesLoading" class="state-panel">Loading analyst messages…</div>
+      <div v-if="messagesLoading" class="state-panel" role="status">Loading analyst messages…</div>
       <div v-else-if="messagesError" class="state-panel error" role="alert">{{ messagesErrorLabel }}</div>
-      <div v-else-if="!activeSessionId" class="state-panel">Select a session or start a new chat.</div>
-      <div v-else-if="timelineItems.length === 0 && pendingToolInvocationsForActiveSession.length === 0" class="state-panel">No messages yet. Ask the analyst something.</div>
+      <div v-else-if="!activeSessionId" class="state-panel" role="status">Select a session or start a new chat.</div>
+      <div v-else-if="timelineItems.length === 0 && pendingToolInvocationsForActiveSession.length === 0" class="state-panel" role="status">No messages yet. Ask the analyst something.</div>
       <div v-else class="message-list">
         <article
           v-for="item in timelineItems"
           :key="item.id"
           class="message-row"
-          :class="[`role-${item.role}`, `kind-${item.kind}`]"
+          :class="[
+            `role-${item.role}`,
+            `kind-${item.kind}`,
+            { expanded: expandedIds.has(item.id) },
+          ]"
         >
           <template v-if="item.kind === 'tool_call' || item.kind === 'tool_result'">
-            <button type="button" class="tool-chip" @click="toggleExpanded(item.id)">
+            <button
+              type="button"
+              class="tool-chip"
+              :aria-expanded="expandedIds.has(item.id)"
+              :aria-label="toolChipAriaLabel(item)"
+              @click="toggleExpanded(item.id)"
+            >
               <span>{{ toolChipLabel(item) }}</span>
-              <span>{{ expandedIds.has(item.id) ? '▾' : '▸' }}</span>
+              <span aria-hidden="true">{{ expandedIds.has(item.id) ? '▾' : '▸' }}</span>
             </button>
             <pre v-if="expandedIds.has(item.id)" class="tool-chip-detail">{{ toolChipDetail(item) }}</pre>
           </template>
@@ -54,13 +78,14 @@
           :key="pending.id"
           class="message-row kind-tool_call pending-tool"
         >
-          <div class="tool-chip pending">🔧 {{ pending.tool }} — {{ pending.summary }}</div>
+          <div class="tool-chip pending" role="status">🔧 {{ pending.tool }} — {{ pending.summary }}</div>
         </article>
       </div>
     </div>
 
     <form class="chat-composer" @submit.prevent="submitMessage">
       <textarea
+        ref="composerRef"
         :value="draft"
         class="composer-input"
         rows="3"
@@ -79,7 +104,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue';
+import { computed, nextTick, onMounted, ref, watch } from 'vue';
 import { storeToRefs } from 'pinia';
 import { useAnalystChat } from '../../stores/analystChat';
 import type { ChatMessage } from '../../api/types';
@@ -103,6 +128,7 @@ const {
 } = storeToRefs(chat);
 
 const expandedIds = ref(new Set<string>());
+const composerRef = ref<HTMLTextAreaElement | null>(null);
 
 const panelStyle = computed(() => ({ width: `${drawerWidth.value}px` }));
 const timelineItems = computed(() => [...messages.value].sort((a, b) => a.timestamp.localeCompare(b.timestamp)));
@@ -139,6 +165,11 @@ function toolChipLabel(message: ChatMessage): string {
   return `✅ ${message.tool ?? 'result'} ${summary}`;
 }
 
+function toolChipAriaLabel(message: ChatMessage): string {
+  const action = expandedIds.value.has(message.id) ? 'Collapse' : 'Expand';
+  return `${action} analyst ${message.kind.replace('_', ' ')} details: ${toolChipLabel(message)}`;
+}
+
 function toolChipDetail(message: ChatMessage): string {
   const parsed = safeJsonParse(message.content);
   return JSON.stringify(parsed ?? message.content, null, 2);
@@ -157,8 +188,13 @@ async function handleSessionChange(event: Event): Promise<void> {
   await chat.selectSession(value);
 }
 
+function focusComposer(): void {
+  composerRef.value?.focus();
+}
+
 function handleNewChat(): void {
   chat.createNewChat();
+  void nextTick(() => focusComposer());
 }
 
 function handleDraftInput(event: Event): void {
@@ -174,12 +210,23 @@ function handleComposerKeydown(event: KeyboardEvent): void {
 
 async function submitMessage(): Promise<void> {
   await chat.sendMessage();
+  await nextTick();
+  focusComposer();
 }
+
+watch(drawerOpen, (open) => {
+  if (open) {
+    void nextTick(() => focusComposer());
+  }
+});
 
 onMounted(() => {
   chat.fetchSessions().catch(() => {});
   if (activeSessionId.value) {
     chat.fetchMessages(activeSessionId.value).catch(() => {});
+  }
+  if (drawerOpen.value) {
+    void nextTick(() => focusComposer());
   }
 });
 </script>

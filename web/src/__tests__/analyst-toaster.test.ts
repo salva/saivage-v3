@@ -29,6 +29,7 @@ describe('AnalystToaster', () => {
 
   it('shows analyst web-chat control actions and auto-fades', async () => {
     const wrapper = mount(AnalystToaster, { global: { plugins: [createPinia()] } });
+    expect(wrapper.get('.analyst-toaster').attributes('role')).toBe('status');
     emit({ event: 'control_action_recorded', id: 'a1', actor: 'analyst', surface: 'web-chat', action: 'card.update', target_id: 'c-x' });
     await wrapper.vm.$nextTick();
     expect(wrapper.text()).toContain('Analyst card.update on c-x');

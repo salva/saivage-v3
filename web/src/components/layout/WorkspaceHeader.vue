@@ -10,6 +10,9 @@
         class="status-chip analyst-chip"
         type="button"
         :title="analystButtonTitle"
+        :aria-label="analystButtonTitle"
+        :aria-expanded="analystDrawerOpen"
+        aria-controls="analyst-chat-panel"
         @click="emit('toggle-analyst')"
       >
         <span class="chip-icon">💬</span>
@@ -73,6 +76,7 @@ const props = defineProps<{
   isUnauthorized?: boolean;
   hasToken?: boolean;
   pauseDisabledReason?: string | null;
+  analystDrawerOpen?: boolean;
 }>();
 
 const emit = defineEmits<{

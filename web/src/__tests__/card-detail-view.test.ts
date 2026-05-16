@@ -150,6 +150,16 @@ describe('CardDetailView generated file inspection', () => {
     expect(store.fetchCardDetail).toHaveBeenCalledTimes(3);
   });
 
+  it('exposes an accessible discuss-with-analyst action without changing draft-protection flow', async () => {
+    const pinia = createPinia();
+    primeStore(pinia);
+    const wrapper = mount(CardDetailView, { props: { cardId: 'card-1' }, global: { plugins: [pinia] } });
+    await flushPromises();
+    const button = wrapper.get('.discuss-btn');
+    expect(button.attributes('aria-label')).toBe('Discuss card with analyst');
+    expect(button.text()).toContain('Discuss with analyst');
+  });
+
   it('ignores unrelated events and cleans up websocket subscription on unmount', async () => {
     const pinia = createPinia();
     const store = primeStore(pinia);

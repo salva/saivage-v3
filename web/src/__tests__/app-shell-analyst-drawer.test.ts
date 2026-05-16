@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { mount } from '@vue/test-utils';
+import { mount, flushPromises } from '@vue/test-utils';
 import { createPinia } from 'pinia';
 import { createRouter, createMemoryHistory } from 'vue-router';
 import { ref, computed } from 'vue';
@@ -47,21 +47,30 @@ const router = createRouter({
 
 describe('AppShell analyst drawer', () => {
   beforeEach(async () => {
+    document.body.innerHTML = '';
     localStorage.clear();
     await router.push('/dashboard');
     await router.isReady();
   });
 
-  it('opens from header button and persists to localStorage', async () => {
-    const wrapper = mount(AppShell, { global: { plugins: [createPinia(), router] } });
-    await wrapper.find('.analyst-chip').trigger('click');
+  it('opens from header button, persists to localStorage, and exposes expanded state', async () => {
+    const wrapper = mount(AppShell, { attachTo: document.body, global: { plugins: [createPinia(), router] } });
+    const button = wrapper.get('.analyst-chip');
+    expect(button.attributes('aria-expanded')).toBe('false');
+    await button.trigger('click');
+    await flushPromises();
     expect(localStorage.getItem('analyst-chat:drawer-state')).toContain('"open":true');
+    expect(button.attributes('aria-expanded')).toBe('true');
+    expect(document.activeElement).toBe(wrapper.get('textarea').element);
+    wrapper.unmount();
   });
 
   it('toggles with Ctrl/Cmd+J keyboard shortcut', async () => {
-    const wrapper = mount(AppShell, { global: { plugins: [createPinia(), router] } });
+    const wrapper = mount(AppShell, { attachTo: document.body, global: { plugins: [createPinia(), router] } });
     window.dispatchEvent(new KeyboardEvent('keydown', { key: 'j', ctrlKey: true }));
-    await wrapper.vm.$nextTick();
+    await flushPromises();
     expect(localStorage.getItem('analyst-chat:drawer-state')).toContain('"open":true');
+    expect(document.activeElement).toBe(wrapper.get('textarea').element);
+    wrapper.unmount();
   });
 });

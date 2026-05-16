@@ -12,7 +12,7 @@
           <span class="detail-type-badge" :class="'type-' + currentCard.type">{{ typeIcon(currentCard.type) }} {{ currentCard.type }}</span>
           <h1 class="detail-title">{{ currentCard.title }}</h1>
           <span class="detail-status-chip" :class="'status-' + currentCard.status">{{ currentCard.status }}</span>
-          <button type="button" class="discuss-btn" @click="openAnalystForCard">Discuss with analyst</button>
+          <button type="button" class="discuss-btn" aria-label="Discuss card with analyst" @click="openAnalystForCard">Discuss with analyst</button>
         </div>
         <div class="detail-id">ID: {{ currentCard.id }}</div>
         <div class="detail-callout" role="status">{{ lifecycle?.explanation || statusExplainer(currentCard.status) }}</div>
