@@ -10,6 +10,7 @@ import {
 
 const DRAWER_STORAGE_KEY = 'analyst-chat:drawer-state';
 const DEFAULT_DRAWER_WIDTH = 420;
+const MAX_PENDING_TOOL_INVOCATIONS = 12;
 
 interface DrawerState {
   open: boolean;
@@ -85,6 +86,46 @@ function persistDrawerState(open: boolean, width: number): void {
 
 function mintSessionId(): string {
   return `chat-${Date.now()}`;
+}
+
+function toolInvocationMatchesMessage(invocation: PendingToolInvocation, message: ChatMessage): boolean {
+  if (message.role !== 'tool' || message.tool !== invocation.tool) {
+    return false;
+  }
+
+  if (message.kind === 'tool_call') {
+    try {
+      const parsed = JSON.parse(message.content) as { toolCalls?: Array<{ tool?: unknown }> };
+      return Array.isArray(parsed.toolCalls)
+        && parsed.toolCalls.some((call) => String(call.tool ?? invocation.tool) === invocation.tool);
+    } catch {
+      return true;
+    }
+  }
+
+  return message.kind === 'tool_result';
+}
+
+function dedupePendingToolInvocations(
+  pending: PendingToolInvocation[],
+  sessionId: string,
+  fetchedMessages: ChatMessage[],
+): PendingToolInvocation[] {
+  return pending.filter((invocation) => {
+    if (invocation.sessionId !== sessionId) {
+      return true;
+    }
+    return !fetchedMessages.some((message) => toolInvocationMatchesMessage(invocation, message));
+  });
+}
+
+function pushPendingToolInvocation(
+  pending: PendingToolInvocation[],
+  invocation: PendingToolInvocation,
+): PendingToolInvocation[] {
+  const next = pending.filter((item) => item.id !== invocation.id);
+  next.push(invocation);
+  return next.slice(-MAX_PENDING_TOOL_INVOCATIONS);
 }
 
 export const useAnalystChat = defineStore('analyst-chat', () => {
@@ -206,8 +247,13 @@ export const useAnalystChat = defineStore('analyst-chat', () => {
     messagesError.value = null;
     try {
       const response = await getChatMessages(sessionId);
-      messages.value = [...response.messages].sort((a, b) => a.timestamp.localeCompare(b.timestamp));
-      pendingToolInvocations.value = pendingToolInvocations.value.filter((item) => item.sessionId !== sessionId);
+      const fetchedMessages = [...response.messages].sort((a, b) => a.timestamp.localeCompare(b.timestamp));
+      messages.value = fetchedMessages;
+      pendingToolInvocations.value = dedupePendingToolInvocations(
+        pendingToolInvocations.value,
+        sessionId,
+        fetchedMessages,
+      );
     } catch (err) {
       messages.value = [];
       messagesError.value = buildErrorState(err, 'Failed to load analyst chat messages.');
@@ -343,9 +389,8 @@ export const useAnalystChat = defineStore('analyst-chat', () => {
       const summary = typeof payload.summary === 'string' ? payload.summary : 'tool invoked';
       const classifiedAs = typeof payload.classified_as === 'string' ? payload.classified_as : null;
       const relatedCardId = typeof payload.related_card_id === 'string' ? payload.related_card_id : null;
-      const next = pendingToolInvocations.value.filter((item) => !(item.sessionId === payloadSessionId && item.tool === tool && item.summary === summary));
-      next.push({
-        id: `${payloadSessionId}-${tool}-${Date.now()}`,
+      pendingToolInvocations.value = pushPendingToolInvocation(pendingToolInvocations.value, {
+        id: `${payloadSessionId}:${tool}:${summary}:${success ? 'ok' : 'error'}`,
         sessionId: payloadSessionId,
         tool,
         classifiedAs,
@@ -353,7 +398,6 @@ export const useAnalystChat = defineStore('analyst-chat', () => {
         summary,
         relatedCardId,
       });
-      pendingToolInvocations.value = next.slice(-12);
       if (payloadSessionId === activeSessionId.value) {
         addBadgeForActiveSession(`${tool}: ${summary}`, 'tool-invoked');
       }

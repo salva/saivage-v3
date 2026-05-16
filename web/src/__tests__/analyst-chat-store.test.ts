@@ -1,11 +1,16 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { createPinia, setActivePinia } from 'pinia';
 import { useAnalystChat } from '../stores/analystChat';
+import type { ChatMessage } from '../api/types';
+
+const listChatSessions = vi.fn();
+const getChatMessages = vi.fn();
+const sendChatMessage = vi.fn();
 
 vi.mock('../api/client', () => ({
-  listChatSessions: vi.fn(async () => ({ sessions: [] })),
-  getChatMessages: vi.fn(async (sessionId: string) => ({ sessionId, messages: [] })),
-  sendChatMessage: vi.fn(async (sessionId: string) => ({ sessionId, message: { id: 'm1', content: 'reply', timestamp: '2025-01-01T00:00:00Z' } })),
+  listChatSessions,
+  getChatMessages,
+  sendChatMessage,
   ApiError: class extends Error { status: number; body: Record<string, unknown>; constructor(status: number, message: string, body: Record<string, unknown> = {}) { super(message); this.status = status; this.body = body; } get isUnauthorized() { return this.status === 401; } },
 }));
 
@@ -15,6 +20,12 @@ describe('analyst chat store', () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2025-01-01T00:00:00Z'));
     setActivePinia(createPinia());
+    listChatSessions.mockReset();
+    getChatMessages.mockReset();
+    sendChatMessage.mockReset();
+    listChatSessions.mockResolvedValue({ sessions: [] });
+    getChatMessages.mockResolvedValue({ sessionId: 'chat-1', messages: [] as ChatMessage[] });
+    sendChatMessage.mockResolvedValue({ sessionId: 'chat-1', message: { id: 'm1', content: 'reply', timestamp: '2025-01-01T00:00:00Z' } });
   });
 
   it('seedCardContext produces stable session id shape', () => {
@@ -43,5 +54,73 @@ describe('analyst chat store', () => {
     expect(store.activeSessionId).toBe(sessionId);
     expect(store.messages).toEqual([]);
     expect(store.messagesError).toBeNull();
+  });
+
+  it('keeps pending analyst tool chips visible until fetched tool messages exist', async () => {
+    const store = useAnalystChat();
+    await store.selectSession('chat-1');
+    store.ingestWsEvent({ event: 'analyst_tool_invoked', sessionId: 'chat-1', tool: 'read_file', summary: 'opened docs', success: true });
+
+    getChatMessages.mockResolvedValueOnce({
+      sessionId: 'chat-1',
+      messages: [
+        { id: 'assistant-1', session_id: 'chat-1', role: 'assistant', kind: 'text', content: 'still thinking', timestamp: '2025-01-01T00:00:01Z' },
+      ] satisfies ChatMessage[],
+    });
+    await store.fetchMessages('chat-1');
+    expect(store.pendingToolInvocations).toHaveLength(1);
+
+    getChatMessages.mockResolvedValueOnce({
+      sessionId: 'chat-1',
+      messages: [
+        { id: 'tool-1', session_id: 'chat-1', role: 'tool', kind: 'tool_call', tool: 'read_file', content: JSON.stringify({ toolCalls: [{ tool: 'read_file', params: { path: 'docs/analyst.md' } }] }), timestamp: '2025-01-01T00:00:02Z' },
+      ] satisfies ChatMessage[],
+    });
+    await store.fetchMessages('chat-1');
+    expect(store.pendingToolInvocations).toEqual([]);
+  });
+
+  it('does not let unrelated session refetches clear the active session pending chips', async () => {
+    const store = useAnalystChat();
+    await store.selectSession('chat-1');
+    store.ingestWsEvent({ event: 'analyst_tool_invoked', sessionId: 'chat-1', tool: 'read_file', summary: 'opened docs', success: true });
+
+    getChatMessages.mockResolvedValueOnce({
+      sessionId: 'chat-2',
+      messages: [
+        { id: 'tool-2', session_id: 'chat-2', role: 'tool', kind: 'tool_call', tool: 'read_file', content: JSON.stringify({ toolCalls: [{ tool: 'read_file', params: { path: 'README.md' } }] }), timestamp: '2025-01-01T00:00:02Z' },
+      ] satisfies ChatMessage[],
+    });
+    await store.fetchMessages('chat-2');
+
+    expect(store.pendingToolInvocations).toHaveLength(1);
+    expect(store.pendingToolInvocations[0].sessionId).toBe('chat-1');
+  });
+
+  it('bounds pending attribution state and keeps the newest invocations', () => {
+    const store = useAnalystChat();
+
+    for (let index = 0; index < 15; index += 1) {
+      store.ingestWsEvent({
+        event: 'analyst_tool_invoked',
+        sessionId: 'chat-1',
+        tool: `tool-${index}`,
+        summary: `summary-${index}`,
+        success: true,
+      });
+    }
+
+    expect(store.pendingToolInvocations).toHaveLength(12);
+    expect(store.pendingToolInvocations[0].tool).toBe('tool-3');
+    expect(store.pendingToolInvocations[11].tool).toBe('tool-14');
+  });
+
+  it('deduplicates repeated websocket analyst tool events for the same session and summary', () => {
+    const store = useAnalystChat();
+
+    store.ingestWsEvent({ event: 'analyst_tool_invoked', sessionId: 'chat-1', tool: 'read_file', summary: 'opened docs', success: true });
+    store.ingestWsEvent({ event: 'analyst_tool_invoked', sessionId: 'chat-1', tool: 'read_file', summary: 'opened docs', success: true });
+
+    expect(store.pendingToolInvocations).toHaveLength(1);
   });
 });

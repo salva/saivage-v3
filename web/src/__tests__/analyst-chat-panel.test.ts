@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { mount, flushPromises } from '@vue/test-utils';
 import { createPinia } from 'pinia';
 import AnalystChatPanel from '../components/chat/AnalystChatPanel.vue';
+import { useAnalystChat } from '../stores/analystChat';
 
 const listChatSessions = vi.fn();
 const getChatMessages = vi.fn();
@@ -87,6 +88,19 @@ describe('AnalystChatPanel', () => {
     expect(getChatMessages).not.toHaveBeenCalled();
     expect(wrapper.text()).toContain('No messages yet. Ask the analyst something.');
     expect((wrapper.find('textarea').element as HTMLTextAreaElement).value).toBe('');
+    wrapper.unmount();
+  });
+
+  it('renders a pending analyst tool chip before persisted messages catch up', async () => {
+    const pinia = createPinia();
+    const wrapper = mount(AnalystChatPanel, { attachTo: document.body, global: { plugins: [pinia] } });
+    await flushPromises();
+    const store = useAnalystChat();
+    await store.selectSession('chat-1');
+    store.ingestWsEvent({ event: 'analyst_tool_invoked', sessionId: 'chat-1', tool: 'read_file', summary: 'opened docs', success: true });
+    await flushPromises();
+
+    expect(wrapper.text()).toContain('🔧 read_file — opened docs');
     wrapper.unmount();
   });
 });
