@@ -103,4 +103,28 @@ describe('AnalystChatPanel', () => {
     expect(wrapper.text()).toContain('🔧 read_file — opened docs');
     wrapper.unmount();
   });
+
+  it('renders classified_as and related-card attribution for pending chips from sanitized events', async () => {
+    const pinia = createPinia();
+    const wrapper = mount(AnalystChatPanel, { attachTo: document.body, global: { plugins: [pinia] } });
+    await flushPromises();
+    const store = useAnalystChat();
+    await store.selectSession('chat-1');
+    store.ingestWsEvent({
+      event: 'analyst_tool_invoked',
+      session_id: 'chat-1',
+      tool: 'run_shell_command',
+      summary: '[SECRET_PATH] redacted preview',
+      classified_as: 'destructive',
+      related_card_id: 'card-7',
+      success: true,
+    });
+    await flushPromises();
+
+    expect(wrapper.text()).toContain('run_shell_command');
+    expect(wrapper.text()).toContain('[SECRET_PATH] redacted preview');
+    expect(wrapper.text()).toContain('destructive');
+    expect(wrapper.text()).toContain('card card-7');
+    wrapper.unmount();
+  });
 });

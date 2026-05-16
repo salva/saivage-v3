@@ -11,6 +11,8 @@ import {
 const DRAWER_STORAGE_KEY = 'analyst-chat:drawer-state';
 const DEFAULT_DRAWER_WIDTH = 420;
 const MAX_PENDING_TOOL_INVOCATIONS = 12;
+const MAX_PENDING_SUMMARY_LENGTH = 200;
+const FALLBACK_PENDING_SUMMARY = 'tool invoked';
 
 interface DrawerState {
   open: boolean;
@@ -88,6 +90,36 @@ function mintSessionId(): string {
   return `chat-${Date.now()}`;
 }
 
+function normalizePendingSummary(summary: unknown): string {
+  if (typeof summary !== 'string') {
+    return FALLBACK_PENDING_SUMMARY;
+  }
+  const normalized = summary.replace(/\s+/g, ' ').trim();
+  if (!normalized) {
+    return FALLBACK_PENDING_SUMMARY;
+  }
+  return normalized.slice(0, MAX_PENDING_SUMMARY_LENGTH);
+}
+
+function normalizeToolName(tool: unknown): string {
+  if (typeof tool !== 'string') {
+    return 'tool';
+  }
+  const normalized = tool.trim();
+  return normalized || 'tool';
+}
+
+function buildPendingInvocationId(invocation: Omit<PendingToolInvocation, 'id'>): string {
+  return [
+    invocation.sessionId,
+    invocation.tool,
+    invocation.summary,
+    invocation.success ? 'ok' : 'error',
+    invocation.classifiedAs ?? '',
+    invocation.relatedCardId ?? '',
+  ].join(':');
+}
+
 function toolInvocationMatchesMessage(invocation: PendingToolInvocation, message: ChatMessage): boolean {
   if (message.role !== 'tool' || message.tool !== invocation.tool) {
     return false;
@@ -121,10 +153,14 @@ function dedupePendingToolInvocations(
 
 function pushPendingToolInvocation(
   pending: PendingToolInvocation[],
-  invocation: PendingToolInvocation,
+  invocation: Omit<PendingToolInvocation, 'id'>,
 ): PendingToolInvocation[] {
-  const next = pending.filter((item) => item.id !== invocation.id);
-  next.push(invocation);
+  const normalizedInvocation = {
+    ...invocation,
+    id: buildPendingInvocationId(invocation),
+  } satisfies PendingToolInvocation;
+  const next = pending.filter((item) => item.id !== normalizedInvocation.id);
+  next.push(normalizedInvocation);
   return next.slice(-MAX_PENDING_TOOL_INVOCATIONS);
 }
 
@@ -384,13 +420,12 @@ export const useAnalystChat = defineStore('analyst-chat', () => {
         : null;
 
     if (event === 'analyst_tool_invoked' && payloadSessionId) {
-      const tool = typeof payload.tool === 'string' ? payload.tool : 'tool';
+      const tool = normalizeToolName(payload.tool);
       const success = payload.success === true;
-      const summary = typeof payload.summary === 'string' ? payload.summary : 'tool invoked';
+      const summary = normalizePendingSummary(payload.summary);
       const classifiedAs = typeof payload.classified_as === 'string' ? payload.classified_as : null;
       const relatedCardId = typeof payload.related_card_id === 'string' ? payload.related_card_id : null;
       pendingToolInvocations.value = pushPendingToolInvocation(pendingToolInvocations.value, {
-        id: `${payloadSessionId}:${tool}:${summary}:${success ? 'ok' : 'error'}`,
         sessionId: payloadSessionId,
         tool,
         classifiedAs,

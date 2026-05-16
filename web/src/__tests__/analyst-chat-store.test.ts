@@ -125,4 +125,48 @@ describe('analyst chat store', () => {
 
     expect(store.pendingToolInvocations).toHaveLength(1);
   });
+
+  it('normalizes snake_case session ids, bounded summaries, and empty tool names from sanitized payloads', () => {
+    const store = useAnalystChat();
+
+    store.ingestWsEvent({
+      event: 'analyst_tool_invoked',
+      session_id: 'chat-1',
+      tool: '   ',
+      summary: `  ${'x'.repeat(250)}   `,
+      classified_as: 'read_only',
+      related_card_id: 'card-9',
+      success: true,
+    });
+
+    expect(store.pendingToolInvocations).toHaveLength(1);
+    expect(store.pendingToolInvocations[0]).toMatchObject({
+      sessionId: 'chat-1',
+      tool: 'tool',
+      classifiedAs: 'read_only',
+      relatedCardId: 'card-9',
+      success: true,
+    });
+    expect(store.pendingToolInvocations[0].summary).toHaveLength(200);
+  });
+
+  it('falls back to a safe default summary when the payload summary is empty or missing', () => {
+    const store = useAnalystChat();
+
+    store.ingestWsEvent({ event: 'analyst_tool_invoked', sessionId: 'chat-1', tool: 'read_file', summary: '   ', success: true });
+    store.ingestWsEvent({ event: 'analyst_tool_invoked', sessionId: 'chat-2', tool: 'list_directory', success: true });
+
+    expect(store.pendingToolInvocations[0].summary).toBe('tool invoked');
+    expect(store.pendingToolInvocations[1].summary).toBe('tool invoked');
+  });
+
+  it('keeps session isolation when deduping otherwise identical events', () => {
+    const store = useAnalystChat();
+
+    store.ingestWsEvent({ event: 'analyst_tool_invoked', sessionId: 'chat-1', tool: 'read_file', summary: 'opened docs', success: true });
+    store.ingestWsEvent({ event: 'analyst_tool_invoked', sessionId: 'chat-2', tool: 'read_file', summary: 'opened docs', success: true });
+
+    expect(store.pendingToolInvocations).toHaveLength(2);
+    expect(store.pendingToolInvocations.map((item) => item.sessionId)).toEqual(['chat-1', 'chat-2']);
+  });
 });

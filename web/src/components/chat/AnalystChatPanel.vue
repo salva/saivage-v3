@@ -79,7 +79,13 @@
           :key="pending.id"
           class="message-row kind-tool_call pending-tool"
         >
-          <div class="tool-chip pending" role="status">🔧 {{ pending.tool }} — {{ pending.summary }}</div>
+          <div class="tool-chip pending" role="status">
+            <span class="pending-tool-main">🔧 {{ pending.tool }} — {{ pending.summary }}</span>
+            <span v-if="pending.classifiedAs || pending.relatedCardId" class="pending-tool-meta">
+              <span v-if="pending.classifiedAs" class="pending-tool-tag">{{ pending.classifiedAs }}</span>
+              <span v-if="pending.relatedCardId" class="pending-tool-tag">card {{ pending.relatedCardId }}</span>
+            </span>
+          </div>
         </article>
       </div>
     </div>
@@ -320,6 +326,29 @@ onMounted(() => {
 .tool-chip.pending {
   cursor: default;
   border-color: #58a6ff;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.pending-tool-main {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.pending-tool-meta {
+  display: inline-flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.pending-tool-tag {
+  border: 1px solid #30363d;
+  border-radius: 999px;
+  padding: 2px 8px;
+  color: #79c0ff;
+  font-size: 12px;
+  white-space: nowrap;
 }
 
 .tool-chip-detail {

@@ -12,6 +12,7 @@ let mockSendMessageCalls: string[];
 let mockConnConnectCalls: number;
 let mockConnDisconnectCalls: number;
 let authToken = 'test-token';
+const ingestWsEventSpy = vi.fn();
 
 function resetMockConn() {
   mockConnState = { value: 'offline' };
@@ -60,6 +61,10 @@ vi.mock('../api/auth', () => ({
   getAuthToken: vi.fn(() => authToken),
 }));
 
+vi.mock('../stores/analystChat', () => ({
+  useAnalystChat: () => ({ ingestWsEvent: ingestWsEventSpy }),
+}));
+
 import { useWsStore } from '../stores/ws';
 import { getWsConnection } from '../api/websocket';
 
@@ -67,6 +72,7 @@ function setupStore() {
   resetMockConn();
   mockConnManager = createMockConnectionManager();
   authToken = 'test-token';
+  ingestWsEventSpy.mockReset();
   setActivePinia(createPinia());
   return useWsStore();
 }
@@ -174,6 +180,26 @@ describe('useWsStore', () => {
 
       expect(handler1).toHaveBeenCalledTimes(1);
       expect(handler2).not.toHaveBeenCalled();
+    });
+
+    it('forwards relevant analyst activity events exactly once', () => {
+      const store = setupStore();
+      store.connect();
+
+      fireWsEvent('activity', { event: 'analyst_tool_invoked', session_id: 'chat-1', tool: 'read_file', summary: 'opened docs' });
+
+      expect(ingestWsEventSpy).toHaveBeenCalledTimes(1);
+      expect(ingestWsEventSpy).toHaveBeenCalledWith({ event: 'analyst_tool_invoked', session_id: 'chat-1', tool: 'read_file', summary: 'opened docs' });
+    });
+
+    it('does not forward unrelated websocket events into analyst chat', () => {
+      const store = setupStore();
+      store.connect();
+
+      fireWsEvent('activity', { event: 'tool_invocation', tool: 'read_file' });
+      fireWsEvent('status', { event: 'connected' });
+
+      expect(ingestWsEventSpy).not.toHaveBeenCalled();
     });
   });
 
