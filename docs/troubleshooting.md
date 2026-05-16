@@ -2,6 +2,8 @@
 
 Use this guide for current source-verified failure modes and operator-visible states.
 
+For analyst-specific behavior such as chat-panel entry points, shell-command safety classes, the secret-path denylist, card-context seeding, and live attribution signals, see [Analyst Operator Guide](/analyst).
+
 ## Unauthorized API or WebSocket access
 
 ### Symptoms
@@ -66,6 +68,7 @@ The card ID is wrong, the card was deleted, or the browser route is stale.
 
 - card detail banner says `This card detail may be stale`
 - active card view shows a stale warning ribbon
+- analyst-triggered card updates or note changes appear after the current card view loaded
 
 ### Meaning
 
@@ -76,12 +79,14 @@ Common causes:
 - tracked card edit created a `card_changed` notification
 - directive or escalation note was added
 - runtime pause/freeze/process changes affected the viewed work
+- a live analyst mutation arrived with attribution or an analyst-action toaster
 
 ### What to do
 
 1. Use **Refresh card**.
 2. Re-check evidence, review, dispatch summaries, and card history before treating the card as complete.
 3. Review notifications to see whether a blocking change is still pending.
+4. If the change came from an analyst chat turn, inspect the current transcript chips and card history attribution for confirmation.
 
 ## Running agent ignored a change or cannot finish
 
@@ -151,6 +156,7 @@ Generic resume is intentionally rejected for `frozen` and `error` states. This i
 - treat blocked/redacted states as expected safety behavior first;
 - use the blocked reason shown in card detail to distinguish containment vs sensitivity problems;
 - avoid bypassing the API unless you are in a controlled maintenance or forensic workflow.
+- if the question is specifically about analyst inspection boundaries, confirm the request against the [Analyst Operator Guide](/analyst).
 
 ## Card detail shows missing or incomplete evidence
 

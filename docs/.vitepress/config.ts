@@ -9,6 +9,7 @@ export default defineConfig({
     nav: [
       { text: 'Home', link: '/' },
       { text: 'Runbook', link: '/operator-runbook' },
+      { text: 'Analyst Guide', link: '/analyst' },
       { text: 'Docs Policy', link: '/documentation-inventory' },
     ],
 
@@ -25,6 +26,7 @@ export default defineConfig({
           text: 'Operate Saivage',
           items: [
             { text: 'Operator Runbook', link: '/operator-runbook' },
+            { text: 'Analyst Operator Guide', link: '/analyst' },
             { text: 'Operation Guide', link: '/operation' },
             { text: 'Goal Planning Runtime', link: '/goal-planning-runtime' },
             { text: 'Troubleshooting', link: '/troubleshooting' },

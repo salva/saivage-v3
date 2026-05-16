@@ -2,6 +2,8 @@
 
 This runbook is the current operator workflow guide for the Web Control Room, analyst control surface, and runtime recovery.
 
+For the dedicated analyst operator guide covering the chat panel, shell policy, secret-path denylist, card-detail entry point, and live attribution behavior, see [Analyst Operator Guide](/analyst).
+
 ## 1. Open the system safely
 
 ### Public surfaces
@@ -83,6 +85,7 @@ Use **card detail** as the supported operator inspection surface for:
 - planner status and dispatch completion summaries
 - tool errors and parse-failure recovery
 - **card history** via the `CardHistoryPanel`
+- **Discuss with analyst** one-click entry into a context-seeded analyst chat
 
 Do not use an empty queue alone as evidence that planning is complete.
 
@@ -173,6 +176,8 @@ If the detail view shows **This card detail may be stale**, refresh the card bef
 Analyst filesystem inspection uses one centralized secret-path policy. Requests that target secret-bearing paths are denied before file contents are read. The denylist covers auth profiles, env files, SSH keys, cloud credential locations, `.npmrc`, `.pypirc`, and similar secret material.
 
 For directory listings, secret-bearing child entries are omitted entirely. The response includes `redacted_count`, and when one or more entries were suppressed the listing appends a single `<redacted>` summary row with the hidden count. Operators should treat that as an intentional safety boundary, not missing data.
+
+For shell-command classification, commands that target denylisted secret-bearing paths are treated as unsafe and denied on web chat by default. See [Analyst Operator Guide](/analyst) for the full analyst shell and chat behavior.
 
 ### Generated files and evidence
 
