@@ -176,10 +176,6 @@ Expected panel states:
 
 The panel uses authenticated server APIs only. It does not read raw `.saivage` note or runtime files from the browser.
 
-### Docs
-
-Docs are public and separately served under `/docs/` when built. They remain available even if the API token is missing or invalid.
-
 ## 4. Runtime control procedures
 
 Pause/resume validation is shared across REST endpoints and analyst tools. Server-hosted analyst chat/WebSocket controls receive the live `ActiveRuntime` when the server was started with runtime creation, so they have the same in-memory pause/resume effect as REST. Direct analyst-tool utility use without an injected live runtime falls back to canonical persisted-state control and returns the same frozen/unavailable validation results.
@@ -308,16 +304,39 @@ For the Debug Operator Control panel specifically, a stale banner means the last
 
 ## 8. Safe process inspection
 
-Inspect processes through Debug or process APIs rather than raw registry files.
+Inspect processes through Debug → Processes or the process APIs rather than raw registry files.
 
-Expect process views to show:
+Expected process view fields:
 
-- redacted commands
-- contained relative cwd/log refs
-- whether logs are viewable
-- whether a running process is terminable
+- redacted `command`
+- contained project-relative `cwd`
+- contained project-relative log refs under `logs`
+- `status`, `owner`, `session_id`, `card_id`, `started_at`, `ended_at`, `exit_code`, `timed_out`
+- `control.can_view_logs` and `control.can_terminate`
 
-Do not treat the process API as a general shell interface.
+Safe process views do not expose raw absolute paths, output directories, process groups, or unredacted command strings.
+
+`cwd: null` or `logs.*: null` means the value is absent or unsafe to display. Treat that as expected safety behavior.
+
+If a safe log ref is present, use the Files view/API with that contained relative path to inspect the log.
+
+### Terminating a process
+
+If **Terminate process** is shown in Debug → Processes, it applies only to a Saivage-managed running child process owned by the current server instance.
+
+Supported outcomes:
+
+- success: the process record transitions to a non-running status and the UI refreshes;
+- already ended: the API returns an already-ended message and the UI refreshes the process state;
+- unavailable/degraded: the record still says `running`, but this server has no live child process to signal.
+
+Unavailable termination commonly indicates restart or crash disagreement between the persisted registry and the live in-memory child-process map. In that case:
+
+1. Refresh Debug → Processes.
+2. Inspect host process state and server logs.
+3. Pause or freeze other work before manual cleanup if needed.
+
+Do not treat the process API as a general shell interface or host process manager.
 
 ## 9. Local verification commands
 

@@ -17,6 +17,7 @@ import type {
   ConfigResponse,
   ProvidersResponse,
   AgentConversationResponse,
+  AgentSessionsResponse,
   NotesListResponse,
   NotesClearResponse,
   NoteRecord,
@@ -35,10 +36,9 @@ import type {
   ResumeFromFreezeResponse,
   ProcessListResponse,
   ProcessDetailResponse,
+  ProcessTerminateResponse,
 } from './types';
 import { getAuthToken } from './auth';
-
-// ── Auth Headers Helper ───────────────────────────────────────
 
 function authHeaders(): Record<string, string> {
   const headers: Record<string, string> = {
@@ -50,8 +50,6 @@ function authHeaders(): Record<string, string> {
   }
   return headers;
 }
-
-// ── Base Fetch Wrapper ────────────────────────────────────────
 
 class ApiError extends Error {
   status: number;
@@ -99,7 +97,6 @@ async function request<T>(
 
   const response = await fetch(url.toString(), init);
 
-  // 204 No Content — return empty object
   if (response.status === 204) {
     return {} as T;
   }
@@ -122,8 +119,6 @@ async function request<T>(
   return responseBody as T;
 }
 
-// ── Health ────────────────────────────────────────────────────
-
 export async function getHealth(): Promise<{ status: string; version: string; project: string; runtime: string }> {
   const headers = authHeaders();
   const response = await fetch('/health', { headers });
@@ -132,8 +127,6 @@ export async function getHealth(): Promise<{ status: string; version: string; pr
   }
   return response.json() as Promise<{ status: string; version: string; project: string; runtime: string }>;
 }
-
-// ── Cards ─────────────────────────────────────────────────────
 
 export function listCards(query?: {
   status?: string;
@@ -160,8 +153,6 @@ export function deleteCard(id: string): Promise<void> {
   return request<void>('DELETE', `/api/cards/${encodeURIComponent(id)}`);
 }
 
-// ── Runtime ───────────────────────────────────────────────────
-
 export function getRuntimeState(): Promise<RuntimeStateResponse> {
   return request<RuntimeStateResponse>('GET', '/api/state');
 }
@@ -174,8 +165,6 @@ export function resumeRuntime(): Promise<{ status: string }> {
   return request<{ status: string }>('POST', '/api/runtime/resume');
 }
 
-// ── Freeze / Resume from Freeze ───────────────────────────────
-
 export function freezeRuntime(reason?: string): Promise<FreezeResponse> {
   return request<FreezeResponse>('POST', '/api/runtime/freeze', undefined, reason ? { reason } : {});
 }
@@ -184,13 +173,13 @@ export function resumeRuntimeFromFreeze(): Promise<ResumeFromFreezeResponse> {
   return request<ResumeFromFreezeResponse>('POST', '/api/runtime/resume-from-freeze');
 }
 
-// ── Agents ────────────────────────────────────────────────────
+export function listAgentSessions(): Promise<AgentSessionsResponse> {
+  return request<AgentSessionsResponse>('GET', '/api/agents');
+}
 
 export function getAgentConversation(sessionId: string): Promise<AgentConversationResponse> {
   return request<AgentConversationResponse>('GET', `/api/agents/${encodeURIComponent(sessionId)}/conversation`);
 }
-
-// ── Configuration ─────────────────────────────────────────────
 
 export function getConfig(): Promise<ConfigResponse> {
   return request<ConfigResponse>('GET', '/api/config');
@@ -199,8 +188,6 @@ export function getConfig(): Promise<ConfigResponse> {
 export function getProviders(): Promise<ProvidersResponse> {
   return request<ProvidersResponse>('GET', '/api/providers');
 }
-
-// ── Notes ─────────────────────────────────────────────────────
 
 export function listNotes(): Promise<NotesListResponse> {
   return request<NotesListResponse>('GET', '/api/notes');
@@ -218,8 +205,6 @@ export function clearAllNotes(): Promise<NotesClearResponse> {
   return request<NotesClearResponse>('DELETE', '/api/notes');
 }
 
-// ── Chats ─────────────────────────────────────────────────────
-
 export function listChatSessions(): Promise<ChatSessionsResponse> {
   return request<ChatSessionsResponse>('GET', '/api/chats');
 }
@@ -232,8 +217,6 @@ export function sendChatMessage(sessionId: string, content: string): Promise<Cha
   return request<ChatResponse>('POST', `/api/chats/${encodeURIComponent(sessionId)}`, undefined, { content });
 }
 
-// ── Files ─────────────────────────────────────────────────────
-
 export function listFiles(path?: string): Promise<FilesListResponse> {
   return request<FilesListResponse>('GET', '/api/files', path ? { path } : undefined);
 }
@@ -242,23 +225,17 @@ export function getFileContent(path: string): Promise<FileContent> {
   return request<FileContent>('GET', '/api/files/content', { path });
 }
 
-// ── Processes ─────────────────────────────────────────────────
-
-/**
- * List all processes.
- */
 export function listProcesses(): Promise<ProcessListResponse> {
   return request<ProcessListResponse>('GET', '/api/processes');
 }
 
-/**
- * Get a single process by ID.
- */
 export function getProcess(processId: string): Promise<ProcessDetailResponse> {
   return request<ProcessDetailResponse>('GET', `/api/processes/${encodeURIComponent(processId)}`);
 }
 
-// ── Debug ─────────────────────────────────────────────────────
+export function terminateProcess(processId: string): Promise<ProcessTerminateResponse> {
+  return request<ProcessTerminateResponse>('POST', `/api/processes/${encodeURIComponent(processId)}/terminate`);
+}
 
 export function getDebugState(): Promise<DebugStateResponse> {
   return request<DebugStateResponse>('GET', '/api/debug/state');
@@ -279,8 +256,6 @@ export function getDoctor(): Promise<DoctorResponse> {
 export function getDebugSupervision(): Promise<SupervisionResponse> {
   return request<SupervisionResponse>('GET', '/api/debug/supervision');
 }
-
-// ── MCP ───────────────────────────────────────────────────────
 
 export function getMcpTools(): Promise<McpToolsResponse> {
   return request<McpToolsResponse>('GET', '/api/mcp/tools');

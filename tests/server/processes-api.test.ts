@@ -208,15 +208,43 @@ describe('Stage 57 — GET /api/processes (safe process views)', () => {
       stderr: '.saivage-work/processes/proc-full-001/stderr.log',
       combined: '.saivage-work/processes/proc-full-001/combined.log',
     });
+    expect(body.process.control.can_view_logs).toBe(true);
   });
 
-  it('does not expose absolute paths outside project containment', async () => {
+  it('does not expose absolute paths outside project containment and disables log viewing metadata when no safe refs remain', async () => {
     const res = await fetch(apiUrl('/api/processes/proc-min-002'), { headers: authHdr() });
     expect(res.status).toBe(200);
     const body = await res.json() as { process: any };
     expect(body.process.cwd).toBeNull();
     expect(body.process.logs).toEqual({ stdout: null, stderr: null, combined: null });
+    expect(body.process.control.can_view_logs).toBe(false);
     expect(JSON.stringify(body.process)).not.toContain('/outside/project');
+  });
+
+  it('POST /api/processes/:id/terminate returns 503 when record is stale-running without live child process', async () => {
+    const res = await fetch(apiUrl('/api/processes/proc-full-001/terminate'), {
+      method: 'POST',
+      headers: authHdr(),
+    });
+    expect(res.status).toBe(503);
+    const body = await res.json() as { terminated: boolean; message: string; process: any };
+    expect(body.terminated).toBe(false);
+    expect(body.message).toContain('no live server-owned child process is available to terminate');
+    expect(body.process.id).toBe('proc-full-001');
+    expect(body.process.status).toBe('running');
+  });
+
+  it('POST /api/processes/:id/terminate returns 409 for already-ended processes', async () => {
+    const res = await fetch(apiUrl('/api/processes/proc-min-002/terminate'), {
+      method: 'POST',
+      headers: authHdr(),
+    });
+    expect(res.status).toBe(409);
+    const body = await res.json() as { terminated: boolean; message: string; process: any };
+    expect(body.terminated).toBe(false);
+    expect(body.message).toBe('Process has already ended.');
+    expect(body.process.id).toBe('proc-min-002');
+    expect(body.process.status).toBe('exited');
   });
 
   it('GET /api/processes/:id returns 404 for nonexistent process', async () => {
@@ -236,5 +264,6 @@ describe('Stage 57 — GET /api/processes (safe process views)', () => {
   it('process endpoints remain auth protected', async () => {
     expect((await fetch(apiUrl('/api/processes'))).status).toBe(401);
     expect((await fetch(apiUrl('/api/processes/proc-full-001'))).status).toBe(401);
+    expect((await fetch(apiUrl('/api/processes/proc-full-001/terminate'), { method: 'POST' })).status).toBe(401);
   });
 });

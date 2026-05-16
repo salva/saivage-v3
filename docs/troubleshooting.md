@@ -191,12 +191,32 @@ Check the card detail evidence list first, then verify whether the file still ex
 - `cwd` is `null`
 - log refs are `null`
 - command text is redacted
+- Debug → Processes shows `No safe log references are available for this process.`
 
 ### Explanation
 
 Process APIs intentionally expose safe `ProcessView` data only. Absolute paths outside containment and secret-bearing command strings are suppressed or redacted.
 
 This is expected behavior, not necessarily a process registry failure.
+
+## Process termination says unavailable
+
+### Symptoms
+
+- `POST /api/processes/:id/terminate` returns `503`
+- Debug → Processes says the process is recorded as running but cannot be terminated by this server
+- the process card may still show `status: running`
+
+### Explanation
+
+The persisted process registry and the current server's live child-process map disagree. This commonly happens after restart, crash, or other degraded recovery paths. The API intentionally does not claim termination success when no live server-owned child process is attached.
+
+### What to do
+
+1. Refresh Debug → Processes.
+2. Inspect server logs and current host process state.
+3. Pause or freeze other work before manual cleanup if the runtime is still mutating.
+4. Only after host verification should you perform manual process cleanup or remove stale artifacts.
 
 ## Docs do not load under `/docs/`
 

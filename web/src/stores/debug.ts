@@ -32,7 +32,7 @@ import type {
   QuarantineSummaryEntry,
   SupervisionStats,
   SupervisionResponse,
-  ProcessRecord,
+  ProcessView,
   ProcessListResponse,
   NoteQueueEntry,
   NotesListResponse,
@@ -44,6 +44,7 @@ import {
   getDoctor,
   getDebugSupervision,
   listProcesses,
+  terminateProcess,
   listNotes,
   acknowledgeNote,
   deleteNote,
@@ -97,9 +98,14 @@ export const useDebugStore = defineStore('debug', () => {
   const timelineEvents = ref<DebugTimelineEvent[]>([]);
   const timelineTotal = ref(0);
 
-  const processes = ref<ProcessRecord[]>([]);
+  const processes = ref<ProcessView[]>([]);
   const processesLoading = ref(false);
   const processesError = ref<string | null>(null);
+  const processTerminateLoading = ref<Record<string, boolean>>({});
+  const processControlError = ref<string | null>(null);
+  const processControlSuccess = ref<string | null>(null);
+  const processUnauthorized = ref(false);
+  const processStale = ref(false);
 
   const doctorStatus = ref<'ok' | 'issues_found' | null>(null);
   const doctorChecks = ref<DoctorCheck[]>([]);
@@ -213,6 +219,19 @@ export const useDebugStore = defineStore('debug', () => {
     runtimeControlSuccess.value = null;
   }
 
+  function upsertProcess(process: ProcessView): void {
+    const index = processes.value.findIndex((entry) => entry.id === process.id);
+    if (index >= 0) {
+      processes.value = [
+        ...processes.value.slice(0, index),
+        process,
+        ...processes.value.slice(index + 1),
+      ];
+      return;
+    }
+    processes.value = [...processes.value, process];
+  }
+
   async function fetchState(): Promise<void> {
     loading.value = true;
     error.value = null;
@@ -268,15 +287,66 @@ export const useDebugStore = defineStore('debug', () => {
   async function fetchProcesses(): Promise<void> {
     processesLoading.value = true;
     processesError.value = null;
+    processControlError.value = null;
     try {
       const response: ProcessListResponse = await listProcesses();
       processes.value = response.processes;
+      processUnauthorized.value = false;
+      processStale.value = false;
     } catch (err) {
       const msg = err instanceof ApiError ? err.message : 'Failed to fetch processes';
       processesError.value = msg;
+      if (err instanceof ApiError && err.status === 401) {
+        processUnauthorized.value = true;
+      }
       log.error('fetchProcesses', msg);
     } finally {
       processesLoading.value = false;
+    }
+  }
+
+  async function terminateOperatorProcess(processId: string): Promise<void> {
+    processTerminateLoading.value = { ...processTerminateLoading.value, [processId]: true };
+    processControlError.value = null;
+    processControlSuccess.value = null;
+    try {
+      const response = await terminateProcess(processId);
+      upsertProcess(response.process);
+      processUnauthorized.value = false;
+      processStale.value = false;
+      processControlSuccess.value = response.message;
+      await fetchProcesses();
+    } catch (err) {
+      if (err instanceof ApiError) {
+        if (err.status === 401) {
+          processUnauthorized.value = true;
+          processControlError.value = 'Unauthorized. Provide a valid Saivage API token and refresh the page.';
+        } else if (err.status === 404) {
+          processControlError.value = `Process ${processId} was not found. Refreshing process list.`;
+          processStale.value = true;
+          await fetchProcesses();
+        } else if (err.status === 409 || err.status === 503) {
+          const process = err.body['process'] as ProcessView | undefined;
+          if (process) {
+            upsertProcess(process);
+          }
+          processControlError.value = err.message;
+          processStale.value = err.status === 503;
+          if (err.status === 409) {
+            await fetchProcesses();
+          }
+        } else {
+          processControlError.value = err.message || 'Process control request failed.';
+          processStale.value = true;
+        }
+      } else {
+        processControlError.value = 'Process control request failed.';
+        processStale.value = true;
+      }
+    } finally {
+      const next = { ...processTerminateLoading.value };
+      delete next[processId];
+      processTerminateLoading.value = next;
     }
   }
 
@@ -577,6 +647,11 @@ export const useDebugStore = defineStore('debug', () => {
     processes: readonly(processes),
     processesLoading: readonly(processesLoading),
     processesError: readonly(processesError),
+    processTerminateLoading: readonly(processTerminateLoading),
+    processControlError: readonly(processControlError),
+    processControlSuccess: readonly(processControlSuccess),
+    processUnauthorized: readonly(processUnauthorized),
+    processStale: readonly(processStale),
     doctorStatus: readonly(doctorStatus),
     doctorChecks: readonly(doctorChecks),
     doctorIssues: readonly(doctorIssues),
@@ -615,6 +690,7 @@ export const useDebugStore = defineStore('debug', () => {
     fetchErrors,
     fetchTimeline,
     fetchProcesses,
+    terminateOperatorProcess,
     fetchDoctor,
     fetchSupervision,
     fetchNotes,

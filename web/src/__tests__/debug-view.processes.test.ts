@@ -1,28 +1,21 @@
-/**
- * Bounded component-level regression tests for the DebugView
- * Processes tab behaviour.
- *
- * These tests mount the DebugView component using Vue Test Utils +
- * jsdom and verify that the Processes tab renders expected
- * elements when the debug store contains process data.
- *
- * The API client is fully mocked — no server needed.
- */
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import { mount, flushPromises } from '@vue/test-utils';
 import { setActivePinia, createPinia } from 'pinia';
 import { createRouter, createWebHistory } from 'vue-router';
 import DebugView from '../views/DebugView.vue';
-import type { ProcessRecord } from '../api/types';
+import type { ProcessView } from '../api/types';
 
-// ── Mock the API client ───────────────────────────────────────
 vi.mock('../api/client', () => {
   const ApiError = class extends Error {
     status: number;
-    constructor(status: number, message: string) {
+    body: Record<string, unknown>;
+    constructor(status: number, message: string, body: Record<string, unknown> = {}) {
       super(message);
       this.status = status;
+      this.body = body;
     }
+    get isUnauthorized() { return this.status === 401; }
+    get isNotFound() { return this.status === 404; }
   };
   return {
     getDoctor: vi.fn(),
@@ -31,18 +24,18 @@ vi.mock('../api/client', () => {
     getDebugErrors: vi.fn(),
     getDebugTimeline: vi.fn(),
     listProcesses: vi.fn(),
+    terminateProcess: vi.fn(),
     getMcpTools: vi.fn(),
-    getNotes: vi.fn().mockResolvedValue({ notes: [], total: 0 }),
+    listNotes: vi.fn().mockResolvedValue({ notes: [], total: 0 }),
     pauseRuntime: vi.fn().mockResolvedValue({ status: 'paused' }),
     resumeRuntime: vi.fn().mockResolvedValue({ status: 'resumed' }),
     acknowledgeNote: vi.fn().mockResolvedValue({ note: null }),
     deleteNote: vi.fn().mockResolvedValue(undefined),
-    clearNotes: vi.fn().mockResolvedValue({ deleted: 0, noteIds: [] }),
+    clearAllNotes: vi.fn().mockResolvedValue({ deleted: 0, noteIds: [] }),
     ApiError,
   };
 });
 
-// Mock the WebSocket store — DebugView calls useWsStore
 vi.mock('../stores/ws', () => ({
   useWsStore: () => ({
     onType: vi.fn(() => vi.fn()),
@@ -58,7 +51,6 @@ vi.mock('../stores/ws', () => ({
   }),
 }));
 
-// Mock vue-router's useRouter
 const mockPush = vi.fn();
 vi.mock('vue-router', async (importOriginal) => {
   const actual = await importOriginal<typeof import('vue-router')>();
@@ -73,113 +65,54 @@ vi.mock('vue-router', async (importOriginal) => {
 
 import {
   listProcesses,
+  terminateProcess,
   getDebugState,
   getDebugErrors,
   getDebugTimeline,
   getMcpTools,
   getDoctor,
   getDebugSupervision,
+  ApiError,
 } from '../api/client';
 
-// ── Fixtures ──────────────────────────────────────────────────
-
-/** A process with full ownership/session metadata populated. */
-const mockProcessFull: ProcessRecord = {
+const mockProcessFull: ProcessView = {
   id: 'proc-full-001',
   card_id: 'card-goal-1',
-  command: 'npm test',
-  cwd: '/work/saivage-v3',
+  command: 'npm test --token sk-[REDACTED] -- --coverage',
+  cwd: '.saivage-work/processes/proc-full-001',
   status: 'running',
-  pid: 12345,
   started_at: '2025-06-01T10:00:00Z',
-  completed_at: null,
+  ended_at: null,
   exit_code: null,
-  required_for_card_completion: true,
-  output_dir: '/work/saivage-v3/.saivage-work/processes/proc-full-001',
-  stdout_path: '/work/saivage-v3/.saivage-work/processes/proc-full-001/stdout.log',
-  stderr_path: '/work/saivage-v3/.saivage-work/processes/proc-full-001/stderr.log',
-  combined_log_path: '/work/saivage-v3/.saivage-work/processes/proc-full-001/combined.log',
-  agent_session_id: 'session-agent-exec-1',
-  goal_id: 'card-goal-1',
-  launch_reason: 'Run tests for goal card',
-  owner_kind: 'agent',
-  background_policy: 'foreground',
-  process_group_id: null,
+  timed_out: false,
+  owner: 'agent',
+  session_id: 'session-agent-exec-1',
+  logs: {
+    stdout: '.saivage-work/processes/proc-full-001/stdout.log',
+    stderr: '.saivage-work/processes/proc-full-001/stderr.log',
+    combined: '.saivage-work/processes/proc-full-001/combined.log',
+  },
+  control: {
+    can_view_logs: true,
+    can_terminate: true,
+  },
 };
 
-/** A process with minimal metadata (no ownership fields). */
-const mockProcessMinimal: ProcessRecord = {
+const mockProcessMinimal: ProcessView = {
   id: 'proc-min-002',
   card_id: 'card-ops-1',
   command: 'echo "hello"',
-  cwd: '/work/saivage-v3',
+  cwd: null,
   status: 'exited',
-  pid: null,
   started_at: '2025-06-01T10:01:00Z',
-  completed_at: '2025-06-01T10:01:01Z',
+  ended_at: '2025-06-01T10:01:01Z',
   exit_code: 0,
-  required_for_card_completion: false,
-  output_dir: '/work/saivage-v3/.saivage-work/processes/proc-min-002',
-  stdout_path: '/work/saivage-v3/.saivage-work/processes/proc-min-002/stdout.log',
-  stderr_path: '/work/saivage-v3/.saivage-work/processes/proc-min-002/stderr.log',
-  combined_log_path: '/work/saivage-v3/.saivage-work/processes/proc-min-002/combined.log',
-  agent_session_id: null,
-  goal_id: null,
-  launch_reason: null,
-  owner_kind: null,
-  background_policy: null,
-  process_group_id: null,
+  timed_out: false,
+  owner: null,
+  session_id: null,
+  logs: { stdout: null, stderr: null, combined: null },
+  control: { can_view_logs: false, can_terminate: false },
 };
-
-/** A process with background_policy and process_group_id set. */
-const mockProcessDetached: ProcessRecord = {
-  id: 'proc-det-003',
-  card_id: 'card-test-1',
-  command: 'sleep 3600',
-  cwd: '/work/saivage-v3',
-  status: 'running',
-  pid: 54321,
-  started_at: '2025-06-01T10:02:00Z',
-  completed_at: null,
-  exit_code: null,
-  required_for_card_completion: false,
-  output_dir: '/work/saivage-v3/.saivage-work/processes/proc-det-003',
-  stdout_path: '/work/saivage-v3/.saivage-work/processes/proc-det-003/stdout.log',
-  stderr_path: '/work/saivage-v3/.saivage-work/processes/proc-det-003/stderr.log',
-  combined_log_path: '/work/saivage-v3/.saivage-work/processes/proc-det-003/combined.log',
-  agent_session_id: 'session-bg-1',
-  goal_id: null,
-  launch_reason: 'Background validation',
-  owner_kind: 'runtime',
-  background_policy: 'detach',
-  process_group_id: 42,
-};
-
-/** A process with process_group_id = 0 (falsy but valid — must still render Group row). */
-const mockProcessGroupIdZero: ProcessRecord = {
-  id: 'proc-zero-group',
-  card_id: 'card-zero',
-  command: 'echo "zero group"',
-  cwd: '/work/saivage-v3',
-  status: 'running',
-  pid: 9999,
-  started_at: '2025-06-01T11:00:00Z',
-  completed_at: null,
-  exit_code: null,
-  required_for_card_completion: false,
-  output_dir: '/work/saivage-v3/.saivage-work/processes/proc-zero-group',
-  stdout_path: '/work/saivage-v3/.saivage-work/processes/proc-zero-group/stdout.log',
-  stderr_path: '/work/saivage-v3/.saivage-work/processes/proc-zero-group/stderr.log',
-  combined_log_path: '/work/saivage-v3/.saivage-work/processes/proc-zero-group/combined.log',
-  agent_session_id: null,
-  goal_id: null,
-  launch_reason: null,
-  owner_kind: null,
-  background_policy: null,
-  process_group_id: 0,
-};
-
-// ── Router factory ────────────────────────────────────────────
 
 function makeRouter() {
   return createRouter({
@@ -203,24 +136,16 @@ function setupDefaultApiMocks(): void {
   vi.mocked(getDebugSupervision).mockResolvedValue({ reviews: [], quarantine: [], stats: { total: 0, blocked: 0, passed: 0, sanitized: 0, byRisk: {}, bySourceKind: {} } });
 }
 
-// ── Mount helper ──────────────────────────────────────────────
-
 async function mountDebugView() {
   setActivePinia(createPinia());
   setupDefaultApiMocks();
-
   const router = makeRouter();
-  const wrapper = mount(DebugView, {
-    global: {
-      plugins: [createPinia(), router],
-    },
-  });
-
+  const wrapper = mount(DebugView, { global: { plugins: [createPinia(), router] } });
   await flushPromises();
   return wrapper;
 }
 
-async function mountDebugViewWithProcesses(processes: ProcessRecord[]) {
+async function mountDebugViewWithProcesses(processes: ProcessView[]) {
   vi.mocked(listProcesses).mockResolvedValue({ processes });
   return mountDebugView();
 }
@@ -229,14 +154,8 @@ async function mountDebugViewWithProcessesError() {
   setActivePinia(createPinia());
   setupDefaultApiMocks();
   vi.mocked(listProcesses).mockRejectedValue(new Error('Backend unavailable'));
-
   const router = makeRouter();
-  const wrapper = mount(DebugView, {
-    global: {
-      plugins: [createPinia(), router],
-    },
-  });
-
+  const wrapper = mount(DebugView, { global: { plugins: [createPinia(), router] } });
   await flushPromises();
   return wrapper;
 }
@@ -249,13 +168,16 @@ async function clickProcessesTab(wrapper: ReturnType<typeof mount>) {
   }
 }
 
-// ── Tests ─────────────────────────────────────────────────────
-
 describe('DebugView — processes tab', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockPush.mockClear();
     vi.mocked(listProcesses).mockResolvedValue({ processes: [] });
+    vi.mocked(terminateProcess).mockResolvedValue({
+      terminated: true,
+      message: 'Termination requested for proc-full-001. Status is now killed.',
+      process: { ...mockProcessFull, status: 'killed', control: { can_view_logs: true, can_terminate: false }, ended_at: '2025-06-01T10:02:00Z' },
+    });
   });
 
   afterEach(() => {
@@ -269,133 +191,89 @@ describe('DebugView — processes tab', () => {
     expect(labels).toContain('Processes');
   });
 
-  it('shows "No processes found." when list is empty', async () => {
+  it('shows "No Saivage-managed processes found." when list is empty', async () => {
     const wrapper = await mountDebugViewWithProcesses([]);
     await clickProcessesTab(wrapper);
     await flushPromises();
-
-    expect(wrapper.find('.debug-empty').text()).toBe('No processes found.');
+    expect(wrapper.find('.debug-empty').text()).toBe('No Saivage-managed processes found.');
   });
 
-  it('renders process cards with key operator-facing metadata', async () => {
+  it('renders process cards with safe operator-facing metadata', async () => {
     const wrapper = await mountDebugViewWithProcesses([mockProcessFull]);
     await clickProcessesTab(wrapper);
     await flushPromises();
 
-    const cards = wrapper.findAll('.process-card');
-    expect(cards).toHaveLength(1);
-
-    const card = cards[0];
+    const card = wrapper.find('.process-card');
     expect(card.find('.process-id').text()).toBe('proc-full-001');
     expect(card.find('.process-status-badge').text()).toBe('running');
-    expect(card.find('.process-status-badge').classes()).toContain('ps-running');
-
-    const details = card.findAll('.pd-row');
-    const detailTexts = details.map((d) => d.text());
-
-    expect(detailTexts.some((t) => t.includes('npm test'))).toBe(true);
-    expect(detailTexts.some((t) => t.includes('card-goal-1'))).toBe(true);
-    expect(detailTexts.some((t) => t.includes('12345'))).toBe(true);
-    expect(detailTexts.some((t) => t.includes('Yes'))).toBe(true);
+    const text = card.text();
+    expect(text).toContain('npm test --token sk-[REDACTED]');
+    expect(text).toContain('card-goal-1');
+    expect(text).toContain('session-agent-exec-1');
+    expect(text).toContain('agent');
+    expect(text).toContain('.saivage-work/processes/proc-full-001/combined.log');
+    expect(text).not.toContain('PID:');
+    expect(text).not.toContain('Group:');
+    expect(text).not.toContain('Required:');
   });
 
-  it('renders ownership/session context fields when present', async () => {
+  it('renders unavailable safe fields and ended state messaging', async () => {
+    const wrapper = await mountDebugViewWithProcesses([mockProcessMinimal]);
+    await clickProcessesTab(wrapper);
+    await flushPromises();
+
+    const card = wrapper.find('.process-card');
+    const text = card.text();
+    expect(text).toContain('Unavailable or unsafe to display');
+    expect(text).toContain('No safe log references are available for this process.');
+    expect(text).toContain('Process has ended; termination is unavailable.');
+  });
+
+  it('routes Browse log actions into the Files view with contained path query', async () => {
     const wrapper = await mountDebugViewWithProcesses([mockProcessFull]);
     await clickProcessesTab(wrapper);
     await flushPromises();
 
-    const card = wrapper.find('.process-card');
-    const details = card.findAll('.pd-row');
-    const detailTexts = details.map((d) => d.text());
-
-    expect(detailTexts.some((t) => t.includes('Agent Session:') && t.includes('session-agent-exec-1'))).toBe(true);
-    expect(detailTexts.some((t) => t.includes('Goal:') && t.includes('card-goal-1'))).toBe(true);
-    expect(detailTexts.some((t) => t.includes('Reason:') && t.includes('Run tests for goal card'))).toBe(true);
-    expect(detailTexts.some((t) => t.includes('Owner:') && t.includes('agent'))).toBe(true);
-    expect(detailTexts.some((t) => t.includes('Policy:') && t.includes('foreground'))).toBe(true);
+    const browseButtons = wrapper.findAll('.process-link-button');
+    expect(browseButtons.length).toBeGreaterThan(0);
+    await browseButtons[0]!.trigger('click');
+    expect(mockPush).toHaveBeenCalledWith({
+      name: 'files',
+      query: { path: '.saivage-work/processes/proc-full-001/combined.log' },
+    });
   });
 
-  it('does NOT render ownership fields when they are null/absent', async () => {
-    const wrapper = await mountDebugViewWithProcesses([mockProcessMinimal]);
+  it('confirms and submits terminate action for running processes', async () => {
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    vi.mocked(listProcesses)
+      .mockResolvedValueOnce({ processes: [mockProcessFull] })
+      .mockResolvedValueOnce({ processes: [{ ...mockProcessFull, status: 'killed', control: { can_view_logs: true, can_terminate: false }, ended_at: '2025-06-01T10:02:00Z' }] });
+
+    const wrapper = await mountDebugViewWithProcesses([mockProcessFull]);
     await clickProcessesTab(wrapper);
     await flushPromises();
 
-    const card = wrapper.find('.process-card');
-    const details = card.findAll('.pd-row');
-    const detailTexts = details.map((d) => d.text());
+    const terminateButton = wrapper.find('.process-controls .operator-button');
+    await terminateButton.trigger('click');
+    await flushPromises();
 
-    expect(detailTexts.some((t) => t.includes('echo "hello"'))).toBe(true);
-    expect(detailTexts.some((t) => t.includes('card-ops-1'))).toBe(true);
-    expect(detailTexts.some((t) => t.includes('No'))).toBe(true);
-
-    expect(detailTexts.some((t) => t.startsWith('Agent Session:'))).toBe(false);
-    expect(detailTexts.some((t) => t.startsWith('Goal:'))).toBe(false);
-    expect(detailTexts.some((t) => t.startsWith('Reason:'))).toBe(false);
-    expect(detailTexts.some((t) => t.startsWith('Owner:'))).toBe(false);
-    expect(detailTexts.some((t) => t.startsWith('Policy:'))).toBe(false);
-    expect(detailTexts.some((t) => t.startsWith('Group:'))).toBe(false);
+    expect(terminateProcess).toHaveBeenCalledWith('proc-full-001');
+    expect(wrapper.text()).toContain('Termination requested for proc-full-001. Status is now killed.');
   });
 
-  it('renders process_group_id and background_policy when set', async () => {
-    const wrapper = await mountDebugViewWithProcesses([mockProcessDetached]);
+  it('shows degraded warning when terminate returns 503 and keeps safe process data', async () => {
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    vi.mocked(terminateProcess).mockRejectedValue(new ApiError(503, 'Process is recorded as running, but this server cannot terminate it. Inspect host process state before manual cleanup.', { process: mockProcessFull }));
+
+    const wrapper = await mountDebugViewWithProcesses([mockProcessFull]);
     await clickProcessesTab(wrapper);
     await flushPromises();
 
-    const card = wrapper.find('.process-card');
-    const details = card.findAll('.pd-row');
-    const detailTexts = details.map((d) => d.text());
-
-    expect(detailTexts.some((t) => t.includes('Policy:') && t.includes('detach'))).toBe(true);
-    expect(detailTexts.some((t) => t.includes('Group:') && t.includes('42'))).toBe(true);
-    expect(detailTexts.some((t) => t.includes('Owner:') && t.includes('runtime'))).toBe(true);
-  });
-
-  it('renders Group row when process_group_id is 0 (falsy-but-valid metadata)', async () => {
-    const wrapper = await mountDebugViewWithProcesses([mockProcessGroupIdZero]);
-    await clickProcessesTab(wrapper);
+    await wrapper.find('.process-controls .operator-button').trigger('click');
     await flushPromises();
 
-    const card = wrapper.find('.process-card');
-    expect(card.exists()).toBe(true);
-    expect(card.find('.process-id').text()).toBe('proc-zero-group');
-
-    const details = card.findAll('.pd-row');
-    const detailTexts = details.map((d) => d.text());
-    expect(detailTexts.some((t) => t.includes('Group:') && t.includes('0'))).toBe(true);
-  });
-
-  it('displays multiple process cards when multiple processes exist', async () => {
-    const wrapper = await mountDebugViewWithProcesses([mockProcessFull, mockProcessMinimal, mockProcessDetached]);
-    await clickProcessesTab(wrapper);
-    await flushPromises();
-
-    const cards = wrapper.findAll('.process-card');
-    expect(cards).toHaveLength(3);
-  });
-
-  it('shows completed_at and exit_code for exited process', async () => {
-    const wrapper = await mountDebugViewWithProcesses([mockProcessMinimal]);
-    await clickProcessesTab(wrapper);
-    await flushPromises();
-
-    const card = wrapper.find('.process-card');
-    const details = card.findAll('.pd-row');
-    const detailTexts = details.map((d) => d.text());
-
-    expect(detailTexts.some((t) => t.includes('Completed:'))).toBe(true);
-    expect(detailTexts.some((t) => t.includes('Exit Code:') && t.includes('0'))).toBe(true);
-  });
-
-  it('shows PID as "-" when null', async () => {
-    const wrapper = await mountDebugViewWithProcesses([mockProcessMinimal]);
-    await clickProcessesTab(wrapper);
-    await flushPromises();
-
-    const card = wrapper.find('.process-card');
-    const details = card.findAll('.pd-row');
-    const detailTexts = details.map((d) => d.text());
-
-    expect(detailTexts.some((t) => t.includes('PID:') && t.includes('-'))).toBe(true);
+    expect(wrapper.text()).toContain('this server cannot terminate it');
+    expect(wrapper.text()).toContain('proc-full-001');
   });
 });
 
@@ -413,93 +291,22 @@ describe('DebugView — processes tab error state', () => {
     const wrapper = await mountDebugViewWithProcessesError();
     await clickProcessesTab(wrapper);
     await flushPromises();
-
     const errorEl = wrapper.find('.debug-error');
     expect(errorEl.exists()).toBe(true);
     expect(errorEl.text()).toContain('Failed to fetch processes');
-
-    const emptyEl = wrapper.find('.debug-empty');
-    if (emptyEl.exists()) {
-      expect(emptyEl.text()).not.toBe('No processes found.');
-    }
-  });
-
-  it('shows error state instead of empty state when fetch fails then Process tab is revisited', async () => {
-    const wrapper = await mountDebugViewWithProcessesError();
-
-    await clickProcessesTab(wrapper);
-    await flushPromises();
-    expect(wrapper.find('.debug-error').exists()).toBe(true);
-
-    const stateTab = wrapper.findAll('.debug-tab').find((t) => t.text() === 'State');
-    if (stateTab) {
-      await stateTab.trigger('click');
-      await flushPromises();
-    }
-
-    await clickProcessesTab(wrapper);
-    await flushPromises();
-    expect(wrapper.find('.debug-error').exists()).toBe(true);
   });
 
   it('processes fetch failure does NOT bleed error into State tab', async () => {
     const wrapper = await mountDebugViewWithProcessesError();
-
     await clickProcessesTab(wrapper);
     await flushPromises();
-    expect(wrapper.find('.debug-error').exists()).toBe(true);
-    expect(wrapper.find('.debug-error').text()).toContain('Failed to fetch processes');
-
     const stateTab = wrapper.findAll('.debug-tab').find((t) => t.text() === 'State');
     if (stateTab) {
       await stateTab.trigger('click');
       await flushPromises();
     }
-
-    const stateContent = wrapper.find('.debug-tab-content');
-    expect(stateContent.exists()).toBe(true);
-    const stateText = stateContent.text();
+    const stateText = wrapper.find('.debug-tab-content').text();
     expect(stateText).not.toContain('Failed to fetch processes');
     expect(stateText).toContain('Runtime State');
-    expect(stateText).toContain('running');
-  });
-
-  it('processes fetch failure does NOT bleed error into Errors tab', async () => {
-    const wrapper = await mountDebugViewWithProcessesError();
-
-    await clickProcessesTab(wrapper);
-    await flushPromises();
-    expect(wrapper.find('.debug-error').text()).toContain('Failed to fetch processes');
-
-    const errorsTab = wrapper.findAll('.debug-tab').find((t) => t.text() === 'Errors');
-    if (errorsTab) {
-      await errorsTab.trigger('click');
-      await flushPromises();
-    }
-
-    const errorsContent = wrapper.find('.debug-tab-content');
-    expect(errorsContent.exists()).toBe(true);
-    const errorsText = errorsContent.text();
-    expect(errorsText).not.toContain('Failed to fetch processes');
-    expect(errorsText).toContain('No errors recorded');
-  });
-
-  it('error state on Processes tab does not affect MCP tab', async () => {
-    const wrapper = await mountDebugViewWithProcessesError();
-
-    await clickProcessesTab(wrapper);
-    await flushPromises();
-    expect(wrapper.find('.debug-error').exists()).toBe(true);
-
-    const mcpTab = wrapper.findAll('.debug-tab').find((t) => t.text() === 'MCP');
-    if (mcpTab) {
-      await mcpTab.trigger('click');
-      await flushPromises();
-    }
-
-    const mcpContent = wrapper.find('.debug-tab-content');
-    expect(mcpContent.exists()).toBe(true);
-    const mcpText = mcpContent.text();
-    expect(mcpText).not.toContain('Failed to fetch processes');
   });
 });

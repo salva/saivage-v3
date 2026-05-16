@@ -5,7 +5,7 @@
  * - cleanCardTmp removes only cards/<id>/tmp/
  * - cleanStaleStash removes old files, keeps new files
  * - Cleanup never touches retained artifacts, attachments, downloads, quarantine
- * - cleanStaleProcessOutput respects artifact references
+ * - cleanStaleProcessOutput respects artifact references and running registry status
  * - Stale previews/uploads are cleaned up
  */
 import { describe, it, expect, beforeEach, afterEach } from '@jest/globals';
@@ -24,8 +24,6 @@ import {
   cleanAll,
 } from '../../src/utils/cleanup.js';
 
-// ── Helpers ───────────────────────────────────────────────────
-
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 describe('Cleanup Utility Smoke Tests', () => {
@@ -42,15 +40,12 @@ describe('Cleanup Utility Smoke Tests', () => {
     try {
       rmSync(root, { recursive: true, force: true });
     } catch {
-      // ignore
     }
   });
 
   function saivageWorkDir(): string {
     return join(root, '.saivage-work');
   }
-
-  // ── cleanCardTmp ─────────────────────────────────────────
 
   it('cleanCardTmp: removes cards/<id>/tmp/ directory', () => {
     const swd = saivageWorkDir();
@@ -74,45 +69,31 @@ describe('Cleanup Utility Smoke Tests', () => {
   it('cleanCardTmp: does NOT touch artifacts/ or attachments/', () => {
     const swd = saivageWorkDir();
     const cardId = 'card-protected';
-
-    // Create protected dirs with files
     const artifactsDir = join(swd, 'cards', cardId, 'artifacts', 'retained');
     const attachmentsDir = join(swd, 'cards', cardId, 'attachments');
     mkdirSync(artifactsDir, { recursive: true });
     mkdirSync(attachmentsDir, { recursive: true });
     writeFileSync(join(artifactsDir, 'model.bin'), 'model data');
     writeFileSync(join(attachmentsDir, 'image.png'), 'image data');
-
-    // Create tmp dir (the cleanup target)
     const tmpDir = join(swd, 'cards', cardId, 'tmp');
     mkdirSync(tmpDir, { recursive: true });
     writeFileSync(join(tmpDir, 'temp.txt'), 'temp');
 
     cleanCardTmp(swd, cardId);
 
-    // tmp should be gone
     expect(existsSync(tmpDir)).toBe(false);
-
-    // protected dirs should still exist
     expect(existsSync(artifactsDir)).toBe(true);
     expect(existsSync(join(artifactsDir, 'model.bin'))).toBe(true);
     expect(existsSync(attachmentsDir)).toBe(true);
     expect(existsSync(join(attachmentsDir, 'image.png'))).toBe(true);
   });
 
-  // ── cleanStaleStash ──────────────────────────────────────
-
   it('cleanStaleStash: removes files older than maxAgeMs', async () => {
     const swd = saivageWorkDir();
     const stashDir = join(swd, 'tmp', 'stash');
     mkdirSync(stashDir, { recursive: true });
-
     writeFileSync(join(stashDir, 'old.txt'), 'old data');
-
-    // Wait to ensure mtime is measurable
     await sleep(100);
-
-    // With maxAgeMs=1, the file should be considered stale
     const removed = cleanStaleStash(swd, 1);
     expect(removed).toBe(1);
     expect(existsSync(join(stashDir, 'old.txt'))).toBe(false);
@@ -122,62 +103,40 @@ describe('Cleanup Utility Smoke Tests', () => {
     const swd = saivageWorkDir();
     const stashDir = join(swd, 'tmp', 'stash');
     mkdirSync(stashDir, { recursive: true });
-
     writeFileSync(join(stashDir, 'new.txt'), 'new data');
-
-    // With maxAgeMs=24h, the file should not be stale
     const removed = cleanStaleStash(swd, 24 * 60 * 60 * 1000);
     expect(removed).toBe(0);
     expect(existsSync(join(stashDir, 'new.txt'))).toBe(true);
   });
 
-  // ── cleanStalePreviews ───────────────────────────────────
-
   it('cleanStalePreviews: removes old preview files', async () => {
     const swd = saivageWorkDir();
     const previewsDir = join(swd, 'tmp', 'previews');
     mkdirSync(previewsDir, { recursive: true });
-
     writeFileSync(join(previewsDir, 'old-preview.png'), 'preview data');
     await sleep(100);
-
     const removed = cleanStalePreviews(swd, 1);
     expect(removed).toBe(1);
     expect(existsSync(join(previewsDir, 'old-preview.png'))).toBe(false);
   });
 
-  // ── cleanStaleUploads ────────────────────────────────────
-
   it('cleanStaleUploads: removes old upload files', async () => {
     const swd = saivageWorkDir();
     const uploadsDir = join(swd, 'tmp', 'uploads');
     mkdirSync(uploadsDir, { recursive: true });
-
     writeFileSync(join(uploadsDir, 'old-upload.bin'), 'upload data');
     await sleep(100);
-
     const removed = cleanStaleUploads(swd, 1);
     expect(removed).toBe(1);
   });
-
-  // ── cleanStaleProcessOutput ──────────────────────────────
 
   it('cleanStaleProcessOutput: removes old completed process dirs', async () => {
     const swd = saivageWorkDir();
     const procDir = join(swd, 'processes', 'proc-test-1');
     mkdirSync(procDir, { recursive: true });
     writeFileSync(join(procDir, 'combined.log'), 'process output');
-    writeFileSync(join(procDir, 'stdout.log'), 'stdout');
-    writeFileSync(join(procDir, 'stderr.log'), 'stderr');
-
-    // Wait for mtime to be measurable
     await sleep(150);
-
-    const cleaned = cleanStaleProcessOutput({
-      saivageWorkDir: swd,
-      store,
-      maxAgeMs: 1,
-    });
+    const cleaned = cleanStaleProcessOutput({ saivageWorkDir: swd, store, maxAgeMs: 1 });
     expect(cleaned).toBe(1);
     expect(existsSync(procDir)).toBe(false);
   });
@@ -189,8 +148,7 @@ describe('Cleanup Utility Smoke Tests', () => {
     const artifactPath = join(procDir, 'model-output.bin');
     writeFileSync(artifactPath, 'important model');
 
-    // Create a card with a retained artifact pointing into the process dir
-    const card = store.create({
+    store.create({
       id: 'test-card',
       type: 'code',
       parent: 'project',
@@ -219,21 +177,49 @@ describe('Cleanup Utility Smoke Tests', () => {
       depth: 0,
     });
 
-    const cleaned = cleanStaleProcessOutput({
-      saivageWorkDir: swd,
-      store,
-      maxAgeMs: 1,
-    });
+    const cleaned = cleanStaleProcessOutput({ saivageWorkDir: swd, store, maxAgeMs: 1 });
     expect(cleaned).toBe(0);
     expect(existsSync(procDir)).toBe(true);
   });
 
-  // ── cleanAll ─────────────────────────────────────────────
+  it('cleanStaleProcessOutput: does NOT remove registry-running process dirs', async () => {
+    const swd = saivageWorkDir();
+    const procId = 'proc-running-1';
+    const procDir = join(swd, 'processes', procId);
+    mkdirSync(procDir, { recursive: true });
+    writeFileSync(join(procDir, 'combined.log'), 'still running');
+    const registryPath = join(root, '.saivage', 'runtime', 'processes.json');
+    writeFileSync(registryPath, JSON.stringify([{
+      id: procId,
+      card_id: 'card-run',
+      command: 'sleep 999',
+      cwd: root,
+      status: 'running',
+      pid: 111,
+      started_at: new Date(Date.now() - 3600000).toISOString(),
+      completed_at: null,
+      exit_code: null,
+      required_for_card_completion: true,
+      output_dir: procDir,
+      stdout_path: join(procDir, 'stdout.log'),
+      stderr_path: join(procDir, 'stderr.log'),
+      combined_log_path: join(procDir, 'combined.log'),
+      agent_session_id: null,
+      goal_id: null,
+      launch_reason: null,
+      owner_kind: 'runtime',
+      background_policy: 'detach',
+      process_group_id: null,
+    }], null, 2));
+    await sleep(150);
+
+    const cleaned = cleanStaleProcessOutput({ saivageWorkDir: swd, store, maxAgeMs: 1 });
+    expect(cleaned).toBe(0);
+    expect(existsSync(procDir)).toBe(true);
+  });
 
   it('cleanAll: returns summary counts', () => {
     const swd = saivageWorkDir();
-
-    // Create a card with an explicit ID so we can match the tmp dir path
     const card = store.create({
       id: 'card-with-tmp',
       type: 'code',
@@ -260,26 +246,18 @@ describe('Cleanup Utility Smoke Tests', () => {
     writeFileSync(join(cardTmp, 'junk.txt'), 'junk');
 
     const result = cleanAll(swd, store);
-    expect(result.cardTmpCleaned).toBe(1); // our card's tmp dir
+    expect(result.cardTmpCleaned).toBe(1);
   });
-
-  // ── Safety Guards ────────────────────────────────────────
 
   it('cleanCardTmp: does NOT remove entire cards/ subtree', () => {
     const swd = saivageWorkDir();
     const cardId = 'safe-card';
-
-    // Create artifacts/retained (must survive)
     const retainedDir = join(swd, 'cards', cardId, 'artifacts', 'retained');
     mkdirSync(retainedDir, { recursive: true });
     writeFileSync(join(retainedDir, 'precious.bin'), 'do not delete');
-
-    // Create attachments (must survive)
     const attachmentsDir = join(swd, 'cards', cardId, 'attachments');
     mkdirSync(attachmentsDir, { recursive: true });
     writeFileSync(join(attachmentsDir, 'screenshot.png'), 'screenshot');
-
-    // Create tmp dir
     const tmpDir = join(swd, 'cards', cardId, 'tmp');
     mkdirSync(tmpDir, { recursive: true });
     writeFileSync(join(tmpDir, 'temp.txt'), 'temp');
@@ -295,14 +273,10 @@ describe('Cleanup Utility Smoke Tests', () => {
 
   it('cleanAll: does not touch downloads/ or quarantine/', () => {
     const swd = saivageWorkDir();
-
-    // Create downloads/review.json (must survive)
     const dlDir = join(swd, 'downloads', 'dl-test');
     mkdirSync(dlDir, { recursive: true });
     writeFileSync(join(dlDir, 'review.json'), 'download review');
     writeFileSync(join(dlDir, 'meta.json'), 'download meta');
-
-    // Create quarantine/meta.json (must survive)
     const qDir = join(swd, 'quarantine', 'q-test');
     mkdirSync(qDir, { recursive: true });
     writeFileSync(join(qDir, 'meta.json'), 'quarantine meta');

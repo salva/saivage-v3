@@ -115,16 +115,12 @@
             </div>
 
             <div class="operator-runtime-buttons">
-              <button
-                class="operator-button"
-                :disabled="pauseDisabled"
-                @click="debugStore.pauseOperatorRuntime()"
-              >{{ runtimeControlLoading === 'pause' ? 'Pausing...' : 'Pause runtime' }}</button>
-              <button
-                class="operator-button"
-                :disabled="resumeDisabled"
-                @click="debugStore.resumeOperatorRuntime()"
-              >{{ runtimeControlLoading === 'resume' ? 'Resuming...' : 'Resume runtime' }}</button>
+              <button class="operator-button" :disabled="pauseDisabled" @click="debugStore.pauseOperatorRuntime()">
+                {{ runtimeControlLoading === 'pause' ? 'Pausing...' : 'Pause runtime' }}
+              </button>
+              <button class="operator-button" :disabled="resumeDisabled" @click="debugStore.resumeOperatorRuntime()">
+                {{ runtimeControlLoading === 'resume' ? 'Resuming...' : 'Resume runtime' }}
+              </button>
             </div>
 
             <div v-if="!debugRuntime" class="operator-help-text">Runtime control is unavailable because runtime state is not initialized. Start the runtime or restore runtime state first.</div>
@@ -277,29 +273,74 @@
       </div>
 
       <div v-if="localActiveTab === 'processes'" class="debug-tab-content">
+        <div class="debug-section-header operator-header">
+          <div>
+            <h4 class="debug-section-title">Processes</h4>
+            <p class="operator-subtitle">Inspect Saivage-managed process records using redacted commands and contained log references.</p>
+          </div>
+          <div class="operator-actions-inline">
+            <button class="sv-fetch-btn" :disabled="processesLoading" @click="debugStore.fetchProcesses()">Refresh</button>
+          </div>
+        </div>
+
+        <div v-if="processUnauthorized" class="operator-banner operator-banner-error" role="alert">
+          Unauthorized. Provide a valid Saivage API token and refresh the page.
+        </div>
+        <div v-else-if="processControlError" class="operator-banner" :class="processStale ? 'operator-banner-warning' : 'operator-banner-error'" :role="processStale ? 'status' : 'alert'">
+          {{ processControlError }}
+        </div>
+        <div v-if="processControlSuccess" class="operator-banner operator-banner-success" role="status">
+          {{ processControlSuccess }}
+        </div>
+        <div v-if="processStale && !processControlError" class="operator-banner operator-banner-warning" role="status">
+          Process state may be stale. Refresh to reconcile with server state.
+        </div>
+
         <div v-if="processesLoading" class="debug-loading">Loading processes...</div>
         <div v-else-if="processesError" class="debug-error">{{ processesError }}</div>
-        <div v-else-if="processes.length === 0" class="debug-empty">No processes found.</div>
+        <div v-else-if="processes.length === 0" class="debug-empty">No Saivage-managed processes found.</div>
         <div v-else class="processes-list">
-          <div v-for="proc in processes" :key="proc.id" class="process-card">
+          <div v-for="proc in sortedProcesses" :key="proc.id" class="process-card">
             <div class="process-header">
               <span class="process-id mono">{{ proc.id }}</span>
               <span class="process-status-badge" :class="'ps-' + proc.status">{{ proc.status }}</span>
+              <span class="process-time">Started {{ fmtDate(proc.started_at) }}</span>
             </div>
             <div class="process-details">
-              <div class="pd-row"><span class="pd-key">Command:</span><span class="pd-value mono">{{ proc.command }}</span></div>
+              <div class="pd-row"><span class="pd-key">Command:</span><span class="pd-value mono wrap">{{ proc.command }}</span></div>
               <div class="pd-row"><span class="pd-key">Card:</span><span class="pd-value mono">{{ proc.card_id }}</span></div>
-              <div class="pd-row"><span class="pd-key">PID:</span><span class="pd-value mono">{{ proc.pid ?? '-' }}</span></div>
-              <div v-if="proc.agent_session_id" class="pd-row"><span class="pd-key">Agent Session:</span><span class="pd-value mono">{{ proc.agent_session_id }}</span></div>
-              <div v-if="proc.goal_id" class="pd-row"><span class="pd-key">Goal:</span><span class="pd-value mono">{{ proc.goal_id }}</span></div>
-              <div v-if="proc.launch_reason" class="pd-row"><span class="pd-key">Reason:</span><span class="pd-value">{{ proc.launch_reason }}</span></div>
-              <div v-if="proc.owner_kind" class="pd-row"><span class="pd-key">Owner:</span><span class="pd-value mono">{{ proc.owner_kind }}</span></div>
-              <div v-if="proc.background_policy" class="pd-row"><span class="pd-key">Policy:</span><span class="pd-value mono">{{ proc.background_policy }}</span></div>
-              <div v-if="proc.process_group_id != null" class="pd-row"><span class="pd-key">Group:</span><span class="pd-value mono">{{ proc.process_group_id }}</span></div>
-              <div class="pd-row"><span class="pd-key">Started:</span><span class="pd-value">{{ fmtDate(proc.started_at) }}</span></div>
-              <div v-if="proc.completed_at" class="pd-row"><span class="pd-key">Completed:</span><span class="pd-value">{{ fmtDate(proc.completed_at) }}</span></div>
-              <div v-if="proc.exit_code != null" class="pd-row"><span class="pd-key">Exit Code:</span><span class="pd-value mono">{{ proc.exit_code }}</span></div>
-              <div class="pd-row"><span class="pd-key">Required:</span><span class="pd-value">{{ proc.required_for_card_completion ? 'Yes' : 'No' }}</span></div>
+              <div class="pd-row"><span class="pd-key">Session:</span><span class="pd-value mono">{{ proc.session_id || 'none' }}</span></div>
+              <div class="pd-row"><span class="pd-key">Owner:</span><span class="pd-value mono">{{ proc.owner || 'unknown' }}</span></div>
+              <div class="pd-row"><span class="pd-key">Working directory:</span><span class="pd-value mono wrap">{{ proc.cwd || 'Unavailable or unsafe to display' }}</span></div>
+              <div v-if="proc.ended_at" class="pd-row"><span class="pd-key">Ended:</span><span class="pd-value">{{ fmtDate(proc.ended_at) }}</span></div>
+              <div class="pd-row"><span class="pd-key">Exit code:</span><span class="pd-value mono">{{ proc.exit_code ?? '-' }}</span></div>
+              <div v-if="proc.timed_out" class="pd-row"><span class="pd-key">Timed out:</span><span class="pd-value">Yes</span></div>
+            </div>
+
+            <div class="process-logs">
+              <div class="process-subtitle">Logs</div>
+              <div v-if="!proc.control.can_view_logs" class="process-empty-note">No safe log references are available for this process.</div>
+              <div v-else>
+                <div v-for="logEntry in processLogEntries(proc)" :key="logEntry.key" class="pd-row">
+                  <span class="pd-key">{{ logEntry.label }}:</span>
+                  <span v-if="logEntry.value" class="pd-value mono wrap">
+                    {{ logEntry.value }}
+                    <button class="process-link-button" @click="browseProcessLog(logEntry.value)">Browse</button>
+                  </span>
+                  <span v-else class="pd-value">Not available</span>
+                </div>
+              </div>
+            </div>
+
+            <div class="process-controls">
+              <button
+                v-if="proc.control.can_terminate"
+                class="operator-button operator-danger-button"
+                :disabled="Boolean(processTerminateLoading[proc.id]) || processUnauthorized"
+                :aria-label="`Terminate process ${proc.id}`"
+                @click="confirmTerminateProcess(proc.id)"
+              >{{ processTerminateLoading[proc.id] ? 'Terminating...' : 'Terminate process' }}</button>
+              <div v-else class="process-empty-note">{{ proc.status === 'running' ? 'Termination is unavailable for this process.' : 'Process has ended; termination is unavailable.' }}</div>
             </div>
           </div>
         </div>
@@ -319,10 +360,7 @@
           <template v-else>
             <div class="doctor-status-banner" :class="doctorStatus === 'ok' ? 'doctor-ok' : 'doctor-issues'">
               <span class="doctor-status-icon">{{ doctorStatus === 'ok' ? '✓' : '⚠' }}</span>
-              <span class="doctor-status-text">
-                {{ doctorStatus === 'ok' ? 'All checks passed' : 'Issues found' }}
-                ({{ doctorChecks.length }} checks)
-              </span>
+              <span class="doctor-status-text">{{ doctorStatus === 'ok' ? 'All checks passed' : 'Issues found' }} ({{ doctorChecks.length }} checks)</span>
             </div>
             <div class="doctor-checks-list">
               <div v-for="check in doctorChecks" :key="check.name" class="doctor-check-item" :class="check.passed ? 'check-passed' : 'check-failed'">
@@ -350,43 +388,21 @@
           </div>
           <div v-if="supervisionLoading" class="debug-loading" style="padding:16px;">Loading supervision data...</div>
           <div v-else-if="supervisionError" class="debug-error" style="padding:16px;">{{ supervisionError }}</div>
-          <div v-else-if="supervisionStats === null" class="debug-empty" style="padding:16px;">
-            No supervision data loaded yet. Click Fetch to load.
-          </div>
+          <div v-else-if="supervisionStats === null" class="debug-empty" style="padding:16px;">No supervision data loaded yet. Click Fetch to load.</div>
           <template v-else>
             <div class="sv-stats-grid">
-              <div class="sv-stat-card sv-stat-total">
-                <span class="sv-stat-num">{{ supervisionStats.total }}</span>
-                <span class="sv-stat-label">Total Reviews</span>
-              </div>
-              <div class="sv-stat-card sv-stat-blocked">
-                <span class="sv-stat-num">{{ supervisionStats.blocked }}</span>
-                <span class="sv-stat-label">Blocked</span>
-              </div>
-              <div class="sv-stat-card sv-stat-passed">
-                <span class="sv-stat-num">{{ supervisionStats.passed }}</span>
-                <span class="sv-stat-label">Passed</span>
-              </div>
-              <div class="sv-stat-card sv-stat-sanitized">
-                <span class="sv-stat-num">{{ supervisionStats.sanitized }}</span>
-                <span class="sv-stat-label">Sanitized</span>
-              </div>
+              <div class="sv-stat-card sv-stat-total"><span class="sv-stat-num">{{ supervisionStats.total }}</span><span class="sv-stat-label">Total Reviews</span></div>
+              <div class="sv-stat-card sv-stat-blocked"><span class="sv-stat-num">{{ supervisionStats.blocked }}</span><span class="sv-stat-label">Blocked</span></div>
+              <div class="sv-stat-card sv-stat-passed"><span class="sv-stat-num">{{ supervisionStats.passed }}</span><span class="sv-stat-label">Passed</span></div>
+              <div class="sv-stat-card sv-stat-sanitized"><span class="sv-stat-num">{{ supervisionStats.sanitized }}</span><span class="sv-stat-label">Sanitized</span></div>
             </div>
             <div v-if="Object.keys(supervisionStats.byRisk).length" class="sv-sub-section">
               <h5 class="sv-sub-title">By Risk</h5>
-              <div class="sv-pills">
-                <span v-for="(count, risk) in supervisionStats.byRisk" :key="risk" class="sv-pill" :class="'risk-' + risk">
-                  {{ risk }}: {{ count }}
-                </span>
-              </div>
+              <div class="sv-pills"><span v-for="(count, risk) in supervisionStats.byRisk" :key="risk" class="sv-pill" :class="'risk-' + risk">{{ risk }}: {{ count }}</span></div>
             </div>
             <div v-if="Object.keys(supervisionStats.bySourceKind).length" class="sv-sub-section">
               <h5 class="sv-sub-title">By Source</h5>
-              <div class="sv-pills">
-                <span v-for="(count, kind) in supervisionStats.bySourceKind" :key="kind" class="sv-pill sv-pill-kind">
-                  {{ kind }}: {{ count }}
-                </span>
-              </div>
+              <div class="sv-pills"><span v-for="(count, kind) in supervisionStats.bySourceKind" :key="kind" class="sv-pill sv-pill-kind">{{ kind }}: {{ count }}</span></div>
             </div>
             <div v-if="supervisionReviews.length > 0" class="sv-sub-section">
               <h5 class="sv-sub-title">Recent Reviews ({{ supervisionReviews.length }})</h5>
@@ -426,13 +442,14 @@
     </div>
   </div>
 </template>
+
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { storeToRefs } from 'pinia';
 import { useDebugStore } from '../stores/debug';
 import { useMcpStore } from '../stores/mcp';
-import type { DebugError, DebugTimelineEvent } from '../api/types';
+import type { DebugError, DebugTimelineEvent, ProcessView } from '../api/types';
 
 const debugStore = useDebugStore();
 const mcpStore = useMcpStore();
@@ -442,6 +459,7 @@ const {
   errors, errorsTotal, errorsBySource,
   sortedTimeline, loading, error,
   processes, processesLoading, processesError,
+  processTerminateLoading, processControlError, processControlSuccess, processUnauthorized, processStale,
   doctorStatus, doctorChecks, doctorIssues, doctorLoading, doctorError,
   supervisionReviews, supervisionQuarantine, supervisionStats,
   supervisionLoading, supervisionError,
@@ -513,6 +531,14 @@ const clearNotesDisabled = computed(() => (
   operatorUnauthorized.value || operatorNotes.value.length === 0 || operatorClearLoading.value || Object.keys(operatorNoteActionLoading.value).length > 0
 ));
 
+const sortedProcesses = computed(() => {
+  return [...processes.value].sort((a, b) => {
+    if (a.status === 'running' && b.status !== 'running') return -1;
+    if (a.status !== 'running' && b.status === 'running') return 1;
+    return new Date(b.started_at).getTime() - new Date(a.started_at).getTime();
+  });
+});
+
 function noteButtonsDisabled(noteId: string): boolean {
   return operatorUnauthorized.value || operatorClearLoading.value || Boolean(operatorNoteActionLoading.value[noteId]);
 }
@@ -528,6 +554,13 @@ async function refreshNotes(): Promise<void> {
 async function confirmClearNotes(): Promise<void> {
   if (!window.confirm('Clear all unhandled operator notes?')) return;
   await debugStore.clearOperatorNotes();
+}
+
+async function confirmTerminateProcess(processId: string): Promise<void> {
+  if (!window.confirm(`Terminate process ${processId}? This sends a termination request to a Saivage-managed running process.`)) {
+    return;
+  }
+  await debugStore.terminateOperatorProcess(processId);
 }
 
 function setTab(tab: TabId): void {
@@ -546,6 +579,18 @@ function setTab(tab: TabId): void {
 function browseQuarantineItem(quarantineId: string): void {
   const path = '.saivage-work/quarantine/' + quarantineId;
   router.push({ name: 'files', query: { path } });
+}
+
+function browseProcessLog(path: string): void {
+  router.push({ name: 'files', query: { path } });
+}
+
+function processLogEntries(proc: ProcessView): Array<{ key: string; label: string; value: string | null }> {
+  return [
+    { key: 'combined', label: 'Combined', value: proc.logs.combined },
+    { key: 'stdout', label: 'Stdout', value: proc.logs.stdout },
+    { key: 'stderr', label: 'Stderr', value: proc.logs.stderr },
+  ];
 }
 
 interface CardStatusEntry { status: string; count: number }
@@ -569,12 +614,8 @@ const errorSourceEntries = computed<ErrorSourceEntry[]>(() => {
 });
 
 function fmtDate(ts: string): string { try { return new Date(ts).toLocaleString(); } catch { return ts; } }
-function fmtJson(data: Record<string, unknown>): string {
-  try { return JSON.stringify(data, null, 2); } catch { return String(data); }
-}
-function formatEventKind(kind: string): string {
-  return kind.replace(/_/g, ' ');
-}
+function fmtJson(data: Record<string, unknown>): string { try { return JSON.stringify(data, null, 2); } catch { return String(data); } }
+function formatEventKind(kind: string): string { return kind.replace(/_/g, ' '); }
 function timelineKey(event: DebugTimelineEvent): string {
   return String(event.id || `${event.timestamp}:${event.kind}:${event.card_id || event.goal_id || event.session_id || ''}`);
 }
@@ -599,6 +640,7 @@ onUnmounted(() => {
   mcpStore.stopPolling();
 });
 </script>
+
 <style scoped>
 .debug-layout { height:100%; display:flex; flex-direction:column; overflow:hidden; }
 .debug-tabs { display:flex; gap:2px; padding:8px 12px; background:#161b22; border-bottom:1px solid #30363d; flex-shrink:0; flex-wrap:wrap; }
@@ -616,8 +658,7 @@ onUnmounted(() => {
 .dg-item { display:flex; gap:8px; }
 .dg-key { font-size:12px; color:#8b949e; }
 .dg-value { font-size:12px; color:#c9d1d9; }
-.dg-value.mono { font-family:'SF Mono',monospace; font-size:11px; color:#58a6ff; }
-.mono { font-family:'SF Mono',monospace; }
+.dg-value.mono, .mono { font-family:'SF Mono',monospace; font-size:11px; color:#58a6ff; }
 .freeze-banner { display:flex; align-items:center; gap:10px; padding:12px 16px; background:#1a1d2e; border:1px solid #5a4fcf; border-radius:8px; margin-bottom:12px; }
 .freeze-banner-text { font-size:14px; color:#c9d1d9; display:flex; flex-direction:column; gap:2px; }
 .freeze-reason { font-size:12px; color:#8b949e; font-style:italic; }
@@ -634,7 +675,7 @@ onUnmounted(() => {
 .operator-runtime-summary { display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:8px; margin-bottom:12px; }
 .operator-freeze-guidance { margin-top:4px; }
 .operator-empty-runtime { padding:20px 0; }
-.operator-runtime-buttons { display:flex; gap:10px; flex-wrap:wrap; margin-top:12px; }
+.operator-runtime-buttons, .operator-note-actions { display:flex; gap:10px; flex-wrap:wrap; margin-top:12px; }
 .operator-button { padding:7px 14px; font-size:12px; color:#c9d1d9; background:#21262d; border:1px solid #30363d; border-radius:6px; cursor:pointer; font-family:inherit; transition:all .15s; }
 .operator-button:hover:not(:disabled) { background:#30363d; color:#f0f6fc; }
 .operator-button:disabled, .operator-danger-button:disabled, .sv-fetch-btn:disabled { opacity:.5; cursor:not-allowed; }
@@ -648,14 +689,13 @@ onUnmounted(() => {
 .operator-status-badge.status-frozen { background:#1a1d2e; color:#b7a7ff; }
 .operator-status-badge.status-unavailable { background:#21262d; color:#8b949e; }
 .operator-notes-list { display:flex; flex-direction:column; gap:10px; }
-.operator-note-card { background:#161b22; border:1px solid #21262d; border-radius:8px; padding:12px; }
+.operator-note-card, .process-card { background:#161b22; border:1px solid #21262d; border-radius:8px; padding:12px; }
 .operator-note-header { display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-bottom:8px; }
 .operator-note-kind { font-size:10px; font-weight:600; text-transform:uppercase; border-radius:999px; padding:2px 8px; background:#1c2738; color:#58a6ff; }
 .operator-note-author { font-size:12px; color:#c9d1d9; }
 .operator-note-time { margin-left:auto; font-size:11px; color:#8b949e; }
 .operator-note-body { font-size:13px; color:#c9d1d9; white-space:pre-wrap; word-break:break-word; margin-bottom:8px; }
 .operator-note-meta { display:flex; gap:12px; flex-wrap:wrap; font-size:11px; color:#8b949e; margin-bottom:10px; }
-.operator-note-actions { display:flex; gap:8px; flex-wrap:wrap; }
 .card-summary-bars { display:flex; flex-direction:column; gap:4px; margin-bottom:12px; }
 .csb-row { display:grid; grid-template-columns:80px 1fr 40px; gap:8px; align-items:center; }
 .csb-label { font-size:11px; color:#8b949e; text-transform:capitalize; text-align:right; }
@@ -731,21 +771,26 @@ onUnmounted(() => {
 .mcp-stats-cell.mcp-stat-success { color:#7ee787; }
 .mcp-stats-cell.mcp-stat-error { color:#f85149; }
 .mcp-stats-cell.mcp-stat-time { color:#484f58; }
-.mcp-content { padding:0; }
 .processes-list { display:flex; flex-direction:column; gap:10px; }
-.process-card { background:#161b22; border:1px solid #21262d; border-radius:6px; overflow:hidden; }
-.process-header { display:flex; align-items:center; gap:8px; padding:8px 12px; background:#1c2128; border-bottom:1px solid #30363d; }
+.process-header { display:flex; align-items:center; gap:8px; padding-bottom:8px; margin-bottom:8px; border-bottom:1px solid #30363d; flex-wrap:wrap; }
 .process-id { font-size:13px; color:#58a6ff; }
 .process-status-badge { font-size:10px; font-weight:600; padding:2px 7px; border-radius:4px; text-transform:uppercase; }
 .process-status-badge.ps-running { background:#1a2418; color:#7ee787; }
 .process-status-badge.ps-exited { background:#1c2738; color:#58a6ff; }
 .process-status-badge.ps-failed { background:#241818; color:#f85149; }
 .process-status-badge.ps-killed { background:#241f18; color:#d29922; }
-.process-details { padding:8px 12px; display:flex; flex-direction:column; gap:4px; }
-.pd-row { display:flex; gap:8px; font-size:12px; align-items:baseline; }
-.pd-key { color:#8b949e; min-width:90px; flex-shrink:0; }
-.pd-value { color:#c9d1d9; word-break:break-all; }
-.pd-value.mono { font-family:'SF Mono',monospace; font-size:11px; color:#58a6ff; }
+.process-time { font-size:11px; color:#8b949e; margin-left:auto; }
+.process-details, .process-logs, .process-controls { display:flex; flex-direction:column; gap:4px; }
+.process-logs, .process-controls { margin-top:10px; }
+.process-subtitle { font-size:11px; font-weight:600; color:#8b949e; text-transform:uppercase; }
+.pd-row { display:flex; gap:8px; font-size:12px; align-items:flex-start; }
+.pd-key { color:#8b949e; min-width:110px; flex-shrink:0; }
+.pd-value { color:#c9d1d9; word-break:break-word; }
+.pd-value.mono { color:#58a6ff; }
+.wrap { white-space:pre-wrap; overflow-wrap:anywhere; }
+.process-empty-note { font-size:12px; color:#8b949e; }
+.process-link-button { margin-left:8px; padding:2px 8px; font-size:10px; color:#58a6ff; background:#1c2738; border:1px solid #30363d; border-radius:4px; cursor:pointer; }
+.process-link-button:hover { background:#253548; }
 .sv-fetch-btn { padding:3px 12px; font-size:11px; color:#58a6ff; background:#1c2738; border:1px solid #30363d; border-radius:4px; cursor:pointer; font-family:inherit; transition:all .15s; }
 .sv-fetch-btn:hover:not(:disabled) { background:#253548; border-color:#58a6ff; }
 .doctor-status-banner { display:flex; align-items:center; gap:8px; padding:10px 14px; border-radius:6px; margin-bottom:12px; }
@@ -763,7 +808,7 @@ onUnmounted(() => {
 .check-passed .check-icon { color:#7ee787; }
 .check-failed .check-icon { color:#f85149; }
 .check-body { display:flex; flex-direction:column; gap:2px; }
-.check-name { font-size:12px; color:#c9d1d9; font-family:'SF Mono',monospace; font-size:11px; }
+.check-name { font-size:11px; color:#c9d1d9; font-family:'SF Mono',monospace; }
 .check-details { font-size:11px; color:#8b949e; }
 .doctor-issues { margin-top:12px; }
 .doctor-issues-title { font-size:11px; font-weight:600; color:#f85149; margin:0 0 6px 0; }
@@ -823,7 +868,10 @@ onUnmounted(() => {
 @media (max-width: 720px) {
   .operator-runtime-buttons,
   .operator-note-actions,
-  .operator-actions-inline { flex-direction:column; align-items:stretch; }
-  .operator-note-time { margin-left:0; }
+  .operator-actions-inline,
+  .sv-review-meta,
+  .pd-row { flex-direction:column; align-items:flex-start; }
+  .operator-note-time, .process-time { margin-left:0; }
+  .sv-stats-grid { grid-template-columns:repeat(2,1fr); }
 }
 </style>

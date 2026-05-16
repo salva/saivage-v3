@@ -1,6 +1,7 @@
 import { existsSync, readdirSync, rmSync, statSync } from 'node:fs';
 import { join, resolve, normalize } from 'node:path';
 import type { CardStore } from './card-store.js';
+import { loadRegistry } from './process-runner.js';
 
 // ── Types ─────────────────────────────────────────────────────
 
@@ -240,7 +241,7 @@ export function cleanStaleUploads(
  *
  * A process directory is eligible for cleanup when:
  * 1. The process status is NOT 'running'.
- * 2. The process's completed_at is older than maxAgeMs.
+ * 2. The process directory is older than maxAgeMs.
  * 3. No card retains an artifact that references files inside the
  *    process output directory.
  *
@@ -263,6 +264,7 @@ export function cleanStaleProcessOutput(options: CleanStaleProcessOptions): numb
 
   // Build a set of all paths referenced by retained artifacts
   const retainedArtifactPaths = collectRetainedArtifactPaths(store);
+  const runningProcessIds = loadRunningProcessIds(saivageWorkDir);
 
   let cleaned = 0;
   const cutoff = Date.now() - maxAgeMs;
@@ -285,6 +287,9 @@ export function cleanStaleProcessOutput(options: CleanStaleProcessOptions): numb
       continue;
     }
     if (!st.isDirectory()) continue;
+
+    // Never remove output for registry-running processes.
+    if (runningProcessIds.has(entry)) continue;
 
     // Skip if any retained artifact references a file inside this dir
     if (isProcessDirReferenced(procDir, retainedArtifactPaths)) continue;
@@ -399,6 +404,18 @@ function collectRetainedArtifactPaths(store: CardStore): Set<string> {
     // best effort
   }
   return paths;
+}
+
+function loadRunningProcessIds(saivageWorkDir: string): Set<string> {
+  const projectRoot = resolve(saivageWorkDir, '..');
+  const registry = loadRegistry(projectRoot);
+  const running = new Set<string>();
+  for (const record of registry.values()) {
+    if (record.status === 'running') {
+      running.add(record.id);
+    }
+  }
+  return running;
 }
 
 /**

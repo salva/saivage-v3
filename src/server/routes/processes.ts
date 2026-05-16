@@ -1,5 +1,5 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
-import { listProcesses, getProcess } from '../../utils/process-runner.js';
+import { listProcesses, getProcess, killProcess } from '../../utils/process-runner.js';
 import type { ProcessRecord } from '../../schemas/types.js';
 import {
   redactCommandForOperator,
@@ -18,7 +18,7 @@ interface ProcessControlAvailability {
   can_terminate: boolean;
 }
 
-interface ProcessView {
+export interface ProcessView {
   id: string;
   status: string;
   started_at: string;
@@ -53,6 +53,12 @@ function safeCwd(projectRoot: string, cwd: string | null | undefined): string | 
 }
 
 function toProcessView(projectRoot: string, record: ProcessRecord): ProcessView {
+  const logs = {
+    stdout: safeLogRef(projectRoot, record.stdout_path),
+    stderr: safeLogRef(projectRoot, record.stderr_path),
+    combined: safeLogRef(projectRoot, record.combined_log_path),
+  };
+
   return {
     id: record.id,
     status: record.status,
@@ -65,16 +71,16 @@ function toProcessView(projectRoot: string, record: ProcessRecord): ProcessView 
     card_id: record.card_id,
     command: redactCommandForOperator(record.command),
     cwd: safeCwd(projectRoot, record.cwd),
-    logs: {
-      stdout: safeLogRef(projectRoot, record.stdout_path),
-      stderr: safeLogRef(projectRoot, record.stderr_path),
-      combined: safeLogRef(projectRoot, record.combined_log_path),
-    },
+    logs,
     control: {
-      can_view_logs: Boolean(record.stdout_path || record.stderr_path || record.combined_log_path),
+      can_view_logs: Boolean(logs.stdout || logs.stderr || logs.combined),
       can_terminate: record.status === 'running',
     },
   };
+}
+
+function processRouteMessage(err: unknown, projectRoot: string): string {
+  return redactOperatorErrorMessage(err instanceof Error ? err.message : String(err), projectRoot);
 }
 
 export function registerProcessRoutes(
@@ -88,7 +94,7 @@ export function registerProcessRoutes(
     } catch (err) {
       return reply.status(500).send({
         error: 'Failed to list processes',
-        message: redactOperatorErrorMessage(err instanceof Error ? err.message : String(err), projectRoot),
+        message: processRouteMessage(err, projectRoot),
       });
     }
   });
@@ -115,7 +121,57 @@ export function registerProcessRoutes(
     } catch (err) {
       return reply.status(500).send({
         error: 'Failed to get process',
-        message: redactOperatorErrorMessage(err instanceof Error ? err.message : String(err), projectRoot),
+        message: processRouteMessage(err, projectRoot),
+      });
+    }
+  });
+
+  fastify.post('/api/processes/:id/terminate', async (request: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const params = request.params as { id: string };
+      const procId = params.id;
+
+      if (!procId) {
+        return reply.status(400).send({ error: 'Process ID is required.' });
+      }
+
+      const current = getProcess(projectRoot, procId);
+      if (!current) {
+        return reply.status(404).send({
+          error: 'Process not found',
+          processId: procId,
+        });
+      }
+
+      if (current.status !== 'running') {
+        return reply.status(409).send({
+          error: 'Process has already ended.',
+          terminated: false,
+          message: 'Process has already ended.',
+          process: toProcessView(projectRoot, current),
+        });
+      }
+
+      const terminatedRecord = await killProcess(projectRoot, procId);
+      if (terminatedRecord.status === 'running') {
+        return reply.status(503).send({
+          error: 'Process termination unavailable',
+          terminated: false,
+          message:
+            'Process is recorded as running, but no live server-owned child process is available to terminate. Inspect host process state before manual cleanup.',
+          process: toProcessView(projectRoot, terminatedRecord),
+        });
+      }
+
+      return reply.send({
+        terminated: true,
+        message: `Termination requested for ${procId}. Status is now ${terminatedRecord.status}.`,
+        process: toProcessView(projectRoot, terminatedRecord),
+      });
+    } catch (err) {
+      return reply.status(500).send({
+        error: 'Failed to terminate process',
+        message: processRouteMessage(err, projectRoot),
       });
     }
   });

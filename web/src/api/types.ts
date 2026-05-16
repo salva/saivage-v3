@@ -192,6 +192,39 @@ export interface ProcessRecord {
   process_group_id?: number | null;
 }
 
+export interface ProcessLogRefs {
+  stdout: string | null;
+  stderr: string | null;
+  combined: string | null;
+}
+
+export interface ProcessControlAvailability {
+  can_view_logs: boolean;
+  can_terminate: boolean;
+}
+
+export interface ProcessView {
+  id: string;
+  status: ProcessStatus | string;
+  started_at: string;
+  ended_at: string | null;
+  exit_code: number | null;
+  timed_out: boolean;
+  owner: 'agent' | 'operator' | 'runtime' | string | null;
+  session_id: string | null;
+  card_id: string;
+  command: string;
+  cwd: string | null;
+  logs: ProcessLogRefs;
+  control: ProcessControlAvailability;
+}
+
+export interface ProcessTerminateResponse {
+  process: ProcessView;
+  terminated: boolean;
+  message: string;
+}
+
 export type AgentRole = 'analyst' | 'planner' | 'executor' | 'reviewer' | 'content_supervisor';
 export type AgentStatus = 'active' | 'done' | 'failed';
 export type MessageRole = 'user' | 'assistant' | 'system' | 'tool';
@@ -479,8 +512,8 @@ export interface DebugStateResponse {
 }
 export interface DebugErrorsResponse { errors: DebugError[]; total: number; }
 export interface DebugTimelineResponse { events: DebugTimelineEvent[]; total: number; }
-export interface ProcessListResponse { processes: ProcessRecord[]; }
-export interface ProcessDetailResponse { process: ProcessRecord; }
+export interface ProcessListResponse { processes: ProcessView[]; }
+export interface ProcessDetailResponse { process: ProcessView; }
 
 export interface CreateCardPayload {
   type: CardType;
