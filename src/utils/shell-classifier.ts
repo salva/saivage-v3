@@ -99,7 +99,7 @@ function tokenizeShell(input: string): string[] {
       continue;
     }
 
-    if (ch === ';' || ch === '|' || ch === '>') {
+    if (ch === ';' || ch === '|' || ch === '>' || ch === '<') {
       pushCurrent();
       tokens.push(ch);
       continue;
@@ -209,12 +209,12 @@ function classifySegment(tokens: string[], cwd: string): ShellSafetyClass {
 
   for (let i = 0; i < tokens.length; i += 1) {
     const token = tokens[i];
-    if ((token === '>' || token === '>>') && i + 1 < tokens.length) {
+    if ((token === '>' || token === '>>' || token === '<') && i + 1 < tokens.length) {
       const target = resolve(cwd, tokens[i + 1]);
       if (isSystemPath(target)) return 'destructive';
       if (looksLikeSecretPath(target)) return 'destructive';
     }
-    if (!token.startsWith('-')) {
+    if (!token.startsWith('-') && token !== '>' && token !== '>>' && token !== '<') {
       const resolved = resolve(cwd, token);
       if (looksLikeSecretPath(resolved)) return 'destructive';
     }
