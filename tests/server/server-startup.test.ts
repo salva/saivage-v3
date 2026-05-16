@@ -25,23 +25,15 @@ import { join, dirname } from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import type { ServerInstance } from '../../src/server/server.js';
-
-// ── Helpers ───────────────────────────────────────────────────
+import { getClientCount } from '../../src/server/websocket.js';
 
 const AUTH_TOKEN = 'server-startup-test-token-' + Math.random().toString(36).slice(2, 8);
-
-/**
- * Derive the project root (where saivage-v3 lives) from this file's location.
- * tests/server/server-startup.test.ts -> two dirs up is the project root.
- */
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 const PROJECT_ROOT = join(__dirname, '..', '..');
 
 function setupProjectDir(root: string): void {
   const sd = join(root, '.saivage');
-
-  // Create required directories
   for (const d of [
     'cards/by-id',
     'cards/tree',
@@ -56,9 +48,6 @@ function setupProjectDir(root: string): void {
   }
 
   const now = new Date().toISOString();
-
-  // Write saivage.json — use a valid positive port (8080); the listen()
-  // call with port: 0 will override this for the actual listening port.
   writeFileSync(
     join(sd, 'saivage.json'),
     JSON.stringify({
@@ -73,8 +62,6 @@ function setupProjectDir(root: string): void {
       },
     }, null, 2),
   );
-
-  // Write runtime state
   writeFileSync(
     join(sd, 'runtime', 'state.json'),
     JSON.stringify({
@@ -91,8 +78,6 @@ function setupProjectDir(root: string): void {
       updated_at: now,
     }, null, 2),
   );
-
-  // Write project card
   writeFileSync(
     join(sd, 'cards', 'by-id', 'project.json'),
     JSON.stringify({
@@ -109,6 +94,7 @@ function setupProjectDir(root: string): void {
       created_by: 'analyst',
       created_at: now,
       updated_at: now,
+      version_seq: 1,
       depends_on: [],
       blocks: [],
       related: [],
@@ -118,8 +104,6 @@ function setupProjectDir(root: string): void {
       retries: 0,
     }, null, 2),
   );
-
-  // Write card index
   writeFileSync(
     join(sd, 'cards', 'index.json'),
     JSON.stringify({
@@ -134,31 +118,13 @@ function setupProjectDir(root: string): void {
       },
     }, null, 2),
   );
-
-  // Write children, dependencies, notes queue
-  writeFileSync(
-    join(sd, 'cards', 'tree', 'project.children.json'),
-    JSON.stringify([]),
-  );
-  writeFileSync(
-    join(sd, 'cards', 'dependencies', 'depends-on.json'),
-    JSON.stringify({}),
-  );
-  writeFileSync(
-    join(sd, 'cards', 'dependencies', 'blocks.json'),
-    JSON.stringify({}),
-  );
-  writeFileSync(
-    join(sd, 'notes', 'queue.json'),
-    JSON.stringify({ entries: [] }),
-  );
-
-  // Write empty runtime event logs
+  writeFileSync(join(sd, 'cards', 'tree', 'project.children.json'), JSON.stringify([]));
+  writeFileSync(join(sd, 'cards', 'dependencies', 'depends-on.json'), JSON.stringify({}));
+  writeFileSync(join(sd, 'cards', 'dependencies', 'blocks.json'), JSON.stringify({}));
+  writeFileSync(join(sd, 'notes', 'queue.json'), JSON.stringify({ next_note_sequence: 1, entries: [] }));
   writeFileSync(join(sd, 'runtime', 'events.jsonl'), '');
   writeFileSync(join(sd, 'runtime', 'errors.jsonl'), '');
 
-  // Copy web/dist/ into the temp dir so fastifyStatic has something to serve.
-  // The real web/dist/ lives at <PROJECT_ROOT>/web/dist/
   const realWebDist = join(PROJECT_ROOT, 'web', 'dist');
   if (existsSync(realWebDist)) {
     const tmpWebDist = join(root, 'web', 'dist');
@@ -166,8 +132,6 @@ function setupProjectDir(root: string): void {
     cpSync(realWebDist, tmpWebDist, { recursive: true });
   }
 
-  // Copy docs/.vitepress/dist/ into the temp dir so fastifyStatic can serve
-  // the VitePress documentation at /docs/.
   const realDocsDist = join(PROJECT_ROOT, 'docs', '.vitepress', 'dist');
   if (existsSync(realDocsDist)) {
     const tmpDocsDist = join(root, 'docs', '.vitepress', 'dist');
@@ -176,11 +140,6 @@ function setupProjectDir(root: string): void {
   }
 }
 
-
-// ═══════════════════════════════════════════════════════════════
-// Describe: Full Server Startup Integration
-// ═══════════════════════════════════════════════════════════════
-
 describe('Server Startup Integration (createServer)', () => {
   let tmpDir: string;
   let server: ServerInstance;
@@ -188,27 +147,13 @@ describe('Server Startup Integration (createServer)', () => {
   let originalCwd: string;
 
   beforeAll(async () => {
-    // Save original CWD
     originalCwd = process.cwd();
-
-    // Create a unique temp directory
     tmpDir = mkdtempSync(join(tmpdir(), 'saivage-server-startup-'));
-
-    // Set up the project skeleton (including web/dist/ copy)
     setupProjectDir(tmpDir);
-
-    // Change CWD to temp dir so that the health endpoint reads our runtime state
-    // (registerHealth uses process.cwd() to find .saivage/runtime/state.json)
     process.chdir(tmpDir);
-
-    // Set auth token
     process.env['SAIVAGE_API_TOKEN'] = AUTH_TOKEN;
-
-    // Create the real server
     const { createServer } = await import('../../src/server/server.js');
     server = await createServer(tmpDir);
-
-    // Start listening on port 0
     await server.fastify.listen({ host: '127.0.0.1', port: 0 });
     const addr = server.fastify.server.address();
     if (!addr || typeof addr === 'string') {
@@ -218,34 +163,27 @@ describe('Server Startup Integration (createServer)', () => {
   }, 30000);
 
   afterAll(async () => {
-    // Restore CWD
     try {
       process.chdir(originalCwd);
-    } catch {
-      // best effort
-    }
-
-    // Stop the server
+    } catch {}
     if (server) {
       try {
         await server.stop();
-      } catch {
-        // best effort
-      }
+      } catch {}
     }
-
-    // Clean up temp dir
     try {
       rmSync(tmpDir, { recursive: true, force: true });
-    } catch {
-      // best effort
-    }
+    } catch {}
   }, 15000);
-
-  // ── URL Helpers ────────────────────────────────────────────
 
   function baseUrl(path: string): string {
     return `http://127.0.0.1:${port}${path}`;
+  }
+
+  function fetchLocal(path: string, init?: RequestInit): Promise<Response> {
+    const headers = new Headers(init?.headers);
+    headers.set('connection', 'close');
+    return fetch(baseUrl(path), { ...init, headers });
   }
 
   function wsUrl(path: string): string {
@@ -256,20 +194,16 @@ describe('Server Startup Integration (createServer)', () => {
     return { authorization: `Bearer ${AUTH_TOKEN}` };
   }
 
-  // ══════════════════════════════════════════════════════════
-  // 1. Health Endpoint
-  // ══════════════════════════════════════════════════════════
-
   describe('Health Endpoint', () => {
     it('GET /health returns 200 without auth', async () => {
-      const res = await fetch(baseUrl('/health'));
+      const res = await fetchLocal('/health');
       expect(res.status).toBe(200);
+      await res.text();
     });
 
     it('GET /health returns status: ok, version: 0.1.0, project: saivage-v3', async () => {
-      const res = await fetch(baseUrl('/health'));
+      const res = await fetchLocal('/health');
       expect(res.status).toBe(200);
-
       const body = await res.json() as Record<string, unknown>;
       expect(body.status).toBe('ok');
       expect(body.version).toBe('0.1.0');
@@ -277,57 +211,46 @@ describe('Server Startup Integration (createServer)', () => {
     });
 
     it('GET /health returns runtime: idle (from runtime state file)', async () => {
-      const res = await fetch(baseUrl('/health'));
+      const res = await fetchLocal('/health');
       expect(res.status).toBe(200);
-
       const body = await res.json() as Record<string, unknown>;
       expect(body.runtime).toBe('idle');
     });
   });
 
-  // ══════════════════════════════════════════════════════════
-  // 2. API Auth
-  // ══════════════════════════════════════════════════════════
-
   describe('API Auth', () => {
     it('GET /api/state without auth headers returns 401', async () => {
-      const res = await fetch(baseUrl('/api/state'));
+      const res = await fetchLocal('/api/state');
       expect(res.status).toBe(401);
+      await res.text();
     });
 
     it('GET /api/state with invalid Bearer token returns 401', async () => {
-      const res = await fetch(baseUrl('/api/state'), {
+      const res = await fetchLocal('/api/state', {
         headers: { authorization: 'Bearer wrong-token' },
       });
       expect(res.status).toBe(401);
+      await res.text();
     });
 
     it('GET /api/state with valid Bearer token returns 200', async () => {
-      const res = await fetch(baseUrl('/api/state'), {
-        headers: authHeaders(),
-      });
+      const res = await fetchLocal('/api/state', { headers: authHeaders() });
       expect(res.status).toBe(200);
+      await res.text();
     });
 
     it('GET /api/state with valid ?token= query param returns 200', async () => {
-      const res = await fetch(baseUrl(`/api/state?token=${AUTH_TOKEN}`));
+      const res = await fetchLocal(`/api/state?token=${AUTH_TOKEN}`);
       expect(res.status).toBe(200);
+      await res.text();
     });
   });
-
-  // ══════════════════════════════════════════════════════════
-  // 3. WebSocket Connectivity
-  // ══════════════════════════════════════════════════════════
 
   describe('WebSocket Connectivity', () => {
     it('connects with valid auth token and receives welcome status message', (done) => {
       const ws = new WebSocket(wsUrl(`/ws?token=${AUTH_TOKEN}`));
-
       ws.on('message', (raw) => {
-        const data = JSON.parse(raw.toString()) as {
-          type: string;
-          content: Record<string, unknown>;
-        };
+        const data = JSON.parse(raw.toString()) as { type: string; content: Record<string, unknown> };
         expect(data.type).toBe('status');
         expect(data.content.event).toBe('connected');
         expect(data.content.sessionId).toBeDefined();
@@ -335,23 +258,18 @@ describe('Server Startup Integration (createServer)', () => {
         ws.close();
         done();
       });
-
-      ws.on('error', (err) => {
-        done(err);
-      });
+      ws.on('error', (err) => done(err));
     }, 10000);
 
     it('rejects connection without auth token (non-1000 close code)', (done) => {
       const ws = new WebSocket(wsUrl('/ws'));
       let resolved = false;
-
       const timeoutId = setTimeout(() => {
         if (!resolved) {
           resolved = true;
           done();
         }
       }, 5000);
-
       ws.on('close', (code) => {
         if (!resolved) {
           resolved = true;
@@ -360,7 +278,6 @@ describe('Server Startup Integration (createServer)', () => {
           done();
         }
       });
-
       ws.on('error', () => {
         if (!resolved) {
           resolved = true;
@@ -373,14 +290,12 @@ describe('Server Startup Integration (createServer)', () => {
     it('rejects connection with wrong auth token (non-1000 close code)', (done) => {
       const ws = new WebSocket(wsUrl('/ws?token=wrong-token'));
       let resolved = false;
-
       const timeoutId = setTimeout(() => {
         if (!resolved) {
           resolved = true;
           done();
         }
       }, 5000);
-
       ws.on('close', (code) => {
         if (!resolved) {
           resolved = true;
@@ -389,7 +304,6 @@ describe('Server Startup Integration (createServer)', () => {
           done();
         }
       });
-
       ws.on('error', () => {
         if (!resolved) {
           resolved = true;
@@ -400,81 +314,68 @@ describe('Server Startup Integration (createServer)', () => {
     }, 10000);
   });
 
-  // ══════════════════════════════════════════════════════════
-  // 4. Static File Serving
-  // ══════════════════════════════════════════════════════════
-
   describe('Static File Serving', () => {
     it('GET / returns 200 and serves SPA index.html', async () => {
-      const res = await fetch(baseUrl('/'));
+      const res = await fetchLocal('/');
       expect(res.status).toBe(200);
+      await res.text();
     });
 
     it('GET / response contains <div id="app"> from web/dist/index.html', async () => {
-      const res = await fetch(baseUrl('/'));
+      const res = await fetchLocal('/');
       expect(res.status).toBe(200);
       const text = await res.text();
       expect(text).toContain('<div id="app">');
     });
 
     it('GET / responds with text/html content type', async () => {
-      const res = await fetch(baseUrl('/'));
+      const res = await fetchLocal('/');
       expect(res.status).toBe(200);
       const ct = res.headers.get('content-type') || '';
       expect(ct).toContain('text/html');
+      await res.text();
     });
   });
 
-  // ══════════════════════════════════════════════════════════
-  // 5. VitePress Docs Serving
-  // ══════════════════════════════════════════════════════════
-
   describe('VitePress Docs Serving', () => {
     it('GET /docs/ returns 200 and serves VitePress index page', async () => {
-      const res = await fetch(baseUrl('/docs/'));
+      const res = await fetchLocal('/docs/');
       expect(res.status).toBe(200);
+      await res.text();
     });
 
     it('GET /docs/ response contains VitePress generated content', async () => {
-      const res = await fetch(baseUrl('/docs/'));
+      const res = await fetchLocal('/docs/');
       expect(res.status).toBe(200);
       const text = await res.text();
-      // VitePress-generated pages contain the app mount div
       expect(text).toContain('<div id="app">');
-      // VitePress meta tag confirms it's a VitePress build
       expect(text).toContain('content="VitePress');
-      // Navigation text from the config
       expect(text).toContain('Saivage v3');
     });
 
     it('GET /docs/ response has text/html content type', async () => {
-      const res = await fetch(baseUrl('/docs/'));
+      const res = await fetchLocal('/docs/');
       expect(res.status).toBe(200);
       const ct = res.headers.get('content-type') || '';
       expect(ct).toContain('text/html');
+      await res.text();
     });
 
     it('GET /docs/install.html returns 200 and serves Install page', async () => {
-      const res = await fetch(baseUrl('/docs/install.html'));
+      const res = await fetchLocal('/docs/install.html');
       expect(res.status).toBe(200);
+      await res.text();
     });
 
     it('GET /docs/install.html response contains Install-specific VitePress content', async () => {
-      const res = await fetch(baseUrl('/docs/install.html'));
+      const res = await fetchLocal('/docs/install.html');
       expect(res.status).toBe(200);
       const text = await res.text();
-      // VitePress meta tag
       expect(text).toContain('content="VitePress');
-      // Install guide heading content
       expect(text).toContain('Installation Guide');
-      // Navigation text
       expect(text).toContain('Saivage v3');
     });
   });
-
-  // ══════════════════════════════════════════════════════════
-  // 6. Server Lifecycle
-  // ══════════════════════════════════════════════════════════
 
   describe('Server Lifecycle', () => {
     it('server instance has fastify, config, and stop', () => {
@@ -485,10 +386,37 @@ describe('Server Startup Integration (createServer)', () => {
     });
 
     it('server API responds after startup', async () => {
-      const res = await fetch(baseUrl('/api/state'), {
-        headers: authHeaders(),
-      });
+      const res = await fetchLocal('/api/state', { headers: authHeaders() });
       expect(res.status).toBe(200);
+      await res.text();
     });
+
+    it('server.stop() clears websocket clients before closing', async () => {
+      const stopRoot = mkdtempSync(join(tmpdir(), 'saivage-server-stop-'));
+      const stopOriginalCwd = process.cwd();
+      try {
+        setupProjectDir(stopRoot);
+        process.chdir(stopRoot);
+        const { createServer } = await import('../../src/server/server.js');
+        const stopServer = await createServer(stopRoot);
+        await stopServer.fastify.listen({ host: '127.0.0.1', port: 0 });
+        const addr = stopServer.fastify.server.address();
+        if (!addr || typeof addr === 'string') {
+          throw new Error('Stop test server did not listen on a network port');
+        }
+        const stopPort = addr.port;
+        const ws = new WebSocket(`ws://127.0.0.1:${stopPort}/ws?token=${AUTH_TOKEN}`);
+        await new Promise<void>((resolve, reject) => {
+          ws.once('message', () => resolve());
+          ws.once('error', reject);
+        });
+        expect(getClientCount()).toBeGreaterThan(0);
+        await stopServer.stop();
+        expect(getClientCount()).toBe(0);
+      } finally {
+        try { process.chdir(stopOriginalCwd); } catch {}
+        try { rmSync(stopRoot, { recursive: true, force: true }); } catch {}
+      }
+    }, 15000);
   });
 });

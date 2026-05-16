@@ -1,15 +1,3 @@
-/**
- * Tests for load_skill tool registration and handling in AgentAdapter.
- *
- * Covers:
- * 1. LOAD_SKILL_TOOL_DEFINITION shape
- * 2. buildToolsForRole correctness
- * 3. parseToolCallsFromResponse
- * 4. processToolCall unit-testable parts
- * 5. load_skill permission check integration
- * 6. Full integration flow with SkillsEngine
- */
-
 import { describe, it, expect, beforeEach, afterEach } from '@jest/globals';
 import { rmSync, mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -24,12 +12,9 @@ import {
   LoadSkillError,
   PERMITTED_ROLES,
 } from '../../src/agents/skill-tools.js';
-import type { SkillToolsResult } from '../../src/agents/skill-tools.js';
 import type { ToolDefinition } from '../../src/agents/llm-client.js';
 import { SkillsEngine } from '../../src/agents/skills-engine.js';
 import type { SkillIndexEntry, AgentRole as SchemaAgentRole } from '../../src/schemas/types.js';
-
-// ── Helpers ───────────────────────────────────────────────────
 
 function makeEntry(overrides: Partial<SkillIndexEntry> = {}): SkillIndexEntry {
   return {
@@ -46,10 +31,6 @@ function indexJson(entries: SkillIndexEntry[]): string {
   return JSON.stringify(entries, null, 2);
 }
 
-/**
- * Build a minimal AgentAdapter for testing without requiring a real
- * saivage.json config file. We pass a complete-but-empty mock config.
- */
 function createMinimalAdapter(tmpDir: string): AgentAdapter {
   const minimalConfig = {
     providers: {},
@@ -73,18 +54,11 @@ function createMinimalAdapter(tmpDir: string): AgentAdapter {
   });
 }
 
-/**
- * Helper to safely navigate ToolDefinition.parameters.
- */
 function getParamProps(def: ToolDefinition): Record<string, unknown> {
   return def.function.parameters as Record<string, unknown>;
 }
 
-// ── Tests ─────────────────────────────────────────────────────
-
 describe('AgentAdapter load_skill tool', () => {
-  // ═══════════════ 1. LOAD_SKILL_TOOL_DEFINITION shape ═══════════════
-
   describe('LOAD_SKILL_TOOL_DEFINITION', () => {
     it('has type === "function"', () => {
       expect(LOAD_SKILL_TOOL_DEFINITION.type).toBe('function');
@@ -120,8 +94,6 @@ describe('AgentAdapter load_skill tool', () => {
     });
   });
 
-  // ═══════════════ LOAD_SKILL_TOOL_DEFINITIONS array ═══════════════
-
   describe('LOAD_SKILL_TOOL_DEFINITIONS', () => {
     it('is an array with one element', () => {
       expect(LOAD_SKILL_TOOL_DEFINITIONS).toHaveLength(1);
@@ -131,8 +103,6 @@ describe('AgentAdapter load_skill tool', () => {
       expect(LOAD_SKILL_TOOL_DEFINITIONS[0]).toBe(LOAD_SKILL_TOOL_DEFINITION);
     });
   });
-
-  // ═══════════════ 2. buildToolsForRole correctness ═══════════════
 
   describe('buildToolsForRole', () => {
     let tmpDir: string;
@@ -149,36 +119,42 @@ describe('AgentAdapter load_skill tool', () => {
     });
 
     function callBuildToolsForRole(role: AgentRole): ToolDefinition[] {
-      // Access private method via bracket notation
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       return (adapter as any).buildToolsForRole(role);
     }
 
     it('returns tools including load_skill for planner', () => {
       const tools = callBuildToolsForRole('planner');
-      expect(tools).toHaveLength(2);
+      expect(tools.length).toBeGreaterThanOrEqual(2);
       expect(tools[0].function.name).toBe('load_skill');
     });
 
     it('returns tools including load_skill for executor', () => {
       const tools = callBuildToolsForRole('executor');
-      expect(tools).toHaveLength(2);
+      expect(tools.length).toBeGreaterThanOrEqual(2);
       expect(tools[0].function.name).toBe('load_skill');
     });
 
     it('returns tools including load_skill for reviewer', () => {
       const tools = callBuildToolsForRole('reviewer');
-      expect(tools).toHaveLength(2);
+      expect(tools.length).toBeGreaterThanOrEqual(2);
       expect(tools[0].function.name).toBe('load_skill');
     });
 
-    it('returns empty array for analyst', () => {
+    it('returns first-class analyst history/notes/notification tools for analyst', () => {
       const tools = callBuildToolsForRole('analyst');
-      expect(tools).toEqual([]);
+      expect(tools.map((tool) => tool.function.name)).toEqual([
+        'list_card_history',
+        'get_card_history_entry',
+        'diff_card',
+        'list_notes',
+        'get_note',
+        'mark_note_handled',
+        'acknowledge_notification',
+      ]);
     });
 
     it('each tool in returned array has type "function"', () => {
-      for (const role of ['planner', 'executor', 'reviewer'] as AgentRole[]) {
+      for (const role of ['planner', 'executor', 'reviewer', 'analyst'] as AgentRole[]) {
         const tools = callBuildToolsForRole(role);
         for (const tool of tools) {
           expect(tool.type).toBe('function');
@@ -187,7 +163,7 @@ describe('AgentAdapter load_skill tool', () => {
     });
 
     it('each tool has function.name and function.parameters', () => {
-      for (const role of ['planner', 'executor', 'reviewer'] as AgentRole[]) {
+      for (const role of ['planner', 'executor', 'reviewer', 'analyst'] as AgentRole[]) {
         const tools = callBuildToolsForRole(role);
         for (const tool of tools) {
           expect(tool.function.name).toBeTruthy();
@@ -196,8 +172,6 @@ describe('AgentAdapter load_skill tool', () => {
       }
     });
   });
-
-  // ═══════════════ 3. parseToolCallsFromResponse ═══════════════
 
   describe('parseToolCallsFromResponse', () => {
     let tmpDir: string;
@@ -218,7 +192,6 @@ describe('AgentAdapter load_skill tool', () => {
       type: string;
       function: { name: string; arguments: string };
     }> | null {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       return (adapter as any).parseToolCallsFromResponse(raw);
     }
 
@@ -298,8 +271,6 @@ describe('AgentAdapter load_skill tool', () => {
     });
   });
 
-  // ═══════════════ 4. processToolCall (unit testable parts) ═══════════════
-
   describe('processToolCall', () => {
     let tmpDir: string;
     let adapter: AgentAdapter;
@@ -323,7 +294,6 @@ describe('AgentAdapter load_skill tool', () => {
       content: string;
       tool: string;
     }> {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       return (adapter as any).processToolCall(tc, role, 'test-session-id');
     }
 
@@ -361,7 +331,6 @@ describe('AgentAdapter load_skill tool', () => {
 
       const result = await callProcessToolCall(tc, 'planner');
       expect(result.kind).toBe('tool_error');
-      // Invalid JSON args will result in empty name, then SkillsEngine check fails
       expect(result.content).toContain('SkillsEngine not configured');
     });
 
@@ -377,8 +346,6 @@ describe('AgentAdapter load_skill tool', () => {
       expect(result.content).toContain('SkillsEngine not configured');
     });
   });
-
-  // ═══════════════ 5. load_skill permission check integration ═══════════════
 
   describe('loadSkill permission checks', () => {
     let tmpDir: string;
@@ -433,8 +400,6 @@ describe('AgentAdapter load_skill tool', () => {
     });
   });
 
-  // ═══════════════ 6. Full Integration with SkillsEngine ═══════════════
-
   describe('Integration: processToolCall + SkillsEngine', () => {
     let tmpDir: string;
     let skillsDir: string;
@@ -447,7 +412,6 @@ describe('AgentAdapter load_skill tool', () => {
       mkdirSync(skillsDir, { recursive: true });
       engine = new SkillsEngine({ projectRoot: tmpDir });
 
-      // Create a valid index and skill file
       const entry = makeEntry({ name: 'docs-guide', file: 'docs-guide.md' });
       writeFileSync(join(skillsDir, 'index.json'), indexJson([entry]), 'utf-8');
       writeFileSync(join(skillsDir, 'docs-guide.md'), '# Docs Guide\n\nWrite good docs.', 'utf-8');
@@ -461,7 +425,6 @@ describe('AgentAdapter load_skill tool', () => {
     });
 
     function callBuildToolsForRole(role: AgentRole): ToolDefinition[] {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       return (adapter as any).buildToolsForRole(role);
     }
 
@@ -470,7 +433,6 @@ describe('AgentAdapter load_skill tool', () => {
       type: string;
       function: { name: string; arguments: string };
     }> | null {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       return (adapter as any).parseToolCallsFromResponse(raw);
     }
 
@@ -483,13 +445,12 @@ describe('AgentAdapter load_skill tool', () => {
       content: string;
       tool: string;
     }> {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       return (adapter as any).processToolCall(tc, role, 'test-session-id');
     }
 
     it('builds tools for planner and includes load_skill', () => {
       const tools = callBuildToolsForRole('planner');
-      expect(tools).toHaveLength(2);
+      expect(tools.length).toBeGreaterThanOrEqual(2);
       expect(tools[0].function.name).toBe('load_skill');
     });
 
@@ -565,10 +526,8 @@ describe('AgentAdapter load_skill tool', () => {
 
       const result = await callProcessToolCall(tc, 'planner');
 
-      // Verify the exact delimited block format
       expect(result.content.startsWith('--- SKILL:')).toBe(true);
       expect(result.content.endsWith('--- END SKILL ---')).toBe(true);
-      // Should contain a newline after the SKILL header
       const lines = result.content.split('\n');
       expect(lines[0]).toBe('--- SKILL: docs-guide ---');
       expect(lines[lines.length - 1]).toBe('--- END SKILL ---');

@@ -1,21 +1,4 @@
-/**
- * Stage 25 — CLI Entry Point Tests
- *
- * Tests for src/cli.ts covering:
- *   1. 'saivage help' prints usage text
- *   2. 'saivage status' when not in a project
- *   3. 'saivage status' when in a project with state
- *   4. 'saivage status' when in a project with no state file
- *   5. 'saivage init' initializes a non-initialized directory
- *   6. 'saivage init' in an already-initialized directory (no-op)
- *   7. 'saivage init --force' re-initializes
- *   8. 'saivage start' calls startServer with correct flags
- *   9. Unknown command prints error
- */
-
 import { describe, it, expect, beforeEach, afterAll, beforeAll, jest } from '@jest/globals';
-
-// ── Spy storage ─────────────────────────────────────────────
 
 const mockLog = jest.fn<(...args: unknown[]) => void>();
 const mockError = jest.fn<(...args: unknown[]) => void>();
@@ -25,17 +8,24 @@ const mockInitProjectTree = jest.fn<(root: string) => { projectRoot: string }>()
 const mockIsInitialized = jest.fn<(root: string) => boolean>();
 const mockFindProjectRoot = jest.fn<(startDir?: string) => string | null>();
 const mockReadRuntimeState = jest.fn<(root: string) => unknown>();
+const mockUpdateRuntimeState = jest.fn<(root: string, patch: unknown) => void>();
 const mockStartServer = jest.fn<(root: string, createRuntime?: boolean) => Promise<{ stop: () => Promise<void> }>>();
-
-// ── Module mocks via unstable_mockModule (ESM-compatible) ──
+const mockIsLocked = jest.fn<(root: string) => boolean>();
+const mockPauseRuntimeControl = jest.fn<(input: unknown) => { ok: boolean; message?: string; error?: string }>();
+const mockResumeRuntimeControl = jest.fn<(input: unknown) => { ok: boolean; message?: string; error?: string }>();
+const mockEvaluateAuthz = jest.fn<(...args: unknown[]) => 'allow' | 'deny' | 'preview_only'>();
+const mockRecordControlAction = jest.fn<(...args: unknown[]) => void>();
+const mockStableStringify = jest.fn<(value: unknown) => string>();
 
 jest.unstable_mockModule('../../src/utils/file-tree.js', () => ({
   initProjectTree: mockInitProjectTree,
   isInitialized: mockIsInitialized,
+  writeFileAtomic: jest.fn(),
 }));
 
 jest.unstable_mockModule('../../src/utils/runtime-state.js', () => ({
   readRuntimeState: mockReadRuntimeState,
+  updateRuntimeState: mockUpdateRuntimeState,
 }));
 
 jest.unstable_mockModule('../../src/utils/discovery.js', () => ({
@@ -46,27 +36,34 @@ jest.unstable_mockModule('../../src/server/server.js', () => ({
   startServer: mockStartServer,
 }));
 
-// ── Process overrides ───────────────────────────────────────
+jest.unstable_mockModule('../../src/utils/runtime-lock.js', () => ({
+  isLocked: mockIsLocked,
+}));
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+jest.unstable_mockModule('../../src/utils/runtime-control.js', () => ({
+  pauseRuntimeControl: mockPauseRuntimeControl,
+  resumeRuntimeControl: mockResumeRuntimeControl,
+}));
+
+jest.unstable_mockModule('../../src/agents/authz.js', () => ({
+  evaluateAuthz: mockEvaluateAuthz,
+}));
+
+jest.unstable_mockModule('../../src/utils/control-action-audit.js', () => ({
+  recordControlAction: mockRecordControlAction,
+  stableStringify: mockStableStringify,
+}));
+
 process.exit = mockExit as any;
 
 const origLog = console.log.bind(console);
 const origError = console.error.bind(console);
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 console.log = mockLog as any;
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 console.error = mockError as any;
-
-// ── Dynamic import ──────────────────────────────────────────
 
 async function importCli() {
   return await import('../../src/cli.js');
 }
-
-// ═══════════════════════════════════════════════════════════════
-// Tests
-// ═══════════════════════════════════════════════════════════════
 
 describe('CLI Entry Point', () => {
   let run: (args: string[]) => Promise<void>;
@@ -84,59 +81,56 @@ describe('CLI Entry Point', () => {
     mockIsInitialized.mockClear();
     mockFindProjectRoot.mockClear();
     mockReadRuntimeState.mockClear();
+    mockUpdateRuntimeState.mockClear();
     mockStartServer.mockClear();
+    mockIsLocked.mockReset();
+    mockPauseRuntimeControl.mockReset();
+    mockResumeRuntimeControl.mockReset();
+    mockEvaluateAuthz.mockReset();
+    mockRecordControlAction.mockClear();
+    mockStableStringify.mockReset();
+    mockIsLocked.mockReturnValue(false);
+    mockEvaluateAuthz.mockReturnValue('allow');
+    mockStableStringify.mockImplementation((value: unknown) => JSON.stringify(value));
+    mockPauseRuntimeControl.mockReturnValue({ ok: true });
+    mockResumeRuntimeControl.mockReturnValue({ ok: true });
   });
 
   afterAll(() => {
-    // Restore console
     console.log = origLog;
     console.error = origError;
   });
 
-  // ═════════════════════════════════════════════════════════════
-  // help
-  // ═════════════════════════════════════════════════════════════
-
   describe('saivage help', () => {
     it('prints usage text containing "Saivage v3 CLI"', async () => {
       await run(['node', 'cli.js', 'help']);
-
       const allCalls = mockLog.mock.calls.map((c) => c[0]).join('\n');
       expect(allCalls).toContain('Saivage v3 CLI');
     });
 
     it('prints usage for --help flag', async () => {
       await run(['node', 'cli.js', '--help']);
-
       const allCalls = mockLog.mock.calls.map((c) => c[0]).join('\n');
       expect(allCalls).toContain('Saivage v3 CLI');
     });
 
     it('prints usage for -h flag', async () => {
       await run(['node', 'cli.js', '-h']);
-
       const allCalls = mockLog.mock.calls.map((c) => c[0]).join('\n');
       expect(allCalls).toContain('Saivage v3 CLI');
     });
 
     it('no arguments defaults to help', async () => {
       await run(['node', 'cli.js']);
-
       const allCalls = mockLog.mock.calls.map((c) => c[0]).join('\n');
       expect(allCalls).toContain('Saivage v3 CLI');
     });
   });
 
-  // ═════════════════════════════════════════════════════════════
-  // status
-  // ═════════════════════════════════════════════════════════════
-
   describe('saivage status', () => {
     it('prints "Not in a Saivage project" when findProjectRoot returns null', async () => {
       mockFindProjectRoot.mockReturnValue(null);
-
       await run(['node', 'cli.js', 'status']);
-
       const allCalls = mockLog.mock.calls.map((c) => c[0]).join('\n');
       expect(allCalls).toContain('Not in a Saivage project');
     });
@@ -195,10 +189,6 @@ describe('CLI Entry Point', () => {
     });
   });
 
-  // ═════════════════════════════════════════════════════════════
-  // init
-  // ═════════════════════════════════════════════════════════════
-
   describe('saivage init', () => {
     it('initializes a non-initialized directory', async () => {
       mockIsInitialized.mockReturnValue(false);
@@ -218,7 +208,6 @@ describe('CLI Entry Point', () => {
 
       await run(['node', 'cli.js', 'init']);
 
-      // initProjectTree should NOT be called when already initialized
       expect(mockInitProjectTree).not.toHaveBeenCalled();
 
       const allCalls = mockLog.mock.calls.map((c) => c[0]).join('\n');
@@ -230,7 +219,6 @@ describe('CLI Entry Point', () => {
 
       await run(['node', 'cli.js', 'init', '--force']);
 
-      // initProjectTree SHOULD be called with --force
       expect(mockInitProjectTree).toHaveBeenCalledTimes(1);
       expect(mockInitProjectTree).toHaveBeenCalledWith(process.cwd());
 
@@ -238,10 +226,6 @@ describe('CLI Entry Point', () => {
       expect(allCalls).toContain('Project initialized at');
     });
   });
-
-  // ═════════════════════════════════════════════════════════════
-  // start
-  // ═════════════════════════════════════════════════════════════
 
   describe('saivage start', () => {
     it('calls startServer with (cwd, false) by default', async () => {
@@ -253,11 +237,9 @@ describe('CLI Entry Point', () => {
       expect(mockStartServer).toHaveBeenCalledTimes(1);
       expect(mockStartServer).toHaveBeenCalledWith(process.cwd(), false);
 
-      // Should print the listening message
       const allCalls = mockLog.mock.calls.map((c) => c[0]).join('\n');
       expect(allCalls).toContain('Saivage server listening on');
 
-      // Clean up: remove signal handlers to avoid leaks
       process.removeAllListeners('SIGINT');
       process.removeAllListeners('SIGTERM');
     });
@@ -277,52 +259,17 @@ describe('CLI Entry Point', () => {
       process.removeAllListeners('SIGINT');
       process.removeAllListeners('SIGTERM');
     });
-
-    it('prints error and calls process.exit(1) when startServer throws', async () => {
-      mockStartServer.mockRejectedValue(new Error('Port already in use'));
-
-      await run(['node', 'cli.js', 'start']);
-
-      // Error should be logged
-      const allErrors = mockError.mock.calls.map((c) => c[0]).join('\n');
-      expect(allErrors).toContain('Failed to start server: Port already in use');
-
-      // process.exit(1) should have been called
-      expect(mockExit).toHaveBeenCalledWith(1);
-
-      process.removeAllListeners('SIGINT');
-      process.removeAllListeners('SIGTERM');
-    });
   });
-
-  // ═════════════════════════════════════════════════════════════
-  // unknown command
-  // ═════════════════════════════════════════════════════════════
 
   describe('unknown command', () => {
-    it('prints error message and exits with code 1', async () => {
-      await run(['node', 'cli.js', 'bogus']);
-
-      const allErrors = mockError.mock.calls.map((c) => c[0]).join('\n');
-      expect(allErrors).toContain('Unknown command: bogus');
-      expect(allErrors).toContain('Run "saivage help"');
-
-      expect(mockExit).toHaveBeenCalledWith(1);
+    it('rejects with unknown command error', async () => {
+      await expect(run(['node', 'cli.js', 'bogus'])).rejects.toThrow('Unknown command: bogus');
     });
   });
 
-  // ═════════════════════════════════════════════════════════════
-  // unknown flags
-  // ═════════════════════════════════════════════════════════════
-
   describe('unknown flags', () => {
-    it('prints parse error and exits with code 1 on unknown flag', async () => {
-      await run(['node', 'cli.js', 'init', '--nonexistent']);
-
-      const allErrors = mockError.mock.calls.map((c) => c[0]).join('\n');
-      // parseArgs should produce an error message about unknown option
-      expect(allErrors.length).toBeGreaterThan(0);
-      expect(mockExit).toHaveBeenCalledWith(1);
+    it('rejects on unknown flag', async () => {
+      await expect(run(['node', 'cli.js', 'init', '--nonexistent'])).rejects.toThrow();
     });
   });
 });

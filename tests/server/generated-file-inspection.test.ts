@@ -20,15 +20,15 @@ function setupProject(projectRoot: string): void {
   writeFileSync(join(sd, 'cards', 'tree', 'card-1.children.json'), JSON.stringify([]));
   writeFileSync(join(sd, 'cards', 'dependencies', 'depends-on.json'), JSON.stringify({}));
   writeFileSync(join(sd, 'cards', 'dependencies', 'blocks.json'), JSON.stringify({}));
-  writeFileSync(join(sd, 'notes', 'queue.json'), JSON.stringify({ entries: [] }));
+  writeFileSync(join(sd, 'notes', 'queue.json'), JSON.stringify({ next_note_sequence: 1, entries: [] }));
   mkdirSync(join(projectRoot, 'reports'), { recursive: true });
   writeFileSync(join(projectRoot, 'reports', 'generated.txt'), 'hello world\n');
   writeFileSync(join(projectRoot, 'reports', 'binary.bin'), Buffer.from([0, 159, 146, 150, 0, 1, 2, 3]));
   const outside = join(tmpdir(), `saivage-gfi-outside-${Date.now()}.txt`);
   writeFileSync(outside, 'outside secret');
   symlinkSync(outside, join(projectRoot, 'reports', 'outside-link.txt'));
-  writeFileSync(join(sd, 'cards', 'by-id', 'project.json'), JSON.stringify({ id: 'project', type: 'project', parent: null, depth: 0, title: 'project', description: '', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', created_at: now, updated_at: now, depends_on: [], blocks: [], related: [], acceptance: '', artifacts: [], attachments: [], retries: 0 }, null, 2));
-  writeFileSync(join(sd, 'cards', 'by-id', 'card-1.json'), JSON.stringify({ id: 'card-1', type: 'code', parent: 'project', depth: 1, title: 'Card 1', description: '', status: 'done', tags: [], priority: 1, urgency: 'normal', created_by: 'analyst', created_at: now, updated_at: now, depends_on: [], blocks: [], related: [], acceptance: '', artifacts: [{ id: 'a1', card_id: 'card-1', path: 'reports/generated.txt', type: 'report', description: 'artifact copy', retain: true, created_at: now }, { id: 'a2', card_id: 'card-1', path: 'reports/outside-link.txt', type: 'report', description: 'unsafe symlink', retain: true, created_at: now }], attachments: [{ id: 'att1', card_id: 'card-1', path: 'reports/generated.txt', mime: 'text/plain', title: 'Generated file', created_at: now }], retries: 0, result: { generated_files: ['reports/generated.txt', '../outside.txt', '/tmp/outside.txt', '.saivage/auth-profiles.json', 'reports/outside-link.txt'], artifact_paths: ['reports/generated.txt', '.saivage/saivage.json', 'reports/outside-link.txt'], verification_commands: [{ command: 'npm test', processId: 'p1', status: 'completed', exitCode: 0, timedOut: false }], tool_errors: ['warn'], parse_failure: { message: 'bad json' } } }, null, 2));
+  writeFileSync(join(sd, 'cards', 'by-id', 'project.json'), JSON.stringify({ id: 'project', type: 'project', parent: null, depth: 0, title: 'project', description: '', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', created_at: now, updated_at: now, version_seq: 1, depends_on: [], blocks: [], related: [], acceptance: '', artifacts: [], attachments: [], retries: 0 }, null, 2));
+  writeFileSync(join(sd, 'cards', 'by-id', 'card-1.json'), JSON.stringify({ id: 'card-1', type: 'code', parent: 'project', depth: 1, title: 'Card 1', description: '', status: 'done', tags: [], priority: 1, urgency: 'normal', created_by: 'analyst', created_at: now, updated_at: now, version_seq: 1, depends_on: [], blocks: [], related: [], acceptance: '', artifacts: [{ id: 'a1', card_id: 'card-1', path: 'reports/generated.txt', type: 'report', description: 'artifact copy', retain: true, created_at: now }, { id: 'a2', card_id: 'card-1', path: 'reports/outside-link.txt', type: 'report', description: 'unsafe symlink', retain: true, created_at: now }], attachments: [{ id: 'att1', card_id: 'card-1', path: 'reports/generated.txt', mime: 'text/plain', title: 'Generated file', created_at: now }], retries: 0, result: { generated_files: ['reports/generated.txt', '../outside.txt', '/tmp/outside.txt', '.saivage/auth-profiles.json', 'reports/outside-link.txt'], artifact_paths: ['reports/generated.txt', '.saivage/saivage.json', 'reports/outside-link.txt'], verification_commands: [{ command: 'npm test', processId: 'p1', status: 'completed', exitCode: 0, timedOut: false }], tool_errors: ['warn'], parse_failure: { message: 'bad json' } } }, null, 2));
 }
 
 describe('generated file inspection api', () => {
@@ -50,54 +50,19 @@ describe('generated file inspection api', () => {
   function apiUrl(path: string): string { return `http://127.0.0.1:${port}${path}`; }
   function authHdr(): Record<string, string> { return { authorization: `Bearer ${authToken}` }; }
 
-  it('GET /api/cards/:id returns normalized evidence, classification, and omits outside paths', async () => {
+  it('GET /api/cards/:id returns current card payload without legacy evidence wrapper', async () => {
     const res = await fetch(apiUrl('/api/cards/card-1'), { headers: authHdr() });
     expect(res.status).toBe(200);
     const body = await res.json() as any;
-    const generated = body.evidence.generatedFiles;
-    expect(generated.map((f: any) => f.path)).toContain('reports/generated.txt');
-    expect(generated.map((f: any) => f.path)).toContain('.saivage/saivage.json');
-    expect(generated.map((f: any) => f.path)).toContain('.saivage/auth-profiles.json');
-    expect(generated.some((f: any) => String(f.path).includes('outside.txt'))).toBe(false);
-
-    const normalFile = generated.find((f: any) => f.path === 'reports/generated.txt');
-    expect(normalFile).toEqual(expect.objectContaining({
-      previewable: true,
-      downloadable: true,
-      blocked: false,
-      redactedOnly: false,
-      sensitivity: 'normal',
-    }));
-
-    const redactedFile = generated.find((f: any) => f.path === '.saivage/saivage.json');
-    expect(redactedFile).toEqual(expect.objectContaining({
-      previewable: true,
-      downloadable: false,
-      blocked: false,
-      redactedOnly: true,
-      sensitivity: 'sensitive-redacted',
-    }));
-
-    const blockedFile = generated.find((f: any) => f.path === '.saivage/auth-profiles.json');
-    expect(blockedFile).toEqual(expect.objectContaining({
-      previewable: false,
-      downloadable: false,
-      blocked: true,
-      redactedOnly: false,
-      sensitivity: 'sensitive-blocked',
-    }));
-
-    const unsafeSymlink = generated.find((f: any) => f.path === 'reports/outside-link.txt');
-    expect(unsafeSymlink).toEqual(expect.objectContaining({
-      blocked: true,
-      previewable: false,
-      downloadable: false,
-      exists: false,
-    }));
-    expect(unsafeSymlink.size).toBeUndefined();
-    expect(unsafeSymlink.modifiedAt).toBeUndefined();
-
-    expect(body.evidence.verificationCommands[0]).toEqual(expect.objectContaining({ command: 'npm test', process_id: 'p1', exit_code: 0, timed_out: false }));
+    expect(body.card.id).toBe('card-1');
+    expect(body.card.version_seq).toBe(1);
+    expect(body.card.artifacts.map((artifact: any) => artifact.path)).toContain('reports/generated.txt');
+    expect(body.card.artifacts.map((artifact: any) => artifact.path)).toContain('reports/outside-link.txt');
+    expect(body.card.attachments.map((attachment: any) => attachment.path)).toContain('reports/generated.txt');
+    expect(body.card.result.generated_files).toContain('.saivage/auth-profiles.json');
+    expect(body.children).toEqual([]);
+    expect(body.ancestorIds).toEqual(['project']);
+    expect(body.evidence).toBeUndefined();
   });
 
   it('GET /api/files/content blocks auth-profiles preview', async () => {

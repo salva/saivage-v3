@@ -58,6 +58,7 @@ describe('initProjectTree', () => {
     expect(card.status).toBe('backlog');
     expect(card.title).toBe('project');
     expect(card.created_by).toBe('analyst');
+    expect(card.version_seq).toBe(1);
     expect(card.retries).toBe(0);
     expect(card.artifacts).toEqual([]);
     expect(card.attachments).toEqual([]);
@@ -113,12 +114,12 @@ describe('initProjectTree', () => {
     expect(blks).toEqual({});
   });
 
-  it('creates notes/queue.json with empty entries', () => {
+  it('creates notes/queue.json with empty entries and next sequence', () => {
     initProjectTree(tmpDir);
     const queue = JSON.parse(
       readFileSync(join(tmpDir, '.saivage', 'notes', 'queue.json'), 'utf-8'),
     );
-    expect(queue).toEqual({ entries: [] });
+    expect(queue).toEqual({ next_note_sequence: 1, entries: [] });
   });
 
   it('creates views/leaderboard.json as empty array', () => {
@@ -137,12 +138,12 @@ describe('initProjectTree', () => {
     expect(sf).toEqual([]);
   });
 
-  it('creates skills/index.json as empty object', () => {
+  it('creates skills/index.json as empty array', () => {
     initProjectTree(tmpDir);
     const skills = JSON.parse(
       readFileSync(join(tmpDir, '.saivage', 'skills', 'index.json'), 'utf-8'),
     );
-    expect(skills).toEqual({});
+    expect(skills).toEqual([]);
   });
 
   it('creates runtime/events.jsonl', () => {
@@ -178,6 +179,7 @@ describe('initProjectTree', () => {
       'cards/by-id',
       'cards/tree',
       'cards/dependencies',
+      'cards/history',
       'cards/views',
       'diaries',
       'reviews/by-goal',
@@ -226,7 +228,6 @@ describe('initProjectTree', () => {
       'utf-8',
     );
 
-    // Second call should be a no-op
     initProjectTree(tmpDir);
 
     const cardAfter = readFileSync(
@@ -256,7 +257,6 @@ describe('initProjectTree', () => {
       readFileSync(join(tmpDir, '.saivage', 'cards', 'index.json'), 'utf-8'),
     );
     const cardIds = Object.keys(index.cards);
-    // Should only have 'project'
     expect(cardIds).toEqual(['project']);
   });
 });
@@ -282,7 +282,6 @@ describe('writeFileAtomic', () => {
     const targetPath = join(dir, 'final.json');
     writeFileAtomic(targetPath, 'data');
 
-    // Read the directory — should only have final.json, no .tmp.* files
     const files = readdirSync(dir);
     const tmpFiles = files.filter((f: string) => f.startsWith('final.json.tmp'));
     expect(tmpFiles.length).toBe(0);

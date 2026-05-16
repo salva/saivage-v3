@@ -1,14 +1,3 @@
-/**
- * Stage 28 — Auth Mode Tests
- *
- * Tests for the dev-mode host validation added in stage-28-auth-mode-clarity:
- *   1. isLocalhost() unit tests (all known patterns)
- *   2. validateDevModeHost() unit tests (token-set, dev-localhost, dev-non-localhost)
- *   3. Integration: server with no token on localhost succeeds
- *   4. Integration: server with no token on 0.0.0.0 fails
- *   5. Integration: server with token succeeds on any host
- */
-
 import { describe, it, expect, beforeAll, afterAll, afterEach, jest } from '@jest/globals';
 import {
   cpSync,
@@ -23,23 +12,15 @@ import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import type { ServerInstance } from '../../src/server/server.js';
 
-// ═══════════════════════════════════════════════════════════════
-// Helpers
-// ═══════════════════════════════════════════════════════════════
-
 const AUTH_TOKEN = 'auth-mode-test-token-' + Math.random().toString(36).slice(2, 8);
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 const PROJECT_ROOT = join(__dirname, '..', '..');
 
-/**
- * Create a skeleton Saivage project at `root` suitable for server startup.
- */
 function setupProjectDir(root: string, host?: string): void {
   const sd = join(root, '.saivage');
 
-  // Create required directories
   for (const d of [
     'cards/by-id',
     'cards/tree',
@@ -55,7 +36,6 @@ function setupProjectDir(root: string, host?: string): void {
 
   const now = new Date().toISOString();
 
-  // Write saivage.json
   writeFileSync(
     join(sd, 'saivage.json'),
     JSON.stringify({
@@ -71,7 +51,6 @@ function setupProjectDir(root: string, host?: string): void {
     }, null, 2),
   );
 
-  // Write runtime state
   writeFileSync(
     join(sd, 'runtime', 'state.json'),
     JSON.stringify({
@@ -89,7 +68,6 @@ function setupProjectDir(root: string, host?: string): void {
     }, null, 2),
   );
 
-  // Write project card
   writeFileSync(
     join(sd, 'cards', 'by-id', 'project.json'),
     JSON.stringify({
@@ -106,6 +84,7 @@ function setupProjectDir(root: string, host?: string): void {
       created_by: 'analyst',
       created_at: now,
       updated_at: now,
+      version_seq: 1,
       depends_on: [],
       blocks: [],
       related: [],
@@ -116,7 +95,6 @@ function setupProjectDir(root: string, host?: string): void {
     }, null, 2),
   );
 
-  // Write card index
   writeFileSync(
     join(sd, 'cards', 'index.json'),
     JSON.stringify({
@@ -132,7 +110,6 @@ function setupProjectDir(root: string, host?: string): void {
     }, null, 2),
   );
 
-  // Write children, dependencies, notes queue
   writeFileSync(
     join(sd, 'cards', 'tree', 'project.children.json'),
     JSON.stringify([]),
@@ -147,14 +124,12 @@ function setupProjectDir(root: string, host?: string): void {
   );
   writeFileSync(
     join(sd, 'notes', 'queue.json'),
-    JSON.stringify({ entries: [] }),
+    JSON.stringify({ next_note_sequence: 1, entries: [] }),
   );
 
-  // Write empty runtime event logs
   writeFileSync(join(sd, 'runtime', 'events.jsonl'), '');
   writeFileSync(join(sd, 'runtime', 'errors.jsonl'), '');
 
-  // Copy web/dist/ into the temp dir so fastifyStatic has something to serve.
   const realWebDist = join(PROJECT_ROOT, 'web', 'dist');
   if (existsSync(realWebDist)) {
     const tmpWebDist = join(root, 'web', 'dist');
@@ -163,23 +138,12 @@ function setupProjectDir(root: string, host?: string): void {
   }
 }
 
-/**
- * Start a server on port 0 (auto-assign) by using createServer() + manual
- * listen() rather than startServer() which uses the configured port.
- *
- * This avoids EADDRINUSE conflicts between parallel test suites and allows
- * the test to control whether validateDevModeHost() is called (by calling it
- * ourselves before listen).
- */
 async function createAndListen(
   projectRoot: string,
   host: string,
-  tokenOverride: string | undefined,
+  _tokenOverride: string | undefined,
 ): Promise<ServerInstance & { port: number }> {
   const { createServer } = await import('../../src/server/server.js');
-
-  // The server's internal config may differ from what we want for the
-  // listen() call, so we pass host/port directly to listen().
   const server = await createServer(projectRoot, false);
 
   await server.fastify.listen({ host, port: 0 });
@@ -190,10 +154,6 @@ async function createAndListen(
 
   return { ...server, port: addr.port };
 }
-
-// ═══════════════════════════════════════════════════════════════
-// Describe: isLocalhost() unit tests
-// ═══════════════════════════════════════════════════════════════
 
 describe('isLocalhost()', () => {
   let isLocalhost: (host: string) => boolean;
@@ -240,10 +200,6 @@ describe('isLocalhost()', () => {
   });
 });
 
-// ═══════════════════════════════════════════════════════════════
-// Describe: validateDevModeHost() unit tests
-// ═══════════════════════════════════════════════════════════════
-
 describe('validateDevModeHost()', () => {
   let validateDevModeHost: (host: string | undefined) => void;
   let originalToken: string | undefined;
@@ -255,7 +211,6 @@ describe('validateDevModeHost()', () => {
   });
 
   afterEach(() => {
-    // Restore state after each test
     if (originalToken === undefined) {
       delete process.env['SAIVAGE_API_TOKEN'];
     } else {
@@ -263,14 +218,11 @@ describe('validateDevModeHost()', () => {
     }
   });
 
-  // ── With token set ─────────────────────────────────────────
-
   it('does not warn or throw for any host when SAIVAGE_API_TOKEN is set', () => {
     process.env['SAIVAGE_API_TOKEN'] = 'test-token';
 
     const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
 
-    // These should all succeed without throwing
     expect(() => validateDevModeHost('127.0.0.1')).not.toThrow();
     expect(() => validateDevModeHost('localhost')).not.toThrow();
     expect(() => validateDevModeHost('0.0.0.0')).not.toThrow();
@@ -278,13 +230,10 @@ describe('validateDevModeHost()', () => {
     expect(() => validateDevModeHost('192.168.1.1')).not.toThrow();
     expect(() => validateDevModeHost(undefined)).not.toThrow();
 
-    // No warnings should have been emitted
     expect(warnSpy).not.toHaveBeenCalled();
 
     warnSpy.mockRestore();
   });
-
-  // ── Without token (dev mode) — localhost allowed ───────────
 
   it("warns but does NOT throw when SAIVAGE_API_TOKEN is unset and host is '127.0.0.1'", () => {
     delete process.env['SAIVAGE_API_TOKEN'];
@@ -320,8 +269,6 @@ describe('validateDevModeHost()', () => {
 
     warnSpy.mockRestore();
   });
-
-  // ── Without token (dev mode) — non-localhost rejected ──────
 
   it("warns and throws when SAIVAGE_API_TOKEN is unset and host is '0.0.0.0'", () => {
     delete process.env['SAIVAGE_API_TOKEN'];
@@ -365,10 +312,6 @@ describe('validateDevModeHost()', () => {
   });
 });
 
-// ═══════════════════════════════════════════════════════════════
-// Describe: Integration — dev mode (no token) with localhost
-// ═══════════════════════════════════════════════════════════════
-
 describe('Server — dev mode (no token) with localhost', () => {
   let tmpDir: string;
   let server: ServerInstance;
@@ -379,14 +322,10 @@ describe('Server — dev mode (no token) with localhost', () => {
   beforeAll(async () => {
     originalCwd = process.cwd();
     originalToken = process.env['SAIVAGE_API_TOKEN'];
-
-    // Ensure NO token is set (dev mode)
     delete process.env['SAIVAGE_API_TOKEN'];
 
     tmpDir = mkdtempSync(join(tmpdir(), 'saivage-auth-mode-dev-local-'));
-
     setupProjectDir(tmpDir, '127.0.0.1');
-
     process.chdir(tmpDir);
 
     const result = await createAndListen(tmpDir, '127.0.0.1', undefined);
@@ -395,31 +334,13 @@ describe('Server — dev mode (no token) with localhost', () => {
   }, 30000);
 
   afterAll(async () => {
-    try {
-      process.chdir(originalCwd);
-    } catch {
-      // best effort
-    }
-
-    if (originalToken === undefined) {
-      delete process.env['SAIVAGE_API_TOKEN'];
-    } else {
-      process.env['SAIVAGE_API_TOKEN'] = originalToken;
-    }
-
+    try { process.chdir(originalCwd); } catch {}
+    if (originalToken === undefined) delete process.env['SAIVAGE_API_TOKEN'];
+    else process.env['SAIVAGE_API_TOKEN'] = originalToken;
     if (server) {
-      try {
-        await server.stop();
-      } catch {
-        // best effort
-      }
+      try { await server.stop(); } catch {}
     }
-
-    try {
-      rmSync(tmpDir, { recursive: true, force: true });
-    } catch {
-      // best effort
-    }
+    try { rmSync(tmpDir, { recursive: true, force: true }); } catch {}
   }, 15000);
 
   function baseUrl(path: string): string {
@@ -441,15 +362,9 @@ describe('Server — dev mode (no token) with localhost', () => {
 
   it('GET /api/state works without auth (dev mode — auth is disabled)', async () => {
     const res = await fetch(baseUrl('/api/state'));
-    // In dev mode (no SAIVAGE_API_TOKEN), auth plugin is disabled,
-    // so the endpoint should return a valid response, not 401.
     expect(res.status).toBe(200);
   });
 });
-
-// ═══════════════════════════════════════════════════════════════
-// Describe: Integration — dev mode (no token) with 0.0.0.0 fails
-// ═══════════════════════════════════════════════════════════════
 
 describe('Server — dev mode (no token) with 0.0.0.0 fails', () => {
   let tmpDir: string;
@@ -459,36 +374,18 @@ describe('Server — dev mode (no token) with 0.0.0.0 fails', () => {
   beforeAll(async () => {
     originalCwd = process.cwd();
     originalToken = process.env['SAIVAGE_API_TOKEN'];
-
-    // Ensure NO token is set
     delete process.env['SAIVAGE_API_TOKEN'];
 
     tmpDir = mkdtempSync(join(tmpdir(), 'saivage-auth-mode-dev-fail-'));
-
-    // saivage.json uses 0.0.0.0 as host (non-localhost)
     setupProjectDir(tmpDir, '0.0.0.0');
-
     process.chdir(tmpDir);
   });
 
   afterAll(async () => {
-    try {
-      process.chdir(originalCwd);
-    } catch {
-      // best effort
-    }
-
-    if (originalToken === undefined) {
-      delete process.env['SAIVAGE_API_TOKEN'];
-    } else {
-      process.env['SAIVAGE_API_TOKEN'] = originalToken;
-    }
-
-    try {
-      rmSync(tmpDir, { recursive: true, force: true });
-    } catch {
-      // best effort
-    }
+    try { process.chdir(originalCwd); } catch {}
+    if (originalToken === undefined) delete process.env['SAIVAGE_API_TOKEN'];
+    else process.env['SAIVAGE_API_TOKEN'] = originalToken;
+    try { rmSync(tmpDir, { recursive: true, force: true }); } catch {}
   }, 15000);
 
   it('startServer() throws because host is 0.0.0.0 without token', async () => {
@@ -500,10 +397,6 @@ describe('Server — dev mode (no token) with 0.0.0.0 fails', () => {
   });
 });
 
-// ═══════════════════════════════════════════════════════════════
-// Describe: Integration — with token works with any host
-// ═══════════════════════════════════════════════════════════════
-
 describe('Server — with token works with any host', () => {
   let tmpDir: string;
   let server: ServerInstance;
@@ -514,15 +407,10 @@ describe('Server — with token works with any host', () => {
   beforeAll(async () => {
     originalCwd = process.cwd();
     originalToken = process.env['SAIVAGE_API_TOKEN'];
-
-    // Set the token
     process.env['SAIVAGE_API_TOKEN'] = AUTH_TOKEN;
 
     tmpDir = mkdtempSync(join(tmpdir(), 'saivage-auth-mode-token-any-'));
-
-    // saivage.json uses 0.0.0.0 as host
     setupProjectDir(tmpDir, '0.0.0.0');
-
     process.chdir(tmpDir);
 
     const result = await createAndListen(tmpDir, '127.0.0.1', AUTH_TOKEN);
@@ -531,31 +419,13 @@ describe('Server — with token works with any host', () => {
   }, 30000);
 
   afterAll(async () => {
-    try {
-      process.chdir(originalCwd);
-    } catch {
-      // best effort
-    }
-
-    if (originalToken === undefined) {
-      delete process.env['SAIVAGE_API_TOKEN'];
-    } else {
-      process.env['SAIVAGE_API_TOKEN'] = originalToken;
-    }
-
+    try { process.chdir(originalCwd); } catch {}
+    if (originalToken === undefined) delete process.env['SAIVAGE_API_TOKEN'];
+    else process.env['SAIVAGE_API_TOKEN'] = originalToken;
     if (server) {
-      try {
-        await server.stop();
-      } catch {
-        // best effort
-      }
+      try { await server.stop(); } catch {}
     }
-
-    try {
-      rmSync(tmpDir, { recursive: true, force: true });
-    } catch {
-      // best effort
-    }
+    try { rmSync(tmpDir, { recursive: true, force: true }); } catch {}
   }, 15000);
 
   function baseUrl(path: string): string {
