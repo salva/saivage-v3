@@ -80,6 +80,42 @@ work when everything is done.
 
 ---
 
+## Card history and tracked mutations
+
+Cards remain mutable, but operator-intent edits are tracked.
+
+Each `CardRecord` carries `version_seq`, which starts at `1` and
+increments on tracked mutations. Before a tracked mutation is written,
+the previous card snapshot is appended to per-card history.
+
+Tracked fields are:
+
+- `title`, `description`, `acceptance`, `instructions_file`
+- `type`, `subtype`, `parent`
+- `tags`, `priority`, `urgency`, `estimate`
+- `depends_on`, `blocks`, `related`
+- `assigned_to`
+- `artifacts`, `attachments`
+
+Untracked updates do **not** create history entries. These are runtime
+and result fields such as:
+
+- `status`
+- `started_at`, `completed_at`, `duration_ms`
+- `result`, `metrics`
+- `error`, `retries`
+- `updated_at`, `depth`
+
+Operationally, tracked edits must go through `CardStore.mutateCard`;
+untracked status/timing/result updates may continue to use the
+untracked update path.
+
+History is available to operators and agents through UI, REST, and
+chat tools so they can inspect stale-work conditions and compare old vs
+current instructions.
+
+---
+
 ## The Planning Mechanism
 
 Every **goal** (including the project) gets a **plan card**
@@ -236,7 +272,9 @@ about any card in the tree, so global constraints propagate naturally.
 
 ```yaml
 # ── Identity ─────────────────────────────────────────────
-id:               string       # unique, e.g. "project", "goal-3",
+id:               string
+version_seq:      number       # starts at 1; increments on tracked mutation
+                               # unique, e.g. "project", "goal-3",
                                # "plan-3", "code-15"
 type:             project | goal | plan |
                   architecture | code | test | doc |
@@ -248,44 +286,39 @@ description:      string       # markdown, can be long
 status:           drafting | backlog | active | running | blocked | done | failed | cancelled
 
 # ── Classification ───────────────────────────────────────
-subtype:          string | null  # free-form within type, e.g. "data-pipeline",
-                                 # "prototype", "integration", "analysis"
-tags:             string[]       # free-form labels for filtering and grouping
-priority:         number         # within siblings; lower = higher priority
-urgency:          low | normal | high | critical  # how soon it needs attention
+subtype:          string | null
+instructions_file:string | null
+tags:             string[]
+priority:         number
+urgency:          low | normal | high | critical
 
 # ── Authorship & ownership ───────────────────────────────
 created_by:       user | analyst | planner
 created_at:       ISO timestamp
 updated_at:       ISO timestamp
-assigned_to:      string | null  # agent role or null
+assigned_to:      string | null
 
 # ── Dependencies & relationships ─────────────────────────
-depends_on:       string[]     # card IDs that must complete before this can start
-blocks:           string[]     # card IDs that depend on this (auto-computed inverse)
-related:          string[]     # "see also" links — not blocking, just relevant context
+depends_on:       string[]
+blocks:           string[]
+related:          string[]
 
 # ── Acceptance & results ─────────────────────────────────
-acceptance:       string       # what "done" means (measurable when possible)
-result:           object | null # free-form: summary, observations, conclusions
-metrics:          object | null # structured, project-defined measurements
+acceptance:       string
+result:           object | null
+metrics:          object | null
 
 # ── Artifacts & attachments ───────────────────────────────
-artifacts:        Artifact[]   # files produced during execution
-                               # each: { path, type, description, retain }
-                               # retain: true = keep long-term, false = working
-                               # file, can be cleaned up
-attachments:      Attachment[] # inline-renderable content attached to the card
-                               # each: { path, mime, title, description }
-                               # displayed in UI: images, plots, HTML, SVG, etc.
+artifacts:        Artifact[]
+attachments:      Attachment[]
 
 # ── Effort tracking ─────────────────────────────────────
-estimate:         string | null  # human-readable estimate
+estimate:         string | null
 started_at:       ISO timestamp | null
 completed_at:     ISO timestamp | null
-duration_ms:      number | null  # wall-clock time (auto-computed)
-error:            string | null  # failure reason if status=failed
-retries:          number         # how many times this card has been retried
+duration_ms:      number | null
+error:            string | null
+retries:          number
 ```
 
 Notes are stored **separately** from the card record (one append-only
@@ -294,47 +327,32 @@ log per card), not embedded. See the Note schema below.
 ### Artifact
 
 ```yaml
-path:             string       # project-relative path
+path:             string
 type:             model | data | config | log | report | other
-description:      string       # what this file is
+description:      string
 created_at:       ISO timestamp
-retain:           boolean      # true = keep long-term; false = working file,
-                               # can be cleaned up to save space
+retain:           boolean
 ```
-
-Artifacts with `retain: false` are disposable working files — intermediate
-data, temporary outputs, scratch scripts. A future cleanup command can
-remove them once the card is done. Only `retain: true` artifacts should
-survive cleanup when that policy is implemented.
 
 ### Attachment (inline-renderable content)
 
 ```yaml
-path:             string       # project-relative path to the file
-mime:             string       # e.g. "image/png", "image/svg+xml", "text/html"
-title:            string       # display title in the UI
-description:      string       # optional caption or context
+path:             string
+mime:             string
+title:            string
+description:      string
 created_at:       ISO timestamp
 ```
-
-Attachments are files the UI can render inline on a card: charts,
-plots, diagrams, HTML reports, SVG visualizations. They're stored as
-regular files in the project; the attachment entry just tells the UI
-where to find them and how to display them.
-
-Typical use: an executor runs a script that produces a performance
-chart → registers it as an attachment → the card shows the chart
-directly in the web UI.
 
 ### Note (activity log entry)
 
 ```yaml
-id:               string       # unique within the card, e.g. "n-1", "n-2"
-author:           string       # "user", "analyst", "planner", "executor", "reviewer"
+id:               string
+author:           string
 timestamp:        ISO timestamp
-content:          string       # markdown
+content:          string
 kind:             comment | progress | directive | escalation
-handled:          boolean      # true once the executor has seen/processed it
+handled:          boolean
 ```
 
 | Kind        | Meaning                                                    |
@@ -355,6 +373,12 @@ audit trail of what was actually acted upon.
 before each step. A user directive like "don't use CPU fallback, kill
 and retry with smaller batch size" changes behavior mid-execution
 without editing the card's description or acceptance criteria.
+
+Directive and escalation notes also drive notifications:
+
+- `directive` → session notification severity `warn`
+- `escalation` → session notification severity `block`
+- `comment` / `progress` → operator-surface notification only
 
 ---
 

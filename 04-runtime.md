@@ -46,6 +46,8 @@ runtime — the runtime controls agents.
      transitioned, mark it for archival by the planner.
    - Clean stale notes from previous runs.
    - Clean stale stash files older than 24 hours.
+   - Reconcile orphan card-history entries whose sequence exceeds the
+     persisted card version.
 
 7. **Event bus**: Create the in-process event bus for runtime event
    distribution.
@@ -83,6 +85,66 @@ flowchart TD
     S9 --> S10[Start server + Telegram]
     S10 --> S11[Runtime dispatcher]
 ```
+
+---
+
+## Canonical runtime control
+
+Runtime pause/resume/freeze controls are shared across surfaces.
+
+Mutating runtime state must flow through canonical helpers rather than
+ad hoc writes:
+
+- `pauseRuntimeControl`
+- `resumeRuntimeControl`
+- runtime freeze/resume-from-freeze helpers
+- `src/utils/runtime-state.ts` for actual persisted state writes
+
+Operational invariant:
+
+- there should be no direct production writers of
+  `.saivage/runtime/state.json` outside the runtime-state module and
+  canonical runtime-control helpers.
+
+Cross-surface parity means web UI, REST, CLI, analyst chat, and runtime
+internals should observe the same pause/freeze state and the same
+resume rules.
+
+Generic resume is intentionally rejected from `frozen` and `error`
+states; operators must use `resume-from-freeze` for the frozen path.
+
+---
+
+## Notification delivery and stale-work protection
+
+The runtime persists notifications on disk and delivers them to running
+sessions at the next safe point.
+
+Sources in the current design:
+
+- tracked card mutations
+- directive/escalation notes
+- runtime pause/resume/freeze/resume-from-freeze
+- process termination
+- supported config/provider changes
+
+Delivery behavior:
+
+1. notifications are queued per session and for operator surfaces;
+2. immediately before the next model call, the agent adapter prepends a
+   synthetic user-role message summarizing operator updates;
+3. after a successful model call, the notification is marked delivered;
+4. if the call fails, the notification remains pending and will be
+   replayed (at-least-once delivery).
+
+Blocking behavior:
+
+- `block` severity notifications prevent executor/reviewer terminal
+  results from being accepted until they are acknowledged;
+- if an agent tries to finish anyway, the runtime reinvokes it with a
+  blocking-notification instruction;
+- a second silent attempt fails the dispatch instead of silently
+  accepting stale work.
 
 ---
 
@@ -291,6 +353,7 @@ interested subscribers (chat agents, Telegram channels, web UI):
 | `card_failed`      | warning  | A terminal card fails                    |
 | `review_complete`  | info     | A reviewer finishes assessment           |
 | `plan_updated`     | info     | The planner creates/modifies cards       |
+| `dispatch_held_for_notification` | warning | Blocking operator change prevented finalization |
 
 ### Subscription features
 
@@ -319,6 +382,8 @@ by executors:
   or ignore them.
 - The analyst can tail, kill, or inspect any process through its
   tools.
+- Canonical process termination enqueues a `process_state`
+  notification for the owning session when applicable.
 
 ---
 
@@ -328,21 +393,17 @@ The runtime state file (`.saivage/runtime/state.json`) is updated on
 every significant state change:
 
 ```yaml
-status:           idle | running | paused | error
+status:           idle | running | paused | frozen | error
 pid:              number
 started_at:       ISO timestamp
 updated_at:       ISO timestamp
 current_card_id:  string | null
-active_agents:    AgentState[]
-```
-
-Each `AgentState` entry tracks:
-
-```yaml
-agent_id:         string
-agent_type:       planner | executor | reviewer | analyst
-task_id:          string | null
-started_at:       ISO timestamp
+current_agent_session_id: string | null
+paused:           boolean
+paused_at:        ISO timestamp | null
+queue:            string[]
+running_processes:string[]
+frozen_reason:    string | null
 ```
 
 The runtime state file is the source of truth for crash recovery.

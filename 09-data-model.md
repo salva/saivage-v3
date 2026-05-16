@@ -7,7 +7,7 @@ The storage split is:
 
 - **`.saivage/`**: Persistent project metadata, configuration,
   card records, diaries, notes, agent sessions, runtime state,
-  skills, and indexes.
+  skills, indexes, notifications, and audit logs.
 - **`.saivage-work/`**: Generated work products, retained artifacts,
   disposable temporary files, process output, downloads, stash, and
   quarantine payloads.
@@ -23,6 +23,7 @@ filesystem reads/writes.
 erDiagram
     CARD ||--o{ CARD : children
     CARD ||--o{ NOTE : has
+    CARD ||--o{ CARD_HISTORY_ENTRY : history
     CARD ||--o{ ARTIFACT : registers
     CARD ||--o{ ATTACHMENT : displays
     CARD ||--o{ PROCESS : launches
@@ -31,6 +32,7 @@ erDiagram
     CARD }o--o{ CARD : depends_on
     CARD ||--o{ AGENT_SESSION : scopes
     AGENT_SESSION ||--o{ AGENT_MESSAGE : contains
+    AGENT_SESSION ||--o{ NOTIFICATION : receives
     CONTENT_REVIEW ||--o{ QUARANTINE_ITEM : blocks
 ```
 
@@ -55,7 +57,7 @@ interface ProjectConfig {
   context: string;
   goals_summary: string;
   constraints: string[];
-  max_goal_depth: number; // default 5
+  max_goal_depth: number;
   planner_enabled: boolean;
   created_at: string;
   updated_at: string;
@@ -91,6 +93,7 @@ type CardStatus =
 
 interface CardRecord {
   id: string;
+  version_seq: number;
   type: CardType;
   parent: string | null;
   depth: number;
@@ -98,6 +101,7 @@ interface CardRecord {
   description: string;
   status: CardStatus;
   subtype?: string | null;
+  instructions_file?: string | null;
   tags: string[];
   priority: number;
   urgency: "low" | "normal" | "high" | "critical";
@@ -129,6 +133,29 @@ Rules:
 - Cards are editable while not scheduled (`drafting` or `backlog`).
 - Goal `done` requires reviewer pass.
 - Task `done` is set when the executor reports completion.
+- Tracked edits increment `version_seq` and append card history.
+- Status/timing/result/metrics/error/retries updates remain untracked.
+
+---
+
+## Card History Entry
+
+```ts
+interface CardHistoryEntry {
+  card_id: string;
+  version_seq: number;
+  snapshot: CardRecord;
+  changed_at: string;
+  changed_by_actor: "user" | "analyst" | "planner" | "executor" | "reviewer" | "runtime";
+  changed_by_surface: "web-chat" | "telegram" | "rest" | "cli" | "runtime" | "web-ui";
+  change_reason: string | null;
+  changed_fields: string[];
+  change_summary: string;
+}
+```
+
+History is append-only and stored per card. `snapshot` is the card as
+it existed before the mutation that produced the next version.
 
 ---
 
@@ -199,6 +226,64 @@ interface NoteRecord {
 
 Notes are stored separately from the card record and become immutable
 after they are handled.
+
+Directive/escalation notes may also generate notifications.
+
+---
+
+## Notification
+
+```ts
+interface NotificationRecord {
+  id: string;
+  session_id: string | null;
+  kind:
+    | "card_changed"
+    | "note_added"
+    | "process_state"
+    | "runtime_state"
+    | "config_changed";
+  severity: "info" | "warn" | "block";
+  payload_summary: string;
+  related_card_id?: string;
+  related_note_id?: string;
+  related_process_id?: string;
+  related_version_seq?: number;
+  source_actor: "user" | "analyst" | "planner" | "executor" | "reviewer" | "runtime";
+  source_surface: "web-chat" | "telegram" | "rest" | "cli" | "runtime" | "web-ui";
+  created_at: string;
+  delivered_at: string | null;
+  acknowledged_at: string | null;
+}
+```
+
+Operator-surface notifications have `session_id: null`. Session
+notifications are delivered at the agent safe point before the next
+model call.
+
+---
+
+## Control Action Audit Entry
+
+```ts
+interface ControlActionAuditEntry {
+  id: string;
+  actor: "user" | "analyst" | "planner" | "executor" | "reviewer" | "runtime";
+  surface: "web-chat" | "telegram" | "rest" | "cli" | "runtime" | "web-ui";
+  action: string;
+  target_kind: "card" | "note" | "process" | "runtime" | "config" | "session" | null;
+  target_id: string | null;
+  params_summary: string;
+  confirmed: boolean;
+  outcome: "ok" | "error" | "denied" | "rejected";
+  outcome_summary: string;
+  error?: string;
+  created_at: string;
+}
+```
+
+Every mutating call from any surface writes one of these entries.
+Read-only inspection does not.
 
 ---
 
@@ -303,7 +388,7 @@ interface EntityLink {
 
 ```ts
 interface RuntimeState {
-  status: "idle" | "running" | "paused" | "error";
+  status: "idle" | "running" | "paused" | "frozen" | "error";
   project_id: "project";
   pid: number;
   started_at: string;
@@ -314,6 +399,7 @@ interface RuntimeState {
   queue: string[];
   running_processes: string[];
   updated_at: string;
+  frozen_reason?: string | null;
 }
 ```
 
@@ -368,8 +454,8 @@ Blocked original content is stored under `.saivage-work/quarantine/`.
     research.md
     ops.md
   instructions/
-    planner.md              # depth-0 planner instructions (user-editable)
-    executor.md             # global executor instructions (optional)
+    planner.md
+    executor.md
   cards/
     index.json
     by-id/
@@ -377,6 +463,9 @@ Blocked original content is stored under `.saivage-work/quarantine/`.
       goal-0001.json
       plan-0001.json
       code-0002.json
+    history/
+      goal-0001.history.jsonl
+      code-0002.history.jsonl
     tree/
       project.children.json
       goal-0001.children.json
@@ -415,6 +504,11 @@ Blocked original content is stored under `.saivage-work/quarantine/`.
     events.jsonl
     errors.jsonl
     processes.json
+    control-actions.jsonl
+    notifications/
+      operator.jsonl
+      by-session/
+        session-123.jsonl
   supervision/
     reviews.jsonl
     quarantine-index.json

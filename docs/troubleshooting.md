@@ -20,6 +20,29 @@ Use this guide for current source-verified failure modes and operator-visible st
 3. Confirm `/health` works without auth.
 4. Confirm `/docs/` is still reachable publicly.
 
+## Preview-only or denied control action
+
+### Symptoms
+
+- chat or REST mutation returns a preview instead of applying
+- response says confirmation or `preview_hash` is required
+- response says the action is denied by authorization policy
+- `PendingConfirmationsPanel` shows a rejected preview-only action
+
+### Meaning
+
+The static authz table classified the action as either:
+
+- `preview_only` — safe to preview, not safe to commit without a matching confirmation hash
+- `deny` — not allowed for the current actor/surface/safety-class combination
+
+### What to do
+
+1. Confirm the action is being attempted from the intended surface (`web-chat`, `web-ui`, `rest`, `cli`, or `telegram`).
+2. Re-submit with `confirmed: true` and the matching preview hash if the action is preview-only.
+3. If the action should be allowed by policy, inspect the authz table customization in `src/agents/authz.ts` rather than adding a one-off bypass.
+4. Check `.saivage/runtime/control-actions.jsonl` or `/api/control-actions` to confirm whether the request was rejected or denied.
+
 ## Card detail says card not found
 
 ### Symptoms
@@ -42,15 +65,68 @@ The card ID is wrong, the card was deleted, or the browser route is stale.
 ### Symptoms
 
 - card detail banner says `This card detail may be stale`
+- active card view shows a stale warning ribbon
 
 ### Meaning
 
-A websocket `card-updated` event arrived after the last successful detail fetch, or the last refresh failed after a previously successful load.
+A relevant WebSocket event or operator notification arrived after the last successful detail fetch or acknowledgement.
+
+Common causes:
+
+- tracked card edit created a `card_changed` notification
+- directive or escalation note was added
+- runtime pause/freeze/process changes affected the viewed work
 
 ### What to do
 
 1. Use **Refresh card**.
-2. Re-check evidence, review, and dispatch summaries before treating the card as complete.
+2. Re-check evidence, review, dispatch summaries, and card history before treating the card as complete.
+3. Review notifications to see whether a blocking change is still pending.
+
+## Running agent ignored a change or cannot finish
+
+### Symptoms
+
+- operator changed a card or added a directive/escalation note
+- agent later appears stale or continues old work
+- executor/reviewer cannot finalize and dispatch is held
+- logs mention blocking notifications or acknowledgement requirements
+
+### Meaning
+
+The runtime delivers operator changes at the next safe point through session notifications. `block` severity changes must be acknowledged before executor/reviewer terminal results are accepted.
+
+Typical blocking triggers:
+
+- card `acceptance`, `description`, `instructions_file`, or `depends_on` edits
+- escalation notes
+- runtime pause/freeze
+
+### What to do
+
+1. Inspect card history or notes to confirm the exact change.
+2. Inspect the session conversation for the synthetic operator-update message.
+3. Ensure the agent used `diff_card`, `get_card_history_entry`, `get_note`, or similar read tools as needed.
+4. Ensure the session acknowledged the blocking notification.
+5. If the dispatch is still held after reinvocation, treat it as an agent/tooling issue rather than forcing completion.
+
+## Resume failed from frozen or error state
+
+### Symptoms
+
+- `/api/runtime/resume` returns an actionable error
+- analyst/CLI resume says to use `resume-from-freeze`
+- runtime stays frozen
+
+### Meaning
+
+Generic resume is intentionally rejected for `frozen` and `error` states. This is a safety rule, not a drift bug.
+
+### What to do
+
+1. If the runtime is `frozen`, use `POST /api/runtime/resume-from-freeze`.
+2. If the runtime is `error`, fix the underlying failure and follow the freeze/recovery path rather than forcing generic resume.
+3. Confirm the freeze manifest exists when using resume-from-freeze.
 
 ## Generated file preview is blocked or redacted
 
@@ -96,7 +172,8 @@ These states are different:
 
 1. Check verification commands, review result, and dispatch summary on the same card.
 2. Inspect child/evidence-card links from the detail view.
-3. Do not accept completion based on status alone when evidence is incomplete.
+3. Inspect card history to see whether the acceptance criteria changed after the evidence was produced.
+4. Do not accept completion based on status alone when evidence is incomplete.
 
 ## Review result shows failed or not reviewed
 

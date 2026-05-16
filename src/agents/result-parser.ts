@@ -22,6 +22,7 @@ export interface PlannerCardUpdate {
   status?: string;
   title?: string;
   description?: string;
+  acceptance?: string;
 }
 
 export type PlannerStatus = 'continue' | 'done' | 'blocked';
@@ -116,6 +117,7 @@ const plannerCardUpdateSchema = z.object({
   status: z.string().optional(),
   title: z.string().optional(),
   description: z.string().optional(),
+  acceptance: z.string().optional(),
 });
 
 const rawPlannerResultSchema = z.object({

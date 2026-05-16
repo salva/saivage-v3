@@ -1,6 +1,6 @@
 # Saivage v3 — Operator Runbook
 
-This runbook is the current operator workflow guide for the Web Control Room and runtime recovery.
+This runbook is the current operator workflow guide for the Web Control Room, analyst control surface, and runtime recovery.
 
 ## 1. Open the system safely
 
@@ -51,6 +51,7 @@ Look for:
 - queue and activity context where shown
 - analyst chat state
 - degraded or unauthorized banners
+- operator notifications and pending confirmations where shown
 
 Expected UI states include:
 
@@ -81,8 +82,71 @@ Use **card detail** as the supported operator inspection surface for:
 - review result summary and evidence-card IDs
 - planner status and dispatch completion summaries
 - tool errors and parse-failure recovery
+- **card history** via the `CardHistoryPanel`
 
 Do not use an empty queue alone as evidence that planning is complete.
+
+### Card history
+
+Tracked card changes create a versioned history entry before the new card record is written. Tracked fields include operator-intent fields such as title, description, acceptance, instructions file, type/subtype, parentage, tags, priority/urgency/estimate, dependencies/relationships, assignment, artifacts, and attachments.
+
+Use card history when you need to answer:
+
+- what changed on a card;
+- who changed it;
+- whether a running agent may be stale;
+- which prior version the agent was likely following.
+
+Operator surfaces:
+
+- **UI:** card detail → `CardHistoryPanel`
+- **REST:** `GET /api/cards/:id/history`, `GET /api/cards/:id/history/:seq`, `GET /api/cards/:id/diff?from=&to=`
+- **Chat/tools:** `list_card_history`, `get_card_history_entry`, `diff_card`
+
+If an agent is still running after a tracked edit, expect a notification at its next safe point and do not trust a `done` result until the blocking notification is acknowledged when required.
+
+### Notifications and stale-work warnings
+
+Notifications exist for both operator surfaces and active agent sessions.
+
+Primary triggers in the current system:
+
+- tracked card mutations;
+- note creation;
+- runtime pause/resume/freeze/resume-from-freeze;
+- process termination through canonical controls;
+- redacted config/provider changes when supported by the canonical write path.
+
+Severity rules you should remember:
+
+- `card_changed`: `block` when `acceptance`, `description`, `instructions_file`, or `depends_on` changed; otherwise `warn`
+- `note_added`: `warn` for `directive`, `block` for `escalation`, operator-only `info` for `comment`/`progress`
+- `runtime_state`: `block` for pause/freeze, `info` for resume/resume-from-freeze
+- `process_state`: `warn`
+- `config_changed`: `info`
+
+Operator surfaces:
+
+- **UI:** `NotificationsPanel`, `PendingConfirmationsPanel`, stale ribbon on active-card views
+- **REST:** `GET /api/notifications`, `POST /api/notifications/:id/acknowledge`
+- **Chat/tools:** agent sessions use `acknowledge_notification`; operators acknowledge operator-surface notifications via UI or REST
+
+A stale ribbon or stale banner means a relevant notification arrived after the view last refreshed. Refresh first, then act.
+
+### Notes: directives vs escalations
+
+Notes are not interchangeable with card edits.
+
+Use a **card edit** when the objective, instructions, acceptance criteria, dependency graph, or ownership changed.
+
+Use a **note** when the operator is adding runtime guidance or observations:
+
+- `comment` — operator/context note; operator notification only
+- `progress` — progress/status note; operator notification only
+- `directive` — present-tense steering for a running or queued agent; session notification severity `warn`
+- `escalation` — something is wrong or blocking; session notification severity `block`
+
+A directive or escalation should be preferred over direct analyst→agent messaging. There is no direct analyst→running-agent chat lane in this design.
 
 ### Card detail evidence and review workflow
 
@@ -100,6 +164,7 @@ Read card detail in this order:
 4. **Verification commands** — confirms pass/fail/unknown/timed-out command results.
 5. **Review result** — confirms whether a reviewer passed or failed the card and which evidence-card IDs were cited.
 6. **Dispatch summary** — confirms child dispatch outcomes where recorded.
+7. **Card history** — confirms whether the work was edited after the agent began.
 
 If the detail view shows **This card detail may be stale**, refresh the card before acting on evidence or completion state.
 
@@ -132,6 +197,7 @@ Operators should be able to:
 - open a conversation
 - inspect linked cards, files, and process context
 - distinguish model/tool failure from successful completion
+- see when an operator update should have reached the session
 
 Conversation links may route to:
 
@@ -161,18 +227,21 @@ Use Debug for recovery and diagnostics:
 
 - runtime state
 - Operator Control panel for runtime pause/resume and notes queue actions
+- `NotificationsPanel` for operator-surface queue review and acknowledgement
+- `PendingConfirmationsPanel` for preview-only rejected actions awaiting explicit confirmation
 - recent errors
 - event timeline
 - doctor checks
 - supervision and quarantine information
 - MCP status/tools
 - processes
+- control-action audit reads
 
 If the UI reports degraded, frozen, stale, or repeated agent failures, Debug is the first operator destination.
 
 ## 4. Runtime control procedures
 
-Pause/resume validation is shared across REST endpoints and analyst tools. Server-hosted analyst chat/WebSocket controls receive the live `ActiveRuntime` when the server was started with runtime creation, so they have the same in-memory pause/resume effect as REST. Direct analyst-tool utility use without an injected live runtime falls back to canonical persisted-state control and returns the same frozen/unavailable validation results.
+Pause/resume validation is shared across REST endpoints, CLI commands, web UI controls, and analyst tools. Server-hosted analyst chat/WebSocket controls receive the live `ActiveRuntime` when the server was started with runtime creation, so they have the same in-memory pause/resume effect as REST and web UI. Direct CLI or utility use without a live runtime falls back to canonical persisted-state control and emits an explicit notice when only disk state changed.
 
 ### Pause before low-risk maintenance
 
@@ -204,7 +273,49 @@ curl -X POST http://localhost:8080/api/runtime/resume-from-freeze \
   -H "Authorization: Bearer $SAIVAGE_API_TOKEN"
 ```
 
-## 5. Operator notes queue
+### Resume-from-freeze distinction
+
+Do **not** use generic resume from `frozen` or `error` states.
+
+Expected behavior:
+
+- generic `resume` is for paused/idle dispatch state;
+- `frozen` requires `resume-from-freeze`;
+- a rejected generic resume from `frozen` or `error` is an intentional safety response, not a bug.
+
+## 5. Authorization, preview, and audit
+
+Mutating controls use a static authorization table keyed by `(actor, surface, safety_class) -> allow | deny | preview_only`.
+
+Current default policy summary:
+
+- analyst on `web-chat`: `allow` for `read_only`/`low`, `preview_only` for `high` and `destructive`, `deny` for `deployment`
+- analyst on `telegram`: `allow` for `read_only`/`low`, `preview_only` for `high`, `deny` for `destructive` and `deployment`
+- user on `rest` and `cli`: more permissive by default, including `allow` for most `high`/`destructive` operations and `preview_only` for `deployment`
+- runtime on `runtime`: internal canonical mutations are allowed except `deployment`
+
+Operational rules:
+
+- **deny**: action fails and is audited as denied
+- **preview_only**: action returns a preview and preview hash; commit requires `confirmed: true` plus the matching hash
+- **allow**: action commits immediately via the canonical service
+
+Customization:
+
+- edit the static authz rule table in source (`src/agents/authz.ts`)
+- keep the table aligned across chat, REST, CLI, and web UI expectations
+- prefer changing the verdict table instead of adding one-off confirmation logic in individual tools/routes
+
+Every mutating call writes one control-action audit entry to `.saivage/runtime/control-actions.jsonl`.
+
+Use audit reads when you need to answer:
+
+- who changed state;
+- whether a preview was rejected vs confirmed;
+- whether authz denied a request;
+- whether a pause/freeze/process kill came from chat, REST, CLI, runtime, or web UI.
+
+## 6. Operator notes queue
 
 Unhandled notes are stored per card and indexed in `.saivage/notes/queue.json`.
 
@@ -213,20 +324,21 @@ Current backend behavior:
 - queue reads/writes are schema-validated;
 - `GET /api/notes` returns only reconciled unhandled notes with an attached `note` record;
 - stale queue entries that point at missing or handled notes are removed during reconciliation;
-- malformed persisted queue files return a controlled `500` instead of returning partial `note: undefined` rows.
+- malformed persisted queue files return a controlled `500` instead of returning partial `note: undefined` rows;
+- note IDs are stable and sequence-based, not renumbered after deletion/handling.
 
-## 6. Degraded-state workflow
+## 7. Degraded-state workflow
 
 If runtime or UI state is degraded:
 
 1. Check `/health`.
 2. Check `/api/runtime/status`.
-3. Open Debug and inspect errors, timeline, doctor, supervision, and processes.
-4. Open affected card detail or agent conversation for evidence.
+3. Open Debug and inspect errors, timeline, doctor, supervision, processes, notifications, and control actions.
+4. Open affected card detail or agent conversation for evidence and history.
 5. Pause or freeze before manual intervention if state is still mutating.
 6. Only then consider direct filesystem inspection.
 
-## 7. Unauthorized, stale, and offline workflow
+## 8. Unauthorized, stale, and offline workflow
 
 ### Unauthorized
 
@@ -241,7 +353,7 @@ If runtime or UI state is degraded:
 - refresh the relevant view;
 - treat REST reload as authoritative after reconnect;
 - use Debug if stale or reconnecting state persists.
-- in card detail, a stale banner after a card-updated event means status may have changed after the last evidence fetch.
+- in card detail, a stale banner after a card-updated or notification event means status may have changed after the last evidence fetch.
 
 ### Offline
 

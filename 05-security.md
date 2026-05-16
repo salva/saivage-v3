@@ -17,7 +17,8 @@ and the agents.
 ### What it does NOT screen
 
 - Agent-to-runtime communication (card mutations, process
-  management) — these use structured, validated MCP calls.
+  management, notification acknowledgement) — these use structured,
+  validated MCP calls and canonical services.
 - Internal system prompts and instructions written by the project
   owner.
 
@@ -75,7 +76,37 @@ invoked to analyze the content:
 
 ---
 
-## Agent Write Territories
+## Mutating control safety model
+
+Mutating control surfaces share one authorization and audit model.
+
+Core rules:
+
+- every mutating call declares a safety class:
+  `read_only | low | high | destructive | deployment`
+- a static authz table keyed by `(actor, surface, safety_class)`
+  returns `allow | deny | preview_only`
+- confirmation is driven by the verdict, not the safety class alone
+- `preview_only` requires `confirmed: true` plus a matching preview
+  hash derived from the request parameters
+- every mutating call writes one control-action audit entry
+- read-only inspection paths rely on transport auth plus redaction and
+  do not fill the audit log
+
+Default behavior highlights:
+
+- analyst on `web-chat`: `preview_only` for `high` and `destructive`,
+  `deny` for `deployment`
+- analyst on `telegram`: `preview_only` for `high`, `deny` for
+  `destructive` and `deployment`
+- REST and CLI are more permissive by default
+
+Operators customize the table in source instead of adding per-tool
+confirmation drift.
+
+---
+
+## Agent write territories
 
 Each agent role has advisory write territory rules — conventions
 about which areas of the project each role should write to. These
@@ -109,7 +140,11 @@ Certain files are protected from agent access regardless of role:
 | `.saivage-work/tmp/runtime/runtime.lock` | No write      |
 
 API keys and tokens in config are redacted when served through the
-config API or when an agent reads the config file.
+config API, audit summaries, notification payloads, or when an agent
+reads the config file.
+
+`redactSecrets()` must be applied at boundaries that could leak
+config-like material into notification or audit payloads.
 
 ---
 
