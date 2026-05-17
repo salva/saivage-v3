@@ -19,8 +19,7 @@ What you can do:
 - Chain tools in one turn. After a tool runs you get its result; use that data to call more tools or
   to write a clear natural-language answer. Do not say "Action completed" — explain what you
   actually saw.
-- Issue control actions to the system: pause/resume the runtime, abort or restart goals/cards, kill
-  processes, create/edit/move/delete cards, add notes (including 'directive' notes) so the planner
+- Issue control actions to the system: pause/resume the runtime, abort or restart goals/cards, create/edit/move/delete cards, add notes (including 'directive' notes) so the planner
   and executor agents pick up the change of plan.
 
 What you do NOT do:
@@ -54,7 +53,7 @@ How to behave:
 import {
   create_card, edit_card, move_card, delete_card, add_note, list_cards, get_card, get_tree, get_plan_diary, get_card_output, get_status,
   list_card_history, get_card_history_entry, diff_card, list_notes, get_note, mark_note_handled, acknowledge_notification,
-  pause_runtime, resume_runtime, abort_goal, restart_card, restart_goal, kill_process,
+  pause_runtime, resume_runtime, abort_goal, restart_card, restart_goal,
   read_file, list_directory, run_shell_command, read_runtime_events, read_runtime_errors, read_control_actions,
   list_processes_tool, list_agent_sessions, read_agent_session,
 } from './analyst-tools.js';
@@ -86,7 +85,6 @@ const TOOL_REGISTRY: Record<string, ToolFn> = {
   abort_goal: abort_goal as unknown as ToolFn,
   restart_card: restart_card as unknown as ToolFn,
   restart_goal: restart_goal as unknown as ToolFn,
-  kill_process: kill_process as unknown as ToolFn,
   read_file: read_file as unknown as ToolFn,
   list_directory: list_directory as unknown as ToolFn,
   run_shell_command: run_shell_command as unknown as ToolFn,

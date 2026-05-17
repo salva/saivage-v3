@@ -15,7 +15,7 @@ import type {
   ProjectRunCompletedPayload,
 } from '../schemas/types.js';
 import { CardStore } from './card-store.js';
-import { consumeChangedCardActivation, injectQueuedSyntheticPlannerNotes } from './analyst-stage6.js';
+import { consumeChangedCardActivation, injectQueuedSyntheticPlannerNotes, queueSyntheticPlannerNote } from './analyst-stage6.js';
 import {
   initRuntimeState,
   readRuntimeState,
@@ -52,6 +52,9 @@ import {
   appendActivateCardToolResultOnce,
   findPlannerSessionForCard,
   findUniqueUnresolvedActivateCardToolCall,
+  listSessions,
+  getSession,
+  getSessionMessages,
 } from '../agents/session-persistence.js';
 import {
   StuckAgentSupervisor,
@@ -115,16 +118,129 @@ export class Runtime extends EventEmitter {
     return { parentCardId, callerSessionId, callerToolCallId: call.tool_call_id };
   }
 
+  private buildCardActivationOutcome(childCardId: string, outcome: string, summary: string): string {
+    const child = this.cardStore.read(childCardId);
+    const payload: Record<string, unknown> = {
+      success: outcome !== 'failed',
+      cardId: childCardId,
+      outcome,
+      summary,
+      result: child?.result ?? null,
+      review: (child?.result?.review as ReviewAssessment | null | undefined) ?? null,
+      artifacts: child?.artifacts ?? [],
+      attachments: child?.attachments ?? [],
+      evidence_card_ids: child ? [child.id, ...this.cardStore.getDescendantIds(child.id)] : [childCardId],
+      error: child?.error ?? null,
+    };
+    if (child?.result && typeof child.result === 'object' && typeof (child.result as { failure_kind?: unknown }).failure_kind === 'string') payload.failure_kind = (child.result as { failure_kind: string }).failure_kind;
+    return JSON.stringify(payload);
+  }
+
   private appendChildUnwindToolResult(childCardId: string, outcome: string, summary: string): void {
     const edge = this.findCallerEdge(childCardId);
     if (!edge) return;
-    const child = this.cardStore.read(childCardId);
     appendActivateCardToolResultOnce(
       join(this.projectRoot, '.saivage'),
       edge.callerSessionId,
       edge.callerToolCallId,
-      JSON.stringify({ success: true, cardId: childCardId, outcome, summary, result: child?.result ?? null, review: (child?.result?.review as ReviewAssessment | null | undefined) ?? null, artifacts: child?.artifacts ?? [], attachments: child?.attachments ?? [], evidence_card_ids: child ? [child.id, ...this.cardStore.getDescendantIds(child.id)] : [childCardId], error: child?.error ?? null }),
+      this.buildCardActivationOutcome(childCardId, outcome, summary),
     );
+  }
+
+  private findUnresolvedActivateCards(sessionId: string): Array<{ session_id: string; tool_call_id: string; card_id: string }> {
+    const messages = getSessionMessages(join(this.projectRoot, '.saivage'), sessionId);
+    const resolved = new Set(messages.filter((message) => (message.kind === 'tool_result' || message.kind === 'tool_error') && typeof message.tool_call_id === 'string').map((message) => message.tool_call_id as string));
+    const calls: Array<{ session_id: string; tool_call_id: string; card_id: string }> = [];
+    for (const message of messages) {
+      if (message.role !== 'assistant' || message.kind !== 'tool_call') continue;
+      let parsed: { toolCalls?: Array<{ id?: unknown; function?: { name?: unknown; arguments?: unknown } }> };
+      try { parsed = JSON.parse(message.content) as typeof parsed; } catch { continue; }
+      for (const call of parsed.toolCalls ?? []) {
+        if (call.function?.name !== 'activate_card' || typeof call.id !== 'string' || resolved.has(call.id)) continue;
+        if (typeof call.function.arguments !== 'string') continue;
+        try {
+          const args = JSON.parse(call.function.arguments) as { cardId?: unknown };
+          if (typeof args.cardId === 'string') calls.push({ session_id: sessionId, tool_call_id: call.id, card_id: args.cardId });
+        } catch {}
+      }
+    }
+    return calls;
+  }
+
+  private synthesizeTerminalActivationResult(sessionId: string, toolCallId: string, childCardId: string): boolean {
+    const child = this.cardStore.read(childCardId);
+    if (!child || !TERMINAL_STATUSES.has(child.status)) return false;
+    const outcome = child.status === 'done' ? 'done' : child.status === 'cancelled' ? 'cancelled' : 'failed';
+    appendActivateCardToolResultOnce(join(this.projectRoot, '.saivage'), sessionId, toolCallId, this.buildCardActivationOutcome(childCardId, outcome, `Restart repair delivered terminal status '${child.status}' for card ${childCardId}.`));
+    return true;
+  }
+
+  private repairOrphanActivateCardToolCalls(): void {
+    for (const sessionId of listSessions(join(this.projectRoot, '.saivage'))) {
+      const session = getSession(join(this.projectRoot, '.saivage'), sessionId);
+      if (!session || session.role !== 'planner') continue;
+      for (const call of this.findUnresolvedActivateCards(sessionId)) this.synthesizeTerminalActivationResult(call.session_id, call.tool_call_id, call.card_id);
+    }
+  }
+
+  private parentPlannerRunFor(childCardId: string): RuntimeState['active_card_run'] {
+    const parentCardId = this.cardStore.getParent(childCardId);
+    if (!parentCardId) return null;
+    const parent = this.cardStore.read(parentCardId);
+    if (!parent) return null;
+    const stamp = now();
+    return { card_id: parentCardId, card_type: parent.type, runtime_status: 'running', phase: 'planner', caller_session_id: null, caller_tool_call_id: null, planner_session_id: `planner:${parentCardId}`, correction_attempts: 0, started_at: stamp, last_turn_at: stamp };
+  }
+
+  private async repairStartupActiveCardRun(previousState: RuntimeState | null): Promise<RuntimeState | null> {
+    const run = previousState?.active_card_run ?? null;
+    if (!run) { this.repairOrphanActivateCardToolCalls(); return null; }
+    const card = this.cardStore.read(run.card_id);
+    if (!card) { this.repairOrphanActivateCardToolCalls(); return null; }
+
+    if (run.phase === 'reviewer') {
+      const persistedReview = card.result && typeof card.result === 'object' ? (card.result as { review?: unknown }).review : undefined;
+      if (!persistedReview) {
+        this.cardStore.update(run.card_id, { status: 'running' });
+        const plannerSessionId = run.planner_session_id ?? `planner:${run.card_id}`;
+        const summary = `reviewer_interrupted: reviewer output for ${run.card_id} was discarded after service restart; resume_reason: reviewer_interrupted.`;
+        queueSyntheticPlannerNote(this.projectRoot, { target_planner_session_id: plannerSessionId, target_goal_card_id: run.card_id, kind: 'reviewer_interrupted', affected_card_id: run.card_id, descendant_card_ids: [], summary });
+        const nextRun = { ...run, phase: 'planner' as const, runtime_status: 'running' as const, reviewer_session_id: null, last_turn_at: now() };
+        const repaired = saveRuntimeState(this.projectRoot, { ...previousState!, status: 'running', current_card_id: run.card_id, current_agent_session_id: plannerSessionId, active_card_run: nextRun, running_processes: [], updated_at: now(), paused: false, paused_at: null });
+        void this.dispatchGoal(run.card_id);
+        return repaired;
+      }
+    }
+
+    if (run.phase === 'executor') {
+      if (!TERMINAL_STATUSES.has(card.status)) {
+        this.cardStore.update(run.card_id, { status: 'failed', error: 'Execution interrupted by service restart.', result: { ...(card.result ?? {}), failure_kind: 'service_restart', error: 'Execution interrupted by service restart.' } });
+      }
+      this.appendChildUnwindToolResult(run.card_id, 'failed', `Terminal card ${run.card_id} failed because the service restarted before executor completion.`);
+      const parentRun = this.parentPlannerRunFor(run.card_id);
+      const repaired = saveRuntimeState(this.projectRoot, { ...previousState!, status: parentRun ? 'running' : 'idle', current_card_id: parentRun?.card_id ?? null, current_agent_session_id: parentRun?.planner_session_id ?? null, active_card_run: parentRun, running_processes: [], updated_at: now(), paused: false, paused_at: null });
+      if (parentRun) void this.dispatchGoal(parentRun.card_id);
+      return repaired;
+    }
+
+    if (TERMINAL_STATUSES.has(card.status)) {
+      const edge = this.findCallerEdge(run.card_id);
+      if (edge) this.synthesizeTerminalActivationResult(edge.callerSessionId, edge.callerToolCallId, run.card_id);
+      const parentRun = this.parentPlannerRunFor(run.card_id);
+      const repaired = saveRuntimeState(this.projectRoot, { ...previousState!, status: parentRun ? 'running' : 'idle', current_card_id: parentRun?.card_id ?? null, current_agent_session_id: parentRun?.planner_session_id ?? null, active_card_run: parentRun, running_processes: [], updated_at: now(), paused: false, paused_at: null });
+      if (parentRun) void this.dispatchGoal(parentRun.card_id);
+      return repaired;
+    }
+
+    if (run.phase === 'planner') {
+      const nextRun = { ...run, runtime_status: 'running' as const, last_turn_at: now() };
+      const repaired = saveRuntimeState(this.projectRoot, { ...previousState!, status: 'running', current_card_id: run.card_id, current_agent_session_id: run.planner_session_id ?? `planner:${run.card_id}`, active_card_run: nextRun, running_processes: [], updated_at: now(), paused: false, paused_at: null });
+      void this.dispatchGoal(run.card_id);
+      return repaired;
+    }
+
+    this.repairOrphanActivateCardToolCalls();
+    return null;
   }
 
   private emitProjectRunCompleted(card: CardRecord, assessment?: ReviewAssessment): void {
@@ -221,7 +337,7 @@ export class Runtime extends EventEmitter {
   consumeResumeHandoffContext(): string | null { const ctx = this._resumeHandoffContext; this._resumeHandoffContext = null; return ctx; }
   emitAgentEvent(name: string, data: Record<string, unknown>): void { if (name === 'session_started' && typeof data.session_id === 'string') { try { updateRuntimeState(this.projectRoot, { current_agent_session_id: data.session_id }); } catch {} } this.emit(name, data); }
 
-  async startup(): Promise<void> { if (this._running) throw new Error('Runtime is already running.'); let state = readRuntimeState(this.projectRoot); if (!state) state = initRuntimeState(this.projectRoot); acquireLock(this.projectRoot); this.performCrashRecovery(); if (state.running_processes && state.running_processes.length > 0) { this.runningProcesses.clear(); this._syncRunningProcesses(); } initRuntimeState(this.projectRoot); this._status = 'idle'; this._paused = false; this._running = true; this._shuttingDown = false; this.emit('started', { projectRoot: this.projectRoot }); this._eventLogger.appendEvent({ kind: 'started', project_root: this.projectRoot }); this._supervisor.start(); if (this._autoDispatchBacklog) void this._autoDispatchFirstBacklogGoal(); void this._checkContinuousImprovement(); }
+  async startup(): Promise<void> { if (this._running) throw new Error('Runtime is already running.'); let state = readRuntimeState(this.projectRoot); if (!state) state = initRuntimeState(this.projectRoot); acquireLock(this.projectRoot); this.performCrashRecovery(); if (state.running_processes && state.running_processes.length > 0) { this.runningProcesses.clear(); } const repairedState = await this.repairStartupActiveCardRun(state); if (!repairedState) state = initRuntimeState(this.projectRoot); else state = repairedState; this._status = state.status; this._paused = state.paused; this._running = true; this._shuttingDown = false; this.emit('started', { projectRoot: this.projectRoot }); this._eventLogger.appendEvent({ kind: 'started', project_root: this.projectRoot }); this._supervisor.start(); if (!state.active_card_run && this._autoDispatchBacklog) void this._autoDispatchFirstBacklogGoal(); if (!state.active_card_run) void this._checkContinuousImprovement(); }
   async shutdown(): Promise<void> { if (!this._running) return; this._supervisor.stop(); if (this._status === 'frozen') { try { releaseLock(this.projectRoot); } catch {} this._running = false; this._shuttingDown = false; this._status = 'idle'; this.emit('shutdown'); this._eventLogger.appendEvent({ kind: 'shutdown' }); if (this._ownsEventLogger) this._eventLogger.close(); if (this._ownsErrorLogger) this._errorLogger.close(); return; } this._shuttingDown = true; this._running = false; try { const killedIds = await killAllRunning(this.projectRoot); for (const id of killedIds) this.runningProcesses.delete(id); } catch {} try { saveRuntimeState(this.projectRoot, { status: 'idle', project_id: 'project', pid: process.pid, started_at: now(), current_card_id: null, current_agent_session_id: null, paused: false, paused_at: null, queue: [], running_processes: [], updated_at: now() }); } catch {} try { releaseLock(this.projectRoot); } catch {} try { cleanAll(saivageWorkDir(this.projectRoot), this.cardStore); } catch {} this._status = 'idle'; this.emit('shutdown'); this._eventLogger.appendEvent({ kind: 'shutdown' }); if (this._ownsEventLogger) this._eventLogger.close(); if (this._ownsErrorLogger) this._errorLogger.close(); }
   pause(): void { this._paused = true; try { updateRuntimeState(this.projectRoot, { status: 'paused', paused: true, paused_at: now() }); } catch {} this.emit('paused'); this._eventLogger.appendEvent({ kind: 'paused' }); }
   resume(): void { this._paused = false; try { const state = readRuntimeState(this.projectRoot); const plannerSessionId = state?.active_card_run?.planner_session_id ?? state?.current_agent_session_id; if (plannerSessionId) injectQueuedSyntheticPlannerNotes(this.projectRoot, plannerSessionId); updateRuntimeState(this.projectRoot, { status: 'idle', paused: false, paused_at: null }); } catch {} this.emit('resumed'); this._eventLogger.appendEvent({ kind: 'resumed' }); }

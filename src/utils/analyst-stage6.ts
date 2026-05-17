@@ -23,7 +23,7 @@ export interface SyntheticPlannerNote {
   id: string;
   target_planner_session_id: string;
   target_goal_card_id: string;
-  kind: 'analyst_note' | 'pending_subtree_correction' | 'subtree_changed';
+  kind: 'analyst_note' | 'pending_subtree_correction' | 'subtree_changed' | 'reviewer_interrupted';
   affected_card_id: string;
   descendant_card_ids: string[];
   summary: string;

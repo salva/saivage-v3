@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { TelegramBot } from '../../src/telegram/bot.js';
 import { evaluateAuthz } from '../../src/agents/authz.js';
 import { CardStore } from '../../src/utils/card-store.js';
-import { edit_card, kill_process, type ToolContext } from '../../src/agents/analyst-tools.js';
+import { delete_card, edit_card, type ToolContext } from '../../src/agents/analyst-tools.js';
 import { NotificationCenter } from '../../src/utils/notification-center.js';
 
 function setup(root: string) {
@@ -43,7 +43,7 @@ describe('telegram surface authz', () => {
       expect(preview.preview?.preview_hash).toBeTruthy();
       expect(store.read('goal-1')?.acceptance).toBe('before');
 
-      const denied = await kill_process(ctx, { processId: 'proc-telegram' });
+      const denied = await delete_card(ctx, { id: 'goal-1' });
       expect(denied.success).toBe(false);
       expect(denied.error).toMatch(/Denied by authorization policy/);
       expect(store.read('goal-1')?.acceptance).toBe('before');
@@ -53,7 +53,7 @@ describe('telegram surface authz', () => {
       expect(audit).toHaveLength(2);
       expect(audit[0].outcome).toBe('rejected');
       expect(audit[1].outcome).toBe('denied');
-      expect(audit[1].action).toBe('process.kill');
+      expect(audit[1].action).toBe('card.delete');
       expect(audit[1].params_summary).not.toContain('tg-secret');
     } finally { rmSync(root, { recursive: true, force: true }); }
   });

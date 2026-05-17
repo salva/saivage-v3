@@ -9,10 +9,8 @@ import { tmpdir } from 'node:os';
 
 import { CardStore } from '../src/utils/card-store.js';
 import { initRuntimeState, readRuntimeState, updateRuntimeState } from '../src/utils/runtime-state.js';
-import { startProcess, waitProcess } from '../src/utils/process-runner.js';
-
 import {
-  create_card, pause_runtime, resume_runtime, kill_process,
+  create_card, pause_runtime, resume_runtime,
 } from '../src/agents/analyst-tools.js';
 import type { ToolContext } from '../src/agents/analyst-tools.js';
 
@@ -97,13 +95,6 @@ describe('Analyst Tools', () => {
     expect(c.id).toMatch(/^code-/);
   });
 
-  it('returns preview for kill_process existing process', async () => {
-    const proc = startProcess(projectRoot, 'true', { cardId: 'code-1' });
-    await waitProcess(projectRoot, proc.id, 1000);
-    const r = await kill_process(ctx(projectRoot, store), { processId: proc.id });
-    expect(r.success).toBe(true);
-    expect(r.preview).toBeDefined();
-  });
 
   it('refuses resume_runtime while frozen and preserves frozen persisted state', async () => {
     updateRuntimeState(projectRoot, {

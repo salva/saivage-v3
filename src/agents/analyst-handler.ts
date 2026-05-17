@@ -11,6 +11,7 @@ import type { ActiveRuntime } from '../utils/active-runtime.js';
 import type { ActorRole } from './authz.js';
 import { sanitizeAnalystText } from '../utils/analyst-sanitization.js';
 import { broadcastAnalystToolInvoked } from '../server/websocket.js';
+import { compactSession } from './compaction.js';
 
 export interface ActivityCallback {
   (activity: { type: 'tool_call' | 'tool_result' | 'thinking'; content: Record<string, unknown> }): void;
@@ -64,12 +65,70 @@ function appendMessage(projectRoot: string, sessionId: string, message: { role: 
   return msg;
 }
 
-/** Max messages from session history sent to LLM each turn (keeps token usage bounded). */
-const ANALYST_HISTORY_LIMIT = 40;
+/**
+ * Approximate context window (tokens) used to decide when to compact the
+ * analyst conversation. Compaction triggers at 80% of this value. Chosen
+ * conservatively to fit even smaller models routed for analyst use.
+ */
+const ANALYST_CONTEXT_LIMIT_TOKENS = 128_000;
 /** Max LLM tool-call iterations per user turn. */
 const ANALYST_MAX_ITERATIONS = 8;
 /** Max tool calls executed per single LLM turn (defensive cap; ignore the rest). */
 const ANALYST_MAX_TOOLS_PER_TURN = 6;
+
+/**
+ * Trim a bounded history slice so that tool_call ↔ tool_result pairs are
+ * preserved. Without this, slice(-N) can land in the middle of a
+ * tool-call batch and leave orphan `tool_result` messages (or an
+ * orphan assistant `tool_call` whose results were dropped), which the
+ * OpenAI Responses API rejects with HTTP 400 "No tool call found for
+ * function call output with call_id ...".
+ */
+function trimToCleanToolBoundary(messages: AgentMessage[]): AgentMessage[] {
+  // Collect tool_call ids announced by assistant `tool_call` messages
+  // *inside* this slice.
+  const callIdsInSlice = new Set<string>();
+  for (const m of messages) {
+    if (m.role === 'assistant' && m.kind === 'tool_call') {
+      try {
+        const parsed = JSON.parse(m.content) as { toolCalls?: Array<{ id?: string }> };
+        for (const tc of parsed.toolCalls ?? []) {
+          if (typeof tc?.id === 'string') callIdsInSlice.add(tc.id);
+        }
+      } catch { /* leave empty */ }
+    }
+  }
+  // Drop any `tool_result` whose originating tool_call is not in the slice.
+  const cleaned: AgentMessage[] = [];
+  for (const m of messages) {
+    if (m.role === 'tool' && m.kind === 'tool_result') {
+      const id = m.tool_call_id;
+      if (!id || !callIdsInSlice.has(id)) continue;
+    }
+    cleaned.push(m);
+  }
+  // Also drop any leading assistant `tool_call` batch whose results are
+  // not all present (would leave orphan function_call entries).
+  const resultIds = new Set<string>();
+  for (const m of cleaned) {
+    if (m.role === 'tool' && m.kind === 'tool_result' && m.tool_call_id) resultIds.add(m.tool_call_id);
+  }
+  const finalMessages: AgentMessage[] = [];
+  for (const m of cleaned) {
+    if (m.role === 'assistant' && m.kind === 'tool_call') {
+      let allPresent = true;
+      try {
+        const parsed = JSON.parse(m.content) as { toolCalls?: Array<{ id?: string }> };
+        for (const tc of parsed.toolCalls ?? []) {
+          if (!tc?.id || !resultIds.has(tc.id)) { allPresent = false; break; }
+        }
+      } catch { allPresent = false; }
+      if (!allPresent) continue;
+    }
+    finalMessages.push(m);
+  }
+  return finalMessages;
+}
 
 function readSession(projectRoot: string, sessionId: string): AgentSession | null {
   const sp = sessionFilePath(projectRoot, sessionId);
@@ -111,7 +170,6 @@ function extractNoteKind(text: string): string | undefined { const lower = text.
 
 function parseIntent(text: string): ParsedIntent | null {
   const cardIds = extractCardIds(text);
-  if (/\bkill\b.*\bprocess\b/i.test(text) || /\bprocess\b.*\bkill\b/i.test(text)) { const processIds = extractProcessIds(text); const nonProject = cardIds.filter((id) => id !== 'project'); if (processIds.length > 0) return { tool: 'kill_process', params: { processId: processIds[0] } }; if (nonProject.length > 0) return { tool: 'kill_process', params: { processId: nonProject[0] } }; return { tool: 'kill_process', params: {} }; }
   if (/\bpause\b.*\bruntime\b|\bruntime\b.*\bpause\b/i.test(text)) return { tool: 'pause_runtime', params: {} };
   if (/\bresume\b.*\bruntime\b|\bruntime\b.*\bresume\b/i.test(text)) return { tool: 'resume_runtime', params: {} };
   if (/\b(?:abort|cancel)\b.*\bgoal\b|\bgoal\b.*\b(?:abort|cancel)\b/i.test(text)) { const goalIds = extractGoalIds(text); if (goalIds.length > 0) return { tool: 'abort_goal', params: { goalId: goalIds[0] } }; return { tool: 'abort_goal', params: {} }; }
@@ -260,8 +318,25 @@ export class AnalystHandler {
     const ctx: ToolContext = { projectRoot: this.projectRoot, sessionId, activeRuntime: this.activeRuntime, actor: this.actor, surface: this.surface };
 
     for (let iter = 0; iter < ANALYST_MAX_ITERATIONS; iter += 1) {
+      // Auto-compact when the conversation approaches the model context
+      // window. Falls back to truncation (last 20% of messages) when no
+      // summarizer is wired in. After compaction we still apply
+      // trimToCleanToolBoundary so any orphan tool_call ↔ tool_result
+      // pair produced by truncation can't reach the LLM and trigger an
+      // HTTP 400 "No tool call found for function call output" error.
+      // No max-compaction cap: the operator cannot start a fresh
+      // analyst session from the chat, so compaction must always
+      // succeed in shrinking the working set.
+      try {
+        await compactSession(saivageDir(this.projectRoot), sessionId, {
+          contextLimit: ANALYST_CONTEXT_LIMIT_TOKENS,
+          threshold: 0.8,
+          maxCompactions: Number.MAX_SAFE_INTEGER,
+        });
+      } catch { /* compaction is best-effort; continue with raw history */ }
+
       const history = readMessages(this.projectRoot, sessionId);
-      const bounded = history.length > ANALYST_HISTORY_LIMIT ? history.slice(-ANALYST_HISTORY_LIMIT) : history;
+      const bounded = trimToCleanToolBoundary(history);
 
       let llmResult;
       try {
