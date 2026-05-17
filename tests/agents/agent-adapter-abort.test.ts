@@ -884,7 +884,7 @@ describe('Integration: real invokeAgent candidate loop with cancellation', () =>
 
   it('successful invocation completes normally and clears cancelled state', async () => {
     const { llmCallFn: successFn } = makeSuccessLlmCallFn(
-      '{"card_id":"card-ok","status":"done","artifacts":[],"attachments":[]}',
+      '{"card_id":"card-ok","status":"done","status_text":"Completed successfully","artifacts":[],"attachments":[]}',
     );
     adapter.setLlmCallFn(successFn);
 

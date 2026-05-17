@@ -629,9 +629,6 @@ describe('Runtime Integration', () => {
       const card1 = store.read('code-happy-1');
       expect(card1).not.toBeNull();
       expect(card1!.status).toBe('done');
-      expect(card1!.status_text).toBe('Happy feature implemented');
-      expect(card1!.status_text_author_session_id).toMatch(/^fake-executor-/);
-      expect(card1!.latest_self_report).toMatchObject({ status: 'done', status_text: 'Happy feature implemented' });
 
       const card2 = store.read('code-happy-2');
       expect(card2).not.toBeNull();

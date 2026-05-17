@@ -329,7 +329,7 @@ describe('appendReviewAssessment', () => {
 
     const rev = (reviewIdx!.reviews as Array<Record<string, unknown>>)[0];
     expect(rev.id).toBe('rev-1');
-    expect(rev.result).toBe('fail');
+    expect(rev.result).toBe('needs_corrections');
     expect(rev.diary_entry_id).toBeTruthy();
     expect(rev.diary_entry_id).toBeTruthy();
   });
@@ -460,7 +460,7 @@ describe('getReviewAssessments', () => {
     expect(assessments.length).toBe(2);
     expect(assessments[0].result).toBe('pass');
     expect(assessments[0].summary).toBe('First review');
-    expect(assessments[1].result).toBe('fail');
+    expect(assessments[1].result).toBe('needs_corrections');
     expect(assessments[1].summary).toBe('Second review');
   });
 

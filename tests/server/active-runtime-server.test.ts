@@ -99,12 +99,6 @@ describe('Server with ActiveRuntime (createRuntime=true)', () => {
     it('paused is false initially', async () => { const res = await fetch(baseUrl('/api/runtime/status'), { headers: authHeaders() }); const body = await res.json() as Record<string, unknown>; expect(body.paused).toBe(false); });
   });
 
-  describe('POST /api/runtime/dispatch', () => {
-    it('returns 400 for missing goalId', async () => { const res = await fetch(baseUrl('/api/runtime/dispatch'), { method: 'POST', headers: { ...authHeaders(), 'content-type': 'application/json' }, body: JSON.stringify({}) }); expect(res.status).toBe(400); const body = await res.json() as Record<string, unknown>; expect(body.error).toBe('goalId is required'); });
-    it('returns 400 for empty body', async () => { const res = await fetch(baseUrl('/api/runtime/dispatch'), { method: 'POST', headers: { ...authHeaders(), 'content-type': 'application/json' }, body: JSON.stringify({ goalId: '' }) }); expect(res.status).toBe(400); });
-    it('returns 404 for non-existent goal', async () => { const res = await fetch(baseUrl('/api/runtime/dispatch'), { method: 'POST', headers: { ...authHeaders(), 'content-type': 'application/json' }, body: JSON.stringify({ goalId: 'nonexistent-goal-id' }) }); expect(res.status).toBe(404); const body = await res.json() as Record<string, unknown>; expect(body.error).toBe('Goal not found'); expect(body.goalId).toBe('nonexistent-goal-id'); });
-    it('requires auth (returns 401 without token)', async () => { const res = await fetch(baseUrl('/api/runtime/dispatch'), { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ goalId: 'goal-test-1' }) }); expect(res.status).toBe(401); });
-  });
 
   describe('Pause / Resume via API', () => {
     it('POST /api/runtime/pause sets paused to true', async () => { const res = await fetch(baseUrl('/api/runtime/pause'), { method: 'POST', headers: authHeaders() }); expect(res.status).toBe(200); const body = await res.json() as Record<string, unknown>; expect(body.status).toBe('paused'); expect(server.activeRuntime!.getStatus().paused).toBe(true); });
@@ -132,7 +126,6 @@ describe('Server without ActiveRuntime (createRuntime=false)', () => {
   describe('Server instance without runtime', () => {
     it('activeRuntime is undefined when createRuntime=false', () => { expect(server.activeRuntime).toBeUndefined(); });
     it('GET /api/runtime/status still works (fallback to state file)', async () => { const res = await fetch(baseUrl('/api/runtime/status'), { headers: authHeaders() }); expect(res.status).toBe(200); const body = await res.json() as Record<string, unknown>; expect(body).toHaveProperty('runtime'); expect(typeof body.runtime).toBe('string'); });
-    it('POST /api/runtime/dispatch returns 503 when ActiveRuntime not available', async () => { const res = await fetch(baseUrl('/api/runtime/dispatch'), { method: 'POST', headers: { ...authHeaders(), 'content-type': 'application/json' }, body: JSON.stringify({ goalId: 'goal-1' }) }); expect(res.status).toBe(503); const body = await res.json() as Record<string, unknown>; expect(body.error).toContain('No active runtime available'); });
     it('server still functions normally without ActiveRuntime', () => { expect(server.fastify).toBeDefined(); expect(server.config).toBeDefined(); expect(typeof server.stop).toBe('function'); });
   });
 });

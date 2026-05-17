@@ -172,6 +172,7 @@ describe('Integration: Config → Router → Parsing', () => {
     const rawResponse = JSON.stringify({
       card_id: 'code-1',
       status: 'done',
+      status_text: 'Executor completed successfully',
       result: { lines_added: 42 },
       artifacts: [
         { type: 'report', description: 'Test results', retain: true },
@@ -245,7 +246,7 @@ describe('Integration: Config → Router → Parsing', () => {
       if (callCount === 1) {
         throw new Error('Model error');
       }
-      return { status: 'done', error: undefined, artifacts: [], attachments: [] };
+      return { status: 'done', status_text: 'Recovered successfully', error: undefined, artifacts: [], attachments: [] };
     };
 
     const attempts = await invokeWithRecovery(executorFn, {

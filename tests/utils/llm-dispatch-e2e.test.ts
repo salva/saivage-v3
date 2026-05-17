@@ -147,6 +147,7 @@ const PLANNER_RESPONSE_2 = JSON.stringify({
 const EXECUTOR_RESPONSE_1 = JSON.stringify({
   card_id: 'code-e2e-llm-1',
   status: 'done',
+  status_text: 'Implementation complete',
   result: { message: 'implementation complete' },
   artifacts: [],
   attachments: [],
@@ -156,6 +157,7 @@ const EXECUTOR_RESPONSE_1 = JSON.stringify({
 const EXECUTOR_RESPONSE_2 = JSON.stringify({
   card_id: 'code-e2e-llm-2',
   status: 'done',
+  status_text: 'Tests complete',
   result: { tests: 5, passed: 5 },
   artifacts: [],
   attachments: [],
@@ -193,6 +195,7 @@ const PROJECT_PLANNER_RESPONSE_1 = JSON.stringify({
 const PROJECT_EXECUTOR_RESPONSE_1 = JSON.stringify({
   card_id: 'code-project-evidence-1',
   status: 'done',
+  status_text: 'Project evidence complete',
   result: { evidence: 'project-level evidence complete' },
   artifacts: [],
   attachments: [],

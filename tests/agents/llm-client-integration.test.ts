@@ -36,6 +36,7 @@ let createAgentAdapter: typeof import('../../src/agents/agent-adapter.js').creat
 
 let ProviderRegistry: typeof import('../../src/agents/provider.js').ProviderRegistry;
 let ModelRouter: typeof import('../../src/agents/model-router.js').ModelRouter;
+let resolveLlmTransportConfig: typeof import('../../src/agents/llm-transport.js').resolveLlmTransportConfig;
 
 let loadConfig: typeof import('../../src/agents/config-schema.js').loadConfig;
 
@@ -54,6 +55,7 @@ beforeAll(async () => {
 
   ProviderRegistry = (await import('../../src/agents/provider.js')).ProviderRegistry;
   ModelRouter = (await import('../../src/agents/model-router.js')).ModelRouter;
+  resolveLlmTransportConfig = (await import('../../src/agents/llm-transport.js')).resolveLlmTransportConfig;
   loadConfig = (await import('../../src/agents/config-schema.js')).loadConfig;
 });
 
@@ -180,6 +182,16 @@ function streamLine(content: string, done = false): string {
   return `data: ${JSON.stringify(obj)}\n\n`;
 }
 
+function makeJwtWithCodexAccount(accountId: string): string {
+  const header = Buffer.from(JSON.stringify({ alg: 'none', typ: 'JWT' })).toString('base64url');
+  const payload = Buffer.from(JSON.stringify({
+    'https://api.openai.com/auth': {
+      chatgpt_account_id: accountId,
+    },
+  })).toString('base64url');
+  return `${header}.${payload}.sig`;
+}
+
 // ── Test Cases ─────────────────────────────────────────────────
 
 describe('LlmClient Integration with Mock HTTP Server', () => {
@@ -215,6 +227,195 @@ describe('LlmClient Integration with Mock HTTP Server', () => {
       expect(body.messages).toHaveLength(2);
       expect(body.messages[0]).toEqual({ role: 'system', content: sp() });
       expect(body.messages[1].role).toBe('user');
+    } finally {
+      await closeServer(server);
+    }
+  });
+
+  it('should not duplicate /v1 when baseUrl already ends with /v1', async () => {
+    const { server, port, cap } = await createMockServer((_req, res) => {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(okResp('Hello from v1 root')));
+    });
+
+    try {
+      const client = new LlmClient(`http://localhost:${port}/v1`, 'sk-test-key');
+      await client.complete(
+        cand(), sp(), msgs(), 'sess-v1-root',
+        { temperature: 0.5, max_tokens: 500 },
+      );
+
+      expect(cap.url).toBe('/v1/chat/completions');
+    } finally {
+      await closeServer(server);
+    }
+  });
+
+  it('should use Copilot chat endpoint and IDE headers for Copilot API roots', async () => {
+    const { server, port, cap } = await createMockServer((_req, res) => {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(okResp('Hello from copilot root')));
+    });
+
+    try {
+      const client = new LlmClient(`http://localhost:${port}/githubcopilot.com`, 'copilot-token');
+      await client.complete(
+        cand(), sp(), msgs(), 'sess-copilot-root',
+        { temperature: 0.5, max_tokens: 500 },
+      );
+
+      expect(cap.url).toBe('/githubcopilot.com/chat/completions');
+      expect(cap.headers['editor-version']).toBe('vscode/1.107.0');
+      expect(cap.headers['copilot-integration-id']).toBe('vscode-chat');
+    } finally {
+      await closeServer(server);
+    }
+  });
+
+  it('should use ChatGPT backend Codex responses endpoint for openai-codex', async () => {
+    const { server, port, cap } = await createMockServer((_req, res) => {
+      res.writeHead(200, { 'Content-Type': 'text/event-stream' });
+      res.end([
+        `data: ${JSON.stringify({ type: 'response.output_text.delta', delta: 'Codex ' })}\n\n`,
+        `data: ${JSON.stringify({ type: 'response.output_text.delta', delta: 'works' })}\n\n`,
+        `data: ${JSON.stringify({ type: 'response.completed', response: { status: 'completed' } })}\n\n`,
+        'data: [DONE]\n\n',
+      ].join(''));
+    });
+
+    try {
+      const client = new LlmClient(
+        `http://localhost:${port}/backend-api`,
+        makeJwtWithCodexAccount('acct-test-123'),
+      );
+      const result = await client.complete(
+        cand('openai-codex', 'gpt-5.4'), sp(), msgs(), 'sess-codex',
+        { temperature: 0.5, max_tokens: 500 },
+      );
+
+      expect(result.content).toBe('Codex works');
+      expect(result.toolCalls).toEqual([]);
+      expect(cap.url).toBe('/backend-api/codex/responses');
+      expect(cap.headers['accept']).toBe('text/event-stream');
+      expect(cap.headers['chatgpt-account-id']).toBe('acct-test-123');
+      expect(cap.headers['openai-beta']).toBe('responses=experimental');
+
+      const body = JSON.parse(cap.body);
+      expect(body.model).toBe('gpt-5.4');
+      expect(body.stream).toBe(true);
+      expect(body.max_output_tokens).toBeUndefined();
+      expect(body.instructions).toBe(sp());
+      expect(body.temperature).toBeUndefined();
+    } finally {
+      await closeServer(server);
+    }
+  });
+
+  it('should parse Codex completed output-item message content', async () => {
+    const { server, port } = await createMockServer((_req, res) => {
+      res.writeHead(200, { 'Content-Type': 'text/event-stream' });
+      res.end([
+        `data: ${JSON.stringify({
+          type: 'response.output_item.done',
+          item: {
+            type: 'message',
+            content: [{ type: 'output_text', text: '{"status":"done","summary":"ok"}' }],
+          },
+        })}\n\n`,
+        `data: ${JSON.stringify({ type: 'response.completed', response: { status: 'completed' } })}\n\n`,
+        'data: [DONE]\n\n',
+      ].join(''));
+    });
+
+    try {
+      const client = new LlmClient(
+        `http://localhost:${port}/backend-api`,
+        makeJwtWithCodexAccount('acct-test-123'),
+      );
+      const result = await client.complete(
+        cand('openai-codex', 'gpt-5.4'), sp(), msgs(), 'sess-codex-output-item',
+      );
+
+      expect(result.content).toBe('{"status":"done","summary":"ok"}');
+      expect(result.toolCalls).toEqual([]);
+      expect(result.finishReason).toBe('stop');
+    } finally {
+      await closeServer(server);
+    }
+  });
+
+  it('should parse Codex completed output-item function calls', async () => {
+    const { server, port, cap } = await createMockServer((_req, res) => {
+      res.writeHead(200, { 'Content-Type': 'text/event-stream' });
+      res.end([
+        `data: ${JSON.stringify({
+          type: 'response.output_item.done',
+          item: {
+            id: 'fc_1',
+            type: 'function_call',
+            call_id: 'call_1',
+            name: 'list_project_files',
+            arguments: '{"path":"."}',
+          },
+        })}\n\n`,
+        `data: ${JSON.stringify({ type: 'response.completed', response: { status: 'completed' } })}\n\n`,
+        'data: [DONE]\n\n',
+      ].join(''));
+    });
+
+    try {
+      const client = new LlmClient(
+        `http://localhost:${port}/backend-api`,
+        makeJwtWithCodexAccount('acct-test-123'),
+      );
+      const result = await client.complete(
+        cand('openai-codex', 'gpt-5.4'), sp(), msgs(), 'sess-codex-function-call',
+        {
+          tools: [{
+            type: 'function',
+            function: {
+              name: 'list_project_files',
+              description: 'List files',
+              parameters: { type: 'object', properties: { path: { type: 'string' } } },
+            },
+          }],
+        },
+      );
+
+      expect(result.content).toBeNull();
+      expect(result.finishReason).toBe('tool_calls');
+      expect(result.toolCalls).toEqual([
+        {
+          id: 'call_1',
+          type: 'function',
+          function: { name: 'list_project_files', arguments: '{"path":"."}' },
+        },
+      ]);
+      expect(JSON.parse(cap.body).tools).toHaveLength(1);
+    } finally {
+      await closeServer(server);
+    }
+  });
+
+  it('should send a non-empty Codex input even when conversation messages are empty', async () => {
+    const { server, port, cap } = await createMockServer((_req, res) => {
+      res.writeHead(200, { 'Content-Type': 'text/event-stream' });
+      res.end(`data: ${JSON.stringify({ type: 'response.output_text.delta', delta: 'ok' })}\n\n`);
+    });
+
+    try {
+      const client = new LlmClient(
+        `http://localhost:${port}/backend-api`,
+        makeJwtWithCodexAccount('acct-test-123'),
+      );
+      await client.complete(
+        cand('openai-codex', 'gpt-5.4'), sp(), [], 'sess-codex-empty',
+      );
+
+      const body = JSON.parse(cap.body);
+      expect(body.input).toHaveLength(1);
+      expect(body.input[0].role).toBe('user');
+      expect(body.input[0].content[0].text).toContain('Proceed');
     } finally {
       await closeServer(server);
     }
@@ -420,7 +621,7 @@ describe('AgentAdapter + Router + LlmClient Full Integration', () => {
           },
         ],
         updated_cards: [],
-        declare_done: false,
+        status: 'continue',
       }))));
     });
 
@@ -454,13 +655,13 @@ describe('AgentAdapter + Router + LlmClient Full Integration', () => {
       // Wire and invoke
       adapter.setLlmCallFn(adapter.createLlmCallFn());
       const result = await adapter.invokePlanner(
-        'goal-1', 'plan-1', sp(), msgs(),
+        'goal-1', sp(), msgs(),
       );
 
       expect(result.created_cards).toHaveLength(1);
       expect(result.created_cards[0].title).toBe('Add auth middleware');
       expect(result.created_cards[0].type).toBe('code');
-      expect(result.declare_done).toBe(false);
+      expect(result.status).toBe('continue');
     } finally {
       await closeServer(server);
       if (tempDir) cleanupDir(tempDir);
@@ -473,6 +674,7 @@ describe('AgentAdapter + Router + LlmClient Full Integration', () => {
       res.end(JSON.stringify(okResp(JSON.stringify({
         card_id: 'code-1',
         status: 'done',
+        status_text: 'Executor completed successfully',
         artifacts: [{ type: 'report', description: 'Test results', retain: true }],
         attachments: [],
       }))));
@@ -533,7 +735,7 @@ describe('AgentAdapter + Router + LlmClient Full Integration', () => {
       adapter.setLlmCallFn(adapter.createLlmCallFn());
 
       await expect(
-        adapter.invokePlanner('goal-1', 'plan-1', sp(), msgs()),
+        adapter.invokePlanner('goal-1', sp(), msgs()),
       ).rejects.toThrow();
     } finally {
       await closeServer(server);
@@ -648,7 +850,7 @@ describe('Account-level Provider Config Overrides', () => {
       res.end(JSON.stringify(okResp(JSON.stringify({
         created_cards: [],
         updated_cards: [],
-        declare_done: false,
+        status: 'continue',
       }))));
     });
 
@@ -678,7 +880,7 @@ describe('Account-level Provider Config Overrides', () => {
       adapter.setLlmCallFn(adapter.createLlmCallFn());
 
       const result = await adapter.invokePlanner(
-        'goal-1', 'plan-1', sp(), msgs(),
+        'goal-1', sp(), msgs(),
       );
 
       expect(result.created_cards).toBeDefined();
@@ -697,7 +899,7 @@ describe('Account-level Provider Config Overrides', () => {
       res.end(JSON.stringify(okResp(JSON.stringify({
         created_cards: [],
         updated_cards: [],
-        declare_done: false,
+        status: 'continue',
       }))));
     });
 
@@ -723,12 +925,98 @@ describe('Account-level Provider Config Overrides', () => {
       adapter.setLlmCallFn(adapter.createLlmCallFn());
 
       await adapter.invokePlanner(
-        'goal-1', 'plan-1', sp(), msgs(),
+        'goal-1', sp(), msgs(),
       );
 
       expect(cap.headers['authorization']).toBe('Bearer sk-provider-level');
     } finally {
       await closeServer(server);
+      if (tempDir) cleanupDir(tempDir);
+    }
+  });
+
+  it('should use project auth profile token when no static apiKey is configured', async () => {
+    const { server, port, cap } = await createMockServer((_req, res) => {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(okResp(JSON.stringify({
+        created_cards: [],
+        updated_cards: [],
+        status: 'continue',
+      }))));
+    });
+
+    try {
+      tempDir = makeTempDir();
+      writeSaivageJson(tempDir, {
+        models: { planner: ['test-model'], default: ['test-model'] },
+        providers: {
+          'test-provider': {
+            priority: 10,
+            models: ['test-model'],
+            baseUrl: `http://localhost:${port}`,
+            authProfile: 'test-oauth',
+          },
+        },
+        runtime: { recoveryDelayMs: 10, maxRecoveryRetries: 0 },
+      });
+      writeFileSync(
+        join(tempDir, '.saivage', 'auth-profiles.json'),
+        JSON.stringify({
+          version: 1,
+          profiles: {
+            'test-oauth': {
+              type: 'oauth',
+              provider: 'test-provider',
+              access: 'oauth-access-token',
+            },
+          },
+        }),
+        'utf-8',
+      );
+
+      const adapter = createAgentAdapter(tempDir);
+      adapter.setLlmCallFn(adapter.createLlmCallFn());
+
+      await adapter.invokePlanner(
+        'goal-1', sp(), msgs(),
+      );
+
+      expect(cap.headers['authorization']).toBe('Bearer oauth-access-token');
+    } finally {
+      await closeServer(server);
+      if (tempDir) cleanupDir(tempDir);
+    }
+  });
+
+  it('should use built-in OpenCode base URLs when config omits baseUrl', async () => {
+    try {
+      tempDir = makeTempDir();
+      writeSaivageJson(tempDir, {
+        models: { planner: ['test-model'], default: ['test-model'] },
+        providers: {
+          'opencode-go': {
+            priority: 10,
+            models: ['test-model'],
+            apiKey: 'sk-opencode-go',
+          },
+        },
+        runtime: { recoveryDelayMs: 10, maxRecoveryRetries: 0 },
+      });
+
+      const adapter = createAgentAdapter(tempDir);
+      const candidates = await adapter.router.resolve('planner');
+      const candidate = candidates[0];
+      expect(candidate.provider).toBe('opencode-go');
+
+      const transport = await resolveLlmTransportConfig(
+        tempDir,
+        adapter.registry,
+        candidate,
+      );
+
+      expect(transport.baseUrl).toBe('https://opencode.ai/zen/go/v1');
+      expect(transport.apiKey).toBe('sk-opencode-go');
+    } finally {
       if (tempDir) cleanupDir(tempDir);
     }
   });
@@ -748,7 +1036,7 @@ describe('Config temperature/max_tokens flowing through AgentAdapter', () => {
     return JSON.stringify({
       created_cards: [],
       updated_cards: [],
-      declare_done: true,
+      status: 'done',
     });
   }
 
@@ -777,7 +1065,7 @@ describe('Config temperature/max_tokens flowing through AgentAdapter', () => {
 
       const adapter = createAgentAdapter(tempDir);
       adapter.setLlmCallFn(adapter.createLlmCallFn());
-      await adapter.invokePlanner('goal-tc1', 'plan-tc1', sp(), msgs());
+      await adapter.invokePlanner('goal-tc1', sp(), msgs());
 
       const body = JSON.parse(cap.body);
       expect(body.temperature).toBe(0.7);
@@ -818,7 +1106,7 @@ describe('Config temperature/max_tokens flowing through AgentAdapter', () => {
 
       const adapter = createAgentAdapter(tempDir);
       adapter.setLlmCallFn(adapter.createLlmCallFn());
-      await adapter.invokePlanner('goal-tc2', 'plan-tc2', sp(), msgs());
+      await adapter.invokePlanner('goal-tc2', sp(), msgs());
 
       const body = JSON.parse(cap.body);
       expect(body.temperature).toBe(0.3);
@@ -859,7 +1147,7 @@ describe('Config temperature/max_tokens flowing through AgentAdapter', () => {
 
       const adapter = createAgentAdapter(tempDir);
       adapter.setLlmCallFn(adapter.createLlmCallFn());
-      await adapter.invokePlanner('goal-tc3', 'plan-tc3', sp(), msgs());
+      await adapter.invokePlanner('goal-tc3', sp(), msgs());
 
       const body = JSON.parse(cap.body);
       expect(body.temperature).toBe(0.5);   // from models.default
@@ -900,7 +1188,7 @@ describe('Config temperature/max_tokens flowing through AgentAdapter', () => {
 
       const adapter = createAgentAdapter(tempDir);
       adapter.setLlmCallFn(adapter.createLlmCallFn());
-      await adapter.invokePlanner('goal-tc4', 'plan-tc4', sp(), msgs());
+      await adapter.invokePlanner('goal-tc4', sp(), msgs());
 
       const body = JSON.parse(cap.body);
       expect(body.temperature).toBe(0.2);
@@ -941,7 +1229,7 @@ describe('Config temperature/max_tokens flowing through AgentAdapter', () => {
 
       const adapter = createAgentAdapter(tempDir);
       adapter.setLlmCallFn(adapter.createLlmCallFn());
-      await adapter.invokePlanner('goal-tc5', 'plan-tc5', sp(), msgs());
+      await adapter.invokePlanner('goal-tc5', sp(), msgs());
 
       const body = JSON.parse(cap.body);
       expect(body.temperature).toBe(0.1);    // from per-role planner
