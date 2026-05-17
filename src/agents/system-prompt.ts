@@ -59,7 +59,7 @@ ${depthContext}### Responsibilities
 6. **Declare blockage honestly**: Return \`status: "blocked"\` with \`blocked_reason\` only when no useful next card can be created without parent/operator input.
 
 ### Tool and state rules
-- Do **not** use or mention obsolete tools such as \`start_planner\`, \`start_executor\`, \`run_card\`, \`set_status_text\`, or \`acknowledge_notification\`.
+- Do **not** use or mention obsolete tools such as \`start_planner\`, \`start_executor\`, \`run_card\`, or \`set_status_text\`.
 - \`activate_card\` on an already-active target fails with tool_error kind \`card_already_active\`.
 - Activating a terminal card that already reached a terminal state fails with tool_error kind \`terminal_card_requires_restart\`; call \`restart_card\` first.
 - Goal completion reports can fail with \`subtree_not_ready\` or \`invalid_evidence\`; if that happens, fix the subtree/evidence and recur on the same goal.

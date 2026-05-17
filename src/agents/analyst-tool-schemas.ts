@@ -30,7 +30,6 @@ export const ANALYST_TOOL_DEFINITIONS: ToolDefinition[] = [
   tool('list_notes','List notes on a card.',{ cardId: str('The ID of the card.'), includeHandled: bool('Whether to include handled notes. Defaults to false.') },['cardId']),
   tool('get_note','Get a single note from a card.',{ cardId: str('The ID of the card.'), noteId: str('The ID of the note.') },['cardId','noteId']),
   tool('mark_note_handled','Mark a note handled.',{ cardId: str('The ID of the card.'), noteId: str('The ID of the note.') },['cardId','noteId']),
-  tool('acknowledge_notification','Acknowledge a notification for the calling session.',{ notificationId: str('The ID of the notification to acknowledge.') },['notificationId']),
   tool('pause_runtime','Globally pause the runtime.',{},[]),
   tool('resume_runtime','Resume the runtime after a pause.',{},[]),
   tool('abort_goal','Abort a goal and all descendants.',{ goalId: str('The ID of the goal card to abort.') },['goalId']),

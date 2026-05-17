@@ -70,10 +70,10 @@ const PLANNER_TOOL_DEFINITIONS: ToolDefinition[] = [
 ];
 
 const AGENT_TOOL_NAMES_BY_ROLE: Record<AgentRole, string[]> = {
-  analyst: ['lets_dance','mark_goal_needs_corrections','mark_project_needs_corrections','list_card_history','get_card_history_entry','diff_card','list_notes','get_note','mark_note_handled','acknowledge_notification'],
+  analyst: ['lets_dance','mark_goal_needs_corrections','mark_project_needs_corrections','list_card_history','get_card_history_entry','diff_card','list_notes','get_note','mark_note_handled'],
   planner: ['list_card_history','get_card_history_entry','diff_card','list_notes','get_note','mark_note_handled'],
-  executor: ['list_card_history','get_card_history_entry','diff_card','list_notes','get_note','mark_note_handled','acknowledge_notification'],
-  reviewer: ['list_card_history','get_card_history_entry','diff_card','list_notes','get_note','mark_note_handled','acknowledge_notification'],
+  executor: ['list_card_history','get_card_history_entry','diff_card','list_notes','get_note','mark_note_handled'],
+  reviewer: ['list_card_history','get_card_history_entry','diff_card','list_notes','get_note','mark_note_handled'],
 };
 
 const TOOL_MATRIX: Record<AgentRole, ToolDefinition[]> = {
@@ -93,7 +93,6 @@ const RUNTIME_AGENT_TOOL_REGISTRY: Record<string, (ctx: analystTools.ToolContext
   lets_dance: analystTools.lets_dance as unknown as (ctx: analystTools.ToolContext, params: Record<string, unknown>) => Promise<analystTools.ToolResult>,
   mark_goal_needs_corrections: analystTools.mark_goal_needs_corrections as unknown as (ctx: analystTools.ToolContext, params: Record<string, unknown>) => Promise<analystTools.ToolResult>,
   mark_project_needs_corrections: analystTools.mark_project_needs_corrections as unknown as (ctx: analystTools.ToolContext, params: Record<string, unknown>) => Promise<analystTools.ToolResult>,
-  acknowledge_notification: analystTools.acknowledge_notification as unknown as (ctx: analystTools.ToolContext, params: Record<string, unknown>) => Promise<analystTools.ToolResult>,
 };
 
 function buildPlannerToolErrorResponse(error: unknown): { success: false; tool_error?: { kind: string; message: string; payload?: Record<string, unknown> }; error?: string } {
@@ -257,7 +256,7 @@ export class AgentAdapter implements AgentRuntime {
 
   private formatNotificationGuidance(notification: NotificationRecord): string {
     const related = [notification.related_card_id ? `card=${notification.related_card_id}` : null, notification.related_note_id ? `note=${notification.related_note_id}` : null, notification.related_process_id ? `process=${notification.related_process_id}` : null, notification.related_version_seq ? `version=${notification.related_version_seq}` : null].filter(Boolean).join(', ');
-    return `- [${notification.kind}] severity=${notification.severity} ${notification.payload_summary}${related ? ` (${related})` : ''}. Use list_card_history/get_card_history_entry/diff_card/list_notes/get_note as needed, then acknowledge_notification("${notification.id}") once adjusted.`;
+    return `- [${notification.kind}] severity=${notification.severity} ${notification.payload_summary}${related ? ` (${related})` : ''}. Use list_card_history/get_card_history_entry/diff_card/list_notes/get_note as needed, then continue with the requested work after incorporating the update.`;
   }
 
   private buildNotificationInjectionMessage(notifications: NotificationRecord[], sessionId: string): AgentMessage { const lines = ['## Operator updates since your last turn', '', ...notifications.map((notification) => this.formatNotificationGuidance(notification))]; return { id: `msg-${sessionId}-notification-injection`, session_id: sessionId, role: 'user', kind: 'text', content: lines.join('\n'), timestamp: new Date().toISOString() }; }
@@ -277,8 +276,8 @@ export class AgentAdapter implements AgentRuntime {
     const lines = [
       '## Blocking operator updates still require acknowledgement',
       '',
-      'Your previous completion was held because blocking operator notifications are still unacknowledged.',
-      'Inspect the canonical history/note tools, acknowledge each blocking notification from this session, then resubmit completion.',
+      'Your previous completion was held because blocking operator notifications require attention.',
+      'Inspect the canonical history/note tools, incorporate each blocking update for this session, then resubmit completion.',
       '',
       ...pending.map((notification) => this.formatNotificationGuidance(notification)),
     ];

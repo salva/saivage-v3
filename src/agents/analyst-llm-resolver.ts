@@ -52,7 +52,7 @@ How to behave:
 
 import {
   create_card, edit_card, move_card, delete_card, add_note, list_cards, get_card, get_tree, get_plan_diary, get_card_output, get_status,
-  list_card_history, get_card_history_entry, diff_card, list_notes, get_note, mark_note_handled, acknowledge_notification,
+  list_card_history, get_card_history_entry, diff_card, list_notes, get_note, mark_note_handled,
   pause_runtime, resume_runtime, abort_goal, restart_card, restart_goal,
   read_file, list_directory, run_shell_command, read_runtime_events, read_runtime_errors, read_control_actions,
   list_processes_tool, list_agent_sessions, read_agent_session,
@@ -79,7 +79,6 @@ const TOOL_REGISTRY: Record<string, ToolFn> = {
   list_notes: list_notes as unknown as ToolFn,
   get_note: get_note as unknown as ToolFn,
   mark_note_handled: mark_note_handled as unknown as ToolFn,
-  acknowledge_notification: acknowledge_notification as unknown as ToolFn,
   pause_runtime: pause_runtime as unknown as ToolFn,
   resume_runtime: resume_runtime as unknown as ToolFn,
   abort_goal: abort_goal as unknown as ToolFn,
