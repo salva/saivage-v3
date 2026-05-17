@@ -1,4 +1,5 @@
 import { basename, normalize, resolve } from 'node:path';
+import { existsSync, readdirSync } from 'node:fs';
 
 export const SECRET_BASENAMES: readonly RegExp[] = [
   /^auth-profiles(?:\.[^/]+)?$/i,
@@ -49,6 +50,10 @@ function hasSecretFragment(normalizedLowerPath: string): boolean {
   });
 }
 
+function looksLikeSecretBasename(name: string): boolean {
+  return SECRET_BASENAMES.some((pattern) => pattern.test(name));
+}
+
 export function looksLikeSecretPath(absolutePath: string): boolean {
   if (!absolutePath) return false;
   const normalized = normalizePath(absolutePath);
@@ -56,14 +61,32 @@ export function looksLikeSecretPath(absolutePath: string): boolean {
   const base = basename(lower);
 
   if (hasSecretFragment(lower)) return true;
-  if (SECRET_BASENAMES.some((pattern) => pattern.test(base))) return true;
+  if (looksLikeSecretBasename(base)) return true;
   if (/(?:^|\/)\.git\/(?:.*(?:token|auth)(?:[^/]*|\/.*)|objects(?:\/.*)?)$/i.test(lower)) return true;
 
   return false;
 }
 
+export function directoryDirectlyExposesSecretChildren(absolutePath: string): boolean {
+  if (!absolutePath) return false;
+  const normalized = normalizePath(absolutePath);
+  if (!existsSync(normalized)) return false;
+
+  try {
+    return readdirSync(normalized).some((entry) => looksLikeSecretPath(`${normalized}/${entry}`) || looksLikeSecretBasename(entry.toLowerCase()));
+  } catch {
+    return false;
+  }
+}
+
 export function assertNotSecretPath(absolutePath: string): void {
   if (looksLikeSecretPath(absolutePath)) {
+    throw new SecretPathError(absolutePath);
+  }
+}
+
+export function assertSafeShellCwd(absolutePath: string): void {
+  if (looksLikeSecretPath(absolutePath) || directoryDirectlyExposesSecretChildren(absolutePath)) {
     throw new SecretPathError(absolutePath);
   }
 }

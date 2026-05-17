@@ -180,16 +180,21 @@ describe('run_shell_command', () => {
     }
   });
 
-  it('sanitizes secret-bearing cwd handling without leaking the path', async () => {
+  it('rejects secret-bearing cwd directories before execution without leaking the real path', async () => {
     const root = mkdtempSync(join(tmpdir(), 'wave-j-shell-'));
     try {
       const store = setup(root);
       const secretDir = join(root, '.saivage');
+      const marker = join(root, 'should-not-execute.txt');
       mkdirSync(secretDir, { recursive: true });
-      const result = await run_shell_command(ctx(root, store), { command: 'pwd', cwd: secretDir });
-      expect(result.success).toBe(true);
-      expect(JSON.stringify(result)).toContain('[SECRET_PATH]');
-      expect(JSON.stringify(result)).not.toContain(secretDir);
+      writeFileSync(join(secretDir, 'auth-profiles.json'), '{"token":"secret"}');
+      const result = await run_shell_command(ctx(root, store), { command: `printf blocked > ${marker}`, cwd: secretDir });
+      expect(result.success).toBe(false);
+      expect(result.error).toMatch(/secret-bearing path is off-limits/i);
+      expect(result.error).not.toContain(secretDir);
+      expect(JSON.stringify(result)).not.toMatch(/auth-profiles\.json|\.saivage/i);
+      expect(existsSync(marker)).toBe(false);
+      expect(readAudit(root)).toHaveLength(0);
     } finally { rmSync(root, { recursive: true, force: true }); }
   });
 
