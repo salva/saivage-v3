@@ -552,7 +552,7 @@ describe('Runtime/Supervisor wiring for abort and force-cancel', () => {
         return { card_id: 'c', status: 'done' as const, status_text: 'Completed successfully', artifacts: [], attachments: [] };
       },
       invokeReviewer(_goalId: string) {
-        return { assessment: { result: 'pass' as const, summary: '', achieved: [], missing: [], evidence_card_ids: [] } };
+        return { assessment: { result: 'pass' as const, summary: '', achieved: [], issues: [], evidence_card_ids: [] } };
       },
       cancelSession(sessionId: string) {
         cancellationTracker.abortCalls.push({ sessionId });

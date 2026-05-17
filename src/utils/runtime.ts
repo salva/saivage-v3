@@ -261,7 +261,7 @@ export class Runtime extends EventEmitter {
         const reviewResult = await this.invokeReviewer(goalId, planCard.id);
         const validation = this.validateReviewerAssessment(goalId, reviewResult.assessment);
         if (reviewResult.assessment.result === 'pass' && !validation.valid) {
-          const invalidAssessment: ReviewAssessment = { id: `review-${goalId}-${Date.now()}`, goal_card_id: goalId, reviewer_session_id: `reviewer-${goalId}`, result: 'fail', summary: `Reviewer pass rejected: ${validation.reason}`, achieved: [], missing: [validation.reason ?? 'Reviewer evidence validation failed.'], evidence_card_ids: reviewResult.assessment.evidence_card_ids, created_at: now() };
+          const invalidAssessment: ReviewAssessment = { id: `review-${goalId}-${Date.now()}`, goal_card_id: goalId, reviewer_session_id: `reviewer-${goalId}`, assessment_id: `assessment-${goalId}-${Date.now()}`, at: now(), result: 'needs_corrections', summary: `Reviewer pass rejected: ${validation.reason}`, achieved: [], issues: [{ summary: validation.reason ?? 'Reviewer evidence validation failed.', severity: 'blocker' as const }], evidence_card_ids: reviewResult.assessment.evidence_card_ids, created_at: now() };
           this.persistReviewState(goalId, invalidAssessment);
           this.emit('review_failed', { goalId, assessment: invalidAssessment });
           this._eventLogger.appendEvent({ kind: 'review_failed', goal_id: goalId, assessment: invalidAssessment });
@@ -270,7 +270,7 @@ export class Runtime extends EventEmitter {
         }
         if (reviewResult.assessment.result === 'pass') {
           if (this.cardStore.read(goalId)?.status !== 'done') { this.cardStore.setStatus(goalId, 'running'); this.cardStore.setStatus(goalId, 'done'); }
-          const assessment: ReviewAssessment = { id: `review-${goalId}-${Date.now()}`, goal_card_id: goalId, reviewer_session_id: `reviewer-${goalId}`, result: 'pass', summary: reviewResult.assessment.summary, achieved: reviewResult.assessment.achieved, missing: reviewResult.assessment.missing, evidence_card_ids: reviewResult.assessment.evidence_card_ids, created_at: now() };
+          const assessment: ReviewAssessment = { id: `review-${goalId}-${Date.now()}`, goal_card_id: goalId, reviewer_session_id: `reviewer-${goalId}`, assessment_id: `assessment-${goalId}-${Date.now()}`, at: now(), result: 'pass', summary: reviewResult.assessment.summary, achieved: reviewResult.assessment.achieved, issues: reviewResult.assessment.issues, evidence_card_ids: reviewResult.assessment.evidence_card_ids, created_at: now() };
           this.persistReviewState(goalId, assessment);
           this.cardStore.update(goalId, { result: { ...(this.cardStore.read(goalId)?.result ?? {}), planning: { status: 'done', created_cards: [], review_summary: reviewResult.assessment.summary } } });
           this.appendChildUnwindToolResult(goalId, 'done', reviewResult.assessment.summary);
@@ -280,7 +280,7 @@ export class Runtime extends EventEmitter {
           await this._checkContinuousImprovement(); return;
         } else {
           plannerDone = false;
-          const failedAssessment: ReviewAssessment = { id: `review-${goalId}-${Date.now()}`, goal_card_id: goalId, reviewer_session_id: `reviewer-${goalId}`, result: 'fail', summary: reviewResult.assessment.summary, achieved: reviewResult.assessment.achieved, missing: reviewResult.assessment.missing, evidence_card_ids: reviewResult.assessment.evidence_card_ids, created_at: now() };
+          const failedAssessment: ReviewAssessment = { id: `review-${goalId}-${Date.now()}`, goal_card_id: goalId, reviewer_session_id: `reviewer-${goalId}`, assessment_id: `assessment-${goalId}-${Date.now()}`, at: now(), result: 'needs_corrections', summary: reviewResult.assessment.summary, achieved: reviewResult.assessment.achieved, issues: reviewResult.assessment.issues, evidence_card_ids: reviewResult.assessment.evidence_card_ids, created_at: now() };
           this.persistReviewState(goalId, failedAssessment);
           this.emit('review_failed', { goalId, assessment: failedAssessment }); this._eventLogger.appendEvent({ kind: 'review_failed', goal_id: goalId, assessment: failedAssessment });
         }

@@ -90,7 +90,7 @@ describe('buildExecutorFallbackResult', () => {
 
 describe('parseReviewerResult', () => {
   it('parses reviewer assessments', () => {
-    const raw = JSON.stringify({ assessment: { result: 'pass', summary: 'All criteria met', achieved: ['Feature works'], missing: [], evidence_card_ids: ['code-1'] } });
+    const raw = JSON.stringify({ assessment: { result: 'pass', summary: 'All criteria met', achieved: ['Feature works'], issues: [], evidence_card_ids: ['code-1'] } });
     expect(parseReviewerResult(raw).assessment.result).toBe('pass');
   });
 });

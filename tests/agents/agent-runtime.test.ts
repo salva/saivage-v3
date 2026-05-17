@@ -85,14 +85,14 @@ describe('AgentRuntime Interface', () => {
     });
 
     it('invokeReviewer returns ReviewerResult (AgentRuntime signature)', () => {
-      const fixture: FakeAgentFixture = { name: 'test-goal', planner: [], executor: {}, reviewer: [{ assessment: { id: 'review-test-1', goal_card_id: 'goal-1', reviewer_session_id: 'rev-session', result: 'pass', summary: 'All good.', achieved: ['All criteria met'], missing: [], evidence_card_ids: ['code-test-1'], created_at: new Date().toISOString() } }] };
+      const fixture: FakeAgentFixture = { name: 'test-goal', planner: [], executor: {}, reviewer: [{ assessment: { id: 'review-test-1', goal_card_id: 'goal-1', reviewer_session_id: 'rev-session', assessment_id: 'assessment-test', at: '2025-01-01T00:00:00.000Z', result: 'pass', summary: 'All good.', achieved: ['All criteria met'], issues: [], evidence_card_ids: ['code-test-1'], created_at: new Date().toISOString() } }] };
       writeFixture(fixtureDir, 'test-goal', fixture);
       const adapter = new FakeAgentAdapter({ mapping: { 'goal-1': 'test-goal', '*': 'test-goal' }, fixtureDir });
       const result = adapter.invokeReviewer('goal-1', 'system prompt', []);
       expect(result.assessment.result).toBe('pass');
       expect(result.assessment.summary).toBe('All good.');
       expect(result.assessment.achieved).toEqual(['All criteria met']);
-      expect(result.assessment.missing).toEqual([]);
+      expect(result.assessment.issues).toEqual([]);
       expect(result.assessment.evidence_card_ids).toEqual(['code-test-1']);
     });
 

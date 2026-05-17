@@ -80,10 +80,10 @@ describe('Runtime executor fallback evidence persistence', () => {
     };
     const reviewerResult: ReviewerResult = {
       assessment: {
-        result: 'fail',
+        result: 'needs_corrections',
         summary: 'Executor failed as expected for malformed final JSON fallback evidence test',
         achieved: ['Fallback evidence persisted on the card.'],
-        missing: [],
+        issues: [],
         evidence_card_ids: ['code-1'],
       },
     };

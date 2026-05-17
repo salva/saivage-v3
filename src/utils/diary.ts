@@ -21,7 +21,7 @@ interface DiaryIndex {
 interface ReviewsByGoalIndex {
   reviews: Array<{
     id: string;
-    result: 'pass' | 'fail' | 'needs_corrections';
+    result: 'pass' | 'needs_corrections';
     timestamp: string;
     diary_entry_id: string;
   }>;
@@ -258,7 +258,6 @@ export function appendReviewAssessment(
     result: assessment.result,
     summary: assessment.summary,
     achieved: assessment.achieved,
-    missing: assessment.missing ?? [],
     issues: assessment.issues ?? [],
     assessment_id: assessment.assessment_id ?? assessmentId,
     at: assessment.at ?? now,
@@ -313,7 +312,6 @@ export function getReviewAssessments(saivageDir: string, goalCardId: string): Re
         result: rev.result,
         summary: '',
         achieved: [],
-        missing: [],
         evidence_card_ids: [],
         created_at: rev.timestamp,
         assessment_id: rev.id,

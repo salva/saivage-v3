@@ -34,14 +34,14 @@ afterEach(() => {
   rmSync(tmpDir, { recursive: true, force: true });
 });
 
-function readIndexFile(planCardId: string): Record<string, unknown> | null {
-  const path = join(saivageDir, 'diaries', `plan-${planCardId}`, 'index.json');
+function readIndexFile(goalCardId: string): Record<string, unknown> | null {
+  const path = join(saivageDir, 'diaries', goalCardId, 'index.json');
   if (!existsSync(path)) return null;
   return JSON.parse(readFileSync(path, 'utf-8'));
 }
 
-function readEntryFile(planCardId: string, filename: string): DiaryEntry | null {
-  const path = join(saivageDir, 'diaries', `plan-${planCardId}`, filename);
+function readEntryFile(goalCardId: string, filename: string): DiaryEntry | null {
+  const path = join(saivageDir, 'diaries', goalCardId, filename);
   if (!existsSync(path)) return null;
   return JSON.parse(readFileSync(path, 'utf-8')) as DiaryEntry;
 }
@@ -53,11 +53,11 @@ function readReviewIndex(goalCardId: string): Record<string, unknown> | null {
 }
 
 function baseEntry(
-  planCardId: string,
+  goalCardId: string,
   kind: 'planner_invocation' | 'planner_decision' | 'card_mutation' | 'failure_handling',
 ) {
   return {
-    plan_card_id: planCardId,
+    goal_card_id: goalCardId,
     invocation_id: 'inv-1',
     kind,
   };
@@ -71,7 +71,7 @@ describe('initDiary', () => {
   it('creates diary directory and index.json with sequence=0', () => {
     initDiary(saivageDir, 'plan-abc');
 
-    const dirPath = join(saivageDir, 'diaries', 'plan-plan-abc');
+    const dirPath = join(saivageDir, 'diaries', 'plan-abc');
     expect(existsSync(dirPath)).toBe(true);
 
     const index = readIndexFile('plan-abc');
@@ -125,7 +125,7 @@ describe('appendDiaryEntry', () => {
 
     appendDiaryEntry(saivageDir, baseEntry('plan-1', 'planner_invocation'));
 
-    const dirPath = join(saivageDir, 'diaries', 'plan-plan-1');
+    const dirPath = join(saivageDir, 'diaries', 'plan-1');
     expect(existsSync(join(dirPath, '000001.planner_invocation.json'))).toBe(true);
 
     appendDiaryEntry(saivageDir, baseEntry('plan-1', 'card_mutation'));
@@ -159,7 +159,7 @@ describe('appendDiaryEntry', () => {
     initDiary(saivageDir, 'plan-1');
 
     appendDiaryEntry(saivageDir, {
-      plan_card_id: 'plan-1',
+      goal_card_id: 'plan-1',
       invocation_id: 'inv-42',
       kind: 'planner_decision',
       input_summary: 'Decided approach',
@@ -171,7 +171,7 @@ describe('appendDiaryEntry', () => {
 
     const fileContent = readEntryFile('plan-1', '000001.planner_decision.json');
     expect(fileContent).not.toBeNull();
-    expect(fileContent!.plan_card_id).toBe('plan-1');
+    expect(fileContent!.goal_card_id).toBe('plan-1');
     expect(fileContent!.invocation_id).toBe('inv-42');
     expect(fileContent!.kind).toBe('planner_decision');
     expect(fileContent!.input_summary).toBe('Decided approach');
@@ -186,7 +186,7 @@ describe('appendDiaryEntry', () => {
 
     expect(() =>
       appendDiaryEntry(saivageDir, {
-        plan_card_id: 'plan-1',
+        goal_card_id: 'plan-1',
         invocation_id: 'inv-1',
         kind: 'invalid_kind' as 'planner_invocation',
       }),
@@ -222,7 +222,7 @@ describe('getDiaryEntries', () => {
     initDiary(saivageDir, 'plan-1');
 
     appendDiaryEntry(saivageDir, {
-      plan_card_id: 'plan-1',
+      goal_card_id: 'plan-1',
       invocation_id: 'inv-9',
       kind: 'planner_decision',
       decision: 'X',
@@ -280,27 +280,28 @@ describe('appendReviewAssessment', () => {
 
     const result = appendReviewAssessment(saivageDir, {
       goal_card_id: 'goal-1',
-      plan_card_id: 'plan-g1',
       reviewer_session_id: 'ses-1',
+      assessment_id: 'assessment-test',
+      at: '2025-01-01T00:00:00.000Z',
       result: 'pass',
       summary: 'All acceptance criteria met',
       achieved: ['Goal achieved'],
-      missing: [],
+      issues: [],
       evidence_card_ids: ['card-a', 'card-b'],
     });
 
     expect(result.entry).toBeDefined();
     expect(result.entry.kind).toBe('review_assessment');
-    expect(result.entry.plan_card_id).toBe('plan-g1');
+    expect(result.entry.goal_card_id).toBe('goal-1');
     expect(result.assessment).toBeDefined();
     expect(result.assessment.result).toBe('pass');
     expect(result.assessment.goal_card_id).toBe('goal-1');
 
     // Verify diary file exists
-    const dirPath = join(saivageDir, 'diaries', 'plan-plan-g1');
+    const dirPath = join(saivageDir, 'diaries', 'goal-1');
     expect(existsSync(join(dirPath, '000001.review_assessment.json'))).toBe(true);
 
-    const fileContent = readEntryFile('plan-g1', '000001.review_assessment.json');
+    const fileContent = readEntryFile('goal-1', '000001.review_assessment.json');
     expect(fileContent!.assessment).toBeDefined();
     expect(fileContent!.assessment!.result).toBe('pass');
     expect(fileContent!.assessment!.summary).toBe('All acceptance criteria met');
@@ -311,12 +312,13 @@ describe('appendReviewAssessment', () => {
 
     appendReviewAssessment(saivageDir, {
       goal_card_id: 'goal-1',
-      plan_card_id: 'plan-g1',
       reviewer_session_id: 'ses-1',
-      result: 'fail',
+      assessment_id: 'assessment-test',
+      at: '2025-01-01T00:00:00.000Z',
+      result: 'needs_corrections',
       summary: 'Missing items',
       achieved: ['Partial'],
-      missing: ['Item A', 'Item B'],
+      issues: [{ summary: 'Item A', severity: 'blocker' }, { summary: 'Item B', severity: 'blocker' }],
       evidence_card_ids: ['card-1'],
     });
 
@@ -328,7 +330,7 @@ describe('appendReviewAssessment', () => {
     const rev = (reviewIdx!.reviews as Array<Record<string, unknown>>)[0];
     expect(rev.id).toBe('rev-1');
     expect(rev.result).toBe('fail');
-    expect(rev.plan_card_id).toBe('plan-g1');
+    expect(rev.diary_entry_id).toBeTruthy();
     expect(rev.diary_entry_id).toBeTruthy();
   });
 
@@ -337,24 +339,26 @@ describe('appendReviewAssessment', () => {
 
     const r1 = appendReviewAssessment(saivageDir, {
       goal_card_id: 'goal-1',
-      plan_card_id: 'plan-g1',
       reviewer_session_id: 'ses-1',
+      assessment_id: 'assessment-test',
+      at: '2025-01-01T00:00:00.000Z',
       result: 'pass',
       summary: 'First',
       achieved: [],
-      missing: [],
+      issues: [],
       evidence_card_ids: [],
     });
     expect(r1.assessment.id).toBe('rev-1');
 
     const r2 = appendReviewAssessment(saivageDir, {
       goal_card_id: 'goal-1',
-      plan_card_id: 'plan-g1',
       reviewer_session_id: 'ses-2',
-      result: 'fail',
+      assessment_id: 'assessment-test',
+      at: '2025-01-01T00:00:00.000Z',
+      result: 'needs_corrections',
       summary: 'Second',
       achieved: [],
-      missing: [],
+      issues: [],
       evidence_card_ids: [],
     });
     expect(r2.assessment.id).toBe('rev-2');
@@ -366,12 +370,13 @@ describe('appendReviewAssessment', () => {
     const result = appendReviewAssessment(saivageDir, {
       id: 'custom-rev-42',
       goal_card_id: 'goal-1',
-      plan_card_id: 'plan-g1',
       reviewer_session_id: 'ses-1',
+      assessment_id: 'assessment-test',
+      at: '2025-01-01T00:00:00.000Z',
       result: 'pass',
       summary: 'Custom',
       achieved: [],
-      missing: [],
+      issues: [],
       evidence_card_ids: [],
     });
 
@@ -384,12 +389,13 @@ describe('appendReviewAssessment', () => {
     expect(() =>
       appendReviewAssessment(saivageDir, {
         goal_card_id: 'goal-1',
-        plan_card_id: 'plan-g1',
         reviewer_session_id: 'ses-1',
+        assessment_id: 'assessment-test',
+        at: '2025-01-01T00:00:00.000Z',
         result: 'invalid_result' as 'pass',
         summary: 'Test',
         achieved: [],
-        missing: [],
+        issues: [],
         evidence_card_ids: [],
       }),
     ).toThrow();
@@ -400,12 +406,13 @@ describe('appendReviewAssessment', () => {
 
     const result = appendReviewAssessment(saivageDir, {
       goal_card_id: 'goal-1',
-      plan_card_id: 'plan-g1',
       reviewer_session_id: 'ses-1',
+      assessment_id: 'assessment-test',
+      at: '2025-01-01T00:00:00.000Z',
       result: 'pass',
       summary: 'Embedded test',
       achieved: ['A1'],
-      missing: [],
+      issues: [],
       evidence_card_ids: ['card-x'],
     });
 
@@ -427,23 +434,25 @@ describe('getReviewAssessments', () => {
 
     appendReviewAssessment(saivageDir, {
       goal_card_id: 'goal-1',
-      plan_card_id: 'plan-g1',
       reviewer_session_id: 'ses-1',
+      assessment_id: 'assessment-test',
+      at: '2025-01-01T00:00:00.000Z',
       result: 'pass',
       summary: 'First review',
       achieved: ['A'],
-      missing: [],
+      issues: [],
       evidence_card_ids: ['c1'],
     });
 
     appendReviewAssessment(saivageDir, {
       goal_card_id: 'goal-1',
-      plan_card_id: 'plan-g1',
       reviewer_session_id: 'ses-2',
-      result: 'fail',
+      assessment_id: 'assessment-test',
+      at: '2025-01-01T00:00:00.000Z',
+      result: 'needs_corrections',
       summary: 'Second review',
       achieved: [],
-      missing: ['B'],
+      issues: [{ summary: 'B', severity: 'blocker' }],
       evidence_card_ids: [],
     });
 
@@ -460,36 +469,38 @@ describe('getReviewAssessments', () => {
     expect(assessments).toEqual([]);
   });
 
-  it('handles assessments across multiple plan cards for same goal', () => {
+  it('handles multiple assessments for same goal', () => {
     initDiary(saivageDir, 'plan-g1');
     initDiary(saivageDir, 'plan-g2');
 
     appendReviewAssessment(saivageDir, {
       goal_card_id: 'goal-1',
-      plan_card_id: 'plan-g1',
       reviewer_session_id: 'ses-1',
+      assessment_id: 'assessment-test',
+      at: '2025-01-01T00:00:00.000Z',
       result: 'pass',
       summary: 'First plan review',
       achieved: [],
-      missing: [],
+      issues: [],
       evidence_card_ids: [],
     });
 
     appendReviewAssessment(saivageDir, {
       goal_card_id: 'goal-1',
-      plan_card_id: 'plan-g2',
       reviewer_session_id: 'ses-2',
-      result: 'fail',
+      assessment_id: 'assessment-test',
+      at: '2025-01-01T00:00:00.000Z',
+      result: 'needs_corrections',
       summary: 'Second plan review',
       achieved: [],
-      missing: [],
+      issues: [],
       evidence_card_ids: [],
     });
 
     const assessments = getReviewAssessments(saivageDir, 'goal-1');
     expect(assessments.length).toBe(2);
-    expect(assessments[0].plan_card_id).toBe('plan-g1');
-    expect(assessments[1].plan_card_id).toBe('plan-g2');
+    expect(assessments[0].goal_card_id).toBe('goal-1');
+    expect(assessments[1].goal_card_id).toBe('goal-1');
   });
 });
 
@@ -504,7 +515,7 @@ describe('deleteDiary', () => {
     appendDiaryEntry(saivageDir, baseEntry('plan-1', 'planner_invocation'));
     appendDiaryEntry(saivageDir, baseEntry('plan-1', 'planner_decision'));
 
-    const dirPath = join(saivageDir, 'diaries', 'plan-plan-1');
+    const dirPath = join(saivageDir, 'diaries', 'plan-1');
     expect(existsSync(dirPath)).toBe(true);
 
     deleteDiary(saivageDir, 'plan-1');
@@ -540,13 +551,13 @@ describe('edge cases', () => {
     // No initDiary call — append should still work because
     // readDiaryIndex returns defaults and writeDiaryIndexAtomic creates dirs
     const entry = appendDiaryEntry(saivageDir, {
-      plan_card_id: 'plan-imp',
+      goal_card_id: 'plan-imp',
       invocation_id: 'inv-1',
       kind: 'planner_invocation',
     });
 
     expect(entry).toBeDefined();
-    expect(entry.plan_card_id).toBe('plan-imp');
+    expect(entry.goal_card_id).toBe('plan-imp');
 
     const index = readIndexFile('plan-imp');
     expect(index!.sequence).toBe(1);
@@ -556,7 +567,7 @@ describe('edge cases', () => {
     initDiary(saivageDir, 'plan-1');
 
     appendDiaryEntry(saivageDir, {
-      plan_card_id: 'plan-1',
+      goal_card_id: 'plan-1',
       invocation_id: 'inv-1',
       kind: 'planner_invocation',
       raw: { model: 'gpt-4', temperature: 0.7 },
@@ -575,7 +586,7 @@ describe('edge cases', () => {
       appendDiaryEntry(saivageDir, baseEntry('plan-1', 'planner_invocation'));
     }
 
-    const dirPath = join(saivageDir, 'diaries', 'plan-plan-1');
+    const dirPath = join(saivageDir, 'diaries', 'plan-1');
     expect(existsSync(join(dirPath, '001500.planner_invocation.json'))).toBe(true);
 
     const index = readIndexFile('plan-1');

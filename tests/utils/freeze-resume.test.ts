@@ -79,15 +79,17 @@ function createHappyFixture(): FakeAgentFixture {
   return {
     name: 'happy',
     planner: [
-      { plan_card_id: 'plan-1', created_cards: [], declare_done: true },
+      { created_cards: [], status: 'done' },
     ],
     executor: {},
     reviewer: [
       {
         assessment: {
-          id: 'rev-1', goal_card_id: 'goal-1', plan_card_id: 'plan-1',
+          id: 'rev-1', goal_card_id: 'goal-1',
           reviewer_session_id: 'rev-session', result: 'pass',
-          summary: 'ok', achieved: [], missing: [], evidence_card_ids: [],
+          assessment_id: 'assessment-test',
+          at: '2025-01-01T00:00:00.000Z',
+          summary: 'ok', achieved: [], issues: [], evidence_card_ids: [],
           created_at: new Date().toISOString(),
         },
       },

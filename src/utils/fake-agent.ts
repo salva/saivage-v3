@@ -49,7 +49,7 @@ function convertExecutorResult(raw: FakeExecutorResult): ExecutorResult {
   return { card_id: raw.card_id, status: raw.status, status_text: raw.status_text, error: raw.error, result: raw.result, artifacts: (raw.artifacts ?? []).map((a) => ({ type: a.type, description: a.description, retain: a.retain, sourceFile: a.sourceFile })), attachments: (raw.attachments ?? []).map((a) => ({ mime: a.mime, title: a.title, description: a.description, sourceFile: a.sourceFile })), summary: undefined };
 }
 function convertReviewerResult(raw: FakeReviewerResult): ReviewerResult {
-  return { assessment: { result: raw.assessment.result, summary: raw.assessment.summary, achieved: raw.assessment.achieved, missing: raw.assessment.missing, evidence_card_ids: raw.assessment.evidence_card_ids } };
+  return { assessment: { result: raw.assessment.result, summary: raw.assessment.summary, achieved: raw.assessment.achieved, issues: raw.assessment.issues, evidence_card_ids: raw.assessment.evidence_card_ids } };
 }
 
 export class FakeAgentAdapter implements AgentRuntime {

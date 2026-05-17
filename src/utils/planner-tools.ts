@@ -121,16 +121,6 @@ function collectSubtreeReadinessReasons(store: CardStore, goalId: string): Subtr
   return reasons;
 }
 
-function normalizeReviewerResult(result: ReviewerResult): ReviewerResult {
-  return {
-    result: result.result === 'fail' ? 'needs_corrections' : result.result,
-    summary: result.summary,
-    achieved: result.achieved ?? [],
-    issues: result.issues ?? result.missing?.map((summary) => ({ summary, severity: 'blocker' as const })) ?? [],
-    evidence_card_ids: result.evidence_card_ids ?? [],
-  };
-}
-
 export class PlannerToolsService {
   private readonly runtimeStateProvider?: () => RuntimeState | null;
   private readonly projectRoot?: string;
@@ -276,7 +266,7 @@ export class PlannerToolsService {
   }
 
   private applyReviewerAssessment(goal: CardRecord, report: GoalSelfReport, statusText: string, sessionId: string | undefined, assessmentId: string, reviewerSessionId: string, rawReview: ReviewerResult): ReportGoalResult {
-    const review = normalizeReviewerResult(rawReview);
+    const review = rawReview;
     const assessment: ReviewAssessment = {
       ...review,
       assessment_id: assessmentId,
@@ -295,7 +285,7 @@ export class PlannerToolsService {
     const attempts = current.retries + 1;
     this.store.update(goal.id, { retries: attempts });
     if (attempts > this.maxReviewRetries) {
-      this.writePendingSubtreeCorrectionNotes(goal.id, assessment.issues ?? []);
+      this.writePendingSubtreeCorrectionNotes(goal.id, assessment.issues);
       const changed = this.store.update(goal.id, { status: 'changed' });
       return { card: changed, accepted: true, assessment };
     }

@@ -48,8 +48,8 @@ export interface ProjectConfig { id: 'project'; name: string; context: string; g
 export type DiaryKind = 'planner_invocation' | 'planner_decision' | 'card_mutation' | 'review_assessment' | 'failure_handling';
 export interface DiaryEntry { id: string; goal_card_id: string; invocation_id: string; kind: DiaryKind; timestamp: string; input_summary?: string; decision?: string; rationale?: string; created_cards?: string[]; updated_cards?: string[]; reviewed_cards?: string[]; assessment?: ReviewAssessment; raw?: Record<string, unknown>; }
 export interface ReviewerIssue { summary: string; severity: 'info' | 'warning' | 'blocker'; evidence_card_id?: string; recommendation?: string; }
-export interface ReviewerResult { result: 'pass' | 'needs_corrections' | 'fail'; summary: string; achieved: string[]; issues?: ReviewerIssue[]; evidence_card_ids: string[]; missing?: string[]; }
-export interface ReviewAssessment extends ReviewerResult { assessment_id?: string; at?: string; reviewer_session_id?: string; goal_card_id?: string; id?: string; created_at?: string; }
+export interface ReviewerResult { result: 'pass' | 'needs_corrections'; summary: string; achieved: string[]; issues: ReviewerIssue[]; evidence_card_ids: string[]; }
+export interface ReviewAssessment extends ReviewerResult { assessment_id: string; at: string; reviewer_session_id?: string; goal_card_id?: string; id?: string; created_at?: string; }
 export type NoteKind = 'comment' | 'progress' | 'directive' | 'escalation';
 export interface NoteRecord { id: string; card_id: string; author: NoteAuthor; timestamp: string; content: string; kind: NoteKind; handled: boolean; handled_at?: string | null; }
 export interface NotesQueueEntry { card_id: string; note_id: string; timestamp: string; kind: NoteKind; }

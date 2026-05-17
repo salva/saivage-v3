@@ -32,7 +32,7 @@ describe('Runtime held dispatch for blocking notifications', () => {
     const agentRuntime: AgentRuntime = {
       invokePlanner() { return { status: 'done', created_cards: [], updated_cards: [] }; },
       invokeExecutor() { return { card_id: 'code-1', status: 'done', status_text: 'Completed successfully', artifacts: [], attachments: [] }; },
-      invokeReviewer() { return { assessment: { result: 'pass', summary: 'ok', achieved: [], missing: [], evidence_card_ids: ['code-1'] } }; },
+      invokeReviewer() { return { assessment: { result: 'pass', summary: 'ok', achieved: [], issues: [], evidence_card_ids: ['code-1'] } }; },
       reinvokeSession: async () => { reinvoked += 1; center.acknowledge('sess-executor', 'n-block'); return { card_id: 'code-1', status: 'done', status_text: 'Completed successfully', artifacts: [], attachments: [] }; },
       cancelSession() { return false; },
       forceCancelSession() { return false; },
@@ -52,8 +52,8 @@ describe('Runtime held dispatch for blocking notifications', () => {
     const agentRuntime: AgentRuntime = {
       invokePlanner() { return { status: 'done', created_cards: [], updated_cards: [] }; },
       invokeExecutor() { return { card_id: 'code-1', status: 'done', status_text: 'Completed successfully', artifacts: [], attachments: [] }; },
-      invokeReviewer() { return { assessment: { result: 'pass', summary: 'ok', achieved: [], missing: [], evidence_card_ids: ['code-1'] } }; },
-      reinvokeSession: async () => ({ assessment: { result: 'pass', summary: 'still unacked', achieved: [], missing: [], evidence_card_ids: ['code-1'] } }),
+      invokeReviewer() { return { assessment: { result: 'pass', summary: 'ok', achieved: [], issues: [], evidence_card_ids: ['code-1'] } }; },
+      reinvokeSession: async () => ({ assessment: { result: 'pass', summary: 'still unacked', achieved: [], issues: [], evidence_card_ids: ['code-1'] } }),
       cancelSession() { return false; },
       forceCancelSession() { return false; },
       getHandoffSummary() { return null; },

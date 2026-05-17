@@ -167,7 +167,7 @@ const REVIEWER_RESPONSE = JSON.stringify({
     result: 'pass',
     summary: 'All criteria met',
     achieved: ['Feature implemented', 'Tests passing'],
-    missing: [],
+    issues: [],
     evidence_card_ids: ['code-e2e-llm-1', 'code-e2e-llm-2'],
   },
 });
@@ -204,7 +204,7 @@ const PROJECT_REVIEWER_RESPONSE = JSON.stringify({
     result: 'pass',
     summary: 'Project-level criteria met',
     achieved: ['Project evidence produced'],
-    missing: [],
+    issues: [],
     evidence_card_ids: ['code-project-evidence-1'],
   },
 });

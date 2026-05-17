@@ -145,13 +145,13 @@ describe('Integration: Config → Router → Parsing', () => {
         },
       ],
       updated_cards: [],
-      declare_done: false,
+      status: 'continue',
     });
 
     const parsed = parsePlannerResult(rawResponse);
     expect(parsed.created_cards).toHaveLength(1);
     expect(parsed.created_cards[0].title).toBe('Implement auth module');
-    expect(parsed.declare_done).toBe(false);
+    expect(parsed.status).toBe('continue');
   });
 
   it('should flow from config → router → parse executor result', async () => {
@@ -205,14 +205,14 @@ describe('Integration: Config → Router → Parsing', () => {
         result: 'pass',
         summary: 'All criteria satisfied',
         achieved: ['Auth module works'],
-        missing: [],
+        issues: [],
         evidence_card_ids: ['code-1'],
       },
     });
 
     const parsed = parseReviewerResult(rawResponse);
     expect(parsed.assessment.result).toBe('pass');
-    expect(parsed.assessment.missing).toHaveLength(0);
+    expect(parsed.assessment.issues).toHaveLength(0);
   });
 
   it('should handle recovery with session persistence', async () => {

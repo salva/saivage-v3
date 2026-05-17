@@ -66,11 +66,10 @@ export interface ExecutorFallbackContext {
 export interface ReviewerIssue { summary: string; severity: 'info' | 'warning' | 'blocker'; evidence_card_id?: string; recommendation?: string; }
 export interface ReviewerResult {
   assessment: {
-    result: 'pass' | 'needs_corrections' | 'fail';
+    result: 'pass' | 'needs_corrections';
     summary: string;
     achieved: string[];
-    issues?: ReviewerIssue[];
-    missing?: string[];
+    issues: ReviewerIssue[];
     evidence_card_ids: string[];
   };
 }
@@ -148,6 +147,7 @@ const rawReviewerResultSchema = z.object({
     achieved: z.array(z.string()).optional().default([]),
     issues: z.array(z.object({ summary: z.string(), severity: z.enum(['info', 'warning', 'blocker']), evidence_card_id: z.string().optional(), recommendation: z.string().optional() })).optional().default([]),
     evidence_card_ids: z.array(z.string()).optional().default([]),
+    missing: z.array(z.string()).optional().default([]),
   }),
 });
 
@@ -346,7 +346,18 @@ export function parseReviewerResult(raw: string): ReviewerResult {
     const issues = parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`);
     throw new ResultParseError(`Reviewer result validation failed:\n${issues.join('\n')}`, obj, issues);
   }
-  return { assessment: { result: parsed.data.assessment.result, summary: parsed.data.assessment.summary, achieved: parsed.data.assessment.achieved, issues: parsed.data.assessment.issues, missing: [], evidence_card_ids: parsed.data.assessment.evidence_card_ids } };
+  const issues = parsed.data.assessment.issues.length > 0
+    ? parsed.data.assessment.issues
+    : parsed.data.assessment.missing.map((summary) => ({ summary, severity: 'blocker' as const }));
+  return {
+    assessment: {
+      result: parsed.data.assessment.result === 'fail' ? 'needs_corrections' : parsed.data.assessment.result,
+      summary: parsed.data.assessment.summary,
+      achieved: parsed.data.assessment.achieved,
+      issues,
+      evidence_card_ids: parsed.data.assessment.evidence_card_ids,
+    },
+  };
 }
 
 export function isRecoverableParseError(err: unknown): boolean {
