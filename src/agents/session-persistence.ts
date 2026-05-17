@@ -69,8 +69,9 @@ export function createSession(
   cardId?: string | null,
   model?: string,
 ): AgentSession {
+  const sessionId = role === 'planner' && goalCardId && cardId === goalCardId ? `planner:${goalCardId}` : nextSessionId(role);
   const session: AgentSession = {
-    id: nextSessionId(role),
+    id: sessionId,
     role,
     goal_card_id: goalCardId ?? null,
     card_id: cardId ?? null,
@@ -282,4 +283,89 @@ export function buildConversationContext(
       return `[${role}]${m.tool ? ` (${m.tool})` : ''}: ${content}`;
     })
     .join('\n\n');
+}
+
+
+export interface UnresolvedActivateCardToolCall {
+  session_id: string;
+  tool_call_id: string;
+  card_id: string;
+}
+
+function parseToolCalls(content: string): Array<{ id?: unknown; function?: { name?: unknown; arguments?: unknown } }> {
+  try {
+    const parsed = JSON.parse(content);
+    if (parsed && typeof parsed === 'object' && Array.isArray((parsed as { toolCalls?: unknown }).toolCalls)) {
+      return (parsed as { toolCalls: Array<{ id?: unknown; function?: { name?: unknown; arguments?: unknown } }> }).toolCalls;
+    }
+  } catch {}
+  return [];
+}
+
+function parseCardId(args: unknown): string | null {
+  if (typeof args !== 'string') return null;
+  try {
+    const parsed = JSON.parse(args);
+    const cardId = (parsed as { cardId?: unknown }).cardId;
+    return typeof cardId === 'string' ? cardId : null;
+  } catch {
+    return null;
+  }
+}
+
+export function findUniqueUnresolvedActivateCardToolCall(
+  saivageDir: string,
+  sessionId: string,
+  childCardId: string,
+): UnresolvedActivateCardToolCall | null {
+  const messages = getSessionMessages(saivageDir, sessionId);
+  const resolved = new Set(
+    messages
+      .filter((message) => (message.kind === 'tool_result' || message.kind === 'tool_error') && typeof message.tool_call_id === 'string')
+      .map((message) => message.tool_call_id as string),
+  );
+  const matches: UnresolvedActivateCardToolCall[] = [];
+  for (const message of messages) {
+    if (message.role !== 'assistant' || message.kind !== 'tool_call') continue;
+    for (const call of parseToolCalls(message.content)) {
+      if (call.function?.name !== 'activate_card' || typeof call.id !== 'string') continue;
+      if (resolved.has(call.id)) continue;
+      const cardId = parseCardId(call.function.arguments);
+      if (cardId === childCardId) matches.push({ session_id: sessionId, tool_call_id: call.id, card_id: childCardId });
+    }
+  }
+  if (matches.length === 0) return null;
+  if (matches.length > 1) {
+    throw new Error(`Expected one unresolved activate_card(${childCardId}) tool call in session ${sessionId}, found ${matches.length}.`);
+  }
+  return matches[0];
+}
+
+export function findPlannerSessionForCard(saivageDir: string, cardId: string): AgentSession | null {
+  const deterministic = getSession(saivageDir, `planner:${cardId}`);
+  if (deterministic) return deterministic;
+  const sessions = listSessions(saivageDir)
+    .map((id) => getSession(saivageDir, id))
+    .filter((session): session is AgentSession => Boolean(session))
+    .filter((session) => session.role === 'planner' && session.goal_card_id === cardId && session.card_id === cardId)
+    .sort((a, b) => (b.started_at ?? '').localeCompare(a.started_at ?? ''));
+  return sessions[0] ?? null;
+}
+
+export function appendActivateCardToolResultOnce(
+  saivageDir: string,
+  sessionId: string,
+  toolCallId: string,
+  content: string,
+): AgentMessage {
+  const messages = getSessionMessages(saivageDir, sessionId);
+  const existing = messages.find((message) => message.kind === 'tool_result' && message.tool_call_id === toolCallId);
+  if (existing) return existing;
+  return appendMessage(saivageDir, sessionId, {
+    role: 'tool',
+    kind: 'tool_result',
+    content,
+    tool: 'activate_card',
+    tool_call_id: toolCallId,
+  });
 }

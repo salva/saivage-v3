@@ -11,8 +11,6 @@ import {
   cardIndexSchema,
   cardRecordSchema,
   notesQueueSchema,
-  plannerDispatchRecordSchema,
-  plannerFrameRecordSchema,
   processRecordSchema,
   projectConfigSchema,
   reviewAssessmentSchema,
@@ -101,127 +99,10 @@ describe('Derived card schemas', () => {
 });
 
 describe('Planner schemas', () => {
-  const review = {
-    id: 'review-1',
-    goal_card_id: 'goal-1',
-    reviewer_session_id: 'reviewer-1',
-    result: 'pass',
-    summary: 'ok',
-    achieved: [],
-    missing: [],
-    evidence_card_ids: ['code-1'],
-    created_at: '2025-01-01T00:00:00.000Z',
-  } as const;
-
-  const artifact = {
-    id: 'art-1',
-    card_id: 'code-1',
-    path: '.saivage-work/cards/code-1/artifacts/out.txt',
-    type: 'report',
-    description: 'out',
-    retain: true,
-    created_at: '2025-01-01T00:00:00.000Z',
-  } as const;
-
-  const attachment = {
-    id: 'att-1',
-    card_id: 'code-1',
-    path: '.saivage-work/cards/code-1/attachments/in.txt',
-    mime: 'text/plain',
-    title: 'input',
-    created_at: '2025-01-01T00:00:00.000Z',
-  } as const;
-
-  it('accepts queued planner frame status', () => {
-    const result = plannerFrameRecordSchema.safeParse({
-      frame_id: 'frm-goal-1-1',
-      planner_card_id: 'goal-1',
-      planner_role: 'planner',
-      planner_scope: 'goal',
-      status: 'queued',
-      resume_reason: 'none',
-      waiting_on_dispatch_ids: [],
-      last_resume_cursor: null,
-      last_dispatch_id: null,
-      created_at: '2025-01-01T00:00:00.000Z',
-      updated_at: '2025-01-01T00:00:00.000Z',
-    });
-    expect(result.success).toBe(true);
-  });
-
-  it('accepts completed dispatch with durable completion evidence', () => {
-    const result = plannerDispatchRecordSchema.safeParse({
-      dispatch_id: 'dsp-code-1-1',
-      parent_frame_id: 'frm-goal-1-1',
-      parent_card_id: 'goal-1',
-      target_card_id: 'code-1',
-      target_kind: 'terminal_card',
-      requested_by_role: 'planner',
-      requested_by_scope: 'goal',
-      status: 'completed',
-      completion: {
-        outcome: 'done',
-        summary: 'done',
-        child_result: { ok: true },
-        review,
-        artifacts: [artifact],
-        attachments: [attachment],
-        evidence_card_ids: ['code-1'],
-        error: null,
-      },
-      idempotency_key: 'goal-1:code-1',
-      created_at: '2025-01-01T00:00:00.000Z',
-      started_at: '2025-01-01T00:00:01.000Z',
-      completed_at: '2025-01-01T00:00:02.000Z',
-    });
-    expect(result.success).toBe(true);
-  });
-
-  it('currently accepts terminal dispatch without completion evidence', () => {
-    const result = plannerDispatchRecordSchema.safeParse({
-      dispatch_id: 'dsp-code-1-1',
-      parent_frame_id: 'frm-goal-1-1',
-      parent_card_id: 'goal-1',
-      target_card_id: 'code-1',
-      target_kind: 'terminal_card',
-      requested_by_role: 'planner',
-      requested_by_scope: 'goal',
-      status: 'completed',
-      completion: null,
-      idempotency_key: 'goal-1:code-1',
-      created_at: '2025-01-01T00:00:00.000Z',
-      started_at: '2025-01-01T00:00:01.000Z',
-      completed_at: '2025-01-01T00:00:02.000Z',
-    });
-    expect(result.success).toBe(true);
-  });
-
-  it('currently accepts completion outcome mismatched to dispatch status', () => {
-    const result = plannerDispatchRecordSchema.safeParse({
-      dispatch_id: 'dsp-code-1-1',
-      parent_frame_id: 'frm-goal-1-1',
-      parent_card_id: 'goal-1',
-      target_card_id: 'code-1',
-      target_kind: 'terminal_card',
-      requested_by_role: 'planner',
-      requested_by_scope: 'goal',
-      status: 'failed',
-      completion: {
-        outcome: 'done',
-        summary: 'wrong',
-        child_result: null,
-        review: null,
-        artifacts: [],
-        attachments: [],
-        evidence_card_ids: [],
-        error: 'bad',
-      },
-      idempotency_key: 'goal-1:code-1',
-      created_at: '2025-01-01T00:00:00.000Z',
-      started_at: '2025-01-01T00:00:01.000Z',
-      completed_at: '2025-01-01T00:00:02.000Z',
-    });
-    expect(result.success).toBe(true);
+  it('does not expose obsolete planner frame/dispatch schemas', async () => {
+    const validators = await import('../src/schemas/validators.js');
+    expect('plannerFrameRecordSchema' in validators).toBe(false);
+    expect('plannerDispatchRecordSchema' in validators).toBe(false);
   });
 });
 

@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
 import { Runtime } from '../../src/utils/runtime.js';
+import { appendMessage, createSession, getSessionMessages } from '../../src/agents/session-persistence.js';
 import { initProjectTree } from '../../src/utils/file-tree.js';
 import type { AgentRuntime } from '../../src/agents/agent-runtime.js';
 import type { PlannerResult, ExecutorResult, ReviewerResult } from '../../src/agents/result-parser.js';
@@ -87,6 +88,8 @@ describe('Runtime executor fallback evidence persistence', () => {
       },
     };
 
+    const parentSession = createSession(join(projectRoot, '.saivage'), 'planner', 'project', 'project');
+    appendMessage(join(projectRoot, '.saivage'), parentSession.id, { role: 'assistant', kind: 'tool_call', tool: 'activate_card', content: JSON.stringify({ toolCalls: [{ id: 'activate-project-code-1', type: 'function', function: { name: 'activate_card', arguments: JSON.stringify({ cardId: 'code-1' }) } }] }) });
     const runtime = new Runtime({ projectRoot, fakeAgentConfig: { mapping: {}, fixtureDir: '' } }, new StubAgentRuntime(plannerResult, executorResult, reviewerResult));
     await runtime.startup();
     await runtime.dispatchGoal('project');
@@ -108,13 +111,14 @@ describe('Runtime executor fallback evidence persistence', () => {
       expect.objectContaining({ title: 'command output', path: expect.stringContaining('/.saivage-work/cards/code-1/attachments/command-tail.txt') }),
     ]));
 
-    const frame = runtime.plannerControl.listFrames().find((entry) => entry.planner_card_id === 'project');
-    const dispatch = runtime.plannerControl.listDispatches({ parent_frame_id: frame!.frame_id, target_card_id: 'code-1' })[0];
-    expect(dispatch.completion?.child_result).toEqual(expect.objectContaining({
+    const toolResult = getSessionMessages(join(projectRoot, '.saivage'), parentSession.id).find((message) => message.kind === 'tool_result' && message.tool_call_id === 'activate-project-code-1');
+    expect(toolResult).toBeDefined();
+    const completion = JSON.parse(toolResult!.content) as { result: Record<string, unknown>; artifacts: Array<{ description: string; path: string }> };
+    expect(completion.result).toEqual(expect.objectContaining({
       generated_files: ['generated/output.txt'],
       verification_commands: [expect.objectContaining({ command: 'npm test -- result-parser' })],
     }));
-    expect(dispatch.completion?.artifacts).toEqual(expect.arrayContaining([
+    expect(completion.artifacts).toEqual(expect.arrayContaining([
       expect.objectContaining({ description: 'Generated file: generated/output.txt', path: expect.stringContaining('/.saivage-work/cards/code-1/artifacts/retained/output.txt') }),
     ]));
   });

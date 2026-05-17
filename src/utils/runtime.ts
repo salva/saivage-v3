@@ -11,7 +11,6 @@ import type {
   HandoffSummary,
   FreezeProcessEntry,
   ReviewAssessment,
-  PlannerDispatchRecord,
   NotificationRecord,
   ProjectRunCompletedPayload,
 } from '../schemas/types.js';
@@ -48,7 +47,11 @@ import type { ProcessRecord } from '../schemas/types.js';
 import { EventLogger } from './event-logger.js';
 import { ErrorLogger } from './error-logger.js';
 import { EventBus } from './event-bus.js';
-import { PlannerControlService } from './planner-control.js';
+import {
+  appendActivateCardToolResultOnce,
+  findPlannerSessionForCard,
+  findUniqueUnresolvedActivateCardToolCall,
+} from '../agents/session-persistence.js';
 import {
   StuckAgentSupervisor,
   DEFAULT_SUPERVISOR_CONFIG,
@@ -71,11 +74,11 @@ function resolveEvidenceSourcePath(projectRoot: string, filePath: string): strin
 const TRACKED_EVENT_KINDS: ReadonlySet<string> = new Set(['started', 'shutdown', 'paused', 'resumed', 'frozen', 'resumed_from_freeze', 'goal_completed', 'goal_failed', 'escalation', 'card_failed', 'review_complete', 'review_failed', 'plan_updated', 'error', 'dispatch_blocked', 'dispatch_interrupted', 'dispatch_held_for_notification', 'session_started', 'model_selected', 'invocation_succeeded', 'invocation_failed', 'retry_attempted', 'compaction_triggered', 'self_check_triggered', 'stuck_supervisor_started', 'stuck_supervisor_stopped', 'stuck_verdict', 'abort_target_selected', 'force_cancel_sent', 'session_cancelled', 'session_force_cancelled', 'improvement_invoked', 'project_run_completed']);
 
 export class Runtime extends EventEmitter {
-  readonly projectRoot: string; readonly cardStore: CardStore; readonly agentRuntime: AgentRuntime; readonly eventBus: EventBus; readonly plannerControl: PlannerControlService; readonly notificationCenter: NotificationCenter;
+  readonly projectRoot: string; readonly cardStore: CardStore; readonly agentRuntime: AgentRuntime; readonly eventBus: EventBus; readonly notificationCenter: NotificationCenter;
   private _status: RuntimeStatus = 'idle'; private _paused = false; private _running = false; private _shuttingDown = false; private _skillsEngine: SkillsEngine | null = null; private _eventLogger: EventLogger; private _ownsEventLogger: boolean; private _errorLogger: ErrorLogger; private _ownsErrorLogger: boolean; readonly runningProcesses: Set<string> = new Set(); private _supervisor: StuckAgentSupervisor; private _continuousImprovement: boolean; private _autoDispatchBacklog: boolean; private _improvementDispatchInProgress = false; private _resumeHandoffContext: string | null = null;
 
   constructor(config: RuntimeConfig, agentRuntime?: AgentRuntime) {
-    super(); this.projectRoot = config.projectRoot; this.cardStore = new CardStore(config.projectRoot, config.maxGoalDepth); this.agentRuntime = agentRuntime ?? new FakeAgentAdapter(config.fakeAgentConfig); this.notificationCenter = new NotificationCenter(config.projectRoot); this._skillsEngine = config.skillsEngine ?? new SkillsEngine({ projectRoot: config.projectRoot }); this.eventBus = new EventBus(); this.plannerControl = new PlannerControlService(config.projectRoot); this._continuousImprovement = config.continuousImprovement ?? false; this._autoDispatchBacklog = config.autoDispatchBacklog ?? false;
+    super(); this.projectRoot = config.projectRoot; this.cardStore = new CardStore(config.projectRoot, config.maxGoalDepth); this.agentRuntime = agentRuntime ?? new FakeAgentAdapter({ ...config.fakeAgentConfig, saivageDir: join(config.projectRoot, '.saivage') }); if (typeof (this.agentRuntime as { setSaivageDir?: (saivageDir: string) => void }).setSaivageDir === 'function') (this.agentRuntime as unknown as { setSaivageDir: (saivageDir: string) => void }).setSaivageDir(join(config.projectRoot, '.saivage')); this.notificationCenter = new NotificationCenter(config.projectRoot); this._skillsEngine = config.skillsEngine ?? new SkillsEngine({ projectRoot: config.projectRoot }); this.eventBus = new EventBus(); this._continuousImprovement = config.continuousImprovement ?? false; this._autoDispatchBacklog = config.autoDispatchBacklog ?? false;
     if (config.eventLogger) { this._eventLogger = config.eventLogger; this._ownsEventLogger = false; } else { this._eventLogger = new EventLogger(join(config.projectRoot, '.saivage')); this._ownsEventLogger = true; }
     if (config.errorLogger) { this._errorLogger = config.errorLogger; this._ownsErrorLogger = false; } else { this._errorLogger = new ErrorLogger(join(config.projectRoot, '.saivage')); this._ownsErrorLogger = true; }
     const supervisorDeps: SupervisorDeps = { getRecentLogs: (maxLines: number) => { try { const logPath = eventsLogPath(this.projectRoot); if (!existsSync(logPath)) return ''; const raw = readFileSync(logPath, 'utf-8'); const allLines = raw.split('\n').filter(Boolean); return allLines.slice(-maxLines).join('\n'); } catch { return ''; } }, getActiveSessions: () => { try { const handoffs = this.agentRuntime.getActiveSessionHandoffs(); if (!(handoffs instanceof Promise)) { const active = handoffs.map((handoff) => ({ role: handoff.role, sessionId: handoff.session_id })); if (active.length > 0) return active; } } catch {} try { const state = readRuntimeState(this.projectRoot); if (state && state.current_agent_session_id) { const sessionId = state.current_agent_session_id; let role = 'executor'; if (sessionId.startsWith('planner-')) role = 'planner'; else if (sessionId.startsWith('reviewer-')) role = 'reviewer'; return [{ role, sessionId }]; } } catch {} return []; }, abortSession: (sessionId: string) => { void this.agentRuntime.cancelSession(sessionId); }, forceCancelSession: (sessionId: string) => { void this.agentRuntime.forceCancelSession(sessionId); }, emitEvent: (kind: string, data: Record<string, unknown>) => { this.emit(kind, data); this._eventLogger.appendEvent({ kind: kind as never, ...data } as never); }, isShuttingDown: () => this._shuttingDown };
@@ -92,26 +95,35 @@ export class Runtime extends EventEmitter {
   registerArtifactOnCard(cardId: string, artifact: { type: 'model' | 'data' | 'config' | 'log' | 'report' | 'other'; description: string; retain: boolean }, sourceFile: string) { return registerArtifact(saivageWorkDir(this.projectRoot), this.cardStore, cardId, artifact, resolveEvidenceSourcePath(this.projectRoot, sourceFile)); }
   registerAttachmentOnCard(cardId: string, attachment: { mime: string; title: string; description?: string }, sourceFile: string) { return registerAttachment(saivageWorkDir(this.projectRoot), this.cardStore, cardId, attachment, resolveEvidenceSourcePath(this.projectRoot, sourceFile)); }
 
-  private buildParentResumeContext(goalId: string, plannerFrameId: string): string {
-    const dispatches = this.plannerControl.listDispatches({ parent_frame_id: plannerFrameId }).filter((dispatch) => dispatch.completion !== null);
+  private buildGoalEvidenceContext(goalId: string): string {
     const reviewState = this.cardStore.read(goalId)?.result?.review as Record<string, unknown> | undefined;
-    return JSON.stringify({ goal_id: goalId, child_dispatches: dispatches.map((dispatch) => ({ dispatch_id: dispatch.dispatch_id, target_card_id: dispatch.target_card_id, target_kind: dispatch.target_kind, status: dispatch.status, completion: dispatch.completion })), latest_review: reviewState ?? null }, null, 2);
+    const children = this.cardStore.listChildren(goalId)
+      .map((id) => this.cardStore.read(id))
+      .filter((card): card is CardRecord => Boolean(card))
+      .map((card) => ({ id: card.id, type: card.type, status: card.status, result: card.result ?? null, error: card.error ?? null, artifacts: card.artifacts ?? [], attachments: card.attachments ?? [] }));
+    return JSON.stringify({ goal_id: goalId, children, latest_review: reviewState ?? null }, null, 2);
   }
 
-  private persistParentResumeContext(cardId: string, dispatchId: string | null, parentId?: string | null): void {
-    const card = this.cardStore.read(cardId);
-    if (!card) return;
-    const result = card.result && typeof card.result === 'object' ? card.result : {};
-    this.cardStore.update(cardId, {
-      result: {
-        ...result,
-        parent_resume_context: {
-          parent_card_id: parentId ?? this.cardStore.getParent(cardId),
-          dispatch_id: dispatchId,
-          resumed_at: now(),
-        },
-      },
-    });
+  private findCallerEdge(childCardId: string): { parentCardId: string; callerSessionId: string; callerToolCallId: string } | null {
+    const parentCardId = this.cardStore.getParent(childCardId);
+    if (!parentCardId) return null;
+    const parentSession = findPlannerSessionForCard(join(this.projectRoot, '.saivage'), parentCardId);
+    const callerSessionId = parentSession?.id ?? `planner:${parentCardId}`;
+    const call = findUniqueUnresolvedActivateCardToolCall(join(this.projectRoot, '.saivage'), callerSessionId, childCardId);
+    if (!call) return null;
+    return { parentCardId, callerSessionId, callerToolCallId: call.tool_call_id };
+  }
+
+  private appendChildUnwindToolResult(childCardId: string, outcome: string, summary: string): void {
+    const edge = this.findCallerEdge(childCardId);
+    if (!edge) return;
+    const child = this.cardStore.read(childCardId);
+    appendActivateCardToolResultOnce(
+      join(this.projectRoot, '.saivage'),
+      edge.callerSessionId,
+      edge.callerToolCallId,
+      JSON.stringify({ success: true, cardId: childCardId, outcome, summary, result: child?.result ?? null, review: (child?.result?.review as ReviewAssessment | null | undefined) ?? null, artifacts: child?.artifacts ?? [], attachments: child?.attachments ?? [], evidence_card_ids: child ? [child.id, ...this.cardStore.getDescendantIds(child.id)] : [childCardId], error: child?.error ?? null }),
+    );
   }
 
   private emitProjectRunCompleted(card: CardRecord, assessment?: ReviewAssessment): void {
@@ -222,37 +234,35 @@ export class Runtime extends EventEmitter {
     if (this._paused) { this.emit('dispatch_blocked', { reason: 'paused', goalId }); this._eventLogger.appendEvent({ kind: 'dispatch_blocked', reason: 'paused', goal_id: goalId }); return; }
     let planCard: CardRecord;
     try { const result = this.cardStore.activateGoal(goalId); planCard = result.goal; const startedAt = now(); updateRuntimeState(this.projectRoot, { status: 'running', current_card_id: goalId, queue: this.getReadyQueue(goalId).map((c) => c.id), active_card_run: { card_id: goalId, card_type: planCard.type, runtime_status: 'running', phase: 'planner', caller_session_id: null, caller_tool_call_id: null, planner_session_id: `planner-${goalId}`, correction_attempts: 0, started_at: startedAt, last_turn_at: startedAt } }); } catch (err) { const errorMessage = err instanceof Error ? err.message : String(err); this.emit('error', { goalId, phase: 'activate', error: err }); this._eventLogger.appendEvent({ kind: 'error', goal_id: goalId, phase: 'activate', error_message: errorMessage }); this._errorLogger.appendError({ message: errorMessage, goalId, phase: 'activate' }); return; }
-    const plannerScope = goalId === 'project' ? 'project' : 'goal'; let plannerFrame = this.plannerControl.ensureFrame(planCard.id, plannerScope); let plannerDone = false; const MAX_ITERATIONS = 50;
+    let plannerDone = false; const MAX_ITERATIONS = 50;
     for (let iter = 0; iter < MAX_ITERATIONS && !plannerDone && !this._shuttingDown; iter++) {
       if (this._paused) { this.emit('dispatch_blocked', { reason: 'paused', goalId }); this._eventLogger.appendEvent({ kind: 'dispatch_blocked', reason: 'paused', goal_id: goalId }); updateRuntimeState(this.projectRoot, { status: 'paused' }); return; }
-      plannerFrame = this.plannerControl.updateFrame(plannerFrame.frame_id, { status: 'running' });
       let plannerResult: PlannerResult;
       try {
         const goalCardForDepth = this.cardStore.read(goalId); const currentDepth = goalCardForDepth?.depth; const maxDepth = this.cardStore.maxDepth; let plannerPrompt = buildPlannerPrompt(undefined, currentDepth, maxDepth);
-        const resumeContext = this.buildParentResumeContext(goalId, plannerFrame.frame_id);
+        const resumeContext = this.buildGoalEvidenceContext(goalId);
         const goalContext = this.buildGoalContextBlock(goalId);
         plannerPrompt += `\n\n${goalContext}\n\n## Parent Resume Context\n${resumeContext}`;
         const handoff = this.consumeResumeHandoffContext(); if (handoff) plannerPrompt += `\n\n## Resume Handoff\n${handoff}`;
         try { const goalCard = this.cardStore.read(goalId); if (goalCard && this._skillsEngine) { const plannerInstr = goalCard.depth === 0 ? await this._skillsEngine.loadPlannerInstructions() : (goalCard.instructions_file && goalCard.instructions_file.trim()) ? await this._skillsEngine.loadPlannerInstructions(goalCard.instructions_file.trim()) : ''; const skillsContent = await this._skillsEngine.selectAndFormat({ goalDescription: goalCard.description, cardDescription: goalCard.description, tags: goalCard.tags, filePaths: [], availableTools: ['list_project_files', 'read_project_file', 'load_skill', 'mcp_tool_call'], targetRole: 'planner' }); const combinedSkills = [plannerInstr, skillsContent].filter(Boolean).join('\n\n'); if (combinedSkills) plannerPrompt = buildPlannerPrompt(combinedSkills, currentDepth, maxDepth) + `\n\n${goalContext}\n\n## Parent Resume Context\n${resumeContext}`; } } catch {}
         const result = this.agentRuntime.invokePlanner(goalId, plannerPrompt); plannerResult = result instanceof Promise ? await result : result;
-      } catch (err) { const errorMessage = err instanceof Error ? err.message : String(err); this.plannerControl.updateFrame(plannerFrame.frame_id, { status: 'failed' }); this.emit('error', { goalId, phase: 'planner', error: err }); this._eventLogger.appendEvent({ kind: 'error', goal_id: goalId, phase: 'planner', error_message: errorMessage }); this._errorLogger.appendError({ message: errorMessage, goalId, phase: 'planner' }); break; }
+      } catch (err) { const errorMessage = err instanceof Error ? err.message : String(err); this.emit('error', { goalId, phase: 'planner', error: err }); this._eventLogger.appendEvent({ kind: 'error', goal_id: goalId, phase: 'planner', error_message: errorMessage }); this._errorLogger.appendError({ message: errorMessage, goalId, phase: 'planner' }); break; }
       this.applyPlannerResult(goalId, plannerResult);
-      updateRuntimeState(this.projectRoot, { current_agent_session_id: `planner-${goalId}-${iter}`, queue: this.getReadyQueue(goalId).map((c) => c.id), current_resume_context: this.buildParentResumeContext(goalId, plannerFrame.frame_id) } as Partial<RuntimeState> as never);
-      const execution = await this.executeReadyCards(goalId, plannerFrame, plannerScope); plannerFrame = this.plannerControl.readFrame(plannerFrame.frame_id) ?? plannerFrame;
+      updateRuntimeState(this.projectRoot, { current_agent_session_id: `planner:${goalId}`, queue: this.getReadyQueue(goalId).map((c) => c.id) } as Partial<RuntimeState> as never);
+      const execution = await this.executeReadyCards(goalId);
       if (execution.failed) plannerDone = false;
       if (this._shuttingDown) break;
       if (this._paused) { this.emit('dispatch_blocked', { reason: 'paused', goalId }); this._eventLogger.appendEvent({ kind: 'dispatch_blocked', reason: 'paused', goal_id: goalId }); return; }
       const hasUnfinishedChildWork = this.cardStore.list().some((card) => card.parent === goalId && card.status !== 'done' && card.status !== 'failed' && card.status !== 'cancelled');
       const hasGoalDispatch = execution.dispatchedGoal; const createdCardIds = (plannerResult.created_cards ?? []).map((card) => card.id).filter((id): id is string => Boolean(id));
-      if (plannerResult.status === 'blocked') { this.cardStore.setStatus(goalId, 'running'); this.cardStore.setStatus(goalId, 'blocked'); this.cardStore.update(goalId, { result: { ...(this.cardStore.read(goalId)?.result ?? {}), planning: { status: 'blocked', blocked_reason: plannerResult.blocked_reason ?? null, created_cards: createdCardIds } } }); this.plannerControl.updateFrame(plannerFrame.frame_id, { status: 'blocked' }); updateRuntimeState(this.projectRoot, { status: 'idle', current_card_id: null, current_agent_session_id: null, queue: [] }); return; }
-      if (plannerResult.status === 'done' && !hasGoalDispatch && !hasUnfinishedChildWork) plannerDone = true; else { plannerDone = false; this.cardStore.update(goalId, { result: { ...(this.cardStore.read(goalId)?.result ?? {}), planning: { status: 'continue', planner_declared_done: plannerResult.status === 'done', has_unfinished_child_work: hasUnfinishedChildWork, resume_reason: hasGoalDispatch ? 'dispatch_completed' : 'review_completed', created_cards: createdCardIds }, parent_resume_context: this.buildParentResumeContext(goalId, plannerFrame.frame_id) } }); }
+      if (plannerResult.status === 'blocked') { this.cardStore.setStatus(goalId, 'running'); this.cardStore.setStatus(goalId, 'blocked'); this.cardStore.update(goalId, { result: { ...(this.cardStore.read(goalId)?.result ?? {}), planning: { status: 'blocked', blocked_reason: plannerResult.blocked_reason ?? null, created_cards: createdCardIds } } }); updateRuntimeState(this.projectRoot, { status: 'idle', current_card_id: null, current_agent_session_id: null, queue: [] }); return; }
+      if (plannerResult.status === 'done' && !hasGoalDispatch && !hasUnfinishedChildWork) plannerDone = true; else { plannerDone = false; this.cardStore.update(goalId, { result: { ...(this.cardStore.read(goalId)?.result ?? {}), planning: { status: 'continue', planner_declared_done: plannerResult.status === 'done', has_unfinished_child_work: hasUnfinishedChildWork, resume_reason: hasGoalDispatch ? 'dispatch_completed' : 'review_completed', created_cards: createdCardIds } } }); }
       if (plannerDone) {
         const reviewResult = await this.invokeReviewer(goalId, planCard.id);
         const validation = this.validateReviewerAssessment(goalId, reviewResult.assessment);
         if (reviewResult.assessment.result === 'pass' && !validation.valid) {
           const invalidAssessment: ReviewAssessment = { id: `review-${goalId}-${Date.now()}`, goal_card_id: goalId, reviewer_session_id: `reviewer-${goalId}`, result: 'fail', summary: `Reviewer pass rejected: ${validation.reason}`, achieved: [], missing: [validation.reason ?? 'Reviewer evidence validation failed.'], evidence_card_ids: reviewResult.assessment.evidence_card_ids, created_at: now() };
           this.persistReviewState(goalId, invalidAssessment);
-          this.plannerControl.updateFrame(plannerFrame.frame_id, { status: 'resumable', resume_reason: 'review_completed' });
           this.emit('review_failed', { goalId, assessment: invalidAssessment });
           this._eventLogger.appendEvent({ kind: 'review_failed', goal_id: goalId, assessment: invalidAssessment });
           plannerDone = false;
@@ -263,8 +273,8 @@ export class Runtime extends EventEmitter {
           const assessment: ReviewAssessment = { id: `review-${goalId}-${Date.now()}`, goal_card_id: goalId, reviewer_session_id: `reviewer-${goalId}`, result: 'pass', summary: reviewResult.assessment.summary, achieved: reviewResult.assessment.achieved, missing: reviewResult.assessment.missing, evidence_card_ids: reviewResult.assessment.evidence_card_ids, created_at: now() };
           this.persistReviewState(goalId, assessment);
           this.cardStore.update(goalId, { result: { ...(this.cardStore.read(goalId)?.result ?? {}), planning: { status: 'done', created_cards: [], review_summary: reviewResult.assessment.summary } } });
-          this.plannerControl.updateFrame(plannerFrame.frame_id, { status: 'completed', resume_reason: 'review_completed', waiting_on_dispatch_ids: [], last_resume_cursor: now() });
-          updateRuntimeState(this.projectRoot, { status: 'idle', current_card_id: null, current_agent_session_id: null, queue: [], current_resume_context: null, active_card_run: null } as Partial<RuntimeState> as never);
+          this.appendChildUnwindToolResult(goalId, 'done', reviewResult.assessment.summary);
+          updateRuntimeState(this.projectRoot, { status: 'idle', current_card_id: null, current_agent_session_id: null, queue: [], active_card_run: null } as Partial<RuntimeState> as never);
           this.emit('goal_completed', { goalId, assessment }); this._eventLogger.appendEvent({ kind: 'goal_completed', goal_id: goalId, assessment });
           if (goalId === 'project') { const projectCard = this.cardStore.read(goalId); if (projectCard) this.emitProjectRunCompleted(projectCard, assessment); }
           await this._checkContinuousImprovement(); return;
@@ -272,7 +282,6 @@ export class Runtime extends EventEmitter {
           plannerDone = false;
           const failedAssessment: ReviewAssessment = { id: `review-${goalId}-${Date.now()}`, goal_card_id: goalId, reviewer_session_id: `reviewer-${goalId}`, result: 'fail', summary: reviewResult.assessment.summary, achieved: reviewResult.assessment.achieved, missing: reviewResult.assessment.missing, evidence_card_ids: reviewResult.assessment.evidence_card_ids, created_at: now() };
           this.persistReviewState(goalId, failedAssessment);
-          this.plannerControl.updateFrame(plannerFrame.frame_id, { status: 'resumable', resume_reason: 'review_completed' });
           this.emit('review_failed', { goalId, assessment: failedAssessment }); this._eventLogger.appendEvent({ kind: 'review_failed', goal_id: goalId, assessment: failedAssessment });
         }
       }
@@ -280,24 +289,21 @@ export class Runtime extends EventEmitter {
     if (this._shuttingDown) { this.emit('dispatch_interrupted', { goalId, reason: 'shutdown' }); this._eventLogger.appendEvent({ kind: 'dispatch_interrupted', goal_id: goalId, reason: 'shutdown' }); }
   }
 
-  private async executeReadyCards(goalId: string, plannerFrame?: { frame_id: string }, plannerScope?: 'project' | 'goal'): Promise<{ dispatchedGoal: boolean; executedTerminal: boolean; failed: boolean }> {
+  private async executeReadyCards(goalId: string): Promise<{ dispatchedGoal: boolean; executedTerminal: boolean; failed: boolean }> {
     const getReadyDispatchCards = (): CardRecord[] => { const allCards = this.cardStore.list(); const terminalReady = this.getReadyQueue(goalId); const directReadyGoals = this.cardStore.listChildren(goalId).map((id) => this.cardStore.read(id)).filter((card): card is CardRecord => { if (!card || card.type !== 'goal') return false; if (card.status !== 'backlog' && card.status !== 'active') return false; return card.depends_on.every((depId) => { const dep = allCards.find((candidate) => candidate.id === depId); return dep?.status === 'done'; }); }); return [...directReadyGoals, ...terminalReady].sort((a, b) => { if (a.depends_on.length !== b.depends_on.length) return a.depends_on.length - b.depends_on.length; if (a.priority !== b.priority) return a.priority - b.priority; return a.created_at.localeCompare(b.created_at); }); };
     let readyCards = getReadyDispatchCards(); const goalCard = this.cardStore.read(goalId); let dispatchedGoal = false; let executedTerminal = false; let failed = false;
     while (readyCards.length > 0 && !this._shuttingDown) {
       if (this._paused) return { dispatchedGoal, executedTerminal, failed };
       for (const card of readyCards) {
         if (this._shuttingDown || this._paused) return { dispatchedGoal, executedTerminal, failed };
-        if (!plannerFrame || !plannerScope) throw new Error('Planner control frame is required to execute ready cards.');
-        const dispatch = this.plannerControl.createDispatch({ parentFrameId: plannerFrame.frame_id, parentCardId: goalId, targetCardId: card.id, targetKind: card.type === 'goal' ? 'goal' : 'terminal_card', requestedByScope: plannerScope, idempotencyKey: `${goalId}:${card.id}:dispatch` });
-        this.plannerControl.markDispatchRunning(dispatch.dispatch_id);
+        const callerEdge = this.findCallerEdge(card.id);
         if (card.type === 'goal') {
           await this.dispatchGoal(card.id);
           const completedCard = this.cardStore.read(card.id); const outcome = completedCard?.status === 'done' ? 'done' : completedCard?.status === 'blocked' ? 'blocked' : completedCard?.status === 'cancelled' ? 'cancelled' : 'failed';
-          this.plannerControl.markDispatchCompleted(dispatch.dispatch_id, outcome === 'done' ? 'completed' : outcome, { outcome, summary: `Child goal ${card.id} finished with status ${completedCard?.status ?? 'unknown'}.`, child_result: completedCard?.result ?? null, review: (completedCard?.result?.review as ReviewAssessment | null | undefined) ?? null, artifacts: completedCard?.artifacts ?? [], attachments: completedCard?.attachments ?? [], evidence_card_ids: completedCard ? [card.id, ...this.cardStore.getDescendantIds(card.id)] : [card.id], error: completedCard?.error ?? null });
-          this.persistParentResumeContext(card.id, dispatch.dispatch_id, this.cardStore.getParent(card.id));
+          this.appendChildUnwindToolResult(card.id, outcome, `Child goal ${card.id} finished with status ${completedCard?.status ?? 'unknown'}.`);
           dispatchedGoal = true; if (outcome !== 'done') return { dispatchedGoal, executedTerminal, failed }; continue;
         }
-        if (card.status === 'backlog') this.cardStore.setStatus(card.id, 'active'); this.cardStore.setStatus(card.id, 'running'); { const startedAt = now(); updateRuntimeState(this.projectRoot, { current_card_id: card.id, active_card_run: { card_id: card.id, card_type: card.type, runtime_status: 'running', phase: 'executor', caller_session_id: `planner-${goalId}`, caller_tool_call_id: dispatch.dispatch_id, executor_session_id: `executor-${card.id}`, correction_attempts: 0, started_at: startedAt, last_turn_at: startedAt } }); }
+        if (card.status === 'backlog') this.cardStore.setStatus(card.id, 'active'); this.cardStore.setStatus(card.id, 'running'); { const startedAt = now(); updateRuntimeState(this.projectRoot, { current_card_id: card.id, active_card_run: { card_id: card.id, card_type: card.type, runtime_status: 'running', phase: 'executor', caller_session_id: callerEdge?.callerSessionId ?? `planner:${goalId}`, caller_tool_call_id: callerEdge?.callerToolCallId ?? null, executor_session_id: `executor-${card.id}`, correction_attempts: 0, started_at: startedAt, last_turn_at: startedAt } }); }
         let execResult;
         try {
           let executorPrompt = buildExecutorPrompt(card.type);
@@ -306,7 +312,7 @@ export class Runtime extends EventEmitter {
           const result = this.agentRuntime.invokeExecutor(card.id, goalId, executorPrompt); execResult = result instanceof Promise ? await result : result;
           const lastSessionId = (this.agentRuntime as FakeAgentAdapter).getLastSessionId?.('executor', goalId, card.id) ?? readRuntimeState(this.projectRoot)?.current_agent_session_id ?? null;
           if (execResult.status === 'done' && lastSessionId) await this.enforceBlockingNotifications(lastSessionId, 'executor', async () => undefined);
-        } catch (err) { const errorMessage = err instanceof Error ? err.message : String(err); this.emit('error', { cardId: card.id, goalId, phase: 'executor', error: err }); this._eventLogger.appendEvent({ kind: 'error', card_id: card.id, goal_id: goalId, phase: 'executor', error_message: errorMessage }); this._errorLogger.appendError({ message: errorMessage, cardId: card.id, goalId, phase: 'executor' }); this.cardStore.setStatus(card.id, 'failed'); this.plannerControl.markDispatchCompleted(dispatch.dispatch_id, 'failed', { outcome: 'failed', summary: `Terminal card ${card.id} execution failed before producing a result.`, child_result: null, review: null, artifacts: [], attachments: [], evidence_card_ids: [card.id], error: errorMessage }); this.emit('card_failed', { cardId: card.id, goalId }); this._eventLogger.appendEvent({ kind: 'card_failed', card_id: card.id, goal_id: goalId }); failed = true; return { dispatchedGoal, executedTerminal, failed }; }
+        } catch (err) { const errorMessage = err instanceof Error ? err.message : String(err); this.emit('error', { cardId: card.id, goalId, phase: 'executor', error: err }); this._eventLogger.appendEvent({ kind: 'error', card_id: card.id, goal_id: goalId, phase: 'executor', error_message: errorMessage }); this._errorLogger.appendError({ message: errorMessage, cardId: card.id, goalId, phase: 'executor' }); this.cardStore.setStatus(card.id, 'failed'); this.appendChildUnwindToolResult(card.id, 'failed', `Terminal card ${card.id} execution failed before producing a result.`); this.emit('card_failed', { cardId: card.id, goalId }); this._eventLogger.appendEvent({ kind: 'card_failed', card_id: card.id, goal_id: goalId }); failed = true; return { dispatchedGoal, executedTerminal, failed }; }
         this.cardStore.update(card.id, { status: execResult.status, result: execResult.result ?? null, error: execResult.error ?? null });
         const artifactRegistrationErrors: string[] = []; const attachmentRegistrationErrors: string[] = [];
         if (execResult.artifacts && execResult.artifacts.length > 0) for (const artDef of execResult.artifacts) try { this.registerArtifactOnCard(card.id, { type: artDef.type, description: artDef.description, retain: artDef.retain }, artDef.sourceFile ?? artDef.path ?? ''); } catch (err) { const errorMessage = err instanceof Error ? err.message : String(err); artifactRegistrationErrors.push(errorMessage); this.emit('error', { cardId: card.id, phase: 'artifact_registration', error: err }); this._eventLogger.appendEvent({ kind: 'error', card_id: card.id, phase: 'artifact_registration', error_message: errorMessage }); this._errorLogger.appendError({ message: errorMessage, cardId: card.id, goalId, phase: 'artifact_registration' }); }
@@ -317,7 +323,7 @@ export class Runtime extends EventEmitter {
           execResult.status = 'failed'; execResult.error = registrationError;
         }
         executedTerminal = true; const completedCard = this.cardStore.read(card.id); const outcome = execResult.status === 'done' ? 'done' : 'failed';
-        this.plannerControl.markDispatchCompleted(dispatch.dispatch_id, outcome === 'done' ? 'completed' : outcome, { outcome, summary: `Terminal card ${card.id} finished with status ${execResult.status}.`, child_result: completedCard?.result ?? null, review: null, artifacts: completedCard?.artifacts ?? [], attachments: completedCard?.attachments ?? [], evidence_card_ids: [card.id], error: completedCard?.error ?? execResult.error ?? null });
+        this.appendChildUnwindToolResult(card.id, outcome, `Terminal card ${card.id} finished with status ${execResult.status}.`);
         if (execResult.status === 'failed') { this.emit('card_failed', { cardId: card.id, goalId }); this._eventLogger.appendEvent({ kind: 'card_failed', card_id: card.id, goal_id: goalId }); failed = true; return { dispatchedGoal, executedTerminal, failed }; }
       }
       readyCards = getReadyDispatchCards();
@@ -328,7 +334,7 @@ export class Runtime extends EventEmitter {
   async invokeReviewer(goalId: string, _planCardId: string): Promise<ReviewerResult> {
     let reviewerPrompt = buildReviewerPrompt();
     try { if (this._skillsEngine) { const goalCard = this.cardStore.read(goalId); const instructionContent = await this._skillsEngine.loadInstructions('reviewer'); const skillsContent = await this._skillsEngine.selectAndFormat({ goalDescription: goalCard?.description ?? '', cardDescription: goalCard?.description ?? '', tags: goalCard?.tags ?? [], filePaths: [], availableTools: ['list_project_files', 'read_project_file', 'load_skill', 'mcp_tool_call'], targetRole: 'reviewer' }); const combinedSkills = [instructionContent, skillsContent].filter(Boolean).join('\n\n'); if (combinedSkills) reviewerPrompt = buildReviewerPrompt(combinedSkills); } } catch {}
-    reviewerPrompt += `\n\n${this.buildGoalContextBlock(goalId)}\n\n## Goal Evidence Context\n${this.buildParentResumeContext(goalId, this.plannerControl.ensureFrame(goalId, goalId === 'project' ? 'project' : 'goal').frame_id)}`;
+    reviewerPrompt += `\n\n${this.buildGoalContextBlock(goalId)}\n\n## Goal Evidence Context\n${this.buildGoalEvidenceContext(goalId)}`;
     const result = await this.agentRuntime.invokeReviewer(goalId, reviewerPrompt);
     const lastSessionId = (this.agentRuntime as FakeAgentAdapter).getLastSessionId?.('reviewer', goalId, null) ?? readRuntimeState(this.projectRoot)?.current_agent_session_id ?? null;
     if (result.assessment.result === 'pass' && lastSessionId) await this.enforceBlockingNotifications(lastSessionId, 'reviewer', async () => undefined);
