@@ -186,6 +186,19 @@ The `analyst_tool_invoked` broadcast is sanitized before emission. Operators sho
 
 The app shell shows a small analyst-action toaster for live analyst mutations and related broadcasts. Use it as a freshness signal, then inspect the updated card, history, or notifications view for the authoritative state.
 
+## Validation artifact recording convention
+
+For future Analyst Operator validation or follow-up stages, record validation evidence in the stage report or summary in a consistent, easy-to-audit format.
+
+Include:
+
+- a `commands_run` list with the **exact command**, `cwd`, and pass/fail result for each validation step;
+- stable `stdout`/`stderr` log paths or artifact paths when logs are saved, preferably under the current stage's `reports/` directory or another stage-local path;
+- explicit validation outcomes for each required check, not just a generic success summary;
+- a note when the worktree had unrelated dirty files so later reviewers can separate pre-existing state from stage changes.
+
+When practical, prefer stage-local log or artifact paths over ad hoc temporary locations so future audits can find the evidence without re-running validation.
+
 ## Focused web validation cadence
 
 Wave L-M analyst web validation runs under **Vitest from `/work/saivage-v3/web`**, not root Jest.
