@@ -64,7 +64,6 @@ function createProjectImprovementFixture(fixtureDir: string): void {
     name: 'project-improvement',
     planner: [
       {
-        plan_card_id: 'plan-project',
         created_cards: [
           {
             id: 'goal-ci-1',
@@ -76,7 +75,7 @@ function createProjectImprovementFixture(fixtureDir: string): void {
             priority: 1,
           },
         ],
-        declare_done: true,
+        status: 'done',
       },
     ],
     executor: {},
@@ -316,7 +315,6 @@ describe('Runtime Continuous Improvement', () => {
         name: 'pause-goal',
         planner: [
           {
-            plan_card_id: 'plan-goal-pt',
             created_cards: [
               {
                 id: 'code-pt-1',
@@ -328,23 +326,21 @@ describe('Runtime Continuous Improvement', () => {
                 priority: 1,
               },
             ],
-            declare_done: false,
+            status: 'continue',
           },
           {
-            plan_card_id: 'plan-goal-pt',
             updated_cards: [],
-            declare_done: true,
+            status: 'done',
           },
         ],
         executor: {
-          'code-pt-1': { card_id: 'code-pt-1', status: 'done' },
+          'code-pt-1': { card_id: 'code-pt-1', status: 'done', status_text: 'Completed successfully' },
         },
         reviewer: [
           {
             assessment: {
               id: 'review-pt',
               goal_card_id: 'goal-pt',
-              plan_card_id: 'plan-goal-pt',
               reviewer_session_id: 'rev-pt',
               result: 'pass',
               summary: 'Pass.',

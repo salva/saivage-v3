@@ -35,6 +35,10 @@ function makeCard(
     completed_at: null,
     duration_ms: null,
     error: null,
+    status_text: null,
+    status_text_updated_at: null,
+    status_text_author_session_id: null,
+    latest_self_report: null,
   };
 
   return {
@@ -126,6 +130,14 @@ describe('CardStore validation of persisted state', () => {
 });
 
 describe('CardStore CRUD still works with validated indexes', () => {
+  it('stores nullable status_text fields on new cards by default', () => {
+    const card = store.create(makeCard({ type: 'goal', title: 'Null status text defaults' }));
+    expect(card.status_text).toBeNull();
+    expect(card.status_text_updated_at).toBeNull();
+    expect(card.status_text_author_session_id).toBeNull();
+    expect(card.latest_self_report).toBeNull();
+  });
+
   it('creates a card file in cards/by-id/', () => {
     const card = store.create(makeCard({ type: 'goal', title: 'My Goal' }));
     expect(existsSync(join(tmpDir, '.saivage', 'cards', 'by-id', `${card.id}.json`))).toBe(true);

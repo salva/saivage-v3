@@ -168,6 +168,7 @@ describe('E2E — Full Project Lifecycle', () => {
         'code-e2e-1': {
           card_id: 'code-e2e-1',
           status: 'done',
+          status_text: 'Completed successfully',
           artifacts: [
             {
               sourceFile: artifactSourceFile,
@@ -180,6 +181,7 @@ describe('E2E — Full Project Lifecycle', () => {
         'code-e2e-2': {
           card_id: 'code-e2e-2',
           status: 'done',
+          status_text: 'Completed successfully',
           result: { tests: 42, passed: 42 },
         },
       },
@@ -362,6 +364,7 @@ describe('E2E — Full Project Lifecycle', () => {
         'code-art-1': {
           card_id: 'code-art-1',
           status: 'done',
+          status_text: 'Completed successfully',
           artifacts: [
             {
               sourceFile: artifactSourcePath,
@@ -496,8 +499,8 @@ describe('E2E — Crash and Restart Recovery', () => {
         },
       ],
       executor: {
-        'code-crash-1': { card_id: 'code-crash-1', status: 'done', result: { evidence: 'crash recovery card 1 completed' } },
-        'code-crash-2': { card_id: 'code-crash-2', status: 'done', result: { evidence: 'crash recovery card 2 completed' } },
+        'code-crash-1': { card_id: 'code-crash-1', status: 'done', status_text: 'Completed successfully', result: { evidence: 'crash recovery card 1 completed' } },
+        'code-crash-2': { card_id: 'code-crash-2', status: 'done', status_text: 'Completed successfully', result: { evidence: 'crash recovery card 2 completed' } },
       },
       reviewer: [
         {

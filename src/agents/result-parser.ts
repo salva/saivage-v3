@@ -2,10 +2,6 @@ import { z } from 'zod';
 import type { ArtifactRef } from '../schemas/types.js';
 import type { AgentMessage } from '../schemas/types.js';
 
-// ── Structured Result Types ───────────────────────────────────
-
-// ── Planner Result ────────────────────────────────────────────
-
 export interface PlannerCardCreate {
   type: string;
   title: string;
@@ -29,17 +25,11 @@ export type PlannerStatus = 'continue' | 'done' | 'blocked';
 
 export interface PlannerResult {
   status: PlannerStatus;
-  /** Human-readable reason when status is `blocked`. */
   blocked_reason?: string;
-  /** Cards to create as children */
   created_cards: PlannerCardCreate[];
-  /** Cards to update */
   updated_cards: PlannerCardUpdate[];
-  /** Summary of the planner's reasoning */
   summary?: string;
 }
-
-// ── Executor Result ───────────────────────────────────────────
 
 export interface ExecutorArtifactDef {
   type: ArtifactRef['type'];
@@ -64,16 +54,14 @@ export interface ExecutorResult {
   result?: Record<string, unknown>;
   artifacts: ExecutorArtifactDef[];
   attachments: ExecutorAttachmentDef[];
-  /** Summary of work done */
   summary?: string;
+  status_text: string;
 }
 
 export interface ExecutorFallbackContext {
   cardId: string;
   sessionMessages: AgentMessage[];
 }
-
-// ── Reviewer Result ───────────────────────────────────────────
 
 export interface ReviewerResult {
   assessment: {
@@ -84,8 +72,6 @@ export interface ReviewerResult {
     evidence_card_ids: string[];
   };
 }
-
-// ── Parse Errors ──────────────────────────────────────────────
 
 export class ResultParseError extends Error {
   public readonly partial: unknown;
@@ -98,8 +84,6 @@ export class ResultParseError extends Error {
     this.issues = issues;
   }
 }
-
-// ── Zod Schemas for Validation ────────────────────────────────
 
 const plannerCardCreateSchema = z.object({
   type: z.string().min(1),
@@ -147,6 +131,7 @@ const executorAttachmentDefSchema = z.object({
 const rawExecutorResultSchema = z.object({
   card_id: z.string().optional(),
   status: z.enum(['done', 'failed']),
+  status_text: z.string().min(1),
   error: z.string().optional(),
   result: z.record(z.string(), z.unknown()).optional(),
   artifacts: z.array(executorArtifactDefSchema).optional().default([]),
@@ -227,16 +212,10 @@ function extractPartialExecutorResult(raw: string): Partial<ExecutorResult> {
     if (!isRecord(obj)) return {};
 
     const artifacts = Array.isArray(obj.artifacts)
-      ? obj.artifacts
-        .map((item) => executorArtifactDefSchema.safeParse(item))
-        .filter((result) => result.success)
-        .map((result) => result.data)
+      ? obj.artifacts.map((item) => executorArtifactDefSchema.safeParse(item)).filter((result) => result.success).map((result) => result.data)
       : [];
     const attachments = Array.isArray(obj.attachments)
-      ? obj.attachments
-        .map((item) => executorAttachmentDefSchema.safeParse(item))
-        .filter((result) => result.success)
-        .map((result) => result.data)
+      ? obj.attachments.map((item) => executorAttachmentDefSchema.safeParse(item)).filter((result) => result.success).map((result) => result.data)
       : [];
 
     return {
@@ -246,48 +225,25 @@ function extractPartialExecutorResult(raw: string): Partial<ExecutorResult> {
       artifacts,
       attachments,
       summary: typeof obj.summary === 'string' ? obj.summary : undefined,
+      status_text: typeof obj.status_text === 'string' ? obj.status_text : undefined,
     };
   } catch {
     return {};
   }
 }
 
-export function buildExecutorFallbackResult(
-  raw: string,
-  context: ExecutorFallbackContext,
-): ExecutorResult | null {
+export function buildExecutorFallbackResult(raw: string, context: ExecutorFallbackContext): ExecutorResult | null {
   const evidence = collectWorkspaceToolEvidence(context.sessionMessages);
   const partial = extractPartialExecutorResult(raw);
-
-  const artifactPaths = new Set(
-    (partial.artifacts ?? [])
-      .map((artifact) => artifact.sourceFile ?? artifact.path)
-      .filter((path): path is string => Boolean(path)),
-  );
-  for (const file of evidence.generatedFiles) {
-    artifactPaths.add(file);
-  }
+  const artifactPaths = new Set((partial.artifacts ?? []).map((artifact) => artifact.sourceFile ?? artifact.path).filter((path): path is string => Boolean(path)));
+  for (const file of evidence.generatedFiles) artifactPaths.add(file);
 
   const generatedFileArtifacts: ExecutorArtifactDef[] = evidence.generatedFiles
     .filter((file) => !(partial.artifacts ?? []).some((artifact) => artifact.sourceFile === file || artifact.path === file))
-    .map((file) => ({
-      type: 'other',
-      description: `Generated file: ${file}`,
-      retain: true,
-      sourceFile: file,
-      path: file,
-    }));
+    .map((file) => ({ type: 'other', description: `Generated file: ${file}`, retain: true, sourceFile: file, path: file }));
 
-  const hadEvidence =
-    evidence.toolActivityCount > 0 ||
-    evidence.generatedFiles.length > 0 ||
-    evidence.verifiedCommands.length > 0 ||
-    (partial.artifacts?.length ?? 0) > 0 ||
-    (partial.attachments?.length ?? 0) > 0;
-
-  if (!hadEvidence) {
-    return null;
-  }
+  const hadEvidence = evidence.toolActivityCount > 0 || evidence.generatedFiles.length > 0 || evidence.verifiedCommands.length > 0 || (partial.artifacts?.length ?? 0) > 0 || (partial.attachments?.length ?? 0) > 0;
+  if (!hadEvidence) return null;
 
   const verification = evidence.verifiedCommands.map((command, index) => ({
     command: command.command ?? `tool-call-${index + 1}`,
@@ -301,13 +257,13 @@ export function buildExecutorFallbackResult(
     message: 'Executor final response was malformed or missing required status; preserved tool evidence via fallback result.',
     raw_response: raw,
   };
-
   const toolErrors = evidence.toolErrors;
   const error = partial.error ?? toolErrors[0] ?? parseFailure.message;
 
   return {
     card_id: partial.card_id ?? context.cardId,
     status: 'failed',
+    status_text: partial.status_text ?? parseFailure.message,
     error,
     summary: partial.summary ?? parseFailure.message,
     artifacts: [...(partial.artifacts ?? []), ...generatedFileArtifacts],
@@ -323,113 +279,52 @@ export function buildExecutorFallbackResult(
   };
 }
 
-// ── Parsers ───────────────────────────────────────────────────
-
-/**
- * Extract and parse a JSON object from possibly markdown-wrapped text.
- * Looks for JSON objects in code blocks or as raw text.
- */
 export function extractJson(raw: string): unknown {
-  // Try to find JSON in ```json ... ``` blocks
   const codeBlockMatch = raw.match(/```(?:json)?\s*\n?([\s\S]*?)\n?```/);
   if (codeBlockMatch) {
-    try {
-      return JSON.parse(codeBlockMatch[1].trim());
-    } catch {
-      // Continue to other strategies
-    }
+    try { return JSON.parse(codeBlockMatch[1].trim()); } catch {}
   }
-
-  // Try raw parse of the whole text
   try {
     return JSON.parse(raw.trim());
   } catch {
-    // Find first { ... } block in the text
     const firstBrace = raw.indexOf('{');
     const lastBrace = raw.lastIndexOf('}');
     if (firstBrace >= 0 && lastBrace > firstBrace) {
-      try {
-        const jsonStr = raw.slice(firstBrace, lastBrace + 1);
-        return JSON.parse(jsonStr);
-      } catch {
-        // Last resort
-      }
+      try { return JSON.parse(raw.slice(firstBrace, lastBrace + 1)); } catch {}
     }
   }
-
-  throw new ResultParseError(
-    'Could not extract valid JSON from response',
-    raw,
-    ['No valid JSON object found in response text.'],
-  );
+  throw new ResultParseError('Could not extract valid JSON from response', raw, ['No valid JSON object found in response text.']);
 }
 
-/**
- * Parse and validate a planner result from raw LLM output.
- */
 export function parsePlannerResult(raw: string): PlannerResult {
   let obj: unknown;
-  try {
-    obj = extractJson(raw);
-  } catch (err) {
+  try { obj = extractJson(raw); } catch (err) {
     if (err instanceof ResultParseError) throw err;
-    throw new ResultParseError(
-      `Failed to extract JSON from planner response: ${err instanceof Error ? err.message : String(err)}`,
-      raw,
-    );
+    throw new ResultParseError(`Failed to extract JSON from planner response: ${err instanceof Error ? err.message : String(err)}`, raw);
   }
-
   const parsed = rawPlannerResultSchema.safeParse(obj);
   if (!parsed.success) {
-    const issues = parsed.error.issues.map(
-      (i) => `${i.path.join('.')}: ${i.message}`,
-    );
-    throw new ResultParseError(
-      `Planner result validation failed:\n${issues.join('\n')}`,
-      obj,
-      issues,
-    );
+    const issues = parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`);
+    throw new ResultParseError(`Planner result validation failed:\n${issues.join('\n')}`, obj, issues);
   }
-
-  return {
-    status: parsed.data.status,
-    blocked_reason: parsed.data.blocked_reason ?? undefined,
-    created_cards: parsed.data.created_cards,
-    updated_cards: parsed.data.updated_cards,
-    summary: parsed.data.summary,
-  };
+  return { status: parsed.data.status, blocked_reason: parsed.data.blocked_reason ?? undefined, created_cards: parsed.data.created_cards, updated_cards: parsed.data.updated_cards, summary: parsed.data.summary };
 }
 
-/**
- * Parse and validate an executor result from raw LLM output.
- */
 export function parseExecutorResult(raw: string): ExecutorResult {
   let obj: unknown;
-  try {
-    obj = extractJson(raw);
-  } catch (err) {
+  try { obj = extractJson(raw); } catch (err) {
     if (err instanceof ResultParseError) throw err;
-    throw new ResultParseError(
-      `Failed to extract JSON from executor response: ${err instanceof Error ? err.message : String(err)}`,
-      raw,
-    );
+    throw new ResultParseError(`Failed to extract JSON from executor response: ${err instanceof Error ? err.message : String(err)}`, raw);
   }
-
   const parsed = rawExecutorResultSchema.safeParse(obj);
   if (!parsed.success) {
-    const issues = parsed.error.issues.map(
-      (i) => `${i.path.join('.')}: ${i.message}`,
-    );
-    throw new ResultParseError(
-      `Executor result validation failed:\n${issues.join('\n')}`,
-      obj,
-      issues,
-    );
+    const issues = parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`);
+    throw new ResultParseError(`Executor result validation failed:\n${issues.join('\n')}`, obj, issues);
   }
-
   return {
     card_id: parsed.data.card_id ?? '',
     status: parsed.data.status,
+    status_text: parsed.data.status_text,
     error: parsed.data.error,
     result: parsed.data.result,
     artifacts: parsed.data.artifacts,
@@ -438,48 +333,20 @@ export function parseExecutorResult(raw: string): ExecutorResult {
   };
 }
 
-/**
- * Parse and validate a reviewer result from raw LLM output.
- */
 export function parseReviewerResult(raw: string): ReviewerResult {
   let obj: unknown;
-  try {
-    obj = extractJson(raw);
-  } catch (err) {
+  try { obj = extractJson(raw); } catch (err) {
     if (err instanceof ResultParseError) throw err;
-    throw new ResultParseError(
-      `Failed to extract JSON from reviewer response: ${err instanceof Error ? err.message : String(err)}`,
-      raw,
-    );
+    throw new ResultParseError(`Failed to extract JSON from reviewer response: ${err instanceof Error ? err.message : String(err)}`, raw);
   }
-
   const parsed = rawReviewerResultSchema.safeParse(obj);
   if (!parsed.success) {
-    const issues = parsed.error.issues.map(
-      (i) => `${i.path.join('.')}: ${i.message}`,
-    );
-    throw new ResultParseError(
-      `Reviewer result validation failed:\n${issues.join('\n')}`,
-      obj,
-      issues,
-    );
+    const issues = parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`);
+    throw new ResultParseError(`Reviewer result validation failed:\n${issues.join('\n')}`, obj, issues);
   }
-
-  return {
-    assessment: {
-      result: parsed.data.assessment.result,
-      summary: parsed.data.assessment.summary,
-      achieved: parsed.data.assessment.achieved,
-      missing: parsed.data.assessment.missing,
-      evidence_card_ids: parsed.data.assessment.evidence_card_ids,
-    },
-  };
+  return { assessment: { result: parsed.data.assessment.result, summary: parsed.data.assessment.summary, achieved: parsed.data.assessment.achieved, missing: parsed.data.assessment.missing, evidence_card_ids: parsed.data.assessment.evidence_card_ids } };
 }
 
-/**
- * Check if an error from result parsing is recoverable
- * (i.e., we can retry the agent invocation).
- */
 export function isRecoverableParseError(err: unknown): boolean {
   return err instanceof ResultParseError;
 }

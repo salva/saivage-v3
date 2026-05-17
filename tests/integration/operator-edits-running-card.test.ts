@@ -67,7 +67,7 @@ describe('operator edits running card integration', () => {
           expect(latestUserText).not.toContain('abc123');
           expect(latestUserText).not.toContain('xyz987');
           llmTurn += 1;
-          return JSON.stringify({ card_id: 'code-1', status: 'done', artifacts: [], attachments: [], summary: 'premature completion before ack' });
+          return JSON.stringify({ card_id: 'code-1', status: 'done', status_text: 'Completed successfully', artifacts: [], attachments: [], summary: 'premature completion before ack' });
         }
 
         if (llmTurn === 1) {
@@ -90,7 +90,7 @@ describe('operator edits running card integration', () => {
         expect(adapter.notificationCenter.hasBlockingPendingForSession(sessionId)).toBe(false);
         expect(latestUserText).not.toContain('abc123');
         expect(latestUserText).not.toContain('xyz987');
-        return JSON.stringify({ card_id: 'code-1', status: 'done', artifacts: [], attachments: [], summary: 'adjusted after operator change acknowledgement' });
+        return JSON.stringify({ card_id: 'code-1', status: 'done', status_text: 'Completed successfully', artifacts: [], attachments: [], summary: 'adjusted after operator change acknowledgement' });
       });
       adapter.setLlmCallFn(llmCall);
 

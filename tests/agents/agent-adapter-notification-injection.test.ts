@@ -34,7 +34,7 @@ describe('AgentAdapter notification injection', () => {
   });
 
   it('injects pending notifications into the very next model call for the actual live session', async () => {
-    const llmCall = jest.fn<LlmCallFn>(async () => JSON.stringify({ card_id: 'code-1', status: 'done', artifacts: [], attachments: [] }));
+    const llmCall = jest.fn<LlmCallFn>(async () => JSON.stringify({ card_id: 'code-1', status: 'done', status_text: 'Completed successfully', artifacts: [], attachments: [] }));
     const sessionIds: string[] = [];
     adapter.setAfterSessionCreatedHook((sessionId) => {
       sessionIds.push(sessionId);
@@ -85,7 +85,7 @@ describe('AgentAdapter notification injection', () => {
         source_surface: 'web-chat',
       });
     });
-    const llmCall = jest.fn<LlmCallFn>(async () => JSON.stringify({ card_id: 'code-1', status: 'done', artifacts: [], attachments: [] }));
+    const llmCall = jest.fn<LlmCallFn>(async () => JSON.stringify({ card_id: 'code-1', status: 'done', status_text: 'Completed successfully', artifacts: [], attachments: [] }));
     adapter.setLlmCallFn(llmCall);
 
     await adapter.invokeExecutor('code-1', 'goal-1', 'system prompt');

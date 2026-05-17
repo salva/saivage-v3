@@ -95,7 +95,7 @@ describe('Runtime Adapter Wiring', () => {
         },
       ],
       executor: {
-        'code-happy-1': { card_id: 'code-happy-1', status: 'done', result: { evidence: 'happy card completed' } },
+        'code-happy-1': { card_id: 'code-happy-1', status: 'done', status_text: 'Completed successfully', result: { evidence: 'happy card completed' } },
       },
       reviewer: [
         {
@@ -242,6 +242,7 @@ describe('Runtime Adapter Wiring', () => {
           return {
             card_id: 'code-test',
             status: 'done' as const,
+            status_text: 'Completed successfully',
             artifacts: [],
             attachments: [],
           };
@@ -344,6 +345,7 @@ describe('Runtime Adapter Wiring', () => {
           'code-lifecycle-1': {
             card_id: 'code-lifecycle-1',
             status: 'done',
+            status_text: 'Completed successfully',
             result: { success: true },
             artifacts: [
               {

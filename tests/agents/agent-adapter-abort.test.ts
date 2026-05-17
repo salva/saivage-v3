@@ -546,10 +546,10 @@ describe('Runtime/Supervisor wiring for abort and force-cancel', () => {
   it('delegates abortSession to agentRuntime.cancelSession via mock AgentRuntime', () => {
     const mockAgentRuntime: AgentRuntime = {
       invokePlanner(_goalId: string) {
-        return { plan_card_id: 'p', created_cards: [], updated_cards: [], declare_done: true };
+        return { goal_card_id: 'p', created_cards: [], updated_cards: [], status: 'done' };
       },
       invokeExecutor(_cardId: string, _goalId: string) {
-        return { card_id: 'c', status: 'done' as const, artifacts: [], attachments: [] };
+        return { card_id: 'c', status: 'done' as const, status_text: 'Completed successfully', artifacts: [], attachments: [] };
       },
       invokeReviewer(_goalId: string) {
         return { assessment: { result: 'pass' as const, summary: '', achieved: [], missing: [], evidence_card_ids: [] } };
@@ -725,9 +725,7 @@ describe('Integration: real invokeAgent candidate loop with cancellation', () =>
     adapter.setLlmCallFn(llmCallFn);
 
     const invokePromise = adapter.invokePlanner(
-      'goal-integration-1',
-      'plan-card-1',
-      'You are a planner',
+      'goal-integration-1', 'You are a planner',
       [{ id: 'msg-1', session_id: '', role: 'user', kind: 'text', content: 'Plan a task', timestamp: new Date().toISOString() }],
     );
 

@@ -57,6 +57,7 @@ describe('Runtime executor fallback evidence persistence', () => {
     const executorResult: ExecutorResult = {
       card_id: 'code-1',
       status: 'failed',
+      status_text: 'Executor fallback evidence preserved',
       error: 'Executor final response was malformed or missing required status; preserved tool evidence via fallback result.',
       summary: 'fallback preserved tool evidence',
       artifacts: [

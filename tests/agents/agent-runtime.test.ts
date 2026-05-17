@@ -71,12 +71,13 @@ describe('AgentRuntime Interface', () => {
     });
 
     it('invokeExecutor returns ExecutorResult (AgentRuntime signature)', () => {
-      const fixture: FakeAgentFixture = { name: 'test-goal', planner: [], executor: { 'code-test-1': { card_id: 'code-test-1', status: 'done', artifacts: [{ sourceFile: 'src/test.ts', type: 'data', description: 'Test source file', retain: true }] } }, reviewer: [] };
+      const fixture: FakeAgentFixture = { name: 'test-goal', planner: [], executor: { 'code-test-1': { card_id: 'code-test-1', status: 'done', status_text: 'Completed test work', artifacts: [{ sourceFile: 'src/test.ts', type: 'data', description: 'Test source file', retain: true }] } }, reviewer: [] };
       writeFixture(fixtureDir, 'test-goal', fixture);
       const adapter = new FakeAgentAdapter({ mapping: { 'goal-1': 'test-goal', '*': 'test-goal' }, fixtureDir });
       const result = adapter.invokeExecutor('code-test-1', 'goal-1', 'system prompt', []);
       expect(result.card_id).toBe('code-test-1');
       expect(result.status).toBe('done');
+      expect(result.status_text).toBe('Completed test work');
       expect(result.artifacts).toHaveLength(1);
       expect(result.artifacts[0].type).toBe('data');
       expect(result.artifacts[0].description).toBe('Test source file');
@@ -143,6 +144,7 @@ describe('AgentRuntime Interface', () => {
         }),
         JSON.stringify({
           card_id: 'code-1',
+          status_text: 'tool work attempted',
           summary: 'work completed but malformed final result',
           artifacts: [{ type: 'report', description: 'Generated file artifact', retain: true, sourceFile: 'generated.txt' }],
           attachments: [{ mime: 'text/plain', title: 'verification output', sourceFile: 'command.log' }],
@@ -154,6 +156,7 @@ describe('AgentRuntime Interface', () => {
 
       expect(result.status).toBe('failed');
       expect(result.card_id).toBe('code-1');
+      expect(result.status_text).toBe('tool work attempted');
       expect(result.artifacts.map((artifact) => artifact.sourceFile)).toEqual(expect.arrayContaining(['generated.txt']));
       expect(result.attachments).toEqual(expect.arrayContaining([expect.objectContaining({ title: 'verification output' })]));
       expect(result.result?.generated_files).toEqual(['generated.txt']);
@@ -166,6 +169,27 @@ describe('AgentRuntime Interface', () => {
       expect(messages.some((message) => message.kind === 'tool_result' && message.tool === 'write_project_file')).toBe(true);
       expect(messages.some((message) => message.kind === 'tool_result' && message.tool === 'run_project_command')).toBe(true);
       expect(messages.some((message) => message.kind === 'model_issue' && message.content.includes('fallback'))).toBe(true);
+    });
+  });
+
+  describe('unknown terminal status tools stay hard errors', () => {
+    it('unknown set_status_text tool calls hard-error and accepted completion still uses final status_text', async () => {
+      const adapter = createMinimalAdapter(tmpDir);
+      const candidate = { provider: 'test-provider', model: 'test-model', account: 'default' };
+      jest.spyOn(adapter.router, 'resolve').mockResolvedValue([candidate]);
+      jest.spyOn(adapter.registry, 'isHealthy').mockReturnValue(true);
+      const responses = [
+        JSON.stringify({ toolCalls: [{ id: 'call-status', type: 'function', function: { name: 'set_status_text', arguments: JSON.stringify({ card_id: 'code-1', status_text: 'should not apply' }) } }] }),
+        JSON.stringify({ card_id: 'code-1', status: 'done', status_text: 'Final accepted status text', artifacts: [], attachments: [] }),
+      ];
+      adapter.setLlmCallFn(async () => responses.shift() ?? '{}');
+      const result = await adapter.invokeExecutor('code-1', 'goal-1', 'prompt');
+      expect(result.status).toBe('done');
+      expect(result.status_text).toBe('Final accepted status text');
+      const sessionId = listSessions(join(tmpDir, '.saivage')).find((id) => id.startsWith('executor-'));
+      expect(sessionId).toBeDefined();
+      const messages = getSessionMessages(join(tmpDir, '.saivage'), sessionId!);
+      expect(messages.some((message) => message.kind === 'tool_error' && message.tool === 'set_status_text' && message.content.includes("Unknown tool 'set_status_text'"))).toBe(true);
     });
   });
 });

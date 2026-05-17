@@ -512,7 +512,7 @@ describe('Runtime supervisor cancellation integration', () => {
     return new Runtime({
       projectRoot: tmpDir,
       fakeAgentConfig: { mapping: {}, fixtureDir: tmpDir },
-      supervisorConfig: { enabled: false, intervalMs: 10, consecutiveStuckVerdicts: 1, logLines: 10 },
+      supervisorConfig: { enabled: true, intervalMs: 1_000_000, consecutiveStuckVerdicts: 1, logLines: 10 },
     }, agentRuntime);
   }
 
@@ -527,10 +527,10 @@ describe('Runtime supervisor cancellation integration', () => {
 
     const agentRuntime: AgentRuntime = {
       invokePlanner() {
-        return { plan_card_id: 'p', created_cards: [], updated_cards: [], declare_done: true };
+        return { goal_card_id: 'p', created_cards: [], updated_cards: [], status: 'done' };
       },
       invokeExecutor() {
-        return { card_id: 'c', status: 'done' as const, artifacts: [], attachments: [] };
+        return { card_id: 'c', status: 'done' as const, status_text: 'Completed successfully', artifacts: [], attachments: [] };
       },
       invokeReviewer() {
         return { assessment: { result: 'pass' as const, summary: '', achieved: [], missing: [], evidence_card_ids: [] } };
@@ -572,10 +572,10 @@ describe('Runtime supervisor cancellation integration', () => {
 
     const agentRuntime: AgentRuntime = {
       invokePlanner() {
-        return { plan_card_id: 'p', created_cards: [], updated_cards: [], declare_done: true };
+        return { goal_card_id: 'p', created_cards: [], updated_cards: [], status: 'done' };
       },
       invokeExecutor() {
-        return { card_id: 'c', status: 'done' as const, artifacts: [], attachments: [] };
+        return { card_id: 'c', status: 'done' as const, status_text: 'Completed successfully', artifacts: [], attachments: [] };
       },
       invokeReviewer() {
         return { assessment: { result: 'pass' as const, summary: '', achieved: [], missing: [], evidence_card_ids: [] } };

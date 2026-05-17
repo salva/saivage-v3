@@ -99,8 +99,8 @@ describe('Runtime Integration', () => {
         },
       ],
       executor: {
-        'code-happy-1': { card_id: 'code-happy-1', status: 'done', result: { evidence: 'happy feature implemented' } },
-        'code-happy-2': { card_id: 'code-happy-2', status: 'done', result: { evidence: 'happy feature tests added' } },
+        'code-happy-1': { card_id: 'code-happy-1', status: 'done', status_text: 'Happy feature implemented', result: { evidence: 'happy feature implemented' } },
+        'code-happy-2': { card_id: 'code-happy-2', status: 'done', status_text: 'Happy feature tests added', result: { evidence: 'happy feature tests added' } },
       },
       reviewer: [
         {
@@ -180,8 +180,8 @@ describe('Runtime Integration', () => {
         },
       ],
       executor: {
-        'code-rf-1': { card_id: 'code-rf-1', status: 'done', result: { evidence: 'initial implementation completed' } },
-        'code-rf-2': { card_id: 'code-rf-2', status: 'done', result: { evidence: 'review correction completed' } },
+        'code-rf-1': { card_id: 'code-rf-1', status: 'done', status_text: 'Initial implementation completed', result: { evidence: 'initial implementation completed' } },
+        'code-rf-2': { card_id: 'code-rf-2', status: 'done', status_text: 'Review correction completed', result: { evidence: 'review correction completed' } },
       },
       reviewer: [
         {
@@ -270,8 +270,8 @@ describe('Runtime Integration', () => {
         },
       ],
       executor: {
-        'code-ef-1': { card_id: 'code-ef-1', status: 'failed', error: 'Build error' },
-        'code-ef-2': { card_id: 'code-ef-2', status: 'done', result: { evidence: 'replacement implementation completed' } },
+        'code-ef-1': { card_id: 'code-ef-1', status: 'failed', status_text: 'Build failed', error: 'Build error' },
+        'code-ef-2': { card_id: 'code-ef-2', status: 'done', status_text: 'Replacement implementation completed', result: { evidence: 'replacement implementation completed' } },
       },
       reviewer: [
         {
@@ -333,7 +333,7 @@ describe('Runtime Integration', () => {
         },
       ],
       executor: {
-        'code-resume-1': { card_id: 'code-resume-1', status: 'done', result: { evidence: 'crash recovery execution completed' } },
+        'code-resume-1': { card_id: 'code-resume-1', status: 'done', status_text: 'Crash recovery execution completed', result: { evidence: 'crash recovery execution completed' } },
       },
       reviewer: [
         {
@@ -422,8 +422,8 @@ describe('Runtime Integration', () => {
         },
       ],
       executor: {
-        'research-plan-card-1': { card_id: 'research-plan-card-1', status: 'done', result: { evidence: 'context inspected' } },
-        'research-plan-card-2': { card_id: 'research-plan-card-2', status: 'done', result: { evidence: 'next implementation step defined' } },
+        'research-plan-card-1': { card_id: 'research-plan-card-1', status: 'done', status_text: 'Completed successfully', result: { evidence: 'context inspected' } },
+        'research-plan-card-2': { card_id: 'research-plan-card-2', status: 'done', status_text: 'Completed successfully', result: { evidence: 'next implementation step defined' } },
       },
       reviewer: [
         {
@@ -607,6 +607,9 @@ describe('Runtime Integration', () => {
       const card1 = store.read('code-happy-1');
       expect(card1).not.toBeNull();
       expect(card1!.status).toBe('done');
+      expect(card1!.status_text).toBe('Happy feature implemented');
+      expect(card1!.status_text_author_session_id).toMatch(/^fake-executor-/);
+      expect(card1!.latest_self_report).toMatchObject({ status: 'done', status_text: 'Happy feature implemented' });
 
       const card2 = store.read('code-happy-2');
       expect(card2).not.toBeNull();
