@@ -97,6 +97,50 @@ export class Runtime extends EventEmitter {
     return JSON.stringify({ goal_id: goalId, child_dispatches: dispatches.map((dispatch) => ({ dispatch_id: dispatch.dispatch_id, target_card_id: dispatch.target_card_id, target_kind: dispatch.target_kind, status: dispatch.status, completion: dispatch.completion })), latest_review: reviewState ?? null }, null, 2);
   }
 
+  /** Build a goal-context block (goal card + direct children summary) to attach to a planner/reviewer prompt. */
+  private buildGoalContextBlock(goalId: string): string {
+    const goal = this.cardStore.read(goalId);
+    if (!goal) return `## Goal Context\n\nGoal card '${goalId}' not found.`;
+    const childIds = this.cardStore.listChildren(goalId);
+    const children = childIds.map((id) => this.cardStore.read(id)).filter((c): c is CardRecord => Boolean(c)).map((c) => ({
+      id: c.id, type: c.type, title: c.title, status: c.status, priority: c.priority,
+      depends_on: c.depends_on, tags: c.tags, acceptance: c.acceptance || null,
+      result_summary: c.result && Object.keys(c.result).length > 0 ? Object.keys(c.result) : null,
+      error: c.error ?? null,
+    }));
+    const planningState = (goal.result?.planning ?? null) as unknown;
+    const payload = {
+      goal_card: {
+        id: goal.id, type: goal.type, parent: goal.parent, depth: goal.depth,
+        title: goal.title, description: goal.description, acceptance: goal.acceptance,
+        status: goal.status, tags: goal.tags, priority: goal.priority,
+        depends_on: goal.depends_on, blocks: goal.blocks,
+      },
+      planning_state: planningState,
+      children,
+    };
+    return `## Goal Context\n\n${JSON.stringify(payload, null, 2)}`;
+  }
+
+  /** Build a card-context block (the card to execute + its parent goal) to attach to an executor prompt. */
+  private buildCardContextBlock(cardId: string, goalId: string): string {
+    const card = this.cardStore.read(cardId);
+    const goal = this.cardStore.read(goalId);
+    if (!card) return `## Card Context\n\nCard '${cardId}' not found.`;
+    const payload = {
+      card: {
+        id: card.id, type: card.type, title: card.title, description: card.description,
+        acceptance: card.acceptance, status: card.status, priority: card.priority,
+        depends_on: card.depends_on, tags: card.tags, parent: card.parent,
+        instructions_file: card.instructions_file ?? null,
+      },
+      goal: goal ? {
+        id: goal.id, title: goal.title, description: goal.description, acceptance: goal.acceptance,
+      } : null,
+    };
+    return `## Card Context\n\n${JSON.stringify(payload, null, 2)}`;
+  }
+
   private buildBlockingNotificationInstruction(notifications: NotificationRecord[]): string {
     const lines = ['## Blocking operator updates require acknowledgement before finalizing', '', ...notifications.map((notification) => `- id=${notification.id}; kind=${notification.kind}; related_card_id=${notification.related_card_id ?? 'n/a'}; related_note_id=${notification.related_note_id ?? 'n/a'}; related_process_id=${notification.related_process_id ?? 'n/a'}; summary=${notification.payload_summary}`), '', 'Acknowledge each pending blocking notification before returning a terminal result. Re-evaluate your final output after doing so.'];
     return lines.join('\n');
@@ -157,9 +201,10 @@ export class Runtime extends EventEmitter {
       try {
         const goalCardForDepth = this.cardStore.read(goalId); const currentDepth = goalCardForDepth?.depth; const maxDepth = this.cardStore.maxDepth; let plannerPrompt = buildPlannerPrompt(undefined, currentDepth, maxDepth);
         const resumeContext = this.buildParentResumeContext(goalId, plannerFrame.frame_id);
-        plannerPrompt += `\n\n## Parent Resume Context\n${resumeContext}`;
+        const goalContext = this.buildGoalContextBlock(goalId);
+        plannerPrompt += `\n\n${goalContext}\n\n## Parent Resume Context\n${resumeContext}`;
         const handoff = this.consumeResumeHandoffContext(); if (handoff) plannerPrompt += `\n\n## Resume Handoff\n${handoff}`;
-        try { const goalCard = this.cardStore.read(goalId); if (goalCard && this._skillsEngine) { const plannerInstr = goalCard.depth === 0 ? await this._skillsEngine.loadPlannerInstructions() : (goalCard.instructions_file && goalCard.instructions_file.trim()) ? await this._skillsEngine.loadPlannerInstructions(goalCard.instructions_file.trim()) : ''; const skillsContent = await this._skillsEngine.selectAndFormat({ goalDescription: goalCard.description, cardDescription: goalCard.description, tags: goalCard.tags, filePaths: [], availableTools: ['list_project_files', 'read_project_file', 'load_skill', 'mcp_tool_call'], targetRole: 'planner' }); const combinedSkills = [plannerInstr, skillsContent].filter(Boolean).join('\n\n'); if (combinedSkills) plannerPrompt = buildPlannerPrompt(combinedSkills, currentDepth, maxDepth) + `\n\n## Parent Resume Context\n${resumeContext}`; } } catch {}
+        try { const goalCard = this.cardStore.read(goalId); if (goalCard && this._skillsEngine) { const plannerInstr = goalCard.depth === 0 ? await this._skillsEngine.loadPlannerInstructions() : (goalCard.instructions_file && goalCard.instructions_file.trim()) ? await this._skillsEngine.loadPlannerInstructions(goalCard.instructions_file.trim()) : ''; const skillsContent = await this._skillsEngine.selectAndFormat({ goalDescription: goalCard.description, cardDescription: goalCard.description, tags: goalCard.tags, filePaths: [], availableTools: ['list_project_files', 'read_project_file', 'load_skill', 'mcp_tool_call'], targetRole: 'planner' }); const combinedSkills = [plannerInstr, skillsContent].filter(Boolean).join('\n\n'); if (combinedSkills) plannerPrompt = buildPlannerPrompt(combinedSkills, currentDepth, maxDepth) + `\n\n${goalContext}\n\n## Parent Resume Context\n${resumeContext}`; } } catch {}
         const result = this.agentRuntime.invokePlanner(goalId, plannerPrompt); plannerResult = result instanceof Promise ? await result : result;
       } catch (err) { const errorMessage = err instanceof Error ? err.message : String(err); this.plannerControl.updateFrame(plannerFrame.frame_id, { status: 'failed' }); this.emit('error', { goalId, phase: 'planner', error: err }); this._eventLogger.appendEvent({ kind: 'error', goal_id: goalId, phase: 'planner', error_message: errorMessage }); this._errorLogger.appendError({ message: errorMessage, goalId, phase: 'planner' }); break; }
       this.applyPlannerResult(goalId, plannerResult);
@@ -225,6 +270,7 @@ export class Runtime extends EventEmitter {
         try {
           let executorPrompt = buildExecutorPrompt(card.type);
           try { if (this._skillsEngine) { const instructionContent = await this._skillsEngine.loadInstructions('executor'); const skillsContent = await this._skillsEngine.selectAndFormat({ goalDescription: goalCard?.description ?? '', cardDescription: card.description, tags: card.tags, filePaths: [], availableTools: ['list_project_files', 'read_project_file', 'write_project_file', 'run_project_command', 'load_skill', 'mcp_tool_call'], targetRole: 'executor' }); const combinedSkills = [instructionContent, skillsContent].filter(Boolean).join('\n\n'); if (combinedSkills) executorPrompt = buildExecutorPrompt(card.type, combinedSkills); } } catch {}
+          executorPrompt += `\n\n${this.buildCardContextBlock(card.id, goalId)}`;
           const result = this.agentRuntime.invokeExecutor(card.id, goalId, executorPrompt); execResult = result instanceof Promise ? await result : result;
           const lastSessionId = (this.agentRuntime as FakeAgentAdapter).getLastSessionId?.('executor', goalId, card.id) ?? readRuntimeState(this.projectRoot)?.current_agent_session_id ?? null;
           if (execResult.status === 'done' && lastSessionId) await this.enforceBlockingNotifications(lastSessionId, 'executor', async () => undefined);
@@ -250,7 +296,7 @@ export class Runtime extends EventEmitter {
   async invokeReviewer(goalId: string, _planCardId: string): Promise<ReviewerResult> {
     let reviewerPrompt = buildReviewerPrompt();
     try { if (this._skillsEngine) { const goalCard = this.cardStore.read(goalId); const instructionContent = await this._skillsEngine.loadInstructions('reviewer'); const skillsContent = await this._skillsEngine.selectAndFormat({ goalDescription: goalCard?.description ?? '', cardDescription: goalCard?.description ?? '', tags: goalCard?.tags ?? [], filePaths: [], availableTools: ['list_project_files', 'read_project_file', 'load_skill', 'mcp_tool_call'], targetRole: 'reviewer' }); const combinedSkills = [instructionContent, skillsContent].filter(Boolean).join('\n\n'); if (combinedSkills) reviewerPrompt = buildReviewerPrompt(combinedSkills); } } catch {}
-    reviewerPrompt += `\n\n## Goal Evidence Context\n${this.buildParentResumeContext(goalId, this.plannerControl.ensureFrame(goalId, goalId === 'project' ? 'project' : 'goal').frame_id)}`;
+    reviewerPrompt += `\n\n${this.buildGoalContextBlock(goalId)}\n\n## Goal Evidence Context\n${this.buildParentResumeContext(goalId, this.plannerControl.ensureFrame(goalId, goalId === 'project' ? 'project' : 'goal').frame_id)}`;
     const result = await this.agentRuntime.invokeReviewer(goalId, reviewerPrompt);
     const lastSessionId = (this.agentRuntime as FakeAgentAdapter).getLastSessionId?.('reviewer', goalId, null) ?? readRuntimeState(this.projectRoot)?.current_agent_session_id ?? null;
     if (result.assessment.result === 'pass' && lastSessionId) await this.enforceBlockingNotifications(lastSessionId, 'reviewer', async () => undefined);
@@ -280,5 +326,5 @@ export class Runtime extends EventEmitter {
   runCleanup(options?: { stashMaxAgeMs?: number; processMaxAgeMs?: number; previewsMaxAgeMs?: number; uploadsMaxAgeMs?: number; }) { return cleanAll(saivageWorkDir(this.projectRoot), this.cardStore, options); }
   getState(): RuntimeState | null { return readRuntimeState(this.projectRoot); }
   private async _autoDispatchFirstBacklogGoal(): Promise<void> { const nextGoal = this.cardStore.list().filter((card) => card.type === 'goal' && card.parent === 'project' && card.status === 'backlog').sort((a, b) => a.priority - b.priority)[0]; if (!nextGoal || this._paused || this._shuttingDown) return; try { await this.dispatchGoal(nextGoal.id); } catch {} }
-  private async _checkContinuousImprovement(): Promise<void> { if (!this._continuousImprovement || this._paused || this._shuttingDown || this._improvementDispatchInProgress) return; const allCards = this.cardStore.list(); const topLevelGoals = allCards.filter((c) => c.type === 'goal' && c.parent === 'project'); if (topLevelGoals.length === 0) return; const allTerminal = topLevelGoals.every((g) => TERMINAL_STATUSES.has(g.status)); if (!allTerminal) return; this._improvementDispatchInProgress = true; try { this.emit('improvement_invoked', { goalIds: topLevelGoals.map((g) => g.id) }); this._eventLogger.appendEvent({ kind: 'improvement_invoked' as never, goal_ids: topLevelGoals.map((g) => g.id) }); const improvementDirective = buildImprovementDirective(topLevelGoals); const projectGoal = this.cardStore.read('project'); const currentDepth = projectGoal?.depth ?? 0; const maxDepth = this.cardStore.maxDepth; let promptContent = improvementDirective; try { const plannerInstr = this._skillsEngine ? await this._skillsEngine.loadPlannerInstructions() : ''; if (plannerInstr) promptContent = improvementDirective + '\n\n' + plannerInstr; } catch {} const plannerPrompt = buildPlannerPrompt(promptContent, currentDepth, maxDepth); const result = this.agentRuntime.invokePlanner('project', plannerPrompt); const plannerResult = result instanceof Promise ? await result : result; this.applyPlannerResult('project', plannerResult); this.emit('plan_updated', { goalId: 'project', source: 'continuous-improvement' }); this._eventLogger.appendEvent({ kind: 'plan_updated' as never, goal_id: 'project', source: 'continuous-improvement' }); } catch (err) { const errorMessage = err instanceof Error ? err.message : String(err); this.emit('error', { goalId: 'project', phase: 'continuous-improvement', error: err }); this._eventLogger.appendEvent({ kind: 'error' as never, goal_id: 'project', phase: 'continuous-improvement', error_message: errorMessage }); this._errorLogger.appendError({ message: errorMessage, goalId: 'project', phase: 'continuous-improvement' }); } finally { this._improvementDispatchInProgress = false; } }
+  private async _checkContinuousImprovement(): Promise<void> { if (!this._continuousImprovement || this._paused || this._shuttingDown || this._improvementDispatchInProgress) return; const allCards = this.cardStore.list(); const topLevelGoals = allCards.filter((c) => c.type === 'goal' && c.parent === 'project'); if (topLevelGoals.length === 0) return; const allTerminal = topLevelGoals.every((g) => TERMINAL_STATUSES.has(g.status)); if (!allTerminal) return; this._improvementDispatchInProgress = true; try { this.emit('improvement_invoked', { goalIds: topLevelGoals.map((g) => g.id) }); this._eventLogger.appendEvent({ kind: 'improvement_invoked' as never, goal_ids: topLevelGoals.map((g) => g.id) }); const improvementDirective = buildImprovementDirective(topLevelGoals); const projectGoal = this.cardStore.read('project'); const currentDepth = projectGoal?.depth ?? 0; const maxDepth = this.cardStore.maxDepth; let promptContent = improvementDirective; try { const plannerInstr = this._skillsEngine ? await this._skillsEngine.loadPlannerInstructions() : ''; if (plannerInstr) promptContent = improvementDirective + '\n\n' + plannerInstr; } catch {} const plannerPrompt = buildPlannerPrompt(promptContent, currentDepth, maxDepth) + `\n\n${this.buildGoalContextBlock('project')}`; const result = this.agentRuntime.invokePlanner('project', plannerPrompt); const plannerResult = result instanceof Promise ? await result : result; this.applyPlannerResult('project', plannerResult); this.emit('plan_updated', { goalId: 'project', source: 'continuous-improvement' }); this._eventLogger.appendEvent({ kind: 'plan_updated' as never, goal_id: 'project', source: 'continuous-improvement' }); } catch (err) { const errorMessage = err instanceof Error ? err.message : String(err); this.emit('error', { goalId: 'project', phase: 'continuous-improvement', error: err }); this._eventLogger.appendEvent({ kind: 'error' as never, goal_id: 'project', phase: 'continuous-improvement', error_message: errorMessage }); this._errorLogger.appendError({ message: errorMessage, goalId: 'project', phase: 'continuous-improvement' }); } finally { this._improvementDispatchInProgress = false; } }
 }
