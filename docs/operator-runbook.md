@@ -177,7 +177,7 @@ Analyst filesystem inspection uses one centralized secret-path policy. Requests 
 
 For directory listings, secret-bearing child entries are omitted entirely. The response includes `redacted_count`, and when one or more entries were suppressed the listing appends a single `<redacted>` summary row with the hidden count. Operators should treat that as an intentional safety boundary, not missing data.
 
-For shell-command classification, commands that target denylisted secret-bearing paths are treated as unsafe. On analyst web chat they do not execute by default and instead return preview-only confirmation semantics under authz; on Telegram they remain denied/unavailable. See [Analyst Operator Guide](/analyst) for the full analyst shell and chat behavior.
+For shell-command classification, commands that target denylisted secret-bearing paths are treated as unsafe. On analyst web chat they return preview-only confirmation semantics and do not execute immediately; commit requires `confirmed: true` plus the matching `preview_hash`. On Telegram, `run_shell_command` remains unavailable. See [Analyst Operator Guide](/analyst) for the full analyst shell and chat behavior.
 
 ### Focused analyst web validation
 
@@ -337,6 +337,8 @@ Operational rules:
 - **deny**: action fails and is audited as denied
 - **preview_only**: action returns a preview and preview hash; commit requires `confirmed: true` plus the matching hash
 - **allow**: action commits immediately via the canonical service
+
+For `run_shell_command`, note the surface-specific exception: analyst web chat returns preview-only flows for destructive commands, while Telegram does not expose the tool at all.
 
 Customization:
 

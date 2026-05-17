@@ -55,7 +55,7 @@ When entries were hidden, the response reports a `redacted_count` and appends a 
 
 ### Shell commands
 
-If a shell command targets a denylisted secret-bearing path, the command is classified as unsafe. On analyst web chat, unsafe secret-targeting commands do not execute by default and return preview-only/confirmation semantics under authz; on Telegram they remain unavailable.
+If a shell command targets a denylisted secret-bearing path, the command is classified as unsafe. On analyst web chat, destructive shell commands return a redacted preview with a `preview_hash` and do not execute unless the caller re-submits with `confirmed: true` plus the matching hash under a surface/authz combination that permits preview-only confirmation. On Telegram, `run_shell_command` remains unavailable.
 
 ## Shell-command classification rules
 
@@ -65,7 +65,7 @@ Possible classes:
 
 - **`read_only`** — pure inspection; allowed on web chat; not audited as a mutating control action
 - **`low`** — non-read-only but not obviously destructive; allowed on web chat; audited
-- **`destructive`** — unsafe host mutation or secret-targeting behavior; preview-only on analyst web chat by default, and denied on Telegram
+- **`destructive`** — unsafe host mutation or secret-targeting behavior; preview-only on analyst web chat, and unavailable on Telegram
 
 ### Read-only examples
 
@@ -99,7 +99,7 @@ These are still inspection-oriented commands. Their output is bounded, timeout-l
 
 ### Destructive or preview-only examples
 
-Examples of commands treated as destructive on analyst web chat, so they do not execute by default and instead return a redacted preview/confirmation flow under authz:
+Examples of commands treated as destructive on analyst web chat, so they return a redacted preview/confirmation flow instead of executing immediately:
 
 - `sudo systemctl restart saivage`
 - `rm -rf .saivage-work/tmp`
@@ -110,7 +110,26 @@ Examples of commands treated as destructive on analyst web chat, so they do not 
 - `git push --force`
 - `cat .saivage/auth-profiles.json`
 
-On Telegram, destructive shell commands remain denied/unavailable.
+On Telegram, `run_shell_command` remains unavailable.
+
+## Shell parameter bounds and confirmation semantics
+
+`run_shell_command` accepts these parameters:
+
+- `command` — required non-empty string
+- `cwd` — optional working directory; defaults to the project root
+- `timeoutMs` — optional timeout in milliseconds; default `15000`, clamped to a maximum of `60000`
+- `maxOutputBytes` — optional per-stream output cap in bytes; default `65536`, clamped to a maximum of `1048576`
+- `confirmed` — optional boolean used to confirm a preview-only action
+- `preview_hash` — optional string returned by the prior preview response
+
+Current hardening behavior:
+
+- malformed parameter types are rejected before execution;
+- `cwd` must stay within the project root;
+- secret-bearing `cwd` paths are rejected before execution;
+- preview hashing uses the normalized execution inputs, so over-large timeout/output values cannot bypass confirmation matching;
+- stdout/stderr are redacted before return or persistence and may include a `[truncated N bytes]` footer when capped.
 
 ## Delegation invariant
 
@@ -160,6 +179,8 @@ When the analyst changes a card through canonical card mutation, the card's hist
 ### `analyst_tool_invoked` transcript chips
 
 When the analyst invokes a visible operator-facing tool action, the transcript can show an `analyst_tool_invoked` chip so operators can see that the current state change was produced by the analyst's tool call rather than a manual page refresh or unrelated background event.
+
+The `analyst_tool_invoked` broadcast is sanitized before emission. Operators should expect concise summaries rather than raw secret-bearing tool payloads.
 
 ### Toaster behavior
 

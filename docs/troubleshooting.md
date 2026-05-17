@@ -38,6 +38,8 @@ The static authz table classified the action as either:
 - `preview_only` — safe to preview, not safe to commit without a matching confirmation hash
 - `deny` — not allowed for the current actor/surface/safety-class combination
 
+For `run_shell_command`, destructive analyst web-chat requests use the preview-only path rather than immediate execution, while Telegram does not expose the tool at all.
+
 ### What to do
 
 1. Confirm the action is being attempted from the intended surface (`web-chat`, `web-ui`, `rest`, `cli`, or `telegram`).
