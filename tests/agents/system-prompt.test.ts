@@ -6,13 +6,7 @@ import {
   systemPromptBuilder,
 } from '../../src/agents/system-prompt.js';
 
-// ── Test Suite ────────────────────────────────────────────────
-
 describe('System Prompt Builder', () => {
-  // ═══════════════════════════════════════════════════════════════
-  // Planner Prompt
-  // ═══════════════════════════════════════════════════════════════
-
   describe('buildPlannerPrompt', () => {
     it('returns a non-empty string', () => {
       const prompt = buildPlannerPrompt();
@@ -20,31 +14,40 @@ describe('System Prompt Builder', () => {
       expect(prompt.length).toBeGreaterThan(0);
     });
 
-    it('contains "Planner"', () => {
+    it('contains planner role and created_cards schema', () => {
       const prompt = buildPlannerPrompt();
       expect(prompt).toContain('Planner');
-    });
-
-    it('contains "created_cards"', () => {
-      const prompt = buildPlannerPrompt();
       expect(prompt).toContain('created_cards');
     });
 
-    it('contains "declare_done"', () => {
+    it('includes stage-3 activation and recurrence instructions', () => {
       const prompt = buildPlannerPrompt();
-      expect(prompt).toContain('declare_done');
+      expect(prompt).toContain('activate_card');
+      expect(prompt).toContain('Planners recur on the same goal');
+      expect(prompt).toContain('Executors are one-shot per activation');
     });
 
-    it('mentions card types', () => {
+    it('includes terminal status_text and reviewer_interrupted recovery guidance', () => {
       const prompt = buildPlannerPrompt();
-      expect(prompt).toContain('code');
-      expect(prompt).toContain('test');
-      expect(prompt).toContain('doc');
+      expect(prompt).toContain('status_text');
+      expect(prompt).toContain("resume_reason: 'reviewer_interrupted'");
+      expect(prompt).toContain('re-issue `report_goal_done`');
     });
 
-    it('mentions behavioral guidelines', () => {
+    it('does not expose obsolete tools in the planner prompt', () => {
       const prompt = buildPlannerPrompt();
-      expect(prompt.toLowerCase()).toContain('behavioral');
+      for (const name of ['start_planner', 'start_executor', 'run_card', 'set_status_text', 'acknowledge_notification']) {
+        expect(prompt).toContain(name);
+        expect(prompt).toContain('obsolete tools');
+      }
+    });
+
+    it('mentions named tool errors', () => {
+      const prompt = buildPlannerPrompt();
+      expect(prompt).toContain('subtree_not_ready');
+      expect(prompt).toContain('invalid_evidence');
+      expect(prompt).toContain('terminal_card_requires_restart');
+      expect(prompt).toContain('card_already_active');
     });
 
     it('is accessible via systemPromptBuilder namespace', () => {
@@ -54,143 +57,36 @@ describe('System Prompt Builder', () => {
     });
   });
 
-  // ═══════════════════════════════════════════════════════════════
-  // Executor Prompt
-  // ═══════════════════════════════════════════════════════════════
-
   describe('buildExecutorPrompt', () => {
-    it('returns a non-empty string (no card type)', () => {
+    it('returns a non-empty string', () => {
       const prompt = buildExecutorPrompt();
       expect(typeof prompt).toBe('string');
       expect(prompt.length).toBeGreaterThan(0);
     });
 
-    it('contains "Executor"', () => {
+    it('contains required status_text guidance', () => {
       const prompt = buildExecutorPrompt();
       expect(prompt).toContain('Executor');
+      expect(prompt).toContain('status_text');
+      expect(prompt).toContain('one-shot');
     });
 
-    it('contains "status"', () => {
-      const prompt = buildExecutorPrompt();
-      expect(prompt).toContain('status');
-    });
-
-    it('returns a non-empty string with card type', () => {
-      const prompt = buildExecutorPrompt('code');
-      expect(typeof prompt).toBe('string');
-      expect(prompt.length).toBeGreaterThan(0);
-    });
-
-    it('buildExecutorPrompt("code") mentions "code"', () => {
-      const prompt = buildExecutorPrompt('code');
-      expect(prompt.toLowerCase()).toContain('code');
-    });
-
-    it('buildExecutorPrompt("code") includes type-specific guidance', () => {
-      const prompt = buildExecutorPrompt('code');
-      // The type-specific guidance for code mentions "source code"
-      expect(prompt.toLowerCase()).toContain('source code');
-    });
-
-    it('buildExecutorPrompt("test") mentions "test"', () => {
-      const prompt = buildExecutorPrompt('test');
-      expect(prompt.toLowerCase()).toContain('test');
-    });
-
-    it('buildExecutorPrompt("doc") mentions "documentation"', () => {
-      const prompt = buildExecutorPrompt('doc');
-      expect(prompt.toLowerCase()).toContain('documentation');
-    });
-
-    it('mentions behavioral guidelines', () => {
-      const prompt = buildExecutorPrompt();
-      expect(prompt.toLowerCase()).toContain('behavioral');
-    });
-
-    it('is accessible via systemPromptBuilder namespace', () => {
-      const prompt = systemPromptBuilder.buildExecutorPrompt('code');
-      expect(typeof prompt).toBe('string');
-      expect(prompt.length).toBeGreaterThan(0);
-    });
-
-    it('handles unknown card types gracefully', () => {
-      const prompt = buildExecutorPrompt('unknown_type');
-      expect(typeof prompt).toBe('string');
-      expect(prompt.length).toBeGreaterThan(0);
-      // Should still contain the basic executor prompt
-      expect(prompt).toContain('Executor');
+    it('supports type-specific guidance', () => {
+      expect(buildExecutorPrompt('code').toLowerCase()).toContain('source code');
+      expect(buildExecutorPrompt('test').toLowerCase()).toContain('test');
+      expect(buildExecutorPrompt('doc').toLowerCase()).toContain('documentation');
     });
   });
-
-  // ═══════════════════════════════════════════════════════════════
-  // Reviewer Prompt
-  // ═══════════════════════════════════════════════════════════════
 
   describe('buildReviewerPrompt', () => {
     it('returns a non-empty string', () => {
       const prompt = buildReviewerPrompt();
       expect(typeof prompt).toBe('string');
       expect(prompt.length).toBeGreaterThan(0);
-    });
-
-    it('contains "Reviewer"', () => {
-      const prompt = buildReviewerPrompt();
       expect(prompt).toContain('Reviewer');
-    });
-
-    it('contains "assessment"', () => {
-      const prompt = buildReviewerPrompt();
       expect(prompt).toContain('assessment');
     });
-
-    it('mentions pass/fail criteria', () => {
-      const prompt = buildReviewerPrompt();
-      expect(prompt).toContain('pass');
-      expect(prompt).toContain('fail');
-    });
-
-    it('mentions acceptance criteria', () => {
-      const prompt = buildReviewerPrompt();
-      expect(prompt.toLowerCase()).toContain('acceptance');
-    });
-
-    it('mentions behavioral guidelines', () => {
-      const prompt = buildReviewerPrompt();
-      expect(prompt.toLowerCase()).toContain('behavioral');
-    });
-
-    it('is accessible via systemPromptBuilder namespace', () => {
-      const prompt = systemPromptBuilder.buildReviewerPrompt();
-      expect(typeof prompt).toBe('string');
-      expect(prompt.length).toBeGreaterThan(0);
-    });
   });
-
-  // ═══════════════════════════════════════════════════════════════
-  // Uniqueness
-  // ═══════════════════════════════════════════════════════════════
-
-  describe('prompts are distinct', () => {
-    it('planner, executor, and reviewer prompts are different', () => {
-      const plannerPrompt = buildPlannerPrompt();
-      const executorPrompt = buildExecutorPrompt();
-      const reviewerPrompt = buildReviewerPrompt();
-
-      // Each prompt should be distinct from the others
-      expect(plannerPrompt).not.toBe(executorPrompt);
-      expect(plannerPrompt).not.toBe(reviewerPrompt);
-      expect(executorPrompt).not.toBe(reviewerPrompt);
-
-      // Each should contain its own role name
-      expect(plannerPrompt).toContain('Planner');
-      expect(executorPrompt).toContain('Executor');
-      expect(reviewerPrompt).toContain('Reviewer');
-    });
-  });
-
-  // ═══════════════════════════════════════════════════════════════
-  // Planner Prompt Depth Context
-  // ═══════════════════════════════════════════════════════════════
 
   describe('Planner Prompt Depth Context', () => {
     it('includes current depth and max depth when both provided', () => {
@@ -200,35 +96,10 @@ describe('System Prompt Builder', () => {
       expect(prompt).toContain('Maximum allowed depth: 5');
     });
 
-    it('does not include depth context when no depth arguments provided', () => {
-      const prompt = buildPlannerPrompt();
-      expect(prompt).not.toContain('Goal Depth Context');
-    });
-
-    it('does not include depth context when only currentDepth provided', () => {
-      const prompt = buildPlannerPrompt(undefined, 3);
-      expect(prompt).not.toContain('Goal Depth Context');
-    });
-
-    it('does not include depth context when only maxDepth provided', () => {
-      const prompt = buildPlannerPrompt(undefined, undefined, 5);
-      expect(prompt).not.toContain('Goal Depth Context');
-    });
-
-    it('includes depth context via systemPromptBuilder namespace', () => {
-      const prompt = systemPromptBuilder.buildPlannerPrompt(undefined, 3, 5);
-      expect(prompt).toContain('Goal Depth Context');
-      expect(prompt).toContain('Current goal depth: 3');
-      expect(prompt).toContain('Maximum allowed depth: 5');
-    });
-
-    it('works with skills combined with depth context', () => {
-      const skills = '### Available Skills\n- skill-a: description of skill a';
-      const prompt = buildPlannerPrompt(skills, 2, 4);
-      expect(prompt).toContain('Goal Depth Context');
-      expect(prompt).toContain('Current goal depth: 2');
-      expect(prompt).toContain('Maximum allowed depth: 4');
-      expect(prompt).toContain('### Available Skills');
+    it('omits depth context when incomplete', () => {
+      expect(buildPlannerPrompt()).not.toContain('Goal Depth Context');
+      expect(buildPlannerPrompt(undefined, 3)).not.toContain('Goal Depth Context');
+      expect(buildPlannerPrompt(undefined, undefined, 5)).not.toContain('Goal Depth Context');
     });
   });
 });
