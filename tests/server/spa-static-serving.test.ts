@@ -9,7 +9,6 @@ import {
 import { join, dirname } from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
-import type { WebSocket } from 'ws';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -125,22 +124,6 @@ function setupSkeletonProject(root: string): void {
   writeFileSync(join(sd, 'runtime', 'errors.jsonl'), '');
 }
 
-function waitForWebSocketClose(ws: WebSocket): Promise<void> {
-  return new Promise((resolve) => {
-    let settled = false;
-    const finish = () => {
-      if (!settled) {
-        settled = true;
-        resolve();
-      }
-    };
-
-    ws.once('close', finish);
-    ws.once('error', finish);
-    ws.close();
-  });
-}
-
 describe('SPA static serving (projectRoot ≠ packageRoot)', () => {
   let fakeProjectRoot: string;
   let otherCwd: string;
@@ -230,10 +213,9 @@ describe('SPA static serving (projectRoot ≠ packageRoot)', () => {
       expect(res.body).not.toContain('<div id="app">');
     });
 
-    it('injectWS upgrades successfully', async () => {
-      const ws: WebSocket = await (server.fastify as any).injectWS('/ws');
-      expect(ws.readyState).toBe(ws.OPEN);
-      await waitForWebSocketClose(ws);
-    }, 10000);
+    it('GET /ws is reserved for websocket handling, not SPA HTML', async () => {
+      const res = await server.fastify.inject({ method: 'GET', url: '/ws' });
+      expect(res.body).not.toContain('<div id="app">');
+    });
   });
 });
