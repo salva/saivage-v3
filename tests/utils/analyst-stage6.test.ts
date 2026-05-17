@@ -67,17 +67,30 @@ describe('stage-6 analyst synthetic notes', () => {
     expect(getSessionMessages(saivageDir(), planner.id).at(-1)?.content).toContain('dormant subtree edit');
   });
 
-  it('activate_card changed consumption removes queued subtree_changed delivery vehicles and card-side queued notes', () => {
+  it('activate_card changed consumption keeps queued subtree_changed notes for one-shot planner delivery', () => {
     createGoal('goal-parent', 'project', 'running');
+    createGoal('other-goal', 'project', 'running');
     createCode('code-leaf', 'goal-parent');
+    createCode('other-leaf', 'other-goal');
     const planner = createSession(saivageDir(), 'planner', 'goal-parent', 'goal-parent');
+    const otherPlanner = createSession(saivageDir(), 'planner', 'other-goal', 'other-goal');
     markDescendantChanged(root, 'code-leaf', 'changed before activation');
+    markDescendantChanged(root, 'other-leaf', 'unrelated change');
     expect(store.read('code-leaf')?.status).toBe('changed');
+
     const removed = consumeChangedCardActivation(root, 'code-leaf');
+
     expect(removed).toBeGreaterThan(0);
     expect(new CardStore(root).read('code-leaf')?.status).toBe('running');
-    expect(getNotes(saivageDir(), 'goal-parent').filter((note) => !note.handled && note.content.includes('subtree_changed')).length).toBe(0);
+    expect(getNotes(saivageDir(), 'goal-parent').filter((note) => !note.handled && note.content.includes('subtree_changed') && note.content.includes('code-leaf')).length).toBe(0);
+    expect(getNotes(saivageDir(), 'other-goal').filter((note) => !note.handled && note.content.includes('subtree_changed') && note.content.includes('other-leaf')).length).toBe(1);
+
+    expect(injectQueuedSyntheticPlannerNotes(root, planner.id)).toBe(1);
+    expect(getSessionMessages(saivageDir(), planner.id).at(-1)?.content).toContain('subtree_changed for code-leaf');
     expect(injectQueuedSyntheticPlannerNotes(root, planner.id)).toBe(0);
+
+    expect(injectQueuedSyntheticPlannerNotes(root, otherPlanner.id)).toBe(1);
+    expect(getSessionMessages(saivageDir(), otherPlanner.id).at(-1)?.content).toContain('subtree_changed for other-leaf');
   });
 
   it('records lets_dance and project correction directives idempotently', () => {

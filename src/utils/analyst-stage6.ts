@@ -183,7 +183,6 @@ export function consumeChangedCardActivation(projectRoot: string, cardId: string
   const store = new CardStore(projectRoot);
   const card = store.read(cardId);
   if (card?.status === 'changed') store.update(cardId, { status: 'running' });
-  const removedSynthetic = discardSubtreeChangedSyntheticNotes(projectRoot, cardId);
   let removedCardNotes = 0;
   for (const card of store.list()) {
     for (const note of getNotes(saivageDir(projectRoot), card.id)) {
@@ -193,7 +192,7 @@ export function consumeChangedCardActivation(projectRoot: string, cardId: string
       }
     }
   }
-  return removedSynthetic + removedCardNotes;
+  return removedCardNotes;
 }
 
 export interface CardBreadcrumbNode { card_id: string; card_type: string; title: string; status_text?: string; }
