@@ -530,6 +530,10 @@ export class CardStore {
       completed_at: input.completed_at ?? null,
       duration_ms: input.duration_ms ?? null,
       error: input.error ?? null,
+      status_text: input.status_text ?? null,
+      status_text_updated_at: input.status_text_updated_at ?? null,
+      status_text_author_session_id: input.status_text_author_session_id ?? null,
+      latest_self_report: input.latest_self_report ?? null,
       retries: input.retries,
       version_seq: 1,
     };
@@ -690,6 +694,10 @@ export class CardStore {
   }
 
   listChildren(parentId: string): string[] { return this.loadChildren(parentId); }
+
+  getParent(id: string): string | null {
+    return this.read(id)?.parent ?? null;
+  }
 
   getAncestors(id: string): string[] {
     const ancestors: string[] = [];

@@ -50,4 +50,41 @@ describe('Runtime project planner control flow', () => {
     expect(runtime.cardStore.read('goal-parent-1')?.result?.review).toEqual(expect.objectContaining({ result: 'pass', evidence_card_ids: ['code-parent-1', 'code-parent-2'] }));
     expect(runtime.cardStore.read('goal-parent-1')?.result?.planning).toEqual(expect.objectContaining({ status: 'done', review_summary: 'Both leaf cards executed.' }));
   });
+
+  it('covers two nested goal activation levels and root completion state cleanup', async () => {
+    const projectFixture: FakeAgentFixture = { name: 'project-stage4', planner: [{ status: 'done', created_cards: [{ id: 'goal-parent', type: 'goal', title: 'Parent goal', description: 'parent', status: 'backlog', depends_on: [], priority: 1 }], summary: 'created parent' }, { status: 'done', created_cards: [], summary: 'project complete' }], reviewer: [{ assessment: { id: 'review-project-stage4', goal_card_id: 'project', reviewer_session_id: 'rev-project-stage4', result: 'pass', summary: 'project done', achieved: ['parent goal done'], missing: [], evidence_card_ids: ['goal-parent'], created_at: new Date().toISOString() } }] };
+    const parentGoalFixture: FakeAgentFixture = { name: 'goal-parent-stage4', planner: [{ status: 'done', created_cards: [{ id: 'goal-child', type: 'goal', title: 'Child goal', description: 'child', status: 'backlog', depends_on: [], priority: 1 }], summary: 'created child' }, { status: 'done', created_cards: [], summary: 'parent complete' }], reviewer: [{ assessment: { id: 'review-goal-parent-stage4', goal_card_id: 'goal-parent', reviewer_session_id: 'rev-parent-stage4', result: 'pass', summary: 'parent done', achieved: ['child goal done'], missing: [], evidence_card_ids: ['goal-child'], created_at: new Date().toISOString() } }] };
+    const childGoalFixture: FakeAgentFixture = { name: 'goal-child-stage4', planner: [{ status: 'done', created_cards: [{ id: 'code-leaf', type: 'code', title: 'Leaf code', description: 'leaf', status: 'backlog', depends_on: [], priority: 1 }], summary: 'created leaf' }, { status: 'done', created_cards: [], summary: 'child complete' }], executor: { 'code-leaf': { card_id: 'code-leaf', status: 'done', status_text: 'leaf complete', result: { evidence: true } } }, reviewer: [{ assessment: { id: 'review-goal-child-stage4', goal_card_id: 'goal-child', reviewer_session_id: 'rev-child-stage4', result: 'pass', summary: 'child done', achieved: ['leaf complete'], missing: [], evidence_card_ids: ['code-leaf'], created_at: new Date().toISOString() } }] };
+    writeFixture(fixtureDir, 'project-stage4', projectFixture); writeFixture(fixtureDir, 'goal-parent-stage4', parentGoalFixture); writeFixture(fixtureDir, 'goal-child-stage4', childGoalFixture);
+    const fakeAgent = new FakeAgentAdapter({ mapping: { project: 'project-stage4', 'goal-parent': 'goal-parent-stage4', 'goal-child': 'goal-child-stage4' }, fixtureDir });
+    runtime = new Runtime({ projectRoot: tmpDir, fakeAgentConfig: { mapping: { project: 'project-stage4', 'goal-parent': 'goal-parent-stage4', 'goal-child': 'goal-child-stage4' }, fixtureDir } }, fakeAgent);
+    const completionEvents: Array<Record<string, unknown>> = [];
+    runtime.on('project_run_completed', (event) => completionEvents.push(event as Record<string, unknown>));
+    await runtime.startup();
+    await runtime.dispatchGoal('project');
+    const state = JSON.parse(readFileSync(join(tmpDir, '.saivage', 'runtime', 'state.json'), 'utf-8')) as { active_card_run: unknown; current_card_id: string | null };
+    expect(state.active_card_run).toBeNull();
+    expect(state.current_card_id).toBeNull();
+    expect(runtime.cardStore.read('goal-child')?.parent).toBe('goal-parent');
+    expect(runtime.cardStore.read('code-leaf')?.parent).toBe('goal-child');
+    expect(runtime.cardStore.read('goal-child')?.result?.parent_resume_context).toBeDefined();
+    expect(runtime.cardStore.read('goal-parent')?.result?.parent_resume_context).toBeDefined();
+    expect(JSON.stringify(state)).not.toContain('pending_tool_result');
+    expect(JSON.stringify(state)).not.toContain('awaiting_process_id');
+    expect(completionEvents).toEqual([{ project_card_id: 'project', result: 'done', summary: 'project done' }]);
+  });
+
+  it('emits typed project_run_completed payload for root terminal-card completion', async () => {
+    const projectFixture: FakeAgentFixture = { name: 'project-root-stage4', planner: [{ status: 'done', created_cards: [{ id: 'code-root', type: 'code', title: 'Root code', description: 'root leaf', status: 'backlog', depends_on: [], priority: 1 }], summary: 'create root leaf' }, { status: 'done', created_cards: [], summary: 'root project done' }], executor: { 'code-root': { card_id: 'code-root', status: 'done', status_text: 'root complete', result: { ok: true } } }, reviewer: [{ assessment: { id: 'review-project-root-stage4', goal_card_id: 'project', reviewer_session_id: 'rev-project-root-stage4', result: 'pass', summary: 'root accepted', achieved: ['root code complete'], missing: [], evidence_card_ids: ['code-root'], created_at: new Date().toISOString() } }] };
+    writeFixture(fixtureDir, 'project-root-stage4', projectFixture);
+    const fakeAgent = new FakeAgentAdapter({ mapping: { project: 'project-root-stage4' }, fixtureDir });
+    runtime = new Runtime({ projectRoot: tmpDir, fakeAgentConfig: { mapping: { project: 'project-root-stage4' }, fixtureDir } }, fakeAgent);
+    const events: Array<Record<string, unknown>> = [];
+    runtime.on('project_run_completed', (event) => events.push(event as Record<string, unknown>));
+    await runtime.startup();
+    await runtime.dispatchGoal('project');
+    const state = JSON.parse(readFileSync(join(tmpDir, '.saivage', 'runtime', 'state.json'), 'utf-8')) as { active_card_run: unknown };
+    expect(state.active_card_run).toBeNull();
+    expect(events).toEqual([{ project_card_id: 'project', result: 'done', summary: 'root accepted' }]);
+  });
 });
