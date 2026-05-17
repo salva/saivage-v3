@@ -67,7 +67,7 @@ describe('AgentAdapter notification injection', () => {
     expect(messages[0]?.content).toContain('note=note-1');
     expect(messages[0]?.content).toContain('process=proc-1');
     expect(messages[0]?.content).toContain('version=7');
-    expect(messages[0]?.content).toContain('acknowledge_notification("n-1")');
+    expect(messages[0]?.content).toContain('Use list_card_history/get_card_history_entry/diff_card/list_notes/get_note as needed');
     expect(adapter.notificationCenter.drainPendingForSession(liveSessionId)).toEqual([]);
   });
 

@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from '@jest/globals';
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { initProjectTree } from '../../src/utils/file-tree.js';
@@ -58,6 +58,24 @@ beforeEach(() => {
 
 afterEach(() => {
   rmSync(tmpDir, { recursive: true, force: true });
+});
+
+describe('Clean-slate boot', () => {
+  it('moves legacy .saivage state aside and starts from empty v3 schema', () => {
+    rmSync(tmpDir, { recursive: true, force: true });
+    tmpDir = mkdtempSync(join(tmpdir(), 'saivage-clean-slate-'));
+    mkdirSync(join(tmpDir, '.saivage', 'cards'), { recursive: true });
+    writeFileSync(join(tmpDir, '.saivage', 'legacy-plan.json'), JSON.stringify({ old: true }));
+
+    initProjectTree(tmpDir);
+    store = new CardStore(tmpDir);
+
+    const discarded = readdirSync(tmpDir).filter((entry) => entry.startsWith('.saivage.discarded-'));
+    expect(discarded).toHaveLength(1);
+    expect(existsSync(join(tmpDir, discarded[0], 'legacy-plan.json'))).toBe(true);
+    expect(store.list().map((card) => card.id)).toEqual(['project']);
+    expect(existsSync(join(tmpDir, '.saivage', 'cards', 'by-id', 'project.json'))).toBe(true);
+  });
 });
 
 describe('CardStore validation of persisted state', () => {

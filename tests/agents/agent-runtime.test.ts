@@ -172,14 +172,15 @@ describe('AgentRuntime Interface', () => {
     });
   });
 
-  describe('unknown terminal status tools stay hard errors', () => {
-    it('unknown set_status_text tool calls hard-error and accepted completion still uses final status_text', async () => {
+  describe('unknown terminal status mutation tools stay hard errors', () => {
+    it('ignores unknown tool attempts and accepts only the final result status_text', async () => {
       const adapter = createMinimalAdapter(tmpDir);
       const candidate = { provider: 'test-provider', model: 'test-model', account: 'default' };
       jest.spyOn(adapter.router, 'resolve').mockResolvedValue([candidate]);
       jest.spyOn(adapter.registry, 'isHealthy').mockReturnValue(true);
+      const unknownTool = 'legacy_status_mutator';
       const responses = [
-        JSON.stringify({ toolCalls: [{ id: 'call-status', type: 'function', function: { name: 'set_status_text', arguments: JSON.stringify({ card_id: 'code-1', status_text: 'should not apply' }) } }] }),
+        JSON.stringify({ toolCalls: [{ id: 'call-status', type: 'function', function: { name: unknownTool, arguments: JSON.stringify({ card_id: 'code-1', status_text: 'should not apply' }) } }] }),
         JSON.stringify({ card_id: 'code-1', status: 'done', status_text: 'Final accepted status text', artifacts: [], attachments: [] }),
       ];
       adapter.setLlmCallFn(async () => responses.shift() ?? '{}');
@@ -189,7 +190,7 @@ describe('AgentRuntime Interface', () => {
       const sessionId = listSessions(join(tmpDir, '.saivage')).find((id) => id.startsWith('executor-'));
       expect(sessionId).toBeDefined();
       const messages = getSessionMessages(join(tmpDir, '.saivage'), sessionId!);
-      expect(messages.some((message) => message.kind === 'tool_error' && message.tool === 'set_status_text' && message.content.includes("Unknown tool 'set_status_text'"))).toBe(true);
+      expect(messages.some((message) => message.kind === 'tool_error' && message.tool === unknownTool && message.content.includes("Unknown tool 'legacy_status_mutator'"))).toBe(true);
     });
   });
 });

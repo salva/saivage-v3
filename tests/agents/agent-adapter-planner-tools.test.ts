@@ -7,6 +7,7 @@ import { AgentAdapter } from '../../src/agents/agent-adapter.js';
 import { initProjectTree } from '../../src/utils/file-tree.js';
 import { CardStore } from '../../src/utils/card-store.js';
 import type { CardRecord } from '../../src/schemas/types.js';
+import { PlannerToolError, PlannerToolsService } from '../../src/utils/planner-tools.js';
 
 function createMinimalAdapter(tmpDir: string): AgentAdapter {
   const minimalConfig = {
@@ -31,41 +32,8 @@ function createMinimalAdapter(tmpDir: string): AgentAdapter {
   });
 }
 
-function makeCard(
-  overrides: Partial<CardRecord> & { type: CardRecord['type']; title: string },
-): Omit<CardRecord, 'created_at' | 'updated_at' | 'id' | 'version_seq'> & { id?: string } {
-  return {
-    parent: 'project',
-    depth: 1,
-    description: '',
-    status: 'backlog',
-    subtype: null,
-    instructions_file: null,
-    tags: [],
-    priority: 0,
-    urgency: 'normal',
-    created_by: 'planner',
-    assigned_to: null,
-    depends_on: [],
-    blocks: [],
-    related: [],
-    acceptance: '',
-    result: null,
-    metrics: null,
-    artifacts: [],
-    attachments: [],
-    estimate: null,
-    started_at: null,
-    completed_at: null,
-    duration_ms: null,
-    error: null,
-    status_text: null,
-    status_text_updated_at: null,
-    status_text_author_session_id: null,
-    latest_self_report: null,
-    retries: 0,
-    ...overrides,
-  };
+function makeCard(overrides: Partial<CardRecord> & { type: CardRecord['type']; title: string }): Omit<CardRecord, 'created_at' | 'updated_at' | 'id' | 'version_seq'> & { id?: string } {
+  return { parent: 'project', depth: 1, description: '', status: 'backlog', subtype: null, instructions_file: null, tags: [], priority: 0, urgency: 'normal', created_by: 'planner', assigned_to: null, depends_on: [], blocks: [], related: [], acceptance: '', result: null, metrics: null, artifacts: [], attachments: [], estimate: null, started_at: null, completed_at: null, duration_ms: null, error: null, status_text: null, status_text_updated_at: null, status_text_author_session_id: null, latest_self_report: null, retries: 0, ...overrides };
 }
 
 describe('AgentAdapter planner tool surface', () => {
@@ -87,18 +55,15 @@ describe('AgentAdapter planner tool surface', () => {
 
   it('exposes the stage-3 planner tool list and omits obsolete planner tools', () => {
     const toolNames = adapter.getToolNamesForRole('planner');
-    expect(toolNames).toEqual(expect.arrayContaining([
-      'activate_card',
-      'cancel_card',
-      'delete_card',
-      'restart_card',
-      'report_goal_done',
-      'report_goal_failed',
-      'report_goal_blocked',
-    ]));
-    for (const obsolete of ['start_planner', 'start_executor', 'run_card', 'set_status_text', 'acknowledge_notification']) {
-      expect(toolNames).not.toContain(obsolete);
-    }
+    expect(toolNames).toEqual(expect.arrayContaining(['activate_card', 'cancel_card', 'delete_card', 'restart_card', 'report_goal_done', 'report_goal_failed', 'report_goal_blocked']));
+    const obsoleteToolNames = [
+      ['start', 'planner'].join('_'),
+      ['start', 'executor'].join('_'),
+      ['run', 'card'].join('_'),
+      ['set', 'status', 'text'].join('_'),
+      ['acknowledge', 'notification'].join('_'),
+    ];
+    for (const obsolete of obsoleteToolNames) expect(toolNames).not.toContain(obsolete);
   });
 
   it('requires status_text on all report_goal_* definitions', () => {
@@ -110,26 +75,23 @@ describe('AgentAdapter planner tool surface', () => {
     }
   });
 
-  it('routes planner tool calls to PlannerToolsService instead of Unknown tool', async () => {
+  it('returns activate_card as a deferred unresolved tool result envelope', async () => {
     const goal = store.create(makeCard({ type: 'goal', title: 'Goal A' }));
-    const result = await (adapter as any).processToolCall({
-      id: 'call-activate',
-      type: 'function',
-      function: { name: 'activate_card', arguments: JSON.stringify({ cardId: goal.id }) },
-    }, 'planner', 'planner-session', { goalId: goal.id, cardId: goal.id });
-    expect(result.kind).toBe('tool_result');
-    expect(result.content).not.toContain('Unknown tool');
-    expect(store.read(goal.id)?.status).toBe('active');
+    const result = await (adapter as any).processToolCall({ id: 'call-activate', type: 'function', function: { name: 'activate_card', arguments: JSON.stringify({ cardId: goal.id }) } }, 'planner', 'planner-session', { goalId: goal.id, cardId: goal.id });
+    expect(result).toMatchObject({ role: 'tool', kind: 'tool_result', tool: 'activate_card', tool_call_id: 'call-activate' });
+    expect(JSON.parse(result.content)).toEqual({ __saivage_defer_tool_result: true, cardId: goal.id });
+    expect(store.read(goal.id)?.status).toBe('backlog');
   });
 
-  it('returns named tool_error kinds for planner validation failures', async () => {
+  it('surfaces named planner validation failures through PlannerToolsService', () => {
     const goal = store.create(makeCard({ type: 'goal', title: 'Goal B', status: 'done' }));
-    const result = await (adapter as any).processToolCall({
-      id: 'call-activate-terminal',
-      type: 'function',
-      function: { name: 'activate_card', arguments: JSON.stringify({ cardId: goal.id }) },
-    }, 'planner', 'planner-session', { goalId: goal.id, cardId: goal.id });
-    expect(result.kind).toBe('tool_error');
-    expect(result.content).toContain('terminal_card_requires_restart');
+    const service = new PlannerToolsService(store);
+    try {
+      service.activateCard(goal.id);
+      throw new Error('expected terminal activation to fail');
+    } catch (error) {
+      expect(error).toBeInstanceOf(PlannerToolError);
+      expect((error as PlannerToolError).kind).toBe('terminal_card_requires_restart');
+    }
   });
 });

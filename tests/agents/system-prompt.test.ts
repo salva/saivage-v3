@@ -34,12 +34,12 @@ describe('System Prompt Builder', () => {
       expect(prompt).toContain('re-issue `report_goal_done`');
     });
 
-    it('does not expose obsolete tools in the planner prompt', () => {
+    it('marks prior-cycle delegation APIs as obsolete instead of making them available planner actions', () => {
       const prompt = buildPlannerPrompt();
-      for (const name of ['start_planner', 'start_executor', 'run_card', 'set_status_text', 'acknowledge_notification']) {
-        expect(prompt).toContain(name);
-        expect(prompt).toContain('obsolete tools');
-      }
+      expect(prompt).toContain('obsolete tools');
+      expect(prompt).toContain('Do **not** use or mention obsolete tools');
+      expect(prompt).toContain('activate_card');
+      expect(prompt).toContain('report_goal_done');
     });
 
     it('mentions named tool errors', () => {

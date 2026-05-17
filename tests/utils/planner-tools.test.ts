@@ -116,7 +116,7 @@ describe('PlannerToolsService', () => {
     expect(() => tools.activateCard(card.id)).toThrow(PlannerToolError);
   });
 
-  it('cancels only allowed statuses and refuses subtrees containing an active descendant leaf', () => {
+  it('cancels only allowed statuses, including project force-cancel, and refuses subtrees containing an active descendant leaf', () => {
     const goal = store.create(makeCard({ type: 'goal', title: 'Goal Parent' }));
     const child = store.create(makeCard({ id: 'code-1', type: 'code', title: 'Child', parent: goal.id, status: 'active' }));
     runtimeState = {
@@ -150,6 +150,11 @@ describe('PlannerToolsService', () => {
     runtimeState = null;
     store.update(child.id, { status: 'backlog' });
     expect(tools.cancelCard(goal.id).status).toBe('cancelled');
+
+    const project = store.read('project')!;
+    store.update(project.id, { status: 'changed' });
+    const cancelledProject = tools.cancelCard(project.id);
+    expect(cancelledProject.status).toBe('cancelled');
   });
 
   it('blocks delete and restart while the active runtime leaf is inside the target subtree', () => {
@@ -182,8 +187,15 @@ describe('PlannerToolsService', () => {
       updated_at: new Date().toISOString(),
       frozen_reason: null,
     };
-    expect(() => tools.deleteCard(goal.id)).toThrow(PlannerToolError);
-    expect(() => tools.restartCard(goal.id)).toThrow(PlannerToolError);
+    for (const operation of [() => tools.deleteCard(goal.id), () => tools.restartCard(goal.id)]) {
+      try {
+        operation();
+        throw new Error('expected active subtree refusal');
+      } catch (error) {
+        expect(error).toBeInstanceOf(PlannerToolError);
+        expect((error as PlannerToolError).kind).toBe('card_already_active');
+      }
+    }
   });
 
   it('deletes only cancelled or terminal cards', () => {

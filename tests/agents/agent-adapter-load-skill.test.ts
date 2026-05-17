@@ -140,17 +140,19 @@ describe('AgentAdapter load_skill tool', () => {
       expect(tools[0].function.name).toBe('load_skill');
     });
 
-    it('returns first-class analyst history/notes/notification tools for analyst', () => {
-      const tools = callBuildToolsForRole('analyst');
-      expect(tools.map((tool) => tool.function.name)).toEqual([
+    it('returns first-class analyst history/notes/correction tools for analyst', () => {
+      const toolNames = callBuildToolsForRole('analyst').map((tool) => tool.function.name);
+      expect(toolNames).toEqual(expect.arrayContaining([
+        'lets_dance',
+        'mark_goal_needs_corrections',
+        'mark_project_needs_corrections',
         'list_card_history',
         'get_card_history_entry',
         'diff_card',
         'list_notes',
         'get_note',
         'mark_note_handled',
-        'acknowledge_notification',
-      ]);
+      ]));
     });
 
     it('each tool in returned array has type "function"', () => {
