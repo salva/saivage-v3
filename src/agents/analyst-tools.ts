@@ -1,4 +1,4 @@
-import { join, resolve as resolvePath } from 'node:path';
+import { join, relative, resolve as resolvePath } from 'node:path';
 import { spawn } from 'node:child_process';
 import { existsSync, readFileSync, readdirSync, statSync, lstatSync } from 'node:fs';
 import { CardStore } from '../utils/card-store.js';
@@ -28,7 +28,16 @@ interface ShellExecPreview extends ActionPreview {
   cwd: string;
 }
 
+
 interface MutatingSpec<P> { action: string; safety_class: SafetyClass; target_kind: 'card' | 'note' | 'process' | 'runtime' | 'config' | 'session' | null; getTargetId: (params: P) => string | null; preview?: (ctx: ToolContext, params: P) => ActionPreview | null; run: (ctx: ToolContext, params: P) => Promise<ToolResult>; }
+
+type ShellCommandParams = { command: string; cwd?: string; timeoutMs?: number; maxOutputBytes?: number; confirmed?: boolean; preview_hash?: string };
+type NormalizedShellCommandParams = { command: string; cwd: string; timeoutMs: number; maxOutputBytes: number; confirmed: boolean; preview_hash?: string };
+
+const SHELL_TIMEOUT_DEFAULT_MS = 15_000;
+const SHELL_TIMEOUT_MAX_MS = 60_000;
+const SHELL_OUTPUT_DEFAULT_BYTES = 65_536;
+const SHELL_OUTPUT_MAX_BYTES = 1_048_576;
 
 function saivageDir(projectRoot: string): string { return join(projectRoot, '.saivage'); }
 function getStore(ctx: ToolContext): CardStore { return ctx.store ?? new CardStore(ctx.projectRoot); }
@@ -73,7 +82,13 @@ function redactShellText(value: string): string { return redactCredentialLiteral
 function summarizeShellOutcome(exitCode: number | null, truncated: boolean, timedOut: boolean): string { return timedOut ? 'command timed out' : `exit=${exitCode === null ? 'null' : String(exitCode)}${truncated ? ' truncated' : ''}`; }
 function captureLimited(buffer: Buffer, limit: number): { text: string; truncated: boolean; truncatedBytes: number } { if (buffer.length <= limit) return { text: buffer.toString('utf8'), truncated: false, truncatedBytes: 0 }; const sliced = buffer.subarray(0, limit).toString('utf8'); const truncatedBytes = buffer.length - limit; return { text: `${sliced}\n[truncated ${truncatedBytes} bytes]`, truncated: true, truncatedBytes }; }
 function buildShellPreview(command: string, cwd: string, classifiedAs: ShellSafetyClass): ShellExecPreview { const safeCommand = summarizeShellCommand(command); return { type: 'shell.exec', summary: `Run ${classifiedAs} shell command in ${cwd}: ${safeCommand}`, affectedCards: [], affectedProcesses: [], warnings: classifiedAs === 'destructive' ? ['This command is classified as destructive.'] : [], classified_as: classifiedAs, command: safeCommand, cwd }; }
+
 async function runShellCommandWithCapture(command: string, cwd: string, timeoutMs: number, maxOutputBytes: number): Promise<{ exitCode: number | null; durationMs: number; stdout: string; stderr: string; truncated: boolean; timedOut: boolean }> { return await new Promise((resolveResult) => { const startedAt = Date.now(); const child = spawn('bash', ['-lc', command], { cwd, env: sanitizedEnv(), timeout: timeoutMs, killSignal: 'SIGKILL' }); const stdoutChunks: Buffer[] = []; const stderrChunks: Buffer[] = []; let stdoutBytes = 0; let stderrBytes = 0; let timedOut = false; child.stdout.on('data', (chunk) => { const buf = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk); if (stdoutBytes < maxOutputBytes) stdoutChunks.push(buf); stdoutBytes += buf.length; }); child.stderr.on('data', (chunk) => { const buf = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk); if (stderrBytes < maxOutputBytes) stderrChunks.push(buf); stderrBytes += buf.length; }); child.on('error', (error) => { resolveResult({ exitCode: null, durationMs: Date.now() - startedAt, stdout: '', stderr: redactShellText(error.message), truncated: false, timedOut: false }); }); child.on('spawn', () => { if (child.stdin) child.stdin.end(); }); child.on('close', (code, signal) => { timedOut = signal === 'SIGKILL' && Date.now() - startedAt >= timeoutMs; const stdoutCapture = captureLimited(Buffer.concat(stdoutChunks), maxOutputBytes); const stderrCapture = captureLimited(Buffer.concat(stderrChunks), maxOutputBytes); resolveResult({ exitCode: timedOut ? null : code, durationMs: Date.now() - startedAt, stdout: redactShellText(stdoutCapture.text), stderr: redactShellText(stderrCapture.text || (timedOut ? `Command timed out after ${timeoutMs}ms.` : '')), truncated: stdoutCapture.truncated || stderrCapture.truncated || stdoutBytes > maxOutputBytes || stderrBytes > maxOutputBytes, timedOut }); }); }); }
+
+function isFiniteNumber(value: unknown): value is number { return typeof value === 'number' && Number.isFinite(value); }
+function normalizeShellCwd(projectRoot: string, cwd: unknown): string { if (cwd === undefined) return projectRoot; if (typeof cwd !== 'string') throw new Error('cwd must be a string when provided.'); const trimmed = cwd.trim(); if (!trimmed) return projectRoot; const resolved = resolvePath(trimmed); const rel = relative(projectRoot, resolved); if (rel !== '' && (rel === '..' || rel.startsWith('../') || rel.startsWith('..\\'))) throw new Error('cwd must stay within the project root.'); assertNotSecretPath(resolved); if (!existsSync(resolved) || !statSync(resolved).isDirectory()) throw new Error('cwd is not a readable directory within the project root.'); return resolved; }
+function normalizeShellNumeric(value: unknown, fallback: number, max: number, field: 'timeoutMs' | 'maxOutputBytes'): number { if (value === undefined) return fallback; if (!isFiniteNumber(value)) throw new Error(`${field} must be a finite number when provided.`); return Math.min(Math.max(1, Math.trunc(value)), max); }
+function normalizeShellParams(ctx: ToolContext, params: ShellCommandParams): NormalizedShellCommandParams { if (params === null || typeof params !== 'object' || Array.isArray(params)) throw new Error('run_shell_command params must be an object.'); if (typeof params.command !== 'string' || params.command.trim().length === 0) throw new Error('command is required and must be a non-empty string.'); if (params.confirmed !== undefined && typeof params.confirmed !== 'boolean') throw new Error('confirmed must be a boolean when provided.'); if (params.preview_hash !== undefined && typeof params.preview_hash !== 'string') throw new Error('preview_hash must be a string when provided.'); return { command: params.command, cwd: normalizeShellCwd(ctx.projectRoot, params.cwd), timeoutMs: normalizeShellNumeric(params.timeoutMs, SHELL_TIMEOUT_DEFAULT_MS, SHELL_TIMEOUT_MAX_MS, 'timeoutMs'), maxOutputBytes: normalizeShellNumeric(params.maxOutputBytes, SHELL_OUTPUT_DEFAULT_BYTES, SHELL_OUTPUT_MAX_BYTES, 'maxOutputBytes'), confirmed: params.confirmed === true, preview_hash: params.preview_hash }; }
 
 export async function create_card(ctx: ToolContext, params: { type: CardType; parent: string | null; title: string; description: string; status?: CardStatus; tags?: string[]; priority?: number; urgency?: 'low' | 'normal' | 'high' | 'critical'; acceptance?: string; depends_on?: string[]; related?: string[]; id?: string; confirmed?: boolean; preview_hash?: string; }): Promise<ToolResult> { return runMutatingTool(ctx, params, { action: 'card.create', safety_class: 'low', target_kind: 'card', getTargetId: (p) => p.id ?? null, run: async () => { try { const store = getStore(ctx); const parent = normalizeParentValue(params.parent) ?? defaultParentForCreate(store, params.type); if (parent === undefined) return { success: false, error: `Cannot create ${params.type} card without a parent. Inspect the card tree and provide an existing parent ID.` }; if (parent !== null && !store.read(parent)) return { success: false, error: `Parent card '${parent}' does not exist.` }; const card = store.create({ type: params.type, parent, depth: 0, title: params.title, description: params.description, status: params.status ?? 'drafting', tags: params.tags ?? [], priority: params.priority ?? 0, urgency: params.urgency ?? 'normal', created_by: 'analyst', acceptance: params.acceptance ?? '', depends_on: params.depends_on ?? [], related: params.related ?? [], blocks: [], artifacts: [], attachments: [], retries: 0, ...(params.id ? { id: params.id } : {}) }); return { success: true, data: card }; } catch (err) { return { success: false, error: err instanceof Error ? err.message : String(err) }; } } }); }
 
@@ -125,43 +140,40 @@ function isBinarySample(buf: Buffer): boolean {
   return suspicious / sample > 0.3;
 }
 
-export async function run_shell_command(ctx: ToolContext, params: { command: string; cwd?: string; timeoutMs?: number; maxOutputBytes?: number; confirmed?: boolean; preview_hash?: string }): Promise<ToolResult> {
+export async function run_shell_command(ctx: ToolContext, params: ShellCommandParams): Promise<ToolResult> {
   try {
     if (ctx.surface === 'telegram') return { success: false, error: 'run_shell_command is not available on Telegram.' };
-    if (typeof params.command !== 'string' || params.command.trim().length === 0) return { success: false, error: 'command is required.' };
-    const cwd = params.cwd ? resolvePath(params.cwd) : ctx.projectRoot;
-    if (!existsSync(cwd) || !statSync(cwd).isDirectory()) return { success: false, error: `cwd is not a directory: ${cwd}` };
-    const classifiedAs = classifyShellCommand(params.command, cwd);
+    const normalized = normalizeShellParams(ctx, params);
+    const classifiedAs = classifyShellCommand(normalized.command, normalized.cwd);
     const verdict = evaluateAuthz({ actor: ctx.actor, surface: ctx.surface, safety_class: classifiedAs });
-    const auditBase = { actor: ctx.actor, surface: ctx.surface, action: 'shell.exec', target_kind: null, target_id: null, confirmed: params.confirmed === true, params_summary: `shell.exec [classified=${classifiedAs}] ${summarizeShellCommand(params.command)}` };
+    const auditBase = { actor: ctx.actor, surface: ctx.surface, action: 'shell.exec', target_kind: null, target_id: null, confirmed: normalized.confirmed, params_summary: `shell.exec [classified=${classifiedAs}] ${summarizeShellCommand(normalized.command)}` };
     if (verdict === 'deny') {
       recordControlAction(ctx.projectRoot, { ...auditBase, outcome: 'denied', outcome_summary: `shell denied [classified=${classifiedAs}]` });
       return { success: false, error: `Denied by authorization policy for ${ctx.actor}/${ctx.surface}/${classifiedAs}.`, data: { classified_as: classifiedAs } };
     }
     if (verdict === 'preview_only') {
-      const preview = buildShellPreview(redactShellText(params.command), cwd, classifiedAs);
-      const previewHash = hashPreviewParams({ command: params.command, cwd, timeoutMs: params.timeoutMs, maxOutputBytes: params.maxOutputBytes });
+      const preview = buildShellPreview(redactShellText(normalized.command), normalized.cwd, classifiedAs);
+      const previewHash = hashPreviewParams({ command: normalized.command, cwd: normalized.cwd, timeoutMs: normalized.timeoutMs, maxOutputBytes: normalized.maxOutputBytes });
       preview.preview_hash = previewHash;
-      if (params.confirmed !== true) {
+      if (!normalized.confirmed) {
         recordControlAction(ctx.projectRoot, { ...auditBase, outcome: 'preview', outcome_summary: `shell preview generated [classified=${classifiedAs}]` });
         return { success: true, preview };
       }
-      if (params.preview_hash !== previewHash) {
+      if (normalized.preview_hash !== previewHash) {
         recordControlAction(ctx.projectRoot, { ...auditBase, outcome: 'rejected', outcome_summary: `shell preview rejected: preview_hash mismatch [classified=${classifiedAs}]` });
         return { success: false, error: 'Preview confirmation rejected: matching preview_hash required.', preview, data: { classified_as: classifiedAs } };
       }
     }
-    const timeoutMs = Math.min(Math.max(1, params.timeoutMs ?? 15_000), 60_000);
-    const maxOutputBytes = Math.min(Math.max(1, params.maxOutputBytes ?? 65_536), 1_048_576);
-    const result = await runShellCommandWithCapture(params.command, cwd, timeoutMs, maxOutputBytes);
-    const payload = { classified_as: classifiedAs, exit_code: result.exitCode, duration_ms: result.durationMs, stdout: result.stdout, stderr: result.stderr, truncated: result.truncated, cwd, command: redactShellText(params.command) };
+    const result = await runShellCommandWithCapture(normalized.command, normalized.cwd, normalized.timeoutMs, normalized.maxOutputBytes);
+    const payload = { classified_as: classifiedAs, exit_code: result.exitCode, duration_ms: result.durationMs, stdout: result.stdout, stderr: result.stderr, truncated: result.truncated, cwd: normalized.cwd, command: redactShellText(normalized.command) };
     if (classifiedAs !== 'read_only') {
       recordControlAction(ctx.projectRoot, { ...auditBase, outcome: result.exitCode === 0 && !result.timedOut ? 'ok' : 'error', outcome_summary: `${summarizeShellOutcome(result.exitCode, result.truncated, result.timedOut)} stdout=${result.stdout} stderr=${result.stderr}`.slice(0, 2000), ...(result.exitCode === 0 && !result.timedOut ? {} : { error: result.stderr || `shell command failed: ${summarizeShellOutcome(result.exitCode, result.truncated, result.timedOut)}` }) });
     }
-    if (result.timedOut) return { success: false, error: `Command timed out after ${timeoutMs}ms.`, data: payload };
+    if (result.timedOut) return { success: false, error: `Command timed out after ${normalized.timeoutMs}ms.`, data: payload };
     return { success: result.exitCode === 0, ...(result.exitCode === 0 ? { data: payload } : { error: result.stderr || `Command exited with code ${result.exitCode}`, data: payload }) };
   } catch (err) {
-    return { success: false, error: err instanceof Error ? err.message : String(err) };
+    if (err instanceof SecretPathError) return { success: false, error: 'Access denied: secret-bearing path is off-limits ([SECRET_PATH]). Use safer inspection paths that do not touch secrets.' };
+    return { success: false, error: err instanceof Error ? redactShellText(err.message).replaceAll(ctx.projectRoot, '[PROJECT_ROOT]') : String(err) };
   }
 }
 

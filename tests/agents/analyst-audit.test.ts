@@ -41,7 +41,7 @@ describe('analyst audit', () => {
     try {
       const store = setup(root);
       const command = `printf done > ${join(root, '.saivage', 'auth-profiles.json')} token=super-secret`;
-      const previewHash = hashPreviewParams({ command, cwd: root, timeoutMs: undefined, maxOutputBytes: undefined });
+      const previewHash = hashPreviewParams({ command, cwd: root, timeoutMs: 15000, maxOutputBytes: 65536 });
       const previewed = await run_shell_command(cliCtx(root, store), { command });
       expect(previewed.success).toBe(true);
       expect((previewed.preview as unknown as Record<string, unknown> | undefined)?.preview_hash).toBe(previewHash);

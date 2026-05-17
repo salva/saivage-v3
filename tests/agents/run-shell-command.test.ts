@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { CardStore } from '../../src/utils/card-store.js';
 import { initRuntimeState } from '../../src/utils/runtime-state.js';
 import { run_shell_command, type ToolContext } from '../../src/agents/analyst-tools.js';
+import { hashPreviewParams } from '../../src/utils/control-action-audit.js';
 
 function setup(root: string): CardStore {
   const sd = join(root, '.saivage');
@@ -161,6 +162,76 @@ describe('run_shell_command', () => {
       const result = await run_shell_command(ctx(root, store), { command: "env | grep -E '(SAIVAGE|OPENAI|ANTHROPIC)'" });
       const data = result.data as { stdout: string; stderr: string };
       expect(`${data.stdout}${data.stderr}`).toBe('');
+    } finally { rmSync(root, { recursive: true, force: true }); }
+  });
+
+  it('rejects cwd outside project root without leaking the raw path', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'wave-j-shell-'));
+    const outside = mkdtempSync(join(tmpdir(), 'wave-j-shell-outside-'));
+    try {
+      const store = setup(root);
+      const result = await run_shell_command(ctx(root, store), { command: 'pwd', cwd: outside });
+      expect(result.success).toBe(false);
+      expect(result.error).toMatch(/cwd must stay within the project root/i);
+      expect(result.error).not.toContain(outside);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+      rmSync(outside, { recursive: true, force: true });
+    }
+  });
+
+  it('sanitizes secret-bearing cwd handling without leaking the path', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'wave-j-shell-'));
+    try {
+      const store = setup(root);
+      const secretDir = join(root, '.saivage');
+      mkdirSync(secretDir, { recursive: true });
+      const result = await run_shell_command(ctx(root, store), { command: 'pwd', cwd: secretDir });
+      expect(result.success).toBe(true);
+      expect(JSON.stringify(result)).toContain('[SECRET_PATH]');
+      expect(JSON.stringify(result)).not.toContain(secretDir);
+    } finally { rmSync(root, { recursive: true, force: true }); }
+  });
+
+  it('rejects malformed param types before execution', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'wave-j-shell-'));
+    try {
+      const store = setup(root);
+      await expect(run_shell_command(ctx(root, store), { command: '' })).resolves.toMatchObject({ success: false, error: expect.stringMatching(/command is required/i) });
+      await expect(run_shell_command(ctx(root, store), { command: 'pwd', cwd: 123 as unknown as string })).resolves.toMatchObject({ success: false, error: expect.stringMatching(/cwd must be a string/i) });
+      await expect(run_shell_command(ctx(root, store), { command: 'pwd', timeoutMs: Number.NaN })).resolves.toMatchObject({ success: false, error: expect.stringMatching(/timeoutMs must be a finite number/i) });
+      await expect(run_shell_command(ctx(root, store), { command: 'pwd', maxOutputBytes: Number.POSITIVE_INFINITY })).resolves.toMatchObject({ success: false, error: expect.stringMatching(/maxOutputBytes must be a finite number/i) });
+      await expect(run_shell_command(ctx(root, store), { command: 'pwd', confirmed: 'yes' as unknown as boolean })).resolves.toMatchObject({ success: false, error: expect.stringMatching(/confirmed must be a boolean/i) });
+      await expect(run_shell_command(ctx(root, store), { command: 'pwd', preview_hash: 7 as unknown as string })).resolves.toMatchObject({ success: false, error: expect.stringMatching(/preview_hash must be a string/i) });
+      expect(readAudit(root)).toHaveLength(0);
+    } finally { rmSync(root, { recursive: true, force: true }); }
+  });
+
+  it('clamps timeoutMs and maxOutputBytes before preview hashing so extreme values cannot bypass confirmation matching', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'wave-j-shell-'));
+    try {
+      const store = setup(root);
+      const command = 'sudo systemctl restart x';
+      const preview = await run_shell_command(ctx(root, store), { command, timeoutMs: 999999999, maxOutputBytes: 999999999 });
+      expect(preview.success).toBe(true);
+      const expectedHash = hashPreviewParams({ command, cwd: root, timeoutMs: 60000, maxOutputBytes: 1048576 });
+      expect(preview.preview?.preview_hash).toBe(expectedHash);
+
+      const confirmed = await run_shell_command(ctx(root, store), {
+        command,
+        timeoutMs: 999999999,
+        maxOutputBytes: 999999999,
+        confirmed: true,
+        preview_hash: expectedHash,
+      });
+      expect(confirmed.success).toBe(false);
+      expect(confirmed.error).toMatch(/unit x\.service not found/i);
+      expect((confirmed.data as { classified_as: string }).classified_as).toBe('destructive');
+
+      const audit = readAudit(root);
+      expect(audit).toHaveLength(2);
+      expect(audit[0].outcome).toBe('preview');
+      expect(audit[1].outcome).toBe('error');
     } finally { rmSync(root, { recursive: true, force: true }); }
   });
 });
