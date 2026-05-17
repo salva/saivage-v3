@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { initProjectTree } from '../../src/utils/file-tree.js';
 import { CardStore } from '../../src/utils/card-store.js';
-import type { CardRecord } from '../../src/schemas/types.js';
+import type { CardRecord, RuntimeState } from '../../src/schemas/types.js';
 import { PlannerToolError, PlannerToolsService } from '../../src/utils/planner-tools.js';
 
 function makeCard(
@@ -47,13 +47,15 @@ function makeCard(
 describe('PlannerToolsService', () => {
   let root: string;
   let store: CardStore;
+  let runtimeState: RuntimeState | null;
   let tools: PlannerToolsService;
 
   beforeEach(() => {
     root = mkdtempSync(join(tmpdir(), 'saivage-planner-tools-'));
     initProjectTree(root);
     store = new CardStore(root);
-    tools = new PlannerToolsService(store);
+    runtimeState = null;
+    tools = new PlannerToolsService(store, () => runtimeState);
   });
 
   afterEach(() => {
@@ -82,13 +84,105 @@ describe('PlannerToolsService', () => {
     }
   });
 
-  it('cancels only allowed statuses and refuses subtrees containing an active descendant', () => {
+  it('rejects activation when the runtime leaf already points at the card', () => {
+    const card = store.create(makeCard({ type: 'goal', title: 'Goal Active Leaf' }));
+    runtimeState = {
+      status: 'running',
+      project_id: 'project',
+      pid: process.pid,
+      started_at: new Date().toISOString(),
+      current_card_id: card.id,
+      current_agent_session_id: 'planner-1',
+      active_card_run: {
+        card_id: card.id,
+        card_type: card.type,
+        runtime_status: 'running',
+        phase: 'planner',
+        caller_session_id: null,
+        caller_tool_call_id: null,
+        planner_session_id: 'planner-1',
+        correction_attempts: 0,
+        started_at: new Date().toISOString(),
+        last_turn_at: new Date().toISOString(),
+      },
+      paused: false,
+      paused_at: null,
+      queue: [],
+      running_processes: [],
+      updated_at: new Date().toISOString(),
+      frozen_reason: null,
+    };
+    expect(() => tools.activateCard(card.id)).toThrow(PlannerToolError);
+  });
+
+  it('cancels only allowed statuses and refuses subtrees containing an active descendant leaf', () => {
     const goal = store.create(makeCard({ type: 'goal', title: 'Goal Parent' }));
     const child = store.create(makeCard({ id: 'code-1', type: 'code', title: 'Child', parent: goal.id, status: 'active' }));
+    runtimeState = {
+      status: 'running',
+      project_id: 'project',
+      pid: process.pid,
+      started_at: new Date().toISOString(),
+      current_card_id: child.id,
+      current_agent_session_id: 'executor-1',
+      active_card_run: {
+        card_id: child.id,
+        card_type: child.type,
+        runtime_status: 'running',
+        phase: 'executor',
+        caller_session_id: 'planner-1',
+        caller_tool_call_id: 'call-1',
+        executor_session_id: 'executor-1',
+        correction_attempts: 0,
+        started_at: new Date().toISOString(),
+        last_turn_at: new Date().toISOString(),
+      },
+      paused: false,
+      paused_at: null,
+      queue: [],
+      running_processes: [],
+      updated_at: new Date().toISOString(),
+      frozen_reason: null,
+    };
     expect(child.status).toBe('active');
     expect(() => tools.cancelCard(goal.id)).toThrow(PlannerToolError);
+    runtimeState = null;
     store.update(child.id, { status: 'backlog' });
     expect(tools.cancelCard(goal.id).status).toBe('cancelled');
+  });
+
+  it('blocks delete and restart while the active runtime leaf is inside the target subtree', () => {
+    const goal = store.create(makeCard({ type: 'goal', title: 'Goal Parent', status: 'backlog' }));
+    const child = store.create(makeCard({ id: 'code-1', type: 'code', title: 'Child', parent: goal.id, status: 'done' }));
+    store.update(goal.id, { status: 'done' });
+    runtimeState = {
+      status: 'running',
+      project_id: 'project',
+      pid: process.pid,
+      started_at: new Date().toISOString(),
+      current_card_id: child.id,
+      current_agent_session_id: 'executor-1',
+      active_card_run: {
+        card_id: child.id,
+        card_type: child.type,
+        runtime_status: 'running',
+        phase: 'executor',
+        caller_session_id: 'planner-1',
+        caller_tool_call_id: 'call-1',
+        executor_session_id: 'executor-1',
+        correction_attempts: 0,
+        started_at: new Date().toISOString(),
+        last_turn_at: new Date().toISOString(),
+      },
+      paused: false,
+      paused_at: null,
+      queue: [],
+      running_processes: [],
+      updated_at: new Date().toISOString(),
+      frozen_reason: null,
+    };
+    expect(() => tools.deleteCard(goal.id)).toThrow(PlannerToolError);
+    expect(() => tools.restartCard(goal.id)).toThrow(PlannerToolError);
   });
 
   it('deletes only cancelled or terminal cards', () => {
@@ -99,7 +193,7 @@ describe('PlannerToolsService', () => {
     expect(store.read(cancelled.id)).toBeNull();
   });
 
-  it('restarts terminal goal cards and clears mirrored report fields', () => {
+  it('restarts terminal goal and project cards and clears mirrored report fields', () => {
     const goal = store.create(makeCard({
       type: 'goal',
       title: 'Goal Restart',
@@ -115,6 +209,13 @@ describe('PlannerToolsService', () => {
     expect(restarted.result).toBeNull();
     expect(restarted.status_text).toBeNull();
     expect(restarted.latest_self_report).toBeNull();
+
+    const project = store.read('project')!;
+    store.update(project.id, { status: 'failed', status_text: 'broken', latest_self_report: { outcome: 'failed' }, result: { latest_self_report: { outcome: 'failed' } } });
+    const restartedProject = tools.restartCard(project.id);
+    expect(restartedProject.status).toBe('backlog');
+    expect(restartedProject.status_text).toBeNull();
+    expect(restartedProject.latest_self_report).toBeNull();
   });
 
   it('requires status_text and mirrors accepted goal reports', () => {

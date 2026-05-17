@@ -19,6 +19,7 @@ function defaultRuntimeState(): RuntimeState {
     started_at: now,
     current_card_id: null,
     current_agent_session_id: null,
+    active_card_run: null,
     paused: false,
     paused_at: null,
     queue: [],

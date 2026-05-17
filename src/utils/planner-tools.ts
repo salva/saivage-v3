@@ -1,4 +1,4 @@
-import type { CardRecord, CardStatus } from '../schemas/types.js';
+import type { CardRecord, CardStatus, RuntimeState } from '../schemas/types.js';
 import { CardStore } from './card-store.js';
 
 export type PlannerToolErrorKind =
@@ -55,13 +55,10 @@ function requireCard(store: CardStore, cardId: string): CardRecord {
   return card;
 }
 
-function hasActiveLeafInSubtree(store: CardStore, cardId: string): boolean {
-  for (const descendantId of store.getDescendantIds(cardId)) {
-    const descendant = store.read(descendantId);
-    if (!descendant) continue;
-    if (descendant.status === 'active') return true;
-  }
-  return false;
+function subtreeContainsActiveLeaf(store: CardStore, state: RuntimeState | null, cardId: string): boolean {
+  const activeLeaf = state?.active_card_run?.card_id;
+  if (!activeLeaf) return false;
+  return activeLeaf === cardId || store.getDescendantIds(cardId).includes(activeLeaf);
 }
 
 function assertEvidenceCardsReady(store: CardStore, goalId: string, evidenceCardIds: string[]): void {
@@ -87,11 +84,18 @@ function assertSubtreeReadyForDone(store: CardStore, goalId: string): void {
 }
 
 export class PlannerToolsService {
-  constructor(private readonly store: CardStore) {}
+  constructor(
+    private readonly store: CardStore,
+    private readonly runtimeStateProvider?: () => RuntimeState | null,
+  ) {}
 
   activateCard(cardId: string): CardRecord {
     const card = requireCard(this.store, cardId);
-    if (card.status === 'active') {
+    const runtimeState = this.runtimeStateProvider?.() ?? null;
+    if (runtimeState?.active_card_run?.card_id === cardId) {
+      throw new PlannerToolError('card_already_active', `Card '${cardId}' is already the active runtime leaf.`);
+    }
+    if (card.status === 'active' || card.status === 'running') {
       throw new PlannerToolError('card_already_active', `Card '${cardId}' is already active.`);
     }
     if (TERMINAL_STATUSES.has(card.status)) {
@@ -105,14 +109,17 @@ export class PlannerToolsService {
     if (!CANCELLABLE_STATUSES.has(card.status)) {
       throw new Error(`Card '${cardId}' in status '${card.status}' cannot be cancelled.`);
     }
-    if (hasActiveLeafInSubtree(this.store, cardId)) {
-      throw new PlannerToolError('card_already_active', `Card '${cardId}' cannot be cancelled while its subtree contains an active descendant.`);
+    if (subtreeContainsActiveLeaf(this.store, this.runtimeStateProvider?.() ?? null, cardId)) {
+      throw new PlannerToolError('card_already_active', `Card '${cardId}' cannot be cancelled while its subtree contains the active runtime leaf.`);
     }
     return this.store.update(cardId, { status: 'cancelled' });
   }
 
   deleteCard(cardId: string): void {
     const card = requireCard(this.store, cardId);
+    if (subtreeContainsActiveLeaf(this.store, this.runtimeStateProvider?.() ?? null, cardId)) {
+      throw new PlannerToolError('card_already_active', `Card '${cardId}' cannot be deleted while its subtree contains the active runtime leaf.`);
+    }
     if (card.status !== 'cancelled' && !TERMINAL_STATUSES.has(card.status)) {
       throw new Error(`Card '${cardId}' must be cancelled or terminal before deletion.`);
     }
@@ -126,6 +133,9 @@ export class PlannerToolsService {
 
   restartCard(cardId: string): CardRecord {
     const card = requireCard(this.store, cardId);
+    if (subtreeContainsActiveLeaf(this.store, this.runtimeStateProvider?.() ?? null, cardId)) {
+      throw new PlannerToolError('card_already_active', `Card '${cardId}' cannot be restarted while its subtree contains the active runtime leaf.`);
+    }
     if (!TERMINAL_STATUSES.has(card.status)) {
       throw new Error(`Card '${cardId}' is not terminal and cannot be restarted.`);
     }

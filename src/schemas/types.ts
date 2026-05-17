@@ -159,10 +159,32 @@ export type MessageKind = 'text' | 'activity' | 'tool_call' | 'tool_result' | 't
 export interface EntityLink { entity_type: 'card' | 'process' | 'artifact' | 'attachment' | 'quarantine'; entity_id: string; label?: string; }
 export interface AgentMessage { id: string; session_id: string; role: MessageRole; kind: MessageKind; content: string; tool?: string; tool_call_id?: string; timestamp: string; links?: EntityLink[]; }
 export type RuntimeStatus = 'idle' | 'running' | 'paused' | 'error' | 'frozen';
+export type ActiveCardRunPhase = 'planner' | 'executor' | 'reviewer';
+export interface ActiveCardRun {
+  card_id: string;
+  card_type: CardType;
+  runtime_status: RuntimeStatus;
+  phase: ActiveCardRunPhase;
+  caller_session_id: string | null;
+  caller_tool_call_id: string | null;
+  planner_session_id?: string | null;
+  executor_session_id?: string | null;
+  reviewer_session_id?: string | null;
+  correction_attempts: number;
+  started_at: string;
+  last_turn_at: string;
+}
+export interface ProjectRunCompletedPayload {
+  project_card_id: string;
+  result: 'done' | 'failed' | 'blocked';
+  summary: string;
+  failure_kind?: string;
+  blocked_reason?: string;
+}
 export interface HandoffSummary { session_id: string; role: AgentRole; last_action: string; next_action: string; context_summary: string; }
 export interface FreezeProcessEntry { id: string; action: 'kill' | 'reattach' | 'detach'; }
 export interface FreezeManifest { freeze_id: string; reason: string; created_at: string; status: 'frozen'; project_id: 'project'; pid: number; started_at: string; current_card_id: string | null; current_agent_session_id: string | null; queue: string[]; running_processes: FreezeProcessEntry[]; handoff_summaries: HandoffSummary[]; schema_version: number; runtime_version: string; }
-export interface RuntimeState { status: RuntimeStatus; project_id: 'project'; pid: number; started_at: string; current_card_id?: string | null; current_agent_session_id?: string | null; paused: boolean; paused_at?: string | null; queue: string[]; running_processes: string[]; updated_at: string; frozen_reason?: string | null; }
+export interface RuntimeState { status: RuntimeStatus; project_id: 'project'; pid: number; started_at: string; current_card_id?: string | null; current_agent_session_id?: string | null; active_card_run?: ActiveCardRun | null; paused: boolean; paused_at?: string | null; queue: string[]; running_processes: string[]; updated_at: string; frozen_reason?: string | null; }
 export type SourceKind = 'command_output' | 'file' | 'download' | 'web' | 'api' | 'tool';
 export type ReviewStatus = 'passed' | 'blocked' | 'sanitized';
 export type RiskLevel = 'low' | 'medium' | 'high';
@@ -177,7 +199,7 @@ export interface SupervisionResponse { reviews: ContentReview[]; quarantine: Qua
 export type TriggerType = 'keyword' | 'tool' | 'path' | 'tag';
 export interface SkillTrigger { type: TriggerType; pattern: string; }
 export interface SkillIndexEntry { name: string; file: string; target_agents: AgentRole[]; triggers: SkillTrigger[]; updated_at: string; }
-export type RuntimeEventKind = 'started' | 'goal_completed' | 'goal_failed' | 'card_failed' | 'review_complete' | 'review_failed' | 'dispatch_blocked' | 'dispatch_interrupted' | 'dispatch_held_for_notification' | 'escalation' | 'plan_updated' | 'paused' | 'resumed' | 'shutdown' | 'error' | 'stuck_supervisor_started' | 'stuck_supervisor_stopped' | 'stuck_verdict' | 'abort_target_selected' | 'force_cancel_sent';
+export type RuntimeEventKind = 'started' | 'goal_completed' | 'goal_failed' | 'card_failed' | 'review_complete' | 'review_failed' | 'dispatch_blocked' | 'dispatch_interrupted' | 'dispatch_held_for_notification' | 'escalation' | 'plan_updated' | 'paused' | 'resumed' | 'shutdown' | 'error' | 'stuck_supervisor_started' | 'stuck_supervisor_stopped' | 'stuck_verdict' | 'abort_target_selected' | 'force_cancel_sent' | 'project_run_completed';
 export type AgentEventKind = 'session_started' | 'model_selected' | 'invocation_succeeded' | 'invocation_failed' | 'retry_attempted' | 'compaction_triggered' | 'self_check_triggered' | 'session_cancelled' | 'session_force_cancelled' | 'mcp_tool_invocation';
 export type EventKind = RuntimeEventKind | AgentEventKind;
 export interface BaseEvent { id: string; kind: EventKind; timestamp: string; session_id?: string; goal_id?: string; card_id?: string; }
@@ -195,6 +217,7 @@ export interface PausedEvent extends BaseEvent { kind: 'paused'; }
 export interface ResumedEvent extends BaseEvent { kind: 'resumed'; }
 export interface ShutdownEvent extends BaseEvent { kind: 'shutdown'; }
 export interface ErrorEvent extends BaseEvent { kind: 'error'; goal_id?: string; card_id?: string; phase?: string; error_message: string; }
+export interface ProjectRunCompletedEvent extends BaseEvent, ProjectRunCompletedPayload { kind: 'project_run_completed'; }
 export interface StuckSupervisorStartedEvent extends BaseEvent { kind: 'stuck_supervisor_started'; interval_ms: number; consecutive_threshold: number; }
 export interface StuckSupervisorStoppedEvent extends BaseEvent { kind: 'stuck_supervisor_stopped'; checks_performed: number; }
 export interface StuckVerdictEvent extends BaseEvent { kind: 'stuck_verdict'; verdict: boolean; confidence: number; reason: string; evidence: string[]; consecutive_count: number; threshold: number; }
@@ -225,6 +248,7 @@ export type LoggedEvent =
   | ResumedEvent
   | ShutdownEvent
   | ErrorEvent
+  | ProjectRunCompletedEvent
   | StuckSupervisorStartedEvent
   | StuckSupervisorStoppedEvent
   | StuckVerdictEvent
