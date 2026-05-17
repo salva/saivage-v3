@@ -13,6 +13,7 @@ export type SeverityLevel = 'info' | 'warning' | 'error';
 export const SEVERITY_ORDER: SeverityLevel[] = ['info', 'warning', 'error'];
 
 export const RUNTIME_SEVERITY_MAP: Record<RuntimeEventKind, SeverityLevel> = {
+  goal_report_rejected: 'warning',
   started: 'info',
   goal_completed: 'info',
   goal_failed: 'error',

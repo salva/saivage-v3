@@ -21,21 +21,20 @@ interface DiaryIndex {
 interface ReviewsByGoalIndex {
   reviews: Array<{
     id: string;
-    result: 'pass' | 'fail';
+    result: 'pass' | 'fail' | 'needs_corrections';
     timestamp: string;
-    plan_card_id: string;
     diary_entry_id: string;
   }>;
 }
 
 // ── Path Helpers ──────────────────────────────────────────────
 
-function diaryDir(saivageDir: string, planCardId: string): string {
-  return join(saivageDir, 'diaries', `plan-${planCardId}`);
+function diaryDir(saivageDir: string, goalCardId: string): string {
+  return join(saivageDir, 'diaries', goalCardId);
 }
 
-function indexFilePath(saivageDir: string, planCardId: string): string {
-  return join(diaryDir(saivageDir, planCardId), 'index.json');
+function indexFilePath(saivageDir: string, goalCardId: string): string {
+  return join(diaryDir(saivageDir, goalCardId), 'index.json');
 }
 
 function reviewIndexPath(saivageDir: string, goalCardId: string): string {
@@ -44,8 +43,8 @@ function reviewIndexPath(saivageDir: string, goalCardId: string): string {
 
 // ── Index I/O Helpers ─────────────────────────────────────────
 
-function readDiaryIndex(saivageDir: string, planCardId: string): DiaryIndex {
-  const path = indexFilePath(saivageDir, planCardId);
+function readDiaryIndex(saivageDir: string, goalCardId: string): DiaryIndex {
+  const path = indexFilePath(saivageDir, goalCardId);
   if (!existsSync(path)) {
     return { sequence: 0, entries: [] };
   }
@@ -58,8 +57,8 @@ function readDiaryIndex(saivageDir: string, planCardId: string): DiaryIndex {
   };
 }
 
-function writeDiaryIndexAtomic(saivageDir: string, planCardId: string, index: DiaryIndex): void {
-  writeFileAtomic(indexFilePath(saivageDir, planCardId), JSON.stringify(index, null, 2) + '\n');
+function writeDiaryIndexAtomic(saivageDir: string, goalCardId: string, index: DiaryIndex): void {
+  writeFileAtomic(indexFilePath(saivageDir, goalCardId), JSON.stringify(index, null, 2) + '\n');
 }
 
 function readReviewIndex(saivageDir: string, goalCardId: string): ReviewsByGoalIndex {
@@ -94,44 +93,43 @@ function entryFilename(seq: number, kind: DiaryKind): string {
 
 function entryFilePath(
   saivageDir: string,
-  planCardId: string,
+  goalCardId: string,
   seq: number,
   kind: DiaryKind,
 ): string {
-  return join(diaryDir(saivageDir, planCardId), entryFilename(seq, kind));
+  return join(diaryDir(saivageDir, goalCardId), entryFilename(seq, kind));
 }
 
 // ── Public API ────────────────────────────────────────────────
 
 /**
- * Initialize a diary for a plan card.
+ * Initialize a diary for a goal card.
  * Creates the diary directory and initial index.json.
  * Idempotent: if index.json already exists, does nothing.
- * Called when a plan card is first created.
  */
-export function initDiary(saivageDir: string, planCardId: string): void {
-  const path = indexFilePath(saivageDir, planCardId);
+export function initDiary(saivageDir: string, goalCardId: string): void {
+  const path = indexFilePath(saivageDir, goalCardId);
   if (existsSync(path)) {
     return; // Already initialized
   }
   // writeFileAtomic creates parent directories as needed
-  writeDiaryIndexAtomic(saivageDir, planCardId, { sequence: 0, entries: [] });
+  writeDiaryIndexAtomic(saivageDir, goalCardId, { sequence: 0, entries: [] });
 }
 
 /**
- * Delete a diary for a plan card (when the plan card is deleted).
+ * Delete a diary for a goal card.
  * Removes the entire diary directory.
  * Silently succeeds if diary directory doesn't exist.
  */
-export function deleteDiary(saivageDir: string, planCardId: string): void {
-  const dir = diaryDir(saivageDir, planCardId);
+export function deleteDiary(saivageDir: string, goalCardId: string): void {
+  const dir = diaryDir(saivageDir, goalCardId);
   if (existsSync(dir)) {
     rmSync(dir, { recursive: true, force: true });
   }
 }
 
 /**
- * Append a diary entry to a plan card's diary.
+ * Append a diary entry to a goal diary.
  * Auto-generates sequential filename: {padded_seq}.{kind}.json
  * Validates with diaryEntrySchema before writing.
  * Updates the index.json sequence counter.
@@ -141,7 +139,7 @@ export function appendDiaryEntry(
   saivageDir: string,
   entry: Omit<DiaryEntry, 'id' | 'timestamp'> & { id?: string },
 ): DiaryEntry {
-  const index = readDiaryIndex(saivageDir, entry.plan_card_id);
+  const index = readDiaryIndex(saivageDir, entry.goal_card_id);
   const newSeq = index.sequence + 1;
 
   // Generate ID: use provided or auto-generate
@@ -151,7 +149,7 @@ export function appendDiaryEntry(
 
   const fullEntry: DiaryEntry = {
     id: entryId,
-    plan_card_id: entry.plan_card_id,
+    goal_card_id: entry.goal_card_id,
     invocation_id: entry.invocation_id,
     kind: entry.kind,
     timestamp,
@@ -170,7 +168,7 @@ export function appendDiaryEntry(
 
   // Write the entry file
   writeFileAtomic(
-    entryFilePath(saivageDir, entry.plan_card_id, newSeq, entry.kind),
+    entryFilePath(saivageDir, entry.goal_card_id, newSeq, entry.kind),
     JSON.stringify(fullEntry, null, 2) + '\n',
   );
 
@@ -182,21 +180,21 @@ export function appendDiaryEntry(
     timestamp: fullEntry.timestamp,
     filename,
   });
-  writeDiaryIndexAtomic(saivageDir, entry.plan_card_id, index);
+  writeDiaryIndexAtomic(saivageDir, entry.goal_card_id, index);
 
   return fullEntry;
 }
 
 /**
- * Get all diary entries for a plan card, in order.
+ * Get all diary entries for a goal card, in order.
  * Returns empty array if the diary directory doesn't exist.
  */
-export function getDiaryEntries(saivageDir: string, planCardId: string): DiaryEntry[] {
-  const index = readDiaryIndex(saivageDir, planCardId);
+export function getDiaryEntries(saivageDir: string, goalCardId: string): DiaryEntry[] {
+  const index = readDiaryIndex(saivageDir, goalCardId);
   const entries: DiaryEntry[] = [];
 
   for (const idxEntry of index.entries) {
-    const path = join(diaryDir(saivageDir, planCardId), idxEntry.filename);
+    const path = join(diaryDir(saivageDir, goalCardId), idxEntry.filename);
     if (existsSync(path)) {
       const raw = readFileSync(path, 'utf-8');
       const parsed = JSON.parse(raw) as DiaryEntry;
@@ -209,22 +207,22 @@ export function getDiaryEntries(saivageDir: string, planCardId: string): DiaryEn
 }
 
 /**
- * Get a specific diary entry by plan card ID and entry ID.
+ * Get a specific diary entry by goal ID and entry ID.
  * Returns null if not found.
  */
 export function getDiaryEntry(
   saivageDir: string,
-  planCardId: string,
+  goalCardId: string,
   entryId: string,
 ): DiaryEntry | null {
-  const index = readDiaryIndex(saivageDir, planCardId);
+  const index = readDiaryIndex(saivageDir, goalCardId);
   const idxEntry = index.entries.find((e) => e.id === entryId);
 
   if (!idxEntry) {
     return null;
   }
 
-  const path = join(diaryDir(saivageDir, planCardId), idxEntry.filename);
+  const path = join(diaryDir(saivageDir, goalCardId), idxEntry.filename);
   if (!existsSync(path)) {
     return null;
   }
@@ -247,19 +245,23 @@ export function appendReviewAssessment(
   const now = new Date().toISOString();
 
   // Determine review assessment ID
-  const reviewIndex = readReviewIndex(saivageDir, assessment.goal_card_id);
+  const goalCardId = assessment.goal_card_id ?? '';
+  const reviewerSessionId = assessment.reviewer_session_id ?? '';
+  const reviewIndex = readReviewIndex(saivageDir, goalCardId);
   const revSeq = reviewIndex.reviews.length + 1;
   const assessmentId = assessment.id ?? `rev-${revSeq}`;
 
   const fullAssessment: ReviewAssessment = {
     id: assessmentId,
-    goal_card_id: assessment.goal_card_id,
-    plan_card_id: assessment.plan_card_id,
-    reviewer_session_id: assessment.reviewer_session_id,
+    goal_card_id: goalCardId,
+    reviewer_session_id: reviewerSessionId,
     result: assessment.result,
     summary: assessment.summary,
     achieved: assessment.achieved,
-    missing: assessment.missing,
+    missing: assessment.missing ?? [],
+    issues: assessment.issues ?? [],
+    assessment_id: assessment.assessment_id ?? assessmentId,
+    at: assessment.at ?? now,
     evidence_card_ids: assessment.evidence_card_ids,
     created_at: now,
   };
@@ -271,8 +273,8 @@ export function appendReviewAssessment(
   // Use the reviewer_session_id as the invocation_id for the diary entry,
   // since review assessments are session-scoped.
   const entry = appendDiaryEntry(saivageDir, {
-    plan_card_id: assessment.plan_card_id,
-    invocation_id: assessment.reviewer_session_id,
+    goal_card_id: goalCardId,
+    invocation_id: reviewerSessionId,
     kind: 'review_assessment',
     assessment: fullAssessment,
     input_summary: `Review assessment: ${assessment.result === 'pass' ? 'passed' : 'failed'} - ${assessment.summary}`,
@@ -281,13 +283,12 @@ export function appendReviewAssessment(
 
   // Update the reviews index
   reviewIndex.reviews.push({
-    id: fullAssessment.id,
+    id: fullAssessment.id ?? fullAssessment.assessment_id ?? assessmentId,
     result: fullAssessment.result,
     timestamp: now,
-    plan_card_id: assessment.plan_card_id,
     diary_entry_id: entry.id,
   });
-  writeReviewIndexAtomic(saivageDir, assessment.goal_card_id, reviewIndex);
+  writeReviewIndexAtomic(saivageDir, goalCardId, reviewIndex);
 
   return { entry, assessment: fullAssessment };
 }
@@ -301,16 +302,13 @@ export function getReviewAssessments(saivageDir: string, goalCardId: string): Re
   const assessments: ReviewAssessment[] = [];
 
   for (const rev of reviewIndex.reviews) {
-    // Try to read the full assessment from the diary entry
-    const diaryEntry = getDiaryEntry(saivageDir, rev.plan_card_id, rev.diary_entry_id);
+    const diaryEntry = getDiaryEntry(saivageDir, goalCardId, rev.diary_entry_id);
     if (diaryEntry?.assessment) {
       assessments.push(diaryEntry.assessment);
     } else {
-      // Fallback: construct a minimal assessment from the index entry
       assessments.push({
         id: rev.id,
         goal_card_id: goalCardId,
-        plan_card_id: rev.plan_card_id,
         reviewer_session_id: '',
         result: rev.result,
         summary: '',
@@ -318,6 +316,9 @@ export function getReviewAssessments(saivageDir: string, goalCardId: string): Re
         missing: [],
         evidence_card_ids: [],
         created_at: rev.timestamp,
+        assessment_id: rev.id,
+        at: rev.timestamp,
+        issues: [],
       });
     }
   }

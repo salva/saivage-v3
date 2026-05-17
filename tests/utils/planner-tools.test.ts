@@ -6,6 +6,7 @@ import { initProjectTree } from '../../src/utils/file-tree.js';
 import { CardStore } from '../../src/utils/card-store.js';
 import type { CardRecord, RuntimeState } from '../../src/schemas/types.js';
 import { PlannerToolError, PlannerToolsService } from '../../src/utils/planner-tools.js';
+import { getNotes } from '../../src/utils/notes.js';
 
 function makeCard(
   overrides: Partial<CardRecord> & { type: CardRecord['type']; title: string },
@@ -248,5 +249,98 @@ describe('PlannerToolsService', () => {
     const persisted = store.read(goal.id)!;
     expect(persisted.status_text).toBe('unchanged');
     expect(persisted.latest_self_report).toEqual({ summary: 'unchanged' });
+  });
+});
+
+describe('PlannerToolsService reviewer gates', () => {
+  let root: string;
+  let store: CardStore;
+
+  beforeEach(() => {
+    root = mkdtempSync(join(tmpdir(), 'saivage-planner-reviewer-gates-'));
+    initProjectTree(root);
+    store = new CardStore(root);
+  });
+
+  afterEach(() => {
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  function goalWithEvidence() {
+    const goal = store.create(makeCard({ type: 'goal', title: 'Reviewed Goal', status_text: 'old', latest_self_report: { summary: 'old' } }));
+    const evidence = store.create(makeCard({ id: 'code-reviewed-evidence', type: 'code', title: 'Evidence', parent: goal.id, status: 'done', result: { executor: { ok: true } } }));
+    return { goal, evidence };
+  }
+
+  it('orders report_goal_done gates: subtree_not_ready before invalid_evidence before reviewer', () => {
+    const { goal } = goalWithEvidence();
+    store.create(makeCard({ id: 'blocked-child', type: 'code', title: 'Blocked', parent: goal.id, status: 'blocked' }));
+    let reviewerCalls = 0;
+    const tools = new PlannerToolsService(store, { projectRoot: root, reviewer: () => { reviewerCalls += 1; return { result: 'pass', summary: 'ok', achieved: [], issues: [], evidence_card_ids: [] }; } });
+
+    try {
+      tools.reportGoal('report_goal_done', goal.id, { status_text: 'new', evidence_card_ids: ['missing-evidence'] });
+      throw new Error('expected subtree rejection');
+    } catch (error) {
+      expect(error).toBeInstanceOf(PlannerToolError);
+      expect((error as PlannerToolError).kind).toBe('subtree_not_ready');
+      expect((error as PlannerToolError).payload).toEqual({ reasons: [{ kind: 'descendant_blocking', card_id: 'blocked-child', status: 'blocked' }] });
+    }
+    expect(reviewerCalls).toBe(0);
+
+    store.update('blocked-child', { status: 'done', result: { executor: { ok: true } } });
+    expect(() => tools.reportGoal('report_goal_done', goal.id, { status_text: 'new', evidence_card_ids: ['missing-evidence'] })).toThrow(PlannerToolError);
+    try { tools.reportGoal('report_goal_done', goal.id, { status_text: 'new', evidence_card_ids: ['missing-evidence'] }); } catch (error) { expect((error as PlannerToolError).kind).toBe('invalid_evidence'); }
+    expect(reviewerCalls).toBe(0);
+
+    tools.reportGoal('report_goal_done', goal.id, { status_text: 'accepted' });
+    expect(reviewerCalls).toBe(1);
+  });
+
+  it('suppresses status_text/latest_self_report mirroring for rejected evidence and reviewer needs_corrections', () => {
+    const { goal } = goalWithEvidence();
+    const tools = new PlannerToolsService(store, { reviewer: () => ({ result: 'needs_corrections', summary: 'fix it', achieved: [], issues: [{ summary: 'missing proof', severity: 'blocker' }], evidence_card_ids: [] }) });
+    expect(() => tools.reportGoal('report_goal_done', goal.id, { status_text: 'bad evidence', evidence_card_ids: ['outside'] })).toThrow(PlannerToolError);
+    tools.reportGoal('report_goal_done', goal.id, { status_text: 'not accepted' });
+    const persisted = store.read(goal.id)!;
+    expect(persisted.status_text).toBe('old');
+    expect(persisted.latest_self_report).toEqual({ summary: 'old' });
+    expect(persisted.retries).toBe(1);
+    expect((persisted.result?.review as { result?: string }).result).toBe('needs_corrections');
+  });
+
+  it('mirrors status_text/latest_self_report only after reviewer pass and records preallocated assessment/session id', () => {
+    const { goal, evidence } = goalWithEvidence();
+    let observed: { assessmentId: string; reviewerSessionId: string } | null = null;
+    const tools = new PlannerToolsService(store, {
+      assessmentIdFactory: () => 'assessment-123',
+      reviewer: (_goalId, assessmentId, reviewerSessionId) => {
+        observed = { assessmentId, reviewerSessionId };
+        return { result: 'pass', summary: 'accepted', achieved: ['done'], issues: [], evidence_card_ids: [evidence.id] };
+      },
+    });
+    const result = tools.reportGoal('report_goal_done', goal.id, { status_text: 'complete', summary: 'done', evidence_card_ids: [evidence.id] }, 'planner-session');
+    expect(observed).toEqual({ assessmentId: 'assessment-123', reviewerSessionId: `reviewer:${goal.id}:assessment-123` });
+    expect(result.assessment).toEqual(expect.objectContaining({ assessment_id: 'assessment-123', reviewer_session_id: `reviewer:${goal.id}:assessment-123`, result: 'pass' }));
+    expect(result.card.status).toBe('done');
+    expect(result.card.status_text).toBe('complete');
+    expect(result.card.latest_self_report).toEqual(expect.objectContaining({ summary: 'done', status_text: 'complete', result: 'done' }));
+    expect(result.card.retries).toBe(0);
+  });
+
+  it('exhausts reviewer retries by leaving issues on result.review, flipping origin changed, and writing pending_subtree_correction notes on origin and strict ancestors', () => {
+    const parent = store.create(makeCard({ id: 'goal-parent-review', type: 'goal', title: 'Parent' }));
+    const goal = store.create(makeCard({ id: 'goal-child-review', type: 'goal', title: 'Child', parent: parent.id }));
+    store.create(makeCard({ id: 'code-child-review-evidence', type: 'code', title: 'Evidence', parent: goal.id, status: 'done', result: { executor: { ok: true } } }));
+    const issue = { summary: 'acceptance missing', severity: 'blocker' as const, recommendation: 'add tests' };
+    const tools = new PlannerToolsService(store, { projectRoot: root, maxReviewRetries: 0, assessmentIdFactory: () => 'assessment-exhausted', reviewer: () => ({ result: 'needs_corrections', summary: 'no', achieved: [], issues: [issue], evidence_card_ids: [] }) });
+    const result = tools.reportGoal('report_goal_done', goal.id, { status_text: 'claim complete' });
+    expect(result.card.status).toBe('changed');
+    const persisted = store.read(goal.id)!;
+    expect(persisted.status).toBe('changed');
+    expect((persisted.result?.review as { issues?: unknown[] }).issues).toEqual([issue]);
+    expect(getNotes(join(root, '.saivage'), goal.id).some((note) => note.content.includes('pending_subtree_correction') && note.content.includes('acceptance missing'))).toBe(true);
+    expect(getNotes(join(root, '.saivage'), parent.id).some((note) => note.content.includes('pending_subtree_correction') && note.content.includes('acceptance missing'))).toBe(true);
+    expect(getNotes(join(root, '.saivage'), 'project').some((note) => note.content.includes('pending_subtree_correction') && note.content.includes('acceptance missing'))).toBe(true);
   });
 });

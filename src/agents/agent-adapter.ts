@@ -92,8 +92,8 @@ const RUNTIME_AGENT_TOOL_REGISTRY: Record<string, (ctx: analystTools.ToolContext
   acknowledge_notification: analystTools.acknowledge_notification as unknown as (ctx: analystTools.ToolContext, params: Record<string, unknown>) => Promise<analystTools.ToolResult>,
 };
 
-function buildPlannerToolErrorResponse(error: unknown): { success: false; tool_error?: { kind: string; message: string }; error?: string } {
-  if (error instanceof PlannerToolError) return { success: false, tool_error: { kind: error.kind, message: error.message } };
+function buildPlannerToolErrorResponse(error: unknown): { success: false; tool_error?: { kind: string; message: string; payload?: Record<string, unknown> }; error?: string } {
+  if (error instanceof PlannerToolError) return { success: false, tool_error: { kind: error.kind, message: error.message, ...(error.payload ? { payload: error.payload } : {}) } };
   return { success: false, error: error instanceof Error ? error.message : String(error) };
 }
 
