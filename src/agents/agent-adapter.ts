@@ -23,6 +23,8 @@ import { processWorkspaceToolCall, READ_ONLY_WORKSPACE_TOOL_DEFINITIONS, WORKSPA
 import { NotificationCenter } from '../utils/notification-center.js';
 import * as analystTools from './analyst-tools.js';
 import { ANALYST_TOOL_DEFINITIONS } from './analyst-tool-schemas.js';
+import { CardStore } from '../utils/card-store.js';
+import { PlannerToolError, PlannerToolsService } from '../utils/planner-tools.js';
 
 export type { AgentRuntime } from './agent-runtime.js';
 export type AgentRole = 'planner' | 'executor' | 'reviewer' | 'analyst';
@@ -32,15 +34,49 @@ type SessionCreatedHook = (sessionId: string) => void | Promise<void>;
 
 const MCP_TOOL_CALL_TOOL_DEFINITION: ToolDefinition = { type: 'function', function: { name: 'mcp_tool_call', description: 'Call an approved MCP (Model Context Protocol) tool on a configured MCP server. Availability is role- and policy-scoped at runtime.', parameters: { type: 'object', properties: { serverName: { type: 'string', description: 'Configured MCP server name' }, toolName: { type: 'string', description: 'Tool name on that MCP server' }, args: { type: 'object', description: 'Optional tool arguments', additionalProperties: true } }, required: ['serverName', 'toolName'], additionalProperties: false } } };
 
+function str(description: string): Record<string, unknown> { return { type: 'string', description }; }
+function arr(items: Record<string, unknown>, description?: string): Record<string, unknown> { const result: Record<string, unknown> = { type: 'array', items }; if (description) result.description = description; return result; }
+function tool(name: string, description: string, properties: Record<string, unknown>, required: string[] = []): ToolDefinition {
+  return { type: 'function', function: { name, description, parameters: { type: 'object', properties, required, additionalProperties: false } } };
+}
+
+const PLANNER_TOOL_DEFINITIONS: ToolDefinition[] = [
+  tool('activate_card', 'Activate a card so runtime can proceed with the next planner-controlled step.', { cardId: str('The ID of the card to activate.') }, ['cardId']),
+  tool('cancel_card', 'Cancel a planner-managed card.', { cardId: str('The ID of the card to cancel.') }, ['cardId']),
+  tool('delete_card', 'Delete a cancelled or terminal card.', { cardId: str('The ID of the card to delete.') }, ['cardId']),
+  tool('restart_card', 'Restart a terminal card so it can be activated again.', { cardId: str('The ID of the card to restart.') }, ['cardId']),
+  tool('report_goal_done', 'Report a goal or project as done. Requires non-empty status_text and optional evidence_card_ids.', {
+    goalId: str('The goal or project card ID to report done.'),
+    status_text: str('Required concise terminal status shown on the goal card.'),
+    summary: str('Optional summary for the goal self-report.'),
+    evidence_card_ids: arr(str('A descendant done card ID.'), 'Optional evidence card IDs supporting completion.'),
+    report: { type: 'object', description: 'Optional full self-report payload.', additionalProperties: true },
+  }, ['goalId', 'status_text']),
+  tool('report_goal_failed', 'Report a goal or project as failed. Requires non-empty status_text.', {
+    goalId: str('The goal or project card ID to report failed.'),
+    status_text: str('Required concise terminal status shown on the goal card.'),
+    summary: str('Optional summary for the goal self-report.'),
+    evidence_card_ids: arr(str('A descendant done card ID.'), 'Optional evidence card IDs supporting the report.'),
+    report: { type: 'object', description: 'Optional full self-report payload.', additionalProperties: true },
+  }, ['goalId', 'status_text']),
+  tool('report_goal_blocked', 'Report a goal or project as blocked. Requires non-empty status_text.', {
+    goalId: str('The goal or project card ID to report blocked.'),
+    status_text: str('Required concise terminal status shown on the goal card.'),
+    summary: str('Optional summary for the goal self-report.'),
+    evidence_card_ids: arr(str('A descendant done card ID.'), 'Optional evidence card IDs supporting the report.'),
+    report: { type: 'object', description: 'Optional full self-report payload.', additionalProperties: true },
+  }, ['goalId', 'status_text']),
+];
+
 const AGENT_TOOL_NAMES_BY_ROLE: Record<AgentRole, string[]> = {
   analyst: ['list_card_history','get_card_history_entry','diff_card','list_notes','get_note','mark_note_handled','acknowledge_notification'],
-  planner: ['list_card_history','get_card_history_entry','diff_card','list_notes','get_note','mark_note_handled','acknowledge_notification'],
+  planner: ['list_card_history','get_card_history_entry','diff_card','list_notes','get_note','mark_note_handled'],
   executor: ['list_card_history','get_card_history_entry','diff_card','list_notes','get_note','mark_note_handled','acknowledge_notification'],
   reviewer: ['list_card_history','get_card_history_entry','diff_card','list_notes','get_note','mark_note_handled','acknowledge_notification'],
 };
 
 const TOOL_MATRIX: Record<AgentRole, ToolDefinition[]> = {
-  planner: [LOAD_SKILL_TOOL_DEFINITION, ...READ_ONLY_WORKSPACE_TOOL_DEFINITIONS, ...ANALYST_TOOL_DEFINITIONS.filter((tool) => AGENT_TOOL_NAMES_BY_ROLE.planner.includes(tool.function.name)), MCP_TOOL_CALL_TOOL_DEFINITION],
+  planner: [LOAD_SKILL_TOOL_DEFINITION, ...READ_ONLY_WORKSPACE_TOOL_DEFINITIONS, ...ANALYST_TOOL_DEFINITIONS.filter((tool) => AGENT_TOOL_NAMES_BY_ROLE.planner.includes(tool.function.name)), ...PLANNER_TOOL_DEFINITIONS, MCP_TOOL_CALL_TOOL_DEFINITION],
   executor: [LOAD_SKILL_TOOL_DEFINITION, ...WORKSPACE_TOOL_DEFINITIONS, ...ANALYST_TOOL_DEFINITIONS.filter((tool) => AGENT_TOOL_NAMES_BY_ROLE.executor.includes(tool.function.name)), MCP_TOOL_CALL_TOOL_DEFINITION],
   reviewer: [LOAD_SKILL_TOOL_DEFINITION, ...READ_ONLY_WORKSPACE_TOOL_DEFINITIONS, ...ANALYST_TOOL_DEFINITIONS.filter((tool) => AGENT_TOOL_NAMES_BY_ROLE.reviewer.includes(tool.function.name)), MCP_TOOL_CALL_TOOL_DEFINITION],
   analyst: [...ANALYST_TOOL_DEFINITIONS.filter((tool) => AGENT_TOOL_NAMES_BY_ROLE.analyst.includes(tool.function.name))],
@@ -55,6 +91,11 @@ const RUNTIME_AGENT_TOOL_REGISTRY: Record<string, (ctx: analystTools.ToolContext
   mark_note_handled: analystTools.mark_note_handled as unknown as (ctx: analystTools.ToolContext, params: Record<string, unknown>) => Promise<analystTools.ToolResult>,
   acknowledge_notification: analystTools.acknowledge_notification as unknown as (ctx: analystTools.ToolContext, params: Record<string, unknown>) => Promise<analystTools.ToolResult>,
 };
+
+function buildPlannerToolErrorResponse(error: unknown): { success: false; tool_error?: { kind: string; message: string }; error?: string } {
+  if (error instanceof PlannerToolError) return { success: false, tool_error: { kind: error.kind, message: error.message } };
+  return { success: false, error: error instanceof Error ? error.message : String(error) };
+}
 
 export class AgentAdapter implements AgentRuntime {
   readonly projectRoot: string;
@@ -99,6 +140,7 @@ export class AgentAdapter implements AgentRuntime {
   getSkillsEngine(): SkillsEngine | undefined { return this._skillsEngine; }
   setAfterSessionCreatedHook(hook: SessionCreatedHook | null): void { this.afterSessionCreatedHook = hook; }
 
+  public getToolNamesForRole(role: AgentRole): string[] { return this.buildToolsForRole(role).map((tool) => tool.function.name); }
   private buildToolsForRole(role: AgentRole): ToolDefinition[] { return TOOL_MATRIX[role] ?? []; }
   private getMcpToolDefinition(serverName: string, toolName: string): McpToolDefinition | null { if (!this._mcpManager) return null; const tools = this._mcpManager.getServerTools(serverName); return tools?.find((tool) => tool.name === toolName) ?? null; }
   private isMcpToolAllowed(role: AgentRole, definition: McpToolDefinition | null): boolean { if (role === 'analyst') return false; if (role === 'executor') return true; if (!definition) return false; const annotations = definition.annotations ?? {}; const readOnly = annotations.readOnlyHint === true; const destructive = annotations.destructiveHint === true; return readOnly && !destructive; }
@@ -139,6 +181,44 @@ export class AgentAdapter implements AgentRuntime {
         return { role: 'tool', kind: result.success ? 'tool_result' : 'tool_error', content: JSON.stringify(result), tool: tc.function.name, tool_call_id: tc.id };
       } catch (err) {
         return { role: 'tool', kind: 'tool_error', content: JSON.stringify({ success: false, error: err instanceof Error ? err.message : String(err) }), tool: tc.function.name, tool_call_id: tc.id };
+      }
+    }
+    if (role === 'planner' && PLANNER_TOOL_DEFINITIONS.some((tool) => tool.function.name === tc.function.name)) {
+      let args: Record<string, unknown> = {};
+      try { args = JSON.parse(tc.function.arguments); } catch {}
+      const plannerTools = new PlannerToolsService(new CardStore(this.projectRoot));
+      try {
+        let result: unknown;
+        switch (tc.function.name) {
+          case 'activate_card':
+            result = { success: true, card: plannerTools.activateCard(String(args.cardId ?? '')) };
+            break;
+          case 'cancel_card':
+            result = { success: true, card: plannerTools.cancelCard(String(args.cardId ?? '')) };
+            break;
+          case 'delete_card':
+            plannerTools.deleteCard(String(args.cardId ?? ''));
+            result = { success: true, deleted: true, cardId: String(args.cardId ?? '') };
+            break;
+          case 'restart_card':
+            result = { success: true, card: plannerTools.restartCard(String(args.cardId ?? '')) };
+            break;
+          case 'report_goal_done':
+          case 'report_goal_failed':
+          case 'report_goal_blocked':
+            result = plannerTools.reportGoal(tc.function.name, String(args.goalId ?? invocation?.goalId ?? ''), {
+              status_text: String(args.status_text ?? ''),
+              summary: typeof args.summary === 'string' ? args.summary : undefined,
+              evidence_card_ids: Array.isArray(args.evidence_card_ids) ? args.evidence_card_ids.map((value) => String(value)) : undefined,
+              report: typeof args.report === 'object' && args.report !== null ? args.report as Record<string, unknown> : undefined,
+            }, sessionId);
+            break;
+          default:
+            result = null;
+        }
+        return { role: 'tool', kind: 'tool_result', content: typeof result === 'string' ? result : JSON.stringify(result), tool: tc.function.name, tool_call_id: tc.id };
+      } catch (err) {
+        return { role: 'tool', kind: 'tool_error', content: JSON.stringify(buildPlannerToolErrorResponse(err)), tool: tc.function.name, tool_call_id: tc.id };
       }
     }
     if (tc.function.name === 'mcp_tool_call') {
