@@ -18,7 +18,7 @@ Use it to:
 - explain why work is blocked, stale, failing, or waiting;
 - create or amend cards when project work needs to be delegated;
 - add directive or escalation notes for running or queued work;
-- call canonical controls such as runtime pause/freeze/resume or process termination when those controls are the right operator action.
+- call canonical controls such as runtime pause/freeze/resume when those controls are the right operator action. Process termination controls are deferred in this cycle.
 
 Do **not** use the analyst as a substitute executor.
 

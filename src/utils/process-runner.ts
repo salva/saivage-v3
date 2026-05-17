@@ -9,10 +9,7 @@ import {
 } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { randomBytes } from 'node:crypto';
-import { processRecordSchema } from '../schemas/validators.js';
 import type { ProcessRecord, ProcessStatus } from '../schemas/types.js';
-import { writeFileAtomic } from './file-tree.js';
-import { enqueueProcessKillNotifications } from './notification-triggers.js';
 
 export interface ProcessStartOptions {
   cardId: string;
@@ -23,7 +20,7 @@ export interface ProcessStartOptions {
   goalId?: string;
   launchReason?: string;
   ownerKind?: 'agent' | 'operator' | 'runtime';
-  backgroundPolicy?: 'foreground' | 'background_required' | 'background_optional' | 'detach' | 'kill_on_freeze';
+  backgroundPolicy?: 'foreground';
 }
 
 export interface ProcessWaitResult {
@@ -40,7 +37,7 @@ export interface ProcessListFilter {
 }
 
 const PROCESSES_DIR = '.saivage-work/processes';
-const REGISTRY_FILE = '.saivage/runtime/processes.json';
+const processRecordsByRoot = new Map<string, Map<string, ProcessRecord>>();
 
 const activeProcesses = new Map<string, ChildProcess>();
 const outputStreams = new Map<
@@ -66,8 +63,13 @@ function processDir(projectRoot: string, procId: string): string {
   return join(processesDir(projectRoot), procId);
 }
 
-function registryPath(projectRoot: string): string {
-  return join(projectRoot, REGISTRY_FILE);
+function transientRegistry(projectRoot: string): Map<string, ProcessRecord> {
+  let registry = processRecordsByRoot.get(projectRoot);
+  if (!registry) {
+    registry = new Map();
+    processRecordsByRoot.set(projectRoot, registry);
+  }
+  return registry;
 }
 
 function resolveStatus(proc: ChildProcess): ProcessStatus {
@@ -116,82 +118,20 @@ async function waitForDurableOutput(procId: string): Promise<void> {
   }
 }
 
-function waitForProcessRecord(
-  projectRoot: string,
-  procId: string,
-  predicate: (record: ProcessRecord) => boolean,
-  timeoutMs: number,
-): Promise<ProcessRecord | null> {
-  return new Promise((resolve) => {
-    const deadline = Date.now() + timeoutMs;
-
-    const check = () => {
-      const record = getProcess(projectRoot, procId);
-      if (record && predicate(record)) {
-        cleanup();
-        resolve(record);
-        return;
-      }
-      if (Date.now() >= deadline) {
-        cleanup();
-        resolve(record ?? null);
-      }
-    };
-
-    const cleanup = () => {
-      clearInterval(interval);
-      clearTimeout(timeout);
-    };
-
-    const interval = setInterval(check, 25);
-    interval.unref();
-    const timeout = setTimeout(check, timeoutMs);
-    timeout.unref();
-    check();
-  });
-}
-
 export function loadRegistry(projectRoot: string): Map<string, ProcessRecord> {
-  const rp = registryPath(projectRoot);
-  if (!existsSync(rp)) {
-    return new Map();
-  }
-
-  const raw = readFileSync(rp, 'utf-8');
-  let records: ProcessRecord[];
-  try {
-    records = JSON.parse(raw) as ProcessRecord[];
-  } catch {
-    return new Map();
-  }
-
-  const map = new Map<string, ProcessRecord>();
-  for (const rec of records) {
-    const parsed = processRecordSchema.safeParse(rec);
-    if (parsed.success) {
-      map.set(parsed.data.id, parsed.data);
-    }
-  }
-  return map;
+  return new Map(transientRegistry(projectRoot));
 }
 
 export function saveRegistry(projectRoot: string, records: ProcessRecord[]): void {
+  const registry = transientRegistry(projectRoot);
+  registry.clear();
   for (const rec of records) {
-    const parsed = processRecordSchema.safeParse(rec);
-    if (!parsed.success) {
-      throw new Error(
-        `ProcessRecord validation failed for ${rec.id}: ${parsed.error.message}`,
-      );
-    }
+    registry.set(rec.id, rec);
   }
-  writeFileAtomic(registryPath(projectRoot), JSON.stringify(records, null, 2) + '\n');
 }
 
 function upsertRegistryRecord(projectRoot: string, record: ProcessRecord): void {
-  const existing = loadRegistry(projectRoot);
-  existing.set(record.id, record);
-  const records = Array.from(existing.values());
-  saveRegistry(projectRoot, records);
+  transientRegistry(projectRoot).set(record.id, record);
 }
 
 function ensureProcessDir(projectRoot: string, procId: string): string {
@@ -535,57 +475,23 @@ export function tailOutput(
   return allLines.slice(-lines).join('\n');
 }
 
-export async function killProcess(
+async function stopProcessForRuntimeShutdown(
   projectRoot: string,
   procId: string,
   graceMs: number = 5000,
-): Promise<ProcessRecord> {
+): Promise<ProcessRecord | null> {
   const child = activeProcesses.get(procId);
-
-  if (!child) {
-    const registry = loadRegistry(projectRoot);
-    const record = registry.get(procId);
-    if (!record) {
-      throw new Error(`Process '${procId}' not found.`);
-    }
-    return record;
+  if (!child || resolveStatus(child) !== 'running') {
+    return getProcess(projectRoot, procId);
   }
 
-  const currentStatus = resolveStatus(child);
-  if (currentStatus !== 'running') {
-    const registry = loadRegistry(projectRoot);
-    const record = registry.get(procId);
-    if (record) return record;
-    throw new Error(`Process '${procId}' not found in registry.`);
-  }
-
-  const killed = signalProcessTree(child, 'SIGTERM');
-  if (!killed) {
-    throw new Error(`Failed to send SIGTERM to process '${procId}'.`);
-  }
-
+  signalProcessTree(child, 'SIGTERM');
   const waitResult = await waitProcess(projectRoot, procId, graceMs);
-
   if (waitResult.timedOut || waitResult.status === 'running') {
-    const forcedKill = signalProcessTree(child, 'SIGKILL');
-    if (!forcedKill) {
-      throw new Error(`Failed to send SIGKILL to process '${procId}'.`);
-    }
+    signalProcessTree(child, 'SIGKILL');
     await waitProcess(projectRoot, procId, 2000);
   }
-
-  const record = await waitForProcessRecord(
-    projectRoot,
-    procId,
-    (candidate) => candidate.status !== 'running',
-    5000,
-  );
-  if (!record) {
-    throw new Error(`Process '${procId}' not found in registry after kill.`);
-  }
-
-  enqueueProcessKillNotifications(projectRoot, record, { actor: 'analyst', surface: 'web-chat' });
-  return record;
+  return getProcess(projectRoot, procId);
 }
 
 export function listProcesses(
@@ -662,20 +568,20 @@ export function cleanupAllCompleted(projectRoot: string): number {
   return count;
 }
 
-export async function killAllRunning(projectRoot: string): Promise<string[]> {
-  const killedIds: string[] = [];
+export async function stopAllRunningForRuntimeShutdown(projectRoot: string): Promise<string[]> {
+  const stoppedIds: string[] = [];
 
   for (const [procId, child] of activeProcesses) {
     try {
-      await killProcess(projectRoot, procId);
-      killedIds.push(procId);
+      await stopProcessForRuntimeShutdown(projectRoot, procId);
+      stoppedIds.push(procId);
     } catch {
       try {
         child.kill('SIGKILL');
-        killedIds.push(procId);
+        stoppedIds.push(procId);
       } catch {}
     }
   }
 
-  return killedIds;
+  return stoppedIds;
 }

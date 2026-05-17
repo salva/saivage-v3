@@ -182,40 +182,20 @@ describe('Cleanup Utility Smoke Tests', () => {
     expect(existsSync(procDir)).toBe(true);
   });
 
-  it('cleanStaleProcessOutput: does NOT remove registry-running process dirs', async () => {
+  it('cleanStaleProcessOutput: ignores legacy durable process registry files as restart surfaces', async () => {
     const swd = saivageWorkDir();
-    const procId = 'proc-running-1';
+    const procId = 'proc-legacy-running-1';
     const procDir = join(swd, 'processes', procId);
     mkdirSync(procDir, { recursive: true });
-    writeFileSync(join(procDir, 'combined.log'), 'still running');
+    writeFileSync(join(procDir, 'combined.log'), 'legacy running');
     const registryPath = join(root, '.saivage', 'runtime', 'processes.json');
-    writeFileSync(registryPath, JSON.stringify([{
-      id: procId,
-      card_id: 'card-run',
-      command: 'sleep 999',
-      cwd: root,
-      status: 'running',
-      pid: 111,
-      started_at: new Date(Date.now() - 3600000).toISOString(),
-      completed_at: null,
-      exit_code: null,
-      required_for_card_completion: true,
-      output_dir: procDir,
-      stdout_path: join(procDir, 'stdout.log'),
-      stderr_path: join(procDir, 'stderr.log'),
-      combined_log_path: join(procDir, 'combined.log'),
-      agent_session_id: null,
-      goal_id: null,
-      launch_reason: null,
-      owner_kind: 'runtime',
-      background_policy: 'detach',
-      process_group_id: null,
-    }], null, 2));
+    writeFileSync(registryPath, JSON.stringify([{ id: procId, status: 'running' }], null, 2));
     await sleep(150);
 
     const cleaned = cleanStaleProcessOutput({ saivageWorkDir: swd, store, maxAgeMs: 1 });
-    expect(cleaned).toBe(0);
-    expect(existsSync(procDir)).toBe(true);
+    expect(cleaned).toBe(1);
+    expect(existsSync(procDir)).toBe(false);
+    expect(existsSync(registryPath)).toBe(true);
   });
 
   it('cleanAll: returns summary counts', () => {

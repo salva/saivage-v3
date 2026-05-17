@@ -120,7 +120,7 @@ curl -X POST http://localhost:8080/api/runtime/resume-from-freeze \
   -H "Authorization: Bearer $SAIVAGE_API_TOKEN"
 ```
 
-If a freeze manifest exists, Saivage restores queued work and process references from the manifest, clears the manifest, and returns the restored queue, process IDs, and current card reference.
+If a freeze manifest exists, Saivage restores queued work, clears the manifest, and returns the restored queue and current card reference. Durable process reattach and termination are deferred and are not restored from freeze manifests in this cycle.
 
 ## Planner control and completion semantics
 
@@ -179,7 +179,7 @@ A safe process view includes:
 - redacted command text
 - contained relative `cwd` when available
 - contained relative log refs when available
-- control flags such as `can_view_logs` and `can_terminate`
+- read-only control metadata such as `can_view_logs` and `termination_available: false`
 
 It intentionally does **not** expose arbitrary absolute paths or raw secret-bearing command strings.
 

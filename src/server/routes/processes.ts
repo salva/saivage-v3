@@ -2,8 +2,6 @@ import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import {
   listProcesses,
   getProcess,
-  killProcess,
-  isProcessLiveAttached,
 } from '../../utils/process-runner.js';
 import type { ProcessRecord } from '../../schemas/types.js';
 import {
@@ -11,7 +9,6 @@ import {
   redactOperatorErrorMessage,
   toContainedRelativePath,
 } from '../../utils/file-access-security.js';
-import { runMutatingRoute } from './runtime-config-notes.js';
 
 interface ProcessLogRefs {
   stdout: string | null;
@@ -19,18 +16,10 @@ interface ProcessLogRefs {
   combined: string | null;
 }
 
-export type ProcessControlAvailabilityStatus =
-  | 'live-attached'
-  | 'stale-not-attached'
-  | 'already-ended'
-  | 'unknown';
-
 interface ProcessControlAvailability {
   can_view_logs: boolean;
-  can_terminate: boolean;
-  terminate_status: ProcessControlAvailabilityStatus;
-  terminate_degraded: boolean;
-  terminate_reason: string;
+  termination_available: false;
+  unavailable_reason: string;
 }
 
 export interface ProcessView {
@@ -67,48 +56,12 @@ function safeCwd(projectRoot: string, cwd: string | null | undefined): string | 
   return toContainedRelativePath(projectRoot, cwd);
 }
 
-function toProcessControlAvailability(record: ProcessRecord, canViewLogs: boolean): ProcessControlAvailability {
-  if (record.status !== 'running') {
-    return {
-      can_view_logs: canViewLogs,
-      can_terminate: false,
-      terminate_status: 'already-ended',
-      terminate_degraded: false,
-      terminate_reason: 'Process has already ended; termination is unavailable.',
-    };
-  }
-
-  try {
-    const liveAttached = isProcessLiveAttached(record.id);
-    if (liveAttached) {
-      return {
-        can_view_logs: canViewLogs,
-        can_terminate: true,
-        terminate_status: 'live-attached',
-        terminate_degraded: false,
-        terminate_reason:
-          'Process is running and attached to this server; termination can be requested.',
-      };
-    }
-
-    return {
-      can_view_logs: canViewLogs,
-      can_terminate: false,
-      terminate_status: 'stale-not-attached',
-      terminate_degraded: true,
-      terminate_reason:
-        'Process is recorded as running, but this server has no live child process attached. Inspect host process state before manual cleanup.',
-    };
-  } catch {
-    return {
-      can_view_logs: canViewLogs,
-      can_terminate: false,
-      terminate_status: 'unknown',
-      terminate_degraded: true,
-      terminate_reason:
-        'Process control availability could not be confirmed. Refresh and inspect server status before manual cleanup.',
-    };
-  }
+function toProcessControlAvailability(canViewLogs: boolean): ProcessControlAvailability {
+  return {
+    can_view_logs: canViewLogs,
+    termination_available: false,
+    unavailable_reason: 'Process termination is not available in this redesign cycle.',
+  };
 }
 
 function toProcessView(projectRoot: string, record: ProcessRecord): ProcessView {
@@ -132,22 +85,12 @@ function toProcessView(projectRoot: string, record: ProcessRecord): ProcessView 
     command: redactCommandForOperator(record.command),
     cwd: safeCwd(projectRoot, record.cwd),
     logs,
-    control: toProcessControlAvailability(record, canViewLogs),
+    control: toProcessControlAvailability(canViewLogs),
   };
 }
 
 function processRouteMessage(err: unknown, projectRoot: string): string {
   return redactOperatorErrorMessage(err instanceof Error ? err.message : String(err), projectRoot);
-}
-
-function terminatePreview(procId: string) {
-  return {
-    type: 'process.kill',
-    summary: `Terminate process '${procId}'.`,
-    affectedCards: [],
-    affectedProcesses: [{ id: procId, command: '(pending)', status: 'unknown' }],
-    warnings: [],
-  };
 }
 
 export function registerProcessRoutes(
@@ -191,45 +134,5 @@ export function registerProcessRoutes(
         message: processRouteMessage(err, projectRoot),
       });
     }
-  });
-
-  fastify.post('/api/processes/:id/terminate', async (request: FastifyRequest, reply: FastifyReply) => {
-    const params = request.params as { id: string };
-    const procId = params.id;
-    return runMutatingRoute({
-      request,
-      reply,
-      projectRoot,
-      action: 'process.kill',
-      safety_class: 'destructive',
-      target_kind: 'process',
-      target_id: procId ?? null,
-      preview: terminatePreview(procId ?? ''),
-      mutate: async () => {
-        try {
-          if (!procId) {
-            return { ok: false, statusCode: 400, error: 'Process ID is required.', body: { error: 'Process ID is required.' }, outcomeSummary: 'missing process id' };
-          }
-
-          const current = getProcess(projectRoot, procId);
-          if (!current) {
-            return { ok: false, statusCode: 404, error: 'Process not found', body: { error: 'Process not found', processId: procId }, outcomeSummary: 'process not found' };
-          }
-
-          if (current.status !== 'running') {
-            return { ok: false, statusCode: 409, error: 'Process has already ended.', body: { error: 'Process has already ended.', terminated: false, message: 'Process has already ended.', process: toProcessView(projectRoot, current) }, outcomeSummary: 'process already ended' };
-          }
-
-          const terminatedRecord = await killProcess(projectRoot, procId);
-          if (terminatedRecord.status === 'running') {
-            return { ok: false, statusCode: 503, error: 'Process termination unavailable', body: { error: 'Process termination unavailable', terminated: false, message: 'Process is recorded as running, but this server has no live child process attached. Refresh, then inspect host process state before manual cleanup.', process: toProcessView(projectRoot, terminatedRecord) }, outcomeSummary: 'process termination unavailable' };
-          }
-
-          return { ok: true, body: { terminated: true, message: `Termination requested for ${procId}. Status is now ${terminatedRecord.status}.`, process: toProcessView(projectRoot, terminatedRecord) }, outcomeSummary: 'process terminated' };
-        } catch (err) {
-          return { ok: false, statusCode: 500, error: processRouteMessage(err, projectRoot), body: { error: 'Failed to terminate process', message: processRouteMessage(err, projectRoot) }, outcomeSummary: 'failed to terminate process' };
-        }
-      },
-    });
   });
 }

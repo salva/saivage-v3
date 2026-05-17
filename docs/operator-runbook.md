@@ -117,7 +117,7 @@ Primary triggers in the current system:
 - tracked card mutations;
 - note creation;
 - runtime pause/resume/freeze/resume-from-freeze;
-- process termination through canonical controls;
+- process-state notifications from future process controls are deferred in this cycle;
 - redacted config/provider changes when supported by the canonical write path.
 
 Severity rules you should remember:
@@ -353,7 +353,7 @@ Use audit reads when you need to answer:
 - who changed state;
 - whether a preview was rejected vs confirmed;
 - whether authz denied a request;
-- whether a pause/freeze/process kill came from chat, REST, CLI, runtime, or web UI.
+- whether a pause/freeze action came from chat, REST, CLI, runtime, or web UI. Process termination controls are deferred in this cycle.
 
 ## 6. Operator notes queue
 

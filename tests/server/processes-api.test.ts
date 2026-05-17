@@ -12,19 +12,14 @@ function uniqueDir(): string {
   return join(tmpdir(), `saivage-process-test-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`);
 }
 
-function setupProject(projectRoot: string, overrides: Record<string, unknown> = {}): void {
+function setupProject(projectRoot: string): void {
   const sd = join(projectRoot, '.saivage');
   mkdirSync(sd, { recursive: true });
   for (const d of ['cards/by-id', 'cards/tree', 'cards/dependencies', 'notes/by-card', 'runtime', 'agents/sessions', 'agents/messages', 'diaries', 'supervision']) {
     mkdirSync(join(sd, d), { recursive: true });
   }
   mkdirSync(join(projectRoot, '.saivage-work', 'processes'), { recursive: true });
-  const config = {
-    server: { port: 8080, host: '127.0.0.1' },
-    models: { default: ['test-model'] },
-    providers: { test: { priority: 10, models: ['test-model'], apiKey: 'secret-key' } },
-    ...overrides,
-  };
+  const config = { server: { port: 8080, host: '127.0.0.1' }, models: { default: ['test-model'] }, providers: { test: { priority: 10, models: ['test-model'], apiKey: 'secret-key' } } };
   writeFileSync(join(sd, 'saivage.json'), JSON.stringify(config, null, 2));
   const now = new Date().toISOString();
   writeFileSync(join(sd, 'cards', 'by-id', 'project.json'), JSON.stringify({ id: 'project', type: 'project', parent: null, depth: 0, title: 'project', description: '', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', created_at: now, updated_at: now, depends_on: [], blocks: [], related: [], acceptance: '', artifacts: [], attachments: [], retries: 0 }));
@@ -36,10 +31,10 @@ function setupProject(projectRoot: string, overrides: Record<string, unknown> = 
   writeFileSync(join(sd, 'runtime', 'state.json'), JSON.stringify({ status: 'idle', project_id: 'project', pid: process.pid, started_at: now, paused: false, queue: [], running_processes: [], updated_at: now }));
 }
 
-function staleRecord(projectRoot: string): ProcessRecord {
+function transientRecord(projectRoot: string): ProcessRecord {
   const runningAt = new Date(Date.now() - 60000).toISOString();
   return {
-    id: 'proc-stale-001',
+    id: 'proc-transient-001',
     card_id: 'card-goal-1',
     command: 'npm test --token sk-live-secret-123 -- --coverage',
     cwd: projectRoot,
@@ -49,10 +44,10 @@ function staleRecord(projectRoot: string): ProcessRecord {
     completed_at: null,
     exit_code: null,
     required_for_card_completion: true,
-    output_dir: join(projectRoot, '.saivage-work', 'processes', 'proc-stale-001'),
-    stdout_path: join(projectRoot, '.saivage-work', 'processes', 'proc-stale-001', 'stdout.log'),
-    stderr_path: join(projectRoot, '.saivage-work', 'processes', 'proc-stale-001', 'stderr.log'),
-    combined_log_path: join(projectRoot, '.saivage-work', 'processes', 'proc-stale-001', 'combined.log'),
+    output_dir: join(projectRoot, '.saivage-work', 'processes', 'proc-transient-001'),
+    stdout_path: join(projectRoot, '.saivage-work', 'processes', 'proc-transient-001', 'stdout.log'),
+    stderr_path: join(projectRoot, '.saivage-work', 'processes', 'proc-transient-001', 'stderr.log'),
+    combined_log_path: join(projectRoot, '.saivage-work', 'processes', 'proc-transient-001', 'combined.log'),
     agent_session_id: 'session-agent-exec-1',
     goal_id: 'card-goal-1',
     launch_reason: 'Execute test suite for goal card-goal-1',
@@ -62,7 +57,7 @@ function staleRecord(projectRoot: string): ProcessRecord {
   };
 }
 
-describe('GET /api/processes safe process views and control availability', () => {
+describe('GET /api/processes read-only process views', () => {
   let projectRoot: string;
   let app: FastifyInstance;
   let port: number;
@@ -72,10 +67,10 @@ describe('GET /api/processes safe process views and control availability', () =>
 
   beforeAll(async () => {
     projectRoot = uniqueDir();
-    setupProject(projectRoot, {});
-    saveRegistry(projectRoot, [staleRecord(projectRoot)]);
+    setupProject(projectRoot);
+    saveRegistry(projectRoot, [transientRecord(projectRoot)]);
 
-    const live = startProcess(projectRoot, 'sleep 30', { cardId: 'card-live', ownerKind: 'agent', agentSessionId: 'session-live' });
+    const live = startProcess(projectRoot, 'sleep 0.4', { cardId: 'card-live', ownerKind: 'agent', agentSessionId: 'session-live' });
     liveProcId = live.id;
     const ended = startProcess(projectRoot, 'echo done', { cardId: 'card-ended' });
     endedProcId = ended.id;
@@ -100,94 +95,50 @@ describe('GET /api/processes safe process views and control availability', () =>
     try { rmSync(projectRoot, { recursive: true, force: true }); } catch {}
   }, 10000);
 
-  function apiUrl(path: string): string {
-    return `http://127.0.0.1:${port}${path}`;
-  }
+  function apiUrl(path: string): string { return `http://127.0.0.1:${port}${path}`; }
+  function authHdr(): Record<string, string> { return { authorization: `Bearer ${authToken}` }; }
 
-  function authHdr(): Record<string, string> {
-    return { authorization: `Bearer ${authToken}` };
-  }
-
-  it('returns live-attached control availability for a running live process', async () => {
+  it('returns read-only control availability for a running live process', async () => {
     const res = await fetch(apiUrl(`/api/processes/${liveProcId}`), { headers: authHdr() });
     expect(res.status).toBe(200);
     const body = await res.json() as { process: any };
     expect(body.process.status).toBe('running');
-    expect(body.process.control.can_terminate).toBe(true);
-    expect(body.process.control.terminate_status).toBe('live-attached');
-    expect(body.process.control.terminate_degraded).toBe(false);
+    expect(body.process.control).toEqual(expect.objectContaining({ termination_available: false }));
+    expect(body.process.control).not.toHaveProperty('can_terminate');
   });
 
-  it('returns stale-not-attached control availability for a persisted running record without live child', async () => {
-    const res = await fetch(apiUrl('/api/processes/proc-stale-001'), { headers: authHdr() });
+  it('redacts commands and still does not expose termination controls for transient records', async () => {
+    const res = await fetch(apiUrl('/api/processes/proc-transient-001'), { headers: authHdr() });
     expect(res.status).toBe(200);
     const body = await res.json() as { process: any };
     expect(body.process.command).toContain('sk-[REDACTED]');
     expect(body.process.command).not.toContain('sk-live-secret-123');
-    expect(body.process.control.can_terminate).toBe(false);
-    expect(body.process.control.terminate_status).toBe('stale-not-attached');
-    expect(body.process.control.terminate_degraded).toBe(true);
-    expect(body.process.control.terminate_reason).toContain('no live child process attached');
-  });
-
-  it('returns already-ended control availability for ended records', async () => {
-    const res = await fetch(apiUrl(`/api/processes/${endedProcId}`), { headers: authHdr() });
-    expect(res.status).toBe(200);
-    const body = await res.json() as { process: any };
-    expect(body.process.control.can_terminate).toBe(false);
-    expect(body.process.control.terminate_status).toBe('already-ended');
-    expect(body.process.control.terminate_degraded).toBe(false);
+    expect(body.process.control.termination_available).toBe(false);
+    expect(body.process.control.unavailable_reason).toContain('not available');
   });
 
   it('keeps list endpoint safe and typed', async () => {
     const res = await fetch(apiUrl('/api/processes'), { headers: authHdr() });
     expect(res.status).toBe(200);
-    const body = await res.json() as { processes: Array<Record<string, unknown>> };
+    const body = await res.json() as { processes: Array<Record<string, any>> };
     expect(body.processes.length).toBeGreaterThanOrEqual(3);
     for (const proc of body.processes) {
       expect(proc).not.toHaveProperty('stdout_path');
       expect(proc).not.toHaveProperty('stderr_path');
       expect(proc).not.toHaveProperty('combined_log_path');
       expect(proc).not.toHaveProperty('output_dir');
-      expect((proc.control as any).terminate_status).toBeDefined();
+      expect(proc.control.termination_available).toBe(false);
+      expect(proc.control).not.toHaveProperty('can_terminate');
     }
   });
 
-  it('POST /terminate returns 503 for stale running not-attached records and returns degraded process view', async () => {
-    const res = await fetch(apiUrl('/api/processes/proc-stale-001/terminate'), { method: 'POST', headers: authHdr() });
-    expect(res.status).toBe(503);
-    const body = await res.json() as { terminated: boolean; message: string; process: any };
-    expect(body.terminated).toBe(false);
-    expect(body.message).toContain('no live child process attached');
-    expect(body.process.control.terminate_status).toBe('stale-not-attached');
-    expect(body.process.control.can_terminate).toBe(false);
-  });
-
-  it('POST /terminate returns 409 for already-ended records and returns ended process view', async () => {
+  it('does not register a process termination route', async () => {
     const res = await fetch(apiUrl(`/api/processes/${endedProcId}/terminate`), { method: 'POST', headers: authHdr() });
-    expect(res.status).toBe(409);
-    const body = await res.json() as { terminated: boolean; message: string; process: any };
-    expect(body.terminated).toBe(false);
-    expect(body.message).toBe('Process has already ended.');
-    expect(body.process.control.terminate_status).toBe('already-ended');
-  });
-
-  it('race-to-ended termination stays authoritative and returns non-terminable process view', async () => {
-    const race = startProcess(projectRoot, 'sleep 0.1', { cardId: 'card-race', ownerKind: 'agent' });
-    await new Promise((r) => setTimeout(r, 250));
-    const res = await fetch(apiUrl(`/api/processes/${race.id}/terminate`), { method: 'POST', headers: authHdr() });
-    expect([200, 409]).toContain(res.status);
-    const body = await res.json() as { process: any; terminated?: boolean };
-    expect(body.process.control.can_terminate).toBe(false);
-    expect(['already-ended', 'live-attached', 'stale-not-attached']).toContain(body.process.control.terminate_status);
-    if (res.status === 409) {
-      expect(body.process.control.terminate_status).toBe('already-ended');
-    }
+    expect(res.status).toBe(404);
   });
 
   it('process endpoints remain auth protected', async () => {
     expect((await fetch(apiUrl('/api/processes'))).status).toBe(401);
     expect((await fetch(apiUrl(`/api/processes/${liveProcId}`))).status).toBe(401);
-    expect((await fetch(apiUrl(`/api/processes/${liveProcId}/terminate`), { method: 'POST' })).status).toBe(401);
   });
 });

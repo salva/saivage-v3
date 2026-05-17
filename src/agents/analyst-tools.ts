@@ -6,7 +6,7 @@ import { appendNote, getNotes, deleteAllNotes, markNoteHandled } from '../utils/
 import { getDiaryEntries, deleteDiary } from '../utils/diary.js';
 import { readRuntimeState } from '../utils/runtime-state.js';
 import { pauseRuntimeControl, resumeRuntimeControl, RESUME_FROM_FREEZE_MESSAGE } from '../utils/runtime-control.js';
-import { listProcesses, tailOutput, killProcess as killProc, getProcess } from '../utils/process-runner.js';
+import { listProcesses, tailOutput, getProcess } from '../utils/process-runner.js';
 import { NotificationCenter } from '../utils/notification-center.js';
 import type { CardRecord, CardType, CardStatus, NoteKind, NoteAuthor, ControlActionSurface } from '../schemas/types.js';
 import type { ActiveRuntime } from '../utils/active-runtime.js';

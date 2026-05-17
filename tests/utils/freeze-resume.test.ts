@@ -9,7 +9,7 @@
  *   5. Freeze while idle — saves manifest with empty state
  *   6. Freeze while paused — upgrades pause to freeze
  *   7. Freeze with running processes — processes classified with action
- *   8. Process classification — default 'reattach', configurable
+ *   8. Deferred process reconciliation remains absent
  *   9. Handoff summary format validation
  *   10. Freeze collects handoff summaries from sessions
  *   11. No active sessions produces empty handoff_summaries
@@ -159,7 +159,7 @@ describe('Freeze / Resume', () => {
   // ═══════════════════════════════════════════════════════════════
 
   describe('Resume from freeze', () => {
-    it('resumeFromFreeze() restores queue, card, and processes', async () => {
+    it('resumeFromFreeze() restores queue and card but not deferred processes', async () => {
       runtime = new Runtime(makeConfig());
       await runtime.startup();
 
@@ -186,15 +186,13 @@ describe('Freeze / Resume', () => {
       expect(manifest.freeze_id).toBeDefined();
       expect(manifest.current_card_id).toBe('goal-resume');
       expect(manifest.queue).toEqual(['card-1', 'card-2']);
-      expect(manifest.running_processes).toHaveLength(2);
-      expect(manifest.running_processes[0].id).toBe('proc-1');
-      expect(manifest.running_processes[0].action).toBe('reattach');
+      expect(manifest.running_processes).toEqual([]);
 
       // Resume
       const result = runtime.resumeFromFreeze();
       expect(result.freeze_id).toBe(manifest.freeze_id);
       expect(result.restored_queue).toEqual(['card-1', 'card-2']);
-      expect(result.restored_processes).toEqual(['proc-1', 'proc-2']);
+      expect(result.restored_processes).toEqual([]);
       expect(result.restored_card_id).toBe('goal-resume');
 
       // Runtime state should be restored
@@ -203,7 +201,7 @@ describe('Freeze / Resume', () => {
       expect(state!.status).toBe('idle');
       expect(state!.current_card_id).toBe('goal-resume');
       expect(state!.queue).toEqual(['card-1', 'card-2']);
-      expect(state!.running_processes).toEqual(['proc-1', 'proc-2']);
+      expect(state!.running_processes).toEqual([]);
 
       // Manifest should be cleared
       expect(readFreezeManifest(tmpDir)).toBeNull();
@@ -298,11 +296,11 @@ describe('Freeze / Resume', () => {
   });
 
   // ═══════════════════════════════════════════════════════════════
-  // Process Classification
+  // Deferred Process Reconciliation Absence
   // ═══════════════════════════════════════════════════════════════
 
-  describe('Process classification during freeze', () => {
-    it('default process action is reattach', async () => {
+  describe('Deferred process reconciliation during freeze', () => {
+    it('does not persist process action plans for reattach/kill/detach', async () => {
       runtime = new Runtime(makeConfig());
       await runtime.startup();
 
@@ -320,54 +318,9 @@ describe('Freeze / Resume', () => {
         updated_at: new Date().toISOString(),
       });
 
-      const manifest = runtime.freeze('process classification');
-      expect(manifest.running_processes).toHaveLength(2);
-      expect(manifest.running_processes[0].action).toBe('reattach');
-      expect(manifest.running_processes[1].action).toBe('reattach');
-    });
-
-    it('defaultProcessAction parameter overrides process action', async () => {
-      runtime = new Runtime(makeConfig());
-      await runtime.startup();
-
-      updateRuntimeState(tmpDir, {
-        status: 'idle' as const,
-        project_id: 'project' as const,
-        pid: process.pid,
-        started_at: new Date().toISOString(),
-        current_card_id: null,
-        current_agent_session_id: null,
-        paused: false,
-        paused_at: null,
-        queue: [],
-        running_processes: ['proc-kill-1'],
-        updated_at: new Date().toISOString(),
-      });
-
-      const manifest = runtime.freeze('kill processes', 'kill');
-      expect(manifest.running_processes[0].action).toBe('kill');
-    });
-
-    it('detach action is supported', async () => {
-      runtime = new Runtime(makeConfig());
-      await runtime.startup();
-
-      updateRuntimeState(tmpDir, {
-        status: 'idle' as const,
-        project_id: 'project' as const,
-        pid: process.pid,
-        started_at: new Date().toISOString(),
-        current_card_id: null,
-        current_agent_session_id: null,
-        paused: false,
-        paused_at: null,
-        queue: [],
-        running_processes: ['proc-detach-1'],
-        updated_at: new Date().toISOString(),
-      });
-
-      const manifest = runtime.freeze('detach processes', 'detach');
-      expect(manifest.running_processes[0].action).toBe('detach');
+      const manifest = runtime.freeze('process reconciliation deferred');
+      expect(manifest.running_processes).toEqual([]);
+      expect(JSON.stringify(manifest)).not.toMatch(/reattach|detach|kill/);
     });
   });
 
@@ -595,35 +548,4 @@ describe('Freeze / Resume', () => {
     });
   });
 
-  // ═══════════════════════════════════════════════════════════════
-  // CLI Freeze --kill-processes (behavioral tests)
-  // ═══════════════════════════════════════════════════════════════
-
-  describe('CLI freeze --kill-processes behavior', () => {
-    it('freeze with kill default sets action to kill', async () => {
-      runtime = new Runtime(makeConfig());
-      await runtime.startup();
-
-      updateRuntimeState(tmpDir, {
-        status: 'idle' as const,
-        project_id: 'project' as const,
-        pid: process.pid,
-        started_at: new Date().toISOString(),
-        current_card_id: null,
-        current_agent_session_id: null,
-        paused: false,
-        paused_at: null,
-        queue: [],
-        running_processes: ['proc-1'],
-        updated_at: new Date().toISOString(),
-      });
-
-      const manifest = runtime.freeze('kill test', 'kill');
-      expect(manifest.running_processes[0].action).toBe('kill');
-    });
-  });
 });
-
-// ── Stats verification ──────────────────────────────────────────
-
-
