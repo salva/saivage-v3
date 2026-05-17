@@ -1,8 +1,8 @@
 import { describe, it, expect, beforeEach, afterEach } from '@jest/globals';
-import { existsSync, readFileSync, readdirSync, rmSync, mkdtempSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync, rmSync, mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { initProjectTree, isInitialized, writeFileAtomic } from '../../src/utils/file-tree.js';
+import { initProjectTree, isInitialized, listDiscardedSaivageDirs, writeFileAtomic } from '../../src/utils/file-tree.js';
 
 let tmpDir: string;
 
@@ -246,6 +246,7 @@ describe('initProjectTree', () => {
     expect(cardAfter).toBe(cardBefore);
     expect(configAfter).toBe(configBefore);
     expect(indexAfter).toBe(indexBefore);
+    expect(listDiscardedSaivageDirs(tmpDir)).toEqual([]);
   });
 
   it('does not create duplicate project cards on repeated calls', () => {
@@ -258,6 +259,31 @@ describe('initProjectTree', () => {
     );
     const cardIds = Object.keys(index.cards);
     expect(cardIds).toEqual(['project']);
+  });
+
+  it('discards legacy .saivage layouts and creates a fresh tree', () => {
+    const legacyDir = join(tmpDir, '.saivage');
+    mkdirSync(join(legacyDir, 'runtime'), { recursive: true });
+    writeFileSync(join(legacyDir, 'runtime', 'state.json'), JSON.stringify({ status: 'running' }, null, 2));
+    writeFileSync(join(legacyDir, 'old-layout.json'), '{"legacy":true}');
+
+    initProjectTree(tmpDir);
+
+    const discarded = listDiscardedSaivageDirs(tmpDir);
+    expect(discarded).toHaveLength(1);
+    expect(existsSync(join(tmpDir, discarded[0], 'old-layout.json'))).toBe(true);
+    expect(JSON.parse(readFileSync(join(tmpDir, '.saivage', 'project.json'), 'utf-8')).id).toBe('project');
+  });
+
+  it('keeps already-new .saivage state instead of discarding it', () => {
+    initProjectTree(tmpDir);
+    const sentinelPath = join(tmpDir, '.saivage', 'runtime', 'events.jsonl');
+    writeFileSync(sentinelPath, 'sentinel-event\n');
+
+    initProjectTree(tmpDir);
+
+    expect(listDiscardedSaivageDirs(tmpDir)).toEqual([]);
+    expect(readFileSync(sentinelPath, 'utf-8')).toBe('sentinel-event\n');
   });
 });
 

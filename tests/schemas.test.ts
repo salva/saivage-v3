@@ -1,4 +1,7 @@
 import { describe, it, expect } from '@jest/globals';
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
 import {
   attachmentRefSchema,
   artifactRefSchema,
@@ -15,6 +18,8 @@ import {
   reviewAssessmentSchema,
   runtimeStateSchema,
 } from '../src/schemas/validators.js';
+import { initProjectTree } from '../src/utils/file-tree.js';
+import { readRuntimeState } from '../src/utils/runtime-state.js';
 
 describe('Derived card schemas', () => {
   it('accepts a valid card index', () => {
@@ -330,5 +335,45 @@ describe('Core schemas still validate expected records', () => {
       next_note_sequence: 1,
       entries: [],
     }).success).toBe(true);
+  });
+
+  it('rejects legacy runtime state with discard guidance', () => {
+    const root = mkdtempSync(join(tmpdir(), 'runtime-legacy-'));
+    try {
+      initProjectTree(root);
+      writeFileSync(
+        join(root, '.saivage', 'runtime', 'state.json'),
+        JSON.stringify({ status: 'idle', queue: [] }, null, 2),
+      );
+      expect(() => readRuntimeState(root)).toThrow(/discarded-<timestamp>|Legacy \.saivage state is not supported/i);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('rejects legacy card record shape via schema parse', () => {
+    const result = cardRecordSchema.safeParse({
+      id: 'goal-1',
+      type: 'goal',
+      parent: 'project',
+      depth: 1,
+      title: 'Goal 1',
+      description: '',
+      status: 'backlog',
+      tags: [],
+      priority: 0,
+      urgency: 'normal',
+      created_by: 'analyst',
+      created_at: '2025-01-01T00:00:00.000Z',
+      updated_at: '2025-01-01T00:00:00.000Z',
+      depends_on: [],
+      blocks: [],
+      related: [],
+      acceptance: '',
+      artifacts: [],
+      attachments: [],
+      retries: 0,
+    });
+    expect(result.success).toBe(false);
   });
 });

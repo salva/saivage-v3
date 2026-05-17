@@ -3,14 +3,16 @@
  */
 
 import { describe, it, expect, beforeAll, beforeEach, afterEach } from '@jest/globals';
-import { existsSync, mkdirSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
+import { initProjectTree } from '../../src/utils/file-tree.js';
 
 const TEST_ROOT = join(tmpdir(), `saivage-session-test-${Date.now()}`);
 const SAIVAGE_DIR = join(TEST_ROOT, '.saivage');
 
 function setup() {
+  initProjectTree(TEST_ROOT);
   mkdirSync(SAIVAGE_DIR, { recursive: true });
 }
 
@@ -67,6 +69,14 @@ describe('session-persistence', () => {
       expect(loaded).not.toBeNull();
       expect(loaded!.role).toBe('reviewer');
     });
+
+    it('rejects legacy session state with discard guidance', () => {
+      writeFileSync(
+        join(SAIVAGE_DIR, 'agents', 'sessions', 'legacy.json'),
+        JSON.stringify({ id: 'legacy', role: 'planner' }, null, 2),
+      );
+      expect(() => mod.getSession(SAIVAGE_DIR, 'legacy')).toThrow(/Legacy \.saivage state is not supported|discarded-<timestamp>/i);
+    });
   });
 
   describe('completeSession', () => {
@@ -85,6 +95,25 @@ describe('session-persistence', () => {
 
     it('should throw for nonexistent session', () => {
       expect(() => mod.completeSession(SAIVAGE_DIR, 'nonexistent', 'done')).toThrow(/not found/);
+    });
+  });
+
+  describe('failActiveWorkerSessions', () => {
+    it('marks active non-analyst sessions as failed and leaves analyst sessions active', () => {
+      const planner = mod.createSession(SAIVAGE_DIR, 'planner', 'goal-1', 'goal-1');
+      const executor = mod.createSession(SAIVAGE_DIR, 'executor', 'goal-1', 'card-1');
+      const analyst = mod.createSession(SAIVAGE_DIR, 'analyst');
+      const done = mod.createSession(SAIVAGE_DIR, 'reviewer');
+      mod.completeSession(SAIVAGE_DIR, done.id, 'done');
+
+      const failed = mod.failActiveWorkerSessions(SAIVAGE_DIR, 'startup recovery');
+
+      expect(failed.map((session) => session.id).sort()).toEqual([executor.id, planner.id].sort());
+      expect(mod.getSession(SAIVAGE_DIR, planner.id)?.status).toBe('failed');
+      expect(mod.getSession(SAIVAGE_DIR, executor.id)?.status).toBe('failed');
+      expect(mod.getSession(SAIVAGE_DIR, analyst.id)?.status).toBe('active');
+      expect(mod.getSession(SAIVAGE_DIR, done.id)?.status).toBe('done');
+      expect(mod.getSessionMessages(SAIVAGE_DIR, planner.id).at(-1)?.content).toBe('startup recovery');
     });
   });
 

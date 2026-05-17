@@ -1,7 +1,7 @@
 import { existsSync, readFileSync, unlinkSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { agentSessionSchema, agentMessageSchema } from '../schemas/validators.js';
-import { writeFileAtomic } from '../utils/file-tree.js';
+import { explainLegacyStateRejection, writeFileAtomic } from '../utils/file-tree.js';
 import type {
   AgentSession,
   AgentMessage,
@@ -10,8 +10,6 @@ import type {
   MessageRole,
   EntityLink,
 } from '../schemas/types.js';
-
-// ── Constants ─────────────────────────────────────────────────
 
 const SESSIONS_DIR = 'sessions';
 const MESSAGES_DIR = 'messages';
@@ -32,7 +30,9 @@ function messagesPath(saivageDir: string, sessionId: string): string {
   return join(messagesDir(saivageDir), `${sessionId}.jsonl`);
 }
 
-// ── Counter for session IDs ───────────────────────────────────
+function projectRootFromSaivageDir(saivageDir: string): string {
+  return join(saivageDir, '..');
+}
 
 let sessionCounter = 0;
 
@@ -46,22 +46,11 @@ function nextMessageId(sessionId: string, count: number): string {
   return `msg-${sessionId}-${count + 1}`;
 }
 
-// ── Token Counting ────────────────────────────────────────────
-
-/**
- * Estimate token count for a string.
- * Uses a rough heuristic: ~3.5 chars per token for English text.
- * This is a fast approximation; for production use, a real tokenizer
- * should be plugged in.
- */
 export function estimateTokens(text: string): number {
   if (!text) return 0;
   return Math.ceil(text.length / 3.5);
 }
 
-/**
- * Estimate token count for an array of messages.
- */
 export function estimateMessageTokens(messages: AgentMessage[]): number {
   let total = 0;
   for (const msg of messages) {
@@ -73,11 +62,6 @@ export function estimateMessageTokens(messages: AgentMessage[]): number {
   return total;
 }
 
-// ── Public API ────────────────────────────────────────────────
-
-/**
- * Create a new agent session.
- */
 export function createSession(
   saivageDir: string,
   role: AgentRole,
@@ -103,9 +87,6 @@ export function createSession(
   return session;
 }
 
-/**
- * Get a session by ID.
- */
 export function getSession(
   saivageDir: string,
   sessionId: string,
@@ -117,16 +98,15 @@ export function getSession(
   const obj = JSON.parse(raw);
   const parsed = agentSessionSchema.safeParse(obj);
   if (!parsed.success) {
-    throw new Error(
-      `AgentSession validation failed for ${sessionId}: ${parsed.error.message}`,
+    explainLegacyStateRejection(
+      projectRootFromSaivageDir(saivageDir),
+      'AgentSession',
+      `session ${sessionId}: ${parsed.error.message}`,
     );
   }
   return parsed.data;
 }
 
-/**
- * Complete a session (mark as done or failed).
- */
 export function completeSession(
   saivageDir: string,
   sessionId: string,
@@ -152,9 +132,28 @@ export function completeSession(
   return updated;
 }
 
-/**
- * Update a session's model field.
- */
+export function failActiveWorkerSessions(
+  saivageDir: string,
+  reason = 'Session was left active by a previous runtime process.',
+): AgentSession[] {
+  const failed: AgentSession[] = [];
+
+  for (const sessionId of listSessions(saivageDir)) {
+    const session = getSession(saivageDir, sessionId);
+    if (!session || session.status !== 'active' || session.role === 'analyst') continue;
+
+    const updated = completeSession(saivageDir, session.id, 'failed');
+    appendMessage(saivageDir, session.id, {
+      role: 'system',
+      kind: 'model_issue',
+      content: reason,
+    });
+    failed.push(updated);
+  }
+
+  return failed;
+}
+
 export function updateSessionModel(
   saivageDir: string,
   sessionId: string,
@@ -175,9 +174,6 @@ export function updateSessionModel(
   return updated;
 }
 
-/**
- * Append a message to a session's JSONL message log.
- */
 export function appendMessage(
   saivageDir: string,
   sessionId: string,
@@ -186,6 +182,7 @@ export function appendMessage(
     kind: MessageKind;
     content: string;
     tool?: string;
+    tool_call_id?: string;
     links?: EntityLink[];
   },
 ): AgentMessage {
@@ -197,6 +194,7 @@ export function appendMessage(
     kind: message.kind,
     content: message.content,
     tool: message.tool,
+    tool_call_id: message.tool_call_id,
     timestamp: new Date().toISOString(),
     links: message.links,
   };
@@ -215,9 +213,6 @@ export function appendMessage(
   return msg;
 }
 
-/**
- * Get all messages for a session, in chronological order.
- */
 export function getSessionMessages(
   saivageDir: string,
   sessionId: string,
@@ -231,14 +226,10 @@ export function getSessionMessages(
   const lines = raw.split('\n').filter((line) => line.trim() !== '');
   return lines.map((line) => {
     const obj = JSON.parse(line);
-    const parsed = agentMessageSchema.parse(obj);
-    return parsed;
+    return agentMessageSchema.parse(obj);
   });
 }
 
-/**
- * Replace all messages in a session (used by compaction).
- */
 export function replaceSessionMessages(
   saivageDir: string,
   sessionId: string,
@@ -251,9 +242,6 @@ export function replaceSessionMessages(
   writeFileAtomic(mp, content);
 }
 
-/**
- * Get the total estimated token count for a session's messages.
- */
 export function getSessionTokenCount(
   saivageDir: string,
   sessionId: string,
@@ -262,9 +250,6 @@ export function getSessionTokenCount(
   return estimateMessageTokens(messages);
 }
 
-/**
- * Delete a session and its messages.
- */
 export function deleteSession(saivageDir: string, sessionId: string): void {
   const sp = sessionPath(saivageDir, sessionId);
   if (existsSync(sp)) {
@@ -276,9 +261,6 @@ export function deleteSession(saivageDir: string, sessionId: string): void {
   }
 }
 
-/**
- * List all session IDs.
- */
 export function listSessions(saivageDir: string): string[] {
   const sd = sessionsDir(saivageDir);
   if (!existsSync(sd)) return [];
@@ -288,9 +270,6 @@ export function listSessions(saivageDir: string): string[] {
     .map((f: string) => f.replace('.json', ''));
 }
 
-/**
- * Build a conversation context string from messages.
- */
 export function buildConversationContext(
   messages: AgentMessage[],
 ): string {
