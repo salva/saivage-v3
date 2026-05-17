@@ -25,6 +25,7 @@ import * as analystTools from './analyst-tools.js';
 import { ANALYST_TOOL_DEFINITIONS } from './analyst-tool-schemas.js';
 import { CardStore } from '../utils/card-store.js';
 import { PlannerToolError, PlannerToolsService } from '../utils/planner-tools.js';
+import { consumeChangedCardActivation, injectQueuedSyntheticPlannerNotes } from '../utils/analyst-stage6.js';
 
 export type { AgentRuntime } from './agent-runtime.js';
 export type AgentRole = 'planner' | 'executor' | 'reviewer' | 'analyst';
@@ -69,7 +70,7 @@ const PLANNER_TOOL_DEFINITIONS: ToolDefinition[] = [
 ];
 
 const AGENT_TOOL_NAMES_BY_ROLE: Record<AgentRole, string[]> = {
-  analyst: ['list_card_history','get_card_history_entry','diff_card','list_notes','get_note','mark_note_handled','acknowledge_notification'],
+  analyst: ['lets_dance','mark_goal_needs_corrections','mark_project_needs_corrections','list_card_history','get_card_history_entry','diff_card','list_notes','get_note','mark_note_handled','acknowledge_notification'],
   planner: ['list_card_history','get_card_history_entry','diff_card','list_notes','get_note','mark_note_handled'],
   executor: ['list_card_history','get_card_history_entry','diff_card','list_notes','get_note','mark_note_handled','acknowledge_notification'],
   reviewer: ['list_card_history','get_card_history_entry','diff_card','list_notes','get_note','mark_note_handled','acknowledge_notification'],
@@ -89,6 +90,9 @@ const RUNTIME_AGENT_TOOL_REGISTRY: Record<string, (ctx: analystTools.ToolContext
   list_notes: analystTools.list_notes as unknown as (ctx: analystTools.ToolContext, params: Record<string, unknown>) => Promise<analystTools.ToolResult>,
   get_note: analystTools.get_note as unknown as (ctx: analystTools.ToolContext, params: Record<string, unknown>) => Promise<analystTools.ToolResult>,
   mark_note_handled: analystTools.mark_note_handled as unknown as (ctx: analystTools.ToolContext, params: Record<string, unknown>) => Promise<analystTools.ToolResult>,
+  lets_dance: analystTools.lets_dance as unknown as (ctx: analystTools.ToolContext, params: Record<string, unknown>) => Promise<analystTools.ToolResult>,
+  mark_goal_needs_corrections: analystTools.mark_goal_needs_corrections as unknown as (ctx: analystTools.ToolContext, params: Record<string, unknown>) => Promise<analystTools.ToolResult>,
+  mark_project_needs_corrections: analystTools.mark_project_needs_corrections as unknown as (ctx: analystTools.ToolContext, params: Record<string, unknown>) => Promise<analystTools.ToolResult>,
   acknowledge_notification: analystTools.acknowledge_notification as unknown as (ctx: analystTools.ToolContext, params: Record<string, unknown>) => Promise<analystTools.ToolResult>,
 };
 
@@ -166,7 +170,12 @@ export class AgentAdapter implements AgentRuntime {
   forceCancelSession(sessionId: string): boolean { const controller = this._abortControllers.get(sessionId); if (controller) { controller.abort(); this._abortControllers.delete(sessionId); } this._cancelledSessions.add(sessionId); if (this.eventLogger) this.eventLogger.appendEvent({ kind: 'session_force_cancelled', session_id: sessionId }); if (this.eventBus) this.eventBus.emit('session_force_cancelled', { session_id: sessionId }); return controller !== undefined; }
   getHandoffSummary(sessionId: string): HandoffSummary | null { try { const session = getSession(this.saivageDir, sessionId); if (!session || session.status !== 'active') return null; const messages = getSessionMessages(this.saivageDir, sessionId); const lastUserMsg = [...messages].reverse().find((m) => m.role === 'user'); const lastAssistantMsg = [...messages].reverse().find((m) => m.role === 'assistant'); return { session_id: sessionId, role: session.role as HandoffSummary['role'], last_action: lastAssistantMsg ? `Produced response: ${lastAssistantMsg.content.substring(0, 200)}` : 'Session started', next_action: lastUserMsg ? `Processing: ${lastUserMsg.content.substring(0, 200)}` : 'Awaiting user input', context_summary: `Goal: ${session.goal_card_id ?? 'N/A'}, Card: ${session.card_id ?? 'N/A'}` }; } catch { return null; } }
   getActiveSessionHandoffs(): HandoffSummary[] { try { const ids = listSessions(this.saivageDir); const summaries: HandoffSummary[] = []; for (const id of ids) { const summary = this.getHandoffSummary(id); if (summary) summaries.push(summary); } return summaries; } catch { return []; } }
-  async invokePlanner(goalId: string, systemPrompt: string = '', contextMessages: AgentMessage[] = []): Promise<PlannerResult> { return this.invokeAgent('planner', goalId, goalId, systemPrompt, contextMessages, parsePlannerResult); }
+  async invokePlanner(goalId: string, systemPrompt: string = '', contextMessages: AgentMessage[] = []): Promise<PlannerResult> {
+    const plannerSessionId = `planner:${goalId}`;
+    const existing = getSession(this.saivageDir, plannerSessionId);
+    if (existing) injectQueuedSyntheticPlannerNotes(this.projectRoot, plannerSessionId);
+    return this.invokeAgent('planner', goalId, goalId, systemPrompt, contextMessages, parsePlannerResult);
+  }
   async invokeExecutor(cardId: string, goalId: string, systemPrompt: string = '', contextMessages: AgentMessage[] = []): Promise<ExecutorResult> { return this.invokeAgent('executor', goalId, cardId, systemPrompt, contextMessages, parseExecutorResult); }
   async invokeReviewer(goalId: string, systemPrompt: string = '', contextMessages: AgentMessage[] = []): Promise<ReviewerResult> { return this.invokeAgent('reviewer', goalId, goalId, systemPrompt, contextMessages, parseReviewerResult); }
   async reinvokeSession(sessionId: string, systemPrompt: string = '', contextMessages: AgentMessage[] = []): Promise<ExecutorResult | ReviewerResult> { const session = getSession(this.saivageDir, sessionId); if (!session) throw new Error(`Session not found: ${sessionId}`); if (session.role === 'executor') return this.invokeExecutor(session.card_id ?? session.goal_card_id ?? '', session.goal_card_id ?? '', systemPrompt, contextMessages); if (session.role === 'reviewer') return this.invokeReviewer(session.goal_card_id ?? '', systemPrompt, contextMessages); throw new Error(`Session '${sessionId}' is not reinvokable.`); }
@@ -194,6 +203,7 @@ export class AgentAdapter implements AgentRuntime {
             // activate_card is the caller edge between a parent planner session and child work.
             // Leave this tool call unresolved while runtime executes/unwinds the child; runtime
             // appends the matching tool_result exactly once using the real tool_call_id.
+            consumeChangedCardActivation(this.projectRoot, String(args.cardId ?? ''));
             result = { __saivage_defer_tool_result: true, cardId: String(args.cardId ?? '') };
             break;
           case 'cancel_card':
