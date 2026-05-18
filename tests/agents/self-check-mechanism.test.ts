@@ -44,7 +44,8 @@ function makeMinimalConfig(overrides?: Partial<SaivageConfig>): SaivageConfig {
       idleShutdownMs: 300000,
       maxGoalDepth: 5,
       recoveryDelayMs: 60000,
-      continuousImprovement: false,
+      autoDispatchBacklog: true,
+      continuousImprovement: false, maxReviewRetries: 3, processTimeouts: { plannerMs: 1200000, executorMs: 1200000, reviewerMs: 1200000 },
       compactionThreshold: 0.8,
       maxCompactions: 3,
       compactionTimeoutMs: 1200000,
@@ -292,31 +293,25 @@ describe('Config Schema — Self-Check', () => {
     });
   });
 
-  it('accepts valid custom selfCheck overrides', () => {
-    const result = saivageConfigSchema.parse({
+  it('rejects persisted selfCheck overrides because §13 runtime config is authoritative', () => {
+    expect(() => saivageConfigSchema.parse({
       models: { default: ['test'] },
       runtime: {
         selfCheck: { executor: 5, planner: 10, analyst: 0 },
       },
-    });
-    expect(result.runtime.selfCheck?.executor).toBe(5);
-    expect(result.runtime.selfCheck?.planner).toBe(10);
-    expect(result.runtime.selfCheck?.analyst).toBe(0);
+    })).toThrow(/Unrecognized key/);
   });
 
-  it('accepts partial selfCheck overrides', () => {
-    const result = saivageConfigSchema.parse({
+  it('rejects partial persisted selfCheck overrides', () => {
+    expect(() => saivageConfigSchema.parse({
       models: { default: ['test'] },
       runtime: {
         selfCheck: { executor: 5 },
       },
-    });
-    expect(result.runtime.selfCheck?.executor).toBe(5);
-    expect(result.runtime.selfCheck?.planner).toBe(30); // default
-    expect(result.runtime.selfCheck?.analyst).toBe(0); // default
+    })).toThrow(/Unrecognized key/);
   });
 
-  it('rejects negative selfCheck values', () => {
+  it('rejects legacy selfCheck section with negative values as non-authoritative', () => {
     const result = saivageConfigSchema.safeParse({
       models: { default: ['test'] },
       runtime: {
@@ -326,7 +321,7 @@ describe('Config Schema — Self-Check', () => {
     expect(result.success).toBe(false);
   });
 
-  it('rejects non-integer selfCheck values', () => {
+  it('rejects legacy selfCheck section with non-integer values as non-authoritative', () => {
     const result = saivageConfigSchema.safeParse({
       models: { default: ['test'] },
       runtime: {

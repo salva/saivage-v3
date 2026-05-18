@@ -29,7 +29,7 @@ function mockConfig(overrides: Partial<SaivageConfig> = {}): SaivageConfig {
       maxGoalDepth: 5,
       recoveryDelayMs: 60000,
       autoDispatchBacklog: true,
-      continuousImprovement: false,
+      continuousImprovement: false, maxReviewRetries: 3, processTimeouts: { plannerMs: 1200000, executorMs: 1200000, reviewerMs: 1200000 },
       compactionThreshold: 0.8,
       maxCompactions: 3,
       compactionTimeoutMs: 1200000,

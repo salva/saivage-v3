@@ -33,15 +33,16 @@ export interface RuntimeControlResult {
   error?: string;
   message?: string;
   action?: 'resume-from-freeze';
+  state?: RuntimeState;
 }
 
-function mirrorRuntimeState(projectRoot: string, runtimeStatus: { status: RuntimeState['status']; paused: boolean }): { status: string; paused: boolean } {
+function mirrorRuntimeState(projectRoot: string, runtimeStatus: { status: RuntimeState['status']; paused: boolean }): RuntimeState {
   const state = updateRuntimeState(projectRoot, {
     status: runtimeStatus.status,
     paused: runtimeStatus.paused,
     paused_at: runtimeStatus.paused ? new Date().toISOString() : null,
   });
-  return { status: state.status, paused: state.paused };
+  return state;
 }
 
 export function pauseRuntimeControl(ctx: RuntimeControlContext): RuntimeControlResult {
@@ -62,34 +63,31 @@ export function pauseRuntimeControl(ctx: RuntimeControlContext): RuntimeControlR
         code: 'paused',
         status: current.status,
         paused: current.paused,
+        state: current,
       };
     }
-    let status: string;
-    let paused: boolean;
+    let state: RuntimeState;
     if (ctx.activeRuntime) {
       ctx.activeRuntime.pause();
       const runtimeStatus = ctx.activeRuntime.getStatus();
-      const mirrored = mirrorRuntimeState(ctx.projectRoot, {
+      state = mirrorRuntimeState(ctx.projectRoot, {
         status: runtimeStatus.status,
         paused: runtimeStatus.paused,
       });
-      status = mirrored.status;
-      paused = mirrored.paused;
     } else {
-      const state = updateRuntimeState(ctx.projectRoot, {
+      state = updateRuntimeState(ctx.projectRoot, {
         status: 'paused',
         paused: true,
         paused_at: new Date().toISOString(),
       });
-      status = state.status;
-      paused = state.paused;
     }
     enqueueRuntimeStateNotifications(ctx.projectRoot, 'paused', { actor: 'runtime', surface: 'runtime' });
     return {
       ok: true,
       code: 'paused',
-      status,
-      paused,
+      status: state.status,
+      paused: state.paused,
+      state,
     };
   } catch (err) {
     return {
@@ -124,32 +122,28 @@ export function resumeRuntimeControl(ctx: RuntimeControlContext): RuntimeControl
         action: 'resume-from-freeze',
       };
     }
-    let status: string;
-    let paused: boolean;
+    let state: RuntimeState;
     if (ctx.activeRuntime) {
       ctx.activeRuntime.resume();
       const runtimeStatus = ctx.activeRuntime.getStatus();
-      const mirrored = mirrorRuntimeState(ctx.projectRoot, {
+      state = mirrorRuntimeState(ctx.projectRoot, {
         status: runtimeStatus.status,
         paused: runtimeStatus.paused,
       });
-      status = mirrored.status;
-      paused = mirrored.paused;
     } else {
-      const state = updateRuntimeState(ctx.projectRoot, {
+      state = updateRuntimeState(ctx.projectRoot, {
         status: 'idle',
         paused: false,
         paused_at: null,
       });
-      status = state.status;
-      paused = state.paused;
     }
     enqueueRuntimeStateNotifications(ctx.projectRoot, 'resumed', { actor: 'runtime', surface: 'runtime' });
     return {
       ok: true,
       code: 'resumed',
-      status,
-      paused,
+      status: state.status,
+      paused: state.paused,
+      state,
     };
   } catch (err) {
     return {

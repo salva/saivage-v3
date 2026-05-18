@@ -3,7 +3,7 @@
  */
 
 import { describe, it, expect, beforeAll, beforeEach, afterEach } from '@jest/globals';
-import { existsSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
@@ -26,12 +26,14 @@ function cleanup() {
 let loadConfig: typeof import('../../src/agents/config-schema.js').loadConfig;
 let getModelListForRole: typeof import('../../src/agents/config-schema.js').getModelListForRole;
 let getRuntimeConfig: typeof import('../../src/agents/config-schema.js').getRuntimeConfig;
+let saivageConfigSchema: typeof import('../../src/agents/config-schema.js').saivageConfigSchema;
 
 beforeAll(async () => {
   const mod = await import('../../src/agents/config-schema.js');
   loadConfig = mod.loadConfig;
   getModelListForRole = mod.getModelListForRole;
   getRuntimeConfig = mod.getRuntimeConfig;
+  saivageConfigSchema = mod.saivageConfigSchema;
 });
 
 beforeEach(() => cleanup());
@@ -64,6 +66,63 @@ describe('config-schema', () => {
         models: { default: 123 },
       });
       expect(() => loadConfig(TEST_ROOT)).toThrow(/Configuration validation failed/);
+    });
+
+
+
+    it('accepts the authoritative §13 persisted runtime keys and exposes the in-memory mirror', () => {
+      setupConfig({
+        models: { default: ['test'] },
+        runtime: {
+          continuous_improvement: true,
+          max_review_retries: 7,
+          process_timeouts: {
+            planner_ms: 111,
+            executor_ms: 222,
+            reviewer_ms: 333,
+          },
+        },
+      });
+
+      const { config } = loadConfig(TEST_ROOT);
+      expect(config.runtime.continuousImprovement).toBe(true);
+      expect(config.runtime.maxReviewRetries).toBe(7);
+      expect(config.runtime.processTimeouts).toEqual({ plannerMs: 111, executorMs: 222, reviewerMs: 333 });
+    });
+
+    it('rejects non-authoritative persisted camelCase runtime keys at the schema boundary', () => {
+      const result = saivageConfigSchema.safeParse({
+        models: { default: ['test'] },
+        runtime: {
+          continuousImprovement: true,
+          maxReviewRetries: 7,
+          processTimeouts: { plannerMs: 1, executorMs: 2, reviewerMs: 3 },
+          recoveryDelayMs: 10,
+          maxRecoveryRetries: 0,
+        },
+      });
+      expect(result.success).toBe(false);
+    });
+
+    it('performs a one-shot migration from legacy runtime keys to §13 persisted names', () => {
+      setupConfig({
+        models: { default: ['test'] },
+        runtime: {
+          continuousImprovement: true,
+          maxReviewRetries: 5,
+          processTimeouts: { plannerMs: 10, executorMs: 20, reviewerMs: 30 },
+        },
+      });
+
+      const { config } = loadConfig(TEST_ROOT);
+      expect(config.runtime.maxReviewRetries).toBe(5);
+      expect(config.runtime.processTimeouts).toEqual({ plannerMs: 10, executorMs: 20, reviewerMs: 30 });
+      const migrated = JSON.parse(readFileSync(CONFIG_PATH, 'utf-8'));
+      expect(migrated.runtime).toEqual({
+        continuous_improvement: true,
+        max_review_retries: 5,
+        process_timeouts: { planner_ms: 10, executor_ms: 20, reviewer_ms: 30 },
+      });
     });
 
     it('should normalize single string model list to array', () => {
@@ -114,9 +173,9 @@ describe('config-schema', () => {
         },
         server: { port: 3000, host: '127.0.0.1' },
         runtime: {
-          recoveryDelayMs: 30000,
-          maxGoalDepth: 3,
-          continuousImprovement: true,
+          continuous_improvement: true,
+          max_review_retries: 4,
+          process_timeouts: { planner_ms: 1000, executor_ms: 2000, reviewer_ms: 3000 },
         },
         security: { injectionScanner: false },
         supervisor: { enabled: false },
@@ -136,8 +195,8 @@ describe('config-schema', () => {
       expect(config.providers.github.priority).toBe(10);
       expect(config.providers.github.accounts?.primary?.priority).toBe(10);
       expect(config.server.port).toBe(3000);
-      expect(config.runtime.recoveryDelayMs).toBe(30000);
-      expect(config.runtime.maxGoalDepth).toBe(3);
+      expect(config.runtime.maxReviewRetries).toBe(4);
+      expect(config.runtime.processTimeouts).toEqual({ plannerMs: 1000, executorMs: 2000, reviewerMs: 3000 });
       expect(config.security.injectionScanner).toBe(false);
       expect(config.supervisor?.enabled).toBe(false);
       expect(config.telegram?.botToken).toBe('token123');
@@ -250,10 +309,10 @@ describe('config-schema', () => {
       setupConfig({ models: { default: ['test'] } });
       const { config } = loadConfig(TEST_ROOT);
       const rt = getRuntimeConfig(config);
+      expect(rt.continuousImprovement).toBe(false);
+      expect(rt.maxReviewRetries).toBe(3);
+      expect(rt.processTimeouts).toEqual({ plannerMs: 1200000, executorMs: 1200000, reviewerMs: 1200000 });
       expect(rt.recoveryDelayMs).toBe(60000);
-      expect(rt.maxGoalDepth).toBe(5);
-      expect(rt.compactionThreshold).toBe(0.8);
-      expect(rt.maxCompactions).toBe(3);
       expect(rt.maxRecoveryRetries).toBe(3);
     });
   });

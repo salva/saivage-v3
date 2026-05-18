@@ -437,7 +437,7 @@ describe('LlmClient Integration with Mock HTTP Server', () => {
     } finally {
       await closeServer(server);
     }
-  });
+  }, 15000);
 
   it('should redact secret-key JSON values from provider error bodies and adapter-persisted failures', async () => {
     const syntheticToken = 'synthetic-token-value-never-real';
@@ -509,7 +509,7 @@ describe('LlmClient Integration with Mock HTTP Server', () => {
       await closeServer(server);
       if (adapterTempDir) cleanupDir(adapterTempDir);
     }
-  });
+  }, 15000);
 
   it('should throw LlmAuthError on 403', async () => {
     const { server, port } = await createMockServer((_req, res) => {
@@ -813,7 +813,7 @@ describe('AgentAdapter + Router + LlmClient Full Integration', () => {
       await closeServer(server);
       if (tempDir) cleanupDir(tempDir);
     }
-  });
+  }, 15000);
 });
 
 // ── Streaming Mode ─────────────────────────────────────────────

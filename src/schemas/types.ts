@@ -27,6 +27,7 @@ export type ControlActionSurface = 'web-chat' | 'telegram' | 'rest' | 'cli' | 'r
 
 export interface ArtifactRef { id: string; card_id: string; path: string; type: 'model' | 'data' | 'config' | 'log' | 'report' | 'other'; description: string; retain: boolean; created_at: string; }
 export interface AttachmentRef { id: string; card_id: string; path: string; mime: string; title: string; description?: string; created_at: string; }
+export interface CardMetadata { max_review_retries?: number; [key: string]: unknown; }
 export interface CardRecord {
   id: string; type: CardType; parent: string | null; depth: number; title: string; description: string; status: CardStatus;
   subtype?: string | null; instructions_file?: string | null; tags: string[]; priority: number; urgency: Urgency; created_by: CreatedBy;
@@ -34,7 +35,7 @@ export interface CardRecord {
   acceptance: string; result?: Record<string, unknown> | null; metrics?: Record<string, number | string | boolean | null> | null;
   artifacts: ArtifactRef[]; attachments: AttachmentRef[]; estimate?: string | null; started_at?: string | null; completed_at?: string | null;
   duration_ms?: number | null; error?: string | null; status_text?: string | null; status_text_updated_at?: string | null;
-  status_text_author_session_id?: string | null; latest_self_report?: Record<string, unknown> | null; retries: number;
+  status_text_author_session_id?: string | null; latest_self_report?: Record<string, unknown> | null; metadata?: CardMetadata | null; retries: number;
 }
 export interface CardHistoryEntry { card_id: string; version_seq: number; snapshot: CardRecord; changed_at: string; changed_by_actor: NoteAuthor; changed_by_surface: ControlActionSurface; change_reason: string | null; changed_fields: string[]; change_summary: string; }
 export interface NotificationRecord { id: string; session_id: string | null; kind: 'card_changed' | 'note_added' | 'process_state' | 'runtime_state' | 'config_changed'; severity: 'info' | 'warn' | 'block'; payload_summary: string; related_card_id?: string; related_note_id?: string; related_process_id?: string; related_version_seq?: number; source_actor: NoteAuthor; source_surface: ControlActionSurface; created_at: string; delivered_at: string | null; acknowledged_at: string | null; }

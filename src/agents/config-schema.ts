@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 
 // ── Environment Variable Interpolation ────────────────────────
 
@@ -53,6 +53,51 @@ function interpolateValue(v: unknown): { value: unknown; warnings: string[] } {
     return { value: result, warnings };
   }
   return { value: v, warnings: [] };
+}
+
+const LEGACY_RUNTIME_KEYS = new Set([
+  'continuousImprovement',
+  'maxReviewRetries',
+  'processTimeouts',
+  'recoverAgentInvocations',
+  'healthCheckIntervalMs',
+  'idleShutdownMs',
+  'maxGoalDepth',
+  'recoveryDelayMs',
+  'autoDispatchBacklog',
+  'compactionThreshold',
+  'maxCompactions',
+  'compactionTimeoutMs',
+  'compactionKeepFraction',
+  'maxRecoveryRetries',
+  'selfCheck',
+]);
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function migrateLegacyRuntimeSection(rawObj: unknown): { value: unknown; migrated: boolean; legacyRuntime?: Record<string, unknown> } {
+  if (!isRecord(rawObj) || !isRecord(rawObj['runtime'])) return { value: rawObj, migrated: false };
+  const runtime = rawObj['runtime'] as Record<string, unknown>;
+  const hasLegacyKeys = Object.keys(runtime).some((key) => LEGACY_RUNTIME_KEYS.has(key));
+  if (!hasLegacyKeys) return { value: rawObj, migrated: false };
+  const migratedRuntime: Record<string, unknown> = {};
+  if ('continuous_improvement' in runtime) migratedRuntime['continuous_improvement'] = runtime['continuous_improvement'];
+  else if ('continuousImprovement' in runtime) migratedRuntime['continuous_improvement'] = runtime['continuousImprovement'];
+  if ('max_review_retries' in runtime) migratedRuntime['max_review_retries'] = runtime['max_review_retries'];
+  else if ('maxReviewRetries' in runtime) migratedRuntime['max_review_retries'] = runtime['maxReviewRetries'];
+  else if ('maxRecoveryRetries' in runtime) migratedRuntime['max_review_retries'] = runtime['maxRecoveryRetries'];
+  if ('process_timeouts' in runtime) migratedRuntime['process_timeouts'] = runtime['process_timeouts'];
+  else if (isRecord(runtime['processTimeouts'])) {
+    const pt = runtime['processTimeouts'] as Record<string, unknown>;
+    migratedRuntime['process_timeouts'] = {
+      ...(pt['plannerMs'] !== undefined ? { planner_ms: pt['plannerMs'] } : {}),
+      ...(pt['executorMs'] !== undefined ? { executor_ms: pt['executorMs'] } : {}),
+      ...(pt['reviewerMs'] !== undefined ? { reviewer_ms: pt['reviewerMs'] } : {}),
+    };
+  }
+  return { value: { ...rawObj, runtime: migratedRuntime }, migrated: true, legacyRuntime: runtime };
 }
 
 // ── Zod Schemas ───────────────────────────────────────────────
@@ -158,23 +203,40 @@ const selfCheckSchema = z.object({
 });
 
 // Runtime section
-const runtimeSectionSchema = z.object({
-  recoverAgentInvocations: z.boolean().default(true),
-  healthCheckIntervalMs: z.number().int().positive().default(30000),
-  idleShutdownMs: z.number().int().positive().default(300000),
-  maxGoalDepth: z.number().int().positive().default(5),
-  recoveryDelayMs: z.number().int().positive().default(60000),
-  continuousImprovement: z.boolean().default(false),
-  // Compaction defaults
-  compactionThreshold: z.number().min(0).max(1).default(0.8),
-  maxCompactions: z.number().int().nonnegative().default(3),
-  compactionTimeoutMs: z.number().int().positive().default(1200000),
-  compactionKeepFraction: z.number().min(0).max(1).default(0.2),
-  // Recovery defaults
-  maxRecoveryRetries: z.number().int().nonnegative().default(3),
-  // Self-check configuration
-  selfCheck: selfCheckSchema.default({}),
-});
+const processTimeoutsPersistedSchema = z.object({
+  planner_ms: z.number().int().positive().default(1200000),
+  executor_ms: z.number().int().positive().default(1200000),
+  reviewer_ms: z.number().int().positive().default(1200000),
+}).strict();
+
+export const runtimeSectionSchema = z.object({
+  continuous_improvement: z.boolean().default(false),
+  max_review_retries: z.number().int().nonnegative().default(3),
+  process_timeouts: processTimeoutsPersistedSchema.default({}),
+}).strict().transform((runtime) => ({
+  continuousImprovement: runtime.continuous_improvement,
+  maxReviewRetries: runtime.max_review_retries,
+  processTimeouts: {
+    plannerMs: runtime.process_timeouts.planner_ms,
+    executorMs: runtime.process_timeouts.executor_ms,
+    reviewerMs: runtime.process_timeouts.reviewer_ms,
+  },
+  // Operational defaults retained for existing invocation recovery/self-check code.
+  // These are intentionally not accepted from persisted runtime config; §13 is
+  // authoritative for the operator-facing on-disk runtime section.
+  recoverAgentInvocations: true,
+  healthCheckIntervalMs: 30000,
+  idleShutdownMs: 300000,
+  maxGoalDepth: 5,
+  recoveryDelayMs: 60000,
+  autoDispatchBacklog: true,
+  compactionThreshold: 0.8,
+  maxCompactions: 3,
+  compactionTimeoutMs: 1200000,
+  compactionKeepFraction: 0.2,
+  maxRecoveryRetries: 3,
+  selfCheck: { executor: 15, planner: 30, analyst: 0 },
+}));
 
 // Security section
 const securitySectionSchema = z.object({
@@ -330,6 +392,12 @@ export function loadConfig(projectRoot: string): ConfigLoadResult {
     );
   }
 
+  const migration = migrateLegacyRuntimeSection(rawObj);
+  if (migration.migrated) {
+    rawObj = migration.value;
+    writeFileSync(configPath, JSON.stringify(rawObj, null, 2) + '\n', 'utf-8');
+  }
+
   // Interpolate env vars
   const { value: interpolated, warnings } = interpolateValue(rawObj);
 
@@ -340,6 +408,14 @@ export function loadConfig(projectRoot: string): ConfigLoadResult {
       .map((i) => `  - ${i.path.join('.')}: ${i.message}`)
       .join('\n');
     throw new Error(`Configuration validation failed:\n${issues}`);
+  }
+
+  if (migration.legacyRuntime) {
+    const runtime = parsed.data.runtime as RuntimeSection;
+    const legacy = migration.legacyRuntime;
+    if (typeof legacy['recoveryDelayMs'] === 'number') runtime.recoveryDelayMs = legacy['recoveryDelayMs'];
+    if (typeof legacy['maxRecoveryRetries'] === 'number') runtime.maxRecoveryRetries = legacy['maxRecoveryRetries'];
+    if (isRecord(legacy['selfCheck'])) runtime.selfCheck = selfCheckSchema.parse(legacy['selfCheck']);
   }
 
   return { config: parsed.data, warnings };

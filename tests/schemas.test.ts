@@ -146,8 +146,39 @@ describe('Core schemas still validate expected records', () => {
       acceptance: '',
       artifacts: [],
       attachments: [],
+      metadata: { max_review_retries: 2, custom: 'kept' },
       retries: 0,
     }).success).toBe(true);
+  });
+
+
+
+  it('accepts goal-card retry override metadata and rejects invalid values', () => {
+    const base = {
+      id: 'goal-meta',
+      type: 'goal',
+      parent: 'project',
+      depth: 1,
+      title: 'Goal Meta',
+      description: '',
+      status: 'backlog',
+      tags: [],
+      priority: 0,
+      urgency: 'normal',
+      created_by: 'analyst',
+      created_at: '2025-01-01T00:00:00.000Z',
+      updated_at: '2025-01-01T00:00:00.000Z',
+      version_seq: 1,
+      depends_on: [],
+      blocks: [],
+      related: [],
+      acceptance: '',
+      artifacts: [],
+      attachments: [],
+      retries: 0,
+    };
+    expect(cardRecordSchema.safeParse({ ...base, metadata: { max_review_retries: 4 } }).success).toBe(true);
+    expect(cardRecordSchema.safeParse({ ...base, metadata: { max_review_retries: -1 } }).success).toBe(false);
   });
 
   it('accepts valid artifact and attachment refs', () => {
@@ -350,6 +381,7 @@ describe('Core schemas still validate expected records', () => {
       acceptance: '',
       artifacts: [],
       attachments: [],
+      metadata: { max_review_retries: 2, custom: 'kept' },
       retries: 0,
     });
     expect(result.success).toBe(false);

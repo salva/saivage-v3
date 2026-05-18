@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { initProjectTree } from '../../src/utils/file-tree.js';
 import { CardStore } from '../../src/utils/card-store.js';
-import { initRuntimeState, updateRuntimeState } from '../../src/utils/runtime-state.js';
+import { initRuntimeState, updateRuntimeState, readRuntimeState } from '../../src/utils/runtime-state.js';
 import { createServer, type ServerInstance } from '../../src/server/server.js';
 import { createSession } from '../../src/agents/session-persistence.js';
 import { getNotes } from '../../src/utils/notes.js';
@@ -55,6 +55,39 @@ describe('stage-6 runtime API', () => {
     expect(body.notes_recorded_on_goal_ids).toContain('goal-a');
     expect(body.status_transition).toEqual({ from: 'done', to: 'changed' });
     expect(body.resumed_planner_session_id).toBeUndefined();
+  });
+
+
+
+  it('pause and resume return the updated persisted RuntimeState shape', async () => {
+    const pause = await server.fastify.inject({ method: 'POST', url: '/api/runtime/pause', payload: {} });
+    expect(pause.statusCode).toBe(200);
+    const paused = pause.json();
+    expect(paused).toMatchObject({
+      status: 'paused',
+      project_id: 'project',
+      pid: expect.any(Number),
+      paused: true,
+      queue: expect.any(Array),
+      running_processes: expect.any(Array),
+      active_card_run: null,
+    });
+    expect(typeof paused.started_at).toBe('string');
+    expect(typeof paused.updated_at).toBe('string');
+    expect(readRuntimeState(root)).toMatchObject({ status: 'paused', paused: true, paused_at: expect.any(String) });
+
+    const resume = await server.fastify.inject({ method: 'POST', url: '/api/runtime/resume', payload: {} });
+    expect(resume.statusCode).toBe(200);
+    const resumed = resume.json();
+    expect(resumed).toMatchObject({
+      status: 'idle',
+      project_id: 'project',
+      paused: false,
+      paused_at: null,
+      queue: expect.any(Array),
+      running_processes: expect.any(Array),
+    });
+    expect(readRuntimeState(root)).toMatchObject({ status: 'idle', paused: false, paused_at: null });
   });
 
   it('returns card-runs typed union shape', async () => {

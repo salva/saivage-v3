@@ -80,7 +80,7 @@ curl -X POST http://localhost:8080/api/runtime/pause \
   -H "Authorization: Bearer $SAIVAGE_API_TOKEN"
 ```
 
-Pause stops new dispatch. Running processes are not forcibly killed by pause alone.
+Pause stops new dispatch. Running processes are not forcibly killed by pause alone. The response body is the updated `RuntimeState`.
 
 ### Resume
 
@@ -89,18 +89,19 @@ curl -X POST http://localhost:8080/api/runtime/resume \
   -H "Authorization: Bearer $SAIVAGE_API_TOKEN"
 ```
 
-Resume re-enables dispatch. Depending on queued work, the runtime may settle into `idle` or continue in `running`.
+Resume re-enables dispatch. Depending on queued work, the runtime may settle into `idle` or continue in `running`. The response body is the updated `RuntimeState`.
 
-### Dispatch a goal explicitly
+### Dispatch and corrections
 
-```bash
-curl -X POST http://localhost:8080/api/runtime/dispatch \
-  -H "Authorization: Bearer $SAIVAGE_API_TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{"goalId":"goal-123"}'
-```
+Legacy explicit dispatch endpoints are not part of the current §14 API surface.
+Operators start or correct work by recording directives instead:
 
-This requires an active runtime and a readable goal card.
+- `POST /api/runtime/lets_dance` records a project kickoff directive.
+- `POST /api/runtime/goals/:id/needs_corrections` records goal corrections.
+- `POST /api/runtime/project/needs_corrections` records project-level corrections.
+
+The runtime consumes eligible directives on its scheduler safe tick and owns any
+subsequent card activation.
 
 ### Freeze
 

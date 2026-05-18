@@ -176,7 +176,10 @@ describe('runtime config and notes routes', () => {
     writeFileSync(join(SAIVAGE_DIR, 'runtime', 'state.json'), JSON.stringify({ status: 'paused', project_id: 'project', pid: process.pid, started_at: now, current_card_id: null, current_agent_session_id: null, paused: true, paused_at: now, queue: [], running_processes: [], updated_at: now }));
     const res = await fetch(url('/api/runtime/resume'), { method: 'POST', headers: authHeader(authToken) });
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ status: 'resumed' });
+    const body = await res.json() as Record<string, unknown>;
+    expect(body).toMatchObject({ status: 'idle', project_id: 'project', paused: false, paused_at: null });
+    expect(Array.isArray(body['queue'])).toBe(true);
+    expect(Array.isArray(body['running_processes'])).toBe(true);
     const state = JSON.parse(readFileSync(join(SAIVAGE_DIR, 'runtime', 'state.json'), 'utf-8')) as { status: string; paused: boolean; paused_at: string | null };
     expect(state.status).toBe('idle');
     expect(state.paused).toBe(false);
