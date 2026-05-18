@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { reviewerResultSchema } from '../schemas/validators.js';
 import type { ArtifactRef } from '../schemas/types.js';
 import type { AgentMessage } from '../schemas/types.js';
 
@@ -141,15 +142,8 @@ const rawExecutorResultSchema = z.object({
 });
 
 const rawReviewerResultSchema = z.object({
-  assessment: z.object({
-    result: z.enum(['pass', 'needs_corrections', 'fail']),
-    summary: z.string(),
-    achieved: z.array(z.string()).optional().default([]),
-    issues: z.array(z.object({ summary: z.string(), severity: z.enum(['info', 'warning', 'blocker']), evidence_card_id: z.string().optional(), recommendation: z.string().optional() })).optional().default([]),
-    evidence_card_ids: z.array(z.string()).optional().default([]),
-    missing: z.array(z.string()).optional().default([]),
-  }),
-});
+  assessment: reviewerResultSchema,
+}).strict();
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object' && !Array.isArray(value);
@@ -346,18 +340,7 @@ export function parseReviewerResult(raw: string): ReviewerResult {
     const issues = parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`);
     throw new ResultParseError(`Reviewer result validation failed:\n${issues.join('\n')}`, obj, issues);
   }
-  const issues = parsed.data.assessment.issues.length > 0
-    ? parsed.data.assessment.issues
-    : parsed.data.assessment.missing.map((summary) => ({ summary, severity: 'blocker' as const }));
-  return {
-    assessment: {
-      result: parsed.data.assessment.result === 'fail' ? 'needs_corrections' : parsed.data.assessment.result,
-      summary: parsed.data.assessment.summary,
-      achieved: parsed.data.assessment.achieved,
-      issues,
-      evidence_card_ids: parsed.data.assessment.evidence_card_ids,
-    },
-  };
+  return { assessment: parsed.data.assessment };
 }
 
 export function isRecoverableParseError(err: unknown): boolean {

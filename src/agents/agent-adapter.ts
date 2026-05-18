@@ -226,8 +226,8 @@ export class AgentAdapter implements AgentRuntime {
     return this.invokeAgent('planner', goalId, goalId, systemPrompt, contextMessages, parsePlannerResult);
   }
   async invokeExecutor(cardId: string, goalId: string, systemPrompt: string = '', contextMessages: AgentMessage[] = []): Promise<ExecutorResult> { return this.invokeAgent('executor', goalId, cardId, systemPrompt, contextMessages, parseExecutorResult); }
-  async invokeReviewer(goalId: string, systemPrompt: string = '', contextMessages: AgentMessage[] = []): Promise<ReviewerResult> { return this.invokeAgent('reviewer', goalId, goalId, systemPrompt, contextMessages, parseReviewerResult); }
-  async reinvokeSession(sessionId: string, systemPrompt: string = '', contextMessages: AgentMessage[] = []): Promise<ExecutorResult | ReviewerResult> { const session = getSession(this.saivageDir, sessionId); if (!session) throw new Error(`Session not found: ${sessionId}`); if (session.role === 'executor') return this.invokeExecutor(session.card_id ?? session.goal_card_id ?? '', session.goal_card_id ?? '', systemPrompt, contextMessages); if (session.role === 'reviewer') return this.invokeReviewer(session.goal_card_id ?? '', systemPrompt, contextMessages); throw new Error(`Session '${sessionId}' is not reinvokable.`); }
+  async invokeReviewer(goalId: string, systemPrompt: string = '', contextMessages: AgentMessage[] = [], options: { assessmentId?: string; reviewerSessionId?: string } = {}): Promise<ReviewerResult> { return this.invokeAgent('reviewer', goalId, goalId, systemPrompt, contextMessages, parseReviewerResult, options.reviewerSessionId); }
+  async reinvokeSession(sessionId: string, systemPrompt: string = '', contextMessages: AgentMessage[] = []): Promise<ExecutorResult | ReviewerResult> { const session = getSession(this.saivageDir, sessionId); if (!session) throw new Error(`Session not found: ${sessionId}`); if (session.role === 'executor') return this.invokeExecutor(session.card_id ?? session.goal_card_id ?? '', session.goal_card_id ?? '', systemPrompt, contextMessages); if (session.role === 'reviewer') return this.invokeReviewer(session.goal_card_id ?? '', systemPrompt, contextMessages, { reviewerSessionId: session.id }); throw new Error(`Session '${sessionId}' is not reinvokable.`); }
   private parseToolCallsFromResponse(rawResponse: string): Array<{ id: string; type: string; function: { name: string; arguments: string } }> | null { try { const parsed = JSON.parse(rawResponse); if (parsed && typeof parsed === 'object' && Array.isArray(parsed.toolCalls) && parsed.toolCalls.length > 0) return parsed.toolCalls; } catch {} return null; }
 
   private async processToolCall(tc: { id: string; type: string; function: { name: string; arguments: string } }, role: AgentRole, sessionId: string, invocation?: { goalId?: string; cardId?: string }): Promise<{ role: 'tool'; kind: 'tool_result' | 'tool_error'; content: string; tool: string; tool_call_id: string }> {
@@ -356,7 +356,7 @@ export class AgentAdapter implements AgentRuntime {
     };
   }
 
-  private async invokeAgent<T>(role: AgentRole, goalId: string, cardId: string, systemPrompt: string, contextMessages: AgentMessage[], parser: (raw: string) => T): Promise<T> {
+  private async invokeAgent<T>(role: AgentRole, goalId: string, cardId: string, systemPrompt: string, contextMessages: AgentMessage[], parser: (raw: string) => T, requestedSessionId?: string): Promise<T> {
     if (!this.llmCallFn) throw new Error('No LLM call function registered. Call setLlmCallFn() first.');
     this.resetOnRoleChange(role);
     const candidates = await this.router.resolve(role);
@@ -364,7 +364,7 @@ export class AgentAdapter implements AgentRuntime {
     const modelParams = getModelParamsForRole(this.config, role);
     const tools = this.buildToolsForRole(role);
     const tool_choice: 'auto' | undefined = tools.length > 0 ? 'auto' : undefined;
-    const session = createSession(this.saivageDir, role as import('../schemas/types.js').AgentRole, goalId, cardId);
+    const session = createSession(this.saivageDir, role as import('../schemas/types.js').AgentRole, goalId, cardId, undefined, requestedSessionId);
     await this.afterSessionCreatedHook?.(session.id);
     if (this.eventLogger) this.eventLogger.appendEvent({ kind: 'session_started', session_id: session.id, role: role as unknown as import('../schemas/types.js').AgentRole, goal_id: goalId, card_id: cardId });
     if (this.eventBus) this.eventBus.emit('session_started', { session_id: session.id, role, goal_id: goalId, card_id: cardId });

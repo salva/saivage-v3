@@ -79,12 +79,17 @@ describe('System Prompt Builder', () => {
   });
 
   describe('buildReviewerPrompt', () => {
-    it('returns a non-empty string', () => {
+    it('returns the canonical reviewer schema without legacy fail/missing fields', () => {
       const prompt = buildReviewerPrompt();
       expect(typeof prompt).toBe('string');
       expect(prompt.length).toBeGreaterThan(0);
       expect(prompt).toContain('Reviewer');
       expect(prompt).toContain('assessment');
+      expect(prompt).toContain('needs_corrections');
+      expect(prompt).toContain('issues');
+      expect(prompt).toContain('evidence_card_ids');
+      expect(prompt).not.toContain(" or 'fail'");
+      expect(prompt).not.toContain('"missing"');
     });
   });
 

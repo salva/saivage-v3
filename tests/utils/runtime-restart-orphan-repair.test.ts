@@ -6,7 +6,7 @@ import { initProjectTree } from '../../src/utils/file-tree.js';
 import { Runtime } from '../../src/utils/runtime.js';
 import { CardStore } from '../../src/utils/card-store.js';
 import { releaseLock } from '../../src/utils/runtime-lock.js';
-import { saveRuntimeState, initRuntimeState, updateRuntimeState } from '../../src/utils/runtime-state.js';
+import { saveRuntimeState, initRuntimeState, updateRuntimeState, readRuntimeState } from '../../src/utils/runtime-state.js';
 import { appendMessage, createSession, getSessionMessages, listSessions } from '../../src/agents/session-persistence.js';
 import { getUnhandledNotesQueue } from '../../src/utils/notes.js';
 import { readProjectDirectives, recordLetsDanceDirective, recordProjectNeedsCorrectionsDirective } from '../../src/utils/analyst-stage6.js';
@@ -33,11 +33,12 @@ function activationResults(root: string, plannerCardId: string) {
 class ScriptedAgent implements AgentRuntime {
   plannerCalls: string[] = [];
   reviewerCalls: string[] = [];
+  reviewerOptions: Array<{ assessmentId?: string; reviewerSessionId?: string }> = [];
   prompts: string[] = [];
   constructor(private planner: Record<string, PlannerResult[]>, private reviewer: Record<string, ReviewerResult[]> = {}) {}
   invokePlanner(goalId: string, systemPrompt?: string): PlannerResult { this.plannerCalls.push(goalId); this.prompts.push(systemPrompt ?? ''); const next = this.planner[goalId]?.shift(); if (!next) return { status: 'blocked', blocked_reason: 'no scripted planner result', created_cards: [], updated_cards: [] };  return next; }
   invokeExecutor(_cardId: string, _goalId: string): ExecutorResult { throw new Error('executor should not be invoked by restart repair tests'); }
-  invokeReviewer(goalId: string): ReviewerResult { this.reviewerCalls.push(goalId); const next = this.reviewer[goalId]?.shift(); if (!next) throw new Error(`no reviewer result for ${goalId}`); return next; }
+  invokeReviewer(goalId: string, _systemPrompt?: string, _contextMessages?: unknown[], options: { assessmentId?: string; reviewerSessionId?: string } = {}): ReviewerResult { this.reviewerCalls.push(goalId); this.reviewerOptions.push(options); const next = this.reviewer[goalId]?.shift(); if (!next) throw new Error(`no reviewer result for ${goalId}`); return next; }
   cancelSession(): boolean { return false; }
   forceCancelSession(): boolean { return false; }
   getHandoffSummary() { return null; }
@@ -105,6 +106,31 @@ describe('stage 7 runtime restart and orphan activate_card repair', () => {
     expect(activationResults(root, 'goal-a')).toHaveLength(1);
   });
 
+  it('preallocates stable reviewer session ids and persists them across pause/resume restart state', async () => {
+    store.create(cardInput('goal-a', 'goal', 'project', 'running'));
+    store.create({ ...cardInput('code-a', 'code', 'goal-a', 'done'), result: { evidence: true } });
+    const agent = new ScriptedAgent(
+      { 'goal-a': [{ status: 'done', created_cards: [], updated_cards: [], summary: 'ready for review' }] },
+      { 'goal-a': [{ assessment: { result: 'pass', summary: 'stable review passed', achieved: ['code-a'], issues: [], evidence_card_ids: ['code-a'] } }] },
+    );
+    runtime = new Runtime({ projectRoot: root, fakeAgentConfig: { mapping: {}, fixtureDir: root } }, agent);
+    await runtime.dispatchGoal('goal-a');
+    const review = runtime.cardStore.read('goal-a')!.result!.review as Record<string, unknown>;
+    expect(agent.reviewerOptions[0]).toEqual({ assessmentId: 'assessment-goal-a-1', reviewerSessionId: 'reviewer:goal-a:assessment-goal-a-1' });
+    expect(review.assessment_id).toBe('assessment-goal-a-1');
+    expect(review.reviewer_session_id).toBe('reviewer:goal-a:assessment-goal-a-1');
+
+    updateRuntimeState(root, { status: 'paused', paused: true, paused_at: now(), current_card_id: 'goal-a', current_agent_session_id: review.reviewer_session_id as string, active_card_run: { card_id: 'goal-a', card_type: 'goal', runtime_status: 'running', phase: 'reviewer', caller_session_id: null, caller_tool_call_id: null, planner_session_id: 'planner:goal-a', reviewer_session_id: review.reviewer_session_id as string, correction_attempts: 0, started_at: now(), last_turn_at: now() } });
+    const paused = readRuntimeState(root)!;
+    expect(paused.active_card_run?.reviewer_session_id).toBe('reviewer:goal-a:assessment-goal-a-1');
+    await runtime.shutdown(); runtime = null; try { releaseLock(root); } catch {}
+
+    runtime = new Runtime({ projectRoot: root, fakeAgentConfig: { mapping: {}, fixtureDir: root } }, new ScriptedAgent({}));
+    await runtime.startup();
+    expect((runtime.cardStore.read('goal-a')!.result!.review as Record<string, unknown>).reviewer_session_id).toBe('reviewer:goal-a:assessment-goal-a-1');
+    expect(readRuntimeState(root)!.active_card_run?.reviewer_session_id).toBeUndefined();
+  });
+
   it('recovers reviewer interrupt with reviewer_interrupted resume note and fresh assessment id', async () => {
     store.create(cardInput('goal-a', 'goal', 'project', 'running'));
     store.create({ ...cardInput('code-a', 'code', 'goal-a', 'done'), result: { evidence: true } });
@@ -119,13 +145,16 @@ describe('stage 7 runtime restart and orphan activate_card repair', () => {
     await new Promise((resolve) => setTimeout(resolve, 80));
     const goal = runtime.cardStore.read('goal-a')!;
     expect(goal.result?.review).toEqual(expect.objectContaining({ result: 'pass' }));
-    expect(String((goal.result?.review as Record<string, unknown>).assessment_id)).not.toBe('old-assessment');
+    expect(String((goal.result?.review as Record<string, unknown>).assessment_id)).toBe('assessment-goal-a-1');
+    expect(String((goal.result?.review as Record<string, unknown>).reviewer_session_id)).toBe('reviewer:goal-a:assessment-goal-a-1');
+    expect(agent.reviewerOptions[0]).toEqual({ assessmentId: 'assessment-goal-a-1', reviewerSessionId: 'reviewer:goal-a:assessment-goal-a-1' });
     expect(agent.plannerCalls).toEqual(['goal-a']);
     expect(agent.reviewerCalls).toEqual(['goal-a']);
     const plannerMessages = getSessionMessages(join(root, '.saivage'), 'planner:goal-a');
     const synthetic = plannerMessages.filter((m) => m.role === 'user' && m.content.includes('reviewer_interrupted'));
     expect(synthetic).toHaveLength(1);
     expect(synthetic[0]!.content).toContain('resume_reason: reviewer_interrupted');
+    expect(synthetic[0]!.content).toContain('interrupted_reviewer_session_id=reviewer:goal-a:old-assessment');
     expect(getUnhandledNotesQueue(join(root, '.saivage')).filter((n) => n.card_id === 'goal-a')).toHaveLength(0);
     const reviewerSessions = listSessions(join(root, '.saivage')).filter((id) => id.includes('old-assessment'));
     expect(reviewerSessions).toHaveLength(0);

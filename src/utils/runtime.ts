@@ -205,7 +205,7 @@ export class Runtime extends EventEmitter {
       if (!persistedReview) {
         this.cardStore.update(run.card_id, { status: 'running' });
         const plannerSessionId = run.planner_session_id ?? `planner:${run.card_id}`;
-        const summary = `reviewer_interrupted: reviewer output for ${run.card_id} was discarded after service restart; resume_reason: reviewer_interrupted.`;
+        const summary = `reviewer_interrupted: reviewer output for ${run.card_id} was discarded after service restart; interrupted_reviewer_session_id=${run.reviewer_session_id ?? 'unknown'}; resume_reason: reviewer_interrupted.`;
         queueSyntheticPlannerNote(this.projectRoot, { target_planner_session_id: plannerSessionId, target_goal_card_id: run.card_id, kind: 'reviewer_interrupted', affected_card_id: run.card_id, descendant_card_ids: [], summary });
         const nextRun = { ...run, phase: 'planner' as const, runtime_status: 'running' as const, reviewer_session_id: null, last_turn_at: now() };
         const repaired = saveRuntimeState(this.projectRoot, { ...previousState!, status: 'running', current_card_id: run.card_id, current_agent_session_id: plannerSessionId, active_card_run: nextRun, running_processes: [], updated_at: now(), paused: false, paused_at: null });
@@ -375,6 +375,37 @@ export class Runtime extends EventEmitter {
     await terminalCall();
   }
 
+  private nextReviewerAssessmentId(goalId: string): string {
+    const escapedGoal = goalId.replace(/[^A-Za-z0-9_.:-]/g, '-');
+    const existing = this.cardStore.read(goalId)?.result;
+    const review = existing && typeof existing === 'object' ? (existing as { review?: { assessment_id?: unknown } }).review : undefined;
+    const prior = typeof review?.assessment_id === 'string' ? review.assessment_id : '';
+    const match = prior.match(new RegExp(`^assessment-${escapedGoal}-(\\d+)$`));
+    const next = match ? Number(match[1]) + 1 : 1;
+    return `assessment-${escapedGoal}-${next}`;
+  }
+
+  private reviewerSessionId(goalId: string, assessmentId: string): string {
+    return `reviewer:${goalId}:${assessmentId}`;
+  }
+
+  private buildReviewAssessment(goalId: string, assessmentId: string, reviewerSessionId: string, result: ReviewerResult['assessment'], override?: Partial<Pick<ReviewAssessment, 'result' | 'summary' | 'achieved' | 'issues' | 'evidence_card_ids'>>): ReviewAssessment {
+    const at = now();
+    return {
+      id: `review:${goalId}:${assessmentId}`,
+      goal_card_id: goalId,
+      reviewer_session_id: reviewerSessionId,
+      assessment_id: assessmentId,
+      at,
+      result: override?.result ?? result.result,
+      summary: override?.summary ?? result.summary,
+      achieved: override?.achieved ?? result.achieved,
+      issues: override?.issues ?? result.issues,
+      evidence_card_ids: override?.evidence_card_ids ?? result.evidence_card_ids,
+      created_at: at,
+    };
+  }
+
   private validateReviewerAssessment(goalId: string, assessment: ReviewerResult['assessment']): { valid: boolean; reason?: string } {
     if (assessment.evidence_card_ids.length === 0) return { valid: false, reason: 'Reviewer assessment must cite at least one evidence_card_id.' };
     for (const evidenceId of assessment.evidence_card_ids) {
@@ -450,10 +481,12 @@ export class Runtime extends EventEmitter {
       if (plannerResult.status === 'blocked') { this.cardStore.setStatus(goalId, 'running'); this.cardStore.setStatus(goalId, 'blocked'); this.cardStore.update(goalId, { result: { ...(this.cardStore.read(goalId)?.result ?? {}), planning: { status: 'blocked', blocked_reason: plannerResult.blocked_reason ?? null, created_cards: createdCardIds } } }); updateRuntimeState(this.projectRoot, { status: 'idle', current_card_id: null, current_agent_session_id: null, queue: [] }); return; }
       if (plannerResult.status === 'done' && !hasGoalDispatch && !hasUnfinishedChildWork) plannerDone = true; else { plannerDone = false; this.cardStore.update(goalId, { result: { ...(this.cardStore.read(goalId)?.result ?? {}), planning: { status: 'continue', planner_declared_done: plannerResult.status === 'done', has_unfinished_child_work: hasUnfinishedChildWork, resume_reason: hasGoalDispatch ? 'dispatch_completed' : 'review_completed', created_cards: createdCardIds } } }); }
       if (plannerDone) {
-        const reviewResult = await this.invokeReviewer(goalId, planCard.id);
+        const assessmentId = this.nextReviewerAssessmentId(goalId);
+        const reviewerSessionId = this.reviewerSessionId(goalId, assessmentId);
+        const reviewResult = await this.invokeReviewer(goalId, planCard.id, assessmentId, reviewerSessionId);
         const validation = this.validateReviewerAssessment(goalId, reviewResult.assessment);
         if (reviewResult.assessment.result === 'pass' && !validation.valid) {
-          const invalidAssessment: ReviewAssessment = { id: `review-${goalId}-${Date.now()}`, goal_card_id: goalId, reviewer_session_id: `reviewer-${goalId}`, assessment_id: `assessment-${goalId}-${Date.now()}`, at: now(), result: 'needs_corrections', summary: `Reviewer pass rejected: ${validation.reason}`, achieved: [], issues: [{ summary: validation.reason ?? 'Reviewer evidence validation failed.', severity: 'blocker' as const }], evidence_card_ids: reviewResult.assessment.evidence_card_ids, created_at: now() };
+          const invalidAssessment = this.buildReviewAssessment(goalId, assessmentId, reviewerSessionId, reviewResult.assessment, { result: 'needs_corrections', summary: `Reviewer pass rejected: ${validation.reason}`, achieved: [], issues: [{ summary: validation.reason ?? 'Reviewer evidence validation failed.', severity: 'blocker' as const }] });
           this.persistReviewState(goalId, invalidAssessment);
           this.emit('review_failed', { goalId, assessment: invalidAssessment });
           this._eventLogger.appendEvent({ kind: 'review_failed', goal_id: goalId, assessment: invalidAssessment });
@@ -462,7 +495,7 @@ export class Runtime extends EventEmitter {
         }
         if (reviewResult.assessment.result === 'pass') {
           if (this.cardStore.read(goalId)?.status !== 'done') { this.cardStore.setStatus(goalId, 'running'); this.cardStore.setStatus(goalId, 'done'); }
-          const assessment: ReviewAssessment = { id: `review-${goalId}-${Date.now()}`, goal_card_id: goalId, reviewer_session_id: `reviewer-${goalId}`, assessment_id: `assessment-${goalId}-${Date.now()}`, at: now(), result: 'pass', summary: reviewResult.assessment.summary, achieved: reviewResult.assessment.achieved, issues: reviewResult.assessment.issues, evidence_card_ids: reviewResult.assessment.evidence_card_ids, created_at: now() };
+          const assessment = this.buildReviewAssessment(goalId, assessmentId, reviewerSessionId, reviewResult.assessment);
           this.persistReviewState(goalId, assessment);
           this.cardStore.update(goalId, { result: { ...(this.cardStore.read(goalId)?.result ?? {}), planning: { status: 'done', created_cards: [], review_summary: reviewResult.assessment.summary } } });
           this.appendChildUnwindToolResult(goalId, 'done', reviewResult.assessment.summary);
@@ -472,7 +505,7 @@ export class Runtime extends EventEmitter {
           return;
         } else {
           plannerDone = false;
-          const failedAssessment: ReviewAssessment = { id: `review-${goalId}-${Date.now()}`, goal_card_id: goalId, reviewer_session_id: `reviewer-${goalId}`, assessment_id: `assessment-${goalId}-${Date.now()}`, at: now(), result: 'needs_corrections', summary: reviewResult.assessment.summary, achieved: reviewResult.assessment.achieved, issues: reviewResult.assessment.issues, evidence_card_ids: reviewResult.assessment.evidence_card_ids, created_at: now() };
+          const failedAssessment = this.buildReviewAssessment(goalId, assessmentId, reviewerSessionId, reviewResult.assessment);
           this.persistReviewState(goalId, failedAssessment);
           this.emit('review_failed', { goalId, assessment: failedAssessment }); this._eventLogger.appendEvent({ kind: 'review_failed', goal_id: goalId, assessment: failedAssessment });
         }
@@ -543,12 +576,15 @@ export class Runtime extends EventEmitter {
     return { dispatchedGoal, executedTerminal, failed };
   }
 
-  async invokeReviewer(goalId: string, _planCardId: string): Promise<ReviewerResult> {
+  async invokeReviewer(goalId: string, _planCardId: string, assessmentId: string, reviewerSessionId: string): Promise<ReviewerResult> {
     let reviewerPrompt = buildReviewerPrompt();
     try { if (this._skillsEngine) { const goalCard = this.cardStore.read(goalId); const instructionContent = await this._skillsEngine.loadInstructions('reviewer'); const skillsContent = await this._skillsEngine.selectAndFormat({ goalDescription: goalCard?.description ?? '', cardDescription: goalCard?.description ?? '', tags: goalCard?.tags ?? [], filePaths: [], availableTools: ['list_project_files', 'read_project_file', 'load_skill', 'mcp_tool_call'], targetRole: 'reviewer' }); const combinedSkills = [instructionContent, skillsContent].filter(Boolean).join('\n\n'); if (combinedSkills) reviewerPrompt = buildReviewerPrompt(combinedSkills); } } catch {}
     reviewerPrompt += `\n\n${this.buildGoalContextBlock(goalId)}\n\n## Goal Evidence Context\n${this.buildGoalEvidenceContext(goalId)}`;
-    const result = await this.agentRuntime.invokeReviewer(goalId, reviewerPrompt);
-    const lastSessionId = (this.agentRuntime as FakeAgentAdapter).getLastSessionId?.('reviewer', goalId, null) ?? readRuntimeState(this.projectRoot)?.current_agent_session_id ?? null;
+    const startedAt = now();
+    const goalCard = this.cardStore.read(goalId);
+    updateRuntimeState(this.projectRoot, { current_card_id: goalId, current_agent_session_id: reviewerSessionId, active_card_run: { card_id: goalId, card_type: goalCard?.type ?? 'goal', runtime_status: 'running', phase: 'reviewer', caller_session_id: null, caller_tool_call_id: null, planner_session_id: `planner:${goalId}`, reviewer_session_id: reviewerSessionId, correction_attempts: 0, started_at: startedAt, last_turn_at: startedAt } } as Partial<RuntimeState> as never);
+    const result = await this.agentRuntime.invokeReviewer(goalId, reviewerPrompt, [], { assessmentId, reviewerSessionId });
+    const lastSessionId = (this.agentRuntime as FakeAgentAdapter).getLastSessionId?.('reviewer', goalId, null) ?? reviewerSessionId;
     if (result.assessment.result === 'pass' && lastSessionId) await this.enforceBlockingNotifications(lastSessionId, 'reviewer', async () => undefined);
     this.emit('review_complete', { goalId, assessment: result.assessment }); this._eventLogger.appendEvent({ kind: 'review_complete', goal_id: goalId, assessment: result.assessment }); return result;
   }

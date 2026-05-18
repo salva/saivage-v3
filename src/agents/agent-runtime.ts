@@ -23,6 +23,7 @@ export interface AgentRuntime {
     goalId: string,
     systemPrompt?: string,
     contextMessages?: AgentMessage[],
+    options?: { assessmentId?: string; reviewerSessionId?: string },
   ): ReviewerResult | Promise<ReviewerResult>;
 
   reinvokeSession?(

@@ -89,9 +89,27 @@ describe('buildExecutorFallbackResult', () => {
 });
 
 describe('parseReviewerResult', () => {
-  it('parses reviewer assessments', () => {
-    const raw = JSON.stringify({ assessment: { result: 'pass', summary: 'All criteria met', achieved: ['Feature works'], issues: [], evidence_card_ids: ['code-1'] } });
-    expect(parseReviewerResult(raw).assessment.result).toBe('pass');
+  it('parses canonical reviewer assessments through reviewerResultSchema', () => {
+    const raw = JSON.stringify({ assessment: { result: 'needs_corrections', summary: 'One blocker remains', achieved: ['Feature mostly works'], issues: [{ summary: 'Need test evidence', severity: 'blocker', evidence_card_id: 'test-1', recommendation: 'Run focused tests' }], evidence_card_ids: ['code-1'] } });
+    const parsed = parseReviewerResult(raw);
+    expect(parsed.assessment.result).toBe('needs_corrections');
+    expect(parsed.assessment.issues[0]).toEqual(expect.objectContaining({ severity: 'blocker', recommendation: 'Run focused tests' }));
+  });
+
+  it('rejects legacy reviewer fail and missing shapes with ResultParseError', () => {
+    const legacy = JSON.stringify({ assessment: { result: 'fail', summary: 'Not done', achieved: [], missing: ['tests'], evidence_card_ids: ['code-1'] } });
+    expect(() => parseReviewerResult(legacy)).toThrow(ResultParseError);
+    try {
+      parseReviewerResult(legacy);
+    } catch (err) {
+      expect(err).toBeInstanceOf(ResultParseError);
+      expect((err as ResultParseError).issues.join('\n')).toMatch(/assessment\.(result|issues|missing)/);
+    }
+  });
+
+  it('rejects otherwise canonical reviewer assessments that include legacy missing', () => {
+    const legacy = JSON.stringify({ assessment: { result: 'needs_corrections', summary: 'Not done', achieved: [], issues: [], missing: ['tests'], evidence_card_ids: ['code-1'] } });
+    expect(() => parseReviewerResult(legacy)).toThrow(ResultParseError);
   });
 });
 

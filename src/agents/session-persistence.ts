@@ -68,8 +68,9 @@ export function createSession(
   goalCardId?: string | null,
   cardId?: string | null,
   model?: string,
+  requestedSessionId?: string,
 ): AgentSession {
-  const sessionId = role === 'planner' && goalCardId && cardId === goalCardId ? `planner:${goalCardId}` : nextSessionId(role);
+  const sessionId = requestedSessionId ?? (role === 'planner' && goalCardId && cardId === goalCardId ? `planner:${goalCardId}` : nextSessionId(role));
   const session: AgentSession = {
     id: sessionId,
     role,
