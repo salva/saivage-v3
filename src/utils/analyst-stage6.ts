@@ -46,8 +46,31 @@ function readJson<T>(path: string, fallback: T): T {
 
 function readSyntheticQueue(projectRoot: string): SyntheticQueue { return readJson<SyntheticQueue>(syntheticQueuePath(projectRoot), { notes: [] }); }
 function writeSyntheticQueue(projectRoot: string, queue: SyntheticQueue): void { writeFileAtomic(syntheticQueuePath(projectRoot), JSON.stringify(queue, null, 2) + '\n'); }
-function readDirectives(projectRoot: string): ProjectDirectiveState { return readJson<ProjectDirectiveState>(directivesPath(projectRoot), {}); }
+export function readProjectDirectives(projectRoot: string): ProjectDirectiveState { return readJson<ProjectDirectiveState>(directivesPath(projectRoot), {}); }
+export function peekPendingProjectDirective(projectRoot: string): { kind: 'lets_dance' | 'project_needs_corrections'; recorded_at: string } | null {
+  const directives = readProjectDirectives(projectRoot);
+  return directives.lets_dance
+    ? { kind: 'lets_dance', recorded_at: directives.lets_dance }
+    : directives.project_needs_corrections
+      ? { kind: 'project_needs_corrections', recorded_at: directives.project_needs_corrections }
+      : null;
+}
+function readDirectives(projectRoot: string): ProjectDirectiveState { return readProjectDirectives(projectRoot); }
 function writeDirectives(projectRoot: string, directives: ProjectDirectiveState): void { writeFileAtomic(directivesPath(projectRoot), JSON.stringify(directives, null, 2) + '\n'); }
+
+export function consumePendingProjectDirective(projectRoot: string): { kind: 'lets_dance' | 'project_needs_corrections'; recorded_at: string } | null {
+  const directives = readDirectives(projectRoot);
+  const consumed = directives.lets_dance
+    ? { kind: 'lets_dance' as const, recorded_at: directives.lets_dance }
+    : directives.project_needs_corrections
+      ? { kind: 'project_needs_corrections' as const, recorded_at: directives.project_needs_corrections }
+      : null;
+  if (!consumed) return null;
+  if (consumed.kind === 'lets_dance') delete directives.lets_dance;
+  else delete directives.project_needs_corrections;
+  writeDirectives(projectRoot, directives);
+  return consumed;
+}
 
 export function normalizeAnalystIssues(input: unknown): AnalystIssue[] {
   const parsed = analystIssuesSchema.parse(input);

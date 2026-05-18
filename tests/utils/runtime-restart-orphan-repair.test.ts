@@ -6,9 +6,10 @@ import { initProjectTree } from '../../src/utils/file-tree.js';
 import { Runtime } from '../../src/utils/runtime.js';
 import { CardStore } from '../../src/utils/card-store.js';
 import { releaseLock } from '../../src/utils/runtime-lock.js';
-import { saveRuntimeState } from '../../src/utils/runtime-state.js';
+import { saveRuntimeState, initRuntimeState, updateRuntimeState } from '../../src/utils/runtime-state.js';
 import { appendMessage, createSession, getSessionMessages, listSessions } from '../../src/agents/session-persistence.js';
 import { getUnhandledNotesQueue } from '../../src/utils/notes.js';
+import { readProjectDirectives, recordLetsDanceDirective, recordProjectNeedsCorrectionsDirective } from '../../src/utils/analyst-stage6.js';
 import type { ActiveCardRun, CardRecord, RuntimeState } from '../../src/schemas/types.js';
 import type { AgentRuntime } from '../../src/agents/agent-runtime.js';
 import type { PlannerResult, ExecutorResult, ReviewerResult } from '../../src/agents/result-parser.js';
@@ -142,6 +143,88 @@ describe('stage 7 runtime restart and orphan activate_card repair', () => {
     await runtime.startup();
     expect(agent.plannerCalls).toHaveLength(0);
     expect(activationResults(root, 'project')).toHaveLength(1);
+  });
+
+  it('emits canonical §9 Goal Context synthetic user turns on planner start and runtime resume', async () => {
+    store.create({ ...cardInput('goal-a', 'goal', 'project', 'running'), description: 'parent goal', acceptance: 'accept it', tags: ['stage4'], priority: 42, status_text: 'Working goal', latest_self_report: { result: 'blocked', summary: 'needs input', status_text: 'Needs input', at: now() } });
+    store.create({ ...cardInput('goal-child', 'goal', 'goal-a', 'backlog'), status_text: 'Child pending' });
+    const agent = new ScriptedAgent({ 'goal-a': [{ status: 'blocked', blocked_reason: 'pause for operator', created_cards: [], updated_cards: [] }] });
+    runtime = new Runtime({ projectRoot: root, fakeAgentConfig: { mapping: {}, fixtureDir: root } }, agent);
+    await runtime.dispatchGoal('goal-a');
+    const plannerMessages = getSessionMessages(join(root, '.saivage'), 'planner:goal-a').filter((m) => m.role === 'user' && m.content.includes('## Goal Context'));
+    expect(plannerMessages).toHaveLength(1);
+    const json = plannerMessages[0]!.content.match(/\{[\s\S]*\}/)?.[0];
+    expect(json).toBeTruthy();
+    const context = JSON.parse(json!);
+    expect(context).toEqual(expect.objectContaining({ id: 'goal-a', parent_card_id: 'project', child_card_tree: expect.any(Array), notes: expect.any(Array), latest_self_report: expect.any(Object), latest_review_result: null, correction_attempts: 0, max_review_retries: 0, resume_reason: 'initial', status_text: 'Working goal' }));
+    expect(context.child_card_tree[0]).toEqual(expect.objectContaining({ id: 'goal-child', status_text: 'Child pending' }));
+
+    runtime.pause();
+    updateRuntimeState(root, { status: 'paused', active_card_run: { card_id: 'goal-a', card_type: 'goal', runtime_status: 'running', phase: 'planner', caller_session_id: null, caller_tool_call_id: null, planner_session_id: 'planner:goal-a', correction_attempts: 0, started_at: now(), last_turn_at: now() }, current_card_id: 'goal-a', current_agent_session_id: 'planner:goal-a' });
+    runtime.resume();
+    const resumedMessages = getSessionMessages(join(root, '.saivage'), 'planner:goal-a').filter((m) => m.role === 'user' && m.content.includes('## Goal Context'));
+    expect(resumedMessages).toHaveLength(2);
+    expect(resumedMessages[1]!.content).toContain('resume_reason');
+  });
+
+  it('buffers lets_dance while paused and consumes exactly once after resume', async () => {
+    recordLetsDanceDirective(root);
+    const agent = new ScriptedAgent({ project: [{ status: 'blocked', blocked_reason: 'project started', created_cards: [], updated_cards: [] }] });
+    initRuntimeState(root);
+    updateRuntimeState(root, { status: 'paused', paused: true, paused_at: now() });
+    runtime = new Runtime({ projectRoot: root, fakeAgentConfig: { mapping: {}, fixtureDir: root } }, agent);
+    await runtime.startup();
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(agent.plannerCalls).toHaveLength(0);
+    expect(readProjectDirectives(root).lets_dance).toBeTruthy();
+
+    runtime.resume();
+    await new Promise((resolve) => setTimeout(resolve, 80));
+    expect(agent.plannerCalls).toEqual(['project']);
+    expect(readProjectDirectives(root).lets_dance).toBeUndefined();
+    runtime.resume();
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(agent.plannerCalls).toEqual(['project']);
+  });
+
+  it('preserves project correction directives across restart and activates project once through safe tick', async () => {
+    recordProjectNeedsCorrectionsDirective(root, [{ summary: 'correct project', severity: 'warning' }]);
+    const firstAgent = new ScriptedAgent({});
+    initRuntimeState(root);
+    updateRuntimeState(root, { status: 'paused', paused: true, paused_at: now() });
+    runtime = new Runtime({ projectRoot: root, fakeAgentConfig: { mapping: {}, fixtureDir: root } }, firstAgent);
+    await runtime.startup();
+    await new Promise((resolve) => setTimeout(resolve, 40));
+    expect(firstAgent.plannerCalls).toHaveLength(0);
+    await runtime.shutdown(); runtime = null; try { releaseLock(root); } catch {}
+
+    const secondAgent = new ScriptedAgent({ project: [{ status: 'blocked', blocked_reason: 'correction started', created_cards: [], updated_cards: [] }] });
+    runtime = new Runtime({ projectRoot: root, fakeAgentConfig: { mapping: {}, fixtureDir: root } }, secondAgent);
+    await runtime.startup();
+    await new Promise((resolve) => setTimeout(resolve, 80));
+    expect(secondAgent.plannerCalls).toEqual(['project']);
+    expect(readProjectDirectives(root).project_needs_corrections).toBeUndefined();
+  });
+
+  it('routes startup repair through safe tick without direct dispatch from repair before startup completes', async () => {
+    store.create(cardInput('goal-a', 'goal', 'project', 'running'));
+    store.create(cardInput('code-a', 'code', 'goal-a', 'running'));
+    addActivateCall(root, 'goal-a', 'code-a');
+    recordLetsDanceDirective(root);
+    saveRuntimeState(root, runtimeState({ card_id: 'code-a', card_type: 'code', runtime_status: 'running', phase: 'executor', caller_session_id: null, caller_tool_call_id: null, executor_session_id: 'executor-code-a', correction_attempts: 0, started_at: now(), last_turn_at: now() }));
+    const agent = new ScriptedAgent({ 'goal-a': [{ status: 'blocked', blocked_reason: 'observed failed child', created_cards: [], updated_cards: [] }], project: [{ status: 'blocked', blocked_reason: 'project directive later', created_cards: [], updated_cards: [] }] });
+    const original = (Runtime.prototype as unknown as { dispatchGoal: Runtime['dispatchGoal'] }).dispatchGoal;
+    let startupReturned = false;
+    const callsDuringRepair: string[] = [];
+    (runtime = new Runtime({ projectRoot: root, fakeAgentConfig: { mapping: {}, fixtureDir: root } }, agent));
+    const instance = runtime as Runtime & { dispatchGoal: Runtime['dispatchGoal'] };
+    instance.dispatchGoal = (async (goalId: string) => { if (!startupReturned) callsDuringRepair.push(goalId); return original.call(instance, goalId); }) as Runtime['dispatchGoal'];
+    await runtime.startup();
+    startupReturned = true;
+    expect(callsDuringRepair).toHaveLength(0);
+    await new Promise((resolve) => setTimeout(resolve, 80));
+    expect(agent.plannerCalls).toContain('goal-a');
+    expect(agent.plannerCalls).not.toContain('project');
   });
 
   it('keeps pending_subprocess acceptance gate behavior deferred while durable process tools exist', async () => {

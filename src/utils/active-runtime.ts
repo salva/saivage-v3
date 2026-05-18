@@ -19,6 +19,7 @@ import {
 import { AgentAdapter } from '../agents/agent-adapter.js';
 import { EventLogger } from './event-logger.js';
 import { ErrorLogger } from './error-logger.js';
+import { SkillsEngine } from '../agents/skills-engine.js';
 import {
   loadConfig,
   type SaivageConfig,
@@ -33,6 +34,7 @@ export class ActiveRuntime {
   private _agentAdapter: AgentAdapter;
   private _eventLogger: EventLogger;
   private _errorLogger: ErrorLogger;
+  private _skillsEngine: SkillsEngine;
   private _projectRoot: string;
   private _config: SaivageConfig;
 
@@ -68,6 +70,8 @@ export class ActiveRuntime {
     // and AgentAdapter to avoid dual writers on the same errors.jsonl file.
     this._errorLogger = new ErrorLogger(saivageDir);
 
+    this._skillsEngine = new SkillsEngine({ projectRoot });
+
     // Create the AgentAdapter with config and shared EventLogger
     // (eventBus is not passed yet because the Runtime doesn't exist yet)
     this._agentAdapter = new AgentAdapter({
@@ -79,6 +83,7 @@ export class ActiveRuntime {
 
     // Wire the real LLM calling function
     this._agentAdapter.setLlmCallFn(this._agentAdapter.createLlmCallFn());
+    this._agentAdapter.setSkillsEngine(this._skillsEngine);
 
     // Create the Runtime with the AgentAdapter as agentRuntime implementation.
     // Pass the shared EventLogger and ErrorLogger via RuntimeConfig so Runtime
@@ -87,7 +92,8 @@ export class ActiveRuntime {
     const runtimeConfig: RuntimeConfig = {
       projectRoot,
       fakeAgentConfig: { mapping: {}, fixtureDir: '' },
-      skillsEngine: undefined,
+      skillsEngine: this._skillsEngine,
+      autoDispatchBacklog: false,
       continuousImprovement: this._config.runtime.continuousImprovement,
       eventLogger: this._eventLogger,
       errorLogger: this._errorLogger,
@@ -217,5 +223,10 @@ export class ActiveRuntime {
   /** Returns the AgentAdapter with the wired LlmCallFn. */
   get agentAdapter(): AgentAdapter {
     return this._agentAdapter;
+  }
+
+  /** Returns the shared SkillsEngine used by Runtime and AgentAdapter. */
+  get skillsEngine(): SkillsEngine {
+    return this._skillsEngine;
   }
 }
