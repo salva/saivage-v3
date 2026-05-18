@@ -215,7 +215,7 @@ npm run docs:verify
 npm run docs:build
 ```
 
-`npm run docs:verify` already runs the VitePress build and then checks expected output pages.
+`npm run docs:verify` runs the VitePress build, checks expected output pages, and semantically verifies operator-facing HTTP routes mentioned in active docs against the Fastify route table. Removed legacy dispatch guidance fails verification if it reappears in current operator instructions.
 
 ### Web Control Room
 

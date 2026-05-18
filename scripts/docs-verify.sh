@@ -63,9 +63,12 @@ else
 fi
 
 echo ""
+node scripts/verify-doc-routes.js || ALL_OK=false
+
+echo ""
 if $ALL_OK; then
-  echo "✓ docs:verify passed — all expected output files present and non-empty"
+  echo "✓ docs:verify passed — all expected output files are present, non-empty, and route docs match the server"
 else
-  echo "✗ docs:verify FAILED — some output files are missing or empty"
+  echo "✗ docs:verify FAILED — generated docs or operator route docs are invalid"
   exit 1
 fi
