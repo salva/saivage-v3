@@ -17,7 +17,7 @@
 
 import { describe, it, expect, beforeAll, afterEach } from '@jest/globals';
 import { createServer, type Server, type IncomingMessage, type ServerResponse } from 'node:http';
-import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { randomBytes } from 'node:crypto';
@@ -303,7 +303,7 @@ describe('LlmClient Integration with Mock HTTP Server', () => {
       const body = JSON.parse(cap.body);
       expect(body.model).toBe('gpt-5.4');
       expect(body.stream).toBe(true);
-      expect(body.max_output_tokens).toBeUndefined();
+      expect(body.max_output_tokens).toBe(500);
       expect(body.instructions).toBe(sp());
       expect(body.temperature).toBeUndefined();
     } finally {
@@ -436,6 +436,78 @@ describe('LlmClient Integration with Mock HTTP Server', () => {
       ).rejects.toThrow(LlmAuthError);
     } finally {
       await closeServer(server);
+    }
+  });
+
+  it('should redact secret-key JSON values from provider error bodies and adapter-persisted failures', async () => {
+    const syntheticToken = 'synthetic-token-value-never-real';
+    const syntheticApiKey = 'synthetic-api-key-value-never-real';
+    const syntheticAuthorization = 'Bearer synthetic-authorization-value-never-real';
+    const providerBody = {
+      error: {
+        message: 'synthetic provider rejected credentials',
+        token: syntheticToken,
+        api_key: syntheticApiKey,
+        authorization: syntheticAuthorization,
+      },
+    };
+    const { server, port } = await createMockServer((_req, res) => {
+      res.writeHead(401, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(providerBody));
+    });
+
+    let adapterTempDir = '';
+    try {
+      const client = new LlmClient(`http://localhost:${port}`);
+      let clientError: unknown;
+      try {
+        await client.complete(cand(), sp(), msgs(), 'sess-redact-client');
+      } catch (err) {
+        clientError = err;
+      }
+      expect(clientError).toBeInstanceOf(LlmAuthError);
+      const clientErrorMessage = clientError instanceof Error ? clientError.message : String(clientError);
+      expect(clientErrorMessage).not.toContain(syntheticToken);
+      expect(clientErrorMessage).not.toContain(syntheticApiKey);
+      expect(clientErrorMessage).not.toContain(syntheticAuthorization);
+      expect(clientErrorMessage).toContain('[REDACTED]');
+
+      adapterTempDir = makeTempDir();
+      writeSaivageJson(adapterTempDir, {
+        models: { planner: ['test-model'], default: ['test-model'] },
+        providers: {
+          'test-provider': {
+            priority: 10,
+            models: ['test-model'],
+            baseUrl: `http://localhost:${port}`,
+            apiKey: 'synthetic-adapter-key',
+          },
+        },
+        runtime: { recoveryDelayMs: 10, maxRecoveryRetries: 0 },
+      });
+      const adapter = createAgentAdapter(adapterTempDir);
+      adapter.setLlmCallFn(adapter.createLlmCallFn());
+
+      await expect(
+        adapter.invokePlanner('goal-1', sp(), msgs()),
+      ).rejects.toThrow(LlmAuthError);
+
+      const agentsDir = join(adapterTempDir, '.saivage', 'agents');
+      const readPersisted = (dir: string): string => {
+        if (!existsSync(dir)) return '';
+        return readdirSync(dir).map((entry) => {
+          const fullPath = join(dir, entry);
+          return statSync(fullPath).isDirectory() ? readPersisted(fullPath) : readFileSync(fullPath, 'utf-8');
+        }).join('\\n');
+      };
+      const persisted = readPersisted(agentsDir);
+      expect(persisted).not.toContain(syntheticToken);
+      expect(persisted).not.toContain(syntheticApiKey);
+      expect(persisted).not.toContain(syntheticAuthorization);
+      expect(persisted).toContain('[REDACTED]');
+    } finally {
+      await closeServer(server);
+      if (adapterTempDir) cleanupDir(adapterTempDir);
     }
   });
 

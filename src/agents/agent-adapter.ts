@@ -9,7 +9,7 @@ import type { AgentMessage, HandoffSummary, NotificationRecord } from '../schema
 import { compactSession } from './compaction.js';
 import { invokeWithRecovery, type RecoveryContext } from './recovery.js';
 import type { ContentSupervisor } from '../utils/content-supervisor.js';
-import { getSafeFileForAgent, redactCredentialLiterals, type SafeFileResult } from '../utils/file-access-security.js';
+import { getSafeFileForAgent, redactCredentialLiterals, redactSecrets, type SafeFileResult } from '../utils/file-access-security.js';
 import type { AgentRuntime } from './agent-runtime.js';
 import { LlmClient } from './llm-client.js';
 import type { LlmCompleteOptions, ToolDefinition } from './llm-client.js';
@@ -163,6 +163,7 @@ export class AgentAdapter implements AgentRuntime {
   }
 
   getSafeFileContent(filePath: string, content: string): SafeFileResult { return getSafeFileForAgent(filePath, content); }
+  private redactProviderErrorMessage(message: string): string { return redactSecrets(redactCredentialLiterals(message)); }
   private applySelfCheck(role: AgentRole, systemPrompt: string, sessionId: string): string { const key = role; const current = (this.roundCounters.get(key) ?? 0) + 1; this.roundCounters.set(key, current); const threshold = getSelfCheckThreshold(this.config, role); if (threshold <= 0 || current % threshold !== 0) return systemPrompt; const selfCheckPrompt = buildSelfCheckPrompt(role, current, threshold); const modifiedPrompt = systemPrompt + '\n\n' + selfCheckPrompt; if (this.eventLogger) this.eventLogger.appendEvent({ kind: 'self_check_triggered', session_id: sessionId, role: role as unknown as import('../schemas/types.js').AgentRole, rounds: current, threshold }); if (this.eventBus) this.eventBus.emit('self_check_triggered', { session_id: sessionId, role, rounds: current, threshold }); return modifiedPrompt; }
   private resetOnRoleChange(role: AgentRole): void { if (this.lastRole !== null && this.lastRole !== role) this.roundCounters.clear(); this.lastRole = role; }
   cancelSession(sessionId: string): boolean { const controller = this._abortControllers.get(sessionId); if (!controller) return false; controller.abort(); this._abortControllers.delete(sessionId); this._cancelledSessions.add(sessionId); if (this.eventLogger) this.eventLogger.appendEvent({ kind: 'session_cancelled', session_id: sessionId }); if (this.eventBus) this.eventBus.emit('session_cancelled', { session_id: sessionId }); return true; }
@@ -305,7 +306,7 @@ export class AgentAdapter implements AgentRuntime {
     if (this.eventBus) this.eventBus.emit('session_started', { session_id: session.id, role, goal_id: goalId, card_id: cardId });
     systemPrompt = this.applySelfCheck(role, systemPrompt, session.id);
     for (const msg of contextMessages) appendMessage(this.saivageDir, session.id, { role: msg.role, kind: msg.kind, content: msg.content, tool: msg.tool, links: msg.links });
-    const recoveryOpts = { recoveryDelayMs: this.runtimeConfig.recoveryDelayMs ?? 60000, maxRetries: this.runtimeConfig.maxRecoveryRetries ?? 3, publishEvents: true, eventBus: this.eventBus, cardId, goalId, sessionId: session.id, agentRole: role, persistFailure: (error: Error, attempt: number, _ctx: RecoveryContext) => { try { appendMessage(this.saivageDir, session.id, { role: 'system', kind: 'model_issue', content: `Agent invocation failed (attempt ${attempt}): ${redactCredentialLiterals(error.message)}` }); } catch {} if (this.eventLogger) this.eventLogger.appendEvent({ kind: 'retry_attempted', session_id: session.id, role: role as unknown as import('../schemas/types.js').AgentRole, attempt, directive: _ctx.directive }); if (this.eventBus) this.eventBus.emit('retry_attempted', { session_id: session.id, role, attempt, directive: _ctx.directive }); } };
+    const recoveryOpts = { recoveryDelayMs: this.runtimeConfig.recoveryDelayMs ?? 60000, maxRetries: this.runtimeConfig.maxRecoveryRetries ?? 3, publishEvents: true, eventBus: this.eventBus, cardId, goalId, sessionId: session.id, agentRole: role, persistFailure: (error: Error, attempt: number, _ctx: RecoveryContext) => { try { appendMessage(this.saivageDir, session.id, { role: 'system', kind: 'model_issue', content: `Agent invocation failed (attempt ${attempt}): ${this.redactProviderErrorMessage(error.message)}` }); } catch {} if (this.eventLogger) this.eventLogger.appendEvent({ kind: 'retry_attempted', session_id: session.id, role: role as unknown as import('../schemas/types.js').AgentRole, attempt, directive: _ctx.directive }); if (this.eventBus) this.eventBus.emit('retry_attempted', { session_id: session.id, role, attempt, directive: _ctx.directive }); } };
     const agentFn = async (recoveryCtx: RecoveryContext) => {
       const candidateChain = await this.router.resolve(role);
       let lastError: Error | null = null;
@@ -335,7 +336,7 @@ export class AgentAdapter implements AgentRuntime {
               const callDuration = Date.now() - callStart;
               appendMessage(this.saivageDir, session.id, { role: 'assistant', kind: 'text', content: finalResponse });
               let parsed: T;
-              try { parsed = parser(finalResponse); } catch (err) { if (role === 'executor') { const fallback = buildExecutorFallbackResult(finalResponse, { cardId, sessionMessages: getSessionMessages(this.saivageDir, session.id) }); if (fallback) { appendMessage(this.saivageDir, session.id, { role: 'system', kind: 'model_issue', content: `Executor result fallback constructed after parse failure: ${err instanceof Error ? redactCredentialLiterals(err.message) : 'unknown parse error'}` }); parsed = fallback as T; } else throw err; } else throw err; }
+              try { parsed = parser(finalResponse); } catch (err) { if (role === 'executor') { const fallback = buildExecutorFallbackResult(finalResponse, { cardId, sessionMessages: getSessionMessages(this.saivageDir, session.id) }); if (fallback) { appendMessage(this.saivageDir, session.id, { role: 'system', kind: 'model_issue', content: `Executor result fallback constructed after parse failure: ${err instanceof Error ? this.redactProviderErrorMessage(err.message) : 'unknown parse error'}` }); parsed = fallback as T; } else throw err; } else throw err; }
               while (this.resultBlockedByPendingNotifications(role, parsed, session.id)) {
                 appendMessage(this.saivageDir, session.id, { role: 'system', kind: 'model_issue', content: 'Terminal result held because blocking operator notifications remain unacknowledged.' });
                 const holdMessage = this.buildBlockingAcknowledgementMessage(session.id);
@@ -355,9 +356,9 @@ export class AgentAdapter implements AgentRuntime {
           } catch (err) {
             this.registry.markFailed(candidate, this.runtimeConfig.recoveryDelayMs ?? 60000);
             lastError = err instanceof Error ? err : new Error(String(err));
-            appendMessage(this.saivageDir, session.id, { role: 'system', kind: 'model_issue', content: `Candidate ${candidate.provider}/${candidate.account ?? '_'}/${candidate.model} failed: ${redactCredentialLiterals(lastError.message)}` });
-            if (this.eventLogger) this.eventLogger.appendEvent({ kind: 'invocation_failed', session_id: session.id, role: role as unknown as import('../schemas/types.js').AgentRole, attempt: recoveryCtx.attempt, error_message: redactCredentialLiterals(lastError.message) });
-            if (this.eventBus) this.eventBus.emit('invocation_failed', { session_id: session.id, role, attempt: recoveryCtx.attempt, error_message: redactCredentialLiterals(lastError.message) });
+            appendMessage(this.saivageDir, session.id, { role: 'system', kind: 'model_issue', content: `Candidate ${candidate.provider}/${candidate.account ?? '_'}/${candidate.model} failed: ${this.redactProviderErrorMessage(lastError.message)}` });
+            if (this.eventLogger) this.eventLogger.appendEvent({ kind: 'invocation_failed', session_id: session.id, role: role as unknown as import('../schemas/types.js').AgentRole, attempt: recoveryCtx.attempt, error_message: this.redactProviderErrorMessage(lastError.message) });
+            if (this.eventBus) this.eventBus.emit('invocation_failed', { session_id: session.id, role, attempt: recoveryCtx.attempt, error_message: this.redactProviderErrorMessage(lastError.message) });
             if (this._cancelledSessions.has(session.id)) { if (this.eventLogger) this.eventLogger.appendEvent({ kind: 'session_cancelled', session_id: session.id, role: role as unknown as import('../schemas/types.js').AgentRole, note: 'Stopped retry loop due to session cancellation' }); throw new Error(`Agent invocation cancelled for session ${session.id}. Role: ${role}, goal: ${goalId}, card: ${cardId}`); }
             continue;
           }

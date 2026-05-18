@@ -79,7 +79,7 @@ export function looksLikeSecretPath(filePath: string): boolean {
 }
 
 const REDACT_KEY_PATTERN =
-  /\b(?:apiKey|apiToken|botToken|accessToken|refreshToken|(?:api_)?key|.*[A-Z](?:Token|Key|Secret|Password)|.*_(?:key|token|secret|password)|secret|password)\b/i;
+  /\b(?:apiKey|apiToken|botToken|accessToken|refreshToken|(?:api_)?key|token|authorization|.*[A-Z](?:Token|Key|Secret|Password)|.*_(?:key|token|secret|password)|secret|password)\b/i;
 
 const REDACT_VALUE_RE =
   /("(?:[^"\\]|\\.)*")(\s*):(\s*)"((?:[^"\\]|\\.)*)"/gi;

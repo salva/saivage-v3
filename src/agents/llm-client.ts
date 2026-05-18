@@ -8,6 +8,7 @@
  */
 
 import type { Candidate } from './provider.js';
+import { redactCredentialLiterals, redactSecrets } from '../utils/file-access-security.js';
 import type { AgentMessage } from '../schemas/types.js';
 
 // ── Tool Calling Types ────────────────────────────────────────
@@ -133,6 +134,7 @@ interface ChatMessage {
   role: 'system' | 'user' | 'assistant' | 'tool';
   content: string;
   tool_calls?: ToolCall[];
+  tool_call_id?: string;
 }
 
 interface ChatCompletionRequest {
@@ -172,6 +174,26 @@ interface ChatCompletionResponse {
     total_tokens: number;
   };
 }
+
+interface CodexInputText {
+  type: 'input_text';
+  text: string;
+}
+
+type CodexMessage =
+  | { role: 'user'; content: CodexInputText[] }
+  | { role: 'assistant'; content: Array<{ type: 'output_text'; text: string }> }
+  | { role: 'system' | 'developer'; content: string }
+  | Record<string, unknown>;
+
+interface CodexTool {
+  type: 'function';
+  name: string;
+  description: string;
+  parameters: Record<string, unknown>;
+}
+
+const OPENAI_CODEX_JWT_CLAIM = 'https://api.openai.com/auth';
 
 // ── Conversions ───────────────────────────────────────────────
 
@@ -227,6 +249,10 @@ export class LlmClient {
     sessionId: string,
     opts?: LlmCompleteOptions,
   ): Promise<LlmCompleteResult> {
+    if (candidate.provider === 'openai-codex') {
+      return this.completeOpenAICodex(candidate, systemPrompt, messages, opts);
+    }
+
     const temperature = opts?.temperature ?? 0.7;
     const maxTokens = opts?.max_tokens ?? 4096;
     const stream = opts?.stream ?? false;
@@ -237,10 +263,26 @@ export class LlmClient {
     // Build the message array: system prompt first, then conversation
     const apiMessages: ChatMessage[] = [
       { role: 'system', content: systemPrompt },
-      ...messages.map((m) => ({
-        role: toChatRole(m.role),
-        content: m.content,
-      })),
+      ...messages.map((m) => {
+        if (m.role === 'assistant' && m.kind === 'tool_call') {
+          return {
+            role: 'assistant' as const,
+            content: '',
+            tool_calls: this.parsePersistedToolCalls(m.content),
+          };
+        }
+        if (m.role === 'tool') {
+          return {
+            role: 'tool' as const,
+            content: m.content,
+            tool_call_id: m.tool_call_id ?? m.id,
+          };
+        }
+        return {
+          role: toChatRole(m.role),
+          content: m.content,
+        };
+      }),
     ];
 
     const requestBody: ChatCompletionRequest = {
@@ -259,10 +301,10 @@ export class LlmClient {
       }
     }
 
-    const url = `${this.baseUrl}/v1/chat/completions`;
-
+    const url = this.chatCompletionsUrl();
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
+      ...this.providerHeaders(),
     };
     if (this.apiKey) {
       headers['Authorization'] = `Bearer ${this.apiKey}`;
@@ -348,6 +390,403 @@ export class LlmClient {
     }
   }
 
+  private chatCompletionsUrl(): string {
+    if (this.baseUrl.includes('githubcopilot.com')) {
+      return `${this.baseUrl}/chat/completions`;
+    }
+    if (/\/v1$/.test(this.baseUrl)) {
+      return `${this.baseUrl}/chat/completions`;
+    }
+    return `${this.baseUrl}/v1/chat/completions`;
+  }
+
+  private async completeOpenAICodex(
+    candidate: Candidate,
+    systemPrompt: string,
+    messages: AgentMessage[],
+    opts?: LlmCompleteOptions,
+  ): Promise<LlmCompleteResult> {
+    if (!this.apiKey) {
+      throw new LlmAuthError('OpenAI Codex provider not configured', 401);
+    }
+
+    const input = this.codexMessages(messages);
+    if (input.length === 0) {
+      input.push({
+        role: 'user',
+        content: [{ type: 'input_text', text: 'Proceed with the task described in the instructions.' }],
+      });
+    }
+
+    const body: Record<string, unknown> = {
+      model: candidate.model,
+      store: false,
+      stream: true,
+      instructions: systemPrompt,
+      input,
+    };
+    if (opts?.max_tokens !== undefined) {
+      body.max_output_tokens = opts.max_tokens;
+    }
+    if (opts?.tools && opts.tools.length > 0) {
+      body.tools = opts.tools.map((tool) => this.codexTool(tool));
+      body.tool_choice = opts.tool_choice ?? 'auto';
+      body.parallel_tool_calls = true;
+    }
+
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+      Accept: 'text/event-stream',
+      Authorization: `Bearer ${this.apiKey}`,
+      'chatgpt-account-id': this.openAICodexAccountId(this.apiKey),
+      originator: 'saivage',
+      'OpenAI-Beta': 'responses=experimental',
+    };
+
+    try {
+      const response = await fetch(this.openAICodexResponsesUrl(), {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(body),
+        signal: opts?.signal,
+      });
+
+      if (!response.ok) {
+        await this.handleHttpError(response);
+      }
+      if (!response.body) {
+        throw new LlmServerError('OpenAI Codex streaming response has no body', response.status);
+      }
+
+      return await this.readOpenAICodexStream(response.body);
+    } catch (err) {
+      if (
+        err instanceof LlmAuthError ||
+        err instanceof LlmRateLimitError ||
+        err instanceof LlmServerError ||
+        err instanceof LlmTimeoutError ||
+        err instanceof LlmParseError
+      ) {
+        throw err;
+      }
+      if (err instanceof DOMException && err.name === 'AbortError') {
+        throw new LlmTimeoutError('OpenAI Codex request aborted due to timeout');
+      }
+      if (err instanceof TypeError) {
+        throw new LlmServerError(`Network error calling OpenAI Codex: ${err.message}`);
+      }
+      throw new LlmServerError(
+        `Unexpected error calling OpenAI Codex: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+  }
+
+  private openAICodexResponsesUrl(): string {
+    const normalized = this.baseUrl.replace(/\/+$/, '');
+    if (normalized.endsWith('/codex/responses')) return normalized;
+    if (normalized.endsWith('/codex')) return `${normalized}/responses`;
+    return `${normalized}/codex/responses`;
+  }
+
+  private openAICodexAccountId(token: string): string {
+    try {
+      const [, payload] = token.split('.');
+      if (!payload) throw new Error('missing JWT payload');
+      const decoded = Buffer.from(payload, 'base64url').toString('utf8');
+      const claims = JSON.parse(decoded) as Record<string, unknown>;
+      const authClaims = claims[OPENAI_CODEX_JWT_CLAIM] as Record<string, unknown> | undefined;
+      const accountId = authClaims?.['chatgpt_account_id'];
+      if (typeof accountId !== 'string' || accountId.length === 0) {
+        throw new Error('missing chatgpt_account_id claim');
+      }
+      return accountId;
+    } catch (err) {
+      throw new LlmAuthError(
+        `Failed to extract OpenAI Codex account id: ${err instanceof Error ? err.message : String(err)}`,
+        401,
+      );
+    }
+  }
+
+  private codexMessages(messages: AgentMessage[]): CodexMessage[] {
+    // The OpenAI Responses API requires every `function_call` item to be
+    // followed by a matching `function_call_output`. If the persisted
+    // history contains an orphan tool_call (e.g. because a prior planner
+    // turn was rejected as malformed before the tool ran), we must drop
+    // both the orphan call and any stray outputs whose call_id has no
+    // preceding call. Pre-compute the set of call_ids that have both a
+    // call and an output, then only emit those.
+    const callIdsWithOutput = new Set<string>();
+    const callIdsSeen = new Set<string>();
+    for (const message of messages) {
+      if (message.role === 'assistant' && message.kind === 'tool_call') {
+        for (const toolCall of this.parsePersistedToolCalls(message.content)) {
+          if (toolCall.id) callIdsSeen.add(toolCall.id);
+        }
+      } else if (message.role === 'tool') {
+        const toolMessage = message as AgentMessage & { tool_call_id?: string };
+        const id = toolMessage.tool_call_id ?? message.id;
+        if (id && callIdsSeen.has(id)) callIdsWithOutput.add(id);
+      }
+    }
+
+    const result: CodexMessage[] = [];
+    for (const message of messages) {
+      if (message.role === 'user') {
+        result.push({
+          role: 'user',
+          content: [{ type: 'input_text', text: message.content }],
+        });
+      } else if (message.role === 'assistant' && message.kind === 'tool_call') {
+        for (const toolCall of this.parsePersistedToolCalls(message.content)) {
+          if (!toolCall.id || !callIdsWithOutput.has(toolCall.id)) continue;
+          result.push({
+            type: 'function_call',
+            call_id: toolCall.id,
+            name: toolCall.function.name,
+            arguments: toolCall.function.arguments,
+          });
+        }
+      } else if (message.role === 'assistant') {
+        result.push({
+          role: 'assistant',
+          content: [{ type: 'output_text', text: message.content }],
+        });
+      } else if (message.role === 'tool') {
+        const toolMessage = message as AgentMessage & { tool_call_id?: string };
+        const callId = toolMessage.tool_call_id ?? message.id;
+        if (!callId || !callIdsWithOutput.has(callId)) continue;
+        result.push({
+          type: 'function_call_output',
+          call_id: callId,
+          output: message.content,
+        });
+      }
+    }
+
+    return result;
+  }
+
+  private parsePersistedToolCalls(content: string): ToolCall[] {
+    try {
+      const parsed = JSON.parse(content) as unknown;
+      if (parsed && typeof parsed === 'object' && Array.isArray((parsed as { toolCalls?: unknown }).toolCalls)) {
+        return (parsed as { toolCalls: ToolCall[] }).toolCalls;
+      }
+    } catch {
+      // Fall through to empty list.
+    }
+    return [];
+  }
+
+  private codexTool(tool: ToolDefinition): CodexTool {
+    return {
+      type: 'function',
+      name: tool.function.name,
+      description: tool.function.description,
+      parameters: tool.function.parameters,
+    };
+  }
+
+  private async readOpenAICodexStream(body: ReadableStream<Uint8Array>): Promise<LlmCompleteResult> {
+    const reader = body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    let content = '';
+    let finishReason: LlmCompleteResult['finishReason'] = 'stop';
+    const pendingToolCalls = new Map<string, { id: string; name: string; args: string }>();
+    const finalizedToolCalls = new Set<string>();
+    const toolCalls: ToolCall[] = [];
+
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+
+        let boundary = buffer.indexOf('\n\n');
+        while (boundary !== -1) {
+          const chunk = buffer.slice(0, boundary);
+          buffer = buffer.slice(boundary + 2);
+          this.handleOpenAICodexSseChunk(chunk, pendingToolCalls, finalizedToolCalls, toolCalls, (delta) => {
+            if (content.length > 0 && delta.startsWith(content)) {
+              content = delta;
+            } else if (!content.endsWith(delta)) {
+              content += delta;
+            }
+          }, (reason) => {
+            finishReason = reason;
+          });
+          boundary = buffer.indexOf('\n\n');
+        }
+      }
+
+      if (toolCalls.length > 0) finishReason = 'tool_calls';
+      return { content: content || null, toolCalls, finishReason };
+    } catch (err) {
+      if (err instanceof LlmServerError || err instanceof LlmParseError) throw err;
+      if (err instanceof DOMException && err.name === 'AbortError') {
+        throw new LlmTimeoutError('OpenAI Codex streaming request aborted due to timeout');
+      }
+      throw new LlmServerError(
+        `Error reading OpenAI Codex stream: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    } finally {
+      reader.releaseLock();
+    }
+  }
+
+  private handleOpenAICodexSseChunk(
+    chunk: string,
+    pendingToolCalls: Map<string, { id: string; name: string; args: string }>,
+    finalizedToolCalls: Set<string>,
+    toolCalls: ToolCall[],
+    appendContent: (delta: string) => void,
+    setFinishReason: (reason: LlmCompleteResult['finishReason']) => void,
+  ): void {
+    const dataLines = chunk
+      .split('\n')
+      .filter((line) => line.startsWith('data:'))
+      .map((line) => line.slice(5).trim());
+
+    for (const data of dataLines) {
+      if (!data || data === '[DONE]') continue;
+      let event: Record<string, unknown>;
+      try {
+        event = JSON.parse(data) as Record<string, unknown>;
+      } catch {
+        continue;
+      }
+
+      const type = event['type'];
+      if (type === 'response.output_text.delta') {
+        appendContent(String(event['delta'] ?? ''));
+      } else if (type === 'response.output_item.added') {
+        const item = event['item'] as Record<string, unknown> | undefined;
+        if (item?.['type'] === 'function_call') {
+          const callId = String(item['call_id'] ?? item['id'] ?? `call_${pendingToolCalls.size}`);
+          const itemId = typeof item['id'] === 'string' ? item['id'] : undefined;
+          const pending = {
+            id: callId,
+            name: String(item['name'] ?? ''),
+            args: String(item['arguments'] ?? ''),
+          };
+          pendingToolCalls.set(callId, pending);
+          if (itemId && itemId !== callId) pendingToolCalls.set(itemId, pending);
+        }
+      } else if (type === 'response.output_item.done') {
+        const item = event['item'] as Record<string, unknown> | undefined;
+        if (item?.['type'] === 'function_call') {
+          const callId = String(item['call_id'] ?? item['id'] ?? `call_${toolCalls.length}`);
+          const itemId = typeof item['id'] === 'string' ? item['id'] : undefined;
+          const pending = pendingToolCalls.get(callId) ?? (itemId ? pendingToolCalls.get(itemId) : undefined);
+          this.finalizeCodexToolCall(
+            toolCalls,
+            finalizedToolCalls,
+            callId,
+            String(item['name'] ?? pending?.name ?? ''),
+            String(item['arguments'] ?? pending?.args ?? '{}'),
+          );
+          pendingToolCalls.delete(callId);
+          if (itemId) pendingToolCalls.delete(itemId);
+        } else if (item?.['type'] === 'message') {
+          this.appendCodexMessageContent(item, appendContent);
+        }
+      } else if (type === 'response.content_part.done') {
+        const part = event['part'] as Record<string, unknown> | undefined;
+        if (part?.['type'] === 'output_text' && typeof part['text'] === 'string') {
+          appendContent(part['text']);
+        }
+      } else if (type === 'response.output_text.done') {
+        if (typeof event['text'] === 'string') appendContent(event['text']);
+      } else if (type === 'response.function_call_arguments.delta') {
+        const id = String(event['call_id'] ?? event['item_id'] ?? '');
+        const pending = pendingToolCalls.get(id);
+        if (pending) pending.args += String(event['delta'] ?? '');
+      } else if (type === 'response.function_call_arguments.done') {
+        const id = String(event['call_id'] ?? event['item_id'] ?? '');
+        const pending = pendingToolCalls.get(id);
+        const callId = String(event['call_id'] ?? pending?.id ?? id);
+        if (pending || typeof event['arguments'] === 'string') {
+          this.finalizeCodexToolCall(
+            toolCalls,
+            finalizedToolCalls,
+            callId,
+            String((event['name'] as string | undefined) ?? pending?.name ?? ''),
+            String((event['arguments'] as string | undefined) ?? pending?.args ?? '{}'),
+          );
+          pendingToolCalls.delete(id);
+          if (pending?.id) pendingToolCalls.delete(pending.id);
+        }
+      } else if (type === 'response.completed' || type === 'response.done') {
+        const response = event['response'] as Record<string, unknown> | undefined;
+        if (response?.['status'] === 'incomplete') setFinishReason('length');
+      } else if (type === 'response.failed') {
+        const response = event['response'] as Record<string, unknown> | undefined;
+        const error = response?.['error'] as Record<string, unknown> | undefined;
+        throw new LlmServerError(
+          `OpenAI Codex response failed: ${this.redactProviderErrorText(String(error?.['message'] ?? 'unknown error'))}`,
+        );
+      } else if (type === 'error') {
+        throw new LlmServerError(
+          `OpenAI Codex stream error: ${this.redactProviderErrorText(String(event['message'] ?? JSON.stringify(event)))}`,
+        );
+      }
+    }
+  }
+
+  private finalizeCodexToolCall(
+    toolCalls: ToolCall[],
+    finalizedToolCalls: Set<string>,
+    id: string,
+    name: string,
+    args: string,
+  ): void {
+    if (finalizedToolCalls.has(id)) return;
+    finalizedToolCalls.add(id);
+    toolCalls.push({
+      id,
+      type: 'function',
+      function: {
+        name,
+        arguments: args || '{}',
+      },
+    });
+  }
+
+  private appendCodexMessageContent(
+    item: Record<string, unknown>,
+    appendContent: (delta: string) => void,
+  ): void {
+    const content = item['content'];
+    if (!Array.isArray(content)) return;
+
+    for (const part of content) {
+      if (!part || typeof part !== 'object') continue;
+      const typedPart = part as Record<string, unknown>;
+      if (typedPart['type'] === 'output_text' && typeof typedPart['text'] === 'string') {
+        appendContent(typedPart['text']);
+      }
+    }
+  }
+
+  private providerHeaders(): Record<string, string> {
+    if (!this.baseUrl.includes('githubcopilot.com')) {
+      return {};
+    }
+    return {
+      'User-Agent': 'GitHubCopilotChat/0.35.0',
+      'Editor-Version': 'vscode/1.107.0',
+      'Editor-Plugin-Version': 'copilot-chat/0.35.0',
+      'Copilot-Integration-Id': 'vscode-chat',
+    };
+  }
+
+
+  private redactProviderErrorText(text: string): string {
+    return redactSecrets(redactCredentialLiterals(text));
+  }
+
   /**
    * Handle non-2xx HTTP responses by mapping to structured errors.
    */
@@ -360,7 +799,7 @@ export class LlmClient {
       // best effort
     }
 
-    const detail = bodyText.length > 0 ? `: ${bodyText.slice(0, 500)}` : '';
+    const detail = bodyText.length > 0 ? `: ${this.redactProviderErrorText(bodyText.slice(0, 500))}` : '';
 
     if (status === 401 || status === 403) {
       throw new LlmAuthError(`LLM authentication failed (HTTP ${status})${detail}`, status);
