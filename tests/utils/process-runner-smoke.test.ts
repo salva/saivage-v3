@@ -52,7 +52,7 @@ describe('Process Runner Smoke Tests', () => {
     expect(tailOutput(r, result.id, 2)).toContain('line2');
   });
 
-  it('lists and filters transient process records in the current runtime only', async () => {
+  it('lists and filters durable process records', async () => {
     const r = setup();
     await startAndWait(r, 'echo test-a', { cardId: 'card-a' });
     await startAndWait(r, 'echo test-b', { cardId: 'card-b' });
@@ -61,7 +61,7 @@ describe('Process Runner Smoke Tests', () => {
     expect(listProcesses(r)).toHaveLength(2);
     expect(listProcesses(r, { cardId: 'card-a' })).toHaveLength(1);
     expect(listProcesses(r, { status: 'exited' }).length).toBeGreaterThanOrEqual(2);
-    expect(existsSync(join(r, '.saivage', 'runtime', 'processes.json'))).toBe(false);
+    expect(existsSync(join(r, '.saivage', 'runtime', 'processes.json'))).toBe(true);
   });
 
   it('waitProcess timeout does not expose termination control and the process can still finish normally', async () => {
@@ -76,16 +76,16 @@ describe('Process Runner Smoke Tests', () => {
     expect(tailOutput(r, proc.id)).toContain('done');
   });
 
-  it('loadRegistry/saveRegistry are transient helpers and do not write .saivage/runtime/processes.json', async () => {
+  it('loadRegistry/saveRegistry persist .saivage/runtime/processes.json', async () => {
     const r = setup();
     const result = await startAndWait(r, 'echo test', { cardId: 'card-1' });
     await sleep(200);
     expect(loadRegistry(r).has(result.id)).toBe(true);
     saveRegistry(r, Array.from(loadRegistry(r).values()));
-    expect(existsSync(join(r, '.saivage', 'runtime', 'processes.json'))).toBe(false);
+    expect(existsSync(join(r, '.saivage', 'runtime', 'processes.json'))).toBe(true);
   });
 
-  it('cleanup helpers remove completed process output without durable registry persistence', async () => {
+  it('cleanup helpers remove completed process output with durable registry persistence', async () => {
     const r = setup();
     const result = await startAndWait(r, 'echo cleanup-test', { cardId: 'card-1' });
     await sleep(200);
@@ -100,9 +100,8 @@ describe('Process Runner Smoke Tests', () => {
     expect(cleanupAllCompleted(r)).toBe(3);
   });
 
-  it('does not export product process termination APIs', async () => {
+  it('exports product process termination APIs', async () => {
     const module = await import('../../src/utils/process-runner.js');
-    expect(module).not.toHaveProperty('killProcess');
-    expect(module).not.toHaveProperty('killAllRunning');
+    expect(module).toHaveProperty('killProcess');
   });
 });

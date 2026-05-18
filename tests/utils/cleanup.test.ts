@@ -182,7 +182,7 @@ describe('Cleanup Utility Smoke Tests', () => {
     expect(existsSync(procDir)).toBe(true);
   });
 
-  it('cleanStaleProcessOutput: ignores legacy durable process registry files as restart surfaces', async () => {
+  it('cleanStaleProcessOutput: ignores malformed legacy process registry files as cleanup blockers', async () => {
     const swd = saivageWorkDir();
     const procId = 'proc-legacy-running-1';
     const procDir = join(swd, 'processes', procId);
@@ -192,9 +192,8 @@ describe('Cleanup Utility Smoke Tests', () => {
     writeFileSync(registryPath, JSON.stringify([{ id: procId, status: 'running' }], null, 2));
     await sleep(150);
 
-    const cleaned = cleanStaleProcessOutput({ saivageWorkDir: swd, store, maxAgeMs: 1 });
-    expect(cleaned).toBe(1);
-    expect(existsSync(procDir)).toBe(false);
+    expect(() => cleanStaleProcessOutput({ saivageWorkDir: swd, store, maxAgeMs: 1 })).toThrow(/ProcessRecord registry validation failed/);
+    expect(existsSync(procDir)).toBe(true);
     expect(existsSync(registryPath)).toBe(true);
   });
 

@@ -8,7 +8,9 @@ import {
   rmSync,
 } from 'node:fs';
 import { join, resolve } from 'node:path';
-import { randomBytes } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
+import { writeFileAtomic, explainLegacyStateRejection } from './file-tree.js';
+import { redactCommandForOperator } from './file-access-security.js';
 import type { ProcessRecord, ProcessStatus } from '../schemas/types.js';
 
 export interface ProcessStartOptions {
@@ -36,8 +38,37 @@ export interface ProcessListFilter {
   status?: ProcessStatus | ProcessStatus[];
 }
 
+export interface ProcessTerminalNote {
+  route: 'planner';
+  kind: 'process_terminal';
+  process_id: string;
+  card_id: string;
+  goal_id: string | null;
+  status: ProcessStatus;
+  exit_code: number | null;
+  signal: string | null;
+  classification?: string | null;
+}
+
+export type ProcessTerminalSink = (note: ProcessTerminalNote) => void;
+
+export interface ProcessReconcileOptions {
+  nowMonotonicMs?: number;
+  maxClockSkewMs?: number;
+  probe?: (record: ProcessRecord) => { running: boolean; pid?: number | null; started_at_monotonic?: number | null };
+  reattach?: (record: ProcessRecord) => boolean;
+}
+
+export interface ProcessReconcileResult {
+  matched: string[];
+  lost: string[];
+  skewed: string[];
+}
+
 const PROCESSES_DIR = '.saivage-work/processes';
+const RUNTIME_PROCESSES_FILE = '.saivage/runtime/processes.json';
 const processRecordsByRoot = new Map<string, Map<string, ProcessRecord>>();
+const commandHashSalts = new Map<string, Buffer>();
 
 const activeProcesses = new Map<string, ChildProcess>();
 const outputStreams = new Map<
@@ -46,6 +77,10 @@ const outputStreams = new Map<
 >();
 const pendingStreamCloses = new Map<string, number>();
 const streamCloseWaiters = new Map<string, Promise<void>>();
+const terminalSinksByRoot = new Map<string, Set<ProcessTerminalSink>>();
+const pausedRoots = new Set<string>();
+const bufferedTerminalNotesByRoot = new Map<string, Map<string, ProcessTerminalNote>>();
+const deliveredTerminalNotesByRoot = new Map<string, Set<string>>();
 
 function generateId(): string {
   return `proc-${randomBytes(6).toString('hex')}`;
@@ -53,6 +88,14 @@ function generateId(): string {
 
 function now(): string {
   return new Date().toISOString();
+}
+
+function nowMonotonic(): number {
+  return Math.floor(performance.timeOrigin + performance.now());
+}
+
+function runtimeProcessesPath(projectRoot: string): string {
+  return join(projectRoot, RUNTIME_PROCESSES_FILE);
 }
 
 function processesDir(projectRoot: string): string {
@@ -63,10 +106,50 @@ function processDir(projectRoot: string, procId: string): string {
   return join(processesDir(projectRoot), procId);
 }
 
+function saltForRoot(projectRoot: string): Buffer {
+  let salt = commandHashSalts.get(projectRoot);
+  if (!salt) {
+    salt = randomBytes(32);
+    commandHashSalts.set(projectRoot, salt);
+  }
+  return salt;
+}
+
+function commandHash(projectRoot: string, command: string): string {
+  return createHash('sha256').update(saltForRoot(projectRoot)).update('\0').update(command).digest('hex');
+}
+
+function durableRegistry(projectRoot: string): Map<string, ProcessRecord> {
+  const registry = new Map<string, ProcessRecord>();
+  const path = runtimeProcessesPath(projectRoot);
+  if (!existsSync(path)) return registry;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(readFileSync(path, 'utf-8'));
+  } catch (error) {
+    explainLegacyStateRejection(projectRoot, 'ProcessRecord registry', error instanceof Error ? error.message : String(error));
+  }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    explainLegacyStateRejection(projectRoot, 'ProcessRecord registry', 'registry must be an object with schema_version and records');
+  }
+  const body = parsed as { schema_version?: unknown; records?: unknown };
+  if (body.schema_version !== 1 || !Array.isArray(body.records)) {
+    explainLegacyStateRejection(projectRoot, 'ProcessRecord registry', 'unsupported ProcessRecord registry shape');
+  }
+  for (const record of body.records as ProcessRecord[]) {
+    registry.set(record.id, record);
+  }
+  return registry;
+}
+
+function persistRegistry(projectRoot: string, registry: Map<string, ProcessRecord>): void {
+  writeFileAtomic(runtimeProcessesPath(projectRoot), JSON.stringify({ schema_version: 1, records: Array.from(registry.values()) }, null, 2) + '\n');
+}
+
 function transientRegistry(projectRoot: string): Map<string, ProcessRecord> {
   let registry = processRecordsByRoot.get(projectRoot);
   if (!registry) {
-    registry = new Map();
+    registry = durableRegistry(projectRoot);
     processRecordsByRoot.set(projectRoot, registry);
   }
   return registry;
@@ -119,7 +202,10 @@ async function waitForDurableOutput(procId: string): Promise<void> {
 }
 
 export function loadRegistry(projectRoot: string): Map<string, ProcessRecord> {
-  return new Map(transientRegistry(projectRoot));
+  const registry = transientRegistry(projectRoot);
+  const durable = durableRegistry(projectRoot);
+  for (const [id, record] of durable) registry.set(id, record);
+  return new Map(registry);
 }
 
 export function saveRegistry(projectRoot: string, records: ProcessRecord[]): void {
@@ -128,10 +214,13 @@ export function saveRegistry(projectRoot: string, records: ProcessRecord[]): voi
   for (const rec of records) {
     registry.set(rec.id, rec);
   }
+  persistRegistry(projectRoot, registry);
 }
 
 function upsertRegistryRecord(projectRoot: string, record: ProcessRecord): void {
-  transientRegistry(projectRoot).set(record.id, record);
+  const registry = transientRegistry(projectRoot);
+  registry.set(record.id, record);
+  persistRegistry(projectRoot, registry);
 }
 
 function ensureProcessDir(projectRoot: string, procId: string): string {
@@ -198,6 +287,77 @@ function finalizeProcess(procId: string): void {
   pendingStreamCloses.delete(procId);
 }
 
+function terminalNote(record: ProcessRecord): ProcessTerminalNote {
+  return {
+    route: 'planner',
+    kind: 'process_terminal',
+    process_id: record.id,
+    card_id: record.card_id,
+    goal_id: record.goal_id ?? null,
+    status: record.status,
+    exit_code: record.exit_code ?? null,
+    signal: record.signal ?? null,
+    classification: record.failure_classification ?? null,
+  };
+}
+
+function deliveredSet(projectRoot: string): Set<string> {
+  let delivered = deliveredTerminalNotesByRoot.get(projectRoot);
+  if (!delivered) {
+    delivered = new Set();
+    deliveredTerminalNotesByRoot.set(projectRoot, delivered);
+  }
+  return delivered;
+}
+
+function bufferMap(projectRoot: string): Map<string, ProcessTerminalNote> {
+  let buffered = bufferedTerminalNotesByRoot.get(projectRoot);
+  if (!buffered) {
+    buffered = new Map();
+    bufferedTerminalNotesByRoot.set(projectRoot, buffered);
+  }
+  return buffered;
+}
+
+function dispatchTerminal(projectRoot: string, record: ProcessRecord): void {
+  if (record.status === 'running') return;
+  const delivered = deliveredSet(projectRoot);
+  if (delivered.has(record.id)) return;
+  const note = terminalNote(record);
+  if (pausedRoots.has(projectRoot)) {
+    bufferMap(projectRoot).set(record.id, note);
+    return;
+  }
+  delivered.add(record.id);
+  for (const sink of terminalSinksByRoot.get(projectRoot) ?? []) sink(note);
+}
+
+export function registerProcessTerminalSink(projectRoot: string, sink: ProcessTerminalSink): () => void {
+  let sinks = terminalSinksByRoot.get(projectRoot);
+  if (!sinks) {
+    sinks = new Set();
+    terminalSinksByRoot.set(projectRoot, sinks);
+  }
+  sinks.add(sink);
+  return () => sinks?.delete(sink);
+}
+
+export function setProcessTerminalBuffering(projectRoot: string, paused: boolean): void {
+  if (paused) {
+    pausedRoots.add(projectRoot);
+    return;
+  }
+  pausedRoots.delete(projectRoot);
+  const buffered = bufferMap(projectRoot);
+  const delivered = deliveredSet(projectRoot);
+  for (const [procId, note] of buffered) {
+    if (delivered.has(procId)) continue;
+    delivered.add(procId);
+    for (const sink of terminalSinksByRoot.get(projectRoot) ?? []) sink(note);
+  }
+  buffered.clear();
+}
+
 export function startProcess(
   projectRoot: string,
   command: string,
@@ -254,13 +414,18 @@ export function startProcess(
   const record: ProcessRecord = {
     id,
     card_id: options.cardId,
-    command,
+    command: redactCommandForOperator(command),
+    command_hash: commandHash(projectRoot, command),
     cwd,
+    cwd_canonical: resolve(cwd),
     status: 'running',
     pid: child.pid ?? null,
     started_at: now(),
+    started_at_monotonic: nowMonotonic(),
     completed_at: null,
     exit_code: null,
+    signal: null,
+    terminal_reason: null,
     required_for_card_completion: options.requiredForCardCompletion ?? true,
     output_dir: dir,
     stdout_path: stdoutPath,
@@ -272,6 +437,8 @@ export function startProcess(
     owner_kind: options.ownerKind ?? null,
     background_policy: options.backgroundPolicy ?? null,
     process_group_id: child.pid ?? null,
+    reattach_state: 'attached',
+    failure_classification: null,
   };
 
   upsertRegistryRecord(projectRoot, record);
@@ -284,15 +451,20 @@ export function startProcess(
           ? 'exited'
           : 'failed';
 
+    const latest = getProcess(projectRoot, id) ?? record;
     const updatedRecord: ProcessRecord = {
-      ...record,
+      ...latest,
       status: finalStatus,
       exit_code: exitCode,
+      signal: signalCode ?? null,
+      terminal_reason: signalCode ? 'signal' : 'exit',
       completed_at: now(),
+      reattach_state: 'attached',
     };
 
     try {
       upsertRegistryRecord(projectRoot, updatedRecord);
+      dispatchTerminal(projectRoot, updatedRecord);
     } catch {}
 
     const pending = pendingStreamCloses.get(id);
@@ -319,6 +491,9 @@ export function startProcess(
       ...record,
       status: 'failed',
       exit_code: -1,
+      signal: null,
+      terminal_reason: 'spawn_error',
+      failure_classification: 'spawn_error',
       completed_at: now(),
     };
 
@@ -326,6 +501,7 @@ export function startProcess(
 
     try {
       upsertRegistryRecord(projectRoot, updatedRecord);
+      dispatchTerminal(projectRoot, updatedRecord);
     } catch {}
   });
 
@@ -419,10 +595,11 @@ export function waitProcess(
         });
       } else {
         void waitForDurableOutput(procId).finally(() => {
+          const latest = getProcess(projectRoot, procId);
           resolve({
             id: procId,
-            status: resolveStatus(child),
-            exitCode: resolveExitCode(child),
+            status: latest?.status ?? resolveStatus(child),
+            exitCode: latest?.exit_code ?? resolveExitCode(child),
             timedOut: false,
             waitDurationMs: Date.now() - waitStart,
           });
@@ -442,6 +619,30 @@ export function waitProcess(
       timer = setTimeout(() => doResolve(true), timeoutMs);
     }
   });
+}
+
+export async function killProcess(projectRoot: string, procId: string, signal: NodeJS.Signals = 'SIGTERM'): Promise<ProcessRecord | null> {
+  const record = getProcess(projectRoot, procId);
+  if (!record) return null;
+  if (record.status !== 'running') return record;
+  const child = activeProcesses.get(procId);
+  if (child && resolveStatus(child) === 'running') {
+    signalProcessTree(child, signal);
+    await waitProcess(projectRoot, procId, 5000);
+    return getProcess(projectRoot, procId);
+  }
+  const updated: ProcessRecord = {
+    ...record,
+    status: 'killed',
+    completed_at: now(),
+    signal,
+    terminal_reason: 'kill_unattached',
+    reattach_state: 'lost',
+    failure_classification: 'lost',
+  };
+  upsertRegistryRecord(projectRoot, updated);
+  dispatchTerminal(projectRoot, updated);
+  return updated;
 }
 
 export async function startAndWait(
@@ -473,6 +674,67 @@ export function tailOutput(
   }
 
   return allLines.slice(-lines).join('\n');
+}
+
+function markLost(projectRoot: string, record: ProcessRecord, reason: string): ProcessRecord {
+  const updated: ProcessRecord = {
+    ...record,
+    status: 'failed',
+    completed_at: record.completed_at ?? now(),
+    exit_code: record.exit_code ?? null,
+    signal: record.signal ?? null,
+    terminal_reason: 'lost',
+    reattach_state: 'lost',
+    failure_classification: 'lost',
+    reattach_error: reason,
+  };
+  upsertRegistryRecord(projectRoot, updated);
+  dispatchTerminal(projectRoot, updated);
+  return updated;
+}
+
+function defaultProbe(record: ProcessRecord): { running: boolean; pid?: number | null; started_at_monotonic?: number | null } {
+  if (!record.pid) return { running: false };
+  try {
+    process.kill(record.pid, 0);
+    return { running: true, pid: record.pid, started_at_monotonic: record.started_at_monotonic };
+  } catch {
+    return { running: false, pid: record.pid };
+  }
+}
+
+export function reconcileProcessRecords(projectRoot: string, options: ProcessReconcileOptions = {}): ProcessReconcileResult {
+  const result: ProcessReconcileResult = { matched: [], lost: [], skewed: [] };
+  const records = Array.from(loadRegistry(projectRoot).values()).filter((record) => record.status === 'running');
+  const currentMonotonic = options.nowMonotonicMs ?? nowMonotonic();
+  const maxClockSkewMs = options.maxClockSkewMs ?? 60_000;
+  const probe = options.probe ?? defaultProbe;
+  const reattach = options.reattach ?? (() => true);
+
+  for (const record of records) {
+    if (record.started_at_monotonic > currentMonotonic + maxClockSkewMs) {
+      result.skewed.push(record.id);
+      markLost(projectRoot, record, 'started_at_monotonic is in the future beyond clock-skew tolerance');
+      result.lost.push(record.id);
+      continue;
+    }
+    const identity = probe(record);
+    const monotonicMatches = identity.started_at_monotonic === undefined || identity.started_at_monotonic === null || Math.abs(identity.started_at_monotonic - record.started_at_monotonic) <= maxClockSkewMs;
+    if (!identity.running || identity.pid !== record.pid || !monotonicMatches) {
+      markLost(projectRoot, record, 'restart identity probe mismatch');
+      result.lost.push(record.id);
+      continue;
+    }
+    if (!reattach(record)) {
+      markLost(projectRoot, record, 'process reattach failed');
+      result.lost.push(record.id);
+      continue;
+    }
+    const updated = { ...record, reattach_state: 'reattached' as const };
+    upsertRegistryRecord(projectRoot, updated);
+    result.matched.push(record.id);
+  }
+  return result;
 }
 
 async function stopProcessForRuntimeShutdown(

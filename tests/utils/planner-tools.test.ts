@@ -309,6 +309,16 @@ describe('PlannerToolsService reviewer gates', () => {
     expect(reviewerCalls).toBe(1);
   });
 
+
+
+  it('does not add pending_subprocess gate behavior for running ProcessRecords', () => {
+    const goal = store.create(makeCard({ type: 'goal', title: 'Goal With Process' }));
+    const running = store.create(makeCard({ id: 'code-running-process', type: 'code', title: 'Running process evidence', parent: goal.id, status: 'done', result: { ok: true } }));
+    const tools = new PlannerToolsService(store, { reviewer: () => ({ result: 'pass', summary: 'ok', achieved: [], issues: [], evidence_card_ids: [running.id] }) });
+    const result = tools.reportGoal('report_goal_done', goal.id, { status_text: 'done despite durable process record', evidence_card_ids: [running.id] });
+    expect(result.accepted).toBe(true);
+  });
+
   it('suppresses status_text/latest_self_report mirroring for rejected evidence and reviewer needs_corrections', () => {
     const { goal } = goalWithEvidence();
     const tools = new PlannerToolsService(store, { reviewer: () => ({ result: 'needs_corrections', summary: 'fix it', achieved: [], issues: [{ summary: 'missing proof', severity: 'blocker' }], evidence_card_ids: [] }) });

@@ -144,22 +144,12 @@ describe('stage 7 runtime restart and orphan activate_card repair', () => {
     expect(activationResults(root, 'project')).toHaveLength(1);
   });
 
-  it('keeps deferred durable async process features absent', () => {
-    const roots = ['src', 'tests'];
-    const files: string[] = [];
-    const walk = (dir: string) => { for (const entry of readdirSync(dir, { withFileTypes: true })) { const p = join(dir, entry.name); if (entry.isDirectory()) walk(p); else if (/\.(ts|js)$/.test(entry.name)) files.push(p); } };
-    roots.forEach((r) => walk(join(process.cwd(), r)));
-    const haystack = files.filter((f) => f.includes(`${join('src', '')}`)).map((f) => `${f}\n${readFileSync(f, 'utf-8')}`).join('\n');
-    const deferredPatterns = [
-      /wait_for_process/,
-      /kill_process/,
-      /pending_subprocess/,
-      /identity_probe/,
-      /restartIdentityProbe/i,
-      /reattach_process/,
-      /pause_time_process_buffer/,
-    ];
-    for (const pattern of deferredPatterns) expect(haystack).not.toMatch(pattern);
+  it('keeps pending_subprocess acceptance gate behavior deferred while durable process tools exist', async () => {
+    const module = await import('../../src/utils/process-runner.js');
+    expect(module).toHaveProperty('waitProcess');
+    expect(module).toHaveProperty('killProcess');
+    expect(module).toHaveProperty('reconcileProcessRecords');
+    const haystack = readFileSync(join(process.cwd(), 'src', 'utils', 'planner-tools.ts'), 'utf-8');
+    expect(haystack).not.toMatch(/pending_subprocess/);
     expect(existsSync(join(root, '.saivage', 'runtime', 'process-records.json'))).toBe(false);
-  });
-});
+  });});

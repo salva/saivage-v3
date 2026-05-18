@@ -69,11 +69,11 @@ describe('Process Runner', () => {
     expect(reloaded!.exit_code).toBe(42);
   });
 
-  it('does not persist ProcessRecord registry under .saivage/runtime/processes.json', async () => {
+  it('persists ProcessRecord registry under .saivage/runtime/processes.json', async () => {
     const rec = startProcess(root, 'echo registry', { cardId: 'card-reg' });
     expect(loadRegistry(root).has(rec.id)).toBe(true);
     await waitProcess(root, rec.id);
-    expect(existsSync(join(root, '.saivage', 'runtime', 'processes.json'))).toBe(false);
+    expect(existsSync(join(root, '.saivage', 'runtime', 'processes.json'))).toBe(true);
   });
 
   it('respects ProcessStartOptions fields for synchronous command logs', async () => {
@@ -129,15 +129,18 @@ describe('Process Runner', () => {
     expect(listProcesses(root, { status: 'exited' }).length).toBeGreaterThanOrEqual(2);
   });
 
-  it('saveRegistry is transient and ignores malformed durable registry files', () => {
+  it('saveRegistry persists durable registry files', () => {
     const validRecords: ProcessRecord[] = [{
       id: 'proc-test-valid',
       card_id: 'card-1',
       command: 'echo test',
+      command_hash: 'a'.repeat(64),
       cwd: root,
+      cwd_canonical: root,
       status: 'exited',
       pid: 12345,
       started_at: new Date().toISOString(),
+      started_at_monotonic: 1,
       completed_at: new Date().toISOString(),
       exit_code: 0,
       required_for_card_completion: true,
@@ -146,10 +149,9 @@ describe('Process Runner', () => {
       stderr_path: join(root, '.saivage-work/processes/proc-test-valid/stderr.log'),
       combined_log_path: join(root, '.saivage-work/processes/proc-test-valid/combined.log'),
     }];
-    writeFileSync(join(root, '.saivage', 'runtime', 'processes.json'), 'legacy durable state', 'utf-8');
     saveRegistry(root, validRecords);
     expect(loadRegistry(root).has('proc-test-valid')).toBe(true);
-    expect(readFileSync(join(root, '.saivage', 'runtime', 'processes.json'), 'utf-8')).toBe('legacy durable state');
+    expect(readFileSync(join(root, '.saivage', 'runtime', 'processes.json'), 'utf-8')).toContain('proc-test-valid');
   });
 
   it('cleans completed process dirs', async () => {

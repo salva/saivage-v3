@@ -3,7 +3,7 @@ import { isAbsolute, join, relative, resolve } from 'node:path';
 import type { ToolDefinition } from './llm-client.js';
 import { readProjectFileAtomic, writeFileAtomic } from '../utils/file-tree.js';
 import { isWriteBlocked } from '../utils/file-access-security.js';
-import { startAndWait, tailOutput } from '../utils/process-runner.js';
+import { startAndWait, waitProcess, killProcess, tailOutput, getProcess } from '../utils/process-runner.js';
 
 const DEFAULT_MAX_RESULTS = 200;
 const MAX_LIST_RESULTS = 1000;
@@ -68,6 +68,39 @@ export const WORKSPACE_TOOL_DEFINITIONS: ToolDefinition[] = [
           content: { type: 'string', description: 'Full file content to write.' },
         },
         required: ['path', 'content'],
+        additionalProperties: false,
+      },
+    },
+  },
+
+  {
+    type: 'function',
+    function: {
+      name: 'wait_for_process',
+      description: 'Wait for a previously-started Saivage process by id. Already-terminal processes return their cached terminal status.',
+      parameters: {
+        type: 'object',
+        properties: {
+          processId: { type: 'string', description: 'Process id returned by run_project_command or start_and_wait.' },
+          timeoutMs: { type: 'integer', description: 'Optional wait timeout in milliseconds; capped at 600000.' },
+        },
+        required: ['processId'],
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'kill_process',
+      description: 'Request termination of a Saivage process by id. Already-terminal processes are returned unchanged.',
+      parameters: {
+        type: 'object',
+        properties: {
+          processId: { type: 'string', description: 'Process id to terminate.' },
+          signal: { type: 'string', description: 'Signal to send; defaults to SIGTERM.' },
+        },
+        required: ['processId'],
         additionalProperties: false,
       },
     },
@@ -208,6 +241,38 @@ export async function processWorkspaceToolCall(
     const content = typeof args.content === 'string' ? args.content : '';
     writeFileAtomic(resolve(context.projectRoot, relPath), content);
     return { path: relPath, bytes: Buffer.byteLength(content, 'utf8'), written: true };
+  }
+
+
+  if (name === 'wait_for_process') {
+    const processId = typeof args.processId === 'string' ? args.processId.trim() : '';
+    if (!processId) throw new Error('wait_for_process requires a processId.');
+    const requestedTimeout = Number.isInteger(args.timeoutMs) ? Number(args.timeoutMs) : DEFAULT_COMMAND_TIMEOUT_MS;
+    const timeoutMs = Math.min(Math.max(requestedTimeout, 1), MAX_COMMAND_TIMEOUT_MS);
+    const waitResult = await waitProcess(context.projectRoot, processId, timeoutMs);
+    return {
+      id: waitResult.id,
+      status: waitResult.status,
+      exitCode: waitResult.exitCode,
+      timedOut: waitResult.timedOut,
+      output: truncateOutput(tailOutput(context.projectRoot, waitResult.id, 200)),
+    };
+  }
+
+  if (name === 'kill_process') {
+    const processId = typeof args.processId === 'string' ? args.processId.trim() : '';
+    if (!processId) throw new Error('kill_process requires a processId.');
+    const signal = typeof args.signal === 'string' && args.signal.trim() ? args.signal.trim() as NodeJS.Signals : 'SIGTERM';
+    const record = await killProcess(context.projectRoot, processId, signal);
+    if (!record) throw new Error(`Unknown process '${processId}'.`);
+    return {
+      id: record.id,
+      status: record.status,
+      exitCode: record.exit_code ?? null,
+      signal: record.signal ?? null,
+      noOp: record.status !== 'running' && !getProcess(context.projectRoot, processId)?.pid,
+      output: truncateOutput(tailOutput(context.projectRoot, record.id, 200)),
+    };
   }
 
   if (name === 'run_project_command') {
