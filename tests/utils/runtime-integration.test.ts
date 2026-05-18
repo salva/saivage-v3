@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from '@jest/globals';
 import { existsSync, rmSync, mkdtempSync, readFileSync, mkdirSync, writeFileSync } from 'node:fs';
+import Fastify from 'fastify';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { initProjectTree } from '../../src/utils/file-tree.js';
@@ -637,6 +638,126 @@ describe('Runtime Integration', () => {
       expect(events).not.toContain('card_failed');
       expect(events).not.toContain('review_failed');
       expect(events).toContain('goal_completed');
+
+      await runtime.shutdown();
+    });
+  });
+
+
+  describe('Stage 3 executor status_text mirroring', () => {
+    it('persists terminal executor status_text metadata and latest_self_report on the card', async () => {
+      createHappyPathFixture();
+      const store = new CardStore(tmpDir);
+      makeGoalCard(store, 'goal-1', 'Happy Goal');
+
+      runtime = new Runtime(makeDefaultConfig());
+      await runtime.startup();
+      await runtime.dispatchGoal('goal-1');
+
+      const card = store.read('code-happy-1')!;
+      expect(card.status).toBe('done');
+      expect(card.status_text).toBe('Happy feature implemented');
+      expect(card.status_text_updated_at).toEqual(expect.any(String));
+      expect(Number.isNaN(Date.parse(card.status_text_updated_at!))).toBe(false);
+      expect(card.status_text_author_session_id).toMatch(/^fake-executor-/);
+      expect(card.latest_self_report).toEqual(expect.objectContaining({
+        result: 'done',
+        outcome: 'done',
+        summary: 'Happy feature implemented',
+        status_text: 'Happy feature implemented',
+        at: card.status_text_updated_at,
+      }));
+      expect(card.result).toEqual(expect.objectContaining({
+        evidence: 'happy feature implemented',
+        executor: { evidence: 'happy feature implemented' },
+        latest_self_report: card.latest_self_report,
+      }));
+
+      await runtime.shutdown();
+    });
+
+    it('surfaces mirrored terminal status_text in ancestor Goal Context and HTTP card payloads', async () => {
+      const fixture: FakeAgentFixture = {
+        name: 'status-context-goal',
+        planner: [
+          { created_cards: [{ id: 'code-status-context', type: 'code', title: 'Status Context Leaf', description: 'leaf', status: 'backlog', depends_on: [], priority: 1 }], status: 'continue' },
+          { updated_cards: [{ id: 'code-status-context', status: 'changed' }], status: 'blocked', blocked_reason: 'stop after observing child status' },
+        ],
+        executor: {
+          'code-status-context': { card_id: 'code-status-context', status: 'done', status_text: 'Leaf status visible to ancestor', result: { evidence: 'visible' } },
+        },
+        reviewer: [{ assessment: { id: 'review-status-context', goal_card_id: 'goal-status-context', reviewer_session_id: 'rev-status-context', assessment_id: 'assessment-status-context', at: '2025-01-01T00:00:00.000Z', result: 'pass', summary: 'Status context accepted', achieved: [], issues: [], evidence_card_ids: ['code-status-context'], created_at: new Date().toISOString() } }],
+      };
+      writeFixture(fixtureDir, 'status-context-goal', fixture);
+      const store = new CardStore(tmpDir);
+      makeGoalCard(store, 'goal-status-context', 'Status Context Goal');
+      const fakeAgent = new FakeAgentAdapter({ mapping: { 'goal-status-context': 'status-context-goal' }, fixtureDir });
+      const plannerPrompts: string[] = [];
+      const originalInvokePlanner = fakeAgent.invokePlanner.bind(fakeAgent);
+      fakeAgent.invokePlanner = ((goalId: string, systemPrompt?: string) => {
+        plannerPrompts.push(systemPrompt ?? '');
+        return originalInvokePlanner(goalId, systemPrompt);
+      }) as typeof fakeAgent.invokePlanner;
+
+      runtime = new Runtime(makeDefaultConfig({ 'goal-status-context': 'status-context-goal' }), fakeAgent);
+      await runtime.startup();
+      await runtime.dispatchGoal('goal-status-context');
+
+      expect(plannerPrompts.length).toBeGreaterThanOrEqual(2);
+      expect(plannerPrompts[1]).toContain('"status_text": "Leaf status visible to ancestor"');
+
+      const app = Fastify();
+      const { registerCardRoutes } = await import('../../src/server/routes/cards.js');
+      registerCardRoutes(app, tmpDir);
+      const response = await app.inject({ method: 'GET', url: '/api/cards/code-status-context' });
+      await app.close();
+      expect(response.statusCode).toBe(200);
+      expect(JSON.parse(response.payload).card).toEqual(expect.objectContaining({
+        id: 'code-status-context',
+        status_text: 'Leaf status visible to ancestor',
+      }));
+
+      await runtime.shutdown();
+    });
+
+    it('restart_card preserves mirrored status_text until the next executor run overwrites it', async () => {
+      createHappyPathFixture();
+      const store = new CardStore(tmpDir);
+      makeGoalCard(store, 'goal-1', 'Happy Goal');
+
+      runtime = new Runtime(makeDefaultConfig());
+      await runtime.startup();
+      await runtime.dispatchGoal('goal-1');
+      await runtime.shutdown();
+
+      const tools = await import('../../src/utils/planner-tools.js');
+      const service = new tools.PlannerToolsService(store, () => null);
+      const restarted = service.restartCard('code-happy-1');
+      expect(restarted.status).toBe('active');
+      expect(restarted.status_text).toBe('Happy feature implemented');
+      expect(restarted.latest_self_report).toEqual(expect.objectContaining({ status_text: 'Happy feature implemented' }));
+      expect(restarted.result).not.toHaveProperty('executor');
+      expect(restarted.result).toEqual(expect.objectContaining({ evidence: 'happy feature implemented' }));
+
+      store.setStatus('goal-1', 'backlog');
+
+      const rerunFixture: FakeAgentFixture = {
+        name: 'status-rerun-goal',
+        planner: [{ updated_cards: [], status: 'done' }],
+        executor: {
+          'code-happy-1': { card_id: 'code-happy-1', status: 'done', status_text: 'Happy feature rerun completed', result: { evidence: 'rerun' } },
+        },
+        reviewer: [{ assessment: { id: 'review-rerun', goal_card_id: 'goal-1', reviewer_session_id: 'rev-rerun', assessment_id: 'assessment-rerun', at: '2025-01-01T00:00:00.000Z', result: 'pass', summary: 'Rerun accepted', achieved: [], issues: [], evidence_card_ids: ['code-happy-1', 'code-happy-2'], created_at: new Date().toISOString() } }],
+      };
+      writeFixture(fixtureDir, 'status-rerun-goal', rerunFixture);
+      runtime = new Runtime(makeDefaultConfig({ 'goal-1': 'status-rerun-goal' }));
+      await runtime.startup();
+      await runtime.dispatchGoal('goal-1');
+
+      const rerun = store.read('code-happy-1')!;
+      expect(rerun.status).toBe('done');
+      expect(rerun.status_text).toBe('Happy feature rerun completed');
+      expect(rerun.latest_self_report).toEqual(expect.objectContaining({ status_text: 'Happy feature rerun completed' }));
 
       await runtime.shutdown();
     });

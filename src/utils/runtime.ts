@@ -261,7 +261,7 @@ export class Runtime extends EventEmitter {
     if (!goal) return `## Goal Context\n\nGoal card '${goalId}' not found.`;
     const childIds = this.cardStore.listChildren(goalId);
     const children = childIds.map((id) => this.cardStore.read(id)).filter((c): c is CardRecord => Boolean(c)).map((c) => ({
-      id: c.id, type: c.type, title: c.title, status: c.status, priority: c.priority,
+      id: c.id, type: c.type, title: c.title, status: c.status, status_text: c.status_text ?? null, priority: c.priority,
       depends_on: c.depends_on, tags: c.tags, acceptance: c.acceptance || null,
       result_summary: c.result && Object.keys(c.result).length > 0 ? Object.keys(c.result) : null,
       error: c.error ?? null,
@@ -271,8 +271,8 @@ export class Runtime extends EventEmitter {
       goal_card: {
         id: goal.id, type: goal.type, parent: goal.parent, depth: goal.depth,
         title: goal.title, description: goal.description, acceptance: goal.acceptance,
-        status: goal.status, tags: goal.tags, priority: goal.priority,
-        depends_on: goal.depends_on, blocks: goal.blocks,
+        status: goal.status, status_text: goal.status_text ?? null, tags: goal.tags, priority: goal.priority,
+        depends_on: goal.depends_on, blocks: goal.blocks, latest_self_report: goal.latest_self_report ?? null,
       },
       planning_state: planningState,
       children,
@@ -429,7 +429,24 @@ export class Runtime extends EventEmitter {
           const lastSessionId = (this.agentRuntime as FakeAgentAdapter).getLastSessionId?.('executor', goalId, card.id) ?? readRuntimeState(this.projectRoot)?.current_agent_session_id ?? null;
           if (execResult.status === 'done' && lastSessionId) await this.enforceBlockingNotifications(lastSessionId, 'executor', async () => undefined);
         } catch (err) { const errorMessage = err instanceof Error ? err.message : String(err); this.emit('error', { cardId: card.id, goalId, phase: 'executor', error: err }); this._eventLogger.appendEvent({ kind: 'error', card_id: card.id, goal_id: goalId, phase: 'executor', error_message: errorMessage }); this._errorLogger.appendError({ message: errorMessage, cardId: card.id, goalId, phase: 'executor' }); this.cardStore.setStatus(card.id, 'failed'); this.appendChildUnwindToolResult(card.id, 'failed', `Terminal card ${card.id} execution failed before producing a result.`); this.emit('card_failed', { cardId: card.id, goalId }); this._eventLogger.appendEvent({ kind: 'card_failed', card_id: card.id, goal_id: goalId }); failed = true; return { dispatchedGoal, executedTerminal, failed }; }
-        this.cardStore.update(card.id, { status: execResult.status, result: execResult.result ?? null, error: execResult.error ?? null });
+        const acceptedAt = now();
+        const lastSessionId = (this.agentRuntime as FakeAgentAdapter).getLastSessionId?.('executor', goalId, card.id) ?? readRuntimeState(this.projectRoot)?.active_card_run?.executor_session_id ?? readRuntimeState(this.projectRoot)?.current_agent_session_id ?? null;
+        const latestSelfReport = {
+          result: execResult.status,
+          outcome: execResult.status,
+          summary: execResult.summary ?? execResult.error ?? execResult.status_text,
+          status_text: execResult.status_text,
+          at: acceptedAt,
+        };
+        this.cardStore.update(card.id, {
+          status: execResult.status,
+          result: { ...(execResult.result ?? {}), executor: execResult.result ?? null, latest_self_report: latestSelfReport },
+          error: execResult.error ?? null,
+          status_text: execResult.status_text,
+          status_text_updated_at: acceptedAt,
+          status_text_author_session_id: lastSessionId,
+          latest_self_report: latestSelfReport,
+        });
         const artifactRegistrationErrors: string[] = []; const attachmentRegistrationErrors: string[] = [];
         if (execResult.artifacts && execResult.artifacts.length > 0) for (const artDef of execResult.artifacts) try { this.registerArtifactOnCard(card.id, { type: artDef.type, description: artDef.description, retain: artDef.retain }, artDef.sourceFile ?? artDef.path ?? ''); } catch (err) { const errorMessage = err instanceof Error ? err.message : String(err); artifactRegistrationErrors.push(errorMessage); this.emit('error', { cardId: card.id, phase: 'artifact_registration', error: err }); this._eventLogger.appendEvent({ kind: 'error', card_id: card.id, phase: 'artifact_registration', error_message: errorMessage }); this._errorLogger.appendError({ message: errorMessage, cardId: card.id, goalId, phase: 'artifact_registration' }); }
         if (execResult.attachments && execResult.attachments.length > 0) for (const attDef of execResult.attachments) try { this.registerAttachmentOnCard(card.id, { mime: attDef.mime, title: attDef.title, description: attDef.description }, attDef.sourceFile ?? attDef.path ?? ''); } catch (err) { const errorMessage = err instanceof Error ? err.message : String(err); attachmentRegistrationErrors.push(errorMessage); this.emit('error', { cardId: card.id, phase: 'attachment_registration', error: err }); this._eventLogger.appendEvent({ kind: 'error', card_id: card.id, phase: 'attachment_registration', error_message: errorMessage }); this._errorLogger.appendError({ message: errorMessage, cardId: card.id, goalId, phase: 'attachment_registration' }); }
