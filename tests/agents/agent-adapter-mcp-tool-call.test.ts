@@ -72,11 +72,11 @@ describe('AgentAdapter role tool + MCP policy', () => {
     return (adapter as any).processToolCall(tc, role, 'test-session-id');
   }
 
-  it('planner gets read-only workspace tools but not write/run tools', () => {
+  it('planner gets the authoritative §7 workspace tools and no MCP tool', () => {
     const tools = callBuildToolsForRole('planner').map((tool) => tool.function.name);
-    expect(tools).toEqual(expect.arrayContaining(['load_skill', 'list_project_files', 'read_project_file', 'mcp_tool_call']));
-    expect(tools).not.toContain('write_project_file');
-    expect(tools).not.toContain('run_project_command');
+    expect(tools).toEqual(expect.arrayContaining(['list_project_files', 'read_project_file', 'write_project_file', 'start_and_wait', 'run_project_command', 'wait_for_process', 'kill_process']));
+    expect(tools).not.toContain('load_skill');
+    expect(tools).not.toContain('mcp_tool_call');
   });
 
   it('reviewer gets read-only workspace tools but not write/run tools', () => {
@@ -98,7 +98,7 @@ describe('AgentAdapter role tool + MCP policy', () => {
     ]));
   });
 
-  it('planner MCP call is denied when tool is not read-only annotated', async () => {
+  it('planner MCP call is rejected as a non-authoritative planner tool', async () => {
     mockMcpManager.getServerTools.mockReturnValue([{ name: 'mutate', annotations: { readOnlyHint: false, destructiveHint: true } }]);
     const tc = {
       id: 'call-planner-denied',
@@ -107,7 +107,7 @@ describe('AgentAdapter role tool + MCP policy', () => {
     };
     const result = await callProcessToolCall(tc, 'planner');
     expect(result.kind).toBe('tool_error');
-    expect(result.content).toContain("Role 'planner' is not permitted");
+    expect(result.content).toContain("Unknown planner tool 'mcp_tool_call'");
     expect(mockMcpManager.invokeTool).not.toHaveBeenCalled();
   });
 
@@ -124,7 +124,7 @@ describe('AgentAdapter role tool + MCP policy', () => {
     expect(mockMcpManager.invokeTool).not.toHaveBeenCalled();
   });
 
-  it('planner MCP call is allowed for read-only annotated tools', async () => {
+  it('planner MCP call is not allowed even for read-only annotated tools', async () => {
     mockMcpManager.getServerTools.mockReturnValue([{ name: 'query', annotations: { readOnlyHint: true, destructiveHint: false } }]);
     mockMcpManager.invokeTool.mockResolvedValueOnce({ ok: true });
     const tc = {
@@ -133,8 +133,9 @@ describe('AgentAdapter role tool + MCP policy', () => {
       function: { name: 'mcp_tool_call', arguments: JSON.stringify({ serverName: 'svc', toolName: 'query', args: { q: 1 } }) },
     };
     const result = await callProcessToolCall(tc, 'planner');
-    expect(result.kind).toBe('tool_result');
-    expect(mockMcpManager.invokeTool).toHaveBeenCalledWith('svc', 'query', { q: 1 });
+    expect(result.kind).toBe('tool_error');
+    expect(result.content).toContain("Unknown planner tool 'mcp_tool_call'");
+    expect(mockMcpManager.invokeTool).not.toHaveBeenCalled();
   });
 
   it('executor MCP call remains allowed', async () => {
@@ -160,7 +161,7 @@ describe('AgentAdapter role tool + MCP policy', () => {
     };
     const result = await callProcessToolCall(tc, 'planner');
     expect(result.kind).toBe('tool_error');
-    expect(result.content).toContain('Invalid arguments');
+    expect(result.content).toContain("Unknown planner tool 'mcp_tool_call'");
   });
 
   it('other typed MCP failures still surface as tool_error content', async () => {
@@ -173,7 +174,7 @@ describe('AgentAdapter role tool + MCP policy', () => {
     };
     const result = await callProcessToolCall(tc, 'planner');
     expect(result.kind).toBe('tool_error');
-    expect(result.content).toContain('not running');
+    expect(result.content).toContain("Unknown planner tool 'mcp_tool_call'");
   });
 
   it('preserves coverage for other typed MCP errors', async () => {

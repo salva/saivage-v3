@@ -105,6 +105,24 @@ export const WORKSPACE_TOOL_DEFINITIONS: ToolDefinition[] = [
       },
     },
   },
+
+  {
+    type: 'function',
+    function: {
+      name: 'start_and_wait',
+      description: 'Run a shell command and wait for completion using the durable Saivage process runner.',
+      parameters: {
+        type: 'object',
+        properties: {
+          command: { type: 'string', description: 'Shell command to run.' },
+          cwd: { type: 'string', description: 'Optional project-relative working directory. Defaults to the project root.' },
+          timeoutMs: { type: 'integer', description: 'Timeout in milliseconds. Defaults to 120000 and is capped at 600000.' },
+        },
+        required: ['command'],
+        additionalProperties: false,
+      },
+    },
+  },
   {
     type: 'function',
     function: {
@@ -275,7 +293,7 @@ export async function processWorkspaceToolCall(
     };
   }
 
-  if (name === 'run_project_command') {
+  if (name === 'run_project_command' || name === 'start_and_wait') {
     const command = typeof args.command === 'string' ? args.command.trim() : '';
     if (!command) throw new Error('run_project_command requires a non-empty command.');
     const cwd = projectAbsolutePath(context.projectRoot, typeof args.cwd === 'string' ? args.cwd : undefined, 'cwd');

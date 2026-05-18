@@ -198,6 +198,10 @@ function historyPath(projectRoot: string, id: string): string {
   return join(historyDir(projectRoot), `${id}.history.jsonl`);
 }
 
+function archiveCardPath(projectRoot: string, id: string): string {
+  return join(projectRoot, '.saivage', 'archive', 'cards', `${id}.json`);
+}
+
 export class CardStore {
   private projectRoot: string;
   private validatedPersistedState = false;
@@ -661,6 +665,53 @@ export class CardStore {
     return Array.from(fields)
       .filter((field) => !valuesEqual(from[field], to[field]))
       .map((field) => ({ field, before: from[field], after: to[field] }));
+  }
+
+  archiveAndDeleteSubtree(ids: string[]): void {
+    this.ensurePersistedStateValidated();
+    const idSet = new Set(ids);
+    const cards = ids.map((id) => {
+      const card = this.read(id);
+      if (!card) throw new Error(`Card '${id}' not found.`);
+      return card;
+    });
+    for (const card of cards) {
+      for (const childId of this.loadChildren(card.id)) {
+        if (!idSet.has(childId)) throw new Error(`Card '${card.id}' has child '${childId}' outside the requested delete set.`);
+      }
+      const archivePath = archiveCardPath(this.projectRoot, card.id);
+      if (existsSync(archivePath)) throw new Error(`Archive already exists for card '${card.id}'.`);
+    }
+
+    const archiveDir = join(this.projectRoot, '.saivage', 'archive', 'cards');
+    mkdirSync(archiveDir, { recursive: true });
+    for (const card of cards) {
+      const historyFile = historyPath(this.projectRoot, card.id);
+      const archivePayload = {
+        archived_at: now(),
+        card,
+        children: this.loadChildren(card.id),
+        history: existsSync(historyFile) ? readFileSync(historyFile, 'utf-8') : '',
+        notes_ref: join('.saivage', 'notes', `${card.id}.jsonl`),
+        result: card.result,
+        evidence_refs: { artifacts: card.artifacts, attachments: card.attachments },
+      };
+      writeJson(archiveCardPath(this.projectRoot, card.id), archivePayload);
+    }
+
+    const sorted = [...cards].sort((a, b) => b.depth - a.depth);
+    for (const card of sorted) {
+      if (card.parent !== null && !idSet.has(card.parent)) this.removeFromChildren(card.parent, card.id);
+      this.removeFromIndex(card.id);
+      this.removeFromDependsOnAll(card.id);
+      const childFile = childrenPath(this.projectRoot, card.id);
+      if (existsSync(childFile)) unlinkSync(childFile);
+      const cardFile = cardPath(this.projectRoot, card.id);
+      if (existsSync(cardFile)) unlinkSync(cardFile);
+      const histFile = historyPath(this.projectRoot, card.id);
+      if (existsSync(histFile)) unlinkSync(histFile);
+    }
+    this.recomputeBlocks();
   }
 
   delete(id: string): void {

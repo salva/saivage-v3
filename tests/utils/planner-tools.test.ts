@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from '@jest/globals';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { initProjectTree } from '../../src/utils/file-tree.js';
@@ -74,7 +74,14 @@ describe('PlannerToolsService', () => {
     }
   });
 
-  it('rejects activation of terminal cards with terminal_card_requires_restart', () => {
+  it('reactivates terminal goal/project cards but rejects terminal non-goal cards with terminal_card_requires_restart', () => {
+    const goal = store.create(makeCard({ type: 'goal', title: 'Goal B', status: 'done' }));
+    expect(tools.activateCard(goal.id).status).toBe('active');
+
+    const project = store.read('project')!;
+    store.update(project.id, { status: 'failed' });
+    expect(tools.activateCard(project.id).status).toBe('active');
+
     const card = store.create(makeCard({ type: 'code', title: 'Leaf B', status: 'done' }));
     try {
       tools.activateCard(card.id);
@@ -116,7 +123,7 @@ describe('PlannerToolsService', () => {
     expect(() => tools.activateCard(card.id)).toThrow(PlannerToolError);
   });
 
-  it('cancels only allowed statuses, including project force-cancel, and refuses subtrees containing an active descendant leaf', () => {
+  it('cancels only backlog/active/changed, writes synthetic cancellation report, and refuses active descendant leaf', () => {
     const goal = store.create(makeCard({ type: 'goal', title: 'Goal Parent' }));
     const child = store.create(makeCard({ id: 'code-1', type: 'code', title: 'Child', parent: goal.id, status: 'active' }));
     runtimeState = {
@@ -149,12 +156,18 @@ describe('PlannerToolsService', () => {
     expect(() => tools.cancelCard(goal.id)).toThrow(PlannerToolError);
     runtimeState = null;
     store.update(child.id, { status: 'backlog' });
-    expect(tools.cancelCard(goal.id).status).toBe('cancelled');
+    const cancelledGoal = tools.cancelCard(goal.id);
+    expect(cancelledGoal.status).toBe('cancelled');
+    expect(cancelledGoal.latest_self_report).toEqual(expect.objectContaining({ result: 'failed', outcome: 'failed', reason: 'cancelled' }));
 
     const project = store.read('project')!;
     store.update(project.id, { status: 'changed' });
     const cancelledProject = tools.cancelCard(project.id);
     expect(cancelledProject.status).toBe('cancelled');
+
+    store.update(project.id, { status: 'active' });
+    const blocked = store.create(makeCard({ type: 'code', title: 'Blocked Leaf', status: 'blocked' }));
+    expect(() => tools.cancelCard(blocked.id)).toThrow(PlannerToolError);
   });
 
   it('blocks delete and restart while the active runtime leaf is inside the target subtree', () => {
@@ -198,15 +211,30 @@ describe('PlannerToolsService', () => {
     }
   });
 
-  it('deletes only cancelled or terminal cards', () => {
-    const active = store.create(makeCard({ type: 'code', title: 'Active Leaf', status: 'active' }));
-    expect(() => tools.deleteCard(active.id)).toThrow(/cancelled or terminal/i);
-    const cancelled = store.create(makeCard({ type: 'code', title: 'Cancelled Leaf', status: 'cancelled' }));
-    tools.deleteCard(cancelled.id);
-    expect(store.read(cancelled.id)).toBeNull();
+  it('archives and cascades destructive delete and leaves no partial mutation on preflight failure', () => {
+    const goal = store.create(makeCard({ id: 'goal-delete', type: 'goal', title: 'Delete Goal', status: 'backlog', result: { review: { result: 'pass' } } }));
+    const child = store.create(makeCard({ id: 'goal-delete-child', type: 'goal', title: 'Delete Child', parent: goal.id, status: 'backlog', attachments: [{ id: 'att-1', card_id: 'goal-delete-child', path: 'artifact.txt', mime: 'text/plain', title: 'artifact', created_at: new Date().toISOString() }], result: { executor: { ok: true } } }));
+    const grandchild = store.create(makeCard({ id: 'test-delete-grandchild', type: 'test', title: 'Delete Grandchild', parent: child.id, status: 'cancelled' }));
+    store.update(child.id, { status: 'blocked' });
+    store.update(goal.id, { status: 'done' });
+    tools.deleteCard(goal.id);
+    for (const id of [goal.id, child.id, grandchild.id]) {
+      expect(store.read(id)).toBeNull();
+      const archivePath = join(root, '.saivage', 'archive', 'cards', `${id}.json`);
+      expect(existsSync(archivePath)).toBe(true);
+      expect(JSON.parse(readFileSync(archivePath, 'utf-8')).card.id).toBe(id);
+    }
+
+    const parent = store.create(makeCard({ id: 'goal-rollback', type: 'goal', title: 'Rollback Goal', status: 'backlog' }));
+    const active = store.create(makeCard({ id: 'code-rollback-active', type: 'code', title: 'Active Child', parent: parent.id, status: 'active' }));
+    store.update(parent.id, { status: 'done' });
+    expect(() => tools.deleteCard(parent.id)).toThrow(PlannerToolError);
+    expect(store.read(parent.id)?.status).toBe('done');
+    expect(store.read(active.id)?.status).toBe('active');
+    expect(existsSync(join(root, '.saivage', 'archive', 'cards', `${parent.id}.json`))).toBe(false);
   });
 
-  it('restarts terminal goal and project cards and clears mirrored report fields', () => {
+  it('restarts terminal/changed cards to active, clears documented result fields, and preserves status_text', () => {
     const goal = store.create(makeCard({
       type: 'goal',
       title: 'Goal Restart',
@@ -215,20 +243,26 @@ describe('PlannerToolsService', () => {
       status_text_updated_at: new Date().toISOString(),
       status_text_author_session_id: 'planner-1',
       latest_self_report: { outcome: 'done' },
-      result: { latest_self_report: { outcome: 'done' } },
+      result: { latest_self_report: { outcome: 'done' }, review: { result: 'pass' }, keep: true },
     }));
     const restarted = tools.restartCard(goal.id);
-    expect(restarted.status).toBe('backlog');
-    expect(restarted.result).toBeNull();
-    expect(restarted.status_text).toBeNull();
+    expect(restarted.status).toBe('active');
+    expect(restarted.result).toEqual({ latest_self_report: { outcome: 'done' }, keep: true });
+    expect(restarted.status_text).toBe('old');
     expect(restarted.latest_self_report).toBeNull();
 
     const project = store.read('project')!;
-    store.update(project.id, { status: 'failed', status_text: 'broken', latest_self_report: { outcome: 'failed' }, result: { latest_self_report: { outcome: 'failed' } } });
+    store.update(project.id, { status: 'failed', status_text: 'broken', latest_self_report: { outcome: 'failed' }, result: { latest_self_report: { outcome: 'failed' }, review: { result: 'needs_corrections' } } });
     const restartedProject = tools.restartCard(project.id);
-    expect(restartedProject.status).toBe('backlog');
-    expect(restartedProject.status_text).toBeNull();
+    expect(restartedProject.status).toBe('active');
+    expect(restartedProject.status_text).toBe('broken');
     expect(restartedProject.latest_self_report).toBeNull();
+
+    const leaf = store.create(makeCard({ type: 'code', title: 'Leaf Restart', status: 'changed', status_text: 'leaf old', result: { executor: { ok: false }, keep: true } }));
+    const restartedLeaf = tools.restartCard(leaf.id);
+    expect(restartedLeaf.status).toBe('active');
+    expect(restartedLeaf.status_text).toBe('leaf old');
+    expect(restartedLeaf.result).toEqual({ keep: true });
   });
 
   it('requires status_text and mirrors accepted goal reports', () => {

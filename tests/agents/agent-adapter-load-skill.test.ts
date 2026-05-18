@@ -122,10 +122,12 @@ describe('AgentAdapter load_skill tool', () => {
       return (adapter as any).buildToolsForRole(role);
     }
 
-    it('returns tools including load_skill for planner', () => {
+    it('returns authoritative §7 tools without load_skill for planner', () => {
       const tools = callBuildToolsForRole('planner');
-      expect(tools.length).toBeGreaterThanOrEqual(2);
-      expect(tools[0].function.name).toBe('load_skill');
+      const names = tools.map((tool) => tool.function.name);
+      expect(names).toContain('create_card');
+      expect(names).toContain('activate_card');
+      expect(names).not.toContain('load_skill');
     });
 
     it('returns tools including load_skill for executor', () => {
@@ -308,7 +310,7 @@ describe('AgentAdapter load_skill tool', () => {
 
       const result = await callProcessToolCall(tc, 'planner');
       expect(result.kind).toBe('tool_error');
-      expect(result.content).toContain('SkillsEngine not configured');
+      expect(result.content).toContain("Unknown planner tool 'load_skill'");
     });
 
     it('returns error for unknown tool name', async () => {
@@ -320,7 +322,7 @@ describe('AgentAdapter load_skill tool', () => {
 
       const result = await callProcessToolCall(tc, 'planner');
       expect(result.kind).toBe('tool_error');
-      expect(result.content).toContain('Unknown tool');
+      expect(result.content).toContain('Unknown planner tool');
       expect(result.content).toContain('unknown_fancy_tool');
     });
 
@@ -333,7 +335,7 @@ describe('AgentAdapter load_skill tool', () => {
 
       const result = await callProcessToolCall(tc, 'planner');
       expect(result.kind).toBe('tool_error');
-      expect(result.content).toContain('SkillsEngine not configured');
+      expect(result.content).toContain("Unknown planner tool 'load_skill'");
     });
 
     it('returns error for load_skill with empty arguments object', async () => {
@@ -345,7 +347,7 @@ describe('AgentAdapter load_skill tool', () => {
 
       const result = await callProcessToolCall(tc, 'planner');
       expect(result.kind).toBe('tool_error');
-      expect(result.content).toContain('SkillsEngine not configured');
+      expect(result.content).toContain("Unknown planner tool 'load_skill'");
     });
   });
 
@@ -450,10 +452,11 @@ describe('AgentAdapter load_skill tool', () => {
       return (adapter as any).processToolCall(tc, role, 'test-session-id');
     }
 
-    it('builds tools for planner and includes load_skill', () => {
+    it('builds authoritative tools for planner without load_skill', () => {
       const tools = callBuildToolsForRole('planner');
-      expect(tools.length).toBeGreaterThanOrEqual(2);
-      expect(tools[0].function.name).toBe('load_skill');
+      const names = tools.map((tool) => tool.function.name);
+      expect(names).toContain('create_card');
+      expect(names).not.toContain('load_skill');
     });
 
     it('parses a tool_calls JSON for load_skill', () => {
@@ -472,7 +475,7 @@ describe('AgentAdapter load_skill tool', () => {
       expect(parsed![0].function.name).toBe('load_skill');
     });
 
-    it('processes a load_skill tool call successfully with real SkillsEngine', async () => {
+    it('rejects planner load_skill because it is not in authoritative §7', async () => {
       const tc = {
         id: 'call_int_2',
         type: 'function' as const,
@@ -482,12 +485,9 @@ describe('AgentAdapter load_skill tool', () => {
       const result = await callProcessToolCall(tc, 'planner');
 
       expect(result.role).toBe('tool');
-      expect(result.kind).toBe('tool_result');
-      expect(result.content).toContain('--- SKILL: docs-guide ---');
-      expect(result.content).toContain('# Docs Guide');
-      expect(result.content).toContain('Write good docs.');
-      expect(result.content).toContain('--- END SKILL ---');
-      expect(result.tool).toBe('load_skill:docs-guide');
+      expect(result.kind).toBe('tool_error');
+      expect(result.content).toContain("Unknown planner tool 'load_skill'");
+      expect(result.tool).toBe('load_skill');
     });
 
     it('returns tool_error for non-existent skill with real SkillsEngine', async () => {
@@ -501,7 +501,7 @@ describe('AgentAdapter load_skill tool', () => {
 
       expect(result.role).toBe('tool');
       expect(result.kind).toBe('tool_error');
-      expect(result.content).toContain('not found in index');
+      expect(result.content).toContain("Unknown planner tool 'load_skill'");
     });
 
     it('returns tool_error for analyst role with real SkillsEngine', async () => {
@@ -519,7 +519,7 @@ describe('AgentAdapter load_skill tool', () => {
       expect(result.content).toContain('analyst');
     });
 
-    it('includes the skill content as delimited block in tool result', async () => {
+    it('rejects planner load_skill instead of returning delimited skill content', async () => {
       const tc = {
         id: 'call_int_5',
         type: 'function' as const,
@@ -528,11 +528,8 @@ describe('AgentAdapter load_skill tool', () => {
 
       const result = await callProcessToolCall(tc, 'planner');
 
-      expect(result.content.startsWith('--- SKILL:')).toBe(true);
-      expect(result.content.endsWith('--- END SKILL ---')).toBe(true);
-      const lines = result.content.split('\n');
-      expect(lines[0]).toBe('--- SKILL: docs-guide ---');
-      expect(lines[lines.length - 1]).toBe('--- END SKILL ---');
+      expect(result.kind).toBe('tool_error');
+      expect(result.content).toContain("Unknown planner tool 'load_skill'");
     });
   });
 });

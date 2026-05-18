@@ -53,17 +53,16 @@ describe('AgentAdapter planner tool surface', () => {
     rmSync(tmpDir, { recursive: true, force: true });
   });
 
-  it('exposes the stage-3 planner tool list and omits obsolete planner tools', () => {
+  it('exposes exactly the authoritative docs §7 planner tool list', () => {
     const toolNames = adapter.getToolNamesForRole('planner');
-    expect(toolNames).toEqual(expect.arrayContaining(['activate_card', 'cancel_card', 'delete_card', 'restart_card', 'report_goal_done', 'report_goal_failed', 'report_goal_blocked']));
-    const obsoleteToolNames = [
-      ['start', 'planner'].join('_'),
-      ['start', 'executor'].join('_'),
-      ['run', 'card'].join('_'),
-      ['set', 'status', 'text'].join('_'),
-      ['acknowledge', 'notification'].join('_'),
-    ];
-    for (const obsolete of obsoleteToolNames) expect(toolNames).not.toContain(obsolete);
+    expect(toolNames).toEqual([
+      'create_card', 'edit_card', 'add_note', 'list_cards', 'get_card', 'get_tree',
+      'list_card_history', 'get_card_history_entry', 'diff_card',
+      'list_project_files', 'read_project_file', 'write_project_file', 'wait_for_process',
+      'kill_process', 'start_and_wait', 'run_project_command',
+      'activate_card', 'cancel_card', 'delete_card', 'restart_card',
+      'report_goal_done', 'report_goal_failed', 'report_goal_blocked',
+    ]);
   });
 
   it('requires status_text on all report_goal_* definitions', () => {
@@ -83,15 +82,9 @@ describe('AgentAdapter planner tool surface', () => {
     expect(store.read(goal.id)?.status).toBe('backlog');
   });
 
-  it('surfaces named planner validation failures through PlannerToolsService', () => {
-    const goal = store.create(makeCard({ type: 'goal', title: 'Goal B', status: 'done' }));
-    const service = new PlannerToolsService(store);
-    try {
-      service.activateCard(goal.id);
-      throw new Error('expected terminal activation to fail');
-    } catch (error) {
-      expect(error).toBeInstanceOf(PlannerToolError);
-      expect((error as PlannerToolError).kind).toBe('terminal_card_requires_restart');
-    }
+  it('hard-errors non-authoritative planner tool names', async () => {
+    const result = await (adapter as any).processToolCall({ id: 'call-unknown', type: 'function', function: { name: 'set_status_text', arguments: '{}' } }, 'planner', 'planner-session', { goalId: 'project', cardId: 'project' });
+    expect(result.kind).toBe('tool_error');
+    expect(result.content).toContain("Unknown planner tool 'set_status_text'");
   });
 });

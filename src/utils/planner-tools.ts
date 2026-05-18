@@ -8,7 +8,8 @@ export type PlannerToolErrorKind =
   | 'subtree_not_ready'
   | 'invalid_evidence'
   | 'terminal_card_requires_restart'
-  | 'card_already_active';
+  | 'card_already_active'
+  | 'invalid_card_status';
 
 export type SubtreeReadinessReason = { kind: 'descendant_blocking'; card_id: string; status: 'blocked' | 'changed' };
 
@@ -58,8 +59,10 @@ export interface PlannerToolsServiceOptions {
   assessmentIdFactory?: () => string;
 }
 
-const TERMINAL_STATUSES = new Set<CardStatus>(['done', 'failed', 'cancelled']);
-const CANCELLABLE_STATUSES = new Set<CardStatus>(['backlog', 'active', 'blocked', 'changed']);
+const TERMINAL_STATUSES = new Set<CardStatus>(['done', 'failed', 'blocked', 'cancelled']);
+const CANCELLABLE_STATUSES = new Set<CardStatus>(['backlog', 'active', 'changed']);
+const DELETE_ALLOWED_STATUSES = new Set<CardStatus>(['backlog', 'done', 'failed', 'blocked', 'cancelled']);
+const RESTART_ALLOWED_STATUSES = new Set<CardStatus>(['done', 'failed', 'blocked', 'cancelled', 'changed']);
 const REPORTABLE_OUTCOMES: Record<'report_goal_done' | 'report_goal_failed' | 'report_goal_blocked', Extract<CardStatus, 'done' | 'failed' | 'blocked'>> = {
   report_goal_done: 'done',
   report_goal_failed: 'failed',
@@ -76,6 +79,8 @@ function requireCard(store: CardStore, cardId: string): CardRecord {
   if (!card) throw new Error(`Card '${cardId}' not found.`);
   return card;
 }
+
+function isGoalLike(card: CardRecord): boolean { return card.type === 'goal' || card.type === 'project'; }
 
 function subtreeContainsActiveLeaf(store: CardStore, state: RuntimeState | null, cardId: string): boolean {
   const activeLeaf = state?.active_card_run?.card_id;
@@ -154,7 +159,7 @@ export class PlannerToolsService {
     if (card.status === 'active' || card.status === 'running') {
       throw new PlannerToolError('card_already_active', `Card '${cardId}' is already active.`);
     }
-    if (TERMINAL_STATUSES.has(card.status)) {
+    if (TERMINAL_STATUSES.has(card.status) && !isGoalLike(card)) {
       throw new PlannerToolError('terminal_card_requires_restart', `Card '${cardId}' is terminal and must be restarted before activation.`);
     }
     return this.store.update(cardId, { status: 'active' });
@@ -163,28 +168,33 @@ export class PlannerToolsService {
   cancelCard(cardId: string): CardRecord {
     const card = requireCard(this.store, cardId);
     if (!CANCELLABLE_STATUSES.has(card.status)) {
-      throw new Error(`Card '${cardId}' in status '${card.status}' cannot be cancelled.`);
+      throw new PlannerToolError('invalid_card_status', `Card '${cardId}' in status '${card.status}' cannot be cancelled.`);
     }
     if (subtreeContainsActiveLeaf(this.store, this.runtimeStateProvider?.() ?? null, cardId)) {
       throw new PlannerToolError('card_already_active', `Card '${cardId}' cannot be cancelled while its subtree contains the active runtime leaf.`);
     }
-    return this.store.update(cardId, { status: 'cancelled' });
+    const changes: Partial<CardRecord> = { status: 'cancelled' };
+    if (!card.latest_self_report) {
+      changes.latest_self_report = { result: 'failed', outcome: 'failed', reason: 'cancelled', at: new Date().toISOString() };
+    }
+    return this.store.update(cardId, changes);
   }
 
   deleteCard(cardId: string): void {
-    const card = requireCard(this.store, cardId);
-    if (subtreeContainsActiveLeaf(this.store, this.runtimeStateProvider?.() ?? null, cardId)) {
-      throw new PlannerToolError('card_already_active', `Card '${cardId}' cannot be deleted while its subtree contains the active runtime leaf.`);
+    const root = requireCard(this.store, cardId);
+    const ids = [cardId, ...this.store.getDescendantIds(cardId)];
+    const runtimeState = this.runtimeStateProvider?.() ?? null;
+    for (const id of ids) {
+      const card = requireCard(this.store, id);
+      if (runtimeState?.active_card_run?.card_id === id) {
+        throw new PlannerToolError('card_already_active', `Card '${cardId}' cannot be deleted while its subtree contains the active runtime leaf.`);
+      }
+      if (!DELETE_ALLOWED_STATUSES.has(card.status)) {
+        throw new PlannerToolError('invalid_card_status', `Card '${id}' in status '${card.status}' cannot be deleted.`);
+      }
     }
-    if (card.status !== 'cancelled' && !TERMINAL_STATUSES.has(card.status)) {
-      throw new Error(`Card '${cardId}' must be cancelled or terminal before deletion.`);
-    }
-    if (card.status !== 'cancelled') {
-      this.store.update(cardId, { status: 'backlog' });
-      this.store.update(cardId, { status: 'cancelled' });
-    }
-    this.store.update(cardId, { status: 'drafting' });
-    this.store.delete(cardId);
+    void root;
+    this.store.archiveAndDeleteSubtree(ids);
   }
 
   restartCard(cardId: string): CardRecord {
@@ -192,24 +202,25 @@ export class PlannerToolsService {
     if (subtreeContainsActiveLeaf(this.store, this.runtimeStateProvider?.() ?? null, cardId)) {
       throw new PlannerToolError('card_already_active', `Card '${cardId}' cannot be restarted while its subtree contains the active runtime leaf.`);
     }
-    if (!TERMINAL_STATUSES.has(card.status)) {
-      throw new Error(`Card '${cardId}' is not terminal and cannot be restarted.`);
+    if (!RESTART_ALLOWED_STATUSES.has(card.status)) {
+      throw new PlannerToolError('invalid_card_status', `Card '${cardId}' in status '${card.status}' cannot be restarted.`);
     }
+    const currentResult = cloneResult(card);
+    if (isGoalLike(card)) delete currentResult.review;
+    else delete currentResult.executor;
     this.store.update(cardId, { status: 'backlog' });
     const changes: Partial<CardRecord> = {
-      result: null,
+      result: Object.keys(currentResult).length > 0 ? currentResult : null,
       error: null,
       completed_at: null,
       duration_ms: null,
       retries: 0,
     };
-    if (card.type === 'goal' || card.type === 'project') {
-      changes.status_text = null;
-      changes.status_text_updated_at = null;
-      changes.status_text_author_session_id = null;
+    if (isGoalLike(card)) {
       changes.latest_self_report = null;
     }
-    return this.store.update(cardId, changes);
+    this.store.update(cardId, changes);
+    return this.store.update(cardId, { status: 'active' });
   }
 
   reportGoal(toolName: keyof typeof REPORTABLE_OUTCOMES, goalId: string, input: ReportGoalInput, sessionId?: string): ReportGoalResult {

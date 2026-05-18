@@ -27,6 +27,7 @@ describe('workspace tools', () => {
       'write_project_file',
       'wait_for_process',
       'kill_process',
+      'start_and_wait',
       'run_project_command',
     ]);
   });

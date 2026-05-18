@@ -41,11 +41,53 @@ function tool(name: string, description: string, properties: Record<string, unkn
   return { type: 'function', function: { name, description, parameters: { type: 'object', properties, required, additionalProperties: false } } };
 }
 
+const PLANNER_CARD_TOOL_NAMES = new Set([
+  'create_card',
+  'edit_card',
+  'add_note',
+  'list_cards',
+  'get_card',
+  'get_tree',
+  'list_card_history',
+  'get_card_history_entry',
+  'diff_card',
+]);
+
+const AUTHORITATIVE_PLANNER_TOOL_NAMES = [
+  'create_card',
+  'edit_card',
+  'cancel_card',
+  'delete_card',
+  'restart_card',
+  'add_note',
+  'list_cards',
+  'get_card',
+  'get_tree',
+  'list_card_history',
+  'get_card_history_entry',
+  'diff_card',
+  'list_project_files',
+  'read_project_file',
+  'write_project_file',
+  'start_and_wait',
+  'run_project_command',
+  'wait_for_process',
+  'kill_process',
+  'activate_card',
+  'report_goal_done',
+  'report_goal_failed',
+  'report_goal_blocked',
+] as const;
+
+const PLANNER_CARD_TOOL_DEFINITIONS = ANALYST_TOOL_DEFINITIONS.filter((entry) => PLANNER_CARD_TOOL_NAMES.has(entry.function.name));
+
 const PLANNER_TOOL_DEFINITIONS: ToolDefinition[] = [
+  ...PLANNER_CARD_TOOL_DEFINITIONS,
+  ...WORKSPACE_TOOL_DEFINITIONS,
   tool('activate_card', 'Activate a card so runtime can proceed with the next planner-controlled step.', { cardId: str('The ID of the card to activate.') }, ['cardId']),
   tool('cancel_card', 'Cancel a planner-managed card.', { cardId: str('The ID of the card to cancel.') }, ['cardId']),
-  tool('delete_card', 'Delete a cancelled or terminal card.', { cardId: str('The ID of the card to delete.') }, ['cardId']),
-  tool('restart_card', 'Restart a terminal card so it can be activated again.', { cardId: str('The ID of the card to restart.') }, ['cardId']),
+  tool('delete_card', 'Delete a backlog or terminal card and cascade through descendants.', { cardId: str('The ID of the card to delete.') }, ['cardId']),
+  tool('restart_card', 'Restart a terminal or changed card so it can be activated again.', { cardId: str('The ID of the card to restart.') }, ['cardId']),
   tool('report_goal_done', 'Report a goal or project as done. Requires non-empty status_text and optional evidence_card_ids.', {
     goalId: str('The goal or project card ID to report done.'),
     status_text: str('Required concise terminal status shown on the goal card.'),
@@ -67,7 +109,8 @@ const PLANNER_TOOL_DEFINITIONS: ToolDefinition[] = [
     evidence_card_ids: arr(str('A descendant done card ID.'), 'Optional evidence card IDs supporting the report.'),
     report: { type: 'object', description: 'Optional full self-report payload.', additionalProperties: true },
   }, ['goalId', 'status_text']),
-];
+].filter((tool, index, all) => all.findIndex((candidate) => candidate.function.name === tool.function.name) === index);
+
 
 const AGENT_TOOL_NAMES_BY_ROLE: Record<AgentRole, string[]> = {
   analyst: ['lets_dance','mark_goal_needs_corrections','mark_project_needs_corrections','list_card_history','get_card_history_entry','diff_card','list_notes','get_note','mark_note_handled'],
@@ -77,13 +120,19 @@ const AGENT_TOOL_NAMES_BY_ROLE: Record<AgentRole, string[]> = {
 };
 
 const TOOL_MATRIX: Record<AgentRole, ToolDefinition[]> = {
-  planner: [LOAD_SKILL_TOOL_DEFINITION, ...READ_ONLY_WORKSPACE_TOOL_DEFINITIONS, ...ANALYST_TOOL_DEFINITIONS.filter((tool) => AGENT_TOOL_NAMES_BY_ROLE.planner.includes(tool.function.name)), ...PLANNER_TOOL_DEFINITIONS, MCP_TOOL_CALL_TOOL_DEFINITION],
+  planner: PLANNER_TOOL_DEFINITIONS,
   executor: [LOAD_SKILL_TOOL_DEFINITION, ...WORKSPACE_TOOL_DEFINITIONS, ...ANALYST_TOOL_DEFINITIONS.filter((tool) => AGENT_TOOL_NAMES_BY_ROLE.executor.includes(tool.function.name)), MCP_TOOL_CALL_TOOL_DEFINITION],
   reviewer: [LOAD_SKILL_TOOL_DEFINITION, ...READ_ONLY_WORKSPACE_TOOL_DEFINITIONS, ...ANALYST_TOOL_DEFINITIONS.filter((tool) => AGENT_TOOL_NAMES_BY_ROLE.reviewer.includes(tool.function.name)), MCP_TOOL_CALL_TOOL_DEFINITION],
   analyst: [...ANALYST_TOOL_DEFINITIONS.filter((tool) => AGENT_TOOL_NAMES_BY_ROLE.analyst.includes(tool.function.name))],
 };
 
 const RUNTIME_AGENT_TOOL_REGISTRY: Record<string, (ctx: analystTools.ToolContext, params: Record<string, unknown>) => Promise<analystTools.ToolResult>> = {
+  create_card: analystTools.create_card as unknown as (ctx: analystTools.ToolContext, params: Record<string, unknown>) => Promise<analystTools.ToolResult>,
+  edit_card: analystTools.edit_card as unknown as (ctx: analystTools.ToolContext, params: Record<string, unknown>) => Promise<analystTools.ToolResult>,
+  add_note: analystTools.add_note as unknown as (ctx: analystTools.ToolContext, params: Record<string, unknown>) => Promise<analystTools.ToolResult>,
+  list_cards: analystTools.list_cards as unknown as (ctx: analystTools.ToolContext, params: Record<string, unknown>) => Promise<analystTools.ToolResult>,
+  get_card: analystTools.get_card as unknown as (ctx: analystTools.ToolContext, params: Record<string, unknown>) => Promise<analystTools.ToolResult>,
+  get_tree: analystTools.get_tree as unknown as (ctx: analystTools.ToolContext, params: Record<string, unknown>) => Promise<analystTools.ToolResult>,
   list_card_history: analystTools.list_card_history as unknown as (ctx: analystTools.ToolContext, params: Record<string, unknown>) => Promise<analystTools.ToolResult>,
   get_card_history_entry: analystTools.get_card_history_entry as unknown as (ctx: analystTools.ToolContext, params: Record<string, unknown>) => Promise<analystTools.ToolResult>,
   diff_card: analystTools.diff_card as unknown as (ctx: analystTools.ToolContext, params: Record<string, unknown>) => Promise<analystTools.ToolResult>,
@@ -182,6 +231,21 @@ export class AgentAdapter implements AgentRuntime {
   private parseToolCallsFromResponse(rawResponse: string): Array<{ id: string; type: string; function: { name: string; arguments: string } }> | null { try { const parsed = JSON.parse(rawResponse); if (parsed && typeof parsed === 'object' && Array.isArray(parsed.toolCalls) && parsed.toolCalls.length > 0) return parsed.toolCalls; } catch {} return null; }
 
   private async processToolCall(tc: { id: string; type: string; function: { name: string; arguments: string } }, role: AgentRole, sessionId: string, invocation?: { goalId?: string; cardId?: string }): Promise<{ role: 'tool'; kind: 'tool_result' | 'tool_error'; content: string; tool: string; tool_call_id: string }> {
+    if (role === 'planner' && !AUTHORITATIVE_PLANNER_TOOL_NAMES.includes(tc.function.name as typeof AUTHORITATIVE_PLANNER_TOOL_NAMES[number])) {
+      return { role: 'tool', kind: 'tool_error', content: `Unknown planner tool '${tc.function.name}'.`, tool: tc.function.name, tool_call_id: tc.id };
+    }
+    if (role === 'planner' && PLANNER_CARD_TOOL_NAMES.has(tc.function.name)) {
+      let args: Record<string, unknown> = {};
+      try { args = JSON.parse(tc.function.arguments); } catch {}
+      try {
+        const fn = RUNTIME_AGENT_TOOL_REGISTRY[tc.function.name];
+        if (!fn) throw new Error(`Planner tool '${tc.function.name}' is not routed.`);
+        const result = await fn({ projectRoot: this.projectRoot, actor: role, surface: 'runtime', sessionId }, args);
+        return { role: 'tool', kind: result.success ? 'tool_result' : 'tool_error', content: JSON.stringify(result), tool: tc.function.name, tool_call_id: tc.id };
+      } catch (err) {
+        return { role: 'tool', kind: 'tool_error', content: JSON.stringify({ success: false, error: err instanceof Error ? err.message : String(err) }), tool: tc.function.name, tool_call_id: tc.id };
+      }
+    }
     if (RUNTIME_AGENT_TOOL_REGISTRY[tc.function.name]) {
       let args: Record<string, unknown> = {};
       try { args = JSON.parse(tc.function.arguments); } catch {}
@@ -249,8 +313,8 @@ export class AgentAdapter implements AgentRuntime {
       const skillName = args.name ?? '';
       try { if (!this._skillsEngine) throw new Error('SkillsEngine not configured. Call setSkillsEngine() first.'); const result = await loadSkill(skillName, role, this._skillsEngine); return { role: 'tool', kind: 'tool_result', content: result.skill_content, tool: `load_skill:${skillName}`, tool_call_id: tc.id }; } catch (err) { const errorMsg = err instanceof LoadSkillError ? err.message : `Error loading skill '${skillName}': ${err instanceof Error ? err.message : String(err)}`; return { role: 'tool', kind: 'tool_error', content: errorMsg, tool: `load_skill:${skillName}`, tool_call_id: tc.id }; }
     }
-    if (tc.function.name === 'list_project_files' || tc.function.name === 'read_project_file' || tc.function.name === 'write_project_file' || tc.function.name === 'run_project_command' || tc.function.name === 'wait_for_process' || tc.function.name === 'kill_process') {
-      try { if (role !== 'executor' && (tc.function.name === 'write_project_file' || tc.function.name === 'run_project_command' || tc.function.name === 'wait_for_process' || tc.function.name === 'kill_process')) throw new Error(`${tc.function.name} is only available to executor agents.`); const result = await processWorkspaceToolCall(tc.function.name, tc.function.arguments, { projectRoot: this.projectRoot, sessionId, goalId: invocation?.goalId, cardId: invocation?.cardId }); return { role: 'tool', kind: 'tool_result', content: typeof result === 'string' ? result : JSON.stringify(result), tool: tc.function.name, tool_call_id: tc.id }; } catch (err) { return { role: 'tool', kind: 'tool_error', content: `${tc.function.name} failed: ${err instanceof Error ? err.message : String(err)}`, tool: tc.function.name, tool_call_id: tc.id }; }
+    if (tc.function.name === 'list_project_files' || tc.function.name === 'read_project_file' || tc.function.name === 'write_project_file' || tc.function.name === 'start_and_wait' || tc.function.name === 'run_project_command' || tc.function.name === 'wait_for_process' || tc.function.name === 'kill_process') {
+      try { if (role !== 'executor' && role !== 'planner' && (tc.function.name === 'write_project_file' || tc.function.name === 'start_and_wait' || tc.function.name === 'run_project_command' || tc.function.name === 'wait_for_process' || tc.function.name === 'kill_process')) throw new Error(`${tc.function.name} is only available to executor or planner agents.`); const result = await processWorkspaceToolCall(tc.function.name, tc.function.arguments, { projectRoot: this.projectRoot, sessionId, goalId: invocation?.goalId, cardId: invocation?.cardId }); return { role: 'tool', kind: 'tool_result', content: typeof result === 'string' ? result : JSON.stringify(result), tool: tc.function.name, tool_call_id: tc.id }; } catch (err) { return { role: 'tool', kind: 'tool_error', content: `${tc.function.name} failed: ${err instanceof Error ? err.message : String(err)}`, tool: tc.function.name, tool_call_id: tc.id }; }
     }
     return { role: 'tool', kind: 'tool_error', content: `Unknown tool '${tc.function.name}'.`, tool: tc.function.name, tool_call_id: tc.id };
   }
