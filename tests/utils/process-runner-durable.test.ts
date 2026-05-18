@@ -15,6 +15,8 @@ import {
   setProcessTerminalBuffering,
 } from '../../src/utils/process-runner.js';
 import type { ProcessRecord } from '../../src/schemas/types.js';
+import { EventLogger } from '../../src/utils/event-logger.js';
+import { NotificationCenter } from '../../src/utils/notification-center.js';
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -138,6 +140,62 @@ describe('durable async process handling', () => {
     });
     expect(loadRegistry(root).get(record.id)).toEqual(expect.objectContaining({ status: 'failed', failure_classification: 'lost', reattach_state: 'lost' }));
     expect(notes).toEqual([expect.objectContaining({ status: 'failed', classification: 'lost', route: 'planner' })]);
+  });
+
+
+  it('emits redacted restart-time reconciliation audit events and notifications without changing synthetic terminals', () => {
+    const notes: unknown[] = [];
+    registerProcessTerminalSink(root, (note) => notes.push(note));
+    const secret = 'sk-live-reconciliation-secret';
+    const dead = runningRecord({ id: 'proc-dead', command: `echo ${secret}`, agent_session_id: 'sess-dead' });
+    const rejected = runningRecord({ id: 'proc-rejected', command: `echo ${secret}`, agent_session_id: 'sess-rejected', pid: 222 });
+    saveRegistry(root, [dead, rejected]);
+
+    reconcileProcessRecords(root, {
+      nowMonotonicMs: 1200,
+      probe: (record) => record.id === 'proc-dead'
+        ? { running: false, pid: record.pid }
+        : { running: true, pid: record.pid, started_at_monotonic: record.started_at_monotonic },
+      reattach: (record) => record.id !== 'proc-rejected',
+    });
+
+    expect(notes).toHaveLength(2);
+    expect(notes).toEqual(expect.arrayContaining([
+      expect.objectContaining({ process_id: 'proc-dead', kind: 'process_terminal', classification: 'lost' }),
+      expect.objectContaining({ process_id: 'proc-rejected', kind: 'process_terminal', classification: 'lost' }),
+    ]));
+
+    const events = new EventLogger(join(root, '.saivage')).getEvents({ kind: ['process_reconciled_dead', 'process_reattach_rejected'] as never });
+    expect(events).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'process_reconciled_dead', process_id: 'proc-dead', card_id: 'card-1', goal_id: 'goal-1', session_id: 'sess-dead', probe_status: 'not_running', terminal_reason: 'lost', failure_classification: 'lost' }),
+      expect.objectContaining({ kind: 'process_reattach_rejected', process_id: 'proc-rejected', card_id: 'card-1', goal_id: 'goal-1', session_id: 'sess-rejected', terminal_reason: 'lost', failure_classification: 'lost', reattach_error: 'process reattach failed' }),
+    ]));
+    const serializedEvents = JSON.stringify(events);
+    expect(serializedEvents).not.toContain(secret);
+    expect(serializedEvents).not.toContain('echo ');
+
+    const center = new NotificationCenter(root);
+    const operatorNotifications = center.listForOperator();
+    expect(operatorNotifications).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'process_state', related_process_id: 'proc-dead', related_card_id: 'card-1' }),
+      expect.objectContaining({ kind: 'process_state', related_process_id: 'proc-rejected', related_card_id: 'card-1' }),
+    ]));
+    expect(center.drainPendingForSession('sess-dead')).toEqual([expect.objectContaining({ related_process_id: 'proc-dead' })]);
+    expect(JSON.stringify(operatorNotifications)).not.toContain(secret);
+  });
+
+  it('does not emit reconciliation audit events for successful reattach or normal terminal process completion', async () => {
+    const reattached = runningRecord({ id: 'proc-reattached' });
+    saveRegistry(root, [reattached]);
+    reconcileProcessRecords(root, {
+      nowMonotonicMs: 1200,
+      probe: () => ({ running: true, pid: 12345, started_at_monotonic: 1000 }),
+      reattach: () => true,
+    });
+    const rec = startProcess(root, 'echo normal-finish', { cardId: 'card-normal', goalId: 'goal-normal' });
+    await waitProcess(root, rec.id, 1000);
+    const events = new EventLogger(join(root, '.saivage')).getEvents({ kind: ['process_reconciled_dead', 'process_reattach_rejected'] as never });
+    expect(events).toHaveLength(0);
   });
 
   it('wait_for_process and kill_process semantics on already-terminal records are cached/no-op', async () => {

@@ -1113,10 +1113,15 @@ Add or keep these event kinds:
 - `process_started`
 - `process_timed_out`
 - `process_killed`
+- `process_reconciled_dead` — emitted only during restart-time durable
+  process reconciliation when a previously running process is found
+  dead/lost; persisted alongside the synthetic terminal record.
+- `process_reattach_rejected` — emitted only during restart-time
+  durable process reconciliation when identity matches but reattach is
+  rejected; persisted alongside the synthetic terminal record.
 
-Durable async process terminal records are current scope. Dedicated
-process reconciliation audit events (`process_reconciled_dead`,
-`process_reattach_rejected`) remain future-stage work (§14).
+Durable async process terminal records and restart-time process
+reconciliation audit events are current scope.
 
 Remove Tier-A/Tier-B-era correction events, legacy dispatch-loop
 events, and any `notification_acknowledged` events tied to the
@@ -1178,9 +1183,6 @@ Future stages (not in this redesign):
   observable, but `report_goal_done` gate ordering remains
   `subtree_not_ready` → `invalid_evidence` → reviewer until this future
   gate extension lands.
-- Process reconciliation audit events (`process_reconciled_dead` /
-  `process_reattach_rejected`) beyond the current synthetic terminal
-  records.
 - Cancel-cascade through running ancestors. Cancelling a card whose
   subtree contains the active leaf would require cascading
   cancellation through the running ancestor chain and the active

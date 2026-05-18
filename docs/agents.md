@@ -964,6 +964,12 @@ role:
 
 ## 17. Future Stages
 
+Shipped since this future-stage cycle began: durable process
+reconciliation now emits the structured restart-time audit events
+`process_reconciled_dead` and `process_reattach_rejected` alongside
+the existing synthetic terminal records; these events are no longer
+future-stage work.
+
 The following items are intentionally out of scope for the current
 redesign and are listed here so they are not lost:
 

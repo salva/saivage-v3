@@ -681,3 +681,47 @@ describe('Events API — Empty log', () => {
     expect(body.total).toBe(0);
   });
 });
+
+describe('Events API process reconciliation audit visibility', () => {
+  it('exposes process reconciliation audit events through the existing kind filter without leaking secrets', async () => {
+    const projectRoot = uniqueDir();
+    const secret = 'sk-live-events-api-secret';
+    setupProject(projectRoot, eventsToJsonl([
+      makeEvent({
+        kind: 'process_reconciled_dead',
+        process_id: 'proc-api-dead',
+        card_id: 'card-api',
+        goal_id: 'goal-api',
+        session_id: 'sess-api',
+        pid: 123,
+        probe_status: 'not_running',
+        terminal_reason: 'lost',
+        failure_classification: 'lost',
+        detail: 'restart identity probe mismatch sk-[REDACTED]',
+      }),
+      makeEvent({ kind: 'goal_completed', goal_id: 'goal-api' }),
+    ]));
+    const token = 'test-token-process-events';
+    process.env['SAIVAGE_API_TOKEN'] = token;
+    const app = Fastify({ logger: false });
+    await app.register(cors);
+    await app.register(websocket);
+    const { default: authPlugin } = await import('../../src/server/auth.js');
+    await app.register(authPlugin);
+    const { registerEventsRoute } = await import('../../src/server/routes/events.js');
+    registerEventsRoute(app, projectRoot);
+    await app.listen({ port: 0, host: '127.0.0.1' });
+    try {
+      const port = (app.server.address() as { port: number }).port;
+      const res = await fetch(`http://127.0.0.1:${port}/api/events?kind=process_reconciled_dead`, { headers: { authorization: `Bearer ${token}` } });
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as EventResponse;
+      expect(body.total).toBe(1);
+      expect(body.events).toEqual([expect.objectContaining({ kind: 'process_reconciled_dead', process_id: 'proc-api-dead', card_id: 'card-api' })]);
+      expect(JSON.stringify(body)).not.toContain(secret);
+    } finally {
+      await app.close();
+      rmSync(projectRoot, { recursive: true, force: true });
+    }
+  });
+});

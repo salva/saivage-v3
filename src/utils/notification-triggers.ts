@@ -58,11 +58,22 @@ function buildAncestorScope(store: CardStore, cardId: string): Set<string> {
   return scope;
 }
 
+function sessionIsAffectedByCardChange(store: CardStore, session: AgentSession, cardId: string, scope: Set<string>): boolean {
+  if (session.card_id === cardId) return true;
+
+  if (session.card_id && store.isDescendantOf(session.card_id, cardId)) {
+    if (session.goal_card_id === cardId) return true;
+    if (session.goal_card_id && scope.has(session.goal_card_id)) return true;
+  }
+
+  return session.goal_card_id ? scope.has(session.goal_card_id) : false;
+}
+
 export function findAffectedActiveSessionsForCard(projectRoot: string, cardId: string): NotificationTriggerTarget[] {
   const store = new CardStore(projectRoot);
   const scope = buildAncestorScope(store, cardId);
   return getActiveSessions(projectRoot)
-    .filter((session) => session.card_id === cardId || (session.goal_card_id ? scope.has(session.goal_card_id) : false))
+    .filter((session) => sessionIsAffectedByCardChange(store, session, cardId, scope))
     .map((session) => ({ sessionId: session.id, role: session.role }));
 }
 
@@ -163,6 +174,26 @@ export function enqueueProcessKillNotifications(
     kind: 'process_state',
     severity: 'warn',
     payload_summary: `Process ${processRecord.id} for card ${processRecord.card_id} was terminated (status: ${processRecord.status}).`,
+    related_card_id: processRecord.card_id,
+    related_process_id: processRecord.id,
+    source_actor: source.actor,
+    source_surface: source.surface,
+  });
+}
+
+export function enqueueProcessReconciliationNotification(
+  projectRoot: string,
+  processRecord: ProcessRecord,
+  eventKind: 'process_reconciled_dead' | 'process_reattach_rejected',
+  detail: string,
+  source: NotificationSourceMeta,
+): void {
+  const targets = processRecord.agent_session_id ? [processRecord.agent_session_id] : [];
+  const action = eventKind === 'process_reconciled_dead' ? 'reconciled as dead during restart' : 'reattach was rejected during restart';
+  enqueueSessionAndOperatorNotifications(projectRoot, targets, {
+    kind: 'process_state',
+    severity: 'warn',
+    payload_summary: `Process ${processRecord.id} for card ${processRecord.card_id} ${action}: ${detail}`,
     related_card_id: processRecord.card_id,
     related_process_id: processRecord.id,
     source_actor: source.actor,

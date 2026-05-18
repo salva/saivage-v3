@@ -10,7 +10,9 @@ import {
 import { join, resolve } from 'node:path';
 import { createHash, randomBytes } from 'node:crypto';
 import { writeFileAtomic, explainLegacyStateRejection } from './file-tree.js';
-import { redactCommandForOperator } from './file-access-security.js';
+import { redactCommandForOperator, redactOperatorErrorMessage } from './file-access-security.js';
+import { EventLogger } from './event-logger.js';
+import { enqueueProcessReconciliationNotification } from './notification-triggers.js';
 import type { ProcessRecord, ProcessStatus } from '../schemas/types.js';
 
 export interface ProcessStartOptions {
@@ -676,7 +678,42 @@ export function tailOutput(
   return allLines.slice(-lines).join('\n');
 }
 
-function markLost(projectRoot: string, record: ProcessRecord, reason: string): ProcessRecord {
+type ProcessReconciliationAuditKind = 'process_reconciled_dead' | 'process_reattach_rejected';
+type ProcessReconciliationProbeStatus = 'not_running' | 'identity_mismatch' | 'clock_skew';
+
+function auditProcessReconciliation(
+  projectRoot: string,
+  record: ProcessRecord,
+  kind: ProcessReconciliationAuditKind,
+  detail: string,
+  probeStatus?: ProcessReconciliationProbeStatus,
+): void {
+  const safeDetail = redactOperatorErrorMessage(detail, projectRoot);
+  const base = {
+    kind,
+    process_id: record.id,
+    card_id: record.card_id,
+    goal_id: record.goal_id ?? undefined,
+    session_id: record.agent_session_id ?? undefined,
+    pid: record.pid ?? null,
+    terminal_reason: 'lost' as const,
+    failure_classification: 'lost' as const,
+    detail: safeDetail,
+  };
+  const event = kind === 'process_reconciled_dead'
+    ? { ...base, probe_status: probeStatus ?? 'identity_mismatch' }
+    : { ...base, reattach_error: safeDetail };
+  const logger = new EventLogger(join(projectRoot, '.saivage'));
+  try {
+    logger.appendEvent(event);
+    logger.flushSync();
+  } finally {
+    logger.close();
+  }
+  enqueueProcessReconciliationNotification(projectRoot, record, kind, safeDetail, { actor: 'runtime', surface: 'runtime' });
+}
+
+function markLost(projectRoot: string, record: ProcessRecord, reason: string, audit?: { kind: ProcessReconciliationAuditKind; probeStatus?: ProcessReconciliationProbeStatus }): ProcessRecord {
   const updated: ProcessRecord = {
     ...record,
     status: 'failed',
@@ -690,6 +727,7 @@ function markLost(projectRoot: string, record: ProcessRecord, reason: string): P
   };
   upsertRegistryRecord(projectRoot, updated);
   dispatchTerminal(projectRoot, updated);
+  if (audit) auditProcessReconciliation(projectRoot, updated, audit.kind, reason, audit.probeStatus);
   return updated;
 }
 
@@ -714,19 +752,19 @@ export function reconcileProcessRecords(projectRoot: string, options: ProcessRec
   for (const record of records) {
     if (record.started_at_monotonic > currentMonotonic + maxClockSkewMs) {
       result.skewed.push(record.id);
-      markLost(projectRoot, record, 'started_at_monotonic is in the future beyond clock-skew tolerance');
+      markLost(projectRoot, record, 'started_at_monotonic is in the future beyond clock-skew tolerance', { kind: 'process_reconciled_dead', probeStatus: 'clock_skew' });
       result.lost.push(record.id);
       continue;
     }
     const identity = probe(record);
     const monotonicMatches = identity.started_at_monotonic === undefined || identity.started_at_monotonic === null || Math.abs(identity.started_at_monotonic - record.started_at_monotonic) <= maxClockSkewMs;
     if (!identity.running || identity.pid !== record.pid || !monotonicMatches) {
-      markLost(projectRoot, record, 'restart identity probe mismatch');
+      markLost(projectRoot, record, 'restart identity probe mismatch', { kind: 'process_reconciled_dead', probeStatus: identity.running ? 'identity_mismatch' : 'not_running' });
       result.lost.push(record.id);
       continue;
     }
     if (!reattach(record)) {
-      markLost(projectRoot, record, 'process reattach failed');
+      markLost(projectRoot, record, 'process reattach failed', { kind: 'process_reattach_rejected' });
       result.lost.push(record.id);
       continue;
     }

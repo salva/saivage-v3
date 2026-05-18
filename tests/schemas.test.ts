@@ -16,6 +16,8 @@ import {
   reviewerResultSchema,
   reviewAssessmentSchema,
   runtimeStateSchema,
+  processReconciledDeadEventSchema,
+  processReattachRejectedEventSchema,
 } from '../src/schemas/validators.js';
 import { initProjectTree } from '../src/utils/file-tree.js';
 import { readRuntimeState } from '../src/utils/runtime-state.js';
@@ -261,6 +263,36 @@ describe('Core schemas still validate expected records', () => {
       stderr_path: '/tmp/out/stderr.log',
       combined_log_path: '/tmp/out/combined.log',
     }).success).toBe(true);
+  });
+
+
+  it('accepts typed process reconciliation audit events and rejects raw command fields', () => {
+    expect(processReconciledDeadEventSchema.safeParse({
+      id: 'evt-1',
+      kind: 'process_reconciled_dead',
+      timestamp: '2025-01-01T00:00:00.000Z',
+      process_id: 'proc-1',
+      card_id: 'card-1',
+      goal_id: 'goal-1',
+      session_id: 'sess-1',
+      pid: 123,
+      probe_status: 'not_running',
+      terminal_reason: 'lost',
+      failure_classification: 'lost',
+      detail: 'restart identity probe mismatch',
+    }).success).toBe(true);
+    expect(processReattachRejectedEventSchema.safeParse({
+      id: 'evt-2',
+      kind: 'process_reattach_rejected',
+      timestamp: '2025-01-01T00:00:00.000Z',
+      process_id: 'proc-2',
+      card_id: 'card-2',
+      terminal_reason: 'lost',
+      failure_classification: 'lost',
+      reattach_error: 'process reattach failed',
+      detail: 'process reattach failed',
+      command: 'echo sk-live-secret',
+    }).success).toBe(false);
   });
 
   it('accepts a valid runtime state', () => {
