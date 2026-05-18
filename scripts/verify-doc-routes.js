@@ -29,6 +29,14 @@ function listTsFiles(directory) {
   });
 }
 
+function isMarkdownInventoryPath(docPath) {
+  return docPath === 'README.md' || docPath.endsWith('.md');
+}
+
+function fallbackOperatorDocPaths(projectRoot) {
+  return Array.from(DEFAULT_OPERATOR_DOCS).filter((docPath) => existsSync(join(projectRoot, docPath)));
+}
+
 export function normalizeRoutePath(routePath) {
   let normalized = routePath.trim();
   normalized = normalized.split(/[?#]/, 1)[0];
@@ -65,7 +73,7 @@ export function extractImplementedRoutes(projectRoot = process.cwd()) {
 
 export function activeOperatorDocPaths(projectRoot = process.cwd()) {
   const inventoryPath = join(projectRoot, 'docs/documentation-inventory.md');
-  if (!existsSync(inventoryPath)) return Array.from(DEFAULT_OPERATOR_DOCS);
+  if (!existsSync(inventoryPath)) return fallbackOperatorDocPaths(projectRoot);
 
   const inventory = readFileSync(inventoryPath, 'utf-8');
   const activePaths = [];
@@ -73,10 +81,12 @@ export function activeOperatorDocPaths(projectRoot = process.cwd()) {
     const match = line.match(INVENTORY_ROW_RE);
     if (!match) continue;
     const docPath = match[1];
-    if (DEFAULT_OPERATOR_DOCS.has(docPath)) activePaths.push(docPath);
+    if (!isMarkdownInventoryPath(docPath)) continue;
+    if (!existsSync(join(projectRoot, docPath))) continue;
+    activePaths.push(docPath);
   }
 
-  return activePaths.length > 0 ? Array.from(new Set(activePaths)) : Array.from(DEFAULT_OPERATOR_DOCS);
+  return activePaths.length > 0 ? Array.from(new Set(activePaths)) : fallbackOperatorDocPaths(projectRoot);
 }
 
 export function extractDocumentedRoutes(projectRoot = process.cwd(), docPaths = activeOperatorDocPaths(projectRoot)) {

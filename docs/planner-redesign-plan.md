@@ -101,7 +101,7 @@ rewritten. A clean architecture is the priority.
   `Suspended` session lifecycle state, and any `acknowledge_notification`
   planner tool.
 - The `running-blocked` card status (replaced by `changed`, §5).
-- `POST /api/runtime/dispatch` and tests that assert on the old
+- The legacy runtime dispatch endpoint (`/api/runtime/dispatch`) and tests that assert on the old
   dispatch loop.
 - Any test that expects `needs_corrections` as a parent-visible
   activation result, `start_planner`/`start_executor`/`run_card` tool
@@ -903,7 +903,7 @@ and is never accepted from the client body.
 
 ## 11. HTTP API
 
-- Remove `POST /api/runtime/dispatch`.
+- Remove the legacy runtime dispatch endpoint (`/api/runtime/dispatch`).
 - Add `POST /api/runtime/lets_dance`. No body required. Returns
   `{directive_recorded: true, runtime_status: 'idle' | 'running' | 'paused'}`.
   The runtime calls `activate_card(projectCardId)` itself on its next
