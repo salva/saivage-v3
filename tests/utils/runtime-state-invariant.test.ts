@@ -11,6 +11,7 @@ import {
   RuntimeStateInvariantError,
 } from '../../src/utils/runtime-state.js';
 import { createServer, type ServerInstance } from '../../src/server/server.js';
+import { runtimeStateSchema } from '../../src/schemas/validators.js';
 import type { ActiveCardRun, RuntimeState } from '../../src/schemas/types.js';
 
 let root: string;
@@ -84,6 +85,26 @@ describe('RuntimeState idle active_card_run invariant', () => {
     })).toThrow(RuntimeStateInvariantError);
   });
 
+  it('rejects stopped/cancelled as top-level RuntimeState.status while permitting them on active_card_run.runtime_status', () => {
+    const base = initRuntimeState(root);
+
+    for (const terminalStatus of ['stopped', 'cancelled'] as const) {
+      expect(runtimeStateSchema.safeParse({
+        ...base,
+        status: terminalStatus,
+      }).success).toBe(false);
+
+      const parsed = runtimeStateSchema.safeParse({
+        ...base,
+        status: 'idle',
+        current_card_id: null,
+        active_card_run: runningRun({ runtime_status: terminalStatus }),
+      });
+      expect(parsed.success).toBe(true);
+      expect(parsed.success && parsed.data.active_card_run?.runtime_status).toBe(terminalStatus);
+    }
+  });
+
   it('allows idle transitions that clear active_card_run or retain only documented terminal stopped/cancelled records', () => {
     initRuntimeState(root);
     updateRuntimeState(root, {
@@ -106,7 +127,7 @@ describe('RuntimeState idle active_card_run invariant', () => {
       status: 'idle',
       current_card_id: null,
       current_agent_session_id: null,
-      active_card_run: runningRun({ runtime_status: 'stopped' as never }),
+      active_card_run: runningRun({ runtime_status: 'stopped' }),
     });
     expect(stopped.active_card_run?.runtime_status).toBe('stopped');
 
@@ -114,7 +135,7 @@ describe('RuntimeState idle active_card_run invariant', () => {
       status: 'idle',
       current_card_id: null,
       current_agent_session_id: null,
-      active_card_run: runningRun({ runtime_status: 'cancelled' as never }),
+      active_card_run: runningRun({ runtime_status: 'cancelled' }),
     });
     expect(cancelled.active_card_run?.runtime_status).toBe('cancelled');
   });
