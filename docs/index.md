@@ -1,47 +1,50 @@
-# Saivage v3
+# Saivage v3 documentation
 
-Saivage is an autonomous multi-agent system for software-development work. Current verified behavior is grounded in the current source tree, current tests, and validated repair stages 07-10.
+Use this index as the current entry point for operator procedures, design references, provenance records, and remediation dossiers.
 
-## Current behavior summary
+## Runbook
 
-- Goal cards own planning state; operators should not infer strategic completion from an empty ready queue alone.
-- Planner-control frames and dispatch records persist under `.saivage/runtime/` so parent planners can suspend and resume around child work.
-- Card detail inspection is the supported place to review generated files, verification commands, tool errors, and parse-failure context.
-- File preview is safety-constrained: containment checks, secret blocking/redaction, size limits, and binary rejection apply to both direct file browsing and generated-file evidence.
-- `/health`, the SPA, and built docs are public surfaces; `/api/*` and `/ws` require the API token when one is configured.
-- WebSocket events accelerate UI freshness, but REST snapshots remain the authoritative state after refresh or reconnect.
+- [Runbook index](/runbook/) — single operator entry point.
+- [Operations](/runbook/operations) — startup, auth, health, state, runtime controls, WebSocket chat, backups, and LXC/systemd notes.
+- [Incidents](/runbook/incidents) — unauthorized access, stale UI, frozen/error runtime recovery, preview limitations, and degraded-agent workflows.
+- [Release](/runbook/release) — release-candidate validation gates.
+- [LXC operations](/runbook/lxc-operations) — deployment-oriented service checks and safe restart flow.
 
-## Use these docs for current operation
+## Design
 
-### Getting started
+- [Design index](/design/) — concept-level map for the consolidated design tree.
+- [Card model](/design/card-model) — card fields, status, priority, evidence, and persisted records.
+- [Card lifecycle](/design/card-lifecycle) — planner/executor/reviewer transitions.
+- [Agents](/design/agents) — analyst, planner, executor, reviewer, and tool boundaries.
+- [Runtime](/design/runtime) — scheduler, durable state, directives, and recovery.
+- [Security](/design/security) — auth, redaction, safe file access, and provider failures.
+- [Configuration](/design/configuration) — project settings and runtime knobs.
+- [Skills](/design/skills) — skill loading and workspace-tool constraints.
+- [Server API](/design/server-api) — HTTP and WebSocket surfaces.
+- [Data model](/design/data-model) — persisted JSON and JSONL shapes.
+- [UX design](/design/ux-design) — operator control room layout and interaction patterns.
+- [Decisions](/design/decisions) — design choices and findings-dossier rationale.
+- [Implementation plan](/design/implementation-plan) — consolidated implementation context.
 
-- [Install](/install)
-- [Configuration](/configuration)
+## Source-of-truth references
 
-### Operate Saivage
+- [Agents and runtime architecture](/agents) — authoritative planner/runtime contract.
+- [Analyst guide](/analyst) — analyst-facing tools and WebSocket behavior.
+- [Configuration reference](/configuration) — schema-aligned configuration details.
+- [Operation route inventory](/operation) — documented operator-facing HTTP and WebSocket routes.
+- [Goal planning runtime](/goal-planning-runtime) — legacy runtime summary retained for current context.
+- [Documentation inventory](/documentation-inventory) — classification and disposition for every root and `docs/` Markdown file.
 
-- [Operator Runbook](/operator-runbook)
-- [Operation Guide](/operation)
-- [Goal Planning Runtime](/goal-planning-runtime)
-- [Troubleshooting](/troubleshooting)
-- [Release Checklist](/release-checklist)
+## Findings dossiers
 
-### Documentation governance
+- [Audit findings](../audit-findings/README.md) — source-vs-docs remediation dossier and remediation log.
+- [Audit coverage](../audit-findings/coverage.md) — audit coverage notes.
+- [Audit cross-references](../audit-findings/cross-references.md) — finding cross-reference map.
+- [UI findings](../ui-findings/README.md) — operator-surface remediation dossier and remediation log.
 
-- [Documentation Inventory](/documentation-inventory)
-- See historical: [Historical documentation](/historical/README)
+## Provenance
 
-## Verification commands
-
-```bash
-npm run docs:verify
-npm run docs:build
-npm run web:typecheck
-npm run web:test:sweep
-```
-
-`npm run docs:verify` runs the VitePress build and then verifies expected output pages derived from `docs/*.md`.
-
-## Historical records
-
-Older remediation plans, redesign notes, and audit artifacts remain in the repository for provenance, but they are not current operator authority. See historical: use [Historical documentation](/historical/README) to find them safely.
+- See historical: [Historical documentation](/historical/README) — archived plans, audits, and pre-consolidation design records.
+- See historical: [2026 documentation consolidation summary](/historical/2026-doc-consolidation-summary) — Stage 21-26 consolidation outcome.
+- See historical: [2026 pre-consolidation design](/historical/2026-pre-consolidation/01-card-model) — original numbered design series.
+- See historical: [2026-05 remediation dossiers](/historical/2026-05-remediation-dossiers/historical-artifacts) — archived remediation and review plans.

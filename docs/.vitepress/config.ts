@@ -4,6 +4,10 @@ export default defineConfig({
   base: '/docs/',
   title: 'Saivage v3',
   description: 'Documentation for Saivage v3 — an autonomous multi-agent system',
+  ignoreDeadLinks: [
+    /\.\.\/audit-findings\//,
+    /\.\.\/ui-findings\//,
+  ],
 
   themeConfig: {
     nav: [

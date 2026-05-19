@@ -1,43 +1,59 @@
 # Saivage v3
 
-An autonomous multi-agent system for software development.
+Saivage v3 is an autonomous multi-agent runtime for software-development work. A top-level planner decomposes goals into cards, executors perform scoped work, reviewers verify results, and the operator control room exposes cards, agents, files, timeline events, and runtime controls.
 
-## Current verified behavior
+## Quick start
 
-Saivage currently provides:
+Install dependencies:
 
-- a goal-level **Planner → Executor → Reviewer** workflow with planning state stored on goals rather than separate visible plan cards;
-- durable planner-control frames and dispatch records under `.saivage/runtime/` so parent planners can suspend and resume around child work;
-- a Fastify API server with token-protected `/api/*` and `/ws`, plus public `/health`, SPA, and built docs under `/docs/`;
-- card detail evidence inspection for generated files, verification commands, tool errors, and parse-failure context;
-- safe text-file preview with containment, secret blocking/redaction, size limits, and binary rejection;
-- operator-safe process views instead of raw process-registry records.
+```bash
+npm install
+```
 
-## Active documentation
+Build and serve the control room, API, and docs:
 
-- [Docs index](docs/index.md)
-- [Design documentation](docs/design/index.md)
-- [Install guide](docs/install.md)
-- [Configuration reference](docs/configuration.md)
-- [Operations guide](docs/operation.md)
-- [Goal planning runtime](docs/goal-planning-runtime.md)
-- [Operator runbook](docs/operator-runbook.md)
-- [Troubleshooting](docs/troubleshooting.md)
-- [Release checklist](docs/release-checklist.md)
-- [Documentation inventory](docs/documentation-inventory.md)
-- See historical: [Historical documentation](docs/historical/README.md)
+```bash
+SAIVAGE_API_TOKEN=test npm run build && SAIVAGE_API_TOKEN=test ./bin/saivage.js start --create-runtime
+```
 
-## Verification commands
+Open the web UI at `http://localhost:8080/`, or check health with:
+
+```bash
+curl http://localhost:8080/health
+```
+
+## Current documentation
+
+- [Operator runbook](docs/runbook/index.md) — start, pause, resume, freeze, diagnose, and release Saivage.
+- [Design documentation](docs/design/index.md) — canonical concept map for cards, agents, runtime, security, data, and UX.
+- [Documentation index](docs/index.md) — curated table of contents for current docs and findings dossiers.
+- [Documentation inventory](docs/documentation-inventory.md) — source-of-truth status for every root and `docs/` Markdown file.
+- See historical: [Historical documentation](docs/historical/README.md) — provenance-only plans, audits, and pre-consolidation designs.
+
+## Key concepts
+
+- [Card model](docs/design/card-model.md) — goal cards, statuses, priority, evidence, and persisted card shape.
+- [Card lifecycle](docs/design/card-lifecycle.md) — planner/executor/reviewer transitions and correction paths.
+- [Agents](docs/design/agents.md) — analyst, planner, executor, and reviewer responsibilities.
+- [Runtime](docs/design/runtime.md) — scheduler, durable runtime state, directives, and recovery flow.
+- [Security](docs/design/security.md) — authentication, redaction, file-safety, and provider-error handling.
+- [Configuration](docs/design/configuration.md) — project config, providers, runtime knobs, and migrations.
+- [Skills](docs/design/skills.md) — reusable agent capabilities and workspace tooling boundaries.
+- [Server API](docs/design/server-api.md) — HTTP, WebSocket, docs, and static serving surfaces.
+- [Data model](docs/design/data-model.md) — persisted JSON/JSONL records and invariants.
+- [UX design](docs/design/ux-design.md) — operator control room views and interaction contracts.
+- [Decisions](docs/design/decisions.md) — design choices and dossier-organization rationale.
+- [Implementation plan](docs/design/implementation-plan.md) — consolidated delivery plan context.
+
+## Verification
+
+Run the final documentation and code gates from the repository root:
 
 ```bash
 npm run docs:verify
-npm run web:typecheck
-npm run web:test:sweep
 npm run typecheck
+npm run build
+npm test
 ```
 
-`npm run docs:verify` already runs the VitePress build and verifies expected output pages.
-
-## Historical material
-
-Historical audits, remediation plans, and earlier design-era markdown files are preserved as repository evidence but are **not** current operator instructions. Start with the active docs above. See historical: use [docs/historical/README.md](docs/historical/README.md) if you need provenance.
+`npm run docs:verify` builds VitePress and checks documentation inventory completeness, route/role/config/runtime anchors, historical isolation, runbook curl examples, design-doc link boundaries, and global Markdown internal links.

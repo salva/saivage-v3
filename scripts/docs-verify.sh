@@ -1,18 +1,17 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# docs:verify — Build VitePress docs and sanity-check the output
-# Used by the root npm script "docs:verify"
-# Requires: npm (for vitepress), bash
+# docs:verify — Build VitePress docs and run documentation drift guards.
+# Used by the root npm script "docs:verify".
 #
-# Maintenance contract:
-#   This script auto-discovers expected top-level HTML pages from docs/*.md.
-#   - index.md      → index.html     (VitePress special case)
-#   - anything.md   → anything.html  (standard mapping)
-#   Add a new docs/*.md page and it is automatically verified.
-#   No hardcoded page list to keep in sync.
-#   The landing page (index.html) is also explicitly verified as a
-#   hardcoded check, independent of the auto-discovery loop.
+# Guard bundle:
+#   - VitePress build output for top-level docs/*.md pages.
+#   - Operator route, agent-tool, runtime-control, config-schema, and anchor parity.
+#   - Documentation inventory completeness for root/docs Markdown.
+#   - Design-doc allowed-link boundaries.
+#   - Historical-link isolation for current/stale docs.
+#   - Runbook curl/example route and response-shape checks.
+#   - Global Markdown internal-link and anchor resolution.
 
 DIST="docs/.vitepress/dist"
 
@@ -22,11 +21,10 @@ npm run docs:build
 echo ""
 echo "==> Verifying dist output in $DIST..."
 
-# Derive expected HTML pages from docs/*.md files (non-recursive, top-level only)
 EXPECTED_FILES=()
 for md in docs/*.md; do
-  basename="${md##*/}"               # strip docs/
-  html="${basename%.md}.html"        # replace .md → .html
+  basename="${md##*/}"
+  html="${basename%.md}.html"
   EXPECTED_FILES+=("$html")
 done
 
@@ -52,7 +50,6 @@ for f in "${EXPECTED_FILES[@]}"; do
   fi
 done
 
-# Explicit landing-page check (hardcoded, independent of auto-discovery)
 echo ""
 echo "==> Explicit landing-page check: $DIST/index.html"
 if [ -f "$DIST/index.html" ] && [ -s "$DIST/index.html" ]; then
@@ -78,9 +75,12 @@ echo ""
 node scripts/check-runbook-curl-examples.js || ALL_OK=false
 
 echo ""
+node scripts/check-markdown-links.js || ALL_OK=false
+
+echo ""
 if $ALL_OK; then
-  echo "✓ docs:verify passed — all expected output files are present, non-empty, route docs match the server, documentation inventory is complete, and design-doc links stay in allowed locations, and current docs isolate historical links"
+  echo "✓ docs:verify passed — docs build output, route/role/config/runtime anchors, documentation inventory, design links, historical isolation, runbook examples, and global Markdown links are valid"
 else
-  echo "✗ docs:verify FAILED — generated docs, operator route docs, documentation inventory, design-doc links, or historical-link isolation are invalid"
+  echo "✗ docs:verify FAILED — one or more documentation build or drift guards failed"
   exit 1
 fi

@@ -1,6 +1,6 @@
 # Documentation inventory
 
-This inventory maps every tracked Markdown file in the repository root and `docs/` tree to its current source-of-truth status. Stage 22 moved the numbered root design documents into `docs/historical/2026-pre-consolidation/`; Stage 24 moved remediation and review dossiers into `docs/historical/2026-05-remediation-dossiers/` and added a historical-isolation guard; Stage 25 consolidated operator guidance into `docs/runbook/`.
+This inventory maps every tracked Markdown file in the repository root and `docs/` tree to its current source-of-truth status. Stage 22 moved the numbered root design documents into `docs/historical/2026-pre-consolidation/`; Stage 24 moved remediation and review dossiers into `docs/historical/2026-05-remediation-dossiers/` and added a historical-isolation guard; Stage 25 consolidated operator guidance into `docs/runbook/`; Stage 26 finalized the root landing page, curated docs index, consolidation summary, and global Markdown link guard.
 
 ## Classification legend
 
@@ -15,7 +15,7 @@ This inventory maps every tracked Markdown file in the repository root and `docs
 
 | Path | Classification | Justification | Primary code anchor | Disposition |
 |---|---|---|---|---|
-| `README.md` | stale | The landing page points to current docs but will need Stage 26 rewrite into the concise final entry point. | package.json:1 | rewrite |
+| `README.md` | current | The root landing page is the Stage 26 concise entry point with install, serve, runbook, design, historical, and key-concept links. | package.json:1 | keep |
 | `bugs.md` | historical | This bug scratchpad is provenance material and not a current defect tracker for the remediated codebase. | audit-findings/README.md:1 | move-to-docs/historical/ |
 | `docs/agents.md` | current | This is the authoritative agent and runtime architecture reference for the current planner, tool, scheduler, and recovery contracts. | src/agents/agent-adapter.ts:1 | keep |
 | `docs/analyst.md` | current | The analyst guide aligns with the implemented analyst handler, authorization checks, and safe inspection tools. | src/agents/analyst-handler.ts:1 | keep |
@@ -35,6 +35,7 @@ This inventory maps every tracked Markdown file in the repository root and `docs
 | `docs/design/ux-design.md` | stale | The consolidated UX design predates multiple operator-surface fixes for agents, debug, files, token modal, and analyst panel behavior. | web/src/App.vue:1 | merge-into |
 | `docs/documentation-inventory.md` | current | This file is the enforced Stage 21 source-of-truth map for tracked root and docs Markdown files. | scripts/check-doc-inventory.js:1 | keep |
 | `docs/historical/README.md` | historical | The historical README explains that archived documentation is provenance only and not current operator guidance. | docs/historical/README.md:1 | keep |
+| `docs/historical/2026-doc-consolidation-summary.md` | historical | The Stage 21-26 consolidation summary records documentation restructuring outcomes for provenance only. | scripts/docs-verify.sh:1 | keep |
 | `docs/historical/2026-05-remediation-dossiers/executor-workspace-tooling-failure-report.md` | historical | The executor workspace tooling failure report is an incident record retained for provenance after implementation changes. | src/agents/workspace-tools.ts:1 | keep |
 | `docs/historical/2026-05-remediation-dossiers/executor-workspace-tooling-remediation-plan.md` | historical | The executor workspace tooling remediation plan is a superseded implementation plan, not current operator guidance. | src/agents/workspace-tools.ts:1 | keep |
 | `docs/historical/2026-05-remediation-dossiers/full-codebase-review-remediation-plan.md` | historical | The full-codebase review remediation plan is a historical audit artifact superseded by findings and source. | audit-findings/README.md:1 | keep |
@@ -52,7 +53,7 @@ This inventory maps every tracked Markdown file in the repository root and `docs
 | `docs/historical/2026-pre-consolidation/10-ux-design.md` | historical | The original numbered UX design file was moved during Stage 22 and is retained only as pre-consolidation provenance. | web/src/App.vue:1 | move-to-docs/historical/ |
 | `docs/historical/2026-pre-consolidation/11-decisions.md` | historical | The original numbered decisions log file was moved during Stage 22 and is retained only as pre-consolidation provenance. | docs/agents.md:1 | move-to-docs/historical/ |
 | `docs/historical/2026-pre-consolidation/12-implementation-plan.md` | historical | The original numbered implementation plan file was moved during Stage 22 and is retained only as pre-consolidation provenance. | docs/historical/2026-05-remediation-dossiers/planner-redesign-plan.md:1 | move-to-docs/historical/ |
-| `docs/index.md` | stale | The docs index is serviceable but will need Stage 26 restructuring after design, runbook, and historical trees exist. | docs/.vitepress/config.ts:1 | rewrite |
+| `docs/index.md` | current | The docs index is the Stage 26 curated table of contents for runbook, design, source-of-truth references, findings dossiers, and provenance. | docs/.vitepress/config.ts:1 | keep |
 | `docs/install.md` | current | The installation guide matches the package scripts and current CLI/server bootstrap flow. | src/cli.ts:1 | keep |
 | `docs/operation.md` | current | The operation guide tracks current HTTP, WebSocket, docs, runtime-control, and route-verification behavior. | src/server/server.ts:1 | keep |
 | `docs/operator-runbook.md` | current | This legacy top-level page forwards operators to the consolidated Stage 25 runbook tree. | docs/runbook/index.md:1 | keep |
@@ -73,4 +74,4 @@ This inventory maps every tracked Markdown file in the repository root and `docs
 
 ## Verification
 
-`npm run docs:verify` runs `scripts/check-doc-inventory.js`, which fails when a tracked Markdown file in the repository root or `docs/` tree is missing from this table or when a table row points to a non-existent file. Stage 22 also adds `scripts/check-design-doc-links.js` to keep links in `docs/design/*.md` within allowed documentation, repository-root, or HTTPS destinations.
+`npm run docs:verify` now builds VitePress and runs the active documentation guard bundle: `scripts/check-doc-inventory.js` for root/docs Markdown inventory completeness, `scripts/verify-doc-routes.js` for operator route/role/config/runtime anchors, `scripts/check-historical-isolation.js` for `See historical:` isolation, `scripts/check-runbook-curl-examples.js` for runbook curl route/shape checks, `scripts/check-design-doc-links.js` for design-doc allowed-link boundaries, and `scripts/check-markdown-links.js` for global internal Markdown file and anchor resolution.
