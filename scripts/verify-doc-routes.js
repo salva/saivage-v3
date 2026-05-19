@@ -17,6 +17,7 @@ const SOURCE_FILES = ['src/server/server.ts', 'src/server/routes', 'src/agents/a
 const OPERATION_DOC = 'docs/operation.md';
 const AGENTS_DOC = 'docs/agents.md';
 const CONFIG_DOC = 'docs/configuration.md';
+const CONFIG_DOCS = ['docs/configuration.md', 'docs/design/configuration.md'];
 
 function listTsFiles(directory) {
   if (!existsSync(directory)) return [];
@@ -302,15 +303,22 @@ export function verifyRuntimeControlDocs(options = {}) {
 export function verifyConfigDocs(options = {}) {
   const projectRoot = options.projectRoot ?? process.cwd();
   const expected = options.expectedConfig ?? extractConfigSchema(projectRoot);
-  const documented = options.documentedConfig ?? parseConfigTable(projectRoot);
+  const docPaths = options.configDocPaths ?? CONFIG_DOCS;
+  const documentedByPath = new Map();
   const failures = [];
-  for (const [section, fields] of expected) {
-    const row = documented.get(section);
-    if (!row) { failures.push({ type: 'missing-config-section', section, message: `${CONFIG_DOC} is missing config schema row for ${section}` }); continue; }
-    verifyAnchor(projectRoot, row.anchor, failures, `config schema ${section}`);
-    if (!sameArray(row.fields, fields)) failures.push({ type: 'config-schema-parity', section, message: `${CONFIG_DOC} fields for ${section} do not match src/agents/config-schema.ts (doc=${row.fields.join(',')} source=${fields.join(',')})` });
+
+  for (const docPath of docPaths) {
+    const documented = options.documentedConfig ?? parseConfigTable(projectRoot, docPath);
+    documentedByPath.set(docPath, documented);
+    for (const [section, fields] of expected) {
+      const row = documented.get(section);
+      if (!row) { failures.push({ type: 'missing-config-section', section, message: `${docPath} is missing config schema row for ${section}` }); continue; }
+      verifyAnchor(projectRoot, row.anchor, failures, `config schema ${docPath} ${section}`);
+      if (!sameArray(row.fields, fields)) failures.push({ type: 'config-schema-parity', section, message: `${docPath} fields for ${section} do not match src/agents/config-schema.ts (doc=${row.fields.join(',')} source=${fields.join(',')})` });
+    }
   }
-  return { ok: failures.length === 0, failures, expected, documented };
+
+  return { ok: failures.length === 0, failures, expected, documented: documentedByPath, checkedDocs: docPaths };
 }
 
 export function verifyDocSourceContracts(options = {}) {
@@ -327,7 +335,7 @@ export function formatVerificationResult(result, projectRoot = process.cwd()) {
   const lines = [];
   lines.push('==> Verifying active docs against source contracts...');
   lines.push(`  Checked ${result.routeResult.checkedDocs.length} active doc(s), ${result.routeResult.implementedRoutes.size} implemented operator route(s), ${result.routeResult.routeInventoryRows.length} inventory row(s).`);
-  lines.push('  Checked agent tool parity, runtime-control shapes, configuration schema fields, and code anchors.');
+  lines.push(`  Checked agent tool parity, runtime-control shapes, configuration schema fields in ${result.configResult.checkedDocs.length} config doc(s), and code anchors.`);
   if (result.ok) lines.push('  ✓ current docs match Fastify routes, agent tools, runtime controls, config schema, and anchors');
   else {
     lines.push('  ✗ documentation/source drift detected:');

@@ -170,21 +170,15 @@ Each named account under `accounts` supports the same fields as the provider ent
 
 ## Runtime Section (`runtime`)
 
-Controls the runtime loop behavior, recovery, and compaction.
+Controls the persisted §13 runtime settings. The on-disk section accepts only the snake_case keys below; legacy camelCase runtime keys are one-shot migrated by `loadConfig()` and unsupported persisted runtime keys are rejected.
 
 | Field | Type | Default | Description |
 |---|---|---|---|
-| `recoverAgentInvocations` | boolean | `true` | Recover agent sessions on restart |
-| `healthCheckIntervalMs` | number | `30000` | Interval between health checks (ms) |
-| `idleShutdownMs` | number | `300000` | Auto-shutdown after idle (ms) |
-| `maxGoalDepth` | number | `5` | Maximum plan/goal nesting depth |
-| `recoveryDelayMs` | number | `60000` | Delay before recovery attempt (ms) |
-| `continuousImprovement` | boolean | `false` | Enable continuous improvement mode |
-| `compactionThreshold` | number | `0.8` | Context usage fraction that triggers compaction (0–1) |
-| `maxCompactions` | number | `3` | Maximum compactions per session |
-| `compactionTimeoutMs` | number | `1200000` | Compaction timeout (20 min) |
-| `compactionKeepFraction` | number | `0.2` | Fraction of context to retain during compaction (0–1) |
-| `maxRecoveryRetries` | number | `3` | Maximum recovery retry attempts |
+| `continuous_improvement` | boolean | `false` | Enable idle depth-0 planner continuous improvement cycles |
+| `max_review_retries` | number | `3` | Default maximum reviewer correction attempts for goal cards; card metadata can override with `max_review_retries` |
+| `process_timeouts.planner_ms` | number | `1200000` | Planner invocation timeout in milliseconds |
+| `process_timeouts.executor_ms` | number | `1200000` | Executor invocation timeout in milliseconds |
+| `process_timeouts.reviewer_ms` | number | `1200000` | Reviewer invocation timeout in milliseconds |
 
 ---
 
@@ -393,7 +387,13 @@ Unknown environment variables resolve to an empty string and generate a warning.
     "intervalMs": 1200000
   },
   "runtime": {
-    "continuousImprovement": true
+    "continuous_improvement": true,
+    "max_review_retries": 3,
+    "process_timeouts": {
+      "planner_ms": 1200000,
+      "executor_ms": 1200000,
+      "reviewer_ms": 1200000
+    }
   }
 }
 ```

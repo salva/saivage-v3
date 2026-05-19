@@ -125,6 +125,51 @@ describe('config-schema', () => {
       });
     });
 
+
+
+    it('preserves supported legacy operational runtime overrides in memory while migrating persisted keys', () => {
+      setupConfig({
+        models: { default: ['test'] },
+        runtime: {
+          continuousImprovement: false,
+          maxRecoveryRetries: 9,
+          recoveryDelayMs: 12345,
+          selfCheck: { executor: 1, planner: 2, analyst: 3 },
+        },
+      });
+
+      const { config } = loadConfig(TEST_ROOT);
+      expect(config.runtime.maxRecoveryRetries).toBe(9);
+      expect(config.runtime.recoveryDelayMs).toBe(12345);
+      expect(config.runtime.selfCheck).toEqual({ executor: 1, planner: 2, analyst: 3 });
+      const migrated = JSON.parse(readFileSync(CONFIG_PATH, 'utf-8'));
+      expect(migrated.runtime).toEqual({ continuous_improvement: false, max_review_retries: 9 });
+    });
+
+    it('rejects removed operational runtime keys when persisted in snake_case without legacy migration', () => {
+      setupConfig({
+        models: { default: ['test'] },
+        runtime: {
+          continuous_improvement: true,
+          recovery_delay_ms: 1000,
+        },
+      });
+
+      expect(() => loadConfig(TEST_ROOT)).toThrow(/Configuration validation failed:[\s\S]*runtime: Unrecognized key/);
+    });
+
+    it('rejects unknown persisted runtime keys under strict validation', () => {
+      setupConfig({
+        models: { default: ['test'] },
+        runtime: {
+          continuous_improvement: true,
+          mystery_runtime_key: true,
+        },
+      });
+
+      expect(() => loadConfig(TEST_ROOT)).toThrow(/Configuration validation failed:[\s\S]*runtime: Unrecognized key/);
+    });
+
     it('should normalize single string model list to array', () => {
       setupConfig({
         models: { planner: 'gpt-5.5', default: ['fallback'] },
