@@ -284,13 +284,12 @@ Key properties:
 
 ## Reviewer (per-goal agent)
 
-**Lifetime**: Scoped to its parent goal. Invoked the first time the
-planner declares the goal done. Recalled for every subsequent
-re-review (when the planner adds correction cards and they
-complete, and the planner declares done again). Follow-up review
-calls in the same goal return to the same reviewer conversation,
-so the reviewer can compare new corrective results with its
-earlier findings.
+**Lifetime**: Scoped to one review assessment for its parent goal.
+Each invocation uses the stable preallocated session id
+`reviewer:<goal_card_id>:<assessment_id>`; pause/resume preserves
+that id, and restart recovery records it in a `reviewer_interrupted`
+synthetic note before the runtime clears the interrupted reviewer
+phase and returns control to the planner.
 
 **Invoked by the runtime** when the planner declares the goal done.
 
@@ -298,16 +297,19 @@ earlier findings.
 For each review:
 1. Reads the parent goal's acceptance criteria.
 2. Reads results, metrics, and artifacts from sibling cards.
-3. Produces a structured assessment: pass/fail, what was achieved,
-   what's missing.
-4. Returns the assessment to the runtime, which **appends it
-   to the plan card** (the planner's diary).
+3. Produces the canonical `src/schemas/validators.ts` reviewer
+   assessment with `result: 'pass' | 'needs_corrections'`,
+   `summary`, `achieved`, `issues`, and `evidence_card_ids`.
+   Legacy `{fail: ...}` or `{missing: ...}` shapes are rejected by
+   `src/agents/result-parser.ts`.
+4. Returns the assessment to the runtime, which persists it as the
+   goal's `result.review` / review diary evidence.
 
-If the review **passes**, the goal transitions to `done`.
+If the review returns `pass`, the goal transitions to `done`.
 
-If the review **fails**, the planner is re-invoked. It reads
-the review from the plan card, creates correction cards, and the
-cycle continues.
+If the review returns `needs_corrections`, the planner is re-invoked.
+It reads the persisted review, creates correction cards, and the cycle
+continues.
 
 The reviewer does NOT decide what happens next — it only assesses.
 The planner reads the review from its diary and decides.

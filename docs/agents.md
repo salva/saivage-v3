@@ -648,7 +648,9 @@ are one-shot and use stable ids:
 reviewer:<goal_card_id>:<assessment_id>
 ```
 
-The runtime preallocates `assessment_id` before invocation.
+The runtime preallocates `assessment_id` before invocation; restart recovery records the interrupted stable reviewer session id in the synthetic `reviewer_interrupted` note before clearing `active_card_run.reviewer_session_id`.
+
+The canonical reviewer result schema is `reviewerResultSchema` in `src/schemas/validators.ts` and is wrapped by `parseReviewerResult()` as `{ assessment: ReviewerResult }` in `src/agents/result-parser.ts`. Legacy `{ fail: ... }` / `{ missing: ... }` result shapes are invalid and must be rejected with a typed parse error.
 
 Reviewer result schema:
 
