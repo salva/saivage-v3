@@ -291,7 +291,16 @@ The Debug section exposes raw runtime internals:
   global pause state, configuration.
 - **Errors**: source, type, severity, message, details, timestamp.
 - **Timeline**: runtime events, card transitions, process events,
-  planner/reviewer invocations, content-supervisor events.
+  planner/reviewer invocations, content-supervisor events. The Debug
+  Timeline defaults to showing every event kind returned by the runtime
+  and narrows only when the operator selects kinds in the multi-select
+  filter; `web/src/views/DebugView.vue` implements the filter and
+  `web/src/__tests__/debug-view.integration.test.ts` guards the
+  documented event taxonomy and default-show-all behavior.
+- **Errors**: groups runtime error records and timeline-derived failure
+  events by `session_id`/source with counts and latest messages; the
+  same focused test guards the `invocation_failed`, `*_error`,
+  `*_failed`, `error_message`, and `error` predicates.
 
 Debug is for inspection, not normal operation. Actions should link back
 to the relevant card or process instead of duplicating controls.

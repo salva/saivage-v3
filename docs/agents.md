@@ -505,6 +505,11 @@ long as the supervisor and runtime pause controls allow.
 
 There is no notification-acknowledgement gate. Notifications never
 block `report_goal_done` and are not part of the activation contract.
+Operator observability rollups are non-blocking: Debug derives
+per-session-per-minute notification summaries from failure/error timeline
+events in `web/src/stores/debug.ts`, while
+`web/src/__tests__/notifications-panel.test.ts` verifies latest-message
+selection and multi-session/minute bucketing.
 
 ### 8.2 Runtime Acceptance Gates
 

@@ -319,7 +319,7 @@ describe('DebugView — integration', () => {
     expect(wrapper.text()).toContain('Check runtime status before proceeding.');
   });
 
-  it('renders all Stage 13 timeline event kinds by default and narrows with the multi-select filter', async () => {
+  it('renders the documented timeline event kinds by default, narrows with the multi-select filter, and resets to show all', async () => {
     const requiredKinds = [
       'model_selected',
       'invocation_failed',
@@ -352,37 +352,50 @@ describe('DebugView — integration', () => {
     const wrapper = await mountDebugView();
     await clickTab(wrapper, 'Timeline');
 
+    expect(wrapper.text()).toContain('No selection shows all event kinds.');
+    expect(wrapper.findAll('select[aria-label="Filter timeline event kinds"] option')).toHaveLength(requiredKinds.length);
     const renderedKinds = wrapper.findAll('.tl-event-type').map((node) => node.text());
+    expect(renderedKinds).toHaveLength(requiredKinds.length);
     for (const kind of requiredKinds) {
       expect(renderedKinds).toContain(kind.replace(/_/g, ' '));
     }
 
     const select = wrapper.find('select[aria-label="Filter timeline event kinds"]');
-    await select.setValue(['invocation_failed']);
+    await select.setValue(['invocation_failed', 'model_selected']);
     await flushPromises();
-    expect(wrapper.findAll('.tl-event-type').map((node) => node.text())).toEqual(['invocation failed']);
-    expect(wrapper.text()).not.toContain('model selected');
+    expect(wrapper.findAll('.tl-event-type').map((node) => node.text())).toEqual(['invocation failed', 'model selected']);
+    expect(wrapper.text()).not.toContain('planner started');
+
+    await wrapper.find('.timeline-filter .filter-chip').trigger('click');
+    await flushPromises();
+    expect(wrapper.findAll('.tl-event-type').map((node) => node.text())).toHaveLength(requiredKinds.length);
   });
 
-  it('groups failure-kind and error-field timeline events by session with count and latest message', async () => {
+  it('groups invocation_failed, suffix error/failed, and error-field events by session with count and latest message', async () => {
     vi.mocked(getDebugErrors).mockResolvedValue({ errors: [], total: 0 });
     vi.mocked(getDebugTimeline).mockResolvedValue({
       events: [
         { id: 'evt-old', kind: 'invocation_failed', session_id: 'planner:1', timestamp: '2025-06-01T10:00:00Z', error_message: 'HTTP 401 old failure' },
-        { id: 'evt-latest', kind: 'tool_error', session_id: 'planner:1', timestamp: '2025-06-01T10:01:00Z', error: 'Tool crashed latest' },
-        { id: 'evt-field', kind: 'model_selected', session_id: 'reviewer:2', timestamp: '2025-06-01T10:02:00Z', error_message: 'Provider config missing' },
-        { id: 'evt-ok', kind: 'invocation_succeeded', session_id: 'planner:1', timestamp: '2025-06-01T10:03:00Z' },
+        { id: 'evt-error-suffix', kind: 'tool_error', session_id: 'planner:1', timestamp: '2025-06-01T10:01:00Z', error: 'Tool crashed suffix error' },
+        { id: 'evt-failed-suffix', kind: 'reviewer_failed', session_id: 'planner:1', timestamp: '2025-06-01T10:04:00Z', message: 'Reviewer failed latest' },
+        { id: 'evt-message-field', kind: 'model_selected', session_id: 'reviewer:2', timestamp: '2025-06-01T10:02:00Z', error_message: 'Provider config missing' },
+        { id: 'evt-error-field', kind: 'directive_recorded', session_id: 'executor:3', timestamp: '2025-06-01T10:03:00Z', error: 'Directive write failed' },
+        { id: 'evt-ok', kind: 'invocation_succeeded', session_id: 'planner:1', timestamp: '2025-06-01T10:05:00Z' },
       ],
-      total: 4,
+      total: 6,
     });
 
     const wrapper = await mountDebugView();
     await clickTab(wrapper, 'Errors');
 
-    expect(wrapper.text()).toContain('planner:1 (2)');
-    expect(wrapper.text()).toContain('Tool crashed latest');
+    expect(wrapper.text()).toContain('planner:1 (3)');
+    expect(wrapper.text()).toContain('Reviewer failed latest');
+    expect(wrapper.text()).toContain('Tool crashed suffix error');
+    expect(wrapper.text()).toContain('HTTP 401 old failure');
     expect(wrapper.text()).toContain('reviewer:2 (1)');
     expect(wrapper.text()).toContain('Provider config missing');
+    expect(wrapper.text()).toContain('executor:3 (1)');
+    expect(wrapper.text()).toContain('Directive write failed');
     expect(wrapper.text()).not.toContain('No errors recorded.');
   });
 

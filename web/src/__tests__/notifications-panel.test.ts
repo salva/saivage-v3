@@ -90,7 +90,7 @@ describe('NotificationsPanel', () => {
     expect(store.notificationsState).toBe('empty');
   });
 
-  it('surfaces one rolled-up notification per session per minute for timeline failure events', async () => {
+  it('surfaces one rolled-up notification per session per minute with latest failure message per bucket', async () => {
     vi.mocked(listNotifications).mockResolvedValue({ notifications: [], total: 0 });
     vi.mocked(getDebugTimeline).mockResolvedValue({
       events: [
@@ -98,8 +98,10 @@ describe('NotificationsPanel', () => {
         { id: 'evt-2', kind: 'tool_error', session_id: 'planner:rollup', timestamp: '2025-01-01T00:00:45Z', error: 'Latest same-minute failure' },
         { id: 'evt-3', kind: 'invocation_failed', session_id: 'planner:rollup', timestamp: '2025-01-01T00:01:05Z', error_message: 'Next minute failure' },
         { id: 'evt-4', kind: 'invocation_succeeded', session_id: 'planner:rollup', timestamp: '2025-01-01T00:01:15Z' },
+        { id: 'evt-5', kind: 'reviewer_failed', session_id: 'reviewer:rollup', timestamp: '2025-01-01T00:00:20Z', message: 'Reviewer bucket failure' },
+        { id: 'evt-6', kind: 'directive_recorded', session_id: 'executor:rollup', timestamp: '2025-01-01T00:02:05Z', error_message: 'Directive error field failure' },
       ],
-      total: 4,
+      total: 6,
     });
 
     const pinia = createPinia();
@@ -109,9 +111,11 @@ describe('NotificationsPanel', () => {
     const wrapper = mount(NotificationsPanel, { global: { plugins: [pinia] } });
     await flushPromises();
 
-    expect(wrapper.findAll('.notification-card')).toHaveLength(2);
+    expect(wrapper.findAll('.notification-card')).toHaveLength(4);
     expect(wrapper.text()).toContain('2 failure/error events for planner:rollup: Latest same-minute failure');
     expect(wrapper.text()).toContain('1 failure/error event for planner:rollup: Next minute failure');
+    expect(wrapper.text()).toContain('1 failure/error event for reviewer:rollup: Reviewer bucket failure');
+    expect(wrapper.text()).toContain('1 failure/error event for executor:rollup: Directive error field failure');
   });
 
 });

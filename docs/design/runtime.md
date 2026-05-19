@@ -127,7 +127,15 @@ states; operators must use `resume-from-freeze` for the frozen path.
 ## Notification delivery and stale-work protection
 
 The runtime persists notifications on disk and delivers them to running
-sessions at the next safe point.
+sessions at the next safe point. The Debug observability surface also
+derives operator-visible error rollups from timeline events: event kinds
+matching `invocation_failed`, `*_error`, or `*_failed`, plus any event
+carrying `error_message` or `error`, are grouped by `session_id`;
+notification rollups are bucketed one per session per minute with the
+latest message. This contract is enforced by
+`web/src/stores/debug.ts` and the focused guards in
+`web/src/__tests__/debug-view.integration.test.ts` and
+`web/src/__tests__/notifications-panel.test.ts`.
 
 Sources in the current design:
 
