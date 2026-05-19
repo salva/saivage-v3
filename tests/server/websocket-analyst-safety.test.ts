@@ -163,6 +163,50 @@ describe('websocket analyst safety', () => {
     expect(messageFrames.map((entry) => entry.content.id)).toEqual(['reply-first', 'reply-second']);
   });
 
+
+  it('sanitizes analyst activity broadcasts from handler callbacks end-to-end', async () => {
+    const { ws, handlers } = createSocket();
+    const { route, fastify } = createRoute();
+    let onActivity!: (activity: Record<string, unknown>) => void;
+    mockGetAnalystHandler.mockImplementation((_projectRoot, options) => {
+      onActivity = (options as { onActivity: (activity: Record<string, unknown>) => void }).onActivity;
+      return {
+        handleMessage: jest.fn(async () => {
+          onActivity({
+            event: 'analysis_progress',
+            message: `${'x'.repeat(250)} token=secret-activity-value .saivage/auth-profiles.json`,
+            nested: {
+              authorization: 'Bearer synthetic-secret',
+              values: Array.from({ length: 12 }, (_unused, index) => `value-${index}`),
+            },
+          });
+          return {
+            message: {
+              id: 'm-activity',
+              role: 'assistant',
+              kind: 'text',
+              content: 'done',
+              timestamp: new Date().toISOString(),
+            },
+          };
+        }),
+      };
+    });
+    registerWebSocket(fastify, '/tmp/project');
+    route.handler(ws, { headers: {}, query: {} });
+
+    await handlers.get('message')?.(Buffer.from(JSON.stringify({ type: 'message', content: { text: 'activity please' } })));
+
+    const sent = (ws.send as jest.Mock).mock.calls.map((call) => JSON.parse(call[0] as string));
+    const activity = sent.find((entry) => entry.type === 'activity' && entry.content.event === 'analysis_progress');
+    expect(activity).toBeTruthy();
+    expect(activity.content.message.length).toBeLessThanOrEqual(200);
+    expect(activity.content.nested.authorization).toBe('[REDACTED]');
+    expect(activity.content.nested.values).toHaveLength(10);
+    expect(JSON.stringify(activity)).not.toMatch(/secret-activity-value|synthetic-secret|auth-profiles\.json/);
+    expect(JSON.stringify(activity)).toContain('[SECRET_PATH]');
+  });
+
   it('preserves assistant response sanitization and the 200000 character message cap', async () => {
     const { ws, handlers } = createSocket();
     const { route, fastify } = createRoute();
