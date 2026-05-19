@@ -410,4 +410,32 @@ describe('DebugView — integration', () => {
     expect(actions.find('.sv-fetch-btn').text()).toBe('Refresh');
   });
 
+  it('redacts provider-like secret values in Debug Errors and Timeline details', async () => {
+    const rawToken = 'synthetic-token-value-debug-49';
+    const rawApiKey = 'synthetic-api-key-value-debug-49';
+    const rawAuthorization = 'Bearer synthetic-authorization-value-debug-49';
+    vi.mocked(getDebugErrors).mockResolvedValue({
+      errors: [{ source: 'planner:redaction', type: 'invocation_failed', severity: 'warning', message: `Provider failed: {"token":"${rawToken}"}`, details: `{"api_key":"${rawApiKey}","authorization":"${rawAuthorization}"}`, timestamp: '2025-06-01T10:01:00Z' }],
+      total: 1,
+    });
+    vi.mocked(getDebugTimeline).mockResolvedValue({
+      events: [{ id: 'evt-secret', kind: 'invocation_failed', session_id: 'planner:redaction', timestamp: '2025-06-01T10:02:00Z', error_message: `Provider failed: {"token":"${rawToken}","api_key":"${rawApiKey}","authorization":"${rawAuthorization}"}`, provider_error: { token: rawToken, api_key: rawApiKey, authorization: rawAuthorization, safe: 'visible' } }],
+      total: 1,
+    });
+
+    const wrapper = await mountDebugView();
+    await clickTab(wrapper, 'Errors');
+    expect(wrapper.text()).not.toContain(rawToken);
+    expect(wrapper.text()).not.toContain(rawApiKey);
+    expect(wrapper.text()).not.toContain(rawAuthorization);
+    expect(wrapper.text()).toContain('[REDACTED]');
+
+    await clickTab(wrapper, 'Timeline');
+    expect(wrapper.text()).not.toContain(rawToken);
+    expect(wrapper.text()).not.toContain(rawApiKey);
+    expect(wrapper.text()).not.toContain(rawAuthorization);
+    expect(wrapper.text()).toContain('[REDACTED]');
+    expect(wrapper.text()).toContain('visible');
+  });
+
 });

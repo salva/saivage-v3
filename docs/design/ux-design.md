@@ -312,7 +312,12 @@ The Debug section exposes raw runtime internals:
 - **Errors**: groups runtime error records and timeline-derived failure
   events by `session_id`/source with counts and latest messages; the
   same focused test guards the `invocation_failed`, `*_error`,
-  `*_failed`, `error_message`, and `error` predicates.
+  `*_failed`, `error_message`, and `error` predicates. Debug Errors,
+  Timeline details, and notification rollups defensively redact
+  provider-like `token`/`api_key`/`authorization` JSON values with
+  `web/src/utils/observabilityRedaction.ts`; coverage lives in
+  `web/src/__tests__/debug-view.integration.test.ts` and
+  `web/src/__tests__/notifications-panel.test.ts`.
 
 Debug is for inspection, not normal operation. Actions should link back
 to the relevant card or process instead of duplicating controls.

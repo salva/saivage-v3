@@ -150,9 +150,16 @@ reads the config file.
 config-like material into notification, audit, persisted agent, event,
 or provider-error payloads. Provider HTTP error bodies are redacted in
 `src/agents/llm-client.ts:820` before error construction and again in
-`src/agents/agent-adapter.ts:215` before runtime persistence/events;
-`tests/agents/llm-client-integration.test.ts` covers synthetic
-`token`, `api_key`, `authorization`, `password`, and `secret` JSON keys.
+`src/agents/agent-adapter.ts:215` before runtime persistence/events.
+Observability persistence and debug API responses additionally pass
+provider-like event/error payloads through
+`src/utils/observability-redaction.ts` at `src/utils/event-logger.ts`
+and `src/server/routes/chats-files-debug.ts`; the regression in
+`tests/utils/observability-redaction.test.ts` proves synthetic
+`token`, `api_key`, and `authorization` JSON values do not survive in
+persisted `invocation_failed` events. `tests/agents/llm-client-integration.test.ts`
+continues to cover synthetic provider-error JSON keys at the LLM client
+boundary.
 
 ---
 

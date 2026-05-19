@@ -3,6 +3,7 @@ import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { writeFileAtomic } from './file-tree.js';
 import type { LoggedEvent, EventKind } from '../schemas/types.js';
+import { redactObservabilityValue } from './observability-redaction.js';
 
 // ── Constants ─────────────────────────────────────────────────
 
@@ -99,11 +100,11 @@ export class EventLogger {
    * timestamp if not already provided. Returns the full event object.
    */
   appendEvent(event: AppendEventInput): LoggedEvent {
-    const fullEvent: LoggedEvent = {
+    const fullEvent: LoggedEvent = redactObservabilityValue({
       ...event,
       id: event.id ?? nextEventId(),
       timestamp: event.timestamp ?? new Date().toISOString(),
-    } as unknown as LoggedEvent;
+    }) as unknown as LoggedEvent;
 
     // Add to buffer for batched flush
     this.buffer.push(JSON.stringify(fullEvent));

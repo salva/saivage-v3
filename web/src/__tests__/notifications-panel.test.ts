@@ -118,4 +118,27 @@ describe('NotificationsPanel', () => {
     expect(wrapper.text()).toContain('1 failure/error event for executor:rollup: Directive error field failure');
   });
 
+  it('redacts provider-like secret values in notification rollups from timeline events', async () => {
+    const rawToken = 'synthetic-token-value-ui-49';
+    const rawApiKey = 'synthetic-api-key-value-ui-49';
+    vi.mocked(listNotifications).mockResolvedValue({ notifications: [{ id: 'n-secret', session_id: null, kind: 'runtime_state', severity: 'warn', payload_summary: `server token=${rawToken}`, source_actor: 'runtime', source_surface: 'runtime', created_at: '2025-01-01T00:00:00Z', delivered_at: null, acknowledged_at: null }], total: 1 });
+    vi.mocked(getDebugTimeline).mockResolvedValue({
+      events: [
+        { id: 'evt-secret', kind: 'invocation_failed', session_id: 'planner:redaction-ui', timestamp: '2025-01-01T00:00:10Z', error_message: `Provider failed: {"token":"${rawToken}","api_key":"${rawApiKey}"}` },
+      ],
+      total: 1,
+    });
+
+    const pinia = createPinia();
+    setActivePinia(pinia);
+    const store = useDebugStore();
+    await store.fetchTimeline();
+    const wrapper = mount(NotificationsPanel, { global: { plugins: [pinia] } });
+    await flushPromises();
+
+    expect(wrapper.text()).not.toContain(rawToken);
+    expect(wrapper.text()).not.toContain(rawApiKey);
+    expect(wrapper.text()).toContain('[REDACTED]');
+  });
+
 });

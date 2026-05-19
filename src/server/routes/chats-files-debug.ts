@@ -9,6 +9,7 @@ import {
   resolveContainedProjectPath,
   redactOperatorErrorMessage,
 } from '../../utils/file-access-security.js';
+import { redactObservabilityValue } from '../../utils/observability-redaction.js';
 import { AnalystHandler } from '../../agents/analyst-handler.js';
 import {
   listRecentReviews,
@@ -353,7 +354,8 @@ export function registerChatsFilesDebugRoutes(
         }
       }
 
-      return reply.send({ errors, total: errors.length });
+      const redactedErrors = errors.map((entry) => redactObservabilityValue(entry));
+      return reply.send({ errors: redactedErrors, total: redactedErrors.length });
     } catch (err) {
       return reply.status(500).send({
         error: 'Failed to read errors',
@@ -377,7 +379,8 @@ export function registerChatsFilesDebugRoutes(
         }
       }
 
-      return reply.send({ events, total: events.length });
+      const redactedEvents = events.map((entry) => redactObservabilityValue(entry));
+      return reply.send({ events: redactedEvents, total: redactedEvents.length });
     } catch (err) {
       return reply.status(500).send({
         error: 'Failed to read timeline',

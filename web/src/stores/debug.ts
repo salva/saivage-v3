@@ -55,6 +55,7 @@ import {
 } from '../api/client';
 import { useWsStore } from './ws';
 import { createLogger } from '../utils/logger';
+import { redactObservabilityText, redactObservabilityValue } from '../utils/observabilityRedaction';
 
 const log = createLogger('store:debug');
 const OPERATOR_STALE_AGE_MS = 60_000;
@@ -63,7 +64,7 @@ const FAILURE_EVENT_KIND_RE = /^invocation_failed$|_error$|_failed$/;
 
 function eventFieldAsString(event: DebugTimelineEvent, field: string): string | null {
   const value = event[field];
-  return typeof value === 'string' && value.trim() ? value : null;
+  return typeof value === 'string' && value.trim() ? redactObservabilityText(value) : null;
 }
 
 function isErrorTimelineEvent(event: DebugTimelineEvent): boolean {
@@ -95,7 +96,8 @@ function eventErrorDetails(event: DebugTimelineEvent): string | undefined {
     if (value === undefined || value === null) continue;
     details[key] = value;
   }
-  return Object.keys(details).length > 0 ? JSON.stringify(details, null, 2) : undefined;
+  const redacted = redactObservabilityValue(details);
+  return Object.keys(redacted).length > 0 ? JSON.stringify(redacted, null, 2) : undefined;
 }
 
 
@@ -338,7 +340,7 @@ export const useDebugStore = defineStore('debug', () => {
     error.value = null;
     try {
       const response: DebugErrorsResponse = await getDebugErrors();
-      errors.value = response.errors;
+      errors.value = response.errors.map((entry) => redactObservabilityValue(entry));
       errorsTotal.value = response.total;
     } catch (err) {
       const msg = err instanceof ApiError ? err.message : 'Failed to fetch debug errors';
@@ -355,7 +357,7 @@ export const useDebugStore = defineStore('debug', () => {
     error.value = null;
     try {
       const response: DebugTimelineResponse = await getDebugTimeline();
-      timelineEvents.value = response.events;
+      timelineEvents.value = response.events.map((entry) => redactObservabilityValue(entry));
       timelineTotal.value = response.total;
     } catch (err) {
       const msg = err instanceof ApiError ? err.message : 'Failed to fetch debug timeline';
@@ -494,7 +496,7 @@ export const useDebugStore = defineStore('debug', () => {
     notificationsError.value = null;
     try {
       const response: NotificationsListResponse = await listNotifications();
-      serverNotifications.value = response.notifications;
+      serverNotifications.value = response.notifications.map((entry) => redactObservabilityValue(entry));
       notificationsState.value = notifications.value.length === 0 ? 'empty' : 'success';
     } catch (err) {
       notificationsError.value = operatorErrorMessage(err);
