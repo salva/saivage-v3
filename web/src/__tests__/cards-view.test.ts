@@ -67,7 +67,7 @@ vi.mock('../api/client', () => {
   };
 });
 
-import { listCards } from '../api/client';
+import { listCards, createCard } from '../api/client';
 
 // ── Mock child card components ────────────────────────────────
 vi.mock('../components/cards/CardsTreeView.vue', () => ({
@@ -132,7 +132,7 @@ function makeCard(overrides: Partial<CardRecord> = {}): CardRecord {
 
 const projectCard = makeCard({ id: 'proj-1', type: 'project', title: 'Saivage v3', status: 'active', priority: 10, tags: ['core'] });
 const goalCard = makeCard({ id: 'goal-1', type: 'goal', title: 'Build UI', status: 'running', parent: 'proj-1', priority: 8 });
-const planCard = makeCard({ id: 'plan-1', type: 'plan', title: 'UI Plan', status: 'done', parent: 'goal-1', priority: 7 });
+const planCard = makeCard({ id: 'plan-1', type: 'research', title: 'UI Plan', status: 'done', parent: 'goal-1', priority: 7 });
 const codeCard = makeCard({ id: 'code-1', type: 'code', title: 'CardsView.vue', status: 'running', parent: 'plan-1', priority: 6, tags: ['frontend'] });
 const testCard = makeCard({ id: 'test-1', type: 'test', title: 'CardsView tests', status: 'drafting', parent: 'plan-1', priority: 5 });
 const allCards = [projectCard, goalCard, planCard, codeCard, testCard];
@@ -169,6 +169,7 @@ async function mountCardsView(opts?: {
   await router.isReady();
 
   const wrapper = mount(CardsView, {
+    attachTo: document.body,
     global: { plugins: [pinia, router] },
   });
   await flushPromises();
@@ -660,4 +661,83 @@ describe('CardsView', () => {
       expect(listCards).toHaveBeenCalledTimes(1);
     });
   });
+
+  describe('Stage 16 new card validation and priority scale', () => {
+    async function openNewCardModal() {
+      const mounted = await mountCardsView();
+      await mounted.wrapper.get('.new-card-btn').trigger('click');
+      await flushPromises();
+      return mounted;
+    }
+
+    it('shows inline title validation, marks the input invalid, disables Create while empty, and does not POST', async () => {
+      const { wrapper } = await openNewCardModal();
+      const titleInput = wrapper.get('input[aria-describedby="new-card-title-error"]');
+      const createButton = wrapper.get('button.submit-btn');
+      expect(createButton.attributes('disabled')).toBeDefined();
+
+      await wrapper.get('form').trigger('submit');
+      await flushPromises();
+
+      expect(wrapper.text()).toContain('Title is required');
+      expect(titleInput.attributes('aria-invalid')).toBe('true');
+      expect(titleInput.classes()).toContain('form-input-error');
+      expect(document.activeElement).toBe(titleInput.element);
+      expect(createCard).not.toHaveBeenCalled();
+    });
+
+    it('rejects whitespace-only titles through submit validation without posting', async () => {
+      const { wrapper } = await openNewCardModal();
+      await wrapper.get('input[aria-describedby="new-card-title-error"]').setValue('   ');
+      await wrapper.get('form').trigger('submit');
+      await flushPromises();
+
+      expect(wrapper.text()).toContain('Title is required');
+      expect(createCard).not.toHaveBeenCalled();
+    });
+
+    it('validates Parent ID against the loaded card index before posting', async () => {
+      const { wrapper } = await openNewCardModal();
+      await wrapper.get('input[aria-describedby="new-card-title-error"]').setValue('Child card');
+      await wrapper.get('input[placeholder="parent card ID"]').setValue('missing-parent');
+      await wrapper.get('form').trigger('submit');
+      await flushPromises();
+
+      const parentInput = wrapper.get('input[placeholder="parent card ID"]');
+      expect(wrapper.text()).toContain('Parent card not found');
+      expect(parentInput.attributes('aria-invalid')).toBe('true');
+      expect(parentInput.classes()).toContain('form-input-error');
+      expect(createCard).not.toHaveBeenCalled();
+    });
+
+    it('uses 0-100 priority defaults and submits the selected priority without /10 scaling', async () => {
+      vi.mocked(createCard).mockResolvedValue({ card: makeCard({ id: 'created-1', title: 'Created', priority: 100 }) });
+      const { wrapper } = await openNewCardModal();
+      const priorityInput = wrapper.get('input[aria-describedby="new-card-priority-help new-card-priority-error"]');
+      expect((priorityInput.element as HTMLInputElement).min).toBe('0');
+      expect((priorityInput.element as HTMLInputElement).max).toBe('100');
+      expect((priorityInput.element as HTMLInputElement).step).toBe('1');
+      expect((priorityInput.element as HTMLInputElement).value).toBe('50');
+      expect(wrapper.text()).toContain('Priority (0-100)');
+
+      await wrapper.get('input[aria-describedby="new-card-title-error"]').setValue('High priority card');
+      await priorityInput.setValue('100');
+      await wrapper.get('form').trigger('submit');
+      await flushPromises();
+
+      expect(createCard).toHaveBeenCalledWith(expect.objectContaining({ title: 'High priority card', priority: 100 }));
+    });
+
+    it('rejects out-of-range priority values client-side', async () => {
+      const { wrapper } = await openNewCardModal();
+      await wrapper.get('input[aria-describedby="new-card-title-error"]').setValue('Invalid priority');
+      await wrapper.get('input[aria-describedby="new-card-priority-help new-card-priority-error"]').setValue('101');
+      await wrapper.get('form').trigger('submit');
+      await flushPromises();
+
+      expect(wrapper.text()).toContain('Priority must be a whole number from 0 to 100');
+      expect(createCard).not.toHaveBeenCalled();
+    });
+  });
+
 });

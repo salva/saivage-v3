@@ -114,7 +114,9 @@ Terminal cards are worked by executor sessions.
 ### 4.1 Card Fields
 
 In addition to the usual title, description, tags, priority, acceptance,
-dependencies, and `result` fields, every card carries:
+dependencies, and `result` fields, every card carries. Card priority is a
+whole number on a 0-100 scale, where larger numbers sort and surface as
+higher priority work:
 
 - `status_text: string | null` — short free-form progress line written
   by the runtime from the most recent accepted terminal agent report

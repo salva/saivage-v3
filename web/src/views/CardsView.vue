@@ -105,10 +105,19 @@
       <div v-if="showNewCardForm" class="modal-overlay" @click.self="showNewCardForm = false">
         <div class="modal-content">
           <h3>New Card</h3>
-          <form @submit.prevent="createNewCard">
+          <form @submit.prevent="createNewCard" novalidate>
             <label>
               Title
-              <input v-model="newCard.title" class="form-input" required />
+              <input
+                ref="titleInput"
+                v-model="newCard.title"
+                class="form-input"
+                :class="{ 'form-input-error': formErrors.title }"
+                :aria-invalid="formErrors.title ? 'true' : 'false'"
+                aria-describedby="new-card-title-error"
+                @input="formErrors.title = ''"
+              />
+              <span v-if="formErrors.title" id="new-card-title-error" class="form-error">{{ formErrors.title }}</span>
             </label>
             <label>
               Type
@@ -118,15 +127,37 @@
             </label>
             <label>
               Parent (optional)
-              <input v-model="newCard.parent" class="form-input" placeholder="parent card ID" />
+              <input
+                v-model="newCard.parent"
+                class="form-input"
+                :class="{ 'form-input-error': formErrors.parent }"
+                :aria-invalid="formErrors.parent ? 'true' : 'false'"
+                aria-describedby="new-card-parent-error"
+                placeholder="parent card ID"
+                @input="formErrors.parent = ''"
+              />
+              <span v-if="formErrors.parent" id="new-card-parent-error" class="form-error">{{ formErrors.parent }}</span>
             </label>
             <label>
               Description
               <textarea v-model="newCard.description" class="form-textarea" rows="3"></textarea>
             </label>
             <label>
-              Priority (1-10)
-              <input v-model.number="newCard.priority" type="number" min="1" max="10" class="form-input" />
+              Priority (0-100)
+              <input
+                v-model.number="newCard.priority"
+                type="number"
+                min="0"
+                max="100"
+                step="1"
+                class="form-input"
+                :class="{ 'form-input-error': formErrors.priority }"
+                :aria-invalid="formErrors.priority ? 'true' : 'false'"
+                aria-describedby="new-card-priority-help new-card-priority-error"
+                @input="formErrors.priority = ''"
+              />
+              <span id="new-card-priority-help" class="form-help">Use a whole-number priority from 0 to 100. Default: 50.</span>
+              <span v-if="formErrors.priority" id="new-card-priority-error" class="form-error">{{ formErrors.priority }}</span>
             </label>
             <label>
               Tags (comma-separated)
@@ -134,7 +165,7 @@
             </label>
             <div class="form-actions">
               <button type="button" class="cancel-btn" @click="showNewCardForm = false">Cancel</button>
-              <button type="submit" class="submit-btn">Create</button>
+              <button type="submit" class="submit-btn" :disabled="isCreateDisabled">Create</button>
             </div>
           </form>
         </div>
@@ -157,7 +188,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, watch, reactive } from 'vue';
+import { ref, computed, nextTick, onMounted, watch, reactive } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { storeToRefs } from 'pinia';
 import { useCardStore } from '../stores/cards';
@@ -216,7 +247,7 @@ const viewTabs = [
 ];
 
 const statuses: CardStatus[] = ['drafting', 'backlog', 'active', 'running', 'blocked', 'done', 'failed', 'cancelled'];
-const cardTypes: CardType[] = ['project', 'goal', 'plan', 'architecture', 'code', 'test', 'doc', 'data', 'research', 'ops'];
+const cardTypes: CardType[] = ['project', 'goal', 'architecture', 'code', 'test', 'doc', 'data', 'research', 'ops'];
 
 // ── Filter State (local, synced to store) ─────────────────
 
@@ -275,14 +306,21 @@ function selectCard(id: string): void {
 const actionMenuTarget = ref<CardRecord | null>(null);
 const actionMenuStyle = ref({ top: '0px', left: '0px' });
 const showNewCardForm = ref(false);
+const titleInput = ref<HTMLInputElement | null>(null);
 const newCard = reactive({
   title: '',
   type: 'code' as CardType,
   parent: '',
   description: '',
-  priority: 5,
+  priority: 50,
   tagsStr: '',
 });
+const formErrors = reactive({
+  title: '',
+  parent: '',
+  priority: '',
+});
+const isCreateDisabled = computed(() => newCard.title.trim().length === 0);
 
 function handleTreeAction(card: CardRecord, event: MouseEvent): void {
   actionMenuTarget.value = card;
@@ -299,11 +337,35 @@ function handleBoardMove(cardId: string, newStatus: CardStatus): void {
   });
 }
 
+function resetFormErrors(): void {
+  formErrors.title = '';
+  formErrors.parent = '';
+  formErrors.priority = '';
+}
+
+function validateNewCardForm(): boolean {
+  resetFormErrors();
+  if (newCard.title.trim().length === 0) {
+    formErrors.title = 'Title is required';
+    void nextTick(() => titleInput.value?.focus());
+  }
+  const parentId = newCard.parent.trim();
+  if (parentId && !cards.value.some((card) => card.id === parentId)) {
+    formErrors.parent = 'Parent card not found';
+  }
+  if (!Number.isInteger(newCard.priority) || newCard.priority < 0 || newCard.priority > 100) {
+    formErrors.priority = 'Priority must be a whole number from 0 to 100';
+  }
+  return !formErrors.title && !formErrors.parent && !formErrors.priority;
+}
+
 async function createNewCard(): Promise<void> {
+  if (!validateNewCardForm()) return;
+
   const payload: CreateCardPayload = {
-    title: newCard.title,
+    title: newCard.title.trim(),
     type: newCard.type,
-    parent: newCard.parent || null,
+    parent: newCard.parent.trim() || null,
     description: newCard.description,
     priority: newCard.priority,
     tags: newCard.tagsStr.split(',').map(t => t.trim()).filter(Boolean),
@@ -319,8 +381,9 @@ async function createNewCard(): Promise<void> {
     newCard.type = 'code';
     newCard.parent = '';
     newCard.description = '';
-    newCard.priority = 5;
+    newCard.priority = 50;
     newCard.tagsStr = '';
+    resetFormErrors();
   } catch (err) {
     const msg = err instanceof Error ? err.message : 'Failed';
     log.error('create card', msg);
@@ -640,6 +703,26 @@ watch(() => route.params.id, (newId) => {
   border-color: #58a6ff;
 }
 
+.form-input-error,
+.form-input-error:focus {
+  border-color: #f85149;
+  box-shadow: 0 0 0 1px rgba(248, 81, 73, 0.35);
+}
+
+.form-error {
+  display: block;
+  margin-top: 4px;
+  color: #f85149;
+  font-size: 12px;
+}
+
+.form-help {
+  display: block;
+  margin-top: 4px;
+  color: #8b949e;
+  font-size: 11px;
+}
+
 .form-actions {
   display: flex;
   justify-content: flex-end;
@@ -668,6 +751,11 @@ watch(() => route.params.id, (newId) => {
   font-weight: 600;
   cursor: pointer;
   font-family: inherit;
+}
+
+.submit-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
 }
 
 /* ── Action Menu ────────────────────────────────────────── */

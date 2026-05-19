@@ -39,7 +39,7 @@
           <div class="meta-item"><span class="meta-key">Version</span><span class="meta-value">{{ currentCard.version_seq ?? 'unknown' }}</span></div>
           <div v-if="currentCard.started_at || lifecycle?.startedAt" class="meta-item"><span class="meta-key">Started</span><span class="meta-value">{{ fmtDate(currentCard.started_at || lifecycle?.startedAt || '') }}</span></div>
           <div v-if="currentCard.completed_at || lifecycle?.completedAt" class="meta-item"><span class="meta-key">Completed</span><span class="meta-value">{{ fmtDate(currentCard.completed_at || lifecycle?.completedAt || '') }}</span></div>
-          <div class="meta-item"><span class="meta-key">Priority</span><span class="meta-value" :class="{ high: currentCard.priority > 5 }">{{ currentCard.priority }} / 10</span></div>
+          <div class="meta-item"><span class="meta-key">Priority</span><span class="meta-value" :class="{ high: currentCard.priority >= 80 }">{{ currentCard.priority }}</span></div>
           <div class="meta-item"><span class="meta-key">Urgency</span><span class="meta-value">{{ currentCard.urgency }}</span></div>
           <div v-if="currentCard.assigned_to" class="meta-item"><span class="meta-key">Assigned to</span><span class="meta-value">{{ currentCard.assigned_to }}</span></div>
           <div v-if="lifecycle?.durationMs != null" class="meta-item"><span class="meta-key">Duration</span><span class="meta-value">{{ lifecycle.durationMs }} ms</span></div>
@@ -53,7 +53,7 @@
         <h3 class="section-heading">Completion &amp; blockers</h3>
         <div class="meta-grid">
           <div class="meta-item"><span class="meta-key">Completion state</span><span class="meta-value">{{ completionLabel }}</span></div>
-          <div class="meta-item"><span class="meta-key">Evidence readiness</span><span class="meta-value">{{ evidence?.summary.summary || 'No evidence summary returned.' }}</span></div>
+          <div class="meta-item"><span class="meta-key">Evidence readiness</span><span class="meta-value">{{ hasRecordedEvidence ? evidence?.summary.summary : 'No evidence summary returned.' }}</span></div>
           <div class="meta-item"><span class="meta-key">Child work</span><span class="meta-value">{{ childWorkSummary }}</span></div>
         </div>
         <div v-if="currentCard.depends_on.length" class="link-list-row">
@@ -101,6 +101,8 @@
 
       <section class="detail-section">
         <h3 class="section-heading">Evidence &amp; generated files</h3>
+        <div v-if="!hasRecordedEvidence" class="empty-evidence">No evidence has been recorded for this card.</div>
+        <template v-else>
         <div class="evidence-summary">{{ evidenceSummaryLine }}</div>
 
         <div class="pill-list summary-pills">
@@ -143,9 +145,8 @@
             <span v-if="file.availabilityReason" class="generated-file-description">{{ file.availabilityReason }}</span>
           </button>
         </div>
-        <div v-else class="empty-evidence">{{ emptyEvidenceMessage }}</div>
 
-        <div class="preview-panel" aria-live="polite">
+        <div v-if="generatedFiles.length || previewState.status !== 'idle'" class="preview-panel" aria-live="polite">
           <div v-if="previewState.status === 'idle'" class="preview-empty">Select a generated file to preview safe text content.</div>
           <div v-else-if="previewState.status === 'loading'" class="preview-empty">Loading preview…</div>
           <template v-else-if="previewState.status === 'ready'">
@@ -176,6 +177,7 @@
           </div>
           <div v-else class="empty-evidence">No verification commands were recorded for this card.</div>
         </div>
+        </template>
       </section>
 
       <section class="detail-section">
@@ -241,7 +243,7 @@
 
       <section v-if="currentCard.result" class="detail-section">
         <h3 class="section-heading">Result</h3>
-        <pre class="detail-json">{{ fmtJson(currentCard.result) }}</pre>
+        <pre class="detail-json"><code>{{ fmtJson(currentCard.result) }}</code></pre>
       </section>
     </template>
   </div>
@@ -315,6 +317,12 @@ function statusExplainer(status: CardStatus): string {
 
 const generatedFiles = computed<GeneratedFileRef[]>(() => evidence.value?.generatedFiles ?? []);
 const verificationCommands = computed<VerificationCommandRef[]>(() => evidence.value?.verificationCommands ?? []);
+const hasRecordedEvidence = computed(() => Boolean(
+  evidence.value?.summary.hasRecordedEvidence
+  || generatedFiles.value.length
+  || verificationCommands.value.length
+  || evidence.value?.toolErrors.length,
+));
 const completionLabel = computed(() => {
   if (review.value?.status === 'passed') return 'Review passed';
   if (review.value?.status === 'failed') return 'Review failed';
@@ -327,12 +335,7 @@ const childWorkSummary = computed(() => {
   const total = Object.values(counts).reduce((sum, n) => sum + n, 0);
   return `${total} children: ${counts.active + counts.running} active/running, ${counts.blocked + counts.failed} blocked/failed, ${counts.done} done`;
 });
-const evidenceSummaryLine = computed(() => evidence.value?.summary.summary || 'The card detail API did not return evidence for this card.');
-const emptyEvidenceMessage = computed(() => {
-  if (!evidence.value) return 'The card detail API did not return evidence for this card.';
-  if (evidence.value.summary.state === 'incomplete') return 'Evidence is missing for this terminal or blocked state. Inspect agent and review context before accepting completion.';
-  return 'No generated files or verification commands are recorded yet.';
-});
+const evidenceSummaryLine = computed(() => evidence.value?.summary.summary || 'Evidence has been recorded for this card.');
 const detailErrorTitle = computed(() => {
   switch (detailError.value?.kind) {
     case 'unauthorized': return 'Unauthorized';

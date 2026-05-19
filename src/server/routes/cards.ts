@@ -41,6 +41,14 @@ function redactInlineSecrets(content: string): string {
   return content.replace(INLINE_SECRET_RE, (_match, key: string) => `${key}=[REDACTED]`);
 }
 
+function validatePriority(value: unknown): number | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (typeof value !== 'number' || !Number.isInteger(value) || value < 0 || value > 100) {
+    throw new Error('priority must be an integer from 0 to 100');
+  }
+  return value;
+}
+
 function redactValue<T>(value: T): T {
   if (typeof value === 'string') return redactCredentialLiterals(redactInlineSecrets(redactSecrets(value))) as T;
   if (Array.isArray(value)) return value.map((item) => redactValue(item)) as T;
@@ -124,7 +132,8 @@ export function registerCardRoutes(fastify: FastifyInstance, projectRoot: string
     mutate: async () => {
       try {
         const body = request.body as Record<string, unknown>;
-        const card = store.create({ ...inputDefaults, type: (body.type as CardType) || inputDefaults.type, parent: (body.parent as string | null) ?? inputDefaults.parent, title: (body.title as string) || inputDefaults.title, description: (body.description as string) || inputDefaults.description, status: (body.status as CardStatus) || inputDefaults.status, tags: (body.tags as string[]) ?? inputDefaults.tags, priority: (body.priority as number) ?? inputDefaults.priority, urgency: (body.urgency as CardRecord['urgency']) || inputDefaults.urgency, created_by: (body.created_by as CardRecord['created_by']) || inputDefaults.created_by, depends_on: (body.depends_on as string[]) ?? inputDefaults.depends_on, related: (body.related as string[]) ?? inputDefaults.related, acceptance: (body.acceptance as string) || inputDefaults.acceptance, result: (body.result as Record<string, unknown>) ?? inputDefaults.result, metrics: (body.metrics as Record<string, string | number | boolean | null>) ?? inputDefaults.metrics, estimate: (body.estimate as string) ?? inputDefaults.estimate, error: (body.error as string) ?? inputDefaults.error, retries: (body.retries as number) ?? inputDefaults.retries, subtype: (body.subtype as string) ?? inputDefaults.subtype, assigned_to: (body.assigned_to as string) ?? inputDefaults.assigned_to, instructions_file: (body.instructions_file as string) ?? inputDefaults.instructions_file });
+        const priority = validatePriority(body.priority);
+        const card = store.create({ ...inputDefaults, type: (body.type as CardType) || inputDefaults.type, parent: (body.parent as string | null) ?? inputDefaults.parent, title: (body.title as string) || inputDefaults.title, description: (body.description as string) || inputDefaults.description, status: (body.status as CardStatus) || inputDefaults.status, tags: (body.tags as string[]) ?? inputDefaults.tags, priority: priority ?? inputDefaults.priority, urgency: (body.urgency as CardRecord['urgency']) || inputDefaults.urgency, created_by: (body.created_by as CardRecord['created_by']) || inputDefaults.created_by, depends_on: (body.depends_on as string[]) ?? inputDefaults.depends_on, related: (body.related as string[]) ?? inputDefaults.related, acceptance: (body.acceptance as string) || inputDefaults.acceptance, result: (body.result as Record<string, unknown>) ?? inputDefaults.result, metrics: (body.metrics as Record<string, string | number | boolean | null>) ?? inputDefaults.metrics, estimate: (body.estimate as string) ?? inputDefaults.estimate, error: (body.error as string) ?? inputDefaults.error, retries: (body.retries as number) ?? inputDefaults.retries, subtype: (body.subtype as string) ?? inputDefaults.subtype, assigned_to: (body.assigned_to as string) ?? inputDefaults.assigned_to, instructions_file: (body.instructions_file as string) ?? inputDefaults.instructions_file });
         return { ok: true, statusCode: 201, body: { card }, outcomeSummary: 'card created' };
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
