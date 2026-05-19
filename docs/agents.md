@@ -238,7 +238,7 @@ type RuntimeState = {
 type ActiveCardRun = {
   card_id: string;
   card_type: CardType;
-  runtime_status: 'running' | 'force_cancelled';
+  runtime_status: 'idle' | 'running' | 'paused' | 'error' | 'frozen' | 'stopped' | 'cancelled';
   phase: 'executor' | 'planner' | 'reviewer';
   caller_session_id: string | null;
   caller_tool_call_id: string | null;
@@ -254,7 +254,11 @@ type ActiveCardRun = {
 `active_card_run` is `null` when the runtime is idle (e.g. before the
 project card has been activated, or after the project planner goes
 `Dormant`). Otherwise it holds the single card that is currently
-executing, planning, or under review.
+executing, planning, or under review. The persisted-state invariant is
+enforced in `src/utils/runtime-state.ts`: an idle state with
+`current_card_id === null` must not retain a non-terminal running
+`active_card_run`; production reads self-heal historical corruption and
+`tests/utils/runtime-state-invariant.test.ts` covers the guard.
 
 Pause is a pure global gate. In-flight LLM turns finish their current
 tool dispatch and then the runtime stops scheduling new turns. Durable

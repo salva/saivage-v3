@@ -101,13 +101,19 @@ ad hoc writes:
 - `pauseRuntimeControl`
 - `resumeRuntimeControl`
 - runtime freeze/resume-from-freeze helpers
-- `src/utils/runtime-state.ts` for actual persisted state writes
+- `src/utils/runtime-state.ts` for actual persisted state writes and the idle/`active_card_run` coherence guard
 
-Operational invariant:
+Operational invariants:
 
 - there should be no direct production writers of
   `.saivage/runtime/state.json` outside the runtime-state module and
   canonical runtime-control helpers.
+- idle runtime states with `current_card_id === null` cannot retain a
+  non-terminal `active_card_run`; `src/utils/runtime-state.ts` rejects
+  that shape in strict/test mode and self-heals historical production
+  state, with regression coverage in
+  `tests/utils/runtime-state-invariant.test.ts` and
+  `tests/server/operator-api-contract-fixtures.test.ts`.
 
 Cross-surface parity means web UI, REST, CLI, analyst chat, and runtime
 internals should observe the same pause/freeze state and the same

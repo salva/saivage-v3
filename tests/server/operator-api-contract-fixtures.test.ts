@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { initProjectTree } from '../../src/utils/file-tree.js';
-import { initRuntimeState } from '../../src/utils/runtime-state.js';
+import { initRuntimeState, readRuntimeState } from '../../src/utils/runtime-state.js';
 import { createServer, type ServerInstance } from '../../src/server/server.js';
 import { runtimeStateSchema } from '../../src/schemas/validators.js';
 
@@ -91,6 +91,17 @@ describe('operator API documented response contracts', () => {
     expect(body.status).toBe('paused');
     expect(body.paused).toBe(true);
     expect(typeof body.paused_at).toBe('string');
+
+    const persisted = readRuntimeState(root);
+    expect(persisted).toMatchObject({ status: 'paused', paused: true });
+    expect(persisted?.paused_at).toEqual(body.paused_at);
+
+    await server.stop();
+    server = await createServer(root, false);
+    const reloaded = await server.fastify.inject({ method: 'GET', url: '/api/state' });
+    expect(reloaded.statusCode).toBe(200);
+    expect(reloaded.json().runtime).toMatchObject({ status: 'paused', paused: true });
+    expectRuntimeStateContract(reloaded.json().runtime);
   });
 
   it('POST /api/runtime/resume accepts an empty JSON body and returns the documented RuntimeState contract', async () => {
@@ -112,5 +123,15 @@ describe('operator API documented response contracts', () => {
     expect(body.status).toBe('idle');
     expect(body.paused).toBe(false);
     expect(body.paused_at).toBeNull();
+
+    const persisted = readRuntimeState(root);
+    expect(persisted).toMatchObject({ status: 'idle', paused: false, paused_at: null });
+
+    await server.stop();
+    server = await createServer(root, false);
+    const reloaded = await server.fastify.inject({ method: 'GET', url: '/api/state' });
+    expect(reloaded.statusCode).toBe(200);
+    expect(reloaded.json().runtime).toMatchObject({ status: 'idle', paused: false, paused_at: null });
+    expectRuntimeStateContract(reloaded.json().runtime);
   });
 });
