@@ -26,6 +26,12 @@ Use the named validation profiles from the repository root so routine checks sta
 
 The validation-cadence guard checks that every documented `npm run validate:*` profile exists and that the profile composition continues to include the commands listed above, or documents intentional exclusions such as the lightweight docs-only profile.
 
+## CI workflow guard
+
+The repository includes a lightweight GitHub Actions workflow at [`.github/workflows/validation.yml`](../../.github/workflows/validation.yml). Push and pull-request runs install dependencies with `npm ci`, then run `npm run validate:routine` and `npm run validate:docs` so CI exercises the same package profiles operators run locally. Manual `workflow_dispatch` inputs can additionally run `npm run validate:ui-smoke` for the bounded operator-dashboard smoke profile and `npm run validate:release` for the heavier release gate. Keep UI/release profiles manual unless the deployment environment has enough time and browser support for the full gate.
+
+The validation-cadence guard scans the workflow plus this runbook and the README; stale `npm run validate:*` references, missing package scripts, or a workflow that stops running routine/docs profiles fail `node scripts/check-validation-cadence.js` and therefore `npm run docs:verify`.
+
 ## Documentation build and verification
 
 ```bash

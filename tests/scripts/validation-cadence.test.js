@@ -45,21 +45,57 @@ node scripts/check-existing.js
 NODE_OPTIONS=--experimental-vm-modules npx jest tests/existing.test.js --runInBand --forceExit || ALL_OK=false
 `;
 
+const VALID_WORKFLOW = `name: Validation profiles
+on:
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      run_ui_smoke:
+        default: 'false'
+      run_release_profile:
+        default: 'false'
+jobs:
+  validation:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm ci
+      - run: npm run validate:routine
+      - run: npm run validate:docs
+      - name: UI smoke validation profile (manual)
+        if: inputs.run_ui_smoke == 'true'
+        run: npm run validate:ui-smoke
+      - name: Release validation profile (manual heavy gate)
+        if: inputs.run_release_profile == 'true'
+        run: npm run validate:release
+`;
+
+function validFiles(overrides = {}) {
+  return {
+    'package.json': PACKAGE_JSON,
+    'README.md': '```bash\nnpm run docs:verify\nnpm run typecheck\nnpm run build\nnpm test\nnpm run web:test:operator-smoke\n```\n' + VALID_PROFILE_DOCS,
+    'docs/runbook/release.md': '```bash\nnpm run docs:build\n```\n' + VALID_PROFILE_DOCS,
+    'docs/runbook/index.md': 'No extra validation commands here.\n',
+    '.github/workflows/validation.yml': VALID_WORKFLOW,
+    'scripts/docs-verify.sh': VALID_DOCS_VERIFY,
+    'scripts/check-existing.js': '#!/usr/bin/env node\n',
+    'tests/existing.test.js': 'test("ok", () => {});\n',
+    ...overrides,
+  };
+}
+
 describe('validation cadence guard', () => {
-  it('passes when documented validation commands and docs:verify sub-guards resolve', () => {
-    withFixture({
-      'package.json': PACKAGE_JSON,
-      'README.md': '```bash\nnpm run docs:verify\nnpm run typecheck\nnpm run build\nnpm test\nnpm run web:test:operator-smoke\n```\n' + VALID_PROFILE_DOCS,
-      'docs/runbook/release.md': '```bash\nnpm run docs:build\n```\n' + VALID_PROFILE_DOCS,
-      'docs/runbook/index.md': 'No extra validation commands here.\n',
-      'scripts/docs-verify.sh': VALID_DOCS_VERIFY,
-      'scripts/check-existing.js': '#!/usr/bin/env node\n',
-      'tests/existing.test.js': 'test("ok", () => {});\n',
-    }, (root) => {
+  it('passes when documented validation commands, workflow commands, and docs:verify sub-guards resolve', () => {
+    withFixture(validFiles(), (root) => {
       const result = verifyValidationCadence({ root });
       expect(result.ok).toBe(true);
       expect(result.failures).toEqual([]);
       expect(result.documentedCommandsChecked).toContain('README.md: npm run docs:verify');
+      expect(result.workflowCommandsChecked).toContain('.github/workflows/validation.yml:19: npm run validate:routine');
+      expect(result.workflowFilesChecked).toContain('.github/workflows/validation.yml');
       expect(result.requiredValidationScriptsChecked).toContain('package.json script web:test:operator-smoke');
       expect(result.validationProfilesChecked).toContain('package.json profile validate:release');
       expect(result.docsVerifyEntriesChecked).toContain('scripts/docs-verify.sh:4 node-script scripts/check-existing.js');
@@ -67,31 +103,53 @@ describe('validation cadence guard', () => {
   });
 
   it('fails clearly when docs reference a stale npm validation command', () => {
-    withFixture({
-      'package.json': PACKAGE_JSON,
+    withFixture(validFiles({
       'README.md': '```bash\nnpm run docs:stale\nnpm run web:test:operator-smoke\n```\n' + VALID_PROFILE_DOCS,
       'docs/runbook/release.md': '',
       'docs/runbook/index.md': '',
-      'scripts/docs-verify.sh': VALID_DOCS_VERIFY,
-      'scripts/check-existing.js': '#!/usr/bin/env node\n',
-      'tests/existing.test.js': 'test("ok", () => {});\n',
-    }, (root) => {
+    }), (root) => {
       const result = verifyValidationCadence({ root });
       expect(result.ok).toBe(false);
       expect(result.failures).toContain('README.md: npm run docs:stale documents npm run docs:stale, but package.json has no "docs:stale" script');
     });
   });
 
+  it('fails clearly when a workflow references a stale validation profile', () => {
+    const staleWorkflow = VALID_WORKFLOW.replace('npm run validate:ui-smoke', 'npm run validate:ui-fast');
+    withFixture(validFiles({ '.github/workflows/validation.yml': staleWorkflow }), (root) => {
+      const result = verifyValidationCadence({ root });
+      expect(result.ok).toBe(false);
+      expect(result.failures).toContain('.github/workflows/validation.yml:23: npm run validate:ui-fast documents npm run validate:ui-fast, but package.json has no "validate:ui-fast" script');
+    });
+  });
+
+  it('fails clearly when a workflow omits a required routine/docs profile', () => {
+    const workflowWithoutRoutine = VALID_WORKFLOW.replace('      - run: npm run validate:routine\n', '');
+    withFixture(validFiles({ '.github/workflows/validation.yml': workflowWithoutRoutine }), (root) => {
+      const result = verifyValidationCadence({ root });
+      expect(result.ok).toBe(false);
+      expect(result.failures).toContain('validation workflow/template must run npm run validate:routine');
+    });
+  });
+
+  it('fails clearly when a package validation profile script is missing', () => {
+    const { 'validate:ui-smoke': _uiSmokeProfile, ...scripts } = PACKAGE_SCRIPTS;
+    withFixture(validFiles({ 'package.json': JSON.stringify({ scripts }) }), (root) => {
+      const result = verifyValidationCadence({ root });
+      expect(result.ok).toBe(false);
+      expect(result.failures).toContain('package.json is missing validation profile "validate:ui-smoke" (lightweight UI/operator smoke validation profile)');
+      expect(result.failures).toContain('.github/workflows/validation.yml:23: npm run validate:ui-smoke documents npm run validate:ui-smoke, but package.json has no "validate:ui-smoke" script');
+    });
+  });
+
   it('fails clearly when docs:verify invokes a missing sub-guard script', () => {
     const docsVerify = VALID_DOCS_VERIFY.replace('scripts/check-existing.js', 'scripts/check-missing.js');
-    withFixture({
-      'package.json': PACKAGE_JSON,
+    withFixture(validFiles({
       'README.md': '```bash\nnpm run docs:verify\nnpm run web:test:operator-smoke\n```\n' + VALID_PROFILE_DOCS,
       'docs/runbook/release.md': '',
       'docs/runbook/index.md': '',
       'scripts/docs-verify.sh': docsVerify,
-      'tests/existing.test.js': 'test("ok", () => {});\n',
-    }, (root) => {
+    }), (root) => {
       const result = verifyValidationCadence({ root });
       expect(result.ok).toBe(false);
       expect(result.failures).toContain('scripts/docs-verify.sh:4 invokes scripts/check-missing.js, but that docs:verify sub-guard entry point does not exist');
@@ -101,15 +159,12 @@ describe('validation cadence guard', () => {
   it('fails clearly when the operator smoke script is missing', () => {
     const { 'web:test:operator-smoke': _smoke, ...scripts } = PACKAGE_SCRIPTS;
     const packageWithoutSmoke = JSON.stringify({ scripts });
-    withFixture({
+    withFixture(validFiles({
       'package.json': packageWithoutSmoke,
       'README.md': '```bash\nnpm run docs:verify\n```\n' + VALID_PROFILE_DOCS,
       'docs/runbook/release.md': '',
       'docs/runbook/index.md': '',
-      'scripts/docs-verify.sh': VALID_DOCS_VERIFY,
-      'scripts/check-existing.js': '#!/usr/bin/env node\n',
-      'tests/existing.test.js': 'test("ok", () => {});\n',
-    }, (root) => {
+    }), (root) => {
       const result = verifyValidationCadence({ root });
       expect(result.ok).toBe(false);
       expect(result.failures).toContain('package.json is missing required validation script "web:test:operator-smoke" (direct operator-dashboard smoke guard)');
@@ -117,15 +172,11 @@ describe('validation cadence guard', () => {
   });
 
   it('fails clearly when the operator smoke script is not documented', () => {
-    withFixture({
-      'package.json': PACKAGE_JSON,
+    withFixture(validFiles({
       'README.md': '```bash\nnpm run docs:verify\n```\n',
       'docs/runbook/release.md': '',
       'docs/runbook/index.md': '',
-      'scripts/docs-verify.sh': VALID_DOCS_VERIFY,
-      'scripts/check-existing.js': '#!/usr/bin/env node\n',
-      'tests/existing.test.js': 'test("ok", () => {});\n',
-    }, (root) => {
+    }), (root) => {
       const result = verifyValidationCadence({ root });
       expect(result.ok).toBe(false);
       expect(result.failures).toContain('required validation script "web:test:operator-smoke" is not documented in README.md or docs/runbook/*.md validation cadence');
@@ -139,15 +190,12 @@ describe('validation cadence guard', () => {
         'web:test:operator-smoke': 'cd web && npx vitest run src/__tests__/dashboard-view.test.ts',
       },
     });
-    withFixture({
+    withFixture(validFiles({
       'package.json': packageWithDriftedSmoke,
       'README.md': '```bash\nnpm run docs:verify\nnpm run web:test:operator-smoke\n```\n' + VALID_PROFILE_DOCS,
       'docs/runbook/release.md': '',
       'docs/runbook/index.md': '',
-      'scripts/docs-verify.sh': VALID_DOCS_VERIFY,
-      'scripts/check-existing.js': '#!/usr/bin/env node\n',
-      'tests/existing.test.js': 'test("ok", () => {});\n',
-    }, (root) => {
+    }), (root) => {
       const result = verifyValidationCadence({ root });
       expect(result.ok).toBe(false);
       expect(result.failures).toContain('package.json script "web:test:operator-smoke" must run operator-dashboard-smoke.test.ts, but is currently: cd web && npx vitest run src/__tests__/dashboard-view.test.ts');
@@ -161,15 +209,12 @@ describe('validation cadence guard', () => {
         'validate:release': 'npm run typecheck && npm run build && npm test && npm run docs:verify',
       },
     });
-    withFixture({
+    withFixture(validFiles({
       'package.json': packageWithDriftedProfile,
       'README.md': VALID_PROFILE_DOCS + '```bash\nnpm run web:test:operator-smoke\n```\n',
       'docs/runbook/release.md': '',
       'docs/runbook/index.md': '',
-      'scripts/docs-verify.sh': VALID_DOCS_VERIFY,
-      'scripts/check-existing.js': '#!/usr/bin/env node\n',
-      'tests/existing.test.js': 'test("ok", () => {});\n',
-    }, (root) => {
+    }), (root) => {
       const result = verifyValidationCadence({ root });
       expect(result.ok).toBe(false);
       expect(result.failures).toContain('package.json profile "validate:release" must include npm run web:test:operator-smoke, but is currently: npm run typecheck && npm run build && npm test && npm run docs:verify');

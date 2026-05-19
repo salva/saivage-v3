@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -8,6 +8,10 @@ const DEFAULT_DOCUMENTED_COMMAND_FILES = [
   'docs/runbook/release.md',
   'docs/runbook/index.md',
 ];
+
+const DEFAULT_WORKFLOW_DIRS = ['.github/workflows'];
+
+const REQUIRED_WORKFLOW_PROFILES = ['validate:routine', 'validate:docs'];
 
 const REQUIRED_VALIDATION_SCRIPTS = [
   {
@@ -96,6 +100,50 @@ function inlineNpmRunCommands(markdown) {
   let match;
   while ((match = inlinePattern.exec(markdown)) !== null) {
     commands.push(normalizeCommandLine(match[1]));
+  }
+  return commands;
+}
+
+function workflowRunCommands(content) {
+  const commands = [];
+  const lines = content.split('\n');
+  for (let index = 0; index < lines.length; index += 1) {
+    const rawLine = lines[index];
+    const trimmed = rawLine.trim();
+    if (!trimmed || trimmed.startsWith('#')) {
+      continue;
+    }
+    const inlineRun = trimmed.match(/^(?:-\s*)?run:\s*(.+)$/);
+    if (inlineRun && !/[|>]\s*$/.test(inlineRun[1].trim())) {
+      const command = inlineRun[1].trim().replace(/^['"]|['"]$/g, '');
+      commands.push({ command: normalizeCommandLine(command), line: index + 1 });
+      continue;
+    }
+    if (/^(?:-\s*)?run:\s*[|>]$/.test(trimmed)) {
+      const blockIndent = rawLine.match(/^\s*/)?.[0].length ?? 0;
+      let pending = '';
+      for (let blockIndex = index + 1; blockIndex < lines.length; blockIndex += 1) {
+        const blockLine = lines[blockIndex];
+        const indent = blockLine.match(/^\s*/)?.[0].length ?? 0;
+        if (blockLine.trim() && indent <= blockIndent) {
+          break;
+        }
+        const blockTrimmed = blockLine.trim();
+        if (!blockTrimmed || blockTrimmed.startsWith('#')) {
+          continue;
+        }
+        pending = pending ? `${pending} ${blockTrimmed}` : blockTrimmed;
+        if (/\\\s*$/.test(blockTrimmed)) {
+          pending = pending.replace(/\\\s*$/, '').trim();
+          continue;
+        }
+        commands.push({ command: normalizeCommandLine(pending), line: blockIndex + 1 });
+        pending = '';
+      }
+      if (pending) {
+        commands.push({ command: normalizeCommandLine(pending), line: index + 1 });
+      }
+    }
   }
   return commands;
 }
@@ -193,6 +241,67 @@ function validateDocumentedCommands({ root, files = DEFAULT_DOCUMENTED_COMMAND_F
   }
 
   return { checked, failures, markdownByFile };
+}
+
+function listWorkflowFiles(root, workflowDirs = DEFAULT_WORKFLOW_DIRS) {
+  const files = [];
+  for (const workflowDir of workflowDirs) {
+    const fullDir = path.join(root, workflowDir);
+    if (!existsSync(fullDir)) {
+      continue;
+    }
+    for (const entry of readdirSync(fullDir, { withFileTypes: true })) {
+      if (!entry.isFile() || !/\.(?:ya?ml)$/i.test(entry.name)) {
+        continue;
+      }
+      files.push(path.join(workflowDir, entry.name));
+    }
+  }
+  return files.sort();
+}
+
+function validateWorkflowCommands({ root, scripts, workflowFiles }) {
+  const failures = [];
+  const checked = [];
+  const profileCommands = new Set();
+  const files = workflowFiles ?? listWorkflowFiles(root);
+
+  for (const file of files) {
+    const fullPath = path.join(root, file);
+    if (!existsSync(fullPath)) {
+      failures.push(`workflow/template ${file} does not exist`);
+      continue;
+    }
+    const content = readFileSync(fullPath, 'utf8');
+    for (const { command, line } of workflowRunCommands(content)) {
+      for (const segment of splitCommandSegments(command)) {
+        const location = `${file}:${line}: ${segment}`;
+        if (checkNpmRun({ scripts, segment, location, failures })) {
+          checked.push(location);
+          const match = segment.match(/^npm\s+run\s+(validate:[^\s]+)/);
+          if (match) {
+            profileCommands.add(match[1]);
+          }
+          continue;
+        }
+        if (checkDirectScript({ root, segment, location, failures })) {
+          checked.push(location);
+        }
+      }
+    }
+  }
+
+  if (files.length === 0) {
+    failures.push('no validation workflow/template found under .github/workflows; add CI automation or pass workflowFiles to the guard');
+  }
+
+  for (const required of REQUIRED_WORKFLOW_PROFILES) {
+    if (!profileCommands.has(required)) {
+      failures.push(`validation workflow/template must run npm run ${required}`);
+    }
+  }
+
+  return { checked, failures, workflowFilesChecked: files };
 }
 
 function extractDocsVerifyInvocations(content) {
@@ -327,6 +436,11 @@ export function verifyValidationCadence(options = {}) {
     files: options.documentedCommandFiles ?? DEFAULT_DOCUMENTED_COMMAND_FILES,
     scripts,
   });
+  const workflow = validateWorkflowCommands({
+    root,
+    scripts,
+    workflowFiles: options.workflowFiles,
+  });
   const requiredScripts = validateRequiredValidationScripts({
     scripts,
     documentedCommands: documented.checked,
@@ -337,11 +451,13 @@ export function verifyValidationCadence(options = {}) {
     markdownByFile: documented.markdownByFile,
   });
   const docsVerify = validateDocsVerifySubguards({ root, scripts });
-  const failures = [...documented.failures, ...requiredScripts.failures, ...profiles.failures, ...docsVerify.failures];
+  const failures = [...documented.failures, ...workflow.failures, ...requiredScripts.failures, ...profiles.failures, ...docsVerify.failures];
   return {
     ok: failures.length === 0,
     failures,
     documentedCommandsChecked: documented.checked,
+    workflowCommandsChecked: workflow.checked,
+    workflowFilesChecked: workflow.workflowFilesChecked,
     requiredValidationScriptsChecked: requiredScripts.checked,
     validationProfilesChecked: profiles.checked,
     docsVerifyEntriesChecked: docsVerify.checked,
@@ -358,7 +474,7 @@ function main() {
     process.exit(1);
   }
   console.log(
-    `✓ validation cadence check passed — ${result.documentedCommandsChecked.length} documented validation command(s), ${result.requiredValidationScriptsChecked.length} required validation script(s), ${result.validationProfilesChecked.length} validation profile(s), and ${result.docsVerifyEntriesChecked.length} docs:verify sub-guard entry point(s) resolve`,
+    `✓ validation cadence check passed — ${result.documentedCommandsChecked.length} documented validation command(s), ${result.workflowCommandsChecked.length} workflow command(s), ${result.requiredValidationScriptsChecked.length} required validation script(s), ${result.validationProfilesChecked.length} validation profile(s), and ${result.docsVerifyEntriesChecked.length} docs:verify sub-guard entry point(s) resolve`,
   );
 }
 

@@ -47,7 +47,7 @@ curl http://localhost:8080/health
 
 ## Verification
 
-Run the validation profile that matches the change type; see the [validation matrix](docs/runbook/release.md#validation-matrix) for details:
+Run the validation profile that matches the change type; see the [validation matrix](docs/runbook/release.md#validation-matrix) for details. The checked-in GitHub Actions workflow at [`.github/workflows/validation.yml`](.github/workflows/validation.yml) runs `npm run validate:routine` and `npm run validate:docs` automatically on push/pull request; `workflow_dispatch` inputs expose the heavier `npm run validate:ui-smoke` and `npm run validate:release` profiles as manual gates.
 
 ```bash
 npm run validate:docs
