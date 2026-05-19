@@ -21,6 +21,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, wri
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { randomBytes } from 'node:crypto';
+import { EventEmitter } from 'node:events';
 
 // ── Dynamic imports ────────────────────────────────────────────
 
@@ -75,6 +76,10 @@ interface MockServerHandle {
   cap: CaptureBucket;
 }
 
+interface MultiCaptureMockServerHandle extends MockServerHandle {
+  captures: CaptureBucket[];
+}
+
 // ── Helpers ────────────────────────────────────────────────────
 
 function createMockServer(
@@ -105,6 +110,47 @@ function createMockServer(
       const addr = server.address();
       const port = typeof addr === 'object' && addr ? addr.port : 0;
       resolve({ server, port, cap });
+    });
+  });
+}
+
+function createMultiCaptureMockServer(
+  handler: (req: IncomingMessage, res: ServerResponse, index: number) => void,
+): Promise<MultiCaptureMockServerHandle> {
+  return new Promise((resolve) => {
+    const captures: CaptureBucket[] = [];
+    const cap: CaptureBucket = {
+      body: '',
+      headers: {},
+      url: '',
+      method: '',
+    };
+
+    const server = createServer((req, res) => {
+      const current: CaptureBucket = {
+        body: '',
+        headers: { ...req.headers },
+        url: req.url ?? '',
+        method: req.method ?? '',
+      };
+      const index = captures.push(current) - 1;
+
+      let body = '';
+      req.on('data', (chunk: Buffer) => { body += chunk.toString(); });
+      req.on('end', () => {
+        current.body = body;
+        cap.body = body;
+        cap.headers = current.headers;
+        cap.url = current.url;
+        cap.method = current.method;
+        handler(req, res, index);
+      });
+    });
+
+    server.listen(0, () => {
+      const addr = server.address();
+      const port = typeof addr === 'object' && addr ? addr.port : 0;
+      resolve({ server, port, cap, captures });
     });
   });
 }
@@ -306,6 +352,43 @@ describe('LlmClient Integration with Mock HTTP Server', () => {
       expect(body.max_output_tokens).toBe(500);
       expect(body.instructions).toBe(sp());
       expect(body.temperature).toBeUndefined();
+    } finally {
+      await closeServer(server);
+    }
+  });
+
+  it('should retry openai-codex once without max_output_tokens for unsupported-parameter quirk', async () => {
+    const { server, port, captures } = await createMultiCaptureMockServer((_req, res, index) => {
+      if (index === 0) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ detail: 'Unsupported parameter: max_output_tokens' }));
+        return;
+      }
+
+      res.writeHead(200, { 'Content-Type': 'text/event-stream' });
+      res.end([
+        `data: ${JSON.stringify({ type: 'response.output_text.delta', delta: 'Retry ' })}\n\n`,
+        `data: ${JSON.stringify({ type: 'response.output_text.delta', delta: 'succeeded' })}\n\n`,
+        `data: ${JSON.stringify({ type: 'response.completed', response: { status: 'completed' } })}\n\n`,
+        'data: [DONE]\n\n',
+      ].join(''));
+    });
+
+    try {
+      const client = new LlmClient(
+        `http://localhost:${port}/backend-api`,
+        makeJwtWithCodexAccount('acct-test-123'),
+      );
+      const result = await client.complete(
+        cand('openai-codex', 'gpt-5.4'), sp(), msgs(), 'sess-codex-retry',
+        { temperature: 0.5, max_tokens: 500 },
+      );
+
+      expect(result.content).toBe('Retry succeeded');
+      expect(captures).toHaveLength(2);
+      expect(JSON.parse(captures[0].body).max_output_tokens).toBe(500);
+      expect(JSON.parse(captures[1].body)).not.toHaveProperty('max_output_tokens');
+      expect(captures[1].url).toBe('/backend-api/codex/responses');
     } finally {
       await closeServer(server);
     }
@@ -734,6 +817,63 @@ describe('AgentAdapter + Router + LlmClient Full Integration', () => {
       expect(result.created_cards[0].title).toBe('Add auth middleware');
       expect(result.created_cards[0].type).toBe('code');
       expect(result.status).toBe('continue');
+    } finally {
+      await closeServer(server);
+      if (tempDir) cleanupDir(tempDir);
+    }
+  });
+
+  it('should emit one success and no failed event when Codex unsupported max_output_tokens retry succeeds', async () => {
+    const { server, port } = await createMultiCaptureMockServer((_req, res, index) => {
+      if (index === 0) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ detail: 'Unsupported parameter: max_output_tokens' }));
+        return;
+      }
+
+      res.writeHead(200, { 'Content-Type': 'text/event-stream' });
+      res.end([
+        `data: ${JSON.stringify({
+          type: 'response.output_item.done',
+          item: {
+            type: 'message',
+            content: [{ type: 'output_text', text: JSON.stringify({ created_cards: [], updated_cards: [], status: 'continue' }) }],
+          },
+        })}\n\n`,
+        `data: ${JSON.stringify({ type: 'response.completed', response: { status: 'completed' } })}\n\n`,
+        'data: [DONE]\n\n',
+      ].join(''));
+    });
+
+    try {
+      tempDir = makeTempDir();
+      writeSaivageJson(tempDir, {
+        models: { planner: ['gpt-5.4'], default: ['gpt-5.4'], max_tokens: { planner: 500 } },
+        providers: {
+          'openai-codex': {
+            priority: 10,
+            models: ['gpt-5.4'],
+            baseUrl: `http://localhost:${port}/backend-api`,
+            apiKey: makeJwtWithCodexAccount('acct-test-123'),
+          },
+        },
+        runtime: { recoveryDelayMs: 10, maxRecoveryRetries: 0 },
+      });
+
+      const events = new EventEmitter();
+      const successes: unknown[] = [];
+      const failures: unknown[] = [];
+      events.on('invocation_succeeded', (event) => successes.push(event));
+      events.on('invocation_failed', (event) => failures.push(event));
+
+      const adapter = createAgentAdapter(tempDir, events);
+      adapter.setLlmCallFn(adapter.createLlmCallFn());
+
+      const result = await adapter.invokePlanner('goal-codex-retry', sp(), msgs());
+
+      expect(result.status).toBe('continue');
+      expect(successes).toHaveLength(1);
+      expect(failures).toHaveLength(0);
     } finally {
       await closeServer(server);
       if (tempDir) cleanupDir(tempDir);

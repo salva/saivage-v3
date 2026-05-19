@@ -444,7 +444,7 @@ export class LlmClient {
     };
 
     try {
-      const response = await fetch(this.openAICodexResponsesUrl(), {
+      let response = await fetch(this.openAICodexResponsesUrl(), {
         method: 'POST',
         headers,
         body: JSON.stringify(body),
@@ -452,7 +452,19 @@ export class LlmClient {
       });
 
       if (!response.ok) {
-        await this.handleHttpError(response);
+        if (await this.isUnsupportedCodexMaxOutputTokensQuirk(response)) {
+          const retryBody = { ...body };
+          delete retryBody.max_output_tokens;
+          response = await fetch(this.openAICodexResponsesUrl(), {
+            method: 'POST',
+            headers,
+            body: JSON.stringify(retryBody),
+            signal: opts?.signal,
+          });
+        }
+        if (!response.ok) {
+          await this.handleHttpError(response);
+        }
       }
       if (!response.body) {
         throw new LlmServerError('OpenAI Codex streaming response has no body', response.status);
@@ -478,6 +490,27 @@ export class LlmClient {
       throw new LlmServerError(
         `Unexpected error calling OpenAI Codex: ${err instanceof Error ? err.message : String(err)}`,
       );
+    }
+  }
+
+
+  private async isUnsupportedCodexMaxOutputTokensQuirk(response: Response): Promise<boolean> {
+    if (response.status !== 400) return false;
+
+    let bodyText = '';
+    try {
+      bodyText = await response.clone().text();
+    } catch {
+      return false;
+    }
+
+    try {
+      const parsed = JSON.parse(bodyText) as unknown;
+      if (!parsed || typeof parsed !== 'object') return false;
+      const detail = (parsed as Record<string, unknown>)['detail'];
+      return detail === 'Unsupported parameter: max_output_tokens';
+    } catch {
+      return false;
     }
   }
 
