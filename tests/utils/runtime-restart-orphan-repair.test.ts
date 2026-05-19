@@ -196,8 +196,11 @@ describe('stage 7 runtime restart and orphan activate_card repair', () => {
     expect(resumedMessages[1]!.content).toContain('resume_reason');
   });
 
-  it('buffers lets_dance while paused and consumes exactly once after resume', async () => {
-    recordLetsDanceDirective(root);
+  it.each([
+    { kind: 'lets_dance' as const, record: () => recordLetsDanceDirective(root), key: 'lets_dance' as const },
+    { kind: 'project_needs_corrections' as const, record: () => recordProjectNeedsCorrectionsDirective(root, [{ summary: 'correct project', severity: 'warning' }]), key: 'project_needs_corrections' as const },
+  ])('buffers $kind while paused and consumes exactly once after resume safe tick', async ({ record, key }) => {
+    record();
     const agent = new ScriptedAgent({ project: [{ status: 'blocked', blocked_reason: 'project started', created_cards: [], updated_cards: [] }] });
     initRuntimeState(root);
     updateRuntimeState(root, { status: 'paused', paused: true, paused_at: now() });
@@ -205,19 +208,22 @@ describe('stage 7 runtime restart and orphan activate_card repair', () => {
     await runtime.startup();
     await new Promise((resolve) => setTimeout(resolve, 50));
     expect(agent.plannerCalls).toHaveLength(0);
-    expect(readProjectDirectives(root).lets_dance).toBeTruthy();
+    expect(readProjectDirectives(root)[key]).toBeTruthy();
 
     runtime.resume();
     await new Promise((resolve) => setTimeout(resolve, 80));
     expect(agent.plannerCalls).toEqual(['project']);
-    expect(readProjectDirectives(root).lets_dance).toBeUndefined();
+    expect(readProjectDirectives(root)[key]).toBeUndefined();
     runtime.resume();
     await new Promise((resolve) => setTimeout(resolve, 50));
     expect(agent.plannerCalls).toEqual(['project']);
   });
 
-  it('preserves project correction directives across restart and activates project once through safe tick', async () => {
-    recordProjectNeedsCorrectionsDirective(root, [{ summary: 'correct project', severity: 'warning' }]);
+  it.each([
+    { kind: 'lets_dance' as const, record: () => recordLetsDanceDirective(root), key: 'lets_dance' as const },
+    { kind: 'project_needs_corrections' as const, record: () => recordProjectNeedsCorrectionsDirective(root, [{ summary: 'correct project', severity: 'warning' }]), key: 'project_needs_corrections' as const },
+  ])('preserves $kind directives across restart and activates project exactly once through safe tick', async ({ record, key }) => {
+    record();
     const firstAgent = new ScriptedAgent({});
     initRuntimeState(root);
     updateRuntimeState(root, { status: 'paused', paused: true, paused_at: now() });
@@ -225,17 +231,25 @@ describe('stage 7 runtime restart and orphan activate_card repair', () => {
     await runtime.startup();
     await new Promise((resolve) => setTimeout(resolve, 40));
     expect(firstAgent.plannerCalls).toHaveLength(0);
+    expect(readProjectDirectives(root)[key]).toBeTruthy();
     await runtime.shutdown(); runtime = null; try { releaseLock(root); } catch {}
 
-    const secondAgent = new ScriptedAgent({ project: [{ status: 'blocked', blocked_reason: 'correction started', created_cards: [], updated_cards: [] }] });
+    const secondAgent = new ScriptedAgent({ project: [{ status: 'blocked', blocked_reason: 'directive started', created_cards: [], updated_cards: [] }] });
     runtime = new Runtime({ projectRoot: root, fakeAgentConfig: { mapping: {}, fixtureDir: root } }, secondAgent);
     await runtime.startup();
     await new Promise((resolve) => setTimeout(resolve, 80));
     expect(secondAgent.plannerCalls).toEqual(['project']);
-    expect(readProjectDirectives(root).project_needs_corrections).toBeUndefined();
+    expect(readProjectDirectives(root)[key]).toBeUndefined();
+    await runtime.shutdown(); runtime = null; try { releaseLock(root); } catch {}
+
+    const thirdAgent = new ScriptedAgent({ project: [{ status: 'blocked', blocked_reason: 'would be duplicate', created_cards: [], updated_cards: [] }] });
+    runtime = new Runtime({ projectRoot: root, fakeAgentConfig: { mapping: {}, fixtureDir: root } }, thirdAgent);
+    await runtime.startup();
+    await new Promise((resolve) => setTimeout(resolve, 60));
+    expect(thirdAgent.plannerCalls).toHaveLength(0);
   });
 
-  it('routes startup repair through safe tick without direct dispatch from repair before startup completes', async () => {
+  it('routes startup repair through safe tick without project directive consumption or direct dispatch before repair completes', async () => {
     store.create(cardInput('goal-a', 'goal', 'project', 'running'));
     store.create(cardInput('code-a', 'code', 'goal-a', 'running'));
     addActivateCall(root, 'goal-a', 'code-a');
@@ -246,14 +260,20 @@ describe('stage 7 runtime restart and orphan activate_card repair', () => {
     let startupReturned = false;
     const callsDuringRepair: string[] = [];
     (runtime = new Runtime({ projectRoot: root, fakeAgentConfig: { mapping: {}, fixtureDir: root } }, agent));
-    const instance = runtime as Runtime & { dispatchGoal: Runtime['dispatchGoal'] };
-    instance.dispatchGoal = (async (goalId: string) => { if (!startupReturned) callsDuringRepair.push(goalId); return original.call(instance, goalId); }) as Runtime['dispatchGoal'];
+    const instance = runtime as unknown as { dispatchGoal: Runtime['dispatchGoal']; safeTick: () => Promise<void> };
+    instance.dispatchGoal = (async (goalId: string) => { if (!startupReturned) callsDuringRepair.push(goalId); return original.call(runtime as Runtime, goalId); }) as Runtime['dispatchGoal'];
     await runtime.startup();
     startupReturned = true;
     expect(callsDuringRepair).toHaveLength(0);
+    expect(readProjectDirectives(root).lets_dance).toBeTruthy();
+
     await new Promise((resolve) => setTimeout(resolve, 80));
-    expect(agent.plannerCalls).toContain('goal-a');
-    expect(agent.plannerCalls).not.toContain('project');
+    expect(agent.plannerCalls).toEqual(['goal-a']);
+    expect(readProjectDirectives(root).lets_dance).toBeTruthy();
+
+    await instance.safeTick();
+    expect(agent.plannerCalls).toEqual(['goal-a', 'project']);
+    expect(readProjectDirectives(root).lets_dance).toBeUndefined();
   });
 
   it('keeps pending_subprocess acceptance gate behavior deferred while durable process tools exist', async () => {

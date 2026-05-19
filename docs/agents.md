@@ -713,10 +713,14 @@ runtime's safe-tick loop, on noticing that:
   exists,
 
 calls `activate_card(projectCardId)` itself, which brings the project
-planner to `Running`. Once kicked off, the project runs uninterrupted
-until it reports done, failed, or blocked, or until the analyst
-intervenes (see below). The operator/analyst recovery loop for
-project-level failure is deferred to a future stage.
+planner to `Running`. The scheduler contract is enforced by
+`Runtime.safeTick()` in `src/utils/runtime.ts` and by the regression
+coverage in `tests/utils/runtime-restart-orphan-repair.test.ts`, which
+asserts pause buffering, restart persistence, and exactly-once
+consumption for both project directive kinds. Once kicked off, the
+project runs uninterrupted until it reports done, failed, or blocked,
+or until the analyst intervenes (see below). The operator/analyst
+recovery loop for project-level failure is deferred to a future stage.
 
 Analyst correction on a non-project goal records notes only:
 
@@ -837,7 +841,11 @@ On startup, the runtime repairs orphan tool calls from persisted state:
 Only the owner of the orphaned tool call is resumed. Other planners
 keep their persisted lifecycle status. After repair, the runtime
 returns to idle if no `active_card_run` remains and re-evaluates
-`lets_dance` / project-correction directives on its next safe tick.
+`lets_dance` / project-correction directives on its next safe tick;
+startup repair must not consume those directives or dispatch the
+project planner directly before repair settles. The source guard is
+`repairStartupActiveCardRun()` plus `safeTick()` in `src/utils/runtime.ts`,
+with regression coverage in `tests/utils/runtime-restart-orphan-repair.test.ts`.
 
 Runtime pause is global (`RuntimeState.paused`). It does not change
 `active_card_run`, `card.status`, or any session's lifecycle state; it
