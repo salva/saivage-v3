@@ -910,7 +910,7 @@ above is the in-memory mirror.
   `{directive_recorded: true, runtime_status: 'idle' | 'running' | 'paused'}`.
 - `POST /api/runtime/pause` and `POST /api/runtime/resume` — global
   pause gate (§5, §12). Returns the updated `RuntimeState`.
-- `GET /api/agents` — enumerates every persisted `.saivage/agents/messages/*.jsonl` session plus session manifests, parsing `analyst`, `planner:<id>`, `reviewer:<id>`, `executor:<id>`, and `card-*` ids and marking only `RuntimeState.current_agent_session_id` active (enforced by `src/server/routes/runtime-config-notes.ts` and `tests/server/agents-api.test.ts`).
+- `GET /api/agents` — enumerates every persisted `.saivage/agents/messages/*.jsonl` session plus session manifests, parsing `analyst`, `planner:<id>`, `reviewer:<id>`, `executor:<id>`, and `card-*` ids and marking only `RuntimeState.current_agent_session_id` active after reload (enforced by `src/server/routes/runtime-config-notes.ts`, `tests/server/agents-api.test.ts`, and `tests/server/restart-persistence-operator-surface.test.ts`).
 - `GET /ws` — WebSocket analyst chat/event stream. The server checks auth on upgrade, serializes analyst turns per client connection, and sanitizes analyst message/activity/tool payloads before sending them to operators (enforced by `src/server/websocket.ts`, `src/utils/analyst-sanitization.ts`, and `tests/server/websocket-analyst-safety.test.ts`).
 - `GET /api/runtime/card-runs` — returns a typed union for operator UI:
 

@@ -431,7 +431,14 @@ frozen_reason:    string | null
 
 The runtime state file is the source of truth for crash recovery.
 It is written atomically (write to `.tmp`, then rename) to prevent
-corruption on crash.
+corruption on crash. After server restart/reload, `/api/state` must
+return a `runtimeStateSchema`-valid state whose `status`,
+`current_card_id`, `active_card_run`, and `current_agent_session_id`
+remain coherent; `/api/agents` derives its sole active session from
+that same `current_agent_session_id`. The enforcing implementation is
+`src/utils/runtime-state.ts` plus `src/server/routes/runtime-config-notes.ts`,
+with restart/reload coverage in
+`tests/server/restart-persistence-operator-surface.test.ts`.
 
 ---
 

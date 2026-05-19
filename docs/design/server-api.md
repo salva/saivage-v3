@@ -133,10 +133,17 @@ mutation provenance across chat/REST/CLI/runtime/web UI.
 ### Agents
 
 ```
+GET    /api/agents                     List persisted agent sessions
 GET    /api/agents/:id/conversation    Get conversation snapshot for an agent session
 ```
 
-Returns the agent's recent conversation history (subject to context
+`GET /api/agents` enumerates persisted `.saivage/agents/messages/*.jsonl`
+sessions plus manifests after restart/reload, parses analyst/planner/reviewer/
+executor/card-scoped roles, and marks exactly `RuntimeState.current_agent_session_id`
+active (`src/server/routes/runtime-config-notes.ts`,
+`tests/server/restart-persistence-operator-surface.test.ts`).
+
+`GET /api/agents/:id/conversation` returns the agent's recent conversation history (subject to context
 compaction — only the current window is available).
 
 Synthetic operator-update injections may appear in this conversation
@@ -195,7 +202,10 @@ GET    /api/debug/timeline     Event timeline
 
 Debug endpoints expose internal state for troubleshooting. They are
 authenticated but not rate-limited (intended for operator use, not
-public exposure).
+public exposure). Timeline and error payloads are redacted on read by
+`src/server/routes/chats-files-debug.ts` / `src/utils/observability-redaction.ts`;
+restart/reload redaction of synthetic `token`, `api_key`, and `authorization`
+fields is guarded by `tests/server/restart-persistence-operator-surface.test.ts`.
 
 ---
 
