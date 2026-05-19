@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from '@jest/globals';
-import { rmSync, mkdtempSync, mkdirSync } from 'node:fs';
+import { rmSync, mkdtempSync, mkdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
@@ -7,7 +7,6 @@ import { AgentAdapter } from '../../src/agents/agent-adapter.js';
 import { initProjectTree } from '../../src/utils/file-tree.js';
 import { CardStore } from '../../src/utils/card-store.js';
 import type { CardRecord } from '../../src/schemas/types.js';
-import { PlannerToolError, PlannerToolsService } from '../../src/utils/planner-tools.js';
 
 function createMinimalAdapter(tmpDir: string): AgentAdapter {
   const minimalConfig = {
@@ -36,6 +35,35 @@ function makeCard(overrides: Partial<CardRecord> & { type: CardRecord['type']; t
   return { parent: 'project', depth: 1, description: '', status: 'backlog', subtype: null, instructions_file: null, tags: [], priority: 0, urgency: 'normal', created_by: 'planner', assigned_to: null, depends_on: [], blocks: [], related: [], acceptance: '', result: null, metrics: null, artifacts: [], attachments: [], estimate: null, started_at: null, completed_at: null, duration_ms: null, error: null, status_text: null, status_text_updated_at: null, status_text_author_session_id: null, latest_self_report: null, retries: 0, ...overrides };
 }
 
+function unique(values: string[]): string[] {
+  return [...new Set(values)];
+}
+
+function plannerToolNamesFromAgentsDoc(): string[] {
+  const docs = readFileSync(join(process.cwd(), 'docs', 'agents.md'), 'utf-8');
+  const section = docs.match(/## 7\. Planner Tools(?<body>[\s\S]*?)### 7\.1 Destructive Card Operations/);
+  if (!section?.groups?.body) throw new Error('Unable to find docs/agents.md §7 Planner Tools section.');
+  const names = [...section.groups.body.matchAll(/^- `([a-z_]+)(?:\(|`)/gm)].map((match) => match[1]);
+  if (names.length === 0) throw new Error('Unable to extract any planner tools from docs/agents.md §7.');
+  return unique(names);
+}
+
+function stringLiteralArray(source: string, constantName: string): string[] {
+  const match = source.match(new RegExp(`const ${constantName}[^=]*= (?:new Set\\()?\\[([\\s\\S]*?)\\]`));
+  if (!match) throw new Error(`Unable to find ${constantName} in agent-adapter.ts.`);
+  return [...match[1].matchAll(/'([a-z_]+)'/g)].map((entry) => entry[1]);
+}
+
+function processToolCallHandledPlannerTools(): string[] {
+  const adapterSource = readFileSync(join(process.cwd(), 'src', 'agents', 'agent-adapter.ts'), 'utf-8');
+  const workspaceSource = readFileSync(join(process.cwd(), 'src', 'agents', 'workspace-tools.ts'), 'utf-8');
+  const cardTools = stringLiteralArray(adapterSource, 'PLANNER_CARD_TOOL_NAMES');
+  const switchCases = [...adapterSource.matchAll(/case '([a-z_]+)':/g)].map((match) => match[1]);
+  const workspaceTools = [...workspaceSource.matchAll(/name: '([a-z_]+)'/g)].map((match) => match[1]);
+  const explicitWorkspaceBranch = [...adapterSource.matchAll(/tc\.function\.name === '([a-z_]+)'/g)].map((match) => match[1]);
+  return unique([...cardTools, ...switchCases, ...workspaceTools.filter((name) => explicitWorkspaceBranch.includes(name))]);
+}
+
 describe('AgentAdapter planner tool surface', () => {
   let tmpDir: string;
   let adapter: AgentAdapter;
@@ -53,7 +81,17 @@ describe('AgentAdapter planner tool surface', () => {
     rmSync(tmpDir, { recursive: true, force: true });
   });
 
-  it('exposes exactly the authoritative docs §7 planner tool list', () => {
+  it('matches docs/agents.md §7 planner tools to exported definitions and processToolCall routing', () => {
+    const documentedToolNames = plannerToolNamesFromAgentsDoc();
+    const exportedToolNames = adapter.getToolNamesForRole('planner');
+    const handledToolNames = processToolCallHandledPlannerTools();
+
+    expect(exportedToolNames).toEqual(expect.arrayContaining(documentedToolNames));
+    expect(documentedToolNames).toEqual(expect.arrayContaining(exportedToolNames));
+    expect(handledToolNames).toEqual(expect.arrayContaining(documentedToolNames));
+  });
+
+  it('keeps the exported planner tool definition order stable for prompt reproducibility', () => {
     const toolNames = adapter.getToolNamesForRole('planner');
     expect(toolNames).toEqual([
       'create_card', 'edit_card', 'add_note', 'list_cards', 'get_card', 'get_tree',

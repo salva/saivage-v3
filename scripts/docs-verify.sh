@@ -13,6 +13,7 @@ set -euo pipefail
 #   - Historical-link isolation for current/stale docs.
 #   - Runbook curl/example route and response-shape checks.
 #   - Fixture-backed operator API response contract checks.
+#   - Planner tool documentation/source parity checks.
 #   - Global Markdown internal-link and anchor resolution.
 #   - Audit/UI finding dossier status, resolution, and remediation-log consistency.
 
@@ -85,6 +86,10 @@ echo "==> Verifying fixture-backed operator API response contracts..."
 NODE_OPTIONS=--experimental-vm-modules npx jest tests/server/operator-api-contract-fixtures.test.ts --runInBand --forceExit || ALL_OK=false
 
 echo ""
+echo "==> Verifying planner tool docs/source parity..."
+NODE_OPTIONS=--experimental-vm-modules npx jest tests/agents/agent-adapter-planner-tools.test.ts --runInBand --forceExit || ALL_OK=false
+
+echo ""
 node scripts/check-markdown-links.js || ALL_OK=false
 
 echo ""
@@ -92,7 +97,7 @@ node scripts/check-finding-dossiers.js || ALL_OK=false
 
 echo ""
 if $ALL_OK; then
-  echo "✓ docs:verify passed — docs build output, VitePress dist artifact policy, route/role/config/runtime anchors, documentation inventory, design links, historical isolation, runbook examples, operator API response contracts, global Markdown links, and finding dossiers are valid"
+  echo "✓ docs:verify passed — docs build output, VitePress dist artifact policy, route/role/config/runtime anchors, documentation inventory, design links, historical isolation, runbook examples, operator API response contracts, planner tool docs/source parity, global Markdown links, and finding dossiers are valid"
 else
   echo "✗ docs:verify FAILED — one or more documentation build or drift guards failed"
   exit 1
