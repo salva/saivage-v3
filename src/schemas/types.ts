@@ -66,7 +66,7 @@ export type MessageRole = 'user' | 'assistant' | 'system' | 'tool';
 export type MessageKind = 'text' | 'activity' | 'tool_call' | 'tool_result' | 'tool_error' | 'model_issue' | 'model_repair' | 'model_recovered';
 export interface EntityLink { entity_type: 'card' | 'process' | 'artifact' | 'attachment' | 'quarantine'; entity_id: string; label?: string; }
 export interface AgentMessage { id: string; session_id: string; role: MessageRole; kind: MessageKind; content: string; tool?: string; tool_call_id?: string; timestamp: string; links?: EntityLink[]; }
-export type RuntimeStatus = 'idle' | 'running' | 'paused' | 'error' | 'frozen';
+export type RuntimeStatus = 'idle' | 'running' | 'paused' | 'error' | 'frozen' | 'stopped' | 'cancelled';
 export type ActiveCardRunPhase = 'planner' | 'executor' | 'reviewer';
 export interface ActiveCardRun { card_id: string; card_type: CardType; runtime_status: RuntimeStatus; phase: ActiveCardRunPhase; caller_session_id: string | null; caller_tool_call_id: string | null; planner_session_id?: string | null; executor_session_id?: string | null; reviewer_session_id?: string | null; correction_attempts: number; started_at: string; last_turn_at: string; }
 export interface ProjectRunCompletedPayload { project_card_id: string; result: 'done' | 'failed' | 'blocked'; summary: string; failure_kind?: string; blocked_reason?: string; }

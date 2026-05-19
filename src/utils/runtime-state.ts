@@ -2,12 +2,83 @@ import { readFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { runtimeStateSchema } from '../schemas/validators.js';
 import { explainLegacyStateRejection, writeFileAtomic } from './file-tree.js';
-import type { RuntimeState } from '../schemas/types.js';
+import { EventLogger } from './event-logger.js';
+import type { ActiveCardRun, RuntimeState } from '../schemas/types.js';
 
 const STATE_FILE = 'state.json';
+const TERMINAL_IDLE_ACTIVE_RUN_STATUSES = new Set(['stopped', 'cancelled']);
+
+export class RuntimeStateInvariantError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'RuntimeStateInvariantError';
+  }
+}
 
 function statePath(projectRoot: string): string {
   return join(projectRoot, '.saivage', 'runtime', STATE_FILE);
+}
+
+function isProductionRuntime(): boolean {
+  return process.env['NODE_ENV'] === 'production';
+}
+
+function activeRunIsIdleTerminal(run: ActiveCardRun | null | undefined): boolean {
+  if (!run) return true;
+  return TERMINAL_IDLE_ACTIVE_RUN_STATUSES.has(run.runtime_status);
+}
+
+function isIdleWithoutCurrentCard(state: RuntimeState): boolean {
+  return state.status === 'idle' && (state.current_card_id ?? null) === null;
+}
+
+function describeInvariantViolation(state: RuntimeState): string {
+  const status = state.active_card_run?.runtime_status ?? 'null';
+  const cardId = state.active_card_run?.card_id ?? 'null';
+  return `RuntimeState invariant violation: idle runtime with current_card_id null cannot retain non-terminal active_card_run (card_id=${cardId}, runtime_status=${status}).`;
+}
+
+function appendSelfHealWarning(projectRoot: string, state: RuntimeState, source: 'save' | 'read'): void {
+  let logger: EventLogger | null = null;
+  try {
+    logger = new EventLogger(join(projectRoot, '.saivage'));
+    logger.appendEvent({
+      kind: 'error',
+      phase: 'runtime_state_invariant',
+      card_id: state.active_card_run?.card_id,
+      error_message: `${describeInvariantViolation(state)} Auto-cleared active_card_run during ${source}.`,
+      severity: 'warning',
+      self_healed: true,
+    } as never);
+    logger.flushSync();
+  } catch {
+    // State self-healing must not be blocked by event logging failures.
+  } finally {
+    logger?.close();
+  }
+}
+
+function normalizeRuntimeStateInvariant(
+  projectRoot: string,
+  state: RuntimeState,
+  source: 'save' | 'read',
+): RuntimeState {
+  if (!isIdleWithoutCurrentCard(state) || activeRunIsIdleTerminal(state.active_card_run)) {
+    return state;
+  }
+
+  if (!isProductionRuntime()) {
+    throw new RuntimeStateInvariantError(describeInvariantViolation(state));
+  }
+
+  appendSelfHealWarning(projectRoot, state, source);
+  return {
+    ...state,
+    active_card_run: null,
+    current_agent_session_id: null,
+    running_processes: [],
+    updated_at: new Date().toISOString(),
+  };
 }
 
 function defaultRuntimeState(): RuntimeState {
@@ -34,7 +105,11 @@ function parseRuntimeState(projectRoot: string, raw: unknown): RuntimeState {
   if (!parsed.success) {
     explainLegacyStateRejection(projectRoot, 'RuntimeState', parsed.error.message);
   }
-  return parsed.data;
+  const normalized = normalizeRuntimeStateInvariant(projectRoot, parsed.data, 'read');
+  if (normalized !== parsed.data) {
+    writeFileAtomic(statePath(projectRoot), JSON.stringify(normalized, null, 2) + '\n');
+  }
+  return normalized;
 }
 
 export function initRuntimeState(projectRoot: string): RuntimeState {
@@ -48,8 +123,9 @@ export function saveRuntimeState(projectRoot: string, state: RuntimeState): Runt
   if (!parsed.success) {
     explainLegacyStateRejection(projectRoot, 'RuntimeState', parsed.error.message);
   }
-  writeFileAtomic(statePath(projectRoot), JSON.stringify(parsed.data, null, 2) + '\n');
-  return parsed.data;
+  const normalized = normalizeRuntimeStateInvariant(projectRoot, parsed.data, 'save');
+  writeFileAtomic(statePath(projectRoot), JSON.stringify(normalized, null, 2) + '\n');
+  return normalized;
 }
 
 export function readRuntimeState(projectRoot: string): RuntimeState | null {
