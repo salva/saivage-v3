@@ -6,6 +6,7 @@ set -euo pipefail
 #
 # Guard bundle:
 #   - VitePress build output for top-level docs/*.md pages.
+#   - VitePress dist artifact policy: docs/.vitepress/dist is ignored generated output.
 #   - Operator route, agent-tool, runtime-control, config-schema, and anchor parity.
 #   - Documentation inventory completeness for root/docs Markdown.
 #   - Design-doc allowed-link boundaries.
@@ -19,6 +20,9 @@ DIST="docs/.vitepress/dist"
 
 echo "==> Building docs (vitepress build docs)..."
 npm run docs:build
+
+echo ""
+node scripts/check-vitepress-dist-policy.js
 
 echo ""
 echo "==> Verifying dist output in $DIST..."
@@ -88,7 +92,7 @@ node scripts/check-finding-dossiers.js || ALL_OK=false
 
 echo ""
 if $ALL_OK; then
-  echo "✓ docs:verify passed — docs build output, route/role/config/runtime anchors, documentation inventory, design links, historical isolation, runbook examples, operator API response contracts, global Markdown links, and finding dossiers are valid"
+  echo "✓ docs:verify passed — docs build output, VitePress dist artifact policy, route/role/config/runtime anchors, documentation inventory, design links, historical isolation, runbook examples, operator API response contracts, global Markdown links, and finding dossiers are valid"
 else
   echo "✗ docs:verify FAILED — one or more documentation build or drift guards failed"
   exit 1
