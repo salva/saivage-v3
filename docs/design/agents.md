@@ -257,15 +257,17 @@ launched as **processes** and executed asynchronously. Tasks are the
 low-level terminal cards; processes are external programs launched
 while executing those cards. The MCP layer provides:
 
-| Tool              | Description                                         |
-|-------------------|-----------------------------------------------------|
-| `start_process`   | Start a command asynchronously. Returns a process ID. Output is streamed to a file. |
-| `wait_process`    | Wait for a process to finish, up to a timeout. If the timeout is reached, the process is **not killed** — the return says it's still running. The agent decides whether to kill or let it continue. |
-| `start_and_wait`  | Shortcut: `start_process` + `wait_process` in one call. |
-| `tail_output`     | Get the last N lines of a process's output file.    |
-| `kill_process`    | Kill a running process by ID.                       |
-| `list_processes`  | List running/completed processes for the current card. |
-| `download_file`   | Download a file and run it through content supervision before it can be used. |
+| Tool | Description |
+|---|---|
+| `list_project_files` | List project files visible to the agent workspace. |
+| `read_project_file` | Read a project file. |
+| `write_project_file` | Write a project file. |
+| `run_project_command` | Start a bounded project command and persist output as a process record. |
+| `start_and_wait` | Start a project command and wait for completion or timeout. |
+| `wait_for_process` | Wait for an existing process without killing it on timeout. |
+| `kill_process` | Kill a running process by ID. |
+| `load_skill` | Load an allowed skill into the current executor/reviewer session. |
+| `mcp_tool_call` | Call an allowed MCP tool; executor may call writable MCP tools, reviewer is limited to read-only non-destructive tools. |
 
 Key properties:
 - Output is always saved to a file, so it survives agent restarts

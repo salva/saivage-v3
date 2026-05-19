@@ -92,6 +92,10 @@ echo "==> Verifying planner tool docs/source parity..."
 NODE_OPTIONS=--experimental-vm-modules npx jest tests/agents/agent-adapter-planner-tools.test.ts --runInBand --forceExit || ALL_OK=false
 
 echo ""
+echo "==> Verifying non-planner agent tool docs/source parity..."
+NODE_OPTIONS=--experimental-vm-modules npx jest tests/agents/agent-adapter-non-planner-tools.test.ts --runInBand --forceExit || ALL_OK=false
+
+echo ""
 node scripts/check-markdown-links.js || ALL_OK=false
 
 echo ""
@@ -105,7 +109,7 @@ node scripts/check-finding-dossiers.js || ALL_OK=false
 
 echo ""
 if $ALL_OK; then
-  echo "✓ docs:verify passed — docs build output, VitePress dist artifact policy, route/role/config/runtime anchors, documentation inventory, design links, historical isolation, runbook examples, operator API response contracts, planner tool docs/source parity, global Markdown links, source anchors, validation cadence, and finding dossiers are valid"
+  echo "✓ docs:verify passed — docs build output, VitePress dist artifact policy, route/role/config/runtime anchors, documentation inventory, design links, historical isolation, runbook examples, operator API response contracts, planner and non-planner agent tool docs/source parity, global Markdown links, source anchors, validation cadence, and finding dossiers are valid"
 else
   echo "✗ docs:verify FAILED — one or more documentation build or drift guards failed"
   exit 1

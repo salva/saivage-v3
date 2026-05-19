@@ -51,6 +51,7 @@ How to behave:
 - Keep replies grounded in the data you actually fetched. Be concise but complete.`;
 
 import {
+  lets_dance, mark_goal_needs_corrections, mark_project_needs_corrections,
   create_card, edit_card, move_card, delete_card, add_note, list_cards, get_card, get_tree, get_plan_diary, get_card_output, get_status,
   list_card_history, get_card_history_entry, diff_card, list_notes, get_note, mark_note_handled,
   pause_runtime, resume_runtime, abort_goal, restart_card, restart_goal,
@@ -62,6 +63,9 @@ import type { ToolResult, ToolContext } from './analyst-tools.js';
 type ToolFn = (ctx: ToolContext, params: Record<string, unknown>) => Promise<ToolResult>;
 
 const TOOL_REGISTRY: Record<string, ToolFn> = {
+  lets_dance: lets_dance as unknown as ToolFn,
+  mark_goal_needs_corrections: mark_goal_needs_corrections as unknown as ToolFn,
+  mark_project_needs_corrections: mark_project_needs_corrections as unknown as ToolFn,
   create_card: create_card as unknown as ToolFn,
   edit_card: edit_card as unknown as ToolFn,
   move_card: move_card as unknown as ToolFn,

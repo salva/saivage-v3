@@ -1102,8 +1102,9 @@ Jest coverage before broader test runs.
 
 | Role | Tools | Code anchor |
 |---|---|---|
-| `analyst` | `diff_card,get_card_history_entry,get_note,lets_dance,list_card_history,list_notes,mark_goal_needs_corrections,mark_note_handled,mark_project_needs_corrections` | `src/agents/agent-adapter.ts:126` |
-| `executor` | `diff_card,get_card_history_entry,get_note,kill_process,list_card_history,list_notes,list_project_files,load_skill,mark_note_handled,mcp_tool_call,read_project_file,run_project_command,start_and_wait,wait_for_process,write_project_file` | `src/agents/agent-adapter.ts:124` |
+| `analyst` | `diff_card,get_card_history_entry,get_note,lets_dance,list_card_history,list_notes,mark_goal_needs_corrections,mark_note_handled,mark_project_needs_corrections` | `src/agents/agent-adapter.ts:127` |
+| `card-scoped analyst` | `abort_goal,add_note,create_card,delete_card,diff_card,edit_card,get_card,get_card_history_entry,get_card_output,get_note,get_plan_diary,get_status,get_tree,lets_dance,list_agent_sessions,list_card_history,list_cards,list_directory,list_notes,list_processes_tool,mark_goal_needs_corrections,mark_note_handled,mark_project_needs_corrections,move_card,pause_runtime,read_agent_session,read_control_actions,read_file,read_runtime_errors,read_runtime_events,restart_card,restart_goal,resume_runtime,run_shell_command` | `src/agents/analyst-tool-schemas.ts:11` |
+| `executor` | `diff_card,get_card_history_entry,get_note,kill_process,list_card_history,list_notes,list_project_files,load_skill,mark_note_handled,mcp_tool_call,read_project_file,run_project_command,start_and_wait,wait_for_process,write_project_file` | `src/agents/agent-adapter.ts:125` |
 | `planner` | `activate_card,add_note,cancel_card,create_card,delete_card,diff_card,edit_card,get_card,get_card_history_entry,get_tree,kill_process,list_card_history,list_cards,list_project_files,read_project_file,report_goal_blocked,report_goal_done,report_goal_failed,restart_card,run_project_command,start_and_wait,wait_for_process,write_project_file` | `src/agents/agent-adapter.ts:56` |
-| `reviewer` | `diff_card,get_card_history_entry,get_note,list_card_history,list_notes,list_project_files,load_skill,mark_note_handled,mcp_tool_call,read_project_file` | `src/agents/agent-adapter.ts:125` |
+| `reviewer` | `diff_card,get_card_history_entry,get_note,list_card_history,list_notes,list_project_files,load_skill,mark_note_handled,mcp_tool_call,read_project_file` | `src/agents/agent-adapter.ts:126` |
 <!-- saivage:agent-tools:end -->
