@@ -203,6 +203,36 @@ describe('session-persistence', () => {
     });
   });
 
+  describe('findUniqueUnresolvedActivateCardToolCall', () => {
+    it('returns the most recent unresolved activate_card call when duplicate intents exist', () => {
+      const session = mod.createSession(SAIVAGE_DIR, 'planner', 'goal-1', 'goal-1');
+      mod.appendMessage(SAIVAGE_DIR, session.id, {
+        role: 'assistant',
+        kind: 'tool_call',
+        content: JSON.stringify({
+          toolCalls: [
+            { id: 'call-older', function: { name: 'activate_card', arguments: JSON.stringify({ cardId: 'child-1' }) } },
+          ],
+        }),
+      });
+      mod.appendMessage(SAIVAGE_DIR, session.id, {
+        role: 'assistant',
+        kind: 'tool_call',
+        content: JSON.stringify({
+          toolCalls: [
+            { id: 'call-newer', function: { name: 'activate_card', arguments: JSON.stringify({ cardId: 'child-1' }) } },
+          ],
+        }),
+      });
+
+      expect(mod.findUniqueUnresolvedActivateCardToolCall(SAIVAGE_DIR, session.id, 'child-1')).toEqual({
+        session_id: session.id,
+        tool_call_id: 'call-newer',
+        card_id: 'child-1',
+      });
+    });
+  });
+
   describe('deleteSession', () => {
     it('should delete session and messages', () => {
       const session = mod.createSession(SAIVAGE_DIR, 'planner');

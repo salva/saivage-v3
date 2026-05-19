@@ -336,10 +336,12 @@ export function findUniqueUnresolvedActivateCardToolCall(
     }
   }
   if (matches.length === 0) return null;
-  if (matches.length > 1) {
-    throw new Error(`Expected one unresolved activate_card(${childCardId}) tool call in session ${sessionId}, found ${matches.length}.`);
-  }
-  return matches[0];
+  // If the planner emitted more than one unresolved activate_card(childCardId) call
+  // in the same session (e.g. after a model retry that re-emitted the same intent),
+  // prefer the most recent one rather than crashing the safeTick loop. The older
+  // duplicate(s) will remain unresolved, which is harmless — they will be ignored
+  // by subsequent tool-result lookups keyed on the chosen tool_call_id.
+  return matches[matches.length - 1];
 }
 
 export function findPlannerSessionForCard(saivageDir: string, cardId: string): AgentSession | null {
