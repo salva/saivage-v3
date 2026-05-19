@@ -512,9 +512,10 @@ export class LlmClient {
     // The OpenAI Responses API requires every `function_call` item to be
     // followed by a matching `function_call_output`. If the persisted
     // history contains an orphan tool_call (e.g. because a prior planner
-    // turn was rejected as malformed before the tool ran), we must drop
-    // both the orphan call and any stray outputs whose call_id has no
-    // preceding call. Pre-compute the set of call_ids that have both a
+    // turn was rejected as malformed before the tool ran, or because
+    // activate_card deliberately deferred its output while child work runs),
+    // we must drop both the orphan call and any stray outputs whose call_id
+    // has no preceding call. Pre-compute the set of call_ids that have both a
     // call and an output, then only emit those.
     const callIdsWithOutput = new Set<string>();
     const callIdsSeen = new Set<string>();

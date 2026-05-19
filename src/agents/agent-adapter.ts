@@ -326,7 +326,41 @@ export class AgentAdapter implements AgentRuntime {
 
   private buildNotificationInjectionMessage(notifications: NotificationRecord[], sessionId: string): AgentMessage { const lines = ['## Operator updates since your last turn', '', ...notifications.map((notification) => this.formatNotificationGuidance(notification))]; return { id: `msg-${sessionId}-notification-injection`, session_id: sessionId, role: 'user', kind: 'text', content: lines.join('\n'), timestamp: new Date().toISOString() }; }
   private buildModelMessages(sessionId: string): { messages: AgentMessage[]; drainedIds: string[] } { const pending = this.notificationCenter.drainPendingForSession(sessionId); const baseMessages = getSessionMessages(this.saivageDir, sessionId); if (pending.length === 0) return { messages: baseMessages, drainedIds: [] }; return { messages: [this.buildNotificationInjectionMessage(pending, sessionId), ...baseMessages], drainedIds: pending.map((notification) => notification.id) }; }
-  private async handleToolCallsLoop(rawResponse: string, role: AgentRole, sessionId: string, candidate: Candidate, systemPrompt: string, modelParams: { temperature: number; maxTokens: number }, abortController: AbortController, invocation?: { goalId?: string; cardId?: string }): Promise<{ response: string; transportSucceeded: boolean }> { let currentResponse = rawResponse; const MAX_TOOL_ROUNDS = 5; const previousCalls = new Set<string>(); for (let toolRound = 0; toolRound < MAX_TOOL_ROUNDS; toolRound++) { const toolCalls = this.parseToolCallsFromResponse(currentResponse); if (!toolCalls) return { response: currentResponse, transportSucceeded: true }; const callFingerprint = toolCalls.map((tc) => `${tc.function.name}:${tc.function.arguments}`).sort().join('||'); if (previousCalls.has(callFingerprint)) { appendMessage(this.saivageDir, sessionId, { role: 'system', kind: 'model_issue', content: `Repeated tool-call fingerprint detected; stopping tool loop as no-progress diagnostic: ${callFingerprint}` }); return { response: currentResponse, transportSucceeded: true }; } previousCalls.add(callFingerprint); appendMessage(this.saivageDir, sessionId, { role: 'assistant', kind: 'tool_call', content: JSON.stringify({ toolCalls }), tool: toolCalls.map((tc) => tc.function.name).join(',') }); const toolMessages: Array<{ role: 'tool'; kind: 'tool_result' | 'tool_error'; content: string; tool: string; tool_call_id: string }> = []; for (const tc of toolCalls) { const msg = await this.processToolCall(tc, role, sessionId, invocation); if (!(role === 'planner' && tc.function.name === 'activate_card' && msg.content.includes('__saivage_defer_tool_result'))) toolMessages.push(msg); } for (const msg of toolMessages) appendMessage(this.saivageDir, sessionId, { role: msg.role, kind: msg.kind, content: msg.content, tool: msg.tool, tool_call_id: msg.tool_call_id }); if (toolMessages.length === 0 && toolCalls.some((tc) => role === 'planner' && tc.function.name === 'activate_card')) return { response: currentResponse, transportSucceeded: true }; const followUpTools = this.buildToolsForRole(role); const modelMessages = this.buildModelMessages(sessionId).messages; currentResponse = await this.llmCallFn!(candidate, systemPrompt, modelMessages, sessionId, { temperature: modelParams.temperature, max_tokens: modelParams.maxTokens, signal: abortController.signal, ...(followUpTools.length > 0 ? { tools: followUpTools, tool_choice: 'auto' } : {}) }); } appendMessage(this.saivageDir, sessionId, { role: 'system', kind: 'model_issue', content: `Maximum tool-call rounds exceeded (${MAX_TOOL_ROUNDS}); stopping as no-progress diagnostic.` }); return { response: currentResponse, transportSucceeded: true }; }
+  private async handleToolCallsLoop(rawResponse: string, role: AgentRole, sessionId: string, candidate: Candidate, systemPrompt: string, modelParams: { temperature: number; maxTokens: number }, abortController: AbortController, invocation?: { goalId?: string; cardId?: string }): Promise<{ response: string; transportSucceeded: boolean }> {
+    let currentResponse = rawResponse;
+    const MAX_TOOL_ROUNDS = 5;
+    const previousCalls = new Set<string>();
+    for (let toolRound = 0; toolRound < MAX_TOOL_ROUNDS; toolRound++) {
+      const toolCalls = this.parseToolCallsFromResponse(currentResponse);
+      if (!toolCalls) return { response: currentResponse, transportSucceeded: true };
+      const callFingerprint = toolCalls.map((tc) => `${tc.function.name}:${tc.function.arguments}`).sort().join('||');
+      if (previousCalls.has(callFingerprint)) {
+        appendMessage(this.saivageDir, sessionId, { role: 'system', kind: 'model_issue', content: `Repeated tool-call fingerprint detected; stopping tool loop as no-progress diagnostic: ${callFingerprint}` });
+        return { response: currentResponse, transportSucceeded: true };
+      }
+      previousCalls.add(callFingerprint);
+      // Persist each assistant tool call independently. Codex Responses requires
+      // every function_call item in history to have a matching output; planner
+      // activate_card intentionally defers its output while child work runs.
+      // Per-call rows let Codex history assembly drop only the deferred
+      // activate_card call without hiding executed sibling tool calls/results.
+      for (const tc of toolCalls) {
+        appendMessage(this.saivageDir, sessionId, { role: 'assistant', kind: 'tool_call', content: JSON.stringify({ toolCalls: [tc] }), tool: tc.function.name });
+      }
+      const toolMessages: Array<{ role: 'tool'; kind: 'tool_result' | 'tool_error'; content: string; tool: string; tool_call_id: string }> = [];
+      for (const tc of toolCalls) {
+        const msg = await this.processToolCall(tc, role, sessionId, invocation);
+        if (!(role === 'planner' && tc.function.name === 'activate_card' && msg.content.includes('__saivage_defer_tool_result'))) toolMessages.push(msg);
+      }
+      for (const msg of toolMessages) appendMessage(this.saivageDir, sessionId, { role: msg.role, kind: msg.kind, content: msg.content, tool: msg.tool, tool_call_id: msg.tool_call_id });
+      if (toolMessages.length === 0 && toolCalls.some((tc) => role === 'planner' && tc.function.name === 'activate_card')) return { response: currentResponse, transportSucceeded: true };
+      const followUpTools = this.buildToolsForRole(role);
+      const modelMessages = this.buildModelMessages(sessionId).messages;
+      currentResponse = await this.llmCallFn!(candidate, systemPrompt, modelMessages, sessionId, { temperature: modelParams.temperature, max_tokens: modelParams.maxTokens, signal: abortController.signal, ...(followUpTools.length > 0 ? { tools: followUpTools, tool_choice: 'auto' } : {}) });
+    }
+    appendMessage(this.saivageDir, sessionId, { role: 'system', kind: 'model_issue', content: `Maximum tool-call rounds exceeded (${MAX_TOOL_ROUNDS}); stopping as no-progress diagnostic.` });
+    return { response: currentResponse, transportSucceeded: true };
+  }
 
   private resultBlockedByPendingNotifications(role: AgentRole, parsed: unknown, sessionId: string): boolean {
     if (role !== 'executor' && role !== 'reviewer') return false;
