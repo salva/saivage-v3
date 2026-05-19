@@ -26,7 +26,7 @@ vi.mock('../stores/ws', () => ({
   }),
 }));
 
-import { listNotifications, acknowledgeNotification, ApiError } from '../api/client';
+import { listNotifications, acknowledgeNotification, getDebugTimeline, ApiError } from '../api/client';
 
 function emitActivity(content: Record<string, unknown>): void {
   for (const handler of Array.from(wsTypeHandlers.get('activity') ?? [])) {
@@ -89,4 +89,29 @@ describe('NotificationsPanel', () => {
     expect(store.notificationsTotal).toBe(0);
     expect(store.notificationsState).toBe('empty');
   });
+
+  it('surfaces one rolled-up notification per session per minute for timeline failure events', async () => {
+    vi.mocked(listNotifications).mockResolvedValue({ notifications: [], total: 0 });
+    vi.mocked(getDebugTimeline).mockResolvedValue({
+      events: [
+        { id: 'evt-1', kind: 'invocation_failed', session_id: 'planner:rollup', timestamp: '2025-01-01T00:00:10Z', error_message: 'First failure' },
+        { id: 'evt-2', kind: 'tool_error', session_id: 'planner:rollup', timestamp: '2025-01-01T00:00:45Z', error: 'Latest same-minute failure' },
+        { id: 'evt-3', kind: 'invocation_failed', session_id: 'planner:rollup', timestamp: '2025-01-01T00:01:05Z', error_message: 'Next minute failure' },
+        { id: 'evt-4', kind: 'invocation_succeeded', session_id: 'planner:rollup', timestamp: '2025-01-01T00:01:15Z' },
+      ],
+      total: 4,
+    });
+
+    const pinia = createPinia();
+    setActivePinia(pinia);
+    const store = useDebugStore();
+    await store.fetchTimeline();
+    const wrapper = mount(NotificationsPanel, { global: { plugins: [pinia] } });
+    await flushPromises();
+
+    expect(wrapper.findAll('.notification-card')).toHaveLength(2);
+    expect(wrapper.text()).toContain('2 failure/error events for planner:rollup: Latest same-minute failure');
+    expect(wrapper.text()).toContain('1 failure/error event for planner:rollup: Next minute failure');
+  });
+
 });

@@ -59,6 +59,46 @@ import { createLogger } from '../utils/logger';
 const log = createLogger('store:debug');
 const OPERATOR_STALE_AGE_MS = 60_000;
 
+const FAILURE_EVENT_KIND_RE = /^invocation_failed$|_error$|_failed$/;
+
+function eventFieldAsString(event: DebugTimelineEvent, field: string): string | null {
+  const value = event[field];
+  return typeof value === 'string' && value.trim() ? value : null;
+}
+
+function isErrorTimelineEvent(event: DebugTimelineEvent): boolean {
+  return FAILURE_EVENT_KIND_RE.test(event.kind) || Boolean(eventFieldAsString(event, 'error_message') || eventFieldAsString(event, 'error'));
+}
+
+function errorMessageFromEvent(event: DebugTimelineEvent): string {
+  return eventFieldAsString(event, 'error_message')
+    || eventFieldAsString(event, 'error')
+    || eventFieldAsString(event, 'message')
+    || `${event.kind} event recorded`;
+}
+
+function sessionFromEvent(event: DebugTimelineEvent): string {
+  return eventFieldAsString(event, 'session_id') || 'unknown-session';
+}
+
+function minuteBucket(timestamp: string): string {
+  const parsed = new Date(timestamp);
+  if (Number.isNaN(parsed.getTime())) return timestamp.slice(0, 16);
+  parsed.setSeconds(0, 0);
+  return parsed.toISOString();
+}
+
+function eventErrorDetails(event: DebugTimelineEvent): string | undefined {
+  const details: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(event)) {
+    if (['id', 'kind', 'timestamp', 'session_id', 'error_message', 'error', 'message'].includes(key)) continue;
+    if (value === undefined || value === null) continue;
+    details[key] = value;
+  }
+  return Object.keys(details).length > 0 ? JSON.stringify(details, null, 2) : undefined;
+}
+
+
 function operatorErrorMessage(err: unknown): string {
   if (err instanceof ApiError) {
     if (err.status === 401) {
@@ -127,8 +167,7 @@ export const useDebugStore = defineStore('debug', () => {
   const operatorNotesLoading = ref(false);
   const operatorNotesError = ref<string | null>(null);
 
-  const notifications = ref<NotificationRecord[]>([]);
-  const notificationsTotal = ref(0);
+  const serverNotifications = ref<NotificationRecord[]>([]);
   const notificationsLoading = ref(false);
   const notificationsError = ref<string | null>(null);
   const notificationsState = ref<'idle' | 'success' | 'empty' | 'unauthorized' | 'error'>('idle');
@@ -158,18 +197,36 @@ export const useDebugStore = defineStore('debug', () => {
     return controlActions.value.filter((entry) => entry.outcome === 'rejected' && entry.outcome_summary.toLowerCase().includes('preview-only'));
   });
 
+  const eventDerivedErrors = computed<DebugError[]>(() =>
+    timelineEvents.value
+      .filter(isErrorTimelineEvent)
+      .map((event) => ({
+        source: sessionFromEvent(event),
+        type: event.kind,
+        severity: event.kind === 'invocation_failed' || event.kind.endsWith('_failed') ? 'warning' : 'error',
+        message: errorMessageFromEvent(event),
+        details: eventErrorDetails(event),
+        timestamp: event.timestamp,
+      })),
+  );
+
+  const combinedErrors = computed<DebugError[]>(() => [...errors.value, ...eventDerivedErrors.value]);
+
   const errorsBySource = computed<Map<string, DebugError[]>>(() => {
     const map = new Map<string, DebugError[]>();
-    for (const e of errors.value) {
+    for (const e of combinedErrors.value) {
       const list = map.get(e.source);
       if (list) list.push(e); else map.set(e.source, [e]);
+    }
+    for (const list of map.values()) {
+      list.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
     }
     return map;
   });
 
   const errorsBySeverity = computed<Map<string, DebugError[]>>(() => {
     const map = new Map<string, DebugError[]>();
-    for (const e of errors.value) {
+    for (const e of combinedErrors.value) {
       const list = map.get(e.severity);
       if (list) list.push(e); else map.set(e.severity, [e]);
     }
@@ -179,6 +236,37 @@ export const useDebugStore = defineStore('debug', () => {
   const sortedTimeline = computed<DebugTimelineEvent[]>(() =>
     [...timelineEvents.value].sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()),
   );
+
+  const eventNotificationRollups = computed<NotificationRecord[]>(() => {
+    const buckets = new Map<string, { sessionId: string; minute: string; count: number; latest: DebugTimelineEvent }>();
+    for (const event of timelineEvents.value.filter(isErrorTimelineEvent)) {
+      const sessionId = sessionFromEvent(event);
+      const minute = minuteBucket(event.timestamp);
+      const key = `${sessionId}:${minute}`;
+      const existing = buckets.get(key);
+      if (!existing) {
+        buckets.set(key, { sessionId, minute, count: 1, latest: event });
+      } else {
+        existing.count += 1;
+        if (new Date(event.timestamp).getTime() >= new Date(existing.latest.timestamp).getTime()) existing.latest = event;
+      }
+    }
+    return Array.from(buckets.values()).map((bucket) => ({
+      id: `event-rollup:${bucket.sessionId}:${bucket.minute}`,
+      session_id: bucket.sessionId,
+      kind: 'runtime_error' as NotificationRecord['kind'],
+      severity: 'warn' as NotificationRecord['severity'],
+      payload_summary: `${bucket.count} failure/error event${bucket.count === 1 ? '' : 's'} for ${bucket.sessionId}: ${errorMessageFromEvent(bucket.latest)}`,
+      source_actor: 'system' as NotificationRecord['source_actor'],
+      source_surface: 'runtime' as NotificationRecord['source_surface'],
+      created_at: bucket.latest.timestamp,
+      delivered_at: null,
+      acknowledged_at: null,
+    }));
+  });
+
+  const notifications = computed<NotificationRecord[]>(() => [...serverNotifications.value, ...eventNotificationRollups.value]);
+  const notificationsTotal = computed(() => notifications.value.length);
 
   const problemCards = computed(() => debugCards.value.filter((c) => c.status === 'failed' || c.status === 'blocked'));
   const failedChecks = computed(() => doctorChecks.value.filter((c) => !c.passed));
@@ -406,9 +494,8 @@ export const useDebugStore = defineStore('debug', () => {
     notificationsError.value = null;
     try {
       const response: NotificationsListResponse = await listNotifications();
-      notifications.value = response.notifications;
-      notificationsTotal.value = response.total;
-      notificationsState.value = response.notifications.length === 0 ? 'empty' : 'success';
+      serverNotifications.value = response.notifications;
+      notificationsState.value = notifications.value.length === 0 ? 'empty' : 'success';
     } catch (err) {
       notificationsError.value = operatorErrorMessage(err);
       notificationsState.value = buildPanelState(err);
@@ -543,8 +630,7 @@ export const useDebugStore = defineStore('debug', () => {
     notificationActionLoading.value = { ...notificationActionLoading.value, [notificationId]: true };
     try {
       await acknowledgeNotification(notificationId);
-      notifications.value = notifications.value.filter((item) => item.id !== notificationId);
-      notificationsTotal.value = notifications.value.length;
+      serverNotifications.value = serverNotifications.value.filter((item) => item.id !== notificationId);
       notificationsState.value = notifications.value.length === 0 ? 'empty' : 'success';
     } catch (err) {
       notificationsError.value = operatorErrorMessage(err);
@@ -662,8 +748,8 @@ export const useDebugStore = defineStore('debug', () => {
     debugRuntime: readonly(debugRuntime),
     debugCards: readonly(debugCards),
     debugTotalCards: readonly(debugTotalCards),
-    errors: readonly(errors),
-    errorsTotal: readonly(errorsTotal),
+    errors: readonly(combinedErrors),
+    errorsTotal: readonly(computed(() => combinedErrors.value.length)),
     timelineEvents: readonly(timelineEvents),
     timelineTotal: readonly(timelineTotal),
     processes: readonly(processes),

@@ -318,4 +318,72 @@ describe('DebugView — integration', () => {
     expect(wrapper.text()).toContain('This panel may be stale. Refresh to reconcile with server state.');
     expect(wrapper.text()).toContain('Check runtime status before proceeding.');
   });
+
+  it('renders all Stage 13 timeline event kinds by default and narrows with the multi-select filter', async () => {
+    const requiredKinds = [
+      'model_selected',
+      'invocation_failed',
+      'invocation_succeeded',
+      'retry_attempted',
+      'dispatched',
+      'planner_started',
+      'planner_completed',
+      'reviewer_started',
+      'reviewer_completed',
+      'card_status_changed',
+      'directive_recorded',
+      'directive_consumed',
+      'paused',
+      'resumed',
+      'frozen',
+      'unfrozen',
+      'stuck_verdict',
+    ];
+    vi.mocked(getDebugTimeline).mockResolvedValue({
+      events: requiredKinds.map((kind, index) => ({
+        id: `evt-${kind}`,
+        kind,
+        session_id: `session-${index}`,
+        timestamp: `2025-06-01T10:${String(index).padStart(2, '0')}:00Z`,
+      })),
+      total: requiredKinds.length,
+    });
+
+    const wrapper = await mountDebugView();
+    await clickTab(wrapper, 'Timeline');
+
+    const renderedKinds = wrapper.findAll('.tl-event-type').map((node) => node.text());
+    for (const kind of requiredKinds) {
+      expect(renderedKinds).toContain(kind.replace(/_/g, ' '));
+    }
+
+    const select = wrapper.find('select[aria-label="Filter timeline event kinds"]');
+    await select.setValue(['invocation_failed']);
+    await flushPromises();
+    expect(wrapper.findAll('.tl-event-type').map((node) => node.text())).toEqual(['invocation failed']);
+    expect(wrapper.text()).not.toContain('model selected');
+  });
+
+  it('groups failure-kind and error-field timeline events by session with count and latest message', async () => {
+    vi.mocked(getDebugErrors).mockResolvedValue({ errors: [], total: 0 });
+    vi.mocked(getDebugTimeline).mockResolvedValue({
+      events: [
+        { id: 'evt-old', kind: 'invocation_failed', session_id: 'planner:1', timestamp: '2025-06-01T10:00:00Z', error_message: 'HTTP 401 old failure' },
+        { id: 'evt-latest', kind: 'tool_error', session_id: 'planner:1', timestamp: '2025-06-01T10:01:00Z', error: 'Tool crashed latest' },
+        { id: 'evt-field', kind: 'model_selected', session_id: 'reviewer:2', timestamp: '2025-06-01T10:02:00Z', error_message: 'Provider config missing' },
+        { id: 'evt-ok', kind: 'invocation_succeeded', session_id: 'planner:1', timestamp: '2025-06-01T10:03:00Z' },
+      ],
+      total: 4,
+    });
+
+    const wrapper = await mountDebugView();
+    await clickTab(wrapper, 'Errors');
+
+    expect(wrapper.text()).toContain('planner:1 (2)');
+    expect(wrapper.text()).toContain('Tool crashed latest');
+    expect(wrapper.text()).toContain('reviewer:2 (1)');
+    expect(wrapper.text()).toContain('Provider config missing');
+    expect(wrapper.text()).not.toContain('No errors recorded.');
+  });
+
 });

@@ -196,17 +196,27 @@
       <div v-if="localActiveTab === 'timeline'" class="debug-tab-content">
         <div v-if="loading" class="debug-loading">Loading timeline...</div>
         <div v-else-if="error" class="debug-error">{{ error }}</div>
-        <div v-else-if="sortedTimeline.length === 0" class="debug-empty">No timeline events.</div>
-        <div v-else class="timeline-list">
-          <div v-for="event in sortedTimeline" :key="timelineKey(event)" class="tl-event">
-            <span class="tl-event-type">{{ formatEventKind(event.kind) }}</span>
-            <span v-if="event.card_id" class="tl-event-card mono">Card: {{ event.card_id }}</span>
-            <span v-if="event.goal_id" class="tl-event-card mono">Goal: {{ event.goal_id }}</span>
-            <span v-if="event.session_id" class="tl-event-card mono">Session: {{ event.session_id }}</span>
-            <span class="tl-event-time">{{ fmtDate(event.timestamp) }}</span>
-            <pre v-if="Object.keys(timelineDetails(event)).length" class="tl-event-data">{{ fmtJson(timelineDetails(event)) }}</pre>
+        <template v-else>
+          <div class="timeline-filter">
+            <label class="timeline-filter-label" for="timeline-kind-filter">Event kinds</label>
+            <select id="timeline-kind-filter" v-model="selectedTimelineKinds" class="timeline-filter-select" multiple aria-label="Filter timeline event kinds">
+              <option v-for="kind in timelineKindOptions" :key="kind" :value="kind">{{ kind }}</option>
+            </select>
+            <span class="timeline-filter-help">No selection shows all event kinds.</span>
+            <button v-if="selectedTimelineKinds.length > 0" class="filter-chip" @click="selectedTimelineKinds = []">Show all</button>
           </div>
-        </div>
+          <div v-if="filteredTimeline.length === 0" class="debug-empty">No timeline events.</div>
+          <div v-else class="timeline-list">
+            <div v-for="event in filteredTimeline" :key="timelineKey(event)" class="tl-event">
+              <span class="tl-event-type">{{ formatEventKind(event.kind) }}</span>
+              <span v-if="event.card_id" class="tl-event-card mono">Card: {{ event.card_id }}</span>
+              <span v-if="event.goal_id" class="tl-event-card mono">Goal: {{ event.goal_id }}</span>
+              <span v-if="event.session_id" class="tl-event-card mono">Session: {{ event.session_id }}</span>
+              <span class="tl-event-time">{{ fmtDate(event.timestamp) }}</span>
+              <pre v-if="Object.keys(timelineDetails(event)).length" class="tl-event-data">{{ fmtJson(timelineDetails(event)) }}</pre>
+            </div>
+          </div>
+        </template>
       </div>
 
       <div v-if="localActiveTab === 'mcp'" class="debug-tab-content">
@@ -415,6 +425,9 @@ const pauseDisabled = computed(() => operatorUnauthorized.value || runtimeContro
 const resumeDisabled = computed(() => operatorUnauthorized.value || runtimeControlLoading.value !== null || !debugRuntime.value || debugRuntime.value.status === 'frozen');
 const clearNotesDisabled = computed(() => operatorUnauthorized.value || operatorNotes.value.length === 0 || operatorClearLoading.value || Object.keys(operatorNoteActionLoading.value).length > 0);
 const sortedProcesses = computed(() => [...processes.value].sort((a, b) => { if (a.status === 'running' && b.status !== 'running') return -1; if (a.status !== 'running' && b.status === 'running') return 1; return new Date(b.started_at).getTime() - new Date(a.started_at).getTime(); }));
+const selectedTimelineKinds = ref<string[]>([]);
+const timelineKindOptions = computed(() => Array.from(new Set(sortedTimeline.value.map((event) => event.kind))).sort());
+const filteredTimeline = computed(() => selectedTimelineKinds.value.length === 0 ? sortedTimeline.value : sortedTimeline.value.filter((event) => selectedTimelineKinds.value.includes(event.kind)));
 
 function noteButtonsDisabled(noteId: string): boolean { return operatorUnauthorized.value || operatorClearLoading.value || Boolean(operatorNoteActionLoading.value[noteId]); }
 async function refreshOperatorControl(): Promise<void> { await debugStore.fetchOperatorControl().catch(() => {}); }
@@ -559,6 +572,10 @@ onUnmounted(() => { mcpStore.stopPolling(); });
 .error-time { font-size:10px; color:#484f58; margin-left:auto; }
 .error-message { font-size:13px; color:#c9d1d9; }
 .error-details { margin:6px 0 0; padding:8px; background:#0d1117; border:1px solid #21262d; border-radius:4px; font-size:11px; font-family:'SF Mono',monospace; line-height:1.5; white-space:pre-wrap; word-break:break-word; color:#8b949e; }
+.timeline-filter { display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom:12px; padding:10px; background:#161b22; border:1px solid #21262d; border-radius:6px; }
+.timeline-filter-label { font-size:12px; color:#8b949e; font-weight:600; }
+.timeline-filter-select { min-width:220px; max-width:340px; min-height:76px; background:#0d1117; color:#c9d1d9; border:1px solid #30363d; border-radius:4px; padding:6px; font-family:inherit; font-size:12px; }
+.timeline-filter-help { font-size:11px; color:#8b949e; }
 .timeline-list { display:flex; flex-direction:column; }
 .tl-event { display:flex; align-items:center; gap:8px; padding:6px 8px; border-bottom:1px solid #21262d; font-size:12px; flex-wrap:wrap; }
 .tl-event-type { font-family:'SF Mono',monospace; font-size:11px; color:#58a6ff; font-weight:500; }
