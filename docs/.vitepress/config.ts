@@ -9,7 +9,7 @@ export default defineConfig({
     nav: [
       { text: 'Home', link: '/' },
       { text: 'Design', link: '/design/' },
-      { text: 'Runbook', link: '/operator-runbook' },
+      { text: 'Runbook', link: '/runbook/' },
       { text: 'Analyst Guide', link: '/analyst' },
       { text: 'Docs Policy', link: '/documentation-inventory' },
     ],
@@ -44,17 +44,20 @@ export default defineConfig({
         {
           text: 'Operate Saivage',
           items: [
-            { text: 'Operator Runbook', link: '/operator-runbook' },
+            { text: 'Runbook Index', link: '/runbook/' },
+            { text: 'Operations', link: '/runbook/operations' },
+            { text: 'Incidents', link: '/runbook/incidents' },
+            { text: 'Release', link: '/runbook/release' },
+            { text: 'LXC Operations', link: '/runbook/lxc-operations' },
             { text: 'Analyst Operator Guide', link: '/analyst' },
-            { text: 'Operation Guide', link: '/operation' },
+            { text: 'Operation Route Inventory', link: '/operation' },
             { text: 'Goal Planning Runtime', link: '/goal-planning-runtime' },
-            { text: 'Troubleshooting', link: '/troubleshooting' },
           ],
         },
         {
           text: 'Release and Governance',
           items: [
-            { text: 'Release Checklist', link: '/release-checklist' },
+            { text: 'Legacy Release Forwarder', link: '/release-checklist' },
             { text: 'Documentation Inventory', link: '/documentation-inventory' },
           ],
         },

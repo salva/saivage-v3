@@ -1,6 +1,6 @@
 # Documentation inventory
 
-This inventory maps every tracked Markdown file in the repository root and `docs/` tree to its current source-of-truth status. Stage 22 moved the numbered root design documents into `docs/historical/2026-pre-consolidation/`; Stage 24 moved remediation and review dossiers into `docs/historical/2026-05-remediation-dossiers/` and added a historical-isolation guard.
+This inventory maps every tracked Markdown file in the repository root and `docs/` tree to its current source-of-truth status. Stage 22 moved the numbered root design documents into `docs/historical/2026-pre-consolidation/`; Stage 24 moved remediation and review dossiers into `docs/historical/2026-05-remediation-dossiers/` and added a historical-isolation guard; Stage 25 consolidated operator guidance into `docs/runbook/`.
 
 ## Classification legend
 
@@ -55,13 +55,18 @@ This inventory maps every tracked Markdown file in the repository root and `docs
 | `docs/index.md` | stale | The docs index is serviceable but will need Stage 26 restructuring after design, runbook, and historical trees exist. | docs/.vitepress/config.ts:1 | rewrite |
 | `docs/install.md` | current | The installation guide matches the package scripts and current CLI/server bootstrap flow. | src/cli.ts:1 | keep |
 | `docs/operation.md` | current | The operation guide tracks current HTTP, WebSocket, docs, runtime-control, and route-verification behavior. | src/server/server.ts:1 | keep |
-| `docs/operator-runbook.md` | stale | The operator runbook is useful but will be merged into the Stage 25 runbook tree with operation and troubleshooting content. | src/server/routes/runtime-config-notes.ts:1 | merge-into |
+| `docs/operator-runbook.md` | current | This legacy top-level page forwards operators to the consolidated Stage 25 runbook tree. | docs/runbook/index.md:1 | keep |
 | `docs/historical/2026-05-remediation-dossiers/planner-redesign-plan.md` | historical | The planner redesign plan remains historical design evidence but is not final operator guidance. | docs/agents.md:1 | keep |
-| `docs/release-checklist.md` | stale | The release checklist matches current scripts in broad terms but belongs in the consolidated Stage 25 runbook tree. | scripts/docs-verify.sh:1 | merge-into |
+| `docs/release-checklist.md` | current | This legacy top-level page forwards release validation to the consolidated runbook release checklist. | docs/runbook/release.md:1 | keep |
+| `docs/runbook/incidents.md` | current | The incidents runbook consolidates current troubleshooting and degraded-state recovery guidance. | src/server/routes/chats-files-debug.ts:341 | keep |
+| `docs/runbook/index.md` | current | The runbook index is the Stage 25 single entry point for operator procedures. | scripts/check-runbook-curl-examples.js:1 | keep |
+| `docs/runbook/lxc-operations.md` | current | The LXC operations page records current systemd unit names and deployment checks. | src/cli.ts:1 | keep |
+| `docs/runbook/operations.md` | current | The operations runbook documents current startup, auth, health, state, runtime control, WebSocket, and backup procedures. | src/server/server.ts:28 | keep |
+| `docs/runbook/release.md` | current | The release runbook consolidates current documentation, build, runtime-control, web, and security release gates. | package.json:1 | keep |
 | `docs/historical/2026-05-remediation-dossiers/second-codebase-review-remediation-cycle.md` | historical | This second-cycle remediation record is a provenance artifact superseded by resolved findings and tests. | audit-findings/README.md:1 | keep |
 | `docs/historical/2026-05-remediation-dossiers/top-level-planner-control-flow-review.md` | historical | The planner control-flow review documents a prior audit state and should not be used as current control guidance. | src/utils/runtime.ts:1 | keep |
 | `docs/historical/2026-05-remediation-dossiers/top-level-planner-mcp-redesign-plan.md` | historical | The top-level planner MCP redesign plan is superseded by `docs/agents.md` and current implementation. | src/agents/agent-adapter.ts:1 | keep |
-| `docs/troubleshooting.md` | stale | The troubleshooting guide remains useful but should be folded into the consolidated incidents runbook. | src/utils/stuck-agent-supervisor.ts:1 | merge-into |
+| `docs/troubleshooting.md` | current | This legacy top-level page forwards troubleshooting guidance to the consolidated incidents runbook. | docs/runbook/incidents.md:1 | keep |
 | `docs/v3-planner-control-mcp-contract.md` | historical | The V3 planner control MCP contract is a pre-implementation contract retained for provenance and later reconciliation. | src/agents/agent-adapter.ts:1 | move-to-docs/historical/ |
 | `future.md` | historical | The future-ideas file is non-authoritative planning material outside the current source-of-truth set. | docs/documentation-inventory.md:1 | move-to-docs/historical/ |
 | `use-cases.md` | stale | The use-case catalog is helpful product context but contains assumptions that need reconciliation into the design docs. | web/src/App.vue:1 | merge-into |
