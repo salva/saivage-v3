@@ -1,8 +1,6 @@
 # Agent Architecture
 
-This document describes the target Saivage v3 agent architecture. The
-companion implementation plan is [Planner Redesign Implementation
-Plan](./planner-redesign-plan.md).
+This document is the current Saivage v3 agent architecture reference. See historical: the companion implementation plan is preserved as [Planner Redesign Implementation Plan](./historical/2026-05-remediation-dossiers/planner-redesign-plan.md).
 
 The design is card-centered. A planner owns a goal subtree, but it does
 not directly invoke another planner or executor. It asks the runtime to

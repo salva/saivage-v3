@@ -29,7 +29,7 @@ Saivage is an autonomous multi-agent system for software-development work. Curre
 ### Documentation governance
 
 - [Documentation Inventory](/documentation-inventory)
-- [Historical Artifacts](/historical-artifacts)
+- See historical: [Historical documentation](/historical/README)
 
 ## Verification commands
 
@@ -44,4 +44,4 @@ npm run web:test:sweep
 
 ## Historical records
 
-Older remediation plans, redesign notes, and audit artifacts remain in the repository for provenance, but they are not current operator authority. Use [Historical Artifacts](/historical-artifacts) to find them safely.
+Older remediation plans, redesign notes, and audit artifacts remain in the repository for provenance, but they are not current operator authority. See historical: use [Historical documentation](/historical/README) to find them safely.

@@ -56,7 +56,14 @@ export default defineConfig({
           items: [
             { text: 'Release Checklist', link: '/release-checklist' },
             { text: 'Documentation Inventory', link: '/documentation-inventory' },
-            { text: 'Historical Artifacts', link: '/historical-artifacts' },
+          ],
+        },
+        {
+          text: 'Provenance',
+          items: [
+            { text: 'Historical Documentation', link: '/historical/README' },
+            { text: '2026 Pre-Consolidation Design', link: '/historical/2026-pre-consolidation/01-card-model' },
+            { text: '2026-05 Remediation Dossiers', link: '/historical/2026-05-remediation-dossiers/historical-artifacts' },
           ],
         },
       ],

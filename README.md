@@ -25,7 +25,7 @@ Saivage currently provides:
 - [Troubleshooting](docs/troubleshooting.md)
 - [Release checklist](docs/release-checklist.md)
 - [Documentation inventory](docs/documentation-inventory.md)
-- [Historical artifacts policy](docs/historical-artifacts.md)
+- See historical: [Historical documentation](docs/historical/README.md)
 
 ## Verification commands
 
@@ -40,4 +40,4 @@ npm run typecheck
 
 ## Historical material
 
-Historical audits, remediation plans, and earlier design-era markdown files are preserved as repository evidence but are **not** current operator instructions. Start with the active docs above, then use [docs/historical-artifacts.md](docs/historical-artifacts.md) if you need provenance.
+Historical audits, remediation plans, and earlier design-era markdown files are preserved as repository evidence but are **not** current operator instructions. Start with the active docs above. See historical: use [docs/historical/README.md](docs/historical/README.md) if you need provenance.

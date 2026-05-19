@@ -7,7 +7,7 @@ Use this checklist to verify a release candidate against the current repaired sy
 - [ ] Active docs reflect current source and tests.
 - [ ] No active doc presents historical generated plans or remediation notes as current authority.
 - [ ] `docs/documentation-inventory.md` is updated when doc scope changes.
-- [ ] Historical material is either excluded from active guidance or clearly labeled via [Historical Artifacts](/historical-artifacts).
+- [ ] Historical material is either excluded from active guidance or clearly labeled via See historical: [Historical documentation](/historical/README).
 - [ ] `README.md` links to current docs, not obsolete design-era references.
 
 ## Documentation build and verification

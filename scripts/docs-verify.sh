@@ -72,9 +72,12 @@ echo ""
 node scripts/check-design-doc-links.js || ALL_OK=false
 
 echo ""
+node scripts/check-historical-isolation.js || ALL_OK=false
+
+echo ""
 if $ALL_OK; then
-  echo "✓ docs:verify passed — all expected output files are present, non-empty, route docs match the server, documentation inventory is complete, and design-doc links stay in allowed locations"
+  echo "✓ docs:verify passed — all expected output files are present, non-empty, route docs match the server, documentation inventory is complete, and design-doc links stay in allowed locations, and current docs isolate historical links"
 else
-  echo "✗ docs:verify FAILED — generated docs, operator route docs, documentation inventory, or design-doc links are invalid"
+  echo "✗ docs:verify FAILED — generated docs, operator route docs, documentation inventory, design-doc links, or historical-link isolation are invalid"
   exit 1
 fi

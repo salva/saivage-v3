@@ -50,6 +50,14 @@ deferred from the initial design.
     (default: 5 levels). The planner receives current depth and
     max depth in context and must plan within that limit.
 
+11. **Findings dossier split**: `audit-findings/` and `ui-findings/`
+    remain separate instead of being merged under a new `findings/`
+    parent. The source-vs-documentation audit findings and the
+    operator-surface Playwright findings have different provenance,
+    numbering schemes, README remediation logs, and stage ownership;
+    preserving the split avoids broad path churn while keeping both
+    dossiers directly navigable from their existing roots.
+
 ---
 
 ## Persistence Model
