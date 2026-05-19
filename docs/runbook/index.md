@@ -30,4 +30,4 @@ curl -H "Authorization: Bearer $SAIVAGE_API_TOKEN" \
 
 ## Verification contract
 
-`npm run docs:verify` runs `scripts/check-runbook-curl-examples.js`. That guard extracts the curl/http examples in `docs/runbook/*.md`, checks that every documented route exists in the source route table, and validates the documented top-level response keys/status codes for `/health`, `/api/state`, `/api/runtime/pause`, and `/api/runtime/resume` against a freshly seeded temporary runtime fixture.
+`npm run docs:verify` runs `scripts/check-runbook-curl-examples.js`. That guard extracts the curl/http examples in `docs/runbook/*.md`, checks that every documented route exists in the source route table, and validates the documented top-level response keys/status codes for `/health`, `/api/state`, `/api/runtime/pause`, `/api/runtime/resume`, `/api/runtime/freeze`, and `/api/runtime/resume-from-freeze` against a freshly seeded temporary runtime fixture.

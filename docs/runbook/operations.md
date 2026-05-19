@@ -139,6 +139,10 @@ curl -X POST http://localhost:8080/api/runtime/freeze \
   -d '{"reason":"operator handoff before maintenance"}'
 ```
 
+Expected status: `200`.
+
+Expected top-level JSON keys: `status`, `freeze_id`, `reason`, `created_at`.
+
 Freeze is an intentional operator handoff. Saivage records a freeze manifest and moves runtime state to `frozen` with pause semantics.
 
 ### Resume from freeze
@@ -147,6 +151,10 @@ Freeze is an intentional operator handoff. Saivage records a freeze manifest and
 curl -X POST http://localhost:8080/api/runtime/resume-from-freeze \
   -H "Authorization: Bearer $SAIVAGE_API_TOKEN"
 ```
+
+Expected status: `200`.
+
+Expected top-level JSON keys: `status`, `freeze_id`, `restored_queue`, `restored_processes`, `restored_card_id`.
 
 If a freeze manifest exists, Saivage restores queued work, clears the manifest, and returns the restored queue and current-card reference. Do not use generic resume from `frozen` or `error` states.
 
