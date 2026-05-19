@@ -1,0 +1,15 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`ApiTokenEntry lifecycle > does not leak token prefixes and shows the real token-format placeholder 1`] = `
+"<div data-v-5935ba05="" class="token-overlay">
+  <div data-v-5935ba05="" class="token-dialog">
+    <h2 data-v-5935ba05="" class="token-title">API Token</h2>
+    <p data-v-5935ba05="" class="token-description"> Enter an API token to access a secured Saivage deployment. The token is stored in <code data-v-5935ba05="">localStorage</code> and sent with every API request. </p>
+    <form data-v-5935ba05="" class="token-form"><label data-v-5935ba05="" class="token-label" for="api-token-input">Token</label>
+      <div data-v-5935ba05="" class="token-input-row"><input data-v-5935ba05="" id="api-token-input" type="password" class="token-input" placeholder="64-char hex token" autocomplete="off" spellcheck="false"><button data-v-5935ba05="" type="button" class="token-toggle" title="Show token">👁</button></div>
+      <div data-v-5935ba05="" class="token-actions"><button data-v-5935ba05="" type="submit" class="token-btn token-btn-save" disabled=""> Save </button><button data-v-5935ba05="" type="button" class="token-btn token-btn-clear"> Clear </button><button data-v-5935ba05="" type="button" class="token-btn token-btn-cancel"> Cancel </button></div>
+    </form>
+    <p data-v-5935ba05="" class="token-status"> Token is set. </p>
+  </div>
+</div>"
+`;

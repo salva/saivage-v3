@@ -45,6 +45,7 @@ import type {
   ControlActionsListResponse,
 } from './types';
 import { getAuthToken } from './auth';
+import { dispatchApiAuthRequired } from '../utils/auth-events';
 
 function authHeaders(): Record<string, string> {
   const headers: Record<string, string> = {
@@ -115,6 +116,9 @@ async function request<T>(
   }
 
   if (!response.ok) {
+    if (response.status === 401) {
+      dispatchApiAuthRequired({ status: response.status, path });
+    }
     throw new ApiError(
       response.status,
       (responseBody['message'] as string) || (responseBody['error'] as string) || response.statusText,

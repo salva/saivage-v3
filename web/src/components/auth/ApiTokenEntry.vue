@@ -17,7 +17,7 @@
               v-model="token"
               :type="showToken ? 'text' : 'password'"
               class="token-input"
-              placeholder="saivage_..."
+              placeholder="64-char hex token"
               autocomplete="off"
               spellcheck="false"
             />
@@ -50,7 +50,7 @@
         </form>
 
         <p v-if="savedToken" class="token-status">
-          Token is set ({{ savedToken.substring(0, 12) }}...).
+          Token is set.
         </p>
         <p v-else class="token-status token-status-none">
           No token configured.

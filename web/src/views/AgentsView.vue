@@ -46,8 +46,8 @@
                   <span v-if="session.card_id" class="session-card-ref">Card: {{ session.card_id }}</span>
                 </div>
                 <div class="session-time">
-                  Started: {{ fmtDate(session.started_at) }}
-                  <span v-if="session.completed_at"> | Completed: {{ fmtDate(session.completed_at) }}</span>
+                  Started: <span :title="timestampTitle(session.started_at)">{{ fmtDate(session.started_at) }}</span>
+                  <span v-if="session.completed_at"> | Completed: <span :title="timestampTitle(session.completed_at)">{{ fmtDate(session.completed_at) }}</span></span>
                 </div>
               </div>
             </div>
@@ -66,6 +66,7 @@ import { storeToRefs } from 'pinia';
 import { useAgentStore } from '../stores/agents';
 import type { AgentRole, AgentSession } from '../api/types';
 import { createLogger } from '../utils/logger';
+import { formatTimestamp, isRecentTimestamp, timestampTitle } from '../utils/timestamp';
 import AgentConversationView from '../components/agents/AgentConversationView.vue';
 
 const log = createLogger('view:agents');
@@ -90,7 +91,7 @@ const ROLE_ICONS: Record<string, string> = {
   reviewer: '(RV)', content_supervisor: '(CS)',
 };
 function roleIcon(role: AgentRole): string { return ROLE_ICONS[role] || '(?)'; }
-function fmtDate(ts: string): string { try { return new Date(ts).toLocaleString(); } catch { return ts; } }
+function fmtDate(ts: string): string { return formatTimestamp(ts, isRecentTimestamp(ts) ? 'relative' : 'absolute'); }
 
 function selectSession(id: string): void { selectedSessionId.value = id; }
 

@@ -20,7 +20,7 @@
           </div>
           <div class="tl-meta">
             <span class="tl-status" :class="'status-' + event.card.status">{{ event.card.status }}</span>
-            <span class="tl-time">{{ formatTime(event.mostRecent) }}</span>
+            <span class="tl-time" :title="timestampTitle(event.mostRecent)">{{ formatTime(event.mostRecent) }}</span>
             <span v-if="event.card.duration_ms" class="tl-duration">
               {{ formatDuration(event.card.duration_ms) }}
             </span>
@@ -35,6 +35,7 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 import type { CardRecord, CardStatus, CardType } from '../../api/types';
+import { formatTimestamp, timestampTitle } from '../../utils/timestamp';
 
 const props = defineProps<{
   cards: CardRecord[];
@@ -45,7 +46,7 @@ const emit = defineEmits<{
 }>();
 
 const TYPE_ICONS: Record<CardType, string> = {
-  project: '🏠', goal: '🎯', plan: '📋', architecture: '🏗️',
+  project: '🏠', goal: '🎯', architecture: '🏗️',
   code: '💻', test: '🧪', doc: '📄', data: '📊',
   research: '🔬', ops: '⚙️',
 };
@@ -81,19 +82,7 @@ const sortedEvents = computed<TimelineEvent[]>(() => {
 // ── Formatting ────────────────────────────────────────────
 
 function formatTime(ts: string): string {
-  try {
-    const d = new Date(ts);
-    const now = new Date();
-    const diff = now.getTime() - d.getTime();
-
-    if (diff < 60000) return 'just now';
-    if (diff < 3600000) return `${Math.floor(diff / 60000)}m ago`;
-    if (diff < 86400000) return `${Math.floor(diff / 3600000)}h ago`;
-
-    return d.toLocaleDateString();
-  } catch {
-    return ts;
-  }
+  return formatTimestamp(ts, 'relative');
 }
 
 function formatDuration(ms: number | null | undefined): string {

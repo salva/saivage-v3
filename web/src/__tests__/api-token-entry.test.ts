@@ -4,7 +4,7 @@ import { mount } from '@vue/test-utils';
 import ApiTokenEntry from '../components/auth/ApiTokenEntry.vue';
 
 vi.mock('../api/auth', () => ({
-  getAuthToken: vi.fn(() => 'synthetic-token-value'),
+  getAuthToken: vi.fn(() => '117e3ad5aedc0000000000000000000000000000000000000000000000000000'),
   setAuthToken: vi.fn(),
   clearAuthToken: vi.fn(),
 }));
@@ -100,6 +100,20 @@ describe('ApiTokenEntry lifecycle', () => {
     await wrapper.get('.underlying-control').trigger('click');
     expect(wrapper.vm.underlyingClicks).toBe(1);
 
+    wrapper.unmount();
+  });
+
+  it('does not leak token prefixes and shows the real token-format placeholder', async () => {
+    const wrapper = mount(ApiTokenEntry, {
+      attachTo: document.body,
+      props: { visible: true },
+    });
+    await nextTick();
+
+    expect(wrapper.text()).toContain('Token is set.');
+    expect(wrapper.text()).not.toContain('117e3ad5aedc');
+    expect(wrapper.get('input').attributes('placeholder')).toBe('64-char hex token');
+    expect(wrapper.html()).toMatchSnapshot();
     wrapper.unmount();
   });
 });

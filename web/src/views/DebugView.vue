@@ -376,6 +376,7 @@ import { computed, onMounted, onUnmounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { storeToRefs } from 'pinia';
 import { useDebugStore } from '../stores/debug';
+import { formatTimestamp, isRecentTimestamp } from '../utils/timestamp';
 import { useMcpStore } from '../stores/mcp';
 import type { DebugError, DebugTimelineEvent, ProcessView } from '../api/types';
 import NotificationsPanel from '../components/cards/NotificationsPanel.vue';
@@ -463,7 +464,7 @@ const cardStatusEntries = computed<CardStatusEntry[]>(() => { const counts: Reco
 const maxStatusCount = computed(() => Math.max(...cardStatusEntries.value.map((e) => e.count), 1));
 interface ErrorSourceEntry { source: string; errors: DebugError[] }
 const errorSourceEntries = computed<ErrorSourceEntry[]>(() => { const entries: ErrorSourceEntry[] = []; for (const [source, errs] of errorsBySource.value) entries.push({ source, errors: errs }); return entries; });
-function fmtDate(ts: string): string { try { return new Date(ts).toLocaleString(); } catch { return ts; } }
+function fmtDate(ts: string): string { return formatTimestamp(ts, isRecentTimestamp(ts) ? 'relative' : 'absolute'); }
 function fmtJson(data: Record<string, unknown>): string { try { return JSON.stringify(data, null, 2); } catch { return String(data); } }
 function formatEventKind(kind: string): string { return kind.replace(/_/g, ' '); }
 function timelineKey(event: DebugTimelineEvent): string { return String(event.id || `${event.timestamp}:${event.kind}:${event.card_id || event.goal_id || event.session_id || ''}`); }

@@ -386,4 +386,15 @@ describe('DebugView — integration', () => {
     expect(wrapper.text()).not.toContain('No errors recorded.');
   });
 
+
+  it('keeps Notifications Inbox analyst label visually separated from Refresh', async () => {
+    const wrapper = await mountDebugView();
+    await clickTab(wrapper, 'Operator Control');
+    const actions = wrapper.findComponent({ name: 'NotificationsPanel' }).find('.operator-actions-inline');
+    expect(actions.exists()).toBe(true);
+    expect(actions.attributes('class')).toContain('operator-actions-inline');
+    expect(actions.find('.filter-chip').text()).toBe('by analyst');
+    expect(actions.find('.sv-fetch-btn').text()).toBe('Refresh');
+  });
+
 });

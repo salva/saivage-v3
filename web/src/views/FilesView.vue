@@ -47,7 +47,7 @@
             <span class="entry-icon">{{ entry.type === 'directory' ? '📁' : fileIcon(entry.name) }}</span>
             <span class="entry-name">{{ entry.name }}</span>
             <span v-if="entry.type === 'file' && entry.size != null" class="entry-size">{{ fmtSize(entry.size) }}</span>
-            <span class="entry-modified">{{ fmtDate(entry.modifiedAt) }}</span>
+            <span class="entry-modified" :title="timestampTitle(entry.modifiedAt)">{{ fmtDate(entry.modifiedAt) }}</span>
           </div>
           <div v-if="metaFiles.length === 0 && !metaLoading" class="panel-empty">No files</div>
         </div>
@@ -86,7 +86,7 @@
             <span class="entry-icon">{{ entry.type === 'directory' ? '📁' : fileIcon(entry.name) }}</span>
             <span class="entry-name">{{ entry.name }}</span>
             <span v-if="entry.type === 'file' && entry.size != null" class="entry-size">{{ fmtSize(entry.size) }}</span>
-            <span class="entry-modified">{{ fmtDate(entry.modifiedAt) }}</span>
+            <span class="entry-modified" :title="timestampTitle(entry.modifiedAt)">{{ fmtDate(entry.modifiedAt) }}</span>
           </div>
           <div v-if="outputFiles.length === 0 && !outputLoading" class="panel-empty">No files</div>
         </div>
@@ -127,6 +127,7 @@ import { useRoute } from 'vue-router';
 import { storeToRefs } from 'pinia';
 import { useFileStore } from '../stores/files';
 import { createLogger } from '../utils/logger';
+import { formatTimestamp, isRecentTimestamp, timestampTitle } from '../utils/timestamp';
 
 const log = createLogger('view:files');
 
@@ -175,7 +176,7 @@ const viewerStateClass = computed(() => {
 function fileIcon(name: string): string {
   const ext = name.split('.').pop()?.toLowerCase();
   const icons: Record<string, string> = {
-    json: '{}', md: 'MD', ts: 'TS', js: 'JS', txt: 'TX',
+    json: '{}', jsonl: '{}', ndjson: '{}', md: 'MD', ts: 'TS', js: 'JS', txt: 'TX',
     yaml: 'YM', yml: 'YM', toml: 'TO', lock: 'LK',
     log: 'LG', csv: 'CV', html: '<>', css: '#',
     png: 'PN', jpg: 'IM', jpeg: 'IM', gif: 'IM', svg: 'SV',
@@ -191,7 +192,7 @@ function fmtSize(bytes: number): string {
 }
 
 function fmtDate(ts: string): string {
-  try { return new Date(ts).toLocaleString(); } catch { return ts; }
+  return formatTimestamp(ts, isRecentTimestamp(ts) ? 'relative' : 'absolute');
 }
 
 function fmtJson(content: string): string {

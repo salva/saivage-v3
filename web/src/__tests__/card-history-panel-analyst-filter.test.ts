@@ -36,3 +36,28 @@ describe('CardHistoryPanel analyst filter', () => {
     expect(wrapper.text()).not.toContain('planner update');
   });
 });
+
+describe('CardHistoryPanel analyst filter affordance', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    setActivePinia(createPinia());
+  });
+
+  it('explains the analyst filter and changes label when active', async () => {
+    vi.mocked(listCardHistory).mockResolvedValue({ history: [
+      { card_id: 'card-1', version_seq: 1, changed_at: '2025-01-01T00:00:00Z', changed_by_actor: 'analyst', changed_by_surface: 'web-chat', change_reason: 'update', changed_fields: ['title'], change_summary: 'analyst update' },
+    ], total: 1 });
+    vi.mocked(getCardHistoryEntry).mockResolvedValue({ entry: { card_id: 'card-1', version_seq: 1, changed_at: '2025-01-01T00:00:00Z', changed_by_actor: 'analyst', changed_by_surface: 'web-chat', change_reason: 'update', changed_fields: ['title'], change_summary: 'analyst update', snapshot: { id: 'card-1' } as any } });
+    vi.mocked(getCardDiff).mockResolvedValue({ card_id: 'card-1', from: 1, to: 2, diff: [] });
+
+    const wrapper = mount(CardHistoryPanel, { props: { cardId: 'card-1' }, global: { plugins: [createPinia()] } });
+    await flushPromises();
+    const chip = wrapper.get('.filter-chip');
+    expect(chip.attributes('title')).toBe('Filter card history by editor (currently: analyst)');
+    expect(chip.text()).toBe('by analyst');
+    await chip.trigger('click');
+    await flushPromises();
+    expect(wrapper.get('.filter-chip').text()).toBe('all history');
+    expect(wrapper.get('.filter-chip').attributes('title')).toBe('Showing analyst web-chat history only');
+  });
+});

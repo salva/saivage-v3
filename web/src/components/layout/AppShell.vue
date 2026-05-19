@@ -29,6 +29,12 @@
 
       <div class="workspace-row">
         <main class="workspace-content">
+          <div v-if="showAuthBanner" class="auth-required-banner" role="alert">
+            <strong>API token required</strong>
+            <span>Set a valid API token to load secured runtime data.</span>
+            <button type="button" class="auth-banner-action" @click="openTokenFromAuthBanner">Open Token modal</button>
+            <button type="button" class="auth-banner-dismiss" aria-label="Dismiss API token banner" @click="dismissAuthBanner">Dismiss</button>
+          </div>
           <router-view v-slot="{ Component }">
             <transition name="fade" mode="out-in">
               <component :is="Component" />
@@ -64,6 +70,7 @@ import { useRuntimeStore } from '../../stores/runtime';
 import { useAnalystChat } from '../../stores/analystChat';
 import { getAuthToken } from '../../api/auth';
 import type { WsConnectionState } from '../../api/types';
+import { API_AUTH_REQUIRED_EVENT, dismissAuthBannerForSession, isAuthBannerDismissedForSession } from '../../utils/auth-events';
 
 const wsStore = useWsStore();
 const runtimeStore = useRuntimeStore();
@@ -97,6 +104,7 @@ const docsHref = computed<string>(() => '/docs/');
 const showTokenDialog = ref(false);
 const projectName = computed(() => 'saivage-v3');
 const hasToken = computed(() => Boolean(getAuthToken()));
+const showAuthBanner = ref(false);
 
 const sectionLabels: Record<string, string> = {
   dashboard: 'Dashboard',
@@ -156,6 +164,21 @@ function globalKeyHandler(event: KeyboardEvent): void {
   handleKeydown(event);
 }
 
+function handleApiAuthRequired(): void {
+  if (!isAuthBannerDismissedForSession()) {
+    showAuthBanner.value = true;
+  }
+}
+
+function openTokenFromAuthBanner(): void {
+  showTokenDialog.value = true;
+}
+
+function dismissAuthBanner(): void {
+  showAuthBanner.value = false;
+  dismissAuthBannerForSession();
+}
+
 watch(() => route.fullPath, () => {
   if (analystChat.drawerOpen) {
     analystChat.setDrawerOpen(false);
@@ -167,11 +190,13 @@ onMounted(() => {
   runtimeStore.setupWsListener();
   runtimeStore.fetchState().catch(() => {});
   window.addEventListener('keydown', globalKeyHandler);
+  window.addEventListener(API_AUTH_REQUIRED_EVENT, handleApiAuthRequired);
 });
 
 onUnmounted(() => {
   wsStore.disconnect();
   window.removeEventListener('keydown', globalKeyHandler);
+  window.removeEventListener(API_AUTH_REQUIRED_EVENT, handleApiAuthRequired);
 });
 </script>
 
@@ -203,6 +228,32 @@ onUnmounted(() => {
   overflow: auto;
   background: #0d1117;
 }
+
+.auth-required-banner {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  display:flex;
+  align-items:center;
+  gap:10px;
+  padding:10px 14px;
+  background:#241818;
+  border-bottom:1px solid #da3633;
+  color:#ffd8d3;
+  font-size:13px;
+}
+.auth-required-banner strong { color:#ff938a; }
+.auth-banner-action,.auth-banner-dismiss {
+  border:1px solid #30363d;
+  border-radius:6px;
+  background:#161b22;
+  color:#c9d1d9;
+  padding:5px 9px;
+  cursor:pointer;
+  font-family:inherit;
+}
+.auth-banner-action { color:#58a6ff; border-color:#58a6ff; }
+.auth-banner-dismiss { margin-left:auto; }
 
 .fade-enter-active,
 .fade-leave-active {

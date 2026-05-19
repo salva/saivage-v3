@@ -34,11 +34,11 @@
       <section class="detail-section">
         <h3 class="section-heading">Metadata</h3>
         <div class="meta-grid">
-          <div class="meta-item"><span class="meta-key">Created</span><span class="meta-value">{{ fmtDate(currentCard.created_at) }}</span></div>
-          <div class="meta-item"><span class="meta-key">Updated</span><span class="meta-value">{{ fmtDate(currentCard.updated_at) }}</span></div>
+          <div class="meta-item"><span class="meta-key">Created</span><span class="meta-value" :title="timestampTitle(currentCard.created_at)">{{ fmtDate(currentCard.created_at) }}</span></div>
+          <div class="meta-item"><span class="meta-key">Updated</span><span class="meta-value" :title="timestampTitle(currentCard.updated_at)">{{ fmtDate(currentCard.updated_at) }}</span></div>
           <div class="meta-item"><span class="meta-key">Version</span><span class="meta-value">{{ currentCard.version_seq ?? 'unknown' }}</span></div>
-          <div v-if="currentCard.started_at || lifecycle?.startedAt" class="meta-item"><span class="meta-key">Started</span><span class="meta-value">{{ fmtDate(currentCard.started_at || lifecycle?.startedAt || '') }}</span></div>
-          <div v-if="currentCard.completed_at || lifecycle?.completedAt" class="meta-item"><span class="meta-key">Completed</span><span class="meta-value">{{ fmtDate(currentCard.completed_at || lifecycle?.completedAt || '') }}</span></div>
+          <div v-if="currentCard.started_at || lifecycle?.startedAt" class="meta-item"><span class="meta-key">Started</span><span class="meta-value" :title="timestampTitle(currentCard.started_at || lifecycle?.startedAt || '')">{{ fmtDate(currentCard.started_at || lifecycle?.startedAt || '') }}</span></div>
+          <div v-if="currentCard.completed_at || lifecycle?.completedAt" class="meta-item"><span class="meta-key">Completed</span><span class="meta-value" :title="timestampTitle(currentCard.completed_at || lifecycle?.completedAt || '')">{{ fmtDate(currentCard.completed_at || lifecycle?.completedAt || '') }}</span></div>
           <div class="meta-item"><span class="meta-key">Priority</span><span class="meta-value" :class="{ high: currentCard.priority >= 80 }">{{ currentCard.priority }}</span></div>
           <div class="meta-item"><span class="meta-key">Urgency</span><span class="meta-value">{{ currentCard.urgency }}</span></div>
           <div v-if="currentCard.assigned_to" class="meta-item"><span class="meta-key">Assigned to</span><span class="meta-value">{{ currentCard.assigned_to }}</span></div>
@@ -234,7 +234,7 @@
             <div class="note-header">
               <span class="note-author">{{ note.author }}</span>
               <span class="note-kind-badge">{{ note.kind }}</span>
-              <span class="note-time">{{ fmtDate(note.timestamp) }}</span>
+              <span class="note-time" :title="timestampTitle(note.timestamp)">{{ fmtDate(note.timestamp) }}</span>
             </div>
             <div class="note-content" v-html="renderMarkdown(note.content)"></div>
           </div>
@@ -258,6 +258,7 @@ import { storeToRefs } from 'pinia';
 import { getFileContent, ApiError } from '../../api/client';
 import type { GeneratedFileRef, VerificationCommandRef, DetailErrorState, CardStatus, WsEnvelope } from '../../api/types';
 import { createLogger } from '../../utils/logger';
+import { formatTimestamp, isRecentTimestamp, timestampTitle } from '../../utils/timestamp';
 import CardHistoryPanel from './CardHistoryPanel.vue';
 import StaleWarningRibbon from './StaleWarningRibbon.vue';
 
@@ -295,7 +296,7 @@ let refreshTicket = 0;
 
 const TYPE_ICONS: Record<string, string> = { project: '(P)', goal: '(G)', architecture: '(A)', code: '(C)', test: '(T)', doc: '(D)', data: '(DA)', research: '(R)', ops: '(O)' };
 function typeIcon(type: string): string { return TYPE_ICONS[type] || '(?)'; }
-function fmtDate(ts: string): string { try { return ts ? new Date(ts).toLocaleString() : ''; } catch { return ts; } }
+function fmtDate(ts: string): string { return ts ? formatTimestamp(ts, isRecentTimestamp(ts) ? 'relative' : 'absolute') : ''; }
 function fmtJson(obj: unknown): string { try { return JSON.stringify(obj, null, 2); } catch { return String(obj); } }
 function esc(text: string): string { return text.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 function renderMarkdown(text: string): string { return esc(text).replace(/\n/g, '<br>'); }

@@ -19,7 +19,7 @@
         <div class="notification-header">
           <span class="notification-kind">{{ entry.action }}</span>
           <span class="notification-severity severity-warn">preview_only</span>
-          <span class="operator-note-time">{{ fmtDate(entry.created_at) }}</span>
+          <span class="operator-note-time" :title="timestampTitle(entry.created_at)">{{ fmtDate(entry.created_at) }}</span>
         </div>
         <div class="notification-body">{{ entry.outcome_summary }}</div>
         <div class="operator-note-meta">
@@ -37,12 +37,13 @@
 import { onMounted } from 'vue';
 import { storeToRefs } from 'pinia';
 import { useDebugStore } from '../../stores/debug';
+import { formatTimestamp, isRecentTimestamp, timestampTitle } from '../../utils/timestamp';
 
 const debugStore = useDebugStore();
 const { pendingConfirmations, controlActionsLoading, controlActionsError, controlActionsState } = storeToRefs(debugStore);
 
 function fmtDate(ts: string): string {
-  try { return new Date(ts).toLocaleString(); } catch { return ts; }
+  return formatTimestamp(ts, isRecentTimestamp(ts) ? 'relative' : 'absolute');
 }
 
 onMounted(() => {

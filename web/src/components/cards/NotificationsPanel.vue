@@ -25,7 +25,7 @@
           <span class="notification-kind">{{ notification.kind }}</span>
           <span class="notification-severity" :class="`severity-${notification.severity}`">{{ notification.severity }}</span>
           <span v-if="isAnalystNotification(notification)" class="notification-actor">analyst (web-chat)</span>
-          <span class="operator-note-time">{{ fmtDate(notification.created_at) }}</span>
+          <span class="operator-note-time" :title="timestampTitle(notification.created_at)">{{ fmtDate(notification.created_at) }}</span>
         </div>
         <div class="notification-body">{{ notification.payload_summary }}</div>
         <div class="operator-note-meta">
@@ -52,6 +52,7 @@ import { computed, onMounted, ref } from 'vue';
 import { storeToRefs } from 'pinia';
 import { useDebugStore } from '../../stores/debug';
 import type { NotificationRecord } from '../../api/types';
+import { formatTimestamp, isRecentTimestamp, timestampTitle } from '../../utils/timestamp';
 
 const debugStore = useDebugStore();
 const { notifications, notificationsLoading, notificationsError, notificationsState, notificationActionLoading } = storeToRefs(debugStore);
@@ -63,7 +64,7 @@ function isAnalystNotification(notification: NotificationRecord): boolean {
 }
 
 function fmtDate(ts: string): string {
-  try { return new Date(ts).toLocaleString(); } catch { return ts; }
+  return formatTimestamp(ts, isRecentTimestamp(ts) ? 'relative' : 'absolute');
 }
 
 onMounted(() => {

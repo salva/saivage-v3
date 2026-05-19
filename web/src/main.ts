@@ -9,6 +9,7 @@ const Cards = () => import('./views/CardsView.vue');
 const Agents = () => import('./views/AgentsView.vue');
 const Files = () => import('./views/FilesView.vue');
 const Debug = () => import('./views/DebugView.vue');
+const NotFound = () => import('./views/NotFound.vue');
 
 const routes: RouteRecordRaw[] = [
   { path: '/', redirect: '/dashboard' },
@@ -19,6 +20,7 @@ const routes: RouteRecordRaw[] = [
   { path: '/agents/:id', name: 'agent-detail', component: Agents },
   { path: '/files', name: 'files', component: Files },
   { path: '/debug', name: 'debug', component: Debug },
+  { path: '/:pathMatch(.*)*', name: 'not-found', component: NotFound },
 ];
 
 const router = createRouter({

@@ -31,7 +31,7 @@
           >
             <div class="msg-meta">
               <span class="msg-role">{{ step.reasoning.role }}</span>
-              <span class="msg-time">{{ fmtTime(step.reasoning.timestamp) }}</span>
+              <span class="msg-time" :title="timestampTitle(step.reasoning.timestamp)">{{ fmtTime(step.reasoning.timestamp) }}</span>
             </div>
             <div class="msg-content" v-html="renderContent(step.reasoning)"></div>
             <div v-if="step.reasoning.links?.length" class="msg-links">
@@ -56,7 +56,7 @@
             <div class="tc-header" @click="agentStore.toggleToolCall(step.toolCall.id)">
               <span class="tc-toggle">{{ expandedToolCalls.has(step.toolCall.id) ? '-' : '+' }}</span>
               <span class="tc-tool">{{ toolCallPreview(step.toolCall) }}</span>
-              <span class="tc-time">{{ fmtTime(step.toolCall.timestamp) }}</span>
+              <span class="tc-time" :title="timestampTitle(step.toolCall.timestamp)">{{ fmtTime(step.toolCall.timestamp) }}</span>
             </div>
             <pre v-if="expandedToolCalls.has(step.toolCall.id)" class="tc-body">{{ step.toolCall.content }}</pre>
           </div>
@@ -69,7 +69,7 @@
             <div class="tr-header" @click="agentStore.toggleToolCall(step.toolResult.id)">
               <span class="tr-toggle">{{ expandedToolCalls.has(step.toolResult.id) ? '-' : '+' }}</span>
               <span class="tr-label">{{ toolResultPreview(step.toolResult) }}</span>
-              <span class="tr-time">{{ fmtTime(step.toolResult.timestamp) }}</span>
+              <span class="tr-time" :title="timestampTitle(step.toolResult.timestamp)">{{ fmtTime(step.toolResult.timestamp) }}</span>
             </div>
             <pre v-if="expandedToolCalls.has(step.toolResult.id)" class="tr-body" :class="{ 'tr-error': step.toolResult.kind === 'tool_error' }">{{ step.toolResult.content }}</pre>
           </div>
@@ -86,6 +86,7 @@ import { storeToRefs } from 'pinia';
 import { useAgentStore } from '../../stores/agents';
 import type { AgentMessage, EntityLink } from '../../api/types';
 import { createLogger } from '../../utils/logger';
+import { formatTimestamp, timestampTitle } from '../../utils/timestamp';
 
 const log = createLogger('comp:agent-conv');
 
@@ -97,8 +98,7 @@ const { currentSession, steps, expandedToolCalls, loading, error, conversationWa
 const errorMsg = computed(() => error.value);
 
 function fmtTime(ts: string): string {
-  try { return new Date(ts).toLocaleTimeString([], { hour:'2-digit', minute:'2-digit', second:'2-digit' }); }
-  catch { return ts; }
+  return formatTimestamp(ts, 'timeOnly');
 }
 
 function esc(text: string): string {

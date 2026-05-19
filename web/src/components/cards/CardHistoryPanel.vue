@@ -11,7 +11,8 @@
           class="filter-chip"
           :class="{ active: analystOnly }"
           @click="analystOnly = !analystOnly"
-        >by analyst</button>
+          :title="analystOnly ? 'Showing analyst web-chat history only' : 'Filter card history by editor (currently: analyst)'"
+        >{{ analystOnly ? 'all history' : 'by analyst' }}</button>
         <button type="button" class="retry-btn" @click="reloadAll">Refresh history</button>
       </div>
     </div>
@@ -41,7 +42,7 @@
             </div>
             <div class="history-summary">{{ entry.change_summary }}</div>
             <div class="history-fields">Changed: {{ entry.changed_fields.join(', ') || 'none recorded' }}</div>
-            <div class="history-time">{{ fmtDate(entry.changed_at) }}</div>
+            <div class="history-time" :title="timestampTitle(entry.changed_at)">{{ fmtDate(entry.changed_at) }}</div>
           </button>
         </div>
 
@@ -56,7 +57,7 @@
             <div class="history-meta-grid">
               <div class="meta-item"><span class="meta-key">Snapshot version</span><span class="meta-value">v{{ cardHistoryEntry.version_seq }}</span></div>
               <div class="meta-item"><span class="meta-key">Changed by</span><span class="meta-value">{{ cardHistoryEntry.changed_by_actor }} via {{ cardHistoryEntry.changed_by_surface }}</span></div>
-              <div class="meta-item"><span class="meta-key">Changed at</span><span class="meta-value">{{ fmtDate(cardHistoryEntry.changed_at) }}</span></div>
+              <div class="meta-item"><span class="meta-key">Changed at</span><span class="meta-value" :title="timestampTitle(cardHistoryEntry.changed_at)">{{ fmtDate(cardHistoryEntry.changed_at) }}</span></div>
               <div class="meta-item"><span class="meta-key">Reason</span><span class="meta-value">{{ cardHistoryEntry.change_reason || 'No reason recorded' }}</span></div>
             </div>
 
@@ -89,6 +90,7 @@ import { storeToRefs } from 'pinia';
 import { useCardStore } from '../../stores/cards';
 import { useWsStore } from '../../stores/ws';
 import type { CardHistoryHeader } from '../../api/types';
+import { formatTimestamp, isRecentTimestamp, timestampTitle } from '../../utils/timestamp';
 
 const props = defineProps<{ cardId: string }>();
 const cardStore = useCardStore();
@@ -117,7 +119,7 @@ function isAnalystEntry(entry: CardHistoryHeader): boolean {
 }
 
 function fmtDate(ts: string): string {
-  try { return new Date(ts).toLocaleString(); } catch { return ts; }
+  return formatTimestamp(ts, isRecentTimestamp(ts) ? 'relative' : 'absolute');
 }
 
 function sanitizeForDisplay(value: unknown): unknown {

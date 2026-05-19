@@ -149,6 +149,7 @@ export const useFileStore = defineStore('files', () => {
   }
 
   async function navigateMeta(path: string): Promise<void> {
+    if (path !== metaPath.value) clearViewedFile();
     metaPath.value = path;
     await fetchMetaFiles(path);
   }
@@ -184,6 +185,7 @@ export const useFileStore = defineStore('files', () => {
   }
 
   async function navigateOutput(path: string): Promise<void> {
+    if (path !== outputPath.value) clearViewedFile();
     outputPath.value = path;
     await fetchOutputFiles(path);
   }
