@@ -134,6 +134,16 @@ Typical interactions:
 The analyst never performs terminal task work — it manages cards,
 controls execution, and inspects runtime state.
 
+
+LLM provider failures crossing into agent-visible state are sanitized
+before persistence or event emission. The enforcing paths are
+`src/agents/llm-client.ts:820` and `src/agents/agent-adapter.ts:215`,
+with regression coverage in `tests/agents/llm-client-integration.test.ts`.
+Codex planner/executor calls translate the shared `max_tokens` budget to
+Responses `max_output_tokens` and retry once without it only for the
+known unsupported-parameter endpoint quirk (`src/agents/llm-client.ts:428`,
+`src/agents/llm-client.ts:454`; same test file).
+
 ---
 
 ## Planner (per-goal agent)

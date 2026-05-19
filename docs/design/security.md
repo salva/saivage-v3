@@ -147,7 +147,12 @@ config API, audit summaries, notification payloads, or when an agent
 reads the config file.
 
 `redactSecrets()` must be applied at boundaries that could leak
-config-like material into notification or audit payloads.
+config-like material into notification, audit, persisted agent, event,
+or provider-error payloads. Provider HTTP error bodies are redacted in
+`src/agents/llm-client.ts:820` before error construction and again in
+`src/agents/agent-adapter.ts:215` before runtime persistence/events;
+`tests/agents/llm-client-integration.test.ts` covers synthetic
+`token`, `api_key`, `authorization`, `password`, and `secret` JSON keys.
 
 ---
 

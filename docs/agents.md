@@ -802,7 +802,10 @@ Source anchors: `src/agents/agent-adapter.ts:329`
 `activate_card`, and per-call persistence paths),
 `src/agents/llm-client.ts:544` (`codexMessages` matched-call/output
 filter), and `src/agents/llm-client.ts:454`
-(`max_output_tokens` unsupported-parameter retry). Regression anchors:
+(`max_output_tokens` unsupported-parameter retry). Provider HTTP error
+bodies are sanitized before log-facing errors in
+`src/agents/llm-client.ts:820` and before agent persistence/events in
+`src/agents/agent-adapter.ts:215`. Regression anchors:
 `tests/agents/agent-adapter-force-final-answer.test.ts`,
 `tests/agents/codex-deferred-activate-card.test.ts`, and
 `tests/agents/llm-client-integration.test.ts`.

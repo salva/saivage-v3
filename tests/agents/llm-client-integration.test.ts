@@ -522,16 +522,18 @@ describe('LlmClient Integration with Mock HTTP Server', () => {
     }
   }, 15000);
 
-  it('should redact secret-key JSON values from provider error bodies and adapter-persisted failures', async () => {
-    const syntheticToken = 'synthetic-token-value-never-real';
-    const syntheticApiKey = 'synthetic-api-key-value-never-real';
-    const syntheticAuthorization = 'Bearer synthetic-authorization-value-never-real';
+  it('should redact secret-key JSON values from provider error bodies, persisted failures, and events', async () => {
+    const syntheticSecrets = {
+      token: 'synthetic-token-value-never-real',
+      api_key: 'synthetic-api-key-value-never-real',
+      authorization: 'Bearer synthetic-authorization-value-never-real',
+      password: 'synthetic-password-value-never-real',
+      secret: 'synthetic-secret-value-never-real',
+    };
     const providerBody = {
       error: {
         message: 'synthetic provider rejected credentials',
-        token: syntheticToken,
-        api_key: syntheticApiKey,
-        authorization: syntheticAuthorization,
+        ...syntheticSecrets,
       },
     };
     const { server, port } = await createMockServer((_req, res) => {
@@ -550,9 +552,9 @@ describe('LlmClient Integration with Mock HTTP Server', () => {
       }
       expect(clientError).toBeInstanceOf(LlmAuthError);
       const clientErrorMessage = clientError instanceof Error ? clientError.message : String(clientError);
-      expect(clientErrorMessage).not.toContain(syntheticToken);
-      expect(clientErrorMessage).not.toContain(syntheticApiKey);
-      expect(clientErrorMessage).not.toContain(syntheticAuthorization);
+      for (const secret of Object.values(syntheticSecrets)) {
+        expect(clientErrorMessage).not.toContain(secret);
+      }
       expect(clientErrorMessage).toContain('[REDACTED]');
 
       adapterTempDir = makeTempDir();
@@ -568,7 +570,10 @@ describe('LlmClient Integration with Mock HTTP Server', () => {
         },
         runtime: { recoveryDelayMs: 10, maxRecoveryRetries: 0 },
       });
-      const adapter = createAgentAdapter(adapterTempDir);
+      const events = new EventEmitter();
+      const failures: unknown[] = [];
+      events.on('invocation_failed', (event) => failures.push(event));
+      const adapter = createAgentAdapter(adapterTempDir, events);
       adapter.setLlmCallFn(adapter.createLlmCallFn());
 
       await expect(
@@ -584,10 +589,13 @@ describe('LlmClient Integration with Mock HTTP Server', () => {
         }).join('\\n');
       };
       const persisted = readPersisted(agentsDir);
-      expect(persisted).not.toContain(syntheticToken);
-      expect(persisted).not.toContain(syntheticApiKey);
-      expect(persisted).not.toContain(syntheticAuthorization);
+      const serializedFailures = JSON.stringify(failures);
+      for (const secret of Object.values(syntheticSecrets)) {
+        expect(persisted).not.toContain(secret);
+        expect(serializedFailures).not.toContain(secret);
+      }
       expect(persisted).toContain('[REDACTED]');
+      expect(serializedFailures).toContain('[REDACTED]');
     } finally {
       await closeServer(server);
       if (adapterTempDir) cleanupDir(adapterTempDir);
