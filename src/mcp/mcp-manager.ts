@@ -21,7 +21,7 @@
  * and SSE transports with structured error types. Invocation statistics
  * are tracked per server:tool key and exposed via getInvocationStats().
  *
- * See 06-configuration.md § MCP Servers and 12-implementation-plan.md Stage 9.
+ * See docs/design/configuration.md § MCP Servers and docs/design/implementation-plan.md Stage 9.
  */
 
 import { ChildProcess, spawn } from 'node:child_process';

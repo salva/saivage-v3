@@ -5,7 +5,7 @@
  * this module invokes a lightweight LLM to provide a structured
  * verdict on whether the content contains prompt injection.
  *
- * See 05-security.md § "Layer 2: LLM scan" for the spec.
+ * See docs/design/security.md § "Layer 2: LLM scan" for the spec.
  */
 
 // ── Types ─────────────────────────────────────────────────────

@@ -12,7 +12,7 @@
  * No external npm dependencies — uses fetch() directly against the
  * Telegram Bot API at https://api.telegram.org/bot<token>/METHOD.
  *
- * See 06-configuration.md § Telegram and 08-server-api.md § Telegram Channel.
+ * See docs/design/configuration.md § Telegram and docs/design/server-api.md § Telegram Channel.
  */
 
 import { loadConfig, type SaivageConfig } from '../agents/config-schema.js';

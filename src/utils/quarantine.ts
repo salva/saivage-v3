@@ -6,7 +6,7 @@
  * appended to .saivage/supervision/reviews.jsonl. The quarantine index
  * at .saivage/supervision/quarantine-index.json maintains fast lookups.
  *
- * See 05-security.md and 09-data-model.md for the spec.
+ * See docs/design/security.md and docs/design/data-model.md for the spec.
  */
 
 import { existsSync, readFileSync, mkdirSync } from 'node:fs';

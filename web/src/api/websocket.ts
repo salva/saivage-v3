@@ -5,7 +5,7 @@
  * with auto-reconnect, visible connection state, and event
  * dispatching to registered listeners.
  *
- * All messages use the JSON envelope per 08-server-api.md:
+ * All messages use the JSON envelope per docs/design/server-api.md:
  *   { "type": "message | activity | thinking | status | error", "content": { ... } }
  */
 

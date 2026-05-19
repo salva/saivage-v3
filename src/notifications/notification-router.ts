@@ -5,7 +5,7 @@
  * by severity and category, and routes them to registered channel
  * handlers (e.g. 'web' → WebSocket broadcast, 'telegram' → Telegram bot).
  *
- * See 06-configuration.md § Notifications and 08-server-api.md.
+ * See docs/design/configuration.md § Notifications and docs/design/server-api.md.
  */
 
 import { loadConfig, type SaivageConfig } from '../agents/config-schema.js';
@@ -240,7 +240,7 @@ export class NotificationRouter {
   private _normalize(config: SaivageConfig): NotificationConfig {
     const raw = config.notifications;
 
-    // Defaults per 06-configuration.md
+    // Defaults per docs/design/configuration.md
     const channels = raw?.channels ?? ['web'];
 
     const filters: NotificationFilter | undefined = raw?.filters

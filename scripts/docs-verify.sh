@@ -69,9 +69,12 @@ echo ""
 node scripts/check-doc-inventory.js || ALL_OK=false
 
 echo ""
+node scripts/check-design-doc-links.js || ALL_OK=false
+
+echo ""
 if $ALL_OK; then
-  echo "✓ docs:verify passed — all expected output files are present, non-empty, route docs match the server, and documentation inventory is complete"
+  echo "✓ docs:verify passed — all expected output files are present, non-empty, route docs match the server, documentation inventory is complete, and design-doc links stay in allowed locations"
 else
-  echo "✗ docs:verify FAILED — generated docs, operator route docs, or documentation inventory are invalid"
+  echo "✗ docs:verify FAILED — generated docs, operator route docs, documentation inventory, or design-doc links are invalid"
   exit 1
 fi

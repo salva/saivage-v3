@@ -8,6 +8,7 @@ export default defineConfig({
   themeConfig: {
     nav: [
       { text: 'Home', link: '/' },
+      { text: 'Design', link: '/design/' },
       { text: 'Runbook', link: '/operator-runbook' },
       { text: 'Analyst Guide', link: '/analyst' },
       { text: 'Docs Policy', link: '/documentation-inventory' },
@@ -20,6 +21,24 @@ export default defineConfig({
           items: [
             { text: 'Install', link: '/install' },
             { text: 'Configuration', link: '/configuration' },
+          ],
+        },
+        {
+          text: 'Design',
+          items: [
+            { text: 'Design Index', link: '/design/' },
+            { text: 'Card Model', link: '/design/card-model' },
+            { text: 'Card Lifecycle', link: '/design/card-lifecycle' },
+            { text: 'Agents', link: '/design/agents' },
+            { text: 'Runtime', link: '/design/runtime' },
+            { text: 'Security', link: '/design/security' },
+            { text: 'Configuration', link: '/design/configuration' },
+            { text: 'Skills', link: '/design/skills' },
+            { text: 'Server API', link: '/design/server-api' },
+            { text: 'Data Model', link: '/design/data-model' },
+            { text: 'UX Design', link: '/design/ux-design' },
+            { text: 'Decisions', link: '/design/decisions' },
+            { text: 'Implementation Plan', link: '/design/implementation-plan' },
           ],
         },
         {

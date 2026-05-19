@@ -16,6 +16,7 @@ Saivage currently provides:
 ## Active documentation
 
 - [Docs index](docs/index.md)
+- [Design documentation](docs/design/index.md)
 - [Install guide](docs/install.md)
 - [Configuration reference](docs/configuration.md)
 - [Operations guide](docs/operation.md)

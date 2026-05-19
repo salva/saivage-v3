@@ -4,7 +4,7 @@
  * Fast, pure-regex scanner that detects common prompt injection
  * techniques before content enters an agent context.
  *
- * See 05-security.md § "Layer 1: Heuristic patterns" for the spec.
+ * See docs/design/security.md § "Layer 1: Heuristic patterns" for the spec.
  */
 
 // ── Types ─────────────────────────────────────────────────────

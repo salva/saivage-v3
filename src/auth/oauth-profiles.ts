@@ -2,7 +2,7 @@
  * OAuth Auth Profile Loader
  *
  * Implements loading, refresh, and storage of OAuth profiles from
- * .saivage/auth-profiles.json as described in 06-configuration.md
+ * .saivage/auth-profiles.json as described in docs/design/configuration.md
  * § Authentication.
  *
  * The file format is:

@@ -45,4 +45,4 @@ Do **not** treat them as current truth for:
 
 ## Root-level legacy design docs
 
-Several root markdown files (`01-card-model.md` through `12-implementation-plan.md`, plus `use-cases.md`) remain in the repository as historical design-era material. They are not part of the active docs set and should not be treated as authoritative without explicit current revalidation.
+Several root markdown files (`docs/design/card-model.md` through `docs/design/implementation-plan.md`, plus `use-cases.md`) remain in the repository as historical design-era material. They are not part of the active docs set and should not be treated as authoritative without explicit current revalidation.

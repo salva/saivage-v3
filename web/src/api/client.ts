@@ -1,7 +1,7 @@
 /**
  * Saivage v3 API Client
  *
- * Typed fetch wrappers for all REST endpoints documented in 08-server-api.md.
+ * Typed fetch wrappers for all REST endpoints documented in docs/design/server-api.md.
  * Auth token comes from localStorage ('saivage_api_token') or the URL query
  * parameter 'token', falling back to VITE_SAIVAGE_API_TOKEN from import.meta.env.
  */

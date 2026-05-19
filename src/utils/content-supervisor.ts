@@ -5,7 +5,7 @@
  * and quarantine flow. Screens external content before it enters an
  * agent context.
  *
- * See 05-security.md § "Content Supervisor" for the spec.
+ * See docs/design/security.md § "Content Supervisor" for the spec.
  */
 
 import type { EventEmitter } from 'node:events';
@@ -65,7 +65,7 @@ export interface ScreenContentResult {
 /**
  * Source kinds that contain external content and must be screened.
  *
- * Per 05-security.md:
+ * Per docs/design/security.md:
  *  - command_output: command output from processes
  *  - file: file reads
  *  - download: content from download_file

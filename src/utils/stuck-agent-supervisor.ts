@@ -1,7 +1,7 @@
 /**
  * Stuck Agent Supervisor — Background detector for stuck agents
  *
- * Implements the supervisor described in 04-runtime.md §Stuck Agent Detection:
+ * Implements the supervisor described in docs/design/runtime.md §Stuck Agent Detection:
  * - Periodic checks (configurable interval, default 20 min)
  * - Feeds recent logs to a verdict function for structured assessment
  * - After N consecutive stuck verdicts (default 3), selects abort target
@@ -110,7 +110,7 @@ export interface SupervisorDeps {
  * Lower-level agents are aborted first so the planner can handle the
  * failure and retry or escalate.
  *
- * The order is defined in 04-runtime.md §Stuck Agent Detection:
+ * The order is defined in docs/design/runtime.md §Stuck Agent Detection:
  *   reviewer → executor → planner
  */
 const ABORT_PRIORITY: string[] = ['reviewer', 'executor', 'planner'];

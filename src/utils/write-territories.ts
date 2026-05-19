@@ -6,7 +6,7 @@
  * are enforced as **warnings, not blocks**: violations are logged but
  * do not prevent the write.
  *
- * See 05-security.md § "Agent Write Territories" for the spec.
+ * See docs/design/security.md § "Agent Write Territories" for the spec.
  */
 
 // ── Types ─────────────────────────────────────────────────────
@@ -14,8 +14,8 @@
 /**
  * All agent roles recognised by the territory system.
  *
- * Matches the roles from 03-agents.md plus the `content_supervisor`
- * role from 05-security.md.
+ * Matches the roles from docs/design/agents.md plus the `content_supervisor`
+ * role from docs/design/security.md.
  */
 export type TerritoryRole =
   | 'analyst'
@@ -54,7 +54,7 @@ export interface TerritoryRule {
 /**
  * The complete set of write territory rules per agent role.
  *
- * Matches the matrix from 05-security.md § "Agent Write Territories":
+ * Matches the matrix from docs/design/security.md § "Agent Write Territories":
  *
  * | Role     | Write territory                                     | Exclude                          |
  * |----------|-----------------------------------------------------|----------------------------------|

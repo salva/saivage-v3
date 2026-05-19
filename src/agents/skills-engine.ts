@@ -2,7 +2,7 @@
  * SkillsEngine — Discovers, matches, ranks, loads, and formats skill files
  * for injection into agent system prompts.
  *
- * Implements the matching algorithm in 07-skills.md:
+ * Implements the matching algorithm in docs/design/skills.md:
  *  1. Load index from .saivage/skills/index.json
  *  2. Filter by target_agents (role)
  *  3. Score each skill by counting matching triggers
@@ -222,7 +222,7 @@ export class SkillsEngine {
   /**
    * Match skills against the provided context parameters.
    *
-   * Algorithm (per 07-skills.md):
+   * Algorithm (per docs/design/skills.md):
    *  1. Load index
    *  2. Filter by target_agents (role filtering)
    *  3. Score each skill: each matching trigger adds 1 to the score

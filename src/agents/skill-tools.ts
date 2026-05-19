@@ -1,6 +1,6 @@
 /**
  * Skill Tools — Implements the load_skill MCP tool for on-demand skill loading
- * per 07-skills.md §On-Demand Loading.
+ * per docs/design/skills.md §On-Demand Loading.
  *
  * When an agent determines it needs a skill that was not preloaded (e.g., it
  * encounters an unfamiliar framework mid-task), it can call load_skill(name)
@@ -40,7 +40,7 @@ export class LoadSkillError extends Error {
 
 /**
  * Agent roles that are permitted to call load_skill.
- * Per 07-skills.md: the runtime exposes load_skill to planner, executor,
+ * Per docs/design/skills.md: the runtime exposes load_skill to planner, executor,
  * and reviewer agents. The analyst can request skills by other means.
  */
 export const PERMITTED_ROLES: readonly string[] = [
@@ -154,7 +154,7 @@ export const ALL_TOOL_DEFINITIONS: ToolDefinition[] = [
 
 /**
  * Format a skill's content as a delimited block matching the format used
- * by SkillsEngine.formatSkills() and described in 07-skills.md:
+ * by SkillsEngine.formatSkills() and described in docs/design/skills.md:
  *
  * ```
  * --- SKILL: <name> ---
@@ -172,7 +172,7 @@ function formatSkillBlock(name: string, content: string): string {
  * Load a skill on-demand during an agent session.
  *
  * This implements the `load_skill(name)` MCP tool described in
- * 07-skills.md §On-Demand Loading. Agents call it when they need a
+ * docs/design/skills.md §On-Demand Loading. Agents call it when they need a
  * skill that was not pre-loaded via trigger-based matching.
  *
  * @param name - The skill name to look up (must match an entry in the index)
