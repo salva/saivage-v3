@@ -3,6 +3,10 @@ import { mount, flushPromises } from '@vue/test-utils';
 import { createPinia } from 'pinia';
 import { createRouter, createMemoryHistory } from 'vue-router';
 import { ref, computed } from 'vue';
+
+function waitForTransition(): Promise<void> {
+  return new Promise((resolve) => window.setTimeout(resolve, 250));
+}
 import AppShell from '../components/layout/AppShell.vue';
 import { API_AUTH_REQUIRED_EVENT, API_AUTH_DISMISSED_SESSION_KEY } from '../utils/auth-events';
 
@@ -56,6 +60,16 @@ describe('AppShell API auth banner', () => {
     await flushPromises();
 
     expect(wrapper.find('.auth-required-banner').text()).toContain('API token required');
+    await wrapper.get('.auth-banner-action').trigger('click');
+    expect(wrapper.find('.token-overlay').exists()).toBe(true);
+    expect(wrapper.find('.auth-required-banner').exists()).toBe(true);
+
+    await wrapper.get('.token-btn-cancel').trigger('click');
+    await flushPromises();
+    await waitForTransition();
+    expect(wrapper.find('.token-overlay').exists()).toBe(false);
+    expect(wrapper.find('.auth-required-banner').exists()).toBe(true);
+
     await wrapper.get('.auth-banner-action').trigger('click');
     expect(wrapper.find('.token-overlay').exists()).toBe(true);
 

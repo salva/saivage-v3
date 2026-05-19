@@ -111,7 +111,10 @@ describe('ApiTokenEntry lifecycle', () => {
     await nextTick();
 
     expect(wrapper.text()).toContain('Token is set.');
+    expect(wrapper.text()).not.toMatch(/Token is set \(.*\)/);
     expect(wrapper.text()).not.toContain('117e3ad5aedc');
+    expect(wrapper.text()).not.toContain('…');
+    expect(wrapper.html()).not.toContain('117e3ad5aedc');
     expect(wrapper.get('input').attributes('placeholder')).toBe('64-char hex token');
     expect(wrapper.html()).toMatchSnapshot();
     wrapper.unmount();

@@ -46,7 +46,7 @@ The application shell follows a standard operational-console pattern:
 - **Main workspace**: tab-specific view.
 - **Keyboard shortcuts**: numeric section shortcuts and `/`
   to focus chat.
-- **API token handling**: local token entry for secured deployments.
+- **API token handling**: local token entry for secured deployments. The token modal never displays saved-token prefixes, uses the documented 64-character hex placeholder, closes on Escape/Cancel/click-outside, and restores underlying pointer interaction when closed (`web/src/components/auth/ApiTokenEntry.vue`, `web/src/__tests__/api-token-entry.test.ts`). A global 401 event surfaces a session-dismissable `API token required` banner that opens the same modal (`web/src/components/layout/AppShell.vue`, `web/src/utils/auth-events.ts`, `web/src/__tests__/app-shell-auth-banner.test.ts`).
 
 Recommended navigation:
 
@@ -286,7 +286,7 @@ Behaviors:
 
 - Breadcrumb navigation.
 - Directory stats.
-- JSON highlighting.
+- JSON highlighting, including `.jsonl`/`.ndjson` entries using the JSON `{}` icon and folder navigation clearing any stale active preview (`web/src/views/FilesView.vue`, `web/src/stores/files.ts`, `web/src/__tests__/files-view.test.ts`).
 - Markdown rendering where appropriate.
 - Safe file reads through MCP; dangerous/external provenance is routed
   through content supervision.

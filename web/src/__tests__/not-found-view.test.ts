@@ -20,7 +20,9 @@ describe('NotFound route', () => {
 
     expect(wrapper.text()).toContain('404 — Not found');
     expect(wrapper.text()).toContain('/no-such-route?');
+    expect(wrapper.html()).toContain('&lt;script&gt;alert(1)&lt;/script&gt;');
     expect(wrapper.html()).not.toContain('<script>alert(1)</script>');
     expect(wrapper.findAll('a').map((a) => a.attributes('href'))).toEqual(['/dashboard', '/cards']);
+    expect(wrapper.findAll('a').map((a) => a.text())).toEqual(['Back to Dashboard', 'Back to Cards']);
   });
 });

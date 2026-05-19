@@ -17,6 +17,8 @@ port (see `configuration.md §Server`). It serves:
 
 ## Authentication
 
+All `/api/*` endpoints require authentication; the web client surfaces any API 401 through a session-dismissable `API token required` banner that opens the token modal (`web/src/api/client.ts`, `web/src/utils/auth-events.ts`, `web/src/components/layout/AppShell.vue`, `web/src/__tests__/app-shell-auth-banner.test.ts`).
+
 All `/api/*` endpoints require authentication:
 
 - **Token source**: `SAIVAGE_API_TOKEN` environment variable.
