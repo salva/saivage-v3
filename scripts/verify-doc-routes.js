@@ -6,7 +6,8 @@ import { fileURLToPath } from 'node:url';
 const ROUTE_METHOD_RE = /fastify\.(get|post|patch|delete|put)\(\s*(['"`])([^'"`]+)\2/g;
 const DOC_ROUTE_RE = /\b(GET|POST|PATCH|DELETE|PUT)\s+(?:https?:\/\/[^\s`)'"<>]+)?(\/(?:api\/[A-Za-z0-9_./:{}-]+|health)\b[^\s`)'"<>]*)/g;
 const INVENTORY_ROW_RE = /^\|\s*`([^`]+)`\s*\|\s*current\s*\|/;
-const ROUTE_TABLE_ROW_RE = /^\|\s*`(GET|POST|PATCH|DELETE|PUT)\s+([^`]+)`\s*\|\s*([^|]+?)\s*\|\s*`([^`]+:\d+)`\s*\|/;
+const CODE_LINE_ANCHOR_PATTERN = String.raw`[^\s:|]+:\d+(?:\s+"(?:\\.|[^"\\])*")?`;
+const ROUTE_TABLE_ROW_RE = new RegExp('^\\|\\s*`(GET|POST|PATCH|DELETE|PUT)\\s+([^`]+)`\\s*\\|\\s*([^|]+?)\\s*\\|\\s*`(' + CODE_LINE_ANCHOR_PATTERN + ')`\\s*\\|');
 const ROLE_TOOL_ROW_RE = /^\|\s*`(planner|executor|reviewer|analyst)`\s*\|\s*`([^`]+)`\s*\|\s*`([^`]+:\d+)`\s*\|/;
 const CONFIG_ROW_RE = /^\|\s*`([^`]+)`\s*\|\s*`([^`]+)`\s*\|\s*`([^`]+:\d+)`\s*\|/;
 const RUNTIME_CONTROL_ROW_RE = /^\|\s*`(POST\s+\/api\/runtime\/(?:pause|resume|freeze|resume-from-freeze))`\s*\|\s*`([^`]+)`\s*\|\s*`([^`]+)`\s*\|\s*`([^`]+:\d+)`\s*\|/;
@@ -224,21 +225,25 @@ function extractConfigSchema(projectRoot) {
   ]);
 }
 
+function parseLineAnchor(anchor) {
+  const match = anchor.match(/^([^\s:|]+):(\d+)(?:\s+"(?:\\.|[^"\\])*")?$/);
+  if (!match) return null;
+  return { file: match[1], line: Number(match[2]) };
+}
+
 function anchorLine(projectRoot, anchor) {
-  const [file, lineRaw] = anchor.split(':');
-  const line = Number(lineRaw);
-  if (!file || !Number.isInteger(line) || line < 1 || !existsSync(join(projectRoot, file))) return null;
-  const lines = readFileSync(join(projectRoot, file), 'utf-8').split('\n');
-  if (line > lines.length) return null;
-  return lines[line - 1];
+  const parsed = parseLineAnchor(anchor);
+  if (!parsed || !Number.isInteger(parsed.line) || parsed.line < 1 || !existsSync(join(projectRoot, parsed.file))) return null;
+  const lines = readFileSync(join(projectRoot, parsed.file), 'utf-8').split('\n');
+  if (parsed.line > lines.length) return null;
+  return lines[parsed.line - 1];
 }
 
 function verifyAnchor(projectRoot, anchor, failures, context) {
   const line = anchorLine(projectRoot, anchor);
   if (line === null) {
-    const [file, lineRaw] = anchor.split(':');
-    const parsedLine = Number(lineRaw);
-    if (!file || !Number.isInteger(parsedLine) || parsedLine < 1 || !existsSync(join(projectRoot, file))) failures.push({ type: 'bad-anchor', message: `${context} has invalid code anchor ${anchor}` });
+    const parsed = parseLineAnchor(anchor);
+    if (!parsed || !Number.isInteger(parsed.line) || parsed.line < 1 || !existsSync(join(projectRoot, parsed.file))) failures.push({ type: 'bad-anchor', message: `${context} has invalid code anchor ${anchor}` });
     else failures.push({ type: 'bad-anchor', message: `${context} points past end of ${anchor}` });
   }
 }

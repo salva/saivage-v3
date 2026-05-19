@@ -276,27 +276,27 @@ Every current operator-facing Fastify route is listed exactly once here. `npm ru
 | `GET /api/events` | Query runtime/agent events with filters and pagination. | `src/server/routes/events.ts:42` |
 | `GET /api/files/content` | Preview contained text files with safety checks. | `src/server/routes/chats-files-debug.ts:238` |
 | `GET /api/files` | List contained project files. | `src/server/routes/chats-files-debug.ts:178` |
-| `GET /api/mcp/status` | Show MCP server status. | `src/server/server.ts:86` |
-| `GET /api/mcp/tools` | Show MCP tool inventory and invocation stats. | `src/server/server.ts:87` |
+| `GET /api/mcp/status` | Show MCP server status. | `src/server/server.ts:86 "fastify.get('/api/mcp/status'"` |
+| `GET /api/mcp/tools` | Show MCP tool inventory and invocation stats. | `src/server/server.ts:87 "fastify.get('/api/mcp/tools'"` |
 | `GET /api/notes` | List unhandled notes. | `src/server/routes/runtime-config-notes.ts:192` |
 | `GET /api/notifications` | List notifications. | `src/server/routes/runtime-config-notes.ts:146` |
 | `GET /api/processes/:id` | Read one safe process view. | `src/server/routes/processes.ts:112` |
 | `GET /api/processes` | List safe process views. | `src/server/routes/processes.ts:100` |
 | `GET /api/providers` | Return redacted provider summaries. | `src/server/routes/runtime-config-notes.ts:198` |
-| `GET /api/runtime/card-runs` | List runtime card-run records. | `src/server/server.ts:51` |
-| `GET /api/runtime/status` | Read compact runtime status. | `src/server/server.ts:53` |
+| `GET /api/runtime/card-runs` | List runtime card-run records. | `src/server/server.ts:51 "fastify.get('/api/runtime/card-runs'"` |
+| `GET /api/runtime/status` | Read compact runtime status. | `src/server/server.ts:53 "fastify.get('/api/runtime/status'"` |
 | `GET /api/state` | Read RuntimeState plus card-index summary. | `src/server/routes/runtime-config-notes.ts:145` |
-| `GET /health` | Public health and runtime-status summary. | `src/server/server.ts:28` |
+| `GET /health` | Public health and runtime-status summary. | `src/server/server.ts:28 "fastify.get('/health'"` |
 | `PATCH /api/cards/:id` | Update allowed card fields through audited mutation. | `src/server/routes/cards.ts:145` |
 | `POST /api/cards` | Create a card through audited mutation. | `src/server/routes/cards.ts:123` |
 | `POST /api/chats/:sessionId` | Send an analyst chat message. | `src/server/routes/chats-files-debug.ts:148` |
 | `POST /api/notes/:id/acknowledge` | Mark an unhandled note handled. | `src/server/routes/runtime-config-notes.ts:193` |
 | `POST /api/notifications/:id/acknowledge` | Acknowledge a notification. | `src/server/routes/runtime-config-notes.ts:154` |
 | `POST /api/runtime/freeze` | Freeze runtime for handoff. | `src/server/routes/runtime-config-notes.ts:195` |
-| `POST /api/runtime/goals/:id/needs_corrections` | Record goal correction directive. | `src/server/server.ts:36` |
-| `POST /api/runtime/lets_dance` | Record project kickoff directive. | `src/server/server.ts:32` |
+| `POST /api/runtime/goals/:id/needs_corrections` | Record goal correction directive. | `src/server/server.ts:36 "fastify.post('/api/runtime/goals/:id/needs_corrections'"` |
+| `POST /api/runtime/lets_dance` | Record project kickoff directive. | `src/server/server.ts:32 "fastify.post('/api/runtime/lets_dance'"` |
 | `POST /api/runtime/pause` | Pause runtime and return RuntimeState. | `src/server/routes/runtime-config-notes.ts:193` |
-| `POST /api/runtime/project/needs_corrections` | Record project correction directive. | `src/server/server.ts:44` |
+| `POST /api/runtime/project/needs_corrections` | Record project correction directive. | `src/server/server.ts:44 "fastify.post('/api/runtime/project/needs_corrections'"` |
 | `POST /api/runtime/resume-from-freeze` | Resume from freeze manifest. | `src/server/routes/runtime-config-notes.ts:196` |
 | `POST /api/runtime/resume` | Resume runtime and return RuntimeState. | `src/server/routes/runtime-config-notes.ts:194` |
 <!-- saivage:operator-routes:end -->

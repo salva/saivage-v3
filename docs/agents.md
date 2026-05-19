@@ -349,14 +349,14 @@ delivered).
 
 **Runtime-state layout.** The authoritative persisted `RuntimeState` path is
 `.saivage/tmp/state/runtime.json`, defined by
-`src/utils/runtime-state.ts:26` and written by `initRuntimeState`,
+`src/utils/runtime-state.ts#symbol:runtimeStatePath` and written by `initRuntimeState`,
 `saveRuntimeState`, and `updateRuntimeState`. A supported legacy
 `.saivage/runtime/state.json` is migrated exactly once only when the
-authoritative file is absent (`src/utils/runtime-state.ts:67`); if both
+authoritative file is absent (`src/utils/runtime-state.ts#symbol:readRuntimeState`); if both
 old and new files exist, runtime-state helpers throw
 `RuntimeStateLayoutError` and refuse the mixed layout to avoid
-split-brain state (`src/utils/runtime-state.ts:19`,
-`src/utils/runtime-state.ts:61`). Regression coverage lives in
+split-brain state (`src/utils/runtime-state.ts#symbol:RuntimeStateLayoutError`,
+`src/utils/runtime-state.ts#symbol:assertNoMixedRuntimeStateLayout`). Regression coverage lives in
 `tests/utils/runtime-state-layout.test.ts:64`.
 
 ## 7. Planner Tools

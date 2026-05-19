@@ -43,8 +43,8 @@ runtime — the runtime controls agents.
 
 6. **Crash recovery**: Read `.saivage/tmp/state/runtime.json`. If a
    supported legacy `.saivage/runtime/state.json` exists and no
-   authoritative file exists, `src/utils/runtime-state.ts:67` migrates it
-   once; if both files exist, `src/utils/runtime-state.ts:61` refuses the
+   authoritative file exists, `src/utils/runtime-state.ts#symbol:readRuntimeState` migrates it
+   once; if both files exist, `src/utils/runtime-state.ts#symbol:assertNoMixedRuntimeStateLayout` refuses the
    mixed layout to avoid split-brain recovery. If the previous process
    died mid-execution:
   - Sweep stale `.tmp` files from `.saivage-work/tmp/runtime/`.
@@ -118,7 +118,7 @@ Operational invariants:
   state, with regression coverage in
   `tests/utils/runtime-state-invariant.test.ts` and
   `tests/server/operator-api-contract-fixtures.test.ts`. Runtime layout
-  migration/refusal is anchored by `src/utils/runtime-state.ts:26` and
+  migration/refusal is anchored by `src/utils/runtime-state.ts#symbol:runtimeStatePath` and
   `tests/utils/runtime-state-layout.test.ts:64` and `tests/server/runtime-layout-startup-api.test.ts`.
 
 Cross-surface parity means web UI, REST, CLI, analyst chat, and runtime
@@ -419,9 +419,9 @@ by executors:
 ## Runtime State Persistence
 
 The runtime state file (`.saivage/tmp/state/runtime.json`) is updated on
-every significant state change. `src/utils/runtime-state.ts:26` defines
-that path, and `src/utils/runtime-state.ts:160` /
-`src/utils/runtime-state.ts:167` are the canonical init/save writers:
+every significant state change. `src/utils/runtime-state.ts#symbol:runtimeStatePath` defines
+that path, and `src/utils/runtime-state.ts#symbol:initRuntimeState` /
+`src/utils/runtime-state.ts#symbol:saveRuntimeState` are the canonical init/save writers:
 
 ```yaml
 status:           idle | running | paused | frozen | error
@@ -441,9 +441,9 @@ The runtime state file is the source of truth for crash recovery.
 It is written atomically (write to `.tmp`, then rename) to prevent
 corruption on crash. A supported legacy `.saivage/runtime/state.json` is
 migrated exactly once only when no authoritative file exists
-(`src/utils/runtime-state.ts:67`); if both paths exist, runtime-state
+(`src/utils/runtime-state.ts#symbol:readRuntimeState`); if both paths exist, runtime-state
 helpers throw `RuntimeStateLayoutError` instead of choosing one
-(`src/utils/runtime-state.ts:19`, `src/utils/runtime-state.ts:61`). After server restart/reload, `/api/state` must
+(`src/utils/runtime-state.ts#symbol:RuntimeStateLayoutError`, `src/utils/runtime-state.ts#symbol:assertNoMixedRuntimeStateLayout`). After server restart/reload, `/api/state` must
 return a `runtimeStateSchema`-valid state whose `status`,
 `current_card_id`, `active_card_run`, and `current_agent_session_id`
 remain coherent; `/api/agents` derives its sole active session from
