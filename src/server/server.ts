@@ -58,6 +58,18 @@ export async function createServer(projectRoot: string, createRuntime?: boolean)
   let transportOpt: { target: string; options: Record<string, unknown> } | undefined;
   if (process.env['NODE_ENV'] === 'development') { try { await import('pino-pretty'); transportOpt = { target: 'pino-pretty', options: { colorize: true } }; } catch (err) { console.warn(`pino-pretty not available, falling back to JSON transport: ${err instanceof Error ? err.message : String(err)}`); } }
   const fastify = Fastify({ logger: { level: process.env['LOG_LEVEL'] ?? 'info', transport: transportOpt } });
+  fastify.addContentTypeParser('application/json', { parseAs: 'string' }, (_request, body, done) => {
+    const rawBody = typeof body === 'string' ? body : body.toString('utf-8');
+    if (rawBody.trim() === '') {
+      done(null, null);
+      return;
+    }
+    try {
+      done(null, JSON.parse(rawBody));
+    } catch (err) {
+      done(err instanceof Error ? err : new Error(String(err)), undefined);
+    }
+  });
   await fastify.register(cors); await fastify.register(websocket); await fastify.register(authPlugin);
   const thisFile = fileURLToPath(import.meta.url); const inDist = thisFile.includes('/dist/src/') || thisFile.includes('\\dist\\src\\'); const packageRoot = fileURLToPath(new URL(inDist ? '../../..' : '../..', import.meta.url));
   const docsDistDir = join(packageRoot, 'docs', '.vitepress', 'dist'); const docsBuilt = existsSync(docsDistDir);

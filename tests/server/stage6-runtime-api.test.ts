@@ -59,8 +59,8 @@ describe('stage-6 runtime API', () => {
 
 
 
-  it('pause and resume return the updated persisted RuntimeState shape', async () => {
-    const pause = await server.fastify.inject({ method: 'POST', url: '/api/runtime/pause', payload: {} });
+  it('pause and resume accept an empty JSON body and return the updated persisted RuntimeState shape', async () => {
+    const pause = await server.fastify.inject({ method: 'POST', url: '/api/runtime/pause', headers: { 'content-type': 'application/json' } });
     expect(pause.statusCode).toBe(200);
     const paused = pause.json();
     expect(paused).toMatchObject({
@@ -76,7 +76,7 @@ describe('stage-6 runtime API', () => {
     expect(typeof paused.updated_at).toBe('string');
     expect(readRuntimeState(root)).toMatchObject({ status: 'paused', paused: true, paused_at: expect.any(String) });
 
-    const resume = await server.fastify.inject({ method: 'POST', url: '/api/runtime/resume', payload: {} });
+    const resume = await server.fastify.inject({ method: 'POST', url: '/api/runtime/resume', headers: { 'content-type': 'application/json' } });
     expect(resume.statusCode).toBe(200);
     const resumed = resume.json();
     expect(resumed).toMatchObject({
@@ -88,6 +88,26 @@ describe('stage-6 runtime API', () => {
       running_processes: expect.any(Array),
     });
     expect(readRuntimeState(root)).toMatchObject({ status: 'idle', paused: false, paused_at: null });
+  });
+
+  it('persists empty-body pause and resume transitions across server reinitialization', async () => {
+    const pause = await server.fastify.inject({ method: 'POST', url: '/api/runtime/pause', headers: { 'content-type': 'application/json' } });
+    expect(pause.statusCode).toBe(200);
+    await server.stop();
+    server = await createServer(root, false);
+
+    const pausedState = await server.fastify.inject({ method: 'GET', url: '/api/state' });
+    expect(pausedState.statusCode).toBe(200);
+    expect(pausedState.json().runtime).toMatchObject({ status: 'paused', paused: true, paused_at: expect.any(String) });
+
+    const resume = await server.fastify.inject({ method: 'POST', url: '/api/runtime/resume', headers: { 'content-type': 'application/json' } });
+    expect(resume.statusCode).toBe(200);
+    await server.stop();
+    server = await createServer(root, false);
+
+    const resumedState = await server.fastify.inject({ method: 'GET', url: '/api/state' });
+    expect(resumedState.statusCode).toBe(200);
+    expect(resumedState.json().runtime).toMatchObject({ status: 'idle', paused: false, paused_at: null });
   });
 
   it('returns card-runs typed union shape', async () => {
