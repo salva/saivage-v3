@@ -326,6 +326,18 @@ the runtime side completes synchronously, after which the runtime
 stops scheduling new turns. Shell processes that outlive an LLM turn
 continue running; terminal process results are buffered during pause
 and delivered once on resume.
+
+**Planner no-progress recovery.** If a planner LLM turn cannot make
+progress because it repeats the same tool-call fingerprint or exhausts
+the bounded tool-call loop, the adapter records a `model_issue`, adds a
+final-answer prompt that forbids further tool calls, and requires the
+next assistant payload to be the normal planner result envelope. The
+runtime parses only that coerced envelope (`status`, `summary`,
+`created_cards`, `updated_cards`, and optional `blocked_reason`); raw
+`toolCalls` objects are never a runtime state transition. If the only
+planner tool call is a deferred `activate_card`, the adapter instead
+synthesizes the same `status: 'continue'` envelope so the active card
+run remains coherent while the child activation proceeds.
 Force-cancel emits exactly one synthetic `failed` tool_result to the
 leaf's parent and clears `active_card_run`; the parent then becomes
 `Running` again on its next turn. If the cancelled leaf is the
@@ -758,6 +770,22 @@ project card itself; when it activates a top-level goal,
 auto-spawn planners for newly-created goals; every planner, including
 the project planner, exists because some `activate_card` call brought
 it into being.
+
+### 11.1 Planner Tool-Call Loop Recovery
+
+Planner turns may use tools, but the final assistant payload delivered
+to `parsePlannerResult` must always be the canonical planner JSON
+envelope. The adapter's `forceFinalAnswer` recovery is the documented
+escape hatch for no-progress tool loops: on a repeated tool-call
+fingerprint or after the maximum tool rounds, it appends diagnostics to
+the session, asks the model for a final answer with tools disabled by
+instruction, and persists/parses only the returned planner envelope.
+If a planner emits only a deferred `activate_card`, no follow-up LLM
+turn is required; the adapter synthesizes
+`{ status: 'continue', summary, created_cards: [], updated_cards: [] }`
+so the parent planner can await the child without leaking an
+unparseable `{ toolCalls: [...] }` object into result parsing or
+runtime state.
 
 ## 12. Restart and Orphan Repair
 
