@@ -719,11 +719,7 @@ runtime's safe-tick loop, on noticing that:
   exists,
 
 calls `activate_card(projectCardId)` itself, which brings the project
-planner to `Running`. The scheduler contract is enforced by
-`Runtime.safeTick()` in `src/utils/runtime.ts` and by the regression
-coverage in `tests/utils/runtime-restart-orphan-repair.test.ts`, which
-asserts pause buffering, restart persistence, and exactly-once
-consumption for both project directive kinds. Once kicked off, the
+planner to `Running`. The end-to-end analyst directive contract is implemented by the card-scoped analyst tool registry in `src/agents/analyst-llm-resolver.ts` and `src/agents/analyst-tools.ts`: `lets_dance`, `mark_goal_needs_corrections`, and `mark_project_needs_corrections` must persist directive notes/directive records with the originating card or project context before the runtime sees them. The scheduler contract is enforced by `Runtime.safeTick()` in `src/utils/runtime.ts` and by regression coverage in `tests/agents/analyst-directive-tools-e2e.test.ts` (tool registry → persisted directive/note context), `tests/utils/runtime-analyst-directives-safe-tick.test.ts` (pause buffering, restart persistence, and exactly-once safe-tick consumption), and `tests/utils/runtime-restart-orphan-repair.test.ts` (startup repair ordering). Once kicked off, the
 project runs uninterrupted until it reports done, failed, or blocked,
 or until the analyst intervenes (see below). The operator/analyst
 recovery loop for project-level failure is deferred to a future stage.

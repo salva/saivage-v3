@@ -267,6 +267,7 @@ agent completion events:
   processes.
 - Card order within a goal is determined by `depends_on` first,
   then `priority` (lower number = higher priority).
+- A pending analyst-created project directive (`lets_dance` or `project_needs_corrections`) is consumed by `Runtime.safeTick()` only when the runtime is unpaused, idle, has no `active_card_run`, and startup repair has settled. Consumption calls `dispatchGoal('project')`, removes the persisted directive exactly once, and emits `directive_consumed`; pause buffering and restart-style persistence are guarded by `tests/utils/runtime-analyst-directives-safe-tick.test.ts`.
 
 ---
 
