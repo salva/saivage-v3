@@ -4,12 +4,12 @@ import { createPinia } from 'pinia';
 import AnalystChatPanel from '../components/chat/AnalystChatPanel.vue';
 import { useAnalystChat } from '../stores/analystChat';
 
-const listChatSessions = vi.fn();
+const listAgentSessions = vi.fn();
 const getChatMessages = vi.fn();
 const sendChatMessage = vi.fn();
 
 vi.mock('../api/client', () => ({
-  listChatSessions: (...args: any[]) => listChatSessions(...args),
+  listAgentSessions: (...args: any[]) => listAgentSessions(...args),
   getChatMessages: (...args: any[]) => getChatMessages(...args),
   sendChatMessage: (...args: any[]) => sendChatMessage(...args),
   ApiError: class extends Error { status: number; body: Record<string, unknown>; constructor(status: number, message: string, body: Record<string, unknown> = {}) { super(message); this.status = status; this.body = body; } get isUnauthorized() { return this.status === 401; } },
@@ -20,10 +20,10 @@ describe('AnalystChatPanel', () => {
     document.body.innerHTML = '';
     window.localStorage.clear();
     vi.useRealTimers();
-    listChatSessions.mockReset();
+    listAgentSessions.mockReset();
     getChatMessages.mockReset();
     sendChatMessage.mockReset();
-    listChatSessions.mockResolvedValue({ sessions: [{ id: 'chat-1', role: 'analyst', status: 'active', started_at: '2025-01-01T00:00:00Z' }] });
+    listAgentSessions.mockResolvedValue({ sessions: [{ id: 'chat-1', role: 'analyst', status: 'active', started_at: '2025-01-01T00:00:00Z' }] });
     getChatMessages.mockResolvedValue({
       sessionId: 'chat-1',
       messages: [
@@ -33,6 +33,46 @@ describe('AnalystChatPanel', () => {
       ],
     });
     sendChatMessage.mockResolvedValue({ sessionId: 'chat-1', message: { id: '4', content: 'reply', timestamp: '2025-01-01T00:00:03Z' } });
+  });
+
+
+  it('shows Loading history… during initial fetch and gates empty state until loading completes', async () => {
+    let resolveMessages: (value: any) => void = () => {};
+    getChatMessages.mockReturnValueOnce(new Promise((resolve) => { resolveMessages = resolve; }));
+    const pinia = createPinia();
+    const wrapper = mount(AnalystChatPanel, { attachTo: document.body, global: { plugins: [pinia] } });
+    await flushPromises();
+    await wrapper.find('select').setValue('chat-1');
+    await flushPromises();
+    expect(wrapper.text()).toContain('Loading history…');
+    expect(wrapper.text()).not.toContain('No messages yet. Ask the analyst something.');
+    resolveMessages({ sessionId: 'chat-1', messages: [] });
+    await flushPromises();
+    expect(wrapper.text()).not.toContain('Loading history…');
+    expect(wrapper.text()).toContain('No messages yet. Ask the analyst something.');
+    wrapper.unmount();
+  });
+
+  it('groups /api/agents sessions by role and disables composer for read-only agent sessions', async () => {
+    listAgentSessions.mockResolvedValueOnce({ sessions: [
+      { id: 'chat-1', role: 'analyst', status: 'active', started_at: '2025-01-01T00:00:00Z' },
+      { id: 'planner:goal-1', role: 'planner', status: 'inactive', started_at: '2025-01-01T00:00:01Z' },
+      { id: 'reviewer:goal-1', role: 'reviewer', status: 'inactive', started_at: '2025-01-01T00:00:02Z' },
+      { id: 'executor:card-1', role: 'executor', status: 'inactive', started_at: '2025-01-01T00:00:03Z' },
+      { id: 'card-card-1', role: 'analyst', status: 'inactive', started_at: '2025-01-01T00:00:04Z' },
+    ] });
+    getChatMessages.mockResolvedValue({ sessionId: 'planner:goal-1', messages: [] });
+    const wrapper = mount(AnalystChatPanel, { attachTo: document.body, global: { plugins: [createPinia()] } });
+    await flushPromises();
+    const labels = wrapper.findAll('optgroup').map((group) => group.attributes('label'));
+    expect(labels).toEqual(['Analyst', 'Card discussions', 'Planner', 'Reviewer', 'Executor']);
+    await wrapper.find('select').setValue('planner:goal-1');
+    await flushPromises();
+    const textarea = wrapper.find('textarea');
+    expect(textarea.attributes('disabled')).toBeDefined();
+    expect(textarea.attributes('title')).toBe('Read-only — switch to analyst to send messages');
+    expect(wrapper.find('button.primary-btn').attributes('title')).toBe('Read-only — switch to analyst to send messages');
+    wrapper.unmount();
   });
 
   it('renders messages and tool chips with expand/collapse', async () => {

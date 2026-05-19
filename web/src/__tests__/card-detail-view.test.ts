@@ -6,6 +6,7 @@ import type { FileContent, CardReviewSummary, WsEnvelope } from '../api/types';
 import CardDetailView from '../components/cards/CardDetailView.vue';
 import { useCardStore } from '../stores/cards';
 import { useWsStore } from '../stores/ws';
+import { useAnalystChat } from '../stores/analystChat';
 
 vi.mock('../api/client', () => ({
   listCards: vi.fn(), getCard: vi.fn(), createCard: vi.fn(), updateCard: vi.fn(), deleteCard: vi.fn(),
@@ -150,14 +151,40 @@ describe('CardDetailView generated file inspection', () => {
     expect(store.fetchCardDetail).toHaveBeenCalledTimes(3);
   });
 
-  it('exposes an accessible discuss-with-analyst action without changing draft-protection flow', async () => {
+  it('reuses a stable per-card analyst session and seeds card context with get_card only as needed', async () => {
     const pinia = createPinia();
-    primeStore(pinia);
+    const cardStore = primeStore(pinia);
+    cardStore.currentCard = {
+      ...cardStore.currentCard!,
+      id: 'card-1',
+      title: 'Fix overlay',
+      description: 'Drawer overlaps routed content',
+      status: 'active',
+      blocks: ['child-2'],
+      depends_on: ['dep-2'],
+      version_seq: 8,
+    } as any;
+    const analystChat = useAnalystChat();
     const wrapper = mount(CardDetailView, { props: { cardId: 'card-1' }, global: { plugins: [pinia] } });
     await flushPromises();
     const button = wrapper.get('.discuss-btn');
     expect(button.attributes('aria-label')).toBe('Discuss card with analyst');
-    expect(button.text()).toContain('Discuss with analyst');
+
+    await button.trigger('click');
+    await flushPromises();
+    const firstHint = analystChat.syntheticHint.content;
+    expect(analystChat.activeSessionId).toBe('card-card-1');
+    expect(firstHint).toContain('Card title: Fix overlay');
+    expect(firstHint).toContain('Card description: Drawer overlaps routed content');
+    expect(firstHint).toContain('Card status: active');
+    expect(firstHint).toContain('blocks:child-2');
+    expect(firstHint).toContain('Tool result get_card:');
+    expect(firstHint).toContain('\"tool\":\"get_card\"');
+
+    await button.trigger('click');
+    await flushPromises();
+    expect(analystChat.activeSessionId).toBe('card-card-1');
+    expect(analystChat.syntheticHint.content).toBe(firstHint);
   });
 
   it('ignores unrelated events and cleans up websocket subscription on unmount', async () => {

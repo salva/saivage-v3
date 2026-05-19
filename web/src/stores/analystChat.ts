@@ -4,7 +4,7 @@ import type { CardRecord, ChatMessage, ChatSession, DetailErrorState } from '../
 import {
   ApiError,
   getChatMessages,
-  listChatSessions,
+  listAgentSessions,
   sendChatMessage,
 } from '../api/client';
 
@@ -42,6 +42,16 @@ interface TimelineBadge {
 
 function nowIso(): string {
   return new Date().toISOString();
+}
+
+function isWritableSession(session: ChatSession | null): boolean {
+  if (!session) return true;
+  return session.role === 'analyst' || session.role === 'card' || session.id.startsWith('card-');
+}
+
+function inferSessionRole(sessionId: string): string {
+  if (sessionId.startsWith('card-')) return 'card';
+  return 'analyst';
 }
 
 function buildErrorState(err: unknown, fallback: string): DetailErrorState {
@@ -192,13 +202,13 @@ export const useAnalystChat = defineStore('analyst-chat', () => {
     persistDrawerState(open, width);
   }, { immediate: true });
 
-  function ensureSessionInList(sessionId: string): void {
+  function ensureSessionInList(sessionId: string, role = inferSessionRole(sessionId)): void {
     if (sessions.value.some((session) => session.id === sessionId)) {
       return;
     }
     sessions.value = [{
       id: sessionId,
-      role: 'analyst',
+      role,
       status: 'active',
       started_at: nowIso(),
     }, ...sessions.value];
@@ -241,8 +251,13 @@ export const useAnalystChat = defineStore('analyst-chat', () => {
     sessionsLoading.value = true;
     sessionsError.value = null;
     try {
-      const response = await listChatSessions();
-      sessions.value = response.sessions;
+      const response = await listAgentSessions();
+      sessions.value = response.sessions.map((session) => ({
+        id: session.id,
+        role: session.id.startsWith('card-') ? 'card' : session.role,
+        status: session.status,
+        started_at: session.started_at,
+      }));
       if (!activeSessionId.value && response.sessions.length > 0) {
         activeSessionId.value = response.sessions[0].id;
       }
@@ -309,15 +324,46 @@ export const useAnalystChat = defineStore('analyst-chat', () => {
     return sessionId;
   }
 
+  function buildCardContextSeed(card: CardRecord): string {
+    const blockers = [
+      ...(Array.isArray(card.blocks) ? card.blocks.map((id) => `blocks:${id}`) : []),
+      ...(Array.isArray(card.depends_on) ? card.depends_on.map((id) => `depends_on:${id}`) : []),
+      ...(card.error ? [`error:${card.error}`] : []),
+    ];
+    const toolResult = {
+      tool: 'get_card',
+      ok: true,
+      card: {
+        id: card.id,
+        title: card.title,
+        description: card.description ?? '',
+        status: card.status,
+        blockers,
+        version_seq: card.version_seq ?? null,
+      },
+    };
+    return [
+      'System context: this per-card analyst discussion was opened from the card detail view.',
+      `Card title: ${card.title}`,
+      `Card description: ${card.description ?? ''}`,
+      `Card status: ${card.status}`,
+      `Card blockers: ${blockers.length ? blockers.join(', ') : 'none'}`,
+      `Tool result get_card: ${JSON.stringify(toolResult)}`,
+      'Use this seeded card context as the default subject unless the operator asks otherwise.',
+    ].join('\n');
+  }
+
   function seedCardContext(card: CardRecord): string {
-    const sessionId = `card-${card.id}-${Date.now()}`;
-    const hint = `Operator opened analyst from card ${card.id} '${card.title}'. Current version_seq=${card.version_seq ?? 'unknown'}, status=${card.status}. Treat the card as the default subject of this conversation.`;
-    syntheticHint.value = { sessionId, content: hint };
-    pendingCardSeed.value = { sessionId, cardId: card.id };
+    const sessionId = `card-${card.id}`;
+    const existingSession = sessions.value.find((session) => session.id === sessionId) ?? null;
     activeSessionId.value = sessionId;
     messages.value = [];
-    ensureSessionInList(sessionId);
-    markSessionUnsaved(sessionId);
+    ensureSessionInList(sessionId, 'card');
+    if (!existingSession && !unsavedSessionIds.value.has(sessionId)) {
+      syntheticHint.value = { sessionId, content: buildCardContextSeed(card) };
+      pendingCardSeed.value = { sessionId, cardId: card.id };
+      markSessionUnsaved(sessionId);
+    }
     return sessionId;
   }
 
@@ -336,6 +382,10 @@ export const useAnalystChat = defineStore('analyst-chat', () => {
     if (!content) return;
     const sessionId = activeSessionId.value ?? createNewChat();
     ensureSessionInList(sessionId);
+    if (!isWritableSession(activeSession.value)) {
+      sendError.value = { kind: 'unknown', status: null, message: 'Read-only — switch to analyst to send messages' };
+      return;
+    }
 
     sending.value = true;
     sendError.value = null;
@@ -484,6 +534,7 @@ export const useAnalystChat = defineStore('analyst-chat', () => {
     messageBadges,
     pendingCardSeed,
     unsavedSessionIds,
+    activeSessionWritable: computed(() => isWritableSession(activeSession.value)),
     setDrawerOpen,
     toggleDrawer,
     setDrawerWidth,

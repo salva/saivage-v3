@@ -50,7 +50,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted } from 'vue';
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { storeToRefs } from 'pinia';
 import NavRail from '../nav/NavRail.vue';
@@ -155,6 +155,12 @@ function handleKeydown(event: KeyboardEvent): void {
 function globalKeyHandler(event: KeyboardEvent): void {
   handleKeydown(event);
 }
+
+watch(() => route.fullPath, () => {
+  if (analystChat.drawerOpen) {
+    analystChat.setDrawerOpen(false);
+  }
+});
 
 onMounted(() => {
   wsStore.connect();

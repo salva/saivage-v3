@@ -4,13 +4,13 @@ import { useAnalystChat } from '../stores/analystChat';
 import type { ChatMessage } from '../api/types';
 
 const apiMocks = vi.hoisted(() => ({
-  listChatSessions: vi.fn(),
+  listAgentSessions: vi.fn(),
   getChatMessages: vi.fn(),
   sendChatMessage: vi.fn(),
 }));
 
 vi.mock('../api/client', () => ({
-  listChatSessions: apiMocks.listChatSessions,
+  listAgentSessions: apiMocks.listAgentSessions,
   getChatMessages: apiMocks.getChatMessages,
   sendChatMessage: apiMocks.sendChatMessage,
   ApiError: class extends Error { status: number; body: Record<string, unknown>; constructor(status: number, message: string, body: Record<string, unknown> = {}) { super(message); this.status = status; this.body = body; } get isUnauthorized() { return this.status === 401; } },
@@ -22,21 +22,30 @@ describe('analyst chat store', () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2025-01-01T00:00:00Z'));
     setActivePinia(createPinia());
-    apiMocks.listChatSessions.mockReset();
+    apiMocks.listAgentSessions.mockReset();
     apiMocks.getChatMessages.mockReset();
     apiMocks.sendChatMessage.mockReset();
-    apiMocks.listChatSessions.mockResolvedValue({ sessions: [] });
+    apiMocks.listAgentSessions.mockResolvedValue({ sessions: [] });
     apiMocks.getChatMessages.mockResolvedValue({ sessionId: 'chat-1', messages: [] as ChatMessage[] });
     apiMocks.sendChatMessage.mockResolvedValue({ sessionId: 'chat-1', message: { id: 'm1', content: 'reply', timestamp: '2025-01-01T00:00:00Z' } });
   });
 
-  it('seedCardContext produces stable session id shape', () => {
+  it('seedCardContext reuses stable card session id and seeds get_card context only once while unsaved', () => {
     const store = useAnalystChat();
-    const sessionId = store.seedCardContext({ id: 'card-7', title: 'Investigate', status: 'active', version_seq: 4 } as any);
-    expect(sessionId).toBe('card-card-7-1735689600000');
-    expect(store.syntheticHint.sessionId).toBe(sessionId);
-    expect(store.syntheticHint.content).toContain('card card-7');
-    expect(store.unsavedSessionIds.has(sessionId)).toBe(true);
+    const card = { id: 'card-7', title: 'Investigate', description: 'Find the regression', status: 'active', version_seq: 4, blocks: ['child-1'], depends_on: ['dep-1'] } as any;
+    const first = store.seedCardContext(card);
+    const firstHint = store.syntheticHint.content;
+    const second = store.seedCardContext(card);
+    expect(first).toBe('card-card-7');
+    expect(second).toBe('card-card-7');
+    expect(store.syntheticHint.content).toBe(firstHint);
+    expect(firstHint).toContain('Card title: Investigate');
+    expect(firstHint).toContain('Card description: Find the regression');
+    expect(firstHint).toContain('Card status: active');
+    expect(firstHint).toContain('blocks:child-1');
+    expect(firstHint).toContain('Tool result get_card:');
+    expect(firstHint).toContain('\"tool\":\"get_card\"');
+    expect(store.unsavedSessionIds.has(first)).toBe(true);
   });
 
   it('synthetic hint queue drains exactly once', async () => {
@@ -45,7 +54,7 @@ describe('analyst chat store', () => {
     store.setDraft('what next?');
     const first = store.consumeSyntheticHint(sessionId);
     const second = store.consumeSyntheticHint(sessionId);
-    expect(first).toContain('Treat the card as the default subject');
+    expect(first).toContain('Use this seeded card context as the default subject');
     expect(second).toBeNull();
   });
 

@@ -6,6 +6,14 @@ import { ref, computed } from 'vue';
 import AppShell from '../components/layout/AppShell.vue';
 
 vi.mock('../api/auth', () => ({ getAuthToken: vi.fn(() => 'token') }));
+
+vi.mock('../api/client', () => ({
+  listAgentSessions: vi.fn(async () => ({ sessions: [] })),
+  getChatMessages: vi.fn(async (sessionId: string) => ({ sessionId, messages: [] })),
+  sendChatMessage: vi.fn(async (sessionId: string) => ({ sessionId, message: { id: 'm1', content: 'ok', timestamp: '2025-01-01T00:00:00Z' } })),
+  ApiError: class extends Error { status: number; body: Record<string, unknown>; constructor(status: number, message: string, body: Record<string, unknown> = {}) { super(message); this.status = status; this.body = body; } get isUnauthorized() { return this.status === 401; } },
+}));
+
 vi.mock('../stores/ws', () => ({
   useWsStore: () => ({
     connect: vi.fn(),
@@ -66,6 +74,30 @@ describe('AppShell analyst drawer', () => {
     expect(localStorage.getItem('analyst-chat:drawer-state')).toContain('"open":true');
     expect(button.attributes('aria-expanded')).toBe('true');
     expect(document.activeElement).toBe(wrapper.get('textarea').element);
+    wrapper.unmount();
+  });
+
+
+  it('closes the analyst drawer on route changes so it does not overlay /files or /cards/:id', async () => {
+    const wrapper = mount(AppShell, { attachTo: document.body, global: { plugins: [createPinia(), router] } });
+    await wrapper.get('.analyst-chip').trigger('click');
+    await flushPromises();
+    expect(wrapper.find('#analyst-chat-panel').exists()).toBe(true);
+
+    await router.push('/files');
+    await flushPromises();
+    expect(router.currentRoute.value.path).toBe('/files');
+    expect(wrapper.text()).toContain('Files');
+    expect(wrapper.find('#analyst-chat-panel').exists()).toBe(false);
+
+    await wrapper.get('.analyst-chip').trigger('click');
+    await flushPromises();
+    expect(wrapper.find('#analyst-chat-panel').exists()).toBe(true);
+    await router.push('/cards/card-1');
+    await flushPromises();
+    expect(router.currentRoute.value.path).toBe('/cards/card-1');
+    expect(wrapper.text()).toContain('Card Detail');
+    expect(wrapper.find('#analyst-chat-panel').exists()).toBe(false);
     wrapper.unmount();
   });
 

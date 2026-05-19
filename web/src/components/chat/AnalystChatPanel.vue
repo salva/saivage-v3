@@ -21,7 +21,9 @@
           @change="handleSessionChange"
         >
           <option value="">Select session</option>
-          <option v-for="session in sessions" :key="session.id" :value="session.id">{{ session.id }}</option>
+          <optgroup v-for="group in groupedSessions" :key="group.label" :label="group.label">
+            <option v-for="session in group.sessions" :key="session.id" :value="session.id">{{ session.id }}</option>
+          </optgroup>
         </select>
         <button
           type="button"
@@ -38,10 +40,10 @@
       <div v-if="sessionsLoading" class="state-panel" role="status">Loading analyst sessions…</div>
       <div v-else-if="sessionsError" class="state-panel error" role="alert">{{ sessionsError.message }}</div>
 
-      <div v-if="messagesLoading" class="state-panel" role="status">Loading analyst messages…</div>
+      <div v-if="messagesLoading" class="state-panel loading-skeleton" role="status">Loading history…</div>
       <div v-else-if="messagesError" class="state-panel error" role="alert">{{ messagesErrorLabel }}</div>
       <div v-else-if="!activeSessionId" class="state-panel" role="status">Select a session or start a new chat.</div>
-      <div v-else-if="timelineItems.length === 0 && pendingToolInvocationsForActiveSession.length === 0" class="state-panel" role="status">No messages yet. Ask the analyst something.</div>
+      <div v-else-if="!messagesLoading && messages.length === 0 && timelineItems.length === 0 && pendingToolInvocationsForActiveSession.length === 0" class="state-panel" role="status">No messages yet. Ask the analyst something.</div>
       <div v-else class="message-list">
         <article
           v-for="item in timelineItems"
@@ -98,12 +100,14 @@
         rows="3"
         placeholder="Ask the analyst…"
         aria-label="Analyst chat composer"
+        :disabled="!activeSessionWritable"
+        :title="composerTitle"
         @input="handleDraftInput"
         @keydown="handleComposerKeydown"
       />
       <div class="composer-footer">
         <span class="subtle">Enter to send · Shift+Enter for newline</span>
-        <button type="submit" class="primary-btn" :disabled="sending || !draft.trim()">{{ sending ? 'Sending…' : 'Send' }}</button>
+        <button type="submit" class="primary-btn" :disabled="!activeSessionWritable || sending || !draft.trim()" :title="composerTitle">{{ sending ? 'Sending…' : 'Send' }}</button>
       </div>
       <div v-if="sendError" class="state-panel error" role="alert">{{ sendError.message }}</div>
     </form>
@@ -132,6 +136,7 @@ const {
   sendError,
   pendingToolInvocations,
   messageBadges,
+  activeSessionWritable,
 } = storeToRefs(chat);
 
 const expandedIds = ref(new Set<string>());
@@ -140,6 +145,26 @@ const composerRef = ref<HTMLTextAreaElement | null>(null);
 const panelStyle = computed(() => ({ width: `${drawerWidth.value}px` }));
 const timelineItems = computed(() => [...messages.value].sort((a, b) => a.timestamp.localeCompare(b.timestamp)));
 const pendingToolInvocationsForActiveSession = computed(() => pendingToolInvocations.value.filter((item) => item.sessionId === activeSessionId.value));
+const READ_ONLY_TOOLTIP = 'Read-only — switch to analyst to send messages';
+const composerTitle = computed(() => activeSessionWritable.value ? 'Ask the analyst…' : READ_ONLY_TOOLTIP);
+const groupedSessions = computed(() => {
+  const labels: Record<string, string> = {
+    analyst: 'Analyst',
+    card: 'Card discussions',
+    planner: 'Planner',
+    reviewer: 'Reviewer',
+    executor: 'Executor',
+  };
+  const order = ['analyst', 'card', 'planner', 'reviewer', 'executor'];
+  const groups = new Map<string, typeof sessions.value>();
+  for (const session of sessions.value) {
+    const key = session.id.startsWith('card-') ? 'card' : String(session.role).split(':')[0];
+    groups.set(key, [...(groups.get(key) ?? []), session]);
+  }
+  return [...groups.entries()]
+    .sort(([a], [b]) => (order.indexOf(a) === -1 ? 99 : order.indexOf(a)) - (order.indexOf(b) === -1 ? 99 : order.indexOf(b)))
+    .map(([key, groupSessions]) => ({ label: labels[key] ?? key, sessions: groupSessions }));
+});
 const messagesErrorLabel = computed(() => {
   if (!messagesError.value) return '';
   if (messagesError.value.kind === 'unauthorized') {
@@ -259,6 +284,7 @@ function handleComposerKeydown(event: KeyboardEvent): void {
 }
 
 async function submitMessage(): Promise<void> {
+  if (!activeSessionWritable.value) return;
   await chat.sendMessage();
   await nextTick();
   focusComposer();
