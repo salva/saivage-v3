@@ -158,7 +158,14 @@ describe('PlannerToolsService', () => {
     store.update(child.id, { status: 'backlog' });
     const cancelledGoal = tools.cancelCard(goal.id);
     expect(cancelledGoal.status).toBe('cancelled');
+    expect(cancelledGoal.status_text).toBeNull();
     expect(cancelledGoal.latest_self_report).toEqual(expect.objectContaining({ result: 'failed', outcome: 'failed', reason: 'cancelled' }));
+
+    const mirroredLeaf = store.create(makeCard({ type: 'code', title: 'Cancel Preserves Existing Mirror', status: 'backlog', status_text: 'ready to cancel', latest_self_report: { result: 'done', status_text: 'ready to cancel', summary: 'previous mirror', at: new Date().toISOString() } }));
+    const cancelledLeaf = tools.cancelCard(mirroredLeaf.id);
+    expect(cancelledLeaf.status).toBe('cancelled');
+    expect(cancelledLeaf.status_text).toBe('ready to cancel');
+    expect(cancelledLeaf.latest_self_report).toEqual(expect.objectContaining({ status_text: 'ready to cancel' }));
 
     const project = store.read('project')!;
     store.update(project.id, { status: 'changed' });
@@ -227,9 +234,13 @@ describe('PlannerToolsService', () => {
 
     const parent = store.create(makeCard({ id: 'goal-rollback', type: 'goal', title: 'Rollback Goal', status: 'backlog' }));
     const active = store.create(makeCard({ id: 'code-rollback-active', type: 'code', title: 'Active Child', parent: parent.id, status: 'active' }));
-    store.update(parent.id, { status: 'done' });
+    store.update(parent.id, { status: 'done', status_text: 'parent terminal status', latest_self_report: { result: 'done', status_text: 'parent terminal status', summary: 'parent done', at: new Date().toISOString() } });
     expect(() => tools.deleteCard(parent.id)).toThrow(PlannerToolError);
-    expect(store.read(parent.id)?.status).toBe('done');
+    expect(store.read(parent.id)).toEqual(expect.objectContaining({
+      status: 'done',
+      status_text: 'parent terminal status',
+      latest_self_report: expect.objectContaining({ status_text: 'parent terminal status' }),
+    }));
     expect(store.read(active.id)?.status).toBe('active');
     expect(existsSync(join(root, '.saivage', 'archive', 'cards', `${parent.id}.json`))).toBe(false);
   });

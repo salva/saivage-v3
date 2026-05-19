@@ -30,6 +30,11 @@ function addActivateCall(root: string, plannerCardId: string, childId: string, c
 function activationResults(root: string, plannerCardId: string) {
   return getSessionMessages(join(root, '.saivage'), `planner:${plannerCardId}`).filter((m) => m.kind === 'tool_result' && m.tool === 'activate_card');
 }
+function parseGoalContextBlock(content: string): Record<string, any> {
+  const json = content.match(/\{[\s\S]*\}/)?.[0];
+  if (!json) throw new Error(`Goal Context JSON payload missing from: ${content}`);
+  return JSON.parse(json);
+}
 class ScriptedAgent implements AgentRuntime {
   plannerCalls: string[] = [];
   reviewerCalls: string[] = [];
@@ -174,26 +179,86 @@ describe('stage 7 runtime restart and orphan activate_card repair', () => {
     expect(activationResults(root, 'project')).toHaveLength(1);
   });
 
-  it('emits canonical §9 Goal Context synthetic user turns on planner start and runtime resume', async () => {
-    store.create({ ...cardInput('goal-a', 'goal', 'project', 'running'), description: 'parent goal', acceptance: 'accept it', tags: ['stage4'], priority: 42, status_text: 'Working goal', latest_self_report: { result: 'blocked', summary: 'needs input', status_text: 'Needs input', at: now() } });
-    store.create({ ...cardInput('goal-child', 'goal', 'goal-a', 'backlog'), status_text: 'Child pending' });
+  it('emits canonical §9 recursive Goal Context user turns on planner start and runtime resume', async () => {
+    const reportAt = now();
+    store.create({
+      ...cardInput('goal-a', 'goal', 'project', 'running'),
+      description: 'parent goal',
+      acceptance: 'accept it',
+      tags: ['stage4'],
+      priority: 42,
+      depends_on: ['bootstrap-card'],
+      blocks: ['release-card'],
+      status_text: 'Working goal',
+      latest_self_report: { result: 'blocked', summary: 'needs input', status_text: 'Needs input', at: reportAt },
+      result: { review: { assessment_id: 'review-prior', at: reportAt, reviewer_session_id: 'reviewer:prior', goal_card_id: 'goal-a', result: 'needs_corrections', summary: 'prior corrections', achieved: [], issues: [], evidence_card_ids: [] } },
+    });
+    store.create({ ...cardInput('goal-child', 'goal', 'goal-a', 'backlog'), depth: 1, title: 'Child goal', status_text: 'Child pending' });
+    store.create({
+      ...cardInput('code-grandchild', 'code', 'goal-child', 'done'),
+      depth: 2,
+      title: 'Grandchild leaf',
+      status_text: 'Grandchild done',
+      latest_self_report: { result: 'done', summary: 'leaf finished', status_text: 'Grandchild done', at: reportAt },
+      result: { executor: { evidence: 'synthetic' }, latest_self_report: { result: 'done', summary: 'leaf finished', status_text: 'Grandchild done', at: reportAt } },
+    });
     const agent = new ScriptedAgent({ 'goal-a': [{ status: 'blocked', blocked_reason: 'pause for operator', created_cards: [], updated_cards: [] }] });
     runtime = new Runtime({ projectRoot: root, fakeAgentConfig: { mapping: {}, fixtureDir: root } }, agent);
     await runtime.dispatchGoal('goal-a');
     const plannerMessages = getSessionMessages(join(root, '.saivage'), 'planner:goal-a').filter((m) => m.role === 'user' && m.content.includes('## Goal Context'));
     expect(plannerMessages).toHaveLength(1);
-    const json = plannerMessages[0]!.content.match(/\{[\s\S]*\}/)?.[0];
-    expect(json).toBeTruthy();
-    const context = JSON.parse(json!);
-    expect(context).toEqual(expect.objectContaining({ id: 'goal-a', parent_card_id: 'project', child_card_tree: expect.any(Array), notes: expect.any(Array), latest_self_report: expect.any(Object), latest_review_result: null, correction_attempts: 0, max_review_retries: 0, resume_reason: 'initial', status_text: 'Working goal' }));
-    expect(context.child_card_tree[0]).toEqual(expect.objectContaining({ id: 'goal-child', status_text: 'Child pending' }));
+    const context = parseGoalContextBlock(plannerMessages[0]!.content);
+    expect(context).toEqual(expect.objectContaining({
+      id: 'goal-a',
+      type: 'goal',
+      parent_card_id: 'project',
+      depth: 1,
+      title: 'goal-a',
+      description: 'parent goal',
+      acceptance: ['accept it'],
+      tags: ['stage4'],
+      priority: 42,
+      depends_on: ['bootstrap-card'],
+      blocks: [],
+      child_card_tree: expect.any(Array),
+      notes: expect.any(Array),
+      latest_self_report: expect.objectContaining({ result: 'blocked', summary: 'needs input', status_text: 'Needs input', at: reportAt }),
+      latest_review_result: expect.objectContaining({ assessment_id: 'review-prior', result: 'needs_corrections' }),
+      correction_attempts: 0,
+      max_review_retries: 0,
+      resume_reason: 'initial',
+      status_text: 'Working goal',
+    }));
+    expect(context.child_card_tree).toEqual([expect.objectContaining({
+      id: 'goal-child',
+      type: 'goal',
+      title: 'Child goal',
+      status: 'backlog',
+      status_text: 'Child pending',
+      child_card_tree: [expect.objectContaining({
+        id: 'code-grandchild',
+        type: 'code',
+        title: 'Grandchild leaf',
+        status: 'done',
+        status_text: 'Grandchild done',
+      })],
+    })]);
+    expect(plannerMessages[0]!.content.trim()).toMatch(/resume_reason: initial$/);
 
     runtime.pause();
-    updateRuntimeState(root, { status: 'paused', active_card_run: { card_id: 'goal-a', card_type: 'goal', runtime_status: 'running', phase: 'planner', caller_session_id: null, caller_tool_call_id: null, planner_session_id: 'planner:goal-a', correction_attempts: 0, started_at: now(), last_turn_at: now() }, current_card_id: 'goal-a', current_agent_session_id: 'planner:goal-a' });
+    updateRuntimeState(root, { status: 'paused', active_card_run: { card_id: 'goal-a', card_type: 'goal', runtime_status: 'running', phase: 'planner', caller_session_id: null, caller_tool_call_id: null, planner_session_id: 'planner:goal-a', correction_attempts: 2, started_at: now(), last_turn_at: now() }, current_card_id: 'goal-a', current_agent_session_id: 'planner:goal-a' });
     runtime.resume();
     const resumedMessages = getSessionMessages(join(root, '.saivage'), 'planner:goal-a').filter((m) => m.role === 'user' && m.content.includes('## Goal Context'));
     expect(resumedMessages).toHaveLength(2);
-    expect(resumedMessages[1]!.content).toContain('resume_reason');
+    const resumedContext = parseGoalContextBlock(resumedMessages[1]!.content);
+    expect(resumedContext).toEqual(expect.objectContaining({
+      id: 'goal-a',
+      resume_reason: 'initial',
+      correction_attempts: 2,
+      status_text: 'Working goal',
+    }));
+    expect(resumedContext.child_card_tree[0].child_card_tree[0]).toEqual(expect.objectContaining({ id: 'code-grandchild', status_text: 'Grandchild done' }));
+    expect(resumedMessages[1]!.content.trim()).toMatch(/resume_reason: initial$/);
   });
 
   it.each([

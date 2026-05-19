@@ -714,7 +714,14 @@ describe('Runtime Integration', () => {
       expect(response.statusCode).toBe(200);
       expect(JSON.parse(response.payload).card).toEqual(expect.objectContaining({
         id: 'code-status-context',
+        status: 'changed',
+        result: expect.objectContaining({
+          evidence: 'visible',
+          executor: { evidence: 'visible' },
+          latest_self_report: expect.objectContaining({ status_text: 'Leaf status visible to ancestor' }),
+        }),
         status_text: 'Leaf status visible to ancestor',
+        latest_self_report: expect.objectContaining({ status_text: 'Leaf status visible to ancestor' }),
       }));
 
       await runtime.shutdown();

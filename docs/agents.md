@@ -548,7 +548,7 @@ Gate order on `report_goal_done` is:
 
 ## 9. Goal Context
 
-Goal Context is generated on planner creation and every runtime resume.
+Goal Context is generated on planner creation and every runtime resume. The enforcing implementation is `src/utils/runtime.ts` (`buildGoalContextPayload`, `buildGoalContextBlock`, `appendPlannerResumeContext`), with recursive shape/resume regression coverage in `tests/utils/runtime-restart-orphan-repair.test.ts` and ancestor/HTTP status mirroring coverage in `tests/utils/runtime-integration.test.ts`.
 It is intentionally basic:
 
 ```ts
@@ -674,7 +674,11 @@ type ReviewerResult = {
 On `pass`, the runtime stores `result.review`, marks the goal `done`,
 clears retry counters, updates `latest_self_report` and `status_text`
 from the accepted `report_goal_done` call, and returns `done` from
-the activation.
+the activation. Executor terminal mirroring is implemented in
+`src/utils/runtime.ts` (`executeReadyCards`) and planner report mirroring
+in `src/utils/planner-tools.ts` (`reportGoal`/`acceptReport`); destructive
+restart/cancel/delete preservation is guarded by
+`tests/utils/planner-tools.test.ts`.
 
 On `needs_corrections`, the runtime stores `result.review`, increments
 `correction_attempts`, and either resumes the same planner inside the
