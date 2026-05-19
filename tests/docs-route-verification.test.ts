@@ -25,6 +25,18 @@ function withFixtureProject(docContent: string, fn: (fixtureRoot: string) => voi
   }
 }
 
+function withRuntimeControlFixture(serverSource: string, routesSource: string, fn: (fixtureRoot: string) => void): void {
+  const fixtureRoot = mkdtempSync(join(tmpdir(), 'saivage-runtime-control-docs-'));
+  try {
+    mkdirSync(join(fixtureRoot, 'src', 'server', 'routes'), { recursive: true });
+    writeFileSync(join(fixtureRoot, 'src', 'server', 'server.ts'), serverSource);
+    writeFileSync(join(fixtureRoot, 'src', 'server', 'routes', 'runtime-config-notes.ts'), routesSource);
+    fn(fixtureRoot);
+  } finally {
+    rmSync(fixtureRoot, { recursive: true, force: true });
+  }
+}
+
 describe('operator-facing documentation source-contract verification', () => {
   it('passes for the current active docs and source contract tables', () => {
     const result = verifyDocSourceContracts({ projectRoot });
@@ -100,6 +112,42 @@ describe('operator-facing documentation source-contract verification', () => {
 
       expect(result.ok).toBe(true);
       expect(result.failures).toEqual([]);
+    });
+  });
+
+
+  it('fails for a synthetic fixture that references an unimplemented route', () => {
+    withFixtureProject('Future guidance: `POST /api/runtime/not-a-real-route` should do work.\n', (fixtureRoot) => {
+      const result = verifyDocRoutes({
+        projectRoot: fixtureRoot,
+        docPaths: ['docs/operation.md'],
+        implementedRoutes: new Set(['GET /health']),
+        routeInventoryRows: [{ key: 'GET /health', anchor: 'docs/operation.md:1' }],
+      });
+
+      expect(result.ok).toBe(false);
+      expect(result.failures).toEqual(expect.arrayContaining([
+        expect.objectContaining({ type: 'missing-route', route: 'POST /api/runtime/not-a-real-route' }),
+      ]));
+    });
+  });
+
+  it('fails when the operator route inventory lists a route absent from Fastify source', () => {
+    withFixtureProject('Use `GET /health`.\n', (fixtureRoot) => {
+      const result = verifyDocRoutes({
+        projectRoot: fixtureRoot,
+        docPaths: ['docs/operation.md'],
+        implementedRoutes: new Set(['GET /health']),
+        routeInventoryRows: [
+          { key: 'GET /health', anchor: 'docs/operation.md:1' },
+          { key: 'POST /api/runtime/dispatch', anchor: 'docs/operation.md:1' },
+        ],
+      });
+
+      expect(result.ok).toBe(false);
+      expect(result.failures).toEqual(expect.arrayContaining([
+        expect.objectContaining({ type: 'route-inventory-missing', route: 'POST /api/runtime/dispatch' }),
+      ]));
     });
   });
 
@@ -183,6 +231,96 @@ describe('operator-facing documentation source-contract verification', () => {
     expect(result.failures).toEqual(expect.arrayContaining([
       expect.objectContaining({ type: 'runtime-control-shape', route: 'POST /api/runtime/pause' }),
     ]));
+  });
+
+
+  it('passes runtime-control source checks when anchors point to tolerant control implementations', () => {
+    const serverSource = [
+      "fastify.addContentTypeParser('application/json', { parseAs: 'string' }, (_request, body, done) => {",
+      "  const rawBody = String(body);",
+      "  if (rawBody.trim() === '') done(null, null);",
+      "});",
+    ].join('\n');
+    const routesSource = [
+      "fastify.post('/api/runtime/pause', async () => result.state ?? readRuntimeState(projectRoot));",
+      "fastify.post('/api/runtime/resume', async () => result.state ?? readRuntimeState(projectRoot));",
+      "fastify.post('/api/runtime/freeze', async () => body?.reason);",
+      "fastify.post('/api/runtime/resume-from-freeze', async () => activeRuntime.resumeFromFreeze());",
+    ].join('\n');
+
+    withRuntimeControlFixture(serverSource, routesSource, (fixtureRoot) => {
+      const result = verifyRuntimeControlDocs({
+        projectRoot: fixtureRoot,
+        rows: new Map([
+          ['POST /api/runtime/pause', { request: 'empty-or-null-json-object', response: 'RuntimeState', anchor: 'src/server/routes/runtime-config-notes.ts:1' }],
+          ['POST /api/runtime/resume', { request: 'empty-or-null-json-object', response: 'RuntimeState', anchor: 'src/server/routes/runtime-config-notes.ts:2' }],
+          ['POST /api/runtime/freeze', { request: 'optional-object:{reason?:string}', response: 'freeze-summary', anchor: 'src/server/routes/runtime-config-notes.ts:3' }],
+          ['POST /api/runtime/resume-from-freeze', { request: 'empty-or-null-json-object', response: 'resume-from-freeze-summary', anchor: 'src/server/routes/runtime-config-notes.ts:4' }],
+        ]),
+      });
+
+      expect(result.ok).toBe(true);
+      expect(result.failures).toEqual([]);
+    });
+  });
+
+  it('fails runtime-control source checks when empty JSON body tolerance is removed', () => {
+    const serverSource = "fastify.addContentTypeParser('application/json', {}, (_request, body, done) => done(null, JSON.parse(String(body))));\n";
+    const routesSource = [
+      "fastify.post('/api/runtime/pause', async () => result.state ?? readRuntimeState(projectRoot));",
+      "fastify.post('/api/runtime/resume', async () => result.state ?? readRuntimeState(projectRoot));",
+      "fastify.post('/api/runtime/freeze', async () => body?.reason);",
+      "fastify.post('/api/runtime/resume-from-freeze', async () => activeRuntime.resumeFromFreeze());",
+    ].join('\n');
+
+    withRuntimeControlFixture(serverSource, routesSource, (fixtureRoot) => {
+      const result = verifyRuntimeControlDocs({
+        projectRoot: fixtureRoot,
+        rows: new Map([
+          ['POST /api/runtime/pause', { request: 'empty-or-null-json-object', response: 'RuntimeState', anchor: 'src/server/routes/runtime-config-notes.ts:1' }],
+          ['POST /api/runtime/resume', { request: 'empty-or-null-json-object', response: 'RuntimeState', anchor: 'src/server/routes/runtime-config-notes.ts:2' }],
+          ['POST /api/runtime/freeze', { request: 'optional-object:{reason?:string}', response: 'freeze-summary', anchor: 'src/server/routes/runtime-config-notes.ts:3' }],
+          ['POST /api/runtime/resume-from-freeze', { request: 'empty-or-null-json-object', response: 'resume-from-freeze-summary', anchor: 'src/server/routes/runtime-config-notes.ts:4' }],
+        ]),
+      });
+
+      expect(result.ok).toBe(false);
+      expect(result.failures).toEqual(expect.arrayContaining([
+        expect.objectContaining({ type: 'runtime-control-empty-json-parser' }),
+      ]));
+    });
+  });
+
+  it('fails runtime-control source checks when RuntimeState anchors no longer point to RuntimeState responses', () => {
+    const serverSource = [
+      "fastify.addContentTypeParser('application/json', {}, (_request, body, done) => {",
+      "  const rawBody = String(body);",
+      "  if (rawBody.trim() === '') done(null, null);",
+      "});",
+    ].join('\n');
+    const routesSource = [
+      "fastify.post('/api/runtime/pause', async () => ({ status: 'paused' }));",
+      "fastify.post('/api/runtime/resume', async () => result.state ?? readRuntimeState(projectRoot));",
+      "fastify.post('/api/runtime/freeze', async () => body?.reason);",
+      "fastify.post('/api/runtime/resume-from-freeze', async () => activeRuntime.resumeFromFreeze());",
+    ].join('\n');
+
+    withRuntimeControlFixture(serverSource, routesSource, (fixtureRoot) => {
+      const result = verifyRuntimeControlDocs({
+        projectRoot: fixtureRoot,
+        rows: new Map([
+          ['POST /api/runtime/pause', { request: 'empty-or-null-json-object', response: 'RuntimeState', anchor: 'src/server/routes/runtime-config-notes.ts:1' }],
+          ['POST /api/runtime/resume', { request: 'empty-or-null-json-object', response: 'RuntimeState', anchor: 'src/server/routes/runtime-config-notes.ts:2' }],
+          ['POST /api/runtime/freeze', { request: 'optional-object:{reason?:string}', response: 'freeze-summary', anchor: 'src/server/routes/runtime-config-notes.ts:3' }],
+          ['POST /api/runtime/resume-from-freeze', { request: 'empty-or-null-json-object', response: 'resume-from-freeze-summary', anchor: 'src/server/routes/runtime-config-notes.ts:4' }],
+        ]),
+      });
+
+      expect(result.ok).toBe(false);
+      expect(result.failures).toEqual(expect.arrayContaining([
+        expect.objectContaining({ type: 'anchor-source-mismatch' }),
+      ]));
+    });
   });
 
   it('fails when configuration docs drift from config-schema fields', () => {

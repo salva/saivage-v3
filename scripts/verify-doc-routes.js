@@ -224,15 +224,38 @@ function extractConfigSchema(projectRoot) {
   ]);
 }
 
-function verifyAnchor(projectRoot, anchor, failures, context) {
+function anchorLine(projectRoot, anchor) {
   const [file, lineRaw] = anchor.split(':');
   const line = Number(lineRaw);
-  if (!file || !Number.isInteger(line) || line < 1 || !existsSync(join(projectRoot, file))) {
-    failures.push({ type: 'bad-anchor', message: `${context} has invalid code anchor ${anchor}` });
-    return;
-  }
+  if (!file || !Number.isInteger(line) || line < 1 || !existsSync(join(projectRoot, file))) return null;
   const lines = readFileSync(join(projectRoot, file), 'utf-8').split('\n');
-  if (line > lines.length) failures.push({ type: 'bad-anchor', message: `${context} points past end of ${anchor}` });
+  if (line > lines.length) return null;
+  return lines[line - 1];
+}
+
+function verifyAnchor(projectRoot, anchor, failures, context) {
+  const line = anchorLine(projectRoot, anchor);
+  if (line === null) {
+    const [file, lineRaw] = anchor.split(':');
+    const parsedLine = Number(lineRaw);
+    if (!file || !Number.isInteger(parsedLine) || parsedLine < 1 || !existsSync(join(projectRoot, file))) failures.push({ type: 'bad-anchor', message: `${context} has invalid code anchor ${anchor}` });
+    else failures.push({ type: 'bad-anchor', message: `${context} points past end of ${anchor}` });
+  }
+}
+
+function verifyAnchorLineContains(projectRoot, anchor, requiredFragments, failures, context) {
+  const line = anchorLine(projectRoot, anchor);
+  if (line === null) return;
+  for (const fragment of requiredFragments) {
+    if (!line.includes(fragment)) failures.push({ type: 'anchor-source-mismatch', message: `${context} anchor ${anchor} does not contain expected source fragment ${JSON.stringify(fragment)}` });
+  }
+}
+
+function sourceContains(projectRoot, relPath, fragments) {
+  const fullPath = join(projectRoot, relPath);
+  if (!existsSync(fullPath)) return false;
+  const content = readFileSync(fullPath, 'utf-8');
+  return fragments.every((fragment) => content.includes(fragment));
 }
 function sameArray(a, b) { return a.length === b.length && a.every((value, index) => value === b[index]); }
 
@@ -284,18 +307,28 @@ export function verifyAgentToolDocs(options = {}) {
 export function verifyRuntimeControlDocs(options = {}) {
   const projectRoot = options.projectRoot ?? process.cwd();
   const rows = options.rows ?? parseRuntimeControlTable(projectRoot);
+  const verifySource = options.verifySource ?? true;
   const failures = [];
   const expected = new Map([
-    ['POST /api/runtime/pause', { request: 'empty-or-null-json-object', response: 'RuntimeState' }],
-    ['POST /api/runtime/resume', { request: 'empty-or-null-json-object', response: 'RuntimeState' }],
-    ['POST /api/runtime/freeze', { request: 'optional-object:{reason?:string}', response: 'freeze-summary' }],
-    ['POST /api/runtime/resume-from-freeze', { request: 'empty-or-null-json-object', response: 'resume-from-freeze-summary' }],
+    ['POST /api/runtime/pause', { request: 'empty-or-null-json-object', response: 'RuntimeState', sourceFragments: ['fastify.post', '/api/runtime/pause', 'result.state ?? readRuntimeState(projectRoot)'] }],
+    ['POST /api/runtime/resume', { request: 'empty-or-null-json-object', response: 'RuntimeState', sourceFragments: ['fastify.post', '/api/runtime/resume', 'result.state ?? readRuntimeState(projectRoot)'] }],
+    ['POST /api/runtime/freeze', { request: 'optional-object:{reason?:string}', response: 'freeze-summary', sourceFragments: ['fastify.post', '/api/runtime/freeze', 'body?.reason'] }],
+    ['POST /api/runtime/resume-from-freeze', { request: 'empty-or-null-json-object', response: 'resume-from-freeze-summary', sourceFragments: ['fastify.post', '/api/runtime/resume-from-freeze', 'resumeFromFreeze'] }],
   ]);
   for (const [route, shape] of expected) {
     const row = rows.get(route);
     if (!row) { failures.push({ type: 'missing-runtime-control', message: `${OPERATION_DOC} is missing runtime-control shape row for ${route}` }); continue; }
     verifyAnchor(projectRoot, row.anchor, failures, `runtime control ${route}`);
+    if (verifySource) verifyAnchorLineContains(projectRoot, row.anchor, shape.sourceFragments, failures, `runtime control ${route}`);
     if (row.request !== shape.request || row.response !== shape.response) failures.push({ type: 'runtime-control-shape', route, message: `${OPERATION_DOC} documents ${route} as ${row.request} -> ${row.response}, expected ${shape.request} -> ${shape.response}` });
+  }
+  if (verifySource) {
+    const hasEmptyJsonTolerance = sourceContains(projectRoot, 'src/server/server.ts', [
+      "addContentTypeParser('application/json'",
+      "rawBody.trim() === ''",
+      'done(null, null)',
+    ]);
+    if (!hasEmptyJsonTolerance) failures.push({ type: 'runtime-control-empty-json-parser', message: 'src/server/server.ts must keep the application/json parser tolerant of empty bodies for runtime-control POST routes' });
   }
   return { ok: failures.length === 0, failures, expected, documented: rows };
 }
