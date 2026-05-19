@@ -12,6 +12,7 @@ set -euo pipefail
 #   - Historical-link isolation for current/stale docs.
 #   - Runbook curl/example route and response-shape checks.
 #   - Global Markdown internal-link and anchor resolution.
+#   - Audit/UI finding dossier status, resolution, and remediation-log consistency.
 
 DIST="docs/.vitepress/dist"
 
@@ -78,8 +79,11 @@ echo ""
 node scripts/check-markdown-links.js || ALL_OK=false
 
 echo ""
+node scripts/check-finding-dossiers.js || ALL_OK=false
+
+echo ""
 if $ALL_OK; then
-  echo "✓ docs:verify passed — docs build output, route/role/config/runtime anchors, documentation inventory, design links, historical isolation, runbook examples, and global Markdown links are valid"
+  echo "✓ docs:verify passed — docs build output, route/role/config/runtime anchors, documentation inventory, design links, historical isolation, runbook examples, global Markdown links, and finding dossiers are valid"
 else
   echo "✗ docs:verify FAILED — one or more documentation build or drift guards failed"
   exit 1
