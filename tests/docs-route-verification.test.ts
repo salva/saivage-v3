@@ -116,6 +116,65 @@ describe('operator-facing documentation source-contract verification', () => {
   });
 
 
+
+  it('accepts an operator route inventory row with a context-quoted source anchor', () => {
+    withFixtureProject('Use `GET /api/example` for the fixture route.\n', (fixtureRoot) => {
+      mkdirSync(join(fixtureRoot, 'src', 'server', 'routes'), { recursive: true });
+      writeFileSync(join(fixtureRoot, 'src', 'server', 'routes', 'example.ts'), "fastify.get('/api/example', async () => ({ ok: true }));\n");
+
+      const result = verifyDocRoutes({
+        projectRoot: fixtureRoot,
+        docPaths: ['docs/operation.md'],
+        implementedRoutes: new Set(['GET /api/example']),
+        routeInventoryRows: [
+          { key: 'GET /api/example', anchor: 'src/server/routes/example.ts:1 "fastify.get(\'/api/example\'"' },
+        ],
+      });
+
+      expect(result.ok).toBe(true);
+      expect(result.failures).toEqual([]);
+    });
+  });
+
+  it('fails when a route inventory context-quoted anchor points near stale source text', () => {
+    withFixtureProject('Use `GET /api/example` for the fixture route.\n', (fixtureRoot) => {
+      mkdirSync(join(fixtureRoot, 'src', 'server', 'routes'), { recursive: true });
+      writeFileSync(join(fixtureRoot, 'src', 'server', 'routes', 'example.ts'), "fastify.get('/api/example', async () => ({ ok: true }));\n");
+
+      const result = verifyDocRoutes({
+        projectRoot: fixtureRoot,
+        docPaths: ['docs/operation.md'],
+        implementedRoutes: new Set(['GET /api/example']),
+        routeInventoryRows: [
+          { key: 'GET /api/example', anchor: 'src/server/routes/example.ts:1 "fastify.post(\'/api/example\'"' },
+        ],
+      });
+
+      expect(result.ok).toBe(false);
+      expect(result.failures).toEqual(expect.arrayContaining([
+        expect.objectContaining({ type: 'anchor-source-mismatch' }),
+      ]));
+    });
+  });
+
+  it('fails when a route inventory context-quoted anchor points to a missing source file', () => {
+    withFixtureProject('Use `GET /api/example` for the fixture route.\n', (fixtureRoot) => {
+      const result = verifyDocRoutes({
+        projectRoot: fixtureRoot,
+        docPaths: ['docs/operation.md'],
+        implementedRoutes: new Set(['GET /api/example']),
+        routeInventoryRows: [
+          { key: 'GET /api/example', anchor: 'src/server/routes/missing-example.ts:1 "fastify.get(\'/api/example\'"' },
+        ],
+      });
+
+      expect(result.ok).toBe(false);
+      expect(result.failures).toEqual(expect.arrayContaining([
+        expect.objectContaining({ type: 'bad-anchor' }),
+      ]));
+    });
+  });
+
   it('fails for a synthetic fixture that references an unimplemented route', () => {
     withFixtureProject('Future guidance: `POST /api/runtime/not-a-real-route` should do work.\n', (fixtureRoot) => {
       const result = verifyDocRoutes({

@@ -225,10 +225,26 @@ function extractConfigSchema(projectRoot) {
   ]);
 }
 
+const CONTEXT_WINDOW_LINES = 5;
+
+function unescapeQuotedContext(value) {
+  if (!value) return undefined;
+  return value.replace(/\\(["\\nrt])/g, (_match, escaped) => {
+    if (escaped === 'n') return '\n';
+    if (escaped === 'r') return '\r';
+    if (escaped === 't') return '\t';
+    return escaped;
+  });
+}
+
+function normalizeAnchorSnippet(value) {
+  return value.trim().replace(/\s+/g, ' ');
+}
+
 function parseLineAnchor(anchor) {
-  const match = anchor.match(/^([^\s:|]+):(\d+)(?:\s+"(?:\\.|[^"\\])*")?$/);
+  const match = anchor.match(/^([^\s:|]+):(\d+)(?:\s+"((?:\\.|[^"\\])*)")?$/);
   if (!match) return null;
-  return { file: match[1], line: Number(match[2]) };
+  return { file: match[1], line: Number(match[2]), context: unescapeQuotedContext(match[3]) };
 }
 
 function anchorLine(projectRoot, anchor) {
@@ -240,11 +256,26 @@ function anchorLine(projectRoot, anchor) {
 }
 
 function verifyAnchor(projectRoot, anchor, failures, context) {
+  const parsed = parseLineAnchor(anchor);
   const line = anchorLine(projectRoot, anchor);
   if (line === null) {
-    const parsed = parseLineAnchor(anchor);
     if (!parsed || !Number.isInteger(parsed.line) || parsed.line < 1 || !existsSync(join(projectRoot, parsed.file))) failures.push({ type: 'bad-anchor', message: `${context} has invalid code anchor ${anchor}` });
     else failures.push({ type: 'bad-anchor', message: `${context} points past end of ${anchor}` });
+    return;
+  }
+
+  const expectedContext = normalizeAnchorSnippet(parsed.context ?? '');
+  if (!expectedContext) return;
+
+  const lines = readFileSync(join(projectRoot, parsed.file), 'utf-8').split('\n');
+  const start = Math.max(0, parsed.line - 1 - CONTEXT_WINDOW_LINES);
+  const end = Math.min(lines.length, parsed.line + CONTEXT_WINDOW_LINES);
+  const nearby = normalizeAnchorSnippet(lines.slice(start, end).join('\n'));
+  if (!nearby.includes(expectedContext)) {
+    failures.push({
+      type: 'anchor-source-mismatch',
+      message: `${context} anchor ${anchor} context was not found within ${CONTEXT_WINDOW_LINES} line(s) of ${parsed.file}:${parsed.line}`,
+    });
   }
 }
 
