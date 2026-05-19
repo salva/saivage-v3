@@ -71,7 +71,7 @@ function defaultDependsOnIndex(): Record<string, string[]> { return {}; }
 function defaultBlocksIndex(): Record<string, string[]> { return {}; }
 function defaultNotesQueue() { return { next_note_sequence: 1, entries: [] as Array<{ card_id: string; note_id: string; timestamp: string; kind: string }> }; }
 
-const SAIVAGE_DIRS: string[] = ['skills', 'cards/by-id', 'cards/tree', 'cards/dependencies', 'cards/history', 'cards/views', 'diaries', 'reviews/by-goal', 'notes/by-card', 'agents/sessions', 'agents/messages', 'runtime', 'supervision', 'views', 'instructions'];
+const SAIVAGE_DIRS: string[] = ['skills', 'cards/by-id', 'cards/tree', 'cards/dependencies', 'cards/history', 'cards/views', 'diaries', 'reviews/by-goal', 'notes/by-card', 'agents/sessions', 'agents/messages', 'runtime', 'tmp/state', 'supervision', 'views', 'instructions'];
 const SAIVAGE_WORK_DIRS: string[] = ['cards', 'processes', 'downloads', 'quarantine', 'tmp/runtime', 'tmp/stash', 'tmp/uploads', 'tmp/previews'];
 
 function validationHint(projectRoot: string): string {

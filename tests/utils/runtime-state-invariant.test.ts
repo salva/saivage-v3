@@ -18,7 +18,7 @@ let root: string;
 let originalNodeEnv: string | undefined;
 
 function statePath(): string {
-  return join(root, '.saivage', 'runtime', 'state.json');
+  return join(root, '.saivage', 'tmp', 'state', 'runtime.json');
 }
 
 function runningRun(overrides: Partial<ActiveCardRun> = {}): ActiveCardRun {

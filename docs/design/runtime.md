@@ -33,16 +33,20 @@ runtime — the runtime controls agents.
    (see `configuration.md §MCP Servers`). Begin health
    monitoring of external servers.
 
-5. **Single-instance guard**: Check `.saivage/runtime/state.json` for
-  a still-alive PID. If alive and recent (< 14 days), abort with an
+5. **Single-instance guard**: Check the authoritative runtime state at
+   `.saivage/tmp/state/runtime.json` for a still-alive PID. If alive and recent (< 14 days), abort with an
   error. Then acquire an exclusive runtime lock via `O_CREAT|O_EXCL`
   on `.saivage-work/tmp/runtime/runtime.lock`. This closes the TOCTOU
    gap between the PID check and the first state write. If the lock
    file exists but its PID is dead or its timestamp is stale
    (> 14 days), the lock is removed and re-acquired.
 
-6. **Crash recovery**: Read old `.saivage/runtime/state.json`. If the
-  previous process died mid-execution:
+6. **Crash recovery**: Read `.saivage/tmp/state/runtime.json`. If a
+   supported legacy `.saivage/runtime/state.json` exists and no
+   authoritative file exists, `src/utils/runtime-state.ts:67` migrates it
+   once; if both files exist, `src/utils/runtime-state.ts:61` refuses the
+   mixed layout to avoid split-brain recovery. If the previous process
+   died mid-execution:
   - Sweep stale `.tmp` files from `.saivage-work/tmp/runtime/`.
   - Reset any `active` or `running` cards to `backlog`.
    - If a card has a completed result file but was not yet
@@ -55,8 +59,8 @@ runtime — the runtime controls agents.
 7. **Event bus**: Create the in-process event bus for runtime event
    distribution.
 
-8. **Write initial runtime state**: Persist `.saivage/runtime/state.json`
-  with `status: "idle"`, current PID, and timestamp.
+8. **Write initial runtime state**: Persist `.saivage/tmp/state/runtime.json`
+   with `status: "idle"`, current PID, and timestamp.
 
 9. **Start stuck-agent supervisor**: If enabled, begin periodic
    stuck-agent detection (see §Stuck Agent Detection below).
@@ -106,14 +110,16 @@ ad hoc writes:
 Operational invariants:
 
 - there should be no direct production writers of
-  `.saivage/runtime/state.json` outside the runtime-state module and
+  `.saivage/tmp/state/runtime.json` outside the runtime-state module and
   canonical runtime-control helpers.
 - idle runtime states with `current_card_id === null` cannot retain a
   non-terminal `active_card_run`; `src/utils/runtime-state.ts` rejects
   that shape in strict/test mode and self-heals historical production
   state, with regression coverage in
   `tests/utils/runtime-state-invariant.test.ts` and
-  `tests/server/operator-api-contract-fixtures.test.ts`.
+  `tests/server/operator-api-contract-fixtures.test.ts`. Runtime layout
+  migration/refusal is anchored by `src/utils/runtime-state.ts:26` and
+  `tests/utils/runtime-state-layout.test.ts:64`.
 
 Cross-surface parity means web UI, REST, CLI, analyst chat, and runtime
 internals should observe the same pause/freeze state and the same
@@ -412,8 +418,10 @@ by executors:
 
 ## Runtime State Persistence
 
-The runtime state file (`.saivage/runtime/state.json`) is updated on
-every significant state change:
+The runtime state file (`.saivage/tmp/state/runtime.json`) is updated on
+every significant state change. `src/utils/runtime-state.ts:26` defines
+that path, and `src/utils/runtime-state.ts:160` /
+`src/utils/runtime-state.ts:167` are the canonical init/save writers:
 
 ```yaml
 status:           idle | running | paused | frozen | error
@@ -431,14 +439,19 @@ frozen_reason:    string | null
 
 The runtime state file is the source of truth for crash recovery.
 It is written atomically (write to `.tmp`, then rename) to prevent
-corruption on crash. After server restart/reload, `/api/state` must
+corruption on crash. A supported legacy `.saivage/runtime/state.json` is
+migrated exactly once only when no authoritative file exists
+(`src/utils/runtime-state.ts:67`); if both paths exist, runtime-state
+helpers throw `RuntimeStateLayoutError` instead of choosing one
+(`src/utils/runtime-state.ts:19`, `src/utils/runtime-state.ts:61`). After server restart/reload, `/api/state` must
 return a `runtimeStateSchema`-valid state whose `status`,
 `current_card_id`, `active_card_run`, and `current_agent_session_id`
 remain coherent; `/api/agents` derives its sole active session from
 that same `current_agent_session_id`. The enforcing implementation is
 `src/utils/runtime-state.ts` plus `src/server/routes/runtime-config-notes.ts`,
 with restart/reload coverage in
-`tests/server/restart-persistence-operator-surface.test.ts`.
+`tests/server/restart-persistence-operator-surface.test.ts` and layout
+coverage in `tests/utils/runtime-state-layout.test.ts:64`.
 
 ---
 

@@ -8,7 +8,7 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
 import { CardStore } from '../src/utils/card-store.js';
-import { initRuntimeState, readRuntimeState, updateRuntimeState } from '../src/utils/runtime-state.js';
+import { initRuntimeState, readRuntimeState, runtimeStatePath, updateRuntimeState } from '../src/utils/runtime-state.js';
 import {
   create_card, pause_runtime, resume_runtime,
 } from '../src/agents/analyst-tools.js';
@@ -122,14 +122,14 @@ describe('Analyst Tools', () => {
   });
 
   it('returns actionable error when analyst pause_runtime has no runtime state', async () => {
-    unlinkSync(join(projectRoot, '.saivage', 'runtime', 'state.json'));
+    unlinkSync(runtimeStatePath(projectRoot));
     const result = await pause_runtime(ctx(projectRoot, store), {});
     expect(result.success).toBe(false);
     expect(result.error).toContain('runtime state is not initialized');
   });
 
   it('returns actionable error when analyst resume_runtime has no runtime state', async () => {
-    unlinkSync(join(projectRoot, '.saivage', 'runtime', 'state.json'));
+    unlinkSync(runtimeStatePath(projectRoot));
     const result = await resume_runtime(ctx(projectRoot, store), {});
     expect(result.success).toBe(false);
     expect(result.error).toContain('runtime state is not initialized');

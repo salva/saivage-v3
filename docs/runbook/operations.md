@@ -89,7 +89,7 @@ Expected status: `200`.
 
 Expected top-level JSON keys: `runtime`, `cardIndex`.
 
-`runtime` is the current `RuntimeState` or `null` when no runtime state exists. `cardIndex` includes `total`, `byStatus`, and `byType`.
+`runtime` is the current `RuntimeState` or `null` when no runtime state exists. `cardIndex` includes `total`, `byStatus`, and `byType`. The persisted source of truth is `.saivage/tmp/state/runtime.json` (`src/utils/runtime-state.ts:26`). On first read, a supported legacy `.saivage/runtime/state.json` migrates once only when the authoritative file is absent; if both files exist, Saivage refuses startup/control reads with `RuntimeStateLayoutError` rather than risking split-brain state (`src/utils/runtime-state.ts:61`, `tests/utils/runtime-state-layout.test.ts:81`).
 
 ### Compact runtime status
 
@@ -195,7 +195,7 @@ Messages are serialized per connection. The server preserves sanitization and ei
 
 ## Backup and maintenance
 
-Persistent state lives primarily in `.saivage/`. Generated and temporary work outputs live in `.saivage-work/`.
+Persistent state lives primarily in `.saivage/`; the authoritative runtime-state file is `.saivage/tmp/state/runtime.json`. Generated and temporary work outputs live in `.saivage-work/`.
 
 Recommended maintenance sequence:
 

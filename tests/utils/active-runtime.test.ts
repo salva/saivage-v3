@@ -18,6 +18,7 @@ import { initProjectTree } from '../../src/utils/file-tree.js';
 import { CardStore } from '../../src/utils/card-store.js';
 import { releaseLock, isLocked } from '../../src/utils/runtime-lock.js';
 import { ActiveRuntime } from '../../src/utils/active-runtime.js';
+import { runtimeStatePath } from '../../src/utils/runtime-state.js';
 import type { CardRecord } from '../../src/schemas/types.js';
 
 // ── Helpers ───────────────────────────────────────────────────
@@ -46,7 +47,7 @@ function setupProjectWithConfig(projectRoot: string): void {
 
   // Write runtime state
   writeFileSync(
-    join(sd, 'runtime', 'state.json'),
+    runtimeStatePath(projectRoot),
     JSON.stringify({
       status: 'idle',
       project_id: 'project',
@@ -228,7 +229,7 @@ describe('ActiveRuntime', () => {
       await activeRuntime.start();
       activeRuntime.freeze('unit test freeze');
 
-      const statePath = join(tmpDir, '.saivage', 'runtime', 'state.json');
+      const statePath = runtimeStatePath(tmpDir);
       expect(JSON.parse(readFileSync(statePath, 'utf-8')).status).toBe('frozen');
       expect(isLocked(tmpDir)).toBe(true);
 

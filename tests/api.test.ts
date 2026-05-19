@@ -12,6 +12,7 @@ import { appendNote } from '../src/utils/notes.js';
 import { createServer, type ServerInstance } from '../src/server/server.js';
 import { NotificationCenter } from '../src/utils/notification-center.js';
 import { recordControlAction } from '../src/utils/control-action-audit.js';
+import { runtimeStatePath } from '../src/utils/runtime-state.js';
 
 const TEST_ROOT = join(tmpdir(), `saivage-api-test-${Date.now()}`);
 const SAIVAGE_DIR = join(TEST_ROOT, '.saivage');
@@ -35,6 +36,7 @@ function initializeProjectRoot(root: string): void {
   mkdirSync(join(saivageDir, 'cards', 'dependencies'), { recursive: true });
   mkdirSync(join(saivageDir, 'notes', 'by-card'), { recursive: true });
   mkdirSync(join(saivageDir, 'runtime'), { recursive: true });
+  mkdirSync(join(saivageDir, 'tmp', 'state'), { recursive: true });
   mkdirSync(join(saivageDir, 'agents', 'sessions'), { recursive: true });
   mkdirSync(join(saivageDir, 'agents', 'messages'), { recursive: true });
 
@@ -45,7 +47,7 @@ function initializeProjectRoot(root: string): void {
   writeFileSync(join(saivageDir, 'cards', 'dependencies', 'depends-on.json'), JSON.stringify({}));
   writeFileSync(join(saivageDir, 'cards', 'dependencies', 'blocks.json'), JSON.stringify({}));
   writeFileSync(join(saivageDir, 'notes', 'queue.json'), JSON.stringify({ next_note_sequence: 1, entries: [] }));
-  writeFileSync(join(saivageDir, 'runtime', 'state.json'), JSON.stringify({ status: 'idle', project_id: 'project', pid: process.pid, started_at: now, current_card_id: null, current_agent_session_id: null, paused: false, paused_at: null, queue: [], running_processes: [], updated_at: now }));
+  writeFileSync(runtimeStatePath(root), JSON.stringify({ status: 'idle', project_id: 'project', pid: process.pid, started_at: now, current_card_id: null, current_agent_session_id: null, paused: false, paused_at: null, queue: [], running_processes: [], updated_at: now }));
   writeFileSync(join(saivageDir, 'saivage.json'), JSON.stringify({ server: { port: 0, host: '127.0.0.1' }, models: { default: ['test-model'] }, providers: { test: { priority: 10, models: ['test-model'], apiKey: 'secret-key' } } }));
 }
 
@@ -162,7 +164,7 @@ describe('card detail planning summary semantics', () => {
 describe('runtime config and notes routes', () => {
   it('rejects generic resume from frozen state with actionable 400', async () => {
     const now = new Date().toISOString();
-    writeFileSync(join(SAIVAGE_DIR, 'runtime', 'state.json'), JSON.stringify({ status: 'frozen', project_id: 'project', pid: process.pid, started_at: now, current_card_id: null, current_agent_session_id: null, paused: true, paused_at: now, queue: [], running_processes: [], updated_at: now, frozen_reason: 'maintenance' }));
+    writeFileSync(runtimeStatePath(TEST_ROOT), JSON.stringify({ status: 'frozen', project_id: 'project', pid: process.pid, started_at: now, current_card_id: null, current_agent_session_id: null, paused: true, paused_at: now, queue: [], running_processes: [], updated_at: now, frozen_reason: 'maintenance' }));
     const res = await fetch(url('/api/runtime/resume'), { method: 'POST', headers: authHeader(authToken) });
     expect(res.status).toBe(400);
     const body = await res.json() as { error: string; message: string; action: string };
@@ -173,21 +175,21 @@ describe('runtime config and notes routes', () => {
 
   it('allows generic resume from paused state', async () => {
     const now = new Date().toISOString();
-    writeFileSync(join(SAIVAGE_DIR, 'runtime', 'state.json'), JSON.stringify({ status: 'paused', project_id: 'project', pid: process.pid, started_at: now, current_card_id: null, current_agent_session_id: null, paused: true, paused_at: now, queue: [], running_processes: [], updated_at: now }));
+    writeFileSync(runtimeStatePath(TEST_ROOT), JSON.stringify({ status: 'paused', project_id: 'project', pid: process.pid, started_at: now, current_card_id: null, current_agent_session_id: null, paused: true, paused_at: now, queue: [], running_processes: [], updated_at: now }));
     const res = await fetch(url('/api/runtime/resume'), { method: 'POST', headers: authHeader(authToken) });
     expect(res.status).toBe(200);
     const body = await res.json() as Record<string, unknown>;
     expect(body).toMatchObject({ status: 'idle', project_id: 'project', paused: false, paused_at: null });
     expect(Array.isArray(body['queue'])).toBe(true);
     expect(Array.isArray(body['running_processes'])).toBe(true);
-    const state = JSON.parse(readFileSync(join(SAIVAGE_DIR, 'runtime', 'state.json'), 'utf-8')) as { status: string; paused: boolean; paused_at: string | null };
+    const state = JSON.parse(readFileSync(runtimeStatePath(TEST_ROOT), 'utf-8')) as { status: string; paused: boolean; paused_at: string | null };
     expect(state.status).toBe('idle');
     expect(state.paused).toBe(false);
     expect(state.paused_at).toBeNull();
   });
 
   it('returns actionable 503 when pause is requested without runtime state', async () => {
-    unlinkSync(join(SAIVAGE_DIR, 'runtime', 'state.json'));
+    unlinkSync(runtimeStatePath(TEST_ROOT));
     const res = await fetch(url('/api/runtime/pause'), { method: 'POST', headers: authHeader(authToken) });
     expect(res.status).toBe(503);
     const body = await res.json() as { error: string; message: string };
@@ -203,7 +205,7 @@ describe('runtime config and notes routes', () => {
     expect(body.message).toContain('Start the runtime or restore runtime state first');
 
     const now = new Date().toISOString();
-    writeFileSync(join(SAIVAGE_DIR, 'runtime', 'state.json'), JSON.stringify({ status: 'idle', project_id: 'project', pid: process.pid, started_at: now, current_card_id: null, current_agent_session_id: null, paused: false, paused_at: null, queue: [], running_processes: [], updated_at: now }));
+    writeFileSync(runtimeStatePath(TEST_ROOT), JSON.stringify({ status: 'idle', project_id: 'project', pid: process.pid, started_at: now, current_card_id: null, current_agent_session_id: null, paused: false, paused_at: null, queue: [], running_processes: [], updated_at: now }));
   });
 
   it('lists notes without returning note undefined and reconciles stale queue entries', async () => {

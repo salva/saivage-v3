@@ -347,6 +347,18 @@ project card, the runtime persists a synthetic `failed` outcome on
 the project card and emits `project_run_completed` (no tool_result is
 delivered).
 
+**Runtime-state layout.** The authoritative persisted `RuntimeState` path is
+`.saivage/tmp/state/runtime.json`, defined by
+`src/utils/runtime-state.ts:26` and written by `initRuntimeState`,
+`saveRuntimeState`, and `updateRuntimeState`. A supported legacy
+`.saivage/runtime/state.json` is migrated exactly once only when the
+authoritative file is absent (`src/utils/runtime-state.ts:67`); if both
+old and new files exist, runtime-state helpers throw
+`RuntimeStateLayoutError` and refuse the mixed layout to avoid
+split-brain state (`src/utils/runtime-state.ts:19`,
+`src/utils/runtime-state.ts:61`). Regression coverage lives in
+`tests/utils/runtime-state-layout.test.ts:64`.
+
 ## 7. Planner Tools
 
 Planner tools are subtree-scoped to the planner's goal.

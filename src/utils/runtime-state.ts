@@ -1,11 +1,12 @@
-import { readFileSync, existsSync } from 'node:fs';
+import { readFileSync, existsSync, renameSync } from 'node:fs';
 import { join } from 'node:path';
 import { runtimeStateSchema } from '../schemas/validators.js';
 import { explainLegacyStateRejection, writeFileAtomic } from './file-tree.js';
 import { EventLogger } from './event-logger.js';
 import type { ActiveCardRun, RuntimeState } from '../schemas/types.js';
 
-const STATE_FILE = 'state.json';
+const LEGACY_STATE_FILE = 'state.json';
+const AUTHORITATIVE_STATE_FILE = 'runtime.json';
 const TERMINAL_IDLE_ACTIVE_RUN_STATUSES = new Set(['stopped', 'cancelled']);
 
 export class RuntimeStateInvariantError extends Error {
@@ -15,8 +16,23 @@ export class RuntimeStateInvariantError extends Error {
   }
 }
 
-function statePath(projectRoot: string): string {
-  return join(projectRoot, '.saivage', 'runtime', STATE_FILE);
+export class RuntimeStateLayoutError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'RuntimeStateLayoutError';
+  }
+}
+
+export function runtimeStatePath(projectRoot: string): string {
+  return join(projectRoot, '.saivage', 'tmp', 'state', AUTHORITATIVE_STATE_FILE);
+}
+
+export function legacyRuntimeStatePath(projectRoot: string): string {
+  return join(projectRoot, '.saivage', 'runtime', LEGACY_STATE_FILE);
+}
+
+function migratedLegacyRuntimeStatePath(projectRoot: string): string {
+  return join(projectRoot, '.saivage', 'runtime', `${LEGACY_STATE_FILE}.migrated`);
 }
 
 function isProductionRuntime(): boolean {
@@ -36,6 +52,31 @@ function describeInvariantViolation(state: RuntimeState): string {
   const status = state.active_card_run?.runtime_status ?? 'null';
   const cardId = state.active_card_run?.card_id ?? 'null';
   return `RuntimeState invariant violation: idle runtime with current_card_id null cannot retain non-terminal active_card_run (card_id=${cardId}, runtime_status=${status}).`;
+}
+
+function describeMixedLayout(projectRoot: string): string {
+  return `RuntimeState layout conflict: both authoritative ${runtimeStatePath(projectRoot)} and legacy ${legacyRuntimeStatePath(projectRoot)} exist. Refusing to choose between split-brain state files; move the legacy file aside after confirming the authoritative state is correct.`;
+}
+
+function assertNoMixedRuntimeStateLayout(projectRoot: string): void {
+  if (existsSync(runtimeStatePath(projectRoot)) && existsSync(legacyRuntimeStatePath(projectRoot))) {
+    throw new RuntimeStateLayoutError(describeMixedLayout(projectRoot));
+  }
+}
+
+function migrateLegacyRuntimeStateIfNeeded(projectRoot: string): void {
+  const authoritativePath = runtimeStatePath(projectRoot);
+  const legacyPath = legacyRuntimeStatePath(projectRoot);
+  if (existsSync(authoritativePath)) {
+    assertNoMixedRuntimeStateLayout(projectRoot);
+    return;
+  }
+  if (!existsSync(legacyPath)) return;
+
+  const raw = readFileSync(legacyPath, 'utf-8');
+  const state = parseRuntimeState(projectRoot, JSON.parse(raw), { persistSelfHeal: false });
+  writeFileAtomic(authoritativePath, JSON.stringify(state, null, 2) + '\n');
+  renameSync(legacyPath, migratedLegacyRuntimeStatePath(projectRoot));
 }
 
 function appendSelfHealWarning(projectRoot: string, state: RuntimeState, source: 'save' | 'read'): void {
@@ -100,36 +141,44 @@ function defaultRuntimeState(): RuntimeState {
   };
 }
 
-function parseRuntimeState(projectRoot: string, raw: unknown): RuntimeState {
+function parseRuntimeState(
+  projectRoot: string,
+  raw: unknown,
+  options: { persistSelfHeal?: boolean } = {},
+): RuntimeState {
   const parsed = runtimeStateSchema.safeParse(raw);
   if (!parsed.success) {
     explainLegacyStateRejection(projectRoot, 'RuntimeState', parsed.error.message);
   }
   const normalized = normalizeRuntimeStateInvariant(projectRoot, parsed.data, 'read');
-  if (normalized !== parsed.data) {
-    writeFileAtomic(statePath(projectRoot), JSON.stringify(normalized, null, 2) + '\n');
+  if (options.persistSelfHeal !== false && normalized !== parsed.data) {
+    writeFileAtomic(runtimeStatePath(projectRoot), JSON.stringify(normalized, null, 2) + '\n');
   }
   return normalized;
 }
 
 export function initRuntimeState(projectRoot: string): RuntimeState {
+  assertNoMixedRuntimeStateLayout(projectRoot);
   const state = defaultRuntimeState();
-  writeFileAtomic(statePath(projectRoot), JSON.stringify(state, null, 2) + '\n');
+  writeFileAtomic(runtimeStatePath(projectRoot), JSON.stringify(state, null, 2) + '\n');
   return state;
 }
 
 export function saveRuntimeState(projectRoot: string, state: RuntimeState): RuntimeState {
+  assertNoMixedRuntimeStateLayout(projectRoot);
   const parsed = runtimeStateSchema.safeParse(state);
   if (!parsed.success) {
     explainLegacyStateRejection(projectRoot, 'RuntimeState', parsed.error.message);
   }
   const normalized = normalizeRuntimeStateInvariant(projectRoot, parsed.data, 'save');
-  writeFileAtomic(statePath(projectRoot), JSON.stringify(normalized, null, 2) + '\n');
+  writeFileAtomic(runtimeStatePath(projectRoot), JSON.stringify(normalized, null, 2) + '\n');
   return normalized;
 }
 
 export function readRuntimeState(projectRoot: string): RuntimeState | null {
-  const sp = statePath(projectRoot);
+  migrateLegacyRuntimeStateIfNeeded(projectRoot);
+  assertNoMixedRuntimeStateLayout(projectRoot);
+  const sp = runtimeStatePath(projectRoot);
   if (!existsSync(sp)) {
     return null;
   }
