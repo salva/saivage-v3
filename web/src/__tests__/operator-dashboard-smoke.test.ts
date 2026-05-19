@@ -85,6 +85,16 @@ const apiState = vi.hoisted(() => {
         completed_at: now,
         model: 'synthetic-model',
       },
+      {
+        id: 'executor-smoke',
+        role: 'executor',
+        status: 'inactive',
+        goal_card_id: 'project-smoke',
+        card_id: 'card-smoke',
+        started_at: now,
+        completed_at: now,
+        model: 'synthetic-model',
+      },
     ] as AgentSession[],
   };
 });
@@ -307,7 +317,12 @@ vi.mock('../api/client', () => {
     acknowledgeNotification: vi.fn(),
     listControlActions: vi.fn(async () => ({ control_actions: [], total: 0 })),
     listChatSessions: vi.fn(async () => ({ sessions: [] })),
-    getChatMessages: vi.fn(async (sessionId: string) => ({ sessionId, messages: [] })),
+    getChatMessages: vi.fn(async (sessionId: string) => ({
+      sessionId,
+      messages: [
+        { id: `chat-${sessionId}-1`, session_id: sessionId, role: 'assistant', kind: 'text', content: 'Synthetic agent transcript.', timestamp: apiState.now },
+      ],
+    })),
     sendChatMessage: vi.fn(),
   };
 });
@@ -382,6 +397,31 @@ describe('operator dashboard synthetic smoke guard', () => {
     await wrapper.get('.token-btn-cancel').trigger('click');
     await waitForTransition();
     expect(wrapper.find('.token-overlay').exists()).toBe(false);
+
+    await wrapper.get('.analyst-chip').trigger('click');
+    await settle();
+    const analystPanel = wrapper.get('#analyst-chat-panel');
+    expect(analystPanel.classes()).toContain('open');
+    const sessionPicker = wrapper.get<HTMLSelectElement>('.session-picker');
+    const optionGroups = sessionPicker.findAll('optgroup');
+    expect(optionGroups.map((group) => group.attributes('label'))).toEqual(['Analyst', 'Planner', 'Reviewer', 'Executor']);
+    expect(sessionPicker.text()).toContain('analyst-smoke');
+    expect(sessionPicker.text()).toContain('planner-smoke');
+    expect(sessionPicker.text()).toContain('reviewer-smoke');
+    expect(sessionPicker.text()).toContain('executor-smoke');
+    expect(sessionPicker.element.value).toBe('analyst-smoke');
+    expect(wrapper.get<HTMLTextAreaElement>('.composer-input').element.disabled).toBe(false);
+    await sessionPicker.setValue('planner-smoke');
+    await settle();
+    expect(wrapper.get<HTMLSelectElement>('.session-picker').element.value).toBe('planner-smoke');
+    expect(wrapper.text()).toContain('Synthetic agent transcript.');
+    const readOnlyComposer = wrapper.get<HTMLTextAreaElement>('.composer-input');
+    expect(readOnlyComposer.element.disabled).toBe(true);
+    expect(readOnlyComposer.attributes('title')).toBe('Read-only — switch to analyst to send messages');
+    await wrapper.get<HTMLSelectElement>('.session-picker').setValue('analyst-smoke');
+    await settle();
+    expect(wrapper.get<HTMLSelectElement>('.session-picker').element.value).toBe('analyst-smoke');
+    expect(wrapper.get<HTMLTextAreaElement>('.composer-input').element.disabled).toBe(false);
 
     await router.push('/agents');
     await waitForTransition();
