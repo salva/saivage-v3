@@ -10,6 +10,7 @@ Use this checklist for a release candidate against the current repaired system.
 - [ ] Historical material is linked only with an explicit `See historical:` prefix.
 - [ ] The runbook examples pass the docs verification drift guard.
 - [ ] Documented validation commands still resolve to package scripts or executable script entry points.
+- [ ] The operator-dashboard smoke guard command is present, documented, and passing before release sign-off.
 
 ## Documentation build and verification
 
@@ -17,7 +18,7 @@ Use this checklist for a release candidate against the current repaired system.
 npm run docs:verify
 ```
 
-This builds VitePress and runs the documented route, inventory, link, source-anchor, finding-dossier, runbook-example, and validation-cadence guards, including checks that every docs:verify sub-guard script or focused Jest entry still exists.
+This builds VitePress and runs the documented route, inventory, link, source-anchor, finding-dossier, runbook-example, and validation-cadence guards, including checks that every docs:verify sub-guard script or focused Jest entry still exists. It also verifies that the named operator-dashboard smoke command remains documented and points at the smoke test, but does not run the Vitest smoke guard because docs verification must remain lightweight.
 
 If needed, run the raw VitePress build separately:
 
@@ -46,7 +47,10 @@ npm run test:direct
 ```bash
 npm run web:typecheck
 npm run web:test:sweep
+npm run web:test:operator-smoke
 ```
+
+Run `npm run web:test:operator-smoke` after changes to the Dashboard/AppShell operator surface and as part of release sign-off. It executes `web/src/__tests__/operator-dashboard-smoke.test.ts`, covering the synthetic control-room path for pause/resume, 401 token recovery, analyst session picking, read-only transcripts, card detail evidence/result rendering, file preview, debug timeline/errors, and notifications. It is not part of `npm test` (server/Jest only) or `npm run docs:verify`; the validation-cadence guard only checks that this command stays present and documented.
 
 For analyst control-room coverage:
 

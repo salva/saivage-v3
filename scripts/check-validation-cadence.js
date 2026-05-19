@@ -9,6 +9,14 @@ const DEFAULT_DOCUMENTED_COMMAND_FILES = [
   'docs/runbook/index.md',
 ];
 
+const REQUIRED_VALIDATION_SCRIPTS = [
+  {
+    name: 'web:test:operator-smoke',
+    mustInclude: 'operator-dashboard-smoke.test.ts',
+    description: 'direct operator-dashboard smoke guard',
+  },
+];
+
 function stripEnvAssignments(command) {
   let remaining = command.trim();
   const envPattern = /^[A-Za-z_][A-Za-z0-9_]*=(?:"[^"]*"|'[^']*'|[^\s]+)\s+/;
@@ -173,6 +181,29 @@ function extractDocsVerifyInvocations(content) {
   return invocations;
 }
 
+function validateRequiredValidationScripts({ scripts, documentedCommands }) {
+  const failures = [];
+  const checked = [];
+
+  for (const required of REQUIRED_VALIDATION_SCRIPTS) {
+    const command = scripts[required.name];
+    checked.push(`package.json script ${required.name}`);
+    if (!command) {
+      failures.push(`package.json is missing required validation script "${required.name}" (${required.description})`);
+      continue;
+    }
+    if (required.mustInclude && !command.includes(required.mustInclude)) {
+      failures.push(`package.json script "${required.name}" must run ${required.mustInclude}, but is currently: ${command}`);
+    }
+    const documented = documentedCommands.some((location) => location.includes(`npm run ${required.name}`));
+    if (!documented) {
+      failures.push(`required validation script "${required.name}" is not documented in README.md or docs/runbook/*.md validation cadence`);
+    }
+  }
+
+  return { checked, failures };
+}
+
 function validateDocsVerifySubguards({ root, scripts }) {
   const docsVerifyPath = path.join(root, 'scripts', 'docs-verify.sh');
   const failures = [];
@@ -206,12 +237,17 @@ export function verifyValidationCadence(options = {}) {
     files: options.documentedCommandFiles ?? DEFAULT_DOCUMENTED_COMMAND_FILES,
     scripts,
   });
+  const requiredScripts = validateRequiredValidationScripts({
+    scripts,
+    documentedCommands: documented.checked,
+  });
   const docsVerify = validateDocsVerifySubguards({ root, scripts });
-  const failures = [...documented.failures, ...docsVerify.failures];
+  const failures = [...documented.failures, ...requiredScripts.failures, ...docsVerify.failures];
   return {
     ok: failures.length === 0,
     failures,
     documentedCommandsChecked: documented.checked,
+    requiredValidationScriptsChecked: requiredScripts.checked,
     docsVerifyEntriesChecked: docsVerify.checked,
   };
 }
@@ -226,7 +262,7 @@ function main() {
     process.exit(1);
   }
   console.log(
-    `✓ validation cadence check passed — ${result.documentedCommandsChecked.length} documented validation command(s) and ${result.docsVerifyEntriesChecked.length} docs:verify sub-guard entry point(s) resolve`,
+    `✓ validation cadence check passed — ${result.documentedCommandsChecked.length} documented validation command(s), ${result.requiredValidationScriptsChecked.length} required validation script(s), and ${result.docsVerifyEntriesChecked.length} docs:verify sub-guard entry point(s) resolve`,
   );
 }
 

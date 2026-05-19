@@ -75,6 +75,22 @@ flowchart LR
     Debug --> Diagnostics[State / Errors / Timeline]
 ```
 
+
+### Operator-dashboard smoke guard
+
+The synthetic operator-dashboard smoke guard is directly runnable from the
+repository root:
+
+```bash
+npm run web:test:operator-smoke
+```
+
+Run it after AppShell/Dashboard/operator-surface changes and during release
+sign-off. The command executes `web/src/__tests__/operator-dashboard-smoke.test.ts`
+with Vitest. It is not included in the root `npm test` Jest suite and is not
+executed by `npm run docs:verify`; `docs:verify` only runs the validation-cadence
+drift guard that ensures this command and its documentation remain in sync.
+
 ---
 
 ## Dashboard

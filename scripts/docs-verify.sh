@@ -16,7 +16,7 @@ set -euo pipefail
 #   - Planner tool documentation/source parity checks.
 #   - Global Markdown internal-link and anchor resolution.
 #   - Global documented source-anchor path/line validation.
-#   - Validation-cadence command/package-script/docs:verify sub-guard parity.
+#   - Validation-cadence command/package-script/docs:verify sub-guard parity, including operator smoke command drift (without executing Vitest smoke).
 #   - Audit/UI finding dossier status, resolution, and remediation-log consistency.
 
 DIST="docs/.vitepress/dist"

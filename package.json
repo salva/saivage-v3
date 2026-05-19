@@ -38,7 +38,8 @@
     "format:fix": "prettier --write src/",
     "docs:build": "vitepress build docs",
     "docs:verify": "bash scripts/docs-verify.sh",
-    "build": "tsc && npm run docs:build && cd web && npm run build"
+    "build": "tsc && npm run docs:build && cd web && npm run build",
+    "web:test:operator-smoke": "cd web && npx vitest run src/__tests__/operator-dashboard-smoke.test.ts"
   },
   "dependencies": {
     "@fastify/cors": "^11.2.0",

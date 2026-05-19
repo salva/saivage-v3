@@ -54,6 +54,7 @@ npm run docs:verify
 npm run typecheck
 npm run build
 npm test
+npm run web:test:operator-smoke
 ```
 
-`npm run docs:verify` builds VitePress and checks documentation inventory completeness, route/role/config/runtime anchors, historical isolation, runbook curl examples, design-doc link boundaries, global Markdown internal links, documented validation-command parity, and docs:verify sub-guard entry points.
+`npm run docs:verify` builds VitePress and checks documentation inventory completeness, route/role/config/runtime anchors, historical isolation, runbook curl examples, design-doc link boundaries, global Markdown internal links, documented validation-command parity, and docs:verify sub-guard entry points. It verifies that `npm run web:test:operator-smoke` exists and is documented, but intentionally does not execute that Vitest smoke guard so routine docs verification stays lightweight. Run `npm run web:test:operator-smoke` directly after operator-dashboard changes and during release sign-off.
