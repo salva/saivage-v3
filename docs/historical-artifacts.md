@@ -43,6 +43,8 @@ Do **not** treat them as current truth for:
 - current UI state behavior
 - current security and file-access guarantees
 
-## Root-level legacy design docs
+## Design-era material
 
-Several root markdown files (`docs/design/card-model.md` through `docs/design/implementation-plan.md`, plus `use-cases.md`) remain in the repository as historical design-era material. They are not part of the active docs set and should not be treated as authoritative without explicit current revalidation.
+Stage 22 moved the original numbered root design documents (`01-card-model.md` through `12-implementation-plan.md`) into `docs/historical/2026-pre-consolidation/` for provenance. The `docs/design/*.md` files are the canonical Stage 22 design entry points; they consolidate the design-era material and should be used instead of the moved numbered originals.
+
+`use-cases.md` remains a root-level legacy product-context file until a later consolidation stage decides whether to merge or archive it.
