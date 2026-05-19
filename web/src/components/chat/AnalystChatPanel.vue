@@ -148,28 +148,71 @@ const messagesErrorLabel = computed(() => {
   return messagesError.value.message;
 });
 
-function safeJsonParse(content: string): Record<string, unknown> | null {
+function safeJsonParse(content: string): unknown {
   try {
-    return JSON.parse(content) as Record<string, unknown>;
+    return JSON.parse(content) as unknown;
   } catch {
     return null;
   }
 }
 
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : null;
+}
+
+function parseArgs(value: unknown): unknown {
+  if (typeof value === 'string') return safeJsonParse(value) ?? value;
+  return value;
+}
+
+function oneLine(value: unknown, max = 72): string {
+  const text = typeof value === 'string' ? value : JSON.stringify(value ?? '');
+  return text.replace(/\s+/g, ' ').slice(0, max);
+}
+
+function firstToolCall(message: ChatMessage): { name: string; args: unknown } {
+  const parsed = asRecord(safeJsonParse(message.content));
+  const toolCalls = Array.isArray(parsed?.toolCalls) ? parsed.toolCalls : [];
+  const first = asRecord(toolCalls[0]);
+  const fn = asRecord(first?.function);
+  const name = typeof fn?.name === 'string'
+    ? fn.name
+    : typeof first?.tool === 'string'
+      ? first.tool
+      : message.tool ?? 'tool';
+  const args = fn && 'arguments' in fn ? parseArgs(fn.arguments) : parseArgs(first?.params ?? {});
+  return { name, args };
+}
+
+function resultToolName(message: ChatMessage): string {
+  const parsed = asRecord(safeJsonParse(message.content));
+  return message.tool
+    ?? (typeof parsed?.tool === 'string' ? parsed.tool : undefined)
+    ?? (typeof parsed?.toolName === 'string' ? parsed.toolName : undefined)
+    ?? 'tool';
+}
+
+function resultStatus(message: ChatMessage, parsed: unknown): 'ok' | 'error' {
+  if (message.kind === 'tool_error') return 'error';
+  const record = asRecord(parsed);
+  if (record?.ok === false || typeof record?.error === 'string') return 'error';
+  return 'ok';
+}
+
+function resultSummary(parsed: unknown, content: string): string {
+  const record = asRecord(parsed);
+  const candidate = record?.summary ?? record?.message ?? record?.error ?? record?.content ?? parsed ?? content;
+  return oneLine(candidate);
+}
+
 function toolChipLabel(message: ChatMessage): string {
   if (message.kind === 'tool_call') {
-    const parsed = safeJsonParse(message.content);
-    const toolCalls = Array.isArray(parsed?.toolCalls) ? parsed?.toolCalls as Array<Record<string, unknown>> : [];
-    const first = toolCalls[0] ?? {};
-    const tool = String(first.tool ?? message.tool ?? 'tool');
-    const params = first.params && typeof first.params === 'object'
-      ? JSON.stringify(first.params).slice(0, 48)
-      : '{}';
-    return `🔧 ${tool}(${params})`;
+    const call = firstToolCall(message);
+    return `🔧 ${call.name}(${oneLine(call.args, 56)})`;
   }
   const parsed = safeJsonParse(message.content);
-  const summary = parsed ? JSON.stringify(parsed).slice(0, 64) : message.content.slice(0, 64);
-  return `✅ ${message.tool ?? 'result'} ${summary}`;
+  const status = resultStatus(message, parsed);
+  return `📤 ${resultToolName(message)} → ${status} (${resultSummary(parsed, message.content)})`;
 }
 
 function toolChipAriaLabel(message: ChatMessage): string {

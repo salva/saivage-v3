@@ -84,7 +84,60 @@ export async function runMutatingRoute(options: MutatingRouteOptions): Promise<F
 
 function readAgentSession(projectRoot: string, sessionId: string): Record<string, unknown> | null { const sessionPath = join(projectRoot, '.saivage', 'agents', 'sessions', `${sessionId}.json`); if (!existsSync(sessionPath)) return null; try { return JSON.parse(readFileSync(sessionPath, 'utf-8')) as Record<string, unknown>; } catch { return null; } }
 function readAgentMessages(projectRoot: string, sessionId: string): unknown[] { const messagesPath = join(projectRoot, '.saivage', 'agents', 'messages', `${sessionId}.jsonl`); if (!existsSync(messagesPath)) return []; const messages: unknown[] = []; for (const line of readFileSync(messagesPath, 'utf-8').split('\n')) if (line.trim()) try { messages.push(JSON.parse(line)); } catch {} return messages; }
-const SAFE_AGENT_ID_RE = /^[a-zA-Z0-9_-]+$/;
+const SAFE_AGENT_ID_RE = /^[a-zA-Z0-9_:-]+$/;
+
+type ListedAgentStatus = 'active' | 'inactive' | 'done' | 'failed';
+
+function listAgentMessageSessionIds(projectRoot: string): string[] {
+  const messagesDir = join(projectRoot, '.saivage', 'agents', 'messages');
+  if (!existsSync(messagesDir)) return [];
+  return readdirSync(messagesDir)
+    .filter((file) => file.endsWith('.jsonl'))
+    .map((file) => file.slice(0, -'.jsonl'.length))
+    .filter((sessionId) => SAFE_AGENT_ID_RE.test(sessionId));
+}
+
+function parseAgentRoleFromSessionId(sessionId: string): string {
+  if (sessionId === 'analyst' || sessionId.startsWith('analyst-')) return 'analyst';
+  if (sessionId.startsWith('planner:') || sessionId.startsWith('planner-')) return 'planner';
+  if (sessionId.startsWith('reviewer:') || sessionId.startsWith('reviewer-')) return 'reviewer';
+  if (sessionId.startsWith('executor:') || sessionId.startsWith('executor-')) return 'executor';
+  if (sessionId.startsWith('card-')) return 'analyst';
+  return 'analyst';
+}
+
+function firstMessageTimestamp(projectRoot: string, sessionId: string): string | null {
+  const messages = readAgentMessages(projectRoot, sessionId);
+  const first = messages.find((message): message is Record<string, unknown> => Boolean(message) && typeof message === 'object' && typeof (message as Record<string, unknown>)['timestamp'] === 'string');
+  return typeof first?.['timestamp'] === 'string' ? first['timestamp'] : null;
+}
+
+function currentAgentSessionId(projectRoot: string): string | null {
+  const state = readRuntimeState(projectRoot);
+  return typeof state?.current_agent_session_id === 'string' ? state.current_agent_session_id : null;
+}
+
+function listedStatus(session: Record<string, unknown> | null, sessionId: string, currentSessionId: string | null): ListedAgentStatus {
+  if (currentSessionId && sessionId === currentSessionId) return 'active';
+  const manifestStatus = session?.['status'];
+  if (manifestStatus === 'done' || manifestStatus === 'failed') return manifestStatus;
+  if (!currentSessionId && manifestStatus === 'active') return 'active';
+  return 'inactive';
+}
+
+function buildListedAgentSession(projectRoot: string, sessionId: string, currentSessionId: string | null): Record<string, unknown> | null {
+  if (!SAFE_AGENT_ID_RE.test(sessionId)) return null;
+  const manifest = readAgentSession(projectRoot, sessionId);
+  const startedAt = typeof manifest?.['started_at'] === 'string' ? manifest['started_at'] : firstMessageTimestamp(projectRoot, sessionId) ?? new Date(0).toISOString();
+  return {
+    ...(manifest ?? {}),
+    id: sessionId,
+    role: typeof manifest?.['role'] === 'string' ? manifest['role'] : parseAgentRoleFromSessionId(sessionId),
+    status: listedStatus(manifest, sessionId, currentSessionId),
+    started_at: startedAt,
+  };
+}
+
 
 export function registerRuntimeConfigNotesRoutes(fastify: FastifyInstance, projectRoot: string, activeRuntime?: ActiveRuntime): void {
   const store = new CardStore(projectRoot);
@@ -134,8 +187,8 @@ export function registerRuntimeConfigNotesRoutes(fastify: FastifyInstance, proje
   fastify.post('/api/runtime/resume-from-freeze', async (request, reply) => runMutatingRoute({ request, reply, projectRoot, action: 'runtime.resume_from_freeze', safety_class: 'destructive', target_kind: 'runtime', target_id: 'project', mutate: async () => { try { if (activeRuntime) { const result = activeRuntime.resumeFromFreeze(); return { ok: true, body: { status: 'resumed', freeze_id: result.freeze_id, restored_queue: result.restored_queue, restored_processes: result.restored_processes, restored_card_id: result.restored_card_id } }; } const manifest = readFreezeManifest(projectRoot); if (!manifest) return { ok: false, statusCode: 400, error: 'Cannot resume from freeze: no freeze manifest found. The runtime is not frozen.', body: { error: 'Cannot resume from freeze: no freeze manifest found. The runtime is not frozen.' } }; updateRuntimeState(projectRoot, { status: 'idle', current_card_id: manifest.current_card_id, current_agent_session_id: manifest.current_agent_session_id, paused: false, paused_at: null, queue: manifest.queue, running_processes: [], frozen_reason: null }); clearFreezeManifest(projectRoot); return { ok: true, body: { status: 'resumed', freeze_id: manifest.freeze_id, restored_queue: manifest.queue, restored_processes: [], restored_card_id: manifest.current_card_id } }; } catch (err) { return { ok: false, statusCode: 500, error: err instanceof Error ? err.message : String(err), body: { error: 'Failed to resume from freeze', message: err instanceof Error ? err.message : String(err) } }; } } }));
   fastify.get('/api/config', async (_request, reply) => { try { const { config, warnings } = loadConfig(projectRoot); const configJson = JSON.stringify(config); const redacted = redactSecrets(configJson); return reply.send({ config: JSON.parse(redacted), warnings }); } catch (err) { return reply.send({ config: { server: { port: 8080, host: '0.0.0.0' } }, warnings: [`Configuration could not be fully loaded: ${err instanceof Error ? err.message : String(err)}`] }); } });
   fastify.get('/api/providers', async (_request, reply) => { try { const { config } = loadConfig(projectRoot); const providers: Record<string, unknown> = {}; for (const [name, provider] of Object.entries(config.providers)) { const p = provider as ProviderEntry; providers[name] = { priority: p.priority, models: p.models, baseUrl: p.baseUrl, hasAccounts: p.accounts ? Object.keys(p.accounts).length : 0, status: 'unknown' }; } return reply.send({ providers }); } catch (err) { return reply.send({ providers: {}, warnings: [`Providers could not be loaded: ${err instanceof Error ? err.message : String(err)}`] }); } });
-  fastify.get('/api/agents', async (_request, reply) => { try { const sessionsDir = join(projectRoot, '.saivage', 'agents', 'sessions'); const sessions: Record<string, unknown>[] = []; if (existsSync(sessionsDir)) { const files = readdirSync(sessionsDir).filter((file) => file.endsWith('.json')); for (const file of files) { const sessionId = file.slice(0, -'.json'.length); if (!SAFE_AGENT_ID_RE.test(sessionId)) continue; const session = readAgentSession(projectRoot, sessionId); if (session) sessions.push(session); } } sessions.sort((a, b) => String(b['started_at'] ?? '').localeCompare(String(a['started_at'] ?? ''))); return reply.send({ sessions }); } catch (err) { return reply.status(500).send({ error: 'Failed to list agent sessions', message: err instanceof Error ? err.message : String(err) }); } });
-  fastify.get('/api/agents/:id/conversation', async (request, reply) => { try { const params = request.params as { id: string }; const sessionId = params.id; if (!SAFE_AGENT_ID_RE.test(sessionId)) return reply.status(400).send({ error: 'Invalid agent session ID' }); const session = readAgentSession(projectRoot, sessionId); if (!session) return reply.status(404).send({ error: 'Agent session not found', sessionId }); const messages = readAgentMessages(projectRoot, sessionId); return reply.send({ session, messages }); } catch (err) { return reply.status(500).send({ error: 'Failed to read agent conversation', message: err instanceof Error ? err.message : String(err) }); } });
+  fastify.get('/api/agents', async (_request, reply) => { try { const sessionsDir = join(projectRoot, '.saivage', 'agents', 'sessions'); const sessionIds = new Set<string>(listAgentMessageSessionIds(projectRoot)); if (existsSync(sessionsDir)) { for (const file of readdirSync(sessionsDir).filter((entry) => entry.endsWith('.json'))) sessionIds.add(file.slice(0, -'.json'.length)); } const currentSessionId = currentAgentSessionId(projectRoot); const sessions = Array.from(sessionIds).map((sessionId) => buildListedAgentSession(projectRoot, sessionId, currentSessionId)).filter((session): session is Record<string, unknown> => Boolean(session)); sessions.sort((a, b) => String(b['started_at'] ?? '').localeCompare(String(a['started_at'] ?? '')) || String(a['id']).localeCompare(String(b['id']))); return reply.send({ sessions }); } catch (err) { return reply.status(500).send({ error: 'Failed to list agent sessions', message: err instanceof Error ? err.message : String(err) }); } });
+  fastify.get('/api/agents/:id/conversation', async (request, reply) => { try { const params = request.params as { id: string }; const sessionId = params.id; if (!SAFE_AGENT_ID_RE.test(sessionId)) return reply.status(400).send({ error: 'Invalid agent session ID' }); const messages = readAgentMessages(projectRoot, sessionId); const session = buildListedAgentSession(projectRoot, sessionId, currentAgentSessionId(projectRoot)); if (!session || (messages.length === 0 && !readAgentSession(projectRoot, sessionId))) return reply.status(404).send({ error: 'Agent session not found', sessionId }); return reply.send({ session, messages }); } catch (err) { return reply.status(500).send({ error: 'Failed to read agent conversation', message: err instanceof Error ? err.message : String(err) }); } });
   fastify.get('/api/notes', async (_request, reply) => { try { const notes = getReconciledUnhandledNotesQueue(saivageDir(projectRoot)); return reply.send({ notes, total: notes.length }); } catch (err) { return reply.status(500).send({ error: 'Failed to list notes', message: err instanceof Error ? err.message : String(err) }); } });
   fastify.post('/api/notes/:id/acknowledge', async (request, reply) => runMutatingRoute({ request, reply, projectRoot, action: 'note.acknowledge', safety_class: 'low', target_kind: 'note', target_id: (request.params as { id: string }).id, mutate: async () => { try { const params = request.params as { id: string }; const noteId = params.id; const cardId = findUnhandledNoteCardId(saivageDir(projectRoot), noteId); if (!cardId) return { ok: false, statusCode: 404, error: 'Note not found', body: { error: 'Note not found', noteId } }; const updated = markNoteHandled(saivageDir(projectRoot), cardId, noteId); return { ok: true, body: { note: updated } }; } catch (err) { const message = err instanceof Error ? err.message : String(err); return { ok: false, statusCode: message.includes('not found') ? 404 : 500, error: message, body: message.includes('not found') ? { error: 'Note not found', noteId: (request.params as { id: string }).id } : { error: 'Failed to acknowledge note', message } }; } } }));
   fastify.delete('/api/notes/:id', async (request, reply) => runMutatingRoute({ request, reply, projectRoot, action: 'note.delete', safety_class: 'destructive', target_kind: 'note', target_id: (request.params as { id: string }).id, mutate: async () => { try { const params = request.params as { id: string }; const noteId = params.id; const cardId = findUnhandledNoteCardId(saivageDir(projectRoot), noteId); if (!cardId) return { ok: false, statusCode: 404, error: 'Note not found', body: { error: 'Note not found', noteId } }; deleteNote(saivageDir(projectRoot), cardId, noteId); return { ok: true, statusCode: 204, body: undefined }; } catch (err) { const message = err instanceof Error ? err.message : String(err); if (message.includes('not found')) return { ok: false, statusCode: 404, error: message, body: { error: 'Note not found', noteId: (request.params as { id: string }).id } }; if (message.includes('handled')) return { ok: false, statusCode: 400, error: message, body: { error: 'Cannot delete handled note', message } }; return { ok: false, statusCode: 500, error: message, body: { error: 'Failed to delete note', message } }; } } }));

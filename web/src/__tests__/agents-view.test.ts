@@ -60,6 +60,56 @@ vi.mock('../api/client', () => {
     getAgentConversation: vi.fn(async () => apiMockState.conversation),
     ApiError,
   };
+
+  it('shows tool names and argument keys in collapsed rows and expands/collapses all rows', async () => {
+    apiMockState.conversation = {
+      session: plannerSession,
+      messages: [
+        {
+          id: 'tc1',
+          session_id: 'planner-1',
+          role: 'assistant',
+          kind: 'tool_call',
+          content: JSON.stringify({ toolCalls: [{ function: { name: 'activate_card', arguments: JSON.stringify({ cardId: 'G3', reason: 'ready' }) } }] }),
+          timestamp: '2025-06-01T08:06:00Z',
+        },
+        {
+          id: 'tr1',
+          session_id: 'planner-1',
+          role: 'tool',
+          kind: 'tool_result',
+          tool: 'activate_card',
+          content: JSON.stringify({ ok: true, summary: 'activated G3' }),
+          timestamp: '2025-06-01T08:06:01Z',
+        },
+      ],
+    };
+    const router = makeRouter();
+    await router.push('/agents/planner-1');
+    await router.isReady();
+    const pinia = createPinia();
+    setActivePinia(pinia);
+    const wrapper = mount(AgentConversationView, {
+      props: { sessionId: 'planner-1' },
+      global: { plugins: [router, pinia] },
+    });
+    await flushPromises();
+
+    expect(wrapper.text()).toContain('🔧 activate_card(cardId, reason)');
+    expect(wrapper.text()).toContain('📤 activate_card → ok (activated G3)');
+    expect(wrapper.find('.tc-body').exists()).toBe(false);
+
+    await wrapper.findAll('.conv-tb-btn')[0].trigger('click');
+    await flushPromises();
+    expect(wrapper.find('.tc-body').exists()).toBe(true);
+    expect(wrapper.find('.tr-body').exists()).toBe(true);
+
+    await wrapper.findAll('.conv-tb-btn')[1].trigger('click');
+    await flushPromises();
+    expect(wrapper.find('.tc-body').exists()).toBe(false);
+    expect(wrapper.find('.tr-body').exists()).toBe(false);
+  });
+
 });
 
 function makeSession(overrides: Partial<AgentSession> = {}): AgentSession {
@@ -194,4 +244,54 @@ describe('AgentsView', () => {
     expect(pushSpy).toHaveBeenCalledWith({ name: 'debug', query: { tab: 'processes', process: 'proc-1' } });
     expect(pushSpy).toHaveBeenCalledWith({ name: 'files', query: { path: '.saivage-work/output.txt' } });
   });
+
+  it('shows tool names and argument keys in collapsed rows and expands/collapses all rows', async () => {
+    apiMockState.conversation = {
+      session: plannerSession,
+      messages: [
+        {
+          id: 'tc1',
+          session_id: 'planner-1',
+          role: 'assistant',
+          kind: 'tool_call',
+          content: JSON.stringify({ toolCalls: [{ function: { name: 'activate_card', arguments: JSON.stringify({ cardId: 'G3', reason: 'ready' }) } }] }),
+          timestamp: '2025-06-01T08:06:00Z',
+        },
+        {
+          id: 'tr1',
+          session_id: 'planner-1',
+          role: 'tool',
+          kind: 'tool_result',
+          tool: 'activate_card',
+          content: JSON.stringify({ ok: true, summary: 'activated G3' }),
+          timestamp: '2025-06-01T08:06:01Z',
+        },
+      ],
+    };
+    const router = makeRouter();
+    await router.push('/agents/planner-1');
+    await router.isReady();
+    const pinia = createPinia();
+    setActivePinia(pinia);
+    const wrapper = mount(AgentConversationView, {
+      props: { sessionId: 'planner-1' },
+      global: { plugins: [router, pinia] },
+    });
+    await flushPromises();
+
+    expect(wrapper.text()).toContain('🔧 activate_card(cardId, reason)');
+    expect(wrapper.text()).toContain('📤 activate_card → ok (activated G3)');
+    expect(wrapper.find('.tc-body').exists()).toBe(false);
+
+    await wrapper.findAll('.conv-tb-btn')[0].trigger('click');
+    await flushPromises();
+    expect(wrapper.find('.tc-body').exists()).toBe(true);
+    expect(wrapper.find('.tr-body').exists()).toBe(true);
+
+    await wrapper.findAll('.conv-tb-btn')[1].trigger('click');
+    await flushPromises();
+    expect(wrapper.find('.tc-body').exists()).toBe(false);
+    expect(wrapper.find('.tr-body').exists()).toBe(false);
+  });
+
 });

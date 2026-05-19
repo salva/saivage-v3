@@ -13,8 +13,8 @@
           <span class="conv-status-badge" :class="'s-' + currentSession.status">{{ currentSession.status }}</span>
         </div>
         <div class="conv-toolbar">
-          <button class="conv-tb-btn" @click="agentStore.expandAll()" title="Expand all">+ Expand</button>
-          <button class="conv-tb-btn" @click="agentStore.collapseAll()" title="Collapse all">- Collapse</button>
+          <button class="conv-tb-btn" @click="agentStore.expandAll()" title="Expand all">Expand all</button>
+          <button class="conv-tb-btn" @click="agentStore.collapseAll()" title="Collapse all">Collapse all</button>
         </div>
       </div>
 
@@ -55,7 +55,7 @@
           >
             <div class="tc-header" @click="agentStore.toggleToolCall(step.toolCall.id)">
               <span class="tc-toggle">{{ expandedToolCalls.has(step.toolCall.id) ? '-' : '+' }}</span>
-              <span class="tc-tool">🔧 {{ step.toolCall.tool || 'tool_call' }}</span>
+              <span class="tc-tool">{{ toolCallPreview(step.toolCall) }}</span>
               <span class="tc-time">{{ fmtTime(step.toolCall.timestamp) }}</span>
             </div>
             <pre v-if="expandedToolCalls.has(step.toolCall.id)" class="tc-body">{{ step.toolCall.content }}</pre>
@@ -68,7 +68,7 @@
           >
             <div class="tr-header" @click="agentStore.toggleToolCall(step.toolResult.id)">
               <span class="tr-toggle">{{ expandedToolCalls.has(step.toolResult.id) ? '-' : '+' }}</span>
-              <span class="tr-label">{{ step.toolResult.kind === 'tool_error' ? '❌ Error' : '📤 Result' }}</span>
+              <span class="tr-label">{{ toolResultPreview(step.toolResult) }}</span>
               <span class="tr-time">{{ fmtTime(step.toolResult.timestamp) }}</span>
             </div>
             <pre v-if="expandedToolCalls.has(step.toolResult.id)" class="tr-body" :class="{ 'tr-error': step.toolResult.kind === 'tool_error' }">{{ step.toolResult.content }}</pre>
@@ -115,6 +115,58 @@ function renderContent(msg: AgentMessage): string {
     return out;
   }
   return esc(msg.content);
+}
+
+function safeJsonParse(content: string): unknown {
+  try { return JSON.parse(content) as unknown; } catch { return null; }
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : null;
+}
+
+function parseArgs(value: unknown): unknown {
+  if (typeof value === 'string') return safeJsonParse(value) ?? value;
+  return value;
+}
+
+function argKeys(args: unknown): string {
+  const record = asRecord(args);
+  return record ? Object.keys(record).join(', ') : '';
+}
+
+function summarize(value: unknown, fallback = ''): string {
+  const text = typeof value === 'string' ? value : JSON.stringify(value ?? fallback);
+  return text.replace(/\s+/g, ' ').slice(0, 72);
+}
+
+function firstToolCall(msg: AgentMessage): { name: string; args: unknown } {
+  const parsed = asRecord(safeJsonParse(msg.content));
+  const toolCalls = Array.isArray(parsed?.toolCalls) ? parsed.toolCalls : [];
+  const first = asRecord(toolCalls[0]);
+  const fn = asRecord(first?.function);
+  const name = typeof fn?.name === 'string'
+    ? fn.name
+    : typeof first?.tool === 'string'
+      ? first.tool
+      : msg.tool ?? 'tool_call';
+  const args = fn && 'arguments' in fn ? parseArgs(fn.arguments) : parseArgs(first?.params ?? {});
+  return { name, args };
+}
+
+function toolCallPreview(msg: AgentMessage): string {
+  const call = firstToolCall(msg);
+  const keys = argKeys(call.args);
+  return `🔧 ${call.name}${keys ? `(${keys})` : '()'}`;
+}
+
+function toolResultPreview(msg: AgentMessage): string {
+  const parsed = safeJsonParse(msg.content);
+  const record = asRecord(parsed);
+  const name = msg.tool ?? (typeof record?.tool === 'string' ? record.tool : 'tool');
+  const status = msg.kind === 'tool_error' || record?.ok === false || typeof record?.error === 'string' ? 'error' : 'ok';
+  const summary = summarize(record?.summary ?? record?.message ?? record?.error ?? record?.content ?? parsed ?? msg.content);
+  return `📤 ${name} → ${status} (${summary})`;
 }
 
 function linkLabel(link: EntityLink): string {

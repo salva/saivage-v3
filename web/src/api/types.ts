@@ -378,7 +378,7 @@ export interface ProcessTerminateResponse {
 }
 
 export type AgentRole = 'analyst' | 'planner' | 'executor' | 'reviewer' | 'content_supervisor';
-export type AgentStatus = 'active' | 'done' | 'failed';
+export type AgentStatus = 'active' | 'inactive' | 'done' | 'failed';
 export type MessageRole = 'user' | 'assistant' | 'system' | 'tool';
 export type MessageKind =
   | 'text'
@@ -414,6 +414,7 @@ export interface AgentMessage {
   kind: MessageKind;
   content: string;
   tool?: string;
+  tool_call_id?: string;
   timestamp: string;
   links?: EntityLink[];
 }
@@ -602,6 +603,7 @@ export interface ChatMessage {
   kind: MessageKind;
   content: string;
   tool?: string;
+  tool_call_id?: string;
   timestamp: string;
   links?: EntityLink[];
 }

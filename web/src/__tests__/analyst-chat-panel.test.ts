@@ -28,8 +28,8 @@ describe('AnalystChatPanel', () => {
       sessionId: 'chat-1',
       messages: [
         { id: '1', session_id: 'chat-1', role: 'assistant', kind: 'text', content: 'hello', timestamp: '2025-01-01T00:00:00Z' },
-        { id: '2', session_id: 'chat-1', role: 'tool', kind: 'tool_call', tool: 'read_file', content: JSON.stringify({ toolCalls: [{ tool: 'read_file', params: { path: 'README.md' } }] }), timestamp: '2025-01-01T00:00:01Z' },
-        { id: '3', session_id: 'chat-1', role: 'tool', kind: 'tool_result', tool: 'read_file', content: JSON.stringify({ ok: true, content: 'docs' }), timestamp: '2025-01-01T00:00:02Z' },
+        { id: '2', session_id: 'chat-1', role: 'assistant', kind: 'tool_call', content: JSON.stringify({ toolCalls: [{ id: 'call-1', function: { name: 'read_file', arguments: JSON.stringify({ path: 'README.md' }) } }] }), timestamp: '2025-01-01T00:00:01Z' },
+        { id: '3', session_id: 'chat-1', role: 'tool', kind: 'tool_result', tool: 'read_file', tool_call_id: 'call-1', content: JSON.stringify({ ok: true, content: 'docs' }), timestamp: '2025-01-01T00:00:02Z' },
       ],
     });
     sendChatMessage.mockResolvedValue({ sessionId: 'chat-1', message: { id: '4', content: 'reply', timestamp: '2025-01-01T00:00:03Z' } });
@@ -42,7 +42,8 @@ describe('AnalystChatPanel', () => {
     await flushPromises();
     expect(wrapper.text()).toContain('hello');
     const chips = wrapper.findAll('.tool-chip');
-    expect(chips[0].text()).toContain('read_file');
+    expect(chips[0].text()).toContain('🔧 read_file');
+    expect(chips[0].text()).toContain('README.md');
     expect(chips[0].attributes('aria-expanded')).toBe('false');
     await chips[0].trigger('click');
     expect(chips[0].attributes('aria-expanded')).toBe('true');
@@ -50,6 +51,20 @@ describe('AnalystChatPanel', () => {
     expect(wrapper.find('.tool-chip-detail').text()).toContain('README.md');
     await chips[0].trigger('click');
     expect(wrapper.find('.tool-chip-detail').exists()).toBe(false);
+    wrapper.unmount();
+  });
+
+
+  it('renders tool result messages as human-readable status labels with raw details', async () => {
+    const wrapper = mount(AnalystChatPanel, { attachTo: document.body, global: { plugins: [createPinia()] } });
+    await flushPromises();
+    await wrapper.find('select').setValue('chat-1');
+    await flushPromises();
+    const chips = wrapper.findAll('.tool-chip');
+    expect(chips[1].text()).toContain('📤 read_file → ok');
+    expect(chips[1].text()).toContain('docs');
+    await chips[1].trigger('click');
+    expect(wrapper.find('.tool-chip-detail').text()).toContain('"ok": true');
     wrapper.unmount();
   });
 
