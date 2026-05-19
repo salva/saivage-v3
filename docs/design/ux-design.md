@@ -180,12 +180,20 @@ Card detail is the central inspection surface.
 Sections:
 
 - Header: title, type, status, parent, priority, urgency, created by,
-  updated time.
+  updated time. Priority is displayed as the raw 0-100 value, not as
+  `/ 10` (`web/src/components/cards/CardDetailView.vue`,
+  `web/src/__tests__/card-detail-view.test.ts`).
 - Description and acceptance criteria.
 - Dependencies and blocked-by/blocks graph.
 - Notes/activity log with mutable-until-handled behavior.
-- Results and metrics.
-- Artifacts and attachments. Attachments render inline in the web UI.
+- Results and metrics rendered as formatted JSON in a `<pre><code>`
+  block when structured result data is present (`web/src/components/cards/CardDetailView.vue`,
+  `web/src/__tests__/card-detail-view.test.ts`).
+- Artifacts and attachments. Attachments render inline in the web UI;
+  the Evidence panel renders exactly one empty-state sentence when no
+  evidence exists, otherwise the Files/Checks/Tool-errors counters and
+  file list (`web/src/components/cards/CardDetailView.vue`,
+  `web/src/__tests__/card-detail-view.test.ts`).
 - Process list: async commands launched for this card, state, elapsed,
   tail output, kill/wait controls.
 - Related agent conversation links.

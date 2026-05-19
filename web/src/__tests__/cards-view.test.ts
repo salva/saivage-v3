@@ -22,6 +22,7 @@ import { createPinia } from 'pinia';
 import { ref } from 'vue';
 import { createRouter, createWebHistory } from 'vue-router';
 import CardsView from '../views/CardsView.vue';
+import { useCardStore } from '../stores/cards';
 import type { CardRecord, CardListResponse } from '../api/types';
 
 // ── Reactive state for ws mock ────────────────────────────────
@@ -173,7 +174,8 @@ async function mountCardsView(opts?: {
     global: { plugins: [pinia, router] },
   });
   await flushPromises();
-  return { wrapper, router };
+  const store = useCardStore();
+  return { wrapper, router, store };
 }
 
 // ── Tests ─────────────────────────────────────────────────────
@@ -692,7 +694,12 @@ describe('CardsView', () => {
       await wrapper.get('form').trigger('submit');
       await flushPromises();
 
+      const createButton = wrapper.get('button.submit-btn');
+      const titleInput = wrapper.get('input[aria-describedby="new-card-title-error"]');
+      expect(createButton.attributes('disabled')).toBeDefined();
       expect(wrapper.text()).toContain('Title is required');
+      expect(titleInput.attributes('aria-invalid')).toBe('true');
+      expect(titleInput.classes()).toContain('form-input-error');
       expect(createCard).not.toHaveBeenCalled();
     });
 
@@ -712,7 +719,8 @@ describe('CardsView', () => {
 
     it('uses 0-100 priority defaults and submits the selected priority without /10 scaling', async () => {
       vi.mocked(createCard).mockResolvedValue({ card: makeCard({ id: 'created-1', title: 'Created', priority: 100 }) });
-      const { wrapper } = await openNewCardModal();
+      const { wrapper, store } = await openNewCardModal();
+      const initialTotal = store.total;
       const priorityInput = wrapper.get('input[aria-describedby="new-card-priority-help new-card-priority-error"]');
       expect((priorityInput.element as HTMLInputElement).min).toBe('0');
       expect((priorityInput.element as HTMLInputElement).max).toBe('100');
@@ -726,6 +734,8 @@ describe('CardsView', () => {
       await flushPromises();
 
       expect(createCard).toHaveBeenCalledWith(expect.objectContaining({ title: 'High priority card', priority: 100 }));
+      expect(store.cards[0]).toMatchObject({ id: 'created-1', priority: 100 });
+      expect(store.total).toBe(initialTotal + 1);
     });
 
     it('rejects out-of-range priority values client-side', async () => {

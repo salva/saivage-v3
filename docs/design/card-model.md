@@ -292,7 +292,7 @@ status:           drafting | backlog | active | running | blocked | done | faile
 subtype:          string | null
 instructions_file:string | null
 tags:             string[]
-priority:         number
+priority:         number       # whole-number operator priority on the 0-100 scale
 urgency:          low | normal | high | critical
 
 # ── Authorship & ownership ───────────────────────────────
@@ -323,6 +323,17 @@ duration_ms:      number | null
 error:            string | null
 retries:          number
 ```
+
+
+
+### Priority scale
+
+Card priority is an integer on the 0-100 operator scale. The web card
+creation form labels and validates this range, passes the selected
+value through the Pinia store/API client without `/10` scaling, and card
+detail renders the raw value as `Priority <n>` (`web/src/views/CardsView.vue`,
+`web/src/stores/cards.ts`, `web/src/components/cards/CardDetailView.vue`,
+`web/src/__tests__/cards-view.test.ts`, `web/src/__tests__/card-detail-view.test.ts`).
 
 Notes are stored **separately** from the card record (one append-only
 log per card), not embedded. See the Note schema below.
