@@ -783,7 +783,20 @@ turn is required; the adapter synthesizes
 `{ status: 'continue', summary, created_cards: [], updated_cards: [] }`
 so the parent planner can await the child without leaking an
 unparseable `{ toolCalls: [...] }` object into result parsing or
-runtime state.
+runtime state. Assistant tool calls are persisted as one row per call
+so Codex history assembly can drop only deferred `activate_card` calls
+that have no matching tool output while preserving executed sibling
+call/output pairs.
+
+Source anchors: `src/agents/agent-adapter.ts:329`
+(`handleToolCallsLoop`, repeated-fingerprint, maximum-round, deferred
+`activate_card`, and per-call persistence paths),
+`src/agents/llm-client.ts:544` (`codexMessages` matched-call/output
+filter), and `src/agents/llm-client.ts:454`
+(`max_output_tokens` unsupported-parameter retry). Regression anchors:
+`tests/agents/agent-adapter-force-final-answer.test.ts`,
+`tests/agents/codex-deferred-activate-card.test.ts`, and
+`tests/agents/llm-client-integration.test.ts`.
 
 ## 12. Restart and Orphan Repair
 
