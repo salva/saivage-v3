@@ -566,18 +566,41 @@ export class CardStore {
     return card;
   }
 
+  /**
+   * Drop fields from `changes` whose new value is deep-equal to the value already on `existing`.
+   * No-op echoes (e.g. resending `depends_on: []` when the card already has `[]`) are therefore
+   * silently dropped before any validation runs. Editors that pass through the full card payload
+   * end up applying only the real deltas, and validation rules that restrict structural fields
+   * (e.g. depends_on on an active card) only fire when those fields actually change.
+   */
+  private prunePartialPatch(existing: CardRecord, changes: Partial<CardRecord>): Partial<CardRecord> {
+    const pruned: Partial<CardRecord> = {};
+    for (const [key, value] of Object.entries(changes)) {
+      if (value === undefined) continue;
+      const current = (existing as Record<string, unknown>)[key];
+      if (valuesEqual(current, value)) continue;
+      (pruned as Record<string, unknown>)[key] = value;
+    }
+    return pruned;
+  }
+
   update(id: string, changes: Partial<CardRecord>): CardRecord {
     this.ensurePersistedStateValidated();
     const existing = this.read(id);
     if (!existing) throw new Error(`Card '${id}' not found.`);
-    const updated = this.buildUpdatedCard(existing, changes, now());
-    return this.persistMutation(existing, updated, changes);
+    const realChanges = this.prunePartialPatch(existing, changes);
+    if (Object.keys(realChanges).length === 0) return existing;
+    const updated = this.buildUpdatedCard(existing, realChanges, now());
+    return this.persistMutation(existing, updated, realChanges);
   }
 
   mutateCard(id: string, changes: Partial<CardRecord>, ctx: CardMutationContext): CardRecord {
     this.ensurePersistedStateValidated();
     const existing = this.read(id);
     if (!existing) throw new Error(`Card '${id}' not found.`);
+    const realChanges = this.prunePartialPatch(existing, changes);
+    if (Object.keys(realChanges).length === 0) return existing;
+    changes = realChanges;
     const stamp = now();
     const candidate = this.buildUpdatedCard(existing, changes, stamp);
     const changedFields = TRACKED_FIELDS.filter(

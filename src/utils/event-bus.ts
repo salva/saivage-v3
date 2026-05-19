@@ -47,6 +47,7 @@ export const AGENT_SEVERITY_MAP: Record<AgentEventKind, SeverityLevel> = {
   retry_attempted: 'info',
   compaction_triggered: 'info',
   self_check_triggered: 'info',
+  model_issue: 'warning',
   session_cancelled: 'warning',
   session_force_cancelled: 'error',
   mcp_tool_invocation: 'info',

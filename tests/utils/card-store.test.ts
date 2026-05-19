@@ -175,3 +175,47 @@ describe('CardStore CRUD still works with validated indexes', () => {
     expect(store.read(b.id)?.blocks).toEqual([]);
   });
 });
+
+describe('CardStore selective patch behavior', () => {
+  it('drops no-op fields whose value equals the existing value (active card, depends_on echo)', () => {
+    const card = store.create(makeCard({ type: 'goal', title: 'Echo', parent: 'project' }));
+    store.setStatus(card.id, 'active');
+    const before = store.read(card.id)!;
+    // Echoing existing depends_on (empty array) together with a real title change must succeed
+    // on an active card even though depends_on is a CRITICAL_FIELD that cannot change in 'active'.
+    const updated = store.mutateCard(
+      card.id,
+      { title: 'Echo renamed', depends_on: [] },
+      { actor: 'analyst', surface: 'web-chat', reason: 'test' },
+    );
+    expect(updated.title).toBe('Echo renamed');
+    expect(updated.version_seq).toBe(before.version_seq + 1);
+    const history = store.listCardHistory(card.id);
+    expect(history[0]!.changed_fields).toEqual(['title']);
+  });
+
+  it('rejects only when a CRITICAL_FIELD actually changes on a status-locked card', () => {
+    const a = store.create(makeCard({ type: 'goal', title: 'A', parent: 'project' }));
+    const b = store.create(makeCard({ type: 'goal', title: 'B', parent: 'project' }));
+    store.setStatus(b.id, 'active');
+    expect(() =>
+      store.mutateCard(
+        b.id,
+        { depends_on: [a.id] },
+        { actor: 'analyst', surface: 'web-chat', reason: 'test' },
+      ),
+    ).toThrow(/cannot be changed on a card in status 'active'/);
+  });
+
+  it('returns the existing card unchanged when every passed field is a no-op', () => {
+    const card = store.create(makeCard({ type: 'goal', title: 'Same', parent: 'project' }));
+    const result = store.mutateCard(
+      card.id,
+      { title: 'Same', depends_on: [] },
+      { actor: 'analyst', surface: 'web-chat', reason: 'test' },
+    );
+    expect(result.version_seq).toBe(card.version_seq);
+    expect(result.updated_at).toBe(card.updated_at);
+    expect(store.listCardHistory(card.id)).toHaveLength(0);
+  });
+});

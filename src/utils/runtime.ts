@@ -253,7 +253,7 @@ export class Runtime extends EventEmitter {
     this._eventLogger.appendEvent({ kind: 'project_run_completed', ...payload });
   }
 
-  private buildGoalContextCardTree(cardId: string): Array<{ id: string; type: string; title: string; status: string; status_text: string | null; child_card_tree?: unknown[] }> {
+  private buildGoalContextCardTree(cardId: string): Array<{ id: string; type: string; title: string; status: string; status_text: string | null; depends_on: string[]; child_card_tree?: unknown[] }> {
     return this.cardStore.listChildren(cardId)
       .map((id) => this.cardStore.read(id))
       .filter((card): card is CardRecord => Boolean(card))
@@ -265,6 +265,7 @@ export class Runtime extends EventEmitter {
           title: card.title,
           status: card.status,
           status_text: card.status_text ?? null,
+          depends_on: card.depends_on,
           ...(children.length > 0 ? { child_card_tree: children } : {}),
         };
       });
