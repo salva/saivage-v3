@@ -54,6 +54,11 @@ on:
         default: 'false'
       run_release_profile:
         default: 'false'
+permissions:
+  contents: read
+concurrency:
+  group: \${{ github.workflow }}-\${{ github.ref }}
+  cancel-in-progress: true
 jobs:
   validation:
     runs-on: ubuntu-latest
@@ -62,6 +67,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+          cache: npm
       - run: npm ci
       - run: npm run validate:routine
       - run: npm run validate:docs
@@ -94,11 +100,87 @@ describe('validation cadence guard', () => {
       expect(result.ok).toBe(true);
       expect(result.failures).toEqual([]);
       expect(result.documentedCommandsChecked).toContain('README.md: npm run docs:verify');
-      expect(result.workflowCommandsChecked).toContain('.github/workflows/validation.yml:19: npm run validate:routine');
+      expect(result.workflowCommandsChecked).toContain('.github/workflows/validation.yml:25: npm run validate:routine');
       expect(result.workflowFilesChecked).toContain('.github/workflows/validation.yml');
       expect(result.requiredValidationScriptsChecked).toContain('package.json script web:test:operator-smoke');
       expect(result.validationProfilesChecked).toContain('package.json profile validate:release');
       expect(result.docsVerifyEntriesChecked).toContain('scripts/docs-verify.sh:4 node-script scripts/check-existing.js');
+    });
+  });
+
+
+
+  it('fails clearly when a workflow omits least-privilege permissions', () => {
+    const workflowWithoutPermissions = VALID_WORKFLOW.replace("permissions:\n  contents: read\n", '');
+    withFixture(validFiles({ '.github/workflows/validation.yml': workflowWithoutPermissions }), (root) => {
+      const result = verifyValidationCadence({ root });
+      expect(result.ok).toBe(false);
+      expect(result.failures).toContain('.github/workflows/validation.yml must declare top-level least-privilege permissions with contents: read');
+    });
+  });
+
+  it('fails clearly when a workflow requests broad permissions', () => {
+    const workflowWithBroadPermissions = VALID_WORKFLOW.replace("permissions:\n  contents: read", 'permissions: write-all');
+    withFixture(validFiles({ '.github/workflows/validation.yml': workflowWithBroadPermissions }), (root) => {
+      const result = verifyValidationCadence({ root });
+      expect(result.ok).toBe(false);
+      expect(result.failures).toContain('.github/workflows/validation.yml:10 must not use broad workflow permissions; use least-privilege contents: read');
+    });
+  });
+
+  it('fails clearly when a workflow omits Node 22 setup', () => {
+    const workflowWithoutNode22 = VALID_WORKFLOW.replace('          node-version: 22', '          node-version: 20');
+    withFixture(validFiles({ '.github/workflows/validation.yml': workflowWithoutNode22 }), (root) => {
+      const result = verifyValidationCadence({ root });
+      expect(result.ok).toBe(false);
+      expect(result.failures).toContain('.github/workflows/validation.yml must use actions/setup-node@v4 with node-version: 22');
+    });
+  });
+
+  it('fails clearly when a workflow omits npm ci', () => {
+    const workflowWithoutNpmCi = VALID_WORKFLOW.replace('      - run: npm ci\n', '');
+    withFixture(validFiles({ '.github/workflows/validation.yml': workflowWithoutNpmCi }), (root) => {
+      const result = verifyValidationCadence({ root });
+      expect(result.ok).toBe(false);
+      expect(result.failures).toContain('.github/workflows/validation.yml must install dependencies with npm ci before validation profiles');
+    });
+  });
+
+  it('fails clearly when a workflow runs npm ci after validation profiles', () => {
+    const workflowWithLateNpmCi = VALID_WORKFLOW.replace('      - run: npm ci\n      - run: npm run validate:routine\n', '      - run: npm run validate:routine\n      - run: npm ci\n');
+    withFixture(validFiles({ '.github/workflows/validation.yml': workflowWithLateNpmCi }), (root) => {
+      const result = verifyValidationCadence({ root });
+      expect(result.ok).toBe(false);
+      expect(result.failures).toContain('.github/workflows/validation.yml:25 npm ci must run before validation profiles');
+    });
+  });
+
+  it('fails clearly when a workflow omits concurrency cancellation', () => {
+    const workflowWithoutConcurrency = VALID_WORKFLOW.replace("concurrency:\n  group: \${{ github.workflow }}-\${{ github.ref }}\n  cancel-in-progress: true\n", '');
+    withFixture(validFiles({ '.github/workflows/validation.yml': workflowWithoutConcurrency }), (root) => {
+      const result = verifyValidationCadence({ root });
+      expect(result.ok).toBe(false);
+      expect(result.failures).toContain('.github/workflows/validation.yml must declare top-level concurrency with a group and cancel-in-progress: true');
+    });
+  });
+
+  it('fails clearly when a workflow references secrets or token echo patterns', () => {
+    const workflowWithSecrets = VALID_WORKFLOW.replace('      - run: npm ci', "      - run: echo ${{ secrets.SAIVAGE_API_TOKEN }}\n      - run: npm ci");
+    withFixture(validFiles({ '.github/workflows/validation.yml': workflowWithSecrets }), (root) => {
+      const result = verifyValidationCadence({ root });
+      expect(result.ok).toBe(false);
+      expect(result.failures).toContain('.github/workflows/validation.yml:24 must not reference GitHub secrets in validation workflow');
+      expect(result.failures).toContain('.github/workflows/validation.yml:24 must not set or reference SAIVAGE_API_TOKEN in validation workflow');
+      expect(result.failures).toContain('.github/workflows/validation.yml:24 must not echo secret or token values in validation workflow');
+    });
+  });
+
+  it('fails clearly when a workflow assigns token-like environment variables', () => {
+    const workflowWithTokenEnv = VALID_WORKFLOW.replace('      - run: npm ci', "      - run: npm ci\n        env:\n          API_KEY: synthetic");
+    withFixture(validFiles({ '.github/workflows/validation.yml': workflowWithTokenEnv }), (root) => {
+      const result = verifyValidationCadence({ root });
+      expect(result.ok).toBe(false);
+      expect(result.failures).toContain('.github/workflows/validation.yml:26 must not assign API key/token/password environment variables in validation workflow');
     });
   });
 
@@ -119,7 +201,7 @@ describe('validation cadence guard', () => {
     withFixture(validFiles({ '.github/workflows/validation.yml': staleWorkflow }), (root) => {
       const result = verifyValidationCadence({ root });
       expect(result.ok).toBe(false);
-      expect(result.failures).toContain('.github/workflows/validation.yml:23: npm run validate:ui-fast documents npm run validate:ui-fast, but package.json has no "validate:ui-fast" script');
+      expect(result.failures).toContain('.github/workflows/validation.yml:29: npm run validate:ui-fast documents npm run validate:ui-fast, but package.json has no "validate:ui-fast" script');
     });
   });
 
@@ -138,7 +220,7 @@ describe('validation cadence guard', () => {
       const result = verifyValidationCadence({ root });
       expect(result.ok).toBe(false);
       expect(result.failures).toContain('package.json is missing validation profile "validate:ui-smoke" (lightweight UI/operator smoke validation profile)');
-      expect(result.failures).toContain('.github/workflows/validation.yml:23: npm run validate:ui-smoke documents npm run validate:ui-smoke, but package.json has no "validate:ui-smoke" script');
+      expect(result.failures).toContain('.github/workflows/validation.yml:29: npm run validate:ui-smoke documents npm run validate:ui-smoke, but package.json has no "validate:ui-smoke" script');
     });
   });
 

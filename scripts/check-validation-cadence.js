@@ -260,6 +260,108 @@ function listWorkflowFiles(root, workflowDirs = DEFAULT_WORKFLOW_DIRS) {
   return files.sort();
 }
 
+
+function lineNumberForPattern(content, pattern) {
+  const lines = content.split('\n');
+  for (let index = 0; index < lines.length; index += 1) {
+    if (pattern.test(lines[index])) {
+      return index + 1;
+    }
+  }
+  return 1;
+}
+
+function topLevelBlockLines(content, key) {
+  const lines = content.split('\n');
+  const start = lines.findIndex((line) => new RegExp(`^${key}:\\s*(?:#.*)?$`).test(line));
+  if (start === -1) {
+    return [];
+  }
+  const block = [];
+  for (let index = start; index < lines.length; index += 1) {
+    const line = lines[index];
+    if (index > start && /^\S/.test(line)) {
+      break;
+    }
+    block.push({ line, number: index + 1 });
+  }
+  return block;
+}
+
+function workflowUsesNode22(content) {
+  return /uses:\s*actions\/setup-node@v4\b/.test(content) && /^\s*node-version:\s*['"]?22['"]?\s*$/m.test(content);
+}
+
+function validateWorkflowPermissions({ file, content, failures }) {
+  if (/^permissions:\s*(?:write-all|read-all)\s*$/im.test(content)) {
+    failures.push(`${file}:${lineNumberForPattern(content, /^permissions:\s*(?:write-all|read-all)\s*$/i)} must not use broad workflow permissions; use least-privilege contents: read`);
+    return;
+  }
+
+  const block = topLevelBlockLines(content, 'permissions');
+  if (block.length === 0) {
+    failures.push(`${file} must declare top-level least-privilege permissions with contents: read`);
+    return;
+  }
+
+  if (!block.some(({ line }) => /^\s+contents:\s*read\s*$/.test(line))) {
+    failures.push(`${file}:${block[0].number} permissions block must include contents: read`);
+  }
+
+  const writePermission = block.find(({ line }) => /^\s+[A-Za-z0-9_-]+:\s*write\s*$/.test(line));
+  if (writePermission) {
+    failures.push(`${file}:${writePermission.number} permissions block must not request write permissions for validation`);
+  }
+}
+
+function validateWorkflowConcurrency({ file, content, failures }) {
+  const block = topLevelBlockLines(content, 'concurrency');
+  if (block.length === 0) {
+    failures.push(`${file} must declare top-level concurrency with a group and cancel-in-progress: true`);
+    return;
+  }
+  if (!block.some(({ line }) => /^\s+group:\s*\S+/.test(line))) {
+    failures.push(`${file}:${block[0].number} concurrency block must include a stable group`);
+  }
+  if (!block.some(({ line }) => /^\s+cancel-in-progress:\s*true\s*$/.test(line))) {
+    failures.push(`${file}:${block[0].number} concurrency block must set cancel-in-progress: true`);
+  }
+}
+
+function validateWorkflowSecretSafety({ file, content, failures }) {
+  const disallowed = [
+    { pattern: /\$\{\{\s*secrets\.|\bsecrets\./i, message: 'must not reference GitHub secrets in validation workflow' },
+    { pattern: /\bSAIVAGE_API_TOKEN\b/, message: 'must not set or reference SAIVAGE_API_TOKEN in validation workflow' },
+    { pattern: /^\s*[A-Z0-9_]*(?:API[_-]?KEY|TOKEN|PASSWORD)[A-Z0-9_]*\s*[:=]/im, message: 'must not assign API key/token/password environment variables in validation workflow' },
+    { pattern: /\becho\b[^\n]*(?:secret|token|password|api[_-]?key)/i, message: 'must not echo secret or token values in validation workflow' },
+  ];
+  for (const rule of disallowed) {
+    if (rule.pattern.test(content)) {
+      failures.push(`${file}:${lineNumberForPattern(content, rule.pattern)} ${rule.message}`);
+    }
+  }
+}
+
+function validateWorkflowHardening({ file, content, commands, failures }) {
+  validateWorkflowPermissions({ file, content, failures });
+  validateWorkflowConcurrency({ file, content, failures });
+  validateWorkflowSecretSafety({ file, content, failures });
+
+  if (!workflowUsesNode22(content)) {
+    failures.push(`${file} must use actions/setup-node@v4 with node-version: 22`);
+  }
+
+  const npmCi = commands.find(({ command }) => command === 'npm ci');
+  if (!npmCi) {
+    failures.push(`${file} must install dependencies with npm ci before validation profiles`);
+  }
+
+  const firstValidation = commands.find(({ command }) => /^npm\s+run\s+validate:/.test(command));
+  if (npmCi && firstValidation && npmCi.line > firstValidation.line) {
+    failures.push(`${file}:${npmCi.line} npm ci must run before validation profiles`);
+  }
+}
+
 function validateWorkflowCommands({ root, scripts, workflowFiles }) {
   const failures = [];
   const checked = [];
@@ -273,7 +375,9 @@ function validateWorkflowCommands({ root, scripts, workflowFiles }) {
       continue;
     }
     const content = readFileSync(fullPath, 'utf8');
-    for (const { command, line } of workflowRunCommands(content)) {
+    const commands = workflowRunCommands(content);
+    validateWorkflowHardening({ file, content, commands, failures });
+    for (const { command, line } of commands) {
       for (const segment of splitCommandSegments(command)) {
         const location = `${file}:${line}: ${segment}`;
         if (checkNpmRun({ scripts, segment, location, failures })) {
