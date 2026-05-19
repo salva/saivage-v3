@@ -58,8 +58,8 @@ describe('useCardStore evidence support', () => {
     const s = setupStore();
     s.currentCard = A;
     s.setupWsListener();
-    const handler = Array.from(wsTypeHandlers.get('status') || [])[0];
-    handler({ type: 'status', content: { event: 'card-updated', card: { ...A, title: 'Changed' } } });
+    const handler = Array.from(wsTypeHandlers.get('activity') || [])[0];
+    handler({ type: 'activity', content: { event: 'card-updated', card: { ...A, title: 'Changed' } } });
     expect(s.currentCard?.title).toBe('Changed');
     expect(s.currentDetailFreshness.isStale).toBe(true);
     expect(s.currentDetailFreshness.staleReason).toBe('ws-card-updated');

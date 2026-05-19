@@ -149,21 +149,21 @@ describe('card-store WS burst consistency', () => {
     // --- Fire events rapidly ---
 
     // 1) card-created F2 → optimistic [F2, F1], total=2, gen bumped, background fetch call#0
-    fireWsEvent('status', { event: 'card-created', card: F2 });
+    fireWsEvent('activity', { event: 'card-created', card: F2 });
     expect(s.cards.map((c) => c.id)).toEqual(['card-f2', 'card-f1']);
     expect(s.total).toBe(2);
 
     // 2) card-created F3 → optimistic [F3, F2, F1], total=3, gen bumped, background fetch call#1
-    fireWsEvent('status', { event: 'card-created', card: F3 });
+    fireWsEvent('activity', { event: 'card-created', card: F3 });
     expect(s.cards.map((c) => c.id)).toEqual(['card-f3', 'card-f2', 'card-f1']);
     expect(s.total).toBe(3);
 
     // 3) card-updated F2 → updates in-place, gen bumped, background fetch call#2
-    fireWsEvent('status', { event: 'card-updated', card: F2_upd });
+    fireWsEvent('activity', { event: 'card-updated', card: F2_upd });
     expect(s.cards.find((c) => c.id === 'card-f2')?.title).toBe('Burst Beta Updated');
 
     // 4) card-deleted F2 → removes F2, total=2, gen bumped, background fetch call#3
-    fireWsEvent('status', { event: 'card-deleted', id: 'card-f2' });
+    fireWsEvent('activity', { event: 'card-deleted', id: 'card-f2' });
     expect(s.cards.map((c) => c.id)).toEqual(['card-f3', 'card-f1']);
     expect(s.total).toBe(2);
 
@@ -232,13 +232,13 @@ describe('card-store WS burst consistency', () => {
 
     // --- Step 1: Delete F2 via WS.  Optimistic removal bumps gen to 1.
     //             Background fetch call#0 is dispatched.
-    fireWsEvent('status', { event: 'card-deleted', id: 'card-f2' });
+    fireWsEvent('activity', { event: 'card-deleted', id: 'card-f2' });
     expect(s.cards.map((c) => c.id)).toEqual(['card-f1']);
     expect(s.total).toBe(1);
 
     // --- Step 2: Before call#0 resolves, create F3 via WS.
     //             This bumps gen to 2 and dispatches background fetch call#1.
-    fireWsEvent('status', { event: 'card-created', card: F3 });
+    fireWsEvent('activity', { event: 'card-created', card: F3 });
     expect(s.cards.map((c) => c.id).sort()).toEqual(['card-f1', 'card-f3']);
     expect(s.total).toBe(2);
 
@@ -273,9 +273,9 @@ describe('card-store WS burst consistency', () => {
     const s = setupStore();
     s.setupWsListener();
 
-    fireWsEvent('status', { event: 'card-created', card: F1 });
-    fireWsEvent('status', { event: 'card-created', card: F1 });
-    fireWsEvent('status', { event: 'card-created', card: F1 });
+    fireWsEvent('activity', { event: 'card-created', card: F1 });
+    fireWsEvent('activity', { event: 'card-created', card: F1 });
+    fireWsEvent('activity', { event: 'card-created', card: F1 });
 
     expect(s.cards).toHaveLength(1);
     expect(s.total).toBe(1);
@@ -289,9 +289,9 @@ describe('card-store WS burst consistency', () => {
     s.total = 1;
     s.setupWsListener();
 
-    fireWsEvent('status', { event: 'card-created', card: F2 });
+    fireWsEvent('activity', { event: 'card-created', card: F2 });
     const F2_upd = { ...F2, title: 'Burst Beta v2', status: 'done' as const };
-    fireWsEvent('status', { event: 'card-updated', card: F2_upd });
+    fireWsEvent('activity', { event: 'card-updated', card: F2_upd });
 
     expect(s.cards.map((c) => c.id)).toContain('card-f2');
     const card = s.cards.find((c) => c.id === 'card-f2');
@@ -309,19 +309,19 @@ describe('card-store WS burst consistency', () => {
     const X2 = makeCard({ id: 'x-2', title: 'X2' });
     const X3 = makeCard({ id: 'x-3', title: 'X3' });
 
-    fireWsEvent('status', { event: 'card-created', card: X1 });
-    fireWsEvent('status', { event: 'card-created', card: X2 });
-    fireWsEvent('status', { event: 'card-created', card: X3 });
+    fireWsEvent('activity', { event: 'card-created', card: X1 });
+    fireWsEvent('activity', { event: 'card-created', card: X2 });
+    fireWsEvent('activity', { event: 'card-created', card: X3 });
     expect(s.total).toBe(3);
     expect(s.cards).toHaveLength(3);
 
-    fireWsEvent('status', { event: 'card-deleted', id: 'x-1' });
+    fireWsEvent('activity', { event: 'card-deleted', id: 'x-1' });
     expect(s.total).toBe(2);
-    fireWsEvent('status', { event: 'card-deleted', id: 'x-3' });
+    fireWsEvent('activity', { event: 'card-deleted', id: 'x-3' });
     expect(s.total).toBe(1);
 
     const X4 = makeCard({ id: 'x-4', title: 'X4' });
-    fireWsEvent('status', { event: 'card-created', card: X4 });
+    fireWsEvent('activity', { event: 'card-created', card: X4 });
     expect(s.total).toBe(2);
     expect(s.cards).toHaveLength(2);
     expect(s.cards.map((c) => c.id).sort()).toEqual(['x-2', 'x-4']);
@@ -352,12 +352,12 @@ describe('card-store WS burst consistency', () => {
     });
 
     // Event 1: create F2 → gen=1, fetch call#0
-    fireWsEvent('status', { event: 'card-created', card: F2 });
+    fireWsEvent('activity', { event: 'card-created', card: F2 });
     expect(s.cards.map((c) => c.id)).toEqual(['card-f2', 'card-f1']);
     expect(s.total).toBe(2);
 
     // Event 2: create F3 → gen=2, fetch call#1
-    fireWsEvent('status', { event: 'card-created', card: F3 });
+    fireWsEvent('activity', { event: 'card-created', card: F3 });
     expect(s.cards.map((c) => c.id)).toEqual(['card-f3', 'card-f2', 'card-f1']);
     expect(s.total).toBe(3);
 
@@ -388,18 +388,18 @@ describe('card-store WS burst consistency', () => {
     const created: string[] = [];
     for (let i = 0; i < 5; i++) {
       const c = makeCard({ id: `burst-${i}`, title: `Burst ${i}` });
-      fireWsEvent('status', { event: 'card-created', card: c });
+      fireWsEvent('activity', { event: 'card-created', card: c });
       created.push(c.id);
     }
 
     // Delete cards 1, 3
-    fireWsEvent('status', { event: 'card-deleted', id: 'burst-1' });
-    fireWsEvent('status', { event: 'card-deleted', id: 'burst-3' });
+    fireWsEvent('activity', { event: 'card-deleted', id: 'burst-1' });
+    fireWsEvent('activity', { event: 'card-deleted', id: 'burst-3' });
 
     // Create 2 more
     for (let i = 5; i < 7; i++) {
       const c = makeCard({ id: `burst-${i}`, title: `Burst ${i}` });
-      fireWsEvent('status', { event: 'card-created', card: c });
+      fireWsEvent('activity', { event: 'card-created', card: c });
     }
 
     // Expected: 5 created - 2 deleted + 2 created = 5 cards
