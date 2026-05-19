@@ -61,6 +61,10 @@ function lineNumberForIndex(content, index) {
   return content.slice(0, index).split('\n').length;
 }
 
+function escapeRegExp(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
 function remediationLog(readmeContent) {
   const match = readmeContent.match(/^##\s+Remediation log\s*$/m);
   if (!match || match.index === undefined) {
@@ -71,6 +75,17 @@ function remediationLog(readmeContent) {
   const remaining = readmeContent.slice(start);
   const nextHeading = remaining.search(/^##\s+/m);
   return nextHeading === -1 ? remaining : remaining.slice(0, nextHeading);
+}
+
+function hasRegressionGuardMention(content) {
+  return /\bregression[-\s]+guard\b/i.test(content);
+}
+
+function remediationLogHasRegressionGuardEntry(log, id) {
+  const idPattern = new RegExp(`\\b${escapeRegExp(id)}\\b`);
+  return log
+    .split('\n')
+    .some((line) => idPattern.test(line) && hasRegressionGuardMention(line));
 }
 
 function checkDossier({ name, dir }) {
@@ -98,6 +113,7 @@ function checkDossier({ name, dir }) {
     .sort((a, b) => a.localeCompare(b));
 
   const fixedFindingIds = [];
+  const fixedFindings = [];
 
   for (const filename of findingFiles) {
     const file = path.join(findingsDir, filename);
@@ -129,6 +145,11 @@ function checkDossier({ name, dir }) {
       const status = canonicalMatches[0][1].toLowerCase();
       if (status === 'fixed') {
         fixedFindingIds.push(id);
+        fixedFindings.push({
+          id,
+          file,
+          hasRegressionGuardNote: hasRegressionGuardMention(content),
+        });
         if (!/^##\s+Resolution\s*$/m.test(content)) {
           errors.push({
             kind: 'missing-resolution',
@@ -151,12 +172,29 @@ function checkDossier({ name, dir }) {
       });
     } else if (log !== null) {
       for (const id of fixedFindingIds) {
-        const idPattern = new RegExp(`\\b${id.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`);
+        const idPattern = new RegExp(`\\b${escapeRegExp(id)}\\b`);
         if (!idPattern.test(log)) {
           errors.push({
             kind: 'missing-remediation-log-entry',
             file: readmePath,
             message: `${name} README.md remediation log does not mention fixed finding ${id}`,
+          });
+        }
+      }
+
+      for (const finding of fixedFindings) {
+        const hasReadmeRegressionGuardEntry = remediationLogHasRegressionGuardEntry(log, finding.id);
+        if (finding.hasRegressionGuardNote && !hasReadmeRegressionGuardEntry) {
+          errors.push({
+            kind: 'missing-regression-guard-log-entry',
+            file: readmePath,
+            message: `${name} README.md remediation log does not include a regression-guard entry for fixed finding ${finding.id}`,
+          });
+        } else if (!finding.hasRegressionGuardNote && hasReadmeRegressionGuardEntry) {
+          errors.push({
+            kind: 'missing-regression-guard-finding-note',
+            file: finding.file,
+            message: `${finding.id} has a README remediation-log regression-guard entry but no matching Regression guard note in the finding file`,
           });
         }
       }
