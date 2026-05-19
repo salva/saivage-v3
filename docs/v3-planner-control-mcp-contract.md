@@ -115,3 +115,7 @@ This is the core behavior missing from the current queue-centric runtime.
 ## Bottom line
 
 The required redesign is not “more card CRUD.” It is a planner-owned control plane with explicit dispatch handles, wait/observe tools, and durable parent frame resumption. Cards stay as durable state, but strategic completion must come from planner and reviewer decisions backed by structured child evidence, never from an empty ready queue or a `done` result that skipped newly created work.
+
+## Current-source reconciliation anchors
+
+This page remains historical provenance, not current operator instruction. Current planner tool exposure and processing are implemented in `src/agents/agent-adapter.ts:56` and `src/agents/agent-adapter.ts:233`; durable planner frame and dispatch schemas are defined in `src/schemas/validators.ts:46`; current runtime scheduling and dispatch behavior is implemented in `src/utils/runtime.ts:1`.

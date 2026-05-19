@@ -246,3 +246,70 @@ Recommended operator sequence for maintenance or backup:
 5. Resume or `resume-from-freeze` when the maintenance window ends.
 
 For recovery and incident workflows, use the [Operator Runbook](/operator-runbook) and [Troubleshooting](/troubleshooting).
+
+<!-- saivage:operator-routes:start -->
+## Operator-facing HTTP route inventory
+
+Every current operator-facing Fastify route is listed exactly once here. `npm run docs:verify` compares this table with `src/server/server.ts` and `src/server/routes/**`.
+
+| Route | Purpose | Code anchor |
+|---|---|---|
+| `DELETE /api/cards/:id` | Delete a card through audited mutating control flow. | `src/server/routes/cards.ts:175` |
+| `DELETE /api/notes/:id` | Delete one unhandled note. | `src/server/routes/runtime-config-notes.ts:194` |
+| `DELETE /api/notes` | Clear all unhandled notes. | `src/server/routes/runtime-config-notes.ts:195` |
+| `GET /api/agents/:id/conversation` | Read one persisted agent conversation. | `src/server/routes/runtime-config-notes.ts:191` |
+| `GET /api/agents` | List persisted agent sessions. | `src/server/routes/runtime-config-notes.ts:190` |
+| `GET /api/cards/:id/diff` | Diff card versions. | `src/server/routes/cards.ts:105` |
+| `GET /api/cards/:id/history/:seq` | Read one card-history snapshot. | `src/server/routes/cards.ts:91` |
+| `GET /api/cards/:id/history` | List card-history headers. | `src/server/routes/cards.ts:80` |
+| `GET /api/cards/:id` | Read card detail with children and ancestors. | `src/server/routes/cards.ts:79` |
+| `GET /api/cards` | List cards. | `src/server/routes/cards.ts:78` |
+| `GET /api/chats/:sessionId` | Read an analyst chat transcript. | `src/server/routes/chats-files-debug.ts:114` |
+| `GET /api/chats` | List analyst chat sessions. | `src/server/routes/chats-files-debug.ts:81` |
+| `GET /api/config` | Return redacted loaded configuration and warnings. | `src/server/routes/runtime-config-notes.ts:188` |
+| `GET /api/control-actions` | List control-action audit entries. | `src/server/routes/runtime-config-notes.ts:175` |
+| `GET /api/debug/doctor` | Run persisted-card consistency checks. | `src/server/routes/chats-files-debug.ts:389` |
+| `GET /api/debug/errors` | Read runtime error records. | `src/server/routes/chats-files-debug.ts:341` |
+| `GET /api/debug/state` | Dump runtime and card-index debug state. | `src/server/routes/chats-files-debug.ts:306` |
+| `GET /api/debug/supervision` | Read content-supervision review/quarantine summary. | `src/server/routes/chats-files-debug.ts:535` |
+| `GET /api/debug/timeline` | Read runtime event timeline records. | `src/server/routes/chats-files-debug.ts:365` |
+| `GET /api/events` | Query runtime/agent events with filters and pagination. | `src/server/routes/events.ts:42` |
+| `GET /api/files/content` | Preview contained text files with safety checks. | `src/server/routes/chats-files-debug.ts:238` |
+| `GET /api/files` | List contained project files. | `src/server/routes/chats-files-debug.ts:178` |
+| `GET /api/mcp/status` | Show MCP server status. | `src/server/server.ts:86` |
+| `GET /api/mcp/tools` | Show MCP tool inventory and invocation stats. | `src/server/server.ts:87` |
+| `GET /api/notes` | List unhandled notes. | `src/server/routes/runtime-config-notes.ts:192` |
+| `GET /api/notifications` | List notifications. | `src/server/routes/runtime-config-notes.ts:146` |
+| `GET /api/processes/:id` | Read one safe process view. | `src/server/routes/processes.ts:112` |
+| `GET /api/processes` | List safe process views. | `src/server/routes/processes.ts:100` |
+| `GET /api/providers` | Return redacted provider summaries. | `src/server/routes/runtime-config-notes.ts:189` |
+| `GET /api/runtime/card-runs` | List runtime card-run records. | `src/server/server.ts:51` |
+| `GET /api/runtime/status` | Read compact runtime status. | `src/server/server.ts:53` |
+| `GET /api/state` | Read RuntimeState plus card-index summary. | `src/server/routes/runtime-config-notes.ts:145` |
+| `GET /health` | Public health and runtime-status summary. | `src/server/server.ts:28` |
+| `PATCH /api/cards/:id` | Update allowed card fields through audited mutation. | `src/server/routes/cards.ts:145` |
+| `POST /api/cards` | Create a card through audited mutation. | `src/server/routes/cards.ts:123` |
+| `POST /api/chats/:sessionId` | Send an analyst chat message. | `src/server/routes/chats-files-debug.ts:148` |
+| `POST /api/notes/:id/acknowledge` | Mark an unhandled note handled. | `src/server/routes/runtime-config-notes.ts:193` |
+| `POST /api/notifications/:id/acknowledge` | Acknowledge a notification. | `src/server/routes/runtime-config-notes.ts:154` |
+| `POST /api/runtime/freeze` | Freeze runtime for handoff. | `src/server/routes/runtime-config-notes.ts:186` |
+| `POST /api/runtime/goals/:id/needs_corrections` | Record goal correction directive. | `src/server/server.ts:36` |
+| `POST /api/runtime/lets_dance` | Record project kickoff directive. | `src/server/server.ts:32` |
+| `POST /api/runtime/pause` | Pause runtime and return RuntimeState. | `src/server/routes/runtime-config-notes.ts:184` |
+| `POST /api/runtime/project/needs_corrections` | Record project correction directive. | `src/server/server.ts:44` |
+| `POST /api/runtime/resume-from-freeze` | Resume from freeze manifest. | `src/server/routes/runtime-config-notes.ts:187` |
+| `POST /api/runtime/resume` | Resume runtime and return RuntimeState. | `src/server/routes/runtime-config-notes.ts:185` |
+<!-- saivage:operator-routes:end -->
+
+<!-- saivage:runtime-controls:start -->
+## Runtime control request/response shapes
+
+`npm run docs:verify` checks these shapes against the implemented runtime-control routes.
+
+| Route | Request body | Success response | Code anchor |
+|---|---|---|---|
+| `POST /api/runtime/pause` | `empty-or-null-json-object` | `RuntimeState` | `src/server/routes/runtime-config-notes.ts:184` |
+| `POST /api/runtime/resume` | `empty-or-null-json-object` | `RuntimeState` | `src/server/routes/runtime-config-notes.ts:185` |
+| `POST /api/runtime/freeze` | `optional-object:{reason?:string}` | `freeze-summary` | `src/server/routes/runtime-config-notes.ts:186` |
+| `POST /api/runtime/resume-from-freeze` | `empty-or-null-json-object` | `resume-from-freeze-summary` | `src/server/routes/runtime-config-notes.ts:187` |
+<!-- saivage:runtime-controls:end -->

@@ -400,3 +400,7 @@ If runtime or UI state is degraded:
 - verify the server process and port binding;
 - verify docs and SPA serving separately from API runtime state;
 - use process inspection and logs if the server is up but runtime is not advancing.
+
+## Source anchors
+
+The current runtime control routes are implemented in `src/server/routes/runtime-config-notes.ts:184`; public health and runtime directive routes are registered in `src/server/server.ts:28`; persisted RuntimeState validation is defined in `src/schemas/validators.ts:34`; process inspection routes are implemented in `src/server/routes/processes.ts:100`.

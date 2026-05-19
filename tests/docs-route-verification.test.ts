@@ -2,7 +2,15 @@ import { describe, it, expect } from '@jest/globals';
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { activeOperatorDocPaths, extractImplementedRoutes, verifyDocRoutes } from '../scripts/verify-doc-routes.js';
+import {
+  activeOperatorDocPaths,
+  extractImplementedRoutes,
+  verifyAgentToolDocs,
+  verifyConfigDocs,
+  verifyDocRoutes,
+  verifyDocSourceContracts,
+  verifyRuntimeControlDocs,
+} from '../scripts/verify-doc-routes.js';
 
 const projectRoot = process.cwd();
 
@@ -17,14 +25,14 @@ function withFixtureProject(docContent: string, fn: (fixtureRoot: string) => voi
   }
 }
 
-describe('operator-facing documentation route verification', () => {
-  it('passes for the current active operator docs', () => {
-    const result = verifyDocRoutes({ projectRoot });
+describe('operator-facing documentation source-contract verification', () => {
+  it('passes for the current active docs and source contract tables', () => {
+    const result = verifyDocSourceContracts({ projectRoot });
 
     expect(result.ok).toBe(true);
     expect(result.failures).toEqual([]);
-    expect(result.documentedRoutes.map((mention) => mention.key)).toContain('GET /health');
-    expect(result.implementedRoutes.has('POST /api/runtime/dispatch')).toBe(false);
+    expect(result.routeResult.documentedRoutes.map((mention) => mention.key)).toContain('GET /health');
+    expect(result.routeResult.implementedRoutes.has('POST /api/runtime/dispatch')).toBe(false);
   });
 
   it('checks all existing current markdown docs from the documentation inventory', () => {
@@ -53,6 +61,10 @@ describe('operator-facing documentation route verification', () => {
       const result = verifyDocRoutes({
         projectRoot: fixtureRoot,
         implementedRoutes: extractImplementedRoutes(projectRoot),
+        routeInventoryRows: Array.from(extractImplementedRoutes(projectRoot)).map((key) => ({
+          key,
+          anchor: 'src/server/server.ts:1',
+        })),
       });
 
       expect(checkedDocs).toEqual(['docs/operation.md', 'docs/agents.md', 'README.md']);
@@ -75,10 +87,15 @@ describe('operator-facing documentation route verification', () => {
 
   it('passes for a known-good fixture that references implemented routes', () => {
     withFixtureProject('Use `GET /health` and `POST /api/runtime/pause` for operator checks.\n', (fixtureRoot) => {
+      const implementedRoutes = new Set(['GET /health', 'POST /api/runtime/pause']);
       const result = verifyDocRoutes({
         projectRoot: fixtureRoot,
         docPaths: ['docs/operation.md'],
-        implementedRoutes: extractImplementedRoutes(projectRoot),
+        implementedRoutes,
+        routeInventoryRows: [
+          { key: 'GET /health', anchor: 'docs/operation.md:1' },
+          { key: 'POST /api/runtime/pause', anchor: 'docs/operation.md:1' },
+        ],
       });
 
       expect(result.ok).toBe(true);
@@ -91,7 +108,8 @@ describe('operator-facing documentation route verification', () => {
       const result = verifyDocRoutes({
         projectRoot: fixtureRoot,
         docPaths: ['docs/operation.md'],
-        implementedRoutes: extractImplementedRoutes(projectRoot),
+        implementedRoutes: new Set(['GET /health']),
+        routeInventoryRows: [{ key: 'GET /health', anchor: 'docs/operation.md:1' }],
       });
 
       expect(result.ok).toBe(false);
@@ -99,5 +117,84 @@ describe('operator-facing documentation route verification', () => {
         expect.objectContaining({ type: 'removed-route', route: 'POST /api/runtime/dispatch' }),
       ]));
     });
+  });
+
+  it('fails when the operator route inventory omits or duplicates implemented routes', () => {
+    withFixtureProject('Use `GET /health`.\n', (fixtureRoot) => {
+      const result = verifyDocRoutes({
+        projectRoot: fixtureRoot,
+        docPaths: ['docs/operation.md'],
+        implementedRoutes: new Set(['GET /health', 'GET /api/state']),
+        routeInventoryRows: [
+          { key: 'GET /health', anchor: 'docs/operation.md:1' },
+          { key: 'GET /health', anchor: 'docs/operation.md:1' },
+        ],
+      });
+
+      expect(result.ok).toBe(false);
+      expect(result.failures).toEqual(expect.arrayContaining([
+        expect.objectContaining({ type: 'route-inventory-count', route: 'GET /health' }),
+        expect.objectContaining({ type: 'route-inventory-count', route: 'GET /api/state' }),
+      ]));
+    });
+  });
+
+  it('fails when a route inventory code anchor is invalid', () => {
+    withFixtureProject('Use `GET /health`.\n', (fixtureRoot) => {
+      const result = verifyDocRoutes({
+        projectRoot: fixtureRoot,
+        docPaths: ['docs/operation.md'],
+        implementedRoutes: new Set(['GET /health']),
+        routeInventoryRows: [{ key: 'GET /health', anchor: 'missing.ts:999' }],
+      });
+
+      expect(result.ok).toBe(false);
+      expect(result.failures).toEqual(expect.arrayContaining([
+        expect.objectContaining({ type: 'bad-anchor' }),
+      ]));
+    });
+  });
+
+  it('fails when documented agent tools drift from the implemented tool matrix', () => {
+    const result = verifyAgentToolDocs({
+      projectRoot,
+      expectedTools: new Map([['planner', ['activate_card', 'get_card']]]),
+      documentedTools: new Map([['planner', { tools: ['get_card'], anchor: 'src/agents/agent-adapter.ts:56' }]]),
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.failures).toEqual(expect.arrayContaining([
+      expect.objectContaining({ type: 'agent-tool-parity', role: 'planner' }),
+    ]));
+  });
+
+  it('fails when runtime-control request or response shapes drift', () => {
+    const result = verifyRuntimeControlDocs({
+      projectRoot,
+      rows: new Map([
+        ['POST /api/runtime/pause', { request: 'body-required', response: 'status-object', anchor: 'src/server/routes/runtime-config-notes.ts:184' }],
+        ['POST /api/runtime/resume', { request: 'empty-or-null-json-object', response: 'RuntimeState', anchor: 'src/server/routes/runtime-config-notes.ts:185' }],
+        ['POST /api/runtime/freeze', { request: 'optional-object:{reason?:string}', response: 'freeze-summary', anchor: 'src/server/routes/runtime-config-notes.ts:186' }],
+        ['POST /api/runtime/resume-from-freeze', { request: 'empty-or-null-json-object', response: 'resume-from-freeze-summary', anchor: 'src/server/routes/runtime-config-notes.ts:187' }],
+      ]),
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.failures).toEqual(expect.arrayContaining([
+      expect.objectContaining({ type: 'runtime-control-shape', route: 'POST /api/runtime/pause' }),
+    ]));
+  });
+
+  it('fails when configuration docs drift from config-schema fields', () => {
+    const result = verifyConfigDocs({
+      projectRoot,
+      expectedConfig: new Map([['runtime', ['continuous_improvement', 'max_review_retries', 'process_timeouts']]]),
+      documentedConfig: new Map([['runtime', { fields: ['continuousImprovement'], anchor: 'src/agents/config-schema.ts:226' }]]),
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.failures).toEqual(expect.arrayContaining([
+      expect.objectContaining({ type: 'config-schema-parity', section: 'runtime' }),
+    ]));
   });
 });

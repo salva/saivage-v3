@@ -1050,3 +1050,16 @@ npm run docs:verify
 
 Implementation changes should also pass typecheck, build, and focused
 Jest coverage before broader test runs.
+
+<!-- saivage:agent-tools:start -->
+## Agent tool matrix (source-verified)
+
+`npm run docs:verify` compares this table with `src/agents/agent-adapter.ts`, `src/agents/workspace-tools.ts`, and the analyst tool definitions.
+
+| Role | Tools | Code anchor |
+|---|---|---|
+| `analyst` | `diff_card,get_card_history_entry,get_note,lets_dance,list_card_history,list_notes,mark_goal_needs_corrections,mark_note_handled,mark_project_needs_corrections` | `src/agents/agent-adapter.ts:126` |
+| `executor` | `diff_card,get_card_history_entry,get_note,kill_process,list_card_history,list_notes,list_project_files,load_skill,mark_note_handled,mcp_tool_call,read_project_file,run_project_command,start_and_wait,wait_for_process,write_project_file` | `src/agents/agent-adapter.ts:124` |
+| `planner` | `activate_card,add_note,cancel_card,create_card,delete_card,diff_card,edit_card,get_card,get_card_history_entry,get_tree,kill_process,list_card_history,list_cards,list_project_files,read_project_file,report_goal_blocked,report_goal_done,report_goal_failed,restart_card,run_project_command,start_and_wait,wait_for_process,write_project_file` | `src/agents/agent-adapter.ts:56` |
+| `reviewer` | `diff_card,get_card_history_entry,get_note,list_card_history,list_notes,list_project_files,load_skill,mark_note_handled,mcp_tool_call,read_project_file` | `src/agents/agent-adapter.ts:125` |
+<!-- saivage:agent-tools:end -->

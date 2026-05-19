@@ -227,3 +227,7 @@ A card marked `done` is not automatically operator-accepted. Use review status p
 - review `achieved`, `missing`, and `evidence cards` in the detail view;
 - inspect cited evidence cards through the card-detail navigation links;
 - if review is missing for a done card, treat completion as unverified.
+
+## Source anchors
+
+Runtime events are queried by `src/server/routes/events.ts:42`; debug errors/timeline/doctor routes are implemented in `src/server/routes/chats-files-debug.ts:341`; invocation recovery and supervisor behavior are implemented in `src/agents/recovery.ts:1` and `src/utils/stuck-agent-supervisor.ts:1`; safe process views are implemented in `src/server/routes/processes.ts:100`.
