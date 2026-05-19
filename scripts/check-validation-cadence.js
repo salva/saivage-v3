@@ -12,8 +12,38 @@ const DEFAULT_DOCUMENTED_COMMAND_FILES = [
 const REQUIRED_VALIDATION_SCRIPTS = [
   {
     name: 'web:test:operator-smoke',
-    mustInclude: 'operator-dashboard-smoke.test.ts',
+    mustInclude: ['operator-dashboard-smoke.test.ts'],
     description: 'direct operator-dashboard smoke guard',
+  },
+];
+
+const REQUIRED_VALIDATION_PROFILES = [
+  {
+    name: 'validate:docs',
+    mustInclude: ['npm run docs:verify'],
+    mustNotInclude: ['web:test:operator-smoke', 'npm test'],
+    documentedExclusion: /validate:docs[\s\S]{0,240}(?:does not|without|excludes|omits)[\s\S]{0,160}(?:web:test:operator-smoke|Vitest smoke|npm test)/i,
+    description: 'docs-only validation profile',
+  },
+  {
+    name: 'validate:routine',
+    mustInclude: ['npm run typecheck', 'npm run docs:verify'],
+    description: 'routine backend/runtime validation profile',
+  },
+  {
+    name: 'validate:ui-smoke',
+    mustInclude: ['npm run web:test:operator-smoke'],
+    description: 'lightweight UI/operator smoke validation profile',
+  },
+  {
+    name: 'validate:ui',
+    mustInclude: ['npm run web:typecheck', 'npm run web:test:sweep', 'npm run web:test:operator-smoke'],
+    description: 'UI/operator surface validation profile',
+  },
+  {
+    name: 'validate:release',
+    mustInclude: ['npm run typecheck', 'npm run build', 'npm test', 'npm run web:test:operator-smoke', 'npm run docs:verify'],
+    description: 'release sign-off validation profile',
   },
 ];
 
@@ -60,6 +90,16 @@ function bashFenceCommands(markdown) {
   return commands;
 }
 
+function inlineNpmRunCommands(markdown) {
+  const commands = [];
+  const inlinePattern = /`(npm\s+(?:run\s+)?(?:validate:[^`\s]+|web:test:operator-smoke|docs:verify|typecheck|build|test)(?:\s+[^`]*)?)`/g;
+  let match;
+  while ((match = inlinePattern.exec(markdown)) !== null) {
+    commands.push(normalizeCommandLine(match[1]));
+  }
+  return commands;
+}
+
 function splitCommandSegments(command) {
   return command
     .split(/\s+(?:&&|;)\s+/)
@@ -94,6 +134,9 @@ function checkNpmRun({ scripts, segment, location, failures }) {
     return false;
   }
   const scriptName = match[1];
+  if (scriptName.includes('*')) {
+    return true;
+  }
   if (!scripts[scriptName]) {
     failures.push(`${location} documents npm ${scriptName === 'test' ? 'test' : `run ${scriptName}`}, but package.json has no "${scriptName}" script`);
   }
@@ -125,6 +168,7 @@ function checkDirectScript({ root, segment, location, failures }) {
 function validateDocumentedCommands({ root, files = DEFAULT_DOCUMENTED_COMMAND_FILES, scripts }) {
   const failures = [];
   const checked = [];
+  const markdownByFile = new Map();
 
   for (const file of files) {
     const fullPath = path.join(root, file);
@@ -132,7 +176,9 @@ function validateDocumentedCommands({ root, files = DEFAULT_DOCUMENTED_COMMAND_F
       continue;
     }
     const markdown = readFileSync(fullPath, 'utf8');
-    for (const command of bashFenceCommands(markdown)) {
+    markdownByFile.set(file, markdown);
+    const commands = [...bashFenceCommands(markdown), ...inlineNpmRunCommands(markdown)];
+    for (const command of commands) {
       for (const segment of splitCommandSegments(command)) {
         const location = commandLocation(file, segment);
         if (checkNpmRun({ scripts, segment, location, failures })) {
@@ -146,7 +192,7 @@ function validateDocumentedCommands({ root, files = DEFAULT_DOCUMENTED_COMMAND_F
     }
   }
 
-  return { checked, failures };
+  return { checked, failures, markdownByFile };
 }
 
 function extractDocsVerifyInvocations(content) {
@@ -181,6 +227,14 @@ function extractDocsVerifyInvocations(content) {
   return invocations;
 }
 
+function scriptIncludes(command, expected) {
+  return command.includes(expected);
+}
+
+function markdownCorpus(markdownByFile) {
+  return [...markdownByFile.values()].join('\n\n');
+}
+
 function validateRequiredValidationScripts({ scripts, documentedCommands }) {
   const failures = [];
   const checked = [];
@@ -192,12 +246,48 @@ function validateRequiredValidationScripts({ scripts, documentedCommands }) {
       failures.push(`package.json is missing required validation script "${required.name}" (${required.description})`);
       continue;
     }
-    if (required.mustInclude && !command.includes(required.mustInclude)) {
-      failures.push(`package.json script "${required.name}" must run ${required.mustInclude}, but is currently: ${command}`);
+    for (const expected of required.mustInclude ?? []) {
+      if (!scriptIncludes(command, expected)) {
+        failures.push(`package.json script "${required.name}" must run ${expected}, but is currently: ${command}`);
+      }
     }
     const documented = documentedCommands.some((location) => location.includes(`npm run ${required.name}`));
     if (!documented) {
       failures.push(`required validation script "${required.name}" is not documented in README.md or docs/runbook/*.md validation cadence`);
+    }
+  }
+
+  return { checked, failures };
+}
+
+function validateValidationProfiles({ scripts, documentedCommands, markdownByFile }) {
+  const failures = [];
+  const checked = [];
+  const corpus = markdownCorpus(markdownByFile);
+
+  for (const profile of REQUIRED_VALIDATION_PROFILES) {
+    const command = scripts[profile.name];
+    checked.push(`package.json profile ${profile.name}`);
+    if (!command) {
+      failures.push(`package.json is missing validation profile "${profile.name}" (${profile.description})`);
+      continue;
+    }
+    for (const expected of profile.mustInclude ?? []) {
+      if (!scriptIncludes(command, expected)) {
+        failures.push(`package.json profile "${profile.name}" must include ${expected}, but is currently: ${command}`);
+      }
+    }
+    for (const excluded of profile.mustNotInclude ?? []) {
+      if (scriptIncludes(command, excluded)) {
+        failures.push(`package.json profile "${profile.name}" should intentionally exclude ${excluded}, but is currently: ${command}`);
+      }
+    }
+    const documented = documentedCommands.some((location) => location.includes(`npm run ${profile.name}`));
+    if (!documented) {
+      failures.push(`validation profile "${profile.name}" is not documented in README.md or docs/runbook/*.md validation cadence`);
+    }
+    if (profile.documentedExclusion && !profile.documentedExclusion.test(corpus)) {
+      failures.push(`validation profile "${profile.name}" has intentional exclusions, but the exclusion is not documented near the profile command`);
     }
   }
 
@@ -241,13 +331,19 @@ export function verifyValidationCadence(options = {}) {
     scripts,
     documentedCommands: documented.checked,
   });
+  const profiles = validateValidationProfiles({
+    scripts,
+    documentedCommands: documented.checked,
+    markdownByFile: documented.markdownByFile,
+  });
   const docsVerify = validateDocsVerifySubguards({ root, scripts });
-  const failures = [...documented.failures, ...requiredScripts.failures, ...docsVerify.failures];
+  const failures = [...documented.failures, ...requiredScripts.failures, ...profiles.failures, ...docsVerify.failures];
   return {
     ok: failures.length === 0,
     failures,
     documentedCommandsChecked: documented.checked,
     requiredValidationScriptsChecked: requiredScripts.checked,
+    validationProfilesChecked: profiles.checked,
     docsVerifyEntriesChecked: docsVerify.checked,
   };
 }
@@ -262,7 +358,7 @@ function main() {
     process.exit(1);
   }
   console.log(
-    `✓ validation cadence check passed — ${result.documentedCommandsChecked.length} documented validation command(s), ${result.requiredValidationScriptsChecked.length} required validation script(s), and ${result.docsVerifyEntriesChecked.length} docs:verify sub-guard entry point(s) resolve`,
+    `✓ validation cadence check passed — ${result.documentedCommandsChecked.length} documented validation command(s), ${result.requiredValidationScriptsChecked.length} required validation script(s), ${result.validationProfilesChecked.length} validation profile(s), and ${result.docsVerifyEntriesChecked.length} docs:verify sub-guard entry point(s) resolve`,
   );
 }
 

@@ -18,16 +18,25 @@ function withFixture(files, testFn) {
   }
 }
 
-const PACKAGE_JSON = JSON.stringify({
-  scripts: {
-    'docs:verify': 'bash scripts/docs-verify.sh',
-    'docs:build': 'vitepress build docs',
-    typecheck: 'tsc --noEmit',
-    build: 'tsc',
-    test: 'jest',
-    'web:test:operator-smoke': 'cd web && npx vitest run src/__tests__/operator-dashboard-smoke.test.ts',
-  },
-});
+const PACKAGE_SCRIPTS = {
+  'docs:verify': 'bash scripts/docs-verify.sh',
+  'docs:build': 'vitepress build docs',
+  typecheck: 'tsc --noEmit',
+  build: 'tsc',
+  test: 'jest',
+  'web:typecheck': 'cd web && npm run typecheck',
+  'web:test:sweep': 'npm run web:test:control-room && npm run web:test:stores',
+  'web:test:operator-smoke': 'cd web && npx vitest run src/__tests__/operator-dashboard-smoke.test.ts',
+  'validate:docs': 'npm run docs:verify',
+  'validate:routine': 'npm run typecheck && npm run docs:verify',
+  'validate:ui-smoke': 'npm run web:test:operator-smoke',
+  'validate:ui': 'npm run web:typecheck && npm run web:test:sweep && npm run web:test:operator-smoke',
+  'validate:release': 'npm run typecheck && npm run build && npm test && npm run web:test:operator-smoke && npm run docs:verify',
+};
+
+const PACKAGE_JSON = JSON.stringify({ scripts: PACKAGE_SCRIPTS });
+
+const VALID_PROFILE_DOCS = '```bash\nnpm run validate:docs\nnpm run validate:routine\nnpm run validate:ui-smoke\nnpm run validate:ui\nnpm run validate:release\n```\n`npm run validate:docs` intentionally runs docs verification only and does not run `npm test` or the Vitest smoke guard.\n';
 
 const VALID_DOCS_VERIFY = `#!/usr/bin/env bash
 set -euo pipefail
@@ -40,9 +49,9 @@ describe('validation cadence guard', () => {
   it('passes when documented validation commands and docs:verify sub-guards resolve', () => {
     withFixture({
       'package.json': PACKAGE_JSON,
-      'README.md': '```bash\nnpm run docs:verify\nnpm run typecheck\nnpm run build\nnpm test\nnpm run web:test:operator-smoke\n```\n',
-      'docs/runbook/release.md': '```bash\nnpm run docs:build\n```\n',
-      'docs/runbook/index.md': 'No validation commands here.\n',
+      'README.md': '```bash\nnpm run docs:verify\nnpm run typecheck\nnpm run build\nnpm test\nnpm run web:test:operator-smoke\n```\n' + VALID_PROFILE_DOCS,
+      'docs/runbook/release.md': '```bash\nnpm run docs:build\n```\n' + VALID_PROFILE_DOCS,
+      'docs/runbook/index.md': 'No extra validation commands here.\n',
       'scripts/docs-verify.sh': VALID_DOCS_VERIFY,
       'scripts/check-existing.js': '#!/usr/bin/env node\n',
       'tests/existing.test.js': 'test("ok", () => {});\n',
@@ -52,6 +61,7 @@ describe('validation cadence guard', () => {
       expect(result.failures).toEqual([]);
       expect(result.documentedCommandsChecked).toContain('README.md: npm run docs:verify');
       expect(result.requiredValidationScriptsChecked).toContain('package.json script web:test:operator-smoke');
+      expect(result.validationProfilesChecked).toContain('package.json profile validate:release');
       expect(result.docsVerifyEntriesChecked).toContain('scripts/docs-verify.sh:4 node-script scripts/check-existing.js');
     });
   });
@@ -59,7 +69,7 @@ describe('validation cadence guard', () => {
   it('fails clearly when docs reference a stale npm validation command', () => {
     withFixture({
       'package.json': PACKAGE_JSON,
-      'README.md': '```bash\nnpm run docs:stale\nnpm run web:test:operator-smoke\n```\n',
+      'README.md': '```bash\nnpm run docs:stale\nnpm run web:test:operator-smoke\n```\n' + VALID_PROFILE_DOCS,
       'docs/runbook/release.md': '',
       'docs/runbook/index.md': '',
       'scripts/docs-verify.sh': VALID_DOCS_VERIFY,
@@ -76,7 +86,7 @@ describe('validation cadence guard', () => {
     const docsVerify = VALID_DOCS_VERIFY.replace('scripts/check-existing.js', 'scripts/check-missing.js');
     withFixture({
       'package.json': PACKAGE_JSON,
-      'README.md': '```bash\nnpm run docs:verify\nnpm run web:test:operator-smoke\n```\n',
+      'README.md': '```bash\nnpm run docs:verify\nnpm run web:test:operator-smoke\n```\n' + VALID_PROFILE_DOCS,
       'docs/runbook/release.md': '',
       'docs/runbook/index.md': '',
       'scripts/docs-verify.sh': docsVerify,
@@ -89,18 +99,11 @@ describe('validation cadence guard', () => {
   });
 
   it('fails clearly when the operator smoke script is missing', () => {
-    const packageWithoutSmoke = JSON.stringify({
-      scripts: {
-        'docs:verify': 'bash scripts/docs-verify.sh',
-        'docs:build': 'vitepress build docs',
-        typecheck: 'tsc --noEmit',
-        build: 'tsc',
-        test: 'jest',
-      },
-    });
+    const { 'web:test:operator-smoke': _smoke, ...scripts } = PACKAGE_SCRIPTS;
+    const packageWithoutSmoke = JSON.stringify({ scripts });
     withFixture({
       'package.json': packageWithoutSmoke,
-      'README.md': '```bash\nnpm run docs:verify\n```\n',
+      'README.md': '```bash\nnpm run docs:verify\n```\n' + VALID_PROFILE_DOCS,
       'docs/runbook/release.md': '',
       'docs/runbook/index.md': '',
       'scripts/docs-verify.sh': VALID_DOCS_VERIFY,
@@ -132,17 +135,13 @@ describe('validation cadence guard', () => {
   it('fails clearly when the operator smoke script stops targeting the smoke test', () => {
     const packageWithDriftedSmoke = JSON.stringify({
       scripts: {
-        'docs:verify': 'bash scripts/docs-verify.sh',
-        'docs:build': 'vitepress build docs',
-        typecheck: 'tsc --noEmit',
-        build: 'tsc',
-        test: 'jest',
+        ...PACKAGE_SCRIPTS,
         'web:test:operator-smoke': 'cd web && npx vitest run src/__tests__/dashboard-view.test.ts',
       },
     });
     withFixture({
       'package.json': packageWithDriftedSmoke,
-      'README.md': '```bash\nnpm run docs:verify\nnpm run web:test:operator-smoke\n```\n',
+      'README.md': '```bash\nnpm run docs:verify\nnpm run web:test:operator-smoke\n```\n' + VALID_PROFILE_DOCS,
       'docs/runbook/release.md': '',
       'docs/runbook/index.md': '',
       'scripts/docs-verify.sh': VALID_DOCS_VERIFY,
@@ -152,6 +151,28 @@ describe('validation cadence guard', () => {
       const result = verifyValidationCadence({ root });
       expect(result.ok).toBe(false);
       expect(result.failures).toContain('package.json script "web:test:operator-smoke" must run operator-dashboard-smoke.test.ts, but is currently: cd web && npx vitest run src/__tests__/dashboard-view.test.ts');
+    });
+  });
+
+  it('fails clearly when a validation profile is missing an intended command', () => {
+    const packageWithDriftedProfile = JSON.stringify({
+      scripts: {
+        ...PACKAGE_SCRIPTS,
+        'validate:release': 'npm run typecheck && npm run build && npm test && npm run docs:verify',
+      },
+    });
+    withFixture({
+      'package.json': packageWithDriftedProfile,
+      'README.md': VALID_PROFILE_DOCS + '```bash\nnpm run web:test:operator-smoke\n```\n',
+      'docs/runbook/release.md': '',
+      'docs/runbook/index.md': '',
+      'scripts/docs-verify.sh': VALID_DOCS_VERIFY,
+      'scripts/check-existing.js': '#!/usr/bin/env node\n',
+      'tests/existing.test.js': 'test("ok", () => {});\n',
+    }, (root) => {
+      const result = verifyValidationCadence({ root });
+      expect(result.ok).toBe(false);
+      expect(result.failures).toContain('package.json profile "validate:release" must include npm run web:test:operator-smoke, but is currently: npm run typecheck && npm run build && npm test && npm run docs:verify');
     });
   });
 });

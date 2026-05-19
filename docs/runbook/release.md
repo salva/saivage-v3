@@ -12,6 +12,20 @@ Use this checklist for a release candidate against the current repaired system.
 - [ ] Documented validation commands still resolve to package scripts or executable script entry points.
 - [ ] The operator-dashboard smoke guard command is present, documented, and passing before release sign-off.
 
+
+## Validation matrix
+
+Use the named validation profiles from the repository root so routine checks stay consistent with package scripts. `validate:docs` intentionally runs only `npm run docs:verify`; it does not run `npm test` or the Vitest operator smoke guard, because documentation verification must stay lightweight and fast enough for routine doc drift checks.
+
+| Change type | Required command profile | Underlying required commands | Notes |
+|---|---|---|---|
+| Docs-only | `npm run validate:docs` | `npm run docs:verify` | Use when Markdown, docs anchors, route inventory, or runbook examples change without source behavior changes. |
+| Backend/runtime | `npm run validate:routine` plus `npm test` when runtime behavior changes | `npm run typecheck`, `npm run docs:verify`, and focused/full Jest as appropriate | Run the focused Jest suite for the touched runtime area; use full `npm test` before stage close or when behavior changes broadly. |
+| UI/operator surface | `npm run validate:ui` | `npm run web:typecheck`, `npm run web:test:sweep`, `npm run web:test:operator-smoke`; add focused Vitest/Playwright for the changed component or flow | For dashboard-only smoke confirmation, `npm run validate:ui-smoke` is the lightweight profile that wraps `npm run web:test:operator-smoke`. |
+| Release sign-off | `npm run validate:release` | `npm run typecheck`, `npm run build`, `npm test`, `npm run web:test:operator-smoke`, `npm run docs:verify` | This is the heavy composition profile for release candidates; run it after focused suites are already green. |
+
+The validation-cadence guard checks that every documented `npm run validate:*` profile exists and that the profile composition continues to include the commands listed above, or documents intentional exclusions such as the lightweight docs-only profile.
+
 ## Documentation build and verification
 
 ```bash

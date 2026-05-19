@@ -47,7 +47,17 @@ curl http://localhost:8080/health
 
 ## Verification
 
-Run the final documentation and code gates from the repository root:
+Run the validation profile that matches the change type; see the [validation matrix](docs/runbook/release.md#validation-matrix) for details:
+
+```bash
+npm run validate:docs
+npm run validate:routine
+npm run validate:ui-smoke
+npm run validate:ui
+npm run validate:release
+```
+
+For final stage/release gates, run the underlying checks directly when requested:
 
 ```bash
 npm run docs:verify
