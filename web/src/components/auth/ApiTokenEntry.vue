@@ -1,6 +1,6 @@
 <template>
   <Transition name="modal">
-    <div v-if="visible" class="token-overlay" @click.self="$emit('close')">
+    <div v-if="visible" class="token-overlay" @click.self="closeDialog">
       <div class="token-dialog">
         <h2 class="token-title">API Token</h2>
         <p class="token-description">
@@ -43,7 +43,7 @@
             >
               Clear
             </button>
-            <button type="button" class="token-btn token-btn-cancel" @click="$emit('close')">
+            <button type="button" class="token-btn token-btn-cancel" @click="closeDialog">
               Cancel
             </button>
           </div>
@@ -61,7 +61,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, watch, nextTick } from 'vue';
+import { ref, watch, nextTick, onUnmounted } from 'vue';
 import { getAuthToken, setAuthToken, clearAuthToken } from '../../api/auth';
 
 const props = defineProps<{
@@ -77,18 +77,47 @@ const token = ref('');
 const showToken = ref(false);
 const savedToken = ref<string | null>(null);
 const inputRef = ref<HTMLInputElement | null>(null);
+let escapeListenerRegistered = false;
 
-// Focus input when dialog opens and refresh saved token
 watch(
   () => props.visible,
   async (v) => {
     if (v) {
+      addEscapeListener();
       await nextTick();
       inputRef.value?.focus();
       savedToken.value = getAuthToken();
+    } else {
+      removeEscapeListener();
     }
   },
+  { immediate: true },
 );
+
+onUnmounted(() => {
+  removeEscapeListener();
+});
+
+function addEscapeListener(): void {
+  if (escapeListenerRegistered) return;
+  window.addEventListener('keydown', handleEscapeKeydown);
+  escapeListenerRegistered = true;
+}
+
+function removeEscapeListener(): void {
+  if (!escapeListenerRegistered) return;
+  window.removeEventListener('keydown', handleEscapeKeydown);
+  escapeListenerRegistered = false;
+}
+
+function handleEscapeKeydown(event: KeyboardEvent): void {
+  if (event.key !== 'Escape' || !props.visible) return;
+  closeDialog();
+}
+
+function closeDialog(): void {
+  emit('close');
+}
 
 function saveToken(): void {
   const trimmed = token.value.trim();
