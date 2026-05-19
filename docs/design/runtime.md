@@ -119,7 +119,7 @@ Operational invariants:
   `tests/utils/runtime-state-invariant.test.ts` and
   `tests/server/operator-api-contract-fixtures.test.ts`. Runtime layout
   migration/refusal is anchored by `src/utils/runtime-state.ts:26` and
-  `tests/utils/runtime-state-layout.test.ts:64`.
+  `tests/utils/runtime-state-layout.test.ts:64` and `tests/server/runtime-layout-startup-api.test.ts`.
 
 Cross-surface parity means web UI, REST, CLI, analyst chat, and runtime
 internals should observe the same pause/freeze state and the same
@@ -451,7 +451,7 @@ that same `current_agent_session_id`. The enforcing implementation is
 `src/utils/runtime-state.ts` plus `src/server/routes/runtime-config-notes.ts`,
 with restart/reload coverage in
 `tests/server/restart-persistence-operator-surface.test.ts` and layout
-coverage in `tests/utils/runtime-state-layout.test.ts:64`.
+coverage in `tests/utils/runtime-state-layout.test.ts:64` and server/API migration-refusal coverage in `tests/server/runtime-layout-startup-api.test.ts`.
 
 ---
 
