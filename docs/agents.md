@@ -892,6 +892,7 @@ above is the in-memory mirror.
   `{directive_recorded: true, runtime_status: 'idle' | 'running' | 'paused'}`.
 - `POST /api/runtime/pause` and `POST /api/runtime/resume` — global
   pause gate (§5, §12). Returns the updated `RuntimeState`.
+- `GET /api/agents` — enumerates every persisted `.saivage/agents/messages/*.jsonl` session plus session manifests, parsing `analyst`, `planner:<id>`, `reviewer:<id>`, `executor:<id>`, and `card-*` ids and marking only `RuntimeState.current_agent_session_id` active (enforced by `src/server/routes/runtime-config-notes.ts` and `tests/server/agents-api.test.ts`).
 - `GET /api/runtime/card-runs` — returns a typed union for operator UI:
 
   ```ts
@@ -1006,6 +1007,9 @@ role:
 | `src/schemas/validators.ts` | Validators for clean schemas, reviewer/evidence results, and subtree-readiness reasons. |
 | `src/agents/analyst-tools.ts` | Analyst correction tools and `lets_dance` bootstrap. |
 | `src/server/server.ts` | Runtime correction, `lets_dance`, pause/resume, and card-run HTTP endpoints. |
+| `src/server/routes/runtime-config-notes.ts` | Operator HTTP routes including `/api/agents` persisted-session enumeration. |
+| `web/src/components/chat/AnalystChatPanel.vue` | Analyst session picker grouping and read-only composer affordance for non-analyst agent sessions. |
+| `web/src/stores/analystChat.ts` | Stable `card-<cardId>` per-card analyst discussions and first-turn card-context seeding. |
 
 ## 17. Future Stages
 

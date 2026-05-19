@@ -89,7 +89,7 @@ The analyst chat is a persistent command stream.
 - WebSocket connection with visible state: connected, connecting,
   offline, unauthorized.
 - API token entry for secured deployments.
-- Chat history stored in agent session records, recoverable on reload.
+- Chat history stored in agent session records, recoverable on reload; the session picker groups analyst/card/planner/reviewer/executor sessions, disables the composer for read-only planner/reviewer/executor transcripts, and keeps `card-<cardId>` discussions writable with first-turn card-context seeding (`web/src/components/chat/AnalystChatPanel.vue`, `web/src/stores/analystChat.ts`, `web/src/__tests__/analyst-chat-panel.test.ts`, `web/src/__tests__/card-detail-view.test.ts`).
 - Markdown rendering of analyst responses.
 - System/event messages inline in the stream.
 - Send on Enter, multiline with Shift+Enter, `/` focuses input.

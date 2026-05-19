@@ -71,7 +71,10 @@ constraints.
 
 **Lifetime**: Always available. Not scoped to a goal. Persists
 across the entire session. Survives runtime restarts via chat log
-persistence.
+persistence. Persisted conversations are inspectable through `/api/agents`,
+which enumerates analyst, planner, reviewer, executor, and per-card `card-*`
+message files (see `src/server/routes/runtime-config-notes.ts` and
+`tests/server/agents-api.test.ts`).
 
 Tools — card management:
 

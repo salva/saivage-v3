@@ -42,6 +42,8 @@ describe('GET /api/agents persisted JSONL enumeration', () => {
     writeJsonl(projectRoot, 'analyst', '2025-01-01T00:00:00.000Z');
     writeJsonl(projectRoot, 'planner:G3', '2025-01-01T00:01:00.000Z');
     writeJsonl(projectRoot, 'reviewer:G3', '2025-01-01T00:02:00.000Z');
+    writeJsonl(projectRoot, 'executor:C9', '2025-01-01T00:03:00.000Z');
+    writeJsonl(projectRoot, 'card-C9', '2025-01-01T00:04:00.000Z');
     writeFileSync(join(projectRoot, '.saivage', 'agents', 'sessions', 'planner:G3.json'), JSON.stringify({
       id: 'planner:G3',
       role: 'planner',
@@ -60,7 +62,7 @@ describe('GET /api/agents persisted JSONL enumeration', () => {
       paused: false,
       queue: [],
       running_processes: [],
-      updated_at: '2025-01-01T00:03:00.000Z',
+      updated_at: '2025-01-01T00:05:00.000Z',
     }, null, 2));
     app = await makeApp(projectRoot);
   });
@@ -70,15 +72,17 @@ describe('GET /api/agents persisted JSONL enumeration', () => {
     rmSync(projectRoot, { recursive: true, force: true });
   });
 
-  it('lists analyst, planner, and reviewer JSONL sessions with parsed roles and active/inactive status', async () => {
+  it('lists every persisted JSONL session with parsed roles and active/inactive status', async () => {
     const response = await app.inject({ method: 'GET', url: '/api/agents', headers: { authorization: 'Bearer test-token' } });
     expect(response.statusCode).toBe(200);
     const body = response.json() as { sessions: Array<{ id: string; role: string; status: string; goal_card_id?: string; model?: string }> };
     const byId = new Map(body.sessions.map((session) => [session.id, session]));
 
-    expect([...byId.keys()].sort()).toEqual(['analyst', 'planner:G3', 'reviewer:G3']);
+    expect([...byId.keys()].sort()).toEqual(['analyst', 'card-C9', 'executor:C9', 'planner:G3', 'reviewer:G3']);
     expect(byId.get('analyst')).toMatchObject({ role: 'analyst', status: 'inactive' });
     expect(byId.get('planner:G3')).toMatchObject({ role: 'planner', status: 'active', goal_card_id: 'G3', model: 'test-model' });
     expect(byId.get('reviewer:G3')).toMatchObject({ role: 'reviewer', status: 'inactive' });
+    expect(byId.get('executor:C9')).toMatchObject({ role: 'executor', status: 'inactive' });
+    expect(byId.get('card-C9')).toMatchObject({ role: 'analyst', status: 'inactive' });
   });
 });
