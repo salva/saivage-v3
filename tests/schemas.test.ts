@@ -102,10 +102,10 @@ describe('Derived card schemas', () => {
 });
 
 describe('Planner schemas', () => {
-  it('does not expose obsolete planner frame/dispatch schemas', async () => {
+  it('exposes planner-control frame/dispatch schemas used by PlannerControlService', async () => {
     const validators = await import('../src/schemas/validators.js');
-    expect('plannerFrameRecordSchema' in validators).toBe(false);
-    expect('plannerDispatchRecordSchema' in validators).toBe(false);
+    expect('plannerFrameRecordSchema' in validators).toBe(true);
+    expect('plannerDispatchRecordSchema' in validators).toBe(true);
   });
 });
 

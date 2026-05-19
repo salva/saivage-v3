@@ -64,7 +64,7 @@ const emit = defineEmits<{
 }>();
 
 const TYPE_ICONS: Record<CardType, string> = {
-  project: '🏠', goal: '🎯', plan: '📋', architecture: '🏗️',
+  project: '🏠', goal: '🎯', architecture: '🏗️',
   code: '💻', test: '🧪', doc: '📄', data: '📊',
   research: '🔬', ops: '⚙️',
 };

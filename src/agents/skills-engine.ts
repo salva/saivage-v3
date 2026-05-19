@@ -136,8 +136,8 @@ export class SkillsEngine {
   /** Cache TTL in ms (60 seconds) */
   private readonly _cacheTTL: number = 60_000;
 
-  /** In-memory cache for the default planner instructions (.saivage/instructions/planner.md) */
-  private _defaultPlannerInstrCache: { content: string; loadedAt: number } | null = null;
+  /** In-memory cache for default role instructions (.saivage/instructions/<role>.md) */
+  private _defaultInstructionCache: Map<string, CacheEntry> = new Map();
 
   constructor(options?: SkillEngineOptions) {
     this.projectRoot = options?.projectRoot
@@ -298,35 +298,30 @@ export class SkillsEngine {
   /**
    * Load the planner instructions file.
    *
-   * When `customFilePath` is provided and non-empty, reads that file (resolved
-   * relative to `projectRoot`). Returns the content formatted as a delimited
-   * block. No caching is applied for custom paths.
-   *
-   * When `customFilePath` is not provided, empty, or undefined, reads the
-   * default path `.saivage/instructions/planner.md` and caches the result
-   * with the same TTL as skill files (60 seconds).
-   *
-   * Format (both paths):
-   * ```
-   * --- PLANNER INSTRUCTIONS ---
-   * <content>
-   * --- END PLANNER INSTRUCTIONS ---
-   * ```
-   *
-   * Returns empty string if the file does not exist or is empty.
+   * This compatibility wrapper preserves the historical planner-specific API
+   * while delegating to the role-generic instruction loader used by runtime.
    */
   async loadPlannerInstructions(customFilePath?: string): Promise<string> {
-    if (customFilePath && customFilePath.trim() !== '') {
-      return this._loadCustomPlannerInstructions(customFilePath.trim());
-    }
-    return this._loadDefaultPlannerInstructions();
+    return this.loadInstructions('planner', customFilePath);
   }
 
   /**
-   * Load a custom planner instructions file. Always reads directly —
-   * no caching for custom paths.
+   * Load role default instructions from .saivage/instructions/<role>.md, or a
+   * custom project-relative file when provided. Custom files are used for
+   * planner card overrides; default role files are cached for the normal TTL.
    */
-  private async _loadCustomPlannerInstructions(filePath: string): Promise<string> {
+  async loadInstructions(role: AgentRole, customFilePath?: string): Promise<string> {
+    if (customFilePath && customFilePath.trim() !== '') {
+      return this._loadCustomInstructions(role, customFilePath.trim());
+    }
+    return this._loadDefaultInstructions(role);
+  }
+
+  /**
+   * Load a custom instructions file. Always reads directly — no caching for
+   * custom paths so per-card instruction edits are visible immediately.
+   */
+  private async _loadCustomInstructions(role: AgentRole, filePath: string): Promise<string> {
     const resolvedPath = resolve(this.projectRoot, filePath);
 
     if (!existsSync(resolvedPath)) {
@@ -338,38 +333,42 @@ export class SkillsEngine {
       return '';
     }
 
-    return `--- PLANNER INSTRUCTIONS ---\n${content}\n--- END PLANNER INSTRUCTIONS ---`;
+    return this._formatInstructionBlock(role, content);
   }
 
   /**
-   * Load the default planner instructions from .saivage/instructions/planner.md.
+   * Load the default instructions from .saivage/instructions/<role>.md.
    * Cached with the same TTL as skill files.
    */
-  private async _loadDefaultPlannerInstructions(): Promise<string> {
-    // Check cache first
-    if (
-      this._defaultPlannerInstrCache &&
-      Date.now() - this._defaultPlannerInstrCache.loadedAt < this._cacheTTL
-    ) {
-      return this._defaultPlannerInstrCache.content;
+  private async _loadDefaultInstructions(role: AgentRole): Promise<string> {
+    const cached = this._defaultInstructionCache.get(role);
+    if (cached && Date.now() - cached.loadedAt < this._cacheTTL) {
+      return cached.content;
     }
 
-    const instrPath = join(this.projectRoot, '.saivage', 'instructions', 'planner.md');
+    const instrPath = join(this.projectRoot, '.saivage', 'instructions', `${role}.md`);
 
     if (!existsSync(instrPath)) {
-      this._defaultPlannerInstrCache = { content: '', loadedAt: Date.now() };
+      this._defaultInstructionCache.set(role, { content: '', loadedAt: Date.now() });
       return '';
     }
 
     const content = await readFile(instrPath, 'utf-8');
     if (!content.trim()) {
-      this._defaultPlannerInstrCache = { content: '', loadedAt: Date.now() };
+      this._defaultInstructionCache.set(role, { content: '', loadedAt: Date.now() });
       return '';
     }
 
-    const result = `--- PLANNER INSTRUCTIONS ---\n${content}\n--- END PLANNER INSTRUCTIONS ---`;
-    this._defaultPlannerInstrCache = { content: result, loadedAt: Date.now() };
+    const result = this._formatInstructionBlock(role, content);
+    this._defaultInstructionCache.set(role, { content: result, loadedAt: Date.now() });
     return result;
+  }
+
+  private _formatInstructionBlock(role: AgentRole, content: string): string {
+    const label = role.toUpperCase().replace(/_/g, ' ');
+    return `--- ${label} INSTRUCTIONS ---
+${content}
+--- END ${label} INSTRUCTIONS ---`;
   }
 
   // ── Private Helpers ─────────────────────────────────────────

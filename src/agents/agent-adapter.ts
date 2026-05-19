@@ -336,6 +336,7 @@ export class AgentAdapter implements AgentRuntime {
       const callFingerprint = toolCalls.map((tc) => `${tc.function.name}:${tc.function.arguments}`).sort().join('||');
       if (previousCalls.has(callFingerprint)) {
         appendMessage(this.saivageDir, sessionId, { role: 'system', kind: 'model_issue', content: `Repeated tool-call fingerprint detected; stopping tool loop as no-progress diagnostic: ${callFingerprint}` });
+        appendMessage(this.saivageDir, sessionId, { role: 'system', kind: 'model_issue', content: 'Forcing final-answer turn without tools after repeated tool-call fingerprint.' });
         return { response: currentResponse, transportSucceeded: true };
       }
       previousCalls.add(callFingerprint);
@@ -353,12 +354,34 @@ export class AgentAdapter implements AgentRuntime {
         if (!(role === 'planner' && tc.function.name === 'activate_card' && msg.content.includes('__saivage_defer_tool_result'))) toolMessages.push(msg);
       }
       for (const msg of toolMessages) appendMessage(this.saivageDir, sessionId, { role: msg.role, kind: msg.kind, content: msg.content, tool: msg.tool, tool_call_id: msg.tool_call_id });
-      if (toolMessages.length === 0 && toolCalls.some((tc) => role === 'planner' && tc.function.name === 'activate_card')) return { response: currentResponse, transportSucceeded: true };
+      if (toolMessages.length === 0 && toolCalls.some((tc) => role === 'planner' && tc.function.name === 'activate_card')) {
+        // activate_card defers its tool result while the child planner runs.
+        // Returning the raw {"toolCalls":[...]} response here would fail
+        // parsePlannerResult upstream. Synthesise a canonical continue
+        // envelope so the planner cycle completes cleanly; the actual child
+        // run is already tracked by the caller-edge in runtime.ts.
+        const activatedIds: string[] = [];
+        for (const tc of toolCalls) {
+          if (tc.function.name !== 'activate_card') continue;
+          try {
+            const args = JSON.parse(tc.function.arguments) as Record<string, unknown>;
+            const cid = (typeof args.cardId === 'string') ? args.cardId : ((typeof args.card_id === 'string') ? args.card_id : null);
+            if (cid) activatedIds.push(cid);
+          } catch {}
+        }
+        const synthSummary = activatedIds.length > 0
+          ? `Activated child card${activatedIds.length === 1 ? '' : 's'} ${activatedIds.join(', ')}; awaiting completion.`
+          : 'Activated child card; awaiting completion.';
+        const synthEnvelope = JSON.stringify({ status: 'continue', summary: synthSummary, created_cards: [], updated_cards: [] });
+        appendMessage(this.saivageDir, sessionId, { role: 'system', kind: 'model_issue', content: `Synthesised planner continuation envelope for deferred activate_card: ${synthSummary}` });
+        return { response: synthEnvelope, transportSucceeded: true };
+      }
       const followUpTools = this.buildToolsForRole(role);
       const modelMessages = this.buildModelMessages(sessionId).messages;
       currentResponse = await this.llmCallFn!(candidate, systemPrompt, modelMessages, sessionId, { temperature: modelParams.temperature, max_tokens: modelParams.maxTokens, signal: abortController.signal, ...(followUpTools.length > 0 ? { tools: followUpTools, tool_choice: 'auto' } : {}) });
     }
     appendMessage(this.saivageDir, sessionId, { role: 'system', kind: 'model_issue', content: `Maximum tool-call rounds exceeded (${MAX_TOOL_ROUNDS}); stopping as no-progress diagnostic.` });
+    appendMessage(this.saivageDir, sessionId, { role: 'system', kind: 'model_issue', content: 'Forcing final-answer turn without tools after maximum tool-call rounds.' });
     return { response: currentResponse, transportSucceeded: true };
   }
 
@@ -434,7 +457,22 @@ export class AgentAdapter implements AgentRuntime {
               const callDuration = Date.now() - callStart;
               appendMessage(this.saivageDir, session.id, { role: 'assistant', kind: 'text', content: finalResponse });
               let parsed: T;
-              try { parsed = parser(finalResponse); } catch (err) { if (role === 'executor') { const fallback = buildExecutorFallbackResult(finalResponse, { cardId, sessionMessages: getSessionMessages(this.saivageDir, session.id) }); if (fallback) { appendMessage(this.saivageDir, session.id, { role: 'system', kind: 'model_issue', content: `Executor result fallback constructed after parse failure: ${err instanceof Error ? this.redactProviderErrorMessage(err.message) : 'unknown parse error'}` }); parsed = fallback as T; } else throw err; } else throw err; }
+              try { parsed = parser(finalResponse); } catch (err) {
+                const partial = (err && typeof err === 'object' && 'partial' in (err as Record<string, unknown>)) ? (err as { partial?: unknown }).partial : null;
+                const toolCallsValue = (partial && typeof partial === 'object' && partial !== null && 'toolCalls' in (partial as Record<string, unknown>)) ? (partial as Record<string, unknown>).toolCalls : null;
+                if (toolCallsValue !== null && Array.isArray(toolCallsValue) && (role === 'planner' || role === 'executor' || role === 'reviewer')) {
+                  appendMessage(this.saivageDir, session.id, { role: 'system', kind: 'model_issue', content: `Your previous response was a bare {\"toolCalls\":[...]} JSON object in the content channel. That is NOT a valid ${role} result. Either issue real tool calls via the tool_calls API channel, or emit the canonical ${role} result JSON envelope now (with the required \"status\" field).` });
+                  const retryMessages = getSessionMessages(this.saivageDir, session.id);
+                  const retryResponse = await this.llmCallFn!(candidate, systemPrompt, retryMessages, session.id, llmOpts);
+                  const retryLoop = await this.handleToolCallsLoop(retryResponse, role, session.id, candidate, systemPrompt, modelParams, abortController, { goalId, cardId });
+                  finalResponse = retryLoop.response;
+                  appendMessage(this.saivageDir, session.id, { role: 'assistant', kind: 'text', content: finalResponse });
+                  try { parsed = parser(finalResponse); }
+                  catch (err2) {
+                    if (role === 'executor') { const fallback = buildExecutorFallbackResult(finalResponse, { cardId, sessionMessages: getSessionMessages(this.saivageDir, session.id) }); if (fallback) { appendMessage(this.saivageDir, session.id, { role: 'system', kind: 'model_issue', content: `Executor result fallback constructed after toolCalls-envelope recovery: ${err2 instanceof Error ? this.redactProviderErrorMessage(err2.message) : 'unknown parse error'}` }); parsed = fallback as T; } else throw err2; } else throw err2;
+                  }
+                } else if (role === 'executor') { const fallback = buildExecutorFallbackResult(finalResponse, { cardId, sessionMessages: getSessionMessages(this.saivageDir, session.id) }); if (fallback) { appendMessage(this.saivageDir, session.id, { role: 'system', kind: 'model_issue', content: `Executor result fallback constructed after parse failure: ${err instanceof Error ? this.redactProviderErrorMessage(err.message) : 'unknown parse error'}` }); parsed = fallback as T; } else throw err; } else { throw err; }
+              }
               while (this.resultBlockedByPendingNotifications(role, parsed, session.id)) {
                 appendMessage(this.saivageDir, session.id, { role: 'system', kind: 'model_issue', content: 'Terminal result held because blocking operator notifications remain unacknowledged.' });
                 const holdMessage = this.buildBlockingAcknowledgementMessage(session.id);
