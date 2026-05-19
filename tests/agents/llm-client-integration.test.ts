@@ -534,6 +534,14 @@ describe('LlmClient Integration with Mock HTTP Server', () => {
       error: {
         message: 'synthetic provider rejected credentials',
         ...syntheticSecrets,
+        stringified_json: JSON.stringify({
+          token: syntheticSecrets.token,
+          api_key: syntheticSecrets.api_key,
+          authorization: syntheticSecrets.authorization,
+          password: syntheticSecrets.password,
+          secret: syntheticSecrets.secret,
+          safe: 'visible',
+        }),
       },
     };
     const { server, port } = await createMockServer((_req, res) => {

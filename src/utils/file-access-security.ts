@@ -4,6 +4,11 @@ import {
   looksLikeSecretPath as sharedLooksLikeSecretPath,
   assertNotSecretPath,
 } from './secret-paths.js';
+import {
+  redactCredentialLiterals,
+  redactSecrets,
+} from './secret-redaction.js';
+export { redactCredentialLiterals, redactSecrets } from './secret-redaction.js';
 
 const NON_SECRET_SENSITIVE_PATHS: ReadonlySet<string> = new Set([
   '.saivage/saivage.json',
@@ -78,47 +83,6 @@ export function looksLikeSecretPath(filePath: string): boolean {
   return sharedLooksLikeSecretPath(filePath);
 }
 
-const REDACT_KEY_PATTERN =
-  /\b(?:apiKey|apiToken|botToken|accessToken|refreshToken|(?:api_)?key|token|authorization|.*[A-Z](?:Token|Key|Secret|Password)|.*_(?:key|token|secret|password)|secret|password)\b/i;
-
-const REDACT_VALUE_RE =
-  /("(?:[^"\\]|\\.)*")(\s*):(\s*)"((?:[^"\\]|\\.)*)"/gi;
-
-const CREDENTIAL_LITERAL_RE = /\b(sk-[^\s"\\]+|tid=[^\s"\\]+|ghu_[A-Za-z0-9_]+|rt_[^\s"\\]+|tok_[^\s"\\]+)\b/g;
-
-function redactCredentialMatch(match: string): string {
-  const prefix = match.startsWith('sk-') ? 'sk' :
-    match.startsWith('tid=') ? 'tid' :
-      match.startsWith('ghu_') ? 'ghu' :
-        match.startsWith('rt_') ? 'rt' :
-          match.startsWith('tok_') ? 'tok' : 'credential';
-  return `${prefix}-[REDACTED]`;
-}
-
-export function redactSecrets(content: string): string {
-  if (!content) return content;
-
-  const jsonRedacted = content.replace(REDACT_VALUE_RE, (_match, keyPart, wsBefore, wsAfter, valuePart) => {
-    const keyInner = keyPart.slice(1, -1);
-
-    if (!REDACT_KEY_PATTERN.test(keyInner)) {
-      return `${keyPart}${wsBefore}:${wsAfter}"${valuePart}"`;
-    }
-
-    if (/\$\{[^}]+\}/.test(valuePart)) {
-      return `${keyPart}${wsBefore}:${wsAfter}"${valuePart}"`;
-    }
-
-    return `${keyPart}${wsBefore}:${wsAfter}"[REDACTED]"`;
-  });
-
-  return jsonRedacted.replace(CREDENTIAL_LITERAL_RE, redactCredentialMatch);
-}
-
-export function redactCredentialLiterals(content: string): string {
-  if (!content) return content;
-  return content.replace(CREDENTIAL_LITERAL_RE, redactCredentialMatch);
-}
 
 export function redactOperatorErrorMessage(message: string, projectRoot?: string): string {
   let redacted = redactCredentialLiterals(message);

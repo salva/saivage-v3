@@ -8,7 +8,7 @@
  */
 
 import type { Candidate } from './provider.js';
-import { redactCredentialLiterals, redactSecrets } from '../utils/file-access-security.js';
+import { redactProviderLikeText } from '../utils/secret-redaction.js';
 import type { AgentMessage } from '../schemas/types.js';
 
 // ── Tool Calling Types ────────────────────────────────────────
@@ -818,7 +818,7 @@ export class LlmClient {
 
 
   private redactProviderErrorText(text: string): string {
-    return redactSecrets(redactCredentialLiterals(text));
+    return redactProviderLikeText(text);
   }
 
   /**

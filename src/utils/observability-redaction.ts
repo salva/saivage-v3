@@ -1,34 +1,12 @@
-import { redactCredentialLiterals, redactSecrets } from './file-access-security.js';
-
-const SECRET_KEY_RE = /(?:api[_-]?key|apiKey|apiToken|accessToken|refreshToken|token|authorization|secret|password|credential|cookie|set-cookie|auth)/i;
-const INLINE_SECRET_RE = /\b(api(?:[_-]?key|[_-]?token)?|token|authorization|secret|password|credential)\s*=\s*("[^"]*"|'[^']*'|\S+)/gi;
-const ESCAPED_JSON_SECRET_VALUE_RE = /(\\")([^"\\]+)(\\")(\s*:\s*)(\\")([^"\\]*)(\\")/gi;
-
-function redactEscapedJsonSecretValues(value: string): string {
-  return value.replace(
-    ESCAPED_JSON_SECRET_VALUE_RE,
-    (match, keyOpen: string, key: string, keyClose: string, separator: string, valueOpen: string, secretValue: string, valueClose: string) => {
-      if (!SECRET_KEY_RE.test(key)) {
-        return match;
-      }
-      if (/\$\{[^}]+\}/.test(secretValue)) {
-        return match;
-      }
-      return `${keyOpen}${key}${keyClose}${separator}${valueOpen}[REDACTED]${valueClose}`;
-    },
-  );
-}
+import { isSecretKey, redactProviderLikeText } from './secret-redaction.js';
 
 function redactText(value: string): string {
-  return redactEscapedJsonSecretValues(redactSecrets(redactCredentialLiterals(value))).replace(
-    INLINE_SECRET_RE,
-    (_match, key: string) => `${key}=[REDACTED]`,
-  );
+  return redactProviderLikeText(value);
 }
 
 export function redactObservabilityValue<T>(value: T, keyHint?: string): T {
   if (typeof value === 'string') {
-    return (keyHint && SECRET_KEY_RE.test(keyHint) ? '[REDACTED]' : redactText(value)) as T;
+    return (keyHint && isSecretKey(keyHint) ? '[REDACTED]' : redactText(value)) as T;
   }
   if (Array.isArray(value)) {
     return value.map((item) => redactObservabilityValue(item)) as T;

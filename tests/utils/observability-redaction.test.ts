@@ -10,6 +10,8 @@ const roots: string[] = [];
 const RAW_TOKEN = 'synthetic-token-value-49';
 const RAW_API_KEY = 'synthetic-api-key-value-49';
 const RAW_AUTH = 'Bearer synthetic-authorization-value-49';
+const RAW_PASSWORD = 'synthetic-password-value-49';
+const RAW_SECRET = 'synthetic-secret-value-49';
 
 function makeProjectRoot(): string {
   const root = mkdtempSync(join(tmpdir(), 'saivage-observability-redaction-'));
@@ -27,6 +29,8 @@ function providerErrorJsonText(): string {
     token: RAW_TOKEN,
     api_key: RAW_API_KEY,
     authorization: RAW_AUTH,
+    password: RAW_PASSWORD,
+    secret: RAW_SECRET,
     safe: 'visible',
   });
 }
@@ -39,6 +43,8 @@ function expectRedactedProviderError(serialized: string): void {
   expect(serialized).not.toContain(RAW_TOKEN);
   expect(serialized).not.toContain(RAW_API_KEY);
   expect(serialized).not.toContain(RAW_AUTH);
+  expect(serialized).not.toContain(RAW_PASSWORD);
+  expect(serialized).not.toContain(RAW_SECRET);
   expect(serialized).toContain('[REDACTED]');
   expect(serialized).toContain('visible');
 }
@@ -61,7 +67,9 @@ describe('observability event redaction', () => {
         token: RAW_TOKEN,
         api_key: RAW_API_KEY,
         authorization: RAW_AUTH,
-        nested: { accessToken: RAW_TOKEN, safe: 'visible' },
+        password: RAW_PASSWORD,
+        secret: RAW_SECRET,
+        nested: { accessToken: RAW_TOKEN, apiToken: RAW_API_KEY, password: RAW_PASSWORD, secret: RAW_SECRET, safe: 'visible' },
       },
     });
 

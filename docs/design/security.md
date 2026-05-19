@@ -146,20 +146,24 @@ API keys and tokens in config are redacted when served through the
 config API, audit summaries, notification payloads, or when an agent
 reads the config file.
 
-`redactSecrets()` must be applied at boundaries that could leak
-config-like material into notification, audit, persisted agent, event,
-or provider-error payloads. Provider HTTP error bodies are redacted in
-`src/agents/llm-client.ts:820` before error construction and again in
-`src/agents/agent-adapter.ts:215` before runtime persistence/events.
-Observability persistence and debug API responses additionally pass
-provider-like event/error payloads through
-`src/utils/observability-redaction.ts` at `src/utils/event-logger.ts`
-and `src/server/routes/chats-files-debug.ts`; the regression in
-`tests/utils/observability-redaction.test.ts` proves synthetic
-`token`, `api_key`, and `authorization` JSON values do not survive in
-persisted `invocation_failed` events. `tests/agents/llm-client-integration.test.ts`
-continues to cover synthetic provider-error JSON keys at the LLM client
-boundary.
+`src/utils/secret-redaction.ts` is the single authoritative
+redaction contract for secret-key semantics (`isSecretKey()`), JSON
+value masking (`redactSecrets()`), credential-literal masking, escaped
+or stringified JSON, and provider-like error text
+(`redactProviderLikeText()`). `src/utils/file-access-security.ts`
+re-exports that contract for legacy file/config call sites instead of
+owning a separate key regex. Provider HTTP error bodies call the same
+provider-like text helper in `src/agents/llm-client.ts` before error
+construction and in `src/agents/agent-adapter.ts` before runtime
+persistence/events. Observability persistence and debug API responses
+call `src/utils/observability-redaction.ts`, which delegates key
+classification and masking to `src/utils/secret-redaction.ts`, at
+`src/utils/event-logger.ts` and `src/server/routes/chats-files-debug.ts`.
+Regression coverage in `tests/utils/observability-redaction.test.ts`
+and `tests/agents/llm-client-integration.test.ts` uses only synthetic
+values and proves `token`, `api_key`, `authorization`, `password`, and
+`secret` values are redacted for plain JSON plus escaped/stringified
+provider-error JSON.
 
 ---
 
