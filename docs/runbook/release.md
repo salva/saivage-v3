@@ -9,12 +9,15 @@ Use this checklist for a release candidate against the current repaired system.
 - [ ] `docs/documentation-inventory.md` is updated when doc scope changes.
 - [ ] Historical material is linked only with an explicit `See historical:` prefix.
 - [ ] The runbook examples pass the docs verification drift guard.
+- [ ] Documented validation commands still resolve to package scripts or executable script entry points.
 
 ## Documentation build and verification
 
 ```bash
 npm run docs:verify
 ```
+
+This builds VitePress and runs the documented route, inventory, link, source-anchor, finding-dossier, runbook-example, and validation-cadence guards, including checks that every docs:verify sub-guard script or focused Jest entry still exists.
 
 If needed, run the raw VitePress build separately:
 

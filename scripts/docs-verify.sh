@@ -16,6 +16,7 @@ set -euo pipefail
 #   - Planner tool documentation/source parity checks.
 #   - Global Markdown internal-link and anchor resolution.
 #   - Global documented source-anchor path/line validation.
+#   - Validation-cadence command/package-script/docs:verify sub-guard parity.
 #   - Audit/UI finding dossier status, resolution, and remediation-log consistency.
 
 DIST="docs/.vitepress/dist"
@@ -97,11 +98,14 @@ echo ""
 node scripts/check-source-anchors.js || ALL_OK=false
 
 echo ""
+node scripts/check-validation-cadence.js || ALL_OK=false
+
+echo ""
 node scripts/check-finding-dossiers.js || ALL_OK=false
 
 echo ""
 if $ALL_OK; then
-  echo "✓ docs:verify passed — docs build output, VitePress dist artifact policy, route/role/config/runtime anchors, documentation inventory, design links, historical isolation, runbook examples, operator API response contracts, planner tool docs/source parity, global Markdown links, source anchors, and finding dossiers are valid"
+  echo "✓ docs:verify passed — docs build output, VitePress dist artifact policy, route/role/config/runtime anchors, documentation inventory, design links, historical isolation, runbook examples, operator API response contracts, planner tool docs/source parity, global Markdown links, source anchors, validation cadence, and finding dossiers are valid"
 else
   echo "✗ docs:verify FAILED — one or more documentation build or drift guards failed"
   exit 1

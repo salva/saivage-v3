@@ -56,4 +56,4 @@ npm run build
 npm test
 ```
 
-`npm run docs:verify` builds VitePress and checks documentation inventory completeness, route/role/config/runtime anchors, historical isolation, runbook curl examples, design-doc link boundaries, and global Markdown internal links.
+`npm run docs:verify` builds VitePress and checks documentation inventory completeness, route/role/config/runtime anchors, historical isolation, runbook curl examples, design-doc link boundaries, global Markdown internal links, documented validation-command parity, and docs:verify sub-guard entry points.
