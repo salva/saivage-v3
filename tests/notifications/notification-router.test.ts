@@ -766,4 +766,34 @@ describe('createNotificationRouter — explicit telegram recipient options', () 
     expect(calls[0]?.[0]).toBe(111111);
     expect(calls[1]?.[0]).toBe(-222222);
   });
+
+  it('redacts configured chat IDs from telegram durable delivery failure logs', async () => {
+    const root = makeProjectRoot();
+    writeSaivageJson(root, { notifications: { channels: ['telegram'] } });
+    const sendDurableNotification = jest.fn(async () => {
+      throw new Error('Synthetic durable delivery rejected');
+    });
+    const fakeBot = { sendDurableNotification } as unknown as import('../../src/telegram/bot.js').TelegramBot;
+    const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+
+    try {
+      const { createNotificationRouter } = await importModule();
+      const router = createNotificationRouter(root, fakeBot, { chatIds: [111111, -222222] });
+
+      await router.publish(makeEvent({ category: 'escalation', severity: 'critical', title: 'Synthetic alert' }));
+
+      expect(sendDurableNotification).toHaveBeenCalledTimes(2);
+      expect(consoleErrorSpy).toHaveBeenCalled();
+      const errorOutput = consoleErrorSpy.mock.calls.map((call) => call.join(' ')).join('\n');
+      expect(errorOutput).toContain('Telegram recipient delivery failed');
+      expect(errorOutput).toContain('Synthetic durable delivery rejected');
+      expect(errorOutput).not.toContain('111111');
+      expect(errorOutput).not.toContain('-222222');
+      expect(errorOutput).not.toContain('chat 111111');
+      expect(errorOutput).not.toContain('chat -222222');
+    } finally {
+      consoleErrorSpy.mockRestore();
+    }
+  });
+
 });

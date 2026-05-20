@@ -13,6 +13,7 @@ import type { TelegramBot } from '../telegram/bot.js';
 import type { NotificationRecord } from '../schemas/types.js';
 import { broadcast } from '../server/websocket.js';
 import type { WsEnvelope } from '../server/websocket.js';
+import { RedactionBoundary } from '../utils/redaction-boundary.js';
 
 // ── Types ─────────────────────────────────────────────────────
 
@@ -362,10 +363,13 @@ export function createNotificationRouter(
             attachments: event.attachments,
           });
         } catch (err) {
+          const errorDetail = RedactionBoundary.error(err, {
+            sink: 'console',
+            source: 'NotificationRouter.telegram',
+            maxLength: 200,
+          });
           console.error(
-            `[notifications] Telegram send failed for chat ${chatId}: ${
-              err instanceof Error ? err.message : String(err)
-            }`,
+            `[notifications] Telegram recipient delivery failed for event '${event.category}': ${errorDetail}`,
           );
         }
       }
