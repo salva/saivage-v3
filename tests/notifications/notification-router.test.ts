@@ -415,18 +415,22 @@ describe('NotificationRouter reload', () => {
     expect(router.getConfig().filters?.min_severity).toBe('error');
   });
 
-  it('reload preserves registered channel handlers', () => {
+  it('reload preserves registered channel handlers while persisted channels remain strict enums', async () => {
     const root = makeProjectRoot();
     writeSaivageJson(root, { notifications: { channels: ['web'] } });
 
     const router = new NotificationRouter(root);
     const handler = jest.fn(async () => {});
-    router.registerChannel('custom', handler);
+    router.registerChannel('web', handler);
 
-    writeSaivageJson(root, { notifications: { channels: ['web', 'custom'] } });
+    writeSaivageJson(root, { notifications: { channels: ['telegram'] } });
     router.reload();
+    expect(router.getConfig().channels).toEqual(['telegram']);
 
-    expect(router.getConfig().channels).toEqual(['web', 'custom']);
+    writeSaivageJson(root, { notifications: { channels: ['web'] } });
+    router.reload();
+    await router.publish(makeEvent());
+    expect(handler).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -534,9 +538,9 @@ describe('NotificationRouter publish', () => {
     expect(successHandler).toHaveBeenCalledTimes(1);
   });
 
-  it('does not route to channels with no registered handler', async () => {
+  it('does not route to strict configured channels with no registered handler', async () => {
     const root = makeProjectRoot();
-    writeSaivageJson(root, { notifications: { channels: ['web', 'sms'] } });
+    writeSaivageJson(root, { notifications: { channels: ['web', 'telegram'] } });
 
     const router = new NotificationRouter(root);
     const webHandler = jest.fn(async () => {});
@@ -665,9 +669,9 @@ describe('registerChannel', () => {
     NotificationRouter = mod.NotificationRouter;
   });
 
-  it('allows registering custom channels beyond web and telegram', async () => {
+  it('keeps runtime handler registration open even though persisted config channels are strict', async () => {
     const root = makeProjectRoot();
-    writeSaivageJson(root, { notifications: { channels: ['web', 'slack'] } });
+    writeSaivageJson(root, { notifications: { channels: ['web'] } });
 
     const router = new NotificationRouter(root);
     const slackHandler = jest.fn(async () => {});
@@ -677,7 +681,7 @@ describe('registerChannel', () => {
     const event = makeEvent();
     await router.publish(event);
 
-    expect(slackHandler).toHaveBeenCalledTimes(1);
+    expect(slackHandler).not.toHaveBeenCalled();
   });
 
   it('overwrites an existing handler for the same channel name', async () => {
@@ -796,4 +800,64 @@ describe('createNotificationRouter — explicit telegram recipient options', () 
     }
   });
 
+});
+
+
+describe('NotificationRouter strict persisted config compatibility', () => {
+  let NotificationRouter: new (root: string) => import('../../src/notifications/notification-router.js').NotificationRouter;
+
+  beforeAll(async () => {
+    const mod = await importModule();
+    NotificationRouter = mod.NotificationRouter;
+  });
+
+  it('loads valid strict channel and min_severity values without changing runtime behavior', () => {
+    const root = makeProjectRoot();
+    writeSaivageJson(root, {
+      notifications: {
+        channels: ['telegram', 'web'],
+        filters: { min_severity: 'critical', categories: ['operator_custom'] },
+      },
+    });
+
+    const router = new NotificationRouter(root);
+
+    expect(router.getConfig()).toEqual({
+      channels: ['telegram', 'web'],
+      filters: { min_severity: 'critical', categories: ['operator_custom'] },
+    });
+  });
+
+  it('falls back deterministically to web-only config for invalid persisted notification enums', () => {
+    for (const notifications of [
+      { channels: ['email'] },
+      { channels: ['web'], filters: { min_severity: 'warn' } },
+      { channels: ['telegram'], filters: { min_severity: 'block' } },
+    ]) {
+      const root = makeProjectRoot();
+      writeSaivageJson(root, {
+        telegram: { botToken: '123456:TEST_TOKEN', allowedUserIds: [9001], notificationChatIds: [111111] },
+        notifications,
+      });
+
+      const router = new NotificationRouter(root);
+      expect(router.getConfig()).toEqual({ channels: ['web'] });
+    }
+  });
+
+  it('does not derive telegram recipients from allowedUserIds when only channel enablement is configured', async () => {
+    const root = makeProjectRoot();
+    writeSaivageJson(root, {
+      telegram: { botToken: '123456:TEST_TOKEN', allowedUserIds: [9001], notificationChatIds: [] },
+      notifications: { channels: ['telegram'] },
+    });
+    const sendDurableNotification = jest.fn(async () => {});
+    const fakeBot = { sendDurableNotification } as unknown as import('../../src/telegram/bot.js').TelegramBot;
+    const { createNotificationRouter } = await importModule();
+
+    const router = createNotificationRouter(root, fakeBot, { chatIds: [] });
+    await router.publish(makeEvent({ severity: 'critical', title: 'Synthetic alert' }));
+
+    expect(sendDurableNotification).not.toHaveBeenCalled();
+  });
 });

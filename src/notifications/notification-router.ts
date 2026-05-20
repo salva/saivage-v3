@@ -8,7 +8,7 @@
  * See docs/design/configuration.md § Notifications and docs/design/server-api.md.
  */
 
-import { loadConfig, type SaivageConfig } from '../agents/config-schema.js';
+import { loadConfig, type NotificationChannelConfig, type SaivageConfig } from '../agents/config-schema.js';
 import type { TelegramBot } from '../telegram/bot.js';
 import type { NotificationRecord } from '../schemas/types.js';
 import { broadcast } from '../server/websocket.js';
@@ -57,7 +57,7 @@ export interface NotificationFilter {
 
 /** The top-level notifications section from saivage.json. */
 export interface NotificationConfig {
-  channels: string[];
+  channels: NotificationChannelConfig[];
   filters?: NotificationFilter;
 }
 
@@ -299,7 +299,7 @@ export class NotificationRouter {
 
     const filters: NotificationFilter | undefined = raw?.filters
       ? {
-          min_severity: (raw.filters.min_severity as SeverityLevel) ?? 'info',
+          min_severity: raw.filters.min_severity ?? 'info',
           categories: raw.filters.categories,
         }
       : undefined;

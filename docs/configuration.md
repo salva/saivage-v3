@@ -277,12 +277,12 @@ Optional. If a `botToken` is provided, the Telegram bot starts automatically on 
 
 ## Notifications Section (`notifications`)
 
-Configures notification delivery channels and filtering.
+Configures notification delivery channels and filtering. Channel and severity values are strict at config parse time. `telegram` enables the Telegram channel only when a runtime Telegram handler is registered; outbound recipients remain `telegram.notificationChatIds`, not `allowedUserIds`.
 
 | Field | Type | Default | Description |
 |---|---|---|---|
-| `channels` | string[] | `["web"]` | Enabled notification channels (`web`, `telegram`) |
-| `filters.min_severity` | string | `"info"` | Minimum severity to notify (`info`, `warning`, `error`) |
+| `channels` | enum[] | `["web"]` | Enabled notification channels; each value must be `web` or `telegram` |
+| `filters.min_severity` | enum | `"info"` | Minimum router event severity to notify: `info`, `warning`, `error`, or `critical`. Durable severities such as `warn` and `block` are not valid in this router config field. |
 | `filters.categories` | string[] | — | Optional category whitelist |
 
 ---

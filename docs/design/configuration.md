@@ -343,6 +343,8 @@ Telegram notification delivery and does not authorize inbound users.
 
 ## Notifications
 
+Notification channels and router severity thresholds are strict enums at config parse time. `telegram` channel enablement is separate from outbound recipients, which remain in `telegram.notificationChatIds`.
+
 ```json
 {
   "notifications": {
@@ -357,8 +359,8 @@ Telegram notification delivery and does not authorize inbound users.
 
 | Field                   | Default     | Description                              |
 |-------------------------|-------------|------------------------------------------|
-| `channels`              | `["web"]`   | Active notification channels             |
-| `filters.min_severity`  | `"info"`    | Minimum event severity to notify         |
+| `channels`              | `["web"]`   | Active notification channels; each value must be `web` or `telegram` |
+| `filters.min_severity`  | `"info"`    | Minimum router event severity: `info`, `warning`, `error`, or `critical`. Durable `warn`/`block` values are not valid here. |
 | `filters.categories`    | all         | Event types to notify (empty = all)      |
 
 ---
