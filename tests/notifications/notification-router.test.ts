@@ -584,7 +584,7 @@ describe('createNotificationRouter — telegram channel', () => {
 
     const sendNotificationMock = jest.fn(async () => {});
     const fakeBot = {
-      sendNotification: sendNotificationMock,
+      sendDurableNotification: sendNotificationMock,
     } as unknown as import('../../src/telegram/bot.js').TelegramBot;
 
     const { createNotificationRouter } = await importModule();
@@ -603,17 +603,23 @@ describe('createNotificationRouter — telegram channel', () => {
     await router.publish(event);
 
     expect(sendNotificationMock).toHaveBeenCalledTimes(2);
-    expect(sendNotificationMock).toHaveBeenNthCalledWith(1, 123456, {
+    expect(sendNotificationMock).toHaveBeenNthCalledWith(1, 123456, expect.objectContaining({
+      kind: 'card_changed',
+      severity: 'warn',
+      payload_summary: 'Build Failed: Compilation error',
+      related_card_id: 'card-abc',
+    }), {
       title: 'Build Failed',
-      cardId: 'card-abc',
       attachments: ['log.txt'],
-      details: 'Compilation error',
     });
-    expect(sendNotificationMock).toHaveBeenNthCalledWith(2, 789012, {
+    expect(sendNotificationMock).toHaveBeenNthCalledWith(2, 789012, expect.objectContaining({
+      kind: 'card_changed',
+      severity: 'warn',
+      payload_summary: 'Build Failed: Compilation error',
+      related_card_id: 'card-abc',
+    }), {
       title: 'Build Failed',
-      cardId: 'card-abc',
       attachments: ['log.txt'],
-      details: 'Compilation error',
     });
   });
 
@@ -637,7 +643,7 @@ describe('createNotificationRouter — telegram channel', () => {
 
     const sendNotificationMock = jest.fn(async () => {});
     const fakeBot = {
-      sendNotification: sendNotificationMock,
+      sendDurableNotification: sendNotificationMock,
     } as unknown as import('../../src/telegram/bot.js').TelegramBot;
 
     const { createNotificationRouter } = await importModule();
@@ -720,6 +726,26 @@ describe('getConfig', () => {
     expect(config.filters).toEqual({
       min_severity: 'error',
       categories: ['goal_failed'],
+    });
+  });
+});
+
+describe('NotificationRouter durable compatibility mapping', () => {
+  it('maps legacy severities and categories to durable NotificationCenter semantics explicitly', async () => {
+    const { mapLegacyEventToDurableNotification } = await importModule();
+
+    expect(mapLegacyEventToDurableNotification(makeEvent({ category: 'escalation', severity: 'critical', title: 'Stop', details: 'Needs operator' }))).toMatchObject({
+      kind: 'card_changed',
+      severity: 'block',
+      payload_summary: 'Stop: Needs operator',
+    });
+    expect(mapLegacyEventToDurableNotification(makeEvent({ category: 'process_reconciled_dead', severity: 'error', title: 'Process dead' }))).toMatchObject({
+      kind: 'process_state',
+      severity: 'warn',
+    });
+    expect(mapLegacyEventToDurableNotification(makeEvent({ category: 'resumed', severity: 'info', title: 'Runtime resumed' }))).toMatchObject({
+      kind: 'runtime_state',
+      severity: 'info',
     });
   });
 });

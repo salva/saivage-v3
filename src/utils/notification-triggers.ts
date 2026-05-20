@@ -1,6 +1,6 @@
 import { randomBytes } from 'node:crypto';
 import { join } from 'node:path';
-import { NotificationCenter } from './notification-center.js';
+import { createNotificationDeliveryService } from './notification-delivery.js';
 import { RedactionBoundary } from './redaction-boundary.js';
 import { CardStore } from './card-store.js';
 import { listSessions, getSession } from '../agents/session-persistence.js';
@@ -87,16 +87,16 @@ function enqueueSessionAndOperatorNotifications(
     source_surface: ControlActionSurface;
   },
 ): void {
-  const center = new NotificationCenter(projectRoot);
+  const delivery = createNotificationDeliveryService(projectRoot);
   const summary = redactNotificationSummary(input.payload_summary);
   for (const sessionId of targets) {
-    center.enqueueForSession(sessionId, {
+    delivery.enqueueForSession(sessionId, {
       ...input,
       id: makeNotificationId(input.kind),
       payload_summary: summary,
     });
   }
-  center.enqueueForOperator({
+  delivery.enqueueForOperator({
     ...input,
     id: makeNotificationId(`${input.kind}-operator`),
     payload_summary: summary,

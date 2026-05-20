@@ -108,3 +108,53 @@ describe('NotificationCenter', () => {
     expect(afterMark.hasBlockingPendingForSession('sess-99')).toBe(true);
   });
 });
+
+describe('NotificationDeliveryService canonical fan-out', () => {
+  let projectRoot: string;
+
+  beforeEach(() => {
+    projectRoot = mkdtempSync(join(tmpdir(), 'saivage-notification-delivery-'));
+    initProjectTree(projectRoot);
+  });
+
+  afterEach(() => {
+    rmSync(projectRoot, { recursive: true, force: true });
+  });
+
+  it('persists canonical NotificationCenter records before invoking delivery adapters', async () => {
+    const { NotificationDeliveryService } = await import('../../src/utils/notification-delivery.js');
+    const delivered: Array<{ id: string; target: string; sessionId?: string }> = [];
+    const center = new NotificationCenter(projectRoot);
+    const service = new NotificationDeliveryService(center, [{
+      name: 'capture',
+      deliver(record, context) {
+        delivered.push({ id: record.id, target: context.target, sessionId: context.sessionId });
+      },
+    }]);
+
+    service.enqueueForSession('sess-canonical', {
+      id: 'canonical-1',
+      kind: 'runtime_state',
+      severity: 'block',
+      payload_summary: 'Runtime paused with token [REDACTED]',
+      source_actor: 'runtime',
+      source_surface: 'rest',
+    });
+    service.enqueueForOperator({
+      id: 'canonical-op-1',
+      kind: 'runtime_state',
+      severity: 'info',
+      payload_summary: 'Runtime resumed',
+      source_actor: 'runtime',
+      source_surface: 'rest',
+    });
+
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(center.drainPendingForSession('sess-canonical')[0]?.id).toBe('canonical-1');
+    expect(center.listForOperator()[0]?.id).toBe('canonical-op-1');
+    expect(delivered).toEqual([
+      { id: 'canonical-1', target: 'session', sessionId: 'sess-canonical' },
+      { id: 'canonical-op-1', target: 'operator' },
+    ]);
+  });
+});

@@ -10,6 +10,7 @@
 
 import { loadConfig, type SaivageConfig } from '../agents/config-schema.js';
 import type { TelegramBot } from '../telegram/bot.js';
+import type { NotificationRecord } from '../schemas/types.js';
 import { broadcast } from '../server/websocket.js';
 import type { WsEnvelope } from '../server/websocket.js';
 
@@ -57,6 +58,58 @@ export interface NotificationFilter {
 export interface NotificationConfig {
   channels: string[];
   filters?: NotificationFilter;
+}
+
+
+export interface LegacyNotificationMapping {
+  kind: NotificationRecord['kind'];
+  severity: NotificationRecord['severity'];
+  payload_summary: string;
+  related_card_id?: string;
+  created_at: string;
+}
+
+export function mapLegacySeverityToDurable(severity: SeverityLevel): NotificationRecord['severity'] {
+  switch (severity) {
+    case 'critical':
+      return 'block';
+    case 'warning':
+    case 'error':
+      return 'warn';
+    case 'info':
+    default:
+      return 'info';
+  }
+}
+
+export function mapLegacyCategoryToDurableKind(category: string): NotificationRecord['kind'] {
+  switch (category) {
+    case 'escalation':
+    case 'review_complete':
+    case 'goal_completed':
+    case 'goal_failed':
+    case 'card_failed':
+    case 'plan_updated':
+      return 'card_changed';
+    case 'paused':
+    case 'resumed':
+      return 'runtime_state';
+    case 'process_reconciled_dead':
+    case 'process_reattach_rejected':
+      return 'process_state';
+    default:
+      return 'config_changed';
+  }
+}
+
+export function mapLegacyEventToDurableNotification(event: NotificationEvent): LegacyNotificationMapping {
+  return {
+    kind: mapLegacyCategoryToDurableKind(event.category),
+    severity: mapLegacySeverityToDurable(event.severity),
+    payload_summary: [event.title, event.details].filter(Boolean).join(': '),
+    related_card_id: event.cardId,
+    created_at: event.timestamp ?? new Date().toISOString(),
+  };
 }
 
 // ── Filter Logic ──────────────────────────────────────────────
@@ -284,13 +337,24 @@ export function createNotificationRouter(
   // Register the 'telegram' channel if a bot is provided
   if (telegramBot && telegramChatIds && telegramChatIds.length > 0) {
     router.registerChannel('telegram', async (event: NotificationEvent) => {
+      const durableMapping = mapLegacyEventToDurableNotification(event);
       for (const chatId of telegramChatIds) {
         try {
-          await telegramBot.sendNotification(chatId, {
+          await telegramBot.sendDurableNotification(chatId, {
+            id: `legacy-${event.category}-${durableMapping.created_at}`,
+            session_id: null,
+            kind: durableMapping.kind,
+            severity: durableMapping.severity,
+            payload_summary: durableMapping.payload_summary,
+            related_card_id: durableMapping.related_card_id,
+            source_actor: 'runtime',
+            source_surface: 'rest',
+            created_at: durableMapping.created_at,
+            delivered_at: null,
+            acknowledged_at: null,
+          }, {
             title: event.title,
-            cardId: event.cardId,
             attachments: event.attachments,
-            details: event.details,
           });
         } catch (err) {
           console.error(

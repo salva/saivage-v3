@@ -58,3 +58,30 @@ describe('telegram surface authz', () => {
     } finally { rmSync(root, { recursive: true, force: true }); }
   });
 });
+
+describe('Telegram durable notification formatting', () => {
+  it('formats durable NotificationCenter records using synthetic data and keeps payload summaries redacted', async () => {
+    const { formatDurableNotificationForTelegram } = await import('../../src/telegram/bot.js');
+    const text = formatDurableNotificationForTelegram({
+      id: 'synthetic-notification-1',
+      session_id: null,
+      kind: 'note_added',
+      severity: 'block',
+      payload_summary: 'Investigate apiKey="synthetic-secret" before retrying',
+      related_card_id: 'card-synthetic',
+      related_note_id: 'note-synthetic',
+      source_actor: 'analyst',
+      source_surface: 'telegram',
+      created_at: new Date().toISOString(),
+      delivered_at: null,
+      acknowledged_at: null,
+    }, { title: 'Synthetic durable notification', attachments: ['synthetic-log.txt'] });
+
+    expect(text).toContain('Synthetic durable notification');
+    expect(text).toContain('Severity: block');
+    expect(text).toContain('Kind: note_added');
+    expect(text).toContain('card-synthetic');
+    expect(text).toContain('synthetic-log.txt');
+    expect(text).not.toContain('synthetic-secret');
+  });
+});
