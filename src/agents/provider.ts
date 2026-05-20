@@ -1,8 +1,14 @@
 import type {
   ProviderEntry,
   ProviderAccount as ConfigAccount,
+  ProviderCapabilities,
   SaivageConfig,
 } from './config-schema.js';
+import {
+  builtInCapabilitiesForProvider,
+  mergeCapabilities,
+  type EffectiveProviderCapabilities,
+} from './provider-capabilities.js';
 
 // ── Candidate ─────────────────────────────────────────────────
 
@@ -78,6 +84,7 @@ export class Account {
   readonly tokenEndpoint?: string;
   readonly authProfile?: string;
   readonly models?: string[]; // subset override
+  readonly capabilities?: ProviderCapabilities;
 
   constructor(name: string, entry: ConfigAccount) {
     this.name = name;
@@ -87,6 +94,7 @@ export class Account {
     this.tokenEndpoint = entry.tokenEndpoint;
     this.authProfile = entry.authProfile;
     this.models = entry.models;
+    this.capabilities = entry.capabilities;
   }
 
   /** Check whether this account can serve a given model. */
@@ -139,6 +147,8 @@ export class Provider {
   readonly baseUrl?: string;
   readonly tokenEndpoint?: string;
   readonly authProfile?: string;
+  readonly capabilities?: ProviderCapabilities;
+  readonly modelCapabilities?: Record<string, ProviderCapabilities>;
   readonly accounts: Account[];
   /** Implicit account when no explicit accounts are configured */
   readonly implicitAccount: Account;
@@ -151,6 +161,8 @@ export class Provider {
     this.baseUrl = entry.baseUrl;
     this.tokenEndpoint = entry.tokenEndpoint;
     this.authProfile = entry.authProfile;
+    this.capabilities = entry.capabilities;
+    this.modelCapabilities = entry.modelCapabilities;
 
     // Build account list
     if (entry.accounts) {
@@ -168,6 +180,7 @@ export class Provider {
       baseUrl: entry.baseUrl,
       tokenEndpoint: entry.tokenEndpoint,
       authProfile: entry.authProfile,
+      capabilities: entry.capabilities,
     });
   }
 
@@ -194,6 +207,17 @@ export class Provider {
       return [this.implicitAccount];
     }
     return [];
+  }
+
+  /** Compute effective capabilities for an account/model using model → account → provider → built-in → global precedence. */
+  getEffectiveCapabilities(model: string, accountName: string | null): EffectiveProviderCapabilities {
+    const account = accountName != null
+      ? this.getAllAccounts().find((a) => a.name === accountName)
+      : this.implicitAccount;
+    const builtIn = builtInCapabilitiesForProvider(this.name);
+    const providerLevel = mergeCapabilities(builtIn, this.capabilities);
+    const accountLevel = mergeCapabilities(providerLevel, account?.capabilities);
+    return mergeCapabilities(accountLevel, this.modelCapabilities?.[model]);
   }
 
   /** Get all accounts (explicit + implicit) in priority order. */
@@ -315,6 +339,13 @@ export class ProviderRegistry {
     const health = this.getHealth(candidate);
     health.lastAttemptMs = Date.now();
     this.healthStates.set(key, health);
+  }
+
+  /** Compute effective capabilities for a concrete candidate. */
+  getEffectiveCapabilities(candidate: Candidate): EffectiveProviderCapabilities {
+    const provider = this.get(candidate.provider);
+    if (!provider) return builtInCapabilitiesForProvider(candidate.provider);
+    return provider.getEffectiveCapabilities(candidate.model, candidate.account);
   }
 
   /** Get all health states for inspection. */

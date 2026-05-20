@@ -1528,3 +1528,101 @@ describe('LlmClient Edge Cases', () => {
     }
   });
 });
+
+describe('LlmClient provider capability guardrails', () => {
+  it('rejects tool options for an incompatible candidate before sending HTTP', async () => {
+    const { server, port, cap } = await createMockServer((_req, res) => {
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'should not be reached' }));
+    });
+    const cfg = {
+      models: { default: ['test-model'] },
+      providers: {
+        p1: { models: ['test-model'], capabilities: { toolCalls: 'none' as const } },
+      },
+      server: { port: 8080, host: '0.0.0.0' },
+      runtime: {
+        recoverAgentInvocations: true,
+        healthCheckIntervalMs: 30000,
+        idleShutdownMs: 300000,
+        maxGoalDepth: 5,
+        recoveryDelayMs: 60000,
+        autoDispatchBacklog: true,
+        continuousImprovement: false,
+        maxReviewRetries: 3,
+        processTimeouts: { plannerMs: 1200000, executorMs: 1200000, reviewerMs: 1200000 },
+        compactionThreshold: 0.8,
+        maxCompactions: 3,
+        compactionTimeoutMs: 1200000,
+        compactionKeepFraction: 0.2,
+        maxRecoveryRetries: 3,
+        selfCheck: { executor: 15, planner: 30, analyst: 0 },
+      },
+      security: { injectionScanner: true, maxScanLengthBytes: 102400 },
+      supervisor: { enabled: true, intervalMs: 1200000, consecutiveStuckVerdicts: 3, logLines: 400 },
+    };
+    const registry = new ProviderRegistry(cfg);
+    const client = new LlmClient(`http://localhost:${port}`, undefined, registry);
+
+    try {
+      await expect(client.complete(
+        { provider: 'p1', account: null, model: 'test-model' },
+        sp(),
+        msgs(),
+        'sess-cap',
+        {
+          tools: [{ type: 'function', function: { name: 'do_work', description: 'work', parameters: { type: 'object' } } }],
+          tool_choice: 'auto',
+        },
+      )).rejects.toThrow(/unsupported_tool_calls/);
+      expect(cap.body).toBe('');
+    } finally {
+      await closeServer(server);
+    }
+  });
+
+  it('preserves openai-codex special backend behavior and does not call chat completions', async () => {
+    const { server, port, cap } = await createMockServer((_req, res) => {
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'chat endpoint should not be used' }));
+    });
+    const cfg = {
+      models: { default: ['gpt-5.5'] },
+      providers: { 'openai-codex': { models: ['gpt-5.5'], baseUrl: `http://localhost:${port}` } },
+      server: { port: 8080, host: '0.0.0.0' },
+      runtime: {
+        recoverAgentInvocations: true,
+        healthCheckIntervalMs: 30000,
+        idleShutdownMs: 300000,
+        maxGoalDepth: 5,
+        recoveryDelayMs: 60000,
+        autoDispatchBacklog: true,
+        continuousImprovement: false,
+        maxReviewRetries: 3,
+        processTimeouts: { plannerMs: 1200000, executorMs: 1200000, reviewerMs: 1200000 },
+        compactionThreshold: 0.8,
+        maxCompactions: 3,
+        compactionTimeoutMs: 1200000,
+        compactionKeepFraction: 0.2,
+        maxRecoveryRetries: 3,
+        selfCheck: { executor: 15, planner: 30, analyst: 0 },
+      },
+      security: { injectionScanner: true, maxScanLengthBytes: 102400 },
+      supervisor: { enabled: true, intervalMs: 1200000, consecutiveStuckVerdicts: 3, logLines: 400 },
+    };
+    const registry = new ProviderRegistry(cfg);
+    const client = new LlmClient(`http://localhost:${port}`, 'synthetic-token', registry);
+
+    try {
+      await expect(client.complete(
+        { provider: 'openai-codex', account: null, model: 'gpt-5.5' },
+        sp(),
+        msgs(),
+        'sess-codex',
+      )).rejects.toThrow();
+      expect(cap.url).not.toBe('/v1/chat/completions');
+    } finally {
+      await closeServer(server);
+    }
+  });
+});

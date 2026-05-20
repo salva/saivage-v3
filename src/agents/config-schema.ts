@@ -168,6 +168,18 @@ const modelsSectionSchema = z.object({
   failover: z.record(z.string(), z.array(z.string())).optional(),
 });
 
+// Provider capabilities
+export const providerCapabilitySchema = z.object({
+  transportProtocol: z.enum(['openai-chat-completions', 'openai-codex-backend']).optional(),
+  toolCalls: z.enum(['native', 'none']).optional(),
+  toolChoice: z.enum(['auto', 'none']).optional(),
+  responseShape: z.enum(['openai-chat-choice', 'codex-backend']).optional(),
+  streaming: z.boolean().optional(),
+  contextWindowTokens: z.number().int().positive().optional(),
+  maxOutputTokens: z.number().int().positive().optional(),
+  quirks: z.array(z.string()).optional(),
+}).strict();
+
 // Provider account
 const providerAccountSchema = z.object({
   priority: z.number().int().optional(),
@@ -176,6 +188,7 @@ const providerAccountSchema = z.object({
   tokenEndpoint: z.string().optional(),
   authProfile: z.string().optional(),
   models: z.array(z.string()).optional(),
+  capabilities: providerCapabilitySchema.optional(),
 });
 
 // Provider entry
@@ -186,6 +199,8 @@ const providerEntrySchema = z.object({
   baseUrl: z.string().optional(),
   tokenEndpoint: z.string().optional(),
   authProfile: z.string().optional(),
+  capabilities: providerCapabilitySchema.optional(),
+  modelCapabilities: z.record(z.string(), providerCapabilitySchema).optional(),
   accounts: z.record(z.string(), providerAccountSchema).optional(),
 });
 
@@ -304,6 +319,7 @@ export type ModelList = z.infer<typeof modelListSchema>;
 export type RoutingProfile = z.infer<typeof routingProfileSchema>;
 export type ProviderEntry = z.infer<typeof providerEntrySchema>;
 export type ProviderAccount = z.infer<typeof providerAccountSchema>;
+export type ProviderCapabilities = z.infer<typeof providerCapabilitySchema>;
 export type RuntimeSection = z.infer<typeof runtimeSectionSchema>;
 export type ModelsSection = z.infer<typeof modelsSectionSchema>;
 export type SelfCheckConfig = z.infer<typeof selfCheckSchema>;

@@ -7,7 +7,11 @@
  * Also supports tool/function calling via the OpenAI `tools` parameter.
  */
 
-import type { Candidate } from './provider.js';
+import type { Candidate, ProviderRegistry } from './provider.js';
+import {
+  capabilityRequestForLlmOptions,
+  supportsCapabilityRequest,
+} from './provider-capabilities.js';
 import { redactProviderLikeText } from '../utils/secret-redaction.js';
 import type { AgentMessage } from '../schemas/types.js';
 
@@ -225,11 +229,13 @@ function toChatRole(role: string): 'system' | 'user' | 'assistant' | 'tool' {
 export class LlmClient {
   private readonly baseUrl: string;
   private readonly apiKey: string | undefined;
+  private readonly registry: ProviderRegistry | undefined;
 
-  constructor(baseUrl: string, apiKey?: string) {
+  constructor(baseUrl: string, apiKey?: string, registry?: ProviderRegistry) {
     // Strip trailing slash for consistent URL construction
     this.baseUrl = baseUrl.replace(/\/+$/, '');
     this.apiKey = apiKey;
+    this.registry = registry;
   }
 
   /**
@@ -259,6 +265,8 @@ export class LlmClient {
     const signal = opts?.signal;
     const tools = opts?.tools;
     const toolChoice = opts?.tool_choice;
+
+    this.assertCandidateCapabilities(candidate, opts);
 
     // Build the message array: system prompt first, then conversation
     const apiMessages: ChatMessage[] = [
@@ -989,6 +997,23 @@ export class LlmClient {
       }
       throw new LlmServerError(
         `Error reading LLM stream: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+  }
+
+  private assertCandidateCapabilities(candidate: Candidate, opts?: LlmCompleteOptions): void {
+    if (!this.registry) return;
+    const request = capabilityRequestForLlmOptions({
+      tools: opts?.tools,
+      tool_choice: opts?.tool_choice,
+      stream: opts?.stream,
+      responseShape: candidate.provider === 'openai-codex' ? 'codex-backend' : 'openai-chat-choice',
+    });
+    const capabilities = this.registry.getEffectiveCapabilities(candidate);
+    const match = supportsCapabilityRequest(capabilities, request);
+    if (!match.supported) {
+      throw new LlmServerError(
+        `Candidate ${candidate.provider}/${candidate.account ?? '_'}/${candidate.model} does not support requested LLM capabilities: ${match.reasons.join(', ')}`,
       );
     }
   }

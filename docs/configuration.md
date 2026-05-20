@@ -136,10 +136,12 @@ Maps provider names to their configuration. Each provider entry includes credent
 | `baseUrl` | string | Optional custom base URL for the provider API |
 | `authProfile` | string | Name of an OAuth auth profile (alternative to `apiKey`) |
 | `accounts` | object | Multiple named accounts, each with its own credentials |
+| `capabilities` | object | Optional provider capability declaration for routing/tool compatibility |
+| `modelCapabilities` | object | Optional per-model capability overrides keyed by model name |
 
 ### Provider Accounts
 
-Each named account under `accounts` supports the same fields as the provider entry (`priority`, `apiKey`, `baseUrl`, `authProfile`, `models`), allowing multiple sets of credentials for a single provider.
+Each named account under `accounts` supports `priority`, `apiKey`, `baseUrl`, `tokenEndpoint`, `authProfile`, `models`, and optional `capabilities`, allowing multiple sets of credentials and capability declarations for a single provider.
 
 ### Example
 
@@ -165,6 +167,37 @@ Each named account under `accounts` supports the same fields as the provider ent
   }
 }
 ```
+
+
+### Provider Capabilities
+
+Provider, account, and model-specific entries may declare optional `capabilities` metadata. Saivage uses these declarations during routing so candidates that cannot satisfy a request for native tool calls, `tool_choice`, response shape, streaming, or transport protocol are skipped before transport invocation and without marking provider health as failed.
+
+Supported fields are `transportProtocol` (`openai-chat-completions` or `openai-codex-backend`), `toolCalls` (`native` or `none`), `toolChoice` (`auto` or `none`), `responseShape` (`openai-chat-choice` or `codex-backend`), `streaming`, `contextWindowTokens`, `maxOutputTokens`, and `quirks`.
+
+Precedence is model override → account override → provider declaration → built-in provider default → global default. Built-in provider defaults exist for `github-copilot`, `openai-codex`, `opencode`, and `opencode-go`; `openai-codex` defaults to the `openai-codex-backend` transport and `codex-backend` response shape to preserve its special backend path.
+
+```json
+{
+  "providers": {
+    "opencode": {
+      "models": ["kimi-k2.6"],
+      "capabilities": { "toolCalls": "native", "toolChoice": "auto" },
+      "accounts": {
+        "safe-text-only": {
+          "models": ["kimi-k2.6"],
+          "capabilities": { "toolCalls": "none", "toolChoice": "none" }
+        }
+      },
+      "modelCapabilities": {
+        "kimi-k2.6": { "contextWindowTokens": 128000, "maxOutputTokens": 8192 }
+      }
+    }
+  }
+}
+```
+
+Rollback is additive: remove the declarations to return to built-in defaults, or explicitly set a candidate to OpenAI-compatible defaults (`openai-chat-completions`, native tool calls, `openai-chat-choice`) if a provider was under-declared.
 
 ---
 
@@ -407,8 +440,8 @@ Unknown environment variables resolve to an empty string and generate a warning.
 |---|---|---|
 | `top-level` | `failover,mcpServers,models,notifications,providers,runtime,security,server,supervisor,telegram` | `src/agents/config-schema.ts:294` |
 | `models` | `analyst,chat,coder,data_agent,default,equivalents,executor,failover,inspector,manager,max_tokens,planner,profiles,researcher,reviewer,routing,temperature` | `src/agents/config-schema.ts:131` |
-| `providers.entry` | `accounts,apiKey,authProfile,baseUrl,models,priority,tokenEndpoint` | `src/agents/config-schema.ts:198` |
-| `providers.account` | `apiKey,authProfile,baseUrl,models,priority,tokenEndpoint` | `src/agents/config-schema.ts:188` |
+| `providers.entry` | `accounts,apiKey,authProfile,baseUrl,capabilities,modelCapabilities,models,priority,tokenEndpoint` | `src/agents/config-schema.ts:198` |
+| `providers.account` | `apiKey,authProfile,baseUrl,capabilities,models,priority,tokenEndpoint` | `src/agents/config-schema.ts:188` |
 | `server` | `host,port` | `src/agents/config-schema.ts:209` |
 | `runtime` | `continuous_improvement,max_review_retries,process_timeouts` | `src/agents/config-schema.ts:226` |
 | `runtime.process_timeouts` | `executor_ms,planner_ms,reviewer_ms` | `src/agents/config-schema.ts:220` |

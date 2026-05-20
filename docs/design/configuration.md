@@ -186,6 +186,8 @@ Fields per provider:
 | `baseUrl`     | no       | Override the default API endpoint            |
 | `authProfile` | no       | Name of an OAuth profile for token refresh   |
 | `accounts`    | no       | Named sub-accounts for routing               |
+| `capabilities` | no       | Provider capability declaration for routing/tool compatibility |
+| `modelCapabilities` | no   | Per-model capability overrides keyed by model name |
 
 *`models` can be omitted only for providers whose model list is
 discovered at startup. Discovered models are cached with the provider
@@ -203,6 +205,7 @@ Fields per account:
 | `baseUrl`     | no       | Account-specific endpoint override            |
 | `authProfile` | no       | Account-specific OAuth profile                |
 | `models`      | no       | Account-specific model subset or override     |
+| `capabilities` | no      | Account capability declaration                 |
 
 *`apiKey` can be omitted if `authProfile` is used instead.
 
@@ -436,8 +439,8 @@ An API token for the Saivage server itself is set via the
 |---|---|---|
 | `top-level` | `failover,mcpServers,models,notifications,providers,runtime,security,server,supervisor,telegram` | `src/agents/config-schema.ts:294` |
 | `models` | `analyst,chat,coder,data_agent,default,equivalents,executor,failover,inspector,manager,max_tokens,planner,profiles,researcher,reviewer,routing,temperature` | `src/agents/config-schema.ts:131` |
-| `providers.entry` | `accounts,apiKey,authProfile,baseUrl,models,priority,tokenEndpoint` | `src/agents/config-schema.ts:198` |
-| `providers.account` | `apiKey,authProfile,baseUrl,models,priority,tokenEndpoint` | `src/agents/config-schema.ts:188` |
+| `providers.entry` | `accounts,apiKey,authProfile,baseUrl,capabilities,modelCapabilities,models,priority,tokenEndpoint` | `src/agents/config-schema.ts:198` |
+| `providers.account` | `apiKey,authProfile,baseUrl,capabilities,models,priority,tokenEndpoint` | `src/agents/config-schema.ts:188` |
 | `server` | `host,port` | `src/agents/config-schema.ts:209` |
 | `runtime` | `continuous_improvement,max_review_retries,process_timeouts` | `src/agents/config-schema.ts:226` |
 | `runtime.process_timeouts` | `executor_ms,planner_ms,reviewer_ms` | `src/agents/config-schema.ts:220` |

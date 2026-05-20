@@ -362,3 +362,41 @@ describe('config-schema', () => {
     });
   });
 });
+
+describe('provider capability schema', () => {
+  it('accepts optional provider/account/model capability declarations without breaking legacy configs', () => {
+    const result = saivageConfigSchema.safeParse({
+      models: { default: ['gpt-5.5'] },
+      providers: {
+        'github-copilot': {
+          models: ['gpt-5.5'],
+          capabilities: { toolCalls: 'native', responseShape: 'openai-chat-choice' },
+          modelCapabilities: {
+            'gpt-5.5': { maxOutputTokens: 8192, quirks: ['large-context'] },
+          },
+          accounts: {
+            primary: { capabilities: { toolChoice: 'auto' } },
+          },
+        },
+      },
+    });
+
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.providers['github-copilot'].capabilities?.toolCalls).toBe('native');
+      expect(result.data.providers['github-copilot'].accounts?.primary?.capabilities?.toolChoice).toBe('auto');
+      expect(result.data.providers['github-copilot'].modelCapabilities?.['gpt-5.5']?.maxOutputTokens).toBe(8192);
+    }
+  });
+
+  it('rejects invalid capability enum values at the config boundary', () => {
+    const result = saivageConfigSchema.safeParse({
+      models: { default: ['m1'] },
+      providers: {
+        p1: { models: ['m1'], capabilities: { toolCalls: 'sometimes' } },
+      },
+    });
+
+    expect(result.success).toBe(false);
+  });
+});

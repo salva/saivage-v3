@@ -1,6 +1,11 @@
 import type { SaivageConfig } from './config-schema.js';
 import { getModelListForRole } from './config-schema.js';
 import { ProviderRegistry, type Candidate } from './provider.js';
+import {
+  supportsCapabilityRequest,
+  type CapabilityRequest,
+  type CapabilitySkipDiagnostic,
+} from './provider-capabilities.js';
 
 // ── Model Router ──────────────────────────────────────────────
 
@@ -11,6 +16,7 @@ import { ProviderRegistry, type Candidate } from './provider.js';
 export class ModelRouter {
   private registry: ProviderRegistry;
   private config: SaivageConfig;
+  private lastCapabilitySkips: CapabilitySkipDiagnostic[] = [];
 
   constructor(
     config: SaivageConfig,
@@ -42,7 +48,8 @@ export class ModelRouter {
    * OAuth profiles during startup-time candidate resolution. Transport/auth
    * validation happens later at real LLM invocation time.
    */
-  async resolve(role: string): Promise<Candidate[]> {
+  async resolve(role: string, request?: CapabilityRequest): Promise<Candidate[]> {
+    this.lastCapabilitySkips = [];
     const modelList = getModelListForRole(this.config, role);
     const candidates: Candidate[] = [];
 
@@ -60,7 +67,7 @@ export class ModelRouter {
       if (seenModels.has(model)) continue;
       seenModels.add(model);
 
-      const modelCandidates = this.resolveModel(model);
+      const modelCandidates = this.resolveModel(model, request);
       candidates.push(...modelCandidates);
 
       if (modelCandidates.length > 0) continue;
@@ -70,7 +77,7 @@ export class ModelRouter {
         for (const eqModel of eqGroup) {
           if (eqModel === model || seenModels.has(eqModel)) continue;
           seenModels.add(eqModel);
-          const eqCandidates = this.resolveModel(eqModel);
+          const eqCandidates = this.resolveModel(eqModel, request);
           if (eqCandidates.length > 0) {
             candidates.push(...eqCandidates);
             break;
@@ -83,7 +90,7 @@ export class ModelRouter {
         for (const foModel of chain) {
           if (seenModels.has(foModel)) continue;
           seenModels.add(foModel);
-          const foCandidates = this.resolveModel(foModel);
+          const foCandidates = this.resolveModel(foModel, request);
           if (foCandidates.length > 0) {
             candidates.push(...foCandidates);
             break;
@@ -96,16 +103,24 @@ export class ModelRouter {
   }
 
   /**
-   * Resolve a single model to its healthy candidates.
+   * Resolve a single model to its healthy and capability-compatible candidates.
    * Providers sorted by priority, then accounts sorted by priority.
    */
-  private resolveModel(model: string): Candidate[] {
+  private resolveModel(model: string, request?: CapabilityRequest): Candidate[] {
     const candidates: Candidate[] = [];
     const providers = this.registry.getProvidersForModel(model);
 
     for (const provider of providers) {
       const acctCandidates = provider.getCandidatesForModel(model);
       for (const c of acctCandidates) {
+        const match = supportsCapabilityRequest(
+          this.registry.getEffectiveCapabilities(c),
+          request,
+        );
+        if (!match.supported) {
+          this.lastCapabilitySkips.push({ candidate: c, reasons: match.reasons });
+          continue;
+        }
         if (!this.registry.isHealthy(c)) continue;
         candidates.push(c);
       }
@@ -118,9 +133,14 @@ export class ModelRouter {
    * Get the next healthy candidate for a role, skipping ones
    * that are in cooldown. Returns null if none available.
    */
-  async nextCandidate(role: string): Promise<Candidate | null> {
-    const chain = await this.resolve(role);
+  async nextCandidate(role: string, request?: CapabilityRequest): Promise<Candidate | null> {
+    const chain = await this.resolve(role, request);
     return chain.length > 0 ? chain[0] : null;
+  }
+
+  /** Return non-secret diagnostics for candidates skipped by the last resolve call. */
+  getLastCapabilitySkips(): CapabilitySkipDiagnostic[] {
+    return [...this.lastCapabilitySkips];
   }
 
   /**

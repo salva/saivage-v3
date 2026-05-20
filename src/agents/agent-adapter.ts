@@ -14,6 +14,7 @@ import type { AgentRuntime } from './agent-runtime.js';
 import { LlmClient } from './llm-client.js';
 import type { LlmCompleteOptions, ToolDefinition } from './llm-client.js';
 import { resolveLlmTransportConfig } from './llm-transport.js';
+import { capabilityRequestForLlmOptions } from './provider-capabilities.js';
 import { EventLogger } from '../utils/event-logger.js';
 import { buildSelfCheckPrompt } from './system-prompt.js';
 import type { McpManager, McpToolDefinition } from '../mcp/mcp-manager.js';
@@ -429,11 +430,16 @@ export class AgentAdapter implements AgentRuntime {
   private async invokeAgent<T>(role: AgentRole, goalId: string, cardId: string, systemPrompt: string, contextMessages: AgentMessage[], parser: (raw: string) => T, requestedSessionId?: string): Promise<T> {
     if (!this.llmCallFn) throw new Error('No LLM call function registered. Call setLlmCallFn() first.');
     this.resetOnRoleChange(role);
-    const candidates = await this.router.resolve(role);
-    if (candidates.length === 0) throw new Error(`No healthy candidates available for role '${role}'.`);
     const modelParams = getModelParamsForRole(this.config, role);
     const tools = this.buildToolsForRole(role);
     const tool_choice: 'auto' | undefined = tools.length > 0 ? 'auto' : undefined;
+    const capabilityRequest = capabilityRequestForLlmOptions({
+      tools,
+      tool_choice,
+      stream: false,
+    });
+    const candidates = await this.router.resolve(role, capabilityRequest);
+    if (candidates.length === 0) throw new Error(`No healthy candidates available for role '${role}'.`);
     const session = createSession(this.saivageDir, role as import('../schemas/types.js').AgentRole, goalId, cardId, undefined, requestedSessionId);
     await this.afterSessionCreatedHook?.(session.id);
     if (this.eventLogger) this.eventLogger.appendEvent({ kind: 'session_started', session_id: session.id, role: role as unknown as import('../schemas/types.js').AgentRole, goal_id: goalId, card_id: cardId });
@@ -443,7 +449,7 @@ export class AgentAdapter implements AgentRuntime {
     for (const msg of contextMessages) appendMessage(this.saivageDir, session.id, { role: msg.role, kind: msg.kind, content: msg.content, tool: msg.tool, links: msg.links });
     const recoveryOpts = { recoveryDelayMs: this.runtimeConfig.recoveryDelayMs ?? 60000, maxRetries: this.runtimeConfig.maxRecoveryRetries ?? 3, publishEvents: true, eventBus: this.eventBus, cardId, goalId, sessionId: session.id, agentRole: role, persistFailure: (error: Error, attempt: number, _ctx: RecoveryContext) => { try { appendMessage(this.saivageDir, session.id, { role: 'system', kind: 'model_issue', content: `Agent invocation failed (attempt ${attempt}): ${this.redactProviderErrorMessage(error.message)}` }); } catch {} if (this.eventLogger) this.eventLogger.appendEvent({ kind: 'retry_attempted', session_id: session.id, role: role as unknown as import('../schemas/types.js').AgentRole, attempt, directive: _ctx.directive }); if (this.eventBus) this.eventBus.emit('retry_attempted', { session_id: session.id, role, attempt, directive: _ctx.directive }); } };
     const agentFn = async (recoveryCtx: RecoveryContext) => {
-      const candidateChain = await this.router.resolve(role);
+      const candidateChain = await this.router.resolve(role, capabilityRequest);
       let lastError: Error | null = null;
       try {
         for (const candidate of candidateChain) {
@@ -556,7 +562,7 @@ export class AgentAdapter implements AgentRuntime {
 
   getRouter(): ModelRouter { return this.router; }
   getRegistry(): ProviderRegistry { return this.registry; }
-  createLlmCallFn(): LlmCallFn { const registry = this.registry; const clientCache = this.llmClientCache; const projectRoot = this.projectRoot; return async (candidate: Candidate, systemPrompt: string, messages: AgentMessage[], sessionId: string, opts?: LlmCompleteOptions): Promise<string> => { const { baseUrl, apiKey, cacheKey } = await resolveLlmTransportConfig(projectRoot, registry, candidate); let client = clientCache.get(cacheKey); if (!client) { client = new LlmClient(baseUrl, apiKey); clientCache.set(cacheKey, client); } const result = await client.complete(candidate, systemPrompt, messages, sessionId, opts); return result.content ?? JSON.stringify({ toolCalls: result.toolCalls }); }; }
+  createLlmCallFn(): LlmCallFn { const registry = this.registry; const clientCache = this.llmClientCache; const projectRoot = this.projectRoot; return async (candidate: Candidate, systemPrompt: string, messages: AgentMessage[], sessionId: string, opts?: LlmCompleteOptions): Promise<string> => { const { baseUrl, apiKey, cacheKey } = await resolveLlmTransportConfig(projectRoot, registry, candidate); let client = clientCache.get(cacheKey); if (!client) { client = new LlmClient(baseUrl, apiKey, registry); clientCache.set(cacheKey, client); } const result = await client.complete(candidate, systemPrompt, messages, sessionId, opts); return result.content ?? JSON.stringify({ toolCalls: result.toolCalls }); }; }
 }
 
 export function createAgentAdapter(projectRoot: string, eventBus?: EventEmitter): AgentAdapter { const saivageDir = `${projectRoot}/.saivage`; const { config, warnings } = loadConfig(projectRoot); if (warnings.length > 0 && eventBus) for (const warning of warnings) eventBus.emit('config_warning', { warning }); return new AgentAdapter({ projectRoot, saivageDir, config, eventBus }); }

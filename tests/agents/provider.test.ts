@@ -251,3 +251,45 @@ describe('ProviderRegistry', () => {
     });
   });
 });
+
+describe('provider capabilities', () => {
+  it('uses built-in openai-codex backend defaults without changing candidate identity', () => {
+    const cfg = mockConfig({
+      providers: { 'openai-codex': { models: ['gpt-5.5'] } },
+    });
+    const registry = new ProviderRegistry(cfg);
+    const candidate = registry.get('openai-codex')!.getCandidatesForModel('gpt-5.5')[0];
+
+    expect(candidate).toEqual({ provider: 'openai-codex', account: null, model: 'gpt-5.5' });
+    expect(candidateKey(candidate)).toBe('openai-codex/_/gpt-5.5');
+    expect(registry.getEffectiveCapabilities(candidate)).toMatchObject({
+      transportProtocol: 'openai-codex-backend',
+      responseShape: 'codex-backend',
+    });
+  });
+
+  it('applies capability precedence model override over account over provider over built-in defaults', () => {
+    const cfg = mockConfig({
+      providers: {
+        opencode: {
+          models: ['m1'],
+          capabilities: { toolCalls: 'none', contextWindowTokens: 1000 },
+          accounts: {
+            primary: { capabilities: { toolChoice: 'none', contextWindowTokens: 2000 } },
+          },
+          modelCapabilities: {
+            m1: { toolCalls: 'native', maxOutputTokens: 3000 },
+          },
+        },
+      },
+    });
+    const registry = new ProviderRegistry(cfg);
+    const capabilities = registry.getEffectiveCapabilities({ provider: 'opencode', account: 'primary', model: 'm1' });
+
+    expect(capabilities.toolCalls).toBe('native');
+    expect(capabilities.toolChoice).toBe('none');
+    expect(capabilities.contextWindowTokens).toBe(2000);
+    expect(capabilities.maxOutputTokens).toBe(3000);
+    expect(capabilities.transportProtocol).toBe('openai-chat-completions');
+  });
+});

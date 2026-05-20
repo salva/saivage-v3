@@ -508,3 +508,47 @@ describe('ModelRouter', () => {
     });
   });
 });
+
+describe('ModelRouter capability filtering', () => {
+  it('skips incompatible primary candidates before health filtering and continues failover without marking failed', async () => {
+    const cfg = mockConfig({
+      models: {
+        planner: ['m1'],
+        failover: { m1: ['m2'] },
+      },
+      providers: {
+        p1: { priority: 10, models: ['m1'], capabilities: { toolCalls: 'none' } },
+        p2: { priority: 20, models: ['m2'], capabilities: { toolCalls: 'native' } },
+      },
+    });
+    const registry = new ProviderRegistry(cfg);
+    const router = new ModelRouter(cfg, registry);
+
+    const chain = await router.resolve('planner', { toolCalls: true });
+
+    expect(chain).toEqual([{ provider: 'p2', account: null, model: 'm2' }]);
+    expect(router.getLastCapabilitySkips()).toEqual([
+      { candidate: { provider: 'p1', account: null, model: 'm1' }, reasons: ['unsupported_tool_calls'] },
+    ]);
+    expect(registry.getHealth({ provider: 'p1', account: null, model: 'm1' }).failureCount).toBe(0);
+  });
+
+  it('keeps health cooldown semantics separate from capability skips', async () => {
+    const cfg = mockConfig({
+      models: { planner: ['m1'] },
+      providers: {
+        healthyButIncompatible: { priority: 10, models: ['m1'], capabilities: { toolChoice: 'none' } },
+        compatibleButCooling: { priority: 20, models: ['m1'] },
+      },
+    });
+    const registry = new ProviderRegistry(cfg);
+    registry.markFailed({ provider: 'compatibleButCooling', account: null, model: 'm1' }, 60000);
+    const router = new ModelRouter(cfg, registry);
+
+    const chain = await router.resolve('planner', { toolChoice: true });
+
+    expect(chain).toHaveLength(0);
+    expect(router.getLastCapabilitySkips()[0].reasons).toEqual(['unsupported_tool_choice']);
+    expect(registry.getHealth({ provider: 'compatibleButCooling', account: null, model: 'm1' }).failureCount).toBe(1);
+  });
+});
