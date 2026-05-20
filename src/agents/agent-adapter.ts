@@ -111,6 +111,16 @@ const PLANNER_TOOL_DEFINITIONS: ToolDefinition[] = [
   }, ['goalId', 'status_text']),
 ].filter((tool, index, all) => all.findIndex((candidate) => candidate.function.name === tool.function.name) === index);
 
+const PLANNER_CONTROL_TOOL_NAMES = new Set<string>([
+  'activate_card',
+  'cancel_card',
+  'delete_card',
+  'restart_card',
+  'report_goal_done',
+  'report_goal_failed',
+  'report_goal_blocked',
+]);
+
 
 const AGENT_TOOL_NAMES_BY_ROLE: Record<AgentRole, string[]> = {
   analyst: ['lets_dance','mark_goal_needs_corrections','mark_project_needs_corrections','list_card_history','get_card_history_entry','diff_card','list_notes','get_note','mark_note_handled'],
@@ -256,7 +266,15 @@ export class AgentAdapter implements AgentRuntime {
         return { role: 'tool', kind: 'tool_error', content: JSON.stringify({ success: false, error: err instanceof Error ? err.message : String(err) }), tool: tc.function.name, tool_call_id: tc.id };
       }
     }
-    if (role === 'planner' && PLANNER_TOOL_DEFINITIONS.some((tool) => tool.function.name === tc.function.name)) {
+    // Planner-control tools only. PLANNER_TOOL_DEFINITIONS also includes
+    // workspace tools (list_project_files, read_project_file, …) and the
+    // analyst-style card tools (create_card, edit_card, add_note, …); those
+    // must fall through to their dedicated handlers further down (workspace
+    // tools at the bottom of this method; analyst tools via
+    // RUNTIME_AGENT_TOOL_REGISTRY above). If we accept all planner-defined
+    // tools here, the switch default returns null and the model sees an empty
+    // tool_result for filesystem reads.
+    if (role === 'planner' && PLANNER_CONTROL_TOOL_NAMES.has(tc.function.name)) {
       let args: Record<string, unknown> = {};
       try { args = JSON.parse(tc.function.arguments); } catch {}
       const plannerTools = new PlannerToolsService(new CardStore(this.projectRoot));
