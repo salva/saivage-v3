@@ -26,6 +26,7 @@ import { ANALYST_TOOL_DEFINITIONS } from './analyst-tool-schemas.js';
 import { CardStore } from '../utils/card-store.js';
 import { PlannerToolError, PlannerToolsService } from '../utils/planner-tools.js';
 import { consumeChangedCardActivation, injectQueuedSyntheticPlannerNotes } from '../utils/analyst-stage6.js';
+import { createDeferredActivationEnvelope, parseDeferredActivationEnvelope } from '../schemas/validators.js';
 
 export type { AgentRuntime } from './agent-runtime.js';
 export type AgentRole = 'planner' | 'executor' | 'reviewer' | 'analyst';
@@ -306,8 +307,18 @@ export class AgentAdapter implements AgentRuntime {
               const errorMessage = `Cannot activate '${targetId}': depends on ${depFailures.map((d) => `'${d.dep_id}' (status=${d.status})`).join(', ')}. Resolve the dependency first: use restart_card to retry a failed dep, cancel_card to drop '${targetId}' if no longer needed, or report_goal_blocked to escalate.`;
               return { role: 'tool', kind: 'tool_error', content: JSON.stringify({ success: false, error: errorMessage, target_card_id: targetId, dep_failures: depFailures }), tool: tc.function.name, tool_call_id: tc.id };
             }
+            const parentCardId = (typeof invocation?.cardId === 'string' && invocation.cardId.length > 0)
+              ? invocation.cardId
+              : (typeof invocation?.goalId === 'string' && invocation.goalId.length > 0)
+                ? invocation.goalId
+                : sessionId.startsWith('planner:') && sessionId.length > 'planner:'.length
+                  ? sessionId.slice('planner:'.length)
+                  : null;
+            if (!parentCardId) {
+              return { role: 'tool', kind: 'tool_error', content: JSON.stringify({ success: false, error: `activate_card target '${targetId}' has no deterministic parent card id for planner session '${sessionId}'.` }), tool: tc.function.name, tool_call_id: tc.id };
+            }
             consumeChangedCardActivation(this.projectRoot, targetId);
-            result = { __saivage_defer_tool_result: true, cardId: targetId };
+            result = createDeferredActivationEnvelope({ parent_card_id: parentCardId, child_card_id: targetId, planner_session_id: sessionId, tool_call_id: tc.id });
             break;
           }
           case 'cancel_card':
@@ -407,24 +418,16 @@ export class AgentAdapter implements AgentRuntime {
         appendMessage(this.saivageDir, sessionId, { role: 'assistant', kind: 'tool_call', content: JSON.stringify({ toolCalls: [tc] }), tool: tc.function.name });
       }
       const toolMessages: Array<{ role: 'tool'; kind: 'tool_result' | 'tool_error'; content: string; tool: string; tool_call_id: string }> = [];
+      const deferredActivations: import('../schemas/types.js').DeferredActivationEnvelopeV1[] = [];
       for (const tc of toolCalls) {
         const msg = await this.processToolCall(tc, role, sessionId, invocation);
-        if (!(role === 'planner' && tc.function.name === 'activate_card' && msg.content.includes('__saivage_defer_tool_result'))) toolMessages.push(msg);
+        const deferred = role === 'planner' && tc.function.name === 'activate_card' ? parseDeferredActivationEnvelope(msg.content) : null;
+        if (deferred) deferredActivations.push(deferred);
+        else toolMessages.push(msg);
       }
       for (const msg of toolMessages) appendMessage(this.saivageDir, sessionId, { role: msg.role, kind: msg.kind, content: msg.content, tool: msg.tool, tool_call_id: msg.tool_call_id });
-      if (toolMessages.length === 0 && toolCalls.some((tc) => role === 'planner' && tc.function.name === 'activate_card')) {
-        const activatedIds: string[] = [];
-        for (const tc of toolCalls) {
-          if (tc.function.name !== 'activate_card') continue;
-          try {
-            const args = JSON.parse(tc.function.arguments);
-            const cid = (args && typeof args === 'object')
-              ? (typeof (args as Record<string, unknown>).cardId === 'string' ? (args as Record<string, string>).cardId
-                : (typeof (args as Record<string, unknown>).card_id === 'string' ? (args as Record<string, string>).card_id : null))
-              : null;
-            if (cid) activatedIds.push(cid);
-          } catch {}
-        }
+      if (toolMessages.length === 0 && deferredActivations.length > 0) {
+        const activatedIds: string[] = deferredActivations.map((envelope) => envelope.child_card_id);
         // Check whether any activated card has failed/blocked dependencies. If
         // so, propagate that as the planner envelope so the parent card is
         // marked blocked and the runtime stops tight-looping.

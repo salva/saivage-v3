@@ -7,6 +7,7 @@ import { AgentAdapter } from '../../src/agents/agent-adapter.js';
 import { parsePlannerResult } from '../../src/agents/result-parser.js';
 import { getSessionMessages } from '../../src/agents/session-persistence.js';
 import { initProjectTree } from '../../src/utils/file-tree.js';
+import { CardStore } from '../../src/utils/card-store.js';
 import type { AgentMessage } from '../../src/schemas/types.js';
 
 function createMinimalAdapter(tmpDir: string): AgentAdapter {
@@ -66,6 +67,13 @@ function expectLastAssistantPlannerEnvelope(messages: AgentMessage[], expectedSt
   expect(() => parsePlannerResult(raw)).not.toThrow();
   expect(JSON.parse(raw)).not.toHaveProperty('toolCalls');
   expect(parsePlannerResult(raw).status).toBe(expectedStatus);
+}
+
+
+function createTestCard(tmpDir: string, id: string, parent = 'project') {
+  const store = new CardStore(tmpDir);
+  if (parent !== 'project' && !store.read(parent)) store.create({ id: parent, type: 'goal', parent: 'project', depth: 1, title: parent, description: parent, status: 'running', depends_on: [], priority: 1, tags: [], urgency: 'normal', created_by: 'planner', blocks: [], related: [], acceptance: '', artifacts: [], attachments: [], retries: 0 });
+  store.create({ id, type: 'code', parent, depth: parent === 'project' ? 1 : 2, title: id, description: id, status: 'backlog', depends_on: [], priority: 1, tags: [], urgency: 'normal', created_by: 'planner', blocks: [], related: [], acceptance: '', artifacts: [], attachments: [], retries: 0 });
 }
 
 describe('AgentAdapter forceFinalAnswer planner recovery', () => {
@@ -138,6 +146,7 @@ describe('AgentAdapter forceFinalAnswer planner recovery', () => {
 
   it('synthesizes a parseable continuation for activate_card-only deferred output and continues on the next planner cycle', async () => {
     const adapter = createMinimalAdapter(tmpDir);
+    createTestCard(tmpDir, 'child-card-1', 'goal-activate');
     const responses = [
       toolCallEnvelope([toolCall('call-activate-only', 'activate_card', { card_id: 'child-card-1', cardId: 'child-card-1' })]),
       plannerEnvelope('done', 'next planner cycle after deferred activation succeeded'),

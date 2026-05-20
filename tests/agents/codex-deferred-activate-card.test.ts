@@ -7,6 +7,7 @@ import { AgentAdapter } from '../../src/agents/agent-adapter.js';
 import { LlmClient } from '../../src/agents/llm-client.js';
 import { createSession, getSessionMessages } from '../../src/agents/session-persistence.js';
 import { initProjectTree } from '../../src/utils/file-tree.js';
+import { CardStore } from '../../src/utils/card-store.js';
 import type { AgentMessage } from '../../src/schemas/types.js';
 
 function createMinimalAdapter(tmpDir: string): AgentAdapter {
@@ -32,6 +33,13 @@ function createMinimalAdapter(tmpDir: string): AgentAdapter {
   });
 }
 
+
+function createTestCard(tmpDir: string, id: string, parent = 'project') {
+  const store = new CardStore(tmpDir);
+  if (parent !== 'project' && !store.read(parent)) store.create({ id: parent, type: 'goal', parent: 'project', depth: 1, title: parent, description: parent, status: 'running', depends_on: [], priority: 1, tags: [], urgency: 'normal', created_by: 'planner', blocks: [], related: [], acceptance: '', artifacts: [], attachments: [], retries: 0 });
+  store.create({ id, type: 'code', parent, depth: parent === 'project' ? 1 : 2, title: id, description: id, status: 'backlog', depends_on: [], priority: 1, tags: [], urgency: 'normal', created_by: 'planner', blocks: [], related: [], acceptance: '', artifacts: [], attachments: [], retries: 0 });
+}
+
 describe('Codex deferred activate_card history assembly', () => {
   let tmpDir: string;
   let adapter: AgentAdapter;
@@ -50,6 +58,7 @@ describe('Codex deferred activate_card history assembly', () => {
   });
 
   it('drops only the deferred activate_card function_call from the next Codex request while preserving the executed sibling pair', async () => {
+    createTestCard(tmpDir, 'child-card-1', 'goal-stage-18');
     let followUpMessages: AgentMessage[] = [];
     adapter.setLlmCallFn(async (_candidate, _systemPrompt, messages) => {
       followUpMessages = messages;

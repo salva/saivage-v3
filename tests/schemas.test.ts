@@ -18,9 +18,36 @@ import {
   runtimeStateSchema,
   processReconciledDeadEventSchema,
   processReattachRejectedEventSchema,
+  createDeferredActivationEnvelope,
+  createActivationCompletionEnvelope,
+  parseDeferredActivationEnvelope,
+  parseActivationCompletionEnvelope,
+  parseActivationEnvelopeContent,
 } from '../src/schemas/validators.js';
 import { initProjectTree } from '../src/utils/file-tree.js';
 import { readRuntimeState } from '../src/utils/runtime-state.js';
+
+
+describe('Activation envelope schemas', () => {
+  it('creates and parses typed deferred activation envelopes and rejects malformed payloads', () => {
+    const envelope = createDeferredActivationEnvelope({ parent_card_id: 'goal-a', child_card_id: 'code-a', planner_session_id: 'planner:goal-a', tool_call_id: 'call-a', requested_at: '2025-01-01T00:00:00.000Z' });
+    expect(envelope).toEqual({ kind: 'deferred_activate_card', version: 1, parent_card_id: 'goal-a', child_card_id: 'code-a', planner_session_id: 'planner:goal-a', tool_call_id: 'call-a', requested_at: '2025-01-01T00:00:00.000Z' });
+    expect(parseDeferredActivationEnvelope(JSON.stringify(envelope))?.child_card_id).toBe('code-a');
+    expect(parseDeferredActivationEnvelope(JSON.stringify({ kind: 'deferred_activate_card', version: 1, child_card_id: 'code-a' }))).toBeNull();
+  });
+
+  it('parses legacy deferred sentinels and legacy completion JSON into typed envelopes', () => {
+    expect(parseDeferredActivationEnvelope(JSON.stringify({ __saivage_defer_tool_result: true, cardId: 'legacy-child' }))?.child_card_id).toBe('legacy-child');
+    const completion = parseActivationCompletionEnvelope(JSON.stringify({ success: false, cardId: 'legacy-child', outcome: 'failed', summary: 'old', failure_kind: 'service_restart' }));
+    expect(completion).toEqual(expect.objectContaining({ kind: 'activate_card_completion', version: 1, child_card_id: 'legacy-child', cardId: 'legacy-child', success: false, failure_kind: 'service_restart' }));
+  });
+
+  it('creates typed completion envelopes with compatibility aliases', () => {
+    const envelope = createActivationCompletionEnvelope({ child_card_id: 'code-a', outcome: 'done', summary: 'complete', result: { ok: true }, failure_kind: undefined });
+    expect(envelope).toEqual(expect.objectContaining({ kind: 'activate_card_completion', version: 1, child_card_id: 'code-a', cardId: 'code-a', success: true, outcome: 'done' }));
+    expect(parseActivationEnvelopeContent(JSON.stringify(envelope)).completion?.child_card_id).toBe('code-a');
+  });
+});
 
 describe('Derived card schemas', () => {
   it('accepts a valid card index', () => {

@@ -66,6 +66,9 @@ export type MessageRole = 'user' | 'assistant' | 'system' | 'tool';
 export type MessageKind = 'text' | 'activity' | 'tool_call' | 'tool_result' | 'tool_error' | 'model_issue' | 'model_repair' | 'model_recovered';
 export interface EntityLink { entity_type: 'card' | 'process' | 'artifact' | 'attachment' | 'quarantine'; entity_id: string; label?: string; }
 export interface AgentMessage { id: string; session_id: string; role: MessageRole; kind: MessageKind; content: string; tool?: string; tool_call_id?: string; timestamp: string; links?: EntityLink[]; }
+export interface DeferredActivationEnvelopeV1 { kind: 'deferred_activate_card'; version: 1; parent_card_id: string; child_card_id: string; planner_session_id: string; tool_call_id: string; requested_at: string; }
+export type ActivationCompletionOutcome = 'done' | 'failed' | 'blocked' | 'cancelled' | string;
+export interface ActivationCompletionEnvelopeV1 { kind: 'activate_card_completion'; version: 1; child_card_id: string; outcome: ActivationCompletionOutcome; summary: string; result?: Record<string, unknown> | null; review?: ReviewAssessment | null; artifacts?: ArtifactRef[]; attachments?: AttachmentRef[]; evidence_card_ids?: string[]; error?: string | null; completed_by_session_id?: string | null; success: boolean; cardId: string; failure_kind?: string; }
 export type RuntimeStatus = 'idle' | 'running' | 'paused' | 'error' | 'frozen';
 export type ActiveCardRunRuntimeStatus = RuntimeStatus | 'stopped' | 'cancelled';
 export type ActiveCardRunPhase = 'planner' | 'executor' | 'reviewer';

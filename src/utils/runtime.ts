@@ -13,6 +13,7 @@ import type {
   NotificationRecord,
   ProjectRunCompletedPayload,
 } from '../schemas/types.js';
+import { createActivationCompletionEnvelope, parseActivationCompletionEnvelope } from '../schemas/validators.js';
 import { CardStore } from './card-store.js';
 import { consumeChangedCardActivation, consumePendingProjectDirective, injectQueuedSyntheticPlannerNotes, peekPendingProjectDirective, queueSyntheticPlannerNote } from './analyst-stage6.js';
 import {
@@ -129,9 +130,11 @@ export class Runtime extends EventEmitter {
 
   private buildCardActivationOutcome(childCardId: string, outcome: string, summary: string): string {
     const child = this.cardStore.read(childCardId);
-    const payload: Record<string, unknown> = {
-      success: outcome !== 'failed',
-      cardId: childCardId,
+    const failureKind = child?.result && typeof child.result === 'object' && typeof (child.result as { failure_kind?: unknown }).failure_kind === 'string'
+      ? (child.result as { failure_kind: string }).failure_kind
+      : undefined;
+    return JSON.stringify(createActivationCompletionEnvelope({
+      child_card_id: childCardId,
       outcome,
       summary,
       result: child?.result ?? null,
@@ -140,9 +143,8 @@ export class Runtime extends EventEmitter {
       attachments: child?.attachments ?? [],
       evidence_card_ids: child ? [child.id, ...this.cardStore.getDescendantIds(child.id)] : [childCardId],
       error: child?.error ?? null,
-    };
-    if (child?.result && typeof child.result === 'object' && typeof (child.result as { failure_kind?: unknown }).failure_kind === 'string') payload.failure_kind = (child.result as { failure_kind: string }).failure_kind;
-    return JSON.stringify(payload);
+      failure_kind: failureKind,
+    }));
   }
 
   private appendChildUnwindToolResult(childCardId: string, outcome: string, summary: string): void {
@@ -158,7 +160,7 @@ export class Runtime extends EventEmitter {
 
   private findUnresolvedActivateCards(sessionId: string): Array<{ session_id: string; tool_call_id: string; card_id: string }> {
     const messages = getSessionMessages(join(this.projectRoot, '.saivage'), sessionId);
-    const resolved = new Set(messages.filter((message) => (message.kind === 'tool_result' || message.kind === 'tool_error') && typeof message.tool_call_id === 'string').map((message) => message.tool_call_id as string));
+    const resolved = new Set(messages.filter((message) => (message.kind === 'tool_result' || message.kind === 'tool_error') && typeof message.tool_call_id === 'string' && parseActivationCompletionEnvelope(message.content)).map((message) => message.tool_call_id as string));
     const calls: Array<{ session_id: string; tool_call_id: string; card_id: string }> = [];
     for (const message of messages) {
       if (message.role !== 'assistant' || message.kind !== 'tool_call') continue;

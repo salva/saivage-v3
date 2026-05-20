@@ -3,6 +3,7 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync, readFileSync, readdirSyn
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { initProjectTree } from '../../src/utils/file-tree.js';
+import { parseActivationCompletionEnvelope } from '../../src/schemas/validators.js';
 import { Runtime } from '../../src/utils/runtime.js';
 import { CardStore } from '../../src/utils/card-store.js';
 import { releaseLock } from '../../src/utils/runtime-lock.js';
@@ -83,7 +84,7 @@ describe('stage 7 runtime restart and orphan activate_card repair', () => {
     expect(card.result?.failure_kind).toBe('service_restart');
     const results = activationResults(root, 'goal-a');
     expect(results).toHaveLength(1);
-    expect(JSON.parse(results[0]!.content)).toEqual(expect.objectContaining({ outcome: 'failed', failure_kind: 'service_restart' }));
+    expect(parseActivationCompletionEnvelope(results[0]!.content)).toEqual(expect.objectContaining({ kind: 'activate_card_completion', outcome: 'failed', failure_kind: 'service_restart', cardId: 'code-a', success: false }));
   });
 
   it('repairs orphan activate_card calls from a terminal child status without active_card_run', async () => {
@@ -95,7 +96,7 @@ describe('stage 7 runtime restart and orphan activate_card repair', () => {
     await runtime.startup();
     const results = activationResults(root, 'goal-a');
     expect(results).toHaveLength(1);
-    expect(JSON.parse(results[0]!.content)).toEqual(expect.objectContaining({ outcome: 'done', cardId: 'code-a' }));
+    expect(parseActivationCompletionEnvelope(results[0]!.content)).toEqual(expect.objectContaining({ kind: 'activate_card_completion', outcome: 'done', child_card_id: 'code-a', cardId: 'code-a', success: true }));
   });
 
   it('repairs active_card_run from terminal child status exactly once', async () => {
