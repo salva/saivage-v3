@@ -15,6 +15,7 @@ import { LlmClient } from './llm-client.js';
 import type { LlmCompleteOptions, ToolDefinition } from './llm-client.js';
 import { resolveLlmTransportConfig } from './llm-transport.js';
 import { capabilityRequestForLlmOptions } from './provider-capabilities.js';
+import { defaultInvocationRecoveryPolicy, type InvocationRecoveryContext } from './invocation-recovery-policy.js';
 import { EventLogger } from '../utils/event-logger.js';
 import { buildSelfCheckPrompt } from './system-prompt.js';
 import type { McpManager, McpToolDefinition } from '../mcp/mcp-manager.js';
@@ -439,7 +440,20 @@ export class AgentAdapter implements AgentRuntime {
       stream: false,
     });
     const candidates = await this.router.resolve(role, capabilityRequest);
-    if (candidates.length === 0) throw new Error(`No healthy candidates available for role '${role}'.`);
+    if (candidates.length === 0) {
+      const noCandidateDecision = defaultInvocationRecoveryPolicy.decideNoCandidates({
+        role,
+        attempt: 1,
+        maxAttempts: (this.runtimeConfig.maxRecoveryRetries ?? 3) + 1,
+        recoveryDelayMs: this.runtimeConfig.recoveryDelayMs ?? 60000,
+        maxRecoveryRetries: this.runtimeConfig.maxRecoveryRetries ?? 3,
+        capabilityRequest,
+        capabilitySkips: this.router.getLastCapabilitySkips(),
+        goalId,
+        cardId,
+      });
+      throw new Error(noCandidateDecision.message);
+    }
     const session = createSession(this.saivageDir, role as import('../schemas/types.js').AgentRole, goalId, cardId, undefined, requestedSessionId);
     await this.afterSessionCreatedHook?.(session.id);
     if (this.eventLogger) this.eventLogger.appendEvent({ kind: 'session_started', session_id: session.id, role: role as unknown as import('../schemas/types.js').AgentRole, goal_id: goalId, card_id: cardId });
@@ -450,6 +464,11 @@ export class AgentAdapter implements AgentRuntime {
     const recoveryOpts = { recoveryDelayMs: this.runtimeConfig.recoveryDelayMs ?? 60000, maxRetries: this.runtimeConfig.maxRecoveryRetries ?? 3, publishEvents: true, eventBus: this.eventBus, cardId, goalId, sessionId: session.id, agentRole: role, persistFailure: (error: Error, attempt: number, _ctx: RecoveryContext) => { try { appendMessage(this.saivageDir, session.id, { role: 'system', kind: 'model_issue', content: `Agent invocation failed (attempt ${attempt}): ${this.redactProviderErrorMessage(error.message)}` }); } catch {} if (this.eventLogger) this.eventLogger.appendEvent({ kind: 'retry_attempted', session_id: session.id, role: role as unknown as import('../schemas/types.js').AgentRole, attempt, directive: _ctx.directive }); if (this.eventBus) this.eventBus.emit('retry_attempted', { session_id: session.id, role, attempt, directive: _ctx.directive }); } };
     const agentFn = async (recoveryCtx: RecoveryContext) => {
       const candidateChain = await this.router.resolve(role, capabilityRequest);
+      const capabilitySkips = this.router.getLastCapabilitySkips();
+      if (candidateChain.length === 0) {
+        const noCandidateDecision = defaultInvocationRecoveryPolicy.decideNoCandidates({ role, attempt: recoveryCtx.attempt, maxAttempts: recoveryCtx.maxAttempts, recoveryDelayMs: this.runtimeConfig.recoveryDelayMs ?? 60000, maxRecoveryRetries: this.runtimeConfig.maxRecoveryRetries ?? 3, capabilityRequest, capabilitySkips, sessionId: session.id, goalId, cardId });
+        throw new Error(noCandidateDecision.message);
+      }
       let lastError: Error | null = null;
       try {
         for (const candidate of candidateChain) {
@@ -534,19 +553,26 @@ export class AgentAdapter implements AgentRuntime {
                 appendMessage(this.saivageDir, session.id, { role: 'assistant', kind: 'text', content: finalResponse });
                 parsed = parser(finalResponse);
               }
-              this.registry.markSucceeded(candidate);
-              if (this.eventLogger) this.eventLogger.appendEvent({ kind: 'invocation_succeeded', session_id: session.id, role: role as unknown as import('../schemas/types.js').AgentRole, attempt: recoveryCtx.attempt, duration_ms: callDuration });
-              if (this.eventBus) this.eventBus.emit('invocation_succeeded', { session_id: session.id, role, attempt: recoveryCtx.attempt, duration_ms: callDuration });
+              const successDecision = defaultInvocationRecoveryPolicy.decideSuccess({ role, candidate, attempt: recoveryCtx.attempt, maxAttempts: recoveryCtx.maxAttempts, recoveryDelayMs: this.runtimeConfig.recoveryDelayMs ?? 60000, maxRecoveryRetries: this.runtimeConfig.maxRecoveryRetries ?? 3, capabilityRequest, capabilitySkips, sessionId: session.id, goalId, cardId });
+              if (successDecision.markSucceeded) this.registry.markSucceeded(candidate);
+              if (this.eventLogger) this.eventLogger.appendEvent({ kind: 'invocation_succeeded', session_id: session.id, role: role as unknown as import('../schemas/types.js').AgentRole, attempt: recoveryCtx.attempt, duration_ms: callDuration, failureClass: successDecision.failureClass, recoveryAction: successDecision.action });
+              if (this.eventBus) this.eventBus.emit('invocation_succeeded', { session_id: session.id, role, attempt: recoveryCtx.attempt, duration_ms: callDuration, recoveryAction: successDecision.action });
               this._cancelledSessions.delete(session.id);
               return parsed;
             } finally { this._abortControllers.delete(session.id); }
           } catch (err) {
-            this.registry.markFailed(candidate, this.runtimeConfig.recoveryDelayMs ?? 60000);
             lastError = err instanceof Error ? err : new Error(String(err));
-            appendMessage(this.saivageDir, session.id, { role: 'system', kind: 'model_issue', content: `Candidate ${candidate.provider}/${candidate.account ?? '_'}/${candidate.model} failed: ${this.redactProviderErrorMessage(lastError.message)}` });
-            if (this.eventLogger) this.eventLogger.appendEvent({ kind: 'invocation_failed', session_id: session.id, role: role as unknown as import('../schemas/types.js').AgentRole, attempt: recoveryCtx.attempt, error_message: this.redactProviderErrorMessage(lastError.message) });
-            if (this.eventBus) this.eventBus.emit('invocation_failed', { session_id: session.id, role, attempt: recoveryCtx.attempt, error_message: this.redactProviderErrorMessage(lastError.message) });
-            if (this._cancelledSessions.has(session.id)) { if (this.eventLogger) this.eventLogger.appendEvent({ kind: 'session_cancelled', session_id: session.id, role: role as unknown as import('../schemas/types.js').AgentRole, note: 'Stopped retry loop due to session cancellation' }); throw new Error(`Agent invocation cancelled for session ${session.id}. Role: ${role}, goal: ${goalId}, card: ${cardId}`); }
+            const policyContext: InvocationRecoveryContext = { role, candidate, attempt: recoveryCtx.attempt, maxAttempts: recoveryCtx.maxAttempts, recoveryDelayMs: this.runtimeConfig.recoveryDelayMs ?? 60000, maxRecoveryRetries: this.runtimeConfig.maxRecoveryRetries ?? 3, capabilityRequest, capabilitySkips, sessionId: session.id, goalId, cardId };
+            const decision = defaultInvocationRecoveryPolicy.decideFailure(lastError, policyContext);
+            if (decision.markFailed) this.registry.markFailed(candidate, decision.cooldownMs ?? (this.runtimeConfig.recoveryDelayMs ?? 60000));
+            if (decision.appendModelIssue) appendMessage(this.saivageDir, session.id, { role: 'system', kind: 'model_issue', content: decision.message });
+            if (this.eventLogger) this.eventLogger.appendEvent({ kind: 'invocation_failed', session_id: session.id, role: role as unknown as import('../schemas/types.js').AgentRole, attempt: recoveryCtx.attempt, error_message: decision.message, failureClass: decision.failureClass, recoveryAction: decision.action, cooldownMs: decision.cooldownMs, retryDelayMs: decision.retryDelayMs, capabilitySkipReasons: decision.eventPayload.capabilitySkipReasons });
+            if (this.eventBus) this.eventBus.emit('invocation_failed', { session_id: session.id, role, attempt: recoveryCtx.attempt, error_message: decision.message, failureClass: decision.failureClass, recoveryAction: decision.action, cooldownMs: decision.cooldownMs, retryDelayMs: decision.retryDelayMs, capabilitySkipReasons: decision.eventPayload.capabilitySkipReasons });
+            if (decision.abort || this._cancelledSessions.has(session.id)) {
+              if (this.eventLogger) this.eventLogger.appendEvent({ kind: 'session_cancelled', session_id: session.id, role: role as unknown as import('../schemas/types.js').AgentRole, note: 'Stopped retry loop due to session cancellation' });
+              if (decision.failureClass === 'cancelled' || this._cancelledSessions.has(session.id)) throw new Error(`Agent invocation cancelled for session ${session.id}. Role: ${role}, goal: ${goalId}, card: ${cardId}`);
+              throw lastError;
+            }
             continue;
           }
         }
