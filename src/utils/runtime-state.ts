@@ -90,7 +90,7 @@ function appendSelfHealWarning(projectRoot: string, state: RuntimeState, source:
       error_message: `${describeInvariantViolation(state)} Auto-cleared active_card_run during ${source}.`,
       severity: 'warning',
       self_healed: true,
-    } as never);
+    });
     logger.flushSync();
   } catch {
     // State self-healing must not be blocked by event logging failures.

@@ -125,13 +125,14 @@ export const baseEventSchema = z.object({ id: z.string().min(1), kind: eventKind
 const passthroughBaseEventSchema = baseEventSchema.passthrough();
 export const processReconciledDeadEventSchema = baseEventSchema.extend({ kind: z.literal('process_reconciled_dead'), process_id: z.string().min(1), card_id: z.string().min(1), goal_id: z.string().min(1).optional(), session_id: z.string().min(1).optional(), pid: z.number().int().nullable().optional(), probe_status: z.enum(['not_running', 'identity_mismatch', 'clock_skew']), terminal_reason: z.literal('lost'), failure_classification: z.literal('lost'), detail: z.string().min(1) }).strict();
 export const processReattachRejectedEventSchema = baseEventSchema.extend({ kind: z.literal('process_reattach_rejected'), process_id: z.string().min(1), card_id: z.string().min(1), goal_id: z.string().min(1).optional(), session_id: z.string().min(1).optional(), pid: z.number().int().nullable().optional(), terminal_reason: z.literal('lost'), failure_classification: z.literal('lost'), reattach_error: z.string().min(1), detail: z.string().min(1) }).strict();
+const eventEmbeddedAssessmentSchema = z.union([reviewAssessmentSchema, reviewerResultBaseSchema]);
 export const goalReportRejectedEventSchema = passthroughBaseEventSchema.extend({ kind: z.literal('goal_report_rejected'), goal_id: z.string().optional(), reason: z.string().optional(), reviewer_summary: z.string().optional(), missing: z.array(z.string()).optional() });
 export const startedEventSchema = passthroughBaseEventSchema.extend({ kind: z.literal('started'), project_root: z.string() });
-export const goalCompletedEventSchema = passthroughBaseEventSchema.extend({ kind: z.literal('goal_completed'), goal_id: z.string(), assessment: reviewAssessmentSchema.optional() });
+export const goalCompletedEventSchema = passthroughBaseEventSchema.extend({ kind: z.literal('goal_completed'), goal_id: z.string(), assessment: eventEmbeddedAssessmentSchema.optional() });
 export const goalFailedEventSchema = passthroughBaseEventSchema.extend({ kind: z.literal('goal_failed'), goal_id: z.string(), error_message: z.string().optional() });
 export const cardFailedEventSchema = passthroughBaseEventSchema.extend({ kind: z.literal('card_failed'), card_id: z.string(), goal_id: z.string() });
-export const reviewCompleteEventSchema = passthroughBaseEventSchema.extend({ kind: z.literal('review_complete'), goal_id: z.string(), assessment: reviewAssessmentSchema.optional() });
-export const reviewFailedEventSchema = passthroughBaseEventSchema.extend({ kind: z.literal('review_failed'), goal_id: z.string(), assessment: reviewAssessmentSchema.optional() });
+export const reviewCompleteEventSchema = passthroughBaseEventSchema.extend({ kind: z.literal('review_complete'), goal_id: z.string(), assessment: eventEmbeddedAssessmentSchema.optional() });
+export const reviewFailedEventSchema = passthroughBaseEventSchema.extend({ kind: z.literal('review_failed'), goal_id: z.string(), assessment: eventEmbeddedAssessmentSchema.optional() });
 export const dispatchBlockedEventSchema = passthroughBaseEventSchema.extend({ kind: z.literal('dispatch_blocked'), reason: z.string(), goal_id: z.string() });
 export const dispatchInterruptedEventSchema = passthroughBaseEventSchema.extend({ kind: z.literal('dispatch_interrupted'), goal_id: z.string(), reason: z.string() });
 export const dispatchHeldForNotificationEventSchema = passthroughBaseEventSchema.extend({ kind: z.literal('dispatch_held_for_notification'), session_id: z.string(), role: z.enum(['executor', 'reviewer']), notification_ids: z.array(z.string()) });
@@ -142,6 +143,8 @@ export const resumedEventSchema = passthroughBaseEventSchema.extend({ kind: z.li
 export const shutdownEventSchema = passthroughBaseEventSchema.extend({ kind: z.literal('shutdown') });
 export const errorEventSchema = passthroughBaseEventSchema.extend({ kind: z.literal('error'), goal_id: z.string().optional(), card_id: z.string().optional(), phase: z.string().optional(), error_message: z.string() });
 export const projectRunCompletedEventSchema = passthroughBaseEventSchema.extend({ kind: z.literal('project_run_completed'), project_card_id: z.string(), result: z.enum(['done', 'failed', 'blocked']), summary: z.string(), failure_kind: z.string().optional(), blocked_reason: z.string().optional() });
+export const frozenEventSchema = passthroughBaseEventSchema.extend({ kind: z.literal('frozen'), freeze_id: z.string(), reason: z.string() });
+export const resumedFromFreezeEventSchema = passthroughBaseEventSchema.extend({ kind: z.literal('resumed_from_freeze'), freeze_id: z.string() });
 export const stuckSupervisorStartedEventSchema = passthroughBaseEventSchema.extend({ kind: z.literal('stuck_supervisor_started'), interval_ms: z.number(), consecutive_threshold: z.number() });
 export const stuckSupervisorStoppedEventSchema = passthroughBaseEventSchema.extend({ kind: z.literal('stuck_supervisor_stopped'), checks_performed: z.number() });
 export const stuckVerdictEventSchema = passthroughBaseEventSchema.extend({ kind: z.literal('stuck_verdict'), verdict: z.boolean(), confidence: z.number(), reason: z.string(), evidence: z.array(z.string()), consecutive_count: z.number(), threshold: z.number() });
@@ -184,6 +187,8 @@ export const loggedEventSchemaByKind = {
   abort_target_selected: abortTargetSelectedEventSchema,
   force_cancel_sent: forceCancelSentEventSchema,
   project_run_completed: projectRunCompletedEventSchema,
+  frozen: frozenEventSchema,
+  resumed_from_freeze: resumedFromFreezeEventSchema,
   session_started: sessionStartedEventSchema,
   model_selected: modelSelectedEventSchema,
   invocation_succeeded: invocationSucceededEventSchema,
@@ -205,7 +210,8 @@ export function parseLoggedEventCompat(value: unknown): LoggedEventCompatResult 
   const strict = loggedEventSchema.safeParse(value);
   if (strict.success) return { ok: true, event: strict.data, compatibility: 'strict' };
   const compat = loggedEventCompatibilitySchema.safeParse(value);
-  if (compat.success) return { ok: true, event: compat.data as Record<string, unknown> & { id: string; kind: string; timestamp: string }, compatibility: 'unknown-kind', warning: `Unknown historical runtime event kind '${compat.data.kind}' accepted by compatibility parser.` };
-  return { ok: false, error: compat.error };
+  if (!compat.success) return { ok: false, error: compat.error };
+  if ((eventKindValues as readonly string[]).includes(compat.data.kind)) return { ok: false, error: strict.error };
+  return { ok: true, event: compat.data as Record<string, unknown> & { id: string; kind: string; timestamp: string }, compatibility: 'unknown-kind', warning: `Unknown historical runtime event kind '${compat.data.kind}' accepted by compatibility parser.` };
 }
 

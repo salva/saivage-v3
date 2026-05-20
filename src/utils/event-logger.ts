@@ -4,6 +4,7 @@ import { randomUUID } from 'node:crypto';
 import { writeFileAtomic } from './file-tree.js';
 import type { LoggedEvent, EventKind } from '../schemas/types.js';
 import { redactObservabilityValue } from './observability-redaction.js';
+import { loggedEventSchema, parseLoggedEventCompat } from '../schemas/validators.js';
 
 // ── Constants ─────────────────────────────────────────────────
 
@@ -106,10 +107,15 @@ export class EventLogger {
       timestamp: event.timestamp ?? new Date().toISOString(),
     }) as unknown as LoggedEvent;
 
-    // Add to buffer for batched flush
-    this.buffer.push(JSON.stringify(fullEvent));
+    const parsed = loggedEventSchema.safeParse(fullEvent);
+    if (!parsed.success) {
+      throw new Error(`LoggedEvent validation failed for kind '${event.kind}': ${parsed.error.message}`);
+    }
 
-    return fullEvent;
+    // Add to buffer for batched flush
+    this.buffer.push(JSON.stringify(parsed.data));
+
+    return parsed.data;
   }
 
   /**
@@ -137,8 +143,12 @@ export class EventLogger {
     let events: LoggedEvent[] = [];
     for (const line of raw.split('\n').filter(Boolean)) {
       try {
-        const parsed = JSON.parse(line) as LoggedEvent;
-        events.push(parsed);
+        const parsed = parseLoggedEventCompat(JSON.parse(line));
+        if (parsed.ok && parsed.compatibility === 'strict') {
+          events.push(parsed.event);
+        } else if (parsed.ok) {
+          console.warn(parsed.warning);
+        }
       } catch {
         // Skip malformed lines
       }

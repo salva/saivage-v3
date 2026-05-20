@@ -37,6 +37,8 @@ export const RUNTIME_SEVERITY_MAP: Record<RuntimeEventKind, SeverityLevel> = {
   abort_target_selected: 'warning',
   force_cancel_sent: 'error',
   project_run_completed: 'info',
+  frozen: 'warning',
+  resumed_from_freeze: 'info',
 };
 
 export const AGENT_SEVERITY_MAP: Record<AgentEventKind, SeverityLevel> = {
