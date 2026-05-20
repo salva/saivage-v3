@@ -309,7 +309,7 @@ describe('loadAuthProfiles', () => {
     });
     writeAuthProfiles(root, content);
 
-    await expect(loadAuthProfiles(root)).rejects.toThrow(/missing required credential|missing access token/i);
+    await expect(loadAuthProfiles(root)).rejects.toThrow(/expected profile schema|missing required credential|missing access token/i);
   });
 
   it('throws when validation fails (missing provider)', async () => {
@@ -323,7 +323,7 @@ describe('loadAuthProfiles', () => {
     });
     writeAuthProfiles(root, content);
 
-    await expect(loadAuthProfiles(root)).rejects.toThrow(/validation/i);
+    await expect(loadAuthProfiles(root)).rejects.toThrow(/expected profile schema|validation/i);
   });
 
   it('handles empty profiles object', async () => {

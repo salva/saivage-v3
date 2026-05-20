@@ -147,10 +147,10 @@ describe('AuthProfileStore read states', () => {
     const state = await new AuthProfileStore(root).read();
     expect(state.state).toBe('invalid_schema');
     if (state.state === 'invalid_schema') {
-      expect(state.causeMessage).toContain('missing required credential');
+      expect(state.causeMessage).toContain('expected profile schema');
       expectNoRawSecrets(state.causeMessage);
     }
-    await expect(loadAuthProfiles(root)).rejects.toThrow(/missing required credential|missing access token/i);
+    await expect(loadAuthProfiles(root)).rejects.toThrow(/expected profile schema/i);
   });
 });
 
@@ -265,6 +265,65 @@ describe('AuthProfileStore refusal semantics', () => {
     expect(details.state).toBe('corrupt_json');
     expect(details.action).toBe('refused');
     expectNoRawSecrets(JSON.stringify(details));
+  });
+
+
+  it('recovery-required corrupt JSON diagnostics omit embedded synthetic secrets', async () => {
+    const root = makeProjectRoot();
+    const syntheticSecret = 'sk-synthetic-corrupt-secret-12345';
+    writeAuthProfiles(root, `{ "profiles": { "bad": "${syntheticSecret}`, 0o600);
+
+    let caught: unknown;
+    try {
+      await saveAuthProfile(root, 'new', makeProfile());
+    } catch (error) {
+      caught = error;
+    }
+
+    expect(caught).toBeInstanceOf(AuthProfileRecoveryRequiredError);
+    const recoveryError = caught as AuthProfileRecoveryRequiredError;
+    expect(recoveryError.message).toContain('corrupt_json');
+    expect(recoveryError.details.causeMessage).toContain('malformed JSON');
+    expect(recoveryError.message).not.toContain(syntheticSecret);
+    expect(JSON.stringify(recoveryError.details)).not.toContain(syntheticSecret);
+    expectNoRawSecrets(recoveryError.message);
+    expectNoRawSecrets(JSON.stringify(recoveryError.details));
+  });
+
+  it('recovery-required invalid schema diagnostics omit credential field names and values', async () => {
+    const root = makeProjectRoot();
+    const syntheticAccessSecret = 'at-synthetic-invalid-secret-12345';
+    const syntheticRefreshSecret = 'rt-synthetic-invalid-secret-12345';
+    writeAuthProfiles(root, JSON.stringify({
+      version: 1,
+      profiles: {
+        bad: {
+          provider: 'synthetic-provider',
+          accessToken: 123,
+          refreshToken: { nested: syntheticRefreshSecret },
+          access: syntheticAccessSecret,
+          refresh: syntheticRefreshSecret,
+        },
+      },
+    }), 0o600);
+
+    let caught: unknown;
+    try {
+      await saveAuthProfile(root, 'new', makeProfile());
+    } catch (error) {
+      caught = error;
+    }
+
+    expect(caught).toBeInstanceOf(AuthProfileRecoveryRequiredError);
+    const recoveryError = caught as AuthProfileRecoveryRequiredError;
+    expect(recoveryError.message).toContain('invalid_schema');
+    expect(recoveryError.details.causeMessage).toContain('expected profile schema');
+    expect(recoveryError.message).not.toContain(syntheticAccessSecret);
+    expect(recoveryError.message).not.toContain(syntheticRefreshSecret);
+    expect(JSON.stringify(recoveryError.details)).not.toContain(syntheticAccessSecret);
+    expect(JSON.stringify(recoveryError.details)).not.toContain(syntheticRefreshSecret);
+    expectNoRawSecrets(recoveryError.message);
+    expectNoRawSecrets(JSON.stringify(recoveryError.details));
   });
 
   it('keeps public save/delete APIs compatible for clean stores', async () => {

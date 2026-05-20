@@ -188,8 +188,13 @@ function isNotFound(error: unknown): boolean {
   );
 }
 
-function validationMessage(error: z.ZodError): string {
-  return error.issues.map((i) => `  - ${i.path.join('.')}: ${i.message}`).join('\n');
+const SAFE_CORRUPT_JSON_MESSAGE = 'auth profile store contains malformed JSON; inspect the file manually before recovery';
+const SAFE_INVALID_SCHEMA_MESSAGE = 'auth profile store does not match the expected profile schema; inspect the file manually before recovery';
+
+function safeRecoveryCause(state: AuthProfileRefusalState, causeMessage: string): string {
+  if (state === 'corrupt_json') return SAFE_CORRUPT_JSON_MESSAGE;
+  if (state === 'invalid_schema') return SAFE_INVALID_SCHEMA_MESSAGE;
+  return causeMessage;
 }
 
 function tempSuffix(): string {
@@ -293,19 +298,18 @@ export class AuthProfileStore {
       return {
         state: 'corrupt_json',
         path: this.filePath,
-        causeMessage: safeMessage(error),
-        error: toError(error),
+        causeMessage: SAFE_CORRUPT_JSON_MESSAGE,
+        error: new Error(SAFE_CORRUPT_JSON_MESSAGE, { cause: error }),
       };
     }
 
     const result = rawAuthProfilesSchema.safeParse(parsed);
     if (!result.success) {
-      const message = validationMessage(result.error);
       return {
         state: 'invalid_schema',
         path: this.filePath,
-        causeMessage: message,
-        error: new Error(`Auth profiles validation failed:\n${message}`),
+        causeMessage: SAFE_INVALID_SCHEMA_MESSAGE,
+        error: new Error(SAFE_INVALID_SCHEMA_MESSAGE, { cause: result.error }),
       };
     }
 
@@ -319,8 +323,8 @@ export class AuthProfileStore {
       return {
         state: 'invalid_schema',
         path: this.filePath,
-        causeMessage: safeMessage(error),
-        error: toError(error),
+        causeMessage: SAFE_INVALID_SCHEMA_MESSAGE,
+        error: new Error(SAFE_INVALID_SCHEMA_MESSAGE, { cause: error }),
       };
     }
   }
@@ -362,16 +366,16 @@ export class AuthProfileStore {
       state: state.state,
       path: state.path,
       action: 'refused',
-      causeMessage: state.causeMessage,
+      causeMessage: safeRecoveryCause(state.state, state.causeMessage),
     });
   }
 
   private errorForReadState(state: Exclude<AuthProfileReadState, { state: 'absent' | 'loaded' }>): Error {
     if (state.state === 'corrupt_json') {
-      return new Error(`Failed to parse auth-profiles.json: ${state.causeMessage}`);
+      return new Error(`Failed to parse auth-profiles.json: ${SAFE_CORRUPT_JSON_MESSAGE}`);
     }
     if (state.state === 'invalid_schema') {
-      return state.error;
+      return new Error(SAFE_INVALID_SCHEMA_MESSAGE, { cause: state.error });
     }
     return new Error(`Failed to read auth-profiles.json: ${state.causeMessage}`);
   }
