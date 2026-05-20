@@ -421,3 +421,44 @@ describe('Core schemas still validate expected records', () => {
     expect(result.success).toBe(false);
   });
 });
+
+import {
+  agentEventKindValues,
+  eventKindValues,
+  runtimeEventKindValues,
+} from '../src/schemas/types.js';
+import {
+  agentEventKindSchema,
+  eventKindSchema,
+  loggedEventSchema,
+  loggedEventSchemaByKind,
+  parseLoggedEventCompat,
+  runtimeEventKindSchema,
+} from '../src/schemas/validators.js';
+
+describe('Runtime event catalog schemas', () => {
+  const timestamp = '2025-01-01T00:00:00.000Z';
+
+  it('derives Zod event-kind schemas from exported catalog arrays', () => {
+    expect(runtimeEventKindSchema.options).toEqual([...runtimeEventKindValues]);
+    expect(agentEventKindSchema.options).toEqual([...agentEventKindValues]);
+    expect(eventKindSchema.options).toEqual([...eventKindValues]);
+    expect(Object.keys(loggedEventSchemaByKind).sort()).toEqual([...eventKindValues].sort());
+  });
+
+  it('strictly validates formerly missing event kinds with their payloads', () => {
+    expect(loggedEventSchema.parse({ id: 'evt-session-cancelled', kind: 'session_cancelled', timestamp, session_id: 'sess-1' })).toMatchObject({ kind: 'session_cancelled', session_id: 'sess-1' });
+    expect(loggedEventSchema.parse({ id: 'evt-mcp', kind: 'mcp_tool_invocation', timestamp, session_id: 'sess-1', role: 'planner', server_name: 'planner-control', tool_name: 'activate_card', success: true })).toMatchObject({ kind: 'mcp_tool_invocation', tool_name: 'activate_card' });
+  });
+
+  it('keeps tolerant historical parsing separate from strict current validation', () => {
+    const historical = { id: 'evt-old', kind: 'legacy_kind_from_old_log', timestamp, payload: { kept: true } };
+    expect(loggedEventSchema.safeParse(historical).success).toBe(false);
+    const compat = parseLoggedEventCompat(historical);
+    expect(compat.ok).toBe(true);
+    if (compat.ok) {
+      expect(compat.compatibility).toBe('unknown-kind');
+      expect(compat.event.kind).toBe('legacy_kind_from_old_log');
+    }
+  });
+});

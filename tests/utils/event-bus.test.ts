@@ -25,7 +25,7 @@ import {
   SEVERITY_MAP,
   getSeverity,
 } from '../../src/utils/event-bus.js';
-import type { LoggedEvent, EventKind, RuntimeEventKind, AgentEventKind } from '../../src/schemas/types.js';
+import { eventKindValues, runtimeEventKindValues, agentEventKindValues, type LoggedEvent, type EventKind, type RuntimeEventKind, type AgentEventKind } from '../../src/schemas/types.js';
 
 // ── Helpers ────────────────────────────────────────────────────
 
@@ -177,6 +177,14 @@ describe('SEVERITY_MAP', () => {
     for (const [kind, severity] of Object.entries(AGENT_SEVERITY_MAP)) {
       expect(SEVERITY_MAP[kind as AgentEventKind]).toBe(severity);
     }
+  });
+
+  it('covers every catalog event kind with representative warning/error stability', () => {
+    expect(Object.keys(RUNTIME_SEVERITY_MAP).sort()).toEqual([...runtimeEventKindValues].sort());
+    expect(Object.keys(AGENT_SEVERITY_MAP).sort()).toEqual([...agentEventKindValues].sort());
+    for (const kind of eventKindValues) expect(SEVERITY_MAP[kind]).toBeDefined();
+    expect(getSeverity('force_cancel_sent')).toBe('error');
+    expect(getSeverity('process_reconciled_dead')).toBe('warning');
   });
 });
 

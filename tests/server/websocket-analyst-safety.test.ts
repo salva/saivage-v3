@@ -305,3 +305,28 @@ describe('websocket analyst safety', () => {
     expect(JSON.stringify(reply)).not.toMatch(/secret-oversized|secret-json-value|auth-profiles\.json/);
   });
 });
+
+describe('websocket runtime event fanout compatibility', () => {
+  it('fans out a validator-covered session_cancelled runtime event without changing envelope JSON', () => {
+    const { ws } = createSocket();
+    const { route, fastify } = createRoute();
+    const handlers: Array<(event: import('../../src/schemas/types.js').LoggedEvent) => void> = [];
+    const runtime = {
+      on: jest.fn(),
+      eventBus: {
+        subscribe: jest.fn((options: { handler: (event: import('../../src/schemas/types.js').LoggedEvent) => void }) => {
+          handlers.push(options.handler);
+          return { id: 'sub-1', pause: jest.fn(), resume: jest.fn(), unsubscribe: jest.fn() };
+        }),
+      },
+    } as any;
+    registerWebSocket(fastify, '/tmp/project', runtime);
+    route.handler(ws, { headers: {}, query: {} });
+    websocketModule.wireRuntimeEvents(runtime);
+
+    handlers[0]?.({ id: 'evt-1', kind: 'session_cancelled', timestamp: '2025-01-01T00:00:00.000Z', session_id: 'sess-1' });
+
+    const payloads = (ws.send as jest.Mock).mock.calls.map((call) => JSON.parse(call[0] as string));
+    expect(payloads).toContainEqual({ type: 'status', content: { event: 'session_cancelled', session_id: 'sess-1' } });
+  });
+});
