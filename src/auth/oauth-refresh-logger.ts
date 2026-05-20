@@ -1,40 +1,15 @@
-import { redactProviderLikeText } from '../utils/secret-redaction.js';
+import { RedactionBoundary } from '../utils/redaction-boundary.js';
 
 const PREFIX = '[oauth-profiles]';
-const REDACTION_CONVERSION_FAILURE = '[unserializable dynamic value]';
 const DEFAULT_SNIPPET_LENGTH = 500;
-
-function rawDynamicText(value: unknown): string {
-  if (value === null || value === undefined) {
-    return '';
-  }
-
-  if (typeof value === 'string') {
-    return value;
-  }
-
-  if (value instanceof Error) {
-    return value.message;
-  }
-
-  try {
-    if (typeof value === 'object') {
-      const json = JSON.stringify(value);
-      return json ?? REDACTION_CONVERSION_FAILURE;
-    }
-
-    return String(value);
-  } catch {
-    return REDACTION_CONVERSION_FAILURE;
-  }
-}
+const OAUTH_CONTEXT = { sink: 'console' as const, source: 'oauth-refresh-logger' };
 
 function safeDynamicText(value: unknown): string {
-  return redactProviderLikeText(rawDynamicText(value));
+  return RedactionBoundary.text(value, OAUTH_CONTEXT);
 }
 
 function snippet(value: unknown, maxLength = DEFAULT_SNIPPET_LENGTH): string {
-  return safeDynamicText(value).slice(0, maxLength);
+  return RedactionBoundary.snippet(value, { ...OAUTH_CONTEXT, maxLength });
 }
 
 interface RefreshNameContext {

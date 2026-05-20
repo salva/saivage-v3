@@ -1,7 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import { join } from 'node:path';
 import { NotificationCenter } from './notification-center.js';
-import { redactSecrets, redactCredentialLiterals } from './file-access-security.js';
+import { RedactionBoundary } from './redaction-boundary.js';
 import { CardStore } from './card-store.js';
 import { listSessions, getSession } from '../agents/session-persistence.js';
 import type {
@@ -25,7 +25,6 @@ export type NotificationSourceMeta = {
 };
 
 const BLOCKING_CARD_FIELDS = new Set(['acceptance', 'description', 'instructions_file', 'depends_on']);
-const GENERIC_SECRET_RE = /(api(?:[_-]?key|[_-]?token)?|token|secret|password)\s*=\s*("[^"]*"|'[^']*'|\S+)/gi;
 
 function makeNotificationId(prefix: string): string {
   return `${prefix}-${randomBytes(6).toString('hex')}`;
@@ -37,12 +36,8 @@ function summarize(text: string, maxLength = 160): string {
   return `${normalized.slice(0, Math.max(0, maxLength - 1))}…`;
 }
 
-function redactInlineSecrets(content: string): string {
-  return content.replace(GENERIC_SECRET_RE, (_match, key: string) => `${key}=[REDACTED]`);
-}
-
 export function redactNotificationSummary(summary: string): string {
-  return summarize(redactInlineSecrets(redactCredentialLiterals(redactSecrets(summary))));
+  return summarize(RedactionBoundary.text(summary, { sink: 'notification', source: 'notification-triggers' }));
 }
 
 function getActiveSessions(projectRoot: string): AgentSession[] {

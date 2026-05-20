@@ -1,26 +1,14 @@
-import { isSecretKey, redactProviderLikeText } from './secret-redaction.js';
+import { RedactionBoundary } from './redaction-boundary.js';
 
-function redactText(value: string): string {
-  return redactProviderLikeText(value);
-}
+const OBSERVABILITY_CONTEXT = { sink: 'observability' as const, source: 'observability-redaction' };
 
 export function redactObservabilityValue<T>(value: T, keyHint?: string): T {
-  if (typeof value === 'string') {
-    return (keyHint && isSecretKey(keyHint) ? '[REDACTED]' : redactText(value)) as T;
+  if (keyHint) {
+    return RedactionBoundary.object({ [keyHint]: value }, OBSERVABILITY_CONTEXT)[keyHint] as T;
   }
-  if (Array.isArray(value)) {
-    return value.map((item) => redactObservabilityValue(item)) as T;
-  }
-  if (value && typeof value === 'object') {
-    const output: Record<string, unknown> = {};
-    for (const [key, entryValue] of Object.entries(value as Record<string, unknown>)) {
-      output[key] = redactObservabilityValue(entryValue, key);
-    }
-    return output as T;
-  }
-  return value;
+  return RedactionBoundary.object(value, OBSERVABILITY_CONTEXT);
 }
 
 export function redactObservabilityText(value: string): string {
-  return redactText(value);
+  return RedactionBoundary.text(value, OBSERVABILITY_CONTEXT);
 }

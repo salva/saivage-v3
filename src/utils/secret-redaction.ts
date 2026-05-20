@@ -17,6 +17,8 @@ const BEARER_CREDENTIAL_RE = /\b(Bearer\s+)([^\s"\\]+)/gi;
 const URL_SECRET_QUERY_PARAM_RE =
   /([?&][^=&#\s]*(?:credential|credentials|secret|password|token|authorization|auth|api[_-]?key|apiKey|cookie|set-cookie)[^=&#\s]*=)([^&#\s]+)/gi;
 
+const TELEGRAM_BOT_PATH_RE = /(\/bot)([^/\s?#]+)(?=\/)/gi;
+
 export function isSecretKey(key: string): boolean {
   return SECRET_KEY_PATTERN.test(key);
 }
@@ -83,6 +85,11 @@ export function redactInlineSecretAssignments(content: string): string {
     });
 }
 
+export function redactTelegramBotTokenPath(content: string): string {
+  if (!content) return content;
+  return content.replace(TELEGRAM_BOT_PATH_RE, (_match, prefix: string) => `${prefix}${SECRET_REDACTION_PLACEHOLDER}`);
+}
+
 export function redactSecrets(content: string): string {
   if (!content) return content;
   return redactCredentialLiterals(redactJsonSecretValues(content));
@@ -90,5 +97,5 @@ export function redactSecrets(content: string): string {
 
 export function redactProviderLikeText(content: string): string {
   if (!content) return content;
-  return redactInlineSecretAssignments(redactEscapedJsonSecretValues(redactSecrets(content)));
+  return redactTelegramBotTokenPath(redactInlineSecretAssignments(redactEscapedJsonSecretValues(redactSecrets(content))));
 }
