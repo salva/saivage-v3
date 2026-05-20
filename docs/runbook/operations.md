@@ -109,7 +109,7 @@ Expected status: `200`.
 
 Expected top-level JSON keys: `runtime`, `cardIndex`.
 
-`runtime` is the current `RuntimeState` or `null` when no runtime state exists. `cardIndex` includes `total`, `byStatus`, and `byType`. The persisted source of truth is `.saivage/tmp/state/runtime.json` (`src/utils/runtime-state.ts#symbol:runtimeStatePath`). On first read, a supported legacy `.saivage/runtime/state.json` migrates once only when the authoritative file is absent; if both files exist, Saivage refuses startup/control reads with `RuntimeStateLayoutError` rather than risking split-brain state (`src/utils/runtime-state.ts#symbol:assertNoMixedRuntimeStateLayout`, `tests/utils/runtime-state-layout.test.ts:81` and `tests/server/runtime-layout-startup-api.test.ts`).
+`runtime` is the current `RuntimeState` or `null` when no runtime state exists. `cardIndex` includes `total`, `byStatus`, and `byType`. The persisted source of truth is `.saivage/tmp/state/runtime.json` (`src/runtime/state.ts#symbol:runtimeStatePath`). On first read, a supported legacy `.saivage/runtime/state.json` migrates once only when the authoritative file is absent; if both files exist, Saivage refuses startup/control reads with `RuntimeStateLayoutError` rather than risking split-brain state (`src/runtime/state.ts#symbol:assertNoMixedRuntimeStateLayout`, `tests/utils/runtime-state-layout.test.ts:81` and `tests/server/runtime-layout-startup-api.test.ts`).
 
 ### Compact runtime status
 
