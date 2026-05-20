@@ -2,6 +2,7 @@ import { describe, it, expect } from '@jest/globals';
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
+import { operatorRouteInventory } from '../src/contracts/operator-api.js';
 import {
   activeOperatorDocPaths,
   extractImplementedRoutes,
@@ -38,6 +39,18 @@ function withRuntimeControlFixture(serverSource: string, routesSource: string, f
 }
 
 describe('operator-facing documentation source-contract verification', () => {
+
+  it('keeps ARCH-001 contract inventory aligned with runtime-control docs', () => {
+    const inventory = operatorRouteInventory();
+    expect(inventory).toEqual(expect.arrayContaining([
+      expect.objectContaining({ operationId: 'runtime.pause', method: 'POST', path: '/api/runtime/pause', successSchemaName: 'RuntimeState' }),
+      expect.objectContaining({ operationId: 'runtime.resume', method: 'POST', path: '/api/runtime/resume', successSchemaName: 'RuntimeState' }),
+    ]));
+
+    const result = verifyRuntimeControlDocs({ projectRoot });
+    expect(result.ok).toBe(true);
+  });
+
   it('passes for the current active docs and source contract tables', () => {
     const result = verifyDocSourceContracts({ projectRoot });
 

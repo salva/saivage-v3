@@ -728,3 +728,4 @@ export interface UpdateCardPayload {
   subtype?: string | null;
   instructions_file?: string | null;
 }
+

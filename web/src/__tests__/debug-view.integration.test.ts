@@ -139,8 +139,8 @@ function setupCommonMocks(): void {
   vi.mocked(acknowledgeNote).mockResolvedValue({ note: { ...mockNotesResponse.notes[0].note!, handled: true, handled_at: '2025-06-01T10:04:00Z' } });
   vi.mocked(deleteNote).mockResolvedValue(undefined);
   vi.mocked(clearAllNotes).mockResolvedValue({ deleted: 1, noteIds: ['note-1'] });
-  vi.mocked(pauseRuntime).mockResolvedValue({ status: 'paused' });
-  vi.mocked(resumeRuntime).mockResolvedValue({ status: 'resumed' });
+  vi.mocked(pauseRuntime).mockResolvedValue({ ...mockStateResponse.runtime!, status: 'paused', paused: true });
+  vi.mocked(resumeRuntime).mockResolvedValue({ ...mockStateResponse.runtime!, status: 'running', paused: false });
 }
 async function mountDebugView() {
   const pinia = createPinia();

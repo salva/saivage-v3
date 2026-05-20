@@ -45,6 +45,8 @@ import type {
   ControlActionsListResponse,
 } from './types';
 import { getAuthToken } from './auth';
+import { parseOperatorResponse, type OperatorApiOperationId, type OperatorApiSuccess } from './contracts';
+import type { RuntimeState } from './types';
 import { dispatchApiAuthRequired } from '../utils/auth-events';
 
 function authHeaders(): Record<string, string> {
@@ -83,6 +85,7 @@ async function request<T>(
   path: string,
   query?: Record<string, string>,
   body?: unknown,
+  operationId?: OperatorApiOperationId,
 ): Promise<T> {
   const url = new URL(path, window.location.origin);
   if (query) {
@@ -126,7 +129,21 @@ async function request<T>(
     );
   }
 
+  if (operationId) {
+    return parseOperatorResponse(operationId, responseBody) as T;
+  }
+
   return responseBody as T;
+}
+
+function operatorRequest<K extends OperatorApiOperationId>(
+  operationId: K,
+  method: string,
+  path: string,
+  query?: Record<string, string>,
+  body?: unknown,
+): Promise<OperatorApiSuccess<K>> {
+  return request<OperatorApiSuccess<K>>(method, path, query, body, operationId);
 }
 
 export async function getHealth(): Promise<{ status: string; version: string; project: string; runtime: string }> {
@@ -144,11 +161,11 @@ export function listCards(query?: {
   parent?: string;
   tag?: string;
 }): Promise<CardListResponse> {
-  return request<CardListResponse>('GET', '/api/cards', query as Record<string, string>);
+  return operatorRequest('cards.list', 'GET', '/api/cards', query as Record<string, string>) as unknown as Promise<CardListResponse>;
 }
 
 export function getCard(id: string): Promise<CardDetailResponse> {
-  return request<CardDetailResponse>('GET', `/api/cards/${encodeURIComponent(id)}`);
+  return operatorRequest('cards.get', 'GET', `/api/cards/${encodeURIComponent(id)}`) as unknown as Promise<CardDetailResponse>;
 }
 
 export function listCardHistory(id: string): Promise<CardHistoryListResponse> {
@@ -167,11 +184,11 @@ export function getCardDiff(id: string, from: number, to: number): Promise<CardD
 }
 
 export function createCard(payload: CreateCardPayload): Promise<CardCreateResponse> {
-  return request<CardCreateResponse>('POST', '/api/cards', undefined, payload);
+  return operatorRequest('cards.create', 'POST', '/api/cards', undefined, payload) as unknown as Promise<CardCreateResponse>;
 }
 
 export function updateCard(id: string, payload: UpdateCardPayload): Promise<CardUpdateResponse> {
-  return request<CardUpdateResponse>('PATCH', `/api/cards/${encodeURIComponent(id)}`, undefined, payload);
+  return operatorRequest('cards.update', 'PATCH', `/api/cards/${encodeURIComponent(id)}`, undefined, payload) as unknown as Promise<CardUpdateResponse>;
 }
 
 export function deleteCard(id: string): Promise<void> {
@@ -179,15 +196,15 @@ export function deleteCard(id: string): Promise<void> {
 }
 
 export function getRuntimeState(): Promise<RuntimeStateResponse> {
-  return request<RuntimeStateResponse>('GET', '/api/state');
+  return operatorRequest('runtime.getState', 'GET', '/api/state') as unknown as Promise<RuntimeStateResponse>;
 }
 
-export function pauseRuntime(): Promise<{ status: string }> {
-  return request<{ status: string }>('POST', '/api/runtime/pause');
+export function pauseRuntime(): Promise<RuntimeState> {
+  return operatorRequest('runtime.pause', 'POST', '/api/runtime/pause') as unknown as Promise<RuntimeState>;
 }
 
-export function resumeRuntime(): Promise<{ status: string }> {
-  return request<{ status: string }>('POST', '/api/runtime/resume');
+export function resumeRuntime(): Promise<RuntimeState> {
+  return operatorRequest('runtime.resume', 'POST', '/api/runtime/resume') as unknown as Promise<RuntimeState>;
 }
 
 export function freezeRuntime(reason?: string): Promise<FreezeResponse> {

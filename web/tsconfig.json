@@ -5,7 +5,7 @@
     "target": "ES2022",
     "module": "ESNext",
     "outDir": "dist",
-    "rootDir": ".",
+    "rootDir": "..",
     "declaration": false,
     "esModuleInterop": true,
     "isolatedModules": true,
@@ -21,7 +21,9 @@
     "src/**/*.ts",
     "src/**/*.vue",
     "vite.config.ts",
-    "env.d.ts"
+    "env.d.ts",
+    "../src/contracts/**/*.ts",
+    "../src/schemas/**/*.ts"
   ],
   "exclude": ["node_modules", "dist"]
 }

@@ -85,7 +85,7 @@ function setupStore() {
 
 const mockRuntimeState = {
   status: 'running' as const,
-  project_id: 'saivage-v3',
+  project_id: 'project' as const,
   pid: 1234,
   started_at: '2025-06-01T08:00:00Z',
   current_card_id: 'card-001',
@@ -99,7 +99,7 @@ const mockRuntimeState = {
 
 const mockRuntimeStateIdle = {
   status: 'idle' as const,
-  project_id: 'saivage-v3',
+  project_id: 'project' as const,
   pid: 1234,
   started_at: '2025-06-01T08:00:00Z',
   current_card_id: null,
@@ -113,7 +113,7 @@ const mockRuntimeStateIdle = {
 
 const mockRuntimeStatePaused = {
   status: 'running' as const,
-  project_id: 'saivage-v3',
+  project_id: 'project' as const,
   pid: 1234,
   started_at: '2025-06-01T08:00:00Z',
   current_card_id: 'card-001',
@@ -127,7 +127,7 @@ const mockRuntimeStatePaused = {
 
 const mockRuntimeStateFrozen = {
   status: 'frozen' as const,
-  project_id: 'saivage-v3',
+  project_id: 'project' as const,
   pid: 1234,
   started_at: '2025-06-01T08:00:00Z',
   current_card_id: null,
@@ -220,6 +220,7 @@ describe('useRuntimeStore', () => {
       expect(store.queueLength).toBe(2);
       expect(store.runningProcessCount).toBe(3);
       expect(store.statusLabel).toBe('running');
+      expect(store.runtime).toEqual(mockRuntimeState);
       expect(store.doneGoals).toBe(30);
       expect(store.failedBlocked).toBe(5);
     });
@@ -291,16 +292,17 @@ describe('useRuntimeStore', () => {
   });
 
   describe('pause()', () => {
-    it('calls pauseRuntime API and optimistically updates runtime', async () => {
+    it('uses the RuntimeState returned by pauseRuntime instead of an optimistic patch', async () => {
       const store = setupStore();
       vi.mocked(getRuntimeState).mockResolvedValue(mockRuntimeStateResponse);
       await store.fetchState();
-      vi.mocked(pauseRuntime).mockResolvedValue({ status: 'paused' });
+      vi.mocked(pauseRuntime).mockResolvedValue({ ...mockRuntimeStatePaused, status: 'running', paused: true });
 
       await store.pause();
 
+      expect(store.runtime).toEqual({ ...mockRuntimeStatePaused, status: 'running', paused: true });
       expect(store.isPaused).toBe(true);
-      expect(store.status).toBe('paused');
+      expect(store.status).toBe('running');
     });
   });
 
@@ -309,15 +311,16 @@ describe('useRuntimeStore', () => {
       const store = setupStore();
       vi.mocked(getRuntimeState).mockResolvedValue(mockRuntimeStateResponse);
       await store.fetchState();
-      vi.mocked(pauseRuntime).mockResolvedValue({ status: 'paused' });
+      vi.mocked(pauseRuntime).mockResolvedValue({ ...mockRuntimeStatePaused, status: 'running', paused: true });
       await store.pause();
-      vi.mocked(resumeRuntime).mockResolvedValue({ status: 'resumed' });
+      vi.mocked(resumeRuntime).mockResolvedValue(mockRuntimeState);
 
       await store.resume();
 
       expect(store.isPaused).toBe(false);
       expect(store.status).toBe('running');
       expect(store.statusLabel).toBe('running');
+      expect(store.runtime).toEqual(mockRuntimeState);
     });
   });
 
@@ -377,6 +380,19 @@ describe('useRuntimeStore', () => {
       fireWsEvent('status', { event: 'runtime-resumed' });
       expect(store.isPaused).toBe(false);
       expect(store.status).toBe('running');
+    });
+
+
+
+    it('rejects malformed covered runtime-state WebSocket payloads before mutation', () => {
+      const store = setupStore();
+      store.setupWsListener();
+
+      expect(() => fireWsEvent('status', {
+        event: 'runtime-state',
+        runtime: { status: 'paused' },
+      })).toThrow();
+      expect(store.runtime).toBeNull();
     });
 
     it('card-status-changed event triggers a fetchState call', async () => {

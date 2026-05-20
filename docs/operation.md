@@ -255,8 +255,8 @@ Every current operator-facing Fastify route is listed exactly once here. `npm ru
 | Route | Purpose | Code anchor |
 |---|---|---|
 | `DELETE /api/cards/:id` | Delete a card through audited mutating control flow. | `src/server/routes/cards.ts:175` |
-| `DELETE /api/notes/:id` | Delete one unhandled note. | `src/server/routes/runtime-config-notes.ts:194` |
-| `DELETE /api/notes` | Clear all unhandled notes. | `src/server/routes/runtime-config-notes.ts:195` |
+| `DELETE /api/notes/:id` | Delete one unhandled note. | `src/server/routes/runtime-config-notes.ts:198` |
+| `DELETE /api/notes` | Clear all unhandled notes. | `src/server/routes/runtime-config-notes.ts:197` |
 | `GET /api/agents/:id/conversation` | Read one persisted agent conversation. | `src/server/routes/runtime-config-notes.ts:191` |
 | `GET /api/agents` | List persisted agent sessions. | `src/server/routes/runtime-config-notes.ts:190` |
 | `GET /api/cards/:id/diff` | Diff card versions. | `src/server/routes/cards.ts:105` |
@@ -285,20 +285,20 @@ Every current operator-facing Fastify route is listed exactly once here. `npm ru
 | `GET /api/providers` | Return redacted provider summaries. | `src/server/routes/runtime-config-notes.ts:198` |
 | `GET /api/runtime/card-runs` | List runtime card-run records. | `src/server/server.ts:51 "fastify.get('/api/runtime/card-runs'"` |
 | `GET /api/runtime/status` | Read compact runtime status. | `src/server/server.ts:53 "fastify.get('/api/runtime/status'"` |
-| `GET /api/state` | Read RuntimeState plus card-index summary. | `src/server/routes/runtime-config-notes.ts:145` |
+| `GET /api/state` | Read RuntimeState plus card-index summary. | `src/server/routes/runtime-config-notes.ts:156` |
 | `GET /health` | Public health and runtime-status summary. | `src/server/server.ts:28 "fastify.get('/health'"` |
 | `PATCH /api/cards/:id` | Update allowed card fields through audited mutation. | `src/server/routes/cards.ts:145` |
 | `POST /api/cards` | Create a card through audited mutation. | `src/server/routes/cards.ts:123` |
 | `POST /api/chats/:sessionId` | Send an analyst chat message. | `src/server/routes/chats-files-debug.ts:148` |
-| `POST /api/notes/:id/acknowledge` | Mark an unhandled note handled. | `src/server/routes/runtime-config-notes.ts:193` |
+| `POST /api/notes/:id/acknowledge` | Mark an unhandled note handled. | `src/server/routes/runtime-config-notes.ts:197` |
 | `POST /api/notifications/:id/acknowledge` | Acknowledge a notification. | `src/server/routes/runtime-config-notes.ts:154` |
-| `POST /api/runtime/freeze` | Freeze runtime for handoff. | `src/server/routes/runtime-config-notes.ts:195` |
+| `POST /api/runtime/freeze` | Freeze runtime for handoff. | `src/server/routes/runtime-config-notes.ts:197` |
 | `POST /api/runtime/goals/:id/needs_corrections` | Record goal correction directive. | `src/server/server.ts:36 "fastify.post('/api/runtime/goals/:id/needs_corrections'"` |
 | `POST /api/runtime/lets_dance` | Record project kickoff directive. | `src/server/server.ts:32 "fastify.post('/api/runtime/lets_dance'"` |
-| `POST /api/runtime/pause` | Pause runtime and return RuntimeState. | `src/server/routes/runtime-config-notes.ts:193` |
+| `POST /api/runtime/pause` | Pause runtime and return RuntimeState. | `src/server/routes/runtime-config-notes.ts:195` |
 | `POST /api/runtime/project/needs_corrections` | Record project correction directive. | `src/server/server.ts:44 "fastify.post('/api/runtime/project/needs_corrections'"` |
-| `POST /api/runtime/resume-from-freeze` | Resume from freeze manifest. | `src/server/routes/runtime-config-notes.ts:196` |
-| `POST /api/runtime/resume` | Resume runtime and return RuntimeState. | `src/server/routes/runtime-config-notes.ts:194` |
+| `POST /api/runtime/resume-from-freeze` | Resume from freeze manifest. | `src/server/routes/runtime-config-notes.ts:198` |
+| `POST /api/runtime/resume` | Resume runtime and return RuntimeState. | `src/server/routes/runtime-config-notes.ts:196` |
 <!-- saivage:operator-routes:end -->
 
 <!-- saivage:runtime-controls:start -->
@@ -308,8 +308,8 @@ Every current operator-facing Fastify route is listed exactly once here. `npm ru
 
 | Route | Request body | Success response | Code anchor |
 |---|---|---|---|
-| `POST /api/runtime/pause` | `empty-or-null-json-object` | `RuntimeState` | `src/server/routes/runtime-config-notes.ts:193` |
-| `POST /api/runtime/resume` | `empty-or-null-json-object` | `RuntimeState` | `src/server/routes/runtime-config-notes.ts:194` |
-| `POST /api/runtime/freeze` | `optional-object:{reason?:string}` | `freeze-summary` | `src/server/routes/runtime-config-notes.ts:195` |
-| `POST /api/runtime/resume-from-freeze` | `empty-or-null-json-object` | `resume-from-freeze-summary` | `src/server/routes/runtime-config-notes.ts:196` |
+| `POST /api/runtime/pause` | `empty-or-null-json-object` | `RuntimeState` | `src/server/routes/runtime-config-notes.ts:195` |
+| `POST /api/runtime/resume` | `empty-or-null-json-object` | `RuntimeState` | `src/server/routes/runtime-config-notes.ts:196` |
+| `POST /api/runtime/freeze` | `optional-object:{reason?:string}` | `freeze-summary` | `src/server/routes/runtime-config-notes.ts:197` |
+| `POST /api/runtime/resume-from-freeze` | `empty-or-null-json-object` | `resume-from-freeze-summary` | `src/server/routes/runtime-config-notes.ts:198` |
 <!-- saivage:runtime-controls:end -->

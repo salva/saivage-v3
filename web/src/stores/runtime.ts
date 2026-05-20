@@ -23,6 +23,7 @@ import {
 import { getAuthToken } from '../api/auth';
 import { useWsStore } from './ws';
 import { createLogger } from '../utils/logger';
+import { parseCoveredRuntimeStatusContent } from '../api/contracts';
 
 const log = createLogger('store:runtime');
 const STALE_AFTER_MS = 30_000;
@@ -158,13 +159,9 @@ export const useRuntimeStore = defineStore('runtime', () => {
     try {
       const response = await pauseRuntime();
       log.info('Runtime paused:', response.status);
-      if (runtime.value) {
-        if (!runtime.value.paused) {
-          statusBeforePause = runtime.value.status;
-        }
-        runtime.value = { ...runtime.value, paused: true, status: 'paused' };
-        markRestSync();
-      }
+      runtime.value = response;
+      statusBeforePause = response.status;
+      markRestSync();
     } catch (err) {
       const msg = err instanceof ApiError ? err.message : 'Failed to pause runtime';
       error.value = msg;
@@ -179,12 +176,9 @@ export const useRuntimeStore = defineStore('runtime', () => {
     try {
       const response = await resumeRuntime();
       log.info('Runtime resumed:', response.status);
-      if (runtime.value) {
-        const restoredStatus = statusBeforePause ?? runtime.value.status;
-        runtime.value = { ...runtime.value, paused: false, status: restoredStatus };
-        statusBeforePause = null;
-        markRestSync();
-      }
+      runtime.value = response;
+      statusBeforePause = null;
+      markRestSync();
     } catch (err) {
       const msg = err instanceof ApiError ? err.message : 'Failed to resume runtime';
       error.value = msg;
@@ -207,8 +201,9 @@ export const useRuntimeStore = defineStore('runtime', () => {
     }
     if (wsUnsubscribe) return;
     wsUnsubscribe = ws.onType('status', (envelope) => {
-      const content = envelope.content || {};
-      const event = content.event as string;
+      const parsedContent = parseCoveredRuntimeStatusContent(envelope.content);
+      const content = parsedContent ?? (envelope.content || {});
+      const event = typeof content.event === 'string' ? content.event : '';
       markWsSync();
 
       if (event === 'runtime-state') {

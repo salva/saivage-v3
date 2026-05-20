@@ -16,6 +16,7 @@ import type { LoggedEvent } from '../schemas/types.js';
 import { redactOperatorErrorMessage } from '../utils/file-access-security.js';
 import { sanitizeAnalystPayload, sanitizeAnalystText } from '../utils/analyst-sanitization.js';
 import type { ActiveRuntime } from '../utils/active-runtime.js';
+import { validateKnownWsEnvelope } from '../contracts/operator-events.js';
 
 export type WsEventType = 'message' | 'activity' | 'thinking' | 'status' | 'error';
 
@@ -377,21 +378,22 @@ export function createRuntimeEnvelope(
   eventName: string,
   data: Record<string, unknown>,
 ): WsEnvelope {
+  const fromCoveredName = (event: WsEnvelope): WsEnvelope => validateKnownWsEnvelope(event) as WsEnvelope;
   switch (eventName) {
     case 'goal_completed':
-      return { type: 'status', content: { event: eventName, ...data } };
+      return fromCoveredName({ type: 'status', content: { event: eventName, ...data } });
     case 'goal_failed':
       return { type: 'error', content: { event: eventName, ...data } };
     case 'escalation':
-      return { type: 'status', content: { event: eventName, ...data } };
+      return fromCoveredName({ type: 'status', content: { event: eventName, ...data } });
     case 'card_failed':
       return { type: 'error', content: { event: eventName, ...data } };
     case 'review_complete':
-      return { type: 'status', content: { event: eventName, ...data } };
+      return fromCoveredName({ type: 'status', content: { event: eventName, ...data } });
     case 'plan_updated':
       return { type: 'activity', content: { event: eventName, ...data } };
     default:
-      return { type: 'status', content: { event: eventName, ...data } };
+      return fromCoveredName({ type: 'status', content: { event: eventName, ...data } });
   }
 }
 
