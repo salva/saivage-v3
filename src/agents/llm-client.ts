@@ -255,6 +255,8 @@ export class LlmClient {
     sessionId: string,
     opts?: LlmCompleteOptions,
   ): Promise<LlmCompleteResult> {
+    this.assertCandidateCapabilities(candidate, opts);
+
     if (candidate.provider === 'openai-codex') {
       return this.completeOpenAICodex(candidate, systemPrompt, messages, opts);
     }
@@ -265,8 +267,6 @@ export class LlmClient {
     const signal = opts?.signal;
     const tools = opts?.tools;
     const toolChoice = opts?.tool_choice;
-
-    this.assertCandidateCapabilities(candidate, opts);
 
     // Build the message array: system prompt first, then conversation
     const apiMessages: ChatMessage[] = [
