@@ -173,6 +173,18 @@ function mockResponse(
   } as Response;
 }
 
+function capturedConsoleOutput(consoleSpy: jest.SpiedFunction<typeof console.error>): string {
+  return consoleSpy.mock.calls
+    .map((call) => call.map((part) => String(part)).join(' '))
+    .join('\\n');
+}
+
+function expectNoRawSecrets(output: string, rawSecrets: string[]): void {
+  for (const secret of rawSecrets) {
+    expect(output).not.toContain(secret);
+  }
+}
+
 // ═══════════════════════════════════════════════════════════════
 // loadAuthProfiles
 // ═══════════════════════════════════════════════════════════════
@@ -1007,6 +1019,229 @@ describe('refreshAuthProfile', () => {
     expect(consoleSpy).toHaveBeenCalledWith(
       expect.stringContaining('ECONNREFUSED'),
     );
+
+    consoleSpy.mockRestore();
+  });
+
+
+  it('redacts synthetic provider secrets from HTTP failure logs before truncation', async () => {
+    const root = makeProjectRoot();
+    const profile = makeValidProfile({
+      provider: 'test',
+      accessToken: 'original-at',
+      refreshToken: 'original-rt',
+    });
+    const content = canonicalJson({ 'p1': profile });
+    writeAuthProfiles(root, content);
+
+    const rawSecrets = [
+      'http-access-secret-001',
+      'http-refresh-secret-002',
+      'http-token-secret-003',
+      'http-api-key-secret-004',
+      'Bearer http-authorization-secret-005',
+      'http-password-secret-006',
+      'http-generic-secret-007',
+      'escaped-refresh-secret-008',
+      'inline-refresh-secret-009',
+      'session-cookie-secret-010',
+      'set-cookie-secret-011',
+      'sk-httpfailuresecret012',
+      'tok_httpfailuresecret013',
+    ];
+    const providerBody = [
+      'provider said invalid_grant but diagnostic context remains',
+      JSON.stringify({
+        access_token: rawSecrets[0],
+        refresh_token: rawSecrets[1],
+        token: rawSecrets[2],
+        api_key: rawSecrets[3],
+        authorization: rawSecrets[4],
+        password: rawSecrets[5],
+        secret: rawSecrets[6],
+        cookie: rawSecrets[9],
+        'set-cookie': rawSecrets[10],
+      }),
+      String.raw`{"refresh_token":"escaped-refresh-secret-008"}`,
+      `refresh_token=${rawSecrets[8]}`,
+      `credential literals ${rawSecrets[11]} and ${rawSecrets[12]}`,
+      `${'x'.repeat(460)} refresh_token=truncation-secret-014`,
+    ].join(' ');
+
+    const consoleSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+
+    mockFetch((_url, _init) => {
+      return mockResponse(providerBody, 400, false, { 'Content-Type': 'text/plain' });
+    });
+
+    const result = await refreshAuthProfile(
+      root, 'p1', 'https://example.com/oauth/token',
+    );
+
+    const output = capturedConsoleOutput(consoleSpy);
+    expect(result).toBeNull();
+    expect(output).toContain('[oauth-profiles]');
+    expect(output).toContain('HTTP 400');
+    expect(output).toContain('diagnostic context remains');
+    expect(output).toContain('[REDACTED]');
+    expectNoRawSecrets(output, [...rawSecrets, 'truncation-secret-014']);
+
+    consoleSpy.mockRestore();
+  });
+
+  it('redacts nested synthetic token-like keys from missing access_token response logs', async () => {
+    const root = makeProjectRoot();
+    const profile = makeValidProfile({
+      provider: 'test',
+      accessToken: 'original-at',
+      refreshToken: 'original-rt',
+    });
+    const content = canonicalJson({ 'p1': profile });
+    writeAuthProfiles(root, content);
+
+    const rawSecrets = [
+      'nested-refresh-secret-101',
+      'nested-token-secret-102',
+      'nested-api-key-secret-103',
+      'nested-password-secret-104',
+      'nested-cookie-secret-105',
+      'sk-nestedsecret106',
+      'tok_nestedsecret107',
+    ];
+    const consoleSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+
+    mockFetch((_url, _init) => {
+      return mockResponse({
+        error: 'temporarily_unavailable',
+        refresh_token: rawSecrets[0],
+        nested: {
+          token: rawSecrets[1],
+          api_key: rawSecrets[2],
+          password: rawSecrets[3],
+          cookie: rawSecrets[4],
+        },
+        literals: `${rawSecrets[5]} ${rawSecrets[6]}`,
+        safe_context: 'provider response context',
+      }, 200);
+    });
+
+    const result = await refreshAuthProfile(
+      root, 'p1', 'https://example.com/oauth/token',
+    );
+
+    const output = capturedConsoleOutput(consoleSpy);
+    expect(result).toBeNull();
+    expect(output).toContain('missing access_token');
+    expect(output).toContain('provider response context');
+    expect(output).toContain('[REDACTED]');
+    expectNoRawSecrets(output, rawSecrets);
+
+    consoleSpy.mockRestore();
+  });
+
+  it('redacts synthetic credentials from thrown refresh exceptions', async () => {
+    const root = makeProjectRoot();
+    const profile = makeValidProfile({
+      provider: 'test',
+      accessToken: 'original-at',
+      refreshToken: 'original-rt',
+    });
+    const content = canonicalJson({ 'p1': profile });
+    writeAuthProfiles(root, content);
+
+    const rawSecrets = [
+      'exception-bearer-secret-201',
+      'exception-refresh-secret-202',
+      'sk-exceptionsecret203',
+      'tok_exceptionsecret204',
+    ];
+    const consoleSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+
+    mockFetch((_url, _init) => {
+      throw new Error(
+        `refresh provider rejected authorization=Bearer ${rawSecrets[0]} ` +
+          `refresh_token=${rawSecrets[1]} ${rawSecrets[2]} ${rawSecrets[3]}`,
+      );
+    });
+
+    const result = await refreshAuthProfile(
+      root, 'p1', 'https://example.com/oauth/token',
+    );
+
+    const output = capturedConsoleOutput(consoleSpy);
+    expect(result).toBeNull();
+    expect(output).toContain('Token refresh failed');
+    expect(output).toContain('[REDACTED]');
+    expectNoRawSecrets(output, rawSecrets);
+
+    consoleSpy.mockRestore();
+  });
+
+  it('redacts endpoint query credentials in refresh-start logs without changing fetch input', async () => {
+    const root = makeProjectRoot();
+    const profile = makeValidProfile({
+      provider: 'test',
+      accessToken: 'original-at',
+      refreshToken: 'original-rt',
+    });
+    const content = canonicalJson({ 'normal-profile': profile });
+    writeAuthProfiles(root, content);
+
+    const endpoint = 'https://example.com/oauth/token?api_key=endpoint-api-key-secret-301&refresh_token=endpoint-refresh-secret-302';
+    const consoleSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+
+    const fetchMock = mockFetch((_url, _init) => {
+      return mockResponse(oauthTokenResponse(), 200);
+    });
+
+    const result = await refreshAuthProfile(root, 'normal-profile', endpoint);
+
+    const output = capturedConsoleOutput(consoleSpy);
+    expect(result).not.toBeNull();
+    expect(fetchMock).toHaveBeenCalledWith(endpoint, expect.any(Object));
+    expect(output).toContain('normal-profile');
+    expect(output).toContain('[REDACTED]');
+    expectNoRawSecrets(output, ['endpoint-api-key-secret-301', 'endpoint-refresh-secret-302']);
+
+    consoleSpy.mockRestore();
+  });
+
+  it('redacts secret-like profile names while preserving normal profile names in refresh logs', async () => {
+    const root = makeProjectRoot();
+    const secretLikeName = 'secret=profile-name-secret-401';
+    const normalName = 'operator-visible-profile';
+    const profile = makeValidProfile({
+      provider: 'test',
+      accessToken: 'original-at',
+      refreshToken: 'original-rt',
+    });
+    const content = canonicalJson({ [secretLikeName]: profile, [normalName]: profile });
+    writeAuthProfiles(root, content);
+
+    const consoleSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+
+    mockFetch((_url, _init) => {
+      return mockResponse('provider failure', 500, false, { 'Content-Type': 'text/plain' });
+    });
+
+    const secretNameResult = await refreshAuthProfile(
+      root, secretLikeName, 'https://example.com/oauth/token',
+    );
+
+    mockFetch((_url, _init) => {
+      return mockResponse('provider failure', 500, false, { 'Content-Type': 'text/plain' });
+    });
+
+    const normalNameResult = await refreshAuthProfile(
+      root, normalName, 'https://example.com/oauth/token',
+    );
+
+    const output = capturedConsoleOutput(consoleSpy);
+    expect(secretNameResult).toBeNull();
+    expect(normalNameResult).toBeNull();
+    expect(output).toContain('secret=[REDACTED]');
+    expect(output).not.toContain('profile-name-secret-401');
+    expect(output).toContain(normalName);
 
     consoleSpy.mockRestore();
   });

@@ -8,9 +8,14 @@ const JSON_SECRET_VALUE_RE =
 
 const ESCAPED_JSON_SECRET_VALUE_RE = /(\\")([^"\\]+)(\\")(\s*:\s*)(\\")([^"\\]*)(\\")/gi;
 
-const INLINE_SECRET_ASSIGNMENT_RE = /\b([A-Za-z][A-Za-z0-9_-]*(?:credential|credentials|secret|password|token|authorization|auth|api[_-]?key|apiKey|cookie|set-cookie)[A-Za-z0-9_-]*)\s*=\s*("[^"]*"|'[^']*'|\S+)/gi;
+const INLINE_SECRET_ASSIGNMENT_RE = /\b([A-Za-z][A-Za-z0-9_-]*(?:(?:credential|credentials|secret|password|token|authorization|auth|api[_-]?key|apiKey|cookie|set-cookie)[A-Za-z0-9_-]*)?)\s*=\s*("[^"]*"|'[^']*'|\S+)/gi;
 
 const CREDENTIAL_LITERAL_RE = /\b(sk-[^\s"\\]+|tid=[^\s"\\]+|ghu_[A-Za-z0-9_]+|rt_[^\s"\\]+|tok_[^\s"\\]+)\b/g;
+
+const BEARER_CREDENTIAL_RE = /\b(Bearer\s+)([^\s"\\]+)/gi;
+
+const URL_SECRET_QUERY_PARAM_RE =
+  /([?&][^=&#\s]*(?:credential|credentials|secret|password|token|authorization|auth|api[_-]?key|apiKey|cookie|set-cookie)[^=&#\s]*=)([^&#\s]+)/gi;
 
 export function isSecretKey(key: string): boolean {
   return SECRET_KEY_PATTERN.test(key);
@@ -31,7 +36,11 @@ function redactCredentialMatch(match: string): string {
 
 export function redactCredentialLiterals(content: string): string {
   if (!content) return content;
-  return content.replace(CREDENTIAL_LITERAL_RE, redactCredentialMatch);
+  return content
+    .replace(CREDENTIAL_LITERAL_RE, redactCredentialMatch)
+    .replace(BEARER_CREDENTIAL_RE, (_match, prefix: string) => {
+      return `${prefix}${SECRET_REDACTION_PLACEHOLDER}`;
+    });
 }
 
 export function redactJsonSecretValues(content: string): string {
@@ -64,10 +73,14 @@ export function redactEscapedJsonSecretValues(content: string): string {
 
 export function redactInlineSecretAssignments(content: string): string {
   if (!content) return content;
-  return content.replace(INLINE_SECRET_ASSIGNMENT_RE, (match, key: string) => {
-    if (!isSecretKey(key)) return match;
-    return `${key}=${SECRET_REDACTION_PLACEHOLDER}`;
-  });
+  return content
+    .replace(INLINE_SECRET_ASSIGNMENT_RE, (match, key: string) => {
+      if (!isSecretKey(key)) return match;
+      return `${key}=${SECRET_REDACTION_PLACEHOLDER}`;
+    })
+    .replace(URL_SECRET_QUERY_PARAM_RE, (_match, prefix: string) => {
+      return `${prefix}${SECRET_REDACTION_PLACEHOLDER}`;
+    });
 }
 
 export function redactSecrets(content: string): string {

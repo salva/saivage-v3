@@ -34,6 +34,12 @@ import { readFile, writeFile, chmod, mkdir } from 'node:fs/promises';
 import { join, dirname } from 'node:path';
 import { existsSync } from 'node:fs';
 import { z } from 'zod';
+import {
+  logOAuthRefreshException,
+  logOAuthRefreshHttpFailure,
+  logOAuthRefreshMissingAccessToken,
+  logOAuthRefreshStart,
+} from './oauth-refresh-logger.js';
 
 // ── Types ─────────────────────────────────────────────────────
 
@@ -333,9 +339,7 @@ export async function refreshAuthProfile(
       refresh_token: profile.refreshToken,
     });
 
-    console.error(
-      `[oauth-profiles] Refreshing token for '${name}' at ${tokenEndpoint}...`,
-    );
+    logOAuthRefreshStart({ name, tokenEndpoint });
 
     const response = await fetch(tokenEndpoint, {
       method: 'POST',
@@ -348,9 +352,7 @@ export async function refreshAuthProfile(
 
     if (!response.ok) {
       const errorText = await response.text().catch(() => '');
-      console.error(
-        `[oauth-profiles] Token refresh failed for '${name}' (HTTP ${response.status}): ${errorText.slice(0, 500)}`,
-      );
+      logOAuthRefreshHttpFailure({ name, status: response.status, body: errorText });
       return null;
     }
 
@@ -364,10 +366,7 @@ export async function refreshAuthProfile(
 
     const accessToken = data.access_token;
     if (!accessToken) {
-      console.error(
-        `[oauth-profiles] Token refresh response for '${name}' is missing access_token. ` +
-          `Response: ${JSON.stringify(data).slice(0, 500)}`,
-      );
+      logOAuthRefreshMissingAccessToken({ name, response: data });
       return null;
     }
 
@@ -392,9 +391,7 @@ export async function refreshAuthProfile(
 
     return updatedProfile;
   } catch (err) {
-    console.error(
-      `[oauth-profiles] Token refresh failed for '${name}': ${err instanceof Error ? err.message : String(err)}`,
-    );
+    logOAuthRefreshException({ name, error: err });
     return null;
   }
 }
