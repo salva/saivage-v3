@@ -24,9 +24,10 @@ import { NotificationCenter } from '../utils/notification-center.js';
 import * as analystTools from './analyst-tools.js';
 import { ANALYST_TOOL_DEFINITIONS } from './analyst-tool-schemas.js';
 import { CardStore } from '../utils/card-store.js';
-import { PlannerToolError, PlannerToolsService } from '../utils/planner-tools.js';
-import { consumeChangedCardActivation, injectQueuedSyntheticPlannerNotes } from '../utils/analyst-stage6.js';
-import { createDeferredActivationEnvelope, parseDeferredActivationEnvelope } from '../schemas/validators.js';
+import { injectQueuedSyntheticPlannerNotes } from '../utils/analyst-stage6.js';
+import { parseDeferredActivationEnvelope } from '../schemas/validators.js';
+import { readRuntimeState } from '../utils/runtime-state.js';
+import { PlannerControlExecutor } from './planner-control-executor.js';
 
 export type { AgentRuntime } from './agent-runtime.js';
 export type AgentRole = 'planner' | 'executor' | 'reviewer' | 'analyst';
@@ -155,11 +156,6 @@ const RUNTIME_AGENT_TOOL_REGISTRY: Record<string, (ctx: analystTools.ToolContext
   mark_project_needs_corrections: analystTools.mark_project_needs_corrections as unknown as (ctx: analystTools.ToolContext, params: Record<string, unknown>) => Promise<analystTools.ToolResult>,
 };
 
-function buildPlannerToolErrorResponse(error: unknown): { success: false; tool_error?: { kind: string; message: string; payload?: Record<string, unknown> }; error?: string } {
-  if (error instanceof PlannerToolError) return { success: false, tool_error: { kind: error.kind, message: error.message, ...(error.payload ? { payload: error.payload } : {}) } };
-  return { success: false, error: error instanceof Error ? error.message : String(error) };
-}
-
 export class AgentAdapter implements AgentRuntime {
   readonly projectRoot: string;
   readonly saivageDir: string;
@@ -180,6 +176,7 @@ export class AgentAdapter implements AgentRuntime {
   private roundCounters: Map<string, number> = new Map();
   private lastRole: string | null = null;
   private afterSessionCreatedHook: SessionCreatedHook | null = null;
+  private readonly plannerControlExecutor: PlannerControlExecutor;
 
   constructor(cfg: AgentAdapterConfig) {
     this.projectRoot = cfg.projectRoot;
@@ -191,6 +188,15 @@ export class AgentAdapter implements AgentRuntime {
     this.notificationCenter = new NotificationCenter(cfg.projectRoot);
     this.eventBus = cfg.eventBus;
     this.eventLogger = cfg.eventLogger;
+    this.plannerControlExecutor = new PlannerControlExecutor({
+      cardStore: new CardStore(this.projectRoot),
+      projectRoot: this.projectRoot,
+      saivageDir: this.saivageDir,
+      runtimeStateProvider: () => readRuntimeState(this.projectRoot),
+      reviewer: async (goalId, assessmentId, reviewerSessionId, report) => (await this.invokeReviewer(goalId, '', [{ id: `review-report:${assessmentId}`, session_id: reviewerSessionId, role: 'user', kind: 'text', content: JSON.stringify(report), timestamp: new Date().toISOString() }], { assessmentId, reviewerSessionId })).assessment,
+      maxReviewRetries: this.runtimeConfig?.maxReviewRetries ?? 3,
+      assessmentIdFactory: undefined,
+    });
   }
 
   setEventBus(eventBus: EventEmitter): void { this.eventBus = eventBus; }
@@ -267,87 +273,16 @@ export class AgentAdapter implements AgentRuntime {
         return { role: 'tool', kind: 'tool_error', content: JSON.stringify({ success: false, error: err instanceof Error ? err.message : String(err) }), tool: tc.function.name, tool_call_id: tc.id };
       }
     }
-    // Planner-control tools only. PLANNER_TOOL_DEFINITIONS also includes
-    // workspace tools (list_project_files, read_project_file, …) and the
-    // analyst-style card tools (create_card, edit_card, add_note, …); those
-    // must fall through to their dedicated handlers further down (workspace
-    // tools at the bottom of this method; analyst tools via
-    // RUNTIME_AGENT_TOOL_REGISTRY above). If we accept all planner-defined
-    // tools here, the switch default returns null and the model sees an empty
-    // tool_result for filesystem reads.
+    // Planner-control tools only. The adapter remains the planner-role/tool-name
+    // policy gate; execution/dependency wiring lives in PlannerControlExecutor.
     if (role === 'planner' && PLANNER_CONTROL_TOOL_NAMES.has(tc.function.name)) {
-      let args: Record<string, unknown> = {};
-      try { args = JSON.parse(tc.function.arguments); } catch {}
-      const plannerTools = new PlannerToolsService(new CardStore(this.projectRoot));
-      try {
-        let result: unknown;
-        switch (tc.function.name) {
-          case 'activate_card': {
-            // activate_card is the caller edge between a parent planner session and child work.
-            // Before deferring the tool result, validate that the target card exists and that
-            // its dependencies are satisfied. If a dependency is failed/blocked, return a
-            // tool_error so the planner sees the failure and can choose to restart_card the
-            // dep, cancel_card the target, or report_goal_blocked. Without this check the
-            // runtime would silently treat the dispatch as a no-op and the planner would loop.
-            const targetId = String(args.cardId ?? '');
-            const cardStoreCheck = new CardStore(this.projectRoot);
-            const target = cardStoreCheck.read(targetId);
-            if (!target) {
-              return { role: 'tool', kind: 'tool_error', content: JSON.stringify({ success: false, error: `activate_card target '${targetId}' not found.` }), tool: tc.function.name, tool_call_id: tc.id };
-            }
-            const depFailures: Array<{ dep_id: string; status: string }> = [];
-            for (const depId of (target.depends_on ?? [])) {
-              const dep = cardStoreCheck.read(depId);
-              if (!dep) { depFailures.push({ dep_id: depId, status: 'missing' }); continue; }
-              if (dep.status === 'failed' || dep.status === 'blocked' || dep.status === 'cancelled') {
-                depFailures.push({ dep_id: depId, status: dep.status });
-              }
-            }
-            if (depFailures.length > 0) {
-              const errorMessage = `Cannot activate '${targetId}': depends on ${depFailures.map((d) => `'${d.dep_id}' (status=${d.status})`).join(', ')}. Resolve the dependency first: use restart_card to retry a failed dep, cancel_card to drop '${targetId}' if no longer needed, or report_goal_blocked to escalate.`;
-              return { role: 'tool', kind: 'tool_error', content: JSON.stringify({ success: false, error: errorMessage, target_card_id: targetId, dep_failures: depFailures }), tool: tc.function.name, tool_call_id: tc.id };
-            }
-            const parentCardId = (typeof invocation?.cardId === 'string' && invocation.cardId.length > 0)
-              ? invocation.cardId
-              : (typeof invocation?.goalId === 'string' && invocation.goalId.length > 0)
-                ? invocation.goalId
-                : sessionId.startsWith('planner:') && sessionId.length > 'planner:'.length
-                  ? sessionId.slice('planner:'.length)
-                  : null;
-            if (!parentCardId) {
-              return { role: 'tool', kind: 'tool_error', content: JSON.stringify({ success: false, error: `activate_card target '${targetId}' has no deterministic parent card id for planner session '${sessionId}'.` }), tool: tc.function.name, tool_call_id: tc.id };
-            }
-            consumeChangedCardActivation(this.projectRoot, targetId);
-            result = createDeferredActivationEnvelope({ parent_card_id: parentCardId, child_card_id: targetId, planner_session_id: sessionId, tool_call_id: tc.id });
-            break;
-          }
-          case 'cancel_card':
-            result = { success: true, card: plannerTools.cancelCard(String(args.cardId ?? '')) };
-            break;
-          case 'delete_card':
-            plannerTools.deleteCard(String(args.cardId ?? ''));
-            result = { success: true, deleted: true, cardId: String(args.cardId ?? '') };
-            break;
-          case 'restart_card':
-            result = { success: true, card: plannerTools.restartCard(String(args.cardId ?? '')) };
-            break;
-          case 'report_goal_done':
-          case 'report_goal_failed':
-          case 'report_goal_blocked':
-            result = plannerTools.reportGoal(tc.function.name, String(args.goalId ?? invocation?.goalId ?? ''), {
-              status_text: String(args.status_text ?? ''),
-              summary: typeof args.summary === 'string' ? args.summary : undefined,
-              evidence_card_ids: Array.isArray(args.evidence_card_ids) ? args.evidence_card_ids.map((value) => String(value)) : undefined,
-              report: typeof args.report === 'object' && args.report !== null ? args.report as Record<string, unknown> : undefined,
-            }, sessionId);
-            break;
-          default:
-            result = null;
-        }
-        return { role: 'tool', kind: 'tool_result', content: typeof result === 'string' ? result : JSON.stringify(result), tool: tc.function.name, tool_call_id: tc.id };
-      } catch (err) {
-        return { role: 'tool', kind: 'tool_error', content: JSON.stringify(buildPlannerToolErrorResponse(err)), tool: tc.function.name, tool_call_id: tc.id };
-      }
+      return this.plannerControlExecutor.execute({
+        sessionId,
+        toolCallId: tc.id,
+        toolName: tc.function.name,
+        argumentsJson: tc.function.arguments,
+        parentCardId: invocation?.cardId ?? invocation?.goalId,
+      });
     }
     if (tc.function.name === 'mcp_tool_call') {
       let args: { serverName?: string; toolName?: string; args?: Record<string, unknown> } = {};

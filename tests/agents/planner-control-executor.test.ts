@@ -1,0 +1,103 @@
+import { describe, it, expect, beforeEach, afterEach } from '@jest/globals';
+import { mkdtempSync, mkdirSync, rmSync, existsSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
+
+import { PlannerControlExecutor } from '../../src/agents/planner-control-executor.js';
+import { parseDeferredActivationEnvelope } from '../../src/schemas/validators.js';
+import type { CardRecord, ReviewerResult, RuntimeState } from '../../src/schemas/types.js';
+import { CardStore } from '../../src/utils/card-store.js';
+import { initProjectTree } from '../../src/utils/file-tree.js';
+
+function makeCard(overrides: Partial<CardRecord> & { type: CardRecord['type']; title: string }): Omit<CardRecord, 'created_at' | 'updated_at' | 'id' | 'version_seq'> & { id?: string } {
+  return { parent: 'project', depth: 1, description: '', status: 'backlog', subtype: null, instructions_file: null, tags: [], priority: 0, urgency: 'normal', created_by: 'planner', assigned_to: null, depends_on: [], blocks: [], related: [], acceptance: '', result: null, metrics: null, artifacts: [], attachments: [], estimate: null, started_at: null, completed_at: null, duration_ms: null, error: null, status_text: null, status_text_updated_at: null, status_text_author_session_id: null, latest_self_report: null, retries: 0, ...overrides };
+}
+
+function runtimeWithActive(cardId: string): RuntimeState {
+  const now = new Date().toISOString();
+  return { status: 'running', project_id: 'project', pid: process.pid, started_at: now, current_card_id: cardId, current_agent_session_id: 'executor:active', active_card_run: { card_id: cardId, card_type: 'code', runtime_status: 'running', phase: 'executor', caller_session_id: 'planner:goal', caller_tool_call_id: 'call-activate', planner_session_id: 'planner:goal', executor_session_id: 'executor:active', reviewer_session_id: null, correction_attempts: 0, started_at: now, last_turn_at: now }, paused: false, paused_at: null, queue: [], running_processes: [], updated_at: now, frozen_reason: null };
+}
+
+describe('PlannerControlExecutor', () => {
+  let tmpDir: string;
+  let store: CardStore;
+
+  beforeEach(() => {
+    tmpDir = mkdtempSync(join(tmpdir(), 'saivage-planner-control-executor-'));
+    mkdirSync(join(tmpDir, '.saivage'), { recursive: true });
+    initProjectTree(tmpDir);
+    store = new CardStore(tmpDir);
+  });
+
+  afterEach(() => {
+    rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it('rejects cancel_card when the target subtree contains the active runtime leaf', async () => {
+    const goal = store.create(makeCard({ type: 'goal', title: 'Goal', status: 'active' }));
+    const child = store.create(makeCard({ type: 'code', title: 'Child', parent: goal.id, depth: 2, status: 'active' }));
+    const executor = new PlannerControlExecutor({ cardStore: store, projectRoot: tmpDir, runtimeStateProvider: () => runtimeWithActive(child.id) });
+
+    const result = await executor.execute({ sessionId: 'planner:goal', toolCallId: 'call-cancel', toolName: 'cancel_card', argumentsJson: JSON.stringify({ cardId: goal.id }) });
+
+    expect(result).toMatchObject({ role: 'tool', kind: 'tool_error', tool: 'cancel_card', tool_call_id: 'call-cancel' });
+    expect(JSON.parse(result.content)).toEqual({ success: false, tool_error: expect.objectContaining({ kind: 'card_already_active', message: expect.stringContaining('active runtime leaf') }) });
+  });
+
+  it('runs report_goal_done through reviewer assessment and passes session/assessment context', async () => {
+    const goal = store.create(makeCard({ type: 'goal', title: 'Goal', status: 'active' }));
+    const evidence = store.create(makeCard({ type: 'code', title: 'Evidence', parent: goal.id, depth: 2, status: 'done', result: { executor: { summary: 'done' } } }));
+    const review: ReviewerResult = { result: 'pass', summary: 'approved', achieved: ['done'], issues: [], evidence_card_ids: [evidence.id] };
+    const calls: Array<{ goalId: string; assessmentId: string; reviewerSessionId: string; report: unknown }> = [];
+    const executor = new PlannerControlExecutor({ cardStore: store, projectRoot: tmpDir, assessmentIdFactory: () => 'assessment-1', reviewer: (goalId, assessmentId, reviewerSessionId, report) => { calls.push({ goalId, assessmentId, reviewerSessionId, report }); return review; } });
+
+    const result = await executor.execute({ sessionId: 'planner:goal', toolCallId: 'call-report', toolName: 'report_goal_done', argumentsJson: JSON.stringify({ goalId: goal.id, status_text: 'complete', evidence_card_ids: [evidence.id] }) });
+
+    expect(result.kind).toBe('tool_result');
+    expect(calls).toEqual([{ goalId: goal.id, assessmentId: 'assessment-1', reviewerSessionId: `reviewer:${goal.id}:assessment-1`, report: expect.objectContaining({ status_text: 'complete', evidence_card_ids: [evidence.id] }) }]);
+    expect(JSON.parse(result.content)).toEqual(expect.objectContaining({ accepted: true, assessment: expect.objectContaining({ result: 'pass', assessment_id: 'assessment-1', reviewer_session_id: `reviewer:${goal.id}:assessment-1` }) }));
+    expect(store.read(goal.id)?.status).toBe('done');
+  });
+
+  it('writes correction notes with projectRoot after reviewer retries are exhausted', async () => {
+    const goal = store.create(makeCard({ type: 'goal', title: 'Goal', status: 'active', retries: 1 }));
+    const review: ReviewerResult = { result: 'needs_corrections', summary: 'fix it', achieved: [], issues: [{ summary: 'missing evidence', severity: 'blocker' }], evidence_card_ids: [] };
+    const executor = new PlannerControlExecutor({ cardStore: store, projectRoot: tmpDir, maxReviewRetries: 1, assessmentIdFactory: () => 'assessment-fail', reviewer: () => review });
+
+    const result = await executor.execute({ sessionId: 'planner:goal', toolCallId: 'call-report', toolName: 'report_goal_done', argumentsJson: JSON.stringify({ goalId: goal.id, status_text: 'complete' }) });
+
+    expect(result.kind).toBe('tool_result');
+    expect(store.read(goal.id)?.status).toBe('changed');
+    const notesFile = join(tmpDir, '.saivage', 'notes', 'by-card', `${goal.id}.jsonl`);
+    expect(existsSync(notesFile)).toBe(true);
+    const noteBody = readFileSync(notesFile, 'utf-8');
+    expect(noteBody).toContain('pending_subtree_correction');
+    expect(noteBody).toContain('missing evidence');
+  });
+
+  it('returns successful activate_card as a shared deferred activation envelope without mutating status', async () => {
+    const child = store.create(makeCard({ type: 'code', title: 'Child' }));
+    const executor = new PlannerControlExecutor({ cardStore: store, projectRoot: tmpDir });
+
+    const result = await executor.execute({ sessionId: 'planner:goal', toolCallId: 'call-activate', toolName: 'activate_card', parentCardId: 'goal', argumentsJson: JSON.stringify({ cardId: child.id }) });
+
+    expect(result).toMatchObject({ role: 'tool', kind: 'tool_result', tool: 'activate_card', tool_call_id: 'call-activate' });
+    expect(parseDeferredActivationEnvelope(result.content)).toEqual(expect.objectContaining({ parent_card_id: 'goal', child_card_id: child.id, planner_session_id: 'planner:goal', tool_call_id: 'call-activate' }));
+    expect(store.read(child.id)?.status).toBe('backlog');
+  });
+
+  it('preserves service success and tool_error payload shapes', async () => {
+    const child = store.create(makeCard({ type: 'code', title: 'Child' }));
+    const blockedDep = store.create(makeCard({ type: 'code', title: 'Dep', status: 'blocked' }));
+    const blockedTarget = store.create(makeCard({ type: 'code', title: 'Blocked target', depends_on: [blockedDep.id] }));
+    const executor = new PlannerControlExecutor({ cardStore: store, projectRoot: tmpDir });
+
+    const cancel = await executor.execute({ sessionId: 'planner:goal', toolCallId: 'call-cancel', toolName: 'cancel_card', argumentsJson: JSON.stringify({ cardId: child.id }) });
+    expect(cancel.kind).toBe('tool_result');
+    expect(JSON.parse(cancel.content)).toEqual(expect.objectContaining({ success: true, card: expect.objectContaining({ id: child.id, status: 'cancelled' }) }));
+
+    const activate = await executor.execute({ sessionId: 'planner:goal', toolCallId: 'call-activate', toolName: 'activate_card', parentCardId: 'goal', argumentsJson: JSON.stringify({ cardId: blockedTarget.id }) });
+    expect(activate.kind).toBe('tool_error');
+    expect(JSON.parse(activate.content)).toEqual(expect.objectContaining({ success: false, target_card_id: blockedTarget.id, dep_failures: [{ dep_id: blockedDep.id, status: 'blocked' }] }));
+  });
+});

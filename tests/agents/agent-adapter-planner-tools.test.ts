@@ -59,7 +59,7 @@ function processToolCallHandledPlannerTools(): string[] {
   const adapterSource = readFileSync(join(process.cwd(), 'src', 'agents', 'agent-adapter.ts'), 'utf-8');
   const workspaceSource = readFileSync(join(process.cwd(), 'src', 'agents', 'workspace-tools.ts'), 'utf-8');
   const cardTools = stringLiteralArray(adapterSource, 'PLANNER_CARD_TOOL_NAMES');
-  const switchCases = [...adapterSource.matchAll(/case '([a-z_]+)':/g)].map((match) => match[1]);
+  const switchCases = [...adapterSource.matchAll(/case '([a-z_]+)':/g), ...readFileSync(join(process.cwd(), 'src', 'agents', 'planner-control-executor.ts'), 'utf-8').matchAll(/case '([a-z_]+)':/g)].map((match) => match[1]);
   const workspaceTools = [...workspaceSource.matchAll(/name: '([a-z_]+)'/g)].map((match) => match[1]);
   const explicitWorkspaceBranch = [...adapterSource.matchAll(/tc\.function\.name === '([a-z_]+)'/g)].map((match) => match[1]);
   return unique([...cardTools, ...switchCases, ...workspaceTools.filter((name) => explicitWorkspaceBranch.includes(name))]);
@@ -119,6 +119,13 @@ describe('AgentAdapter planner tool surface', () => {
     expect(result).toMatchObject({ role: 'tool', kind: 'tool_result', tool: 'activate_card', tool_call_id: 'call-activate' });
     expect(parseDeferredActivationEnvelope(result.content)).toEqual(expect.objectContaining({ kind: 'deferred_activate_card', parent_card_id: goal.id, child_card_id: goal.id, planner_session_id: 'planner-session', tool_call_id: 'call-activate' }));
     expect(store.read(goal.id)?.status).toBe('backlog');
+  });
+
+  it('delegates planner-control tools through the facade while preserving policy gating', async () => {
+    const goal = store.create(makeCard({ type: 'goal', title: 'Goal for cancellation' }));
+    const result = await (adapter as any).processToolCall({ id: 'call-cancel', type: 'function', function: { name: 'cancel_card', arguments: JSON.stringify({ cardId: goal.id }) } }, 'planner', 'planner-session', { goalId: goal.id, cardId: goal.id });
+    expect(result).toMatchObject({ role: 'tool', kind: 'tool_result', tool: 'cancel_card', tool_call_id: 'call-cancel' });
+    expect(JSON.parse(result.content)).toEqual(expect.objectContaining({ success: true, card: expect.objectContaining({ id: goal.id, status: 'cancelled' }) }));
   });
 
   it('hard-errors non-authoritative planner tool names', async () => {
