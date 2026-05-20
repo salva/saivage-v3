@@ -236,6 +236,7 @@ export class AgentAdapter implements AgentRuntime {
   }
 
   getSafeFileContent(filePath: string, content: string): SafeFileResult { return getSafeFileForAgent(filePath, content); }
+  private redactModelIssueText(message: unknown): string { return RedactionBoundary.text(message, { sink: 'model_issue', source: 'agent-adapter' }); }
   private redactProviderErrorMessage(message: unknown): string { return RedactionBoundary.error(message, { sink: 'model_issue', source: 'agent-adapter' }); }
   private applySelfCheck(role: AgentRole, systemPrompt: string, sessionId: string): string { const key = role; const current = (this.roundCounters.get(key) ?? 0) + 1; this.roundCounters.set(key, current); const threshold = getSelfCheckThreshold(this.config, role); if (threshold <= 0 || current % threshold !== 0) return systemPrompt; const selfCheckPrompt = buildSelfCheckPrompt(role, current, threshold); const modifiedPrompt = systemPrompt + '\n\n' + selfCheckPrompt; if (this.eventLogger) this.eventLogger.appendEvent({ kind: 'self_check_triggered', session_id: sessionId, role: role as unknown as import('../schemas/types.js').AgentRole, rounds: current, threshold }); if (this.eventBus) this.eventBus.emit('self_check_triggered', { session_id: sessionId, role, rounds: current, threshold }); return modifiedPrompt; }
   private resetOnRoleChange(role: AgentRole): void { if (this.lastRole !== null && this.lastRole !== role) this.roundCounters.clear(); this.lastRole = role; }
@@ -326,14 +327,14 @@ export class AgentAdapter implements AgentRuntime {
     return 'The tool-calling loop was terminated. Reply with ONLY your final result JSON envelope. Do NOT emit any further toolCalls.';
   }
   private async forceFinalAnswer(role: AgentRole, sessionId: string, candidate: Candidate, systemPrompt: string, modelParams: { temperature: number; maxTokens: number }, abortController: AbortController, reason: string): Promise<string> {
-    appendMessage(this.saivageDir, sessionId, { role: 'system', kind: 'model_issue', content: `${reason} Forcing final-answer turn without tools.` });
+    appendMessage(this.saivageDir, sessionId, { role: 'system', kind: 'model_issue', content: `${this.redactModelIssueText(reason)} Forcing final-answer turn without tools.` });
     appendMessage(this.saivageDir, sessionId, { role: 'user', kind: 'text', content: this.buildForceFinalAnswerPrompt(role) });
     const modelMessages = this.buildModelMessages(sessionId).messages;
     try {
       const forced = await this.llmCallFn!(candidate, systemPrompt, modelMessages, sessionId, { temperature: modelParams.temperature, max_tokens: modelParams.maxTokens, signal: abortController.signal });
       return forced;
     } catch (err) {
-      appendMessage(this.saivageDir, sessionId, { role: 'system', kind: 'model_issue', content: `forceFinalAnswer LLM call failed: ${err instanceof Error ? err.message : String(err)}` });
+      appendMessage(this.saivageDir, sessionId, { role: 'system', kind: 'model_issue', content: `forceFinalAnswer LLM call failed: ${this.redactProviderErrorMessage(err)}` });
       throw err;
     }
   }
@@ -346,7 +347,7 @@ export class AgentAdapter implements AgentRuntime {
       if (!toolCalls) return { response: currentResponse, transportSucceeded: true };
       const callFingerprint = toolCalls.map((tc) => `${tc.function.name}:${tc.function.arguments}`).sort().join('||');
       if (previousCalls.has(callFingerprint)) {
-        appendMessage(this.saivageDir, sessionId, { role: 'system', kind: 'model_issue', content: `Repeated tool-call fingerprint detected; stopping tool loop as no-progress diagnostic: ${callFingerprint}` });
+        appendMessage(this.saivageDir, sessionId, { role: 'system', kind: 'model_issue', content: `Repeated tool-call fingerprint detected; stopping tool loop as no-progress diagnostic: ${this.redactModelIssueText(callFingerprint)}` });
         const forced = await this.forceFinalAnswer(role, sessionId, candidate, systemPrompt, modelParams, abortController, 'Repeated tool-call fingerprint detected.');
         return { response: forced, transportSucceeded: true };
       }
@@ -388,12 +389,12 @@ export class AgentAdapter implements AgentRuntime {
         if (blockingReasons.length > 0) {
           const blockedReason = `Cannot activate child: ${blockingReasons.join('; ')}`;
           const synthEnvelope = JSON.stringify({ status: 'blocked', blocked_reason: blockedReason, summary: blockedReason, created_cards: [], updated_cards: [] });
-          appendMessage(this.saivageDir, sessionId, { role: 'system', kind: 'model_issue', content: `Synthesised planner BLOCKED envelope for deferred activate_card: ${blockedReason}` });
+          appendMessage(this.saivageDir, sessionId, { role: 'system', kind: 'model_issue', content: `Synthesised planner BLOCKED envelope for deferred activate_card: ${this.redactModelIssueText(blockedReason)}` });
           return { response: synthEnvelope, transportSucceeded: true };
         }
         const synthSummary = activatedIds.length > 0 ? `Activated child card${activatedIds.length === 1 ? '' : 's'} ${activatedIds.join(', ')}; awaiting completion.` : 'Activated child card; awaiting completion.';
         const synthEnvelope = JSON.stringify({ status: 'continue', summary: synthSummary, created_cards: [], updated_cards: [] });
-        appendMessage(this.saivageDir, sessionId, { role: 'system', kind: 'model_issue', content: `Synthesised planner continuation envelope for deferred activate_card: ${synthSummary}` });
+        appendMessage(this.saivageDir, sessionId, { role: 'system', kind: 'model_issue', content: `Synthesised planner continuation envelope for deferred activate_card: ${this.redactModelIssueText(synthSummary)}` });
         return { response: synthEnvelope, transportSucceeded: true };
       }
       const followUpTools = this.buildToolsForRole(role);
@@ -528,7 +529,7 @@ export class AgentAdapter implements AgentRuntime {
                     } else throw err2;
                   }
                 } else if (selfCheckValue !== null && (role === 'planner' || role === 'executor' || role === 'reviewer')) {
-                  appendMessage(this.saivageDir, session.id, { role: 'system', kind: 'model_issue', content: `Self-check acknowledged (status=${String(selfCheckValue)}). Resume normal ${role} flow now — emit the final ${role} result JSON (with the canonical schema, NOT a self_check wrapper).` });
+                  appendMessage(this.saivageDir, session.id, { role: 'system', kind: 'model_issue', content: `Self-check acknowledged (status=${this.redactModelIssueText(selfCheckValue)}). Resume normal ${role} flow now — emit the final ${role} result JSON (with the canonical schema, NOT a self_check wrapper).` });
                   if (this.eventLogger) this.eventLogger.appendEvent({ kind: 'self_check_triggered', session_id: session.id, role: role as unknown as import('../schemas/types.js').AgentRole, rounds: 0, threshold: 0, response: String(selfCheckValue) });
                   systemPrompt = baseSystemPrompt;
                   const retryMessages = getSessionMessages(this.saivageDir, session.id);
@@ -572,17 +573,17 @@ export class AgentAdapter implements AgentRuntime {
             const policyContext: InvocationRecoveryContext = { role, candidate, attempt: sameCandidateRecoveryAttempt, maxAttempts: recoveryCtx.maxAttempts, recoveryDelayMs: this.runtimeConfig.recoveryDelayMs ?? 60000, maxRecoveryRetries: this.runtimeConfig.maxRecoveryRetries ?? 3, capabilityRequest, capabilitySkips, sessionId: session.id, goalId, cardId };
             const decision = defaultInvocationRecoveryPolicy.decideFailure(lastError, policyContext);
             if (decision.markFailed) this.registry.markFailed(candidate, decision.cooldownMs ?? (this.runtimeConfig.recoveryDelayMs ?? 60000));
-            if (decision.appendModelIssue) appendMessage(this.saivageDir, session.id, { role: 'system', kind: 'model_issue', content: decision.message });
-            if (this.eventLogger) this.eventLogger.appendEvent({ kind: 'invocation_failed', session_id: session.id, role: role as unknown as import('../schemas/types.js').AgentRole, attempt: recoveryCtx.attempt, error_message: decision.message, failureClass: decision.failureClass, recoveryAction: decision.action, cooldownMs: decision.cooldownMs, retryDelayMs: decision.retryDelayMs, capabilitySkipReasons: decision.eventPayload.capabilitySkipReasons });
-            if (this.eventBus) this.eventBus.emit('invocation_failed', { session_id: session.id, role, attempt: recoveryCtx.attempt, error_message: decision.message, failureClass: decision.failureClass, recoveryAction: decision.action, cooldownMs: decision.cooldownMs, retryDelayMs: decision.retryDelayMs, capabilitySkipReasons: decision.eventPayload.capabilitySkipReasons });
+            if (decision.appendModelIssue) appendMessage(this.saivageDir, session.id, { role: 'system', kind: 'model_issue', content: this.redactModelIssueText(decision.message) });
+            if (this.eventLogger) this.eventLogger.appendEvent({ kind: 'invocation_failed', session_id: session.id, role: role as unknown as import('../schemas/types.js').AgentRole, attempt: recoveryCtx.attempt, error_message: this.redactModelIssueText(decision.message), failureClass: decision.failureClass, recoveryAction: decision.action, cooldownMs: decision.cooldownMs, retryDelayMs: decision.retryDelayMs, capabilitySkipReasons: decision.eventPayload.capabilitySkipReasons });
+            if (this.eventBus) this.eventBus.emit('invocation_failed', { session_id: session.id, role, attempt: recoveryCtx.attempt, error_message: this.redactModelIssueText(decision.message), failureClass: decision.failureClass, recoveryAction: decision.action, cooldownMs: decision.cooldownMs, retryDelayMs: decision.retryDelayMs, capabilitySkipReasons: decision.eventPayload.capabilitySkipReasons });
             if (decision.abort || this._cancelledSessions.has(session.id)) {
               if (this.eventLogger) this.eventLogger.appendEvent({ kind: 'session_cancelled', session_id: session.id, role: role as unknown as import('../schemas/types.js').AgentRole, note: 'Stopped retry loop due to session cancellation' });
               if (decision.failureClass === 'cancelled' || this._cancelledSessions.has(session.id)) throw new Error(`Agent invocation cancelled for session ${session.id}. Role: ${role}, goal: ${goalId}, card: ${cardId}`);
               throw lastError;
             }
             if (decision.action === 'retry_same_after_delay') {
-              if (this.eventLogger) this.eventLogger.appendEvent({ kind: 'retry_attempted', session_id: session.id, role: role as unknown as import('../schemas/types.js').AgentRole, attempt: recoveryCtx.attempt, directive: decision.message, failureClass: decision.failureClass, recoveryAction: decision.action, retryDelayMs: decision.retryDelayMs });
-              if (this.eventBus) this.eventBus.emit('retry_attempted', { session_id: session.id, role, attempt: recoveryCtx.attempt, directive: decision.message, failureClass: decision.failureClass, recoveryAction: decision.action, retryDelayMs: decision.retryDelayMs });
+              if (this.eventLogger) this.eventLogger.appendEvent({ kind: 'retry_attempted', session_id: session.id, role: role as unknown as import('../schemas/types.js').AgentRole, attempt: recoveryCtx.attempt, directive: this.redactModelIssueText(decision.message), failureClass: decision.failureClass, recoveryAction: decision.action, retryDelayMs: decision.retryDelayMs });
+              if (this.eventBus) this.eventBus.emit('retry_attempted', { session_id: session.id, role, attempt: recoveryCtx.attempt, directive: this.redactModelIssueText(decision.message), failureClass: decision.failureClass, recoveryAction: decision.action, retryDelayMs: decision.retryDelayMs });
               await delayInvocationRecovery(decision.retryDelayMs ?? 0);
               sameCandidateRecoveryAttempt += 1;
               continue;

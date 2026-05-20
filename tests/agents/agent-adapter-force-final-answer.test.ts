@@ -60,6 +60,17 @@ function assistantTextMessages(messages: AgentMessage[]): AgentMessage[] {
   return messages.filter((message) => message.role === 'assistant' && message.kind === 'text');
 }
 
+
+function expectModelIssuesDoNotContainSyntheticSecrets(messages: AgentMessage[]): void {
+  const modelIssues = messages.filter((message) => message.kind === 'model_issue');
+  expect(modelIssues.length).toBeGreaterThan(0);
+  const persisted = modelIssues.map((message) => message.content).join('\n');
+  expect(persisted).not.toContain('SYNTHETIC_PROVIDER_TOKEN');
+  expect(persisted).not.toContain('SYNTHETIC_ACCESS');
+  expect(persisted).not.toContain('SYNTHETIC_INLINE');
+  expect(persisted).not.toContain('SYNTHETIC_QUERY');
+}
+
 function expectLastAssistantPlannerEnvelope(messages: AgentMessage[], expectedStatus: 'continue' | 'done') {
   const assistantTexts = assistantTextMessages(messages);
   expect(assistantTexts.length).toBeGreaterThan(0);
@@ -91,7 +102,7 @@ describe('AgentAdapter forceFinalAnswer planner recovery', () => {
 
   it('forces a parseable planner envelope after a repeated tool-call fingerprint and continues on the next planner cycle', async () => {
     const adapter = createMinimalAdapter(tmpDir);
-    const repeated = toolCallEnvelope([toolCall('call-repeat-1', 'list_notes', { cardId: 'goal-repeat' })]);
+    const repeated = toolCallEnvelope([toolCall('call-repeat-1', 'list_notes', { cardId: 'goal-repeat', token: 'SYNTHETIC_PROVIDER_TOKEN', access_token: 'SYNTHETIC_ACCESS' })]);
     const responses = [
       repeated,
       repeated,
@@ -107,6 +118,7 @@ describe('AgentAdapter forceFinalAnswer planner recovery', () => {
     let messages = sessionMessages(tmpDir, 'goal-repeat');
     expect(messages.some((message) => message.kind === 'model_issue' && message.content.includes('Repeated tool-call fingerprint detected'))).toBe(true);
     expect(messages.some((message) => message.kind === 'model_issue' && message.content.includes('Forcing final-answer turn without tools'))).toBe(true);
+    expectModelIssuesDoNotContainSyntheticSecrets(messages);
     expectLastAssistantPlannerEnvelope(messages, 'continue');
 
     const next = await adapter.invokePlanner('goal-repeat', 'system prompt');
@@ -173,4 +185,42 @@ describe('AgentAdapter forceFinalAnswer planner recovery', () => {
     messages = sessionMessages(tmpDir, 'goal-activate');
     expectLastAssistantPlannerEnvelope(messages, 'done');
   });
+
+  it('redacts persisted model_issue content when forceFinalAnswer fails with provider secrets', async () => {
+    const adapter = createMinimalAdapter(tmpDir);
+    adapter.runtimeConfig.recoveryDelayMs = 0;
+    adapter.runtimeConfig.maxRecoveryRetries = 0;
+    const repeated = toolCallEnvelope([toolCall('call-repeat-secret', 'list_notes', { cardId: 'goal-force-fail', token: 'SYNTHETIC_PROVIDER_TOKEN' })]);
+    const responses = [repeated, repeated];
+    adapter.setLlmCallFn(async () => {
+      const next = responses.shift();
+      if (next) return next;
+      throw new Error('forced call failed with Bearer SYNTHETIC_PROVIDER_TOKEN {"access_token":"SYNTHETIC_ACCESS"}');
+    });
+
+    await expect(adapter.invokePlanner('goal-force-fail', 'system prompt')).rejects.toThrow();
+
+    const messages = sessionMessages(tmpDir, 'goal-force-fail');
+    expect(messages.some((message) => message.kind === 'model_issue' && message.content.includes('forceFinalAnswer LLM call failed'))).toBe(true);
+    expectModelIssuesDoNotContainSyntheticSecrets(messages);
+  });
+
+  it('redacts persisted model_issue content from invocation recovery decisions', async () => {
+    const adapter = createMinimalAdapter(tmpDir);
+    adapter.runtimeConfig.recoveryDelayMs = 0;
+    adapter.runtimeConfig.maxRecoveryRetries = 1;
+    const responses = [
+      'not json Bearer SYNTHETIC_PROVIDER_TOKEN {"access_token":"SYNTHETIC_ACCESS"}',
+      plannerEnvelope('done', 'recovered after parse failure'),
+    ];
+    adapter.setLlmCallFn(async () => responses.shift() ?? plannerEnvelope('done', 'fallback'));
+
+    const result = await adapter.invokePlanner('goal-recovery-redaction', 'system prompt');
+    expect(result.status).toBe('done');
+
+    const messages = sessionMessages(tmpDir, 'goal-recovery-redaction');
+    expect(messages.some((message) => message.kind === 'model_issue' && message.content.includes('invalid response contract'))).toBe(true);
+    expectModelIssuesDoNotContainSyntheticSecrets(messages);
+  });
+
 });
