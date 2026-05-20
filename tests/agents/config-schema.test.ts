@@ -400,3 +400,26 @@ describe('provider capability schema', () => {
     expect(result.success).toBe(false);
   });
 });
+
+describe('telegram notification recipient config', () => {
+  it('accepts explicit outbound notificationChatIds separate from allowedUserIds', () => {
+    const result = saivageConfigSchema.safeParse({
+      models: { default: ['test'] },
+      telegram: {
+        botToken: '123456:TEST_TOKEN',
+        allowedUserIds: [9001],
+        notificationChatIds: [111111, -222222],
+      },
+    });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.telegram?.allowedUserIds).toEqual([9001]);
+      expect(result.data.telegram?.notificationChatIds).toEqual([111111, -222222]);
+    }
+  });
+
+  it('rejects invalid zero and unsafe outbound chat ids at schema boundary', () => {
+    expect(saivageConfigSchema.safeParse({ models: { default: ['test'] }, telegram: { notificationChatIds: [0] } }).success).toBe(false);
+    expect(saivageConfigSchema.safeParse({ models: { default: ['test'] }, telegram: { notificationChatIds: [Number.MAX_SAFE_INTEGER + 1] } }).success).toBe(false);
+  });
+});

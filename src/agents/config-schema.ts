@@ -273,6 +273,7 @@ const supervisorSectionSchema = z.object({
 const telegramSectionSchema = z.object({
   botToken: z.string().optional(),
   allowedUserIds: z.array(z.number().int()).optional(),
+  notificationChatIds: z.array(z.number().int().safe().refine((value) => value !== 0, { message: 'Chat id must be a non-zero safe integer' })).default([]),
 });
 
 // Notifications section

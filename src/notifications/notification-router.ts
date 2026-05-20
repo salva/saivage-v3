@@ -321,12 +321,17 @@ export class NotificationRouter {
  * @param telegramBot     Optional TelegramBot instance for 'telegram' channel.
  * @param telegramChatIds Optional list of chat IDs to notify via Telegram.
  */
+export interface NotificationRouterTelegramOptions {
+  chatIds?: number[];
+}
+
 export function createNotificationRouter(
   projectRoot: string,
   telegramBot?: TelegramBot,
-  telegramChatIds?: number[],
+  telegramOptions?: number[] | NotificationRouterTelegramOptions,
 ): NotificationRouter {
   const router = new NotificationRouter(projectRoot);
+  const telegramChatIds = Array.isArray(telegramOptions) ? telegramOptions : telegramOptions?.chatIds;
 
   // Register the 'web' channel — broadcasts to all connected WebSocket clients
   router.registerChannel('web', async (event: NotificationEvent) => {

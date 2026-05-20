@@ -749,3 +749,21 @@ describe('NotificationRouter durable compatibility mapping', () => {
     });
   });
 });
+
+describe('createNotificationRouter — explicit telegram recipient options', () => {
+  it('accepts named chatIds options while preserving legacy durable delivery mapping', async () => {
+    const root = makeProjectRoot();
+    writeSaivageJson(root, { notifications: { channels: ['telegram'] } });
+    const sendDurableNotification = jest.fn(async () => {});
+    const fakeBot = { sendDurableNotification } as unknown as import('../../src/telegram/bot.js').TelegramBot;
+    const { createNotificationRouter } = await importModule();
+    const router = createNotificationRouter(root, fakeBot, { chatIds: [111111, -222222] });
+
+    await router.publish(makeEvent({ category: 'escalation', severity: 'critical', title: 'Synthetic alert' }));
+
+    expect(sendDurableNotification).toHaveBeenCalledTimes(2);
+    const calls = sendDurableNotification.mock.calls as unknown as Array<[number, unknown]>;
+    expect(calls[0]?.[0]).toBe(111111);
+    expect(calls[1]?.[0]).toBe(-222222);
+  });
+});

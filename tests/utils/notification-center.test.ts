@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from '@jest/globals';
+import { describe, it, expect, beforeEach, afterEach, jest } from '@jest/globals';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -156,5 +156,32 @@ describe('NotificationDeliveryService canonical fan-out', () => {
       { id: 'canonical-1', target: 'session', sessionId: 'sess-canonical' },
       { id: 'canonical-op-1', target: 'operator' },
     ]);
+  });
+});
+
+describe('TelegramNotificationDeliveryAdapter', () => {
+  it('sends durable records once per normalized synthetic recipient and skips startup diagnostics', async () => {
+    const { TelegramNotificationDeliveryAdapter } = await import('../../src/telegram/recipients.js');
+    const sendDurableNotification = jest.fn(async () => {});
+    const adapter = new TelegramNotificationDeliveryAdapter({ sendDurableNotification } as never, [111111, -222222]);
+    const record = {
+      id: 'n-telegram-1',
+      session_id: null,
+      kind: 'runtime_state',
+      severity: 'warn',
+      payload_summary: 'runtime warning',
+      source_actor: 'runtime',
+      source_surface: 'rest',
+      created_at: new Date().toISOString(),
+      delivered_at: null,
+      acknowledged_at: null,
+    } as const;
+    await adapter.deliver(record, { target: 'operator' });
+    expect(sendDurableNotification).toHaveBeenCalledTimes(2);
+    expect(sendDurableNotification).toHaveBeenNthCalledWith(1, 111111, record);
+    expect(sendDurableNotification).toHaveBeenNthCalledWith(2, -222222, record);
+
+    await adapter.deliver({ ...record, id: 'telegram-startup-missing_recipients', payload_summary: 'Telegram notification readiness: missing_recipients; recipients=0' }, { target: 'operator' });
+    expect(sendDurableNotification).toHaveBeenCalledTimes(2);
   });
 });

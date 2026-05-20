@@ -17,6 +17,8 @@ import { loadConfig, type SaivageConfig } from '../agents/config-schema.js';
 import { McpManager } from '../mcp/index.js';
 import { TelegramBot } from '../telegram/index.js';
 import { createNotificationRouter } from '../notifications/index.js';
+import { createNotificationDeliveryService, setProjectNotificationDeliveryAdapters, clearProjectNotificationDeliveryAdapters } from '../utils/notification-delivery.js';
+import { TelegramNotificationDeliveryAdapter, buildTelegramStartupDiagnosticSummary, evaluateTelegramRecipientReadiness, normalizeTelegramNotificationChatIds } from '../telegram/recipients.js';
 import type { NotificationRouter } from '../notifications/index.js';
 import { ActiveRuntime } from '../utils/active-runtime.js';
 import { buildCardRunsResponse, markGoalNeedsCorrections, normalizeAnalystIssues, recordLetsDanceDirective, recordProjectNeedsCorrectionsDirective } from '../utils/analyst-stage6.js';
@@ -87,9 +89,26 @@ export async function createServer(projectRoot: string, createRuntime?: boolean)
   fastify.get('/api/mcp/status', async (_request, reply) => { if (!mcpManager) return reply.send({ servers: [] }); return reply.send({ servers: mcpManager.getStatus() }); });
   fastify.get('/api/mcp/tools', async (_request, reply) => { if (!mcpManager) return reply.send({ tools: [], servers: [], invocationStats: {}, serverDetails: [] }); const tools = mcpManager.getTools(); const servers = mcpManager.getToolServers(); const invocationStats = mcpManager.getInvocationStats(); const serverDetails = mcpManager.getStatus().map((status) => { const toolDefs = mcpManager.getServerTools(status.name) ?? []; const toolList = toolDefs.map((td) => { const statsKey = `${status.name}:${td.name}`; const stats = invocationStats[statsKey] ?? { total: 0, success: 0, error: 0 }; return { name: td.name, description: td.description, inputSchema: td.inputSchema, stats }; }); return { name: status.name, transport: status.transport, status: status.status, toolCount: toolDefs.length, tools: toolList }; }); return reply.send({ tools, servers, invocationStats, serverDetails }); });
   let telegramBot: TelegramBot | undefined; const botToken = saivageConfig.telegram?.botToken;
+  const recipientRegistry = normalizeTelegramNotificationChatIds(saivageConfig.telegram?.notificationChatIds);
+  if (recipientRegistry.invalidValues.length > 0) fastify.log.warn(`Telegram notification recipient config ignored ${recipientRegistry.invalidValues.length} invalid value(s)`);
   if (botToken) { try { telegramBot = new TelegramBot(projectRoot); await telegramBot.start(); fastify.log.info('Telegram bot started'); } catch (err) { fastify.log.warn(`Telegram bot initialization failed: ${err instanceof Error ? err.message : String(err)}`); } }
-  const notificationRouter = createNotificationRouter(projectRoot, telegramBot);
-  async function stop(): Promise<void> { resetChatRouteState(projectRoot); resetWebSocketState(); if (activeRuntime) resetRuntimeEventSubscriptions(activeRuntime.runtime); try { await fastify.close(); } finally { if (telegramBot) { try { await telegramBot.stop(); fastify.log.info('Telegram bot stopped'); } catch (err) { fastify.log.warn(`Telegram bot stop failed: ${err instanceof Error ? err.message : String(err)}`); } } if (mcpManager) { try { await mcpManager.stopAll(); fastify.log.info('MCP manager stopped'); } catch (err) { fastify.log.warn(`MCP manager stop failed: ${err instanceof Error ? err.message : String(err)}`); } } if (activeRuntime) { try { await activeRuntime.stop(); fastify.log.info('ActiveRuntime stopped'); } catch (err) { fastify.log.warn(`ActiveRuntime stop failed: ${err instanceof Error ? err.message : String(err)}`); } } } }
+  const telegramReadiness = evaluateTelegramRecipientReadiness({ channels: saivageConfig.notifications?.channels, botToken, botAvailable: Boolean(telegramBot), recipients: recipientRegistry.recipients, invalidRecipientCount: recipientRegistry.invalidValues.length });
+  if (telegramReadiness.state === 'ready' && telegramBot) setProjectNotificationDeliveryAdapters(projectRoot, [new TelegramNotificationDeliveryAdapter(telegramBot, recipientRegistry.recipients)]);
+  else clearProjectNotificationDeliveryAdapters(projectRoot);
+  const diagnosticSummary = buildTelegramStartupDiagnosticSummary(telegramReadiness);
+  if (diagnosticSummary) {
+    fastify.log.warn(diagnosticSummary);
+    createNotificationDeliveryService(projectRoot, []).enqueueForOperator({
+      id: `telegram-startup-${telegramReadiness.state}`,
+      kind: 'config_changed',
+      severity: 'warn',
+      payload_summary: diagnosticSummary,
+      source_actor: 'runtime',
+      source_surface: 'rest',
+    });
+  }
+  const notificationRouter = createNotificationRouter(projectRoot, telegramBot, { chatIds: recipientRegistry.recipients });
+  async function stop(): Promise<void> { resetChatRouteState(projectRoot); resetWebSocketState(); clearProjectNotificationDeliveryAdapters(projectRoot); if (activeRuntime) resetRuntimeEventSubscriptions(activeRuntime.runtime); try { await fastify.close(); } finally { if (telegramBot) { try { await telegramBot.stop(); fastify.log.info('Telegram bot stopped'); } catch (err) { fastify.log.warn(`Telegram bot stop failed: ${err instanceof Error ? err.message : String(err)}`); } } if (mcpManager) { try { await mcpManager.stopAll(); fastify.log.info('MCP manager stopped'); } catch (err) { fastify.log.warn(`MCP manager stop failed: ${err instanceof Error ? err.message : String(err)}`); } } if (activeRuntime) { try { await activeRuntime.stop(); fastify.log.info('ActiveRuntime stopped'); } catch (err) { fastify.log.warn(`ActiveRuntime stop failed: ${err instanceof Error ? err.message : String(err)}`); } } } }
   return { fastify, config: serverConfig, saivageConfig, mcpManager, telegramBot, notificationRouter, activeRuntime, stop };
 }
 export async function startServer(projectRoot: string, createRuntime?: boolean): Promise<ServerInstance> { const server = await createServer(projectRoot, createRuntime); validateDevModeHost(server.config.host); await server.fastify.listen({ host: server.config.host, port: server.config.port }); return server; }

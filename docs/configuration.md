@@ -255,18 +255,20 @@ Controls the runtime supervisor that monitors for stuck agent invocations.
 
 ## Telegram Section (`telegram`)
 
-Optional. If a `botToken` is provided, the Telegram bot starts automatically on server startup.
+Optional. If a `botToken` is provided, the Telegram bot starts automatically on server startup. Outbound Telegram notifications require explicit `notificationChatIds`; `allowedUserIds` only controls inbound bot authorization.
 
 | Field | Type | Description |
 |---|---|---|
 | `botToken` | string | Telegram Bot API token (supports `${ENV_VAR}`) |
 | `allowedUserIds` | number[] | List of Telegram user IDs allowed to interact with the bot |
+| `notificationChatIds` | number[] | Explicit outbound notification recipients; safe non-zero integer chat IDs, deduplicated at startup and separate from `allowedUserIds` |
 
 ```json
 {
   "telegram": {
     "botToken": "${TELEGRAM_BOT_TOKEN}",
-    "allowedUserIds": [123456789]
+    "allowedUserIds": [123456789],
+    "notificationChatIds": [111111, -222222]
   }
 }
 ```
@@ -447,7 +449,7 @@ Unknown environment variables resolve to an empty string and generate a warning.
 | `runtime.process_timeouts` | `executor_ms,planner_ms,reviewer_ms` | `src/agents/config-schema.ts:220` |
 | `security` | `injectionModel,injectionScanner,maxScanLengthBytes` | `src/agents/config-schema.ts:252` |
 | `supervisor` | `consecutiveStuckVerdicts,enabled,intervalMs,logLines,model` | `src/agents/config-schema.ts:259` |
-| `telegram` | `allowedUserIds,botToken` | `src/agents/config-schema.ts:268` |
+| `telegram` | `allowedUserIds,botToken,notificationChatIds` | `src/agents/config-schema.ts:268` |
 | `notifications` | `channels,filters` | `src/agents/config-schema.ts:274` |
 | `mcpServers.entry` | `args,autostart,command,disabled,env,transport,url` | `src/agents/config-schema.ts:285` |
 <!-- saivage:config-schema:end -->

@@ -14,6 +14,20 @@ export interface NotificationDeliveryAdapter {
   deliver(record: NotificationRecord, context: NotificationDeliveryContext): Promise<void> | void;
 }
 
+const projectAdapters = new Map<string, NotificationDeliveryAdapter[]>();
+
+export function setProjectNotificationDeliveryAdapters(projectRoot: string, adapters: NotificationDeliveryAdapter[]): void {
+  projectAdapters.set(projectRoot, [...adapters]);
+}
+
+export function clearProjectNotificationDeliveryAdapters(projectRoot: string): void {
+  projectAdapters.delete(projectRoot);
+}
+
+export function getProjectNotificationDeliveryAdapters(projectRoot: string): NotificationDeliveryAdapter[] {
+  return [...(projectAdapters.get(projectRoot) ?? [])];
+}
+
 export class NotificationDeliveryService {
   constructor(
     private readonly center: NotificationCenter,
@@ -49,7 +63,7 @@ export class NotificationDeliveryService {
 
 export function createNotificationDeliveryService(
   projectRoot: string,
-  adapters: NotificationDeliveryAdapter[] = [],
+  adapters: NotificationDeliveryAdapter[] = getProjectNotificationDeliveryAdapters(projectRoot),
 ): NotificationDeliveryService {
   return new NotificationDeliveryService(new NotificationCenter(projectRoot), adapters);
 }

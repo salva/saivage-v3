@@ -323,7 +323,8 @@ Persisted runtime configuration uses the §13 snake_case keys only. `loadConfig(
 {
   "telegram": {
     "botToken": "${TELEGRAM_BOT_TOKEN}",
-    "allowedUserIds": [123456789]
+    "allowedUserIds": [123456789],
+    "notificationChatIds": [111111, -222222]
   }
 }
 ```
@@ -332,9 +333,11 @@ Persisted runtime configuration uses the §13 snake_case keys only. `loadConfig(
 |------------------|----------|--------------------------------------------|
 | `botToken`       | yes      | Telegram bot API token                     |
 | `allowedUserIds` | yes      | Array of numeric Telegram user IDs allowed |
+| `notificationChatIds` | no       | Explicit outbound notification recipients; safe non-zero integer chat IDs, separate from inbound authorization |
 
 Only users in `allowedUserIds` can interact with the bot. Messages
-from other users are silently ignored.
+from other users are silently ignored. `notificationChatIds` controls outbound
+Telegram notification delivery and does not authorize inbound users.
 
 ---
 
@@ -446,7 +449,7 @@ An API token for the Saivage server itself is set via the
 | `runtime.process_timeouts` | `executor_ms,planner_ms,reviewer_ms` | `src/agents/config-schema.ts:220` |
 | `security` | `injectionModel,injectionScanner,maxScanLengthBytes` | `src/agents/config-schema.ts:252` |
 | `supervisor` | `consecutiveStuckVerdicts,enabled,intervalMs,logLines,model` | `src/agents/config-schema.ts:259` |
-| `telegram` | `allowedUserIds,botToken` | `src/agents/config-schema.ts:268` |
+| `telegram` | `allowedUserIds,botToken,notificationChatIds` | `src/agents/config-schema.ts:268` |
 | `notifications` | `channels,filters` | `src/agents/config-schema.ts:274` |
 | `mcpServers.entry` | `args,autostart,command,disabled,env,transport,url` | `src/agents/config-schema.ts:285` |
 <!-- saivage:config-schema:end -->

@@ -536,3 +536,20 @@ describe('TelegramBot class', () => {
     });
   });
 });
+
+describe('Telegram outbound recipient separation', () => {
+  it('does not treat notificationChatIds as inbound allowedUserIds', () => {
+    const root = makeProjectRoot();
+    writeSaivageJson(root, {
+      telegram: {
+        botToken: '123456:TEST_TOKEN',
+        allowedUserIds: [9001],
+        notificationChatIds: [111111],
+      },
+    });
+
+    const bot = new TelegramBot(root);
+    expect(bot.isAuthorized(9001)).toBe(true);
+    expect(bot.isAuthorized(111111)).toBe(false);
+  });
+});
