@@ -104,7 +104,7 @@ export class InvocationRecoveryPolicy {
     if (error instanceof LlmServerError) return 'server_transient';
     if (error instanceof LlmTimeoutError) return 'timeout_transient';
     if (error instanceof LlmParseError) return 'parse_or_contract';
-    if (error instanceof SyntaxError || error instanceof TypeError || (error instanceof Error && /parse|schema|contract|invalid .*json/i.test(error.message))) return 'parse_or_contract';
+    if (error instanceof SyntaxError || error instanceof TypeError || (error instanceof Error && /parse|schema|contract|validation failed|invalid .*json/i.test(error.message))) return 'parse_or_contract';
     return 'unknown';
   }
 

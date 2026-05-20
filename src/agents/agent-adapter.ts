@@ -37,6 +37,10 @@ export interface AgentAdapterConfig { projectRoot: string; saivageDir: string; c
 export type LlmCallFn = (candidate: Candidate, systemPrompt: string, messages: AgentMessage[], sessionId: string, opts?: LlmCompleteOptions) => Promise<string>;
 type SessionCreatedHook = (sessionId: string) => void | Promise<void>;
 
+function delayInvocationRecovery(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, Math.max(0, ms)));
+}
+
 const MCP_TOOL_CALL_TOOL_DEFINITION: ToolDefinition = { type: 'function', function: { name: 'mcp_tool_call', description: 'Call an approved MCP (Model Context Protocol) tool on a configured MCP server. Availability is role- and policy-scoped at runtime.', parameters: { type: 'object', properties: { serverName: { type: 'string', description: 'Configured MCP server name' }, toolName: { type: 'string', description: 'Tool name on that MCP server' }, args: { type: 'object', description: 'Optional tool arguments', additionalProperties: true } }, required: ['serverName', 'toolName'], additionalProperties: false } } };
 
 function str(description: string): Record<string, unknown> { return { type: 'string', description }; }
@@ -472,10 +476,12 @@ export class AgentAdapter implements AgentRuntime {
       let lastError: Error | null = null;
       try {
         for (const candidate of candidateChain) {
-          if (this._cancelledSessions.has(session.id)) throw new Error(`Agent invocation cancelled for session ${session.id}. Role: ${role}, goal: ${goalId}, card: ${cardId}`);
-          if (!this.registry.isHealthy(candidate)) continue;
-          try {
-            updateSessionModel(this.saivageDir, session.id, candidate.model);
+          let sameCandidateRecoveryAttempt = 1;
+          while (true) {
+            if (this._cancelledSessions.has(session.id)) throw new Error(`Agent invocation cancelled for session ${session.id}. Role: ${role}, goal: ${goalId}, card: ${cardId}`);
+            if (!this.registry.isHealthy(candidate)) break;
+            try {
+              updateSessionModel(this.saivageDir, session.id, candidate.model);
             if (this.eventLogger) this.eventLogger.appendEvent({ kind: 'model_selected', session_id: session.id, provider: candidate.provider, model: candidate.model, role: role as unknown as import('../schemas/types.js').AgentRole });
             if (this.eventBus) this.eventBus.emit('model_selected', { session_id: session.id, provider: candidate.provider, model: candidate.model, role });
             if (recoveryCtx.isRecovery && recoveryCtx.directive) appendMessage(this.saivageDir, session.id, { role: 'system', kind: 'model_recovered', content: recoveryCtx.directive });
@@ -560,9 +566,9 @@ export class AgentAdapter implements AgentRuntime {
               this._cancelledSessions.delete(session.id);
               return parsed;
             } finally { this._abortControllers.delete(session.id); }
-          } catch (err) {
+            } catch (err) {
             lastError = err instanceof Error ? err : new Error(String(err));
-            const policyContext: InvocationRecoveryContext = { role, candidate, attempt: recoveryCtx.attempt, maxAttempts: recoveryCtx.maxAttempts, recoveryDelayMs: this.runtimeConfig.recoveryDelayMs ?? 60000, maxRecoveryRetries: this.runtimeConfig.maxRecoveryRetries ?? 3, capabilityRequest, capabilitySkips, sessionId: session.id, goalId, cardId };
+            const policyContext: InvocationRecoveryContext = { role, candidate, attempt: sameCandidateRecoveryAttempt, maxAttempts: recoveryCtx.maxAttempts, recoveryDelayMs: this.runtimeConfig.recoveryDelayMs ?? 60000, maxRecoveryRetries: this.runtimeConfig.maxRecoveryRetries ?? 3, capabilityRequest, capabilitySkips, sessionId: session.id, goalId, cardId };
             const decision = defaultInvocationRecoveryPolicy.decideFailure(lastError, policyContext);
             if (decision.markFailed) this.registry.markFailed(candidate, decision.cooldownMs ?? (this.runtimeConfig.recoveryDelayMs ?? 60000));
             if (decision.appendModelIssue) appendMessage(this.saivageDir, session.id, { role: 'system', kind: 'model_issue', content: decision.message });
@@ -573,10 +579,17 @@ export class AgentAdapter implements AgentRuntime {
               if (decision.failureClass === 'cancelled' || this._cancelledSessions.has(session.id)) throw new Error(`Agent invocation cancelled for session ${session.id}. Role: ${role}, goal: ${goalId}, card: ${cardId}`);
               throw lastError;
             }
-            continue;
+            if (decision.action === 'retry_same_after_delay') {
+              if (this.eventLogger) this.eventLogger.appendEvent({ kind: 'retry_attempted', session_id: session.id, role: role as unknown as import('../schemas/types.js').AgentRole, attempt: recoveryCtx.attempt, directive: decision.message, failureClass: decision.failureClass, recoveryAction: decision.action, retryDelayMs: decision.retryDelayMs });
+              if (this.eventBus) this.eventBus.emit('retry_attempted', { session_id: session.id, role, attempt: recoveryCtx.attempt, directive: decision.message, failureClass: decision.failureClass, recoveryAction: decision.action, retryDelayMs: decision.retryDelayMs });
+              await delayInvocationRecovery(decision.retryDelayMs ?? 0);
+              sameCandidateRecoveryAttempt += 1;
+              continue;
+            }
+            break;
           }
-        }
-        throw lastError ?? new Error(`All candidates exhausted for role '${role}'.`);
+          }
+        }        throw lastError ?? new Error(`All candidates exhausted for role '${role}'.`);
       } finally { this._cancelledSessions.delete(session.id); }
     };
     const attempts = await invokeWithRecovery(agentFn, recoveryOpts);

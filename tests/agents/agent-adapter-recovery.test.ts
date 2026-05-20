@@ -78,6 +78,30 @@ describe('AgentAdapter invocation recovery policy integration', () => {
     expect(issue?.content).not.toContain('sk-syntheticSECRET123456');
   });
 
+  it('retries parse/contract failures on the same candidate without using fallback', async () => {
+    const cfg = config();
+    cfg.runtime.maxRecoveryRetries = 1;
+    cfg.runtime.recoveryDelayMs = 0;
+    const adapter = makeAdapter(root, cfg);
+    const markFailed = jest.spyOn(adapter.getRegistry(), 'markFailed');
+    const seen: string[] = [];
+    const llmCall = jest.fn<LlmCallFn>(async (candidate) => {
+      seen.push(candidate.provider);
+      if (seen.length === 1) return '{"created_cards":[],"updated_cards":[],"status":"not-a-valid-status"}';
+      return plannerDone();
+    });
+    adapter.setLlmCallFn(llmCall);
+
+    const result = await adapter.invokePlanner('goal-1', 'prompt');
+
+    expect(result.status).toBe('done');
+    expect(seen).toEqual(['p1', 'p1']);
+    expect(llmCall).toHaveBeenCalledTimes(2);
+    expect(markFailed).not.toHaveBeenCalled();
+    expect(adapter.getRegistry().getHealth({ provider: 'p1', account: null, model: 'm1' }).failureCount).toBe(0);
+    expect(adapter.getRegistry().getHealth({ provider: 'p2', account: null, model: 'm2' }).failureCount).toBe(0);
+  });
+
   it('marks transient server failures failed with cooldown before fallback succeeds', async () => {
     const adapter = makeAdapter(root);
     const markFailed = jest.spyOn(adapter.getRegistry(), 'markFailed');
