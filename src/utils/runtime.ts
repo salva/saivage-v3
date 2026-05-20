@@ -84,7 +84,14 @@ export class Runtime extends EventEmitter {
   private _status: RuntimeStatus = 'idle'; private _paused = false; private _running = false; private _shuttingDown = false; private _skillsEngine: SkillsEngine | null = null; private _eventLogger: EventLogger; private _ownsEventLogger: boolean; private _errorLogger: ErrorLogger; private _ownsErrorLogger: boolean; readonly runningProcesses: Set<string> = new Set(); private _supervisor: StuckAgentSupervisor; private _continuousImprovementReserved: boolean; private _autoDispatchBacklog: boolean; private _resumeHandoffContext: string | null = null; private _safeTickInFlight = false; private _startupRepairPending = false; private _dispatchInFlight = new Set<string>();
 
   constructor(config: RuntimeConfig, agentRuntime?: AgentRuntime) {
-    super(); this.projectRoot = config.projectRoot; this.cardStore = new CardStore(config.projectRoot, config.maxGoalDepth); this.agentRuntime = agentRuntime ?? new FakeAgentAdapter({ ...config.fakeAgentConfig, saivageDir: join(config.projectRoot, '.saivage') }); if (typeof (this.agentRuntime as { setSaivageDir?: (saivageDir: string) => void }).setSaivageDir === 'function') (this.agentRuntime as unknown as { setSaivageDir: (saivageDir: string) => void }).setSaivageDir(join(config.projectRoot, '.saivage')); this.notificationCenter = new NotificationCenter(config.projectRoot); this._skillsEngine = config.skillsEngine ?? new SkillsEngine({ projectRoot: config.projectRoot }); this.eventBus = new EventBus(); this._continuousImprovementReserved = config.continuousImprovement ?? false; this._autoDispatchBacklog = config.autoDispatchBacklog ?? false;
+    super();
+    // EventEmitter promotes emit('error', ...) without a listener into a thrown
+    // exception that escapes the local catch block. Several internal call sites
+    // emit 'error' for diagnostics (e.g. artifact_registration failures inside
+    // executeReadyCards) and rely on continuing past it; without this guard the
+    // dispatch pipeline aborts mid-flight and leaves active_card_run stale.
+    this.on('error', () => { /* diagnostic-only; logging handled at call sites */ });
+    this.projectRoot = config.projectRoot; this.cardStore = new CardStore(config.projectRoot, config.maxGoalDepth); this.agentRuntime = agentRuntime ?? new FakeAgentAdapter({ ...config.fakeAgentConfig, saivageDir: join(config.projectRoot, '.saivage') }); if (typeof (this.agentRuntime as { setSaivageDir?: (saivageDir: string) => void }).setSaivageDir === 'function') (this.agentRuntime as unknown as { setSaivageDir: (saivageDir: string) => void }).setSaivageDir(join(config.projectRoot, '.saivage')); this.notificationCenter = new NotificationCenter(config.projectRoot); this._skillsEngine = config.skillsEngine ?? new SkillsEngine({ projectRoot: config.projectRoot }); this.eventBus = new EventBus(); this._continuousImprovementReserved = config.continuousImprovement ?? false; this._autoDispatchBacklog = config.autoDispatchBacklog ?? false;
     if (config.eventLogger) { this._eventLogger = config.eventLogger; this._ownsEventLogger = false; } else { this._eventLogger = new EventLogger(join(config.projectRoot, '.saivage')); this._ownsEventLogger = true; }
     if (config.errorLogger) { this._errorLogger = config.errorLogger; this._ownsErrorLogger = false; } else { this._errorLogger = new ErrorLogger(join(config.projectRoot, '.saivage')); this._ownsErrorLogger = true; }
     const supervisorDeps: SupervisorDeps = { getRecentLogs: (maxLines: number) => { try { const logPath = eventsLogPath(this.projectRoot); if (!existsSync(logPath)) return ''; const raw = readFileSync(logPath, 'utf-8'); const allLines = raw.split('\n').filter(Boolean); return allLines.slice(-maxLines).join('\n'); } catch { return ''; } }, getActiveSessions: () => { try { const handoffs = this.agentRuntime.getActiveSessionHandoffs(); if (!(handoffs instanceof Promise)) { const active = handoffs.map((handoff) => ({ role: handoff.role, sessionId: handoff.session_id })); if (active.length > 0) return active; } } catch {} try { const state = readRuntimeState(this.projectRoot); if (state && state.current_agent_session_id) { const sessionId = state.current_agent_session_id; let role = 'executor'; if (sessionId.startsWith('planner-')) role = 'planner'; else if (sessionId.startsWith('reviewer-')) role = 'reviewer'; return [{ role, sessionId }]; } } catch {} return []; }, abortSession: (sessionId: string) => { void this.agentRuntime.cancelSession(sessionId); }, forceCancelSession: (sessionId: string) => { void this.agentRuntime.forceCancelSession(sessionId); }, emitEvent: (kind: string, data: Record<string, unknown>) => { this.emit(kind, data); this._eventLogger.appendEvent({ kind: kind as never, ...data } as never); }, isShuttingDown: () => this._shuttingDown };
@@ -619,8 +626,18 @@ export class Runtime extends EventEmitter {
       const state = readRuntimeState(this.projectRoot);
       if (this._paused || state?.paused || this._shuttingDown || this._startupRepairPending) return;
       if (state?.active_card_run) {
-        if (state.active_card_run.phase === 'planner') { try { await this.dispatchGoal(state.active_card_run.card_id); } catch {} }
-        return;
+        if (state.active_card_run.phase === 'planner') { try { await this.dispatchGoal(state.active_card_run.card_id); } catch {} return; }
+        // Stale active_card_run: phase is not 'planner' but no dispatch is in flight.
+        // This happens when dispatchGoal exited abnormally (e.g. an internal
+        // catch block re-threw). Clear it so the loop can move on instead of
+        // wedging idle forever.
+        if (this._dispatchInFlight.size === 0) {
+          this._errorLogger.appendError({ message: `safeTick clearing stale active_card_run for card '${state.active_card_run.card_id}' (phase=${state.active_card_run.phase}); resuming dispatch.`, goalId: state.active_card_run.card_id, phase: 'safe_tick' });
+          updateRuntimeState(this.projectRoot, { status: 'idle', current_card_id: null, current_agent_session_id: null, queue: [], active_card_run: null } as Partial<RuntimeState> as never);
+          // fall through to directive / backlog dispatch below
+        } else {
+          return;
+        }
       }
       const directive = peekPendingProjectDirective(this.projectRoot);
       if (directive) {

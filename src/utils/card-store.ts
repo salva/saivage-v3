@@ -577,7 +577,7 @@ export class CardStore {
     const pruned: Partial<CardRecord> = {};
     for (const [key, value] of Object.entries(changes)) {
       if (value === undefined) continue;
-      const current = (existing as Record<string, unknown>)[key];
+      const current = (existing as unknown as Record<string, unknown>)[key];
       if (valuesEqual(current, value)) continue;
       (pruned as Record<string, unknown>)[key] = value;
     }

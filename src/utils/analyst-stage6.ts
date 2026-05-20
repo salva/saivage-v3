@@ -202,6 +202,53 @@ export function markDescendantChanged(projectRoot: string, affectedCardId: strin
   if (routed) queueSyntheticPlannerNote(projectRoot, { target_planner_session_id: routed.session.id, target_goal_card_id: routed.goalId, kind: 'subtree_changed', affected_card_id: affectedCardId, descendant_card_ids: [affectedCardId], summary: sanitizeAnalystText(summary, 1000) });
 }
 
+/**
+ * Notify any running/dormant planner that the analyst has acted on a card it
+ * owns, so the planner can resume and integrate the change on its next turn.
+ *
+ * This is the minimal wakeup signal for two kinds of analyst actions that
+ * otherwise would be invisible to the planner until something else happened:
+ *   - `add_note` with kind 'directive' or 'escalation' on a goal/project card
+ *   - `edit_card` that mutates tracked fields (title, description, acceptance,
+ *     depends_on, etc.) on any card under a planner subtree
+ *
+ * When the affected card is `project` (or any ancestor is `project`) and
+ * `recordProjectDirective` is true, also record a `project_needs_corrections`
+ * directive so safeTick will re-dispatch the project goal even if no planner
+ * session is currently routed to it.
+ */
+export function notifyPlannerOfAnalystAction(
+  projectRoot: string,
+  affectedCardId: string,
+  summary: string,
+  opts: { recordProjectDirective?: boolean; kind?: SyntheticPlannerNote['kind'] } = {},
+): void {
+  const store = new CardStore(projectRoot);
+  const card = store.read(affectedCardId);
+  if (!card) return;
+  const routed = findDeepestContainingPlanner(projectRoot, store, affectedCardId);
+  if (routed) {
+    queueSyntheticPlannerNote(projectRoot, {
+      target_planner_session_id: routed.session.id,
+      target_goal_card_id: routed.goalId,
+      kind: opts.kind ?? (affectedCardId === routed.goalId ? 'analyst_note' : 'subtree_changed'),
+      affected_card_id: affectedCardId,
+      descendant_card_ids: affectedCardId === routed.goalId ? [] : [affectedCardId],
+      summary: sanitizeAnalystText(summary, 1000),
+    });
+  }
+  if (opts.recordProjectDirective) {
+    const ancestors = store.getAncestors(affectedCardId);
+    if (affectedCardId === 'project' || ancestors.includes('project')) {
+      const directives = readDirectives(projectRoot);
+      if (!directives.project_needs_corrections && !directives.lets_dance) {
+        directives.project_needs_corrections = now();
+        writeDirectives(projectRoot, directives);
+      }
+    }
+  }
+}
+
 export function consumeChangedCardActivation(projectRoot: string, cardId: string): number {
   const store = new CardStore(projectRoot);
   const card = store.read(cardId);
