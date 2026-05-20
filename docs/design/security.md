@@ -169,14 +169,19 @@ provider-error JSON.
 
 ## API Authentication
 
-The HTTP server requires authentication on all `/api/*` endpoints:
+The HTTP server requires authentication on all `/api/*` endpoints when
+`SAIVAGE_API_TOKEN` is configured:
 
-- **Token**: `SAIVAGE_API_TOKEN` environment variable.
-- **Enforcement**: Bearer token in `Authorization` header or
-  `?token=` query parameter.
+- **REST/API token source**: `SAIVAGE_API_TOKEN` environment variable.
+- **REST/API delivery**: `Authorization: Bearer <token>` header only.
+- **Rejected transport**: URL/query API bearer credentials such as
+  `?token=<token>` are prohibited and rejected; do not place API bearer
+  tokens in links, bookmarks, logs, or WebSocket URLs.
 - **Public endpoints**: `/health` does not require authentication.
-- **WebSocket**: Auth is checked on connection upgrade. Connections
-  without valid auth are closed with code `1008` (policy violation).
+- **Browser WebSocket**: Authenticated browser clients request a
+  short-lived, one-use ticket from `POST /api/auth/ws-ticket` using the
+  bearer REST header, then connect to `/ws?ticket=<ticket>`.
+  WebSocket API bearer tokens in the URL are rejected.
 
 See `server-api.md` for endpoint details.
 

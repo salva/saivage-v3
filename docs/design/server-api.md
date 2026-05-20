@@ -19,14 +19,18 @@ port (see `configuration.md §Server`). It serves:
 
 All `/api/*` endpoints require authentication; the web client surfaces any API 401 through a session-dismissable `API token required` banner that opens the token modal (`web/src/api/client.ts`, `web/src/utils/auth-events.ts`, `web/src/components/layout/AppShell.vue`, `web/src/__tests__/app-shell-auth-banner.test.ts`).
 
-All `/api/*` endpoints require authentication:
+All `/api/*` endpoints require authentication when `SAIVAGE_API_TOKEN`
+is configured:
 
 - **Token source**: `SAIVAGE_API_TOKEN` environment variable.
-- **Delivery**: `Authorization: Bearer <token>` header or
-  `?token=<token>` query parameter.
+- **REST/API delivery**: `Authorization: Bearer <token>` header only.
+- **Rejected transport**: URL/query API bearer credentials such as
+  `?token=<token>` are prohibited and rejected.
 - **Public**: `/health` does not require authentication.
-- **WebSocket**: Auth is checked on connection upgrade. Invalid
-  auth → close with code `1008`.
+- **WebSocket**: Browser clients obtain a short-lived, one-use ticket
+  from `POST /api/auth/ws-ticket` using the bearer REST header and then
+  connect to `/ws?ticket=<ticket>`. Invalid, missing, expired, replayed,
+  or bearer-token URL credentials are rejected with policy violation.
 
 See `security.md` for details.
 
@@ -214,10 +218,15 @@ fields is guarded by `tests/server/restart-persistence-operator-surface.test.ts`
 ### Connection
 
 ```
-ws://host:port/ws
+ws://host:port/ws?ticket=<ticket>
 ```
 
-Auth is checked on upgrade. Invalid or missing auth → close `1008` (enforced by `src/server/websocket.ts` and `tests/server/websocket-analyst-safety.test.ts`).
+Browser clients first call `POST /api/auth/ws-ticket` with
+`Authorization: Bearer <token>` and then use the returned short-lived,
+one-use ticket on the WebSocket upgrade. API bearer credentials are not
+accepted in WebSocket URLs; `/ws?token=<token>` is rejected. Invalid,
+missing, expired, or replayed tickets close with code `1008` (enforced by
+`src/server/websocket.ts` and `tests/server/websocket-analyst-safety.test.ts`).
 
 ### Message envelope
 

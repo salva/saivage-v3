@@ -33,10 +33,15 @@ Symptoms:
 What to do:
 
 1. Confirm `SAIVAGE_API_TOKEN` is configured on the server.
-2. Confirm the client sends `Authorization: Bearer <token>` or `?token=<token>`.
-3. Confirm `/health` works without auth.
-4. Confirm `/docs/` remains public.
-5. Re-enter the token in the Web Control Room token modal when needed.
+2. Confirm REST/API clients send `Authorization: Bearer <token>`.
+3. Confirm clients are not sending URL/query API bearer credentials such
+   as `?token=<token>`; those are prohibited and rejected.
+4. For browser WebSocket failures, confirm the client obtains a
+   short-lived, one-use ticket from `POST /api/auth/ws-ticket` using the
+   bearer REST header and connects to `/ws?ticket=<ticket>`.
+5. Confirm `/health` works without auth.
+6. Confirm `/docs/` remains public.
+7. Re-enter the token in the Web Control Room token modal when needed.
 
 ## Stale, reconnecting, or offline UI
 

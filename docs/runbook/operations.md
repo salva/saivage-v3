@@ -2,6 +2,10 @@
 
 Use this page for day-to-day Saivage operation. Incident recovery lives in [Incidents](./incidents.md); release validation lives in [Release](./release.md).
 
+## Supported local runtime
+
+Run Saivage with Node.js 22. The root and web `package.json` engines declare `node >=22.12.0 <23` and `npm >=10 <12`, matching the CI `actions/setup-node@v4` validation profile. Check `node --version` and `npm --version` before `npm install`, `npm ci`, builds, or runtime startup.
+
 ## Startup modes
 
 ### API/server only
@@ -57,10 +61,26 @@ Protected when `SAIVAGE_API_TOKEN` is configured:
 - all `/api/*`
 - `/ws`
 
-Accepted auth methods:
+Accepted REST/API bearer transport:
 
 - `Authorization: Bearer <token>`
-- `?token=<token>`
+
+URL/query API bearer credentials such as `?token=<token>` are prohibited
+and rejected. Do not put API bearer tokens in links, bookmarks, curl
+URLs, WebSocket URLs, logs, or incident notes.
+
+Browser WebSocket clients must first request a short-lived, one-use
+ticket through authenticated REST and then use that ticket for the
+WebSocket upgrade:
+
+```bash
+curl -X POST http://localhost:8080/api/auth/ws-ticket \
+  -H "Authorization: Bearer <synthetic-api-token>"
+# {"ticket":"wst_<opaque-ticket>","expiresAt":"2026-01-01T00:00:30.000Z"}
+```
+
+The browser then connects to `/ws?ticket=wst_<opaque-ticket>`. The ticket
+is not an API bearer token, expires quickly, and can be used only once.
 
 If no API token is configured, tokenless startup is only allowed on localhost-style bindings.
 
@@ -172,16 +192,18 @@ The runtime consumes eligible directives on scheduler safe ticks and owns subseq
 
 The analyst chat WebSocket endpoint is `/ws`.
 
-Auth is the same as protected API routes:
-
-- `ws://localhost:8080/ws?token=<token>`
-- or an `Authorization: Bearer <token>` header from clients that can set WebSocket headers.
-
-Example with query-token auth:
+Browser clients authenticate by obtaining a short-lived, one-use ticket
+from `POST /api/auth/ws-ticket` with the REST bearer header, then
+connecting with that ticket:
 
 ```bash
-websocat "ws://localhost:8080/ws?token=$SAIVAGE_API_TOKEN"
+WS_TICKET=$(curl -s -X POST http://localhost:8080/api/auth/ws-ticket \
+  -H "Authorization: Bearer <synthetic-api-token>" | jq -r .ticket)
+websocat "ws://localhost:8080/ws?ticket=${WS_TICKET}"
 ```
+
+Do not use `/ws?token=<token>` or any other URL/query API bearer
+credential; bearer tokens in WebSocket URLs are rejected.
 
 Messages are serialized per connection. The server preserves sanitization and either processes turns in send order or rejects overlap according to the analyst WebSocket contract.
 
