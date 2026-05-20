@@ -1,33 +1,24 @@
 import type { Candidate, ProviderRegistry } from './provider.js';
 import {
+  CredentialSourceResolver,
+  type CredentialSourceMetadata,
+} from './credential-source-resolver.js';
+import {
   type AuthProfile,
   isProfileExpired,
   loadAuthProfiles,
   saveAuthProfile,
 } from '../auth/oauth-profiles.js';
 
-const DEFAULT_OPENAI_BASE_URL = 'https://api.openai.com';
 const OPENAI_CODEX_TOKEN_URL = 'https://auth.openai.com/oauth/token';
 const OPENAI_CODEX_CLIENT_ID = 'app_EMoamEEZ73f0CkXaXp7hrann';
-
-const PROVIDER_DEFAULT_BASE_URLS: Record<string, string> = {
-  'github-copilot': 'https://api.individual.githubcopilot.com',
-  'openai-codex': 'https://chatgpt.com/backend-api',
-  opencode: 'https://opencode.ai/zen/v1',
-  'opencode-go': 'https://opencode.ai/zen/go/v1',
-};
-
-const PROVIDER_AUTH_PROFILE_ALIASES: Record<string, string[]> = {
-  copilot: ['github-copilot'],
-  'github-copilot': ['github-copilot', 'copilot'],
-  'openai-codex': ['openai-codex', 'openai'],
-  openai: ['openai', 'openai-codex'],
-};
 
 export interface LlmTransportConfig {
   baseUrl: string;
   apiKey?: string;
   cacheKey: string;
+  credentialMetadata?: CredentialSourceMetadata;
+  tokenEndpoint?: string;
 }
 
 export async function resolveLlmTransportConfig(
@@ -46,36 +37,21 @@ export async function resolveLlmTransportConfig(
     ? (provider.getAllAccounts().find((a) => a.name === candidate.account) ??
       provider.implicitAccount)
     : provider.implicitAccount;
-  const baseUrl = account.effectiveBaseUrl(provider.baseUrl) ??
-    PROVIDER_DEFAULT_BASE_URLS[provider.name] ??
-    DEFAULT_OPENAI_BASE_URL;
-  const apiKey = account.effectiveApiKey(provider.apiKey) ??
-    await resolveProfileAccessToken(projectRoot, provider.name, account.authProfile ?? provider.authProfile);
-  const cacheKey = apiKey != null ? `${baseUrl}:${apiKey}` : baseUrl;
-  return { baseUrl, apiKey, cacheKey };
-}
 
-async function resolveProfileAccessToken(
-  projectRoot: string,
-  providerName: string,
-  authProfileName?: string,
-): Promise<string | undefined> {
-  const file = await loadAuthProfiles(projectRoot);
-  if (!file) return undefined;
-  if (authProfileName) {
-    const profile = file.profiles[authProfileName];
-    return profile
-      ? await usableProfileAccessToken(projectRoot, authProfileName, profile)
-      : undefined;
-  }
-  const providerAliases = new Set([
-    providerName,
-    ...(PROVIDER_AUTH_PROFILE_ALIASES[providerName] ?? []),
-  ]);
-  const entry = Object.entries(file.profiles).find(([, profile]) => providerAliases.has(profile.provider));
-  return entry
-    ? await usableProfileAccessToken(projectRoot, entry[0], entry[1])
-    : undefined;
+  const resolver = new CredentialSourceResolver({
+    loadAuthProfiles: () => loadAuthProfiles(projectRoot),
+    usableProfileAccessToken: (profileName, profile) =>
+      usableProfileAccessToken(projectRoot, profileName, profile),
+  });
+  const resolved = await resolver.resolve(provider, account);
+
+  return {
+    baseUrl: resolved.baseUrl,
+    apiKey: resolved.apiKey,
+    cacheKey: resolved.cacheKey,
+    credentialMetadata: resolved.metadata,
+    tokenEndpoint: resolved.tokenEndpoint,
+  };
 }
 
 async function usableProfileAccessToken(
