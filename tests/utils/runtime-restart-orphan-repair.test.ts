@@ -99,6 +99,21 @@ describe('stage 7 runtime restart and orphan activate_card repair', () => {
     expect(parseActivationCompletionEnvelope(results[0]!.content)).toEqual(expect.objectContaining({ kind: 'activate_card_completion', outcome: 'done', child_card_id: 'code-a', cardId: 'code-a', success: true }));
   });
 
+
+
+  it('treats existing activate_card tool_error rows as resolved during orphan repair', async () => {
+    store.create(cardInput('goal-a', 'goal', 'project', 'running'));
+    store.create(cardInput('code-a', 'code', 'goal-a', 'done'));
+    const callId = addActivateCall(root, 'goal-a', 'code-a');
+    appendMessage(join(root, '.saivage'), 'planner:goal-a', { role: 'tool', kind: 'tool_error', tool: 'activate_card', tool_call_id: callId, content: 'Dependency not satisfied: prerequisite card is still running.' });
+    saveRuntimeState(root, runtimeState(null));
+    runtime = new Runtime({ projectRoot: root, fakeAgentConfig: { mapping: {}, fixtureDir: root } }, new ScriptedAgent({}));
+    await runtime.startup();
+    const messages = getSessionMessages(join(root, '.saivage'), 'planner:goal-a');
+    expect(messages.filter((m) => m.kind === 'tool_error' && m.tool_call_id === callId)).toHaveLength(1);
+    expect(activationResults(root, 'goal-a')).toHaveLength(0);
+  });
+
   it('repairs active_card_run from terminal child status exactly once', async () => {
     store.create(cardInput('goal-a', 'goal', 'project', 'running'));
     store.create({ ...cardInput('code-a', 'code', 'goal-a', 'done'), result: { evidence: true } });

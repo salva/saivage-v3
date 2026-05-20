@@ -12,6 +12,7 @@ import type {
   ReviewAssessment,
   NotificationRecord,
   ProjectRunCompletedPayload,
+  ActivationCompletionOutcome,
 } from '../schemas/types.js';
 import { createActivationCompletionEnvelope, parseActivationCompletionEnvelope } from '../schemas/validators.js';
 import { CardStore } from './card-store.js';
@@ -128,7 +129,7 @@ export class Runtime extends EventEmitter {
     return { parentCardId, callerSessionId, callerToolCallId: call.tool_call_id };
   }
 
-  private buildCardActivationOutcome(childCardId: string, outcome: string, summary: string): string {
+  private buildCardActivationOutcome(childCardId: string, outcome: ActivationCompletionOutcome, summary: string): string {
     const child = this.cardStore.read(childCardId);
     const failureKind = child?.result && typeof child.result === 'object' && typeof (child.result as { failure_kind?: unknown }).failure_kind === 'string'
       ? (child.result as { failure_kind: string }).failure_kind
@@ -147,7 +148,7 @@ export class Runtime extends EventEmitter {
     }));
   }
 
-  private appendChildUnwindToolResult(childCardId: string, outcome: string, summary: string): void {
+  private appendChildUnwindToolResult(childCardId: string, outcome: ActivationCompletionOutcome, summary: string): void {
     const edge = this.findCallerEdge(childCardId);
     if (!edge) return;
     appendActivateCardToolResultOnce(
@@ -160,7 +161,20 @@ export class Runtime extends EventEmitter {
 
   private findUnresolvedActivateCards(sessionId: string): Array<{ session_id: string; tool_call_id: string; card_id: string }> {
     const messages = getSessionMessages(join(this.projectRoot, '.saivage'), sessionId);
-    const resolved = new Set(messages.filter((message) => (message.kind === 'tool_result' || message.kind === 'tool_error') && typeof message.tool_call_id === 'string' && parseActivationCompletionEnvelope(message.content)).map((message) => message.tool_call_id as string));
+    const activateCardToolCallIds = new Set<string>();
+    for (const message of messages) {
+      if (message.role !== 'assistant' || message.kind !== 'tool_call') continue;
+      let parsed: { toolCalls?: Array<{ id?: unknown; function?: { name?: unknown } }> };
+      try { parsed = JSON.parse(message.content) as typeof parsed; } catch { continue; }
+      for (const call of parsed.toolCalls ?? []) {
+        if (call.function?.name === 'activate_card' && typeof call.id === 'string') activateCardToolCallIds.add(call.id);
+      }
+    }
+    const resolved = new Set(messages.filter((message) => {
+      if (typeof message.tool_call_id !== 'string' || !activateCardToolCallIds.has(message.tool_call_id)) return false;
+      if (message.kind === 'tool_error') return true;
+      return message.kind === 'tool_result' && Boolean(parseActivationCompletionEnvelope(message.content));
+    }).map((message) => message.tool_call_id as string));
     const calls: Array<{ session_id: string; tool_call_id: string; card_id: string }> = [];
     for (const message of messages) {
       if (message.role !== 'assistant' || message.kind !== 'tool_call') continue;

@@ -42,6 +42,13 @@ describe('Activation envelope schemas', () => {
     expect(completion).toEqual(expect.objectContaining({ kind: 'activate_card_completion', version: 1, child_card_id: 'legacy-child', cardId: 'legacy-child', success: false, failure_kind: 'service_restart' }));
   });
 
+
+
+  it('rejects completion envelopes and legacy completion JSON with unplanned outcomes', () => {
+    expect(() => createActivationCompletionEnvelope({ child_card_id: 'code-a', outcome: 'unknown' as any, summary: 'bad outcome' })).toThrow();
+    expect(parseActivationCompletionEnvelope(JSON.stringify({ success: true, cardId: 'legacy-child', outcome: 'unknown', summary: 'old' }))).toBeNull();
+  });
+
   it('creates typed completion envelopes with compatibility aliases', () => {
     const envelope = createActivationCompletionEnvelope({ child_card_id: 'code-a', outcome: 'done', summary: 'complete', result: { ok: true }, failure_kind: undefined });
     expect(envelope).toEqual(expect.objectContaining({ kind: 'activate_card_completion', version: 1, child_card_id: 'code-a', cardId: 'code-a', success: true, outcome: 'done' }));
