@@ -460,4 +460,35 @@ describe('Server — with token works with any host', () => {
     });
     expect(res.status).toBe(200);
   });
+
+
+  it('GET /api/state rejects query token credentials without echoing synthetic token text', async () => {
+    const res = await fetch(baseUrl(`/api/state?token=${encodeURIComponent(AUTH_TOKEN)}`));
+    expect(res.status).toBe(401);
+    const bodyText = await res.text();
+    expect(bodyText).toContain('Unauthorized');
+    expect(bodyText).not.toContain(AUTH_TOKEN);
+  });
+
+  it('GET /api/state rejects query token even with a valid Bearer header', async () => {
+    const res = await fetch(baseUrl(`/api/state?token=${encodeURIComponent(AUTH_TOKEN)}`), {
+      headers: authHeaders(),
+    });
+    expect(res.status).toBe(401);
+    const bodyText = await res.text();
+    expect(bodyText).not.toContain(AUTH_TOKEN);
+  });
+
+  it('POST /api/auth/ws-ticket requires bearer auth and returns a non-token ticket', async () => {
+    const denied = await fetch(baseUrl('/api/auth/ws-ticket'), { method: 'POST' });
+    expect(denied.status).toBe(401);
+    expect(await denied.text()).not.toContain(AUTH_TOKEN);
+
+    const res = await fetch(baseUrl('/api/auth/ws-ticket'), { method: 'POST', headers: authHeaders() });
+    expect(res.status).toBe(200);
+    const body = await res.json() as { ticket: string; expiresAt: string };
+    expect(body.ticket).toMatch(/^wst_/);
+    expect(body.ticket).not.toContain(AUTH_TOKEN);
+    expect(Date.parse(body.expiresAt)).not.toBeNaN();
+  });
 });

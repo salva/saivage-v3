@@ -2,8 +2,8 @@
  * Saivage v3 API Client
  *
  * Typed fetch wrappers for all REST endpoints documented in docs/design/server-api.md.
- * Auth token comes from localStorage ('saivage_api_token') or the URL query
- * parameter 'token', falling back to VITE_SAIVAGE_API_TOKEN from import.meta.env.
+ * Auth token comes from localStorage ('saivage_api_token'), falling back to
+ * VITE_SAIVAGE_API_TOKEN from import.meta.env. URL query tokens are ignored.
  */
 
 import type {
@@ -144,6 +144,16 @@ function operatorRequest<K extends OperatorApiOperationId>(
   body?: unknown,
 ): Promise<OperatorApiSuccess<K>> {
   return request<OperatorApiSuccess<K>>(method, path, query, body, operationId);
+}
+
+
+export interface WebSocketTicketResponse {
+  ticket: string;
+  expiresAt: string;
+}
+
+export function issueWebSocketTicket(): Promise<WebSocketTicketResponse> {
+  return request<WebSocketTicketResponse>('POST', '/api/auth/ws-ticket');
 }
 
 export async function getHealth(): Promise<{ status: string; version: string; project: string; runtime: string }> {

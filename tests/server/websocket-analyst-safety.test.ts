@@ -11,6 +11,8 @@ jest.unstable_mockModule('../../src/agents/analyst-handler.js', () => ({
   resetAnalystHandlerCache: mockResetAnalystHandlerCache,
 }));
 
+const authPolicyModule = await import('../../src/server/auth-policy.js');
+const { getAuthPolicy, resetAuthPolicyForTests } = authPolicyModule;
 const websocketModule = await import('../../src/server/websocket.js');
 const {
   broadcast,
@@ -48,6 +50,7 @@ describe('websocket analyst safety', () => {
     mockGetOrCreateAnalystSession.mockReturnValue({ sessionId: 'session-1' });
     resetWebSocketState();
     delete process.env.SAIVAGE_API_TOKEN;
+    resetAuthPolicyForTests();
   });
 
   it('broadcastAnalystToolInvoked bounds and redacts summaries', () => {
@@ -72,7 +75,8 @@ describe('websocket analyst safety', () => {
 
     const authorized = createSocket();
     const unauthorized = createSocket();
-    route.handler(authorized.ws, { headers: { authorization: 'Bearer top-secret' }, query: {} });
+    const ticket = getAuthPolicy().issueWebSocketTicket().ticket;
+    route.handler(authorized.ws, { headers: {}, query: { ticket } });
     route.handler(unauthorized.ws, { headers: {}, query: {} });
 
     broadcast({ type: 'activity', content: { event: 'ping' } });
@@ -80,6 +84,71 @@ describe('websocket analyst safety', () => {
     expect(authorized.ws.send).toHaveBeenCalled();
     expect(unauthorized.ws.close).toHaveBeenCalledWith(1008, 'Authentication failed');
     expect((unauthorized.ws.send as jest.Mock).mock.calls.some((call) => String(call[0]).includes('ping'))).toBe(false);
+  });
+
+
+
+  it('accepts a valid one-use websocket ticket and sends connected status', () => {
+    process.env.SAIVAGE_API_TOKEN = 'arch004-test-token';
+    resetAuthPolicyForTests();
+    const { route, fastify } = createRoute();
+    registerWebSocket(fastify, '/tmp/project');
+    const ticket = getAuthPolicy().issueWebSocketTicket().ticket;
+    const { ws } = createSocket();
+
+    route.handler(ws, { headers: {}, query: { ticket } });
+
+    expect(ws.close).not.toHaveBeenCalled();
+    const status = JSON.parse((ws.send as jest.Mock).mock.calls[0]?.[0] as string);
+    expect(status).toMatchObject({ type: 'status', content: { event: 'connected', sessionId: 'session-1' } });
+  });
+
+  it('rejects /ws token query, missing, invalid, and reused tickets with generic 1008 close reason', () => {
+    process.env.SAIVAGE_API_TOKEN = 'arch004-test-token';
+    resetAuthPolicyForTests();
+    const { route, fastify } = createRoute();
+    registerWebSocket(fastify, '/tmp/project');
+
+    const tokenSocket = createSocket();
+    route.handler(tokenSocket.ws, { headers: {}, query: { token: 'arch004-test-token' } });
+    expect(tokenSocket.ws.close).toHaveBeenCalledWith(1008, 'Authentication failed');
+
+    const missingSocket = createSocket();
+    route.handler(missingSocket.ws, { headers: {}, query: {} });
+    expect(missingSocket.ws.close).toHaveBeenCalledWith(1008, 'Authentication failed');
+
+    const invalidSocket = createSocket();
+    route.handler(invalidSocket.ws, { headers: {}, query: { ticket: 'arch004-ticket-invalid' } });
+    expect(invalidSocket.ws.close).toHaveBeenCalledWith(1008, 'Authentication failed');
+
+    const ticket = getAuthPolicy().issueWebSocketTicket().ticket;
+    const firstUse = createSocket();
+    route.handler(firstUse.ws, { headers: {}, query: { ticket } });
+    const secondUse = createSocket();
+    route.handler(secondUse.ws, { headers: {}, query: { ticket } });
+    expect(secondUse.ws.close).toHaveBeenCalledWith(1008, 'Authentication failed');
+
+    for (const socket of [tokenSocket, missingSocket, invalidSocket, secondUse]) {
+      const reason = (socket.ws.close as jest.Mock).mock.calls[0]?.[1] as string;
+      expect(reason).not.toMatch(/arch004-test-token|arch004-ticket-invalid/);
+    }
+  });
+
+  it('rejects expired websocket tickets with generic 1008 close reason', async () => {
+    process.env.SAIVAGE_API_TOKEN = 'arch004-test-token';
+    resetAuthPolicyForTests();
+    jest.useFakeTimers();
+    const { route, fastify } = createRoute();
+    registerWebSocket(fastify, '/tmp/project');
+    const ticket = getAuthPolicy().issueWebSocketTicket().ticket;
+    jest.advanceTimersByTime(31_000);
+    const { ws } = createSocket();
+
+    route.handler(ws, { headers: {}, query: { ticket } });
+
+    expect(ws.close).toHaveBeenCalledWith(1008, 'Authentication failed');
+    expect((ws.close as jest.Mock).mock.calls[0]?.[1]).not.toContain(ticket);
+    jest.useRealTimers();
   });
 
   it('sanitizes direct tool_invocation params and result payloads', async () => {

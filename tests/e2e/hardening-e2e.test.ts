@@ -13,6 +13,7 @@ import Fastify, { type FastifyInstance } from 'fastify';
 import cors from '@fastify/cors';
 import websocket from '@fastify/websocket';
 import WebSocket from 'ws';
+import { getAuthPolicy, resetAuthPolicyForTests } from '../../src/server/auth-policy.js';
 import {
   existsSync,
   mkdirSync,
@@ -276,6 +277,7 @@ describe('E2E — Full Project Lifecycle', () => {
 
     const authToken = 'e2e-test-token';
     process.env['SAIVAGE_API_TOKEN'] = authToken;
+    resetAuthPolicyForTests();
 
     const app = Fastify({ logger: false });
     await app.register(cors);
@@ -747,9 +749,10 @@ describe('Security — Auth, Path Traversal, and Redaction', () => {
       expect(res.status).toBe(200);
     });
 
-    it('accepts requests with valid ?token= query param', async () => {
+    it('rejects requests with valid ?token= query param', async () => {
       const res = await fetch(url(`/api/state?token=${authToken}`));
-      expect(res.status).toBe(200);
+      expect(res.status).toBe(401);
+      expect(await res.text()).not.toContain(authToken);
     });
   });
 
@@ -852,7 +855,8 @@ describe('Security — Auth, Path Traversal, and Redaction', () => {
     }, 10000);
 
     it('accepts WebSocket with valid auth token', (done) => {
-      const ws = new WebSocket(`ws://127.0.0.1:${port}/ws?token=${authToken}`);
+      const ticket = getAuthPolicy().issueWebSocketTicket().ticket;
+      const ws = new WebSocket(`ws://127.0.0.1:${port}/ws?ticket=${ticket}`);
       ws.on('message', (raw) => {
         const data = JSON.parse(raw.toString()) as { type: string; content: Record<string, unknown> };
         expect(data.type).toBe('status');

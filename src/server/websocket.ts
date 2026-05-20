@@ -17,6 +17,7 @@ import { redactOperatorErrorMessage } from '../utils/file-access-security.js';
 import { sanitizeAnalystPayload, sanitizeAnalystText } from '../utils/analyst-sanitization.js';
 import type { ActiveRuntime } from '../utils/active-runtime.js';
 import { validateKnownWsEnvelope } from '../contracts/operator-events.js';
+import { getAuthPolicy } from './auth-policy.js';
 
 export type WsEventType = 'message' | 'activity' | 'thinking' | 'status' | 'error';
 
@@ -183,28 +184,8 @@ export function getRuntimeEventSubscriptionCount(): number {
   return runtimeEventSubscriptions.size;
 }
 
-function getApiToken(): string | undefined {
-  return process.env['SAIVAGE_API_TOKEN'];
-}
-
 function checkAuth(request: FastifyRequest): boolean {
-  const token = getApiToken();
-  if (!token) {
-    return true;
-  }
-
-  const authHeader = request.headers.authorization;
-  if (authHeader) {
-    const parts = authHeader.split(' ');
-    if (parts.length === 2 && parts[0].toLowerCase() === 'bearer') {
-      if (parts[1] === token) return true;
-    }
-  }
-
-  const queryToken = (request.query as Record<string, string> | undefined)?.['token'];
-  if (queryToken === token) return true;
-
-  return false;
+  return getAuthPolicy().validateWebSocketRequest(request).ok;
 }
 
 function rejectUnauthorizedWebSocket(ws: WebSocket): void {

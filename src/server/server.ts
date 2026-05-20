@@ -6,6 +6,7 @@ import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import authPlugin from './auth.js';
+import { registerAuthRoutes } from './routes/auth.js';
 import { registerCardRoutes } from './routes/cards.js';
 import { registerRuntimeConfigNotesRoutes } from './routes/runtime-config-notes.js';
 import { registerChatsFilesDebugRoutes, resetChatRouteState } from './routes/chats-files-debug.js';
@@ -70,7 +71,7 @@ export async function createServer(projectRoot: string, createRuntime?: boolean)
       done(err instanceof Error ? err : new Error(String(err)), undefined);
     }
   });
-  await fastify.register(cors); await fastify.register(websocket); await fastify.register(authPlugin);
+  await fastify.register(cors); await fastify.register(websocket); await fastify.register(authPlugin); registerAuthRoutes(fastify);
   const thisFile = fileURLToPath(import.meta.url); const inDist = thisFile.includes('/dist/src/') || thisFile.includes('\\dist\\src\\'); const packageRoot = fileURLToPath(new URL(inDist ? '../../..' : '../..', import.meta.url));
   const docsDistDir = join(packageRoot, 'docs', '.vitepress', 'dist'); const docsBuilt = existsSync(docsDistDir);
   if (docsBuilt) { await fastify.register(fastifyStatic, { root: docsDistDir, prefix: '/docs/', wildcard: false, decorateReply: false }); fastify.get('/docs', async (_request, reply) => reply.redirect('/docs/')); } else { const docsUnavailable = async (_request: FastifyRequest, reply: FastifyReply) => reply.status(404).send({ error: 'Documentation not built. Run vitepress build docs/ to generate.' }); fastify.get('/docs/*', docsUnavailable); fastify.get('/docs', docsUnavailable); }

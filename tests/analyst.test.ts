@@ -3,6 +3,7 @@ import Fastify, { type FastifyInstance } from 'fastify';
 import cors from '@fastify/cors';
 import websocket from '@fastify/websocket';
 import WebSocket from 'ws';
+import { getAuthPolicy, resetAuthPolicyForTests } from '../src/server/auth-policy.js';
 import { existsSync, mkdirSync, rmSync, writeFileSync, readFileSync, unlinkSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -173,6 +174,7 @@ describe('API Chat and WebSocket Integration', () => {
     setupTestProject(projectRoot);
     authToken = process.env['SAIVAGE_API_TOKEN'] || 'test-token';
     process.env['SAIVAGE_API_TOKEN'] = authToken;
+    resetAuthPolicyForTests();
 
     app = Fastify({ logger: false });
     await app.register(cors);
@@ -201,7 +203,7 @@ describe('API Chat and WebSocket Integration', () => {
   }, 10000);
 
   function apiUrl(path: string): string { return `http://127.0.0.1:${port}${path}`; }
-  function wsUrl(): string { return `ws://127.0.0.1:${port}/ws?token=${authToken}`; }
+  function wsUrl(): string { const ticket = getAuthPolicy().issueWebSocketTicket().ticket; return `ws://127.0.0.1:${port}/ws?ticket=${ticket}`; }
   function authHdr(): Record<string, string> { return { authorization: `Bearer ${authToken}` }; }
 
   it('returns a real analyst response message', async () => {

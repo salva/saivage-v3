@@ -9,6 +9,7 @@ import { tmpdir } from 'node:os';
 import { createSession } from '../../src/agents/session-persistence.js';
 import { resetWebSocketState, registerWebSocket } from '../../src/server/websocket.js';
 import { recordControlAction } from '../../src/utils/control-action-audit.js';
+import { getAuthPolicy, resetAuthPolicyForTests } from '../../src/server/auth-policy.js';
 
 const TEST_ROOT = join(tmpdir(), `saivage-cross-surface-${Date.now()}`);
 const authToken = 'test-token';
@@ -47,7 +48,8 @@ function initializeProjectRoot(root: string): void {
 
 function openWebSocketEvents(): Promise<{ socket: WebSocket; events: Array<{ type: string; content: Record<string, unknown> }> }> {
   return new Promise((resolve, reject) => {
-    const socket = new WebSocket(`${url('/ws')}?token=${authToken}`);
+    const ticket = getAuthPolicy().issueWebSocketTicket().ticket;
+    const socket = new WebSocket(`${url('/ws')}?ticket=${ticket}`);
     const events: Array<{ type: string; content: Record<string, unknown> }> = [];
     const timer = setTimeout(() => reject(new Error('Timed out waiting for websocket connection')), 5000);
     socket.once('open', () => {
@@ -73,6 +75,7 @@ async function waitForActivityCount(events: Array<{ type: string; content: Recor
 
 beforeAll(async () => {
   process.env['SAIVAGE_API_TOKEN'] = authToken;
+  resetAuthPolicyForTests();
   initializeProjectRoot(TEST_ROOT);
   const saivageDir = join(TEST_ROOT, '.saivage');
   createSession(saivageDir, 'planner', 'goal-1', null);

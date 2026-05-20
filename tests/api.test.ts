@@ -13,6 +13,7 @@ import { createServer, type ServerInstance } from '../src/server/server.js';
 import { NotificationCenter } from '../src/utils/notification-center.js';
 import { recordControlAction } from '../src/utils/control-action-audit.js';
 import { runtimeStatePath } from '../src/utils/runtime-state.js';
+import { getAuthPolicy, resetAuthPolicyForTests } from '../src/server/auth-policy.js';
 
 const TEST_ROOT = join(tmpdir(), `saivage-api-test-${Date.now()}`);
 const SAIVAGE_DIR = join(TEST_ROOT, '.saivage');
@@ -74,6 +75,7 @@ beforeAll(async () => {
 
   authToken = process.env['SAIVAGE_API_TOKEN'] || 'test-token';
   process.env['SAIVAGE_API_TOKEN'] = authToken;
+  resetAuthPolicyForTests();
 
   app = Fastify({ logger: false });
   await app.register(cors);
@@ -259,7 +261,8 @@ describe('runtime config and notes routes', () => {
 
 describe('websocket push events', () => {
   it('broadcasts card history, notification add/ack, and control action events within one tick of mutations', async () => {
-    const ws = new WebSocket(`ws://127.0.0.1:${port}/ws?token=${authToken}`);
+    const ticket = getAuthPolicy().issueWebSocketTicket().ticket;
+    const ws = new WebSocket(`ws://127.0.0.1:${port}/ws?ticket=${ticket}`);
     await new Promise<void>((resolve, reject) => {
       ws.once('message', () => resolve());
       ws.once('error', reject);
@@ -352,7 +355,8 @@ describe('server factory docs and lifecycle cleanup', () => {
       await server.fastify.listen({ port: 0, host: '127.0.0.1' });
       const localPort = (server.fastify.server.address() as { port: number }).port;
 
-      ws = new WebSocket(`ws://127.0.0.1:${localPort}/ws?token=${authToken}`);
+      const ticket = getAuthPolicy().issueWebSocketTicket().ticket;
+      ws = new WebSocket(`ws://127.0.0.1:${localPort}/ws?ticket=${ticket}`);
       await new Promise<void>((resolve, reject) => {
         ws!.once('message', () => resolve());
         ws!.once('error', reject);

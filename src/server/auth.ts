@@ -1,10 +1,12 @@
 /**
  * Auth plugin for Fastify.
  *
- * Authenticates /api/* and /ws routes using the SAIVAGE_API_TOKEN
- * environment variable. Accepted delivery methods:
+ * Authenticates /api/* routes using the SAIVAGE_API_TOKEN environment variable.
+ * Accepted API bearer transport:
  *   - Authorization: Bearer <token> header
- *   - ?token=<token> query parameter
+ *
+ * URL/query API bearer credentials are explicitly rejected when token auth is enabled.
+ * WebSocket clients authenticate through short-lived tickets issued by /api/auth/ws-ticket.
  *
  * Public endpoints:
  *   - /health — no authentication required
@@ -12,12 +14,7 @@
 
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import fp from 'fastify-plugin';
-
-// ── Constants ─────────────────────────────────────────────────
-
-function getApiToken(): string | undefined {
-  return process.env['SAIVAGE_API_TOKEN'];
-}
+import { getAuthPolicy } from './auth-policy.js';
 
 // ── Auth Handler ──────────────────────────────────────────────
 
@@ -25,32 +22,11 @@ export async function authenticate(
   request: FastifyRequest,
   _reply: FastifyReply,
 ): Promise<void> {
-  const token = getApiToken();
+  const result = getAuthPolicy().validateHttpRequest(request);
+  if (result.ok) return;
 
-  // If no token is configured, authentication is disabled
-  if (!token) {
-    return;
-  }
-
-  // Check Authorization: Bearer <token>
-  const authHeader = request.headers.authorization;
-  if (authHeader) {
-    const parts = authHeader.split(' ');
-    if (parts.length === 2 && parts[0].toLowerCase() === 'bearer') {
-      if (parts[1] === token) {
-        return;
-      }
-    }
-  }
-
-  // Check ?token= query parameter
-  const queryToken = (request.query as Record<string, string> | undefined)?.['token'];
-  if (queryToken === token) {
-    return;
-  }
-
-  // No valid auth found
-  throw { statusCode: 401, message: 'Unauthorized' };
+  // External errors are intentionally generic and never echo submitted credentials.
+  throw { statusCode: result.statusCode, message: 'Unauthorized' };
 }
 
 // ── Fastify Plugin ────────────────────────────────────────────

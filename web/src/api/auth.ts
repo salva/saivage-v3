@@ -3,8 +3,9 @@
  *
  * Reads the Saivage API token from:
  *   1. localStorage ('saivage_api_token') — set by the UI token entry
- *   2. URL query parameter 'token'
- *   3. VITE_SAIVAGE_API_TOKEN env variable
+ *   2. VITE_SAIVAGE_API_TOKEN env variable
+ *
+ * URL query tokens are intentionally ignored and never persisted.
  */
 
 const TOKEN_KEY = 'saivage_api_token';
@@ -15,13 +16,7 @@ export function getAuthToken(): string | null {
     const local = localStorage.getItem(TOKEN_KEY);
     if (local) return local;
   }
-  // 2. URL query parameter
-  if (typeof window !== 'undefined') {
-    const params = new URLSearchParams(window.location.search);
-    const urlToken = params.get('token');
-    if (urlToken) return urlToken;
-  }
-  // 3. Environment variable (Vite exposes VITE_ prefixed vars)
+  // 2. Environment variable (Vite exposes VITE_ prefixed vars)
   if (typeof import.meta !== 'undefined' && import.meta.env) {
     const envToken = import.meta.env.VITE_SAIVAGE_API_TOKEN as string | undefined;
     if (envToken) return envToken;

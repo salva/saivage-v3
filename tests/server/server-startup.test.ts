@@ -26,6 +26,7 @@ import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import type { ServerInstance } from '../../src/server/server.js';
 import { getClientCount } from '../../src/server/websocket.js';
+import { getAuthPolicy, resetAuthPolicyForTests } from '../../src/server/auth-policy.js';
 
 const AUTH_TOKEN = 'server-startup-test-token-' + Math.random().toString(36).slice(2, 8);
 const __filename = fileURLToPath(import.meta.url);
@@ -152,6 +153,7 @@ describe('Server Startup Integration (createServer)', () => {
     setupProjectDir(tmpDir);
     process.chdir(tmpDir);
     process.env['SAIVAGE_API_TOKEN'] = AUTH_TOKEN;
+    resetAuthPolicyForTests();
     const { createServer } = await import('../../src/server/server.js');
     server = await createServer(tmpDir);
     await server.fastify.listen({ host: '127.0.0.1', port: 0 });
@@ -239,16 +241,17 @@ describe('Server Startup Integration (createServer)', () => {
       await res.text();
     });
 
-    it('GET /api/state with valid ?token= query param returns 200', async () => {
+    it('GET /api/state with valid ?token= query param is rejected without echoing token', async () => {
       const res = await fetchLocal(`/api/state?token=${AUTH_TOKEN}`);
-      expect(res.status).toBe(200);
-      await res.text();
+      expect(res.status).toBe(401);
+      expect(await res.text()).not.toContain(AUTH_TOKEN);
     });
   });
 
   describe('WebSocket Connectivity', () => {
-    it('connects with valid auth token and receives welcome status message', (done) => {
-      const ws = new WebSocket(wsUrl(`/ws?token=${AUTH_TOKEN}`));
+    it('connects with valid websocket ticket and receives welcome status message', (done) => {
+      const ticket = getAuthPolicy().issueWebSocketTicket().ticket;
+      const ws = new WebSocket(wsUrl(`/ws?ticket=${ticket}`));
       ws.on('message', (raw) => {
         const data = JSON.parse(raw.toString()) as { type: string; content: Record<string, unknown> };
         expect(data.type).toBe('status');
@@ -287,7 +290,7 @@ describe('Server Startup Integration (createServer)', () => {
       });
     }, 10000);
 
-    it('rejects connection with wrong auth token (non-1000 close code)', (done) => {
+    it('rejects connection with wrong auth token query (policy close code)', (done) => {
       const ws = new WebSocket(wsUrl('/ws?token=wrong-token'));
       let resolved = false;
       const timeoutId = setTimeout(() => {
@@ -405,7 +408,8 @@ describe('Server Startup Integration (createServer)', () => {
           throw new Error('Stop test server did not listen on a network port');
         }
         const stopPort = addr.port;
-        const ws = new WebSocket(`ws://127.0.0.1:${stopPort}/ws?token=${AUTH_TOKEN}`);
+        const ticket = getAuthPolicy().issueWebSocketTicket().ticket;
+        const ws = new WebSocket(`ws://127.0.0.1:${stopPort}/ws?ticket=${ticket}`);
         await new Promise<void>((resolve, reject) => {
           ws.once('message', () => resolve());
           ws.once('error', reject);

@@ -11,6 +11,7 @@
 
 import type { WsConnectionState, WsEnvelope, WsEventType, ChatResponse } from './types';
 import { getAuthToken } from './auth';
+import { issueWebSocketTicket } from './client';
 import { createLogger, type Logger } from '../utils/logger';
 
 // ── Re-export auth helper ────────────────────────────────────
@@ -72,6 +73,7 @@ export function createWsConnection(): WsConnectionManager {
   let ws: WebSocket | null = null;
   let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   let shouldReconnect = true;
+  let connectAttempt = 0;
   const handlers = new Set<WsEventHandler>();
 
   const log = createLogger('ws');
@@ -85,15 +87,23 @@ export function createWsConnection(): WsConnectionManager {
 
     shouldReconnect = true;
     state.value = 'connecting';
+    const attempt = ++connectAttempt;
 
+    void openWithFreshTicket(attempt);
+  }
+
+  async function openWithFreshTicket(attempt: number): Promise<void> {
     try {
-      // Build WebSocket URL with auth token as query param for upgrade auth.
+      const { ticket } = await issueWebSocketTicket();
+      if (!shouldReconnect || attempt !== connectAttempt) {
+        return;
+      }
+
+      // Build WebSocket URL with a short-lived one-use ticket. API bearer tokens
+      // must never be placed in WebSocket URLs.
       const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
       const wsUrl = new URL('/ws', `${protocol}//${window.location.host}`);
-      const token = getAuthToken();
-      if (token) {
-        wsUrl.searchParams.set('token', token);
-      }
+      wsUrl.searchParams.set('ticket', ticket);
 
       ws = new WebSocket(wsUrl.toString());
 
@@ -151,10 +161,9 @@ export function createWsConnection(): WsConnectionManager {
       };
     } catch (err) {
       log.error('Failed to create WebSocket', err);
-      state.value = 'offline';
-      if (shouldReconnect) {
-        scheduleReconnect();
-      }
+      state.value = 'unauthorized';
+      sessionId.value = null;
+      shouldReconnect = false;
     }
   }
 
@@ -184,6 +193,7 @@ export function createWsConnection(): WsConnectionManager {
 
   function disconnect(): void {
     shouldReconnect = false;
+    connectAttempt++;
     if (reconnectTimer) {
       clearTimeout(reconnectTimer);
       reconnectTimer = null;

@@ -33,10 +33,21 @@ Protected when `SAIVAGE_API_TOKEN` is configured:
 - all `/api/*`
 - `/ws`
 
-Accepted auth methods:
+Accepted REST API bearer transport:
 
 - `Authorization: Bearer <token>`
-- `?token=<token>`
+
+URL/query API bearer credentials such as `?token=<token>` are prohibited and rejected when token auth is enabled, even if a valid bearer header is also present. Existing scripts and bookmarks that placed API tokens in URLs must switch to bearer headers or the web UI's manual token entry.
+
+Browser WebSocket clients cannot attach custom authorization headers. They must first request a short-lived, one-use ticket through authenticated REST, then use that ticket for the WebSocket upgrade:
+
+```bash
+curl -X POST http://localhost:8080/api/auth/ws-ticket \
+  -H "Authorization: Bearer <synthetic-api-token>"
+# {"ticket":"wst_<opaque-ticket>","expiresAt":"2026-01-01T00:00:30.000Z"}
+```
+
+The browser then connects to `/ws?ticket=wst_<opaque-ticket>`. The ticket is not an API bearer token, is process-local, expires quickly, and can be used only once. Do not put API bearer tokens in REST or WebSocket URLs.
 
 If no API token is configured, the server only allows tokenless startup on localhost-style bindings.
 
@@ -259,6 +270,7 @@ Every current operator-facing Fastify route is listed exactly once here. `npm ru
 | `DELETE /api/notes` | Clear all unhandled notes. | `src/server/routes/runtime-config-notes.ts:197` |
 | `GET /api/agents/:id/conversation` | Read one persisted agent conversation. | `src/server/routes/runtime-config-notes.ts:191` |
 | `GET /api/agents` | List persisted agent sessions. | `src/server/routes/runtime-config-notes.ts:190` |
+| `POST /api/auth/ws-ticket` | Issue a short-lived one-use browser WebSocket ticket after bearer REST auth. | `src/server/routes/auth.ts:4` |
 | `GET /api/cards/:id/diff` | Diff card versions. | `src/server/routes/cards.ts:105` |
 | `GET /api/cards/:id/history/:seq` | Read one card-history snapshot. | `src/server/routes/cards.ts:91` |
 | `GET /api/cards/:id/history` | List card-history headers. | `src/server/routes/cards.ts:80` |
