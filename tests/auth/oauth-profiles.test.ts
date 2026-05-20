@@ -309,7 +309,7 @@ describe('loadAuthProfiles', () => {
     });
     writeAuthProfiles(root, content);
 
-    await expect(loadAuthProfiles(root)).rejects.toThrow(/missing access token/i);
+    await expect(loadAuthProfiles(root)).rejects.toThrow(/missing required credential|missing access token/i);
   });
 
   it('throws when validation fails (missing provider)', async () => {
