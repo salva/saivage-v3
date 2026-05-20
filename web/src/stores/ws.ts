@@ -12,6 +12,7 @@ import {
 } from '../api/websocket';
 import { getAuthToken } from '../api/auth';
 import { createLogger } from '../utils/logger';
+import { isAnalystActivityContent } from '../api/contracts';
 import { useAnalystChat } from './analystChat';
 
 const log = createLogger('store:ws');
@@ -115,7 +116,7 @@ export const useWsStore = defineStore('ws', () => {
       notifyReconnect();
     }
 
-    if (event && ['card_history_appended', 'notification_added', 'notification_acknowledged', 'control_action_recorded', 'analyst_tool_invoked'].includes(event)) {
+    if (isAnalystActivityContent(envelope.content)) {
       useAnalystChat().ingestWsEvent(envelope.content);
     }
 

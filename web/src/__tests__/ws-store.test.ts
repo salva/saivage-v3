@@ -186,20 +186,21 @@ describe('useWsStore', () => {
       const store = setupStore();
       store.connect();
 
-      fireWsEvent('activity', { event: 'analyst_tool_invoked', session_id: 'chat-1', tool: 'read_file', summary: 'opened docs' });
+      fireWsEvent('activity', { event: 'analyst_tool_invoked', sessionId: 'chat-1', tool: 'read_file', success: true, summary: 'opened docs' });
 
       expect(ingestWsEventSpy).toHaveBeenCalledTimes(1);
-      expect(ingestWsEventSpy).toHaveBeenCalledWith({ event: 'analyst_tool_invoked', session_id: 'chat-1', tool: 'read_file', summary: 'opened docs' });
+      expect(ingestWsEventSpy).toHaveBeenCalledWith({ event: 'analyst_tool_invoked', sessionId: 'chat-1', tool: 'read_file', success: true, summary: 'opened docs' });
     });
 
-    it('does not forward unrelated websocket events into analyst chat', () => {
+    it('uses shared predicates for activity ingestion and ignores non-activity status events', () => {
       const store = setupStore();
       store.connect();
 
       fireWsEvent('activity', { event: 'tool_invocation', tool: 'read_file' });
       fireWsEvent('status', { event: 'connected' });
 
-      expect(ingestWsEventSpy).not.toHaveBeenCalled();
+      expect(ingestWsEventSpy).toHaveBeenCalledTimes(1);
+      expect(ingestWsEventSpy).toHaveBeenCalledWith({ event: 'tool_invocation', tool: 'read_file' });
     });
   });
 

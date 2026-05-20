@@ -16,15 +16,11 @@ import type { LoggedEvent } from '../schemas/types.js';
 import { redactOperatorErrorMessage } from '../utils/file-access-security.js';
 import { sanitizeAnalystPayload, sanitizeAnalystText } from '../utils/analyst-sanitization.js';
 import type { ActiveRuntime } from '../utils/active-runtime.js';
-import { validateKnownWsEnvelope } from '../contracts/operator-events.js';
+import { InboundAnalystMessageEnvelopeSchema, buildConnectedEnvelope, validateKnownWsEnvelope } from '../contracts/operator-events.js';
+import type { WsEnvelope, WsEventType } from '../contracts/operator-events.js';
 import { getAuthPolicy } from './auth-policy.js';
 
-export type WsEventType = 'message' | 'activity' | 'thinking' | 'status' | 'error';
-
-export interface WsEnvelope {
-  type: WsEventType;
-  content: Record<string, unknown>;
-}
+export type { WsEnvelope, WsEventType };
 
 const clients = new Set<WebSocket>();
 const authenticatedClients = new Set<WebSocket>();
@@ -66,7 +62,7 @@ export function resetRuntimeEventSubscriptions(runtime?: { eventBus: EventBus })
 }
 
 export function broadcast(event: WsEnvelope): void {
-  const data = JSON.stringify(event);
+  const data = JSON.stringify(validateKnownWsEnvelope(event));
   for (const ws of authenticatedClients) {
     try {
       if (ws.readyState === ws.OPEN) {
@@ -170,7 +166,7 @@ export function broadcastAnalystToolInvoked(payload: {
 export function sendToClient(ws: WebSocket, event: WsEnvelope): void {
   try {
     if (ws.readyState === ws.OPEN) {
-      ws.send(JSON.stringify(event));
+      ws.send(JSON.stringify(validateKnownWsEnvelope(event)));
     }
   } catch {
   }
@@ -239,15 +235,11 @@ export function registerWebSocket(fastify: FastifyInstance, projectRoot: string,
       const { sessionId } = getOrCreateAnalystSession(projectRoot);
       wsSessions.set(ws, sessionId);
 
-      sendToClient(ws, {
-        type: 'status',
-        content: {
-          event: 'connected',
-          sessionId,
-          timestamp: new Date().toISOString(),
-          clientCount: authenticatedClients.size,
-        },
-      });
+      sendToClient(ws, buildConnectedEnvelope({
+        sessionId,
+        timestamp: new Date().toISOString(),
+        clientCount: authenticatedClients.size,
+      }));
 
       ws.on('message', (raw: Buffer | ArrayBuffer | Buffer[]) => {
         return queueAnalystTurn(ws, async () => {
@@ -258,9 +250,14 @@ export function registerWebSocket(fastify: FastifyInstance, projectRoot: string,
                 : Buffer.isBuffer(raw)
                   ? raw.toString('utf-8')
                   : Buffer.concat(raw as Buffer[]).toString('utf-8');
-            const parsed = JSON.parse(data) as { type?: string; content?: Record<string, unknown> };
+            const rawParsed = JSON.parse(data) as unknown;
+            const parsed = InboundAnalystMessageEnvelopeSchema.safeParse(rawParsed);
 
-            if (parsed.type === 'message' && parsed.content?.text) {
+            if (!parsed.success) {
+              throw new Error('Invalid analyst websocket message');
+            }
+
+            {
               let currentSessionId = wsSessions.get(ws);
               if (!currentSessionId) {
                 const { sessionId: newId } = getOrCreateAnalystSession(projectRoot);
@@ -277,7 +274,7 @@ export function registerWebSocket(fastify: FastifyInstance, projectRoot: string,
               });
               const response = await handler.handleMessage(
                 currentSessionId,
-                String(parsed.content.text),
+                parsed.data.content.text,
               );
 
               sendToClient(ws, {

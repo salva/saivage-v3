@@ -17,6 +17,7 @@ const websocketModule = await import('../../src/server/websocket.js');
 const {
   broadcast,
   broadcastAnalystToolInvoked,
+  broadcastCardHistoryAppended,
   registerWebSocket,
   resetWebSocketState,
 } = websocketModule;
@@ -185,6 +186,34 @@ describe('websocket analyst safety', () => {
     const text = JSON.stringify(invocation);
     expect(text).not.toMatch(/secret-123|secret-456|secret-789|auth-profiles\.json|\.env/);
     expect(text).toContain('[SECRET_PATH]');
+  });
+
+
+  it('routes malformed inbound analyst messages through the sanitized error envelope path', async () => {
+    const { ws, handlers } = createSocket();
+    const { route, fastify } = createRoute();
+    mockGetAnalystHandler.mockReturnValue({ handleMessage: jest.fn() });
+    registerWebSocket(fastify, '/tmp/project');
+    route.handler(ws, { headers: {}, query: {} });
+
+    await handlers.get('message')?.(Buffer.from(JSON.stringify({ type: 'message', content: {} })));
+
+    const sent = (ws.send as jest.Mock).mock.calls.map((call) => JSON.parse(call[0] as string));
+    const error = sent.find((entry) => entry.type === 'error');
+    expect(error).toMatchObject({ type: 'error', content: { error: 'Failed to process message' } });
+    expect(JSON.stringify(error)).not.toMatch(/auth-profiles|top-secret|apiKey/i);
+  });
+
+  it('validates named activity broadcasters through the shared registry', () => {
+    const { ws } = createSocket();
+    const { route, fastify } = createRoute();
+    registerWebSocket(fastify, '/tmp/project');
+    route.handler(ws, { headers: {}, query: {} });
+
+    broadcastCardHistoryAppended({ card_id: 'card-1', version_seq: 2, changed_fields: ['status'], changed_at: '2025-01-01T00:00:00.000Z' });
+
+    const payload = JSON.parse((ws.send as jest.Mock).mock.calls.at(-1)?.[0] as string);
+    expect(payload).toEqual({ type: 'activity', content: { event: 'card_history_appended', card_id: 'card-1', version_seq: 2, changed_fields: ['status'], changed_at: '2025-01-01T00:00:00.000Z' } });
   });
 
   it('serializes rapid same-socket analyst messages and emits assistant replies in input order', async () => {

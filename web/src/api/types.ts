@@ -619,8 +619,7 @@ export interface ChatResponse {
 }
 
 export type WsConnectionState = 'connected' | 'connecting' | 'offline' | 'unauthorized' | 'no-token';
-export type WsEventType = 'message' | 'activity' | 'thinking' | 'status' | 'error';
-export interface WsEnvelope { type: WsEventType; content: Record<string, unknown>; }
+export type { WsEventType, WsEnvelope } from './contracts';
 export type DataAuthority = 'rest' | 'ws' | 'mixed' | 'unknown';
 
 export interface FreshnessState {

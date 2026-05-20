@@ -9,10 +9,11 @@
  *   { "type": "message | activity | thinking | status | error", "content": { ... } }
  */
 
-import type { WsConnectionState, WsEnvelope, WsEventType, ChatResponse } from './types';
+import type { WsConnectionState, WsEnvelope, WsEventType } from './types';
 import { getAuthToken } from './auth';
 import { issueWebSocketTicket } from './client';
-import { createLogger, type Logger } from '../utils/logger';
+import { buildInboundAnalystMessageEnvelope, parseKnownWsEnvelope, parseWsEnvelope } from './contracts';
+import { createLogger } from '../utils/logger';
 
 // ── Re-export auth helper ────────────────────────────────────
 
@@ -140,7 +141,18 @@ export function createWsConnection(): WsConnectionManager {
           const data = typeof event.data === 'string'
             ? event.data
             : new TextDecoder().decode(event.data as ArrayBuffer);
-          const envelope = JSON.parse(data) as WsEnvelope;
+          const rawEnvelope = JSON.parse(data) as unknown;
+          const envelope = parseWsEnvelope(rawEnvelope);
+          if (!envelope) {
+            log.warn('Dropped structurally invalid WS envelope');
+            return;
+          }
+          try {
+            parseKnownWsEnvelope(envelope);
+          } catch (err) {
+            log.error('Dropped malformed known WS envelope', err);
+            return;
+          }
 
           // Extract session ID from connect status event
           if (envelope.type === 'status' && envelope.content?.event === 'connected') {
@@ -215,10 +227,7 @@ export function createWsConnection(): WsConnectionManager {
       return;
     }
 
-    const envelope: WsEnvelope = {
-      type: 'message',
-      content: { text },
-    };
+    const envelope = buildInboundAnalystMessageEnvelope(text);
 
     ws.send(JSON.stringify(envelope));
   }
