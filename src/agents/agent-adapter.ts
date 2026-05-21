@@ -17,7 +17,7 @@ import { resolveLlmTransportConfig } from './llm-transport.js';
 import { capabilityRequestForLlmOptions } from './provider-capabilities.js';
 import { defaultInvocationRecoveryPolicy, type InvocationRecoveryContext } from './invocation-recovery-policy.js';
 import { EventLogger } from '../utils/event-logger.js';
-import { buildSelfCheckPrompt } from './system-prompt.js';
+import { buildReviewerPrompt, buildSelfCheckPrompt } from './system-prompt.js';
 import type { McpManager, McpToolDefinition } from '../mcp/mcp-manager.js';
 import { SkillsEngine } from './skills-engine.js';
 import { loadSkill, LoadSkillError, LOAD_SKILL_TOOL_DEFINITION } from './skill-tools.js';
@@ -196,7 +196,7 @@ export class AgentAdapter implements AgentRuntime {
       projectRoot: this.projectRoot,
       saivageDir: this.saivageDir,
       runtimeStateProvider: () => readRuntimeState(this.projectRoot),
-      reviewer: async (goalId, assessmentId, reviewerSessionId, report) => (await this.invokeReviewer(goalId, '', [{ id: `review-report:${assessmentId}`, session_id: reviewerSessionId, role: 'user', kind: 'text', content: JSON.stringify(report), timestamp: new Date().toISOString() }], { assessmentId, reviewerSessionId })).assessment,
+      reviewer: async (goalId, assessmentId, reviewerSessionId, report) => (await this.invokeReviewer(goalId, buildReviewerPrompt(), [{ id: `review-report:${assessmentId}`, session_id: reviewerSessionId, role: 'user', kind: 'text', content: `The planner reports the following terminal outcome for goal '${goalId}'. Evaluate against the goal's acceptance criteria and respond with the canonical ReviewerResult JSON envelope.\n\n${JSON.stringify(report, null, 2)}`, timestamp: new Date().toISOString() }], { assessmentId, reviewerSessionId })).assessment,
       maxReviewRetries: this.runtimeConfig?.maxReviewRetries ?? 3,
       assessmentIdFactory: undefined,
     });
