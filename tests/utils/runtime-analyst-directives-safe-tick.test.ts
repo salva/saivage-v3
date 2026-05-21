@@ -29,6 +29,7 @@ class CountingAgent implements AgentRuntime {
 let root: string;
 let runtime: Runtime | null;
 let store: CardStore;
+let consumedEvents: unknown[];
 
 function makeRuntime(agent: AgentRuntime): Runtime {
   return new Runtime({ projectRoot: root, fakeAgentConfig: { mapping: {}, fixtureDir: root } }, agent);
@@ -44,6 +45,7 @@ beforeEach(() => {
   initRuntimeState(root);
   store = new CardStore(root);
   runtime = null;
+  consumedEvents = [];
 });
 
 afterEach(async () => {
@@ -56,10 +58,29 @@ afterEach(async () => {
 });
 
 describe('runtime safeTick consumes analyst project directives', () => {
+
+  it('requestProjectDirectiveWakeup consumes a post-startup lets_dance through safeTick', async () => {
+    const agent = new CountingAgent();
+    runtime = makeRuntime(agent);
+    await runtime.startup();
+    await new Promise((resolve) => setTimeout(resolve, 75));
+    store.update('project', { status: 'active' });
+    const recorded = recordLetsDanceDirective(root, { runtime_available: true });
+    expect(recorded).toEqual(expect.objectContaining({ directive_recorded: true, outcome: 'wakeup_unavailable' }));
+
+    const wakeup = await runtime.requestProjectDirectiveWakeup('lets_dance');
+
+    expect(wakeup).toEqual({ accepted: true, reason: 'lets_dance' });
+    expect(agent.plannerCalls).toEqual(['project']);
+    expect(readProjectDirectives(root)).toEqual({});
+  });
+
   it('consumes a lets_dance directive exactly once and activates the project planner', async () => {
     const agent = new CountingAgent();
     runtime = makeRuntime(agent);
-    recordLetsDanceDirective(root);
+    runtime.on('directive_consumed', (event) => consumedEvents.push(event));
+    store.update('project', { status: 'active' });
+    recordLetsDanceDirective(root, { runtime_available: true });
 
     await runSafeTick(runtime);
     await runSafeTick(runtime);
@@ -68,12 +89,14 @@ describe('runtime safeTick consumes analyst project directives', () => {
     expect(readProjectDirectives(root)).toEqual({});
     expect(readRuntimeState(root)?.status).toBe('idle');
     expect(store.read('project')?.status).toBe('blocked');
+    expect(consumedEvents).toEqual([expect.objectContaining({ directive_kind: 'lets_dance', card_id: 'project' })]);
   });
 
   it('buffers an analyst-created directive while paused and consumes it after resume', async () => {
     const agent = new CountingAgent();
     runtime = makeRuntime(agent);
     runtime.pause();
+    expect(await runtime.requestProjectDirectiveWakeup('lets_dance')).toEqual({ accepted: false, reason: 'runtime_paused' });
     recordProjectNeedsCorrectionsDirective(root, [{ summary: 'project needs correction while paused' }], 'Synthetic paused directive.');
 
     await runSafeTick(runtime);

@@ -21,7 +21,7 @@ import { createNotificationDeliveryService, setProjectNotificationDeliveryAdapte
 import { TelegramNotificationDeliveryAdapter, buildTelegramStartupDiagnosticSummary, evaluateTelegramRecipientReadiness, normalizeTelegramNotificationChatIds } from '../telegram/recipients.js';
 import type { NotificationRouter } from '../notifications/index.js';
 import { ActiveRuntime } from '../runtime/lifecycle.js';
-import { buildCardRunsResponse, markGoalNeedsCorrections, normalizeAnalystIssues, recordLetsDanceDirective, recordProjectNeedsCorrectionsDirective } from '../utils/analyst-stage6.js';
+import { buildCardRunsResponse, markGoalNeedsCorrections, normalizeAnalystIssues, recordLetsDanceDirective, recordProjectNeedsCorrectionsDirective, withLetsDanceWakeupObservation } from '../utils/analyst-stage6.js';
 import { readFreezeManifest } from '../utils/freeze-manifest.js';
 import { buildServerAvailability, type ServerAvailabilityInputs } from './availability.js';
 
@@ -34,7 +34,13 @@ export function getServerConfig(projectRoot: string): ServerConfig { let host = 
 
 function registerStage6RuntimeRoutes(fastify: FastifyInstance, projectRoot: string, activeRuntime?: ActiveRuntime): void {
   fastify.post('/api/runtime/lets_dance', async (_request, reply) => {
-    try { return reply.send(recordLetsDanceDirective(projectRoot)); }
+    try {
+      const recorded = recordLetsDanceDirective(projectRoot, { runtime_available: Boolean(activeRuntime) });
+      const wakeup = activeRuntime && recorded.outcome !== 'queued_paused' && recorded.outcome !== 'blocked_project_status' && recorded.outcome !== 'active_run_present'
+        ? await activeRuntime.requestProjectDirectiveWakeup('lets_dance')
+        : null;
+      return reply.send(withLetsDanceWakeupObservation(recorded, wakeup));
+    }
     catch (err) { return reply.status(500).send({ error: 'Failed to record lets_dance directive', message: err instanceof Error ? err.message : String(err) }); }
   });
   fastify.post('/api/runtime/goals/:id/needs_corrections', async (request, reply) => {

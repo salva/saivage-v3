@@ -38,7 +38,7 @@ describe('analyst directive tool end-to-end registry path', () => {
     const result = await TOOL_REGISTRY.lets_dance(ctx(), {});
 
     expect(result).toEqual(expect.objectContaining({ success: true }));
-    expect(result.data).toEqual(expect.objectContaining({ directive_recorded: true, runtime_status: 'idle' }));
+    expect(result.data).toEqual(expect.objectContaining({ directive_recorded: true, runtime_status: 'idle', outcome: 'blocked_project_status', directive_state: 'recorded', project_status: 'backlog', expected_next_step: expect.any(String) }));
     expect(readProjectDirectives(root).lets_dance).toEqual(expect.any(String));
     const notes = getNotes(saivageDir(), 'project').filter((note) => note.kind === 'directive');
     expect(notes).toEqual(expect.arrayContaining([

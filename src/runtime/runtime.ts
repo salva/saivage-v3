@@ -640,6 +640,14 @@ export class Runtime extends EventEmitter {
   simulateCrash(): void { const allCards = this.cardStore.list(); for (const card of allCards) if (card.status === 'active' || card.status === 'running') this.cardStore.setStatus(card.id, 'backlog'); this._running = false; }
   runCleanup(options?: { stashMaxAgeMs?: number; processMaxAgeMs?: number; previewsMaxAgeMs?: number; uploadsMaxAgeMs?: number; }) { return cleanAll(saivageWorkDir(this.projectRoot), this.cardStore, options); }
   getState(): RuntimeState | null { return readRuntimeState(this.projectRoot); }
+  async requestProjectDirectiveWakeup(reason: 'lets_dance' | 'project_needs_corrections' = 'lets_dance'): Promise<{ accepted: boolean; reason: string }> {
+    const state = readRuntimeState(this.projectRoot);
+    if (this._paused || state?.paused) return { accepted: false, reason: 'runtime_paused' };
+    if (this._shuttingDown) return { accepted: false, reason: 'runtime_shutting_down' };
+    if (this._startupRepairPending) return { accepted: false, reason: 'startup_repair_pending' };
+    await this.safeTick();
+    return { accepted: true, reason };
+  }
   private async safeTick(): Promise<void> {
     if (this._safeTickInFlight) return;
     this._safeTickInFlight = true;

@@ -33,8 +33,8 @@ describe('stage-6 runtime API', () => {
   it('returns idempotent lets_dance and project correction directive shapes without double-triggering notes', async () => {
     const one = await server.fastify.inject({ method: 'POST', url: '/api/runtime/lets_dance' });
     const two = await server.fastify.inject({ method: 'POST', url: '/api/runtime/lets_dance' });
-    expect(one.json()).toEqual({ directive_recorded: true, runtime_status: 'idle' });
-    expect(two.json()).toEqual({ directive_recorded: true, runtime_status: 'idle' });
+    expect(one.json()).toEqual(expect.objectContaining({ directive_recorded: true, runtime_status: 'idle', outcome: 'blocked_project_status', directive_state: 'recorded', project_status: 'backlog' }));
+    expect(two.json()).toEqual(expect.objectContaining({ directive_recorded: true, runtime_status: 'idle', outcome: 'blocked_project_status', directive_state: 'already_pending', project_status: 'backlog' }));
     expect(getNotes(saivageDir(), 'project').filter((note) => note.content.includes('lets_dance')).length).toBe(1);
 
     const body = { issues: [{ summary: 'project issue', severity: 'blocker', evidence_path: '.saivage/auth-profiles.json' }], note: 'password=hunter2' };

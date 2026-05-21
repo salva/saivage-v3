@@ -34,6 +34,22 @@ interface SyntheticQueue { notes: SyntheticPlannerNote[]; }
 
 interface ProjectDirectiveState { lets_dance?: string; project_needs_corrections?: string; }
 
+export type LetsDanceOutcome = 'queued_no_runtime' | 'queued_paused' | 'blocked_project_status' | 'active_run_present' | 'already_pending' | 'wakeup_requested' | 'wakeup_unavailable';
+export type LetsDanceDirectiveState = 'recorded' | 'already_pending';
+export interface LetsDanceResult {
+  directive_recorded: true;
+  runtime_status: 'idle' | 'running' | 'paused';
+  outcome: LetsDanceOutcome;
+  directive_state: LetsDanceDirectiveState;
+  project_status?: CardStatus;
+  runtime_paused?: boolean;
+  active_run_card_id?: string | null;
+  wakeup_requested?: boolean;
+  expected_next_step: string;
+}
+export interface LetsDanceWakeupObservation { accepted: boolean; reason: string; }
+
+
 function saivageDir(projectRoot: string): string { return join(projectRoot, '.saivage'); }
 function syntheticQueuePath(projectRoot: string): string { return join(saivageDir(projectRoot), 'runtime', 'synthetic-notes.json'); }
 function directivesPath(projectRoot: string): string { return join(saivageDir(projectRoot), 'runtime', 'project-directives.json'); }
@@ -84,14 +100,58 @@ export function runtimeStatusForApi(projectRoot: string): 'idle' | 'running' | '
   return 'idle';
 }
 
-export function recordLetsDanceDirective(projectRoot: string): { directive_recorded: true; runtime_status: 'idle' | 'running' | 'paused' } {
+function expectedNextStepForLetsDance(outcome: LetsDanceOutcome, projectStatus?: CardStatus): string {
+  switch (outcome) {
+    case 'queued_no_runtime': return 'Directive is durably queued; start or resume a runtime so the next guarded safe tick can consume it.';
+    case 'queued_paused': return 'Directive is durably queued; resume the runtime so safeTick can evaluate it.';
+    case 'blocked_project_status': return `Directive is durably queued, but project status is '${projectStatus ?? 'missing'}'; set project status to active before expecting work.`;
+    case 'active_run_present': return 'Directive is durably queued; an active card run is already present and safeTick will revisit directives after that run clears.';
+    case 'already_pending': return 'A lets_dance directive was already pending; wait for a guarded safe tick or inspect runtime events for directive_consumed.';
+    case 'wakeup_requested': return 'Runtime wakeup was requested; watch for directive_consumed/runtime events because wakeup does not guarantee planner completion.';
+    case 'wakeup_unavailable': return 'Directive is durably queued, but the runtime wakeup hook was unavailable or declined; rely on a later safe tick.';
+  }
+}
+
+export function withLetsDanceWakeupObservation(result: LetsDanceResult, wakeup: LetsDanceWakeupObservation | null): LetsDanceResult {
+  if (!wakeup) return result;
+  if (wakeup.accepted) {
+    return { ...result, outcome: 'wakeup_requested', wakeup_requested: true, expected_next_step: expectedNextStepForLetsDance('wakeup_requested', result.project_status) };
+  }
+  return { ...result, outcome: 'wakeup_unavailable', wakeup_requested: false, expected_next_step: expectedNextStepForLetsDance('wakeup_unavailable', result.project_status) };
+}
+
+export function recordLetsDanceDirective(projectRoot: string, opts: { runtime_available?: boolean } = {}): LetsDanceResult {
   const directives = readDirectives(projectRoot);
+  const alreadyPending = Boolean(directives.lets_dance);
   if (!directives.lets_dance) {
     directives.lets_dance = now();
     appendNote(saivageDir(projectRoot), 'project', { author: 'analyst', kind: 'directive', content: 'lets_dance directive recorded; runtime will activate project card on next safe tick.' });
     writeDirectives(projectRoot, directives);
   }
-  return { directive_recorded: true, runtime_status: runtimeStatusForApi(projectRoot) };
+  const runtime_status = runtimeStatusForApi(projectRoot);
+  const state = readRuntimeState(projectRoot);
+  const runtime_paused = Boolean(state?.paused || runtime_status === 'paused');
+  const active_run_card_id = state?.active_card_run?.card_id ?? null;
+  const project_status = new CardStore(projectRoot).read('project')?.status;
+  const directive_state: LetsDanceDirectiveState = alreadyPending ? 'already_pending' : 'recorded';
+  let outcome: LetsDanceOutcome;
+  if (runtime_paused) outcome = 'queued_paused';
+  else if (project_status && project_status !== 'active' && project_status !== 'running') outcome = 'blocked_project_status';
+  else if (active_run_card_id) outcome = 'active_run_present';
+  else if (alreadyPending) outcome = 'already_pending';
+  else if (!opts.runtime_available) outcome = 'queued_no_runtime';
+  else outcome = 'wakeup_unavailable';
+  return {
+    directive_recorded: true,
+    runtime_status,
+    outcome,
+    directive_state,
+    ...(project_status ? { project_status } : {}),
+    runtime_paused,
+    active_run_card_id,
+    wakeup_requested: false,
+    expected_next_step: expectedNextStepForLetsDance(outcome, project_status),
+  };
 }
 
 export function recordProjectNeedsCorrectionsDirective(projectRoot: string, issues: AnalystIssue[], note?: string): { directive_recorded: true; runtime_status: 'idle' | 'running' | 'paused' } {

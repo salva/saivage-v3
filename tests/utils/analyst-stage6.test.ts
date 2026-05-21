@@ -31,6 +31,20 @@ function createCode(id: string, parent: string, status: 'backlog' | 'changed' = 
 }
 
 describe('stage-6 analyst synthetic notes', () => {
+
+  it('reports no-runtime, paused, active-run, and wakeup-unavailable lets_dance preconditions', () => {
+    initRuntimeState(root);
+    store.update('project', { status: 'active' });
+    expect(recordLetsDanceDirective(root)).toEqual(expect.objectContaining({ outcome: 'queued_no_runtime', directive_state: 'recorded', project_status: 'active', runtime_paused: false }));
+    expect(recordLetsDanceDirective(root, { runtime_available: true })).toEqual(expect.objectContaining({ outcome: 'already_pending', directive_state: 'already_pending' }));
+
+    updateRuntimeState(root, { status: 'paused', paused: true });
+    expect(recordLetsDanceDirective(root, { runtime_available: true })).toEqual(expect.objectContaining({ outcome: 'queued_paused', runtime_status: 'paused', runtime_paused: true }));
+
+    updateRuntimeState(root, { status: 'running', paused: false, active_card_run: { card_id: 'project', card_type: 'project', runtime_status: 'running', phase: 'planner', caller_session_id: null, caller_tool_call_id: null, planner_session_id: 'planner:project', correction_attempts: 0, started_at: new Date().toISOString(), last_turn_at: new Date().toISOString() } });
+    expect(recordLetsDanceDirective(root, { runtime_available: true })).toEqual(expect.objectContaining({ outcome: 'active_run_present', active_run_card_id: 'project' }));
+  });
+
   it('routes to the deepest containing planner and delivers exactly once for a Running target planner', () => {
     createGoal('goal-parent', 'project', 'running');
     createGoal('goal-child', 'goal-parent', 'running');
@@ -95,8 +109,10 @@ describe('stage-6 analyst synthetic notes', () => {
 
   it('records lets_dance and project correction directives idempotently', () => {
     initRuntimeState(root);
-    expect(recordLetsDanceDirective(root)).toEqual({ directive_recorded: true, runtime_status: 'idle' });
-    expect(recordLetsDanceDirective(root)).toEqual({ directive_recorded: true, runtime_status: 'idle' });
+    const fresh = recordLetsDanceDirective(root);
+    expect(fresh).toEqual(expect.objectContaining({ directive_recorded: true, runtime_status: 'idle', directive_state: 'recorded', outcome: 'blocked_project_status', project_status: 'backlog', wakeup_requested: false }));
+    const duplicate = recordLetsDanceDirective(root);
+    expect(duplicate).toEqual(expect.objectContaining({ directive_recorded: true, runtime_status: 'idle', directive_state: 'already_pending', outcome: 'blocked_project_status', project_status: 'backlog' }));
     expect(getNotes(saivageDir(), 'project').filter((note) => note.content.includes('lets_dance')).length).toBe(1);
     recordProjectNeedsCorrectionsDirective(root, [{ summary: 'fix project', evidence_path: '/tmp/.env' }], 'token=secret');
     recordProjectNeedsCorrectionsDirective(root, [{ summary: 'fix project again' }]);

@@ -67,7 +67,7 @@ Starting a project (lets_dance):
 - lets_dance only causes work to happen when the project card itself is in status='active'
   AND the runtime is not paused. If the project is in 'backlog' or 'drafting', first call
   edit_card to set status='active', confirm the preview if one is returned, then call
-  lets_dance. Do not just call lets_dance and assume it will activate the project.
+  lets_dance. Inspect the lets_dance result fields: outcome, project_status, runtime_paused, wakeup_requested, active_run_card_id, and expected_next_step. wakeup_requested is best-effort; directive_consumed/runtime events are the later proof that safeTick consumed the directive. Do not just call lets_dance and assume it will activate the project.
 
 Handling tool errors (very important — be self-healing, not chatty):
 - Tool error messages now include a 'Hint: ...' line listing allowed values for the field
