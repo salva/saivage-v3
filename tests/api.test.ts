@@ -210,6 +210,30 @@ describe('runtime config and notes routes', () => {
     writeFileSync(runtimeStatePath(TEST_ROOT), JSON.stringify({ status: 'idle', project_id: 'project', pid: process.pid, started_at: now, current_card_id: null, current_agent_session_id: null, paused: false, paused_at: null, queue: [], running_processes: [], updated_at: now }));
   });
 
+
+
+  it('includes route-local CardStore health on state reads after card index construction', async () => {
+    const now = new Date().toISOString();
+    writeFileSync(runtimeStatePath(TEST_ROOT), JSON.stringify({ status: 'idle', project_id: 'project', pid: process.pid, started_at: now, current_card_id: null, current_agent_session_id: null, paused: false, paused_at: null, queue: [], running_processes: [], updated_at: now }));
+
+    const treePath = join(SAIVAGE_DIR, 'cards', 'tree', 'project.children.json');
+    writeFileSync(treePath, JSON.stringify(['missing-synthetic-child'], null, 2));
+
+    const first = await fetch(url('/api/state'), { headers: authHeader(authToken) });
+    expect(first.status).toBe(200);
+    const firstBody = await first.json() as { cardStoreHealth?: { compatibilitySnapshots: string; warnings: unknown[]; lastCompatibilitySnapshotWarning?: { message: string; relativePath?: string } | null } };
+    expect(firstBody.cardStoreHealth?.compatibilitySnapshots).toBe('ok');
+    expect(firstBody.cardStoreHealth?.warnings).toEqual([]);
+    expect(JSON.stringify(firstBody.cardStoreHealth)).not.toContain(TEST_ROOT);
+    expect(JSON.stringify(firstBody.cardStoreHealth)).not.toContain('test-token');
+
+    const second = await fetch(url('/api/state'), { headers: authHeader(authToken) });
+    const secondBody = await second.json() as typeof firstBody;
+    expect(secondBody.cardStoreHealth).toEqual(firstBody.cardStoreHealth);
+
+    writeFileSync(treePath, JSON.stringify([], null, 2));
+  });
+
   it('lists notes without returning note undefined and reconciles stale queue entries', async () => {
     appendNote(SAIVAGE_DIR, 'project', { author: 'user', content: 'Real note', kind: 'comment' });
     const queuePath = join(SAIVAGE_DIR, 'notes', 'queue.json');

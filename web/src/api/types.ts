@@ -442,6 +442,23 @@ export interface CardIndex {
   byType: Record<string, number>;
 }
 
+export interface CardStoreCompatibilitySnapshotWarning {
+  code: 'compatibility-snapshot-degraded';
+  operation: 'startup-repair' | 'mutation-rebuild' | 'delete-cleanup' | 'archive-cleanup' | 'manual-repair';
+  relativePath?: string;
+  message: string;
+  errorName?: string;
+  occurredAt: string;
+  canonicalCommitted: boolean;
+}
+
+export interface CardStoreHealth {
+  canonical: 'ok' | 'invalid';
+  compatibilitySnapshots: 'ok' | 'degraded';
+  lastCompatibilitySnapshotWarning: CardStoreCompatibilitySnapshotWarning | null;
+  warnings: CardStoreCompatibilitySnapshotWarning[];
+}
+
 export interface ProviderEntry {
   priority: number;
   models: string[];
@@ -660,7 +677,7 @@ export interface CardUpdateResponse { card: CardRecord; }
 export interface CardHistoryListResponse { history: CardHistoryHeader[]; total: number; }
 export interface CardHistoryEntryResponse { entry: CardHistoryEntry; }
 export interface CardDiffResponse { diff: CardDiffRow[]; from: number; to: number; card_id: string; }
-export interface RuntimeStateResponse { runtime: RuntimeState | null; cardIndex: CardIndex; }
+export interface RuntimeStateResponse { runtime: RuntimeState | null; cardIndex: CardIndex; cardStoreHealth?: CardStoreHealth; }
 export interface ConfigResponse { config: Record<string, unknown>; warnings?: string[]; }
 export interface ProvidersResponse { providers: Record<string, ProviderEntry>; warnings?: string[]; }
 export interface AgentConversationResponse { session: AgentSession; messages: AgentMessage[]; }

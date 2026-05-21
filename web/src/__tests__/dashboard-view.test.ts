@@ -74,6 +74,8 @@ const mockRuntimeState: RuntimeState = {
 const mockCardIndex: CardIndex = {
   total: 42, byStatus: { done: 30, failed: 3, blocked: 2, active: 5, backlog: 2 }, byType: { code: 20, test: 10, research: 5, goal: 3, doc: 4 },
 };
+const mockCardStoreHealthOk = { canonical: 'ok' as const, compatibilitySnapshots: 'ok' as const, lastCompatibilitySnapshotWarning: null, warnings: [] };
+const mockCardStoreHealthDegraded = { canonical: 'ok' as const, compatibilitySnapshots: 'degraded' as const, lastCompatibilitySnapshotWarning: { code: 'compatibility-snapshot-degraded' as const, operation: 'startup-repair' as const, relativePath: '.saivage/cards/tree/project.children.json', message: 'Synthetic warning token=[REDACTED]', occurredAt: '2026-01-01T00:00:00.000Z', canonicalCommitted: false }, warnings: [] };
 const mockRuntimeStateResponse = { runtime: mockRuntimeState, cardIndex: mockCardIndex };
 
 function makeRouter() {
@@ -164,6 +166,24 @@ describe('DashboardView', () => {
     }
     await flushPromises();
     expect(w.find('.chat-status-banner').text()).toContain('Analyst request failed');
+  });
+
+
+
+  it('renders CardStore health unknown, ok, and degraded without treating absent as healthy', async () => {
+    const unknown = await mountDashboard({ runtimeResponse: mockRuntimeStateResponse });
+    expect(unknown.find('.cardstore-health').text()).toContain('Unknown / not available');
+    expect(unknown.find('.cardstore-health').classes()).toContain('cardstore-unknown');
+
+    const ok = await mountDashboard({ runtimeResponse: { ...mockRuntimeStateResponse, cardStoreHealth: mockCardStoreHealthOk } });
+    expect(ok.find('.cardstore-health').text()).toContain('OK');
+    expect(ok.find('.cardstore-health').classes()).toContain('cardstore-ok');
+
+    const degraded = await mountDashboard({ runtimeResponse: { ...mockRuntimeStateResponse, cardStoreHealth: mockCardStoreHealthDegraded } });
+    expect(degraded.find('.cardstore-health').text()).toContain('Degraded');
+    expect(degraded.find('.cardstore-health').text()).toContain('Synthetic warning token=[REDACTED]');
+    expect(degraded.find('.cardstore-health').text()).not.toContain('super-secret');
+    expect(degraded.find('.cardstore-health').classes()).toContain('cardstore-degraded');
   });
 
   it('shows degraded runtime banner when runtime status is error', async () => {

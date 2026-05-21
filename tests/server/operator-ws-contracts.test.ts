@@ -31,6 +31,32 @@ describe('operator websocket shared contract registry', () => {
     expect(() => validateKnownWsEnvelope(wsContractFixtures.malformedKnown)).toThrow();
   });
 
+
+
+  it('accepts runtime-state events with optional CardStore health and without it', () => {
+    const withHealth = {
+      type: 'status',
+      content: {
+        event: 'runtime-state',
+        cardStoreHealth: {
+          canonical: 'ok',
+          compatibilitySnapshots: 'degraded',
+          lastCompatibilitySnapshotWarning: {
+            code: 'compatibility-snapshot-degraded',
+            operation: 'startup-repair',
+            relativePath: '.saivage/cards/tree/project.children.json',
+            message: 'Synthetic warning with token=[REDACTED]',
+            occurredAt: '2026-01-01T00:00:00.000Z',
+            canonicalCommitted: false,
+          },
+          warnings: [],
+        },
+      },
+    };
+    expect(parseKnownWsEnvelope(withHealth)?.content.event).toBe('runtime-state');
+    expect(parseKnownWsEnvelope({ type: 'status', content: { event: 'runtime-state' } })?.content.event).toBe('runtime-state');
+  });
+
   it('builds fixture-worthy connected and inbound analyst message envelopes', () => {
     const connected = buildConnectedEnvelope({ sessionId: 'session-1', timestamp: '2025-01-01T00:00:00.000Z', clientCount: 2 });
     expect(isConnectedEnvelope(connected)).toBe(true);

@@ -78,6 +78,32 @@ describe('operator API contract registry', () => {
     expect(parseOperatorResponse('cards.update', { card }).card.status).toBe('backlog');
   });
 
+
+
+  it('accepts optional read-only CardStore health on runtime state responses', () => {
+    const degradedHealth = {
+      canonical: 'ok',
+      compatibilitySnapshots: 'degraded',
+      lastCompatibilitySnapshotWarning: {
+        code: 'compatibility-snapshot-degraded',
+        operation: 'mutation-rebuild',
+        relativePath: '.saivage/cards/tree/project.children.json',
+        message: 'Synthetic redacted snapshot write failure for [REDACTED]',
+        errorName: 'Error',
+        occurredAt: '2026-01-01T00:00:03.000Z',
+        canonicalCommitted: true,
+      },
+      warnings: [],
+    };
+    const parsed = parseOperatorResponse('runtime.getState', {
+      runtime: runtimeState,
+      cardIndex: { total: 1, byStatus: { backlog: 1 }, byType: { code: 1 } },
+      cardStoreHealth: { ...degradedHealth, warnings: [degradedHealth.lastCompatibilitySnapshotWarning] },
+    });
+    expect(parsed.cardStoreHealth?.compatibilitySnapshots).toBe('degraded');
+    expect(parseOperatorResponse('runtime.getState', { runtime: runtimeState, cardIndex: { total: 0, byStatus: {}, byType: {} } }).cardStoreHealth).toBeUndefined();
+  });
+
   it('rejects malformed migrated responses', () => {
     expect(() => parseOperatorResponse('runtime.pause', { status: 'paused' })).toThrow();
     expect(() => parseOperatorResponse('cards.list', { cards: [{}], total: 1 })).toThrow();

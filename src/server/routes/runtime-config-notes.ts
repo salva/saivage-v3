@@ -5,7 +5,7 @@ import type { ActiveRuntime } from '../../utils/active-runtime.js';
 import { loadConfig, type ProviderEntry } from '../../agents/config-schema.js';
 import { getReconciledUnhandledNotesQueue, findUnhandledNoteCardId, markNoteHandled, deleteNote } from '../../utils/notes.js';
 import { redactCredentialLiterals, redactSecrets } from '../../utils/file-access-security.js';
-import { CardStore } from '../../utils/card-store.js';
+import { CardStore, type CardStoreHealth } from '../../utils/card-store.js';
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { evaluateAuthz, type ActorRole, type SafetyClass } from '../../agents/authz.js';
@@ -149,11 +149,11 @@ function buildListedAgentSession(projectRoot: string, sessionId: string, current
   };
 }
 
-
+function resolveCardStoreHealth(activeRuntime: ActiveRuntime | undefined, fallbackStore: CardStore): CardStoreHealth { return activeRuntime?.runtime.cardStore.getHealth() ?? fallbackStore.getHealth(); }
 export function registerRuntimeConfigNotesRoutes(fastify: FastifyInstance, projectRoot: string, activeRuntime?: ActiveRuntime): void {
   const store = new CardStore(projectRoot);
   const notifications = new NotificationCenter(projectRoot);
-  fastify.get('/api/state', async (_request, reply) => { try { const state = readRuntimeState(projectRoot); if (!state) return reply.send(validateContractSuccess(operatorApiContracts['runtime.getState'], { runtime: null, cardIndex: { total: 0, byStatus: {}, byType: {} } })); const cards = store.list(); const byStatus: Record<string, number> = {}; const byType: Record<string, number> = {}; for (const card of cards) { byStatus[card.status] = (byStatus[card.status] || 0) + 1; byType[card.type] = (byType[card.type] || 0) + 1; } return reply.send(validateContractSuccess(operatorApiContracts['runtime.getState'], { runtime: state, cardIndex: { total: cards.length, byStatus, byType } })); } catch (err) { const typed = runtimeStateErrorBody(err, 'Failed to read runtime state'); return reply.status(typed.statusCode).send(typed.body); } });
+  fastify.get('/api/state', async (_request, reply) => { try { const state = readRuntimeState(projectRoot); if (!state) return reply.send(validateContractSuccess(operatorApiContracts['runtime.getState'], { runtime: null, cardIndex: { total: 0, byStatus: {}, byType: {} } })); const cards = store.list(); const cardStoreHealth = resolveCardStoreHealth(activeRuntime, store); const byStatus: Record<string, number> = {}; const byType: Record<string, number> = {}; for (const card of cards) { byStatus[card.status] = (byStatus[card.status] || 0) + 1; byType[card.type] = (byType[card.type] || 0) + 1; } return reply.send(validateContractSuccess(operatorApiContracts['runtime.getState'], { runtime: state, cardIndex: { total: cards.length, byStatus, byType }, cardStoreHealth })); } catch (err) { const typed = runtimeStateErrorBody(err, 'Failed to read runtime state'); return reply.status(typed.statusCode).send(typed.body); } });
   fastify.get('/api/notifications', async (_request, reply) => {
     try {
       const items = notifications.listForOperator().map((record) => redactValue(record));

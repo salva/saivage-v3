@@ -370,6 +370,27 @@ describe('ARCH-027 compatibility snapshot degraded health', () => {
     expect(store.getHealth().compatibilitySnapshots).toBe('degraded');
   });
 
+
+
+  it('getHealth preserves sanitized warning evidence across repeated operator-style reads', () => {
+    const err = new Error(`synthetic token=abc123 authorization=test-secret under ${tmpDir}`) as Error & { path?: string };
+    err.path = join(tmpDir, '.saivage', 'auth-profiles.json');
+    const failure = { enabled: false, error: err };
+    store = makeSnapshotFailingStore(failure);
+    store.list();
+    failure.enabled = true;
+    store.create(makeCard({ type: 'goal', title: 'Operator health warning' }));
+
+    const first = store.getHealth();
+    const second = store.getHealth();
+    expect(second.warnings).toEqual(first.warnings);
+    expect(store.getAndClearWarnings()).toEqual(first.warnings);
+    const serialized = JSON.stringify(first);
+    expect(serialized).not.toContain(tmpDir);
+    expect(serialized).not.toContain('abc123');
+    expect(serialized).not.toContain('test-secret');
+  });
+
   it('still fails fast for canonical invalidity instead of degrading it', () => {
     const child = store.create(makeCard({ type: 'goal', title: 'Broken canonical parent' }));
     const path = join(tmpDir, '.saivage', 'cards', 'by-id', `${child.id}.json`);

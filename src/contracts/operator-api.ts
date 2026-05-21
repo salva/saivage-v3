@@ -33,9 +33,27 @@ export const CardIndexSummarySchema = z.object({
   byType: z.record(z.string(), z.number().int().nonnegative()),
 });
 
+export const CardStoreCompatibilitySnapshotWarningSchema = z.object({
+  code: z.literal('compatibility-snapshot-degraded'),
+  operation: z.enum(['startup-repair', 'mutation-rebuild', 'delete-cleanup', 'archive-cleanup', 'manual-repair']),
+  relativePath: z.string().optional(),
+  message: z.string(),
+  errorName: z.string().optional(),
+  occurredAt: z.string().datetime(),
+  canonicalCommitted: z.boolean(),
+});
+
+export const CardStoreHealthSchema = z.object({
+  canonical: z.enum(['ok', 'invalid']),
+  compatibilitySnapshots: z.enum(['ok', 'degraded']),
+  lastCompatibilitySnapshotWarning: CardStoreCompatibilitySnapshotWarningSchema.nullable(),
+  warnings: z.array(CardStoreCompatibilitySnapshotWarningSchema),
+});
+
 export const RuntimeGetStateResponseSchema = z.object({
   runtime: runtimeStateSchema.nullable(),
   cardIndex: CardIndexSummarySchema,
+  cardStoreHealth: CardStoreHealthSchema.optional(),
 });
 
 export const CardListResponseSchema = z.object({

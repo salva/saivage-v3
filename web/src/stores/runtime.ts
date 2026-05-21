@@ -12,6 +12,7 @@ import type {
   RuntimeState,
   RuntimeStatus,
   CardIndex,
+  CardStoreHealth,
   FreshnessState,
 } from '../api/types';
 import {
@@ -35,6 +36,7 @@ function nowIso(): string {
 export const useRuntimeStore = defineStore('runtime', () => {
   const runtime = ref<RuntimeState | null>(null);
   const cardIndex = ref<CardIndex>({ total: 0, byStatus: {}, byType: {} });
+  const cardStoreHealth = ref<CardStoreHealth | null>(null);
   const loading = ref(false);
   const error = ref<string | null>(null);
   const lastFetchedAt = ref<string | null>(null);
@@ -142,6 +144,7 @@ export const useRuntimeStore = defineStore('runtime', () => {
       const response = await getRuntimeState();
       runtime.value = response.runtime;
       cardIndex.value = response.cardIndex;
+      cardStoreHealth.value = response.cardStoreHealth ?? null;
       markRestSync();
     } catch (err) {
       const msg = err instanceof ApiError ? err.message : 'Failed to fetch runtime state';
@@ -213,6 +216,9 @@ export const useRuntimeStore = defineStore('runtime', () => {
         if (content.cardIndex) {
           cardIndex.value = content.cardIndex as CardIndex;
         }
+        if ('cardStoreHealth' in content) {
+          cardStoreHealth.value = (content.cardStoreHealth ?? null) as CardStoreHealth | null;
+        }
       }
 
       if (event === 'runtime-paused' || event === 'runtime-resumed') {
@@ -246,6 +252,7 @@ export const useRuntimeStore = defineStore('runtime', () => {
   return {
     runtime: readonly(runtime),
     cardIndex: readonly(cardIndex),
+    cardStoreHealth: readonly(cardStoreHealth),
     loading: readonly(loading),
     error: readonly(error),
     lastFetchedAt: readonly(lastFetchedAt),
