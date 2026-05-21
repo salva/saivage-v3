@@ -48,7 +48,9 @@
     "validate:routine": "npm run typecheck && npm run docs:verify",
     "validate:ui-smoke": "npm run web:test:operator-smoke",
     "validate:ui": "npm run web:typecheck && npm run web:test:sweep && npm run web:test:operator-smoke",
-    "validate:release": "npm run typecheck && npm run build && npm test && npm run web:test:operator-smoke && npm run docs:verify"
+    "validate:release": "npm run typecheck && npm run build && npm test && npm run web:test:operator-smoke && npm run docs:verify",
+    "web:test:e2e:smoke": "playwright test -c tests/playwright/playwright.config.ts",
+    "web:test:e2e:install": "playwright install chromium"
   },
   "dependencies": {
     "@fastify/cors": "^11.2.0",
@@ -60,6 +62,7 @@
   },
   "devDependencies": {
     "@jest/types": "^29.6.3",
+    "@playwright/test": "1.60.0",
     "@types/node": "^22.19.18",
     "@types/ws": "^8.18.1",
     "@typescript-eslint/eslint-plugin": "^8.59.2",
@@ -98,6 +101,9 @@
     },
     "extensionsToTreatAsEsm": [
       ".ts"
+    ],
+    "testPathIgnorePatterns": [
+      "<rootDir>/tests/playwright/"
     ]
   }
 }
