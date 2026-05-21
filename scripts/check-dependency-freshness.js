@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -6,8 +7,8 @@ import { fileURLToPath } from 'node:url';
 const DEFAULT_WAIVER_FILE = 'docs/runbook/dependency-hygiene-waivers.json';
 const LOCKFILE_VERSION = 3;
 const ECOSYSTEMS = [
-  { name: 'root', packagePath: 'package.json', lockfilePath: 'package-lock.json' },
-  { name: 'web', packagePath: 'web/package.json', lockfilePath: 'web/package-lock.json' },
+  { name: 'root', packagePath: 'package.json', lockfilePath: 'package-lock.json', cwd: '.' },
+  { name: 'web', packagePath: 'web/package.json', lockfilePath: 'web/package-lock.json', cwd: 'web' },
 ];
 const REQUIRED_WAIVER_FIELDS = ['package', 'ecosystem', 'advisory', 'severity', 'owner', 'created', 'expires', 'reason', 'compensating_control'];
 const VALID_ECOSYSTEMS = new Set(ECOSYSTEMS.map((ecosystem) => ecosystem.name));
@@ -73,6 +74,50 @@ function normalizeOutdated(raw) {
     return {};
   }
   return raw;
+}
+
+export function runNpmOutdatedJson(ecosystemRoot) {
+  return execFileSync('npm', ['outdated', '--json'], {
+    cwd: ecosystemRoot,
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+}
+
+function parseNpmOutdatedJson(ecosystem, payload) {
+  const trimmed = payload.trim();
+  if (trimmed === '') {
+    return {};
+  }
+  try {
+    return JSON.parse(trimmed);
+  } catch (error) {
+    throw new Error(`${ecosystem.name} npm outdated returned invalid JSON: ${error instanceof Error ? error.message : String(error)}`);
+  }
+}
+
+function readLiveOutdated(root, ecosystem, commandRunner) {
+  const ecosystemRoot = path.resolve(root, ecosystem.cwd);
+  try {
+    return parseNpmOutdatedJson(ecosystem, commandRunner(ecosystemRoot, ecosystem));
+  } catch (error) {
+    const stdout = typeof error?.stdout === 'string' ? error.stdout : Buffer.isBuffer(error?.stdout) ? error.stdout.toString('utf8') : '';
+    if (stdout.trim() !== '') {
+      return parseNpmOutdatedJson(ecosystem, stdout);
+    }
+    const stderr = typeof error?.stderr === 'string' ? error.stderr : Buffer.isBuffer(error?.stderr) ? error.stderr.toString('utf8') : '';
+    const status = typeof error?.status === 'number' ? ` exited ${error.status}` : ' failed';
+    const detail = stderr.trim() || (error instanceof Error ? error.message : String(error));
+    throw new Error(`${ecosystem.name} npm outdated${status}: ${detail}`);
+  }
+}
+
+function readOutdated(root, ecosystem, fixtures, commandRunner) {
+  const fixture = fixtures[ecosystem.name];
+  if (fixture) {
+    return maybeReadJson(root, fixture) ?? JSON.parse(readFileSync(path.resolve(fixture), 'utf8'));
+  }
+  return readLiveOutdated(root, ecosystem, commandRunner);
 }
 
 function classifyOutdated(packageJson, outdated) {
@@ -164,6 +209,7 @@ export function checkDependencyFreshness(options = {}) {
   const requiredDirectRuntimeStaleness = options.requiredDirectRuntimeStaleness ?? false;
   const waiverFile = options.waiverFile ?? DEFAULT_WAIVER_FILE;
   const fixtures = options.fixtures ?? {};
+  const commandRunner = options.commandRunner ?? runNpmOutdatedJson;
   const failures = [];
   const warnings = [];
   const ecosystems = [];
@@ -171,8 +217,12 @@ export function checkDependencyFreshness(options = {}) {
   for (const ecosystem of ECOSYSTEMS) {
     failures.push(...verifyLockfile(root, ecosystem));
     const packageJson = readJson(root, ecosystem.packagePath);
-    const fixture = fixtures[ecosystem.name];
-    const outdated = fixture ? maybeReadJson(root, fixture) ?? JSON.parse(readFileSync(path.resolve(fixture), 'utf8')) : {};
+    let outdated = {};
+    try {
+      outdated = readOutdated(root, ecosystem, fixtures, commandRunner);
+    } catch (error) {
+      failures.push(error instanceof Error ? error.message : String(error));
+    }
     const classified = classifyOutdated(packageJson, outdated);
     ecosystems.push({ name: ecosystem.name, directRuntimeDependencies: Object.keys(packageJson.dependencies ?? {}).sort(), ...classified });
 

@@ -95,6 +95,99 @@ describe('dependency freshness checker', () => {
     });
   });
 
+  it('runs npm outdated in each ecosystem when fixtures are not supplied', () => {
+    withRepo({}, (root) => {
+      const calls = [];
+      const result = checkDependencyFreshness({
+        root,
+        now: new Date('2026-05-21T00:00:00Z'),
+        commandRunner: (cwd, ecosystem) => {
+          calls.push({ cwd, ecosystem: ecosystem.name });
+          return ecosystem.name === 'root'
+            ? JSON.stringify({ fastify: { current: '5.0.0', wanted: '5.1.0', latest: '6.0.0', type: 'dependencies' } })
+            : '{}';
+        },
+      });
+
+      expect(result.ok).toBe(true);
+      expect(calls).toEqual([
+        { cwd: root, ecosystem: 'root' },
+        { cwd: join(root, 'web'), ecosystem: 'web' },
+      ]);
+      expect(result.warnings).toContainEqual(expect.stringContaining('root direct runtime dependencies are stale: fastify 5.0.0->6.0.0'));
+    });
+  });
+
+  it('parses npm outdated stdout from the standard nonzero outdated exit', () => {
+    withRepo({}, (root) => {
+      const error = new Error('npm outdated exited with packages');
+      error.status = 1;
+      error.stdout = JSON.stringify({ vue: { current: '3.0.0', wanted: '3.5.0', latest: '4.0.0', type: 'dependencies' } });
+      error.stderr = '';
+      const result = checkDependencyFreshness({
+        root,
+        now: new Date('2026-05-21T00:00:00Z'),
+        commandRunner: (_cwd, ecosystem) => {
+          if (ecosystem.name === 'web') {
+            throw error;
+          }
+          return '{}';
+        },
+      });
+
+      expect(result.ok).toBe(true);
+      expect(result.warnings).toContainEqual(expect.stringContaining('web direct runtime dependencies are stale: vue 3.0.0->4.0.0'));
+    });
+  });
+
+  it('fails clearly on npm outdated registry or command failures without JSON stdout', () => {
+    withRepo({}, (root) => {
+      const error = new Error('registry unavailable');
+      error.status = 1;
+      error.stdout = '';
+      error.stderr = 'npm ERR! 503 Service Unavailable';
+      const result = checkDependencyFreshness({
+        root,
+        now: new Date('2026-05-21T00:00:00Z'),
+        commandRunner: (_cwd, ecosystem) => {
+          if (ecosystem.name === 'root') {
+            throw error;
+          }
+          return '{}';
+        },
+      });
+
+      expect(result.ok).toBe(false);
+      expect(result.failures).toContain('root npm outdated exited 1: npm ERR! 503 Service Unavailable');
+    });
+  });
+
+  it('fails clearly when npm outdated returns invalid JSON', () => {
+    withRepo({}, (root) => {
+      const result = checkDependencyFreshness({
+        root,
+        now: new Date('2026-05-21T00:00:00Z'),
+        commandRunner: (_cwd, ecosystem) => (ecosystem.name === 'root' ? 'not-json' : '{}'),
+      });
+
+      expect(result.ok).toBe(false);
+      expect(result.failures).toContainEqual(expect.stringContaining('root npm outdated returned invalid JSON'));
+    });
+  });
+
+  it('does not call npm outdated when fixture mode is supplied', () => {
+    withRepo({}, (root) => {
+      const result = check(root, {
+        commandRunner: () => {
+          throw new Error('fixture mode should not call npm outdated');
+        },
+      });
+
+      expect(result.ok).toBe(true);
+      expect(result.failures).toEqual([]);
+    });
+  });
+
   it('fails when a lockfile is downgraded from package-lock v3', () => {
     withRepo({ 'web/package-lock.json': { name: 'web', lockfileVersion: 2, packages: {} } }, (root) => {
       const result = check(root);
