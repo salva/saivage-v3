@@ -66,8 +66,8 @@
         <section class="debug-section">
           <div class="debug-section-header operator-header">
             <div>
-              <h4 class="debug-section-title">Runtime Controls</h4>
-              <p class="operator-subtitle">Use authenticated runtime controls and then refresh to reconcile server state.</p>
+              <h4 class="debug-section-title">Runtime Diagnostics</h4>
+              <p class="operator-subtitle">Inspect runtime state here. Use Dashboard → Runtime Console for start, stop, pause, resume, and activation control.</p>
             </div>
             <div class="operator-actions-inline">
               <button class="sv-fetch-btn" :disabled="operatorPanelBusy" @click="refreshOperatorControl">Refresh</button>
@@ -110,20 +110,15 @@
             </div>
 
             <div v-if="!debugRuntime" class="debug-empty operator-empty-runtime">
-              Runtime state is unavailable. Start the runtime or restore runtime state before using pause/resume controls.
+              Runtime state is unavailable. Open Dashboard → Runtime Console to start project execution or inspect recovery state.
             </div>
 
-            <div class="operator-runtime-buttons">
-              <button class="operator-button" :disabled="pauseDisabled" @click="debugStore.pauseOperatorRuntime()">
-                {{ runtimeControlLoading === 'pause' ? 'Pausing...' : 'Pause runtime' }}
-              </button>
-              <button class="operator-button" :disabled="resumeDisabled" @click="debugStore.resumeOperatorRuntime()">
-                {{ runtimeControlLoading === 'resume' ? 'Resuming...' : 'Resume runtime' }}
-              </button>
+            <div class="operator-runtime-guidance" role="note">
+              DebugView is diagnostic-only. Runtime Console owns execution controls, command errors, root runs, child activation edges, and recovery state.
             </div>
 
-            <div v-if="!debugRuntime" class="operator-help-text">Runtime control is unavailable because runtime state is not initialized. Start the runtime or restore runtime state first.</div>
-            <div v-else-if="debugRuntime.status === 'frozen'" class="operator-help-text">Frozen runtime cannot be resumed here. Use resume-from-freeze.</div>
+            <div v-if="!debugRuntime" class="operator-help-text">Runtime diagnostics are unavailable because runtime state is not initialized. Open Dashboard → Runtime Console to start project execution or inspect recovery state.</div>
+            <div v-else-if="debugRuntime.status === 'frozen'" class="operator-help-text">Frozen runtime recovery is coordinated from Runtime Console after reviewing the freeze manifest.</div>
           </div>
         </section>
 
@@ -430,8 +425,6 @@ const operatorWarningBannerMessage = computed(() => {
   if (operatorPartialWarning.value) return operatorPartialWarning.value;
   return 'This panel may be stale. Refresh to reconcile with server state.';
 });
-const pauseDisabled = computed(() => operatorUnauthorized.value || runtimeControlLoading.value !== null || !debugRuntime.value);
-const resumeDisabled = computed(() => operatorUnauthorized.value || runtimeControlLoading.value !== null || !debugRuntime.value || debugRuntime.value.status === 'frozen');
 const clearNotesDisabled = computed(() => operatorUnauthorized.value || operatorNotes.value.length === 0 || operatorClearLoading.value || Object.keys(operatorNoteActionLoading.value).length > 0);
 const sortedProcesses = computed(() => [...processes.value].sort((a, b) => { if (a.status === 'running' && b.status !== 'running') return -1; if (a.status !== 'running' && b.status === 'running') return 1; return new Date(b.started_at).getTime() - new Date(a.started_at).getTime(); }));
 const selectedTimelineKinds = ref<string[]>([]);

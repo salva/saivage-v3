@@ -164,7 +164,9 @@ describe('DebugView — integration', () => {
     expect(listNotes).toHaveBeenCalled();
     expect(listNotifications).toHaveBeenCalled();
     expect(getDebugState).toHaveBeenCalled();
-    expect(wrapper.text()).toContain('Runtime Controls');
+    expect(wrapper.text()).toContain('Runtime Diagnostics');
+    expect(wrapper.text()).toContain('Runtime Console owns execution controls');
+    expect(wrapper.text()).not.toContain('Runtime Controls');
     expect(wrapper.text()).toContain('Notifications Inbox (1)');
     expect(wrapper.text()).toContain('Active card changed');
     expect(wrapper.text()).toContain('Actionable runtime issues');
@@ -237,53 +239,30 @@ describe('DebugView — integration', () => {
     expect(wrapper.text()).toContain('No unhandled operator notes.');
   });
 
-  it('pauses runtime and shows success feedback', async () => {
-    vi.mocked(getDebugState).mockResolvedValueOnce(mockStateResponse).mockResolvedValueOnce(mockStateResponse).mockResolvedValueOnce({ ...mockStateResponse, runtime: { ...mockStateResponse.runtime!, status: 'paused', paused: true } });
+  it('does not expose pause or resume execution controls from DebugView', async () => {
     const wrapper = await mountDebugView();
     await clickTab(wrapper, 'Operator Control');
-    const pauseButton = wrapper.findAll('button').find((b) => b.text() === 'Pause runtime');
-    await pauseButton!.trigger('click');
-    await flushPromises();
-    expect(pauseRuntime).toHaveBeenCalled();
-    expect(wrapper.text()).toContain('Runtime pause requested successfully.');
+    expect(wrapper.findAll('button').map((b) => b.text())).not.toContain('Pause runtime');
+    expect(wrapper.findAll('button').map((b) => b.text())).not.toContain('Resume runtime');
+    expect(wrapper.text()).toContain('DebugView is diagnostic-only. Runtime Console owns execution controls');
+    expect(pauseRuntime).not.toHaveBeenCalled();
+    expect(resumeRuntime).not.toHaveBeenCalled();
   });
 
-  it('resumes runtime and shows success feedback', async () => {
-    vi.mocked(getDebugState).mockResolvedValueOnce({ ...mockStateResponse, runtime: { ...mockStateResponse.runtime!, status: 'paused', paused: true } }).mockResolvedValueOnce({ ...mockStateResponse, runtime: { ...mockStateResponse.runtime!, status: 'paused', paused: true } }).mockResolvedValueOnce(mockStateResponse);
-    const wrapper = await mountDebugView();
-    await clickTab(wrapper, 'Operator Control');
-    const resumeButton = wrapper.findAll('button').find((b) => b.text() === 'Resume runtime');
-    await resumeButton!.trigger('click');
-    await flushPromises();
-    expect(resumeRuntime).toHaveBeenCalled();
-    expect(wrapper.text()).toContain('Runtime resume requested successfully.');
-  });
-
-  it('disables generic resume and shows frozen guidance for frozen runtime', async () => {
+  it('shows frozen diagnostic guidance without a generic resume control', async () => {
     vi.mocked(getDebugState).mockResolvedValue(mockFrozenStateResponse);
     const wrapper = await mountDebugView();
     await clickTab(wrapper, 'Operator Control');
-    const resumeButton = wrapper.findAll('button').find((b) => b.text() === 'Resume runtime');
-    expect(resumeButton!.attributes('disabled')).toBeDefined();
-    expect(wrapper.text()).toContain('Frozen runtime cannot be resumed here. Use resume-from-freeze.');
-  });
-
-  it('shows frozen resume rejection copy when resume API rejects with resume-from-freeze action', async () => {
-    vi.mocked(getDebugState).mockResolvedValueOnce({ ...mockStateResponse, runtime: { ...mockStateResponse.runtime!, status: 'paused', paused: true } }).mockResolvedValueOnce({ ...mockStateResponse, runtime: { ...mockStateResponse.runtime!, status: 'paused', paused: true } }).mockResolvedValueOnce(mockFrozenStateResponse);
-    vi.mocked(resumeRuntime).mockRejectedValue(new ApiError(400, 'Runtime is frozen', { action: 'resume-from-freeze' }));
-    const wrapper = await mountDebugView();
-    await clickTab(wrapper, 'Operator Control');
-    const resumeButton = wrapper.findAll('button').find((b) => b.text() === 'Resume runtime');
-    await resumeButton!.trigger('click');
-    await flushPromises();
-    expect(wrapper.text()).toContain('Runtime is frozen. Generic resume is blocked. Use the resume-from-freeze workflow to restore from the freeze manifest before resuming dispatch.');
+    expect(wrapper.findAll('button').map((b) => b.text())).not.toContain('Resume runtime');
+    expect(wrapper.text()).toContain('Frozen runtime recovery is coordinated from Runtime Console after reviewing the freeze manifest.');
   });
 
   it('shows unavailable runtime copy when runtime state is missing', async () => {
     vi.mocked(getDebugState).mockResolvedValue(mockUnavailableStateResponse);
     const wrapper = await mountDebugView();
     await clickTab(wrapper, 'Operator Control');
-    expect(wrapper.text()).toContain('Runtime state is unavailable. Start the runtime or restore runtime state before using pause/resume controls.');
+    expect(wrapper.text()).toContain('Runtime state is unavailable. Open Dashboard → Runtime Console to start project execution or inspect recovery state.');
+    expect(wrapper.text()).toContain('Runtime diagnostics are unavailable because runtime state is not initialized.');
   });
 
   it('shows unauthorized banner and disables controls on 401', async () => {

@@ -454,6 +454,16 @@ describe('useRuntimeStore', () => {
       expect(store.unauthorized).toBe(true);
       expect(store.runtimeDetail).toContain('valid API token');
     });
+
+    it('describes paused runtime with run and activation terminology instead of queued work', async () => {
+      const store = setupStore();
+      vi.mocked(getRuntimeState).mockResolvedValue({ ...mockRuntimeStateResponse, runtime: mockRuntimeStatePaused });
+
+      await store.fetchState();
+
+      expect(store.runtimeDetail).toContain('active runs and activation edges');
+      expect(store.runtimeDetail.toLowerCase()).not.toContain('queued work');
+    });
   });
 
   describe('startProject()/stopProject()', () => {

@@ -123,7 +123,7 @@ export const useRuntimeStore = defineStore('runtime', () => {
     if (!getAuthToken()) return 'Enter an API token to load runtime state and receive live updates.';
     if (isFrozen.value) return runtime.value?.frozen_reason || 'Runtime is frozen and needs operator attention.';
     if (status.value === 'error') return 'Runtime reported an error state. Inspect Debug for recovery evidence.';
-    if (isPaused.value) return 'Runtime is paused. Resume to continue queued work.';
+    if (isPaused.value) return 'Runtime is paused. Use Runtime Console to resume active runs and activation edges when appropriate.';
     if (isStale.value) return 'Runtime snapshot is stale. Refresh to resync with the authoritative REST state.';
     if (!runtime.value) return availabilityDetail.value ?? 'Runtime state has not been loaded yet.';
     return availabilityDetail.value ?? 'REST snapshot is authoritative; live updates may accelerate status changes.';
