@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, afterAll, beforeAll, jest } from '@jest/globals';
+import { readFileSync } from 'node:fs';
 
 const mockLog = jest.fn<(...args: unknown[]) => void>();
 const mockError = jest.fn<(...args: unknown[]) => void>();
@@ -115,6 +116,12 @@ describe('CLI Entry Point', () => {
   describe('entrypoint guard', () => {
     it('does not auto-run when imported with a different argv path named saivage', () => {
       expect(importSideEffects).toEqual({ logCalls: 0, errorCalls: 0, exitCalls: 0 });
+    });
+
+    it('bin wrapper imports the compiled CLI and explicitly invokes run(process.argv)', () => {
+      const wrapper = readFileSync(new URL('../../bin/saivage.js', import.meta.url), 'utf-8');
+      expect(wrapper).toContain("import('../dist/src/cli.js')");
+      expect(wrapper).toContain('mod.run(process.argv)');
     });
   });
 
