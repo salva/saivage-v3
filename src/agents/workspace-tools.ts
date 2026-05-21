@@ -3,7 +3,6 @@ import { isAbsolute, join, relative, resolve } from 'node:path';
 import type { ToolDefinition } from './llm-client.js';
 import { readProjectFileAtomic, writeFileAtomic } from '../utils/file-tree.js';
 import { isWriteBlocked } from '../utils/file-access-security.js';
-import { startAndWait, waitProcess, killProcess, tailOutput, getProcess } from '../utils/process-runner.js';
 
 const DEFAULT_MAX_RESULTS = 200;
 const MAX_LIST_RESULTS = 1000;
@@ -142,6 +141,15 @@ export const WORKSPACE_TOOL_DEFINITIONS: ToolDefinition[] = [
   },
 ];
 
+type ProcessRunnerModule = typeof import('../utils/process-runner.js');
+
+let processRunnerModulePromise: Promise<ProcessRunnerModule> | null = null;
+
+function getProcessRunner(): Promise<ProcessRunnerModule> {
+  processRunnerModulePromise ??= import('../utils/process-runner.js');
+  return processRunnerModulePromise;
+}
+
 export interface WorkspaceToolContext {
   projectRoot: string;
   sessionId: string;
@@ -263,6 +271,7 @@ export async function processWorkspaceToolCall(
 
 
   if (name === 'wait_for_process') {
+    const { waitProcess, tailOutput } = await getProcessRunner();
     const processId = typeof args.processId === 'string' ? args.processId.trim() : '';
     if (!processId) throw new Error('wait_for_process requires a processId.');
     const requestedTimeout = Number.isInteger(args.timeoutMs) ? Number(args.timeoutMs) : DEFAULT_COMMAND_TIMEOUT_MS;
@@ -278,6 +287,7 @@ export async function processWorkspaceToolCall(
   }
 
   if (name === 'kill_process') {
+    const { killProcess, tailOutput, getProcess } = await getProcessRunner();
     const processId = typeof args.processId === 'string' ? args.processId.trim() : '';
     if (!processId) throw new Error('kill_process requires a processId.');
     const signal = typeof args.signal === 'string' && args.signal.trim() ? args.signal.trim() as NodeJS.Signals : 'SIGTERM';
@@ -294,6 +304,7 @@ export async function processWorkspaceToolCall(
   }
 
   if (name === 'run_project_command' || name === 'start_and_wait') {
+    const { startAndWait, tailOutput } = await getProcessRunner();
     const command = typeof args.command === 'string' ? args.command.trim() : '';
     if (!command) throw new Error('run_project_command requires a non-empty command.');
     const cwd = projectAbsolutePath(context.projectRoot, typeof args.cwd === 'string' ? args.cwd : undefined, 'cwd');
