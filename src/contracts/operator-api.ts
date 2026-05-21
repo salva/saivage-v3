@@ -118,11 +118,9 @@ const cardCreateBaseSchema = z.object({
   subtype: z.string().nullable().optional(),
   assigned_to: z.string().nullable().optional(),
   instructions_file: z.string().nullable().optional(),
-  confirmed: z.boolean().optional(),
-  preview_hash: z.string().optional(),
 });
 
-export const CardCreateBodySchema = cardCreateBaseSchema.passthrough();
+export const CardCreateBodySchema = cardCreateBaseSchema.strip();
 
 export const CardUpdateBodySchema = z.object({
   title: z.string().optional(),
@@ -144,9 +142,7 @@ export const CardUpdateBodySchema = z.object({
   type: cardTypeSchema.optional(),
   subtype: z.string().nullable().optional(),
   instructions_file: z.string().nullable().optional(),
-  confirmed: z.boolean().optional(),
-  preview_hash: z.string().optional(),
-}).passthrough();
+}).strip();
 
 export type OperatorRouteContract<
   TParams extends z.ZodTypeAny | undefined = z.ZodTypeAny | undefined,

@@ -146,7 +146,7 @@ Typical interactions:
 The analyst never performs terminal task work — it manages cards,
 controls execution, and inspects runtime state.
 
-Analyst directive tools are routed through the card-scoped analyst handler registry (`src/agents/analyst-llm-resolver.ts`, `src/agents/analyst-tools.ts`). `lets_dance` records a project bootstrap directive, `mark_project_needs_corrections` records a project-correction directive, and `mark_goal_needs_corrections` records `pending_subtree_correction` notes on the origin goal plus ancestor goal/project cards. The runtime consumes only the persisted project directives; focused coverage lives in `tests/agents/analyst-directive-tools-e2e.test.ts` and `tests/utils/runtime-analyst-directives-safe-tick.test.ts`.
+Analyst card/note tools are routed through the card-scoped analyst handler registry (`src/agents/analyst-llm-resolver.ts`, `src/agents/analyst-tools.ts`). Root execution is not started by analyst directive tools; `mark_goal_needs_corrections` records correction notes for planner visibility, while runtime execution starts through explicit runtime commands and child `activate_card` records.
 
 
 LLM provider failures crossing into agent-visible state are sanitized

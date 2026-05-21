@@ -117,9 +117,9 @@ Resume re-enables dispatch. Depending on queued work, the runtime may settle int
 Legacy explicit dispatch endpoints are not part of the current §14 API surface.
 Operators start or correct work by recording directives instead:
 
-- `POST /api/runtime/lets_dance` records a project kickoff directive.
+- Root project kickoff uses explicit runtime start controls (`start_project`/operator runtime controls); directive kickoff routes are removed.
 - `POST /api/runtime/goals/:id/needs_corrections` records goal corrections.
-- `POST /api/runtime/project/needs_corrections` records project-level corrections.
+- Project-level correction directives are no longer executable runtime triggers; use goal-scoped correction notes and explicit runtime controls.
 
 The runtime consumes eligible directives on its scheduler safe tick and owns any
 subsequent card activation.
@@ -318,9 +318,7 @@ Every current operator-facing Fastify route is listed exactly once here. `npm ru
 | `POST /api/notifications/:id/acknowledge` | Acknowledge a notification. | `src/server/routes/runtime-config-notes.ts:154` |
 | `POST /api/runtime/freeze` | Freeze runtime for handoff. | `src/server/routes/runtime-config-notes.ts:197` |
 | `POST /api/runtime/goals/:id/needs_corrections` | Record goal correction directive. | `src/server/server.ts:46 "fastify.post('/api/runtime/goals/:id/needs_corrections'"` |
-| `POST /api/runtime/lets_dance` | Record project kickoff directive. | `src/server/server.ts:32 "fastify.post('/api/runtime/lets_dance'"` |
 | `POST /api/runtime/pause` | Pause runtime and return RuntimeState. | `src/server/routes/runtime-config-notes.ts:195` |
-| `POST /api/runtime/project/needs_corrections` | Record project correction directive. | `src/server/server.ts:54 "fastify.post('/api/runtime/project/needs_corrections'"` |
 | `POST /api/runtime/resume-from-freeze` | Resume from freeze manifest. | `src/server/routes/runtime-config-notes.ts:198` |
 | `POST /api/runtime/resume` | Resume runtime and return RuntimeState. | `src/server/routes/runtime-config-notes.ts:196` |
 <!-- saivage:operator-routes:end -->

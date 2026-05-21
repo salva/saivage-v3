@@ -190,9 +190,9 @@ If a freeze manifest exists, Saivage restores queued work, clears the manifest, 
 
 Legacy explicit dispatch endpoints are not part of the current operator API. Start or correct work by recording directives:
 
-- `POST /api/runtime/lets_dance` records a project kickoff directive.
+- Root project kickoff uses explicit runtime start controls (`start_project`/operator runtime controls); directive kickoff routes are removed.
 - `POST /api/runtime/goals/:id/needs_corrections` records goal corrections.
-- `POST /api/runtime/project/needs_corrections` records project-level corrections.
+- Project-level correction directives are no longer executable runtime triggers; use goal-scoped correction notes and explicit runtime controls.
 
 The runtime consumes eligible directives on scheduler safe ticks and owns subsequent card activation.
 

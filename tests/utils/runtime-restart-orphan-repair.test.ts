@@ -10,7 +10,6 @@ import { releaseLock } from '../../src/utils/runtime-lock.js';
 import { saveRuntimeState, initRuntimeState, updateRuntimeState, readRuntimeState } from '../../src/utils/runtime-state.js';
 import { appendMessage, createSession, getSessionMessages, listSessions } from '../../src/agents/session-persistence.js';
 import { getUnhandledNotesQueue } from '../../src/utils/notes.js';
-import { readProjectDirectives, recordLetsDanceDirective, recordProjectNeedsCorrectionsDirective } from '../../src/utils/analyst-stage6.js';
 import type { ActiveCardRun, CardRecord, RuntimeState } from '../../src/schemas/types.js';
 import type { AgentRuntime } from '../../src/agents/agent-runtime.js';
 import type { PlannerResult, ExecutorResult, ReviewerResult } from '../../src/agents/result-parser.js';
@@ -277,64 +276,12 @@ describe('stage 7 runtime restart and orphan activate_card repair', () => {
     expect(resumedMessages[1]!.content.trim()).toMatch(/resume_reason: initial$/);
   });
 
-  it.each([
-    { kind: 'lets_dance' as const, record: () => recordLetsDanceDirective(root), key: 'lets_dance' as const },
-    { kind: 'project_needs_corrections' as const, record: () => recordProjectNeedsCorrectionsDirective(root, [{ summary: 'correct project', severity: 'warning' }]), key: 'project_needs_corrections' as const },
-  ])('buffers $kind while paused and consumes exactly once after resume safe tick', async ({ record, key }) => {
-    record();
-    const agent = new ScriptedAgent({ project: [{ status: 'blocked', blocked_reason: 'project started', created_cards: [], updated_cards: [] }] });
-    initRuntimeState(root);
-    updateRuntimeState(root, { status: 'paused', paused: true, paused_at: now() });
-    runtime = new Runtime({ projectRoot: root, fakeAgentConfig: { mapping: {}, fixtureDir: root } }, agent);
-    await runtime.startup();
-    await new Promise((resolve) => setTimeout(resolve, 50));
-    expect(agent.plannerCalls).toHaveLength(0);
-    expect(readProjectDirectives(root)[key]).toBeTruthy();
 
-    runtime.resume();
-    await new Promise((resolve) => setTimeout(resolve, 80));
-    expect(agent.plannerCalls).toEqual(['project']);
-    expect(readProjectDirectives(root)[key]).toBeUndefined();
-    runtime.resume();
-    await new Promise((resolve) => setTimeout(resolve, 50));
-    expect(agent.plannerCalls).toEqual(['project']);
-  });
-
-  it.each([
-    { kind: 'lets_dance' as const, record: () => recordLetsDanceDirective(root), key: 'lets_dance' as const },
-    { kind: 'project_needs_corrections' as const, record: () => recordProjectNeedsCorrectionsDirective(root, [{ summary: 'correct project', severity: 'warning' }]), key: 'project_needs_corrections' as const },
-  ])('preserves $kind directives across restart and activates project exactly once through safe tick', async ({ record, key }) => {
-    record();
-    const firstAgent = new ScriptedAgent({});
-    initRuntimeState(root);
-    updateRuntimeState(root, { status: 'paused', paused: true, paused_at: now() });
-    runtime = new Runtime({ projectRoot: root, fakeAgentConfig: { mapping: {}, fixtureDir: root } }, firstAgent);
-    await runtime.startup();
-    await new Promise((resolve) => setTimeout(resolve, 40));
-    expect(firstAgent.plannerCalls).toHaveLength(0);
-    expect(readProjectDirectives(root)[key]).toBeTruthy();
-    await runtime.shutdown(); runtime = null; try { releaseLock(root); } catch {}
-
-    const secondAgent = new ScriptedAgent({ project: [{ status: 'blocked', blocked_reason: 'directive started', created_cards: [], updated_cards: [] }] });
-    runtime = new Runtime({ projectRoot: root, fakeAgentConfig: { mapping: {}, fixtureDir: root } }, secondAgent);
-    await runtime.startup();
-    await new Promise((resolve) => setTimeout(resolve, 80));
-    expect(secondAgent.plannerCalls).toEqual(['project']);
-    expect(readProjectDirectives(root)[key]).toBeUndefined();
-    await runtime.shutdown(); runtime = null; try { releaseLock(root); } catch {}
-
-    const thirdAgent = new ScriptedAgent({ project: [{ status: 'blocked', blocked_reason: 'would be duplicate', created_cards: [], updated_cards: [] }] });
-    runtime = new Runtime({ projectRoot: root, fakeAgentConfig: { mapping: {}, fixtureDir: root } }, thirdAgent);
-    await runtime.startup();
-    await new Promise((resolve) => setTimeout(resolve, 60));
-    expect(thirdAgent.plannerCalls).toHaveLength(0);
-  });
 
   it('routes startup repair through safe tick without project directive consumption or direct dispatch before repair completes', async () => {
     store.create(cardInput('goal-a', 'goal', 'project', 'running'));
     store.create(cardInput('code-a', 'code', 'goal-a', 'running'));
     addActivateCall(root, 'goal-a', 'code-a');
-    recordLetsDanceDirective(root);
     saveRuntimeState(root, runtimeState({ card_id: 'code-a', card_type: 'code', runtime_status: 'running', phase: 'executor', caller_session_id: null, caller_tool_call_id: null, executor_session_id: 'executor-code-a', correction_attempts: 0, started_at: now(), last_turn_at: now() }));
     const agent = new ScriptedAgent({ 'goal-a': [{ status: 'blocked', blocked_reason: 'observed failed child', created_cards: [], updated_cards: [] }], project: [{ status: 'blocked', blocked_reason: 'project directive later', created_cards: [], updated_cards: [] }] });
     const original = (Runtime.prototype as unknown as { dispatchGoal: Runtime['dispatchGoal'] }).dispatchGoal;
@@ -346,15 +293,12 @@ describe('stage 7 runtime restart and orphan activate_card repair', () => {
     await runtime.startup();
     startupReturned = true;
     expect(callsDuringRepair).toHaveLength(0);
-    expect(readProjectDirectives(root).lets_dance).toBeTruthy();
 
     await new Promise((resolve) => setTimeout(resolve, 80));
     expect(agent.plannerCalls).toEqual(['goal-a']);
-    expect(readProjectDirectives(root).lets_dance).toBeTruthy();
 
     await instance.safeTick();
     expect(agent.plannerCalls).toEqual(['goal-a', 'project']);
-    expect(readProjectDirectives(root).lets_dance).toBeUndefined();
   });
 
   it('keeps pending_subprocess acceptance gate behavior deferred while durable process tools exist', async () => {

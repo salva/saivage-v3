@@ -167,9 +167,7 @@ export class ActiveRuntime {
     await this._runtime.dispatchGoal(goalId);
   }
 
-  async requestProjectDirectiveWakeup(reason: 'lets_dance' | 'project_needs_corrections' = 'lets_dance'): Promise<{ accepted: boolean; reason: string }> {
-    return this._runtime.requestProjectDirectiveWakeup(reason);
-  }
+
 
   // ── Pause / Resume ───────────────────────────────────────────
 

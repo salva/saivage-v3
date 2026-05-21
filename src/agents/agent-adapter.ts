@@ -154,9 +154,7 @@ const RUNTIME_AGENT_TOOL_REGISTRY: Record<string, (ctx: analystTools.ToolContext
   list_notes: analystTools.list_notes as unknown as (ctx: analystTools.ToolContext, params: Record<string, unknown>) => Promise<analystTools.ToolResult>,
   get_note: analystTools.get_note as unknown as (ctx: analystTools.ToolContext, params: Record<string, unknown>) => Promise<analystTools.ToolResult>,
   mark_note_handled: analystTools.mark_note_handled as unknown as (ctx: analystTools.ToolContext, params: Record<string, unknown>) => Promise<analystTools.ToolResult>,
-  lets_dance: analystTools.lets_dance as unknown as (ctx: analystTools.ToolContext, params: Record<string, unknown>) => Promise<analystTools.ToolResult>,
   mark_goal_needs_corrections: analystTools.mark_goal_needs_corrections as unknown as (ctx: analystTools.ToolContext, params: Record<string, unknown>) => Promise<analystTools.ToolResult>,
-  mark_project_needs_corrections: analystTools.mark_project_needs_corrections as unknown as (ctx: analystTools.ToolContext, params: Record<string, unknown>) => Promise<analystTools.ToolResult>,
 };
 
 export class AgentAdapter implements AgentRuntime {

@@ -21,7 +21,7 @@ import { createNotificationDeliveryService, setProjectNotificationDeliveryAdapte
 import { TelegramNotificationDeliveryAdapter, buildTelegramStartupDiagnosticSummary, evaluateTelegramRecipientReadiness, normalizeTelegramNotificationChatIds } from '../telegram/recipients.js';
 import type { NotificationRouter } from '../notifications/index.js';
 import { ActiveRuntime } from '../runtime/lifecycle.js';
-import { buildCardRunsResponse, markGoalNeedsCorrections, normalizeAnalystIssues, recordLetsDanceDirective, recordProjectNeedsCorrectionsDirective, withLetsDanceWakeupObservation } from '../utils/analyst-stage6.js';
+import { buildCardRunsResponse, markGoalNeedsCorrections, normalizeAnalystIssues } from '../utils/analyst-stage6.js';
 import { readFreezeManifest } from '../utils/freeze-manifest.js';
 import { buildServerAvailability, type ServerAvailabilityInputs } from './availability.js';
 
@@ -33,16 +33,6 @@ function registerHealth(fastify: FastifyInstance, projectRoot: string, _saivageC
 export function getServerConfig(projectRoot: string): ServerConfig { let host = '0.0.0.0'; let port = 8080; try { const { config } = loadConfig(projectRoot); host = config.server.host ?? host; port = config.server.port ?? port; } catch {} if (process.env['SAIVAGE_HOST']) host = process.env['SAIVAGE_HOST']; if (process.env['SAIVAGE_PORT']) { const parsed = parseInt(process.env['SAIVAGE_PORT'], 10); if (!isNaN(parsed) && parsed >= 1 && parsed <= 65535) port = parsed; } return { host, port, projectRoot }; }
 
 function registerStage6RuntimeRoutes(fastify: FastifyInstance, projectRoot: string, activeRuntime?: ActiveRuntime): void {
-  fastify.post('/api/runtime/lets_dance', async (_request, reply) => {
-    try {
-      const recorded = recordLetsDanceDirective(projectRoot, { runtime_available: Boolean(activeRuntime) });
-      const wakeup = activeRuntime && recorded.outcome !== 'queued_paused' && recorded.outcome !== 'blocked_project_status' && recorded.outcome !== 'active_run_present'
-        ? await activeRuntime.requestProjectDirectiveWakeup('lets_dance')
-        : null;
-      return reply.send(withLetsDanceWakeupObservation(recorded, wakeup));
-    }
-    catch (err) { return reply.status(500).send({ error: 'Failed to record lets_dance directive', message: err instanceof Error ? err.message : String(err) }); }
-  });
   fastify.post('/api/runtime/goals/:id/needs_corrections', async (request, reply) => {
     try {
       const params = request.params as { id: string };
@@ -50,13 +40,6 @@ function registerStage6RuntimeRoutes(fastify: FastifyInstance, projectRoot: stri
       const issues = normalizeAnalystIssues(body.issues ?? []);
       return reply.send(markGoalNeedsCorrections(projectRoot, params.id, issues, body.note));
     } catch (err) { return reply.status(400).send({ error: 'Failed to record goal corrections', message: err instanceof Error ? err.message : String(err) }); }
-  });
-  fastify.post('/api/runtime/project/needs_corrections', async (request, reply) => {
-    try {
-      const body = (request.body ?? {}) as { issues?: unknown[]; note?: string };
-      const issues = normalizeAnalystIssues(body.issues ?? []);
-      return reply.send(recordProjectNeedsCorrectionsDirective(projectRoot, issues, body.note));
-    } catch (err) { return reply.status(400).send({ error: 'Failed to record project corrections', message: err instanceof Error ? err.message : String(err) }); }
   });
   fastify.get('/api/runtime/card-runs', async (_request, reply) => reply.send(buildCardRunsResponse(projectRoot)));
 }

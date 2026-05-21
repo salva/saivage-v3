@@ -239,10 +239,9 @@ function buildResponse(tool: string, result: ToolResult): string {
   if (!result.success) return `❌ Failed: ${result.error || 'Unknown error'}`;
   if (result.preview) {
     const p = result.preview;
-    let previewMsg = `⚠️ Preview required before confirmation.\n\n`;
+    let previewMsg = `⚠️ Action preview. This mutation was not applied; use an authorized surface or adjust the request.\n\n`;
     previewMsg += `**Action**: ${p.type}\n`;
     previewMsg += `**Summary**: ${p.summary}\n`;
-    if (p.preview_hash) previewMsg += `**Preview Hash**: ${p.preview_hash}\n`;
     if (p.affectedCards.length > 0) { previewMsg += `\n**Affected Cards**:\n`; for (const card of p.affectedCards.slice(0, 10)) previewMsg += `  - ${card.id}: "${card.title}" (${card.type}, ${card.status})\n`; if (p.affectedCards.length > 10) previewMsg += `  ... and ${p.affectedCards.length - 10} more\n`; }
     if (p.affectedProcesses.length > 0) { previewMsg += `\n**Affected Processes**:\n`; for (const proc of p.affectedProcesses) previewMsg += `  - ${proc.id}: ${proc.command} (${proc.status})\n`; }
     if (p.warnings.length > 0) { previewMsg += `\n**Warnings**:\n`; for (const w of p.warnings) previewMsg += `  - ⚠ ${w}\n`; }
@@ -361,12 +360,6 @@ export class AnalystHandler {
         let params: Record<string, unknown> = {};
         try { params = JSON.parse(tc.function.arguments) as Record<string, unknown>; } catch { params = {}; }
 
-        const lastInt = this.lastIntent.get(sessionId);
-        if (lastInt && lastInt.tool === tc.function.name && typeof lastInt.params['preview_hash'] === 'string') {
-          if (params['confirmed'] === true && typeof params['preview_hash'] !== 'string') {
-            params = { ...params, preview_hash: lastInt.params['preview_hash'] };
-          }
-        }
 
         this.emitActivity({ type: 'tool_call', content: { tool: tc.function.name, params } });
 
@@ -379,11 +372,7 @@ export class AnalystHandler {
           catch (err) { result = { success: false, error: err instanceof Error ? err.message : String(err) }; }
         }
 
-        if (result.preview?.preview_hash) {
-          this.lastIntent.set(sessionId, { tool: tc.function.name, params: { ...params, preview_hash: result.preview.preview_hash } });
-        } else if (result.success && this.lastIntent.get(sessionId)?.tool === tc.function.name) {
-          this.lastIntent.delete(sessionId);
-        }
+        if (result.success && this.lastIntent.get(sessionId)?.tool === tc.function.name) this.lastIntent.delete(sessionId);
 
         this.emitActivity({ type: 'tool_result', content: { tool: tc.function.name, success: result.success, hasPreview: !!result.preview } });
 
@@ -407,8 +396,7 @@ export class AnalystHandler {
     if (lower === 'yes' || lower === 'confirm' || lower === 'proceed' || lower === 'ok') {
       const lastInt = this.lastIntent.get(sessionId);
       if (lastInt) {
-        const preview_hash = typeof lastInt.params['preview_hash'] === 'string' ? lastInt.params['preview_hash'] : undefined;
-        intent = { tool: lastInt.tool, params: { ...lastInt.params, confirmed: true, ...(preview_hash ? { preview_hash } : {}) } };
+        intent = { tool: lastInt.tool, params: { ...lastInt.params } };
         this.lastIntent.delete(sessionId);
       }
     }
@@ -424,9 +412,6 @@ export class AnalystHandler {
       const result = await toolFn(ctx, intent.params);
       this.emitActivity({ type: 'tool_result', content: { tool: intent.tool, success: result.success, hasPreview: !!result.preview } });
       toolInvocations.push({ tool: intent.tool, params: intent.params, result });
-      if (result.preview?.preview_hash) {
-        this.lastIntent.set(sessionId, { tool: intent.tool, params: { ...intent.params, preview_hash: result.preview.preview_hash } });
-      }
       appendMessage(this.projectRoot, sessionId, { role: 'tool', kind: 'tool_result', content: JSON.stringify(result).slice(0, 16000), tool: intent.tool });
       broadcastToolInvocation(sessionId, intent.tool, result);
       const responseContent = buildResponse(intent.tool, result);

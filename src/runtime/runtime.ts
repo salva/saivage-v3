@@ -21,7 +21,7 @@ import type {
 } from '../schemas/types.js';
 import { createActivationCompletionEnvelope, parseActivationCompletionEnvelope } from '../schemas/validators.js';
 import { CardStore } from '../utils/card-store.js';
-import { consumeChangedCardActivation, consumePendingProjectDirective, injectQueuedSyntheticPlannerNotes, peekPendingProjectDirective, queueSyntheticPlannerNote } from '../utils/analyst-stage6.js';
+import { consumeChangedCardActivation, injectQueuedSyntheticPlannerNotes, queueSyntheticPlannerNote } from '../utils/analyst-stage6.js';
 import {
   initRuntimeState,
   readRuntimeState,
@@ -521,7 +521,7 @@ export class Runtime extends EventEmitter {
   freeze(reason?: string): FreezeManifest { if (this._status === 'frozen') { const existing = readFreezeManifest(this.projectRoot); if (existing) return existing; } this._status = 'frozen'; this._paused = true; const state = readRuntimeState(this.projectRoot); const frozenAt = new Date(); const freezeId = `freeze-${frozenAt.toISOString().replace(/[:.]/g, '-')}`; let handoffSummaries: HandoffSummary[] = []; try { const raw = this.agentRuntime.getActiveSessionHandoffs(); handoffSummaries = raw instanceof Promise ? [] : raw; } catch {} const manifest: FreezeManifest = { freeze_id: freezeId, reason: reason ?? 'operator requested freeze', created_at: frozenAt.toISOString(), status: 'frozen', project_id: 'project', pid: process.pid, started_at: state?.started_at ?? frozenAt.toISOString(), current_card_id: state?.current_card_id ?? null, current_agent_session_id: state?.current_agent_session_id ?? null, queue: state?.queue ?? [], running_processes: [], handoff_summaries: handoffSummaries, schema_version: 1, runtime_version: '0.1.0' }; saveFreezeManifest(this.projectRoot, manifest); try { saveRuntimeState(this.projectRoot, { status: 'frozen', project_id: 'project', pid: process.pid, started_at: state?.started_at ?? frozenAt.toISOString(), current_card_id: state?.current_card_id ?? null, current_agent_session_id: state?.current_agent_session_id ?? null, paused: true, paused_at: frozenAt.toISOString(), queue: state?.queue ?? [], running_processes: [], updated_at: frozenAt.toISOString() }); } catch {} this.emit('frozen', { freeze_id: manifest.freeze_id, reason: manifest.reason }); this._eventLogger.appendEvent({ kind: 'frozen', freeze_id: manifest.freeze_id, reason: manifest.reason }); return manifest; }
   resumeFromFreeze(): { freeze_id: string; restored_queue: string[]; restored_processes: string[]; restored_card_id: string | null } { const manifest = readFreezeManifest(this.projectRoot); if (!manifest) throw new Error('Cannot resume: no freeze manifest found. The runtime is not frozen.'); if (manifest.schema_version > 1) throw new Error(`Cannot resume: freeze manifest schema version ${manifest.schema_version} is newer than the supported version 1. Upgrade Saivage to resume this freeze.`); const currentVersion = '0.1.0'; if (manifest.runtime_version !== currentVersion) console.warn(`Resuming from freeze created by runtime version ${manifest.runtime_version} with current version ${currentVersion}. State may differ.`); this._status = 'idle'; this._paused = false; const processIds: string[] = []; try { saveRuntimeState(this.projectRoot, { status: 'idle', project_id: 'project', pid: process.pid, started_at: manifest.started_at, current_card_id: manifest.current_card_id, current_agent_session_id: manifest.current_agent_session_id, paused: false, paused_at: null, queue: manifest.queue, running_processes: [], updated_at: new Date().toISOString() }); } catch {} this.runningProcesses.clear(); const handoffSummaries = manifest.handoff_summaries ?? []; if (handoffSummaries.length > 0 && manifest.current_agent_session_id) { this._resumeHandoffContext = handoffSummaries.map((h) => `[Handoff] Session: ${h.session_id}, Role: ${h.role}, Last action: ${h.last_action}, Next action: ${h.next_action}, Context: ${h.context_summary}`).join('\n'); } clearFreezeManifest(this.projectRoot); this.emit('resumed_from_freeze', { freeze_id: manifest.freeze_id }); this._eventLogger.appendEvent({ kind: 'resumed_from_freeze', freeze_id: manifest.freeze_id }); return { freeze_id: manifest.freeze_id, restored_queue: manifest.queue, restored_processes: processIds, restored_card_id: manifest.current_card_id }; }
   performCrashRecovery(): void { const allCards = this.cardStore.list(); for (const card of allCards) if (card.status === 'active' || card.status === 'running') this.cardStore.setStatus(card.id, 'backlog'); const tmpRuntimeDir = join(this.projectRoot, '.saivage-work', 'tmp', 'runtime'); if (existsSync(tmpRuntimeDir)) { try { const entries = readdirSync(tmpRuntimeDir); for (const entry of entries) { if (entry === 'runtime.lock') continue; if (entry.endsWith('.tmp') || entry.endsWith('.tmp.') || entry.includes('.tmp.')) { try { rmSync(join(tmpRuntimeDir, entry), { recursive: true, force: true }); } catch {} } } } catch {} } try { cleanStaleStash(saivageWorkDir(this.projectRoot), 24 * 60 * 60 * 1000); } catch {} try { cleanStalePreviews(saivageWorkDir(this.projectRoot), 24 * 60 * 60 * 1000); } catch {} try { cleanStaleUploads(saivageWorkDir(this.projectRoot), 24 * 60 * 60 * 1000); } catch {} }
-  getReadyQueue(goalId: string): CardRecord[] { const allCards = this.cardStore.list(); const descendantIds = new Set(this.cardStore.getDescendantIds(goalId)); descendantIds.add(goalId); return buildReadyQueue(allCards.filter((c) => descendantIds.has(c.id) && isTerminal(c))); }
+  getReadyQueue(_goalId: string): CardRecord[] { return []; }
 
   async dispatchGoal(goalId: string): Promise<void> {
     if (this._dispatchInFlight.has(goalId)) return;
@@ -529,7 +529,7 @@ export class Runtime extends EventEmitter {
     try {
     if (this._paused) { this.emit('dispatch_blocked', { reason: 'paused', goalId }); this._eventLogger.appendEvent({ kind: 'dispatch_blocked', reason: 'paused', goal_id: goalId }); return; }
     let planCard: CardRecord;
-    try { consumeChangedCardActivation(this.projectRoot, goalId); const result = this.cardStore.activateGoal(goalId); planCard = result.goal; const startedAt = now(); updateRuntimeState(this.projectRoot, { status: 'running', current_card_id: goalId, queue: this.getReadyQueue(goalId).map((c) => c.id), active_card_run: { card_id: goalId, card_type: planCard.type, runtime_status: 'running', phase: 'planner', caller_session_id: null, caller_tool_call_id: null, planner_session_id: `planner:${goalId}`, correction_attempts: 0, started_at: startedAt, last_turn_at: startedAt } }); } catch (err) { const errorMessage = err instanceof Error ? err.message : String(err); this.emit('error', { goalId, phase: 'activate', error: err }); this._eventLogger.appendEvent({ kind: 'error', goal_id: goalId, phase: 'activate', error_message: errorMessage }); this._errorLogger.appendError({ message: errorMessage, goalId, phase: 'activate' }); return; }
+    try { consumeChangedCardActivation(this.projectRoot, goalId); const result = this.cardStore.activateGoal(goalId); planCard = result.goal; const startedAt = now(); updateRuntimeState(this.projectRoot, { status: 'running', current_card_id: goalId, queue: [], active_card_run: { card_id: goalId, card_type: planCard.type, runtime_status: 'running', phase: 'planner', caller_session_id: null, caller_tool_call_id: null, planner_session_id: `planner:${goalId}`, correction_attempts: 0, started_at: startedAt, last_turn_at: startedAt } }); } catch (err) { const errorMessage = err instanceof Error ? err.message : String(err); this.emit('error', { goalId, phase: 'activate', error: err }); this._eventLogger.appendEvent({ kind: 'error', goal_id: goalId, phase: 'activate', error_message: errorMessage }); this._errorLogger.appendError({ message: errorMessage, goalId, phase: 'activate' }); return; }
     let plannerDone = false; const MAX_ITERATIONS = 50;
     for (let iter = 0; iter < MAX_ITERATIONS && !plannerDone && !this._shuttingDown; iter++) {
       if (this._paused) { this.emit('dispatch_blocked', { reason: 'paused', goalId }); this._eventLogger.appendEvent({ kind: 'dispatch_blocked', reason: 'paused', goal_id: goalId }); updateRuntimeState(this.projectRoot, { status: 'paused' }); return; }
@@ -545,7 +545,7 @@ export class Runtime extends EventEmitter {
         this.appendPlannerResumeContext(goalId, `planner:${goalId}`, resumeReason); injectQueuedSyntheticPlannerNotes(this.projectRoot, `planner:${goalId}`); const result = this.agentRuntime.invokePlanner(goalId, plannerPrompt); plannerResult = result instanceof Promise ? await result : result;
       } catch (err) { const errorMessage = err instanceof Error ? err.message : String(err); this.emit('error', { goalId, phase: 'planner', error: err }); this._eventLogger.appendEvent({ kind: 'error', goal_id: goalId, phase: 'planner', error_message: errorMessage }); this._errorLogger.appendError({ message: errorMessage, goalId, phase: 'planner' }); break; }
       this.applyPlannerResult(goalId, plannerResult);
-      updateRuntimeState(this.projectRoot, { current_agent_session_id: `planner:${goalId}`, queue: this.getReadyQueue(goalId).map((c) => c.id) } as Partial<RuntimeState> as never);
+      updateRuntimeState(this.projectRoot, { current_agent_session_id: `planner:${goalId}`, queue: [] } as Partial<RuntimeState> as never);
       const execution = await this.executeReadyCards(goalId);
       if (execution.failed) plannerDone = false;
       if (this._shuttingDown) break;
@@ -591,12 +591,21 @@ export class Runtime extends EventEmitter {
     }
   }
 
+  private getPendingActivationCards(goalId: string): CardRecord[] {
+    const state = readRuntimeState(this.projectRoot);
+    const activations = (state?.runtime_activations ?? [])
+      .filter((activation) => activation.parent_card_id === goalId && ['pending', 'claimed', 'running'].includes(activation.status))
+      .sort((a, b) => a.requested_at.localeCompare(b.requested_at));
+    return activations
+      .map((activation) => this.cardStore.read(activation.child_card_id))
+      .filter((card): card is CardRecord => Boolean(card));
+  }
+
   private async executeReadyCards(goalId: string): Promise<{ dispatchedGoal: boolean; executedTerminal: boolean; failed: boolean }> {
-    const getReadyDispatchCards = (): CardRecord[] => { const allCards = this.cardStore.list(); const terminalReady = this.getReadyQueue(goalId); const directReadyGoals = this.cardStore.listChildren(goalId).map((id) => this.cardStore.read(id)).filter((card): card is CardRecord => { if (!card || card.type !== 'goal') return false; if (card.status !== 'backlog' && card.status !== 'active') return false; return card.depends_on.every((depId) => { const dep = allCards.find((candidate) => candidate.id === depId); return dep?.status === 'done'; }); }); return [...directReadyGoals, ...terminalReady].sort((a, b) => { if (a.depends_on.length !== b.depends_on.length) return a.depends_on.length - b.depends_on.length; if (a.priority !== b.priority) return a.priority - b.priority; return a.created_at.localeCompare(b.created_at); }); };
-    let readyCards = getReadyDispatchCards(); const goalCard = this.cardStore.read(goalId); let dispatchedGoal = false; let executedTerminal = false; let failed = false;
-    while (readyCards.length > 0 && !this._shuttingDown) {
+    let activationCards = this.getPendingActivationCards(goalId); const goalCard = this.cardStore.read(goalId); let dispatchedGoal = false; let executedTerminal = false; let failed = false;
+    while (activationCards.length > 0 && !this._shuttingDown) {
       if (this._paused) return { dispatchedGoal, executedTerminal, failed };
-      for (const card of readyCards) {
+      for (const card of activationCards) {
         if (this._shuttingDown || this._paused) return { dispatchedGoal, executedTerminal, failed };
         const callerEdge = this.findCallerEdge(card.id);
         if (card.type === 'goal') {
@@ -609,7 +618,7 @@ export class Runtime extends EventEmitter {
         let execResult;
         try {
           let executorPrompt = buildExecutorPrompt(card.type);
-          try { if (this._skillsEngine) { const instructionContent = await this._skillsEngine.loadInstructions('executor'); const skillsContent = await this._skillsEngine.selectAndFormat({ goalDescription: goalCard?.description ?? '', cardDescription: card.description, tags: card.tags, filePaths: [], availableTools: ['list_project_files', 'read_project_file', 'write_project_file', 'run_project_command', 'load_skill', 'mcp_tool_call'], targetRole: 'executor' }); const combinedSkills = [instructionContent, skillsContent].filter(Boolean).join('\n\n'); if (combinedSkills) executorPrompt = buildExecutorPrompt(card.type, combinedSkills); } } catch {}
+          try { if (this._skillsEngine) { const instructionContent = await this._skillsEngine.loadInstructions('executor'); const skillsContent = await this._skillsEngine.selectAndFormat({ goalDescription: goalCard?.description ?? '', cardDescription: card.description, tags: card.tags, filePaths: [], availableTools: ['list_project_files', 'read_project_file', 'write_project_file', 'run_project_command', 'load_skill', 'mcp_tool_call'], targetRole: 'executor' }); const combinedSkills = [instructionContent, skillsContent].filter(Boolean).join('\\n\\n'); if (combinedSkills) executorPrompt = buildExecutorPrompt(card.type, combinedSkills); } } catch {}
           executorPrompt += `\n\n${this.buildCardContextBlock(card.id, goalId)}`;
           const result = this.agentRuntime.invokeExecutor(card.id, goalId, executorPrompt); execResult = result instanceof Promise ? await result : result;
           const lastSessionId = (this.agentRuntime as FakeAgentAdapter).getLastSessionId?.('executor', goalId, card.id) ?? readRuntimeState(this.projectRoot)?.current_agent_session_id ?? null;
@@ -641,11 +650,11 @@ export class Runtime extends EventEmitter {
           this.cardStore.update(card.id, { status: 'failed', error: registrationError, result: { ...(this.cardStore.read(card.id)?.result ?? {}), evidence_registration_failures: { artifacts: artifactRegistrationErrors, attachments: attachmentRegistrationErrors } } });
           execResult.status = 'failed'; execResult.error = registrationError;
         }
-        executedTerminal = true; const completedCard = this.cardStore.read(card.id); const outcome = execResult.status === 'done' ? 'done' : 'failed';
+        executedTerminal = true; const outcome = execResult.status === 'done' ? 'done' : 'failed';
         this.appendChildUnwindToolResult(card.id, outcome, `Terminal card ${card.id} finished with status ${execResult.status}.`);
         if (execResult.status === 'failed') { this.emit('card_failed', { cardId: card.id, goalId }); this._eventLogger.appendEvent({ kind: 'card_failed', card_id: card.id, goal_id: goalId }); failed = true; return { dispatchedGoal, executedTerminal, failed }; }
       }
-      readyCards = getReadyDispatchCards();
+      activationCards = this.getPendingActivationCards(goalId);
     }
     return { dispatchedGoal, executedTerminal, failed };
   }
@@ -685,15 +694,6 @@ export class Runtime extends EventEmitter {
   simulateCrash(): void { const allCards = this.cardStore.list(); for (const card of allCards) if (card.status === 'active' || card.status === 'running') this.cardStore.setStatus(card.id, 'backlog'); this._running = false; }
   runCleanup(options?: { stashMaxAgeMs?: number; processMaxAgeMs?: number; previewsMaxAgeMs?: number; uploadsMaxAgeMs?: number; }) { return cleanAll(saivageWorkDir(this.projectRoot), this.cardStore, options); }
   getState(): RuntimeState | null { return readRuntimeState(this.projectRoot); }
-  async requestProjectDirectiveWakeup(reason: 'lets_dance' | 'project_needs_corrections' = 'lets_dance'): Promise<{ accepted: boolean; reason: string }> {
-    if (reason === 'lets_dance') return { accepted: false, reason: 'obsolete_directive_start_replaced_by_start_project' };
-    const state = readRuntimeState(this.projectRoot);
-    if (this._paused || state?.paused) return { accepted: false, reason: 'runtime_paused' };
-    if (this._shuttingDown) return { accepted: false, reason: 'runtime_shutting_down' };
-    if (this._startupRepairPending) return { accepted: false, reason: 'startup_repair_pending' };
-    await this.safeTick();
-    return { accepted: true, reason };
-  }
   private async safeTick(): Promise<void> {
     if (this._safeTickInFlight) return;
     this._safeTickInFlight = true;

@@ -90,9 +90,7 @@ const ROLE_TOOL_NAMES: Record<RoleToolPolicyRole, readonly string[]> = {
     'mcp_tool_call',
   ],
   analyst: [
-    'lets_dance',
     'mark_goal_needs_corrections',
-    'mark_project_needs_corrections',
     'list_card_history',
     'get_card_history_entry',
     'diff_card',

@@ -27,11 +27,11 @@ The verb names the control-transfer, not a single execution.
 
 | Role | Responsibility | Lifetime | Started by |
 |---|---|---|---|
-| Planner | Owns one goal subtree: creates and edits child cards, activates child cards, and reports the goal result. | Long-lived for the goal. Goes `Dormant` after `report_goal_done`, `report_goal_failed`, or `report_goal_blocked`. Resumed by a later `activate_card` on the same goal. | A parent planner calling `activate_card(goalCardId)`. The project card has no parent planner; the runtime activates it when an analyst `lets_dance` directive is pending (§11). |
+| Planner | Owns one goal subtree: creates and edits child cards, activates child cards, and reports the goal result. | Long-lived for the goal. Goes `Dormant` after `report_goal_done`, `report_goal_failed`, or `report_goal_blocked`. Resumed by a later `activate_card` on the same goal. | A parent planner calling `activate_card(goalCardId)`. The project card has no parent planner; the runtime activates it only from an explicit root runtime start command (§11). |
 | Executor | Performs one terminal card. | One-shot per card activation. A re-activation of the same terminal card opens a new executor session. | Runtime, inside `activate_card` for a terminal card. |
 | Reviewer | Assesses a planner's completed goal. | One-shot per assessment. | Runtime, inside `activate_card` after `report_goal_done` clears the runtime acceptance gates (§8.2). |
 | Analyst | Operator-facing assistant for creating cards, notes, correction directives, and the project kickoff. | Session-oriented. | Operator. |
-| Project planner | The planner for the project root. It is an ordinary goal planner whose goal is the project card. | Long-lived for the project. | The runtime, when it is idle and an analyst `lets_dance` (or persisted project-correction) directive is pending; the runtime calls `activate_card(projectCardId)` itself (§11). |
+| Project planner | The planner for the project root. It is an ordinary goal planner whose goal is the project card. | Long-lived for the project. | The runtime, when an explicit root runtime start command/run is active (§11). |
 
 ## 2. Component View
 
@@ -227,7 +227,6 @@ session itself is `Dormant`.
 ## 6. Runtime State
 
 The runtime starts in an idle state: `active_card_run === null`, no
-planner `Running`. It stays idle until an analyst `lets_dance` (or a
 persisted project-correction directive) triggers the runtime to call
 `activate_card(projectCardId)` itself (§11).
 
@@ -720,26 +719,25 @@ artifacts) and, if the work is still complete, calls
 gates and reviewer with a fresh `assessment_id`. The interrupted
 reviewer session is discarded; nothing it produced is persisted.
 
-## 11. Analyst, `lets_dance`, and the Project Card
+## 11. Explicit Runtime Start and the Project Card
 
 The runtime starts idle. It does not auto-activate the project card on
 boot. The analyst kicks the system off with:
 
 ```ts
-lets_dance(): void
+start_project(): runtime command
 ```
 
-`lets_dance` records a `lets_dance` directive on the project card. The
+Root project execution is started by an explicit runtime command. The
 runtime's safe-tick loop, on noticing that:
 
 - the runtime is not paused,
 - `active_card_run` is `null`,
 - no in-flight startup repair is pending, and
-- a pending `lets_dance` (or persisted project-correction) directive
+- an active root runtime intent/run
   exists,
 
 calls `activate_card(projectCardId)` itself, which brings the project
-planner to `Running`. The end-to-end analyst directive contract is implemented by the card-scoped analyst tool registry in `src/agents/analyst-llm-resolver.ts` and `src/agents/analyst-tools.ts`: `lets_dance`, `mark_goal_needs_corrections`, and `mark_project_needs_corrections` must persist directive notes/directive records with the originating card or project context before the runtime sees them. The scheduler contract is enforced by `Runtime.safeTick()` in `src/utils/runtime.ts` and by regression coverage in `tests/agents/analyst-directive-tools-e2e.test.ts` (tool registry → persisted directive/note context), `tests/utils/runtime-analyst-directives-safe-tick.test.ts` (pause buffering, restart persistence, and exactly-once safe-tick consumption), and `tests/utils/runtime-restart-orphan-repair.test.ts` (startup repair ordering). Once kicked off, the
 project runs uninterrupted until it reports done, failed, or blocked,
 or until the analyst intervenes (see below). The operator/analyst
 recovery loop for project-level failure is deferred to a future stage.
@@ -760,10 +758,8 @@ to call `activate_card` on the affected descendant.
 For project-level intervention after kickoff:
 
 ```ts
-mark_project_needs_corrections(issues, note?): void
 ```
 
-writes a directive note on the project card. Like `lets_dance`, it
 records intent only; the runtime decides when (and whether) to call
 `activate_card(projectCardId)` based on the same safe-tick conditions.
 
@@ -863,7 +859,6 @@ On startup, the runtime repairs orphan tool calls from persisted state:
 Only the owner of the orphaned tool call is resumed. Other planners
 keep their persisted lifecycle status. After repair, the runtime
 returns to idle if no `active_card_run` remains and re-evaluates
-`lets_dance` / project-correction directives on its next safe tick;
 startup repair must not consume those directives or dispatch the
 project planner directly before repair settles. The source guard is
 `repairStartupActiveCardRun()` plus `safeTick()` in `src/utils/runtime.ts`,
@@ -913,7 +908,6 @@ above is the in-memory mirror.
 
 ## 14. HTTP API
 
-- `POST /api/runtime/lets_dance` — records a `lets_dance` directive on
   the project card. Returns
   `{directive_recorded: true, runtime_status: 'idle' | 'running' | 'paused'}`.
   The runtime calls `activate_card(projectCardId)` itself on its next
@@ -923,7 +917,6 @@ above is the in-memory mirror.
   derived from the authenticated session. Records correction notes for
   the goal and ancestors and may flip the origin to `changed`. Resumes
   no planner and returns no planner session id.
-- `POST /api/runtime/project/needs_corrections` — body
   `{issues: AnalystIssue[], note?: string}`. Records a project
   directive note. The runtime decides on its next safe tick whether to
   call `activate_card(projectCardId)`. Returns
@@ -1004,7 +997,7 @@ type AnalystIssue = {
 - Runtime caller edges live on `active_card_run` and process records.
 - Planners are created or resumed only inside `activate_card`,
   including the project planner; the runtime, not the analyst, calls
-  `activate_card(projectCardId)` when a `lets_dance` (or persisted
+  start-project command when an explicit runtime intent is
   project-correction) directive is pending.
 - Runtime pause is global state (`RuntimeState.paused`); it does not
   mutate `active_card_run`, `card.status`, or any session lifecycle
@@ -1037,15 +1030,15 @@ role:
 
 | File | Responsibility |
 |---|---|
-| `src/utils/runtime.ts` | Runtime bootstrap, `lets_dance` safe-tick, `activate_card`, acceptance gates, reviewer loop, single active card-run, restart repair. |
+| `src/runtime/runtime.ts` | Runtime bootstrap, explicit start/stop commands, activation records, reviewer loop, single active card-run, restart repair. |
 | `src/agents/agent-runtime.ts` | Runtime-facing agent interface: activate cards, ensure planners, invoke executors/reviewers, persist verdicts. |
 | `src/agents/agent-adapter.ts` | Session loop, tool dispatch, single-active-planner enforcement hooks. |
 | `src/agents/planner-tools.ts` | Planner tool registry: card tools, workspace tools, `activate_card`, report tools (each carrying `status_text`). |
 | `src/agents/system-prompt.ts` | Planner and project-planner prompts. |
 | `src/schemas/types.ts` | `RuntimeState`, `ActiveCardRun`, clean session and process schemas. |
 | `src/schemas/validators.ts` | Validators for clean schemas, reviewer/evidence results, and subtree-readiness reasons. |
-| `src/agents/analyst-tools.ts` | Analyst correction tools and `lets_dance` bootstrap. |
-| `src/server/server.ts` | Runtime correction, `lets_dance`, pause/resume, and card-run HTTP endpoints. |
+| `src/agents/analyst-tools.ts` | Analyst card/note tools; root execution bootstrap is not an analyst directive tool. |
+| `src/server/server.ts` | Runtime correction, pause/resume, card-run, and operator HTTP endpoints. |
 | `src/server/websocket.ts` | WebSocket auth, per-client analyst-turn serialization, runtime-event fan-out, and sanitized analyst payload emission. |
 | `src/utils/analyst-sanitization.ts` | Shared analyst WebSocket/message sanitization for secret paths, credential literals, bounded strings, arrays, and secret-key fields. |
 | `src/server/routes/runtime-config-notes.ts` | Operator HTTP routes including `/api/agents` persisted-session enumeration. |
@@ -1073,10 +1066,8 @@ redesign and are listed here so they are not lost:
   to `add_note` and re-activate.
 - **Continuous improvement agent.** The `continuousImprovement` config
   flag is reserved for a future stage where the runtime auto-emits
-  `lets_dance` (or analogous directives) on a schedule. The field is
   currently read but has no runtime effect.
 - **Project-level recovery loop.** Once a project run ends in `failed`
-  or `blocked`, today the analyst has to issue a fresh `lets_dance`
   after corrections. A dedicated operator/analyst fix-and-resume loop
   for project-root failures is deferred. The user-facing
   notification or analyst-handoff side of `project_run_completed`
@@ -1118,9 +1109,10 @@ Jest coverage before broader test runs.
 
 | Role | Tools | Code anchor |
 |---|---|---|
-| `analyst` | `diff_card,get_card_history_entry,get_note,lets_dance,list_card_history,list_notes,mark_goal_needs_corrections,mark_note_handled,mark_project_needs_corrections` | `src/agents/agent-adapter.ts:127` |
-| `card-scoped analyst` | `abort_goal,add_note,create_card,delete_card,diff_card,edit_card,get_card,get_card_history_entry,get_card_output,get_note,get_plan_diary,get_status,get_tree,lets_dance,list_agent_sessions,list_card_history,list_cards,list_directory,list_notes,list_processes_tool,mark_goal_needs_corrections,mark_note_handled,mark_project_needs_corrections,move_card,pause_runtime,read_agent_session,read_control_actions,read_file,read_runtime_errors,read_runtime_events,restart_card,restart_goal,resume_runtime,run_shell_command` | `src/agents/analyst-tool-schemas.ts:11` |
 | `executor` | `diff_card,get_card_history_entry,get_note,kill_process,list_card_history,list_notes,list_project_files,load_skill,mark_note_handled,mcp_tool_call,read_project_file,run_project_command,start_and_wait,wait_for_process,write_project_file` | `src/agents/agent-adapter.ts:125` |
 | `planner` | `activate_card,add_note,cancel_card,create_card,delete_card,diff_card,edit_card,get_card,get_card_history_entry,get_tree,kill_process,list_card_history,list_cards,list_project_files,read_project_file,report_goal_blocked,report_goal_done,report_goal_failed,restart_card,run_project_command,start_and_wait,wait_for_process,write_project_file` | `src/agents/agent-adapter.ts:56` |
 | `reviewer` | `diff_card,get_card_history_entry,get_note,list_card_history,list_notes,list_project_files,load_skill,mark_note_handled,mcp_tool_call,read_project_file` | `src/agents/agent-adapter.ts:126` |
 <!-- saivage:agent-tools:end -->
+
+| `analyst` | `diff_card,get_card_history_entry,get_note,list_card_history,list_notes,mark_goal_needs_corrections,mark_note_handled` | `src/agents/agent-adapter.ts:127` |
+| `card-scoped analyst` | `abort_goal,add_note,create_card,delete_card,diff_card,edit_card,get_card,get_card_history_entry,get_card_output,get_note,get_plan_diary,get_status,get_tree,list_agent_sessions,list_card_history,list_cards,list_directory,list_notes,list_processes_tool,mark_goal_needs_corrections,mark_note_handled,move_card,pause_runtime,read_agent_session,read_control_actions,read_file,read_runtime_errors,read_runtime_events,restart_card,restart_goal,resume_runtime,run_shell_command` | `src/agents/analyst-tool-schemas.ts:11` |
