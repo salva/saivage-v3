@@ -41,6 +41,8 @@ function toolMessage(kind: 'tool_result' | 'tool_error', content: string, tool: 
   return { role: 'tool', kind, content, tool, tool_call_id: toolCallId };
 }
 
+const UNRESOLVED_ACTIVATION_STATUSES = new Set(['pending', 'claimed', 'running']);
+
 export class PlannerControlExecutor {
   constructor(private readonly context: PlannerControlExecutionContext) {}
 
@@ -92,6 +94,12 @@ export class PlannerControlExecutor {
             return toolMessage('tool_error', JSON.stringify({ success: false, error: error.message, actionable_error: error, dep_failures: depFailures }), invocation.toolName, invocation.toolCallId);
           }
           const idempotencyKey = `${parentRun.run_id}:${sessionId}:${invocation.toolCallId}:${targetId}`;
+          const existingActivation = (readRuntimeState(this.context.projectRoot)?.runtime_activations ?? [])
+            .find((activation) => activation.idempotency_key === idempotencyKey && UNRESOLVED_ACTIVATION_STATUSES.has(activation.status));
+          if (existingActivation) {
+            result = { success: true, activation: existingActivation, deferred: createDeferredActivationEnvelope({ parent_card_id: parentCardId, child_card_id: targetId, planner_session_id: sessionId || existingActivation.parent_session_id, tool_call_id: invocation.toolCallId, requested_at: existingActivation.requested_at }) };
+            break;
+          }
           const run = appendRuntimeRun(this.context.projectRoot, { kind: 'child', card_id: targetId, parent_run_id: parentRun.run_id, command_id: null, activation_id: null, phase: 'pending', runtime_status: 'running', session_id: null, result: null });
           const activation = upsertRuntimeActivation(this.context.projectRoot, { idempotency_key: idempotencyKey, parent_card_id: parentCardId, parent_run_id: parentRun.run_id, parent_session_id: sessionId || parentRun.session_id || `planner:${parentCardId}`, parent_tool_call_id: invocation.toolCallId, child_card_id: targetId, status: 'pending', precondition: 'accepted', runtime_run_id: run.run_id, error: null });
           consumeChangedCardActivation(this.context.projectRoot, targetId);

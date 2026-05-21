@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os';
 import { PlannerControlExecutor } from '../../src/agents/planner-control-executor.js';
 import { parseDeferredActivationEnvelope } from '../../src/schemas/validators.js';
 import type { CardRecord, ReviewerResult, RuntimeState } from '../../src/schemas/types.js';
+import { appendRuntimeRun } from '../../src/runtime/state.js';
 import { CardStore } from '../../src/utils/card-store.js';
 import { initProjectTree } from '../../src/utils/file-tree.js';
 
@@ -16,6 +17,10 @@ function makeCard(overrides: Partial<CardRecord> & { type: CardRecord['type']; t
 function runtimeWithActive(cardId: string): RuntimeState {
   const now = new Date().toISOString();
   return { status: 'running', project_id: 'project', pid: process.pid, started_at: now, current_card_id: cardId, current_agent_session_id: 'executor:active', active_card_run: { card_id: cardId, card_type: 'code', runtime_status: 'running', phase: 'executor', caller_session_id: 'planner:goal', caller_tool_call_id: 'call-activate', planner_session_id: 'planner:goal', executor_session_id: 'executor:active', reviewer_session_id: null, correction_attempts: 0, started_at: now, last_turn_at: now }, paused: false, paused_at: null, queue: [], running_processes: [], updated_at: now, frozen_reason: null };
+}
+
+function appendActivePlannerRun(projectRoot: string, cardId = 'goal'): void {
+  appendRuntimeRun(projectRoot, { run_id: `run-${cardId}`, kind: 'root', card_id: cardId, parent_run_id: null, command_id: 'cmd-test', activation_id: null, phase: 'planner', runtime_status: 'running', session_id: `planner:${cardId}`, result: null });
 }
 
 describe('PlannerControlExecutor', () => {
@@ -76,20 +81,26 @@ describe('PlannerControlExecutor', () => {
   });
 
   it('returns successful activate_card as a shared deferred activation envelope without mutating status', async () => {
-    const child = store.create(makeCard({ type: 'code', title: 'Child' }));
+    store.create(makeCard({ id: 'goal', type: 'goal', title: 'Goal', status: 'active' }));
+    const child = store.create(makeCard({ type: 'code', title: 'Child', parent: 'goal', depth: 2 }));
+    appendActivePlannerRun(tmpDir);
     const executor = new PlannerControlExecutor({ cardStore: store, projectRoot: tmpDir });
 
     const result = await executor.execute({ sessionId: 'planner:goal', toolCallId: 'call-activate', toolName: 'activate_card', parentCardId: 'goal', argumentsJson: JSON.stringify({ cardId: child.id }) });
 
     expect(result).toMatchObject({ role: 'tool', kind: 'tool_result', tool: 'activate_card', tool_call_id: 'call-activate' });
-    expect(parseDeferredActivationEnvelope(result.content)).toEqual(expect.objectContaining({ parent_card_id: 'goal', child_card_id: child.id, planner_session_id: 'planner:goal', tool_call_id: 'call-activate' }));
+    const body = JSON.parse(result.content);
+    expect(body.success).toBe(true);
+    expect(parseDeferredActivationEnvelope(JSON.stringify(body.deferred))).toEqual(expect.objectContaining({ parent_card_id: 'goal', child_card_id: child.id, planner_session_id: 'planner:goal', tool_call_id: 'call-activate' }));
     expect(store.read(child.id)?.status).toBe('backlog');
   });
 
   it('preserves service success and tool_error payload shapes', async () => {
+    store.create(makeCard({ id: 'goal', type: 'goal', title: 'Goal', status: 'active' }));
     const child = store.create(makeCard({ type: 'code', title: 'Child' }));
     const blockedDep = store.create(makeCard({ type: 'code', title: 'Dep', status: 'blocked' }));
-    const blockedTarget = store.create(makeCard({ type: 'code', title: 'Blocked target', depends_on: [blockedDep.id] }));
+    const blockedTarget = store.create(makeCard({ type: 'code', title: 'Blocked target', parent: 'goal', depth: 2, depends_on: [blockedDep.id] }));
+    appendActivePlannerRun(tmpDir);
     const executor = new PlannerControlExecutor({ cardStore: store, projectRoot: tmpDir });
 
     const cancel = await executor.execute({ sessionId: 'planner:goal', toolCallId: 'call-cancel', toolName: 'cancel_card', argumentsJson: JSON.stringify({ cardId: child.id }) });
@@ -98,6 +109,6 @@ describe('PlannerControlExecutor', () => {
 
     const activate = await executor.execute({ sessionId: 'planner:goal', toolCallId: 'call-activate', toolName: 'activate_card', parentCardId: 'goal', argumentsJson: JSON.stringify({ cardId: blockedTarget.id }) });
     expect(activate.kind).toBe('tool_error');
-    expect(JSON.parse(activate.content)).toEqual(expect.objectContaining({ success: false, target_card_id: blockedTarget.id, dep_failures: [{ dep_id: blockedDep.id, status: 'blocked' }] }));
+    expect(JSON.parse(activate.content)).toEqual(expect.objectContaining({ success: false, actionable_error: expect.objectContaining({ code: 'activate_card_dependencies_blocked' }), dep_failures: [{ dep_id: blockedDep.id, planner_state: 'blocked' }] }));
   });
 });

@@ -28,7 +28,7 @@ describe('runtime activation ledger target contract (Wave 1)', () => {
     } finally { rmSync(ctx.projectRoot, { recursive: true, force: true }); }
   });
 
-  it('duplicate activate_card calls return the same unresolved activation record', async () => {
+  it('duplicate activate_card calls return the same unresolved activation record without orphan child runs', async () => {
     const ctx = setup();
     try {
       appendRuntimeRun(ctx.projectRoot, { run_id: 'run-parent', kind: 'root', card_id: 'goal-a', parent_run_id: null, command_id: 'cmd-a', activation_id: null, phase: 'planner', runtime_status: 'running', session_id: 'planner:goal-a', result: null });
@@ -37,8 +37,17 @@ describe('runtime activation ledger target contract (Wave 1)', () => {
       const first = JSON.parse((await exec.execute(invocation)).content);
       const second = JSON.parse((await exec.execute(invocation)).content);
       expect(first.success).toBe(true);
+      expect(second.success).toBe(true);
       expect(second.activation.activation_id).toBe(first.activation.activation_id);
-      expect(readRuntimeState(ctx.projectRoot)!.runtime_activations).toHaveLength(1);
+      expect(second.activation.runtime_run_id).toBe(first.activation.runtime_run_id);
+
+      const state = readRuntimeState(ctx.projectRoot)!;
+      const activations = state.runtime_activations ?? [];
+      const childRuns = (state.runtime_runs ?? []).filter((run) => run.kind === 'child' && run.card_id === 'code-a' && run.parent_run_id === 'run-parent');
+      expect(activations).toHaveLength(1);
+      expect(childRuns).toHaveLength(1);
+      expect(activations[0].runtime_run_id).toBe(childRuns[0].run_id);
+      expect(first.activation.runtime_run_id).toBe(childRuns[0].run_id);
     } finally { rmSync(ctx.projectRoot, { recursive: true, force: true }); }
   });
 });
