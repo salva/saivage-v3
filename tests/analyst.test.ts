@@ -11,7 +11,7 @@ import { tmpdir } from 'node:os';
 import { CardStore } from '../src/utils/card-store.js';
 import { initRuntimeState, readRuntimeState, runtimeStatePath, updateRuntimeState } from '../src/utils/runtime-state.js';
 import {
-  create_card, pause_runtime, resume_runtime,
+  create_card, edit_card, add_note, pause_runtime, resume_runtime,
 } from '../src/agents/analyst-tools.js';
 import type { ToolContext } from '../src/agents/analyst-tools.js';
 
@@ -164,6 +164,47 @@ describe('Analyst Tools', () => {
     expect(c.parent).toBe('goal-1');
     expect(c.type).toBe('code');
     expect(c.id).toMatch(/^code-/);
+  });
+
+
+  it('returns actionable enum preflight errors for invalid create_card values', async () => {
+    const result = await create_card(ctx(projectRoot, store), {
+      type: 'task' as never,
+      parent: 'goal-1',
+      title: 'Bad Card',
+      description: 'Invalid type',
+      status: 'ready' as never,
+    });
+
+    expect(result.success).toBe(false);
+    expect(result.error).toContain("create_card failed: field 'type' received 'task'");
+    expect(result.error).toContain(`Allowed values: ${CARD_TYPE_VALUES.join(', ')}`);
+    expect(result.error).toContain("See the 'create_card' tool's parameter schema");
+  });
+
+  it('returns actionable enum preflight errors for invalid edit_card status', async () => {
+    const result = await edit_card({ projectRoot, store, actor: 'runtime', surface: 'runtime' }, {
+      id: 'code-1',
+      status: 'todo',
+    });
+
+    expect(result.success).toBe(false);
+    expect(result.error).toContain("edit_card failed: field 'status' received 'todo'");
+    expect(result.error).toContain(`Allowed values: ${CARD_STATUS_VALUES.join(', ')}`);
+    expect(result.error).toContain("See the 'edit_card' tool's parameter schema");
+  });
+
+  it('returns actionable enum preflight errors for invalid add_note kind', async () => {
+    const result = await add_note(ctx(projectRoot, store), {
+      cardId: 'code-1',
+      content: 'use canonical note kind',
+      kind: 'note' as never,
+    });
+
+    expect(result.success).toBe(false);
+    expect(result.error).toContain("add_note failed: field 'kind' received 'note'");
+    expect(result.error).toContain(`Allowed values: ${NOTE_KIND_VALUES.join(', ')}`);
+    expect(result.error).toContain("See the 'add_note' tool's parameter schema");
   });
 
 
