@@ -5,6 +5,11 @@ import {
   cardTypeSchema,
   createdBySchema,
   runtimeStateSchema,
+  runtimeIntentSchema,
+  runtimeCommandRecordSchema,
+  runtimeRunRecordSchema,
+  runtimeActivationRecordSchema,
+  actionableErrorEnvelopeSchema,
   urgencySchema,
 } from '../schemas/validators.js';
 
@@ -20,8 +25,42 @@ export const CardNotFoundErrorSchema = ApiErrorSchema.extend({
   cardId: z.string().optional(),
 });
 
+export const ActionableErrorEnvelopeSchema = actionableErrorEnvelopeSchema;
+
 export const RuntimeControlErrorSchema = ApiErrorSchema.extend({
   action: z.string().optional(),
+  actionable_error: ActionableErrorEnvelopeSchema.optional(),
+});
+
+export const RuntimeControlRequestSchema = z.object({}).strict().optional();
+
+export const RuntimeCommandResponseSchema = z.object({
+  success: z.literal(true),
+  command: runtimeCommandRecordSchema,
+  intent: runtimeIntentSchema,
+  run: runtimeRunRecordSchema.optional(),
+});
+
+export const RuntimeCommandErrorResponseSchema = z.object({
+  success: z.literal(false),
+  command: runtimeCommandRecordSchema.optional(),
+  actionable_error: ActionableErrorEnvelopeSchema,
+});
+
+export const RuntimeSummarySchema = z.object({
+  intent: runtimeIntentSchema,
+  currentRun: runtimeRunRecordSchema.nullable(),
+  activeChildRuns: z.array(runtimeRunRecordSchema),
+  activations: z.array(runtimeActivationRecordSchema),
+  lastCommand: runtimeCommandRecordSchema.nullable(),
+});
+
+export const RuntimeRunRecordSchema = runtimeRunRecordSchema;
+export const RuntimeActivationRecordSchema = runtimeActivationRecordSchema;
+export const RuntimeCommandRecordSchema = runtimeCommandRecordSchema;
+export const PlannerStateCardFieldsSchema = z.object({
+  planner_state: cardStatusSchema.optional(),
+  plannerState: cardStatusSchema.optional(),
 });
 
 export const EmptyBodySchema = z.object({}).passthrough().optional();
@@ -103,6 +142,7 @@ const cardCreateBaseSchema = z.object({
   title: z.string().optional(),
   description: z.string().optional(),
   status: cardStatusSchema.optional(),
+  planner_state: cardStatusSchema.optional(),
   tags: z.array(z.string()).optional(),
   priority: z.number().int().optional(),
   urgency: urgencySchema.optional(),
@@ -126,6 +166,7 @@ export const CardUpdateBodySchema = z.object({
   title: z.string().optional(),
   description: z.string().optional(),
   status: cardStatusSchema.optional(),
+  planner_state: cardStatusSchema.optional(),
   tags: z.array(z.string()).optional(),
   priority: z.number().int().min(0).max(100).optional(),
   urgency: urgencySchema.optional(),
@@ -172,6 +213,26 @@ export const operatorApiContracts = {
     error: ApiErrorSchema,
     requiresAuth: true,
     successSchemaName: 'RuntimeGetStateResponse',
+  },
+  'runtime.startProject': {
+    operationId: 'runtime.startProject',
+    method: 'POST',
+    path: '/api/runtime/start_project',
+    body: RuntimeControlRequestSchema,
+    success: RuntimeCommandResponseSchema,
+    error: RuntimeCommandErrorResponseSchema,
+    requiresAuth: true,
+    successSchemaName: 'RuntimeCommandResponse',
+  },
+  'runtime.stopProject': {
+    operationId: 'runtime.stopProject',
+    method: 'POST',
+    path: '/api/runtime/stop_project',
+    body: RuntimeControlRequestSchema,
+    success: RuntimeCommandResponseSchema,
+    error: RuntimeCommandErrorResponseSchema,
+    requiresAuth: true,
+    successSchemaName: 'RuntimeCommandResponse',
   },
   'runtime.pause': {
     operationId: 'runtime.pause',

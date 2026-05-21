@@ -77,6 +77,38 @@ describe('operator websocket shared contract registry', () => {
     expect(isAnalystActivityContent({ event: 'card_history_appended' })).toBe(false);
   });
 
+
+  it('distinguishes planner-state events from runtime execution events and rejects queue aliases', () => {
+    const command = {
+      command_id: 'cmd-1',
+      command: 'start_project',
+      status: 'completed',
+      requested_at: '2026-01-01T00:00:00.000Z',
+      completed_at: '2026-01-01T00:00:01.000Z',
+      source: 'operator',
+      error: null,
+    };
+    const run = {
+      run_id: 'run-1',
+      kind: 'root',
+      card_id: 'project',
+      command_id: 'cmd-1',
+      parent_run_id: null,
+      activation_id: null,
+      phase: 'planner',
+      runtime_status: 'running',
+      session_id: 'planner:project',
+      started_at: '2026-01-01T00:00:01.000Z',
+      updated_at: '2026-01-01T00:00:01.000Z',
+      finished_at: null,
+      result: null,
+    };
+    expect(parseKnownWsEnvelope({ type: 'activity', content: { event: 'runtime.command', command } })?.content.event).toBe('runtime.command');
+    expect(parseKnownWsEnvelope({ type: 'status', content: { event: 'runtime.run', run } })?.content.event).toBe('runtime.run');
+    expect(parseKnownWsEnvelope({ type: 'status', content: { event: 'card.planner_state_changed', card: { id: 'goal-1', planner_state: 'active' } } })?.content.event).toBe('card.planner_state_changed');
+    expect(parseKnownWsEnvelope({ type: 'activity', content: { event: 'runtime.queue', queue: ['goal-1'] } })).toBeNull();
+  });
+
   it('aligns runtime fanout names with the ARCH-006 event catalog', () => {
     expect([...knownRuntimeFanoutEventNames].sort()).toEqual([...eventKindValues].sort());
   });

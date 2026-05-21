@@ -1,6 +1,15 @@
 import { z } from 'zod';
 import { eventKindValues } from '../schemas/types.js';
-import { cardStatusSchema, cardTypeSchema, eventKindSchema, loggedEventSchemaByKind } from '../schemas/validators.js';
+import {
+  actionableErrorEnvelopeSchema,
+  cardStatusSchema,
+  cardTypeSchema,
+  eventKindSchema,
+  loggedEventSchemaByKind,
+  runtimeActivationRecordSchema,
+  runtimeCommandRecordSchema,
+  runtimeRunRecordSchema,
+} from '../schemas/validators.js';
 import { CardIndexSummarySchema, CardStoreHealthSchema, RuntimeGetStateResponseSchema, ServerAvailabilitySchema } from './operator-api.js';
 
 export const WsEventTypeSchema = z.enum(['message', 'activity', 'thinking', 'status', 'error']);
@@ -48,6 +57,46 @@ export const RuntimeResumedStatusEventSchema = z.object({
   type: z.literal('status'),
   content: z.object({
     event: z.literal('runtime-resumed'),
+  }).passthrough(),
+});
+
+export const RuntimeCommandEventSchema = z.object({
+  type: z.literal('activity'),
+  content: z.object({
+    event: z.literal('runtime.command'),
+    command: runtimeCommandRecordSchema,
+  }).passthrough(),
+});
+
+export const RuntimeRunEventSchema = z.object({
+  type: z.literal('status'),
+  content: z.object({
+    event: z.literal('runtime.run'),
+    run: runtimeRunRecordSchema,
+  }).passthrough(),
+});
+
+export const RuntimeActivationEventSchema = z.object({
+  type: z.literal('activity'),
+  content: z.object({
+    event: z.literal('runtime.activation'),
+    activation: runtimeActivationRecordSchema,
+  }).passthrough(),
+});
+
+export const RuntimeActionableErrorEventSchema = z.object({
+  type: z.literal('error'),
+  content: z.object({
+    event: z.literal('runtime.actionable_error'),
+    actionable_error: actionableErrorEnvelopeSchema,
+  }).passthrough(),
+});
+
+export const CardPlannerStateChangedEventSchema = z.object({
+  type: z.literal('status'),
+  content: z.object({
+    event: z.literal('card.planner_state_changed'),
+    card: z.object({ id: z.string().min(1), planner_state: cardStatusSchema.optional(), plannerState: cardStatusSchema.optional(), type: cardTypeSchema.optional(), title: z.string().optional() }).passthrough().optional(),
   }).passthrough(),
 });
 
@@ -176,6 +225,8 @@ export const CoveredRuntimeStatusEventSchema = z.discriminatedUnion('event', [
   RuntimeStateStatusEventSchema.shape.content,
   RuntimePausedStatusEventSchema.shape.content,
   RuntimeResumedStatusEventSchema.shape.content,
+  RuntimeRunEventSchema.shape.content,
+  CardPlannerStateChangedEventSchema.shape.content,
   CardStatusChangedEventSchema.shape.content,
 ]);
 
@@ -183,6 +234,8 @@ export const CoveredWsEnvelopeSchema = z.union([
   RuntimeStateStatusEventSchema,
   RuntimePausedStatusEventSchema,
   RuntimeResumedStatusEventSchema,
+  RuntimeRunEventSchema,
+  CardPlannerStateChangedEventSchema,
   CardStatusChangedEventSchema,
 ]);
 
@@ -191,19 +244,31 @@ export const KnownStatusWsEnvelopeSchema = z.union([
   RuntimeStateStatusEventSchema,
   RuntimePausedStatusEventSchema,
   RuntimeResumedStatusEventSchema,
+  RuntimeRunEventSchema,
+  CardPlannerStateChangedEventSchema,
   CardStatusChangedEventSchema,
 ]);
+
+export const RuntimeExecutionActivityContentSchema = z.union([RuntimeCommandEventSchema.shape.content, RuntimeActivationEventSchema.shape.content]);
+export const RuntimeExecutionErrorContentSchema = RuntimeActionableErrorEventSchema.shape.content;
 
 export const KnownWsContentSchema = z.union([
   ConnectedStatusContentSchema,
   CoveredRuntimeStatusEventSchema,
   AnalystActivityContentSchema,
+  RuntimeExecutionActivityContentSchema,
+  RuntimeExecutionErrorContentSchema,
   RuntimeFanoutContentSchema,
 ]);
+
+export const RuntimeExecutionActivityEnvelopeSchema = z.union([RuntimeCommandEventSchema, RuntimeActivationEventSchema]);
+export const RuntimeExecutionErrorEnvelopeSchema = RuntimeActionableErrorEventSchema;
 
 export const KnownWsEnvelopeSchema = z.union([
   KnownStatusWsEnvelopeSchema,
   AnalystActivityEnvelopeSchema,
+  RuntimeExecutionActivityEnvelopeSchema,
+  RuntimeExecutionErrorEnvelopeSchema,
   RuntimeFanoutWsEnvelopeSchema,
   InboundAnalystMessageEnvelopeSchema,
   AnalystMessageEnvelopeSchema,
@@ -216,6 +281,11 @@ export const knownWsContentEventNames = [
   'runtime-state',
   'runtime-paused',
   'runtime-resumed',
+  'runtime.command',
+  'runtime.run',
+  'runtime.activation',
+  'runtime.actionable_error',
+  'card.planner_state_changed',
   'card-status-changed',
   ...AnalystActivityEventNames,
   ...knownRuntimeFanoutEventNames,
@@ -284,7 +354,7 @@ export function parseCoveredWsEnvelope(envelope: unknown): CoveredWsEnvelope | n
   const base = WsEnvelopeSchema.safeParse(envelope);
   if (!base.success) return null;
   const event = base.data.content.event;
-  if (event !== 'runtime-state' && event !== 'runtime-paused' && event !== 'runtime-resumed' && event !== 'card-status-changed') {
+  if (event !== 'runtime-state' && event !== 'runtime-paused' && event !== 'runtime-resumed' && event !== 'runtime.run' && event !== 'card.planner_state_changed' && event !== 'card-status-changed') {
     return null;
   }
   return CoveredWsEnvelopeSchema.parse(envelope);
@@ -292,7 +362,7 @@ export function parseCoveredWsEnvelope(envelope: unknown): CoveredWsEnvelope | n
 
 export function parseCoveredRuntimeStatusContent(content: unknown): CoveredRuntimeStatusEvent | null {
   const event = getContentEvent(content);
-  if (event !== 'runtime-state' && event !== 'runtime-paused' && event !== 'runtime-resumed' && event !== 'card-status-changed') {
+  if (event !== 'runtime-state' && event !== 'runtime-paused' && event !== 'runtime-resumed' && event !== 'runtime.run' && event !== 'card.planner_state_changed' && event !== 'card-status-changed') {
     return null;
   }
   return CoveredRuntimeStatusEventSchema.parse(content);

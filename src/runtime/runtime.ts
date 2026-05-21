@@ -476,12 +476,14 @@ export class Runtime extends EventEmitter {
     upsertRuntimeIntent(this.projectRoot, 'running', command.command_id, 'explicit start_project command');
     const run = appendRuntimeRun(this.projectRoot, { kind: 'root', card_id: 'project', parent_run_id: null, command_id: command.command_id, activation_id: null, phase: 'planner', runtime_status: 'running', session_id: null, result: null });
     if (!this._paused) {
-      try { await this.dispatchGoal('project'); updateRuntimeRun(this.projectRoot, run.run_id, { phase: 'completed', runtime_status: 'idle', finished_at: now(), result: 'done' }); }
-      catch (error) { updateRuntimeRun(this.projectRoot, run.run_id, { phase: 'failed', runtime_status: 'error', finished_at: now(), result: 'failed' }); throw error; }
+      void this.dispatchGoal('project')
+        .then(() => { updateRuntimeRun(this.projectRoot, run.run_id, { phase: 'completed', runtime_status: 'idle', finished_at: now(), result: 'done' }); })
+        .catch(() => { updateRuntimeRun(this.projectRoot, run.run_id, { phase: 'failed', runtime_status: 'error', finished_at: now(), result: 'failed' }); });
     }
     const current = readRuntimeState(this.projectRoot) ?? state;
-    saveRuntimeState(this.projectRoot, { ...current, runtime_commands: (current.runtime_commands ?? []).map((item) => item.command_id === command.command_id ? { ...item, status: 'completed', completed_at: now() } : item), updated_at: now() });
-    return { success: true, command: { ...command, status: 'completed', completed_at: now() }, intent: (readRuntimeState(this.projectRoot) ?? current).runtime_intent, run: ((readRuntimeState(this.projectRoot) ?? current).runtime_runs ?? []).find((item) => item.run_id === run.run_id) ?? run };
+    const completedAt = now();
+    saveRuntimeState(this.projectRoot, { ...current, runtime_commands: (current.runtime_commands ?? []).map((item) => item.command_id === command.command_id ? { ...item, status: 'completed', completed_at: completedAt } : item), updated_at: completedAt });
+    return { success: true, command: { ...command, status: 'completed', completed_at: completedAt }, intent: (readRuntimeState(this.projectRoot) ?? current).runtime_intent, run: ((readRuntimeState(this.projectRoot) ?? current).runtime_runs ?? []).find((item) => item.run_id === run.run_id) ?? run };
   }
 
   async stopProject(source: 'operator' | 'tool' | 'runtime' = 'operator'): Promise<{ success: true; command: RuntimeCommandRecord; intent: RuntimeState['runtime_intent'] }> {

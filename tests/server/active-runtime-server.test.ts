@@ -126,6 +126,37 @@ describe('Server with ActiveRuntime (createRuntime=true)', () => {
   });
 
 
+  describe('Explicit start_project / stop_project API', () => {
+    it('POST /api/runtime/start_project returns command, intent, and root run records', async () => {
+      const res = await fetchServer('/api/runtime/start_project', { method: 'POST', headers: authHeaders() });
+      expect(res.status).toBe(200);
+      const body = await res.json() as Record<string, any>;
+      expect(body).toMatchObject({ success: true, command: { command: 'start_project', status: 'completed' }, intent: { status: 'running' }, run: { kind: 'root', card_id: 'project' } });
+    }, 15000);
+
+    it('POST /api/runtime/start_project while already running returns actionable precondition error', async () => {
+      const res = await fetchServer('/api/runtime/start_project', { method: 'POST', headers: authHeaders() });
+      expect(res.status).toBe(409);
+      const body = await res.json() as Record<string, any>;
+      expect(body.success).toBe(false);
+      expect(body.actionable_error).toMatchObject({ code: 'runtime_start_precondition_failed' });
+      expect(body.command).toMatchObject({ command: 'start_project', status: 'rejected' });
+    });
+
+    it('POST /api/runtime/stop_project returns command and stopped intent records', async () => {
+      const res = await fetchServer('/api/runtime/stop_project', { method: 'POST', headers: authHeaders() });
+      expect(res.status).toBe(200);
+      const body = await res.json() as Record<string, any>;
+      expect(body).toMatchObject({ success: true, command: { command: 'stop_project', status: 'completed' }, intent: { status: 'stopped' } });
+    });
+
+    it('does not expose old /api/runtime/lets_dance route alias', async () => {
+      const res = await fetchServer('/api/runtime/lets_dance', { method: 'POST', headers: authHeaders() });
+      expect(res.status).toBe(404);
+    });
+  });
+
+
   describe('Pause / Resume via API', () => {
     it('POST /api/runtime/pause sets paused to true', async () => { const res = await fetchServer('/api/runtime/pause', { method: 'POST', headers: authHeaders() }); expect(res.status).toBe(200); const body = await res.json() as Record<string, unknown>; expect(body).toMatchObject({ project_id: 'project', paused: true, queue: expect.any(Array), running_processes: expect.any(Array) }); expect(server.activeRuntime!.getStatus().paused).toBe(true); });
     it('POST /api/runtime/resume sets paused to false', async () => { await drainResponse(await fetchServer('/api/runtime/pause', { method: 'POST', headers: authHeaders() })); const res = await fetchServer('/api/runtime/resume', { method: 'POST', headers: authHeaders() }); expect(res.status).toBe(200); const body = await res.json() as Record<string, unknown>; expect(body).toMatchObject({ project_id: 'project', paused: false, paused_at: null, queue: expect.any(Array), running_processes: expect.any(Array) }); expect(server.activeRuntime!.getStatus().paused).toBe(false); });
@@ -161,5 +192,14 @@ describe('Server without ActiveRuntime (createRuntime=false)', () => {
     it('activeRuntime is undefined when createRuntime=false', () => { expect(server.activeRuntime).toBeUndefined(); });
     it('GET /api/runtime/status still works (fallback to state file)', async () => { const res = await fetchServer('/api/runtime/status', { headers: authHeaders() }); expect(res.status).toBe(200); const body = await res.json() as Record<string, unknown>; expect(body).toHaveProperty('runtime'); expect(typeof body.runtime).toBe('string'); });
     it('server still functions normally without ActiveRuntime', () => { expect(server.fastify).toBeDefined(); expect(server.config).toBeDefined(); expect(typeof server.stop).toBe('function'); });
+
+    it('POST /api/runtime/start_project returns actionable precondition error without ActiveRuntime', async () => {
+      const res = await fetchServer('/api/runtime/start_project', { method: 'POST', headers: authHeaders() });
+      expect(res.status).toBe(503);
+      const body = await res.json() as Record<string, any>;
+      expect(body.success).toBe(false);
+      expect(body.actionable_error).toMatchObject({ code: 'active_runtime_unavailable', cardId: 'project' });
+    });
+
   });
 });

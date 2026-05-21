@@ -375,6 +375,16 @@ export function createRuntimeEnvelope(
       return fromCoveredName({ type: 'status', content: { event: eventName, ...data } });
     case 'card_failed':
       return { type: 'error', content: { event: eventName, ...data } };
+    case 'runtime_command':
+      return fromCoveredName({ type: 'activity', content: { event: 'runtime.command', command: data['command'] ?? data } });
+    case 'runtime_run':
+      return fromCoveredName({ type: 'status', content: { event: 'runtime.run', run: data['run'] ?? data } });
+    case 'runtime_activation':
+      return fromCoveredName({ type: 'activity', content: { event: 'runtime.activation', activation: data['activation'] ?? data } });
+    case 'runtime_actionable_error':
+      return fromCoveredName({ type: 'error', content: { event: 'runtime.actionable_error', actionable_error: data['actionable_error'] ?? data['error'] ?? data } });
+    case 'card_planner_state_changed':
+      return fromCoveredName({ type: 'status', content: { event: 'card.planner_state_changed', ...data } });
     case 'review_complete':
       return fromCoveredName({ type: 'status', content: { event: eventName, ...data } });
     case 'plan_updated':
