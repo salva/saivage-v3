@@ -15,6 +15,7 @@ This runbook is the current operator entry point for starting, controlling, diag
 - [Operations](./operations.md) — startup, auth, public/protected surfaces, health, runtime state, pause/resume/freeze, WebSocket chat, backups, and LXC/systemd operations.
 - [Incidents](./incidents.md) — unauthorized access, stale UI state, frozen/error runtime recovery, evidence issues, preview-only actions, and degraded-agent workflows.
 - [Release](./release.md) — release-candidate documentation, security, runtime-control, build, web, and serving gates.
+- [Dependency hygiene](./dependency-hygiene.md) — high/critical production audit gate, monthly review cadence, lockfile freshness, waivers, and rollback semantics.
 - [LXC operations](./lxc-operations.md) — deployment-oriented LXC notes, systemd unit names, journal checks, and safe restart flow.
 
 ## Quick operator sequence
@@ -46,6 +47,8 @@ npm run validate:routine
 npm run validate:ui-smoke
 npm run validate:ui
 npm run validate:release
+npm run audit:security
+npm run deps:review
 ```
 
 `npm run validate:docs` intentionally runs `npm run docs:verify` only; it does not run `npm test` or the Vitest operator smoke guard. Use `npm run validate:ui-smoke` after Dashboard/AppShell operator-surface changes, `npm run validate:ui` for broader UI work, and `npm run validate:release` for heavy release sign-off.

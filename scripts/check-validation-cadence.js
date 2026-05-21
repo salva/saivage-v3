@@ -27,6 +27,40 @@ const REQUIRED_VALIDATION_SCRIPTS = [
     mustInclude: ['operator-dashboard-smoke.test.ts'],
     description: 'direct operator-dashboard smoke guard',
   },
+  {
+    name: 'audit:root',
+    mustInclude: ['npm audit --audit-level=high --omit=dev'],
+    description: 'root production dependency security gate',
+    documentationOptional: true,
+  },
+  {
+    name: 'audit:web',
+    mustInclude: ['cd web && npm audit --audit-level=high --omit=dev'],
+    description: 'web production dependency security gate',
+    documentationOptional: true,
+  },
+  {
+    name: 'audit:security',
+    mustInclude: ['npm run audit:root', 'npm run audit:web'],
+    description: 'combined production dependency security gate',
+  },
+  {
+    name: 'audit:security:all',
+    mustInclude: ['npm audit --audit-level=moderate', 'cd web && npm audit --audit-level=moderate'],
+    description: 'scheduled/manual full dependency audit profile',
+    documentationOptional: true,
+  },
+  {
+    name: 'deps:freshness',
+    mustInclude: ['node scripts/check-dependency-freshness.js'],
+    description: 'dependency freshness and waiver integrity guard',
+    documentationOptional: true,
+  },
+  {
+    name: 'deps:review',
+    mustInclude: ['npm run audit:security:all', 'npm run deps:freshness'],
+    description: 'scheduled/manual dependency governance review',
+  },
 ];
 
 const REQUIRED_VALIDATION_PROFILES = [
@@ -429,6 +463,41 @@ function validateWorkflowCommands({ root, scripts, workflowFiles }) {
   return { checked, failures, workflowFilesChecked: files };
 }
 
+function validateDependencyHygieneWorkflow({ root, workflowFiles }) {
+  const failures = [];
+  const checked = [];
+  for (const file of workflowFiles) {
+    const fullPath = path.join(root, file);
+    if (!existsSync(fullPath)) {
+      continue;
+    }
+    const content = readFileSync(fullPath, 'utf8');
+    if (!/^[ \t]{2}dependency-hygiene:\s*$/m.test(content)) {
+      failures.push(`${file} must define a dependency-hygiene job`);
+      continue;
+    }
+    checked.push(`${file} job dependency-hygiene`);
+    const requirements = [
+      { label: 'root npm ci', pattern: /run:\s*npm ci/ },
+      { label: 'web npm ci', pattern: /run:\s*cd web && npm ci/ },
+      { label: 'audit security gate', pattern: /run:\s*npm run audit:security/ },
+      { label: 'scheduled/manual deps review', pattern: /npm run deps:review/ },
+      { label: 'validation-required needs dependency-hygiene', pattern: /^[ \t]+- dependency-hygiene\s*$/m },
+      { label: 'dependency result env', pattern: /DEPENDENCY_RESULT:\s*\$\{\{ needs\.dependency-hygiene\.result \}\}/ },
+      { label: 'dependency applies env', pattern: /DEPENDENCY_APPLIES:/ },
+      { label: 'aggregate requires dependency-hygiene', pattern: /require_applicable dependency-hygiene "\$DEPENDENCY_APPLIES" "\$DEPENDENCY_RESULT"/ },
+      { label: 'summary includes dependency-hygiene', pattern: /dependency-hygiene: \$DEPENDENCY_RESULT \(applies=\$DEPENDENCY_APPLIES\)/ },
+    ];
+    for (const requirement of requirements) {
+      checked.push(`${file} ${requirement.label}`);
+      if (!requirement.pattern.test(content)) {
+        failures.push(`${file} dependency-hygiene workflow must include ${requirement.label}`);
+      }
+    }
+  }
+  return { checked, failures };
+}
+
 function extractDocsVerifyInvocations(content) {
   const invocations = [];
   const lines = content.split('\n');
@@ -553,7 +622,7 @@ function validateRequiredValidationScripts({ scripts, documentedCommands }) {
       }
     }
     const documented = documentedCommands.some((location) => location.includes(`npm run ${required.name}`));
-    if (!documented) {
+    if (!documented && !required.documentationOptional) {
       failures.push(`required validation script "${required.name}" is not documented in README.md or docs/runbook/*.md validation cadence`);
     }
   }
@@ -678,6 +747,7 @@ export function verifyValidationCadence(options = {}) {
     scripts,
     workflowFiles: options.workflowFiles,
   });
+  const dependencyHygieneWorkflow = validateDependencyHygieneWorkflow({ root, workflowFiles: workflow.workflowFilesChecked });
   const requiredScripts = validateRequiredValidationScripts({
     scripts,
     documentedCommands: documented.checked,
@@ -690,12 +760,13 @@ export function verifyValidationCadence(options = {}) {
   const runtimeEngines = validateRuntimeEngines({ root, workflowFiles: workflow.workflowFilesChecked, markdownByFile: documented.markdownByFile });
   const docsVerify = validateDocsVerifySubguards({ root, scripts });
   const failClosedJest = validateFailClosedJestGates({ scripts, workflowCommands: workflow.checked });
-  const failures = [...documented.failures, ...workflow.failures, ...requiredScripts.failures, ...profiles.failures, ...runtimeEngines.failures, ...docsVerify.failures, ...failClosedJest.failures];
+  const failures = [...documented.failures, ...workflow.failures, ...dependencyHygieneWorkflow.failures, ...requiredScripts.failures, ...profiles.failures, ...runtimeEngines.failures, ...docsVerify.failures, ...failClosedJest.failures];
   return {
     ok: failures.length === 0,
     failures,
     documentedCommandsChecked: documented.checked,
     workflowCommandsChecked: workflow.checked,
+    dependencyHygieneWorkflowEntriesChecked: dependencyHygieneWorkflow.checked,
     workflowFilesChecked: workflow.workflowFilesChecked,
     requiredValidationScriptsChecked: requiredScripts.checked,
     validationProfilesChecked: profiles.checked,

@@ -322,6 +322,42 @@ jobs:
       - name: Scheduled browser smoke validation profile
         run: npm run web:test:e2e:smoke
 
+  dependency-hygiene:
+    name: dependency-hygiene
+    runs-on: ubuntu-latest
+    needs: classify-changes
+    if: ${{ github.event_name == 'schedule' || needs.classify-changes.outputs.run_all == 'true' || needs.classify-changes.outputs.package_or_workflow == 'true' }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install root dependencies
+        run: npm ci
+
+      - name: Install web dependencies
+        run: cd web && npm ci
+
+      - name: Production dependency security gate
+        run: npm run audit:security
+
+      - name: Scheduled/manual dependency governance review
+        if: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
+        run: |
+          set -euo pipefail
+          npm run deps:review
+          {
+            echo "### Dependency hygiene review"
+            echo "- audit:security:all completed"
+            echo "- deps:freshness completed"
+            echo "- direct-runtime staleness is reporting-only during the ARCH-029 calibration cycle"
+          } >> "$GITHUB_STEP_SUMMARY"
+
   validation-required:
     name: validation-required
     runs-on: ubuntu-latest
@@ -333,6 +369,7 @@ jobs:
       - ui-smoke
       - browser-smoke
       - scheduled-release-backstop
+      - dependency-hygiene
     steps:
       - name: Enforce required validation conclusions
         shell: bash
@@ -344,10 +381,12 @@ jobs:
           UI_RESULT: ${{ needs.ui-smoke.result }}
           BROWSER_RESULT: ${{ needs.browser-smoke.result }}
           SCHEDULED_RESULT: ${{ needs.scheduled-release-backstop.result }}
+          DEPENDENCY_RESULT: ${{ needs.dependency-hygiene.result }}
           BACKEND_APPLIES: ${{ needs.classify-changes.outputs.run_all == 'true' || needs.classify-changes.outputs.backend == 'true' || needs.classify-changes.outputs.package_or_workflow == 'true' }}
           UI_APPLIES: ${{ needs.classify-changes.outputs.run_all == 'true' || needs.classify-changes.outputs.ui == 'true' || needs.classify-changes.outputs.browser == 'true' || needs.classify-changes.outputs.package_or_workflow == 'true' }}
           BROWSER_APPLIES: ${{ github.event_name != 'schedule' && (needs.classify-changes.outputs.run_all == 'true' || needs.classify-changes.outputs.browser == 'true' || needs.classify-changes.outputs.package_or_workflow == 'true') }}
           SCHEDULED_APPLIES: ${{ github.event_name == 'schedule' }}
+          DEPENDENCY_APPLIES: ${{ github.event_name == 'schedule' || needs.classify-changes.outputs.run_all == 'true' || needs.classify-changes.outputs.package_or_workflow == 'true' }}
           CLASSIFIER_SUMMARY: ${{ needs.classify-changes.outputs.summary }}
         run: |
           set -euo pipefail
@@ -382,6 +421,7 @@ jobs:
           require_applicable ui-smoke "$UI_APPLIES" "$UI_RESULT"
           require_applicable browser-smoke "$BROWSER_APPLIES" "$BROWSER_RESULT"
           require_applicable scheduled-release-backstop "$SCHEDULED_APPLIES" "$SCHEDULED_RESULT"
+          require_applicable dependency-hygiene "$DEPENDENCY_APPLIES" "$DEPENDENCY_RESULT"
 
           {
             echo "### Required validation aggregate"
@@ -391,6 +431,7 @@ jobs:
             echo "- ui-smoke: $UI_RESULT (applies=$UI_APPLIES)"
             echo "- browser-smoke: $BROWSER_RESULT (applies=$BROWSER_APPLIES)"
             echo "- scheduled-release-backstop: $SCHEDULED_RESULT (applies=$SCHEDULED_APPLIES)"
+            echo "- dependency-hygiene: $DEPENDENCY_RESULT (applies=$DEPENDENCY_APPLIES)"
           } >> "$GITHUB_STEP_SUMMARY"
 
           if ((${#failures[@]} > 0)); then

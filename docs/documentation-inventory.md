@@ -68,6 +68,7 @@ This inventory maps every tracked Markdown file in the repository root and `docs
 | `docs/historical/2026-05-remediation-dossiers/planner-redesign-plan.md` | historical | The planner redesign plan remains historical design evidence but is not final operator guidance. | docs/agents.md:1 | keep |
 | `docs/release-checklist.md` | current | This legacy top-level page forwards release validation to the consolidated runbook release checklist. | docs/runbook/release.md:1 | keep |
 | `docs/runbook/incidents.md` | current | The incidents runbook consolidates current troubleshooting and degraded-state recovery guidance. | src/server/routes/chats-files-debug.ts:341 | keep |
+| `docs/runbook/dependency-hygiene.md` | current | The dependency hygiene runbook defines ARCH-029 production audit thresholds, freshness checks, waivers, cadence, and rollback semantics. | scripts/check-dependency-freshness.js:1 | keep |
 | `docs/runbook/index.md` | current | The runbook index is the Stage 25 single entry point for operator procedures. | scripts/check-runbook-curl-examples.js:1 | keep |
 | `docs/runbook/lxc-operations.md` | current | The LXC operations page records current systemd unit names and deployment checks. | src/cli.ts:1 | keep |
 | `docs/runbook/operations.md` | current | The operations runbook documents current startup, auth, health, state, runtime control, WebSocket, and backup procedures. | src/server/server.ts:28 | keep |
