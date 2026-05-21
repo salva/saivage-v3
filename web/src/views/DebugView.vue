@@ -67,7 +67,7 @@
           <div class="debug-section-header operator-header">
             <div>
               <h4 class="debug-section-title">Runtime Diagnostics</h4>
-              <p class="operator-subtitle">Inspect runtime state here. Use Dashboard → Runtime Console for start, stop, pause, resume, and activation control.</p>
+              <p class="operator-subtitle">Inspect runtime state here. Use Dashboard → Runtime Console for project start/stop commands, run and activation observability, command errors, and recovery state.</p>
             </div>
             <div class="operator-actions-inline">
               <button class="sv-fetch-btn" :disabled="operatorPanelBusy" @click="refreshOperatorControl">Refresh</button>
