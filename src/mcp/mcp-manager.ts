@@ -28,6 +28,12 @@ import { ChildProcess, spawn } from 'node:child_process';
 import { loadConfig, type SaivageConfig } from '../agents/config-schema.js';
 import { EventLogger } from '../utils/event-logger.js';
 import * as readline from 'node:readline';
+import {
+  compileMcpArgumentValidator,
+  fingerprintMcpInputSchema,
+  validateMcpArguments,
+  type CachedMcpArgumentValidator,
+} from './mcp-argument-validator.js';
 
 // ── MCP Protocol Types ────────────────────────────────────────
 
@@ -151,11 +157,7 @@ export class McpInvokeError extends Error {
 /** The requested MCP server is not configured or not currently running. */
 export class ServerNotRunningError extends McpInvokeError {
   constructor(serverName: string) {
-    super(
-      `MCP server '${serverName}' is not running`,
-      'SERVER_NOT_RUNNING',
-      404,
-    );
+    super(`MCP server '${serverName}' is not running`, 'SERVER_NOT_RUNNING', 404);
     this.name = 'ServerNotRunningError';
   }
 }
@@ -163,11 +165,7 @@ export class ServerNotRunningError extends McpInvokeError {
 /** The requested tool does not exist on the MCP server. */
 export class ToolNotFoundError extends McpInvokeError {
   constructor(serverName: string, toolName: string) {
-    super(
-      `Tool '${toolName}' not found on MCP server '${serverName}'`,
-      'TOOL_NOT_FOUND',
-      404,
-    );
+    super(`Tool '${toolName}' not found on MCP server '${serverName}'`, 'TOOL_NOT_FOUND', 404);
     this.name = 'ToolNotFoundError';
   }
 }
@@ -177,8 +175,7 @@ export class InvalidArgumentsError extends McpInvokeError {
   public readonly data: unknown;
 
   constructor(serverName: string, toolName: string, data?: unknown) {
-    const dataStr =
-      data !== undefined ? `: ${JSON.stringify(data)}` : '';
+    const dataStr = data !== undefined ? `: ${JSON.stringify(data)}` : '';
     super(
       `Invalid arguments for tool '${toolName}' on server '${serverName}'${dataStr}`,
       'INVALID_ARGUMENTS',
@@ -204,11 +201,7 @@ export class TimeoutError extends McpInvokeError {
 /** A transport-level error occurred (connection lost, process died, etc.). */
 export class TransportError extends McpInvokeError {
   constructor(serverName: string, detail: string) {
-    super(
-      `Transport error on MCP server '${serverName}': ${detail}`,
-      'TRANSPORT_ERROR',
-      502,
-    );
+    super(`Transport error on MCP server '${serverName}': ${detail}`, 'TRANSPORT_ERROR', 502);
     this.name = 'TransportError';
   }
 }
@@ -294,6 +287,8 @@ export class McpManager {
   private startedAt: Map<string, string> = new Map();
   /** Cached tool definitions per server name. */
   private toolsCache: Map<string, McpToolDefinition[]> = new Map();
+  /** Compiled local argument validators keyed by server/tool/schema fingerprint. */
+  private argumentValidatorCache: Map<string, CachedMcpArgumentValidator> = new Map();
   /** Servers that have completed init+tools/list successfully. */
   private toolsCacheInitialized: Set<string> = new Set();
   /** Discovery error messages per server (not surfaced as status changes). */
@@ -304,12 +299,15 @@ export class McpManager {
   private _eventLogger?: EventLogger;
   /** Invocation statistics per server:tool key.
    *  Key format: `${serverName}:${toolName}` */
-  private _invocationStats: Map<string, {
-    total: number;
-    success: number;
-    error: number;
-    lastInvokedAt?: string;
-  }> = new Map();
+  private _invocationStats: Map<
+    string,
+    {
+      total: number;
+      success: number;
+      error: number;
+      lastInvokedAt?: string;
+    }
+  > = new Map();
 
   /**
    * Per-server stdio invocation queue.
@@ -383,8 +381,14 @@ export class McpManager {
    * Return invocation statistics for all tools that have been invoked
    * during this session. Key format is `${serverName}:${toolName}`.
    */
-  getInvocationStats(): Record<string, { total: number; success: number; error: number; lastInvokedAt?: string }> {
-    const out: Record<string, { total: number; success: number; error: number; lastInvokedAt?: string }> = {};
+  getInvocationStats(): Record<
+    string,
+    { total: number; success: number; error: number; lastInvokedAt?: string }
+  > {
+    const out: Record<
+      string,
+      { total: number; success: number; error: number; lastInvokedAt?: string }
+    > = {};
     for (const [key, val] of this._invocationStats) {
       out[key] = val;
     }
@@ -453,8 +457,7 @@ export class McpManager {
       try {
         await this._discoverTools(name);
       } catch (err) {
-        const errMsg =
-          err instanceof Error ? err.message : String(err);
+        const errMsg = err instanceof Error ? err.message : String(err);
         // Record the discovery error for diagnostics but don't change
         // the server status — the process is still running.
         this.discoveryErrors.set(name, errMsg);
@@ -485,6 +488,7 @@ export class McpManager {
       this.toolsCache.delete(name);
       this.toolsCacheInitialized.delete(name);
       this.discoveryErrors.delete(name);
+      this._clearArgumentValidatorCacheForServer(name);
       return;
     }
 
@@ -501,6 +505,7 @@ export class McpManager {
     this.toolsCache.delete(name);
     this.toolsCacheInitialized.delete(name);
     this.discoveryErrors.delete(name);
+    this._clearArgumentValidatorCacheForServer(name);
 
     // Clear invocation queue for this server on stop
     this._invocationQueues.delete(name);
@@ -613,11 +618,15 @@ export class McpManager {
 
     // 3. Check tool exists in cache
     const serverTools = this.toolsCache.get(serverName);
-    if (!serverTools || !serverTools.some((t) => t.name === toolName)) {
+    const toolDefinition = serverTools?.find((t) => t.name === toolName);
+    if (!toolDefinition) {
       throw new ToolNotFoundError(serverName, toolName);
     }
 
-    // 4. Dispatch to transport-specific implementation
+    // 4. Enforce the discovered inputSchema locally before stdio/SSE dispatch.
+    this._validateToolArguments(serverName, toolName, toolDefinition.inputSchema, args);
+
+    // 5. Dispatch to transport-specific implementation
     const startTime = Date.now();
     const timeoutMs = options?.timeoutMs ?? MCP_INVOKE_TIMEOUT_MS;
 
@@ -680,6 +689,45 @@ export class McpManager {
     return false;
   }
 
+  // ── Private: Argument Validation ──────────────────────────
+
+  private _validatorCacheKey(serverName: string, toolName: string, fingerprint: string): string {
+    return `${serverName}:${toolName}:${fingerprint}`;
+  }
+
+  private _clearArgumentValidatorCacheForServer(serverName: string): void {
+    const prefix = `${serverName}:`;
+    for (const key of Array.from(this.argumentValidatorCache.keys())) {
+      if (key.startsWith(prefix)) {
+        this.argumentValidatorCache.delete(key);
+      }
+    }
+  }
+
+  private _validateToolArguments(
+    serverName: string,
+    toolName: string,
+    inputSchema: unknown,
+    args: Record<string, unknown>,
+  ): void {
+    const fingerprint = fingerprintMcpInputSchema(inputSchema);
+    const cacheKey = this._validatorCacheKey(serverName, toolName, fingerprint);
+    let compiled = this.argumentValidatorCache.get(cacheKey);
+    if (!compiled) {
+      compiled = compileMcpArgumentValidator(inputSchema);
+      this.argumentValidatorCache.set(cacheKey, compiled);
+    }
+
+    const result = validateMcpArguments(compiled, args);
+    if (!result.ok) {
+      throw new InvalidArgumentsError(serverName, toolName, {
+        source: 'local_input_schema_validation',
+        reason: result.type,
+        diagnostics: result.diagnostics,
+      });
+    }
+  }
+
   // ── Private: Invocation Queue ─────────────────────────────
 
   /**
@@ -700,7 +748,10 @@ export class McpManager {
 
     // Chain: always call fn() regardless of whether prev failed.
     // This ensures a single error never breaks the queue.
-    const next = prev.then(() => fn(), () => fn());
+    const next = prev.then(
+      () => fn(),
+      () => fn(),
+    );
 
     // Store a *settled* promise as the new tail so errors don't propagate
     // to subsequent links in the chain.  .catch(() => {}) swallows the
@@ -731,10 +782,7 @@ export class McpManager {
     const proc = handle!.process!;
 
     if (!proc.stdin || !proc.stdout) {
-      throw new TransportError(
-        serverName,
-        'Process has no stdin/stdout pipes',
-      );
+      throw new TransportError(serverName, 'Process has no stdin/stdout pipes');
     }
 
     const rl = readline.createInterface({
@@ -764,27 +812,16 @@ export class McpManager {
 
       this._safeWrite(proc.stdin, JSON.stringify(request) + '\n', serverName);
 
-      const response = await this._readResponse(
-        rl,
-        requestId,
-        abortController.signal,
-      );
+      const response = await this._readResponse(rl, requestId, abortController.signal);
 
       if (!response) {
         if (abortController.signal.aborted) {
           throw new TimeoutError(serverName, toolName, timeoutMs);
         }
-        throw new TransportError(
-          serverName,
-          'stdio stream closed before response received',
-        );
+        throw new TransportError(serverName, 'stdio stream closed before response received');
       }
 
-      return this._processToolsCallResponse(
-        response,
-        serverName,
-        toolName,
-      );
+      return this._processToolsCallResponse(response, serverName, toolName);
     } finally {
       clearTimeout(timeoutId);
       rl.close();
@@ -869,10 +906,7 @@ export class McpManager {
       }
 
       if (!resp.ok) {
-        throw new TransportError(
-          serverName,
-          `tools/call HTTP POST returned status ${resp.status}`,
-        );
+        throw new TransportError(serverName, `tools/call HTTP POST returned status ${resp.status}`);
       }
 
       let body: Record<string, unknown>;
@@ -988,6 +1022,7 @@ export class McpManager {
           this.toolsCache.delete(name);
           this.toolsCacheInitialized.delete(name);
           this.discoveryErrors.delete(name);
+          this._clearArgumentValidatorCacheForServer(name);
           return;
         }
         this.handles.delete(name);
@@ -995,6 +1030,7 @@ export class McpManager {
         this.toolsCache.delete(name);
         this.toolsCacheInitialized.delete(name);
         this.discoveryErrors.delete(name);
+        this._clearArgumentValidatorCacheForServer(name);
       }
     });
 
@@ -1007,6 +1043,7 @@ export class McpManager {
         this.toolsCache.delete(name);
         this.toolsCacheInitialized.delete(name);
         this.discoveryErrors.delete(name);
+        this._clearArgumentValidatorCacheForServer(name);
       }
     });
 
@@ -1015,10 +1052,14 @@ export class McpManager {
     // above already cleans up the handle and status so there is no
     // need for an uncaught exception to crash the process.
     if (proc.stdin) {
-      proc.stdin.on('error', () => { /* EPIPE expected on early exit */ });
+      proc.stdin.on('error', () => {
+        /* EPIPE expected on early exit */
+      });
     }
     if (proc.stdout) {
-      proc.stdout.on('error', () => { /* stream closed by early exit */ });
+      proc.stdout.on('error', () => {
+        /* stream closed by early exit */
+      });
     }
   }
 
@@ -1131,11 +1172,7 @@ export class McpManager {
       this._safeWrite(proc.stdin, JSON.stringify(initReq) + '\n', name);
 
       // Read lines until we get the init response or timeout
-      const initResponse = await this._readResponse(
-        rl,
-        initId,
-        abortController.signal,
-      );
+      const initResponse = await this._readResponse(rl, initId, abortController.signal);
 
       if (!initResponse) {
         throw new Error('Server did not respond to initialize request');
@@ -1143,9 +1180,7 @@ export class McpManager {
 
       if ('error' in initResponse && initResponse.error) {
         const err = initResponse.error as { message: string; code: number };
-        throw new Error(
-          `Initialize failed: ${err.message} (code ${err.code})`,
-        );
+        throw new Error(`Initialize failed: ${err.message} (code ${err.code})`);
       }
 
       // ── Step 2: Send initialized notification ──────────────
@@ -1174,11 +1209,7 @@ export class McpManager {
 
         this._safeWrite(proc.stdin, JSON.stringify(listReq) + '\n', name);
 
-        const listResponse = await this._readResponse(
-          rl,
-          listId,
-          abortController.signal,
-        );
+        const listResponse = await this._readResponse(rl, listId, abortController.signal);
 
         if (!listResponse) {
           throw new Error('Server did not respond to tools/list request');
@@ -1186,9 +1217,7 @@ export class McpManager {
 
         if ('error' in listResponse && listResponse.error) {
           const err = listResponse.error as { message: string; code: number };
-          throw new Error(
-            `tools/list failed: ${err.message} (code ${err.code})`,
-          );
+          throw new Error(`tools/list failed: ${err.message} (code ${err.code})`);
         }
 
         const result = listResponse.result as
@@ -1207,6 +1236,7 @@ export class McpManager {
 
       // ── Cache and mark initialized ─────────────────────────
       this.toolsCache.set(name, tools);
+      this._clearArgumentValidatorCacheForServer(name);
       this.toolsCacheInitialized.add(name);
     } finally {
       clearTimeout(timeoutId);
@@ -1233,10 +1263,7 @@ export class McpManager {
    * Discover tools from an SSE (Streamable HTTP) MCP server via
    * HTTP POST init + tools/list.
    */
-  private async _discoverToolsSse(
-    name: string,
-    cfg: McpServerConfig,
-  ): Promise<void> {
+  private async _discoverToolsSse(name: string, cfg: McpServerConfig): Promise<void> {
     if (!cfg.url) {
       throw new Error('SSE server has no URL configured');
     }
@@ -1273,18 +1300,14 @@ export class McpManager {
     });
 
     if (!initResp.ok) {
-      throw new Error(
-        `Initialize HTTP POST returned status ${initResp.status}`,
-      );
+      throw new Error(`Initialize HTTP POST returned status ${initResp.status}`);
     }
 
     const initBody = (await initResp.json()) as Record<string, unknown>;
 
     if (initBody.error) {
       const err = initBody.error as { message: string; code: number };
-      throw new Error(
-        `Initialize failed: ${err.message} (code ${err.code})`,
-      );
+      throw new Error(`Initialize failed: ${err.message} (code ${err.code})`);
     }
 
     // ── Step 2: Send initialized notification ───────────────
@@ -1328,18 +1351,14 @@ export class McpManager {
       });
 
       if (!listResp.ok) {
-        throw new Error(
-          `tools/list HTTP POST returned status ${listResp.status}`,
-        );
+        throw new Error(`tools/list HTTP POST returned status ${listResp.status}`);
       }
 
       const listBody = (await listResp.json()) as Record<string, unknown>;
 
       if (listBody.error) {
         const err = listBody.error as { message: string; code: number };
-        throw new Error(
-          `tools/list failed: ${err.message} (code ${err.code})`,
-        );
+        throw new Error(`tools/list failed: ${err.message} (code ${err.code})`);
       }
 
       const result = listBody.result as
@@ -1359,6 +1378,7 @@ export class McpManager {
 
     // ── Cache and mark initialized ─────────────────────────
     this.toolsCache.set(name, tools);
+    this._clearArgumentValidatorCacheForServer(name);
     this.toolsCacheInitialized.add(name);
   }
 
@@ -1432,10 +1452,7 @@ export class McpManager {
           const msg = JSON.parse(line) as Record<string, unknown>;
 
           // Check if this is the response we're waiting for
-          if (
-            msg.id === requestId &&
-            typeof msg.jsonrpc === 'string'
-          ) {
+          if (msg.id === requestId && typeof msg.jsonrpc === 'string') {
             cleanup();
             resolve(msg);
           }
@@ -1611,9 +1628,7 @@ export class McpManager {
           transport: cfg.transport,
           status: 'error',
           pid: proc.pid ?? undefined,
-          error: proc.killed
-            ? 'Process was killed'
-            : `Process exited with code ${proc.exitCode}`,
+          error: proc.killed ? 'Process was killed' : `Process exited with code ${proc.exitCode}`,
           startedAt: this.startedAt.get(name),
           tools_count: tools?.length ?? 0,
         };
