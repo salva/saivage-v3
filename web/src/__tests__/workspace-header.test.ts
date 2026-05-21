@@ -8,9 +8,11 @@ function mountHeader(connectionState: 'connected' | 'connecting' | 'offline' | '
       sectionTitle: 'Dashboard',
       projectName: 'saivage-v3',
       connectionState,
-      runtimeStatus: 'unknown',
-      runtimeStatusLabel: 'unknown',
-      isPaused: false,
+      runtimeStatus: 'running',
+      runtimeStatusLabel: 'running',
+      runtimeModeLabel: 'Running',
+      runtimeModeDetail: 'Root run active.',
+      hasToken: true,
     },
   });
 }
@@ -31,5 +33,18 @@ describe('WorkspaceHeader', () => {
 
     expect(chip.text()).toContain('WS UNAUTH');
     expect(chip.classes()).toContain('ws-unauthorized');
+  });
+
+  it('keeps runtime status observable without exposing header execution controls', async () => {
+    const wrapper = mountHeader('connected');
+    const runtimeChip = wrapper.get('.runtime-chip');
+
+    expect(runtimeChip.text()).toContain('Running');
+    expect(runtimeChip.attributes('title')).toContain('Dashboard → Runtime Console');
+    expect(wrapper.find('.pause-chip').exists()).toBe(false);
+    expect(wrapper.findAll('button').map((button) => button.text())).not.toContain('Pause');
+    expect(wrapper.findAll('button').map((button) => button.text())).not.toContain('Resume');
+    await runtimeChip.trigger('click');
+    expect(wrapper.emitted('toggle-pause')).toBeUndefined();
   });
 });

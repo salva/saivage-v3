@@ -17,13 +17,10 @@
         :live-update-detail="liveUpdateDetail"
         :runtime-mode-label="runtimeModeLabel"
         :runtime-mode-detail="runtimeDetail"
-        :is-paused="isPaused"
         :is-stale="isRuntimeStale"
         :is-unauthorized="runtimeUnauthorized"
         :has-token="hasToken"
-        :pause-disabled-reason="pauseDisabledReason"
         :analyst-drawer-open="analystChat.drawerOpen"
-        @toggle-pause="handleTogglePause"
         @toggle-analyst="toggleAnalystDrawer"
       />
 
@@ -78,7 +75,6 @@ const analystChat = useAnalystChat();
 const { connectionState } = storeToRefs(wsStore);
 const {
   statusLabel,
-  isPaused,
   status,
   liveUpdateLabel,
   liveUpdateDetail,
@@ -86,7 +82,6 @@ const {
   runtimeDetail,
   isStale,
   unauthorized,
-  pauseActionDisabledReason,
 } = storeToRefs(runtimeStore);
 
 const route = useRoute();
@@ -126,16 +121,6 @@ const runtimeStatus = computed<string | null>(() => status.value ?? null);
 const runtimeStatusLabel = computed(() => statusLabel.value);
 const isRuntimeStale = computed(() => isStale.value);
 const runtimeUnauthorized = computed(() => unauthorized.value);
-const pauseDisabledReason = computed(() => pauseActionDisabledReason.value);
-
-async function handleTogglePause(): Promise<void> {
-  if (pauseDisabledReason.value) return;
-  try {
-    if (isPaused.value) await runtimeStore.resume();
-    else await runtimeStore.pause();
-  } catch {}
-}
-
 function toggleAnalystDrawer(): void {
   analystChat.toggleDrawer();
 }

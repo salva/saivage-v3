@@ -383,7 +383,7 @@ describe('operator dashboard synthetic smoke guard', () => {
     });
     await settle();
 
-    const { pauseRuntime, resumeRuntime, stopProject } = await import('../api/client');
+    const { stopProject } = await import('../api/client');
     expect(wrapper.text()).toContain('Runtime Console');
     expect(wrapper.text()).toContain('Activation Edges');
     expect(wrapper.get('.stop-project').text()).toContain('Stop Project');
@@ -392,23 +392,10 @@ describe('operator dashboard synthetic smoke guard', () => {
     await settle();
     expect(stopProject).toHaveBeenCalledTimes(1);
 
-    expect(wrapper.get('.pause-chip').text()).toContain('Pause');
-    await wrapper.get('.pause-chip').trigger('click');
-    await settle();
-    expect(pauseRuntime).toHaveBeenCalledTimes(1);
-    expect(wrapper.get('.pause-chip').text()).toContain('Resume');
-    await wrapper.get('.pause-chip').trigger('click');
-    await settle();
-    expect(resumeRuntime).toHaveBeenCalledTimes(1);
-    expect(wrapper.text()).toContain('Runtime Console');
-    expect(wrapper.text()).toContain('Activation Edges');
-    expect(wrapper.get('.stop-project').text()).toContain('Stop Project');
-    vi.mocked(stopProject).mockClear();
-    await wrapper.get('.stop-project').trigger('click');
-    await settle();
-    expect(stopProject).toHaveBeenCalledTimes(1);
-
-    expect(wrapper.get('.pause-chip').text()).toContain('Pause');
+    expect(wrapper.find('.pause-chip').exists()).toBe(false);
+    expect(wrapper.get('.runtime-chip').attributes('title')).toContain('Dashboard → Runtime Console');
+    expect(wrapper.findAll('button').map((button) => button.text())).not.toContain('Pause');
+    expect(wrapper.findAll('button').map((button) => button.text())).not.toContain('Resume');
 
     window.dispatchEvent(new CustomEvent(API_AUTH_REQUIRED_EVENT, { detail: { status: 401, path: '/api/state' } }));
     await settle();

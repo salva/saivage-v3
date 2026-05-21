@@ -31,7 +31,7 @@
       <span
         class="status-chip runtime-chip"
         :class="runtimeChipClass"
-        :title="runtimeModeDetail"
+        :title="runtimeChipTitle"
       >
         <span class="chip-dot"></span>
         {{ runtimeModeLabel || runtimeStatusLabel }}
@@ -41,24 +41,12 @@
         <span class="chip-dot"></span>
         {{ stateCueLabel }}
       </span>
-
-      <button
-        v-if="isPaused !== null"
-        class="status-chip pause-chip"
-        :class="{ paused: isPaused, disabled: Boolean(pauseDisabledReason) }"
-        :title="pauseTitle"
-        :disabled="Boolean(pauseDisabledReason)"
-        @click="togglePause"
-      >
-        <span class="chip-icon">{{ isPaused ? '▶' : '⏸' }}</span>
-        {{ isPaused ? 'Resume' : 'Pause' }}
-      </button>
     </div>
   </header>
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue';
+import { computed, unref } from 'vue';
 import type { WsConnectionState } from '../../api/types';
 
 const props = defineProps<{
@@ -71,16 +59,13 @@ const props = defineProps<{
   liveUpdateDetail?: string;
   runtimeModeLabel?: string;
   runtimeModeDetail?: string;
-  isPaused: boolean | null;
   isStale?: boolean;
   isUnauthorized?: boolean;
   hasToken?: boolean;
-  pauseDisabledReason?: string | null;
   analystDrawerOpen?: boolean;
 }>();
 
 const emit = defineEmits<{
-  'toggle-pause': [];
   'toggle-analyst': [];
 }>();
 
@@ -97,6 +82,11 @@ const wsLabel = computed(() => {
 });
 
 const runtimeChipClass = computed(() => `rt-${props.runtimeStatus || 'unknown'}`);
+const runtimeChipTitle = computed(() => {
+  const detail = String(unref(props.runtimeModeDetail) || 'Runtime status is observable here; use Dashboard → Runtime Console for execution controls.');
+  if (detail.includes('Runtime Console')) return detail;
+  return `${detail} Use Dashboard → Runtime Console for execution controls.`;
+});
 const stateCueLabel = computed(() => {
   if (!props.hasToken) return 'Docs public / API locked';
   if (props.isUnauthorized) return 'Unauthorized';
@@ -121,15 +111,6 @@ const cueClass = computed(() => {
   if (props.runtimeStatus === 'error') return 'cue-degraded';
   return 'cue-neutral';
 });
-const pauseTitle = computed(() => {
-  if (props.pauseDisabledReason) return props.pauseDisabledReason;
-  return props.isPaused ? 'Runtime is paused — click to resume' : 'Pause runtime';
-});
-
-function togglePause(): void {
-  if (props.pauseDisabledReason) return;
-  emit('toggle-pause');
-}
 </script>
 
 <style scoped>
@@ -269,24 +250,6 @@ function togglePause(): void {
   border-color: #1f6feb;
 }
 
-.pause-chip {
-  cursor: pointer;
-  transition: all 0.15s;
-  color: #3fb950;
-  border-color: #238636;
-}
-
-.pause-chip.paused {
-  color: #d29922;
-  border-color: #9e6a03;
-}
-
-.pause-chip.disabled {
-  opacity: 0.55;
-  cursor: not-allowed;
-}
-
-.pause-chip:hover:not(:disabled),
 .analyst-chip:hover {
   filter: brightness(1.2);
 }
