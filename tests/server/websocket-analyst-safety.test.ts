@@ -18,8 +18,10 @@ const {
   broadcast,
   broadcastAnalystToolInvoked,
   broadcastCardHistoryAppended,
+  createRuntimeEnvelope,
   registerWebSocket,
   resetWebSocketState,
+  sendRuntimeStateSnapshotToClient,
 } = websocketModule;
 
 function createSocket() {
@@ -102,6 +104,87 @@ describe('websocket analyst safety', () => {
     expect(ws.close).not.toHaveBeenCalled();
     const status = JSON.parse((ws.send as jest.Mock).mock.calls[0]?.[0] as string);
     expect(status).toMatchObject({ type: 'status', content: { event: 'connected', sessionId: 'session-1' } });
+  });
+
+  it('sends a validated runtime-state snapshot with CardStore health after connected status for authenticated clients', () => {
+    const cardStoreHealth = {
+      canonical: 'ok',
+      compatibilitySnapshots: 'degraded',
+      lastCompatibilitySnapshotWarning: {
+        code: 'compatibility-snapshot-degraded',
+        operation: 'startup-repair',
+        relativePath: '.saivage/cards/tree/project.children.json',
+        message: 'Synthetic warning with token=[REDACTED]',
+        occurredAt: '2026-01-01T00:00:00.000Z',
+        canonicalCommitted: false,
+      },
+      warnings: [],
+    };
+    const getHealth = jest.fn(() => cardStoreHealth);
+    const getAndClearWarnings = jest.fn();
+    const activeRuntime = {
+      runtime: {
+        cardStore: { getHealth, getAndClearWarnings },
+      },
+    } as any;
+    const { route, fastify } = createRoute();
+    registerWebSocket(fastify, '/tmp/project', activeRuntime);
+    const { ws } = createSocket();
+
+    route.handler(ws, { headers: {}, query: {} });
+
+    const sent = (ws.send as jest.Mock).mock.calls.map((call) => JSON.parse(call[0] as string));
+    expect(sent[0]).toMatchObject({ type: 'status', content: { event: 'connected', sessionId: 'session-1' } });
+    expect(sent[1]).toEqual({
+      type: 'status',
+      content: { event: 'runtime-state', cardStoreHealth },
+    });
+    expect(getHealth).toHaveBeenCalledTimes(1);
+    expect(getAndClearWarnings).not.toHaveBeenCalled();
+    expect(JSON.stringify(sent[1])).not.toContain('synthetic-secret');
+  });
+
+  it('sends a valid runtime-state snapshot without CardStore health when no active runtime exists', () => {
+    const { route, fastify } = createRoute();
+    registerWebSocket(fastify, '/tmp/project');
+    const { ws } = createSocket();
+
+    route.handler(ws, { headers: {}, query: {} });
+
+    const sent = (ws.send as jest.Mock).mock.calls.map((call) => JSON.parse(call[0] as string));
+    expect(sent[0].content.event).toBe('connected');
+    expect(sent[1]).toEqual({ type: 'status', content: { event: 'runtime-state' } });
+    expect(sent[1].content).not.toHaveProperty('cardStoreHealth');
+  });
+
+  it('helper reads CardStore health without clearing warning evidence across repeated sends', () => {
+    const cardStoreHealth = {
+      canonical: 'invalid',
+      compatibilitySnapshots: 'degraded',
+      lastCompatibilitySnapshotWarning: null,
+      warnings: [{
+        code: 'compatibility-snapshot-degraded',
+        operation: 'manual-repair',
+        relativePath: '.saivage/cards/tree/project.children.json',
+        message: 'Synthetic sanitized warning token=[REDACTED] path=[SECRET_PATH]',
+        occurredAt: '2026-01-01T00:00:01.000Z',
+        canonicalCommitted: false,
+      }],
+    };
+    const getHealth = jest.fn(() => cardStoreHealth);
+    const getAndClearWarnings = jest.fn();
+    const activeRuntime = { runtime: { cardStore: { getHealth, getAndClearWarnings } } } as any;
+    const { ws } = createSocket();
+
+    sendRuntimeStateSnapshotToClient(ws, activeRuntime);
+    sendRuntimeStateSnapshotToClient(ws, activeRuntime);
+
+    expect(getHealth).toHaveBeenCalledTimes(2);
+    expect(getAndClearWarnings).not.toHaveBeenCalled();
+    const sentText = (ws.send as jest.Mock).mock.calls.map((call) => String(call[0])).join('\n');
+    expect(sentText).toContain('[REDACTED]');
+    expect(sentText).toContain('[SECRET_PATH]');
+    expect(sentText).not.toMatch(/synthetic-secret|auth-profiles\.json|\.env/);
   });
 
   it('rejects /ws token query, missing, invalid, and reused tickets with generic 1008 close reason', () => {
@@ -341,6 +424,7 @@ describe('websocket runtime event fanout compatibility', () => {
     const { route, fastify } = createRoute();
     const handlers: Array<(event: import('../../src/schemas/types.js').LoggedEvent) => void> = [];
     const runtime = {
+      runtime: { cardStore: { getHealth: jest.fn(() => ({ canonical: 'ok', compatibilitySnapshots: 'ok', lastCompatibilitySnapshotWarning: null, warnings: [] })) } },
       on: jest.fn(),
       eventBus: {
         subscribe: jest.fn((options: { handler: (event: import('../../src/schemas/types.js').LoggedEvent) => void }) => {
@@ -357,5 +441,14 @@ describe('websocket runtime event fanout compatibility', () => {
 
     const payloads = (ws.send as jest.Mock).mock.calls.map((call) => JSON.parse(call[0] as string));
     expect(payloads).toContainEqual({ type: 'status', content: { event: 'session_cancelled', session_id: 'sess-1' } });
+    const fanout = payloads.find((entry) => entry.content.event === 'session_cancelled');
+    expect(fanout.content).not.toHaveProperty('cardStoreHealth');
+  });
+
+  it('does not attach CardStore health to non-runtime-state runtime envelopes', () => {
+    const envelope = createRuntimeEnvelope('goal_completed', { goal_id: 'goal-1' });
+
+    expect(envelope).toEqual({ type: 'status', content: { event: 'goal_completed', goal_id: 'goal-1' } });
+    expect(envelope.content).not.toHaveProperty('cardStoreHealth');
   });
 });

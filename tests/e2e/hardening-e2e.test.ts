@@ -859,8 +859,11 @@ describe('Security — Auth, Path Traversal, and Redaction', () => {
       const ws = new WebSocket(`ws://127.0.0.1:${port}/ws?ticket=${ticket}`);
       ws.on('message', (raw) => {
         const data = JSON.parse(raw.toString()) as { type: string; content: Record<string, unknown> };
+        if (data.content.event !== 'connected') {
+          expect(data).toMatchObject({ type: 'status', content: { event: 'runtime-state' } });
+          return;
+        }
         expect(data.type).toBe('status');
-        expect(data.content.event).toBe('connected');
         ws.close();
         done();
       });

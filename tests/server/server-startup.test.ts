@@ -254,8 +254,11 @@ describe('Server Startup Integration (createServer)', () => {
       const ws = new WebSocket(wsUrl(`/ws?ticket=${ticket}`));
       ws.on('message', (raw) => {
         const data = JSON.parse(raw.toString()) as { type: string; content: Record<string, unknown> };
+        if (data.content.event !== 'connected') {
+          expect(data).toMatchObject({ type: 'status', content: { event: 'runtime-state' } });
+          return;
+        }
         expect(data.type).toBe('status');
-        expect(data.content.event).toBe('connected');
         expect(data.content.sessionId).toBeDefined();
         expect(typeof data.content.clientCount).toBe('number');
         ws.close();

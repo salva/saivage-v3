@@ -172,6 +172,14 @@ export function sendToClient(ws: WebSocket, event: WsEnvelope): void {
   }
 }
 
+export function sendRuntimeStateSnapshotToClient(ws: WebSocket, activeRuntime?: ActiveRuntime): void {
+  const content: WsEnvelope['content'] = { event: 'runtime-state' };
+  if (activeRuntime) {
+    content.cardStoreHealth = activeRuntime.runtime.cardStore.getHealth();
+  }
+  sendToClient(ws, { type: 'status', content });
+}
+
 export function getClientCount(): number {
   return clients.size;
 }
@@ -240,6 +248,7 @@ export function registerWebSocket(fastify: FastifyInstance, projectRoot: string,
         timestamp: new Date().toISOString(),
         clientCount: authenticatedClients.size,
       }));
+      sendRuntimeStateSnapshotToClient(ws, activeRuntime);
 
       ws.on('message', (raw: Buffer | ArrayBuffer | Buffer[]) => {
         return queueAnalystTurn(ws, async () => {
