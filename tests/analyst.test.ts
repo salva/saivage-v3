@@ -16,7 +16,15 @@ import {
 import type { ToolContext } from '../src/agents/analyst-tools.js';
 
 import { AnalystHandler, getOrCreateAnalystSession } from '../src/agents/analyst-handler.js';
-import { ANALYST_TOOL_DEFINITIONS } from '../src/agents/analyst-tool-schemas.js';
+import {
+  ANALYST_TOOL_DEFINITIONS,
+  ANALYST_ISSUE_SEVERITY_VALUES,
+  CARD_STATUS_VALUES,
+  CARD_TYPE_VALUES,
+  NOTE_KIND_VALUES,
+  URGENCY_VALUES,
+} from '../src/agents/analyst-tool-schemas.js';
+import { cardStatusSchema, cardTypeSchema, noteKindSchema, urgencySchema } from '../src/schemas/validators.js';
 
 function uniqueDir(): string {
   return join(tmpdir(), `saivage-analyst-test-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`);
@@ -71,6 +79,68 @@ describe('Analyst Tool Definitions', () => {
     expect(toolNames).not.toContain('update_plan');
     expect(toolNames).toContain('create_card');
     expect(toolNames).toContain('list_card_history');
+  });
+
+
+  function toolByName(name: string) {
+    const definition = ANALYST_TOOL_DEFINITIONS.find((tool) => tool.function.name === name);
+    expect(definition).toBeDefined();
+    return definition!;
+  }
+
+  function propertiesFor(name: string): Record<string, Record<string, unknown>> {
+    const parameters = toolByName(name).function.parameters as { properties?: Record<string, Record<string, unknown>> };
+    expect(parameters.properties).toBeDefined();
+    return parameters.properties!;
+  }
+
+  it('keeps exported analyst enum vocabularies aligned with runtime validators', () => {
+    expect([...CARD_STATUS_VALUES]).toEqual(cardStatusSchema.options);
+    expect([...CARD_TYPE_VALUES]).toEqual(cardTypeSchema.options);
+    expect([...URGENCY_VALUES]).toEqual(urgencySchema.options);
+    expect([...NOTE_KIND_VALUES]).toEqual(noteKindSchema.options);
+    expect([...ANALYST_ISSUE_SEVERITY_VALUES]).toEqual(['info', 'warning', 'blocker']);
+  });
+
+  it('emits enum JSON schema constraints and guidance for card, note, list, and corrections tools', () => {
+    const createProps = propertiesFor('create_card');
+    expect(createProps.type.enum).toEqual([...CARD_TYPE_VALUES]);
+    expect(createProps.status.enum).toEqual([...CARD_STATUS_VALUES]);
+    expect(createProps.urgency.enum).toEqual([...URGENCY_VALUES]);
+    expect(createProps.status.description).toContain('Allowed values: drafting, backlog, active, running, blocked, changed, done, failed, cancelled.');
+    expect(toolByName('create_card').function.description).toContain("There is no 'ready' status");
+
+    const editProps = propertiesFor('edit_card');
+    expect(editProps.status.enum).toEqual([...CARD_STATUS_VALUES]);
+    expect(editProps.urgency.enum).toEqual([...URGENCY_VALUES]);
+    expect(toolByName('edit_card').function.description).toContain("There is no 'ready' or 'todo' status");
+
+    const listProps = propertiesFor('list_cards');
+    expect(listProps.status.enum).toEqual([...CARD_STATUS_VALUES]);
+    expect(listProps.type.enum).toEqual([...CARD_TYPE_VALUES]);
+
+    const noteProps = propertiesFor('add_note');
+    expect(noteProps.kind.enum).toEqual([...NOTE_KIND_VALUES]);
+    expect(toolByName('add_note').function.description).toContain('do NOT change card fields');
+
+    for (const name of ['mark_goal_needs_corrections', 'mark_project_needs_corrections']) {
+      const issues = propertiesFor(name).issues as { items?: { properties?: Record<string, Record<string, unknown>> } };
+      expect(issues.items?.properties?.severity.enum).toEqual([...ANALYST_ISSUE_SEVERITY_VALUES]);
+      expect(issues.items?.properties?.severity.description).toContain('Allowed values: info, warning, blocker.');
+    }
+  });
+
+  it('exports valid OpenAI-compatible ToolDefinition objects for LLM clients', () => {
+    for (const definition of ANALYST_TOOL_DEFINITIONS) {
+      expect(definition.type).toBe('function');
+      expect(definition.function.name).toMatch(/^[a-z_]+$/);
+      expect(typeof definition.function.description).toBe('string');
+      expect(definition.function.description.length).toBeGreaterThan(0);
+      expect(definition.function.parameters).toMatchObject({ type: 'object', additionalProperties: false });
+      const params = definition.function.parameters as { properties?: unknown; required?: unknown };
+      expect(params.properties).toBeDefined();
+      expect(Array.isArray(params.required)).toBe(true);
+    }
   });
 });
 
