@@ -50,13 +50,47 @@ export function fingerprintMcpInputSchema(schema: unknown): string {
   return createHash('sha256').update(stableJson(schema)).digest('hex');
 }
 
+const MAX_DIAGNOSTIC_STRING_LENGTH = 120;
+const MAX_DIAGNOSTIC_ARRAY_ITEMS = 8;
+
+function truncateDiagnosticString(value: string): string {
+  if (value.length <= MAX_DIAGNOSTIC_STRING_LENGTH) {
+    return value;
+  }
+  return `${value.slice(0, MAX_DIAGNOSTIC_STRING_LENGTH)}…`;
+}
+
+function boundedPrimitive(value: unknown): string | number | boolean | null | undefined {
+  if (typeof value === 'string') {
+    return truncateDiagnosticString(value);
+  }
+  if (typeof value === 'number' || typeof value === 'boolean' || value === null) {
+    return value;
+  }
+  return undefined;
+}
+
+function boundedPrimitiveArray(values: unknown[]): Array<string | number | boolean | null> {
+  const bounded: Array<string | number | boolean | null> = [];
+  for (const value of values) {
+    const safeValue = boundedPrimitive(value);
+    if (safeValue !== undefined) {
+      bounded.push(safeValue);
+    }
+    if (bounded.length >= MAX_DIAGNOSTIC_ARRAY_ITEMS) {
+      break;
+    }
+  }
+  return bounded;
+}
+
 function safeSchemaDiagnostic(
   type: McpArgumentValidationFailure['type'],
   detail: string,
 ): McpArgumentValidationFailure {
   return {
     type,
-    diagnostics: [{ detail }],
+    diagnostics: [{ detail: truncateDiagnosticString(detail) }],
   };
 }
 
@@ -76,37 +110,35 @@ function toJsonPointer(instancePath: string): string {
 
 function safeValidationDiagnostic(error: ErrorObject): Record<string, unknown> {
   const diagnostic: Record<string, unknown> = {
-    path: toJsonPointer(error.instancePath),
-    keyword: error.keyword,
+    path: truncateDiagnosticString(toJsonPointer(error.instancePath)),
+    keyword: truncateDiagnosticString(error.keyword),
   };
 
   if (typeof error.message === 'string') {
-    diagnostic.message = error.message;
+    diagnostic.message = truncateDiagnosticString(error.message);
   }
 
   const params = error.params as Record<string, unknown>;
   if (typeof params.missingProperty === 'string') {
-    diagnostic.missingProperty = params.missingProperty;
+    diagnostic.missingProperty = truncateDiagnosticString(params.missingProperty);
   }
   if (typeof params.type === 'string') {
-    diagnostic.expectedType = params.type;
+    diagnostic.expectedType = truncateDiagnosticString(params.type);
   }
   if (typeof params.additionalProperty === 'string') {
-    diagnostic.additionalProperty = params.additionalProperty;
+    diagnostic.additionalProperty = '<argument-property>';
   }
   if (Array.isArray(params.allowedValues)) {
-    diagnostic.allowedValues = params.allowedValues.filter(
-      (value) => ['string', 'number', 'boolean'].includes(typeof value) || value === null,
-    );
+    diagnostic.allowedValues = boundedPrimitiveArray(params.allowedValues);
   }
   if (typeof params.limit === 'number') {
     diagnostic.limit = params.limit;
   }
   if (typeof params.comparison === 'string') {
-    diagnostic.comparison = params.comparison;
+    diagnostic.comparison = truncateDiagnosticString(params.comparison);
   }
   if (typeof params.pattern === 'string') {
-    diagnostic.pattern = params.pattern;
+    diagnostic.pattern = truncateDiagnosticString(params.pattern);
   }
 
   return diagnostic;

@@ -1146,20 +1146,71 @@ describe('ARCH-018 local MCP inputSchema validation', () => {
     const mgr = new McpManager(r);
     setupBareRunningServer(mgr, 'local', [strictTool]);
     const syntheticSecret = 'sk-test-ARCH018-DO-NOT-ECHO-1234567890';
+    const syntheticSecretKey = `x-api-token-${syntheticSecret}`;
 
     try {
       await mgr.invokeTool('local', 'strict', {
         name: syntheticSecret,
         count: 'nope',
-        extra: syntheticSecret,
+        [syntheticSecretKey]: 'extra-value',
       });
       throw new Error('expected local validation failure');
     } catch (err) {
       expect(err).toBeInstanceOf(InvalidArgumentsError);
       const rendered = JSON.stringify({ message: (err as Error).message, data: (err as any).data });
       expect(rendered).not.toContain(syntheticSecret);
+      expect(rendered).not.toContain(syntheticSecretKey);
       expect(rendered).toContain('expectedType');
       expect(rendered).toContain('additionalProperty');
+      expect(rendered).toContain('<argument-property>');
+    }
+  });
+
+  it('bounds long enum and pattern diagnostics', async () => {
+    const r = makeProjectRoot();
+    writeSaivageJson(r, { mcpServers: { local: stdioCfg({ command: 'node' }) } });
+    const mgr = new McpManager(r);
+    const longPattern = `^${'a'.repeat(300)}$`;
+    const longEnumValue = `enum-${'b'.repeat(300)}`;
+    setupBareRunningServer(mgr, 'local', [
+      {
+        name: 'bounded',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            mode: {
+              type: 'string',
+              enum: Array.from({ length: 20 }, (_, i) => (i === 0 ? longEnumValue : `allowed-${i}`)),
+            },
+            code: { type: 'string', pattern: longPattern },
+          },
+          required: ['mode', 'code'],
+        },
+      },
+    ]);
+
+    try {
+      await mgr.invokeTool('local', 'bounded', { mode: 'denied', code: 'x' });
+      throw new Error('expected local validation failure');
+    } catch (err) {
+      expect(err).toBeInstanceOf(InvalidArgumentsError);
+      const diagnostics = (err as any).data?.diagnostics as Array<Record<string, unknown>>;
+      const rendered = JSON.stringify({ message: (err as Error).message, data: (err as any).data });
+      expect(rendered).not.toContain('a'.repeat(121));
+      expect(rendered).not.toContain('b'.repeat(121));
+
+      const enumDiagnostic = diagnostics.find((diagnostic) => diagnostic.keyword === 'enum');
+      expect(Array.isArray(enumDiagnostic?.allowedValues)).toBe(true);
+      expect((enumDiagnostic?.allowedValues as unknown[]).length).toBeLessThanOrEqual(8);
+      for (const value of enumDiagnostic?.allowedValues as unknown[]) {
+        if (typeof value === 'string') {
+          expect(value.length).toBeLessThanOrEqual(121);
+        }
+      }
+
+      const patternDiagnostic = diagnostics.find((diagnostic) => diagnostic.keyword === 'pattern');
+      expect(typeof patternDiagnostic?.pattern).toBe('string');
+      expect((patternDiagnostic?.pattern as string).length).toBeLessThanOrEqual(121);
     }
   });
 

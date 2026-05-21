@@ -3,6 +3,10 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
+  "engines": {
+    "node": ">=22.12.0 <23",
+    "npm": ">=10 <12"
+  },
   "bin": {
     "saivage": "./bin/saivage.js"
   },
