@@ -1,5 +1,13 @@
 import { describe, it, expect, beforeEach, afterEach } from '@jest/globals';
-import { existsSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  mkdtempSync,
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { initProjectTree } from '../../src/utils/file-tree.js';
@@ -70,7 +78,9 @@ describe('Clean-slate boot', () => {
     initProjectTree(tmpDir);
     store = new CardStore(tmpDir);
 
-    const discarded = readdirSync(tmpDir).filter((entry) => entry.startsWith('.saivage.discarded-'));
+    const discarded = readdirSync(tmpDir).filter((entry) =>
+      entry.startsWith('.saivage.discarded-'),
+    );
     expect(discarded).toHaveLength(1);
     expect(existsSync(join(tmpDir, discarded[0], 'legacy-plan.json'))).toBe(true);
     expect(store.list().map((card) => card.id)).toEqual(['project']);
@@ -111,7 +121,10 @@ describe('CardStore validation of persisted state', () => {
   });
 
   it('throws when card index JSON is invalid', () => {
-    writeFileSync(join(tmpDir, '.saivage', 'cards', 'index.json'), JSON.stringify({ cards: [] }, null, 2));
+    writeFileSync(
+      join(tmpDir, '.saivage', 'cards', 'index.json'),
+      JSON.stringify({ cards: [] }, null, 2),
+    );
     expect(() => store.list()).toThrow(/Card index .* is invalid/i);
   });
 
@@ -166,14 +179,18 @@ describe('CardStore CRUD still works with validated indexes', () => {
 
   it('updates card index after creation', () => {
     const card = store.create(makeCard({ type: 'goal', title: 'Index Me' }));
-    const index = JSON.parse(readFileSync(join(tmpDir, '.saivage', 'cards', 'index.json'), 'utf-8'));
+    const index = JSON.parse(
+      readFileSync(join(tmpDir, '.saivage', 'cards', 'index.json'), 'utf-8'),
+    );
     expect(index.cards[card.id]).toBeDefined();
     expect(index.cards[card.id].type).toBe('goal');
   });
 
   it('merges computed blocks from blocks index on read', () => {
     const a = store.create(makeCard({ type: 'goal', title: 'A', parent: 'project' }));
-    const b = store.create(makeCard({ type: 'goal', title: 'B', parent: 'project', depends_on: [a.id] }));
+    const b = store.create(
+      makeCard({ type: 'goal', title: 'B', parent: 'project', depends_on: [a.id] }),
+    );
     expect(store.read(a.id)?.blocks).toContain(b.id);
     expect(store.read(b.id)?.blocks).toEqual([]);
   });
@@ -223,10 +240,156 @@ describe('CardStore selective patch behavior', () => {
   });
 });
 
+describe('ARCH-027 compatibility snapshot degraded health', () => {
+  function makeSnapshotFailingStore(failure: {
+    enabled: boolean;
+    error?: Error & { path?: string };
+  }): CardStore {
+    return new CardStore(tmpDir, undefined, {
+      beforeCompatibilitySnapshotWrite: () => {
+        if (failure.enabled) {
+          throw (
+            failure.error ??
+            new Error(`snapshot write failed at ${tmpDir} token=super-secret-value`)
+          );
+        }
+      },
+    });
+  }
+
+  it('allows startup with degraded health when only compatibility snapshot repair fails', () => {
+    const child = store.create(makeCard({ type: 'goal', title: 'Available from graph' }));
+    writeFileSync(
+      join(tmpDir, '.saivage', 'cards', 'tree', 'project.children.json'),
+      JSON.stringify({ malformed: true }, null, 2),
+    );
+    const err = new Error(
+      `EACCES ${tmpDir}/.saivage/auth-profiles.json token=do-not-leak`,
+    ) as Error & { path?: string };
+    err.name = 'SyntheticSnapshotError';
+    err.path = join(tmpDir, '.saivage', 'cards', 'tree', 'project.children.json');
+    store = makeSnapshotFailingStore({ enabled: true, error: err });
+
+    expect(store.list().map((card) => card.id)).toContain(child.id);
+    expect(store.listChildren('project')).toEqual([child.id]);
+    const health = store.getHealth();
+    expect(health.canonical).toBe('ok');
+    expect(health.compatibilitySnapshots).toBe('degraded');
+    expect(health.lastCompatibilitySnapshotWarning).toEqual(
+      expect.objectContaining({
+        code: 'compatibility-snapshot-degraded',
+        operation: 'startup-repair',
+        canonicalCommitted: false,
+        relativePath: join('.saivage', 'cards', 'tree', 'project.children.json'),
+        errorName: 'SyntheticSnapshotError',
+      }),
+    );
+    expect(JSON.stringify(health.warnings)).not.toContain(tmpDir);
+    expect(JSON.stringify(health.warnings)).not.toContain('do-not-leak');
+  });
+
+  it('returns mutation results and records warnings when snapshot rebuild fails after canonical writes', () => {
+    const card = store.create(makeCard({ type: 'goal', title: 'Before' }));
+    const failure = { enabled: false };
+    store = makeSnapshotFailingStore(failure);
+    expect(store.listChildren('project')).toContain(card.id);
+    failure.enabled = true;
+
+    const updated = store.mutateCard(
+      card.id,
+      { title: 'After' },
+      { actor: 'analyst', surface: 'web-chat', reason: 'test' },
+    );
+
+    expect(updated.title).toBe('After');
+    expect(store.read(card.id)?.title).toBe('After');
+    expect(store.getHealth().lastCompatibilitySnapshotWarning).toEqual(
+      expect.objectContaining({ operation: 'mutation-rebuild', canonicalCommitted: true }),
+    );
+  });
+
+  it('completes delete cleanup after canonical removal when only snapshot cleanup fails', () => {
+    const leaf = store.create(makeCard({ type: 'goal', title: 'Delete me' }));
+    const failure = { enabled: false };
+    store = makeSnapshotFailingStore(failure);
+    expect(store.read(leaf.id)).not.toBeNull();
+    failure.enabled = true;
+
+    expect(() => store.delete(leaf.id)).not.toThrow();
+
+    expect(store.read(leaf.id)).toBeNull();
+    expect(store.getHealth().lastCompatibilitySnapshotWarning).toEqual(
+      expect.objectContaining({ operation: 'delete-cleanup', canonicalCommitted: true }),
+    );
+  });
+
+  it('completes archive cleanup after canonical archive/removal when only snapshot cleanup fails', () => {
+    const parent = store.create(makeCard({ type: 'goal', title: 'Archive parent' }));
+    const child = store.create(
+      makeCard({ type: 'code', title: 'Archive child', parent: parent.id }),
+    );
+    const failure = { enabled: false };
+    store = makeSnapshotFailingStore(failure);
+    failure.enabled = true;
+
+    expect(() => store.archiveAndDeleteSubtree([parent.id, child.id])).not.toThrow();
+
+    expect(store.read(parent.id)).toBeNull();
+    expect(store.read(child.id)).toBeNull();
+    expect(existsSync(join(tmpDir, '.saivage', 'archive', 'cards', `${parent.id}.json`))).toBe(
+      true,
+    );
+    expect(store.getHealth().lastCompatibilitySnapshotWarning).toEqual(
+      expect.objectContaining({ operation: 'archive-cleanup', canonicalCommitted: true }),
+    );
+  });
+
+  it('clears warning queue without clearing degraded health and keeps warning payloads safe', () => {
+    const err = new Error(`failed under ${tmpDir} api_key=abc123 secret=hunter2`) as Error & {
+      path?: string;
+    };
+    err.path = join(tmpDir, '.saivage', 'cards', 'tree', 'project.children.json');
+    const failure = { enabled: false, error: err };
+    store = makeSnapshotFailingStore(failure);
+    store.list();
+    failure.enabled = true;
+    store.create(makeCard({ type: 'goal', title: 'Warn once' }));
+
+    const warnings = store.getAndClearWarnings();
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toEqual(
+      expect.objectContaining({
+        relativePath: join('.saivage', 'cards', 'tree', 'project.children.json'),
+      }),
+    );
+    const serialized = JSON.stringify(warnings);
+    expect(serialized).not.toContain(tmpDir);
+    expect(serialized).not.toContain('abc123');
+    expect(serialized).not.toContain('hunter2');
+    expect(store.getAndClearWarnings()).toEqual([]);
+    expect(store.getHealth().compatibilitySnapshots).toBe('degraded');
+  });
+
+  it('still fails fast for canonical invalidity instead of degrading it', () => {
+    const child = store.create(makeCard({ type: 'goal', title: 'Broken canonical parent' }));
+    const path = join(tmpDir, '.saivage', 'cards', 'by-id', `${child.id}.json`);
+    const raw = JSON.parse(readFileSync(path, 'utf-8')) as CardRecord;
+    writeFileSync(path, JSON.stringify({ ...raw, parent: 'missing-parent' }, null, 2));
+    store = makeSnapshotFailingStore({ enabled: true });
+
+    expect(() => store.list()).toThrow(
+      /missing parent 'missing-parent'|does not match by-id record/i,
+    );
+    expect(store.getHealth().canonical).toBe('invalid');
+    expect(store.getHealth().compatibilitySnapshots).toBe('ok');
+  });
+});
 
 describe('ARCH-026 hierarchy graph authority', () => {
   function readChildren(parentId: string): string[] {
-    return JSON.parse(readFileSync(join(tmpDir, '.saivage', 'cards', 'tree', `${parentId}.children.json`), 'utf-8')) as string[];
+    return JSON.parse(
+      readFileSync(join(tmpDir, '.saivage', 'cards', 'tree', `${parentId}.children.json`), 'utf-8'),
+    ) as string[];
   }
 
   it('cleans up create-then-reparent snapshots and graph reads', () => {
@@ -234,7 +397,11 @@ describe('ARCH-026 hierarchy graph authority', () => {
     const b = store.create(makeCard({ type: 'goal', title: 'B', parent: 'project' }));
     const child = store.create(makeCard({ type: 'code', title: 'Child', parent: a.id }));
 
-    store.mutateCard(child.id, { parent: b.id }, { actor: 'analyst', surface: 'web-chat', reason: 'test reparent' });
+    store.mutateCard(
+      child.id,
+      { parent: b.id },
+      { actor: 'analyst', surface: 'web-chat', reason: 'test reparent' },
+    );
 
     expect(store.read(child.id)?.parent).toBe(b.id);
     expect(store.listChildren(a.id)).not.toContain(child.id);
@@ -245,12 +412,25 @@ describe('ARCH-026 hierarchy graph authority', () => {
   });
 
   it('ignores and repairs duplicate/stale boot-time children snapshot memberships from by-id authority', () => {
-    const realParent = store.create(makeCard({ type: 'goal', title: 'Real Parent', parent: 'project' }));
-    const staleParent = store.create(makeCard({ type: 'goal', title: 'Stale Parent', parent: 'project' }));
+    const realParent = store.create(
+      makeCard({ type: 'goal', title: 'Real Parent', parent: 'project' }),
+    );
+    const staleParent = store.create(
+      makeCard({ type: 'goal', title: 'Stale Parent', parent: 'project' }),
+    );
     const child = store.create(makeCard({ type: 'code', title: 'Child', parent: realParent.id }));
-    const before = readFileSync(join(tmpDir, '.saivage', 'cards', 'by-id', `${child.id}.json`), 'utf-8');
-    writeFileSync(join(tmpDir, '.saivage', 'cards', 'tree', `${staleParent.id}.children.json`), JSON.stringify([child.id], null, 2));
-    writeFileSync(join(tmpDir, '.saivage', 'cards', 'tree', `${realParent.id}.children.json`), JSON.stringify([child.id, child.id], null, 2));
+    const before = readFileSync(
+      join(tmpDir, '.saivage', 'cards', 'by-id', `${child.id}.json`),
+      'utf-8',
+    );
+    writeFileSync(
+      join(tmpDir, '.saivage', 'cards', 'tree', `${staleParent.id}.children.json`),
+      JSON.stringify([child.id], null, 2),
+    );
+    writeFileSync(
+      join(tmpDir, '.saivage', 'cards', 'tree', `${realParent.id}.children.json`),
+      JSON.stringify([child.id, child.id], null, 2),
+    );
 
     store = new CardStore(tmpDir);
 
@@ -259,11 +439,20 @@ describe('ARCH-026 hierarchy graph authority', () => {
     expect(store.getDescendantIds(staleParent.id)).toEqual([]);
     expect(readChildren(realParent.id)).toEqual([child.id]);
     expect(readChildren(staleParent.id)).toEqual([]);
-    expect(readFileSync(join(tmpDir, '.saivage', 'cards', 'by-id', `${child.id}.json`), 'utf-8')).toBe(before);
+    expect(
+      readFileSync(join(tmpDir, '.saivage', 'cards', 'by-id', `${child.id}.json`), 'utf-8'),
+    ).toBe(before);
     const backupRoots = readdirSync(join(tmpDir, '.saivage', 'cards', 'tree-repair-backups'));
     expect(backupRoots.length).toBeGreaterThan(0);
-    const manifest = JSON.parse(readFileSync(join(tmpDir, '.saivage', 'cards', 'tree-repair-backups', backupRoots[0], 'manifest.json'), 'utf-8')) as { issues: Array<{ code: string }> };
-    expect(manifest.issues.map((issue) => issue.code)).toEqual(expect.arrayContaining(['duplicate-tree-membership', 'stale-tree-membership']));
+    const manifest = JSON.parse(
+      readFileSync(
+        join(tmpDir, '.saivage', 'cards', 'tree-repair-backups', backupRoots[0], 'manifest.json'),
+        'utf-8',
+      ),
+    ) as { issues: Array<{ code: string }> };
+    expect(manifest.issues.map((issue) => issue.code)).toEqual(
+      expect.arrayContaining(['duplicate-tree-membership', 'stale-tree-membership']),
+    );
   });
 
   it('fails fast for impossible canonical by-id/index graph states', () => {
@@ -273,14 +462,22 @@ describe('ARCH-026 hierarchy graph authority', () => {
     writeFileSync(path, JSON.stringify({ ...raw, parent: 'missing-parent' }, null, 2));
 
     store = new CardStore(tmpDir);
-    expect(() => store.list()).toThrow(/index\.json entry .* does not match by-id record|missing parent 'missing-parent'/i);
+    expect(() => store.list()).toThrow(
+      /index\.json entry .* does not match by-id record|missing parent 'missing-parent'/i,
+    );
   });
 
   it('keeps listChildren and descendants independent from stale snapshots', () => {
     const parent = store.create(makeCard({ type: 'goal', title: 'Parent', parent: 'project' }));
     const child = store.create(makeCard({ type: 'code', title: 'Child', parent: parent.id }));
-    writeFileSync(join(tmpDir, '.saivage', 'cards', 'tree', 'project.children.json'), JSON.stringify([parent.id, child.id, 'ghost'], null, 2));
-    writeFileSync(join(tmpDir, '.saivage', 'cards', 'tree', `${parent.id}.children.json`), JSON.stringify([], null, 2));
+    writeFileSync(
+      join(tmpDir, '.saivage', 'cards', 'tree', 'project.children.json'),
+      JSON.stringify([parent.id, child.id, 'ghost'], null, 2),
+    );
+    writeFileSync(
+      join(tmpDir, '.saivage', 'cards', 'tree', `${parent.id}.children.json`),
+      JSON.stringify([], null, 2),
+    );
 
     store = new CardStore(tmpDir);
 
@@ -293,9 +490,17 @@ describe('ARCH-026 hierarchy graph authority', () => {
     const parent = store.create(makeCard({ type: 'goal', title: 'Parent', parent: 'project' }));
     const leaf = store.create(makeCard({ type: 'code', title: 'Leaf', parent: 'project' }));
     const subtree = store.create(makeCard({ type: 'goal', title: 'Subtree', parent: 'project' }));
-    const subtreeChild = store.create(makeCard({ type: 'code', title: 'Subtree Child', parent: subtree.id }));
-    writeFileSync(join(tmpDir, '.saivage', 'cards', 'tree', `${leaf.id}.children.json`), JSON.stringify([parent.id], null, 2));
-    writeFileSync(join(tmpDir, '.saivage', 'cards', 'tree', `${subtree.id}.children.json`), JSON.stringify([], null, 2));
+    const subtreeChild = store.create(
+      makeCard({ type: 'code', title: 'Subtree Child', parent: subtree.id }),
+    );
+    writeFileSync(
+      join(tmpDir, '.saivage', 'cards', 'tree', `${leaf.id}.children.json`),
+      JSON.stringify([parent.id], null, 2),
+    );
+    writeFileSync(
+      join(tmpDir, '.saivage', 'cards', 'tree', `${subtree.id}.children.json`),
+      JSON.stringify([], null, 2),
+    );
 
     store = new CardStore(tmpDir);
     expect(() => store.delete(leaf.id)).not.toThrow();
@@ -304,7 +509,9 @@ describe('ARCH-026 hierarchy graph authority', () => {
     store.archiveAndDeleteSubtree([subtree.id, subtreeChild.id]);
     expect(store.read(subtree.id)).toBeNull();
     expect(store.read(subtreeChild.id)).toBeNull();
-    const archive = JSON.parse(readFileSync(join(tmpDir, '.saivage', 'archive', 'cards', `${subtree.id}.json`), 'utf-8')) as { children: string[] };
+    const archive = JSON.parse(
+      readFileSync(join(tmpDir, '.saivage', 'archive', 'cards', `${subtree.id}.json`), 'utf-8'),
+    ) as { children: string[] };
     expect(archive.children).toEqual([subtreeChild.id]);
   });
 

@@ -10,7 +10,7 @@ import {
   unlinkSync,
   writeFileSync,
 } from 'node:fs';
-import { join } from 'node:path';
+import { basename, isAbsolute, join } from 'node:path';
 import {
   cardBlocksIndexSchema,
   cardChildrenIndexSchema,
@@ -47,8 +47,35 @@ export interface CardDiffEntry {
   after: unknown;
 }
 
+export type CardStoreCanonicalHealth = 'ok' | 'invalid';
+export type CompatibilitySnapshotHealth = 'ok' | 'degraded';
+export type CompatibilitySnapshotOperation =
+  | 'startup-repair'
+  | 'mutation-rebuild'
+  | 'delete-cleanup'
+  | 'archive-cleanup'
+  | 'manual-repair';
+
+export interface CardStoreCompatibilitySnapshotWarning {
+  code: 'compatibility-snapshot-degraded';
+  operation: CompatibilitySnapshotOperation;
+  relativePath?: string;
+  message: string;
+  errorName?: string;
+  occurredAt: string;
+  canonicalCommitted: boolean;
+}
+
+export interface CardStoreHealth {
+  canonical: CardStoreCanonicalHealth;
+  compatibilitySnapshots: CompatibilitySnapshotHealth;
+  lastCompatibilitySnapshotWarning: CardStoreCompatibilitySnapshotWarning | null;
+  warnings: CardStoreCompatibilitySnapshotWarning[];
+}
+
 interface CardStoreTestHooks {
   beforeTrackedCardRename?: (card: CardRecord, historyEntry: CardHistoryEntry) => void;
+  beforeCompatibilitySnapshotWrite?: () => void;
 }
 
 interface HierarchyDriftIssue {
@@ -78,15 +105,31 @@ class HierarchyGraph {
     const indexedIds = new Set(Object.keys(index.cards));
     for (const id of indexedIds) {
       const card = cards.find((candidate) => candidate.id === id);
-      if (!card) throw new Error(`Canonical hierarchy invariant failed: missing indexed card '${id}'.`);
+      if (!card)
+        throw new Error(`Canonical hierarchy invariant failed: missing indexed card '${id}'.`);
     }
     for (const card of cards) {
-      if (!indexedIds.has(card.id)) throw new Error(`Canonical hierarchy invariant failed: by-id card '${card.id}' is missing from cards/index.json.`);
+      if (!indexedIds.has(card.id))
+        throw new Error(
+          `Canonical hierarchy invariant failed: by-id card '${card.id}' is missing from cards/index.json.`,
+        );
       const entry = index.cards[card.id];
-      if (!entry || entry.id !== card.id || entry.type !== card.type || entry.parent !== card.parent || entry.status !== card.status || entry.title !== card.title) {
-        throw new Error(`Canonical hierarchy invariant failed: cards/index.json entry for '${card.id}' does not match by-id record.`);
+      if (
+        !entry ||
+        entry.id !== card.id ||
+        entry.type !== card.type ||
+        entry.parent !== card.parent ||
+        entry.status !== card.status ||
+        entry.title !== card.title
+      ) {
+        throw new Error(
+          `Canonical hierarchy invariant failed: cards/index.json entry for '${card.id}' does not match by-id record.`,
+        );
       }
-      if (card.parent === card.id) throw new Error(`Canonical hierarchy invariant failed: card '${card.id}' cannot parent itself.`);
+      if (card.parent === card.id)
+        throw new Error(
+          `Canonical hierarchy invariant failed: card '${card.id}' cannot parent itself.`,
+        );
       graph.parents.set(card.id, card.parent);
       graph.cardsById.set(card.id, card);
       if (!graph.childrenByParent.has(card.id)) graph.childrenByParent.set(card.id, []);
@@ -94,9 +137,18 @@ class HierarchyGraph {
     for (const card of cards) {
       if (card.parent !== null) {
         const parent = graph.cardsById.get(card.parent);
-        if (!parent) throw new Error(`Canonical hierarchy invariant failed: card '${card.id}' references missing parent '${card.parent}'.`);
-        if (isTerminal(parent.type)) throw new Error(`Canonical hierarchy invariant failed: terminal card '${parent.id}' cannot be parent of '${card.id}'.`);
-        graph.childrenByParent.set(card.parent, [...(graph.childrenByParent.get(card.parent) ?? []), card.id]);
+        if (!parent)
+          throw new Error(
+            `Canonical hierarchy invariant failed: card '${card.id}' references missing parent '${card.parent}'.`,
+          );
+        if (isTerminal(parent.type))
+          throw new Error(
+            `Canonical hierarchy invariant failed: terminal card '${parent.id}' cannot be parent of '${card.id}'.`,
+          );
+        graph.childrenByParent.set(card.parent, [
+          ...(graph.childrenByParent.get(card.parent) ?? []),
+          card.id,
+        ]);
       }
     }
     const visiting = new Set<string>();
@@ -104,21 +156,34 @@ class HierarchyGraph {
     const computeDepth = (id: string): number => {
       const existing = graph.depths.get(id);
       if (existing !== undefined) return existing;
-      if (visiting.has(id)) throw new Error(`Canonical hierarchy invariant failed: cycle detected at card '${id}'.`);
+      if (visiting.has(id))
+        throw new Error(`Canonical hierarchy invariant failed: cycle detected at card '${id}'.`);
       const card = graph.cardsById.get(id);
-      if (!card) throw new Error(`Canonical hierarchy invariant failed: card '${id}' is missing from graph.`);
+      if (!card)
+        throw new Error(
+          `Canonical hierarchy invariant failed: card '${id}' is missing from graph.`,
+        );
       visiting.add(id);
       const depth = card.parent === null ? 0 : computeDepth(card.parent) + 1;
       visiting.delete(id);
       visited.add(id);
-      if (depth > maxDepth) throw new Error(`Canonical hierarchy invariant failed: card '${id}' depth ${depth} exceeds maximum ${maxDepth}.`);
-      if (card.depth !== depth) throw new Error(`Canonical hierarchy invariant failed: card '${id}' stores depth ${card.depth}, expected ${depth}.`);
+      if (depth > maxDepth)
+        throw new Error(
+          `Canonical hierarchy invariant failed: card '${id}' depth ${depth} exceeds maximum ${maxDepth}.`,
+        );
+      if (card.depth !== depth)
+        throw new Error(
+          `Canonical hierarchy invariant failed: card '${id}' stores depth ${card.depth}, expected ${depth}.`,
+        );
       graph.depths.set(id, depth);
       return depth;
     };
     for (const id of indexedIds) computeDepth(id);
     for (const id of indexedIds) {
-      if (!visited.has(id)) throw new Error(`Canonical hierarchy invariant failed: card '${id}' was not reachable during graph validation.`);
+      if (!visited.has(id))
+        throw new Error(
+          `Canonical hierarchy invariant failed: card '${id}' was not reachable during graph validation.`,
+        );
     }
     return graph;
   }
@@ -141,8 +206,12 @@ class HierarchyGraph {
     return result;
   }
 
-  depthOf(id: string): number | undefined { return this.depths.get(id); }
-  hasCard(id: string): boolean { return this.cardsById.has(id); }
+  depthOf(id: string): number | undefined {
+    return this.depths.get(id);
+  }
+  hasCard(id: string): boolean {
+    return this.cardsById.has(id);
+  }
 
   compatibilityChildren(): Map<string, string[]> {
     const out = new Map<string, string[]>();
@@ -187,10 +256,7 @@ const ALWAYS_ALLOWED_FIELDS: ReadonlySet<string> = new Set([
   'started_at',
 ]);
 
-const FULL_EDIT_STATES: ReadonlySet<CardStatus> = new Set<CardStatus>([
-  'drafting',
-  'backlog',
-]);
+const FULL_EDIT_STATES: ReadonlySet<CardStatus> = new Set<CardStatus>(['drafting', 'backlog']);
 
 const VALID_TRANSITIONS: Record<CardStatus, CardStatus[]> = {
   drafting: ['backlog', 'cancelled'],
@@ -308,6 +374,9 @@ export class CardStore {
   private projectRoot: string;
   private validatedPersistedState = false;
   private hierarchyGraph: HierarchyGraph | null = null;
+  private canonicalHealth: CardStoreCanonicalHealth = 'ok';
+  private compatibilitySnapshotHealth: CompatibilitySnapshotHealth = 'ok';
+  private compatibilitySnapshotWarnings: CardStoreCompatibilitySnapshotWarning[] = [];
   private readonly testHooks?: CardStoreTestHooks;
 
   readonly maxDepth: number;
@@ -325,11 +394,15 @@ export class CardStore {
   }
 
   private validatePersistedState(): void {
-    const index = this.parseCardIndex(readJson(indexPath(this.projectRoot)), indexPath(this.projectRoot));
+    const index = this.parseCardIndex(
+      readJson(indexPath(this.projectRoot)),
+      indexPath(this.projectRoot),
+    );
     const cards: CardRecord[] = [];
     for (const id of Object.keys(index.cards)) {
       const cp = cardPath(this.projectRoot, id);
-      if (!existsSync(cp)) throw new Error(`Canonical hierarchy invariant failed: missing indexed card '${id}'.`);
+      if (!existsSync(cp))
+        throw new Error(`Canonical hierarchy invariant failed: missing indexed card '${id}'.`);
       const raw = readJson(cp);
       if (raw && typeof raw === 'object' && !('version_seq' in (raw as Record<string, unknown>))) {
         throw new Error(
@@ -340,8 +413,19 @@ export class CardStore {
       this.reconcileCardHistory(card);
       cards.push(card);
     }
-    this.hierarchyGraph = HierarchyGraph.build(cards, index, this.maxDepth);
-    this.repairCompatibilitySnapshotsFromGraph();
+    try {
+      this.hierarchyGraph = HierarchyGraph.build(cards, index, this.maxDepth);
+      this.canonicalHealth = 'ok';
+    } catch (err) {
+      this.canonicalHealth = 'invalid';
+      throw err;
+    }
+    try {
+      this.repairCompatibilitySnapshotsFromGraph();
+      this.markCompatibilitySnapshotsOk();
+    } catch (err) {
+      this.recordCompatibilitySnapshotFailure('startup-repair', false, err);
+    }
   }
 
   private parseCardIndex(raw: unknown, path: string): CardIndex {
@@ -402,7 +486,8 @@ export class CardStore {
 
   private getHierarchyGraph(): HierarchyGraph {
     this.ensurePersistedStateValidated();
-    if (!this.hierarchyGraph) throw new Error('Card hierarchy graph is unavailable after persisted-state validation.');
+    if (!this.hierarchyGraph)
+      throw new Error('Card hierarchy graph is unavailable after persisted-state validation.');
     return this.hierarchyGraph;
   }
 
@@ -410,23 +495,115 @@ export class CardStore {
     const cards: CardRecord[] = [];
     for (const id of Object.keys(index.cards)) {
       const cp = cardPath(this.projectRoot, id);
-      if (!existsSync(cp)) throw new Error(`Canonical hierarchy invariant failed: missing indexed card '${id}'.`);
+      if (!existsSync(cp))
+        throw new Error(`Canonical hierarchy invariant failed: missing indexed card '${id}'.`);
       cards.push(this.parseCardRecord(readJson(cp), cp));
     }
     return cards;
   }
 
-  private rebuildGraphAndSnapshots(): void {
-    const index = this.parseCardIndex(readJson(indexPath(this.projectRoot)), indexPath(this.projectRoot));
+  private rebuildGraphStrict(): HierarchyGraph {
+    const index = this.parseCardIndex(
+      readJson(indexPath(this.projectRoot)),
+      indexPath(this.projectRoot),
+    );
     const cards = this.loadCanonicalCardsFromDisk(index);
-    this.hierarchyGraph = HierarchyGraph.build(cards, index, this.maxDepth);
-    this.writeCompatibilitySnapshotsFromGraph(this.hierarchyGraph);
-    this.validatedPersistedState = true;
+    try {
+      const graph = HierarchyGraph.build(cards, index, this.maxDepth);
+      this.hierarchyGraph = graph;
+      this.canonicalHealth = 'ok';
+      this.validatedPersistedState = true;
+      return graph;
+    } catch (err) {
+      this.canonicalHealth = 'invalid';
+      throw err;
+    }
+  }
+
+  private rebuildGraphAndSnapshots(
+    operation: CompatibilitySnapshotOperation = 'mutation-rebuild',
+    canonicalCommitted = true,
+  ): void {
+    const graph = this.rebuildGraphStrict();
+    try {
+      this.writeCompatibilitySnapshotsFromGraph(graph);
+      this.markCompatibilitySnapshotsOk();
+    } catch (err) {
+      this.recordCompatibilitySnapshotFailure(operation, canonicalCommitted, err);
+    }
   }
 
   private relativeSaivagePath(path: string): string {
     const marker = `${join(this.projectRoot, '.saivage')}/`;
-    return path.startsWith(marker) ? join('.saivage', path.slice(marker.length)) : path;
+    if (path.startsWith(marker)) return join('.saivage', path.slice(marker.length));
+    if (isAbsolute(path)) return join('.saivage', 'redacted-absolute-path', basename(path));
+    return path.replace(/\\/g, '/');
+  }
+
+  private sanitizeWarningText(value: unknown, fallback: string): string {
+    const raw = typeof value === 'string' ? value : fallback;
+    const withoutProjectRoot = raw.split(this.projectRoot).join('[project-root]');
+    return withoutProjectRoot
+      .replace(
+        /([A-Za-z0-9_]*token[A-Za-z0-9_]*|[A-Za-z0-9_]*secret[A-Za-z0-9_]*|authorization|api[_-]?key)=[^\s,;]+/gi,
+        '$1=[redacted]',
+      )
+      .replace(/\/[^\s'"]*\.saivage\/auth-profiles\.json/g, '.saivage/auth-profiles.json')
+      .slice(0, 300);
+  }
+
+  private sanitizeErrorName(error: unknown): string | undefined {
+    if (!(error instanceof Error) || !error.name) return undefined;
+    return (
+      this.sanitizeWarningText(error.name, 'Error')
+        .replace(/[^A-Za-z0-9_.-]/g, '')
+        .slice(0, 80) || 'Error'
+    );
+  }
+
+  private recordCompatibilitySnapshotFailure(
+    operation: CompatibilitySnapshotOperation,
+    canonicalCommitted: boolean,
+    error: unknown,
+    pathHint?: string,
+  ): void {
+    const errorWithPath = error as { path?: unknown };
+    const warning: CardStoreCompatibilitySnapshotWarning = {
+      code: 'compatibility-snapshot-degraded',
+      operation,
+      message: this.sanitizeWarningText(
+        error instanceof Error ? error.message : String(error),
+        'Compatibility snapshot maintenance failed.',
+      ),
+      occurredAt: now(),
+      canonicalCommitted,
+    };
+    const rawPath =
+      pathHint ?? (typeof errorWithPath.path === 'string' ? errorWithPath.path : undefined);
+    if (rawPath) warning.relativePath = this.relativeSaivagePath(rawPath);
+    const errorName = this.sanitizeErrorName(error);
+    if (errorName) warning.errorName = errorName;
+    this.compatibilitySnapshotHealth = 'degraded';
+    this.compatibilitySnapshotWarnings.push(warning);
+  }
+
+  private markCompatibilitySnapshotsOk(): void {
+    this.compatibilitySnapshotHealth = 'ok';
+  }
+
+  getHealth(): CardStoreHealth {
+    return {
+      canonical: this.canonicalHealth,
+      compatibilitySnapshots: this.compatibilitySnapshotHealth,
+      lastCompatibilitySnapshotWarning: this.compatibilitySnapshotWarnings.at(-1) ?? null,
+      warnings: [...this.compatibilitySnapshotWarnings],
+    };
+  }
+
+  getAndClearWarnings(): CardStoreCompatibilitySnapshotWarning[] {
+    const warnings = [...this.compatibilitySnapshotWarnings];
+    this.compatibilitySnapshotWarnings = [];
+    return warnings;
   }
 
   private scanCompatibilitySnapshotDrift(graph: HierarchyGraph): HierarchyDriftIssue[] {
@@ -444,32 +621,71 @@ export class CardStore {
       try {
         children = this.parseChildrenIndex(readJson(path), path);
       } catch {
-        issues.push({ code: 'malformed-tree-file', parentId, file: this.relativeSaivagePath(path), action: 'backed-up and regenerated from canonical by-id/index graph' });
+        issues.push({
+          code: 'malformed-tree-file',
+          parentId,
+          file: this.relativeSaivagePath(path),
+          action: 'backed-up and regenerated from canonical by-id/index graph',
+        });
         continue;
       }
       if (!graph.hasCard(parentId)) {
-        issues.push({ code: 'orphan-tree-file', parentId, file: this.relativeSaivagePath(path), count: children.length, action: 'backed-up and removed because parent is not canonical' });
+        issues.push({
+          code: 'orphan-tree-file',
+          parentId,
+          file: this.relativeSaivagePath(path),
+          count: children.length,
+          action: 'backed-up and removed because parent is not canonical',
+        });
       }
       for (const childId of children) {
         observedParents.set(childId, [...(observedParents.get(childId) ?? []), parentId]);
-        const expectedParent = [...canonical.entries()].find(([, ids]) => ids.includes(childId))?.[0] ?? null;
+        const expectedParent =
+          [...canonical.entries()].find(([, ids]) => ids.includes(childId))?.[0] ?? null;
         if (expectedParent !== parentId) {
-          issues.push({ code: 'stale-tree-membership', cardId: childId, parentId, expectedParentId: expectedParent, observedParentId: parentId, file: this.relativeSaivagePath(path), action: 'ignored and regenerated from canonical by-id/index graph' });
+          issues.push({
+            code: 'stale-tree-membership',
+            cardId: childId,
+            parentId,
+            expectedParentId: expectedParent,
+            observedParentId: parentId,
+            file: this.relativeSaivagePath(path),
+            action: 'ignored and regenerated from canonical by-id/index graph',
+          });
         }
       }
     }
     for (const [childId, parents] of observedParents.entries()) {
-      if (parents.length > 1) issues.push({ code: 'duplicate-tree-membership', cardId: childId, observedParentId: parents.join(','), count: parents.length, action: 'ignored duplicate snapshot membership and regenerated from canonical graph' });
+      if (parents.length > 1)
+        issues.push({
+          code: 'duplicate-tree-membership',
+          cardId: childId,
+          observedParentId: parents.join(','),
+          count: parents.length,
+          action: 'ignored duplicate snapshot membership and regenerated from canonical graph',
+        });
     }
     for (const [parentId, children] of canonical.entries()) {
       for (const childId of children) {
         const parents = observedParents.get(childId) ?? [];
         if (!parents.includes(parentId)) {
-          issues.push({ code: 'missing-tree-membership', cardId: childId, parentId, expectedParentId: parentId, file: this.relativeSaivagePath(childrenPath(this.projectRoot, parentId)), action: 'regenerated from canonical by-id/index graph' });
+          issues.push({
+            code: 'missing-tree-membership',
+            cardId: childId,
+            parentId,
+            expectedParentId: parentId,
+            file: this.relativeSaivagePath(childrenPath(this.projectRoot, parentId)),
+            action: 'regenerated from canonical by-id/index graph',
+          });
         }
       }
       if (!seenFiles.has(parentId) && children.length === 0 && parentId === 'project') {
-        issues.push({ code: 'missing-tree-membership', parentId, file: this.relativeSaivagePath(childrenPath(this.projectRoot, parentId)), action: 'regenerated empty project compatibility snapshot' });
+        issues.push({
+          code: 'missing-tree-membership',
+          parentId,
+          file: this.relativeSaivagePath(childrenPath(this.projectRoot, parentId)),
+          action: 'regenerated empty project compatibility snapshot',
+        });
       }
     }
     return issues;
@@ -478,7 +694,13 @@ export class CardStore {
   private backupCompatibilitySnapshots(issues: HierarchyDriftIssue[]): void {
     if (issues.length === 0) return;
     const treeDir = join(this.projectRoot, '.saivage', 'cards', 'tree');
-    const backupDir = join(this.projectRoot, '.saivage', 'cards', 'tree-repair-backups', now().replace(/[:.]/g, '-'));
+    const backupDir = join(
+      this.projectRoot,
+      '.saivage',
+      'cards',
+      'tree-repair-backups',
+      now().replace(/[:.]/g, '-'),
+    );
     mkdirSync(backupDir, { recursive: true });
     for (const file of readdirSync(treeDir).filter((name) => name.endsWith('.children.json'))) {
       copyFileSync(join(treeDir, file), join(backupDir, file));
@@ -488,10 +710,13 @@ export class CardStore {
       issue_count: issues.length,
       issues,
     });
-    console.warn(`Repaired ${issues.length} CardStore compatibility children snapshot drift issue(s); manifest: ${this.relativeSaivagePath(join(backupDir, 'manifest.json'))}`);
+    console.warn(
+      `Repaired ${issues.length} CardStore compatibility children snapshot drift issue(s); manifest: ${this.relativeSaivagePath(join(backupDir, 'manifest.json'))}`,
+    );
   }
 
   private writeCompatibilitySnapshotsFromGraph(graph: HierarchyGraph): void {
+    this.testHooks?.beforeCompatibilitySnapshotWrite?.();
     const treeDir = join(this.projectRoot, '.saivage', 'cards', 'tree');
     mkdirSync(treeDir, { recursive: true });
     const canonical = graph.compatibilityChildren();
@@ -503,7 +728,8 @@ export class CardStore {
   }
 
   private repairCompatibilitySnapshotsFromGraph(): void {
-    if (!this.hierarchyGraph) throw new Error('Cannot repair compatibility snapshots before hierarchy graph exists.');
+    if (!this.hierarchyGraph)
+      throw new Error('Cannot repair compatibility snapshots before hierarchy graph exists.');
     const issues = this.scanCompatibilitySnapshotDrift(this.hierarchyGraph);
     this.backupCompatibilitySnapshots(issues);
     this.writeCompatibilitySnapshotsFromGraph(this.hierarchyGraph);
@@ -533,7 +759,13 @@ export class CardStore {
 
   private addToIndex(card: CardRecord): void {
     const index = this.loadIndex();
-    index.cards[card.id] = { id: card.id, type: card.type, parent: card.parent, status: card.status, title: card.title };
+    index.cards[card.id] = {
+      id: card.id,
+      type: card.type,
+      parent: card.parent,
+      status: card.status,
+      title: card.title,
+    };
     this.saveIndex(index);
   }
 
@@ -584,19 +816,26 @@ export class CardStore {
     return raw
       .split('\n')
       .filter(Boolean)
-      .map((line, index) => this.parseCardHistoryEntry(JSON.parse(line) as unknown, `${hp}:${index + 1}`));
+      .map((line, index) =>
+        this.parseCardHistoryEntry(JSON.parse(line) as unknown, `${hp}:${index + 1}`),
+      );
   }
 
   private writeHistoryEntries(id: string, entries: CardHistoryEntry[]): void {
     mkdirSync(historyDir(this.projectRoot), { recursive: true });
     const hp = historyPath(this.projectRoot, id);
-    const content = entries.length === 0 ? '' : `${entries.map((entry) => JSON.stringify(entry)).join('\n')}\n`;
+    const content =
+      entries.length === 0 ? '' : `${entries.map((entry) => JSON.stringify(entry)).join('\n')}\n`;
     writeFileSync(hp, content, 'utf-8');
   }
 
   private appendHistoryEntry(entry: CardHistoryEntry): void {
     mkdirSync(historyDir(this.projectRoot), { recursive: true });
-    appendFileSync(historyPath(this.projectRoot, entry.card_id), `${JSON.stringify(entry)}\n`, 'utf-8');
+    appendFileSync(
+      historyPath(this.projectRoot, entry.card_id),
+      `${JSON.stringify(entry)}\n`,
+      'utf-8',
+    );
   }
 
   private reconcileCardHistory(card: CardRecord): void {
@@ -607,7 +846,9 @@ export class CardStore {
       dropped += 1;
     }
     if (dropped > 0) {
-      console.warn(`Dropped ${dropped} orphan history entr${dropped === 1 ? 'y' : 'ies'} for card '${card.id}' during startup reconciliation.`);
+      console.warn(
+        `Dropped ${dropped} orphan history entr${dropped === 1 ? 'y' : 'ies'} for card '${card.id}' during startup reconciliation.`,
+      );
       this.writeHistoryEntries(card.id, entries);
     }
   }
@@ -619,20 +860,26 @@ export class CardStore {
     if (TERMINAL_STATES.has(existing.status)) {
       for (const key of Object.keys(changes)) {
         if (key !== 'status' && !ALWAYS_ALLOWED_FIELDS.has(key)) {
-          throw new Error(`Card '${existing.id}' is in status '${existing.status}'. Cards in this state cannot be edited. Use setStatus() to reopen the card first.`);
+          throw new Error(
+            `Card '${existing.id}' is in status '${existing.status}'. Cards in this state cannot be edited. Use setStatus() to reopen the card first.`,
+          );
         }
       }
     } else if (!FULL_EDIT_STATES.has(existing.status)) {
       for (const key of Object.keys(changes)) {
         if (CRITICAL_FIELDS.has(key)) {
-          throw new Error(`Field '${key}' cannot be changed on a card in status '${existing.status}'. Cards in this state allow editing: status, title, description, priority, urgency, tags, and other non-structural fields.`);
+          throw new Error(
+            `Field '${key}' cannot be changed on a card in status '${existing.status}'. Cards in this state allow editing: status, title, description, priority, urgency, tags, and other non-structural fields.`,
+          );
         }
       }
     }
     if (changes.type !== undefined && changes.type !== existing.type && isTerminal(changes.type)) {
       const children = this.getHierarchyGraph().childrenOf(existing.id);
       if (children.length > 0) {
-        throw new Error(`Cannot change type of card '${existing.id}' to '${changes.type}' because it has ${children.length} child(ren). Terminal cards cannot have children.`);
+        throw new Error(
+          `Cannot change type of card '${existing.id}' to '${changes.type}' because it has ${children.length} child(ren). Terminal cards cannot have children.`,
+        );
       }
     }
     let newDepth = existing.depth;
@@ -641,23 +888,35 @@ export class CardStore {
         const newParent = this.read(changes.parent);
         if (!newParent) throw new Error(`Parent card '${changes.parent}' does not exist.`);
         if (isTerminal(newParent.type)) {
-          throw new Error(`Cannot set parent to '${changes.parent}' because it is a terminal card (type: ${newParent.type}). Terminal cards cannot have children.`);
+          throw new Error(
+            `Cannot set parent to '${changes.parent}' because it is a terminal card (type: ${newParent.type}). Terminal cards cannot have children.`,
+          );
         }
-        if (this.getHierarchyGraph().descendantsOf(existing.id).includes(changes.parent)) throw new Error(`Cannot set parent of card '${existing.id}' to descendant '${changes.parent}'.`);
+        if (this.getHierarchyGraph().descendantsOf(existing.id).includes(changes.parent))
+          throw new Error(
+            `Cannot set parent of card '${existing.id}' to descendant '${changes.parent}'.`,
+          );
         newDepth = (this.getHierarchyGraph().depthOf(newParent.id) ?? newParent.depth) + 1;
       } else {
         newDepth = 0;
       }
       if (newDepth > this.maxDepth) {
-        throw new Error(`Cannot update card '${existing.id}' to depth ${newDepth}. Maximum allowed depth is ${this.maxDepth}. Choose a parent at a shallower level.`);
+        throw new Error(
+          `Cannot update card '${existing.id}' to depth ${newDepth}. Maximum allowed depth is ${this.maxDepth}. Choose a parent at a shallower level.`,
+        );
       }
     }
     return newDepth;
   }
 
-  private buildUpdatedCard(existing: CardRecord, changes: Partial<CardRecord>, stamp: string): CardRecord {
+  private buildUpdatedCard(
+    existing: CardRecord,
+    changes: Partial<CardRecord>,
+    stamp: string,
+  ): CardRecord {
     const newDepth = this.validateMutablePatch(existing, changes);
-    const newDependsOn = changes.depends_on !== undefined ? changes.depends_on : existing.depends_on;
+    const newDependsOn =
+      changes.depends_on !== undefined ? changes.depends_on : existing.depends_on;
     return {
       ...existing,
       ...changes,
@@ -672,7 +931,11 @@ export class CardStore {
     };
   }
 
-  private persistMutation(existing: CardRecord, updated: CardRecord, changes: Partial<CardRecord>): CardRecord {
+  private persistMutation(
+    existing: CardRecord,
+    updated: CardRecord,
+    changes: Partial<CardRecord>,
+  ): CardRecord {
     const parsed = cardRecordSchema.safeParse(updated);
     if (!parsed.success) throw new Error(`Card validation failed: ${parsed.error.message}`);
     if (changes.depends_on !== undefined) {
@@ -681,7 +944,13 @@ export class CardStore {
     }
     this.writeCard(updated);
     const index = this.loadIndex();
-    index.cards[existing.id] = { id: updated.id, type: updated.type, parent: updated.parent, status: updated.status, title: updated.title };
+    index.cards[existing.id] = {
+      id: updated.id,
+      type: updated.type,
+      parent: updated.parent,
+      status: updated.status,
+      title: updated.title,
+    };
     this.saveIndex(index);
     if (changes.depends_on !== undefined) {
       if (updated.depends_on.length > 0) this.addToDependsOn(existing.id, updated.depends_on);
@@ -692,13 +961,16 @@ export class CardStore {
       }
     }
     this.recomputeBlocks();
-    this.rebuildGraphAndSnapshots();
+    this.rebuildGraphAndSnapshots('mutation-rebuild', true);
     return this.read(existing.id)!;
   }
 
-  create(input: Omit<CardRecord, 'created_at' | 'updated_at' | 'id' | 'version_seq'> & { id?: string }): CardRecord {
+  create(
+    input: Omit<CardRecord, 'created_at' | 'updated_at' | 'id' | 'version_seq'> & { id?: string },
+  ): CardRecord {
     this.ensurePersistedStateValidated();
-    if ((input as { type: string }).type === 'plan') throw new Error('Plan cards are no longer created. Planning state lives on goal cards.');
+    if ((input as { type: string }).type === 'plan')
+      throw new Error('Plan cards are no longer created. Planning state lives on goal cards.');
     const nowStamp = now();
     let id: string;
     if (input.id) id = input.id;
@@ -710,16 +982,28 @@ export class CardStore {
     if (input.type === 'project') {
       const index = this.loadIndex();
       const existingProject = Object.values(index.cards).find((c) => c.type === 'project');
-      if (existingProject) throw new Error(`Cannot create duplicate project card. A project card already exists with id '${existingProject.id}'.`);
+      if (existingProject)
+        throw new Error(
+          `Cannot create duplicate project card. A project card already exists with id '${existingProject.id}'.`,
+        );
     }
     if (input.parent !== null) {
       const parentCard = this.read(input.parent);
       if (!parentCard) throw new Error(`Parent card '${input.parent}' does not exist.`);
-      if (isTerminal(parentCard.type)) throw new Error(`Cannot create child under terminal card '${input.parent}' (type: ${parentCard.type}). Terminal cards cannot have children.`);
-      if (TERMINAL_STATES.has(parentCard.status)) throw new Error(`Cannot create child under card '${input.parent}' because it is in status '${parentCard.status}'. Children cannot be created under cards in ${parentCard.status} status.`);
+      if (isTerminal(parentCard.type))
+        throw new Error(
+          `Cannot create child under terminal card '${input.parent}' (type: ${parentCard.type}). Terminal cards cannot have children.`,
+        );
+      if (TERMINAL_STATES.has(parentCard.status))
+        throw new Error(
+          `Cannot create child under card '${input.parent}' because it is in status '${parentCard.status}'. Children cannot be created under cards in ${parentCard.status} status.`,
+        );
     }
     const depth = input.parent === null ? 0 : this.read(input.parent)!.depth + 1;
-    if (depth > this.maxDepth) throw new Error(`Cannot create card at depth ${depth}. Maximum allowed depth is ${this.maxDepth}. Reduce nesting depth by reorganizing the card hierarchy.`);
+    if (depth > this.maxDepth)
+      throw new Error(
+        `Cannot create card at depth ${depth}. Maximum allowed depth is ${this.maxDepth}. Reduce nesting depth by reorganizing the card hierarchy.`,
+      );
     const card: CardRecord = {
       id,
       type: input.type,
@@ -767,7 +1051,7 @@ export class CardStore {
     this.addToIndex(card);
     if (card.depends_on.length > 0) this.addToDependsOn(card.id, card.depends_on);
     this.recomputeBlocks();
-    this.rebuildGraphAndSnapshots();
+    this.rebuildGraphAndSnapshots('mutation-rebuild', true);
     return this.read(card.id)!;
   }
 
@@ -788,7 +1072,10 @@ export class CardStore {
    * end up applying only the real deltas, and validation rules that restrict structural fields
    * (e.g. depends_on on an active card) only fire when those fields actually change.
    */
-  private prunePartialPatch(existing: CardRecord, changes: Partial<CardRecord>): Partial<CardRecord> {
+  private prunePartialPatch(
+    existing: CardRecord,
+    changes: Partial<CardRecord>,
+  ): Partial<CardRecord> {
     const pruned: Partial<CardRecord> = {};
     for (const [key, value] of Object.entries(changes)) {
       if (value === undefined) continue;
@@ -825,7 +1112,8 @@ export class CardStore {
 
     const updated: CardRecord = { ...candidate, version_seq: existing.version_seq + 1 };
     const parsedUpdated = cardRecordSchema.safeParse(updated);
-    if (!parsedUpdated.success) throw new Error(`Card validation failed: ${parsedUpdated.error.message}`);
+    if (!parsedUpdated.success)
+      throw new Error(`Card validation failed: ${parsedUpdated.error.message}`);
     if (changes.depends_on !== undefined) {
       const cycle = this.detectCycles(existing.id, updated.depends_on);
       if (cycle.length > 0) throw new Error(`Dependency cycle detected: ${cycle.join(' -> ')}`);
@@ -843,7 +1131,8 @@ export class CardStore {
       change_summary: summarizeChangedFields(changedFields),
     };
     const parsedHistory = cardHistoryEntrySchema.safeParse(historyEntry);
-    if (!parsedHistory.success) throw new Error(`Card history validation failed: ${parsedHistory.error.message}`);
+    if (!parsedHistory.success)
+      throw new Error(`Card history validation failed: ${parsedHistory.error.message}`);
 
     this.appendHistoryEntry(parsedHistory.data);
     this.testHooks?.beforeTrackedCardRename?.(updated, parsedHistory.data);
@@ -853,7 +1142,13 @@ export class CardStore {
     renameSync(tmpPath, cardPath(this.projectRoot, id));
 
     const index = this.loadIndex();
-    index.cards[id] = { id: updated.id, type: updated.type, parent: updated.parent, status: updated.status, title: updated.title };
+    index.cards[id] = {
+      id: updated.id,
+      type: updated.type,
+      parent: updated.parent,
+      status: updated.status,
+      title: updated.title,
+    };
     this.saveIndex(index);
     if (changes.depends_on !== undefined) {
       if (updated.depends_on.length > 0) this.addToDependsOn(id, updated.depends_on);
@@ -864,7 +1159,7 @@ export class CardStore {
       }
     }
     this.recomputeBlocks();
-    this.rebuildGraphAndSnapshots();
+    this.rebuildGraphAndSnapshots('mutation-rebuild', true);
     const persisted = this.read(id)!;
     broadcastCardHistoryAppended({
       card_id: persisted.id,
@@ -872,7 +1167,10 @@ export class CardStore {
       changed_fields: [...changedFields],
       changed_at: historyEntry.changed_at,
     });
-    enqueueCardMutationNotifications(this.projectRoot, persisted, changedFields as string[], { actor: ctx.actor, surface: ctx.surface });
+    enqueueCardMutationNotifications(this.projectRoot, persisted, changedFields as string[], {
+      actor: ctx.actor,
+      surface: ctx.surface,
+    });
     return persisted;
   }
 
@@ -885,7 +1183,9 @@ export class CardStore {
     const current = this.read(id);
     if (!current) throw new Error(`Card '${id}' not found.`);
     if (versionSeq === current.version_seq) return current;
-    const entry = this.loadHistoryEntries(id).find((candidate) => candidate.version_seq === versionSeq);
+    const entry = this.loadHistoryEntries(id).find(
+      (candidate) => candidate.version_seq === versionSeq,
+    );
     if (!entry) throw new Error(`Card '${id}' has no version ${versionSeq}.`);
     return deepClone(entry.snapshot);
   }
@@ -894,8 +1194,8 @@ export class CardStore {
     const from = this.getCardAt(id, fromSeq);
     const to = this.getCardAt(id, toSeq);
     const fields = new Set<keyof CardRecord>([
-      ...Object.keys(from) as Array<keyof CardRecord>,
-      ...Object.keys(to) as Array<keyof CardRecord>,
+      ...(Object.keys(from) as Array<keyof CardRecord>),
+      ...(Object.keys(to) as Array<keyof CardRecord>),
     ]);
     return Array.from(fields)
       .filter((field) => !valuesEqual(from[field], to[field]))
@@ -912,7 +1212,10 @@ export class CardStore {
     });
     for (const card of cards) {
       for (const childId of this.getHierarchyGraph().childrenOf(card.id)) {
-        if (!idSet.has(childId)) throw new Error(`Card '${card.id}' has child '${childId}' outside the requested delete set.`);
+        if (!idSet.has(childId))
+          throw new Error(
+            `Card '${card.id}' has child '${childId}' outside the requested delete set.`,
+          );
       }
       const archivePath = archiveCardPath(this.projectRoot, card.id);
       if (existsSync(archivePath)) throw new Error(`Archive already exists for card '${card.id}'.`);
@@ -946,17 +1249,23 @@ export class CardStore {
       if (existsSync(histFile)) unlinkSync(histFile);
     }
     this.recomputeBlocks();
-    this.rebuildGraphAndSnapshots();
+    this.rebuildGraphAndSnapshots('archive-cleanup', true);
   }
 
   delete(id: string): void {
     this.ensurePersistedStateValidated();
     const card = this.read(id);
     if (!card) throw new Error(`Card '${id}' not found.`);
-    if (TERMINAL_STATES.has(card.status)) throw new Error(`Cannot delete card '${id}' because it is in status '${card.status}'. Cards in ${card.status} status cannot be deleted.`);
+    if (TERMINAL_STATES.has(card.status))
+      throw new Error(
+        `Cannot delete card '${id}' because it is in status '${card.status}'. Cards in ${card.status} status cannot be deleted.`,
+      );
     if (id === 'project') throw new Error('Cannot delete the project card.');
     const children = this.getHierarchyGraph().childrenOf(id);
-    if (children.length > 0) throw new Error(`Cannot delete card '${id}' because it has ${children.length} child(ren). Delete children first.`);
+    if (children.length > 0)
+      throw new Error(
+        `Cannot delete card '${id}' because it has ${children.length} child(ren). Delete children first.`,
+      );
     this.removeFromIndex(id);
     this.removeFromDependsOnAll(id);
     const cp = childrenPath(this.projectRoot, id);
@@ -966,7 +1275,7 @@ export class CardStore {
     const hp = historyPath(this.projectRoot, id);
     if (existsSync(hp)) unlinkSync(hp);
     this.recomputeBlocks();
-    this.rebuildGraphAndSnapshots();
+    this.rebuildGraphAndSnapshots('delete-cleanup', true);
   }
 
   list(): CardRecord[] {
@@ -980,7 +1289,9 @@ export class CardStore {
     return cards;
   }
 
-  listChildren(parentId: string): string[] { return this.getHierarchyGraph().childrenOf(parentId); }
+  listChildren(parentId: string): string[] {
+    return this.getHierarchyGraph().childrenOf(parentId);
+  }
 
   getParent(id: string): string | null {
     return this.read(id)?.parent ?? null;
@@ -1005,7 +1316,15 @@ export class CardStore {
     return this.getHierarchyGraph().descendantsOf(id);
   }
 
-  updateDependsOn(id: string, newDependsOn: string[], ctx: CardMutationContext = { actor: 'runtime', surface: 'runtime', reason: 'dependency update' }): CardRecord {
+  updateDependsOn(
+    id: string,
+    newDependsOn: string[],
+    ctx: CardMutationContext = {
+      actor: 'runtime',
+      surface: 'runtime',
+      reason: 'dependency update',
+    },
+  ): CardRecord {
     return this.mutateCard(id, { depends_on: newDependsOn }, ctx);
   }
 
@@ -1055,7 +1374,9 @@ export class CardStore {
     if (from === to) return;
     const allowed = VALID_TRANSITIONS[from];
     if (allowed && allowed.includes(to)) return;
-    throw new Error(`Invalid transition: ${from} → ${to}. Valid transitions from ${from} are: ${allowed ? allowed.join(', ') : 'none'}.`);
+    throw new Error(
+      `Invalid transition: ${from} → ${to}. Valid transitions from ${from} are: ${allowed ? allowed.join(', ') : 'none'}.`,
+    );
   }
 
   setStatus(id: string, newStatus: CardStatus): CardRecord {
@@ -1068,10 +1389,14 @@ export class CardStore {
   activateGoal(id: string): { goal: CardRecord } {
     const goal = this.read(id);
     if (!goal) throw new Error(`Goal '${id}' not found.`);
-    if (goal.type !== 'project' && goal.type !== 'goal') throw new Error(`activateGoal requires a project or goal card, got type '${goal.type}'.`);
-    const activeGoal = goal.status === 'active' || goal.status === 'running' ? goal : this.setStatus(id, 'active');
-    const existingResult = activeGoal.result && typeof activeGoal.result === 'object' ? activeGoal.result : {};
-    if (existingResult.planning && typeof existingResult.planning === 'object') return { goal: activeGoal };
+    if (goal.type !== 'project' && goal.type !== 'goal')
+      throw new Error(`activateGoal requires a project or goal card, got type '${goal.type}'.`);
+    const activeGoal =
+      goal.status === 'active' || goal.status === 'running' ? goal : this.setStatus(id, 'active');
+    const existingResult =
+      activeGoal.result && typeof activeGoal.result === 'object' ? activeGoal.result : {};
+    if (existingResult.planning && typeof existingResult.planning === 'object')
+      return { goal: activeGoal };
     return {
       goal: this.update(id, {
         result: {
