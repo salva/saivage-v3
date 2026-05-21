@@ -20,6 +20,20 @@ export type CardStatus =
   | 'failed'
   | 'cancelled';
 
+
+export type PlannerState = CardStatus;
+export type RuntimeIntentStatus = 'running' | 'stopped';
+export type RuntimeCommandName = 'start_project' | 'stop_project';
+export type RuntimeCommandStatus = 'accepted' | 'rejected' | 'completed';
+export type RuntimeRunKind = 'root' | 'child';
+export type RuntimeRunPhase = 'pending' | 'planner' | 'executor' | 'reviewer' | 'completed' | 'failed' | 'blocked' | 'cancelled' | 'stopped';
+export type RuntimeActivationStatus = 'pending' | 'running' | 'completed' | 'failed' | 'blocked' | 'cancelled';
+export interface ActionableErrorEnvelope { code: string; message: string; acceptedValues?: string[]; currentState?: Record<string, unknown>; nextAction: string; docsRef?: string; runId?: string | null; sessionId?: string | null; cardId?: string | null; parentCardId?: string | null; childCardId?: string | null; }
+export interface RuntimeIntent { status: RuntimeIntentStatus; updated_at: string; source_command_id: string | null; reason?: string | null; }
+export interface RuntimeCommandRecord { command_id: string; command: RuntimeCommandName; status: RuntimeCommandStatus; requested_at: string; completed_at?: string | null; source: 'operator' | 'tool' | 'runtime'; error?: ActionableErrorEnvelope | null; }
+export interface RuntimeRunRecord { run_id: string; kind: RuntimeRunKind; card_id: string; parent_run_id?: string | null; command_id?: string | null; activation_id?: string | null; phase: RuntimeRunPhase; runtime_status: RuntimeStatus | 'stopped' | 'cancelled'; session_id?: string | null; started_at: string; updated_at: string; finished_at?: string | null; result?: 'done' | 'failed' | 'blocked' | 'cancelled' | 'stopped' | null; }
+export interface RuntimeActivationRecord { activation_id: string; idempotency_key: string; parent_card_id: string; parent_run_id: string; parent_session_id: string; parent_tool_call_id: string; child_card_id: string; status: RuntimeActivationStatus; requested_at: string; updated_at: string; precondition: 'accepted' | 'rejected'; runtime_run_id?: string | null; error?: ActionableErrorEnvelope | null; }
+
 export type Urgency = 'low' | 'normal' | 'high' | 'critical';
 export type CreatedBy = 'user' | 'analyst' | 'planner';
 export type NoteAuthor = 'user' | 'analyst' | 'planner' | 'executor' | 'reviewer' | 'runtime';
@@ -29,7 +43,7 @@ export interface ArtifactRef { id: string; card_id: string; path: string; type: 
 export interface AttachmentRef { id: string; card_id: string; path: string; mime: string; title: string; description?: string; created_at: string; }
 export interface CardMetadata { max_review_retries?: number; [key: string]: unknown; }
 export interface CardRecord {
-  id: string; type: CardType; parent: string | null; depth: number; title: string; description: string; status: CardStatus;
+  id: string; type: CardType; parent: string | null; depth: number; title: string; description: string; status: CardStatus; planner_state?: PlannerState; plannerState?: PlannerState;
   subtype?: string | null; instructions_file?: string | null; tags: string[]; priority: number; urgency: Urgency; created_by: CreatedBy;
   created_at: string; updated_at: string; version_seq: number; assigned_to?: string | null; depends_on: string[]; blocks: string[]; related: string[];
   acceptance: string; result?: Record<string, unknown> | null; metrics?: Record<string, number | string | boolean | null> | null;
@@ -76,7 +90,7 @@ export interface ActiveCardRun { card_id: string; card_type: CardType; runtime_s
 export interface ProjectRunCompletedPayload { project_card_id: string; result: 'done' | 'failed' | 'blocked'; summary: string; failure_kind?: string; blocked_reason?: string; }
 export interface HandoffSummary { session_id: string; role: AgentRole; last_action: string; next_action: string; context_summary: string; }
 export interface FreezeManifest { freeze_id: string; reason: string; created_at: string; status: 'frozen'; project_id: 'project'; pid: number; started_at: string; current_card_id: string | null; current_agent_session_id: string | null; queue: string[]; running_processes: string[]; handoff_summaries: HandoffSummary[]; schema_version: number; runtime_version: string; }
-export interface RuntimeState { status: RuntimeStatus; project_id: 'project'; pid: number; started_at: string; current_card_id?: string | null; current_agent_session_id?: string | null; active_card_run?: ActiveCardRun | null; paused: boolean; paused_at?: string | null; queue: string[]; running_processes: string[]; updated_at: string; frozen_reason?: string | null; }
+export interface RuntimeState { status: RuntimeStatus; project_id: 'project'; pid: number; started_at: string; current_card_id?: string | null; current_agent_session_id?: string | null; active_card_run?: ActiveCardRun | null; paused: boolean; paused_at?: string | null; queue: string[]; running_processes: string[]; updated_at: string; frozen_reason?: string | null; runtime_intent?: RuntimeIntent; runtime_commands?: RuntimeCommandRecord[]; runtime_runs?: RuntimeRunRecord[]; runtime_activations?: RuntimeActivationRecord[]; }
 export type SourceKind = 'command_output' | 'file' | 'download' | 'web' | 'api' | 'tool';
 export type ReviewStatus = 'passed' | 'blocked' | 'sanitized';
 export type RiskLevel = 'low' | 'medium' | 'high';

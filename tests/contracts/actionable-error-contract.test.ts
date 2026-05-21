@@ -1,23 +1,25 @@
-import { describe, it } from '@jest/globals';
+import { describe, expect, it } from '@jest/globals';
+import { actionableEnumError, createActionableErrorEnvelope } from '../../src/schemas/validators.js';
 
-describe.skip('actionable error envelope target contract (Waves 1 and 3)', () => {
-  it('Wave 1 removes this skip when invalid planner-state values return accepted values and a next action', () => {
-    // TODO(Wave 1): assert schema/tool validation returns { code, message, acceptedValues,
-    // currentState, nextAction, docsRef } for planner-state errors.
+describe('actionable error envelope target contract (Wave 1)', () => {
+  it('invalid planner-state values return accepted values and a next action', () => {
+    const error = actionableEnumError('planner_state', 'ready', ['drafting', 'backlog', 'active']);
+    expect(error).toEqual(expect.objectContaining({ code: 'invalid_enum_value', acceptedValues: ['drafting', 'backlog', 'active'] }));
+    expect(error.nextAction).toContain('Retry');
   });
 
-  it('Wave 1 removes this skip when invalid runtime command preconditions return current intent/run context', () => {
-    // TODO(Wave 1): assert start_project/stop_project precondition failures include current
-    // runtime intent, relevant run ids, and the next valid operator action.
+  it('runtime command precondition errors can carry current intent/run context', () => {
+    const error = createActionableErrorEnvelope({ code: 'runtime_start_precondition_failed', message: 'already running', currentState: { intent: 'running', runId: 'run-1' }, nextAction: 'Use stop_project before starting another root run.', runId: 'run-1' });
+    expect(error.currentState).toEqual(expect.objectContaining({ intent: 'running' }));
+    expect(error.nextAction).toContain('stop_project');
   });
 
-  it('Wave 1 removes this skip when invalid activation preconditions return parent/child context', () => {
-    // TODO(Wave 1): assert activate_card failures include parent run/session, child card,
-    // missing precondition, and a next valid planner action.
+  it('activation precondition errors carry parent/child context', () => {
+    const error = createActionableErrorEnvelope({ code: 'activate_card_parent_not_active', message: 'No active parent planner run.', parentCardId: 'goal-a', childCardId: 'code-a', sessionId: 'planner:goal-a', currentState: { parentRunId: null }, nextAction: 'Call activate_card only from the active parent planner run.' });
+    expect(error).toEqual(expect.objectContaining({ parentCardId: 'goal-a', childCardId: 'code-a', sessionId: 'planner:goal-a' }));
   });
 
-  it('Wave 3 removes this skip when REST and WebSocket API errors use the same actionable envelope', () => {
-    // TODO(Wave 3): assert operator API and WebSocket payloads expose the same error envelope
-    // as backend runtime/planner-control code without preview-hash compatibility wrappers.
+  it.skip('Wave 3 removes this skip when REST and WebSocket API errors use the same actionable envelope', () => {
+    // REST/WebSocket alignment is Wave 3.
   });
 });

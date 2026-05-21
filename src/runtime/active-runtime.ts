@@ -145,6 +145,23 @@ export class ActiveRuntime {
 
   // ── Dispatch ─────────────────────────────────────────────────
 
+
+  async startProject(): Promise<Awaited<ReturnType<Runtime['startProject']>>> {
+    return this._runtime.startProject('operator');
+  }
+
+  async start_project(): Promise<Awaited<ReturnType<Runtime['startProject']>>> {
+    return this.startProject();
+  }
+
+  async stopProject(): Promise<Awaited<ReturnType<Runtime['stopProject']>>> {
+    return this._runtime.stopProject('operator');
+  }
+
+  async stop_project(): Promise<Awaited<ReturnType<Runtime['stopProject']>>> {
+    return this.stopProject();
+  }
+
   /** Dispatch a goal through the runtime with the real AgentAdapter. */
   async dispatchGoal(goalId: string): Promise<void> {
     await this._runtime.dispatchGoal(goalId);

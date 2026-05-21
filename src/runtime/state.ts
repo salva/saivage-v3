@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import { runtimeStateSchema } from '../schemas/validators.js';
 import { explainLegacyStateRejection, writeFileAtomic } from '../utils/file-tree.js';
 import { EventLogger } from '../utils/event-logger.js';
-import type { ActiveCardRun, RuntimeState } from '../schemas/types.js';
+import type { ActiveCardRun, RuntimeActivationRecord, RuntimeCommandName, RuntimeCommandRecord, RuntimeRunRecord, RuntimeState } from '../schemas/types.js';
 
 const LEGACY_STATE_FILE = 'state.json';
 const AUTHORITATIVE_STATE_FILE = 'runtime.json';
@@ -138,6 +138,10 @@ function defaultRuntimeState(): RuntimeState {
     running_processes: [],
     updated_at: now,
     frozen_reason: null,
+    runtime_intent: { status: 'stopped', updated_at: now, source_command_id: null, reason: 'default stopped intent until explicit start_project command' },
+    runtime_commands: [],
+    runtime_runs: [],
+    runtime_activations: [],
   };
 }
 
@@ -146,7 +150,15 @@ function parseRuntimeState(
   raw: unknown,
   options: { persistSelfHeal?: boolean } = {},
 ): RuntimeState {
-  const parsed = runtimeStateSchema.safeParse(raw);
+  const rawRecord = raw && typeof raw === 'object' ? raw as Record<string, unknown> : {};
+  const normalizedRaw = {
+    ...rawRecord,
+    runtime_intent: rawRecord.runtime_intent ?? { status: 'stopped', updated_at: typeof rawRecord.updated_at === 'string' ? rawRecord.updated_at : new Date().toISOString(), source_command_id: null, reason: 'Wave 1 migration from pre-ledger runtime state' },
+    runtime_commands: Array.isArray(rawRecord.runtime_commands) ? rawRecord.runtime_commands : [],
+    runtime_runs: Array.isArray(rawRecord.runtime_runs) ? rawRecord.runtime_runs : [],
+    runtime_activations: Array.isArray(rawRecord.runtime_activations) ? rawRecord.runtime_activations : [],
+  };
+  const parsed = runtimeStateSchema.safeParse(normalizedRaw);
   if (!parsed.success) {
     explainLegacyStateRejection(projectRoot, 'RuntimeState', parsed.error.message);
   }
@@ -200,4 +212,55 @@ export function updateRuntimeState(
     updated_at: new Date().toISOString(),
   };
   return saveRuntimeState(projectRoot, updated);
+}
+
+
+function runtimeRecordId(prefix: string): string {
+  return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+function ensureRuntimeState(projectRoot: string): RuntimeState {
+  return readRuntimeState(projectRoot) ?? initRuntimeState(projectRoot);
+}
+
+export function appendRuntimeCommand(projectRoot: string, command: RuntimeCommandName, source: 'operator' | 'tool' | 'runtime' = 'runtime'): RuntimeCommandRecord {
+  const state = ensureRuntimeState(projectRoot);
+  const at = new Date().toISOString();
+  const record: RuntimeCommandRecord = { command_id: runtimeRecordId('cmd'), command, status: 'accepted', requested_at: at, completed_at: null, source, error: null };
+  saveRuntimeState(projectRoot, { ...state, runtime_commands: [...(state.runtime_commands ?? []), record], updated_at: at });
+  return record;
+}
+
+export function upsertRuntimeIntent(projectRoot: string, status: NonNullable<RuntimeState['runtime_intent']>['status'], sourceCommandId: string | null, reason?: string): RuntimeState {
+  const state = ensureRuntimeState(projectRoot);
+  const at = new Date().toISOString();
+  return saveRuntimeState(projectRoot, { ...state, runtime_intent: { status, updated_at: at, source_command_id: sourceCommandId, reason: reason ?? null }, updated_at: at });
+}
+
+export function appendRuntimeRun(projectRoot: string, input: Omit<RuntimeRunRecord, 'run_id' | 'started_at' | 'updated_at'> & { run_id?: string; started_at?: string; updated_at?: string }): RuntimeRunRecord {
+  const state = ensureRuntimeState(projectRoot);
+  const at = new Date().toISOString();
+  const record: RuntimeRunRecord = { ...input, run_id: input.run_id ?? runtimeRecordId('run'), started_at: input.started_at ?? at, updated_at: input.updated_at ?? at };
+  saveRuntimeState(projectRoot, { ...state, runtime_runs: [...(state.runtime_runs ?? []).filter((run) => run.run_id !== record.run_id), record], updated_at: at });
+  return record;
+}
+
+export function updateRuntimeRun(projectRoot: string, runId: string, changes: Partial<RuntimeRunRecord>): RuntimeRunRecord | null {
+  const state = ensureRuntimeState(projectRoot);
+  const existing = (state.runtime_runs ?? []).find((run) => run.run_id === runId);
+  if (!existing) return null;
+  const at = new Date().toISOString();
+  const updated = { ...existing, ...changes, updated_at: at };
+  saveRuntimeState(projectRoot, { ...state, runtime_runs: (state.runtime_runs ?? []).map((run) => run.run_id === runId ? updated : run), updated_at: at });
+  return updated;
+}
+
+export function upsertRuntimeActivation(projectRoot: string, input: Omit<RuntimeActivationRecord, 'activation_id' | 'requested_at' | 'updated_at'> & { activation_id?: string; requested_at?: string; updated_at?: string }): RuntimeActivationRecord {
+  const state = ensureRuntimeState(projectRoot);
+  const existing = (state.runtime_activations ?? []).find((activation) => activation.idempotency_key === input.idempotency_key && !['completed', 'failed', 'blocked', 'cancelled'].includes(activation.status));
+  if (existing) return existing;
+  const at = new Date().toISOString();
+  const record: RuntimeActivationRecord = { ...input, activation_id: input.activation_id ?? runtimeRecordId('act'), requested_at: input.requested_at ?? at, updated_at: input.updated_at ?? at };
+  saveRuntimeState(projectRoot, { ...state, runtime_activations: [...(state.runtime_activations ?? []), record], updated_at: at });
+  return record;
 }
