@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from '@jest/globals';
-import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { initProjectTree } from '../../src/utils/file-tree.js';
@@ -410,4 +410,21 @@ describe('PlannerToolsService reviewer gates', () => {
     expect(getNotes(join(root, '.saivage'), parent.id).some((note) => note.content.includes('pending_subtree_correction') && note.content.includes('acceptance missing'))).toBe(true);
     expect(getNotes(join(root, '.saivage'), 'project').some((note) => note.content.includes('pending_subtree_correction') && note.content.includes('acceptance missing'))).toBe(true);
   });
+
+  it('deletes planner-control subtrees from graph authority and ignores stale children snapshots', () => {
+    const staleListed = store.create(makeCard({ type: 'goal', title: 'Stale listed under victim' }));
+    const victim = store.create(makeCard({ type: 'goal', title: 'Victim' }));
+    const realChild = store.create(makeCard({ type: 'code', title: 'Real child', parent: victim.id }));
+    writeFileSync(join(root, '.saivage', 'cards', 'tree', `${victim.id}.children.json`), JSON.stringify([realChild.id, staleListed.id], null, 2));
+
+    store = new CardStore(root);
+    const localTools = new PlannerToolsService(store);
+    localTools.deleteCard(victim.id);
+
+    expect(store.read(victim.id)).toBeNull();
+    expect(store.read(realChild.id)).toBeNull();
+    expect(store.read(staleListed.id)).not.toBeNull();
+    expect(existsSync(join(root, '.saivage', 'archive', 'cards', `${staleListed.id}.json`))).toBe(false);
+  });
+
 });
