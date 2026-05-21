@@ -325,6 +325,10 @@ Example:
 }
 ```
 
+For HTTP MCP servers, `transport: "sse"` currently means Saivage's Streamable HTTP single-endpoint mode: Saivage sends JSON-RPC `POST` requests to the single configured `url` for initialize, `notifications/initialized`, paginated `tools/list`, and `tools/call`. POST responses may be encoded as `application/json` or `text/event-stream`; event-stream responses are read only until the matching JSON-RPC response id is received. Stateful Streamable HTTP servers may return an `Mcp-Session-Id` header during initialize; Saivage keeps that synthetic session value in memory for the lifetime of the running server handle and sends it on later initialized/list/call POSTs.
+
+Saivage does **not** implement legacy two-endpoint HTTP+SSE endpoint discovery for `transport: "sse"`, and there is no separate `streamable-http` transport enum. Configure a single Streamable HTTP MCP endpoint in `url`.
+
 MCP server status is available at `GET /api/mcp/status`.
 
 ---

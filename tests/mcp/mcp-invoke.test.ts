@@ -88,6 +88,21 @@ function stdioCfg(overrides: Record<string, unknown> = {}) {
   };
 }
 
+function sseResponse(events: string, init: ResponseInit = {}): Response {
+  return new Response(events, {
+    status: 200,
+    headers: {
+      'content-type': 'text/event-stream',
+      ...(init.headers as Record<string, string> | undefined),
+    },
+    ...init,
+  });
+}
+
+function sseData(payload: unknown): string {
+  return `data: ${JSON.stringify(payload)}\n\n`;
+}
+
 function sseCfg(overrides: Record<string, unknown> = {}) {
   return {
     url: 'http://localhost:9999/sse',
@@ -477,6 +492,102 @@ describe('invokeTool SSE transport', () => {
 
     const res = await mgr.invokeTool('sse', 'greet', {});
     expect(res).toEqual([{ type: 'text', text: 'SSE hello' }]);
+  });
+
+  it('accepts text/event-stream tools/call responses and ignores unrelated notifications', async () => {
+    const r = makeProjectRoot();
+    writeSaivageJson(r, { mcpServers: { sse: sseCfg() } });
+    const mgr = new McpManager(r);
+    setupSseHandle(mgr, 'sse');
+
+    (globalThis as any).fetch = async (_url: string, init?: any) => {
+      const id = JSON.parse(init.body).id;
+      return sseResponse(
+        sseData({ jsonrpc: '2.0', method: 'notifications/progress', params: { progress: 1 } }) +
+          sseData({ jsonrpc: '2.0', id: id + 99, result: { ignored: true } }) +
+          sseData({
+            jsonrpc: '2.0',
+            id,
+            result: { content: [{ type: 'text', text: 'SSE hello' }] },
+          }),
+      );
+    };
+
+    const res = await mgr.invokeTool('sse', 'greet', {});
+    expect(res).toEqual([{ type: 'text', text: 'SSE hello' }]);
+  });
+
+  it('propagates captured Mcp-Session-Id on tools/call requests', async () => {
+    const r = makeProjectRoot();
+    writeSaivageJson(r, { mcpServers: { sse: sseCfg() } });
+    const mgr = new McpManager(r);
+    setupSseHandle(mgr, 'sse');
+    const mi = mgr as unknown as Record<string, unknown>;
+    const handle = (mi.handles as Map<string, any>).get('sse');
+    handle.streamableHttpSessionId = 'synthetic-session-1';
+
+    const fetchMock = jest.fn(async (_url: string, init?: any) => {
+      const id = JSON.parse(init.body).id;
+      return sseResponse(sseData({ jsonrpc: '2.0', id, result: { content: [] } }));
+    });
+    (globalThis as any).fetch = fetchMock;
+
+    await mgr.invokeTool('sse', 'greet', {});
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({
+        headers: expect.objectContaining({ 'Mcp-Session-Id': 'synthetic-session-1' }),
+      }),
+    );
+  });
+
+  it('surfaces sanitized errors for malformed, overlarge, and closed SSE responses', async () => {
+    const r = makeProjectRoot();
+    writeSaivageJson(r, { mcpServers: { sse: sseCfg() } });
+    const mgr = new McpManager(r);
+    setupSseHandle(mgr, 'sse');
+
+    (globalThis as any).fetch = async () =>
+      sseResponse('data: {not json and secret-like value}\n\n');
+    await expect(mgr.invokeTool('sse', 'greet', {})).rejects.toMatchObject({
+      name: 'TransportError',
+      message: expect.stringContaining('Malformed Streamable HTTP SSE data'),
+    });
+
+    (globalThis as any).fetch = async () => sseResponse(`data: ${'x'.repeat(70 * 1024)}\n\n`);
+    await expect(mgr.invokeTool('sse', 'greet', {})).rejects.toMatchObject({
+      name: 'TransportError',
+      message: expect.stringContaining('SSE frame exceeded limit'),
+    });
+
+    (globalThis as any).fetch = async (_url: string, init?: any) => {
+      const id = JSON.parse(init.body).id + 1;
+      return sseResponse(sseData({ jsonrpc: '2.0', id, result: {} }));
+    };
+    await expect(mgr.invokeTool('sse', 'greet', {})).rejects.toMatchObject({
+      name: 'TransportError',
+      message: expect.stringContaining('Stream ended before JSON-RPC response for tools/call'),
+    });
+  });
+
+  it('times out if an event-stream tools/call response never emits the matching id', async () => {
+    const r = makeProjectRoot();
+    writeSaivageJson(r, { mcpServers: { sse: sseCfg() } });
+    const mgr = new McpManager(r);
+    setupSseHandle(mgr, 'sse');
+
+    (globalThis as any).fetch = async () => {
+      const stream = new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(new TextEncoder().encode(': keep-alive\n\n'));
+        },
+      });
+      return new Response(stream, { headers: { 'content-type': 'text/event-stream' } });
+    };
+
+    await expect(mgr.invokeTool('sse', 'greet', {}, { timeoutMs: 100 })).rejects.toThrow(
+      TimeoutError,
+    );
   });
 
   it('non-2xx response -> TransportError', async () => {
@@ -1180,7 +1291,9 @@ describe('ARCH-018 local MCP inputSchema validation', () => {
           properties: {
             mode: {
               type: 'string',
-              enum: Array.from({ length: 20 }, (_, i) => (i === 0 ? longEnumValue : `allowed-${i}`)),
+              enum: Array.from({ length: 20 }, (_, i) =>
+                i === 0 ? longEnumValue : `allowed-${i}`,
+              ),
             },
             code: { type: 'string', pattern: longPattern },
           },

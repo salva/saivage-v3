@@ -133,6 +133,21 @@ function stdioConfig(overrides: Record<string, unknown> = {}): Record<string, un
   };
 }
 
+function sseResponse(events: string, init: ResponseInit = {}): Response {
+  return new Response(events, {
+    status: 200,
+    headers: {
+      'content-type': 'text/event-stream',
+      ...(init.headers as Record<string, string> | undefined),
+    },
+    ...init,
+  });
+}
+
+function sseData(payload: unknown): string {
+  return `data: ${JSON.stringify(payload)}\n\n`;
+}
+
 function sseConfig(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {
     url: 'http://localhost:9999/sse',
@@ -404,10 +419,14 @@ describe('McpManager lifecycle', () => {
     await mgr.startServer('test-stdio');
 
     expect(mockSpawn).toHaveBeenCalledTimes(1);
-    expect(mockSpawn).toHaveBeenCalledWith('echo', ['hello'], expect.objectContaining({
-      env: expect.any(Object),
-      stdio: ['pipe', 'pipe', 'pipe'],
-    }));
+    expect(mockSpawn).toHaveBeenCalledWith(
+      'echo',
+      ['hello'],
+      expect.objectContaining({
+        env: expect.any(Object),
+        stdio: ['pipe', 'pipe', 'pipe'],
+      }),
+    );
 
     const status = mgr.getServerStatus('test-stdio');
     expect(status).toBeDefined();
@@ -460,8 +479,8 @@ describe('McpManager lifecycle', () => {
     const root = makeProjectRoot();
     writeSaivageJson(root, {
       mcpServers: {
-        'srv1': stdioConfig({ command: 'cmd1' }),
-        'srv2': stdioConfig({ command: 'cmd2' }),
+        srv1: stdioConfig({ command: 'cmd1' }),
+        srv2: stdioConfig({ command: 'cmd2' }),
       },
     });
 
@@ -565,6 +584,90 @@ describe('McpManager tool discovery', () => {
     nextPid = 12345;
   });
 
+  it('discovers tools from text/event-stream initialize and paginated tools/list with session propagation', async () => {
+    const root = makeProjectRoot();
+    writeSaivageJson(root, {
+      mcpServers: { stream: sseConfig({ url: 'http://localhost:9999/mcp' }) },
+    });
+    const calls: any[] = [];
+    (globalThis as any).fetch = jest.fn(async (_url: string, init?: any) => {
+      calls.push(init);
+      if (init.method === 'HEAD') return { ok: true, status: 200 };
+      const body = JSON.parse(init.body);
+      if (body.method === 'initialize') {
+        return sseResponse(
+          sseData({ jsonrpc: '2.0', id: body.id, result: { protocolVersion: '2025-06-18' } }),
+          {
+            headers: {
+              'content-type': 'text/event-stream',
+              'Mcp-Session-Id': 'synthetic-session-2',
+            },
+          },
+        );
+      }
+      if (body.method === 'notifications/initialized') {
+        return new Response(null, { status: 202 });
+      }
+      if (body.method === 'tools/list' && !body.params?.cursor) {
+        return sseResponse(
+          sseData({
+            jsonrpc: '2.0',
+            id: body.id,
+            result: {
+              tools: [{ name: 'one', inputSchema: { type: 'object' } }],
+              nextCursor: 'page-2',
+            },
+          }),
+        );
+      }
+      return sseResponse(
+        sseData({
+          jsonrpc: '2.0',
+          id: body.id,
+          result: { tools: [{ name: 'two', inputSchema: { type: 'object' } }] },
+        }),
+      );
+    });
+
+    const mgr = new McpManager(root);
+    await mgr.startServer('stream');
+
+    expect(mgr.getServerTools('stream')?.map((tool) => tool.name)).toEqual(['one', 'two']);
+    const rpcCalls = calls.filter((call) => call?.body);
+    const notificationCall = rpcCalls.find(
+      (call) => JSON.parse(call.body).method === 'notifications/initialized',
+    );
+    expect(notificationCall.headers).toEqual(
+      expect.objectContaining({
+        Accept: 'application/json, text/event-stream',
+        'Mcp-Session-Id': 'synthetic-session-2',
+      }),
+    );
+    const listCalls = rpcCalls.filter((call) => JSON.parse(call.body).method === 'tools/list');
+    expect(listCalls).toHaveLength(2);
+    expect(listCalls[0].headers['Mcp-Session-Id']).toBe('synthetic-session-2');
+    expect(listCalls[1].headers['Mcp-Session-Id']).toBe('synthetic-session-2');
+  });
+
+  it('records unsupported legacy SSE diagnostic instead of caching tools', async () => {
+    const root = makeProjectRoot();
+    writeSaivageJson(root, {
+      mcpServers: { legacy: sseConfig({ url: 'http://localhost:9999/sse' }) },
+    });
+    (globalThis as any).fetch = jest.fn(async (_url: string, init?: any) => {
+      if (init.method === 'HEAD') return { ok: true, status: 200 };
+      return new Response('event: endpoint\ndata: /message\n\n', {
+        headers: { 'content-type': 'text/event-stream' },
+      });
+    });
+
+    const mgr = new McpManager(root);
+    await mgr.startServer('legacy');
+
+    expect(mgr.getServerTools('legacy')).toBeUndefined();
+    expect(mgr.getServerStatus('legacy')?.status).toBe('running');
+  });
+
   it('getTools() returns empty array initially', () => {
     const root = makeProjectRoot();
     writeSaivageJson(root, {});
@@ -643,7 +746,6 @@ describe('McpManager tool discovery', () => {
     expect(status.tools_count).toBeUndefined();
   });
 });
-
 
 // ═══════════════════════════════════════════════════════════════
 // Suite 7: Bad Stdio Fixtures (Early Exit / EPIPE)

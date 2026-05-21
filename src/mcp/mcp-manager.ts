@@ -6,8 +6,8 @@
  *
  * - **stdio**: Spawns a child process with configured command/args/env.
  *   Health checked by verifying the process is alive (pid exists, not exited).
- * - **sse**: Connects to an HTTP SSE endpoint. Health checked via HEAD/GET
- *   to the configured URL expecting a 2xx response.
+ * - **sse**: Uses Saivage's Streamable HTTP single-endpoint MCP mode.
+ *   Health checked and invoked with POST requests to the configured URL.
  *
  * Lifecycle operations: start, stop (SIGTERM then SIGKILL), restart, health
  * check. Disabled servers are skipped. Autostart servers are started on
@@ -230,6 +230,8 @@ export interface McpServerStatus {
 interface McpServerHandle {
   process?: ChildProcess;
   abortController?: AbortController;
+  /** In-memory Streamable HTTP session scoped to this running server handle. */
+  streamableHttpSessionId?: string;
 }
 
 /** Shape of an individual MCP server entry from saivage.json. */
@@ -250,10 +252,189 @@ const MCP_DISCOVERY_TIMEOUT_MS = 10_000; // Timeout for init+tools/list handshak
 /** Default timeout for tools/call invocations. */
 export const MCP_INVOKE_TIMEOUT_MS = 30_000;
 const MCP_PROTOCOL_VERSION = '2025-06-18';
+const STREAMABLE_HTTP_SSE_FRAME_LIMIT_BYTES = 64 * 1024;
+const STREAMABLE_HTTP_SSE_BUFFER_LIMIT_BYTES = 256 * 1024;
 const CLIENT_NAME = 'saivage-mcp-manager';
 const CLIENT_VERSION = '0.1.0';
 
 // ── Helpers ───────────────────────────────────────────────────
+
+interface StreamableHttpReadContext {
+  serverName: string;
+  operation: string;
+  expectedId: number | string;
+  signal?: AbortSignal;
+}
+
+function getContentType(resp: Response): string {
+  return resp.headers?.get?.('content-type')?.toLowerCase() ?? '';
+}
+
+function isJsonRpcResponseForId(
+  value: unknown,
+  expectedId: number | string,
+): value is Record<string, unknown> {
+  if (!value || typeof value !== 'object') return false;
+  const msg = value as Record<string, unknown>;
+  return msg.jsonrpc === '2.0' && msg.id === expectedId && ('result' in msg || 'error' in msg);
+}
+
+function sanitizeJsonRpcError(error: unknown): string {
+  if (!error || typeof error !== 'object') return 'unknown JSON-RPC error';
+  const err = error as { code?: unknown; message?: unknown };
+  const code = typeof err.code === 'number' ? err.code : 'unknown';
+  const message = typeof err.message === 'string' ? err.message.slice(0, 200) : 'unknown error';
+  return `${message} (code ${code})`;
+}
+
+function abortPromise(signal?: AbortSignal): Promise<never> {
+  if (!signal) {
+    return new Promise<never>(() => undefined);
+  }
+  if (signal.aborted) {
+    return Promise.reject(new DOMException('Aborted', 'AbortError'));
+  }
+  return new Promise<never>((_resolve, reject) => {
+    signal.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')), {
+      once: true,
+    });
+  });
+}
+
+async function readChunkWithAbort(
+  reader: ReadableStreamDefaultReader<Uint8Array>,
+  signal?: AbortSignal,
+): Promise<ReadableStreamReadResult<Uint8Array>> {
+  return Promise.race([reader.read(), abortPromise(signal)]);
+}
+
+function extractSseData(frame: string): string | undefined {
+  const dataLines: string[] = [];
+  for (const line of frame.replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n')) {
+    if (!line || line.startsWith(':')) continue;
+    const colon = line.indexOf(':');
+    const field = colon === -1 ? line : line.slice(0, colon);
+    if (field !== 'data') continue;
+    let value = colon === -1 ? '' : line.slice(colon + 1);
+    if (value.startsWith(' ')) value = value.slice(1);
+    dataLines.push(value);
+  }
+  if (dataLines.length === 0) return undefined;
+  return dataLines.join('\n');
+}
+
+async function readStreamableHttpJsonRpcResponse(
+  resp: Response,
+  context: StreamableHttpReadContext,
+): Promise<Record<string, unknown>> {
+  const contentType = getContentType(resp);
+  if (!contentType.includes('text/event-stream')) {
+    try {
+      return (await resp.json()) as Record<string, unknown>;
+    } catch (err) {
+      throw new TransportError(
+        context.serverName,
+        `Failed to parse JSON response for ${context.operation}: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+  }
+
+  if (!resp.body) {
+    throw new TransportError(
+      context.serverName,
+      `Streamable HTTP ${context.operation} response had no body`,
+    );
+  }
+
+  const reader = resp.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+  let bufferedBytes = 0;
+
+  try {
+    while (true) {
+      const { value, done } = await readChunkWithAbort(reader, context.signal);
+      if (done) break;
+      const chunk = decoder.decode(value, { stream: true });
+      bufferedBytes += value.byteLength;
+      if (bufferedBytes > STREAMABLE_HTTP_SSE_BUFFER_LIMIT_BYTES) {
+        throw new TransportError(
+          context.serverName,
+          `Streamable HTTP ${context.operation} SSE buffer exceeded limit`,
+        );
+      }
+      buffer += chunk;
+
+      let boundary = buffer.search(/\r?\n\r?\n/);
+      while (boundary !== -1) {
+        const match = buffer.match(/\r?\n\r?\n/);
+        if (!match || match.index === undefined) break;
+        const frame = buffer.slice(0, match.index);
+        buffer = buffer.slice(match.index + match[0].length);
+        bufferedBytes = new TextEncoder().encode(buffer).byteLength;
+
+        if (new TextEncoder().encode(frame).byteLength > STREAMABLE_HTTP_SSE_FRAME_LIMIT_BYTES) {
+          throw new TransportError(
+            context.serverName,
+            `Streamable HTTP ${context.operation} SSE frame exceeded limit`,
+          );
+        }
+
+        const data = extractSseData(frame);
+        if (!data) {
+          boundary = buffer.search(/\r?\n\r?\n/);
+          continue;
+        }
+
+        let parsed: unknown;
+        try {
+          parsed = JSON.parse(data);
+        } catch {
+          throw new TransportError(
+            context.serverName,
+            `Malformed Streamable HTTP SSE data for ${context.operation}`,
+          );
+        }
+
+        if (isJsonRpcResponseForId(parsed, context.expectedId)) {
+          return parsed;
+        }
+        boundary = buffer.search(/\r?\n\r?\n/);
+      }
+    }
+  } finally {
+    try {
+      reader.releaseLock();
+    } catch {
+      // ignore release failures during abort
+    }
+  }
+
+  throw new TransportError(
+    context.serverName,
+    `Stream ended before JSON-RPC response for ${context.operation}`,
+  );
+}
+
+async function readStreamableHttpNotificationError(
+  resp: Response,
+  serverName: string,
+): Promise<string | undefined> {
+  if (resp.status === 202 || resp.status === 204) return undefined;
+  const contentType = getContentType(resp);
+  if (contentType.includes('application/json')) {
+    try {
+      const body = (await resp.json()) as Record<string, unknown>;
+      if (body.error) return sanitizeJsonRpcError(body.error);
+    } catch {
+      return 'malformed JSON error body';
+    }
+  }
+  if (contentType.includes('text/event-stream')) {
+    return `Streamable HTTP notification returned SSE body on MCP server '${serverName}'`;
+  }
+  return undefined;
+}
 
 function normalizeMcpServers(config: SaivageConfig): Record<string, McpServerConfig> {
   const raw = config.mcpServers ?? {};
@@ -891,6 +1072,9 @@ export class McpManager {
           headers: {
             'Content-Type': 'application/json',
             Accept: 'application/json, text/event-stream',
+            ...(handle?.streamableHttpSessionId
+              ? { 'Mcp-Session-Id': handle.streamableHttpSessionId }
+              : {}),
           },
           body: JSON.stringify(request),
           signal: invokeAbort.signal,
@@ -911,12 +1095,17 @@ export class McpManager {
 
       let body: Record<string, unknown>;
       try {
-        body = (await resp.json()) as Record<string, unknown>;
-      } catch (err) {
-        throw new TransportError(
+        body = await readStreamableHttpJsonRpcResponse(resp, {
           serverName,
-          `Failed to parse JSON response: ${err instanceof Error ? err.message : String(err)}`,
-        );
+          operation: 'tools/call',
+          expectedId: requestId,
+          signal: invokeAbort.signal,
+        });
+      } catch (err) {
+        if (invokeAbort.signal.aborted) {
+          throw new TimeoutError(serverName, toolName, timeoutMs);
+        }
+        throw err;
       }
 
       return this._processToolsCallResponse(body, serverName, toolName);
@@ -1269,117 +1458,164 @@ export class McpManager {
     }
 
     const handle = this.handles.get(name);
-    const signal = handle?.abortController?.signal;
+    const discoveryAbort = new AbortController();
+    const timeoutId = setTimeout(() => discoveryAbort.abort(), MCP_DISCOVERY_TIMEOUT_MS);
+    const serverSignal = handle?.abortController?.signal;
+    if (serverSignal) {
+      serverSignal.addEventListener('abort', () => discoveryAbort.abort(), { once: true });
+    }
 
     const tools: McpToolDefinition[] = [];
 
-    // ── Step 1: Initialize via HTTP POST ────────────────────
-    const initId = this.nextMsgId++;
-    const initReq: McpJsonRpcRequest = {
-      jsonrpc: '2.0',
-      id: initId,
-      method: 'initialize',
-      params: {
-        protocolVersion: MCP_PROTOCOL_VERSION,
-        capabilities: {},
-        clientInfo: {
-          name: CLIENT_NAME,
-          version: CLIENT_VERSION,
-        },
-      },
-    };
-
-    const initResp = await fetch(cfg.url, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Accept: 'application/json, text/event-stream',
-      },
-      body: JSON.stringify(initReq),
-      signal,
-    });
-
-    if (!initResp.ok) {
-      throw new Error(`Initialize HTTP POST returned status ${initResp.status}`);
-    }
-
-    const initBody = (await initResp.json()) as Record<string, unknown>;
-
-    if (initBody.error) {
-      const err = initBody.error as { message: string; code: number };
-      throw new Error(`Initialize failed: ${err.message} (code ${err.code})`);
-    }
-
-    // ── Step 2: Send initialized notification ───────────────
-    const initializedNotification = {
-      jsonrpc: '2.0',
-      method: 'notifications/initialized',
-    };
-
-    await fetch(cfg.url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(initializedNotification),
-      signal,
-    });
-    // Notifications return HTTP 202; we don't need to parse the body
-
-    // ── Step 3: tools/list ──────────────────────────────────
-    let cursor: string | undefined;
-    let firstPage = true;
-
-    do {
-      const listId = this.nextMsgId++;
-      const listReq: McpJsonRpcRequest = {
+    try {
+      // ── Step 1: Initialize via HTTP POST ────────────────────
+      const initId = this.nextMsgId++;
+      const initReq: McpJsonRpcRequest = {
         jsonrpc: '2.0',
-        id: listId,
-        method: 'tools/list',
+        id: initId,
+        method: 'initialize',
+        params: {
+          protocolVersion: MCP_PROTOCOL_VERSION,
+          capabilities: {},
+          clientInfo: {
+            name: CLIENT_NAME,
+            version: CLIENT_VERSION,
+          },
+        },
       };
-      if (!firstPage && cursor) {
-        listReq.params = { cursor };
-      }
-      firstPage = false;
 
-      const listResp = await fetch(cfg.url, {
+      const initResp = await fetch(cfg.url, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           Accept: 'application/json, text/event-stream',
         },
-        body: JSON.stringify(listReq),
-        signal,
+        body: JSON.stringify(initReq),
+        signal: discoveryAbort.signal,
       });
 
-      if (!listResp.ok) {
-        throw new Error(`tools/list HTTP POST returned status ${listResp.status}`);
+      if (!initResp.ok) {
+        throw new Error(`Initialize HTTP POST returned status ${initResp.status}`);
       }
 
-      const listBody = (await listResp.json()) as Record<string, unknown>;
-
-      if (listBody.error) {
-        const err = listBody.error as { message: string; code: number };
-        throw new Error(`tools/list failed: ${err.message} (code ${err.code})`);
+      const sessionId =
+        initResp.headers?.get?.('Mcp-Session-Id') ?? initResp.headers?.get?.('mcp-session-id');
+      if (sessionId && handle) {
+        handle.streamableHttpSessionId = sessionId;
       }
 
-      const result = listBody.result as
-        | (Record<string, unknown> & {
-            tools?: McpToolDefinition[];
-            nextCursor?: string;
-          })
-        | undefined;
+      const initBody = await readStreamableHttpJsonRpcResponse(initResp, {
+        serverName: name,
+        operation: 'initialize',
+        expectedId: initId,
+        signal: discoveryAbort.signal,
+      });
 
-      if (result && Array.isArray(result.tools)) {
-        tools.push(...result.tools);
-        cursor = result.nextCursor;
-      } else {
-        cursor = undefined;
+      if (initBody.error) {
+        const err = initBody.error as { message: string; code: number };
+        throw new Error(`Initialize failed: ${err.message} (code ${err.code})`);
       }
-    } while (cursor);
 
-    // ── Cache and mark initialized ─────────────────────────
-    this.toolsCache.set(name, tools);
-    this._clearArgumentValidatorCacheForServer(name);
-    this.toolsCacheInitialized.add(name);
+      // ── Step 2: Send initialized notification ───────────────
+      const initializedNotification = {
+        jsonrpc: '2.0',
+        method: 'notifications/initialized',
+      };
+
+      const notificationResp = await fetch(cfg.url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Accept: 'application/json, text/event-stream',
+          ...(handle?.streamableHttpSessionId
+            ? { 'Mcp-Session-Id': handle.streamableHttpSessionId }
+            : {}),
+        },
+        body: JSON.stringify(initializedNotification),
+        signal: discoveryAbort.signal,
+      });
+      if (!notificationResp.ok) {
+        throw new Error(
+          `notifications/initialized HTTP POST returned status ${notificationResp.status}`,
+        );
+      }
+      const notificationError = await readStreamableHttpNotificationError(notificationResp, name);
+      if (notificationError) {
+        throw new Error(`notifications/initialized failed: ${notificationError}`);
+      }
+
+      // ── Step 3: tools/list ──────────────────────────────────
+      let cursor: string | undefined;
+      let firstPage = true;
+
+      do {
+        const listId = this.nextMsgId++;
+        const listReq: McpJsonRpcRequest = {
+          jsonrpc: '2.0',
+          id: listId,
+          method: 'tools/list',
+        };
+        if (!firstPage && cursor) {
+          listReq.params = { cursor };
+        }
+        firstPage = false;
+
+        const listResp = await fetch(cfg.url, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Accept: 'application/json, text/event-stream',
+            ...(handle?.streamableHttpSessionId
+              ? { 'Mcp-Session-Id': handle.streamableHttpSessionId }
+              : {}),
+          },
+          body: JSON.stringify(listReq),
+          signal: discoveryAbort.signal,
+        });
+
+        if (!listResp.ok) {
+          throw new Error(`tools/list HTTP POST returned status ${listResp.status}`);
+        }
+
+        const listBody = await readStreamableHttpJsonRpcResponse(listResp, {
+          serverName: name,
+          operation: 'tools/list',
+          expectedId: listId,
+          signal: discoveryAbort.signal,
+        });
+
+        if (listBody.error) {
+          const err = listBody.error as { message: string; code: number };
+          throw new Error(`tools/list failed: ${err.message} (code ${err.code})`);
+        }
+
+        const result = listBody.result as
+          | (Record<string, unknown> & {
+              tools?: McpToolDefinition[];
+              nextCursor?: string;
+            })
+          | undefined;
+
+        if (result && Array.isArray(result.tools)) {
+          tools.push(...result.tools);
+          cursor = result.nextCursor;
+        } else {
+          cursor = undefined;
+        }
+      } while (cursor);
+
+      // ── Cache and mark initialized ─────────────────────────
+      this.toolsCache.set(name, tools);
+      this._clearArgumentValidatorCacheForServer(name);
+      this.toolsCacheInitialized.add(name);
+    } catch (err) {
+      if (discoveryAbort.signal.aborted && !serverSignal?.aborted) {
+        throw new Error(`SSE discovery timed out after ${MCP_DISCOVERY_TIMEOUT_MS}ms`);
+      }
+      throw err;
+    } finally {
+      clearTimeout(timeoutId);
+    }
   }
 
   /**
