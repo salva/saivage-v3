@@ -67,9 +67,19 @@ async function importCli() {
 
 describe('CLI Entry Point', () => {
   let run: (args: string[]) => Promise<void>;
+  let importSideEffects: { logCalls: number; errorCalls: number; exitCalls: number };
+  const originalArgv1 = process.argv[1];
 
   beforeAll(async () => {
+    process.argv[1] = '/tmp/not-the-entrypoint/saivage';
     const cli = await importCli();
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    importSideEffects = {
+      logCalls: mockLog.mock.calls.length,
+      errorCalls: mockError.mock.calls.length,
+      exitCalls: mockExit.mock.calls.length,
+    };
+    process.argv[1] = originalArgv1;
     run = cli.run;
   });
 
@@ -97,8 +107,15 @@ describe('CLI Entry Point', () => {
   });
 
   afterAll(() => {
+    process.argv[1] = originalArgv1;
     console.log = origLog;
     console.error = origError;
+  });
+
+  describe('entrypoint guard', () => {
+    it('does not auto-run when imported with a different argv path named saivage', () => {
+      expect(importSideEffects).toEqual({ logCalls: 0, errorCalls: 0, exitCalls: 0 });
+    });
   });
 
   describe('saivage help', () => {
