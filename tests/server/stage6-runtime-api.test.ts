@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from '@jest/globals';
+import { describe, it, expect, beforeEach, afterEach, jest } from '@jest/globals';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -45,6 +45,31 @@ describe('stage-6 runtime API', () => {
     const notes = getNotes(saivageDir(), 'project').filter((note) => note.content.includes('project_needs_corrections'));
     expect(notes).toHaveLength(1);
     expect(JSON.stringify(notes)).not.toContain('hunter2');
+  });
+
+  it('requests activeRuntime wakeup for lets_dance when the project is active', async () => {
+    await server.stop();
+    const store = new CardStore(root);
+    store.update('project', { status: 'active' });
+    updateRuntimeState(root, { status: 'idle', paused: false, active_card_run: null });
+    server = await createServer(root, true);
+    store.update('project', { status: 'active' });
+    expect(server.activeRuntime).toBeDefined();
+    const wakeupSpy = jest.spyOn(server.activeRuntime!, 'requestProjectDirectiveWakeup').mockResolvedValue({ accepted: true, reason: 'lets_dance' });
+
+    const response = await server.fastify.inject({ method: 'POST', url: '/api/runtime/lets_dance' });
+
+    expect(response.statusCode).toBe(200);
+    expect(wakeupSpy).toHaveBeenCalledTimes(1);
+    expect(wakeupSpy).toHaveBeenCalledWith('lets_dance');
+    expect(response.json()).toEqual(expect.objectContaining({
+      directive_recorded: true,
+      runtime_status: 'idle',
+      outcome: 'wakeup_requested',
+      directive_state: 'recorded',
+      project_status: 'active',
+      wakeup_requested: true,
+    }));
   });
 
   it('records goal needs_corrections with the canonical AnalystIssue shape and no resumed planner session id', async () => {
