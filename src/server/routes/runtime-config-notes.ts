@@ -9,7 +9,7 @@ import { CardStore, type CardStoreHealth } from '../../utils/card-store.js';
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { evaluateAuthz, type ActorRole, type SafetyClass } from '../../agents/authz.js';
-import { recordControlAction, stableStringify, hashPreviewParams, listControlActions } from '../../utils/control-action-audit.js';
+import { recordControlAction, stableStringify, listControlActions } from '../../utils/control-action-audit.js';
 import { readFreezeManifest, clearFreezeManifest } from '../../utils/freeze-manifest.js';
 import { NotificationCenter } from '../../utils/notification-center.js';
 import { operatorApiContracts, type ServerAvailability } from '../../contracts/operator-api.js';
@@ -64,10 +64,8 @@ export async function runMutatingRoute(options: MutatingRouteOptions): Promise<F
   const actor = actorFromRequest(request);
   const surface = 'rest' as const;
   const bodyRecord = (request.body ?? {}) as Record<string, unknown>;
-  const confirmed = bodyRecord['confirmed'] === true;
-  const providedPreviewHash = typeof bodyRecord['preview_hash'] === 'string' ? bodyRecord['preview_hash'] : undefined;
   const paramsValue = { body: request.body, params: request.params };
-  const auditBase = { actor, surface, action, target_kind, target_id, confirmed, params_summary: paramsSummary(paramsValue) };
+  const auditBase = { actor, surface, action, target_kind, target_id, confirmed: true, params_summary: paramsSummary(paramsValue) };
   const verdict = evaluateAuthz({ actor, surface, safety_class });
 
   if (verdict === 'deny') {
@@ -76,11 +74,8 @@ export async function runMutatingRoute(options: MutatingRouteOptions): Promise<F
   }
 
   if (verdict === 'preview_only') {
-    const previewHash = hashPreviewParams(paramsValue);
-    if (confirmed !== true || providedPreviewHash !== previewHash) {
-      recordControlAction(projectRoot, { ...auditBase, outcome: 'rejected', outcome_summary: 'preview-only: confirmation and matching preview_hash required' });
-      return reply.status(409).send({ error: 'Preview confirmation required for this action.', preview, preview_hash: previewHash });
-    }
+    recordControlAction(projectRoot, { ...auditBase, outcome: 'rejected', outcome_summary: 'preview-only authorization is not executable through confirmed/preview_hash mutation contracts' });
+    return reply.status(403).send({ error: 'Action requires a directly authorized surface; confirmed/preview_hash confirmation is no longer accepted.', preview });
   }
 
   const result = await mutate();
