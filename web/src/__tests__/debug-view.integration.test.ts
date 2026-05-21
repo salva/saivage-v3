@@ -121,7 +121,7 @@ const mockDoctorOk: DoctorResponse = { status: 'ok', checks: [{ name: 'card-inde
 const mockSupervisionResponse: SupervisionResponse = { reviews: [], quarantine: [], stats: { total: 0, blocked: 0, passed: 0, sanitized: 0, byRisk: {}, bySourceKind: {} } };
 const mockNotesResponse: NotesListResponse = { notes: [{ card_id: 'card-active-1', note_id: 'note-1', timestamp: '2025-06-01T10:03:00Z', kind: 'directive', note: { id: 'note-1', card_id: 'card-active-1', author: 'planner', timestamp: '2025-06-01T10:03:00Z', content: 'Check runtime status before proceeding.', kind: 'directive', handled: false } }], total: 1 };
 const mockNotificationsResponse: NotificationsListResponse = { notifications: [{ id: 'n-1', session_id: null, kind: 'card_changed', severity: 'warn', payload_summary: 'Active card changed', related_card_id: 'card-active-1', source_actor: 'analyst', source_surface: 'rest', created_at: '2025-06-01T10:02:00Z', delivered_at: null, acknowledged_at: null }], total: 1 };
-const mockControlActionsResponse: ControlActionsListResponse = { control_actions: [{ id: 'ca-1', actor: 'analyst', surface: 'web-chat', action: 'card.update', target_kind: 'card', target_id: 'card-active-1', params_summary: 'summary', confirmed: false, outcome: 'rejected', outcome_summary: 'preview-only: confirmation and matching preview_hash required', created_at: '2025-06-01T10:04:00Z' }], total: 1 };
+const mockControlActionsResponse: ControlActionsListResponse = { control_actions: [], total: 0 };
 
 function makeRouter() { return createRouter({ history: createWebHistory(), routes: [{ path: '/files', name: 'files', component: { template: '<div>Files</div>' } }] }); }
 function setupCommonMocks(): void {
@@ -163,13 +163,12 @@ describe('DebugView — integration', () => {
     await clickTab(wrapper, 'Operator Control');
     expect(listNotes).toHaveBeenCalled();
     expect(listNotifications).toHaveBeenCalled();
-    expect(listControlActions).toHaveBeenCalled();
     expect(getDebugState).toHaveBeenCalled();
     expect(wrapper.text()).toContain('Runtime Controls');
     expect(wrapper.text()).toContain('Notifications Inbox (1)');
     expect(wrapper.text()).toContain('Active card changed');
-    expect(wrapper.text()).toContain('Pending confirmations');
-    expect(wrapper.text()).toContain('preview-only');
+    expect(wrapper.text()).toContain('Actionable runtime issues');
+    expect(wrapper.text()).toContain('Runtime Console for command errors');
     expect(wrapper.text()).toContain('Operator Notes (1)');
   });
 

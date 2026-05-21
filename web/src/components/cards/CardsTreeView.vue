@@ -24,7 +24,7 @@
           <!-- Type icon -->
           <span class="node-type-icon">{{ typeIcon(node.card.type) }}</span>
 
-          <!-- Status dot -->
+          <!-- Planner-state dot -->
           <span class="node-status-dot" :class="`status-${node.card.status}`"></span>
 
           <!-- Title -->
@@ -168,9 +168,6 @@ const renderedTree = computed<TreeNode[]>(() => {
   background: #161b22;
 }
 
-.tree-node:has(.status-running) {
-  border-left-color: #58a6ff;
-}
 
 .node-toggle {
   width: 16px;
@@ -209,16 +206,11 @@ const renderedTree = computed<TreeNode[]>(() => {
 .status-drafting { background: #484f58; }
 .status-backlog { background: #8b949e; }
 .status-active { background: #58a6ff; }
-.status-running { background: #3fb950; animation: pulse-dot 2s infinite; }
+.status-running { background: #3fb950; }
 .status-blocked { background: #d29922; }
 .status-done { background: #7ee787; }
 .status-failed { background: #f85149; }
 .status-cancelled { background: #484f58; opacity: 0.5; }
-
-@keyframes pulse-dot {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.4; }
-}
 
 .node-title {
   flex: 1;

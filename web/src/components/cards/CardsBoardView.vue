@@ -8,8 +8,6 @@
         v-for="col in columns"
         :key="col.status"
         class="board-column"
-        @dragover.prevent
-        @drop="handleDrop($event, col.status)"
       >
         <div class="column-header">
           <span class="column-title">
@@ -23,9 +21,7 @@
             v-for="card in col.cards"
             :key="card.id"
             class="board-card"
-            draggable="true"
             @click="emit('select', card.id)"
-            @dragstart="handleDragStart($event, card)"
           >
             <div class="card-header-row">
               <span class="card-type-icon">{{ typeIcon(card.type) }}</span>
@@ -60,7 +56,6 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   select: [id: string];
-  move: [cardId: string, newStatus: CardStatus];
 }>();
 
 const TYPE_ICONS: Record<CardType, string> = {
@@ -89,21 +84,6 @@ const columns = computed<Column[]>(() =>
   })),
 );
 
-let draggingCard: CardRecord | null = null;
-
-function handleDragStart(event: DragEvent, card: CardRecord): void {
-  draggingCard = card;
-  event.dataTransfer!.effectAllowed = 'move';
-  event.dataTransfer!.setData('text/plain', card.id);
-}
-
-function handleDrop(event: DragEvent, newStatus: CardStatus): void {
-  event.preventDefault();
-  if (draggingCard && draggingCard.status !== newStatus) {
-    emit('move', draggingCard.id, newStatus);
-  }
-  draggingCard = null;
-}
 </script>
 
 <style scoped>
@@ -203,10 +183,6 @@ function handleDrop(event: DragEvent, newStatus: CardStatus): void {
 .board-card:hover {
   border-color: #30363d;
   background: #1c2128;
-}
-
-.board-card:active {
-  cursor: grabbing;
 }
 
 .card-header-row {

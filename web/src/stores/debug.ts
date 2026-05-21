@@ -195,9 +195,6 @@ export const useDebugStore = defineStore('debug', () => {
   const error = ref<string | null>(null);
   const activeTab = ref<'state' | 'errors' | 'timeline' | 'supervision'>('state');
 
-  const pendingConfirmations = computed(() => {
-    return controlActions.value.filter((entry) => entry.outcome === 'rejected' && entry.outcome_summary.toLowerCase().includes('preview-only'));
-  });
 
   const eventDerivedErrors = computed<DebugError[]>(() =>
     timelineEvents.value
@@ -787,7 +784,6 @@ export const useDebugStore = defineStore('debug', () => {
     controlActionsLoading: readonly(controlActionsLoading),
     controlActionsError: readonly(controlActionsError),
     controlActionsState: readonly(controlActionsState),
-    pendingConfirmations,
     runtimeControlLoading: readonly(runtimeControlLoading),
     runtimeControlError: readonly(runtimeControlError),
     runtimeControlSuccess: readonly(runtimeControlSuccess),

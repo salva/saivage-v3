@@ -83,7 +83,6 @@
           :board="board"
           :filtered-cards="filteredCards"
           @select="selectCard"
-          @move="handleBoardMove"
         />
 
         <!-- Leaderboard View -->
@@ -171,16 +170,14 @@
         </div>
       </div>
 
-      <!-- Card Action Menu -->
+      <!-- Card Planning Menu -->
       <div v-if="actionMenuTarget" class="modal-overlay" @click.self="actionMenuTarget = null">
         <div class="action-menu" :style="actionMenuStyle">
           <div class="action-menu-header">{{ actionMenuTarget.title }}</div>
-          <button @click="doAction('edit')">✏️ Edit</button>
-          <button @click="doAction('note')">📝 Add Note</button>
-          <button @click="doAction('move')">📁 Move</button>
-          <button class="danger-action" @click="doAction('abort')">🛑 Abort</button>
-          <button class="danger-action" @click="doAction('restart')">🔄 Restart</button>
-          <button class="danger-action" @click="doAction('delete')">🗑️ Delete</button>
+          <p class="action-menu-note">Planning metadata only. Execution is controlled from Runtime Console and activation records.</p>
+          <button @click="doAction('edit')">✏️ Open Details</button>
+          <button @click="doAction('note')">📝 Review Notes</button>
+          <button class="danger-action" @click="doAction('delete')">🗑️ Delete Draft Metadata</button>
         </div>
       </div>
     </template>
@@ -330,13 +327,6 @@ function handleTreeAction(card: CardRecord, event: MouseEvent): void {
   };
 }
 
-function handleBoardMove(cardId: string, newStatus: CardStatus): void {
-  cardStore.editCard(cardId, { status: newStatus }).catch((err) => {
-    const msg = err instanceof Error ? err.message : 'Failed';
-    log.error('board move', msg);
-  });
-}
-
 function resetFormErrors(): void {
   formErrors.title = '';
   formErrors.parent = '';
@@ -403,19 +393,6 @@ async function doAction(action: string): Promise<void> {
     case 'note':
       // TODO: Open note dialog
       selectCard(card.id);
-      break;
-    case 'move':
-      // TODO: Open move dialog
-      break;
-    case 'abort':
-      if (confirm(`Abort "${card.title}" (${card.id})?`)) {
-        await cardStore.editCard(card.id, { status: 'cancelled' });
-      }
-      break;
-    case 'restart':
-      if (confirm(`Restart "${card.title}" (${card.id})?`)) {
-        await cardStore.editCard(card.id, { status: 'backlog', error: null });
-      }
       break;
     case 'delete':
       if (confirm(`Delete "${card.title}" (${card.id})? This cannot be undone.`)) {

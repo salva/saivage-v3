@@ -34,9 +34,13 @@ const apiState = vi.hoisted(() => {
     current_agent_session_id: 'planner-smoke',
     paused: false,
     paused_at: null,
-    queue: ['card-next'],
+    queue: [],
     running_processes: ['proc-smoke'],
     updated_at: now,
+    runtime_intent: { status: 'running', updated_at: now, source_command_id: 'cmd-smoke' },
+    runtime_commands: [{ command_id: 'cmd-smoke', command: 'start_project', status: 'completed', requested_at: now, completed_at: now, source: 'operator' }],
+    runtime_runs: [{ run_id: 'run-smoke', kind: 'root', card_id: 'project-smoke', command_id: 'cmd-smoke', phase: 'planner', runtime_status: 'running', session_id: 'planner-smoke', started_at: now, updated_at: now }],
+    runtime_activations: [{ activation_id: 'act-smoke', idempotency_key: 'idem-smoke', parent_card_id: 'project-smoke', parent_run_id: 'run-smoke', parent_session_id: 'planner-smoke', parent_tool_call_id: 'tool-smoke', child_card_id: 'card-smoke', status: 'running', requested_at: now, updated_at: now, precondition: 'accepted', runtime_run_id: 'run-child-smoke' }],
   } as RuntimeState;
   const runtimePaused = {
     ...runtimeRunning,
@@ -283,6 +287,8 @@ vi.mock('../api/client', () => {
     getRuntimeState: vi.fn(async () => apiState.runtimeResponse),
     pauseRuntime: vi.fn(async () => ({ ...apiState.runtimePaused })),
     resumeRuntime: vi.fn(async () => ({ ...apiState.runtimeRunning })),
+    startProject: vi.fn(async () => ({ success: true, command: { command_id: 'cmd-smoke-start', command: 'start_project', status: 'completed', requested_at: apiState.now, completed_at: apiState.now, source: 'operator' }, intent: { status: 'running', updated_at: apiState.now, source_command_id: 'cmd-smoke-start' } })),
+    stopProject: vi.fn(async () => ({ success: true, command: { command_id: 'cmd-smoke-stop', command: 'stop_project', status: 'completed', requested_at: apiState.now, completed_at: apiState.now, source: 'operator' }, intent: { status: 'stopped', updated_at: apiState.now, source_command_id: 'cmd-smoke-stop' } })),
     listCards: vi.fn(async () => cardList),
     getCard: vi.fn(async () => cardDetail),
     createCard: vi.fn(),
@@ -377,7 +383,15 @@ describe('operator dashboard synthetic smoke guard', () => {
     });
     await settle();
 
-    const { pauseRuntime, resumeRuntime } = await import('../api/client');
+    const { pauseRuntime, resumeRuntime, stopProject } = await import('../api/client');
+    expect(wrapper.text()).toContain('Runtime Console');
+    expect(wrapper.text()).toContain('Activation Edges');
+    expect(wrapper.get('.stop-project').text()).toContain('Stop Project');
+    vi.mocked(stopProject).mockClear();
+    await wrapper.get('.stop-project').trigger('click');
+    await settle();
+    expect(stopProject).toHaveBeenCalledTimes(1);
+
     expect(wrapper.get('.pause-chip').text()).toContain('Pause');
     await wrapper.get('.pause-chip').trigger('click');
     await settle();
@@ -386,6 +400,14 @@ describe('operator dashboard synthetic smoke guard', () => {
     await wrapper.get('.pause-chip').trigger('click');
     await settle();
     expect(resumeRuntime).toHaveBeenCalledTimes(1);
+    expect(wrapper.text()).toContain('Runtime Console');
+    expect(wrapper.text()).toContain('Activation Edges');
+    expect(wrapper.get('.stop-project').text()).toContain('Stop Project');
+    vi.mocked(stopProject).mockClear();
+    await wrapper.get('.stop-project').trigger('click');
+    await settle();
+    expect(stopProject).toHaveBeenCalledTimes(1);
+
     expect(wrapper.get('.pause-chip').text()).toContain('Pause');
 
     window.dispatchEvent(new CustomEvent(API_AUTH_REQUIRED_EVENT, { detail: { status: 401, path: '/api/state' } }));

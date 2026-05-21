@@ -84,9 +84,9 @@
       </div>
     </section>
 
-    <section class="status-panel" aria-label="Runtime Status">
+    <section class="status-panel runtime-console" aria-label="Runtime Console">
       <div class="panel-header">
-        <h2 class="panel-title">Runtime Status</h2>
+        <h2 class="panel-title">Runtime Console</h2>
         <button
           class="refresh-btn"
           :disabled="runtimeLoading"
@@ -105,70 +105,119 @@
       </template>
 
       <template v-else>
+        <div class="status-section runtime-controls">
+          <h3 class="section-label">Execution Controls</h3>
+          <div class="runtime-command-row">
+            <button class="runtime-command start-project" :disabled="Boolean(startDisabledReason)" :title="startDisabledReason || 'Start root project execution'" @click="startProject">Start Project</button>
+            <button class="runtime-command stop-project" :disabled="Boolean(stopDisabledReason)" :title="stopDisabledReason || 'Stop root project execution'" @click="stopProject">Stop Project</button>
+          </div>
+          <p v-if="commandDisabledReason" class="operator-help">{{ commandDisabledReason }}</p>
+          <p v-else-if="intent?.status === 'running'" class="operator-help">Root execution intent is running; child work starts only from recorded activation edges.</p>
+          <p v-else class="operator-help">Root execution is stopped until an operator starts the project.</p>
+        </div>
+
+        <div v-if="lastActionableError" class="status-section actionable-error" role="alert">
+          <h3 class="section-label">Actionable Runtime Issue</h3>
+          <p class="actionable-message">{{ lastActionableError.message }}</p>
+          <p class="actionable-next">Next: {{ lastActionableError.nextAction }}</p>
+          <div class="actionable-meta">
+            <span v-if="lastActionableError.code">{{ lastActionableError.code }}</span>
+            <span v-if="lastActionableError.cardId">card {{ lastActionableError.cardId }}</span>
+            <span v-if="lastActionableError.runId">run {{ lastActionableError.runId }}</span>
+          </div>
+        </div>
+
         <div class="status-section">
-          <h3 class="section-label">Current Work</h3>
+          <h3 class="section-label">Runtime Intent</h3>
           <div class="status-grid">
             <div class="status-item">
-              <span class="status-key">Status</span>
+              <span class="status-key">Intent</span>
+              <span class="status-value">{{ intent?.status ?? 'unknown' }}</span>
+            </div>
+            <div class="status-item">
+              <span class="status-key">Updated</span>
+              <span class="status-value">{{ shortTime(intent?.updated_at) }}</span>
+            </div>
+            <div class="status-item">
+              <span class="status-key">Live State</span>
+              <span class="status-value">{{ liveUpdateLabel }}</span>
+            </div>
+            <div class="status-item">
+              <span class="status-key">Last Command</span>
+              <span class="status-value">{{ lastCommand ? `${lastCommand.command} · ${lastCommand.status}` : 'none' }}</span>
+            </div>
+          </div>
+          <p class="operator-help">{{ liveUpdateDetail }}</p>
+        </div>
+
+        <div class="status-section">
+          <h3 class="section-label">Root Run</h3>
+          <div class="status-grid">
+            <div class="status-item">
+              <span class="status-key">Runtime</span>
               <span class="status-chip" :class="`rt-${statusLabel}`">
                 <span class="chip-dot"></span>
                 {{ statusLabel }}
               </span>
             </div>
             <div class="status-item">
-              <span class="status-key">Active Card</span>
-              <span v-if="currentCardId" class="status-value clickable" @click="goToCard(currentCardId)">
-                {{ currentCardId }}
-              </span>
-              <span v-else class="status-value dim">none</span>
-            </div>
-          </div>
-        </div>
-
-        <div class="status-section">
-          <h3 class="section-label">
-            Workers
-            <span v-if="runningProcessCount" class="section-badge">{{ runningProcessCount }}</span>
-          </h3>
-          <div class="status-list">
-            <div class="status-item">
-              <span class="status-key">Processes</span>
-              <span class="status-value">{{ runningProcessCount }} running</span>
-            </div>
-            <div class="status-item">
-              <span class="status-key">Agent Session</span>
-              <span v-if="currentAgentSessionId" class="status-value clickable" @click="goToAgent(currentAgentSessionId)">
-                {{ currentAgentSessionId.slice(0, 12) }}...
-              </span>
-              <span v-else class="status-value dim">none</span>
-            </div>
-          </div>
-        </div>
-
-        <div class="status-section">
-          <h3 class="section-label">
-            Runtime Runs
-            <span v-if="activeChildRuns.length" class="section-badge">{{ activeChildRuns.length }}</span>
-          </h3>
-          <div class="status-list">
-            <div class="status-item">
-              <span class="status-key">Intent</span>
-              <span class="status-value">{{ intent?.status ?? 'unknown' }}</span>
-            </div>
-            <div class="status-item">
-              <span class="status-key">Root Run</span>
+              <span class="status-key">Current Run</span>
               <span v-if="currentRun" class="status-value clickable" @click="goToCard(currentRun.card_id)">
                 {{ currentRun.card_id }} · {{ currentRun.phase }}
               </span>
               <span v-else class="status-value dim">none</span>
             </div>
             <div class="status-item">
-              <span class="status-key">Active Children</span>
-              <span class="status-value">{{ activeChildRuns.length }}</span>
+              <span class="status-key">Session</span>
+              <span v-if="currentRun?.session_id" class="status-value clickable" @click="goToAgent(currentRun.session_id)">{{ currentRun.session_id.slice(0, 12) }}...</span>
+              <span v-else-if="currentAgentSessionId" class="status-value clickable" @click="goToAgent(currentAgentSessionId)">{{ currentAgentSessionId.slice(0, 12) }}...</span>
+              <span v-else class="status-value dim">none</span>
             </div>
             <div class="status-item">
-              <span class="status-key">Activations</span>
-              <span class="status-value">{{ activations.length }}</span>
+              <span class="status-key">Processes</span>
+              <span class="status-value">{{ runningProcessCount }} observed</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="status-section runtime-record-list">
+          <h3 class="section-label">
+            Active Child Runs
+            <span v-if="activeChildRuns.length" class="section-badge">{{ activeChildRuns.length }}</span>
+          </h3>
+          <div v-if="activeChildRuns.length === 0" class="status-value dim list-empty">none</div>
+          <button v-for="run in activeChildRuns" :key="run.run_id" class="record-row" @click="goToCard(run.card_id)">
+            <span>{{ run.card_id }}</span>
+            <span>{{ run.phase }} · {{ run.runtime_status }}</span>
+          </button>
+        </div>
+
+        <div class="status-section runtime-record-list">
+          <h3 class="section-label">
+            Activation Edges
+            <span v-if="activations.length" class="section-badge">{{ activations.length }}</span>
+          </h3>
+          <div v-if="activations.length === 0" class="status-value dim list-empty">none</div>
+          <button v-for="activation in activations.slice(-5).reverse()" :key="activation.activation_id" class="record-row" @click="goToCard(activation.child_card_id)">
+            <span>{{ activation.parent_card_id }} → {{ activation.child_card_id }}</span>
+            <span>{{ activation.status }} · {{ activation.precondition }}</span>
+          </button>
+        </div>
+
+        <div class="status-section">
+          <h3 class="section-label">Restart / Recovery Evidence</h3>
+          <div class="status-grid">
+            <div class="status-item">
+              <span class="status-key">Last REST Sync</span>
+              <span class="status-value">{{ shortTime(lastFetchedAt) }}</span>
+            </div>
+            <div class="status-item">
+              <span class="status-key">Last WS Event</span>
+              <span class="status-value">{{ shortTime(lastWsEventAt) }}</span>
+            </div>
+            <div class="status-item">
+              <span class="status-key">Updated By</span>
+              <span class="status-value">{{ lastUpdatedBy }}</span>
             </div>
           </div>
         </div>
@@ -272,6 +321,15 @@ const {
   isStale: runtimeIsStale,
   isFrozen,
   unauthorized: runtimeUnauthorized,
+  lastCommand,
+  lastActionableError,
+  commandDisabledReason,
+  commandInFlight,
+  liveUpdateLabel,
+  liveUpdateDetail,
+  lastFetchedAt,
+  lastWsEventAt,
+  lastUpdatedBy,
 } = storeToRefs(runtimeStore);
 
 const chatInput = ref('');
@@ -284,6 +342,8 @@ const chatStatusMessage = ref<string | null>(null);
 const chatScrollRef = ref<HTMLElement | null>(null);
 
 const chatInputDisabled = computed(() => wsConnectionState.value !== 'connected');
+const startDisabledReason = computed(() => commandDisabledReason.value || (intent.value?.status === 'running' ? 'Project execution intent is already running.' : null));
+const stopDisabledReason = computed(() => commandDisabledReason.value || (intent.value?.status === 'stopped' ? 'Project execution intent is already stopped.' : null));
 const chatPlaceholder = computed(() => {
   switch (wsConnectionState.value) {
     case 'connected': return 'Message the analyst...';
@@ -349,6 +409,11 @@ function roleLabel(role: string): string {
     tool: 'Tool',
   };
   return labels[role] || role;
+}
+
+function shortTime(ts?: string | null): string {
+  if (!ts) return 'unknown';
+  try { return new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }); } catch { return ts; }
 }
 
 function formatTime(ts: string): string {
@@ -561,6 +626,24 @@ function scrollToBottom(): void {
   });
 }
 
+async function startProject(): Promise<void> {
+  errorMsg.value = null;
+  try {
+    await runtimeStore.startProject();
+  } catch (err: unknown) {
+    errorMsg.value = err instanceof ApiError && err.body?.actionable_error ? null : (err instanceof Error ? err.message : 'Failed to start project runtime');
+  }
+}
+
+async function stopProject(): Promise<void> {
+  errorMsg.value = null;
+  try {
+    await runtimeStore.stopProject();
+  } catch (err: unknown) {
+    errorMsg.value = err instanceof ApiError && err.body?.actionable_error ? null : (err instanceof Error ? err.message : 'Failed to stop project runtime');
+  }
+}
+
 async function refreshRuntime(): Promise<void> {
   errorMsg.value = null;
   try {
@@ -736,10 +819,20 @@ onUnmounted(() => {
 .status-value.danger { color: #f85149; }
 .status-value.clickable { color: #58a6ff; cursor: pointer; text-decoration: underline; text-decoration-color: transparent; transition: text-decoration-color 0.15s; }
 .status-value.clickable:hover { text-decoration-color: #58a6ff; }
-.queue-list { list-style: none; padding: 0; margin: 0; }
-.queue-item { font-size: 12px; color: #58a6ff; font-family: 'SF Mono', monospace; padding: 3px 0; cursor: pointer; text-decoration: underline; text-decoration-color: transparent; transition: text-decoration-color 0.15s; }
-.queue-item:hover { text-decoration-color: #58a6ff; }
-.queue-more { font-size: 11px; color: #484f58; padding: 2px 0; }
+.runtime-command-row { display: flex; gap: 8px; }
+.runtime-command { flex: 1; border: 1px solid #30363d; border-radius: 6px; padding: 7px 8px; color: #f0f6fc; font-size: 12px; font-weight: 600; cursor: pointer; }
+.runtime-command:disabled { opacity: 0.45; cursor: not-allowed; }
+.start-project { background: #238636; border-color: #2ea043; }
+.stop-project { background: #8b1e1e; border-color: #da3633; }
+.operator-help { margin: 8px 0 0; color: #8b949e; font-size: 11px; line-height: 1.4; }
+.actionable-error { background: #241818; border-bottom-color: #da3633; }
+.actionable-message { margin: 0 0 6px; color: #f0f6fc; font-size: 12px; line-height: 1.4; }
+.actionable-next { margin: 0 0 6px; color: #ffa657; font-size: 12px; line-height: 1.4; }
+.actionable-meta { display: flex; flex-wrap: wrap; gap: 6px; color: #8b949e; font: 10px 'SF Mono', monospace; }
+.runtime-record-list { display: flex; flex-direction: column; gap: 6px; }
+.record-row { display: flex; flex-direction: column; gap: 2px; text-align: left; background: #161b22; border: 1px solid #21262d; border-radius: 6px; padding: 7px 8px; color: #c9d1d9; cursor: pointer; font-size: 11px; }
+.record-row span:last-child { color: #8b949e; font-family: 'SF Mono', monospace; }
+.list-empty { text-align: left; font-family: inherit; }
 .status-chip { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 600; font-family: inherit; border: 1px solid transparent; }
 .chip-dot { width: 5px; height: 5px; border-radius: 50%; }
 .rt-running { color: #7ee787; border-color: #238636; background: #1a2418; }

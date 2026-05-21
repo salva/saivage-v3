@@ -20,6 +20,12 @@ function resetTestState() {
   wsTypeHandlers = new Map();
 }
 
+vi.mock('../api/auth', () => ({
+  getAuthToken: vi.fn(() => 'synthetic-dashboard-token'),
+  setAuthToken: vi.fn(),
+  clearAuthToken: vi.fn(),
+}));
+
 vi.mock('../stores/ws', () => ({
   useWsStore: () => ({
     connectionState: _wsConnectionState,
@@ -48,10 +54,10 @@ vi.mock('../api/client', () => {
     }
     get isUnauthorized(): boolean { return this.status === 401; }
   };
-  return { listChatSessions: vi.fn(), getChatMessages: vi.fn(), sendChatMessage: vi.fn(), getRuntimeState: vi.fn(), pauseRuntime: vi.fn(), resumeRuntime: vi.fn(), ApiError };
+  return { listChatSessions: vi.fn(), getChatMessages: vi.fn(), sendChatMessage: vi.fn(), getRuntimeState: vi.fn(), pauseRuntime: vi.fn(), resumeRuntime: vi.fn(), startProject: vi.fn(), stopProject: vi.fn(), ApiError };
 });
 
-import { listChatSessions, getChatMessages, sendChatMessage, getRuntimeState, ApiError } from '../api/client';
+import { listChatSessions, getChatMessages, sendChatMessage, getRuntimeState, startProject, stopProject, ApiError } from '../api/client';
 
 const mockPush = vi.fn();
 vi.mock('vue-router', async (importOriginal) => {
@@ -69,7 +75,11 @@ const mockChatResponse: ChatResponse = {
   message: { id: 'msg-3', session_id: 'chat-sess-1', role: 'assistant', kind: 'text', content: 'I have created **card-abc** for your request.', timestamp: '2025-06-01T10:02:00Z' },
 };
 const mockRuntimeState: RuntimeState = {
-  status: 'running', project_id: 'saivage-v3', pid: 12345, started_at: '2025-06-01T08:00:00Z', current_card_id: 'card-001', current_agent_session_id: 'agent-sess-xyz', paused: false, paused_at: null, queue: ['card-002', 'card-003'], running_processes: ['proc-1'], updated_at: '2025-06-01T10:30:00Z',
+  status: 'running', project_id: 'saivage-v3', pid: 12345, started_at: '2025-06-01T08:00:00Z', current_card_id: 'card-001', current_agent_session_id: 'agent-sess-xyz', paused: false, paused_at: null, queue: [], running_processes: ['proc-1'], updated_at: '2025-06-01T10:30:00Z',
+  runtime_intent: { status: 'running', updated_at: '2025-06-01T10:30:00Z', source_command_id: 'cmd-start' },
+  runtime_commands: [{ command_id: 'cmd-start', command: 'start_project', status: 'completed', requested_at: '2025-06-01T10:00:00Z', completed_at: '2025-06-01T10:00:01Z', source: 'operator' }],
+  runtime_runs: [{ run_id: 'run-root', kind: 'root', card_id: 'card-001', command_id: 'cmd-start', phase: 'planner', runtime_status: 'running', session_id: 'agent-sess-xyz', started_at: '2025-06-01T10:00:01Z', updated_at: '2025-06-01T10:30:00Z' }],
+  runtime_activations: [{ activation_id: 'act-1', idempotency_key: 'idem-1', parent_card_id: 'card-001', parent_run_id: 'run-root', parent_session_id: 'agent-sess-xyz', parent_tool_call_id: 'tool-1', child_card_id: 'card-002', status: 'running', requested_at: '2025-06-01T10:10:00Z', updated_at: '2025-06-01T10:11:00Z', precondition: 'accepted', runtime_run_id: 'run-child' }],
 };
 const mockCardIndex: CardIndex = {
   total: 42, byStatus: { done: 30, failed: 3, blocked: 2, active: 5, backlog: 2 }, byType: { code: 20, test: 10, research: 5, goal: 3, doc: 4 },
@@ -98,6 +108,8 @@ async function mountDashboard(opts?: { runtimeResponse?: any; chatSessionsRespon
   vi.mocked(getChatMessages).mockResolvedValue({ sessionId: 'chat-sess-1', messages: opts?.chatMessagesResponse ?? mockChatHistory });
   vi.mocked(sendChatMessage).mockResolvedValue(mockChatResponse);
   vi.mocked(getRuntimeState).mockResolvedValue(opts?.runtimeResponse ?? mockRuntimeStateResponse);
+  vi.mocked(startProject).mockResolvedValue({ success: true, command: { command_id: 'cmd-new-start', command: 'start_project', status: 'completed', requested_at: '2025-06-01T11:00:00Z', completed_at: '2025-06-01T11:00:01Z', source: 'operator' }, intent: { status: 'running', updated_at: '2025-06-01T11:00:01Z', source_command_id: 'cmd-new-start' } });
+  vi.mocked(stopProject).mockResolvedValue({ success: true, command: { command_id: 'cmd-stop', command: 'stop_project', status: 'completed', requested_at: '2025-06-01T11:05:00Z', completed_at: '2025-06-01T11:05:01Z', source: 'operator' }, intent: { status: 'stopped', updated_at: '2025-06-01T11:05:01Z', source_command_id: 'cmd-stop' } });
 
   const router = makeRouter();
   const wrapper = mount(DashboardView, { global: { plugins: [createPinia(), router] } });
@@ -169,6 +181,33 @@ describe('DashboardView', () => {
   });
 
 
+
+
+  it('renders runtime console controls, intent, run, activation, and recovery observability', async () => {
+    const w = await mountDashboard();
+    expect(w.find('.runtime-console').text()).toContain('Runtime Console');
+    expect(w.find('.start-project').exists()).toBe(true);
+    expect(w.find('.stop-project').exists()).toBe(true);
+    expect(w.text()).toContain('Runtime Intent');
+    expect(w.text()).toContain('start_project · completed');
+    expect(w.text()).toContain('card-001 · planner');
+    expect(w.text()).toContain('card-001 → card-002');
+    expect(w.text()).toContain('Restart / Recovery Evidence');
+    await w.find('.stop-project').trigger('click');
+    await flushPromises();
+    expect(stopProject).toHaveBeenCalledTimes(1);
+  });
+
+  it('shows actionable runtime errors from command failures', async () => {
+    vi.mocked(stopProject).mockRejectedValueOnce(new ApiError(409, 'Cannot stop', {
+      actionable_error: { code: 'runtime_not_running', message: 'Runtime is not running.', nextAction: 'Start the project first.', cardId: 'card-001', runId: 'run-root' },
+    }));
+    const w = await mountDashboard();
+    await w.find('.stop-project').trigger('click');
+    await flushPromises();
+    expect(w.find('.actionable-error').text()).toContain('Runtime is not running.');
+    expect(w.find('.actionable-error').text()).toContain('Start the project first.');
+  });
 
   it('renders CardStore health unknown, ok, and degraded without treating absent as healthy', async () => {
     const unknown = await mountDashboard({ runtimeResponse: mockRuntimeStateResponse });

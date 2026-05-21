@@ -35,7 +35,6 @@
               <div class="dg-item"><span class="dg-key">Current Card:</span><span class="dg-value mono">{{ debugRuntime.current_card_id || 'none' }}</span></div>
               <div class="dg-item"><span class="dg-key">Agent Session:</span><span class="dg-value mono">{{ debugRuntime.current_agent_session_id || 'none' }}</span></div>
               <div class="dg-item"><span class="dg-key">Running Procs:</span><span class="dg-value">{{ debugRuntime.running_processes?.length || 0 }}</span></div>
-              <div class="dg-item"><span class="dg-key">Queue:</span><span class="dg-value">{{ debugRuntime.queue?.length || 0 }} cards</span></div>
             </div>
             <div v-else class="debug-empty">No runtime state.</div>
           </section>
@@ -129,7 +128,16 @@
         </section>
 
         <NotificationsPanel />
-        <PendingConfirmationsPanel />
+
+        <section class="debug-section">
+          <div class="debug-section-header operator-header">
+            <div>
+              <h4 class="debug-section-title">Actionable runtime issues</h4>
+              <p class="operator-subtitle">Tool and runtime precondition failures are reported in Runtime Console with next-action guidance.</p>
+            </div>
+          </div>
+          <div class="debug-empty">Open Dashboard → Runtime Console for command errors, activation failures, and recovery state.</div>
+        </section>
 
         <section class="debug-section">
           <div class="debug-section-header operator-header">
@@ -381,7 +389,6 @@ import { redactObservabilityValue } from '../utils/observabilityRedaction';
 import { useMcpStore } from '../stores/mcp';
 import type { DebugError, DebugTimelineEvent, ProcessView } from '../api/types';
 import NotificationsPanel from '../components/cards/NotificationsPanel.vue';
-import PendingConfirmationsPanel from '../components/cards/PendingConfirmationsPanel.vue';
 
 const debugStore = useDebugStore();
 const mcpStore = useMcpStore();
