@@ -420,6 +420,98 @@ export interface AgentMessage {
 }
 
 export type RuntimeStatus = 'idle' | 'running' | 'paused' | 'error' | 'frozen';
+export type RuntimeIntentStatus = 'running' | 'stopped';
+export type RuntimeCommandName = 'start_project' | 'stop_project';
+export type RuntimeCommandStatus = 'accepted' | 'rejected' | 'completed';
+export type RuntimeRunKind = 'root' | 'child';
+export type RuntimeRunPhase = 'pending' | 'planner' | 'executor' | 'reviewer' | 'completed' | 'failed' | 'blocked' | 'cancelled' | 'stopped';
+export type RuntimeRunStatus = 'idle' | 'running' | 'paused' | 'error' | 'frozen' | 'stopped' | 'cancelled';
+export type RuntimeRunResult = 'done' | 'failed' | 'blocked' | 'cancelled' | 'stopped';
+export type RuntimeActivationStatus = 'pending' | 'running' | 'completed' | 'failed' | 'blocked' | 'cancelled';
+
+export interface ActionableErrorEnvelope {
+  code: string;
+  message: string;
+  acceptedValues?: string[];
+  currentState?: Record<string, unknown>;
+  nextAction: string;
+  docsRef?: string;
+  runId?: string | null;
+  sessionId?: string | null;
+  cardId?: string | null;
+  parentCardId?: string | null;
+  childCardId?: string | null;
+}
+
+export interface RuntimeIntent {
+  status: RuntimeIntentStatus;
+  updated_at: string;
+  source_command_id: string | null;
+  reason?: string | null;
+}
+
+export interface RuntimeCommandRecord {
+  command_id: string;
+  command: RuntimeCommandName;
+  status: RuntimeCommandStatus;
+  requested_at: string;
+  completed_at?: string | null;
+  source: 'operator' | 'tool' | 'runtime';
+  error?: ActionableErrorEnvelope | null;
+}
+
+export interface RuntimeRunRecord {
+  run_id: string;
+  kind: RuntimeRunKind;
+  card_id: string;
+  parent_run_id?: string | null;
+  command_id?: string | null;
+  activation_id?: string | null;
+  phase: RuntimeRunPhase;
+  runtime_status: RuntimeRunStatus;
+  session_id?: string | null;
+  started_at: string;
+  updated_at: string;
+  finished_at?: string | null;
+  result?: RuntimeRunResult | null;
+}
+
+export interface RuntimeActivationRecord {
+  activation_id: string;
+  idempotency_key: string;
+  parent_card_id: string;
+  parent_run_id: string;
+  parent_session_id: string;
+  parent_tool_call_id: string;
+  child_card_id: string;
+  status: RuntimeActivationStatus;
+  requested_at: string;
+  updated_at: string;
+  precondition: 'accepted' | 'rejected';
+  runtime_run_id?: string | null;
+  error?: ActionableErrorEnvelope | null;
+}
+
+export interface RuntimeSummary {
+  intent: RuntimeIntent;
+  currentRun: RuntimeRunRecord | null;
+  activeChildRuns: RuntimeRunRecord[];
+  activations: RuntimeActivationRecord[];
+  lastCommand: RuntimeCommandRecord | null;
+}
+
+export interface RuntimeCommandResponse {
+  success: true;
+  command: RuntimeCommandRecord;
+  intent: RuntimeIntent;
+  run?: RuntimeRunRecord;
+}
+
+export interface RuntimeCommandErrorResponse {
+  success: false;
+  command?: RuntimeCommandRecord;
+  actionable_error: ActionableErrorEnvelope;
+}
 
 export interface RuntimeState {
   status: RuntimeStatus;
@@ -430,10 +522,15 @@ export interface RuntimeState {
   current_agent_session_id?: string | null;
   paused: boolean;
   paused_at?: string | null;
+  /** Temporary debug compatibility only; execution control must use runtime_runs/runtime_activations. */
   queue: string[];
   running_processes: string[];
   updated_at: string;
   frozen_reason?: string | null;
+  runtime_intent?: RuntimeIntent;
+  runtime_commands?: RuntimeCommandRecord[];
+  runtime_runs?: RuntimeRunRecord[];
+  runtime_activations?: RuntimeActivationRecord[];
 }
 
 export interface CardIndex {

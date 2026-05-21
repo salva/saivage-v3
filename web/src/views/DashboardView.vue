@@ -147,18 +147,30 @@
 
         <div class="status-section">
           <h3 class="section-label">
-            Queue
-            <span v-if="queueLength" class="section-badge">{{ queueLength }}</span>
+            Runtime Runs
+            <span v-if="activeChildRuns.length" class="section-badge">{{ activeChildRuns.length }}</span>
           </h3>
-          <div v-if="queueLength === 0" class="status-value dim">Queue empty</div>
-          <ul v-else class="queue-list">
-            <li v-for="cardId in runtime?.queue?.slice(0, 10)" :key="cardId" class="queue-item clickable" @click="goToCard(cardId)">
-              {{ cardId }}
-            </li>
-            <li v-if="(runtime?.queue?.length || 0) > 10" class="queue-more">
-              +{{ (runtime?.queue?.length || 0) - 10 }} more
-            </li>
-          </ul>
+          <div class="status-list">
+            <div class="status-item">
+              <span class="status-key">Intent</span>
+              <span class="status-value">{{ intent?.status ?? 'unknown' }}</span>
+            </div>
+            <div class="status-item">
+              <span class="status-key">Root Run</span>
+              <span v-if="currentRun" class="status-value clickable" @click="goToCard(currentRun.card_id)">
+                {{ currentRun.card_id }} · {{ currentRun.phase }}
+              </span>
+              <span v-else class="status-value dim">none</span>
+            </div>
+            <div class="status-item">
+              <span class="status-key">Active Children</span>
+              <span class="status-value">{{ activeChildRuns.length }}</span>
+            </div>
+            <div class="status-item">
+              <span class="status-key">Activations</span>
+              <span class="status-value">{{ activations.length }}</span>
+            </div>
+          </div>
         </div>
 
         <div class="status-section">
@@ -249,7 +261,10 @@ const {
   statusLabel,
   currentCardId,
   currentAgentSessionId,
-  queueLength,
+  intent,
+  currentRun,
+  activeChildRuns,
+  activations,
   runningProcessCount,
   doneGoals,
   failedBlocked,

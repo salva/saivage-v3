@@ -14,6 +14,7 @@ import type {
   CreateCardPayload,
   UpdateCardPayload,
   RuntimeStateResponse,
+  RuntimeCommandResponse,
   ConfigResponse,
   ProvidersResponse,
   AgentConversationResponse,
@@ -207,6 +208,14 @@ export function deleteCard(id: string): Promise<void> {
 
 export function getRuntimeState(): Promise<RuntimeStateResponse> {
   return operatorRequest('runtime.getState', 'GET', '/api/state') as unknown as Promise<RuntimeStateResponse>;
+}
+
+export function startProject(): Promise<RuntimeCommandResponse> {
+  return operatorRequest('runtime.startProject', 'POST', '/api/runtime/start_project', undefined, {}) as unknown as Promise<RuntimeCommandResponse>;
+}
+
+export function stopProject(): Promise<RuntimeCommandResponse> {
+  return operatorRequest('runtime.stopProject', 'POST', '/api/runtime/stop_project', undefined, {}) as unknown as Promise<RuntimeCommandResponse>;
 }
 
 export function pauseRuntime(): Promise<RuntimeState> {
