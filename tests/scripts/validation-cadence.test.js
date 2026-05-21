@@ -24,6 +24,7 @@ const PACKAGE_SCRIPTS = {
   typecheck: 'tsc --noEmit',
   build: 'tsc',
   test: 'jest',
+  'test:direct': 'node ./node_modules/jest/bin/jest.js',
   'web:typecheck': 'cd web && npm run typecheck',
   'web:test:sweep': 'npm run web:test:control-room && npm run web:test:stores',
   'web:test:operator-smoke': 'cd web && npx vitest run src/__tests__/operator-dashboard-smoke.test.ts',
@@ -203,9 +204,95 @@ describe('validation cadence guard', () => {
       expect(result.runtimeEngineEntriesChecked).toContain('.github/workflows/validation.yml setup-node 22');
       expect(result.runtimeEngineEntriesChecked).toContain('README.md runtime reference');
       expect(result.docsVerifyEntriesChecked).toContain('scripts/docs-verify.sh:4 node-script scripts/check-existing.js');
+      expect(result.failClosedJestGateEntriesChecked).toContain('package.json script test');
+      expect(result.failClosedJestGateEntriesChecked).toContain('package.json script test:direct');
     });
   });
 
+
+
+  it('fails clearly when root npm test uses --passWithNoTests', () => {
+    const packageWithPermissiveTest = JSON.stringify({
+      engines: { node: '>=22.12.0 <23', npm: '>=10 <12' },
+      scripts: {
+        ...PACKAGE_SCRIPTS,
+        test: 'jest --passWithNoTests',
+      },
+    });
+    withFixture(validFiles({ 'package.json': packageWithPermissiveTest }), (root) => {
+      const result = verifyValidationCadence({ root });
+      expect(result.ok).toBe(false);
+      expect(result.failures).toContain('package.json script test must not use --passWithNoTests; root/release Jest gates must fail when no tests are discovered');
+    });
+  });
+
+  it('fails clearly when test:direct uses --passWithNoTests', () => {
+    const packageWithPermissiveDirectTest = JSON.stringify({
+      engines: { node: '>=22.12.0 <23', npm: '>=10 <12' },
+      scripts: {
+        ...PACKAGE_SCRIPTS,
+        'test:direct': 'node ./node_modules/jest/bin/jest.js --passWithNoTests',
+      },
+    });
+    withFixture(validFiles({ 'package.json': packageWithPermissiveDirectTest }), (root) => {
+      const result = verifyValidationCadence({ root });
+      expect(result.ok).toBe(false);
+      expect(result.failures).toContain('package.json script test:direct must not use --passWithNoTests; root/release Jest gates must fail when no tests are discovered');
+    });
+  });
+
+  it('fails clearly when release validation uses --passWithNoTests directly', () => {
+    const packageWithPermissiveRelease = JSON.stringify({
+      engines: { node: '>=22.12.0 <23', npm: '>=10 <12' },
+      scripts: {
+        ...PACKAGE_SCRIPTS,
+        'validate:release': 'npm run typecheck && npm run build && jest --passWithNoTests && npm run web:test:operator-smoke && npm run docs:verify',
+      },
+    });
+    withFixture(validFiles({ 'package.json': packageWithPermissiveRelease }), (root) => {
+      const result = verifyValidationCadence({ root });
+      expect(result.ok).toBe(false);
+      expect(result.failures).toContain('package.json script validate:release must not use --passWithNoTests; root/release Jest gates must fail when no tests are discovered');
+      expect(result.failures).toContain('package.json validation profile validate:release must not use --passWithNoTests; release validation must fail when no tests are discovered');
+    });
+  });
+
+  it('fails clearly when release validation references a local allow-empty Jest script', () => {
+    const packageWithReleaseAllowEmpty = JSON.stringify({
+      engines: { node: '>=22.12.0 <23', npm: '>=10 <12' },
+      scripts: {
+        ...PACKAGE_SCRIPTS,
+        'test:allow-empty': 'jest --passWithNoTests',
+        'validate:release': 'npm run typecheck && npm run build && npm run test:allow-empty && npm run web:test:operator-smoke && npm run docs:verify',
+      },
+    });
+    withFixture(validFiles({ 'package.json': packageWithReleaseAllowEmpty }), (root) => {
+      const result = verifyValidationCadence({ root });
+      expect(result.ok).toBe(false);
+      expect(result.failures).toContain('package.json validation profile validate:release must not reference allow-empty script test:allow-empty; release validation must fail when no tests are discovered');
+      expect(result.failClosedJestGateEntriesChecked).toContain('package.json local allow-empty script test:allow-empty');
+    });
+  });
+
+  it('fails clearly when a workflow gate uses --passWithNoTests or an allow-empty script', () => {
+    const workflowWithPermissiveJest = VALID_WORKFLOW.replace('      - run: npm test\n', '      - run: npx jest --passWithNoTests\n      - run: npm run test:allow-empty\n');
+    const packageWithLocalAllowEmpty = JSON.stringify({
+      engines: { node: '>=22.12.0 <23', npm: '>=10 <12' },
+      scripts: {
+        ...PACKAGE_SCRIPTS,
+        'test:allow-empty': 'jest --passWithNoTests',
+      },
+    });
+    withFixture(validFiles({
+      'package.json': packageWithLocalAllowEmpty,
+      '.github/workflows/validation.yml': workflowWithPermissiveJest,
+    }), (root) => {
+      const result = verifyValidationCadence({ root });
+      expect(result.ok).toBe(false);
+      expect(result.failures).toContainEqual(expect.stringContaining('npx jest --passWithNoTests must not use --passWithNoTests; CI validation gates must fail when no tests are discovered'));
+      expect(result.failures).toContainEqual(expect.stringContaining('npm run test:allow-empty must not reference allow-empty script test:allow-empty; CI validation gates must fail when no tests are discovered'));
+    });
+  });
 
 
   it('fails clearly when root package engines drift from the supported Node/npm range', () => {

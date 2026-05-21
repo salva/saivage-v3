@@ -13,6 +13,14 @@ const DEFAULT_WORKFLOW_DIRS = ['.github/workflows'];
 
 const REQUIRED_WORKFLOW_PROFILES = ['validate:routine', 'validate:docs'];
 
+const EXPECTED_NODE_MAJOR = '22';
+const EXPECTED_NODE_ENGINE = '>=22.12.0 <23';
+const EXPECTED_NPM_ENGINE = '>=10 <12';
+const RUNTIME_REFERENCE_PATTERN = /Node(?:\.js)?\s+22[\s\S]{0,160}(?:npm\s+10|package\.json\s+engines|package engines|CI|GitHub Actions)/i;
+const REQUIRED_RUNTIME_DOC_FILES = ['README.md', 'docs/runbook/operations.md', 'docs/runbook/release.md'];
+const PASS_WITH_NO_TESTS_FLAG = '--passWithNoTests';
+
+
 const REQUIRED_VALIDATION_SCRIPTS = [
   {
     name: 'web:test:operator-smoke',
@@ -155,9 +163,12 @@ function splitCommandSegments(command) {
     .filter(Boolean);
 }
 
+function readJsonFile(root, relativePath) {
+  return JSON.parse(readFileSync(path.join(root, relativePath), 'utf8'));
+}
+
 function readPackageScripts(root) {
-  const packagePath = path.join(root, 'package.json');
-  const pkg = JSON.parse(readFileSync(packagePath, 'utf8'));
+  const pkg = readJsonFile(root, 'package.json');
   return pkg.scripts ?? {};
 }
 
@@ -288,8 +299,16 @@ function topLevelBlockLines(content, key) {
   return block;
 }
 
-function workflowUsesNode22(content) {
-  return /uses:\s*actions\/setup-node@v4\b/.test(content) && /^\s*node-version:\s*['"]?22['"]?\s*$/m.test(content);
+function workflowNodeVersion(content) {
+  if (!/uses:\s*actions\/setup-node@v4\b/.test(content)) {
+    return null;
+  }
+  const match = content.match(/^\s*node-version:\s*['"]?([^'"\s]+)['"]?\s*$/m);
+  return match?.[1] ?? null;
+}
+
+function workflowUsesExpectedNode(content) {
+  return workflowNodeVersion(content) === EXPECTED_NODE_MAJOR;
 }
 
 function validateWorkflowPermissions({ file, content, failures }) {
@@ -347,8 +366,8 @@ function validateWorkflowHardening({ file, content, commands, failures }) {
   validateWorkflowConcurrency({ file, content, failures });
   validateWorkflowSecretSafety({ file, content, failures });
 
-  if (!workflowUsesNode22(content)) {
-    failures.push(`${file} must use actions/setup-node@v4 with node-version: 22`);
+  if (!workflowUsesExpectedNode(content)) {
+    failures.push(`${file} must use actions/setup-node@v4 with node-version: ${EXPECTED_NODE_MAJOR}`);
   }
 
   const npmCi = commands.find(({ command }) => command === 'npm ci');
@@ -390,7 +409,9 @@ function validateWorkflowCommands({ root, scripts, workflowFiles }) {
         }
         if (checkDirectScript({ root, segment, location, failures })) {
           checked.push(location);
+          continue;
         }
+        checked.push(location);
       }
     }
   }
@@ -442,6 +463,73 @@ function extractDocsVerifyInvocations(content) {
 
 function scriptIncludes(command, expected) {
   return command.includes(expected);
+}
+
+
+function commandUsesPassWithNoTests(command) {
+  return command.includes(PASS_WITH_NO_TESTS_FLAG);
+}
+
+function isAllowEmptyScriptName(name) {
+  return name.includes('allow-empty');
+}
+
+function npmRunScriptName(segment) {
+  const runMatch = segment.match(/^npm\s+run\s+([^\s]+)/);
+  const shorthandMatch = segment.match(/^npm\s+(test)(?:\s|$)/);
+  return (runMatch ?? shorthandMatch)?.[1] ?? null;
+}
+
+function validateFailClosedJestGates({ scripts, workflowCommands }) {
+  const failures = [];
+  const checked = [];
+
+  for (const [name, command] of Object.entries(scripts)) {
+    if (name === 'test' || name === 'test:direct' || name.startsWith('validate:')) {
+      checked.push(`package.json script ${name}`);
+    }
+
+    if (!commandUsesPassWithNoTests(command)) {
+      continue;
+    }
+
+    if (!isAllowEmptyScriptName(name)) {
+      failures.push(`package.json script ${name} must not use ${PASS_WITH_NO_TESTS_FLAG}; root/release Jest gates must fail when no tests are discovered`);
+      continue;
+    }
+
+    checked.push(`package.json local allow-empty script ${name}`);
+  }
+
+  for (const [name, command] of Object.entries(scripts)) {
+    if (!name.startsWith('validate:')) {
+      continue;
+    }
+    for (const segment of splitCommandSegments(command)) {
+      if (commandUsesPassWithNoTests(segment)) {
+        failures.push(`package.json validation profile ${name} must not use ${PASS_WITH_NO_TESTS_FLAG}; release validation must fail when no tests are discovered`);
+      }
+      const referencedScript = npmRunScriptName(segment);
+      if (referencedScript && isAllowEmptyScriptName(referencedScript)) {
+        failures.push(`package.json validation profile ${name} must not reference allow-empty script ${referencedScript}; release validation must fail when no tests are discovered`);
+      }
+    }
+  }
+
+  for (const location of workflowCommands) {
+    const command = location.replace(/^[^:]+:\d+:\s*/, '');
+    for (const segment of splitCommandSegments(command)) {
+      if (commandUsesPassWithNoTests(segment)) {
+        failures.push(`${location} must not use ${PASS_WITH_NO_TESTS_FLAG}; CI validation gates must fail when no tests are discovered`);
+      }
+      const referencedScript = npmRunScriptName(segment);
+      if (referencedScript && isAllowEmptyScriptName(referencedScript)) {
+        failures.push(`${location} must not reference allow-empty script ${referencedScript}; CI validation gates must fail when no tests are discovered`);
+      }
+    }
+  }
+
+  return { checked, failures };
 }
 
 function markdownCorpus(markdownByFile) {
@@ -507,6 +595,51 @@ function validateValidationProfiles({ scripts, documentedCommands, markdownByFil
   return { checked, failures };
 }
 
+
+function validateRuntimeEngines({ root, workflowFiles = DEFAULT_WORKFLOW_DIRS.flatMap(() => []), markdownByFile }) {
+  const failures = [];
+  const checked = [];
+  const packages = [
+    { file: 'package.json', description: 'root package' },
+    { file: 'web/package.json', description: 'web package' },
+  ];
+
+  for (const pkg of packages) {
+    const fullPath = path.join(root, pkg.file);
+    checked.push(`${pkg.file} engines`);
+    if (!existsSync(fullPath)) {
+      failures.push(`${pkg.file} does not exist; cannot verify ${pkg.description} Node/npm engines`);
+      continue;
+    }
+    const data = readJsonFile(root, pkg.file);
+    if (data.engines?.node !== EXPECTED_NODE_ENGINE) {
+      failures.push(`${pkg.file} engines.node must be "${EXPECTED_NODE_ENGINE}" to match CI Node ${EXPECTED_NODE_MAJOR}, but is ${JSON.stringify(data.engines?.node)}`);
+    }
+    if (data.engines?.npm !== EXPECTED_NPM_ENGINE) {
+      failures.push(`${pkg.file} engines.npm must be "${EXPECTED_NPM_ENGINE}" for the supported npm range, but is ${JSON.stringify(data.engines?.npm)}`);
+    }
+  }
+
+  for (const file of workflowFiles) {
+    const fullPath = path.join(root, file);
+    if (!existsSync(fullPath)) {
+      continue;
+    }
+    const content = readFileSync(fullPath, 'utf8');
+    checked.push(`${file} setup-node ${workflowNodeVersion(content) ?? 'missing'}`);
+  }
+
+  for (const file of REQUIRED_RUNTIME_DOC_FILES) {
+    const markdown = markdownByFile.get(file) ?? (existsSync(path.join(root, file)) ? readFileSync(path.join(root, file), 'utf8') : '');
+    checked.push(`${file} runtime reference`);
+    if (!RUNTIME_REFERENCE_PATTERN.test(markdown)) {
+      failures.push(`${file} must document the supported runtime as Node.js ${EXPECTED_NODE_MAJOR} with ${EXPECTED_NPM_ENGINE} npm range or clearly defer to package.json engines/CI`);
+    }
+  }
+
+  return { checked, failures };
+}
+
 function validateDocsVerifySubguards({ root, scripts }) {
   const docsVerifyPath = path.join(root, 'scripts', 'docs-verify.sh');
   const failures = [];
@@ -554,8 +687,10 @@ export function verifyValidationCadence(options = {}) {
     documentedCommands: documented.checked,
     markdownByFile: documented.markdownByFile,
   });
+  const runtimeEngines = validateRuntimeEngines({ root, workflowFiles: workflow.workflowFilesChecked, markdownByFile: documented.markdownByFile });
   const docsVerify = validateDocsVerifySubguards({ root, scripts });
-  const failures = [...documented.failures, ...workflow.failures, ...requiredScripts.failures, ...profiles.failures, ...docsVerify.failures];
+  const failClosedJest = validateFailClosedJestGates({ scripts, workflowCommands: workflow.checked });
+  const failures = [...documented.failures, ...workflow.failures, ...requiredScripts.failures, ...profiles.failures, ...runtimeEngines.failures, ...docsVerify.failures, ...failClosedJest.failures];
   return {
     ok: failures.length === 0,
     failures,
@@ -564,7 +699,9 @@ export function verifyValidationCadence(options = {}) {
     workflowFilesChecked: workflow.workflowFilesChecked,
     requiredValidationScriptsChecked: requiredScripts.checked,
     validationProfilesChecked: profiles.checked,
+    runtimeEngineEntriesChecked: runtimeEngines.checked,
     docsVerifyEntriesChecked: docsVerify.checked,
+    failClosedJestGateEntriesChecked: failClosedJest.checked,
   };
 }
 
@@ -578,7 +715,7 @@ function main() {
     process.exit(1);
   }
   console.log(
-    `✓ validation cadence check passed — ${result.documentedCommandsChecked.length} documented validation command(s), ${result.workflowCommandsChecked.length} workflow command(s), ${result.requiredValidationScriptsChecked.length} required validation script(s), ${result.validationProfilesChecked.length} validation profile(s), and ${result.docsVerifyEntriesChecked.length} docs:verify sub-guard entry point(s) resolve`,
+    `✓ validation cadence check passed — ${result.documentedCommandsChecked.length} documented validation command(s), ${result.workflowCommandsChecked.length} workflow command(s), ${result.requiredValidationScriptsChecked.length} required validation script(s), ${result.validationProfilesChecked.length} validation profile(s), ${result.runtimeEngineEntriesChecked.length} runtime engine alignment item(s), ${result.docsVerifyEntriesChecked.length} docs:verify sub-guard entry point(s), and ${result.failClosedJestGateEntriesChecked.length} fail-closed Jest gate item(s) resolve`,
   );
 }
 
