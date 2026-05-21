@@ -69,6 +69,7 @@ If no API token is configured, the server only allows tokenless startup on local
 - server version and project name
 - `runtime`: `unknown`, `idle`, `running`, `paused`, `error`, or `frozen`
 - `frozen_reason` when the runtime is frozen and a freeze manifest is present
+- optional `serverAvailability`, an additive component map with `api`, `runtime`, and `mcp` entries. Each component has `state: available | degraded | unavailable | unknown`, a `source`, `checkedAt`, and an optional redacted diagnostic `{ code, summary }`. Diagnostics are bounded synthetic startup summaries, not token/env/stack dumps.
 
 `/health` reads runtime state from the configured `projectRoot`, not from `process.cwd()`.
 
@@ -80,6 +81,7 @@ Returns runtime-focused status data:
 - `paused`
 - `currentCardId`
 - `goalCount`
+- optional `serverAvailability` with the same component contract as `/health`
 
 If no `ActiveRuntime` is attached, the server falls back to runtime state on disk.
 
@@ -215,6 +217,8 @@ Useful operator endpoints:
 - `GET /api/mcp/status`
 - `GET /api/mcp/tools`
 
+`GET /api/mcp/status` preserves the historical `{ servers: [] }` response when no MCP manager is attached, and now may include optional `serverAvailability.components.mcp` so operators can distinguish startup failure, unknown/not-attempted state, and an empty/degraded manager. `GET /api/state` likewise accepts optional `serverAvailability` beside `runtime`, `cardIndex`, and `cardStoreHealth`; older clients can ignore the field.
+
 Use these before editing runtime files manually.
 
 ## Web Control Room freshness model
@@ -296,17 +300,17 @@ Every current operator-facing Fastify route is listed exactly once here. `npm ru
 | `GET /api/events` | Query runtime/agent events with filters and pagination. | `src/server/routes/events.ts:42` |
 | `GET /api/files/content` | Preview contained text files with safety checks. | `src/server/routes/chats-files-debug.ts:238` |
 | `GET /api/files` | List contained project files. | `src/server/routes/chats-files-debug.ts:178` |
-| `GET /api/mcp/status` | Show MCP server status. | `src/server/server.ts:86 "fastify.get('/api/mcp/status'"` |
-| `GET /api/mcp/tools` | Show MCP tool inventory and invocation stats. | `src/server/server.ts:87 "fastify.get('/api/mcp/tools'"` |
+| `GET /api/mcp/status` | Show MCP server status plus optional serverAvailability. | `src/server/server.ts:99 "fastify.get('/api/mcp/status'"` |
+| `GET /api/mcp/tools` | Show MCP tool inventory and invocation stats. | `src/server/server.ts:100 "fastify.get('/api/mcp/tools'"` |
 | `GET /api/notes` | List unhandled notes. | `src/server/routes/runtime-config-notes.ts:192` |
 | `GET /api/notifications` | List notifications. | `src/server/routes/runtime-config-notes.ts:146` |
 | `GET /api/processes/:id` | Read one safe process view. | `src/server/routes/processes.ts:112` |
 | `GET /api/processes` | List safe process views. | `src/server/routes/processes.ts:100` |
 | `GET /api/providers` | Return redacted provider summaries. | `src/server/routes/runtime-config-notes.ts:198` |
 | `GET /api/runtime/card-runs` | List runtime card-run records. | `src/server/server.ts:51 "fastify.get('/api/runtime/card-runs'"` |
-| `GET /api/runtime/status` | Read compact runtime status. | `src/server/server.ts:53 "fastify.get('/api/runtime/status'"` |
-| `GET /api/state` | Read RuntimeState plus card-index summary. | `src/server/routes/runtime-config-notes.ts:156` |
-| `GET /health` | Public health and runtime-status summary. | `src/server/server.ts:28 "fastify.get('/health'"` |
+| `GET /api/runtime/status` | Read compact runtime status plus optional serverAvailability. | `src/server/server.ts:53 "fastify.get('/api/runtime/status'"` |
+| `GET /api/state` | Read RuntimeState plus card-index summary and optional availability. | `src/server/routes/runtime-config-notes.ts:156` |
+| `GET /health` | Public health, runtime-status, and optional availability summary. | `src/server/server.ts:28 "fastify.get('/health'"` |
 | `PATCH /api/cards/:id` | Update allowed card fields through audited mutation. | `src/server/routes/cards.ts:145` |
 | `POST /api/cards` | Create a card through audited mutation. | `src/server/routes/cards.ts:123` |
 | `POST /api/chats/:sessionId` | Send an analyst chat message. | `src/server/routes/chats-files-debug.ts:148` |

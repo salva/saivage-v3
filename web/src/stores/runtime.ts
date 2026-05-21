@@ -13,6 +13,7 @@ import type {
   RuntimeStatus,
   CardIndex,
   CardStoreHealth,
+  ServerAvailability,
   FreshnessState,
 } from '../api/types';
 import {
@@ -37,6 +38,7 @@ export const useRuntimeStore = defineStore('runtime', () => {
   const runtime = ref<RuntimeState | null>(null);
   const cardIndex = ref<CardIndex>({ total: 0, byStatus: {}, byType: {} });
   const cardStoreHealth = ref<CardStoreHealth | null>(null);
+  const serverAvailability = ref<ServerAvailability | null>(null);
   const loading = ref(false);
   const error = ref<string | null>(null);
   const lastFetchedAt = ref<string | null>(null);
@@ -78,6 +80,20 @@ export const useRuntimeStore = defineStore('runtime', () => {
       ? 'Unknown'
       : statusLabel.value.charAt(0).toUpperCase() + statusLabel.value.slice(1);
   });
+  const availabilityDetail = computed(() => {
+    const availability = serverAvailability.value;
+    if (!availability) return null;
+    const runtimeComponent = availability.components.runtime;
+    const mcpComponent = availability.components.mcp;
+    const parts: string[] = [];
+    if (runtimeComponent.state === 'unavailable') parts.push(`Runtime unavailable: ${runtimeComponent.diagnostic?.summary ?? runtimeComponent.source}.`);
+    else if (runtimeComponent.state === 'degraded') parts.push('Runtime is using persisted state fallback.');
+    else if (runtimeComponent.state === 'unknown') parts.push('Runtime startup availability is unknown.');
+    if (mcpComponent.state === 'unavailable') parts.push(`MCP unavailable: ${mcpComponent.diagnostic?.summary ?? mcpComponent.source}.`);
+    else if (mcpComponent.state === 'degraded') parts.push(mcpComponent.diagnostic?.summary ?? 'MCP manager is degraded or empty.');
+    else if (mcpComponent.state === 'unknown') parts.push('MCP startup availability is unknown.');
+    return parts.length > 0 ? parts.join(' ') : null;
+  });
   const runtimeDetail = computed(() => {
     if (unauthorized.value) return 'Runtime snapshot unavailable until a valid API token is provided.';
     if (!getAuthToken()) return 'Enter an API token to load runtime state and receive live updates.';
@@ -85,8 +101,8 @@ export const useRuntimeStore = defineStore('runtime', () => {
     if (status.value === 'error') return 'Runtime reported an error state. Inspect Debug for recovery evidence.';
     if (isPaused.value) return 'Runtime is paused. Resume to continue queued work.';
     if (isStale.value) return 'Runtime snapshot is stale. Refresh to resync with the authoritative REST state.';
-    if (!runtime.value) return 'Runtime state has not been loaded yet.';
-    return 'REST snapshot is authoritative; live updates may accelerate status changes.';
+    if (!runtime.value) return availabilityDetail.value ?? 'Runtime state has not been loaded yet.';
+    return availabilityDetail.value ?? 'REST snapshot is authoritative; live updates may accelerate status changes.';
   });
   const liveUpdateState = computed<'live' | 'connecting' | 'offline' | 'unauthorized' | 'no-token' | 'stale'>(() => {
     const ws = useWsStore();
@@ -145,6 +161,7 @@ export const useRuntimeStore = defineStore('runtime', () => {
       runtime.value = response.runtime;
       cardIndex.value = response.cardIndex;
       cardStoreHealth.value = response.cardStoreHealth ?? null;
+      serverAvailability.value = response.serverAvailability ?? null;
       markRestSync();
     } catch (err) {
       const msg = err instanceof ApiError ? err.message : 'Failed to fetch runtime state';
@@ -219,6 +236,9 @@ export const useRuntimeStore = defineStore('runtime', () => {
         if ('cardStoreHealth' in content) {
           cardStoreHealth.value = (content.cardStoreHealth ?? null) as CardStoreHealth | null;
         }
+        if ('serverAvailability' in content) {
+          serverAvailability.value = (content.serverAvailability ?? null) as ServerAvailability | null;
+        }
       }
 
       if (event === 'runtime-paused' || event === 'runtime-resumed') {
@@ -253,6 +273,7 @@ export const useRuntimeStore = defineStore('runtime', () => {
     runtime: readonly(runtime),
     cardIndex: readonly(cardIndex),
     cardStoreHealth: readonly(cardStoreHealth),
+    serverAvailability: readonly(serverAvailability),
     loading: readonly(loading),
     error: readonly(error),
     lastFetchedAt: readonly(lastFetchedAt),
@@ -272,6 +293,7 @@ export const useRuntimeStore = defineStore('runtime', () => {
     failedBlocked,
     isStale,
     runtimeModeLabel,
+    availabilityDetail,
     runtimeDetail,
     liveUpdateState,
     liveUpdateLabel,

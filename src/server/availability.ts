@@ -1,0 +1,123 @@
+import type { McpManager } from '../mcp/index.js';
+import type { ActiveRuntime } from '../runtime/lifecycle.js';
+import { readRuntimeState } from '../runtime/state.js';
+import {
+  redactCredentialLiterals,
+  redactOperatorErrorMessage,
+  redactSecrets,
+} from '../utils/file-access-security.js';
+import type { ServerAvailability } from '../contracts/operator-api.js';
+
+type StartupFailure = {
+  code: string;
+  error: unknown;
+};
+
+export interface ServerAvailabilityInputs {
+  projectRoot: string;
+  activeRuntime?: () => ActiveRuntime | undefined;
+  mcpManager?: () => McpManager | undefined;
+  runtimeStartupFailure?: () => StartupFailure | undefined;
+  mcpStartupFailure?: () => StartupFailure | undefined;
+}
+
+function nowIso(): string {
+  return new Date().toISOString();
+}
+
+function boundedSummary(error: unknown, projectRoot: string): string {
+  const name = error instanceof Error ? error.name : 'Error';
+  const rawMessage = error instanceof Error ? error.message : String(error);
+  const redacted = redactCredentialLiterals(redactSecrets(redactOperatorErrorMessage(rawMessage, projectRoot)))
+    .replace(/(api(?:[_-]?key|[_-]?token)?|token|secret|password)\s*=\s*([^\s]+)/gi, (_match, key) => `${key}=[REDACTED]`);
+  const summary = `${name}: ${redacted}`.replace(/\s+/g, ' ').trim();
+  return summary.length > 180 ? `${summary.slice(0, 177)}...` : summary;
+}
+
+function diagnostic(code: string, error: unknown, projectRoot: string) {
+  return {
+    code,
+    summary: boundedSummary(error, projectRoot),
+  };
+}
+
+export function buildServerAvailability(inputs: ServerAvailabilityInputs): ServerAvailability {
+  const generatedAt = nowIso();
+  const checkedAt = generatedAt;
+  const activeRuntime = inputs.activeRuntime?.();
+  const mcpManager = inputs.mcpManager?.();
+  const runtimeFailure = inputs.runtimeStartupFailure?.();
+  const mcpFailure = inputs.mcpStartupFailure?.();
+
+  const api = {
+    state: 'available' as const,
+    source: 'health-check' as const,
+    checkedAt,
+  };
+
+  let runtime: ServerAvailability['components']['runtime'];
+  if (activeRuntime) {
+    runtime = { state: 'available', source: 'active-runtime', checkedAt };
+  } else if (runtimeFailure) {
+    runtime = {
+      state: 'unavailable',
+      source: 'startup',
+      checkedAt,
+      diagnostic: diagnostic(runtimeFailure.code, runtimeFailure.error, inputs.projectRoot),
+    };
+  } else {
+    try {
+      const state = readRuntimeState(inputs.projectRoot);
+      runtime = state
+        ? { state: 'degraded', source: 'runtime-state', checkedAt }
+        : { state: 'unknown', source: 'unknown', checkedAt };
+    } catch (error) {
+      runtime = {
+        state: 'unknown',
+        source: 'runtime-state',
+        checkedAt,
+        diagnostic: diagnostic('runtime-state-read-failed', error, inputs.projectRoot),
+      };
+    }
+  }
+
+  let mcp: ServerAvailability['components']['mcp'];
+  if (mcpManager) {
+    try {
+      const statuses = mcpManager.getStatus();
+      const hasRunning = statuses.some((status) => status.status === 'running');
+      const hasConfigured = statuses.length > 0;
+      mcp = hasRunning
+        ? { state: 'available', source: 'mcp-manager', checkedAt }
+        : hasConfigured
+          ? { state: 'degraded', source: 'mcp-manager', checkedAt }
+          : {
+              state: 'degraded',
+              source: 'mcp-manager',
+              checkedAt,
+              diagnostic: { code: 'mcp-manager-empty', summary: 'MCP manager is running with no configured servers.' },
+            };
+    } catch (error) {
+      mcp = {
+        state: 'unknown',
+        source: 'mcp-manager',
+        checkedAt,
+        diagnostic: diagnostic('mcp-status-read-failed', error, inputs.projectRoot),
+      };
+    }
+  } else if (mcpFailure) {
+    mcp = {
+      state: 'unavailable',
+      source: 'startup',
+      checkedAt,
+      diagnostic: diagnostic(mcpFailure.code, mcpFailure.error, inputs.projectRoot),
+    };
+  } else {
+    mcp = { state: 'unknown', source: 'unknown', checkedAt };
+  }
+
+  return {
+    generatedAt,
+    components: { api, runtime, mcp },
+  };
+}

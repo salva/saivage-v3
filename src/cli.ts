@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { existsSync, rmSync, readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { parseArgs } from 'node:util';
 import { isLocked } from './utils/runtime-lock.js';
 import { pauseRuntimeControl, resumeRuntimeControl } from './utils/runtime-control.js';
@@ -51,4 +52,4 @@ async function handlePause(): Promise<void> { await mutateRuntimeViaCli(process.
 async function handleReset(): Promise<void> { const projectRoot = process.cwd(); if (isLocked(projectRoot)) throw new Error('Cannot reset while the server/runtime lockfile is present. Stop the server and try again.'); const targets = ['cards', 'runtime', 'notes'].map((name) => join(projectRoot, '.saivage', name)); console.log('Reset will remove:'); for (const target of targets) console.log(`- ${target}`); for (const target of targets) if (existsSync(target)) rmSync(target, { recursive: true, force: true }); }
 function handleHelp(): void { console.log(USAGE); }
 export async function run(args: string[]): Promise<void> { const { command, options } = parseCommand(args); switch (command) { case 'init': await handleInit(options); break; case 'start': await handleStart(options); break; case 'status': await handleStatus(); break; case 'freeze': await handleFreeze(); break; case 'resume': await handleResume(); break; case 'pause': await handlePause(); break; case 'reset': await handleReset(); break; case 'help': case '--help': case '-h': handleHelp(); break; default: throw new Error(`Unknown command: ${command}`); } }
-if (process.argv[1] && (process.argv[1].includes('cli') || process.argv[1].includes('saivage'))) { run(process.argv).catch((err: unknown) => { console.error(`Fatal error: ${(err as Error).message}`); process.exit(1); }); }
+if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) { run(process.argv).catch((err: unknown) => { console.error(`Fatal error: ${(err as Error).message}`); process.exit(1); }); }

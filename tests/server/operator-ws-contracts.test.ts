@@ -55,6 +55,7 @@ describe('operator websocket shared contract registry', () => {
     };
     expect(parseKnownWsEnvelope(withHealth)?.content.event).toBe('runtime-state');
     expect(parseKnownWsEnvelope({ type: 'status', content: { event: 'runtime-state' } })?.content.event).toBe('runtime-state');
+    expect(parseKnownWsEnvelope({ type: 'status', content: { event: 'runtime-state', serverAvailability: { generatedAt: '2026-01-01T00:00:02.000Z', components: { api: { state: 'available', source: 'health-check', checkedAt: '2026-01-01T00:00:02.000Z' }, runtime: { state: 'unknown', source: 'unknown', checkedAt: '2026-01-01T00:00:02.000Z' }, mcp: { state: 'unavailable', source: 'startup', checkedAt: '2026-01-01T00:00:02.000Z', diagnostic: { code: 'mcp-manager-start-failed', summary: 'Error: synthetic redacted startup failure' } } } } } })?.content.event).toBe('runtime-state');
   });
 
   it('builds fixture-worthy connected and inbound analyst message envelopes', () => {

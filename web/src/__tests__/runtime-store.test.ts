@@ -160,6 +160,16 @@ const mockCardStoreHealth = {
   warnings: [],
 };
 
+
+const mockServerAvailability = {
+  generatedAt: '2026-01-01T00:00:02.000Z',
+  components: {
+    api: { state: 'available' as const, source: 'health-check' as const, checkedAt: '2026-01-01T00:00:02.000Z' },
+    runtime: { state: 'degraded' as const, source: 'runtime-state' as const, checkedAt: '2026-01-01T00:00:02.000Z' },
+    mcp: { state: 'unavailable' as const, source: 'startup' as const, checkedAt: '2026-01-01T00:00:02.000Z', diagnostic: { code: 'mcp-manager-start-failed', summary: 'Error: synthetic redacted startup failure' } },
+  },
+};
+
 const mockRuntimeStateResponse = {
   runtime: mockRuntimeState,
   cardIndex: mockCardIndex,
@@ -282,6 +292,19 @@ describe('useRuntimeStore', () => {
 
 
 
+    it('populates serverAvailability from REST and treats absence as optional', async () => {
+      const store = setupStore();
+      vi.mocked(getRuntimeState).mockResolvedValue({ ...mockRuntimeStateResponse, serverAvailability: mockServerAvailability });
+      await store.fetchState();
+      expect(store.serverAvailability).toEqual(mockServerAvailability);
+      expect(store.availabilityDetail).toContain('Runtime is using persisted state fallback');
+      expect(store.availabilityDetail).toContain('MCP unavailable');
+
+      vi.mocked(getRuntimeState).mockResolvedValue(mockRuntimeStateResponse);
+      await store.fetchState();
+      expect(store.serverAvailability).toBeNull();
+    });
+
     it('populates CardStore health from REST and treats absence as unknown', async () => {
       const store = setupStore();
       vi.mocked(getRuntimeState).mockResolvedValue({ ...mockRuntimeStateResponse, cardStoreHealth: mockCardStoreHealth });
@@ -396,6 +419,15 @@ describe('useRuntimeStore', () => {
     });
 
 
+
+    it('updates serverAvailability from runtime-state only when the optional field is present', () => {
+      const store = setupStore();
+      store.setupWsListener();
+      fireWsEvent('status', { event: 'runtime-state', serverAvailability: mockServerAvailability });
+      expect(store.serverAvailability).toEqual(mockServerAvailability);
+      fireWsEvent('status', { event: 'runtime-state', runtime: mockRuntimeState, cardIndex: mockCardIndex });
+      expect(store.serverAvailability).toEqual(mockServerAvailability);
+    });
 
     it('updates CardStore health from runtime-state only when the optional field is present', () => {
       const store = setupStore();

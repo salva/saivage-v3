@@ -459,6 +459,31 @@ export interface CardStoreHealth {
   warnings: CardStoreCompatibilitySnapshotWarning[];
 }
 
+
+export type AvailabilityState = 'available' | 'degraded' | 'unavailable' | 'unknown';
+export type AvailabilityComponentSource = 'startup' | 'active-runtime' | 'runtime-state' | 'mcp-manager' | 'health-check' | 'unknown';
+
+export interface AvailabilityDiagnostic {
+  code: string;
+  summary: string;
+}
+
+export interface AvailabilityComponent {
+  state: AvailabilityState;
+  source: AvailabilityComponentSource;
+  checkedAt: string;
+  diagnostic?: AvailabilityDiagnostic;
+}
+
+export interface ServerAvailability {
+  generatedAt: string;
+  components: {
+    api: AvailabilityComponent;
+    runtime: AvailabilityComponent;
+    mcp: AvailabilityComponent;
+  };
+}
+
 export interface ProviderEntry {
   priority: number;
   models: string[];
@@ -677,7 +702,7 @@ export interface CardUpdateResponse { card: CardRecord; }
 export interface CardHistoryListResponse { history: CardHistoryHeader[]; total: number; }
 export interface CardHistoryEntryResponse { entry: CardHistoryEntry; }
 export interface CardDiffResponse { diff: CardDiffRow[]; from: number; to: number; card_id: string; }
-export interface RuntimeStateResponse { runtime: RuntimeState | null; cardIndex: CardIndex; cardStoreHealth?: CardStoreHealth; }
+export interface RuntimeStateResponse { runtime: RuntimeState | null; cardIndex: CardIndex; cardStoreHealth?: CardStoreHealth; serverAvailability?: ServerAvailability; }
 export interface ConfigResponse { config: Record<string, unknown>; warnings?: string[]; }
 export interface ProvidersResponse { providers: Record<string, ProviderEntry>; warnings?: string[]; }
 export interface AgentConversationResponse { session: AgentSession; messages: AgentMessage[]; }

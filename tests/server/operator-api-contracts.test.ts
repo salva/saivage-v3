@@ -1,6 +1,6 @@
 import { describe, expect, it } from '@jest/globals';
 import { createRuntimeEnvelope } from '../../src/server/websocket.js';
-import { operatorApiContracts, operatorRouteInventory, parseOperatorResponse } from '../../src/contracts/operator-api.js';
+import { ServerAvailabilitySchema, operatorApiContracts, operatorRouteInventory, parseOperatorResponse } from '../../src/contracts/operator-api.js';
 import { parseCoveredWsEnvelope } from '../../src/contracts/operator-events.js';
 
 const runtimeState = {
@@ -15,6 +15,16 @@ const runtimeState = {
   queue: [],
   running_processes: [],
   updated_at: '2026-01-01T00:00:01.000Z',
+};
+
+
+const serverAvailability = {
+  generatedAt: '2026-01-01T00:00:02.000Z',
+  components: {
+    api: { state: 'available', source: 'health-check', checkedAt: '2026-01-01T00:00:02.000Z' },
+    runtime: { state: 'available', source: 'active-runtime', checkedAt: '2026-01-01T00:00:02.000Z' },
+    mcp: { state: 'degraded', source: 'mcp-manager', checkedAt: '2026-01-01T00:00:02.000Z', diagnostic: { code: 'mcp-manager-empty', summary: 'MCP manager is running with no configured servers.' } },
+  },
 };
 
 const card = {
@@ -70,6 +80,7 @@ describe('operator API contract registry', () => {
 
   it('parses first-batch success examples', () => {
     expect(parseOperatorResponse('runtime.getState', { runtime: runtimeState, cardIndex: { total: 1, byStatus: { backlog: 1 }, byType: { code: 1 } } }).runtime).toEqual(runtimeState);
+    expect(parseOperatorResponse('runtime.getState', { runtime: runtimeState, cardIndex: { total: 1, byStatus: { backlog: 1 }, byType: { code: 1 } }, serverAvailability }).serverAvailability?.components.mcp.state).toBe('degraded');
     expect(parseOperatorResponse('runtime.pause', { ...runtimeState, status: 'paused', paused: true }).paused).toBe(true);
     expect(parseOperatorResponse('runtime.resume', runtimeState).status).toBe('idle');
     expect(parseOperatorResponse('cards.list', { cards: [card], total: 1 }).total).toBe(1);
@@ -102,6 +113,15 @@ describe('operator API contract registry', () => {
     });
     expect(parsed.cardStoreHealth?.compatibilitySnapshots).toBe('degraded');
     expect(parseOperatorResponse('runtime.getState', { runtime: runtimeState, cardIndex: { total: 0, byStatus: {}, byType: {} } }).cardStoreHealth).toBeUndefined();
+  });
+
+  it('rejects malformed server availability component states', () => {
+    expect(ServerAvailabilitySchema.parse(serverAvailability).components.api.state).toBe('available');
+    expect(() => parseOperatorResponse('runtime.getState', {
+      runtime: runtimeState,
+      cardIndex: { total: 0, byStatus: {}, byType: {} },
+      serverAvailability: { ...serverAvailability, components: { ...serverAvailability.components, runtime: { ...serverAvailability.components.runtime, state: 'failed' } } },
+    })).toThrow();
   });
 
   it('rejects malformed migrated responses', () => {

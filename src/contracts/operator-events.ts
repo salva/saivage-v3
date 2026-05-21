@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { eventKindValues } from '../schemas/types.js';
 import { cardStatusSchema, cardTypeSchema, eventKindSchema, loggedEventSchemaByKind } from '../schemas/validators.js';
-import { CardIndexSummarySchema, CardStoreHealthSchema, RuntimeGetStateResponseSchema } from './operator-api.js';
+import { CardIndexSummarySchema, CardStoreHealthSchema, RuntimeGetStateResponseSchema, ServerAvailabilitySchema } from './operator-api.js';
 
 export const WsEventTypeSchema = z.enum(['message', 'activity', 'thinking', 'status', 'error']);
 export const WsEnvelopeSchema = z.object({
@@ -33,6 +33,7 @@ export const RuntimeStateStatusEventSchema = z.object({
     runtime: RuntimeGetStateResponseSchema.shape.runtime.optional(),
     cardIndex: CardIndexSummarySchema.optional(),
     cardStoreHealth: CardStoreHealthSchema.optional(),
+    serverAvailability: ServerAvailabilitySchema.optional(),
   }).passthrough(),
 });
 

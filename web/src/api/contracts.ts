@@ -10,6 +10,9 @@ export type {
   OperatorApiSuccess,
   OperatorApiBody,
   OperatorApiParams,
+  ServerAvailability,
+  AvailabilityComponent,
+  AvailabilityState,
 } from '../../../src/contracts/operator-api';
 
 export {
