@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
 import { initProjectTree } from '../../src/utils/file-tree.js';
+import { createRuntimeLifecycleHarness, type RuntimeLifecycleHarness } from './runtime-lifecycle-harness.js';
 import {
   startProcess,
   waitProcess,
@@ -16,6 +17,8 @@ import {
   cleanupProcessOutput,
   cleanupAllCompleted,
   isProcessLiveAttached,
+  snapshotProcessRuntimeScope,
+  disposeProcessRuntimeScope,
 } from '../../src/utils/process-runner.js';
 import type { ProcessRecord } from '../../src/schemas/types.js';
 
@@ -104,6 +107,31 @@ describe('Process Runner', () => {
     expect(result.status).toBe('running');
     const finished = await waitProcess(root, rec.id, 1000);
     expect(finished.status).toBe('exited');
+  });
+
+  it('clears wait timeout listeners and timers after timeout resolution', async () => {
+    const rec = startProcess(root, 'sleep 0.2', { cardId: 'card-wait-cleanup' });
+    const result = await waitProcess(root, rec.id, 5);
+    expect(result.timedOut).toBe(true);
+    expect(snapshotProcessRuntimeScope(root).resources.some((resource) => resource.label === `wait-timeout:${rec.id}`)).toBe(false);
+    await waitProcess(root, rec.id, 1000);
+  });
+
+  it('reports deterministic detached/closed cleanup for a running process scope', async () => {
+    const harness: RuntimeLifecycleHarness = createRuntimeLifecycleHarness('proc-runner-scope-');
+    try {
+      const rec = startProcess(harness.root, 'sleep 5', { cardId: 'card-scope-cleanup' });
+      expect(isProcessLiveAttached(rec.id)).toBe(true);
+      expect(harness.snapshot().resources.map((resource: { kind: string }) => resource.kind)).toEqual(expect.arrayContaining(['child_process', 'stream']));
+      const report = await harness.dispose();
+      expect(report).toEqual(expect.arrayContaining([
+        expect.objectContaining({ kind: 'child_process', status: expect.stringMatching(/detached|killed/) }),
+        expect.objectContaining({ kind: 'stream', status: expect.stringMatching(/closed|noop/) }),
+      ]));
+      expect(isProcessLiveAttached(rec.id)).toBe(false);
+    } finally {
+      await harness.cleanup();
+    }
   });
 
   it('starts and waits for a quick command', async () => {

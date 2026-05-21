@@ -13,6 +13,8 @@ import {
   reconcileProcessRecords,
   registerProcessTerminalSink,
   setProcessTerminalBuffering,
+  snapshotProcessRuntimeScope,
+  disposeProcessRuntimeScope,
 } from '../../src/utils/process-runner.js';
 import type { ProcessRecord } from '../../src/schemas/types.js';
 import { EventLogger } from '../../src/utils/event-logger.js';
@@ -203,6 +205,21 @@ describe('durable async process handling', () => {
     saveRegistry(root, [terminal]);
     await expect(waitProcess(root, terminal.id, 100)).resolves.toEqual(expect.objectContaining({ id: terminal.id, status: 'exited', exitCode: 0, timedOut: false }));
     await expect(killProcess(root, terminal.id)).resolves.toEqual(expect.objectContaining({ id: terminal.id, status: 'exited', exit_code: 0 }));
+  });
+
+  it('scope disposal removes terminal sinks and clears buffered terminal notes', async () => {
+    const notes: unknown[] = [];
+    registerProcessTerminalSink(root, (note) => notes.push(note));
+    setProcessTerminalBuffering(root, true);
+    const rec = startProcess(root, 'echo buffered-finish', { cardId: 'card-buffered', goalId: 'goal-buffered' });
+    await waitProcess(root, rec.id, 1000);
+    await sleep(100);
+    expect(notes).toHaveLength(0);
+    expect(snapshotProcessRuntimeScope(root).resources.some((resource) => resource.label?.startsWith('terminal-sink:'))).toBe(true);
+    const report = await disposeProcessRuntimeScope(root);
+    expect(report).toEqual(expect.arrayContaining([expect.objectContaining({ kind: 'listener', status: 'removed' })]));
+    setProcessTerminalBuffering(root, false);
+    expect(notes).toHaveLength(0);
   });
 
   it('pause-time buffering delivers exactly one terminal note on resume to planner route', async () => {

@@ -7,6 +7,7 @@ import { CardStore } from '../../src/utils/card-store.js';
 import { Runtime } from '../../src/utils/runtime.js';
 import type { FakeAgentFixture } from '../../src/utils/fake-agent.js';
 import { releaseLock } from '../../src/utils/runtime-lock.js';
+import { startProcess, snapshotProcessRuntimeScope } from '../../src/utils/process-runner.js';
 import type { CardRecord, CardStatus } from '../../src/schemas/types.js';
 
 function makeFixtureDir(tmpDir: string): string {
@@ -119,6 +120,38 @@ describe('Runtime continuousImprovement reserved config', () => {
     expect(improvementListener).not.toHaveBeenCalled();
     expect(continuousPlanListener).not.toHaveBeenCalled();
     expect(runtime.cardStore.read('goal-ci-1')).toBeNull();
+  });
+
+  it('runtime shutdown is idempotent and disposes the process lifecycle scope before logger close', async () => {
+    runtime = new Runtime({
+      projectRoot: tmpDir,
+      continuousImprovement: false,
+      fakeAgentConfig: { mapping: {}, fixtureDir },
+    });
+    await runtime.startup();
+    const rec = startProcess(tmpDir, 'sleep 5', { cardId: 'card-runtime-shutdown', ownerKind: 'runtime' });
+    runtime.trackProcessStarted(rec.id);
+    expect(snapshotProcessRuntimeScope(tmpDir).resources.length).toBeGreaterThan(0);
+    await runtime.shutdown();
+    await runtime.shutdown();
+    expect(snapshotProcessRuntimeScope(tmpDir).resources).toHaveLength(0);
+    expect(runtime.lastLifecycleDisposeReport).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'child_process', status: expect.stringMatching(/detached|killed/) }),
+    ]));
+  });
+
+  it('partial startup failure releases runtime-owned process scope resources', async () => {
+    runtime = new Runtime({
+      projectRoot: tmpDir,
+      continuousImprovement: false,
+      fakeAgentConfig: { mapping: {}, fixtureDir },
+    });
+    const rec = startProcess(tmpDir, 'sleep 5', { cardId: 'card-partial-startup', ownerKind: 'runtime' });
+    await runtime.shutdown();
+    expect(snapshotProcessRuntimeScope(tmpDir).resources.length).toBeGreaterThan(0);
+    await import('../../src/utils/process-runner.js').then(({ disposeProcessRuntimeScope }) => disposeProcessRuntimeScope(tmpDir));
+    expect(snapshotProcessRuntimeScope(tmpDir).resources).toHaveLength(0);
+    expect(rec.id).toMatch(/^proc-/);
   });
 
   it('does not write continuous-improvement events to the runtime event log', async () => {

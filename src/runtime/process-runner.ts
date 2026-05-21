@@ -1,4 +1,6 @@
 import { spawn, type ChildProcess } from 'node:child_process';
+import type { RuntimeDisposeReportEntry, RuntimeLifecycleSnapshot, RuntimeResourceHandle } from './lifecycle.js';
+import { createRuntimeLifecycleScope, type RuntimeLifecycleScope } from './lifecycle.js';
 import {
   existsSync,
   readFileSync,
@@ -83,6 +85,45 @@ const terminalSinksByRoot = new Map<string, Set<ProcessTerminalSink>>();
 const pausedRoots = new Set<string>();
 const bufferedTerminalNotesByRoot = new Map<string, Map<string, ProcessTerminalNote>>();
 const deliveredTerminalNotesByRoot = new Map<string, Set<string>>();
+const processScopesByRoot = new Map<string, RuntimeLifecycleScope>();
+const processRootById = new Map<string, string>();
+const processResourceHandles = new Map<string, RuntimeResourceHandle[]>();
+
+function processScope(projectRoot: string): RuntimeLifecycleScope {
+  let scope = processScopesByRoot.get(projectRoot);
+  if (!scope || scope.isDisposed) {
+    scope = createRuntimeLifecycleScope(`process-runtime:${projectRoot}`);
+    processScopesByRoot.set(projectRoot, scope);
+  }
+  return scope;
+}
+
+function rememberProcessResource(projectRoot: string, procId: string, handle: RuntimeResourceHandle): RuntimeResourceHandle {
+  processRootById.set(procId, projectRoot);
+  let handles = processResourceHandles.get(procId);
+  if (!handles) {
+    handles = [];
+    processResourceHandles.set(procId, handles);
+  }
+  handles.push(handle);
+  return handle;
+}
+
+function unregisterProcessResource(procId: string, handle: RuntimeResourceHandle): void {
+  handle.unregister();
+  const handles = processResourceHandles.get(procId);
+  if (!handles) return;
+  const idx = handles.indexOf(handle);
+  if (idx >= 0) handles.splice(idx, 1);
+  if (handles.length === 0) processResourceHandles.delete(procId);
+}
+
+function unregisterAllProcessResources(procId: string): void {
+  const handles = processResourceHandles.get(procId) ?? [];
+  for (const handle of handles.splice(0)) handle.unregister();
+  processResourceHandles.delete(procId);
+  processRootById.delete(procId);
+}
 
 function generateId(): string {
   return `proc-${randomBytes(6).toString('hex')}`;
@@ -281,6 +322,7 @@ function finalizeProcess(procId: string): void {
     child.stderr?.destroy();
     child.stdin?.destroy();
   }
+  unregisterAllProcessResources(procId);
   const closePromise = closeAllStreams(procId).finally(() => {
     streamCloseWaiters.delete(procId);
   });
@@ -341,7 +383,19 @@ export function registerProcessTerminalSink(projectRoot: string, sink: ProcessTe
     terminalSinksByRoot.set(projectRoot, sinks);
   }
   sinks.add(sink);
-  return () => sinks?.delete(sink);
+  const scope = processScope(projectRoot);
+  const handle = scope.register({
+    kind: 'listener',
+    label: `terminal-sink:${projectRoot}`,
+    dispose: () => {
+      sinks?.delete(sink);
+      return 'removed';
+    },
+  });
+  return () => {
+    handle.unregister();
+    sinks?.delete(sink);
+  };
 }
 
 export function setProcessTerminalBuffering(projectRoot: string, paused: boolean): void {
@@ -412,6 +466,11 @@ export function startProcess(
 
   activeProcesses.set(id, child);
   outputStreams.set(id, streams);
+  const scope = processScope(projectRoot);
+  rememberProcessResource(projectRoot, id, scope.registerChildProcess(child, 'detach', `child:${id}`, `child:${id}`));
+  rememberProcessResource(projectRoot, id, scope.registerStream(streams.stdout, `stdout:${id}`, `stream:stdout:${id}`));
+  rememberProcessResource(projectRoot, id, scope.registerStream(streams.stderr, `stderr:${id}`, `stream:stderr:${id}`));
+  rememberProcessResource(projectRoot, id, scope.registerStream(streams.combined, `combined:${id}`, `stream:combined:${id}`));
 
   const record: ProcessRecord = {
     id,
@@ -478,8 +537,10 @@ export function startProcess(
       if (activeProcesses.has(id) || outputStreams.has(id)) {
         finalizeProcess(id);
       }
+      unregisterProcessResource(id, cleanupTimerHandle);
     }, 5000);
     cleanupTimer.unref();
+    const cleanupTimerHandle = rememberProcessResource(projectRoot, id, processScope(projectRoot).registerTimer(cleanupTimer, `cleanup-timer:${id}`, `timer:cleanup:${id}`));
   });
 
   child.on('error', (err) => {
@@ -572,6 +633,10 @@ export function waitProcess(
     }
 
     let timer: NodeJS.Timeout | null = null;
+    let timerHandle: RuntimeResourceHandle | null = null;
+    let exitHandle: RuntimeResourceHandle | null = null;
+    let closeHandle: RuntimeResourceHandle | null = null;
+    let errorHandle: RuntimeResourceHandle | null = null;
     let resolved = false;
 
     const doResolve = (timedOut: boolean) => {
@@ -583,6 +648,10 @@ export function waitProcess(
         timer = null;
       }
 
+      if (timerHandle) { unregisterProcessResource(procId, timerHandle); timerHandle = null; }
+      if (exitHandle) { unregisterProcessResource(procId, exitHandle); exitHandle = null; }
+      if (closeHandle) { unregisterProcessResource(procId, closeHandle); closeHandle = null; }
+      if (errorHandle) { unregisterProcessResource(procId, errorHandle); errorHandle = null; }
       child.removeListener('exit', onExit);
       child.removeListener('close', onClose);
       child.removeListener('error', onError);
@@ -616,9 +685,14 @@ export function waitProcess(
     child.on('exit', onExit);
     child.on('close', onClose);
     child.on('error', onError);
+    const scope = processScope(projectRoot);
+    exitHandle = rememberProcessResource(projectRoot, procId, scope.registerListener(child, 'exit', onExit as (...args: unknown[]) => void, `wait-exit:${procId}`));
+    closeHandle = rememberProcessResource(projectRoot, procId, scope.registerListener(child, 'close', onClose as (...args: unknown[]) => void, `wait-close:${procId}`));
+    errorHandle = rememberProcessResource(projectRoot, procId, scope.registerListener(child, 'error', onError as (...args: unknown[]) => void, `wait-error:${procId}`));
 
     if (timeoutMs > 0) {
       timer = setTimeout(() => doResolve(true), timeoutMs);
+      timerHandle = rememberProcessResource(projectRoot, procId, scope.registerTimer(timer, `wait-timeout:${procId}`));
     }
   });
 }
@@ -872,6 +946,7 @@ export async function stopAllRunningForRuntimeShutdown(projectRoot: string): Pro
   const stoppedIds: string[] = [];
 
   for (const [procId, child] of activeProcesses) {
+    if (processRootById.get(procId) !== projectRoot) continue;
     try {
       await stopProcessForRuntimeShutdown(projectRoot, procId);
       stoppedIds.push(procId);
@@ -884,4 +959,35 @@ export async function stopAllRunningForRuntimeShutdown(projectRoot: string): Pro
   }
 
   return stoppedIds;
+}
+
+export function snapshotProcessRuntimeScope(projectRoot: string): RuntimeLifecycleSnapshot {
+  return processScope(projectRoot).snapshot();
+}
+
+export async function disposeProcessRuntimeScope(projectRoot: string): Promise<RuntimeDisposeReportEntry[]> {
+  const preStopResources = processScope(projectRoot).snapshot().resources;
+  const stoppedIds = await stopAllRunningForRuntimeShutdown(projectRoot);
+  const scope = processScope(projectRoot);
+  const report = await scope.dispose();
+  for (const procId of stoppedIds) {
+    if (!report.some((entry) => entry.id === `child:${procId}`)) {
+      report.push({ id: `child:${procId}`, kind: 'child_process', label: `child:${procId}`, status: 'killed' });
+    }
+  }
+  for (const resource of preStopResources) {
+    if (resource.kind === 'stream' && !report.some((entry) => entry.id === resource.id)) {
+      report.push({ id: resource.id, kind: 'stream', label: resource.label, status: 'closed' });
+    }
+  }
+  processScopesByRoot.delete(projectRoot);
+  terminalSinksByRoot.delete(projectRoot);
+  pausedRoots.delete(projectRoot);
+  bufferedTerminalNotesByRoot.delete(projectRoot);
+  deliveredTerminalNotesByRoot.delete(projectRoot);
+  for (const procId of stoppedIds) {
+    processRootById.delete(procId);
+    processResourceHandles.delete(procId);
+  }
+  return report;
 }
