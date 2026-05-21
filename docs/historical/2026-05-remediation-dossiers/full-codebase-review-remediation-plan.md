@@ -3,6 +3,16 @@
 
 # Full Codebase Review and Remediation Plan
 
+<!-- doc-authority
+status: historical
+disposition: keep
+owner: docs-maintainers
+superseded_by: audit-findings/README.md
+last_verified_against: audit-findings/README.md:1
+-->
+
+> **Authority status: historical.** This page is retained for provenance only. Prefer `audit-findings/README.md` for current authority where applicable. See `docs/documentation-inventory.md` for disposition `keep`.
+
 Date: 2026-05-13
 Scope: Saivage v3 source, tests, authored documentation, generated docs behavior, and live the target project deployment smoke checks.
 

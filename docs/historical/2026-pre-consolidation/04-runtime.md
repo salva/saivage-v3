@@ -1,5 +1,15 @@
 # Runtime
 
+<!-- doc-authority
+status: historical
+disposition: move-to-docs/historical/
+owner: docs-maintainers
+superseded_by: none
+last_verified_against: src/utils/runtime.ts:1
+-->
+
+> **Authority status: historical.** This page is retained for provenance only and has no current replacement yet. See `docs/documentation-inventory.md` for disposition `move-to-docs/historical/`.
+
 The runtime is the non-LLM support software that drives agent
 dispatch, manages card state transitions, tracks processes, handles
 crashes, and provides the event bus. Agents do not control the

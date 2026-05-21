@@ -1,10 +1,18 @@
 # Saivage v3
 
+<!-- doc-authority
+status: current
+disposition: keep
+owner: docs-maintainers
+superseded_by: none
+last_verified_against: package.json:1
+-->
+
 Saivage v3 is an autonomous multi-agent runtime for software-development work. A top-level planner decomposes goals into cards, executors perform scoped work, reviewers verify results, and the operator control room exposes cards, agents, files, timeline events, and runtime controls.
 
 ## Quick start
 
-Install dependencies:
+Use Node.js 22 (the repository engines require `node >=22.12.0 <23` and `npm >=10 <12`, matching the GitHub Actions validation profile), then install dependencies:
 
 ```bash
 npm install
@@ -24,26 +32,32 @@ curl http://localhost:8080/health
 
 ## Current documentation
 
-- [Operator runbook](docs/runbook/index.md) — start, pause, resume, freeze, diagnose, and release Saivage.
-- [Design documentation](docs/design/index.md) — canonical concept map for cards, agents, runtime, security, data, and UX.
-- [Documentation index](docs/index.md) — curated table of contents for current docs and findings dossiers.
-- [Documentation inventory](docs/documentation-inventory.md) — source-of-truth status for every root and `docs/` Markdown file.
-- See historical: [Historical documentation](docs/historical/README.md) — provenance-only plans, audits, and pre-consolidation designs.
+<!-- doc-authority-status:start -->
+| Link | Authority status | Reader guidance |
+|---|---|---|
+| [Operator runbook](docs/runbook/index.md) | current authority | Start, pause, resume, freeze, diagnose, and release Saivage from the implemented runbook. |
+| [Design documentation](docs/design/index.md) | current authority | Use as the concept map for design-era pages; follow status labels before relying on linked topic pages. |
+| [Documentation index](docs/index.md) | current authority | Curated table of contents for current docs and findings dossiers. |
+| [Documentation inventory](docs/documentation-inventory.md) | current authority | Source-of-truth ledger for every root and `docs/` Markdown file classification/disposition. |
+| See historical: [Historical documentation](docs/historical/README.md) | historical provenance | Provenance-only plans, audits, and pre-consolidation designs; not current operator guidance. |
+<!-- doc-authority-status:end -->
 
 ## Key concepts
 
-- [Card model](docs/design/card-model.md) — goal cards, statuses, priority, evidence, and persisted card shape.
-- [Card lifecycle](docs/design/card-lifecycle.md) — planner/executor/reviewer transitions and correction paths.
-- [Agents](docs/design/agents.md) — analyst, planner, executor, and reviewer responsibilities.
-- [Runtime](docs/design/runtime.md) — scheduler, durable runtime state, directives, and recovery flow.
-- [Security](docs/design/security.md) — authentication, redaction, file-safety, and provider-error handling.
-- [Configuration](docs/design/configuration.md) — project config, providers, runtime knobs, and migrations.
-- [Skills](docs/design/skills.md) — reusable agent capabilities and workspace tooling boundaries.
-- [Server API](docs/design/server-api.md) — HTTP, WebSocket, docs, and static serving surfaces.
-- [Data model](docs/design/data-model.md) — persisted JSON/JSONL records and invariants.
-- [UX design](docs/design/ux-design.md) — operator control room views and interaction contracts.
-- [Decisions](docs/design/decisions.md) — design choices and dossier-organization rationale.
-- [Implementation plan](docs/design/implementation-plan.md) — consolidated delivery plan context.
+| Link | Authority status | Reader guidance |
+|---|---|---|
+| [Card model](docs/design/card-model.md) | stale context | Useful design-era context; prefer `docs/agents.md` and current card-store/source behavior for implementation authority. |
+| [Card lifecycle](docs/design/card-lifecycle.md) | stale context | Useful design-era context; prefer `docs/agents.md` and current planner-tool/runtime source behavior. |
+| [Agents](docs/design/agents.md) | stale context | Useful design-era context; prefer [Agents and runtime architecture](docs/agents.md). |
+| [Runtime](docs/design/runtime.md) | stale context | Useful design-era context; prefer [Agents and runtime architecture](docs/agents.md). |
+| [Security](docs/design/security.md) | stale context | Useful design-era context; prefer [Operation guide](docs/operation.md) and current redaction/auth source behavior. |
+| [Configuration](docs/design/configuration.md) | stale context | Useful design-era context; prefer [Configuration reference](docs/configuration.md). |
+| [Skills](docs/design/skills.md) | stale context | Useful design-era context; prefer [Agents and runtime architecture](docs/agents.md). |
+| [Server API](docs/design/server-api.md) | stale context | Useful design-era context; prefer [Operation guide](docs/operation.md). |
+| [Data model](docs/design/data-model.md) | stale context | Useful design-era context; prefer `docs/agents.md` and current validators/source behavior. |
+| [UX design](docs/design/ux-design.md) | stale context | Useful design-era context; prefer [Operation guide](docs/operation.md) and current web source behavior. |
+| [Decisions](docs/design/decisions.md) | historical provenance | Provenance-only design choices; prefer [Agents and runtime architecture](docs/agents.md) for current behavior. |
+| [Implementation plan](docs/design/implementation-plan.md) | historical provenance | Provenance-only delivery context; prefer current source, runbook, and remediation dossiers. |
 
 ## Verification
 
@@ -67,4 +81,4 @@ npm test
 npm run web:test:operator-smoke
 ```
 
-`npm run docs:verify` builds VitePress and checks documentation inventory completeness, route/role/config/runtime anchors, historical isolation, runbook curl examples, design-doc link boundaries, global Markdown internal links, documented validation-command parity, and docs:verify sub-guard entry points. It verifies that `npm run web:test:operator-smoke` exists and is documented, but intentionally does not execute that Vitest smoke guard so routine docs verification stays lightweight. Run `npm run web:test:operator-smoke` directly after operator-dashboard changes and during release sign-off.
+`npm run docs:verify` builds VitePress and checks documentation inventory completeness, authority metadata/status surfaces, route/role/config/runtime anchors, historical isolation, runbook curl examples, design-doc link boundaries, global Markdown internal links, documented validation-command parity, and docs:verify sub-guard entry points. It verifies that `npm run web:test:operator-smoke` exists and is documented, but intentionally does not execute that Vitest smoke guard so routine docs verification stays lightweight. Run `npm run web:test:operator-smoke` directly after operator-dashboard changes and during release sign-off.

@@ -1,5 +1,15 @@
 # Server & API
 
+<!-- doc-authority
+status: historical
+disposition: move-to-docs/historical/
+owner: docs-maintainers
+superseded_by: none
+last_verified_against: src/server/server.ts:1
+-->
+
+> **Authority status: historical.** This page is retained for provenance only and has no current replacement yet. See `docs/documentation-inventory.md` for disposition `move-to-docs/historical/`.
+
 ## HTTP Server
 
 The server uses **Fastify** and binds to the configured host and

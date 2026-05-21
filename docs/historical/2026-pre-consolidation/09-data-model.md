@@ -1,5 +1,15 @@
 # Data Model & File Tree
 
+<!-- doc-authority
+status: historical
+disposition: move-to-docs/historical/
+owner: docs-maintainers
+superseded_by: none
+last_verified_against: src/schemas/validators.ts:1
+-->
+
+> **Authority status: historical.** This page is retained for provenance only and has no current replacement yet. See `docs/documentation-inventory.md` for disposition `move-to-docs/historical/`.
+
 All entities are stored as JSON. Markdown is a rendering format, not
 the source of truth for structured records such as plan diary entries.
 

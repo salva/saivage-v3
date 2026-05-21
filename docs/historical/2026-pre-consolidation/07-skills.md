@@ -1,5 +1,15 @@
 # Skills
 
+<!-- doc-authority
+status: historical
+disposition: move-to-docs/historical/
+owner: docs-maintainers
+superseded_by: none
+last_verified_against: src/agents/skills-engine.ts:1
+-->
+
+> **Authority status: historical.** This page is retained for provenance only and has no current replacement yet. See `docs/documentation-inventory.md` for disposition `move-to-docs/historical/`.
+
 Skills are contextual knowledge files injected into agent system
 prompts. They provide domain-specific instructions, coding
 standards, or project conventions without modifying the agent's

@@ -1,5 +1,13 @@
 # Saivage v3 — Operation Guide
 
+<!-- doc-authority
+status: current
+disposition: keep
+owner: docs-maintainers
+superseded_by: none
+last_verified_against: src/server/server.ts:1
+-->
+
 This guide covers current runtime behavior, health and control endpoints, docs and web serving, evidence inspection, process views, and operator verification commands.
 
 ## Server startup modes

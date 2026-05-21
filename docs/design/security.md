@@ -1,5 +1,15 @@
 # Security & Content Supervision
 
+<!-- doc-authority
+status: stale
+disposition: merge-into
+owner: docs-maintainers
+superseded_by: docs/operation.md
+last_verified_against: src/utils/error-logger.ts:1
+-->
+
+> **Authority status: stale.** This page is retained for context only and is not current operator guidance. Prefer `docs/operation.md` for current authority where applicable. See `docs/documentation-inventory.md` for disposition `merge-into`.
+
 > Canonical design document consolidated from `docs/design/security.md` during Stage 22. Stage 23 will reconcile detailed source anchors where needed.
 
 

@@ -1,5 +1,13 @@
 # Operations
 
+<!-- doc-authority
+status: current
+disposition: keep
+owner: docs-maintainers
+superseded_by: none
+last_verified_against: src/server/server.ts:28
+-->
+
 Use this page for day-to-day Saivage operation. Incident recovery lives in [Incidents](./incidents.md); release validation lives in [Release](./release.md).
 
 ## Supported local runtime

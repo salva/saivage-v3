@@ -1,5 +1,13 @@
 # Saivage v3 — Release Checklist
 
+<!-- doc-authority
+status: current
+disposition: keep
+owner: docs-maintainers
+superseded_by: none
+last_verified_against: docs/runbook/release.md:1
+-->
+
 Release validation has been consolidated into [Runbook: Release](/runbook/release).
 
 Use that page for documentation gates, core checks, web checks, security/containment checks, runtime-control checks, serving checks, and final sign-off. The current clean-checkout release command anchors remain:

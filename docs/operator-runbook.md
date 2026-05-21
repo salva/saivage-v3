@@ -1,5 +1,13 @@
 # Saivage v3 — Operator Runbook
 
+<!-- doc-authority
+status: current
+disposition: keep
+owner: docs-maintainers
+superseded_by: none
+last_verified_against: docs/runbook/index.md:1
+-->
+
 This page has been consolidated into the Stage 25 runbook tree.
 
 Current operator guidance starts at [Runbook](/runbook/). Use:

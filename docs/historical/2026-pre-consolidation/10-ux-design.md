@@ -1,5 +1,15 @@
 # UX Design
 
+<!-- doc-authority
+status: historical
+disposition: move-to-docs/historical/
+owner: docs-maintainers
+superseded_by: none
+last_verified_against: web/src/App.vue:1
+-->
+
+> **Authority status: historical.** This page is retained for provenance only and has no current replacement yet. See `docs/documentation-inventory.md` for disposition `move-to-docs/historical/`.
+
 ## Purpose
 
 Saivage v3 is a dense control room for supervising an autonomous

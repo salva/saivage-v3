@@ -1,5 +1,15 @@
 # Planner Redesign Implementation Plan
 
+<!-- doc-authority
+status: historical
+disposition: keep
+owner: docs-maintainers
+superseded_by: docs/agents.md
+last_verified_against: docs/agents.md:1
+-->
+
+> **Authority status: historical.** This page is retained for provenance only. Prefer `docs/agents.md` for current authority where applicable. See `docs/documentation-inventory.md` for disposition `keep`.
+
 This is the implementation plan for the Saivage v3 planner redesign.
 The central rule is simple: a planner does not call another planner or
 executor directly. A planner creates or edits cards, then asks the

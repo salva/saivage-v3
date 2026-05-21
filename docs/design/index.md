@@ -1,5 +1,13 @@
 # Design documentation
 
+<!-- doc-authority
+status: current
+disposition: keep
+owner: docs-maintainers
+superseded_by: none
+last_verified_against: docs/.vitepress/config.ts:1
+-->
+
 This section is the canonical Stage 22 design-document tree for Saivage v3. It preserves the prior numbered root design documents as concept pages under `docs/design/` while the original files are retained for provenance. See historical: `docs/historical/2026-pre-consolidation/`.
 
 Use these pages for design-era context. For current operator behavior, start with the runbook and active reference docs; Stage 23 will reconcile detailed source anchors in the current operator/source-of-truth docs.

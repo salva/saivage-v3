@@ -3,6 +3,16 @@
 
 # Top-Level Planner MCP Redesign Plan
 
+<!-- doc-authority
+status: historical
+disposition: keep
+owner: docs-maintainers
+superseded_by: docs/agents.md
+last_verified_against: src/agents/agent-adapter.ts:1
+-->
+
+> **Authority status: historical.** This page is retained for provenance only. Prefer `docs/agents.md` for current authority where applicable. See `docs/documentation-inventory.md` for disposition `keep`.
+
 Status note: this is the current recovery work plan, not an authoritative product spec. Existing specs, historical plans, and docs may be obsolete; validate every design decision against current source code, live runtime behavior, and the user's latest instructions before updating broader documentation.
 
 ## Problem Statement

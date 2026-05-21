@@ -3,6 +3,16 @@
 
 # V3 planner control MCP contract
 
+<!-- doc-authority
+status: historical
+disposition: move-to-docs/historical/
+owner: docs-maintainers
+superseded_by: docs/agents.md
+last_verified_against: src/agents/agent-adapter.ts:1
+-->
+
+> **Authority status: historical.** This page is retained for provenance only. Prefer `docs/agents.md` for current authority where applicable. See `docs/documentation-inventory.md` for disposition `move-to-docs/historical/`.
+
 ## Purpose
 
 This document defines the v3 planner control surface needed to restore durable strategic control to project and goal planners. It is grounded in the current runtime, card store, parser, schema, and MCP manager behavior, plus the completed control-flow diagnosis and stage research artifact.

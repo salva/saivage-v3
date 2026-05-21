@@ -3,6 +3,16 @@
 
 # Second Codebase Review Remediation Cycle
 
+<!-- doc-authority
+status: historical
+disposition: keep
+owner: docs-maintainers
+superseded_by: audit-findings/README.md
+last_verified_against: audit-findings/README.md:1
+-->
+
+> **Authority status: historical.** This page is retained for provenance only. Prefer `audit-findings/README.md` for current authority where applicable. See `docs/documentation-inventory.md` for disposition `keep`.
+
 This cycle followed the same review-plan-fix-validate loop as the first full remediation pass, with special attention to the live analyst conversation quality and agent context propagation.
 
 ## Findings

@@ -1,5 +1,13 @@
 # Saivage v3 — Installation Guide
 
+<!-- doc-authority
+status: current
+disposition: keep
+owner: docs-maintainers
+superseded_by: none
+last_verified_against: src/cli.ts:1
+-->
+
 This guide walks through installing and running Saivage v3 from a clean checkout.
 
 ## Prerequisites

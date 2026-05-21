@@ -1,5 +1,15 @@
 # Historical documentation
 
+<!-- doc-authority
+status: historical
+disposition: keep
+owner: docs-maintainers
+superseded_by: docs/historical/README.md
+last_verified_against: docs/historical/README.md:1
+-->
+
+> **Authority status: historical.** This page is retained for provenance only. Prefer `docs/historical/README.md` for current authority where applicable. See `docs/documentation-inventory.md` for disposition `keep`.
+
 This directory preserves Saivage design notes, audit records, remediation plans, and generated review artifacts for provenance only.
 
 Historical files are **not current operator guidance**. For current operation, start with the active docs index, the operation guide, the operator runbook, and the source-anchored architecture docs.

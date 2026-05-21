@@ -1,5 +1,13 @@
 # Documentation inventory
 
+<!-- doc-authority
+status: current
+disposition: keep
+owner: docs-maintainers
+superseded_by: none
+last_verified_against: scripts/check-doc-inventory.js:1
+-->
+
 This inventory maps every tracked Markdown file in the repository root and `docs/` tree to its current source-of-truth status. Stage 22 moved the numbered root design documents into `docs/historical/2026-pre-consolidation/`; Stage 24 moved remediation and review dossiers into `docs/historical/2026-05-remediation-dossiers/` and added a historical-isolation guard; Stage 25 consolidated operator guidance into `docs/runbook/`; Stage 26 finalized the root landing page, curated docs index, consolidation summary, and global Markdown link guard.
 
 ## Classification legend

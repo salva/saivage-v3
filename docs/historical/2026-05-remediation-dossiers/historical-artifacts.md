@@ -1,5 +1,15 @@
 # Historical artifacts
 
+<!-- doc-authority
+status: historical
+disposition: keep
+owner: docs-maintainers
+superseded_by: docs/historical/README.md
+last_verified_against: docs/historical/README.md:1
+-->
+
+> **Authority status: historical.** This page is retained for provenance only. Prefer `docs/historical/README.md` for current authority where applicable. See `docs/documentation-inventory.md` for disposition `keep`.
+
 > **Historical/Audit Artifact Policy**  
 > Documents listed here are preserved as audit evidence, redesign notes, incident records, or superseded remediation plans. They are **not** current operator instructions unless a current active doc explicitly revalidates them against current source and tests.
 

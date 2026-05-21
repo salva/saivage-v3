@@ -1,5 +1,15 @@
 # Implementation Plan
 
+<!-- doc-authority
+status: historical
+disposition: move-to-docs/historical/
+owner: docs-maintainers
+superseded_by: docs/historical/2026-05-remediation-dossiers/planner-redesign-plan.md
+last_verified_against: docs/historical/2026-05-remediation-dossiers/planner-redesign-plan.md:1
+-->
+
+> **Authority status: historical.** This page is retained for provenance only. Prefer `docs/historical/2026-05-remediation-dossiers/planner-redesign-plan.md` for current authority where applicable. See `docs/documentation-inventory.md` for disposition `move-to-docs/historical/`.
+
 > Canonical design document consolidated from `docs/design/implementation-plan.md` during Stage 22. Stage 23 will reconcile detailed source anchors where needed.
 
 
