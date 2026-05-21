@@ -32,9 +32,19 @@ const PACKAGE_SCRIPTS = {
   'validate:ui-smoke': 'npm run web:test:operator-smoke',
   'validate:ui': 'npm run web:typecheck && npm run web:test:sweep && npm run web:test:operator-smoke',
   'validate:release': 'npm run typecheck && npm run build && npm test && npm run web:test:operator-smoke && npm run docs:verify',
+  'web:test:e2e:install': 'playwright install chromium',
+  'web:test:e2e:smoke': 'playwright test -c tests/playwright/playwright.config.ts',
 };
 
-const PACKAGE_JSON = JSON.stringify({ scripts: PACKAGE_SCRIPTS });
+const PACKAGE_JSON = JSON.stringify({
+  engines: { node: '>=22.12.0 <23', npm: '>=10 <12' },
+  scripts: PACKAGE_SCRIPTS,
+});
+
+const WEB_PACKAGE_JSON = JSON.stringify({
+  engines: { node: '>=22.12.0 <23', npm: '>=10 <12' },
+  scripts: { build: 'vite build' },
+});
 
 const VALID_PROFILE_DOCS = '```bash\nnpm run validate:docs\nnpm run validate:routine\nnpm run validate:ui-smoke\nnpm run validate:ui\nnpm run validate:release\n```\n`npm run validate:docs` intentionally runs docs verification only and does not run `npm test` or the Vitest smoke guard.\n';
 
@@ -48,20 +58,41 @@ NODE_OPTIONS=--experimental-vm-modules npx jest tests/existing.test.js --runInBa
 const VALID_WORKFLOW = `name: Validation profiles
 on:
   pull_request:
+  push:
+    branches:
+      - main
   workflow_dispatch:
     inputs:
-      run_ui_smoke:
-        default: 'false'
-      run_release_profile:
-        default: 'false'
+      run_full_sweep:
+        default: 'true'
+  schedule:
+    - cron: '17 5 * * *'
 permissions:
   contents: read
 concurrency:
   group: \${{ github.workflow }}-\${{ github.ref }}
   cancel-in-progress: true
 jobs:
-  validation:
+  classify-changes:
     runs-on: ubuntu-latest
+    outputs:
+      backend: \${{ steps.classify.outputs.backend }}
+      ui: \${{ steps.classify.outputs.ui }}
+      browser: \${{ steps.classify.outputs.browser }}
+      docs_only: \${{ steps.classify.outputs.docs_only }}
+      package_or_workflow: \${{ steps.classify.outputs.package_or_workflow }}
+      run_all: \${{ steps.classify.outputs.run_all }}
+      summary: \${{ steps.classify.outputs.summary }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: classify
+        run: |
+          set -euo pipefail
+          echo "run_all=true" >> "$GITHUB_OUTPUT"
+          echo "summary=fixture" >> "$GITHUB_OUTPUT"
+  routine-docs:
+    runs-on: ubuntu-latest
+    needs: classify-changes
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -71,19 +102,81 @@ jobs:
       - run: npm ci
       - run: npm run validate:routine
       - run: npm run validate:docs
-      - name: UI smoke validation profile (manual)
-        if: inputs.run_ui_smoke == 'true'
-        run: npm run validate:ui-smoke
-      - name: Release validation profile (manual heavy gate)
-        if: inputs.run_release_profile == 'true'
-        run: npm run validate:release
+  backend-jest-build:
+    runs-on: ubuntu-latest
+    needs: classify-changes
+    if: \${{ needs.classify-changes.outputs.run_all == 'true' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - run: npm test
+  ui-smoke:
+    runs-on: ubuntu-latest
+    needs: classify-changes
+    if: \${{ needs.classify-changes.outputs.ui == 'true' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run validate:ui-smoke
+  browser-smoke:
+    runs-on: ubuntu-latest
+    needs: classify-changes
+    if: \${{ needs.classify-changes.outputs.browser == 'true' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run web:test:e2e:install
+      - run: npx playwright install-deps chromium
+      - run: npm run web:test:e2e:smoke
+  scheduled-release-backstop:
+    runs-on: ubuntu-latest
+    needs: classify-changes
+    if: \${{ github.event_name == 'schedule' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run validate:release
+      - run: npm run web:test:e2e:install
+      - run: npx playwright install-deps chromium
+      - run: npm run web:test:e2e:smoke
+  validation-required:
+    runs-on: ubuntu-latest
+    if: \${{ always() }}
+    needs:
+      - classify-changes
+      - routine-docs
+      - backend-jest-build
+      - ui-smoke
+      - browser-smoke
+      - scheduled-release-backstop
+    steps:
+      - run: echo validation-required passed
 `;
 
 function validFiles(overrides = {}) {
   return {
     'package.json': PACKAGE_JSON,
-    'README.md': '```bash\nnpm run docs:verify\nnpm run typecheck\nnpm run build\nnpm test\nnpm run web:test:operator-smoke\n```\n' + VALID_PROFILE_DOCS,
-    'docs/runbook/release.md': '```bash\nnpm run docs:build\n```\n' + VALID_PROFILE_DOCS,
+    'README.md': 'Use Node.js 22 with `node >=22.12.0 <23` and `npm >=10 <12`, matching package.json engines and GitHub Actions CI.\n```bash\nnpm run docs:verify\nnpm run typecheck\nnpm run build\nnpm test\nnpm run web:test:operator-smoke\n```\n' + VALID_PROFILE_DOCS,
+    'web/package.json': WEB_PACKAGE_JSON,
+    'docs/runbook/operations.md': 'Run Saivage with Node.js 22; package.json engines require `node >=22.12.0 <23` and `npm >=10 <12`, matching CI.\n',
+    'docs/runbook/release.md': 'Release uses Node.js 22 with package engines `node >=22.12.0 <23` and `npm >=10 <12`, matching CI.\n```bash\nnpm run docs:build\n```\n' + VALID_PROFILE_DOCS,
     'docs/runbook/index.md': 'No extra validation commands here.\n',
     '.github/workflows/validation.yml': VALID_WORKFLOW,
     'scripts/docs-verify.sh': VALID_DOCS_VERIFY,
@@ -100,14 +193,64 @@ describe('validation cadence guard', () => {
       expect(result.ok).toBe(true);
       expect(result.failures).toEqual([]);
       expect(result.documentedCommandsChecked).toContain('README.md: npm run docs:verify');
-      expect(result.workflowCommandsChecked).toContain('.github/workflows/validation.yml:25: npm run validate:routine');
+      expect(result.workflowCommandsChecked).toContainEqual(expect.stringContaining('npm run validate:routine'));
+      expect(result.workflowCommandsChecked).toContainEqual(expect.stringContaining('npm run web:test:e2e:smoke'));
       expect(result.workflowFilesChecked).toContain('.github/workflows/validation.yml');
       expect(result.requiredValidationScriptsChecked).toContain('package.json script web:test:operator-smoke');
       expect(result.validationProfilesChecked).toContain('package.json profile validate:release');
+      expect(result.runtimeEngineEntriesChecked).toContain('package.json engines');
+      expect(result.runtimeEngineEntriesChecked).toContain('web/package.json engines');
+      expect(result.runtimeEngineEntriesChecked).toContain('.github/workflows/validation.yml setup-node 22');
+      expect(result.runtimeEngineEntriesChecked).toContain('README.md runtime reference');
       expect(result.docsVerifyEntriesChecked).toContain('scripts/docs-verify.sh:4 node-script scripts/check-existing.js');
     });
   });
 
+
+
+  it('fails clearly when root package engines drift from the supported Node/npm range', () => {
+    const packageWithNode20 = JSON.stringify({
+      engines: { node: '>=20 <21', npm: '>=10 <12' },
+      scripts: PACKAGE_SCRIPTS,
+    });
+    withFixture(validFiles({ 'package.json': packageWithNode20 }), (root) => {
+      const result = verifyValidationCadence({ root });
+      expect(result.ok).toBe(false);
+      expect(result.failures).toContain('package.json engines.node must be ">=22.12.0 <23" to match CI Node 22, but is ">=20 <21"');
+    });
+  });
+
+  it('fails clearly when web package engines drift from the supported Node/npm range', () => {
+    const webPackageWithStaleNpm = JSON.stringify({
+      engines: { node: '>=22.12.0 <23', npm: '>=9 <10' },
+      scripts: { build: 'vite build' },
+    });
+    withFixture(validFiles({ 'web/package.json': webPackageWithStaleNpm }), (root) => {
+      const result = verifyValidationCadence({ root });
+      expect(result.ok).toBe(false);
+      expect(result.failures).toContain('web/package.json engines.npm must be ">=10 <12" for the supported npm range, but is ">=9 <10"');
+    });
+  });
+
+  it('fails clearly when setup-node drifts from the package engine major', () => {
+    const workflowWithNode24 = VALID_WORKFLOW.replace('          node-version: 22', '          node-version: 24');
+    withFixture(validFiles({ '.github/workflows/validation.yml': workflowWithNode24 }), (root) => {
+      const result = verifyValidationCadence({ root });
+      expect(result.ok).toBe(false);
+      expect(result.failures).toContain('.github/workflows/validation.yml must use actions/setup-node@v4 with node-version: 22');
+      expect(result.runtimeEngineEntriesChecked).toContain('.github/workflows/validation.yml setup-node 24');
+    });
+  });
+
+  it('fails clearly when docs omit the supported Node/npm runtime reference', () => {
+    withFixture(validFiles({
+      'README.md': '```bash\nnpm run docs:verify\nnpm run web:test:operator-smoke\n```\n' + VALID_PROFILE_DOCS,
+    }), (root) => {
+      const result = verifyValidationCadence({ root });
+      expect(result.ok).toBe(false);
+      expect(result.failures).toContain('README.md must document the supported runtime as Node.js 22 with >=10 <12 npm range or clearly defer to package.json engines/CI');
+    });
+  });
 
 
   it('fails clearly when a workflow omits least-privilege permissions', () => {
@@ -124,7 +267,7 @@ describe('validation cadence guard', () => {
     withFixture(validFiles({ '.github/workflows/validation.yml': workflowWithBroadPermissions }), (root) => {
       const result = verifyValidationCadence({ root });
       expect(result.ok).toBe(false);
-      expect(result.failures).toContain('.github/workflows/validation.yml:10 must not use broad workflow permissions; use least-privilege contents: read');
+      expect(result.failures).toContainEqual(expect.stringContaining('must not use broad workflow permissions; use least-privilege contents: read'));
     });
   });
 
@@ -142,7 +285,7 @@ describe('validation cadence guard', () => {
     withFixture(validFiles({ '.github/workflows/validation.yml': workflowWithoutNpmCi }), (root) => {
       const result = verifyValidationCadence({ root });
       expect(result.ok).toBe(false);
-      expect(result.failures).toContain('.github/workflows/validation.yml must install dependencies with npm ci before validation profiles');
+      expect(result.failures).toContainEqual(expect.stringContaining('npm ci must run before validation profiles'));
     });
   });
 
@@ -151,7 +294,7 @@ describe('validation cadence guard', () => {
     withFixture(validFiles({ '.github/workflows/validation.yml': workflowWithLateNpmCi }), (root) => {
       const result = verifyValidationCadence({ root });
       expect(result.ok).toBe(false);
-      expect(result.failures).toContain('.github/workflows/validation.yml:25 npm ci must run before validation profiles');
+      expect(result.failures).toContainEqual(expect.stringContaining('npm ci must run before validation profiles'));
     });
   });
 
@@ -169,9 +312,9 @@ describe('validation cadence guard', () => {
     withFixture(validFiles({ '.github/workflows/validation.yml': workflowWithSecrets }), (root) => {
       const result = verifyValidationCadence({ root });
       expect(result.ok).toBe(false);
-      expect(result.failures).toContain('.github/workflows/validation.yml:24 must not reference GitHub secrets in validation workflow');
-      expect(result.failures).toContain('.github/workflows/validation.yml:24 must not set or reference SAIVAGE_API_TOKEN in validation workflow');
-      expect(result.failures).toContain('.github/workflows/validation.yml:24 must not echo secret or token values in validation workflow');
+      expect(result.failures).toContainEqual(expect.stringContaining('must not reference GitHub secrets in validation workflow'));
+      expect(result.failures).toContainEqual(expect.stringContaining('must not set or reference SAIVAGE_API_TOKEN in validation workflow'));
+      expect(result.failures).toContainEqual(expect.stringContaining('must not echo secret or token values in validation workflow'));
     });
   });
 
@@ -180,7 +323,7 @@ describe('validation cadence guard', () => {
     withFixture(validFiles({ '.github/workflows/validation.yml': workflowWithTokenEnv }), (root) => {
       const result = verifyValidationCadence({ root });
       expect(result.ok).toBe(false);
-      expect(result.failures).toContain('.github/workflows/validation.yml:26 must not assign API key/token/password environment variables in validation workflow');
+      expect(result.failures).toContainEqual(expect.stringContaining('must not assign API key/token/password environment variables in validation workflow'));
     });
   });
 
@@ -201,7 +344,7 @@ describe('validation cadence guard', () => {
     withFixture(validFiles({ '.github/workflows/validation.yml': staleWorkflow }), (root) => {
       const result = verifyValidationCadence({ root });
       expect(result.ok).toBe(false);
-      expect(result.failures).toContain('.github/workflows/validation.yml:29: npm run validate:ui-fast documents npm run validate:ui-fast, but package.json has no "validate:ui-fast" script');
+      expect(result.failures).toContainEqual(expect.stringContaining('npm run validate:ui-fast documents npm run validate:ui-fast, but package.json has no "validate:ui-fast" script'));
     });
   });
 
@@ -220,7 +363,7 @@ describe('validation cadence guard', () => {
       const result = verifyValidationCadence({ root });
       expect(result.ok).toBe(false);
       expect(result.failures).toContain('package.json is missing validation profile "validate:ui-smoke" (lightweight UI/operator smoke validation profile)');
-      expect(result.failures).toContain('.github/workflows/validation.yml:29: npm run validate:ui-smoke documents npm run validate:ui-smoke, but package.json has no "validate:ui-smoke" script');
+      expect(result.failures).toContainEqual(expect.stringContaining('npm run validate:ui-smoke documents npm run validate:ui-smoke, but package.json has no "validate:ui-smoke" script'));
     });
   });
 
