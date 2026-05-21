@@ -167,21 +167,12 @@ function extractObjectArray(content, role) {
 function uniqueSorted(values) { return Array.from(new Set(values)).sort(); }
 
 function extractImplementedAgentTools(projectRoot) {
-  const adapter = readSource(projectRoot, 'src/agents/agent-adapter.ts');
-  const workspace = readSource(projectRoot, 'src/agents/workspace-tools.ts');
-  const readOnlyWorkspaceBlock = workspace.match(/READ_ONLY_WORKSPACE_TOOL_DEFINITIONS[\s\S]*?export const WORKSPACE_TOOL_DEFINITIONS/)?.[0] ?? '';
-  const allWorkspaceBlock = workspace.match(/WORKSPACE_TOOL_DEFINITIONS[\s\S]*?export interface WorkspaceToolContext/)?.[0] ?? '';
-  const readOnlyWorkspace = uniqueSorted(Array.from(readOnlyWorkspaceBlock.matchAll(/name:\s*'([^']+)'/g)).map((m) => m[1]));
-  const allWorkspace = uniqueSorted(Array.from(allWorkspaceBlock.matchAll(/name:\s*'([^']+)'/g)).map((m) => m[1]));
-  const planner = uniqueSorted(extractArrayLiteral(adapter, 'AUTHORITATIVE_PLANNER_TOOL_NAMES'));
-  const analystSubset = extractObjectArray(adapter, 'analyst');
-  const executorSubset = extractObjectArray(adapter, 'executor');
-  const reviewerSubset = extractObjectArray(adapter, 'reviewer');
+  const policy = readSource(projectRoot, 'src/agents/role-tool-policy.ts');
   return new Map([
-    ['planner', planner],
-    ['executor', uniqueSorted(['load_skill', ...allWorkspace, ...executorSubset, 'mcp_tool_call'])],
-    ['reviewer', uniqueSorted(['load_skill', ...readOnlyWorkspace, ...reviewerSubset, 'mcp_tool_call'])],
-    ['analyst', uniqueSorted(analystSubset)],
+    ['planner', uniqueSorted(extractObjectArray(policy, 'planner'))],
+    ['executor', uniqueSorted(extractObjectArray(policy, 'executor'))],
+    ['reviewer', uniqueSorted(extractObjectArray(policy, 'reviewer'))],
+    ['analyst', uniqueSorted(extractObjectArray(policy, 'analyst'))],
   ]);
 }
 
@@ -335,7 +326,7 @@ export function verifyAgentToolDocs(options = {}) {
     const row = documented.get(role);
     if (!row) { failures.push({ type: 'missing-agent-role', message: `${AGENTS_DOC} is missing agent-tool row for ${role}` }); continue; }
     verifyAnchor(projectRoot, row.anchor, failures, `agent tool row ${role}`);
-    if (!sameArray(row.tools, tools)) failures.push({ type: 'agent-tool-parity', role, message: `${AGENTS_DOC} tools for ${role} do not match src/agents/agent-adapter.ts (doc=${row.tools.join(',')} source=${tools.join(',')})` });
+    if (!sameArray(row.tools, tools)) failures.push({ type: 'agent-tool-parity', role, message: `${AGENTS_DOC} tools for ${role} do not match src/agents/role-tool-policy.ts (doc=${row.tools.join(',')} source=${tools.join(',')})` });
   }
   return { ok: failures.length === 0, failures, expected, documented };
 }

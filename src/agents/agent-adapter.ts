@@ -31,6 +31,7 @@ import { parseDeferredActivationEnvelope } from '../schemas/validators.js';
 import { readRuntimeState } from '../utils/runtime-state.js';
 import { PlannerControlExecutor } from './planner-control-executor.js';
 import { RedactionBoundary } from '../utils/redaction-boundary.js';
+import { RoleToolPolicy, type RoleToolPolicyDecision, type RoleToolPolicySurface } from './role-tool-policy.js';
 
 export type { AgentRuntime } from './agent-runtime.js';
 export type AgentRole = 'planner' | 'executor' | 'reviewer' | 'analyst';
@@ -131,19 +132,14 @@ const PLANNER_CONTROL_TOOL_NAMES = new Set<string>([
 ]);
 
 
-const AGENT_TOOL_NAMES_BY_ROLE: Record<AgentRole, string[]> = {
-  analyst: ['lets_dance','mark_goal_needs_corrections','mark_project_needs_corrections','list_card_history','get_card_history_entry','diff_card','list_notes','get_note','mark_note_handled'],
-  planner: ['list_card_history','get_card_history_entry','diff_card','list_notes','get_note','mark_note_handled'],
-  executor: ['list_card_history','get_card_history_entry','diff_card','list_notes','get_note','mark_note_handled'],
-  reviewer: ['list_card_history','get_card_history_entry','diff_card','list_notes','get_note','mark_note_handled'],
-};
-
-const TOOL_MATRIX: Record<AgentRole, ToolDefinition[]> = {
-  planner: PLANNER_TOOL_DEFINITIONS,
-  executor: [LOAD_SKILL_TOOL_DEFINITION, ...WORKSPACE_TOOL_DEFINITIONS, ...ANALYST_TOOL_DEFINITIONS.filter((tool) => AGENT_TOOL_NAMES_BY_ROLE.executor.includes(tool.function.name)), MCP_TOOL_CALL_TOOL_DEFINITION],
-  reviewer: [LOAD_SKILL_TOOL_DEFINITION, ...READ_ONLY_WORKSPACE_TOOL_DEFINITIONS, ...ANALYST_TOOL_DEFINITIONS.filter((tool) => AGENT_TOOL_NAMES_BY_ROLE.reviewer.includes(tool.function.name)), MCP_TOOL_CALL_TOOL_DEFINITION],
-  analyst: [...ANALYST_TOOL_DEFINITIONS.filter((tool) => AGENT_TOOL_NAMES_BY_ROLE.analyst.includes(tool.function.name))],
-};
+const ALL_TOOL_DEFINITIONS_BY_NAME = new Map<string, ToolDefinition>([
+  ...PLANNER_TOOL_DEFINITIONS,
+  LOAD_SKILL_TOOL_DEFINITION,
+  ...WORKSPACE_TOOL_DEFINITIONS,
+  ...READ_ONLY_WORKSPACE_TOOL_DEFINITIONS,
+  ...ANALYST_TOOL_DEFINITIONS,
+  MCP_TOOL_CALL_TOOL_DEFINITION,
+].map((definition) => [definition.function.name, definition]));
 
 const RUNTIME_AGENT_TOOL_REGISTRY: Record<string, (ctx: analystTools.ToolContext, params: Record<string, unknown>) => Promise<analystTools.ToolResult>> = {
   create_card: analystTools.create_card as unknown as (ctx: analystTools.ToolContext, params: Record<string, unknown>) => Promise<analystTools.ToolResult>,
@@ -216,16 +212,33 @@ export class AgentAdapter implements AgentRuntime {
   getSkillsEngine(): SkillsEngine | undefined { return this._skillsEngine; }
   setAfterSessionCreatedHook(hook: SessionCreatedHook | null): void { this.afterSessionCreatedHook = hook; }
 
-  public getToolNamesForRole(role: AgentRole): string[] { return this.buildToolsForRole(role).map((tool) => tool.function.name); }
-  private buildToolsForRole(role: AgentRole): ToolDefinition[] { return TOOL_MATRIX[role] ?? []; }
+  public getToolNamesForRole(role: AgentRole): string[] { return RoleToolPolicy.listToolNamesForRole(role); }
+  private buildToolsForRole(role: AgentRole): ToolDefinition[] { return this.getToolNamesForRole(role).map((name) => ALL_TOOL_DEFINITIONS_BY_NAME.get(name)).filter((tool): tool is ToolDefinition => Boolean(tool)); }
   private getMcpToolDefinition(serverName: string, toolName: string): McpToolDefinition | null { if (!this._mcpManager) return null; const tools = this._mcpManager.getServerTools(serverName); return tools?.find((tool) => tool.name === toolName) ?? null; }
-  private isMcpToolAllowed(role: AgentRole, definition: McpToolDefinition | null): boolean { if (role === 'analyst') return false; if (role === 'executor') return true; if (!definition) return false; const annotations = definition.annotations ?? {}; const readOnly = annotations.readOnlyHint === true; const destructive = annotations.destructiveHint === true; return readOnly && !destructive; }
+  private policyDeniedToolMessage(decision: RoleToolPolicyDecision, tool: string, toolCallId: string, prefix?: string): { role: 'tool'; kind: 'tool_error'; content: string; tool: string; tool_call_id: string } {
+    const content = prefix ? `${prefix}: ${decision.message}` : JSON.stringify({ success: false, error: decision.message, reasonCode: decision.reasonCode });
+    return { role: 'tool', kind: 'tool_error', content, tool, tool_call_id: toolCallId };
+  }
+  private decideToolInvocation(role: AgentRole, surface: RoleToolPolicySurface, toolName: string, options: { serverName?: string; definition?: McpToolDefinition | null; knownPlannerTool?: boolean; knownRuntimeTool?: boolean } = {}): RoleToolPolicyDecision {
+    return RoleToolPolicy.decide({
+      role,
+      action: 'invoke',
+      surface,
+      toolName,
+      serverName: options.serverName,
+      hasMcpDefinition: options.definition !== undefined ? Boolean(options.definition) : undefined,
+      mcpAnnotations: options.definition?.annotations,
+      knownPlannerTool: options.knownPlannerTool,
+      knownRuntimeTool: options.knownRuntimeTool,
+    });
+  }
 
   async callMcpTool(role: AgentRole, serverName: string, toolName: string, args: Record<string, unknown>): Promise<unknown> {
     if (!this._mcpManager) throw new Error('MCP manager not configured. Call setMcpManager() first.');
     const { McpInvokeError } = await import('../mcp/mcp-manager.js');
     const toolDefinition = this.getMcpToolDefinition(serverName, toolName);
-    if (!this.isMcpToolAllowed(role, toolDefinition)) throw new Error(`Role '${role}' is not permitted to call MCP tool '${serverName}/${toolName}'.`);
+    const policyDecision = this.decideToolInvocation(role, 'external-mcp', 'mcp_tool_call', { serverName, definition: toolDefinition });
+    if (!policyDecision.allowed) throw new Error(policyDecision.message);
     let result: unknown;
     try { result = await this._mcpManager.invokeTool(serverName, toolName, args); } catch (err) { if (err instanceof McpInvokeError) throw err; throw new Error(`MCP tool invocation failed for '${toolName}' on '${serverName}': ${err instanceof Error ? err.message : String(err)}`); }
     if (this.contentSupervisor && !this.contentSupervisor.isScreeningDisabled()) {
@@ -265,6 +278,8 @@ export class AgentAdapter implements AgentRuntime {
       try {
         const fn = RUNTIME_AGENT_TOOL_REGISTRY[tc.function.name];
         if (!fn) throw new Error(`Planner tool '${tc.function.name}' is not routed.`);
+        const policyDecision = this.decideToolInvocation(role, 'agent-runtime', tc.function.name, { knownRuntimeTool: Boolean(fn) });
+        if (!policyDecision.allowed) return this.policyDeniedToolMessage(policyDecision, tc.function.name, tc.id);
         const result = await fn({ projectRoot: this.projectRoot, actor: role, surface: 'runtime', sessionId }, args);
         return { role: 'tool', kind: result.success ? 'tool_result' : 'tool_error', content: JSON.stringify(result), tool: tc.function.name, tool_call_id: tc.id };
       } catch (err) {
@@ -275,6 +290,8 @@ export class AgentAdapter implements AgentRuntime {
       let args: Record<string, unknown> = {};
       try { args = JSON.parse(tc.function.arguments); } catch {}
       try {
+        const policyDecision = this.decideToolInvocation(role, 'agent-runtime', tc.function.name, { knownRuntimeTool: true });
+        if (!policyDecision.allowed) return this.policyDeniedToolMessage(policyDecision, tc.function.name, tc.id);
         const result = await RUNTIME_AGENT_TOOL_REGISTRY[tc.function.name]({ projectRoot: this.projectRoot, actor: role, surface: 'runtime', sessionId }, args);
         return { role: 'tool', kind: result.success ? 'tool_result' : 'tool_error', content: JSON.stringify(result), tool: tc.function.name, tool_call_id: tc.id };
       } catch (err) {
@@ -284,6 +301,8 @@ export class AgentAdapter implements AgentRuntime {
     // Planner-control tools only. The adapter remains the planner-role/tool-name
     // policy gate; execution/dependency wiring lives in PlannerControlExecutor.
     if (role === 'planner' && PLANNER_CONTROL_TOOL_NAMES.has(tc.function.name)) {
+      const policyDecision = this.decideToolInvocation(role, 'planner-control', tc.function.name, { knownPlannerTool: true });
+      if (!policyDecision.allowed) return this.policyDeniedToolMessage(policyDecision, tc.function.name, tc.id);
       return this.plannerControlExecutor.execute({
         sessionId,
         toolCallId: tc.id,
@@ -299,16 +318,23 @@ export class AgentAdapter implements AgentRuntime {
       const toolName = args.toolName ?? '';
       const toolArgs = args.args ?? {};
       if (!serverName || !toolName) return { role: 'tool', kind: 'tool_error', content: 'mcp_tool_call requires both "serverName" and "toolName" parameters.', tool: 'mcp_tool_call', tool_call_id: tc.id };
+      const toolDefinition = this.getMcpToolDefinition(serverName, toolName);
+      const policyDecision = this.decideToolInvocation(role, 'external-mcp', 'mcp_tool_call', { serverName, definition: toolDefinition });
+      if (!policyDecision.allowed) return this.policyDeniedToolMessage(policyDecision, `mcp_tool_call:${serverName}/${toolName}`, tc.id, 'MCP tool call failed');
       try { const result = await this.callMcpTool(role, serverName, toolName, toolArgs); return { role: 'tool', kind: 'tool_result', content: typeof result === 'string' ? result : JSON.stringify(result), tool: `mcp_tool_call:${serverName}/${toolName}`, tool_call_id: tc.id }; } catch (err) { const errorMsg = err instanceof Error ? err.message : String(err); return { role: 'tool', kind: 'tool_error', content: `MCP tool call failed: ${errorMsg}`, tool: `mcp_tool_call:${serverName}/${toolName}`, tool_call_id: tc.id }; }
     }
     if (tc.function.name === 'load_skill') {
       let args: { name?: string } = {};
       try { args = JSON.parse(tc.function.arguments); } catch {}
       const skillName = args.name ?? '';
+      const policyDecision = this.decideToolInvocation(role, 'skill', 'load_skill');
+      if (!policyDecision.allowed) return this.policyDeniedToolMessage(policyDecision, `load_skill:${skillName}`, tc.id, 'load_skill failed');
       try { if (!this._skillsEngine) throw new Error('SkillsEngine not configured. Call setSkillsEngine() first.'); const result = await loadSkill(skillName, role, this._skillsEngine); return { role: 'tool', kind: 'tool_result', content: result.skill_content, tool: `load_skill:${skillName}`, tool_call_id: tc.id }; } catch (err) { const errorMsg = err instanceof LoadSkillError ? err.message : `Error loading skill '${skillName}': ${err instanceof Error ? err.message : String(err)}`; return { role: 'tool', kind: 'tool_error', content: errorMsg, tool: `load_skill:${skillName}`, tool_call_id: tc.id }; }
     }
     if (tc.function.name === 'list_project_files' || tc.function.name === 'read_project_file' || tc.function.name === 'write_project_file' || tc.function.name === 'start_and_wait' || tc.function.name === 'run_project_command' || tc.function.name === 'wait_for_process' || tc.function.name === 'kill_process') {
-      try { if (role !== 'executor' && role !== 'planner' && (tc.function.name === 'write_project_file' || tc.function.name === 'start_and_wait' || tc.function.name === 'run_project_command' || tc.function.name === 'wait_for_process' || tc.function.name === 'kill_process')) throw new Error(`${tc.function.name} is only available to executor or planner agents.`); const result = await processWorkspaceToolCall(tc.function.name, tc.function.arguments, { projectRoot: this.projectRoot, sessionId, goalId: invocation?.goalId, cardId: invocation?.cardId }); return { role: 'tool', kind: 'tool_result', content: typeof result === 'string' ? result : JSON.stringify(result), tool: tc.function.name, tool_call_id: tc.id }; } catch (err) { return { role: 'tool', kind: 'tool_error', content: `${tc.function.name} failed: ${err instanceof Error ? err.message : String(err)}`, tool: tc.function.name, tool_call_id: tc.id }; }
+      const policyDecision = this.decideToolInvocation(role, 'workspace', tc.function.name);
+      if (!policyDecision.allowed) return this.policyDeniedToolMessage(policyDecision, tc.function.name, tc.id, `${tc.function.name} failed`);
+      try { const result = await processWorkspaceToolCall(tc.function.name, tc.function.arguments, { projectRoot: this.projectRoot, sessionId, goalId: invocation?.goalId, cardId: invocation?.cardId }); return { role: 'tool', kind: 'tool_result', content: typeof result === 'string' ? result : JSON.stringify(result), tool: tc.function.name, tool_call_id: tc.id }; } catch (err) { return { role: 'tool', kind: 'tool_error', content: `${tc.function.name} failed: ${err instanceof Error ? err.message : String(err)}`, tool: tc.function.name, tool_call_id: tc.id }; }
     }
     return { role: 'tool', kind: 'tool_error', content: `Unknown tool '${tc.function.name}'.`, tool: tc.function.name, tool_call_id: tc.id };
   }
