@@ -219,7 +219,7 @@ export function buildCardRunsResponse(projectRoot: string): CardRunsResponse {
       return { goal_card_id: session.goal_card_id as string, planner_session_id: session.id, latest_self_report: (card?.latest_self_report as Record<string, unknown> | null | undefined) ?? null };
     });
   const cards_with_pending_corrections = store.list().map((card) => {
-    const notes = getNotes(saivageDir(projectRoot), card.id).filter((note) => !note.handled && (note.content.includes('pending_subtree_correction') || note.content.includes('subtree_changed') || note.content.includes('project_needs_corrections')));
+    const notes = getNotes(saivageDir(projectRoot), card.id).filter((note) => !note.handled && (note.content.includes('pending_subtree_correction') || note.content.includes('subtree_changed')));
     return { card, notes };
   }).filter(({ notes }) => notes.length > 0).map(({ card, notes }) => ({ card_id: card.id, status: card.status, note_count: notes.length, last_note_at: notes.map((n) => n.timestamp).sort().at(-1) ?? null }));
   return { active_card_run: active, active_breadcrumb, dormant_planners, cards_with_pending_corrections };

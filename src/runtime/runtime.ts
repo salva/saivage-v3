@@ -85,7 +85,6 @@ export interface RuntimeConfig { projectRoot: string; fakeAgentConfig: FakeAgent
 const TERMINAL_TYPES: ReadonlySet<string> = new Set(['architecture', 'code', 'test', 'doc', 'data', 'research', 'ops']);
 const TERMINAL_STATUSES: ReadonlySet<string> = new Set(['done', 'failed', 'cancelled']);
 function isTerminal(card: CardRecord): boolean { return TERMINAL_TYPES.has(card.type); }
-function buildReadyQueue(cards: CardRecord[]): CardRecord[] { return cards.filter((c) => { if (c.status !== 'backlog' && c.status !== 'active') return false; if (c.depends_on.length === 0) return true; return c.depends_on.every((depId) => { const dep = cards.find((cc) => cc.id === depId); return dep && dep.status === 'done'; }); }).sort((a, b) => { if (a.depends_on.length !== b.depends_on.length) return a.depends_on.length - b.depends_on.length; if (a.priority !== b.priority) return a.priority - b.priority; if (a.status !== b.status) return a.status === 'backlog' ? -1 : 1; return 0; }); }
 function now(): string { return new Date().toISOString(); }
 function saivageWorkDir(projectRoot: string): string { return join(projectRoot, '.saivage-work'); }
 function eventsLogPath(projectRoot: string): string { return join(projectRoot, '.saivage', 'runtime', 'events.jsonl'); }
@@ -316,7 +315,7 @@ export class Runtime extends EventEmitter {
         if (body.includes('pending_subtree_correction')) notes.push({ kind: 'pending_subtree_correction', origin_card_id: cardId, issues: [], body, at: note.timestamp });
         else if (body.includes('subtree_changed')) notes.push({ kind: 'subtree_changed', descendant_card_ids: [cardId], body, at: note.timestamp });
         else if (body.includes('reviewer_interrupted')) notes.push({ kind: 'reviewer_interrupted', assessment_id: 'unknown', at: note.timestamp, body });
-        else if (body.includes('lets_dance') || body.includes('project_needs_corrections')) notes.push({ kind: 'analyst_note', body, at: note.timestamp });
+        else notes.push({ kind: 'directive_note', origin_card_id: cardId, body, at: note.timestamp });
       }
     }
     return notes;
@@ -328,7 +327,7 @@ export class Runtime extends EventEmitter {
     if (fallback === 'service_restart' && activeRun?.card_id === goalId && activeRun.phase === 'planner') return 'service_restart';
     const notes = this.buildGoalContextNotes(goalId);
     if (notes.some((note) => note.kind === 'reviewer_interrupted')) return 'service_restart';
-    if (notes.some((note) => note.kind === 'pending_subtree_correction' || note.kind === 'analyst_note')) return 'analyst_directive';
+    if (notes.some((note) => note.kind === 'pending_subtree_correction')) return 'analyst_directive';
     if (notes.some((note) => note.kind === 'subtree_changed')) return 'subtree_changed';
     return fallback;
   }
@@ -521,8 +520,6 @@ export class Runtime extends EventEmitter {
   freeze(reason?: string): FreezeManifest { if (this._status === 'frozen') { const existing = readFreezeManifest(this.projectRoot); if (existing) return existing; } this._status = 'frozen'; this._paused = true; const state = readRuntimeState(this.projectRoot); const frozenAt = new Date(); const freezeId = `freeze-${frozenAt.toISOString().replace(/[:.]/g, '-')}`; let handoffSummaries: HandoffSummary[] = []; try { const raw = this.agentRuntime.getActiveSessionHandoffs(); handoffSummaries = raw instanceof Promise ? [] : raw; } catch {} const manifest: FreezeManifest = { freeze_id: freezeId, reason: reason ?? 'operator requested freeze', created_at: frozenAt.toISOString(), status: 'frozen', project_id: 'project', pid: process.pid, started_at: state?.started_at ?? frozenAt.toISOString(), current_card_id: state?.current_card_id ?? null, current_agent_session_id: state?.current_agent_session_id ?? null, queue: state?.queue ?? [], running_processes: [], handoff_summaries: handoffSummaries, schema_version: 1, runtime_version: '0.1.0' }; saveFreezeManifest(this.projectRoot, manifest); try { saveRuntimeState(this.projectRoot, { status: 'frozen', project_id: 'project', pid: process.pid, started_at: state?.started_at ?? frozenAt.toISOString(), current_card_id: state?.current_card_id ?? null, current_agent_session_id: state?.current_agent_session_id ?? null, paused: true, paused_at: frozenAt.toISOString(), queue: state?.queue ?? [], running_processes: [], updated_at: frozenAt.toISOString() }); } catch {} this.emit('frozen', { freeze_id: manifest.freeze_id, reason: manifest.reason }); this._eventLogger.appendEvent({ kind: 'frozen', freeze_id: manifest.freeze_id, reason: manifest.reason }); return manifest; }
   resumeFromFreeze(): { freeze_id: string; restored_queue: string[]; restored_processes: string[]; restored_card_id: string | null } { const manifest = readFreezeManifest(this.projectRoot); if (!manifest) throw new Error('Cannot resume: no freeze manifest found. The runtime is not frozen.'); if (manifest.schema_version > 1) throw new Error(`Cannot resume: freeze manifest schema version ${manifest.schema_version} is newer than the supported version 1. Upgrade Saivage to resume this freeze.`); const currentVersion = '0.1.0'; if (manifest.runtime_version !== currentVersion) console.warn(`Resuming from freeze created by runtime version ${manifest.runtime_version} with current version ${currentVersion}. State may differ.`); this._status = 'idle'; this._paused = false; const processIds: string[] = []; try { saveRuntimeState(this.projectRoot, { status: 'idle', project_id: 'project', pid: process.pid, started_at: manifest.started_at, current_card_id: manifest.current_card_id, current_agent_session_id: manifest.current_agent_session_id, paused: false, paused_at: null, queue: manifest.queue, running_processes: [], updated_at: new Date().toISOString() }); } catch {} this.runningProcesses.clear(); const handoffSummaries = manifest.handoff_summaries ?? []; if (handoffSummaries.length > 0 && manifest.current_agent_session_id) { this._resumeHandoffContext = handoffSummaries.map((h) => `[Handoff] Session: ${h.session_id}, Role: ${h.role}, Last action: ${h.last_action}, Next action: ${h.next_action}, Context: ${h.context_summary}`).join('\n'); } clearFreezeManifest(this.projectRoot); this.emit('resumed_from_freeze', { freeze_id: manifest.freeze_id }); this._eventLogger.appendEvent({ kind: 'resumed_from_freeze', freeze_id: manifest.freeze_id }); return { freeze_id: manifest.freeze_id, restored_queue: manifest.queue, restored_processes: processIds, restored_card_id: manifest.current_card_id }; }
   performCrashRecovery(): void { const allCards = this.cardStore.list(); for (const card of allCards) if (card.status === 'active' || card.status === 'running') this.cardStore.setStatus(card.id, 'backlog'); const tmpRuntimeDir = join(this.projectRoot, '.saivage-work', 'tmp', 'runtime'); if (existsSync(tmpRuntimeDir)) { try { const entries = readdirSync(tmpRuntimeDir); for (const entry of entries) { if (entry === 'runtime.lock') continue; if (entry.endsWith('.tmp') || entry.endsWith('.tmp.') || entry.includes('.tmp.')) { try { rmSync(join(tmpRuntimeDir, entry), { recursive: true, force: true }); } catch {} } } } catch {} } try { cleanStaleStash(saivageWorkDir(this.projectRoot), 24 * 60 * 60 * 1000); } catch {} try { cleanStalePreviews(saivageWorkDir(this.projectRoot), 24 * 60 * 60 * 1000); } catch {} try { cleanStaleUploads(saivageWorkDir(this.projectRoot), 24 * 60 * 60 * 1000); } catch {} }
-  getReadyQueue(_goalId: string): CardRecord[] { return []; }
-
   async dispatchGoal(goalId: string): Promise<void> {
     if (this._dispatchInFlight.has(goalId)) return;
     this._dispatchInFlight.add(goalId);
@@ -709,7 +706,7 @@ export class Runtime extends EventEmitter {
         if (this._dispatchInFlight.size === 0) {
           this._errorLogger.appendError({ message: `safeTick clearing stale active_card_run for card '${state.active_card_run.card_id}' (phase=${state.active_card_run.phase}); resuming dispatch.`, goalId: state.active_card_run.card_id, phase: 'safe_tick' });
           updateRuntimeState(this.projectRoot, { status: 'idle', current_card_id: null, current_agent_session_id: null, queue: [], active_card_run: null } as Partial<RuntimeState> as never);
-          // fall through to directive / backlog dispatch below
+          // fall through to explicit runtime-intent dispatch below
         } else {
           return;
         }
