@@ -118,8 +118,15 @@ function pushFailure(failures, docPath, lineNumber, rawAnchor, message) {
   failures.push({ file: docPath, line: lineNumber, anchor: rawAnchor, message });
 }
 
+function resolveAnchorPath(root, docPath, filePath) {
+  const normalized = filePath.replace(/\\/g, '/');
+  const relativeToDoc = normalized.startsWith('./') || normalized.startsWith('../');
+  const resolvedPath = relativeToDoc ? path.normalize(path.join(path.dirname(docPath), normalized)).replace(/\\/g, '/') : normalized;
+  return { resolvedPath, targetPath: path.join(root, resolvedPath) };
+}
+
 function validateFileLineAnchor(root, docPath, lineNumber, rawAnchor, filePath, lineRaw, contextRaw, failures) {
-  const targetPath = path.join(root, filePath);
+  const { resolvedPath, targetPath } = resolveAnchorPath(root, docPath, filePath);
   if (!existsSync(targetPath)) {
     pushFailure(failures, docPath, lineNumber, rawAnchor, `${docPath}:${lineNumber} source anchor points to missing file: ${rawAnchor}`);
     return;
@@ -143,7 +150,7 @@ function validateFileLineAnchor(root, docPath, lineNumber, rawAnchor, filePath, 
       docPath,
       lineNumber,
       rawAnchor,
-      `${docPath}:${lineNumber} source anchor context was not found within ${CONTEXT_WINDOW_LINES} line(s) of ${filePath}:${targetLine}: ${JSON.stringify(context)}`,
+      `${docPath}:${lineNumber} source anchor context was not found within ${CONTEXT_WINDOW_LINES} line(s) of ${resolvedPath}:${targetLine}: ${JSON.stringify(context)}`,
     );
   }
 }
@@ -168,14 +175,14 @@ function symbolPatterns(symbol) {
 }
 
 function validateSymbolAnchor(root, docPath, lineNumber, rawAnchor, filePath, symbol, failures) {
-  const targetPath = path.join(root, filePath);
+  const { resolvedPath, targetPath } = resolveAnchorPath(root, docPath, filePath);
   if (!existsSync(targetPath)) {
     pushFailure(failures, docPath, lineNumber, rawAnchor, `${docPath}:${lineNumber} symbol source anchor points to missing file: ${rawAnchor}`);
     return;
   }
   const content = readFileSync(targetPath, 'utf8');
   if (!symbolPatterns(symbol).some((pattern) => pattern.test(content))) {
-    pushFailure(failures, docPath, lineNumber, rawAnchor, `${docPath}:${lineNumber} symbol source anchor was not found in ${filePath}: ${rawAnchor}`);
+    pushFailure(failures, docPath, lineNumber, rawAnchor, `${docPath}:${lineNumber} symbol source anchor was not found in ${resolvedPath}: ${rawAnchor}`);
   }
 }
 
@@ -281,6 +288,46 @@ function runSelfTest() {
         result.failures.some((failure) => failure.anchor === 'src/index.ts:99') &&
         result.failures.some((failure) => failure.anchor === 'src/index.ts:2') &&
         result.failures.some((failure) => failure.anchor === 'src/index.ts#symbol:notHere'),
+    );
+
+    writeFixtureFile(
+      tmp,
+      'architecture-audit/reports/valid-audit.md',
+      '# Valid audit anchor\n\nAudit cites source: src/index.ts:1\n',
+    );
+    assertSelfTestCase(
+      'valid architecture-audit line anchor',
+      checkSourceAnchors({ root: tmp, docs: ['architecture-audit'] }),
+      (result) => result.failures.length === 0 && result.anchorsChecked === 1 && result.files.includes('architecture-audit/reports/valid-audit.md'),
+    );
+
+    writeFixtureFile(
+      tmp,
+      'architecture-audit/reports/stale-audit.md',
+      '# Stale audit anchor\n\nAudit stale citation: src/index.ts:99\n',
+    );
+    const staleAudit = checkSourceAnchors({ root: tmp, docs: ['architecture-audit/reports/stale-audit.md'] });
+    assertSelfTestCase(
+      'stale architecture-audit failure includes audit path and anchor',
+      staleAudit,
+      (result) =>
+        result.failures.some(
+          (failure) =>
+            failure.file === 'architecture-audit/reports/stale-audit.md' &&
+            failure.anchor === 'src/index.ts:99' &&
+            failure.message.includes('architecture-audit/reports/stale-audit.md'),
+        ),
+    );
+
+    writeFixtureFile(
+      tmp,
+      'architecture-audit/reports/fenced-audit.md',
+      '# Fenced audit anchor\n\n```\nExample ignored stale citation: src/index.ts:99\n```\n',
+    );
+    assertSelfTestCase(
+      'fenced architecture-audit anchors are ignored',
+      checkSourceAnchors({ root: tmp, docs: ['architecture-audit/reports/fenced-audit.md'] }),
+      (result) => result.failures.length === 0 && result.anchorsChecked === 0,
     );
 
     console.log('✓ source anchor checker self-test passed');
