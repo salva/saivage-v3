@@ -7,7 +7,7 @@ import { parseActivationCompletionEnvelope } from '../../src/schemas/validators.
 import { Runtime } from '../../src/runtime/runtime.js';
 import { CardStore } from '../../src/utils/card-store.js';
 import { releaseLock } from '../../src/runtime/lock.js';
-import { saveRuntimeState, initRuntimeState, updateRuntimeState, readRuntimeState } from '../../src/runtime/state.js';
+import { saveRuntimeState, initRuntimeState, updateRuntimeState, readRuntimeState, appendRuntimeRun } from '../../src/runtime/state.js';
 import { appendMessage, createSession, getSessionMessages, listSessions } from '../../src/agents/session-persistence.js';
 import { getUnhandledNotesQueue } from '../../src/utils/notes.js';
 import type { ActiveCardRun, CardRecord, RuntimeState } from '../../src/schemas/types.js';
@@ -67,6 +67,47 @@ describe('stage 7 runtime restart and orphan activate_card repair', () => {
     await new Promise((resolve) => setTimeout(resolve, 50));
     expect(agent.plannerCalls).toContain('goal-a');
     expect(agent.plannerCalls).not.toContain('goal-b');
+  });
+
+
+  it('preserves active planner session ownership coherently with runtime_runs during restart repair', async () => {
+    store.create(cardInput('goal-a', 'goal', 'project', 'running'));
+    const activeRun = { card_id: 'goal-a', card_type: 'goal' as const, runtime_status: 'running' as const, phase: 'planner' as const, caller_session_id: null, caller_tool_call_id: null, planner_session_id: 'planner:goal-a', correction_attempts: 0, started_at: now(), last_turn_at: now() };
+    saveRuntimeState(root, runtimeState(activeRun));
+    const seededRun = appendRuntimeRun(root, {
+      run_id: 'run-goal-a-planner',
+      kind: 'child',
+      card_id: 'goal-a',
+      parent_run_id: 'run-root-project',
+      command_id: null,
+      activation_id: 'activation-goal-a',
+      phase: 'planner',
+      runtime_status: 'running',
+      session_id: 'planner:goal-a',
+      result: null,
+    });
+    const observedRepairStates: Array<ReturnType<typeof readRuntimeState>> = [];
+    const agent = new ScriptedAgent({ 'goal-a': [{ status: 'blocked', blocked_reason: 'pause after restart', created_cards: [], updated_cards: [] }] });
+    const originalInvokePlanner = agent.invokePlanner.bind(agent);
+    agent.invokePlanner = (goalId, systemPrompt) => {
+      observedRepairStates.push(readRuntimeState(root));
+      return originalInvokePlanner(goalId, systemPrompt);
+    };
+
+    runtime = new Runtime({ projectRoot: root, fakeAgentConfig: { mapping: {}, fixtureDir: root } }, agent);
+    await runtime.startup();
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    expect(agent.plannerCalls).toContain('goal-a');
+    const repairedDuringPlanner = observedRepairStates.find((state) => state?.active_card_run?.card_id === 'goal-a');
+    expect(repairedDuringPlanner?.active_card_run).toEqual(expect.objectContaining({ card_id: 'goal-a', phase: 'planner', planner_session_id: 'planner:goal-a' }));
+    expect(repairedDuringPlanner?.current_agent_session_id).toBe('planner:goal-a');
+    expect(repairedDuringPlanner?.runtime_runs).toEqual(expect.arrayContaining([
+      expect.objectContaining({ run_id: seededRun.run_id, card_id: 'goal-a', phase: 'planner', runtime_status: 'running', session_id: 'planner:goal-a' }),
+    ]));
+    expect(readRuntimeState(root)?.runtime_runs).toEqual(expect.arrayContaining([
+      expect.objectContaining({ run_id: seededRun.run_id, card_id: 'goal-a', session_id: 'planner:goal-a' }),
+    ]));
   });
 
   it('repairs executor phase by synthesizing a service_restart failure and one parent tool_result', async () => {

@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, jest } from '@jest/globals';
 import type { WebSocket } from 'ws';
+import { RuntimeRunEventSchema, parseKnownWsEnvelope } from '../../src/contracts/operator-events.js';
 
 const mockGetOrCreateAnalystSession = jest.fn();
 const mockGetAnalystHandler = jest.fn();
@@ -443,6 +444,49 @@ describe('websocket runtime event fanout compatibility', () => {
     expect(payloads).toContainEqual({ type: 'status', content: { event: 'session_cancelled', session_id: 'sess-1' } });
     const fanout = payloads.find((entry) => entry.content.event === 'session_cancelled');
     expect(fanout.content).not.toHaveProperty('cardStoreHealth');
+  });
+
+
+
+  it('fans out and validates runtime.run envelopes for root planner session binding updates', () => {
+    const { ws } = createSocket();
+    const { route, fastify } = createRoute();
+    const handlers: Array<(event: import('../../src/schemas/types.js').LoggedEvent) => void> = [];
+    const runtime = {
+      runtime: { cardStore: { getHealth: jest.fn(() => ({ canonical: 'ok', compatibilitySnapshots: 'ok', lastCompatibilitySnapshotWarning: null, warnings: [] })) } },
+      on: jest.fn(),
+      eventBus: {
+        subscribe: jest.fn((options: { handler: (event: import('../../src/schemas/types.js').LoggedEvent) => void }) => {
+          handlers.push(options.handler);
+          return { id: 'sub-session-binding', pause: jest.fn(), resume: jest.fn(), unsubscribe: jest.fn() };
+        }),
+      },
+    } as any;
+    registerWebSocket(fastify, '/tmp/project', runtime);
+    route.handler(ws, { headers: {}, query: {} });
+    websocketModule.wireRuntimeEvents(runtime);
+
+    const run = {
+      run_id: 'run-root-session-binding',
+      kind: 'root',
+      card_id: 'project',
+      parent_run_id: null,
+      command_id: 'cmd-start',
+      activation_id: null,
+      phase: 'planner',
+      runtime_status: 'running',
+      session_id: 'planner:project',
+      started_at: '2026-01-01T00:00:00.000Z',
+      updated_at: '2026-01-01T00:00:01.000Z',
+      result: null,
+    } satisfies import('../../src/schemas/types.js').RuntimeRunRecord;
+    handlers[0]?.({ id: 'evt-bind', kind: 'runtime_run', timestamp: '2026-01-01T00:00:01.000Z', run });
+
+    const payloads = (ws.send as jest.Mock).mock.calls.map((call) => JSON.parse(call[0] as string));
+    const envelope = payloads.find((entry) => entry.content.event === 'runtime.run' && entry.content.run?.run_id === run.run_id);
+    expect(envelope).toBeTruthy();
+    expect(RuntimeRunEventSchema.parse(envelope).content.run).toEqual(run);
+    expect(parseKnownWsEnvelope(envelope)).toEqual(envelope);
   });
 
   it('does not attach CardStore health to non-runtime-state runtime envelopes', () => {

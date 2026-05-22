@@ -13,6 +13,7 @@ import { fileURLToPath } from 'node:url';
 import type { InjectOptions, LightMyRequestResponse } from 'fastify';
 import type { ServerInstance } from '../../src/server/server.js';
 import { isLocked, releaseLock } from '../../src/runtime/lock.js';
+import { readRuntimeState } from '../../src/runtime/state.js';
 import { CardStore } from '../../src/utils/card-store.js';
 import { getRuntimeEventSubscriptionCount } from '../../src/server/websocket.js';
 
@@ -65,6 +66,16 @@ async function drainResponse(res: InjectFetchResponse): Promise<void> {
     await res.arrayBuffer();
   } catch {
   }
+}
+
+async function waitFor<T>(probe: () => T, predicate: (value: T) => boolean, timeoutMs = 2000): Promise<T> {
+  const deadline = Date.now() + timeoutMs;
+  let last = probe();
+  while (!predicate(last) && Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    last = probe();
+  }
+  return last;
 }
 
 function addGoalCard(projectRoot: string, goalId: string, title: string): void {
@@ -130,13 +141,28 @@ describe('Server with ActiveRuntime (createRuntime=true)', () => {
     let startedRootRun: Record<string, any> | null = null;
     let startCommandId: string | null = null;
 
-    it('POST /api/runtime/start_project returns command, intent, and root run records', async () => {
+    it('POST /api/runtime/start_project returns command, intent, and a root run bound to the project planner session', async () => {
       const res = await fetchServer('/api/runtime/start_project', { method: 'POST', headers: authHeaders() });
       expect(res.status).toBe(200);
       const body = await res.json() as Record<string, any>;
       expect(body).toMatchObject({ success: true, command: { command: 'start_project', status: 'completed' }, intent: { status: 'running' }, run: { kind: 'root', card_id: 'project' } });
       startedRootRun = body.run;
       startCommandId = body.command.command_id;
+
+      const persistedRootRun = await waitFor(
+        () => readRuntimeState(tmpDir)?.runtime_runs?.find((run) => run.run_id === body.run.run_id),
+        (run) => run?.session_id === 'planner:project',
+        5000,
+      );
+      expect(persistedRootRun).toMatchObject({
+        run_id: body.run.run_id,
+        kind: 'root',
+        card_id: 'project',
+        command_id: body.command.command_id,
+        session_id: 'planner:project',
+      });
+      expect(['planner', 'completed', 'blocked', 'failed']).toContain(persistedRootRun!.phase);
+      expect(['running', 'idle', 'error']).toContain(persistedRootRun!.runtime_status);
     }, 15000);
 
     it('POST /api/runtime/start_project while already running returns actionable precondition error', async () => {
