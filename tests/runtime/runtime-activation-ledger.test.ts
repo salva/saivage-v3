@@ -88,6 +88,35 @@ describe('runtime activation ledger target contract (Wave 1)', () => {
     } finally { rmSync(ctx.projectRoot, { recursive: true, force: true }); }
   });
 
+
+  it('does not let a sessionless active parent run authorize a nonmatching nonempty planner session', async () => {
+    const ctx = setup();
+    try {
+      appendRuntimeRun(ctx.projectRoot, { run_id: 'run-parent-sessionless', kind: 'root', card_id: 'goal-a', parent_run_id: null, command_id: 'cmd-a', activation_id: null, phase: 'planner', runtime_status: 'running', session_id: null, result: null });
+      const exec = new PlannerControlExecutor({ projectRoot: ctx.projectRoot, cardStore: ctx.cardStore });
+      const msg = await exec.execute({ toolName: 'activate_card', toolCallId: 'call-current', argumentsJson: JSON.stringify({ cardId: 'code-a' }), parentCardId: 'goal-a', sessionId: 'planner:goal-a:current-session' });
+
+      expect(msg.kind).toBe('tool_error');
+      const body = JSON.parse(msg.content);
+      expect(body.actionable_error.code).toBe('activate_card_parent_not_active');
+      expect(body.actionable_error.currentState).toEqual(expect.objectContaining({
+        parentCardId: 'goal-a',
+        childCardId: 'code-a',
+        sessionId: 'planner:goal-a:current-session',
+        parentRunId: null,
+      }));
+      expect(body.actionable_error.currentState.parentRunCandidates).toEqual([
+        expect.objectContaining({
+          run_id: 'run-parent-sessionless',
+          card_id: 'goal-a',
+          phase: 'planner',
+          runtime_status: 'running',
+          session_id: null,
+        }),
+      ]);
+    } finally { rmSync(ctx.projectRoot, { recursive: true, force: true }); }
+  });
+
   it('returns actionable parent-not-active details when active parent runs do not match the invoking session', async () => {
     const ctx = setup();
     try {

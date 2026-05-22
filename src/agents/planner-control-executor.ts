@@ -77,7 +77,7 @@ export class PlannerControlExecutor {
               .filter((run) => run.card_id === parentCardId && run.phase === 'planner' && run.runtime_status === 'running' && !run.finished_at)
             : [];
           const parentRun = activeParentRuns.find((run) => Boolean(sessionId) && run.session_id === sessionId)
-            ?? activeParentRuns.find((run) => !run.session_id && (!sessionId || sessionId === `planner:${parentCardId}` || Boolean(sessionId)));
+            ?? activeParentRuns.find((run) => !sessionId && !run.session_id);
           const parentRunCandidates = activeParentRuns.map((run) => ({
             run_id: run.run_id,
             card_id: run.card_id,
