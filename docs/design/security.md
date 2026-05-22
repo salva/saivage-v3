@@ -100,8 +100,10 @@ Core rules:
 - a static authz table keyed by `(actor, surface, safety_class)`
   returns `allow | deny | preview_only`
 - confirmation is driven by the verdict, not the safety class alone
-- `preview_only` requires `confirmed: true` plus a matching preview
-  hash derived from the request parameters
+- `preview_only` is a bounded tool/control safety verdict: commit requires
+  `confirmed: true` plus a matching preview hash derived from the request
+  parameters, and this handshake is not an execution trigger for card status,
+  planner state, runtime start/stop, or `activate_card`
 - every mutating call writes one control-action audit entry
 - read-only inspection paths rely on transport auth plus redaction and
   do not fill the audit log

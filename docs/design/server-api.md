@@ -55,8 +55,11 @@ This means:
 
 - each mutating route declares a safety class;
 - authz is evaluated against `(actor, surface='rest', safety_class)`;
-- `preview_only` responses return previews plus preview hashes and do
-  not mutate until explicitly confirmed;
+- `preview_only` responses for eligible tool/control actions return previews
+  plus preview hashes and do not commit that specific action until explicitly
+  confirmed; card CRUD, planner-state changes, runtime start/stop, and
+  `activate_card` must still use their canonical owners and must not treat
+  preview hashes as mutation authority;
 - `deny` responses do not mutate;
 - every mutating call writes one control-action audit entry;
 - the route must call the canonical service rather than mutating

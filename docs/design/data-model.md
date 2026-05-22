@@ -287,7 +287,7 @@ interface ControlActionAuditEntry {
   target_kind: "card" | "note" | "process" | "runtime" | "config" | "session" | null;
   target_id: string | null;
   params_summary: string;
-  confirmed: boolean;
+  confirmed: boolean; // audit fact for bounded preview-only tool/control confirmations; not card/runtime execution authority
   outcome: "ok" | "error" | "denied" | "rejected";
   outcome_summary: string;
   error?: string;
@@ -295,8 +295,11 @@ interface ControlActionAuditEntry {
 }
 ```
 
-Every mutating call from any surface writes one of these entries.
-Read-only inspection does not.
+Every mutating call from any surface writes one of these entries. The
+`confirmed` field records whether a bounded preview-only tool/control action
+was committed through its confirmation flow; it is not a card-status,
+planner-state, runtime start/stop, or `activate_card` gate. Read-only
+inspection does not write audit entries.
 
 ---
 

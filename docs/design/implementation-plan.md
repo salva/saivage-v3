@@ -299,7 +299,9 @@ The implementation target is the system defined by:
   card tree.
 - User can pause/resume runtime through analyst chat.
 - User can add an unhandled directive to a running/backlog card.
-- Destructive actions require a structured preview/confirmation step.
+- Destructive analyst/tool actions require a structured preview/confirmation
+  step where that surface permits preview-only safety; this does not authorize
+  card/runtime/planner mutation or child activation outside canonical owners.
 - Analyst cannot directly perform terminal task work; task work still
   goes through executor/runtime flow.
 
