@@ -59,12 +59,18 @@
             <button
               type="button"
               class="tool-chip"
+              :class="toolChipClasses(item)"
               :aria-expanded="expandedIds.has(item.id)"
               :aria-label="toolChipAriaLabel(item)"
               @click="toggleExpanded(item.id)"
             >
-              <span>{{ toolChipLabel(item) }}</span>
-              <span aria-hidden="true">{{ expandedIds.has(item.id) ? '▾' : '▸' }}</span>
+              <span class="tool-chip-row">
+                <span class="tool-chip-icon" aria-hidden="true">{{ toolChipParts(item).icon }}</span>
+                <span class="tool-chip-name">{{ toolChipParts(item).name }}</span>
+                <span v-if="toolChipParts(item).headline" class="tool-chip-headline">{{ toolChipParts(item).headline }}</span>
+                <span v-if="toolChipParts(item).detail" class="tool-chip-tag">{{ toolChipParts(item).detail }}</span>
+                <span class="tool-chip-caret" aria-hidden="true">{{ expandedIds.has(item.id) ? '▾' : '▸' }}</span>
+              </span>
             </button>
             <pre v-if="expandedIds.has(item.id)" class="tool-chip-detail">{{ toolChipDetail(item) }}</pre>
           </template>
@@ -119,6 +125,7 @@ import { computed, nextTick, onMounted, ref, watch } from 'vue';
 import { storeToRefs } from 'pinia';
 import { useAnalystChat } from '../../stores/analystChat';
 import type { ChatMessage } from '../../api/types';
+import { presentToolCall, presentToolResult, formatExpandedDetail } from '../../utils/tool-presenters';
 
 const chat = useAnalystChat();
 const {
@@ -173,81 +180,40 @@ const messagesErrorLabel = computed(() => {
   return messagesError.value.message;
 });
 
-function safeJsonParse(content: string): unknown {
-  try {
-    return JSON.parse(content) as unknown;
-  } catch {
-    return null;
-  }
+interface ChipParts {
+  icon: string;
+  name: string;
+  headline: string;
+  detail?: string;
+  status: 'call' | 'ok' | 'error';
 }
 
-function asRecord(value: unknown): Record<string, unknown> | null {
-  return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : null;
-}
-
-function parseArgs(value: unknown): unknown {
-  if (typeof value === 'string') return safeJsonParse(value) ?? value;
-  return value;
-}
-
-function oneLine(value: unknown, max = 72): string {
-  const text = typeof value === 'string' ? value : JSON.stringify(value ?? '');
-  return text.replace(/\s+/g, ' ').slice(0, max);
-}
-
-function firstToolCall(message: ChatMessage): { name: string; args: unknown } {
-  const parsed = asRecord(safeJsonParse(message.content));
-  const toolCalls = Array.isArray(parsed?.toolCalls) ? parsed.toolCalls : [];
-  const first = asRecord(toolCalls[0]);
-  const fn = asRecord(first?.function);
-  const name = typeof fn?.name === 'string'
-    ? fn.name
-    : typeof first?.tool === 'string'
-      ? first.tool
-      : message.tool ?? 'tool';
-  const args = fn && 'arguments' in fn ? parseArgs(fn.arguments) : parseArgs(first?.params ?? {});
-  return { name, args };
-}
-
-function resultToolName(message: ChatMessage): string {
-  const parsed = asRecord(safeJsonParse(message.content));
-  return message.tool
-    ?? (typeof parsed?.tool === 'string' ? parsed.tool : undefined)
-    ?? (typeof parsed?.toolName === 'string' ? parsed.toolName : undefined)
-    ?? 'tool';
-}
-
-function resultStatus(message: ChatMessage, parsed: unknown): 'ok' | 'error' {
-  if (message.kind === 'tool_error') return 'error';
-  const record = asRecord(parsed);
-  if (record?.ok === false || typeof record?.error === 'string') return 'error';
-  return 'ok';
-}
-
-function resultSummary(parsed: unknown, content: string): string {
-  const record = asRecord(parsed);
-  const candidate = record?.summary ?? record?.message ?? record?.error ?? record?.content ?? parsed ?? content;
-  return oneLine(candidate);
-}
-
-function toolChipLabel(message: ChatMessage): string {
+function toolChipParts(message: ChatMessage): ChipParts {
   if (message.kind === 'tool_call') {
-    const call = firstToolCall(message);
-    return `🔧 ${call.name}(${oneLine(call.args, 56)})`;
+    const view = presentToolCall(message.content, message.tool);
+    return { icon: view.icon, name: view.name, headline: view.headline, detail: view.detail, status: 'call' };
   }
-  const parsed = safeJsonParse(message.content);
-  const status = resultStatus(message, parsed);
-  return `📤 ${resultToolName(message)} → ${status} (${resultSummary(parsed, message.content)})`;
+  const view = presentToolResult(message.content, { tool: message.tool, kind: message.kind });
+  return { icon: view.icon, name: view.name, headline: view.headline, detail: view.detail, status: view.status };
+}
+
+function toolChipClasses(message: ChatMessage): Record<string, boolean> {
+  const parts = toolChipParts(message);
+  return {
+    'tool-chip-call': parts.status === 'call',
+    'tool-chip-ok': parts.status === 'ok',
+    'tool-chip-error': parts.status === 'error',
+  };
 }
 
 function toolChipAriaLabel(message: ChatMessage): string {
   const action = expandedIds.value.has(message.id) ? 'Collapse' : 'Expand';
-  return `${action} analyst ${message.kind.replace('_', ' ')} details: ${toolChipLabel(message)}`;
+  const parts = toolChipParts(message);
+  return `${action} analyst ${message.kind.replace('_', ' ')} details: ${parts.icon} ${parts.name} ${parts.headline}`.trim();
 }
 
 function toolChipDetail(message: ChatMessage): string {
-  const parsed = safeJsonParse(message.content);
-  return JSON.stringify(parsed ?? message.content, null, 2);
+  return formatExpandedDetail(message.content);
 }
 
 function toggleExpanded(id: string): void {
@@ -391,6 +357,35 @@ onMounted(() => {
   border: 1px solid #30363d;
   cursor: pointer;
 }
+
+.tool-chip-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  width: 100%;
+  min-width: 0;
+  font-size: 12px;
+  font-family: 'SF Mono', monospace;
+}
+
+.tool-chip-icon { font-size: 13px; }
+.tool-chip-name { font-weight: 600; color: #d2a8ff; flex-shrink: 0; }
+.tool-chip-headline { color: #c9d1d9; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tool-chip-tag {
+  color: #8b949e;
+  border: 1px solid #30363d;
+  border-radius: 999px;
+  padding: 1px 8px;
+  font-size: 11px;
+  white-space: nowrap;
+}
+.tool-chip-caret { color: #8b949e; margin-left: auto; flex-shrink: 0; }
+
+.tool-chip-call .tool-chip-name { color: #d2a8ff; }
+.tool-chip-ok .tool-chip-name { color: #7ee787; }
+.tool-chip-error { border-color: #f85149; }
+.tool-chip-error .tool-chip-name { color: #f85149; }
+.tool-chip-error .tool-chip-headline { color: #ffa198; }
 
 .tool-chip.pending {
   cursor: default;

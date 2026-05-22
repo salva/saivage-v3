@@ -55,23 +55,33 @@
           >
             <div class="tc-header" @click="agentStore.toggleToolCall(step.toolCall.id)">
               <span class="tc-toggle">{{ expandedToolCalls.has(step.toolCall.id) ? '-' : '+' }}</span>
-              <span class="tc-tool">{{ toolCallPreview(step.toolCall) }}</span>
+              <span class="tc-tool">
+                <span class="tc-icon" aria-hidden="true">{{ toolCallView(step.toolCall).icon }}</span>
+                <span class="tc-name">{{ toolCallView(step.toolCall).name }}</span>
+                <span v-if="toolCallView(step.toolCall).headline" class="tc-headline">{{ toolCallView(step.toolCall).headline }}</span>
+                <span v-if="toolCallView(step.toolCall).detail" class="tc-detail">{{ toolCallView(step.toolCall).detail }}</span>
+              </span>
               <span class="tc-time" :title="timestampTitle(step.toolCall.timestamp)">{{ fmtTime(step.toolCall.timestamp) }}</span>
             </div>
-            <pre v-if="expandedToolCalls.has(step.toolCall.id)" class="tc-body">{{ step.toolCall.content }}</pre>
+            <pre v-if="expandedToolCalls.has(step.toolCall.id)" class="tc-body">{{ expandedDetail(step.toolCall) }}</pre>
           </div>
 
           <div
             v-if="step.toolResult"
             class="conv-message tool-result"
-            :class="{ expanded: expandedToolCalls.has(step.toolResult.id) }"
+            :class="{ expanded: expandedToolCalls.has(step.toolResult.id), 'is-error': toolResultView(step.toolResult).status === 'error' }"
           >
             <div class="tr-header" @click="agentStore.toggleToolCall(step.toolResult.id)">
               <span class="tr-toggle">{{ expandedToolCalls.has(step.toolResult.id) ? '-' : '+' }}</span>
-              <span class="tr-label">{{ toolResultPreview(step.toolResult) }}</span>
+              <span class="tr-label">
+                <span class="tr-icon" aria-hidden="true">{{ toolResultView(step.toolResult).icon }}</span>
+                <span class="tr-name">{{ toolResultView(step.toolResult).name }}</span>
+                <span v-if="toolResultView(step.toolResult).headline" class="tr-headline">{{ toolResultView(step.toolResult).headline }}</span>
+                <span v-if="toolResultView(step.toolResult).detail" class="tr-detail">{{ toolResultView(step.toolResult).detail }}</span>
+              </span>
               <span class="tr-time" :title="timestampTitle(step.toolResult.timestamp)">{{ fmtTime(step.toolResult.timestamp) }}</span>
             </div>
-            <pre v-if="expandedToolCalls.has(step.toolResult.id)" class="tr-body" :class="{ 'tr-error': step.toolResult.kind === 'tool_error' }">{{ step.toolResult.content }}</pre>
+            <pre v-if="expandedToolCalls.has(step.toolResult.id)" class="tr-body" :class="{ 'tr-error': step.toolResult.kind === 'tool_error' }">{{ expandedDetail(step.toolResult) }}</pre>
           </div>
         </div>
       </div>
@@ -87,6 +97,7 @@ import { useAgentStore } from '../../stores/agents';
 import type { AgentMessage, EntityLink } from '../../api/types';
 import { createLogger } from '../../utils/logger';
 import { formatTimestamp, timestampTitle } from '../../utils/timestamp';
+import { presentToolCall, presentToolResult, formatExpandedDetail } from '../../utils/tool-presenters';
 
 const log = createLogger('comp:agent-conv');
 
@@ -117,56 +128,16 @@ function renderContent(msg: AgentMessage): string {
   return esc(msg.content);
 }
 
-function safeJsonParse(content: string): unknown {
-  try { return JSON.parse(content) as unknown; } catch { return null; }
+function toolCallView(msg: AgentMessage) {
+  return presentToolCall(msg.content, msg.tool);
 }
 
-function asRecord(value: unknown): Record<string, unknown> | null {
-  return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : null;
+function toolResultView(msg: AgentMessage) {
+  return presentToolResult(msg.content, { tool: msg.tool, kind: msg.kind });
 }
 
-function parseArgs(value: unknown): unknown {
-  if (typeof value === 'string') return safeJsonParse(value) ?? value;
-  return value;
-}
-
-function argKeys(args: unknown): string {
-  const record = asRecord(args);
-  return record ? Object.keys(record).join(', ') : '';
-}
-
-function summarize(value: unknown, fallback = ''): string {
-  const text = typeof value === 'string' ? value : JSON.stringify(value ?? fallback);
-  return text.replace(/\s+/g, ' ').slice(0, 72);
-}
-
-function firstToolCall(msg: AgentMessage): { name: string; args: unknown } {
-  const parsed = asRecord(safeJsonParse(msg.content));
-  const toolCalls = Array.isArray(parsed?.toolCalls) ? parsed.toolCalls : [];
-  const first = asRecord(toolCalls[0]);
-  const fn = asRecord(first?.function);
-  const name = typeof fn?.name === 'string'
-    ? fn.name
-    : typeof first?.tool === 'string'
-      ? first.tool
-      : msg.tool ?? 'tool_call';
-  const args = fn && 'arguments' in fn ? parseArgs(fn.arguments) : parseArgs(first?.params ?? {});
-  return { name, args };
-}
-
-function toolCallPreview(msg: AgentMessage): string {
-  const call = firstToolCall(msg);
-  const keys = argKeys(call.args);
-  return `🔧 ${call.name}${keys ? `(${keys})` : '()'}`;
-}
-
-function toolResultPreview(msg: AgentMessage): string {
-  const parsed = safeJsonParse(msg.content);
-  const record = asRecord(parsed);
-  const name = msg.tool ?? (typeof record?.tool === 'string' ? record.tool : 'tool');
-  const status = msg.kind === 'tool_error' || record?.ok === false || typeof record?.error === 'string' ? 'error' : 'ok';
-  const summary = summarize(record?.summary ?? record?.message ?? record?.error ?? record?.content ?? parsed ?? msg.content);
-  return `📤 ${name} → ${status} (${summary})`;
+function expandedDetail(msg: AgentMessage): string {
+  return formatExpandedDetail(msg.content);
 }
 
 function linkLabel(link: EntityLink): string {
@@ -242,8 +213,14 @@ watch(() => props.sessionId, async (nid) => {
 .tc-header,.tr-header { display:flex; align-items:center; gap:8px; padding:8px 12px; cursor:pointer; user-select:none; transition:background .1s; }
 .tc-header:hover,.tr-header:hover { background:#21262d; }
 .tc-toggle,.tr-toggle { width:14px; font-size:12px; font-weight:600; color:#8b949e; font-family:'SF Mono',monospace; }
-.tc-tool { font-size:12px; font-weight:500; color:#d2a8ff; }
-.tr-label { font-size:12px; font-weight:500; color:#7ee787; }
+.tc-tool,.tr-label { display:flex; align-items:baseline; gap:6px; flex:1; min-width:0; font-size:12px; }
+.tc-icon,.tr-icon { font-size:13px; }
+.tc-name { font-weight:600; color:#d2a8ff; }
+.tr-name { font-weight:600; color:#7ee787; }
+.tool-result.is-error .tr-name { color:#f85149; }
+.tc-headline,.tr-headline { color:#c9d1d9; font-family:'SF Mono',monospace; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; min-width:0; flex:1; }
+.tool-result.is-error .tr-headline { color:#f85149; }
+.tc-detail,.tr-detail { color:#8b949e; font-size:11px; font-family:'SF Mono',monospace; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:240px; }
 .tc-time,.tr-time { font-size:10px; color:#484f58; margin-left:auto; }
 .tc-body,.tr-body { margin:0; padding:8px 12px 12px; font-size:12px; font-family:'SF Mono',monospace; line-height:1.5; white-space:pre-wrap; word-break:break-word; background:#0d1117; border-top:1px solid #21262d; color:#c9d1d9; overflow-x:auto; }
 .tr-body.tr-error { background:#241818; color:#f85149; }

@@ -279,8 +279,9 @@ describe('AgentsView', () => {
     });
     await flushPromises();
 
-    expect(wrapper.text()).toContain('🔧 activate_card(cardId, reason)');
-    expect(wrapper.text()).toContain('📤 activate_card → ok (activated G3)');
+    expect(wrapper.text()).toContain('activate_card');
+    expect(wrapper.text()).toContain('card G3');
+    expect(wrapper.text()).toContain('activated G3');
     expect(wrapper.find('.tc-body').exists()).toBe(false);
 
     await wrapper.findAll('.conv-tb-btn')[0].trigger('click');

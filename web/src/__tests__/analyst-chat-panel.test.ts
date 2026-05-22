@@ -82,7 +82,7 @@ describe('AnalystChatPanel', () => {
     await flushPromises();
     expect(wrapper.text()).toContain('hello');
     const chips = wrapper.findAll('.tool-chip');
-    expect(chips[0].text()).toContain('🔧 read_file');
+    expect(chips[0].text()).toContain('read_file');
     expect(chips[0].text()).toContain('README.md');
     expect(chips[0].attributes('aria-expanded')).toBe('false');
     await chips[0].trigger('click');
@@ -101,8 +101,8 @@ describe('AnalystChatPanel', () => {
     await wrapper.find('select').setValue('chat-1');
     await flushPromises();
     const chips = wrapper.findAll('.tool-chip');
-    expect(chips[1].text()).toContain('📤 read_file → ok');
-    expect(chips[1].text()).toContain('docs');
+    expect(chips[1].text()).toContain('read_file');
+    expect(chips[1].classes()).toContain('tool-chip-ok');
     await chips[1].trigger('click');
     expect(wrapper.find('.tool-chip-detail').text()).toContain('"ok": true');
     wrapper.unmount();
