@@ -183,11 +183,20 @@ describe('DashboardView', () => {
 
 
 
-  it('renders runtime console controls, intent, run, activation, and recovery observability', async () => {
+  it('renders Runtime Console controls and ledger observability separate from card status/index affordances', async () => {
     const w = await mountDashboard();
-    expect(w.find('.runtime-console').text()).toContain('Runtime Console');
-    expect(w.find('.start-project').exists()).toBe(true);
-    expect(w.find('.stop-project').exists()).toBe(true);
+    const runtimeConsole = w.find('.runtime-console');
+    expect(runtimeConsole.text()).toContain('Runtime Console');
+    expect(runtimeConsole.find('.runtime-controls .start-project').exists()).toBe(true);
+    expect(runtimeConsole.find('.runtime-controls .stop-project').exists()).toBe(true);
+    const sections = w.findAll('.status-section');
+    const cardSections = sections.filter((section) => /Recent History|CardStore Health|Card Index/.test(section.text()));
+    expect(cardSections.length).toBeGreaterThanOrEqual(3);
+    for (const section of cardSections) {
+      expect(section.find('.start-project').exists()).toBe(false);
+      expect(section.find('.stop-project').exists()).toBe(false);
+    }
+    expect(runtimeConsole.text()).not.toMatch(/ready queue|preview_hash|confirmed/i);
     expect(w.text()).toContain('Runtime Intent');
     expect(w.text()).toContain('start_project · completed');
     expect(w.text()).toContain('card-001 · planner');

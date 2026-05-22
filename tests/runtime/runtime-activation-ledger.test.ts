@@ -10,6 +10,8 @@ import { appendRuntimeRun, readRuntimeState } from '../../src/runtime/state.js';
 import { EventBus } from '../../src/utils/event-bus.js';
 import { EventLogger } from '../../src/utils/event-logger.js';
 import { loggedEventSchema } from '../../src/schemas/validators.js';
+import { createRuntimeEnvelope } from '../../src/server/websocket.js';
+import { RuntimeActivationEventSchema, RuntimeRunEventSchema, parseKnownWsEnvelope } from '../../src/contracts/operator-events.js';
 import type { SaivageConfig } from '../../src/agents/config-schema.js';
 
 function setup() {
@@ -168,6 +170,11 @@ describe('runtime activation ledger target contract (Wave 1)', () => {
       expect(persistedRunEvents).toEqual([events[0]]);
       expect(persistedActivationEvents).toEqual([events[1]]);
       expect((persistedActivationEvents[0] as any).activation.idempotency_key).toBe(activation?.idempotency_key);
+
+      const projected = events.map((event) => createRuntimeEnvelope(event.kind, event as unknown as Record<string, unknown>));
+      expect(RuntimeRunEventSchema.parse(projected[0]).content.run).toEqual(childRun);
+      expect(RuntimeActivationEventSchema.parse(projected[1]).content.activation).toEqual(activation);
+      for (const envelope of projected) expect(parseKnownWsEnvelope(envelope)).toEqual(envelope);
     } finally {
       activeRuntime?.eventLogger.close();
       activeRuntime?.errorLogger.close();

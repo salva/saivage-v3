@@ -243,8 +243,9 @@ Use these before editing runtime files manually.
 
 The current UI model is:
 
-- REST fetches remain authoritative after page load, refresh, and reconnect.
-- WebSocket events improve freshness and live UX but are not the only source of truth.
+- `GET /api/state` REST fetches remain authoritative after page load, refresh, reconnect, and whenever an operator needs a fresh complete snapshot.
+- Runtime command responses (`POST /api/runtime/start_project` and `POST /api/runtime/stop_project`) are authoritative for the command just submitted.
+- WebSocket events improve freshness and live UX but are observational projections, not the only source of truth.
 - Unauthorized, offline, stale, and degraded states are intentional UI states, not implicit success states.
 
 Runtime Console and Planning Tree responsibilities are separate. Use the Runtime Console and runtime API for root `start_project` / `stop_project`, runtime intent, command/run/activation ledgers, and actionable runtime errors. Use the Planning Tree for card hierarchy, planner-owned state, dependencies, evidence, and discussion. Moving a card, editing planner state, writing notes or directive files, or satisfying a preview confirmation never starts, stops, or activates runtime work.

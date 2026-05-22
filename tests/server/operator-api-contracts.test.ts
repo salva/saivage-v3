@@ -1,7 +1,7 @@
 import { describe, expect, it } from '@jest/globals';
 import { createRuntimeEnvelope } from '../../src/server/websocket.js';
 import { ServerAvailabilitySchema, operatorApiContracts, operatorRouteInventory, parseOperatorResponse } from '../../src/contracts/operator-api.js';
-import { parseCoveredWsEnvelope } from '../../src/contracts/operator-events.js';
+import { RuntimeActionableErrorEventSchema, RuntimeActivationEventSchema, RuntimeCommandEventSchema, RuntimeRunEventSchema, parseCoveredWsEnvelope, parseKnownWsEnvelope } from '../../src/contracts/operator-events.js';
 
 const runtimeState = {
   status: 'idle',
@@ -181,6 +181,50 @@ describe('operator API contract registry', () => {
     expect(paths).toContain('/api/runtime/stop_project');
     expect(paths).not.toContain('/api/runtime/lets_dance');
     expect(JSON.stringify(operatorApiContracts)).not.toMatch(/preview_hash|confirmed/);
+  });
+
+
+  it('projects persisted runtime ledger LoggedEvents into contract-valid operator websocket envelopes', () => {
+    const activation = {
+      activation_id: 'act-1',
+      idempotency_key: 'run-1:planner:project:call-1:card-1',
+      parent_card_id: 'project',
+      parent_run_id: 'run-1',
+      parent_session_id: 'planner:project',
+      parent_tool_call_id: 'call-1',
+      child_card_id: 'card-1',
+      status: 'running',
+      requested_at: '2026-01-01T00:00:02.000Z',
+      updated_at: '2026-01-01T00:00:02.000Z',
+      precondition: 'accepted',
+      runtime_run_id: 'run-child-1',
+      error: null,
+    };
+    const actionable_error = {
+      code: 'activate_card_parent_not_active',
+      message: 'Parent planner run is not active.',
+      nextAction: 'Start root work or retry from an active parent planner run.',
+      cardId: 'card-1',
+      runId: 'run-1',
+      currentState: { parentCardId: 'project', childCardId: 'card-1' },
+    };
+    const envelopes = [
+      createRuntimeEnvelope('runtime_command', { command: runtimeCommand }),
+      createRuntimeEnvelope('runtime_run', { run: runtimeRun }),
+      createRuntimeEnvelope('runtime_activation', { activation }),
+      createRuntimeEnvelope('runtime_actionable_error', { actionable_error }),
+    ];
+
+    expect(RuntimeCommandEventSchema.parse(envelopes[0]).content.command).toEqual(runtimeCommand);
+    expect(RuntimeRunEventSchema.parse(envelopes[1]).content.run).toEqual(runtimeRun);
+    expect(RuntimeActivationEventSchema.parse(envelopes[2]).content.activation).toEqual(activation);
+    expect(RuntimeActionableErrorEventSchema.parse(envelopes[3]).content.actionable_error).toEqual(actionable_error);
+    expect(envelopes.map((envelope) => parseKnownWsEnvelope(envelope)?.content.event)).toEqual([
+      'runtime.command',
+      'runtime.run',
+      'runtime.activation',
+      'runtime.actionable_error',
+    ]);
   });
 
   it('validates covered websocket status events but preserves unknown events', () => {

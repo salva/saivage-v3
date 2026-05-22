@@ -663,19 +663,24 @@ describe('useRuntimeStore', () => {
       expect(store.lastCommand).toEqual(mockCommand);
     });
 
-    it('consumes command activation run and actionable error WebSocket events', () => {
+    it('consumes runtime ledger WebSocket events without card status queue or preview confirmation trigger fields', () => {
       const store = setupStore();
       store.setupWsListener();
 
-      fireWsEvent('activity', { event: 'runtime.command', command: mockCommand });
-      fireWsEvent('status', { event: 'runtime.run', run: mockRootRun });
-      fireWsEvent('activity', { event: 'runtime.activation', activation: mockActivation });
-      fireWsEvent('error', { event: 'runtime.actionable_error', actionable_error: mockActionableError });
+      fireWsEvent('activity', { event: 'runtime.command', command: mockCommand, legacyQueueLength: 99, confirmed: true, preview_hash: 'obsolete' });
+      fireWsEvent('status', { event: 'runtime.run', run: mockRootRun, card: { id: 'card-001', status: 'active' } });
+      fireWsEvent('status', { event: 'runtime.run', run: mockChildRun, queue: [{ card_id: 'card-002' }] });
+      fireWsEvent('activity', { event: 'runtime.activation', activation: mockActivation, preview_hash: 'ignored' });
+      fireWsEvent('error', { event: 'runtime.actionable_error', actionable_error: mockActionableError, confirmed: false });
 
       expect(store.lastCommand).toEqual(mockCommand);
       expect(store.currentRun).toEqual(mockRootRun);
+      expect(store.activeChildRuns).toEqual([mockChildRun]);
       expect(store.activations).toEqual([mockActivation]);
       expect(store.lastActionableError).toEqual(mockActionableError);
+      expect(store.lastUpdatedBy).toBe('ws');
+      expect(store.runtime?.queue ?? []).toEqual([]);
+      expect(JSON.stringify(store.runtime ?? {})).not.toMatch(/preview_hash|confirmed|legacyQueueLength/);
     });
 
 

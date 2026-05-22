@@ -3,6 +3,9 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Runtime } from '../../src/runtime/runtime.js';
+import { createRuntimeEnvelope } from '../../src/server/websocket.js';
+import { RuntimeCommandEventSchema, RuntimeRunEventSchema, parseKnownWsEnvelope } from '../../src/contracts/operator-events.js';
+import { loggedEventSchema } from '../../src/schemas/validators.js';
 import { initProjectTree } from '../../src/utils/file-tree.js';
 import { appendRuntimeRun, readRuntimeState, upsertRuntimeActivation } from '../../src/runtime/state.js';
 
@@ -88,6 +91,16 @@ describe('runtime command ledger target contract (Wave 1)', () => {
         expect.objectContaining({ kind: 'runtime_run', run: start.run }),
         expect.objectContaining({ kind: 'runtime_run', run: persistedRootRun }),
       ]));
+
+      for (const event of events) expect(loggedEventSchema.parse(event)).toEqual(event);
+      const projected = events.map((event) => createRuntimeEnvelope(event.kind, event as unknown as Record<string, unknown>));
+      const commandEnvelopes = projected.filter((envelope) => envelope.content.event === 'runtime.command');
+      const runEnvelopes = projected.filter((envelope) => envelope.content.event === 'runtime.run');
+      expect(commandEnvelopes).toHaveLength(2);
+      expect(runEnvelopes.length).toBeGreaterThanOrEqual(2);
+      expect(RuntimeCommandEventSchema.parse(commandEnvelopes[0]).content.command).toEqual(persistedStartCommand);
+      expect(RuntimeRunEventSchema.parse(runEnvelopes[0]).content.run).toEqual(start.run);
+      for (const envelope of projected) expect(parseKnownWsEnvelope(envelope)).toEqual(envelope);
     } finally { rmSync(projectRoot, { recursive: true, force: true }); }
   });
 

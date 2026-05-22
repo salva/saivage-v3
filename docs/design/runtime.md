@@ -478,3 +478,8 @@ length)`.
 - Security: `read_stash` only allows reading from the stash
   directory (path traversal is rejected).
 - Cleanup: Stash files older than 24 hours are removed on startup.
+
+
+### REST authority and live ledger observation
+
+`GET /api/state` and runtime command responses are the authoritative fresh snapshots for operators. WebSocket `runtime.command`, `runtime.run`, `runtime.activation`, and `runtime.actionable_error` events are live observational projections of persisted ledgers; they do not scan card status buckets or queues and they do not execute work. Any queue-length compatibility fields are diagnostic-only and never runtime triggers.
