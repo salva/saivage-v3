@@ -587,6 +587,16 @@ describe('Runtime Integration — Error Propagation', () => {
 
     const execErrors = errors.filter((e) => e.phase === 'executor');
     expect(execErrors.length).toBeGreaterThanOrEqual(1);
+    expect(execErrors).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          cardId: 'code-throw-1',
+          goalId: 'goal-throw',
+          message: expect.stringContaining("has no executor result for card 'code-throw-1'"),
+          phase: 'executor',
+        }),
+      ]),
+    );
 
     await runtime.shutdown();
   });
@@ -798,6 +808,16 @@ describe('ErrorLogger + EventLogger consistency', () => {
       (e: ErrorRecord) => e.phase === 'executor',
     );
     expect(executorErrors.length).toBeGreaterThanOrEqual(1);
+    expect(executorErrors).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          cardId: 'code-dl-missing',
+          goalId: 'goal-dl',
+          message: expect.stringContaining("has no executor result for card 'code-dl-missing'"),
+          phase: 'executor',
+        }),
+      ]),
+    );
 
     runtime.eventLogger.flushSync();
 
@@ -810,6 +830,16 @@ describe('ErrorLogger + EventLogger consistency', () => {
       .map((l) => JSON.parse(l))
       .filter((e: { kind?: string }) => e.kind === 'error');
     expect(loggedErrorEvents.length).toBeGreaterThanOrEqual(1);
+    expect(loggedErrorEvents).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          card_id: 'code-dl-missing',
+          error_message: expect.stringContaining("has no executor result for card 'code-dl-missing'"),
+          goal_id: 'goal-dl',
+          phase: 'executor',
+        }),
+      ]),
+    );
 
     await runtime.shutdown();
   });
