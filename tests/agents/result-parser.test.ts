@@ -85,6 +85,9 @@ describe('buildExecutorFallbackResult', () => {
     expect(fallback).not.toBeNull();
     expect(fallback!.status).toBe('failed');
     expect(fallback!.status_text).toContain('malformed');
+    expect(fallback!.artifacts).toEqual([]);
+    expect(fallback!.result?.generated_files).toEqual(['src/generated.txt']);
+    expect(fallback!.result?.artifact_paths).toEqual([]);
   });
 });
 

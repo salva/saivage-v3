@@ -146,8 +146,6 @@ describe('AgentRuntime Interface', () => {
           card_id: 'code-1',
           status_text: 'tool work attempted',
           summary: 'work completed but malformed final result',
-          artifacts: [{ type: 'report', description: 'Generated file artifact', retain: true, sourceFile: 'generated.txt' }],
-          attachments: [{ mime: 'text/plain', title: 'verification output', sourceFile: 'command.log' }],
         }),
       ];
       adapter.setLlmCallFn(async () => responses.shift() ?? '{}');
@@ -157,8 +155,8 @@ describe('AgentRuntime Interface', () => {
       expect(result.status).toBe('failed');
       expect(result.card_id).toBe('code-1');
       expect(result.status_text).toBe('tool work attempted');
-      expect(result.artifacts.map((artifact) => artifact.sourceFile)).toEqual(expect.arrayContaining(['generated.txt']));
-      expect(result.attachments).toEqual(expect.arrayContaining([expect.objectContaining({ title: 'verification output' })]));
+      expect(result.artifacts).toEqual([]);
+      expect(result.attachments).toEqual([]);
       expect(result.result?.generated_files).toEqual(['generated.txt']);
       expect(result.result?.verification_commands).toEqual(expect.arrayContaining([expect.objectContaining({ status: 'exited', exit_code: 0 })]));
       expect(result.result?.parse_failure).toEqual(expect.objectContaining({ message: expect.stringContaining('preserved tool evidence') }));

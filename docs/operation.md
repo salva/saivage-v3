@@ -178,11 +178,13 @@ See [Goal Planning Runtime](/goal-planning-runtime) for the model-level explanat
 
 `GET /api/cards/:id` returns card detail plus an `evidence` object. Current evidence surfaces include:
 
-- `generatedFiles`
-- `verificationCommands`
-- `artifactPaths`
-- `toolErrors`
-- optional `parseFailure`
+- `generatedFiles` for project files created or modified by executor workspace tools;
+- `verificationCommands`;
+- `artifactPaths` for registered Saivage process metadata/output under `.saivage-work`;
+- `toolErrors`;
+- optional `parseFailure`.
+
+Project source, config, test, data, and documentation files remain project state. Saivage does not register or copy them as artifacts; agents should list those paths in generated-file/result metadata and pair them with verification commands. Registered artifacts and attachments are reserved for Saivage process metadata such as validation reports, command logs, run manifests, and similar generated process outputs.
 
 Important operational constraints:
 

@@ -217,7 +217,9 @@ Messages are serialized per connection. The server preserves sanitization and ei
 
 ## Evidence, files, and safe process views
 
-`GET /api/cards/:id` returns card detail plus an `evidence` object with generated files, verification commands, artifact paths, tool errors, and optional parse-failure information. Generated-file enrichment is a detail-route behavior, not a list-route behavior.
+`GET /api/cards/:id` returns card detail plus an `evidence` object with generated project files, verification commands, Saivage process artifact paths, tool errors, and optional parse-failure information. Generated-file enrichment is a detail-route behavior, not a list-route behavior.
+
+Project source, config, test, data, and documentation files are not registered or copied as artifacts. They stay in the project workspace and should be represented through `generatedFiles`/executor result metadata plus verification commands. Registered artifacts and attachments are reserved for Saivage process metadata/output under `.saivage-work`, such as validation reports, command logs, and run manifests.
 
 `GET /api/files` lists contained directories and files. `GET /api/files/content?path=...` returns text previews only inside the project boundary and subject to secret blocking/redaction, size limits, and binary rejection.
 

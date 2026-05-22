@@ -124,7 +124,7 @@ You are the **Executor** agent. Your job is to execute a single terminal card an
 
 ### Responsibilities
 1. **Execute the card**: Understand the card's title and description. Read relevant files before modifying them.
-2. **Produce artifacts**: Register output files, models, datasets, configs, logs, or reports as artifacts.
+2. **Record evidence**: Summarize project files changed in \`result\`/\`summary\`, and register only Saivage process metadata outputs as artifacts or attachments.
 3. **Report honestly**: If the work succeeds, set \`status: "done"\`. If it fails, set \`status: "failed"\` and provide a clear \`error\` message.
 4. **Provide terminal status_text**: Every terminal executor result must include a non-empty \`status_text\` summarizing the outcome.
 5. **Use workspace tools for filesystem work**: Use \`list_project_files\`, \`read_project_file\`, \`write_project_file\`, and \`run_project_command\` to inspect, modify, and verify the real project workspace.
@@ -139,14 +139,14 @@ Your response MUST be a single JSON object. Wrap it in a \`\`\`json code block o
   "status": "string ('done' or 'failed')",
   "status_text": "string (required concise terminal outcome summary)",
   "error": "string (if failed, a clear description of what went wrong)",
-  "result": { "key": "value" },
+  "result": { "key": "value", "generated_files": ["project-relative path for changed or created project files"] },
   "artifacts": [
     {
       "type": "string (one of: ${ARTIFACT_TYPES.join(', ')})",
       "description": "string",
       "retain": "boolean",
-      "sourceFile": "string (optional)",
-      "path": "string (optional)"
+      "sourceFile": "string (optional path under .saivage-work to Saivage process metadata/output; never a project source/config/test file or directory)",
+      "path": "string (optional path under .saivage-work to Saivage process metadata/output; never a project source/config/test file or directory)"
     }
   ],
   "attachments": [
@@ -154,8 +154,8 @@ Your response MUST be a single JSON object. Wrap it in a \`\`\`json code block o
       "mime": "string",
       "title": "string",
       "description": "string (optional)",
-      "sourceFile": "string (optional)",
-      "path": "string (optional)"
+      "sourceFile": "string (optional path under .saivage-work to Saivage process metadata/output; never a project source/config/test file or directory)",
+      "path": "string (optional path under .saivage-work to Saivage process metadata/output; never a project source/config/test file or directory)"
     }
   ],
   "summary": "string (brief summary of what was done)"
@@ -166,7 +166,7 @@ Your response MUST be a single JSON object. Wrap it in a \`\`\`json code block o
 - **Do the work**: Actually perform the task.
 - **Read before writing**: Always read relevant source files before modifying them.
 - **Match conventions**: Follow the project's code style and tooling.
-- **Register meaningful artifacts**: Persist significant outputs.
+- **Separate project state from process metadata**: Do not register project source, config, test, data, or documentation files as artifacts. Project file changes belong in \`result.generated_files\`, \`status_text\`, and \`summary\`. Artifacts/attachments are only for Saivage process metadata such as validation reports, command logs, run manifests, or other generated process outputs under \`.saivage-work\`.
 - **Error reporting**: Be specific.
 - **Test your work**: Run relevant verification commands.
 - **Load skills on-demand**: Use \`load_skill\` if you need extra framework or project guidance.`;
@@ -180,7 +180,7 @@ function buildTypeGuidance(cardType: string): string {
     case 'code':
       return `- This is a **code** card — write, modify, or refactor source code.
 - Run tests and linters after making changes.
-- Register any new or modified source files as artifacts.`;
+- List new or modified project files in result metadata; do not register them as artifacts.`;
     case 'test':
       return `- This is a **test** card — write or update tests.
 - Aim for meaningful coverage.

@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from '@jest/globals';
 import {
   existsSync,
+  mkdirSync,
   readFileSync,
   writeFileSync,
   rmSync,
@@ -148,6 +149,19 @@ describe('registerArtifact', () => {
         retain: true,
       }, '/nonexistent/path/file.txt'),
     ).toThrow(/Source file not found/);
+  });
+
+  it('throws when source path is a directory', () => {
+    const card = makeCard(store, 'goal', 'Test Goal');
+    const sourcePath = join(sourceDir, 'output-dir');
+    mkdirSync(sourcePath, { recursive: true });
+    expect(() =>
+      registerArtifact(saivageWorkDir, store, card.id, {
+        type: 'data',
+        description: 'Directory output',
+        retain: true,
+      }, sourcePath),
+    ).toThrow(/Source path is not a file/);
   });
 
   it('generates sequential IDs for multiple artifacts on same card', () => {

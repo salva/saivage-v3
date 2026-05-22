@@ -238,7 +238,9 @@ describe('E2E — Full Project Lifecycle', () => {
   }
 
   it('initializes project, creates goal, runs planner/executor/reviewer flow, produces artifacts, and displays results via API', async () => {
-    const artifactSourcePath = join(tmpDir, 'e2e-artifact.txt');
+    const artifactDir = join(tmpDir, '.saivage-work', 'processes', 'e2e-lifecycle');
+    mkdirSync(artifactDir, { recursive: true });
+    const artifactSourcePath = join(artifactDir, 'e2e-artifact.txt');
     writeFileSync(artifactSourcePath, 'E2E Artifact Content: lifecycle test passed!');
 
     writeLifecycleFixture(artifactSourcePath);
@@ -335,7 +337,9 @@ describe('E2E — Full Project Lifecycle', () => {
   });
 
   it('produces artifacts during execution and they are registered in card records', async () => {
-    const artifactSourcePath = join(tmpDir, 'my-artifact-output.json');
+    const artifactDir = join(tmpDir, '.saivage-work', 'processes', 'artifact-producer');
+    mkdirSync(artifactDir, { recursive: true });
+    const artifactSourcePath = join(artifactDir, 'my-artifact-output.json');
     writeFileSync(artifactSourcePath, JSON.stringify({ result: 'success', count: 42 }));
 
     const fixture: FakeAgentFixture = {

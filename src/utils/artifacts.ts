@@ -1,4 +1,4 @@
-import { copyFileSync, existsSync, mkdirSync, unlinkSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, statSync, unlinkSync } from 'node:fs';
 import { join, basename } from 'node:path';
 import { artifactRefSchema, attachmentRefSchema } from '../schemas/validators.js';
 import type { ArtifactRef, AttachmentRef } from '../schemas/types.js';
@@ -73,6 +73,9 @@ export function registerArtifact(
   if (!existsSync(sourceFile)) {
     throw new Error(`Source file not found: ${sourceFile}`);
   }
+  if (!statSync(sourceFile).isFile()) {
+    throw new Error(`Source path is not a file: ${sourceFile}`);
+  }
 
   // 3. Generate ID
   const existingIds = card.artifacts.map((a) => a.id);
@@ -145,6 +148,9 @@ export function registerAttachment(
   // 2. Verify source file exists
   if (!existsSync(sourceFile)) {
     throw new Error(`Source file not found: ${sourceFile}`);
+  }
+  if (!statSync(sourceFile).isFile()) {
+    throw new Error(`Source path is not a file: ${sourceFile}`);
   }
 
   // 3. Generate ID

@@ -232,11 +232,6 @@ export function buildExecutorFallbackResult(raw: string, context: ExecutorFallba
   const evidence = collectWorkspaceToolEvidence(context.sessionMessages);
   const partial = extractPartialExecutorResult(raw);
   const artifactPaths = new Set((partial.artifacts ?? []).map((artifact) => artifact.sourceFile ?? artifact.path).filter((path): path is string => Boolean(path)));
-  for (const file of evidence.generatedFiles) artifactPaths.add(file);
-
-  const generatedFileArtifacts: ExecutorArtifactDef[] = evidence.generatedFiles
-    .filter((file) => !(partial.artifacts ?? []).some((artifact) => artifact.sourceFile === file || artifact.path === file))
-    .map((file) => ({ type: 'other', description: `Generated file: ${file}`, retain: true, sourceFile: file, path: file }));
 
   const hadEvidence = evidence.toolActivityCount > 0 || evidence.generatedFiles.length > 0 || evidence.verifiedCommands.length > 0 || (partial.artifacts?.length ?? 0) > 0 || (partial.attachments?.length ?? 0) > 0;
   if (!hadEvidence) return null;
@@ -262,7 +257,7 @@ export function buildExecutorFallbackResult(raw: string, context: ExecutorFallba
     status_text: partial.status_text ?? parseFailure.message,
     error,
     summary: partial.summary ?? parseFailure.message,
-    artifacts: [...(partial.artifacts ?? []), ...generatedFileArtifacts],
+    artifacts: partial.artifacts ?? [],
     attachments: partial.attachments ?? [],
     result: {
       ...(partial.result ?? {}),

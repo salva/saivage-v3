@@ -648,11 +648,19 @@ handles drift.
 
 Durable evidence is one of, scoped to descendants of the goal:
 
-- A registered artifact.
-- A registered attachment.
+- A registered artifact containing Saivage process metadata/output under
+  `.saivage-work`, such as a validation report, command log, or run
+  manifest. Project source/config/test/data/doc files are not registered
+  artifacts.
+- A registered attachment containing Saivage process metadata/output under
+  `.saivage-work`.
 - For terminal cards, a non-null `result.executor` object that
   validates against the executor result schema for that card type.
 - For goal cards, a `result.review.result === 'pass'` assessment.
+
+Project file changes are surfaced through executor result metadata such
+as `generated_files` plus verification command summaries; they remain
+project state and are not copied into artifact storage.
 
 Goal cards without a passed review and terminal cards without a
 registered artifact, attachment, or valid executor result are rejected

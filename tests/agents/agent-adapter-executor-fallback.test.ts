@@ -72,8 +72,6 @@ describe('AgentAdapter executor fallback integration', () => {
       .mockResolvedValueOnce(JSON.stringify({
         card_id: 'code-1',
         summary: 'tool work completed but status missing',
-        artifacts: [{ type: 'report', description: 'generated file artifact', retain: true, path: 'generated/output.txt' }],
-        attachments: [{ mime: 'text/plain', title: 'command output', path: 'logs/command-tail.txt' }],
         result: { partial: true },
       }));
 
@@ -83,14 +81,10 @@ describe('AgentAdapter executor fallback integration', () => {
 
     expect(result.status).toBe('failed');
     expect(result.card_id).toBe('code-1');
-    expect(result.artifacts).toEqual(expect.arrayContaining([
-      expect.objectContaining({ path: 'generated/output.txt' }),
-    ]));
-    expect(result.attachments).toEqual([
-      expect.objectContaining({ title: 'command output', path: 'logs/command-tail.txt' }),
-    ]);
+    expect(result.artifacts).toEqual([]);
+    expect(result.attachments).toEqual([]);
     expect(result.result?.generated_files).toEqual(['generated/output.txt']);
-    expect(result.result?.artifact_paths).toEqual(expect.arrayContaining(['generated/output.txt']));
+    expect(result.result?.artifact_paths).toEqual([]);
     expect(result.result?.verification_commands).toEqual([
       expect.objectContaining({
         process_id: expect.any(String),
