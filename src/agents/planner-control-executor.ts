@@ -72,14 +72,27 @@ export class PlannerControlExecutor {
               ? sessionId.slice('planner:'.length)
               : null;
           const state = readRuntimeState(this.context.projectRoot);
-          const parentRun = parentCardId ? state?.runtime_runs?.find((run) => run.card_id === parentCardId && run.phase === 'planner' && run.runtime_status === 'running' && !run.finished_at) : undefined;
-          const parentSessionMatches = parentRun && (!parentRun.session_id || !sessionId || parentRun.session_id === sessionId || sessionId === `planner:${parentCardId}`);
-          const actionable = (code: string, message: string, nextAction: string, extra: Record<string, unknown> = {}) => createActionableErrorEnvelope({ code, message, currentState: { parentCardId, childCardId: targetId, sessionId, parentRunId: parentRun?.run_id ?? null, ...extra }, nextAction, docsRef: 'docs/v3-planner-control-mcp-contract.md', parentCardId: parentCardId ?? null, childCardId: targetId || null, sessionId });
+          const activeParentRuns = parentCardId
+            ? (state?.runtime_runs ?? [])
+              .filter((run) => run.card_id === parentCardId && run.phase === 'planner' && run.runtime_status === 'running' && !run.finished_at)
+            : [];
+          const parentRun = activeParentRuns.find((run) => Boolean(sessionId) && run.session_id === sessionId)
+            ?? activeParentRuns.find((run) => !run.session_id && (!sessionId || sessionId === `planner:${parentCardId}` || Boolean(sessionId)));
+          const parentRunCandidates = activeParentRuns.map((run) => ({
+            run_id: run.run_id,
+            card_id: run.card_id,
+            phase: run.phase,
+            runtime_status: run.runtime_status,
+            session_id: run.session_id ?? null,
+            parent_run_id: run.parent_run_id ?? null,
+            finished_at: run.finished_at ?? null,
+          }));
+          const actionable = (code: string, message: string, nextAction: string, extra: Record<string, unknown> = {}) => createActionableErrorEnvelope({ code, message, currentState: { parentCardId, childCardId: targetId, sessionId, parentRunId: parentRun?.run_id ?? null, parentRunCandidates, ...extra }, nextAction, docsRef: 'docs/v3-planner-control-mcp-contract.md', parentCardId: parentCardId ?? null, childCardId: targetId || null, sessionId });
           if (!target) {
             const error = actionable('activate_card_child_missing', `activate_card target '${targetId}' not found.`, 'Inspect the planning tree and retry activate_card with an existing child card id.');
             return toolMessage('tool_error', JSON.stringify({ success: false, error: error.message, actionable_error: error }), invocation.toolName, invocation.toolCallId);
           }
-          if (!parentCardId || !parentRun || !parentSessionMatches) {
+          if (!parentCardId || !parentRun) {
             const error = actionable('activate_card_parent_not_active', `Cannot activate '${targetId}': no active parent planner runtime run owns this tool call.`, 'Only call activate_card from the currently running parent planner turn after the runtime has started that parent run.');
             return toolMessage('tool_error', JSON.stringify({ success: false, error: error.message, actionable_error: error }), invocation.toolName, invocation.toolCallId);
           }
