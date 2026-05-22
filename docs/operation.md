@@ -102,7 +102,7 @@ curl -X POST http://localhost:8080/api/runtime/start_project \
   -H "Authorization: Bearer $SAIVAGE_API_TOKEN"
 ```
 
-Starts root project execution through an explicit runtime command. The success response contains `success: true`, a `command` record, a `runtime_intent`, and a root `run` record. If no `ActiveRuntime` is attached or start preconditions fail, the route returns `success: false` with an actionable error envelope.
+Starts root project execution through an explicit runtime command. The success response is a `RuntimeCommandResponse`: `success: true`, a `command` record, the updated runtime `intent`, and a root `run` record. If no `ActiveRuntime` is attached or start preconditions fail, the route returns `success: false` with an actionable error envelope.
 
 ### Stop project
 
@@ -111,7 +111,7 @@ curl -X POST http://localhost:8080/api/runtime/stop_project \
   -H "Authorization: Bearer $SAIVAGE_API_TOKEN"
 ```
 
-Stops root project execution intent through an explicit runtime command and returns the command record plus stopped runtime intent.
+Stops root project execution intent through an explicit runtime command. The success response is a `RuntimeCommandResponse`: `success: true`, the stop `command` record, the stopped runtime `intent`, and, when an open root run existed, `run` containing the authoritative terminalized root `RuntimeRunRecord`. The `run` field is intentionally optional: it is omitted when there was no open root run to terminalize, but command and intent still describe the accepted stop request.
 
 ### Pause
 
@@ -246,6 +246,21 @@ The current UI model is:
 - REST fetches remain authoritative after page load, refresh, and reconnect.
 - WebSocket events improve freshness and live UX but are not the only source of truth.
 - Unauthorized, offline, stale, and degraded states are intentional UI states, not implicit success states.
+
+Runtime Console and Planning Tree responsibilities are separate. Use the Runtime Console and runtime API for root `start_project` / `stop_project`, runtime intent, command/run/activation ledgers, and actionable runtime errors. Use the Planning Tree for card hierarchy, planner-owned state, dependencies, evidence, and discussion. Moving a card, editing planner state, writing notes or directive files, or satisfying a preview confirmation never starts, stops, or activates runtime work.
+
+### Runtime ledger WebSocket events
+
+The operator WebSocket emits live observational projections of runtime ledger and actionable-error updates:
+
+| Event | Envelope type | Payload | Meaning |
+|---|---|---|---|
+| `runtime.command` | `activity` | `command` | A runtime command ledger record was persisted, including accepted `start_project` / `stop_project` commands or command errors. |
+| `runtime.run` | `status` | `run` | A root or child runtime run record changed, including terminalized root runs produced by `stop_project`. |
+| `runtime.activation` | `activity` | `activation` | A parent-planner `activate_card` activation ledger record changed. |
+| `runtime.actionable_error` | `error` | `actionable_error` | A runtime-control or activation precondition failure was recorded with a stable code and next action. |
+
+These events are not execution authority. They do not start root work, stop root work, activate child cards, or confirm mutations by themselves; they only let operators and the Runtime Console observe persisted command/run/activation/actionable-error changes sooner. For authoritative freshness, clients must still reconcile through `GET /api/state` after page load, reconnect, stale live updates, or command completion, and command callers should trust the REST command response for the just-submitted mutation.
 
 ## Verification commands
 
