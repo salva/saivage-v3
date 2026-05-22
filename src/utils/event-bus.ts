@@ -40,6 +40,7 @@ export const RUNTIME_SEVERITY_MAP: Record<RuntimeEventKind, SeverityLevel> = {
   runtime_command: 'info',
   runtime_run: 'info',
   runtime_activation: 'info',
+  runtime_actionable_error: 'error',
   frozen: 'warning',
   resumed_from_freeze: 'info',
 };

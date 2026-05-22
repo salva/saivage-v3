@@ -162,6 +162,7 @@ export const resumedFromFreezeEventSchema = passthroughBaseEventSchema.extend({ 
 export const runtimeCommandEventSchema = passthroughBaseEventSchema.extend({ kind: z.literal('runtime_command'), command: runtimeCommandRecordSchema });
 export const runtimeRunEventSchema = passthroughBaseEventSchema.extend({ kind: z.literal('runtime_run'), run: runtimeRunRecordSchema });
 export const runtimeActivationEventSchema = passthroughBaseEventSchema.extend({ kind: z.literal('runtime_activation'), activation: runtimeActivationRecordSchema });
+export const runtimeActionableErrorEventSchema = passthroughBaseEventSchema.extend({ kind: z.literal('runtime_actionable_error'), actionable_error: actionableErrorEnvelopeSchema });
 export const stuckSupervisorStartedEventSchema = passthroughBaseEventSchema.extend({ kind: z.literal('stuck_supervisor_started'), interval_ms: z.number(), consecutive_threshold: z.number() });
 export const stuckSupervisorStoppedEventSchema = passthroughBaseEventSchema.extend({ kind: z.literal('stuck_supervisor_stopped'), checks_performed: z.number() });
 export const stuckVerdictEventSchema = passthroughBaseEventSchema.extend({ kind: z.literal('stuck_verdict'), verdict: z.boolean(), confidence: z.number(), reason: z.string(), evidence: z.array(z.string()), consecutive_count: z.number(), threshold: z.number() });
@@ -209,6 +210,7 @@ export const loggedEventSchemaByKind = {
   runtime_command: runtimeCommandEventSchema,
   runtime_run: runtimeRunEventSchema,
   runtime_activation: runtimeActivationEventSchema,
+  runtime_actionable_error: runtimeActionableErrorEventSchema,
   session_started: sessionStartedEventSchema,
   model_selected: modelSelectedEventSchema,
   invocation_succeeded: invocationSucceededEventSchema,

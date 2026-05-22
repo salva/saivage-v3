@@ -90,7 +90,7 @@ function now(): string { return new Date().toISOString(); }
 function saivageWorkDir(projectRoot: string): string { return join(projectRoot, '.saivage-work'); }
 function eventsLogPath(projectRoot: string): string { return join(projectRoot, '.saivage', 'runtime', 'events.jsonl'); }
 function resolveEvidenceSourcePath(projectRoot: string, filePath: string): string { if (!filePath) return filePath; return existsSync(filePath) ? filePath : resolve(projectRoot, filePath); }
-const TRACKED_EVENT_KIND_VALUES = ['started', 'shutdown', 'paused', 'resumed', 'goal_completed', 'goal_failed', 'escalation', 'card_failed', 'review_complete', 'review_failed', 'plan_updated', 'error', 'dispatch_blocked', 'dispatch_interrupted', 'dispatch_held_for_notification', 'session_started', 'model_selected', 'invocation_succeeded', 'invocation_failed', 'retry_attempted', 'compaction_triggered', 'self_check_triggered', 'stuck_supervisor_started', 'stuck_supervisor_stopped', 'stuck_verdict', 'abort_target_selected', 'force_cancel_sent', 'session_cancelled', 'session_force_cancelled', 'project_run_completed', 'runtime_command', 'runtime_run', 'runtime_activation', 'frozen', 'resumed_from_freeze', 'process_reconciled_dead', 'process_reattach_rejected'] as const satisfies readonly (RuntimeEventKind | AgentEventKind)[];
+const TRACKED_EVENT_KIND_VALUES = ['started', 'shutdown', 'paused', 'resumed', 'goal_completed', 'goal_failed', 'escalation', 'card_failed', 'review_complete', 'review_failed', 'plan_updated', 'error', 'dispatch_blocked', 'dispatch_interrupted', 'dispatch_held_for_notification', 'session_started', 'model_selected', 'invocation_succeeded', 'invocation_failed', 'retry_attempted', 'compaction_triggered', 'self_check_triggered', 'stuck_supervisor_started', 'stuck_supervisor_stopped', 'stuck_verdict', 'abort_target_selected', 'force_cancel_sent', 'session_cancelled', 'session_force_cancelled', 'project_run_completed', 'runtime_command', 'runtime_run', 'runtime_activation', 'runtime_actionable_error', 'frozen', 'resumed_from_freeze', 'process_reconciled_dead', 'process_reattach_rejected'] as const satisfies readonly (RuntimeEventKind | AgentEventKind)[];
 const TRACKED_EVENT_KINDS: ReadonlySet<EventKind> = new Set(TRACKED_EVENT_KIND_VALUES);
 
 export class Runtime extends EventEmitter {
@@ -487,7 +487,8 @@ export class Runtime extends EventEmitter {
   private publishRuntimeLedgerEvent(kind: 'runtime_command', payload: { command: RuntimeCommandRecord }): void;
   private publishRuntimeLedgerEvent(kind: 'runtime_run', payload: { run: RuntimeRunRecord }): void;
   private publishRuntimeLedgerEvent(kind: 'runtime_activation', payload: { activation: RuntimeActivationRecord }): void;
-  private publishRuntimeLedgerEvent(kind: 'runtime_command' | 'runtime_run' | 'runtime_activation', payload: Record<string, unknown>): void {
+  private publishRuntimeLedgerEvent(kind: 'runtime_actionable_error', payload: { actionable_error: ActionableErrorEnvelope }): void;
+  private publishRuntimeLedgerEvent(kind: 'runtime_command' | 'runtime_run' | 'runtime_activation' | 'runtime_actionable_error', payload: Record<string, unknown>): void {
     const logged = this._eventLogger.appendEvent({ kind, ...payload });
     this.eventBus.emit(logged);
     super.emit(kind, payload);
@@ -502,6 +503,7 @@ export class Runtime extends EventEmitter {
       const rejectedCommand = { ...command, status: 'rejected' as const, completed_at: rejectedAt, error };
       saveRuntimeState(this.projectRoot, { ...state, runtime_commands: (state.runtime_commands ?? []).map((item) => item.command_id === command.command_id ? rejectedCommand : item), updated_at: rejectedAt });
       this.publishRuntimeLedgerEvent('runtime_command', { command: rejectedCommand });
+      this.publishRuntimeLedgerEvent('runtime_actionable_error', { actionable_error: error });
       return { success: false, command: rejectedCommand, error };
     }
     upsertRuntimeIntent(this.projectRoot, 'running', command.command_id, 'explicit start_project command');

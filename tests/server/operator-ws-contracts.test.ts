@@ -1,5 +1,10 @@
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { describe, expect, it } from '@jest/globals';
 import { eventKindValues } from '../../src/schemas/types.js';
+import { loggedEventSchema } from '../../src/schemas/validators.js';
+import { EventLogger } from '../../src/utils/event-logger.js';
 import {
   AnalystActivityEventNames,
   InboundAnalystMessageEnvelopeSchema,
@@ -111,14 +116,32 @@ describe('operator websocket shared contract registry', () => {
   });
 
 
-  it('maps logged runtime ledger events to validated websocket envelopes', () => {
-    const command = { command_id: 'cmd-1', command: 'start_project' as const, status: 'completed' as const, requested_at: '2026-01-01T00:00:00.000Z', completed_at: '2026-01-01T00:00:01.000Z', source: 'operator' as const, error: null };
-    const run = { run_id: 'run-1', kind: 'root' as const, card_id: 'project', command_id: 'cmd-1', parent_run_id: null, activation_id: null, phase: 'planner' as const, runtime_status: 'running' as const, session_id: null, started_at: '2026-01-01T00:00:01.000Z', updated_at: '2026-01-01T00:00:01.000Z', finished_at: null, result: null };
-    const activation = { activation_id: 'act-1', idempotency_key: 'key-1', parent_card_id: 'goal-a', parent_run_id: 'run-parent', parent_session_id: 'planner:goal-a', parent_tool_call_id: 'call-a', child_card_id: 'code-a', status: 'pending' as const, requested_at: '2026-01-01T00:00:02.000Z', updated_at: '2026-01-01T00:00:02.000Z', precondition: 'accepted' as const, runtime_run_id: 'run-child', error: null };
+  it('maps persisted runtime ledger events to validated websocket envelopes', () => {
+    const saivageDir = mkdtempSync(join(tmpdir(), 'saivage-runtime-ledger-'));
+    const logger = new EventLogger(saivageDir);
+    try {
+      const command = { command_id: 'cmd-1', command: 'start_project' as const, status: 'completed' as const, requested_at: '2026-01-01T00:00:00.000Z', completed_at: '2026-01-01T00:00:01.000Z', source: 'operator' as const, error: null };
+      const run = { run_id: 'run-1', kind: 'root' as const, card_id: 'project', command_id: 'cmd-1', parent_run_id: null, activation_id: null, phase: 'planner' as const, runtime_status: 'running' as const, session_id: null, started_at: '2026-01-01T00:00:01.000Z', updated_at: '2026-01-01T00:00:01.000Z', finished_at: null, result: null };
+      const activation = { activation_id: 'act-1', idempotency_key: 'key-1', parent_card_id: 'goal-a', parent_run_id: 'run-parent', parent_session_id: 'planner:goal-a', parent_tool_call_id: 'call-a', child_card_id: 'code-a', status: 'pending' as const, requested_at: '2026-01-01T00:00:02.000Z', updated_at: '2026-01-01T00:00:02.000Z', precondition: 'accepted' as const, runtime_run_id: 'run-child', error: null };
+      const actionable_error = { code: 'runtime_start_precondition_failed', message: 'Project runtime is already running or paused.', currentState: { intent: 'running', paused: false }, nextAction: 'Use stop_project before starting again.', docsRef: 'docs/operator-runbook.md', runId: null, sessionId: null, cardId: 'project' };
 
-    expect(parseKnownWsEnvelope(createRuntimeEnvelope('runtime_command', { command }))?.content).toEqual({ event: 'runtime.command', command });
-    expect(parseKnownWsEnvelope(createRuntimeEnvelope('runtime_run', { run }))?.content).toEqual({ event: 'runtime.run', run });
-    expect(parseKnownWsEnvelope(createRuntimeEnvelope('runtime_activation', { activation }))?.content).toEqual({ event: 'runtime.activation', activation });
+      logger.appendEvent({ kind: 'runtime_command', command, timestamp: '2026-01-01T00:00:00.000Z' });
+      logger.appendEvent({ kind: 'runtime_run', run, timestamp: '2026-01-01T00:00:01.000Z' });
+      logger.appendEvent({ kind: 'runtime_activation', activation, timestamp: '2026-01-01T00:00:02.000Z' });
+      logger.appendEvent({ kind: 'runtime_actionable_error', actionable_error, timestamp: '2026-01-01T00:00:03.000Z' });
+
+      const events = logger.getEvents();
+      for (const event of events) expect(loggedEventSchema.parse(event)).toEqual(event);
+
+      const envelopes = events.map(({ kind, id, timestamp, ...data }) => createRuntimeEnvelope(kind, data));
+      expect(parseKnownWsEnvelope(envelopes[0])?.content).toEqual({ event: 'runtime.command', command });
+      expect(parseKnownWsEnvelope(envelopes[1])?.content).toEqual({ event: 'runtime.run', run });
+      expect(parseKnownWsEnvelope(envelopes[2])?.content).toEqual({ event: 'runtime.activation', activation });
+      expect(parseKnownWsEnvelope(envelopes[3])?.content).toEqual({ event: 'runtime.actionable_error', actionable_error });
+    } finally {
+      logger.close();
+      rmSync(saivageDir, { recursive: true, force: true });
+    }
   });
 
   it('aligns runtime fanout names with the ARCH-006 event catalog', () => {
