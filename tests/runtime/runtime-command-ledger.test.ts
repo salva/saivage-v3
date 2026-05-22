@@ -8,6 +8,8 @@ import { RuntimeCommandEventSchema, RuntimeRunEventSchema, parseKnownWsEnvelope 
 import { loggedEventSchema } from '../../src/schemas/validators.js';
 import { initProjectTree } from '../../src/utils/file-tree.js';
 import { appendRuntimeRun, readRuntimeState, upsertRuntimeActivation } from '../../src/runtime/state.js';
+import { PlannerControlExecutor } from '../../src/agents/planner-control-executor.js';
+import type { AgentRuntime } from '../../src/agents/agent-runtime.js';
 
 function root(): string { return mkdtempSync(join(tmpdir(), 'saivage-runtime-command-')); }
 
@@ -25,6 +27,83 @@ describe('runtime command ledger target contract (Wave 1)', () => {
       expect(state.runtime_commands).toEqual(expect.arrayContaining([expect.objectContaining({ command: 'start_project', status: 'completed' })]));
       expect(state.runtime_runs).toEqual(expect.arrayContaining([expect.objectContaining({ kind: 'root', card_id: 'project', command_id: result.command.command_id })]));
       expect(calls).toEqual(['project']);
+    } finally { rmSync(projectRoot, { recursive: true, force: true }); }
+  });
+
+  it('dispatchGoal binds an open planner run to the planner session before planner tool calls', async () => {
+    const projectRoot = root();
+    try {
+      initProjectTree(projectRoot);
+      appendRuntimeRun(projectRoot, {
+        run_id: 'run-root-sessionless',
+        kind: 'root',
+        card_id: 'project',
+        parent_run_id: null,
+        command_id: 'cmd-start',
+        activation_id: null,
+        phase: 'planner',
+        runtime_status: 'running',
+        session_id: null,
+        result: null,
+      });
+      appendRuntimeRun(projectRoot, {
+        run_id: 'run-child-pending-same-card',
+        kind: 'child',
+        card_id: 'project',
+        parent_run_id: 'run-parent-unrelated',
+        command_id: null,
+        activation_id: 'activation-unrelated',
+        phase: 'planner',
+        runtime_status: 'running',
+        session_id: null,
+        result: null,
+      });
+      const observedSessionIds: Array<string | null | undefined> = [];
+      const activationResults: unknown[] = [];
+      const ledgerEvents: unknown[] = [];
+      let runtime: Runtime;
+      const agentRuntime: AgentRuntime = {
+        async invokePlanner(goalId) {
+          const parentRun = readRuntimeState(projectRoot)!.runtime_runs!.find((run) => run.kind === 'root' && run.card_id === goalId && run.phase === 'planner' && run.runtime_status === 'running' && !run.finished_at);
+          observedSessionIds.push(parentRun?.session_id);
+          const exec = new PlannerControlExecutor({ projectRoot, cardStore: runtime.cardStore });
+          const msg = await exec.execute({ toolName: 'activate_card', toolCallId: 'call-child-a', argumentsJson: JSON.stringify({ cardId: 'child-a' }), parentCardId: goalId, sessionId: 'planner:project' });
+          activationResults.push(JSON.parse(msg.content));
+          return { status: 'blocked', blocked_reason: 'stop after observing parent run ownership', created_cards: [], updated_cards: [] };
+        },
+        invokeExecutor() { throw new Error('executor should not run'); },
+        invokeReviewer() { throw new Error('reviewer should not run'); },
+        cancelSession() { return false; },
+        forceCancelSession() { return false; },
+        getHandoffSummary() { return null; },
+        getActiveSessionHandoffs() { return []; },
+      };
+      runtime = new Runtime({ projectRoot, fakeAgentConfig: { mapping: {}, fixtureDir: '' }, autoDispatchBacklog: false }, agentRuntime);
+      runtime.cardStore.create({ id: 'child-a', type: 'code', parent: 'project', depth: 1, title: 'Child A', description: '', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [], blocks: [], artifacts: [], attachments: [], acceptance: '', retries: 0 });
+      const sub = runtime.eventBus.subscribe({ allowedKinds: ['runtime_run'], handler: (event) => { ledgerEvents.push(event); } });
+
+      await runtime.dispatchGoal('project');
+      sub.unsubscribe();
+
+      expect(observedSessionIds).toEqual(['planner:project']);
+      expect(activationResults).toEqual([expect.objectContaining({
+        success: true,
+        activation: expect.objectContaining({ parent_run_id: 'run-root-sessionless', parent_session_id: 'planner:project', child_card_id: 'child-a' }),
+      })]);
+      const state = readRuntimeState(projectRoot)!;
+      expect(state.runtime_runs).toEqual(expect.arrayContaining([
+        expect.objectContaining({ run_id: 'run-root-sessionless', kind: 'root', session_id: 'planner:project' }),
+        expect.objectContaining({ run_id: 'run-child-pending-same-card', kind: 'child', session_id: null }),
+      ]));
+      expect(state.runtime_runs?.filter((run) => run.card_id === 'project')).toHaveLength(2);
+      expect(state.runtime_runs?.filter((run) => run.kind === 'child' && run.card_id === 'child-a' && run.parent_run_id === 'run-root-sessionless')).toHaveLength(1);
+      expect(ledgerEvents).toContainEqual(expect.objectContaining({
+        kind: 'runtime_run',
+        run: expect.objectContaining({ run_id: 'run-root-sessionless', kind: 'root', session_id: 'planner:project' }),
+      }));
+      expect(ledgerEvents).not.toContainEqual(expect.objectContaining({
+        run: expect.objectContaining({ run_id: 'run-child-pending-same-card', session_id: 'planner:project' }),
+      }));
     } finally { rmSync(projectRoot, { recursive: true, force: true }); }
   });
 
