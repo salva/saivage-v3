@@ -1,7 +1,7 @@
 import { existsSync, readFileSync, unlinkSync } from 'node:fs';
 import { join } from 'node:path';
 import { freezeManifestSchema } from '../schemas/validators.js';
-import { writeFileAtomic } from './file-tree.js';
+import { writeFileAtomic } from '../utils/file-tree.js';
 import type { FreezeManifest } from '../schemas/types.js';
 
 const MANIFEST_FILE = 'freeze-manifest.json';

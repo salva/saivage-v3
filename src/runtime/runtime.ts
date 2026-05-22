@@ -37,7 +37,7 @@ import {
   saveFreezeManifest,
   readFreezeManifest,
   clearFreezeManifest,
-} from '../utils/freeze-manifest.js';
+} from './freeze-manifest.js';
 import { acquireLock, releaseLock } from './lock.js';
 import { FakeAgentAdapter, type FakeAgentConfig } from '../utils/fake-agent.js';
 import type { AgentRuntime } from '../agents/agent-runtime.js';

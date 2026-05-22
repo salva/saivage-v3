@@ -16,6 +16,10 @@ import {
   releaseLock,
   isLocked,
   removeStaleLock,
+  saveFreezeManifest,
+  readFreezeManifest,
+  clearFreezeManifest,
+  freezeManifestExists,
 } from '../../src/runtime/index.js';
 import { Runtime as SchedulerRuntime } from '../../src/runtime/runtime.js';
 import { ActiveRuntime as LifecycleActiveRuntime } from '../../src/runtime/lifecycle.js';
@@ -24,6 +28,7 @@ import { initRuntimeState as directInitRuntimeState, runtimeStatePath as directR
 import { startProcess as directStartProcess, waitProcess as directWaitProcess, listProcesses as directListProcesses } from '../../src/runtime/process-runner.js';
 import { pauseRuntimeControl as directPauseRuntimeControl, resumeRuntimeControl as directResumeRuntimeControl, RESUME_FROM_FREEZE_MESSAGE as directResumeFromFreezeMessage } from '../../src/runtime/control.js';
 import { acquireLock as directAcquireLock, releaseLock as directReleaseLock, isLocked as directIsLocked, removeStaleLock as directRemoveStaleLock } from '../../src/runtime/lock.js';
+import { saveFreezeManifest as directSaveFreezeManifest, readFreezeManifest as directReadFreezeManifest, clearFreezeManifest as directClearFreezeManifest, freezeManifestExists as directFreezeManifestExists } from '../../src/runtime/freeze-manifest.js';
 import { existsSync, mkdtempSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -77,6 +82,14 @@ describe('runtime module ownership boundary', () => {
     expect(removeStaleLock).toBe(directRemoveStaleLock);
   });
 
+
+  it('exports runtime-owned freeze manifest persistence from the src/runtime index with direct-module identity', () => {
+    expect(saveFreezeManifest).toBe(directSaveFreezeManifest);
+    expect(readFreezeManifest).toBe(directReadFreezeManifest);
+    expect(clearFreezeManifest).toBe(directClearFreezeManifest);
+    expect(freezeManifestExists).toBe(directFreezeManifestExists);
+  });
+
   it('does not retain legacy src/utils runtime compatibility or ownership files', () => {
     expect(existsSync(join(process.cwd(), 'src/utils/runtime.ts'))).toBe(false);
     expect(existsSync(join(process.cwd(), 'src/utils/active-runtime.ts'))).toBe(false);
@@ -84,5 +97,6 @@ describe('runtime module ownership boundary', () => {
     expect(existsSync(join(process.cwd(), 'src/utils/process-runner.ts'))).toBe(false);
     expect(existsSync(join(process.cwd(), 'src/utils/runtime-control.ts'))).toBe(false);
     expect(existsSync(join(process.cwd(), 'src/utils/runtime-lock.ts'))).toBe(false);
+    expect(existsSync(join(process.cwd(), 'src/utils/freeze-manifest.ts'))).toBe(false);
   });
 });

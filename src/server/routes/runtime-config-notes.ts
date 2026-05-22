@@ -10,7 +10,7 @@ import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { evaluateAuthz, type ActorRole, type SafetyClass } from '../../agents/authz.js';
 import { recordControlAction, stableStringify, listControlActions } from '../../utils/control-action-audit.js';
-import { readFreezeManifest, clearFreezeManifest } from '../../utils/freeze-manifest.js';
+import { readFreezeManifest, clearFreezeManifest } from '../../runtime/freeze-manifest.js';
 import { NotificationCenter } from '../../utils/notification-center.js';
 import { operatorApiContracts, type ServerAvailability } from '../../contracts/operator-api.js';
 import { parseContractRequest, validateContractSuccess } from '../contract-route.js';

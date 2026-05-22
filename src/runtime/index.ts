@@ -15,3 +15,4 @@ export type {
 export { ActiveRuntime } from './active-runtime.js';
 export * from './control.js';
 export * from './lock.js';
+export * from './freeze-manifest.js';

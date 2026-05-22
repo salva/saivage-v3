@@ -31,7 +31,7 @@ import {
   readFreezeManifest,
   saveFreezeManifest,
   clearFreezeManifest,
-} from '../../src/utils/freeze-manifest.js';
+} from '../../src/runtime/freeze-manifest.js';
 import {
   readRuntimeState,
   initRuntimeState,

@@ -22,7 +22,7 @@ import { TelegramNotificationDeliveryAdapter, buildTelegramStartupDiagnosticSumm
 import type { NotificationRouter } from '../notifications/index.js';
 import { ActiveRuntime } from '../runtime/lifecycle.js';
 import { buildCardRunsResponse, markGoalNeedsCorrections, normalizeAnalystIssues } from '../utils/analyst-stage6.js';
-import { readFreezeManifest } from '../utils/freeze-manifest.js';
+import { readFreezeManifest } from '../runtime/freeze-manifest.js';
 import { buildServerAvailability, type ServerAvailabilityInputs } from './availability.js';
 
 export interface ServerConfig { host: string; port: number; projectRoot: string; }

@@ -2,7 +2,7 @@ import { readdirSync, lstatSync, statSync, readFileSync, existsSync } from 'node
 import { join } from 'node:path';
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { readRuntimeState } from '../../runtime/state.js';
-import { readFreezeManifest } from '../../utils/freeze-manifest.js';
+import { readFreezeManifest } from '../../runtime/freeze-manifest.js';
 import { CardStore } from '../../utils/card-store.js';
 import {
   getSafeFileForAgent,
