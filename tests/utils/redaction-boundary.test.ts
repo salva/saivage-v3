@@ -107,6 +107,26 @@ describe('RedactionBoundary', () => {
     expect(nonObservability.activation.idempotency_key).toBe(SECRET_REDACTION_PLACEHOLDER);
   });
 
+  it('redacts idempotency_key in malformed runtime_activation activation containers', () => {
+    const activationArray = RedactionBoundary.object({
+      kind: 'runtime_activation',
+      activation: [{ idempotency_key: 'SYNTHETIC_ARRAY_IDEMPOTENCY_KEY' }],
+    }, { sink: 'observability', source: 'redaction-boundary-test' });
+    expect(activationArray.activation[0].idempotency_key).toBe(SECRET_REDACTION_PLACEHOLDER);
+
+    const nestedActivation = RedactionBoundary.object({
+      kind: 'runtime_activation',
+      activation: { nested: { idempotency_key: 'SYNTHETIC_NESTED_IDEMPOTENCY_KEY' } },
+    }, { sink: 'observability', source: 'redaction-boundary-test' });
+    expect(nestedActivation.activation.nested.idempotency_key).toBe(SECRET_REDACTION_PLACEHOLDER);
+
+    const nestedArrayActivation = RedactionBoundary.object({
+      kind: 'runtime_activation',
+      activation: { records: [{ idempotency_key: 'SYNTHETIC_NESTED_ARRAY_IDEMPOTENCY_KEY' }] },
+    }, { sink: 'observability', source: 'redaction-boundary-test' });
+    expect(nestedArrayActivation.activation.records[0].idempotency_key).toBe(SECRET_REDACTION_PLACEHOLDER);
+  });
+
   it('keeps secret-like key variants redacted in observability objects', () => {
     const redacted = RedactionBoundary.object({
       kind: 'runtime_activation',

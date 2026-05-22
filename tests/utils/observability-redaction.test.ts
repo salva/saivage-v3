@@ -83,6 +83,26 @@ describe('observability event redaction', () => {
     expect(redactObservabilityValue('not-a-ledger-key', 'idempotency_key')).toBe('[REDACTED]');
   });
 
+  it('redacts runtime_activation idempotency_key when activation is malformed as an array or nested container', () => {
+    const activationArray = redactObservabilityValue({
+      kind: 'runtime_activation',
+      activation: [{ idempotency_key: 'SYNTHETIC_ARRAY_IDEMPOTENCY_KEY' }],
+    });
+    expect(activationArray.activation[0].idempotency_key).toBe('[REDACTED]');
+
+    const nestedActivation = redactObservabilityValue({
+      kind: 'runtime_activation',
+      activation: { nested: { idempotency_key: 'SYNTHETIC_NESTED_IDEMPOTENCY_KEY' } },
+    });
+    expect(nestedActivation.activation.nested.idempotency_key).toBe('[REDACTED]');
+
+    const nestedArrayActivation = redactObservabilityValue({
+      kind: 'runtime_activation',
+      activation: { records: [{ idempotency_key: 'SYNTHETIC_NESTED_ARRAY_IDEMPOTENCY_KEY' }] },
+    });
+    expect(nestedArrayActivation.activation.records[0].idempotency_key).toBe('[REDACTED]');
+  });
+
   it('persists invocation_failed provider-error JSON with token/api_key/authorization values redacted', () => {
     const logger = new EventLogger(makeSaivageDir());
     logger.appendEvent({

@@ -63,8 +63,11 @@ function rawDynamicText(value: unknown, seen = new WeakSet<object>()): string {
 function isRuntimeActivationLedgerIdempotencyKey(context: RedactionContext, path: readonly string[], root: unknown): boolean {
   if (context.sink !== 'observability') return false;
   if (path.length !== 2 || path[0] !== 'activation' || path[1] !== 'idempotency_key') return false;
-  if (root === null || typeof root !== 'object') return false;
-  return (root as Record<string, unknown>).kind === 'runtime_activation';
+  if (root === null || typeof root !== 'object' || Array.isArray(root)) return false;
+  const rootRecord = root as Record<string, unknown>;
+  const activation = rootRecord.activation;
+  if (rootRecord.kind !== 'runtime_activation') return false;
+  return activation !== null && typeof activation === 'object' && !Array.isArray(activation);
 }
 
 function shouldRedactKey(key: string, context: RedactionContext, path: readonly string[], root: unknown): boolean {
@@ -92,7 +95,7 @@ function redactObjectValue(value: unknown, context: RedactionContext, keyHint: s
   const maxEntries = context.maxEntries ?? DEFAULT_MAX_ENTRIES;
 
   if (Array.isArray(value)) {
-    const output = value.slice(0, maxEntries).map((entry) => redactObjectValue(entry, context, undefined, depth + 1, seen, path, root));
+    const output = value.slice(0, maxEntries).map((entry, index) => redactObjectValue(entry, context, undefined, depth + 1, seen, [...path, String(index)], root));
     if (value.length > maxEntries) output.push(`[${value.length - maxEntries} entries truncated]`);
     seen.delete(value);
     return output;
