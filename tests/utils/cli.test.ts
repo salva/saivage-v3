@@ -37,11 +37,11 @@ jest.unstable_mockModule('../../src/server/server.js', () => ({
   startServer: mockStartServer,
 }));
 
-jest.unstable_mockModule('../../src/utils/runtime-lock.js', () => ({
+jest.unstable_mockModule('../../src/runtime/lock.js', () => ({
   isLocked: mockIsLocked,
 }));
 
-jest.unstable_mockModule('../../src/utils/runtime-control.js', () => ({
+jest.unstable_mockModule('../../src/runtime/control.js', () => ({
   pauseRuntimeControl: mockPauseRuntimeControl,
   resumeRuntimeControl: mockResumeRuntimeControl,
 }));

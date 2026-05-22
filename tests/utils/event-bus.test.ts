@@ -1032,7 +1032,7 @@ describe('Runtime + EventBus Integration', () => {
     const { join } = await import('node:path');
     const { tmpdir } = await import('node:os');
     const { initProjectTree } = await import('../../src/utils/file-tree.js');
-    const { releaseLock } = await import('../../src/utils/runtime-lock.js');
+    const { releaseLock } = await import('../../src/runtime/lock.js');
 
     const tmpDir = mkdtempSync(join(tmpdir(), 'saivage-eb-int-'));
     initProjectTree(tmpDir);
@@ -1058,7 +1058,7 @@ describe('Runtime + EventBus Integration', () => {
     const { join } = await import('node:path');
     const { tmpdir } = await import('node:os');
     const { initProjectTree } = await import('../../src/utils/file-tree.js');
-    const { releaseLock } = await import('../../src/utils/runtime-lock.js');
+    const { releaseLock } = await import('../../src/runtime/lock.js');
 
     const tmpDir = mkdtempSync(join(tmpdir(), 'saivage-eb-int2-'));
     initProjectTree(tmpDir);
@@ -1089,7 +1089,7 @@ describe('Runtime + EventBus Integration', () => {
     const { join } = await import('node:path');
     const { tmpdir } = await import('node:os');
     const { initProjectTree } = await import('../../src/utils/file-tree.js');
-    const { releaseLock } = await import('../../src/utils/runtime-lock.js');
+    const { releaseLock } = await import('../../src/runtime/lock.js');
 
     const tmpDir = mkdtempSync(join(tmpdir(), 'saivage-eb-int3-'));
     initProjectTree(tmpDir);
@@ -1130,7 +1130,7 @@ describe('Runtime + EventBus Integration', () => {
     const { join } = await import('node:path');
     const { tmpdir } = await import('node:os');
     const { initProjectTree } = await import('../../src/utils/file-tree.js');
-    const { releaseLock } = await import('../../src/utils/runtime-lock.js');
+    const { releaseLock } = await import('../../src/runtime/lock.js');
 
     const tmpDir = mkdtempSync(join(tmpdir(), 'saivage-eb-int4-'));
     initProjectTree(tmpDir);
@@ -1167,7 +1167,7 @@ describe('Runtime + EventBus Integration', () => {
     const { join } = await import('node:path');
     const { tmpdir } = await import('node:os');
     const { initProjectTree } = await import('../../src/utils/file-tree.js');
-    const { releaseLock } = await import('../../src/utils/runtime-lock.js');
+    const { releaseLock } = await import('../../src/runtime/lock.js');
 
     const tmpDir = mkdtempSync(join(tmpdir(), 'saivage-eb-int5-'));
     initProjectTree(tmpDir);

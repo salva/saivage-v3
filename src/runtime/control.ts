@@ -1,6 +1,6 @@
-import { readRuntimeState, updateRuntimeState } from '../runtime/state.js';
-import type { ActiveRuntime } from '../runtime/active-runtime.js';
-import { enqueueRuntimeStateNotifications } from './notification-triggers.js';
+import { readRuntimeState, updateRuntimeState } from './state.js';
+import type { ActiveRuntime } from './active-runtime.js';
+import { enqueueRuntimeStateNotifications } from '../utils/notification-triggers.js';
 import type { RuntimeState } from '../schemas/types.js';
 
 /**

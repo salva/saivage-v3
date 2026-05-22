@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { initProjectTree } from '../../src/utils/file-tree.js';
 import { Runtime } from '../../src/runtime/runtime.js';
 import { FakeAgentAdapter, type FakeAgentFixture, type FakeReviewerResult } from '../../src/utils/fake-agent.js';
-import { releaseLock } from '../../src/utils/runtime-lock.js';
+import { releaseLock } from '../../src/runtime/lock.js';
 import { getSessionMessages } from '../../src/agents/session-persistence.js';
 import { AgentAdapter, createAgentAdapter } from '../../src/agents/agent-adapter.js';
 

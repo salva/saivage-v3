@@ -9,12 +9,21 @@ import {
   startProcess,
   waitProcess,
   listProcesses,
+  pauseRuntimeControl,
+  resumeRuntimeControl,
+  RESUME_FROM_FREEZE_MESSAGE,
+  acquireLock,
+  releaseLock,
+  isLocked,
+  removeStaleLock,
 } from '../../src/runtime/index.js';
 import { Runtime as SchedulerRuntime } from '../../src/runtime/runtime.js';
 import { ActiveRuntime as LifecycleActiveRuntime } from '../../src/runtime/lifecycle.js';
 import { ActiveRuntime as RuntimeActiveRuntime } from '../../src/runtime/active-runtime.js';
 import { initRuntimeState as directInitRuntimeState, runtimeStatePath as directRuntimeStatePath } from '../../src/runtime/state.js';
 import { startProcess as directStartProcess, waitProcess as directWaitProcess, listProcesses as directListProcesses } from '../../src/runtime/process-runner.js';
+import { pauseRuntimeControl as directPauseRuntimeControl, resumeRuntimeControl as directResumeRuntimeControl, RESUME_FROM_FREEZE_MESSAGE as directResumeFromFreezeMessage } from '../../src/runtime/control.js';
+import { acquireLock as directAcquireLock, releaseLock as directReleaseLock, isLocked as directIsLocked, removeStaleLock as directRemoveStaleLock } from '../../src/runtime/lock.js';
 import { existsSync, mkdtempSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -55,10 +64,25 @@ describe('runtime module ownership boundary', () => {
     }
   });
 
-  it('does not retain legacy src/utils runtime compatibility shim files', () => {
+  it('exports runtime-owned pause/resume control authority from the src/runtime index', () => {
+    expect(pauseRuntimeControl).toBe(directPauseRuntimeControl);
+    expect(resumeRuntimeControl).toBe(directResumeRuntimeControl);
+    expect(RESUME_FROM_FREEZE_MESSAGE).toBe(directResumeFromFreezeMessage);
+  });
+
+  it('exports runtime lock ownership from the src/runtime index with direct-module identity', () => {
+    expect(acquireLock).toBe(directAcquireLock);
+    expect(releaseLock).toBe(directReleaseLock);
+    expect(isLocked).toBe(directIsLocked);
+    expect(removeStaleLock).toBe(directRemoveStaleLock);
+  });
+
+  it('does not retain legacy src/utils runtime compatibility or ownership files', () => {
     expect(existsSync(join(process.cwd(), 'src/utils/runtime.ts'))).toBe(false);
     expect(existsSync(join(process.cwd(), 'src/utils/active-runtime.ts'))).toBe(false);
     expect(existsSync(join(process.cwd(), 'src/utils/runtime-state.ts'))).toBe(false);
     expect(existsSync(join(process.cwd(), 'src/utils/process-runner.ts'))).toBe(false);
+    expect(existsSync(join(process.cwd(), 'src/utils/runtime-control.ts'))).toBe(false);
+    expect(existsSync(join(process.cwd(), 'src/utils/runtime-lock.ts'))).toBe(false);
   });
 });

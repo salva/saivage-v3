@@ -13,3 +13,5 @@ export type {
   RuntimeResourceKind,
 } from './lifecycle.js';
 export { ActiveRuntime } from './active-runtime.js';
+export * from './control.js';
+export * from './lock.js';

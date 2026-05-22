@@ -12,7 +12,7 @@ import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import type { InjectOptions, LightMyRequestResponse } from 'fastify';
 import type { ServerInstance } from '../../src/server/server.js';
-import { isLocked, releaseLock } from '../../src/utils/runtime-lock.js';
+import { isLocked, releaseLock } from '../../src/runtime/lock.js';
 import { CardStore } from '../../src/utils/card-store.js';
 import { getRuntimeEventSubscriptionCount } from '../../src/server/websocket.js';
 

@@ -6,7 +6,7 @@ import { initProjectTree } from '../../src/utils/file-tree.js';
 import { CardStore } from '../../src/utils/card-store.js';
 import { Runtime } from '../../src/runtime/runtime.js';
 import { FakeAgentAdapter, type FakeAgentFixture } from '../../src/utils/fake-agent.js';
-import { releaseLock } from '../../src/utils/runtime-lock.js';
+import { releaseLock } from '../../src/runtime/lock.js';
 import type { CardRecord } from '../../src/schemas/types.js';
 import type { AgentRuntime } from '../../src/agents/agent-runtime.js';
 

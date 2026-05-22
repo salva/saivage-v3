@@ -5,7 +5,7 @@ import { CardStore } from '../utils/card-store.js';
 import { appendNote, getNotes, deleteAllNotes, markNoteHandled } from '../utils/notes.js';
 import { getDiaryEntries, deleteDiary } from '../utils/diary.js';
 import { readRuntimeState } from '../runtime/state.js';
-import { pauseRuntimeControl, resumeRuntimeControl, RESUME_FROM_FREEZE_MESSAGE } from '../utils/runtime-control.js';
+import { pauseRuntimeControl, resumeRuntimeControl, RESUME_FROM_FREEZE_MESSAGE } from '../runtime/control.js';
 import { listProcesses, tailOutput, getProcess } from '../runtime/process-runner.js';
 import type { CardRecord, CardType, CardStatus, NoteKind, NoteAuthor, ControlActionSurface } from '../schemas/types.js';
 import type { ActiveRuntime } from '../runtime/active-runtime.js';

@@ -10,7 +10,7 @@ import type { AgentRuntime } from '../../src/agents/agent-runtime.js';
 import { FakeAgentAdapter } from '../../src/utils/fake-agent.js';
 import { Runtime } from '../../src/runtime/runtime.js';
 import { initProjectTree } from '../../src/utils/file-tree.js';
-import { releaseLock } from '../../src/utils/runtime-lock.js';
+import { releaseLock } from '../../src/runtime/lock.js';
 import { getSession } from '../../src/agents/session-persistence.js';
 
 type CancellationTracker = {

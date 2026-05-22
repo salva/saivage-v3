@@ -6,7 +6,7 @@ import { EventEmitter } from 'node:events';
 
 import { Runtime } from '../../src/runtime/runtime.js';
 import { initProjectTree } from '../../src/utils/file-tree.js';
-import { releaseLock } from '../../src/utils/runtime-lock.js';
+import { releaseLock } from '../../src/runtime/lock.js';
 import { AgentAdapter } from '../../src/agents/agent-adapter.js';
 import { EventLogger } from '../../src/utils/event-logger.js';
 import { saivageConfigSchema } from '../../src/agents/config-schema.js';

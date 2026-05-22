@@ -37,7 +37,7 @@ import {
   initRuntimeState,
   updateRuntimeState,
 } from '../../src/runtime/state.js';
-import { releaseLock } from '../../src/utils/runtime-lock.js';
+import { releaseLock } from '../../src/runtime/lock.js';
 import type { CardRecord, FreezeManifest, HandoffSummary } from '../../src/schemas/types.js';
 
 // ── Test Harness ────────────────────────────────────────────────

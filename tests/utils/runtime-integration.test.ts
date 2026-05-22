@@ -14,7 +14,7 @@ import {
   releaseLock,
   isLocked,
   removeStaleLock,
-} from '../../src/utils/runtime-lock.js';
+} from '../../src/runtime/lock.js';
 import type { CardRecord } from '../../src/schemas/types.js';
 
 // ── Helpers ───────────────────────────────────────────────────

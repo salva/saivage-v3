@@ -3,8 +3,8 @@ import { existsSync, rmSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { parseArgs } from 'node:util';
-import { isLocked } from './utils/runtime-lock.js';
-import { pauseRuntimeControl, resumeRuntimeControl } from './utils/runtime-control.js';
+import { isLocked } from './runtime/lock.js';
+import { pauseRuntimeControl, resumeRuntimeControl } from './runtime/control.js';
 import { evaluateAuthz } from './agents/authz.js';
 import { recordControlAction, stableStringify } from './utils/control-action-audit.js';
 

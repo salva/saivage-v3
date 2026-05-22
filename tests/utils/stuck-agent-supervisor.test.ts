@@ -14,7 +14,7 @@ import {
 } from '../../src/utils/stuck-agent-supervisor.js';
 import { Runtime } from '../../src/runtime/runtime.js';
 import { initProjectTree } from '../../src/utils/file-tree.js';
-import { releaseLock } from '../../src/utils/runtime-lock.js';
+import { releaseLock } from '../../src/runtime/lock.js';
 import type { AgentRuntime } from '../../src/agents/agent-runtime.js';
 
 interface MockedDeps extends SupervisorDeps {

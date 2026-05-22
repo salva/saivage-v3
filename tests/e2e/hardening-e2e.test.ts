@@ -32,7 +32,7 @@ import type { FakeAgentFixture } from '../../src/utils/fake-agent.js';
 import { scanContent } from '../../src/utils/heuristic-scanner.js';
 import { quarantineContent } from '../../src/utils/quarantine.js';
 import { isStashPathAllowed, getSafeFileForAgent } from '../../src/utils/file-access-security.js';
-import { releaseLock } from '../../src/utils/runtime-lock.js';
+import { releaseLock } from '../../src/runtime/lock.js';
 import type { CardRecord } from '../../src/schemas/types.js';
 
 function makeFixtureDir(tmpDir: string): string {

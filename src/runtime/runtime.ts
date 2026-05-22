@@ -38,7 +38,7 @@ import {
   readFreezeManifest,
   clearFreezeManifest,
 } from '../utils/freeze-manifest.js';
-import { acquireLock, releaseLock } from '../utils/runtime-lock.js';
+import { acquireLock, releaseLock } from './lock.js';
 import { FakeAgentAdapter, type FakeAgentConfig } from '../utils/fake-agent.js';
 import type { AgentRuntime } from '../agents/agent-runtime.js';
 import type { PlannerResult, ReviewerResult } from '../agents/result-parser.js';

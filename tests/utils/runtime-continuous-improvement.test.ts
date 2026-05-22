@@ -6,7 +6,7 @@ import { initProjectTree } from '../../src/utils/file-tree.js';
 import { CardStore } from '../../src/utils/card-store.js';
 import { Runtime } from '../../src/runtime/runtime.js';
 import type { FakeAgentFixture } from '../../src/utils/fake-agent.js';
-import { releaseLock } from '../../src/utils/runtime-lock.js';
+import { releaseLock } from '../../src/runtime/lock.js';
 import { startProcess, snapshotProcessRuntimeScope } from '../../src/runtime/process-runner.js';
 import type { CardRecord, CardStatus } from '../../src/schemas/types.js';
 
