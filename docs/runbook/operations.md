@@ -234,3 +234,8 @@ Recommended maintenance sequence:
 3. Back up `.saivage/`.
 4. Back up `.saivage-work/` if process logs or generated artifacts are needed.
 5. Resume or `resume-from-freeze` when the maintenance window ends.
+
+
+## Runtime Console and Planning Tree split
+
+Use the Dashboard Runtime Console for `start_project`, `stop_project`, runtime intent, command/run/activation ledgers, and recovery signals. Use the Planning Tree for card hierarchy, planner state, dependencies, and evidence. Editing planner state or moving cards does not start or stop execution; child work starts only through parent-planner `activate_card`.

@@ -81,6 +81,7 @@ Returns runtime-focused status data:
 - `paused`
 - `currentCardId`
 - `goalCount`
+- runtime command/run/activation and intent metadata when available through detailed runtime surfaces
 - optional `serverAvailability` with the same component contract as `/health`
 
 If no `ActiveRuntime` is attached, the server falls back to runtime state on disk.
@@ -139,8 +140,7 @@ Operators start or correct work by recording directives instead:
 - `POST /api/runtime/goals/:id/needs_corrections` records goal corrections.
 - Project-level correction directives are no longer executable runtime triggers; use goal-scoped correction notes and explicit runtime controls.
 
-The runtime consumes eligible directives on its scheduler safe tick and owns any
-subsequent card activation.
+The runtime no longer scans directive files, status buckets, or status-derived dispatch queues to discover executable work. It runs root work from explicit runtime commands and child work from parent-planner activation records.
 
 ### Freeze
 
@@ -170,7 +170,7 @@ Current accepted behavior after Stage 07 is:
 - planner-control frames and dispatch records persist under `.saivage/runtime/`;
 - parent planners suspend while child work runs and resume when child dispatches complete;
 - terminal dispatches are expected to produce completion evidence;
-- operators must not treat an empty ready queue alone as proof of strategic project completion.
+- operators must not treat an empty status-derived dispatch queue alone as proof of strategic project completion.
 
 See [Goal Planning Runtime](/goal-planning-runtime) for the model-level explanation.
 

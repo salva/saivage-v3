@@ -1,5 +1,6 @@
 import { describe, expect, it } from '@jest/globals';
 import { actionableEnumError, createActionableErrorEnvelope } from '../../src/schemas/validators.js';
+import { operatorApiContracts } from '../../src/contracts/operator-api.js';
 
 describe('actionable error envelope target contract (Wave 1)', () => {
   it('invalid planner-state values return accepted values and a next action', () => {
@@ -19,7 +20,16 @@ describe('actionable error envelope target contract (Wave 1)', () => {
     expect(error).toEqual(expect.objectContaining({ parentCardId: 'goal-a', childCardId: 'code-a', sessionId: 'planner:goal-a' }));
   });
 
-  it.skip('Wave 3 removes this skip when REST and WebSocket API errors use the same actionable envelope', () => {
-    // REST/WebSocket alignment is Wave 3.
+  it('REST runtime command errors use the same actionable envelope', () => {
+    const actionable_error = createActionableErrorEnvelope({
+      code: 'runtime_unavailable',
+      message: 'ActiveRuntime is not attached.',
+      currentState: { command: 'start_project' },
+      nextAction: 'Start the server with runtime creation enabled before retrying start_project.',
+      docsRef: 'docs/operation.md#start-project',
+    });
+    const parsed = operatorApiContracts['runtime.startProject'].error.safeParse({ success: false, actionable_error });
+    expect(parsed.success).toBe(true);
+    expect(parsed.success && parsed.data.actionable_error.nextAction).toContain('start_project');
   });
 });

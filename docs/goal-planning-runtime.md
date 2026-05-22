@@ -1,107 +1,57 @@
 # Goal Planning Runtime
 
 <!-- doc-authority
-status: stale
-disposition: merge-into
+status: current
+disposition: keep
 owner: docs-maintainers
-superseded_by: docs/agents.md
-last_verified_against: src/utils/runtime.ts:1
+superseded_by: none
+last_verified_against: src/runtime/runtime.ts:1
 -->
 
-> **Authority status: stale.** This page is retained for context only and is not current operator guidance. Prefer `docs/agents.md` for current authority where applicable. See `docs/documentation-inventory.md` for disposition `merge-into`.
+This page describes the current Saivage v3 runtime-control model. It supersedes older queue/status-driven descriptions.
 
-This document describes the current accepted Saivage v3 planning model after the planner-control and evidence repair waves.
+## Ownership boundary
 
-## Core model
+Saivage has two durable state planes:
 
-Saivage coordinates work through three runtime roles:
+- **Planner/card state** is owned by planners and `CardStore`: hierarchy, descriptions, dependencies, evidence, and planner-state/status fields.
+- **Runtime execution state** is owned by the runtime: `runtime_intent`, `runtime_commands`, `runtime_runs`, `runtime_activations`, active-card-run state, process records, and recovery metadata.
 
-- **Planner** — decomposes goal work and decides whether the goal should continue, block, or move toward review.
-- **Executor** — performs concrete terminal work.
-- **Reviewer** — validates a goal against its acceptance criteria before goal completion.
+Planner/card state is not executable. Moving a card to `active`, `backlog`, `done`, or another planner-state value does not enqueue, wake, resume, or dispatch work.
 
-The key current rule is:
+## Root project start and stop
 
-- **planning state is owned by goals**;
-- **operators should not model planning as separate visible plan cards**.
+Root execution starts only through an explicit runtime command:
 
-## Durable control state
+1. `POST /api/runtime/start_project`, the Dashboard Runtime Console, or the equivalent runtime command API records a `start_project` command.
+2. The runtime sets durable intent to `running`.
+3. The runtime appends a root `runtime_runs` record for `project`.
+4. Dispatch proceeds from that runtime-owned run.
 
-Current runtime behavior persists control state under `.saivage/runtime/`, including planner-control frames and dispatch records. This allows parent planners to suspend while child work runs and then resume with durable evidence.
+Root execution stops only through `stop_project`, which records a stop command, sets intent to `stopped`, and terminally marks open root runs. Analyst prompts, directive files, notes, and card status changes are not root-start mechanisms.
 
-Current accepted semantics include:
+## Child activation
 
-- parent planners can suspend around child dispatches;
-- child completion can make a parent planner resumable;
-- dispatch completion is expected to preserve evidence rather than silently disappearing into queue churn.
+Child work starts only from the active parent planner. The planner calls `activate_card` for a child card; the runtime validates:
 
-## Goal-level contract
+- the parent card has a currently running planner `runtime_runs` entry;
+- the tool call belongs to that parent session;
+- the child exists and dependencies are complete.
 
-A goal is not complete merely because it has no ready child work at a moment in time. Instead:
+On success, the runtime creates or returns a durable `runtime_activations` record and links it to a child `runtime_runs` record. Retries are idempotent while an activation is unresolved, so restart or model retry does not create duplicate orphan child runs.
 
-1. the planner inspects current goal state;
-2. the planner creates or updates child work;
-3. child goal or terminal-card work is dispatched;
-4. completion evidence is gathered;
-5. the parent planner resumes if further planning is needed;
-6. review gates final goal completion.
+## Restart repair
 
-This means an empty ready queue is only an execution snapshot, not a completion proof.
+Runtime startup reads the authoritative state file under `.saivage/tmp/state/runtime.json`. It preserves intent, commands, runs, activations, and active-card-run information so operators can see what was requested and what remains unresolved. Legacy state layout migration is bounded to file-layout repair; it does not revive old directive or status-driven execution semantics.
 
-## Planner outcomes
+## Confirmation and actionable errors
 
-Current planner behavior still uses the familiar `continue | done | blocked` outcome pattern, but runtime semantics are stricter than the string alone.
+`confirmed` and `preview_hash` are used only by preview-style tool contracts such as analyst shell command confirmation. Card mutations, planner-state updates, runtime commands, and `activate_card` do not use preview hashes as mutation gates. Invalid requests return actionable error envelopes with a stable `code`, context/current state, and `nextAction`.
 
-### `continue`
+## UI model
 
-The planner believes more work is required.
-
-### `blocked`
-
-The planner or child work has identified a blocking condition that must be surfaced.
-
-### `done`
-
-`done` is meaningful only when acceptance and review conditions are actually satisfied. It must not be treated as valid proof if child work still requires execution or evidence is missing.
-
-## Review gate
-
-Reviewer behavior remains part of the completion contract:
-
-- a goal should not be treated as complete solely because planning stopped creating more children;
-- review is the final acceptance gate for goal completion;
-- failed review can send the goal back into further planning.
-
-## Evidence expectations
-
-Current accepted behavior requires durable evidence around child execution and goal review. Relevant evidence may include:
-
-- generated files
-- verification commands
-- tool errors
-- attachments and artifacts
-- parse-failure context when an executor response is malformed after useful work already occurred
-
-Operators inspect this evidence primarily through card detail rather than by reading raw runtime files.
-
-## Relationship to project-level planning
-
-Project-level planning remains strategic, but goal-level planning is the main current durable owner for planning state. The runtime should preserve parent control across child work rather than relying on incidental queue exhaustion.
-
-## Operator implications
-
-Operators should use this model when interpreting runtime state:
-
-- do not infer completion from empty queues alone;
-- inspect card detail evidence for generated work;
-- inspect agent and debug views when a planner appears stuck or when evidence is incomplete;
-- treat blocked, degraded, and frozen states as explicit runtime signals.
+Use the Dashboard **Runtime Console** for runtime intent, `start_project`, `stop_project`, command/run/activation ledgers, and recovery signals. Use the **Planning Tree** for card hierarchy, planner metadata, dependencies, evidence, and discussion. The Planning Tree intentionally does not offer status-as-run controls.
 
 ## Source grounding
 
-This page reflects the repaired system shape established across stages 07-10, especially:
-
-- planner-control durability and derived-state/card validation;
-- evidence preservation and malformed-result handling improvements;
-- generated-file inspection and safe preview behavior;
-- operator-facing UI workflows for current state inspection.
+Core implementation anchors: `src/runtime/runtime.ts`, `src/runtime/state.ts`, `src/agents/planner-control-executor.ts`, `src/server/routes/runtime-config-notes.ts`, and the web Dashboard runtime console / planning-tree components under `web/src`.

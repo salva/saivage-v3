@@ -25,8 +25,8 @@ Use it to:
 - inspect the target project, docs, logs, runtime state, cards, notes, sessions, processes, and audit history;
 - explain why work is blocked, stale, failing, or waiting;
 - create or amend cards when project work needs to be delegated;
-- add directive or escalation notes for running or queued work;
-- call canonical controls such as runtime pause/freeze/resume when those controls are the right operator action. Process termination controls are deferred in this cycle.
+- add non-executable notes for planner/operator context;
+- call canonical controls such as runtime `start_project`, `stop_project`, pause, freeze, and resume when those controls are the right operator action. Process termination controls are deferred in this cycle.
 
 Do **not** use the analyst as a substitute executor.
 
@@ -120,6 +120,8 @@ Examples of commands treated as destructive on analyst web chat, so they return 
 
 On Telegram, `run_shell_command` remains unavailable.
 
+This `confirmed`/`preview_hash` handshake is a shell-tool safety contract only. It must not be copied into card CRUD, planner-state mutation, runtime start/stop, or `activate_card` semantics. Those surfaces either apply directly through their owner or return actionable precondition errors.
+
 ## Shell parameter bounds and confirmation semantics
 
 `run_shell_command` accepts these parameters:
@@ -152,9 +154,9 @@ The analyst must not use shell or other direct tools to:
 
 When project work needs to happen, the analyst should:
 
-- create or amend a card;
-- add a directive or escalation note;
-- call the canonical control that already owns the action.
+- create or amend a card for planner consideration;
+- add a non-executable note for operator/planner context;
+- call the canonical control that already owns the action. Root work starts through `start_project`; child work starts through parent-planner `activate_card`, not by analyst status edits or directive files.
 
 ## Persistent web chat panel
 

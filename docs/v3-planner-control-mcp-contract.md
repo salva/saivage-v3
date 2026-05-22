@@ -1,131 +1,65 @@
-> **Historical/Audit Artifact — Not Current Operator Instructions**  
-> This page records a pre-implementation contract from an earlier stage. It is not authoritative for current Saivage v3 behavior unless a current active doc explicitly revalidates it against current source and tests.
-
-# V3 planner control MCP contract
+# Planner Control MCP Contract
 
 <!-- doc-authority
-status: historical
-disposition: move-to-docs/historical/
+status: current
+disposition: keep
 owner: docs-maintainers
-superseded_by: docs/agents.md
-last_verified_against: src/agents/agent-adapter.ts:1
+superseded_by: none
+last_verified_against: src/agents/planner-control-executor.ts:1
 -->
 
-> **Authority status: historical.** This page is retained for provenance only. Prefer `docs/agents.md` for current authority where applicable. See `docs/documentation-inventory.md` for disposition `move-to-docs/historical/`.
+Planner control tools mutate planner/card state or request child runtime activation. They do not start the root project.
 
-## Purpose
+## Tool ownership
 
-This document defines the v3 planner control surface needed to restore durable strategic control to project and goal planners. It is grounded in the current runtime, card store, parser, schema, and MCP manager behavior, plus the completed control-flow diagnosis and stage research artifact.
+- `create_card`, `read_card`, `update_card`, `cancel_card`, `delete_card`, and `restart_card` operate on planner/card state through canonical services.
+- `report_goal_done`, `report_goal_failed`, and `report_goal_blocked` report goal outcomes and reviewer-facing evidence.
+- `activate_card` is the only child-start edge. It is accepted only from the active parent planner runtime run.
 
-## Source-grounded current problem
+Root work is outside this contract and is controlled by runtime `start_project` / `stop_project`.
 
-### Confirmed runtime gaps
+## `activate_card` request
 
-Current source shows that v3 is still queue-centric instead of parent-planner-centric:
+The planner calls:
 
-- `src/utils/runtime.ts` drives work through `dispatchGoal()`, `runGoal()`, `executeReadyCards()`, `getReadyQueue()`, and `findNextBacklogGoal()`.
-- `runGoal()` applies planner JSON, then either blocks, reviews, or drains ready terminal cards.
-- `getReadyQueue()` only represents terminal descendants, not planner-owned suspended child operations.
-- `_checkContinuousImprovement()` only revisits `project` after all top-level goals are terminal.
+```json
+{ "cardId": "child-card-id" }
+```
 
-This creates two concrete failures already reproduced in `tests/utils/runtime-project-planner-control-flow.test.ts`:
+The runtime derives parent context from the active planner session/tool call and validates that the target child exists, dependencies are complete, and the parent planner run is active. Card status alone cannot satisfy this precondition.
 
-1. A planner can return `status: "done"` while creating child work, and `runGoal()` will skip `executeReadyCards()` and go straight to review.
-2. Project-level planning is not resumed as a first-class parent frame after child goal completion.
+## Success response
 
-### Constraints that must be preserved
-
-The redesign must preserve current durable state and validation behavior:
-
-- Cards remain the persistent planning state in `.saivage/cards/...`.
-- `CardStore` in `src/utils/card-store.ts` remains the authority for hierarchy, max depth, lifecycle transitions, and edit restrictions.
-- Existing `CardRecord`, `ArtifactRef`, `AttachmentRef`, `ReviewAssessment`, and runtime state types in `src/schemas/types.ts` remain the base domain model.
-- Existing MCP transport/tool semantics in `src/mcp/mcp-manager.ts` remain the style for schemas, read-only hints, idempotency hints, and typed errors.
-
-## Design goals
-
-1. Keep cards as durable state.
-2. Move strategic control from implicit planner JSON diffs to explicit MCP-style planning tools.
-3. Make dispatch and wait/observe first-class, durable operations.
-4. Resume the same parent planner frame with structured child results.
-5. Prevent completion from empty ready queues or `done` + new work races.
-6. Preserve review as explicit acceptance gating backed by observable evidence.
-
-## Control model overview
-
-The runtime adds a durable dispatch ledger and planner frame model on top of cards.
-
-### New durable concepts
-
-#### Planner frame
-
-A planner frame represents a specific project-planner or goal-planner invocation context.
+A successful call returns a durable activation record and a linked child runtime run:
 
 ```json
 {
-  "frame_id": "frm_...",
-  "planner_card_id": "project | goal-*",
-  "planner_role": "planner",
-  "planner_scope": "project | goal",
-  "status": "running | suspended | resumable | completed | blocked | failed",
-  "resume_reason": "dispatch_completed | review_completed | operator_unblocked | none",
-  "waiting_on_dispatch_ids": ["dsp_..."],
-  "last_resume_cursor": "opaque-string",
-  "created_at": "ISO-8601",
-  "updated_at": "ISO-8601"
+  "success": true,
+  "activation": {
+    "activation_id": "act-...",
+    "parent_card_id": "goal-a",
+    "parent_run_id": "run-parent",
+    "parent_tool_call_id": "call-1",
+    "child_card_id": "code-a",
+    "status": "pending",
+    "runtime_run_id": "run-child",
+    "idempotency_key": "run-parent:planner:goal-a:call-1:code-a"
+  }
 }
 ```
 
-`planner_role` is source-grounded in the current `AgentRole` model, which only has a single `planner` role in `src/schemas/types.ts`. The project-vs-goal distinction in this contract is a proposed `planner_scope` (or equivalent frame metadata) layered on top of that current role, not a claim that separate `project_planner` and `goal_planner` runtime `AgentRole` values already exist.
+If the same unresolved tool call is replayed, the runtime returns the existing activation and run id rather than creating a duplicate.
 
-#### Dispatch record
+## Actionable precondition errors
 
-A dispatch record is the durable handle returned when a planner dispatches child work.
+Failures return `tool_error` content with `actionable_error`:
 
-```json
-{
-  "dispatch_id": "dsp_...",
-  "parent_frame_id": "frm_...",
-  "parent_card_id": "project | goal-*",
-  "target_card_id": "goal-* | code-* | test-* | ...",
-  "target_kind": "goal | terminal_card",
-  "requested_by_role": "planner",
-  "requested_by_scope": "project | goal",
-  "status": "queued | running | completed | failed | blocked | cancelled | timed_out",
-  "completion": {
-    "outcome": "done | failed | blocked | cancelled | timed_out",
-    "summary": "string",
-    "child_result": {},
-    "review": null,
-    "artifacts": [],
-    "attachments": [],
-    "evidence_card_ids": [],
-    "error": null
-  },
-  "idempotency_key": "caller-key",
-  "created_at": "ISO-8601",
-  "started_at": "ISO-8601 | null",
-  "completed_at": "ISO-8601 | null"
-}
-```
+- `activate_card_parent_not_active` — no running parent planner run/session owns the call. Next action: wait for the runtime to invoke the parent planner or inspect recovery state.
+- `activate_card_child_missing` — target card id does not exist. Next action: inspect the Planning Tree and retry with an existing child.
+- `activate_card_dependencies_blocked` — one or more dependencies are not complete. Next action: complete or resolve dependencies before retrying.
 
-### Parent planner suspend/resume semantics
+The envelope includes stable `code`, message, parent/child/session ids where known, current state, and `nextAction`.
 
-1. Parent planner inspects state with read tools.
-2. Parent planner creates or updates child cards through explicit mutating tools.
-3. Parent planner calls a dispatch tool.
-4. Runtime returns `dispatch_id` and marks the parent frame `suspended` on that handle.
-5. Child work runs independently.
-6. When the dispatch reaches a terminal outcome, runtime marks the parent frame `resumable`.
-7. The same parent planner frame is resumed with a structured dispatch completion payload, not just a rebuilt queue snapshot.
-8. Parent planner chooses the next action: more planning, another dispatch, request review, or explicit blocked/completed conclusion.
+## Non-goals and removed rituals
 
-This is the core behavior missing from the current queue-centric runtime.
-
-## Bottom line
-
-The required redesign is not “more card CRUD.” It is a planner-owned control plane with explicit dispatch handles, wait/observe tools, and durable parent frame resumption. Cards stay as durable state, but strategic completion must come from planner and reviewer decisions backed by structured child evidence, never from an empty ready queue or a `done` result that skipped newly created work.
-
-## Current-source reconciliation anchors
-
-This page remains historical provenance, not current operator instruction. Current planner tool exposure and processing are implemented in `src/agents/agent-adapter.ts:56` and `src/agents/agent-adapter.ts:233`; durable planner frame and dispatch schemas are defined in `src/schemas/validators.ts:46`; current runtime scheduling and dispatch behavior is implemented in `src/utils/runtime.ts:1`.
+This contract intentionally excludes legacy start rituals: no analyst chat start tool, no project directive file wakeup, no status-derived dispatch scan, and no `confirmed`/`preview_hash` mutation gate for planner/card/runtime control.

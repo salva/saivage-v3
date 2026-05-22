@@ -178,7 +178,13 @@ export function initRuntimeState(projectRoot: string): RuntimeState {
 
 export function saveRuntimeState(projectRoot: string, state: RuntimeState): RuntimeState {
   assertNoMixedRuntimeStateLayout(projectRoot);
-  const parsed = runtimeStateSchema.safeParse(state);
+  const parsed = runtimeStateSchema.safeParse({
+    ...(state as unknown as Record<string, unknown>),
+    runtime_intent: state.runtime_intent ?? { status: 'stopped', updated_at: typeof state.updated_at === 'string' ? state.updated_at : new Date().toISOString(), source_command_id: null, reason: 'bounded save-time ledger default for legacy-shaped runtime state writer' },
+    runtime_commands: Array.isArray(state.runtime_commands) ? state.runtime_commands : [],
+    runtime_runs: Array.isArray(state.runtime_runs) ? state.runtime_runs : [],
+    runtime_activations: Array.isArray(state.runtime_activations) ? state.runtime_activations : [],
+  });
   if (!parsed.success) {
     explainLegacyStateRejection(projectRoot, 'RuntimeState', parsed.error.message);
   }
