@@ -182,7 +182,7 @@ Blocking behavior:
 
 ### Goal Context and terminal status mirroring
 
-Planner prompts and resume turns receive the canonical recursive Goal Context from `src/utils/runtime.ts` (`buildGoalContextPayload` / `buildGoalContextBlock` / `appendPlannerResumeContext`). Terminal executor results are mirrored onto cards by `executeReadyCards`, and accepted planner goal reports are mirrored by `src/utils/planner-tools.ts`; focused guards live in `tests/utils/runtime-restart-orphan-repair.test.ts`, `tests/utils/runtime-integration.test.ts`, and `tests/utils/planner-tools.test.ts`.
+Planner prompts and resume turns receive the canonical recursive Goal Context from `src/utils/runtime.ts` (`buildGoalContextPayload` / `buildGoalContextBlock` / `appendPlannerResumeContext`). Terminal executor results are mirrored onto cards by the activation-ledger dispatcher in `src/runtime/runtime.ts` (`dispatchPendingActivations`), and accepted planner goal reports are mirrored by `src/utils/planner-tools.ts`; focused guards live in `tests/utils/runtime-restart-orphan-repair.test.ts`, `tests/utils/runtime-integration.test.ts`, and `tests/utils/planner-tools.test.ts`.
 
 ---
 

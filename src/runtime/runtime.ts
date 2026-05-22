@@ -101,7 +101,7 @@ export class Runtime extends EventEmitter {
     // EventEmitter promotes emit('error', ...) without a listener into a thrown
     // exception that escapes the local catch block. Several internal call sites
     // emit 'error' for diagnostics (e.g. artifact_registration failures inside
-    // executeReadyCards) and rely on continuing past it; without this guard the
+    // dispatchPendingActivations) and rely on continuing past it; without this guard the
     // dispatch pipeline aborts mid-flight and leaves active_card_run stale.
     this.on('error', () => { /* diagnostic-only; logging handled at call sites */ });
     this.projectRoot = config.projectRoot; this.cardStore = new CardStore(config.projectRoot, config.maxGoalDepth); this.agentRuntime = agentRuntime ?? new FakeAgentAdapter({ ...config.fakeAgentConfig, saivageDir: join(config.projectRoot, '.saivage') }); if (typeof (this.agentRuntime as { setSaivageDir?: (saivageDir: string) => void }).setSaivageDir === 'function') (this.agentRuntime as unknown as { setSaivageDir: (saivageDir: string) => void }).setSaivageDir(join(config.projectRoot, '.saivage')); this.notificationCenter = new NotificationCenter(config.projectRoot); this._skillsEngine = config.skillsEngine ?? new SkillsEngine({ projectRoot: config.projectRoot }); this.eventBus = new EventBus(); this._continuousImprovementReserved = config.continuousImprovement ?? false; this._autoDispatchBacklog = config.autoDispatchBacklog ?? false;
@@ -563,7 +563,7 @@ export class Runtime extends EventEmitter {
       } catch (err) { const errorMessage = err instanceof Error ? err.message : String(err); this.emit('error', { goalId, phase: 'planner', error: err }); this._eventLogger.appendEvent({ kind: 'error', goal_id: goalId, phase: 'planner', error_message: errorMessage }); this._errorLogger.appendError({ message: errorMessage, goalId, phase: 'planner' }); break; }
       this.applyPlannerResult(goalId, plannerResult);
       updateRuntimeState(this.projectRoot, { current_agent_session_id: `planner:${goalId}`, queue: [] } as Partial<RuntimeState> as never);
-      const execution = await this.executeReadyCards(goalId);
+      const execution = await this.dispatchPendingActivations(goalId);
       if (execution.failed) plannerDone = false;
       if (this._shuttingDown) break;
       if (this._paused) { this.emit('dispatch_blocked', { reason: 'paused', goalId }); this._eventLogger.appendEvent({ kind: 'dispatch_blocked', reason: 'paused', goal_id: goalId }); return; }
@@ -618,7 +618,7 @@ export class Runtime extends EventEmitter {
       .filter((card): card is CardRecord => Boolean(card));
   }
 
-  private async executeReadyCards(goalId: string): Promise<{ dispatchedGoal: boolean; executedTerminal: boolean; failed: boolean }> {
+  private async dispatchPendingActivations(goalId: string): Promise<{ dispatchedGoal: boolean; executedTerminal: boolean; failed: boolean }> {
     let activationCards = this.getPendingActivationCards(goalId); const goalCard = this.cardStore.read(goalId); let dispatchedGoal = false; let executedTerminal = false; let failed = false;
     while (activationCards.length > 0 && !this._shuttingDown) {
       if (this._paused) return { dispatchedGoal, executedTerminal, failed };

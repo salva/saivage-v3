@@ -694,7 +694,7 @@ On `pass`, the runtime stores `result.review`, marks the goal `done`,
 clears retry counters, updates `latest_self_report` and `status_text`
 from the accepted `report_goal_done` call, and returns `done` from
 the activation. Executor terminal mirroring is implemented in
-`src/utils/runtime.ts` (`executeReadyCards`) and planner report mirroring
+`src/runtime/runtime.ts` (`dispatchPendingActivations`) and planner report mirroring
 in `src/utils/planner-tools.ts` (`reportGoal`/`acceptReport`); destructive
 restart/cancel/delete preservation is guarded by
 `tests/utils/planner-tools.test.ts`.
