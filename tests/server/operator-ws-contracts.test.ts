@@ -16,6 +16,7 @@ import {
   validateKnownWsEnvelope,
   wsContractFixtures,
 } from '../../src/contracts/operator-events.js';
+import { createRuntimeEnvelope } from '../../src/server/websocket.js';
 
 describe('operator websocket shared contract registry', () => {
   it('parses base-valid unknown envelopes without treating them as known', () => {
@@ -107,6 +108,17 @@ describe('operator websocket shared contract registry', () => {
     expect(parseKnownWsEnvelope({ type: 'status', content: { event: 'runtime.run', run } })?.content.event).toBe('runtime.run');
     expect(parseKnownWsEnvelope({ type: 'status', content: { event: 'card.planner_state_changed', card: { id: 'goal-1', planner_state: 'active' } } })?.content.event).toBe('card.planner_state_changed');
     expect(parseKnownWsEnvelope({ type: 'activity', content: { event: 'runtime.queue', queue: ['goal-1'] } })).toBeNull();
+  });
+
+
+  it('maps logged runtime ledger events to validated websocket envelopes', () => {
+    const command = { command_id: 'cmd-1', command: 'start_project' as const, status: 'completed' as const, requested_at: '2026-01-01T00:00:00.000Z', completed_at: '2026-01-01T00:00:01.000Z', source: 'operator' as const, error: null };
+    const run = { run_id: 'run-1', kind: 'root' as const, card_id: 'project', command_id: 'cmd-1', parent_run_id: null, activation_id: null, phase: 'planner' as const, runtime_status: 'running' as const, session_id: null, started_at: '2026-01-01T00:00:01.000Z', updated_at: '2026-01-01T00:00:01.000Z', finished_at: null, result: null };
+    const activation = { activation_id: 'act-1', idempotency_key: 'key-1', parent_card_id: 'goal-a', parent_run_id: 'run-parent', parent_session_id: 'planner:goal-a', parent_tool_call_id: 'call-a', child_card_id: 'code-a', status: 'pending' as const, requested_at: '2026-01-01T00:00:02.000Z', updated_at: '2026-01-01T00:00:02.000Z', precondition: 'accepted' as const, runtime_run_id: 'run-child', error: null };
+
+    expect(parseKnownWsEnvelope(createRuntimeEnvelope('runtime_command', { command }))?.content).toEqual({ event: 'runtime.command', command });
+    expect(parseKnownWsEnvelope(createRuntimeEnvelope('runtime_run', { run }))?.content).toEqual({ event: 'runtime.run', run });
+    expect(parseKnownWsEnvelope(createRuntimeEnvelope('runtime_activation', { activation }))?.content).toEqual({ event: 'runtime.activation', activation });
   });
 
   it('aligns runtime fanout names with the ARCH-006 event catalog', () => {

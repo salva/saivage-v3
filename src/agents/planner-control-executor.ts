@@ -3,6 +3,9 @@ import { consumeChangedCardActivation } from '../utils/analyst-stage6.js';
 import { PlannerToolError, PlannerToolsService, type PlannerToolsServiceOptions } from '../utils/planner-tools.js';
 import { createActionableErrorEnvelope, createDeferredActivationEnvelope } from '../schemas/validators.js';
 import { appendRuntimeRun, readRuntimeState, upsertRuntimeActivation } from '../runtime/state.js';
+import type { EventEmitter } from 'node:events';
+import type { LoggedEvent } from '../schemas/types.js';
+import type { EventLogger } from '../utils/event-logger.js';
 export interface AgentToolMessage { role: 'tool'; kind: 'tool_result' | 'tool_error'; content: string; tool: string; tool_call_id: string; }
 
 export interface PlannerControlExecutionContext {
@@ -13,6 +16,10 @@ export interface PlannerControlExecutionContext {
   reviewer?: PlannerToolsServiceOptions['reviewer'];
   maxReviewRetries?: number;
   assessmentIdFactory?: PlannerToolsServiceOptions['assessmentIdFactory'];
+  eventBus?: { emit(event: LoggedEvent): void };
+  runtimeEventEmitter?: EventEmitter;
+  runtimeEventEmitterProvider?: () => EventEmitter | undefined;
+  eventLogger?: EventLogger;
 }
 
 export interface PlannerControlInvocation {
@@ -114,7 +121,13 @@ export class PlannerControlExecutor {
             break;
           }
           const run = appendRuntimeRun(this.context.projectRoot, { kind: 'child', card_id: targetId, parent_run_id: parentRun.run_id, command_id: null, activation_id: null, phase: 'pending', runtime_status: 'running', session_id: null, result: null });
+          const runEvent = this.context.eventLogger?.appendEvent({ kind: 'runtime_run', run });
+          if (runEvent) this.context.eventBus?.emit(runEvent);
+          (this.context.runtimeEventEmitterProvider?.() ?? this.context.runtimeEventEmitter)?.emit('runtime_run', { run });
           const activation = upsertRuntimeActivation(this.context.projectRoot, { idempotency_key: idempotencyKey, parent_card_id: parentCardId, parent_run_id: parentRun.run_id, parent_session_id: sessionId || parentRun.session_id || `planner:${parentCardId}`, parent_tool_call_id: invocation.toolCallId, child_card_id: targetId, status: 'pending', precondition: 'accepted', runtime_run_id: run.run_id, error: null });
+          const activationEvent = this.context.eventLogger?.appendEvent({ kind: 'runtime_activation', activation });
+          if (activationEvent) this.context.eventBus?.emit(activationEvent);
+          (this.context.runtimeEventEmitterProvider?.() ?? this.context.runtimeEventEmitter)?.emit('runtime_activation', { activation });
           consumeChangedCardActivation(this.context.projectRoot, targetId);
           result = { success: true, activation, deferred: createDeferredActivationEnvelope({ parent_card_id: parentCardId, child_card_id: targetId, planner_session_id: sessionId || activation.parent_session_id, tool_call_id: invocation.toolCallId, requested_at: activation.requested_at }) };
           break;

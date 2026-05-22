@@ -63,6 +63,34 @@ describe('runtime command ledger target contract (Wave 1)', () => {
     } finally { rmSync(projectRoot, { recursive: true, force: true }); }
   });
 
+
+  it('start_project and stop_project publish runtime ledger events matching persisted records', async () => {
+    const projectRoot = root();
+    try {
+      const runtime = new Runtime({ projectRoot, fakeAgentConfig: { mapping: {}, fixtureDir: '' }, autoDispatchBacklog: false });
+      runtime.dispatchGoal = (async () => { await new Promise<void>((resolve) => setImmediate(resolve)); }) as Runtime['dispatchGoal'];
+      const events: Array<{ kind: string; command?: unknown; run?: unknown }> = [];
+      const sub = runtime.eventBus.subscribe({ handler: (event) => { if (event.kind === 'runtime_command' || event.kind === 'runtime_run') events.push(event); } });
+
+      const start = await runtime.startProject('operator');
+      if (!start.success) throw new Error(`startProject failed: ${start.error.message}`);
+      expect(start.success).toBe(true);
+      const stop = await runtime.stopProject('operator');
+      sub.unsubscribe();
+
+      const state = readRuntimeState(projectRoot)!;
+      const persistedStartCommand = state.runtime_commands!.find((record) => record.command_id === start.command.command_id);
+      const persistedStopCommand = state.runtime_commands!.find((record) => record.command_id === stop.command.command_id);
+      const persistedRootRun = state.runtime_runs!.find((record) => record.run_id === start.run.run_id);
+      expect(events).toEqual(expect.arrayContaining([
+        expect.objectContaining({ kind: 'runtime_command', command: persistedStartCommand }),
+        expect.objectContaining({ kind: 'runtime_command', command: persistedStopCommand }),
+        expect.objectContaining({ kind: 'runtime_run', run: start.run }),
+        expect.objectContaining({ kind: 'runtime_run', run: persistedRootRun }),
+      ]));
+    } finally { rmSync(projectRoot, { recursive: true, force: true }); }
+  });
+
   it('shutdown preserves runtime intent, command, run, and activation ledgers after project start and child activation setup', async () => {
     const projectRoot = root();
     try {

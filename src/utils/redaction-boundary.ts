@@ -60,9 +60,14 @@ function rawDynamicText(value: unknown, seen = new WeakSet<object>()): string {
   }
 }
 
+function shouldRedactKey(key: string, context: RedactionContext): boolean {
+  if (context.sink === 'observability' && key === 'idempotency_key') return false;
+  return isSecretKey(key);
+}
+
 function redactObjectValue(value: unknown, context: RedactionContext, keyHint: string | undefined, depth: number, seen: WeakSet<object>): unknown {
   if (typeof value === 'string') {
-    return keyHint && isSecretKey(keyHint) ? SECRET_REDACTION_PLACEHOLDER : redactTextContent(value);
+    return keyHint && shouldRedactKey(keyHint, context) ? SECRET_REDACTION_PLACEHOLDER : redactTextContent(value);
   }
 
   if (value instanceof Error) {
@@ -93,7 +98,7 @@ function redactObjectValue(value: unknown, context: RedactionContext, keyHint: s
       output.__truncated__ = `${Object.keys(value as Record<string, unknown>).length - maxEntries} entries truncated`;
       break;
     }
-    output[key] = isSecretKey(key)
+    output[key] = shouldRedactKey(key, context)
       ? SECRET_REDACTION_PLACEHOLDER
       : redactObjectValue(entryValue, context, key, depth + 1, seen);
     count += 1;

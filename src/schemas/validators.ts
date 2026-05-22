@@ -159,6 +159,9 @@ export const errorEventSchema = passthroughBaseEventSchema.extend({ kind: z.lite
 export const projectRunCompletedEventSchema = passthroughBaseEventSchema.extend({ kind: z.literal('project_run_completed'), project_card_id: z.string(), result: z.enum(['done', 'failed', 'blocked']), summary: z.string(), failure_kind: z.string().optional(), blocked_reason: z.string().optional() });
 export const frozenEventSchema = passthroughBaseEventSchema.extend({ kind: z.literal('frozen'), freeze_id: z.string(), reason: z.string() });
 export const resumedFromFreezeEventSchema = passthroughBaseEventSchema.extend({ kind: z.literal('resumed_from_freeze'), freeze_id: z.string() });
+export const runtimeCommandEventSchema = passthroughBaseEventSchema.extend({ kind: z.literal('runtime_command'), command: runtimeCommandRecordSchema });
+export const runtimeRunEventSchema = passthroughBaseEventSchema.extend({ kind: z.literal('runtime_run'), run: runtimeRunRecordSchema });
+export const runtimeActivationEventSchema = passthroughBaseEventSchema.extend({ kind: z.literal('runtime_activation'), activation: runtimeActivationRecordSchema });
 export const stuckSupervisorStartedEventSchema = passthroughBaseEventSchema.extend({ kind: z.literal('stuck_supervisor_started'), interval_ms: z.number(), consecutive_threshold: z.number() });
 export const stuckSupervisorStoppedEventSchema = passthroughBaseEventSchema.extend({ kind: z.literal('stuck_supervisor_stopped'), checks_performed: z.number() });
 export const stuckVerdictEventSchema = passthroughBaseEventSchema.extend({ kind: z.literal('stuck_verdict'), verdict: z.boolean(), confidence: z.number(), reason: z.string(), evidence: z.array(z.string()), consecutive_count: z.number(), threshold: z.number() });
@@ -203,6 +206,9 @@ export const loggedEventSchemaByKind = {
   project_run_completed: projectRunCompletedEventSchema,
   frozen: frozenEventSchema,
   resumed_from_freeze: resumedFromFreezeEventSchema,
+  runtime_command: runtimeCommandEventSchema,
+  runtime_run: runtimeRunEventSchema,
+  runtime_activation: runtimeActivationEventSchema,
   session_started: sessionStartedEventSchema,
   model_selected: modelSelectedEventSchema,
   invocation_succeeded: invocationSucceededEventSchema,

@@ -197,6 +197,8 @@ export class AgentAdapter implements AgentRuntime {
       reviewer: async (goalId, assessmentId, reviewerSessionId, report) => (await this.invokeReviewer(goalId, buildReviewerPrompt(), [{ id: `review-report:${assessmentId}`, session_id: reviewerSessionId, role: 'user', kind: 'text', content: `The planner reports the following terminal outcome for goal '${goalId}'. Evaluate against the goal's acceptance criteria and respond with the canonical ReviewerResult JSON envelope.\n\n${JSON.stringify(report, null, 2)}`, timestamp: new Date().toISOString() }], { assessmentId, reviewerSessionId })).assessment,
       maxReviewRetries: this.runtimeConfig?.maxReviewRetries ?? 3,
       assessmentIdFactory: undefined,
+      runtimeEventEmitterProvider: () => this.eventBus,
+      eventLogger: this.eventLogger,
     });
   }
 

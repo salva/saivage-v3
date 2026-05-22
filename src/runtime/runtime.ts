@@ -18,6 +18,7 @@ import type {
   ActionableErrorEnvelope,
   RuntimeCommandRecord,
   RuntimeRunRecord,
+  RuntimeActivationRecord,
 } from '../schemas/types.js';
 import { createActivationCompletionEnvelope, parseActivationCompletionEnvelope } from '../schemas/validators.js';
 import { CardStore } from '../utils/card-store.js';
@@ -89,7 +90,7 @@ function now(): string { return new Date().toISOString(); }
 function saivageWorkDir(projectRoot: string): string { return join(projectRoot, '.saivage-work'); }
 function eventsLogPath(projectRoot: string): string { return join(projectRoot, '.saivage', 'runtime', 'events.jsonl'); }
 function resolveEvidenceSourcePath(projectRoot: string, filePath: string): string { if (!filePath) return filePath; return existsSync(filePath) ? filePath : resolve(projectRoot, filePath); }
-const TRACKED_EVENT_KIND_VALUES = ['started', 'shutdown', 'paused', 'resumed', 'goal_completed', 'goal_failed', 'escalation', 'card_failed', 'review_complete', 'review_failed', 'plan_updated', 'error', 'dispatch_blocked', 'dispatch_interrupted', 'dispatch_held_for_notification', 'session_started', 'model_selected', 'invocation_succeeded', 'invocation_failed', 'retry_attempted', 'compaction_triggered', 'self_check_triggered', 'stuck_supervisor_started', 'stuck_supervisor_stopped', 'stuck_verdict', 'abort_target_selected', 'force_cancel_sent', 'session_cancelled', 'session_force_cancelled', 'project_run_completed', 'frozen', 'resumed_from_freeze', 'process_reconciled_dead', 'process_reattach_rejected'] as const satisfies readonly (RuntimeEventKind | AgentEventKind)[];
+const TRACKED_EVENT_KIND_VALUES = ['started', 'shutdown', 'paused', 'resumed', 'goal_completed', 'goal_failed', 'escalation', 'card_failed', 'review_complete', 'review_failed', 'plan_updated', 'error', 'dispatch_blocked', 'dispatch_interrupted', 'dispatch_held_for_notification', 'session_started', 'model_selected', 'invocation_succeeded', 'invocation_failed', 'retry_attempted', 'compaction_triggered', 'self_check_triggered', 'stuck_supervisor_started', 'stuck_supervisor_stopped', 'stuck_verdict', 'abort_target_selected', 'force_cancel_sent', 'session_cancelled', 'session_force_cancelled', 'project_run_completed', 'runtime_command', 'runtime_run', 'runtime_activation', 'frozen', 'resumed_from_freeze', 'process_reconciled_dead', 'process_reattach_rejected'] as const satisfies readonly (RuntimeEventKind | AgentEventKind)[];
 const TRACKED_EVENT_KINDS: ReadonlySet<EventKind> = new Set(TRACKED_EVENT_KIND_VALUES);
 
 export class Runtime extends EventEmitter {
@@ -483,25 +484,40 @@ export class Runtime extends EventEmitter {
     return { code, message, currentState, nextAction, docsRef: 'docs/operator-runbook.md' };
   }
 
+  private publishRuntimeLedgerEvent(kind: 'runtime_command', payload: { command: RuntimeCommandRecord }): void;
+  private publishRuntimeLedgerEvent(kind: 'runtime_run', payload: { run: RuntimeRunRecord }): void;
+  private publishRuntimeLedgerEvent(kind: 'runtime_activation', payload: { activation: RuntimeActivationRecord }): void;
+  private publishRuntimeLedgerEvent(kind: 'runtime_command' | 'runtime_run' | 'runtime_activation', payload: Record<string, unknown>): void {
+    const logged = this._eventLogger.appendEvent({ kind, ...payload });
+    this.eventBus.emit(logged);
+    super.emit(kind, payload);
+  }
+
   async startProject(source: 'operator' | 'tool' | 'runtime' = 'operator'): Promise<{ success: true; command: RuntimeCommandRecord; intent: RuntimeState['runtime_intent']; run: RuntimeRunRecord } | { success: false; command: RuntimeCommandRecord; error: ActionableErrorEnvelope }> {
     const command = appendRuntimeCommand(this.projectRoot, 'start_project', source);
     const state = readRuntimeState(this.projectRoot) ?? initRuntimeState(this.projectRoot);
     if (this._paused || state.paused || (state.runtime_intent?.status ?? 'stopped') === 'running') {
       const error = this.makeRuntimePreconditionError('runtime_start_precondition_failed', 'Project runtime is already running or paused.', 'Use stop_project to stop current intent, or resume/unpause before starting again.', { intent: (state.runtime_intent?.status ?? 'stopped'), paused: state.paused, activeRunId: (state.runtime_runs ?? []).find((run) => run.kind === 'root' && !run.finished_at)?.run_id ?? null });
-      saveRuntimeState(this.projectRoot, { ...state, runtime_commands: (state.runtime_commands ?? []).map((item) => item.command_id === command.command_id ? { ...command, status: 'rejected', completed_at: now(), error } : item), updated_at: now() });
-      return { success: false, command: { ...command, status: 'rejected', completed_at: now(), error }, error };
+      const rejectedAt = now();
+      const rejectedCommand = { ...command, status: 'rejected' as const, completed_at: rejectedAt, error };
+      saveRuntimeState(this.projectRoot, { ...state, runtime_commands: (state.runtime_commands ?? []).map((item) => item.command_id === command.command_id ? rejectedCommand : item), updated_at: rejectedAt });
+      this.publishRuntimeLedgerEvent('runtime_command', { command: rejectedCommand });
+      return { success: false, command: rejectedCommand, error };
     }
     upsertRuntimeIntent(this.projectRoot, 'running', command.command_id, 'explicit start_project command');
     const run = appendRuntimeRun(this.projectRoot, { kind: 'root', card_id: 'project', parent_run_id: null, command_id: command.command_id, activation_id: null, phase: 'planner', runtime_status: 'running', session_id: null, result: null });
+    this.publishRuntimeLedgerEvent('runtime_run', { run });
     if (!this._paused) {
       void this.dispatchGoal('project')
-        .then(() => { updateRuntimeRun(this.projectRoot, run.run_id, { phase: 'completed', runtime_status: 'idle', finished_at: now(), result: 'done' }); })
-        .catch(() => { updateRuntimeRun(this.projectRoot, run.run_id, { phase: 'failed', runtime_status: 'error', finished_at: now(), result: 'failed' }); });
+        .then(() => { const updated = updateRuntimeRun(this.projectRoot, run.run_id, { phase: 'completed', runtime_status: 'idle', finished_at: now(), result: 'done' }); if (updated) this.publishRuntimeLedgerEvent('runtime_run', { run: updated }); })
+        .catch(() => { const updated = updateRuntimeRun(this.projectRoot, run.run_id, { phase: 'failed', runtime_status: 'error', finished_at: now(), result: 'failed' }); if (updated) this.publishRuntimeLedgerEvent('runtime_run', { run: updated }); });
     }
     const current = readRuntimeState(this.projectRoot) ?? state;
     const completedAt = now();
-    saveRuntimeState(this.projectRoot, { ...current, runtime_commands: (current.runtime_commands ?? []).map((item) => item.command_id === command.command_id ? { ...item, status: 'completed', completed_at: completedAt } : item), updated_at: completedAt });
-    return { success: true, command: { ...command, status: 'completed', completed_at: completedAt }, intent: (readRuntimeState(this.projectRoot) ?? current).runtime_intent, run: ((readRuntimeState(this.projectRoot) ?? current).runtime_runs ?? []).find((item) => item.run_id === run.run_id) ?? run };
+    const completedCommand = { ...command, status: 'completed' as const, completed_at: completedAt };
+    saveRuntimeState(this.projectRoot, { ...current, runtime_commands: (current.runtime_commands ?? []).map((item) => item.command_id === command.command_id ? completedCommand : item), updated_at: completedAt });
+    this.publishRuntimeLedgerEvent('runtime_command', { command: completedCommand });
+    return { success: true, command: completedCommand, intent: (readRuntimeState(this.projectRoot) ?? current).runtime_intent, run: ((readRuntimeState(this.projectRoot) ?? current).runtime_runs ?? []).find((item) => item.run_id === run.run_id) ?? run };
   }
 
   async stopProject(source: 'operator' | 'tool' | 'runtime' = 'operator'): Promise<{ success: true; command: RuntimeCommandRecord; intent: RuntimeState['runtime_intent']; run?: RuntimeRunRecord }> {
@@ -509,14 +525,16 @@ export class Runtime extends EventEmitter {
     const state = upsertRuntimeIntent(this.projectRoot, 'stopped', command.command_id, 'explicit stop_project command');
     const openRuns = (state.runtime_runs ?? []).filter((run) => run.kind === 'root' && !run.finished_at);
     const stoppedRunIds = openRuns.map((run) => run.run_id);
-    for (const run of openRuns) updateRuntimeRun(this.projectRoot, run.run_id, { phase: 'stopped', runtime_status: 'stopped', finished_at: now(), result: 'stopped' });
+    for (const run of openRuns) { const updated = updateRuntimeRun(this.projectRoot, run.run_id, { phase: 'stopped', runtime_status: 'stopped', finished_at: now(), result: 'stopped' }); if (updated) this.publishRuntimeLedgerEvent('runtime_run', { run: updated }); }
     const current = readRuntimeState(this.projectRoot) ?? state;
     const completedAt = now();
-    saveRuntimeState(this.projectRoot, { ...current, runtime_commands: (current.runtime_commands ?? []).map((item) => item.command_id === command.command_id ? { ...item, status: 'completed', completed_at: completedAt } : item), status: 'idle', active_card_run: null, current_card_id: null, current_agent_session_id: null, updated_at: completedAt });
+    const completedCommand = { ...command, status: 'completed' as const, completed_at: completedAt };
+    saveRuntimeState(this.projectRoot, { ...current, runtime_commands: (current.runtime_commands ?? []).map((item) => item.command_id === command.command_id ? completedCommand : item), status: 'idle', active_card_run: null, current_card_id: null, current_agent_session_id: null, updated_at: completedAt });
+    this.publishRuntimeLedgerEvent('runtime_command', { command: completedCommand });
     this._status = 'idle';
     const persisted = readRuntimeState(this.projectRoot) ?? current;
     const stoppedRun = stoppedRunIds.length > 0 ? (persisted.runtime_runs ?? []).find((item) => item.run_id === stoppedRunIds[0]) : undefined;
-    return { success: true, command: { ...command, status: 'completed', completed_at: completedAt }, intent: persisted.runtime_intent, ...(stoppedRun ? { run: stoppedRun } : {}) };
+    return { success: true, command: completedCommand, intent: persisted.runtime_intent, ...(stoppedRun ? { run: stoppedRun } : {}) };
   }
 
   async start_project(): Promise<Awaited<ReturnType<Runtime['startProject']>>> { return this.startProject('operator'); }
