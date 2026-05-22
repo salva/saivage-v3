@@ -6,7 +6,9 @@ import { fileURLToPath } from 'node:url';
 const DEFAULT_DOCUMENTED_COMMAND_FILES = [
   'README.md',
   'docs/runbook/release.md',
+  'docs/runbook/incidents.md',
   'docs/runbook/index.md',
+  'docs/operation.md',
 ];
 
 const DEFAULT_WORKFLOW_DIRS = ['.github/workflows'];
@@ -138,7 +140,7 @@ function bashFenceCommands(markdown) {
 
 function inlineNpmRunCommands(markdown) {
   const commands = [];
-  const inlinePattern = /`(npm\s+(?:run\s+)?(?:validate:[^`\s]+|web:test:operator-smoke|docs:verify|typecheck|build|test)(?:\s+[^`]*)?)`/g;
+  const inlinePattern = /`(npm\s+(?:run\s+)?(?:validate:[^`\s]+|web:test(?::[^`\s]+)?|test:web(?::[^`\s]+)?|docs:verify|typecheck|build|test)(?:\s+[^`]*)?)`/g;
   let match;
   while ((match = inlinePattern.exec(markdown)) !== null) {
     commands.push(normalizeCommandLine(match[1]));
@@ -665,6 +667,47 @@ function validateValidationProfiles({ scripts, documentedCommands, markdownByFil
 }
 
 
+function expectedWebTestAliasTarget(scriptName) {
+  if (scriptName === 'test:web') {
+    return 'web:test';
+  }
+  if (scriptName.startsWith('test:web:')) {
+    return `web:test:${scriptName.slice('test:web:'.length)}`;
+  }
+  return null;
+}
+
+function validateDocumentedWebTestAliases({ scripts, documentedCommands }) {
+  const failures = [];
+  const checked = [];
+
+  for (const location of documentedCommands) {
+    const command = location.replace(/^.*?:\s*/, '');
+    const scriptName = npmRunScriptName(command);
+    const canonical = scriptName ? expectedWebTestAliasTarget(scriptName) : null;
+    if (!scriptName || !canonical) {
+      continue;
+    }
+
+    checked.push(`package.json alias ${scriptName} -> ${canonical}`);
+    if (!scripts[canonical]) {
+      failures.push(`${location} documents npm run ${scriptName}, but canonical package.json script "${canonical}" is missing`);
+      continue;
+    }
+    const aliasCommand = scripts[scriptName];
+    const expected = `npm run ${canonical}`;
+    if (!aliasCommand) {
+      failures.push(`${location} documents npm run ${scriptName}, but package.json has no "${scriptName}" alias to "${canonical}"`);
+      continue;
+    }
+    if (aliasCommand.trim() !== expected) {
+      failures.push(`package.json alias "${scriptName}" must be exactly "${expected}", but is currently: ${aliasCommand}`);
+    }
+  }
+
+  return { checked, failures };
+}
+
 function validateRuntimeEngines({ root, workflowFiles = DEFAULT_WORKFLOW_DIRS.flatMap(() => []), markdownByFile }) {
   const failures = [];
   const checked = [];
@@ -757,10 +800,14 @@ export function verifyValidationCadence(options = {}) {
     documentedCommands: documented.checked,
     markdownByFile: documented.markdownByFile,
   });
+  const webTestAliases = validateDocumentedWebTestAliases({
+    scripts,
+    documentedCommands: documented.checked,
+  });
   const runtimeEngines = validateRuntimeEngines({ root, workflowFiles: workflow.workflowFilesChecked, markdownByFile: documented.markdownByFile });
   const docsVerify = validateDocsVerifySubguards({ root, scripts });
   const failClosedJest = validateFailClosedJestGates({ scripts, workflowCommands: workflow.checked });
-  const failures = [...documented.failures, ...workflow.failures, ...dependencyHygieneWorkflow.failures, ...requiredScripts.failures, ...profiles.failures, ...runtimeEngines.failures, ...docsVerify.failures, ...failClosedJest.failures];
+  const failures = [...documented.failures, ...workflow.failures, ...dependencyHygieneWorkflow.failures, ...requiredScripts.failures, ...profiles.failures, ...webTestAliases.failures, ...runtimeEngines.failures, ...docsVerify.failures, ...failClosedJest.failures];
   return {
     ok: failures.length === 0,
     failures,
@@ -770,6 +817,7 @@ export function verifyValidationCadence(options = {}) {
     workflowFilesChecked: workflow.workflowFilesChecked,
     requiredValidationScriptsChecked: requiredScripts.checked,
     validationProfilesChecked: profiles.checked,
+    webTestAliasEntriesChecked: webTestAliases.checked,
     runtimeEngineEntriesChecked: runtimeEngines.checked,
     docsVerifyEntriesChecked: docsVerify.checked,
     failClosedJestGateEntriesChecked: failClosedJest.checked,
@@ -786,7 +834,7 @@ function main() {
     process.exit(1);
   }
   console.log(
-    `✓ validation cadence check passed — ${result.documentedCommandsChecked.length} documented validation command(s), ${result.workflowCommandsChecked.length} workflow command(s), ${result.requiredValidationScriptsChecked.length} required validation script(s), ${result.validationProfilesChecked.length} validation profile(s), ${result.runtimeEngineEntriesChecked.length} runtime engine alignment item(s), ${result.docsVerifyEntriesChecked.length} docs:verify sub-guard entry point(s), and ${result.failClosedJestGateEntriesChecked.length} fail-closed Jest gate item(s) resolve`,
+    `✓ validation cadence check passed — ${result.documentedCommandsChecked.length} documented validation command(s), ${result.workflowCommandsChecked.length} workflow command(s), ${result.requiredValidationScriptsChecked.length} required validation script(s), ${result.validationProfilesChecked.length} validation profile(s), ${result.webTestAliasEntriesChecked.length} web-test alias item(s), ${result.runtimeEngineEntriesChecked.length} runtime engine alignment item(s), ${result.docsVerifyEntriesChecked.length} docs:verify sub-guard entry point(s), and ${result.failClosedJestGateEntriesChecked.length} fail-closed Jest gate item(s) resolve`,
   );
 }
 

@@ -26,7 +26,7 @@ This starts the Fastify server, public docs/SPA serving, auth-protected API rout
 SAIVAGE_API_TOKEN=your-token node dist/src/server/server.js --create-runtime
 ```
 
-With runtime creation enabled, Saivage initializes `ActiveRuntime`, reads or creates runtime state, performs runtime startup behavior, and can dispatch backlog work.
+With runtime creation enabled, Saivage initializes `ActiveRuntime`, reads or creates runtime state, repairs restart-visible runtime ledgers, and then runs only work authorized by explicit runtime intent or parent-planner activation records. Runtime creation does not scan status buckets or backlog queues to discover new work.
 
 ## Public vs protected surfaces
 
@@ -282,6 +282,8 @@ npm run web:test:control-room
 npm run web:test:stores
 npm run web:test:sweep
 ```
+
+The canonical web test namespace is `web:test*`. Ergonomic `test:web` and `test:web:*` aliases are accepted only when they delegate to the matching canonical `web:test*` package script; docs verification fails if a documented alias is missing or drifts from that target.
 
 ### Core project checks
 

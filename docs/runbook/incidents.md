@@ -149,12 +149,20 @@ Correlate failed sessions in Agents with runtime events and process views. Provi
 
 ## Validation-command confusion
 
-Root `npm test` runs backend Jest under `tests/`. Web UI suites run under Vitest from `web/` or via root wrappers.
+Root `npm test` runs backend Jest under `tests/`. Web UI suites run under Vitest from `web/` or via root wrappers. The canonical root wrapper namespace is `web:test*`; ergonomic `test:web` and `test:web:*` aliases are accepted only when they delegate to the matching canonical `web:test*` package script.
 
 Preferred analyst UI validation wrapper:
 
 ```bash
 npm run web:test:analyst-ui
+npm run test:web:analyst-ui
+```
+
+Operator smoke wrappers:
+
+```bash
+npm run web:test:operator-smoke
+npm run test:web:operator-smoke
 ```
 
 Core validation commands:

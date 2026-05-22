@@ -32,7 +32,7 @@ Use Node.js 22 with the npm range declared in package engines (`node >=22.12.0 <
 | UI/operator surface | `npm run validate:ui` | `npm run web:typecheck`, `npm run web:test:sweep`, `npm run web:test:operator-smoke`; add focused Vitest/Playwright for the changed component or flow | For dashboard-only smoke confirmation, `npm run validate:ui-smoke` is the lightweight profile that wraps `npm run web:test:operator-smoke`. |
 | Release sign-off | `npm run validate:release` | `npm run typecheck`, `npm run build`, `npm test`, `npm run web:test:operator-smoke`, `npm run docs:verify` | This is the heavy composition profile for release candidates; run it after focused suites are already green. |
 
-The validation-cadence guard checks that every documented `npm run validate:*` profile exists and that the profile composition continues to include the commands listed above, or documents intentional exclusions such as the lightweight docs-only profile.
+The validation-cadence guard checks that every documented `npm run validate:*` profile exists and that the profile composition continues to include the commands listed above, or documents intentional exclusions such as the lightweight docs-only profile. It also validates documented `npm run web:test*` and `npm run test:web*` commands against package scripts, and requires each documented `test:web*` alias to delegate exactly to the corresponding canonical `web:test*` script.
 
 ## CI workflow guard
 
@@ -78,15 +78,20 @@ npm run test:direct
 npm run web:typecheck
 npm run web:test:sweep
 npm run web:test:operator-smoke
+npm run test:web:sweep
+npm run test:web:operator-smoke
 ```
 
 Run `npm run web:test:operator-smoke` after changes to the Dashboard/AppShell operator surface and as part of release sign-off. It executes `web/src/__tests__/operator-dashboard-smoke.test.ts`, covering the synthetic control-room path for pause/resume, 401 token recovery, analyst session picking, read-only transcripts, card detail evidence/result rendering, file preview, debug timeline/errors, and notifications. It is not part of `npm test` (server/Jest only) or `npm run docs:verify`; the validation-cadence guard only checks that this command stays present and documented.
 
-For analyst control-room coverage:
+For analyst control-room coverage, prefer the canonical command and use the alias only when it helps avoid namespace confusion:
 
 ```bash
 npm run web:test:analyst-ui
+npm run test:web:analyst-ui
 ```
+
+The canonical web test namespace remains `web:test*`; `test:web*` aliases must call the matching canonical script rather than duplicating Vitest commands.
 
 ## Security and containment checks
 

@@ -32,8 +32,14 @@ const PACKAGE_SCRIPTS = {
   'deps:freshness': 'node scripts/check-dependency-freshness.js',
   'deps:review': 'npm run audit:security:all && npm run deps:freshness',
   'web:typecheck': 'cd web && npm run typecheck',
+  'web:test': 'cd web && npm run test',
+  'test:web': 'npm run web:test',
   'web:test:sweep': 'npm run web:test:control-room && npm run web:test:stores',
+  'test:web:sweep': 'npm run web:test:sweep',
   'web:test:operator-smoke': 'cd web && npx vitest run src/__tests__/operator-dashboard-smoke.test.ts',
+  'test:web:operator-smoke': 'npm run web:test:operator-smoke',
+  'web:test:analyst-ui': 'cd web && npx vitest run src/__tests__/analyst-chat-panel.test.ts',
+  'test:web:analyst-ui': 'npm run web:test:analyst-ui',
   'validate:docs': 'npm run docs:verify',
   'validate:routine': 'npm run typecheck && npm run docs:verify',
   'validate:ui-smoke': 'npm run web:test:operator-smoke',
@@ -208,7 +214,8 @@ function validFiles(overrides = {}) {
     'README.md': 'Use Node.js 22 with `node >=22.12.0 <23` and `npm >=10 <12`, matching package.json engines and GitHub Actions CI.\n```bash\nnpm run docs:verify\nnpm run typecheck\nnpm run build\nnpm test\nnpm run web:test:operator-smoke\n```\n' + VALID_PROFILE_DOCS,
     'web/package.json': WEB_PACKAGE_JSON,
     'docs/runbook/operations.md': 'Run Saivage with Node.js 22; package.json engines require `node >=22.12.0 <23` and `npm >=10 <12`, matching CI.\n',
-    'docs/runbook/release.md': 'Release uses Node.js 22 with package engines `node >=22.12.0 <23` and `npm >=10 <12`, matching CI.\n```bash\nnpm run docs:build\n```\n' + VALID_PROFILE_DOCS,
+    'docs/runbook/release.md': 'Release uses Node.js 22 with package engines `node >=22.12.0 <23` and `npm >=10 <12`, matching CI.\n```bash\nnpm run docs:build\nnpm run web:test:sweep\nnpm run test:web:sweep\n```\n' + VALID_PROFILE_DOCS,
+    'docs/runbook/incidents.md': 'Validation-command confusion: canonical `npm run web:test:analyst-ui` and alias `npm run test:web:analyst-ui`; smoke uses `npm run web:test:operator-smoke` or `npm run test:web:operator-smoke`.\n',
     'docs/runbook/index.md': 'No extra validation commands here.\n',
     '.github/workflows/validation.yml': VALID_WORKFLOW,
     'scripts/docs-verify.sh': VALID_DOCS_VERIFY,
@@ -233,6 +240,8 @@ describe('validation cadence guard', () => {
       expect(result.workflowCommandsChecked).toContainEqual(expect.stringContaining('npm run validate:routine'));
       expect(result.workflowCommandsChecked).toContainEqual(expect.stringContaining('npm run audit:security'));
       expect(result.validationProfilesChecked).toContain('package.json profile validate:release');
+      expect(result.webTestAliasEntriesChecked).toContain('package.json alias test:web:sweep -> web:test:sweep');
+      expect(result.webTestAliasEntriesChecked).toContain('package.json alias test:web:operator-smoke -> web:test:operator-smoke');
       expect(result.runtimeEngineEntriesChecked).toContain('package.json engines');
       expect(result.runtimeEngineEntriesChecked).toContain('web/package.json engines');
       expect(result.docsVerifyEntriesChecked).toContain('scripts/docs-verify.sh:4 node-script scripts/check-existing.js');
@@ -281,6 +290,28 @@ describe('validation cadence guard', () => {
       const result = verifyValidationCadence({ root });
       expect(result.ok).toBe(false);
       expect(result.failures).toContain('README.md: npm run docs:stale documents npm run docs:stale, but package.json has no "docs:stale" script');
+    });
+  });
+
+  it('fails clearly when a documented test:web alias is missing', () => {
+    const { 'test:web:analyst-ui': _alias, ...scripts } = PACKAGE_SCRIPTS;
+    withFixture(validFiles({ 'package.json': JSON.stringify({ engines: { node: '>=22.12.0 <23', npm: '>=10 <12' }, scripts }) }), (root) => {
+      const result = verifyValidationCadence({ root });
+      expect(result.ok).toBe(false);
+      expect(result.failures).toContain('docs/runbook/incidents.md: npm run test:web:analyst-ui documents npm run test:web:analyst-ui, but package.json has no "test:web:analyst-ui" script');
+      expect(result.failures).toContain('docs/runbook/incidents.md: npm run test:web:analyst-ui documents npm run test:web:analyst-ui, but package.json has no "test:web:analyst-ui" alias to "web:test:analyst-ui"');
+    });
+  });
+
+  it('fails clearly when a documented test:web alias drifts from its canonical web:test target', () => {
+    const packageWithDriftedAlias = JSON.stringify({
+      engines: { node: '>=22.12.0 <23', npm: '>=10 <12' },
+      scripts: { ...PACKAGE_SCRIPTS, 'test:web:operator-smoke': 'cd web && npx vitest run src/__tests__/operator-dashboard-smoke.test.ts' },
+    });
+    withFixture(validFiles({ 'package.json': packageWithDriftedAlias }), (root) => {
+      const result = verifyValidationCadence({ root });
+      expect(result.ok).toBe(false);
+      expect(result.failures).toContain('package.json alias "test:web:operator-smoke" must be exactly "npm run web:test:operator-smoke", but is currently: cd web && npx vitest run src/__tests__/operator-dashboard-smoke.test.ts');
     });
   });
 
