@@ -120,6 +120,23 @@ const mockCommand = {
   error: null,
 };
 
+const mockStopIntent = {
+  status: 'stopped' as const,
+  updated_at: '2025-06-01T10:05:00Z',
+  source_command_id: 'cmd-2',
+  reason: 'operator_stop',
+};
+
+const mockStopCommand = {
+  command_id: 'cmd-2',
+  command: 'stop_project' as const,
+  status: 'completed' as const,
+  requested_at: '2025-06-01T10:04:00Z',
+  completed_at: '2025-06-01T10:05:00Z',
+  source: 'operator' as const,
+  error: null,
+};
+
 const mockRootRun = {
   run_id: 'run-root',
   kind: 'root' as const,
@@ -134,6 +151,16 @@ const mockRootRun = {
   updated_at: '2025-06-01T10:01:00Z',
   finished_at: null,
   result: null,
+};
+
+const mockStoppedRootRun = {
+  ...mockRootRun,
+  command_id: 'cmd-2',
+  phase: 'stopped' as const,
+  runtime_status: 'stopped' as const,
+  updated_at: '2025-06-01T10:05:00Z',
+  finished_at: '2025-06-01T10:05:00Z',
+  result: 'stopped' as const,
 };
 
 const mockChildRun = {
@@ -478,6 +505,51 @@ describe('useRuntimeStore', () => {
       expect(store.lastCommand).toEqual(mockCommand);
       expect(store.currentRun).toEqual(mockRootRun);
       expect(store.commandInFlight).toBeNull();
+    });
+
+    it('keeps runtime-facing state coherent after start_project resolves from a stale idle snapshot', async () => {
+      const store = setupStore();
+      vi.mocked(getRuntimeState).mockResolvedValue({ runtime: mockRuntimeStateIdle, cardIndex: mockCardIndex });
+      await store.fetchState();
+      vi.mocked(startProject).mockResolvedValue({ success: true, command: mockCommand, intent: mockIntent, run: mockRootRun });
+
+      await store.startProject();
+
+      expect(store.intent).toEqual(mockIntent);
+      expect(store.lastCommand).toEqual(mockCommand);
+      expect(store.rootRun).toEqual(mockRootRun);
+      expect(store.status).toBe('running');
+      expect(store.isRunning).toBe(true);
+      expect(store.isPaused).toBe(false);
+      expect(store.currentCardId).toBe('project');
+      expect(store.currentAgentSessionId).toBe('session-root');
+      expect(store.runtimeModeLabel).toBe('Running');
+      expect(store.runtime?.runtime_intent).toEqual(mockIntent);
+      expect(store.runtime?.runtime_commands).toContainEqual(mockCommand);
+      expect(store.runtime?.runtime_runs).toContainEqual(mockRootRun);
+    });
+
+    it('keeps runtime-facing state coherent after stop_project resolves from a stale running snapshot', async () => {
+      const store = setupStore();
+      vi.mocked(getRuntimeState).mockResolvedValue({ runtime: mockRuntimeStateWithSummary, cardIndex: mockCardIndex });
+      await store.fetchState();
+      vi.mocked(stopProject).mockResolvedValue({ success: true, command: mockStopCommand, intent: mockStopIntent, run: mockStoppedRootRun });
+
+      await store.stopProject();
+
+      expect(store.intent).toEqual(mockStopIntent);
+      expect(store.lastCommand).toEqual(mockStopCommand);
+      expect(store.rootRun).toEqual(mockStoppedRootRun);
+      expect(store.activeChildRuns).toEqual([]);
+      expect(store.status).toBe('idle');
+      expect(store.isRunning).toBe(false);
+      expect(store.isPaused).toBe(false);
+      expect(store.currentCardId).toBeNull();
+      expect(store.currentAgentSessionId).toBeNull();
+      expect(store.runtimeModeLabel).toBe('Idle');
+      expect(store.runtime?.runtime_intent).toEqual(mockStopIntent);
+      expect(store.runtime?.runtime_commands).toContainEqual(mockStopCommand);
+      expect(store.runtime?.runtime_runs).toContainEqual(mockStoppedRootRun);
     });
 
     it('calls stop_project and captures actionable error envelopes from API errors', async () => {

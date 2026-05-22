@@ -19,6 +19,7 @@ import type {
   RuntimeRunRecord,
   RuntimeActivationRecord,
   RuntimeCommandRecord,
+  RuntimeCommandResponse,
   ActionableErrorEnvelope,
 } from '../api/types';
 import {
@@ -213,6 +214,52 @@ export const useRuntimeStore = defineStore('runtime', () => {
     if ('actionable_error' in content) lastActionableError.value = (content.actionable_error ?? null) as ActionableErrorEnvelope | null;
   }
 
+
+  function patchRuntimeSnapshotFromCommand(response: RuntimeCommandResponse): void {
+    if (!runtime.value) return;
+
+    const commandTimestamp = response.command.completed_at ?? response.command.requested_at ?? response.intent.updated_at;
+    const nextCommands = [
+      ...(runtime.value.runtime_commands ?? []).filter((command) => command.command_id !== response.command.command_id),
+      response.command,
+    ];
+    const nextRuns = response.run
+      ? [
+        ...(runtime.value.runtime_runs ?? []).filter((run) => run.run_id !== response.run?.run_id),
+        response.run,
+      ]
+      : (runtime.value.runtime_runs ?? []);
+
+    if (response.command.command === 'start_project') {
+      runtime.value = {
+        ...runtime.value,
+        status: 'running',
+        paused: false,
+        paused_at: null,
+        current_card_id: response.run?.card_id ?? runtime.value.current_card_id ?? null,
+        current_agent_session_id: response.run?.session_id ?? runtime.value.current_agent_session_id ?? null,
+        updated_at: commandTimestamp,
+        runtime_intent: response.intent,
+        runtime_commands: nextCommands,
+        runtime_runs: nextRuns,
+      };
+      return;
+    }
+
+    runtime.value = {
+      ...runtime.value,
+      status: 'idle',
+      paused: false,
+      paused_at: null,
+      current_card_id: null,
+      current_agent_session_id: null,
+      updated_at: commandTimestamp,
+      runtime_intent: response.intent,
+      runtime_commands: nextCommands,
+      runtime_runs: nextRuns,
+    };
+  }
+
   function upsertRun(run: RuntimeRunRecord): void {
     if (run.kind === 'root') currentRun.value = run.finished_at ? currentRun.value?.run_id === run.run_id ? run : currentRun.value : run;
     if (run.kind === 'child') {
@@ -272,6 +319,7 @@ export const useRuntimeStore = defineStore('runtime', () => {
       intent.value = response.intent;
       lastCommand.value = response.command;
       if (response.run) upsertRun(response.run);
+      patchRuntimeSnapshotFromCommand(response);
       markRestSync();
     } catch (err) {
       const msg = err instanceof ApiError ? err.message : 'Failed to start project runtime';
@@ -295,7 +343,9 @@ export const useRuntimeStore = defineStore('runtime', () => {
       const response = await stopProjectRequest();
       intent.value = response.intent;
       lastCommand.value = response.command;
-      if (response.run) upsertRun(response.run);
+      currentRun.value = response.run ?? null;
+      activeChildRuns.value = [];
+      patchRuntimeSnapshotFromCommand(response);
       markRestSync();
     } catch (err) {
       const msg = err instanceof ApiError ? err.message : 'Failed to stop project runtime';
