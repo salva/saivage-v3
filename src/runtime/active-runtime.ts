@@ -113,6 +113,7 @@ export class ActiveRuntime {
     // so agent events (session_started, model_selected, etc.) propagate
     // through the Runtime's EventEmitter to WebSocket clients.
     this._agentAdapter.setEventBus(this._runtime);
+    this._agentAdapter.setRuntimeLedgerEventBus(this._runtime.eventBus);
 
     // Wire McpManager into AgentAdapter's callMcpTool
     if (mcpManager) {

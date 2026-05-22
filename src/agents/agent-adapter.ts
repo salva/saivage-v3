@@ -5,7 +5,7 @@ import { ProviderRegistry, type Candidate } from './provider.js';
 import { ModelRouter } from './model-router.js';
 import { parsePlannerResult, parseExecutorResult, parseReviewerResult, buildExecutorFallbackResult, type PlannerResult, type ExecutorResult, type ReviewerResult } from './result-parser.js';
 import { createSession, completeSession, appendMessage, getSession, getSessionMessages, listSessions, updateSessionModel } from './session-persistence.js';
-import type { AgentMessage, HandoffSummary, NotificationRecord } from '../schemas/types.js';
+import type { AgentMessage, HandoffSummary, LoggedEvent, NotificationRecord } from '../schemas/types.js';
 import { compactSession } from './compaction.js';
 import { invokeWithRecovery, type RecoveryContext } from './recovery.js';
 import type { ContentSupervisor } from '../utils/content-supervisor.js';
@@ -166,6 +166,7 @@ export class AgentAdapter implements AgentRuntime {
   readonly router: ModelRouter;
   readonly notificationCenter: NotificationCenter;
   eventBus?: EventEmitter;
+  private runtimeLedgerEventBus?: { emit(event: LoggedEvent): void };
   readonly eventLogger?: EventLogger;
   private llmCallFn: LlmCallFn | null = null;
   private contentSupervisor?: ContentSupervisor;
@@ -197,12 +198,13 @@ export class AgentAdapter implements AgentRuntime {
       reviewer: async (goalId, assessmentId, reviewerSessionId, report) => (await this.invokeReviewer(goalId, buildReviewerPrompt(), [{ id: `review-report:${assessmentId}`, session_id: reviewerSessionId, role: 'user', kind: 'text', content: `The planner reports the following terminal outcome for goal '${goalId}'. Evaluate against the goal's acceptance criteria and respond with the canonical ReviewerResult JSON envelope.\n\n${JSON.stringify(report, null, 2)}`, timestamp: new Date().toISOString() }], { assessmentId, reviewerSessionId })).assessment,
       maxReviewRetries: this.runtimeConfig?.maxReviewRetries ?? 3,
       assessmentIdFactory: undefined,
-      runtimeEventEmitterProvider: () => this.eventBus,
+      eventBusProvider: () => this.runtimeLedgerEventBus,
       eventLogger: this.eventLogger,
     });
   }
 
   setEventBus(eventBus: EventEmitter): void { this.eventBus = eventBus; }
+  setRuntimeLedgerEventBus(eventBus: { emit(event: LoggedEvent): void }): void { this.runtimeLedgerEventBus = eventBus; }
   setLlmCallFn(fn: LlmCallFn): void { this.llmCallFn = fn; }
   setContentSupervisor(supervisor: ContentSupervisor): void { this.contentSupervisor = supervisor; }
   getContentSupervisor(): ContentSupervisor | undefined { return this.contentSupervisor; }

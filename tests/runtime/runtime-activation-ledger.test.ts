@@ -3,11 +3,14 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { PlannerControlExecutor } from '../../src/agents/planner-control-executor.js';
+import { ActiveRuntime } from '../../src/runtime/active-runtime.js';
 import { CardStore } from '../../src/utils/card-store.js';
 import { initProjectTree } from '../../src/utils/file-tree.js';
 import { appendRuntimeRun, readRuntimeState } from '../../src/runtime/state.js';
 import { EventBus } from '../../src/utils/event-bus.js';
 import { EventLogger } from '../../src/utils/event-logger.js';
+import { loggedEventSchema } from '../../src/schemas/validators.js';
+import type { SaivageConfig } from '../../src/agents/config-schema.js';
 
 function setup() {
   const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-runtime-activation-'));
@@ -115,6 +118,56 @@ describe('runtime activation ledger target contract (Wave 1)', () => {
         expect.objectContaining({ kind: 'runtime_activation', activation }),
       ]));
     } finally { logger?.close(); rmSync(ctx.projectRoot, { recursive: true, force: true }); }
+  });
+
+  it('ActiveRuntime AgentAdapter activate_card publishes exact logged ledger events once to runtime.eventBus', async () => {
+    const ctx = setup();
+    let activeRuntime: ActiveRuntime | null = null;
+    try {
+      appendRuntimeRun(ctx.projectRoot, { run_id: 'run-parent', kind: 'root', card_id: 'goal-a', parent_run_id: null, command_id: 'cmd-a', activation_id: null, phase: 'planner', runtime_status: 'running', session_id: 'planner:goal-a', result: null });
+      const config = {
+        providers: {},
+        models: {},
+        server: { port: 8080, host: '127.0.0.1' },
+        runtime: { continuousImprovement: false, maxReviewRetries: 3, recoveryDelayMs: 60000, maxRecoveryRetries: 0, selfCheck: { planner: 0, executor: 0, reviewer: 0, analyst: 0 } },
+        security: {},
+        supervisor: { enabled: false },
+      } as unknown as SaivageConfig;
+      activeRuntime = new ActiveRuntime(ctx.projectRoot, config);
+      const events: Array<{ kind: string; run?: unknown; activation?: unknown; id?: string; timestamp?: string }> = [];
+      const sub = activeRuntime.runtime.eventBus.subscribe({
+        allowedKinds: ['runtime_run', 'runtime_activation'],
+        handler: (event) => { events.push(event); },
+      });
+
+      const result = await (activeRuntime.agentAdapter as any).processToolCall(
+        { id: 'call-active-runtime', type: 'function', function: { name: 'activate_card', arguments: JSON.stringify({ cardId: 'code-a' }) } },
+        'planner',
+        'planner:goal-a',
+        { goalId: 'goal-a', cardId: 'goal-a' },
+      );
+      sub.unsubscribe();
+
+      expect(result).toMatchObject({ role: 'tool', kind: 'tool_result', tool: 'activate_card', tool_call_id: 'call-active-runtime' });
+      expect(events.map((event) => event.kind)).toEqual(['runtime_run', 'runtime_activation']);
+      expect(events).toHaveLength(2);
+      for (const event of events) expect(loggedEventSchema.parse(event)).toEqual(event);
+
+      const state = readRuntimeState(ctx.projectRoot)!;
+      const activation = state.runtime_activations!.find((record) => record.child_card_id === 'code-a');
+      const childRun = state.runtime_runs!.find((record) => record.run_id === activation!.runtime_run_id);
+      expect(events[0]).toEqual(expect.objectContaining({ kind: 'runtime_run', run: childRun }));
+      expect(events[1]).toEqual(expect.objectContaining({ kind: 'runtime_activation', activation }));
+
+      const persistedRunEvents = activeRuntime.eventLogger.getEvents({ kind: 'runtime_run' }).filter((event) => (event as any).run?.run_id === childRun!.run_id);
+      const persistedActivationEvents = activeRuntime.eventLogger.getEvents({ kind: 'runtime_activation' }).filter((event) => (event as any).activation?.activation_id === activation!.activation_id);
+      expect(persistedRunEvents).toEqual([events[0]]);
+      expect(persistedActivationEvents).toEqual([events[1]]);
+    } finally {
+      activeRuntime?.eventLogger.close();
+      activeRuntime?.errorLogger.close();
+      rmSync(ctx.projectRoot, { recursive: true, force: true });
+    }
   });
 
   it('does not let a sessionless active parent run authorize a nonmatching nonempty planner session', async () => {
