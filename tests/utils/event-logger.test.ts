@@ -55,6 +55,74 @@ describe('EventLogger runtime event validation', () => {
     }
   });
 
+
+
+  it('redacts secret-like variants in persisted EventLogger observability records', () => {
+    const logger = new EventLogger(makeSaivageDir());
+    try {
+      logger.appendEvent({
+        kind: 'invocation_failed',
+        id: 'evt-secret-variant-redaction',
+        timestamp,
+        session_id: 'planner:secret-variant-test',
+        role: 'planner',
+        attempt: 1,
+        error_message: 'variant redaction test',
+        provider_error: {
+          api_key: 'SYNTHETIC_API_KEY',
+          access_token: 'SYNTHETIC_ACCESS_TOKEN',
+          refresh_token: 'SYNTHETIC_REFRESH_TOKEN',
+          authorization: 'Bearer SYNTHETIC_AUTHORIZATION',
+          idempotency_token: 'SYNTHETIC_IDEMPOTENCY_TOKEN',
+          idempotency_secret: 'SYNTHETIC_IDEMPOTENCY_SECRET',
+          safe: 'visible',
+        },
+      });
+      const [event] = logger.getEvents({ kind: 'invocation_failed' });
+      const serialized = JSON.stringify(event);
+      expect(serialized).not.toContain('SYNTHETIC_API_KEY');
+      expect(serialized).not.toContain('SYNTHETIC_ACCESS_TOKEN');
+      expect(serialized).not.toContain('SYNTHETIC_REFRESH_TOKEN');
+      expect(serialized).not.toContain('SYNTHETIC_AUTHORIZATION');
+      expect(serialized).not.toContain('SYNTHETIC_IDEMPOTENCY_TOKEN');
+      expect(serialized).not.toContain('SYNTHETIC_IDEMPOTENCY_SECRET');
+      expect(serialized).toContain('[REDACTED]');
+      expect(serialized).toContain('visible');
+    } finally {
+      logger.close();
+    }
+  });
+
+  it('persists schema-valid runtime_activation activation idempotency_key', () => {
+    const logger = new EventLogger(makeSaivageDir());
+    try {
+      logger.appendEvent({
+        kind: 'runtime_activation',
+        id: 'evt-runtime-activation-redaction',
+        timestamp,
+        activation: {
+          activation_id: 'act-1',
+          idempotency_key: 'run-parent:planner:call-a:code-a',
+          parent_card_id: 'goal-a',
+          parent_run_id: 'run-parent',
+          parent_session_id: 'planner:goal-a',
+          parent_tool_call_id: 'call-a',
+          child_card_id: 'code-a',
+          status: 'pending',
+          requested_at: timestamp,
+          updated_at: timestamp,
+          precondition: 'accepted',
+          runtime_run_id: 'run-child',
+          error: null,
+        },
+      });
+      const [event] = logger.getEvents({ kind: 'runtime_activation' });
+      expect((event as any).activation.idempotency_key).toBe('run-parent:planner:call-a:code-a');
+    } finally {
+      logger.close();
+    }
+  });
+
   it('persists validated freeze lifecycle events with required payloads', () => {
     const logger = new EventLogger(makeSaivageDir());
     try {

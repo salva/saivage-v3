@@ -113,10 +113,12 @@ describe('runtime activation ledger target contract (Wave 1)', () => {
       const state = readRuntimeState(ctx.projectRoot)!;
       const activation = state.runtime_activations!.find((record) => record.child_card_id === 'code-a');
       const childRun = state.runtime_runs!.find((record) => record.run_id === activation!.runtime_run_id);
+      expect(activation?.idempotency_key).toBe('run-parent:planner:goal-a:call-a:code-a');
       expect(events).toEqual(expect.arrayContaining([
         expect.objectContaining({ kind: 'runtime_run', run: childRun }),
         expect.objectContaining({ kind: 'runtime_activation', activation }),
       ]));
+      expect((events.find((event) => event.kind === 'runtime_activation') as any).activation.idempotency_key).toBe(activation?.idempotency_key);
     } finally { logger?.close(); rmSync(ctx.projectRoot, { recursive: true, force: true }); }
   });
 
@@ -157,12 +159,15 @@ describe('runtime activation ledger target contract (Wave 1)', () => {
       const activation = state.runtime_activations!.find((record) => record.child_card_id === 'code-a');
       const childRun = state.runtime_runs!.find((record) => record.run_id === activation!.runtime_run_id);
       expect(events[0]).toEqual(expect.objectContaining({ kind: 'runtime_run', run: childRun }));
+      expect(activation?.idempotency_key).toBe('run-parent:planner:goal-a:call-active-runtime:code-a');
       expect(events[1]).toEqual(expect.objectContaining({ kind: 'runtime_activation', activation }));
+      expect((events[1] as any).activation.idempotency_key).toBe(activation?.idempotency_key);
 
       const persistedRunEvents = activeRuntime.eventLogger.getEvents({ kind: 'runtime_run' }).filter((event) => (event as any).run?.run_id === childRun!.run_id);
       const persistedActivationEvents = activeRuntime.eventLogger.getEvents({ kind: 'runtime_activation' }).filter((event) => (event as any).activation?.activation_id === activation!.activation_id);
       expect(persistedRunEvents).toEqual([events[0]]);
       expect(persistedActivationEvents).toEqual([events[1]]);
+      expect((persistedActivationEvents[0] as any).activation.idempotency_key).toBe(activation?.idempotency_key);
     } finally {
       activeRuntime?.eventLogger.close();
       activeRuntime?.errorLogger.close();

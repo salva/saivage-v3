@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import Fastify, { type FastifyInstance } from 'fastify';
 import { describe, expect, it, afterEach } from '@jest/globals';
 import { EventLogger } from '../../src/utils/event-logger.js';
+import { redactObservabilityValue } from '../../src/utils/observability-redaction.js';
 import { registerChatsFilesDebugRoutes } from '../../src/server/routes/chats-files-debug.js';
 
 const roots: string[] = [];
@@ -54,6 +55,34 @@ afterEach(() => {
 });
 
 describe('observability event redaction', () => {
+
+  it('preserves runtime_activation activation idempotency_key but redacts unrelated observability idempotency keys', () => {
+    const runtimeKey = 'parent-run:planner:call-a:code-a';
+    const activationEvent = redactObservabilityValue({
+      kind: 'runtime_activation',
+      activation: {
+        activation_id: 'act-1',
+        idempotency_key: runtimeKey,
+        api_key: RAW_API_KEY,
+        access_token: RAW_TOKEN,
+        refresh_token: RAW_TOKEN,
+        authorization: RAW_AUTH,
+        idempotency_token: RAW_TOKEN,
+        idempotency_secret: RAW_SECRET,
+      },
+    });
+
+    expect(activationEvent.activation.idempotency_key).toBe(runtimeKey);
+    expect(JSON.stringify(activationEvent)).not.toContain(RAW_API_KEY);
+    expect(JSON.stringify(activationEvent)).not.toContain(RAW_TOKEN);
+    expect(JSON.stringify(activationEvent)).not.toContain(RAW_AUTH);
+    expect(JSON.stringify(activationEvent)).not.toContain(RAW_SECRET);
+
+    const unrelated = redactObservabilityValue({ kind: 'invocation_succeeded', activation: { idempotency_key: runtimeKey } });
+    expect(unrelated.activation.idempotency_key).toBe('[REDACTED]');
+    expect(redactObservabilityValue('not-a-ledger-key', 'idempotency_key')).toBe('[REDACTED]');
+  });
+
   it('persists invocation_failed provider-error JSON with token/api_key/authorization values redacted', () => {
     const logger = new EventLogger(makeSaivageDir());
     logger.appendEvent({

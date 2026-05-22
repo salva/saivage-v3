@@ -76,6 +76,57 @@ describe('RedactionBoundary', () => {
     expect(serialized).toContain('visible');
   });
 
+  it('preserves idempotency_key only on runtime_activation activation records in observability', () => {
+    const idempotencyKey = 'run-parent:planner-session:call-a:code-a';
+    const activationEvent = RedactionBoundary.object({
+      kind: 'runtime_activation',
+      activation: {
+        activation_id: 'act-1',
+        idempotency_key: idempotencyKey,
+        idempotency_token: 'SYNTHETIC_IDEMPOTENCY_TOKEN',
+        idempotency_secret: 'SYNTHETIC_IDEMPOTENCY_SECRET',
+      },
+    }, { sink: 'observability', source: 'redaction-boundary-test' });
+
+    expect(activationEvent.activation.idempotency_key).toBe(idempotencyKey);
+    expect(activationEvent.activation.idempotency_token).toBe(SECRET_REDACTION_PLACEHOLDER);
+    expect(activationEvent.activation.idempotency_secret).toBe(SECRET_REDACTION_PLACEHOLDER);
+
+    const unrelatedObservability = RedactionBoundary.object({
+      kind: 'invocation_succeeded',
+      activation: { idempotency_key: 'SYNTHETIC_UNRELATED_IDEMPOTENCY_KEY' },
+      idempotency_key: 'SYNTHETIC_TOP_LEVEL_IDEMPOTENCY_KEY',
+    }, { sink: 'observability', source: 'redaction-boundary-test' });
+    expect(unrelatedObservability.activation.idempotency_key).toBe(SECRET_REDACTION_PLACEHOLDER);
+    expect(unrelatedObservability.idempotency_key).toBe(SECRET_REDACTION_PLACEHOLDER);
+
+    const nonObservability = RedactionBoundary.object({
+      kind: 'runtime_activation',
+      activation: { idempotency_key: 'SYNTHETIC_NON_OBSERVABILITY_IDEMPOTENCY_KEY' },
+    }, CTX);
+    expect(nonObservability.activation.idempotency_key).toBe(SECRET_REDACTION_PLACEHOLDER);
+  });
+
+  it('keeps secret-like key variants redacted in observability objects', () => {
+    const redacted = RedactionBoundary.object({
+      kind: 'runtime_activation',
+      activation: {
+        idempotency_key: 'visible-runtime-ledger-key',
+        api_key: 'SYNTHETIC_API_KEY',
+        access_token: 'SYNTHETIC_ACCESS_TOKEN',
+        refresh_token: 'SYNTHETIC_REFRESH_TOKEN',
+        authorization: 'Bearer SYNTHETIC_AUTHORIZATION',
+        idempotency_token: 'SYNTHETIC_IDEMPOTENCY_TOKEN',
+        idempotency_secret: 'SYNTHETIC_IDEMPOTENCY_SECRET',
+      },
+    }, { sink: 'observability', source: 'redaction-boundary-test' });
+
+    expect(redacted.activation.idempotency_key).toBe('visible-runtime-ledger-key');
+    for (const key of ['api_key', 'access_token', 'refresh_token', 'authorization', 'idempotency_token', 'idempotency_secret'] as const) {
+      expect(redacted.activation[key]).toBe(SECRET_REDACTION_PLACEHOLDER);
+    }
+  });
+
   it('redacts Telegram bot-token URL paths through url()', () => {
     const redacted = RedactionBoundary.url(
       'https://api.telegram.org/botSYNTHETIC_TELEGRAM_TOKEN/getUpdates?token=SYNTHETIC_QUERY',
