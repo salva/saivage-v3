@@ -226,9 +226,10 @@ session itself is `Dormant`.
 
 ## 6. Runtime State
 
-The runtime starts in an idle state: `active_card_run === null`, no
-persisted project-correction directive) triggers the runtime to call
-`activate_card(projectCardId)` itself (§11).
+The runtime starts in an idle state: `active_card_run === null` and no
+agent session is executing. Root work begins only after an explicit
+`start_project` runtime command creates running runtime intent and a root
+runtime run (§11).
 
 At any moment thereafter, at most one card-run is doing real work.
 Every ancestor planner up to the project root is `AwaitingChild` of its
@@ -729,18 +730,12 @@ start_project(): runtime command
 ```
 
 Root project execution is started by an explicit runtime command. The
-runtime's safe-tick loop, on noticing that:
-
-- the runtime is not paused,
-- `active_card_run` is `null`,
-- no in-flight startup repair is pending, and
-- an active root runtime intent/run
-  exists,
-
-calls `activate_card(projectCardId)` itself, which brings the project
-project runs uninterrupted until it reports done, failed, or blocked,
-or until the analyst intervenes (see below). The operator/analyst
-recovery loop for project-level failure is deferred to a future stage.
+runtime records durable intent and a root runtime run, and dispatch proceeds
+from that runtime-owned run. No analyst directive, card status change, or
+ready-queue scan starts the project. The project runs until it reports done,
+failed, or blocked, or until the operator stops runtime intent through the
+runtime controls. The operator/analyst recovery loop for project-level
+failure is deferred to a future stage.
 
 Analyst correction on a non-project goal records notes only:
 
@@ -755,20 +750,17 @@ planners observe the `changed` state through Goal Context (as
 `subtree_changed` notes and updated child statuses) and decide whether
 to call `activate_card` on the affected descendant.
 
-For project-level intervention after kickoff:
-
-```ts
-```
-
-records intent only; the runtime decides when (and whether) to call
-`activate_card(projectCardId)` based on the same safe-tick conditions.
+For project-level intervention after kickoff, use runtime controls for
+root execution intent and goal-scoped notes/corrections for planner context.
+Project-level notes or directives are not executable triggers and do not
+start the project by themselves.
 
 The analyst always interacts with mutable state through the pattern
 **pause → mutate → unpause**:
 
 1. `pause_runtime` (global gate).
-2. Write notes, flip statuses (e.g. mark cards `changed`), record
-   directives, edit card fields.
+2. Write notes, update planner-owned card fields, or record correction
+   context.
 3. `resume_runtime`.
 
 The active planner (if any) sees the new notes the next time it is
@@ -858,11 +850,11 @@ On startup, the runtime repairs orphan tool calls from persisted state:
 
 Only the owner of the orphaned tool call is resumed. Other planners
 keep their persisted lifecycle status. After repair, the runtime
-returns to idle if no `active_card_run` remains and re-evaluates
-startup repair must not consume those directives or dispatch the
-project planner directly before repair settles. The source guard is
-`repairStartupActiveCardRun()` plus `safeTick()` in `src/runtime/runtime.ts`,
-with regression coverage in `tests/utils/runtime-restart-orphan-repair.test.ts`.
+returns to idle if no `active_card_run` remains. Startup repair must not
+consume directive files, scan card status, or dispatch the project planner
+before repair settles. The source guard is `repairStartupActiveCardRun()` plus
+`safeTick()` in `src/runtime/runtime.ts`, with regression coverage in
+`tests/utils/runtime-restart-orphan-repair.test.ts`.
 
 Runtime pause is global (`RuntimeState.paused`). It does not change
 `active_card_run`, `card.status`, or any session's lifecycle state; it
@@ -908,19 +900,18 @@ above is the in-memory mirror.
 
 ## 14. HTTP API
 
-  the project card. Returns
-  `{directive_recorded: true, runtime_status: 'idle' | 'running' | 'paused'}`.
-  The runtime calls `activate_card(projectCardId)` itself on its next
-  safe tick.
+- `POST /api/runtime/start_project` and `POST /api/runtime/stop_project` —
+  explicit root runtime-control commands. These endpoints are the root
+  start/stop API; directive files and card status changes are not root
+  execution controls.
 - `POST /api/runtime/goals/:id/needs_corrections` — body
   `{issues: AnalystIssue[], note?: string}`. The `flagged_by` field is
   derived from the authenticated session. Records correction notes for
   the goal and ancestors and may flip the origin to `changed`. Resumes
   no planner and returns no planner session id.
-  `{issues: AnalystIssue[], note?: string}`. Records a project
-  directive note. The runtime decides on its next safe tick whether to
-  call `activate_card(projectCardId)`. Returns
-  `{directive_recorded: true, runtime_status: 'idle' | 'running' | 'paused'}`.
+  `{issues: AnalystIssue[], note?: string}`. Records planner context only;
+  it is not an executable runtime trigger. Use `start_project` / `stop_project`
+  for root runtime intent.
 - `POST /api/runtime/pause` and `POST /api/runtime/resume` — global
   pause gate (§5, §12). Returns the updated `RuntimeState`.
 - `GET /api/agents` — enumerates every persisted `.saivage/agents/messages/*.jsonl` session plus session manifests, parsing `analyst`, `planner:<id>`, `reviewer:<id>`, `executor:<id>`, and `card-*` ids and marking only `RuntimeState.current_agent_session_id` active after reload (enforced by `src/server/routes/runtime-config-notes.ts`, `tests/server/agents-api.test.ts`, and `tests/server/restart-persistence-operator-surface.test.ts`).
@@ -995,10 +986,10 @@ type AnalystIssue = {
 - `AgentSession` stores no parent session id and no parent tool call
   id.
 - Runtime caller edges live on `active_card_run` and process records.
-- Planners are created or resumed only inside `activate_card`,
-  including the project planner; the runtime, not the analyst, calls
-  start-project command when an explicit runtime intent is
-  project-correction) directive is pending.
+- Planners are created or resumed only inside runtime-owned activation
+  handling. The project planner is reached from an explicit root
+  `start_project` command and an open root runtime run, not from an analyst
+  directive, card status change, or ready-queue scan.
 - Runtime pause is global state (`RuntimeState.paused`); it does not
   mutate `active_card_run`, `card.status`, or any session lifecycle
   state.

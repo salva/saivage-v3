@@ -134,7 +134,7 @@ Resume re-enables dispatch. Depending on queued work, the runtime may settle int
 ### Dispatch and corrections
 
 Legacy explicit dispatch endpoints are not part of the current §14 API surface.
-Operators start or correct work by recording directives instead:
+Operators start root work with explicit runtime controls and record corrections as planner context:
 
 - Root project kickoff uses explicit runtime start controls (`start_project`/operator runtime controls); directive kickoff routes are removed.
 - `POST /api/runtime/goals/:id/needs_corrections` records goal corrections.
