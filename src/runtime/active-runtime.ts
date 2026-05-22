@@ -20,10 +20,7 @@ import { AgentAdapter } from '../agents/agent-adapter.js';
 import { EventLogger } from '../utils/event-logger.js';
 import { ErrorLogger } from '../utils/error-logger.js';
 import { SkillsEngine } from '../agents/skills-engine.js';
-import {
-  loadConfig,
-  type SaivageConfig,
-} from '../agents/config-schema.js';
+import type { SaivageConfig } from '../agents/config-schema.js';
 import type { McpManager } from '../mcp/mcp-manager.js';
 import type { RuntimeState, FreezeManifest } from '../schemas/types.js';
 
@@ -40,8 +37,7 @@ export class ActiveRuntime {
 
   /**
    * @param projectRoot  Absolute path to the project root
-   * @param config       Optional SaivageConfig. If not provided, loaded via loadConfig().
-   *                     Falls back to a minimal config if loadConfig() fails.
+   * @param config       Validated SaivageConfig from the startup Environment.
    * @param mcpManager   Optional McpManager for MCP tool invocation.
    *                     Wired into AgentAdapter for agent MCP tool calls, and
    *                     receives the shared EventLogger for invocation logging.
@@ -50,17 +46,10 @@ export class ActiveRuntime {
     this._projectRoot = projectRoot;
     const saivageDir = join(projectRoot, '.saivage');
 
-    // Load config if not provided
-    if (config) {
-      this._config = config;
-    } else {
-      try {
-        this._config = loadConfig(projectRoot).config;
-      } catch {
-        // Fall back to minimal config if config can't be loaded
-        this._config = {} as SaivageConfig;
-      }
+    if (!config) {
+      throw new Error('ActiveRuntime requires validated SaivageConfig from Environment.');
     }
+    this._config = config;
 
     // Create the shared EventLogger — a single instance for both Runtime
     // and AgentAdapter to avoid dual writers on the same events.jsonl file.

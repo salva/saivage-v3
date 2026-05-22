@@ -6,6 +6,7 @@ import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import authPlugin from './auth.js';
+import { configureAuthPolicy } from './auth-policy.js';
 import { registerAuthRoutes } from './routes/auth.js';
 import { registerCardRoutes } from './routes/cards.js';
 import { registerRuntimeConfigNotesRoutes } from './routes/runtime-config-notes.js';
@@ -14,6 +15,7 @@ import { registerEventsRoute } from './routes/events.js';
 import { registerProcessRoutes } from './routes/processes.js';
 import { registerWebSocket, resetRuntimeEventSubscriptions, resetWebSocketState, wireRuntimeEvents } from './websocket.js';
 import { loadConfig, type SaivageConfig } from '../agents/config-schema.js';
+import type { Environment } from '../config/environment.js';
 import { McpManager } from '../mcp/index.js';
 import { TelegramBot } from '../telegram/index.js';
 import { createNotificationRouter } from '../notifications/index.js';
@@ -26,11 +28,29 @@ import { readFreezeManifest } from '../runtime/freeze-manifest.js';
 import { buildServerAvailability, type ServerAvailabilityInputs } from './availability.js';
 
 export interface ServerConfig { host: string; port: number; projectRoot: string; }
+export interface CreateServerOptions { environment: Environment; createRuntime?: boolean; }
 export interface ServerInstance { fastify: FastifyInstance; config: ServerConfig; saivageConfig: SaivageConfig; mcpManager?: McpManager; telegramBot?: TelegramBot; notificationRouter?: NotificationRouter; activeRuntime?: ActiveRuntime; stop: () => Promise<void>; }
 export function isLocalhost(host: string): boolean { return host === '127.0.0.1' || host === 'localhost' || host === '::1' || host === '0:0:0:0:0:0:0:1'; }
-export function validateDevModeHost(host: string | undefined): void { const token = process.env['SAIVAGE_API_TOKEN']; if (token) return; console.warn('⚠  SAIVAGE_API_TOKEN is not set. Server is running in DEVELOPMENT MODE with auth disabled.\n' + '   Set SAIVAGE_API_TOKEN to a secure random string for production use.'); const resolvedHost = host ?? '0.0.0.0'; if (!isLocalhost(resolvedHost)) throw new Error(`Cannot bind to ${resolvedHost} without SAIVAGE_API_TOKEN. For development, bind to 127.0.0.1 or localhost. For production, set SAIVAGE_API_TOKEN.`); }
+export function validateDevModeHost(host: string | undefined, apiToken?: string): void { if (apiToken) return; console.warn('⚠  SAIVAGE_API_TOKEN is not set. Server is running in DEVELOPMENT MODE with auth disabled.\n' + '   Set SAIVAGE_API_TOKEN to a secure random string for production use.'); const resolvedHost = host ?? '0.0.0.0'; if (!isLocalhost(resolvedHost)) throw new Error(`Cannot bind to ${resolvedHost} without SAIVAGE_API_TOKEN. For development, bind to 127.0.0.1 or localhost. For production, set SAIVAGE_API_TOKEN.`); }
 function registerHealth(fastify: FastifyInstance, projectRoot: string, _saivageConfig: SaivageConfig, availabilityInputs?: ServerAvailabilityInputs): void { fastify.get('/health', async () => { let runtimeStatus = 'unknown'; let frozenReason: string | undefined; try { const { readRuntimeState } = await import('../runtime/state.js'); const state = readRuntimeState(projectRoot); if (state) { runtimeStatus = state.status; if (state.status === 'frozen') { const manifest = readFreezeManifest(projectRoot); if (manifest) frozenReason = manifest.reason; } } } catch {} const response: Record<string, unknown> = { status: 'ok', version: '0.1.0', project: 'saivage-v3', runtime: runtimeStatus }; if (frozenReason !== undefined) response.frozen_reason = frozenReason; if (availabilityInputs) response.serverAvailability = buildServerAvailability(availabilityInputs); return response; }); }
-export function getServerConfig(projectRoot: string): ServerConfig { let host = '0.0.0.0'; let port = 8080; try { const { config } = loadConfig(projectRoot); host = config.server.host ?? host; port = config.server.port ?? port; } catch {} if (process.env['SAIVAGE_HOST']) host = process.env['SAIVAGE_HOST']; if (process.env['SAIVAGE_PORT']) { const parsed = parseInt(process.env['SAIVAGE_PORT'], 10); if (!isNaN(parsed) && parsed >= 1 && parsed <= 65535) port = parsed; } return { host, port, projectRoot }; }
+export function getServerConfig(environment: Environment): ServerConfig { return { host: environment.server.host, port: environment.server.port, projectRoot: environment.projectRoot }; }
+
+function createEnvironmentFromProjectConfig(projectRoot: string): Environment {
+  const { config, warnings } = loadConfig(projectRoot);
+  return {
+    nodeEnv: 'production',
+    projectRoot,
+    configPath: `${projectRoot}/.saivage/saivage.json`,
+    config,
+    configWarnings: Object.freeze([...warnings]),
+    server: Object.freeze({ host: config.server.host, port: config.server.port, corsOrigins: Object.freeze([]), logLevel: 'info' as const }),
+    auth: Object.freeze({ devModeAuthDisabled: true }),
+    storage: Object.freeze({ rootDir: `${projectRoot}/.saivage`, locking: Object.freeze({ mode: 'project-file' as const }) }),
+    providers: config.providers,
+    mcp: Object.freeze({ servers: config.mcpServers }),
+    observability: Object.freeze({ logLevel: 'info' as const }),
+  } as Environment;
+}
 
 function registerStage6RuntimeRoutes(fastify: FastifyInstance, projectRoot: string, activeRuntime?: ActiveRuntime): void {
   fastify.post('/api/runtime/goals/:id/needs_corrections', async (request, reply) => {
@@ -44,13 +64,18 @@ function registerStage6RuntimeRoutes(fastify: FastifyInstance, projectRoot: stri
   fastify.get('/api/runtime/card-runs', async (_request, reply) => reply.send(buildCardRunsResponse(projectRoot)));
 }
 function registerRuntimeDispatchRoutes(fastify: FastifyInstance, projectRoot: string, activeRuntime?: ActiveRuntime, availabilityInputs?: ServerAvailabilityInputs): void { fastify.get('/api/runtime/status', async (_request, reply) => { try { const serverAvailability = availabilityInputs ? buildServerAvailability(availabilityInputs) : undefined; if (activeRuntime) { const status = activeRuntime.getStatus(); return reply.send({ runtime: status.status, paused: status.paused, currentCardId: status.currentCardId, goalCount: status.goalCount, ...(serverAvailability ? { serverAvailability } : {}) }); } const { readRuntimeState } = await import('../runtime/state.js'); const state = readRuntimeState(projectRoot); return reply.send({ runtime: state?.status ?? 'unknown', paused: state?.paused ?? false, currentCardId: state?.current_card_id ?? null, goalCount: 0, ...(serverAvailability ? { serverAvailability } : {}) }); } catch (err) { return reply.status(500).send({ error: 'Failed to get runtime status', message: err instanceof Error ? err.message : String(err) }); } }); }
-export async function createServer(projectRoot: string, createRuntime?: boolean): Promise<ServerInstance> {
-  const serverConfig = getServerConfig(projectRoot);
-  let saivageConfig: SaivageConfig;
-  try { const { config } = loadConfig(projectRoot); saivageConfig = config; } catch { saivageConfig = {} as SaivageConfig; }
+export async function createServer(optionsOrProjectRoot: CreateServerOptions | string, createRuntimeArg?: boolean): Promise<ServerInstance> {
+  const environment = typeof optionsOrProjectRoot === 'string'
+    ? createEnvironmentFromProjectConfig(optionsOrProjectRoot)
+    : optionsOrProjectRoot.environment;
+  const projectRoot = environment.projectRoot;
+  const createRuntime = typeof optionsOrProjectRoot === 'string' ? createRuntimeArg : optionsOrProjectRoot.createRuntime;
+  const serverConfig = getServerConfig(environment);
+  const saivageConfig: SaivageConfig = environment.config;
+  configureAuthPolicy({ apiToken: environment.auth.apiToken });
   let transportOpt: { target: string; options: Record<string, unknown> } | undefined;
-  if (process.env['NODE_ENV'] === 'development') { try { await import('pino-pretty'); transportOpt = { target: 'pino-pretty', options: { colorize: true } }; } catch (err) { console.warn(`pino-pretty not available, falling back to JSON transport: ${err instanceof Error ? err.message : String(err)}`); } }
-  const fastify = Fastify({ logger: { level: process.env['LOG_LEVEL'] ?? 'info', transport: transportOpt } });
+  if (environment.nodeEnv === 'development') { try { await import('pino-pretty'); transportOpt = { target: 'pino-pretty', options: { colorize: true } }; } catch (err) { console.warn(`pino-pretty not available, falling back to JSON transport: ${err instanceof Error ? err.message : String(err)}`); } }
+  const fastify = Fastify({ logger: { level: environment.server.logLevel, transport: transportOpt } });
   fastify.addContentTypeParser('application/json', { parseAs: 'string' }, (_request, body, done) => {
     const rawBody = typeof body === 'string' ? body : body.toString('utf-8');
     if (rawBody.trim() === '') {
@@ -81,8 +106,8 @@ export async function createServer(projectRoot: string, createRuntime?: boolean)
     mcpStartupFailure: () => mcpStartupFailure,
   };
   registerHealth(fastify, projectRoot, saivageConfig, availabilityInputs);
-  if (createRuntime) { try { activeRuntime = new ActiveRuntime(projectRoot); await activeRuntime.start(); wireRuntimeEvents(activeRuntime.runtime); fastify.log.info('ActiveRuntime started'); } catch (err) { runtimeStartupFailure = { code: 'active-runtime-start-failed', error: err }; fastify.log.warn(`ActiveRuntime initialization failed (continuing without runtime): ${err instanceof Error ? err.message : String(err)}`); } }
-  registerCardRoutes(fastify, projectRoot); registerStage6RuntimeRoutes(fastify, projectRoot, activeRuntime); registerRuntimeConfigNotesRoutes(fastify, projectRoot, activeRuntime, () => buildServerAvailability(availabilityInputs)); registerChatsFilesDebugRoutes(fastify, projectRoot, activeRuntime); registerEventsRoute(fastify, projectRoot); registerProcessRoutes(fastify, projectRoot); registerRuntimeDispatchRoutes(fastify, projectRoot, activeRuntime, availabilityInputs); registerWebSocket(fastify, projectRoot, activeRuntime);
+  if (createRuntime) { try { activeRuntime = new ActiveRuntime(projectRoot, saivageConfig); await activeRuntime.start(); wireRuntimeEvents(activeRuntime.runtime); fastify.log.info('ActiveRuntime started'); } catch (err) { runtimeStartupFailure = { code: 'active-runtime-start-failed', error: err }; fastify.log.warn(`ActiveRuntime initialization failed (continuing without runtime): ${err instanceof Error ? err.message : String(err)}`); } }
+  registerCardRoutes(fastify, projectRoot); registerStage6RuntimeRoutes(fastify, projectRoot, activeRuntime); registerRuntimeConfigNotesRoutes(fastify, projectRoot, activeRuntime, () => buildServerAvailability(availabilityInputs), saivageConfig, environment.configWarnings); registerChatsFilesDebugRoutes(fastify, projectRoot, activeRuntime); registerEventsRoute(fastify, projectRoot); registerProcessRoutes(fastify, projectRoot); registerRuntimeDispatchRoutes(fastify, projectRoot, activeRuntime, availabilityInputs); registerWebSocket(fastify, projectRoot, activeRuntime);
   try { mcpManager = new McpManager(projectRoot); await mcpManager.startAll(); fastify.log.info('MCP manager started'); } catch (err) { mcpStartupFailure = { code: 'mcp-manager-start-failed', error: err }; fastify.log.warn(`MCP manager initialization failed (continuing without MCP): ${err instanceof Error ? err.message : String(err)}`); }
   if (activeRuntime && mcpManager) { activeRuntime.agentAdapter.setMcpManager(mcpManager); mcpManager.setEventLogger(activeRuntime.eventLogger); }
   fastify.get('/api/mcp/status', async (_request, reply) => { const serverAvailability = buildServerAvailability(availabilityInputs); if (!mcpManager) return reply.send({ servers: [], serverAvailability }); return reply.send({ servers: mcpManager.getStatus(), serverAvailability }); });
@@ -90,7 +115,7 @@ export async function createServer(projectRoot: string, createRuntime?: boolean)
   let telegramBot: TelegramBot | undefined; const botToken = saivageConfig.telegram?.botToken;
   const recipientRegistry = normalizeTelegramNotificationChatIds(saivageConfig.telegram?.notificationChatIds);
   if (recipientRegistry.invalidValues.length > 0) fastify.log.warn(`Telegram notification recipient config ignored ${recipientRegistry.invalidValues.length} invalid value(s)`);
-  if (botToken) { try { telegramBot = new TelegramBot(projectRoot); await telegramBot.start(); fastify.log.info('Telegram bot started'); } catch (err) { fastify.log.warn(`Telegram bot initialization failed: ${err instanceof Error ? err.message : String(err)}`); } }
+  if (botToken) { try { telegramBot = new TelegramBot(projectRoot, saivageConfig); await telegramBot.start(); fastify.log.info('Telegram bot started'); } catch (err) { fastify.log.warn(`Telegram bot initialization failed: ${err instanceof Error ? err.message : String(err)}`); } }
   const telegramReadiness = evaluateTelegramRecipientReadiness({ channels: saivageConfig.notifications?.channels, botToken, botAvailable: Boolean(telegramBot), recipients: recipientRegistry.recipients, invalidRecipientCount: recipientRegistry.invalidValues.length });
   if (telegramReadiness.state === 'ready' && telegramBot) setProjectNotificationDeliveryAdapters(projectRoot, [new TelegramNotificationDeliveryAdapter(telegramBot, recipientRegistry.recipients)]);
   else clearProjectNotificationDeliveryAdapters(projectRoot);
@@ -110,5 +135,5 @@ export async function createServer(projectRoot: string, createRuntime?: boolean)
   async function stop(): Promise<void> { resetChatRouteState(projectRoot); resetWebSocketState(); clearProjectNotificationDeliveryAdapters(projectRoot); if (activeRuntime) resetRuntimeEventSubscriptions(activeRuntime.runtime); try { await fastify.close(); } finally { if (telegramBot) { try { await telegramBot.stop(); fastify.log.info('Telegram bot stopped'); } catch (err) { fastify.log.warn(`Telegram bot stop failed: ${err instanceof Error ? err.message : String(err)}`); } } if (mcpManager) { try { await mcpManager.stopAll(); fastify.log.info('MCP manager stopped'); } catch (err) { fastify.log.warn(`MCP manager stop failed: ${err instanceof Error ? err.message : String(err)}`); } } if (activeRuntime) { try { await activeRuntime.stop(); fastify.log.info('ActiveRuntime stopped'); } catch (err) { fastify.log.warn(`ActiveRuntime stop failed: ${err instanceof Error ? err.message : String(err)}`); } } } }
   return { fastify, config: serverConfig, saivageConfig, mcpManager, telegramBot, notificationRouter, activeRuntime, stop };
 }
-export async function startServer(projectRoot: string, createRuntime?: boolean): Promise<ServerInstance> { const server = await createServer(projectRoot, createRuntime); validateDevModeHost(server.config.host); await server.fastify.listen({ host: server.config.host, port: server.config.port }); return server; }
+export async function startServer(optionsOrProjectRoot: CreateServerOptions | string, createRuntime?: boolean): Promise<ServerInstance> { const server = await createServer(optionsOrProjectRoot as CreateServerOptions | string, createRuntime); const apiToken = typeof optionsOrProjectRoot === 'string' ? undefined : optionsOrProjectRoot.environment.auth.apiToken; validateDevModeHost(server.config.host, apiToken); await server.fastify.listen({ host: server.config.host, port: server.config.port }); return server; }
 export async function stopServer(server: ServerInstance): Promise<void> { await server.stop(); }

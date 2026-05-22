@@ -152,11 +152,10 @@ describe('Server Startup Integration (createServer)', () => {
     tmpDir = mkdtempSync(join(tmpdir(), 'saivage-server-startup-'));
     setupProjectDir(tmpDir);
     process.chdir(tmpDir);
-    process.env['SAIVAGE_API_TOKEN'] = AUTH_TOKEN;
     resetAuthPolicyForTests();
-    const { createServer } = await import('../../src/server/server.js');
-    server = await createServer(tmpDir);
-    await server.fastify.listen({ host: '127.0.0.1', port: 0 });
+    const { startApp } = await import('../../src/boot/app.js');
+    const app = await startApp({ argv: ['node', 'saivage', 'start', '--host', '127.0.0.1', '--port', '0'], env: { SAIVAGE_PROJECT_ROOT: tmpDir, SAIVAGE_API_TOKEN: AUTH_TOKEN, NODE_ENV: 'test' }, createRuntime: false });
+    server = app.server;
     const addr = server.fastify.server.address();
     if (!addr || typeof addr === 'string') {
       throw new Error('Server did not listen on a network port');
@@ -403,9 +402,9 @@ describe('Server Startup Integration (createServer)', () => {
       try {
         setupProjectDir(stopRoot);
         process.chdir(stopRoot);
-        const { createServer } = await import('../../src/server/server.js');
-        const stopServer = await createServer(stopRoot);
-        await stopServer.fastify.listen({ host: '127.0.0.1', port: 0 });
+        const { startApp } = await import('../../src/boot/app.js');
+        const stopApp = await startApp({ argv: ['node', 'saivage', 'start', '--host', '127.0.0.1', '--port', '0'], env: { SAIVAGE_PROJECT_ROOT: stopRoot, SAIVAGE_API_TOKEN: AUTH_TOKEN, NODE_ENV: 'test' }, createRuntime: false });
+        const stopServer = stopApp.server;
         const addr = stopServer.fastify.server.address();
         if (!addr || typeof addr === 'string') {
           throw new Error('Stop test server did not listen on a network port');
@@ -426,4 +425,40 @@ describe('Server Startup Integration (createServer)', () => {
       }
     }, 15000);
   });
+});
+
+describe('Stage 01 Environment startup fail-closed behavior', () => {
+  it('createServer rejects malformed config instead of falling back to an empty config', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'saivage-server-bad-config-'));
+    try {
+      mkdirSync(join(root, '.saivage'), { recursive: true });
+      writeFileSync(join(root, '.saivage', 'saivage.json'), JSON.stringify({ models: { default: 123 } }), 'utf-8');
+      const { createServer } = await import('../../src/server/server.js');
+      await expect(createServer(root, false)).rejects.toThrow(/Configuration validation failed/);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('startApp loads Environment once and starts the server from explicit argv/env inputs', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'saivage-start-app-'));
+    let app: Awaited<ReturnType<typeof import('../../src/boot/app.js').startApp>> | undefined;
+    try {
+      setupProjectDir(root);
+      const { startApp } = await import('../../src/boot/app.js');
+      app = await startApp({
+        argv: ['node', 'saivage', 'start', '--host', '127.0.0.1', '--port', '0'],
+        env: { SAIVAGE_PROJECT_ROOT: root, SAIVAGE_API_TOKEN: AUTH_TOKEN, NODE_ENV: 'test' },
+        createRuntime: false,
+      });
+      expect(app.environment.server.host).toBe('127.0.0.1');
+      expect(app.environment.server.port).toBe(0);
+      expect(Object.isFrozen(app.environment)).toBe(true);
+      const addr = app.server.fastify.server.address();
+      expect(addr).toBeTruthy();
+    } finally {
+      if (app) await app.stop();
+      rmSync(root, { recursive: true, force: true });
+    }
+  }, 15000);
 });

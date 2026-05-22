@@ -28,10 +28,6 @@ interface StoredTicket {
 
 const DEFAULT_WS_TICKET_TTL_MS = 30_000;
 
-function configuredApiToken(explicit?: string): string | undefined {
-  return explicit ?? process.env['SAIVAGE_API_TOKEN'];
-}
-
 function hasQueryCredential(query: unknown): boolean {
   if (!query || typeof query !== 'object') return false;
   return Object.prototype.hasOwnProperty.call(query as Record<string, unknown>, 'token');
@@ -63,7 +59,7 @@ export class AuthPolicy {
   private readonly tickets = new Map<string, StoredTicket>();
 
   constructor(options: AuthPolicyOptions = {}) {
-    this.apiToken = configuredApiToken(options.apiToken);
+    this.apiToken = options.apiToken;
     this.wsTicketTtlMs = options.wsTicketTtlMs ?? DEFAULT_WS_TICKET_TTL_MS;
     this.now = options.now ?? (() => Date.now());
     this.randomBytes = options.randomBytes ?? nodeRandomBytes;
@@ -149,18 +145,19 @@ export class AuthPolicy {
 }
 
 let defaultPolicy: AuthPolicy | undefined;
-let defaultToken: string | undefined;
+
+export function configureAuthPolicy(options: AuthPolicyOptions): AuthPolicy {
+  defaultPolicy = new AuthPolicy(options);
+  return defaultPolicy;
+}
 
 export function getAuthPolicy(): AuthPolicy {
-  const token = process.env['SAIVAGE_API_TOKEN'];
-  if (!defaultPolicy || defaultToken !== token) {
-    defaultPolicy = new AuthPolicy({ apiToken: token });
-    defaultToken = token;
+  if (!defaultPolicy) {
+    defaultPolicy = new AuthPolicy();
   }
   return defaultPolicy;
 }
 
 export function resetAuthPolicyForTests(): void {
   defaultPolicy = undefined;
-  defaultToken = undefined;
 }

@@ -1,59 +1,8 @@
 import { z } from 'zod';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { interpolateValue, type EnvironmentSource } from '../config/env-interpolation.js';
 
-// ── Environment Variable Interpolation ────────────────────────
-
-const ENV_PATTERN = /\$\{([A-Za-z_][A-Za-z0-9_]*)\}/g;
-
-/**
- * Resolve `${ENV_VAR}` references in a string against process.env.
- * Unknown variables are replaced with an empty string and recorded
- * as warnings.
- */
-export interface EnvInterpolationResult {
-  value: string;
-  warnings: string[];
-}
-
-function interpolateString(raw: string): EnvInterpolationResult {
-  const warnings: string[] = [];
-  const value = raw.replace(ENV_PATTERN, (_match, name: string) => {
-    const envVal = process.env[name];
-    if (envVal === undefined) {
-      warnings.push(`Environment variable '${name}' is not set.`);
-      return '';
-    }
-    return envVal;
-  });
-  return { value, warnings };
-}
-
-/**
- * Deep-interpolate ${ENV_VAR} references in any JSON-compatible value.
- */
-function interpolateValue(v: unknown): { value: unknown; warnings: string[] } {
-  if (typeof v === 'string') {
-    return interpolateString(v);
-  }
-  if (Array.isArray(v)) {
-    const results = v.map((item) => interpolateValue(item));
-    return {
-      value: results.map((r) => r.value),
-      warnings: results.flatMap((r) => r.warnings),
-    };
-  }
-  if (v !== null && typeof v === 'object') {
-    const result: Record<string, unknown> = {};
-    const warnings: string[] = [];
-    for (const [key, val] of Object.entries(v as Record<string, unknown>)) {
-      const { value: iv, warnings: iw } = interpolateValue(val);
-      result[key] = iv;
-      warnings.push(...iw);
-    }
-    return { value: result, warnings };
-  }
-  return { value: v, warnings: [] };
-}
+// ── Legacy runtime migration ─────────────────────────────────
 
 const LEGACY_RUNTIME_KEYS = new Set([
   'continuousImprovement',
@@ -398,7 +347,7 @@ export interface ConfigLoadResult {
  * Performs env interpolation first, then Zod validation.
  * Returns the validated config and any interpolation warnings.
  */
-export function loadConfig(projectRoot: string): ConfigLoadResult {
+export function loadConfig(projectRoot: string, env: EnvironmentSource = process.env): ConfigLoadResult {
   const configPath = `${projectRoot}/.saivage/saivage.json`;
   if (!existsSync(configPath)) {
     throw new Error(`Configuration not found at ${configPath}`);
@@ -421,7 +370,7 @@ export function loadConfig(projectRoot: string): ConfigLoadResult {
   }
 
   // Interpolate env vars
-  const { value: interpolated, warnings } = interpolateValue(rawObj);
+  const { value: interpolated, warnings } = interpolateValue(rawObj, env);
 
   // Validate with Zod
   const parsed = saivageConfigSchema.safeParse(interpolated);

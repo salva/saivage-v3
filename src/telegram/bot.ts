@@ -15,7 +15,7 @@
  * See docs/design/configuration.md § Telegram and docs/design/server-api.md § Telegram Channel.
  */
 
-import { loadConfig, type SaivageConfig } from '../agents/config-schema.js';
+import type { SaivageConfig } from '../agents/config-schema.js';
 import {
   AnalystHandler,
   getOrCreateAnalystSession,
@@ -132,10 +132,11 @@ export class TelegramBot {
   private pollAbortController: AbortController | null = null;
   private pollPromise: Promise<void> | null = null;
   private lastUpdateId = 0;
-  constructor(projectRoot: string) {
+  constructor(projectRoot: string, saivageConfig?: SaivageConfig) {
     this.projectRoot = projectRoot;
-    let saivageConfig: SaivageConfig;
-    try { const { config } = loadConfig(projectRoot); saivageConfig = config; } catch { saivageConfig = {} as SaivageConfig; }
+    if (!saivageConfig) {
+      throw new Error('TelegramBot requires validated SaivageConfig from Environment.');
+    }
     this.config = { botToken: saivageConfig.telegram?.botToken, allowedUserIds: saivageConfig.telegram?.allowedUserIds };
     this.analystHandler = new AnalystHandler(projectRoot, undefined, undefined, 'analyst', 'telegram');
   }
