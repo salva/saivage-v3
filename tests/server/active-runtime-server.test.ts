@@ -127,11 +127,16 @@ describe('Server with ActiveRuntime (createRuntime=true)', () => {
 
 
   describe('Explicit start_project / stop_project API', () => {
+    let startedRootRun: Record<string, any> | null = null;
+    let startCommandId: string | null = null;
+
     it('POST /api/runtime/start_project returns command, intent, and root run records', async () => {
       const res = await fetchServer('/api/runtime/start_project', { method: 'POST', headers: authHeaders() });
       expect(res.status).toBe(200);
       const body = await res.json() as Record<string, any>;
       expect(body).toMatchObject({ success: true, command: { command: 'start_project', status: 'completed' }, intent: { status: 'running' }, run: { kind: 'root', card_id: 'project' } });
+      startedRootRun = body.run;
+      startCommandId = body.command.command_id;
     }, 15000);
 
     it('POST /api/runtime/start_project while already running returns actionable precondition error', async () => {
@@ -143,11 +148,26 @@ describe('Server with ActiveRuntime (createRuntime=true)', () => {
       expect(body.command).toMatchObject({ command: 'start_project', status: 'rejected' });
     });
 
-    it('POST /api/runtime/stop_project returns command and stopped intent records', async () => {
+    it('POST /api/runtime/stop_project returns command, stopped intent, and terminalized root run records', async () => {
+      expect(startedRootRun).not.toBeNull();
       const res = await fetchServer('/api/runtime/stop_project', { method: 'POST', headers: authHeaders() });
       expect(res.status).toBe(200);
       const body = await res.json() as Record<string, any>;
-      expect(body).toMatchObject({ success: true, command: { command: 'stop_project', status: 'completed' }, intent: { status: 'stopped' } });
+      expect(body).toMatchObject({
+        success: true,
+        command: { command: 'stop_project', status: 'completed' },
+        intent: { status: 'stopped' },
+        run: {
+          run_id: startedRootRun!.run_id,
+          kind: 'root',
+          card_id: 'project',
+          command_id: startCommandId,
+          phase: 'stopped',
+          runtime_status: 'stopped',
+          result: 'stopped',
+        },
+      });
+      expect(body.run.finished_at).toEqual(expect.any(String));
     });
 
     it('does not expose old /api/runtime/lets_dance route alias', async () => {
@@ -195,6 +215,14 @@ describe('Server without ActiveRuntime (createRuntime=false)', () => {
 
     it('POST /api/runtime/start_project returns actionable precondition error without ActiveRuntime', async () => {
       const res = await fetchServer('/api/runtime/start_project', { method: 'POST', headers: authHeaders() });
+      expect(res.status).toBe(503);
+      const body = await res.json() as Record<string, any>;
+      expect(body.success).toBe(false);
+      expect(body.actionable_error).toMatchObject({ code: 'active_runtime_unavailable', cardId: 'project' });
+    });
+
+    it('POST /api/runtime/stop_project returns actionable precondition error without ActiveRuntime', async () => {
+      const res = await fetchServer('/api/runtime/stop_project', { method: 'POST', headers: authHeaders() });
       expect(res.status).toBe(503);
       const body = await res.json() as Record<string, any>;
       expect(body.success).toBe(false);

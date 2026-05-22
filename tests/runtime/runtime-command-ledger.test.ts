@@ -29,14 +29,37 @@ describe('runtime command ledger target contract (Wave 1)', () => {
     const projectRoot = root();
     try {
       const runtime = new Runtime({ projectRoot, fakeAgentConfig: { mapping: {}, fixtureDir: '' }, autoDispatchBacklog: false });
-      runtime.dispatchGoal = (async () => {}) as Runtime['dispatchGoal'];
-      await runtime.startProject('operator');
+      runtime.dispatchGoal = (async () => { await new Promise<void>((resolve) => setImmediate(resolve)); }) as Runtime['dispatchGoal'];
+      const startResult = await runtime.startProject('operator');
+      if (!startResult.success) throw new Error(`startProject failed: ${startResult.error.message}`);
       const result = await runtime.stopProject('operator');
       expect(result.success).toBe(true);
+      expect(result.run).toMatchObject({
+        run_id: startResult.run.run_id,
+        kind: 'root',
+        card_id: 'project',
+        command_id: startResult.command.command_id,
+        phase: 'stopped',
+        runtime_status: 'stopped',
+        result: 'stopped',
+      });
+      expect(result.run!.finished_at).toEqual(expect.any(String));
       const state = readRuntimeState(projectRoot)!;
       expect(state.runtime_intent!.status).toBe('stopped');
       expect(state.runtime_commands).toEqual(expect.arrayContaining([expect.objectContaining({ command: 'stop_project', status: 'completed' })]));
+      expect(state.runtime_runs).toEqual(expect.arrayContaining([expect.objectContaining({ run_id: startResult.run.run_id, finished_at: result.run!.finished_at })]));
       expect(state.runtime_runs!.filter((run) => run.kind === 'root').every((run) => run.finished_at || run.phase === 'completed')).toBe(true);
+    } finally { rmSync(projectRoot, { recursive: true, force: true }); }
+  });
+
+  it('stop_project omits run when no root run was open', async () => {
+    const projectRoot = root();
+    try {
+      const runtime = new Runtime({ projectRoot, fakeAgentConfig: { mapping: {}, fixtureDir: '' }, autoDispatchBacklog: false });
+      const result = await runtime.stopProject('operator');
+      expect(result.success).toBe(true);
+      expect(result.intent!.status).toBe('stopped');
+      expect(result.run).toBeUndefined();
     } finally { rmSync(projectRoot, { recursive: true, force: true }); }
   });
 
