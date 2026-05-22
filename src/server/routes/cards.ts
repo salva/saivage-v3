@@ -9,36 +9,6 @@ import { redactCredentialLiterals, redactSecrets } from '../../utils/file-access
 const TRACKED_UPDATE_FIELDS = new Set(['title','description','acceptance','depends_on','related','estimate','parent','assigned_to','type','subtype','instructions_file','tags','priority','urgency']);
 const INLINE_SECRET_RE = /(api(?:[_-]?key|[_-]?token)?|token|secret|password)\s*=\s*("[^"]*"|'[^']*'|\S+)/gi;
 
-function createPreview(body: Record<string, unknown>) {
-  return {
-    type: 'card.create',
-    summary: `Create card '${String(body.title ?? '') || '(untitled)'}'.`,
-    affectedCards: [],
-    affectedProcesses: [],
-    warnings: [],
-  };
-}
-
-function updatePreview(id: string, changes: Record<string, unknown>) {
-  return {
-    type: 'card.update',
-    summary: `Update card '${id}' (${Object.keys(changes).join(', ') || 'no fields'}).`,
-    affectedCards: [{ id, title: '(pending)', type: 'unknown', status: 'unknown' }],
-    affectedProcesses: [],
-    warnings: [],
-  };
-}
-
-function deletePreview(id: string) {
-  return {
-    type: 'card.delete',
-    summary: `Delete card '${id}'.`,
-    affectedCards: [{ id, title: '(pending)', type: 'unknown', status: 'unknown' }],
-    affectedProcesses: [],
-    warnings: ['This permanently deletes the card and its descendants.'],
-  };
-}
-
 function redactInlineSecrets(content: string): string {
   return content.replace(INLINE_SECRET_RE, (_match, key: string) => `${key}=[REDACTED]`);
 }
@@ -145,7 +115,6 @@ export function registerCardRoutes(fastify: FastifyInstance, projectRoot: string
     safety_class: 'low',
     target_kind: 'card',
     target_id: null,
-    preview: createPreview(body),
     mutate: async () => {
       try {
         const priority = validatePriority(body.priority);
@@ -176,7 +145,6 @@ export function registerCardRoutes(fastify: FastifyInstance, projectRoot: string
       safety_class: tracked ? 'high' : 'low',
       target_kind: 'card',
       target_id: params.id,
-      preview: updatePreview(params.id, changes),
       mutate: async () => {
         try {
           if (Object.keys(changes).length === 0) return { ok: false, statusCode: 400, error: 'No valid fields to update', body: { error: 'No valid fields to update' }, outcomeSummary: 'no valid fields to update' };
@@ -201,7 +169,6 @@ export function registerCardRoutes(fastify: FastifyInstance, projectRoot: string
       safety_class: 'destructive',
       target_kind: 'card',
       target_id: params.id,
-      preview: deletePreview(params.id),
       mutate: async () => {
         try {
           store.delete(params.id);

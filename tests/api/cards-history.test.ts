@@ -53,18 +53,12 @@ beforeAll(async () => {
   await fetch(url('/api/cards'), {
     method: 'POST',
     headers: { ...authHeader(authToken), 'content-type': 'application/json' },
-    body: JSON.stringify({ title: 'Tracked card', type: 'code', parent: 'project', acceptance: 'accept initial', confirmed: true }),
+    body: JSON.stringify({ title: 'Tracked card', type: 'code', parent: 'project', acceptance: 'accept initial' }),
   });
-  const previewRes = await fetch(url('/api/cards/code-1'), {
-    method: 'PATCH',
-    headers: { ...authHeader(authToken), 'content-type': 'application/json' },
-    body: JSON.stringify({ description: 'apiKey="secret-123"', acceptance: 'updated acceptance' }),
-  });
-  const preview = await previewRes.json() as { preview_hash: string };
   await fetch(url('/api/cards/code-1'), {
     method: 'PATCH',
     headers: { ...authHeader(authToken), 'content-type': 'application/json' },
-    body: JSON.stringify({ description: 'apiKey="secret-123"', acceptance: 'updated acceptance', confirmed: true, preview_hash: preview.preview_hash }),
+    body: JSON.stringify({ description: 'apiKey="secret-123"', acceptance: 'updated acceptance' }),
   });
 }, 30000);
 

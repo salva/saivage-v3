@@ -98,17 +98,17 @@ beforeAll(async () => {
   await fetch(url('/api/cards'), {
     method: 'POST',
     headers: { ...authHeader(authToken), 'content-type': 'application/json' },
-    body: JSON.stringify({ id: 'goal-1', title: 'Tracked goal', type: 'goal', parent: 'project', acceptance: 'goal acceptance', confirmed: true }),
+    body: JSON.stringify({ id: 'goal-1', title: 'Tracked goal', type: 'goal', parent: 'project', acceptance: 'goal acceptance' }),
   });
   await fetch(url('/api/cards'), {
     method: 'POST',
     headers: { ...authHeader(authToken), 'content-type': 'application/json' },
-    body: JSON.stringify({ id: 'dependency-1', title: 'Dependency card', type: 'task', parent: 'goal-1', acceptance: 'dependency acceptance', confirmed: true }),
+    body: JSON.stringify({ id: 'dependency-1', title: 'Dependency card', type: 'task', parent: 'goal-1', acceptance: 'dependency acceptance' }),
   });
   await fetch(url('/api/cards'), {
     method: 'POST',
     headers: { ...authHeader(authToken), 'content-type': 'application/json' },
-    body: JSON.stringify({ id: 'code-1', title: 'Tracked card', type: 'code', parent: 'goal-1', description: 'before', acceptance: 'accept initial', confirmed: true }),
+    body: JSON.stringify({ id: 'code-1', title: 'Tracked card', type: 'code', parent: 'goal-1', description: 'before', acceptance: 'accept initial' }),
   });
 }, 30000);
 

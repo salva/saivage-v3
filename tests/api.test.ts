@@ -295,21 +295,15 @@ describe('websocket push events', () => {
     const createRes = await fetch(url('/api/cards'), {
       method: 'POST',
       headers: { ...authHeader(authToken), 'content-type': 'application/json' },
-      body: JSON.stringify({ title: 'WS card', type: 'code', parent: 'project', acceptance: 'old', confirmed: true }),
+      body: JSON.stringify({ title: 'WS card', type: 'code', parent: 'project', acceptance: 'old' }),
     });
     expect(createRes.status).toBe(201);
 
     const cardHistoryPromise = waitForWsEvent(ws, 'card_history_appended');
-    const previewRes = await fetch(url('/api/cards/code-1'), {
-      method: 'PATCH',
-      headers: { ...authHeader(authToken), 'content-type': 'application/json' },
-      body: JSON.stringify({ acceptance: 'new acceptance', description: 'changed' }),
-    });
-    const preview = await previewRes.json() as { preview_hash: string };
     const updateRes = await fetch(url('/api/cards/code-1'), {
       method: 'PATCH',
       headers: { ...authHeader(authToken), 'content-type': 'application/json' },
-      body: JSON.stringify({ acceptance: 'new acceptance', description: 'changed', confirmed: true, preview_hash: preview.preview_hash }),
+      body: JSON.stringify({ acceptance: 'new acceptance', description: 'changed' }),
     });
     expect(updateRes.status).toBe(200);
     const cardHistoryEvent = await cardHistoryPromise;
