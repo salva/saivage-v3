@@ -44,25 +44,25 @@ describe('Runtime caller-edge reconstruction from unresolved activate_card calls
     const goalOneFixture: FakeAgentFixture = { name: 'goal-two-leaves', planner: [{ status: 'done', created_cards: [{ id: 'code-parent-1', type: 'code', title: 'First leaf card', description: 'This card should execute.', status: 'backlog', depends_on: [], priority: 1 }, { id: 'code-parent-2', type: 'code', title: 'Second leaf card', description: 'This card should execute after the first.', status: 'backlog', depends_on: ['code-parent-1'], priority: 2 }], summary: 'Created two child cards and declared done.' }, { status: 'done', created_cards: [], summary: 'Goal planner resumed after first child execution and is waiting for remaining evidence.' }, { status: 'done', created_cards: [], summary: 'Goal planner resumed after second child execution and is ready for final review.' }], executor: { 'code-parent-1': { card_id: 'code-parent-1', status: 'done', status_text: 'Completed successfully', result: { evidence: 'completed first leaf card' } }, 'code-parent-2': { card_id: 'code-parent-2', status: 'done', status_text: 'Completed successfully', result: { evidence: 'completed second leaf card' } } }, reviewer: [goalOneReview, goalOneReview, goalOneReview] };
     const goalTwoFixture: FakeAgentFixture = { name: 'goal-one-leaf', planner: [{ status: 'done', created_cards: [{ id: 'code-parent-3', type: 'code', title: 'Third leaf card', description: 'This card should execute for the second top-level goal.', status: 'backlog', depends_on: [], priority: 1 }], summary: 'Created one child card and declared done.' }, { status: 'done', created_cards: [], summary: 'Goal planner resumed after child execution and confirmed completion.' }], executor: { 'code-parent-3': { card_id: 'code-parent-3', status: 'done', status_text: 'Completed successfully', result: { evidence: 'completed third leaf card' } } }, reviewer: [goalTwoReview] };
     writeFixture(fixtureDir, 'project-parent', projectFixture); writeFixture(fixtureDir, 'goal-two-leaves', goalOneFixture); writeFixture(fixtureDir, 'goal-one-leaf', goalTwoFixture);
-    const fakeAgent = new FakeAgentAdapter({ mapping: { project: 'project-parent', 'goal-parent-1': 'goal-two-leaves', 'goal-parent-2': 'goal-one-leaf' }, fixtureDir });
-    runtime = new Runtime({ projectRoot: tmpDir, fakeAgentConfig: { mapping: { project: 'project-parent', 'goal-parent-1': 'goal-two-leaves', 'goal-parent-2': 'goal-one-leaf' }, fixtureDir } }, fakeAgent);
+    const fakeAgent = new FakeAgentAdapter({ mapping: { project: 'project-parent', 'goal-parent-1': 'goal-two-leaves', 'goal-parent-2': 'goal-one-leaf' }, fixtureDir, autoActivateCreatedCards: false });
+    runtime = new Runtime({ projectRoot: tmpDir, fakeAgentConfig: { mapping: { project: 'project-parent', 'goal-parent-1': 'goal-two-leaves', 'goal-parent-2': 'goal-one-leaf' }, fixtureDir, autoActivateCreatedCards: false } }, fakeAgent);
     await runtime.startup(); await runtime.dispatchGoal('project');
 
     expect(runtime.cardStore.read('goal-parent-1')?.status).toBe('backlog');
-    expect(runtime.cardStore.read('goal-parent-2')?.status).toBe('backlog');
+    expect(runtime.cardStore.read('goal-parent-2')).toBeNull();
     expect(runtime.cardStore.read('code-parent-1')).toBeNull();
     expect(runtime.cardStore.read('code-parent-2')).toBeNull();
     expect(runtime.cardStore.read('code-parent-3')).toBeNull();
     expect(runtime.getState()?.runtime_activations ?? []).toEqual([]);
     expect(runtime.getState()?.queue).toEqual([]);
-    expect(runtime.getState()?.active_card_run).toEqual(expect.objectContaining({ card_id: 'project', phase: 'planner' }));
+    expect(runtime.getState()?.active_card_run).toBeNull();
     expect(existsSync(join(tmpDir, '.saivage', 'runtime', 'planner-frames'))).toBe(false);
     expect(existsSync(join(tmpDir, '.saivage', 'runtime', 'planner-dispatches'))).toBe(false);
 
     const projectActivateMessages = activateMessages(tmpDir, 'project');
     const projectCalls = projectActivateMessages.filter((m) => m.kind === 'tool_call');
     const projectResults = projectActivateMessages.filter((m) => m.kind === 'tool_result');
-    expect(activateToolCallIds(tmpDir, 'project').sort()).toEqual(['activate:project:goal-parent-1:0', 'activate:project:goal-parent-2:1']);
+    expect(activateToolCallIds(tmpDir, 'project')).toEqual([]);
     expect(projectResults).toHaveLength(0);
     expect(runtime.cardStore.read('project')?.result?.review).toBeUndefined();
   });
@@ -72,19 +72,19 @@ describe('Runtime caller-edge reconstruction from unresolved activate_card calls
     const parentGoalFixture: FakeAgentFixture = { name: 'goal-parent-stage4', planner: [{ status: 'done', created_cards: [{ id: 'goal-child', type: 'goal', title: 'Child goal', description: 'child', status: 'backlog', depends_on: [], priority: 1 }], summary: 'created child' }, { status: 'done', created_cards: [], summary: 'parent complete' }], reviewer: [{ assessment: { id: 'review-goal-parent-stage4', goal_card_id: 'goal-parent', reviewer_session_id: 'rev-parent-stage4', assessment_id: 'assessment-test', at: '2025-01-01T00:00:00.000Z', result: 'pass', summary: 'parent done', achieved: ['child goal done'], issues: [], evidence_card_ids: ['goal-child'], created_at: new Date().toISOString() } }] };
     const childGoalFixture: FakeAgentFixture = { name: 'goal-child-stage4', planner: [{ status: 'done', created_cards: [{ id: 'code-leaf', type: 'code', title: 'Leaf code', description: 'leaf', status: 'backlog', depends_on: [], priority: 1 }], summary: 'created leaf' }, { status: 'done', created_cards: [], summary: 'child complete' }], executor: { 'code-leaf': { card_id: 'code-leaf', status: 'done', status_text: 'leaf complete', result: { evidence: true } } }, reviewer: [{ assessment: { id: 'review-goal-child-stage4', goal_card_id: 'goal-child', reviewer_session_id: 'rev-child-stage4', assessment_id: 'assessment-test', at: '2025-01-01T00:00:00.000Z', result: 'pass', summary: 'child done', achieved: ['leaf complete'], issues: [], evidence_card_ids: ['code-leaf'], created_at: new Date().toISOString() } }] };
     writeFixture(fixtureDir, 'project-stage4', projectFixture); writeFixture(fixtureDir, 'goal-parent-stage4', parentGoalFixture); writeFixture(fixtureDir, 'goal-child-stage4', childGoalFixture);
-    const fakeAgent = new FakeAgentAdapter({ mapping: { project: 'project-stage4', 'goal-parent': 'goal-parent-stage4', 'goal-child': 'goal-child-stage4' }, fixtureDir });
-    runtime = new Runtime({ projectRoot: tmpDir, fakeAgentConfig: { mapping: { project: 'project-stage4', 'goal-parent': 'goal-parent-stage4', 'goal-child': 'goal-child-stage4' }, fixtureDir } }, fakeAgent);
+    const fakeAgent = new FakeAgentAdapter({ mapping: { project: 'project-stage4', 'goal-parent': 'goal-parent-stage4', 'goal-child': 'goal-child-stage4' }, fixtureDir, autoActivateCreatedCards: false });
+    runtime = new Runtime({ projectRoot: tmpDir, fakeAgentConfig: { mapping: { project: 'project-stage4', 'goal-parent': 'goal-parent-stage4', 'goal-child': 'goal-child-stage4' }, fixtureDir, autoActivateCreatedCards: false } }, fakeAgent);
     const completionEvents: Array<Record<string, unknown>> = [];
     runtime.on('project_run_completed', (event) => completionEvents.push(event as Record<string, unknown>));
     await runtime.startup(); await runtime.dispatchGoal('project');
 
-    expect(runtime.getState()?.active_card_run).toEqual(expect.objectContaining({ card_id: 'project', phase: 'planner' }));
-    expect(runtime.getState()?.current_card_id).toBe('project');
+    expect(runtime.getState()?.active_card_run).toBeNull();
+    expect(runtime.getState()?.current_card_id).toBeNull();
     expect(runtime.cardStore.read('goal-parent')?.status).toBe('backlog');
     expect(runtime.cardStore.read('goal-child')).toBeNull();
     expect(runtime.cardStore.read('code-leaf')).toBeNull();
     expect(runtime.getState()?.runtime_activations ?? []).toEqual([]);
-    expect(activateToolCallIds(tmpDir, 'project')).toEqual(['activate:project:goal-parent:0']);
+    expect(activateToolCallIds(tmpDir, 'project')).toEqual([]);
     expect(activateMessages(tmpDir, 'project').filter((m) => m.kind === 'tool_result')).toHaveLength(0);
     expect(activateMessages(tmpDir, 'goal-parent')).toHaveLength(0);
     expect(activateMessages(tmpDir, 'goal-child')).toHaveLength(0);

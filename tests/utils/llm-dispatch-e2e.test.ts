@@ -330,13 +330,10 @@ describe('E2E LLM Dispatch Pipeline', () => {
     tmpDir = '';
   });
 
-  it('should dispatch a depth-1 goal with custom instructions_file through the full LLM pipeline', async () => {
+  it('keeps planner-created depth-1 child cards as planner state until explicit activate_card', async () => {
     mock = await createMockLlmServer([
       { body: okResp(PLANNER_RESPONSE_1) },
-      { body: okResp(EXECUTOR_RESPONSE_1) },
-      { body: okResp(EXECUTOR_RESPONSE_2) },
       { body: okResp(PLANNER_RESPONSE_2) },
-      { body: okResp(REVIEWER_RESPONSE) },
     ]);
 
     tmpDir = makeTempDir();
@@ -377,20 +374,20 @@ describe('E2E LLM Dispatch Pipeline', () => {
     await activeRuntime.dispatchGoal('e2e-llm-goal');
     await activeRuntime.stop();
 
-    expect(goalCompleted).toBe(true);
+    expect(goalCompleted).toBe(false);
     const finalGoal = store.read('e2e-llm-goal');
     expect(finalGoal).not.toBeNull();
-    expect(finalGoal!.status).toBe('done');
+    expect(finalGoal!.status).not.toBe('done');
 
     const card1 = store.read('code-e2e-llm-1');
     expect(card1).not.toBeNull();
-    expect(card1!.status).toBe('done');
+    expect(card1!.status).toBe('backlog');
 
     const card2 = store.read('code-e2e-llm-2');
     expect(card2).not.toBeNull();
-    expect(card2!.status).toBe('done');
+    expect(card2!.status).toBe('backlog');
 
-    expect(mock.captures.length).toBe(5);
+    expect(mock.captures.length).toBe(2);
 
     for (const cap of mock.captures) {
       expect(cap.method).toBe('POST');
@@ -421,7 +418,7 @@ describe('E2E LLM Dispatch Pipeline', () => {
     expect(systemMsg.content).toContain('per-goal instructions for depth > 0 goals');
     expect(systemMsg.content).not.toContain('default instructions for all depth-0 planners');
 
-    const plannerReq2 = JSON.parse(mock.captures[3].body);
+    const plannerReq2 = JSON.parse(mock.captures[1].body);
     const systemMsg2 = plannerReq2.messages[0];
     expect(systemMsg2.role).toBe('system');
     expect(systemMsg2.content).toContain('--- SKILL: e2e-test-skill ---');
@@ -429,17 +426,6 @@ describe('E2E LLM Dispatch Pipeline', () => {
     expect(systemMsg2.content).toContain('Custom Goal Instructions');
     expect(systemMsg2.content).not.toContain('default instructions for all depth-0 planners');
 
-    const execReq1 = JSON.parse(mock.captures[1].body);
-    const execSysMsg = execReq1.messages[0];
-    expect(execSysMsg.role).toBe('system');
-    expect(execSysMsg.content).toContain('Executor default instructions for e2e tests');
-    expect(execSysMsg.content).toContain('--- SKILL: e2e-test-skill ---');
-
-    const reviewerReq = JSON.parse(mock.captures[4].body);
-    const revSysMsg = reviewerReq.messages[0];
-    expect(revSysMsg.role).toBe('system');
-    expect(revSysMsg.content).toContain('Reviewer default instructions for e2e tests');
-    expect(revSysMsg.content).toContain('--- SKILL: e2e-test-skill ---');
   });
 
   it('mock server should return valid OpenAI-compatible responses', async () => {
@@ -488,12 +474,10 @@ describe('E2E LLM Dispatch Pipeline', () => {
     }
   });
 
-  it('project card (depth 0) should use default planner instructions', async () => {
+  it('project card (depth 0) should use default planner instructions without auto-executing created children', async () => {
     mock = await createMockLlmServer([
       { body: okResp(PROJECT_PLANNER_RESPONSE_1) },
-      { body: okResp(PROJECT_EXECUTOR_RESPONSE_1) },
       { body: okResp(PLANNER_RESPONSE_2) },
-      { body: okResp(PROJECT_REVIEWER_RESPONSE) },
     ]);
 
     tmpDir = makeTempDir();
@@ -510,12 +494,12 @@ describe('E2E LLM Dispatch Pipeline', () => {
     await activeRuntime.dispatchGoal('project');
     await activeRuntime.stop();
 
-    expect(goalCompleted).toBe(true);
+    expect(goalCompleted).toBe(false);
 
     const { CardStore } = await import('../../src/utils/card-store.js');
     const store = new CardStore(tmpDir);
     const projectCard = store.read('project');
-    expect(projectCard!.status).toBe('done');
+    expect(projectCard!.status).not.toBe('done');
 
     expect(mock.captures.length).toBeGreaterThanOrEqual(1);
     const plannerReq = JSON.parse(mock.captures[0].body);

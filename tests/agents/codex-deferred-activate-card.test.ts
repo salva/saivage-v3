@@ -57,7 +57,7 @@ describe('Codex deferred activate_card history assembly', () => {
     rmSync(tmpDir, { recursive: true, force: true });
   });
 
-  it('drops only the deferred activate_card function_call from the next Codex request while preserving the executed sibling pair', async () => {
+  it('keeps deferred activate_card tool result history for the next planner cycle while preserving the executed sibling pair', async () => {
     createTestCard(tmpDir, 'child-card-1', 'goal-stage-18');
     let followUpMessages: AgentMessage[] = [];
     adapter.setLlmCallFn(async (_candidate, _systemPrompt, messages) => {
@@ -94,13 +94,13 @@ describe('Codex deferred activate_card history assembly', () => {
       [expect.objectContaining({ id: 'call_report_progress_stage_18' })],
     ]);
 
-    expect(persisted.some((message) => message.role === 'tool' && message.tool_call_id === 'call_activate_stage_18')).toBe(false);
+    expect(persisted.some((message) => message.role === 'tool' && message.tool_call_id === 'call_activate_stage_18')).toBe(true);
     expect(persisted.some((message) => message.role === 'tool' && message.tool_call_id === 'call_report_progress_stage_18')).toBe(true);
     expect(followUpMessages.map((message) => message.id)).toEqual(persisted.map((message) => message.id));
 
     const codexInput = (new LlmClient('http://localhost:1', 'synthetic-token') as any).codexMessages(followUpMessages);
-    expect(codexInput).not.toEqual(expect.arrayContaining([
-      expect.objectContaining({ type: 'function_call', call_id: 'call_activate_stage_18' }),
+    expect(codexInput).toEqual(expect.arrayContaining([
+      expect.objectContaining({ type: 'function_call_output', call_id: 'call_activate_stage_18' }),
     ]));
     expect(codexInput).toEqual(expect.arrayContaining([
       expect.objectContaining({ type: 'function_call', call_id: 'call_report_progress_stage_18', name: 'report_progress', arguments: reportArgs }),

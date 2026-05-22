@@ -159,7 +159,25 @@ export class Runtime extends EventEmitter {
     }));
   }
 
+
+  private markActivationComplete(childCardId: string, outcome: ActivationCompletionOutcome): void {
+    const state = readRuntimeState(this.projectRoot);
+    if (!state?.runtime_activations?.length) return;
+    const at = now();
+    const terminalStatus = outcome === 'done' ? 'completed' : outcome;
+    const runResult: RuntimeRunRecord['result'] = outcome === 'done' ? 'done' : outcome === 'blocked' ? 'blocked' : outcome === 'cancelled' ? 'cancelled' : 'failed';
+    const activations = state.runtime_activations.map((activation) => (activation.child_card_id === childCardId && ['pending', 'claimed', 'running'].includes(activation.status))
+      ? { ...activation, status: terminalStatus as typeof activation.status, updated_at: at }
+      : activation);
+    const completedActivationIds = new Set(activations.filter((activation) => activation.child_card_id === childCardId && !['pending', 'claimed', 'running'].includes(activation.status)).map((activation) => activation.activation_id));
+    const runs = (state.runtime_runs ?? []).map((run) => (run.card_id === childCardId && (!run.finished_at || completedActivationIds.has(run.activation_id ?? '')))
+      ? { ...run, phase: terminalStatus as typeof run.phase, runtime_status: outcome === 'done' ? 'idle' as const : 'error' as const, finished_at: at, updated_at: at, result: runResult }
+      : run);
+    saveRuntimeState(this.projectRoot, { ...state, runtime_activations: activations, runtime_runs: runs, updated_at: at });
+  }
+
   private appendChildUnwindToolResult(childCardId: string, outcome: ActivationCompletionOutcome, summary: string): void {
+    this.markActivationComplete(childCardId, outcome);
     const edge = this.findCallerEdge(childCardId);
     if (!edge) return;
     appendActivateCardToolResultOnce(
@@ -552,7 +570,7 @@ export class Runtime extends EventEmitter {
       const hasUnfinishedChildWork = this.cardStore.list().some((card) => card.parent === goalId && card.status !== 'done' && card.status !== 'failed' && card.status !== 'cancelled');
       const hasGoalDispatch = execution.dispatchedGoal; const createdCardIds = (plannerResult.created_cards ?? []).map((card) => card.id).filter((id): id is string => Boolean(id));
       if (plannerResult.status === 'blocked') { this.cardStore.setStatus(goalId, 'running'); this.cardStore.setStatus(goalId, 'blocked'); this.cardStore.update(goalId, { result: { ...(this.cardStore.read(goalId)?.result ?? {}), planning: { status: 'blocked', blocked_reason: plannerResult.blocked_reason ?? null, created_cards: createdCardIds } } }); updateRuntimeState(this.projectRoot, { status: 'idle', current_card_id: null, current_agent_session_id: null, queue: [] }); return; }
-      if (plannerResult.status === 'done' && !hasGoalDispatch && !hasUnfinishedChildWork) plannerDone = true; else { plannerDone = false; this.cardStore.update(goalId, { result: { ...(this.cardStore.read(goalId)?.result ?? {}), planning: { status: 'continue', planner_declared_done: plannerResult.status === 'done', has_unfinished_child_work: hasUnfinishedChildWork, resume_reason: hasGoalDispatch ? 'dispatch_completed' : 'review_completed', created_cards: createdCardIds } } }); }
+      if (plannerResult.status === 'done' && !hasGoalDispatch && !hasUnfinishedChildWork) plannerDone = true; else { plannerDone = false; this.cardStore.update(goalId, { result: { ...(this.cardStore.read(goalId)?.result ?? {}), planning: { status: 'continue', planner_declared_done: plannerResult.status === 'done', has_unfinished_child_work: hasUnfinishedChildWork, resume_reason: hasGoalDispatch ? 'dispatch_completed' : 'review_completed', created_cards: createdCardIds } } }); if (plannerResult.status === 'done' && !hasGoalDispatch && hasUnfinishedChildWork) { updateRuntimeState(this.projectRoot, { status: 'idle', current_card_id: null, current_agent_session_id: null, queue: [], active_card_run: null } as Partial<RuntimeState> as never); return; } }
       if (plannerDone) {
         const assessmentId = this.nextReviewerAssessmentId(goalId);
         const reviewerSessionId = this.reviewerSessionId(goalId, assessmentId);

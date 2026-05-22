@@ -370,6 +370,10 @@ describe('Core schemas still validate expected records', () => {
       queue: [],
       running_processes: [],
       updated_at: '2025-01-01T00:00:00.000Z',
+      runtime_intent: { status: 'stopped', updated_at: '2025-01-01T00:00:00.000Z', source_command_id: null, reason: null },
+      runtime_commands: [],
+      runtime_runs: [],
+      runtime_activations: [],
     }).success).toBe(true);
   });
 

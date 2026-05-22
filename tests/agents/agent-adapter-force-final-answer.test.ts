@@ -167,8 +167,8 @@ describe('AgentAdapter forceFinalAnswer planner recovery', () => {
 
     const recovered = await adapter.invokePlanner('goal-activate', 'system prompt');
     expect(recovered).toEqual({
-      status: 'continue',
-      summary: 'Activated child card child-card-1; awaiting completion.',
+      status: 'done',
+      summary: 'next planner cycle after deferred activation succeeded',
       created_cards: [],
       updated_cards: [],
       blocked_reason: undefined,
@@ -176,9 +176,9 @@ describe('AgentAdapter forceFinalAnswer planner recovery', () => {
     expect(recovered).not.toHaveProperty('toolCalls');
 
     let messages = sessionMessages(tmpDir, 'goal-activate');
-    expect(messages.some((message) => message.kind === 'model_issue' && message.content.includes('Synthesised planner continuation envelope for deferred activate_card'))).toBe(true);
-    expect(messages.some((message) => message.role === 'tool' && message.tool_call_id === 'call-activate-only')).toBe(false);
-    expectLastAssistantPlannerEnvelope(messages, 'continue');
+    expect(messages.some((message) => message.kind === 'model_issue' && message.content.includes('Synthesised planner continuation envelope for deferred activate_card'))).toBe(false);
+    expect(messages.some((message) => message.role === 'tool' && message.tool_call_id === 'call-activate-only')).toBe(true);
+    expectLastAssistantPlannerEnvelope(messages, 'done');
 
     const next = await adapter.invokePlanner('goal-activate', 'system prompt');
     expect(next.status).toBe('done');

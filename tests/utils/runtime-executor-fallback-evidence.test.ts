@@ -9,6 +9,7 @@ import { initProjectTree } from '../../src/utils/file-tree.js';
 import type { AgentRuntime } from '../../src/agents/agent-runtime.js';
 import type { PlannerResult, ExecutorResult, ReviewerResult } from '../../src/agents/result-parser.js';
 import type { CardRecord, HandoffSummary } from '../../src/schemas/types.js';
+import { appendRuntimeRun, upsertRuntimeActivation } from '../../src/runtime/state.js';
 
 class StubAgentRuntime implements AgentRuntime {
   constructor(
@@ -44,15 +45,7 @@ describe('Runtime executor fallback evidence persistence', () => {
   it('stores fallback result evidence and does not silently complete the parent goal', async () => {
     const plannerResult: PlannerResult = {
       status: 'done',
-      created_cards: [{
-        id: 'code-1',
-        type: 'code',
-        title: 'Generate output',
-        description: 'Create output file and verify it',
-        status: 'backlog',
-        depends_on: [],
-        priority: 1,
-      }],
+      created_cards: [],
       updated_cards: [],
     };
     const executorResult: ExecutorResult = {
@@ -90,6 +83,11 @@ describe('Runtime executor fallback evidence persistence', () => {
 
     const parentSession = createSession(join(projectRoot, '.saivage'), 'planner', 'project', 'project');
     appendMessage(join(projectRoot, '.saivage'), parentSession.id, { role: 'assistant', kind: 'tool_call', tool: 'activate_card', content: JSON.stringify({ toolCalls: [{ id: 'activate-project-code-1', type: 'function', function: { name: 'activate_card', arguments: JSON.stringify({ cardId: 'code-1' }) } }] }) });
+    const store = new (await import('../../src/utils/card-store.js')).CardStore(projectRoot);
+    store.create({ id: 'code-1', type: 'code', parent: 'project', depth: 1, title: 'Generate output', description: 'Create output file and verify it', status: 'backlog', depends_on: [], priority: 1, tags: [], urgency: 'normal', created_by: 'planner', blocks: [], related: [], acceptance: '', artifacts: [], attachments: [], retries: 0 });
+    const parentRun = appendRuntimeRun(projectRoot, { run_id: 'test-parent-run', kind: 'root', card_id: 'project', parent_run_id: null, command_id: null, activation_id: null, phase: 'planner', runtime_status: 'running', session_id: parentSession.id, result: null });
+    const childRun = appendRuntimeRun(projectRoot, { run_id: 'test-child-run', kind: 'child', card_id: 'code-1', parent_run_id: parentRun.run_id, command_id: null, activation_id: null, phase: 'pending', runtime_status: 'running', session_id: null, result: null });
+    upsertRuntimeActivation(projectRoot, { idempotency_key: 'test-parent-run:activate-project-code-1:code-1', parent_card_id: 'project', parent_run_id: parentRun.run_id, parent_session_id: parentSession.id, parent_tool_call_id: 'activate-project-code-1', child_card_id: 'code-1', status: 'pending', precondition: 'accepted', runtime_run_id: childRun.run_id, error: null });
     const runtime = new Runtime({ projectRoot, fakeAgentConfig: { mapping: {}, fixtureDir: '' } }, new StubAgentRuntime(plannerResult, executorResult, reviewerResult));
     await runtime.startup();
     await runtime.dispatchGoal('project');

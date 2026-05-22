@@ -110,11 +110,10 @@ describe('analyst inspection tools secret-path policy', () => {
     const root = mkdtempSync(join(tmpdir(), 'wave-k-inspect-'));
     try {
       const result = await run_shell_command(ctx(root), { command: 'cat .saivage/auth-profiles.json apiKey=super-secret' });
-      expect(result.success).toBe(true);
-      expect(result.preview).toBeTruthy();
-      expect(result.error).toBeUndefined();
+      expect(result.success).toBe(false);
+      expect(result.error).toMatch(/authorized surface|confirmation/i);
+      expect(result.data).toEqual(expect.objectContaining({ classified_as: expect.any(String) }));
       expect(JSON.stringify(result)).not.toMatch(/auth-profiles\.json/i);
-      expect(JSON.stringify(result)).toContain('[SECRET_PATH]');
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

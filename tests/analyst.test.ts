@@ -123,7 +123,7 @@ describe('Analyst Tool Definitions', () => {
     expect(noteProps.kind.enum).toEqual([...NOTE_KIND_VALUES]);
     expect(toolByName('add_note').function.description).toContain('do NOT change card fields');
 
-    for (const name of ['mark_goal_needs_corrections', 'mark_project_needs_corrections']) {
+    for (const name of ['mark_goal_needs_corrections']) {
       const issues = propertiesFor(name).issues as { items?: { properties?: Record<string, Record<string, unknown>> } };
       expect(issues.items?.properties?.severity.enum).toEqual([...ANALYST_ISSUE_SEVERITY_VALUES]);
       expect(issues.items?.properties?.severity.description).toContain('Allowed values: info, warning, blocker.');

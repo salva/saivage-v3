@@ -298,7 +298,7 @@ describe('stage 7 runtime restart and orphan activate_card repair', () => {
     expect(agent.plannerCalls).toEqual(['goal-a']);
 
     await instance.safeTick();
-    expect(agent.plannerCalls).toEqual(['goal-a', 'project']);
+    expect(agent.plannerCalls).toEqual(['goal-a']);
   });
 
   it('keeps pending_subprocess acceptance gate behavior deferred while durable process tools exist', async () => {
