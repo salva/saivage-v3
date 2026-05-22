@@ -127,7 +127,7 @@ describe('AgentAdapter forceFinalAnswer planner recovery', () => {
     expectLastAssistantPlannerEnvelope(messages, 'done');
   });
 
-  it('forces a parseable planner envelope after MAX_TOOL_ROUNDS exhaustion and continues on the next planner cycle', async () => {
+  it('continues through more than the former max tool rounds and accepts the eventual planner envelope', async () => {
     const adapter = createMinimalAdapter(tmpDir);
     const responses = [
       toolCallEnvelope([toolCall('call-round-1', 'list_notes', { cardId: 'goal-max', round: 1 })]),
@@ -136,18 +136,18 @@ describe('AgentAdapter forceFinalAnswer planner recovery', () => {
       toolCallEnvelope([toolCall('call-round-4', 'list_notes', { cardId: 'goal-max', round: 4 })]),
       toolCallEnvelope([toolCall('call-round-5', 'list_notes', { cardId: 'goal-max', round: 5 })]),
       toolCallEnvelope([toolCall('call-round-6', 'list_notes', { cardId: 'goal-max', round: 6 })]),
-      plannerEnvelope('continue', 'forced after max rounds'),
-      plannerEnvelope('done', 'next planner cycle after max rounds succeeded'),
+      plannerEnvelope('continue', 'continued after many tool rounds'),
+      plannerEnvelope('done', 'next planner cycle after many tool rounds succeeded'),
     ];
     adapter.setLlmCallFn(async () => responses.shift() ?? plannerEnvelope('done', 'fallback'));
 
     const recovered = await adapter.invokePlanner('goal-max', 'system prompt');
-    expect(recovered).toEqual(expect.objectContaining({ status: 'continue', summary: 'forced after max rounds' }));
+    expect(recovered).toEqual(expect.objectContaining({ status: 'continue', summary: 'continued after many tool rounds' }));
     expect(recovered).not.toHaveProperty('toolCalls');
 
     let messages = sessionMessages(tmpDir, 'goal-max');
-    expect(messages.some((message) => message.kind === 'model_issue' && message.content.includes('Maximum tool-call rounds exceeded (5)'))).toBe(true);
-    expect(messages.some((message) => message.kind === 'model_issue' && message.content.includes('Forcing final-answer turn without tools'))).toBe(true);
+    expect(messages.some((message) => message.kind === 'model_issue' && message.content.includes('Maximum tool-call rounds exceeded'))).toBe(false);
+    expect(messages.some((message) => message.kind === 'model_issue' && message.content.includes('Forcing final-answer turn without tools'))).toBe(false);
     expectLastAssistantPlannerEnvelope(messages, 'continue');
 
     const next = await adapter.invokePlanner('goal-max', 'system prompt');

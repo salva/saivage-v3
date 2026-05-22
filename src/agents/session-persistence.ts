@@ -9,6 +9,7 @@ import type {
   MessageKind,
   MessageRole,
   EntityLink,
+  SessionStatus,
 } from '../schemas/types.js';
 
 const SESSIONS_DIR = 'sessions';
@@ -112,7 +113,7 @@ export function getSession(
 export function completeSession(
   saivageDir: string,
   sessionId: string,
-  status: 'done' | 'failed',
+  status: 'done' | 'blocked' | 'failed',
 ): AgentSession {
   const session = getSession(saivageDir, sessionId);
   if (!session) {
@@ -134,6 +135,35 @@ export function completeSession(
   return updated;
 }
 
+export function setSessionStatus(
+  saivageDir: string,
+  sessionId: string,
+  status: SessionStatus,
+): AgentSession {
+  const session = getSession(saivageDir, sessionId);
+  if (!session) {
+    throw new Error(`Session not found: ${sessionId}`);
+  }
+
+  const updated: AgentSession = {
+    ...session,
+    status,
+    completed_at: status === 'active' || status === 'waiting' ? null : new Date().toISOString(),
+  };
+
+  agentSessionSchema.parse(updated);
+  writeFileAtomic(
+    sessionPath(saivageDir, sessionId),
+    JSON.stringify(updated, null, 2) + '\n',
+  );
+
+  return updated;
+}
+
+export function markSessionWaiting(saivageDir: string, sessionId: string): AgentSession {
+  return setSessionStatus(saivageDir, sessionId, 'waiting');
+}
+
 export function failActiveWorkerSessions(
   saivageDir: string,
   reason = 'Session was left active by a previous runtime process.',
@@ -142,7 +172,7 @@ export function failActiveWorkerSessions(
 
   for (const sessionId of listSessions(saivageDir)) {
     const session = getSession(saivageDir, sessionId);
-    if (!session || session.status !== 'active' || session.role === 'analyst') continue;
+    if (!session || (session.status !== 'active' && session.status !== 'waiting') || session.role === 'analyst') continue;
 
     const updated = completeSession(saivageDir, session.id, 'failed');
     appendMessage(saivageDir, session.id, {

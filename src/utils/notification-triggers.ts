@@ -44,7 +44,7 @@ function getActiveSessions(projectRoot: string): AgentSession[] {
   const saivageDir = join(projectRoot, '.saivage');
   return listSessions(saivageDir)
     .map((sessionId) => getSession(saivageDir, sessionId))
-    .filter((session): session is AgentSession => session !== null && session.status === 'active');
+    .filter((session): session is AgentSession => session !== null && (session.status === 'active' || session.status === 'waiting'));
 }
 
 function buildAncestorScope(store: CardStore, cardId: string): Set<string> {

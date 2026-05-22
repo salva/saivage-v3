@@ -4,7 +4,7 @@ import { loadConfig, getRuntimeConfig, getModelParamsForRole, getSelfCheckThresh
 import { ProviderRegistry, type Candidate } from './provider.js';
 import { ModelRouter } from './model-router.js';
 import { parsePlannerResult, parseExecutorResult, parseReviewerResult, buildExecutorFallbackResult, type PlannerResult, type ExecutorResult, type ReviewerResult } from './result-parser.js';
-import { createSession, completeSession, appendMessage, getSession, getSessionMessages, listSessions, updateSessionModel } from './session-persistence.js';
+import { createSession, completeSession, appendMessage, getSession, getSessionMessages, listSessions, markSessionWaiting, updateSessionModel } from './session-persistence.js';
 import type { AgentMessage, HandoffSummary, LoggedEvent, NotificationRecord } from '../schemas/types.js';
 import { compactSession } from './compaction.js';
 import { invokeWithRecovery, type RecoveryContext } from './recovery.js';
@@ -257,7 +257,7 @@ export class AgentAdapter implements AgentRuntime {
   private resetOnRoleChange(role: AgentRole): void { if (this.lastRole !== null && this.lastRole !== role) this.roundCounters.clear(); this.lastRole = role; }
   cancelSession(sessionId: string): boolean { const controller = this._abortControllers.get(sessionId); if (!controller) return false; controller.abort(); this._abortControllers.delete(sessionId); this._cancelledSessions.add(sessionId); if (this.eventLogger) this.eventLogger.appendEvent({ kind: 'session_cancelled', session_id: sessionId }); if (this.eventBus) this.eventBus.emit('session_cancelled', { session_id: sessionId }); return true; }
   forceCancelSession(sessionId: string): boolean { const controller = this._abortControllers.get(sessionId); if (controller) { controller.abort(); this._abortControllers.delete(sessionId); } this._cancelledSessions.add(sessionId); if (this.eventLogger) this.eventLogger.appendEvent({ kind: 'session_force_cancelled', session_id: sessionId }); if (this.eventBus) this.eventBus.emit('session_force_cancelled', { session_id: sessionId }); return controller !== undefined; }
-  getHandoffSummary(sessionId: string): HandoffSummary | null { try { const session = getSession(this.saivageDir, sessionId); if (!session || session.status !== 'active') return null; const messages = getSessionMessages(this.saivageDir, sessionId); const lastUserMsg = [...messages].reverse().find((m) => m.role === 'user'); const lastAssistantMsg = [...messages].reverse().find((m) => m.role === 'assistant'); return { session_id: sessionId, role: session.role as HandoffSummary['role'], last_action: lastAssistantMsg ? `Produced response: ${lastAssistantMsg.content.substring(0, 200)}` : 'Session started', next_action: lastUserMsg ? `Processing: ${lastUserMsg.content.substring(0, 200)}` : 'Awaiting user input', context_summary: `Goal: ${session.goal_card_id ?? 'N/A'}, Card: ${session.card_id ?? 'N/A'}` }; } catch { return null; } }
+  getHandoffSummary(sessionId: string): HandoffSummary | null { try { const session = getSession(this.saivageDir, sessionId); if (!session || (session.status !== 'active' && session.status !== 'waiting')) return null; const messages = getSessionMessages(this.saivageDir, sessionId); const lastUserMsg = [...messages].reverse().find((m) => m.role === 'user'); const lastAssistantMsg = [...messages].reverse().find((m) => m.role === 'assistant'); return { session_id: sessionId, role: session.role as HandoffSummary['role'], last_action: lastAssistantMsg ? `Produced response: ${lastAssistantMsg.content.substring(0, 200)}` : 'Session started', next_action: lastUserMsg ? `Processing: ${lastUserMsg.content.substring(0, 200)}` : 'Awaiting user input', context_summary: `Goal: ${session.goal_card_id ?? 'N/A'}, Card: ${session.card_id ?? 'N/A'}` }; } catch { return null; } }
   getActiveSessionHandoffs(): HandoffSummary[] { try { const ids = listSessions(this.saivageDir); const summaries: HandoffSummary[] = []; for (const id of ids) { const summary = this.getHandoffSummary(id); if (summary) summaries.push(summary); } return summaries; } catch { return []; } }
   async invokePlanner(goalId: string, systemPrompt: string = '', contextMessages: AgentMessage[] = []): Promise<PlannerResult> {
     const plannerSessionId = `planner:${goalId}`;
@@ -368,9 +368,8 @@ export class AgentAdapter implements AgentRuntime {
   }
   private async handleToolCallsLoop(rawResponse: string, role: AgentRole, sessionId: string, candidate: Candidate, systemPrompt: string, modelParams: { temperature: number; maxTokens: number }, abortController: AbortController, invocation?: { goalId?: string; cardId?: string }): Promise<{ response: string; transportSucceeded: boolean }> {
     let currentResponse = rawResponse;
-    const MAX_TOOL_ROUNDS = 5;
     const previousCalls = new Set<string>();
-    for (let toolRound = 0; toolRound < MAX_TOOL_ROUNDS; toolRound++) {
+    while (true) {
       const toolCalls = this.parseToolCallsFromResponse(currentResponse);
       if (!toolCalls) return { response: currentResponse, transportSucceeded: true };
       const callFingerprint = toolCalls.map((tc) => `${tc.function.name}:${tc.function.arguments}`).sort().join('||');
@@ -429,9 +428,6 @@ export class AgentAdapter implements AgentRuntime {
       const modelMessages = this.buildModelMessages(sessionId).messages;
       currentResponse = await this.llmCallFn!(candidate, systemPrompt, modelMessages, sessionId, { temperature: modelParams.temperature, max_tokens: modelParams.maxTokens, signal: abortController.signal, ...(followUpTools.length > 0 ? { tools: followUpTools, tool_choice: 'auto' } : {}) });
     }
-    appendMessage(this.saivageDir, sessionId, { role: 'system', kind: 'model_issue', content: `Maximum tool-call rounds exceeded (${MAX_TOOL_ROUNDS}); stopping as no-progress diagnostic.` });
-    const forced = await this.forceFinalAnswer(role, sessionId, candidate, systemPrompt, modelParams, abortController, `Maximum tool-call rounds (${MAX_TOOL_ROUNDS}) exceeded.`);
-    return { response: forced, transportSucceeded: true };
   }
 
   private resultBlockedByPendingNotifications(role: AgentRole, parsed: unknown, sessionId: string): boolean {
@@ -624,7 +620,17 @@ export class AgentAdapter implements AgentRuntime {
     };
     const attempts = await invokeWithRecovery(agentFn, recoveryOpts);
     const lastAttempt = attempts[attempts.length - 1];
-    if (lastAttempt.success && lastAttempt.result !== undefined) { const resultValue = lastAttempt.result as T; const shouldMarkFailed = role === 'executor' && typeof resultValue === 'object' && resultValue !== null && 'status' in (resultValue as Record<string, unknown>) && (resultValue as Record<string, unknown>).status === 'failed'; completeSession(this.saivageDir, session.id, shouldMarkFailed ? 'failed' : 'done'); return resultValue; }
+    if (lastAttempt.success && lastAttempt.result !== undefined) {
+      const resultValue = lastAttempt.result as T;
+      const resultStatus = typeof resultValue === 'object' && resultValue !== null && 'status' in (resultValue as Record<string, unknown>)
+        ? (resultValue as Record<string, unknown>).status
+        : null;
+      if (role === 'planner' && resultStatus === 'continue') markSessionWaiting(this.saivageDir, session.id);
+      else if (role === 'planner' && resultStatus === 'blocked') completeSession(this.saivageDir, session.id, 'blocked');
+      else if (role === 'executor' && resultStatus === 'failed') completeSession(this.saivageDir, session.id, 'failed');
+      else completeSession(this.saivageDir, session.id, 'done');
+      return resultValue;
+    }
     completeSession(this.saivageDir, session.id, 'failed');
     throw lastAttempt.error ?? new Error(`Agent '${role}' invocation failed after ${attempts.length} attempts.`);
   }

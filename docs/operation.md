@@ -352,13 +352,13 @@ Every current operator-facing Fastify route is listed exactly once here. `npm ru
 | `POST /api/chats/:sessionId` | Send an analyst chat message. | `src/server/routes/chats-files-debug.ts:148` |
 | `POST /api/notes/:id/acknowledge` | Mark an unhandled note handled. | `src/server/routes/runtime-config-notes.ts:192` |
 | `POST /api/notifications/:id/acknowledge` | Acknowledge a notification. | `src/server/routes/runtime-config-notes.ts:154` |
-| `POST /api/runtime/freeze` | Freeze runtime for handoff. | `src/server/routes/runtime-config-notes.ts:208` |
-| `POST /api/runtime/start_project` | Start root project execution via explicit runtime command. | `src/server/routes/runtime-config-notes.ts:204` |
-| `POST /api/runtime/stop_project` | Stop root project execution intent via explicit runtime command. | `src/server/routes/runtime-config-notes.ts:205` |
+| `POST /api/runtime/freeze` | Freeze runtime for handoff. | `src/server/routes/runtime-config-notes.ts:209` |
+| `POST /api/runtime/start_project` | Start root project execution via explicit runtime command. | `src/server/routes/runtime-config-notes.ts:205` |
+| `POST /api/runtime/stop_project` | Stop root project execution intent via explicit runtime command. | `src/server/routes/runtime-config-notes.ts:206` |
 | `POST /api/runtime/goals/:id/needs_corrections` | Record goal correction directive. | `src/server/server.ts:36 "fastify.post('/api/runtime/goals/:id/needs_corrections'"` |
-| `POST /api/runtime/pause` | Pause runtime and return RuntimeState. | `src/server/routes/runtime-config-notes.ts:206` |
-| `POST /api/runtime/resume-from-freeze` | Resume from freeze manifest. | `src/server/routes/runtime-config-notes.ts:209` |
-| `POST /api/runtime/resume` | Resume runtime and return RuntimeState. | `src/server/routes/runtime-config-notes.ts:207` |
+| `POST /api/runtime/pause` | Pause runtime and return RuntimeState. | `src/server/routes/runtime-config-notes.ts:207` |
+| `POST /api/runtime/resume-from-freeze` | Resume from freeze manifest. | `src/server/routes/runtime-config-notes.ts:210` |
+| `POST /api/runtime/resume` | Resume runtime and return RuntimeState. | `src/server/routes/runtime-config-notes.ts:208` |
 <!-- saivage:operator-routes:end -->
 
 <!-- saivage:runtime-controls:start -->
@@ -368,10 +368,10 @@ Every current operator-facing Fastify route is listed exactly once here. `npm ru
 
 | Route | Request body | Success response | Code anchor |
 |---|---|---|---|
-| `POST /api/runtime/start_project` | `empty-or-null-json-object` | `RuntimeCommandResponse` | `src/server/routes/runtime-config-notes.ts:204` |
-| `POST /api/runtime/stop_project` | `empty-or-null-json-object` | `RuntimeCommandResponse` | `src/server/routes/runtime-config-notes.ts:205` |
-| `POST /api/runtime/pause` | `empty-or-null-json-object` | `RuntimeState` | `src/server/routes/runtime-config-notes.ts:206` |
-| `POST /api/runtime/resume` | `empty-or-null-json-object` | `RuntimeState` | `src/server/routes/runtime-config-notes.ts:207` |
-| `POST /api/runtime/freeze` | `optional-object:{reason?:string}` | `freeze-summary` | `src/server/routes/runtime-config-notes.ts:208` |
-| `POST /api/runtime/resume-from-freeze` | `empty-or-null-json-object` | `resume-from-freeze-summary` | `src/server/routes/runtime-config-notes.ts:209` |
+| `POST /api/runtime/start_project` | `empty-or-null-json-object` | `RuntimeCommandResponse` | `src/server/routes/runtime-config-notes.ts:205` |
+| `POST /api/runtime/stop_project` | `empty-or-null-json-object` | `RuntimeCommandResponse` | `src/server/routes/runtime-config-notes.ts:206` |
+| `POST /api/runtime/pause` | `empty-or-null-json-object` | `RuntimeState` | `src/server/routes/runtime-config-notes.ts:207` |
+| `POST /api/runtime/resume` | `empty-or-null-json-object` | `RuntimeState` | `src/server/routes/runtime-config-notes.ts:208` |
+| `POST /api/runtime/freeze` | `optional-object:{reason?:string}` | `freeze-summary` | `src/server/routes/runtime-config-notes.ts:209` |
+| `POST /api/runtime/resume-from-freeze` | `empty-or-null-json-object` | `resume-from-freeze-summary` | `src/server/routes/runtime-config-notes.ts:210` |
 <!-- saivage:runtime-controls:end -->

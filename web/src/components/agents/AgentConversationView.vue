@@ -213,7 +213,9 @@ watch(() => props.sessionId, async (nid) => {
 .conv-model { font-size:11px; color:#8b949e; font-family:'SF Mono',monospace; }
 .conv-status-badge { font-size:10px; font-weight:600; padding:1px 6px; border-radius:8px; }
 .conv-status-badge.s-active { background:#1c2738; color:#58a6ff; }
+.conv-status-badge.s-waiting { background:#241f18; color:#d29922; }
 .conv-status-badge.s-done { background:#1a2418; color:#7ee787; }
+.conv-status-badge.s-blocked { background:#241f18; color:#d29922; }
 .conv-status-badge.s-failed { background:#241818; color:#f85149; }
 .conv-toolbar { display:flex; gap:4px; }
 .conv-tb-btn { padding:3px 8px; background:#21262d; border:1px solid #30363d; border-radius:4px; color:#c9d1d9; font-size:11px; cursor:pointer; font-family:inherit; }

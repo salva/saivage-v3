@@ -93,6 +93,16 @@ describe('session-persistence', () => {
       expect(completed.status).toBe('failed');
     });
 
+    it('should mark session as waiting without a completion timestamp', () => {
+      const session = mod.createSession(SAIVAGE_DIR, 'planner');
+      mod.completeSession(SAIVAGE_DIR, session.id, 'done');
+      const waiting = mod.markSessionWaiting(SAIVAGE_DIR, session.id);
+
+      expect(waiting.status).toBe('waiting');
+      expect(waiting.completed_at).toBeNull();
+      expect(mod.getSession(SAIVAGE_DIR, session.id)?.status).toBe('waiting');
+    });
+
     it('should throw for nonexistent session', () => {
       expect(() => mod.completeSession(SAIVAGE_DIR, 'nonexistent', 'done')).toThrow(/not found/);
     });
@@ -101,15 +111,18 @@ describe('session-persistence', () => {
   describe('failActiveWorkerSessions', () => {
     it('marks active non-analyst sessions as failed and leaves analyst sessions active', () => {
       const planner = mod.createSession(SAIVAGE_DIR, 'planner', 'goal-1', 'goal-1');
+      const waitingPlanner = mod.createSession(SAIVAGE_DIR, 'planner', 'goal-2', 'goal-2');
       const executor = mod.createSession(SAIVAGE_DIR, 'executor', 'goal-1', 'card-1');
       const analyst = mod.createSession(SAIVAGE_DIR, 'analyst');
       const done = mod.createSession(SAIVAGE_DIR, 'reviewer');
+      mod.markSessionWaiting(SAIVAGE_DIR, waitingPlanner.id);
       mod.completeSession(SAIVAGE_DIR, done.id, 'done');
 
       const failed = mod.failActiveWorkerSessions(SAIVAGE_DIR, 'startup recovery');
 
-      expect(failed.map((session) => session.id).sort()).toEqual([executor.id, planner.id].sort());
+      expect(failed.map((session) => session.id).sort()).toEqual([executor.id, planner.id, waitingPlanner.id].sort());
       expect(mod.getSession(SAIVAGE_DIR, planner.id)?.status).toBe('failed');
+      expect(mod.getSession(SAIVAGE_DIR, waitingPlanner.id)?.status).toBe('failed');
       expect(mod.getSession(SAIVAGE_DIR, executor.id)?.status).toBe('failed');
       expect(mod.getSession(SAIVAGE_DIR, analyst.id)?.status).toBe('active');
       expect(mod.getSession(SAIVAGE_DIR, done.id)?.status).toBe('done');

@@ -378,7 +378,7 @@ export interface ProcessTerminateResponse {
 }
 
 export type AgentRole = 'analyst' | 'planner' | 'executor' | 'reviewer' | 'content_supervisor';
-export type AgentStatus = 'active' | 'inactive' | 'done' | 'failed';
+export type AgentStatus = 'active' | 'waiting' | 'inactive' | 'done' | 'blocked' | 'failed';
 export type MessageRole = 'user' | 'assistant' | 'system' | 'tool';
 export type MessageKind =
   | 'text'

@@ -71,10 +71,6 @@ function appendMessage(projectRoot: string, sessionId: string, message: { role: 
  * conservatively to fit even smaller models routed for analyst use.
  */
 const ANALYST_CONTEXT_LIMIT_TOKENS = 128_000;
-/** Max LLM tool-call iterations per user turn. */
-const ANALYST_MAX_ITERATIONS = 8;
-/** Max tool calls executed per single LLM turn (defensive cap; ignore the rest). */
-const ANALYST_MAX_TOOLS_PER_TURN = 6;
 
 /**
  * Trim a bounded history slice so that tool_call ↔ tool_result pairs are
@@ -315,8 +311,9 @@ export class AnalystHandler {
     const toolInvocations: NonNullable<AnalystResponse['toolInvocations']> = [];
     const projectContext = this.buildProjectContext();
     const ctx: ToolContext = { projectRoot: this.projectRoot, sessionId, activeRuntime: this.activeRuntime, actor: this.actor, surface: this.surface };
+    const previousToolCallFingerprints = new Set<string>();
 
-    for (let iter = 0; iter < ANALYST_MAX_ITERATIONS; iter += 1) {
+    while (true) {
       // Auto-compact when the conversation approaches the model context
       // window. Falls back to truncation (last 20% of messages) when no
       // summarizer is wired in. After compaction we still apply
@@ -353,7 +350,14 @@ export class AnalystHandler {
         return { sessionId, message: { id: persisted.id, role: 'assistant', kind: 'text', content: finalText, timestamp: persisted.timestamp }, toolInvocations: toolInvocations.length > 0 ? toolInvocations : undefined };
       }
 
-      const toolCalls = llmResult.toolCalls.slice(0, ANALYST_MAX_TOOLS_PER_TURN);
+      const toolCalls = llmResult.toolCalls;
+      const fingerprint = toolCalls.map((tc) => `${tc.function.name}:${tc.function.arguments}`).sort().join('||');
+      if (previousToolCallFingerprints.has(fingerprint)) {
+        const noProgressText = 'I repeated the same tool calls without making progress. Please refine the request or inspect the latest tool results.';
+        const persisted = appendMessage(this.projectRoot, sessionId, { role: 'assistant', kind: 'text', content: noProgressText });
+        return { sessionId, message: { id: persisted.id, role: 'assistant', kind: 'text', content: noProgressText, timestamp: persisted.timestamp }, toolInvocations: toolInvocations.length > 0 ? toolInvocations : undefined };
+      }
+      previousToolCallFingerprints.add(fingerprint);
       appendMessage(this.projectRoot, sessionId, { role: 'assistant', kind: 'tool_call', content: JSON.stringify({ toolCalls }) });
 
       for (const tc of toolCalls) {
@@ -384,10 +388,6 @@ export class AnalystHandler {
         broadcastToolInvocation(sessionId, tc.function.name, result);
       }
     }
-
-    const capMsg = '⚠️ I made several tool calls but did not converge on a final answer. Try refining the request.';
-    const persisted = appendMessage(this.projectRoot, sessionId, { role: 'assistant', kind: 'text', content: capMsg });
-    return { sessionId, message: { id: persisted.id, role: 'assistant', kind: 'text', content: capMsg, timestamp: persisted.timestamp }, toolInvocations: toolInvocations.length > 0 ? toolInvocations : undefined };
   }
 
   private async runOfflineFallback(sessionId: string, userContent: string): Promise<AnalystResponse> {

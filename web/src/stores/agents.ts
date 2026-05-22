@@ -120,16 +120,20 @@ export const useAgentStore = defineStore('agents', () => {
     return map;
   });
 
+  function isLiveStatus(status: AgentStatus): boolean {
+    return status === 'active' || status === 'waiting';
+  }
+
   const activeSessions = computed<AgentSession[]>(() =>
-    sessions.value.filter((s) => s.status === 'active'),
+    sessions.value.filter((s) => isLiveStatus(s.status)),
   );
 
   const completedSessions = computed<AgentSession[]>(() =>
-    sessions.value.filter((s) => s.status !== 'active'),
+    sessions.value.filter((s) => !isLiveStatus(s.status)),
   );
 
   const attentionSessions = computed<AgentSession[]>(() =>
-    sessions.value.filter((s) => s.status === 'failed'),
+    sessions.value.filter((s) => s.status === 'failed' || s.status === 'blocked'),
   );
 
   function markRestSync(): void {
@@ -207,14 +211,14 @@ export const useAgentStore = defineStore('agents', () => {
     const session = sessions.value.find((s) => s.id === sessionId);
     if (session) {
       session.status = status;
-      session.completed_at = status !== 'active' ? new Date().toISOString() : null;
+      session.completed_at = isLiveStatus(status) ? null : new Date().toISOString();
       sessions.value = [...sessions.value];
     }
     if (currentSession.value?.id === sessionId) {
       currentSession.value = {
         ...currentSession.value,
         status,
-        completed_at: status !== 'active' ? new Date().toISOString() : null,
+        completed_at: isLiveStatus(status) ? null : new Date().toISOString(),
       };
       if (status === 'failed') {
         conversationWarning.value = 'This session failed. Inspect tool/model messages and linked evidence before treating work as complete.';

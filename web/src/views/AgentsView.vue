@@ -127,17 +127,23 @@ onMounted(() => {
 .session-card { padding:12px; background:#161b22; border:1px solid #21262d; border-radius:6px; cursor:pointer; transition:border-color .15s; border-left:3px solid transparent; }
 .session-card:hover { border-color:#30363d; }
 .session-card.status-active { border-left-color:#58a6ff; }
+.session-card.status-waiting { border-left-color:#d29922; }
 .session-card.status-done { border-left-color:#3fb950; }
+.session-card.status-blocked { border-left-color:#d29922; }
 .session-card.status-failed { border-left-color:#f85149; }
 .session-top { display:flex; align-items:center; gap:8px; margin-bottom:6px; }
 .session-status-dot { width:8px; height:8px; border-radius:50%; }
 .s-active { background:#58a6ff; }
+.s-waiting { background:#d29922; }
 .s-done { background:#3fb950; }
+.s-blocked { background:#d29922; }
 .s-failed { background:#f85149; }
 .session-model { font-size:11px; color:#8b949e; font-family:'SF Mono',monospace; }
 .session-status-badge { font-size:10px; font-weight:600; padding:1px 6px; border-radius:8px; text-transform:uppercase; }
 .session-status-badge.s-active { background:#1c2738; color:#58a6ff; }
+.session-status-badge.s-waiting { background:#241f18; color:#d29922; }
 .session-status-badge.s-done { background:#1a2418; color:#7ee787; }
+.session-status-badge.s-blocked { background:#241f18; color:#d29922; }
 .session-status-badge.s-failed { background:#241818; color:#f85149; }
 .session-meta { display:flex; gap:12px; font-size:11px; color:#8b949e; margin-bottom:4px; }
 .session-goal,.session-card-ref { font-family:'SF Mono',monospace; }

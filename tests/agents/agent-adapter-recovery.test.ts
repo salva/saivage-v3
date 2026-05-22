@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { AgentAdapter, type LlmCallFn } from '../../src/agents/agent-adapter.js';
 import type { SaivageConfig } from '../../src/agents/config-schema.js';
 import { LlmAuthError, LlmServerError } from '../../src/agents/llm-client.js';
-import { getSessionMessages, listSessions } from '../../src/agents/session-persistence.js';
+import { getSession, getSessionMessages, listSessions } from '../../src/agents/session-persistence.js';
 
 function config(): SaivageConfig {
   return {
@@ -113,6 +113,16 @@ describe('AgentAdapter invocation recovery policy integration', () => {
 
     expect(markFailed).toHaveBeenCalledWith({ provider: 'p1', account: null, model: 'm1' }, 1);
     expect(adapter.getRegistry().getHealth({ provider: 'p1', account: null, model: 'm1' }).failureCount).toBe(1);
+  });
+
+  it('marks planner continue results as waiting rather than done', async () => {
+    const adapter = makeAdapter(root);
+    adapter.setLlmCallFn(jest.fn<LlmCallFn>().mockResolvedValue(plannerDone('continue')));
+
+    await expect(adapter.invokePlanner('goal-1', 'prompt')).resolves.toMatchObject({ status: 'continue' });
+
+    const sessionId = listSessions(join(root, '.saivage'))[0];
+    expect(getSession(join(root, '.saivage'), sessionId)).toMatchObject({ status: 'waiting', completed_at: null });
   });
 
   it('does not mark capability mismatch or fallback exhaustion as health failure', async () => {
