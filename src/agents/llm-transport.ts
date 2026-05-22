@@ -82,6 +82,7 @@ async function refreshOpenAICodexProfile(
       headers: {
         'Content-Type': 'application/x-www-form-urlencoded',
         Accept: 'application/json',
+        Connection: 'close',
       },
       body: new URLSearchParams({
         grant_type: 'refresh_token',
@@ -124,6 +125,7 @@ async function refreshGitHubCopilotProfile(
         'Editor-Version': 'vscode/1.107.0',
         'Editor-Plugin-Version': 'copilot-chat/0.35.0',
         'Copilot-Integration-Id': 'vscode-chat',
+        Connection: 'close',
       },
     });
     if (!response.ok) return null;

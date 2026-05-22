@@ -312,6 +312,7 @@ export class LlmClient {
     const url = this.chatCompletionsUrl();
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
+      Connection: 'close',
       ...this.providerHeaders(),
     };
     if (this.apiKey) {
@@ -445,6 +446,7 @@ export class LlmClient {
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
       Accept: 'text/event-stream',
+      Connection: 'close',
       Authorization: `Bearer ${this.apiKey}`,
       'chatgpt-account-id': this.openAICodexAccountId(this.apiKey),
       originator: 'saivage',

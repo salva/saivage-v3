@@ -28,7 +28,7 @@ function setupProjectDir(root: string): void {
     mkdirSync(join(sd, d), { recursive: true });
   }
   const now = new Date().toISOString();
-  writeFileSync(join(sd, 'saivage.json'), JSON.stringify({ server: { port: 8080, host: '127.0.0.1' }, models: { default: ['test-model'] }, providers: { test: { priority: 10, models: ['test-model'], apiKey: 'ar-server-test-api-key' } }, runtime: { autoDispatchBacklog: false }, supervisor: { enabled: false } }, null, 2));
+  writeFileSync(join(sd, 'saivage.json'), JSON.stringify({ server: { port: 8080, host: '127.0.0.1' }, models: { default: ['test-model'] }, providers: { test: { priority: 10, models: ['test-model'], apiKey: 'ar-server-test-api-key', baseUrl: 'http://127.0.0.1:9' } }, runtime: { autoDispatchBacklog: false }, supervisor: { enabled: false } }, null, 2));
   writeFileSync(join(sd, 'runtime', 'state.json'), JSON.stringify({ status: 'idle', project_id: 'project', pid: process.pid, started_at: now, current_card_id: null, current_agent_session_id: null, paused: false, paused_at: null, queue: [], running_processes: [], updated_at: now }, null, 2));
   writeFileSync(join(sd, 'cards', 'by-id', 'project.json'), JSON.stringify({ id: 'project', type: 'project', parent: null, depth: 0, title: 'project', description: '', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', created_at: now, updated_at: now, version_seq: 1, depends_on: [], blocks: [], related: [], acceptance: '', artifacts: [], attachments: [], retries: 0 }, null, 2));
   writeFileSync(join(sd, 'cards', 'index.json'), JSON.stringify({ cards: { project: { id: 'project', type: 'project', parent: null, status: 'backlog', title: 'project' } } }, null, 2));
@@ -97,11 +97,17 @@ describe('Server with ActiveRuntime (createRuntime=true)', () => {
     process.env['SAIVAGE_API_TOKEN'] = AUTH_TOKEN;
     const { createServer } = await import('../../src/server/server.js');
     server = await createServer(tmpDir, true);
+    server.activeRuntime!.agentAdapter.setLlmCallFn(async () => new Promise<string>((resolve) => {
+      setTimeout(() => resolve(JSON.stringify({ status: 'blocked', blocked_reason: 'test fixture planner stop point', created_cards: [], updated_cards: [], summary: 'network-free planner fixture' })), 100);
+    }));
   }, 30000);
 
   afterAll(async () => {
     try { process.chdir(originalCwd); } catch {}
     if (server) try { await server.stop(); } catch {}
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    expect(getRuntimeEventSubscriptionCount()).toBe(0);
+    expect(server.activeRuntime?.runtime.getBackgroundDispatchCount()).toBe(0);
     try { releaseLock(tmpDir); } catch {}
     try { rmSync(tmpDir, { recursive: true, force: true }); } catch {}
   }, 15000);

@@ -95,7 +95,7 @@ const TRACKED_EVENT_KINDS: ReadonlySet<EventKind> = new Set(TRACKED_EVENT_KIND_V
 
 export class Runtime extends EventEmitter {
   readonly projectRoot: string; readonly cardStore: CardStore; readonly agentRuntime: AgentRuntime; readonly eventBus: EventBus; readonly notificationCenter: NotificationCenter;
-  private _status: RuntimeStatus = 'idle'; private _paused = false; private _running = false; private _shuttingDown = false; private _skillsEngine: SkillsEngine | null = null; private _eventLogger: EventLogger; private _ownsEventLogger: boolean; private _errorLogger: ErrorLogger; private _ownsErrorLogger: boolean; readonly runningProcesses: Set<string> = new Set(); private _supervisor: StuckAgentSupervisor; private _continuousImprovementReserved: boolean; private _autoDispatchBacklog: boolean; private _resumeHandoffContext: string | null = null; private _safeTickInFlight = false; private _startupRepairPending = false; private _dispatchInFlight = new Set<string>(); private _lastLifecycleDisposeReport: RuntimeDisposeReportEntry[] = [];
+  private _status: RuntimeStatus = 'idle'; private _paused = false; private _running = false; private _shuttingDown = false; private _skillsEngine: SkillsEngine | null = null; private _eventLogger: EventLogger; private _ownsEventLogger: boolean; private _errorLogger: ErrorLogger; private _ownsErrorLogger: boolean; readonly runningProcesses: Set<string> = new Set(); private _supervisor: StuckAgentSupervisor; private _continuousImprovementReserved: boolean; private _autoDispatchBacklog: boolean; private _resumeHandoffContext: string | null = null; private _safeTickInFlight = false; private _startupRepairPending = false; private _dispatchInFlight = new Set<string>(); private _backgroundDispatches = new Set<Promise<void>>(); private _lastLifecycleDisposeReport: RuntimeDisposeReportEntry[] = [];
 
   constructor(config: RuntimeConfig, agentRuntime?: AgentRuntime) {
     super();
@@ -494,6 +494,10 @@ export class Runtime extends EventEmitter {
     super.emit(kind, payload);
   }
 
+  private trackBackgroundDispatch(dispatch: Promise<void>): void { this._backgroundDispatches.add(dispatch); dispatch.finally(() => this._backgroundDispatches.delete(dispatch)).catch(() => undefined); }
+
+  getBackgroundDispatchCount(): number { return this._backgroundDispatches.size; }
+
   private bindPlannerSessionToOpenRun(goalId: string, plannerSessionId: string): void {
     const state = readRuntimeState(this.projectRoot);
     const openRun = (state?.runtime_runs ?? [])
@@ -528,7 +532,7 @@ export class Runtime extends EventEmitter {
     const run = appendRuntimeRun(this.projectRoot, { kind: 'root', card_id: 'project', parent_run_id: null, command_id: command.command_id, activation_id: null, phase: 'planner', runtime_status: 'running', session_id: null, result: null });
     this.publishRuntimeLedgerEvent('runtime_run', { run });
     if (!this._paused) {
-      void this.dispatchGoal('project')
+      this.trackBackgroundDispatch(this.dispatchGoal('project')
         .then(() => { const updated = updateRuntimeRun(this.projectRoot, run.run_id, { phase: 'completed', runtime_status: 'idle', finished_at: now(), result: 'done' }); if (updated) this.publishRuntimeLedgerEvent('runtime_run', { run: updated }); })
         .catch(() => {
           try { updateRuntimeState(this.projectRoot, { status: 'idle', current_card_id: null, current_agent_session_id: null, queue: [], active_card_run: null } as Partial<RuntimeState> as never); } catch {}
@@ -536,7 +540,7 @@ export class Runtime extends EventEmitter {
           if (currentRun?.finished_at || currentRun?.runtime_status === 'error' || currentRun?.runtime_status === 'stopped') return;
           const updated = updateRuntimeRun(this.projectRoot, run.run_id, { phase: 'failed', runtime_status: 'error', finished_at: now(), result: 'failed' });
           if (updated) this.publishRuntimeLedgerEvent('runtime_run', { run: updated });
-        });
+        }));
     }
     const current = readRuntimeState(this.projectRoot) ?? state;
     const completedAt = now();
@@ -548,7 +552,9 @@ export class Runtime extends EventEmitter {
 
   async stopProject(source: 'operator' | 'tool' | 'runtime' = 'operator'): Promise<{ success: true; command: RuntimeCommandRecord; intent: RuntimeState['runtime_intent']; run?: RuntimeRunRecord }> {
     const command = appendRuntimeCommand(this.projectRoot, 'stop_project', source);
+    this._shuttingDown = true;
     const state = upsertRuntimeIntent(this.projectRoot, 'stopped', command.command_id, 'explicit stop_project command');
+    for (const cardId of this._dispatchInFlight) void this.agentRuntime.forceCancelSession(`planner:${cardId}`);
     const openRuns = (state.runtime_runs ?? []).filter((run) => run.kind === 'root' && !run.finished_at);
     const stoppedRunIds = openRuns.map((run) => run.run_id);
     for (const run of openRuns) { const updated = updateRuntimeRun(this.projectRoot, run.run_id, { phase: 'stopped', runtime_status: 'stopped', finished_at: now(), result: 'stopped' }); if (updated) this.publishRuntimeLedgerEvent('runtime_run', { run: updated }); }
@@ -558,6 +564,7 @@ export class Runtime extends EventEmitter {
     saveRuntimeState(this.projectRoot, { ...current, runtime_commands: (current.runtime_commands ?? []).map((item) => item.command_id === command.command_id ? completedCommand : item), status: 'idle', active_card_run: null, current_card_id: null, current_agent_session_id: null, updated_at: completedAt });
     this.publishRuntimeLedgerEvent('runtime_command', { command: completedCommand });
     this._status = 'idle';
+    this._shuttingDown = false;
     const persisted = readRuntimeState(this.projectRoot) ?? current;
     const stoppedRun = stoppedRunIds.length > 0 ? (persisted.runtime_runs ?? []).find((item) => item.run_id === stoppedRunIds[0]) : undefined;
     return { success: true, command: completedCommand, intent: persisted.runtime_intent, ...(stoppedRun ? { run: stoppedRun } : {}) };
@@ -582,7 +589,7 @@ export class Runtime extends EventEmitter {
     this.emit('started', { projectRoot: this.projectRoot }); this._eventLogger.appendEvent({ kind: 'started', project_root: this.projectRoot }); this._supervisor.start();
     setTimeout(() => { void this.safeTick(); }, 0);
   }
-  async shutdown(): Promise<void> { if (!this._running) return; this._supervisor.stop(); if (this._status === 'frozen') { try { this._lastLifecycleDisposeReport = await disposeProcessRuntimeScope(this.projectRoot); } catch (error) { this._lastLifecycleDisposeReport = [{ id: 'process-runtime-scope', kind: 'disposable', status: 'failed', error: error instanceof Error ? error.message : String(error) }]; } try { releaseLock(this.projectRoot); } catch {} this._running = false; this._shuttingDown = false; this._status = 'idle'; this.emit('shutdown'); this._eventLogger.appendEvent({ kind: 'shutdown' }); if (this._ownsEventLogger) this._eventLogger.close(); if (this._ownsErrorLogger) this._errorLogger.close(); return; } this._shuttingDown = true; this._running = false; try { this._lastLifecycleDisposeReport = await disposeProcessRuntimeScope(this.projectRoot); for (const id of this._lastLifecycleDisposeReport.filter((entry) => entry.kind === 'child_process').map((entry) => entry.id.replace(/^child:/, ''))) this.runningProcesses.delete(id); } catch (error) { this._lastLifecycleDisposeReport = [{ id: 'process-runtime-scope', kind: 'disposable', status: 'failed', error: error instanceof Error ? error.message : String(error) }]; } try { updateRuntimeState(this.projectRoot, { status: 'idle', pid: process.pid, current_card_id: null, current_agent_session_id: null, active_card_run: null, paused: false, paused_at: null, queue: [], running_processes: [] }); } catch {} try { releaseLock(this.projectRoot); } catch {} try { cleanAll(saivageWorkDir(this.projectRoot), this.cardStore); } catch {} this._status = 'idle'; this.emit('shutdown'); this._eventLogger.appendEvent({ kind: 'shutdown' }); if (this._ownsEventLogger) this._eventLogger.close(); if (this._ownsErrorLogger) this._errorLogger.close(); }
+  async shutdown(): Promise<void> { if (this._dispatchInFlight.size > 0) { await Promise.allSettled(Array.from(this._dispatchInFlight).map((cardId) => this.agentRuntime.forceCancelSession(`planner:${cardId}`))); } if (!this._running) return; this._supervisor.stop(); if (this._status === 'frozen') { try { this._lastLifecycleDisposeReport = await disposeProcessRuntimeScope(this.projectRoot); } catch (error) { this._lastLifecycleDisposeReport = [{ id: 'process-runtime-scope', kind: 'disposable', status: 'failed', error: error instanceof Error ? error.message : String(error) }]; } try { releaseLock(this.projectRoot); } catch {} this._running = false; this._shuttingDown = false; this._status = 'idle'; this.emit('shutdown'); this._eventLogger.appendEvent({ kind: 'shutdown' }); if (this._ownsEventLogger) this._eventLogger.close(); if (this._ownsErrorLogger) this._errorLogger.close(); return; } this._shuttingDown = true; this._running = false; try { this._lastLifecycleDisposeReport = await disposeProcessRuntimeScope(this.projectRoot); for (const id of this._lastLifecycleDisposeReport.filter((entry) => entry.kind === 'child_process').map((entry) => entry.id.replace(/^child:/, ''))) this.runningProcesses.delete(id); } catch (error) { this._lastLifecycleDisposeReport = [{ id: 'process-runtime-scope', kind: 'disposable', status: 'failed', error: error instanceof Error ? error.message : String(error) }]; } try { updateRuntimeState(this.projectRoot, { status: 'idle', pid: process.pid, current_card_id: null, current_agent_session_id: null, active_card_run: null, paused: false, paused_at: null, queue: [], running_processes: [] }); } catch {} try { releaseLock(this.projectRoot); } catch {} try { cleanAll(saivageWorkDir(this.projectRoot), this.cardStore); } catch {} this._status = 'idle'; this.emit('shutdown'); this._eventLogger.appendEvent({ kind: 'shutdown' }); if (this._ownsEventLogger) this._eventLogger.close(); if (this._ownsErrorLogger) this._errorLogger.close(); }
   pause(): void { this._paused = true; setProcessTerminalBuffering(this.projectRoot, true); try { updateRuntimeState(this.projectRoot, { status: 'paused', paused: true, paused_at: now() }); } catch {} this.emit('paused'); this._eventLogger.appendEvent({ kind: 'paused' }); }
   resume(): void { this._paused = false; setProcessTerminalBuffering(this.projectRoot, false); try { const state = readRuntimeState(this.projectRoot); const plannerSessionId = state?.active_card_run?.planner_session_id ?? state?.current_agent_session_id; if (plannerSessionId && state?.active_card_run?.card_id) { this.appendPlannerResumeContext(state.active_card_run.card_id, plannerSessionId, this.inferResumeReason(state.active_card_run.card_id)); injectQueuedSyntheticPlannerNotes(this.projectRoot, plannerSessionId); } updateRuntimeState(this.projectRoot, { status: state?.active_card_run ? 'running' : 'idle', paused: false, paused_at: null }); } catch {} this.emit('resumed'); this._eventLogger.appendEvent({ kind: 'resumed' }); void this.safeTick(); }
   freeze(reason?: string): FreezeManifest { if (this._status === 'frozen') { const existing = readFreezeManifest(this.projectRoot); if (existing) return existing; } this._status = 'frozen'; this._paused = true; const state = readRuntimeState(this.projectRoot); const frozenAt = new Date(); const freezeId = `freeze-${frozenAt.toISOString().replace(/[:.]/g, '-')}`; let handoffSummaries: HandoffSummary[] = []; try { const raw = this.agentRuntime.getActiveSessionHandoffs(); handoffSummaries = raw instanceof Promise ? [] : raw; } catch {} const manifest: FreezeManifest = { freeze_id: freezeId, reason: reason ?? 'operator requested freeze', created_at: frozenAt.toISOString(), status: 'frozen', project_id: 'project', pid: process.pid, started_at: state?.started_at ?? frozenAt.toISOString(), current_card_id: state?.current_card_id ?? null, current_agent_session_id: state?.current_agent_session_id ?? null, queue: state?.queue ?? [], running_processes: [], handoff_summaries: handoffSummaries, schema_version: 1, runtime_version: '0.1.0' }; saveFreezeManifest(this.projectRoot, manifest); try { updateRuntimeState(this.projectRoot, { status: 'frozen', pid: process.pid, started_at: state?.started_at ?? frozenAt.toISOString(), current_card_id: state?.current_card_id ?? null, current_agent_session_id: state?.current_agent_session_id ?? null, paused: true, paused_at: frozenAt.toISOString(), queue: state?.queue ?? [], running_processes: [] }); } catch {} this.emit('frozen', { freeze_id: manifest.freeze_id, reason: manifest.reason }); this._eventLogger.appendEvent({ kind: 'frozen', freeze_id: manifest.freeze_id, reason: manifest.reason }); return manifest; }
