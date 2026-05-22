@@ -224,6 +224,56 @@ describe('runtime command ledger target contract (Wave 1)', () => {
     } finally { rmSync(projectRoot, { recursive: true, force: true }); }
   });
 
+
+  it('start_project planner failure terminally publishes the root run exactly once', async () => {
+    const projectRoot = root();
+    try {
+      initProjectTree(projectRoot);
+      const agentRuntime: AgentRuntime = {
+        invokePlanner() { throw new Error('planner start boom'); },
+        invokeExecutor() { throw new Error('executor should not run'); },
+        invokeReviewer() { throw new Error('reviewer should not run'); },
+        cancelSession() { return false; },
+        forceCancelSession() { return false; },
+        getHandoffSummary() { return null; },
+        getActiveSessionHandoffs() { return []; },
+      };
+      const runtime = new Runtime({ projectRoot, fakeAgentConfig: { mapping: {}, fixtureDir: '' }, autoDispatchBacklog: false }, agentRuntime);
+      const events: Array<{ kind: string; run?: { run_id?: string; phase?: string; runtime_status?: string; finished_at?: string | null; result?: string | null }; command?: { command_id?: string; command?: string; status?: string } }> = [];
+      const sub = runtime.eventBus.subscribe({ handler: (event) => { if (event.kind === 'runtime_run' || event.kind === 'runtime_command') events.push(event as never); } });
+
+      const result = await runtime.startProject('operator');
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      sub.unsubscribe();
+
+      if (!result.success) throw new Error(`startProject failed: ${result.error.message}`);
+      expect(result.success).toBe(true);
+      const state = readRuntimeState(projectRoot)!;
+      const rootRun = state.runtime_runs!.find((run) => run.run_id === result.run.run_id)!;
+      expect(rootRun).toEqual(expect.objectContaining({
+        kind: 'root',
+        card_id: 'project',
+        command_id: result.command.command_id,
+        phase: 'failed',
+        runtime_status: 'error',
+        result: 'failed',
+        session_id: 'planner:project',
+        finished_at: expect.any(String),
+      }));
+      const terminalFailedRootEvents = events.filter((event) => event.kind === 'runtime_run' && event.run?.run_id === rootRun.run_id && event.run.phase === 'failed' && event.run.runtime_status === 'error' && event.run.result === 'failed');
+      expect(terminalFailedRootEvents).toHaveLength(1);
+      expect(state.status).toBe('idle');
+      expect(state.current_card_id).toBeNull();
+      expect(state.current_agent_session_id).toBeNull();
+      expect(state.active_card_run).toBeNull();
+      expect(runtime.cardStore.read('project')).toEqual(expect.objectContaining({ status: 'failed', error: 'planner start boom' }));
+      expect(state.runtime_intent).toEqual(expect.objectContaining({ status: 'running', source_command_id: result.command.command_id, reason: 'explicit start_project command' }));
+      expect(state.runtime_commands).toEqual(expect.arrayContaining([
+        expect.objectContaining({ command_id: result.command.command_id, command: 'start_project', status: 'completed' }),
+      ]));
+    } finally { rmSync(projectRoot, { recursive: true, force: true }); }
+  });
+
   it('stop_project records stopped intent and terminally marks open root runs', async () => {
     const projectRoot = root();
     try {

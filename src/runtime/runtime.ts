@@ -530,7 +530,13 @@ export class Runtime extends EventEmitter {
     if (!this._paused) {
       void this.dispatchGoal('project')
         .then(() => { const updated = updateRuntimeRun(this.projectRoot, run.run_id, { phase: 'completed', runtime_status: 'idle', finished_at: now(), result: 'done' }); if (updated) this.publishRuntimeLedgerEvent('runtime_run', { run: updated }); })
-        .catch(() => { try { updateRuntimeState(this.projectRoot, { status: 'idle', current_card_id: null, current_agent_session_id: null, queue: [], active_card_run: null } as Partial<RuntimeState> as never); } catch {} const updated = updateRuntimeRun(this.projectRoot, run.run_id, { phase: 'failed', runtime_status: 'error', finished_at: now(), result: 'failed' }); if (updated) this.publishRuntimeLedgerEvent('runtime_run', { run: updated }); });
+        .catch(() => {
+          try { updateRuntimeState(this.projectRoot, { status: 'idle', current_card_id: null, current_agent_session_id: null, queue: [], active_card_run: null } as Partial<RuntimeState> as never); } catch {}
+          const currentRun = (readRuntimeState(this.projectRoot)?.runtime_runs ?? []).find((item) => item.run_id === run.run_id);
+          if (currentRun?.finished_at || currentRun?.runtime_status === 'error' || currentRun?.runtime_status === 'stopped') return;
+          const updated = updateRuntimeRun(this.projectRoot, run.run_id, { phase: 'failed', runtime_status: 'error', finished_at: now(), result: 'failed' });
+          if (updated) this.publishRuntimeLedgerEvent('runtime_run', { run: updated });
+        });
     }
     const current = readRuntimeState(this.projectRoot) ?? state;
     const completedAt = now();
