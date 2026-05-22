@@ -301,6 +301,97 @@ describe('runtime command ledger target contract (Wave 1)', () => {
     } finally { rmSync(projectRoot, { recursive: true, force: true }); }
   });
 
+
+  it('stop_project force-cancels the in-flight project planner session', async () => {
+    const projectRoot = root();
+    try {
+      initProjectTree(projectRoot);
+      let releasePlanner!: () => void;
+      const plannerBlocked = new Promise<void>((resolve) => { releasePlanner = resolve; });
+      let plannerEntered!: () => void;
+      const plannerStarted = new Promise<void>((resolve) => { plannerEntered = resolve; });
+      const forceCancelSession = jest.fn<AgentRuntime['forceCancelSession']>(() => true);
+      const agentRuntime: AgentRuntime = {
+        async invokePlanner() {
+          plannerEntered();
+          await plannerBlocked;
+          return { status: 'blocked', blocked_reason: 'stop after cancellation observation', created_cards: [], updated_cards: [] };
+        },
+        invokeExecutor() { throw new Error('executor should not run'); },
+        invokeReviewer() { throw new Error('reviewer should not run'); },
+        cancelSession() { return false; },
+        forceCancelSession,
+        getHandoffSummary() { return null; },
+        getActiveSessionHandoffs() { return []; },
+      };
+      const runtime = new Runtime({ projectRoot, fakeAgentConfig: { mapping: {}, fixtureDir: '' }, autoDispatchBacklog: false }, agentRuntime);
+
+      const startResult = await runtime.startProject('operator');
+      if (!startResult.success) throw new Error(`startProject failed: ${startResult.error.message}`);
+      await plannerStarted;
+
+      const stopResult = await runtime.stopProject('operator');
+      expect(stopResult.success).toBe(true);
+      expect(forceCancelSession).toHaveBeenCalledWith('planner:project');
+
+      releasePlanner();
+      await new Promise<void>((resolve, reject) => {
+        const deadline = Date.now() + 2000;
+        const poll = () => {
+          if (runtime.getBackgroundDispatchCount() === 0) return resolve();
+          if (Date.now() >= deadline) return reject(new Error(`background dispatches did not drain; count=${runtime.getBackgroundDispatchCount()}`));
+          setTimeout(poll, 10);
+        };
+        poll();
+      });
+    } finally { rmSync(projectRoot, { recursive: true, force: true }); }
+  });
+
+  it('shutdown force-cancels the in-flight project planner session', async () => {
+    const projectRoot = root();
+    try {
+      initProjectTree(projectRoot);
+      let releasePlanner!: () => void;
+      const plannerBlocked = new Promise<void>((resolve) => { releasePlanner = resolve; });
+      let plannerEntered!: () => void;
+      const plannerStarted = new Promise<void>((resolve) => { plannerEntered = resolve; });
+      const forceCancelSession = jest.fn<AgentRuntime['forceCancelSession']>(() => true);
+      const agentRuntime: AgentRuntime = {
+        async invokePlanner() {
+          plannerEntered();
+          await plannerBlocked;
+          return { status: 'blocked', blocked_reason: 'shutdown after cancellation observation', created_cards: [], updated_cards: [] };
+        },
+        invokeExecutor() { throw new Error('executor should not run'); },
+        invokeReviewer() { throw new Error('reviewer should not run'); },
+        cancelSession() { return false; },
+        forceCancelSession,
+        getHandoffSummary() { return null; },
+        getActiveSessionHandoffs() { return []; },
+      };
+      const runtime = new Runtime({ projectRoot, fakeAgentConfig: { mapping: {}, fixtureDir: '' }, autoDispatchBacklog: false }, agentRuntime);
+      await runtime.startup();
+
+      const startResult = await runtime.startProject('operator');
+      if (!startResult.success) throw new Error(`startProject failed: ${startResult.error.message}`);
+      await plannerStarted;
+
+      await runtime.shutdown();
+      expect(forceCancelSession).toHaveBeenCalledWith('planner:project');
+
+      releasePlanner();
+      await new Promise<void>((resolve, reject) => {
+        const deadline = Date.now() + 2000;
+        const poll = () => {
+          if (runtime.getBackgroundDispatchCount() === 0) return resolve();
+          if (Date.now() >= deadline) return reject(new Error(`background dispatches did not drain; count=${runtime.getBackgroundDispatchCount()}`));
+          setTimeout(poll, 10);
+        };
+        poll();
+      });
+    } finally { rmSync(projectRoot, { recursive: true, force: true }); }
+  });
+
   it('delayed start_project dispatch completion cannot overwrite a stopped root run', async () => {
     const projectRoot = root();
     try {
