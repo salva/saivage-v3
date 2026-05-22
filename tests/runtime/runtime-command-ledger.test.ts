@@ -301,6 +301,46 @@ describe('runtime command ledger target contract (Wave 1)', () => {
     } finally { rmSync(projectRoot, { recursive: true, force: true }); }
   });
 
+  it('delayed start_project dispatch completion cannot overwrite a stopped root run', async () => {
+    const projectRoot = root();
+    try {
+      const runtime = new Runtime({ projectRoot, fakeAgentConfig: { mapping: {}, fixtureDir: '' }, autoDispatchBacklog: false });
+      let releaseDispatch!: () => void;
+      const dispatchBlocked = new Promise<void>((resolve) => { releaseDispatch = resolve; });
+      runtime.dispatchGoal = (async () => { await dispatchBlocked; }) as Runtime['dispatchGoal'];
+
+      const startResult = await runtime.startProject('operator');
+      if (!startResult.success) throw new Error(`startProject failed: ${startResult.error.message}`);
+      const stopResult = await runtime.stopProject('operator');
+      expect(stopResult.run).toMatchObject({ run_id: startResult.run.run_id, phase: 'stopped', runtime_status: 'stopped', result: 'stopped' });
+
+      releaseDispatch();
+      await new Promise<void>((resolve, reject) => {
+        const deadline = Date.now() + 2000;
+        const poll = () => {
+          if (runtime.getBackgroundDispatchCount() === 0) return resolve();
+          if (Date.now() >= deadline) return reject(new Error(`background dispatches did not drain; count=${runtime.getBackgroundDispatchCount()}`));
+          setTimeout(poll, 10);
+        };
+        poll();
+      });
+
+      const state = readRuntimeState(projectRoot)!;
+      const rootRun = state.runtime_runs!.find((run) => run.run_id === startResult.run.run_id)!;
+      expect(state.runtime_intent).toEqual(expect.objectContaining({ status: 'stopped', source_command_id: stopResult.command.command_id, reason: 'explicit stop_project command' }));
+      expect(rootRun).toEqual(expect.objectContaining({
+        run_id: startResult.run.run_id,
+        kind: 'root',
+        card_id: 'project',
+        command_id: startResult.command.command_id,
+        phase: 'stopped',
+        runtime_status: 'stopped',
+        result: 'stopped',
+        finished_at: stopResult.run!.finished_at,
+      }));
+    } finally { rmSync(projectRoot, { recursive: true, force: true }); }
+  });
+
   it('stop_project omits run when no root run was open', async () => {
     const projectRoot = root();
     try {

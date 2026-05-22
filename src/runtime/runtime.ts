@@ -533,7 +533,15 @@ export class Runtime extends EventEmitter {
     this.publishRuntimeLedgerEvent('runtime_run', { run });
     if (!this._paused) {
       this.trackBackgroundDispatch(this.dispatchGoal('project')
-        .then(() => { const updated = updateRuntimeRun(this.projectRoot, run.run_id, { phase: 'completed', runtime_status: 'idle', finished_at: now(), result: 'done' }); if (updated) this.publishRuntimeLedgerEvent('runtime_run', { run: updated }); })
+        .then(() => {
+          const currentState = readRuntimeState(this.projectRoot);
+          const currentRun = (currentState?.runtime_runs ?? []).find((item) => item.run_id === run.run_id);
+          const intentStopped = (currentState?.runtime_intent?.status ?? 'stopped') === 'stopped';
+          const alreadyTerminal = Boolean(currentRun?.finished_at) || ['stopped', 'failed'].includes(currentRun?.phase ?? '') || ['stopped', 'error'].includes(currentRun?.runtime_status ?? '') || ['stopped', 'failed'].includes(currentRun?.result ?? '');
+          if (intentStopped || alreadyTerminal) return;
+          const updated = updateRuntimeRun(this.projectRoot, run.run_id, { phase: 'completed', runtime_status: 'idle', finished_at: now(), result: 'done' });
+          if (updated) this.publishRuntimeLedgerEvent('runtime_run', { run: updated });
+        })
         .catch(() => {
           try { updateRuntimeState(this.projectRoot, { status: 'idle', current_card_id: null, current_agent_session_id: null, queue: [], active_card_run: null } as Partial<RuntimeState> as never); } catch {}
           const currentRun = (readRuntimeState(this.projectRoot)?.runtime_runs ?? []).find((item) => item.run_id === run.run_id);
