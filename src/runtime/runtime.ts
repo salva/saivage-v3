@@ -494,11 +494,21 @@ export class Runtime extends EventEmitter {
     super.emit(kind, payload);
   }
 
-  private bindPlannerSessionToOpenRootRun(goalId: string, plannerSessionId: string): void {
+  private bindPlannerSessionToOpenRun(goalId: string, plannerSessionId: string): void {
     const state = readRuntimeState(this.projectRoot);
-    const openRun = (state?.runtime_runs ?? []).find((run) => run.kind === 'root' && run.card_id === goalId && run.phase === 'planner' && run.runtime_status === 'running' && !run.finished_at);
-    if (!openRun || openRun.session_id === plannerSessionId) return;
-    const updated = updateRuntimeRun(this.projectRoot, openRun.run_id, { session_id: plannerSessionId });
+    const openRun = (state?.runtime_runs ?? [])
+      .filter((run) => run.card_id === goalId && ['pending', 'planner'].includes(run.phase) && run.runtime_status === 'running' && !run.finished_at && (!run.session_id || run.session_id === plannerSessionId))
+      .sort((a, b) => {
+        const phase = (b.phase === 'planner' ? 1 : 0) - (a.phase === 'planner' ? 1 : 0);
+        if (phase !== 0) return phase;
+        return (b.kind === 'root' ? 1 : 0) - (a.kind === 'root' ? 1 : 0);
+      })[0];
+    if (!openRun) return;
+    const updates: Partial<RuntimeRunRecord> = {};
+    if (openRun.phase !== 'planner') updates.phase = 'planner';
+    if (openRun.session_id !== plannerSessionId) updates.session_id = plannerSessionId;
+    if (Object.keys(updates).length === 0) return;
+    const updated = updateRuntimeRun(this.projectRoot, openRun.run_id, updates);
     if (updated) this.publishRuntimeLedgerEvent('runtime_run', { run: updated });
   }
 
@@ -520,7 +530,7 @@ export class Runtime extends EventEmitter {
     if (!this._paused) {
       void this.dispatchGoal('project')
         .then(() => { const updated = updateRuntimeRun(this.projectRoot, run.run_id, { phase: 'completed', runtime_status: 'idle', finished_at: now(), result: 'done' }); if (updated) this.publishRuntimeLedgerEvent('runtime_run', { run: updated }); })
-        .catch(() => { const updated = updateRuntimeRun(this.projectRoot, run.run_id, { phase: 'failed', runtime_status: 'error', finished_at: now(), result: 'failed' }); if (updated) this.publishRuntimeLedgerEvent('runtime_run', { run: updated }); });
+        .catch(() => { try { updateRuntimeState(this.projectRoot, { status: 'idle', current_card_id: null, current_agent_session_id: null, queue: [], active_card_run: null } as Partial<RuntimeState> as never); } catch {} const updated = updateRuntimeRun(this.projectRoot, run.run_id, { phase: 'failed', runtime_status: 'error', finished_at: now(), result: 'failed' }); if (updated) this.publishRuntimeLedgerEvent('runtime_run', { run: updated }); });
     }
     const current = readRuntimeState(this.projectRoot) ?? state;
     const completedAt = now();
@@ -578,7 +588,7 @@ export class Runtime extends EventEmitter {
     try {
     if (this._paused) { this.emit('dispatch_blocked', { reason: 'paused', goalId }); this._eventLogger.appendEvent({ kind: 'dispatch_blocked', reason: 'paused', goal_id: goalId }); return; }
     let planCard: CardRecord;
-    try { consumeChangedCardActivation(this.projectRoot, goalId); const result = this.cardStore.activateGoal(goalId); planCard = result.goal; const startedAt = now(); const plannerSessionId = `planner:${goalId}`; updateRuntimeState(this.projectRoot, { status: 'running', current_card_id: goalId, current_agent_session_id: plannerSessionId, queue: [], active_card_run: { card_id: goalId, card_type: planCard.type, runtime_status: 'running', phase: 'planner', caller_session_id: null, caller_tool_call_id: null, planner_session_id: plannerSessionId, correction_attempts: 0, started_at: startedAt, last_turn_at: startedAt } }); this.bindPlannerSessionToOpenRootRun(goalId, plannerSessionId); } catch (err) { const errorMessage = err instanceof Error ? err.message : String(err); this.emit('error', { goalId, phase: 'activate', error: err }); this._eventLogger.appendEvent({ kind: 'error', goal_id: goalId, phase: 'activate', error_message: errorMessage }); this._errorLogger.appendError({ message: errorMessage, goalId, phase: 'activate' }); return; }
+    try { consumeChangedCardActivation(this.projectRoot, goalId); const result = this.cardStore.activateGoal(goalId); planCard = result.goal; const startedAt = now(); const plannerSessionId = `planner:${goalId}`; updateRuntimeState(this.projectRoot, { status: 'running', current_card_id: goalId, current_agent_session_id: plannerSessionId, queue: [], active_card_run: { card_id: goalId, card_type: planCard.type, runtime_status: 'running', phase: 'planner', caller_session_id: null, caller_tool_call_id: null, planner_session_id: plannerSessionId, correction_attempts: 0, started_at: startedAt, last_turn_at: startedAt } }); this.bindPlannerSessionToOpenRun(goalId, plannerSessionId); } catch (err) { const errorMessage = err instanceof Error ? err.message : String(err); this.emit('error', { goalId, phase: 'activate', error: err }); this._eventLogger.appendEvent({ kind: 'error', goal_id: goalId, phase: 'activate', error_message: errorMessage }); this._errorLogger.appendError({ message: errorMessage, goalId, phase: 'activate' }); return; }
     let plannerDone = false; const MAX_ITERATIONS = 50;
     for (let iter = 0; iter < MAX_ITERATIONS && !plannerDone && !this._shuttingDown; iter++) {
       if (this._paused) { this.emit('dispatch_blocked', { reason: 'paused', goalId }); this._eventLogger.appendEvent({ kind: 'dispatch_blocked', reason: 'paused', goal_id: goalId }); updateRuntimeState(this.projectRoot, { status: 'paused' }); return; }
@@ -592,7 +602,7 @@ export class Runtime extends EventEmitter {
         const handoff = this.consumeResumeHandoffContext(); if (handoff) plannerPrompt += `\n\n## Resume Handoff\n${handoff}`;
         try { const goalCard = this.cardStore.read(goalId); if (goalCard && this._skillsEngine) { const plannerInstr = goalCard.depth === 0 ? await this._skillsEngine.loadPlannerInstructions() : (goalCard.instructions_file && goalCard.instructions_file.trim()) ? await this._skillsEngine.loadPlannerInstructions(goalCard.instructions_file.trim()) : ''; const skillsContent = await this._skillsEngine.selectAndFormat({ goalDescription: goalCard.description, cardDescription: goalCard.description, tags: goalCard.tags, filePaths: [], availableTools: ['list_project_files', 'read_project_file', 'load_skill', 'mcp_tool_call'], targetRole: 'planner' }); const combinedSkills = [plannerInstr, skillsContent].filter(Boolean).join('\n\n'); if (combinedSkills) plannerPrompt = buildPlannerPrompt(combinedSkills, currentDepth, maxDepth) + `\n\n## Parent Resume Context\n${resumeContext}`; } } catch {}
         this.appendPlannerResumeContext(goalId, `planner:${goalId}`, resumeReason); injectQueuedSyntheticPlannerNotes(this.projectRoot, `planner:${goalId}`); const result = this.agentRuntime.invokePlanner(goalId, plannerPrompt); plannerResult = result instanceof Promise ? await result : result;
-      } catch (err) { const errorMessage = err instanceof Error ? err.message : String(err); this.emit('error', { goalId, phase: 'planner', error: err }); this._eventLogger.appendEvent({ kind: 'error', goal_id: goalId, phase: 'planner', error_message: errorMessage }); this._errorLogger.appendError({ message: errorMessage, goalId, phase: 'planner' }); break; }
+      } catch (err) { const errorMessage = err instanceof Error ? err.message : String(err); this.emit('error', { goalId, phase: 'planner', error: err }); this._eventLogger.appendEvent({ kind: 'error', goal_id: goalId, phase: 'planner', error_message: errorMessage }); this._errorLogger.appendError({ message: errorMessage, goalId, phase: 'planner' }); this.cardStore.update(goalId, { status: 'failed', error: errorMessage, status_text: `Planner failed: ${errorMessage}` }); const failedRun = (readRuntimeState(this.projectRoot)?.runtime_runs ?? []).filter((run) => run.card_id === goalId && run.phase === 'planner' && run.runtime_status === 'running' && !run.finished_at && (!run.session_id || run.session_id === `planner:${goalId}`)).sort((a, b) => (b.kind === 'root' ? 1 : 0) - (a.kind === 'root' ? 1 : 0))[0]; if (failedRun) { const updated = updateRuntimeRun(this.projectRoot, failedRun.run_id, { phase: 'failed', runtime_status: 'error', finished_at: now(), result: 'failed' }); if (updated) this.publishRuntimeLedgerEvent('runtime_run', { run: updated }); } updateRuntimeState(this.projectRoot, { status: 'idle', current_card_id: null, current_agent_session_id: null, queue: [], active_card_run: null } as Partial<RuntimeState> as never); throw err; }
       this.applyPlannerResult(goalId, plannerResult);
       updateRuntimeState(this.projectRoot, { current_agent_session_id: `planner:${goalId}`, queue: [] } as Partial<RuntimeState> as never);
       const execution = await this.dispatchPendingActivations(goalId);

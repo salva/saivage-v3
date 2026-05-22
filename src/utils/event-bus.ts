@@ -162,9 +162,13 @@ export class EventBus {
   }
 
   private _deliver(sub: InternalSubscription, event: LoggedEvent): void {
-    const result = sub.handler(event);
-    if (result && typeof (result as Promise<void>).then === 'function') {
-      this._withTimeout(result as Promise<void>, sub, event);
+    try {
+      const result = sub.handler(event);
+      if (result && typeof (result as Promise<void>).then === 'function') {
+        this._withTimeout(result as Promise<void>, sub, event);
+      }
+    } catch (err) {
+      console.error(`[EventBus] Handler error for subscription '${sub.id}' (event: ${event.kind}, id: ${event.id}): ${err instanceof Error ? err.message : String(err)}`);
     }
   }
 

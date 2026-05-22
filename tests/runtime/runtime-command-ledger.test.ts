@@ -1,4 +1,4 @@
-import { describe, expect, it } from '@jest/globals';
+import { describe, expect, it, jest } from '@jest/globals';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -104,6 +104,123 @@ describe('runtime command ledger target contract (Wave 1)', () => {
       expect(ledgerEvents).not.toContainEqual(expect.objectContaining({
         run: expect.objectContaining({ run_id: 'run-child-pending-same-card', session_id: 'planner:project' }),
       }));
+    } finally { rmSync(projectRoot, { recursive: true, force: true }); }
+  });
+
+  it('dispatchGoal promotes a pending child goal run before nested planner tool calls', async () => {
+    const projectRoot = root();
+    try {
+      initProjectTree(projectRoot);
+      appendRuntimeRun(projectRoot, {
+        run_id: 'run-child-pending',
+        kind: 'child',
+        card_id: 'goal-a',
+        parent_run_id: 'run-root',
+        command_id: null,
+        activation_id: 'activation-goal-a',
+        phase: 'pending',
+        runtime_status: 'running',
+        session_id: null,
+        result: null,
+      });
+      appendRuntimeRun(projectRoot, {
+        run_id: 'run-child-other-bound',
+        kind: 'child',
+        card_id: 'goal-a',
+        parent_run_id: 'run-other-parent',
+        command_id: null,
+        activation_id: 'activation-other-goal-a',
+        phase: 'planner',
+        runtime_status: 'running',
+        session_id: 'planner:other-goal-a',
+        result: null,
+      });
+      const observedRuns: Array<{ phase?: string; session_id?: string | null }> = [];
+      const activationResults: unknown[] = [];
+      let runtime: Runtime;
+      const agentRuntime: AgentRuntime = {
+        async invokePlanner(goalId) {
+          const parentRun = readRuntimeState(projectRoot)!.runtime_runs!.find((run) => run.run_id === 'run-child-pending');
+          observedRuns.push({ phase: parentRun?.phase, session_id: parentRun?.session_id });
+          const exec = new PlannerControlExecutor({ projectRoot, cardStore: runtime.cardStore });
+          const msg = await exec.execute({ toolName: 'activate_card', toolCallId: 'call-grandchild-a', argumentsJson: JSON.stringify({ cardId: 'grandchild-a' }), parentCardId: goalId, sessionId: 'planner:goal-a' });
+          activationResults.push(JSON.parse(msg.content));
+          return { status: 'blocked', blocked_reason: 'stop after observing child run ownership', created_cards: [], updated_cards: [] };
+        },
+        invokeExecutor() { throw new Error('executor should not run'); },
+        invokeReviewer() { throw new Error('reviewer should not run'); },
+        cancelSession() { return false; },
+        forceCancelSession() { return false; },
+        getHandoffSummary() { return null; },
+        getActiveSessionHandoffs() { return []; },
+      };
+      runtime = new Runtime({ projectRoot, fakeAgentConfig: { mapping: {}, fixtureDir: '' }, autoDispatchBacklog: false }, agentRuntime);
+      runtime.cardStore.create({ id: 'goal-a', type: 'goal', parent: 'project', depth: 1, title: 'Goal A', description: '', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [], blocks: [], artifacts: [], attachments: [], acceptance: '', retries: 0 });
+      runtime.cardStore.create({ id: 'grandchild-a', type: 'code', parent: 'goal-a', depth: 2, title: 'Grandchild A', description: '', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [], blocks: [], artifacts: [], attachments: [], acceptance: '', retries: 0 });
+
+      await runtime.dispatchGoal('goal-a');
+
+      expect(observedRuns).toEqual([{ phase: 'planner', session_id: 'planner:goal-a' }]);
+      expect(activationResults).toEqual([expect.objectContaining({
+        success: true,
+        activation: expect.objectContaining({ parent_run_id: 'run-child-pending', parent_session_id: 'planner:goal-a', child_card_id: 'grandchild-a' }),
+      })]);
+      const state = readRuntimeState(projectRoot)!;
+      expect(state.runtime_runs).toEqual(expect.arrayContaining([
+        expect.objectContaining({ run_id: 'run-child-pending', phase: 'planner', session_id: 'planner:goal-a' }),
+        expect.objectContaining({ run_id: 'run-child-other-bound', phase: 'planner', session_id: 'planner:other-goal-a' }),
+      ]));
+    } finally { rmSync(projectRoot, { recursive: true, force: true }); }
+  });
+
+  it('dispatchGoal logs planner failures and clears active runtime state even if event subscribers fail', async () => {
+    const projectRoot = root();
+    try {
+      initProjectTree(projectRoot);
+      appendRuntimeRun(projectRoot, {
+        run_id: 'run-root-failure',
+        kind: 'root',
+        card_id: 'project',
+        parent_run_id: null,
+        command_id: 'cmd-start',
+        activation_id: null,
+        phase: 'planner',
+        runtime_status: 'running',
+        session_id: null,
+        result: null,
+      });
+      const agentRuntime: AgentRuntime = {
+        invokePlanner() { throw new Error('planner boom'); },
+        invokeExecutor() { throw new Error('executor should not run'); },
+        invokeReviewer() { throw new Error('reviewer should not run'); },
+        cancelSession() { return false; },
+        forceCancelSession() { return false; },
+        getHandoffSummary() { return null; },
+        getActiveSessionHandoffs() { return []; },
+      };
+      const runtime = new Runtime({ projectRoot, fakeAgentConfig: { mapping: {}, fixtureDir: '' }, autoDispatchBacklog: false }, agentRuntime);
+      const sub = runtime.eventBus.subscribe({ allowedKinds: ['error'], handler: () => { throw new Error('subscriber boom'); } });
+      const consoleSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+
+      try {
+        await expect(runtime.dispatchGoal('project')).rejects.toThrow('planner boom');
+      } finally {
+        sub.unsubscribe();
+        consoleSpy.mockRestore();
+      }
+
+      const state = readRuntimeState(projectRoot)!;
+      expect(state.status).toBe('idle');
+      expect(state.current_card_id).toBeNull();
+      expect(state.current_agent_session_id).toBeNull();
+      expect(state.active_card_run).toBeNull();
+      expect(runtime.cardStore.read('project')).toEqual(expect.objectContaining({ status: 'failed', error: 'planner boom' }));
+      expect(state.runtime_runs).toEqual(expect.arrayContaining([
+        expect.objectContaining({ run_id: 'run-root-failure', phase: 'failed', runtime_status: 'error', result: 'failed', session_id: 'planner:project', finished_at: expect.any(String) }),
+      ]));
+      expect(runtime.errorLogger.getErrors()).toEqual(expect.arrayContaining([
+        expect.objectContaining({ goalId: 'project', phase: 'planner', message: 'planner boom' }),
+      ]));
     } finally { rmSync(projectRoot, { recursive: true, force: true }); }
   });
 

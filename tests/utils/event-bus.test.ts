@@ -49,6 +49,10 @@ function spyOnConsoleWarn() {
   return jest.spyOn(console, 'warn').mockImplementation(() => {});
 }
 
+function spyOnConsoleError() {
+  return jest.spyOn(console, 'error').mockImplementation(() => {});
+}
+
 // ═══════════════════════════════════════════════════════════════
 // 1. SEVERITY_ORDER
 // ═══════════════════════════════════════════════════════════════
@@ -805,6 +809,21 @@ describe('Delivery Timeout', () => {
       (call) => typeof call[0] === 'string' && (call[0] as string).includes('timed out'),
     );
     expect(warnCalls).toHaveLength(0);
+
+    consoleSpy.mockRestore();
+  });
+
+  it('synchronous handler errors are logged and do not abort later subscribers', () => {
+    const consoleSpy = spyOnConsoleError();
+    const bus = new EventBus();
+    const received: EventKind[] = [];
+
+    bus.subscribe({ handler: () => { throw new Error('subscriber boom'); } });
+    bus.subscribe({ handler: (event) => { received.push(event.kind); } });
+
+    expect(() => bus.emit(makeEvent({ kind: 'error', id: 'evt-handler-boom' }))).not.toThrow();
+    expect(received).toEqual(['error']);
+    expect(consoleSpy.mock.calls.some((call) => String(call[0]).includes('subscriber boom'))).toBe(true);
 
     consoleSpy.mockRestore();
   });
