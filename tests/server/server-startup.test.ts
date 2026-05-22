@@ -461,4 +461,33 @@ describe('Stage 01 Environment startup fail-closed behavior', () => {
       rmSync(root, { recursive: true, force: true });
     }
   }, 15000);
+
+  it('startApp root scope owns process signal handlers and server lifetime', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'saivage-start-app-scope-'));
+    let app: Awaited<ReturnType<typeof import('../../src/boot/app.js').startApp>> | undefined;
+    const beforeSigint = process.listenerCount('SIGINT');
+    const beforeSigterm = process.listenerCount('SIGTERM');
+    try {
+      setupProjectDir(root);
+      const { startApp } = await import('../../src/boot/app.js');
+      app = await startApp({
+        argv: ['node', 'saivage', 'start', '--host', '127.0.0.1', '--port', '0'],
+        env: { SAIVAGE_PROJECT_ROOT: root, SAIVAGE_API_TOKEN: AUTH_TOKEN, NODE_ENV: 'test' },
+        createRuntime: false,
+      });
+      expect(process.listenerCount('SIGINT')).toBe(beforeSigint + 1);
+      expect(process.listenerCount('SIGTERM')).toBe(beforeSigterm + 1);
+      await app.stop();
+      expect(app.scope.isDisposed()).toBe(true);
+      expect(app.server.scope.isDisposed()).toBe(true);
+      expect(process.listenerCount('SIGINT')).toBe(beforeSigint);
+      expect(process.listenerCount('SIGTERM')).toBe(beforeSigterm);
+      app = undefined;
+    } finally {
+      if (app) await app.stop();
+      expect(process.listenerCount('SIGINT')).toBe(beforeSigint);
+      expect(process.listenerCount('SIGTERM')).toBe(beforeSigterm);
+      rmSync(root, { recursive: true, force: true });
+    }
+  }, 15000);
 });

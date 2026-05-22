@@ -1,8 +1,10 @@
 import { loadEnvironment, type Environment } from '../config/environment.js';
+import { createResourceScope, type ResourceScope } from '../lifecycle/index.js';
 import { startServer, type ServerInstance } from '../server/server.js';
 
 export interface App {
   readonly environment: Environment;
+  readonly scope: ResourceScope;
   readonly server: ServerInstance;
   stop: () => Promise<void>;
 }
@@ -15,14 +17,15 @@ export interface StartAppOptions {
 
 export async function startApp(options: StartAppOptions): Promise<App> {
   const environment = loadEnvironment(options.argv, options.env ?? process.env);
-  const server = await startServer({ environment, createRuntime: options.createRuntime });
+  const scope = createResourceScope('app');
+  const server = await startServer({ environment, createRuntime: options.createRuntime, scope: scope.child('server') });
 
   async function stop(): Promise<void> {
-    await server.stop();
+    await scope.dispose();
   }
 
-  process.once('SIGINT', () => { void stop().then(() => process.exit(0)); });
-  process.once('SIGTERM', () => { void stop().then(() => process.exit(0)); });
+  scope.onSignal('SIGINT', () => { void stop().then(() => process.exit(0)); }, { name: 'process-sigint' });
+  scope.onSignal('SIGTERM', () => { void stop().then(() => process.exit(0)); }, { name: 'process-sigterm' });
 
-  return { environment, server, stop };
+  return { environment, scope, server, stop };
 }

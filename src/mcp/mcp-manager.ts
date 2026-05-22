@@ -24,9 +24,10 @@
  * See docs/design/configuration.md § MCP Servers and docs/design/implementation-plan.md Stage 9.
  */
 
-import { ChildProcess, spawn } from 'node:child_process';
+import type { ChildProcess } from 'node:child_process';
 import { loadConfig, type SaivageConfig } from '../agents/config-schema.js';
 import { EventLogger } from '../utils/event-logger.js';
+import { createResourceScope, type ResourceScope } from '../lifecycle/index.js';
 import * as readline from 'node:readline';
 import {
   compileMcpArgumentValidator,
@@ -455,8 +456,11 @@ function normalizeMcpServers(config: SaivageConfig): Record<string, McpServerCon
 
 // ── Manager ───────────────────────────────────────────────────
 
+export interface McpManagerOptions { scope?: ResourceScope; }
+
 export class McpManager {
   private projectRoot: string;
+  private readonly scope: ResourceScope;
   /** All configured MCP servers, loaded at construction time. */
   private servers: Record<string, McpServerConfig>;
   /** Handles for currently running servers. */
@@ -503,10 +507,12 @@ export class McpManager {
    */
   private _invocationQueues: Map<string, Promise<void>> = new Map();
 
-  constructor(projectRoot: string) {
+  constructor(projectRoot: string, options: McpManagerOptions = {}) {
     this.projectRoot = projectRoot;
+    this.scope = options.scope ?? createResourceScope('mcp-manager');
     const { config } = loadConfig(projectRoot);
     this.servers = normalizeMcpServers(config);
+    this.scope.add({ dispose: () => { this.toolsCache.clear(); this.argumentValidatorCache.clear(); this.toolsCacheInitialized.clear(); this.discoveryErrors.clear(); this._invocationQueues.clear(); } }, { name: 'mcp-manager-caches' });
   }
 
   // ── Event Logger ────────────────────────────────────────────
@@ -1185,11 +1191,12 @@ export class McpManager {
     const childEnv = { ...process.env, ...(cfg.env ?? {}) };
     const args = cfg.args ?? [];
 
-    const proc = spawn(cfg.command, args, {
+    const proc = this.scope.spawn(cfg.command, args, {
+      name: `mcp-stdio:${name}`,
       env: childEnv,
       stdio: ['pipe', 'pipe', 'pipe'],
       // Do not attach to parent tty
-    });
+    }).process;
 
     this.handles.set(name, { process: proc });
     this.startedAt.set(name, new Date().toISOString());
