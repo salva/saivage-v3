@@ -553,6 +553,10 @@ describe('Runtime Integration — Error Propagation', () => {
           updated_cards: [],
           status: 'done',
         },
+        {
+          status: 'blocked',
+          blocked_reason: 'Stop after executor-error logging assertion path.',
+        },
       ],
       executor: {},
       reviewer: makePassReviewer('goal-throw', 'plan-goal-throw', []),
@@ -757,6 +761,10 @@ describe('ErrorLogger + EventLogger consistency', () => {
         {
           updated_cards: [],
           status: 'done',
+        },
+        {
+          status: 'blocked',
+          blocked_reason: 'Stop after dual logger executor-error assertion path.',
         },
       ],
       executor: {},
