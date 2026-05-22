@@ -25,7 +25,7 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { initProjectTree } from '../../src/utils/file-tree.js';
 import { CardStore } from '../../src/utils/card-store.js';
-import { Runtime } from '../../src/utils/runtime.js';
+import { Runtime } from '../../src/runtime/runtime.js';
 import { FakeAgentAdapter, type FakeAgentFixture } from '../../src/utils/fake-agent.js';
 import {
   readFreezeManifest,
@@ -36,7 +36,7 @@ import {
   readRuntimeState,
   initRuntimeState,
   updateRuntimeState,
-} from '../../src/utils/runtime-state.js';
+} from '../../src/runtime/state.js';
 import { releaseLock } from '../../src/utils/runtime-lock.js';
 import type { CardRecord, FreezeManifest, HandoffSummary } from '../../src/schemas/types.js';
 

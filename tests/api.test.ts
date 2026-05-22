@@ -12,7 +12,7 @@ import { appendNote } from '../src/utils/notes.js';
 import { createServer, type ServerInstance } from '../src/server/server.js';
 import { NotificationCenter } from '../src/utils/notification-center.js';
 import { recordControlAction } from '../src/utils/control-action-audit.js';
-import { runtimeStatePath } from '../src/utils/runtime-state.js';
+import { runtimeStatePath } from '../src/runtime/state.js';
 import { getAuthPolicy, resetAuthPolicyForTests } from '../src/server/auth-policy.js';
 
 const TEST_ROOT = join(tmpdir(), `saivage-api-test-${Date.now()}`);
@@ -90,7 +90,7 @@ beforeAll(async () => {
   registerRuntimeConfigNotesRoutes(app, TEST_ROOT);
   registerChatsFilesDebugRoutes(app, TEST_ROOT);
   registerWebSocket(app, TEST_ROOT);
-  const { readRuntimeState } = await import('../src/utils/runtime-state.js');
+  const { readRuntimeState } = await import('../src/runtime/state.js');
   app.get('/health', async (_req, reply) => {
     const state = readRuntimeState(TEST_ROOT);
     return reply.send({ status: 'ok', version: '0.1.0', project: 'test', runtime: state?.status ?? 'unknown' });

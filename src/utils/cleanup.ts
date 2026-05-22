@@ -1,7 +1,7 @@
 import { existsSync, readdirSync, rmSync, statSync } from 'node:fs';
 import { join, resolve, normalize } from 'node:path';
 import type { CardStore } from './card-store.js';
-import { loadRegistry } from './process-runner.js';
+import { loadRegistry } from '../runtime/process-runner.js';
 
 // ── Types ─────────────────────────────────────────────────────
 

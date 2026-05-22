@@ -7,7 +7,7 @@ import {
   initRuntimeState,
   legacyRuntimeStatePath,
   runtimeStatePath,
-} from '../../src/utils/runtime-state.js';
+} from '../../src/runtime/state.js';
 import { createServer, type ServerInstance } from '../../src/server/server.js';
 import type { RuntimeState } from '../../src/schemas/types.js';
 

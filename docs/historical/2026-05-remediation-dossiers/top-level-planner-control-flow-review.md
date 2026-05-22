@@ -8,7 +8,7 @@ status: historical
 disposition: keep
 owner: docs-maintainers
 superseded_by: none
-last_verified_against: src/utils/runtime.ts:1
+last_verified_against: src/runtime/runtime.ts:1
 -->
 
 > **Authority status: historical.** This page is retained for provenance only and has no current replacement yet. See `docs/documentation-inventory.md` for disposition `keep`.
@@ -40,7 +40,7 @@ That means the runtime can perform at least one goal-local replan. The deeper fa
 
 ## Current Runtime Shape
 
-In `src/utils/runtime.ts`, `dispatchGoal` starts `runGoal(goalId)`. `runGoal` then:
+In `src/runtime/runtime.ts`, `dispatchGoal` starts `runGoal(goalId)`. `runGoal` then:
 
 1. Activates the goal.
 2. Invokes the planner for that goal.

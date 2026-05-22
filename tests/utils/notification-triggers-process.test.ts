@@ -10,7 +10,7 @@ describe('process termination notifications', () => {
     const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-process-notification-absence-'));
     try {
       initProjectTree(projectRoot);
-      const module = await import('../../src/utils/process-runner.js');
+      const module = await import('../../src/runtime/process-runner.js');
       expect(module).toHaveProperty('killProcess');
       expect(module).not.toHaveProperty('killAllRunning');
       const center = new NotificationCenter(projectRoot);

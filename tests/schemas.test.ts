@@ -25,7 +25,7 @@ import {
   parseActivationEnvelopeContent,
 } from '../src/schemas/validators.js';
 import { initProjectTree } from '../src/utils/file-tree.js';
-import { readRuntimeState } from '../src/utils/runtime-state.js';
+import { readRuntimeState } from '../src/runtime/state.js';
 
 
 describe('Activation envelope schemas', () => {

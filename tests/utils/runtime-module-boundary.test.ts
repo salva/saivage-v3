@@ -10,48 +10,55 @@ import {
   waitProcess,
   listProcesses,
 } from '../../src/runtime/index.js';
+import { Runtime as SchedulerRuntime } from '../../src/runtime/runtime.js';
 import { ActiveRuntime as LifecycleActiveRuntime } from '../../src/runtime/lifecycle.js';
-import { Runtime as CompatRuntime } from '../../src/utils/runtime.js';
-import { ActiveRuntime as CompatActiveRuntime } from '../../src/utils/active-runtime.js';
-import { initRuntimeState as compatInitRuntimeState, runtimeStatePath as compatRuntimeStatePath } from '../../src/utils/runtime-state.js';
-import { startProcess as compatStartProcess, waitProcess as compatWaitProcess, listProcesses as compatListProcesses } from '../../src/utils/process-runner.js';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { ActiveRuntime as RuntimeActiveRuntime } from '../../src/runtime/active-runtime.js';
+import { initRuntimeState as directInitRuntimeState, runtimeStatePath as directRuntimeStatePath } from '../../src/runtime/state.js';
+import { startProcess as directStartProcess, waitProcess as directWaitProcess, listProcesses as directListProcesses } from '../../src/runtime/process-runner.js';
+import { existsSync, mkdtempSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { initProjectTree } from '../../src/utils/file-tree.js';
 
-describe('runtime module boundary and compatibility shims', () => {
-  it('exports scheduler and active runtime lifecycle surfaces from src/runtime and old utils shims', () => {
-    expect(Runtime).toBe(CompatRuntime);
+describe('runtime module ownership boundary', () => {
+  it('exports scheduler and active runtime lifecycle surfaces only through src/runtime', () => {
+    expect(Runtime).toBe(SchedulerRuntime);
     expect(ActiveRuntime).toBe(LifecycleActiveRuntime);
-    expect(ActiveRuntime).toBe(CompatActiveRuntime);
+    expect(ActiveRuntime).toBe(RuntimeActiveRuntime);
   });
 
-  it('exports runtime state helpers from new boundary and compatibility shim with identical behavior', () => {
+  it('exports runtime state helpers from the src/runtime index with identical direct-module behavior', () => {
     const root = mkdtempSync(join(tmpdir(), 'runtime-boundary-state-'));
     try {
       initProjectTree(root);
       const state = initRuntimeState(root);
-      expect(compatRuntimeStatePath(root)).toBe(runtimeStatePath(root));
-      expect(compatInitRuntimeState).toBe(initRuntimeState);
+      expect(directRuntimeStatePath(root)).toBe(runtimeStatePath(root));
+      expect(directInitRuntimeState).toBe(initRuntimeState);
       expect(readRuntimeState(root)).toMatchObject({ project_id: state.project_id, status: 'idle' });
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
   });
 
-  it('exports durable process helpers from new boundary and compatibility shim with shared module state', async () => {
+  it('exports durable process helpers from the src/runtime index with shared direct-module state', async () => {
     const root = mkdtempSync(join(tmpdir(), 'runtime-boundary-process-'));
     try {
       initProjectTree(root);
-      expect(compatStartProcess).toBe(startProcess);
-      expect(compatListProcesses).toBe(listProcesses);
+      expect(directStartProcess).toBe(startProcess);
+      expect(directListProcesses).toBe(listProcesses);
       const rec = startProcess(root, 'echo runtime-boundary', { cardId: 'card-boundary' });
-      expect(compatWaitProcess).toBe(waitProcess);
-      expect(compatListProcesses(root).map((p) => p.id)).toContain(rec.id);
+      expect(directWaitProcess).toBe(waitProcess);
+      expect(directListProcesses(root).map((p) => p.id)).toContain(rec.id);
       await waitProcess(root, rec.id, 1000);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
+  });
+
+  it('does not retain legacy src/utils runtime compatibility shim files', () => {
+    expect(existsSync(join(process.cwd(), 'src/utils/runtime.ts'))).toBe(false);
+    expect(existsSync(join(process.cwd(), 'src/utils/active-runtime.ts'))).toBe(false);
+    expect(existsSync(join(process.cwd(), 'src/utils/runtime-state.ts'))).toBe(false);
+    expect(existsSync(join(process.cwd(), 'src/utils/process-runner.ts'))).toBe(false);
   });
 });

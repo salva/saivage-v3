@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { initProjectTree } from '../../src/utils/file-tree.js';
-import { initRuntimeState } from '../../src/utils/runtime-state.js';
+import { initRuntimeState } from '../../src/runtime/state.js';
 import { pauseRuntimeControl, resumeRuntimeControl } from '../../src/utils/runtime-control.js';
 import { NotificationCenter } from '../../src/utils/notification-center.js';
 import { createSession } from '../../src/agents/session-persistence.js';

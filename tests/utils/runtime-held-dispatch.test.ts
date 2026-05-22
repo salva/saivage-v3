@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { initProjectTree } from '../../src/utils/file-tree.js';
-import { Runtime } from '../../src/utils/runtime.js';
+import { Runtime } from '../../src/runtime/runtime.js';
 import { NotificationCenter } from '../../src/utils/notification-center.js';
 import { releaseLock } from '../../src/utils/runtime-lock.js';
 import type { AgentRuntime } from '../../src/agents/agent-runtime.js';

@@ -7,8 +7,8 @@ import { createSession, getSession } from '../../src/agents/session-persistence.
 import { reviewerResultSchema } from '../../src/schemas/validators.js';
 import { initProjectTree } from '../../src/utils/file-tree.js';
 import { pauseRuntimeControl, resumeRuntimeControl } from '../../src/utils/runtime-control.js';
-import { readRuntimeState, saveRuntimeState } from '../../src/utils/runtime-state.js';
-import { Runtime } from '../../src/utils/runtime.js';
+import { readRuntimeState, saveRuntimeState } from '../../src/runtime/state.js';
+import { Runtime } from '../../src/runtime/runtime.js';
 import { releaseLock } from '../../src/utils/runtime-lock.js';
 import { CardStore } from '../../src/utils/card-store.js';
 import type { RuntimeState } from '../../src/schemas/types.js';
@@ -151,7 +151,7 @@ describe('stable reviewer session ids', () => {
     expect(repaired?.current_agent_session_id).toBe('planner:goal-1');
 
     const syntheticNotes = join(projectRoot, '.saivage', 'runtime', 'synthetic-notes.json');
-    // Restart recovery source anchor: src/utils/runtime.ts repairStartupActiveCardRun queues
+    // Restart recovery source anchor: src/runtime/runtime.ts repairStartupActiveCardRun queues
     // reviewer_interrupted with interrupted_reviewer_session_id=<stable reviewer session id>.
     const notes = await import('node:fs').then((fs) => fs.readFileSync(syntheticNotes, 'utf-8'));
     expect(notes).toContain('reviewer_interrupted');

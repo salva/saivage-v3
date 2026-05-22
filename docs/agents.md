@@ -262,7 +262,7 @@ type ActiveCardRun = {
 project card has been activated, or after the project planner goes
 `Dormant`). Otherwise it holds the single card that is currently
 executing, planning, or under review. The persisted-state invariant is
-enforced in `src/utils/runtime-state.ts`: an idle state with
+enforced in `src/runtime/state.ts`: an idle state with
 `current_card_id === null` must not retain a non-terminal running
 `active_card_run`; production reads self-heal historical corruption and
 `tests/utils/runtime-state-invariant.test.ts` covers the guard.
@@ -567,7 +567,7 @@ Gate order on `report_goal_done` is:
 
 ## 9. Goal Context
 
-Goal Context is generated on planner creation and every runtime resume. The enforcing implementation is `src/utils/runtime.ts` (`buildGoalContextPayload`, `buildGoalContextBlock`, `appendPlannerResumeContext`), with recursive shape/resume regression coverage in `tests/utils/runtime-restart-orphan-repair.test.ts` and ancestor/HTTP status mirroring coverage in `tests/utils/runtime-integration.test.ts`.
+Goal Context is generated on planner creation and every runtime resume. The enforcing implementation is `src/runtime/runtime.ts` (`buildGoalContextPayload`, `buildGoalContextBlock`, `appendPlannerResumeContext`), with recursive shape/resume regression coverage in `tests/utils/runtime-restart-orphan-repair.test.ts` and ancestor/HTTP status mirroring coverage in `tests/utils/runtime-integration.test.ts`.
 It is intentionally basic:
 
 ```ts
@@ -861,7 +861,7 @@ keep their persisted lifecycle status. After repair, the runtime
 returns to idle if no `active_card_run` remains and re-evaluates
 startup repair must not consume those directives or dispatch the
 project planner directly before repair settles. The source guard is
-`repairStartupActiveCardRun()` plus `safeTick()` in `src/utils/runtime.ts`,
+`repairStartupActiveCardRun()` plus `safeTick()` in `src/runtime/runtime.ts`,
 with regression coverage in `tests/utils/runtime-restart-orphan-repair.test.ts`.
 
 Runtime pause is global (`RuntimeState.paused`). It does not change

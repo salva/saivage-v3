@@ -15,7 +15,7 @@ import {
   setProcessTerminalBuffering,
   snapshotProcessRuntimeScope,
   disposeProcessRuntimeScope,
-} from '../../src/utils/process-runner.js';
+} from '../../src/runtime/process-runner.js';
 import type { ProcessRecord } from '../../src/schemas/types.js';
 import { EventLogger } from '../../src/utils/event-logger.js';
 import { NotificationCenter } from '../../src/utils/notification-center.js';

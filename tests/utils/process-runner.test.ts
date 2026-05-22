@@ -19,7 +19,7 @@ import {
   isProcessLiveAttached,
   snapshotProcessRuntimeScope,
   disposeProcessRuntimeScope,
-} from '../../src/utils/process-runner.js';
+} from '../../src/runtime/process-runner.js';
 import type { ProcessRecord } from '../../src/schemas/types.js';
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));

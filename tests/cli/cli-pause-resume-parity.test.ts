@@ -2,7 +2,7 @@ import { describe, it, expect, jest } from '@jest/globals';
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { runtimeStatePath } from '../../src/utils/runtime-state.js';
+import { runtimeStatePath } from '../../src/runtime/state.js';
 
 describe('cli pause resume parity', () => {
   it('fallback updates persisted state and writes audit when server is down', async () => {

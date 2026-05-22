@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { EventEmitter } from 'node:events';
 
-import { Runtime } from '../../src/utils/runtime.js';
+import { Runtime } from '../../src/runtime/runtime.js';
 import { initProjectTree } from '../../src/utils/file-tree.js';
 import { releaseLock } from '../../src/utils/runtime-lock.js';
 import { AgentAdapter } from '../../src/agents/agent-adapter.js';

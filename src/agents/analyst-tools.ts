@@ -4,11 +4,11 @@ import { existsSync, readFileSync, readdirSync, statSync, lstatSync } from 'node
 import { CardStore } from '../utils/card-store.js';
 import { appendNote, getNotes, deleteAllNotes, markNoteHandled } from '../utils/notes.js';
 import { getDiaryEntries, deleteDiary } from '../utils/diary.js';
-import { readRuntimeState } from '../utils/runtime-state.js';
+import { readRuntimeState } from '../runtime/state.js';
 import { pauseRuntimeControl, resumeRuntimeControl, RESUME_FROM_FREEZE_MESSAGE } from '../utils/runtime-control.js';
-import { listProcesses, tailOutput, getProcess } from '../utils/process-runner.js';
+import { listProcesses, tailOutput, getProcess } from '../runtime/process-runner.js';
 import type { CardRecord, CardType, CardStatus, NoteKind, NoteAuthor, ControlActionSurface } from '../schemas/types.js';
-import type { ActiveRuntime } from '../utils/active-runtime.js';
+import type { ActiveRuntime } from '../runtime/active-runtime.js';
 import type { ActorRole, SafetyClass } from './authz.js';
 import { evaluateAuthz } from './authz.js';
 import { recordControlAction, stableStringify } from '../utils/control-action-audit.js';

@@ -15,7 +15,7 @@ import {
   saveRegistry,
   cleanupProcessOutput,
   cleanupAllCompleted,
-} from '../../src/utils/process-runner.js';
+} from '../../src/runtime/process-runner.js';
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -101,7 +101,7 @@ describe('Process Runner Smoke Tests', () => {
   });
 
   it('exports product process termination APIs', async () => {
-    const module = await import('../../src/utils/process-runner.js');
+    const module = await import('../../src/runtime/process-runner.js');
     expect(module).toHaveProperty('killProcess');
   });
 });

@@ -9,7 +9,7 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
 import { CardStore } from '../src/utils/card-store.js';
-import { initRuntimeState, readRuntimeState, runtimeStatePath, updateRuntimeState } from '../src/utils/runtime-state.js';
+import { initRuntimeState, readRuntimeState, runtimeStatePath, updateRuntimeState } from '../src/runtime/state.js';
 import {
   create_card, edit_card, add_note, pause_runtime, resume_runtime,
 } from '../src/agents/analyst-tools.js';

@@ -2,7 +2,7 @@ import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import {
   listProcesses,
   getProcess,
-} from '../../utils/process-runner.js';
+} from '../../runtime/process-runner.js';
 import type { ProcessRecord } from '../../schemas/types.js';
 import {
   redactCommandForOperator,

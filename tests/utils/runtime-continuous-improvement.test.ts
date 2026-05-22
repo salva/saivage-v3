@@ -4,10 +4,10 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { initProjectTree } from '../../src/utils/file-tree.js';
 import { CardStore } from '../../src/utils/card-store.js';
-import { Runtime } from '../../src/utils/runtime.js';
+import { Runtime } from '../../src/runtime/runtime.js';
 import type { FakeAgentFixture } from '../../src/utils/fake-agent.js';
 import { releaseLock } from '../../src/utils/runtime-lock.js';
-import { startProcess, snapshotProcessRuntimeScope } from '../../src/utils/process-runner.js';
+import { startProcess, snapshotProcessRuntimeScope } from '../../src/runtime/process-runner.js';
 import type { CardRecord, CardStatus } from '../../src/schemas/types.js';
 
 function makeFixtureDir(tmpDir: string): string {
@@ -149,7 +149,7 @@ describe('Runtime continuousImprovement reserved config', () => {
     const rec = startProcess(tmpDir, 'sleep 5', { cardId: 'card-partial-startup', ownerKind: 'runtime' });
     await runtime.shutdown();
     expect(snapshotProcessRuntimeScope(tmpDir).resources.length).toBeGreaterThan(0);
-    await import('../../src/utils/process-runner.js').then(({ disposeProcessRuntimeScope }) => disposeProcessRuntimeScope(tmpDir));
+    await import('../../src/runtime/process-runner.js').then(({ disposeProcessRuntimeScope }) => disposeProcessRuntimeScope(tmpDir));
     expect(snapshotProcessRuntimeScope(tmpDir).resources).toHaveLength(0);
     expect(rec.id).toMatch(/^proc-/);
   });

@@ -1,7 +1,7 @@
 import { readdirSync, lstatSync, statSync, readFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
-import { readRuntimeState } from '../../utils/runtime-state.js';
+import { readRuntimeState } from '../../runtime/state.js';
 import { readFreezeManifest } from '../../utils/freeze-manifest.js';
 import { CardStore } from '../../utils/card-store.js';
 import {
@@ -15,7 +15,7 @@ import {
   listRecentReviews,
   listQuarantineIndex,
 } from '../../utils/quarantine.js';
-import type { ActiveRuntime } from '../../utils/active-runtime.js';
+import type { ActiveRuntime } from '../../runtime/active-runtime.js';
 import type {
   DoctorCheck,
   DoctorIssue,

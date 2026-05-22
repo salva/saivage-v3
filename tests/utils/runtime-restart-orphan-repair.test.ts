@@ -4,10 +4,10 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { initProjectTree } from '../../src/utils/file-tree.js';
 import { parseActivationCompletionEnvelope } from '../../src/schemas/validators.js';
-import { Runtime } from '../../src/utils/runtime.js';
+import { Runtime } from '../../src/runtime/runtime.js';
 import { CardStore } from '../../src/utils/card-store.js';
 import { releaseLock } from '../../src/utils/runtime-lock.js';
-import { saveRuntimeState, initRuntimeState, updateRuntimeState, readRuntimeState } from '../../src/utils/runtime-state.js';
+import { saveRuntimeState, initRuntimeState, updateRuntimeState, readRuntimeState } from '../../src/runtime/state.js';
 import { appendMessage, createSession, getSessionMessages, listSessions } from '../../src/agents/session-persistence.js';
 import { getUnhandledNotesQueue } from '../../src/utils/notes.js';
 import type { ActiveCardRun, CardRecord, RuntimeState } from '../../src/schemas/types.js';
@@ -302,7 +302,7 @@ describe('stage 7 runtime restart and orphan activate_card repair', () => {
   });
 
   it('keeps pending_subprocess acceptance gate behavior deferred while durable process tools exist', async () => {
-    const module = await import('../../src/utils/process-runner.js');
+    const module = await import('../../src/runtime/process-runner.js');
     expect(module).toHaveProperty('waitProcess');
     expect(module).toHaveProperty('killProcess');
     expect(module).toHaveProperty('reconcileProcessRecords');

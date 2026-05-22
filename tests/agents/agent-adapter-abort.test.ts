@@ -8,7 +8,7 @@ import { EventLogger } from '../../src/utils/event-logger.js';
 import { getSeverity } from '../../src/utils/event-bus.js';
 import type { AgentRuntime } from '../../src/agents/agent-runtime.js';
 import { FakeAgentAdapter } from '../../src/utils/fake-agent.js';
-import { Runtime } from '../../src/utils/runtime.js';
+import { Runtime } from '../../src/runtime/runtime.js';
 import { initProjectTree } from '../../src/utils/file-tree.js';
 import { releaseLock } from '../../src/utils/runtime-lock.js';
 import { getSession } from '../../src/agents/session-persistence.js';

@@ -9,7 +9,7 @@ import {
   saveRuntimeState,
   updateRuntimeState,
   RuntimeStateInvariantError,
-} from '../../src/utils/runtime-state.js';
+} from '../../src/runtime/state.js';
 import { createServer, type ServerInstance } from '../../src/server/server.js';
 import { runtimeStateSchema } from '../../src/schemas/validators.js';
 import type { ActiveCardRun, RuntimeState } from '../../src/schemas/types.js';

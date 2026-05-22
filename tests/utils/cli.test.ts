@@ -24,7 +24,7 @@ jest.unstable_mockModule('../../src/utils/file-tree.js', () => ({
   writeFileAtomic: jest.fn(),
 }));
 
-jest.unstable_mockModule('../../src/utils/runtime-state.js', () => ({
+jest.unstable_mockModule('../../src/runtime/state.js', () => ({
   readRuntimeState: mockReadRuntimeState,
   updateRuntimeState: mockUpdateRuntimeState,
 }));

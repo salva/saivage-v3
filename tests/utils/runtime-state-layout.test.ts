@@ -11,7 +11,7 @@ import {
   saveRuntimeState,
   updateRuntimeState,
   RuntimeStateLayoutError,
-} from '../../src/utils/runtime-state.js';
+} from '../../src/runtime/state.js';
 import type { RuntimeState } from '../../src/schemas/types.js';
 
 let root: string;

@@ -17,8 +17,8 @@ import { tmpdir } from 'node:os';
 import { initProjectTree } from '../../src/utils/file-tree.js';
 import { CardStore } from '../../src/utils/card-store.js';
 import { releaseLock, isLocked } from '../../src/utils/runtime-lock.js';
-import { ActiveRuntime } from '../../src/utils/active-runtime.js';
-import { runtimeStatePath } from '../../src/utils/runtime-state.js';
+import { ActiveRuntime } from '../../src/runtime/active-runtime.js';
+import { runtimeStatePath } from '../../src/runtime/state.js';
 import type { CardRecord } from '../../src/schemas/types.js';
 
 // ── Helpers ───────────────────────────────────────────────────

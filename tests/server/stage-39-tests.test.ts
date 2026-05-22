@@ -427,7 +427,7 @@ describe('Stage 39 — Health Endpoint (Frozen with frozen_reason)', () => {
 
     // Real health endpoint that reads state from disk
     app.get('/health', async (_req, _reply) => {
-      const { readRuntimeState } = await import('../../src/utils/runtime-state.js');
+      const { readRuntimeState } = await import('../../src/runtime/state.js');
       const { readFreezeManifest } = await import('../../src/utils/freeze-manifest.js');
 
       let runtimeStatus = 'unknown';
@@ -508,7 +508,7 @@ describe('Stage 39 — Health Endpoint (Idle, no frozen_reason)', () => {
     registerWebSocket(app, projectRoot);
 
     app.get('/health', async (_req, _reply) => {
-      const { readRuntimeState } = await import('../../src/utils/runtime-state.js');
+      const { readRuntimeState } = await import('../../src/runtime/state.js');
 
       let runtimeStatus = 'unknown';
       const state = readRuntimeState(projectRoot);

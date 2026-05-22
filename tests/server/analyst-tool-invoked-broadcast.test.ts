@@ -13,7 +13,7 @@ jest.unstable_mockModule('../../src/server/websocket.js', () => ({
 }));
 
 const { AnalystHandler } = await import('../../src/agents/analyst-handler.js');
-const { initRuntimeState } = await import('../../src/utils/runtime-state.js');
+const { initRuntimeState } = await import('../../src/runtime/state.js');
 
 type BroadcastPayload = {
   sessionId: string;

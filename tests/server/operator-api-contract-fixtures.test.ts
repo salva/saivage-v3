@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { initProjectTree } from '../../src/utils/file-tree.js';
-import { initRuntimeState, readRuntimeState } from '../../src/utils/runtime-state.js';
+import { initRuntimeState, readRuntimeState } from '../../src/runtime/state.js';
 import { createServer, type ServerInstance } from '../../src/server/server.js';
 import { runtimeStateSchema } from '../../src/schemas/validators.js';
 

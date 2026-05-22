@@ -28,7 +28,7 @@ import { ANALYST_TOOL_DEFINITIONS } from './analyst-tool-schemas.js';
 import { CardStore } from '../utils/card-store.js';
 import { injectQueuedSyntheticPlannerNotes } from '../utils/analyst-stage6.js';
 import { parseDeferredActivationEnvelope } from '../schemas/validators.js';
-import { readRuntimeState } from '../utils/runtime-state.js';
+import { readRuntimeState } from '../runtime/state.js';
 import { PlannerControlExecutor } from './planner-control-executor.js';
 import { RedactionBoundary } from '../utils/redaction-boundary.js';
 import { RoleToolPolicy, type RoleToolPolicyDecision, type RoleToolPolicySurface } from './role-tool-policy.js';

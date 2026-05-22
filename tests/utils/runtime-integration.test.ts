@@ -5,8 +5,8 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { initProjectTree } from '../../src/utils/file-tree.js';
 import { CardStore } from '../../src/utils/card-store.js';
-import { Runtime } from '../../src/utils/runtime.js';
-import { readRuntimeState } from '../../src/utils/runtime-state.js';
+import { Runtime } from '../../src/runtime/runtime.js';
+import { readRuntimeState } from '../../src/runtime/state.js';
 import { FakeAgentAdapter } from '../../src/utils/fake-agent.js';
 import type { FakeAgentFixture } from '../../src/utils/fake-agent.js';
 import {

@@ -141,12 +141,12 @@ export const WORKSPACE_TOOL_DEFINITIONS: ToolDefinition[] = [
   },
 ];
 
-type ProcessRunnerModule = typeof import('../utils/process-runner.js');
+type ProcessRunnerModule = typeof import('../runtime/process-runner.js');
 
 let processRunnerModulePromise: Promise<ProcessRunnerModule> | null = null;
 
 function getProcessRunner(): Promise<ProcessRunnerModule> {
-  processRunnerModulePromise ??= import('../utils/process-runner.js');
+  processRunnerModulePromise ??= import('../runtime/process-runner.js');
   return processRunnerModulePromise;
 }
 

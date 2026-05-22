@@ -15,7 +15,7 @@ import type { EventBus, EventBusSubscription } from '../utils/event-bus.js';
 import type { LoggedEvent } from '../schemas/types.js';
 import { redactOperatorErrorMessage } from '../utils/file-access-security.js';
 import { sanitizeAnalystPayload, sanitizeAnalystText } from '../utils/analyst-sanitization.js';
-import type { ActiveRuntime } from '../utils/active-runtime.js';
+import type { ActiveRuntime } from '../runtime/active-runtime.js';
 import { InboundAnalystMessageEnvelopeSchema, buildConnectedEnvelope, validateKnownWsEnvelope } from '../contracts/operator-events.js';
 import type { WsEnvelope, WsEventType } from '../contracts/operator-events.js';
 import { getAuthPolicy } from './auth-policy.js';

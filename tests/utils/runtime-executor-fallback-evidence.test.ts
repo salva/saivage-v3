@@ -3,7 +3,7 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
-import { Runtime } from '../../src/utils/runtime.js';
+import { Runtime } from '../../src/runtime/runtime.js';
 import { appendMessage, createSession, getSessionMessages } from '../../src/agents/session-persistence.js';
 import { initProjectTree } from '../../src/utils/file-tree.js';
 import type { AgentRuntime } from '../../src/agents/agent-runtime.js';

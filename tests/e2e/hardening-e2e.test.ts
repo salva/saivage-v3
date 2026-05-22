@@ -27,7 +27,7 @@ import { tmpdir } from 'node:os';
 
 import { initProjectTree } from '../../src/utils/file-tree.js';
 import { CardStore } from '../../src/utils/card-store.js';
-import { Runtime } from '../../src/utils/runtime.js';
+import { Runtime } from '../../src/runtime/runtime.js';
 import type { FakeAgentFixture } from '../../src/utils/fake-agent.js';
 import { scanContent } from '../../src/utils/heuristic-scanner.js';
 import { quarantineContent } from '../../src/utils/quarantine.js';
@@ -640,7 +640,7 @@ describe('E2E — Crash and Restart Recovery', () => {
 
     expect(store.read('crash-goal')!.status).toBe('done');
 
-    const { readRuntimeState } = await import('../../src/utils/runtime-state.js');
+    const { readRuntimeState } = await import('../../src/runtime/state.js');
     const state = readRuntimeState(tmpDir);
     expect(state).not.toBeNull();
     expect(state!.status).toBe('idle');

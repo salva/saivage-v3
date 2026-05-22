@@ -23,7 +23,7 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { randomBytes } from 'node:crypto';
 import { initProjectTree } from '../../src/utils/file-tree.js';
-import { ActiveRuntime } from '../../src/utils/active-runtime.js';
+import { ActiveRuntime } from '../../src/runtime/active-runtime.js';
 
 interface CapturedRequest {
   body: string;

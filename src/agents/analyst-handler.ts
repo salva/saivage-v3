@@ -7,7 +7,7 @@ import type { ToolResult, ToolContext } from './analyst-tools.js';
 import { TOOL_REGISTRY } from './analyst-llm-resolver.js';
 import { LlmIntentResolver } from './analyst-llm-resolver.js';
 import { CardStore } from '../utils/card-store.js';
-import type { ActiveRuntime } from '../utils/active-runtime.js';
+import type { ActiveRuntime } from '../runtime/active-runtime.js';
 import type { ActorRole } from './authz.js';
 import { sanitizeAnalystText } from '../utils/analyst-sanitization.js';
 import { broadcastAnalystToolInvoked } from '../server/websocket.js';

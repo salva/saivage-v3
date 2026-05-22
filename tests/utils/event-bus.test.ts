@@ -1027,7 +1027,7 @@ describe('EventBus Properties', () => {
 
 describe('Runtime + EventBus Integration', () => {
   it('Runtime creates an EventBus instance (runtime.eventBus exists)', async () => {
-    const { Runtime } = await import('../../src/utils/runtime.js');
+    const { Runtime } = await import('../../src/runtime/runtime.js');
     const { mkdtempSync, rmSync } = await import('node:fs');
     const { join } = await import('node:path');
     const { tmpdir } = await import('node:os');
@@ -1053,7 +1053,7 @@ describe('Runtime + EventBus Integration', () => {
   });
 
   it('runtime.emit() forwards events to EventBus', async () => {
-    const { Runtime } = await import('../../src/utils/runtime.js');
+    const { Runtime } = await import('../../src/runtime/runtime.js');
     const { mkdtempSync, rmSync } = await import('node:fs');
     const { join } = await import('node:path');
     const { tmpdir } = await import('node:os');
@@ -1084,7 +1084,7 @@ describe('Runtime + EventBus Integration', () => {
   });
 
   it('EventBus subscription on runtime.eventBus receives events emitted via runtime.emit()', async () => {
-    const { Runtime } = await import('../../src/utils/runtime.js');
+    const { Runtime } = await import('../../src/runtime/runtime.js');
     const { mkdtempSync, rmSync } = await import('node:fs');
     const { join } = await import('node:path');
     const { tmpdir } = await import('node:os');
@@ -1125,7 +1125,7 @@ describe('Runtime + EventBus Integration', () => {
   });
 
   it('runtime.on() backward compat still works alongside EventBus', async () => {
-    const { Runtime } = await import('../../src/utils/runtime.js');
+    const { Runtime } = await import('../../src/runtime/runtime.js');
     const { mkdtempSync, rmSync } = await import('node:fs');
     const { join } = await import('node:path');
     const { tmpdir } = await import('node:os');
@@ -1162,7 +1162,7 @@ describe('Runtime + EventBus Integration', () => {
   });
 
   it('runtime.on() for non-tracked event still works but NOT forwarded to EventBus', async () => {
-    const { Runtime } = await import('../../src/utils/runtime.js');
+    const { Runtime } = await import('../../src/runtime/runtime.js');
     const { mkdtempSync, rmSync } = await import('node:fs');
     const { join } = await import('node:path');
     const { tmpdir } = await import('node:os');

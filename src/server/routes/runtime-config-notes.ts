@@ -1,7 +1,7 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
-import { readRuntimeState, updateRuntimeState, RuntimeStateLayoutError } from '../../utils/runtime-state.js';
+import { readRuntimeState, updateRuntimeState, RuntimeStateLayoutError } from '../../runtime/state.js';
 import { pauseRuntimeControl, resumeRuntimeControl } from '../../utils/runtime-control.js';
-import type { ActiveRuntime } from '../../utils/active-runtime.js';
+import type { ActiveRuntime } from '../../runtime/active-runtime.js';
 import { loadConfig, type ProviderEntry } from '../../agents/config-schema.js';
 import { getReconciledUnhandledNotesQueue, findUnhandledNoteCardId, markNoteHandled, deleteNote } from '../../utils/notes.js';
 import { redactCredentialLiterals, redactSecrets } from '../../utils/file-access-security.js';

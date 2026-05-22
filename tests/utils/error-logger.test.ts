@@ -11,7 +11,7 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { initProjectTree } from '../../src/utils/file-tree.js';
 import { CardStore } from '../../src/utils/card-store.js';
-import { Runtime } from '../../src/utils/runtime.js';
+import { Runtime } from '../../src/runtime/runtime.js';
 import { ErrorLogger, type ErrorRecord, type ErrorInput } from '../../src/utils/error-logger.js';
 import { releaseLock } from '../../src/utils/runtime-lock.js';
 import type { FakeAgentFixture } from '../../src/utils/fake-agent.js';

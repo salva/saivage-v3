@@ -3,7 +3,7 @@ import { existsSync, mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { initProjectTree } from '../../src/utils/file-tree.js';
-import { Runtime } from '../../src/utils/runtime.js';
+import { Runtime } from '../../src/runtime/runtime.js';
 import { FakeAgentAdapter, type FakeAgentFixture, type FakeReviewerResult } from '../../src/utils/fake-agent.js';
 import { releaseLock } from '../../src/utils/runtime-lock.js';
 import { getSessionMessages } from '../../src/agents/session-persistence.js';

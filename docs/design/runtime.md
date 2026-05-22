@@ -5,7 +5,7 @@ status: stale
 disposition: merge-into
 owner: docs-maintainers
 superseded_by: docs/agents.md
-last_verified_against: src/utils/runtime.ts:1
+last_verified_against: src/runtime/runtime.ts:1
 -->
 
 > **Authority status: stale.** This page is retained for context only and is not current operator guidance. Prefer `docs/agents.md` for current authority where applicable. See `docs/documentation-inventory.md` for disposition `merge-into`.
@@ -115,7 +115,7 @@ ad hoc writes:
 - `pauseRuntimeControl`
 - `resumeRuntimeControl`
 - runtime freeze/resume-from-freeze helpers
-- `src/utils/runtime-state.ts` for actual persisted state writes and the idle/`active_card_run` coherence guard
+- `src/runtime/state.ts` for actual persisted state writes and the idle/`active_card_run` coherence guard
 
 Operational invariants:
 
@@ -123,7 +123,7 @@ Operational invariants:
   `.saivage/tmp/state/runtime.json` outside the runtime-state module and
   canonical runtime-control helpers.
 - idle runtime states with `current_card_id === null` cannot retain a
-  non-terminal `active_card_run`; `src/utils/runtime-state.ts` rejects
+  non-terminal `active_card_run`; `src/runtime/state.ts` rejects
   that shape in strict/test mode and self-heals historical production
   state, with regression coverage in
   `tests/utils/runtime-state-invariant.test.ts` and
@@ -182,7 +182,7 @@ Blocking behavior:
 
 ### Goal Context and terminal status mirroring
 
-Planner prompts and resume turns receive the canonical recursive Goal Context from `src/utils/runtime.ts` (`buildGoalContextPayload` / `buildGoalContextBlock` / `appendPlannerResumeContext`). Terminal executor results are mirrored onto cards by the activation-ledger dispatcher in `src/runtime/runtime.ts` (`dispatchPendingActivations`), and accepted planner goal reports are mirrored by `src/utils/planner-tools.ts`; focused guards live in `tests/utils/runtime-restart-orphan-repair.test.ts`, `tests/utils/runtime-integration.test.ts`, and `tests/utils/planner-tools.test.ts`.
+Planner prompts and resume turns receive the canonical recursive Goal Context from `src/runtime/runtime.ts` (`buildGoalContextPayload` / `buildGoalContextBlock` / `appendPlannerResumeContext`). Terminal executor results are mirrored onto cards by the activation-ledger dispatcher in `src/runtime/runtime.ts` (`dispatchPendingActivations`), and accepted planner goal reports are mirrored by `src/utils/planner-tools.ts`; focused guards live in `tests/utils/runtime-restart-orphan-repair.test.ts`, `tests/utils/runtime-integration.test.ts`, and `tests/utils/planner-tools.test.ts`.
 
 ---
 
@@ -458,7 +458,7 @@ return a `runtimeStateSchema`-valid state whose `status`,
 `current_card_id`, `active_card_run`, and `current_agent_session_id`
 remain coherent; `/api/agents` derives its sole active session from
 that same `current_agent_session_id`. The enforcing implementation is
-`src/utils/runtime-state.ts` plus `src/server/routes/runtime-config-notes.ts`,
+`src/runtime/state.ts` plus `src/server/routes/runtime-config-notes.ts`,
 with restart/reload coverage in
 `tests/server/restart-persistence-operator-surface.test.ts` and layout
 coverage in `tests/utils/runtime-state-layout.test.ts:64` and server/API migration-refusal coverage in `tests/server/runtime-layout-startup-api.test.ts`.

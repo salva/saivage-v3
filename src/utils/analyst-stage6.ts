@@ -7,7 +7,7 @@ import { appendMessage, findPlannerSessionForCard, getSession, listSessions } fr
 import { appendNote, getNotes, markNoteHandled } from './notes.js';
 import { writeFileAtomic } from './file-tree.js';
 import { sanitizeAnalystPayload, sanitizeAnalystText } from './analyst-sanitization.js';
-import { readRuntimeState } from './runtime-state.js';
+import { readRuntimeState } from '../runtime/state.js';
 
 export const analystIssueSchema = z.object({
   summary: z.string().min(1),

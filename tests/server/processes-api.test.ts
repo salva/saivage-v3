@@ -5,7 +5,7 @@ import websocket from '@fastify/websocket';
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { startProcess, waitProcess, saveRegistry } from '../../src/utils/process-runner.js';
+import { startProcess, waitProcess, saveRegistry } from '../../src/runtime/process-runner.js';
 import type { ProcessRecord } from '../../src/schemas/types.js';
 
 function uniqueDir(): string {

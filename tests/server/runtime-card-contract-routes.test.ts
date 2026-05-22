@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { createServer, type ServerInstance } from '../../src/server/server.js';
 import { initProjectTree } from '../../src/utils/file-tree.js';
-import { initRuntimeState } from '../../src/utils/runtime-state.js';
+import { initRuntimeState } from '../../src/runtime/state.js';
 import { parseOperatorResponse } from '../../src/contracts/operator-api.js';
 
 let root: string;
