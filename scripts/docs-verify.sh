@@ -88,15 +88,15 @@ node scripts/check-runbook-curl-examples.js || ALL_OK=false
 
 echo ""
 echo "==> Verifying fixture-backed operator API response contracts..."
-NODE_OPTIONS=--experimental-vm-modules npx jest tests/server/operator-api-contract-fixtures.test.ts --runInBand --forceExit || ALL_OK=false
+NODE_OPTIONS=--experimental-vm-modules npx jest tests/server/operator-api-contract-fixtures.test.ts --runInBand || ALL_OK=false
 
 echo ""
 echo "==> Verifying planner tool docs/source parity..."
-NODE_OPTIONS=--experimental-vm-modules npx jest tests/agents/agent-adapter-planner-tools.test.ts --runInBand --forceExit || ALL_OK=false
+NODE_OPTIONS=--experimental-vm-modules npx jest tests/agents/agent-adapter-planner-tools.test.ts --runInBand || ALL_OK=false
 
 echo ""
 echo "==> Verifying non-planner agent tool docs/source parity..."
-NODE_OPTIONS=--experimental-vm-modules npx jest tests/agents/agent-adapter-non-planner-tools.test.ts --runInBand --forceExit || ALL_OK=false
+NODE_OPTIONS=--experimental-vm-modules npx jest tests/agents/agent-adapter-non-planner-tools.test.ts --runInBand || ALL_OK=false
 
 echo ""
 node scripts/check-markdown-links.js || ALL_OK=false
