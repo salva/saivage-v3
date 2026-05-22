@@ -132,4 +132,72 @@ describe('GET /api/agents persisted JSONL enumeration', () => {
     expect(byId.get('planner:G3')).toMatchObject({ status: 'waiting' });
     expect(byId.get('executor:C9')).toMatchObject({ status: 'active' });
   });
+
+  it('keeps an active executor live while its parent planner is waiting', async () => {
+    const now = '2025-01-01T00:07:00.000Z';
+    rmSync(join(projectRoot, '.saivage', 'runtime', 'state.json'), { force: true });
+    mkdirSync(join(projectRoot, '.saivage', 'tmp', 'state'), { recursive: true });
+    writeFileSync(join(projectRoot, '.saivage', 'agents', 'sessions', 'executor:C9.json'), JSON.stringify({
+      id: 'executor:C9',
+      role: 'executor',
+      goal_card_id: 'G3',
+      card_id: 'C9',
+      status: 'active',
+      started_at: '2025-01-01T00:03:00.000Z',
+      completed_at: null,
+      model: 'test-model',
+    }, null, 2));
+    writeFileSync(join(projectRoot, '.saivage', 'tmp', 'state', 'runtime.json'), JSON.stringify({
+      status: 'running',
+      project_id: 'project',
+      pid: process.pid,
+      started_at: '2025-01-01T00:00:00.000Z',
+      current_card_id: 'C9',
+      current_agent_session_id: 'planner:G3',
+      active_card_run: {
+        card_id: 'C9',
+        card_type: 'code',
+        runtime_status: 'running',
+        phase: 'executor',
+        caller_session_id: 'planner:G3',
+        caller_tool_call_id: 'call-activate-c9',
+        planner_session_id: null,
+        correction_attempts: 0,
+        started_at: '2025-01-01T00:06:00.000Z',
+        last_turn_at: now,
+      },
+      paused: false,
+      paused_at: null,
+      queue: [],
+      running_processes: [],
+      updated_at: now,
+      frozen_reason: null,
+      runtime_intent: { status: 'running', updated_at: now, source_command_id: 'cmd-start', reason: 'test' },
+      runtime_commands: [],
+      runtime_runs: [{
+        run_id: 'run-planner-g3',
+        kind: 'child',
+        card_id: 'G3',
+        parent_run_id: 'run-project',
+        command_id: null,
+        activation_id: 'act-g3',
+        phase: 'planner',
+        runtime_status: 'running',
+        session_id: 'planner:G3',
+        started_at: '2025-01-01T00:01:00.000Z',
+        updated_at: now,
+        finished_at: null,
+        result: null,
+      }],
+      runtime_activations: [],
+    }, null, 2));
+
+    const response = await app.inject({ method: 'GET', url: '/api/agents', headers: { authorization: 'Bearer test-token' } });
+
+    expect(response.statusCode).toBe(200);
+    const body = response.json() as { sessions: Array<{ id: string; status: string }> };
+    const byId = new Map(body.sessions.map((session) => [session.id, session]));
+    expect(byId.get('planner:G3')).toMatchObject({ status: 'waiting' });
+    expect(byId.get('executor:C9')).toMatchObject({ status: 'active' });
+  });
 });

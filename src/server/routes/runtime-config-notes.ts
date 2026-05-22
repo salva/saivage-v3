@@ -123,12 +123,18 @@ function hasOpenPlannerRun(state: RuntimeState | null, sessionId: string): boole
   return (state?.runtime_runs ?? []).some((run) => run.session_id === sessionId && run.phase === 'planner' && run.runtime_status === 'running' && !run.finished_at);
 }
 
+function isActivePlannerTurn(state: RuntimeState | null, sessionId: string): boolean {
+  const activeRun = state?.active_card_run;
+  return activeRun?.phase === 'planner' && activeRun.planner_session_id === sessionId;
+}
+
 function listedStatus(state: RuntimeState | null, session: Record<string, unknown> | null, sessionId: string, currentSessionId: string | null): ListedAgentStatus {
-  if (currentSessionId && sessionId === currentSessionId) return 'active';
-  if (hasOpenPlannerRun(state, sessionId)) return 'waiting';
+  const openPlannerRun = hasOpenPlannerRun(state, sessionId);
+  if (currentSessionId && sessionId === currentSessionId) return openPlannerRun && !isActivePlannerTurn(state, sessionId) ? 'waiting' : 'active';
+  if (openPlannerRun) return 'waiting';
   const manifestStatus = session?.['status'];
+  if (manifestStatus === 'active') return 'active';
   if (manifestStatus === 'waiting' || manifestStatus === 'done' || manifestStatus === 'blocked' || manifestStatus === 'failed') return manifestStatus;
-  if (!currentSessionId && manifestStatus === 'active') return 'active';
   return 'inactive';
 }
 
