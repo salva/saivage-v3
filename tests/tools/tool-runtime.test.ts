@@ -2,7 +2,7 @@ import { describe, expect, it } from '@jest/globals';
 import { EventEmitter } from 'node:events';
 import { z } from 'zod';
 
-import { defineTool, ToolRuntime } from '../../src/tools/index.js';
+import { defineTool, ToolRuntime } from '../../src/tools/runtime.js';
 import { decide } from '../../src/permissions/card-permissions.js';
 
 const echoTool = defineTool({
