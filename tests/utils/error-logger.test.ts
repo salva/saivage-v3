@@ -574,13 +574,13 @@ describe('Runtime Integration — Error Propagation', () => {
       },
     });
 
-    const errorEvents: unknown[] = [];
-    runtime.on('error', (data) => errorEvents.push(data));
+    const diagnosticEvents: unknown[] = [];
+    runtime.eventBus.subscribe('runtime_diagnostic', (event) => { diagnosticEvents.push(event); });
 
     await runtime.startup();
     await runtime.dispatchGoal('goal-throw');
 
-    expect(errorEvents.length).toBeGreaterThanOrEqual(1);
+    expect(diagnosticEvents.length).toBeGreaterThanOrEqual(1);
 
     const errors = runtime.errorLogger.getErrors();
     expect(errors.length).toBeGreaterThanOrEqual(1);
@@ -793,13 +793,13 @@ describe('ErrorLogger + EventLogger consistency', () => {
       },
     });
 
-    const errorEvents: unknown[] = [];
-    runtime.on('error', (data) => errorEvents.push(data));
+    const diagnosticEvents: unknown[] = [];
+    runtime.eventBus.subscribe('runtime_diagnostic', (event) => { diagnosticEvents.push(event); });
 
     await runtime.startup();
     await runtime.dispatchGoal('goal-dl');
 
-    expect(errorEvents.length).toBeGreaterThanOrEqual(1);
+    expect(diagnosticEvents.length).toBeGreaterThanOrEqual(1);
 
     const errors = runtime.errorLogger.getErrors();
     expect(errors.length).toBeGreaterThanOrEqual(1);
@@ -826,11 +826,11 @@ describe('ErrorLogger + EventLogger consistency', () => {
 
     const eventsRaw = readFileSync(eventsPath, 'utf-8');
     const eventLines = eventsRaw.trim().split('\n').filter(Boolean);
-    const loggedErrorEvents = eventLines
+    const loggedDiagnosticEvents = eventLines
       .map((l) => JSON.parse(l))
-      .filter((e: { kind?: string }) => e.kind === 'error');
-    expect(loggedErrorEvents.length).toBeGreaterThanOrEqual(1);
-    expect(loggedErrorEvents).toEqual(
+      .filter((e: { kind?: string }) => e.kind === 'runtime_diagnostic');
+    expect(loggedDiagnosticEvents.length).toBeGreaterThanOrEqual(1);
+    expect(loggedDiagnosticEvents).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
           card_id: 'code-dl-missing',
