@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { parseArgs } from 'node:util';
 import { interpolateValue, type EnvironmentSource } from './env-interpolation.js';
 import { saivageConfigSchema, type SaivageConfig } from '../agents/index.js';
+import { validateModelRoles } from './validate-model-roles.js';
 
 export type NodeEnvironment = 'development' | 'production' | 'test';
 export type LogLevel = 'fatal' | 'error' | 'warn' | 'info' | 'debug' | 'trace' | 'silent';
@@ -219,6 +220,24 @@ export function loadEnvironment(argv: readonly string[], env: EnvironmentSource)
   if (!parsed.success) {
     const issue = parsed.error.issues[0];
     throw new EnvironmentLoadError(`Environment validation failed: ${issue?.path.join('.') ?? '<root>'}: ${issue?.message ?? 'invalid value'}`, { field: issue?.path.join('.') ?? 'environment', expected: issue?.message ?? 'schema match', received: 'invalid value', source: 'default' });
+  }
+
+  const roleCheck = validateModelRoles(parsed.data.config);
+  if (!roleCheck.ok) {
+    const missing = roleCheck.missingRoles.join(', ');
+    const lines = [`Configuration validation failed: missing model role(s): ${missing}.`];
+    for (const r of roleCheck.missingRoles) {
+      lines.push(`  models.${r} = (unset) — set "models.${r}" to a non-empty string[] in .saivage/saivage.json`);
+    }
+    lines.push('  or set "models.default" as a shared fallback');
+    const present = Object.entries(roleCheck.configuredRoles).map(([r, ms]) => `${r} = ${JSON.stringify(ms)}`);
+    if (present.length > 0) lines.push(`Roles defined in this config: ${present.join(', ')}`);
+    throw new EnvironmentLoadError(lines.join('\n'), {
+      field: `models.${roleCheck.missingRoles[0]}`,
+      expected: 'non-empty string[] or models.default',
+      received: 'unset',
+      source: 'file',
+    });
   }
 
   return deepFreeze(parsed.data as Environment);

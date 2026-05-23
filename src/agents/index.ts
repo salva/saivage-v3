@@ -27,6 +27,7 @@ export {
 } from './agent-adapter.js';
 export type {
   AgentRuntime,
+  AgentRole,
 } from './agent-adapter.js';
 
 export {
