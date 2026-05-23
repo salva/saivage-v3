@@ -1,6 +1,7 @@
 import { describe, expect, it } from '@jest/globals';
 
-import { allowedActions, CARD_ACTIONS, CARD_STATES, decide, matrixCompletenessTriples, PERMISSION_ROLES } from '../../src/permissions/index.js';
+import { allowedActions, decide } from '../../src/permissions/index.js';
+import { CARD_ACTIONS, CARD_STATES, matrixCompletenessTriples, PERMISSION_ROLES } from '../../src/permissions/card-permissions.js';
 
 describe('permission-by-state matrix', () => {
   it('has an explicit decision for every current role/action/state triple', () => {
