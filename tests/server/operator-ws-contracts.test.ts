@@ -1,8 +1,8 @@
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { describe, expect, it } from '@jest/globals';
-import { eventKindValues } from '../../src/schemas/types.js';
+import { describe, expect, it, jest } from '@jest/globals';
+import { operatorBroadcastEventKindValues } from '../../src/events/registry.js';
 import { loggedEventSchema } from '../../src/schemas/validators.js';
 import { EventLogger } from '../../src/utils/event-logger.js';
 import {
@@ -21,7 +21,7 @@ import {
   validateKnownWsEnvelope,
   wsContractFixtures,
 } from '../../src/contracts/operator-events.js';
-import { createRuntimeEnvelope } from '../../src/server/websocket.js';
+import { createRuntimeEnvelope, wireRuntimeEvents, resetRuntimeEventSubscriptions } from '../../src/server/websocket.js';
 
 describe('operator websocket shared contract registry', () => {
   it('parses base-valid unknown envelopes without treating them as known', () => {
@@ -144,8 +144,48 @@ describe('operator websocket shared contract registry', () => {
     }
   });
 
-  it('aligns runtime fanout names with the ARCH-006 event catalog', () => {
-    expect([...knownRuntimeFanoutEventNames].sort()).toEqual([...eventKindValues].sort());
+  it('aligns runtime fanout names with operator broadcast registry metadata', () => {
+    expect([...knownRuntimeFanoutEventNames].sort()).toEqual([...operatorBroadcastEventKindValues].sort());
+    expect(knownRuntimeFanoutEventNames).not.toContain('subscriber_error');
+  });
+
+  it('does not accept subscriber_error as an operator runtime fanout contract event', () => {
+    const envelope = {
+      type: 'error',
+      content: {
+        event: 'subscriber_error',
+        subscription_id: 'sub-1',
+        source_kind: 'goal_completed',
+        error_message: 'boom',
+      },
+    };
+
+    expect(parseKnownWsEnvelope(envelope)).toBeNull();
+    expect(parseKnownWsContent(envelope.content)).toBeNull();
+    expect(isRuntimeFanoutContent(envelope.content)).toBe(false);
+    expect(() => buildRuntimeFanoutEnvelope({ event: 'subscriber_error' as never, content: envelope.content })).toThrow();
+  });
+
+  it('subscribes websocket runtime fanout only to operator broadcast registry events', () => {
+    const subscriptions: Array<{ allowedKinds?: string[] }> = [];
+    const runtime = {
+      on: jest.fn(),
+      eventBus: {
+        subscribe: jest.fn((options: { allowedKinds?: string[] }) => {
+          subscriptions.push(options);
+          return { id: 'sub-1', pause: jest.fn(), resume: jest.fn(), unsubscribe: jest.fn() };
+        }),
+      },
+    };
+
+    try {
+      wireRuntimeEvents(runtime as never);
+      expect(subscriptions).toHaveLength(1);
+      expect(subscriptions[0].allowedKinds?.sort()).toEqual([...operatorBroadcastEventKindValues].sort());
+      expect(subscriptions[0].allowedKinds).not.toContain('subscriber_error');
+    } finally {
+      resetRuntimeEventSubscriptions(runtime as never);
+    }
   });
 
   it('validates runtime fanout projections while omitting persisted metadata', () => {

@@ -13,7 +13,7 @@ import type { WebSocket } from 'ws';
 import { getOrCreateAnalystSession, getAnalystHandler, resetAnalystHandlerCache } from '../agents/analyst-handler.js';
 import type { EventBus, EventBusSubscription, DomainEvent } from '../utils/event-bus.js';
 import { toLoggedEvent } from '../utils/event-bus.js';
-import type { EventKind } from '../schemas/types.js';
+import { operatorBroadcastEventKindValues, type OperatorBroadcastEventKind } from '../events/registry.js';
 import { redactOperatorErrorMessage } from '../utils/file-access-security.js';
 import { sanitizeAnalystPayload, sanitizeAnalystText } from '../utils/analyst-sanitization.js';
 import type { ActiveRuntime } from '../runtime/active-runtime.js';
@@ -406,9 +406,10 @@ export function wireRuntimeEvents(runtime: {
 
   const subscription = runtime.eventBus.subscribe({
     minSeverity: 'info',
-    handler: (event: DomainEvent<EventKind>) => {
+    allowedKinds: [...operatorBroadcastEventKindValues],
+    handler: (event: DomainEvent<OperatorBroadcastEventKind>) => {
       const logged = toLoggedEvent(event);
-      const { kind, id, timestamp, ...data } = logged as Record<string, unknown> & { kind: EventKind };
+      const { kind, id, timestamp, ...data } = logged as Record<string, unknown> & { kind: OperatorBroadcastEventKind };
       const envelope = createRuntimeEnvelope(kind, data as Record<string, unknown>);
       broadcast(envelope);
     },

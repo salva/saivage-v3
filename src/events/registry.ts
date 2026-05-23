@@ -70,6 +70,12 @@ export const runtimeEventKindValues = eventKindValues.filter((kind) => !kind.sta
 export const agentEventKindValues = eventKindValues.filter((kind) => ['session_started', 'model_selected', 'invocation_succeeded', 'invocation_failed', 'retry_attempted', 'compaction_triggered', 'self_check_triggered', 'model_issue', 'session_cancelled', 'session_force_cancelled', 'mcp_tool_invocation'].includes(kind)) as EventKind[];
 export const trackedEventKindValues = eventKindValues.filter((kind) => EventRegistry[kind].tracked);
 export const broadcastEventKindValues = eventKindValues.filter((kind) => EventRegistry[kind].broadcast);
+export const operatorBroadcastEventKindValues = eventKindValues.filter((kind) => EventRegistry[kind].broadcast && EventRegistry[kind].outbound === 'operator') as EventKind[];
+export type OperatorBroadcastEventKind = typeof operatorBroadcastEventKindValues[number];
+
+export function isOperatorBroadcastEventKind(kind: string): kind is OperatorBroadcastEventKind {
+  return (operatorBroadcastEventKindValues as readonly string[]).includes(kind);
+}
 
 export function getEventSeverity(kind: EventKind): SeverityLevel {
   return EventRegistry[kind].severity;

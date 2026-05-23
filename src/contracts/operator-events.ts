@@ -1,10 +1,9 @@
 import { z } from 'zod';
-import { eventKindValues } from '../schemas/types.js';
+import { operatorBroadcastEventKindValues, type OperatorBroadcastEventKind } from '../events/registry.js';
 import {
   actionableErrorEnvelopeSchema,
   cardStatusSchema,
   cardTypeSchema,
-  eventKindSchema,
   loggedEventSchemaByKind,
   runtimeActivationRecordSchema,
   runtimeCommandRecordSchema,
@@ -211,8 +210,10 @@ export const ErrorEnvelopeSchema = z.object({
   content: passthroughRecordSchema,
 });
 
+export const OperatorBroadcastEventKindSchema = z.enum(operatorBroadcastEventKindValues as [OperatorBroadcastEventKind, ...OperatorBroadcastEventKind[]]);
+
 export const RuntimeFanoutContentSchema = z.object({
-  event: eventKindSchema,
+  event: OperatorBroadcastEventKindSchema,
 }).passthrough();
 
 export const RuntimeFanoutWsEnvelopeSchema = z.union([
@@ -275,7 +276,7 @@ export const KnownWsEnvelopeSchema = z.union([
   ErrorEnvelopeSchema,
 ]);
 
-export const knownRuntimeFanoutEventNames = [...eventKindValues] as const;
+export const knownRuntimeFanoutEventNames = [...operatorBroadcastEventKindValues] as const;
 export const knownWsContentEventNames = [
   'connected',
   'runtime-state',
@@ -403,10 +404,13 @@ export function buildInboundAnalystMessageEnvelope(text: string): InboundAnalyst
   return InboundAnalystMessageEnvelopeSchema.parse({ type: 'message', content: { text } });
 }
 
-export function buildRuntimeFanoutEnvelope(input: { type?: 'status' | 'activity' | 'error'; event: typeof eventKindValues[number]; content?: Record<string, unknown> }): RuntimeFanoutWsEnvelope {
+export function buildRuntimeFanoutEnvelope(input: { type?: 'status' | 'activity' | 'error'; event: OperatorBroadcastEventKind; content?: Record<string, unknown> }): RuntimeFanoutWsEnvelope {
   const envelope = { type: input.type ?? 'status', content: { event: input.event, ...(input.content ?? {}) } };
-  parseKnownWsEnvelope(envelope);
-  return envelope as RuntimeFanoutWsEnvelope;
+  const parsed = parseKnownWsEnvelope(envelope);
+  if (!parsed) {
+    throw new Error(`Unknown operator runtime fanout event: ${String(envelope.content.event)}`);
+  }
+  return parsed as RuntimeFanoutWsEnvelope;
 }
 
 export const wsContractFixtures = {
