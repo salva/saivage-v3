@@ -71,7 +71,7 @@ describe('AgentAdapter notification injection', () => {
     expect(adapter.notificationCenter.drainPendingForSession(liveSessionId)).toEqual([]);
   });
 
-  it('does not redeliver notifications after a successful model call', async () => {
+  it('does not reinject notifications after a successful model call marks them delivered', async () => {
     let liveSessionId = '';
     adapter.setAfterSessionCreatedHook((sessionId) => {
       liveSessionId = sessionId;
@@ -95,7 +95,7 @@ describe('AgentAdapter notification injection', () => {
     expect(llmCall).toHaveBeenCalledTimes(1);
   });
 
-  it('failed model call leaves notifications pending for redelivery on a later call', async () => {
+  it('keeps pending notifications queued until a session injection drains them', async () => {
     const center = new NotificationCenter(tmpDir);
     center.enqueueForSession('sess-fail', { id: 'n-1', kind: 'card_changed', severity: 'warn', payload_summary: 'Card changed', related_card_id: 'code-1', source_actor: 'analyst', source_surface: 'web-chat' });
     expect(center.drainPendingForSession('sess-fail')).toHaveLength(1);
