@@ -15,7 +15,12 @@ export {
   PersistenceVersionMismatch,
   PersistenceWriteError,
 } from './errors.js';
-
-export * from './file-tree.js';
-export * from './discovery.js';
-export * from './control-action-audit.js';
+export {
+  explainLegacyStateRejection,
+  initProjectTree,
+  isInitialized,
+  readProjectFileAtomic,
+  writeFileAtomic,
+} from './file-tree.js';
+export { findProjectRoot } from './discovery.js';
+export { listControlActions, recordControlAction, stableStringify } from './control-action-audit.js';
