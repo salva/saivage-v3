@@ -1,18 +1,26 @@
-export * from './runtime.js';
-export * from './state.js';
-export * from './process-runner.js';
-export {
-  RuntimeLifecycleScope,
-  createRuntimeLifecycleScope,
-} from './lifecycle.js';
-export type {
-  RuntimeDisposeReportEntry,
-  RuntimeDisposeStatus,
-  RuntimeLifecycleSnapshot,
-  RuntimeResourceHandle,
-  RuntimeResourceKind,
-} from './lifecycle.js';
 export { ActiveRuntime } from './active-runtime.js';
-export * from './control.js';
-export * from './lock.js';
-export * from './freeze-manifest.js';
+export type { RuntimeConfig, RuntimeStatus } from './runtime.js';
+
+export {
+  readRuntimeState,
+  updateRuntimeState,
+  appendRuntimeRun,
+  upsertRuntimeActivation,
+} from './state.js';
+
+export {
+  listProcesses,
+  tailOutput,
+  getProcess,
+} from './process-runner.js';
+
+export {
+  pauseRuntimeControl,
+  resumeRuntimeControl,
+  RESUME_FROM_FREEZE_MESSAGE,
+} from './control.js';
+
+export {
+  readFreezeManifest,
+  clearFreezeManifest,
+} from './freeze-manifest.js';
