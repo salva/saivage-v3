@@ -460,11 +460,24 @@ describe('write territory warnings', () => {
 // ═══════════════════════════════════════════════════════════════
 
 describe('all modules import and work together', () => {
-  it('can import all security modules via barrel', async () => {
-    // Use dynamic import for ESM compatibility
-    const workspace = await import('../../src/workspace/index.js');
+  it('can import all security modules from owning modules', async () => {
+    // Use dynamic import for ESM compatibility and avoid requiring test-only helpers in the workspace package root.
+    const contentSupervisor = await import('../../src/workspace/content-supervisor.js');
+    const fileAccessSecurity = await import('../../src/workspace/file-access-security.js');
+    const heuristicScanner = await import('../../src/workspace/heuristic-scanner.js');
+    const llmScanner = await import('../../src/workspace/llm-scanner.js');
+    const quarantine = await import('../../src/workspace/quarantine.js');
+    const writeTerritories = await import('../../src/workspace/write-territories.js');
     const persistence = await import('../../src/persistence/index.js');
-    const mod = { ...workspace, ...persistence };
+    const mod = {
+      ...contentSupervisor,
+      ...fileAccessSecurity,
+      ...heuristicScanner,
+      ...llmScanner,
+      ...quarantine,
+      ...writeTerritories,
+      ...persistence,
+    };
 
     // heuristic-scanner exports
     expect(typeof mod.scanContent).toBe('function');
