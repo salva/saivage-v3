@@ -126,6 +126,29 @@ describe('AgentAdapter planner tool surface', () => {
     expect(store.read(goal.id)?.status).toBe('backlog');
   });
 
+
+  it('advertises planner delete_card only with the planner-control cardId schema', () => {
+    const runtimeDeleteDefinitions = (adapter as any).toolRuntime.schema().filter((entry: { function: { name: string } }) => entry.function.name === 'delete_card');
+    expect(runtimeDeleteDefinitions).toHaveLength(0);
+
+    const plannerTools = (adapter as any).buildToolsForRole('planner');
+    const deleteDefinitions = plannerTools.filter((entry: { function: { name: string } }) => entry.function.name === 'delete_card');
+    expect(deleteDefinitions).toHaveLength(1);
+    expect(deleteDefinitions[0].function.parameters).toEqual(expect.objectContaining({
+      required: ['cardId'],
+      properties: expect.objectContaining({ cardId: expect.objectContaining({ type: 'string' }) }),
+    }));
+    expect(deleteDefinitions[0].function.parameters.properties).not.toHaveProperty('id');
+  });
+
+  it('routes planner delete_card through planner-control with the advertised cardId argument', async () => {
+    const card = store.create(makeCard({ type: 'code', title: 'Card to delete', status: 'backlog' }));
+    const result = await (adapter as any).processToolCall({ id: 'call-delete', type: 'function', function: { name: 'delete_card', arguments: JSON.stringify({ cardId: card.id }) } }, 'planner', 'planner-session', { goalId: card.id, cardId: card.id });
+    expect(result).toMatchObject({ role: 'tool', kind: 'tool_result', tool: 'delete_card', tool_call_id: 'call-delete' });
+    expect(JSON.parse(result.content)).toEqual(expect.objectContaining({ success: true, deleted: true, cardId: card.id }));
+    expect(store.read(card.id)).toBeNull();
+  });
+
   it('delegates planner-control tools through the facade while preserving policy gating', async () => {
     const goal = store.create(makeCard({ type: 'goal', title: 'Goal for cancellation' }));
     const result = await (adapter as any).processToolCall({ id: 'call-cancel', type: 'function', function: { name: 'cancel_card', arguments: JSON.stringify({ cardId: goal.id }) } }, 'planner', 'planner-session', { goalId: goal.id, cardId: goal.id });

@@ -2,8 +2,7 @@ import { z } from 'zod';
 
 import * as analystTools from '../agents/analyst-tools.js';
 import { ANALYST_TOOL_DEFINITIONS } from '../agents/analyst-tool-schemas.js';
-import { CardStore } from '../utils/card-store.js';
-import { TOOL_TO_CARD_ACTION, type CardState, type PermissionRole } from '../permissions/card-permissions.js';
+import type { CardAction, CardState, PermissionRole } from '../permissions/card-permissions.js';
 import { defineTool, type JsonSchemaObject, type ToolDefinition } from './runtime.js';
 
 const toolResultSchema = z.custom<analystTools.ToolResult>((value) => Boolean(value && typeof value === 'object' && 'success' in value && typeof value.success === 'boolean'));
@@ -24,16 +23,11 @@ function jsonSchemaFor(name: string): { description: string; parameters: JsonSch
   return { description: found.function.description, parameters: found.function.parameters as JsonSchemaObject };
 }
 
-function targetStateFromId(input: { id: string }, projectRoot: string): CardState | undefined {
-  const card = new CardStore(projectRoot).read(input.id);
-  return card?.status as CardState | undefined;
-}
-
 function tool<Name extends string, Input>(options: {
   name: Name;
   input: z.ZodType<Input>;
   roles: readonly PermissionRole[];
-  action?: typeof TOOL_TO_CARD_ACTION[keyof typeof TOOL_TO_CARD_ACTION];
+  action?: CardAction;
   targetState?: (input: Input, projectRoot: string) => CardState | undefined;
   execute: AnalystExecute<Input>;
 }): AgentToolDefinition<Name, Input> {
@@ -95,9 +89,6 @@ const listNotesInput = z.object({ cardId: z.string(), includeHandled: z.boolean(
 const getNoteInput = z.object({ cardId: z.string(), noteId: z.string() }).strict();
 const markNoteHandledInput = getNoteInput;
 const markGoalNeedsCorrectionsInput = z.object({ goalId: z.string(), issues: z.array(z.unknown()), note: z.string().optional() }).strict();
-const deleteCardInput = z.object({ id: z.string() }).strict();
-
-const plannerAnalystRoles = ['planner', 'analyst'] as const;
 const allRuntimeRoles = ['planner', 'executor', 'reviewer', 'analyst'] as const;
 
 const toOutput = (result: analystTools.ToolResult): AnalystToolResult => result;
@@ -116,15 +107,4 @@ export const AGENT_TOOL_DEFINITIONS = [
   tool({ name: 'get_note', input: getNoteInput, roles: ['executor', 'reviewer', 'analyst'], execute: analystTools.get_note }),
   tool({ name: 'mark_note_handled', input: markNoteHandledInput, roles: ['executor', 'reviewer', 'analyst'], execute: analystTools.mark_note_handled }),
   tool({ name: 'mark_goal_needs_corrections', input: markGoalNeedsCorrectionsInput, roles: ['analyst'], execute: analystTools.mark_goal_needs_corrections }),
-  defineTool({
-    name: 'delete_card',
-    description: jsonSchemaFor('delete_card').description,
-    input: deleteCardInput,
-    output: toolResultSchema,
-    parameters: jsonSchemaFor('delete_card').parameters,
-    roles: plannerAnalystRoles,
-    action: TOOL_TO_CARD_ACTION.delete_card,
-    targetState: (input, invocation) => targetStateFromId(input, invocation.projectRoot),
-    execute: async (ctx, input) => toOutput(await analystTools.delete_card({ projectRoot: ctx.projectRoot, actor: actorForRole(ctx.role), surface: ctx.surface, sessionId: ctx.sessionId }, input)),
-  }),
 ] as const;

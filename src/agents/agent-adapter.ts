@@ -135,12 +135,12 @@ const PLANNER_CONTROL_TOOL_NAMES = new Set<string>([
 
 
 const ALL_TOOL_DEFINITIONS_BY_NAME = new Map<string, ToolDefinition>([
-  ...PLANNER_TOOL_DEFINITIONS,
+  ...ANALYST_TOOL_DEFINITIONS,
   LOAD_SKILL_TOOL_DEFINITION,
   ...WORKSPACE_TOOL_DEFINITIONS,
   ...READ_ONLY_WORKSPACE_TOOL_DEFINITIONS,
-  ...ANALYST_TOOL_DEFINITIONS,
   MCP_TOOL_CALL_TOOL_DEFINITION,
+  ...PLANNER_TOOL_DEFINITIONS,
 ].map((definition) => [definition.function.name, definition]));
 
 export class AgentAdapter implements AgentRuntime {
