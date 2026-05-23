@@ -15,7 +15,7 @@ export type Decision =
   | { allowed: true }
   | { allowed: false; reason: DenyReason };
 
-interface MatrixEntry {
+export interface MatrixEntry {
   role: PermissionRole;
   action: CardAction;
   states: readonly CardState[] | '*';
@@ -26,22 +26,44 @@ interface MatrixEntry {
 const PLANNER_MUTABLE_STATES = ['backlog', 'active', 'changed'] as const satisfies readonly CardState[];
 const DELETABLE_STATES = ['backlog', 'blocked', 'done', 'failed', 'cancelled'] as const satisfies readonly CardState[];
 const RESTARTABLE_STATES = ['blocked', 'changed', 'done', 'failed', 'cancelled'] as const satisfies readonly CardState[];
+const STARTABLE_STATES = ['drafting', 'backlog', 'changed'] as const satisfies readonly CardState[];
+const ANALYST_RESTARTABLE_STATES = ['done', 'failed', 'cancelled'] as const satisfies readonly CardState[];
+
+function exceptStates(states: readonly CardState[]): CardState[] {
+  return CARD_STATES.filter((state) => !states.includes(state));
+}
+
+const NOT_STARTABLE_STATES = exceptStates(STARTABLE_STATES);
+const PLANNER_NOT_MUTABLE_STATES = exceptStates(PLANNER_MUTABLE_STATES);
+const NOT_DELETABLE_STATES = exceptStates(DELETABLE_STATES);
+const NOT_RESTARTABLE_STATES = exceptStates(RESTARTABLE_STATES);
+const ANALYST_NOT_RESTARTABLE_STATES = exceptStates(ANALYST_RESTARTABLE_STATES);
 
 const matrixEntries = [
-  { role: 'planner', action: 'card.start', states: ['drafting', 'backlog', 'changed'], allowed: true },
+  { role: 'planner', action: 'card.start', states: STARTABLE_STATES, allowed: true },
+  { role: 'planner', action: 'card.start', states: NOT_STARTABLE_STATES, allowed: false, deny: 'wrong_state' },
   { role: 'planner', action: 'card.cancel', states: PLANNER_MUTABLE_STATES, allowed: true },
+  { role: 'planner', action: 'card.cancel', states: PLANNER_NOT_MUTABLE_STATES, allowed: false, deny: 'wrong_state' },
   { role: 'planner', action: 'card.delete', states: DELETABLE_STATES, allowed: true },
+  { role: 'planner', action: 'card.delete', states: NOT_DELETABLE_STATES, allowed: false, deny: 'wrong_state' },
   { role: 'planner', action: 'card.restart', states: RESTARTABLE_STATES, allowed: true },
+  { role: 'planner', action: 'card.restart', states: NOT_RESTARTABLE_STATES, allowed: false, deny: 'wrong_state' },
 
-  { role: 'operator', action: 'card.start', states: ['drafting', 'backlog', 'changed'], allowed: true },
+  { role: 'operator', action: 'card.start', states: STARTABLE_STATES, allowed: true },
+  { role: 'operator', action: 'card.start', states: NOT_STARTABLE_STATES, allowed: false, deny: 'wrong_state' },
   { role: 'operator', action: 'card.cancel', states: PLANNER_MUTABLE_STATES, allowed: true },
+  { role: 'operator', action: 'card.cancel', states: PLANNER_NOT_MUTABLE_STATES, allowed: false, deny: 'wrong_state' },
   { role: 'operator', action: 'card.delete', states: DELETABLE_STATES, allowed: true },
+  { role: 'operator', action: 'card.delete', states: NOT_DELETABLE_STATES, allowed: false, deny: 'wrong_state' },
   { role: 'operator', action: 'card.restart', states: RESTARTABLE_STATES, allowed: true },
+  { role: 'operator', action: 'card.restart', states: NOT_RESTARTABLE_STATES, allowed: false, deny: 'wrong_state' },
 
   { role: 'analyst', action: 'card.start', states: '*', allowed: false, deny: 'not_authorized' },
   { role: 'analyst', action: 'card.cancel', states: '*', allowed: false, deny: 'not_authorized' },
   { role: 'analyst', action: 'card.delete', states: DELETABLE_STATES, allowed: true },
-  { role: 'analyst', action: 'card.restart', states: ['done', 'failed', 'cancelled'], allowed: true },
+  { role: 'analyst', action: 'card.delete', states: NOT_DELETABLE_STATES, allowed: false, deny: 'wrong_state' },
+  { role: 'analyst', action: 'card.restart', states: ANALYST_RESTARTABLE_STATES, allowed: true },
+  { role: 'analyst', action: 'card.restart', states: ANALYST_NOT_RESTARTABLE_STATES, allowed: false, deny: 'wrong_state' },
 
   { role: 'executor', action: 'card.start', states: '*', allowed: false, deny: 'not_authorized' },
   { role: 'executor', action: 'card.cancel', states: '*', allowed: false, deny: 'not_authorized' },
@@ -69,8 +91,18 @@ export function allowedActions(role: PermissionRole, state: CardState): CardActi
   return CARD_ACTIONS.filter((action) => decide({ role, action, targetState: state }).allowed);
 }
 
-export function matrixCompletenessTriples(): Array<{ role: PermissionRole; action: CardAction; state: CardState; decision: Decision }> {
-  return PERMISSION_ROLES.flatMap((role) => CARD_ACTIONS.flatMap((action) => CARD_STATES.map((state) => ({ role, action, state, decision: decide({ role, action, targetState: state }) }))));
+export function matchingMatrixEntries(input: { role: PermissionRole; action: CardAction; targetState: CardState }): MatrixEntry[] {
+  return matrixEntries.filter((candidate) => entryMatches(candidate, input.role, input.action, input.targetState));
+}
+
+export function matrixCompletenessTriples(): Array<{ role: PermissionRole; action: CardAction; state: CardState; decision: Decision; entries: MatrixEntry[] }> {
+  return PERMISSION_ROLES.flatMap((role) => CARD_ACTIONS.flatMap((action) => CARD_STATES.map((state) => ({
+    role,
+    action,
+    state,
+    decision: decide({ role, action, targetState: state }),
+    entries: matchingMatrixEntries({ role, action, targetState: state }),
+  }))));
 }
 
 export const TOOL_TO_CARD_ACTION = {

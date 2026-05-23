@@ -7,6 +7,7 @@ describe('permission-by-state matrix', () => {
     const triples = matrixCompletenessTriples();
     expect(triples).toHaveLength(PERMISSION_ROLES.length * CARD_ACTIONS.length * CARD_STATES.length);
     for (const triple of triples) {
+      expect(triple.entries).toHaveLength(1);
       expect(typeof triple.decision.allowed).toBe('boolean');
       if (!triple.decision.allowed) expect(triple.decision.reason).toMatch(/^(wrong_state|not_authorized|card_archived)$/);
     }

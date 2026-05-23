@@ -11,7 +11,7 @@ import { tmpdir } from 'node:os';
 import { CardStore } from '../src/utils/card-store.js';
 import { initRuntimeState, readRuntimeState, runtimeStatePath, updateRuntimeState } from '../src/runtime/state.js';
 import {
-  create_card, edit_card, add_note, pause_runtime, resume_runtime,
+  create_card, edit_card, delete_card, add_note, pause_runtime, resume_runtime,
 } from '../src/agents/analyst-tools.js';
 import type { ToolContext } from '../src/agents/analyst-tools.js';
 
@@ -166,6 +166,43 @@ describe('Analyst Tools', () => {
     expect(c.id).toMatch(/^code-/);
   });
 
+
+
+  it('denies delete_card for matrix-disallowed target states', async () => {
+    store.update('goal-1', { status: 'running' });
+
+    const result = await delete_card({ projectRoot, store, actor: 'runtime', surface: 'runtime' }, { id: 'goal-1' });
+
+    expect(result.success).toBe(false);
+    expect(result.error).toContain("delete_card denied by permission matrix");
+    expect(result.error).toContain("card 'goal-1'");
+    expect(result.error).toContain("state 'running'");
+    expect(store.read('goal-1')).not.toBeNull();
+  });
+
+  it('denies delete_card when a descendant is matrix-disallowed', async () => {
+    store.update('goal-1', { status: 'backlog' });
+    store.update('code-1', { status: 'running' });
+
+    const result = await delete_card({ projectRoot, store, actor: 'runtime', surface: 'runtime' }, { id: 'goal-1' });
+
+    expect(result.success).toBe(false);
+    expect(result.error).toContain("delete_card denied by permission matrix");
+    expect(result.error).toContain("card 'code-1'");
+    expect(result.error).toContain("state 'running'");
+    expect(store.read('goal-1')).not.toBeNull();
+    expect(store.read('code-1')).not.toBeNull();
+  });
+
+  it('allows delete_card for a matrix-allowed state', async () => {
+    store.update('code-1', { status: 'backlog' });
+
+    const result = await delete_card({ projectRoot, store, actor: 'runtime', surface: 'runtime' }, { id: 'code-1' });
+
+    expect(result.success).toBe(true);
+    expect(result.data).toEqual({ deleted: ['code-1'] });
+    expect(store.read('code-1')).toBeNull();
+  });
 
   it('returns actionable enum preflight errors for invalid create_card values', async () => {
     const result = await create_card(ctx(projectRoot, store), {
