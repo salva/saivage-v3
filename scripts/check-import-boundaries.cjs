@@ -50,6 +50,14 @@ function isPackageRootImport(parts) {
   return parts.length === 1 || (parts.length === 2 && /^index(?:\.[cm]?js|\.ts)?$/.test(parts[1]));
 }
 
+function isCrossPackageAllowed(fromPkg, parts) {
+  return parts[0] === fromPkg || isPackageRootImport(parts);
+}
+
+function isAgentRuntimeAllowed(fromPkg, parts) {
+  return fromPkg !== 'agents' || parts[0] !== 'runtime' || isPackageRootImport(parts);
+}
+
 function runSelfTest() {
   const cases = [
     { fromPkg: 'agents', parts: ['cards'], ok: true, label: '@saivage/cards root' },
@@ -61,12 +69,12 @@ function runSelfTest() {
     { fromPkg: 'agents', parts: ['runtime'], ok: true, label: 'agents may use runtime package root' },
     { fromPkg: 'agents', parts: ['runtime', 'index.js'], ok: true, label: 'agents may use runtime index' },
     { fromPkg: 'agents', parts: ['runtime', 'state.js'], ok: false, label: 'agents must not deep-import runtime state' },
+    { fromPkg: null, parts: ['agents', 'index.js'], ok: true, label: 'root entrypoint may import agents index' },
+    { fromPkg: null, parts: ['agents', 'authz.js'], ok: false, label: 'root entrypoint must not deep-import agents authz' },
   ];
   const failures = [];
   for (const testCase of cases) {
-    const crossPackageAllowed = testCase.parts[0] === testCase.fromPkg || isPackageRootImport(testCase.parts);
-    const agentRuntimeAllowed = testCase.fromPkg !== 'agents' || testCase.parts[0] !== 'runtime' || isPackageRootImport(testCase.parts);
-    const allowed = crossPackageAllowed && agentRuntimeAllowed;
+    const allowed = isCrossPackageAllowed(testCase.fromPkg, testCase.parts) && isAgentRuntimeAllowed(testCase.fromPkg, testCase.parts);
     if (allowed !== testCase.ok) {
       failures.push(`${testCase.label}: expected ${testCase.ok ? 'allowed' : 'rejected'}, got ${allowed ? 'allowed' : 'rejected'}`);
     }
@@ -88,7 +96,6 @@ const importRe = /import(?:\s+type)?[\s\S]*?from\s+['"]([^'"]+)['"]|export[\s\S]
 const errors = [];
 for (const file of walk(SRC)) {
   const fromPkg = pkgOf(file);
-  if (!fromPkg) continue;
   const text = fs.readFileSync(file, 'utf8');
   let match;
   while ((match = importRe.exec(text))) {
@@ -107,8 +114,9 @@ for (const file of walk(SRC)) {
     if (fromPkg === 'agents' && AGENT_RUNTIME_RESTRICTED.has(toPkg) && !isPackageRootImport(parts)) {
       errors.push(`${relFile}:${line}: agents must not import runtime internals (${spec}); use the runtime package index or move ownership to tool/event surfaces`);
     }
-    if (toPkg !== fromPkg && !isPackageRootImport(parts)) {
-      errors.push(`${relFile}:${line}: deep cross-package import into ${toPkg} is forbidden (${spec}); import from the package index or move within the owning package`);
+    if (!isCrossPackageAllowed(fromPkg, parts)) {
+      const consumer = fromPkg === null ? 'root entrypoint' : `cross-package import into ${toPkg}`;
+      errors.push(`${relFile}:${line}: deep ${consumer} is forbidden (${spec}); import from the package index or move within the owning package`);
     }
   }
 }

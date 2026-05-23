@@ -24,3 +24,5 @@ export {
   readFreezeManifest,
   clearFreezeManifest,
 } from './freeze-manifest.js';
+
+export { isLocked } from './lock.js';
