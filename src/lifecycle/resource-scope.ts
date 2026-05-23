@@ -24,7 +24,7 @@ export interface ScopedChildProcess extends Disposable { readonly name: string; 
 export interface ScopedFsWatch extends Disposable { readonly name: string; readonly watcher: FSWatcher; }
 
 export type WatchHandler = (eventType: string, filename: string | Buffer | null) => void;
-export type SpawnOpts = SpawnOptions & { name?: string };
+export type SpawnOpts = SpawnOptions & { name?: string; timeoutMs?: number };
 
 export interface ResourceScope {
   readonly id: string;
@@ -41,6 +41,7 @@ export interface ResourceScope {
 }
 
 const DEFAULT_DISPOSE_TIMEOUT_MS = 5_000;
+const MIN_CHILD_KILL_GRACE_MS = 25;
 
 export class ScopeDisposed extends Error {
   constructor(readonly scopeId: string) {
@@ -62,6 +63,47 @@ function resourceName(resource: Disposable, fallback: string): string {
 
 function timeoutError(name: string, timeoutMs: number): Error {
   return new Error(`Timed out disposing '${name}' after ${timeoutMs}ms`);
+}
+
+function childExited(child: ChildProcess): boolean {
+  return child.exitCode !== null || child.signalCode !== null;
+}
+
+async function waitForChildClose(child: ChildProcess, timeoutMs: number): Promise<'closed' | 'timeout'> {
+  if (childExited(child)) return 'closed';
+
+  let timeout: NodeJS.Timeout | undefined;
+  return new Promise<'closed' | 'timeout'>((resolve) => {
+    const cleanup = (): void => {
+      if (timeout) clearTimeout(timeout);
+      child.removeListener('close', onClose);
+    };
+    const onClose = (): void => {
+      cleanup();
+      resolve('closed');
+    };
+    timeout = setTimeout(() => {
+      cleanup();
+      resolve('timeout');
+    }, timeoutMs);
+    timeout.unref?.();
+    child.once('close', onClose);
+  });
+}
+
+async function disposeChildProcess(child: ChildProcess, name: string, timeoutMs: number): Promise<void> {
+  if (childExited(child)) return;
+
+  const graceMs = Math.max(MIN_CHILD_KILL_GRACE_MS, Math.floor(timeoutMs / 2));
+  child.kill('SIGTERM');
+  if (await waitForChildClose(child, graceMs) === 'closed') return;
+
+  child.kill('SIGKILL');
+  if (await waitForChildClose(child, graceMs) === 'closed') {
+    throw new Error(`Child process '${name}' did not exit after SIGTERM within ${graceMs}ms; sent SIGKILL`);
+  }
+
+  throw new Error(`Child process '${name}' did not exit after SIGTERM or SIGKILL within ${timeoutMs}ms`);
 }
 
 export function createResourceScope(id: string, opts?: { disposeTimeoutMs?: number }): ResourceScope {
@@ -136,16 +178,15 @@ class DefaultResourceScope implements ResourceScope {
 
   spawn(cmd: string, args: string[], opts?: SpawnOpts): ScopedChildProcess {
     this.assertOpen();
-    const { name, ...spawnOpts } = opts ?? {};
+    const { name, timeoutMs, ...spawnOpts } = opts ?? {};
+    const resourceName = name ?? `child:${cmd}`;
+    const disposalTimeoutMs = timeoutMs ?? this.defaultDisposeTimeoutMs;
     const child = nodeSpawn(cmd, args, spawnOpts);
     return this.add({
-      name: name ?? `child:${cmd}`,
+      name: resourceName,
       process: child,
-      dispose: () => {
-        if (child.killed || child.exitCode !== null || child.signalCode !== null) return;
-        child.kill('SIGTERM');
-      },
-    }, { name: name ?? `child:${cmd}` });
+      dispose: () => disposeChildProcess(child, resourceName, disposalTimeoutMs),
+    }, { name: resourceName, timeoutMs: disposalTimeoutMs + MIN_CHILD_KILL_GRACE_MS });
   }
 
   watch(path: string, handler: WatchHandler, opts?: WatchOptions & { name?: string; timeoutMs?: number }): ScopedFsWatch {
