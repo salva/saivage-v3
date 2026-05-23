@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync, writeFileSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
-import { EventLogger } from '../../src/utils/event-logger.js';
+import { EventLogger } from '../../src/observability/event-logger.js';
 
 const timestamp = '2025-01-01T00:00:00.000Z';
 

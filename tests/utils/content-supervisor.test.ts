@@ -25,14 +25,14 @@ import {
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
-import { initProjectTree } from '../../src/utils/file-tree.js';
+import { initProjectTree } from '../../src/persistence/file-tree.js';
 import {
   ContentSupervisor,
-} from '../../src/utils/content-supervisor.js';
+} from '../../src/workspace/content-supervisor.js';
 import type {
   ContentSupervisorConfig,
   ScreenContentResult,
-} from '../../src/utils/content-supervisor.js';
+} from '../../src/workspace/content-supervisor.js';
 import type { ContentReview, QuarantineItem } from '../../src/schemas/types.js';
 
 // ── Helpers ───────────────────────────────────────────────────

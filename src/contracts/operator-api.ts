@@ -1,5 +1,4 @@
 import { z } from 'zod';
-import type { ContractAuthClass } from '../server/contract-runtime.js';
 import {
   cardRecordSchema,
   cardStatusSchema,
@@ -14,6 +13,8 @@ import {
   actionableErrorEnvelopeSchema,
   urgencySchema,
 } from '../schemas/validators.js';
+
+export type ContractAuthClass = 'public' | 'operator-session' | 'agent-session' | 'mcp-tool-token';
 
 export const HttpMethodSchema = z.enum(['GET', 'POST', 'PATCH', 'DELETE']);
 export type HttpMethod = z.infer<typeof HttpMethodSchema>;

@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { createServer, type ServerInstance } from '../../src/server/server.js';
 import { runtimeStateSchema } from '../../src/schemas/validators.js';
 import { readRuntimeState } from '../../src/runtime/state.js';
-import { initProjectTree } from '../../src/utils/file-tree.js';
+import { initProjectTree } from '../../src/persistence/file-tree.js';
 import type { RuntimeState } from '../../src/schemas/types.js';
 
 const AUTH_HEADER = { authorization: 'Bearer restart-surface-test-token' };

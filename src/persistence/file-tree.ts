@@ -8,7 +8,7 @@ import {
   notesQueueSchema,
   projectConfigSchema,
 } from '../schemas/validators.js';
-import { isReadBlocked } from './file-access-security.js';
+import { isReadBlocked } from '../workspace/file-access-security.js';
 import { redactTextForOutbound } from '../redaction/index.js';
 
 export function writeFileAtomic(targetPath: string, data: string): void {

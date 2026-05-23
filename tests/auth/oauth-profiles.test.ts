@@ -43,7 +43,7 @@ import {
 import {
   isReadBlocked,
   isSensitivePath,
-} from '../../src/utils/file-access-security.js';
+} from '../../src/workspace/file-access-security.js';
 
 // ═══════════════════════════════════════════════════════════════
 // Test helpers

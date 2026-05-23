@@ -6,8 +6,8 @@ import { tmpdir } from 'node:os';
 import { parseDeferredActivationEnvelope } from '../../src/schemas/validators.js';
 import { appendRuntimeRun, readRuntimeState } from '../../src/runtime/state.js';
 import { AgentAdapter } from '../../src/agents/agent-adapter.js';
-import { initProjectTree } from '../../src/utils/file-tree.js';
-import { CardStore } from '../../src/utils/card-store.js';
+import { initProjectTree } from '../../src/persistence/file-tree.js';
+import { CardStore } from '../../src/cards/card-store.js';
 import type { CardRecord } from '../../src/schemas/types.js';
 
 function createMinimalAdapter(tmpDir: string): AgentAdapter {

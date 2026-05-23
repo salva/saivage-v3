@@ -1,8 +1,8 @@
 import { existsSync, readdirSync, statSync } from 'node:fs';
 import { isAbsolute, join, relative, resolve } from 'node:path';
 import type { ToolDefinition } from './llm-client.js';
-import { readProjectFileAtomic, writeFileAtomic } from '../utils/file-tree.js';
-import { isWriteBlocked } from '../utils/file-access-security.js';
+import { readProjectFileAtomic, writeFileAtomic } from '../persistence/file-tree.js';
+import { isWriteBlocked } from '../workspace/file-access-security.js';
 
 const DEFAULT_MAX_RESULTS = 200;
 const MAX_LIST_RESULTS = 1000;

@@ -2,7 +2,7 @@ import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { runtimeStateSchema } from '../schemas/validators.js';
 import type { ZodType } from 'zod';
-import { explainLegacyStateRejection } from '../utils/file-tree.js';
+import { explainLegacyStateRejection } from '../persistence/file-tree.js';
 import { AtomicJsonFile, ProjectLock, PersistenceReadError, PersistenceValidationError } from '../persistence/index.js';
 import type { ActiveCardRun, RuntimeActivationRecord, RuntimeCommandName, RuntimeCommandRecord, RuntimeRunRecord, RuntimeState } from '../schemas/types.js';
 

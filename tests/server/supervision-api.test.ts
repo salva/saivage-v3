@@ -18,7 +18,7 @@ import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
-import { quarantineContent, recordContentPass } from '../../src/utils/quarantine.js';
+import { quarantineContent, recordContentPass } from '../../src/workspace/quarantine.js';
 
 // ── Helpers ───────────────────────────────────────────────────
 

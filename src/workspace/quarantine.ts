@@ -22,7 +22,7 @@ import type {
   SourceKind,
   RiskLevel,
 } from '../schemas/types.js';
-import { writeFileAtomic } from './file-tree.js';
+import { writeFileAtomic } from '../persistence/file-tree.js';
 
 // ── Path Helpers ──────────────────────────────────────────────
 

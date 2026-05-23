@@ -5,7 +5,7 @@ import websocket from '@fastify/websocket';
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { NotificationCenter } from '../../src/utils/notification-center.js';
+import { NotificationCenter } from '../../src/notifications/notification-center.js';
 
 const TEST_ROOT = join(tmpdir(), `saivage-notifications-${Date.now()}`);
 let app: FastifyInstance;

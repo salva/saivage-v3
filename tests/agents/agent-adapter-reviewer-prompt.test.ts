@@ -7,8 +7,8 @@ import { AgentAdapter, type LlmCallFn } from '../../src/agents/agent-adapter.js'
 import { buildReviewerPrompt } from '../../src/agents/system-prompt.js';
 import type { SaivageConfig } from '../../src/agents/config-schema.js';
 import type { AgentMessage, CardRecord } from '../../src/schemas/types.js';
-import { CardStore } from '../../src/utils/card-store.js';
-import { initProjectTree } from '../../src/utils/file-tree.js';
+import { CardStore } from '../../src/cards/card-store.js';
+import { initProjectTree } from '../../src/persistence/file-tree.js';
 
 function minimalConfig(): SaivageConfig {
   return {

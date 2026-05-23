@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from '@jest/globals';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { initProjectTree } from '../../src/utils/file-tree.js';
+import { initProjectTree } from '../../src/persistence/file-tree.js';
 import { EventBus } from '../../src/events/bus.js';
 import {
   registerNotificationProjection,

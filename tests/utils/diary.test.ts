@@ -16,7 +16,7 @@ import {
   getDiaryEntry,
   appendReviewAssessment,
   getReviewAssessments,
-} from '../../src/utils/diary.js';
+} from '../../src/cards/diary.js';
 import type { DiaryEntry, ReviewAssessment } from '../../src/schemas/types.js';
 
 let tmpDir: string;

@@ -9,8 +9,8 @@ import {
 } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { initProjectTree } from '../../src/utils/file-tree.js';
-import { CardStore } from '../../src/utils/card-store.js';
+import { initProjectTree } from '../../src/persistence/file-tree.js';
+import { CardStore } from '../../src/cards/card-store.js';
 import {
   registerArtifact,
   registerAttachment,
@@ -19,7 +19,7 @@ import {
   getAttachments,
   removeArtifact,
   removeAttachment,
-} from '../../src/utils/artifacts.js';
+} from '../../src/cards/artifacts.js';
 
 // ── Helpers ───────────────────────────────────────────────────
 

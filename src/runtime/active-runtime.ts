@@ -17,8 +17,8 @@ import {
   type RuntimeStatus,
 } from './runtime.js';
 import { AgentAdapter } from '../agents/agent-adapter.js';
-import { EventLogger } from '../utils/event-logger.js';
-import { ErrorLogger } from '../utils/error-logger.js';
+import { EventLogger } from '../observability/event-logger.js';
+import { ErrorLogger } from '../observability/error-logger.js';
 import { SkillsEngine } from '../agents/skills-engine.js';
 import type { SaivageConfig } from '../agents/config-schema.js';
 import type { McpManager } from '../mcp/mcp-manager.js';

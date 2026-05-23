@@ -23,9 +23,9 @@ import {
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
-import { initProjectTree } from '../../src/utils/file-tree.js';
-import { CardStore } from '../../src/utils/card-store.js';
-import { cleanAll, cleanCardTmp } from '../../src/utils/cleanup.js';
+import { initProjectTree } from '../../src/persistence/file-tree.js';
+import { CardStore } from '../../src/cards/card-store.js';
+import { cleanAll, cleanCardTmp } from '../../src/runtime/cleanup.js';
 import {
   quarantineContent,
   recordContentPass,
@@ -33,7 +33,7 @@ import {
   listRecentReviews,
   readQuarantineContent,
   listQuarantineIndex,
-} from '../../src/utils/quarantine.js';
+} from '../../src/workspace/quarantine.js';
 import type {
   ContentReview,
   QuarantineItem,

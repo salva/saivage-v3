@@ -5,7 +5,7 @@ status: stale
 disposition: merge-into
 owner: docs-maintainers
 superseded_by: docs/agents.md
-last_verified_against: src/utils/card-store.ts:1
+last_verified_against: src/cards/card-store.ts:1
 -->
 
 > **Authority status: stale.** This page is retained for context only and is not current operator guidance. Prefer `docs/agents.md` for current authority where applicable. See `docs/documentation-inventory.md` for disposition `merge-into`.

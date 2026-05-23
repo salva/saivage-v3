@@ -8,7 +8,7 @@ import {
   redactCommandForOperator,
   redactOperatorErrorMessage,
   toContainedRelativePath,
-} from '../../utils/file-access-security.js';
+} from '../../workspace/file-access-security.js';
 
 interface ProcessLogRefs {
   stdout: string | null;

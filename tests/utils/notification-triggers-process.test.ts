@@ -2,8 +2,8 @@ import { describe, it, expect } from '@jest/globals';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { initProjectTree } from '../../src/utils/file-tree.js';
-import { NotificationCenter } from '../../src/utils/notification-center.js';
+import { initProjectTree } from '../../src/persistence/file-tree.js';
+import { NotificationCenter } from '../../src/notifications/notification-center.js';
 
 describe('process termination notifications', () => {
   it('exposes killProcess without emitting product process-kill notifications by itself', async () => {

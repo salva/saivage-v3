@@ -5,12 +5,12 @@ import { tmpdir } from 'node:os';
 import { EventEmitter } from 'node:events';
 
 import { Runtime } from '../../src/runtime/runtime.js';
-import { initProjectTree } from '../../src/utils/file-tree.js';
+import { initProjectTree } from '../../src/persistence/file-tree.js';
 import { releaseLock } from '../../src/runtime/lock.js';
 import { AgentAdapter } from '../../src/agents/agent-adapter.js';
-import { EventLogger } from '../../src/utils/event-logger.js';
+import { EventLogger } from '../../src/observability/event-logger.js';
 import { saivageConfigSchema } from '../../src/agents/config-schema.js';
-import type { FakeAgentFixture } from '../../src/utils/fake-agent.js';
+import type { FakeAgentFixture } from '../../src/agents/fake-agent.js';
 
 function makeFixtureDir(tmpDir: string): string {
   const dir = join(tmpDir, 'fixtures');

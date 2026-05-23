@@ -11,9 +11,9 @@ import {
   type SupervisorConfig,
   type SupervisorDeps,
   type StuckVerdict,
-} from '../../src/utils/stuck-agent-supervisor.js';
+} from '../../src/runtime/stuck-agent-supervisor.js';
 import { Runtime } from '../../src/runtime/runtime.js';
-import { initProjectTree } from '../../src/utils/file-tree.js';
+import { initProjectTree } from '../../src/persistence/file-tree.js';
 import { releaseLock } from '../../src/runtime/lock.js';
 import type { AgentRuntime } from '../../src/agents/agent-runtime.js';
 

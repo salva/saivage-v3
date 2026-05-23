@@ -1,9 +1,9 @@
 import { join, relative, resolve as resolvePath } from 'node:path';
 import { spawn } from 'node:child_process';
 import { existsSync, readFileSync, readdirSync, statSync, lstatSync } from 'node:fs';
-import { CardStore } from '../utils/card-store.js';
-import { appendNote, getNotes, deleteAllNotes, markNoteHandled } from '../utils/notes.js';
-import { getDiaryEntries, deleteDiary } from '../utils/diary.js';
+import { CardStore } from '../cards/card-store.js';
+import { appendNote, getNotes, deleteAllNotes, markNoteHandled } from '../cards/notes.js';
+import { getDiaryEntries, deleteDiary } from '../cards/diary.js';
 import { readRuntimeState } from '../runtime/state.js';
 import { pauseRuntimeControl, resumeRuntimeControl, RESUME_FROM_FREEZE_MESSAGE } from '../runtime/control.js';
 import { listProcesses, tailOutput, getProcess } from '../runtime/process-runner.js';
@@ -11,12 +11,12 @@ import type { CardRecord, CardType, CardStatus, NoteKind, NoteAuthor, ControlAct
 import type { ActiveRuntime } from '../runtime/active-runtime.js';
 import type { ActorRole, SafetyClass } from './authz.js';
 import { evaluateAuthz } from './authz.js';
-import { recordControlAction, stableStringify } from '../utils/control-action-audit.js';
-import { listControlActions } from '../utils/control-action-audit.js';
+import { recordControlAction, stableStringify } from '../persistence/control-action-audit.js';
+import { listControlActions } from '../persistence/control-action-audit.js';
 import { redactTextForOutbound } from '../redaction/index.js';
-import { SecretPathError, assertNotSecretPath, assertSafeShellCwd, looksLikeSecretPath } from '../utils/secret-paths.js';
-import { classifyShellCommand, sanitizedEnv, type ShellSafetyClass } from '../utils/shell-classifier.js';
-import { markGoalNeedsCorrections, normalizeAnalystIssues, notifyPlannerOfAnalystAction } from '../utils/analyst-stage6.js';
+import { SecretPathError, assertNotSecretPath, assertSafeShellCwd, looksLikeSecretPath } from '../workspace/secret-paths.js';
+import { classifyShellCommand, sanitizedEnv, type ShellSafetyClass } from '../workspace/shell-classifier.js';
+import { markGoalNeedsCorrections, normalizeAnalystIssues, notifyPlannerOfAnalystAction } from '../agents/analyst-stage6.js';
 import { CARD_STATUS_VALUES, CARD_TYPE_VALUES, URGENCY_VALUES, NOTE_KIND_VALUES } from './analyst-tool-schemas.js';
 import { decide } from '../permissions/index.js';
 

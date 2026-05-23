@@ -5,7 +5,7 @@ import websocket from '@fastify/websocket';
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { recordControlAction } from '../../src/utils/control-action-audit.js';
+import { recordControlAction } from '../../src/persistence/control-action-audit.js';
 
 const TEST_ROOT = join(tmpdir(), `saivage-control-actions-${Date.now()}`);
 let app: FastifyInstance;

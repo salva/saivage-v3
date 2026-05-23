@@ -14,7 +14,7 @@ import type { InjectOptions, LightMyRequestResponse } from 'fastify';
 import type { ServerInstance } from '../../src/server/server.js';
 import { isLocked, releaseLock } from '../../src/runtime/lock.js';
 import { readRuntimeState } from '../../src/runtime/state.js';
-import { CardStore } from '../../src/utils/card-store.js';
+import { CardStore } from '../../src/cards/card-store.js';
 import { getRuntimeEventSubscriptionCount } from '../../src/server/websocket.js';
 
 const AUTH_TOKEN = 'ar-server-test-token-' + Math.random().toString(36).slice(2, 8);

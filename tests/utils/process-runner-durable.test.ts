@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync, existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
-import { initProjectTree } from '../../src/utils/file-tree.js';
+import { initProjectTree } from '../../src/persistence/file-tree.js';
 import {
   startProcess,
   waitProcess,
@@ -17,8 +17,8 @@ import {
   disposeProcessRuntimeScope,
 } from '../../src/runtime/process-runner.js';
 import type { ProcessRecord } from '../../src/schemas/types.js';
-import { EventLogger } from '../../src/utils/event-logger.js';
-import { NotificationCenter } from '../../src/utils/notification-center.js';
+import { EventLogger } from '../../src/observability/event-logger.js';
+import { NotificationCenter } from '../../src/notifications/notification-center.js';
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 

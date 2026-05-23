@@ -11,11 +11,11 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import type { WebSocket } from 'ws';
 import { getOrCreateAnalystSession, getAnalystHandler, resetAnalystHandlerCache } from '../agents/analyst-handler.js';
-import type { EventBus, EventBusSubscription, DomainEvent } from '../utils/event-bus.js';
-import { toLoggedEvent } from '../utils/event-bus.js';
+import type { EventBus, Subscription, DomainEvent } from '../events/index.js';
+import { toLoggedEvent } from '../events/index.js';
 import { operatorBroadcastEventKindValues, type OperatorBroadcastEventKind } from '../events/registry.js';
-import { redactOperatorErrorMessage } from '../utils/file-access-security.js';
-import { sanitizeAnalystPayload, sanitizeAnalystText } from '../utils/analyst-sanitization.js';
+import { redactOperatorErrorMessage } from '../workspace/file-access-security.js';
+import { sanitizeAnalystPayload, sanitizeAnalystText } from '../agents/analyst-sanitization.js';
 import type { ActiveRuntime } from '../runtime/active-runtime.js';
 import { InboundAnalystMessageEnvelopeSchema, buildConnectedEnvelope, validateKnownWsEnvelope } from '../contracts/operator-events.js';
 import type { WsEnvelope, WsEventType } from '../contracts/operator-events.js';
@@ -28,7 +28,7 @@ const clients = new Set<WebSocket>();
 const authenticatedClients = new Set<WebSocket>();
 const wsSessions = new WeakMap<WebSocket, string>();
 const analystTurnQueues = new WeakMap<WebSocket, Promise<void>>();
-const runtimeEventSubscriptions = new Map<object, EventBusSubscription>();
+const runtimeEventSubscriptions = new Map<object, Subscription>();
 
 export function resetWebSocketState(projectRoot?: string): void {
   for (const ws of clients) {

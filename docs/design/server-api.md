@@ -267,7 +267,7 @@ All messages use a JSON envelope:
 | `notification_acknowledged` | server → client | Operator notification acknowledged |
 | `control_action_recorded` | server → client | Mutating control action audited |
 
-The server serializes analyst `message` turns per WebSocket connection, so two rapid client messages on the same socket are handled and replied to in send order. Analyst response, activity, and tool-invocation payloads are sanitized before `ws.send`/broadcast: secret-key fields are redacted, secret paths/literals are masked, activity strings are bounded, assistant messages keep the documented 200,000-character cap, and arrays are truncated for safe operator display. This contract is enforced by `src/server/websocket.ts`, `src/utils/analyst-sanitization.ts`, and `tests/server/websocket-analyst-safety.test.ts`.
+The server serializes analyst `message` turns per WebSocket connection, so two rapid client messages on the same socket are handled and replied to in send order. Analyst response, activity, and tool-invocation payloads are sanitized before `ws.send`/broadcast: secret-key fields are redacted, secret paths/literals are masked, activity strings are bounded, assistant messages keep the documented 200,000-character cap, and arrays are truncated for safe operator display. This contract is enforced by `src/server/websocket.ts`, `src/agents/analyst-sanitization.ts`, and `tests/server/websocket-analyst-safety.test.ts`.
 
 The web UI subscribes to all types and renders them in the
 appropriate panels (chat, activity feed, status bar, history and

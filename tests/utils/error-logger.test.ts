@@ -9,12 +9,12 @@ import {
 } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { initProjectTree } from '../../src/utils/file-tree.js';
-import { CardStore } from '../../src/utils/card-store.js';
+import { initProjectTree } from '../../src/persistence/file-tree.js';
+import { CardStore } from '../../src/cards/card-store.js';
 import { Runtime } from '../../src/runtime/runtime.js';
-import { ErrorLogger, type ErrorRecord, type ErrorInput } from '../../src/utils/error-logger.js';
+import { ErrorLogger, type ErrorRecord, type ErrorInput } from '../../src/observability/error-logger.js';
 import { releaseLock } from '../../src/runtime/lock.js';
-import type { FakeAgentFixture } from '../../src/utils/fake-agent.js';
+import type { FakeAgentFixture } from '../../src/agents/fake-agent.js';
 import type { CardRecord } from '../../src/schemas/types.js';
 
 function makeFixtureDir(tmpDir: string): string {

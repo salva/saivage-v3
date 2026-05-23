@@ -18,7 +18,7 @@ const mockEvaluateAuthz = jest.fn<(...args: unknown[]) => 'allow' | 'deny' | 'pr
 const mockRecordControlAction = jest.fn<(...args: unknown[]) => void>();
 const mockStableStringify = jest.fn<(value: unknown) => string>();
 
-jest.unstable_mockModule('../../src/utils/file-tree.js', () => ({
+jest.unstable_mockModule('../../src/persistence/file-tree.js', () => ({
   initProjectTree: mockInitProjectTree,
   isInitialized: mockIsInitialized,
   writeFileAtomic: jest.fn(),
@@ -29,7 +29,7 @@ jest.unstable_mockModule('../../src/runtime/state.js', () => ({
   updateRuntimeState: mockUpdateRuntimeState,
 }));
 
-jest.unstable_mockModule('../../src/utils/discovery.js', () => ({
+jest.unstable_mockModule('../../src/persistence/discovery.js', () => ({
   findProjectRoot: mockFindProjectRoot,
 }));
 
@@ -50,7 +50,7 @@ jest.unstable_mockModule('../../src/agents/authz.js', () => ({
   evaluateAuthz: mockEvaluateAuthz,
 }));
 
-jest.unstable_mockModule('../../src/utils/control-action-audit.js', () => ({
+jest.unstable_mockModule('../../src/persistence/control-action-audit.js', () => ({
   recordControlAction: mockRecordControlAction,
   stableStringify: mockStableStringify,
 }));

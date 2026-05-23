@@ -1,11 +1,11 @@
 import { describe, expect, it, jest } from '@jest/globals';
-import { EventBus, EventRegistry, getSeverity, toLoggedEvent } from '../../src/utils/event-bus.js';
+import { EventBus, EventRegistry, getEventSeverity, toLoggedEvent } from '../../src/events/index.js';
 
 describe('typed EventBus', () => {
   it('derives severity and known event metadata from the registry', () => {
     expect(EventRegistry.runtime_diagnostic.severity).toBe('error');
     expect(EventRegistry.subscriber_error.broadcast).toBe(false);
-    expect(getSeverity('goal_completed')).toBe('info');
+    expect(getEventSeverity('goal_completed')).toBe('info');
   });
 
   it('delivers typed events and supports subscribeMany filtering', () => {

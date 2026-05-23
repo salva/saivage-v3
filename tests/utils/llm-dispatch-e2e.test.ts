@@ -22,7 +22,7 @@ import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { randomBytes } from 'node:crypto';
-import { initProjectTree } from '../../src/utils/file-tree.js';
+import { initProjectTree } from '../../src/persistence/file-tree.js';
 import { ActiveRuntime } from '../../src/runtime/active-runtime.js';
 
 interface CapturedRequest {
@@ -339,7 +339,7 @@ describe('E2E LLM Dispatch Pipeline', () => {
     tmpDir = makeTempDir();
     setupProject(tmpDir, mock.port);
 
-    const { CardStore } = await import('../../src/utils/card-store.js');
+    const { CardStore } = await import('../../src/cards/card-store.js');
     const store = new CardStore(tmpDir);
     store.create({
       id: 'e2e-llm-goal',
@@ -496,7 +496,7 @@ describe('E2E LLM Dispatch Pipeline', () => {
 
     expect(goalCompleted).toBe(false);
 
-    const { CardStore } = await import('../../src/utils/card-store.js');
+    const { CardStore } = await import('../../src/cards/card-store.js');
     const store = new CardStore(tmpDir);
     const projectCard = store.read('project');
     expect(projectCard!.status).not.toBe('done');

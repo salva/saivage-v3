@@ -13,8 +13,8 @@ import { mkdtempSync, rmSync, existsSync, writeFileSync, mkdirSync } from 'node:
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
-import { initProjectTree } from '../../src/utils/file-tree.js';
-import { CardStore } from '../../src/utils/card-store.js';
+import { initProjectTree } from '../../src/persistence/file-tree.js';
+import { CardStore } from '../../src/cards/card-store.js';
 import {
   cleanCardTmp,
   cleanStaleStash,
@@ -22,7 +22,7 @@ import {
   cleanStaleUploads,
   cleanStaleProcessOutput,
   cleanAll,
-} from '../../src/utils/cleanup.js';
+} from '../../src/runtime/cleanup.js';
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 

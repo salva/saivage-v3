@@ -8,10 +8,10 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { getClientCount } from '../src/server/websocket.js';
 import { resetChatRouteState } from '../src/server/routes/chats-files-debug.js';
-import { appendNote } from '../src/utils/notes.js';
+import { appendNote } from '../src/cards/notes.js';
 import { createServer, type ServerInstance } from '../src/server/server.js';
-import { NotificationCenter } from '../src/utils/notification-center.js';
-import { recordControlAction } from '../src/utils/control-action-audit.js';
+import { NotificationCenter } from '../src/notifications/notification-center.js';
+import { recordControlAction } from '../src/persistence/control-action-audit.js';
 import { runtimeStatePath } from '../src/runtime/state.js';
 import { getAuthPolicy, resetAuthPolicyForTests } from '../src/server/auth-policy.js';
 

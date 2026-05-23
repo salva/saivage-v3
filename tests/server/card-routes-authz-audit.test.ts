@@ -5,7 +5,7 @@ import { registerCardRoutes } from '../../src/server/routes/cards.js';
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { NotificationCenter } from '../../src/utils/notification-center.js';
+import { NotificationCenter } from '../../src/notifications/notification-center.js';
 
 function setup(root: string) {
   const sd = join(root, '.saivage');

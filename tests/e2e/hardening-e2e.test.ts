@@ -25,13 +25,13 @@ import {
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
-import { initProjectTree } from '../../src/utils/file-tree.js';
-import { CardStore } from '../../src/utils/card-store.js';
+import { initProjectTree } from '../../src/persistence/file-tree.js';
+import { CardStore } from '../../src/cards/card-store.js';
 import { Runtime } from '../../src/runtime/runtime.js';
-import type { FakeAgentFixture } from '../../src/utils/fake-agent.js';
-import { scanContent } from '../../src/utils/heuristic-scanner.js';
-import { quarantineContent } from '../../src/utils/quarantine.js';
-import { isStashPathAllowed, getSafeFileForAgent } from '../../src/utils/file-access-security.js';
+import type { FakeAgentFixture } from '../../src/agents/fake-agent.js';
+import { scanContent } from '../../src/workspace/heuristic-scanner.js';
+import { quarantineContent } from '../../src/workspace/quarantine.js';
+import { isStashPathAllowed, getSafeFileForAgent } from '../../src/workspace/file-access-security.js';
 import { releaseLock } from '../../src/runtime/lock.js';
 import type { CardRecord } from '../../src/schemas/types.js';
 

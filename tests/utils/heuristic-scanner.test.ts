@@ -15,12 +15,12 @@ import {
   scanContent,
   isInjectionSuspicious,
   PATTERNS_BY_CATEGORY,
-} from '../../src/utils/heuristic-scanner.js';
+} from '../../src/workspace/heuristic-scanner.js';
 import type {
   ScanResult,
   SensitivityLevel,
   InjectionCategory,
-} from '../../src/utils/heuristic-scanner.js';
+} from '../../src/workspace/heuristic-scanner.js';
 
 // ── Helpers ───────────────────────────────────────────────────
 

@@ -2,8 +2,8 @@ import { describe, it, expect, beforeEach, afterEach, jest } from '@jest/globals
 import { rmSync, mkdtempSync, mkdirSync, writeFileSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { initProjectTree } from '../../src/utils/file-tree.js';
-import { FakeAgentAdapter, type FakeAgentFixture } from '../../src/utils/fake-agent.js';
+import { initProjectTree } from '../../src/persistence/file-tree.js';
+import { FakeAgentAdapter, type FakeAgentFixture } from '../../src/agents/fake-agent.js';
 import { AgentAdapter } from '../../src/agents/agent-adapter.js';
 import type { AgentRuntime } from '../../src/agents/agent-runtime.js';
 import type { SaivageConfig } from '../../src/agents/config-schema.js';

@@ -15,3 +15,7 @@ export {
   PersistenceVersionMismatch,
   PersistenceWriteError,
 } from './errors.js';
+
+export * from './file-tree.js';
+export * from './discovery.js';
+export * from './control-action-audit.js';

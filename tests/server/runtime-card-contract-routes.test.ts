@@ -3,7 +3,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { createServer, type ServerInstance } from '../../src/server/server.js';
-import { initProjectTree } from '../../src/utils/file-tree.js';
+import { initProjectTree } from '../../src/persistence/file-tree.js';
 import { initRuntimeState } from '../../src/runtime/state.js';
 import { parseOperatorResponse } from '../../src/contracts/operator-api.js';
 

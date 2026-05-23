@@ -3,7 +3,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync, existsSync
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { createServer } from '../../src/server/server.js';
-import { getProjectNotificationDeliveryAdapters } from '../../src/utils/notification-delivery.js';
+import { getProjectNotificationDeliveryAdapters } from '../../src/notifications/notification-delivery.js';
 
 const roots: string[] = [];
 

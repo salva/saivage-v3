@@ -6,8 +6,8 @@ import { tmpdir } from 'node:os';
 import { AgentAdapter } from '../../src/agents/agent-adapter.js';
 import { parsePlannerResult } from '../../src/agents/result-parser.js';
 import { getSessionMessages } from '../../src/agents/session-persistence.js';
-import { initProjectTree } from '../../src/utils/file-tree.js';
-import { CardStore } from '../../src/utils/card-store.js';
+import { initProjectTree } from '../../src/persistence/file-tree.js';
+import { CardStore } from '../../src/cards/card-store.js';
 import type { AgentMessage } from '../../src/schemas/types.js';
 
 function createMinimalAdapter(tmpDir: string): AgentAdapter {

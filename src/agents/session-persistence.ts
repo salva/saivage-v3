@@ -1,7 +1,7 @@
 import { existsSync, readFileSync, unlinkSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { agentSessionSchema, agentMessageSchema } from '../schemas/validators.js';
-import { explainLegacyStateRejection, writeFileAtomic } from '../utils/file-tree.js';
+import { explainLegacyStateRejection, writeFileAtomic } from '../persistence/file-tree.js';
 import type {
   AgentSession,
   AgentMessage,

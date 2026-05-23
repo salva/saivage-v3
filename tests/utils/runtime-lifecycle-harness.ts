@@ -1,7 +1,7 @@
 import { mkdtempSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { initProjectTree } from '../../src/utils/file-tree.js';
+import { initProjectTree } from '../../src/persistence/file-tree.js';
 import { disposeProcessRuntimeScope, snapshotProcessRuntimeScope, type RuntimeDisposeReportEntry, type RuntimeLifecycleSnapshot } from '../../src/runtime/index.js';
 
 export interface RuntimeLifecycleHarness {

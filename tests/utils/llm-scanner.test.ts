@@ -17,8 +17,8 @@ import {
   parseLlmVerdict,
   truncateContent,
   DEFAULT_MAX_SCAN_LENGTH_BYTES,
-} from '../../src/utils/llm-scanner.js';
-import type { LlmVerdict, LlmScanOptions } from '../../src/utils/llm-scanner.js';
+} from '../../src/workspace/llm-scanner.js';
+import type { LlmVerdict, LlmScanOptions } from '../../src/workspace/llm-scanner.js';
 
 // ── Helpers ───────────────────────────────────────────────────
 

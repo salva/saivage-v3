@@ -807,7 +807,7 @@ describe('AgentAdapter callMcpTool + ContentSupervisor', () => {
     const proc = await setupRealProc(mgr, 'stdio', r, mcpScript(), tools);
     const adapter = makeAdapter(r);
     adapter.setMcpManager(mgr);
-    const { ContentSupervisor } = await import('../../src/utils/content-supervisor.js');
+    const { ContentSupervisor } = await import('../../src/workspace/content-supervisor.js');
     const sd = join(r, '.saivage');
     const swd = join(r, '.saivage-work');
     mkdirSync(swd, { recursive: true });
@@ -835,7 +835,7 @@ describe('AgentAdapter callMcpTool + ContentSupervisor', () => {
     const proc = await setupRealProc(mgr, 'stdio', r, mcpScript(), tools);
     const adapter = makeAdapter(r);
     adapter.setMcpManager(mgr);
-    const { ContentSupervisor } = await import('../../src/utils/content-supervisor.js');
+    const { ContentSupervisor } = await import('../../src/workspace/content-supervisor.js');
     const sd = join(r, '.saivage');
     const swd = join(r, '.saivage-work');
     mkdirSync(swd, { recursive: true });

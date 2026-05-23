@@ -3,7 +3,7 @@ import { mkdtempSync, mkdirSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { AgentAdapter, type LlmCallFn } from '../../src/agents/agent-adapter.js';
-import { NotificationCenter } from '../../src/utils/notification-center.js';
+import { NotificationCenter } from '../../src/notifications/notification-center.js';
 
 function createAdapter(tmpDir: string): AgentAdapter {
   const minimalConfig = {

@@ -2,7 +2,7 @@ import { describe, it, expect } from '@jest/globals';
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync, existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { initProjectTree } from '../../src/utils/file-tree.js';
+import { initProjectTree } from '../../src/persistence/file-tree.js';
 import { run } from '../../src/cli.js';
 
 describe('saivage reset', () => {

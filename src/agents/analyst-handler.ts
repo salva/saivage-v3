@@ -1,15 +1,15 @@
 import { join } from 'node:path';
 import { existsSync, readFileSync } from 'node:fs';
-import { writeFileAtomic } from '../utils/file-tree.js';
+import { writeFileAtomic } from '../persistence/file-tree.js';
 import { agentSessionSchema, agentMessageSchema } from '../schemas/validators.js';
 import type { AgentSession, AgentMessage, MessageRole, MessageKind, ControlActionSurface, ControlActionAuditEntry } from '../schemas/types.js';
 import type { ToolResult, ToolContext } from './analyst-tools.js';
 import { TOOL_REGISTRY } from './analyst-llm-resolver.js';
 import { LlmIntentResolver } from './analyst-llm-resolver.js';
-import { CardStore } from '../utils/card-store.js';
+import { CardStore } from '../cards/card-store.js';
 import type { ActiveRuntime } from '../runtime/active-runtime.js';
 import type { ActorRole } from './authz.js';
-import { sanitizeAnalystText } from '../utils/analyst-sanitization.js';
+import { sanitizeAnalystText } from '../agents/analyst-sanitization.js';
 import { compactSession } from './compaction.js';
 
 export interface ActivityCallback {

@@ -3,18 +3,18 @@ import { join } from 'node:path';
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { readRuntimeState } from '../../runtime/state.js';
 import { readFreezeManifest } from '../../runtime/freeze-manifest.js';
-import { CardStore } from '../../utils/card-store.js';
+import { CardStore } from '../../cards/card-store.js';
 import {
   getSafeFileForAgent,
   resolveContainedProjectPath,
   redactOperatorErrorMessage,
-} from '../../utils/file-access-security.js';
+} from '../../workspace/file-access-security.js';
 import { redactForOutbound } from '../../redaction/index.js';
 import { AnalystHandler } from '../../agents/analyst-handler.js';
 import {
   listRecentReviews,
   listQuarantineIndex,
-} from '../../utils/quarantine.js';
+} from '../../workspace/quarantine.js';
 import type { ActiveRuntime } from '../../runtime/active-runtime.js';
 import type {
   DoctorCheck,

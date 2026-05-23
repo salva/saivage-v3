@@ -2,10 +2,10 @@ import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { z } from 'zod';
 import type { ActiveCardRun, AgentSession, CardRecord, CardStatus, RuntimeStatus } from '../schemas/types.js';
-import { CardStore } from './card-store.js';
-import { appendMessage, findPlannerSessionForCard, getSession, listSessions } from '../agents/session-persistence.js';
-import { appendNote, getNotes, markNoteHandled } from './notes.js';
-import { writeFileAtomic } from './file-tree.js';
+import { CardStore } from '../cards/card-store.js';
+import { appendMessage, findPlannerSessionForCard, getSession, listSessions } from './session-persistence.js';
+import { appendNote, getNotes, markNoteHandled } from '../cards/notes.js';
+import { writeFileAtomic } from '../persistence/file-tree.js';
 import { sanitizeAnalystPayload, sanitizeAnalystText } from './analyst-sanitization.js';
 import { readRuntimeState } from '../runtime/state.js';
 

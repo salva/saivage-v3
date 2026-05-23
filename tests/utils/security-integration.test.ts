@@ -23,15 +23,15 @@ import {
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
-import { initProjectTree, readProjectFileAtomic } from '../../src/utils/file-tree.js';
+import { initProjectTree, readProjectFileAtomic } from '../../src/persistence/file-tree.js';
 import {
   ContentSupervisor,
   type ScreenContentResult,
-} from '../../src/utils/content-supervisor.js';
-import { scanContent } from '../../src/utils/heuristic-scanner.js';
-import { quarantineContent, recordContentPass } from '../../src/utils/quarantine.js';
-import { getSafeFileForAgent } from '../../src/utils/file-access-security.js';
-import { checkWriteTerritory, getTerritoryWarning } from '../../src/utils/write-territories.js';
+} from '../../src/workspace/content-supervisor.js';
+import { scanContent } from '../../src/workspace/heuristic-scanner.js';
+import { quarantineContent, recordContentPass } from '../../src/workspace/quarantine.js';
+import { getSafeFileForAgent } from '../../src/workspace/file-access-security.js';
+import { checkWriteTerritory, getTerritoryWarning } from '../../src/workspace/write-territories.js';
 import { redactTextForOutbound } from '../../src/redaction/index.js';
 import { AgentAdapter } from '../../src/agents/agent-adapter.js';
 import { loadConfig } from '../../src/agents/config-schema.js';
@@ -66,7 +66,7 @@ function writeSaivageConfig(json: Record<string, unknown>) {
 }
 
 function createSupervisor(
-  overrides?: Partial<import('../../src/utils/content-supervisor.js').ContentSupervisorConfig>,
+  overrides?: Partial<import('../../src/workspace/content-supervisor.js').ContentSupervisorConfig>,
 ) {
   return new ContentSupervisor({
     enabled: true,
@@ -462,7 +462,9 @@ describe('write territory warnings', () => {
 describe('all modules import and work together', () => {
   it('can import all security modules via barrel', async () => {
     // Use dynamic import for ESM compatibility
-    const mod = await import('../../src/utils/index.js');
+    const workspace = await import('../../src/workspace/index.js');
+    const persistence = await import('../../src/persistence/index.js');
+    const mod = { ...workspace, ...persistence };
 
     // heuristic-scanner exports
     expect(typeof mod.scanContent).toBe('function');

@@ -116,7 +116,7 @@ The analyst chat is a persistent command stream.
   offline, unauthorized. Analyst messages on one connection are
   serialized in send order, and inbound activity/message/tool payloads
   are sanitized before rendering (`src/server/websocket.ts`,
-  `src/utils/analyst-sanitization.ts`,
+  `src/agents/analyst-sanitization.ts`,
   `tests/server/websocket-analyst-safety.test.ts`).
 - API token entry for secured deployments.
 - Chat history stored in agent session records, recoverable on reload; the session picker groups analyst/card/planner/reviewer/executor sessions, disables the composer for read-only planner/reviewer/executor transcripts, and keeps `card-<cardId>` discussions writable with first-turn card-context seeding (`web/src/components/chat/AnalystChatPanel.vue`, `web/src/stores/analystChat.ts`, `web/src/__tests__/analyst-chat-panel.test.ts`, `web/src/__tests__/card-detail-view.test.ts`).

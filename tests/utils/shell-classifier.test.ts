@@ -1,5 +1,5 @@
 import { describe, expect, it } from '@jest/globals';
-import { classifyShellCommand, sanitizedEnv } from '../../src/utils/shell-classifier.js';
+import { classifyShellCommand, sanitizedEnv } from '../../src/workspace/shell-classifier.js';
 
 describe('shell classifier', () => {
   const cases: Array<[string, string, 'read_only' | 'low' | 'destructive']> = [

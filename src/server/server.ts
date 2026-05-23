@@ -18,10 +18,10 @@ import { loadConfig, type SaivageConfig } from '../agents/config-schema.js';
 import type { Environment } from '../config/environment.js';
 import { McpManager } from '../mcp/index.js';
 import { TelegramBot } from '../telegram/index.js';
-import { createNotificationDeliveryService, setProjectNotificationDeliveryAdapters, clearProjectNotificationDeliveryAdapters } from '../utils/notification-delivery.js';
+import { createNotificationDeliveryService, setProjectNotificationDeliveryAdapters, clearProjectNotificationDeliveryAdapters } from '../notifications/notification-delivery.js';
 import { TelegramNotificationDeliveryAdapter, buildTelegramStartupDiagnosticSummary, evaluateTelegramRecipientReadiness, normalizeTelegramNotificationChatIds } from '../telegram/recipients.js';
 import { ActiveRuntime } from '../runtime/lifecycle.js';
-import { buildCardRunsResponse, markGoalNeedsCorrections, normalizeAnalystIssues } from '../utils/analyst-stage6.js';
+import { buildCardRunsResponse, markGoalNeedsCorrections, normalizeAnalystIssues } from '../agents/analyst-stage6.js';
 import { buildServerAvailability, type ServerAvailabilityInputs } from './availability.js';
 import { createResourceScope, type ResourceScope } from '../lifecycle/index.js';
 

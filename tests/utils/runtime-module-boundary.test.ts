@@ -32,7 +32,7 @@ import { saveFreezeManifest as directSaveFreezeManifest, readFreezeManifest as d
 import { existsSync, mkdtempSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { initProjectTree } from '../../src/utils/file-tree.js';
+import { initProjectTree } from '../../src/persistence/file-tree.js';
 
 describe('runtime module ownership boundary', () => {
   it('exports scheduler and active runtime lifecycle surfaces only through src/runtime', () => {

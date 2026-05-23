@@ -360,9 +360,9 @@ Every current operator-facing Fastify or contract-mounted route is listed exactl
 | `POST /api/runtime/start_project` | Start root project execution via explicit runtime command. | `src/contracts/operator-api.ts:271 "path: '/api/runtime/start_project'"` |
 | `POST /api/runtime/stop_project` | Stop root project execution intent via explicit runtime command. | `src/contracts/operator-api.ts:282 "path: '/api/runtime/stop_project'"` |
 | `POST /api/runtime/goals/:id/needs_corrections` | Record goal correction directive. | `src/server/server.ts:56 "fastify.post('/api/runtime/goals/:id/needs_corrections'"` |
-| `POST /api/runtime/pause` | Pause runtime and return RuntimeState. | `src/contracts/operator-api.ts:293 "path: '/api/runtime/pause'"` |
+| `POST /api/runtime/pause` | Pause runtime and return RuntimeState. | `src/contracts/operator-api.ts:294 "path: '/api/runtime/pause'"` |
 | `POST /api/runtime/resume-from-freeze` | Resume from freeze manifest. | `src/server/routes/runtime-config-notes.ts:202` |
-| `POST /api/runtime/resume` | Resume runtime and return RuntimeState. | `src/contracts/operator-api.ts:304 "path: '/api/runtime/resume'"` |
+| `POST /api/runtime/resume` | Resume runtime and return RuntimeState. | `src/contracts/operator-api.ts:305 "path: '/api/runtime/resume'"` |
 <!-- saivage:operator-routes:end -->
 
 <!-- saivage:runtime-controls:start -->
@@ -374,8 +374,8 @@ Every current operator-facing Fastify or contract-mounted route is listed exactl
 |---|---|---|---|
 | `POST /api/runtime/start_project` | `empty-or-null-json-object` | `RuntimeCommandResponse` | `src/contracts/operator-api.ts:271 "path: '/api/runtime/start_project'"` |
 | `POST /api/runtime/stop_project` | `empty-or-null-json-object` | `RuntimeCommandResponse` | `src/contracts/operator-api.ts:282 "path: '/api/runtime/stop_project'"` |
-| `POST /api/runtime/pause` | `empty-or-null-json-object` | `RuntimeState` | `src/contracts/operator-api.ts:293 "path: '/api/runtime/pause'"` |
-| `POST /api/runtime/resume` | `empty-or-null-json-object` | `RuntimeState` | `src/contracts/operator-api.ts:304 "path: '/api/runtime/resume'"` |
+| `POST /api/runtime/pause` | `empty-or-null-json-object` | `RuntimeState` | `src/contracts/operator-api.ts:294 "path: '/api/runtime/pause'"` |
+| `POST /api/runtime/resume` | `empty-or-null-json-object` | `RuntimeState` | `src/contracts/operator-api.ts:305 "path: '/api/runtime/resume'"` |
 | `POST /api/runtime/freeze` | `optional-object:{reason?:string}` | `freeze-summary` | `src/server/routes/runtime-config-notes.ts:201` |
 | `POST /api/runtime/resume-from-freeze` | `empty-or-null-json-object` | `resume-from-freeze-summary` | `src/server/routes/runtime-config-notes.ts:202` |
 <!-- saivage:runtime-controls:end -->

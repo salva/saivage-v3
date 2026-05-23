@@ -704,7 +704,7 @@ clears retry counters, updates `latest_self_report` and `status_text`
 from the accepted `report_goal_done` call, and returns `done` from
 the activation. Executor terminal mirroring is implemented in
 `src/runtime/runtime.ts` (`dispatchPendingActivations`) and planner report mirroring
-in `src/utils/planner-tools.ts` (`reportGoal`/`acceptReport`); destructive
+in `src/tools/planner-tools.ts` (`reportGoal`/`acceptReport`); destructive
 restart/cancel/delete preservation is guarded by
 `tests/utils/planner-tools.test.ts`.
 
@@ -923,7 +923,7 @@ above is the in-memory mirror.
 - `POST /api/runtime/pause` and `POST /api/runtime/resume` — global
   pause gate (§5, §12). Returns the updated `RuntimeState`.
 - `GET /api/agents` — enumerates every persisted `.saivage/agents/messages/*.jsonl` session plus session manifests, parsing `analyst`, `planner:<id>`, `reviewer:<id>`, `executor:<id>`, and `card-*` ids and marking only `RuntimeState.current_agent_session_id` active after reload (enforced by `src/server/routes/runtime-config-notes.ts`, `tests/server/agents-api.test.ts`, and `tests/server/restart-persistence-operator-surface.test.ts`).
-- `GET /ws` — WebSocket analyst chat/event stream. The server checks auth on upgrade, serializes analyst turns per client connection, and sanitizes analyst message/activity/tool payloads before sending them to operators (enforced by `src/server/websocket.ts`, `src/utils/analyst-sanitization.ts`, and `tests/server/websocket-analyst-safety.test.ts`).
+- `GET /ws` — WebSocket analyst chat/event stream. The server checks auth on upgrade, serializes analyst turns per client connection, and sanitizes analyst message/activity/tool payloads before sending them to operators (enforced by `src/server/websocket.ts`, `src/agents/analyst-sanitization.ts`, and `tests/server/websocket-analyst-safety.test.ts`).
 - `GET /api/runtime/card-runs` — returns a typed union for operator UI:
 
   ```ts
@@ -1039,7 +1039,7 @@ role:
 | `src/agents/analyst-tools.ts` | Analyst card/note tools; root execution bootstrap is not an analyst directive tool. |
 | `src/server/server.ts` | Runtime correction, pause/resume, card-run, and operator HTTP endpoints. |
 | `src/server/websocket.ts` | WebSocket auth, per-client analyst-turn serialization, runtime-event fan-out, and sanitized analyst payload emission. |
-| `src/utils/analyst-sanitization.ts` | Shared analyst WebSocket/message sanitization for secret paths, credential literals, bounded strings, arrays, and secret-key fields. |
+| `src/agents/analyst-sanitization.ts` | Shared analyst WebSocket/message sanitization for secret paths, credential literals, bounded strings, arrays, and secret-key fields. |
 | `src/server/routes/runtime-config-notes.ts` | Operator HTTP routes including `/api/agents` persisted-session enumeration. |
 | `web/src/components/chat/AnalystChatPanel.vue` | Analyst session picker grouping and read-only composer affordance for non-analyst agent sessions. |
 | `web/src/stores/analystChat.ts` | Stable `card-<cardId>` per-card analyst discussions and first-turn card-context seeding. |

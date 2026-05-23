@@ -2,11 +2,11 @@ import { describe, it, expect, beforeEach, afterEach } from '@jest/globals';
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { initProjectTree } from '../../src/utils/file-tree.js';
-import { CardStore } from '../../src/utils/card-store.js';
+import { initProjectTree } from '../../src/persistence/file-tree.js';
+import { CardStore } from '../../src/cards/card-store.js';
 import type { CardRecord, RuntimeState } from '../../src/schemas/types.js';
-import { PlannerToolError, PlannerToolsService } from '../../src/utils/planner-tools.js';
-import { getNotes } from '../../src/utils/notes.js';
+import { PlannerToolError, PlannerToolsService } from '../../src/tools/planner-tools.js';
+import { getNotes } from '../../src/cards/notes.js';
 
 function makeCard(
   overrides: Partial<CardRecord> & { type: CardRecord['type']; title: string },

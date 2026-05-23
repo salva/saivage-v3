@@ -10,8 +10,8 @@ import {
 } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { initProjectTree } from '../../src/utils/file-tree.js';
-import { CardStore } from '../../src/utils/card-store.js';
+import { initProjectTree } from '../../src/persistence/file-tree.js';
+import { CardStore } from '../../src/cards/card-store.js';
 import type { CardRecord } from '../../src/schemas/types.js';
 
 function makeCard(
@@ -338,7 +338,7 @@ describe('ARCH-026 hierarchy graph authority', () => {
   });
 
   it('does not use loadChildren in CardStore semantic readers or destructive traversal', () => {
-    const source = readFileSync(join(process.cwd(), 'src', 'utils', 'card-store.ts'), 'utf-8');
+    const source = readFileSync(join(process.cwd(), 'src', 'cards', 'card-store.ts'), 'utf-8');
     function methodBody(name: string): string {
       const start = source.indexOf(`  ${name}(`);
       expect(start).toBeGreaterThanOrEqual(0);

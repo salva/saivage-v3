@@ -2,7 +2,7 @@ import { describe, expect, it } from '@jest/globals';
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { directoryDirectlyExposesSecretChildren, looksLikeSecretPath } from '../../src/utils/secret-paths.js';
+import { directoryDirectlyExposesSecretChildren, looksLikeSecretPath } from '../../src/workspace/secret-paths.js';
 
 describe('secret path detection', () => {
   const cases: Array<[string, boolean]> = [

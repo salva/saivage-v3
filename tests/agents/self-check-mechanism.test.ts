@@ -18,8 +18,8 @@ import { rmSync, mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { EventEmitter } from 'node:events';
-import { initProjectTree } from '../../src/utils/file-tree.js';
-import { EventLogger } from '../../src/utils/event-logger.js';
+import { initProjectTree } from '../../src/persistence/file-tree.js';
+import { EventLogger } from '../../src/observability/event-logger.js';
 import { AgentAdapter } from '../../src/agents/agent-adapter.js';
 import {
   getSelfCheckThreshold,

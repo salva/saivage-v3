@@ -2,9 +2,8 @@ import type { FastifyInstance, FastifyReply, FastifyRequest, RouteOptions } from
 import type { z } from 'zod';
 import { getAuthPolicy } from './auth-policy.js';
 import type { EventBus, EventKind } from '../events/index.js';
-import type { OperatorRouteContract } from '../contracts/operator-api.js';
+import type { ContractAuthClass, OperatorRouteContract } from '../contracts/operator-api.js';
 
-export type ContractAuthClass = 'public' | 'operator-session' | 'agent-session' | 'mcp-tool-token';
 
 export interface ContractPermissionContext<TContract extends OperatorRouteContract = OperatorRouteContract> {
   contract: TContract;

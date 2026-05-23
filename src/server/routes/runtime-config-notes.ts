@@ -4,15 +4,15 @@ import type { RuntimeState } from '../../schemas/types.js';
 import { pauseRuntimeControl, resumeRuntimeControl } from '../../runtime/control.js';
 import type { ActiveRuntime } from '../../runtime/active-runtime.js';
 import type { ProviderEntry, SaivageConfig } from '../../agents/config-schema.js';
-import { getReconciledUnhandledNotesQueue, findUnhandledNoteCardId, markNoteHandled, deleteNote } from '../../utils/notes.js';
+import { getReconciledUnhandledNotesQueue, findUnhandledNoteCardId, markNoteHandled, deleteNote } from '../../cards/notes.js';
 import { redactForOutbound } from '../../redaction/index.js';
-import { CardStore, type CardStoreHealth } from '../../utils/card-store.js';
+import { CardStore, type CardStoreHealth } from '../../cards/card-store.js';
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { evaluateAuthz, type ActorRole, type SafetyClass } from '../../agents/authz.js';
-import { recordControlAction, stableStringify, listControlActions } from '../../utils/control-action-audit.js';
+import { recordControlAction, stableStringify, listControlActions } from '../../persistence/control-action-audit.js';
 import { readFreezeManifest, clearFreezeManifest } from '../../runtime/freeze-manifest.js';
-import { NotificationCenter } from '../../utils/notification-center.js';
+import { NotificationCenter } from '../../notifications/notification-center.js';
 import { operatorApiContracts, type ServerAvailability } from '../../contracts/operator-api.js';
 
 

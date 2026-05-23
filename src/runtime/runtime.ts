@@ -21,8 +21,8 @@ import type {
   RuntimeActivationRecord,
 } from '../schemas/types.js';
 import { createActivationCompletionEnvelope, parseActivationCompletionEnvelope } from '../schemas/validators.js';
-import { CardStore } from '../utils/card-store.js';
-import { consumeChangedCardActivation, injectQueuedSyntheticPlannerNotes, queueSyntheticPlannerNote } from '../utils/analyst-stage6.js';
+import { CardStore } from '../cards/card-store.js';
+import { consumeChangedCardActivation, injectQueuedSyntheticPlannerNotes, queueSyntheticPlannerNote } from '../agents/analyst-stage6.js';
 import {
   initRuntimeState,
   readRuntimeState,
@@ -39,7 +39,7 @@ import {
   clearFreezeManifest,
 } from './freeze-manifest.js';
 import { acquireLock, releaseLock } from './lock.js';
-import { FakeAgentAdapter, type FakeAgentConfig } from '../utils/fake-agent.js';
+import { FakeAgentAdapter, type FakeAgentConfig } from '../agents/fake-agent.js';
 import type { AgentRuntime } from '../agents/agent-runtime.js';
 import type { PlannerResult, ReviewerResult } from '../agents/result-parser.js';
 import {
@@ -57,12 +57,12 @@ import {
   type ProcessListFilter,
 } from './process-runner.js';
 import type { RuntimeDisposeReportEntry } from './lifecycle.js';
-import { cleanAll, cleanStaleStash, cleanStalePreviews, cleanStaleUploads } from '../utils/cleanup.js';
-import { registerArtifact, registerAttachment } from '../utils/artifacts.js';
+import { cleanAll, cleanStaleStash, cleanStalePreviews, cleanStaleUploads } from '../runtime/cleanup.js';
+import { registerArtifact, registerAttachment } from '../cards/artifacts.js';
 import type { ProcessRecord } from '../schemas/types.js';
-import { EventLogger } from '../utils/event-logger.js';
-import { ErrorLogger } from '../utils/error-logger.js';
-import { EventBus } from '../utils/event-bus.js';
+import { EventLogger } from '../observability/event-logger.js';
+import { ErrorLogger } from '../observability/error-logger.js';
+import { EventBus } from '../events/index.js';
 import { trackedEventKindValues, type EventPayload } from '../events/registry.js';
 import {
   appendActivateCardToolResultOnce,
@@ -78,9 +78,9 @@ import {
   DEFAULT_SUPERVISOR_CONFIG,
   type SupervisorConfig,
   type SupervisorDeps,
-} from '../utils/stuck-agent-supervisor.js';
-import { NotificationCenter } from '../utils/notification-center.js';
-import { getNotes } from '../utils/notes.js';
+} from '../runtime/stuck-agent-supervisor.js';
+import { NotificationCenter } from '../notifications/notification-center.js';
+import { getNotes } from '../cards/notes.js';
 
 export type RuntimeStatus = RStatus;
 export interface RuntimeConfig { projectRoot: string; fakeAgentConfig: FakeAgentConfig; skillsEngine?: SkillsEngine; eventLogger?: EventLogger; errorLogger?: ErrorLogger; maxGoalDepth?: number; supervisorConfig?: Partial<SupervisorConfig>; autoDispatchBacklog?: boolean; continuousImprovement?: boolean; }

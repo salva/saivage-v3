@@ -3,8 +3,8 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'no
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { controlActionAuditEntrySchema } from '../../src/schemas/validators.js';
-import { listControlActions, recordControlAction } from '../../src/utils/control-action-audit.js';
-import { initProjectTree } from '../../src/utils/file-tree.js';
+import { listControlActions, recordControlAction } from '../../src/persistence/control-action-audit.js';
+import { initProjectTree } from '../../src/persistence/file-tree.js';
 
 let projectRoot: string;
 

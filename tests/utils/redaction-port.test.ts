@@ -12,8 +12,8 @@ import {
   redactSnippetForOutbound,
   redactTextForOutbound,
 } from '../../src/redaction/index.js';
-import { EventLogger } from '../../src/utils/event-logger.js';
-import { ErrorLogger } from '../../src/utils/error-logger.js';
+import { EventLogger } from '../../src/observability/event-logger.js';
+import { ErrorLogger } from '../../src/observability/error-logger.js';
 import { sendToClient } from '../../src/server/websocket.js';
 import type { WsEnvelope } from '../../src/contracts/operator-events.js';
 import {
@@ -22,7 +22,7 @@ import {
   logOAuthRefreshMissingAccessToken,
   logOAuthRefreshStart,
 } from '../../src/auth/oauth-refresh-logger.js';
-import { redactNotificationSummary } from '../../src/utils/notification-triggers.js';
+import { redactNotificationSummary } from '../../src/notifications/notification-triggers.js';
 import { TelegramBot } from '../../src/telegram/bot.js';
 import { AgentAdapter } from '../../src/agents/agent-adapter.js';
 

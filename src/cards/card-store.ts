@@ -16,7 +16,7 @@ import {
   cardIndexSchema,
   cardRecordSchema,
 } from '../schemas/validators.js';
-import { writeFileAtomic } from './file-tree.js';
+import { writeFileAtomic } from '../persistence/file-tree.js';
 import type {
   CardBlocksIndex,
   CardChildrenIndex,
@@ -29,7 +29,7 @@ import type {
   ControlActionSurface,
   NoteAuthor,
 } from '../schemas/types.js';
-import { enqueueCardMutationNotifications } from './notification-triggers.js';
+import { enqueueCardMutationNotifications } from '../notifications/notification-triggers.js';
 import { EventBus } from '../events/bus.js';
 import { registerCardHistoryProjection } from '../projections/ledger-projections.js';
 

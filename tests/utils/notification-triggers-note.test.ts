@@ -2,10 +2,10 @@ import { describe, it, expect, beforeEach, afterEach } from '@jest/globals';
 import { mkdtempSync, rmSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { initProjectTree } from '../../src/utils/file-tree.js';
-import { CardStore } from '../../src/utils/card-store.js';
-import { appendNote } from '../../src/utils/notes.js';
-import { NotificationCenter } from '../../src/utils/notification-center.js';
+import { initProjectTree } from '../../src/persistence/file-tree.js';
+import { CardStore } from '../../src/cards/card-store.js';
+import { appendNote } from '../../src/cards/notes.js';
+import { NotificationCenter } from '../../src/notifications/notification-center.js';
 import { createSession } from '../../src/agents/session-persistence.js';
 
 describe('Wave C notification triggers - notes', () => {

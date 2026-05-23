@@ -2,8 +2,8 @@ import { describe, it, expect, beforeEach, afterEach, jest } from '@jest/globals
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { initProjectTree } from '../../src/utils/file-tree.js';
-import { NotificationCenter } from '../../src/utils/notification-center.js';
+import { initProjectTree } from '../../src/persistence/file-tree.js';
+import { NotificationCenter } from '../../src/notifications/notification-center.js';
 
 describe('NotificationCenter', () => {
   let projectRoot: string;
@@ -122,7 +122,7 @@ describe('NotificationDeliveryService canonical fan-out', () => {
   });
 
   it('persists canonical NotificationCenter records before invoking delivery adapters', async () => {
-    const { NotificationDeliveryService } = await import('../../src/utils/notification-delivery.js');
+    const { NotificationDeliveryService } = await import('../../src/notifications/notification-delivery.js');
     const delivered: Array<{ id: string; target: string; sessionId?: string }> = [];
     const center = new NotificationCenter(projectRoot);
     const service = new NotificationDeliveryService(center, [{

@@ -1,7 +1,7 @@
 import type { McpManager } from '../mcp/index.js';
 import type { ActiveRuntime } from '../runtime/lifecycle.js';
 import { readRuntimeState } from '../runtime/state.js';
-import { redactOperatorErrorMessage } from '../utils/file-access-security.js';
+import { redactOperatorErrorMessage } from '../workspace/file-access-security.js';
 import { redactSnippetForOutbound } from '../redaction/index.js';
 import type { ServerAvailability } from '../contracts/operator-api.js';
 

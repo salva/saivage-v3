@@ -8,8 +8,8 @@ import { PlannerControlExecutor } from '../../src/agents/planner-control-executo
 import { operatorApiContracts } from '../../src/contracts/operator-api.js';
 import { Runtime } from '../../src/runtime/runtime.js';
 import { appendRuntimeRun, readRuntimeState } from '../../src/runtime/state.js';
-import { CardStore } from '../../src/utils/card-store.js';
-import { initProjectTree } from '../../src/utils/file-tree.js';
+import { CardStore } from '../../src/cards/card-store.js';
+import { initProjectTree } from '../../src/persistence/file-tree.js';
 
 function tempRoot(prefix: string): string { return mkdtempSync(join(tmpdir(), prefix)); }
 

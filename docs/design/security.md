@@ -5,7 +5,7 @@ status: stale
 disposition: merge-into
 owner: docs-maintainers
 superseded_by: docs/operation.md
-last_verified_against: src/utils/error-logger.ts:1
+last_verified_against: src/observability/error-logger.ts:1
 -->
 
 > **Authority status: stale.** This page is retained for context only and is not current operator guidance. Prefer `docs/operation.md` for current authority where applicable. See `docs/documentation-inventory.md` for disposition `merge-into`.
@@ -162,7 +162,7 @@ reads the config file.
 redaction contract for secret-key semantics (`isSecretKey()`), JSON
 value masking (`redactSecrets()`), credential-literal masking, escaped
 or stringified JSON, and provider-like error text
-(`redactProviderLikeText()`). `src/utils/file-access-security.ts`
+(`redactProviderLikeText()`). `src/workspace/file-access-security.ts`
 re-exports that contract for legacy file/config call sites instead of
 owning a separate key regex. Provider HTTP error bodies call the same
 provider-like text helper in `src/agents/llm-client.ts` before error
@@ -170,7 +170,7 @@ construction and in `src/agents/agent-adapter.ts` before runtime
 persistence/events. Observability persistence and debug API responses
 call `src/utils/observability-redaction.ts`, which delegates key
 classification and masking to `src/utils/secret-redaction.ts`, at
-`src/utils/event-logger.ts` and `src/server/routes/chats-files-debug.ts`.
+`src/observability/event-logger.ts` and `src/server/routes/chats-files-debug.ts`.
 Regression coverage in `tests/utils/observability-redaction.test.ts`
 and `tests/agents/llm-client-integration.test.ts` uses only synthetic
 values and proves `token`, `api_key`, `authorization`, `password`, and

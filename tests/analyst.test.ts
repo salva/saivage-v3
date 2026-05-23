@@ -8,7 +8,7 @@ import { existsSync, mkdirSync, rmSync, writeFileSync, readFileSync, unlinkSync 
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
-import { CardStore } from '../src/utils/card-store.js';
+import { CardStore } from '../src/cards/card-store.js';
 import { initRuntimeState, readRuntimeState, runtimeStatePath, updateRuntimeState } from '../src/runtime/state.js';
 import {
   create_card, edit_card, delete_card, add_note, pause_runtime, resume_runtime,

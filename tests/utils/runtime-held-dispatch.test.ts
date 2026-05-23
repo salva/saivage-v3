@@ -2,9 +2,9 @@ import { describe, it, expect, beforeEach, afterEach } from '@jest/globals';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { initProjectTree } from '../../src/utils/file-tree.js';
+import { initProjectTree } from '../../src/persistence/file-tree.js';
 import { Runtime } from '../../src/runtime/runtime.js';
-import { NotificationCenter } from '../../src/utils/notification-center.js';
+import { NotificationCenter } from '../../src/notifications/notification-center.js';
 import { releaseLock } from '../../src/runtime/lock.js';
 import type { AgentRuntime } from '../../src/agents/agent-runtime.js';
 

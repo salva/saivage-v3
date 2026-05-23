@@ -24,7 +24,7 @@ import {
   parseActivationCompletionEnvelope,
   parseActivationEnvelopeContent,
 } from '../src/schemas/validators.js';
-import { initProjectTree } from '../src/utils/file-tree.js';
+import { initProjectTree } from '../src/persistence/file-tree.js';
 import { readRuntimeState } from '../src/runtime/state.js';
 
 

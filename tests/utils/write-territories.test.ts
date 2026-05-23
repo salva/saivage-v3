@@ -16,11 +16,11 @@ import {
   checkWriteTerritory,
   getTerritoryWarning,
   TERRITORY_RULES,
-} from '../../src/utils/write-territories.js';
+} from '../../src/workspace/write-territories.js';
 import type {
   TerritoryRole,
   TerritoryResult,
-} from '../../src/utils/write-territories.js';
+} from '../../src/workspace/write-territories.js';
 
 // ── Helpers ───────────────────────────────────────────────────
 

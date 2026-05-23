@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from '@jest/globals';
 import { existsSync, readFileSync, readdirSync, rmSync, mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { initProjectTree, isInitialized, listDiscardedSaivageDirs, writeFileAtomic } from '../../src/utils/file-tree.js';
+import { initProjectTree, isInitialized, listDiscardedSaivageDirs, writeFileAtomic } from '../../src/persistence/file-tree.js';
 
 let tmpDir: string;
 

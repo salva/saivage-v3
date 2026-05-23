@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { describe, expect, it, jest } from '@jest/globals';
 import { operatorBroadcastEventKindValues } from '../../src/events/registry.js';
 import { loggedEventSchema } from '../../src/schemas/validators.js';
-import { EventLogger } from '../../src/utils/event-logger.js';
+import { EventLogger } from '../../src/observability/event-logger.js';
 import {
   AnalystActivityEventNames,
   InboundAnalystMessageEnvelopeSchema,

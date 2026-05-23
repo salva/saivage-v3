@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from '@jest/globals';
 import { mkdirSync, rmSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { findProjectRoot, loadProjectConfig, findSaivageDir } from '../../src/utils/discovery.js';
+import { findProjectRoot, loadProjectConfig, findSaivageDir } from '../../src/persistence/discovery.js';
 
 let tmpDir: string;
 

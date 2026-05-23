@@ -2,9 +2,9 @@ import { describe, it, expect } from '@jest/globals';
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { CardStore } from '../../src/utils/card-store.js';
+import { CardStore } from '../../src/cards/card-store.js';
 import { list_card_history, get_card_history_entry, diff_card, list_notes, get_note, type ToolContext } from '../../src/agents/analyst-tools.js';
-import { appendNote } from '../../src/utils/notes.js';
+import { appendNote } from '../../src/cards/notes.js';
 
 function setup(root: string): CardStore {
   const sd = join(root, '.saivage');

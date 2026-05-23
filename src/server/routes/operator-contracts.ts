@@ -1,5 +1,5 @@
 import type { FastifyInstance } from 'fastify';
-import { CardStore } from '../../utils/card-store.js';
+import { CardStore } from '../../cards/card-store.js';
 import type { CardRecord, CardStatus, CardType, CardHistoryEntry } from '../../schemas/types.js';
 import { operatorApiContracts, type OperatorRouteContract } from '../../contracts/operator-api.js';
 import { allowedActions, decide } from '../../permissions/index.js';

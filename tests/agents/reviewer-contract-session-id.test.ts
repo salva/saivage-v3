@@ -5,12 +5,12 @@ import { tmpdir } from 'node:os';
 import { parseReviewerResult, ResultParseError } from '../../src/agents/result-parser.js';
 import { createSession, getSession } from '../../src/agents/session-persistence.js';
 import { reviewerResultSchema } from '../../src/schemas/validators.js';
-import { initProjectTree } from '../../src/utils/file-tree.js';
+import { initProjectTree } from '../../src/persistence/file-tree.js';
 import { pauseRuntimeControl, resumeRuntimeControl } from '../../src/runtime/control.js';
 import { readRuntimeState, saveRuntimeState } from '../../src/runtime/state.js';
 import { Runtime } from '../../src/runtime/runtime.js';
 import { releaseLock } from '../../src/runtime/lock.js';
-import { CardStore } from '../../src/utils/card-store.js';
+import { CardStore } from '../../src/cards/card-store.js';
 import type { RuntimeState } from '../../src/schemas/types.js';
 
 const canonicalAssessment = {

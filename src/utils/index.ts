@@ -1,20 +1,8 @@
-export * from './file-tree.js';
-export * from './discovery.js';
-export * from './card-store.js';
-export * from './notes.js';
-export * from './diary.js';
-export * from './artifacts.js';
-export * from './fake-agent.js';
-export * from './cleanup.js';
-export * from './heuristic-scanner.js';
-export * from './llm-scanner.js';
-export * from './quarantine.js';
-export * from './content-supervisor.js';
-export * from './file-access-security.js';
-export * from './write-territories.js';
-export * from './event-logger.js';
-export * from './error-logger.js';
-export * from './event-bus.js';
-export * from './stuck-agent-supervisor.js';
-export * from './planner-tools.js';
-export * from '../agents/index.js';
+/**
+ * Constrained utilities package.
+ *
+ * Former domain and infrastructure modules were moved to intent-named packages
+ * during architecture redesign step 11. Keep this package for genuinely shared,
+ * dependency-light helpers only; do not add domain services here.
+ */
+export {};

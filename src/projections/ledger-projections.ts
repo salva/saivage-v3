@@ -6,7 +6,7 @@ import { JsonlLedger, ProjectLock } from '../persistence/index.js';
 import { redactForOutbound } from '../redaction/index.js';
 import { cardHistoryEntrySchema, controlActionAuditEntrySchema, loggedEventSchema, notificationRecordSchema } from '../schemas/validators.js';
 import type { CardHistoryEntry, ControlActionAuditEntry, LoggedEvent, NotificationRecord } from '../schemas/types.js';
-import type { ErrorRecord } from '../utils/error-logger.js';
+import type { ErrorRecord } from '../observability/error-logger.js';
 
 export interface Projection {
   readonly name: string;

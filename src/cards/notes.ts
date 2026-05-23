@@ -10,8 +10,8 @@ import type {
   NotesQueueEntry,
   NotesQueueResolvedEntry,
 } from '../schemas/types.js';
-import { writeFileAtomic } from './file-tree.js';
-import { enqueueNoteNotifications } from './notification-triggers.js';
+import { writeFileAtomic } from '../persistence/file-tree.js';
+import { enqueueNoteNotifications } from '../notifications/notification-triggers.js';
 
 function queuePath(saivageDir: string): string {
   return join(saivageDir, 'notes', 'queue.json');

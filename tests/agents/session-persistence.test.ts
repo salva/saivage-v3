@@ -6,7 +6,7 @@ import { describe, it, expect, beforeAll, beforeEach, afterEach } from '@jest/gl
 import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { initProjectTree } from '../../src/utils/file-tree.js';
+import { initProjectTree } from '../../src/persistence/file-tree.js';
 
 const TEST_ROOT = join(tmpdir(), `saivage-session-test-${Date.now()}`);
 const SAIVAGE_DIR = join(TEST_ROOT, '.saivage');

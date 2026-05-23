@@ -6,7 +6,7 @@ import { Runtime } from '../../src/runtime/runtime.js';
 import { createRuntimeEnvelope } from '../../src/server/websocket.js';
 import { RuntimeCommandEventSchema, RuntimeRunEventSchema, parseKnownWsEnvelope } from '../../src/contracts/operator-events.js';
 import { loggedEventSchema } from '../../src/schemas/validators.js';
-import { initProjectTree } from '../../src/utils/file-tree.js';
+import { initProjectTree } from '../../src/persistence/file-tree.js';
 import { appendRuntimeRun, readRuntimeState, upsertRuntimeActivation } from '../../src/runtime/state.js';
 import { PlannerControlExecutor } from '../../src/agents/planner-control-executor.js';
 import type { AgentRuntime } from '../../src/agents/agent-runtime.js';

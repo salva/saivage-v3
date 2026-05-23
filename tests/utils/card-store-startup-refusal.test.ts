@@ -2,8 +2,8 @@ import { describe, it, expect } from '@jest/globals';
 import { mkdtempSync, rmSync, writeFileSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { initProjectTree } from '../../src/utils/file-tree.js';
-import { CardStore } from '../../src/utils/card-store.js';
+import { initProjectTree } from '../../src/persistence/file-tree.js';
+import { CardStore } from '../../src/cards/card-store.js';
 
 describe('CardStore startup refusal for legacy cards', () => {
   it('fails with actionable saivage reset error when version_seq is missing', () => {

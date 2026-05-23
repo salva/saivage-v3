@@ -8,7 +8,7 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { createSession } from '../../src/agents/session-persistence.js';
 import { resetWebSocketState, registerWebSocket } from '../../src/server/websocket.js';
-import { recordControlAction } from '../../src/utils/control-action-audit.js';
+import { recordControlAction } from '../../src/persistence/control-action-audit.js';
 import { getAuthPolicy, resetAuthPolicyForTests } from '../../src/server/auth-policy.js';
 
 const TEST_ROOT = join(tmpdir(), `saivage-cross-surface-${Date.now()}`);

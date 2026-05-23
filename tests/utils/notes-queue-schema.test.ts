@@ -7,9 +7,9 @@ import {
   getNotes,
   getUnhandledNotesQueue,
   getReconciledUnhandledNotesQueue,
-} from '../../src/utils/notes.js';
+} from '../../src/cards/notes.js';
 import type { NoteRecord } from '../../src/schemas/types.js';
-import { initProjectTree } from '../../src/utils/file-tree.js';
+import { initProjectTree } from '../../src/persistence/file-tree.js';
 
 let tmpDir: string;
 let saivageDir: string;

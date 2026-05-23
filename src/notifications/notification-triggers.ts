@@ -2,7 +2,7 @@ import { randomBytes } from 'node:crypto';
 import { join } from 'node:path';
 import { createNotificationDeliveryService } from './notification-delivery.js';
 import { redactTextForOutbound } from '../redaction/index.js';
-import { CardStore } from './card-store.js';
+import { CardStore } from '../cards/card-store.js';
 import { listSessions, getSession } from '../agents/session-persistence.js';
 import type {
   AgentRole,

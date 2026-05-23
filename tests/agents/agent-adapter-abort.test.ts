@@ -4,12 +4,12 @@ import { rmSync, mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { AgentAdapter } from '../../src/agents/agent-adapter.js';
-import { EventLogger } from '../../src/utils/event-logger.js';
-import { getSeverity } from '../../src/utils/event-bus.js';
+import { EventLogger } from '../../src/observability/event-logger.js';
+import { getEventSeverity } from '../../src/events/index.js';
 import type { AgentRuntime } from '../../src/agents/agent-runtime.js';
-import { FakeAgentAdapter } from '../../src/utils/fake-agent.js';
+import { FakeAgentAdapter } from '../../src/agents/fake-agent.js';
 import { Runtime } from '../../src/runtime/runtime.js';
-import { initProjectTree } from '../../src/utils/file-tree.js';
+import { initProjectTree } from '../../src/persistence/file-tree.js';
 import { releaseLock } from '../../src/runtime/lock.js';
 import { getSession } from '../../src/agents/session-persistence.js';
 
@@ -395,7 +395,7 @@ describe('session_cancelled event emission', () => {
   });
 
   it('severity is "warning" in EventBus severity map', () => {
-    expect(getSeverity('session_cancelled')).toBe('warning');
+    expect(getEventSeverity('session_cancelled')).toBe('warning');
   });
 });
 
@@ -459,7 +459,7 @@ describe('session_force_cancelled event emission', () => {
   });
 
   it('severity is "error" in EventBus severity map', () => {
-    expect(getSeverity('session_force_cancelled')).toBe('error');
+    expect(getEventSeverity('session_force_cancelled')).toBe('error');
   });
 });
 
