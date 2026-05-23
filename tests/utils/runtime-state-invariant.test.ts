@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from '@jest/globals';
-import { mkdtempSync, rmSync, readFileSync } from 'node:fs';
+import { mkdtempSync, rmSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { initProjectTree, writeFileAtomic } from '../../src/utils/file-tree.js';
@@ -10,7 +10,6 @@ import {
   updateRuntimeState,
   RuntimeStateInvariantError,
 } from '../../src/runtime/state.js';
-import { createServer, type ServerInstance } from '../../src/server/server.js';
 import { runtimeStateSchema } from '../../src/schemas/validators.js';
 import type { ActiveCardRun, RuntimeState } from '../../src/schemas/types.js';
 
@@ -49,13 +48,8 @@ function corruptIdleState(): RuntimeState {
     running_processes: ['proc-1'],
     updated_at: new Date().toISOString(),
   };
-  writeFileAtomic(statePath(), JSON.stringify(corrupted, null, 2) + '\n');
+  writeFileAtomic(statePath(), JSON.stringify({ version: 1, data: corrupted }, null, 2) + '\n');
   return corrupted;
-}
-
-function readEvents(): Array<Record<string, unknown>> {
-  const raw = readFileSync(join(root, '.saivage', 'runtime', 'events.jsonl'), 'utf-8');
-  return raw.trim().split('\n').filter(Boolean).map((line) => JSON.parse(line) as Record<string, unknown>);
 }
 
 beforeEach(() => {
@@ -140,49 +134,23 @@ describe('RuntimeState idle active_card_run invariant', () => {
     expect(cancelled.active_card_run?.runtime_status).toBe('cancelled');
   });
 
-  it('self-heals corrupted historical persisted state in production reads and emits a warning event', () => {
+  it('fails closed on corrupted persisted state in every environment instead of production self-heal', () => {
     corruptIdleState();
     process.env['NODE_ENV'] = 'production';
 
-    const state = readRuntimeState(root);
-    expect(state).toMatchObject({
-      status: 'idle',
-      current_card_id: null,
-      current_agent_session_id: null,
-      active_card_run: null,
-      running_processes: [],
-    });
-
-    const persisted = JSON.parse(readFileSync(statePath(), 'utf-8')) as RuntimeState;
-    expect(persisted.active_card_run).toBeNull();
-    const warning = readEvents().find((event) => event.phase === 'runtime_state_invariant');
-    expect(warning).toMatchObject({
-      kind: 'error',
-      severity: 'warning',
-      self_healed: true,
-      card_id: 'goal-a',
-    });
-    expect(String(warning?.error_message)).toContain('Auto-cleared active_card_run during read');
+    expect(() => readRuntimeState(root)).toThrow(RuntimeStateInvariantError);
+    const persisted = JSON.parse(readFileSync(statePath(), 'utf-8')) as { version?: number; data?: RuntimeState } | RuntimeState;
+    const persistedState = 'data' in persisted ? persisted.data as RuntimeState : persisted as RuntimeState;
+    expect(persistedState.active_card_run?.runtime_status).toBe('running');
   });
 
-  it('/api/state returns coherent runtime data after restart-style load of a corrupted historical state', async () => {
-    corruptIdleState();
-    process.env['NODE_ENV'] = 'production';
-    let server: ServerInstance | null = null;
-    try {
-      server = await createServer(root, false);
-      const response = await server.fastify.inject({ method: 'GET', url: '/api/state' });
-      expect(response.statusCode).toBe(200);
-      expect(response.json().runtime).toMatchObject({
-        status: 'idle',
-        current_card_id: null,
-        current_agent_session_id: null,
-        active_card_run: null,
-      });
-      expect(readEvents().some((event) => event.phase === 'runtime_state_invariant' && event.self_healed === true)).toBe(true);
-    } finally {
-      await server?.stop();
-    }
+  it('fails closed on malformed JSON and legacy-shaped current-schema omissions', () => {
+    initRuntimeState(root);
+    writeFileSync(statePath(), '{bad', 'utf-8');
+    expect(() => readRuntimeState(root)).toThrow(/malformed JSON/);
+
+    writeFileAtomic(statePath(), JSON.stringify({ version: 1, data: { status: 'idle', project_id: 'project' } }, null, 2) + '\n');
+    expect(() => readRuntimeState(root)).toThrow(/validation failed/);
   });
 
   it('post-startup-repair idle settle writes through saveRuntimeState and cannot preserve a stale active run', () => {

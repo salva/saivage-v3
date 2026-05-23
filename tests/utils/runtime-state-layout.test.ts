@@ -29,7 +29,7 @@ function migratedLegacyPath(): string {
 }
 
 function readAuthoritative(): RuntimeState {
-  return JSON.parse(readFileSync(authoritativePath(), 'utf-8')) as RuntimeState;
+  return (JSON.parse(readFileSync(authoritativePath(), 'utf-8')) as { version: number; data: RuntimeState }).data;
 }
 
 function legacyRuntimeState(overrides: Partial<RuntimeState> = {}): RuntimeState {

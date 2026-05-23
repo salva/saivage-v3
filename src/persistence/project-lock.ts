@@ -1,0 +1,118 @@
+import { mkdirSync, openSync, closeSync, unlinkSync, existsSync, writeFileSync } from 'node:fs';
+import { dirname } from 'node:path';
+import { LockOwnershipError, LockTimeoutError } from './errors.js';
+
+const LOCK_HANDLE_BRAND: unique symbol = Symbol('ProjectLockHandle');
+
+export interface LockHandle {
+  readonly acquired: true;
+  readonly [LOCK_HANDLE_BRAND]: ProjectLock;
+}
+
+export interface ProjectLockOptions {
+  timeoutMs?: number;
+  retryDelayMs?: number;
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+export class ProjectLock {
+  private readonly timeoutMs: number;
+  private readonly retryDelayMs: number;
+  private activeDepth = 0;
+  private activeHandle: LockHandle | null = null;
+
+  constructor(readonly lockPath: string, options: ProjectLockOptions = {}) {
+    this.timeoutMs = options.timeoutMs ?? 30_000;
+    this.retryDelayMs = options.retryDelayMs ?? 25;
+  }
+
+  withLockSync<T>(fn: (handle: LockHandle) => T): T {
+    if (this.activeHandle) {
+      this.activeDepth++;
+      try {
+        return fn(this.activeHandle);
+      } finally {
+        this.activeDepth--;
+      }
+    }
+
+    mkdirSync(dirname(this.lockPath), { recursive: true });
+    let fd: number | null = null;
+    try {
+      fd = openSync(this.lockPath, 'wx');
+      writeFileSync(fd, JSON.stringify({ pid: process.pid, acquired_at: new Date().toISOString() }) + '\n', 'utf-8');
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      if (code === 'EEXIST') throw new LockTimeoutError(this.lockPath, 0);
+      throw error;
+    }
+
+    const handle = { acquired: true, [LOCK_HANDLE_BRAND]: this } as const satisfies LockHandle;
+    this.activeHandle = handle;
+    this.activeDepth = 1;
+    try {
+      return fn(handle);
+    } finally {
+      this.activeDepth = 0;
+      this.activeHandle = null;
+      closeSync(fd);
+      try {
+        if (existsSync(this.lockPath)) unlinkSync(this.lockPath);
+      } catch {
+        // Advisory lock cleanup is best-effort after releasing this process's descriptor.
+      }
+    }
+  }
+
+  async withLock<T>(fn: (handle: LockHandle) => Promise<T>): Promise<T> {
+    if (this.activeHandle) {
+      this.activeDepth++;
+      try {
+        return await fn(this.activeHandle);
+      } finally {
+        this.activeDepth--;
+      }
+    }
+
+    mkdirSync(dirname(this.lockPath), { recursive: true });
+    const deadline = Date.now() + this.timeoutMs;
+    let fd: number | null = null;
+
+    while (fd === null) {
+      try {
+        fd = openSync(this.lockPath, 'wx');
+        writeFileSync(fd, JSON.stringify({ pid: process.pid, acquired_at: new Date().toISOString() }) + '\n', 'utf-8');
+      } catch (error) {
+        const code = (error as NodeJS.ErrnoException).code;
+        if (code !== 'EEXIST') throw error;
+        if (Date.now() >= deadline) throw new LockTimeoutError(this.lockPath, this.timeoutMs);
+        await sleep(this.retryDelayMs);
+      }
+    }
+
+    const handle = { acquired: true, [LOCK_HANDLE_BRAND]: this } as const satisfies LockHandle;
+    this.activeHandle = handle;
+    this.activeDepth = 1;
+    try {
+      return await fn(handle);
+    } finally {
+      this.activeDepth = 0;
+      this.activeHandle = null;
+      closeSync(fd);
+      try {
+        if (existsSync(this.lockPath)) unlinkSync(this.lockPath);
+      } catch {
+        // Advisory lock cleanup is best-effort after releasing this process's descriptor.
+      }
+    }
+  }
+
+  assertOwns(handle: LockHandle): void {
+    if (handle[LOCK_HANDLE_BRAND] !== this || this.activeHandle !== handle || this.activeDepth <= 0) {
+      throw new LockOwnershipError();
+    }
+  }
+}
