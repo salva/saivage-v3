@@ -3,16 +3,8 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
-const broadcastAnalystToolInvoked = jest.fn();
-jest.unstable_mockModule('../../src/server/websocket.js', () => ({
-  broadcastAnalystToolInvoked,
-  broadcastControlActionRecorded: jest.fn(),
-  broadcastNotificationAdded: jest.fn(),
-  broadcastNotificationAcknowledged: jest.fn(),
-  broadcastCardHistoryAppended: jest.fn(),
-}));
-
 const { AnalystHandler } = await import('../../src/agents/analyst-handler.js');
+const { EventBus } = await import('../../src/events/bus.js');
 const { initRuntimeState } = await import('../../src/runtime/state.js');
 
 type BroadcastPayload = {
@@ -41,19 +33,24 @@ function setupRoot(): string {
   return root;
 }
 
-describe('analyst_tool_invoked broadcast', () => {
+describe('analyst_tool_invoked event projection source', () => {
+  let eventBus: InstanceType<typeof EventBus>;
+  let broadcasts: BroadcastPayload[];
+
   beforeEach(() => {
-    broadcastAnalystToolInvoked.mockReset();
+    eventBus = new EventBus();
+    broadcasts = [];
+    eventBus.subscribe('analyst_tool_invoked', (event) => { broadcasts.push(event.payload as BroadcastPayload); });
   });
 
   it('broadcasts read_file payload', async () => {
     const root = setupRoot();
     try {
       writeFileSync(join(root, 'README.md'), 'hello');
-      const handler = new AnalystHandler(root, undefined, undefined, 'analyst', 'web-chat');
+      const handler = new AnalystHandler(root, undefined, { runtime: { eventBus } } as never, 'analyst', 'web-chat');
       await handler['runOfflineFallback']('s1', 'inspect README.md');
-      expect(broadcastAnalystToolInvoked).toHaveBeenCalled();
-      const payload = broadcastAnalystToolInvoked.mock.calls.at(-1)?.[0] as BroadcastPayload;
+      expect(broadcasts.length).toBeGreaterThan(0);
+      const payload = broadcasts.at(-1) as BroadcastPayload;
       expect(payload.sessionId).toBe('s1');
       expect(payload.tool).toBe('read_file');
       expect(payload.success).toBe(true);
@@ -65,9 +62,9 @@ describe('analyst_tool_invoked broadcast', () => {
   it('broadcasts edit_card payload and preserves related card id', async () => {
     const root = setupRoot();
     try {
-      const handler = new AnalystHandler(root, undefined, undefined, 'analyst', 'web-chat');
+      const handler = new AnalystHandler(root, undefined, { runtime: { eventBus } } as never, 'analyst', 'web-chat');
       await handler['runOfflineFallback']('s2', 'edit card c-1 title updated');
-      const payload = broadcastAnalystToolInvoked.mock.calls.at(-1)?.[0] as BroadcastPayload;
+      const payload = broadcasts.at(-1) as BroadcastPayload;
       expect(payload.tool).toBe('edit_card');
       expect(payload.success).toBe(false);
       expect(payload.summary.length).toBeGreaterThan(0);
@@ -78,9 +75,9 @@ describe('analyst_tool_invoked broadcast', () => {
   it('broadcasts previewed destructive shell payload with classification and redacted secret paths', async () => {
     const root = setupRoot();
     try {
-      const handler = new AnalystHandler(root, undefined, undefined, 'analyst', 'web-chat');
+      const handler = new AnalystHandler(root, undefined, { runtime: { eventBus } } as never, 'analyst', 'web-chat');
       await handler['runOfflineFallback']('s3', 'cat .saivage/auth-profiles.json apiKey=super-secret');
-      const payload = broadcastAnalystToolInvoked.mock.calls.at(-1)?.[0] as BroadcastPayload;
+      const payload = broadcasts.at(-1) as BroadcastPayload;
       expect(payload.tool).toBe('run_shell_command');
       expect(payload.classified_as).toBe('destructive');
       expect(payload.success).toBe(false);
@@ -92,9 +89,9 @@ describe('analyst_tool_invoked broadcast', () => {
   it('broadcasts failed shell payload without leaking command output or secret-bearing filenames', async () => {
     const root = setupRoot();
     try {
-      const handler = new AnalystHandler(root, undefined, undefined, 'analyst', 'web-chat');
+      const handler = new AnalystHandler(root, undefined, { runtime: { eventBus } } as never, 'analyst', 'web-chat');
       await handler['runOfflineFallback']('s4', 'run shell command python3 -c "import sys; sys.stderr.write(\'apiKey=secret-456 .env\'); sys.exit(2)"');
-      const payload = broadcastAnalystToolInvoked.mock.calls.at(-1)?.[0] as BroadcastPayload;
+      const payload = broadcasts.at(-1) as BroadcastPayload;
       expect(payload.tool).toBe('run_shell_command');
       expect(payload.success).toBe(false);
       expect(payload.summary).not.toMatch(/secret-456|\.env/);
@@ -105,7 +102,7 @@ describe('analyst_tool_invoked broadcast', () => {
   it('does not expose run_shell_command in telegram tool registration', async () => {
     const root = setupRoot();
     try {
-      const handler = new AnalystHandler(root, undefined, undefined, 'analyst', 'telegram');
+      const handler = new AnalystHandler(root, undefined, { runtime: { eventBus } } as never, 'analyst', 'telegram');
       expect(handler.getAvailableToolNames()).not.toContain('run_shell_command');
     } finally { rmSync(root, { recursive: true, force: true }); }
   });

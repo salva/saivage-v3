@@ -80,96 +80,6 @@ export function broadcast(event: WsEnvelope): void {
   }
 }
 
-export function broadcastCardHistoryAppended(payload: {
-  card_id: string;
-  version_seq: number;
-  changed_fields: string[];
-  changed_at: string;
-}): void {
-  broadcast({
-    type: 'activity',
-    content: {
-      event: 'card_history_appended',
-      ...payload,
-    },
-  });
-}
-
-export function broadcastNotificationAdded(payload: {
-  id: string;
-  kind: string;
-  severity: string;
-  related_card_id?: string;
-  related_note_id?: string;
-  related_process_id?: string;
-  related_version_seq?: number;
-  created_at: string;
-}): void {
-  broadcast({
-    type: 'activity',
-    content: {
-      event: 'notification_added',
-      ...payload,
-    },
-  });
-}
-
-export function broadcastNotificationAcknowledged(payload: {
-  id: string;
-  kind: string;
-  related_card_id?: string;
-  related_note_id?: string;
-  related_process_id?: string;
-  acknowledged_at: string;
-}): void {
-  broadcast({
-    type: 'activity',
-    content: {
-      event: 'notification_acknowledged',
-      ...payload,
-    },
-  });
-}
-
-export function broadcastControlActionRecorded(payload: {
-  id: string;
-  action: string;
-  target_kind: string | null;
-  target_id: string | null;
-  outcome: string;
-  created_at: string;
-  actor?: string;
-  surface?: string;
-}): void {
-  broadcast({
-    type: 'activity',
-    content: {
-      event: 'control_action_recorded',
-      ...payload,
-    },
-  });
-}
-
-export function broadcastAnalystToolInvoked(payload: {
-  sessionId: string;
-  tool: string;
-  success: boolean;
-  summary: string;
-  classified_as?: string;
-  related_card_id?: string;
-  related_note_id?: string;
-  related_process_id?: string;
-}): void {
-  broadcast({
-    type: 'activity',
-    content: {
-      event: 'analyst_tool_invoked',
-      ...payload,
-      summary: sanitizeAnalystText(payload.summary, 200),
-    },
-  });
-}
-
 export function sendToClient(ws: WebSocket, event: WsEnvelope): void {
   try {
     if (ws.readyState === ws.OPEN) {
@@ -390,6 +300,13 @@ export function createRuntimeEnvelope(
       return fromCoveredName({ type: 'activity', content: { event: 'runtime.activation', activation: data['activation'] ?? data } });
     case 'runtime_actionable_error':
       return fromCoveredName({ type: 'error', content: { event: 'runtime.actionable_error', actionable_error: data['actionable_error'] ?? data['error'] ?? data } });
+    case 'card_history_appended':
+    case 'notification_added':
+    case 'notification_acknowledged':
+    case 'control_action_recorded':
+      return fromCoveredName({ type: 'activity', content: { event: eventName, ...data } });
+    case 'analyst_tool_invoked':
+      return fromCoveredName({ type: 'activity', content: { event: eventName, ...data, summary: sanitizeAnalystText(String(data['summary'] ?? ''), 200) } });
     case 'card_planner_state_changed':
       return fromCoveredName({ type: 'status', content: { event: 'card.planner_state_changed', ...data } });
     case 'review_complete':
@@ -414,7 +331,7 @@ export function wireRuntimeEvents(runtime: {
     minSeverity: 'info',
     allowedKinds: [...operatorBroadcastEventKindValues],
     handler: (event: DomainEvent<OperatorBroadcastEventKind>) => {
-      const logged = toLoggedEvent(event);
+      const logged = 'payload' in event ? toLoggedEvent(event) : event as unknown as Record<string, unknown>;
       const { kind, id, timestamp, ...data } = logged as Record<string, unknown> & { kind: OperatorBroadcastEventKind };
       const envelope = createRuntimeEnvelope(kind, data as Record<string, unknown>);
       broadcast(envelope);

@@ -13,12 +13,11 @@ jest.unstable_mockModule('../../src/agents/analyst-handler.js', () => ({
 }));
 
 const authPolicyModule = await import('../../src/server/auth-policy.js');
-const { getAuthPolicy, resetAuthPolicyForTests } = authPolicyModule;
+const { configureAuthPolicy, getAuthPolicy, resetAuthPolicyForTests } = authPolicyModule;
 const websocketModule = await import('../../src/server/websocket.js');
 const {
   broadcast,
-  broadcastAnalystToolInvoked,
-  broadcastCardHistoryAppended,
+  wireRuntimeEvents,
   createRuntimeEnvelope,
   registerWebSocket,
   resetWebSocketState,
@@ -57,14 +56,17 @@ describe('websocket analyst safety', () => {
     resetAuthPolicyForTests();
   });
 
-  it('broadcastAnalystToolInvoked bounds and redacts summaries', () => {
+  it('websocket fanout projection bounds and redacts analyst tool summaries', async () => {
     const { ws } = createSocket();
     const { route, fastify } = createRoute();
     registerWebSocket(fastify, '/tmp/project');
     route.handler(ws, { headers: {}, query: {} });
 
+    const { EventBus } = await import('../../src/events/bus.js');
+    const eventBus = new EventBus();
+    wireRuntimeEvents({ eventBus, on: () => undefined });
     const longSummary = `${'a'.repeat(210)} apiKey=secret-123 .saivage/auth-profiles.json`;
-    broadcastAnalystToolInvoked({ sessionId: 's1', tool: 'run_shell_command', success: true, summary: longSummary, classified_as: 'destructive' });
+    eventBus.emit('analyst_tool_invoked', { sessionId: 's1', tool: 'run_shell_command', success: true, summary: longSummary, classified_as: 'destructive' });
 
     const payload = JSON.parse((ws.send as jest.Mock).mock.calls.at(-1)?.[0] as string);
     expect(payload.content.summary.length).toBeLessThanOrEqual(200);
@@ -73,7 +75,7 @@ describe('websocket analyst safety', () => {
   });
 
   it('broadcast only reaches authenticated websocket clients', () => {
-    process.env.SAIVAGE_API_TOKEN = 'top-secret';
+    configureAuthPolicy({ apiToken: 'top-secret' });
     const { route, fastify } = createRoute();
     registerWebSocket(fastify, '/tmp/project');
 
@@ -93,8 +95,7 @@ describe('websocket analyst safety', () => {
 
 
   it('accepts a valid one-use websocket ticket and sends connected status', () => {
-    process.env.SAIVAGE_API_TOKEN = 'arch004-test-token';
-    resetAuthPolicyForTests();
+    configureAuthPolicy({ apiToken: 'arch004-test-token' });
     const { route, fastify } = createRoute();
     registerWebSocket(fastify, '/tmp/project');
     const ticket = getAuthPolicy().issueWebSocketTicket().ticket;
@@ -149,8 +150,7 @@ describe('websocket analyst safety', () => {
   });
 
   it('rejects /ws token query, missing, invalid, and reused tickets with generic 1008 close reason', () => {
-    process.env.SAIVAGE_API_TOKEN = 'arch004-test-token';
-    resetAuthPolicyForTests();
+    configureAuthPolicy({ apiToken: 'arch004-test-token' });
     const { route, fastify } = createRoute();
     registerWebSocket(fastify, '/tmp/project');
 
@@ -180,8 +180,7 @@ describe('websocket analyst safety', () => {
   });
 
   it('rejects expired websocket tickets with generic 1008 close reason', async () => {
-    process.env.SAIVAGE_API_TOKEN = 'arch004-test-token';
-    resetAuthPolicyForTests();
+    configureAuthPolicy({ apiToken: 'arch004-test-token' });
     jest.useFakeTimers();
     const { route, fastify } = createRoute();
     registerWebSocket(fastify, '/tmp/project');
@@ -248,13 +247,16 @@ describe('websocket analyst safety', () => {
     expect(JSON.stringify(error)).not.toMatch(/auth-profiles|top-secret|apiKey/i);
   });
 
-  it('validates named activity broadcasters through the shared registry', () => {
+  it('validates activity fanout through the shared registry', async () => {
     const { ws } = createSocket();
     const { route, fastify } = createRoute();
     registerWebSocket(fastify, '/tmp/project');
     route.handler(ws, { headers: {}, query: {} });
 
-    broadcastCardHistoryAppended({ card_id: 'card-1', version_seq: 2, changed_fields: ['status'], changed_at: '2025-01-01T00:00:00.000Z' });
+    const { EventBus } = await import('../../src/events/bus.js');
+    const eventBus = new EventBus();
+    wireRuntimeEvents({ eventBus, on: () => undefined });
+    eventBus.emit('card_history_appended', { card_id: 'card-1', version_seq: 2, changed_fields: ['status'], changed_at: '2025-01-01T00:00:00.000Z' });
 
     const payload = JSON.parse((ws.send as jest.Mock).mock.calls.at(-1)?.[0] as string);
     expect(payload).toEqual({ type: 'activity', content: { event: 'card_history_appended', card_id: 'card-1', version_seq: 2, changed_fields: ['status'], changed_at: '2025-01-01T00:00:00.000Z' } });

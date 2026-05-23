@@ -1,6 +1,7 @@
-import { appendFileSync, existsSync, mkdirSync, readFileSync, readdirSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { notificationRecordSchema } from '../schemas/validators.js';
+import { appendNotificationRecord } from '../projections/ledger-projections.js';
 import type { NotificationRecord, NoteAuthor, ControlActionSurface } from '../schemas/types.js';
 import { EventBus } from '../events/bus.js';
 
@@ -40,10 +41,7 @@ export class NotificationCenter {
   constructor(private readonly projectRoot: string, private readonly eventBus = new EventBus()) {}
 
   private append(path: string, record: NotificationRecord): NotificationRecord {
-    const parsed = notificationRecordSchema.parse(record);
-    mkdirSync(join(path, '..'), { recursive: true });
-    appendFileSync(path, `${JSON.stringify(parsed)}\n`, 'utf-8');
-    return parsed;
+    return appendNotificationRecord(this.projectRoot, path, record);
   }
 
   private readLatest(path: string): NotificationRecord[] {

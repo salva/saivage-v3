@@ -10,7 +10,6 @@ import { CardStore } from '../utils/card-store.js';
 import type { ActiveRuntime } from '../runtime/active-runtime.js';
 import type { ActorRole } from './authz.js';
 import { sanitizeAnalystText } from '../utils/analyst-sanitization.js';
-import { broadcastAnalystToolInvoked } from '../server/websocket.js';
 import { compactSession } from './compaction.js';
 
 export interface ActivityCallback {
@@ -226,9 +225,10 @@ function summarizeForBroadcast(tool: string, result: ToolResult): { summary: str
   return { summary: sanitizeAnalystText(summary, 200), classified_as, related_card_id, related_note_id, related_process_id };
 }
 
-function broadcastToolInvocation(sessionId: string, tool: string, result: ToolResult): void {
+function broadcastToolInvocation(activeRuntime: ActiveRuntime | undefined, sessionId: string, tool: string, result: ToolResult): void {
+  if (!activeRuntime) return;
   const payload = summarizeForBroadcast(tool, result);
-  broadcastAnalystToolInvoked({ sessionId, tool, success: result.success, ...payload });
+  activeRuntime.runtime.eventBus.emit('analyst_tool_invoked', { sessionId, tool, success: result.success, ...payload });
 }
 
 function buildResponse(tool: string, result: ToolResult): string {
@@ -385,7 +385,7 @@ export class AnalystHandler {
         const resultJson = JSON.stringify(result);
         const truncated = resultJson.length > 16_000 ? resultJson.slice(0, 16_000) + '…[truncated]' : resultJson;
         appendMessage(this.projectRoot, sessionId, { role: 'tool', kind: 'tool_result', content: truncated, tool: tc.function.name, tool_call_id: tc.id });
-        broadcastToolInvocation(sessionId, tc.function.name, result);
+        broadcastToolInvocation(this.activeRuntime, sessionId, tc.function.name, result);
       }
     }
   }
@@ -413,7 +413,7 @@ export class AnalystHandler {
       this.emitActivity({ type: 'tool_result', content: { tool: intent.tool, success: result.success, hasPreview: !!result.preview } });
       toolInvocations.push({ tool: intent.tool, params: intent.params, result });
       appendMessage(this.projectRoot, sessionId, { role: 'tool', kind: 'tool_result', content: JSON.stringify(result).slice(0, 16000), tool: intent.tool });
-      broadcastToolInvocation(sessionId, intent.tool, result);
+      broadcastToolInvocation(this.activeRuntime, sessionId, intent.tool, result);
       const responseContent = buildResponse(intent.tool, result);
       const msg = appendMessage(this.projectRoot, sessionId, { role: 'assistant', kind: 'text', content: responseContent, tool: intent.tool });
       return { sessionId, message: { id: msg.id, role: 'assistant', kind: 'text', content: responseContent, timestamp: msg.timestamp }, toolInvocations: toolInvocations.length > 0 ? toolInvocations : undefined };

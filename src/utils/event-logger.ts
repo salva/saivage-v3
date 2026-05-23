@@ -1,10 +1,10 @@
 import { existsSync, readFileSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { writeFileAtomic } from './file-tree.js';
 import type { LoggedEvent, EventKind } from '../schemas/types.js';
 import { redactForOutbound } from '../redaction/index.js';
 import { loggedEventSchema, parseLoggedEventCompat } from '../schemas/validators.js';
+import { appendLoggedEvent } from '../projections/ledger-projections.js';
 
 // ── Constants ─────────────────────────────────────────────────
 
@@ -80,9 +80,6 @@ function getSessionId(e: LoggedEvent): string | undefined {
 export class EventLogger {
   private saivageDir: string;
   private logPath: string;
-  private buffer: string[] = [];
-  private flushTimer: ReturnType<typeof setInterval> | null = null;
-  private readonly FLUSH_INTERVAL_MS = 100; // flush every 100ms
 
   constructor(saivageDir: string) {
     this.saivageDir = saivageDir;
@@ -90,10 +87,6 @@ export class EventLogger {
 
     // Ensure the runtime directory exists
     mkdirSync(join(this.saivageDir, 'runtime'), { recursive: true });
-
-    // Start periodic flush timer
-    this.flushTimer = setInterval(() => this.flush(), this.FLUSH_INTERVAL_MS);
-    this.flushTimer.unref();
   }
 
   /**
@@ -112,10 +105,7 @@ export class EventLogger {
       throw new Error(`LoggedEvent validation failed for kind '${event.kind}': ${parsed.error.message}`);
     }
 
-    // Add to buffer for batched flush
-    this.buffer.push(JSON.stringify(parsed.data));
-
-    return parsed.data;
+    return appendLoggedEvent(this.saivageDir, parsed.data);
   }
 
   /**
@@ -202,16 +192,7 @@ export class EventLogger {
    * Also called before reading to ensure consistency.
    */
   flush(): void {
-    if (this.buffer.length === 0) return;
-
-    const lines = this.buffer.splice(0);
-    try {
-      const existingContent = existsSync(this.logPath) ? readFileSync(this.logPath, 'utf-8') : '';
-      writeFileAtomic(this.logPath, existingContent + lines.join('\n') + '\n');
-    } catch {
-      // Put lines back on failure
-      this.buffer.unshift(...lines);
-    }
+    // JsonlLedger appends synchronously under the project lock.
   }
 
   /**
@@ -226,10 +207,6 @@ export class EventLogger {
    * Close the logger: flush and stop the flush timer.
    */
   close(): void {
-    if (this.flushTimer) {
-      clearInterval(this.flushTimer);
-      this.flushTimer = null;
-    }
     this.flush();
   }
 }

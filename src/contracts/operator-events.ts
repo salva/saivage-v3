@@ -332,6 +332,8 @@ export function parseWsEnvelope(input: unknown): WsEnvelopeContract | null {
 export function parseKnownWsContent(content: unknown): KnownWsContent | null {
   const event = getContentEvent(content);
   if (!event || !knownWsContentEventNameSet.has(event)) return null;
+  const known = KnownWsContentSchema.safeParse(content);
+  if (known.success) return known.data;
   if (runtimeFanoutEventNameSet.has(event)) return validateRuntimeFanoutContent(content);
   return KnownWsContentSchema.parse(content);
 }

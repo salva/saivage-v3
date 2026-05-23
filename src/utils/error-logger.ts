@@ -1,8 +1,8 @@
 import { existsSync, readFileSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { writeFileAtomic } from './file-tree.js';
 import { redactForOutbound } from '../redaction/index.js';
+import { appendErrorRecord } from '../projections/ledger-projections.js';
 
 // ── Constants ─────────────────────────────────────────────────
 
@@ -72,9 +72,6 @@ export interface ErrorFilter {
 export class ErrorLogger {
   private saivageDir: string;
   private logPath: string;
-  private buffer: string[] = [];
-  private flushTimer: ReturnType<typeof setInterval> | null = null;
-  private readonly FLUSH_INTERVAL_MS = 100; // flush every 100ms
 
   constructor(saivageDir: string) {
     this.saivageDir = saivageDir;
@@ -82,10 +79,6 @@ export class ErrorLogger {
 
     // Ensure the runtime directory exists
     mkdirSync(join(this.saivageDir, 'runtime'), { recursive: true });
-
-    // Start periodic flush timer
-    this.flushTimer = setInterval(() => this.flush(), this.FLUSH_INTERVAL_MS);
-    this.flushTimer.unref();
   }
 
   /**
@@ -104,10 +97,7 @@ export class ErrorLogger {
       phase: error.phase,
     }, 'error.log', { source: 'error-logger' }) as ErrorRecord;
 
-    // Add to buffer for batched flush
-    this.buffer.push(JSON.stringify(record));
-
-    return record;
+    return appendErrorRecord(this.saivageDir, record);
   }
 
   /**
@@ -169,21 +159,7 @@ export class ErrorLogger {
    * Also called before reading to ensure consistency.
    */
   flush(): void {
-    if (this.buffer.length === 0) return;
-
-    const lines = this.buffer.splice(0);
-    try {
-      const existingContent = existsSync(this.logPath)
-        ? readFileSync(this.logPath, 'utf-8')
-        : '';
-      writeFileAtomic(
-        this.logPath,
-        existingContent + lines.join('\n') + '\n',
-      );
-    } catch {
-      // Put lines back on failure
-      this.buffer.unshift(...lines);
-    }
+    // JsonlLedger appends synchronously under the project lock.
   }
 
   /**
@@ -198,10 +174,6 @@ export class ErrorLogger {
    * Close the logger: flush and stop the flush timer.
    */
   close(): void {
-    if (this.flushTimer) {
-      clearInterval(this.flushTimer);
-      this.flushTimer = null;
-    }
     this.flush();
   }
 }

@@ -1,5 +1,4 @@
 import {
-  appendFileSync,
   existsSync,
   mkdirSync,
   readFileSync,
@@ -32,6 +31,7 @@ import type {
 } from '../schemas/types.js';
 import { enqueueCardMutationNotifications } from './notification-triggers.js';
 import { EventBus } from '../events/bus.js';
+import { appendCardHistoryRecord } from '../projections/ledger-projections.js';
 
 export interface CardMutationContext {
   actor: NoteAuthor;
@@ -544,12 +544,7 @@ export class CardStore {
   }
 
   private appendHistoryEntry(entry: CardHistoryEntry): void {
-    mkdirSync(historyDir(this.projectRoot), { recursive: true });
-    appendFileSync(
-      historyPath(this.projectRoot, entry.card_id),
-      `${JSON.stringify(entry)}\n`,
-      'utf-8',
-    );
+    appendCardHistoryRecord(this.projectRoot, entry);
   }
 
   private reconcileCardHistory(card: CardRecord): void {

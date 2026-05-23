@@ -33,6 +33,10 @@ export class JsonlLedger<T> {
   }
 
   async append(handle: LockHandle, record: T): Promise<void> {
+    this.appendSync(handle, record);
+  }
+
+  appendSync(handle: LockHandle, record: T): void {
     this.lock.assertOwns(handle);
     const parsed = this.schema.safeParse(record);
     if (!parsed.success) {
@@ -52,10 +56,18 @@ export class JsonlLedger<T> {
   }
 
   async readAll(): Promise<T[]> {
-    return (await this.readSince({ offset: 0 })).records;
+    return this.readAllSync();
+  }
+
+  readAllSync(): T[] {
+    return this.readSinceSync({ offset: 0 }).records;
   }
 
   async readSince(cursor: Cursor): Promise<{ records: T[]; nextCursor: Cursor }> {
+    return this.readSinceSync(cursor);
+  }
+
+  readSinceSync(cursor: Cursor): { records: T[]; nextCursor: Cursor } {
     if (cursor.offset < 0 || !Number.isSafeInteger(cursor.offset)) {
       throw new PersistenceReadError(this.path, `invalid cursor offset ${cursor.offset}`);
     }
