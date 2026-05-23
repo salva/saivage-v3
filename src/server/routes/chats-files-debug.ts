@@ -9,7 +9,7 @@ import {
   resolveContainedProjectPath,
   redactOperatorErrorMessage,
 } from '../../utils/file-access-security.js';
-import { redactObservabilityValue } from '../../utils/observability-redaction.js';
+import { redactForOutbound } from '../../redaction/index.js';
 import { AnalystHandler } from '../../agents/analyst-handler.js';
 import {
   listRecentReviews,
@@ -354,7 +354,7 @@ export function registerChatsFilesDebugRoutes(
         }
       }
 
-      const redactedErrors = errors.map((entry) => redactObservabilityValue(entry));
+      const redactedErrors = errors.map((entry) => redactForOutbound(entry, 'operator.api', { source: 'chats-files-debug' }));
       return reply.send({ errors: redactedErrors, total: redactedErrors.length });
     } catch (err) {
       return reply.status(500).send({
@@ -379,7 +379,7 @@ export function registerChatsFilesDebugRoutes(
         }
       }
 
-      const redactedEvents = events.map((entry) => redactObservabilityValue(entry));
+      const redactedEvents = events.map((entry) => redactForOutbound(entry, 'operator.api', { source: 'chats-files-debug' }));
       return reply.send({ events: redactedEvents, total: redactedEvents.length });
     } catch (err) {
       return reply.status(500).send({

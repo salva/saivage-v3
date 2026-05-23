@@ -30,7 +30,7 @@ import { injectQueuedSyntheticPlannerNotes } from '../utils/analyst-stage6.js';
 import { parseDeferredActivationEnvelope } from '../schemas/validators.js';
 import { readRuntimeState } from '../runtime/state.js';
 import { PlannerControlExecutor } from './planner-control-executor.js';
-import { RedactionBoundary } from '../utils/redaction-boundary.js';
+import { redactTextForOutbound } from '../redaction/index.js';
 import { RoleToolPolicy, type RoleToolPolicyDecision, type RoleToolPolicySurface } from './role-tool-policy.js';
 
 export type { AgentRuntime } from './agent-runtime.js';
@@ -251,8 +251,8 @@ export class AgentAdapter implements AgentRuntime {
   }
 
   getSafeFileContent(filePath: string, content: string): SafeFileResult { return getSafeFileForAgent(filePath, content); }
-  private redactModelIssueText(message: unknown): string { return RedactionBoundary.text(message, { sink: 'model_issue', source: 'agent-adapter' }); }
-  private redactProviderErrorMessage(message: unknown): string { return RedactionBoundary.error(message, { sink: 'model_issue', source: 'agent-adapter' }); }
+  private redactModelIssueText(message: unknown): string { return redactTextForOutbound(message, 'model.issue', { source: 'agent-adapter' }); }
+  private redactProviderErrorMessage(message: unknown): string { return redactTextForOutbound(message, 'model.issue', { source: 'agent-adapter' }); }
   private applySelfCheck(role: AgentRole, systemPrompt: string, sessionId: string): string { const key = role; const current = (this.roundCounters.get(key) ?? 0) + 1; this.roundCounters.set(key, current); const threshold = getSelfCheckThreshold(this.config, role); if (threshold <= 0 || current % threshold !== 0) return systemPrompt; const selfCheckPrompt = buildSelfCheckPrompt(role, current, threshold); const modifiedPrompt = systemPrompt + '\n\n' + selfCheckPrompt; if (this.eventLogger) this.eventLogger.appendEvent({ kind: 'self_check_triggered', session_id: sessionId, role: role as unknown as import('../schemas/types.js').AgentRole, rounds: current, threshold }); if (this.eventBus) this.eventBus.emit('self_check_triggered', { session_id: sessionId, role, rounds: current, threshold }); return modifiedPrompt; }
   private resetOnRoleChange(role: AgentRole): void { if (this.lastRole !== null && this.lastRole !== role) this.roundCounters.clear(); this.lastRole = role; }
   cancelSession(sessionId: string): boolean { const controller = this._abortControllers.get(sessionId); if (!controller) return false; controller.abort(); this._abortControllers.delete(sessionId); this._cancelledSessions.add(sessionId); if (this.eventLogger) this.eventLogger.appendEvent({ kind: 'session_cancelled', session_id: sessionId }); if (this.eventBus) this.eventBus.emit('session_cancelled', { session_id: sessionId }); return true; }

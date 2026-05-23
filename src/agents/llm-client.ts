@@ -12,7 +12,7 @@ import {
   capabilityRequestForLlmOptions,
   supportsCapabilityRequest,
 } from './provider-capabilities.js';
-import { redactProviderLikeText } from '../utils/secret-redaction.js';
+import { redactTextForOutbound } from '../redaction/index.js';
 import type { AgentMessage } from '../schemas/types.js';
 
 // ── Tool Calling Types ────────────────────────────────────────
@@ -828,7 +828,7 @@ export class LlmClient {
 
 
   private redactProviderErrorText(text: string): string {
-    return redactProviderLikeText(text);
+    return redactTextForOutbound(text, 'provider.diagnostic', { source: 'llm-client' });
   }
 
   /**

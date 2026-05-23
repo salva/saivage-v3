@@ -20,6 +20,7 @@ import type { ActiveRuntime } from '../runtime/active-runtime.js';
 import { InboundAnalystMessageEnvelopeSchema, buildConnectedEnvelope, validateKnownWsEnvelope } from '../contracts/operator-events.js';
 import type { WsEnvelope, WsEventType } from '../contracts/operator-events.js';
 import { getAuthPolicy } from './auth-policy.js';
+import { redactForOutbound, type Redacted } from '../redaction/index.js';
 
 export type { WsEnvelope, WsEventType };
 
@@ -62,8 +63,13 @@ export function resetRuntimeEventSubscriptions(runtime?: { eventBus: EventBus })
   }
 }
 
+function serializeOutboundEnvelope(event: WsEnvelope): string {
+  const envelope: Redacted<WsEnvelope> = redactForOutbound(validateKnownWsEnvelope(event) as WsEnvelope, 'operator.websocket', { source: 'websocket' });
+  return JSON.stringify(envelope);
+}
+
 export function broadcast(event: WsEnvelope): void {
-  const data = JSON.stringify(validateKnownWsEnvelope(event));
+  const data = serializeOutboundEnvelope(event);
   for (const ws of authenticatedClients) {
     try {
       if (ws.readyState === ws.OPEN) {
@@ -167,7 +173,7 @@ export function broadcastAnalystToolInvoked(payload: {
 export function sendToClient(ws: WebSocket, event: WsEnvelope): void {
   try {
     if (ws.readyState === ws.OPEN) {
-      ws.send(JSON.stringify(validateKnownWsEnvelope(event)));
+      ws.send(serializeOutboundEnvelope(event));
     }
   } catch {
   }

@@ -1,7 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import { join } from 'node:path';
 import { createNotificationDeliveryService } from './notification-delivery.js';
-import { RedactionBoundary } from './redaction-boundary.js';
+import { redactTextForOutbound } from '../redaction/index.js';
 import { CardStore } from './card-store.js';
 import { listSessions, getSession } from '../agents/session-persistence.js';
 import type {
@@ -37,7 +37,7 @@ function summarize(text: string, maxLength = 160): string {
 }
 
 export function redactNotificationSummary(summary: string): string {
-  return summarize(RedactionBoundary.text(summary, { sink: 'notification', source: 'notification-triggers' }));
+  return summarize(redactTextForOutbound(summary, 'notification.transport', { source: 'notification-triggers' }));
 }
 
 function getActiveSessions(projectRoot: string): AgentSession[] {

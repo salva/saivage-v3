@@ -1,15 +1,15 @@
-import { RedactionBoundary } from '../utils/redaction-boundary.js';
+import { redactSnippetForOutbound, redactTextForOutbound } from '../redaction/index.js';
 
 const PREFIX = '[oauth-profiles]';
 const DEFAULT_SNIPPET_LENGTH = 500;
 const OAUTH_CONTEXT = { sink: 'console' as const, source: 'oauth-refresh-logger' };
 
 function safeDynamicText(value: unknown): string {
-  return RedactionBoundary.text(value, OAUTH_CONTEXT);
+  return redactTextForOutbound(value, 'provider.diagnostic', OAUTH_CONTEXT);
 }
 
 function snippet(value: unknown, maxLength = DEFAULT_SNIPPET_LENGTH): string {
-  return RedactionBoundary.snippet(value, { ...OAUTH_CONTEXT, maxLength });
+  return redactSnippetForOutbound(value, 'provider.diagnostic', maxLength, OAUTH_CONTEXT);
 }
 
 interface RefreshNameContext {

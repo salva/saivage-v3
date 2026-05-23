@@ -1,6 +1,6 @@
 import type { NotificationRecord } from '../schemas/types.js';
 import { NotificationCenter, type NotificationInput } from './notification-center.js';
-import { RedactionBoundary } from './redaction-boundary.js';
+import { redactTextForOutbound } from '../redaction/index.js';
 
 export type NotificationDeliveryTarget = 'session' | 'operator';
 
@@ -53,7 +53,7 @@ export class NotificationDeliveryService {
       } catch (err) {
         console.error(
           `[notifications] Delivery adapter '${adapter.name}' failed for notification '${record.id}': ${
-            RedactionBoundary.error(err, { sink: 'notification', source: 'notification-delivery' })
+            redactTextForOutbound(err, 'notification.transport', { source: 'notification-delivery' })
           }`,
         );
       }

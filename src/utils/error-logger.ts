@@ -2,6 +2,7 @@ import { existsSync, readFileSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { writeFileAtomic } from './file-tree.js';
+import { redactForOutbound } from '../redaction/index.js';
 
 // ── Constants ─────────────────────────────────────────────────
 
@@ -92,7 +93,7 @@ export class ErrorLogger {
    * and timestamp if not already provided. Returns the full ErrorRecord.
    */
   appendError(error: ErrorInput): ErrorRecord {
-    const record: ErrorRecord = {
+    const record: ErrorRecord = redactForOutbound({
       ...error,
       kind: 'error',
       id: error.id ?? nextErrorId(),
@@ -101,7 +102,7 @@ export class ErrorLogger {
       cardId: error.cardId,
       goalId: error.goalId,
       phase: error.phase,
-    };
+    }, 'error.log', { source: 'error-logger' }) as ErrorRecord;
 
     // Add to buffer for batched flush
     this.buffer.push(JSON.stringify(record));

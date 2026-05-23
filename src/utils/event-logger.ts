@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { writeFileAtomic } from './file-tree.js';
 import type { LoggedEvent, EventKind } from '../schemas/types.js';
-import { redactObservabilityValue } from './observability-redaction.js';
+import { redactForOutbound } from '../redaction/index.js';
 import { loggedEventSchema, parseLoggedEventCompat } from '../schemas/validators.js';
 
 // ── Constants ─────────────────────────────────────────────────
@@ -101,11 +101,11 @@ export class EventLogger {
    * timestamp if not already provided. Returns the full event object.
    */
   appendEvent(event: AppendEventInput): LoggedEvent {
-    const fullEvent: LoggedEvent = redactObservabilityValue({
+    const fullEvent: LoggedEvent = redactForOutbound({
       ...event,
       id: event.id ?? nextEventId(),
       timestamp: event.timestamp ?? new Date().toISOString(),
-    }) as unknown as LoggedEvent;
+    }, 'observability.log', { source: 'event-logger' }) as unknown as LoggedEvent;
 
     const parsed = loggedEventSchema.safeParse(fullEvent);
     if (!parsed.success) {

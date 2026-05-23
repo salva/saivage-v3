@@ -7,8 +7,8 @@ import {
 import {
   redactCredentialLiterals,
   redactSecrets,
-} from './secret-redaction.js';
-export { redactCredentialLiterals, redactSecrets } from './secret-redaction.js';
+} from '../redaction/index.js';
+export { redactCredentialLiterals, redactSecrets } from '../redaction/index.js';
 
 const NON_SECRET_SENSITIVE_PATHS: ReadonlySet<string> = new Set([
   '.saivage/saivage.json',
