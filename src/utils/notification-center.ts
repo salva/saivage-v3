@@ -1,7 +1,7 @@
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { notificationRecordSchema } from '../schemas/validators.js';
-import { appendNotificationRecord } from '../projections/ledger-projections.js';
+import { registerNotificationProjection } from '../projections/ledger-projections.js';
 import type { NotificationRecord, NoteAuthor, ControlActionSurface } from '../schemas/types.js';
 import { EventBus } from '../events/bus.js';
 
@@ -38,10 +38,42 @@ function operatorNotificationsPath(projectRoot: string): string {
 }
 
 export class NotificationCenter {
-  constructor(private readonly projectRoot: string, private readonly eventBus = new EventBus()) {}
+  constructor(private readonly projectRoot: string, private readonly eventBus = new EventBus()) {
+    registerNotificationProjection(this.eventBus, this.projectRoot);
+  }
 
   private append(path: string, record: NotificationRecord): NotificationRecord {
-    return appendNotificationRecord(this.projectRoot, path, record);
+    const parsed = notificationRecordSchema.parse(record);
+    this.emitProjectionWrite(path, parsed);
+    return parsed;
+  }
+
+  private emitProjectionWrite(path: string, record: NotificationRecord): void {
+    this.eventBus.emit('notification_record_appended', { ledger_path: path, record: record as unknown as Record<string, unknown> });
+  }
+
+  private emitNotificationAdded(record: NotificationRecord): void {
+    this.eventBus.emit('notification_added', {
+      id: record.id,
+      kind: record.kind,
+      severity: record.severity,
+      related_card_id: record.related_card_id,
+      related_note_id: record.related_note_id,
+      related_process_id: record.related_process_id,
+      related_version_seq: record.related_version_seq,
+      created_at: record.created_at,
+    });
+  }
+
+  private emitNotificationAcknowledged(record: NotificationRecord): void {
+    this.eventBus.emit('notification_acknowledged', {
+      id: record.id,
+      kind: record.kind,
+      related_card_id: record.related_card_id,
+      related_note_id: record.related_note_id,
+      related_process_id: record.related_process_id,
+      acknowledged_at: record.acknowledged_at ?? record.created_at,
+    });
   }
 
   private readLatest(path: string): NotificationRecord[] {
@@ -78,31 +110,13 @@ export class NotificationCenter {
 
   enqueueForSession(sessionId: string, input: NotificationInput): NotificationRecord {
     const record = this.append(sessionNotificationsPath(this.projectRoot, sessionId), this.buildRecord(sessionId, input));
-    this.eventBus.emit('notification_added', {
-      id: record.id,
-      kind: record.kind,
-      severity: record.severity,
-      related_card_id: record.related_card_id,
-      related_note_id: record.related_note_id,
-      related_process_id: record.related_process_id,
-      related_version_seq: record.related_version_seq,
-      created_at: record.created_at,
-    });
+    this.emitNotificationAdded(record);
     return record;
   }
 
   enqueueForOperator(input: NotificationInput): NotificationRecord {
     const record = this.append(operatorNotificationsPath(this.projectRoot), this.buildRecord(null, input));
-    this.eventBus.emit('notification_added', {
-      id: record.id,
-      kind: record.kind,
-      severity: record.severity,
-      related_card_id: record.related_card_id,
-      related_note_id: record.related_note_id,
-      related_process_id: record.related_process_id,
-      related_version_seq: record.related_version_seq,
-      created_at: record.created_at,
-    });
+    this.emitNotificationAdded(record);
     return record;
   }
 
@@ -156,14 +170,7 @@ export class NotificationCenter {
     const record = this.readLatest(path).find((entry) => entry.id === notificationId) ?? null;
     if (!record || record.acknowledged_at !== null) return record;
     const updated = this.append(path, { ...record, acknowledged_at: now() });
-    this.eventBus.emit('notification_acknowledged', {
-      id: updated.id,
-      kind: updated.kind,
-      related_card_id: updated.related_card_id,
-      related_note_id: updated.related_note_id,
-      related_process_id: updated.related_process_id,
-      acknowledged_at: updated.acknowledged_at ?? updated.created_at,
-    });
+    this.emitNotificationAcknowledged(updated);
     return updated;
   }
 
@@ -176,14 +183,7 @@ export class NotificationCenter {
     const record = this.readLatest(path).find((entry) => entry.id === notificationId) ?? null;
     if (!record || record.acknowledged_at !== null) return record;
     const updated = this.append(path, { ...record, acknowledged_at: now() });
-    this.eventBus.emit('notification_acknowledged', {
-      id: updated.id,
-      kind: updated.kind,
-      related_card_id: updated.related_card_id,
-      related_note_id: updated.related_note_id,
-      related_process_id: updated.related_process_id,
-      acknowledged_at: updated.acknowledged_at ?? updated.created_at,
-    });
+    this.emitNotificationAcknowledged(updated);
     return updated;
   }
 }

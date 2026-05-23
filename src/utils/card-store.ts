@@ -31,7 +31,7 @@ import type {
 } from '../schemas/types.js';
 import { enqueueCardMutationNotifications } from './notification-triggers.js';
 import { EventBus } from '../events/bus.js';
-import { appendCardHistoryRecord } from '../projections/ledger-projections.js';
+import { registerCardHistoryProjection } from '../projections/ledger-projections.js';
 
 export interface CardMutationContext {
   actor: NoteAuthor;
@@ -341,6 +341,7 @@ export class CardStore {
     this.maxDepth = maxDepth !== undefined && maxDepth > 0 ? maxDepth : 5;
     this.testHooks = testHooks;
     this.eventBus = eventBus ?? new EventBus();
+    registerCardHistoryProjection(this.eventBus, this.projectRoot);
   }
 
   private ensurePersistedStateValidated(): void {
@@ -544,7 +545,13 @@ export class CardStore {
   }
 
   private appendHistoryEntry(entry: CardHistoryEntry): void {
-    appendCardHistoryRecord(this.projectRoot, entry);
+    this.eventBus.emit('card_history_record_appended', {
+      card_id: entry.card_id,
+      version_seq: entry.version_seq,
+      changed_fields: [...entry.changed_fields],
+      changed_at: entry.changed_at,
+      record: entry as unknown as Record<string, unknown>,
+    });
   }
 
   private reconcileCardHistory(card: CardRecord): void {

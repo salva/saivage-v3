@@ -4,7 +4,8 @@ import { randomUUID } from 'node:crypto';
 import type { LoggedEvent, EventKind } from '../schemas/types.js';
 import { redactForOutbound } from '../redaction/index.js';
 import { loggedEventSchema, parseLoggedEventCompat } from '../schemas/validators.js';
-import { appendLoggedEvent } from '../projections/ledger-projections.js';
+import { EventBus } from '../events/bus.js';
+import { registerEventLogProjection } from '../projections/ledger-projections.js';
 
 // ── Constants ─────────────────────────────────────────────────
 
@@ -80,10 +81,13 @@ function getSessionId(e: LoggedEvent): string | undefined {
 export class EventLogger {
   private saivageDir: string;
   private logPath: string;
+  private readonly eventBus: EventBus;
 
-  constructor(saivageDir: string) {
+  constructor(saivageDir: string, eventBus = new EventBus()) {
     this.saivageDir = saivageDir;
     this.logPath = eventsPath(saivageDir);
+    this.eventBus = eventBus;
+    registerEventLogProjection(this.eventBus, this.saivageDir, ['event_log_record_appended']);
 
     // Ensure the runtime directory exists
     mkdirSync(join(this.saivageDir, 'runtime'), { recursive: true });
@@ -105,7 +109,8 @@ export class EventLogger {
       throw new Error(`LoggedEvent validation failed for kind '${event.kind}': ${parsed.error.message}`);
     }
 
-    return appendLoggedEvent(this.saivageDir, parsed.data);
+    this.eventBus.emit('event_log_record_appended', { record: parsed.data as unknown as Record<string, unknown> });
+    return parsed.data;
   }
 
   /**

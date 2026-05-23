@@ -2,7 +2,8 @@ import { existsSync, readFileSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { redactForOutbound } from '../redaction/index.js';
-import { appendErrorRecord } from '../projections/ledger-projections.js';
+import { EventBus } from '../events/bus.js';
+import { registerErrorLogProjection } from '../projections/ledger-projections.js';
 
 // ── Constants ─────────────────────────────────────────────────
 
@@ -72,10 +73,13 @@ export interface ErrorFilter {
 export class ErrorLogger {
   private saivageDir: string;
   private logPath: string;
+  private readonly eventBus: EventBus;
 
-  constructor(saivageDir: string) {
+  constructor(saivageDir: string, eventBus = new EventBus()) {
     this.saivageDir = saivageDir;
     this.logPath = errorsPath(saivageDir);
+    this.eventBus = eventBus;
+    registerErrorLogProjection(this.eventBus, this.saivageDir);
 
     // Ensure the runtime directory exists
     mkdirSync(join(this.saivageDir, 'runtime'), { recursive: true });
@@ -97,7 +101,8 @@ export class ErrorLogger {
       phase: error.phase,
     }, 'error.log', { source: 'error-logger' }) as ErrorRecord;
 
-    return appendErrorRecord(this.saivageDir, record);
+    this.eventBus.emit('error_log_record_appended', { record: record as unknown as Record<string, unknown> });
+    return record;
   }
 
   /**

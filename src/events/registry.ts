@@ -60,6 +60,11 @@ export const EventRegistry = {
   notification_acknowledged: { schema: payload({ id: z.string(), kind: z.string(), related_card_id: z.string().optional(), related_note_id: z.string().optional(), related_process_id: z.string().optional(), acknowledged_at: z.string() }), severity: 'info', tracked: false, audit: true, broadcast: true, outbound: 'operator' },
   control_action_recorded: { schema: payload({ id: z.string(), action: z.string(), target_kind: z.string().nullable(), target_id: z.string().nullable(), outcome: z.string(), created_at: z.string(), actor: z.string().optional(), surface: z.string().optional() }), severity: 'info', tracked: false, audit: true, broadcast: true, outbound: 'operator' },
   analyst_tool_invoked: { schema: payload({ sessionId: z.string(), tool: z.string(), success: z.boolean(), summary: z.string(), classified_as: z.string().optional(), related_card_id: z.string().optional(), related_note_id: z.string().optional(), related_process_id: z.string().optional() }), severity: 'info', tracked: false, audit: true, broadcast: true, outbound: 'operator' },
+  notification_record_appended: { schema: payload({ ledger_path: z.string(), record: anyRecord }), severity: 'info', tracked: false, audit: false, broadcast: false, outbound: 'internal' },
+  control_action_record_appended: { schema: payload({ record: anyRecord }), severity: 'info', tracked: false, audit: false, broadcast: false, outbound: 'internal' },
+  card_history_record_appended: { schema: payload({ record: anyRecord }), severity: 'info', tracked: false, audit: false, broadcast: false, outbound: 'internal' },
+  event_log_record_appended: { schema: payload({ record: anyRecord }), severity: 'info', tracked: false, audit: false, broadcast: false, outbound: 'internal' },
+  error_log_record_appended: { schema: payload({ record: anyRecord }), severity: 'info', tracked: false, audit: false, broadcast: false, outbound: 'internal' },
 } as const satisfies Record<string, { schema: z.ZodTypeAny; severity: SeverityLevel; tracked: boolean; audit: boolean; broadcast: boolean; outbound: OutboundPolicy }>;
 
 export type EventKind = keyof typeof EventRegistry;

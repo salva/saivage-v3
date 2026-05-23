@@ -5,7 +5,7 @@ import { redactTextForOutbound } from '../redaction/index.js';
 import { controlActionAuditEntrySchema } from '../schemas/validators.js';
 import type { ControlActionAuditEntry } from '../schemas/types.js';
 import { EventBus } from '../events/bus.js';
-import { appendControlActionRecord } from '../projections/ledger-projections.js';
+import { registerControlActionAuditProjection } from '../projections/ledger-projections.js';
 
 const INLINE_SECRET_RE = /(api(?:[_-]?key|[_-]?token)?|token|secret|password)\s*=\s*("[^"]*"|'[^']*'|\S+)/gi;
 
@@ -79,7 +79,8 @@ export function recordControlAction(projectRoot: string, entry: Omit<ControlActi
     outcome_summary: sanitizeAuditText(entry.outcome_summary),
     error: entry.error ? sanitizeAuditText(entry.error) : undefined,
   });
-  appendControlActionRecord(projectRoot, parsed);
+  registerControlActionAuditProjection(eventBus, projectRoot);
+  eventBus.emit('control_action_record_appended', { record: parsed as unknown as Record<string, unknown> });
   eventBus.emit('control_action_recorded', {
     id: parsed.id,
     action: parsed.action,

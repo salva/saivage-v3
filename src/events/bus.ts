@@ -28,6 +28,7 @@ export interface SubscriptionOptions<K extends EventKind = EventKind> {
   bufferSize?: number;
   deliveryTimeoutMs?: number;
   correlationId?: string;
+  propagateErrors?: boolean;
   handler: EventHandler<K>;
 }
 
@@ -41,6 +42,7 @@ interface InternalSubscription {
   paused: boolean;
   buffer: DomainEvent[];
   active: boolean;
+  propagateErrors: boolean;
 }
 
 export class BusDisposed extends Error {
@@ -150,6 +152,7 @@ export class EventBus {
       handler,
       bufferSize: options?.bufferSize ?? this.defaultBufferSize,
       deliveryTimeoutMs: options?.deliveryTimeoutMs ?? this.defaultDeliveryTimeoutMs,
+      propagateErrors: options?.propagateErrors ?? false,
       paused: false,
       buffer: [],
       active: true,
@@ -176,6 +179,7 @@ export class EventBus {
       }
     } catch (err) {
       this.emitSubscriberError(sub, event, err, false);
+      if (sub.propagateErrors) throw err;
     }
   }
 
