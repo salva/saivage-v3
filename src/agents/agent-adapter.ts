@@ -13,6 +13,7 @@ import { getSafeFileForAgent, type SafeFileResult } from '../workspace/index.js'
 import type { AgentRuntime } from './agent-runtime.js';
 import { LlmClient } from './llm-client.js';
 import type { LlmCompleteOptions, ToolDefinition } from './llm-client.js';
+import { createLlmExchangeRecorder, toRecorderLogger, type LlmExchangeRecorder } from './llm-exchange-recorder.js';
 import { resolveLlmTransportConfig } from './llm-transport.js';
 import { capabilityRequestForLlmOptions } from './provider-capabilities.js';
 import { defaultInvocationRecoveryPolicy, type InvocationRecoveryContext } from './invocation-recovery-policy.js';
@@ -157,6 +158,7 @@ export class AgentAdapter implements AgentRuntime {
   private llmCallFn: LlmCallFn | null = null;
   private contentSupervisor?: ContentSupervisor;
   private llmClientCache: Map<string, LlmClient> = new Map();
+  private recorderCache: Map<string, LlmExchangeRecorder> = new Map();
   private _abortControllers: Map<string, AbortController> = new Map();
   private _cancelledSessions: Set<string> = new Set();
   private _mcpManager: McpManager | undefined;
@@ -616,7 +618,40 @@ export class AgentAdapter implements AgentRuntime {
 
   getRouter(): ModelRouter { return this.router; }
   getRegistry(): ProviderRegistry { return this.registry; }
-  createLlmCallFn(): LlmCallFn { const registry = this.registry; const clientCache = this.llmClientCache; const projectRoot = this.projectRoot; return async (candidate: Candidate, systemPrompt: string, messages: AgentMessage[], sessionId: string, opts?: LlmCompleteOptions): Promise<string> => { const { baseUrl, apiKey, cacheKey } = await resolveLlmTransportConfig(projectRoot, registry, candidate); let client = clientCache.get(cacheKey); if (!client) { client = new LlmClient(baseUrl, apiKey, registry); clientCache.set(cacheKey, client); } const result = await client.complete(candidate, systemPrompt, messages, sessionId, opts); return result.content ?? JSON.stringify({ toolCalls: result.toolCalls }); }; }
+
+  private getOrCreateRecorder(sessionId: string): LlmExchangeRecorder {
+    let recorder = this.recorderCache.get(sessionId);
+    if (!recorder) {
+      recorder = createLlmExchangeRecorder({
+        saivageDir: this.saivageDir,
+        sessionId,
+        eventLogger: toRecorderLogger(this.eventLogger),
+      });
+      this.recorderCache.set(sessionId, recorder);
+    }
+    return recorder;
+  }
+
+  async flushRecorders(): Promise<void> {
+    await Promise.all([...this.recorderCache.values()].map((r) => r.flush()));
+  }
+
+  createLlmCallFn(): LlmCallFn {
+    const registry = this.registry;
+    const clientCache = this.llmClientCache;
+    const projectRoot = this.projectRoot;
+    return async (candidate: Candidate, systemPrompt: string, messages: AgentMessage[], sessionId: string, opts?: LlmCompleteOptions): Promise<string> => {
+      const { baseUrl, apiKey, cacheKey } = await resolveLlmTransportConfig(projectRoot, registry, candidate);
+      let client = clientCache.get(cacheKey);
+      if (!client) {
+        client = new LlmClient(baseUrl, apiKey, registry);
+        clientCache.set(cacheKey, client);
+      }
+      const recorder = this.getOrCreateRecorder(sessionId);
+      const result = await client.complete(candidate, systemPrompt, messages, sessionId, { ...opts, recorder });
+      return result.content ?? JSON.stringify({ toolCalls: result.toolCalls });
+    };
+  }
 }
 
 export function createAgentAdapter(projectRoot: string, eventBus?: EventEmitter): AgentAdapter { const saivageDir = `${projectRoot}/.saivage`; const { config, warnings } = loadConfig(projectRoot); if (warnings.length > 0 && eventBus) for (const warning of warnings) eventBus.emit('config_warning', { warning }); return new AgentAdapter({ projectRoot, saivageDir, config, eventBus }); }

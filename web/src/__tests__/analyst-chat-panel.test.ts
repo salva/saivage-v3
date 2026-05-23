@@ -88,9 +88,9 @@ describe('AnalystChatPanel', () => {
     await chips[0].trigger('click');
     expect(chips[0].attributes('aria-expanded')).toBe('true');
     expect(chips[0].attributes('aria-label')).toContain('Collapse analyst tool call details');
-    expect(wrapper.find('.tool-chip-detail').text()).toContain('README.md');
+    expect(wrapper.find('.code-block').text()).toContain('README.md');
     await chips[0].trigger('click');
-    expect(wrapper.find('.tool-chip-detail').exists()).toBe(false);
+    expect(wrapper.find('.code-block').exists()).toBe(false);
     wrapper.unmount();
   });
 
@@ -104,7 +104,7 @@ describe('AnalystChatPanel', () => {
     expect(chips[1].text()).toContain('read_file');
     expect(chips[1].classes()).toContain('tool-chip-ok');
     await chips[1].trigger('click');
-    expect(wrapper.find('.tool-chip-detail').text()).toContain('"ok": true');
+    expect(wrapper.find('.code-block').text()).toContain('"ok": true');
     wrapper.unmount();
   });
 

@@ -458,7 +458,7 @@ describe('operator dashboard synthetic smoke guard', () => {
     await waitForTransition();
     await wrapper.findAll('.file-list')[0].findAll('.file-entry')[1].trigger('click');
     await settle();
-    expect(wrapper.find('.json-view').text()).toContain('operator-dashboard-smoke');
+    expect(wrapper.find('.code-block').text()).toContain('operator-dashboard-smoke');
     await wrapper.findAll('.file-list')[0].findAll('.file-entry')[0].trigger('click');
     await settle();
     expect(wrapper.find('.file-viewer').exists()).toBe(false);
@@ -473,7 +473,7 @@ describe('operator dashboard synthetic smoke guard', () => {
     expect(wrapper.text()).toContain('Files: 1');
     expect(wrapper.text()).toContain('Checks: 1');
     expect(wrapper.text()).toContain('Tool errors: 0');
-    const resultCode = wrapper.find('section.detail-section pre.detail-json code');
+    const resultCode = wrapper.find('section.detail-section .code-block');
     expect(resultCode.exists()).toBe(true);
     expect(resultCode.text()).toContain('"summary": "synthetic result"');
 

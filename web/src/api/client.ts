@@ -47,6 +47,7 @@ import type {
 } from './types';
 import { getAuthToken } from './auth';
 import { parseOperatorResponse, type OperatorApiOperationId, type OperatorApiSuccess } from './contracts';
+import type { LlmExchange } from './contracts';
 import type { RuntimeState } from './types';
 import { dispatchApiAuthRequired } from '../utils/auth-events';
 
@@ -240,6 +241,10 @@ export function listAgentSessions(): Promise<AgentSessionsResponse> {
 
 export function getAgentConversation(sessionId: string): Promise<AgentConversationResponse> {
   return request<AgentConversationResponse>('GET', `/api/agents/${encodeURIComponent(sessionId)}/conversation`);
+}
+
+export function getAgentLlmExchange(sessionId: string): Promise<{ exchange: LlmExchange }> {
+  return request<{ exchange: LlmExchange }>('GET', `/api/agents/${encodeURIComponent(sessionId)}/llm-exchange`);
 }
 
 export function getConfig(): Promise<ConfigResponse> {

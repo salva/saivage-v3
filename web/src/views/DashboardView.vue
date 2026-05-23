@@ -32,11 +32,12 @@
             <span class="message-role">{{ roleLabel(msg.role) }}</span>
             <span class="message-time">{{ formatTime(msg.timestamp) }}</span>
           </div>
-          <div
-            class="message-content"
-            :class="{ markdown: msg.kind === 'text' && msg.role === 'assistant' }"
-            v-html="renderContent(msg)"
-          ></div>
+          <MarkdownText
+            v-if="msg.kind === 'text' && (msg.role === 'assistant' || msg.role === 'system')"
+            :source="msg.content"
+            class="message-content markdown"
+          />
+          <div v-else class="message-content">{{ msg.content }}</div>
           <div v-if="msg.tool" class="message-tool">
             <span class="tool-badge">🔧 {{ msg.tool }}</span>
           </div>
@@ -287,6 +288,7 @@ import {
   ApiError,
 } from '../api/client';
 import { createLogger } from '../utils/logger';
+import MarkdownText from '../components/code/MarkdownText.vue';
 
 const log = createLogger('view:dashboard');
 
@@ -413,30 +415,6 @@ function formatTime(ts: string): string {
   } catch {
     return ts;
   }
-}
-
-function renderContent(msg: ChatMessage): string {
-  if (msg.kind === 'text' && (msg.role === 'assistant' || msg.role === 'system')) {
-    return simpleMarkdown(msg.content);
-  }
-  return escapeHtml(msg.content);
-}
-
-function escapeHtml(text: string): string {
-  return text
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;');
-}
-
-function simpleMarkdown(text: string): string {
-  let out = escapeHtml(text);
-  out = out.replace(/```(\w*)\n([\s\S]*?)```/g, '<pre class="code-block"><code>$2</code></pre>');
-  out = out.replace(/`([^`]+)`/g, '<code class="inline-code">$1</code>');
-  out = out.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
-  out = out.replace(/\*([^*]+)\*/g, '<em>$1</em>');
-  out = out.replace(/\n/g, '<br>');
-  return out;
 }
 
 function navigateToEntity(link: EntityLink): void {
@@ -753,8 +731,6 @@ onUnmounted(() => {
 .role-system .message-role { color: #8b949e; }
 .message-time { font-size: 10px; color: #484f58; }
 .message-content { font-size: 13px; line-height: 1.6; color: #c9d1d9; }
-.message-content :deep(.code-block) { background: #0d1117; border: 1px solid #30363d; border-radius: 4px; padding: 10px 12px; margin: 8px 0; overflow-x: auto; font-size: 12px; line-height: 1.5; font-family: 'SF Mono', 'Fira Code', monospace; }
-.message-content :deep(.inline-code) { background: #21262d; padding: 1px 5px; border-radius: 3px; font-size: 12px; font-family: 'SF Mono', 'Fira Code', monospace; color: #d2a8ff; }
 .message-content :deep(strong) { color: #f0f6fc; }
 .message-tool { margin-top: 6px; }
 .tool-badge { font-size: 11px; padding: 2px 6px; background: #21262d; border: 1px solid #30363d; border-radius: 4px; color: #d2a8ff; }

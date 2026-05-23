@@ -6,7 +6,6 @@ import AgentsView from '../views/AgentsView.vue';
 import AgentConversationView from '../components/agents/AgentConversationView.vue';
 import { useAgentStore } from '../stores/agents';
 import type { AgentSession, AgentRole } from '../api/types';
-
 const apiMockState = vi.hoisted(() => ({
   sessions: [] as AgentSession[],
   conversation: {
@@ -97,17 +96,17 @@ vi.mock('../api/client', () => {
 
     expect(wrapper.text()).toContain('🔧 activate_card(cardId, reason)');
     expect(wrapper.text()).toContain('📤 activate_card → ok (activated G3)');
-    expect(wrapper.find('.tc-body').exists()).toBe(false);
+    expect(wrapper.find('.tool-call .code-block').exists()).toBe(false);
 
     await wrapper.findAll('.conv-tb-btn')[0].trigger('click');
     await flushPromises();
-    expect(wrapper.find('.tc-body').exists()).toBe(true);
-    expect(wrapper.find('.tr-body').exists()).toBe(true);
+    expect(wrapper.find('.tool-call .code-block').exists()).toBe(true);
+    expect(wrapper.find('.tool-result .code-block').exists()).toBe(true);
 
     await wrapper.findAll('.conv-tb-btn')[1].trigger('click');
     await flushPromises();
-    expect(wrapper.find('.tc-body').exists()).toBe(false);
-    expect(wrapper.find('.tr-body').exists()).toBe(false);
+    expect(wrapper.find('.tool-call .code-block').exists()).toBe(false);
+    expect(wrapper.find('.tool-result .code-block').exists()).toBe(false);
   });
 
 });
@@ -282,17 +281,76 @@ describe('AgentsView', () => {
     expect(wrapper.text()).toContain('activate_card');
     expect(wrapper.text()).toContain('card G3');
     expect(wrapper.text()).toContain('activated G3');
-    expect(wrapper.find('.tc-body').exists()).toBe(false);
+    expect(wrapper.find('.tool-call .code-block').exists()).toBe(false);
 
     await wrapper.findAll('.conv-tb-btn')[0].trigger('click');
     await flushPromises();
-    expect(wrapper.find('.tc-body').exists()).toBe(true);
-    expect(wrapper.find('.tr-body').exists()).toBe(true);
+    expect(wrapper.find('.tool-call .code-block').exists()).toBe(true);
+    expect(wrapper.find('.tool-result .code-block').exists()).toBe(true);
 
     await wrapper.findAll('.conv-tb-btn')[1].trigger('click');
     await flushPromises();
-    expect(wrapper.find('.tc-body').exists()).toBe(false);
-    expect(wrapper.find('.tr-body').exists()).toBe(false);
+    expect(wrapper.find('.tool-call .code-block').exists()).toBe(false);
+    expect(wrapper.find('.tool-result .code-block').exists()).toBe(false);
+  });
+
+  it('toolbar exposes a raw LLM exchange toggle that mounts and unmounts the panel', async () => {
+    apiMockState.conversation = { session: plannerSession, messages: [] };
+    const router = makeRouter();
+    await router.push('/agents/planner-1');
+    await router.isReady();
+    const pinia = createPinia();
+    setActivePinia(pinia);
+    const wrapper = mount(AgentConversationView, {
+      props: { sessionId: 'planner-1' },
+      global: { plugins: [router, pinia] },
+    });
+    await flushPromises();
+
+    const toggleBtn = wrapper.findAll('.conv-tb-btn').find((b) => b.text().includes('Last raw LLM exchange'));
+    expect(toggleBtn).toBeDefined();
+    const RawLlmExchangePanel = (await import('../components/agents/RawLlmExchangePanel.vue')).default;
+    expect(wrapper.findComponent(RawLlmExchangePanel).exists()).toBe(false);
+
+    const store = useAgentStore();
+    vi.spyOn(store, 'fetchLlmExchange').mockResolvedValue(undefined);
+
+    await toggleBtn!.trigger('click');
+    await flushPromises();
+    expect(wrapper.findComponent(RawLlmExchangePanel).exists()).toBe(true);
+    const reToggle = wrapper.findAll('.conv-tb-btn').find((b) => b.text().includes('Hide raw LLM exchange'));
+    expect(reToggle).toBeDefined();
+
+    await reToggle!.trigger('click');
+    await flushPromises();
+    expect(wrapper.findComponent(RawLlmExchangePanel).exists()).toBe(false);
+  });
+
+  it('resets the raw LLM exchange panel when the session id prop changes', async () => {
+    apiMockState.conversation = { session: plannerSession, messages: [] };
+    const router = makeRouter();
+    await router.push('/agents/planner-1');
+    await router.isReady();
+    const pinia = createPinia();
+    setActivePinia(pinia);
+    const wrapper = mount(AgentConversationView, {
+      props: { sessionId: 'planner-1' },
+      global: { plugins: [router, pinia] },
+    });
+    await flushPromises();
+
+    const store = useAgentStore();
+    vi.spyOn(store, 'fetchLlmExchange').mockResolvedValue(undefined);
+
+    const toggleBtn = wrapper.findAll('.conv-tb-btn').find((b) => b.text().includes('Last raw LLM exchange'));
+    await toggleBtn!.trigger('click');
+    await flushPromises();
+    const RawLlmExchangePanel = (await import('../components/agents/RawLlmExchangePanel.vue')).default;
+    expect(wrapper.findComponent(RawLlmExchangePanel).exists()).toBe(true);
+
+    await wrapper.setProps({ sessionId: 'executor-1' } as any);
+    await flushPromises();
+    expect(wrapper.findComponent(RawLlmExchangePanel).exists()).toBe(false);
   });
 
 });

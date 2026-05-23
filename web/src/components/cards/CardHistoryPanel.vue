@@ -67,15 +67,15 @@
               <div v-else class="diff-list">
                 <div v-for="row in cardHistoryDiff" :key="row.field" class="diff-row">
                   <div class="diff-field">{{ row.field }}</div>
-                  <pre class="diff-side"><code>{{ fmtJson(row.before) }}</code></pre>
-                  <pre class="diff-side"><code>{{ fmtJson(row.after) }}</code></pre>
+                  <CodeBlock :code="formatJson(row.before, { redactor: sanitizeCardHistoryValue })" language="json" copyable />
+                  <CodeBlock :code="formatJson(row.after, { redactor: sanitizeCardHistoryValue })" language="json" copyable />
                 </div>
               </div>
             </div>
 
             <div class="history-subsection">
               <div class="history-subheading">Snapshot body</div>
-              <pre class="detail-json"><code>{{ fmtJson(cardHistoryEntry.snapshot) }}</code></pre>
+              <CodeBlock :code="formatJson(cardHistoryEntry.snapshot, { redactor: sanitizeCardHistoryValue })" language="json" copyable />
             </div>
           </template>
         </div>
@@ -91,6 +91,9 @@ import { useCardStore } from '../../stores/cards';
 import { useWsStore } from '../../stores/ws';
 import type { CardHistoryHeader } from '../../api/types';
 import { formatTimestamp, isRecentTimestamp, timestampTitle } from '../../utils/timestamp';
+import { formatJson } from '../../utils/format-json';
+import { sanitizeCardHistoryValue } from '../../utils/sanitize-card-history';
+import CodeBlock from '../code/CodeBlock.vue';
 
 const props = defineProps<{ cardId: string }>();
 const cardStore = useCardStore();
@@ -111,8 +114,6 @@ const {
 const analystOnly = ref(false);
 const activeDetailError = computed(() => cardHistoryEntryError.value ?? cardHistoryDiffError.value);
 const filteredHistory = computed(() => analystOnly.value ? cardHistory.value.filter((entry) => isAnalystEntry(entry)) : cardHistory.value);
-const secretLikeKeyPattern = /(token|secret|password|authorization|auth[_-]?profile|provider|env|config)/i;
-const secretLikeValuePattern = /(sk-[A-Za-z0-9_-]+|bearer\s+[A-Za-z0-9._-]+|api[_-]?key|token|secret|password|auth[_-]?profile|env\[[^\]]+\]|process\.env)/i;
 
 function isAnalystEntry(entry: CardHistoryHeader): boolean {
   return entry.changed_by_actor === 'analyst' && entry.changed_by_surface === 'web-chat';
@@ -120,36 +121,6 @@ function isAnalystEntry(entry: CardHistoryHeader): boolean {
 
 function fmtDate(ts: string): string {
   return formatTimestamp(ts, isRecentTimestamp(ts) ? 'relative' : 'absolute');
-}
-
-function sanitizeForDisplay(value: unknown): unknown {
-  if (Array.isArray(value)) {
-    return value.map((item) => sanitizeForDisplay(item));
-  }
-
-  if (value && typeof value === 'object') {
-    const sanitizedEntries = Object.entries(value as Record<string, unknown>).map(([key, entryValue]) => {
-      if (secretLikeKeyPattern.test(key)) {
-        return [key, '[redacted]'];
-      }
-      return [key, sanitizeForDisplay(entryValue)];
-    });
-    return Object.fromEntries(sanitizedEntries);
-  }
-
-  if (typeof value === 'string' && secretLikeValuePattern.test(value)) {
-    return '[redacted]';
-  }
-
-  return value;
-}
-
-function fmtJson(value: unknown): string {
-  try {
-    return JSON.stringify(sanitizeForDisplay(value), null, 2);
-  } catch {
-    return String(sanitizeForDisplay(value));
-  }
 }
 
 async function loadHistory(): Promise<void> {
@@ -222,6 +193,5 @@ watch(analystOnly, async () => {
 .diff-list { display:flex; flex-direction:column; gap:8px; }
 .diff-row { display:grid; grid-template-columns:140px 1fr 1fr; gap:8px; align-items:start; }
 .diff-field { font-size:12px; color:#f0f6fc; font-weight:600; }
-.diff-side { margin:0; padding:10px; border:1px solid #21262d; border-radius:4px; background:#0d1117; color:#c9d1d9; font-size:11px; white-space:pre-wrap; word-break:break-word; }
 @media (max-width: 960px) { .history-layout { grid-template-columns:1fr; } .diff-row { grid-template-columns:1fr; } }
 </style>

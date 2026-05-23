@@ -163,7 +163,13 @@
               <span>{{ previewState.contentType }}</span>
             </div>
             <div v-if="previewState.redactedHint" class="preview-notice">Sensitive values are redacted by the server.</div>
-            <pre class="detail-json preview-content" :aria-label="`Read-only preview of ${previewState.path}`"><code>{{ previewState.content }}</code></pre>
+            <CodeBlock
+              :code="previewState.content"
+              language="text"
+              copyable
+              wrap
+              :aria-label="`Read-only preview of ${previewState.path}`"
+            />
           </template>
           <template v-else>
             <div class="preview-error-state">
@@ -176,7 +182,7 @@
         <div class="verification-section">
           <h4 class="subheading">Verification Commands</h4>
           <div v-if="verificationCommands.length" v-for="command in verificationCommands" :key="`${command.command}-${command.process_id}`" class="verification-row">
-            <code class="generated-file-path">{{ command.command }}</code>
+            <code class="inline-token generated-file-path">{{ command.command }}</code>
             <span class="badge">{{ command.status || 'unknown' }}</span>
             <span class="badge" :class="command.exit_code === 0 ? 'success' : command.exit_code == null ? 'subtle' : 'error'">{{ verificationOutcome(command) }}</span>
             <span v-if="command.timed_out" class="badge warning">timed out</span>
@@ -250,7 +256,7 @@
 
       <section v-if="currentCard.result" class="detail-section">
         <h3 class="section-heading">Result</h3>
-        <pre class="detail-json"><code>{{ fmtJson(currentCard.result) }}</code></pre>
+        <CodeBlock :code="formatJson(currentCard.result)" language="json" copyable />
       </section>
     </template>
   </div>
@@ -268,6 +274,8 @@ import { createLogger } from '../../utils/logger';
 import { formatTimestamp, isRecentTimestamp, timestampTitle } from '../../utils/timestamp';
 import CardHistoryPanel from './CardHistoryPanel.vue';
 import StaleWarningRibbon from './StaleWarningRibbon.vue';
+import CodeBlock from '../code/CodeBlock.vue';
+import { formatJson } from '../../utils/format-json';
 
 const log = createLogger('comp:card-detail');
 const props = defineProps<{ cardId: string }>();
@@ -304,7 +312,6 @@ let refreshTicket = 0;
 const TYPE_ICONS: Record<string, string> = { project: '(P)', goal: '(G)', architecture: '(A)', code: '(C)', test: '(T)', doc: '(D)', data: '(DA)', research: '(R)', ops: '(O)' };
 function typeIcon(type: string): string { return TYPE_ICONS[type] || '(?)'; }
 function fmtDate(ts: string): string { return ts ? formatTimestamp(ts, isRecentTimestamp(ts) ? 'relative' : 'absolute') : ''; }
-function fmtJson(obj: unknown): string { try { return JSON.stringify(obj, null, 2); } catch { return String(obj); } }
 function esc(text: string): string { return text.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 function renderMarkdown(text: string): string { return esc(text).replace(/\n/g, '<br>'); }
 function sourceLabel(source: string): string { return source.replace('result.', ''); }
@@ -537,7 +544,7 @@ function actionLabel(action: string): string {
 .status-done { background:#1a2418; color:#7ee787; border-color:#238636; }
 .status-failed { background:#241818; color:#f85149; border-color:#da3633; }
 .status-backlog,.status-drafting,.status-cancelled,.status-blocked { background:#21262d; color:#c9d1d9; border-color:#484f58; }
-.detail-id,.generated-file-path,.detail-json { font-family:'SF Mono',monospace; }
+.detail-id,.generated-file-path { font-family:'SF Mono',monospace; }
 .meta-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(200px,1fr)); gap:8px; }
 .meta-item { display:flex; flex-direction:column; gap:2px; }
 .meta-key { font-size:11px; color:#8b949e; }
@@ -555,8 +562,7 @@ function actionLabel(action: string): string {
 .preview-notice.warning,.detail-callout.warning { background:#241f18; }
 .preview-notice.error,.detail-callout.error { background:#241818; }
 .detail-callout.success { background:#1a2418; }
-.detail-json { background:#0d1117; border:1px solid #21262d; border-radius:4px; padding:12px; font-size:12px; line-height:1.5; overflow-x:auto; white-space:pre-wrap; word-break:break-word; color:#c9d1d9; margin:0; }
-.preview-content { background:#0d1117; border:1px solid #21262d; border-radius:4px; padding:12px; font-size:12px; line-height:1.5; overflow-x:auto; white-space:pre-wrap; word-break:break-word; color:#c9d1d9; margin:0; }
+
 .retry-btn,.nav-pill { padding:6px 10px; background:#21262d; border:1px solid #30363d; color:#c9d1d9; border-radius:4px; cursor:pointer; }
 .empty-evidence { color:#8b949e; font-size:13px; padding:8px 0; }
 .pill-list { display:flex; flex-wrap:wrap; gap:8px; }

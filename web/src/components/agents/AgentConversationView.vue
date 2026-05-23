@@ -15,8 +15,15 @@
         <div class="conv-toolbar">
           <button class="conv-tb-btn" @click="agentStore.expandAll()" title="Expand all">Expand all</button>
           <button class="conv-tb-btn" @click="agentStore.collapseAll()" title="Collapse all">Collapse all</button>
+          <button
+            class="conv-tb-btn"
+            :aria-pressed="rawPanelOpen"
+            @click="rawPanelOpen = !rawPanelOpen"
+          >{{ rawPanelOpen ? 'Hide raw LLM exchange' : 'Last raw LLM exchange' }}</button>
         </div>
       </div>
+
+      <RawLlmExchangePanel v-if="rawPanelOpen" :session-id="props.sessionId" />
 
       <div v-if="conversationWarning" class="conv-warning">
         {{ conversationWarning }}
@@ -33,7 +40,12 @@
               <span class="msg-role">{{ step.reasoning.role }}</span>
               <span class="msg-time" :title="timestampTitle(step.reasoning.timestamp)">{{ fmtTime(step.reasoning.timestamp) }}</span>
             </div>
-            <div class="msg-content" v-html="renderContent(step.reasoning)"></div>
+            <MarkdownText
+              v-if="step.reasoning.kind === 'text' && (step.reasoning.role === 'assistant' || step.reasoning.role === 'system')"
+              :source="step.reasoning.content"
+              class="msg-content"
+            />
+            <div v-else class="msg-content">{{ step.reasoning.content }}</div>
             <div v-if="step.reasoning.links?.length" class="msg-links">
               <button
                 v-for="link in step.reasoning.links"
@@ -63,7 +75,12 @@
               </span>
               <span class="tc-time" :title="timestampTitle(step.toolCall.timestamp)">{{ fmtTime(step.toolCall.timestamp) }}</span>
             </div>
-            <pre v-if="expandedToolCalls.has(step.toolCall.id)" class="tc-body">{{ expandedDetail(step.toolCall) }}</pre>
+            <CodeBlock
+              v-if="expandedToolCalls.has(step.toolCall.id)"
+              :code="expandedDetail(step.toolCall)"
+              language="json"
+              copyable
+            />
           </div>
 
           <div
@@ -81,7 +98,12 @@
               </span>
               <span class="tr-time" :title="timestampTitle(step.toolResult.timestamp)">{{ fmtTime(step.toolResult.timestamp) }}</span>
             </div>
-            <pre v-if="expandedToolCalls.has(step.toolResult.id)" class="tr-body" :class="{ 'tr-error': step.toolResult.kind === 'tool_error' }">{{ expandedDetail(step.toolResult) }}</pre>
+            <CodeBlock
+              v-if="expandedToolCalls.has(step.toolResult.id)"
+              :code="expandedDetail(step.toolResult)"
+              language="json"
+              copyable
+            />
           </div>
         </div>
       </div>
@@ -90,14 +112,18 @@
 </template>
 
 <script setup lang="ts">
-import { computed, watch, onMounted } from 'vue';
+import { computed, ref, watch, onMounted } from 'vue';
 import { useRouter } from 'vue-router';
 import { storeToRefs } from 'pinia';
 import { useAgentStore } from '../../stores/agents';
 import type { AgentMessage, EntityLink } from '../../api/types';
 import { createLogger } from '../../utils/logger';
 import { formatTimestamp, timestampTitle } from '../../utils/timestamp';
-import { presentToolCall, presentToolResult, formatExpandedDetail } from '../../utils/tool-presenters';
+import { presentToolCall, presentToolResult, safeJsonParse } from '../../utils/tool-presenters';
+import { formatJson } from '../../utils/format-json';
+import CodeBlock from '../code/CodeBlock.vue';
+import MarkdownText from '../code/MarkdownText.vue';
+import RawLlmExchangePanel from './RawLlmExchangePanel.vue';
 
 const log = createLogger('comp:agent-conv');
 
@@ -107,25 +133,10 @@ const router = useRouter();
 const agentStore = useAgentStore();
 const { currentSession, steps, expandedToolCalls, loading, error, conversationWarning } = storeToRefs(agentStore);
 const errorMsg = computed(() => error.value);
+const rawPanelOpen = ref(false);
 
 function fmtTime(ts: string): string {
   return formatTimestamp(ts, 'timeOnly');
-}
-
-function esc(text: string): string {
-  return text.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-}
-
-function renderContent(msg: AgentMessage): string {
-  if (msg.kind === 'text' && (msg.role === 'assistant' || msg.role === 'system')) {
-    let out = esc(msg.content);
-    out = out.replace(/```(\w*)\n([\s\S]*?)```/g, '<pre class="code-block"><code>$2</code></pre>');
-    out = out.replace(/`([^`]+)`/g, '<code class="inline-code">$1</code>');
-    out = out.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
-    out = out.replace(/\n/g, '<br>');
-    return out;
-  }
-  return esc(msg.content);
 }
 
 function toolCallView(msg: AgentMessage) {
@@ -137,7 +148,8 @@ function toolResultView(msg: AgentMessage) {
 }
 
 function expandedDetail(msg: AgentMessage): string {
-  return formatExpandedDetail(msg.content);
+  const parsed = safeJsonParse(msg.content);
+  return parsed === null ? msg.content : formatJson(parsed);
 }
 
 function linkLabel(link: EntityLink): string {
@@ -169,6 +181,7 @@ onMounted(async () => {
   try { await agentStore.fetchConversation(props.sessionId); } catch (err) { log.error('fetch', err); }
 });
 watch(() => props.sessionId, async (nid) => {
+  rawPanelOpen.value = false;
   if (nid) { try { await agentStore.fetchConversation(nid); } catch (err) { log.error('fetch', err); } }
 });
 </script>
@@ -203,8 +216,6 @@ watch(() => props.sessionId, async (nid) => {
 .role-system .msg-role { color:#8b949e; }
 .msg-time { font-size:10px; color:#484f58; }
 .msg-content { font-size:13px; line-height:1.6; color:#c9d1d9; }
-.msg-content :deep(.code-block) { background:#0d1117; border:1px solid #30363d; border-radius:4px; padding:10px 12px; margin:8px 0; overflow-x:auto; font-size:12px; font-family:'SF Mono',monospace; }
-.msg-content :deep(.inline-code) { background:#21262d; padding:1px 5px; border-radius:3px; font-size:12px; font-family:'SF Mono',monospace; color:#d2a8ff; }
 .msg-content :deep(strong) { color:#f0f6fc; }
 .msg-links { display:flex; gap:4px; margin-top:6px; flex-wrap: wrap; }
 .msg-link { font-size:11px; padding:2px 6px; background:#1c2738; color:#58a6ff; border-radius:4px; border: 1px solid #30363d; cursor: pointer; }
@@ -222,6 +233,4 @@ watch(() => props.sessionId, async (nid) => {
 .tool-result.is-error .tr-headline { color:#f85149; }
 .tc-detail,.tr-detail { color:#8b949e; font-size:11px; font-family:'SF Mono',monospace; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:240px; }
 .tc-time,.tr-time { font-size:10px; color:#484f58; margin-left:auto; }
-.tc-body,.tr-body { margin:0; padding:8px 12px 12px; font-size:12px; font-family:'SF Mono',monospace; line-height:1.5; white-space:pre-wrap; word-break:break-word; background:#0d1117; border-top:1px solid #21262d; color:#c9d1d9; overflow-x:auto; }
-.tr-body.tr-error { background:#241818; color:#f85149; }
 </style>

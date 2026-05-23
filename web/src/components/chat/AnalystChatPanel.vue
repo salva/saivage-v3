@@ -72,7 +72,12 @@
                 <span class="tool-chip-caret" aria-hidden="true">{{ expandedIds.has(item.id) ? '▾' : '▸' }}</span>
               </span>
             </button>
-            <pre v-if="expandedIds.has(item.id)" class="tool-chip-detail">{{ toolChipDetail(item) }}</pre>
+            <CodeBlock
+              v-if="expandedIds.has(item.id)"
+              :code="toolChipDetail(item)"
+              language="json"
+              copyable
+            />
           </template>
           <template v-else>
             <div class="message-bubble">{{ item.content }}</div>
@@ -125,7 +130,9 @@ import { computed, nextTick, onMounted, ref, watch } from 'vue';
 import { storeToRefs } from 'pinia';
 import { useAnalystChat } from '../../stores/analystChat';
 import type { ChatMessage } from '../../api/types';
-import { presentToolCall, presentToolResult, formatExpandedDetail } from '../../utils/tool-presenters';
+import { presentToolCall, presentToolResult, safeJsonParse } from '../../utils/tool-presenters';
+import { formatJson } from '../../utils/format-json';
+import CodeBlock from '../code/CodeBlock.vue';
 
 const chat = useAnalystChat();
 const {
@@ -213,7 +220,8 @@ function toolChipAriaLabel(message: ChatMessage): string {
 }
 
 function toolChipDetail(message: ChatMessage): string {
-  return formatExpandedDetail(message.content);
+  const parsed = safeJsonParse(message.content);
+  return parsed === null ? message.content : formatJson(parsed);
 }
 
 function toggleExpanded(id: string): void {
@@ -413,15 +421,6 @@ onMounted(() => {
   color: #79c0ff;
   font-size: 12px;
   white-space: nowrap;
-}
-
-.tool-chip-detail {
-  margin: 0;
-  padding: 12px;
-  border-radius: 8px;
-  background: #0d1117;
-  color: #8b949e;
-  overflow: auto;
 }
 
 .message-badges {

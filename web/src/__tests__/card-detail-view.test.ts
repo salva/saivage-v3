@@ -122,8 +122,8 @@ describe('CardDetailView generated file inspection', () => {
     primeStore(pinia, { result: { planning: { status: 'blocked', blocked_reason: 'needs input' } } });
     const wrapper = mount(CardDetailView, { props: { cardId: 'card-1' }, global: { plugins: [pinia] } });
     await flushPromises();
-    const code = wrapper.get('section.detail-section pre.detail-json code');
-    expect(code.text()).toContain('\n  "planning": {\n');
+    const code = wrapper.get('section.detail-section .code-block');
+    expect(code.text()).toContain('"planning":');
     expect(code.text()).toContain('"blocked_reason": "needs input"');
     expect(wrapper.html()).toMatchSnapshot();
   });

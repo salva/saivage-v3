@@ -46,6 +46,22 @@ export {
   safeParseOperatorResponse,
 } from './operator-api.js';
 
+export {
+  exchangeAttemptSchema,
+  exchangeErrorMetaSchema,
+  exchangeRequestMetaSchema,
+  exchangeResponseMetaSchema,
+  llmExchangeSchema,
+} from './llm-exchange.js';
+
+export type {
+  ExchangeAttempt,
+  ExchangeErrorMeta,
+  ExchangeRequestMeta,
+  ExchangeResponseMeta,
+  LlmExchange,
+} from './llm-exchange.js';
+
 export type {
   AvailabilityComponent,
   AvailabilityState,

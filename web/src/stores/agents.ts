@@ -16,7 +16,8 @@ import type {
   AgentConversationResponse,
   FreshnessState,
 } from '../api/types';
-import { listAgentSessions, getAgentConversation, ApiError } from '../api/client';
+import { listAgentSessions, getAgentConversation, getAgentLlmExchange, ApiError } from '../api/client';
+import type { LlmExchange } from '../api/contracts';
 import { useWsStore } from './ws';
 import { createLogger } from '../utils/logger';
 
@@ -97,6 +98,13 @@ export const useAgentStore = defineStore('agents', () => {
   /** Which tool calls are expanded (by message id). */
   const expandedToolCalls = ref<Set<string>>(new Set());
 
+  // ── LLM exchange state ─────────────────────────────────────
+
+  const currentLlmExchange = ref<LlmExchange | null>(null);
+  const llmExchangeLoading = ref(false);
+  const llmExchangeError = ref<string | null>(null);
+  const llmExchangeSessionId = ref<string | null>(null);
+
   // ── Getters ────────────────────────────────────────────────
 
   const steps = computed<MessageStep[]>(() => groupIntoSteps(messages.value));
@@ -170,6 +178,7 @@ export const useAgentStore = defineStore('agents', () => {
 
   /** Fetch conversation for a specific agent session. */
   async function fetchConversation(sessionId: string): Promise<void> {
+    clearLlmExchange();
     loading.value = true;
     error.value = null;
     conversationWarning.value = null;
@@ -235,6 +244,40 @@ export const useAgentStore = defineStore('agents', () => {
         conversationWarning.value = 'Conversation includes tool/model failures or repairs; inspect linked evidence carefully.';
       }
     }
+  }
+
+  // ── LLM exchange actions ───────────────────────────────────
+
+  async function fetchLlmExchange(sessionId: string): Promise<void> {
+    llmExchangeSessionId.value = sessionId;
+    llmExchangeLoading.value = true;
+    llmExchangeError.value = null;
+    try {
+      const { exchange } = await getAgentLlmExchange(sessionId);
+      if (llmExchangeSessionId.value === sessionId) {
+        currentLlmExchange.value = exchange;
+      }
+    } catch (err) {
+      if (llmExchangeSessionId.value !== sessionId) return;
+      if (err instanceof ApiError && err.isNotFound) {
+        currentLlmExchange.value = null;
+        llmExchangeError.value = null;
+      } else {
+        currentLlmExchange.value = null;
+        llmExchangeError.value = err instanceof Error ? err.message : String(err);
+      }
+    } finally {
+      if (llmExchangeSessionId.value === sessionId) {
+        llmExchangeLoading.value = false;
+      }
+    }
+  }
+
+  function clearLlmExchange(): void {
+    currentLlmExchange.value = null;
+    llmExchangeLoading.value = false;
+    llmExchangeError.value = null;
+    llmExchangeSessionId.value = null;
   }
 
   // ── Tool Call Expansion ────────────────────────────────────
@@ -334,6 +377,10 @@ export const useAgentStore = defineStore('agents', () => {
     lastUpdatedBy,
     unauthorized,
     conversationWarning,
+    currentLlmExchange,
+    llmExchangeLoading,
+    llmExchangeError,
+    llmExchangeSessionId,
 
     // Getters
     steps,
@@ -353,5 +400,7 @@ export const useAgentStore = defineStore('agents', () => {
     expandAll,
     collapseAll,
     setupWsListener,
+    fetchLlmExchange,
+    clearLlmExchange,
   };
 });

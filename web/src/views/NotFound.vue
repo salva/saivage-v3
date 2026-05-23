@@ -5,7 +5,7 @@
       <h1 id="not-found-heading">404 — Not found</h1>
       <p class="not-found-copy">
         No operator surface is registered for
-        <code>{{ requestedPath }}</code>.
+        <code class="inline-token">{{ requestedPath }}</code>.
       </p>
       <div class="not-found-actions">
         <RouterLink class="not-found-link" to="/dashboard">Back to Dashboard</RouterLink>

@@ -1,3 +1,4 @@
+import 'highlight.js/styles/github-dark.css';
 import { createApp } from 'vue';
 import { createPinia } from 'pinia';
 import { createRouter, createWebHistory, type RouteRecordRaw } from 'vue-router';

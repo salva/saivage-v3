@@ -57,3 +57,6 @@ export type {
   WsEnvelopeContract,
   WsEventType,
 } from '../../../src/contracts/operator-events';
+
+export { llmExchangeSchema } from '../../../src/contracts/llm-exchange';
+export type { LlmExchange } from '../../../src/contracts/llm-exchange';

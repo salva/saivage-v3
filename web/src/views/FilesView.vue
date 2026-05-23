@@ -113,9 +113,9 @@
       </div>
       <div v-else-if="viewedFile" class="viewer-content">
         <div v-if="viewedFile.redacted" class="viewer-redaction-notice">Sensitive values were redacted by the server.</div>
-        <pre v-if="isJsonContent" class="json-view">{{ fmtJson(viewedFile.content) }}</pre>
-        <div v-else-if="isMarkdownContent" class="md-view" v-html="renderMarkdown(viewedFile.content)"></div>
-        <pre v-else class="plain-view">{{ viewedFile.content }}</pre>
+        <CodeBlock v-if="isJsonContent" :code="prettyJsonContent" language="json" copyable />
+        <MarkdownText v-else-if="isMarkdownContent" :source="viewedFile.content" />
+        <CodeBlock v-else :code="viewedFile.content" language="text" copyable wrap />
       </div>
     </div>
   </div>
@@ -128,6 +128,9 @@ import { storeToRefs } from 'pinia';
 import { useFileStore } from '../stores/files';
 import { createLogger } from '../utils/logger';
 import { formatTimestamp, isRecentTimestamp, timestampTitle } from '../utils/timestamp';
+import { formatJson } from '../utils/format-json';
+import CodeBlock from '../components/code/CodeBlock.vue';
+import MarkdownText from '../components/code/MarkdownText.vue';
 
 const log = createLogger('view:files');
 
@@ -195,23 +198,10 @@ function fmtDate(ts: string): string {
   return formatTimestamp(ts, isRecentTimestamp(ts) ? 'relative' : 'absolute');
 }
 
-function fmtJson(content: string): string {
-  try { return JSON.stringify(JSON.parse(content), null, 2); }
-  catch { return content; }
-}
-
-function esc(text: string): string {
-  return text.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-}
-
-function renderMarkdown(text: string): string {
-  let out = esc(text);
-  out = out.replace(/```(\w*)\n([\s\S]*?)```/g, '<pre class="code-block"><code>$2</code></pre>');
-  out = out.replace(/`([^`]+)`/g, '<code class="inline-code">$1</code>');
-  out = out.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
-  out = out.replace(/\n/g, '<br>');
-  return out;
-}
+const prettyJsonContent = computed(() => {
+  const raw = viewedFile.value?.content ?? '';
+  try { return formatJson(JSON.parse(raw)); } catch { return raw; }
+});
 
 async function fetchMetaFiles(): Promise<void> {
   try { await fileStore.fetchMetaFiles(); } catch { }
@@ -281,12 +271,6 @@ watch(() => route.query.path, () => {
 .viewer-state-warning { color:#d29922; background:#241f18; }
 .viewer-content { flex:1; overflow:auto; padding:12px; }
 .viewer-redaction-notice { margin-bottom:8px; padding:10px 12px; border-radius:6px; background:#1c2738; color:#c9d1d9; font-size:12px; }
-.json-view { margin:0; padding:12px; background:#0d1117; border:1px solid #21262d; border-radius:4px; font-size:12px; font-family:'SF Mono',monospace; line-height:1.5; white-space:pre-wrap; word-break:break-word; color:#c9d1d9; }
-.md-view { font-size:13px; line-height:1.6; color:#c9d1d9; }
-.md-view :deep(.code-block) { background:#0d1117; border:1px solid #30363d; border-radius:4px; padding:10px 12px; margin:8px 0; overflow-x:auto; font-size:12px; font-family:'SF Mono',monospace; }
-.md-view :deep(.inline-code) { background:#21262d; padding:1px 5px; border-radius:3px; font-size:12px; font-family:'SF Mono',monospace; color:#d2a8ff; }
-.md-view :deep(strong) { color:#f0f6fc; }
-.plain-view { margin:0; padding:12px; background:#0d1117; border:1px solid #21262d; border-radius:4px; font-size:12px; font-family:'SF Mono',monospace; line-height:1.5; white-space:pre-wrap; word-break:break-word; color:#c9d1d9; }
 .quarantine-footer { display:flex; align-items:center; gap:8px; padding:8px 12px; background:#1a1f24; border-top:1px solid #30363d; flex-shrink:0; }
 .quarantine-footer-label { font-size:10px; font-weight:600; color:#d29922; text-transform:uppercase; letter-spacing:.05em; }
 .quarantine-footer-btn { background:none; border:1px solid #30363d; border-radius:4px; color:#8b949e; cursor:pointer; font-size:11px; font-family:'SF Mono',monospace; padding:3px 8px; transition:all .15s; }

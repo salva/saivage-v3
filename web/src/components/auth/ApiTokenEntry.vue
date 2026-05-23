@@ -5,7 +5,7 @@
         <h2 class="token-title">API Token</h2>
         <p class="token-description">
           Enter an API token to access a secured Saivage deployment.
-          The token is stored in <code>localStorage</code> and sent with every API request.
+          The token is stored in <code class="inline-token">localStorage</code> and sent with every API request.
         </p>
 
         <form @submit.prevent="saveToken" class="token-form">

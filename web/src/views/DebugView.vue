@@ -190,7 +190,7 @@
                 <span class="error-time">{{ fmtDate(err.timestamp) }}</span>
               </div>
               <div class="error-message">{{ err.message }}</div>
-              <pre v-if="err.details" class="error-details">{{ err.details }}</pre>
+              <CodeBlock v-if="err.details" :code="err.details" language="text" copyable wrap />
             </div>
           </div>
         </div>
@@ -216,7 +216,7 @@
               <span v-if="event.goal_id" class="tl-event-card mono">Goal: {{ event.goal_id }}</span>
               <span v-if="event.session_id" class="tl-event-card mono">Session: {{ event.session_id }}</span>
               <span class="tl-event-time">{{ fmtDate(event.timestamp) }}</span>
-              <pre v-if="Object.keys(timelineDetails(event)).length" class="tl-event-data">{{ fmtJson(timelineDetails(event)) }}</pre>
+              <CodeBlock v-if="Object.keys(timelineDetails(event)).length" :code="formatJson(timelineDetails(event))" language="json" copyable />
             </div>
           </div>
         </template>
@@ -382,6 +382,8 @@ import { useDebugStore } from '../stores/debug';
 import { formatTimestamp, isRecentTimestamp } from '../utils/timestamp';
 import { redactObservabilityValue } from '../utils/observabilityRedaction';
 import { useMcpStore } from '../stores/mcp';
+import { formatJson } from '../utils/format-json';
+import CodeBlock from '../components/code/CodeBlock.vue';
 import type { DebugError, DebugTimelineEvent, ProcessView } from '../api/types';
 import NotificationsPanel from '../components/cards/NotificationsPanel.vue';
 
@@ -466,7 +468,6 @@ const maxStatusCount = computed(() => Math.max(...cardStatusEntries.value.map((e
 interface ErrorSourceEntry { source: string; errors: DebugError[] }
 const errorSourceEntries = computed<ErrorSourceEntry[]>(() => { const entries: ErrorSourceEntry[] = []; for (const [source, errs] of errorsBySource.value) entries.push({ source, errors: errs }); return entries; });
 function fmtDate(ts: string): string { return formatTimestamp(ts, isRecentTimestamp(ts) ? 'relative' : 'absolute'); }
-function fmtJson(data: Record<string, unknown>): string { try { return JSON.stringify(redactObservabilityValue(data), null, 2); } catch { return String(data); } }
 function formatEventKind(kind: string): string { return kind.replace(/_/g, ' '); }
 function timelineKey(event: DebugTimelineEvent): string { return String(event.id || `${event.timestamp}:${event.kind}:${event.card_id || event.goal_id || event.session_id || ''}`); }
 function timelineDetails(event: DebugTimelineEvent): Record<string, unknown> { const details: Record<string, unknown> = {}; for (const [key, value] of Object.entries(event)) { if (['id', 'kind', 'timestamp', 'card_id', 'goal_id', 'session_id'].includes(key)) continue; if (value === undefined || value === null) continue; details[key] = value; } return redactObservabilityValue(details); }
@@ -573,7 +574,6 @@ onUnmounted(() => { mcpStore.stopPolling(); });
 .error-type { font-size:11px; color:#c9d1d9; font-family:'SF Mono',monospace; }
 .error-time { font-size:10px; color:#484f58; margin-left:auto; }
 .error-message { font-size:13px; color:#c9d1d9; }
-.error-details { margin:6px 0 0; padding:8px; background:#0d1117; border:1px solid #21262d; border-radius:4px; font-size:11px; font-family:'SF Mono',monospace; line-height:1.5; white-space:pre-wrap; word-break:break-word; color:#8b949e; }
 .timeline-filter { display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom:12px; padding:10px; background:#161b22; border:1px solid #21262d; border-radius:6px; }
 .timeline-filter-label { font-size:12px; color:#8b949e; font-weight:600; }
 .timeline-filter-select { min-width:220px; max-width:340px; min-height:76px; background:#0d1117; color:#c9d1d9; border:1px solid #30363d; border-radius:4px; padding:6px; font-family:inherit; font-size:12px; }
@@ -583,7 +583,6 @@ onUnmounted(() => { mcpStore.stopPolling(); });
 .tl-event-type { font-family:'SF Mono',monospace; font-size:11px; color:#58a6ff; font-weight:500; }
 .tl-event-card { font-size:10px; color:#8b949e; }
 .tl-event-time { font-size:10px; color:#484f58; margin-left:auto; }
-.tl-event-data { width:100%; margin-top:4px; padding:6px; background:#0d1117; border:1px solid #21262d; border-radius:4px; font-size:10px; font-family:'SF Mono',monospace; line-height:1.4; white-space:pre-wrap; word-break:break-word; color:#8b949e; max-height:100px; overflow-y:auto; }
 .mcp-server-badge { font-size:10px; font-weight:600; padding:1px 5px; border-radius:4px; text-transform:uppercase; margin-left:8px; }
 .mcp-server-badge.mcp-status-running { background:#1a2418; color:#7ee787; }
 .mcp-server-badge.mcp-status-stopped { background:#21262d; color:#8b949e; }

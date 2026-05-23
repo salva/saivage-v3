@@ -5,6 +5,7 @@ import { useAgentStore } from '../stores/agents';
 vi.mock('../api/client', () => ({
   listAgentSessions: vi.fn(),
   getAgentConversation: vi.fn(),
+  getAgentLlmExchange: vi.fn(),
   ApiError: class extends Error {
     status: number;
     body: Record<string, unknown>;
@@ -19,7 +20,7 @@ vi.mock('../api/client', () => ({
   },
 }));
 
-import { listAgentSessions, getAgentConversation, ApiError } from '../api/client';
+import { listAgentSessions, getAgentConversation, getAgentLlmExchange, ApiError } from '../api/client';
 
 const wsTypeHandlers = new Map<string, Set<(envelope: any) => void>>();
 const wsReconnectHandlers = new Set<() => void>();
@@ -406,6 +407,126 @@ describe('useAgentStore', () => {
 
       expect(listAgentSessions).toHaveBeenCalledOnce();
       expect(getAgentConversation).toHaveBeenCalledWith('session-001');
+    });
+  });
+
+  describe('fetchLlmExchange()', () => {
+    const mockExchange = {
+      sessionId: 'session-001',
+      capturedAt: '2026-05-23T10:00:00.000Z',
+      transport: 'generic' as const,
+      candidate: { provider: 'test-provider', model: 'test-model' },
+      attempts: [
+        {
+          attempt: 0,
+          startedAt: '2026-05-23T10:00:00.000Z',
+          completedAt: '2026-05-23T10:00:01.000Z',
+          status: 'ok' as const,
+          request: {
+            endpoint: 'https://example.test/v1/chat',
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: { messages: [] },
+          },
+          response: {
+            status: 200,
+            headers: {},
+            bodyRaw: '{"ok":true}',
+            bodyParsed: { ok: true },
+          },
+        },
+      ],
+    };
+
+    it('populates currentLlmExchange on success', async () => {
+      const store = setupStore();
+      vi.mocked(getAgentLlmExchange).mockResolvedValue({ exchange: mockExchange });
+
+      await store.fetchLlmExchange('session-001');
+
+      expect(getAgentLlmExchange).toHaveBeenCalledWith('session-001');
+      expect(store.currentLlmExchange).toEqual(mockExchange);
+      expect(store.llmExchangeLoading).toBe(false);
+      expect(store.llmExchangeError).toBeNull();
+      expect(store.llmExchangeSessionId).toBe('session-001');
+    });
+
+    it('treats 404 as the empty state (no exchange, no error)', async () => {
+      const store = setupStore();
+      vi.mocked(getAgentLlmExchange).mockRejectedValue(new ApiError(404, 'No LLM exchange recorded for this session yet.', {}));
+
+      await store.fetchLlmExchange('session-001');
+
+      expect(store.currentLlmExchange).toBeNull();
+      expect(store.llmExchangeError).toBeNull();
+      expect(store.llmExchangeLoading).toBe(false);
+    });
+
+    it('populates llmExchangeError on generic 500', async () => {
+      const store = setupStore();
+      vi.mocked(getAgentLlmExchange).mockRejectedValue(new ApiError(500, 'Corrupted LLM exchange record.', {}));
+
+      await store.fetchLlmExchange('session-001');
+
+      expect(store.currentLlmExchange).toBeNull();
+      expect(store.llmExchangeError).toBe('Corrupted LLM exchange record.');
+      expect(store.llmExchangeLoading).toBe(false);
+    });
+
+    it('populates llmExchangeError on 401 auth error', async () => {
+      const store = setupStore();
+      vi.mocked(getAgentLlmExchange).mockRejectedValue(new ApiError(401, 'Unauthorized', {}));
+
+      await store.fetchLlmExchange('session-001');
+
+      expect(store.currentLlmExchange).toBeNull();
+      expect(store.llmExchangeError).toBe('Unauthorized');
+      expect(store.llmExchangeLoading).toBe(false);
+    });
+
+    it('clearLlmExchange() resets all LLM exchange state', async () => {
+      const store = setupStore();
+      vi.mocked(getAgentLlmExchange).mockResolvedValue({ exchange: mockExchange });
+      await store.fetchLlmExchange('session-001');
+
+      store.clearLlmExchange();
+
+      expect(store.currentLlmExchange).toBeNull();
+      expect(store.llmExchangeLoading).toBe(false);
+      expect(store.llmExchangeError).toBeNull();
+      expect(store.llmExchangeSessionId).toBeNull();
+    });
+
+    it('fetchConversation() clears stale LLM exchange when switching sessions', async () => {
+      const store = setupStore();
+      vi.mocked(getAgentLlmExchange).mockResolvedValue({ exchange: mockExchange });
+      await store.fetchLlmExchange('session-001');
+      expect(store.currentLlmExchange).toEqual(mockExchange);
+
+      vi.mocked(getAgentConversation).mockResolvedValue(mockConversationResponse);
+      await store.fetchConversation('session-002');
+
+      expect(store.currentLlmExchange).toBeNull();
+      expect(store.llmExchangeSessionId).toBeNull();
+    });
+
+    it('later session wins when two fetches race', async () => {
+      const store = setupStore();
+      const otherExchange = { ...mockExchange, sessionId: 'session-other' };
+      let resolveFirst: (v: { exchange: typeof mockExchange }) => void = () => {};
+      const firstPromise = new Promise<{ exchange: typeof mockExchange }>((resolve) => { resolveFirst = resolve; });
+      vi.mocked(getAgentLlmExchange)
+        .mockImplementationOnce(() => firstPromise)
+        .mockResolvedValueOnce({ exchange: otherExchange });
+
+      const p1 = store.fetchLlmExchange('session-001');
+      const p2 = store.fetchLlmExchange('session-other');
+      await p2;
+      resolveFirst({ exchange: mockExchange });
+      await p1;
+
+      expect(store.currentLlmExchange).toEqual(otherExchange);
+      expect(store.llmExchangeSessionId).toBe('session-other');
     });
   });
 });

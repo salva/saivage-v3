@@ -14,6 +14,7 @@ import {
 } from './provider-capabilities.js';
 import { redactTextForOutbound } from '../redaction/index.js';
 import type { AgentMessage } from '../schemas/index.js';
+import type { LlmExchangeRecorder } from './llm-exchange-recorder.js';
 
 // ── Tool Calling Types ────────────────────────────────────────
 
@@ -75,6 +76,12 @@ export interface LlmCompleteOptions {
    * - {type:'function', function:{name:'...'}}: force a specific tool
    */
   tool_choice?: 'auto' | 'none' | 'required' | { type: 'function'; function: { name: string } };
+  /**
+   * Optional raw-exchange recorder. When provided, the client invokes
+   * `beginExchange` per attempt and calls `recordResponse`/`recordError` to
+   * persist a redacted snapshot of the live LLM HTTP exchange.
+   */
+  recorder?: LlmExchangeRecorder;
 }
 
 // ── Structured Error Types ────────────────────────────────────
@@ -199,6 +206,56 @@ interface CodexTool {
 
 const OPENAI_CODEX_JWT_CLAIM = 'https://api.openai.com/auth';
 
+const STREAM_TEE_MAX_BYTES = 16 * 1024 * 1024;
+
+/**
+ * Wrap a `ReadableStream<Uint8Array>` so each chunk is forwarded unchanged to
+ * the consumer while a UTF-8-decoded copy is appended to an internal buffer
+ * (capped at {@link STREAM_TEE_MAX_BYTES}). When the cap is exceeded a single
+ * `\n[truncated at 16 MiB]\n` marker is appended and further accumulation
+ * stops. The original byte stream is consumed once; the new stream replays
+ * the same bytes to its single consumer.
+ */
+function teeStreamForRecorder(body: ReadableStream<Uint8Array>): {
+  stream: ReadableStream<Uint8Array>;
+  getBuffer: () => string;
+} {
+  const decoder = new TextDecoder('utf-8', { fatal: false });
+  let buf = '';
+  let truncated = false;
+
+  const stream = new ReadableStream<Uint8Array>({
+    async start(controller): Promise<void> {
+      const reader = body.getReader();
+      try {
+        for (;;) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          if (!truncated) {
+            const text = decoder.decode(value, { stream: true });
+            if (buf.length + text.length > STREAM_TEE_MAX_BYTES) {
+              const remaining = Math.max(0, STREAM_TEE_MAX_BYTES - buf.length);
+              buf += text.slice(0, remaining) + '\n[truncated at 16 MiB]\n';
+              truncated = true;
+            } else {
+              buf += text;
+            }
+          }
+          controller.enqueue(value);
+        }
+        if (!truncated) buf += decoder.decode();
+        controller.close();
+      } catch (err) {
+        controller.error(err);
+      } finally {
+        try { reader.releaseLock(); } catch { /* noop */ }
+      }
+    },
+  });
+
+  return { stream, getBuffer: () => buf };
+}
+
 // ── Conversions ───────────────────────────────────────────────
 
 /**
@@ -319,15 +376,46 @@ export class LlmClient {
       headers['Authorization'] = `Bearer ${this.apiKey}`;
     }
 
+    const recorder = opts?.recorder;
+    const handle = recorder
+      ? await recorder.beginExchange({
+          transport: 'generic',
+          candidate: { provider: candidate.provider, model: candidate.model, account: candidate.account ?? undefined },
+          request: { endpoint: url, method: 'POST', headers, body: requestBody },
+        })
+      : undefined;
+    let recordedErr = false;
+    let rawText: string | undefined;
+
     try {
-      const response = await fetch(url, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify(requestBody),
-        signal,
-      });
+      let response: Response;
+      try {
+        response = await fetch(url, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify(requestBody),
+          signal,
+        });
+      } catch (err) {
+        if (handle) {
+          recordedErr = true;
+          const e = err as Error;
+          await handle.recordError({ errorName: e.name, message: e.message, bodyRaw: null });
+        }
+        throw err;
+      }
 
       if (!response.ok) {
+        if (handle) {
+          recordedErr = true;
+          const errBody = await response.clone().text().catch(() => null);
+          await handle.recordError({
+            errorName: 'LlmServerError',
+            message: `HTTP ${response.status}`,
+            status: response.status,
+            bodyRaw: errBody,
+          });
+        }
         await this.handleHttpError(response);
       }
 
@@ -335,11 +423,21 @@ export class LlmClient {
         if (!response.body) {
           throw new LlmServerError('Streaming response has no body', response.status);
         }
+        if (handle) {
+          const tee = teeStreamForRecorder(response.body);
+          const result = await this.readStream(tee.stream);
+          await handle.recordResponse({
+            status: response.status,
+            bodyRaw: tee.getBuffer(),
+            bodyParsed: result,
+          });
+          return result;
+        }
         return await this.readStream(response.body);
       }
 
       // Non-streaming: parse JSON
-      const rawText = await response.text();
+      rawText = await response.text();
       let parsed: ChatCompletionResponse;
       try {
         parsed = JSON.parse(rawText) as ChatCompletionResponse;
@@ -367,8 +465,23 @@ export class LlmClient {
       // Extract tool_calls if present
       const toolCalls: ToolCall[] = message?.tool_calls ?? [];
 
-      return { content, toolCalls, finishReason };
+      const result: LlmCompleteResult = { content, toolCalls, finishReason };
+      if (handle) {
+        await handle.recordResponse({ status: response.status, bodyRaw: rawText, bodyParsed: parsed });
+      }
+      return result;
     } catch (err) {
+      if (handle && !recordedErr) {
+        const e = err as Error;
+        const status = err instanceof LlmServerError ? err.statusCode : undefined;
+        await handle.recordError({
+          errorName: e.name ?? 'Error',
+          message: e.message ?? String(err),
+          status,
+          bodyRaw: rawText ?? null,
+        });
+      }
+
       // Re-throw structured errors as-is
       if (
         err instanceof LlmAuthError ||
@@ -453,54 +566,130 @@ export class LlmClient {
       'OpenAI-Beta': 'responses=experimental',
     };
 
-    try {
-      let response = await fetch(this.openAICodexResponsesUrl(), {
-        method: 'POST',
-        headers,
-        body: JSON.stringify(body),
-        signal: opts?.signal,
-      });
+    const endpoint = this.openAICodexResponsesUrl();
+    const recorder = opts?.recorder;
+    const recorderCandidate = {
+      provider: candidate.provider,
+      model: candidate.model,
+      account: candidate.account ?? undefined,
+    };
 
-      if (!response.ok) {
-        if (await this.isUnsupportedCodexMaxOutputTokensQuirk(response)) {
-          const retryBody = { ...body };
-          delete retryBody.max_output_tokens;
-          response = await fetch(this.openAICodexResponsesUrl(), {
-            method: 'POST',
-            headers,
-            body: JSON.stringify(retryBody),
-            signal: opts?.signal,
-          });
-        }
+    // Codex retries once on the `Unsupported parameter: max_output_tokens`
+    // quirk. Each attempt opens its own recorder handle so the on-disk file
+    // captures attempt 0 (error) and attempt 1 (ok) as separate entries.
+    let attemptBody: Record<string, unknown> = body;
+    let attemptIndex = 0;
+    const maxAttempts = 2;
+
+    while (attemptIndex < maxAttempts) {
+      const handle = recorder
+        ? await recorder.beginExchange({
+            transport: 'codex',
+            candidate: recorderCandidate,
+            request: { endpoint, method: 'POST', headers, body: attemptBody },
+          })
+        : undefined;
+      let recordedErr = false;
+      let streamBuffer: string | undefined;
+
+      try {
+        const response = await fetch(endpoint, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify(attemptBody),
+          signal: opts?.signal,
+        }).catch((err: unknown) => {
+          if (handle) {
+            recordedErr = true;
+            const e = err as Error;
+            return handle
+              .recordError({ errorName: e.name, message: e.message, bodyRaw: null })
+              .then(() => { throw err; });
+          }
+          throw err;
+        });
+
         if (!response.ok) {
+          if (await this.isUnsupportedCodexMaxOutputTokensQuirk(response)) {
+            if (handle) {
+              recordedErr = true;
+              const errBody = await response.clone().text().catch(() => null);
+              await handle.recordError({
+                errorName: 'LlmServerError',
+                message: `HTTP ${response.status}`,
+                status: response.status,
+                bodyRaw: errBody,
+              });
+            }
+            if (attemptIndex + 1 < maxAttempts) {
+              const retryBody = { ...attemptBody };
+              delete retryBody.max_output_tokens;
+              attemptBody = retryBody;
+              attemptIndex += 1;
+              continue;
+            }
+          }
+          if (handle && !recordedErr) {
+            recordedErr = true;
+            const errBody = await response.clone().text().catch(() => null);
+            await handle.recordError({
+              errorName: 'LlmServerError',
+              message: `HTTP ${response.status}`,
+              status: response.status,
+              bodyRaw: errBody,
+            });
+          }
           await this.handleHttpError(response);
         }
-      }
-      if (!response.body) {
-        throw new LlmServerError('OpenAI Codex streaming response has no body', response.status);
-      }
+        if (!response.body) {
+          throw new LlmServerError('OpenAI Codex streaming response has no body', response.status);
+        }
 
-      return await this.readOpenAICodexStream(response.body);
-    } catch (err) {
-      if (
-        err instanceof LlmAuthError ||
-        err instanceof LlmRateLimitError ||
-        err instanceof LlmServerError ||
-        err instanceof LlmTimeoutError ||
-        err instanceof LlmParseError
-      ) {
-        throw err;
+        if (handle) {
+          const tee = teeStreamForRecorder(response.body);
+          const result = await this.readOpenAICodexStream(tee.stream);
+          streamBuffer = tee.getBuffer();
+          await handle.recordResponse({
+            status: response.status,
+            bodyRaw: streamBuffer,
+            bodyParsed: result,
+          });
+          return result;
+        }
+        return await this.readOpenAICodexStream(response.body);
+      } catch (err) {
+        if (handle && !recordedErr) {
+          const e = err as Error;
+          const status = err instanceof LlmServerError ? err.statusCode : undefined;
+          await handle.recordError({
+            errorName: e.name ?? 'Error',
+            message: e.message ?? String(err),
+            status,
+            bodyRaw: streamBuffer ?? null,
+          });
+        }
+        if (
+          err instanceof LlmAuthError ||
+          err instanceof LlmRateLimitError ||
+          err instanceof LlmServerError ||
+          err instanceof LlmTimeoutError ||
+          err instanceof LlmParseError
+        ) {
+          throw err;
+        }
+        if (err instanceof DOMException && err.name === 'AbortError') {
+          throw new LlmTimeoutError('OpenAI Codex request aborted due to timeout');
+        }
+        if (err instanceof TypeError) {
+          throw new LlmServerError(`Network error calling OpenAI Codex: ${err.message}`);
+        }
+        throw new LlmServerError(
+          `Unexpected error calling OpenAI Codex: ${err instanceof Error ? err.message : String(err)}`,
+        );
       }
-      if (err instanceof DOMException && err.name === 'AbortError') {
-        throw new LlmTimeoutError('OpenAI Codex request aborted due to timeout');
-      }
-      if (err instanceof TypeError) {
-        throw new LlmServerError(`Network error calling OpenAI Codex: ${err.message}`);
-      }
-      throw new LlmServerError(
-        `Unexpected error calling OpenAI Codex: ${err instanceof Error ? err.message : String(err)}`,
-      );
     }
+
+    throw new LlmServerError('OpenAI Codex retry budget exhausted');
   }
 
 

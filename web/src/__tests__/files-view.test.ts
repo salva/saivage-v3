@@ -142,7 +142,7 @@ describe('FilesView', () => {
     await wrapper.findAll('.file-list')[0].findAll('.file-entry')[1].trigger('click');
     await flushPromises();
 
-    expect(wrapper.find('.json-view').exists()).toBe(true);
+    expect(wrapper.find('.code-block').exists()).toBe(true);
   });
 
   it('shows redaction notice for successful redacted preview', async () => {
@@ -202,7 +202,7 @@ describe('FilesView', () => {
 
     await wrapper.findAll('.file-list')[0].findAll('.file-entry')[1].trigger('click');
     await flushPromises();
-    expect(wrapper.find('.json-view').exists()).toBe(true);
+    expect(wrapper.find('.code-block').exists()).toBe(true);
 
     await wrapper.findAll('.file-list')[0].findAll('.file-entry')[0].trigger('click');
     await flushPromises();
