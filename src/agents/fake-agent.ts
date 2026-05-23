@@ -1,10 +1,10 @@
 import { readFileSync, existsSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
-import type { ReviewAssessment, CardStatus, ArtifactRef, AgentMessage, HandoffSummary, AgentSession } from '../schemas/types.js';
+import type { ReviewAssessment, CardStatus, ArtifactRef, AgentMessage, HandoffSummary, AgentSession } from '../schemas/index.js';
 import type { AgentRuntime } from '../agents/agent-runtime.js';
 import { appendMessage, completeSession, createSession, markSessionWaiting } from '../agents/session-persistence.js';
 import type { PlannerResult, ExecutorResult, ReviewerResult, PlannerStatus } from '../agents/result-parser.js';
-import { appendRuntimeRun, readRuntimeState, upsertRuntimeActivation } from '../runtime/state.js';
+import { appendRuntimeRun, readRuntimeState, upsertRuntimeActivation } from '../runtime/index.js';
 
 export interface FakeArtifactDef {
   sourceFile: string;

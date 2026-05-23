@@ -1,4 +1,4 @@
-import type { McpToolAnnotations } from '../mcp/mcp-manager.js';
+import type { McpToolAnnotations } from '../mcp/index.js';
 import { TOOL_TO_CARD_ACTION } from '../permissions/index.js';
 
 export type RoleToolPolicyRole = 'planner' | 'executor' | 'reviewer' | 'analyst';

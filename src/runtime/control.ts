@@ -1,7 +1,7 @@
 import { readRuntimeState, updateRuntimeState } from './state.js';
 import type { ActiveRuntime } from './active-runtime.js';
-import { enqueueRuntimeStateNotifications } from '../notifications/notification-triggers.js';
-import type { RuntimeState } from '../schemas/types.js';
+import { enqueueRuntimeStateNotifications } from '../notifications/index.js';
+import type { RuntimeState } from '../schemas/index.js';
 
 /**
  * Shared runtime-control authority for pause/resume semantics.

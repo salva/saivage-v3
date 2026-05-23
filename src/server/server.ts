@@ -14,14 +14,14 @@ import { registerChatsFilesDebugRoutes, resetChatRouteState } from './routes/cha
 import { registerEventsRoute } from './routes/events.js';
 import { registerProcessRoutes } from './routes/processes.js';
 import { registerWebSocket, resetRuntimeEventSubscriptions, resetWebSocketState, wireRuntimeEvents } from './websocket.js';
-import { loadConfig, type SaivageConfig } from '../agents/config-schema.js';
-import type { Environment } from '../config/environment.js';
+import { loadConfig, type SaivageConfig } from '../agents/index.js';
+import type { Environment } from '../config/index.js';
 import { McpManager } from '../mcp/index.js';
 import { TelegramBot } from '../telegram/index.js';
-import { createNotificationDeliveryService, setProjectNotificationDeliveryAdapters, clearProjectNotificationDeliveryAdapters } from '../notifications/notification-delivery.js';
-import { TelegramNotificationDeliveryAdapter, buildTelegramStartupDiagnosticSummary, evaluateTelegramRecipientReadiness, normalizeTelegramNotificationChatIds } from '../telegram/recipients.js';
-import { ActiveRuntime } from '../runtime/lifecycle.js';
-import { buildCardRunsResponse, markGoalNeedsCorrections, normalizeAnalystIssues } from '../agents/analyst-stage6.js';
+import { createNotificationDeliveryService, setProjectNotificationDeliveryAdapters, clearProjectNotificationDeliveryAdapters } from '../notifications/index.js';
+import { TelegramNotificationDeliveryAdapter, buildTelegramStartupDiagnosticSummary, evaluateTelegramRecipientReadiness, normalizeTelegramNotificationChatIds } from '../telegram/index.js';
+import { ActiveRuntime } from '../runtime/index.js';
+import { buildCardRunsResponse, markGoalNeedsCorrections, normalizeAnalystIssues } from '../agents/index.js';
 import { buildServerAvailability, type ServerAvailabilityInputs } from './availability.js';
 import { createResourceScope, type ResourceScope } from '../lifecycle/index.js';
 

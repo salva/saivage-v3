@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { operatorBroadcastEventKindValues, type OperatorBroadcastEventKind } from '../events/registry.js';
+import { operatorBroadcastEventKindValues, type OperatorBroadcastEventKind } from '../events/index.js';
 import {
   actionableErrorEnvelopeSchema,
   cardStatusSchema,
@@ -8,7 +8,7 @@ import {
   runtimeActivationRecordSchema,
   runtimeCommandRecordSchema,
   runtimeRunRecordSchema,
-} from '../schemas/validators.js';
+} from '../schemas/index.js';
 import { CardIndexSummarySchema, CardStoreHealthSchema, RuntimeGetStateResponseSchema, ServerAvailabilitySchema } from './operator-api.js';
 
 export const WsEventTypeSchema = z.enum(['message', 'activity', 'thinking', 'status', 'error']);

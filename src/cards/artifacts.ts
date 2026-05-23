@@ -1,7 +1,7 @@
 import { copyFileSync, existsSync, mkdirSync, statSync, unlinkSync } from 'node:fs';
 import { join, basename } from 'node:path';
-import { artifactRefSchema, attachmentRefSchema } from '../schemas/validators.js';
-import type { ArtifactRef, AttachmentRef } from '../schemas/types.js';
+import { artifactRefSchema, attachmentRefSchema } from '../schemas/index.js';
+import type { ArtifactRef, AttachmentRef } from '../schemas/index.js';
 import type { CardStore } from './card-store.js';
 
 // ── Helpers ───────────────────────────────────────────────────

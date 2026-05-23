@@ -14,8 +14,8 @@
 import { readFileSync, existsSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { join, resolve, sep } from 'node:path';
-import { skillIndexSchema } from '../schemas/validators.js';
-import type { SkillIndexEntry, SkillTrigger, TriggerType, AgentRole } from '../schemas/types.js';
+import { skillIndexSchema } from '../schemas/index.js';
+import type { SkillIndexEntry, SkillTrigger, TriggerType, AgentRole } from '../schemas/index.js';
 
 // ── Types ─────────────────────────────────────────────────────
 

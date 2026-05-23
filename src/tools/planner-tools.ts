@@ -1,9 +1,9 @@
 import { randomUUID } from 'node:crypto';
 import { join } from 'node:path';
-import type { CardRecord, CardStatus, ReviewAssessment, ReviewerIssue, ReviewerResult, RuntimeState } from '../schemas/types.js';
+import type { CardRecord, CardStatus, ReviewAssessment, ReviewerIssue, ReviewerResult, RuntimeState } from '../schemas/index.js';
 import { decide } from '../permissions/index.js';
-import { CardStore } from '../cards/card-store.js';
-import { appendNote } from '../cards/notes.js';
+import { CardStore } from '../cards/index.js';
+import { appendNote } from '../cards/index.js';
 
 export type PlannerToolErrorKind =
   | 'subtree_not_ready'

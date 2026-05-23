@@ -1,4 +1,4 @@
-import type { ControlActionSurface, NoteAuthor } from '../schemas/types.js';
+import type { ControlActionSurface, NoteAuthor } from '../schemas/index.js';
 
 export type ActorRole = NoteAuthor;
 export type SafetyClass = 'read_only' | 'low' | 'high' | 'destructive' | 'deployment';

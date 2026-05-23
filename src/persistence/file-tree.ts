@@ -1,14 +1,14 @@
 import { mkdirSync, existsSync, writeFileSync, renameSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { isAbsolute, join, relative, resolve } from 'node:path';
 import { randomBytes } from 'node:crypto';
-import type { ProjectConfig, CardRecord } from '../schemas/types.js';
+import type { ProjectConfig, CardRecord } from '../schemas/index.js';
 import {
   cardIndexSchema,
   cardRecordSchema,
   notesQueueSchema,
   projectConfigSchema,
-} from '../schemas/validators.js';
-import { isReadBlocked } from '../workspace/file-access-security.js';
+} from '../schemas/index.js';
+import { isReadBlocked } from '../workspace/index.js';
 import { redactTextForOutbound } from '../redaction/index.js';
 
 export function writeFileAtomic(targetPath: string, data: string): void {

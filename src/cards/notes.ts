@@ -1,7 +1,7 @@
 import { existsSync, readFileSync, unlinkSync } from 'node:fs';
 import { join } from 'node:path';
 import { ZodError } from 'zod';
-import { noteRecordSchema, notesQueueEntrySchema, notesQueueSchema } from '../schemas/validators.js';
+import { noteRecordSchema, notesQueueEntrySchema, notesQueueSchema } from '../schemas/index.js';
 import type {
   NoteRecord,
   NoteAuthor,
@@ -9,9 +9,9 @@ import type {
   NotesQueue,
   NotesQueueEntry,
   NotesQueueResolvedEntry,
-} from '../schemas/types.js';
-import { writeFileAtomic } from '../persistence/file-tree.js';
-import { enqueueNoteNotifications } from '../notifications/notification-triggers.js';
+} from '../schemas/index.js';
+import { writeFileAtomic } from '../persistence/index.js';
+import { enqueueNoteNotifications } from '../notifications/index.js';
 
 function queuePath(saivageDir: string): string {
   return join(saivageDir, 'notes', 'queue.json');

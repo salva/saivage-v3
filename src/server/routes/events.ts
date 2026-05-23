@@ -1,7 +1,7 @@
 import { join } from 'node:path';
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
-import { EventLogger } from '../../observability/event-logger.js';
-import type { LoggedEvent, EventKind } from '../../schemas/types.js';
+import { EventLogger } from '../../observability/index.js';
+import type { LoggedEvent, EventKind } from '../../schemas/index.js';
 
 // ── Query Parameter Schema ───────────────────────────────────
 

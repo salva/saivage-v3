@@ -9,8 +9,8 @@
  */
 
 import type { EventEmitter } from 'node:events';
-import type { SourceKind } from '../schemas/types.js';
-import type { ContentReview, QuarantineItem } from '../schemas/types.js';
+import type { SourceKind } from '../schemas/index.js';
+import type { ContentReview, QuarantineItem } from '../schemas/index.js';
 import { scanContent, isInjectionSuspicious } from './heuristic-scanner.js';
 import type { ScanResult, SensitivityLevel } from './heuristic-scanner.js';
 import { scanWithLLM } from './llm-scanner.js';

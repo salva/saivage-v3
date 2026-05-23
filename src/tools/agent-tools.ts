@@ -1,8 +1,8 @@
 import { z } from 'zod';
 
-import * as analystTools from '../agents/analyst-tools.js';
-import { ANALYST_TOOL_DEFINITIONS } from '../agents/analyst-tool-schemas.js';
-import type { CardAction, CardState, PermissionRole } from '../permissions/card-permissions.js';
+import * as analystTools from '../agents/index.js';
+import { ANALYST_TOOL_DEFINITIONS } from '../agents/index.js';
+import type { CardAction, CardState, PermissionRole } from '../permissions/index.js';
 import { defineTool, type JsonSchemaObject, type ToolDefinition } from './runtime.js';
 
 const toolResultSchema = z.custom<analystTools.ToolResult>((value) => Boolean(value && typeof value === 'object' && 'success' in value && typeof value.success === 'boolean'));

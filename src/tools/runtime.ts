@@ -1,8 +1,8 @@
 import type { z } from 'zod';
 import type { EventEmitter } from 'node:events';
 
-import type { CardAction, CardState, Decision, PermissionRole } from '../permissions/card-permissions.js';
-import type { ResourceScope } from '../lifecycle/resource-scope.js';
+import type { CardAction, CardState, Decision, PermissionRole } from '../permissions/index.js';
+import type { ResourceScope } from '../lifecycle/index.js';
 
 export type JsonSchemaObject = { type: 'object'; properties?: { [key: string]: unknown }; required?: string[]; additionalProperties?: boolean };
 

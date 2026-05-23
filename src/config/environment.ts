@@ -3,7 +3,7 @@ import { resolve } from 'node:path';
 import { z } from 'zod';
 import { parseArgs } from 'node:util';
 import { interpolateValue, type EnvironmentSource } from './env-interpolation.js';
-import { saivageConfigSchema, type SaivageConfig } from '../agents/config-schema.js';
+import { saivageConfigSchema, type SaivageConfig } from '../agents/index.js';
 
 export type NodeEnvironment = 'development' | 'production' | 'test';
 export type LogLevel = 'fatal' | 'error' | 'warn' | 'info' | 'debug' | 'trace' | 'silent';

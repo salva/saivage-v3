@@ -1,26 +1,26 @@
 import { readdirSync, lstatSync, statSync, readFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
-import { readRuntimeState } from '../../runtime/state.js';
-import { readFreezeManifest } from '../../runtime/freeze-manifest.js';
-import { CardStore } from '../../cards/card-store.js';
+import { readRuntimeState } from '../../runtime/index.js';
+import { readFreezeManifest } from '../../runtime/index.js';
+import { CardStore } from '../../cards/index.js';
 import {
   getSafeFileForAgent,
   resolveContainedProjectPath,
   redactOperatorErrorMessage,
-} from '../../workspace/file-access-security.js';
+} from '../../workspace/index.js';
 import { redactForOutbound } from '../../redaction/index.js';
-import { AnalystHandler } from '../../agents/analyst-handler.js';
+import { AnalystHandler } from '../../agents/index.js';
 import {
   listRecentReviews,
   listQuarantineIndex,
-} from '../../workspace/quarantine.js';
-import type { ActiveRuntime } from '../../runtime/active-runtime.js';
+} from '../../workspace/index.js';
+import type { ActiveRuntime } from '../../runtime/index.js';
 import type {
   DoctorCheck,
   DoctorIssue,
   DoctorResponse,
-} from '../../schemas/types.js';
+} from '../../schemas/index.js';
 
 const MAX_FILE_SIZE_BYTES = 1_048_576;
 const SAFE_SESSION_ID_RE = /^[a-zA-Z0-9_-]+$/;

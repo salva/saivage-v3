@@ -6,7 +6,7 @@ import {
   type EventKind,
   type LoggedEvent,
 } from './types.js';
-import { buildLoggedEventSchema } from '../events/registry.js';
+import { buildLoggedEventSchema } from '../events/index.js';
 
 
 export const cardTypeSchema = z.enum(['project','goal','architecture','code','test','doc','data','research','ops']);

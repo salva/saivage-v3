@@ -4,9 +4,9 @@ import type { DomainEvent, EventBus, EventKind } from '../events/index.js';
 import { eventKindValues, toLoggedEvent } from '../events/index.js';
 import { JsonlLedger, ProjectLock } from '../persistence/index.js';
 import { redactForOutbound } from '../redaction/index.js';
-import { cardHistoryEntrySchema, controlActionAuditEntrySchema, loggedEventSchema, notificationRecordSchema } from '../schemas/validators.js';
-import type { CardHistoryEntry, ControlActionAuditEntry, LoggedEvent, NotificationRecord } from '../schemas/types.js';
-import type { ErrorRecord } from '../observability/error-logger.js';
+import { cardHistoryEntrySchema, controlActionAuditEntrySchema, loggedEventSchema, notificationRecordSchema } from '../schemas/index.js';
+import type { CardHistoryEntry, ControlActionAuditEntry, LoggedEvent, NotificationRecord } from '../schemas/index.js';
+import type { ErrorRecord } from '../observability/index.js';
 
 export interface Projection {
   readonly name: string;

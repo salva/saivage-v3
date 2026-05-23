@@ -1,7 +1,7 @@
 import { existsSync, readFileSync, unlinkSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
-import { agentSessionSchema, agentMessageSchema } from '../schemas/validators.js';
-import { explainLegacyStateRejection, writeFileAtomic } from '../persistence/file-tree.js';
+import { agentSessionSchema, agentMessageSchema } from '../schemas/index.js';
+import { explainLegacyStateRejection, writeFileAtomic } from '../persistence/index.js';
 import type {
   AgentSession,
   AgentMessage,
@@ -10,7 +10,7 @@ import type {
   MessageRole,
   EntityLink,
   SessionStatus,
-} from '../schemas/types.js';
+} from '../schemas/index.js';
 
 const SESSIONS_DIR = 'sessions';
 const MESSAGES_DIR = 'messages';

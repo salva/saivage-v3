@@ -1,6 +1,6 @@
 import { basename, resolve } from 'node:path';
 import { redactTextForOutbound } from '../redaction/index.js';
-import { looksLikeSecretPath } from '../workspace/secret-paths.js';
+import { looksLikeSecretPath } from '../workspace/index.js';
 
 const MAX_ACTIVITY_TEXT = 200;
 const SECRET_PATH_TOKEN = '[SECRET_PATH]';

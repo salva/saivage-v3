@@ -11,11 +11,11 @@ import {
 } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { createHash, randomBytes } from 'node:crypto';
-import { writeFileAtomic, explainLegacyStateRejection } from '../persistence/file-tree.js';
-import { redactCommandForOperator, redactOperatorErrorMessage } from '../workspace/file-access-security.js';
-import { EventLogger } from '../observability/event-logger.js';
-import { enqueueProcessReconciliationNotification } from '../notifications/notification-triggers.js';
-import type { ProcessRecord, ProcessStatus } from '../schemas/types.js';
+import { writeFileAtomic, explainLegacyStateRejection } from '../persistence/index.js';
+import { redactCommandForOperator, redactOperatorErrorMessage } from '../workspace/index.js';
+import { EventLogger } from '../observability/index.js';
+import { enqueueProcessReconciliationNotification } from '../notifications/index.js';
+import type { ProcessRecord, ProcessStatus } from '../schemas/index.js';
 
 export interface ProcessStartOptions {
   cardId: string;

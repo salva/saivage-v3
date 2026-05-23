@@ -108,8 +108,8 @@ export interface SkillTrigger { type: TriggerType; pattern: string; }
 export interface SkillIndexEntry { name: string; file: string; target_agents: AgentRole[]; triggers: SkillTrigger[]; updated_at: string; }
 
 
-import { eventKindValues, runtimeEventKindValues, agentEventKindValues } from '../events/registry.js';
-import type { EventKind } from '../events/registry.js';
+import { eventKindValues, runtimeEventKindValues, agentEventKindValues } from '../events/index.js';
+import type { EventKind } from '../events/index.js';
 export { eventKindValues, runtimeEventKindValues, agentEventKindValues, type EventKind };
 export type RuntimeEventKind = EventKind;
 export type AgentEventKind = EventKind;

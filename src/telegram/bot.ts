@@ -15,13 +15,13 @@
  * See docs/design/configuration.md § Telegram and docs/design/server-api.md § Telegram Channel.
  */
 
-import type { SaivageConfig } from '../agents/config-schema.js';
+import type { SaivageConfig } from '../agents/index.js';
 import {
   AnalystHandler,
   getOrCreateAnalystSession,
-} from '../agents/analyst-handler.js';
+} from '../agents/index.js';
 import { redactTextForOutbound } from '../redaction/index.js';
-import type { NotificationRecord } from '../schemas/types.js';
+import type { NotificationRecord } from '../schemas/index.js';
 
 export interface TelegramConfig {
   botToken?: string;

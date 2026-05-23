@@ -1,4 +1,3 @@
-import { randomUUID } from 'node:crypto';
 import { EventRegistry, type EventKind, type EventPayload, type SeverityLevel, getEventSeverity } from './registry.js';
 
 export { EventRegistry, getEventSeverity, type EventKind, type EventPayload, type SeverityLevel };
@@ -70,6 +69,12 @@ function eventToLegacyRecord(event: DomainEvent): Record<string, unknown> {
   };
 }
 
+function eventIdSuffix(): string {
+  const uuid = globalThis.crypto?.randomUUID?.();
+  if (uuid) return uuid.slice(0, 8);
+  return Math.random().toString(16).slice(2, 10).padEnd(8, '0');
+}
+
 export class EventBus {
   private subscriptions: InternalSubscription[] = [];
   private idCounter = 0;
@@ -133,14 +138,14 @@ export class EventBus {
   private createEvent<K extends EventKind>(kind: K, payload: EventPayload<K>, options?: { correlationId?: string }): DomainEvent<K> {
     EventRegistry[kind].schema.parse(payload);
     const ts = Date.now();
-    return { ...(payload as Record<string, unknown>), id: `evt-${ts}-${randomUUID().slice(0, 8)}`, kind, payload, ts, timestamp: new Date(ts).toISOString(), correlationId: options?.correlationId } as DomainEvent<K>;
+    return { ...(payload as Record<string, unknown>), id: `evt-${ts}-${eventIdSuffix()}`, kind, payload, ts, timestamp: new Date(ts).toISOString(), correlationId: options?.correlationId } as DomainEvent<K>;
   }
 
   private fromLegacyRecord(record: { kind: EventKind; id?: string; timestamp?: string; correlationId?: string } & object): DomainEvent {
     const { kind, id, timestamp, correlationId, ...payload } = record as { kind: EventKind; id?: string; timestamp?: string; correlationId?: string } & Record<string, unknown>;
     EventRegistry[kind].schema.parse(payload);
     const ts = timestamp ? Date.parse(timestamp) : Date.now();
-    return { ...payload, id: id ?? `evt-${Date.now()}-${randomUUID().slice(0, 8)}`, kind, payload: payload as EventPayload<EventKind>, ts: Number.isFinite(ts) ? ts : Date.now(), timestamp: timestamp ?? new Date().toISOString(), correlationId } as DomainEvent;
+    return { ...payload, id: id ?? `evt-${Date.now()}-${eventIdSuffix()}`, kind, payload: payload as EventPayload<EventKind>, ts: Number.isFinite(ts) ? ts : Date.now(), timestamp: timestamp ?? new Date().toISOString(), correlationId } as DomainEvent;
   }
 
   private addSubscription(allowedKinds: Set<EventKind> | null, handler: EventHandler, options?: Omit<SubscriptionOptions, 'handler'>): Subscription {

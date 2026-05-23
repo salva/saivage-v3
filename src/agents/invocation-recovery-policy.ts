@@ -1,4 +1,4 @@
-import type { AgentRole } from '../schemas/types.js';
+import type { AgentRole } from '../schemas/index.js';
 import {
   LlmAuthError,
   LlmParseError,

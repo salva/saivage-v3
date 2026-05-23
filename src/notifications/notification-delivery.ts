@@ -1,4 +1,4 @@
-import type { NotificationRecord } from '../schemas/types.js';
+import type { NotificationRecord } from '../schemas/index.js';
 import { NotificationCenter, type NotificationInput } from './notification-center.js';
 import { redactTextForOutbound } from '../redaction/index.js';
 

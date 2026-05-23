@@ -1,4 +1,4 @@
-import type { AuthProfile, AuthProfilesFile } from '../auth/oauth-profiles.js';
+import type { AuthProfile, AuthProfilesFile } from '../auth/index.js';
 import type { Account, Provider } from './provider.js';
 
 export const DEFAULT_OPENAI_BASE_URL = 'https://api.openai.com';

@@ -1,11 +1,11 @@
 import { existsSync, readFileSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
-import type { LoggedEvent, EventKind } from '../schemas/types.js';
+import type { LoggedEvent, EventKind } from '../schemas/index.js';
 import { redactForOutbound } from '../redaction/index.js';
-import { loggedEventSchema, parseLoggedEventCompat } from '../schemas/validators.js';
-import { EventBus } from '../events/bus.js';
-import { registerEventLogProjection } from '../projections/ledger-projections.js';
+import { loggedEventSchema, parseLoggedEventCompat } from '../schemas/index.js';
+import { EventBus } from '../events/index.js';
+import { registerEventLogProjection } from '../projections/index.js';
 
 // ── Constants ─────────────────────────────────────────────────
 

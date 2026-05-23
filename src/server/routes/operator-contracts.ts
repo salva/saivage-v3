@@ -1,11 +1,11 @@
 import type { FastifyInstance } from 'fastify';
-import { CardStore } from '../../cards/card-store.js';
-import type { CardRecord, CardStatus, CardType, CardHistoryEntry } from '../../schemas/types.js';
-import { operatorApiContracts, type OperatorRouteContract } from '../../contracts/operator-api.js';
+import { CardStore } from '../../cards/index.js';
+import type { CardRecord, CardStatus, CardType, CardHistoryEntry } from '../../schemas/index.js';
+import { operatorApiContracts, type OperatorRouteContract } from '../../contracts/index.js';
 import { allowedActions, decide } from '../../permissions/index.js';
-import { readRuntimeState } from '../../runtime/state.js';
-import { pauseRuntimeControl, resumeRuntimeControl } from '../../runtime/control.js';
-import type { ActiveRuntime } from '../../runtime/lifecycle.js';
+import { readRuntimeState } from '../../runtime/index.js';
+import { pauseRuntimeControl, resumeRuntimeControl } from '../../runtime/index.js';
+import type { ActiveRuntime } from '../../runtime/index.js';
 import { buildServerAvailability, type ServerAvailabilityInputs } from '../availability.js';
 import { ContractRuntime, type ContractHandler } from '../contract-runtime.js';
 import { runMutatingRoute } from './runtime-config-notes.js';

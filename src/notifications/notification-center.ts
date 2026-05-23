@@ -1,9 +1,9 @@
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
-import { notificationRecordSchema } from '../schemas/validators.js';
-import { registerNotificationProjection } from '../projections/ledger-projections.js';
-import type { NotificationRecord, NoteAuthor, ControlActionSurface } from '../schemas/types.js';
-import { EventBus } from '../events/bus.js';
+import { notificationRecordSchema } from '../schemas/index.js';
+import { registerNotificationProjection } from '../projections/index.js';
+import type { NotificationRecord, NoteAuthor, ControlActionSurface } from '../schemas/index.js';
+import { EventBus } from '../events/index.js';
 
 export interface NotificationInput {
   id: string;

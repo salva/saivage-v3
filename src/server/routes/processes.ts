@@ -2,13 +2,13 @@ import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import {
   listProcesses,
   getProcess,
-} from '../../runtime/process-runner.js';
-import type { ProcessRecord } from '../../schemas/types.js';
+} from '../../runtime/index.js';
+import type { ProcessRecord } from '../../schemas/index.js';
 import {
   redactCommandForOperator,
   redactOperatorErrorMessage,
   toContainedRelativePath,
-} from '../../workspace/file-access-security.js';
+} from '../../workspace/index.js';
 
 interface ProcessLogRefs {
   stdout: string | null;

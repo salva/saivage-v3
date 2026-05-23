@@ -1,10 +1,10 @@
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
-import { runtimeStateSchema } from '../schemas/validators.js';
+import { runtimeStateSchema } from '../schemas/index.js';
 import type { ZodType } from 'zod';
-import { explainLegacyStateRejection } from '../persistence/file-tree.js';
+import { explainLegacyStateRejection } from '../persistence/index.js';
 import { AtomicJsonFile, ProjectLock, PersistenceReadError, PersistenceValidationError } from '../persistence/index.js';
-import type { ActiveCardRun, RuntimeActivationRecord, RuntimeCommandName, RuntimeCommandRecord, RuntimeRunRecord, RuntimeState } from '../schemas/types.js';
+import type { ActiveCardRun, RuntimeActivationRecord, RuntimeCommandName, RuntimeCommandRecord, RuntimeRunRecord, RuntimeState } from '../schemas/index.js';
 
 const LEGACY_STATE_FILE = 'state.json';
 const AUTHORITATIVE_STATE_FILE = 'runtime.json';

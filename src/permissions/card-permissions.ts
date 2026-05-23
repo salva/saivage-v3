@@ -1,4 +1,4 @@
-import type { CardStatus } from '../schemas/types.js';
+import type { CardStatus } from '../schemas/index.js';
 
 export const PERMISSION_ROLES = ['operator', 'planner', 'analyst', 'executor', 'reviewer'] as const;
 export type PermissionRole = (typeof PERMISSION_ROLES)[number];

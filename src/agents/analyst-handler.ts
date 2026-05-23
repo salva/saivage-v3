@@ -1,13 +1,13 @@
 import { join } from 'node:path';
 import { existsSync, readFileSync } from 'node:fs';
-import { writeFileAtomic } from '../persistence/file-tree.js';
-import { agentSessionSchema, agentMessageSchema } from '../schemas/validators.js';
-import type { AgentSession, AgentMessage, MessageRole, MessageKind, ControlActionSurface, ControlActionAuditEntry } from '../schemas/types.js';
+import { writeFileAtomic } from '../persistence/index.js';
+import { agentSessionSchema, agentMessageSchema } from '../schemas/index.js';
+import type { AgentSession, AgentMessage, MessageRole, MessageKind, ControlActionSurface, ControlActionAuditEntry } from '../schemas/index.js';
 import type { ToolResult, ToolContext } from './analyst-tools.js';
 import { TOOL_REGISTRY } from './analyst-llm-resolver.js';
 import { LlmIntentResolver } from './analyst-llm-resolver.js';
-import { CardStore } from '../cards/card-store.js';
-import type { ActiveRuntime } from '../runtime/active-runtime.js';
+import { CardStore } from '../cards/index.js';
+import type { ActiveRuntime } from '../runtime/index.js';
 import type { ActorRole } from './authz.js';
 import { sanitizeAnalystText } from '../agents/analyst-sanitization.js';
 import { compactSession } from './compaction.js';

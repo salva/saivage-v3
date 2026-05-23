@@ -55,6 +55,39 @@ function resolveImport(fromFile, spec) {
   return rel;
 }
 
+function isPackageRootImport(parts) {
+  return parts.length === 1 || (parts.length === 2 && /^index(?:\.[cm]?js|\.ts)?$/.test(parts[1]));
+}
+
+function runSelfTest() {
+  const cases = [
+    { fromPkg: 'agents', parts: ['cards'], ok: true, label: '@saivage/cards root' },
+    { fromPkg: 'agents', parts: ['cards', 'index.js'], ok: true, label: '../cards/index.js root' },
+    { fromPkg: 'agents', parts: ['cards', 'card-store.js'], ok: false, label: '../cards/card-store.js two-part deep' },
+    { fromPkg: 'agents', parts: ['cards', 'card-store'], ok: false, label: '@saivage/cards/card-store two-part deep' },
+    { fromPkg: 'cards', parts: ['cards', 'card-store.js'], ok: true, label: 'same-package deep' },
+    { fromPkg: 'runtime', parts: ['agents', 'nested', 'module.js'], ok: false, label: 'multi-part deep' },
+  ];
+  const failures = [];
+  for (const testCase of cases) {
+    const allowed = testCase.parts[0] === testCase.fromPkg || isPackageRootImport(testCase.parts);
+    if (allowed !== testCase.ok) {
+      failures.push(`${testCase.label}: expected ${testCase.ok ? 'allowed' : 'rejected'}, got ${allowed ? 'allowed' : 'rejected'}`);
+    }
+  }
+  if (failures.length) {
+    console.error('Import boundary self-test failed:');
+    for (const failure of failures) console.error(`- ${failure}`);
+    process.exit(1);
+  }
+  console.log('Import boundary self-test passed.');
+}
+
+if (process.argv.includes('--self-test')) {
+  runSelfTest();
+  process.exit(0);
+}
+
 const importRe = /import(?:\s+type)?[\s\S]*?from\s+['"]([^'"]+)['"]|export[\s\S]*?from\s+['"]([^'"]+)['"]/g;
 const errors = [];
 for (const file of walk(SRC)) {
@@ -78,7 +111,7 @@ for (const file of walk(SRC)) {
     if (fromPkg === 'agents' && AGENT_FORBIDDEN.has(toPkg) && !AGENT_RUNTIME_ALLOWLIST.has(relFile)) {
       errors.push(`${relFile}:${line}: agents must not import runtime internals (${spec}); use public tool/event surfaces or document an exception`);
     }
-    if (toPkg !== fromPkg && parts.length > 2 && parts[1] !== 'index.js') {
+    if (toPkg !== fromPkg && !isPackageRootImport(parts)) {
       errors.push(`${relFile}:${line}: deep cross-package import into ${toPkg} is forbidden (${spec}); import from the package index or move within the owning package`);
     }
   }

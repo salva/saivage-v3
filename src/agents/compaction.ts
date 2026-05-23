@@ -1,4 +1,4 @@
-import type { AgentMessage } from '../schemas/types.js';
+import type { AgentMessage } from '../schemas/index.js';
 import {
   getSessionMessages,
   replaceSessionMessages,

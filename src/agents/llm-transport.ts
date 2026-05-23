@@ -8,7 +8,7 @@ import {
   isProfileExpired,
   loadAuthProfiles,
   saveAuthProfile,
-} from '../auth/oauth-profiles.js';
+} from '../auth/index.js';
 
 const OPENAI_CODEX_TOKEN_URL = 'https://auth.openai.com/oauth/token';
 const OPENAI_CODEX_CLIENT_ID = 'app_EMoamEEZ73f0CkXaXp7hrann';

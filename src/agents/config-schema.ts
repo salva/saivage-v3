@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
-import { interpolateValue, type EnvironmentSource } from '../config/env-interpolation.js';
+import { interpolateValue, type EnvironmentSource } from '../config/index.js';
 
 // ── Legacy runtime migration ─────────────────────────────────
 

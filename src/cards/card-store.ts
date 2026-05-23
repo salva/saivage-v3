@@ -15,8 +15,8 @@ import {
   cardHistoryEntrySchema,
   cardIndexSchema,
   cardRecordSchema,
-} from '../schemas/validators.js';
-import { writeFileAtomic } from '../persistence/file-tree.js';
+} from '../schemas/index.js';
+import { writeFileAtomic } from '../persistence/index.js';
 import type {
   CardBlocksIndex,
   CardChildrenIndex,
@@ -28,10 +28,10 @@ import type {
   CardType,
   ControlActionSurface,
   NoteAuthor,
-} from '../schemas/types.js';
-import { enqueueCardMutationNotifications } from '../notifications/notification-triggers.js';
-import { EventBus } from '../events/bus.js';
-import { registerCardHistoryProjection } from '../projections/ledger-projections.js';
+} from '../schemas/index.js';
+import { enqueueCardMutationNotifications } from '../notifications/index.js';
+import { EventBus } from '../events/index.js';
+import { registerCardHistoryProjection } from '../projections/index.js';
 
 export interface CardMutationContext {
   actor: NoteAuthor;

@@ -3,7 +3,7 @@ import type {
   ExecutorResult,
   ReviewerResult,
 } from './result-parser.js';
-import type { AgentMessage, HandoffSummary } from '../schemas/types.js';
+import type { AgentMessage, HandoffSummary } from '../schemas/index.js';
 
 export interface AgentRuntime {
   invokePlanner(

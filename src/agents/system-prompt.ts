@@ -1,4 +1,4 @@
-import type { CardType } from '../schemas/types.js';
+import type { CardType } from '../schemas/index.js';
 
 const SAIVAGE_INTRO = 'You are operating inside **Saivage**, an autonomous multi-agent system.';
 

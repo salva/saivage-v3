@@ -2,7 +2,7 @@ import type { FastifyInstance, FastifyReply, FastifyRequest, RouteOptions } from
 import type { z } from 'zod';
 import { getAuthPolicy } from './auth-policy.js';
 import type { EventBus, EventKind } from '../events/index.js';
-import type { ContractAuthClass, OperatorRouteContract } from '../contracts/operator-api.js';
+import type { ContractAuthClass, OperatorRouteContract } from '../contracts/index.js';
 
 
 export interface ContractPermissionContext<TContract extends OperatorRouteContract = OperatorRouteContract> {

@@ -2,8 +2,8 @@ import { randomBytes } from 'node:crypto';
 import { join } from 'node:path';
 import { createNotificationDeliveryService } from './notification-delivery.js';
 import { redactTextForOutbound } from '../redaction/index.js';
-import { CardStore } from '../cards/card-store.js';
-import { listSessions, getSession } from '../agents/session-persistence.js';
+import { CardStore } from '../cards/index.js';
+import { listSessions, getSession } from '../agents/index.js';
 import type {
   AgentRole,
   AgentSession,
@@ -12,7 +12,7 @@ import type {
   NoteAuthor,
   NoteKind,
   ProcessRecord,
-} from '../schemas/types.js';
+} from '../schemas/index.js';
 
 export interface NotificationTriggerTarget {
   sessionId: string;

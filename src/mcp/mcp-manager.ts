@@ -25,8 +25,8 @@
  */
 
 import type { ChildProcess } from 'node:child_process';
-import { loadConfig, type SaivageConfig } from '../agents/config-schema.js';
-import { EventLogger } from '../observability/event-logger.js';
+import { loadConfig, type SaivageConfig } from '../agents/index.js';
+import { EventLogger } from '../observability/index.js';
 import { createResourceScope, type ResourceScope } from '../lifecycle/index.js';
 import * as readline from 'node:readline';
 import {

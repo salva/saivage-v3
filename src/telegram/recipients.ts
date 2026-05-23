@@ -1,5 +1,5 @@
-import type { NotificationRecord } from '../schemas/types.js';
-import type { NotificationDeliveryAdapter, NotificationDeliveryContext } from '../notifications/notification-delivery.js';
+import type { NotificationRecord } from '../schemas/index.js';
+import type { NotificationDeliveryAdapter, NotificationDeliveryContext } from '../notifications/index.js';
 import type { TelegramBot } from './bot.js';
 
 export type TelegramReadinessState = 'channel_not_enabled' | 'missing_bot_token' | 'missing_recipients' | 'ready';

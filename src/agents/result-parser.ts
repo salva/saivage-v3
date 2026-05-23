@@ -1,7 +1,7 @@
 import { z } from 'zod';
-import { reviewerResultSchema } from '../schemas/validators.js';
-import type { ArtifactRef } from '../schemas/types.js';
-import type { AgentMessage } from '../schemas/types.js';
+import { reviewerResultSchema } from '../schemas/index.js';
+import type { ArtifactRef } from '../schemas/index.js';
+import type { AgentMessage } from '../schemas/index.js';
 
 export interface PlannerCardCreate {
   type: string;

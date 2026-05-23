@@ -15,14 +15,14 @@ import { randomBytes } from 'node:crypto';
 import {
   contentReviewSchema,
   quarantineItemSchema,
-} from '../schemas/validators.js';
+} from '../schemas/index.js';
 import type {
   ContentReview,
   QuarantineItem,
   SourceKind,
   RiskLevel,
-} from '../schemas/types.js';
-import { writeFileAtomic } from '../persistence/file-tree.js';
+} from '../schemas/index.js';
+import { writeFileAtomic } from '../persistence/index.js';
 
 // ── Path Helpers ──────────────────────────────────────────────
 

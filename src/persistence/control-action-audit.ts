@@ -2,10 +2,10 @@ import { existsSync, readFileSync } from 'node:fs';
 import { createHash, randomUUID } from 'node:crypto';
 import { join } from 'node:path';
 import { redactTextForOutbound } from '../redaction/index.js';
-import { controlActionAuditEntrySchema } from '../schemas/validators.js';
-import type { ControlActionAuditEntry } from '../schemas/types.js';
-import { EventBus } from '../events/bus.js';
-import { registerControlActionAuditProjection } from '../projections/ledger-projections.js';
+import { controlActionAuditEntrySchema } from '../schemas/index.js';
+import type { ControlActionAuditEntry } from '../schemas/index.js';
+import { EventBus } from '../events/index.js';
+import { registerControlActionAuditProjection } from '../projections/index.js';
 
 const INLINE_SECRET_RE = /(api(?:[_-]?key|[_-]?token)?|token|secret|password)\s*=\s*("[^"]*"|'[^']*'|\S+)/gi;
 

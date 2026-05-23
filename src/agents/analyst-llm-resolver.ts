@@ -1,4 +1,4 @@
-import type { AgentMessage } from '../schemas/types.js';
+import type { AgentMessage } from '../schemas/index.js';
 import { LlmClient, type ToolDefinition, type LlmCompleteResult } from './llm-client.js';
 import { ANALYST_TOOL_DEFINITIONS } from './analyst-tool-schemas.js';
 import { loadConfig } from './config-schema.js';

@@ -10,15 +10,15 @@
 
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import type { WebSocket } from 'ws';
-import { getOrCreateAnalystSession, getAnalystHandler, resetAnalystHandlerCache } from '../agents/analyst-handler.js';
+import { getOrCreateAnalystSession, getAnalystHandler, resetAnalystHandlerCache } from '../agents/index.js';
 import type { EventBus, Subscription, DomainEvent } from '../events/index.js';
 import { toLoggedEvent } from '../events/index.js';
-import { operatorBroadcastEventKindValues, type OperatorBroadcastEventKind } from '../events/registry.js';
-import { redactOperatorErrorMessage } from '../workspace/file-access-security.js';
-import { sanitizeAnalystPayload, sanitizeAnalystText } from '../agents/analyst-sanitization.js';
-import type { ActiveRuntime } from '../runtime/active-runtime.js';
-import { InboundAnalystMessageEnvelopeSchema, buildConnectedEnvelope, validateKnownWsEnvelope } from '../contracts/operator-events.js';
-import type { WsEnvelope, WsEventType } from '../contracts/operator-events.js';
+import { operatorBroadcastEventKindValues, type OperatorBroadcastEventKind } from '../events/index.js';
+import { redactOperatorErrorMessage } from '../workspace/index.js';
+import { sanitizeAnalystPayload, sanitizeAnalystText } from '../agents/index.js';
+import type { ActiveRuntime } from '../runtime/index.js';
+import { InboundAnalystMessageEnvelopeSchema, buildConnectedEnvelope, validateKnownWsEnvelope } from '../contracts/index.js';
+import type { WsEnvelope, WsEventType } from '../contracts/index.js';
 import { getAuthPolicy } from './auth-policy.js';
 import { redactForOutbound, type Redacted } from '../redaction/index.js';
 

@@ -12,7 +12,7 @@ import {
   runtimeActivationRecordSchema,
   actionableErrorEnvelopeSchema,
   urgencySchema,
-} from '../schemas/validators.js';
+} from '../schemas/index.js';
 
 export type ContractAuthClass = 'public' | 'operator-session' | 'agent-session' | 'mcp-tool-token';
 

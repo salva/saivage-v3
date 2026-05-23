@@ -2,8 +2,8 @@ import { existsSync, readFileSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { redactForOutbound } from '../redaction/index.js';
-import { EventBus } from '../events/bus.js';
-import { registerErrorLogProjection } from '../projections/ledger-projections.js';
+import { EventBus } from '../events/index.js';
+import { registerErrorLogProjection } from '../projections/index.js';
 
 // ── Constants ─────────────────────────────────────────────────
 

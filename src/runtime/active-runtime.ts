@@ -16,13 +16,13 @@ import {
   type RuntimeConfig,
   type RuntimeStatus,
 } from './runtime.js';
-import { AgentAdapter } from '../agents/agent-adapter.js';
-import { EventLogger } from '../observability/event-logger.js';
-import { ErrorLogger } from '../observability/error-logger.js';
-import { SkillsEngine } from '../agents/skills-engine.js';
-import type { SaivageConfig } from '../agents/config-schema.js';
-import type { McpManager } from '../mcp/mcp-manager.js';
-import type { RuntimeState, FreezeManifest } from '../schemas/types.js';
+import { AgentAdapter } from '../agents/index.js';
+import { EventLogger } from '../observability/index.js';
+import { ErrorLogger } from '../observability/index.js';
+import { SkillsEngine } from '../agents/index.js';
+import type { SaivageConfig } from '../agents/index.js';
+import type { McpManager } from '../mcp/index.js';
+import type { RuntimeState, FreezeManifest } from '../schemas/index.js';
 
 // ── ActiveRuntime ──────────────────────────────────────────────
 

@@ -1,8 +1,8 @@
 import { existsSync, readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
-import { diaryEntrySchema, reviewAssessmentSchema } from '../schemas/validators.js';
-import type { DiaryEntry, DiaryKind, ReviewAssessment } from '../schemas/types.js';
-import { writeFileAtomic } from '../persistence/file-tree.js';
+import { diaryEntrySchema, reviewAssessmentSchema } from '../schemas/index.js';
+import type { DiaryEntry, DiaryKind, ReviewAssessment } from '../schemas/index.js';
+import { writeFileAtomic } from '../persistence/index.js';
 
 // ── Index Types ───────────────────────────────────────────────
 

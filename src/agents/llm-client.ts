@@ -13,7 +13,7 @@ import {
   supportsCapabilityRequest,
 } from './provider-capabilities.js';
 import { redactTextForOutbound } from '../redaction/index.js';
-import type { AgentMessage } from '../schemas/types.js';
+import type { AgentMessage } from '../schemas/index.js';
 
 // ── Tool Calling Types ────────────────────────────────────────
 
