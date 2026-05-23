@@ -136,3 +136,73 @@ export class JsonlLedger<T> {
     appendFileSync(this.quarantinePath, JSON.stringify({ quarantined_at: new Date().toISOString(), source: this.path, line_number: entry.lineNumber, offset: entry.offset, error: entry.error, line: entry.line }) + '\n', 'utf-8');
   }
 }
+
+// F13 r5 §"JSONL crash semantics" — raw (non-versioned) JSONL helpers for the
+// card history files. These bypass the JsonlLedger version envelope because
+// per-card history files store CardHistoryEntry rows directly.
+
+export interface LastLineSyncResult {
+  line: string | null;
+  endsWithNewline: boolean;
+  partialTail: string | null;
+}
+
+export function lastLineSync(jsonlPath: string): LastLineSyncResult {
+  if (!existsSync(jsonlPath)) return { line: null, endsWithNewline: true, partialTail: null };
+  const buf = readFileSync(jsonlPath);
+  if (buf.length === 0) return { line: null, endsWithNewline: true, partialTail: null };
+  const endsWithNewline = buf[buf.length - 1] === 0x0a;
+  if (endsWithNewline) {
+    // Last complete line is between the previous \n and the trailing \n.
+    let end = buf.length - 1;
+    if (end === 0) return { line: '', endsWithNewline: true, partialTail: null };
+    let start = end - 1;
+    while (start > 0 && buf[start - 1] !== 0x0a) start--;
+    return { line: buf.slice(start, end).toString('utf-8'), endsWithNewline: true, partialTail: null };
+  }
+  // No trailing newline → partial last line. Find boundary before that partial tail.
+  let end = buf.length;
+  let start = end - 1;
+  while (start > 0 && buf[start - 1] !== 0x0a) start--;
+  const partial = buf.slice(start, end).toString('utf-8');
+  if (start === 0) return { line: null, endsWithNewline: false, partialTail: partial };
+  // Find the previous complete line for context.
+  let prevEnd = start - 1;
+  let prevStart = prevEnd;
+  while (prevStart > 0 && buf[prevStart - 1] !== 0x0a) prevStart--;
+  return {
+    line: buf.slice(prevStart, prevEnd).toString('utf-8'),
+    endsWithNewline: false,
+    partialTail: partial,
+  };
+}
+
+export function appendSyncIdempotent(
+  jsonlPath: string,
+  entry: { entry_id: string } & Record<string, unknown>,
+): void {
+  const tail = lastLineSync(jsonlPath);
+  if (tail.line !== null) {
+    let parsed: { entry_id?: unknown } | null = null;
+    try {
+      parsed = JSON.parse(tail.line) as { entry_id?: unknown };
+    } catch {
+      throw new PersistenceReadError(
+        jsonlPath,
+        `last complete JSONL line is unparseable; refusing to append entry_id=${entry.entry_id}`,
+      );
+    }
+    if (parsed && parsed.entry_id === entry.entry_id) return;
+  }
+  mkdirSync(dirname(jsonlPath), { recursive: true });
+  let fd: number | null = null;
+  try {
+    fd = openSync(jsonlPath, 'a');
+    appendFileSync(fd, JSON.stringify(entry) + '\n', 'utf-8');
+    fsyncSync(fd);
+  } catch (error) {
+    throw new PersistenceWriteError(jsonlPath, (error as Error).message, { cause: error });
+  } finally {
+    if (fd !== null) closeSync(fd);
+  }
+}
