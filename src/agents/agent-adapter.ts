@@ -32,6 +32,8 @@ import { readRuntimeState } from '../runtime/state.js';
 import { PlannerControlExecutor } from './planner-control-executor.js';
 import { redactTextForOutbound } from '../redaction/index.js';
 import { RoleToolPolicy, type RoleToolPolicyDecision, type RoleToolPolicySurface } from './role-tool-policy.js';
+import { ToolRuntime, AGENT_TOOL_DEFINITIONS } from '../tools/index.js';
+import { decide as decideCardPermission } from '../permissions/card-permissions.js';
 
 export type { AgentRuntime } from './agent-runtime.js';
 export type AgentRole = 'planner' | 'executor' | 'reviewer' | 'analyst';
@@ -141,22 +143,6 @@ const ALL_TOOL_DEFINITIONS_BY_NAME = new Map<string, ToolDefinition>([
   MCP_TOOL_CALL_TOOL_DEFINITION,
 ].map((definition) => [definition.function.name, definition]));
 
-const RUNTIME_AGENT_TOOL_REGISTRY: Record<string, (ctx: analystTools.ToolContext, params: Record<string, unknown>) => Promise<analystTools.ToolResult>> = {
-  create_card: analystTools.create_card as unknown as (ctx: analystTools.ToolContext, params: Record<string, unknown>) => Promise<analystTools.ToolResult>,
-  edit_card: analystTools.edit_card as unknown as (ctx: analystTools.ToolContext, params: Record<string, unknown>) => Promise<analystTools.ToolResult>,
-  add_note: analystTools.add_note as unknown as (ctx: analystTools.ToolContext, params: Record<string, unknown>) => Promise<analystTools.ToolResult>,
-  list_cards: analystTools.list_cards as unknown as (ctx: analystTools.ToolContext, params: Record<string, unknown>) => Promise<analystTools.ToolResult>,
-  get_card: analystTools.get_card as unknown as (ctx: analystTools.ToolContext, params: Record<string, unknown>) => Promise<analystTools.ToolResult>,
-  get_tree: analystTools.get_tree as unknown as (ctx: analystTools.ToolContext, params: Record<string, unknown>) => Promise<analystTools.ToolResult>,
-  list_card_history: analystTools.list_card_history as unknown as (ctx: analystTools.ToolContext, params: Record<string, unknown>) => Promise<analystTools.ToolResult>,
-  get_card_history_entry: analystTools.get_card_history_entry as unknown as (ctx: analystTools.ToolContext, params: Record<string, unknown>) => Promise<analystTools.ToolResult>,
-  diff_card: analystTools.diff_card as unknown as (ctx: analystTools.ToolContext, params: Record<string, unknown>) => Promise<analystTools.ToolResult>,
-  list_notes: analystTools.list_notes as unknown as (ctx: analystTools.ToolContext, params: Record<string, unknown>) => Promise<analystTools.ToolResult>,
-  get_note: analystTools.get_note as unknown as (ctx: analystTools.ToolContext, params: Record<string, unknown>) => Promise<analystTools.ToolResult>,
-  mark_note_handled: analystTools.mark_note_handled as unknown as (ctx: analystTools.ToolContext, params: Record<string, unknown>) => Promise<analystTools.ToolResult>,
-  mark_goal_needs_corrections: analystTools.mark_goal_needs_corrections as unknown as (ctx: analystTools.ToolContext, params: Record<string, unknown>) => Promise<analystTools.ToolResult>,
-};
-
 export class AgentAdapter implements AgentRuntime {
   readonly projectRoot: string;
   readonly saivageDir: string;
@@ -179,6 +165,7 @@ export class AgentAdapter implements AgentRuntime {
   private lastRole: string | null = null;
   private afterSessionCreatedHook: SessionCreatedHook | null = null;
   private readonly plannerControlExecutor: PlannerControlExecutor;
+  private readonly toolRuntime: ToolRuntime<typeof AGENT_TOOL_DEFINITIONS>;
 
   constructor(cfg: AgentAdapterConfig) {
     this.projectRoot = cfg.projectRoot;
@@ -190,6 +177,7 @@ export class AgentAdapter implements AgentRuntime {
     this.notificationCenter = new NotificationCenter(cfg.projectRoot);
     this.eventBus = cfg.eventBus;
     this.eventLogger = cfg.eventLogger;
+    this.toolRuntime = new ToolRuntime({ matrix: { decide: decideCardPermission }, bus: cfg.eventBus }, AGENT_TOOL_DEFINITIONS);
     this.plannerControlExecutor = new PlannerControlExecutor({
       cardStore: new CardStore(this.projectRoot),
       projectRoot: this.projectRoot,
@@ -215,7 +203,12 @@ export class AgentAdapter implements AgentRuntime {
   setAfterSessionCreatedHook(hook: SessionCreatedHook | null): void { this.afterSessionCreatedHook = hook; }
 
   public getToolNamesForRole(role: AgentRole): string[] { return RoleToolPolicy.listToolNamesForRole(role); }
-  private buildToolsForRole(role: AgentRole): ToolDefinition[] { return this.getToolNamesForRole(role).map((name) => ALL_TOOL_DEFINITIONS_BY_NAME.get(name)).filter((tool): tool is ToolDefinition => Boolean(tool)); }
+  private buildToolsForRole(role: AgentRole): ToolDefinition[] {
+    const runtimeSchema = this.toolRuntime.schema().filter((tool) => tool.roles.includes(role));
+    return this.getToolNamesForRole(role)
+      .map((name) => runtimeSchema.find((tool) => tool.function.name === name) ?? ALL_TOOL_DEFINITIONS_BY_NAME.get(name))
+      .filter((tool): tool is ToolDefinition => Boolean(tool));
+  }
   private getMcpToolDefinition(serverName: string, toolName: string): McpToolDefinition | null { if (!this._mcpManager) return null; const tools = this._mcpManager.getServerTools(serverName); return tools?.find((tool) => tool.name === toolName) ?? null; }
   private policyDeniedToolMessage(decision: RoleToolPolicyDecision, tool: string, toolCallId: string, prefix?: string): { role: 'tool'; kind: 'tool_error'; content: string; tool: string; tool_call_id: string } {
     const content = prefix ? `${prefix}: ${decision.message}` : JSON.stringify({ success: false, error: decision.message, reasonCode: decision.reasonCode });
@@ -274,31 +267,17 @@ export class AgentAdapter implements AgentRuntime {
     if (role === 'planner' && !AUTHORITATIVE_PLANNER_TOOL_NAMES.includes(tc.function.name as typeof AUTHORITATIVE_PLANNER_TOOL_NAMES[number])) {
       return { role: 'tool', kind: 'tool_error', content: `Unknown planner tool '${tc.function.name}'.`, tool: tc.function.name, tool_call_id: tc.id };
     }
-    if (role === 'planner' && PLANNER_CARD_TOOL_NAMES.has(tc.function.name)) {
-      let args: Record<string, unknown> = {};
-      try { args = JSON.parse(tc.function.arguments); } catch {}
-      try {
-        const fn = RUNTIME_AGENT_TOOL_REGISTRY[tc.function.name];
-        if (!fn) throw new Error(`Planner tool '${tc.function.name}' is not routed.`);
-        const policyDecision = this.decideToolInvocation(role, 'agent-runtime', tc.function.name, { knownRuntimeTool: Boolean(fn) });
-        if (!policyDecision.allowed) return this.policyDeniedToolMessage(policyDecision, tc.function.name, tc.id);
-        const result = await fn({ projectRoot: this.projectRoot, actor: role, surface: 'runtime', sessionId }, args);
-        return { role: 'tool', kind: result.success ? 'tool_result' : 'tool_error', content: JSON.stringify(result), tool: tc.function.name, tool_call_id: tc.id };
-      } catch (err) {
-        return { role: 'tool', kind: 'tool_error', content: JSON.stringify({ success: false, error: err instanceof Error ? err.message : String(err) }), tool: tc.function.name, tool_call_id: tc.id };
+    if (!(role === 'planner' && PLANNER_CONTROL_TOOL_NAMES.has(tc.function.name)) && this.toolRuntime.has(tc.function.name)) {
+      let input: unknown = {};
+      try { input = JSON.parse(tc.function.arguments); } catch {
+        return { role: 'tool', kind: 'tool_error', content: JSON.stringify({ success: false, error: `Invalid JSON arguments for '${tc.function.name}'.` }), tool: tc.function.name, tool_call_id: tc.id };
       }
-    }
-    if (RUNTIME_AGENT_TOOL_REGISTRY[tc.function.name]) {
-      let args: Record<string, unknown> = {};
-      try { args = JSON.parse(tc.function.arguments); } catch {}
-      try {
-        const policyDecision = this.decideToolInvocation(role, 'agent-runtime', tc.function.name, { knownRuntimeTool: true });
-        if (!policyDecision.allowed) return this.policyDeniedToolMessage(policyDecision, tc.function.name, tc.id);
-        const result = await RUNTIME_AGENT_TOOL_REGISTRY[tc.function.name]({ projectRoot: this.projectRoot, actor: role, surface: 'runtime', sessionId }, args);
-        return { role: 'tool', kind: result.success ? 'tool_result' : 'tool_error', content: JSON.stringify(result), tool: tc.function.name, tool_call_id: tc.id };
-      } catch (err) {
-        return { role: 'tool', kind: 'tool_error', content: JSON.stringify({ success: false, error: err instanceof Error ? err.message : String(err) }), tool: tc.function.name, tool_call_id: tc.id };
+      const result = await this.toolRuntime.invoke({ name: tc.function.name, input, role, correlationId: tc.id, projectRoot: this.projectRoot, sessionId });
+      if (!result.ok) {
+        return { role: 'tool', kind: 'tool_error', content: JSON.stringify({ success: false, error: result.error.message, tool_error: result.error }), tool: tc.function.name, tool_call_id: tc.id };
       }
+      const output = result.output as analystTools.ToolResult;
+      return { role: 'tool', kind: output.success ? 'tool_result' : 'tool_error', content: JSON.stringify(output), tool: tc.function.name, tool_call_id: tc.id };
     }
     // Planner-control tools only. The adapter remains the planner-role/tool-name
     // policy gate; execution/dependency wiring lives in PlannerControlExecutor.

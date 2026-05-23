@@ -50,10 +50,11 @@ function extractAgentToolMatrix(): Map<string, string[]> {
   return rows;
 }
 
-function stringLiteralObjectArray(source: string, constantName: string): string[] {
-  const match = source.match(new RegExp(`const ${constantName}[\\s\\S]*?= \\{([\\s\\S]*?)\\n\\};`));
-  if (!match) throw new Error(`Unable to find ${constantName} in source.`);
-  return uniqueSorted([...match[1].matchAll(/^\s*([a-z_]+):/gm)].map((entry) => entry[1]));
+function toolRuntimeDefinitionNames(): string[] {
+  const source = readFileSync(join(process.cwd(), 'src', 'tools', 'agent-tools.ts'), 'utf-8');
+  return uniqueSorted([
+    ...source.matchAll(/name: '([a-z_]+)'/g),
+  ].map((entry) => entry[1]));
 }
 
 function functionToolDefinitions(source: string, exportedConstantName: string): string[] {
@@ -67,7 +68,7 @@ function processToolCallRoutedToolNames(): string[] {
   const workspaceSource = readFileSync(join(process.cwd(), 'src', 'agents', 'workspace-tools.ts'), 'utf-8');
   const skillSource = readFileSync(join(process.cwd(), 'src', 'agents', 'skill-tools.ts'), 'utf-8');
 
-  const runtimeAgentTools = stringLiteralObjectArray(adapterSource, 'RUNTIME_AGENT_TOOL_REGISTRY');
+  const runtimeAgentTools = toolRuntimeDefinitionNames();
   const workspaceTools = [...workspaceSource.matchAll(/name: '([a-z_]+)'/g)].map((match) => match[1]);
   const explicitlyHandled = [...adapterSource.matchAll(/tc\.function\.name (?:===|!==) '([a-z_]+)'/g)].map((match) => match[1]);
   const switchCases = [...adapterSource.matchAll(/case '([a-z_]+)':/g)].map((match) => match[1]);
