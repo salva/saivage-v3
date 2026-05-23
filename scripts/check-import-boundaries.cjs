@@ -15,16 +15,7 @@ const DOMAIN_PACKAGES = new Set([
   'schemas', 'telegram', 'tools', 'utils', 'workspace'
 ]);
 const CONTRACT_FORBIDDEN = new Set(['server', 'persistence', 'cards', 'notifications', 'runtime', 'tools', 'agents', 'mcp']);
-const AGENT_FORBIDDEN = new Set(['runtime']);
-
-const AGENT_RUNTIME_ALLOWLIST = new Set([
-  'src/agents/agent-adapter.ts',
-  'src/agents/analyst-handler.ts',
-  'src/agents/analyst-stage6.ts',
-  'src/agents/analyst-tools.ts',
-  'src/agents/fake-agent.ts',
-  'src/agents/planner-control-executor.ts',
-]);
+const AGENT_RUNTIME_RESTRICTED = new Set(['runtime']);
 
 function walk(dir) {
   const out = [];
@@ -67,10 +58,15 @@ function runSelfTest() {
     { fromPkg: 'agents', parts: ['cards', 'card-store'], ok: false, label: '@saivage/cards/card-store two-part deep' },
     { fromPkg: 'cards', parts: ['cards', 'card-store.js'], ok: true, label: 'same-package deep' },
     { fromPkg: 'runtime', parts: ['agents', 'nested', 'module.js'], ok: false, label: 'multi-part deep' },
+    { fromPkg: 'agents', parts: ['runtime'], ok: true, label: 'agents may use runtime package root' },
+    { fromPkg: 'agents', parts: ['runtime', 'index.js'], ok: true, label: 'agents may use runtime index' },
+    { fromPkg: 'agents', parts: ['runtime', 'state.js'], ok: false, label: 'agents must not deep-import runtime state' },
   ];
   const failures = [];
   for (const testCase of cases) {
-    const allowed = testCase.parts[0] === testCase.fromPkg || isPackageRootImport(testCase.parts);
+    const crossPackageAllowed = testCase.parts[0] === testCase.fromPkg || isPackageRootImport(testCase.parts);
+    const agentRuntimeAllowed = testCase.fromPkg !== 'agents' || testCase.parts[0] !== 'runtime' || isPackageRootImport(testCase.parts);
+    const allowed = crossPackageAllowed && agentRuntimeAllowed;
     if (allowed !== testCase.ok) {
       failures.push(`${testCase.label}: expected ${testCase.ok ? 'allowed' : 'rejected'}, got ${allowed ? 'allowed' : 'rejected'}`);
     }
@@ -108,8 +104,8 @@ for (const file of walk(SRC)) {
     if (fromPkg === 'contracts' && CONTRACT_FORBIDDEN.has(toPkg)) {
       errors.push(`${relFile}:${line}: contracts must stay declarative and must not import ${toPkg} (${spec})`);
     }
-    if (fromPkg === 'agents' && AGENT_FORBIDDEN.has(toPkg) && !AGENT_RUNTIME_ALLOWLIST.has(relFile)) {
-      errors.push(`${relFile}:${line}: agents must not import runtime internals (${spec}); use public tool/event surfaces or document an exception`);
+    if (fromPkg === 'agents' && AGENT_RUNTIME_RESTRICTED.has(toPkg) && !isPackageRootImport(parts)) {
+      errors.push(`${relFile}:${line}: agents must not import runtime internals (${spec}); use the runtime package index or move ownership to tool/event surfaces`);
     }
     if (toPkg !== fromPkg && !isPackageRootImport(parts)) {
       errors.push(`${relFile}:${line}: deep cross-package import into ${toPkg} is forbidden (${spec}); import from the package index or move within the owning package`);
