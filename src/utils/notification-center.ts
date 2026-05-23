@@ -2,7 +2,7 @@ import { appendFileSync, existsSync, mkdirSync, readFileSync, readdirSync } from
 import { join } from 'node:path';
 import { notificationRecordSchema } from '../schemas/validators.js';
 import type { NotificationRecord, NoteAuthor, ControlActionSurface } from '../schemas/types.js';
-import { broadcastNotificationAcknowledged, broadcastNotificationAdded } from '../server/websocket.js';
+import { EventBus } from '../events/bus.js';
 
 export interface NotificationInput {
   id: string;
@@ -37,7 +37,7 @@ function operatorNotificationsPath(projectRoot: string): string {
 }
 
 export class NotificationCenter {
-  constructor(private readonly projectRoot: string) {}
+  constructor(private readonly projectRoot: string, private readonly eventBus = new EventBus()) {}
 
   private append(path: string, record: NotificationRecord): NotificationRecord {
     const parsed = notificationRecordSchema.parse(record);
@@ -80,7 +80,7 @@ export class NotificationCenter {
 
   enqueueForSession(sessionId: string, input: NotificationInput): NotificationRecord {
     const record = this.append(sessionNotificationsPath(this.projectRoot, sessionId), this.buildRecord(sessionId, input));
-    broadcastNotificationAdded({
+    this.eventBus.emit('notification_added', {
       id: record.id,
       kind: record.kind,
       severity: record.severity,
@@ -95,7 +95,7 @@ export class NotificationCenter {
 
   enqueueForOperator(input: NotificationInput): NotificationRecord {
     const record = this.append(operatorNotificationsPath(this.projectRoot), this.buildRecord(null, input));
-    broadcastNotificationAdded({
+    this.eventBus.emit('notification_added', {
       id: record.id,
       kind: record.kind,
       severity: record.severity,
@@ -158,7 +158,7 @@ export class NotificationCenter {
     const record = this.readLatest(path).find((entry) => entry.id === notificationId) ?? null;
     if (!record || record.acknowledged_at !== null) return record;
     const updated = this.append(path, { ...record, acknowledged_at: now() });
-    broadcastNotificationAcknowledged({
+    this.eventBus.emit('notification_acknowledged', {
       id: updated.id,
       kind: updated.kind,
       related_card_id: updated.related_card_id,
@@ -178,7 +178,7 @@ export class NotificationCenter {
     const record = this.readLatest(path).find((entry) => entry.id === notificationId) ?? null;
     if (!record || record.acknowledged_at !== null) return record;
     const updated = this.append(path, { ...record, acknowledged_at: now() });
-    broadcastNotificationAcknowledged({
+    this.eventBus.emit('notification_acknowledged', {
       id: updated.id,
       kind: updated.kind,
       related_card_id: updated.related_card_id,

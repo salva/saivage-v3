@@ -115,12 +115,11 @@ export interface PlannerDispatchCompletion { outcome: PlannerDispatchOutcome; su
 export interface PlannerFrameRecord { frame_id: string; planner_card_id: string; planner_role: 'planner'; planner_scope: 'project' | 'goal'; status: PlannerFrameStatus; resume_reason: PlannerResumeReason; waiting_on_dispatch_ids: string[]; last_resume_cursor: string | null; last_dispatch_id: string | null; created_at: string; updated_at: string; }
 export interface PlannerDispatchRecord { dispatch_id: string; parent_frame_id: string; parent_card_id: string; target_card_id: string; target_kind: 'goal' | 'terminal_card'; requested_by_role: 'planner'; requested_by_scope: 'project' | 'goal'; status: PlannerDispatchStatus; completion: PlannerDispatchCompletion | null; idempotency_key: string; created_at: string; started_at: string | null; completed_at: string | null; }
 
-export const runtimeEventKindValues = ['process_reconciled_dead', 'process_reattach_rejected', 'goal_report_rejected', 'started', 'goal_completed', 'goal_failed', 'card_failed', 'review_complete', 'review_failed', 'dispatch_blocked', 'dispatch_interrupted', 'dispatch_held_for_notification', 'escalation', 'plan_updated', 'paused', 'resumed', 'shutdown', 'error', 'stuck_supervisor_started', 'stuck_supervisor_stopped', 'stuck_verdict', 'abort_target_selected', 'force_cancel_sent', 'project_run_completed', 'runtime_command', 'runtime_run', 'runtime_activation', 'runtime_actionable_error', 'frozen', 'resumed_from_freeze'] as const;
-export const agentEventKindValues = ['session_started', 'model_selected', 'invocation_succeeded', 'invocation_failed', 'retry_attempted', 'compaction_triggered', 'self_check_triggered', 'model_issue', 'session_cancelled', 'session_force_cancelled', 'mcp_tool_invocation'] as const;
-export const eventKindValues = [...runtimeEventKindValues, ...agentEventKindValues] as const;
-export type RuntimeEventKind = typeof runtimeEventKindValues[number];
-export type AgentEventKind = typeof agentEventKindValues[number];
-export type EventKind = typeof eventKindValues[number];
+import { eventKindValues, runtimeEventKindValues, agentEventKindValues } from '../events/registry.js';
+import type { EventKind } from '../events/registry.js';
+export { eventKindValues, runtimeEventKindValues, agentEventKindValues, type EventKind };
+export type RuntimeEventKind = EventKind;
+export type AgentEventKind = EventKind;
 export interface BaseEvent { id: string; kind: EventKind; timestamp: string; session_id?: string; goal_id?: string; card_id?: string; }
 export interface StartedEvent extends BaseEvent { kind: 'started'; project_root: string; }
 export interface GoalCompletedEvent extends BaseEvent { kind: 'goal_completed'; goal_id: string; assessment?: ReviewAssessment; }
@@ -135,7 +134,7 @@ export interface PlanUpdatedEvent extends BaseEvent { kind: 'plan_updated'; goal
 export interface PausedEvent extends BaseEvent { kind: 'paused'; }
 export interface ResumedEvent extends BaseEvent { kind: 'resumed'; }
 export interface ShutdownEvent extends BaseEvent { kind: 'shutdown'; }
-export interface ErrorEvent extends BaseEvent { kind: 'error'; goal_id?: string; card_id?: string; phase?: string; error_message: string; }
+export interface RuntimeDiagnosticEvent extends BaseEvent { kind: 'runtime_diagnostic'; goal_id?: string; card_id?: string; phase?: string; error_message: string; error_name?: string; }
 export interface ProcessReconciledDeadEvent extends BaseEvent { kind: 'process_reconciled_dead'; process_id: string; card_id: string; goal_id?: string; session_id?: string; pid?: number | null; probe_status: 'not_running' | 'identity_mismatch' | 'clock_skew'; terminal_reason: 'lost'; failure_classification: 'lost'; detail: string; }
 export interface ProcessReattachRejectedEvent extends BaseEvent { kind: 'process_reattach_rejected'; process_id: string; card_id: string; goal_id?: string; session_id?: string; pid?: number | null; terminal_reason: 'lost'; failure_classification: 'lost'; reattach_error: string; detail: string; }
 export interface ProjectRunCompletedEvent extends BaseEvent, ProjectRunCompletedPayload { kind: 'project_run_completed'; }
@@ -145,6 +144,13 @@ export interface RuntimeCommandEvent extends BaseEvent { kind: 'runtime_command'
 export interface RuntimeRunEvent extends BaseEvent { kind: 'runtime_run'; run: RuntimeRunRecord; }
 export interface RuntimeActivationEvent extends BaseEvent { kind: 'runtime_activation'; activation: RuntimeActivationRecord; }
 export interface RuntimeActionableErrorEvent extends BaseEvent { kind: 'runtime_actionable_error'; actionable_error: ActionableErrorEnvelope; }
+export interface RuntimeFatalErrorEvent extends BaseEvent { kind: 'runtime_fatal_error'; phase?: string; error_message: string; error_name?: string; }
+export interface SubscriberErrorEvent extends BaseEvent { kind: 'subscriber_error'; subscription_id: string; source_kind: string; error_message: string; error_name?: string; timed_out?: boolean; }
+export interface CardHistoryAppendedEvent extends BaseEvent { kind: 'card_history_appended'; card_id: string; version_seq: number; changed_fields: string[]; changed_at: string; }
+export interface NotificationAddedEvent extends BaseEvent { kind: 'notification_added'; id: string; severity: string; related_card_id?: string; related_note_id?: string; related_process_id?: string; related_version_seq?: number; created_at: string; }
+export interface NotificationAcknowledgedEvent extends BaseEvent { kind: 'notification_acknowledged'; id: string; related_card_id?: string; related_note_id?: string; related_process_id?: string; acknowledged_at: string; }
+export interface ControlActionRecordedEvent extends BaseEvent { kind: 'control_action_recorded'; id: string; action: string; target_kind: string | null; target_id: string | null; outcome: string; created_at: string; actor?: string; surface?: string; }
+export interface AnalystToolInvokedEvent extends BaseEvent { kind: 'analyst_tool_invoked'; sessionId: string; tool: string; success: boolean; summary: string; classified_as?: string; related_card_id?: string; related_note_id?: string; related_process_id?: string; }
 export interface StuckSupervisorStartedEvent extends BaseEvent { kind: 'stuck_supervisor_started'; interval_ms: number; consecutive_threshold: number; }
 export interface StuckSupervisorStoppedEvent extends BaseEvent { kind: 'stuck_supervisor_stopped'; checks_performed: number; }
 export interface StuckVerdictEvent extends BaseEvent { kind: 'stuck_verdict'; verdict: boolean; confidence: number; reason: string; evidence: string[]; consecutive_count: number; threshold: number; }
@@ -163,7 +169,7 @@ export interface ModelIssueEvent extends BaseEvent { kind: 'model_issue'; sessio
 export interface SessionCancelledEvent extends BaseEvent { kind: 'session_cancelled'; session_id: string; }
 export interface SessionForceCancelledEvent extends BaseEvent { kind: 'session_force_cancelled'; session_id: string; }
 export interface McpToolInvocationEvent extends BaseEvent { kind: 'mcp_tool_invocation'; session_id: string; role: AgentRole; server_name: string; tool_name: string; success: boolean; error_message?: string; }
-export type LoggedEvent = ProcessReconciledDeadEvent | ProcessReattachRejectedEvent | GoalReportRejectedEvent | StartedEvent | GoalCompletedEvent | GoalFailedEvent | CardFailedEvent | ReviewCompleteEvent | ReviewFailedEvent | DispatchBlockedEvent | DispatchInterruptedEvent | DispatchHeldForNotificationEvent | EscalationEvent | PlanUpdatedEvent | PausedEvent | ResumedEvent | ShutdownEvent | ErrorEvent | ProjectRunCompletedEvent | FrozenEvent | ResumedFromFreezeEvent | RuntimeCommandEvent | RuntimeRunEvent | RuntimeActivationEvent | RuntimeActionableErrorEvent | StuckSupervisorStartedEvent | StuckSupervisorStoppedEvent | StuckVerdictEvent | AbortTargetSelectedEvent | ForceCancelSentEvent | SessionStartedEvent | ModelSelectedEvent | InvocationSucceededEvent | InvocationFailedEvent | RetryAttemptedEvent | CompactionTriggeredEvent | SelfCheckTriggeredEvent | ModelIssueEvent | SessionCancelledEvent | SessionForceCancelledEvent | McpToolInvocationEvent;
+export type LoggedEvent = ProcessReconciledDeadEvent | ProcessReattachRejectedEvent | GoalReportRejectedEvent | StartedEvent | GoalCompletedEvent | GoalFailedEvent | CardFailedEvent | ReviewCompleteEvent | ReviewFailedEvent | DispatchBlockedEvent | DispatchInterruptedEvent | DispatchHeldForNotificationEvent | EscalationEvent | PlanUpdatedEvent | PausedEvent | ResumedEvent | ShutdownEvent | RuntimeDiagnosticEvent | ProjectRunCompletedEvent | FrozenEvent | ResumedFromFreezeEvent | RuntimeCommandEvent | RuntimeRunEvent | RuntimeActivationEvent | RuntimeActionableErrorEvent | RuntimeFatalErrorEvent | SubscriberErrorEvent | CardHistoryAppendedEvent | NotificationAddedEvent | NotificationAcknowledgedEvent | ControlActionRecordedEvent | AnalystToolInvokedEvent | StuckSupervisorStartedEvent | StuckSupervisorStoppedEvent | StuckVerdictEvent | AbortTargetSelectedEvent | ForceCancelSentEvent | SessionStartedEvent | ModelSelectedEvent | InvocationSucceededEvent | InvocationFailedEvent | RetryAttemptedEvent | CompactionTriggeredEvent | SelfCheckTriggeredEvent | ModelIssueEvent | SessionCancelledEvent | SessionForceCancelledEvent | McpToolInvocationEvent;
 
 export type LoggedEventByKind = { [K in EventKind]: Extract<LoggedEvent, { kind: K }> };
 export type EventPayloadByKind = { [K in EventKind]: Omit<LoggedEventByKind[K], keyof BaseEvent | 'kind'> };

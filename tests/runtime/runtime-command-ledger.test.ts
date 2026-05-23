@@ -199,7 +199,7 @@ describe('runtime command ledger target contract (Wave 1)', () => {
         getActiveSessionHandoffs() { return []; },
       };
       const runtime = new Runtime({ projectRoot, fakeAgentConfig: { mapping: {}, fixtureDir: '' }, autoDispatchBacklog: false }, agentRuntime);
-      const sub = runtime.eventBus.subscribe({ allowedKinds: ['error'], handler: () => { throw new Error('subscriber boom'); } });
+      const sub = runtime.eventBus.subscribe({ allowedKinds: ['runtime_diagnostic'], handler: () => { throw new Error('subscriber boom'); } });
       const consoleSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
 
       try {

@@ -6,6 +6,7 @@ import {
   type EventKind,
   type LoggedEvent,
 } from './types.js';
+import { buildLoggedEventSchema } from '../events/registry.js';
 
 
 export const cardTypeSchema = z.enum(['project','goal','architecture','code','test','doc','data','research','ops']);
@@ -131,7 +132,7 @@ export const plannerDispatchCompletionSchema: z.ZodType<import('./types.js').Pla
 export const plannerFrameRecordSchema: z.ZodType<import('./types.js').PlannerFrameRecord> = z.object({ frame_id: z.string().min(1), planner_card_id: z.string().min(1), planner_role: z.literal('planner'), planner_scope: z.enum(['project', 'goal']), status: plannerFrameStatusSchema, resume_reason: plannerResumeReasonSchema, waiting_on_dispatch_ids: z.array(z.string().min(1)), last_resume_cursor: z.string().nullable(), last_dispatch_id: z.string().nullable(), created_at: z.string().datetime(), updated_at: z.string().datetime() }).strict();
 export const plannerDispatchRecordSchema: z.ZodType<import('./types.js').PlannerDispatchRecord> = z.object({ dispatch_id: z.string().min(1), parent_frame_id: z.string().min(1), parent_card_id: z.string().min(1), target_card_id: z.string().min(1), target_kind: z.enum(['goal', 'terminal_card']), requested_by_role: z.literal('planner'), requested_by_scope: z.enum(['project', 'goal']), status: plannerDispatchStatusSchema, completion: plannerDispatchCompletionSchema.nullable(), idempotency_key: z.string().min(1), created_at: z.string().datetime(), started_at: z.string().datetime().nullable(), completed_at: z.string().datetime().nullable() }).strict();
 
-function enumFromCatalog<T extends readonly [string, ...string[]]>(values: T) { return z.enum(values as unknown as [T[0], ...string[]]); }
+function enumFromCatalog(values: readonly string[]) { return z.enum(values as unknown as [string, ...string[]]); }
 
 export const runtimeEventKindSchema = enumFromCatalog(runtimeEventKindValues);
 export const agentEventKindSchema = enumFromCatalog(agentEventKindValues);
@@ -156,7 +157,7 @@ export const planUpdatedEventSchema = passthroughBaseEventSchema.extend({ kind: 
 export const pausedEventSchema = passthroughBaseEventSchema.extend({ kind: z.literal('paused') });
 export const resumedEventSchema = passthroughBaseEventSchema.extend({ kind: z.literal('resumed') });
 export const shutdownEventSchema = passthroughBaseEventSchema.extend({ kind: z.literal('shutdown') });
-export const errorEventSchema = passthroughBaseEventSchema.extend({ kind: z.literal('error'), goal_id: z.string().optional(), card_id: z.string().optional(), phase: z.string().optional(), error_message: z.string() });
+export const runtimeDiagnosticEventSchema = passthroughBaseEventSchema.extend({ kind: z.literal('runtime_diagnostic'), goal_id: z.string().optional(), card_id: z.string().optional(), phase: z.string().optional(), error_message: z.string(), error_name: z.string().optional() });
 export const projectRunCompletedEventSchema = passthroughBaseEventSchema.extend({ kind: z.literal('project_run_completed'), project_card_id: z.string(), result: z.enum(['done', 'failed', 'blocked']), summary: z.string(), failure_kind: z.string().optional(), blocked_reason: z.string().optional() });
 export const frozenEventSchema = passthroughBaseEventSchema.extend({ kind: z.literal('frozen'), freeze_id: z.string(), reason: z.string() });
 export const resumedFromFreezeEventSchema = passthroughBaseEventSchema.extend({ kind: z.literal('resumed_from_freeze'), freeze_id: z.string() });
@@ -181,52 +182,12 @@ export const sessionCancelledEventSchema = passthroughBaseEventSchema.extend({ k
 export const sessionForceCancelledEventSchema = passthroughBaseEventSchema.extend({ kind: z.literal('session_force_cancelled'), session_id: z.string() });
 export const mcpToolInvocationEventSchema = passthroughBaseEventSchema.extend({ kind: z.literal('mcp_tool_invocation'), session_id: z.string(), role: agentRoleSchema, server_name: z.string(), tool_name: z.string(), success: z.boolean(), error_message: z.string().optional() });
 
-export const loggedEventSchemaByKind = {
-  process_reconciled_dead: processReconciledDeadEventSchema,
-  process_reattach_rejected: processReattachRejectedEventSchema,
-  goal_report_rejected: goalReportRejectedEventSchema,
-  started: startedEventSchema,
-  goal_completed: goalCompletedEventSchema,
-  goal_failed: goalFailedEventSchema,
-  card_failed: cardFailedEventSchema,
-  review_complete: reviewCompleteEventSchema,
-  review_failed: reviewFailedEventSchema,
-  dispatch_blocked: dispatchBlockedEventSchema,
-  dispatch_interrupted: dispatchInterruptedEventSchema,
-  dispatch_held_for_notification: dispatchHeldForNotificationEventSchema,
-  escalation: escalationEventSchema,
-  plan_updated: planUpdatedEventSchema,
-  paused: pausedEventSchema,
-  resumed: resumedEventSchema,
-  shutdown: shutdownEventSchema,
-  error: errorEventSchema,
-  stuck_supervisor_started: stuckSupervisorStartedEventSchema,
-  stuck_supervisor_stopped: stuckSupervisorStoppedEventSchema,
-  stuck_verdict: stuckVerdictEventSchema,
-  abort_target_selected: abortTargetSelectedEventSchema,
-  force_cancel_sent: forceCancelSentEventSchema,
-  project_run_completed: projectRunCompletedEventSchema,
-  frozen: frozenEventSchema,
-  resumed_from_freeze: resumedFromFreezeEventSchema,
-  runtime_command: runtimeCommandEventSchema,
-  runtime_run: runtimeRunEventSchema,
-  runtime_activation: runtimeActivationEventSchema,
-  runtime_actionable_error: runtimeActionableErrorEventSchema,
-  session_started: sessionStartedEventSchema,
-  model_selected: modelSelectedEventSchema,
-  invocation_succeeded: invocationSucceededEventSchema,
-  invocation_failed: invocationFailedEventSchema,
-  retry_attempted: retryAttemptedEventSchema,
-  compaction_triggered: compactionTriggeredEventSchema,
-  self_check_triggered: selfCheckTriggeredEventSchema,
-  model_issue: modelIssueEventSchema,
-  session_cancelled: sessionCancelledEventSchema,
-  session_force_cancelled: sessionForceCancelledEventSchema,
-  mcp_tool_invocation: mcpToolInvocationEventSchema,
-} satisfies Record<EventKind, z.ZodTypeAny>;
+export const loggedEventSchemaByKind = Object.fromEntries(
+  eventKindValues.map((kind) => [kind, buildLoggedEventSchema(kind)]),
+) as Record<EventKind, z.ZodTypeAny>;
 
 const loggedEventSchemaMembers = eventKindValues.map((kind) => loggedEventSchemaByKind[kind]) as unknown as [z.ZodTypeAny, z.ZodTypeAny, ...z.ZodTypeAny[]];
-export const loggedEventSchema: z.ZodType<LoggedEvent> = z.discriminatedUnion('kind', loggedEventSchemaMembers as never) as z.ZodType<LoggedEvent>;
+export const loggedEventSchema: z.ZodType<LoggedEvent> = z.union(loggedEventSchemaMembers) as z.ZodType<LoggedEvent>;
 export const loggedEventCompatibilitySchema = z.object({ id: z.string().min(1), kind: z.string().min(1), timestamp: z.string().datetime(), session_id: z.string().optional(), goal_id: z.string().optional(), card_id: z.string().optional() }).passthrough();
 export type LoggedEventCompatResult = { ok: true; event: LoggedEvent; compatibility: 'strict' } | { ok: true; event: Record<string, unknown> & { id: string; kind: string; timestamp: string }; compatibility: 'unknown-kind'; warning: string } | { ok: false; error: z.ZodError };
 export function parseLoggedEventCompat(value: unknown): LoggedEventCompatResult {

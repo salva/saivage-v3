@@ -167,8 +167,8 @@ describe('runtime activation ledger target contract (Wave 1)', () => {
 
       const persistedRunEvents = activeRuntime.eventLogger.getEvents({ kind: 'runtime_run' }).filter((event) => (event as any).run?.run_id === childRun!.run_id);
       const persistedActivationEvents = activeRuntime.eventLogger.getEvents({ kind: 'runtime_activation' }).filter((event) => (event as any).activation?.activation_id === activation!.activation_id);
-      expect(persistedRunEvents).toEqual([events[0]]);
-      expect(persistedActivationEvents).toEqual([events[1]]);
+      expect(persistedRunEvents).toEqual([expect.objectContaining({ kind: events[0].kind, run: events[0].run })]);
+      expect(persistedActivationEvents).toEqual([expect.objectContaining({ kind: events[1].kind, activation: events[1].activation })]);
       expect((persistedActivationEvents[0] as any).activation.idempotency_key).toBe(activation?.idempotency_key);
 
       const projected = events.map((event) => createRuntimeEnvelope(event.kind, event as unknown as Record<string, unknown>));

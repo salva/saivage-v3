@@ -33,7 +33,7 @@ import type {
   NoteAuthor,
 } from '../schemas/types.js';
 import { enqueueCardMutationNotifications } from './notification-triggers.js';
-import { broadcastCardHistoryAppended } from '../server/websocket.js';
+import { EventBus } from '../events/bus.js';
 
 export interface CardMutationContext {
   actor: NoteAuthor;
@@ -378,13 +378,15 @@ export class CardStore {
   private compatibilitySnapshotHealth: CompatibilitySnapshotHealth = 'ok';
   private compatibilitySnapshotWarnings: CardStoreCompatibilitySnapshotWarning[] = [];
   private readonly testHooks?: CardStoreTestHooks;
+  private readonly eventBus: EventBus;
 
   readonly maxDepth: number;
 
-  constructor(projectRoot: string, maxDepth?: number, testHooks?: CardStoreTestHooks) {
+  constructor(projectRoot: string, maxDepth?: number, testHooks?: CardStoreTestHooks, eventBus?: EventBus) {
     this.projectRoot = projectRoot;
     this.maxDepth = maxDepth !== undefined && maxDepth > 0 ? maxDepth : 5;
     this.testHooks = testHooks;
+    this.eventBus = eventBus ?? new EventBus();
   }
 
   private ensurePersistedStateValidated(): void {
@@ -1161,7 +1163,7 @@ export class CardStore {
     this.recomputeBlocks();
     this.rebuildGraphAndSnapshots('mutation-rebuild', true);
     const persisted = this.read(id)!;
-    broadcastCardHistoryAppended({
+    this.eventBus.emit('card_history_appended', {
       card_id: persisted.id,
       version_seq: persisted.version_seq,
       changed_fields: [...changedFields],

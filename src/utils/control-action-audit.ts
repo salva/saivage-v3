@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { redactSecrets, redactCredentialLiterals } from './file-access-security.js';
 import { controlActionAuditEntrySchema } from '../schemas/validators.js';
 import type { ControlActionAuditEntry } from '../schemas/types.js';
-import { broadcastControlActionRecorded } from '../server/websocket.js';
+import { EventBus } from '../events/bus.js';
 
 const INLINE_SECRET_RE = /(api(?:[_-]?key|[_-]?token)?|token|secret|password)\s*=\s*("[^"]*"|'[^']*'|\S+)/gi;
 
@@ -69,7 +69,7 @@ export function listControlActions(projectRoot: string, filters?: { card_id?: st
     .sort((a, b) => b.created_at.localeCompare(a.created_at) || b.id.localeCompare(a.id));
 }
 
-export function recordControlAction(projectRoot: string, entry: Omit<ControlActionAuditEntry, 'id' | 'created_at'> & { id?: string; created_at?: string }): ControlActionAuditEntry {
+export function recordControlAction(projectRoot: string, entry: Omit<ControlActionAuditEntry, 'id' | 'created_at'> & { id?: string; created_at?: string }, eventBus = new EventBus()): ControlActionAuditEntry {
   const parsed = controlActionAuditEntrySchema.parse({
     ...entry,
     id: entry.id ?? randomUUID(),
@@ -81,7 +81,7 @@ export function recordControlAction(projectRoot: string, entry: Omit<ControlActi
   const path = auditPath(projectRoot);
   mkdirSync(join(path, '..'), { recursive: true });
   appendFileSync(path, `${JSON.stringify(parsed)}\n`, 'utf-8');
-  broadcastControlActionRecorded({
+  eventBus.emit('control_action_recorded', {
     id: parsed.id,
     action: parsed.action,
     target_kind: parsed.target_kind,
