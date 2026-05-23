@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import type { ContractAuthClass } from '../server/contract-runtime.js';
 import {
   cardRecordSchema,
   cardStatusSchema,
@@ -20,7 +21,27 @@ export type HttpMethod = z.infer<typeof HttpMethodSchema>;
 export const ApiErrorSchema = z.object({
   error: z.string(),
   message: z.string().optional(),
+  statusCode: z.number().int().optional(),
 }).catchall(z.unknown());
+
+export const ValidationErrorSchema = ApiErrorSchema.extend({
+  error: z.union([z.literal('ValidationError'), z.literal('Request validation failed')]),
+  issues: z.array(z.object({ path: z.string(), message: z.string() })).optional(),
+});
+
+export const UnauthorizedErrorSchema = ApiErrorSchema.extend({
+  error: z.literal('Unauthorized'),
+  statusCode: z.literal(401).optional(),
+});
+
+export const ForbiddenErrorSchema = ApiErrorSchema.extend({
+  error: z.literal('Forbidden'),
+  statusCode: z.literal(403).optional(),
+});
+
+export const ContractViolationErrorSchema = ApiErrorSchema.extend({
+  error: z.literal('ContractViolation'),
+});
 
 export const CardNotFoundErrorSchema = ApiErrorSchema.extend({
   cardId: z.string().optional(),
@@ -100,6 +121,9 @@ export const ServerAvailabilitySchema = z.object({
     mcp: AvailabilityComponentSchema,
   }),
 });
+export const HealthLivenessResponseSchema = z.object({ status: z.literal('ok'), version: z.string(), project: z.string() });
+export const HealthReadinessResponseSchema = z.object({ status: z.enum(['ready', 'not_ready']), serverAvailability: ServerAvailabilitySchema.optional() });
+
 export type AvailabilityState = z.infer<typeof AvailabilityStateSchema>;
 export type AvailabilityComponent = z.infer<typeof AvailabilityComponentSchema>;
 export type ServerAvailability = z.infer<typeof ServerAvailabilitySchema>;
@@ -125,6 +149,12 @@ export const CardDetailResponseSchema = z.object({
 export const CardMutationResponseSchema = z.object({
   card: cardRecordSchema,
 });
+export const CardHistoryParamsSchema = z.object({ id: z.string().min(1) });
+export const CardHistoryEntryParamsSchema = z.object({ id: z.string().min(1), seq: z.string().min(1) });
+export const CardDiffQuerySchema = z.object({ from: z.string().min(1), to: z.string().min(1) });
+export const CardHistoryListResponseSchema = z.object({ history: z.array(z.record(z.string(), z.unknown())), total: z.number().int().nonnegative() });
+export const CardHistoryEntryResponseSchema = z.object({ entry: z.record(z.string(), z.unknown()) });
+export const CardDiffResponseSchema = z.object({ diff: z.unknown(), from: z.number().int().positive(), to: z.number().int().positive(), card_id: z.string() });
 
 const cardCreateBaseSchema = z.object({
   type: cardTypeSchema.optional(),
@@ -134,7 +164,7 @@ const cardCreateBaseSchema = z.object({
   status: cardStatusSchema.optional(),
   planner_state: cardStatusSchema.optional(),
   tags: z.array(z.string()).optional(),
-  priority: z.number().int().optional(),
+  priority: z.number().int().min(0).max(100).optional(),
   urgency: urgencySchema.optional(),
   created_by: createdBySchema.optional(),
   depends_on: z.array(z.string()).optional(),
@@ -190,18 +220,49 @@ export type OperatorRouteContract<
   body?: TBody;
   success: TSuccess;
   error: TError;
+  response?: Record<number, z.ZodTypeAny>;
+  auth?: ContractAuthClass;
+  permissions?: (context: { contract: OperatorRouteContract; params: unknown; query: unknown; body: unknown; request: unknown }) => boolean | { allowed: true } | { allowed: false; reason?: string } | Promise<boolean | { allowed: true } | { allowed: false; reason?: string }>;
+  audit?: { kind: string; action?: string; targetKind?: string | null; targetId?: (context: { request: unknown; body: unknown }) => string | null };
+  describe?: string;
   requiresAuth: boolean;
   successSchemaName: string;
 };
 
+const publicContract = { auth: 'public', requiresAuth: false } as const;
+const operatorContract = { auth: 'operator-session', requiresAuth: true, permissions: () => true } as const;
+
 export const operatorApiContracts = {
+  'health.liveness': {
+    operationId: 'health.liveness',
+    method: 'GET',
+    path: '/health',
+    success: HealthLivenessResponseSchema,
+    error: ApiErrorSchema,
+    response: { 200: HealthLivenessResponseSchema, 500: ContractViolationErrorSchema },
+    ...publicContract,
+    successSchemaName: 'HealthLivenessResponse',
+    describe: 'Cheap process liveness probe.',
+  },
+  'health.readiness': {
+    operationId: 'health.readiness',
+    method: 'GET',
+    path: '/health/ready',
+    success: HealthReadinessResponseSchema,
+    error: ApiErrorSchema,
+    response: { 200: HealthReadinessResponseSchema, 503: HealthReadinessResponseSchema, 500: ContractViolationErrorSchema },
+    ...publicContract,
+    successSchemaName: 'HealthReadinessResponse',
+    describe: 'Readiness probe for loaded environment and accepting server.',
+  },
   'runtime.getState': {
     operationId: 'runtime.getState',
     method: 'GET',
     path: '/api/state',
     success: RuntimeGetStateResponseSchema,
     error: ApiErrorSchema,
-    requiresAuth: true,
+    response: { 200: RuntimeGetStateResponseSchema, 400: ValidationErrorSchema, 401: UnauthorizedErrorSchema, 403: ForbiddenErrorSchema, 500: ContractViolationErrorSchema },
+    ...operatorContract,
     successSchemaName: 'RuntimeGetStateResponse',
   },
   'runtime.startProject': {
@@ -211,7 +272,8 @@ export const operatorApiContracts = {
     body: RuntimeControlRequestSchema,
     success: RuntimeCommandResponseSchema,
     error: RuntimeCommandErrorResponseSchema,
-    requiresAuth: true,
+    response: { 200: RuntimeCommandResponseSchema, 400: ValidationErrorSchema, 401: UnauthorizedErrorSchema, 403: ForbiddenErrorSchema, 409: RuntimeCommandErrorResponseSchema, 500: ContractViolationErrorSchema, 503: RuntimeCommandErrorResponseSchema },
+    ...operatorContract,
     successSchemaName: 'RuntimeCommandResponse',
   },
   'runtime.stopProject': {
@@ -221,7 +283,8 @@ export const operatorApiContracts = {
     body: RuntimeControlRequestSchema,
     success: RuntimeCommandResponseSchema,
     error: RuntimeCommandErrorResponseSchema,
-    requiresAuth: true,
+    response: { 200: RuntimeCommandResponseSchema, 400: ValidationErrorSchema, 401: UnauthorizedErrorSchema, 403: ForbiddenErrorSchema, 409: RuntimeCommandErrorResponseSchema, 500: ContractViolationErrorSchema, 503: RuntimeCommandErrorResponseSchema },
+    ...operatorContract,
     successSchemaName: 'RuntimeCommandResponse',
   },
   'runtime.pause': {
@@ -231,7 +294,8 @@ export const operatorApiContracts = {
     body: EmptyBodySchema,
     success: runtimeStateSchema,
     error: RuntimeControlErrorSchema,
-    requiresAuth: true,
+    response: { 200: runtimeStateSchema, 400: ValidationErrorSchema, 401: UnauthorizedErrorSchema, 403: ForbiddenErrorSchema, 500: ContractViolationErrorSchema },
+    ...operatorContract,
     successSchemaName: 'RuntimeState',
   },
   'runtime.resume': {
@@ -241,7 +305,8 @@ export const operatorApiContracts = {
     body: EmptyBodySchema,
     success: runtimeStateSchema,
     error: RuntimeControlErrorSchema,
-    requiresAuth: true,
+    response: { 200: runtimeStateSchema, 400: ValidationErrorSchema, 401: UnauthorizedErrorSchema, 403: ForbiddenErrorSchema, 500: ContractViolationErrorSchema },
+    ...operatorContract,
     successSchemaName: 'RuntimeState',
   },
   'cards.list': {
@@ -250,7 +315,8 @@ export const operatorApiContracts = {
     path: '/api/cards',
     success: CardListResponseSchema,
     error: ApiErrorSchema,
-    requiresAuth: true,
+    response: { 200: CardListResponseSchema, 400: ValidationErrorSchema, 401: UnauthorizedErrorSchema, 403: ForbiddenErrorSchema, 500: ContractViolationErrorSchema },
+    ...operatorContract,
     successSchemaName: 'CardListResponse',
   },
   'cards.get': {
@@ -260,8 +326,56 @@ export const operatorApiContracts = {
     params: CardIdParamsSchema,
     success: CardDetailResponseSchema,
     error: CardNotFoundErrorSchema,
-    requiresAuth: true,
+    response: { 200: CardDetailResponseSchema, 400: ValidationErrorSchema, 401: UnauthorizedErrorSchema, 403: ForbiddenErrorSchema, 404: CardNotFoundErrorSchema, 500: ContractViolationErrorSchema },
+    ...operatorContract,
     successSchemaName: 'CardDetailResponse',
+  },
+
+  'cards.history.list': {
+    operationId: 'cards.history.list',
+    method: 'GET',
+    path: '/api/cards/:id/history',
+    params: CardHistoryParamsSchema,
+    success: CardHistoryListResponseSchema,
+    error: CardNotFoundErrorSchema,
+    response: { 200: CardHistoryListResponseSchema, 400: ValidationErrorSchema, 401: UnauthorizedErrorSchema, 403: ForbiddenErrorSchema, 404: CardNotFoundErrorSchema, 500: ContractViolationErrorSchema },
+    ...operatorContract,
+    successSchemaName: 'CardHistoryListResponse',
+  },
+  'cards.history.get': {
+    operationId: 'cards.history.get',
+    method: 'GET',
+    path: '/api/cards/:id/history/:seq',
+    params: CardHistoryEntryParamsSchema,
+    success: CardHistoryEntryResponseSchema,
+    error: CardNotFoundErrorSchema,
+    response: { 200: CardHistoryEntryResponseSchema, 400: ApiErrorSchema, 401: UnauthorizedErrorSchema, 403: ForbiddenErrorSchema, 404: CardNotFoundErrorSchema, 500: ContractViolationErrorSchema },
+    ...operatorContract,
+    successSchemaName: 'CardHistoryEntryResponse',
+  },
+  'cards.diff': {
+    operationId: 'cards.diff',
+    method: 'GET',
+    path: '/api/cards/:id/diff',
+    params: CardHistoryParamsSchema,
+    query: CardDiffQuerySchema,
+    success: CardDiffResponseSchema,
+    error: ApiErrorSchema,
+    response: { 200: CardDiffResponseSchema, 400: ApiErrorSchema, 401: UnauthorizedErrorSchema, 403: ForbiddenErrorSchema, 404: ApiErrorSchema, 500: ContractViolationErrorSchema },
+    ...operatorContract,
+    successSchemaName: 'CardDiffResponse',
+  },
+  'cards.delete': {
+    operationId: 'cards.delete',
+    method: 'DELETE',
+    path: '/api/cards/:id',
+    params: CardIdParamsSchema,
+    success: z.undefined(),
+    error: ApiErrorSchema,
+    response: { 400: ApiErrorSchema, 401: UnauthorizedErrorSchema, 403: ForbiddenErrorSchema, 404: ApiErrorSchema, 500: ContractViolationErrorSchema },
+    ...operatorContract,
+    audit: { kind: 'control_action_recorded', action: 'card.delete', targetKind: 'card' },
+    successSchemaName: 'NoContent',
   },
   'cards.create': {
     operationId: 'cards.create',
@@ -270,7 +384,9 @@ export const operatorApiContracts = {
     body: CardCreateBodySchema,
     success: CardMutationResponseSchema,
     error: ApiErrorSchema,
-    requiresAuth: true,
+    response: { 201: CardMutationResponseSchema, 400: ApiErrorSchema, 401: UnauthorizedErrorSchema, 403: ForbiddenErrorSchema, 500: ContractViolationErrorSchema },
+    ...operatorContract,
+    audit: { kind: 'control_action_recorded', action: 'card.create', targetKind: 'card' },
     successSchemaName: 'CardMutationResponse',
   },
   'cards.update': {
@@ -281,7 +397,9 @@ export const operatorApiContracts = {
     body: CardUpdateBodySchema,
     success: CardMutationResponseSchema,
     error: CardNotFoundErrorSchema,
-    requiresAuth: true,
+    response: { 200: CardMutationResponseSchema, 400: ApiErrorSchema, 401: UnauthorizedErrorSchema, 403: ForbiddenErrorSchema, 404: CardNotFoundErrorSchema, 500: ContractViolationErrorSchema },
+    ...operatorContract,
+    audit: { kind: 'control_action_recorded', action: 'card.update', targetKind: 'card', targetId: ({ body }) => ((body as { card?: { id?: string } })?.card?.id ?? null) },
     successSchemaName: 'CardMutationResponse',
   },
 } as const satisfies Record<string, OperatorRouteContract>;

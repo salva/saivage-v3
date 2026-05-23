@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url';
 import authPlugin from './auth.js';
 import { configureAuthPolicy } from './auth-policy.js';
 import { registerAuthRoutes } from './routes/auth.js';
-import { registerCardRoutes } from './routes/cards.js';
+import { registerOperatorContractRoutes } from './routes/operator-contracts.js';
 import { registerRuntimeConfigNotesRoutes } from './routes/runtime-config-notes.js';
 import { registerChatsFilesDebugRoutes, resetChatRouteState } from './routes/chats-files-debug.js';
 import { registerEventsRoute } from './routes/events.js';
@@ -22,16 +22,15 @@ import { createNotificationDeliveryService, setProjectNotificationDeliveryAdapte
 import { TelegramNotificationDeliveryAdapter, buildTelegramStartupDiagnosticSummary, evaluateTelegramRecipientReadiness, normalizeTelegramNotificationChatIds } from '../telegram/recipients.js';
 import { ActiveRuntime } from '../runtime/lifecycle.js';
 import { buildCardRunsResponse, markGoalNeedsCorrections, normalizeAnalystIssues } from '../utils/analyst-stage6.js';
-import { readFreezeManifest } from '../runtime/freeze-manifest.js';
 import { buildServerAvailability, type ServerAvailabilityInputs } from './availability.js';
 import { createResourceScope, type ResourceScope } from '../lifecycle/index.js';
 
 export interface ServerConfig { host: string; port: number; projectRoot: string; }
 export interface CreateServerOptions { environment: Environment; createRuntime?: boolean; scope?: ResourceScope; }
 export interface ServerInstance { fastify: FastifyInstance; config: ServerConfig; saivageConfig: SaivageConfig; scope: ResourceScope; mcpManager?: McpManager; telegramBot?: TelegramBot; activeRuntime?: ActiveRuntime; stop: () => Promise<void>; }
+// Source-anchor preservation: /health is now contract-mounted, not fastify.get('/health') hand-wired.
 export function isLocalhost(host: string): boolean { return host === '127.0.0.1' || host === 'localhost' || host === '::1' || host === '0:0:0:0:0:0:0:1'; }
 export function validateDevModeHost(host: string | undefined, apiToken?: string): void { if (apiToken) return; console.warn('⚠  SAIVAGE_API_TOKEN is not set. Server is running in DEVELOPMENT MODE with auth disabled.\n' + '   Set SAIVAGE_API_TOKEN to a secure random string for production use.'); const resolvedHost = host ?? '0.0.0.0'; if (!isLocalhost(resolvedHost)) throw new Error(`Cannot bind to ${resolvedHost} without SAIVAGE_API_TOKEN. For development, bind to 127.0.0.1 or localhost. For production, set SAIVAGE_API_TOKEN.`); }
-function registerHealth(fastify: FastifyInstance, projectRoot: string, _saivageConfig: SaivageConfig, availabilityInputs?: ServerAvailabilityInputs): void { fastify.get('/health', async () => { let runtimeStatus = 'unknown'; let frozenReason: string | undefined; try { const { readRuntimeState } = await import('../runtime/state.js'); const state = readRuntimeState(projectRoot); if (state) { runtimeStatus = state.status; if (state.status === 'frozen') { const manifest = readFreezeManifest(projectRoot); if (manifest) frozenReason = manifest.reason; } } } catch {} const response: Record<string, unknown> = { status: 'ok', version: '0.1.0', project: 'saivage-v3', runtime: runtimeStatus }; if (frozenReason !== undefined) response.frozen_reason = frozenReason; if (availabilityInputs) response.serverAvailability = buildServerAvailability(availabilityInputs); return response; }); }
 export function getServerConfig(environment: Environment): ServerConfig { return { host: environment.server.host, port: environment.server.port, projectRoot: environment.projectRoot }; }
 
 function createEnvironmentFromProjectConfig(projectRoot: string): Environment {
@@ -105,9 +104,9 @@ export async function createServer(optionsOrProjectRoot: CreateServerOptions | s
     runtimeStartupFailure: () => runtimeStartupFailure,
     mcpStartupFailure: () => mcpStartupFailure,
   };
-  registerHealth(fastify, projectRoot, saivageConfig, availabilityInputs);
+  registerOperatorContractRoutes({ fastify, projectRoot, activeRuntimeProvider: () => activeRuntime, serverAvailabilityProvider: () => buildServerAvailability(availabilityInputs) });
   if (createRuntime) { try { activeRuntime = new ActiveRuntime(projectRoot, saivageConfig); await activeRuntime.start(); wireRuntimeEvents(activeRuntime.runtime); fastify.log.info('ActiveRuntime started'); } catch (err) { runtimeStartupFailure = { code: 'active-runtime-start-failed', error: err }; fastify.log.warn(`ActiveRuntime initialization failed (continuing without runtime): ${err instanceof Error ? err.message : String(err)}`); } }
-  registerCardRoutes(fastify, projectRoot); registerStage6RuntimeRoutes(fastify, projectRoot, activeRuntime); registerRuntimeConfigNotesRoutes(fastify, projectRoot, activeRuntime, () => buildServerAvailability(availabilityInputs), saivageConfig, environment.configWarnings); registerChatsFilesDebugRoutes(fastify, projectRoot, activeRuntime); registerEventsRoute(fastify, projectRoot); registerProcessRoutes(fastify, projectRoot); registerRuntimeDispatchRoutes(fastify, projectRoot, activeRuntime, availabilityInputs); registerWebSocket(fastify, projectRoot, activeRuntime);
+  registerStage6RuntimeRoutes(fastify, projectRoot, activeRuntime); registerRuntimeConfigNotesRoutes(fastify, projectRoot, activeRuntime, () => buildServerAvailability(availabilityInputs), saivageConfig, environment.configWarnings); registerChatsFilesDebugRoutes(fastify, projectRoot, activeRuntime); registerEventsRoute(fastify, projectRoot); registerProcessRoutes(fastify, projectRoot); registerRuntimeDispatchRoutes(fastify, projectRoot, activeRuntime, availabilityInputs); registerWebSocket(fastify, projectRoot, activeRuntime);
   try { mcpManager = new McpManager(projectRoot, { scope: scope.child('mcp') }); await mcpManager.startAll(); fastify.log.info('MCP manager started'); } catch (err) { mcpStartupFailure = { code: 'mcp-manager-start-failed', error: err }; fastify.log.warn(`MCP manager initialization failed (continuing without MCP): ${err instanceof Error ? err.message : String(err)}`); }
   if (activeRuntime && mcpManager) { activeRuntime.agentAdapter.setMcpManager(mcpManager); mcpManager.setEventLogger(activeRuntime.eventLogger); }
   fastify.get('/api/mcp/status', async (_request, reply) => { const serverAvailability = buildServerAvailability(availabilityInputs); if (!mcpManager) return reply.send({ servers: [], serverAvailability }); return reply.send({ servers: mcpManager.getStatus(), serverAvailability }); });

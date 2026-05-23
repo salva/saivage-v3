@@ -36,7 +36,7 @@ describe('first-batch contract-bound runtime/card routes', () => {
   it('validates card create/update request bodies before mutation', async () => {
     const badCreate = await server.fastify.inject({ method: 'POST', url: '/api/cards', payload: { title: 'bad', priority: 101 } });
     expect(badCreate.statusCode).toBe(400);
-    expect(badCreate.json()).toEqual(expect.objectContaining({ error: 'Card creation failed', message: 'priority must be an integer from 0 to 100' }));
+    expect(badCreate.json()).toEqual(expect.objectContaining({ error: 'ValidationError' }));
 
     const create = await server.fastify.inject({ method: 'POST', url: '/api/cards', payload: { type: 'goal', parent: 'project', title: 'goal', description: 'd' } });
     expect(create.statusCode).toBe(201);
@@ -44,7 +44,7 @@ describe('first-batch contract-bound runtime/card routes', () => {
 
     const badUpdate = await server.fastify.inject({ method: 'PATCH', url: `/api/cards/${created.id}`, payload: { priority: -1 } });
     expect(badUpdate.statusCode).toBe(400);
-    expect(badUpdate.json().error).toBe('Request validation failed');
+    expect(badUpdate.json().error).toBe('ValidationError');
 
     const update = await server.fastify.inject({ method: 'PATCH', url: `/api/cards/${created.id}`, payload: { priority: 42 } });
     expect(update.statusCode).toBe(200);

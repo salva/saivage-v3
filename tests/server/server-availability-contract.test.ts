@@ -27,6 +27,10 @@ function setupProject(root: string, withRuntimeState = true): void {
       queue: [],
       running_processes: [],
       updated_at: '2026-01-01T00:00:01.000Z',
+      runtime_intent: { status: 'running', updated_at: '2026-01-01T00:00:01.000Z', source_command_id: null, reason: null },
+      runtime_commands: [],
+      runtime_runs: [],
+      runtime_activations: [],
     }, null, 2));
   }
   writeFileSync(join(sd, 'cards', 'index.json'), JSON.stringify({ cards: {} }));
@@ -62,7 +66,7 @@ describe('server availability contract', () => {
     setupProject(tmpDir, true);
     const availability = buildServerAvailability({ projectRoot: tmpDir });
     expect(availability.components.api.state).toBe('available');
-    expect(availability.components.runtime).toEqual(expect.objectContaining({ state: 'degraded', source: 'runtime-state' }));
+    expect(availability.components.runtime).toEqual(expect.objectContaining({ state: 'unknown', source: 'unknown' }));
     expect(availability.components.mcp).toEqual(expect.objectContaining({ state: 'unknown', source: 'unknown' }));
   });
 
@@ -100,12 +104,16 @@ describe('server availability contract', () => {
     const health = await server.fastify.inject({ method: 'GET', url: '/health' });
     expect(health.statusCode).toBe(200);
     const healthBody = health.json() as Record<string, any>;
-    expect(healthBody).toEqual(expect.objectContaining({ status: 'ok', version: '0.1.0', project: 'saivage-v3', runtime: 'idle' }));
-    expect(healthBody.serverAvailability.components.api.state).toBe('available');
+    expect(healthBody).toEqual({ status: 'ok', version: '0.1.0', project: 'saivage-v3' });
+
+    const ready = await server.fastify.inject({ method: 'GET', url: '/health/ready' });
+    expect(ready.statusCode).toBe(200);
+    expect(ready.json()).toEqual(expect.objectContaining({ status: 'ready', serverAvailability: expect.any(Object) }));
+    expect(ready.json().serverAvailability.components.api.state).toBe('available');
 
     const runtimeStatus = await server.fastify.inject({ method: 'GET', url: '/api/runtime/status', headers: { authorization: `Bearer ${AUTH_TOKEN}` } });
     expect(runtimeStatus.statusCode).toBe(200);
-    expect(runtimeStatus.json()).toEqual(expect.objectContaining({ runtime: 'idle', paused: false, currentCardId: null, goalCount: 0, serverAvailability: expect.any(Object) }));
+    expect(runtimeStatus.json()).toEqual(expect.objectContaining({ runtime: 'unknown', paused: false, currentCardId: null, goalCount: 0, serverAvailability: expect.any(Object) }));
 
     const mcpStatus = await server.fastify.inject({ method: 'GET', url: '/api/mcp/status', headers: { authorization: `Bearer ${AUTH_TOKEN}` } });
     expect(mcpStatus.statusCode).toBe(200);

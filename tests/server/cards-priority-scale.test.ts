@@ -57,7 +57,7 @@ describe('card routes priority scale', () => {
     const high = await app.inject({ method: 'POST', url: '/api/cards', headers, payload: { type: 'code', parent: 'project', title: 'high', priority: 101 } });
     expect(low.statusCode).toBe(400);
     expect(high.statusCode).toBe(400);
-    expect(low.json()).toEqual(expect.objectContaining({ error: 'Card creation failed', message: 'priority must be an integer from 0 to 100' }));
+    expect(low.json()).toEqual(expect.objectContaining({ error: 'ValidationError' }));
     await app.close();
   });
 });

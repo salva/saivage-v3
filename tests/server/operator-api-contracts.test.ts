@@ -102,6 +102,8 @@ const card = {
 describe('operator API contract registry', () => {
   it('contains the bounded first-batch operation inventory', () => {
     expect(Object.keys(operatorApiContracts)).toEqual([
+      'health.liveness',
+      'health.readiness',
       'runtime.getState',
       'runtime.startProject',
       'runtime.stopProject',
@@ -109,10 +111,16 @@ describe('operator API contract registry', () => {
       'runtime.resume',
       'cards.list',
       'cards.get',
+      'cards.history.list',
+      'cards.history.get',
+      'cards.diff',
+      'cards.delete',
       'cards.create',
       'cards.update',
     ]);
     expect(operatorRouteInventory()).toEqual(expect.arrayContaining([
+      expect.objectContaining({ operationId: 'health.liveness', method: 'GET', path: '/health', successSchemaName: 'HealthLivenessResponse' }),
+      expect.objectContaining({ operationId: 'health.readiness', method: 'GET', path: '/health/ready', successSchemaName: 'HealthReadinessResponse' }),
       expect.objectContaining({ operationId: 'runtime.startProject', method: 'POST', path: '/api/runtime/start_project', successSchemaName: 'RuntimeCommandResponse' }),
       expect.objectContaining({ operationId: 'runtime.stopProject', method: 'POST', path: '/api/runtime/stop_project', successSchemaName: 'RuntimeCommandResponse' }),
       expect.objectContaining({ operationId: 'runtime.pause', method: 'POST', path: '/api/runtime/pause', successSchemaName: 'RuntimeState' }),

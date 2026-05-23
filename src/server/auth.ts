@@ -35,7 +35,7 @@ export interface AuthPluginOptions {
   excludeRoutes?: string[];
 }
 
-const DEFAULT_EXCLUDED = ['/health'];
+const DEFAULT_EXCLUDED = ['/health', '/health/ready'];
 
 async function authPlugin(
   fastify: FastifyInstance,
