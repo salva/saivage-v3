@@ -1,0 +1,18 @@
+# F16 — Analysis Review (r1)
+
+## Findings
+
+1. **Structural criterion still has an output-sensitive gate.** The proposed replacement correctly removes the `/capture|announce/i` title/description dependency, but the new `non-empty acceptance` requirement is not planner-output-invariant. The observed valid T35 child is `type="code"`, `parent="project"`, `status="running"`, and has a substantial description, but `acceptance=""` in [t35-cards.json](../../../../../tmp/saivage-v3-checkers-e2e-artifacts-20260523-phase2/t35-cards.json#L1). Saivage also models `acceptance` as a plain string, with create/update accepting it as optional ([operator-api.ts](../../../../src/contracts/operator-api.ts#L173), [operator-api.ts](../../../../src/contracts/operator-api.ts#L194)), so the plan would reject the exact planner-valid card that motivated F16. Tighten this to something schema-stable, for example `parent === "project"` or ancestor under project root, `type` is a valid work-card type, `status !== "backlog"`, and either `description` or `acceptance` is non-empty.
+
+2. **Use live card-field names and valid type names in the matrix prose.** The API/card schema uses `parent`, not `parent_id`, and the valid card types are `project`, `goal`, `architecture`, `code`, `test`, `doc`, `data`, `research`, and `ops` ([validators.ts](../../../../src/schemas/validators.ts#L12)). `analysis` is not a valid `CardType`. This is easy to fix in the plan wording, but leaving it as-is makes the executor of the matrix guess at the intended field/type mapping.
+
+3. **T38 generalization leaves G5 downstream checks inconsistent.** R1 correctly identifies the literal assumptions in T35/T38 ([test-matrix.json](../../../../../tmp/saivage-v3-checkers-e2e-artifacts-20260523-phase2/test-matrix.json#L941), [test-matrix.json](../../../../../tmp/saivage-v3-checkers-e2e-artifacts-20260523-phase2/test-matrix.json#L1035), [test-matrix.json](../../../../../tmp/saivage-v3-checkers-e2e-artifacts-20260523-phase2/test-matrix.json#L1040)). However, once T38 waits for “the planner-selected seeded-improvement card, whatever its title,” T39 and T42 still require the capture-announcement implementation specifically ([test-matrix.json](../../../../../tmp/saivage-v3-checkers-e2e-artifacts-20260523-phase2/test-matrix.json#L1069), [test-matrix.json](../../../../../tmp/saivage-v3-checkers-e2e-artifacts-20260523-phase2/test-matrix.json#L1076), [test-matrix.json](../../../../../tmp/saivage-v3-checkers-e2e-artifacts-20260523-phase2/test-matrix.json#L1089), [test-matrix.json](../../../../../tmp/saivage-v3-checkers-e2e-artifacts-20260523-phase2/test-matrix.json#L1157), [test-matrix.json](../../../../../tmp/saivage-v3-checkers-e2e-artifacts-20260523-phase2/test-matrix.json#L1166)). The plan needs one more scoping decision: either keep the G5 capture-specific tests tied to the historical capture card, or generalize/conditionalize T39-T42 to validate the actual T35/T38 selected work item.
+
+## Approved Portions
+
+- Scope is correctly classified as test-matrix / prompt tooling only; no Saivage runtime source or deployment edit is justified by this finding.
+- The cited T35/T38 literal-token lines match the live matrix, and the G4 report confirms the false-negative shape ([G4-report.md](../../../../../tmp/saivage-v3-checkers-e2e-artifacts-20260523-phase2/G4-report.md#L47)).
+- JSON validity, targeted grep checks, prompt-rule verification, and a local `npx tsc -p tsconfig.json` sanity run are appropriate validation. SSH, service restart, and health probes are not needed for this finding.
+- No new docstrings or comments in untouched Saivage code are needed.
+
+VERDICT: CHANGES_REQUESTED

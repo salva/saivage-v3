@@ -1,0 +1,29 @@
+## Analysis review
+
+1. Replace the remaining stale F13 r2 / "to be re-emitted as r3" references in [SPEC/v1/review-2026-05/F12-card-history-empty/01-analysis-r3.md](SPEC/v1/review-2026-05/F12-card-history-empty/01-analysis-r3.md) with the actual F13 r3 documents: [SPEC/v1/review-2026-05/F13-canonical-index-drift/01-analysis-r3.md](SPEC/v1/review-2026-05/F13-canonical-index-drift/01-analysis-r3.md), [SPEC/v1/review-2026-05/F13-canonical-index-drift/02-design-r3.md](SPEC/v1/review-2026-05/F13-canonical-index-drift/02-design-r3.md), and [SPEC/v1/review-2026-05/F13-canonical-index-drift/03-plan-r3.md](SPEC/v1/review-2026-05/F13-canonical-index-drift/03-plan-r3.md).
+2. Keep the proven-defect / synthetic-crash / unreproducible-audit split, but narrow Appendix A's claim: the current injection recipe appends one orphan line and proves silent orphan truncation, not "history empty" on every run unless the pre-existing history file is empty. Either make the destructive setup explicitly seed a known empty history file or state that the recipe proves the acceptance invariant is violated, not that it always reproduces the exact live empty-history observation.
+3. Make Appendix A's scratch path executable in the context where the commands run. The host-local `SCRATCH=/home/salva/g/ml/tmp/f12-invariant` is expanded into `ssh root@10.0.3.112` commands, where that path may not exist; use a project-local container path such as `/work/saivage-v3/tmp/f12-invariant` and create it inside the container, or split host scratch from container scratch explicitly. Do not use `/tmp`.
+
+## Design review
+
+1. Update [SPEC/v1/review-2026-05/F12-card-history-empty/02-design-r3.md](SPEC/v1/review-2026-05/F12-card-history-empty/02-design-r3.md) so its implementation-owner link points at [SPEC/v1/review-2026-05/F13-canonical-index-drift/02-design-r3.md](SPEC/v1/review-2026-05/F13-canonical-index-drift/02-design-r3.md), not F13 r2 or a future reissue.
+2. Remove or rewrite the "Out of scope for F12 r3" bullets that say F13 decides between deleting vs. regenerating derived files, per-card vs. project-wide locking, and crash-recovery primitives. F13 owns implementation, but the architecture choice is already binding: delete derived files entirely, use a single project-wide mutex/lock, and use commit markers carrying `entry_id` and `kind`.
+3. Change the "must appear verbatim" wording for F12 tests into an explicit mapping requirement, or make [SPEC/v1/review-2026-05/F13-canonical-index-drift/03-plan-r3.md](SPEC/v1/review-2026-05/F13-canonical-index-drift/03-plan-r3.md) list the F12 tests verbatim. As written, F12 demands verbatim inclusion while F13 r3 only partially lists corresponding coverage.
+
+## Plan review
+
+1. Update [SPEC/v1/review-2026-05/F12-card-history-empty/03-plan-r3.md](SPEC/v1/review-2026-05/F12-card-history-empty/03-plan-r3.md) so its implementation-plan pointer and validation references target [SPEC/v1/review-2026-05/F13-canonical-index-drift/03-plan-r3.md](SPEC/v1/review-2026-05/F13-canonical-index-drift/03-plan-r3.md), not F13 r2 or a future reissue.
+2. Add the numeric F12 total invariant to the live probe. The probe currently checks only `history.total > 0` and `max(history[].version_seq) === card.version_seq - 1`; it must also assert `history.total >= card.version_seq - 1`, or create a fresh card and assert the equivalent bump count for that fresh sequence.
+3. Keep the F12 acceptance math consistent throughout the plan: `history.total >= version_seq - 1`, newest `max(history[].version_seq) === card.version_seq - 1`, and populated `history/<seq>` for every `seq` in `[1, card.version_seq - 1]`. Do not allow the F13 post-bump `max === card.version_seq` wording to stand beside the F12 pre-mutation snapshot contract.
+
+## Cross-check with F13 r3
+
+1. Align F13's history `version_seq` semantics with F12 before closure. F12 r3 requires pre-mutation snapshots (`max(history[].version_seq) === card.version_seq - 1` and `history/<seq>` for `[1, card.version_seq - 1]`), while F13 r3 defines `CardHistoryEntry.version_seq` as the post-bump version and repeats `max(history[].version_seq) === card.version_seq` in its analysis and plan.
+2. Add corresponding F13 plan entries for the F12 [tests/server/operator-api-contracts.test.ts](tests/server/operator-api-contracts.test.ts) requirements: title PATCH history, status PATCH history, two consecutive PATCHes with history version sequence `[2, 1]`, `history/1` returning the pre-first-edit snapshot, and `diff?from=1&to=2` returning non-empty `changed_fields`.
+3. Add the F12 mixed-mutation backend contract to F13's absorbed acceptance list: [tests/api/cards-history.test.ts](tests/api/cards-history.test.ts) must cover `update`, `setStatus`, `mutateCard`, and `updateDependsOn` in one sequence and assert `max(history[].version_seq) === card.version_seq - 1`.
+4. Add the F12 agent-tool contract to F13's absorbed acceptance list: [tests/agents/card-history-tools.test.ts](tests/agents/card-history-tools.test.ts) must prove both `cards.history.list` and `cards.history.get` return populated history after a mutation, not only that fixtures compile with `entry_id` and `kind`.
+5. Add the missing web/dashboard F12 acceptance entry to F13's web test list: [web/src/__tests__/operator-dashboard-smoke.test.ts](web/src/__tests__/operator-dashboard-smoke.test.ts) must assert the history tab populates after a UI-driven mutation.
+6. Update F13's live-probe gate to match F12's numeric closure criteria: `history.total >= card.version_seq - 1`, `max(history[].version_seq) === card.version_seq - 1`, and every entry has the required `entry_id` and `kind`.
+7. Carry F13's comment/docstring discipline into the implementation-plan review gate: no new docstrings, explanatory comments, TODOs, or "used to" markers in existing touched files, and no comments at all in untouched code.
+
+VERDICT: CHANGES_REQUESTED

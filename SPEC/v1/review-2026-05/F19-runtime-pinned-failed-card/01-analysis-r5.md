@@ -1,0 +1,83 @@
+# F19 — Analysis (r5; no analytical changes; design/plan adjustments only)
+
+Supersedes [01-analysis-r4.md](01-analysis-r4.md). The r4 review (`01-analysis-review-r4.md`) verdict was CHANGES_REQUESTED but explicitly stated **"No analysis changes required"**; the reviewer's three concerns target design and plan only. The analytical content below is identical to r4. Forward pointers to "ts-morph AST gate" in the inventory section should be read as forward pointers to the **multiline `rg` gate** specified in [03-plan-r5.md](03-plan-r5.md) §Step 7; no analytical conclusion depends on which mechanism implements the gate.
+
+## Full runtime-originating `CardStatus` mutation inventory (corrected)
+
+Generated with a multi-line grep that also captures `cardStore.update(... , { ... \n status: ... \n ... })`:
+
+```
+rg -nU --multiline --multiline-dotall \
+   'cardStore\.(setStatus\(|update\([^)]{0,400}\bstatus\s*:)' src/runtime/runtime.ts
+```
+
+Verified by reading each site. The L725-733 multi-line executor-result writer is now included; r3 missed it because the single-line grep `cardStore\.update\([^)]*status` did not cross newlines. Per-site classification:
+
+| Site (`src/runtime/runtime.ts`) | Code (abbreviated) | Caller context | Classification |
+|---|---|---|---|
+| [L266](../../../../src/runtime/runtime.ts#L266) | `cardStore.update(run.card_id, { status: 'running' })` | `repairStartupActiveCardRun()` reviewer-phase repair branch: fires when `active_card_run.phase === 'reviewer'` and `card.result.review` is absent. The card is the goal card. **Construction does not prove `card.status ∈ RESTARTABLE_STATES`**: `invokeReviewer` (L757-758) is called after `activateGoal` (`card-store.ts:1097-1105`), which only promotes the goal to `'active'` when `goal.status ∉ {active, running}`; in the happy path the goal status is therefore `'active'` at reviewer-start, and across a service restart it remains `'active'` (no terminal write between). It can also legally be `'running'` if a prior planner-blocked or goal-completed branch wrote it. Empirically the only legal incoming states for this repair are `{'active', 'running'}` — not in `RESTARTABLE_STATES`. | **in-scope-for-machine** via a dedicated `'reviewer_repair_resume'` action (see [02-design-r5.md](02-design-r5.md)), NOT via `'restart'`. The machine asserts `card.status ∈ {active, running}` and emits the single legal step `active → running` (or a no-op when already `running`). Reviewer §A2. |
+| [L278](../../../../src/runtime/runtime.ts#L278) | `cardStore.update(run.card_id, { status: 'failed', error, result })` | `repairStartupActiveCardRun()` executor-phase repair — non-terminal executor card forced to `failed` across service restart. Source state is any non-terminal: `{drafting, backlog, active, running, blocked, changed}`. | **in-scope-for-machine**. `transitionCard(id, 'fail', { reason: 'service_restart', error })`; the machine decomposes to a legal sequence ending in `running → failed` (e.g., `backlog → active → running → failed`, `active → running → failed`, `blocked → running → failed`, `changed → active → running → failed`, `drafting → backlog → active → running → failed`). Non-status payload (`error`, `result`) is a follow-up direct `cardStore.update`. |
+| [L614](../../../../src/runtime/runtime.ts#L614) | `if (card.status === 'active' \|\| card.status === 'running') cardStore.setStatus(card.id, 'backlog')` | `performCrashRecovery()` startup drop-to-backlog. | **in-scope-for-machine**. `transitionCard(id, 'crash_recovery_drop_to_backlog')`; one-step `active → backlog` or `running → backlog` (both in `VALID_TRANSITIONS`). |
+| [L635](../../../../src/runtime/runtime.ts#L635) | `cardStore.update(goalId, { status: 'failed', error, status_text })` | planner-exception catch in `dispatchGoal`. Goal card status is `'active'` or `'running'` at this point (post-`activateGoal`, possibly post-running). | **in-scope-for-machine**. `transitionCard(goalId, 'fail', { reason: 'planner_error', error })`; emits `active → running → failed` or `running → failed`. Non-status payload (`error`, `status_text`) follows. |
+| [L644](../../../../src/runtime/runtime.ts#L644) | `setStatus(goalId, 'running'); setStatus(goalId, 'blocked')` (top-level `status`) AND embedded `result: { ..., planning: { status: 'blocked', ... } }` (nested, not a card-status writer; **false-match risk** for any naive gate). | planner-blocked exit. | Top-level: **in-scope-for-machine**, `transitionCard(goalId, 'block', { blocked_reason })`; machine emits `active → running → blocked` or `running → blocked`. Nested `planning.status` stays a direct `cardStore.update` (it is a result-payload field, not a `CardStatus`). The Step 7 gate must distinguish the two; see [03-plan-r5.md](03-plan-r5.md). |
+| L645 | embedded `result: { ..., planning: { status: 'continue' \| 'done', ... } }` only — **no top-level `status`**. | planner-continue / planner-done-with-children branches. | **out-of-scope**: nested result-payload field. The Step 7 gate must not flag this. |
+| [L660](../../../../src/runtime/runtime.ts#L660) | `setStatus(goalId, 'running'); setStatus(goalId, 'done')` AND nested `result: { ..., planning: { status: 'done', ... } }` at L663. | goal-completed happy path. | Top-level: **in-scope-for-machine**, `transitionCard(goalId, 'complete', { assessment })`; emits `active → running → done` or `running → done`. Nested `planning.status` stays as a direct `cardStore.update`. |
+| [L706](../../../../src/runtime/runtime.ts#L706) | `if (card.status === 'backlog') setStatus(card.id, 'active'); setStatus(card.id, 'running')` | executor-target start in `dispatchPendingActivations` — F19/F23 primary site. | **in-scope-for-machine**. `await transitionCard(card.id, action, { goalId })` with `action = STARTABLE.has(card.status) ? 'start' : 'restart'`. Closes F23. |
+| [L715](../../../../src/runtime/runtime.ts#L715) | `cardStore.setStatus(card.id, 'failed')` | executor-exception catch — card is in `'running'` because L706 just transitioned it. | **in-scope-for-machine**. `transitionCard(card.id, 'fail', { reason: 'executor_exception', error })`; emits the single legal step `running → failed`. |
+| **[L725-733](../../../../src/runtime/runtime.ts#L725-L733)** (NEW in r4) | `cardStore.update(card.id, { status: execResult.status, result: …, error: …, status_text: …, status_text_updated_at: …, status_text_author_session_id: …, latest_self_report: … })` — multi-line top-level `status` write. | executor-terminal happy/fail path in `dispatchPendingActivations`. Card is in `'running'` from L706. `execResult.status ∈ {'done', 'failed'}`. **Bypasses `validateTransition` via the `update` carve-out** for terminal-cards on the `status` field (Route 2 inside Route 1's blast zone). | **in-scope-for-machine**. `await transitionCard(card.id, 'executor_finish', { goalId, finalStatus })` with `finalStatus = execResult.status`. Machine emits `running → done` or `running → failed` (1 legal step each). The non-status payload (`result`, `error`, `status_text`, `status_text_*`, `latest_self_report`) becomes a follow-up direct `cardStore.update`. Reviewer §A1. |
+| [L740](../../../../src/runtime/runtime.ts#L740) | `cardStore.update(card.id, { status: 'failed', error: registrationError, result: { …, evidence_registration_failures: … } })` | evidence-registration-failure branch. Currently runs **after** L725-733 has already written `status: 'done'`. The current code therefore performs an **illegal `done → failed` transition silently** (allowed only because the `cardStore.update` terminal-card status carve-out lets it through; `VALID_TRANSITIONS.done = ['backlog', 'cancelled']` would reject the step otherwise). | **in-scope-for-machine**, but the *control-flow* must change too: the design routes the executor-terminal status decision through a single `transitionCard('executor_finish', ...)` call that takes the **post-registration** `finalStatus`. The evidence-registration check moves **before** the executor-finish transition, so the machine sees one legal step `running → done` or `running → failed` (never `done → failed`). The non-status payload (`error`, `result.evidence_registration_failures`) becomes a follow-up direct `cardStore.update`. See [02-design-r5.md](02-design-r5.md) §Executor terminal restructure. |
+| L758 | `updateRuntimeState({ current_card_id, current_agent_session_id, active_card_run })` | `invokeReviewer()` — **runtime-state owned-fields write only, not a `CardStatus` writer**. | **out-of-scope for the card-status inventory** (in scope for Step 6 runtime-state writer rewrite, routed via `transition('reviewer_started', ...)`). |
+| [L766–782](../../../../src/runtime/runtime.ts#L766) | `cardStore.update(update.id, { status: update.status as CardRecord['status'] })` inside `applyPlannerResult.untrackedChanges.status`. | planner-supplied status on any card; bypasses `validateTransition` via the `update` terminal-carve-out. Route-2 silent defect. | **in-scope-for-machine**. `await transitionCard(update.id, 'planner_set_status', { requestedStatus })`; the machine consults `cardStore.validateTransition(current, requested)` and **rejects** with a single `state_machine_planner_status_rejected` log line on illegal pairs. |
+| [L784](../../../../src/runtime/runtime.ts#L784) | `if (card.status === 'active' \|\| card.status === 'running') cardStore.setStatus(card.id, 'backlog')` | `simulateCrash()` diagnostic helper — mirrors L614. | **in-scope-for-machine**. Same `transitionCard(id, 'crash_recovery_drop_to_backlog')` as L614. |
+
+After Step 5 (per [03-plan-r5.md](03-plan-r5.md)), the multi-line-aware gate
+
+```
+rg -nU --multiline --multiline-dotall \
+   'cardStore\.(setStatus\(|update\([^)]{0,400}\bstatus\s*:)' src/runtime/runtime.ts
+```
+
+would still false-match the **nested** `planning.status` payloads at L644 / L645 / L663. [03-plan-r5.md](03-plan-r5.md) §Step 7 documents the exact multiline `rg` gate plus an explicit allowlist of the surviving nested-`planning.status` lines so the gate stays runnable without new dev dependencies.
+
+## Out-of-scope card-status writers
+
+Unchanged from r3 (analyst tools, operator API routes, `CardStore` self, `runtime-config-notes.ts` freeze/resume fallbacks). The Step 7 gate is scoped to `src/runtime/runtime.ts`; the out-of-scope surfaces are not measured by it.
+
+## Evidence-registration ordering — the L725-733 → L740 hazard
+
+Concrete reproduction of the `done → failed` downgrade hazard the inventory now classifies:
+
+1. Executor returns `{ status: 'done', artifacts: [{ sourceFile: '/missing/path' }] }`.
+2. L725-733 fires first: `cardStore.update(card.id, { status: 'done', result: …, … })`. The card is now persisted as `done`, the audit log records a `running → done` step (legal), and any concurrent reader sees `done`.
+3. L735-736 attempt to register the missing artifact; `registerArtifactOnCard` throws; the error is collected into `artifactRegistrationErrors`.
+4. L738-742 detects the registration failure and fires `cardStore.update(card.id, { status: 'failed', error: registrationError, result: … })`. This is a `done → failed` transition — **not in `VALID_TRANSITIONS.done` = ['backlog', 'cancelled']**.
+
+The current code does not throw at step 4 only because `cardStore.update`'s `validateMutablePatch` lets terminal-card `status` edits through without consulting `validateTransition` (the same carve-out that Route 2 exploits). With the machine intercepting the L725-733 site via `transitionCard('executor_finish', { finalStatus: 'done' })` and L740 via `transitionCard('fail', ...)`, the second call would emit a `done → failed` step that the machine refuses (the machine never bypasses `validateTransition`).
+
+The fix is structural, not just a per-site conversion: the design ([02-design-r5.md](02-design-r5.md) §Executor terminal restructure) reorders the executor-terminal block so registration runs **before** the status transition, the runtime computes one `finalStatus`, and a single `transitionCard('executor_finish', { finalStatus })` call emits exactly one legal step (`running → done` or `running → failed`). The non-status payload (`result`, `error`, `status_text`, `latest_self_report`, and any `evidence_registration_failures`) flows through a single follow-up `cardStore.update` after the transition.
+
+## Construction proof for the L266 reviewer-phase repair
+
+The r3 plan claimed reviewer-phase repair cards "are all non-`active`/`running` by construction"; that claim is unsupported. The construction-true statement is the **opposite**:
+
+- `dispatchGoal` calls `invokeReviewer(goalId, …)` only when `plannerDone === true`. Before that point, `activateGoal(goalId)` (`card-store.ts:1097-1105`) has run, which sets `goal.status = 'active'` iff `goal.status ∉ {active, running}`. So the goal card is in `{'active', 'running'}` at the moment `invokeReviewer` writes `active_card_run.phase = 'reviewer'`.
+- The runtime never writes the goal card to a non-`{active, running}` status between `invokeReviewer` returning and a service restart, except in the planner-blocked, planner-error, and goal-completed branches — none of which can interleave with a `reviewer`-phase `active_card_run` persisted on disk.
+- A service restart therefore reads back `active_card_run.phase === 'reviewer'` with the goal card persisted in `{'active', 'running'}`.
+
+Consequently the L266 repair must legally handle exactly two source states: `'active'` (which needs one step `active → running`) and `'running'` (which is a no-op). Both are illegal under the `'restart'` action (`RESTARTABLE_STATES = {blocked, changed, done, failed, cancelled}` excludes them). The design defines a dedicated `'reviewer_repair_resume'` action with precondition `card.status ∈ {'active', 'running'}` and decomposition `active → running` | no-op, fail-closed on any other source state. The repair branch then defends in depth by checking the precondition at the call site and refusing to repair if violated.
+
+## Changes vs r4
+
+- **Header only**: marked as "r5 (no analytical changes; design/plan adjustments only)". Reviewer of r4 confirmed "No analysis changes required."
+- Forward pointers to "ts-morph AST gate" should be read as forward pointers to the **multiline `rg` gate** in [03-plan-r5.md](03-plan-r5.md); the analytical conclusions (inventory, classifications, hazard, construction proof) are independent of which gate mechanism the plan picks.
+- Inline cross-references updated to point at `02-design-r5.md` / `03-plan-r5.md`.
+
+## Changes vs r3
+
+(Preserved from r4 for traceability.)
+
+- **Inventory**: added the **multi-line top-level executor status writer at L725-733** to the runtime-originating `CardStatus` table; classified in-scope-for-machine via a new `'executor_finish'` action; updated the grep snippet to a multi-line-aware rg pattern. (Reviewer §A1.)
+- **Evidence-registration ordering**: the L740 entry now documents the concrete `done → failed` hazard arising from the omitted L725-733 conversion and points at the design's structural fix (register-then-transition) rather than two independent `transitionCard` calls. (Reviewer §A1, design coupling.)
+- **L266 classification**: corrected to use a dedicated `'reviewer_repair_resume'` action with explicit `{'active', 'running'}` precondition; replaced the unsupported "non-`active`/`running` by construction" claim with a written construction proof tied to `activateGoal` and the `dispatchGoal`/`invokeReviewer` ordering. (Reviewer §A2.)
+- **L644 / L645 / L663 false-match risk**: explicitly enumerated as nested `planning.status` payloads and called out as the reason the Step 7 final gate cannot be a naive rg.
+- **L758**, the out-of-scope analyst/operator/CardStore/runtime-config-notes surfaces, the desired contract C1–C4, the F23 path, the `_status` mutation map, and the F13 r3 coordination text are unchanged from r3.
