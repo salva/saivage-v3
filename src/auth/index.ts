@@ -1,5 +1,13 @@
 /**
- * Auth module — re-exports OAuth profile management.
+ * Auth package public surface.
+ *
+ * Cross-package consumers should import only the auth-profile loading and
+ * persistence helpers required for provider credential resolution.
  */
 
-export * from './oauth-profiles.js';
+export type { AuthProfile, AuthProfilesFile } from './auth-profile-store.js';
+export {
+  isProfileExpired,
+  loadAuthProfiles,
+  saveAuthProfile,
+} from './oauth-profiles.js';
