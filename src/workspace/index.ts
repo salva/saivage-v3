@@ -13,8 +13,6 @@ export {
 export {
   getSafeFileForAgent,
   isReadBlocked,
-  isSensitivePath,
-  isStashPathAllowed,
   isWriteBlocked,
   redactCommandForOperator,
   redactOperatorErrorMessage,

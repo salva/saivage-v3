@@ -30,7 +30,11 @@ import {
 } from '../../src/workspace/content-supervisor.js';
 import { scanContent } from '../../src/workspace/heuristic-scanner.js';
 import { quarantineContent, recordContentPass } from '../../src/workspace/quarantine.js';
-import { getSafeFileForAgent } from '../../src/workspace/file-access-security.js';
+import {
+  getSafeFileForAgent,
+  isSensitivePath,
+  isStashPathAllowed,
+} from '../../src/workspace/file-access-security.js';
 import { checkWriteTerritory, getTerritoryWarning } from '../../src/workspace/write-territories.js';
 import { redactTextForOutbound } from '../../src/redaction/index.js';
 import { AgentAdapter } from '../../src/agents/agent-adapter.js';
@@ -497,8 +501,8 @@ describe('all modules import and work together', () => {
     expect('redactSecrets' in mod).toBe(false);
     expect(typeof mod.isReadBlocked).toBe('function');
     expect(typeof mod.isWriteBlocked).toBe('function');
-    expect(typeof mod.isSensitivePath).toBe('function');
-    expect(typeof mod.isStashPathAllowed).toBe('function');
+    expect(typeof isSensitivePath).toBe('function');
+    expect(typeof isStashPathAllowed).toBe('function');
 
     // write-territories exports
     expect(typeof mod.checkWriteTerritory).toBe('function');
