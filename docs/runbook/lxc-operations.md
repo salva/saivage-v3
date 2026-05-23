@@ -26,7 +26,7 @@ systemctl status saivage.service
 journalctl -u saivage.service -n 100 --no-pager
 ```
 
-For the target workspace:
+For per-workspace units:
 
 ```bash
 systemctl status saivage-v3-target.service
@@ -50,7 +50,7 @@ systemctl status saivage.service
 journalctl -u saivage.service -n 100 --no-pager
 ```
 
-For target:
+For per-workspace units:
 
 ```bash
 systemctl restart saivage-v3-target.service

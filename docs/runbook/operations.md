@@ -43,7 +43,7 @@ Use `--create-runtime` when the operator intends this process to own dispatch. U
 The LXC deployments use these unit names:
 
 - `saivage.service` — default Saivage v3 service.
-- `saivage-v3-target.service` — target workspace service.
+- `saivage-v3-target.service` — per-workspace harness service.
 
 Common checks:
 
