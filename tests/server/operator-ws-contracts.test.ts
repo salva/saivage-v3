@@ -46,16 +46,6 @@ describe('operator websocket shared contract registry', () => {
         event: 'runtime-state',
         cardStoreHealth: {
           canonical: 'ok',
-          compatibilitySnapshots: 'degraded',
-          lastCompatibilitySnapshotWarning: {
-            code: 'compatibility-snapshot-degraded',
-            operation: 'startup-repair',
-            relativePath: '.saivage/cards/tree/project.children.json',
-            message: 'Synthetic warning with token=[REDACTED]',
-            occurredAt: '2026-01-01T00:00:00.000Z',
-            canonicalCommitted: false,
-          },
-          warnings: [],
         },
       },
     };

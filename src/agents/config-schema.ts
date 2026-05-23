@@ -227,13 +227,13 @@ const telegramSectionSchema = z.object({
 
 // Notifications section
 export const notificationChannelSchema = z.enum(['web', 'telegram']);
-export const notificationRouterSeveritySchema = z.enum(['info', 'warning', 'error', 'critical']);
+export const notificationSeveritySchema = z.enum(['info', 'warning', 'error', 'critical']);
 
 const notificationsSectionSchema = z.object({
   channels: z.array(notificationChannelSchema).default(['web']),
   filters: z
     .object({
-      min_severity: notificationRouterSeveritySchema.default('info'),
+      min_severity: notificationSeveritySchema.default('info'),
       categories: z.array(z.string()).optional(),
     })
     .optional(),
@@ -276,7 +276,7 @@ export type ProviderCapabilities = z.infer<typeof providerCapabilitySchema>;
 export type RuntimeSection = z.infer<typeof runtimeSectionSchema>;
 export type ModelsSection = z.infer<typeof modelsSectionSchema>;
 export type NotificationChannelConfig = z.infer<typeof notificationChannelSchema>;
-export type NotificationRouterSeverityConfig = z.infer<typeof notificationRouterSeveritySchema>;
+export type NotificationSeverityConfig = z.infer<typeof notificationSeveritySchema>;
 export type SelfCheckConfig = z.infer<typeof selfCheckSchema>;
 
 // ── Token Endpoint Resolution ─────────────────────────────────

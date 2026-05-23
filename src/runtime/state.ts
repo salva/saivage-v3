@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, renameSync } from 'node:fs';
+import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { runtimeStateSchema } from '../schemas/validators.js';
 import type { ZodType } from 'zod';
@@ -33,9 +33,6 @@ export function legacyRuntimeStatePath(projectRoot: string): string {
   return join(projectRoot, '.saivage', 'runtime', LEGACY_STATE_FILE);
 }
 
-function migratedLegacyRuntimeStatePath(projectRoot: string): string {
-  return join(projectRoot, '.saivage', 'runtime', `${LEGACY_STATE_FILE}.migrated`);
-}
 
 function runtimeStateLock(projectRoot: string): ProjectLock {
   return new ProjectLock(join(projectRoot, '.saivage', '.lock'));
@@ -61,7 +58,7 @@ function describeInvariantViolation(state: RuntimeState): string {
 }
 
 function describeMixedLayout(projectRoot: string): string {
-  return `RuntimeState layout conflict: both authoritative ${runtimeStatePath(projectRoot)} and legacy ${legacyRuntimeStatePath(projectRoot)} exist. Refusing to choose between split-brain state files; move the legacy file aside after confirming the authoritative state is correct.`;
+  return `RuntimeState layout conflict: both authoritative ${runtimeStatePath(projectRoot)} and legacy ${legacyRuntimeStatePath(projectRoot)} exist. Current runtime state only supports ${runtimeStatePath(projectRoot)}; reset .saivage runtime state and restart.`;
 }
 
 function assertNoMixedRuntimeStateLayout(projectRoot: string): void {
@@ -75,44 +72,6 @@ function assertRuntimeStateInvariants(state: RuntimeState): RuntimeState {
     return state;
   }
   throw new RuntimeStateInvariantError(describeInvariantViolation(state));
-}
-
-function parseRuntimeState(projectRoot: string, raw: unknown): RuntimeState {
-  const parsed = runtimeStatePersistenceSchema.safeParse(raw);
-  if (!parsed.success) {
-    explainLegacyStateRejection(projectRoot, 'RuntimeState', parsed.error.message);
-  }
-  return assertRuntimeStateInvariants(parsed.data);
-}
-
-
-function parseLegacyRuntimeStateForMigration(projectRoot: string, raw: unknown): RuntimeState {
-  const rawRecord = raw && typeof raw === 'object' ? raw as Record<string, unknown> : {};
-  const normalizedRaw = {
-    ...rawRecord,
-    runtime_intent: rawRecord.runtime_intent ?? { status: 'stopped', updated_at: typeof rawRecord.updated_at === 'string' ? rawRecord.updated_at : new Date().toISOString(), source_command_id: null, reason: 'temporary stage-04 legacy migration default; delete in stage 07' },
-    runtime_commands: Array.isArray(rawRecord.runtime_commands) ? rawRecord.runtime_commands : [],
-    runtime_runs: Array.isArray(rawRecord.runtime_runs) ? rawRecord.runtime_runs : [],
-    runtime_activations: Array.isArray(rawRecord.runtime_activations) ? rawRecord.runtime_activations : [],
-  };
-  return parseRuntimeState(projectRoot, normalizedRaw);
-}
-
-function migrateLegacyRuntimeStateIfNeeded(projectRoot: string): void {
-  const authoritativePath = runtimeStatePath(projectRoot);
-  const legacyPath = legacyRuntimeStatePath(projectRoot);
-  if (existsSync(authoritativePath)) {
-    assertNoMixedRuntimeStateLayout(projectRoot);
-    return;
-  }
-  if (!existsSync(legacyPath)) return;
-
-  const raw = readFileSync(legacyPath, 'utf-8');
-  const state = parseLegacyRuntimeStateForMigration(projectRoot, JSON.parse(raw));
-  const lock = runtimeStateLock(projectRoot);
-  const file = new AtomicJsonFile(authoritativePath, runtimeStatePersistenceSchema, lock, { version: 1 });
-  lock.withLockSync((handle) => file.writeSync(handle, state));
-  renameSync(legacyPath, migratedLegacyRuntimeStatePath(projectRoot));
 }
 
 function defaultRuntimeState(): RuntimeState {
@@ -172,7 +131,6 @@ export function saveRuntimeState(projectRoot: string, state: RuntimeState): Runt
 }
 
 export function readRuntimeState(projectRoot: string): RuntimeState | null {
-  migrateLegacyRuntimeStateIfNeeded(projectRoot);
   assertNoMixedRuntimeStateLayout(projectRoot);
   if (!existsSync(runtimeStatePath(projectRoot))) {
     return null;

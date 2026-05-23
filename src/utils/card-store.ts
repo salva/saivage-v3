@@ -1,16 +1,14 @@
 import {
   appendFileSync,
-  copyFileSync,
   existsSync,
   mkdirSync,
   readFileSync,
-  readdirSync,
   renameSync,
-  rmSync,
   unlinkSync,
+  rmSync,
   writeFileSync,
 } from 'node:fs';
-import { basename, isAbsolute, join } from 'node:path';
+import { join } from 'node:path';
 import {
   cardBlocksIndexSchema,
   cardChildrenIndexSchema,
@@ -48,51 +46,14 @@ export interface CardDiffEntry {
 }
 
 export type CardStoreCanonicalHealth = 'ok' | 'invalid';
-export type CompatibilitySnapshotHealth = 'ok' | 'degraded';
-export type CompatibilitySnapshotOperation =
-  | 'startup-repair'
-  | 'mutation-rebuild'
-  | 'delete-cleanup'
-  | 'archive-cleanup'
-  | 'manual-repair';
-
-export interface CardStoreCompatibilitySnapshotWarning {
-  code: 'compatibility-snapshot-degraded';
-  operation: CompatibilitySnapshotOperation;
-  relativePath?: string;
-  message: string;
-  errorName?: string;
-  occurredAt: string;
-  canonicalCommitted: boolean;
-}
-
 export interface CardStoreHealth {
   canonical: CardStoreCanonicalHealth;
-  compatibilitySnapshots: CompatibilitySnapshotHealth;
-  lastCompatibilitySnapshotWarning: CardStoreCompatibilitySnapshotWarning | null;
-  warnings: CardStoreCompatibilitySnapshotWarning[];
 }
 
 interface CardStoreTestHooks {
   beforeTrackedCardRename?: (card: CardRecord, historyEntry: CardHistoryEntry) => void;
-  beforeCompatibilitySnapshotWrite?: () => void;
 }
 
-interface HierarchyDriftIssue {
-  code:
-    | 'duplicate-tree-membership'
-    | 'stale-tree-membership'
-    | 'missing-tree-membership'
-    | 'orphan-tree-file'
-    | 'malformed-tree-file';
-  cardId?: string;
-  parentId?: string | null;
-  file?: string;
-  expectedParentId?: string | null;
-  observedParentId?: string | null;
-  count?: number;
-  action: string;
-}
 
 class HierarchyGraph {
   private readonly parents = new Map<string, string | null>();
@@ -103,12 +64,12 @@ class HierarchyGraph {
   static build(cards: CardRecord[], index: CardIndex, maxDepth: number): HierarchyGraph {
     const graph = new HierarchyGraph();
     const indexedIds = new Set(Object.keys(index.cards));
+    const cardsById = new Map(cards.map((card) => [card.id, card] as const));
     for (const id of indexedIds) {
-      const card = cards.find((candidate) => candidate.id === id);
-      if (!card)
+      if (!cardsById.has(id))
         throw new Error(`Canonical hierarchy invariant failed: missing indexed card '${id}'.`);
     }
-    for (const card of cards) {
+    for (const card of cardsById.values()) {
       if (!indexedIds.has(card.id))
         throw new Error(
           `Canonical hierarchy invariant failed: by-id card '${card.id}' is missing from cards/index.json.`,
@@ -134,7 +95,7 @@ class HierarchyGraph {
       graph.cardsById.set(card.id, card);
       if (!graph.childrenByParent.has(card.id)) graph.childrenByParent.set(card.id, []);
     }
-    for (const card of cards) {
+    for (const card of cardsById.values()) {
       if (card.parent !== null) {
         const parent = graph.cardsById.get(card.parent);
         if (!parent)
@@ -213,11 +174,6 @@ class HierarchyGraph {
     return this.cardsById.has(id);
   }
 
-  compatibilityChildren(): Map<string, string[]> {
-    const out = new Map<string, string[]>();
-    for (const id of this.cardsById.keys()) out.set(id, this.childrenOf(id));
-    return out;
-  }
 }
 
 const TERMINAL_TYPES: ReadonlySet<CardType> = new Set<CardType>([
@@ -375,8 +331,6 @@ export class CardStore {
   private validatedPersistedState = false;
   private hierarchyGraph: HierarchyGraph | null = null;
   private canonicalHealth: CardStoreCanonicalHealth = 'ok';
-  private compatibilitySnapshotHealth: CompatibilitySnapshotHealth = 'ok';
-  private compatibilitySnapshotWarnings: CardStoreCompatibilitySnapshotWarning[] = [];
   private readonly testHooks?: CardStoreTestHooks;
   private readonly eventBus: EventBus;
 
@@ -421,12 +375,6 @@ export class CardStore {
     } catch (err) {
       this.canonicalHealth = 'invalid';
       throw err;
-    }
-    try {
-      this.repairCompatibilitySnapshotsFromGraph();
-      this.markCompatibilitySnapshotsOk();
-    } catch (err) {
-      this.recordCompatibilitySnapshotFailure('startup-repair', false, err);
     }
   }
 
@@ -476,16 +424,6 @@ export class CardStore {
     writeJson(indexPath(this.projectRoot), index);
   }
 
-  private loadChildren(parentId: string): CardChildrenIndex {
-    const cp = childrenPath(this.projectRoot, parentId);
-    if (!existsSync(cp)) return [];
-    return this.parseChildrenIndex(readJson(cp), cp);
-  }
-
-  private saveChildren(parentId: string, children: CardChildrenIndex): void {
-    writeJson(childrenPath(this.projectRoot, parentId), children);
-  }
-
   private getHierarchyGraph(): HierarchyGraph {
     this.ensurePersistedStateValidated();
     if (!this.hierarchyGraph)
@@ -522,219 +460,9 @@ export class CardStore {
     }
   }
 
-  private rebuildGraphAndSnapshots(
-    operation: CompatibilitySnapshotOperation = 'mutation-rebuild',
-    canonicalCommitted = true,
-  ): void {
-    const graph = this.rebuildGraphStrict();
-    try {
-      this.writeCompatibilitySnapshotsFromGraph(graph);
-      this.markCompatibilitySnapshotsOk();
-    } catch (err) {
-      this.recordCompatibilitySnapshotFailure(operation, canonicalCommitted, err);
-    }
-  }
-
-  private relativeSaivagePath(path: string): string {
-    const marker = `${join(this.projectRoot, '.saivage')}/`;
-    if (path.startsWith(marker)) return join('.saivage', path.slice(marker.length));
-    if (isAbsolute(path)) return join('.saivage', 'redacted-absolute-path', basename(path));
-    return path.replace(/\\/g, '/');
-  }
-
-  private sanitizeWarningText(value: unknown, fallback: string): string {
-    const raw = typeof value === 'string' ? value : fallback;
-    const withoutProjectRoot = raw.split(this.projectRoot).join('[project-root]');
-    return withoutProjectRoot
-      .replace(
-        /([A-Za-z0-9_]*token[A-Za-z0-9_]*|[A-Za-z0-9_]*secret[A-Za-z0-9_]*|authorization|api[_-]?key)=[^\s,;]+/gi,
-        '$1=[redacted]',
-      )
-      .replace(/\/[^\s'"]*\.saivage\/auth-profiles\.json/g, '.saivage/auth-profiles.json')
-      .slice(0, 300);
-  }
-
-  private sanitizeErrorName(error: unknown): string | undefined {
-    if (!(error instanceof Error) || !error.name) return undefined;
-    return (
-      this.sanitizeWarningText(error.name, 'Error')
-        .replace(/[^A-Za-z0-9_.-]/g, '')
-        .slice(0, 80) || 'Error'
-    );
-  }
-
-  private recordCompatibilitySnapshotFailure(
-    operation: CompatibilitySnapshotOperation,
-    canonicalCommitted: boolean,
-    error: unknown,
-    pathHint?: string,
-  ): void {
-    const errorWithPath = error as { path?: unknown };
-    const warning: CardStoreCompatibilitySnapshotWarning = {
-      code: 'compatibility-snapshot-degraded',
-      operation,
-      message: this.sanitizeWarningText(
-        error instanceof Error ? error.message : String(error),
-        'Compatibility snapshot maintenance failed.',
-      ),
-      occurredAt: now(),
-      canonicalCommitted,
-    };
-    const rawPath =
-      pathHint ?? (typeof errorWithPath.path === 'string' ? errorWithPath.path : undefined);
-    if (rawPath) warning.relativePath = this.relativeSaivagePath(rawPath);
-    const errorName = this.sanitizeErrorName(error);
-    if (errorName) warning.errorName = errorName;
-    this.compatibilitySnapshotHealth = 'degraded';
-    this.compatibilitySnapshotWarnings.push(warning);
-  }
-
-  private markCompatibilitySnapshotsOk(): void {
-    this.compatibilitySnapshotHealth = 'ok';
-  }
 
   getHealth(): CardStoreHealth {
-    return {
-      canonical: this.canonicalHealth,
-      compatibilitySnapshots: this.compatibilitySnapshotHealth,
-      lastCompatibilitySnapshotWarning: this.compatibilitySnapshotWarnings.at(-1) ?? null,
-      warnings: [...this.compatibilitySnapshotWarnings],
-    };
-  }
-
-  getAndClearWarnings(): CardStoreCompatibilitySnapshotWarning[] {
-    const warnings = [...this.compatibilitySnapshotWarnings];
-    this.compatibilitySnapshotWarnings = [];
-    return warnings;
-  }
-
-  private scanCompatibilitySnapshotDrift(graph: HierarchyGraph): HierarchyDriftIssue[] {
-    const issues: HierarchyDriftIssue[] = [];
-    const treeDir = join(this.projectRoot, '.saivage', 'cards', 'tree');
-    mkdirSync(treeDir, { recursive: true });
-    const canonical = graph.compatibilityChildren();
-    const observedParents = new Map<string, string[]>();
-    const seenFiles = new Set<string>();
-    for (const file of readdirSync(treeDir).filter((name) => name.endsWith('.children.json'))) {
-      const parentId = file.slice(0, -'.children.json'.length);
-      const path = join(treeDir, file);
-      seenFiles.add(parentId);
-      let children: string[] = [];
-      try {
-        children = this.parseChildrenIndex(readJson(path), path);
-      } catch {
-        issues.push({
-          code: 'malformed-tree-file',
-          parentId,
-          file: this.relativeSaivagePath(path),
-          action: 'backed-up and regenerated from canonical by-id/index graph',
-        });
-        continue;
-      }
-      if (!graph.hasCard(parentId)) {
-        issues.push({
-          code: 'orphan-tree-file',
-          parentId,
-          file: this.relativeSaivagePath(path),
-          count: children.length,
-          action: 'backed-up and removed because parent is not canonical',
-        });
-      }
-      for (const childId of children) {
-        observedParents.set(childId, [...(observedParents.get(childId) ?? []), parentId]);
-        const expectedParent =
-          [...canonical.entries()].find(([, ids]) => ids.includes(childId))?.[0] ?? null;
-        if (expectedParent !== parentId) {
-          issues.push({
-            code: 'stale-tree-membership',
-            cardId: childId,
-            parentId,
-            expectedParentId: expectedParent,
-            observedParentId: parentId,
-            file: this.relativeSaivagePath(path),
-            action: 'ignored and regenerated from canonical by-id/index graph',
-          });
-        }
-      }
-    }
-    for (const [childId, parents] of observedParents.entries()) {
-      if (parents.length > 1)
-        issues.push({
-          code: 'duplicate-tree-membership',
-          cardId: childId,
-          observedParentId: parents.join(','),
-          count: parents.length,
-          action: 'ignored duplicate snapshot membership and regenerated from canonical graph',
-        });
-    }
-    for (const [parentId, children] of canonical.entries()) {
-      for (const childId of children) {
-        const parents = observedParents.get(childId) ?? [];
-        if (!parents.includes(parentId)) {
-          issues.push({
-            code: 'missing-tree-membership',
-            cardId: childId,
-            parentId,
-            expectedParentId: parentId,
-            file: this.relativeSaivagePath(childrenPath(this.projectRoot, parentId)),
-            action: 'regenerated from canonical by-id/index graph',
-          });
-        }
-      }
-      if (!seenFiles.has(parentId) && children.length === 0 && parentId === 'project') {
-        issues.push({
-          code: 'missing-tree-membership',
-          parentId,
-          file: this.relativeSaivagePath(childrenPath(this.projectRoot, parentId)),
-          action: 'regenerated empty project compatibility snapshot',
-        });
-      }
-    }
-    return issues;
-  }
-
-  private backupCompatibilitySnapshots(issues: HierarchyDriftIssue[]): void {
-    if (issues.length === 0) return;
-    const treeDir = join(this.projectRoot, '.saivage', 'cards', 'tree');
-    const backupDir = join(
-      this.projectRoot,
-      '.saivage',
-      'cards',
-      'tree-repair-backups',
-      now().replace(/[:.]/g, '-'),
-    );
-    mkdirSync(backupDir, { recursive: true });
-    for (const file of readdirSync(treeDir).filter((name) => name.endsWith('.children.json'))) {
-      copyFileSync(join(treeDir, file), join(backupDir, file));
-    }
-    writeJson(join(backupDir, 'manifest.json'), {
-      repaired_at: now(),
-      issue_count: issues.length,
-      issues,
-    });
-    console.warn(
-      `Repaired ${issues.length} CardStore compatibility children snapshot drift issue(s); manifest: ${this.relativeSaivagePath(join(backupDir, 'manifest.json'))}`,
-    );
-  }
-
-  private writeCompatibilitySnapshotsFromGraph(graph: HierarchyGraph): void {
-    this.testHooks?.beforeCompatibilitySnapshotWrite?.();
-    const treeDir = join(this.projectRoot, '.saivage', 'cards', 'tree');
-    mkdirSync(treeDir, { recursive: true });
-    const canonical = graph.compatibilityChildren();
-    for (const file of readdirSync(treeDir).filter((name) => name.endsWith('.children.json'))) {
-      const parentId = file.slice(0, -'.children.json'.length);
-      if (!canonical.has(parentId)) unlinkSync(join(treeDir, file));
-    }
-    for (const [parentId, children] of canonical.entries()) this.saveChildren(parentId, children);
-  }
-
-  private repairCompatibilitySnapshotsFromGraph(): void {
-    if (!this.hierarchyGraph)
-      throw new Error('Cannot repair compatibility snapshots before hierarchy graph exists.');
-    const issues = this.scanCompatibilitySnapshotDrift(this.hierarchyGraph);
-    this.backupCompatibilitySnapshots(issues);
-    this.writeCompatibilitySnapshotsFromGraph(this.hierarchyGraph);
+    return { canonical: this.canonicalHealth };
   }
 
   private loadDependsOn(): CardDependencyIndex {
@@ -777,22 +505,6 @@ export class CardStore {
     this.saveIndex(index);
   }
 
-  private addToChildren(parentId: string, childId: string): void {
-    const children = this.loadChildren(parentId);
-    if (!children.includes(childId)) {
-      children.push(childId);
-      this.saveChildren(parentId, children);
-    }
-  }
-
-  private removeFromChildren(parentId: string, childId: string): void {
-    const children = this.loadChildren(parentId);
-    const idx = children.indexOf(childId);
-    if (idx !== -1) {
-      children.splice(idx, 1);
-      this.saveChildren(parentId, children);
-    }
-  }
 
   private addToDependsOn(cardId: string, dependsOn: string[]): void {
     const deps = this.loadDependsOn();
@@ -963,7 +675,7 @@ export class CardStore {
       }
     }
     this.recomputeBlocks();
-    this.rebuildGraphAndSnapshots('mutation-rebuild', true);
+    this.rebuildGraphStrict();
     return this.read(existing.id)!;
   }
 
@@ -1053,7 +765,7 @@ export class CardStore {
     this.addToIndex(card);
     if (card.depends_on.length > 0) this.addToDependsOn(card.id, card.depends_on);
     this.recomputeBlocks();
-    this.rebuildGraphAndSnapshots('mutation-rebuild', true);
+    this.rebuildGraphStrict();
     return this.read(card.id)!;
   }
 
@@ -1161,7 +873,7 @@ export class CardStore {
       }
     }
     this.recomputeBlocks();
-    this.rebuildGraphAndSnapshots('mutation-rebuild', true);
+    this.rebuildGraphStrict();
     const persisted = this.read(id)!;
     this.eventBus.emit('card_history_appended', {
       card_id: persisted.id,
@@ -1243,15 +955,13 @@ export class CardStore {
     for (const card of sorted) {
       this.removeFromIndex(card.id);
       this.removeFromDependsOnAll(card.id);
-      const childFile = childrenPath(this.projectRoot, card.id);
-      if (existsSync(childFile)) unlinkSync(childFile);
       const cardFile = cardPath(this.projectRoot, card.id);
       if (existsSync(cardFile)) unlinkSync(cardFile);
       const histFile = historyPath(this.projectRoot, card.id);
       if (existsSync(histFile)) unlinkSync(histFile);
     }
     this.recomputeBlocks();
-    this.rebuildGraphAndSnapshots('archive-cleanup', true);
+    this.rebuildGraphStrict();
   }
 
   delete(id: string): void {
@@ -1270,14 +980,12 @@ export class CardStore {
       );
     this.removeFromIndex(id);
     this.removeFromDependsOnAll(id);
-    const cp = childrenPath(this.projectRoot, id);
-    if (existsSync(cp)) unlinkSync(cp);
     const cfp = cardPath(this.projectRoot, id);
     if (existsSync(cfp)) unlinkSync(cfp);
     const hp = historyPath(this.projectRoot, id);
     if (existsSync(hp)) unlinkSync(hp);
     this.recomputeBlocks();
-    this.rebuildGraphAndSnapshots('delete-cleanup', true);
+    this.rebuildGraphStrict();
   }
 
   list(): CardRecord[] {

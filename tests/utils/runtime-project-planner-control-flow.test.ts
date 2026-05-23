@@ -56,7 +56,6 @@ describe('Runtime caller-edge reconstruction from unresolved activate_card calls
     expect(runtime.getState()?.runtime_activations ?? []).toEqual([]);
     expect(runtime.getState()?.queue).toEqual([]);
     expect(runtime.getState()?.active_card_run).toBeNull();
-    expect(existsSync(join(tmpDir, '.saivage', 'runtime', 'planner-frames'))).toBe(false);
     expect(existsSync(join(tmpDir, '.saivage', 'runtime', 'planner-dispatches'))).toBe(false);
 
     const projectActivateMessages = activateMessages(tmpDir, 'project');

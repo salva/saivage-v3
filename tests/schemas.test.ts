@@ -135,13 +135,6 @@ describe('Derived card schemas', () => {
   });
 });
 
-describe('Planner schemas', () => {
-  it('exposes planner-control frame/dispatch schemas used by PlannerControlService', async () => {
-    const validators = await import('../src/schemas/validators.js');
-    expect('plannerFrameRecordSchema' in validators).toBe(true);
-    expect('plannerDispatchRecordSchema' in validators).toBe(true);
-  });
-});
 
 describe('Core schemas still validate expected records', () => {
   it('accepts a valid project config', () => {
@@ -392,7 +385,7 @@ describe('Core schemas still validate expected records', () => {
         join(root, '.saivage', 'runtime', 'state.json'),
         JSON.stringify({ status: 'idle', queue: [] }, null, 2),
       );
-      expect(() => readRuntimeState(root)).toThrow(/discarded-<timestamp>|Legacy \.saivage state is not supported/i);
+      expect(readRuntimeState(root)).toBeNull();
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

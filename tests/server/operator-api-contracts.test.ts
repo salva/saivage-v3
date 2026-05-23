@@ -136,26 +136,12 @@ describe('operator API contract registry', () => {
 
 
   it('accepts optional read-only CardStore health on runtime state responses', () => {
-    const degradedHealth = {
-      canonical: 'ok',
-      compatibilitySnapshots: 'degraded',
-      lastCompatibilitySnapshotWarning: {
-        code: 'compatibility-snapshot-degraded',
-        operation: 'mutation-rebuild',
-        relativePath: '.saivage/cards/tree/project.children.json',
-        message: 'Synthetic redacted snapshot write failure for [REDACTED]',
-        errorName: 'Error',
-        occurredAt: '2026-01-01T00:00:03.000Z',
-        canonicalCommitted: true,
-      },
-      warnings: [],
-    };
     const parsed = parseOperatorResponse('runtime.getState', {
       runtime: runtimeState,
       cardIndex: { total: 1, byStatus: { backlog: 1 }, byType: { code: 1 } },
-      cardStoreHealth: { ...degradedHealth, warnings: [degradedHealth.lastCompatibilitySnapshotWarning] },
+      cardStoreHealth: { canonical: 'ok' },
     });
-    expect(parsed.cardStoreHealth?.compatibilitySnapshots).toBe('degraded');
+    expect(parsed.cardStoreHealth?.canonical).toBe('ok');
     expect(parseOperatorResponse('runtime.getState', { runtime: runtimeState, cardIndex: { total: 0, byStatus: {}, byType: {} } }).cardStoreHealth).toBeUndefined();
   });
 

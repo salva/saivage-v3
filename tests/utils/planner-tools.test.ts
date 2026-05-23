@@ -698,39 +698,4 @@ describe('PlannerToolsService reviewer gates', () => {
       ),
     ).toBe(true);
   });
-
-  it('deletes planner-control subtrees from graph authority and ignores stale children snapshots under degraded snapshot cleanup', () => {
-    const staleListed = store.create(
-      makeCard({ type: 'goal', title: 'Stale listed under victim' }),
-    );
-    const victim = store.create(makeCard({ type: 'goal', title: 'Victim' }));
-    const realChild = store.create(
-      makeCard({ type: 'code', title: 'Real child', parent: victim.id }),
-    );
-    writeFileSync(
-      join(root, '.saivage', 'cards', 'tree', `${victim.id}.children.json`),
-      JSON.stringify([realChild.id, staleListed.id], null, 2),
-    );
-
-    let failSnapshotWrite = false;
-    store = new CardStore(root, undefined, {
-      beforeCompatibilitySnapshotWrite: () => {
-        if (failSnapshotWrite) throw new Error(`synthetic snapshot cleanup failure at ${root}`);
-      },
-    });
-    expect(store.listChildren(victim.id)).toEqual([realChild.id]);
-    failSnapshotWrite = true;
-    const localTools = new PlannerToolsService(store);
-    localTools.deleteCard(victim.id);
-
-    expect(store.read(victim.id)).toBeNull();
-    expect(store.read(realChild.id)).toBeNull();
-    expect(store.read(staleListed.id)).not.toBeNull();
-    expect(existsSync(join(root, '.saivage', 'archive', 'cards', `${staleListed.id}.json`))).toBe(
-      false,
-    );
-    expect(store.getHealth().lastCompatibilitySnapshotWarning).toEqual(
-      expect.objectContaining({ operation: 'archive-cleanup', canonicalCommitted: true }),
-    );
-  });
 });

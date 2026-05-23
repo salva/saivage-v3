@@ -24,9 +24,6 @@ function legacyPath(): string {
   return legacyRuntimeStatePath(root);
 }
 
-function migratedLegacyPath(): string {
-  return join(root, '.saivage', 'runtime', 'state.json.migrated');
-}
 
 function readAuthoritative(): RuntimeState {
   return (JSON.parse(readFileSync(authoritativePath(), 'utf-8')) as { version: number; data: RuntimeState }).data;
@@ -78,21 +75,13 @@ describe('RuntimeState authoritative file layout', () => {
     expect(existsSync(legacyPath())).toBe(false);
   });
 
-  it('migrates a supported legacy .saivage/runtime/state.json exactly once when no authoritative file exists', () => {
+  it('ignores legacy .saivage/runtime/state.json when no authoritative file exists', () => {
     const legacy = legacyRuntimeState();
     writeFileAtomic(legacyPath(), JSON.stringify(legacy, null, 2) + '\n');
 
-    const migrated = readRuntimeState(root);
-    expect(migrated).toMatchObject({ status: 'paused', paused: true, queue: ['legacy-card'] });
-    expect(existsSync(authoritativePath())).toBe(true);
-    expect(existsSync(legacyPath())).toBe(false);
-    expect(existsSync(migratedLegacyPath())).toBe(true);
-    expect(readAuthoritative()).toMatchObject({ status: 'paused', paused: true, queue: ['legacy-card'] });
-
-    const afterSecondRead = readRuntimeState(root);
-    expect(afterSecondRead).toMatchObject({ status: 'paused', paused: true, queue: ['legacy-card'] });
-    expect(existsSync(legacyPath())).toBe(false);
-    expect(existsSync(migratedLegacyPath())).toBe(true);
+    expect(readRuntimeState(root)).toBeNull();
+    expect(existsSync(authoritativePath())).toBe(false);
+    expect(existsSync(legacyPath())).toBe(true);
   });
 
   it('refuses mixed old and new runtime-state layouts with a clear split-brain error', () => {
@@ -100,7 +89,7 @@ describe('RuntimeState authoritative file layout', () => {
     writeFileAtomic(legacyPath(), JSON.stringify(legacyRuntimeState({ status: 'paused' }), null, 2) + '\n');
 
     expect(() => readRuntimeState(root)).toThrow(RuntimeStateLayoutError);
-    expect(() => saveRuntimeState(root, authoritative)).toThrow(/split-brain state files/);
+    expect(() => saveRuntimeState(root, authoritative)).toThrow(/both authoritative/);
     expect(() => updateRuntimeState(root, { status: 'paused' })).toThrow(/both authoritative/);
   });
 

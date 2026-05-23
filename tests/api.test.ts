@@ -221,9 +221,8 @@ describe('runtime config and notes routes', () => {
 
     const first = await fetch(url('/api/state'), { headers: authHeader(authToken) });
     expect(first.status).toBe(200);
-    const firstBody = await first.json() as { cardStoreHealth?: { compatibilitySnapshots: string; warnings: unknown[]; lastCompatibilitySnapshotWarning?: { message: string; relativePath?: string } | null } };
-    expect(firstBody.cardStoreHealth?.compatibilitySnapshots).toBe('ok');
-    expect(firstBody.cardStoreHealth?.warnings).toEqual([]);
+    const firstBody = await first.json() as { cardStoreHealth?: { canonical: string } };
+    expect(firstBody.cardStoreHealth?.canonical).toBe('ok');
     expect(JSON.stringify(firstBody.cardStoreHealth)).not.toContain(TEST_ROOT);
     expect(JSON.stringify(firstBody.cardStoreHealth)).not.toContain('test-token');
 

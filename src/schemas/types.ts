@@ -107,13 +107,6 @@ export type TriggerType = 'keyword' | 'tool' | 'path' | 'tag';
 export interface SkillTrigger { type: TriggerType; pattern: string; }
 export interface SkillIndexEntry { name: string; file: string; target_agents: AgentRole[]; triggers: SkillTrigger[]; updated_at: string; }
 
-export type PlannerFrameStatus = 'queued' | 'running' | 'suspended' | 'resumable' | 'completed' | 'failed';
-export type PlannerResumeReason = 'none' | 'dispatch_completed' | 'dispatch_failed' | 'reviewer_correction' | 'analyst_directive' | 'subtree_changed' | 'service_restart';
-export type PlannerDispatchStatus = 'queued' | 'running' | 'completed' | 'failed' | 'blocked' | 'cancelled' | 'timed_out';
-export type PlannerDispatchOutcome = 'done' | 'failed' | 'blocked' | 'cancelled' | 'timed_out';
-export interface PlannerDispatchCompletion { outcome: PlannerDispatchOutcome; summary: string; result?: Record<string, unknown> | null; evidence_card_ids?: string[]; error_message?: string | null; completed_by_session_id?: string | null; }
-export interface PlannerFrameRecord { frame_id: string; planner_card_id: string; planner_role: 'planner'; planner_scope: 'project' | 'goal'; status: PlannerFrameStatus; resume_reason: PlannerResumeReason; waiting_on_dispatch_ids: string[]; last_resume_cursor: string | null; last_dispatch_id: string | null; created_at: string; updated_at: string; }
-export interface PlannerDispatchRecord { dispatch_id: string; parent_frame_id: string; parent_card_id: string; target_card_id: string; target_kind: 'goal' | 'terminal_card'; requested_by_role: 'planner'; requested_by_scope: 'project' | 'goal'; status: PlannerDispatchStatus; completion: PlannerDispatchCompletion | null; idempotency_key: string; created_at: string; started_at: string | null; completed_at: string | null; }
 
 import { eventKindValues, runtimeEventKindValues, agentEventKindValues } from '../events/registry.js';
 import type { EventKind } from '../events/registry.js';

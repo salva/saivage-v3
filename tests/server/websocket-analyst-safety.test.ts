@@ -110,22 +110,12 @@ describe('websocket analyst safety', () => {
   it('sends a validated runtime-state snapshot with CardStore health after connected status for authenticated clients', () => {
     const cardStoreHealth = {
       canonical: 'ok',
-      compatibilitySnapshots: 'degraded',
-      lastCompatibilitySnapshotWarning: {
-        code: 'compatibility-snapshot-degraded',
-        operation: 'startup-repair',
-        relativePath: '.saivage/cards/tree/project.children.json',
-        message: 'Synthetic warning with token=[REDACTED]',
-        occurredAt: '2026-01-01T00:00:00.000Z',
-        canonicalCommitted: false,
-      },
-      warnings: [],
     };
     const getHealth = jest.fn(() => cardStoreHealth);
-    const getAndClearWarnings = jest.fn();
+    
     const activeRuntime = {
       runtime: {
-        cardStore: { getHealth, getAndClearWarnings },
+        cardStore: { getHealth },
       },
     } as any;
     const { route, fastify } = createRoute();
@@ -141,7 +131,7 @@ describe('websocket analyst safety', () => {
       content: { event: 'runtime-state', cardStoreHealth },
     });
     expect(getHealth).toHaveBeenCalledTimes(1);
-    expect(getAndClearWarnings).not.toHaveBeenCalled();
+    
     expect(JSON.stringify(sent[1])).not.toContain('synthetic-secret');
   });
 
@@ -156,36 +146,6 @@ describe('websocket analyst safety', () => {
     expect(sent[0].content.event).toBe('connected');
     expect(sent[1]).toEqual({ type: 'status', content: { event: 'runtime-state' } });
     expect(sent[1].content).not.toHaveProperty('cardStoreHealth');
-  });
-
-  it('helper reads CardStore health without clearing warning evidence across repeated sends', () => {
-    const cardStoreHealth = {
-      canonical: 'invalid',
-      compatibilitySnapshots: 'degraded',
-      lastCompatibilitySnapshotWarning: null,
-      warnings: [{
-        code: 'compatibility-snapshot-degraded',
-        operation: 'manual-repair',
-        relativePath: '.saivage/cards/tree/project.children.json',
-        message: 'Synthetic sanitized warning token=[REDACTED] path=[SECRET_PATH]',
-        occurredAt: '2026-01-01T00:00:01.000Z',
-        canonicalCommitted: false,
-      }],
-    };
-    const getHealth = jest.fn(() => cardStoreHealth);
-    const getAndClearWarnings = jest.fn();
-    const activeRuntime = { runtime: { cardStore: { getHealth, getAndClearWarnings } } } as any;
-    const { ws } = createSocket();
-
-    sendRuntimeStateSnapshotToClient(ws, activeRuntime);
-    sendRuntimeStateSnapshotToClient(ws, activeRuntime);
-
-    expect(getHealth).toHaveBeenCalledTimes(2);
-    expect(getAndClearWarnings).not.toHaveBeenCalled();
-    const sentText = (ws.send as jest.Mock).mock.calls.map((call) => String(call[0])).join('\n');
-    expect(sentText).toContain('[REDACTED]');
-    expect(sentText).toContain('[SECRET_PATH]');
-    expect(sentText).not.toMatch(/synthetic-secret|auth-profiles\.json|\.env/);
   });
 
   it('rejects /ws token query, missing, invalid, and reused tickets with generic 1008 close reason', () => {
@@ -425,7 +385,7 @@ describe('websocket runtime event fanout compatibility', () => {
     const { route, fastify } = createRoute();
     const handlers: Array<(event: import('../../src/schemas/types.js').LoggedEvent) => void> = [];
     const runtime = {
-      runtime: { cardStore: { getHealth: jest.fn(() => ({ canonical: 'ok', compatibilitySnapshots: 'ok', lastCompatibilitySnapshotWarning: null, warnings: [] })) } },
+      runtime: { cardStore: { getHealth: jest.fn(() => ({ canonical: 'ok' })) } },
       on: jest.fn(),
       eventBus: {
         subscribe: jest.fn((options: { handler: (event: import('../../src/schemas/types.js').LoggedEvent) => void }) => {
@@ -453,7 +413,7 @@ describe('websocket runtime event fanout compatibility', () => {
     const { route, fastify } = createRoute();
     const handlers: Array<(event: import('../../src/schemas/types.js').LoggedEvent) => void> = [];
     const runtime = {
-      runtime: { cardStore: { getHealth: jest.fn(() => ({ canonical: 'ok', compatibilitySnapshots: 'ok', lastCompatibilitySnapshotWarning: null, warnings: [] })) } },
+      runtime: { cardStore: { getHealth: jest.fn(() => ({ canonical: 'ok' })) } },
       on: jest.fn(),
       eventBus: {
         subscribe: jest.fn((options: { handler: (event: import('../../src/schemas/types.js').LoggedEvent) => void }) => {

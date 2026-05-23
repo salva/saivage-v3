@@ -622,12 +622,12 @@ export class Runtime extends EventEmitter {
     if (this._dispatchInFlight.has(goalId)) return;
     this._dispatchInFlight.add(goalId);
     try {
-    if (this._paused) { this.emit('dispatch_blocked', { reason: 'paused', goalId }); this._eventLogger.appendEvent({ kind: 'dispatch_blocked', reason: 'paused', goal_id: goalId }); return; }
+    if (this._paused) { this.emit('dispatch_blocked', { reason: 'paused', goal_id: goalId }); this._eventLogger.appendEvent({ kind: 'dispatch_blocked', reason: 'paused', goal_id: goalId }); return; }
     let planCard: CardRecord;
     try { consumeChangedCardActivation(this.projectRoot, goalId); const result = this.cardStore.activateGoal(goalId); planCard = result.goal; const startedAt = now(); const plannerSessionId = `planner:${goalId}`; updateRuntimeState(this.projectRoot, { status: 'running', current_card_id: goalId, current_agent_session_id: plannerSessionId, queue: [], active_card_run: { card_id: goalId, card_type: planCard.type, runtime_status: 'running', phase: 'planner', caller_session_id: null, caller_tool_call_id: null, planner_session_id: plannerSessionId, correction_attempts: 0, started_at: startedAt, last_turn_at: startedAt } }); this.bindPlannerSessionToOpenRun(goalId, plannerSessionId); } catch (err) { const errorMessage = err instanceof Error ? err.message : String(err); this.emitRuntimeDiagnostic({ goal_id: goalId, phase: 'activate', error: err }); this._eventLogger.appendEvent({ kind: 'runtime_diagnostic', goal_id: goalId, phase: 'activate', error_message: errorMessage }); this._errorLogger.appendError({ message: errorMessage, goalId, phase: 'activate' }); return; }
     let plannerDone = false; const MAX_ITERATIONS = 50;
     for (let iter = 0; iter < MAX_ITERATIONS && !plannerDone && !this._shuttingDown; iter++) {
-      if (this._paused) { this.emit('dispatch_blocked', { reason: 'paused', goalId }); this._eventLogger.appendEvent({ kind: 'dispatch_blocked', reason: 'paused', goal_id: goalId }); updateRuntimeState(this.projectRoot, { status: 'paused' }); return; }
+      if (this._paused) { this.emit('dispatch_blocked', { reason: 'paused', goal_id: goalId }); this._eventLogger.appendEvent({ kind: 'dispatch_blocked', reason: 'paused', goal_id: goalId }); updateRuntimeState(this.projectRoot, { status: 'paused' }); return; }
       let plannerResult: PlannerResult;
       try {
         const goalCardForDepth = this.cardStore.read(goalId); const currentDepth = goalCardForDepth?.depth; const maxDepth = this.cardStore.maxDepth; let plannerPrompt = buildPlannerPrompt(undefined, currentDepth, maxDepth);
@@ -644,7 +644,7 @@ export class Runtime extends EventEmitter {
       const execution = await this.dispatchPendingActivations(goalId);
       if (execution.failed) plannerDone = false;
       if (this._shuttingDown) break;
-      if (this._paused) { this.emit('dispatch_blocked', { reason: 'paused', goalId }); this._eventLogger.appendEvent({ kind: 'dispatch_blocked', reason: 'paused', goal_id: goalId }); return; }
+      if (this._paused) { this.emit('dispatch_blocked', { reason: 'paused', goal_id: goalId }); this._eventLogger.appendEvent({ kind: 'dispatch_blocked', reason: 'paused', goal_id: goalId }); return; }
       const hasUnfinishedChildWork = this.cardStore.list().some((card) => card.parent === goalId && card.status !== 'done' && card.status !== 'failed' && card.status !== 'cancelled');
       const hasGoalDispatch = execution.dispatchedGoal; const createdCardIds = (plannerResult.created_cards ?? []).map((card) => card.id).filter((id): id is string => Boolean(id));
       if (plannerResult.status === 'blocked') { this.cardStore.setStatus(goalId, 'running'); this.cardStore.setStatus(goalId, 'blocked'); this.cardStore.update(goalId, { result: { ...(this.cardStore.read(goalId)?.result ?? {}), planning: { status: 'blocked', blocked_reason: plannerResult.blocked_reason ?? null, created_cards: createdCardIds } } }); updateRuntimeState(this.projectRoot, { status: 'idle', current_card_id: null, current_agent_session_id: null, queue: [], active_card_run: null } as Partial<RuntimeState> as never); return; }
@@ -680,7 +680,7 @@ export class Runtime extends EventEmitter {
         }
       }
     }
-    if (this._shuttingDown) { this.emit('dispatch_interrupted', { goalId, reason: 'shutdown' }); this._eventLogger.appendEvent({ kind: 'dispatch_interrupted', goal_id: goalId, reason: 'shutdown' }); }
+    if (this._shuttingDown) { this.emit('dispatch_interrupted', { goal_id: goalId, reason: 'shutdown' }); this._eventLogger.appendEvent({ kind: 'dispatch_interrupted', goal_id: goalId, reason: 'shutdown' }); }
     } finally {
       this._dispatchInFlight.delete(goalId);
     }
@@ -718,7 +718,7 @@ export class Runtime extends EventEmitter {
           const result = this.agentRuntime.invokeExecutor(card.id, goalId, executorPrompt); execResult = result instanceof Promise ? await result : result;
           const lastSessionId = (this.agentRuntime as FakeAgentAdapter).getLastSessionId?.('executor', goalId, card.id) ?? readRuntimeState(this.projectRoot)?.current_agent_session_id ?? null;
           if (execResult.status === 'done' && lastSessionId) await this.enforceBlockingNotifications(lastSessionId, 'executor', async () => undefined);
-        } catch (err) { const errorMessage = err instanceof Error ? err.message : String(err); this.emitRuntimeDiagnostic({ card_id: card.id, goal_id: goalId, phase: 'executor', error: err }); this._eventLogger.appendEvent({ kind: 'runtime_diagnostic', card_id: card.id, goal_id: goalId, phase: 'executor', error_message: errorMessage }); this._errorLogger.appendError({ message: errorMessage, cardId: card.id, goalId, phase: 'executor' }); this.cardStore.setStatus(card.id, 'failed'); this.appendChildUnwindToolResult(card.id, 'failed', `Terminal card ${card.id} execution failed before producing a result.`); this.emit('card_failed', { cardId: card.id, goalId }); this._eventLogger.appendEvent({ kind: 'card_failed', card_id: card.id, goal_id: goalId }); failed = true; return { dispatchedGoal, executedTerminal, failed }; }
+        } catch (err) { const errorMessage = err instanceof Error ? err.message : String(err); this.emitRuntimeDiagnostic({ card_id: card.id, goal_id: goalId, phase: 'executor', error: err }); this._eventLogger.appendEvent({ kind: 'runtime_diagnostic', card_id: card.id, goal_id: goalId, phase: 'executor', error_message: errorMessage }); this._errorLogger.appendError({ message: errorMessage, cardId: card.id, goalId, phase: 'executor' }); this.cardStore.setStatus(card.id, 'failed'); this.appendChildUnwindToolResult(card.id, 'failed', `Terminal card ${card.id} execution failed before producing a result.`); this.emit('card_failed', { card_id: card.id, goal_id: goalId }); this._eventLogger.appendEvent({ kind: 'card_failed', card_id: card.id, goal_id: goalId }); failed = true; return { dispatchedGoal, executedTerminal, failed }; }
         const acceptedAt = now();
         const lastSessionId = (this.agentRuntime as FakeAgentAdapter).getLastSessionId?.('executor', goalId, card.id) ?? readRuntimeState(this.projectRoot)?.active_card_run?.executor_session_id ?? readRuntimeState(this.projectRoot)?.current_agent_session_id ?? null;
         const latestSelfReport = {
@@ -748,7 +748,7 @@ export class Runtime extends EventEmitter {
         }
         executedTerminal = true; const outcome = execResult.status === 'done' ? 'done' : 'failed';
         this.appendChildUnwindToolResult(card.id, outcome, `Terminal card ${card.id} finished with status ${execResult.status}.`);
-        if (execResult.status === 'failed') { this.emit('card_failed', { cardId: card.id, goalId }); this._eventLogger.appendEvent({ kind: 'card_failed', card_id: card.id, goal_id: goalId }); failed = true; return { dispatchedGoal, executedTerminal, failed }; }
+        if (execResult.status === 'failed') { this.emit('card_failed', { card_id: card.id, goal_id: goalId }); this._eventLogger.appendEvent({ kind: 'card_failed', card_id: card.id, goal_id: goalId }); failed = true; return { dispatchedGoal, executedTerminal, failed }; }
       }
       activationCards = this.getPendingActivationCards(goalId);
     }

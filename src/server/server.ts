@@ -18,10 +18,8 @@ import { loadConfig, type SaivageConfig } from '../agents/config-schema.js';
 import type { Environment } from '../config/environment.js';
 import { McpManager } from '../mcp/index.js';
 import { TelegramBot } from '../telegram/index.js';
-import { createNotificationRouter } from '../notifications/index.js';
 import { createNotificationDeliveryService, setProjectNotificationDeliveryAdapters, clearProjectNotificationDeliveryAdapters } from '../utils/notification-delivery.js';
 import { TelegramNotificationDeliveryAdapter, buildTelegramStartupDiagnosticSummary, evaluateTelegramRecipientReadiness, normalizeTelegramNotificationChatIds } from '../telegram/recipients.js';
-import type { NotificationRouter } from '../notifications/index.js';
 import { ActiveRuntime } from '../runtime/lifecycle.js';
 import { buildCardRunsResponse, markGoalNeedsCorrections, normalizeAnalystIssues } from '../utils/analyst-stage6.js';
 import { readFreezeManifest } from '../runtime/freeze-manifest.js';
@@ -30,7 +28,7 @@ import { createResourceScope, type ResourceScope } from '../lifecycle/index.js';
 
 export interface ServerConfig { host: string; port: number; projectRoot: string; }
 export interface CreateServerOptions { environment: Environment; createRuntime?: boolean; scope?: ResourceScope; }
-export interface ServerInstance { fastify: FastifyInstance; config: ServerConfig; saivageConfig: SaivageConfig; scope: ResourceScope; mcpManager?: McpManager; telegramBot?: TelegramBot; notificationRouter?: NotificationRouter; activeRuntime?: ActiveRuntime; stop: () => Promise<void>; }
+export interface ServerInstance { fastify: FastifyInstance; config: ServerConfig; saivageConfig: SaivageConfig; scope: ResourceScope; mcpManager?: McpManager; telegramBot?: TelegramBot; activeRuntime?: ActiveRuntime; stop: () => Promise<void>; }
 export function isLocalhost(host: string): boolean { return host === '127.0.0.1' || host === 'localhost' || host === '::1' || host === '0:0:0:0:0:0:0:1'; }
 export function validateDevModeHost(host: string | undefined, apiToken?: string): void { if (apiToken) return; console.warn('⚠  SAIVAGE_API_TOKEN is not set. Server is running in DEVELOPMENT MODE with auth disabled.\n' + '   Set SAIVAGE_API_TOKEN to a secure random string for production use.'); const resolvedHost = host ?? '0.0.0.0'; if (!isLocalhost(resolvedHost)) throw new Error(`Cannot bind to ${resolvedHost} without SAIVAGE_API_TOKEN. For development, bind to 127.0.0.1 or localhost. For production, set SAIVAGE_API_TOKEN.`); }
 function registerHealth(fastify: FastifyInstance, projectRoot: string, _saivageConfig: SaivageConfig, availabilityInputs?: ServerAvailabilityInputs): void { fastify.get('/health', async () => { let runtimeStatus = 'unknown'; let frozenReason: string | undefined; try { const { readRuntimeState } = await import('../runtime/state.js'); const state = readRuntimeState(projectRoot); if (state) { runtimeStatus = state.status; if (state.status === 'frozen') { const manifest = readFreezeManifest(projectRoot); if (manifest) frozenReason = manifest.reason; } } } catch {} const response: Record<string, unknown> = { status: 'ok', version: '0.1.0', project: 'saivage-v3', runtime: runtimeStatus }; if (frozenReason !== undefined) response.frozen_reason = frozenReason; if (availabilityInputs) response.serverAvailability = buildServerAvailability(availabilityInputs); return response; }); }
@@ -133,11 +131,10 @@ export async function createServer(optionsOrProjectRoot: CreateServerOptions | s
       source_surface: 'rest',
     });
   }
-  const notificationRouter = createNotificationRouter(projectRoot, telegramBot, { chatIds: recipientRegistry.recipients });
   async function stopOwnedResources(): Promise<void> { resetChatRouteState(projectRoot); resetWebSocketState(); clearProjectNotificationDeliveryAdapters(projectRoot); if (activeRuntime) resetRuntimeEventSubscriptions(activeRuntime.runtime); try { await fastify.close(); } finally { if (telegramBot) { try { await telegramBot.stop(); fastify.log.info('Telegram bot stopped'); } catch (err) { fastify.log.warn(`Telegram bot stop failed: ${err instanceof Error ? err.message : String(err)}`); } } if (mcpManager) { try { await mcpManager.stopAll(); fastify.log.info('MCP manager stopped'); } catch (err) { fastify.log.warn(`MCP manager stop failed: ${err instanceof Error ? err.message : String(err)}`); } } if (activeRuntime) { try { await activeRuntime.stop(); fastify.log.info('ActiveRuntime stopped'); } catch (err) { fastify.log.warn(`ActiveRuntime stop failed: ${err instanceof Error ? err.message : String(err)}`); } } } }
   scope.add({ dispose: stopOwnedResources }, { name: 'server-stop' });
   async function stop(): Promise<void> { await scope.dispose(); }
-  return { fastify, config: serverConfig, saivageConfig, scope, mcpManager, telegramBot, notificationRouter, activeRuntime, stop };
+  return { fastify, config: serverConfig, saivageConfig, scope, mcpManager, telegramBot, activeRuntime, stop };
 }
 export async function startServer(optionsOrProjectRoot: CreateServerOptions | string, createRuntime?: boolean): Promise<ServerInstance> { const server = await createServer(optionsOrProjectRoot as CreateServerOptions | string, createRuntime); const apiToken = typeof optionsOrProjectRoot === 'string' ? undefined : optionsOrProjectRoot.environment.auth.apiToken; validateDevModeHost(server.config.host, apiToken); await server.fastify.listen({ host: server.config.host, port: server.config.port }); return server; }
 export async function stopServer(server: ServerInstance): Promise<void> { await server.stop(); }

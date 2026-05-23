@@ -149,18 +149,6 @@ describe('CardStore validation of persisted state', () => {
     const created = store.create(makeCard({ type: 'goal', title: 'Leaf' }));
     expect(store.listChildren(created.id)).toEqual([]);
   });
-
-  it('repairs malformed compatibility children snapshots without using them as semantic authority', () => {
-    const child = store.create(makeCard({ type: 'goal', title: 'Parent' }));
-    writeFileSync(
-      join(tmpDir, '.saivage', 'cards', 'tree', 'project.children.json'),
-      JSON.stringify({ bad: true }, null, 2),
-    );
-    store = new CardStore(tmpDir);
-    expect(store.listChildren('project')).toEqual([child.id]);
-    const backups = readdirSync(join(tmpDir, '.saivage', 'cards', 'tree-repair-backups'));
-    expect(backups.length).toBeGreaterThan(0);
-  });
 });
 
 describe('CardStore CRUD still works with validated indexes', () => {
@@ -240,180 +228,11 @@ describe('CardStore selective patch behavior', () => {
   });
 });
 
-describe('ARCH-027 compatibility snapshot degraded health', () => {
-  function makeSnapshotFailingStore(failure: {
-    enabled: boolean;
-    error?: Error & { path?: string };
-  }): CardStore {
-    return new CardStore(tmpDir, undefined, {
-      beforeCompatibilitySnapshotWrite: () => {
-        if (failure.enabled) {
-          throw (
-            failure.error ??
-            new Error(`snapshot write failed at ${tmpDir} token=super-secret-value`)
-          );
-        }
-      },
-    });
-  }
-
-  it('allows startup with degraded health when only compatibility snapshot repair fails', () => {
-    const child = store.create(makeCard({ type: 'goal', title: 'Available from graph' }));
-    writeFileSync(
-      join(tmpDir, '.saivage', 'cards', 'tree', 'project.children.json'),
-      JSON.stringify({ malformed: true }, null, 2),
-    );
-    const err = new Error(
-      `EACCES ${tmpDir}/.saivage/auth-profiles.json token=do-not-leak`,
-    ) as Error & { path?: string };
-    err.name = 'SyntheticSnapshotError';
-    err.path = join(tmpDir, '.saivage', 'cards', 'tree', 'project.children.json');
-    store = makeSnapshotFailingStore({ enabled: true, error: err });
-
-    expect(store.list().map((card) => card.id)).toContain(child.id);
-    expect(store.listChildren('project')).toEqual([child.id]);
-    const health = store.getHealth();
-    expect(health.canonical).toBe('ok');
-    expect(health.compatibilitySnapshots).toBe('degraded');
-    expect(health.lastCompatibilitySnapshotWarning).toEqual(
-      expect.objectContaining({
-        code: 'compatibility-snapshot-degraded',
-        operation: 'startup-repair',
-        canonicalCommitted: false,
-        relativePath: join('.saivage', 'cards', 'tree', 'project.children.json'),
-        errorName: 'SyntheticSnapshotError',
-      }),
-    );
-    expect(JSON.stringify(health.warnings)).not.toContain(tmpDir);
-    expect(JSON.stringify(health.warnings)).not.toContain('do-not-leak');
-  });
-
-  it('returns mutation results and records warnings when snapshot rebuild fails after canonical writes', () => {
-    const card = store.create(makeCard({ type: 'goal', title: 'Before' }));
-    const failure = { enabled: false };
-    store = makeSnapshotFailingStore(failure);
-    expect(store.listChildren('project')).toContain(card.id);
-    failure.enabled = true;
-
-    const updated = store.mutateCard(
-      card.id,
-      { title: 'After' },
-      { actor: 'analyst', surface: 'web-chat', reason: 'test' },
-    );
-
-    expect(updated.title).toBe('After');
-    expect(store.read(card.id)?.title).toBe('After');
-    expect(store.getHealth().lastCompatibilitySnapshotWarning).toEqual(
-      expect.objectContaining({ operation: 'mutation-rebuild', canonicalCommitted: true }),
-    );
-  });
-
-  it('completes delete cleanup after canonical removal when only snapshot cleanup fails', () => {
-    const leaf = store.create(makeCard({ type: 'goal', title: 'Delete me' }));
-    const failure = { enabled: false };
-    store = makeSnapshotFailingStore(failure);
-    expect(store.read(leaf.id)).not.toBeNull();
-    failure.enabled = true;
-
-    expect(() => store.delete(leaf.id)).not.toThrow();
-
-    expect(store.read(leaf.id)).toBeNull();
-    expect(store.getHealth().lastCompatibilitySnapshotWarning).toEqual(
-      expect.objectContaining({ operation: 'delete-cleanup', canonicalCommitted: true }),
-    );
-  });
-
-  it('completes archive cleanup after canonical archive/removal when only snapshot cleanup fails', () => {
-    const parent = store.create(makeCard({ type: 'goal', title: 'Archive parent' }));
-    const child = store.create(
-      makeCard({ type: 'code', title: 'Archive child', parent: parent.id }),
-    );
-    const failure = { enabled: false };
-    store = makeSnapshotFailingStore(failure);
-    failure.enabled = true;
-
-    expect(() => store.archiveAndDeleteSubtree([parent.id, child.id])).not.toThrow();
-
-    expect(store.read(parent.id)).toBeNull();
-    expect(store.read(child.id)).toBeNull();
-    expect(existsSync(join(tmpDir, '.saivage', 'archive', 'cards', `${parent.id}.json`))).toBe(
-      true,
-    );
-    expect(store.getHealth().lastCompatibilitySnapshotWarning).toEqual(
-      expect.objectContaining({ operation: 'archive-cleanup', canonicalCommitted: true }),
-    );
-  });
-
-  it('clears warning queue without clearing degraded health and keeps warning payloads safe', () => {
-    const err = new Error(`failed under ${tmpDir} api_key=abc123 secret=hunter2`) as Error & {
-      path?: string;
-    };
-    err.path = join(tmpDir, '.saivage', 'cards', 'tree', 'project.children.json');
-    const failure = { enabled: false, error: err };
-    store = makeSnapshotFailingStore(failure);
-    store.list();
-    failure.enabled = true;
-    store.create(makeCard({ type: 'goal', title: 'Warn once' }));
-
-    const warnings = store.getAndClearWarnings();
-    expect(warnings).toHaveLength(1);
-    expect(warnings[0]).toEqual(
-      expect.objectContaining({
-        relativePath: join('.saivage', 'cards', 'tree', 'project.children.json'),
-      }),
-    );
-    const serialized = JSON.stringify(warnings);
-    expect(serialized).not.toContain(tmpDir);
-    expect(serialized).not.toContain('abc123');
-    expect(serialized).not.toContain('hunter2');
-    expect(store.getAndClearWarnings()).toEqual([]);
-    expect(store.getHealth().compatibilitySnapshots).toBe('degraded');
-  });
-
-
-
-  it('getHealth preserves sanitized warning evidence across repeated operator-style reads', () => {
-    const err = new Error(`synthetic token=abc123 authorization=test-secret under ${tmpDir}`) as Error & { path?: string };
-    err.path = join(tmpDir, '.saivage', 'auth-profiles.json');
-    const failure = { enabled: false, error: err };
-    store = makeSnapshotFailingStore(failure);
-    store.list();
-    failure.enabled = true;
-    store.create(makeCard({ type: 'goal', title: 'Operator health warning' }));
-
-    const first = store.getHealth();
-    const second = store.getHealth();
-    expect(second.warnings).toEqual(first.warnings);
-    expect(store.getAndClearWarnings()).toEqual(first.warnings);
-    const serialized = JSON.stringify(first);
-    expect(serialized).not.toContain(tmpDir);
-    expect(serialized).not.toContain('abc123');
-    expect(serialized).not.toContain('test-secret');
-  });
-
-  it('still fails fast for canonical invalidity instead of degrading it', () => {
-    const child = store.create(makeCard({ type: 'goal', title: 'Broken canonical parent' }));
-    const path = join(tmpDir, '.saivage', 'cards', 'by-id', `${child.id}.json`);
-    const raw = JSON.parse(readFileSync(path, 'utf-8')) as CardRecord;
-    writeFileSync(path, JSON.stringify({ ...raw, parent: 'missing-parent' }, null, 2));
-    store = makeSnapshotFailingStore({ enabled: true });
-
-    expect(() => store.list()).toThrow(
-      /missing parent 'missing-parent'|does not match by-id record/i,
-    );
-    expect(store.getHealth().canonical).toBe('invalid');
-    expect(store.getHealth().compatibilitySnapshots).toBe('ok');
-  });
-});
 
 describe('ARCH-026 hierarchy graph authority', () => {
-  function readChildren(parentId: string): string[] {
-    return JSON.parse(
-      readFileSync(join(tmpDir, '.saivage', 'cards', 'tree', `${parentId}.children.json`), 'utf-8'),
-    ) as string[];
-  }
 
-  it('cleans up create-then-reparent snapshots and graph reads', () => {
+
+  it('keeps graph reads correct after create-then-reparent', () => {
     const a = store.create(makeCard({ type: 'goal', title: 'A', parent: 'project' }));
     const b = store.create(makeCard({ type: 'goal', title: 'B', parent: 'project' }));
     const child = store.create(makeCard({ type: 'code', title: 'Child', parent: a.id }));
@@ -428,11 +247,9 @@ describe('ARCH-026 hierarchy graph authority', () => {
     expect(store.listChildren(a.id)).not.toContain(child.id);
     expect(store.listChildren(b.id)).toContain(child.id);
     expect(store.getDescendantIds(a.id)).not.toContain(child.id);
-    expect(readChildren(a.id)).not.toContain(child.id);
-    expect(readChildren(b.id)).toContain(child.id);
   });
 
-  it('ignores and repairs duplicate/stale boot-time children snapshot memberships from by-id authority', () => {
+  it('ignores stale boot-time children snapshots and uses by-id authority', () => {
     const realParent = store.create(
       makeCard({ type: 'goal', title: 'Real Parent', parent: 'project' }),
     );
@@ -444,13 +261,10 @@ describe('ARCH-026 hierarchy graph authority', () => {
       join(tmpDir, '.saivage', 'cards', 'by-id', `${child.id}.json`),
       'utf-8',
     );
+    mkdirSync(join(tmpDir, '.saivage', 'cards', 'tree'), { recursive: true });
     writeFileSync(
       join(tmpDir, '.saivage', 'cards', 'tree', `${staleParent.id}.children.json`),
       JSON.stringify([child.id], null, 2),
-    );
-    writeFileSync(
-      join(tmpDir, '.saivage', 'cards', 'tree', `${realParent.id}.children.json`),
-      JSON.stringify([child.id, child.id], null, 2),
     );
 
     store = new CardStore(tmpDir);
@@ -458,22 +272,9 @@ describe('ARCH-026 hierarchy graph authority', () => {
     expect(store.listChildren(realParent.id)).toEqual([child.id]);
     expect(store.listChildren(staleParent.id)).toEqual([]);
     expect(store.getDescendantIds(staleParent.id)).toEqual([]);
-    expect(readChildren(realParent.id)).toEqual([child.id]);
-    expect(readChildren(staleParent.id)).toEqual([]);
     expect(
       readFileSync(join(tmpDir, '.saivage', 'cards', 'by-id', `${child.id}.json`), 'utf-8'),
     ).toBe(before);
-    const backupRoots = readdirSync(join(tmpDir, '.saivage', 'cards', 'tree-repair-backups'));
-    expect(backupRoots.length).toBeGreaterThan(0);
-    const manifest = JSON.parse(
-      readFileSync(
-        join(tmpDir, '.saivage', 'cards', 'tree-repair-backups', backupRoots[0], 'manifest.json'),
-        'utf-8',
-      ),
-    ) as { issues: Array<{ code: string }> };
-    expect(manifest.issues.map((issue) => issue.code)).toEqual(
-      expect.arrayContaining(['duplicate-tree-membership', 'stale-tree-membership']),
-    );
   });
 
   it('fails fast for impossible canonical by-id/index graph states', () => {

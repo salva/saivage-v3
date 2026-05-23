@@ -125,12 +125,6 @@ export const skillTriggerSchema = z.object({ type: triggerTypeSchema, pattern: z
 export const skillIndexEntrySchema = z.object({ name: z.string().min(1), file: z.string().min(1), target_agents: z.array(agentRoleSchema), triggers: z.array(skillTriggerSchema), updated_at: z.string().datetime() });
 export const skillIndexSchema = z.array(skillIndexEntrySchema);
 
-export const plannerFrameStatusSchema = z.enum(['queued', 'running', 'suspended', 'resumable', 'completed', 'failed']);
-export const plannerResumeReasonSchema = z.enum(['none', 'dispatch_completed', 'dispatch_failed', 'reviewer_correction', 'analyst_directive', 'subtree_changed', 'service_restart']);
-export const plannerDispatchStatusSchema = z.enum(['queued', 'running', 'completed', 'failed', 'blocked', 'cancelled', 'timed_out']);
-export const plannerDispatchCompletionSchema: z.ZodType<import('./types.js').PlannerDispatchCompletion> = z.object({ outcome: z.enum(['done', 'failed', 'blocked', 'cancelled', 'timed_out']), summary: z.string(), result: z.record(z.string(), z.unknown()).nullable().optional(), evidence_card_ids: z.array(z.string()).optional(), error_message: z.string().nullable().optional(), completed_by_session_id: z.string().nullable().optional() }).strict();
-export const plannerFrameRecordSchema: z.ZodType<import('./types.js').PlannerFrameRecord> = z.object({ frame_id: z.string().min(1), planner_card_id: z.string().min(1), planner_role: z.literal('planner'), planner_scope: z.enum(['project', 'goal']), status: plannerFrameStatusSchema, resume_reason: plannerResumeReasonSchema, waiting_on_dispatch_ids: z.array(z.string().min(1)), last_resume_cursor: z.string().nullable(), last_dispatch_id: z.string().nullable(), created_at: z.string().datetime(), updated_at: z.string().datetime() }).strict();
-export const plannerDispatchRecordSchema: z.ZodType<import('./types.js').PlannerDispatchRecord> = z.object({ dispatch_id: z.string().min(1), parent_frame_id: z.string().min(1), parent_card_id: z.string().min(1), target_card_id: z.string().min(1), target_kind: z.enum(['goal', 'terminal_card']), requested_by_role: z.literal('planner'), requested_by_scope: z.enum(['project', 'goal']), status: plannerDispatchStatusSchema, completion: plannerDispatchCompletionSchema.nullable(), idempotency_key: z.string().min(1), created_at: z.string().datetime(), started_at: z.string().datetime().nullable(), completed_at: z.string().datetime().nullable() }).strict();
 
 function enumFromCatalog(values: readonly string[]) { return z.enum(values as unknown as [string, ...string[]]); }
 
