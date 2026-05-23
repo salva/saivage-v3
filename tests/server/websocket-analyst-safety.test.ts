@@ -257,10 +257,10 @@ describe('websocket analyst safety', () => {
     const { EventBus } = await import('../../src/events/bus.js');
     const eventBus = new EventBus();
     wireRuntimeEvents({ eventBus, on: () => undefined });
-    eventBus.emit('card_history_appended', { card_id: 'card-1', version_seq: 2, changed_fields: ['status'], changed_at: '2025-01-01T00:00:00.000Z' });
+    eventBus.emit('card_history_appended', { entry_id: '00000000-0000-4000-8000-000000000001', entry_kind: 'status', card_id: 'card-1', version_seq: 2, changed_fields: ['status'], changed_at: '2025-01-01T00:00:00.000Z' });
 
     const payload = JSON.parse((ws.send as jest.Mock).mock.calls.at(-1)?.[0] as string);
-    expect(payload).toEqual({ type: 'activity', content: { event: 'card_history_appended', card_id: 'card-1', version_seq: 2, changed_fields: ['status'], changed_at: '2025-01-01T00:00:00.000Z' } });
+    expect(payload).toEqual({ type: 'activity', content: { event: 'card_history_appended', entry_id: '00000000-0000-4000-8000-000000000001', entry_kind: 'status', card_id: 'card-1', version_seq: 2, changed_fields: ['status'], changed_at: '2025-01-01T00:00:00.000Z' } });
   });
 
   it('serializes rapid same-socket analyst messages and emits assistant replies in input order', async () => {

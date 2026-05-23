@@ -24,6 +24,8 @@ function redactValue<T>(value: T): T {
 
 function historyHeader(entry: CardHistoryEntry) {
   return {
+    entry_id: entry.entry_id,
+    kind: entry.kind,
     card_id: entry.card_id,
     version_seq: entry.version_seq,
     changed_at: entry.changed_at,

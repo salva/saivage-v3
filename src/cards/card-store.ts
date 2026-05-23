@@ -17,6 +17,7 @@ import {
   cardRecordSchema,
 } from '../schemas/index.js';
 import { writeFileAtomic } from '../persistence/index.js';
+import { randomUUID } from 'node:crypto';
 import type {
   CardBlocksIndex,
   CardChildrenIndex,
@@ -832,6 +833,8 @@ export class CardStore {
     }
 
     const historyEntry: CardHistoryEntry = {
+      entry_id: randomUUID(),
+      kind: 'mutate',
       card_id: existing.id,
       version_seq: existing.version_seq,
       snapshot: deepClone(existing),
@@ -874,6 +877,8 @@ export class CardStore {
     this.rebuildGraphStrict();
     const persisted = this.read(id)!;
     this.eventBus.emit('card_history_appended', {
+      entry_id: parsedHistory.data.entry_id,
+      entry_kind: parsedHistory.data.kind,
       card_id: persisted.id,
       version_seq: persisted.version_seq,
       changed_fields: [...changedFields],

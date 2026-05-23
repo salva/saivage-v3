@@ -52,7 +52,9 @@ export interface CardRecord {
   duration_ms?: number | null; error?: string | null; status_text?: string | null; status_text_updated_at?: string | null;
   status_text_author_session_id?: string | null; latest_self_report?: Record<string, unknown> | null; metadata?: CardMetadata | null; allowedActions?: CardAction[]; retries: number;
 }
-export interface CardHistoryEntry { card_id: string; version_seq: number; snapshot: CardRecord; changed_at: string; changed_by_actor: NoteAuthor; changed_by_surface: ControlActionSurface; change_reason: string | null; changed_fields: string[]; change_summary: string; }
+export type CardHistoryKind = 'update' | 'status' | 'mutate' | 'depends' | 'delete' | 'archive';
+export interface CardHistoryEntry { entry_id: string; kind: CardHistoryKind; card_id: string; version_seq: number; snapshot: CardRecord; changed_at: string; changed_by_actor: NoteAuthor; changed_by_surface: ControlActionSurface; change_reason: string | null; changed_fields: string[]; change_summary: string; }
+export type CardHistoryHeader = Omit<CardHistoryEntry, 'snapshot'>;
 export interface NotificationRecord { id: string; session_id: string | null; kind: 'card_changed' | 'note_added' | 'process_state' | 'runtime_state' | 'config_changed'; severity: 'info' | 'warn' | 'block'; payload_summary: string; related_card_id?: string; related_note_id?: string; related_process_id?: string; related_version_seq?: number; source_actor: NoteAuthor; source_surface: ControlActionSurface; created_at: string; delivered_at: string | null; acknowledged_at: string | null; }
 export interface ControlActionAuditEntry { id: string; actor: NoteAuthor; surface: ControlActionSurface; action: string; target_kind: 'card' | 'note' | 'process' | 'runtime' | 'config' | 'session' | null; target_id: string | null; params_summary: string; confirmed: boolean; outcome: 'ok' | 'error' | 'denied' | 'rejected' | 'preview'; outcome_summary: string; error?: string; created_at: string; }
 export interface CardIndexEntry { id: string; type: CardType; parent: string | null; status: CardStatus; title: string; }
@@ -139,7 +141,7 @@ export interface RuntimeActivationEvent extends BaseEvent { kind: 'runtime_activ
 export interface RuntimeActionableErrorEvent extends BaseEvent { kind: 'runtime_actionable_error'; actionable_error: ActionableErrorEnvelope; }
 export interface RuntimeFatalErrorEvent extends BaseEvent { kind: 'runtime_fatal_error'; phase?: string; error_message: string; error_name?: string; }
 export interface SubscriberErrorEvent extends BaseEvent { kind: 'subscriber_error'; subscription_id: string; source_kind: string; error_message: string; error_name?: string; timed_out?: boolean; }
-export interface CardHistoryAppendedEvent extends BaseEvent { kind: 'card_history_appended'; card_id: string; version_seq: number; changed_fields: string[]; changed_at: string; }
+export interface CardHistoryAppendedEvent extends BaseEvent { kind: 'card_history_appended'; entry_id: string; entry_kind: CardHistoryKind; card_id: string; version_seq: number; changed_fields: string[]; changed_at: string; }
 export interface NotificationAddedEvent extends BaseEvent { kind: 'notification_added'; id: string; severity: string; related_card_id?: string; related_note_id?: string; related_process_id?: string; related_version_seq?: number; created_at: string; }
 export interface NotificationAcknowledgedEvent extends BaseEvent { kind: 'notification_acknowledged'; id: string; related_card_id?: string; related_note_id?: string; related_process_id?: string; acknowledged_at: string; }
 export interface ControlActionRecordedEvent extends BaseEvent { kind: 'control_action_recorded'; id: string; action: string; target_kind: string | null; target_id: string | null; outcome: string; created_at: string; actor?: string; surface?: string; }

@@ -5,6 +5,8 @@ import {
   cardActionSchema,
   cardTypeSchema,
   createdBySchema,
+  cardHistoryEntrySchema,
+  cardHistoryHeaderSchema,
   runtimeStateSchema,
   runtimeIntentSchema,
   runtimeCommandRecordSchema,
@@ -153,8 +155,8 @@ export const CardMutationResponseSchema = z.object({
 export const CardHistoryParamsSchema = z.object({ id: z.string().min(1) });
 export const CardHistoryEntryParamsSchema = z.object({ id: z.string().min(1), seq: z.string().min(1) });
 export const CardDiffQuerySchema = z.object({ from: z.string().min(1), to: z.string().min(1) });
-export const CardHistoryListResponseSchema = z.object({ history: z.array(z.record(z.string(), z.unknown())), total: z.number().int().nonnegative() });
-export const CardHistoryEntryResponseSchema = z.object({ entry: z.record(z.string(), z.unknown()) });
+export const CardHistoryListResponseSchema = z.object({ history: z.array(cardHistoryHeaderSchema), total: z.number().int().nonnegative() });
+export const CardHistoryEntryResponseSchema = z.object({ entry: cardHistoryEntrySchema });
 export const CardDiffResponseSchema = z.object({ diff: z.unknown(), from: z.number().int().positive(), to: z.number().int().positive(), card_id: z.string() });
 
 const cardCreateBaseSchema = z.object({
