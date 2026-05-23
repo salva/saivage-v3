@@ -1,21 +1,37 @@
 import { z } from 'zod';
 
-import * as analystTools from '../agents/index.js';
-import { ANALYST_TOOL_DEFINITIONS } from '../agents/index.js';
+import {
+  ANALYST_TOOL_DEFINITIONS,
+  add_note,
+  create_card,
+  diff_card,
+  edit_card,
+  get_card,
+  get_card_history_entry,
+  get_note,
+  get_tree,
+  list_card_history,
+  list_cards,
+  list_notes,
+  mark_goal_needs_corrections,
+  mark_note_handled,
+  type ToolContext,
+  type ToolResult,
+} from '../agents/index.js';
 import type { CardAction, CardState, PermissionRole } from '../permissions/index.js';
 import { defineTool, type JsonSchemaObject, type ToolDefinition } from './runtime.js';
 
-const toolResultSchema = z.custom<analystTools.ToolResult>((value) => Boolean(value && typeof value === 'object' && 'success' in value && typeof value.success === 'boolean'));
+const toolResultSchema = z.custom<ToolResult>((value) => Boolean(value && typeof value === 'object' && 'success' in value && typeof value.success === 'boolean'));
 
-type AnalystToolResult = analystTools.ToolResult;
+type AnalystToolResult = ToolResult;
 
-function actorForRole(role: PermissionRole): analystTools.ToolContext['actor'] {
+function actorForRole(role: PermissionRole): ToolContext['actor'] {
   return role === 'operator' ? 'planner' : role;
 }
 
 type AgentToolDefinition<Name extends string, Input> = ToolDefinition<Name, Input, AnalystToolResult>;
 
-type AnalystExecute<Input> = (ctx: analystTools.ToolContext, params: Input) => Promise<analystTools.ToolResult>;
+type AnalystExecute<Input> = (ctx: ToolContext, params: Input) => Promise<ToolResult>;
 
 function jsonSchemaFor(name: string): { description: string; parameters: JsonSchemaObject } {
   const found = ANALYST_TOOL_DEFINITIONS.find((definition) => definition.function.name === name);
@@ -91,20 +107,20 @@ const markNoteHandledInput = getNoteInput;
 const markGoalNeedsCorrectionsInput = z.object({ goalId: z.string(), issues: z.array(z.unknown()), note: z.string().optional() }).strict();
 const allRuntimeRoles = ['planner', 'executor', 'reviewer', 'analyst'] as const;
 
-const toOutput = (result: analystTools.ToolResult): AnalystToolResult => result;
+const toOutput = (result: ToolResult): AnalystToolResult => result;
 
 export const AGENT_TOOL_DEFINITIONS = [
-  tool({ name: 'create_card', input: createCardInput, roles: ['planner'], execute: analystTools.create_card }),
-  tool({ name: 'edit_card', input: editCardInput, roles: ['planner'], execute: analystTools.edit_card }),
-  tool({ name: 'add_note', input: addNoteInput, roles: ['planner'], execute: analystTools.add_note }),
-  tool({ name: 'list_cards', input: listCardsInput, roles: ['planner'], execute: analystTools.list_cards }),
-  tool({ name: 'get_card', input: getCardInput, roles: ['planner'], execute: analystTools.get_card }),
-  tool({ name: 'get_tree', input: getTreeInput, roles: ['planner'], execute: analystTools.get_tree }),
-  tool({ name: 'list_card_history', input: historyListInput, roles: allRuntimeRoles, execute: analystTools.list_card_history }),
-  tool({ name: 'get_card_history_entry', input: historyEntryInput, roles: allRuntimeRoles, execute: analystTools.get_card_history_entry }),
-  tool({ name: 'diff_card', input: diffCardInput, roles: allRuntimeRoles, execute: analystTools.diff_card }),
-  tool({ name: 'list_notes', input: listNotesInput, roles: ['executor', 'reviewer', 'analyst'], execute: analystTools.list_notes }),
-  tool({ name: 'get_note', input: getNoteInput, roles: ['executor', 'reviewer', 'analyst'], execute: analystTools.get_note }),
-  tool({ name: 'mark_note_handled', input: markNoteHandledInput, roles: ['executor', 'reviewer', 'analyst'], execute: analystTools.mark_note_handled }),
-  tool({ name: 'mark_goal_needs_corrections', input: markGoalNeedsCorrectionsInput, roles: ['analyst'], execute: analystTools.mark_goal_needs_corrections }),
+  tool({ name: 'create_card', input: createCardInput, roles: ['planner'], execute: create_card }),
+  tool({ name: 'edit_card', input: editCardInput, roles: ['planner'], execute: edit_card }),
+  tool({ name: 'add_note', input: addNoteInput, roles: ['planner'], execute: add_note }),
+  tool({ name: 'list_cards', input: listCardsInput, roles: ['planner'], execute: list_cards }),
+  tool({ name: 'get_card', input: getCardInput, roles: ['planner'], execute: get_card }),
+  tool({ name: 'get_tree', input: getTreeInput, roles: ['planner'], execute: get_tree }),
+  tool({ name: 'list_card_history', input: historyListInput, roles: allRuntimeRoles, execute: list_card_history }),
+  tool({ name: 'get_card_history_entry', input: historyEntryInput, roles: allRuntimeRoles, execute: get_card_history_entry }),
+  tool({ name: 'diff_card', input: diffCardInput, roles: allRuntimeRoles, execute: diff_card }),
+  tool({ name: 'list_notes', input: listNotesInput, roles: ['executor', 'reviewer', 'analyst'], execute: list_notes }),
+  tool({ name: 'get_note', input: getNoteInput, roles: ['executor', 'reviewer', 'analyst'], execute: get_note }),
+  tool({ name: 'mark_note_handled', input: markNoteHandledInput, roles: ['executor', 'reviewer', 'analyst'], execute: mark_note_handled }),
+  tool({ name: 'mark_goal_needs_corrections', input: markGoalNeedsCorrectionsInput, roles: ['analyst'], execute: mark_goal_needs_corrections }),
 ] as const;
