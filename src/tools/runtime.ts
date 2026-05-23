@@ -70,10 +70,20 @@ export function defineTool<Name extends string, Input, Output>(definition: ToolD
   return definition;
 }
 
-type AnyToolDefinition = ToolDefinition<string, any, any>;
+interface RuntimeToolDefinition<Name extends string = string> {
+  readonly name: Name;
+  readonly description: string;
+  readonly input: z.ZodType<unknown>;
+  readonly output: z.ZodType<unknown>;
+  readonly parameters: JsonSchemaObject;
+  readonly roles: readonly PermissionRole[];
+  readonly action?: CardAction;
+  targetState(input: unknown, invocation: ToolInvocation): CardState | undefined;
+  execute(ctx: ToolContext, input: unknown): Promise<unknown>;
+}
 
-export class ToolRuntime<Definitions extends readonly ToolDefinition<string, any, any>[]> {
-  private readonly definitions: Map<string, AnyToolDefinition>;
+export class ToolRuntime<Definitions extends readonly RuntimeToolDefinition[]> {
+  private readonly definitions: Map<string, RuntimeToolDefinition>;
 
   constructor(private readonly deps: ToolRuntimeDependencies, definitions: Definitions) {
     this.definitions = new Map(definitions.map((definition) => [definition.name, definition]));
