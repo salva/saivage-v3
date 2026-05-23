@@ -542,21 +542,8 @@ export interface CardIndex {
   byType: Record<string, number>;
 }
 
-export interface CardStoreCompatibilitySnapshotWarning {
-  code: 'compatibility-snapshot-degraded';
-  operation: 'startup-repair' | 'mutation-rebuild' | 'delete-cleanup' | 'archive-cleanup' | 'manual-repair';
-  relativePath?: string;
-  message: string;
-  errorName?: string;
-  occurredAt: string;
-  canonicalCommitted: boolean;
-}
-
 export interface CardStoreHealth {
   canonical: 'ok' | 'invalid';
-  compatibilitySnapshots: 'ok' | 'degraded';
-  lastCompatibilitySnapshotWarning: CardStoreCompatibilitySnapshotWarning | null;
-  warnings: CardStoreCompatibilitySnapshotWarning[];
 }
 
 

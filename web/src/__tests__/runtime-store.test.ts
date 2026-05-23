@@ -272,17 +272,7 @@ const mockCardIndex = {
 };
 
 const mockCardStoreHealth = {
-  canonical: 'ok' as const,
-  compatibilitySnapshots: 'degraded' as const,
-  lastCompatibilitySnapshotWarning: {
-    code: 'compatibility-snapshot-degraded' as const,
-    operation: 'mutation-rebuild' as const,
-    relativePath: '.saivage/cards/tree/project.children.json',
-    message: 'Synthetic warning with token=[REDACTED]',
-    occurredAt: '2026-01-01T00:00:00.000Z',
-    canonicalCommitted: true,
-  },
-  warnings: [],
+  canonical: 'invalid' as const,
 };
 
 

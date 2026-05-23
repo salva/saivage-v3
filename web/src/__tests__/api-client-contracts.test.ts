@@ -50,7 +50,7 @@ describe('web API contract parser boundary', () => {
     expect(operatorRouteInventory().map((row) => row.operationId)).toContain('runtime.startProject');
     expect(operatorRouteInventory().map((row) => row.operationId)).toContain('runtime.stopProject');
     expect(parseOperatorResponse('runtime.pause', runtimeState).paused).toBe(true);
-    const health = { canonical: 'ok', compatibilitySnapshots: 'ok', lastCompatibilitySnapshotWarning: null, warnings: [] };
+    const health = { canonical: 'ok' };
     expect(parseOperatorResponse('runtime.getState', { runtime: null, cardIndex: { total: 0, byStatus: {}, byType: {} }, cardStoreHealth: health }).cardStoreHealth).toEqual(health);
     expect(parseCoveredWsEnvelope({ type: 'status', content: { event: 'runtime-state', cardStoreHealth: health } })?.content.event).toBe('runtime-state');
     expect(parseCoveredWsEnvelope({ type: 'status', content: { event: 'runtime-paused' } })?.content.event).toBe('runtime-paused');

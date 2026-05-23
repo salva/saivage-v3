@@ -78,7 +78,7 @@
     "test:web:e2e:smoke": "npm run web:test:e2e:smoke",
     "web:test:e2e:install": "playwright install chromium",
     "test:web:e2e:install": "npm run web:test:e2e:install",
-    "test:runtime-open-handle-shard": "NODE_OPTIONS=--experimental-vm-modules jest --config tests/utils/jest-open-handle-shard.config.cjs tests/utils/runtime-continuous-improvement.test.ts tests/utils/runtime-executor-fallback-evidence.test.ts tests/utils/runtime-integration.test.ts tests/utils/runtime-project-planner-control-flow.test.ts tests/utils/security-integration.test.ts tests/utils/stuck-agent-supervisor.test.ts tests/utils/types-self-check.test.ts tests/utils/write-territories.test.ts --maxWorkers=8"
+    "test:import-boundaries": "node scripts/check-import-boundaries.cjs --self-test && node scripts/check-import-boundaries.cjs"
   },
   "dependencies": {
     "@fastify/cors": "^11.2.0",

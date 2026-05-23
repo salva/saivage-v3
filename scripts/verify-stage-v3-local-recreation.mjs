@@ -20,10 +20,10 @@ mkdirSync(fixtureDir, { recursive: true });
 mkdirSync(sourceDir, { recursive: true });
 mkdirSync(snapshotsDir, { recursive: true });
 
-const { initProjectTree } = await import(pathToFileURL(join(repoRoot, 'dist/src/utils/file-tree.js')).href);
-const { Runtime } = await import(pathToFileURL(join(repoRoot, 'dist/src/utils/runtime.js')).href);
-const { FakeAgentAdapter } = await import(pathToFileURL(join(repoRoot, 'dist/src/utils/fake-agent.js')).href);
-const { releaseLock } = await import(pathToFileURL(join(repoRoot, 'dist/src/utils/runtime-lock.js')).href);
+const { initProjectTree } = await import(pathToFileURL(join(repoRoot, 'dist/src/persistence/file-tree.js')).href);
+const { Runtime } = await import(pathToFileURL(join(repoRoot, 'dist/src/runtime/runtime.js')).href);
+const { FakeAgentAdapter } = await import(pathToFileURL(join(repoRoot, 'dist/src/agents/fake-agent.js')).href);
+const { releaseLock } = await import(pathToFileURL(join(repoRoot, 'dist/src/runtime/lock.js')).href);
 const { registerCardRoutes } = await import(pathToFileURL(join(repoRoot, 'dist/src/server/routes/cards.js')).href);
 const { registerChatsFilesDebugRoutes } = await import(pathToFileURL(join(repoRoot, 'dist/src/server/routes/chats-files-debug.js')).href);
 const authPlugin = (await import(pathToFileURL(join(repoRoot, 'dist/src/server/auth.js')).href)).default;

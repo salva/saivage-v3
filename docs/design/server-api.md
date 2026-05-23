@@ -220,7 +220,7 @@ GET    /api/debug/timeline     Event timeline
 Debug endpoints expose internal state for troubleshooting. They are
 authenticated but not rate-limited (intended for operator use, not
 public exposure). Timeline and error payloads are redacted on read by
-`src/server/routes/chats-files-debug.ts` / `src/utils/observability-redaction.ts`;
+`src/server/routes/chats-files-debug.ts` / `src/redaction/index.ts`;
 restart/reload redaction of synthetic `token`, `api_key`, and `authorization`
 fields is guarded by `tests/server/restart-persistence-operator-surface.test.ts`.
 
