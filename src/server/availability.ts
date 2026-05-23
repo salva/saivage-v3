@@ -1,11 +1,8 @@
 import type { McpManager } from '../mcp/index.js';
 import type { ActiveRuntime } from '../runtime/lifecycle.js';
 import { readRuntimeState } from '../runtime/state.js';
-import {
-  redactCredentialLiterals,
-  redactOperatorErrorMessage,
-  redactSecrets,
-} from '../utils/file-access-security.js';
+import { redactOperatorErrorMessage } from '../utils/file-access-security.js';
+import { redactSnippetForOutbound } from '../redaction/index.js';
 import type { ServerAvailability } from '../contracts/operator-api.js';
 
 type StartupFailure = {
@@ -28,8 +25,7 @@ function nowIso(): string {
 function boundedSummary(error: unknown, projectRoot: string): string {
   const name = error instanceof Error ? error.name : 'Error';
   const rawMessage = error instanceof Error ? error.message : String(error);
-  const redacted = redactCredentialLiterals(redactSecrets(redactOperatorErrorMessage(rawMessage, projectRoot)))
-    .replace(/(api(?:[_-]?key|[_-]?token)?|token|secret|password)\s*=\s*([^\s]+)/gi, (_match, key) => `${key}=[REDACTED]`);
+  const redacted = redactSnippetForOutbound(redactOperatorErrorMessage(rawMessage, projectRoot), 'operator.api', 180, { source: 'availability.diagnostic' });
   const summary = `${name}: ${redacted}`.replace(/\s+/g, ' ').trim();
   return summary.length > 180 ? `${summary.slice(0, 177)}...` : summary;
 }

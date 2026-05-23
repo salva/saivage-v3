@@ -32,7 +32,7 @@ import { scanContent } from '../../src/utils/heuristic-scanner.js';
 import { quarantineContent, recordContentPass } from '../../src/utils/quarantine.js';
 import { getSafeFileForAgent } from '../../src/utils/file-access-security.js';
 import { checkWriteTerritory, getTerritoryWarning } from '../../src/utils/write-territories.js';
-import { redactSecrets } from '../../src/utils/file-access-security.js';
+import { redactTextForOutbound } from '../../src/redaction/index.js';
 import { AgentAdapter } from '../../src/agents/agent-adapter.js';
 import { loadConfig } from '../../src/agents/config-schema.js';
 
@@ -479,7 +479,7 @@ describe('all modules import and work together', () => {
 
     // file-access-security exports
     expect(typeof mod.getSafeFileForAgent).toBe('function');
-    expect(typeof mod.redactSecrets).toBe('function');
+    expect('redactSecrets' in mod).toBe(false);
     expect(typeof mod.isReadBlocked).toBe('function');
     expect(typeof mod.isWriteBlocked).toBe('function');
     expect(typeof mod.isSensitivePath).toBe('function');
@@ -598,26 +598,26 @@ describe('integration edge cases', () => {
     expect(result.reason).toBeUndefined();
   });
 
-  it('redactSecrets does not modify non-secret keys', () => {
+  it('redaction port does not modify non-secret keys', () => {
     const json = JSON.stringify({
       name: 'my-project',
       description: 'a test project',
       max_goal_depth: 5,
     });
 
-    const result = redactSecrets(json);
+    const result = redactTextForOutbound(json, 'operator.api', { source: 'security-integration-test' });
     expect(result).toContain('my-project');
     expect(result).toContain('a test project');
     expect(result).not.toContain('[REDACTED]');
   });
 
-  it('redactSecrets preserves env var references', () => {
+  it('redaction port preserves env var references', () => {
     const json = JSON.stringify({
       apiKey: '${GITHUB_TOKEN}',
       name: 'test',
     });
 
-    const result = redactSecrets(json);
+    const result = redactTextForOutbound(json, 'operator.api', { source: 'security-integration-test' });
     // Env var references should NOT be redacted
     expect(result).toContain('${GITHUB_TOKEN}');
     expect(result).not.toContain('[REDACTED]');

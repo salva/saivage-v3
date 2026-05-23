@@ -8,10 +8,7 @@ import {
   type Redacted,
   makeSecret,
   redactionPort,
-  redactCredentialLiterals,
   redactForOutbound,
-  redactProviderLikeText,
-  redactSecrets,
   redactSnippetForOutbound,
   redactTextForOutbound,
 } from '../../src/redaction/index.js';
@@ -71,9 +68,9 @@ describe('redaction port policies', () => {
 
     expectNoSyntheticSecret(redacted);
     expect(redacted).toContain(SECRET_REDACTION_PLACEHOLDER);
-    expect(redactCredentialLiterals(`Bearer ${RAW_TOKEN}`)).not.toContain(RAW_TOKEN);
-    expect(redactSecrets(`{"access_token":"${RAW_ACCESS}"}`)).not.toContain(RAW_ACCESS);
-    expect(redactProviderLikeText(`apiKey=${RAW_INLINE}`)).not.toContain(RAW_INLINE);
+    expect(redactTextForOutbound(`Bearer ${RAW_TOKEN}`, 'provider.diagnostic')).not.toContain(RAW_TOKEN);
+    expect(redactTextForOutbound(`{"access_token":"${RAW_ACCESS}"}`, 'provider.diagnostic')).not.toContain(RAW_ACCESS);
+    expect(redactTextForOutbound(`apiKey=${RAW_INLINE}`, 'provider.diagnostic')).not.toContain(RAW_INLINE);
   });
 
   it('recursively redacts object fields while preserving non-secret values and safety limits', () => {

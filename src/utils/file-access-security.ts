@@ -4,11 +4,7 @@ import {
   looksLikeSecretPath as sharedLooksLikeSecretPath,
   assertNotSecretPath,
 } from './secret-paths.js';
-import {
-  redactCredentialLiterals,
-  redactSecrets,
-} from '../redaction/index.js';
-export { redactCredentialLiterals, redactSecrets } from '../redaction/index.js';
+import { redactTextForOutbound } from '../redaction/index.js';
 
 const NON_SECRET_SENSITIVE_PATHS: ReadonlySet<string> = new Set([
   '.saivage/saivage.json',
@@ -85,7 +81,7 @@ export function looksLikeSecretPath(filePath: string): boolean {
 
 
 export function redactOperatorErrorMessage(message: string, projectRoot?: string): string {
-  let redacted = redactCredentialLiterals(message);
+  let redacted: string = redactTextForOutbound(message, 'operator.api', { source: 'file-access-security.error-message' });
   if (projectRoot) {
     const resolvedRoot = resolve(projectRoot);
     redacted = redacted.split(resolvedRoot).join('[PROJECT_ROOT]');
@@ -101,7 +97,7 @@ export function redactOperatorErrorMessage(message: string, projectRoot?: string
 }
 
 export function redactCommandForOperator(command: string): string {
-  return redactCredentialLiterals(command);
+  return redactTextForOutbound(command, 'operator.api', { source: 'file-access-security.command' });
 }
 
 export interface SafeProjectPathResult {
@@ -326,7 +322,7 @@ export function getSafeFileForAgent(
   if (isRedacted(filePath)) {
     return {
       blocked: false,
-      safeContent: redactSecrets(content),
+      safeContent: redactTextForOutbound(content, 'operator.api', { source: 'file-access-security.safe-file' }),
       reason: `Secrets in "${filePath}" have been redacted.`,
     };
   }

@@ -1,7 +1,7 @@
 import { appendFileSync, existsSync, mkdirSync, readFileSync } from 'node:fs';
 import { createHash, randomUUID } from 'node:crypto';
 import { join } from 'node:path';
-import { redactSecrets, redactCredentialLiterals } from './file-access-security.js';
+import { redactTextForOutbound } from '../redaction/index.js';
 import { controlActionAuditEntrySchema } from '../schemas/validators.js';
 import type { ControlActionAuditEntry } from '../schemas/types.js';
 import { EventBus } from '../events/bus.js';
@@ -31,7 +31,7 @@ export function hashPreviewParams(value: unknown): string {
 }
 
 function sanitizeAuditText(text: string): string {
-  return redactCredentialLiterals(redactSecrets(text)).replace(INLINE_SECRET_RE, (_match, key: string) => `${key}=[REDACTED]`);
+  return redactTextForOutbound(text, 'operator.api', { source: 'control-action-audit' }).replace(INLINE_SECRET_RE, (_match, key: string) => `${key}=[REDACTED]`);
 }
 
 function parseAuditEntry(line: string): ControlActionAuditEntry | null {

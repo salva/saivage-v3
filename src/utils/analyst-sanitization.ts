@@ -1,5 +1,5 @@
 import { basename, resolve } from 'node:path';
-import { redactCredentialLiterals, redactSecrets } from './file-access-security.js';
+import { redactTextForOutbound } from '../redaction/index.js';
 import { looksLikeSecretPath } from './secret-paths.js';
 
 const MAX_ACTIVITY_TEXT = 200;
@@ -26,7 +26,7 @@ function clamp(value: string, max = MAX_ACTIVITY_TEXT): string {
 
 export function sanitizeAnalystText(value: string, max = MAX_ACTIVITY_TEXT): string {
   if (!value) return '';
-  let sanitized = redactCredentialLiterals(redactSecrets(value));
+  let sanitized: string = redactTextForOutbound(value, 'model.issue', { source: 'analyst.sanitization' });
   sanitized = sanitized.replace(SECRET_ASSIGNMENT_RE, (match, rawValue) => {
     const replacement = looksLikeSecretPath(rawValue) ? SECRET_PATH_TOKEN : '[REDACTED]';
     return match.replace(rawValue, replacement);

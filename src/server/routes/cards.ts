@@ -4,15 +4,10 @@ import type { CardRecord, CardStatus, CardType, CardHistoryEntry } from '../../s
 import { runMutatingRoute } from './runtime-config-notes.js';
 import { operatorApiContracts } from '../../contracts/operator-api.js';
 import { parseContractRequest, validateContractSuccess } from '../contract-route.js';
-import { redactCredentialLiterals, redactSecrets } from '../../utils/file-access-security.js';
+import { redactForOutbound } from '../../redaction/index.js';
 import { allowedActions } from '../../permissions/index.js';
 
 const TRACKED_UPDATE_FIELDS = new Set(['title','description','acceptance','depends_on','related','estimate','parent','assigned_to','type','subtype','instructions_file','tags','priority','urgency']);
-const INLINE_SECRET_RE = /(api(?:[_-]?key|[_-]?token)?|token|secret|password)\s*=\s*("[^"]*"|'[^']*'|\S+)/gi;
-
-function redactInlineSecrets(content: string): string {
-  return content.replace(INLINE_SECRET_RE, (_match, key: string) => `${key}=[REDACTED]`);
-}
 
 function validatePriority(value: unknown): number | undefined {
   if (value === undefined || value === null) return undefined;
@@ -23,12 +18,7 @@ function validatePriority(value: unknown): number | undefined {
 }
 
 function redactValue<T>(value: T): T {
-  if (typeof value === 'string') return redactCredentialLiterals(redactInlineSecrets(redactSecrets(value))) as T;
-  if (Array.isArray(value)) return value.map((item) => redactValue(item)) as T;
-  if (value && typeof value === 'object') {
-    return Object.fromEntries(Object.entries(value as Record<string, unknown>).map(([key, entryValue]) => [key, redactValue(entryValue)])) as T;
-  }
-  return value;
+  return redactForOutbound(value, 'operator.api', { source: 'cards.route' }) as T;
 }
 
 function withOperatorAllowedActions(card: CardRecord): CardRecord {

@@ -1,10 +1,10 @@
 import { describe, expect, it } from '@jest/globals';
-import { redactSecrets } from '../../src/utils/file-access-security.js';
+import { redactTextForOutbound } from '../../src/redaction/index.js';
 
-describe('redactSecrets', () => {
+describe('redaction port file-safety behavior', () => {
   it('redacts token-shaped literals in arbitrary plain text', () => {
     const content = 'tokens: sk-live-secret tid=abc123 ghu_deadbeef rt_refresh tok_live_123456';
-    const redacted = redactSecrets(content);
+    const redacted = redactTextForOutbound(content, 'operator.api', { source: 'file-access-security-test' });
     expect(redacted).toContain('sk-[REDACTED]');
     expect(redacted).toContain('tid-[REDACTED]');
     expect(redacted).toContain('ghu-[REDACTED]');
@@ -19,7 +19,7 @@ describe('redactSecrets', () => {
 
   it('preserves existing json key redaction behavior', () => {
     const content = '{"apiKey":"secret","nestedToken":"another","template":"${KEEP_ME}"}';
-    const redacted = redactSecrets(content);
+    const redacted = redactTextForOutbound(content, 'operator.api', { source: 'file-access-security-test' });
     expect(redacted).toContain('"apiKey":"[REDACTED]"');
     expect(redacted).toContain('"nestedToken":"[REDACTED]"');
     expect(redacted).toContain('"template":"${KEEP_ME}"');

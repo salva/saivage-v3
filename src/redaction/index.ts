@@ -93,7 +93,7 @@ export function revealSecret<T>(secret: Secret<T>): T {
   return secret.reveal();
 }
 
-export function isSecretKey(key: string): boolean {
+function isSecretKey(key: string): boolean {
   return SECRET_KEY_PATTERN.test(key);
 }
 
@@ -110,19 +110,19 @@ function redactCredentialMatch(match: string): string {
   return `${prefix}-${SECRET_REDACTION_PLACEHOLDER}`;
 }
 
-export function redactCredentialLiterals(content: string): string {
+function redactCredentialLiterals(content: string): string {
   if (!content) return content;
   return content
     .replace(CREDENTIAL_LITERAL_RE, redactCredentialMatch)
     .replace(BEARER_CREDENTIAL_RE, (_match, prefix: string) => `${prefix}${SECRET_REDACTION_PLACEHOLDER}`);
 }
 
-export function redactSecrets(content: string): string {
+function redactSecrets(content: string): string {
   if (!content) return content;
   return redactCredentialLiterals(redactJsonSecretValues(content));
 }
 
-export function redactProviderLikeText(content: string): string {
+function redactProviderLikeText(content: string): string {
   if (!content) return content;
   return redactTelegramBotTokenPath(redactInlineSecretAssignments(redactEscapedJsonSecretValues(redactSecrets(content))));
 }

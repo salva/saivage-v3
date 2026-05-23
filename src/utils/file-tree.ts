@@ -8,7 +8,8 @@ import {
   notesQueueSchema,
   projectConfigSchema,
 } from '../schemas/validators.js';
-import { isReadBlocked, redactSecrets } from './file-access-security.js';
+import { isReadBlocked } from './file-access-security.js';
+import { redactTextForOutbound } from '../redaction/index.js';
 
 export function writeFileAtomic(targetPath: string, data: string): void {
   const lastSep = targetPath.lastIndexOf('/');
@@ -30,7 +31,7 @@ export function readProjectFileAtomic(projectRoot: string, relativePath: string,
   if (isReadBlocked(projectRelativePath)) throw new Error(`Access to "${projectRelativePath}" is blocked for security reasons. This file contains sensitive authentication data and cannot be read by agents.`);
   let content: string;
   try { content = readFileSync(absPath, 'utf-8'); } catch (err) { throw new Error(`Failed to read "${cleanPath}": ${(err as Error).message}`); }
-  if (opts?.redactSecrets && projectRelativePath === '.saivage/saivage.json') content = redactSecrets(content);
+  if (opts?.redactSecrets && projectRelativePath === '.saivage/saivage.json') content = redactTextForOutbound(content, 'operator.api', { source: 'file-tree.read-project-file' });
   return content;
 }
 
