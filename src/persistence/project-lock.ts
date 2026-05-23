@@ -21,8 +21,9 @@ function sleep(ms: number): Promise<void> {
 export class ProjectLock {
   private readonly timeoutMs: number;
   private readonly retryDelayMs: number;
-  private activeDepth = 0;
   private activeHandle: LockHandle | null = null;
+  private asyncQueue: Promise<void> = Promise.resolve();
+  private queuedAsyncCallCount = 0;
 
   constructor(readonly lockPath: string, options: ProjectLockOptions = {}) {
     this.timeoutMs = options.timeoutMs ?? 30_000;
@@ -30,13 +31,8 @@ export class ProjectLock {
   }
 
   withLockSync<T>(fn: (handle: LockHandle) => T): T {
-    if (this.activeHandle) {
-      this.activeDepth++;
-      try {
-        return fn(this.activeHandle);
-      } finally {
-        this.activeDepth--;
-      }
+    if (this.activeHandle || this.queuedAsyncCallCount > 0) {
+      throw new LockTimeoutError(this.lockPath, 0);
     }
 
     mkdirSync(dirname(this.lockPath), { recursive: true });
@@ -52,11 +48,9 @@ export class ProjectLock {
 
     const handle = { acquired: true, [LOCK_HANDLE_BRAND]: this } as const satisfies LockHandle;
     this.activeHandle = handle;
-    this.activeDepth = 1;
     try {
       return fn(handle);
     } finally {
-      this.activeDepth = 0;
       this.activeHandle = null;
       closeSync(fd);
       try {
@@ -68,50 +62,54 @@ export class ProjectLock {
   }
 
   async withLock<T>(fn: (handle: LockHandle) => Promise<T>): Promise<T> {
-    if (this.activeHandle) {
-      this.activeDepth++;
-      try {
-        return await fn(this.activeHandle);
-      } finally {
-        this.activeDepth--;
-      }
-    }
+    let releaseQueueSlot!: () => void;
+    const queueSlot = new Promise<void>((resolve) => {
+      releaseQueueSlot = resolve;
+    });
+    const previousQueue = this.asyncQueue;
+    this.asyncQueue = previousQueue.then(() => queueSlot, () => queueSlot);
+    this.queuedAsyncCallCount++;
+
+    await previousQueue;
 
     mkdirSync(dirname(this.lockPath), { recursive: true });
     const deadline = Date.now() + this.timeoutMs;
     let fd: number | null = null;
 
-    while (fd === null) {
-      try {
-        fd = openSync(this.lockPath, 'wx');
-        writeFileSync(fd, JSON.stringify({ pid: process.pid, acquired_at: new Date().toISOString() }) + '\n', 'utf-8');
-      } catch (error) {
-        const code = (error as NodeJS.ErrnoException).code;
-        if (code !== 'EEXIST') throw error;
-        if (Date.now() >= deadline) throw new LockTimeoutError(this.lockPath, this.timeoutMs);
-        await sleep(this.retryDelayMs);
-      }
-    }
-
-    const handle = { acquired: true, [LOCK_HANDLE_BRAND]: this } as const satisfies LockHandle;
-    this.activeHandle = handle;
-    this.activeDepth = 1;
     try {
-      return await fn(handle);
-    } finally {
-      this.activeDepth = 0;
-      this.activeHandle = null;
-      closeSync(fd);
-      try {
-        if (existsSync(this.lockPath)) unlinkSync(this.lockPath);
-      } catch {
-        // Advisory lock cleanup is best-effort after releasing this process's descriptor.
+      while (fd === null) {
+        try {
+          fd = openSync(this.lockPath, 'wx');
+          writeFileSync(fd, JSON.stringify({ pid: process.pid, acquired_at: new Date().toISOString() }) + '\n', 'utf-8');
+        } catch (error) {
+          const code = (error as NodeJS.ErrnoException).code;
+          if (code !== 'EEXIST') throw error;
+          if (Date.now() >= deadline) throw new LockTimeoutError(this.lockPath, this.timeoutMs);
+          await sleep(this.retryDelayMs);
+        }
       }
+
+      const handle = { acquired: true, [LOCK_HANDLE_BRAND]: this } as const satisfies LockHandle;
+      this.activeHandle = handle;
+      try {
+        return await fn(handle);
+      } finally {
+        this.activeHandle = null;
+        closeSync(fd);
+        try {
+          if (existsSync(this.lockPath)) unlinkSync(this.lockPath);
+        } catch {
+          // Advisory lock cleanup is best-effort after releasing this process's descriptor.
+        }
+      }
+    } finally {
+      this.queuedAsyncCallCount--;
+      releaseQueueSlot();
     }
   }
 
   assertOwns(handle: LockHandle): void {
-    if (handle[LOCK_HANDLE_BRAND] !== this || this.activeHandle !== handle || this.activeDepth <= 0) {
+    if (handle[LOCK_HANDLE_BRAND] !== this || this.activeHandle !== handle) {
       throw new LockOwnershipError();
     }
   }

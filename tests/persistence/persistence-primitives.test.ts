@@ -28,6 +28,53 @@ afterEach(() => {
   rmSync(root, { recursive: true, force: true });
 });
 
+
+describe('ProjectLock', () => {
+  it('serializes overlapping async callers on the same instance', async () => {
+    const events: string[] = [];
+    let releaseFirst!: () => void;
+    const firstMayFinish = new Promise<void>((resolve) => {
+      releaseFirst = resolve;
+    });
+    let firstEntered!: () => void;
+    const firstHasEntered = new Promise<void>((resolve) => {
+      firstEntered = resolve;
+    });
+
+    const first = lock.withLock(async () => {
+      events.push('first-enter');
+      firstEntered();
+      await firstMayFinish;
+      events.push('first-exit');
+    });
+
+    await firstHasEntered;
+
+    const second = lock.withLock(async () => {
+      events.push('second-enter');
+    });
+
+    await Promise.resolve();
+    expect(events).toEqual(['first-enter']);
+
+    releaseFirst();
+    await Promise.all([first, second]);
+
+    expect(events).toEqual(['first-enter', 'first-exit', 'second-enter']);
+  });
+
+  it('rejects stale handles after the lock is released', async () => {
+    let staleHandle: Parameters<typeof lock.assertOwns>[0] | undefined;
+
+    await lock.withLock(async (handle) => {
+      staleHandle = handle;
+      expect(() => lock.assertOwns(handle)).not.toThrow();
+    });
+
+    expect(() => lock.assertOwns(staleHandle as Parameters<typeof lock.assertOwns>[0])).toThrow(LockOwnershipError);
+  });
+});
+
 describe('AtomicJsonFile', () => {
   it('requires an active project lock handle for writes and updates', async () => {
     const file = new AtomicJsonFile<RecordValue>(join(root, 'state.json'), recordSchema, lock);
