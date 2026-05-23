@@ -7,11 +7,11 @@
 status: historical
 disposition: keep
 owner: docs-maintainers
-superseded_by: audit-findings/README.md
-last_verified_against: audit-findings/README.md:1
+superseded_by: docs/historical/2026-05-remediation-dossiers/historical-artifacts.md
+last_verified_against: docs/historical/2026-05-remediation-dossiers/historical-artifacts.md:1
 -->
 
-> **Authority status: historical.** This page is retained for provenance only. Prefer `audit-findings/README.md` for current authority where applicable. See `docs/documentation-inventory.md` for disposition `keep`.
+> **Authority status: historical.** This page is retained for provenance only. See `docs/historical/2026-05-remediation-dossiers/historical-artifacts.md` for the provenance index and `docs/documentation-inventory.md` for disposition `keep`.
 
 Date: 2026-05-13
 Scope: Saivage v3 source, tests, authored documentation, generated docs behavior, and live the target project deployment smoke checks.

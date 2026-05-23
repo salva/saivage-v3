@@ -60,13 +60,13 @@ deferred from the initial design.
     (default: 5 levels). The planner receives current depth and
     max depth in context and must plan within that limit.
 
-11. **Findings dossier split**: `audit-findings/` and `ui-findings/`
-    remain separate instead of being merged under a new `findings/`
-    parent. The source-vs-documentation audit findings and the
-    operator-surface Playwright findings have different provenance,
-    numbering schemes, README remediation logs, and stage ownership;
-    preserving the split avoids broad path churn while keeping both
-    dossiers directly navigable from their existing roots.
+11. **Findings dossiers archived**: The previously separate
+    `audit-findings/` and `ui-findings/` dossiers were archived during
+    the 2026-05-23 historical-doc cleanup. They remain under
+    `old-documents/` for provenance and are not part of the active
+    documentation set. Current source-vs-docs and operator-surface
+    issues are tracked through the normal stage/issue flow, not
+    through dossier-style logs.
 
 ---
 
@@ -109,3 +109,31 @@ Key principles:
 
 Cards created via the web UI go through the analyst agent for
 structuring (same flow as Telegram or CLI).
+
+## Design policy: no backward compatibility
+
+Saivage v3 is developed under a workspace-wide, mandatory no-backward-
+compatibility rule:
+
+- Clean architecture is the top priority, even when it means more upfront
+  work.
+- Old on-disk formats, configs, schemas, tests, and APIs are **removed**
+  rather than wrapped in migration shims when a new design supersedes
+  them.
+- "Minimal change" defaults do not apply: refactor broadly when it
+  improves the design.
+- Old behavior may be preserved only when an operator-facing contract
+  still requires it; in that case the contract is the source of truth, not
+  legacy code paths.
+
+This policy is the reason most design pages here describe a single current
+mechanism rather than "current vs legacy" pairs.
+
+## Stage v3-001 control-flow diagnosis — closed
+
+The Stage v3-001 control-flow diagnosis (runtime-command / activation-ledger
+ownership of execution; planner-state is not an executable trigger) is
+closed. The current authority for that model is
+[`docs/goal-planning-runtime.md`](../goal-planning-runtime.md) and
+[`docs/operation.md`](../operation.md); the stale design page
+[`docs/design/runtime.md`](./runtime.md) is retained only as a pointer.

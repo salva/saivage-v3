@@ -47,13 +47,6 @@ Use this index as the current entry point for operator procedures, design refere
 - [Goal planning runtime](/goal-planning-runtime) — stale context: legacy runtime summary retained for context; prefer [Agents and runtime architecture](/agents).
 - [Documentation inventory](/documentation-inventory) — current authority: classification and disposition for every root and `docs/` Markdown file.
 
-## Findings dossiers
-
-- [Audit findings](../audit-findings/README.md) — source-vs-docs remediation dossier and remediation log.
-- [Audit coverage](../audit-findings/coverage.md) — audit coverage notes.
-- [Audit cross-references](../audit-findings/cross-references.md) — finding cross-reference map.
-- [UI findings](../ui-findings/README.md) — operator-surface remediation dossier and remediation log.
-
 ## Provenance
 
 - See historical: [Historical documentation](/historical/README) — historical provenance: archived plans, audits, and pre-consolidation design records.

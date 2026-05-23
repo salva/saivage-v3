@@ -33,6 +33,19 @@ npm run deps:review
 
 `npm run deps:freshness` runs `scripts/check-dependency-freshness.js`. The checker verifies that `package-lock.json` and `web/package-lock.json` are present and remain package-lock v3, classifies root/web direct runtime dependencies separately from dev/transitive entries, and validates waiver metadata. During the first ARCH-029 calibration cycle, direct-runtime staleness is reporting-only; malformed/expired waivers and missing or downgraded lockfiles fail immediately.
 
+### Why direct-runtime staleness is reporting-only
+
+Direct-runtime staleness is intentionally a non-blocking advisory rather than
+a hard gate. The intent is to surface aging direct dependencies to the
+monthly governance review without coupling unrelated CI failures to upstream
+release cadence, which would invite `|| true` workarounds in required paths.
+High and critical production advisories already fail closed through
+`audit:security`; the staleness advisory is a complementary signal that
+informs prioritization, not a second enforcement mechanism. Promoting it to
+a hard gate is a deliberate governance decision and requires updating both
+this runbook and the `validation-required` aggregate in
+`.github/workflows/validation.yml`.
+
 Offline tests use fixture mode, for example:
 
 ```bash

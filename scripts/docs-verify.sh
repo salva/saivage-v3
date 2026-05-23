@@ -15,7 +15,7 @@ set -euo pipefail
 #   - Fixture-backed operator API response contract checks.
 #   - Planner tool documentation/source parity checks.
 #   - Global Markdown internal-link and anchor resolution.
-#   - Documented source-anchor path/line validation for README.md, docs/, and architecture-audit/.
+#   - Documented source-anchor path/line validation for README.md and docs/.
 #   - Validation-cadence command/package-script/docs:verify sub-guard parity, including operator smoke command drift (without executing Vitest smoke).
 #   - Audit/UI finding dossier status, resolution, and remediation-log consistency.
 
@@ -102,17 +102,14 @@ echo ""
 node scripts/check-markdown-links.js || ALL_OK=false
 
 echo ""
-node scripts/check-source-anchors.js --doc README.md --doc docs --doc architecture-audit || ALL_OK=false
+node scripts/check-source-anchors.js --doc README.md --doc docs || ALL_OK=false
 
 echo ""
 node scripts/check-validation-cadence.js || ALL_OK=false
 
 echo ""
-node scripts/check-finding-dossiers.js || ALL_OK=false
-
-echo ""
 if $ALL_OK; then
-  echo "✓ docs:verify passed — docs build output, VitePress dist artifact policy, route/role/config/runtime anchors, documentation inventory, authority metadata/status surfaces, design links, historical isolation, runbook examples, operator API response contracts, planner and non-planner agent tool docs/source parity, global Markdown links, README.md/docs/architecture-audit source anchors, validation cadence, and finding dossiers are valid"
+  echo "✓ docs:verify passed — docs build output, VitePress dist artifact policy, route/role/config/runtime anchors, documentation inventory, authority metadata/status surfaces, design links, historical isolation, runbook examples, operator API response contracts, planner and non-planner agent tool docs/source parity, global Markdown links, README.md/docs source anchors, and validation cadence are valid"
 else
   echo "✗ docs:verify FAILED — one or more documentation build or drift guards failed"
   exit 1

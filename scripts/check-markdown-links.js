@@ -13,6 +13,7 @@ const IGNORED_DIRS = new Set([
   'coverage',
   '.vitepress/dist',
   'web/dist',
+  'old-documents',
 ]);
 
 function parseArgs(argv) {

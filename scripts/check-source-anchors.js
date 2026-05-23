@@ -6,7 +6,7 @@ import path from 'node:path';
 const SOURCE_PATH_PATTERN = String.raw`(?:(?:[A-Za-z0-9_.-]+\/)*[A-Za-z0-9_.-]+\.(?:ts|tsx|js|cjs|mjs|vue|json|md|sh|css|html|yml|yaml)|package\.json|README\.md)`;
 const SOURCE_ANCHOR_RE = new RegExp(String.raw`(?<![A-Za-z0-9_./-])((${SOURCE_PATH_PATTERN}):(\d+)\b)(?:\s+"((?:\\.|[^"\\])*)")?`, 'g');
 const SYMBOL_ANCHOR_RE = new RegExp(String.raw`(?<![A-Za-z0-9_./-])((${SOURCE_PATH_PATTERN})#symbol:([A-Za-z_$][A-Za-z0-9_.$-]*))\b`, 'g');
-const IGNORED_DIRS = new Set(['.git', '.saivage', 'node_modules', 'dist', 'coverage', 'web/dist', 'docs/.vitepress/dist']);
+const IGNORED_DIRS = new Set(['.git', '.saivage', 'node_modules', 'dist', 'coverage', 'web/dist', 'docs/.vitepress/dist', 'old-documents']);
 const CONTEXT_WINDOW_LINES = 5;
 
 function parseArgs(argv) {

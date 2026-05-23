@@ -26,3 +26,25 @@ Use these pages for design-era context. For current operator behavior, start wit
 - [UX Design](./ux-design.md)
 - [Decisions](./decisions.md)
 - [Implementation Plan](./implementation-plan.md)
+
+## Design policies
+
+Three workspace-wide policies apply to every design page below and to all
+Saivage v3 source changes:
+
+- **No overfeaturism.** New abstractions, options, or flags must be motivated
+  by a concrete current need. Optionality is treated as a cost — generic
+  hooks, "for future use" parameters, and dual code paths kept "just in
+  case" are rejected unless they remove asymmetry that already exists.
+- **JSON / JSONL coherence.** Operator state and audit trails are persisted as
+  human-readable JSON / JSONL on disk. Alternative stores (SQLite, custom
+  binary formats) are explicitly out of scope; consolidate hand-rolled
+  helpers onto `JsonlLedger<T>` + `PersistentQueue<T>` and atomic JSON
+  primitives rather than introducing a different storage tier.
+- **One idea per file.** Mega-classes and mega-statements obscure ownership.
+  Decompose god classes into typed run-hosts + ports, and prefer short,
+  one-statement-per-line code over densely chained constructors.
+
+A separate, mandatory policy — **no backward compatibility** — is recorded
+in [decisions.md](./decisions.md#design-policy-no-backward-compatibility)
+because it materially affects how new features replace old ones.

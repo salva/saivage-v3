@@ -359,14 +359,3 @@ export function presentToolResult(rawContent: string, opts: { tool?: string; kin
   const summary = str(record?.summary ?? record?.message ?? record?.content ?? parsed ?? rawContent);
   return { icon: RESULT_ICON_OK, status, name, headline: oneLine(summary, 120) };
 }
-
-/** Pretty-print the raw payload for the expanded detail view. */
-export function formatExpandedDetail(rawContent: string): string {
-  const parsed = safeJsonParse(rawContent);
-  if (parsed === null && typeof rawContent === 'string') return rawContent;
-  try {
-    return JSON.stringify(parsed, null, 2);
-  } catch {
-    return rawContent;
-  }
-}
