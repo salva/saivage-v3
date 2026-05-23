@@ -98,7 +98,7 @@ export function registerChatsFilesDebugRoutes(
               status: data.status || 'done',
               started_at: data.started_at || '',
             });
-          } catch {
+          } catch { void 0; 
           }
         }
       }
@@ -131,7 +131,7 @@ export function registerChatsFilesDebugRoutes(
           if (line.trim()) {
             try {
               messages.push(JSON.parse(line));
-            } catch {
+            } catch { void 0; 
             }
           }
         }
@@ -349,7 +349,7 @@ export function registerChatsFilesDebugRoutes(
         for (const line of raw.split('\n').filter(Boolean)) {
           try {
             errors.push(JSON.parse(line));
-          } catch {
+          } catch { void 0; 
           }
         }
       }
@@ -374,7 +374,7 @@ export function registerChatsFilesDebugRoutes(
         for (const line of raw.split('\n').filter(Boolean)) {
           try {
             events.push(JSON.parse(line));
-          } catch {
+          } catch { void 0; 
           }
         }
       }
@@ -430,7 +430,7 @@ export function registerChatsFilesDebugRoutes(
         try {
           const files = readdirSync(byIdDir).filter((f: string) => f.endsWith('.json'));
           diskCardIds = new Set(files.map((f: string) => f.replace('.json', '')));
-        } catch {
+        } catch { void 0; 
         }
       }
 

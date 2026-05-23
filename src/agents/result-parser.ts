@@ -273,7 +273,7 @@ export function buildExecutorFallbackResult(raw: string, context: ExecutorFallba
 export function extractJson(raw: string): unknown {
   const codeBlockMatch = raw.match(/```(?:json)?\s*\n?([\s\S]*?)\n?```/);
   if (codeBlockMatch) {
-    try { return JSON.parse(codeBlockMatch[1].trim()); } catch {}
+    try { return JSON.parse(codeBlockMatch[1].trim()); } catch { void 0; }
   }
   try {
     return JSON.parse(raw.trim());
@@ -281,7 +281,7 @@ export function extractJson(raw: string): unknown {
     const firstBrace = raw.indexOf('{');
     const lastBrace = raw.lastIndexOf('}');
     if (firstBrace >= 0 && lastBrace > firstBrace) {
-      try { return JSON.parse(raw.slice(firstBrace, lastBrace + 1)); } catch {}
+      try { return JSON.parse(raw.slice(firstBrace, lastBrace + 1)); } catch { void 0; }
     }
   }
   throw new ResultParseError('Could not extract valid JSON from response', raw, ['No valid JSON object found in response text.']);

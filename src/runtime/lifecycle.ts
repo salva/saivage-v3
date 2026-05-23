@@ -154,7 +154,7 @@ export class RuntimeLifecycleScope {
         } catch {
           try {
             stream.destroy();
-          } catch {}
+          } catch { void 0; }
           resolve('closed');
         }
       }),

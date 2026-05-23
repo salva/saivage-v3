@@ -86,7 +86,7 @@ export class FakeAgentAdapter implements AgentRuntime {
       ?? appendRuntimeRun(projectRoot, { kind: goalId === 'project' ? 'root' : 'child', card_id: goalId, parent_run_id: null, command_id: null, activation_id: null, phase: 'planner', runtime_status: 'running', session_id: plannerSessionId, result: null, run_id: `fixture-parent-run:${goalId}:${plannerSessionId}` });
     for (const call of toolCalls) {
       let childCardId = '';
-      try { const args = JSON.parse(call.function.arguments); childCardId = String(args.cardId ?? args.card_id ?? ''); } catch {}
+      try { const args = JSON.parse(call.function.arguments); childCardId = String(args.cardId ?? args.card_id ?? ''); } catch { void 0; }
       if (!childCardId) continue;
       const childRun = appendRuntimeRun(projectRoot, { kind: 'child', card_id: childCardId, parent_run_id: parentRun.run_id, command_id: null, activation_id: null, phase: 'pending', runtime_status: 'running', session_id: null, result: null, run_id: `fixture-child-run:${goalId}:${childCardId}:${call.id}` });
       upsertRuntimeActivation(projectRoot, { idempotency_key: `fixture:${parentRun.run_id}:${plannerSessionId}:${call.id}:${childCardId}`, parent_card_id: goalId, parent_run_id: parentRun.run_id, parent_session_id: plannerSessionId, parent_tool_call_id: call.id, child_card_id: childCardId, status: 'pending', precondition: 'accepted', runtime_run_id: childRun.run_id, error: null });

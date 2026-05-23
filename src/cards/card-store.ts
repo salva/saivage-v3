@@ -301,10 +301,6 @@ function indexPath(projectRoot: string): string {
   return join(projectRoot, '.saivage', 'cards', 'index.json');
 }
 
-function childrenPath(projectRoot: string, parentId: string): string {
-  return join(projectRoot, '.saivage', 'cards', 'tree', `${parentId}.children.json`);
-}
-
 function dependsOnPath(projectRoot: string): string {
   return join(projectRoot, '.saivage', 'cards', 'dependencies', 'depends-on.json');
 }

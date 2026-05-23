@@ -261,7 +261,7 @@ export class AgentAdapter implements AgentRuntime {
   async invokeExecutor(cardId: string, goalId: string, systemPrompt: string = '', contextMessages: AgentMessage[] = []): Promise<ExecutorResult> { return this.invokeAgent('executor', goalId, cardId, systemPrompt, contextMessages, parseExecutorResult); }
   async invokeReviewer(goalId: string, systemPrompt: string = '', contextMessages: AgentMessage[] = [], options: { assessmentId?: string; reviewerSessionId?: string } = {}): Promise<ReviewerResult> { return this.invokeAgent('reviewer', goalId, goalId, systemPrompt, contextMessages, parseReviewerResult, options.reviewerSessionId); }
   async reinvokeSession(sessionId: string, systemPrompt: string = '', contextMessages: AgentMessage[] = []): Promise<ExecutorResult | ReviewerResult> { const session = getSession(this.saivageDir, sessionId); if (!session) throw new Error(`Session not found: ${sessionId}`); if (session.role === 'executor') return this.invokeExecutor(session.card_id ?? session.goal_card_id ?? '', session.goal_card_id ?? '', systemPrompt, contextMessages); if (session.role === 'reviewer') return this.invokeReviewer(session.goal_card_id ?? '', systemPrompt, contextMessages, { reviewerSessionId: session.id }); throw new Error(`Session '${sessionId}' is not reinvokable.`); }
-  private parseToolCallsFromResponse(rawResponse: string): Array<{ id: string; type: string; function: { name: string; arguments: string } }> | null { try { const parsed = JSON.parse(rawResponse); if (parsed && typeof parsed === 'object' && Array.isArray(parsed.toolCalls) && parsed.toolCalls.length > 0) return parsed.toolCalls; } catch {} return null; }
+  private parseToolCallsFromResponse(rawResponse: string): Array<{ id: string; type: string; function: { name: string; arguments: string } }> | null { try { const parsed = JSON.parse(rawResponse); if (parsed && typeof parsed === 'object' && Array.isArray(parsed.toolCalls) && parsed.toolCalls.length > 0) return parsed.toolCalls; } catch { void 0; } return null; }
 
   private async processToolCall(tc: { id: string; type: string; function: { name: string; arguments: string } }, role: AgentRole, sessionId: string, invocation?: { goalId?: string; cardId?: string }): Promise<{ role: 'tool'; kind: 'tool_result' | 'tool_error'; content: string; tool: string; tool_call_id: string }> {
     if (role === 'planner' && !AUTHORITATIVE_PLANNER_TOOL_NAMES.includes(tc.function.name as typeof AUTHORITATIVE_PLANNER_TOOL_NAMES[number])) {
@@ -294,7 +294,7 @@ export class AgentAdapter implements AgentRuntime {
     }
     if (tc.function.name === 'mcp_tool_call') {
       let args: { serverName?: string; toolName?: string; args?: Record<string, unknown> } = {};
-      try { args = JSON.parse(tc.function.arguments); } catch {}
+      try { args = JSON.parse(tc.function.arguments); } catch { void 0; }
       const serverName = args.serverName ?? '';
       const toolName = args.toolName ?? '';
       const toolArgs = args.args ?? {};
@@ -306,7 +306,7 @@ export class AgentAdapter implements AgentRuntime {
     }
     if (tc.function.name === 'load_skill') {
       let args: { name?: string } = {};
-      try { args = JSON.parse(tc.function.arguments); } catch {}
+      try { args = JSON.parse(tc.function.arguments); } catch { void 0; }
       const skillName = args.name ?? '';
       const policyDecision = this.decideToolInvocation(role, 'skill', 'load_skill');
       if (!policyDecision.allowed) return this.policyDeniedToolMessage(policyDecision, `load_skill:${skillName}`, tc.id, 'load_skill failed');
@@ -348,7 +348,7 @@ export class AgentAdapter implements AgentRuntime {
   private async handleToolCallsLoop(rawResponse: string, role: AgentRole, sessionId: string, candidate: Candidate, systemPrompt: string, modelParams: { temperature: number; maxTokens: number }, abortController: AbortController, invocation?: { goalId?: string; cardId?: string }): Promise<{ response: string; transportSucceeded: boolean }> {
     let currentResponse = rawResponse;
     const previousCalls = new Set<string>();
-    while (true) {
+    for (;;) {
       const toolCalls = this.parseToolCallsFromResponse(currentResponse);
       if (!toolCalls) return { response: currentResponse, transportSucceeded: true };
       const callFingerprint = toolCalls.map((tc) => `${tc.function.name}:${tc.function.arguments}`).sort().join('||');
@@ -470,7 +470,7 @@ export class AgentAdapter implements AgentRuntime {
     const baseSystemPrompt = systemPrompt;
     systemPrompt = this.applySelfCheck(role, systemPrompt, session.id);
     for (const msg of contextMessages) appendMessage(this.saivageDir, session.id, { role: msg.role, kind: msg.kind, content: msg.content, tool: msg.tool, links: msg.links });
-    const recoveryOpts = { recoveryDelayMs: this.runtimeConfig.recoveryDelayMs ?? 60000, maxRetries: this.runtimeConfig.maxRecoveryRetries ?? 3, publishEvents: true, eventBus: this.eventBus, cardId, goalId, sessionId: session.id, agentRole: role, persistFailure: (error: Error, attempt: number, _ctx: RecoveryContext) => { try { appendMessage(this.saivageDir, session.id, { role: 'system', kind: 'model_issue', content: `Agent invocation failed (attempt ${attempt}): ${this.redactProviderErrorMessage(error.message)}` }); } catch {} if (this.eventLogger) this.eventLogger.appendEvent({ kind: 'retry_attempted', session_id: session.id, role: role as unknown as import('../schemas/types.js').AgentRole, attempt, directive: _ctx.directive }); if (this.eventBus) this.eventBus.emit('retry_attempted', { session_id: session.id, role, attempt, directive: _ctx.directive }); } };
+    const recoveryOpts = { recoveryDelayMs: this.runtimeConfig.recoveryDelayMs ?? 60000, maxRetries: this.runtimeConfig.maxRecoveryRetries ?? 3, publishEvents: true, eventBus: this.eventBus, cardId, goalId, sessionId: session.id, agentRole: role, persistFailure: (error: Error, attempt: number, _ctx: RecoveryContext) => { try { appendMessage(this.saivageDir, session.id, { role: 'system', kind: 'model_issue', content: `Agent invocation failed (attempt ${attempt}): ${this.redactProviderErrorMessage(error.message)}` }); } catch { void 0; } if (this.eventLogger) this.eventLogger.appendEvent({ kind: 'retry_attempted', session_id: session.id, role: role as unknown as import('../schemas/types.js').AgentRole, attempt, directive: _ctx.directive }); if (this.eventBus) this.eventBus.emit('retry_attempted', { session_id: session.id, role, attempt, directive: _ctx.directive }); } };
     const agentFn = async (recoveryCtx: RecoveryContext) => {
       const candidateChain = await this.router.resolve(role, capabilityRequest);
       const capabilitySkips = this.router.getLastCapabilitySkips();
@@ -482,7 +482,7 @@ export class AgentAdapter implements AgentRuntime {
       try {
         for (const candidate of candidateChain) {
           let sameCandidateRecoveryAttempt = 1;
-          while (true) {
+          for (;;) {
             if (this._cancelledSessions.has(session.id)) throw new Error(`Agent invocation cancelled for session ${session.id}. Role: ${role}, goal: ${goalId}, card: ${cardId}`);
             if (!this.registry.isHealthy(candidate)) break;
             try {

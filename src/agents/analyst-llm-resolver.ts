@@ -1,10 +1,7 @@
 import type { AgentMessage } from '../schemas/index.js';
-import { LlmClient, type ToolDefinition, type LlmCompleteResult } from './llm-client.js';
+import type { ToolDefinition, LlmCompleteResult } from './llm-client.js';
 import { ANALYST_TOOL_DEFINITIONS } from './analyst-tool-schemas.js';
-import { loadConfig } from './config-schema.js';
-import { ModelRouter } from './model-router.js';
-import { ProviderRegistry, type Candidate } from './provider.js';
-import { resolveLlmTransportConfig } from './llm-transport.js';
+import type { Candidate } from './provider.js';
 import {
   mark_goal_needs_corrections,
   create_card, edit_card, move_card, delete_card, add_note, list_cards, get_card, get_tree, get_plan_diary, get_card_output, get_status,
@@ -79,15 +76,6 @@ export interface AnalystLlmRuntimeOptions { projectRoot: string; sessionId?: str
 export interface AnalystLlmResolvedToolCall { id: string; name: string; arguments: Record<string, unknown>; result: ToolResult; }
 export interface AnalystLlmResponse { content: string; toolCalls: AnalystLlmResolvedToolCall[]; raw: LlmCompleteResult; candidate?: Candidate; }
 
-function parseToolArgs(raw: string | undefined): Record<string, unknown> {
-  if (!raw) return {};
-  try {
-    const parsed = JSON.parse(raw);
-    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed as Record<string, unknown> : {};
-  } catch {
-    return {};
-  }
-}
 
 export function getAnalystToolDefinitions(): ToolDefinition[] { return ANALYST_TOOL_DEFINITIONS; }
 export function getAnalystSystemPrompt(): string { return ANALYST_SYSTEM_PROMPT; }

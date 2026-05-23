@@ -240,7 +240,7 @@ async function waitForDurableOutput(procId: string): Promise<void> {
   if (!waiter) return;
   try {
     await waiter;
-  } catch {
+  } catch { void 0; 
   }
 }
 
@@ -526,7 +526,7 @@ export function startProcess(
     try {
       upsertRegistryRecord(projectRoot, updatedRecord);
       dispatchTerminal(projectRoot, updatedRecord);
-    } catch {}
+    } catch { void 0; }
 
     const pending = pendingStreamCloses.get(id);
     if (pending !== undefined && pending <= 0) {
@@ -548,7 +548,7 @@ export function startProcess(
     try {
       streams.stderr.write(errorMsg);
       streams.combined.write(errorMsg);
-    } catch {}
+    } catch { void 0; }
 
     const updatedRecord: ProcessRecord = {
       ...record,
@@ -565,7 +565,7 @@ export function startProcess(
     try {
       upsertRegistryRecord(projectRoot, updatedRecord);
       dispatchTerminal(projectRoot, updatedRecord);
-    } catch {}
+    } catch { void 0; }
   });
 
   return record;
@@ -954,7 +954,7 @@ export async function stopAllRunningForRuntimeShutdown(projectRoot: string): Pro
       try {
         child.kill('SIGKILL');
         stoppedIds.push(procId);
-      } catch {}
+      } catch { void 0; }
     }
   }
 

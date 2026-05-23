@@ -353,7 +353,7 @@ async function readStreamableHttpJsonRpcResponse(
   let bufferedBytes = 0;
 
   try {
-    while (true) {
+    for (;;) {
       const { value, done } = await readChunkWithAbort(reader, context.signal);
       if (done) break;
       const chunk = decoder.decode(value, { stream: true });

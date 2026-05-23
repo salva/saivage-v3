@@ -95,6 +95,6 @@ export function buildLoggedEventSchema<K extends EventKind>(kind: K): z.ZodTypeA
     goal_id: z.string().optional(),
     card_id: z.string().optional(),
   });
-  const { kind: _payloadKind, id: _payloadId, timestamp: _payloadTimestamp, ...payloadShape } = (EventRegistry[kind].schema as z.AnyZodObject).shape;
+  const { kind: _payloadKind, id: _payloadId, timestamp: _payloadTimestamp, ...payloadShape } = (EventRegistry[kind].schema as z.AnyZodObject).shape; void _payloadKind; void _payloadId; void _payloadTimestamp;
   return base.extend(payloadShape).passthrough();
 }

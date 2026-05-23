@@ -19,7 +19,6 @@ export const WsEnvelopeSchema = z.object({
 
 const stringOrNullSchema = z.string().nullable();
 const optionalStringSchema = z.string().optional();
-const optionalIsoStringSchema = z.string().optional();
 const passthroughRecordSchema = z.record(z.string(), z.unknown());
 
 export const ConnectedStatusContentSchema = z.object({

@@ -2,11 +2,6 @@ import type { CardType } from '../schemas/index.js';
 
 const SAIVAGE_INTRO = 'You are operating inside **Saivage**, an autonomous multi-agent system.';
 
-const CARD_TYPES: readonly CardType[] = [
-  'project', 'goal', 'architecture',
-  'code', 'test', 'doc', 'data', 'research', 'ops',
-];
-
 const PLANNER_CREATABLE_CARD_TYPES: readonly CardType[] = [
   'goal', 'architecture', 'code', 'test', 'doc', 'data', 'research', 'ops',
 ];
@@ -270,11 +265,11 @@ Please evaluate your current state:
 3. **Redundancy**: Are you doing unnecessary work, revisiting already-solved problems?
 4. **Goal drift**: Are you still on-topic, or have you drifted from the original objective?
 
-If everything is on track, respond with: \`\`\`json\n{\"self_check\": \"ok\", \"summary\": \"...\"}\n\`\`\`
+If everything is on track, respond with: \`\`\`json\n{"self_check": "ok", "summary": "..."}\n\`\`\`
 
-If there are issues, respond with: \`\`\`json\n{\"self_check\": \"stuck\", \"summary\": \"...\", \"issues\": [\"...\"]}\n\`\`\`
+If there are issues, respond with: \`\`\`json\n{"self_check": "stuck", "summary": "...", "issues": ["..."]}\n\`\`\`
 
-If you need to escalate, respond with: \`\`\`json\n{\"self_check\": \"escalate\", \"summary\": \"...\", \"issues\": [\"...\"], \"reason\": \"...\"}\n\`\`\``;
+If you need to escalate, respond with: \`\`\`json\n{"self_check": "escalate", "summary": "...", "issues": ["..."], "reason": "..."}\n\`\`\``;
 }
 
 export const systemPromptBuilder = {

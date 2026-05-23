@@ -6,7 +6,7 @@ import { allowedActions, decide } from '../../permissions/index.js';
 import { readRuntimeState } from '../../runtime/index.js';
 import { pauseRuntimeControl, resumeRuntimeControl } from '../../runtime/index.js';
 import type { ActiveRuntime } from '../../runtime/index.js';
-import { buildServerAvailability, type ServerAvailabilityInputs } from '../availability.js';
+import { buildServerAvailability } from '../availability.js';
 import { ContractRuntime, type ContractHandler } from '../contract-runtime.js';
 import { runMutatingRoute } from './runtime-config-notes.js';
 import { redactForOutbound } from '../../redaction/index.js';

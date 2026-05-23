@@ -284,7 +284,7 @@ export class AnalystHandler {
 
   private emitActivity(activity: { type: 'tool_call' | 'tool_result' | 'thinking'; content: Record<string, unknown> }): void {
     if (!this.onActivity) return;
-    try { this.onActivity(activity); } catch {}
+    try { this.onActivity(activity); } catch { void 0; }
   }
 
   private async handleMessageSerial(sessionId: string, userContent: string): Promise<AnalystResponse> {
@@ -307,13 +307,13 @@ export class AnalystHandler {
     return await this.runOfflineFallback(sessionId, userContent);
   }
 
-  private async runAnalystLoop(sessionId: string, userContent: string): Promise<AnalystResponse> {
+  private async runAnalystLoop(sessionId: string, _userContent: string): Promise<AnalystResponse> {
     const toolInvocations: NonNullable<AnalystResponse['toolInvocations']> = [];
     const projectContext = this.buildProjectContext();
     const ctx: ToolContext = { projectRoot: this.projectRoot, sessionId, activeRuntime: this.activeRuntime, actor: this.actor, surface: this.surface };
     const previousToolCallFingerprints = new Set<string>();
 
-    while (true) {
+    for (;;) {
       // Auto-compact when the conversation approaches the model context
       // window. Falls back to truncation (last 20% of messages) when no
       // summarizer is wired in. After compaction we still apply

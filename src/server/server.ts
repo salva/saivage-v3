@@ -50,7 +50,7 @@ function createEnvironmentFromProjectConfig(projectRoot: string): Environment {
   } as Environment;
 }
 
-function registerStage6RuntimeRoutes(fastify: FastifyInstance, projectRoot: string, activeRuntime?: ActiveRuntime): void {
+function registerStage6RuntimeRoutes(fastify: FastifyInstance, projectRoot: string, _activeRuntime?: ActiveRuntime): void {
   fastify.post('/api/runtime/goals/:id/needs_corrections', async (request, reply) => {
     try {
       const params = request.params as { id: string };

@@ -329,7 +329,7 @@ function parseToolCalls(content: string): Array<{ id?: unknown; function?: { nam
     if (parsed && typeof parsed === 'object' && Array.isArray((parsed as { toolCalls?: unknown }).toolCalls)) {
       return (parsed as { toolCalls: Array<{ id?: unknown; function?: { name?: unknown; arguments?: unknown } }> }).toolCalls;
     }
-  } catch {}
+  } catch { void 0; }
   return [];
 }
 

@@ -23,7 +23,7 @@ export function stableStringify(value: unknown): string {
 export function previewHashParams(value: unknown): unknown {
   if (value === null || typeof value !== 'object') return value;
   if (Array.isArray(value)) return value.map((item) => previewHashParams(item));
-  const { confirmed: _confirmed, preview_hash: _previewHash, ...rest } = value as Record<string, unknown>;
+  const { confirmed, preview_hash, ...rest } = value as Record<string, unknown>; void confirmed; void preview_hash;
   return Object.fromEntries(Object.entries(rest).map(([key, entryValue]) => [key, previewHashParams(entryValue)]));
 }
 

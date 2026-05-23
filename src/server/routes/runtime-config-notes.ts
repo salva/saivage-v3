@@ -1,32 +1,22 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
-import { readRuntimeState, updateRuntimeState, RuntimeStateLayoutError } from '../../runtime/index.js';
+import { readRuntimeState, updateRuntimeState } from '../../runtime/index.js';
 import type { RuntimeState } from '../../schemas/index.js';
-import { pauseRuntimeControl, resumeRuntimeControl } from '../../runtime/index.js';
 import type { ActiveRuntime } from '../../runtime/index.js';
 import type { ProviderEntry, SaivageConfig } from '../../agents/index.js';
 import { getReconciledUnhandledNotesQueue, findUnhandledNoteCardId, markNoteHandled, deleteNote } from '../../cards/index.js';
 import { redactForOutbound } from '../../redaction/index.js';
-import { CardStore, type CardStoreHealth } from '../../cards/index.js';
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { evaluateAuthz, type ActorRole, type SafetyClass } from '../../agents/index.js';
 import { recordControlAction, stableStringify, listControlActions } from '../../persistence/index.js';
 import { readFreezeManifest, clearFreezeManifest } from '../../runtime/index.js';
 import { NotificationCenter } from '../../notifications/index.js';
-import { operatorApiContracts, type ServerAvailability } from '../../contracts/index.js';
+import { type ServerAvailability } from '../../contracts/index.js';
 
 
 function saivageDir(projectRoot: string): string { return `${projectRoot}/.saivage`; }
 function actorFromRequest(_request: FastifyRequest): ActorRole { return 'user'; }
 function paramsSummary(value: unknown): string { return stableStringify(value); }
-function runtimeStateErrorBody(err: unknown, fallback: string): { statusCode: number; body: Record<string, unknown> } {
-  const message = err instanceof Error ? err.message : String(err);
-  if (err instanceof RuntimeStateLayoutError) {
-    return { statusCode: 500, body: { error: 'RuntimeStateLayoutError', message } };
-  }
-  return { statusCode: 500, body: { error: fallback, message } };
-}
-
 function redactValue<T>(value: T): T {
   return redactForOutbound(value, 'operator.api', { source: 'runtime-config-notes.route' }) as T;
 }
@@ -55,7 +45,6 @@ export async function runMutatingRoute(options: MutatingRouteOptions): Promise<F
   const { request, reply, projectRoot, action, safety_class, target_kind, target_id, preview, mutate } = options;
   const actor = actorFromRequest(request);
   const surface = 'rest' as const;
-  const bodyRecord = (request.body ?? {}) as Record<string, unknown>;
   const paramsValue = { body: request.body, params: request.params };
   const auditBase = { actor, surface, action, target_kind, target_id, confirmed: true, params_summary: paramsSummary(paramsValue) };
   const verdict = evaluateAuthz({ actor, surface, safety_class });
@@ -81,7 +70,7 @@ export async function runMutatingRoute(options: MutatingRouteOptions): Promise<F
 }
 
 function readAgentSession(projectRoot: string, sessionId: string): Record<string, unknown> | null { const sessionPath = join(projectRoot, '.saivage', 'agents', 'sessions', `${sessionId}.json`); if (!existsSync(sessionPath)) return null; try { return JSON.parse(readFileSync(sessionPath, 'utf-8')) as Record<string, unknown>; } catch { return null; } }
-function readAgentMessages(projectRoot: string, sessionId: string): unknown[] { const messagesPath = join(projectRoot, '.saivage', 'agents', 'messages', `${sessionId}.jsonl`); if (!existsSync(messagesPath)) return []; const messages: unknown[] = []; for (const line of readFileSync(messagesPath, 'utf-8').split('\n')) if (line.trim()) try { messages.push(JSON.parse(line)); } catch {} return messages; }
+function readAgentMessages(projectRoot: string, sessionId: string): unknown[] { const messagesPath = join(projectRoot, '.saivage', 'agents', 'messages', `${sessionId}.jsonl`); if (!existsSync(messagesPath)) return []; const messages: unknown[] = []; for (const line of readFileSync(messagesPath, 'utf-8').split('\n')) if (line.trim()) try { messages.push(JSON.parse(line)); } catch { void 0; } return messages; }
 const SAFE_AGENT_ID_RE = /^[a-zA-Z0-9_:-]+$/;
 
 type ListedAgentStatus = 'active' | 'waiting' | 'inactive' | 'done' | 'blocked' | 'failed';
@@ -142,23 +131,7 @@ function buildListedAgentSession(projectRoot: string, sessionId: string, state: 
   };
 }
 
-function resolveCardStoreHealth(activeRuntime: ActiveRuntime | undefined, fallbackStore: CardStore): CardStoreHealth { return activeRuntime?.runtime.cardStore.getHealth() ?? fallbackStore.getHealth(); }
-
-function runtimeUnavailableError(command: 'start_project' | 'stop_project'): { success: false; actionable_error: Record<string, unknown> } {
-  return {
-    success: false,
-    actionable_error: {
-      code: 'active_runtime_unavailable',
-      message: `Cannot execute ${command}: ActiveRuntime is not attached to this server process.`,
-      currentState: { activeRuntime: false, command },
-      nextAction: 'Restart the server with runtime creation enabled before issuing runtime control commands.',
-      docsRef: 'docs/runtime-controls.md',
-      cardId: 'project',
-    },
-  };
-}
 export function registerRuntimeConfigNotesRoutes(fastify: FastifyInstance, projectRoot: string, activeRuntime?: ActiveRuntime, serverAvailabilityProvider?: () => ServerAvailability, saivageConfig?: SaivageConfig, configWarnings: readonly string[] = []): void {
-  const store = new CardStore(projectRoot);
   const notifications = new NotificationCenter(projectRoot);
   fastify.get('/api/notifications', async (_request, reply) => {
     try {

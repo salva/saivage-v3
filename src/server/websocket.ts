@@ -37,7 +37,7 @@ export function resetWebSocketState(projectRoot?: string): void {
       if (ws.readyState === ws.OPEN || ws.readyState === ws.CONNECTING) {
         ws.close();
       }
-    } catch {
+    } catch { void 0; 
     }
   }
   clients.clear();
@@ -75,7 +75,7 @@ export function broadcast(event: WsEnvelope): void {
       if (ws.readyState === ws.OPEN) {
         ws.send(data);
       }
-    } catch {
+    } catch { void 0; 
     }
   }
 }
@@ -85,7 +85,7 @@ export function sendToClient(ws: WebSocket, event: WsEnvelope): void {
     if (ws.readyState === ws.OPEN) {
       ws.send(serializeOutboundEnvelope(event));
     }
-  } catch {
+  } catch { void 0; 
   }
 }
 
@@ -332,7 +332,7 @@ export function wireRuntimeEvents(runtime: {
     allowedKinds: [...operatorBroadcastEventKindValues],
     handler: (event: DomainEvent<OperatorBroadcastEventKind>) => {
       const logged = 'payload' in event ? toLoggedEvent(event) : event as unknown as Record<string, unknown>;
-      const { kind, id, timestamp, ...data } = logged as Record<string, unknown> & { kind: OperatorBroadcastEventKind };
+      const { kind, id, timestamp, ...data } = logged as Record<string, unknown> & { kind: OperatorBroadcastEventKind }; void id; void timestamp;
       const envelope = createRuntimeEnvelope(kind, data as Record<string, unknown>);
       broadcast(envelope);
     },
