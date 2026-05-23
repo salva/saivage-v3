@@ -1,8 +1,8 @@
 import type { FastifyInstance } from 'fastify';
 import { CardStore } from '../../utils/card-store.js';
 import type { CardRecord, CardStatus, CardType, CardHistoryEntry } from '../../schemas/types.js';
-import { operatorApiContracts } from '../../contracts/operator-api.js';
-import { allowedActions } from '../../permissions/index.js';
+import { operatorApiContracts, type OperatorRouteContract } from '../../contracts/operator-api.js';
+import { allowedActions, decide } from '../../permissions/index.js';
 import { readRuntimeState } from '../../runtime/state.js';
 import { pauseRuntimeControl, resumeRuntimeControl } from '../../runtime/control.js';
 import type { ActiveRuntime } from '../../runtime/lifecycle.js';
@@ -54,6 +54,22 @@ export function registerOperatorContractRoutes(options: {
   const runtime = new ContractRuntime();
   const store = new CardStore(projectRoot);
   const getActiveRuntime = () => options.activeRuntimeProvider?.() ?? options.activeRuntime;
+
+  const contracts = {
+    ...operatorApiContracts,
+    'cards.delete': {
+      ...operatorApiContracts['cards.delete'],
+      permissions: ({ params }: { params: unknown }) => {
+        const id = (params as { id?: string }).id;
+        if (!id) return { allowed: false, reason: 'Missing card id' };
+        const card = store.read(id);
+        if (!card) return { allowed: true };
+        const decision = decide({ role: 'operator', action: 'card.delete', targetState: card.status });
+        return decision.allowed ? { allowed: true } : { allowed: false, reason: decision.reason };
+      },
+      describe: 'Operator-session card deletion guarded by the card state permission matrix before mutation.',
+    },
+  } satisfies Record<keyof typeof operatorApiContracts, OperatorRouteContract>;
 
   const handlers: Partial<Record<keyof typeof operatorApiContracts, ContractHandler>> = {
     'health.liveness': () => ({ body: { status: 'ok', version: '0.1.0', project: 'saivage-v3' } }),
@@ -141,5 +157,5 @@ export function registerOperatorContractRoutes(options: {
     } }) as never,
   };
 
-  runtime.mount(fastify, operatorApiContracts, handlers);
+  runtime.mount(fastify, contracts, handlers);
 }

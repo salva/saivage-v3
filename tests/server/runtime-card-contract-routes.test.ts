@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from '@jest/globals';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { createServer, type ServerInstance } from '../../src/server/server.js';
@@ -55,5 +55,38 @@ describe('first-batch contract-bound runtime/card routes', () => {
     const fail = await server.fastify.inject({ method: 'PATCH', url: `/api/cards/${created.id}`, payload: { status: 'failed' } });
     expect(fail.statusCode).toBe(200);
     expect(parseOperatorResponse('cards.update', fail.json()).card.allowedActions).toContain('card.restart');
+  });
+
+  it('enforces the card permission matrix before contract delete mutation', async () => {
+    const create = await server.fastify.inject({ method: 'POST', url: '/api/cards', payload: { type: 'goal', parent: 'project', title: 'delete-denied', description: 'd' } });
+    expect(create.statusCode).toBe(201);
+    const created = parseOperatorResponse('cards.create', create.json()).card;
+
+    const activate = await server.fastify.inject({ method: 'PATCH', url: `/api/cards/${created.id}`, payload: { status: 'active' } });
+    expect(activate.statusCode).toBe(200);
+
+    const denied = await server.fastify.inject({ method: 'DELETE', url: `/api/cards/${created.id}`, payload: {} });
+    expect(denied.statusCode).toBe(403);
+    expect(denied.json()).toEqual(expect.objectContaining({ error: 'Forbidden', message: 'wrong_state' }));
+    const cardPath = join(root, '.saivage', 'cards', 'by-id', `${created.id}.json`);
+    expect(existsSync(cardPath)).toBe(true);
+    expect(JSON.parse(readFileSync(cardPath, 'utf-8')).status).toBe('active');
+
+    const auditPath = join(root, '.saivage', 'runtime', 'control-actions.jsonl');
+    const auditLines = existsSync(auditPath) ? readFileSync(auditPath, 'utf-8').trim().split('\n').filter(Boolean).map((line) => JSON.parse(line)) : [];
+    expect(auditLines.some((line) => line.action === 'card.delete' && line.target_id === created.id)).toBe(false);
+  });
+
+  it('allows matrix-permitted contract delete and records the mutation audit', async () => {
+    const create = await server.fastify.inject({ method: 'POST', url: '/api/cards', payload: { type: 'goal', parent: 'project', title: 'delete-allowed', description: 'd' } });
+    expect(create.statusCode).toBe(201);
+    const created = parseOperatorResponse('cards.create', create.json()).card;
+
+    const deleted = await server.fastify.inject({ method: 'DELETE', url: `/api/cards/${created.id}`, payload: {} });
+    expect(deleted.statusCode).toBe(204);
+    expect(existsSync(join(root, '.saivage', 'cards', 'by-id', `${created.id}.json`))).toBe(false);
+
+    const auditLines = readFileSync(join(root, '.saivage', 'runtime', 'control-actions.jsonl'), 'utf-8').trim().split('\n').filter(Boolean).map((line) => JSON.parse(line));
+    expect(auditLines).toEqual(expect.arrayContaining([expect.objectContaining({ action: 'card.delete', outcome: 'ok', target_id: created.id })]));
   });
 });
