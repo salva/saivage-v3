@@ -15,10 +15,12 @@ export type CardStatus =
   | 'active'
   | 'running'
   | 'blocked'
+  | 'changed'
   | 'done'
   | 'failed'
   | 'cancelled';
 
+export type CardAction = 'card.start' | 'card.cancel' | 'card.delete' | 'card.restart';
 export type CardUrgency = 'low' | 'normal' | 'high' | 'critical';
 export type CardCreator = 'user' | 'analyst' | 'planner';
 export type SafeFileSensitivity = 'normal' | 'sensitive-blocked' | 'sensitive-redacted';
@@ -73,6 +75,7 @@ export interface CardRecord {
   error?: string | null;
   retries: number;
   notes?: NoteRecord[];
+  allowedActions?: CardAction[];
 }
 
 export interface ArtifactRef {

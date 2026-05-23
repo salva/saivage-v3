@@ -155,7 +155,7 @@ export const useCardStore = defineStore('cards', () => {
 
   const board = computed<Map<CardStatus, CardRecord[]>>(() => {
     const columns = new Map<CardStatus, CardRecord[]>();
-    const statuses: CardStatus[] = ['drafting', 'backlog', 'active', 'running', 'blocked', 'done', 'failed', 'cancelled'];
+    const statuses: CardStatus[] = ['drafting', 'backlog', 'active', 'running', 'blocked', 'changed', 'done', 'failed', 'cancelled'];
     for (const s of statuses) columns.set(s, []);
     for (const card of filteredCards.value) {
       const col = columns.get(card.status);

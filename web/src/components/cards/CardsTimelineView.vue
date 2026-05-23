@@ -58,7 +58,7 @@ function typeIcon(type: CardType): string {
 function statusIcon(status: CardStatus): string {
   const icons: Record<CardStatus, string> = {
     drafting: '📝', backlog: '📋', active: '▶', running: '⚡',
-    blocked: '⛔', done: '✅', failed: '❌', cancelled: '🚫',
+    blocked: '⛔', changed: '✎', done: '✅', failed: '❌', cancelled: '🚫',
   };
   return icons[status] || '●';
 }

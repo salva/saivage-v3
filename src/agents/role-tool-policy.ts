@@ -1,4 +1,5 @@
 import type { McpToolAnnotations } from '../mcp/mcp-manager.js';
+import { TOOL_TO_CARD_ACTION } from '../permissions/index.js';
 
 export type RoleToolPolicyRole = 'planner' | 'executor' | 'reviewer' | 'analyst';
 export type RoleToolPolicyAction = 'list' | 'invoke';
@@ -102,7 +103,7 @@ const ROLE_TOOL_NAMES: Record<RoleToolPolicyRole, readonly string[]> = {
 
 const VALID_ROLES = new Set<RoleToolPolicyRole>(Object.keys(ROLE_TOOL_NAMES) as RoleToolPolicyRole[]);
 const VALID_SURFACES = new Set<RoleToolPolicySurface>(['planner-control', 'agent-runtime', 'workspace', 'external-mcp', 'skill']);
-const PLANNER_CONTROL_TOOLS = new Set(['activate_card', 'cancel_card', 'delete_card', 'restart_card', 'report_goal_done', 'report_goal_failed', 'report_goal_blocked']);
+const PLANNER_CONTROL_TOOLS = new Set([...Object.keys(TOOL_TO_CARD_ACTION), 'report_goal_done', 'report_goal_failed', 'report_goal_blocked']);
 const SKILL_TOOLS = new Set(['load_skill']);
 const WORKSPACE_TOOLS = new Set(['list_project_files', 'read_project_file', 'write_project_file', 'start_and_wait', 'run_project_command', 'wait_for_process', 'kill_process']);
 const MCP_WRAPPER_TOOLS = new Set(['mcp_tool_call']);

@@ -26,6 +26,13 @@
         </div>
       </section>
 
+      <section v-if="currentCard.allowedActions?.length" class="detail-section">
+        <h3 class="section-heading">Allowed actions</h3>
+        <div class="allowed-actions" data-testid="allowed-actions">
+          <span v-for="action in currentCard.allowedActions" :key="action" class="allowed-action">{{ actionLabel(action) }}</span>
+        </div>
+      </section>
+
       <section v-if="currentCard.description" class="detail-section">
         <h3 class="section-heading">Description</h3>
         <div class="detail-description" v-html="renderMarkdown(currentCard.description)"></div>
@@ -309,6 +316,7 @@ function statusExplainer(status: CardStatus): string {
     active: 'This card is active but not necessarily executing now.',
     running: 'This card is running. Evidence may be incomplete until the active work finishes.',
     blocked: 'This card is blocked. Check blockers, tool errors, review findings, and notes before retrying.',
+    changed: 'This card has changed and needs planner attention before completion can proceed.',
     done: 'This card is marked done. Review evidence and verification below before treating it as accepted.',
     failed: 'This card failed. Inspect error, tool errors, verification commands, and agent/review context.',
     cancelled: 'This card was cancelled and should not be treated as completed work.',
@@ -504,6 +512,10 @@ watch(() => props.cardId, async (nid, oldId) => {
   previewState.value = { status: 'idle' };
   if (nid) await reloadDetail();
 });
+
+function actionLabel(action: string): string {
+  return action.replace('card.', '');
+}
 </script>
 
 <style scoped>
@@ -559,4 +571,7 @@ watch(() => props.cardId, async (nid, oldId) => {
   padding: 6px 10px;
   cursor: pointer;
 }
+
+.allowed-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+.allowed-action { font-size: 11px; padding: 2px 6px; border-radius: 999px; background: #1f6feb22; color: #58a6ff; border: 1px solid #1f6feb66; }
 </style>

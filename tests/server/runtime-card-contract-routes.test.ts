@@ -48,6 +48,12 @@ describe('first-batch contract-bound runtime/card routes', () => {
 
     const update = await server.fastify.inject({ method: 'PATCH', url: `/api/cards/${created.id}`, payload: { priority: 42 } });
     expect(update.statusCode).toBe(200);
-    expect(parseOperatorResponse('cards.update', update.json()).card.priority).toBe(42);
+    const updated = parseOperatorResponse('cards.update', update.json()).card;
+    expect(updated.priority).toBe(42);
+    expect(updated.allowedActions).toContain('card.start');
+
+    const fail = await server.fastify.inject({ method: 'PATCH', url: `/api/cards/${created.id}`, payload: { status: 'failed' } });
+    expect(fail.statusCode).toBe(200);
+    expect(parseOperatorResponse('cards.update', fail.json()).card.allowedActions).toContain('card.restart');
   });
 });

@@ -22,6 +22,7 @@ export type CardStatus =
 
 
 export type PlannerState = CardStatus;
+export type CardAction = 'card.start' | 'card.cancel' | 'card.delete' | 'card.restart';
 export type RuntimeIntentStatus = 'running' | 'stopped';
 export type RuntimeCommandName = 'start_project' | 'stop_project';
 export type RuntimeCommandStatus = 'accepted' | 'rejected' | 'completed';
@@ -49,7 +50,7 @@ export interface CardRecord {
   acceptance: string; result?: Record<string, unknown> | null; metrics?: Record<string, number | string | boolean | null> | null;
   artifacts: ArtifactRef[]; attachments: AttachmentRef[]; estimate?: string | null; started_at?: string | null; completed_at?: string | null;
   duration_ms?: number | null; error?: string | null; status_text?: string | null; status_text_updated_at?: string | null;
-  status_text_author_session_id?: string | null; latest_self_report?: Record<string, unknown> | null; metadata?: CardMetadata | null; retries: number;
+  status_text_author_session_id?: string | null; latest_self_report?: Record<string, unknown> | null; metadata?: CardMetadata | null; allowedActions?: CardAction[]; retries: number;
 }
 export interface CardHistoryEntry { card_id: string; version_seq: number; snapshot: CardRecord; changed_at: string; changed_by_actor: NoteAuthor; changed_by_surface: ControlActionSurface; change_reason: string | null; changed_fields: string[]; change_summary: string; }
 export interface NotificationRecord { id: string; session_id: string | null; kind: 'card_changed' | 'note_added' | 'process_state' | 'runtime_state' | 'config_changed'; severity: 'info' | 'warn' | 'block'; payload_summary: string; related_card_id?: string; related_note_id?: string; related_process_id?: string; related_version_seq?: number; source_actor: NoteAuthor; source_surface: ControlActionSurface; created_at: string; delivered_at: string | null; acknowledged_at: string | null; }

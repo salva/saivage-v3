@@ -5,6 +5,7 @@ import { runMutatingRoute } from './runtime-config-notes.js';
 import { operatorApiContracts } from '../../contracts/operator-api.js';
 import { parseContractRequest, validateContractSuccess } from '../contract-route.js';
 import { redactCredentialLiterals, redactSecrets } from '../../utils/file-access-security.js';
+import { allowedActions } from '../../permissions/index.js';
 
 const TRACKED_UPDATE_FIELDS = new Set(['title','description','acceptance','depends_on','related','estimate','parent','assigned_to','type','subtype','instructions_file','tags','priority','urgency']);
 const INLINE_SECRET_RE = /(api(?:[_-]?key|[_-]?token)?|token|secret|password)\s*=\s*("[^"]*"|'[^']*'|\S+)/gi;
@@ -30,6 +31,10 @@ function redactValue<T>(value: T): T {
   return value;
 }
 
+function withOperatorAllowedActions(card: CardRecord): CardRecord {
+  return { ...card, allowedActions: allowedActions('operator', card.status) };
+}
+
 function historyHeader(entry: CardHistoryEntry) {
   return {
     card_id: entry.card_id,
@@ -48,7 +53,8 @@ export function registerCardRoutes(fastify: FastifyInstance, projectRoot: string
   const inputDefaults: Omit<CardRecord, 'id' | 'created_at' | 'updated_at' | 'version_seq'> = { type: 'code', parent: null, depth: 0, title: '', description: '', status: 'backlog', subtype: null, instructions_file: null, tags: [], priority: 0, urgency: 'normal', created_by: 'user', assigned_to: null, depends_on: [], blocks: [], related: [], acceptance: '', result: null, metrics: null, artifacts: [], attachments: [], estimate: null, started_at: null, completed_at: null, duration_ms: null, error: null, retries: 0 };
 
   fastify.get('/api/cards', async (_request, reply) => {
-    const payload = { cards: store.list(), total: store.list().length };
+    const cards = store.list().map(withOperatorAllowedActions);
+    const payload = { cards, total: cards.length };
     return reply.send(validateContractSuccess(operatorApiContracts['cards.list'], payload));
   });
   fastify.get('/api/cards/:id', async (request: FastifyRequest, reply: FastifyReply) => {
@@ -57,7 +63,7 @@ export function registerCardRoutes(fastify: FastifyInstance, projectRoot: string
     const params = parsed.params;
     const card = store.read(params.id);
     if (!card) return reply.status(404).send({ error: 'Card not found', cardId: params.id });
-    const payload = { card, children: store.listChildren(params.id).map((childId) => store.read(childId)).filter((c): c is CardRecord => c !== null), ancestorIds: store.getAncestors(params.id) };
+    const payload = { card: withOperatorAllowedActions(card), children: store.listChildren(params.id).map((childId) => store.read(childId)).filter((c): c is CardRecord => c !== null).map(withOperatorAllowedActions), ancestorIds: store.getAncestors(params.id) };
     return reply.send(validateContractSuccess(operatorApiContracts['cards.get'], payload));
   });
   fastify.get('/api/cards/:id/history', async (request: FastifyRequest, reply: FastifyReply) => {
@@ -119,7 +125,7 @@ export function registerCardRoutes(fastify: FastifyInstance, projectRoot: string
       try {
         const priority = validatePriority(body.priority);
         const card = store.create({ ...inputDefaults, type: (body.type as CardType) || inputDefaults.type, parent: (body.parent as string | null) ?? inputDefaults.parent, title: (body.title as string) || inputDefaults.title, description: (body.description as string) || inputDefaults.description, status: (body.status as CardStatus) || inputDefaults.status, tags: (body.tags as string[]) ?? inputDefaults.tags, priority: priority ?? inputDefaults.priority, urgency: (body.urgency as CardRecord['urgency']) || inputDefaults.urgency, created_by: (body.created_by as CardRecord['created_by']) || inputDefaults.created_by, depends_on: (body.depends_on as string[]) ?? inputDefaults.depends_on, related: (body.related as string[]) ?? inputDefaults.related, acceptance: (body.acceptance as string) || inputDefaults.acceptance, result: (body.result as Record<string, unknown>) ?? inputDefaults.result, metrics: (body.metrics as Record<string, string | number | boolean | null>) ?? inputDefaults.metrics, estimate: (body.estimate as string) ?? inputDefaults.estimate, error: (body.error as string) ?? inputDefaults.error, retries: (body.retries as number) ?? inputDefaults.retries, subtype: (body.subtype as string) ?? inputDefaults.subtype, assigned_to: (body.assigned_to as string) ?? inputDefaults.assigned_to, instructions_file: (body.instructions_file as string) ?? inputDefaults.instructions_file });
-        return { ok: true, statusCode: 201, body: validateContractSuccess(operatorApiContracts['cards.create'], { card }), outcomeSummary: 'card created' };
+        return { ok: true, statusCode: 201, body: validateContractSuccess(operatorApiContracts['cards.create'], { card: withOperatorAllowedActions(card) }), outcomeSummary: 'card created' };
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         return { ok: false, statusCode: 400, error: message, body: { error: 'Card creation failed', message }, outcomeSummary: message };
@@ -149,7 +155,7 @@ export function registerCardRoutes(fastify: FastifyInstance, projectRoot: string
         try {
           if (Object.keys(changes).length === 0) return { ok: false, statusCode: 400, error: 'No valid fields to update', body: { error: 'No valid fields to update' }, outcomeSummary: 'no valid fields to update' };
           const card = tracked ? store.mutateCard(params.id, changes as Partial<CardRecord>, { actor: 'user', surface: 'rest', reason: 'REST card update' }) : store.update(params.id, changes as Partial<CardRecord>);
-          return { ok: true, body: validateContractSuccess(operatorApiContracts['cards.update'], { card }), outcomeSummary: 'card updated' };
+          return { ok: true, body: validateContractSuccess(operatorApiContracts['cards.update'], { card: withOperatorAllowedActions(card) }), outcomeSummary: 'card updated' };
         } catch (err) {
           const message = err instanceof Error ? err.message : String(err);
           if (message.includes('not found')) return { ok: false, statusCode: 404, error: message, body: { error: 'Card not found' }, outcomeSummary: message };

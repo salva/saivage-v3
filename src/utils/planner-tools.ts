@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { join } from 'node:path';
 import type { CardRecord, CardStatus, ReviewAssessment, ReviewerIssue, ReviewerResult, RuntimeState } from '../schemas/types.js';
+import { decide } from '../permissions/index.js';
 import { CardStore } from './card-store.js';
 import { appendNote } from './notes.js';
 
@@ -59,10 +60,6 @@ export interface PlannerToolsServiceOptions {
   assessmentIdFactory?: () => string;
 }
 
-const TERMINAL_STATUSES = new Set<CardStatus>(['done', 'failed', 'blocked', 'cancelled']);
-const CANCELLABLE_STATUSES = new Set<CardStatus>(['backlog', 'active', 'changed']);
-const DELETE_ALLOWED_STATUSES = new Set<CardStatus>(['backlog', 'done', 'failed', 'blocked', 'cancelled']);
-const RESTART_ALLOWED_STATUSES = new Set<CardStatus>(['done', 'failed', 'blocked', 'cancelled', 'changed']);
 const REPORTABLE_OUTCOMES: Record<'report_goal_done' | 'report_goal_failed' | 'report_goal_blocked', Extract<CardStatus, 'done' | 'failed' | 'blocked'>> = {
   report_goal_done: 'done',
   report_goal_failed: 'failed',
@@ -159,7 +156,8 @@ export class PlannerToolsService {
     if (card.status === 'active' || card.status === 'running') {
       throw new PlannerToolError('card_already_active', `Card '${cardId}' is already active.`);
     }
-    if (TERMINAL_STATUSES.has(card.status) && !isGoalLike(card)) {
+    const startDecision = decide({ role: 'planner', action: 'card.start', targetState: card.status });
+    if (!startDecision.allowed && !isGoalLike(card)) {
       throw new PlannerToolError('terminal_card_requires_restart', `Card '${cardId}' is terminal and must be restarted before activation.`);
     }
     return this.store.update(cardId, { status: 'active' });
@@ -167,7 +165,7 @@ export class PlannerToolsService {
 
   cancelCard(cardId: string): CardRecord {
     const card = requireCard(this.store, cardId);
-    if (!CANCELLABLE_STATUSES.has(card.status)) {
+    if (!decide({ role: 'planner', action: 'card.cancel', targetState: card.status }).allowed) {
       throw new PlannerToolError('invalid_card_status', `Card '${cardId}' in status '${card.status}' cannot be cancelled.`);
     }
     if (subtreeContainsActiveLeaf(this.store, this.runtimeStateProvider?.() ?? null, cardId)) {
@@ -189,7 +187,7 @@ export class PlannerToolsService {
       if (runtimeState?.active_card_run?.card_id === id) {
         throw new PlannerToolError('card_already_active', `Card '${cardId}' cannot be deleted while its subtree contains the active runtime leaf.`);
       }
-      if (!DELETE_ALLOWED_STATUSES.has(card.status)) {
+      if (!decide({ role: 'planner', action: 'card.delete', targetState: card.status }).allowed) {
         throw new PlannerToolError('invalid_card_status', `Card '${id}' in status '${card.status}' cannot be deleted.`);
       }
     }
@@ -202,7 +200,7 @@ export class PlannerToolsService {
     if (subtreeContainsActiveLeaf(this.store, this.runtimeStateProvider?.() ?? null, cardId)) {
       throw new PlannerToolError('card_already_active', `Card '${cardId}' cannot be restarted while its subtree contains the active runtime leaf.`);
     }
-    if (!RESTART_ALLOWED_STATUSES.has(card.status)) {
+    if (!decide({ role: 'planner', action: 'card.restart', targetState: card.status }).allowed) {
       throw new PlannerToolError('invalid_card_status', `Card '${cardId}' in status '${card.status}' cannot be restarted.`);
     }
     const currentResult = cloneResult(card);

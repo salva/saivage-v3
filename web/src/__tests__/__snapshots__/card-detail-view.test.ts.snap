@@ -1,34 +1,35 @@
 // Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
 
 exports[`CardDetailView generated file inspection > renders non-empty evidence with summary counters and file list 1`] = `
-"<div data-v-c4b684b6="" class="card-detail-container">
-  <section data-v-c4b684b6="" class="detail-section header-section" data-testid="card-detail-highlight">
-    <div data-v-c4b684b6="" class="detail-title-row"><span data-v-c4b684b6="" class="detail-type-badge type-code">(C) code</span>
-      <h1 data-v-c4b684b6="" class="detail-title">Card 1</h1><span data-v-c4b684b6="" class="detail-status-chip status-done">done</span><button data-v-c4b684b6="" type="button" class="discuss-btn" aria-label="Discuss card with analyst">Discuss with analyst</button>
+"<div data-v-eb3d9641="" class="card-detail-container">
+  <section data-v-eb3d9641="" class="detail-section header-section" data-testid="card-detail-highlight">
+    <div data-v-eb3d9641="" class="detail-title-row"><span data-v-eb3d9641="" class="detail-type-badge type-code">(C) code</span>
+      <h1 data-v-eb3d9641="" class="detail-title">Card 1</h1><span data-v-eb3d9641="" class="detail-status-chip status-done">done</span><button data-v-eb3d9641="" type="button" class="discuss-btn" aria-label="Discuss card with analyst">Discuss with analyst</button>
     </div>
-    <div data-v-c4b684b6="" class="detail-id">ID: card-1</div>
-    <div data-v-c4b684b6="" class="detail-callout" role="status">This card is marked done; review and evidence determine whether operators should accept completion.</div>
+    <div data-v-eb3d9641="" class="detail-id">ID: card-1</div>
+    <div data-v-eb3d9641="" class="detail-callout" role="status">This card is marked done; review and evidence determine whether operators should accept completion.</div>
     <!---->
     <!---->
     <!---->
   </section>
   <!---->
-  <section data-v-c4b684b6="" class="detail-section">
-    <h3 data-v-c4b684b6="" class="section-heading">Metadata</h3>
-    <div data-v-c4b684b6="" class="meta-grid">
-      <div data-v-c4b684b6="" class="meta-item"><span data-v-c4b684b6="" class="meta-key">Created</span><span data-v-c4b684b6="" class="meta-value" title="Jan 1, 2025, 12:00:00 AM">Jan 1, 2025, 12:00:00 AM</span></div>
-      <div data-v-c4b684b6="" class="meta-item"><span data-v-c4b684b6="" class="meta-key">Updated</span><span data-v-c4b684b6="" class="meta-value" title="Jan 1, 2025, 12:00:00 AM">Jan 1, 2025, 12:00:00 AM</span></div>
-      <div data-v-c4b684b6="" class="meta-item"><span data-v-c4b684b6="" class="meta-key">Version</span><span data-v-c4b684b6="" class="meta-value">unknown</span></div>
+  <!---->
+  <section data-v-eb3d9641="" class="detail-section">
+    <h3 data-v-eb3d9641="" class="section-heading">Metadata</h3>
+    <div data-v-eb3d9641="" class="meta-grid">
+      <div data-v-eb3d9641="" class="meta-item"><span data-v-eb3d9641="" class="meta-key">Created</span><span data-v-eb3d9641="" class="meta-value" title="Jan 1, 2025, 12:00:00 AM">Jan 1, 2025, 12:00:00 AM</span></div>
+      <div data-v-eb3d9641="" class="meta-item"><span data-v-eb3d9641="" class="meta-key">Updated</span><span data-v-eb3d9641="" class="meta-value" title="Jan 1, 2025, 12:00:00 AM">Jan 1, 2025, 12:00:00 AM</span></div>
+      <div data-v-eb3d9641="" class="meta-item"><span data-v-eb3d9641="" class="meta-key">Version</span><span data-v-eb3d9641="" class="meta-value">unknown</span></div>
       <!---->
       <!---->
-      <div data-v-c4b684b6="" class="meta-item"><span data-v-c4b684b6="" class="meta-key">Priority</span><span data-v-c4b684b6="" class="meta-value">1</span></div>
-      <div data-v-c4b684b6="" class="meta-item"><span data-v-c4b684b6="" class="meta-key">Urgency</span><span data-v-c4b684b6="" class="meta-value">normal</span></div>
+      <div data-v-eb3d9641="" class="meta-item"><span data-v-eb3d9641="" class="meta-key">Priority</span><span data-v-eb3d9641="" class="meta-value">1</span></div>
+      <div data-v-eb3d9641="" class="meta-item"><span data-v-eb3d9641="" class="meta-key">Urgency</span><span data-v-eb3d9641="" class="meta-value">normal</span></div>
       <!---->
       <!---->
-      <div data-v-c4b684b6="" class="meta-item"><span data-v-c4b684b6="" class="meta-key">Retries</span><span data-v-c4b684b6="" class="meta-value">0</span></div>
+      <div data-v-eb3d9641="" class="meta-item"><span data-v-eb3d9641="" class="meta-key">Retries</span><span data-v-eb3d9641="" class="meta-value">0</span></div>
     </div>
   </section>
-  <section data-v-8467d0a4="" data-v-c4b684b6="" class="detail-section">
+  <section data-v-8467d0a4="" data-v-eb3d9641="" class="detail-section">
     <div data-v-8467d0a4="" class="panel-header-row">
       <div data-v-8467d0a4="">
         <h3 data-v-8467d0a4="" class="section-heading">Card history</h3>
@@ -48,80 +49,80 @@ exports[`CardDetailView generated file inspection > renders non-empty evidence w
       </div>
     </div>
   </section>
-  <section data-v-c4b684b6="" class="detail-section">
-    <h3 data-v-c4b684b6="" class="section-heading">Completion &amp; blockers</h3>
-    <div data-v-c4b684b6="" class="meta-grid">
-      <div data-v-c4b684b6="" class="meta-item"><span data-v-c4b684b6="" class="meta-key">Completion state</span><span data-v-c4b684b6="" class="meta-value">marked-done</span></div>
-      <div data-v-c4b684b6="" class="meta-item"><span data-v-c4b684b6="" class="meta-key">Evidence readiness</span><span data-v-c4b684b6="" class="meta-value">1 recorded evidence path is blocked by file-access security.</span></div>
-      <div data-v-c4b684b6="" class="meta-item"><span data-v-c4b684b6="" class="meta-key">Child work</span><span data-v-c4b684b6="" class="meta-value">1 children: 1 active/running, 0 blocked/failed, 0 done</span></div>
+  <section data-v-eb3d9641="" class="detail-section">
+    <h3 data-v-eb3d9641="" class="section-heading">Completion &amp; blockers</h3>
+    <div data-v-eb3d9641="" class="meta-grid">
+      <div data-v-eb3d9641="" class="meta-item"><span data-v-eb3d9641="" class="meta-key">Completion state</span><span data-v-eb3d9641="" class="meta-value">marked-done</span></div>
+      <div data-v-eb3d9641="" class="meta-item"><span data-v-eb3d9641="" class="meta-key">Evidence readiness</span><span data-v-eb3d9641="" class="meta-value">1 recorded evidence path is blocked by file-access security.</span></div>
+      <div data-v-eb3d9641="" class="meta-item"><span data-v-eb3d9641="" class="meta-key">Child work</span><span data-v-eb3d9641="" class="meta-value">1 children: 1 active/running, 0 blocked/failed, 0 done</span></div>
     </div>
-    <div data-v-c4b684b6="" class="link-list-row"><span data-v-c4b684b6="" class="meta-key">Blocking dependencies</span>
-      <div data-v-c4b684b6="" class="pill-list"><button data-v-c4b684b6="" type="button" class="nav-pill">goal-1</button></div>
+    <div data-v-eb3d9641="" class="link-list-row"><span data-v-eb3d9641="" class="meta-key">Blocking dependencies</span>
+      <div data-v-eb3d9641="" class="pill-list"><button data-v-eb3d9641="" type="button" class="nav-pill">goal-1</button></div>
     </div>
     <!---->
-    <div data-v-c4b684b6="" class="planning-summary"><strong data-v-c4b684b6="">Planning</strong>
-      <div data-v-c4b684b6="">Status: done</div>
-      <div data-v-c4b684b6="">Planner completed</div>
+    <div data-v-eb3d9641="" class="planning-summary"><strong data-v-eb3d9641="">Planning</strong>
+      <div data-v-eb3d9641="">Status: done</div>
+      <div data-v-eb3d9641="">Planner completed</div>
       <!---->
       <!---->
       <!---->
     </div>
   </section>
-  <section data-v-c4b684b6="" class="detail-section">
-    <h3 data-v-c4b684b6="" class="section-heading">Hierarchy</h3>
-    <div data-v-c4b684b6="" class="link-list-row"><span data-v-c4b684b6="" class="meta-key">Ancestors</span>
-      <div data-v-c4b684b6="" class="pill-list"><button data-v-c4b684b6="" type="button" class="nav-pill">project</button></div>
+  <section data-v-eb3d9641="" class="detail-section">
+    <h3 data-v-eb3d9641="" class="section-heading">Hierarchy</h3>
+    <div data-v-eb3d9641="" class="link-list-row"><span data-v-eb3d9641="" class="meta-key">Ancestors</span>
+      <div data-v-eb3d9641="" class="pill-list"><button data-v-eb3d9641="" type="button" class="nav-pill">project</button></div>
     </div>
-    <div data-v-c4b684b6="" class="children-list"><button data-v-c4b684b6="" type="button" class="child-row"><span data-v-c4b684b6="" class="generated-file-main"><span data-v-c4b684b6="" class="generated-file-path">child-1</span><span data-v-c4b684b6="" class="badge">test</span><span data-v-c4b684b6="" class="badge status-running">running</span></span><span data-v-c4b684b6="" class="generated-file-description">Child</span></button></div>
+    <div data-v-eb3d9641="" class="children-list"><button data-v-eb3d9641="" type="button" class="child-row"><span data-v-eb3d9641="" class="generated-file-main"><span data-v-eb3d9641="" class="generated-file-path">child-1</span><span data-v-eb3d9641="" class="badge">test</span><span data-v-eb3d9641="" class="badge status-running">running</span></span><span data-v-eb3d9641="" class="generated-file-description">Child</span></button></div>
   </section>
-  <section data-v-c4b684b6="" class="detail-section">
-    <h3 data-v-c4b684b6="" class="section-heading">Evidence &amp; generated files</h3>
-    <div data-v-c4b684b6="" class="evidence-summary">1 recorded evidence path is blocked by file-access security.</div>
-    <div data-v-c4b684b6="" class="pill-list summary-pills"><span data-v-c4b684b6="" class="badge">Files: 2</span><span data-v-c4b684b6="" class="badge">Checks: 1</span><span data-v-c4b684b6="" class="badge">Tool errors: 1</span>
-      <!----><span data-v-c4b684b6="" class="badge error">Blocked: 1</span>
-      <!----><span data-v-c4b684b6="" class="badge warning">Parse recovery</span>
+  <section data-v-eb3d9641="" class="detail-section">
+    <h3 data-v-eb3d9641="" class="section-heading">Evidence &amp; generated files</h3>
+    <div data-v-eb3d9641="" class="evidence-summary">1 recorded evidence path is blocked by file-access security.</div>
+    <div data-v-eb3d9641="" class="pill-list summary-pills"><span data-v-eb3d9641="" class="badge">Files: 2</span><span data-v-eb3d9641="" class="badge">Checks: 1</span><span data-v-eb3d9641="" class="badge">Tool errors: 1</span>
+      <!----><span data-v-eb3d9641="" class="badge error">Blocked: 1</span>
+      <!----><span data-v-eb3d9641="" class="badge warning">Parse recovery</span>
     </div>
-    <div data-v-c4b684b6="" class="preview-notice warning">Executor final response was malformed; generated files and verification evidence were recovered from tool activity.</div>
-    <div data-v-c4b684b6="" class="preview-notice error"><strong data-v-c4b684b6="">Tool Errors</strong>
-      <ul data-v-c4b684b6="">
-        <li data-v-c4b684b6="">tool warning</li>
+    <div data-v-eb3d9641="" class="preview-notice warning">Executor final response was malformed; generated files and verification evidence were recovered from tool activity.</div>
+    <div data-v-eb3d9641="" class="preview-notice error"><strong data-v-eb3d9641="">Tool Errors</strong>
+      <ul data-v-eb3d9641="">
+        <li data-v-eb3d9641="">tool warning</li>
       </ul>
     </div>
-    <div data-v-c4b684b6="" class="generated-files-list"><button data-v-c4b684b6="" type="button" class="generated-file-row" aria-label="Preview generated file reports/generated.txt, available"><span data-v-c4b684b6="" class="generated-file-main"><span data-v-c4b684b6="" class="generated-file-path">reports/generated.txt</span><span data-v-c4b684b6="" class="badge">generated_files</span>
+    <div data-v-eb3d9641="" class="generated-files-list"><button data-v-eb3d9641="" type="button" class="generated-file-row" aria-label="Preview generated file reports/generated.txt, available"><span data-v-eb3d9641="" class="generated-file-main"><span data-v-eb3d9641="" class="generated-file-path">reports/generated.txt</span><span data-v-eb3d9641="" class="badge">generated_files</span>
         <!---->
         <!---->
         <!---->
         <!----></span>
         <!---->
         <!---->
-      </button><button data-v-c4b684b6="" type="button" class="generated-file-row disabled" aria-label="Preview generated file .saivage/auth-profiles.json, blocked"><span data-v-c4b684b6="" class="generated-file-main"><span data-v-c4b684b6="" class="generated-file-path">.saivage/auth-profiles.json</span><span data-v-c4b684b6="" class="badge">artifact_paths</span>
+      </button><button data-v-eb3d9641="" type="button" class="generated-file-row disabled" aria-label="Preview generated file .saivage/auth-profiles.json, blocked"><span data-v-eb3d9641="" class="generated-file-main"><span data-v-eb3d9641="" class="generated-file-path">.saivage/auth-profiles.json</span><span data-v-eb3d9641="" class="badge">artifact_paths</span>
         <!---->
         <!---->
-        <!----><span data-v-c4b684b6="" class="badge error">blocked</span></span>
-        <!----><span data-v-c4b684b6="" class="generated-file-description">Path is outside the project root.</span>
+        <!----><span data-v-eb3d9641="" class="badge error">blocked</span></span>
+        <!----><span data-v-eb3d9641="" class="generated-file-description">Path is outside the project root.</span>
       </button></div>
-    <div data-v-c4b684b6="" class="preview-panel" aria-live="polite">
-      <div data-v-c4b684b6="" class="preview-empty">Select a generated file to preview safe text content.</div>
+    <div data-v-eb3d9641="" class="preview-panel" aria-live="polite">
+      <div data-v-eb3d9641="" class="preview-empty">Select a generated file to preview safe text content.</div>
     </div>
-    <div data-v-c4b684b6="" class="verification-section">
-      <h4 data-v-c4b684b6="" class="subheading">Verification Commands</h4>
-      <div data-v-c4b684b6="" class="verification-row"><code data-v-c4b684b6="" class="generated-file-path">npm test</code><span data-v-c4b684b6="" class="badge">completed</span><span data-v-c4b684b6="" class="badge success">pass</span>
-        <!----><span data-v-c4b684b6="" class="badge subtle">process p1</span>
+    <div data-v-eb3d9641="" class="verification-section">
+      <h4 data-v-eb3d9641="" class="subheading">Verification Commands</h4>
+      <div data-v-eb3d9641="" class="verification-row"><code data-v-eb3d9641="" class="generated-file-path">npm test</code><span data-v-eb3d9641="" class="badge">completed</span><span data-v-eb3d9641="" class="badge success">pass</span>
+        <!----><span data-v-eb3d9641="" class="badge subtle">process p1</span>
       </div>
     </div>
   </section>
-  <section data-v-c4b684b6="" class="detail-section">
-    <h3 data-v-c4b684b6="" class="section-heading">Review result</h3>
-    <div data-v-c4b684b6="" class="detail-callout warning"><strong data-v-c4b684b6="">Not reviewed</strong>
-      <div data-v-c4b684b6="">No review result was returned by the card detail API.</div>
+  <section data-v-eb3d9641="" class="detail-section">
+    <h3 data-v-eb3d9641="" class="section-heading">Review result</h3>
+    <div data-v-eb3d9641="" class="detail-callout warning"><strong data-v-eb3d9641="">Not reviewed</strong>
+      <div data-v-eb3d9641="">No review result was returned by the card detail API.</div>
     </div>
     <!---->
   </section>
-  <section data-v-c4b684b6="" class="detail-section">
-    <h3 data-v-c4b684b6="" class="section-heading">Dispatch summary</h3>
-    <div data-v-c4b684b6="" class="list-block">
-      <div data-v-c4b684b6="" class="meta-key">Outgoing dispatches</div>
-      <div data-v-c4b684b6="" class="verification-row"><button data-v-c4b684b6="" type="button" class="nav-pill">child-1</button><span data-v-c4b684b6="" class="badge">completed</span><span data-v-c4b684b6="" class="badge subtle">done</span><span data-v-c4b684b6="">done</span></div>
+  <section data-v-eb3d9641="" class="detail-section">
+    <h3 data-v-eb3d9641="" class="section-heading">Dispatch summary</h3>
+    <div data-v-eb3d9641="" class="list-block">
+      <div data-v-eb3d9641="" class="meta-key">Outgoing dispatches</div>
+      <div data-v-eb3d9641="" class="verification-row"><button data-v-eb3d9641="" type="button" class="nav-pill">child-1</button><span data-v-eb3d9641="" class="badge">completed</span><span data-v-eb3d9641="" class="badge subtle">done</span><span data-v-eb3d9641="">done</span></div>
     </div>
     <!---->
   </section>
@@ -131,34 +132,35 @@ exports[`CardDetailView generated file inspection > renders non-empty evidence w
 `;
 
 exports[`CardDetailView generated file inspection > renders structured result values in a formatted pre/code JSON block 1`] = `
-"<div data-v-c4b684b6="" class="card-detail-container">
-  <section data-v-c4b684b6="" class="detail-section header-section" data-testid="card-detail-highlight">
-    <div data-v-c4b684b6="" class="detail-title-row"><span data-v-c4b684b6="" class="detail-type-badge type-code">(C) code</span>
-      <h1 data-v-c4b684b6="" class="detail-title">Card 1</h1><span data-v-c4b684b6="" class="detail-status-chip status-done">done</span><button data-v-c4b684b6="" type="button" class="discuss-btn" aria-label="Discuss card with analyst">Discuss with analyst</button>
+"<div data-v-eb3d9641="" class="card-detail-container">
+  <section data-v-eb3d9641="" class="detail-section header-section" data-testid="card-detail-highlight">
+    <div data-v-eb3d9641="" class="detail-title-row"><span data-v-eb3d9641="" class="detail-type-badge type-code">(C) code</span>
+      <h1 data-v-eb3d9641="" class="detail-title">Card 1</h1><span data-v-eb3d9641="" class="detail-status-chip status-done">done</span><button data-v-eb3d9641="" type="button" class="discuss-btn" aria-label="Discuss card with analyst">Discuss with analyst</button>
     </div>
-    <div data-v-c4b684b6="" class="detail-id">ID: card-1</div>
-    <div data-v-c4b684b6="" class="detail-callout" role="status">This card is marked done; review and evidence determine whether operators should accept completion.</div>
+    <div data-v-eb3d9641="" class="detail-id">ID: card-1</div>
+    <div data-v-eb3d9641="" class="detail-callout" role="status">This card is marked done; review and evidence determine whether operators should accept completion.</div>
     <!---->
     <!---->
     <!---->
   </section>
   <!---->
-  <section data-v-c4b684b6="" class="detail-section">
-    <h3 data-v-c4b684b6="" class="section-heading">Metadata</h3>
-    <div data-v-c4b684b6="" class="meta-grid">
-      <div data-v-c4b684b6="" class="meta-item"><span data-v-c4b684b6="" class="meta-key">Created</span><span data-v-c4b684b6="" class="meta-value" title="Jan 1, 2025, 12:00:00 AM">Jan 1, 2025, 12:00:00 AM</span></div>
-      <div data-v-c4b684b6="" class="meta-item"><span data-v-c4b684b6="" class="meta-key">Updated</span><span data-v-c4b684b6="" class="meta-value" title="Jan 1, 2025, 12:00:00 AM">Jan 1, 2025, 12:00:00 AM</span></div>
-      <div data-v-c4b684b6="" class="meta-item"><span data-v-c4b684b6="" class="meta-key">Version</span><span data-v-c4b684b6="" class="meta-value">unknown</span></div>
+  <!---->
+  <section data-v-eb3d9641="" class="detail-section">
+    <h3 data-v-eb3d9641="" class="section-heading">Metadata</h3>
+    <div data-v-eb3d9641="" class="meta-grid">
+      <div data-v-eb3d9641="" class="meta-item"><span data-v-eb3d9641="" class="meta-key">Created</span><span data-v-eb3d9641="" class="meta-value" title="Jan 1, 2025, 12:00:00 AM">Jan 1, 2025, 12:00:00 AM</span></div>
+      <div data-v-eb3d9641="" class="meta-item"><span data-v-eb3d9641="" class="meta-key">Updated</span><span data-v-eb3d9641="" class="meta-value" title="Jan 1, 2025, 12:00:00 AM">Jan 1, 2025, 12:00:00 AM</span></div>
+      <div data-v-eb3d9641="" class="meta-item"><span data-v-eb3d9641="" class="meta-key">Version</span><span data-v-eb3d9641="" class="meta-value">unknown</span></div>
       <!---->
       <!---->
-      <div data-v-c4b684b6="" class="meta-item"><span data-v-c4b684b6="" class="meta-key">Priority</span><span data-v-c4b684b6="" class="meta-value">1</span></div>
-      <div data-v-c4b684b6="" class="meta-item"><span data-v-c4b684b6="" class="meta-key">Urgency</span><span data-v-c4b684b6="" class="meta-value">normal</span></div>
+      <div data-v-eb3d9641="" class="meta-item"><span data-v-eb3d9641="" class="meta-key">Priority</span><span data-v-eb3d9641="" class="meta-value">1</span></div>
+      <div data-v-eb3d9641="" class="meta-item"><span data-v-eb3d9641="" class="meta-key">Urgency</span><span data-v-eb3d9641="" class="meta-value">normal</span></div>
       <!---->
       <!---->
-      <div data-v-c4b684b6="" class="meta-item"><span data-v-c4b684b6="" class="meta-key">Retries</span><span data-v-c4b684b6="" class="meta-value">0</span></div>
+      <div data-v-eb3d9641="" class="meta-item"><span data-v-eb3d9641="" class="meta-key">Retries</span><span data-v-eb3d9641="" class="meta-value">0</span></div>
     </div>
   </section>
-  <section data-v-8467d0a4="" data-v-c4b684b6="" class="detail-section">
+  <section data-v-8467d0a4="" data-v-eb3d9641="" class="detail-section">
     <div data-v-8467d0a4="" class="panel-header-row">
       <div data-v-8467d0a4="">
         <h3 data-v-8467d0a4="" class="section-heading">Card history</h3>
@@ -178,86 +180,86 @@ exports[`CardDetailView generated file inspection > renders structured result va
       </div>
     </div>
   </section>
-  <section data-v-c4b684b6="" class="detail-section">
-    <h3 data-v-c4b684b6="" class="section-heading">Completion &amp; blockers</h3>
-    <div data-v-c4b684b6="" class="meta-grid">
-      <div data-v-c4b684b6="" class="meta-item"><span data-v-c4b684b6="" class="meta-key">Completion state</span><span data-v-c4b684b6="" class="meta-value">marked-done</span></div>
-      <div data-v-c4b684b6="" class="meta-item"><span data-v-c4b684b6="" class="meta-key">Evidence readiness</span><span data-v-c4b684b6="" class="meta-value">1 recorded evidence path is blocked by file-access security.</span></div>
-      <div data-v-c4b684b6="" class="meta-item"><span data-v-c4b684b6="" class="meta-key">Child work</span><span data-v-c4b684b6="" class="meta-value">1 children: 1 active/running, 0 blocked/failed, 0 done</span></div>
+  <section data-v-eb3d9641="" class="detail-section">
+    <h3 data-v-eb3d9641="" class="section-heading">Completion &amp; blockers</h3>
+    <div data-v-eb3d9641="" class="meta-grid">
+      <div data-v-eb3d9641="" class="meta-item"><span data-v-eb3d9641="" class="meta-key">Completion state</span><span data-v-eb3d9641="" class="meta-value">marked-done</span></div>
+      <div data-v-eb3d9641="" class="meta-item"><span data-v-eb3d9641="" class="meta-key">Evidence readiness</span><span data-v-eb3d9641="" class="meta-value">1 recorded evidence path is blocked by file-access security.</span></div>
+      <div data-v-eb3d9641="" class="meta-item"><span data-v-eb3d9641="" class="meta-key">Child work</span><span data-v-eb3d9641="" class="meta-value">1 children: 1 active/running, 0 blocked/failed, 0 done</span></div>
     </div>
-    <div data-v-c4b684b6="" class="link-list-row"><span data-v-c4b684b6="" class="meta-key">Blocking dependencies</span>
-      <div data-v-c4b684b6="" class="pill-list"><button data-v-c4b684b6="" type="button" class="nav-pill">goal-1</button></div>
+    <div data-v-eb3d9641="" class="link-list-row"><span data-v-eb3d9641="" class="meta-key">Blocking dependencies</span>
+      <div data-v-eb3d9641="" class="pill-list"><button data-v-eb3d9641="" type="button" class="nav-pill">goal-1</button></div>
     </div>
     <!---->
-    <div data-v-c4b684b6="" class="planning-summary"><strong data-v-c4b684b6="">Planning</strong>
-      <div data-v-c4b684b6="">Status: done</div>
-      <div data-v-c4b684b6="">Planner completed</div>
+    <div data-v-eb3d9641="" class="planning-summary"><strong data-v-eb3d9641="">Planning</strong>
+      <div data-v-eb3d9641="">Status: done</div>
+      <div data-v-eb3d9641="">Planner completed</div>
       <!---->
       <!---->
       <!---->
     </div>
   </section>
-  <section data-v-c4b684b6="" class="detail-section">
-    <h3 data-v-c4b684b6="" class="section-heading">Hierarchy</h3>
-    <div data-v-c4b684b6="" class="link-list-row"><span data-v-c4b684b6="" class="meta-key">Ancestors</span>
-      <div data-v-c4b684b6="" class="pill-list"><button data-v-c4b684b6="" type="button" class="nav-pill">project</button></div>
+  <section data-v-eb3d9641="" class="detail-section">
+    <h3 data-v-eb3d9641="" class="section-heading">Hierarchy</h3>
+    <div data-v-eb3d9641="" class="link-list-row"><span data-v-eb3d9641="" class="meta-key">Ancestors</span>
+      <div data-v-eb3d9641="" class="pill-list"><button data-v-eb3d9641="" type="button" class="nav-pill">project</button></div>
     </div>
-    <div data-v-c4b684b6="" class="children-list"><button data-v-c4b684b6="" type="button" class="child-row"><span data-v-c4b684b6="" class="generated-file-main"><span data-v-c4b684b6="" class="generated-file-path">child-1</span><span data-v-c4b684b6="" class="badge">test</span><span data-v-c4b684b6="" class="badge status-running">running</span></span><span data-v-c4b684b6="" class="generated-file-description">Child</span></button></div>
+    <div data-v-eb3d9641="" class="children-list"><button data-v-eb3d9641="" type="button" class="child-row"><span data-v-eb3d9641="" class="generated-file-main"><span data-v-eb3d9641="" class="generated-file-path">child-1</span><span data-v-eb3d9641="" class="badge">test</span><span data-v-eb3d9641="" class="badge status-running">running</span></span><span data-v-eb3d9641="" class="generated-file-description">Child</span></button></div>
   </section>
-  <section data-v-c4b684b6="" class="detail-section">
-    <h3 data-v-c4b684b6="" class="section-heading">Evidence &amp; generated files</h3>
-    <div data-v-c4b684b6="" class="evidence-summary">1 recorded evidence path is blocked by file-access security.</div>
-    <div data-v-c4b684b6="" class="pill-list summary-pills"><span data-v-c4b684b6="" class="badge">Files: 2</span><span data-v-c4b684b6="" class="badge">Checks: 1</span><span data-v-c4b684b6="" class="badge">Tool errors: 1</span>
-      <!----><span data-v-c4b684b6="" class="badge error">Blocked: 1</span>
-      <!----><span data-v-c4b684b6="" class="badge warning">Parse recovery</span>
+  <section data-v-eb3d9641="" class="detail-section">
+    <h3 data-v-eb3d9641="" class="section-heading">Evidence &amp; generated files</h3>
+    <div data-v-eb3d9641="" class="evidence-summary">1 recorded evidence path is blocked by file-access security.</div>
+    <div data-v-eb3d9641="" class="pill-list summary-pills"><span data-v-eb3d9641="" class="badge">Files: 2</span><span data-v-eb3d9641="" class="badge">Checks: 1</span><span data-v-eb3d9641="" class="badge">Tool errors: 1</span>
+      <!----><span data-v-eb3d9641="" class="badge error">Blocked: 1</span>
+      <!----><span data-v-eb3d9641="" class="badge warning">Parse recovery</span>
     </div>
-    <div data-v-c4b684b6="" class="preview-notice warning">Executor final response was malformed; generated files and verification evidence were recovered from tool activity.</div>
-    <div data-v-c4b684b6="" class="preview-notice error"><strong data-v-c4b684b6="">Tool Errors</strong>
-      <ul data-v-c4b684b6="">
-        <li data-v-c4b684b6="">tool warning</li>
+    <div data-v-eb3d9641="" class="preview-notice warning">Executor final response was malformed; generated files and verification evidence were recovered from tool activity.</div>
+    <div data-v-eb3d9641="" class="preview-notice error"><strong data-v-eb3d9641="">Tool Errors</strong>
+      <ul data-v-eb3d9641="">
+        <li data-v-eb3d9641="">tool warning</li>
       </ul>
     </div>
-    <div data-v-c4b684b6="" class="generated-files-list"><button data-v-c4b684b6="" type="button" class="generated-file-row" aria-label="Preview generated file reports/generated.txt, available"><span data-v-c4b684b6="" class="generated-file-main"><span data-v-c4b684b6="" class="generated-file-path">reports/generated.txt</span><span data-v-c4b684b6="" class="badge">generated_files</span>
+    <div data-v-eb3d9641="" class="generated-files-list"><button data-v-eb3d9641="" type="button" class="generated-file-row" aria-label="Preview generated file reports/generated.txt, available"><span data-v-eb3d9641="" class="generated-file-main"><span data-v-eb3d9641="" class="generated-file-path">reports/generated.txt</span><span data-v-eb3d9641="" class="badge">generated_files</span>
         <!---->
         <!---->
         <!---->
         <!----></span>
         <!---->
         <!---->
-      </button><button data-v-c4b684b6="" type="button" class="generated-file-row disabled" aria-label="Preview generated file .saivage/auth-profiles.json, blocked"><span data-v-c4b684b6="" class="generated-file-main"><span data-v-c4b684b6="" class="generated-file-path">.saivage/auth-profiles.json</span><span data-v-c4b684b6="" class="badge">artifact_paths</span>
+      </button><button data-v-eb3d9641="" type="button" class="generated-file-row disabled" aria-label="Preview generated file .saivage/auth-profiles.json, blocked"><span data-v-eb3d9641="" class="generated-file-main"><span data-v-eb3d9641="" class="generated-file-path">.saivage/auth-profiles.json</span><span data-v-eb3d9641="" class="badge">artifact_paths</span>
         <!---->
         <!---->
-        <!----><span data-v-c4b684b6="" class="badge error">blocked</span></span>
-        <!----><span data-v-c4b684b6="" class="generated-file-description">Path is outside the project root.</span>
+        <!----><span data-v-eb3d9641="" class="badge error">blocked</span></span>
+        <!----><span data-v-eb3d9641="" class="generated-file-description">Path is outside the project root.</span>
       </button></div>
-    <div data-v-c4b684b6="" class="preview-panel" aria-live="polite">
-      <div data-v-c4b684b6="" class="preview-empty">Select a generated file to preview safe text content.</div>
+    <div data-v-eb3d9641="" class="preview-panel" aria-live="polite">
+      <div data-v-eb3d9641="" class="preview-empty">Select a generated file to preview safe text content.</div>
     </div>
-    <div data-v-c4b684b6="" class="verification-section">
-      <h4 data-v-c4b684b6="" class="subheading">Verification Commands</h4>
-      <div data-v-c4b684b6="" class="verification-row"><code data-v-c4b684b6="" class="generated-file-path">npm test</code><span data-v-c4b684b6="" class="badge">completed</span><span data-v-c4b684b6="" class="badge success">pass</span>
-        <!----><span data-v-c4b684b6="" class="badge subtle">process p1</span>
+    <div data-v-eb3d9641="" class="verification-section">
+      <h4 data-v-eb3d9641="" class="subheading">Verification Commands</h4>
+      <div data-v-eb3d9641="" class="verification-row"><code data-v-eb3d9641="" class="generated-file-path">npm test</code><span data-v-eb3d9641="" class="badge">completed</span><span data-v-eb3d9641="" class="badge success">pass</span>
+        <!----><span data-v-eb3d9641="" class="badge subtle">process p1</span>
       </div>
     </div>
   </section>
-  <section data-v-c4b684b6="" class="detail-section">
-    <h3 data-v-c4b684b6="" class="section-heading">Review result</h3>
-    <div data-v-c4b684b6="" class="detail-callout warning"><strong data-v-c4b684b6="">Not reviewed</strong>
-      <div data-v-c4b684b6="">No review result was returned by the card detail API.</div>
+  <section data-v-eb3d9641="" class="detail-section">
+    <h3 data-v-eb3d9641="" class="section-heading">Review result</h3>
+    <div data-v-eb3d9641="" class="detail-callout warning"><strong data-v-eb3d9641="">Not reviewed</strong>
+      <div data-v-eb3d9641="">No review result was returned by the card detail API.</div>
     </div>
     <!---->
   </section>
-  <section data-v-c4b684b6="" class="detail-section">
-    <h3 data-v-c4b684b6="" class="section-heading">Dispatch summary</h3>
-    <div data-v-c4b684b6="" class="list-block">
-      <div data-v-c4b684b6="" class="meta-key">Outgoing dispatches</div>
-      <div data-v-c4b684b6="" class="verification-row"><button data-v-c4b684b6="" type="button" class="nav-pill">child-1</button><span data-v-c4b684b6="" class="badge">completed</span><span data-v-c4b684b6="" class="badge subtle">done</span><span data-v-c4b684b6="">done</span></div>
+  <section data-v-eb3d9641="" class="detail-section">
+    <h3 data-v-eb3d9641="" class="section-heading">Dispatch summary</h3>
+    <div data-v-eb3d9641="" class="list-block">
+      <div data-v-eb3d9641="" class="meta-key">Outgoing dispatches</div>
+      <div data-v-eb3d9641="" class="verification-row"><button data-v-eb3d9641="" type="button" class="nav-pill">child-1</button><span data-v-eb3d9641="" class="badge">completed</span><span data-v-eb3d9641="" class="badge subtle">done</span><span data-v-eb3d9641="">done</span></div>
     </div>
     <!---->
   </section>
   <!---->
-  <section data-v-c4b684b6="" class="detail-section">
-    <h3 data-v-c4b684b6="" class="section-heading">Result</h3><pre data-v-c4b684b6="" class="detail-json"><code data-v-c4b684b6="">{
+  <section data-v-eb3d9641="" class="detail-section">
+    <h3 data-v-eb3d9641="" class="section-heading">Result</h3><pre data-v-eb3d9641="" class="detail-json"><code data-v-eb3d9641="">{
   "planning": {
     "status": "blocked",
     "blocked_reason": "needs input"
@@ -268,34 +270,35 @@ exports[`CardDetailView generated file inspection > renders structured result va
 `;
 
 exports[`CardDetailView generated file inspection > renders the empty evidence state as one sentence without counters or preview placeholder 1`] = `
-"<div data-v-c4b684b6="" class="card-detail-container">
-  <section data-v-c4b684b6="" class="detail-section header-section" data-testid="card-detail-highlight">
-    <div data-v-c4b684b6="" class="detail-title-row"><span data-v-c4b684b6="" class="detail-type-badge type-code">(C) code</span>
-      <h1 data-v-c4b684b6="" class="detail-title">Card 1</h1><span data-v-c4b684b6="" class="detail-status-chip status-done">done</span><button data-v-c4b684b6="" type="button" class="discuss-btn" aria-label="Discuss card with analyst">Discuss with analyst</button>
+"<div data-v-eb3d9641="" class="card-detail-container">
+  <section data-v-eb3d9641="" class="detail-section header-section" data-testid="card-detail-highlight">
+    <div data-v-eb3d9641="" class="detail-title-row"><span data-v-eb3d9641="" class="detail-type-badge type-code">(C) code</span>
+      <h1 data-v-eb3d9641="" class="detail-title">Card 1</h1><span data-v-eb3d9641="" class="detail-status-chip status-done">done</span><button data-v-eb3d9641="" type="button" class="discuss-btn" aria-label="Discuss card with analyst">Discuss with analyst</button>
     </div>
-    <div data-v-c4b684b6="" class="detail-id">ID: card-1</div>
-    <div data-v-c4b684b6="" class="detail-callout" role="status">This card is marked done; review and evidence determine whether operators should accept completion.</div>
+    <div data-v-eb3d9641="" class="detail-id">ID: card-1</div>
+    <div data-v-eb3d9641="" class="detail-callout" role="status">This card is marked done; review and evidence determine whether operators should accept completion.</div>
     <!---->
     <!---->
     <!---->
   </section>
   <!---->
-  <section data-v-c4b684b6="" class="detail-section">
-    <h3 data-v-c4b684b6="" class="section-heading">Metadata</h3>
-    <div data-v-c4b684b6="" class="meta-grid">
-      <div data-v-c4b684b6="" class="meta-item"><span data-v-c4b684b6="" class="meta-key">Created</span><span data-v-c4b684b6="" class="meta-value" title="Jan 1, 2025, 12:00:00 AM">Jan 1, 2025, 12:00:00 AM</span></div>
-      <div data-v-c4b684b6="" class="meta-item"><span data-v-c4b684b6="" class="meta-key">Updated</span><span data-v-c4b684b6="" class="meta-value" title="Jan 1, 2025, 12:00:00 AM">Jan 1, 2025, 12:00:00 AM</span></div>
-      <div data-v-c4b684b6="" class="meta-item"><span data-v-c4b684b6="" class="meta-key">Version</span><span data-v-c4b684b6="" class="meta-value">unknown</span></div>
+  <!---->
+  <section data-v-eb3d9641="" class="detail-section">
+    <h3 data-v-eb3d9641="" class="section-heading">Metadata</h3>
+    <div data-v-eb3d9641="" class="meta-grid">
+      <div data-v-eb3d9641="" class="meta-item"><span data-v-eb3d9641="" class="meta-key">Created</span><span data-v-eb3d9641="" class="meta-value" title="Jan 1, 2025, 12:00:00 AM">Jan 1, 2025, 12:00:00 AM</span></div>
+      <div data-v-eb3d9641="" class="meta-item"><span data-v-eb3d9641="" class="meta-key">Updated</span><span data-v-eb3d9641="" class="meta-value" title="Jan 1, 2025, 12:00:00 AM">Jan 1, 2025, 12:00:00 AM</span></div>
+      <div data-v-eb3d9641="" class="meta-item"><span data-v-eb3d9641="" class="meta-key">Version</span><span data-v-eb3d9641="" class="meta-value">unknown</span></div>
       <!---->
       <!---->
-      <div data-v-c4b684b6="" class="meta-item"><span data-v-c4b684b6="" class="meta-key">Priority</span><span data-v-c4b684b6="" class="meta-value">1</span></div>
-      <div data-v-c4b684b6="" class="meta-item"><span data-v-c4b684b6="" class="meta-key">Urgency</span><span data-v-c4b684b6="" class="meta-value">normal</span></div>
+      <div data-v-eb3d9641="" class="meta-item"><span data-v-eb3d9641="" class="meta-key">Priority</span><span data-v-eb3d9641="" class="meta-value">1</span></div>
+      <div data-v-eb3d9641="" class="meta-item"><span data-v-eb3d9641="" class="meta-key">Urgency</span><span data-v-eb3d9641="" class="meta-value">normal</span></div>
       <!---->
       <!---->
-      <div data-v-c4b684b6="" class="meta-item"><span data-v-c4b684b6="" class="meta-key">Retries</span><span data-v-c4b684b6="" class="meta-value">0</span></div>
+      <div data-v-eb3d9641="" class="meta-item"><span data-v-eb3d9641="" class="meta-key">Retries</span><span data-v-eb3d9641="" class="meta-value">0</span></div>
     </div>
   </section>
-  <section data-v-8467d0a4="" data-v-c4b684b6="" class="detail-section">
+  <section data-v-8467d0a4="" data-v-eb3d9641="" class="detail-section">
     <div data-v-8467d0a4="" class="panel-header-row">
       <div data-v-8467d0a4="">
         <h3 data-v-8467d0a4="" class="section-heading">Card history</h3>
@@ -315,48 +318,48 @@ exports[`CardDetailView generated file inspection > renders the empty evidence s
       </div>
     </div>
   </section>
-  <section data-v-c4b684b6="" class="detail-section">
-    <h3 data-v-c4b684b6="" class="section-heading">Completion &amp; blockers</h3>
-    <div data-v-c4b684b6="" class="meta-grid">
-      <div data-v-c4b684b6="" class="meta-item"><span data-v-c4b684b6="" class="meta-key">Completion state</span><span data-v-c4b684b6="" class="meta-value">marked-done</span></div>
-      <div data-v-c4b684b6="" class="meta-item"><span data-v-c4b684b6="" class="meta-key">Evidence readiness</span><span data-v-c4b684b6="" class="meta-value">No evidence summary returned.</span></div>
-      <div data-v-c4b684b6="" class="meta-item"><span data-v-c4b684b6="" class="meta-key">Child work</span><span data-v-c4b684b6="" class="meta-value">1 children: 1 active/running, 0 blocked/failed, 0 done</span></div>
+  <section data-v-eb3d9641="" class="detail-section">
+    <h3 data-v-eb3d9641="" class="section-heading">Completion &amp; blockers</h3>
+    <div data-v-eb3d9641="" class="meta-grid">
+      <div data-v-eb3d9641="" class="meta-item"><span data-v-eb3d9641="" class="meta-key">Completion state</span><span data-v-eb3d9641="" class="meta-value">marked-done</span></div>
+      <div data-v-eb3d9641="" class="meta-item"><span data-v-eb3d9641="" class="meta-key">Evidence readiness</span><span data-v-eb3d9641="" class="meta-value">No evidence summary returned.</span></div>
+      <div data-v-eb3d9641="" class="meta-item"><span data-v-eb3d9641="" class="meta-key">Child work</span><span data-v-eb3d9641="" class="meta-value">1 children: 1 active/running, 0 blocked/failed, 0 done</span></div>
     </div>
-    <div data-v-c4b684b6="" class="link-list-row"><span data-v-c4b684b6="" class="meta-key">Blocking dependencies</span>
-      <div data-v-c4b684b6="" class="pill-list"><button data-v-c4b684b6="" type="button" class="nav-pill">goal-1</button></div>
-    </div>
-    <!---->
-    <div data-v-c4b684b6="" class="planning-summary"><strong data-v-c4b684b6="">Planning</strong>
-      <div data-v-c4b684b6="">Status: done</div>
-      <div data-v-c4b684b6="">Planner completed</div>
-      <!---->
-      <!---->
-      <!---->
-    </div>
-  </section>
-  <section data-v-c4b684b6="" class="detail-section">
-    <h3 data-v-c4b684b6="" class="section-heading">Hierarchy</h3>
-    <div data-v-c4b684b6="" class="link-list-row"><span data-v-c4b684b6="" class="meta-key">Ancestors</span>
-      <div data-v-c4b684b6="" class="pill-list"><button data-v-c4b684b6="" type="button" class="nav-pill">project</button></div>
-    </div>
-    <div data-v-c4b684b6="" class="children-list"><button data-v-c4b684b6="" type="button" class="child-row"><span data-v-c4b684b6="" class="generated-file-main"><span data-v-c4b684b6="" class="generated-file-path">child-1</span><span data-v-c4b684b6="" class="badge">test</span><span data-v-c4b684b6="" class="badge status-running">running</span></span><span data-v-c4b684b6="" class="generated-file-description">Child</span></button></div>
-  </section>
-  <section data-v-c4b684b6="" class="detail-section">
-    <h3 data-v-c4b684b6="" class="section-heading">Evidence &amp; generated files</h3>
-    <div data-v-c4b684b6="" class="empty-evidence">No evidence has been recorded for this card.</div>
-  </section>
-  <section data-v-c4b684b6="" class="detail-section">
-    <h3 data-v-c4b684b6="" class="section-heading">Review result</h3>
-    <div data-v-c4b684b6="" class="detail-callout warning"><strong data-v-c4b684b6="">Not reviewed</strong>
-      <div data-v-c4b684b6="">No review result was returned by the card detail API.</div>
+    <div data-v-eb3d9641="" class="link-list-row"><span data-v-eb3d9641="" class="meta-key">Blocking dependencies</span>
+      <div data-v-eb3d9641="" class="pill-list"><button data-v-eb3d9641="" type="button" class="nav-pill">goal-1</button></div>
     </div>
     <!---->
+    <div data-v-eb3d9641="" class="planning-summary"><strong data-v-eb3d9641="">Planning</strong>
+      <div data-v-eb3d9641="">Status: done</div>
+      <div data-v-eb3d9641="">Planner completed</div>
+      <!---->
+      <!---->
+      <!---->
+    </div>
   </section>
-  <section data-v-c4b684b6="" class="detail-section">
-    <h3 data-v-c4b684b6="" class="section-heading">Dispatch summary</h3>
-    <div data-v-c4b684b6="" class="list-block">
-      <div data-v-c4b684b6="" class="meta-key">Outgoing dispatches</div>
-      <div data-v-c4b684b6="" class="verification-row"><button data-v-c4b684b6="" type="button" class="nav-pill">child-1</button><span data-v-c4b684b6="" class="badge">completed</span><span data-v-c4b684b6="" class="badge subtle">done</span><span data-v-c4b684b6="">done</span></div>
+  <section data-v-eb3d9641="" class="detail-section">
+    <h3 data-v-eb3d9641="" class="section-heading">Hierarchy</h3>
+    <div data-v-eb3d9641="" class="link-list-row"><span data-v-eb3d9641="" class="meta-key">Ancestors</span>
+      <div data-v-eb3d9641="" class="pill-list"><button data-v-eb3d9641="" type="button" class="nav-pill">project</button></div>
+    </div>
+    <div data-v-eb3d9641="" class="children-list"><button data-v-eb3d9641="" type="button" class="child-row"><span data-v-eb3d9641="" class="generated-file-main"><span data-v-eb3d9641="" class="generated-file-path">child-1</span><span data-v-eb3d9641="" class="badge">test</span><span data-v-eb3d9641="" class="badge status-running">running</span></span><span data-v-eb3d9641="" class="generated-file-description">Child</span></button></div>
+  </section>
+  <section data-v-eb3d9641="" class="detail-section">
+    <h3 data-v-eb3d9641="" class="section-heading">Evidence &amp; generated files</h3>
+    <div data-v-eb3d9641="" class="empty-evidence">No evidence has been recorded for this card.</div>
+  </section>
+  <section data-v-eb3d9641="" class="detail-section">
+    <h3 data-v-eb3d9641="" class="section-heading">Review result</h3>
+    <div data-v-eb3d9641="" class="detail-callout warning"><strong data-v-eb3d9641="">Not reviewed</strong>
+      <div data-v-eb3d9641="">No review result was returned by the card detail API.</div>
+    </div>
+    <!---->
+  </section>
+  <section data-v-eb3d9641="" class="detail-section">
+    <h3 data-v-eb3d9641="" class="section-heading">Dispatch summary</h3>
+    <div data-v-eb3d9641="" class="list-block">
+      <div data-v-eb3d9641="" class="meta-key">Outgoing dispatches</div>
+      <div data-v-eb3d9641="" class="verification-row"><button data-v-eb3d9641="" type="button" class="nav-pill">child-1</button><span data-v-eb3d9641="" class="badge">completed</span><span data-v-eb3d9641="" class="badge subtle">done</span><span data-v-eb3d9641="">done</span></div>
     </div>
     <!---->
   </section>

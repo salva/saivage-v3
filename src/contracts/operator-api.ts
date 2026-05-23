@@ -2,6 +2,7 @@ import { z } from 'zod';
 import {
   cardRecordSchema,
   cardStatusSchema,
+  cardActionSchema,
   cardTypeSchema,
   createdBySchema,
   runtimeStateSchema,
@@ -58,6 +59,7 @@ export const RuntimeSummarySchema = z.object({
 export const RuntimeRunRecordSchema = runtimeRunRecordSchema;
 export const RuntimeActivationRecordSchema = runtimeActivationRecordSchema;
 export const RuntimeCommandRecordSchema = runtimeCommandRecordSchema;
+export const CardPermissionFieldsSchema = z.object({ allowedActions: z.array(cardActionSchema).optional() });
 export const PlannerStateCardFieldsSchema = z.object({
   planner_state: cardStatusSchema.optional(),
   plannerState: cardStatusSchema.optional(),
