@@ -5,7 +5,7 @@ import { pathToFileURL } from 'node:url';
 import { parseArgs } from 'node:util';
 import { isLocked } from './runtime/lock.js';
 import { pauseRuntimeControl, resumeRuntimeControl } from './runtime/control.js';
-import { evaluateAuthz } from './agents/authz.js';
+import { evaluateAuthz } from './agents/index.js';
 import { recordControlAction, stableStringify } from './persistence/control-action-audit.js';
 
 interface CliOptions { 'kill-processes'?: boolean; force?: boolean; 'create-runtime'?: boolean; port?: string; host?: string; }
