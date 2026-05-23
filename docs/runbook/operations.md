@@ -102,9 +102,21 @@ curl http://localhost:8080/health
 
 Expected status: `200`.
 
-Expected top-level JSON keys: `status`, `version`, `project`, `runtime`.
+Expected top-level JSON keys: `status`, `version`, `project`.
 
-`runtime` is `unknown`, `idle`, `running`, `paused`, `error`, or `frozen`. When the runtime is frozen and a freeze manifest is present, the response can also include `frozen_reason`.
+`/health` is a liveness-only probe. It does not include runtime readiness, runtime state, or server availability fields. Use `/health/ready` for readiness.
+
+### Readiness
+
+```bash
+curl http://localhost:8080/health/ready
+```
+
+Expected status: `200` when ready, or `503` when not ready.
+
+Expected top-level JSON keys: `status`.
+
+`status` is `ready` or `not_ready`; ready responses may also include `serverAvailability` component diagnostics.
 
 ### Runtime state
 

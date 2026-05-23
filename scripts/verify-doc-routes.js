@@ -10,11 +10,11 @@ const CODE_LINE_ANCHOR_PATTERN = String.raw`[^\s:|]+:\d+(?:\s+"(?:\\.|[^"\\])*")
 const ROUTE_TABLE_ROW_RE = new RegExp('^\\|\\s*`(GET|POST|PATCH|DELETE|PUT)\\s+([^`]+)`\\s*\\|\\s*([^|]+?)\\s*\\|\\s*`(' + CODE_LINE_ANCHOR_PATTERN + ')`\\s*\\|');
 const ROLE_TOOL_ROW_RE = /^\|\s*`(planner|executor|reviewer|analyst)`\s*\|\s*`([^`]+)`\s*\|\s*`([^`]+:\d+)`\s*\|/;
 const CONFIG_ROW_RE = /^\|\s*`([^`]+)`\s*\|\s*`([^`]+)`\s*\|\s*`([^`]+:\d+)`\s*\|/;
-const RUNTIME_CONTROL_ROW_RE = /^\|\s*`(POST\s+\/api\/runtime\/(?:pause|resume|freeze|resume-from-freeze))`\s*\|\s*`([^`]+)`\s*\|\s*`([^`]+)`\s*\|\s*`([^`]+:\d+)`\s*\|/;
+const RUNTIME_CONTROL_ROW_RE = /^\|\s*`(POST\s+\/api\/runtime\/(?:pause|resume|freeze|resume-from-freeze))`\s*\|\s*`([^`]+)`\s*\|\s*`([^`]+)`\s*\|\s*`([^`]+:\d+(?:\s+\"(?:\\\\.|[^\"\\\\])*\")?)`\s*\|/;
 
 const DEFAULT_REMOVED_ROUTES = new Set(['POST /api/runtime/dispatch']);
 const DEFAULT_OPERATOR_DOCS = new Set(['README.md','docs/index.md','docs/install.md','docs/configuration.md','docs/operation.md','docs/operator-runbook.md','docs/troubleshooting.md','docs/release-checklist.md']);
-const SOURCE_FILES = ['src/server/server.ts', 'src/server/routes', 'src/agents/agent-adapter.ts', 'src/agents/workspace-tools.ts', 'src/agents/config-schema.ts'];
+const SOURCE_FILES = ['src/server/server.ts', 'src/server/routes', 'src/contracts/operator-api.ts', 'src/agents/agent-adapter.ts', 'src/agents/workspace-tools.ts', 'src/agents/config-schema.ts'];
 const OPERATION_DOC = 'docs/operation.md';
 const AGENTS_DOC = 'docs/agents.md';
 const CONFIG_DOC = 'docs/configuration.md';
@@ -43,9 +43,23 @@ export function normalizeRoutePath(routePath) {
 }
 export function routeKey(method, routePath) { return `${method.toUpperCase()} ${normalizeRoutePath(routePath)}`; }
 
+function extractContractRoutes(projectRoot) {
+  const contractPath = join(projectRoot, 'src/contracts/operator-api.ts');
+  const routes = new Set();
+  if (!existsSync(contractPath)) return routes;
+  const content = readFileSync(contractPath, 'utf-8');
+  const contractRe = /method:\s*['"`](GET|POST|PATCH|DELETE|PUT)['"`][\s\S]*?path:\s*['"`]([^'"`]+)['"`]/g;
+  for (const match of content.matchAll(contractRe)) {
+    const method = match[1].toUpperCase();
+    const routePath = match[2];
+    if (routePath.startsWith('/api/') || routePath === '/health' || routePath === '/health/ready') routes.add(routeKey(method, routePath));
+  }
+  return routes;
+}
+
 export function extractImplementedRoutes(projectRoot = process.cwd()) {
   const routeFiles = [join(projectRoot, 'src/server/server.ts'), ...listTsFiles(join(projectRoot, 'src/server/routes'))];
-  const routes = new Set();
+  const routes = extractContractRoutes(projectRoot);
   for (const file of routeFiles) {
     if (!existsSync(file)) continue;
     const content = readFileSync(file, 'utf-8');
@@ -53,7 +67,7 @@ export function extractImplementedRoutes(projectRoot = process.cwd()) {
     for (const match of content.matchAll(ROUTE_METHOD_RE)) {
       const method = match[1].toUpperCase();
       const routePath = match[3];
-      if (routePath.startsWith('/api/') || routePath === '/health') routes.add(routeKey(method, routePath));
+      if (routePath.startsWith('/api/') || routePath === '/health' || routePath === '/health/ready') routes.add(routeKey(method, routePath));
     }
   }
   return routes;
@@ -296,7 +310,7 @@ export function verifyDocRoutes(options = {}) {
 
   for (const mention of documentedRoutes) {
     if (removedRoutes.has(mention.key)) failures.push({ type: 'removed-route', route: mention.key, file: mention.file, line: mention.line, message: `${mention.file}:${mention.line} mentions removed route ${mention.key}` });
-    else if (!implementedRoutes.has(mention.key)) failures.push({ type: 'missing-route', route: mention.key, file: mention.file, line: mention.line, message: `${mention.file}:${mention.line} mentions ${mention.key}, but no matching Fastify route was found` });
+    else if (!implementedRoutes.has(mention.key)) failures.push({ type: 'missing-route', route: mention.key, file: mention.file, line: mention.line, message: `${mention.file}:${mention.line} mentions ${mention.key}, but no matching Fastify or contract route was found` });
   }
 
   const inventoryRows = options.routeInventoryRows ?? parseRouteInventory(projectRoot);
@@ -310,7 +324,7 @@ export function verifyDocRoutes(options = {}) {
     if (count !== 1) failures.push({ type: 'route-inventory-count', route, message: `${OPERATION_DOC} must document implemented route ${route} exactly once in the operator route inventory; found ${count}` });
   }
   for (const [route, count] of inventoryCounts) {
-    if (!implementedRoutes.has(route)) failures.push({ type: 'route-inventory-missing', route, message: `${OPERATION_DOC} route inventory lists ${route}, but no matching Fastify route was found` });
+    if (!implementedRoutes.has(route)) failures.push({ type: 'route-inventory-missing', route, message: `${OPERATION_DOC} route inventory lists ${route}, but no matching Fastify or contract route was found` });
     if (count > 1) failures.push({ type: 'route-inventory-count', route, message: `${OPERATION_DOC} route inventory lists ${route} ${count} times` });
   }
 
@@ -337,10 +351,10 @@ export function verifyRuntimeControlDocs(options = {}) {
   const verifySource = options.verifySource ?? true;
   const failures = [];
   const expected = new Map([
-    ['POST /api/runtime/pause', { request: 'empty-or-null-json-object', response: 'RuntimeState', sourceFragments: ['fastify.post', '/api/runtime/pause', 'result.state ?? readRuntimeState(projectRoot)'] }],
-    ['POST /api/runtime/resume', { request: 'empty-or-null-json-object', response: 'RuntimeState', sourceFragments: ['fastify.post', '/api/runtime/resume', 'result.state ?? readRuntimeState(projectRoot)'] }],
-    ['POST /api/runtime/freeze', { request: 'optional-object:{reason?:string}', response: 'freeze-summary', sourceFragments: ['fastify.post', '/api/runtime/freeze', 'body?.reason'] }],
-    ['POST /api/runtime/resume-from-freeze', { request: 'empty-or-null-json-object', response: 'resume-from-freeze-summary', sourceFragments: ['fastify.post', '/api/runtime/resume-from-freeze', 'resumeFromFreeze'] }],
+    ['POST /api/runtime/pause', { request: 'empty-or-null-json-object', response: 'RuntimeState', sourceFragments: ["path: '/api/runtime/pause'"] }],
+    ['POST /api/runtime/resume', { request: 'empty-or-null-json-object', response: 'RuntimeState', sourceFragments: ["path: '/api/runtime/resume'"] }],
+    ['POST /api/runtime/freeze', { request: 'optional-object:{reason?:string}', response: 'freeze-summary', sourceFragments: ['/api/runtime/freeze'] }],
+    ['POST /api/runtime/resume-from-freeze', { request: 'empty-or-null-json-object', response: 'resume-from-freeze-summary', sourceFragments: ['/api/runtime/resume-from-freeze'] }],
   ]);
   for (const [route, shape] of expected) {
     const row = rows.get(route);
@@ -396,7 +410,7 @@ export function formatVerificationResult(result, projectRoot = process.cwd()) {
   lines.push('==> Verifying active docs against source contracts...');
   lines.push(`  Checked ${result.routeResult.checkedDocs.length} active doc(s), ${result.routeResult.implementedRoutes.size} implemented operator route(s), ${result.routeResult.routeInventoryRows.length} inventory row(s).`);
   lines.push(`  Checked agent tool parity, runtime-control shapes, configuration schema fields in ${result.configResult.checkedDocs.length} config doc(s), and code anchors.`);
-  if (result.ok) lines.push('  ✓ current docs match Fastify routes, agent tools, runtime controls, config schema, and anchors');
+  if (result.ok) lines.push('  ✓ current docs match Fastify/contract routes, agent tools, runtime controls, config schema, and anchors');
   else {
     lines.push('  ✗ documentation/source drift detected:');
     for (const failure of result.failures) lines.push(`    - ${failure.message}`);

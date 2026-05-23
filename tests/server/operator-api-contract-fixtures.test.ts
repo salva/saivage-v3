@@ -66,7 +66,16 @@ describe('operator API documented response contracts', () => {
     expect(body.status).toBe('ok');
     expect(typeof body.version).toBe('string');
     expect(typeof body.project).toBe('string');
-    expect(['unknown', 'idle', 'running', 'paused', 'error', 'frozen']).toContain(body.runtime);
+    expect(body).not.toHaveProperty('runtime');
+    expect(body).not.toHaveProperty('serverAvailability');
+  });
+
+  it('GET /health/ready matches the documented readiness response keys', async () => {
+    const response = await server.fastify.inject({ method: 'GET', url: '/health/ready' });
+    expect(response.statusCode).toBe(200);
+    const body = response.json<Record<string, unknown>>();
+    expectTopLevelKeys(body, documentedTopLevelKeys('Readiness'));
+    expect(['ready', 'not_ready']).toContain(body.status);
   });
 
   it('GET /api/state matches documented keys and validates RuntimeState when present', async () => {

@@ -8,7 +8,8 @@ import { extractImplementedRoutes, routeKey, normalizeRoutePath } from './verify
 const RUNBOOK_DIR = 'docs/runbook';
 const RUNTIME_STATE_KEYS = ['status', 'project_id', 'pid', 'started_at', 'paused', 'queue', 'running_processes', 'updated_at'];
 const REQUIRED_SEMANTIC_EXAMPLES = new Map([
-  ['GET /health', { status: 200, keys: ['status', 'version', 'project', 'runtime'], required: true }],
+  ['GET /health', { status: 200, keys: ['status', 'version', 'project'], required: true }],
+  ['GET /health/ready', { status: 200, keys: ['status'], required: true }],
   ['GET /api/state', { status: 200, keys: ['runtime', 'cardIndex'], required: true }],
   ['POST /api/runtime/pause', { status: 200, keys: RUNTIME_STATE_KEYS, required: true }],
   ['POST /api/runtime/resume', { status: 200, keys: RUNTIME_STATE_KEYS, required: true }],
@@ -102,7 +103,10 @@ export function seedRuntimeFixture() {
 export function responseFor(key, fixture) {
   const now = new Date('2026-05-19T00:01:00.000Z').toISOString();
   if (key === 'GET /health') {
-    return { statusCode: 200, body: { status: 'ok', version: '0.1.0', project: 'saivage-v3', runtime: fixture.state.status } };
+    return { statusCode: 200, body: { status: 'ok', version: '0.1.0', project: 'saivage-v3' } };
+  }
+  if (key === 'GET /health/ready') {
+    return { statusCode: 200, body: { status: 'ready' } };
   }
   if (key === 'GET /api/state') {
     return { statusCode: 200, body: { runtime: fixture.state, cardIndex: { total: 0, byStatus: {}, byType: {} } } };
