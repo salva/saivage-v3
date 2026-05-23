@@ -4,4 +4,6 @@
 /package-lock.json
 /dist/
 /docs/.vitepress/dist/
+/tmp/
+/old-documents/
 
