@@ -391,37 +391,9 @@ export function registerChatsFilesDebugRoutes(
 
   fastify.get('/api/debug/doctor', async (_request: FastifyRequest, reply: FastifyReply) => {
     try {
-      const indexPath = join(projectRoot, '.saivage', 'cards', 'index.json');
       const byIdDir = join(projectRoot, '.saivage', 'cards', 'by-id');
-      const treeDir = join(projectRoot, '.saivage', 'cards', 'tree');
-
       const checks: DoctorCheck[] = [];
       const issues: DoctorIssue[] = [];
-
-      let indexCards: Record<string, { id: string; parent: string | null }> = {};
-      let indexExists = false;
-      if (existsSync(indexPath)) {
-        indexExists = true;
-        try {
-          const raw = JSON.parse(readFileSync(indexPath, 'utf-8'));
-          indexCards = raw.cards || {};
-        } catch {
-          checks.push({
-            name: 'index_entries_have_card_files',
-            passed: false,
-            details: 'Index file exists but could not be parsed as valid JSON.',
-          });
-          issues.push({
-            severity: 'error',
-            message: 'Index file (.saivage/cards/index.json) is not valid JSON.',
-          });
-          return reply.send({
-            status: 'issues_found',
-            checks,
-            issues,
-          } as DoctorResponse);
-        }
-      }
 
       let diskCardIds: Set<string> = new Set();
       let byIdExists = false;
@@ -430,103 +402,50 @@ export function registerChatsFilesDebugRoutes(
         try {
           const files = readdirSync(byIdDir).filter((f: string) => f.endsWith('.json'));
           diskCardIds = new Set(files.map((f: string) => f.replace('.json', '')));
-        } catch { void 0; 
-        }
+        } catch { void 0; }
       }
 
-      const indexIds = Object.keys(indexCards);
-      const missingCardFiles: string[] = [];
-
-      for (const id of indexIds) {
-        const cardFilePath = join(byIdDir, `${id}.json`);
-        if (!existsSync(cardFilePath)) {
-          missingCardFiles.push(id);
-        }
+      let store: CardStore | null = null;
+      try {
+        store = new CardStore(projectRoot);
+      } catch (err) {
+        checks.push({ name: 'cardstore_loadable', passed: false, details: 'CardStore failed to load.' });
+        issues.push({ severity: 'error', message: `CardStore failed to load: ${err instanceof Error ? err.message : String(err)}` });
+        return reply.send({ status: 'issues_found', checks, issues } as DoctorResponse);
       }
+      checks.push({ name: 'cardstore_loadable', passed: true, details: 'CardStore loaded successfully.' });
 
-      if (missingCardFiles.length > 0) {
-        checks.push({
-          name: 'index_entries_have_card_files',
-          passed: false,
-          details: `${missingCardFiles.length} index entr${missingCardFiles.length === 1 ? 'y' : 'ies'} missing corresponding card file(s): ${missingCardFiles.join(', ')}`,
-        });
-        for (const id of missingCardFiles) {
-          issues.push({
-            severity: 'error',
-            message: `Index entry '${id}' has no corresponding card file at .saivage/cards/by-id/${id}.json`,
-          });
+      const storeCards = store.list();
+      const storeIds = new Set(storeCards.map((c) => c.id));
+
+      const missingFromDisk: string[] = [];
+      for (const id of storeIds) {
+        if (!diskCardIds.has(id)) missingFromDisk.push(id);
+      }
+      if (missingFromDisk.length > 0) {
+        checks.push({ name: 'cardstore_entries_have_files', passed: false, details: `${missingFromDisk.length} CardStore entr${missingFromDisk.length === 1 ? 'y' : 'ies'} missing file(s) on disk: ${missingFromDisk.join(', ')}` });
+        for (const id of missingFromDisk) {
+          issues.push({ severity: 'error', message: `CardStore entry '${id}' has no corresponding file at .saivage/cards/by-id/${id}.json` });
         }
-      } else if (!indexExists) {
-        checks.push({
-          name: 'index_entries_have_card_files',
-          passed: true,
-          details: 'No index file exists — no cards to check.',
-        });
       } else {
-        checks.push({
-          name: 'index_entries_have_card_files',
-          passed: true,
-          details: `All ${indexIds.length} index entr${indexIds.length === 1 ? 'y has' : 'ies have'} corresponding card files.`,
-        });
+        checks.push({ name: 'cardstore_entries_have_files', passed: true, details: byIdExists ? `All ${storeIds.size} CardStore entr${storeIds.size === 1 ? 'y has' : 'ies have'} corresponding files.` : 'No by-id/ directory exists — no card files to check.' });
       }
 
-      const missingIndexEntries: string[] = [];
-
+      const orphanFiles: string[] = [];
       for (const id of diskCardIds) {
-        if (!(id in indexCards)) {
-          missingIndexEntries.push(id);
-        }
+        if (!storeIds.has(id)) orphanFiles.push(id);
       }
-
-      if (missingIndexEntries.length > 0) {
-        checks.push({
-          name: 'card_files_have_index_entries',
-          passed: false,
-          details: `${missingIndexEntries.length} card file(s) have no corresponding index entry: ${missingIndexEntries.join(', ')}`,
-        });
-        for (const id of missingIndexEntries) {
-          issues.push({
-            severity: 'error',
-            message: `Card file .saivage/cards/by-id/${id}.json has no corresponding entry in index.json`,
-          });
+      if (orphanFiles.length > 0) {
+        checks.push({ name: 'card_files_have_cardstore_entries', passed: false, details: `${orphanFiles.length} card file(s) have no corresponding CardStore entry: ${orphanFiles.join(', ')}` });
+        for (const id of orphanFiles) {
+          issues.push({ severity: 'error', message: `Card file .saivage/cards/by-id/${id}.json has no corresponding CardStore entry.` });
         }
-      } else if (!byIdExists) {
-        checks.push({
-          name: 'card_files_have_index_entries',
-          passed: true,
-          details: 'No by-id/ directory exists — no card files to check.',
-        });
       } else {
-        checks.push({
-          name: 'card_files_have_index_entries',
-          passed: true,
-          details: `All ${diskCardIds.size} card file(s) have corresponding index entries.`,
-        });
+        checks.push({ name: 'card_files_have_cardstore_entries', passed: true, details: byIdExists ? `All ${diskCardIds.size} card file(s) have corresponding CardStore entries.` : 'No by-id/ directory exists — no card files to check.' });
       }
-
-      checks.push({
-        name: 'child_parent_consistency',
-        passed: true,
-        details: existsSync(treeDir)
-          ? 'All child-parent relationships are consistent.'
-          : 'No tree directory exists — no child-parent relationships to check.',
-      });
-
-      checks.push({
-        name: 'no_duplicate_ids',
-        passed: true,
-        details: byIdExists
-          ? `No duplicate IDs found across ${diskCardIds.size} card file(s).`
-          : 'No by-id/ directory exists — no duplicate check needed.',
-      });
 
       const allPassed = checks.every((c) => c.passed);
-
-      return reply.send({
-        status: allPassed ? 'ok' : 'issues_found',
-        checks,
-        issues,
-      } as DoctorResponse);
+      return reply.send({ status: allPassed ? 'ok' : 'issues_found', checks, issues } as DoctorResponse);
     } catch (err) {
       return reply.status(500).send({
         error: 'Failed to run doctor consistency check',

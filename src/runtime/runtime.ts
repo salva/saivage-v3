@@ -765,6 +765,7 @@ export class Runtime extends EventEmitter {
   applyPlannerResult(goalId: string, plannerResult: PlannerResult): void {
     if (plannerResult.created_cards) {
       for (const cardDef of plannerResult.created_cards) {
+        if (this.cardStore.read(cardDef.id ?? '')) continue;
         this.cardStore.create({ id: cardDef.id, type: cardDef.type as CardRecord['type'], parent: goalId, title: cardDef.title, description: cardDef.description, status: cardDef.status as CardRecord['status'], depends_on: cardDef.depends_on, priority: cardDef.priority, tags: cardDef.tags ?? [], urgency: 'normal', created_by: 'planner', blocks: [], related: [], acceptance: '', artifacts: [], attachments: [], retries: 0, depth: 0 });
       }
     }

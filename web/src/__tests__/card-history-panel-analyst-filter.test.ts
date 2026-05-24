@@ -20,10 +20,10 @@ describe('CardHistoryPanel analyst filter', () => {
 
   it('filters down to analyst-authored entries only', async () => {
     vi.mocked(listCardHistory).mockResolvedValue({ history: [
-      { card_id: 'card-1', version_seq: 2, changed_at: '2025-01-01T00:00:00Z', changed_by_actor: 'analyst', changed_by_surface: 'web-chat', change_reason: 'update', changed_fields: ['acceptance'], change_summary: 'analyst update' },
-      { card_id: 'card-1', version_seq: 1, changed_at: '2025-01-01T00:00:00Z', changed_by_actor: 'planner', changed_by_surface: 'runtime', change_reason: 'update', changed_fields: ['title'], change_summary: 'planner update' },
+      { entry_id: 'entry-2-uuid', kind: 'update' as const, card_id: 'card-1', version_seq: 2, changed_at: '2025-01-01T00:00:00Z', changed_by_actor: 'analyst', changed_by_surface: 'web-chat', change_reason: 'update', changed_fields: ['acceptance'], change_summary: 'analyst update' },
+      { entry_id: 'entry-1-uuid', kind: 'update' as const, card_id: 'card-1', version_seq: 1, changed_at: '2025-01-01T00:00:00Z', changed_by_actor: 'planner', changed_by_surface: 'runtime', change_reason: 'update', changed_fields: ['title'], change_summary: 'planner update' },
     ], total: 2 });
-    vi.mocked(getCardHistoryEntry).mockResolvedValue({ entry: { card_id: 'card-1', version_seq: 2, changed_at: '2025-01-01T00:00:00Z', changed_by_actor: 'analyst', changed_by_surface: 'web-chat', change_reason: 'update', changed_fields: ['acceptance'], change_summary: 'analyst update', snapshot: { id: 'card-1' } as any } });
+    vi.mocked(getCardHistoryEntry).mockResolvedValue({ entry: { entry_id: 'entry-2-uuid', kind: 'update' as const, card_id: 'card-1', version_seq: 2, changed_at: '2025-01-01T00:00:00Z', changed_by_actor: 'analyst', changed_by_surface: 'web-chat', change_reason: 'update', changed_fields: ['acceptance'], change_summary: 'analyst update', snapshot: { id: 'card-1' } as any } });
     vi.mocked(getCardDiff).mockResolvedValue({ card_id: 'card-1', from: 2, to: 3, diff: [] });
 
     const wrapper = mount(CardHistoryPanel, { props: { cardId: 'card-1' }, global: { plugins: [createPinia()] } });
@@ -45,9 +45,9 @@ describe('CardHistoryPanel analyst filter affordance', () => {
 
   it('explains the analyst filter and changes label when active', async () => {
     vi.mocked(listCardHistory).mockResolvedValue({ history: [
-      { card_id: 'card-1', version_seq: 1, changed_at: '2025-01-01T00:00:00Z', changed_by_actor: 'analyst', changed_by_surface: 'web-chat', change_reason: 'update', changed_fields: ['title'], change_summary: 'analyst update' },
+      { entry_id: 'entry-1-uuid', kind: 'update' as const, card_id: 'card-1', version_seq: 1, changed_at: '2025-01-01T00:00:00Z', changed_by_actor: 'analyst', changed_by_surface: 'web-chat', change_reason: 'update', changed_fields: ['title'], change_summary: 'analyst update' },
     ], total: 1 });
-    vi.mocked(getCardHistoryEntry).mockResolvedValue({ entry: { card_id: 'card-1', version_seq: 1, changed_at: '2025-01-01T00:00:00Z', changed_by_actor: 'analyst', changed_by_surface: 'web-chat', change_reason: 'update', changed_fields: ['title'], change_summary: 'analyst update', snapshot: { id: 'card-1' } as any } });
+    vi.mocked(getCardHistoryEntry).mockResolvedValue({ entry: { entry_id: 'entry-1-uuid', kind: 'update' as const, card_id: 'card-1', version_seq: 1, changed_at: '2025-01-01T00:00:00Z', changed_by_actor: 'analyst', changed_by_surface: 'web-chat', change_reason: 'update', changed_fields: ['title'], change_summary: 'analyst update', snapshot: { id: 'card-1' } as any } });
     vi.mocked(getCardDiff).mockResolvedValue({ card_id: 'card-1', from: 1, to: 2, diff: [] });
 
     const wrapper = mount(CardHistoryPanel, { props: { cardId: 'card-1' }, global: { plugins: [createPinia()] } });

@@ -22,8 +22,8 @@ describe('CardHistoryPanel', () => {
   });
 
   it('renders success path with history list, entry details, and diff rows', async () => {
-    vi.mocked(listCardHistory).mockResolvedValue({ history: [{ card_id: 'card-1', version_seq: 2, changed_at: '2025-01-01T00:00:00Z', changed_by_actor: 'analyst', changed_by_surface: 'rest', change_reason: 'update', changed_fields: ['acceptance'], change_summary: 'acceptance updated' }], total: 1 });
-    vi.mocked(getCardHistoryEntry).mockResolvedValue({ entry: { card_id: 'card-1', version_seq: 2, changed_at: '2025-01-01T00:00:00Z', changed_by_actor: 'analyst', changed_by_surface: 'rest', change_reason: 'update', changed_fields: ['acceptance'], change_summary: 'acceptance updated', snapshot: { id: 'card-1', acceptance: 'before' } as any } });
+    vi.mocked(listCardHistory).mockResolvedValue({ history: [{ entry_id: 'entry-2-uuid', kind: 'update' as const, card_id: 'card-1', version_seq: 2, changed_at: '2025-01-01T00:00:00Z', changed_by_actor: 'analyst', changed_by_surface: 'rest', change_reason: 'update', changed_fields: ['acceptance'], change_summary: 'acceptance updated' }], total: 1 });
+    vi.mocked(getCardHistoryEntry).mockResolvedValue({ entry: { entry_id: 'entry-2-uuid', kind: 'update' as const, card_id: 'card-1', version_seq: 2, changed_at: '2025-01-01T00:00:00Z', changed_by_actor: 'analyst', changed_by_surface: 'rest', change_reason: 'update', changed_fields: ['acceptance'], change_summary: 'acceptance updated', snapshot: { id: 'card-1', acceptance: 'before' } as any } });
     vi.mocked(getCardDiff).mockResolvedValue({ card_id: 'card-1', from: 2, to: 3, diff: [{ field: 'acceptance', before: 'before', after: 'after' }] });
 
     const wrapper = mount(CardHistoryPanel, { props: { cardId: 'card-1' }, global: { plugins: [createPinia()] } });
@@ -62,7 +62,7 @@ describe('CardHistoryPanel', () => {
   });
 
   it('renders detail failure state when selected version fetch fails', async () => {
-    vi.mocked(listCardHistory).mockResolvedValue({ history: [{ card_id: 'card-1', version_seq: 2, changed_at: '2025-01-01T00:00:00Z', changed_by_actor: 'analyst', changed_by_surface: 'rest', change_reason: 'update', changed_fields: ['acceptance'], change_summary: 'acceptance updated' }], total: 1 });
+    vi.mocked(listCardHistory).mockResolvedValue({ history: [{ entry_id: 'entry-2-uuid', kind: 'update' as const, card_id: 'card-1', version_seq: 2, changed_at: '2025-01-01T00:00:00Z', changed_by_actor: 'analyst', changed_by_surface: 'rest', change_reason: 'update', changed_fields: ['acceptance'], change_summary: 'acceptance updated' }], total: 1 });
     vi.mocked(getCardHistoryEntry).mockRejectedValue(new ApiError(500, 'History detail failed', {}));
     vi.mocked(getCardDiff).mockRejectedValue(new ApiError(500, 'History detail failed', {}));
 
@@ -72,8 +72,8 @@ describe('CardHistoryPanel', () => {
   });
 
   it('redacts secret-bearing snapshot and diff payloads before rendering', async () => {
-    vi.mocked(listCardHistory).mockResolvedValue({ history: [{ card_id: 'card-1', version_seq: 2, changed_at: '2025-01-01T00:00:00Z', changed_by_actor: 'analyst', changed_by_surface: 'rest', change_reason: 'update', changed_fields: ['config', 'env'], change_summary: 'sensitive payload update' }], total: 1 });
-    vi.mocked(getCardHistoryEntry).mockResolvedValue({ entry: { card_id: 'card-1', version_seq: 2, changed_at: '2025-01-01T00:00:00Z', changed_by_actor: 'analyst', changed_by_surface: 'rest', change_reason: 'update', changed_fields: ['config', 'env'], change_summary: 'sensitive payload update', snapshot: { id: 'card-1', auth_profile: { token: 'sk-live-raw-secret' }, env_value: 'process.env.OPENAI_API_KEY', safe_field: 'visible' } as any } });
+    vi.mocked(listCardHistory).mockResolvedValue({ history: [{ entry_id: 'entry-2-uuid', kind: 'update' as const, card_id: 'card-1', version_seq: 2, changed_at: '2025-01-01T00:00:00Z', changed_by_actor: 'analyst', changed_by_surface: 'rest', change_reason: 'update', changed_fields: ['config', 'env'], change_summary: 'sensitive payload update' }], total: 1 });
+    vi.mocked(getCardHistoryEntry).mockResolvedValue({ entry: { entry_id: 'entry-2-uuid', kind: 'update' as const, card_id: 'card-1', version_seq: 2, changed_at: '2025-01-01T00:00:00Z', changed_by_actor: 'analyst', changed_by_surface: 'rest', change_reason: 'update', changed_fields: ['config', 'env'], change_summary: 'sensitive payload update', snapshot: { id: 'card-1', auth_profile: { token: 'sk-live-raw-secret' }, env_value: 'process.env.OPENAI_API_KEY', safe_field: 'visible' } as any } });
     vi.mocked(getCardDiff).mockResolvedValue({ card_id: 'card-1', from: 2, to: 3, diff: [{ field: 'config_blob', before: 'Bearer very-secret-token', after: 'sk-updated-secret' }, { field: 'safe_field', before: 'before', after: 'after' }] });
 
     const wrapper = mount(CardHistoryPanel, { props: { cardId: 'card-1' }, global: { plugins: [createPinia()] } });

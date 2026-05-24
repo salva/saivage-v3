@@ -3,7 +3,6 @@ import { isAbsolute, join, relative, resolve } from 'node:path';
 import { randomBytes } from 'node:crypto';
 import type { ProjectConfig, CardRecord } from '../schemas/index.js';
 import {
-  cardIndexSchema,
   cardRecordSchema,
   notesQueueSchema,
   projectConfigSchema,
@@ -67,12 +66,18 @@ function defaultProjectCard(): CardRecord {
   };
 }
 
-function defaultCardIndexEntry() { return { cards: { project: { id: 'project', type: 'project', parent: null, status: 'backlog', title: 'project' } } }; }
-function defaultDependsOnIndex(): Record<string, string[]> { return {}; }
-function defaultBlocksIndex(): Record<string, string[]> { return {}; }
 function defaultNotesQueue() { return { next_note_sequence: 1, entries: [] as Array<{ card_id: string; note_id: string; timestamp: string; kind: string }> }; }
 
-const SAIVAGE_DIRS: string[] = ['skills', 'cards/by-id', 'cards/tree', 'cards/dependencies', 'cards/history', 'cards/views', 'diaries', 'reviews/by-goal', 'notes/by-card', 'agents/llm-exchanges', 'agents/messages', 'agents/sessions', 'runtime', 'tmp/state', 'supervision', 'views', 'instructions'];
+const SAIVAGE_DIRS: string[] = ['skills', 'cards/by-id', 'cards/history', 'cards/.commit', 'diaries', 'reviews/by-goal', 'notes/by-card', 'agents/llm-exchanges', 'agents/messages', 'agents/sessions', 'runtime', 'tmp/state', 'supervision', 'views', 'instructions'];
+
+const LEGACY_REJECTED_ARTIFACTS: string[] = [
+  'cards/index.json',
+  'cards/tree',
+  'cards/dependencies',
+  'cards/dependencies/depends-on.json',
+  'cards/dependencies/blocks.json',
+  'cards/blocks.json',
+];
 const SAIVAGE_WORK_DIRS: string[] = ['cards', 'processes', 'downloads', 'quarantine', 'tmp/runtime', 'tmp/stash', 'tmp/uploads', 'tmp/previews'];
 
 function validationHint(projectRoot: string): string {
@@ -94,8 +99,6 @@ function isNewSaivageState(projectRoot: string): boolean {
   if (!existsSync(saivageDir)) return false;
   const requiredDirs = [
     'cards/by-id',
-    'cards/tree',
-    'cards/dependencies',
     'agents/sessions',
     'agents/messages',
     'runtime',
@@ -110,11 +113,13 @@ function isNewSaivageState(projectRoot: string): boolean {
       return false;
     }
   }
-
+  // Reject any leftover legacy artifact from the pre-F13 layout.
+  for (const artifact of LEGACY_REJECTED_ARTIFACTS) {
+    if (existsSync(join(saivageDir, artifact))) return false;
+  }
   const projectCardPath = join(saivageDir, 'cards', 'by-id', 'project.json');
   return isValidJsonFile(join(saivageDir, 'project.json'), projectConfigSchema)
     && isValidJsonFile(projectCardPath, cardRecordSchema)
-    && isValidJsonFile(join(saivageDir, 'cards', 'index.json'), cardIndexSchema)
     && isValidJsonFile(join(saivageDir, 'notes', 'queue.json'), notesQueueSchema);
 }
 
@@ -146,10 +151,6 @@ export function initProjectTree(projectRoot: string): { projectRoot: string } {
   for (const dir of SAIVAGE_WORK_DIRS) mkdirSync(join(saivageWorkDir, dir), { recursive: true });
   writeFileAtomic(projectJsonPath, JSON.stringify(defaultProjectConfig(name), null, 2) + '\n');
   writeFileAtomic(join(saivageDir, 'cards', 'by-id', 'project.json'), JSON.stringify(defaultProjectCard(), null, 2) + '\n');
-  writeFileAtomic(join(saivageDir, 'cards', 'index.json'), JSON.stringify(defaultCardIndexEntry(), null, 2) + '\n');
-  writeFileAtomic(join(saivageDir, 'cards', 'tree', 'project.children.json'), JSON.stringify([], null, 2) + '\n');
-  writeFileAtomic(join(saivageDir, 'cards', 'dependencies', 'depends-on.json'), JSON.stringify(defaultDependsOnIndex(), null, 2) + '\n');
-  writeFileAtomic(join(saivageDir, 'cards', 'dependencies', 'blocks.json'), JSON.stringify(defaultBlocksIndex(), null, 2) + '\n');
   writeFileAtomic(join(saivageDir, 'notes', 'queue.json'), JSON.stringify(defaultNotesQueue(), null, 2) + '\n');
   writeFileAtomic(join(saivageDir, 'views', 'leaderboard.json'), JSON.stringify([], null, 2) + '\n');
   writeFileAtomic(join(saivageDir, 'views', 'saved-filters.json'), JSON.stringify([], null, 2) + '\n');

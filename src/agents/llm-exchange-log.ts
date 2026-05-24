@@ -2,7 +2,7 @@ import { join } from 'node:path';
 import { existsSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { writeFileAtomic } from '../persistence/index.js';
-import { llmExchangeSchema, type LlmExchange } from '../contracts/llm-exchange.js';
+import { llmExchangeSchema, type LlmExchange } from '../contracts/index.js';
 
 export class LlmExchangeCorruptedError extends Error {
   override name = 'LlmExchangeCorruptedError';

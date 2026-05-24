@@ -12,7 +12,7 @@ import {
   type CardStatus,
   type CardType,
 } from '../schemas/index.js';
-import { lastLineSync } from '../persistence/jsonl-ledger.js';
+import { lastLineSync } from '../persistence/index.js';
 
 export class CardStoreInvariantError extends Error {
   constructor(message: string) {

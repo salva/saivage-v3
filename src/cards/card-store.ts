@@ -1,38 +1,60 @@
+// F13 r5 (Batch 2b deviation: sync API) — thin façade over CardStoreState
+// (in-memory reads) and applyMutationSync (durable writes). Mutations are
+// synchronous: in-process serialization is provided by the JS event loop (no
+// awaits in the mutation body); cross-process serialization is provided by
+// `withLockSync` inside `applyMutationSync`.
+
 import {
   existsSync,
   mkdirSync,
   readFileSync,
+  readdirSync,
   renameSync,
-  unlinkSync,
   rmSync,
-  writeFileSync,
+  unlinkSync,
 } from 'node:fs';
 import { join } from 'node:path';
+import { ProjectLock, appendSyncIdempotent, writeFileAtomic } from '../persistence/index.js';
 import {
-  cardBlocksIndexSchema,
-  cardChildrenIndexSchema,
-  cardDependencyIndexSchema,
   cardHistoryEntrySchema,
-  cardIndexSchema,
   cardRecordSchema,
 } from '../schemas/index.js';
-import { writeFileAtomic } from '../persistence/index.js';
-import { randomUUID } from 'node:crypto';
 import type {
-  CardBlocksIndex,
-  CardChildrenIndex,
-  CardDependencyIndex,
   CardHistoryEntry,
-  CardIndex,
   CardRecord,
   CardStatus,
   CardType,
   ControlActionSurface,
   NoteAuthor,
 } from '../schemas/index.js';
-import { enqueueCardMutationNotifications } from '../notifications/index.js';
 import { EventBus } from '../events/index.js';
-import { registerCardHistoryProjection } from '../projections/index.js';
+import { enqueueCardMutationNotifications } from '../notifications/index.js';
+import { ProjectMutex } from './project-mutex.js';
+import {
+  CardStoreInvariantError,
+  CardStoreState,
+  cardHistoryPath,
+  isTerminalState,
+  isTerminalType,
+  loadCardStoreState,
+  readHistoryEntriesStrict,
+} from './state.js';
+import {
+  applyMutationSync,
+  applyMutationGroupSync,
+  type ApplyMutationDeps,
+  type ApplyMutationOp,
+} from './apply-mutation.js';
+import {
+  commitMarkerDir,
+  isGroupMarkerFile,
+  listCommitMarkerFiles,
+  readCommitMarkerFile,
+  unlinkCommitMarker,
+  unlinkGroupCommitMarker,
+  type CommitMarker,
+  type GroupCommitMarker,
+} from './commit-marker.js';
 
 export interface CardMutationContext {
   actor: NoteAuthor;
@@ -45,153 +67,6 @@ export interface CardDiffEntry {
   before: unknown;
   after: unknown;
 }
-
-export type CardStoreCanonicalHealth = 'ok' | 'invalid';
-export interface CardStoreHealth {
-  canonical: CardStoreCanonicalHealth;
-}
-
-interface CardStoreTestHooks {
-  beforeTrackedCardRename?: (card: CardRecord, historyEntry: CardHistoryEntry) => void;
-}
-
-
-class HierarchyGraph {
-  private readonly parents = new Map<string, string | null>();
-  private readonly childrenByParent = new Map<string, string[]>();
-  private readonly depths = new Map<string, number>();
-  private readonly cardsById = new Map<string, CardRecord>();
-
-  static build(cards: CardRecord[], index: CardIndex, maxDepth: number): HierarchyGraph {
-    const graph = new HierarchyGraph();
-    const indexedIds = new Set(Object.keys(index.cards));
-    const cardsById = new Map(cards.map((card) => [card.id, card] as const));
-    for (const id of indexedIds) {
-      if (!cardsById.has(id))
-        throw new Error(`Canonical hierarchy invariant failed: missing indexed card '${id}'.`);
-    }
-    for (const card of cardsById.values()) {
-      if (!indexedIds.has(card.id))
-        throw new Error(
-          `Canonical hierarchy invariant failed: by-id card '${card.id}' is missing from cards/index.json.`,
-        );
-      const entry = index.cards[card.id];
-      if (
-        !entry ||
-        entry.id !== card.id ||
-        entry.type !== card.type ||
-        entry.parent !== card.parent ||
-        entry.status !== card.status ||
-        entry.title !== card.title
-      ) {
-        throw new Error(
-          `Canonical hierarchy invariant failed: cards/index.json entry for '${card.id}' does not match by-id record.`,
-        );
-      }
-      if (card.parent === card.id)
-        throw new Error(
-          `Canonical hierarchy invariant failed: card '${card.id}' cannot parent itself.`,
-        );
-      graph.parents.set(card.id, card.parent);
-      graph.cardsById.set(card.id, card);
-      if (!graph.childrenByParent.has(card.id)) graph.childrenByParent.set(card.id, []);
-    }
-    for (const card of cardsById.values()) {
-      if (card.parent !== null) {
-        const parent = graph.cardsById.get(card.parent);
-        if (!parent)
-          throw new Error(
-            `Canonical hierarchy invariant failed: card '${card.id}' references missing parent '${card.parent}'.`,
-          );
-        if (isTerminal(parent.type))
-          throw new Error(
-            `Canonical hierarchy invariant failed: terminal card '${parent.id}' cannot be parent of '${card.id}'.`,
-          );
-        graph.childrenByParent.set(card.parent, [
-          ...(graph.childrenByParent.get(card.parent) ?? []),
-          card.id,
-        ]);
-      }
-    }
-    const visiting = new Set<string>();
-    const visited = new Set<string>();
-    const computeDepth = (id: string): number => {
-      const existing = graph.depths.get(id);
-      if (existing !== undefined) return existing;
-      if (visiting.has(id))
-        throw new Error(`Canonical hierarchy invariant failed: cycle detected at card '${id}'.`);
-      const card = graph.cardsById.get(id);
-      if (!card)
-        throw new Error(
-          `Canonical hierarchy invariant failed: card '${id}' is missing from graph.`,
-        );
-      visiting.add(id);
-      const depth = card.parent === null ? 0 : computeDepth(card.parent) + 1;
-      visiting.delete(id);
-      visited.add(id);
-      if (depth > maxDepth)
-        throw new Error(
-          `Canonical hierarchy invariant failed: card '${id}' depth ${depth} exceeds maximum ${maxDepth}.`,
-        );
-      if (card.depth !== depth)
-        throw new Error(
-          `Canonical hierarchy invariant failed: card '${id}' stores depth ${card.depth}, expected ${depth}.`,
-        );
-      graph.depths.set(id, depth);
-      return depth;
-    };
-    for (const id of indexedIds) computeDepth(id);
-    for (const id of indexedIds) {
-      if (!visited.has(id))
-        throw new Error(
-          `Canonical hierarchy invariant failed: card '${id}' was not reachable during graph validation.`,
-        );
-    }
-    return graph;
-  }
-
-  childrenOf(parentId: string): string[] {
-    return [...(this.childrenByParent.get(parentId) ?? [])];
-  }
-
-  descendantsOf(parentId: string): string[] {
-    const result: string[] = [];
-    const visited = new Set<string>();
-    const stack = [...this.childrenOf(parentId)].reverse();
-    while (stack.length > 0) {
-      const id = stack.pop()!;
-      if (visited.has(id)) continue;
-      visited.add(id);
-      result.push(id);
-      stack.push(...this.childrenOf(id).reverse());
-    }
-    return result;
-  }
-
-  depthOf(id: string): number | undefined {
-    return this.depths.get(id);
-  }
-  hasCard(id: string): boolean {
-    return this.cardsById.has(id);
-  }
-
-}
-
-const TERMINAL_TYPES: ReadonlySet<CardType> = new Set<CardType>([
-  'architecture',
-  'code',
-  'test',
-  'doc',
-  'data',
-  'research',
-  'ops',
-]);
-
-const TERMINAL_STATES: ReadonlySet<CardStatus> = new Set<CardStatus>([
-  'done',
-  'failed',
-  'cancelled',
-]);
 
 const CRITICAL_FIELDS: ReadonlySet<string> = new Set([
   'type',
@@ -247,16 +122,21 @@ const TRACKED_FIELDS = [
   'attachments',
 ] as const satisfies ReadonlyArray<keyof CardRecord>;
 
-function readJson(filePath: string): unknown {
-  return JSON.parse(readFileSync(filePath, 'utf-8')) as unknown;
+function now(): string {
+  return new Date().toISOString();
 }
 
-function writeJson(filePath: string, data: unknown): void {
-  writeFileAtomic(filePath, JSON.stringify(data, null, 2) + '\n');
+function valuesEqual(a: unknown, b: unknown): boolean {
+  return JSON.stringify(a) === JSON.stringify(b);
 }
 
-function isTerminal(type: CardType): boolean {
-  return TERMINAL_TYPES.has(type);
+function deepClone<T>(value: T): T {
+  return JSON.parse(JSON.stringify(value)) as T;
+}
+
+function summarizeChangedFields(changedFields: string[]): string {
+  if (changedFields.length === 0) return 'card updated';
+  return `${changedFields.join(', ')} updated`;
 }
 
 function generateId(type: string, existingIds: string[]): string {
@@ -265,458 +145,243 @@ function generateId(type: string, existingIds: string[]): string {
     .filter((id) => id.startsWith(prefix + '-'))
     .map((id) => {
       const num = parseInt(id.slice(prefix.length + 1), 10);
-      return isNaN(num) ? 0 : num;
+      return Number.isNaN(num) ? 0 : num;
     })
     .reduce((max, n) => Math.max(max, n), 0);
   return `${prefix}-${maxNum + 1}`;
-}
-
-function now(): string {
-  return new Date().toISOString();
-}
-
-function formatValidationError(scope: string, path: string, error: { message: string }): Error {
-  return new Error(`${scope} at '${path}' is invalid: ${error.message}`);
-}
-
-function deepClone<T>(value: T): T {
-  return JSON.parse(JSON.stringify(value)) as T;
-}
-
-function valuesEqual(a: unknown, b: unknown): boolean {
-  return JSON.stringify(a) === JSON.stringify(b);
-}
-
-function summarizeChangedFields(changedFields: string[]): string {
-  if (changedFields.length === 0) {
-    return 'card updated';
-  }
-  return `${changedFields.join(', ')} updated`;
-}
-
-function cardPath(projectRoot: string, id: string): string {
-  return join(projectRoot, '.saivage', 'cards', 'by-id', `${id}.json`);
-}
-
-function indexPath(projectRoot: string): string {
-  return join(projectRoot, '.saivage', 'cards', 'index.json');
-}
-
-function dependsOnPath(projectRoot: string): string {
-  return join(projectRoot, '.saivage', 'cards', 'dependencies', 'depends-on.json');
-}
-
-function blocksPath(projectRoot: string): string {
-  return join(projectRoot, '.saivage', 'cards', 'dependencies', 'blocks.json');
-}
-
-function historyDir(projectRoot: string): string {
-  return join(projectRoot, '.saivage', 'cards', 'history');
-}
-
-/** Card history lives at .saivage/cards/history/<card-id>.history.jsonl. */
-function historyPath(projectRoot: string, id: string): string {
-  return join(historyDir(projectRoot), `${id}.history.jsonl`);
 }
 
 function archiveCardPath(projectRoot: string, id: string): string {
   return join(projectRoot, '.saivage', 'archive', 'cards', `${id}.json`);
 }
 
+function recoverCommitMarkers(projectRoot: string): void {
+  const files = listCommitMarkerFiles(projectRoot);
+  if (files.length === 0) return;
+  for (const filePath of files) {
+    if (isGroupMarkerFile(filePath)) continue;
+    let parsed: CommitMarker;
+    try {
+      parsed = readCommitMarkerFile(filePath) as CommitMarker;
+    } catch (err) {
+      throw new CardStoreInvariantError(
+        `Commit marker '${filePath}' is unparseable: ${(err as Error).message}`,
+      );
+    }
+    if (parsed.by_id.kind === 'rename') {
+      if (existsSync(parsed.by_id.tmp_path)) {
+        try {
+          renameSync(parsed.by_id.tmp_path, parsed.by_id.final_path);
+        } catch (err) {
+          if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
+        }
+      }
+    } else if (parsed.by_id.kind === 'unlink') {
+      if (existsSync(parsed.by_id.unlink_path)) {
+        try {
+          unlinkSync(parsed.by_id.unlink_path);
+        } catch (err) {
+          if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
+        }
+      }
+    }
+    if (parsed.history !== null) {
+      appendSyncIdempotent(
+        parsed.history.jsonl_path,
+        parsed.history.entry as unknown as { entry_id: string } & Record<string, unknown>,
+      );
+    }
+    unlinkCommitMarker(projectRoot, parsed.token);
+  }
+  for (const filePath of listCommitMarkerFiles(projectRoot)) {
+    if (!isGroupMarkerFile(filePath)) continue;
+    const parsed = readCommitMarkerFile(filePath) as GroupCommitMarker;
+    unlinkGroupCommitMarker(projectRoot, parsed.group_token);
+  }
+  const byIdDir = join(projectRoot, '.saivage', 'cards', 'by-id');
+  if (existsSync(byIdDir)) {
+    for (const entry of readdirSync(byIdDir)) {
+      if (/\.tmp\.[0-9a-f]+$/.test(entry)) {
+        try {
+          unlinkSync(join(byIdDir, entry));
+        } catch {
+          // best effort
+        }
+      }
+    }
+  }
+  void commitMarkerDir(projectRoot);
+}
+
 export class CardStore {
-  private projectRoot: string;
-  private validatedPersistedState = false;
-  private hierarchyGraph: HierarchyGraph | null = null;
-  private canonicalHealth: CardStoreCanonicalHealth = 'ok';
-  private readonly testHooks?: CardStoreTestHooks;
+  readonly maxDepth: number;
+  readonly projectRoot: string;
+  private readonly mutex: ProjectMutex;
+  private readonly projectLock: ProjectLock;
+  private state: CardStoreState;
   private readonly eventBus: EventBus;
 
-  readonly maxDepth: number;
-
-  constructor(projectRoot: string, maxDepth?: number, testHooks?: CardStoreTestHooks, eventBus?: EventBus) {
+  constructor(projectRoot: string, maxGoalDepth?: number, _legacy?: unknown, eventBus?: EventBus) {
     this.projectRoot = projectRoot;
-    this.maxDepth = maxDepth !== undefined && maxDepth > 0 ? maxDepth : 5;
-    this.testHooks = testHooks;
     this.eventBus = eventBus ?? new EventBus();
-    registerCardHistoryProjection(this.eventBus, this.projectRoot);
+    this.maxDepth = maxGoalDepth !== undefined && maxGoalDepth > 0 ? maxGoalDepth : 5;
+    recoverCommitMarkers(projectRoot);
+    this.mutex = new ProjectMutex();
+    this.projectLock = new ProjectLock(join(projectRoot, '.saivage', 'project.lock'));
+    this.state = loadCardStoreState(projectRoot, { maxDepth: this.maxDepth });
   }
 
-  private ensurePersistedStateValidated(): void {
-    if (this.validatedPersistedState) return;
-    this.validatePersistedState();
-    this.validatedPersistedState = true;
+  /**
+   * Reload in-memory state from disk. Public read methods call this so that
+   * a CardStore instance reflects writes made by other CardStore instances
+   * pointing at the same project root.
+   */
+  private refreshState(): void {
+    this.state = loadCardStoreState(this.projectRoot, { maxDepth: this.maxDepth });
   }
 
-  private validatePersistedState(): void {
-    const index = this.parseCardIndex(
-      readJson(indexPath(this.projectRoot)),
-      indexPath(this.projectRoot),
-    );
-    const cards: CardRecord[] = [];
-    for (const id of Object.keys(index.cards)) {
-      const cp = cardPath(this.projectRoot, id);
-      if (!existsSync(cp))
-        throw new Error(`Canonical hierarchy invariant failed: missing indexed card '${id}'.`);
-      const raw = readJson(cp);
-      if (raw && typeof raw === 'object' && !('version_seq' in (raw as Record<string, unknown>))) {
-        throw new Error(
-          `Card record '${id}' is legacy data without version_seq. No migration is supported. Run 'saivage reset' to clear .saivage/cards, .saivage/runtime, and .saivage/notes, then restart the project.`,
-        );
-      }
-      const card = this.parseCardRecord(raw, cp);
-      this.reconcileCardHistory(card);
-      cards.push(card);
-    }
-    try {
-      this.hierarchyGraph = HierarchyGraph.build(cards, index, this.maxDepth);
-      this.canonicalHealth = 'ok';
-    } catch (err) {
-      this.canonicalHealth = 'invalid';
-      throw err;
-    }
+  static async open(
+    projectRoot: string,
+    eventBus?: EventBus,
+    maxGoalDepth?: number,
+  ): Promise<CardStore> {
+    return new CardStore(projectRoot, maxGoalDepth, undefined, eventBus);
   }
 
-  private parseCardIndex(raw: unknown, path: string): CardIndex {
-    const parsed = cardIndexSchema.safeParse(raw);
-    if (!parsed.success) throw formatValidationError('Card index', path, parsed.error);
-    return parsed.data;
-  }
-
-  private parseChildrenIndex(raw: unknown, path: string): CardChildrenIndex {
-    const parsed = cardChildrenIndexSchema.safeParse(raw);
-    if (!parsed.success) throw formatValidationError('Card children index', path, parsed.error);
-    return parsed.data;
-  }
-
-  private parseDependencyIndex(raw: unknown, path: string, label: string): CardDependencyIndex {
-    const parsed = cardDependencyIndexSchema.safeParse(raw);
-    if (!parsed.success) throw formatValidationError(label, path, parsed.error);
-    return parsed.data;
-  }
-
-  private parseBlocksIndex(raw: unknown, path: string): CardBlocksIndex {
-    const parsed = cardBlocksIndexSchema.safeParse(raw);
-    if (!parsed.success) throw formatValidationError('Card blocks index', path, parsed.error);
-    return parsed.data;
-  }
-
-  private parseCardRecord(raw: unknown, path: string): CardRecord {
-    const parsed = cardRecordSchema.safeParse(raw);
-    if (!parsed.success) throw formatValidationError('Card record', path, parsed.error);
-    return parsed.data;
-  }
-
-  private parseCardHistoryEntry(raw: unknown, path: string): CardHistoryEntry {
-    const parsed = cardHistoryEntrySchema.safeParse(raw);
-    if (!parsed.success) throw formatValidationError('Card history entry', path, parsed.error);
-    return parsed.data;
-  }
-
-  private loadIndex(): CardIndex {
-    this.ensurePersistedStateValidated();
-    const path = indexPath(this.projectRoot);
-    return this.parseCardIndex(readJson(path), path);
-  }
-
-  private saveIndex(index: CardIndex): void {
-    writeJson(indexPath(this.projectRoot), index);
-  }
-
-  private getHierarchyGraph(): HierarchyGraph {
-    this.ensurePersistedStateValidated();
-    if (!this.hierarchyGraph)
-      throw new Error('Card hierarchy graph is unavailable after persisted-state validation.');
-    return this.hierarchyGraph;
-  }
-
-  private loadCanonicalCardsFromDisk(index: CardIndex): CardRecord[] {
-    const cards: CardRecord[] = [];
-    for (const id of Object.keys(index.cards)) {
-      const cp = cardPath(this.projectRoot, id);
-      if (!existsSync(cp))
-        throw new Error(`Canonical hierarchy invariant failed: missing indexed card '${id}'.`);
-      cards.push(this.parseCardRecord(readJson(cp), cp));
-    }
-    return cards;
-  }
-
-  private rebuildGraphStrict(): HierarchyGraph {
-    const index = this.parseCardIndex(
-      readJson(indexPath(this.projectRoot)),
-      indexPath(this.projectRoot),
-    );
-    const cards = this.loadCanonicalCardsFromDisk(index);
-    try {
-      const graph = HierarchyGraph.build(cards, index, this.maxDepth);
-      this.hierarchyGraph = graph;
-      this.canonicalHealth = 'ok';
-      this.validatedPersistedState = true;
-      return graph;
-    } catch (err) {
-      this.canonicalHealth = 'invalid';
-      throw err;
-    }
-  }
-
-
-  getHealth(): CardStoreHealth {
-    return { canonical: this.canonicalHealth };
-  }
-
-  private loadDependsOn(): CardDependencyIndex {
-    const path = dependsOnPath(this.projectRoot);
-    return this.parseDependencyIndex(readJson(path), path, 'Card dependency index');
-  }
-
-  private saveDependsOn(deps: CardDependencyIndex): void {
-    writeJson(dependsOnPath(this.projectRoot), deps);
-  }
-
-  private loadBlocks(): CardBlocksIndex {
-    const path = blocksPath(this.projectRoot);
-    return this.parseBlocksIndex(readJson(path), path);
-  }
-
-  private saveBlocks(blks: CardBlocksIndex): void {
-    writeJson(blocksPath(this.projectRoot), blks);
-  }
-
-  private writeCard(card: CardRecord): void {
-    writeJson(cardPath(this.projectRoot, card.id), card);
-  }
-
-  private addToIndex(card: CardRecord): void {
-    const index = this.loadIndex();
-    index.cards[card.id] = {
-      id: card.id,
-      type: card.type,
-      parent: card.parent,
-      status: card.status,
-      title: card.title,
-    };
-    this.saveIndex(index);
-  }
-
-  private removeFromIndex(id: string): void {
-    const index = this.loadIndex();
-    delete index.cards[id];
-    this.saveIndex(index);
-  }
-
-
-  private addToDependsOn(cardId: string, dependsOn: string[]): void {
-    const deps = this.loadDependsOn();
-    deps[cardId] = dependsOn;
-    this.saveDependsOn(deps);
-  }
-
-  private removeFromDependsOnAll(cardId: string): void {
-    const deps = this.loadDependsOn();
-    delete deps[cardId];
-    for (const key of Object.keys(deps)) {
-      deps[key] = deps[key].filter((id) => id !== cardId);
-      if (deps[key].length === 0) delete deps[key];
-    }
-    this.saveDependsOn(deps);
-  }
-
-  private loadHistoryEntries(id: string): CardHistoryEntry[] {
-    const hp = historyPath(this.projectRoot, id);
-    if (!existsSync(hp)) return [];
-    const raw = readFileSync(hp, 'utf-8').trim();
-    if (!raw) return [];
-    return raw
-      .split('\n')
-      .filter(Boolean)
-      .map((line, index) =>
-        this.parseCardHistoryEntry(JSON.parse(line) as unknown, `${hp}:${index + 1}`),
-      );
-  }
-
-  private writeHistoryEntries(id: string, entries: CardHistoryEntry[]): void {
-    mkdirSync(historyDir(this.projectRoot), { recursive: true });
-    const hp = historyPath(this.projectRoot, id);
-    const content =
-      entries.length === 0 ? '' : `${entries.map((entry) => JSON.stringify(entry)).join('\n')}\n`;
-    writeFileSync(hp, content, 'utf-8');
-  }
-
-  private appendHistoryEntry(entry: CardHistoryEntry): void {
-    this.eventBus.emit('card_history_record_appended', {
-      card_id: entry.card_id,
-      version_seq: entry.version_seq,
-      changed_fields: [...entry.changed_fields],
-      changed_at: entry.changed_at,
-      record: entry as unknown as Record<string, unknown>,
-    });
-  }
-
-  private reconcileCardHistory(card: CardRecord): void {
-    const entries = this.loadHistoryEntries(card.id);
-    let dropped = 0;
-    while (entries.length > 0 && entries[entries.length - 1]!.version_seq >= card.version_seq) {
-      entries.pop();
-      dropped += 1;
-    }
-    if (dropped > 0) {
-      console.warn(
-        `Dropped ${dropped} orphan history entr${dropped === 1 ? 'y' : 'ies'} for card '${card.id}' during startup reconciliation.`,
-      );
-      this.writeHistoryEntries(card.id, entries);
-    }
-  }
-
-  private validateMutablePatch(existing: CardRecord, changes: Partial<CardRecord>): number {
-    if ((changes as { type?: string }).type === 'plan') {
-      throw new Error('Cannot change card type to plan: planning state lives on goal cards.');
-    }
-    if (TERMINAL_STATES.has(existing.status)) {
-      for (const key of Object.keys(changes)) {
-        if (key !== 'status' && !ALWAYS_ALLOWED_FIELDS.has(key)) {
-          throw new Error(
-            `Card '${existing.id}' is in status '${existing.status}'. Cards in this state cannot be edited. Use setStatus() to reopen the card first.`,
-          );
-        }
-      }
-    } else if (!FULL_EDIT_STATES.has(existing.status)) {
-      for (const key of Object.keys(changes)) {
-        if (CRITICAL_FIELDS.has(key)) {
-          throw new Error(
-            `Field '${key}' cannot be changed on a card in status '${existing.status}'. Cards in this state allow editing: status, title, description, priority, urgency, tags, and other non-structural fields.`,
-          );
-        }
-      }
-    }
-    if (changes.type !== undefined && changes.type !== existing.type && isTerminal(changes.type)) {
-      const children = this.getHierarchyGraph().childrenOf(existing.id);
-      if (children.length > 0) {
-        throw new Error(
-          `Cannot change type of card '${existing.id}' to '${changes.type}' because it has ${children.length} child(ren). Terminal cards cannot have children.`,
-        );
-      }
-    }
-    let newDepth = existing.depth;
-    if (changes.parent !== undefined && changes.parent !== existing.parent) {
-      if (changes.parent !== null) {
-        const newParent = this.read(changes.parent);
-        if (!newParent) throw new Error(`Parent card '${changes.parent}' does not exist.`);
-        if (isTerminal(newParent.type)) {
-          throw new Error(
-            `Cannot set parent to '${changes.parent}' because it is a terminal card (type: ${newParent.type}). Terminal cards cannot have children.`,
-          );
-        }
-        if (this.getHierarchyGraph().descendantsOf(existing.id).includes(changes.parent))
-          throw new Error(
-            `Cannot set parent of card '${existing.id}' to descendant '${changes.parent}'.`,
-          );
-        newDepth = (this.getHierarchyGraph().depthOf(newParent.id) ?? newParent.depth) + 1;
-      } else {
-        newDepth = 0;
-      }
-      if (newDepth > this.maxDepth) {
-        throw new Error(
-          `Cannot update card '${existing.id}' to depth ${newDepth}. Maximum allowed depth is ${this.maxDepth}. Choose a parent at a shallower level.`,
-        );
-      }
-    }
-    return newDepth;
-  }
-
-  private buildUpdatedCard(
-    existing: CardRecord,
-    changes: Partial<CardRecord>,
-    stamp: string,
-  ): CardRecord {
-    const newDepth = this.validateMutablePatch(existing, changes);
-    const newDependsOn =
-      changes.depends_on !== undefined ? changes.depends_on : existing.depends_on;
+  private deps(): ApplyMutationDeps {
     return {
-      ...existing,
-      ...changes,
-      id: existing.id,
-      created_at: existing.created_at,
-      created_by: existing.created_by,
-      updated_at: stamp,
-      depth: newDepth,
-      depends_on: newDependsOn,
-      blocks: existing.blocks,
-      version_seq: existing.version_seq,
+      projectRoot: this.projectRoot,
+      state: this.state,
+      mutex: this.mutex,
+      projectLock: this.projectLock,
+      eventBus: this.eventBus,
     };
   }
 
-  private persistMutation(
-    existing: CardRecord,
-    updated: CardRecord,
-    changes: Partial<CardRecord>,
-  ): CardRecord {
-    const parsed = cardRecordSchema.safeParse(updated);
-    if (!parsed.success) throw new Error(`Card validation failed: ${parsed.error.message}`);
-    if (changes.depends_on !== undefined) {
-      const cycle = this.detectCycles(existing.id, updated.depends_on);
-      if (cycle.length > 0) throw new Error(`Dependency cycle detected: ${cycle.join(' -> ')}`);
-    }
-    this.writeCard(updated);
-    const index = this.loadIndex();
-    index.cards[existing.id] = {
-      id: updated.id,
-      type: updated.type,
-      parent: updated.parent,
-      status: updated.status,
-      title: updated.title,
-    };
-    this.saveIndex(index);
-    if (changes.depends_on !== undefined) {
-      if (updated.depends_on.length > 0) this.addToDependsOn(existing.id, updated.depends_on);
-      else {
-        const deps = this.loadDependsOn();
-        delete deps[existing.id];
-        this.saveDependsOn(deps);
-      }
-    }
-    this.recomputeBlocks();
-    this.rebuildGraphStrict();
-    return this.read(existing.id)!;
+  // ── Reads ────────────────────────────────────────────────────
+
+  read(id: string): CardRecord | null {
+    this.refreshState();
+    const card = this.state.get(id);
+    return card ? deepClone(card) : null;
   }
+
+  list(): CardRecord[] {
+    this.refreshState();
+    return this.state.list().map((c) => deepClone(c));
+  }
+
+  listChildren(parentId: string): string[] {
+    this.refreshState();
+    return this.state.childrenOf(parentId);
+  }
+
+  getParent(id: string): string | null {
+    this.refreshState();
+    return this.state.parentOf(id);
+  }
+
+  getAncestors(id: string): string[] {
+    this.refreshState();
+    return this.state.ancestorsOf(id);
+  }
+
+  isDescendantOf(id: string, ancestorId: string): boolean {
+    return this.getAncestors(id).includes(ancestorId);
+  }
+
+  getDescendantIds(id: string): string[] {
+    this.refreshState();
+    return this.state.descendantsOf(id);
+  }
+
+  detectCycles(id: string, newDependsOn: string[]): string[] {
+    this.refreshState();
+    return this.state.detectDependsOnCycle(id, newDependsOn);
+  }
+
+  validateTransition(from: CardStatus, to: CardStatus): void {
+    if (from === to) return;
+    const allowed = VALID_TRANSITIONS[from];
+    if (allowed && allowed.includes(to)) return;
+    throw new Error(
+      `Invalid transition: ${from} → ${to}. Valid transitions from ${from} are: ${allowed ? allowed.join(', ') : 'none'}.`,
+    );
+  }
+
+  listCardHistory(id: string): CardHistoryEntry[] {
+    const hp = cardHistoryPath(this.projectRoot, id);
+    if (!existsSync(hp)) return [];
+    return readHistoryEntriesStrict(hp).slice().reverse();
+  }
+
+  getCardAt(id: string, versionSeq: number): CardRecord {
+    const current = this.read(id);
+    if (!current) throw new Error(`Card '${id}' not found.`);
+    if (versionSeq === current.version_seq) return current;
+    const hp = cardHistoryPath(this.projectRoot, id);
+    if (!existsSync(hp)) throw new Error(`Card '${id}' has no version ${versionSeq}.`);
+    const entries = readHistoryEntriesStrict(hp);
+    const entry = entries.find((e) => e.version_seq === versionSeq);
+    if (!entry) throw new Error(`Card '${id}' has no version ${versionSeq}.`);
+    return deepClone(entry.snapshot);
+  }
+
+  diffCard(id: string, fromSeq: number, toSeq: number): CardDiffEntry[] {
+    const from = this.getCardAt(id, fromSeq);
+    const to = this.getCardAt(id, toSeq);
+    const fields = new Set<keyof CardRecord>([
+      ...(Object.keys(from) as Array<keyof CardRecord>),
+      ...(Object.keys(to) as Array<keyof CardRecord>),
+    ]);
+    return Array.from(fields)
+      .filter((f) => !valuesEqual(from[f], to[f]))
+      .map((f) => ({ field: f as string, before: from[f], after: to[f] }));
+  }
+
+  // ── Mutations ────────────────────────────────────────────────
 
   create(
     input: Omit<CardRecord, 'created_at' | 'updated_at' | 'id' | 'version_seq'> & { id?: string },
   ): CardRecord {
-    this.ensurePersistedStateValidated();
-    if ((input as { type: string }).type === 'plan')
+    if ((input as { type: string }).type === 'plan') {
       throw new Error('Plan cards are no longer created. Planning state lives on goal cards.');
+    }
+    this.refreshState();
     const nowStamp = now();
     let id: string;
     if (input.id) id = input.id;
     else if (input.type === 'project') id = 'project';
-    else {
-      const index = this.loadIndex();
-      id = generateId(input.type, Object.keys(index.cards));
-    }
+    else id = generateId(input.type, this.state.list().map((c) => c.id));
+
     if (input.type === 'project') {
-      const index = this.loadIndex();
-      const existingProject = Object.values(index.cards).find((c) => c.type === 'project');
-      if (existingProject)
+      const existing = this.state.list().find((c) => c.type === 'project');
+      if (existing) {
         throw new Error(
-          `Cannot create duplicate project card. A project card already exists with id '${existingProject.id}'.`,
+          `Cannot create duplicate project card. A project card already exists with id '${existing.id}'.`,
         );
+      }
     }
     if (input.parent !== null) {
       const parentCard = this.read(input.parent);
       if (!parentCard) throw new Error(`Parent card '${input.parent}' does not exist.`);
-      if (isTerminal(parentCard.type))
+      if (isTerminalType(parentCard.type)) {
         throw new Error(
           `Cannot create child under terminal card '${input.parent}' (type: ${parentCard.type}). Terminal cards cannot have children.`,
         );
-      if (TERMINAL_STATES.has(parentCard.status))
+      }
+      if (isTerminalState(parentCard.status)) {
         throw new Error(
           `Cannot create child under card '${input.parent}' because it is in status '${parentCard.status}'. Children cannot be created under cards in ${parentCard.status} status.`,
         );
+      }
     }
-    const depth = input.parent === null ? 0 : this.read(input.parent)!.depth + 1;
-    if (depth > this.maxDepth)
+    const depth = input.parent === null ? 0 : (this.read(input.parent)!.depth + 1);
+    if (depth > this.maxDepth) {
       throw new Error(
         `Cannot create card at depth ${depth}. Maximum allowed depth is ${this.maxDepth}. Reduce nesting depth by reorganizing the card hierarchy.`,
       );
+    }
     const card: CardRecord = {
       id,
       type: input.type,
@@ -760,31 +425,122 @@ export class CardStore {
       const cycle = this.detectCycles(card.id, card.depends_on);
       if (cycle.length > 0) throw new Error(`Dependency cycle detected: ${cycle.join(' -> ')}`);
     }
-    this.writeCard(card);
-    this.addToIndex(card);
-    if (card.depends_on.length > 0) this.addToDependsOn(card.id, card.depends_on);
-    this.recomputeBlocks();
-    this.rebuildGraphStrict();
-    return this.read(card.id)!;
+    const result = applyMutationSync(this.deps(), { kind: 'create', card: parsed.data });
+    return deepClone(result.card!);
   }
 
-  read(id: string): CardRecord | null {
-    this.ensurePersistedStateValidated();
-    const cp = cardPath(this.projectRoot, id);
-    if (!existsSync(cp)) return null;
-    const card = this.parseCardRecord(readJson(cp), cp);
-    const blocksIndex = this.loadBlocks();
-    card.blocks = blocksIndex[id] ?? [];
-    return card;
+  update(id: string, changes: Partial<CardRecord>): CardRecord {
+    return this.applyPatch(id, changes, 'update', {
+      actor: 'runtime',
+      surface: 'runtime',
+      reason: 'update',
+    });
   }
 
-  /**
-   * Drop fields from `changes` whose new value is deep-equal to the value already on `existing`.
-   * No-op echoes (e.g. resending `depends_on: []` when the card already has `[]`) are therefore
-   * silently dropped before any validation runs. Editors that pass through the full card payload
-   * end up applying only the real deltas, and validation rules that restrict structural fields
-   * (e.g. depends_on on an active card) only fire when those fields actually change.
-   */
+  mutateCard(
+    id: string,
+    changes: Partial<CardRecord>,
+    ctx: CardMutationContext,
+  ): CardRecord {
+    return this.applyPatch(id, changes, 'mutate', ctx);
+  }
+
+  updateDependsOn(
+    id: string,
+    newDependsOn: string[],
+    ctx: CardMutationContext = {
+      actor: 'runtime',
+      surface: 'runtime',
+      reason: 'dependency update',
+    },
+  ): CardRecord {
+    return this.applyPatch(id, { depends_on: newDependsOn }, 'depends', ctx);
+  }
+
+  setStatus(id: string, newStatus: CardStatus): CardRecord {
+    const card = this.read(id);
+    if (!card) throw new Error(`Card '${id}' not found.`);
+    this.validateTransition(card.status, newStatus);
+    if (card.status === newStatus) return card;
+    return this.applyPatch(id, { status: newStatus }, 'status', {
+      actor: 'runtime',
+      surface: 'runtime',
+      reason: `status -> ${newStatus}`,
+    });
+  }
+
+  delete(id: string): void {
+    const card = this.read(id);
+    if (!card) throw new Error(`Card '${id}' not found.`);
+    if (isTerminalState(card.status)) {
+      throw new Error(
+        `Cannot delete card '${id}' because it is in status '${card.status}'. Cards in ${card.status} status cannot be deleted.`,
+      );
+    }
+    if (id === 'project') throw new Error('Cannot delete the project card.');
+    const children = this.state.childrenOf(id);
+    if (children.length > 0) {
+      throw new Error(
+        `Cannot delete card '${id}' because it has ${children.length} child(ren). Delete children first.`,
+      );
+    }
+    applyMutationSync(this.deps(), {
+      kind: 'delete',
+      cardId: id,
+      historyKind: 'delete',
+      finalSnapshot: card,
+      ctx: { actor: 'runtime', surface: 'runtime', reason: 'delete' },
+      changeSummary: 'card deleted',
+    });
+  }
+
+  archiveAndDeleteSubtree(ids: string[]): void {
+    const idSet = new Set(ids);
+    const cards = ids.map((id) => {
+      const c = this.read(id);
+      if (!c) throw new Error(`Card '${id}' not found.`);
+      return c;
+    });
+    for (const card of cards) {
+      for (const childId of this.state.childrenOf(card.id)) {
+        if (!idSet.has(childId)) {
+          throw new Error(
+            `Card '${card.id}' has child '${childId}' outside the requested delete set.`,
+          );
+        }
+      }
+      const archivePath = archiveCardPath(this.projectRoot, card.id);
+      if (existsSync(archivePath)) throw new Error(`Archive already exists for card '${card.id}'.`);
+    }
+    const archiveDir = join(this.projectRoot, '.saivage', 'archive', 'cards');
+    mkdirSync(archiveDir, { recursive: true });
+    for (const card of cards) {
+      const historyFile = cardHistoryPath(this.projectRoot, card.id);
+      const archivePayload = {
+        archived_at: now(),
+        card,
+        children: this.state.childrenOf(card.id),
+        history: existsSync(historyFile) ? readFileSync(historyFile, 'utf-8') : '',
+        notes_ref: join('.saivage', 'notes', `${card.id}.jsonl`),
+        result: card.result,
+        evidence_refs: { artifacts: card.artifacts, attachments: card.attachments },
+      };
+      writeFileAtomic(archiveCardPath(this.projectRoot, card.id), JSON.stringify(archivePayload, null, 2) + '\n');
+    }
+    const sorted = [...cards].sort((a, b) => b.depth - a.depth);
+    const ops: ApplyMutationOp[] = sorted.map((card) => ({
+      kind: 'delete',
+      cardId: card.id,
+      historyKind: 'archive',
+      finalSnapshot: card,
+      ctx: { actor: 'runtime', surface: 'runtime', reason: 'archive subtree' },
+      changeSummary: 'card archived',
+    }));
+    applyMutationGroupSync(this.deps(), ops);
+  }
+
+  // ── Internals ───────────────────────────────────────────────
+
   private prunePartialPatch(
     existing: CardRecord,
     changes: Partial<CardRecord>,
@@ -799,304 +555,130 @@ export class CardStore {
     return pruned;
   }
 
-  update(id: string, changes: Partial<CardRecord>): CardRecord {
-    this.ensurePersistedStateValidated();
-    const existing = this.read(id);
-    if (!existing) throw new Error(`Card '${id}' not found.`);
-    const realChanges = this.prunePartialPatch(existing, changes);
-    if (Object.keys(realChanges).length === 0) return existing;
-    const updated = this.buildUpdatedCard(existing, realChanges, now());
-    return this.persistMutation(existing, updated, realChanges);
+  private validateMutablePatch(existing: CardRecord, changes: Partial<CardRecord>): number {
+    if ((changes as { type?: string }).type === 'plan') {
+      throw new Error('Cannot change card type to plan: planning state lives on goal cards.');
+    }
+    if (isTerminalState(existing.status)) {
+      for (const key of Object.keys(changes)) {
+        if (key !== 'status' && !ALWAYS_ALLOWED_FIELDS.has(key)) {
+          throw new Error(
+            `Card '${existing.id}' is in status '${existing.status}'. Cards in this state cannot be edited. Use setStatus() to reopen the card first.`,
+          );
+        }
+      }
+    } else if (!FULL_EDIT_STATES.has(existing.status)) {
+      for (const key of Object.keys(changes)) {
+        if (CRITICAL_FIELDS.has(key)) {
+          throw new Error(
+            `Field '${key}' cannot be changed on a card in status '${existing.status}'. Cards in this state allow editing: status, title, description, priority, urgency, tags, and other non-structural fields.`,
+          );
+        }
+      }
+    }
+    if (changes.type !== undefined && changes.type !== existing.type && isTerminalType(changes.type as CardType)) {
+      const children = this.state.childrenOf(existing.id);
+      if (children.length > 0) {
+        throw new Error(
+          `Cannot change type of card '${existing.id}' to '${changes.type}' because it has ${children.length} child(ren). Terminal cards cannot have children.`,
+        );
+      }
+    }
+    let newDepth = existing.depth;
+    if (changes.parent !== undefined && changes.parent !== existing.parent) {
+      if (changes.parent !== null) {
+        const newParent = this.read(changes.parent);
+        if (!newParent) throw new Error(`Parent card '${changes.parent}' does not exist.`);
+        if (isTerminalType(newParent.type)) {
+          throw new Error(
+            `Cannot set parent to '${changes.parent}' because it is a terminal card (type: ${newParent.type}). Terminal cards cannot have children.`,
+          );
+        }
+        if (this.state.descendantsOf(existing.id).includes(changes.parent)) {
+          throw new Error(
+            `Cannot set parent of card '${existing.id}' to descendant '${changes.parent}'.`,
+          );
+        }
+        newDepth = (this.state.depthOf(newParent.id) ?? newParent.depth) + 1;
+      } else {
+        newDepth = 0;
+      }
+      if (newDepth > this.maxDepth) {
+        throw new Error(
+          `Cannot update card '${existing.id}' to depth ${newDepth}. Maximum allowed depth is ${this.maxDepth}. Choose a parent at a shallower level.`,
+        );
+      }
+    }
+    return newDepth;
   }
 
-  mutateCard(id: string, changes: Partial<CardRecord>, ctx: CardMutationContext): CardRecord {
-    this.ensurePersistedStateValidated();
+  private buildUpdatedCard(
+    existing: CardRecord,
+    changes: Partial<CardRecord>,
+    stamp: string,
+  ): CardRecord {
+    const newDepth = this.validateMutablePatch(existing, changes);
+    const newDependsOn =
+      changes.depends_on !== undefined ? changes.depends_on : existing.depends_on;
+    return {
+      ...existing,
+      ...changes,
+      id: existing.id,
+      created_at: existing.created_at,
+      created_by: existing.created_by,
+      updated_at: stamp,
+      depth: newDepth,
+      depends_on: newDependsOn,
+      blocks: existing.blocks,
+      version_seq: existing.version_seq + 1,
+    };
+  }
+
+  private applyPatch(
+    id: string,
+    changes: Partial<CardRecord>,
+    historyKind: 'update' | 'status' | 'mutate' | 'depends',
+    ctx: CardMutationContext,
+  ): CardRecord {
     const existing = this.read(id);
     if (!existing) throw new Error(`Card '${id}' not found.`);
     const realChanges = this.prunePartialPatch(existing, changes);
     if (Object.keys(realChanges).length === 0) return existing;
-    changes = realChanges;
     const stamp = now();
-    const candidate = this.buildUpdatedCard(existing, changes, stamp);
-    const changedFields = TRACKED_FIELDS.filter(
-      (field) => changes[field] !== undefined && !valuesEqual(existing[field], candidate[field]),
-    );
-    if (changedFields.length === 0) return this.persistMutation(existing, candidate, changes);
-
-    const updated: CardRecord = { ...candidate, version_seq: existing.version_seq + 1 };
-    const parsedUpdated = cardRecordSchema.safeParse(updated);
-    if (!parsedUpdated.success)
-      throw new Error(`Card validation failed: ${parsedUpdated.error.message}`);
-    if (changes.depends_on !== undefined) {
-      const cycle = this.detectCycles(existing.id, updated.depends_on);
+    const candidate = this.buildUpdatedCard(existing, realChanges, stamp);
+    if (realChanges.depends_on !== undefined) {
+      const cycle = this.detectCycles(existing.id, candidate.depends_on);
       if (cycle.length > 0) throw new Error(`Dependency cycle detected: ${cycle.join(' -> ')}`);
     }
-
-    const historyEntry: CardHistoryEntry = {
-      entry_id: randomUUID(),
-      kind: 'mutate',
-      card_id: existing.id,
-      version_seq: existing.version_seq,
-      snapshot: deepClone(existing),
-      changed_at: stamp,
-      changed_by_actor: ctx.actor,
-      changed_by_surface: ctx.surface,
-      change_reason: ctx.reason ?? null,
-      changed_fields: [...changedFields],
-      change_summary: summarizeChangedFields(changedFields),
-    };
-    const parsedHistory = cardHistoryEntrySchema.safeParse(historyEntry);
-    if (!parsedHistory.success)
-      throw new Error(`Card history validation failed: ${parsedHistory.error.message}`);
-
-    this.appendHistoryEntry(parsedHistory.data);
-    this.testHooks?.beforeTrackedCardRename?.(updated, parsedHistory.data);
-    const tmpPath = `${cardPath(this.projectRoot, id)}.tmp`;
-    mkdirSync(join(this.projectRoot, '.saivage', 'cards', 'by-id'), { recursive: true });
-    writeFileSync(tmpPath, `${JSON.stringify(updated, null, 2)}\n`, 'utf-8');
-    renameSync(tmpPath, cardPath(this.projectRoot, id));
-
-    const index = this.loadIndex();
-    index.cards[id] = {
-      id: updated.id,
-      type: updated.type,
-      parent: updated.parent,
-      status: updated.status,
-      title: updated.title,
-    };
-    this.saveIndex(index);
-    if (changes.depends_on !== undefined) {
-      if (updated.depends_on.length > 0) this.addToDependsOn(id, updated.depends_on);
-      else {
-        const deps = this.loadDependsOn();
-        delete deps[id];
-        this.saveDependsOn(deps);
+    const parsed = cardRecordSchema.safeParse(candidate);
+    if (!parsed.success) throw new Error(`Card validation failed: ${parsed.error.message}`);
+    const changedFields: string[] = [];
+    for (const f of TRACKED_FIELDS) {
+      if (realChanges[f] !== undefined && !valuesEqual(existing[f], candidate[f])) {
+        changedFields.push(f);
       }
     }
-    this.recomputeBlocks();
-    this.rebuildGraphStrict();
-    const persisted = this.read(id)!;
-    this.eventBus.emit('card_history_appended', {
-      entry_id: parsedHistory.data.entry_id,
-      entry_kind: parsedHistory.data.kind,
-      card_id: persisted.id,
-      version_seq: persisted.version_seq,
-      changed_fields: [...changedFields],
-      changed_at: historyEntry.changed_at,
+    for (const k of Object.keys(realChanges)) {
+      if (!changedFields.includes(k)) changedFields.push(k);
+    }
+    const result = applyMutationSync(this.deps(), {
+      kind: 'persist',
+      next: parsed.data,
+      historyKind,
+      ctx,
+      changedFields,
+      changeSummary: summarizeChangedFields(changedFields),
     });
-    enqueueCardMutationNotifications(this.projectRoot, persisted, changedFields as string[], {
-      actor: ctx.actor,
-      surface: ctx.surface,
-    });
+    const persisted = deepClone(result.card!);
+    try {
+      enqueueCardMutationNotifications(this.projectRoot, persisted, changedFields, {
+        actor: ctx.actor,
+        surface: ctx.surface,
+      });
+    } catch {
+      // Notification enqueue is best-effort; never break the mutation.
+    }
     return persisted;
-  }
-
-  listCardHistory(id: string): CardHistoryEntry[] {
-    this.ensurePersistedStateValidated();
-    return this.loadHistoryEntries(id).slice().reverse();
-  }
-
-  getCardAt(id: string, versionSeq: number): CardRecord {
-    const current = this.read(id);
-    if (!current) throw new Error(`Card '${id}' not found.`);
-    if (versionSeq === current.version_seq) return current;
-    const entry = this.loadHistoryEntries(id).find(
-      (candidate) => candidate.version_seq === versionSeq,
-    );
-    if (!entry) throw new Error(`Card '${id}' has no version ${versionSeq}.`);
-    return deepClone(entry.snapshot);
-  }
-
-  diffCard(id: string, fromSeq: number, toSeq: number): CardDiffEntry[] {
-    const from = this.getCardAt(id, fromSeq);
-    const to = this.getCardAt(id, toSeq);
-    const fields = new Set<keyof CardRecord>([
-      ...(Object.keys(from) as Array<keyof CardRecord>),
-      ...(Object.keys(to) as Array<keyof CardRecord>),
-    ]);
-    return Array.from(fields)
-      .filter((field) => !valuesEqual(from[field], to[field]))
-      .map((field) => ({ field, before: from[field], after: to[field] }));
-  }
-
-  archiveAndDeleteSubtree(ids: string[]): void {
-    this.ensurePersistedStateValidated();
-    const idSet = new Set(ids);
-    const cards = ids.map((id) => {
-      const card = this.read(id);
-      if (!card) throw new Error(`Card '${id}' not found.`);
-      return card;
-    });
-    for (const card of cards) {
-      for (const childId of this.getHierarchyGraph().childrenOf(card.id)) {
-        if (!idSet.has(childId))
-          throw new Error(
-            `Card '${card.id}' has child '${childId}' outside the requested delete set.`,
-          );
-      }
-      const archivePath = archiveCardPath(this.projectRoot, card.id);
-      if (existsSync(archivePath)) throw new Error(`Archive already exists for card '${card.id}'.`);
-    }
-
-    const archiveDir = join(this.projectRoot, '.saivage', 'archive', 'cards');
-    mkdirSync(archiveDir, { recursive: true });
-    for (const card of cards) {
-      const historyFile = historyPath(this.projectRoot, card.id);
-      const archivePayload = {
-        archived_at: now(),
-        card,
-        children: this.getHierarchyGraph().childrenOf(card.id),
-        history: existsSync(historyFile) ? readFileSync(historyFile, 'utf-8') : '',
-        notes_ref: join('.saivage', 'notes', `${card.id}.jsonl`),
-        result: card.result,
-        evidence_refs: { artifacts: card.artifacts, attachments: card.attachments },
-      };
-      writeJson(archiveCardPath(this.projectRoot, card.id), archivePayload);
-    }
-
-    const sorted = [...cards].sort((a, b) => b.depth - a.depth);
-    for (const card of sorted) {
-      this.removeFromIndex(card.id);
-      this.removeFromDependsOnAll(card.id);
-      const cardFile = cardPath(this.projectRoot, card.id);
-      if (existsSync(cardFile)) unlinkSync(cardFile);
-      const histFile = historyPath(this.projectRoot, card.id);
-      if (existsSync(histFile)) unlinkSync(histFile);
-    }
-    this.recomputeBlocks();
-    this.rebuildGraphStrict();
-  }
-
-  delete(id: string): void {
-    this.ensurePersistedStateValidated();
-    const card = this.read(id);
-    if (!card) throw new Error(`Card '${id}' not found.`);
-    if (TERMINAL_STATES.has(card.status))
-      throw new Error(
-        `Cannot delete card '${id}' because it is in status '${card.status}'. Cards in ${card.status} status cannot be deleted.`,
-      );
-    if (id === 'project') throw new Error('Cannot delete the project card.');
-    const children = this.getHierarchyGraph().childrenOf(id);
-    if (children.length > 0)
-      throw new Error(
-        `Cannot delete card '${id}' because it has ${children.length} child(ren). Delete children first.`,
-      );
-    this.removeFromIndex(id);
-    this.removeFromDependsOnAll(id);
-    const cfp = cardPath(this.projectRoot, id);
-    if (existsSync(cfp)) unlinkSync(cfp);
-    const hp = historyPath(this.projectRoot, id);
-    if (existsSync(hp)) unlinkSync(hp);
-    this.recomputeBlocks();
-    this.rebuildGraphStrict();
-  }
-
-  list(): CardRecord[] {
-    this.ensurePersistedStateValidated();
-    const index = this.loadIndex();
-    const cards: CardRecord[] = [];
-    for (const id of Object.keys(index.cards)) {
-      const card = this.read(id);
-      if (card) cards.push(card);
-    }
-    return cards;
-  }
-
-  listChildren(parentId: string): string[] {
-    return this.getHierarchyGraph().childrenOf(parentId);
-  }
-
-  getParent(id: string): string | null {
-    return this.read(id)?.parent ?? null;
-  }
-
-  getAncestors(id: string): string[] {
-    const ancestors: string[] = [];
-    let current = this.read(id);
-    if (!current) return [];
-    while (current && current.parent !== null) {
-      ancestors.unshift(current.parent);
-      current = this.read(current.parent);
-    }
-    return ancestors;
-  }
-
-  isDescendantOf(id: string, ancestorId: string): boolean {
-    return this.getAncestors(id).includes(ancestorId);
-  }
-
-  getDescendantIds(id: string): string[] {
-    return this.getHierarchyGraph().descendantsOf(id);
-  }
-
-  updateDependsOn(
-    id: string,
-    newDependsOn: string[],
-    ctx: CardMutationContext = {
-      actor: 'runtime',
-      surface: 'runtime',
-      reason: 'dependency update',
-    },
-  ): CardRecord {
-    return this.mutateCard(id, { depends_on: newDependsOn }, ctx);
-  }
-
-  recomputeBlocks(): void {
-    const deps = this.loadDependsOn();
-    const allCards = this.loadIndex();
-    const blocks: CardBlocksIndex = {};
-    for (const cardId of Object.keys(allCards.cards)) blocks[cardId] = [];
-    for (const [cardId, dependsOnList] of Object.entries(deps)) {
-      for (const dep of dependsOnList) {
-        if (blocks[dep]) blocks[dep].push(cardId);
-        else blocks[dep] = [cardId];
-      }
-    }
-    this.saveBlocks(blocks);
-  }
-
-  detectCycles(id: string, newDependsOn: string[]): string[] {
-    const deps = this.loadDependsOn();
-    const graph: Record<string, string[]> = {};
-    for (const [cardId, dependsOnList] of Object.entries(deps)) graph[cardId] = [...dependsOnList];
-    if (newDependsOn.length > 0) graph[id] = [...newDependsOn];
-    else delete graph[id];
-    const allCards = this.loadIndex();
-    for (const cardId of Object.keys(allCards.cards)) if (!(cardId in graph)) graph[cardId] = [];
-    const visited = new Set<string>();
-    const stack = new Set<string>();
-    function dfs(node: string, path: string[]): string[] | null {
-      if (stack.has(node)) {
-        const cycleStart = path.indexOf(node);
-        return [...path.slice(cycleStart), node];
-      }
-      if (visited.has(node)) return null;
-      visited.add(node);
-      stack.add(node);
-      for (const neighbor of graph[node] || []) {
-        const result = dfs(neighbor, [...path, node]);
-        if (result) return result;
-      }
-      stack.delete(node);
-      return null;
-    }
-    return dfs(id, []) ?? [];
-  }
-
-  validateTransition(from: CardStatus, to: CardStatus): void {
-    if (from === to) return;
-    const allowed = VALID_TRANSITIONS[from];
-    if (allowed && allowed.includes(to)) return;
-    throw new Error(
-      `Invalid transition: ${from} → ${to}. Valid transitions from ${from} are: ${allowed ? allowed.join(', ') : 'none'}.`,
-    );
-  }
-
-  setStatus(id: string, newStatus: CardStatus): CardRecord {
-    const card = this.read(id);
-    if (!card) throw new Error(`Card '${id}' not found.`);
-    this.validateTransition(card.status, newStatus);
-    return this.update(id, { status: newStatus });
   }
 
   activateGoal(id: string): { goal: CardRecord } {
@@ -1107,9 +689,15 @@ export class CardStore {
     const activeGoal =
       goal.status === 'active' || goal.status === 'running' ? goal : this.setStatus(id, 'active');
     const existingResult =
-      activeGoal.result && typeof activeGoal.result === 'object' ? activeGoal.result : {};
-    if (existingResult.planning && typeof existingResult.planning === 'object')
+      activeGoal.result && typeof activeGoal.result === 'object'
+        ? (activeGoal.result as Record<string, unknown>)
+        : {};
+    if (
+      existingResult.planning &&
+      typeof existingResult.planning === 'object'
+    ) {
       return { goal: activeGoal };
+    }
     return {
       goal: this.update(id, {
         result: {
@@ -1122,13 +710,23 @@ export class CardStore {
             updated_cards: [],
             updated_at: new Date().toISOString(),
           },
-        },
+        } as CardRecord['result'],
       }),
     };
   }
 
+  // ── Test helpers ────────────────────────────────────────────
+
   resetHistoryForTests(id: string): void {
-    const hp = historyPath(this.projectRoot, id);
+    const hp = cardHistoryPath(this.projectRoot, id);
     if (existsSync(hp)) rmSync(hp, { force: true });
   }
+}
+
+export { CardStoreInvariantError } from './state.js';
+export const validateHistoryEntry = (entry: unknown) => cardHistoryEntrySchema.parse(entry);
+export function loadCardHistoryEntries(projectRoot: string, id: string): CardHistoryEntry[] {
+  const hp = cardHistoryPath(projectRoot, id);
+  if (!existsSync(hp)) return [];
+  return readHistoryEntriesStrict(hp);
 }

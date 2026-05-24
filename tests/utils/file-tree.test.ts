@@ -68,52 +68,6 @@ describe('initProjectTree', () => {
     expect(card.tags).toEqual([]);
   });
 
-  it('creates cards/index.json with the project card entry', () => {
-    initProjectTree(tmpDir);
-    const index = JSON.parse(
-      readFileSync(join(tmpDir, '.saivage', 'cards', 'index.json'), 'utf-8'),
-    );
-    expect(index.cards.project).toBeDefined();
-    expect(index.cards.project.id).toBe('project');
-    expect(index.cards.project.type).toBe('project');
-    expect(index.cards.project.parent).toBeNull();
-    expect(index.cards.project.status).toBe('backlog');
-    expect(index.cards.project.title).toBe('project');
-  });
-
-  it('creates cards/tree/project.children.json with empty array', () => {
-    initProjectTree(tmpDir);
-    const children = JSON.parse(
-      readFileSync(
-        join(tmpDir, '.saivage', 'cards', 'tree', 'project.children.json'),
-        'utf-8',
-      ),
-    );
-    expect(children).toEqual([]);
-  });
-
-  it('creates cards/dependencies/depends-on.json as empty object', () => {
-    initProjectTree(tmpDir);
-    const deps = JSON.parse(
-      readFileSync(
-        join(tmpDir, '.saivage', 'cards', 'dependencies', 'depends-on.json'),
-        'utf-8',
-      ),
-    );
-    expect(deps).toEqual({});
-  });
-
-  it('creates cards/dependencies/blocks.json as empty object', () => {
-    initProjectTree(tmpDir);
-    const blks = JSON.parse(
-      readFileSync(
-        join(tmpDir, '.saivage', 'cards', 'dependencies', 'blocks.json'),
-        'utf-8',
-      ),
-    );
-    expect(blks).toEqual({});
-  });
-
   it('creates notes/queue.json with empty entries and next sequence', () => {
     initProjectTree(tmpDir);
     const queue = JSON.parse(
@@ -177,10 +131,8 @@ describe('initProjectTree', () => {
     const saivageDirs = [
       'skills',
       'cards/by-id',
-      'cards/tree',
-      'cards/dependencies',
       'cards/history',
-      'cards/views',
+      'cards/.commit',
       'diaries',
       'reviews/by-goal',
       'notes/by-card',
@@ -223,10 +175,6 @@ describe('initProjectTree', () => {
       join(tmpDir, '.saivage', 'project.json'),
       'utf-8',
     );
-    const indexBefore = readFileSync(
-      join(tmpDir, '.saivage', 'cards', 'index.json'),
-      'utf-8',
-    );
 
     initProjectTree(tmpDir);
 
@@ -238,14 +186,9 @@ describe('initProjectTree', () => {
       join(tmpDir, '.saivage', 'project.json'),
       'utf-8',
     );
-    const indexAfter = readFileSync(
-      join(tmpDir, '.saivage', 'cards', 'index.json'),
-      'utf-8',
-    );
 
     expect(cardAfter).toBe(cardBefore);
     expect(configAfter).toBe(configBefore);
-    expect(indexAfter).toBe(indexBefore);
     expect(listDiscardedSaivageDirs(tmpDir)).toEqual([]);
   });
 
@@ -254,11 +197,10 @@ describe('initProjectTree', () => {
     initProjectTree(tmpDir);
     initProjectTree(tmpDir);
 
-    const index = JSON.parse(
-      readFileSync(join(tmpDir, '.saivage', 'cards', 'index.json'), 'utf-8'),
+    const card = JSON.parse(
+      readFileSync(join(tmpDir, '.saivage', 'cards', 'by-id', 'project.json'), 'utf-8'),
     );
-    const cardIds = Object.keys(index.cards);
-    expect(cardIds).toEqual(['project']);
+    expect(card.id).toBe('project');
   });
 
   it('discards legacy .saivage layouts and creates a fresh tree', () => {

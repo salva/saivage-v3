@@ -13,6 +13,11 @@ export type {
 } from './result-parser.js';
 
 export {
+  readLatestLlmExchange,
+  LlmExchangeCorruptedError,
+} from './llm-exchange-log.js';
+
+export {
   appendActivateCardToolResultOnce,
   appendMessage,
   findPlannerSessionForCard,

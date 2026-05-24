@@ -6,7 +6,7 @@ import type {
   ExchangeRequestMeta,
   ExchangeResponseMeta,
   LlmExchange,
-} from '../contracts/llm-exchange.js';
+} from '../contracts/index.js';
 
 /**
  * Narrow logger interface used by the recorder for failure-isolation events.

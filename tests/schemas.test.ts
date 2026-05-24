@@ -5,10 +5,6 @@ import { tmpdir } from 'node:os';
 import {
   attachmentRefSchema,
   artifactRefSchema,
-  cardBlocksIndexSchema,
-  cardChildrenIndexSchema,
-  cardDependencyIndexSchema,
-  cardIndexSchema,
   cardRecordSchema,
   notesQueueSchema,
   processRecordSchema,
@@ -55,86 +51,6 @@ describe('Activation envelope schemas', () => {
     expect(parseActivationEnvelopeContent(JSON.stringify(envelope)).completion?.child_card_id).toBe('code-a');
   });
 });
-
-describe('Derived card schemas', () => {
-  it('accepts a valid card index', () => {
-    const result = cardIndexSchema.safeParse({
-      cards: {
-        project: {
-          id: 'project',
-          type: 'project',
-          parent: null,
-          status: 'backlog',
-          title: 'project',
-        },
-        'goal-1': {
-          id: 'goal-1',
-          type: 'goal',
-          parent: 'project',
-          status: 'active',
-          title: 'Goal 1',
-        },
-      },
-    });
-    expect(result.success).toBe(true);
-  });
-
-  it('rejects a card index entry whose id does not match its key', () => {
-    const result = cardIndexSchema.safeParse({
-      cards: {
-        'goal-1': {
-          id: 'goal-2',
-          type: 'goal',
-          parent: 'project',
-          status: 'backlog',
-          title: 'Mismatch',
-        },
-      },
-    });
-    expect(result.success).toBe(false);
-  });
-
-  it('accepts a valid children index', () => {
-    const result = cardChildrenIndexSchema.safeParse(['goal-1', 'goal-2']);
-    expect(result.success).toBe(true);
-  });
-
-  it('rejects an invalid children index', () => {
-    const result = cardChildrenIndexSchema.safeParse(['goal-1', 2]);
-    expect(result.success).toBe(false);
-  });
-
-  it('accepts a valid dependency index', () => {
-    const result = cardDependencyIndexSchema.safeParse({
-      'goal-2': ['goal-1'],
-      'code-1': ['goal-2'],
-    });
-    expect(result.success).toBe(true);
-  });
-
-  it('rejects an invalid dependency index', () => {
-    const result = cardDependencyIndexSchema.safeParse({
-      'goal-2': ['goal-1', null],
-    });
-    expect(result.success).toBe(false);
-  });
-
-  it('accepts a valid blocks index', () => {
-    const result = cardBlocksIndexSchema.safeParse({
-      'goal-1': ['goal-2'],
-      'goal-2': [],
-    });
-    expect(result.success).toBe(true);
-  });
-
-  it('rejects an invalid blocks index', () => {
-    const result = cardBlocksIndexSchema.safeParse({
-      'goal-1': 'goal-2',
-    });
-    expect(result.success).toBe(false);
-  });
-});
-
 
 describe('Core schemas still validate expected records', () => {
   it('accepts a valid project config', () => {

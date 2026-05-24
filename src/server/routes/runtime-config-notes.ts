@@ -12,7 +12,7 @@ import { recordControlAction, stableStringify, listControlActions } from '../../
 import { readFreezeManifest, clearFreezeManifest } from '../../runtime/index.js';
 import { NotificationCenter } from '../../notifications/index.js';
 import { type ServerAvailability } from '../../contracts/index.js';
-import { readLatestLlmExchange, LlmExchangeCorruptedError } from '../../agents/llm-exchange-log.js';
+import { readLatestLlmExchange, LlmExchangeCorruptedError } from '../../agents/index.js';
 
 
 function saivageDir(projectRoot: string): string { return `${projectRoot}/.saivage`; }

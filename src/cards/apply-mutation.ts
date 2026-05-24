@@ -24,8 +24,8 @@ import type {
   CardRecord,
 } from '../schemas/index.js';
 import { cardHistoryEntrySchema, cardRecordSchema } from '../schemas/index.js';
-import type { ProjectLock, LockHandle } from '../persistence/project-lock.js';
-import { appendSyncIdempotent } from '../persistence/jsonl-ledger.js';
+import { ProjectLock, appendSyncIdempotent } from '../persistence/index.js';
+import type { LockHandle } from '../persistence/index.js';
 import {
   cardByIdPath,
   cardHistoryPath,
@@ -142,27 +142,35 @@ function stageByIdTmp(finalPath: string, card: CardRecord, token: string): strin
   return tmpPath;
 }
 
-async function withMutexAndLock<T>(
+function withLockOnly<T>(
   deps: ApplyMutationDeps,
-  body: (lockHandle: LockHandle) => Promise<T>,
-): Promise<T> {
-  const release = await deps.mutex.lock();
-  try {
-    return await deps.projectLock.withLock(async (handle) => body(handle));
-  } finally {
-    release();
-  }
+  body: (lockHandle: LockHandle) => T,
+): T {
+  return deps.projectLock.withLockSync((handle) => body(handle));
 }
 
 /**
  * Per F13 r5 §"On-disk write sequence" steps 1–10 for a single-card mutation.
  * For `create`, no history row is written and no event is emitted.
+ *
+ * NOTE (Batch 2b deviation): the outer ProjectMutex is dropped here. JavaScript
+ * single-thread serialization already protects the sync body, and the inner
+ * `withLockSync` provides cross-process serialization. Callers receive a
+ * synchronous result — the function returns an already-resolved Promise solely
+ * for API stability.
  */
 export async function applyMutation(
   deps: ApplyMutationDeps,
   op: ApplyMutationOp,
 ): Promise<ApplyMutationResult> {
-  const outcome = await withMutexAndLock(deps, async (handle) => {
+  return applyMutationSync(deps, op);
+}
+
+export function applyMutationSync(
+  deps: ApplyMutationDeps,
+  op: ApplyMutationOp,
+): ApplyMutationResult {
+  const outcome = withLockOnly(deps, (handle) => {
     deps.projectLock.assertOwns(handle);
     return applyMutationLocked(deps, op);
   });
@@ -304,12 +312,19 @@ export async function applyMutationGroup(
   deps: ApplyMutationDeps,
   ops: ApplyMutationOp[],
 ): Promise<ApplyMutationResult[]> {
+  return applyMutationGroupSync(deps, ops);
+}
+
+export function applyMutationGroupSync(
+  deps: ApplyMutationDeps,
+  ops: ApplyMutationOp[],
+): ApplyMutationResult[] {
   if (ops.length === 0) return [];
   const events: CardHistoryAppendedPayload[] = [];
   const results: ApplyMutationResult[] = [];
   const groupToken = newToken();
   const perCardTokens: string[] = [];
-  await withMutexAndLock(deps, async (handle) => {
+  withLockOnly(deps, (handle) => {
     deps.projectLock.assertOwns(handle);
     writeGroupCommitMarker(deps.projectRoot, {
       group_token: groupToken,
@@ -321,7 +336,6 @@ export async function applyMutationGroup(
       results.push({ card: outcome.card, historyEntry: outcome.historyEntry });
       if (outcome.event !== null) events.push(outcome.event);
     }
-    return undefined;
   });
   for (const evt of events) deps.eventBus.emit('card_history_appended', evt);
   return results;

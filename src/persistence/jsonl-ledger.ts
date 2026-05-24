@@ -154,20 +154,20 @@ export function lastLineSync(jsonlPath: string): LastLineSyncResult {
   const endsWithNewline = buf[buf.length - 1] === 0x0a;
   if (endsWithNewline) {
     // Last complete line is between the previous \n and the trailing \n.
-    let end = buf.length - 1;
+    const end = buf.length - 1;
     if (end === 0) return { line: '', endsWithNewline: true, partialTail: null };
     let start = end - 1;
     while (start > 0 && buf[start - 1] !== 0x0a) start--;
     return { line: buf.slice(start, end).toString('utf-8'), endsWithNewline: true, partialTail: null };
   }
   // No trailing newline → partial last line. Find boundary before that partial tail.
-  let end = buf.length;
+  const end = buf.length;
   let start = end - 1;
   while (start > 0 && buf[start - 1] !== 0x0a) start--;
   const partial = buf.slice(start, end).toString('utf-8');
   if (start === 0) return { line: null, endsWithNewline: false, partialTail: partial };
   // Find the previous complete line for context.
-  let prevEnd = start - 1;
+  const prevEnd = start - 1;
   let prevStart = prevEnd;
   while (prevStart > 0 && buf[prevStart - 1] !== 0x0a) prevStart--;
   return {

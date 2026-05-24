@@ -86,7 +86,7 @@ export function redactOperatorErrorMessage(message: string, projectRoot?: string
     const resolvedRoot = resolve(projectRoot);
     redacted = redacted.split(resolvedRoot).join('[PROJECT_ROOT]');
   }
-  return redacted.replace(/([A-Za-z]:)?(?:\/[^\s:]+)+/g, (pathLike) => {
+  return redacted.replace(/(\.saivage(?:-work)?)?([A-Za-z]:)?(?:\/[^\s:]+)+/g, (pathLike) => {
     if (pathLike === '[PROJECT_ROOT]') {
       return pathLike;
     }

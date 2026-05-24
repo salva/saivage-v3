@@ -7,7 +7,7 @@ import { evaluateAuthz } from './agents/index.js';
 import { startApp } from './boot/index.js';
 import { recordControlAction, stableStringify, initProjectTree, isInitialized, findProjectRoot } from './persistence/index.js';
 import { isLocked, pauseRuntimeControl, readRuntimeState, resumeRuntimeControl } from './runtime/index.js';
-import { readLiveLockHolder } from './runtime/lock.js';
+import { readLiveLockHolder } from './runtime/index.js';
 
 interface CliOptions { 'kill-processes'?: boolean; force?: boolean; 'create-runtime'?: boolean; port?: string; host?: string; }
 const USAGE = `Saivage v3 CLI

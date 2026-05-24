@@ -1,11 +1,10 @@
 export {
   CardStore,
+  CardStoreInvariantError,
 } from './card-store.js';
 export type {
   CardDiffEntry,
   CardMutationContext,
-  CardStoreCanonicalHealth,
-  CardStoreHealth,
 } from './card-store.js';
 
 export {

@@ -237,7 +237,11 @@ export interface NoteQueueEntry {
   note?: NoteRecord;
 }
 
+export type CardHistoryKind = 'update' | 'status' | 'mutate' | 'depends' | 'delete' | 'archive';
+
 export interface CardHistoryHeader {
+  entry_id: string;
+  kind: CardHistoryKind;
   card_id: string;
   version_seq: number;
   changed_at: string;
@@ -542,10 +546,6 @@ export interface CardIndex {
   byType: Record<string, number>;
 }
 
-export interface CardStoreHealth {
-  canonical: 'ok' | 'invalid';
-}
-
 
 export type AvailabilityState = 'available' | 'degraded' | 'idle' | 'unavailable' | 'unknown';
 export type AvailabilityComponentSource = 'startup' | 'active-runtime' | 'runtime-state' | 'mcp-manager' | 'health-check' | 'unknown';
@@ -789,7 +789,7 @@ export interface CardUpdateResponse { card: CardRecord; }
 export interface CardHistoryListResponse { history: CardHistoryHeader[]; total: number; }
 export interface CardHistoryEntryResponse { entry: CardHistoryEntry; }
 export interface CardDiffResponse { diff: CardDiffRow[]; from: number; to: number; card_id: string; }
-export interface RuntimeStateResponse { projectRoot: string; projectId: string; runtime: RuntimeState | null; cardIndex: CardIndex; cardStoreHealth?: CardStoreHealth; serverAvailability?: ServerAvailability; }
+export interface RuntimeStateResponse { projectRoot: string; projectId: string; runtime: RuntimeState | null; cardIndex: CardIndex; serverAvailability?: ServerAvailability; }
 export interface ConfigResponse { config: Record<string, unknown>; warnings?: string[]; }
 export interface ProvidersResponse { providers: Record<string, ProviderEntry>; warnings?: string[]; }
 export interface AgentConversationResponse { session: AgentSession; messages: AgentMessage[]; }

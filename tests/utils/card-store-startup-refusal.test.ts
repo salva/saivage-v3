@@ -14,8 +14,7 @@ describe('CardStore startup refusal for legacy cards', () => {
       const legacy = JSON.parse(readFileSync(legacyPath, 'utf-8')) as Record<string, unknown>;
       delete legacy.version_seq;
       writeFileSync(legacyPath, JSON.stringify(legacy, null, 2));
-      const store = new CardStore(root);
-      expect(() => store.list()).toThrow(/saivage reset/i);
+      expect(() => new CardStore(root)).toThrow(/is invalid|version_seq/i);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
