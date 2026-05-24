@@ -528,7 +528,7 @@ export class AgentAdapter implements AgentRuntime {
                   try { parsed = parser(finalResponse); }
                   catch (err2) {
                     if (role === 'executor') {
-                      const fallback = buildExecutorFallbackResult(finalResponse, { cardId, sessionMessages: getSessionMessages(this.saivageDir, session.id) });
+                      const fallback = buildExecutorFallbackResult(finalResponse, { cardId, sessionMessages: getSessionMessages(this.saivageDir, session.id), reason: 'tool_calls_envelope_recovery' });
                       if (fallback) { appendMessage(this.saivageDir, session.id, { role: 'system', kind: 'model_issue', content: `Executor result fallback constructed after toolCalls-envelope recovery parse failure: ${err2 instanceof Error ? this.redactProviderErrorMessage(err2.message) : 'unknown parse error'}` }); parsed = fallback as T; }
                       else throw err2;
                     } else throw err2;
@@ -545,13 +545,13 @@ export class AgentAdapter implements AgentRuntime {
                   try { parsed = parser(finalResponse); }
                   catch (err2) {
                     if (role === 'executor') {
-                      const fallback = buildExecutorFallbackResult(finalResponse, { cardId, sessionMessages: getSessionMessages(this.saivageDir, session.id) });
+                      const fallback = buildExecutorFallbackResult(finalResponse, { cardId, sessionMessages: getSessionMessages(this.saivageDir, session.id), reason: 'self_check_recovery' });
                       if (fallback) { appendMessage(this.saivageDir, session.id, { role: 'system', kind: 'model_issue', content: `Executor result fallback constructed after self-check recovery parse failure: ${err2 instanceof Error ? this.redactProviderErrorMessage(err2.message) : 'unknown parse error'}` }); parsed = fallback as T; }
                       else throw err2;
                     } else throw err2;
                   }
                 } else if (role === 'executor') {
-                  const fallback = buildExecutorFallbackResult(finalResponse, { cardId, sessionMessages: getSessionMessages(this.saivageDir, session.id) });
+                  const fallback = buildExecutorFallbackResult(finalResponse, { cardId, sessionMessages: getSessionMessages(this.saivageDir, session.id), reason: 'parse_failure' });
                   if (fallback) { appendMessage(this.saivageDir, session.id, { role: 'system', kind: 'model_issue', content: `Executor result fallback constructed after parse failure: ${err instanceof Error ? this.redactProviderErrorMessage(err.message) : 'unknown parse error'}` }); parsed = fallback as T; }
                   else throw err;
                 } else throw err;

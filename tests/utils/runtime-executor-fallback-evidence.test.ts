@@ -54,6 +54,7 @@ describe('Runtime executor fallback evidence persistence', () => {
       status_text: 'Executor fallback evidence preserved',
       error: 'Executor final response was malformed or missing required status; preserved tool evidence via fallback result.',
       summary: 'fallback preserved tool evidence',
+      fallback_with_evidence: { reason: 'parse_failure' },
       artifacts: [
         { type: 'other', description: 'Generated file: generated/output.txt', retain: true, path: 'generated/output.txt' },
       ],
@@ -130,6 +131,7 @@ describe('Runtime executor fallback evidence persistence', () => {
       status: 'done',
       status_text: 'Generated project file and verified it',
       summary: 'generated output file',
+      fallback_with_evidence: null,
       artifacts: [
         { type: 'other', description: 'Generated project file', retain: true, path: 'generated/output.txt' },
         { type: 'other', description: 'Generated project directory', retain: true, path: 'generated' },

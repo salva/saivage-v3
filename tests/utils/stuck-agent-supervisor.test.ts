@@ -530,7 +530,7 @@ describe('Runtime supervisor cancellation integration', () => {
         return { goal_card_id: 'p', created_cards: [], updated_cards: [], status: 'done' };
       },
       invokeExecutor() {
-        return { card_id: 'c', status: 'done' as const, status_text: 'Completed successfully', artifacts: [], attachments: [] };
+        return { card_id: 'c', status: 'done' as const, status_text: 'Completed successfully', artifacts: [], attachments: [], fallback_with_evidence: null };
       },
       invokeReviewer() {
         return { assessment: { result: 'pass' as const, summary: '', achieved: [], issues: [], evidence_card_ids: [] } };
@@ -575,7 +575,7 @@ describe('Runtime supervisor cancellation integration', () => {
         return { goal_card_id: 'p', created_cards: [], updated_cards: [], status: 'done' };
       },
       invokeExecutor() {
-        return { card_id: 'c', status: 'done' as const, status_text: 'Completed successfully', artifacts: [], attachments: [] };
+        return { card_id: 'c', status: 'done' as const, status_text: 'Completed successfully', artifacts: [], attachments: [], fallback_with_evidence: null };
       },
       invokeReviewer() {
         return { assessment: { result: 'pass' as const, summary: '', achieved: [], issues: [], evidence_card_ids: [] } };

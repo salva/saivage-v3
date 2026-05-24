@@ -98,12 +98,13 @@ const VALID_TRANSITIONS: Record<CardStatus, CardStatus[]> = {
   drafting: ['backlog', 'cancelled'],
   backlog: ['active', 'cancelled'],
   active: ['running', 'cancelled', 'backlog'],
-  running: ['done', 'failed', 'blocked', 'changed', 'cancelled', 'backlog'],
+  running: ['done', 'failed', 'blocked', 'changed', 'cancelled', 'backlog', 'needs_verification'],
   blocked: ['backlog', 'running', 'changed', 'cancelled'],
   changed: ['backlog', 'active', 'cancelled'],
   done: ['backlog', 'cancelled'],
   failed: ['backlog', 'cancelled'],
   cancelled: ['drafting'],
+  needs_verification: ['cancelled'],
 };
 
 const TRACKED_FIELDS = [

@@ -10,7 +10,7 @@ import { buildLoggedEventSchema } from '../events/index.js';
 
 
 export const cardTypeSchema = z.enum(['project','goal','architecture','code','test','doc','data','research','ops']);
-export const cardStatusSchema = z.enum(['drafting','backlog','active','running','blocked','changed','done','failed','cancelled']);
+export const cardStatusSchema = z.enum(['drafting','backlog','active','running','blocked','changed','done','failed','cancelled','needs_verification']);
 export const cardActionSchema = z.enum(['card.start','card.cancel','card.delete','card.restart']);
 export const urgencySchema = z.enum(['low', 'normal', 'high', 'critical']);
 export const createdBySchema = z.enum(['user', 'analyst', 'planner']);
@@ -49,7 +49,7 @@ export const entityLinkSchema = z.object({ entity_type: z.enum(['card', 'process
 export const agentMessageSchema = z.object({ id: z.string().min(1), session_id: z.string().min(1), role: messageRoleSchema, kind: messageKindSchema, content: z.string(), tool: z.string().optional(), tool_call_id: z.string().optional(), timestamp: z.string().datetime(), links: z.array(entityLinkSchema).optional() });
 
 export const deferredActivationEnvelopeV1Schema: z.ZodType<import('./types.js').DeferredActivationEnvelopeV1> = z.object({ kind: z.literal('deferred_activate_card'), version: z.literal(1), parent_card_id: z.string().min(1), child_card_id: z.string().min(1), planner_session_id: z.string().min(1), tool_call_id: z.string().min(1), requested_at: z.string().datetime() }).strict();
-export const activationCompletionOutcomeSchema = z.enum(['done', 'failed', 'blocked', 'cancelled', 'timed_out']);
+export const activationCompletionOutcomeSchema = z.enum(['done', 'failed', 'blocked', 'cancelled', 'timed_out', 'needs_verification']);
 export const activationCompletionEnvelopeV1Schema: z.ZodType<import('./types.js').ActivationCompletionEnvelopeV1> = z.object({ kind: z.literal('activate_card_completion'), version: z.literal(1), child_card_id: z.string().min(1), outcome: activationCompletionOutcomeSchema, summary: z.string(), result: z.record(z.string(), z.unknown()).nullable().optional(), review: z.lazy(() => reviewAssessmentSchema).nullable().optional(), artifacts: z.array(artifactRefSchema).optional(), attachments: z.array(attachmentRefSchema).optional(), evidence_card_ids: z.array(z.string()).optional(), error: z.string().nullable().optional(), completed_by_session_id: z.string().nullable().optional(), success: z.boolean(), cardId: z.string().min(1), failure_kind: z.string().optional() }).strict();
 
 
@@ -102,7 +102,7 @@ export const runtimeCommandNameSchema = z.enum(['start_project', 'stop_project']
 export const runtimeCommandStatusSchema = z.enum(['accepted', 'rejected', 'completed']);
 export const runtimeRunKindSchema = z.enum(['root', 'child']);
 export const runtimeRunPhaseSchema = z.enum(['pending', 'planner', 'executor', 'reviewer', 'completed', 'failed', 'blocked', 'cancelled', 'stopped']);
-export const runtimeActivationStatusSchema = z.enum(['pending', 'running', 'completed', 'failed', 'blocked', 'cancelled']);
+export const runtimeActivationStatusSchema = z.enum(['pending', 'running', 'completed', 'failed', 'blocked', 'cancelled', 'needs_verification']);
 export const actionableErrorEnvelopeSchema: z.ZodType<import('./types.js').ActionableErrorEnvelope> = z.object({ code: z.string().min(1), message: z.string().min(1), acceptedValues: z.array(z.string()).optional(), currentState: z.record(z.string(), z.unknown()).optional(), nextAction: z.string().min(1), docsRef: z.string().optional(), runId: z.string().nullable().optional(), sessionId: z.string().nullable().optional(), cardId: z.string().nullable().optional(), parentCardId: z.string().nullable().optional(), childCardId: z.string().nullable().optional() }).strict();
 export function createActionableErrorEnvelope(input: import('./types.js').ActionableErrorEnvelope): import('./types.js').ActionableErrorEnvelope { return actionableErrorEnvelopeSchema.parse(input); }
 export function actionableEnumError(field: string, value: unknown, acceptedValues: readonly string[], docsRef = 'docs/v3-planner-control-mcp-contract.md'): import('./types.js').ActionableErrorEnvelope { return createActionableErrorEnvelope({ code: 'invalid_enum_value', message: `Invalid ${field} '${String(value)}'. Accepted values: ${acceptedValues.join(', ')}.`, acceptedValues: [...acceptedValues], currentState: { field, value }, nextAction: `Retry with one of: ${acceptedValues.join(', ')}.`, docsRef }); }

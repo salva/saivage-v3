@@ -6,7 +6,7 @@ export type PermissionRole = (typeof PERMISSION_ROLES)[number];
 export const CARD_ACTIONS = ['card.start', 'card.cancel', 'card.delete', 'card.restart'] as const;
 export type CardAction = (typeof CARD_ACTIONS)[number];
 
-export const CARD_STATES = ['drafting', 'backlog', 'active', 'running', 'blocked', 'changed', 'done', 'failed', 'cancelled'] as const satisfies readonly CardStatus[];
+export const CARD_STATES = ['drafting', 'backlog', 'active', 'running', 'blocked', 'changed', 'done', 'failed', 'cancelled', 'needs_verification'] as const satisfies readonly CardStatus[];
 export type CardState = (typeof CARD_STATES)[number];
 
 export type DenyReason = 'wrong_state' | 'not_authorized' | 'card_archived';

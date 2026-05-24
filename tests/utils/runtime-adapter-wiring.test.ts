@@ -251,6 +251,7 @@ describe('Runtime Adapter Wiring', () => {
             status_text: 'Completed successfully',
             artifacts: [],
             attachments: [],
+            fallback_with_evidence: null,
           };
         },
         invokeReviewer(_goalId: string) {

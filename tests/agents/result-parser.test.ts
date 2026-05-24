@@ -81,7 +81,7 @@ describe('buildExecutorFallbackResult', () => {
       msg({ tool: 'write_project_file', content: JSON.stringify({ path: 'src/generated.txt', written: true, bytes: 10 }) }),
       msg({ tool: 'run_project_command', content: JSON.stringify({ id: 'proc-1', command: 'npm test', status: 'exited', exitCode: 0, timedOut: false, output: 'ok' }) }),
     ];
-    const fallback = buildExecutorFallbackResult(JSON.stringify({ card_id: 'code-1', summary: 'malformed' }), { cardId: 'code-1', sessionMessages });
+    const fallback = buildExecutorFallbackResult(JSON.stringify({ card_id: 'code-1', summary: 'malformed' }), { cardId: 'code-1', sessionMessages, reason: 'parse_failure' });
     expect(fallback).not.toBeNull();
     expect(fallback!.status).toBe('failed');
     expect(fallback!.status_text).toContain('malformed');

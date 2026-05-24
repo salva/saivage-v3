@@ -19,6 +19,7 @@ export type RuntimeCardAction =
   | 'complete'
   | 'fail'
   | 'executor_finish'
+  | 'executor_partial_finish'
   | 'reviewer_repair_resume'
   | 'crash_recovery_drop_to_backlog';
 
@@ -239,6 +240,10 @@ export class RuntimeStateMachine {
         if (finalStatus === 'done') return ['done'];
         if (finalStatus === 'failed') return ['failed'];
         return null;
+      }
+      case 'executor_partial_finish': {
+        if (from !== 'running') return null;
+        return ['needs_verification'];
       }
       case 'reviewer_repair_resume':
         if (from === 'active') return ['running'];

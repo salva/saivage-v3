@@ -3,7 +3,7 @@ import { dirname, resolve } from 'node:path';
 import type { ReviewAssessment, CardStatus, ArtifactRef, AgentMessage, HandoffSummary, AgentSession } from '../schemas/index.js';
 import type { AgentRuntime } from '../agents/agent-runtime.js';
 import { appendMessage, completeSession, createSession, markSessionWaiting } from '../agents/session-persistence.js';
-import type { PlannerResult, ExecutorResult, ReviewerResult, PlannerStatus } from '../agents/result-parser.js';
+import type { PlannerResult, ExecutorResult, ReviewerResult, PlannerStatus, ExecutorFallbackReason } from '../agents/result-parser.js';
 import { appendRuntimeRun, readRuntimeState, upsertRuntimeActivation } from '../runtime/index.js';
 
 export interface FakeArtifactDef {
@@ -28,6 +28,7 @@ export interface FakeExecutorResult {
   result?: Record<string, unknown>;
   artifacts?: FakeArtifactDef[];
   attachments?: FakeAttachmentDef[];
+  fallback_with_evidence?: { reason: ExecutorFallbackReason } | null;
 }
 
 export interface FakePlannerResult {
@@ -47,7 +48,7 @@ function convertPlannerResult(raw: FakePlannerResult): PlannerResult {
   return { status: raw.status, blocked_reason: raw.blocked_reason, created_cards: (raw.created_cards ?? []).map((c) => ({ ...c, status: c.status as string })), updated_cards: (raw.updated_cards ?? []).map((u) => ({ ...u, status: u.status as string | undefined })), summary: raw.summary };
 }
 function convertExecutorResult(raw: FakeExecutorResult): ExecutorResult {
-  return { card_id: raw.card_id, status: raw.status, status_text: raw.status_text, error: raw.error, result: raw.result, artifacts: (raw.artifacts ?? []).map((a) => ({ type: a.type, description: a.description, retain: a.retain, sourceFile: a.sourceFile })), attachments: (raw.attachments ?? []).map((a) => ({ mime: a.mime, title: a.title, description: a.description, sourceFile: a.sourceFile })), summary: undefined };
+  return { card_id: raw.card_id, status: raw.status, status_text: raw.status_text, error: raw.error, result: raw.result, artifacts: (raw.artifacts ?? []).map((a) => ({ type: a.type, description: a.description, retain: a.retain, sourceFile: a.sourceFile })), attachments: (raw.attachments ?? []).map((a) => ({ mime: a.mime, title: a.title, description: a.description, sourceFile: a.sourceFile })), summary: undefined, fallback_with_evidence: raw.fallback_with_evidence ?? null };
 }
 function convertReviewerResult(raw: FakeReviewerResult): ReviewerResult {
   return { assessment: { result: raw.assessment.result, summary: raw.assessment.summary, achieved: raw.assessment.achieved, issues: raw.assessment.issues, evidence_card_ids: raw.assessment.evidence_card_ids } };

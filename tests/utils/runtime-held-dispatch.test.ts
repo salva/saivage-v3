@@ -31,9 +31,9 @@ describe('Runtime held dispatch for blocking notifications', () => {
     let reinvoked = 0;
     const agentRuntime: AgentRuntime = {
       invokePlanner() { return { status: 'done', created_cards: [], updated_cards: [] }; },
-      invokeExecutor() { return { card_id: 'code-1', status: 'done', status_text: 'Completed successfully', artifacts: [], attachments: [] }; },
+      invokeExecutor() { return { card_id: 'code-1', status: 'done', status_text: 'Completed successfully', artifacts: [], attachments: [], fallback_with_evidence: null }; },
       invokeReviewer() { return { assessment: { result: 'pass', summary: 'ok', achieved: [], issues: [], evidence_card_ids: ['code-1'] } }; },
-      reinvokeSession: async () => { reinvoked += 1; center.acknowledge('sess-executor', 'n-block'); return { card_id: 'code-1', status: 'done', status_text: 'Completed successfully', artifacts: [], attachments: [] }; },
+      reinvokeSession: async () => { reinvoked += 1; center.acknowledge('sess-executor', 'n-block'); return { card_id: 'code-1', status: 'done', status_text: 'Completed successfully', artifacts: [], attachments: [], fallback_with_evidence: null }; },
       cancelSession() { return false; },
       forceCancelSession() { return false; },
       getHandoffSummary() { return null; },
@@ -51,7 +51,7 @@ describe('Runtime held dispatch for blocking notifications', () => {
     center.enqueueForSession('sess-reviewer', { id: 'n-block', kind: 'note_added', severity: 'block', payload_summary: 'Escalation note added', related_note_id: 'note-1', source_actor: 'analyst', source_surface: 'web-chat' });
     const agentRuntime: AgentRuntime = {
       invokePlanner() { return { status: 'done', created_cards: [], updated_cards: [] }; },
-      invokeExecutor() { return { card_id: 'code-1', status: 'done', status_text: 'Completed successfully', artifacts: [], attachments: [] }; },
+      invokeExecutor() { return { card_id: 'code-1', status: 'done', status_text: 'Completed successfully', artifacts: [], attachments: [], fallback_with_evidence: null }; },
       invokeReviewer() { return { assessment: { result: 'pass', summary: 'ok', achieved: [], issues: [], evidence_card_ids: ['code-1'] } }; },
       reinvokeSession: async () => ({ assessment: { result: 'pass', summary: 'still unacked', achieved: [], issues: [], evidence_card_ids: ['code-1'] } }),
       cancelSession() { return false; },

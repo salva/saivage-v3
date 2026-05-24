@@ -48,6 +48,8 @@ export interface ExecutorAttachmentDef {
   path?: string;
 }
 
+export type ExecutorFallbackReason = 'tool_calls_envelope_recovery' | 'self_check_recovery' | 'parse_failure';
+
 export interface ExecutorResult {
   card_id: string;
   status: 'done' | 'failed';
@@ -57,11 +59,13 @@ export interface ExecutorResult {
   attachments: ExecutorAttachmentDef[];
   summary?: string;
   status_text: string;
+  fallback_with_evidence: { reason: ExecutorFallbackReason } | null;
 }
 
 export interface ExecutorFallbackContext {
   cardId: string;
   sessionMessages: AgentMessage[];
+  reason: ExecutorFallbackReason;
 }
 
 export interface ReviewerIssue { summary: string; severity: 'info' | 'warning' | 'blocker'; evidence_card_id?: string; recommendation?: string; }
@@ -267,6 +271,7 @@ export function buildExecutorFallbackResult(raw: string, context: ExecutorFallba
       tool_errors: toolErrors,
       parse_failure: parseFailure,
     },
+    fallback_with_evidence: { reason: context.reason },
   };
 }
 
@@ -321,6 +326,7 @@ export function parseExecutorResult(raw: string): ExecutorResult {
     artifacts: parsed.data.artifacts,
     attachments: parsed.data.attachments,
     summary: parsed.data.summary,
+    fallback_with_evidence: null,
   };
 }
 
