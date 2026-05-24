@@ -95,7 +95,7 @@ describe('Runtime executor fallback evidence persistence', () => {
     await runtime.shutdown();
 
     const codeCard = runtime.cardStore.read('code-1') as CardRecord;
-    expect(codeCard.status).toBe('failed');
+    expect(codeCard.status).toBe('needs_verification');
     expect(runtime.cardStore.read('project')?.status).not.toBe('done');
     expect(codeCard.result).toEqual(expect.objectContaining({
       generated_files: ['generated/output.txt'],

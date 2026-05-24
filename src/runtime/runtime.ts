@@ -189,7 +189,7 @@ export class Runtime extends EventEmitter {
     if (!state?.runtime_activations?.length) return;
     const at = now();
     const terminalStatus = outcome === 'done' ? 'completed' : outcome;
-    const runResult: RuntimeRunRecord['result'] = outcome === 'done' ? 'done' : outcome === 'blocked' ? 'blocked' : outcome === 'cancelled' ? 'cancelled' : 'failed';
+    const runResult: RuntimeRunRecord['result'] = outcome === 'done' ? 'done' : outcome === 'blocked' ? 'blocked' : outcome === 'cancelled' ? 'cancelled' : outcome === 'needs_verification' ? 'needs_verification' : 'failed';
     const activations = state.runtime_activations.map((activation) => (activation.child_card_id === childCardId && ['pending', 'claimed', 'running'].includes(activation.status))
       ? { ...activation, status: terminalStatus as typeof activation.status, updated_at: at }
       : activation);
@@ -744,11 +744,20 @@ export class Runtime extends EventEmitter {
         if (ignoredArtifactRegistrations.length > 0 || ignoredAttachmentRegistrations.length > 0) await this.cardStore.update(card.id, { result: { ...(this.cardStore.read(card.id)?.result ?? {}), evidence_registration_ignored: { artifacts: ignoredArtifactRegistrations, attachments: ignoredAttachmentRegistrations } } });
         const registrationFailed = execResult.status === 'done' && (artifactRegistrationErrors.length > 0 || attachmentRegistrationErrors.length > 0);
         const registrationError = registrationFailed ? `Completion blocked by evidence registration failure. Artifacts: ${artifactRegistrationErrors.join(' | ') || 'none'}. Attachments: ${attachmentRegistrationErrors.join(' | ') || 'none'}.` : null;
-        const finalStatus: CardStatus = registrationFailed ? 'failed' : execResult.status;
-        const transitioned = await this._stateMachine.transitionCard(card.id, 'executor_finish', { goalId, finalStatus, reason: registrationFailed ? 'evidence_registration_failed' : undefined });
+        const parkedForVerification = !registrationFailed && execResult.fallback_with_evidence !== null;
+        let outcome: ActivationCompletionOutcome;
+        let transitioned: boolean;
+        if (parkedForVerification) {
+          outcome = 'needs_verification';
+          transitioned = await this._stateMachine.transitionCard(card.id, 'executor_partial_finish', { goalId, reason: `fallback_with_evidence:${execResult.fallback_with_evidence!.reason}` });
+        } else {
+          const finalStatus: CardStatus = registrationFailed ? 'failed' : execResult.status;
+          outcome = finalStatus === 'done' ? 'done' : 'failed';
+          transitioned = await this._stateMachine.transitionCard(card.id, 'executor_finish', { goalId, finalStatus, reason: registrationFailed ? 'evidence_registration_failed' : undefined });
+        }
         if (!transitioned) { failed = true; return { dispatchedGoal, executedTerminal, failed }; }
         await this.cardStore.update(card.id, {
-          result: { ...(this.cardStore.read(card.id)?.result ?? {}), ...(execResult.result ?? {}), executor: execResult.result ?? null, latest_self_report: latestSelfReport, ...(registrationFailed ? { evidence_registration_failures: { artifacts: artifactRegistrationErrors, attachments: attachmentRegistrationErrors } } : {}) },
+          result: { ...(this.cardStore.read(card.id)?.result ?? {}), ...(execResult.result ?? {}), executor: execResult.result ?? null, latest_self_report: latestSelfReport, ...(registrationFailed ? { evidence_registration_failures: { artifacts: artifactRegistrationErrors, attachments: attachmentRegistrationErrors } } : {}), ...(parkedForVerification ? { fallback_with_evidence: execResult.fallback_with_evidence } : {}) },
           error: registrationError ?? execResult.error ?? null,
           status_text: execResult.status_text,
           status_text_updated_at: acceptedAt,
@@ -756,9 +765,9 @@ export class Runtime extends EventEmitter {
           latest_self_report: latestSelfReport,
         });
         if (registrationFailed) { execResult.status = 'failed'; execResult.error = registrationError ?? execResult.error; }
-        executedTerminal = true; const outcome = execResult.status === 'done' ? 'done' : 'failed';
-        this.appendChildUnwindToolResult(card.id, outcome, `Terminal card ${card.id} finished with status ${execResult.status}.`);
-        if (execResult.status === 'failed') { this.emit('card_failed', { card_id: card.id, goal_id: goalId }); this._eventLogger.appendEvent({ kind: 'card_failed', card_id: card.id, goal_id: goalId }); failed = true; return { dispatchedGoal, executedTerminal, failed }; }
+        executedTerminal = true;
+        this.appendChildUnwindToolResult(card.id, outcome, `Terminal card ${card.id} finished with outcome ${outcome}.`);
+        if (outcome === 'failed') { this.emit('card_failed', { card_id: card.id, goal_id: goalId }); this._eventLogger.appendEvent({ kind: 'card_failed', card_id: card.id, goal_id: goalId }); failed = true; return { dispatchedGoal, executedTerminal, failed }; }
       }
       activationCards = this.getPendingActivationCards(goalId);
     }
