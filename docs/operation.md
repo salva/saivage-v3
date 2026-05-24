@@ -332,11 +332,11 @@ Every current operator-facing Fastify or contract-mounted route is listed exactl
 | `GET /api/chats` | List analyst chat sessions. | `src/server/routes/chats-files-debug.ts:81` |
 | `GET /api/config` | Return redacted loaded configuration and warnings. | `src/server/routes/runtime-config-notes.ts:180` |
 | `GET /api/control-actions` | List control-action audit entries. | `src/server/routes/runtime-config-notes.ts:165` |
-| `GET /api/debug/doctor` | Run persisted-card consistency checks. | `src/server/routes/chats-files-debug.ts:389` |
-| `GET /api/debug/errors` | Read runtime error records. | `src/server/routes/chats-files-debug.ts:341` |
-| `GET /api/debug/state` | Dump runtime and card-index debug state. | `src/server/routes/chats-files-debug.ts:306` |
-| `GET /api/debug/supervision` | Read content-supervision review/quarantine summary. | `src/server/routes/chats-files-debug.ts:535` |
-| `GET /api/debug/timeline` | Read runtime event timeline records. | `src/server/routes/chats-files-debug.ts:365` |
+| `GET /api/debug/doctor` | Run persisted-card consistency checks. | `src/server/routes/chats-files-debug.ts:392` |
+| `GET /api/debug/errors` | Read runtime error records. | `src/server/routes/chats-files-debug.ts:342` |
+| `GET /api/debug/state` | Dump runtime and card-index debug state. | `src/server/routes/chats-files-debug.ts:307` |
+| `GET /api/debug/supervision` | Read content-supervision review/quarantine summary. | `src/server/routes/chats-files-debug.ts:457` |
+| `GET /api/debug/timeline` | Read runtime event timeline records. | `src/server/routes/chats-files-debug.ts:367` |
 | `GET /api/events` | Query runtime/agent events with filters and pagination. | `src/server/routes/events.ts:42` |
 | `GET /api/files/content` | Preview contained text files with safety checks. | `src/server/routes/chats-files-debug.ts:238` |
 | `GET /api/files` | List contained project files. | `src/server/routes/chats-files-debug.ts:178` |
