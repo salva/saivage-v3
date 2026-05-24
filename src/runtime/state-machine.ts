@@ -3,20 +3,12 @@
  *
  * Owns runtime-layer status transitions for cards and the RuntimeState
  * lifecycle. See SPEC/v1/review-2026-05/F19-runtime-pinned-failed-card/02-design-r5.md.
- *
- * Step 2 (this file at first landing): observe-only skeleton with the
- * action/event type surface pinned, the constructor deps wired, start/stop
- * scheduling, tick() stamping last_tick_at + I4 monotonicity, and
- * enforceInvariants-gated I1-I3 observation. Decomposition logic for
- * transitionCard / transition is intentionally stubbed until Step 5; Step 3
- * wires the machine into Runtime in observe-only mode.
  */
 
-import type { CardStatus } from '../schemas/types.js';
-import type { RuntimeState } from '../schemas/types.js';
-import type { CardStore } from '../cards/card-store.js';
-import { STARTABLE_STATES, RESTARTABLE_STATES } from '../permissions/card-permissions.js';
-import type { ErrorLogger } from '../observability/error-logger.js';
+import type { CardStatus, RuntimeState } from '../schemas/index.js';
+import type { CardStore } from '../cards/index.js';
+import { STARTABLE_STATES, RESTARTABLE_STATES } from '../permissions/index.js';
+import type { ErrorLogger } from '../observability/index.js';
 
 export type RuntimeCardAction =
   | 'start'
@@ -40,7 +32,7 @@ export type RuntimeStateMachineEvent =
   | 'reviewer_started'
   | 'reviewer_finished';
 
-export interface RuntimeSchedulerHandle { /* opaque */ }
+export type RuntimeSchedulerHandle = object;
 
 export interface RuntimeScheduler {
   setInterval(handler: () => void, ms: number): RuntimeSchedulerHandle;
@@ -59,7 +51,6 @@ export interface RuntimeStateMachineDeps {
   clock: () => Date;
   scheduler: RuntimeScheduler;
   redispatchGoal: (cardId: string) => void;
-  enforceInvariants: boolean;
   tickIntervalMs?: number;
 }
 
@@ -71,7 +62,6 @@ export class RuntimeStateMachine {
   private readonly clock: () => Date;
   private readonly scheduler: RuntimeScheduler;
   private readonly redispatchGoal: (cardId: string) => void;
-  private readonly enforceInvariants: boolean;
   private readonly tickIntervalMs: number;
 
   private _intervalHandle: RuntimeSchedulerHandle | null = null;
@@ -87,7 +77,6 @@ export class RuntimeStateMachine {
     this.clock = deps.clock;
     this.scheduler = deps.scheduler;
     this.redispatchGoal = deps.redispatchGoal;
-    this.enforceInvariants = deps.enforceInvariants;
     this.tickIntervalMs = deps.tickIntervalMs ?? DEFAULT_TICK_INTERVAL_MS;
   }
 
@@ -273,10 +262,8 @@ export class RuntimeStateMachine {
     // I1: status === 'running' ⇒ active_card_run !== null.
     if (state.status === 'running' && (state.active_card_run ?? null) === null) {
       this.logInvariantOnce('I1', 'global', { status: state.status });
-      if (this.enforceInvariants) {
-        // Corrective: status was 'running' with no active card run; drop to idle.
-        this.writeState({ status: 'idle', current_card_id: null, current_agent_session_id: null });
-      }
+      // Corrective: status was 'running' with no active card run; drop to idle.
+      this.writeState({ status: 'idle', current_card_id: null, current_agent_session_id: null });
     }
 
     // I2: current_card_id references a card with status ∉ TERMINAL_STATUSES.
@@ -286,10 +273,8 @@ export class RuntimeStateMachine {
       try { cardStatus = this.cardStore.read(currentCardId)?.status ?? null; } catch { cardStatus = null; }
       if (cardStatus !== null && TERMINAL_STATUSES.has(cardStatus)) {
         this.logInvariantOnce('I2', currentCardId, { cardId: currentCardId, cardStatus });
-        if (this.enforceInvariants) {
-          // Corrective: current_card_id points to a terminal card; clear it.
-          this.writeState({ status: 'idle', current_card_id: null, current_agent_session_id: null, active_card_run: null });
-        }
+        // Corrective: current_card_id points to a terminal card; clear it.
+        this.writeState({ status: 'idle', current_card_id: null, current_agent_session_id: null, active_card_run: null });
       }
     }
 
@@ -297,10 +282,8 @@ export class RuntimeStateMachine {
     const runCardId = state.active_card_run?.card_id ?? null;
     if (runCardId !== currentCardId) {
       this.logInvariantOnce('I3', `${currentCardId ?? 'null'}|${runCardId ?? 'null'}`, { currentCardId, activeRunCardId: runCardId });
-      if (this.enforceInvariants) {
-        // Corrective: clear the desync; the next dispatch will repopulate.
-        this.writeState({ status: 'idle', current_card_id: null, current_agent_session_id: null, active_card_run: null });
-      }
+      // Corrective: clear the desync; the next dispatch will repopulate.
+      this.writeState({ status: 'idle', current_card_id: null, current_agent_session_id: null, active_card_run: null });
     }
   }
 
@@ -312,7 +295,6 @@ export class RuntimeStateMachine {
    * `dispatchGoal`, so this method is safe to call on every tick.
    */
   private maybeRedispatchProjectRoot(): void {
-    if (!this.enforceInvariants) return;
     const state = this.readState();
     if (state === null) return;
     if (state.paused) return;

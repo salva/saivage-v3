@@ -5,6 +5,8 @@ export {
   CARD_STATES,
   decide,
   PERMISSION_ROLES,
+  STARTABLE_STATES,
+  RESTARTABLE_STATES,
   TOOL_TO_CARD_ACTION,
 } from './card-permissions.js';
 export type { CardAction, CardState, Decision, DenyReason, PermissionRole } from './card-permissions.js';

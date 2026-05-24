@@ -31,7 +31,7 @@ class FakeScheduler implements RuntimeScheduler {
   }
 }
 
-function buildMachine(projectRoot: string, opts?: { enforceInvariants?: boolean; clock?: () => Date }): { machine: RuntimeStateMachine; scheduler: FakeScheduler; errorLogger: ErrorLogger } {
+function buildMachine(projectRoot: string, opts?: { clock?: () => Date }): { machine: RuntimeStateMachine; scheduler: FakeScheduler; errorLogger: ErrorLogger } {
   const cardStore = new CardStore(projectRoot);
   const errorLogger = new ErrorLogger(join(projectRoot, '.saivage'));
   const scheduler = new FakeScheduler();
@@ -43,7 +43,6 @@ function buildMachine(projectRoot: string, opts?: { enforceInvariants?: boolean;
     clock: opts?.clock ?? (() => new Date()),
     scheduler,
     redispatchGoal: () => { /* noop */ },
-    enforceInvariants: opts?.enforceInvariants ?? false,
     tickIntervalMs: 5000,
   });
   return { machine, scheduler, errorLogger };
@@ -102,7 +101,6 @@ describe('RuntimeStateMachine (Step 2 skeleton)', () => {
         clock,
         scheduler,
         redispatchGoal: () => undefined,
-        enforceInvariants: false,
       });
       machineRef.current = machine;
       await machine.tick();
@@ -131,17 +129,17 @@ describe('RuntimeStateMachine (Step 2 skeleton)', () => {
     } finally { rmSync(projectRoot, { recursive: true, force: true }); }
   });
 
-  it('enforceInvariants: false does not auto-correct an I1 violation; logs once', async () => {
+  it('I1 auto-corrects status=running with active_card_run null to idle; logs once', async () => {
     const projectRoot = root();
     try {
       initRuntimeState(projectRoot);
       // Force an I1 violation: status === 'running' with active_card_run null.
       updateRuntimeState(projectRoot, { status: 'running', active_card_run: null });
-      const { machine, errorLogger } = buildMachine(projectRoot, { enforceInvariants: false });
+      const { machine, errorLogger } = buildMachine(projectRoot);
       await machine.tick();
       const stateAfter = readRuntimeState(projectRoot)!;
-      // Observe-only: status must NOT have been corrected.
-      expect(stateAfter.status).toBe('running');
+      // Always-enforce: status corrected to idle.
+      expect(stateAfter.status).toBe('idle');
       const i1 = errorLogger.getErrors().filter((e) => e.code === 'state_machine_invariant' && e.invariant === 'I1');
       expect(i1.length).toBe(1);
       // A second tick must not produce another log line (dedup by tuple).
@@ -194,7 +192,6 @@ describe('RuntimeStateMachine.transitionCard (Step 5 decomposition)', () => {
       clock: () => new Date(),
       scheduler,
       redispatchGoal: () => undefined,
-      enforceInvariants: false,
     });
     return { cardStore, machine, setStatusCalls, errorLogger };
   }

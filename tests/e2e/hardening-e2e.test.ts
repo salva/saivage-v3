@@ -587,7 +587,7 @@ describe('E2E — Crash and Restart Recovery', () => {
       },
     });
 
-    runtime.simulateCrash();
+    await runtime.simulateCrash();
 
     const card1 = store.read('code-crash-1');
     expect(card1!.status).toBe('backlog');
@@ -634,7 +634,7 @@ describe('E2E — Crash and Restart Recovery', () => {
       },
     });
 
-    runtime.performCrashRecovery();
+    await runtime.performCrashRecovery();
 
     expect(store.read('code-crash-1')!.status).toBe('backlog');
     expect(store.read('code-crash-2')!.status).toBe('backlog');

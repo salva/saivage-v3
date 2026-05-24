@@ -773,7 +773,7 @@ describe('Runtime Integration', () => {
   });
 
   describe('AC 6: Crash recovery', () => {
-    it('resets active and running cards to backlog after crash', () => {
+    it('resets active and running cards to backlog after crash', async () => {
       createHappyPathFixture();
       const store = new CardStore(tmpDir);
       makeGoalCard(store, 'goal-1', 'Crash Goal');
@@ -784,7 +784,7 @@ describe('Runtime Integration', () => {
       });
 
       runtime = new Runtime(makeDefaultConfig());
-      runtime.simulateCrash();
+      await runtime.simulateCrash();
 
       const goal = store.read('goal-1');
       expect(goal!.status).toBe('backlog');
