@@ -151,6 +151,7 @@ mutation provenance across chat/REST/CLI/runtime/web UI.
 
 ```
 GET    /api/agents                     List persisted agent sessions
+GET    /api/agents/:id                 Get one persisted agent-session summary (counts and timestamps)
 GET    /api/agents/:id/conversation    Get conversation snapshot for an agent session
 ```
 

@@ -92,7 +92,8 @@ describe('server availability contract', () => {
       mcpManager: () => ({ getStatus: () => [] }) as any,
     });
     expect(availability.components.runtime.state).toBe('unknown');
-    expect(availability.components.mcp).toEqual(expect.objectContaining({ state: 'degraded', source: 'mcp-manager' }));
+    expect(availability.components.mcp).toEqual(expect.objectContaining({ state: 'idle', source: 'mcp-manager' }));
+    expect(availability.components.mcp.state).not.toBe('degraded');
     expect(availability.components.mcp.diagnostic?.code).toBe('mcp-manager-empty');
   });
 
@@ -118,7 +119,7 @@ describe('server availability contract', () => {
     const mcpStatus = await server.fastify.inject({ method: 'GET', url: '/api/mcp/status', headers: { authorization: `Bearer ${AUTH_TOKEN}` } });
     expect(mcpStatus.statusCode).toBe(200);
     expect(mcpStatus.json()).toEqual(expect.objectContaining({ servers: [], serverAvailability: expect.any(Object) }));
-    expect(mcpStatus.json().serverAvailability.components.mcp.state).toBe('degraded');
+    expect(mcpStatus.json().serverAvailability.components.mcp.state).toBe('idle');
 
     const state = await server.fastify.inject({ method: 'GET', url: '/api/state', headers: { authorization: `Bearer ${AUTH_TOKEN}` } });
     expect(state.statusCode).toBe(200);

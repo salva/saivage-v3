@@ -104,7 +104,7 @@ export const CardStoreHealthSchema = z.object({
 
 
 
-export const AvailabilityStateSchema = z.enum(['available', 'degraded', 'unavailable', 'unknown']);
+export const AvailabilityStateSchema = z.enum(['available', 'degraded', 'idle', 'unavailable', 'unknown']);
 export const AvailabilityComponentSourceSchema = z.enum(['startup', 'active-runtime', 'runtime-state', 'mcp-manager', 'health-check', 'unknown']);
 export const AvailabilityDiagnosticSchema = z.object({
   code: z.string().min(1),
@@ -132,6 +132,8 @@ export type AvailabilityComponent = z.infer<typeof AvailabilityComponentSchema>;
 export type ServerAvailability = z.infer<typeof ServerAvailabilitySchema>;
 
 export const RuntimeGetStateResponseSchema = z.object({
+  projectRoot: z.string().min(1),
+  projectId: z.string().min(1),
   runtime: runtimeStateSchema.nullable(),
   cardIndex: CardIndexSummarySchema,
   cardStoreHealth: CardStoreHealthSchema.optional(),

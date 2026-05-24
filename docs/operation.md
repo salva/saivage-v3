@@ -72,7 +72,7 @@ It intentionally does not read runtime state and does not include readiness, run
 
 ### `/health/ready`
 
-`GET /health/ready` is the readiness probe. It reports `status: "ready"` or `status: "not_ready"` and may include `serverAvailability`, an additive component map with `api`, `runtime`, and `mcp` entries. Each component has `state: available | degraded | unavailable | unknown`, a `source`, `checkedAt`, and an optional redacted diagnostic `{ code, summary }`. Diagnostics are bounded synthetic startup summaries, not token/env/stack dumps.
+`GET /health/ready` is the readiness probe. It reports `status: "ready"` or `status: "not_ready"` and may include `serverAvailability`, an additive component map with `api`, `runtime`, and `mcp` entries. Each component has `state: available | degraded | idle | unavailable | unknown`, a `source`, `checkedAt`, and an optional redacted diagnostic `{ code, summary }`. Diagnostics are bounded synthetic startup summaries, not token/env/stack dumps. The `idle` state signals an informational not-yet-engaged component (for example, an MCP manager with no servers configured) and does not contribute to readiness failure.
 
 ### `/api/runtime/status`
 
@@ -238,7 +238,7 @@ Useful operator endpoints:
 - `GET /api/mcp/status`
 - `GET /api/mcp/tools`
 
-`GET /api/mcp/status` preserves the historical `{ servers: [] }` response when no MCP manager is attached, and now may include optional `serverAvailability.components.mcp` so operators can distinguish startup failure, unknown/not-attempted state, and an empty/degraded manager. `GET /api/state` likewise accepts optional `serverAvailability` beside `runtime`, `cardIndex`, and `cardStoreHealth`; older clients can ignore the field.
+`GET /api/mcp/status` preserves the historical `{ servers: [] }` response when no MCP manager is attached, and now may include optional `serverAvailability.components.mcp` so operators can distinguish startup failure, unknown/not-attempted state, an informational empty manager (state `idle`, no servers configured), and a configured-but-impaired manager (state `degraded`). `GET /api/state` likewise accepts optional `serverAvailability` beside `runtime`, `cardIndex`, and `cardStoreHealth`; older clients can ignore the field. `GET /api/state` also includes top-level `projectRoot` (absolute resolved path of the active project) and `projectId` (basename of the project root) for operator tooling that needs to identify the project without parsing the runtime payload.
 
 Use these before editing runtime files manually.
 
@@ -320,6 +320,7 @@ Every current operator-facing Fastify or contract-mounted route is listed exactl
 | `DELETE /api/notes/:id` | Delete one unhandled note. | `src/server/routes/runtime-config-notes.ts:177` |
 | `DELETE /api/notes` | Clear all unhandled notes. | `src/server/routes/runtime-config-notes.ts:180` |
 | `GET /api/agents/:id/conversation` | Read one persisted agent conversation. | `src/server/routes/runtime-config-notes.ts:179` |
+| `GET /api/agents/:id` | Read one persisted agent-session summary (counts, timestamps; no payload). | `src/server/routes/runtime-config-notes.ts:192` |
 | `GET /api/agents` | List persisted agent sessions. | `src/server/routes/runtime-config-notes.ts:178` |
 | `POST /api/auth/ws-ticket` | Issue a short-lived one-use browser WebSocket ticket after bearer REST auth. | `src/server/routes/auth.ts:4` |
 | `GET /api/cards/:id/diff` | Diff card versions. | `src/contracts/operator-api.ts:359 "path: '/api/cards/:id/diff'"` |
@@ -348,7 +349,7 @@ Every current operator-facing Fastify or contract-mounted route is listed exactl
 | `GET /api/providers` | Return redacted provider summaries. | `src/server/routes/runtime-config-notes.ts:177` |
 | `GET /api/runtime/card-runs` | List runtime card-run records. | `src/server/server.ts:64 "fastify.get('/api/runtime/card-runs'"` |
 | `GET /api/runtime/status` | Read compact runtime status plus optional serverAvailability. | `src/server/server.ts:66 "fastify.get('/api/runtime/status'"` |
-| `GET /api/state` | Read RuntimeState plus card-index summary and optional availability. | `src/contracts/operator-api.ts:260 "path: '/api/state'"` |
+| `GET /api/state` | Read RuntimeState plus card-index summary and optional availability. | `src/contracts/operator-api.ts:266 "path: '/api/state'"` |
 | `GET /health` | Public liveness probe. | `src/contracts/operator-api.ts:239 "path: '/health'"` |
 | `GET /health/ready` | Public readiness probe with optional availability summary. | `src/contracts/operator-api.ts:250 "path: '/health/ready'"` |
 | `PATCH /api/cards/:id` | Update allowed card fields through audited mutation. | `src/contracts/operator-api.ts:395 "path: '/api/cards/:id'"` |

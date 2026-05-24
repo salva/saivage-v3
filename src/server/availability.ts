@@ -88,10 +88,10 @@ export function buildServerAvailability(inputs: ServerAvailabilityInputs): Serve
         : hasConfigured
           ? { state: 'degraded', source: 'mcp-manager', checkedAt }
           : {
-              state: 'degraded',
+              state: 'idle',
               source: 'mcp-manager',
               checkedAt,
-              diagnostic: { code: 'mcp-manager-empty', summary: 'MCP manager is running with no configured servers.' },
+              diagnostic: { code: 'mcp-manager-empty', summary: 'No MCP servers configured.' },
             };
     } catch (error) {
       mcp = {

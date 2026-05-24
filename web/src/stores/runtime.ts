@@ -44,6 +44,8 @@ function nowIso(): string {
 
 export const useRuntimeStore = defineStore('runtime', () => {
   const runtime = ref<RuntimeState | null>(null);
+  const projectRoot = ref<string | null>(null);
+  const projectId = ref<string | null>(null);
   const cardIndex = ref<CardIndex>({ total: 0, byStatus: {}, byType: {} });
   const cardStoreHealth = ref<CardStoreHealth | null>(null);
   const serverAvailability = ref<ServerAvailability | null>(null);
@@ -293,6 +295,8 @@ export const useRuntimeStore = defineStore('runtime', () => {
     try {
       const response = await getRuntimeState();
       runtime.value = response.runtime;
+      projectRoot.value = response.projectRoot;
+      projectId.value = response.projectId;
       applyRuntimeSummaryFromState(response.runtime);
       cardIndex.value = response.cardIndex;
       cardStoreHealth.value = response.cardStoreHealth ?? null;
@@ -302,6 +306,10 @@ export const useRuntimeStore = defineStore('runtime', () => {
       const msg = err instanceof ApiError ? err.message : 'Failed to fetch runtime state';
       error.value = msg;
       unauthorized.value = err instanceof ApiError && err.isUnauthorized;
+      if (unauthorized.value) {
+        projectRoot.value = null;
+        projectId.value = null;
+      }
       log.error('fetchState', msg);
       throw err;
     } finally {
@@ -488,6 +496,8 @@ export const useRuntimeStore = defineStore('runtime', () => {
 
   return {
     runtime: readonly(runtime),
+    projectRoot: readonly(projectRoot),
+    projectId: readonly(projectId),
     cardIndex: readonly(cardIndex),
     cardStoreHealth: readonly(cardStoreHealth),
     serverAvailability: readonly(serverAvailability),

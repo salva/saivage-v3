@@ -100,6 +100,18 @@ function firstMessageTimestamp(projectRoot: string, sessionId: string): string |
   return typeof first?.['timestamp'] === 'string' ? first['timestamp'] : null;
 }
 
+function lastMessageTimestamp(projectRoot: string, sessionId: string): string | null {
+  const messages = readAgentMessages(projectRoot, sessionId);
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const m = messages[i];
+    if (m && typeof m === 'object') {
+      const ts = (m as Record<string, unknown>)['timestamp'];
+      if (typeof ts === 'string') return ts;
+    }
+  }
+  return null;
+}
+
 function hasOpenPlannerRun(state: RuntimeState | null, sessionId: string): boolean {
   return (state?.runtime_runs ?? []).some((run) => run.session_id === sessionId && run.phase === 'planner' && run.runtime_status === 'running' && !run.finished_at);
 }
@@ -177,6 +189,7 @@ export function registerRuntimeConfigNotesRoutes(fastify: FastifyInstance, proje
   fastify.get('/api/config', async (_request, reply) => { if (!saivageConfig) return reply.status(500).send({ error: 'Configuration unavailable', message: 'Server was not started with a validated Environment config.' }); const config = redactForOutbound(saivageConfig, 'operator.api', { source: 'runtime-config-notes.config' }); return reply.send({ config, warnings: configWarnings }); });
   fastify.get('/api/providers', async (_request, reply) => { if (!saivageConfig) return reply.status(500).send({ error: 'Providers unavailable', message: 'Server was not started with a validated Environment config.' }); const providers: Record<string, unknown> = {}; for (const [name, provider] of Object.entries(saivageConfig.providers)) { const p = provider as ProviderEntry; providers[name] = { priority: p.priority, models: p.models, baseUrl: p.baseUrl, hasAccounts: p.accounts ? Object.keys(p.accounts).length : 0, status: 'unknown' }; } return reply.send({ providers }); });
   fastify.get('/api/agents', async (_request, reply) => { try { const sessionsDir = join(projectRoot, '.saivage', 'agents', 'sessions'); const sessionIds = new Set<string>(listAgentMessageSessionIds(projectRoot)); if (existsSync(sessionsDir)) { for (const file of readdirSync(sessionsDir).filter((entry) => entry.endsWith('.json'))) sessionIds.add(file.slice(0, -'.json'.length)); } const state = readRuntimeState(projectRoot); const sessions = Array.from(sessionIds).map((sessionId) => buildListedAgentSession(projectRoot, sessionId, state)).filter((session): session is Record<string, unknown> => Boolean(session)); sessions.sort((a, b) => String(b['started_at'] ?? '').localeCompare(String(a['started_at'] ?? '')) || String(a['id']).localeCompare(String(b['id']))); return reply.send({ sessions }); } catch (err) { return reply.status(500).send({ error: 'Failed to list agent sessions', message: err instanceof Error ? err.message : String(err) }); } });
+  fastify.get('/api/agents/:id', async (request, reply) => { try { const params = request.params as { id: string }; const sessionId = params.id; if (!SAFE_AGENT_ID_RE.test(sessionId)) return reply.status(400).send({ error: 'Invalid agent session ID' }); const manifest = readAgentSession(projectRoot, sessionId); const messages = readAgentMessages(projectRoot, sessionId); if (!manifest && messages.length === 0) return reply.status(404).send({ error: 'Agent session not found', sessionId }); const base = buildListedAgentSession(projectRoot, sessionId, readRuntimeState(projectRoot)) ?? { id: sessionId, role: parseAgentRoleFromSessionId(sessionId), status: 'inactive', started_at: new Date(0).toISOString() }; const lastActivity = lastMessageTimestamp(projectRoot, sessionId) ?? (typeof manifest?.['completed_at'] === 'string' ? (manifest['completed_at'] as string) : null) ?? (typeof base['started_at'] === 'string' ? (base['started_at'] as string) : null); const session = { ...base, message_count: messages.length, last_activity_at: lastActivity }; return reply.send({ session }); } catch (err) { return reply.status(500).send({ error: 'Failed to read agent session', message: err instanceof Error ? err.message : String(err) }); } });
   fastify.get('/api/agents/:id/conversation', async (request, reply) => { try { const params = request.params as { id: string }; const sessionId = params.id; if (!SAFE_AGENT_ID_RE.test(sessionId)) return reply.status(400).send({ error: 'Invalid agent session ID' }); const messages = readAgentMessages(projectRoot, sessionId); const session = buildListedAgentSession(projectRoot, sessionId, readRuntimeState(projectRoot)); if (!session || (messages.length === 0 && !readAgentSession(projectRoot, sessionId))) return reply.status(404).send({ error: 'Agent session not found', sessionId }); return reply.send({ session, messages }); } catch (err) { return reply.status(500).send({ error: 'Failed to read agent conversation', message: err instanceof Error ? err.message : String(err) }); } });
   fastify.get('/api/agents/:id/llm-exchange', async (request, reply) => {
     const params = request.params as { id: string };

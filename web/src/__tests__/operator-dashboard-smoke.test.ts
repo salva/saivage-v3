@@ -53,6 +53,8 @@ const apiState = vi.hoisted(() => {
     runtimeRunning,
     runtimePaused,
     runtimeResponse: {
+      projectRoot: '/work/saivage-v3',
+      projectId: 'saivage-v3',
       runtime: runtimeRunning,
       cardIndex: {
         total: 2,
@@ -368,6 +370,8 @@ describe('operator dashboard synthetic smoke guard', () => {
     localStorage.clear();
     sessionStorage.clear();
     apiState.runtimeResponse = {
+      projectRoot: '/work/saivage-v3',
+      projectId: 'saivage-v3',
       runtime: apiState.runtimeRunning,
       cardIndex: { total: 2, byStatus: { running: 1, done: 1 }, byType: { project: 1, code: 1 } },
     };

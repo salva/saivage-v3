@@ -285,12 +285,16 @@ const mockServerAvailability = {
   },
 };
 
+const mockIdentity = { projectRoot: '/work/saivage-v3', projectId: 'saivage-v3' };
+
 const mockRuntimeStateResponse = {
+  ...mockIdentity,
   runtime: mockRuntimeState,
   cardIndex: mockCardIndex,
 };
 
 const mockNullRuntimeResponse = {
+  ...mockIdentity,
   runtime: null,
   cardIndex: { total: 0, byStatus: {}, byType: {} },
 };
@@ -348,7 +352,7 @@ describe('useRuntimeStore', () => {
 
     it('derives runtime summary records from REST runtime state', async () => {
       const store = setupStore();
-      vi.mocked(getRuntimeState).mockResolvedValue({ runtime: mockRuntimeStateWithSummary, cardIndex: mockCardIndex });
+      vi.mocked(getRuntimeState).mockResolvedValue({ ...mockIdentity, runtime: mockRuntimeStateWithSummary, cardIndex: mockCardIndex });
 
       await store.fetchState();
 
@@ -396,6 +400,7 @@ describe('useRuntimeStore', () => {
     it('statusLabel returns "paused" when paused is true regardless of status', async () => {
       const store = setupStore();
       vi.mocked(getRuntimeState).mockResolvedValue({
+        ...mockIdentity,
         runtime: mockRuntimeStatePaused,
         cardIndex: mockCardIndex,
       });
@@ -410,6 +415,7 @@ describe('useRuntimeStore', () => {
     it('statusLabel returns "frozen" when status is frozen', async () => {
       const store = setupStore();
       vi.mocked(getRuntimeState).mockResolvedValue({
+        ...mockIdentity,
         runtime: mockRuntimeStateFrozen,
         cardIndex: mockCardIndex,
       });
@@ -499,7 +505,7 @@ describe('useRuntimeStore', () => {
 
     it('keeps runtime-facing state coherent after start_project resolves from a stale idle snapshot', async () => {
       const store = setupStore();
-      vi.mocked(getRuntimeState).mockResolvedValue({ runtime: mockRuntimeStateIdle, cardIndex: mockCardIndex });
+      vi.mocked(getRuntimeState).mockResolvedValue({ ...mockIdentity, runtime: mockRuntimeStateIdle, cardIndex: mockCardIndex });
       await store.fetchState();
       vi.mocked(startProject).mockResolvedValue({ success: true, command: mockCommand, intent: mockIntent, run: mockRootRun });
 
@@ -521,7 +527,7 @@ describe('useRuntimeStore', () => {
 
     it('keeps runtime-facing state coherent after stop_project resolves from a stale running snapshot', async () => {
       const store = setupStore();
-      vi.mocked(getRuntimeState).mockResolvedValue({ runtime: mockRuntimeStateWithSummary, cardIndex: mockCardIndex });
+      vi.mocked(getRuntimeState).mockResolvedValue({ ...mockIdentity, runtime: mockRuntimeStateWithSummary, cardIndex: mockCardIndex });
       await store.fetchState();
       vi.mocked(stopProject).mockResolvedValue({ success: true, command: mockStopCommand, intent: mockStopIntent, run: mockStoppedRootRun });
 

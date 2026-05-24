@@ -1,5 +1,6 @@
 import { describe, expect, it } from '@jest/globals';
 import { redactTextForOutbound } from '../../src/redaction/index.js';
+import { redactOperatorErrorMessage } from '../../src/workspace/file-access-security.js';
 
 describe('redaction port file-safety behavior', () => {
   it('redacts token-shaped literals in arbitrary plain text', () => {
@@ -23,5 +24,27 @@ describe('redaction port file-safety behavior', () => {
     expect(redacted).toContain('"apiKey":"[REDACTED]"');
     expect(redacted).toContain('"nestedToken":"[REDACTED]"');
     expect(redacted).toContain('"template":"${KEEP_ME}"');
+  });
+});
+
+describe('redactOperatorErrorMessage strips projectRoot from error text', () => {
+  it('replaces the resolved project root with [PROJECT_ROOT]', () => {
+    const message = 'ENOENT: no such file or directory, open \'/work/saivage-v3/.saivage/runtime/state.json\'';
+    const redacted = redactOperatorErrorMessage(message, '/work/saivage-v3');
+    expect(redacted).toContain('[PROJECT_ROOT]');
+    expect(redacted).not.toContain('/work/saivage-v3/');
+  });
+
+  it('redacts unrelated absolute paths to [PATH_REDACTED]', () => {
+    const message = 'failed to read /etc/shadow while resolving config';
+    const redacted = redactOperatorErrorMessage(message, '/work/saivage-v3');
+    expect(redacted).toContain('[PATH_REDACTED]');
+    expect(redacted).not.toContain('/etc/shadow');
+  });
+
+  it('keeps .saivage relative paths visible for operator diagnostics', () => {
+    const message = 'Failed to read .saivage/runtime/state.json';
+    const redacted = redactOperatorErrorMessage(message, '/work/saivage-v3');
+    expect(redacted).toContain('.saivage/runtime/state.json');
   });
 });
