@@ -15,6 +15,7 @@
 import type { CardStatus } from '../schemas/types.js';
 import type { RuntimeState } from '../schemas/types.js';
 import type { CardStore } from '../cards/card-store.js';
+import { STARTABLE_STATES, RESTARTABLE_STATES } from '../permissions/card-permissions.js';
 import type { ErrorLogger } from '../observability/error-logger.js';
 
 export type RuntimeCardAction =
@@ -135,12 +136,111 @@ export class RuntimeStateMachine {
   }
 
   async transitionCard(cardId: string, action: RuntimeCardAction, payload: Record<string, unknown> = {}): Promise<boolean> {
-    // Step 2 stub: decomposition lives in Step 5. Observe-only consumers do not
-    // call transitionCard yet; tests cover the surface explicitly.
-    void cardId;
-    void action;
-    void payload;
+    const card = this.cardStore.read(cardId);
+    if (!card) {
+      this.errorLogger.appendError({
+        message: `state_machine_card_not_found (${cardId})`,
+        code: 'state_machine_card_not_found',
+        cardId,
+        action,
+      });
+      return false;
+    }
+    const from = card.status;
+    const steps = this.decompose(action, from, payload);
+    if (steps === null) {
+      const code = action === 'planner_set_status'
+        ? 'state_machine_planner_status_rejected'
+        : 'state_machine_invalid_source_state';
+      this.errorLogger.appendError({
+        message: `${code} (cardId=${cardId} action=${action} from=${from})`,
+        code,
+        cardId,
+        action,
+        fromStatus: from,
+        payload,
+      });
+      return false;
+    }
+    for (const target of steps) {
+      this.cardStore.setStatus(cardId, target);
+    }
     return true;
+  }
+
+  /**
+   * Action × source-state decomposition matrix. Returns the ordered list of
+   * target statuses to step through via `cardStore.setStatus`, or `null` to
+   * reject the action. An empty array means "no-op accept" (e.g.
+   * `reviewer_repair_resume` from `running`).
+   *
+   * Source of truth: SPEC/v1/review-2026-05/F19-runtime-pinned-failed-card/02-design-r5.md §Permission-matrix.
+   */
+  private decompose(action: RuntimeCardAction, from: CardStatus, payload: Record<string, unknown>): CardStatus[] | null {
+    switch (action) {
+      case 'start':
+        if (!(STARTABLE_STATES as readonly CardStatus[]).includes(from)) return null;
+        switch (from) {
+          case 'drafting': return ['backlog', 'active', 'running'];
+          case 'backlog':  return ['active', 'running'];
+          case 'changed':  return ['active', 'running'];
+          default: return null;
+        }
+      case 'restart':
+        if (!(RESTARTABLE_STATES as readonly CardStatus[]).includes(from)) return null;
+        switch (from) {
+          case 'failed':    return ['backlog', 'active', 'running'];
+          case 'done':      return ['backlog', 'active', 'running'];
+          case 'cancelled': return ['drafting', 'backlog', 'active', 'running'];
+          case 'blocked':   return ['backlog', 'active', 'running'];
+          case 'changed':   return ['active', 'running'];
+          default: return null;
+        }
+      case 'cancel':
+        return this.cardStore.canTransition(from, 'cancelled') ? ['cancelled'] : null;
+      case 'planner_set_status': {
+        const requested = payload.requestedStatus as CardStatus | undefined;
+        if (!requested) return null;
+        if (from === requested) return [];
+        return this.cardStore.canTransition(from, requested) ? [requested] : null;
+      }
+      case 'block':
+        if (from === 'active') return ['running', 'blocked'];
+        if (from === 'running') return ['blocked'];
+        return null;
+      case 'complete':
+        if (from === 'active') return ['running', 'done'];
+        if (from === 'running') return ['done'];
+        return null;
+      case 'fail':
+        if (TERMINAL_STATUSES.has(from)) return null;
+        switch (from) {
+          case 'running': return ['failed'];
+          case 'active':  return ['running', 'failed'];
+          case 'backlog': return ['active', 'running', 'failed'];
+          case 'drafting': return ['backlog', 'active', 'running', 'failed'];
+          case 'blocked': return ['running', 'failed'];
+          case 'changed': return ['active', 'running', 'failed'];
+          default: return null;
+        }
+      case 'executor_finish': {
+        if (from !== 'running') return null;
+        const finalStatus = payload.finalStatus as CardStatus | undefined;
+        if (finalStatus === 'done') return ['done'];
+        if (finalStatus === 'failed') return ['failed'];
+        return null;
+      }
+      case 'reviewer_repair_resume':
+        if (from === 'active') return ['running'];
+        if (from === 'running') return [];
+        return null;
+      case 'crash_recovery_drop_to_backlog':
+        if (from === 'active') return ['backlog'];
+        if (from === 'running') return ['backlog'];
+        return null;
+      default:
+        return null;
+    }
   }
 
   // ── Invariant observation (I1-I3) ────────────────────────────

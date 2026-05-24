@@ -86,6 +86,10 @@ const ALWAYS_ALLOWED_FIELDS: ReadonlySet<string> = new Set([
   'completed_at',
   'duration_ms',
   'started_at',
+  'status_text',
+  'status_text_updated_at',
+  'status_text_author_session_id',
+  'latest_self_report',
 ]);
 
 const FULL_EDIT_STATES: ReadonlySet<CardStatus> = new Set<CardStatus>(['drafting', 'backlog']);
@@ -307,6 +311,18 @@ export class CardStore {
     throw new Error(
       `Invalid transition: ${from} → ${to}. Valid transitions from ${from} are: ${allowed ? allowed.join(', ') : 'none'}.`,
     );
+  }
+
+  /**
+   * Non-throwing legality check for a single status step.
+   * Returns `true` if `from === to` or if `to` is listed in `VALID_TRANSITIONS[from]`.
+   * Used by `RuntimeStateMachine` to gate `planner_set_status` and `cancel` actions
+   * without raising.
+   */
+  canTransition(from: CardStatus, to: CardStatus): boolean {
+    if (from === to) return true;
+    const allowed = VALID_TRANSITIONS[from];
+    return Boolean(allowed && allowed.includes(to));
   }
 
   listCardHistory(id: string): CardHistoryEntry[] {

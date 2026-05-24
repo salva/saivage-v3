@@ -489,9 +489,6 @@ describe('Runtime Integration', () => {
       planner: [
         {
           status: 'done',
-          updated_cards: [
-            { id: 'goal-planner-done', status: 'done' },
-          ],
           summary: 'Goal acceptance is already satisfied.',
         },
       ],

@@ -151,3 +151,113 @@ describe('RuntimeStateMachine (Step 2 skeleton)', () => {
     } finally { rmSync(projectRoot, { recursive: true, force: true }); }
   });
 });
+
+describe('RuntimeStateMachine.transitionCard (Step 5 decomposition)', () => {
+  function seed(cardStore: CardStore, id: string, status: import('../../src/schemas/types.js').CardStatus): void {
+    cardStore.create({
+      id,
+      type: 'code',
+      parent: null,
+      title: 't',
+      description: 'd',
+      status,
+      depends_on: [],
+      priority: 5,
+      tags: [],
+      urgency: 'normal',
+      created_by: 'planner',
+      related: [],
+      acceptance: '',
+      artifacts: [],
+      attachments: [],
+      retries: 0,
+      depth: 0,
+      blocks: [],
+    });
+  }
+
+  function build(projectRoot: string): { cardStore: CardStore; machine: RuntimeStateMachine; setStatusCalls: Array<{ id: string; status: string }>; errorLogger: ErrorLogger } {
+    const cardStore = new CardStore(projectRoot);
+    const errorLogger = new ErrorLogger(join(projectRoot, '.saivage'));
+    const scheduler = new FakeScheduler();
+    const setStatusCalls: Array<{ id: string; status: string }> = [];
+    const origSetStatus = cardStore.setStatus.bind(cardStore);
+    jest.spyOn(cardStore, 'setStatus').mockImplementation((id: string, status: import('../../src/schemas/types.js').CardStatus) => {
+      setStatusCalls.push({ id, status });
+      return origSetStatus(id, status);
+    });
+    const machine = new RuntimeStateMachine({
+      cardStore,
+      readState: () => readRuntimeState(projectRoot),
+      writeState: (changes: Partial<RuntimeState>) => updateRuntimeState(projectRoot, changes),
+      errorLogger,
+      clock: () => new Date(),
+      scheduler,
+      redispatchGoal: () => undefined,
+      enforceInvariants: false,
+    });
+    return { cardStore, machine, setStatusCalls, errorLogger };
+  }
+
+  const cases: Array<{ name: string; from: import('../../src/schemas/types.js').CardStatus; action: import('../../src/runtime/state-machine.js').RuntimeCardAction; payload?: Record<string, unknown>; expected: import('../../src/schemas/types.js').CardStatus[] }> = [
+    { name: 'start from drafting', from: 'drafting', action: 'start', expected: ['backlog', 'active', 'running'] },
+    { name: 'start from backlog', from: 'backlog', action: 'start', expected: ['active', 'running'] },
+    { name: 'restart from failed', from: 'failed', action: 'restart', expected: ['backlog', 'active', 'running'] },
+    { name: 'restart from cancelled', from: 'cancelled', action: 'restart', expected: ['drafting', 'backlog', 'active', 'running'] },
+    { name: 'fail from running', from: 'running', action: 'fail', expected: ['failed'] },
+    { name: 'fail from drafting', from: 'drafting', action: 'fail', expected: ['backlog', 'active', 'running', 'failed'] },
+    { name: 'block from active', from: 'active', action: 'block', expected: ['running', 'blocked'] },
+    { name: 'block from running', from: 'running', action: 'block', expected: ['blocked'] },
+    { name: 'complete from active', from: 'active', action: 'complete', expected: ['running', 'done'] },
+    { name: 'complete from running', from: 'running', action: 'complete', expected: ['done'] },
+    { name: 'cancel from blocked', from: 'blocked', action: 'cancel', expected: ['cancelled'] },
+    { name: 'executor_finish done', from: 'running', action: 'executor_finish', payload: { finalStatus: 'done' }, expected: ['done'] },
+    { name: 'executor_finish failed', from: 'running', action: 'executor_finish', payload: { finalStatus: 'failed' }, expected: ['failed'] },
+    { name: 'reviewer_repair_resume from active', from: 'active', action: 'reviewer_repair_resume', expected: ['running'] },
+    { name: 'reviewer_repair_resume from running (no-op)', from: 'running', action: 'reviewer_repair_resume', expected: [] },
+    { name: 'crash_recovery_drop_to_backlog from running', from: 'running', action: 'crash_recovery_drop_to_backlog', expected: ['backlog'] },
+    { name: 'crash_recovery_drop_to_backlog from active', from: 'active', action: 'crash_recovery_drop_to_backlog', expected: ['backlog'] },
+    { name: 'planner_set_status failed→backlog', from: 'failed', action: 'planner_set_status', payload: { requestedStatus: 'backlog' }, expected: ['backlog'] },
+    { name: 'planner_set_status same status (no-op)', from: 'backlog', action: 'planner_set_status', payload: { requestedStatus: 'backlog' }, expected: [] },
+  ];
+
+  it.each(cases)('emits expected setStatus sequence: $name', async ({ from, action, payload, expected }) => {
+    const projectRoot = root();
+    try {
+      initRuntimeState(projectRoot);
+      const { cardStore, machine, setStatusCalls } = build(projectRoot);
+      seed(cardStore, 'c1', from);
+      const ok = await machine.transitionCard('c1', action, payload);
+      expect(ok).toBe(true);
+      expect(setStatusCalls.map((c) => c.status)).toEqual(expected);
+    } finally { rmSync(projectRoot, { recursive: true, force: true }); }
+  });
+
+  it('rejects unsupported source state for fail and logs state_machine_invalid_source_state', async () => {
+    const projectRoot = root();
+    try {
+      initRuntimeState(projectRoot);
+      const { cardStore, machine, setStatusCalls, errorLogger } = build(projectRoot);
+      seed(cardStore, 'c1', 'done');
+      const ok = await machine.transitionCard('c1', 'fail');
+      expect(ok).toBe(false);
+      expect(setStatusCalls.length).toBe(0);
+      const errs = errorLogger.getErrors().filter((e) => e.code === 'state_machine_invalid_source_state');
+      expect(errs.length).toBe(1);
+    } finally { rmSync(projectRoot, { recursive: true, force: true }); }
+  });
+
+  it('rejects planner_set_status when target is not a valid transition and logs state_machine_planner_status_rejected', async () => {
+    const projectRoot = root();
+    try {
+      initRuntimeState(projectRoot);
+      const { cardStore, machine, setStatusCalls, errorLogger } = build(projectRoot);
+      seed(cardStore, 'c1', 'done');
+      const ok = await machine.transitionCard('c1', 'planner_set_status', { requestedStatus: 'running' });
+      expect(ok).toBe(false);
+      expect(setStatusCalls.length).toBe(0);
+      const errs = errorLogger.getErrors().filter((e) => e.code === 'state_machine_planner_status_rejected');
+      expect(errs.length).toBe(1);
+    } finally { rmSync(projectRoot, { recursive: true, force: true }); }
+  });
+});

@@ -4,6 +4,7 @@ import { existsSync, rmSync, readdirSync, readFileSync } from 'node:fs';
 import type {
   FreezeManifest,
   CardRecord,
+  CardStatus,
   RuntimeState,
   RuntimeStatus as RStatus,
   EventKind,
@@ -19,6 +20,7 @@ import type {
 } from '../schemas/index.js';
 import { createActivationCompletionEnvelope, parseActivationCompletionEnvelope } from '../schemas/index.js';
 import { CardStore } from '../cards/index.js';
+import { STARTABLE_STATES, RESTARTABLE_STATES } from '../permissions/card-permissions.js';
 import { consumeChangedCardActivation, injectQueuedSyntheticPlannerNotes, queueSyntheticPlannerNote } from '../agents/index.js';
 import {
   initRuntimeState,
@@ -58,7 +60,7 @@ import { registerArtifact, registerAttachment } from '../cards/index.js';
 import type { ProcessRecord } from '../schemas/index.js';
 import { EventLogger } from '../observability/index.js';
 import { ErrorLogger } from '../observability/index.js';
-import { RuntimeStateMachine, type RuntimeScheduler, type RuntimeSchedulerHandle } from './state-machine.js';
+import { RuntimeStateMachine, type RuntimeScheduler, type RuntimeSchedulerHandle, type RuntimeCardAction } from './state-machine.js';
 import { EventBus } from '../events/index.js';
 import { trackedEventKindValues, type EventPayload } from '../events/index.js';
 import {
@@ -278,7 +280,7 @@ export class Runtime extends EventEmitter {
     if (run.phase === 'reviewer') {
       const persistedReview = card.result && typeof card.result === 'object' ? (card.result as { review?: unknown }).review : undefined;
       if (!persistedReview) {
-        this.cardStore.update(run.card_id, { status: 'running' });
+        await this._stateMachine.transitionCard(run.card_id, 'reviewer_repair_resume', { reason: 'reviewer_interrupted' });
         const plannerSessionId = run.planner_session_id ?? `planner:${run.card_id}`;
         const summary = `reviewer_interrupted: reviewer output for ${run.card_id} was discarded after service restart; interrupted_reviewer_session_id=${run.reviewer_session_id ?? 'unknown'}; resume_reason: reviewer_interrupted.`;
         queueSyntheticPlannerNote(this.projectRoot, { target_planner_session_id: plannerSessionId, target_goal_card_id: run.card_id, kind: 'reviewer_interrupted', affected_card_id: run.card_id, descendant_card_ids: [], summary });
@@ -290,7 +292,8 @@ export class Runtime extends EventEmitter {
 
     if (run.phase === 'executor') {
       if (!TERMINAL_STATUSES.has(card.status)) {
-        this.cardStore.update(run.card_id, { status: 'failed', error: 'Execution interrupted by service restart.', result: { ...(card.result ?? {}), failure_kind: 'service_restart', error: 'Execution interrupted by service restart.' } });
+        await this._stateMachine.transitionCard(run.card_id, 'fail', { reason: 'service_restart', error: 'Execution interrupted by service restart.' });
+        await this.cardStore.update(run.card_id, { error: 'Execution interrupted by service restart.', result: { ...(card.result ?? {}), failure_kind: 'service_restart', error: 'Execution interrupted by service restart.' } });
       }
       this.appendChildUnwindToolResult(run.card_id, 'failed', `Terminal card ${run.card_id} failed because the service restarted before executor completion.`);
       const parentRun = this.parentPlannerRunFor(run.card_id);
@@ -487,15 +490,15 @@ export class Runtime extends EventEmitter {
     for (const evidenceId of assessment.evidence_card_ids) {
       const card = this.cardStore.read(evidenceId);
       if (!card) return { valid: false, reason: `Reviewer cited missing evidence card '${evidenceId}'.` };
-      if (card.status !== 'done') return { valid: false, reason: `Reviewer cited non-complete evidence card '${evidenceId}' with status '${card.status}'.` };
+      if (evidenceId !== goalId && card.status !== 'done') return { valid: false, reason: `Reviewer cited non-complete evidence card '${evidenceId}' with status '${card.status}'.` };
       if ((card.artifacts?.length ?? 0) === 0 && (card.attachments?.length ?? 0) === 0 && !card.result) return { valid: false, reason: `Reviewer cited card '${evidenceId}' without durable result, artifact, or attachment evidence.` };
     }
     return { valid: true };
   }
 
-  private persistReviewState(goalId: string, assessment: ReviewAssessment): void {
+  private async persistReviewState(goalId: string, assessment: ReviewAssessment): Promise<void> {
     const goal = this.cardStore.read(goalId);
-    this.cardStore.update(goalId, { result: { ...(goal?.result ?? {}), review: assessment } });
+    await this.cardStore.update(goalId, { result: { ...(goal?.result ?? {}), review: assessment } });
   }
 
   consumeResumeHandoffContext(): string | null { const ctx = this._resumeHandoffContext; this._resumeHandoffContext = null; return ctx; }
@@ -625,7 +628,7 @@ export class Runtime extends EventEmitter {
   resume(): void { this._paused = false; setProcessTerminalBuffering(this.projectRoot, false); try { const state = readRuntimeState(this.projectRoot); const plannerSessionId = state?.active_card_run?.planner_session_id ?? state?.current_agent_session_id; if (plannerSessionId && state?.active_card_run?.card_id) { this.appendPlannerResumeContext(state.active_card_run.card_id, plannerSessionId, this.inferResumeReason(state.active_card_run.card_id)); injectQueuedSyntheticPlannerNotes(this.projectRoot, plannerSessionId); } updateRuntimeState(this.projectRoot, { status: state?.active_card_run ? 'running' : 'idle', paused: false, paused_at: null }); } catch { void 0; } this.emit('resumed'); this._eventLogger.appendEvent({ kind: 'resumed' }); void this.safeTick(); }
   freeze(reason?: string): FreezeManifest { if ((readRuntimeState(this.projectRoot)?.status ?? 'idle') === 'frozen') { const existing = readFreezeManifest(this.projectRoot); if (existing) return existing; } this._paused = true; const state = readRuntimeState(this.projectRoot); const frozenAt = new Date(); const freezeId = `freeze-${frozenAt.toISOString().replace(/[:.]/g, '-')}`; let handoffSummaries: HandoffSummary[] = []; try { const raw = this.agentRuntime.getActiveSessionHandoffs(); handoffSummaries = raw instanceof Promise ? [] : raw; } catch { void 0; } const manifest: FreezeManifest = { freeze_id: freezeId, reason: reason ?? 'operator requested freeze', created_at: frozenAt.toISOString(), status: 'frozen', project_id: 'project', pid: process.pid, started_at: state?.started_at ?? frozenAt.toISOString(), current_card_id: state?.current_card_id ?? null, current_agent_session_id: state?.current_agent_session_id ?? null, queue: state?.queue ?? [], running_processes: [], handoff_summaries: handoffSummaries, schema_version: 1, runtime_version: '0.1.0' }; saveFreezeManifest(this.projectRoot, manifest); try { updateRuntimeState(this.projectRoot, { status: 'frozen', started_at: state?.started_at ?? frozenAt.toISOString(), current_card_id: state?.current_card_id ?? null, current_agent_session_id: state?.current_agent_session_id ?? null, paused: true, paused_at: frozenAt.toISOString(), queue: state?.queue ?? [], running_processes: [] }); } catch { void 0; } this.emit('frozen', { freeze_id: manifest.freeze_id, reason: manifest.reason }); this._eventLogger.appendEvent({ kind: 'frozen', freeze_id: manifest.freeze_id, reason: manifest.reason }); return manifest; }
   resumeFromFreeze(): { freeze_id: string; restored_queue: string[]; restored_processes: string[]; restored_card_id: string | null } { const manifest = readFreezeManifest(this.projectRoot); if (!manifest) throw new Error('Cannot resume: no freeze manifest found. The runtime is not frozen.'); if (manifest.schema_version > 1) throw new Error(`Cannot resume: freeze manifest schema version ${manifest.schema_version} is newer than the supported version 1. Upgrade Saivage to resume this freeze.`); const currentVersion = '0.1.0'; if (manifest.runtime_version !== currentVersion) console.warn(`Resuming from freeze created by runtime version ${manifest.runtime_version} with current version ${currentVersion}. State may differ.`); this._paused = false; const processIds: string[] = []; try { updateRuntimeState(this.projectRoot, { status: 'idle', started_at: manifest.started_at, current_card_id: manifest.current_card_id, current_agent_session_id: manifest.current_agent_session_id, paused: false, paused_at: null, queue: manifest.queue, running_processes: [] }); } catch { void 0; } this.runningProcesses.clear(); const handoffSummaries = manifest.handoff_summaries ?? []; if (handoffSummaries.length > 0 && manifest.current_agent_session_id) { this._resumeHandoffContext = handoffSummaries.map((h) => `[Handoff] Session: ${h.session_id}, Role: ${h.role}, Last action: ${h.last_action}, Next action: ${h.next_action}, Context: ${h.context_summary}`).join('\n'); } clearFreezeManifest(this.projectRoot); this.emit('resumed_from_freeze', { freeze_id: manifest.freeze_id }); this._eventLogger.appendEvent({ kind: 'resumed_from_freeze', freeze_id: manifest.freeze_id }); return { freeze_id: manifest.freeze_id, restored_queue: manifest.queue, restored_processes: processIds, restored_card_id: manifest.current_card_id }; }
-  performCrashRecovery(): void { const allCards = this.cardStore.list(); for (const card of allCards) if (card.status === 'active' || card.status === 'running') this.cardStore.setStatus(card.id, 'backlog'); const tmpRuntimeDir = join(this.projectRoot, '.saivage-work', 'tmp', 'runtime'); if (existsSync(tmpRuntimeDir)) { try { const entries = readdirSync(tmpRuntimeDir); for (const entry of entries) { if (entry === 'runtime.lock') continue; if (entry.endsWith('.tmp') || entry.endsWith('.tmp.') || entry.includes('.tmp.')) { try { rmSync(join(tmpRuntimeDir, entry), { recursive: true, force: true }); } catch { void 0; } } } } catch { void 0; } } try { cleanStaleStash(saivageWorkDir(this.projectRoot), 24 * 60 * 60 * 1000); } catch { void 0; } try { cleanStalePreviews(saivageWorkDir(this.projectRoot), 24 * 60 * 60 * 1000); } catch { void 0; } try { cleanStaleUploads(saivageWorkDir(this.projectRoot), 24 * 60 * 60 * 1000); } catch { void 0; } }
+  performCrashRecovery(): void { const allCards = this.cardStore.list(); for (const card of allCards) if (card.status === 'active' || card.status === 'running') { void this._stateMachine.transitionCard(card.id, 'crash_recovery_drop_to_backlog'); } const tmpRuntimeDir = join(this.projectRoot, '.saivage-work', 'tmp', 'runtime'); if (existsSync(tmpRuntimeDir)) { try { const entries = readdirSync(tmpRuntimeDir); for (const entry of entries) { if (entry === 'runtime.lock') continue; if (entry.endsWith('.tmp') || entry.endsWith('.tmp.') || entry.includes('.tmp.')) { try { rmSync(join(tmpRuntimeDir, entry), { recursive: true, force: true }); } catch { void 0; } } } } catch { void 0; } } try { cleanStaleStash(saivageWorkDir(this.projectRoot), 24 * 60 * 60 * 1000); } catch { void 0; } try { cleanStalePreviews(saivageWorkDir(this.projectRoot), 24 * 60 * 60 * 1000); } catch { void 0; } try { cleanStaleUploads(saivageWorkDir(this.projectRoot), 24 * 60 * 60 * 1000); } catch { void 0; } }
   async dispatchGoal(goalId: string): Promise<void> {
     if (this._dispatchInFlight.has(goalId)) return;
     this._dispatchInFlight.add(goalId);
@@ -646,8 +649,8 @@ export class Runtime extends EventEmitter {
         const handoff = this.consumeResumeHandoffContext(); if (handoff) plannerPrompt += `\n\n## Resume Handoff\n${handoff}`;
         try { const goalCard = this.cardStore.read(goalId); if (goalCard && this._skillsEngine) { const plannerInstr = goalCard.depth === 0 ? await this._skillsEngine.loadPlannerInstructions() : (goalCard.instructions_file && goalCard.instructions_file.trim()) ? await this._skillsEngine.loadPlannerInstructions(goalCard.instructions_file.trim()) : ''; const skillsContent = await this._skillsEngine.selectAndFormat({ goalDescription: goalCard.description, cardDescription: goalCard.description, tags: goalCard.tags, filePaths: [], availableTools: ['list_project_files', 'read_project_file', 'load_skill', 'mcp_tool_call'], targetRole: 'planner' }); const combinedSkills = [plannerInstr, skillsContent].filter(Boolean).join('\n\n'); if (combinedSkills) plannerPrompt = buildPlannerPrompt(combinedSkills, currentDepth, maxDepth) + `\n\n## Parent Resume Context\n${resumeContext}`; } } catch { void 0; }
         this.appendPlannerResumeContext(goalId, `planner:${goalId}`, resumeReason); injectQueuedSyntheticPlannerNotes(this.projectRoot, `planner:${goalId}`); const result = this.agentRuntime.invokePlanner(goalId, plannerPrompt); plannerResult = result instanceof Promise ? await result : result;
-      } catch (err) { const errorMessage = err instanceof Error ? err.message : String(err); this.emitRuntimeDiagnostic({ goal_id: goalId, phase: 'planner', error: err }); this._eventLogger.appendEvent({ kind: 'runtime_diagnostic', goal_id: goalId, phase: 'planner', error_message: errorMessage }); this._errorLogger.appendError({ message: errorMessage, goalId, phase: 'planner' }); this.cardStore.update(goalId, { status: 'failed', error: errorMessage, status_text: `Planner failed: ${errorMessage}` }); const failedRun = (readRuntimeState(this.projectRoot)?.runtime_runs ?? []).filter((run) => run.card_id === goalId && run.phase === 'planner' && run.runtime_status === 'running' && !run.finished_at && (!run.session_id || run.session_id === `planner:${goalId}`)).sort((a, b) => (b.kind === 'root' ? 1 : 0) - (a.kind === 'root' ? 1 : 0))[0]; if (failedRun) { const updated = updateRuntimeRun(this.projectRoot, failedRun.run_id, { phase: 'failed', runtime_status: 'error', finished_at: now(), result: 'failed' }); if (updated) this.publishRuntimeLedgerEvent('runtime_run', { run: updated }); } updateRuntimeState(this.projectRoot, { status: 'idle', current_card_id: null, current_agent_session_id: null, queue: [], active_card_run: null } as Partial<RuntimeState> as never); throw err; }
-      this.applyPlannerResult(goalId, plannerResult);
+      } catch (err) { const errorMessage = err instanceof Error ? err.message : String(err); this.emitRuntimeDiagnostic({ goal_id: goalId, phase: 'planner', error: err }); this._eventLogger.appendEvent({ kind: 'runtime_diagnostic', goal_id: goalId, phase: 'planner', error_message: errorMessage }); this._errorLogger.appendError({ message: errorMessage, goalId, phase: 'planner' }); await this._stateMachine.transitionCard(goalId, 'fail', { reason: 'planner_error', error: errorMessage }); await this.cardStore.update(goalId, { error: errorMessage, status_text: `Planner failed: ${errorMessage}` }); const failedRun = (readRuntimeState(this.projectRoot)?.runtime_runs ?? []).filter((run) => run.card_id === goalId && run.phase === 'planner' && run.runtime_status === 'running' && !run.finished_at && (!run.session_id || run.session_id === `planner:${goalId}`)).sort((a, b) => (b.kind === 'root' ? 1 : 0) - (a.kind === 'root' ? 1 : 0))[0]; if (failedRun) { const updated = updateRuntimeRun(this.projectRoot, failedRun.run_id, { phase: 'failed', runtime_status: 'error', finished_at: now(), result: 'failed' }); if (updated) this.publishRuntimeLedgerEvent('runtime_run', { run: updated }); } updateRuntimeState(this.projectRoot, { status: 'idle', current_card_id: null, current_agent_session_id: null, queue: [], active_card_run: null } as Partial<RuntimeState> as never); throw err; }
+      await this.applyPlannerResult(goalId, plannerResult);
       updateRuntimeState(this.projectRoot, { current_agent_session_id: `planner:${goalId}`, queue: [] } as Partial<RuntimeState> as never);
       const execution = await this.dispatchPendingActivations(goalId);
       if (execution.failed) plannerDone = false;
@@ -655,8 +658,8 @@ export class Runtime extends EventEmitter {
       if (this._paused) { this.emit('dispatch_blocked', { reason: 'paused', goal_id: goalId }); this._eventLogger.appendEvent({ kind: 'dispatch_blocked', reason: 'paused', goal_id: goalId }); return; }
       const hasUnfinishedChildWork = this.cardStore.list().some((card) => card.parent === goalId && card.status !== 'done' && card.status !== 'failed' && card.status !== 'cancelled');
       const hasGoalDispatch = execution.dispatchedGoal; const createdCardIds = (plannerResult.created_cards ?? []).map((card) => card.id).filter((id): id is string => Boolean(id));
-      if (plannerResult.status === 'blocked') { this.cardStore.setStatus(goalId, 'running'); this.cardStore.setStatus(goalId, 'blocked'); this.cardStore.update(goalId, { result: { ...(this.cardStore.read(goalId)?.result ?? {}), planning: { status: 'blocked', blocked_reason: plannerResult.blocked_reason ?? null, created_cards: createdCardIds } } }); updateRuntimeState(this.projectRoot, { status: 'idle', current_card_id: null, current_agent_session_id: null, queue: [], active_card_run: null } as Partial<RuntimeState> as never); return; }
-      if (plannerResult.status === 'done' && !hasGoalDispatch && !hasUnfinishedChildWork) plannerDone = true; else { plannerDone = false; this.cardStore.update(goalId, { result: { ...(this.cardStore.read(goalId)?.result ?? {}), planning: { status: 'continue', planner_declared_done: plannerResult.status === 'done', has_unfinished_child_work: hasUnfinishedChildWork, resume_reason: hasGoalDispatch ? 'dispatch_completed' : 'review_completed', created_cards: createdCardIds } } }); if (plannerResult.status === 'done' && !hasGoalDispatch && hasUnfinishedChildWork) { updateRuntimeState(this.projectRoot, { status: 'idle', current_card_id: null, current_agent_session_id: null, queue: [], active_card_run: null } as Partial<RuntimeState> as never); return; } }
+      if (plannerResult.status === 'blocked') { await this._stateMachine.transitionCard(goalId, 'block', { blocked_reason: plannerResult.blocked_reason ?? null }); await this.cardStore.update(goalId, { result: { ...(this.cardStore.read(goalId)?.result ?? {}), planning: { status: 'blocked', blocked_reason: plannerResult.blocked_reason ?? null, created_cards: createdCardIds } } }); updateRuntimeState(this.projectRoot, { status: 'idle', current_card_id: null, current_agent_session_id: null, queue: [], active_card_run: null } as Partial<RuntimeState> as never); return; }
+      if (plannerResult.status === 'done' && !hasGoalDispatch && !hasUnfinishedChildWork) plannerDone = true; else { plannerDone = false; await this.cardStore.update(goalId, { result: { ...(this.cardStore.read(goalId)?.result ?? {}), planning: { status: 'continue', planner_declared_done: plannerResult.status === 'done', has_unfinished_child_work: hasUnfinishedChildWork, resume_reason: hasGoalDispatch ? 'dispatch_completed' : 'review_completed', created_cards: createdCardIds } } }); if (plannerResult.status === 'done' && !hasGoalDispatch && hasUnfinishedChildWork) { updateRuntimeState(this.projectRoot, { status: 'idle', current_card_id: null, current_agent_session_id: null, queue: [], active_card_run: null } as Partial<RuntimeState> as never); return; } }
       if (plannerDone) {
         const assessmentId = this.nextReviewerAssessmentId(goalId);
         const reviewerSessionId = this.reviewerSessionId(goalId, assessmentId);
@@ -664,17 +667,17 @@ export class Runtime extends EventEmitter {
         const validation = this.validateReviewerAssessment(goalId, reviewResult.assessment);
         if (reviewResult.assessment.result === 'pass' && !validation.valid) {
           const invalidAssessment = this.buildReviewAssessment(goalId, assessmentId, reviewerSessionId, reviewResult.assessment, { result: 'needs_corrections', summary: `Reviewer pass rejected: ${validation.reason}`, achieved: [], issues: [{ summary: validation.reason ?? 'Reviewer evidence validation failed.', severity: 'blocker' as const }] });
-          this.persistReviewState(goalId, invalidAssessment);
+          await this.persistReviewState(goalId, invalidAssessment);
           this.emit('review_failed', { goal_id: goalId, assessment: invalidAssessment });
           this._eventLogger.appendEvent({ kind: 'review_failed', goal_id: goalId, assessment: invalidAssessment });
           plannerDone = false;
           continue;
         }
         if (reviewResult.assessment.result === 'pass') {
-          if (this.cardStore.read(goalId)?.status !== 'done') { this.cardStore.setStatus(goalId, 'running'); this.cardStore.setStatus(goalId, 'done'); }
+          if (this.cardStore.read(goalId)?.status !== 'done') { await this._stateMachine.transitionCard(goalId, 'complete', { assessment: reviewResult.assessment }); }
           const assessment = this.buildReviewAssessment(goalId, assessmentId, reviewerSessionId, reviewResult.assessment);
-          this.persistReviewState(goalId, assessment);
-          this.cardStore.update(goalId, { result: { ...(this.cardStore.read(goalId)?.result ?? {}), planning: { status: 'done', created_cards: [], review_summary: reviewResult.assessment.summary } } });
+          await this.persistReviewState(goalId, assessment);
+          await this.cardStore.update(goalId, { result: { ...(this.cardStore.read(goalId)?.result ?? {}), planning: { status: 'done', created_cards: [], review_summary: reviewResult.assessment.summary } } });
           this.appendChildUnwindToolResult(goalId, 'done', reviewResult.assessment.summary);
           updateRuntimeState(this.projectRoot, { status: 'idle', current_card_id: null, current_agent_session_id: null, queue: [], active_card_run: null } as Partial<RuntimeState> as never);
           this.emit('goal_completed', { goal_id: goalId, assessment }); this._eventLogger.appendEvent({ kind: 'goal_completed', goal_id: goalId, assessment });
@@ -683,7 +686,7 @@ export class Runtime extends EventEmitter {
         } else {
           plannerDone = false;
           const failedAssessment = this.buildReviewAssessment(goalId, assessmentId, reviewerSessionId, reviewResult.assessment);
-          this.persistReviewState(goalId, failedAssessment);
+          await this.persistReviewState(goalId, failedAssessment);
           this.emit('review_failed', { goal_id: goalId, assessment: failedAssessment }); this._eventLogger.appendEvent({ kind: 'review_failed', goal_id: goalId, assessment: failedAssessment });
         }
       }
@@ -717,7 +720,7 @@ export class Runtime extends EventEmitter {
           this.appendChildUnwindToolResult(card.id, outcome, `Child goal ${card.id} finished with status ${completedCard?.status ?? 'unknown'}.`);
           dispatchedGoal = true; if (outcome !== 'done') return { dispatchedGoal, executedTerminal, failed }; continue;
         }
-        if (card.status === 'backlog') this.cardStore.setStatus(card.id, 'active'); this.cardStore.setStatus(card.id, 'running'); { const startedAt = now(); updateRuntimeState(this.projectRoot, { current_card_id: card.id, active_card_run: { card_id: card.id, card_type: card.type, runtime_status: 'running', phase: 'executor', caller_session_id: callerEdge?.callerSessionId ?? `planner:${goalId}`, caller_tool_call_id: callerEdge?.callerToolCallId ?? null, executor_session_id: `executor-${card.id}`, correction_attempts: 0, started_at: startedAt, last_turn_at: startedAt } }); }
+        { const startAction: RuntimeCardAction = (STARTABLE_STATES as readonly CardStatus[]).includes(card.status) ? 'start' : 'restart'; await this._stateMachine.transitionCard(card.id, startAction, { goalId }); } { const startedAt = now(); updateRuntimeState(this.projectRoot, { current_card_id: card.id, active_card_run: { card_id: card.id, card_type: card.type, runtime_status: 'running', phase: 'executor', caller_session_id: callerEdge?.callerSessionId ?? `planner:${goalId}`, caller_tool_call_id: callerEdge?.callerToolCallId ?? null, executor_session_id: `executor-${card.id}`, correction_attempts: 0, started_at: startedAt, last_turn_at: startedAt } }); }
         let execResult;
         try {
           let executorPrompt = buildExecutorPrompt(card.type);
@@ -726,7 +729,7 @@ export class Runtime extends EventEmitter {
           const result = this.agentRuntime.invokeExecutor(card.id, goalId, executorPrompt); execResult = result instanceof Promise ? await result : result;
           const lastSessionId = (this.agentRuntime as FakeAgentAdapter).getLastSessionId?.('executor', goalId, card.id) ?? readRuntimeState(this.projectRoot)?.current_agent_session_id ?? null;
           if (execResult.status === 'done' && lastSessionId) await this.enforceBlockingNotifications(lastSessionId, 'executor', async () => undefined);
-        } catch (err) { const errorMessage = err instanceof Error ? err.message : String(err); this.emitRuntimeDiagnostic({ card_id: card.id, goal_id: goalId, phase: 'executor', error: err }); this._eventLogger.appendEvent({ kind: 'runtime_diagnostic', card_id: card.id, goal_id: goalId, phase: 'executor', error_message: errorMessage }); this._errorLogger.appendError({ message: errorMessage, cardId: card.id, goalId, phase: 'executor' }); this.cardStore.setStatus(card.id, 'failed'); this.appendChildUnwindToolResult(card.id, 'failed', `Terminal card ${card.id} execution failed before producing a result.`); this.emit('card_failed', { card_id: card.id, goal_id: goalId }); this._eventLogger.appendEvent({ kind: 'card_failed', card_id: card.id, goal_id: goalId }); failed = true; return { dispatchedGoal, executedTerminal, failed }; }
+        } catch (err) { const errorMessage = err instanceof Error ? err.message : String(err); this.emitRuntimeDiagnostic({ card_id: card.id, goal_id: goalId, phase: 'executor', error: err }); this._eventLogger.appendEvent({ kind: 'runtime_diagnostic', card_id: card.id, goal_id: goalId, phase: 'executor', error_message: errorMessage }); this._errorLogger.appendError({ message: errorMessage, cardId: card.id, goalId, phase: 'executor' }); await this._stateMachine.transitionCard(card.id, 'fail', { reason: 'executor_exception', error: errorMessage }); this.appendChildUnwindToolResult(card.id, 'failed', `Terminal card ${card.id} execution failed before producing a result.`); this.emit('card_failed', { card_id: card.id, goal_id: goalId }); this._eventLogger.appendEvent({ kind: 'card_failed', card_id: card.id, goal_id: goalId }); failed = true; return { dispatchedGoal, executedTerminal, failed }; }
         const acceptedAt = now();
         const lastSessionId = (this.agentRuntime as FakeAgentAdapter).getLastSessionId?.('executor', goalId, card.id) ?? readRuntimeState(this.projectRoot)?.active_card_run?.executor_session_id ?? readRuntimeState(this.projectRoot)?.current_agent_session_id ?? null;
         const latestSelfReport = {
@@ -736,24 +739,24 @@ export class Runtime extends EventEmitter {
           status_text: execResult.status_text,
           at: acceptedAt,
         };
-        this.cardStore.update(card.id, {
-          status: execResult.status,
-          result: { ...(execResult.result ?? {}), executor: execResult.result ?? null, latest_self_report: latestSelfReport },
-          error: execResult.error ?? null,
+        const artifactRegistrationErrors: string[] = []; const attachmentRegistrationErrors: string[] = []; const ignoredArtifactRegistrations: string[] = []; const ignoredAttachmentRegistrations: string[] = [];
+        if (execResult.artifacts && execResult.artifacts.length > 0) for (const artDef of execResult.artifacts) { const sourcePath = artDef.sourceFile ?? artDef.path ?? ''; const resolved = resolveRegisterableProcessMetadataSource(this.projectRoot, sourcePath); if ('ignored' in resolved) { ignoredArtifactRegistrations.push(resolved.ignored); continue; } try { this.registerArtifactOnCard(card.id, { type: artDef.type, description: artDef.description, retain: artDef.retain }, resolved.sourceFile); } catch (err) { const errorMessage = err instanceof Error ? err.message : String(err); artifactRegistrationErrors.push(errorMessage); this.emitRuntimeDiagnostic({ card_id: card.id, goal_id: goalId, phase: 'artifact_registration', error: err }); this._eventLogger.appendEvent({ kind: 'runtime_diagnostic', card_id: card.id, phase: 'artifact_registration', error_message: errorMessage }); this._errorLogger.appendError({ message: errorMessage, cardId: card.id, goalId, phase: 'artifact_registration' }); } }
+        if (execResult.attachments && execResult.attachments.length > 0) for (const attDef of execResult.attachments) { const sourcePath = attDef.sourceFile ?? attDef.path ?? ''; const resolved = resolveRegisterableProcessMetadataSource(this.projectRoot, sourcePath); if ('ignored' in resolved) { ignoredAttachmentRegistrations.push(resolved.ignored); continue; } try { this.registerAttachmentOnCard(card.id, { mime: attDef.mime, title: attDef.title, description: attDef.description }, resolved.sourceFile); } catch (err) { const errorMessage = err instanceof Error ? err.message : String(err); attachmentRegistrationErrors.push(errorMessage); this.emitRuntimeDiagnostic({ card_id: card.id, goal_id: goalId, phase: 'attachment_registration', error: err }); this._eventLogger.appendEvent({ kind: 'runtime_diagnostic', card_id: card.id, phase: 'attachment_registration', error_message: errorMessage }); this._errorLogger.appendError({ message: errorMessage, cardId: card.id, goalId, phase: 'attachment_registration' }); } }
+        if (ignoredArtifactRegistrations.length > 0 || ignoredAttachmentRegistrations.length > 0) await this.cardStore.update(card.id, { result: { ...(this.cardStore.read(card.id)?.result ?? {}), evidence_registration_ignored: { artifacts: ignoredArtifactRegistrations, attachments: ignoredAttachmentRegistrations } } });
+        const registrationFailed = execResult.status === 'done' && (artifactRegistrationErrors.length > 0 || attachmentRegistrationErrors.length > 0);
+        const registrationError = registrationFailed ? `Completion blocked by evidence registration failure. Artifacts: ${artifactRegistrationErrors.join(' | ') || 'none'}. Attachments: ${attachmentRegistrationErrors.join(' | ') || 'none'}.` : null;
+        const finalStatus: CardStatus = registrationFailed ? 'failed' : execResult.status;
+        const transitioned = await this._stateMachine.transitionCard(card.id, 'executor_finish', { goalId, finalStatus, reason: registrationFailed ? 'evidence_registration_failed' : undefined });
+        if (!transitioned) { failed = true; return { dispatchedGoal, executedTerminal, failed }; }
+        await this.cardStore.update(card.id, {
+          result: { ...(this.cardStore.read(card.id)?.result ?? {}), ...(execResult.result ?? {}), executor: execResult.result ?? null, latest_self_report: latestSelfReport, ...(registrationFailed ? { evidence_registration_failures: { artifacts: artifactRegistrationErrors, attachments: attachmentRegistrationErrors } } : {}) },
+          error: registrationError ?? execResult.error ?? null,
           status_text: execResult.status_text,
           status_text_updated_at: acceptedAt,
           status_text_author_session_id: lastSessionId,
           latest_self_report: latestSelfReport,
         });
-        const artifactRegistrationErrors: string[] = []; const attachmentRegistrationErrors: string[] = []; const ignoredArtifactRegistrations: string[] = []; const ignoredAttachmentRegistrations: string[] = [];
-        if (execResult.artifacts && execResult.artifacts.length > 0) for (const artDef of execResult.artifacts) { const sourcePath = artDef.sourceFile ?? artDef.path ?? ''; const resolved = resolveRegisterableProcessMetadataSource(this.projectRoot, sourcePath); if ('ignored' in resolved) { ignoredArtifactRegistrations.push(resolved.ignored); continue; } try { this.registerArtifactOnCard(card.id, { type: artDef.type, description: artDef.description, retain: artDef.retain }, resolved.sourceFile); } catch (err) { const errorMessage = err instanceof Error ? err.message : String(err); artifactRegistrationErrors.push(errorMessage); this.emitRuntimeDiagnostic({ card_id: card.id, goal_id: goalId, phase: 'artifact_registration', error: err }); this._eventLogger.appendEvent({ kind: 'runtime_diagnostic', card_id: card.id, phase: 'artifact_registration', error_message: errorMessage }); this._errorLogger.appendError({ message: errorMessage, cardId: card.id, goalId, phase: 'artifact_registration' }); } }
-        if (execResult.attachments && execResult.attachments.length > 0) for (const attDef of execResult.attachments) { const sourcePath = attDef.sourceFile ?? attDef.path ?? ''; const resolved = resolveRegisterableProcessMetadataSource(this.projectRoot, sourcePath); if ('ignored' in resolved) { ignoredAttachmentRegistrations.push(resolved.ignored); continue; } try { this.registerAttachmentOnCard(card.id, { mime: attDef.mime, title: attDef.title, description: attDef.description }, resolved.sourceFile); } catch (err) { const errorMessage = err instanceof Error ? err.message : String(err); attachmentRegistrationErrors.push(errorMessage); this.emitRuntimeDiagnostic({ card_id: card.id, goal_id: goalId, phase: 'attachment_registration', error: err }); this._eventLogger.appendEvent({ kind: 'runtime_diagnostic', card_id: card.id, phase: 'attachment_registration', error_message: errorMessage }); this._errorLogger.appendError({ message: errorMessage, cardId: card.id, goalId, phase: 'attachment_registration' }); } }
-        if (ignoredArtifactRegistrations.length > 0 || ignoredAttachmentRegistrations.length > 0) this.cardStore.update(card.id, { result: { ...(this.cardStore.read(card.id)?.result ?? {}), evidence_registration_ignored: { artifacts: ignoredArtifactRegistrations, attachments: ignoredAttachmentRegistrations } } });
-        if (execResult.status === 'done' && (artifactRegistrationErrors.length > 0 || attachmentRegistrationErrors.length > 0)) {
-          const registrationError = `Completion blocked by evidence registration failure. Artifacts: ${artifactRegistrationErrors.join(' | ') || 'none'}. Attachments: ${attachmentRegistrationErrors.join(' | ') || 'none'}.`;
-          this.cardStore.update(card.id, { status: 'failed', error: registrationError, result: { ...(this.cardStore.read(card.id)?.result ?? {}), evidence_registration_failures: { artifacts: artifactRegistrationErrors, attachments: attachmentRegistrationErrors } } });
-          execResult.status = 'failed'; execResult.error = registrationError;
-        }
+        if (registrationFailed) { execResult.status = 'failed'; execResult.error = registrationError ?? execResult.error; }
         executedTerminal = true; const outcome = execResult.status === 'done' ? 'done' : 'failed';
         this.appendChildUnwindToolResult(card.id, outcome, `Terminal card ${card.id} finished with status ${execResult.status}.`);
         if (execResult.status === 'failed') { this.emit('card_failed', { card_id: card.id, goal_id: goalId }); this._eventLogger.appendEvent({ kind: 'card_failed', card_id: card.id, goal_id: goalId }); failed = true; return { dispatchedGoal, executedTerminal, failed }; }
@@ -776,7 +779,7 @@ export class Runtime extends EventEmitter {
     this.emit('review_complete', { goal_id: goalId, assessment: result.assessment }); this._eventLogger.appendEvent({ kind: 'review_complete', goal_id: goalId, assessment: result.assessment }); return result;
   }
 
-  applyPlannerResult(goalId: string, plannerResult: PlannerResult): void {
+  async applyPlannerResult(goalId: string, plannerResult: PlannerResult): Promise<void> {
     if (plannerResult.created_cards) {
       for (const cardDef of plannerResult.created_cards) {
         if (this.cardStore.read(cardDef.id ?? '')) continue;
@@ -786,17 +789,18 @@ export class Runtime extends EventEmitter {
     if (plannerResult.updated_cards) {
       for (const update of plannerResult.updated_cards) {
         const trackedChanges: Partial<CardRecord> = {};
-        const untrackedChanges: Partial<CardRecord> = {};
         if (update.title !== undefined) trackedChanges.title = update.title;
         if (update.description !== undefined) trackedChanges.description = update.description;
         if (update.acceptance !== undefined) trackedChanges.acceptance = update.acceptance;
-        if (update.status !== undefined) untrackedChanges.status = update.status as CardRecord['status'];
         if (Object.keys(trackedChanges).length > 0) this.cardStore.mutateCard(update.id, trackedChanges, { actor: 'planner', surface: 'runtime', reason: 'planner updated card' });
-        if (Object.keys(untrackedChanges).length > 0) this.cardStore.update(update.id, untrackedChanges);
+        if (update.status !== undefined) {
+          const requestedStatus = update.status as CardStatus;
+          await this._stateMachine.transitionCard(update.id, 'planner_set_status', { requestedStatus });
+        }
       }
     }
   }
-  simulateCrash(): void { const allCards = this.cardStore.list(); for (const card of allCards) if (card.status === 'active' || card.status === 'running') this.cardStore.setStatus(card.id, 'backlog'); this._running = false; }
+  simulateCrash(): void { const allCards = this.cardStore.list(); for (const card of allCards) if (card.status === 'active' || card.status === 'running') { void this._stateMachine.transitionCard(card.id, 'crash_recovery_drop_to_backlog'); } this._running = false; }
   runCleanup(options?: { stashMaxAgeMs?: number; processMaxAgeMs?: number; previewsMaxAgeMs?: number; uploadsMaxAgeMs?: number; }) { return cleanAll(saivageWorkDir(this.projectRoot), this.cardStore, options); }
   getState(): RuntimeState | null { return readRuntimeState(this.projectRoot); }
   private async safeTick(): Promise<void> {
