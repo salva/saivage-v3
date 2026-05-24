@@ -69,7 +69,7 @@ function typeIcon(type: CardType): string {
 }
 
 const STATUS_ORDER: CardStatus[] = [
-  'drafting', 'backlog', 'active', 'running', 'blocked', 'changed', 'done', 'failed', 'cancelled',
+  'drafting', 'backlog', 'active', 'running', 'blocked', 'changed', 'done', 'failed', 'cancelled', 'needs_verification',
 ];
 
 interface Column {
@@ -156,6 +156,7 @@ const columns = computed<Column[]>(() =>
 .status-done { background: #7ee787; }
 .status-failed { background: #f85149; }
 .status-cancelled { background: #484f58; }
+.status-needs_verification { background: #d29922; }
 
 .column-count {
   font-size: 11px;

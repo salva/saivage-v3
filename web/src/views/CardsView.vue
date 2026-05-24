@@ -243,7 +243,7 @@ const viewTabs = [
   { id: 'timeline' as const, label: 'Timeline' },
 ];
 
-const statuses: CardStatus[] = ['drafting', 'backlog', 'active', 'running', 'blocked', 'changed', 'done', 'failed', 'cancelled'];
+const statuses: CardStatus[] = ['drafting', 'backlog', 'active', 'running', 'blocked', 'changed', 'done', 'failed', 'cancelled', 'needs_verification'];
 const cardTypes: CardType[] = ['project', 'goal', 'architecture', 'code', 'test', 'doc', 'data', 'research', 'ops'];
 
 // ── Filter State (local, synced to store) ─────────────────

@@ -18,7 +18,8 @@ export type CardStatus =
   | 'changed'
   | 'done'
   | 'failed'
-  | 'cancelled';
+  | 'cancelled'
+  | 'needs_verification';
 
 export type CardAction = 'card.start' | 'card.cancel' | 'card.delete' | 'card.restart';
 export type CardUrgency = 'low' | 'normal' | 'high' | 'critical';

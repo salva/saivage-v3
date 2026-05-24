@@ -211,6 +211,7 @@ const renderedTree = computed<TreeNode[]>(() => {
 .status-done { background: #7ee787; }
 .status-failed { background: #f85149; }
 .status-cancelled { background: #484f58; opacity: 0.5; }
+.status-needs_verification { background: #d29922; }
 
 .node-title {
   flex: 1;

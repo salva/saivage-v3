@@ -327,6 +327,7 @@ function statusExplainer(status: CardStatus): string {
     done: 'This card is marked done. Review evidence and verification below before treating it as accepted.',
     failed: 'This card failed. Inspect error, tool errors, verification commands, and agent/review context.',
     cancelled: 'This card was cancelled and should not be treated as completed work.',
+    needs_verification: 'Executor preserved partial evidence via fallback. Verify artifacts and verification commands before accepting or restarting.',
   };
   return map[status];
 }
@@ -544,6 +545,7 @@ function actionLabel(action: string): string {
 .status-done { background:#1a2418; color:#7ee787; border-color:#238636; }
 .status-failed { background:#241818; color:#f85149; border-color:#da3633; }
 .status-backlog,.status-drafting,.status-cancelled,.status-blocked { background:#21262d; color:#c9d1d9; border-color:#484f58; }
+.status-needs_verification { background:#241f18; color:#f0b400; border-color:#d29922; }
 .detail-id,.generated-file-path { font-family:'SF Mono',monospace; }
 .meta-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(200px,1fr)); gap:8px; }
 .meta-item { display:flex; flex-direction:column; gap:2px; }

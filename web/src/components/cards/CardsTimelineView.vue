@@ -58,7 +58,7 @@ function typeIcon(type: CardType): string {
 function statusIcon(status: CardStatus): string {
   const icons: Record<CardStatus, string> = {
     drafting: '📝', backlog: '📋', active: '▶', running: '⚡',
-    blocked: '⛔', changed: '✎', done: '✅', failed: '❌', cancelled: '🚫',
+    blocked: '⛔', changed: '✎', done: '✅', failed: '❌', cancelled: '🚫', needs_verification: '🔍',
   };
   return icons[status] || '●';
 }
@@ -156,6 +156,7 @@ function formatDuration(ms: number | null | undefined): string {
 .tl-marker.status-active { border-color: #58a6ff; background: #1c2738; }
 .tl-marker.status-blocked { border-color: #d29922; background: #241f18; }
 .tl-marker.status-cancelled { border-color: #484f58; background: #21262d; opacity: 0.6; }
+.tl-marker.status-needs_verification { border-color: #d29922; background: #241f18; }
 
 .tl-icon {
   font-size: 12px;
