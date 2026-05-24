@@ -11,7 +11,6 @@ const OPERATIONS_DOC = join(process.cwd(), 'docs/runbook/operations.md');
 const CORE_RUNTIME_STATE_KEYS = [
   'status',
   'project_id',
-  'pid',
   'started_at',
   'paused',
   'queue',

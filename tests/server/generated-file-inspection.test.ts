@@ -14,7 +14,7 @@ function setupProject(projectRoot: string): void {
   const now = new Date().toISOString();
   writeFileSync(join(sd, 'saivage.json'), JSON.stringify({ server: { port: 8080, host: '127.0.0.1' }, providers: { test: { apiKey: 'secret-key' } }, models: { default: ['test-model'] } }, null, 2));
   writeFileSync(join(sd, 'auth-profiles.json'), JSON.stringify({ token: 'top-secret' }, null, 2));
-  writeFileSync(join(sd, 'runtime', 'state.json'), JSON.stringify({ status: 'idle', project_id: 'project', pid: process.pid, started_at: now, paused: false, queue: [], running_processes: [], updated_at: now }));
+  writeFileSync(join(sd, 'runtime', 'state.json'), JSON.stringify({ status: 'idle', project_id: 'project', started_at: now, paused: false, queue: [], running_processes: [], updated_at: now }));
   writeFileSync(join(sd, 'cards', 'index.json'), JSON.stringify({ cards: { project: { id: 'project', type: 'project', parent: null, status: 'backlog', title: 'project' }, 'card-1': { id: 'card-1', type: 'code', parent: 'project', status: 'done', title: 'Card 1' } } }, null, 2));
   writeFileSync(join(sd, 'cards', 'tree', 'project.children.json'), JSON.stringify(['card-1']));
   writeFileSync(join(sd, 'cards', 'tree', 'card-1.children.json'), JSON.stringify([]));

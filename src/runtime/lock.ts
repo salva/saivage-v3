@@ -207,3 +207,16 @@ export function removeStaleLock(projectRoot: string, config?: LockConfig): void 
   }
   // If PID is alive and within max age, do nothing (lock is valid)
 }
+
+export function readLiveLockHolder(projectRoot: string): { pid: number; started_at: string } | null {
+  const path = lockPath(projectRoot);
+  if (!existsSync(path)) return null;
+  let payload: { pid: number; started_at: string };
+  try {
+    payload = JSON.parse(readFileSync(path, 'utf-8')) as { pid: number; started_at: string };
+  } catch {
+    return null;
+  }
+  if (typeof payload.pid !== 'number' || !isPidAlive(payload.pid)) return null;
+  return { pid: payload.pid, started_at: payload.started_at };
+}

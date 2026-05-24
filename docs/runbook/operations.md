@@ -153,7 +153,7 @@ curl -X POST http://localhost:8080/api/runtime/pause \
 
 Expected status: `200`.
 
-Expected top-level JSON keys: `status`, `project_id`, `pid`, `started_at`, `paused`, `queue`, `running_processes`, `updated_at`.
+Expected top-level JSON keys: `status`, `project_id`, `started_at`, `paused`, `queue`, `running_processes`, `updated_at`.
 
 Pause stops new dispatch. Running processes are not forcibly killed by pause alone. The response body is the updated `RuntimeState`.
 
@@ -166,7 +166,7 @@ curl -X POST http://localhost:8080/api/runtime/resume \
 
 Expected status: `200`.
 
-Expected top-level JSON keys: `status`, `project_id`, `pid`, `started_at`, `paused`, `queue`, `running_processes`, `updated_at`.
+Expected top-level JSON keys: `status`, `project_id`, `started_at`, `paused`, `queue`, `running_processes`, `updated_at`.
 
 Resume re-enables dispatch. Depending on queued work, the runtime may settle into `idle` or continue in `running`. The response body is the updated `RuntimeState`.
 

@@ -79,7 +79,6 @@ function defaultRuntimeState(): RuntimeState {
   return {
     status: 'idle',
     project_id: 'project',
-    pid: process.pid,
     started_at: now,
     current_card_id: null,
     current_agent_session_id: null,

@@ -137,12 +137,18 @@ export function registerOperatorContractRoutes(options: {
     },
     'cards.diff': ({ params, query }) => {
       const id = (params as unknown as { id: string }).id;
-      const { from: fromRaw, to: toRaw } = query as unknown as { from: string; to: string };
+      const q = query as unknown as { from?: string; to?: string };
       const card = store.read(id);
       if (!card) return { statusCode: 404, body: { error: 'Card not found', cardId: id } };
-      const from = Number.parseInt(fromRaw, 10);
-      const to = Number.parseInt(toRaw, 10);
-      if (!Number.isInteger(from) || from <= 0 || !Number.isInteger(to) || to <= 0) return { statusCode: 400, body: { error: 'from and to query parameters are required positive integers' } };
+      const latest = card.version_seq;
+      const resolve = (raw: string | undefined, fallback: number): number => {
+        if (raw === undefined) return fallback;
+        if (raw === 'last' || raw === 'current') return latest;
+        return Number.parseInt(raw, 10);
+      };
+      const to = resolve(q.to, latest);
+      const from = resolve(q.from, Math.max(1, to - 1));
+      if (from <= 0 || to <= 0 || from > to) return { statusCode: 400, body: { error: 'Invalid diff pivots', from, to } };
       try { return { body: { diff: redactValue(store.diffCard(id, from, to)), from, to, card_id: id } }; }
       catch (err) { const message = err instanceof Error ? err.message : String(err); return { statusCode: message.includes('not found') || message.includes('has no version') ? 404 : 500, body: { error: message.includes('not found') || message.includes('has no version') ? 'Card diff source not found' : 'Failed to diff card', message } }; }
     },

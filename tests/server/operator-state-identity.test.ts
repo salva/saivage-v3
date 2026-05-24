@@ -17,7 +17,6 @@ function setupProject(root: string): void {
   writeFileSync(join(sd, 'runtime', 'state.json'), JSON.stringify({
     status: 'idle',
     project_id: 'project',
-    pid: process.pid,
     started_at: '2026-01-01T00:00:00.000Z',
     current_card_id: null,
     current_agent_session_id: null,

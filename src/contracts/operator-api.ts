@@ -156,7 +156,12 @@ export const CardMutationResponseSchema = z.object({
 });
 export const CardHistoryParamsSchema = z.object({ id: z.string().min(1) });
 export const CardHistoryEntryParamsSchema = z.object({ id: z.string().min(1), seq: z.string().min(1) });
-export const CardDiffQuerySchema = z.object({ from: z.string().min(1), to: z.string().min(1) });
+const diffPivotSchema = z.union([
+  z.literal('last'),
+  z.literal('current'),
+  z.string().regex(/^[1-9][0-9]*$/, 'positive integer or "last"/"current"'),
+]);
+export const CardDiffQuerySchema = z.object({ from: diffPivotSchema.optional(), to: diffPivotSchema.optional() });
 export const CardHistoryListResponseSchema = z.object({ history: z.array(cardHistoryHeaderSchema), total: z.number().int().nonnegative() });
 export const CardHistoryEntryResponseSchema = z.object({ entry: cardHistoryEntrySchema });
 export const CardDiffResponseSchema = z.object({ diff: z.unknown(), from: z.number().int().positive(), to: z.number().int().positive(), card_id: z.string() });

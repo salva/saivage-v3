@@ -34,7 +34,7 @@ function initializeProjectRoot(root: string): void {
   writeFileSync(join(saivageDir, 'cards', 'dependencies', 'depends-on.json'), JSON.stringify({}));
   writeFileSync(join(saivageDir, 'cards', 'dependencies', 'blocks.json'), JSON.stringify({}));
   writeFileSync(join(saivageDir, 'notes', 'queue.json'), JSON.stringify({ next_note_sequence: 1, entries: [] }));
-  writeFileSync(join(saivageDir, 'runtime', 'state.json'), JSON.stringify({ status: 'idle', project_id: 'project', pid: process.pid, started_at: now, current_card_id: null, current_agent_session_id: null, paused: false, paused_at: null, queue: [], running_processes: [], updated_at: now }));
+  writeFileSync(join(saivageDir, 'runtime', 'state.json'), JSON.stringify({ status: 'idle', project_id: 'project', started_at: now, current_card_id: null, current_agent_session_id: null, paused: false, paused_at: null, queue: [], running_processes: [], updated_at: now }));
 }
 
 beforeAll(async () => {
@@ -97,6 +97,52 @@ describe('cards history api', () => {
     const description = body.diff.find((entry) => entry.field === 'description');
     expect(description).toBeDefined();
     expect(JSON.stringify(description)).not.toContain('secret-123');
+  });
+
+  it('resolves to=last as the current version_seq with non-empty diff', async () => {
+    const res = await fetch(url('/api/cards/code-1/diff?from=1&to=last'), { headers: authHeader(authToken) });
+    expect(res.status).toBe(200);
+    const body = await res.json() as { from: number; to: number; diff: unknown[]; card_id: string };
+    expect(body.from).toBe(1);
+    expect(body.to).toBeGreaterThanOrEqual(2);
+    expect(body.card_id).toBe('code-1');
+    expect(Array.isArray(body.diff)).toBe(true);
+    expect(body.diff.length).toBeGreaterThan(0);
+  });
+
+  it('defaults from to max(1, to-1) when only to=last is supplied', async () => {
+    const res = await fetch(url('/api/cards/code-1/diff?to=last'), { headers: authHeader(authToken) });
+    expect(res.status).toBe(200);
+    const body = await res.json() as { from: number; to: number };
+    expect(body.to).toBeGreaterThanOrEqual(1);
+    expect(body.from).toBe(Math.max(1, body.to - 1));
+  });
+
+  it('applies defaults when no pivots are supplied', async () => {
+    const res = await fetch(url('/api/cards/code-1/diff'), { headers: authHeader(authToken) });
+    expect(res.status).toBe(200);
+    const body = await res.json() as { from: number; to: number };
+    expect(body.to).toBeGreaterThanOrEqual(1);
+    expect(body.from).toBe(Math.max(1, body.to - 1));
+    expect(body.from).toBeGreaterThanOrEqual(1);
+  });
+
+  it('rejects from=last&to=1 with 400 after post-resolution from > to', async () => {
+    const res = await fetch(url('/api/cards/code-1/diff?from=last&to=1'), { headers: authHeader(authToken) });
+    expect(res.status).toBe(400);
+  });
+
+  it('accepts current as an alias for last', async () => {
+    const res = await fetch(url('/api/cards/code-1/diff?from=1&to=current'), { headers: authHeader(authToken) });
+    expect(res.status).toBe(200);
+    const body = await res.json() as { from: number; to: number };
+    expect(body.from).toBe(1);
+    expect(body.to).toBeGreaterThanOrEqual(2);
+  });
+
+  it('rejects from=0 because the regex excludes zero', async () => {
+    const res = await fetch(url('/api/cards/code-1/diff?from=0&to=last'), { headers: authHeader(authToken) });
+    expect(res.status).toBe(400);
   });
 
   it('returns not found and validation errors', async () => {

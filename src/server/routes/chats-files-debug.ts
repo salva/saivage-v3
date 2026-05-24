@@ -327,7 +327,7 @@ export function registerChatsFilesDebugRoutes(
       }));
 
       return reply.send({
-        runtime: state,
+        runtime: state ? { ...state, pid: process.pid } : null,
         cards: cardIndex,
         totalCards: cards.length,
       });

@@ -686,7 +686,6 @@ describe('Security — Auth, Path Traversal, and Redaction', () => {
       JSON.stringify({
         status: 'idle',
         project_id: 'project',
-        pid: process.pid,
         started_at: new Date().toISOString(),
         current_card_id: null,
         current_agent_session_id: null,

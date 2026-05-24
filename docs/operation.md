@@ -316,18 +316,18 @@ Every current operator-facing Fastify or contract-mounted route is listed exactl
 
 | Route | Purpose | Code anchor |
 |---|---|---|
-| `DELETE /api/cards/:id` | Delete a card through audited mutating control flow. | `src/contracts/operator-api.ts:371 "path: '/api/cards/:id'"` |
+| `DELETE /api/cards/:id` | Delete a card through audited mutating control flow. | `src/contracts/operator-api.ts:381 "path: '/api/cards/:id'"` |
 | `DELETE /api/notes/:id` | Delete one unhandled note. | `src/server/routes/runtime-config-notes.ts:177` |
 | `DELETE /api/notes` | Clear all unhandled notes. | `src/server/routes/runtime-config-notes.ts:180` |
 | `GET /api/agents/:id/conversation` | Read one persisted agent conversation. | `src/server/routes/runtime-config-notes.ts:179` |
 | `GET /api/agents/:id` | Read one persisted agent-session summary (counts, timestamps; no payload). | `src/server/routes/runtime-config-notes.ts:192` |
 | `GET /api/agents` | List persisted agent sessions. | `src/server/routes/runtime-config-notes.ts:178` |
 | `POST /api/auth/ws-ticket` | Issue a short-lived one-use browser WebSocket ticket after bearer REST auth. | `src/server/routes/auth.ts:4` |
-| `GET /api/cards/:id/diff` | Diff card versions. | `src/contracts/operator-api.ts:359 "path: '/api/cards/:id/diff'"` |
-| `GET /api/cards/:id/history/:seq` | Read one card-history snapshot. | `src/contracts/operator-api.ts:348 "path: '/api/cards/:id/history/:seq'"` |
-| `GET /api/cards/:id/history` | List card-history headers. | `src/contracts/operator-api.ts:337 "path: '/api/cards/:id/history'"` |
-| `GET /api/cards/:id` | Read card detail with children and ancestors. | `src/contracts/operator-api.ts:325 "path: '/api/cards/:id'"` |
-| `GET /api/cards` | List cards. | `src/contracts/operator-api.ts:315 "path: '/api/cards'"` |
+| `GET /api/cards/:id/diff` | Diff card versions. | `src/contracts/operator-api.ts:369 "path: '/api/cards/:id/diff'"` |
+| `GET /api/cards/:id/history/:seq` | Read one card-history snapshot. | `src/contracts/operator-api.ts:358 "path: '/api/cards/:id/history/:seq'"` |
+| `GET /api/cards/:id/history` | List card-history headers. | `src/contracts/operator-api.ts:347 "path: '/api/cards/:id/history'"` |
+| `GET /api/cards/:id` | Read card detail with children and ancestors. | `src/contracts/operator-api.ts:335 "path: '/api/cards/:id'"` |
+| `GET /api/cards` | List cards. | `src/contracts/operator-api.ts:325 "path: '/api/cards'"` |
 | `GET /api/chats/:sessionId` | Read an analyst chat transcript. | `src/server/routes/chats-files-debug.ts:114` |
 | `GET /api/chats` | List analyst chat sessions. | `src/server/routes/chats-files-debug.ts:81` |
 | `GET /api/config` | Return redacted loaded configuration and warnings. | `src/server/routes/runtime-config-notes.ts:180` |
@@ -350,20 +350,20 @@ Every current operator-facing Fastify or contract-mounted route is listed exactl
 | `GET /api/runtime/card-runs` | List runtime card-run records. | `src/server/server.ts:64 "fastify.get('/api/runtime/card-runs'"` |
 | `GET /api/runtime/status` | Read compact runtime status plus optional serverAvailability. | `src/server/server.ts:66 "fastify.get('/api/runtime/status'"` |
 | `GET /api/state` | Read RuntimeState plus card-index summary and optional availability. | `src/contracts/operator-api.ts:266 "path: '/api/state'"` |
-| `GET /health` | Public liveness probe. | `src/contracts/operator-api.ts:239 "path: '/health'"` |
-| `GET /health/ready` | Public readiness probe with optional availability summary. | `src/contracts/operator-api.ts:250 "path: '/health/ready'"` |
-| `PATCH /api/cards/:id` | Update allowed card fields through audited mutation. | `src/contracts/operator-api.ts:395 "path: '/api/cards/:id'"` |
-| `POST /api/cards` | Create a card through audited mutation. | `src/contracts/operator-api.ts:383 "path: '/api/cards'"` |
+| `GET /health` | Public liveness probe. | `src/contracts/operator-api.ts:249 "path: '/health'"` |
+| `GET /health/ready` | Public readiness probe with optional availability summary. | `src/contracts/operator-api.ts:260 "path: '/health/ready'"` |
+| `PATCH /api/cards/:id` | Update allowed card fields through audited mutation. | `src/contracts/operator-api.ts:405 "path: '/api/cards/:id'"` |
+| `POST /api/cards` | Create a card through audited mutation. | `src/contracts/operator-api.ts:393 "path: '/api/cards'"` |
 | `POST /api/chats/:sessionId` | Send an analyst chat message. | `src/server/routes/chats-files-debug.ts:148` |
 | `POST /api/notes/:id/acknowledge` | Mark an unhandled note handled. | `src/server/routes/runtime-config-notes.ts:180` |
 | `POST /api/notifications/:id/acknowledge` | Acknowledge a notification. | `src/server/routes/runtime-config-notes.ts:145` |
 | `POST /api/runtime/freeze` | Freeze runtime for handoff. | `src/server/routes/runtime-config-notes.ts:174` |
-| `POST /api/runtime/start_project` | Start root project execution via explicit runtime command. | `src/contracts/operator-api.ts:271 "path: '/api/runtime/start_project'"` |
-| `POST /api/runtime/stop_project` | Stop root project execution intent via explicit runtime command. | `src/contracts/operator-api.ts:282 "path: '/api/runtime/stop_project'"` |
+| `POST /api/runtime/start_project` | Start root project execution via explicit runtime command. | `src/contracts/operator-api.ts:281 "path: '/api/runtime/start_project'"` |
+| `POST /api/runtime/stop_project` | Stop root project execution intent via explicit runtime command. | `src/contracts/operator-api.ts:292 "path: '/api/runtime/stop_project'"` |
 | `POST /api/runtime/goals/:id/needs_corrections` | Record goal correction directive. | `src/server/server.ts:56 "fastify.post('/api/runtime/goals/:id/needs_corrections'"` |
-| `POST /api/runtime/pause` | Pause runtime and return RuntimeState. | `src/contracts/operator-api.ts:294 "path: '/api/runtime/pause'"` |
+| `POST /api/runtime/pause` | Pause runtime and return RuntimeState. | `src/contracts/operator-api.ts:303 "path: '/api/runtime/pause'"` |
 | `POST /api/runtime/resume-from-freeze` | Resume from freeze manifest. | `src/server/routes/runtime-config-notes.ts:175` |
-| `POST /api/runtime/resume` | Resume runtime and return RuntimeState. | `src/contracts/operator-api.ts:305 "path: '/api/runtime/resume'"` |
+| `POST /api/runtime/resume` | Resume runtime and return RuntimeState. | `src/contracts/operator-api.ts:314 "path: '/api/runtime/resume'"` |
 <!-- saivage:operator-routes:end -->
 
 <!-- saivage:runtime-controls:start -->
@@ -373,10 +373,10 @@ Every current operator-facing Fastify or contract-mounted route is listed exactl
 
 | Route | Request body | Success response | Code anchor |
 |---|---|---|---|
-| `POST /api/runtime/start_project` | `empty-or-null-json-object` | `RuntimeCommandResponse` | `src/contracts/operator-api.ts:271 "path: '/api/runtime/start_project'"` |
-| `POST /api/runtime/stop_project` | `empty-or-null-json-object` | `RuntimeCommandResponse` | `src/contracts/operator-api.ts:282 "path: '/api/runtime/stop_project'"` |
-| `POST /api/runtime/pause` | `empty-or-null-json-object` | `RuntimeState` | `src/contracts/operator-api.ts:294 "path: '/api/runtime/pause'"` |
-| `POST /api/runtime/resume` | `empty-or-null-json-object` | `RuntimeState` | `src/contracts/operator-api.ts:305 "path: '/api/runtime/resume'"` |
+| `POST /api/runtime/start_project` | `empty-or-null-json-object` | `RuntimeCommandResponse` | `src/contracts/operator-api.ts:281 "path: '/api/runtime/start_project'"` |
+| `POST /api/runtime/stop_project` | `empty-or-null-json-object` | `RuntimeCommandResponse` | `src/contracts/operator-api.ts:292 "path: '/api/runtime/stop_project'"` |
+| `POST /api/runtime/pause` | `empty-or-null-json-object` | `RuntimeState` | `src/contracts/operator-api.ts:303 "path: '/api/runtime/pause'"` |
+| `POST /api/runtime/resume` | `empty-or-null-json-object` | `RuntimeState` | `src/contracts/operator-api.ts:314 "path: '/api/runtime/resume'"` |
 | `POST /api/runtime/freeze` | `optional-object:{reason?:string}` | `freeze-summary` | `src/server/routes/runtime-config-notes.ts:174` |
 | `POST /api/runtime/resume-from-freeze` | `empty-or-null-json-object` | `resume-from-freeze-summary` | `src/server/routes/runtime-config-notes.ts:175` |
 <!-- saivage:runtime-controls:end -->

@@ -170,7 +170,6 @@ describe('Freeze / Resume', () => {
       updateRuntimeState(tmpDir, {
         status: 'idle' as const,
         project_id: 'project' as const,
-        pid: process.pid,
         started_at: new Date().toISOString(),
         current_card_id: 'goal-resume',
         current_agent_session_id: null,
@@ -307,7 +306,6 @@ describe('Freeze / Resume', () => {
       updateRuntimeState(tmpDir, {
         status: 'idle' as const,
         project_id: 'project' as const,
-        pid: process.pid,
         started_at: new Date().toISOString(),
         current_card_id: null,
         current_agent_session_id: null,
@@ -406,7 +404,6 @@ describe('Freeze / Resume', () => {
       updateRuntimeState(tmpDir, {
         status: 'idle' as const,
         project_id: 'project' as const,
-        pid: process.pid,
         started_at: new Date().toISOString(),
         current_card_id: 'card-1',
         current_agent_session_id: 'executor-card1-goal1-0',
