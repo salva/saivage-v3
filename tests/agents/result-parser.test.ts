@@ -88,6 +88,19 @@ describe('buildExecutorFallbackResult', () => {
     expect(fallback!.artifacts).toEqual([]);
     expect(fallback!.result?.generated_files).toEqual(['src/generated.txt']);
     expect(fallback!.result?.artifact_paths).toEqual([]);
+    expect(fallback!.fallback_with_evidence).toEqual({ reason: 'parse_failure' });
+  });
+
+  it('stamps fallback_with_evidence reason for each F20 fallback call site', () => {
+    const sessionMessages: AgentMessage[] = [
+      msg({ tool: 'write_project_file', content: JSON.stringify({ path: 'src/x.txt', written: true, bytes: 1 }) }),
+    ];
+    const reasons = ['tool_calls_envelope_recovery', 'self_check_recovery', 'parse_failure'] as const;
+    for (const reason of reasons) {
+      const fb = buildExecutorFallbackResult(JSON.stringify({ card_id: 'c', summary: 's' }), { cardId: 'c', sessionMessages, reason });
+      expect(fb).not.toBeNull();
+      expect(fb!.fallback_with_evidence).toEqual({ reason });
+    }
   });
 });
 

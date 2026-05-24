@@ -210,6 +210,7 @@ describe('RuntimeStateMachine.transitionCard (Step 5 decomposition)', () => {
     { name: 'cancel from blocked', from: 'blocked', action: 'cancel', expected: ['cancelled'] },
     { name: 'executor_finish done', from: 'running', action: 'executor_finish', payload: { finalStatus: 'done' }, expected: ['done'] },
     { name: 'executor_finish failed', from: 'running', action: 'executor_finish', payload: { finalStatus: 'failed' }, expected: ['failed'] },
+    { name: 'executor_partial_finish from running', from: 'running', action: 'executor_partial_finish', expected: ['needs_verification'] },
     { name: 'reviewer_repair_resume from active', from: 'active', action: 'reviewer_repair_resume', expected: ['running'] },
     { name: 'reviewer_repair_resume from running (no-op)', from: 'running', action: 'reviewer_repair_resume', expected: [] },
     { name: 'crash_recovery_drop_to_backlog from running', from: 'running', action: 'crash_recovery_drop_to_backlog', expected: ['backlog'] },
