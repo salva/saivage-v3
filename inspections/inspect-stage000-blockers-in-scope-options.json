@@ -1,0 +1,144 @@
+{
+  "id": "inspect-stage000-blockers-in-scope-options",
+  "request_id": "inspect-stage000-blockers-in-scope-options",
+  "role": "inspector",
+  "created_at": "2026-05-24T20:31:15.000Z",
+  "scope": "Stage 000 analyst-as-control-surface migration blockers after failed and escalated retries; inspected only /work/saivage-v3 specs, stage summaries, harness artifacts, and non-secret command logs.",
+  "summary": "Stage 000 cannot lawfully close in its current state. There are two separable blockers: external/operator prerequisites still prevent trustworthy end-to-end gate execution, and the S00 harness artifacts have an in-scope defect because run-gates/validate-baseline can report success when a gate exits nonzero but emits zero failing_ids. Because published Stage 000 design/plan files are immutable, any correction to the stage specification itself would require a new later stage, not editing 000 in place; however correcting non-immutable PLAN harness artifacts inside /work/saivage-v3 is a lawful Planner-dispatchable recovery action if scoped to PLAN artifacts and no product code.",
+  "questions": [
+    {
+      "question": "1. Is there any corrective action the Planner can lawfully dispatch inside /work/saivage-v3 that advances S00 without violating the immutable Stage 000 design/plan, the no-product-code-before-S00 boundary, or scope restrictions?",
+      "answer": "Yes, but only a narrow PLAN-artifact recovery, not product-code or immutable-stage-doc edits. The lawful corrective action is to patch Stage 000's non-immutable harness artifacts under SPEC/analyst-as-control-surface/PLAN/scripts/ so gate abortion is represented as a failing-id (or otherwise causes validate-baseline/--diff to fail), then regenerate baseline-gates.json only after prerequisites are satisfied. Evidence: Stage 000 design says the stage adds only artifacts under PLAN and no product code (design.md:5), product code and test/config changes are out of scope (design.md:19-22), and the downstream impact explicitly authorizes the driver to ensure tmp exists before gate invocation (design.md:229-230). The currently published stage docs are immutable under PROTOCOL-r4:3 and corrections to a published stage must be delivered as a new stage, not by mutating files under PLAN/stages (PROTOCOL-r4:45-47). Therefore Planner may dispatch a recovery stage that edits PLAN/scripts and baseline artifacts, but must not edit SPEC/analyst-as-control-surface/PLAN/stages/000-breakage-detection-harness/design.md or plan.md, product code under src/web/src/bin/scripts/tests, /opt/saivage, LXC controls, or external workspace trees. This advances S00 only up to an artifact-correct state; final close still requires operator prerequisites below."
+    },
+    {
+      "question": "2. Are the current Stage 000 PLAN artifacts internally inconsistent with the immutable design/plan in a way that can be fixed in /work/saivage-v3/SPEC/analyst-as-control-surface/PLAN/ without needing external environment changes?",
+      "answer": "Yes. The immutable design/plan require validate-baseline.sh to prove every gate runs end-to-end with no missing-binary/shell/environment abort and parseable per-gate results (design.md:244-248; plan.md:168-176), but validate-baseline.sh currently only checks that raw logs exist and that failing_ids is an array of strings; it does not assert observed_exit_code == 0, presence of machine-readable JSON reports for JSON gates, or that environment aborts are converted to failure ids. Evidence: validate-baseline.sh lines 4-6 simply run run-gates, test raw-log file existence, and run a jq shape check. run-gates.sh lines 29-30 return zero failing_ids if the vitest/playwright report files are absent, and line 33 records the gate exit code but does not convert nonzero-with-no-report into a failing-id. Baseline-gates.json currently records web-vitest observed_exit_code=1 with failing_ids length 0 and analyst-e2e observed_exit_code=1 with failing_ids length 0. This contradicts S00 acceptance criterion 2's no-abort/end-to-end requirement. It can be fixed entirely in PLAN/scripts by making the driver emit deterministic ids such as web-vitest:saivage-v3-web:unknown-failure and analyst-e2e:saivage-e2e-checkers:unknown-failure when exit_code != 0 and no parseable report/failing ids exist, and making validate-baseline fail when any observed_exit_code is nonzero due a harness/environment abort during S00 baseline capture. External environment is still required to produce the final authoritative baseline, but not to fix this artifact defect."
+    },
+    {
+      "question": "3. Does validate-baseline.sh or run-gates.sh falsely passing when observed_exit_code is nonzero but failing_ids is empty constitute an in-scope Stage 000 artifact defect that should be corrected before the operator environment is fixed, or must correction wait for environment prerequisites?",
+      "answer": "It is an in-scope Stage 000 artifact defect and should be corrected before accepting any retry baseline. It does not have to wait for operator prerequisites because the defect is in the local PLAN driver/validator logic. Evidence: run-gates.sh --diff exits solely on whether NEW failing_id sets are non-empty (line 43 writes NEW ids; line 44 exits has_new), while it ignores observed_exit_code. validate-baseline.sh lines 4-6 ignores observed_exit_code entirely. The retry summary/log evidence shows V2_EXIT=0 and V3_EXIT=0 while stderr contains EACCES mkdir '/work/tmp' and cd failure for /work/saivage-e2e-checkers. The baseline confirms web-vitest and analyst-e2e captured observed_exit_code=1 but zero failing_ids. This violates the immutable design's acceptance criterion that every gate command runs end-to-end with no abort by missing binary/shell syntax and a parseable per-gate result (design.md:244-248). Correct the artifact now, then rerun after prerequisites are repaired."
+    },
+    {
+      "question": "4. What exact external/operator prerequisites remain before S00 can be retried: /work/tmp writability, /work/saivage-e2e-checkers presence, Node version, worker/reviewer TaskReport schema, anything else?",
+      "answer": "Remaining prerequisites before an authoritative S00 retry are: (a) run with Node >=22.12.0 <23; current evidence from stage retry was v24.15.0 while package.json requires >=22.12.0 <23 and npm >=10 <12; (b) ensure workspace tmp exists and is writable at the workspace root used by the harness (/work/tmp in this environment), because web-vitest writes ../../tmp/web-vitest-report.json and Playwright writes ../tmp/playwright-analyst-report.json; previous logs show EACCES mkdir '/work/tmp'; (c) restore/mount /work/saivage-e2e-checkers with node_modules populated, because run-gates.sh cd to /work/saivage-e2e-checkers failed and V.10 link validation fails on the same missing path; (d) install Playwright Chromium/browser deps for that checker workspace using the Stage 000 prerequisite command npx --prefix saivage-e2e-checkers playwright install --with-deps chromium; (e) verify saivage-v3/node_modules and saivage-v3/web/node_modules are populated; (f) ensure jq is on PATH; (g) satisfy activation preflight operator confirmations and service/workspace visibility checks without the implementer reading secret files or touching service controls; and (h) fix or route around Saivage worker/reviewer TaskReport schema serialization before relying on normal Manager closeout and reviewer gate. Evidence: plan.md:10-17 lists Node/npm, node_modules, Playwright install, tmp writability, tmp ignore, and jq; design.md:167 lists the Playwright install prerequisite; design.md:209 and plan.md validation V.6/V.7 require preflight behavior; stage summaries report worker and reviewer schema_mismatch. The live /health probe is not one of the four gates (design.md:171), but activation preflight still covers service health and watched-path readiness."
+    },
+    {
+      "question": "5. Can the worker/reviewer TaskReport schema_mismatch be addressed by changing instructions/stage shape in the next Manager dispatch, or is it a harness/runtime bug outside the Planner's stage scope?",
+      "answer": "The evidence points to a Saivage harness/runtime serialization bug outside the Planner's Stage 000 artifact scope, not something reliably solved by changing S00 instructions. Both Coder and Reviewer dispatches failed schema_mismatch despite different agents and tasks. The first summary says Coder checklist_results entries lacked required description/passed fields and Reviewer checklist_results entries likewise lacked required description/passed fields. The retry summary says Coder checklist_results entries lacked required description fields and Reviewer issues_found line fields were null where schema expected numbers. Because these are TaskReport schema-conformance failures in agent return serialization rather than Stage 000 design content, Planner can add explicit Manager-dispatch instructions such as 'workers must return checklist_results objects with required description/passed and numeric line fields', but that is only a mitigation. The durable fix belongs to Saivage worker/reviewer TaskReport serialization/runtime or schema adapter, outside product-code-before-S00 and outside immutable Stage 000 docs. S00 may be directly validated by Manager command evidence, but a proper reviewer pass still requires the runtime/schema issue to be fixed or an authorized non-worker review path."
+    }
+  ],
+  "detailed_findings": [
+    {
+      "title": "In-scope harness artifact defect: nonzero gate exits can normalize to zero failures and produce false green V.2/V.3/V.11",
+      "severity": "high",
+      "evidence": [
+        "SPEC/analyst-as-control-surface/PLAN/scripts/run-gates.sh:29 returns no vitest ids when tmp/web-vitest-report.json is absent.",
+        "SPEC/analyst-as-control-surface/PLAN/scripts/run-gates.sh:30 returns no analyst-e2e ids when tmp/playwright-analyst-report.json is absent.",
+        "SPEC/analyst-as-control-surface/PLAN/scripts/run-gates.sh:33 records exit_codes but does not convert nonzero/no-report to failure ids for web-vitest or analyst-e2e.",
+        "SPEC/analyst-as-control-surface/PLAN/scripts/run-gates.sh:43-44 makes --diff exit status depend only on NEW ids, not observed_exit_code.",
+        "SPEC/analyst-as-control-surface/PLAN/scripts/validate-baseline.sh:4-6 checks raw-log existence and failing_ids array typing only; it does not enforce observed_exit_code or parseable report existence.",
+        "SPEC/analyst-as-control-surface/PLAN/baseline-gates.json records web-vitest observed_exit_code=1 with 0 failing_ids and analyst-e2e observed_exit_code=1 with 0 failing_ids.",
+        ".saivage/tmp/command-logs/stage000-retry-v1-v11.stdout.log shows V2_EXIT=0 and V3_EXIT=0 with empty NEW/REPAIRED sections.",
+        ".saivage/tmp/command-logs/stage000-retry-v1-v11.stderr.log shows EACCES mkdir '/work/tmp' and cd failure for /work/saivage-e2e-checkers during those same validations."
+      ],
+      "root_cause": "The driver treats missing JSON reporter files as an empty failing-id set instead of a harness/gate-run failure, and validation only checks JSON shape. This allows environment-aborted gates to become a clean baseline/diff when the baseline and current snapshot both have no failing_ids.",
+      "impact": "Blocks authoritative S00 close and could let later stages close against a false baseline, masking broken web-vitest and analyst-e2e gates.",
+      "recommendation_refs": [
+        "R1",
+        "R2"
+      ]
+    },
+    {
+      "title": "External prerequisites still block authoritative gate execution",
+      "severity": "high",
+      "evidence": [
+        "Stage retry log .saivage/tmp/command-logs/stage000-retry-v1-v11.stderr.log contains Error: EACCES: permission denied, mkdir '/work/tmp'.",
+        "The same log contains run-gates.sh cd failure for /work/saivage-e2e-checkers: No such file or directory.",
+        ".saivage/tmp/command-logs/stage000-retry-v4-v10.stderr.log reports unresolved link in design.md: saivage-e2e-checkers/ -> /work/saivage-e2e-checkers.",
+        "package.json engines require node >=22.12.0 <23 and npm >=10 <12; stage retry prereq log recorded node v24.15.0 and npm 11.12.1.",
+        "Stage 000 plan.md:10-17 lists Node/npm, node_modules, e2e checker node_modules, Playwright browser install, tmp writability, tmp ignore, and jq as preconditions."
+      ],
+      "root_cause": "The workspace/runtime environment used for the retry was not the environment assumed by the Stage 000 plan: Node was outside the engine range, workspace tmp was unavailable to the gate, and the e2e checker workspace was absent.",
+      "impact": "Even after fixing the local harness artifact defect, S00 cannot close until these operator prerequisites are satisfied and a fresh baseline/diff proves all four gates run end-to-end.",
+      "recommendation_refs": [
+        "R3",
+        "R4"
+      ]
+    },
+    {
+      "title": "Published Stage 000 docs are immutable; spec corrections must not edit stages/000 in place",
+      "severity": "medium",
+      "evidence": [
+        "PROTOCOL-r4.md:3 states a published stage is immutable and any fix is delivered as a new stage with a higher numeric prefix.",
+        "PROTOCOL-r4.md:45-47 states if a published stage is wrong, correction is published as a new stage and authors MUST NOT mutate the published directory.",
+        "Stage 000 design.md:19-22 excludes product-code/test/config fixes and says environment fixes are applied at environment level, not product-code patches."
+      ],
+      "root_cause": "The original Stage 000 plan is already published under PLAN/stages, so changes to its design/plan are not a lawful recovery path.",
+      "impact": "Planner corrective work must be expressed as a new recovery stage or Manager dispatch that edits only non-immutable PLAN artifacts; it cannot alter the authoritative Stage 000 design/plan text."
+    },
+    {
+      "title": "TaskReport schema_mismatch is a cross-agent Saivage reporting failure, not Stage 000 product/artifact logic",
+      "severity": "medium",
+      "evidence": [
+        ".saivage/stages/000-breakage-detection-harness/summary.json reports Coder TaskReport schema_mismatch and Reviewer TaskReport schema_mismatch.",
+        ".saivage/stages/000-breakage-detection-harness-retry-after-jq-fix/summary.json reports both Coder and Reviewer failed again with schema_mismatch; Reviewer line fields were null where schema expected numbers."
+      ],
+      "root_cause": "Worker/reviewer report serialization or schema adapter is emitting objects that do not conform to required TaskReport shape.",
+      "impact": "Normal worker/reviewer quality gates cannot be trusted until runtime/schema serialization is repaired or an explicitly authorized direct-validation/review process is used."
+    }
+  ],
+  "recommendations": [
+    {
+      "id": "R1",
+      "priority": "P0",
+      "action": "Dispatch a narrow recovery stage inside /work/saivage-v3 that edits only SPEC/analyst-as-control-surface/PLAN/scripts/run-gates.sh and validate-baseline.sh so nonzero web-vitest or analyst-e2e exits with missing/unparseable JSON reporter output produce deterministic failure ids and/or cause validate-baseline.sh to exit nonzero during S00 validation. Acceptance: simulate or observe a missing tmp/report case and verify validate-baseline.sh fails; verify run-gates.sh --diff cannot return 0 when any gate has observed_exit_code != 0 and no parseable failure ids unless that failure id is in baseline/ledger by explicit design.",
+      "scope_constraints": "Do not edit PLAN/stages/000-breakage-detection-harness/*, product code, tests/configs, /opt/saivage, LXC/service controls, or external workspace trees."
+    },
+    {
+      "id": "R2",
+      "priority": "P0",
+      "action": "After R1 and after operator prerequisites are fixed, regenerate SPEC/analyst-as-control-surface/PLAN/baseline-gates.json with run-gates.sh --baseline only when all four gates run end-to-end and rerun V.1-V.11. Reject any baseline where web-vitest or analyst-e2e has observed_exit_code nonzero with zero failing_ids caused by environment abort.",
+      "scope_constraints": "Baseline regeneration is allowed for S00 recovery only; do not opportunistically refresh later-stage baselines contrary to design.md:34-40."
+    },
+    {
+      "id": "R3",
+      "priority": "P0",
+      "action": "Operator/environment owner should provide the required execution environment before retry: Node 22.x satisfying >=22.12.0 <23, npm >=10 <12, /work/tmp existing and writable by the gate runner, /work/saivage-e2e-checkers restored with node_modules populated, and Playwright Chromium/deps installed via npx --prefix saivage-e2e-checkers playwright install --with-deps chromium.",
+      "scope_constraints": "Planner/Manager must not create or repair external workspace trees unless a later immutable stage explicitly authorizes it; do not use /opt/saivage or service controls."
+    },
+    {
+      "id": "R4",
+      "priority": "P1",
+      "action": "Before relying on normal closeout, repair Saivage worker/reviewer TaskReport serialization so Coder and Reviewer reports conform to the expected schema (checklist_results include required description/passed fields; issues_found line fields are numeric or schema-nullable as appropriate). Then rerun a Reviewer pass for S00 recovery evidence.",
+      "scope_constraints": "This is a Saivage harness/runtime issue outside Stage 000 product/artifact scope; Planner may add explicit report-shape instructions as a mitigation but should not treat prompt wording as the durable fix."
+    },
+    {
+      "id": "R5",
+      "priority": "P1",
+      "action": "If the Planner concludes the immutable Stage 000 design/plan itself is wrong, publish a new higher-numbered correction stage per PROTOCOL-r4 rather than editing SPEC/analyst-as-control-surface/PLAN/stages/000-breakage-detection-harness/design.md or plan.md in place.",
+      "scope_constraints": "Maintain protocol immutability and stage ordering."
+    }
+  ],
+  "artifacts": [
+    "inspections/inspect-stage000-blockers-in-scope-options.json",
+    "tmp/inspector-workspace/stage000-evidence.txt",
+    "tmp/inspector-workspace/stage000-focused-evidence.txt"
+  ],
+  "commands_run": [
+    {
+      "command": "list/read tools, Stage 000 summaries, immutable Stage 000 design/plan, PROTOCOL-r4, VALIDATION-COOKBOOK, baseline-gates.json, package.json",
+      "status": "passed",
+      "notes": "tools/inspector did not exist; no secret/auth/provider files were read."
+    },
+    {
+      "command": "focused grep/nl evidence extraction into tmp/inspector-workspace/stage000-focused-evidence.txt",
+      "status": "passed",
+      "notes": "Collected line-numbered evidence for scripts, immutable docs, protocol, baseline exit codes, and prerequisites."
+    }
+  ],
+  "limitations": [
+    "Did not inspect /opt/saivage, did not control/restart LXC or services, did not read secret/auth/provider files, and did not inspect /work/saivage-e2e-checkers contents because it is outside requested project scope and reportedly absent in prior stage evidence.",
+    "External prerequisite status may have changed after the prior stage logs; this report treats the prior stage evidence as the authoritative blocker record and recommends re-probing during the next retry without reading secrets or touching services."
+  ],
+  "commit": "committed in git; final commit hash reported by Inspector final response"
+}
