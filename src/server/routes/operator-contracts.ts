@@ -90,7 +90,7 @@ export function registerOperatorContractRoutes(options: {
       const byStatus: Record<string, number> = {};
       const byType: Record<string, number> = {};
       for (const card of cards) { byStatus[card.status] = (byStatus[card.status] || 0) + 1; byType[card.type] = (byType[card.type] || 0) + 1; }
-      return { body: { ...identity, runtime: state, cardIndex: { total: cards.length, byStatus, byType }, cardStoreHealth: { canonical: 'ok' }, ...(serverAvailability ? { serverAvailability } : {}) } };
+      return { body: { ...identity, runtime: state, cardIndex: { total: cards.length, byStatus, byType }, ...(serverAvailability ? { serverAvailability } : {}) } };
     },
     'runtime.startProject': ({ request, reply }) => runMutatingRoute({ request, reply, projectRoot, action: 'runtime.start_project', safety_class: 'low', target_kind: 'runtime', target_id: 'project', mutate: async () => {
       const activeRuntime = getActiveRuntime();

@@ -271,10 +271,6 @@ const mockCardIndex = {
   byType: { code: 20, test: 10, plan: 5, goal: 3, doc: 4 },
 };
 
-const mockCardStoreHealth = {
-  canonical: 'invalid' as const,
-};
-
 
 const mockServerAvailability = {
   generatedAt: '2026-01-01T00:00:02.000Z',
@@ -345,7 +341,6 @@ describe('useRuntimeStore', () => {
 
       expect(store.runtime).toEqual(mockRuntimeState);
       expect(store.cardIndex).toEqual(mockCardIndex);
-      expect(store.cardStoreHealth).toBeNull();
       expect(store.loading).toBe(false);
       expect(store.error).toBeNull();
     });
@@ -440,17 +435,6 @@ describe('useRuntimeStore', () => {
       vi.mocked(getRuntimeState).mockResolvedValue(mockRuntimeStateResponse);
       await store.fetchState();
       expect(store.serverAvailability).toBeNull();
-    });
-
-    it('populates CardStore health from REST and treats absence as unknown', async () => {
-      const store = setupStore();
-      vi.mocked(getRuntimeState).mockResolvedValue({ ...mockRuntimeStateResponse, cardStoreHealth: mockCardStoreHealth });
-      await store.fetchState();
-      expect(store.cardStoreHealth).toEqual(mockCardStoreHealth);
-
-      vi.mocked(getRuntimeState).mockResolvedValue(mockRuntimeStateResponse);
-      await store.fetchState();
-      expect(store.cardStoreHealth).toBeNull();
     });
 
   describe('fetchState() loading/error', () => {
@@ -690,13 +674,11 @@ describe('useRuntimeStore', () => {
       expect(store.serverAvailability).toEqual(mockServerAvailability);
     });
 
-    it('updates CardStore health from runtime-state only when the optional field is present', () => {
+    it('does not break runtime-state event handling after contract pruning', () => {
       const store = setupStore();
       store.setupWsListener();
-      fireWsEvent('status', { event: 'runtime-state', cardStoreHealth: mockCardStoreHealth });
-      expect(store.cardStoreHealth).toEqual(mockCardStoreHealth);
       fireWsEvent('status', { event: 'runtime-state', runtime: mockRuntimeState, cardIndex: mockCardIndex });
-      expect(store.cardStoreHealth).toEqual(mockCardStoreHealth);
+      expect(store.cardIndex).toEqual(mockCardIndex);
     });
 
     it('handles runtime-paused and runtime-resumed events', () => {

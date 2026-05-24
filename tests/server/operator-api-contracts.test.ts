@@ -142,18 +142,6 @@ describe('operator API contract registry', () => {
 
 
 
-  it('accepts optional read-only CardStore health on runtime state responses', () => {
-    const parsed = parseOperatorResponse('runtime.getState', {
-      projectRoot: '/work/test',
-      projectId: 'test',
-      runtime: runtimeState,
-      cardIndex: { total: 1, byStatus: { backlog: 1 }, byType: { code: 1 } },
-      cardStoreHealth: { canonical: 'ok' },
-    });
-    expect(parsed.cardStoreHealth?.canonical).toBe('ok');
-    expect(parseOperatorResponse('runtime.getState', { projectRoot: '/work/test', projectId: 'test', runtime: runtimeState, cardIndex: { total: 0, byStatus: {}, byType: {} } }).cardStoreHealth).toBeUndefined();
-  });
-
   it('rejects malformed server availability component states', () => {
     expect(ServerAvailabilitySchema.parse(serverAvailability).components.api.state).toBe('available');
     expect(() => parseOperatorResponse('runtime.getState', {

@@ -7,7 +7,6 @@ import { EventBus } from '../../src/events/bus.js';
 import {
   registerNotificationProjection,
   registerControlActionAuditProjection,
-  registerCardHistoryProjection,
   registerErrorLogProjection,
 } from '../../src/projections/ledger-projections.js';
 
@@ -69,61 +68,6 @@ describe('ledger projection subscribers', () => {
 
     bus.emit('control_action_record_appended', { record });
     const line = readFileSync(join(projectRoot, '.saivage', 'runtime', 'control-actions.jsonl'), 'utf-8').trim();
-    expect(JSON.parse(line)).toEqual(record);
-  });
-
-  it('writes card-history records from an EventBus subscriber', () => {
-    registerCardHistoryProjection(bus, projectRoot);
-    const record = {
-      card_id: 'card-1',
-      version_seq: 1,
-      snapshot: {
-        id: 'card-1',
-        type: 'code',
-        parent: null,
-        depth: 0,
-        title: 'Card',
-        description: 'Card description',
-        status: 'drafting',
-        subtype: null,
-        instructions_file: null,
-        tags: [],
-        priority: 0,
-        urgency: 'normal',
-        created_by: 'user',
-        created_at: '2026-01-01T00:00:00.000Z',
-        updated_at: '2026-01-01T00:00:00.000Z',
-        assigned_to: null,
-        depends_on: [],
-        blocks: [],
-        related: [],
-        acceptance: '',
-        result: null,
-        metrics: null,
-        artifacts: [],
-        attachments: [],
-        estimate: null,
-        started_at: null,
-        completed_at: null,
-        duration_ms: null,
-        error: null,
-        status_text: null,
-        status_text_updated_at: null,
-        status_text_author_session_id: null,
-        latest_self_report: null,
-        retries: 0,
-        version_seq: 1,
-      },
-      changed_at: '2026-01-01T00:01:00.000Z',
-      changed_by_actor: 'analyst',
-      changed_by_surface: 'rest',
-      change_reason: null,
-      changed_fields: ['status'],
-      change_summary: 'Updated status',
-    };
-
-    bus.emit('card_history_record_appended', { record });
-    const line = readFileSync(join(projectRoot, '.saivage', 'cards', 'history', 'card-1.history.jsonl'), 'utf-8').trim();
     expect(JSON.parse(line)).toEqual(record);
   });
 

@@ -84,8 +84,6 @@ const mockRuntimeState: RuntimeState = {
 const mockCardIndex: CardIndex = {
   total: 42, byStatus: { done: 30, failed: 3, blocked: 2, active: 5, backlog: 2 }, byType: { code: 20, test: 10, research: 5, goal: 3, doc: 4 },
 };
-const mockCardStoreHealthOk = { canonical: 'ok' as const };
-const mockCardStoreHealthDegraded = { canonical: 'invalid' as const };
 const mockRuntimeStateResponse = { runtime: mockRuntimeState, cardIndex: mockCardIndex };
 
 function makeRouter() {
@@ -190,8 +188,8 @@ describe('DashboardView', () => {
     expect(runtimeConsole.find('.runtime-controls .start-project').exists()).toBe(true);
     expect(runtimeConsole.find('.runtime-controls .stop-project').exists()).toBe(true);
     const sections = w.findAll('.status-section');
-    const cardSections = sections.filter((section) => /Recent History|CardStore Health|Card Index/.test(section.text()));
-    expect(cardSections.length).toBeGreaterThanOrEqual(3);
+    const cardSections = sections.filter((section) => /Recent History|Card Index/.test(section.text()));
+    expect(cardSections.length).toBeGreaterThanOrEqual(2);
     for (const section of cardSections) {
       expect(section.find('.start-project').exists()).toBe(false);
       expect(section.find('.stop-project').exists()).toBe(false);
@@ -216,21 +214,6 @@ describe('DashboardView', () => {
     await flushPromises();
     expect(w.find('.actionable-error').text()).toContain('Runtime is not running.');
     expect(w.find('.actionable-error').text()).toContain('Start the project first.');
-  });
-
-  it('renders CardStore health unknown, ok, and degraded without treating absent as healthy', async () => {
-    const unknown = await mountDashboard({ runtimeResponse: mockRuntimeStateResponse });
-    expect(unknown.find('.cardstore-health').text()).toContain('Unknown / not available');
-    expect(unknown.find('.cardstore-health').classes()).toContain('cardstore-unknown');
-
-    const ok = await mountDashboard({ runtimeResponse: { ...mockRuntimeStateResponse, cardStoreHealth: mockCardStoreHealthOk } });
-    expect(ok.find('.cardstore-health').text()).toContain('OK');
-    expect(ok.find('.cardstore-health').classes()).toContain('cardstore-ok');
-
-    const degraded = await mountDashboard({ runtimeResponse: { ...mockRuntimeStateResponse, cardStoreHealth: mockCardStoreHealthDegraded } });
-    expect(degraded.find('.cardstore-health').text()).toContain('Degraded');
-    expect(degraded.find('.cardstore-health').text()).toContain('Canonical card hierarchy validation is invalid');
-    expect(degraded.find('.cardstore-health').classes()).toContain('cardstore-degraded');
   });
 
   it('shows degraded runtime banner when runtime status is error', async () => {

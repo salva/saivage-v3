@@ -9,7 +9,7 @@ import {
   runtimeCommandRecordSchema,
   runtimeRunRecordSchema,
 } from '../schemas/index.js';
-import { CardIndexSummarySchema, CardStoreHealthSchema, RuntimeGetStateResponseSchema, ServerAvailabilitySchema } from './operator-api.js';
+import { CardIndexSummarySchema, RuntimeGetStateResponseSchema, ServerAvailabilitySchema } from './operator-api.js';
 
 export const WsEventTypeSchema = z.enum(['message', 'activity', 'thinking', 'status', 'error']);
 export const WsEnvelopeSchema = z.object({
@@ -39,7 +39,6 @@ export const RuntimeStateStatusEventSchema = z.object({
     event: z.literal('runtime-state'),
     runtime: RuntimeGetStateResponseSchema.shape.runtime.optional(),
     cardIndex: CardIndexSummarySchema.optional(),
-    cardStoreHealth: CardStoreHealthSchema.optional(),
     serverAvailability: ServerAvailabilitySchema.optional(),
   }).passthrough(),
 });

@@ -98,10 +98,6 @@ export const CardIndexSummarySchema = z.object({
   byType: z.record(z.string(), z.number().int().nonnegative()),
 });
 
-export const CardStoreHealthSchema = z.object({
-  canonical: z.enum(['ok', 'invalid']),
-});
-
 
 
 export const AvailabilityStateSchema = z.enum(['available', 'degraded', 'idle', 'unavailable', 'unknown']);
@@ -136,7 +132,6 @@ export const RuntimeGetStateResponseSchema = z.object({
   projectId: z.string().min(1),
   runtime: runtimeStateSchema.nullable(),
   cardIndex: CardIndexSummarySchema,
-  cardStoreHealth: CardStoreHealthSchema.optional(),
   serverAvailability: ServerAvailabilitySchema.optional(),
 });
 

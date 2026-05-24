@@ -105,22 +105,6 @@ export class ControlActionAuditProjection implements Projection {
   }
 }
 
-export class CardHistoryProjection implements Projection {
-  readonly name = 'card-history-ledger';
-  readonly kinds: readonly EventKind[] = ['card_history_record_appended'];
-
-  constructor(private readonly projectRoot: string) {}
-
-  apply(event: DomainEvent): void {
-    const record = projectionPayload(event)['record'];
-    if (!record) return;
-    const parsed = cardHistoryEntrySchema.parse(record);
-    const lock = runtimeLock(this.projectRoot);
-    const ledger = new JsonlLedger(join(this.projectRoot, '.saivage', 'cards', 'history', `${parsed.card_id}.history.jsonl`), cardHistoryEntrySchema, lock, { version: null });
-    lock.withLockSync((handle) => ledger.appendSync(handle, parsed));
-  }
-}
-
 export class EventLogProjection implements Projection {
   readonly name = 'event-log';
   readonly kinds: readonly EventKind[];
@@ -163,10 +147,6 @@ export function registerControlActionAuditProjection(eventBus: EventBus, project
   registerProjection(eventBus, new ControlActionAuditProjection(projectRoot), { failFast: true });
 }
 
-export function registerCardHistoryProjection(eventBus: EventBus, projectRoot: string): void {
-  registerProjection(eventBus, new CardHistoryProjection(projectRoot), { failFast: true });
-}
-
 export function registerEventLogProjection(eventBus: EventBus, saivageDir: string, kinds?: readonly EventKind[]): void {
   registerProjection(eventBus, new EventLogProjection(saivageDir, kinds), { failFast: true });
 }
@@ -178,7 +158,6 @@ export function registerErrorLogProjection(eventBus: EventBus, saivageDir: strin
 export function registerLedgerProjections(eventBus: EventBus, options: { projectRoot: string; saivageDir?: string; includeEventLog?: boolean; includeErrorLog?: boolean }): void {
   registerNotificationProjection(eventBus, options.projectRoot);
   registerControlActionAuditProjection(eventBus, options.projectRoot);
-  registerCardHistoryProjection(eventBus, options.projectRoot);
   if (options.includeEventLog && options.saivageDir) registerEventLogProjection(eventBus, options.saivageDir);
   if (options.includeErrorLog && options.saivageDir) registerErrorLogProjection(eventBus, options.saivageDir);
 }

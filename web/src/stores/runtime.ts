@@ -12,7 +12,6 @@ import type {
   RuntimeState,
   RuntimeStatus,
   CardIndex,
-  CardStoreHealth,
   ServerAvailability,
   FreshnessState,
   RuntimeIntent,
@@ -47,7 +46,6 @@ export const useRuntimeStore = defineStore('runtime', () => {
   const projectRoot = ref<string | null>(null);
   const projectId = ref<string | null>(null);
   const cardIndex = ref<CardIndex>({ total: 0, byStatus: {}, byType: {} });
-  const cardStoreHealth = ref<CardStoreHealth | null>(null);
   const serverAvailability = ref<ServerAvailability | null>(null);
   const loading = ref(false);
   const error = ref<string | null>(null);
@@ -299,7 +297,6 @@ export const useRuntimeStore = defineStore('runtime', () => {
       projectId.value = response.projectId;
       applyRuntimeSummaryFromState(response.runtime);
       cardIndex.value = response.cardIndex;
-      cardStoreHealth.value = response.cardStoreHealth ?? null;
       serverAvailability.value = response.serverAvailability ?? null;
       markRestSync();
     } catch (err) {
@@ -423,9 +420,6 @@ export const useRuntimeStore = defineStore('runtime', () => {
       if (content.cardIndex) {
         cardIndex.value = content.cardIndex as CardIndex;
       }
-      if ('cardStoreHealth' in content) {
-        cardStoreHealth.value = (content.cardStoreHealth ?? null) as CardStoreHealth | null;
-      }
       if ('serverAvailability' in content) {
         serverAvailability.value = (content.serverAvailability ?? null) as ServerAvailability | null;
       }
@@ -499,7 +493,6 @@ export const useRuntimeStore = defineStore('runtime', () => {
     projectRoot: readonly(projectRoot),
     projectId: readonly(projectId),
     cardIndex: readonly(cardIndex),
-    cardStoreHealth: readonly(cardStoreHealth),
     serverAvailability: readonly(serverAvailability),
     intent: readonly(intent),
     currentRun: readonly(currentRun),

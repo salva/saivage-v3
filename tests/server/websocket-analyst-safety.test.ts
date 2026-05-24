@@ -109,16 +109,9 @@ describe('websocket analyst safety', () => {
     expect(status).toMatchObject({ type: 'status', content: { event: 'connected', sessionId: 'session-1' } });
   });
 
-  it('sends a validated runtime-state snapshot with CardStore health after connected status for authenticated clients', () => {
-    const cardStoreHealth = {
-      canonical: 'ok',
-    };
-    const getHealth = jest.fn(() => cardStoreHealth);
-    
+  it('sends a validated runtime-state snapshot after connected status for authenticated clients', () => {
     const activeRuntime = {
-      runtime: {
-        cardStore: { getHealth },
-      },
+      runtime: {},
     } as any;
     const { route, fastify } = createRoute();
     registerWebSocket(fastify, '/tmp/project', activeRuntime);
@@ -130,10 +123,9 @@ describe('websocket analyst safety', () => {
     expect(sent[0]).toMatchObject({ type: 'status', content: { event: 'connected', sessionId: 'session-1' } });
     expect(sent[1]).toEqual({
       type: 'status',
-      content: { event: 'runtime-state', cardStoreHealth },
+      content: { event: 'runtime-state' },
     });
-    expect(getHealth).toHaveBeenCalledTimes(1);
-    
+
     expect(JSON.stringify(sent[1])).not.toContain('synthetic-secret');
   });
 
@@ -147,7 +139,6 @@ describe('websocket analyst safety', () => {
     const sent = (ws.send as jest.Mock).mock.calls.map((call) => JSON.parse(call[0] as string));
     expect(sent[0].content.event).toBe('connected');
     expect(sent[1]).toEqual({ type: 'status', content: { event: 'runtime-state' } });
-    expect(sent[1].content).not.toHaveProperty('cardStoreHealth');
   });
 
   it('rejects /ws token query, missing, invalid, and reused tickets with generic 1008 close reason', () => {
@@ -388,7 +379,7 @@ describe('websocket runtime event fanout compatibility', () => {
     const { route, fastify } = createRoute();
     const handlers: Array<(event: import('../../src/schemas/types.js').LoggedEvent) => void> = [];
     const runtime = {
-      runtime: { cardStore: { getHealth: jest.fn(() => ({ canonical: 'ok' })) } },
+      runtime: {},
       on: jest.fn(),
       eventBus: {
         subscribe: jest.fn((options: { handler: (event: import('../../src/schemas/types.js').LoggedEvent) => void }) => {
@@ -406,7 +397,7 @@ describe('websocket runtime event fanout compatibility', () => {
     const payloads = (ws.send as jest.Mock).mock.calls.map((call) => JSON.parse(call[0] as string));
     expect(payloads).toContainEqual({ type: 'status', content: { event: 'session_cancelled', session_id: 'sess-1' } });
     const fanout = payloads.find((entry) => entry.content.event === 'session_cancelled');
-    expect(fanout.content).not.toHaveProperty('cardStoreHealth');
+    expect(fanout).toBeTruthy();
   });
 
 
@@ -416,7 +407,7 @@ describe('websocket runtime event fanout compatibility', () => {
     const { route, fastify } = createRoute();
     const handlers: Array<(event: import('../../src/schemas/types.js').LoggedEvent) => void> = [];
     const runtime = {
-      runtime: { cardStore: { getHealth: jest.fn(() => ({ canonical: 'ok' })) } },
+      runtime: {},
       on: jest.fn(),
       eventBus: {
         subscribe: jest.fn((options: { handler: (event: import('../../src/schemas/types.js').LoggedEvent) => void }) => {
@@ -452,10 +443,9 @@ describe('websocket runtime event fanout compatibility', () => {
     expect(parseKnownWsEnvelope(envelope)).toEqual(envelope);
   });
 
-  it('does not attach CardStore health to non-runtime-state runtime envelopes', () => {
+  it('does not attach derived health fields to non-runtime-state runtime envelopes', () => {
     const envelope = createRuntimeEnvelope('goal_completed', { goal_id: 'goal-1' });
 
     expect(envelope).toEqual({ type: 'status', content: { event: 'goal_completed', goal_id: 'goal-1' } });
-    expect(envelope.content).not.toHaveProperty('cardStoreHealth');
   });
 });

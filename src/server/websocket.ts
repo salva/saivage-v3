@@ -91,9 +91,7 @@ export function sendToClient(ws: WebSocket, event: WsEnvelope): void {
 
 export function sendRuntimeStateSnapshotToClient(ws: WebSocket, activeRuntime?: ActiveRuntime): void {
   const content: WsEnvelope['content'] = { event: 'runtime-state' };
-  if (activeRuntime) {
-    content.cardStoreHealth = activeRuntime.runtime.cardStore.getHealth();
-  }
+  void activeRuntime;
   sendToClient(ws, { type: 'status', content });
 }
 

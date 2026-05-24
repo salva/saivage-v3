@@ -19,7 +19,6 @@ export {
   CardMutationResponseSchema,
   CardNotFoundErrorSchema,
   CardPermissionFieldsSchema,
-  CardStoreHealthSchema,
   CardUpdateBodySchema,
   ContractViolationErrorSchema,
   EmptyBodySchema,

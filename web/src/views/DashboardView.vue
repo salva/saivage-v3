@@ -241,17 +241,6 @@
           </div>
         </div>
 
-        <div class="status-section cardstore-health" :class="cardStoreHealthClass">
-          <h3 class="section-label">CardStore Health</h3>
-          <div class="status-grid">
-            <div class="status-item">
-              <span class="status-key">Canonical State</span>
-              <span class="status-value">{{ cardStoreHealthLabel }}</span>
-            </div>
-          </div>
-          <p v-if="cardStoreHealthDetail" class="cardstore-health-detail">{{ cardStoreHealthDetail }}</p>
-        </div>
-
         <div class="status-section">
           <h3 class="section-label">Card Index</h3>
           <div class="index-bars">
@@ -311,7 +300,6 @@ const {
   runningProcessCount,
   doneGoals,
   failedBlocked,
-  cardStoreHealth,
   isStale: runtimeIsStale,
   isFrozen,
   unauthorized: runtimeUnauthorized,
@@ -371,26 +359,6 @@ const runtimeBannerMessage = computed(() => {
 const runtimeBannerClass = computed(() => {
   if (runtimeUnauthorized.value || statusLabel.value === 'error') return 'runtime-banner-error';
   return 'runtime-banner-warning';
-});
-const cardStoreHealthState = computed<'unknown' | 'ok' | 'degraded'>(() => {
-  const health = cardStoreHealth.value;
-  if (!health) return 'unknown';
-  return health.canonical === 'ok' ? 'ok' : 'degraded';
-});
-const cardStoreHealthClass = computed(() => `cardstore-${cardStoreHealthState.value}`);
-const cardStoreHealthLabel = computed(() => {
-  switch (cardStoreHealthState.value) {
-    case 'ok': return 'OK';
-    case 'degraded': return 'Degraded';
-    default: return 'Unknown / not available';
-  }
-});
-const cardStoreHealthDetail = computed(() => {
-  const health = cardStoreHealth.value;
-  if (!health) return 'CardStore health was not included in the latest operator state snapshot.';
-  if (cardStoreHealthState.value === 'ok') return 'Canonical card hierarchy currently reports healthy.';
-  if (health.canonical === 'invalid') return 'Canonical card hierarchy validation is invalid; inspect server logs before trusting derived views.';
-  return 'Canonical card hierarchy health is degraded.';
 });
 
 function roleLabel(role: string): string {
