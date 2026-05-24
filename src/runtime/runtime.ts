@@ -20,7 +20,7 @@ import type {
 } from '../schemas/index.js';
 import { createActivationCompletionEnvelope, parseActivationCompletionEnvelope } from '../schemas/index.js';
 import { CardStore } from '../cards/index.js';
-import { STARTABLE_STATES } from '../permissions/index.js';
+import { STARTABLE_STATES, RESTARTABLE_STATES } from '../permissions/index.js';
 import { consumeChangedCardActivation, injectQueuedSyntheticPlannerNotes, queueSyntheticPlannerNote } from '../agents/index.js';
 import {
   initRuntimeState,
@@ -634,7 +634,40 @@ export class Runtime extends EventEmitter {
     try {
     if (this._paused) { this.emit('dispatch_blocked', { reason: 'paused', goal_id: goalId }); this._eventLogger.appendEvent({ kind: 'dispatch_blocked', reason: 'paused', goal_id: goalId }); return; }
     let planCard: CardRecord;
-    try { consumeChangedCardActivation(this.projectRoot, goalId); const result = this.cardStore.activateGoal(goalId); planCard = result.goal; const startedAt = now(); const plannerSessionId = `planner:${goalId}`; updateRuntimeState(this.projectRoot, { status: 'running', current_card_id: goalId, current_agent_session_id: plannerSessionId, queue: [], active_card_run: { card_id: goalId, card_type: planCard.type, runtime_status: 'running', phase: 'planner', caller_session_id: null, caller_tool_call_id: null, planner_session_id: plannerSessionId, correction_attempts: 0, started_at: startedAt, last_turn_at: startedAt } }); this.bindPlannerSessionToOpenRun(goalId, plannerSessionId); } catch (err) { const errorMessage = err instanceof Error ? err.message : String(err); this.emitRuntimeDiagnostic({ goal_id: goalId, phase: 'activate', error: err }); this._eventLogger.appendEvent({ kind: 'runtime_diagnostic', goal_id: goalId, phase: 'activate', error_message: errorMessage }); this._errorLogger.appendError({ message: errorMessage, goalId, phase: 'activate' }); return; }
+    try {
+      consumeChangedCardActivation(this.projectRoot, goalId);
+      const goalCard = this.cardStore.read(goalId);
+      if (!goalCard) throw new Error(`Goal '${goalId}' not found.`);
+      if (goalCard.type !== 'project' && goalCard.type !== 'goal') throw new Error(`dispatchGoal requires a project or goal card, got type '${goalCard.type}'.`);
+      const currentStatus = goalCard.status;
+      if (currentStatus !== 'active' && currentStatus !== 'running') {
+        const action: 'start' | 'restart' = (STARTABLE_STATES as readonly CardStatus[]).includes(currentStatus)
+          ? 'start'
+          : (RESTARTABLE_STATES as readonly CardStatus[]).includes(currentStatus) ? 'restart' : (() => { throw new Error(`Goal '${goalId}' is in status '${currentStatus}' which is neither startable nor restartable.`); })();
+        const transitioned = await this._stateMachine.transitionCard(goalId, action, { goalId });
+        if (!transitioned) throw new Error(`Goal '${goalId}' could not be transitioned via ${action} from status '${currentStatus}'.`);
+      }
+      const refreshed = this.cardStore.read(goalId);
+      if (!refreshed) throw new Error(`Goal '${goalId}' disappeared during activation.`);
+      const existingResult = refreshed.result && typeof refreshed.result === 'object' ? (refreshed.result as Record<string, unknown>) : {};
+      if (!existingResult.planning || typeof existingResult.planning !== 'object') {
+        await this.cardStore.update(goalId, {
+          result: {
+            ...existingResult,
+            planning: {
+              status: 'continue',
+              summary: null,
+              blocked_reason: null,
+              created_cards: [],
+              updated_cards: [],
+              updated_at: new Date().toISOString(),
+            },
+          } as CardRecord['result'],
+        });
+      }
+      planCard = this.cardStore.read(goalId)!;
+      const startedAt = now(); const plannerSessionId = `planner:${goalId}`; updateRuntimeState(this.projectRoot, { status: 'running', current_card_id: goalId, current_agent_session_id: plannerSessionId, queue: [], active_card_run: { card_id: goalId, card_type: planCard.type, runtime_status: 'running', phase: 'planner', caller_session_id: null, caller_tool_call_id: null, planner_session_id: plannerSessionId, correction_attempts: 0, started_at: startedAt, last_turn_at: startedAt } }); this.bindPlannerSessionToOpenRun(goalId, plannerSessionId);
+    } catch (err) { const errorMessage = err instanceof Error ? err.message : String(err); this.emitRuntimeDiagnostic({ goal_id: goalId, phase: 'activate', error: err }); this._eventLogger.appendEvent({ kind: 'runtime_diagnostic', goal_id: goalId, phase: 'activate', error_message: errorMessage }); this._errorLogger.appendError({ message: errorMessage, goalId, phase: 'activate' }); return; }
     let plannerDone = false; const MAX_ITERATIONS = 50;
     for (let iter = 0; iter < MAX_ITERATIONS && !plannerDone && !this._shuttingDown; iter++) {
       if (this._paused) { this.emit('dispatch_blocked', { reason: 'paused', goal_id: goalId }); this._eventLogger.appendEvent({ kind: 'dispatch_blocked', reason: 'paused', goal_id: goalId }); updateRuntimeState(this.projectRoot, { status: 'paused' }); return; }

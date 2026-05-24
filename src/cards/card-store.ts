@@ -698,40 +698,6 @@ export class CardStore {
     return persisted;
   }
 
-  activateGoal(id: string): { goal: CardRecord } {
-    const goal = this.read(id);
-    if (!goal) throw new Error(`Goal '${id}' not found.`);
-    if (goal.type !== 'project' && goal.type !== 'goal')
-      throw new Error(`activateGoal requires a project or goal card, got type '${goal.type}'.`);
-    const activeGoal =
-      goal.status === 'active' || goal.status === 'running' ? goal : this.setStatus(id, 'active');
-    const existingResult =
-      activeGoal.result && typeof activeGoal.result === 'object'
-        ? (activeGoal.result as Record<string, unknown>)
-        : {};
-    if (
-      existingResult.planning &&
-      typeof existingResult.planning === 'object'
-    ) {
-      return { goal: activeGoal };
-    }
-    return {
-      goal: this.update(id, {
-        result: {
-          ...existingResult,
-          planning: {
-            status: 'continue',
-            summary: null,
-            blocked_reason: null,
-            created_cards: [],
-            updated_cards: [],
-            updated_at: new Date().toISOString(),
-          },
-        } as CardRecord['result'],
-      }),
-    };
-  }
-
   // ── Test helpers ────────────────────────────────────────────
 
   resetHistoryForTests(id: string): void {

@@ -63,7 +63,6 @@ function setupTestProject(projectRoot: string): CardStore {
   setupProject(projectRoot);
   const store = new CardStore(projectRoot);
   store.create({ type: 'goal', parent: 'project', title: 'Test Goal', description: 'A test goal', status: 'active', depth: 0, tags: [], priority: 1, urgency: 'normal', created_by: 'analyst', acceptance: '', depends_on: [], blocks: [], related: [], artifacts: [], attachments: [], retries: 0, id: 'goal-1' });
-  store.activateGoal('goal-1');
   store.create({ type: 'code', parent: 'goal-1', title: 'Code Task 1', description: 'Implement feature', status: 'backlog', depth: 0, tags: ['code'], priority: 2, urgency: 'normal', created_by: 'analyst', acceptance: '', depends_on: [], blocks: [], related: [], artifacts: [], attachments: [], retries: 0, id: 'code-1' });
   return store;
 }
