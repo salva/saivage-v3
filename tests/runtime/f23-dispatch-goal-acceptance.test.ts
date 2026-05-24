@@ -69,7 +69,7 @@ describe('F23 — dispatchGoal acceptance', () => {
     // 'active' is neither STARTABLE nor RESTARTABLE — dispatchGoal should treat it as already-active and proceed.
     // 'needs_verification' is neither STARTABLE nor RESTARTABLE — dispatchGoal should refuse loudly.
     store.update('project', { status: 'running' });
-    store.setStatus('project', 'needs_verification' as never).catch?.(() => undefined);
+    try { store.setStatus('project', 'needs_verification' as never); } catch { /* may reject */ }
 
     const plannerResult: PlannerResult = { status: 'done', created_cards: [], updated_cards: [] };
     const executorResult: ExecutorResult = { card_id: 'x', status: 'done', status_text: 'noop', artifacts: [], attachments: [], fallback_with_evidence: null };
