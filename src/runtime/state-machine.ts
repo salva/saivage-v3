@@ -119,20 +119,41 @@ export class RuntimeStateMachine {
       const iso = now.toISOString();
       this.writeState({ last_tick_at: iso });
       this.observeInvariants();
+      this.maybeRedispatchProjectRoot();
     } finally {
       this._tickInFlight = false;
     }
   }
 
   async transition(event: RuntimeStateMachineEvent, payload: Record<string, unknown> = {}): Promise<void> {
-    if (event === 'tick') {
-      await this.tick();
-      return;
+    switch (event) {
+      case 'tick':
+        await this.tick();
+        return;
+      case 'paused':
+        this.writeState({ status: 'paused', paused: true, paused_at: this.clock().toISOString() });
+        return;
+      case 'resumed': {
+        const state = this.readState();
+        this.writeState({ status: state?.active_card_run ? 'running' : 'idle', paused: false, paused_at: null });
+        return;
+      }
+      case 'goal_exit':
+      case 'card_terminated':
+      case 'goal_completed':
+        this.writeState({ status: 'idle', current_card_id: null, current_agent_session_id: null, queue: [], active_card_run: null });
+        return;
+      case 'reviewer_started': {
+        const goalId = (payload.goalId as string | undefined) ?? null;
+        const reviewerSessionId = (payload.reviewerSessionId as string | undefined) ?? null;
+        const activeCardRun = (payload.activeCardRun ?? null) as RuntimeState['active_card_run'];
+        this.writeState({ current_card_id: goalId, current_agent_session_id: reviewerSessionId, active_card_run: activeCardRun });
+        return;
+      }
+      case 'reviewer_finished':
+        this.writeState({ status: 'idle', current_card_id: null, current_agent_session_id: null, queue: [], active_card_run: null });
+        return;
     }
-    // Step 2 stub: decomposition logic for non-tick events lands in Step 5 / Step 6.
-    // Until then, no-op so call sites can be wired observe-only without changing
-    // RuntimeState semantics.
-    void payload;
   }
 
   async transitionCard(cardId: string, action: RuntimeCardAction, payload: Record<string, unknown> = {}): Promise<boolean> {
@@ -281,6 +302,27 @@ export class RuntimeStateMachine {
         this.writeState({ status: 'idle', current_card_id: null, current_agent_session_id: null, active_card_run: null });
       }
     }
+  }
+
+  /**
+   * After invariant observation, if the runtime is idle (no active card run)
+   * and `runtime_intent.status === 'running'` with an open root run for
+   * 'project', schedule a re-dispatch via the injected dependency. The
+   * Runtime's existing `_dispatchInFlight` Set is the dedup gate inside
+   * `dispatchGoal`, so this method is safe to call on every tick.
+   */
+  private maybeRedispatchProjectRoot(): void {
+    if (!this.enforceInvariants) return;
+    const state = this.readState();
+    if (state === null) return;
+    if (state.paused) return;
+    if (state.status !== 'idle') return;
+    if ((state.active_card_run ?? null) !== null) return;
+    const intentStatus = state.runtime_intent?.status ?? 'stopped';
+    if (intentStatus !== 'running') return;
+    const openRootRun = (state.runtime_runs ?? []).find((run) => run.kind === 'root' && run.card_id === 'project' && !run.finished_at);
+    if (!openRootRun) return;
+    try { this.redispatchGoal('project'); } catch { void 0; }
   }
 
   private logInvariantOnce(invariant: 'I1' | 'I2' | 'I3' | 'I4', key: string, details: Record<string, unknown>): void {
