@@ -25,8 +25,8 @@ export interface MatrixEntry {
 
 const PLANNER_MUTABLE_STATES = ['backlog', 'active', 'changed'] as const satisfies readonly CardState[];
 const DELETABLE_STATES = ['backlog', 'blocked', 'done', 'failed', 'cancelled'] as const satisfies readonly CardState[];
-const RESTARTABLE_STATES = ['blocked', 'changed', 'done', 'failed', 'cancelled'] as const satisfies readonly CardState[];
-const STARTABLE_STATES = ['drafting', 'backlog', 'changed'] as const satisfies readonly CardState[];
+export const RESTARTABLE_STATES = ['blocked', 'changed', 'done', 'failed', 'cancelled'] as const satisfies readonly CardState[];
+export const STARTABLE_STATES = ['drafting', 'backlog', 'changed'] as const satisfies readonly CardState[];
 const ANALYST_RESTARTABLE_STATES = ['done', 'failed', 'cancelled'] as const satisfies readonly CardState[];
 
 function exceptStates(states: readonly CardState[]): CardState[] {
