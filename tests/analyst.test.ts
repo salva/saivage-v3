@@ -107,7 +107,7 @@ describe('Analyst Tool Definitions', () => {
     expect(createProps.type.enum).toEqual([...CARD_TYPE_VALUES]);
     expect(createProps.status.enum).toEqual([...CARD_STATUS_VALUES]);
     expect(createProps.urgency.enum).toEqual([...URGENCY_VALUES]);
-    expect(createProps.status.description).toContain('Allowed values: drafting, backlog, active, running, blocked, changed, done, failed, cancelled.');
+    expect(createProps.status.description).toContain('Allowed values: drafting, backlog, active, running, blocked, changed, done, failed, cancelled, needs_verification.');
     expect(toolByName('create_card').function.description).toContain("There is no 'ready' status");
 
     const editProps = propertiesFor('edit_card');

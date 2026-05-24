@@ -3,7 +3,7 @@ import type { ToolDefinition } from './llm-client.js';
 // Canonical vocabularies. Keep aligned with src/schemas/validators.ts.
 // Exported so analyst-tools.ts can produce "Allowed values: ..." hints using
 // the SAME list the JSON schema below advertises to the LLM.
-export const CARD_STATUS_VALUES = ['drafting','backlog','active','running','blocked','changed','done','failed','cancelled'] as const;
+export const CARD_STATUS_VALUES = ['drafting','backlog','active','running','blocked','changed','done','failed','cancelled','needs_verification'] as const;
 export const CARD_TYPE_VALUES = ['project','goal','architecture','code','test','doc','data','research','ops'] as const;
 export const URGENCY_VALUES = ['low','normal','high','critical'] as const;
 export const NOTE_KIND_VALUES = ['comment','progress','directive','escalation'] as const;
