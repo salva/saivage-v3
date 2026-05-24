@@ -36,15 +36,6 @@ export interface RuntimeControlResult {
   state?: RuntimeState;
 }
 
-function mirrorRuntimeState(projectRoot: string, runtimeStatus: { status: RuntimeState['status']; paused: boolean }): RuntimeState {
-  const state = updateRuntimeState(projectRoot, {
-    status: runtimeStatus.status,
-    paused: runtimeStatus.paused,
-    paused_at: runtimeStatus.paused ? new Date().toISOString() : null,
-  });
-  return state;
-}
-
 export function pauseRuntimeControl(ctx: RuntimeControlContext): RuntimeControlResult {
   try {
     const current = readRuntimeState(ctx.projectRoot);
@@ -69,11 +60,7 @@ export function pauseRuntimeControl(ctx: RuntimeControlContext): RuntimeControlR
     let state: RuntimeState;
     if (ctx.activeRuntime) {
       ctx.activeRuntime.pause();
-      const runtimeStatus = ctx.activeRuntime.getStatus();
-      state = mirrorRuntimeState(ctx.projectRoot, {
-        status: runtimeStatus.status,
-        paused: runtimeStatus.paused,
-      });
+      state = readRuntimeState(ctx.projectRoot) ?? current;
     } else {
       state = updateRuntimeState(ctx.projectRoot, {
         status: 'paused',
@@ -125,11 +112,7 @@ export function resumeRuntimeControl(ctx: RuntimeControlContext): RuntimeControl
     let state: RuntimeState;
     if (ctx.activeRuntime) {
       ctx.activeRuntime.resume();
-      const runtimeStatus = ctx.activeRuntime.getStatus();
-      state = mirrorRuntimeState(ctx.projectRoot, {
-        status: runtimeStatus.status,
-        paused: runtimeStatus.paused,
-      });
+      state = readRuntimeState(ctx.projectRoot) ?? current;
     } else {
       state = updateRuntimeState(ctx.projectRoot, {
         status: 'idle',

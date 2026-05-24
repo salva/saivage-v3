@@ -152,7 +152,10 @@ export class RuntimeStateMachine {
     // I1: status === 'running' ⇒ active_card_run !== null.
     if (state.status === 'running' && (state.active_card_run ?? null) === null) {
       this.logInvariantOnce('I1', 'global', { status: state.status });
-      // Step 4 lands corrective body; Step 2 is observe-only.
+      if (this.enforceInvariants) {
+        // Corrective: status was 'running' with no active card run; drop to idle.
+        this.writeState({ status: 'idle', current_card_id: null, current_agent_session_id: null });
+      }
     }
 
     // I2: current_card_id references a card with status ∉ TERMINAL_STATUSES.
@@ -162,6 +165,10 @@ export class RuntimeStateMachine {
       try { cardStatus = this.cardStore.read(currentCardId)?.status ?? null; } catch { cardStatus = null; }
       if (cardStatus !== null && TERMINAL_STATUSES.has(cardStatus)) {
         this.logInvariantOnce('I2', currentCardId, { cardId: currentCardId, cardStatus });
+        if (this.enforceInvariants) {
+          // Corrective: current_card_id points to a terminal card; clear it.
+          this.writeState({ status: 'idle', current_card_id: null, current_agent_session_id: null, active_card_run: null });
+        }
       }
     }
 
@@ -169,6 +176,10 @@ export class RuntimeStateMachine {
     const runCardId = state.active_card_run?.card_id ?? null;
     if (runCardId !== currentCardId) {
       this.logInvariantOnce('I3', `${currentCardId ?? 'null'}|${runCardId ?? 'null'}`, { currentCardId, activeRunCardId: runCardId });
+      if (this.enforceInvariants) {
+        // Corrective: clear the desync; the next dispatch will repopulate.
+        this.writeState({ status: 'idle', current_card_id: null, current_agent_session_id: null, active_card_run: null });
+      }
     }
   }
 

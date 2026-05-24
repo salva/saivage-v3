@@ -280,7 +280,7 @@ describe('Freeze / Resume', () => {
 
       runtime.pause();
       expect(runtime.paused).toBe(true);
-      expect(runtime.status).toBe('idle');
+      expect(runtime.status).toBe('paused');
 
       const manifest = runtime.freeze('pause upgrade');
       expect(manifest.reason).toBe('pause upgrade');
@@ -540,8 +540,10 @@ describe('Freeze / Resume', () => {
       runtime.freeze();
       await runtime.shutdown();
 
-      // Should not throw — shutdown handles frozen state gracefully
-      expect(runtime.status).toBe('idle');
+      // Should not throw — shutdown handles frozen state gracefully.
+      // Status remains 'frozen' on disk (freeze manifest persists); only
+      // resumeFromFreeze() clears it back to 'idle'.
+      expect(runtime.status).toBe('frozen');
     });
   });
 
