@@ -199,6 +199,7 @@ export class ActiveRuntime {
     paused: boolean;
     currentCardId: string | null;
     goalCount: number;
+    lastTickAt: string | null;
   } {
     const state: RuntimeState | null = this._runtime.getState();
     const allCards = this._runtime.cardStore.list();
@@ -209,6 +210,7 @@ export class ActiveRuntime {
       paused: this._runtime.paused,
       currentCardId: state?.current_card_id ?? null,
       goalCount,
+      lastTickAt: state?.last_tick_at ?? null,
     };
   }
 
