@@ -11,7 +11,7 @@ import { tmpdir } from 'node:os';
 import { CardStore } from '../src/cards/card-store.js';
 import { initRuntimeState, readRuntimeState, runtimeStatePath, updateRuntimeState } from '../src/runtime/state.js';
 import {
-  create_card, edit_card, delete_card, add_note, pause_runtime, resume_runtime,
+  create_card, edit_card, delete_card, queue_notification, pause_runtime, resume_runtime,
 } from '../src/agents/analyst-tools.js';
 import type { ToolContext } from '../src/agents/analyst-tools.js';
 
@@ -118,9 +118,7 @@ describe('Analyst Tool Definitions', () => {
     expect(listProps.status.enum).toEqual([...CARD_STATUS_VALUES]);
     expect(listProps.type.enum).toEqual([...CARD_TYPE_VALUES]);
 
-    const noteProps = propertiesFor('add_note');
-    expect(noteProps.kind.enum).toEqual([...NOTE_KIND_VALUES]);
-    expect(toolByName('add_note').function.description).toContain('do NOT change card fields');
+    expect(toolByName('queue_notification').function.description).toContain('Queue a notification');
 
     for (const name of ['mark_goal_needs_corrections']) {
       const issues = propertiesFor(name).issues as { items?: { properties?: Record<string, Record<string, unknown>> } };
@@ -230,18 +228,6 @@ describe('Analyst Tools', () => {
     expect(result.error).toContain("See the 'edit_card' tool's parameter schema");
   });
 
-  it('returns actionable enum preflight errors for invalid add_note kind', async () => {
-    const result = await add_note(ctx(projectRoot, store), {
-      cardId: 'code-1',
-      content: 'use canonical note kind',
-      kind: 'note' as never,
-    });
-
-    expect(result.success).toBe(false);
-    expect(result.error).toContain("add_note failed: field 'kind' received 'note'");
-    expect(result.error).toContain(`Allowed values: ${NOTE_KIND_VALUES.join(', ')}`);
-    expect(result.error).toContain("See the 'add_note' tool's parameter schema");
-  });
 
 
   it('refuses resume_runtime while frozen and preserves frozen persisted state', async () => {

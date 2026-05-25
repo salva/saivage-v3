@@ -3,8 +3,7 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync, existsSync } from 'node:
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { CardStore } from '../../src/cards/card-store.js';
-import { list_card_history, get_card_history_entry, diff_card, list_notes, get_note, type ToolContext } from '../../src/agents/analyst-tools.js';
-import { appendNote } from '../../src/cards/notes.js';
+import { list_card_history, get_card_history_entry, diff_card, type ToolContext } from '../../src/agents/analyst-tools.js';
 
 function setup(root: string): CardStore {
   const sd = join(root, '.saivage');
@@ -22,15 +21,13 @@ function setup(root: string): CardStore {
 function ctx(root: string, store: CardStore): ToolContext { return { projectRoot: root, store, actor: 'executor', surface: 'runtime', sessionId: 'sess-1' }; }
 
 describe('card history and notes tools', () => {
-  it('lists history, gets an entry, diffs versions, and reads notes without audit writes', async () => {
+  it('lists history, gets an entry, diffs versions, without audit writes', async () => {
     const root = mkdtempSync(join(tmpdir(), 'wave-f-history-tools-'));
     try {
       const store = setup(root);
       store.create({ id: 'goal-1', type: 'goal', parent: 'project', depth: 0, title: 'goal', description: '', status: 'backlog', tags: [], priority: 1, urgency: 'normal', created_by: 'analyst', acceptance: '', depends_on: [], blocks: [], related: [], artifacts: [], attachments: [], retries: 0 });
       store.create({ id: 'code-1', type: 'code', parent: 'goal-1', depth: 0, title: 'before', description: 'old', status: 'backlog', tags: [], priority: 1, urgency: 'normal', created_by: 'analyst', acceptance: 'a', depends_on: [], blocks: [], related: [], artifacts: [], attachments: [], retries: 0 });
       store.mutateCard('code-1', { title: 'after', acceptance: 'b' }, { actor: 'analyst', surface: 'web-chat', reason: 'operator edit' });
-      const note = appendNote(join(root, '.saivage'), 'code-1', { author: 'analyst', content: 'directive body', kind: 'directive' });
-
       const toolCtx = ctx(root, store);
       const history = await list_card_history(toolCtx, { cardId: 'code-1' });
       expect(history.success).toBe(true);
@@ -47,12 +44,6 @@ describe('card history and notes tools', () => {
       const fields = (diff.data as { diff: Array<{ field: string }> }).diff.map((item) => item.field);
       expect(fields).toEqual(expect.arrayContaining(['acceptance','title']));
 
-      const notes = await list_notes(toolCtx, { cardId: 'code-1' });
-      expect(notes.success).toBe(true);
-      expect((notes.data as Array<{ id: string }>)).toHaveLength(1);
-      const fetched = await get_note(toolCtx, { cardId: 'code-1', noteId: note.id });
-      expect(fetched.success).toBe(true);
-      expect((fetched.data as { content: string }).content).toBe('directive body');
 
       const auditPath = join(root, '.saivage', 'runtime', 'control-actions.jsonl');
       expect(existsSync(auditPath)).toBe(false);

@@ -587,6 +587,11 @@ export class McpManager {
   /**
    * Start all autostart servers. Disabled servers are skipped.
    */
+  reloadServersFromConfig(): void {
+    const { config } = loadConfig(this.projectRoot);
+    this.servers = normalizeMcpServers(config);
+  }
+
   async startAll(): Promise<void> {
     const promises: Promise<void>[] = [];
     for (const [name, cfg] of Object.entries(this.servers)) {

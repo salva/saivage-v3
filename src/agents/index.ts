@@ -57,19 +57,27 @@ export {
 } from './analyst-stage6.js';
 
 export {
-  add_note,
   create_card,
   diff_card,
   edit_card,
   get_card,
   get_card_history_entry,
-  get_note,
   get_tree,
   list_card_history,
   list_cards,
-  list_notes,
   mark_goal_needs_corrections,
-  mark_note_handled,
+  abort_goal_subtree,
+  navigate_back,
+  navigate_workspace,
+  queue_notification,
+  reconfigure,
+  reorder_child,
+  restart_card_or_subtree,
+  restart_server,
+  show_config,
+  start_project,
+  stop_project,
+  terminate_process,
 } from './analyst-tools.js';
 export type {
   ToolContext,

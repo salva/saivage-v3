@@ -166,7 +166,7 @@ function ensureRuntimeState(projectRoot: string): RuntimeState {
   return readRuntimeState(projectRoot) ?? initRuntimeState(projectRoot);
 }
 
-export function appendRuntimeCommand(projectRoot: string, command: RuntimeCommandName, source: 'operator' | 'tool' | 'runtime' = 'runtime'): RuntimeCommandRecord {
+export function appendRuntimeCommand(projectRoot: string, command: RuntimeCommandName, source: 'operator' | 'tool' | 'runtime' | 'analyst' = 'runtime'): RuntimeCommandRecord {
   const state = ensureRuntimeState(projectRoot);
   const at = new Date().toISOString();
   const record: RuntimeCommandRecord = { command_id: runtimeRecordId('cmd'), command, status: 'accepted', requested_at: at, completed_at: null, source, error: null };

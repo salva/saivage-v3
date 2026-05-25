@@ -542,7 +542,7 @@ export class Runtime extends EventEmitter {
     if (updated) this.publishRuntimeLedgerEvent('runtime_run', { run: updated });
   }
 
-  async startProject(source: 'operator' | 'tool' | 'runtime' = 'operator'): Promise<{ success: true; command: RuntimeCommandRecord; intent: RuntimeState['runtime_intent']; run: RuntimeRunRecord } | { success: false; command: RuntimeCommandRecord; error: ActionableErrorEnvelope }> {
+  async startProject(source: 'operator' | 'tool' | 'runtime' | 'analyst' = 'operator'): Promise<{ success: true; command: RuntimeCommandRecord; intent: RuntimeState['runtime_intent']; run: RuntimeRunRecord } | { success: false; command: RuntimeCommandRecord; error: ActionableErrorEnvelope }> {
     const command = appendRuntimeCommand(this.projectRoot, 'start_project', source);
     const state = readRuntimeState(this.projectRoot) ?? initRuntimeState(this.projectRoot);
     if (this._paused || state.paused || (state.runtime_intent?.status ?? 'stopped') === 'running') {
@@ -584,7 +584,7 @@ export class Runtime extends EventEmitter {
     return { success: true, command: completedCommand, intent: (readRuntimeState(this.projectRoot) ?? current).runtime_intent, run: ((readRuntimeState(this.projectRoot) ?? current).runtime_runs ?? []).find((item) => item.run_id === run.run_id) ?? run };
   }
 
-  async stopProject(source: 'operator' | 'tool' | 'runtime' = 'operator'): Promise<{ success: true; command: RuntimeCommandRecord; intent: RuntimeState['runtime_intent']; run?: RuntimeRunRecord }> {
+  async stopProject(source: 'operator' | 'tool' | 'runtime' | 'analyst' = 'operator'): Promise<{ success: true; command: RuntimeCommandRecord; intent: RuntimeState['runtime_intent']; run?: RuntimeRunRecord }> {
     const command = appendRuntimeCommand(this.projectRoot, 'stop_project', source);
     this._shuttingDown = true;
     const state = upsertRuntimeIntent(this.projectRoot, 'stopped', command.command_id, 'explicit stop_project command');

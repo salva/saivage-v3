@@ -33,19 +33,15 @@ import {
   queueSyntheticPlannerNote,
 } from '../../src/agents/analyst-stage6.js';
 import {
-  add_note,
   create_card,
   diff_card,
   edit_card,
   get_card,
   get_card_history_entry,
-  get_note,
   get_tree,
   list_card_history,
   list_cards,
-  list_notes,
   mark_goal_needs_corrections,
-  mark_note_handled,
 } from '../../src/agents/analyst-tools.js';
 import { ANALYST_TOOL_DEFINITIONS } from '../../src/agents/analyst-tool-schemas.js';
 import { evaluateAuthz } from '../../src/agents/authz.js';
@@ -82,19 +78,15 @@ describe('agents module ownership boundary', () => {
     expect(agentsIndex.markGoalNeedsCorrections).toBe(markGoalNeedsCorrections);
     expect(agentsIndex.normalizeAnalystIssues).toBe(normalizeAnalystIssues);
     expect(agentsIndex.queueSyntheticPlannerNote).toBe(queueSyntheticPlannerNote);
-    expect(agentsIndex.add_note).toBe(add_note);
     expect(agentsIndex.create_card).toBe(create_card);
     expect(agentsIndex.diff_card).toBe(diff_card);
     expect(agentsIndex.edit_card).toBe(edit_card);
     expect(agentsIndex.get_card).toBe(get_card);
     expect(agentsIndex.get_card_history_entry).toBe(get_card_history_entry);
-    expect(agentsIndex.get_note).toBe(get_note);
     expect(agentsIndex.get_tree).toBe(get_tree);
     expect(agentsIndex.list_card_history).toBe(list_card_history);
     expect(agentsIndex.list_cards).toBe(list_cards);
-    expect(agentsIndex.list_notes).toBe(list_notes);
     expect(agentsIndex.mark_goal_needs_corrections).toBe(mark_goal_needs_corrections);
-    expect(agentsIndex.mark_note_handled).toBe(mark_note_handled);
     expect(agentsIndex.ANALYST_TOOL_DEFINITIONS).toBe(ANALYST_TOOL_DEFINITIONS);
     expect(agentsIndex.evaluateAuthz).toBe(evaluateAuthz);
     expect(agentsIndex.FakeAgentAdapter).toBe(FakeAgentAdapter);

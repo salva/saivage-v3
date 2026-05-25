@@ -22,6 +22,7 @@ import { ErrorLogger } from '../observability/index.js';
 import { SkillsEngine } from '../agents/index.js';
 import type { SaivageConfig } from '../agents/index.js';
 import type { McpManager } from '../mcp/index.js';
+import type { ServerInstance } from '../server/server.js';
 import type { RuntimeState, FreezeManifest } from '../schemas/index.js';
 
 // ── ActiveRuntime ──────────────────────────────────────────────
@@ -34,6 +35,8 @@ export class ActiveRuntime {
   private _skillsEngine: SkillsEngine;
   private _projectRoot: string;
   private _config: SaivageConfig;
+  private _mcpManager?: McpManager;
+  private _server?: ServerInstance;
 
   /**
    * @param projectRoot  Absolute path to the project root
@@ -104,15 +107,20 @@ export class ActiveRuntime {
     this._agentAdapter.setEventBus(this._runtime);
     this._agentAdapter.setRuntimeLedgerEventBus(this._runtime.eventBus);
 
-    // Wire McpManager into AgentAdapter's callMcpTool
     if (mcpManager) {
-      this._agentAdapter.setMcpManager(mcpManager);
+      this.setMcpManager(mcpManager);
     }
+  }
 
-    // Wire EventLogger into McpManager for MCP tool invocation logging
-    if (mcpManager) {
-      mcpManager.setEventLogger(this._eventLogger);
-    }
+
+  setMcpManager(mcpManager: McpManager): void {
+    this._mcpManager = mcpManager;
+    this._agentAdapter.setMcpManager(mcpManager);
+    mcpManager.setEventLogger(this._eventLogger);
+  }
+
+  setServer(server: ServerInstance): void {
+    this._server = server;
   }
 
   // ── Lifecycle ────────────────────────────────────────────────
@@ -229,6 +237,14 @@ export class ActiveRuntime {
   /** Returns the shared ErrorLogger. */
   get errorLogger(): ErrorLogger {
     return this._errorLogger;
+  }
+
+  get mcpManager(): McpManager | undefined {
+    return this._mcpManager;
+  }
+
+  get server(): ServerInstance | undefined {
+    return this._server;
   }
 
   /** Returns the AgentAdapter with the wired LlmCallFn. */

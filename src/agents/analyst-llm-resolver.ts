@@ -20,11 +20,11 @@ import { createLlmExchangeRecorder, toRecorderLogger } from './llm-exchange-reco
 import type { LlmExchangeRecorder, LlmExchangeRecorderLogger } from './llm-exchange-recorder.js';
 import {
   mark_goal_needs_corrections,
-  create_card, edit_card, move_card, delete_card, add_note, list_cards, get_card, get_tree, get_plan_diary, get_card_output, get_status,
-  list_card_history, get_card_history_entry, diff_card, list_notes, get_note, mark_note_handled,
-  pause_runtime, resume_runtime, abort_goal, restart_card, restart_goal,
+  create_card, edit_card, move_card, delete_card, list_cards, get_card, get_tree, get_plan_diary, get_card_output, get_status,
+  list_card_history, get_card_history_entry, diff_card,
+  start_project, stop_project, terminate_process, pause_runtime, resume_runtime, abort_goal_subtree, restart_card_or_subtree, restart_goal,
   read_file, list_directory, run_shell_command, read_runtime_events, read_runtime_errors, read_control_actions,
-  list_processes_tool, list_agent_sessions, read_agent_session,
+  list_processes_tool, list_agent_sessions, read_agent_session, queue_notification, reorder_child, navigate_workspace, navigate_back, show_config, restart_server, reconfigure,
 } from './analyst-tools.js';
 import type { ToolResult, ToolContext } from './analyst-tools.js';
 
@@ -45,7 +45,6 @@ export const TOOL_REGISTRY: Record<string, ToolFn> = {
   edit_card: edit_card as unknown as ToolFn,
   move_card: move_card as unknown as ToolFn,
   delete_card: delete_card as unknown as ToolFn,
-  add_note: add_note as unknown as ToolFn,
   list_cards: list_cards as unknown as ToolFn,
   get_card: get_card as unknown as ToolFn,
   get_tree: get_tree as unknown as ToolFn,
@@ -55,13 +54,13 @@ export const TOOL_REGISTRY: Record<string, ToolFn> = {
   list_card_history: list_card_history as unknown as ToolFn,
   get_card_history_entry: get_card_history_entry as unknown as ToolFn,
   diff_card: diff_card as unknown as ToolFn,
-  list_notes: list_notes as unknown as ToolFn,
-  get_note: get_note as unknown as ToolFn,
-  mark_note_handled: mark_note_handled as unknown as ToolFn,
+  start_project: start_project as unknown as ToolFn,
+  stop_project: stop_project as unknown as ToolFn,
+  terminate_process: terminate_process as unknown as ToolFn,
   pause_runtime: pause_runtime as unknown as ToolFn,
   resume_runtime: resume_runtime as unknown as ToolFn,
-  abort_goal: abort_goal as unknown as ToolFn,
-  restart_card: restart_card as unknown as ToolFn,
+  abort_goal_subtree: abort_goal_subtree as unknown as ToolFn,
+  restart_card_or_subtree: restart_card_or_subtree as unknown as ToolFn,
   restart_goal: restart_goal as unknown as ToolFn,
   read_file: read_file as unknown as ToolFn,
   list_directory: list_directory as unknown as ToolFn,
@@ -72,6 +71,13 @@ export const TOOL_REGISTRY: Record<string, ToolFn> = {
   list_processes_tool: list_processes_tool as unknown as ToolFn,
   list_agent_sessions: list_agent_sessions as unknown as ToolFn,
   read_agent_session: read_agent_session as unknown as ToolFn,
+  queue_notification: queue_notification as unknown as ToolFn,
+  reorder_child: reorder_child as unknown as ToolFn,
+  navigate_workspace: navigate_workspace as unknown as ToolFn,
+  navigate_back: navigate_back as unknown as ToolFn,
+  show_config: show_config as unknown as ToolFn,
+  restart_server: restart_server as unknown as ToolFn,
+  reconfigure: reconfigure as unknown as ToolFn,
 };
 
 function formatToolList(tools: ToolDefinition[]): string {

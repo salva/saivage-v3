@@ -91,15 +91,45 @@ const ROLE_TOOL_NAMES: Record<RoleToolPolicyRole, readonly string[]> = {
     'mcp_tool_call',
   ],
   analyst: [
-    'mark_goal_needs_corrections',
-    'list_card_history',
-    'get_card_history_entry',
+    'abort_goal_subtree',
+    'create_card',
+    'delete_card',
     'diff_card',
-    'list_notes',
-    'get_note',
-    'mark_note_handled',
-  ],
-};
+    'edit_card',
+    'get_card',
+    'get_card_history_entry',
+    'get_card_output',
+    'get_plan_diary',
+    'get_status',
+    'get_tree',
+    'list_agent_sessions',
+    'list_card_history',
+    'list_cards',
+    'list_directory',
+    'list_processes_tool',
+    'mark_goal_needs_corrections',
+    'move_card',
+    'navigate_back',
+    'navigate_workspace',
+    'pause_runtime',
+    'queue_notification',
+    'read_agent_session',
+    'read_control_actions',
+    'read_file',
+    'read_runtime_errors',
+    'read_runtime_events',
+    'reconfigure',
+    'reorder_child',
+    'restart_card_or_subtree',
+    'restart_goal',
+    'restart_server',
+    'resume_runtime',
+    'run_shell_command',
+    'show_config',
+    'start_project',
+    'stop_project',
+    'terminate_process',
+  ],};
 
 const VALID_ROLES = new Set<RoleToolPolicyRole>(Object.keys(ROLE_TOOL_NAMES) as RoleToolPolicyRole[]);
 const VALID_SURFACES = new Set<RoleToolPolicySurface>(['planner-control', 'agent-runtime', 'workspace', 'external-mcp', 'skill']);
@@ -130,6 +160,13 @@ function denied(input: RoleToolPolicyInput, reasonCode: RoleToolPolicyReasonCode
 export class RoleToolPolicy {
   static listToolNamesForRole(role: RoleToolPolicyRole): string[] {
     return [...(ROLE_TOOL_NAMES[role] ?? [])];
+  }
+
+
+  static assertAnalystSurfaceTool(toolName: string, surface: 'web' | 'telegram' | string): RoleToolPolicyDecision {
+    const input: RoleToolPolicyInput = { role: 'analyst', action: 'invoke', surface: 'agent-runtime', toolName, knownRuntimeTool: ROLE_TOOL_NAMES.analyst.includes(toolName) };
+    if (toolName === 'run_shell_command' && surface === 'telegram') return denied(input, 'role_not_allowed', 'run_shell_command is not available on Telegram.');
+    return ROLE_TOOL_NAMES.analyst.includes(toolName) ? allowed(input) : denied(input, 'unknown_tool');
   }
 
   static decide(input: RoleToolPolicyInput): RoleToolPolicyDecision {
