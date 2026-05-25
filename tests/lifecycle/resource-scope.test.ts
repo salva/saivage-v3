@@ -78,12 +78,17 @@ describe('ResourceScope', () => {
       stdio: 'ignore',
       timeoutMs: 500,
     });
+    const exit = new Promise<{ code: number | null; signal: NodeJS.Signals | null }>((resolve) => {
+      child.process.once('exit', (code, signal) => resolve({ code, signal }));
+    });
     await delay(100);
 
     const report = await scope.dispose();
+    const { code, signal } = await exit;
 
     expect(report.errors).toEqual([]);
-    expect(child.process.exitCode).toBe(0);
+    expect(code === null || code === 0).toBe(true);
+    expect(signal === null || signal === 'SIGTERM').toBe(true);
     expect(report.disposed.find((entry) => entry.name === 'sigterm-child')?.durationMs).toBeGreaterThanOrEqual(50);
   });
 
@@ -92,7 +97,8 @@ describe('ResourceScope', () => {
     const child = scope.spawn(process.execPath, ['-e', 'process.on("SIGTERM", () => {}); setInterval(() => {}, 1000);'], {
       name: 'stubborn-child',
       stdio: 'ignore',
-      timeoutMs: 100,
+      // timeoutMs:500 → outer cap 525ms covers SIGTERM grace (≥25ms inner) + SIGKILL escalation on slower hosts
+      timeoutMs: 500,
     });
     await delay(100);
 

@@ -120,25 +120,30 @@
         "ts-jest",
         {
           "tsconfig": {
-            "module": "CommonJS",
-            "moduleResolution": "Node",
+            "module": "ESNext",
+            "moduleResolution": "NodeNext",
             "isolatedModules": true
-          }
+          },
+          "useESM": true
         }
       ],
       "^.+\\.js$": [
         "ts-jest",
         {
           "tsconfig": {
-            "module": "CommonJS",
-            "moduleResolution": "Node",
+            "module": "ESNext",
+            "moduleResolution": "NodeNext",
             "isolatedModules": true
-          }
+          },
+          "useESM": true
         }
       ]
     },
     "testPathIgnorePatterns": [
       "<rootDir>/tests/playwright/"
+    ],
+    "extensionsToTreatAsEsm": [
+      ".ts"
     ]
   }
 }

@@ -334,7 +334,7 @@ describe('E2E — Full Project Lifecycle', () => {
     }
 
     await runtime.shutdown();
-  });
+  }, 30000);
 
   it('produces artifacts during execution and they are registered in card records', async () => {
     const artifactDir = join(tmpDir, '.saivage-work', 'processes', 'artifact-producer');

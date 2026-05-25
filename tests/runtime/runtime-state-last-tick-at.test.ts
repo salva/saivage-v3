@@ -44,6 +44,7 @@ describe('RuntimeState.last_tick_at round-trip', () => {
       queue: [],
       running_processes: [],
       updated_at: new Date().toISOString(),
+      pid: 123,
       last_tick_at: null,
       frozen_reason: null,
       runtime_intent: { status: 'stopped' as const, updated_at: new Date().toISOString(), source_command_id: null, reason: null },

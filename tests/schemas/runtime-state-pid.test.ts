@@ -20,16 +20,15 @@ const baseRuntimeState = () => ({
   runtime_activations: [],
 });
 
-describe('runtimeStateSchema no longer carries pid', () => {
-  it('strips an extra pid key on parse', () => {
+describe('runtimeStateSchema requires a positive integer pid', () => {
+  it('preserves the pid key on round-trip', () => {
     const parsed = runtimeStateSchema.parse({ ...baseRuntimeState(), pid: 12345 });
-    expect((parsed as Record<string, unknown>).pid).toBeUndefined();
-    expect(Object.prototype.hasOwnProperty.call(parsed, 'pid')).toBe(false);
+    expect(parsed.pid).toBe(12345);
+    expect(Object.prototype.hasOwnProperty.call(parsed, 'pid')).toBe(true);
   });
 
-  it('parses a RuntimeState without pid as valid', () => {
-    const parsed = runtimeStateSchema.parse(baseRuntimeState());
-    expect((parsed as Record<string, unknown>).pid).toBeUndefined();
-    expect(parsed.status).toBe('idle');
+  it('requires pid on RuntimeState objects', () => {
+    // src/schemas/validators.ts:109 — pid is required, positive integer
+    expect(() => runtimeStateSchema.parse(baseRuntimeState())).toThrow();
   });
 });
