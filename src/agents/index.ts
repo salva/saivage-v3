@@ -50,6 +50,7 @@ export {
 export {
   buildCardRunsResponse,
   consumeChangedCardActivation,
+  drainSyntheticPlannerNotes,
   injectQueuedSyntheticPlannerNotes,
   markGoalNeedsCorrections,
   normalizeAnalystIssues,

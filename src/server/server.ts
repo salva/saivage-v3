@@ -18,7 +18,7 @@ import { loadConfig, type SaivageConfig } from '../agents/index.js';
 import type { Environment } from '../config/index.js';
 import { McpManager } from '../mcp/index.js';
 import { TelegramBot } from '../telegram/index.js';
-import { createNotificationDeliveryService, setProjectNotificationDeliveryAdapters, clearProjectNotificationDeliveryAdapters } from '../notifications/index.js';
+import { setProjectNotificationDeliveryAdapters, clearProjectNotificationDeliveryAdapters } from '../notifications/index.js';
 import { TelegramNotificationDeliveryAdapter, buildTelegramStartupDiagnosticSummary, evaluateTelegramRecipientReadiness, normalizeTelegramNotificationChatIds } from '../telegram/index.js';
 import { ActiveRuntime } from '../runtime/index.js';
 import { buildCardRunsResponse, markGoalNeedsCorrections, normalizeAnalystIssues } from '../agents/index.js';
@@ -121,14 +121,6 @@ export async function createServer(optionsOrProjectRoot: CreateServerOptions | s
   const diagnosticSummary = buildTelegramStartupDiagnosticSummary(telegramReadiness);
   if (diagnosticSummary) {
     fastify.log.warn(diagnosticSummary);
-    createNotificationDeliveryService(projectRoot, []).enqueueForOperator({
-      id: `telegram-startup-${telegramReadiness.state}`,
-      kind: 'config_changed',
-      severity: 'warn',
-      payload_summary: diagnosticSummary,
-      source_actor: 'runtime',
-      source_surface: 'rest',
-    });
   }
   async function stopOwnedResources(): Promise<void> { resetChatRouteState(projectRoot); resetWebSocketState(); clearProjectNotificationDeliveryAdapters(projectRoot); if (activeRuntime) resetRuntimeEventSubscriptions(activeRuntime.runtime); try { await fastify.close(); } finally { if (telegramBot) { try { await telegramBot.stop(); fastify.log.info('Telegram bot stopped'); } catch (err) { fastify.log.warn(`Telegram bot stop failed: ${err instanceof Error ? err.message : String(err)}`); } } if (mcpManager) { try { await mcpManager.stopAll(); fastify.log.info('MCP manager stopped'); } catch (err) { fastify.log.warn(`MCP manager stop failed: ${err instanceof Error ? err.message : String(err)}`); } } if (activeRuntime) { try { await activeRuntime.stop(); fastify.log.info('ActiveRuntime stopped'); } catch (err) { fastify.log.warn(`ActiveRuntime stop failed: ${err instanceof Error ? err.message : String(err)}`); } } } }
   scope.add({ dispose: stopOwnedResources }, { name: 'server-stop' });

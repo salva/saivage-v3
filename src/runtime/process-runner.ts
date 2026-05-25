@@ -14,7 +14,7 @@ import { createHash, randomBytes } from 'node:crypto';
 import { writeFileAtomic, explainLegacyStateRejection } from '../persistence/index.js';
 import { redactCommandForOperator, redactOperatorErrorMessage } from '../workspace/index.js';
 import { EventLogger } from '../observability/index.js';
-import { enqueueProcessReconciliationNotification } from '../notifications/index.js';
+import { queueNotification } from '../notifications/index.js';
 import type { ProcessRecord, ProcessStatus } from '../schemas/index.js';
 
 export interface ProcessStartOptions {
@@ -784,7 +784,10 @@ function auditProcessReconciliation(
   } finally {
     logger.close();
   }
-  enqueueProcessReconciliationNotification(projectRoot, record, kind, safeDetail, { actor: 'runtime', surface: 'runtime' });
+  if (record.agent_session_id) {
+    const action = kind === 'process_reconciled_dead' ? 'reconciled as dead during restart' : 'reattach was rejected during restart';
+    queueNotification(projectRoot, { kind: 'session', sessionId: record.agent_session_id }, 'process_state', `Process ${record.id} for card ${record.card_id} ${action}: ${safeDetail}`, { actor: 'runtime', surface: 'runtime' });
+  }
 }
 
 function markLost(projectRoot: string, record: ProcessRecord, reason: string, audit?: { kind: ProcessReconciliationAuditKind; probeStatus?: ProcessReconciliationProbeStatus }): ProcessRecord {

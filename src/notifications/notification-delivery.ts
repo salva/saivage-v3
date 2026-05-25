@@ -1,20 +1,29 @@
-import type { NotificationRecord } from '../schemas/index.js';
-import { NotificationCenter, type NotificationInput } from './notification-center.js';
+import { NotificationCenter, type NotificationQueueEntry } from './notification-center.js';
 import { redactTextForOutbound } from '../redaction/index.js';
 
-export type NotificationDeliveryTarget = 'session' | 'operator';
+export type NotificationDeliveryTarget = 'session';
 
 export interface NotificationDeliveryContext {
   target: NotificationDeliveryTarget;
-  sessionId?: string;
+  sessionId: string;
 }
 
 export interface NotificationDeliveryAdapter {
   readonly name: string;
-  deliver(record: NotificationRecord, context: NotificationDeliveryContext): Promise<void> | void;
+  deliver(entry: NotificationQueueEntry, context: NotificationDeliveryContext): Promise<void> | void;
 }
 
 const projectAdapters = new Map<string, NotificationDeliveryAdapter[]>();
+const projectCenters = new Map<string, NotificationCenter>();
+
+export function getProjectNotificationCenter(projectRoot: string): NotificationCenter {
+  let center = projectCenters.get(projectRoot);
+  if (!center) {
+    center = new NotificationCenter(projectRoot);
+    projectCenters.set(projectRoot, center);
+  }
+  return center;
+}
 
 export function setProjectNotificationDeliveryAdapters(projectRoot: string, adapters: NotificationDeliveryAdapter[]): void {
   projectAdapters.set(projectRoot, [...adapters]);
@@ -34,25 +43,18 @@ export class NotificationDeliveryService {
     private readonly adapters: NotificationDeliveryAdapter[] = [],
   ) {}
 
-  enqueueForSession(sessionId: string, input: NotificationInput): NotificationRecord {
-    const record = this.center.enqueueForSession(sessionId, input);
-    void this.deliver(record, { target: 'session', sessionId });
-    return record;
+  enqueue(sessionId: string, entry: NotificationQueueEntry): void {
+    this.center.enqueue(sessionId, entry);
+    void this.deliver(entry, { target: 'session', sessionId });
   }
 
-  enqueueForOperator(input: NotificationInput): NotificationRecord {
-    const record = this.center.enqueueForOperator(input);
-    void this.deliver(record, { target: 'operator' });
-    return record;
-  }
-
-  private async deliver(record: NotificationRecord, context: NotificationDeliveryContext): Promise<void> {
+  private async deliver(entry: NotificationQueueEntry, context: NotificationDeliveryContext): Promise<void> {
     await Promise.allSettled(this.adapters.map(async (adapter) => {
       try {
-        await adapter.deliver(record, context);
+        await adapter.deliver(entry, context);
       } catch (err) {
         console.error(
-          `[notifications] Delivery adapter '${adapter.name}' failed for notification '${record.id}': ${
+          `[notifications] Delivery adapter '${adapter.name}' failed: ${
             redactTextForOutbound(err, 'notification.transport', { source: 'notification-delivery' })
           }`,
         );
@@ -65,5 +67,5 @@ export function createNotificationDeliveryService(
   projectRoot: string,
   adapters: NotificationDeliveryAdapter[] = getProjectNotificationDeliveryAdapters(projectRoot),
 ): NotificationDeliveryService {
-  return new NotificationDeliveryService(new NotificationCenter(projectRoot), adapters);
+  return new NotificationDeliveryService(getProjectNotificationCenter(projectRoot), adapters);
 }

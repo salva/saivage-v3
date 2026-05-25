@@ -4,7 +4,6 @@ import { randomBytes } from 'node:crypto';
 import type { ProjectConfig, CardRecord } from '../schemas/index.js';
 import {
   cardRecordSchema,
-  notesQueueSchema,
   projectConfigSchema,
 } from '../schemas/index.js';
 import { isReadBlocked } from '../workspace/index.js';
@@ -67,9 +66,8 @@ function defaultProjectCard(): CardRecord {
   };
 }
 
-function defaultNotesQueue() { return { next_note_sequence: 1, entries: [] as Array<{ card_id: string; note_id: string; timestamp: string; kind: string }> }; }
 
-const SAIVAGE_DIRS: string[] = ['skills', 'cards/by-id', 'cards/history', 'cards/.commit', 'diaries', 'reviews/by-goal', 'notes/by-card', 'agents/llm-exchanges', 'agents/messages', 'agents/sessions', 'runtime', 'tmp/state', 'supervision', 'views', 'instructions'];
+const SAIVAGE_DIRS: string[] = ['skills', 'cards/by-id', 'cards/history', 'cards/.commit', 'diaries', 'reviews/by-goal', 'agents/llm-exchanges', 'agents/messages', 'agents/sessions', 'runtime', 'tmp/state', 'supervision', 'views', 'instructions'];
 
 const LEGACY_REJECTED_ARTIFACTS: string[] = [
   'cards/index.json',
@@ -103,7 +101,6 @@ function isNewSaivageState(projectRoot: string): boolean {
     'agents/sessions',
     'agents/messages',
     'runtime',
-    'notes/by-card',
     'views',
     'supervision',
   ];
@@ -120,8 +117,7 @@ function isNewSaivageState(projectRoot: string): boolean {
   }
   const projectCardPath = join(saivageDir, 'cards', 'by-id', 'project.json');
   return isValidJsonFile(join(saivageDir, 'project.json'), projectConfigSchema)
-    && isValidJsonFile(projectCardPath, cardRecordSchema)
-    && isValidJsonFile(join(saivageDir, 'notes', 'queue.json'), notesQueueSchema);
+    && isValidJsonFile(projectCardPath, cardRecordSchema);
 }
 
 function discardLegacySaivageDir(projectRoot: string): void {
@@ -152,7 +148,6 @@ export function initProjectTree(projectRoot: string): { projectRoot: string } {
   for (const dir of SAIVAGE_WORK_DIRS) mkdirSync(join(saivageWorkDir, dir), { recursive: true });
   writeFileAtomic(projectJsonPath, JSON.stringify(defaultProjectConfig(name), null, 2) + '\n');
   writeFileAtomic(join(saivageDir, 'cards', 'by-id', 'project.json'), JSON.stringify(defaultProjectCard(), null, 2) + '\n');
-  writeFileAtomic(join(saivageDir, 'notes', 'queue.json'), JSON.stringify(defaultNotesQueue(), null, 2) + '\n');
   writeFileAtomic(join(saivageDir, 'views', 'leaderboard.json'), JSON.stringify([], null, 2) + '\n');
   writeFileAtomic(join(saivageDir, 'views', 'saved-filters.json'), JSON.stringify([], null, 2) + '\n');
   writeFileAtomic(join(saivageDir, 'skills', 'index.json'), JSON.stringify([], null, 2) + '\n');

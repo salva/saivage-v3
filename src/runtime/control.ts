@@ -1,6 +1,6 @@
 import { readRuntimeState, updateRuntimeState } from './state.js';
 import type { ActiveRuntime } from './active-runtime.js';
-import { enqueueRuntimeStateNotifications } from '../notifications/index.js';
+import { queueNotification } from '../notifications/index.js';
 import type { RuntimeState } from '../schemas/index.js';
 
 /**
@@ -68,7 +68,7 @@ export function pauseRuntimeControl(ctx: RuntimeControlContext): RuntimeControlR
         paused_at: new Date().toISOString(),
       });
     }
-    enqueueRuntimeStateNotifications(ctx.projectRoot, 'paused', { actor: 'runtime', surface: 'runtime' });
+    queueNotification(ctx.projectRoot, { kind: 'role', role: 'planner' }, 'runtime_state', 'Runtime was paused.', { actor: 'runtime', surface: 'runtime' });
     return {
       ok: true,
       code: 'paused',
@@ -120,7 +120,7 @@ export function resumeRuntimeControl(ctx: RuntimeControlContext): RuntimeControl
         paused_at: null,
       });
     }
-    enqueueRuntimeStateNotifications(ctx.projectRoot, 'resumed', { actor: 'runtime', surface: 'runtime' });
+    queueNotification(ctx.projectRoot, { kind: 'role', role: 'planner' }, 'runtime_state', 'Runtime was resumed.', { actor: 'runtime', surface: 'runtime' });
     return {
       ok: true,
       code: 'resumed',

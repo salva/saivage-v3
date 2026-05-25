@@ -6,7 +6,7 @@ import {
   attachmentRefSchema,
   artifactRefSchema,
   cardRecordSchema,
-  notesQueueSchema,
+  
   processRecordSchema,
   projectConfigSchema,
   reviewerResultSchema,
@@ -286,12 +286,6 @@ describe('Core schemas still validate expected records', () => {
     }).success).toBe(true);
   });
 
-  it('accepts the hardened notes queue shape', () => {
-    expect(notesQueueSchema.safeParse({
-      next_note_sequence: 1,
-      entries: [],
-    }).success).toBe(true);
-  });
 
   it('rejects legacy runtime state with discard guidance', () => {
     const root = mkdtempSync(join(tmpdir(), 'runtime-legacy-'));

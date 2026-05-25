@@ -300,7 +300,6 @@ export function createRuntimeEnvelope(
       return fromCoveredName({ type: 'error', content: { event: 'runtime.actionable_error', actionable_error: data['actionable_error'] ?? data['error'] ?? data } });
     case 'card_history_appended':
     case 'notification_added':
-    case 'notification_acknowledged':
     case 'control_action_recorded':
       return fromCoveredName({ type: 'activity', content: { event: eventName, ...data } });
     case 'analyst_tool_invoked':

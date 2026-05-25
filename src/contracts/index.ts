@@ -95,7 +95,6 @@ export {
   KnownStatusWsEnvelopeSchema,
   KnownWsContentSchema,
   KnownWsEnvelopeSchema,
-  NotificationAcknowledgedContentSchema,
   NotificationAddedContentSchema,
   OperatorBroadcastEventKindSchema,
   RuntimeActionableErrorEventSchema,

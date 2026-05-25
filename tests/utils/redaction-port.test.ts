@@ -22,7 +22,7 @@ import {
   logOAuthRefreshMissingAccessToken,
   logOAuthRefreshStart,
 } from '../../src/auth/oauth-refresh-logger.js';
-import { redactNotificationSummary } from '../../src/notifications/notification-triggers.js';
+
 import { TelegramBot } from '../../src/telegram/bot.js';
 import { AgentAdapter } from '../../src/agents/agent-adapter.js';
 
@@ -191,7 +191,7 @@ describe('redacted outbound sinks', () => {
     spy.mockRestore();
     expectNoSyntheticSecret(output);
 
-    const summary = redactNotificationSummary(`Directive includes Bearer ${RAW_TOKEN} and apiKey=${RAW_INLINE} ${'x'.repeat(220)}`);
+    const summary = redactTextForOutbound(`Directive includes Bearer ${RAW_TOKEN} and apiKey=${RAW_INLINE} ${'x'.repeat(220)}`, 'notification.transport');
     expect(summary.length).toBeLessThanOrEqual(160);
     expectNoSyntheticSecret(summary);
 

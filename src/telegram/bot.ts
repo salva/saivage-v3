@@ -21,7 +21,6 @@ import {
   getOrCreateAnalystSession,
 } from '../agents/index.js';
 import { redactTextForOutbound } from '../redaction/index.js';
-import type { NotificationRecord } from '../schemas/index.js';
 
 export interface TelegramConfig {
   botToken?: string;
@@ -39,33 +38,6 @@ const BASE_BACKOFF_MS = 1000;
 const MAX_BACKOFF_MS = 30_000;
 const STOP_TIMEOUT_MS = 5_000;
 
-export function formatDurableNotificationForTelegram(
-  notification: NotificationRecord,
-  options: { title?: string; attachments?: string[] } = {},
-): string {
-  const title = options.title ?? `${notification.kind} (${notification.severity})`;
-  let text = `<b>Notification</b>: ${escapeHtmlEntities(title)}`;
-  text += `
-Severity: ${escapeHtmlEntities(notification.severity)}`;
-  text += `
-Kind: ${escapeHtmlEntities(notification.kind)}`;
-  if (notification.related_card_id) text += `
-Card: ${escapeHtmlEntities(notification.related_card_id)}`;
-  if (notification.related_note_id) text += `
-Note: ${escapeHtmlEntities(notification.related_note_id)}`;
-  if (notification.related_process_id) text += `
-Process: ${escapeHtmlEntities(notification.related_process_id)}`;
-  if (notification.related_version_seq !== undefined) text += `
-Version: ${notification.related_version_seq}`;
-  text += `
-${escapeHtmlEntities(redactTextForOutbound(notification.payload_summary, 'notification.transport', { source: 'notification-center' }))}`;
-  if (options.attachments && options.attachments.length > 0) {
-    text += `
-Attachments: ${options.attachments.map((attachment) => escapeHtmlEntities(attachment)).join(', ')}`;
-  }
-  if (text.length > DEFAULT_MAX_MESSAGE_LENGTH) text = text.slice(0, DEFAULT_MAX_MESSAGE_LENGTH - 3) + '...';
-  return text;
-}
 export function convertMarkdownToHtml(markdown: string): string {
   if (!markdown) return '';
   let result = markdown;
@@ -143,8 +115,7 @@ export class TelegramBot {
   async start(): Promise<void> { if (this.running) return; if (!this.config.botToken) return; this.running = true; this.pollAbortController = new AbortController(); this.pollPromise = this._pollLoop(this.pollAbortController.signal); }
   async stop(): Promise<void> { if (!this.running) return; this.running = false; if (this.pollAbortController) { this.pollAbortController.abort(); this.pollAbortController = null; } if (this.pollPromise) { try { await raceWithTimeout(this.pollPromise, STOP_TIMEOUT_MS, 'Poll shutdown timeout'); } catch { void 0; } this.pollPromise = null; } }
   async sendMessage(chatId: number, text: string, options?: { parseMode?: 'Markdown' | 'HTML' }): Promise<void> { if (!this.config.botToken) return; let parseMode: string | undefined; let processedText = text; if (options?.parseMode === 'Markdown') { processedText = convertMarkdownToHtml(text); parseMode = 'HTML'; } else if (options?.parseMode === 'HTML') { parseMode = 'HTML'; processedText = escapeHtmlEntities(text); } const chunks = splitLongMessage(processedText, DEFAULT_MAX_MESSAGE_LENGTH); for (const chunk of chunks) { await this._telegramApi('sendMessage', { chat_id: chatId, text: chunk, ...(parseMode ? { parse_mode: parseMode } : {}) }); if (chunks.length > 1) await sleep(50); } }
-  async sendNotification(chatId: number, notification: { title: string; cardId?: string; attachments?: string[]; details?: string; }): Promise<void> { if (!this.config.botToken) return; await this.sendDurableNotification(chatId, { id: `legacy-${Date.now()}`, session_id: null, kind: 'card_changed', severity: 'warn', payload_summary: notification.details ?? notification.title, related_card_id: notification.cardId, source_actor: 'runtime', source_surface: 'rest', created_at: new Date().toISOString(), delivered_at: null, acknowledged_at: null }, { title: notification.title, attachments: notification.attachments }); }
-  async sendDurableNotification(chatId: number, notification: NotificationRecord, options?: { title?: string; attachments?: string[] }): Promise<void> { if (!this.config.botToken) return; await this._telegramApi('sendMessage', { chat_id: chatId, text: formatDurableNotificationForTelegram(notification, options), parse_mode: 'HTML' }); }
+  async sendNotification(chatId: number, notification: { title: string; cardId?: string; attachments?: string[]; details?: string; }): Promise<void> { if (!this.config.botToken) return; await this._telegramApi('sendMessage', { chat_id: chatId, text: escapeHtmlEntities(notification.title), parse_mode: 'HTML' }); }
   isAuthorized(userId: number): boolean { if (!this.config.allowedUserIds || this.config.allowedUserIds.length === 0) return false; return this.config.allowedUserIds.includes(userId); }
   isRunning(): boolean { return this.running; }
   private async _pollLoop(signal: AbortSignal): Promise<void> { while (!signal.aborted) { try { const updates = await this._getUpdates(signal); for (const update of updates) { if (signal.aborted) break; await this._handleUpdate(update); this.lastUpdateId = Math.max(this.lastUpdateId, update.update_id); } } catch (err) { if (signal.aborted) break; console.error(`[telegram] Poll error: ${redactTextForOutbound(err, 'telegram.diagnostic', { source: 'telegram-bot' })}`); await sleepWithSignal(POLL_INTERVAL_MS, signal); } } }

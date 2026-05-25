@@ -25,7 +25,7 @@ import {
   NOTE_KIND_VALUES,
   URGENCY_VALUES,
 } from '../src/agents/analyst-tool-schemas.js';
-import { cardStatusSchema, cardTypeSchema, noteKindSchema, urgencySchema } from '../src/schemas/validators.js';
+import { cardStatusSchema, cardTypeSchema,  urgencySchema } from '../src/schemas/validators.js';
 
 function uniqueDir(): string {
   return join(tmpdir(), `saivage-analyst-test-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`);
@@ -98,7 +98,6 @@ describe('Analyst Tool Definitions', () => {
     expect([...CARD_STATUS_VALUES]).toEqual(cardStatusSchema.options);
     expect([...CARD_TYPE_VALUES]).toEqual(cardTypeSchema.options);
     expect([...URGENCY_VALUES]).toEqual(urgencySchema.options);
-    expect([...NOTE_KIND_VALUES]).toEqual(noteKindSchema.options);
     expect([...ANALYST_ISSUE_SEVERITY_VALUES]).toEqual(['info', 'warning', 'blocker']);
   });
 

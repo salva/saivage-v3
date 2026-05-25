@@ -1,5 +1,4 @@
-import type { NotificationRecord } from '../schemas/index.js';
-import type { NotificationDeliveryAdapter, NotificationDeliveryContext } from '../notifications/index.js';
+import type { NotificationDeliveryAdapter, NotificationDeliveryContext, NotificationQueueEntry } from '../notifications/index.js';
 import type { TelegramBot } from './bot.js';
 
 export type TelegramReadinessState = 'channel_not_enabled' | 'missing_bot_token' | 'missing_recipients' | 'ready';
@@ -74,22 +73,18 @@ export function buildTelegramStartupDiagnosticSummary(readiness: TelegramRecipie
   return parts.join('; ');
 }
 
-export function isTelegramStartupDiagnostic(record: NotificationRecord): boolean {
-  return record.id.startsWith('telegram-startup-') || record.payload_summary.includes('Telegram notification readiness:');
-}
 
 export class TelegramNotificationDeliveryAdapter implements NotificationDeliveryAdapter {
   readonly name = 'telegram';
 
   constructor(
-    private readonly bot: Pick<TelegramBot, 'sendDurableNotification'>,
+    private readonly bot: Pick<TelegramBot, 'sendNotification'>,
     private readonly recipients: number[],
   ) {}
 
-  async deliver(record: NotificationRecord, _context: NotificationDeliveryContext): Promise<void> {
-    if (isTelegramStartupDiagnostic(record)) return;
+  async deliver(entry: NotificationQueueEntry, _context: NotificationDeliveryContext): Promise<void> {
     for (const chatId of this.recipients) {
-      await this.bot.sendDurableNotification(chatId, record);
+      await this.bot.sendNotification(chatId, { title: `[${entry.kind}] ${entry.body}` });
     }
   }
 }

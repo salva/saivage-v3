@@ -41,7 +41,7 @@ const ROLE_TOOL_NAMES: Record<RoleToolPolicyRole, readonly string[]> = {
     'edit_card',
     'move_card',
     'reorder_child',
-    'add_note',
+    'queue_notification',
     'list_cards',
     'get_card',
     'get_tree',
@@ -75,9 +75,6 @@ const ROLE_TOOL_NAMES: Record<RoleToolPolicyRole, readonly string[]> = {
     'list_card_history',
     'get_card_history_entry',
     'diff_card',
-    'list_notes',
-    'get_note',
-    'mark_note_handled',
     'mcp_tool_call',
   ],
   reviewer: [
@@ -87,9 +84,6 @@ const ROLE_TOOL_NAMES: Record<RoleToolPolicyRole, readonly string[]> = {
     'list_card_history',
     'get_card_history_entry',
     'diff_card',
-    'list_notes',
-    'get_note',
-    'mark_note_handled',
     'mcp_tool_call',
   ],
   analyst: [
@@ -135,7 +129,7 @@ const ROLE_TOOL_NAMES: Record<RoleToolPolicyRole, readonly string[]> = {
 
 const VALID_ROLES = new Set<RoleToolPolicyRole>(Object.keys(ROLE_TOOL_NAMES) as RoleToolPolicyRole[]);
 const VALID_SURFACES = new Set<RoleToolPolicySurface>(['planner-control', 'agent-runtime', 'workspace', 'external-mcp', 'skill']);
-const PLANNER_CONTROL_TOOLS = new Set([...Object.keys(TOOL_TO_CARD_ACTION), 'move_card', 'reorder_child', 'report_goal_done', 'report_goal_failed', 'report_goal_blocked']);
+const PLANNER_CONTROL_TOOLS = new Set([...Object.keys(TOOL_TO_CARD_ACTION), 'move_card', 'reorder_child', 'report_goal_done', 'report_goal_failed', 'report_goal_blocked', 'queue_notification']);
 const SKILL_TOOLS = new Set(['load_skill']);
 const WORKSPACE_TOOLS = new Set(['list_project_files', 'read_project_file', 'write_project_file', 'start_and_wait', 'run_project_command', 'wait_for_process', 'kill_process']);
 const MCP_WRAPPER_TOOLS = new Set(['mcp_tool_call']);

@@ -4,7 +4,6 @@ import { z } from 'zod';
 import type { ActiveCardRun, AgentSession, CardRecord, CardStatus, RuntimeStatus } from '../schemas/index.js';
 import { CardStore } from '../cards/index.js';
 import { appendMessage, findPlannerSessionForCard, getSession, listSessions } from './session-persistence.js';
-import { appendNote, getNotes, markNoteHandled } from '../cards/index.js';
 import { writeFileAtomic } from '../persistence/index.js';
 import { sanitizeAnalystPayload, sanitizeAnalystText } from './analyst-sanitization.js';
 import { readRuntimeState } from '../runtime/index.js';
@@ -114,25 +113,16 @@ export function markGoalNeedsCorrections(projectRoot: string, originGoalId: stri
   const store = new CardStore(projectRoot);
   const origin = store.read(originGoalId);
   if (!origin || (origin.type !== 'goal' && origin.type !== 'project')) throw new Error(`Goal '${originGoalId}' not found.`);
-  const targets = [originGoalId, ...store.getAncestors(originGoalId)].filter((id) => {
-    const card = store.read(id);
-    return card?.type === 'goal' || card?.type === 'project';
-  });
   const summary = issues.map((issue) => issue.summary).join('; ');
-  const content = `pending_subtree_correction from ${originGoalId}: ${summary}${note ? `\n${sanitizeAnalystText(note, 1000)}` : ''}`;
-  const recorded: string[] = [];
-  for (const target of targets) {
-    appendNote(saivageDir(projectRoot), target, { author: 'analyst', kind: 'directive', content });
-    recorded.push(target);
-    const routed = findDeepestContainingPlanner(projectRoot, store, originGoalId);
-    if (routed) queueSyntheticPlannerNote(projectRoot, { target_planner_session_id: routed.session.id, target_goal_card_id: routed.goalId, kind: target === originGoalId ? 'pending_subtree_correction' : 'subtree_changed', affected_card_id: originGoalId, descendant_card_ids: target === originGoalId ? [] : [originGoalId], summary });
-  }
+  const routed = findDeepestContainingPlanner(projectRoot, store, originGoalId);
+  if (routed) queueSyntheticPlannerNote(projectRoot, { target_planner_session_id: routed.session.id, target_goal_card_id: routed.goalId, kind: 'pending_subtree_correction', affected_card_id: originGoalId, descendant_card_ids: [], summary: `${summary}${note ? `
+${sanitizeAnalystText(note, 1000)}` : ''}` });
   let status_transition: { from: CardStatus; to: CardStatus } | null = null;
   if (['done', 'running', 'blocked'].includes(origin.status)) {
     store.update(originGoalId, { status: 'changed' });
     status_transition = { from: origin.status, to: 'changed' };
   }
-  return { origin_goal_id: originGoalId, notes_recorded_on_goal_ids: recorded, status_transition };
+  return { origin_goal_id: originGoalId, notes_recorded_on_goal_ids: [], status_transition };
 }
 
 export function markDescendantChanged(projectRoot: string, affectedCardId: string, summary: string): void {
@@ -140,11 +130,6 @@ export function markDescendantChanged(projectRoot: string, affectedCardId: strin
   const card = store.read(affectedCardId);
   if (!card) throw new Error(`Card '${affectedCardId}' not found.`);
   if (card.status !== 'changed') store.update(affectedCardId, { status: 'changed' });
-  for (const ancestorId of store.getAncestors(affectedCardId)) {
-    const ancestor = store.read(ancestorId);
-    if (!ancestor || (ancestor.type !== 'goal' && ancestor.type !== 'project')) continue;
-    appendNote(saivageDir(projectRoot), ancestorId, { author: 'analyst', kind: 'directive', content: `subtree_changed: ${affectedCardId}: ${sanitizeAnalystText(summary, 1000)}` });
-  }
   const routed = findDeepestContainingPlanner(projectRoot, store, affectedCardId);
   if (routed) queueSyntheticPlannerNote(projectRoot, { target_planner_session_id: routed.session.id, target_goal_card_id: routed.goalId, kind: 'subtree_changed', affected_card_id: affectedCardId, descendant_card_ids: [affectedCardId], summary: sanitizeAnalystText(summary, 1000) });
 }
@@ -186,16 +171,7 @@ export function consumeChangedCardActivation(projectRoot: string, cardId: string
   const store = new CardStore(projectRoot);
   const card = store.read(cardId);
   if (card?.status === 'changed') store.update(cardId, { status: 'running' });
-  let removedCardNotes = 0;
-  for (const card of store.list()) {
-    for (const note of getNotes(saivageDir(projectRoot), card.id)) {
-      if (!note.handled && note.content.includes('subtree_changed') && note.content.includes(cardId)) {
-        markNoteHandled(saivageDir(projectRoot), card.id, note.id);
-        removedCardNotes += 1;
-      }
-    }
-  }
-  return removedCardNotes;
+  return discardSubtreeChangedSyntheticNotes(projectRoot, cardId);
 }
 
 export interface CardBreadcrumbNode { card_id: string; card_type: string; title: string; status_text?: string; }
@@ -218,10 +194,7 @@ export function buildCardRunsResponse(projectRoot: string): CardRunsResponse {
       const card = store.read(session.goal_card_id as string);
       return { goal_card_id: session.goal_card_id as string, planner_session_id: session.id, latest_self_report: (card?.latest_self_report as Record<string, unknown> | null | undefined) ?? null };
     });
-  const cards_with_pending_corrections = store.list().map((card) => {
-    const notes = getNotes(saivageDir(projectRoot), card.id).filter((note) => !note.handled && (note.content.includes('pending_subtree_correction') || note.content.includes('subtree_changed')));
-    return { card, notes };
-  }).filter(({ notes }) => notes.length > 0).map(({ card, notes }) => ({ card_id: card.id, status: card.status, note_count: notes.length, last_note_at: notes.map((n) => n.timestamp).sort().at(-1) ?? null }));
+  const cards_with_pending_corrections: PendingCorrectionRow[] = [];
   return { active_card_run: active, active_breadcrumb, dormant_planners, cards_with_pending_corrections };
 }
 

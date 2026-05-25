@@ -4,8 +4,8 @@ import type { DomainEvent, EventBus, EventKind } from '../events/index.js';
 import { eventKindValues, toLoggedEvent } from '../events/index.js';
 import { JsonlLedger, ProjectLock } from '../persistence/index.js';
 import { redactForOutbound } from '../redaction/index.js';
-import { cardHistoryEntrySchema, controlActionAuditEntrySchema, loggedEventSchema, notificationRecordSchema } from '../schemas/index.js';
-import type { CardHistoryEntry, ControlActionAuditEntry, LoggedEvent, NotificationRecord } from '../schemas/index.js';
+import { cardHistoryEntrySchema, controlActionAuditEntrySchema, loggedEventSchema } from '../schemas/index.js';
+import type { CardHistoryEntry, ControlActionAuditEntry, LoggedEvent } from '../schemas/index.js';
 import type { ErrorRecord } from '../observability/index.js';
 
 export interface Projection {
@@ -41,10 +41,6 @@ function registerProjection(eventBus: EventBus, projection: Projection, options?
   keys.add(projection.name);
 }
 
-export function notificationLedger(projectRoot: string, path: string): JsonlLedger<NotificationRecord> {
-  return new JsonlLedger(path, notificationRecordSchema, runtimeLock(projectRoot), { version: null });
-}
-
 export function controlActionLedger(projectRoot: string): JsonlLedger<ControlActionAuditEntry> {
   return new JsonlLedger(join(projectRoot, '.saivage', 'runtime', 'control-actions.jsonl'), controlActionAuditEntrySchema, runtimeLock(projectRoot), { version: null });
 }
@@ -69,24 +65,6 @@ export const errorRecordSchema: z.ZodType<ErrorRecord> = z.object({
 
 export function errorLogLedger(saivageDir: string): JsonlLedger<ErrorRecord> {
   return new JsonlLedger(join(saivageDir, 'runtime', 'errors.jsonl'), errorRecordSchema, saivageLock(saivageDir), { version: null });
-}
-
-export class NotificationsProjection implements Projection {
-  readonly name = 'notifications-ledger';
-  readonly kinds: readonly EventKind[] = ['notification_record_appended'];
-
-  constructor(private readonly projectRoot: string) {}
-
-  apply(event: DomainEvent): void {
-    const payload = projectionPayload(event);
-    const path = payload['ledger_path'];
-    const record = payload['record'];
-    if (typeof path !== 'string' || !record) return;
-    const parsed = notificationRecordSchema.parse(record);
-    const lock = runtimeLock(this.projectRoot);
-    const ledger = new JsonlLedger(path, notificationRecordSchema, lock, { version: null });
-    lock.withLockSync((handle) => ledger.appendSync(handle, parsed));
-  }
 }
 
 export class ControlActionAuditProjection implements Projection {
@@ -139,10 +117,6 @@ export class ErrorLogProjection implements Projection {
   }
 }
 
-export function registerNotificationProjection(eventBus: EventBus, projectRoot: string): void {
-  registerProjection(eventBus, new NotificationsProjection(projectRoot), { failFast: true });
-}
-
 export function registerControlActionAuditProjection(eventBus: EventBus, projectRoot: string): void {
   registerProjection(eventBus, new ControlActionAuditProjection(projectRoot), { failFast: true });
 }
@@ -156,7 +130,6 @@ export function registerErrorLogProjection(eventBus: EventBus, saivageDir: strin
 }
 
 export function registerLedgerProjections(eventBus: EventBus, options: { projectRoot: string; saivageDir?: string; includeEventLog?: boolean; includeErrorLog?: boolean }): void {
-  registerNotificationProjection(eventBus, options.projectRoot);
   registerControlActionAuditProjection(eventBus, options.projectRoot);
   if (options.includeEventLog && options.saivageDir) registerEventLogProjection(eventBus, options.saivageDir);
   if (options.includeErrorLog && options.saivageDir) registerErrorLogProjection(eventBus, options.saivageDir);

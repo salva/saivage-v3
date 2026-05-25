@@ -4,6 +4,7 @@ import { PlannerToolError, PlannerToolsService, type PlannerToolsServiceOptions 
 import { createActionableErrorEnvelope, createDeferredActivationEnvelope } from '../schemas/index.js';
 import { appendRuntimeRun, readRuntimeState, upsertRuntimeActivation } from '../runtime/index.js';
 import type { LoggedEvent } from '../schemas/index.js';
+import { resolveRecipient } from '../notifications/index.js';
 import type { EventLogger } from '../observability/index.js';
 export interface AgentToolMessage { role: 'tool'; kind: 'tool_result' | 'tool_error'; content: string; tool: string; tool_call_id: string; }
 
@@ -146,6 +147,16 @@ export class PlannerControlExecutor {
         case 'reorder_child': {
           const r = plannerTools.reorderChildren(String(args.parentId ?? ''), Array.isArray(args.orderedChildIds) ? args.orderedChildIds.map((v) => String(v)) : [], { actor: 'planner', surface: 'runtime', toolCallId: invocation.toolCallId, sessionId: invocation.sessionId });
           result = r;
+          break;
+        }
+        case 'queue_notification': {
+          const recipient = String(args.recipient ?? '');
+          const resolved = resolveRecipient(this.context.projectRoot, recipient);
+          if (resolved === null) {
+            result = { success: false, data: { reason: 'unknown_recipient', recipient } };
+            break;
+          }
+          result = plannerTools.queueNotification(resolved, String(args.kind ?? ''), String(args.body ?? ''), { actor: 'planner', surface: 'runtime', toolCallId: invocation.toolCallId, sessionId: invocation.sessionId });
           break;
         }
         case 'report_goal_done':

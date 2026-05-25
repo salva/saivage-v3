@@ -7,20 +7,11 @@ export type {
   CardMutationContext,
 } from './card-store.js';
 
+
 export {
   registerArtifact,
   registerAttachment,
 } from './artifacts.js';
-
-export {
-  appendNote,
-  deleteAllNotes,
-  deleteNote,
-  findUnhandledNoteCardId,
-  getNotes,
-  getReconciledUnhandledNotesQueue,
-  markNoteHandled,
-} from './notes.js';
 
 export {
   deleteDiary,

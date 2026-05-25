@@ -1,16 +1,9 @@
-export { NotificationCenter } from './notification-center.js';
-export type { NotificationInput, NotificationOwnership } from './notification-center.js';
+export { NotificationCenter, type NotificationQueueEntry } from './notification-center.js';
 export {
   NotificationDeliveryService,
-  clearProjectNotificationDeliveryAdapters,
-  createNotificationDeliveryService,
+  type NotificationDeliveryAdapter,
+  type NotificationDeliveryContext,
   setProjectNotificationDeliveryAdapters,
+  clearProjectNotificationDeliveryAdapters,
 } from './notification-delivery.js';
-export type { NotificationDeliveryAdapter, NotificationDeliveryContext, NotificationDeliveryTarget } from './notification-delivery.js';
-export {
-  enqueueCardMutationNotifications,
-  enqueueNoteNotifications,
-  enqueueProcessReconciliationNotification,
-  enqueueRuntimeStateNotifications,
-} from './notification-triggers.js';
-export type { NotificationSourceMeta } from './notification-triggers.js';
+export { queueNotification, resolveRecipient, type Recipient } from './notification-triggers.js';

@@ -5,7 +5,8 @@ import { ProviderRegistry, type Candidate } from './provider.js';
 import { ModelRouter } from './model-router.js';
 import { parsePlannerResult, parseExecutorResult, parseReviewerResult, buildExecutorFallbackResult, type PlannerResult, type ExecutorResult, type ReviewerResult } from './result-parser.js';
 import { createSession, completeSession, appendMessage, getSession, getSessionMessages, listSessions, markSessionWaiting, updateSessionModel } from './session-persistence.js';
-import type { AgentMessage, HandoffSummary, LoggedEvent, NotificationRecord } from '../schemas/index.js';
+import type { AgentMessage, HandoffSummary, LoggedEvent } from '../schemas/index.js';
+import type { NotificationQueueEntry } from '../notifications/index.js';
 import { compactSession } from './compaction.js';
 import { invokeWithRecovery, type RecoveryContext } from './recovery.js';
 import type { ContentSupervisor } from '../workspace/index.js';
@@ -92,6 +93,7 @@ const AUTHORITATIVE_PLANNER_TOOL_NAMES = [
   'report_goal_done',
   'report_goal_failed',
   'report_goal_blocked',
+  'queue_notification',
 ] as const;
 
 const PLANNER_CARD_TOOL_DEFINITIONS = ANALYST_TOOL_DEFINITIONS.filter((entry) => PLANNER_CARD_TOOL_NAMES.has(entry.function.name));
@@ -126,6 +128,7 @@ const PLANNER_TOOL_DEFINITIONS: ToolDefinition[] = [
     evidence_card_ids: arr(str('A descendant done card ID.'), 'Optional evidence card IDs supporting the report.'),
     report: { type: 'object', description: 'Optional full self-report payload.', additionalProperties: true },
   }, ['goalId', 'status_text']),
+  tool('queue_notification', 'Queue an ephemeral notification for delivery into the next agent session targeting a given card or role. The platform forgets the notification once it has been delivered; there is no list/get/acknowledge/delete.', { recipient: str('A card id, an agent role, or an active session id.'), kind: str('A short categorical label for the notification.'), body: str('The notification text to inject.') }, ['recipient', 'kind', 'body']),
 ].filter((tool, index, all) => all.findIndex((candidate) => candidate.function.name === tool.function.name) === index);
 
 const PLANNER_CONTROL_TOOL_NAMES = new Set<string>([
@@ -138,6 +141,7 @@ const PLANNER_CONTROL_TOOL_NAMES = new Set<string>([
   'report_goal_done',
   'report_goal_failed',
   'report_goal_blocked',
+  'queue_notification',
 ]);
 
 
@@ -328,13 +332,10 @@ export class AgentAdapter implements AgentRuntime {
     return { role: 'tool', kind: 'tool_error', content: `Unknown tool '${tc.function.name}'.`, tool: tc.function.name, tool_call_id: tc.id };
   }
 
-  private formatNotificationGuidance(notification: NotificationRecord): string {
-    const related = [notification.related_card_id ? `card=${notification.related_card_id}` : null, notification.related_note_id ? `note=${notification.related_note_id}` : null, notification.related_process_id ? `process=${notification.related_process_id}` : null, notification.related_version_seq ? `version=${notification.related_version_seq}` : null].filter(Boolean).join(', ');
-    return `- [${notification.kind}] severity=${notification.severity} ${notification.payload_summary}${related ? ` (${related})` : ''}. Use list_card_history/get_card_history_entry/diff_card as needed, then continue with the requested work after incorporating the update.`;
-  }
+  private formatNotificationGuidance(notification: NotificationQueueEntry): string { return `- [${notification.kind}] ${notification.body}`; }
 
-  private buildNotificationInjectionMessage(notifications: NotificationRecord[], sessionId: string): AgentMessage { const lines = ['## Operator updates since your last turn', '', ...notifications.map((notification) => this.formatNotificationGuidance(notification))]; return { id: `msg-${sessionId}-notification-injection`, session_id: sessionId, role: 'user', kind: 'text', content: lines.join('\n'), timestamp: new Date().toISOString() }; }
-  private buildModelMessages(sessionId: string): { messages: AgentMessage[]; drainedIds: string[] } { const pending = this.notificationCenter.drainPendingForSession(sessionId); const baseMessages = getSessionMessages(this.saivageDir, sessionId); if (pending.length === 0) return { messages: baseMessages, drainedIds: [] }; return { messages: [this.buildNotificationInjectionMessage(pending, sessionId), ...baseMessages], drainedIds: pending.map((notification) => notification.id) }; }
+  private buildNotificationInjectionMessage(notifications: NotificationQueueEntry[], sessionId: string): AgentMessage { const lines = ['## Queued notifications', '', ...notifications.map((notification) => this.formatNotificationGuidance(notification))]; return { id: `msg-${sessionId}-notification-injection`, session_id: sessionId, role: 'user', kind: 'text', content: lines.join('\\n'), timestamp: new Date().toISOString() }; }
+  private buildModelMessages(sessionId: string): AgentMessage[] { const pending = this.notificationCenter.drainPendingForSession(sessionId); const baseMessages = getSessionMessages(this.saivageDir, sessionId); if (pending.length === 0) return baseMessages; return [this.buildNotificationInjectionMessage(pending, sessionId), ...baseMessages]; }
   private buildForceFinalAnswerPrompt(role: AgentRole): string {
     if (role === 'planner') return 'The tool-calling loop was terminated. Do NOT emit any further toolCalls. Reply with ONLY your final planner result JSON envelope: {"status":"continue"|"done"|"blocked","summary":"...","created_cards":[],"updated_cards":[],"blocked_reason":"..."}';
     if (role === 'executor') return 'The tool-calling loop was terminated. Do NOT emit any further toolCalls. Reply with ONLY your final executor result JSON envelope: {"card_id":"...","status":"done"|"failed","status_text":"...","summary":"...","result":{},"artifacts":[],"attachments":[]}';
@@ -344,7 +345,7 @@ export class AgentAdapter implements AgentRuntime {
   private async forceFinalAnswer(role: AgentRole, sessionId: string, candidate: Candidate, systemPrompt: string, modelParams: { temperature: number; maxTokens: number }, abortController: AbortController, reason: string): Promise<string> {
     appendMessage(this.saivageDir, sessionId, { role: 'system', kind: 'model_issue', content: `${this.redactModelIssueText(reason)} Forcing final-answer turn without tools.` });
     appendMessage(this.saivageDir, sessionId, { role: 'user', kind: 'text', content: this.buildForceFinalAnswerPrompt(role) });
-    const modelMessages = this.buildModelMessages(sessionId).messages;
+    const modelMessages = this.buildModelMessages(sessionId);
     try {
       const forced = await this.llmCallFn!(candidate, systemPrompt, modelMessages, sessionId, { temperature: modelParams.temperature, max_tokens: modelParams.maxTokens, signal: abortController.signal });
       return forced;
@@ -412,37 +413,9 @@ export class AgentAdapter implements AgentRuntime {
         return { response: synthEnvelope, transportSucceeded: true };
       }
       const followUpTools = this.buildToolsForRole(role);
-      const modelMessages = this.buildModelMessages(sessionId).messages;
+      const modelMessages = this.buildModelMessages(sessionId);
       currentResponse = await this.llmCallFn!(candidate, systemPrompt, modelMessages, sessionId, { temperature: modelParams.temperature, max_tokens: modelParams.maxTokens, signal: abortController.signal, ...(followUpTools.length > 0 ? { tools: followUpTools, tool_choice: 'auto' } : {}) });
     }
-  }
-
-  private resultBlockedByPendingNotifications(role: AgentRole, parsed: unknown, sessionId: string): boolean {
-    if (role !== 'executor' && role !== 'reviewer') return false;
-    if (!parsed || typeof parsed !== 'object') return false;
-    const status = (parsed as Record<string, unknown>).status;
-    if (status !== 'done') return false;
-    return this.notificationCenter.hasBlockingPendingForSession(sessionId);
-  }
-
-  private buildBlockingAcknowledgementMessage(sessionId: string): AgentMessage {
-    const pending = this.notificationCenter.listUnacknowledgedBlockingForSession(sessionId);
-    const lines = [
-      '## Blocking operator updates still require acknowledgement',
-      '',
-      'Your previous completion was held because blocking operator notifications require attention.',
-      'Inspect the canonical history/note tools, incorporate each blocking update for this session, then resubmit completion.',
-      '',
-      ...pending.map((notification) => this.formatNotificationGuidance(notification)),
-    ];
-    return {
-      id: `msg-${sessionId}-blocking-notification-hold`,
-      session_id: sessionId,
-      role: 'user',
-      kind: 'text',
-      content: lines.join('\n'),
-      timestamp: new Date().toISOString(),
-    };
   }
 
   private async invokeAgent<T>(role: AgentRole, goalId: string, cardId: string, systemPrompt: string, contextMessages: AgentMessage[], parser: (raw: string) => T, requestedSessionId?: string): Promise<T> {
@@ -507,10 +480,9 @@ export class AgentAdapter implements AgentRuntime {
             const callStart = Date.now();
             try {
               const llmOpts: LlmCompleteOptions = { temperature: modelParams.temperature, max_tokens: modelParams.maxTokens, signal: abortController.signal, ...(tools.length > 0 ? { tools, tool_choice } : {}) };
-              const firstTurn = this.buildModelMessages(session.id);
-              const rawResponse = await this.llmCallFn!(candidate, systemPrompt, firstTurn.messages, session.id, llmOpts);
+              const firstTurnMessages = this.buildModelMessages(session.id);
+              const rawResponse = await this.llmCallFn!(candidate, systemPrompt, firstTurnMessages, session.id, llmOpts);
               const loopResult = await this.handleToolCallsLoop(rawResponse, role, session.id, candidate, systemPrompt, modelParams, abortController, { goalId, cardId });
-              if (firstTurn.drainedIds.length > 0 && loopResult.transportSucceeded) this.notificationCenter.markDeliveredForSession(session.id, firstTurn.drainedIds);
               let finalResponse = loopResult.response;
               const callDuration = Date.now() - callStart;
               appendMessage(this.saivageDir, session.id, { role: 'assistant', kind: 'text', content: finalResponse });
@@ -561,16 +533,6 @@ export class AgentAdapter implements AgentRuntime {
                   if (fallback) { appendMessage(this.saivageDir, session.id, { role: 'system', kind: 'model_issue', content: `Executor result fallback constructed after parse failure: ${err instanceof Error ? this.redactProviderErrorMessage(err.message) : 'unknown parse error'}` }); parsed = fallback as T; }
                   else throw err;
                 } else throw err;
-              }
-              while (this.resultBlockedByPendingNotifications(role, parsed, session.id)) {
-                appendMessage(this.saivageDir, session.id, { role: 'system', kind: 'model_issue', content: 'Terminal result held because blocking operator notifications remain unacknowledged.' });
-                const holdMessage = this.buildBlockingAcknowledgementMessage(session.id);
-                appendMessage(this.saivageDir, session.id, { role: holdMessage.role, kind: holdMessage.kind, content: holdMessage.content });
-                finalResponse = await this.llmCallFn!(candidate, systemPrompt, getSessionMessages(this.saivageDir, session.id), session.id, llmOpts);
-                const heldLoopResult = await this.handleToolCallsLoop(finalResponse, role, session.id, candidate, systemPrompt, modelParams, abortController, { goalId, cardId });
-                finalResponse = heldLoopResult.response;
-                appendMessage(this.saivageDir, session.id, { role: 'assistant', kind: 'text', content: finalResponse });
-                parsed = parser(finalResponse);
               }
               const successDecision = defaultInvocationRecoveryPolicy.decideSuccess({ role, candidate, attempt: recoveryCtx.attempt, maxAttempts: recoveryCtx.maxAttempts, recoveryDelayMs: this.runtimeConfig.recoveryDelayMs ?? 60000, maxRecoveryRetries: this.runtimeConfig.maxRecoveryRetries ?? 3, capabilityRequest, capabilitySkips, sessionId: session.id, goalId, cardId });
               if (successDecision.markSucceeded) this.registry.markSucceeded(candidate);

@@ -108,7 +108,6 @@ export const CardStatusChangedEventSchema = z.object({
 export const AnalystActivityEventNames = [
   'card_history_appended',
   'notification_added',
-  'notification_acknowledged',
   'control_action_recorded',
   'analyst_tool_invoked',
   'tool_invocation',
@@ -124,25 +123,10 @@ export const CardHistoryAppendedContentSchema = z.object({
 
 export const NotificationAddedContentSchema = z.object({
   event: z.literal('notification_added'),
-  id: z.string().min(1),
+  session_id: z.string().nullable(),
   kind: z.string().min(1),
-  severity: z.string().min(1),
-  related_card_id: optionalStringSchema,
-  related_note_id: optionalStringSchema,
-  related_process_id: optionalStringSchema,
-  related_version_seq: z.number().optional(),
-  created_at: z.string().min(1),
 }).passthrough();
 
-export const NotificationAcknowledgedContentSchema = z.object({
-  event: z.literal('notification_acknowledged'),
-  id: z.string().min(1),
-  kind: z.string().min(1),
-  related_card_id: optionalStringSchema,
-  related_note_id: optionalStringSchema,
-  related_process_id: optionalStringSchema,
-  acknowledged_at: z.string().min(1),
-}).passthrough();
 
 export const ControlActionRecordedContentSchema = z.object({
   event: z.literal('control_action_recorded'),
@@ -178,7 +162,6 @@ export const ToolInvocationContentSchema = z.object({
 export const AnalystActivityContentSchema = z.discriminatedUnion('event', [
   CardHistoryAppendedContentSchema,
   NotificationAddedContentSchema,
-  NotificationAcknowledgedContentSchema,
   ControlActionRecordedContentSchema,
   AnalystToolInvokedContentSchema,
   ToolInvocationContentSchema,

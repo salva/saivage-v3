@@ -73,7 +73,6 @@ const stringArraySchema = z.array(z.string());
 const cardStatusSchema = z.enum(['drafting', 'backlog', 'active', 'running', 'blocked', 'changed', 'done', 'failed', 'cancelled']);
 const cardTypeSchema = z.enum(['project', 'goal', 'architecture', 'code', 'test', 'doc', 'data', 'research', 'ops']);
 const urgencySchema = z.enum(['low', 'normal', 'high', 'critical']);
-const noteKindSchema = z.enum(['comment', 'progress', 'directive', 'escalation']);
 
 const createCardInput = z.object({
   type: cardTypeSchema,

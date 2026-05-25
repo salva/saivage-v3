@@ -28,7 +28,7 @@ import type {
   NoteAuthor,
 } from '../schemas/index.js';
 import { EventBus } from '../events/index.js';
-import { enqueueCardMutationNotifications } from '../notifications/index.js';
+import { queueNotification } from '../notifications/index.js';
 import { ProjectMutex } from './project-mutex.js';
 import {
   CardStoreInvariantError,
@@ -644,7 +644,6 @@ export class CardStore {
         card,
         children: this.state.childrenOf(card.id),
         history: existsSync(historyFile) ? readFileSync(historyFile, 'utf-8') : '',
-        notes_ref: join('.saivage', 'notes', `${card.id}.jsonl`),
         result: card.result,
         evidence_refs: { artifacts: card.artifacts, attachments: card.attachments },
       };
@@ -789,10 +788,7 @@ export class CardStore {
     });
     const persisted = deepClone(result.card!);
     try {
-      enqueueCardMutationNotifications(this.projectRoot, persisted, changedFields, {
-        actor: ctx.actor,
-        surface: ctx.surface,
-      });
+      queueNotification(this.projectRoot, { kind: 'card', cardId: persisted.id }, 'card_changed', `${persisted.id} updated (${changedFields.join(', ')}) at v${persisted.version_seq}`, { actor: ctx.actor, surface: ctx.surface });
     } catch {
       // Notification enqueue is best-effort; never break the mutation.
     }

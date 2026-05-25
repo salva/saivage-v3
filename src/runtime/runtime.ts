@@ -10,7 +10,6 @@ import type {
   EventKind,
   HandoffSummary,
   ReviewAssessment,
-  NotificationRecord,
   ProjectRunCompletedPayload,
   ActivationCompletionOutcome,
   ActionableErrorEnvelope,
@@ -21,7 +20,7 @@ import type {
 import { createActivationCompletionEnvelope, parseActivationCompletionEnvelope } from '../schemas/index.js';
 import { CardStore } from '../cards/index.js';
 import { STARTABLE_STATES, RESTARTABLE_STATES } from '../permissions/index.js';
-import { consumeChangedCardActivation, injectQueuedSyntheticPlannerNotes, queueSyntheticPlannerNote } from '../agents/index.js';
+import { consumeChangedCardActivation, injectQueuedSyntheticPlannerNotes, queueSyntheticPlannerNote, drainSyntheticPlannerNotes } from '../agents/index.js';
 import {
   initRuntimeState,
   readRuntimeState,
@@ -79,7 +78,6 @@ import {
   type SupervisorDeps,
 } from '../runtime/stuck-agent-supervisor.js';
 import { NotificationCenter } from '../notifications/index.js';
-import { getNotes } from '../cards/index.js';
 
 export type RuntimeStatus = RStatus;
 export interface RuntimeConfig { projectRoot: string; fakeAgentConfig: FakeAgentConfig; skillsEngine?: SkillsEngine; eventLogger?: EventLogger; errorLogger?: ErrorLogger; maxGoalDepth?: number; supervisorConfig?: Partial<SupervisorConfig>; autoDispatchBacklog?: boolean; continuousImprovement?: boolean; }
@@ -349,19 +347,7 @@ export class Runtime extends EventEmitter {
   }
 
   private buildGoalContextNotes(goalId: string): Array<Record<string, unknown>> {
-    const saivageDir = join(this.projectRoot, '.saivage');
-    const directiveCards = [goalId, ...this.cardStore.getDescendantIds(goalId)];
-    const notes: Array<Record<string, unknown>> = [];
-    for (const cardId of directiveCards) {
-      for (const note of getNotes(saivageDir, cardId).filter((candidate) => !candidate.handled && candidate.kind === 'directive')) {
-        const body = note.content;
-        if (body.includes('pending_subtree_correction')) notes.push({ kind: 'pending_subtree_correction', origin_card_id: cardId, issues: [], body, at: note.timestamp });
-        else if (body.includes('subtree_changed')) notes.push({ kind: 'subtree_changed', descendant_card_ids: [cardId], body, at: note.timestamp });
-        else if (body.includes('reviewer_interrupted')) notes.push({ kind: 'reviewer_interrupted', assessment_id: 'unknown', at: note.timestamp, body });
-        else notes.push({ kind: 'directive_note', origin_card_id: cardId, body, at: note.timestamp });
-      }
-    }
-    return notes;
+    return drainSyntheticPlannerNotes(this.projectRoot, `planner:${goalId}`).map((note) => ({ kind: note.kind, origin_card_id: note.affected_card_id, descendant_card_ids: note.descendant_card_ids, body: note.summary, at: note.created_at }));
   }
 
   private inferResumeReason(goalId: string, fallback: 'initial' | 'reviewer_correction' | 'analyst_directive' | 'subtree_changed' | 'service_restart' = 'initial'): 'initial' | 'reviewer_correction' | 'analyst_directive' | 'subtree_changed' | 'service_restart' {
@@ -434,24 +420,6 @@ export class Runtime extends EventEmitter {
     return `## Card Context\n\n${JSON.stringify(payload, null, 2)}`;
   }
 
-  private buildBlockingNotificationInstruction(notifications: NotificationRecord[]): string {
-    const lines = ['## Blocking operator updates require acknowledgement before finalizing', '', ...notifications.map((notification) => `- id=${notification.id}; kind=${notification.kind}; related_card_id=${notification.related_card_id ?? 'n/a'}; related_note_id=${notification.related_note_id ?? 'n/a'}; related_process_id=${notification.related_process_id ?? 'n/a'}; summary=${notification.payload_summary}`), '', 'Acknowledge each pending blocking notification before returning a terminal result. Re-evaluate your final output after doing so.'];
-    return lines.join('\n');
-  }
-
-  private async enforceBlockingNotifications(sessionId: string, role: 'executor' | 'reviewer', terminalCall: () => Promise<unknown>): Promise<void> {
-    if (!this.notificationCenter.hasBlockingPendingForSession(sessionId)) return;
-    const pending = this.notificationCenter.listUnacknowledgedBlockingForSession(sessionId);
-    this.emit('dispatch_held_for_notification', { session_id: sessionId, role, notification_ids: pending.map((item) => item.id) });
-    this._eventLogger.appendEvent({ kind: 'dispatch_held_for_notification', session_id: sessionId, role, notification_ids: pending.map((item) => item.id) });
-    if (!this.agentRuntime.reinvokeSession) throw new Error(`Cannot hold ${role} terminal result for session '${sessionId}': agent runtime does not support reinvocation.`);
-    await Promise.resolve(this.agentRuntime.reinvokeSession(sessionId, this.buildBlockingNotificationInstruction(pending)));
-    if (this.notificationCenter.hasBlockingPendingForSession(sessionId)) {
-      const remaining = this.notificationCenter.listUnacknowledgedBlockingForSession(sessionId);
-      throw new Error(`Blocking notifications remain unacknowledged for session '${sessionId}' after reinvocation: ${remaining.map((item) => item.id).join(', ')}. Acknowledge them before finalizing.`);
-    }
-    await terminalCall();
-  }
 
   private nextReviewerAssessmentId(goalId: string): string {
     const escapedGoal = goalId.replace(/[^A-Za-z0-9_.:-]/g, '-');
@@ -760,7 +728,6 @@ export class Runtime extends EventEmitter {
           executorPrompt += `\n\n${this.buildCardContextBlock(card.id, goalId)}`;
           const result = this.agentRuntime.invokeExecutor(card.id, goalId, executorPrompt); execResult = result instanceof Promise ? await result : result;
           const lastSessionId = (this.agentRuntime as FakeAgentAdapter).getLastSessionId?.('executor', goalId, card.id) ?? readRuntimeState(this.projectRoot)?.current_agent_session_id ?? null;
-          if (execResult.status === 'done' && lastSessionId) await this.enforceBlockingNotifications(lastSessionId, 'executor', async () => undefined);
         } catch (err) { const errorMessage = err instanceof Error ? err.message : String(err); this.emitRuntimeDiagnostic({ card_id: card.id, goal_id: goalId, phase: 'executor', error: err }); this._eventLogger.appendEvent({ kind: 'runtime_diagnostic', card_id: card.id, goal_id: goalId, phase: 'executor', error_message: errorMessage }); this._errorLogger.appendError({ message: errorMessage, cardId: card.id, goalId, phase: 'executor' }); await this._stateMachine.transitionCard(card.id, 'fail', { reason: 'executor_exception', error: errorMessage }); this.appendChildUnwindToolResult(card.id, 'failed', `Terminal card ${card.id} execution failed before producing a result.`); this.emit('card_failed', { card_id: card.id, goal_id: goalId }); this._eventLogger.appendEvent({ kind: 'card_failed', card_id: card.id, goal_id: goalId }); failed = true; return { dispatchedGoal, executedTerminal, failed }; }
         const acceptedAt = now();
         const lastSessionId = (this.agentRuntime as FakeAgentAdapter).getLastSessionId?.('executor', goalId, card.id) ?? readRuntimeState(this.projectRoot)?.active_card_run?.executor_session_id ?? readRuntimeState(this.projectRoot)?.current_agent_session_id ?? null;
@@ -815,8 +782,6 @@ export class Runtime extends EventEmitter {
     const goalCard = this.cardStore.read(goalId);
     await this._stateMachine.transition('reviewer_started', { goalId, reviewerSessionId, activeCardRun: { card_id: goalId, card_type: goalCard?.type ?? 'goal', runtime_status: 'running', phase: 'reviewer', caller_session_id: null, caller_tool_call_id: null, planner_session_id: `planner:${goalId}`, reviewer_session_id: reviewerSessionId, correction_attempts: 0, started_at: startedAt, last_turn_at: startedAt } });
     const result = await this.agentRuntime.invokeReviewer(goalId, reviewerPrompt, [], { assessmentId, reviewerSessionId });
-    const lastSessionId = (this.agentRuntime as FakeAgentAdapter).getLastSessionId?.('reviewer', goalId, null) ?? reviewerSessionId;
-    if (result.assessment.result === 'pass' && lastSessionId) await this.enforceBlockingNotifications(lastSessionId, 'reviewer', async () => undefined);
     this.emit('review_complete', { goal_id: goalId, assessment: result.assessment }); this._eventLogger.appendEvent({ kind: 'review_complete', goal_id: goalId, assessment: result.assessment }); return result;
   }
 

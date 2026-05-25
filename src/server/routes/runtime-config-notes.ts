@@ -3,14 +3,12 @@ import { readRuntimeState, updateRuntimeState } from '../../runtime/index.js';
 import type { RuntimeState } from '../../schemas/index.js';
 import type { ActiveRuntime } from '../../runtime/index.js';
 import type { ProviderEntry, SaivageConfig } from '../../agents/index.js';
-import { getReconciledUnhandledNotesQueue, findUnhandledNoteCardId, markNoteHandled, deleteNote } from '../../cards/index.js';
 import { redactForOutbound } from '../../redaction/index.js';
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { evaluateAuthz, type ActorRole, type SafetyClass } from '../../agents/index.js';
 import { recordControlAction, stableStringify, listControlActions } from '../../persistence/index.js';
 import { readFreezeManifest, clearFreezeManifest } from '../../runtime/index.js';
-import { NotificationCenter } from '../../notifications/index.js';
 import { type ServerAvailability } from '../../contracts/index.js';
 import { readLatestLlmExchange, LlmExchangeCorruptedError } from '../../agents/index.js';
 
@@ -145,36 +143,6 @@ function buildListedAgentSession(projectRoot: string, sessionId: string, state: 
 }
 
 export function registerRuntimeConfigNotesRoutes(fastify: FastifyInstance, projectRoot: string, activeRuntime?: ActiveRuntime, serverAvailabilityProvider?: () => ServerAvailability, saivageConfig?: SaivageConfig, configWarnings: readonly string[] = []): void {
-  const notifications = new NotificationCenter(projectRoot);
-  fastify.get('/api/notifications', async (_request, reply) => {
-    try {
-      const items = notifications.listForOperator().map((record) => redactValue(record));
-      return reply.send({ notifications: items, total: items.length });
-    } catch (err) {
-      return reply.status(500).send({ error: 'Failed to list notifications', message: err instanceof Error ? err.message : String(err) });
-    }
-  });
-  fastify.post('/api/notifications/:id/acknowledge', async (request, reply) => runMutatingRoute({
-    request,
-    reply,
-    projectRoot,
-    action: 'notification.acknowledge',
-    safety_class: 'low',
-    target_kind: 'session',
-    target_id: (request.params as { id: string }).id,
-    mutate: async () => {
-      try {
-        const notificationId = (request.params as { id: string }).id;
-        const existing = notifications.listForOperator().find((item) => item.id === notificationId) ?? null;
-        if (!existing) return { ok: false, statusCode: 404, error: 'Notification not found', body: { error: 'Notification not found', notificationId }, outcomeSummary: 'notification not found' };
-        const updated = notifications.acknowledgeForOperator(notificationId);
-        return { ok: true, body: { notification: redactValue(updated ?? existing) }, outcomeSummary: 'notification acknowledged' };
-      } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        return { ok: false, statusCode: 500, error: message, body: { error: 'Failed to acknowledge notification', message }, outcomeSummary: message };
-      }
-    },
-  }));
   fastify.get('/api/control-actions', async (request, reply) => {
     try {
       const query = request.query as { card_id?: string; since?: string };
@@ -207,9 +175,5 @@ export function registerRuntimeConfigNotesRoutes(fastify: FastifyInstance, proje
       return reply.status(500).send({ error: 'Failed to read LLM exchange', message: err instanceof Error ? err.message : String(err) });
     }
   });
-  fastify.get('/api/notes', async (_request, reply) => { try { const notes = getReconciledUnhandledNotesQueue(saivageDir(projectRoot)); return reply.send({ notes, total: notes.length }); } catch (err) { return reply.status(500).send({ error: 'Failed to list notes', message: err instanceof Error ? err.message : String(err) }); } });
-  fastify.post('/api/notes/:id/acknowledge', async (request, reply) => runMutatingRoute({ request, reply, projectRoot, action: 'note.acknowledge', safety_class: 'low', target_kind: 'note', target_id: (request.params as { id: string }).id, mutate: async () => { try { const params = request.params as { id: string }; const noteId = params.id; const cardId = findUnhandledNoteCardId(saivageDir(projectRoot), noteId); if (!cardId) return { ok: false, statusCode: 404, error: 'Note not found', body: { error: 'Note not found', noteId } }; const updated = markNoteHandled(saivageDir(projectRoot), cardId, noteId); return { ok: true, body: { note: updated } }; } catch (err) { const message = err instanceof Error ? err.message : String(err); return { ok: false, statusCode: message.includes('not found') ? 404 : 500, error: message, body: message.includes('not found') ? { error: 'Note not found', noteId: (request.params as { id: string }).id } : { error: 'Failed to acknowledge note', message } }; } } }));
-  fastify.delete('/api/notes/:id', async (request, reply) => runMutatingRoute({ request, reply, projectRoot, action: 'note.delete', safety_class: 'destructive', target_kind: 'note', target_id: (request.params as { id: string }).id, mutate: async () => { try { const params = request.params as { id: string }; const noteId = params.id; const cardId = findUnhandledNoteCardId(saivageDir(projectRoot), noteId); if (!cardId) return { ok: false, statusCode: 404, error: 'Note not found', body: { error: 'Note not found', noteId } }; deleteNote(saivageDir(projectRoot), cardId, noteId); return { ok: true, statusCode: 204, body: undefined }; } catch (err) { const message = err instanceof Error ? err.message : String(err); if (message.includes('not found')) return { ok: false, statusCode: 404, error: message, body: { error: 'Note not found', noteId: (request.params as { id: string }).id } }; if (message.includes('handled')) return { ok: false, statusCode: 400, error: message, body: { error: 'Cannot delete handled note', message } }; return { ok: false, statusCode: 500, error: message, body: { error: 'Failed to delete note', message } }; } } }));
-  fastify.delete('/api/notes', async (request, reply) => runMutatingRoute({ request, reply, projectRoot, action: 'note.clear_all', safety_class: 'destructive', target_kind: 'note', target_id: null, mutate: async () => { try { const queue = getReconciledUnhandledNotesQueue(saivageDir(projectRoot)); const deletedIds: string[] = []; for (const entry of queue) { deleteNote(saivageDir(projectRoot), entry.card_id, entry.note_id); deletedIds.push(entry.note_id); } return { ok: true, body: { deleted: deletedIds.length, noteIds: deletedIds } }; } catch (err) { return { ok: false, statusCode: 500, error: err instanceof Error ? err.message : String(err), body: { error: 'Failed to clear notes', message: err instanceof Error ? err.message : String(err) } }; } } }));
 }
 // Source-anchor preservation: runtime control routes moved to ContractRuntime.

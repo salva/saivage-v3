@@ -1,10 +1,11 @@
 import { randomUUID } from 'node:crypto';
 import { join } from 'node:path';
 import type { CardRecord, CardStatus, ReviewAssessment, ReviewerIssue, ReviewerResult, RuntimeState } from '../schemas/index.js';
+import type { Recipient } from '../notifications/index.js';
 import { decide } from '../permissions/index.js';
 import { CardStore } from '../cards/index.js';
-import { appendNote } from '../cards/index.js';
 import { recordControlAction, stableStringify } from '../persistence/index.js';
+import { queueNotification } from '../notifications/index.js';
 import type { CardMutationContext } from '../cards/index.js';
 
 export type PlannerToolErrorKind =
@@ -231,6 +232,14 @@ export class PlannerToolsService {
     return { success: false, data: { reason: r.reason, message: r.message, current_parent: r.currentParent, attempted_parent: r.attemptedParent } };
   }
 
+  queueNotification(recipient: Recipient, kind: string, body: string, ctx: CardMutationContext & { toolCallId?: string; sessionId?: string }): Record<string, unknown> {
+    const projectRoot = this.projectRoot ?? this.store.projectRoot;
+    queueNotification(projectRoot, recipient, kind, body, { actor: 'planner', surface: 'runtime' });
+    const targetId = recipient.kind === 'card' ? recipient.cardId : recipient.kind === 'role' ? recipient.role : recipient.sessionId;
+    recordControlAction(projectRoot, { actor: 'planner', surface: 'runtime', action: 'notification.queue', target_kind: 'session', target_id: targetId, params_summary: stableStringify({ recipient, kind, toolCallId: ctx.toolCallId, sessionId: ctx.sessionId }), confirmed: true, outcome: 'ok', outcome_summary: kind });
+    return { success: true, data: { queued: true, recipient: targetId } };
+  }
+
   reorderChildren(parentId: string, orderedChildIds: string[], ctx: CardMutationContext & { toolCallId?: string; sessionId?: string }): Record<string, unknown> {
     const r = this.store.reorderChildren(parentId, orderedChildIds, { actor: 'planner', surface: 'runtime', reason: 'planner reorder_child' });
     recordControlAction(this.projectRoot ?? this.store.projectRoot, { actor: 'planner', surface: 'runtime', action: 'card.reorder_child', target_kind: 'card', target_id: parentId, params_summary: stableStringify({ parentId, orderedChildIds, toolCallId: ctx.toolCallId, sessionId: ctx.sessionId }), confirmed: true, outcome: r.ok ? 'ok' : 'error', outcome_summary: r.ok ? 'mutation applied' : 'reorder_set_mismatch', ...(r.ok ? {} : { error: 'reorder_set_mismatch' }) });
@@ -332,10 +341,7 @@ export class PlannerToolsService {
     });
   }
 
-  private appendSyntheticNote(cardId: string, content: string): void {
-    if (!this.projectRoot) return;
-    appendNote(join(this.projectRoot, '.saivage'), cardId, { author: 'runtime', kind: 'directive', content });
-  }
+  private appendSyntheticNote(_cardId: string, _content: string): void { return; }
 
   private writePendingSubtreeCorrectionNotes(originId: string, issues: ReviewerIssue[]): void {
     const body = `pending_subtree_correction from ${originId}: ${issues.map((issue) => issue.summary).join('; ')}`;
