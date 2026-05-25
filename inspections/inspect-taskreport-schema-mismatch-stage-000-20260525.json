@@ -1,0 +1,132 @@
+{
+  "id": "inspect-taskreport-schema-mismatch-stage-000-20260525",
+  "request_id": "inspect-taskreport-schema-mismatch-stage-000-20260525",
+  "role": "inspector",
+  "created_at": "2026-05-25T02:24:00Z",
+  "scope": "/work/saivage-v3/.saivage/stages/000-breakage-detection-harness-fresh-retry-after-node-runtime-fixed-15 and related recent Stage 000 retry/hold summaries",
+  "status": "completed",
+  "executive_summary": "Latest Stage 000 retry recorded three TaskReport schema_mismatch failures in the Manager summary: Coder checklist_results used item/status instead of required description/passed; first Reviewer used invalid status='passed' plus item/status checklist entries; schema-safe Reviewer retry corrected status/checklist entries but still used failure_reason:null where the harness expected a string. The mismatches are reproducible from persisted stage-local reports by validating those exact fields, but the root Node blocker remains independently proven and operator-owned. The safest next stage is a no-probe operator hold until Node >=22.12.0 <23 is actually active; a harness-schema corrective stage may be useful only after/if the Saivage harness code path is made an authorized editable target, because this schema validation appears outside the /work/saivage-v3 product code searched here.",
+  "questions_answered": [
+    {
+      "question": "What exact TaskReport schema_mismatch errors occurred for Coder and Reviewer in the latest Stage 000 retry, and are they reproducible from persisted reports/logs?",
+      "answer": "Three schema_mismatch errors are recorded in the latest Stage 000 retry summary. Coder t1-fresh-prerequisite-probe failed because checklist_results entries lacked required description and passed fields; persisted report entries instead use item plus status, e.g. .saivage/stages/000-breakage-detection-harness-fresh-retry-after-node-runtime-fixed-15/reports/t1-fresh-prerequisite-probe.json lines 13-18. Reviewer t9-review-stage failed because status used invalid enum value 'passed' and checklist_results again used item/status rather than description/passed; persisted report shows status at lines 2-7 and item/status checklist entries at lines 13-18. Reviewer retry t9-review-stage-retry-schema-safe failed because failure_reason was null rather than a string; persisted report shows status='completed' at line 6, failure_reason:null at line 7, and otherwise schema-safe description/passed checklist entries at lines 13-18. These are reproducible from persisted JSON payloads: compare those fields with the Manager summary's recorded expected schema at summary.json lines 57-93. The exact external harness validation logs were not present in the inspected stage directory; the persisted Manager summary and raw report JSONs are sufficient to reproduce the field-level mismatches, but not the original validator stack trace/message object beyond the summary text.",
+      "evidence": [
+        ".saivage/stages/000-breakage-detection-harness-fresh-retry-after-node-runtime-fixed-15/summary.json lines 7-23: Coder marked failed due schema_mismatch in checklist_results.",
+        ".saivage/stages/000-breakage-detection-harness-fresh-retry-after-node-runtime-fixed-15/reports/t1-fresh-prerequisite-probe.json lines 13-18: checklist_results[0] contains item/status, not description/passed.",
+        ".saivage/stages/000-breakage-detection-harness-fresh-retry-after-node-runtime-fixed-15/summary.json lines 57-74: first Reviewer mismatch is invalid status enum and incomplete checklist_results.",
+        ".saivage/stages/000-breakage-detection-harness-fresh-retry-after-node-runtime-fixed-15/reports/t9-review-stage.json lines 2-18: status is passed and checklist uses item/status.",
+        ".saivage/stages/000-breakage-detection-harness-fresh-retry-after-node-runtime-fixed-15/summary.json lines 77-93: Reviewer retry mismatch is failure_reason expected string, received null.",
+        ".saivage/stages/000-breakage-detection-harness-fresh-retry-after-node-runtime-fixed-15/reports/t9-review-stage-retry-schema-safe.json lines 2-18: status completed, failure_reason null, checklist uses description/passed."
+      ]
+    },
+    {
+      "question": "Is the schema_mismatch caused by project/stage instructions, Manager task construction, worker output formatting, or runtime harness serialization outside /work/saivage-v3 product scope?",
+      "answer": "The proximate cause is worker output formatting relative to an external TaskReport validator. Manager task construction is not the cause for the checklist-field mismatch: tasks.json checklist items already use description and required at lines 11-14 and 41-44, so workers had schema-compatible task input but emitted report output with item/status. Project/stage instructions asked workers to record TaskReport serialization capability but did not require item/status or failure_reason:null. Product source search under src/web/scripts found no TaskReport schema definition; repo grep located only project runtime schemas unrelated to these .saivage worker TaskReport envelopes, so the validator that labels these responses schema_mismatch appears to be harness/runtime behavior outside the inspected product code path. The Reviewer retry demonstrates instruction-level mitigation can partially work: it changed checklist entries to description/passed and status to completed, leaving only failure_reason:null. Therefore a Manager can reduce recurrence by constructing stricter task prompts, but the durable fix is in the worker/harness report serializer or validator contract rather than immutable Stage 000 docs.",
+      "evidence": [
+        ".saivage/stages/000-breakage-detection-harness-fresh-retry-after-node-runtime-fixed-15/tasks.json lines 11-14 and 41-44: Manager task checklists use description/required, not item/status.",
+        "reports/t1-fresh-prerequisite-probe.json lines 13-18 and reports/t9-review-stage.json lines 13-18: workers emitted item/status.",
+        "reports/t9-review-stage-retry-schema-safe.json lines 13-18: strict retry emitted description/passed but still failed on failure_reason:null at line 7.",
+        "grep artifact tmp/inspector-workspace/source-schema-grep.stdout.log: product src/ search found validators for cards/reviewer/operator/runtime but no TaskReport envelope validator matching checklist_results/failure_reason.",
+        "Prior related summary .saivage/stages/000-breakage-detection-harness-fresh-retry-after-manager-schema-fix-13/summary.json records the same schema pattern: Coder checklist_results.*.description required and Reviewer invalid status/checklist descriptions."
+      ]
+    },
+    {
+      "question": "Can a corrective stage within the planner/manager scope address the schema_mismatch without editing immutable specs, secrets, provider configs, /opt, service/LXC controls, or unauthorized paths?",
+      "answer": "Partially, yes, but not conclusively as a product-code corrective stage. Within Planner/Manager scope, a corrective stage can avoid immutable/secret/opt/service paths and use stricter task construction: explicitly require worker TaskReport JSON to use status in completed|failed, failure_reason as an empty string or non-empty string never null, checklist_results[].description string, checklist_results[].passed boolean, and no item/status keys. That likely prevents the observed field-level mismatches without editing immutable specs. However, if the actual serializer/validator lives in the v2 harness outside /work/saivage-v3 product scope, a stage limited to this repository cannot fix the root harness behavior. Because the active mission says v2 harness is the only authorized agent making changes inside /work/saivage-v3 and forbids /opt/service/LXC/provider/secrets, any true harness-code fix needs a separately authorized harness-schema corrective stage that identifies the editable harness path and allowed files; otherwise the safe in-repo action is a Manager prompt/TaskList hardening stage only.",
+      "evidence": [
+        "Latest retry summary lines 21-22, 72-73, and 92-93 recommend worker harness/schema handling correction, not Stage 000 spec edits.",
+        "No immutable docs were edited; git_status showed no tracked modifications before this inspection report, and latest retry prerequisite probe recorded targeted product/immutable diffs empty in summary.json lines 139-147.",
+        "No-probe hold stage 000-breakage-detection-harness-node-runtime-hold-13 completed Coder and Reviewer reports without schema_mismatch while avoiding runtime probes/validation, showing Manager prompt/task construction can affect report validity."
+      ]
+    },
+    {
+      "question": "What is the safest next stage: a no-probe operator hold, a harness-schema corrective stage, or another fresh retry after Node is fixed?",
+      "answer": "Safest next stage now is a no-probe operator hold, not another fresh retry and not an unauthorized harness edit. The substantive blocker remains active Node v24.15.0 outside the required >=22.12.0 <23 declared in both package.json and web/package.json. Re-running fresh retries before Node is fixed repeats the same environmental failure and risks recurring schema_mismatch noise. A harness-schema corrective stage is appropriate only if Planner can authorize a scoped, non-secret, non-/opt, non-service path for the report serializer/validator; otherwise it risks violating the scope boundary. Once an operator confirms active Node satisfies >=22.12.0 <23, the next stage should be a fresh Stage 000 prerequisite retry with stricter schema-safe TaskReport instructions.",
+      "evidence": [
+        "package.json lines 6-8 and web/package.json lines 6-8 require node >=22.12.0 <23 and npm >=10 <12.",
+        ".saivage/stages/000-breakage-detection-harness-fresh-retry-after-node-runtime-fixed-15/summary.json lines 106-112 records observed Node v24.15.0, required >=22.12.0 <23, passed false, blocking true.",
+        "Latest hold summary .saivage/stages/000-breakage-detection-harness-node-runtime-hold-13/summary.json records no fresh_probe_this_stage and no validation while preserving the operator action requirement; it completed without the latest retry's schema_mismatch escalation pattern."
+      ]
+    }
+  ],
+  "findings": [
+    {
+      "severity": "high",
+      "title": "Latest Coder and Reviewer schema mismatches are field-shape mismatches in worker TaskReport payloads",
+      "details": "Observed mismatches are specific and localizable: item/status checklist rows where external schema expects description/passed; invalid Reviewer status passed where schema expects completed/failed; and failure_reason:null where schema expects string. The persisted reports are enough to reproduce field-level failures.",
+      "impact": "Worker dispatches can be marked failed even when stage-local artifacts contain useful evidence. This blocks clean Reviewer validation and pollutes Stage 000 escalation summaries, but does not invalidate the independently proven Node prerequisite blocker."
+    },
+    {
+      "severity": "high",
+      "title": "Node runtime remains the substantive Stage 000 blocker",
+      "details": "Fresh Stage 000 retry observed Node v24.15.0 while both root and web package.json require >=22.12.0 <23. Validation was correctly skipped.",
+      "impact": "Stage 000 cannot run baseline regeneration, run-gates.sh, validate-baseline.sh, V.1-V.11, ledger closure, or stage advancement until operator fixes active Node."
+    },
+    {
+      "severity": "medium",
+      "title": "Manager task construction was not the source of the checklist key mismatch",
+      "details": "tasks.json checklists used description/required, but worker reports emitted item/status. The first schema-safe retry shows that prompt hardening can change worker output, but null failure_reason remained.",
+      "impact": "Planner/Manager can mitigate with stricter task prompts, but durable correction likely belongs to worker output serializers or harness TaskReport schema handling."
+    },
+    {
+      "severity": "medium",
+      "title": "The inspected product code does not expose the failing TaskReport validator",
+      "details": "Searches under src/web/scripts found no matching TaskReport envelope schema; observed schema_mismatch is recorded by the surrounding agent harness/runtime. Fixing the actual validator may be outside /work/saivage-v3 product scope unless explicitly authorized.",
+      "impact": "A product-stage corrective task may not be able to fix root serialization/validation behavior and must not touch /opt, provider configs, secrets, or service/LXC controls."
+    }
+  ],
+  "recommendations": [
+    {
+      "priority": 1,
+      "action": "Schedule a no-probe operator hold stage that reads only prior retry evidence, writes a hold artifact/summary, dispatches schema-safe Coder/Reviewer tasks if required, and does not run node/npm probes, validation, repairs, installs, /opt access, service/LXC controls, secret/provider reads, product edits, immutable spec edits, or later-stage activation.",
+      "acceptance_criteria": [
+        "Hold summary states last observed Node v24.15.0 vs required >=22.12.0 <23 from the latest retry evidence.",
+        "No fresh runtime probes or validation commands are run.",
+        "Stage 000 remains incomplete pending operator Node >=22.12.0 <23 plus fresh retry."
+      ]
+    },
+    {
+      "priority": 2,
+      "action": "When constructing any future worker/reviewer task, include an explicit TaskReport output contract: status must be completed or failed; failure_reason must be a string (use empty string for success if nullable values fail); checklist_results entries must contain description:string, required:boolean, passed:boolean, notes:string, and must not use item/status keys.",
+      "acceptance_criteria": [
+        "Future persisted report JSON contains no checklist_results[].item or checklist_results[].status fields.",
+        "Future successful reports use failure_reason as a string rather than null until the harness contract is confirmed to accept null.",
+        "Manager summary records no TaskReport schema_mismatch for Coder or Reviewer."
+      ]
+    },
+    {
+      "priority": 3,
+      "action": "Only after Planner explicitly authorizes the editable harness location, run a harness-schema corrective stage to locate the TaskReport schema/serializer, add a fixture using the three persisted failing payloads from latest Stage 000, and either normalize worker outputs or relax validator compatibility according to the intended contract.",
+      "acceptance_criteria": [
+        "No immutable SPEC/PLAN/stage files, secrets, provider configs, /opt paths, service/LXC controls, or unauthorized workspaces are touched.",
+        "Regression fixtures cover Coder item/status checklist payload, Reviewer status='passed' payload, and Reviewer failure_reason:null payload.",
+        "A dry-run or unit test demonstrates schema-valid TaskReport handling before another fresh Stage 000 retry."
+      ]
+    },
+    {
+      "priority": 4,
+      "action": "After operator confirms active Node >=22.12.0 <23, schedule a fresh Stage 000 prerequisite retry using the authoritative stage plan/cookbook and the stricter TaskReport output contract above before any validation or stage advancement.",
+      "acceptance_criteria": [
+        "Fresh probe records Node in range before validation.",
+        "npm, jq, dependencies, /work/tmp, e2e checker setup, TaskReport serialization, and targeted diffs are rechecked.",
+        "Only then run Stage 000 validation commands exactly as pinned by the validation cookbook."
+      ]
+    }
+  ],
+  "artifacts": {
+    "report": "inspections/inspect-taskreport-schema-mismatch-stage-000-20260525.json",
+    "line_evidence": "tmp/inspector-workspace/line-evidence.stdout.log",
+    "source_schema_grep": "tmp/inspector-workspace/source-schema-grep.stdout.log",
+    "repo_taskreport_grep": "tmp/inspector-workspace/repo-taskreport-grep.stdout.log",
+    "package_engine_lines": "tmp/inspector-workspace/package-engine-lines.stdout.log"
+  },
+  "commands_run": [
+    "ls/read latest Stage 000 retry summary, tasks, reports",
+    "grep -R TaskReport/checklist_results/failure_reason/schema_mismatch in allowed project paths excluding secrets/provider configs",
+    "nl -ba on latest tasks/reports/summary and package manifests for line evidence"
+  ],
+  "limitations": [
+    "No original external harness stack trace or validator log beyond Manager summary text was found in the latest stage directory; exact raw validation errors are therefore reconstructed from summary text plus persisted payload field mismatches.",
+    "I did not inspect /opt, service/LXC state, provider configs, secrets, or external unauthorized workspaces."
+  ]
+}
