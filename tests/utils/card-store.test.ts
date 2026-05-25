@@ -189,6 +189,26 @@ describe('CardStore selective patch behavior', () => {
 describe('ARCH-026 hierarchy graph authority', () => {
 
 
+
+
+  it('keeps version_seq stable for a sibling whose position is unchanged after reorderChildren', () => {
+    const parent = store.create(makeCard({ type: 'goal', title: 'Stable Parent', parent: 'project' }));
+    const first = store.create(makeCard({ type: 'code', title: 'First', parent: parent.id }));
+    const stable = store.create(makeCard({ type: 'code', title: 'Stable', parent: parent.id }));
+    const third = store.create(makeCard({ type: 'code', title: 'Third', parent: parent.id }));
+    const before = store.read(stable.id)!;
+
+    const result = store.reorderChildren(parent.id, [third.id, stable.id, first.id], {
+      actor: 'analyst',
+      surface: 'web-chat',
+      reason: 'test reorder unchanged sibling',
+    });
+
+    expect(result).toEqual({ ok: true, changed: 2 });
+    expect(store.read(stable.id)!.version_seq).toBe(before.version_seq);
+    expect(store.read(stable.id)!.position).toBe(1);
+  });
+
   it('refuses parent changes through mutateCard; bounded moves use moveCard', () => {
     const a = store.create(makeCard({ type: 'goal', title: 'A', parent: 'project' }));
     const b = store.create(makeCard({ type: 'goal', title: 'B', parent: 'project' }));
