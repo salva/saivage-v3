@@ -10,9 +10,11 @@ describe('obsolete backend trigger contracts are removed', () => {
     expect(Object.keys(TOOL_REGISTRY)).not.toContain('lets_dance');
   });
 
-  it('does not expose card mutation contracts', () => {
-    expect('cards.create' in operatorApiContracts).toBe(false);
-    expect('cards.update' in operatorApiContracts).toBe(false);
+  it('does not register cards.create, cards.update, or cards.delete in the operator contract registry', () => {
+    const contractIds = Object.keys(operatorApiContracts);
+    expect(contractIds).not.toContain('cards.create');
+    expect(contractIds).not.toContain('cards.update');
+    expect(contractIds).not.toContain('cards.delete');
   });
 
   it('runtime no longer exposes directive wakeup API', () => {

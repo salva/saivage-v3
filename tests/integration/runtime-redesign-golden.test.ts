@@ -73,9 +73,10 @@ describe('runtime redesign final golden behavior', () => {
     expect('getReadyQueue' in Runtime.prototype).toBe(false);
   });
 
-  it('confirmed and preview_hash are scoped to preview tools, not card mutation gates', () => {
+  it('operator contract registry no longer exposes card mutation entries', () => {
     expect('cards.create' in operatorApiContracts).toBe(false);
     expect('cards.update' in operatorApiContracts).toBe(false);
+    expect('cards.delete' in operatorApiContracts).toBe(false);
   });
 
   it('active docs and prompts teach Runtime Console versus Planning Tree and no obsolete execution ritual remains active', () => {
