@@ -69,8 +69,8 @@
         <!-- Tree View -->
         <CardsTreeView
           v-else-if="activeView === 'tree'"
-          :cards="filteredCards"
-          :tree="cardTree"
+          :cards="orderedFilteredCards"
+          :tree="orderedCardTree"
           :expanded-ids="expandedTreeIds"
           @toggle="toggleTreeNode"
           @select="selectCard"
@@ -219,7 +219,8 @@ const currentCardId = computed<string | null>(() => {
 const cardStore = useCardStore();
 const {
   cards,
-  cardTree,
+  orderedFilteredCards,
+  orderedCardTree,
   board,
   loading,
   error,

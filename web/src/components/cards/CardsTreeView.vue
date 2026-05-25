@@ -103,13 +103,6 @@ const renderedTree = computed<TreeNode[]>(() => {
     }
   }
 
-  // Sort children
-  for (const [, children] of childrenMap) {
-    children.sort((a, b) => {
-      if (a.priority !== b.priority) return b.priority - a.priority;
-      return a.title.localeCompare(b.title);
-    });
-  }
 
   function walk(nodes: CardRecord[], depth: number): void {
     for (const card of nodes) {
@@ -123,11 +116,7 @@ const renderedTree = computed<TreeNode[]>(() => {
     }
   }
 
-  const sortedRoots = [...props.tree].sort((a, b) => {
-    if (a.priority !== b.priority) return b.priority - a.priority;
-    return a.title.localeCompare(b.title);
-  });
-  walk(sortedRoots, 0);
+  walk(props.tree, 0);
 
   return flat;
 });

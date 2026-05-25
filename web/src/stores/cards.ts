@@ -133,8 +133,8 @@ export const useCardStore = defineStore('cards', () => {
   const filterTag = ref<string>('');
   const searchQuery = ref<string>('');
 
-  const filteredCards = computed<CardRecord[]>(() => {
-    let result = cards.value;
+  function applyCardFilters(source: CardRecord[]): CardRecord[] {
+    let result = source;
 
     if (filterStatus.value) result = result.filter((c) => c.status === filterStatus.value);
     if (filterType.value) result = result.filter((c) => c.type === filterType.value);
@@ -148,10 +148,16 @@ export const useCardStore = defineStore('cards', () => {
     }
     if (filterParent.value) result = result.filter((c) => c.parent === filterParent.value);
 
-    return [...result].sort(sortCards);
-  });
+    return result;
+  }
+
+  const filteredCards = computed<CardRecord[]>(() => [...applyCardFilters(cards.value)].sort(sortCards));
+
+  const orderedFilteredCards = computed<CardRecord[]>(() => applyCardFilters(cards.value));
 
   const cardTree = computed<CardRecord[]>(() => buildTree(filteredCards.value));
+
+  const orderedCardTree = computed<CardRecord[]>(() => buildTree(orderedFilteredCards.value));
 
   const board = computed<Map<CardStatus, CardRecord[]>>(() => {
     const columns = new Map<CardStatus, CardRecord[]>();
@@ -521,7 +527,9 @@ export const useCardStore = defineStore('cards', () => {
     filterTag,
     searchQuery,
     filteredCards,
+    orderedFilteredCards,
     cardTree,
+    orderedCardTree,
     board,
     fetchCards,
     fetchCardDetail,
