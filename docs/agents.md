@@ -375,6 +375,8 @@ Card mutation, inspection, and notes:
 
 - `create_card(parent_id, type, title, description, status?, depends_on?, priority?, tags?, acceptance?)`
 - `edit_card(card_id, patch)`
+- `move_card(card_id, new_parent_id)` — bounded to sibling descent or grandparent ascent.
+- `reorder_child(parent_id, ordered_child_ids)` — persists explicit child order within a parent.
 - `cancel_card(card_id)` — see §7.1.
 - `delete_card(card_id)` — see §7.1.
 - `restart_card(card_id)` — see §7.1.
@@ -1111,7 +1113,7 @@ Jest coverage before broader test runs.
 | `analyst` | `diff_card,get_card_history_entry,get_note,list_card_history,list_notes,mark_goal_needs_corrections,mark_note_handled` | `src/agents/role-tool-policy.ts:92` |
 | `card-scoped analyst` | `abort_goal,add_note,create_card,delete_card,diff_card,edit_card,get_card,get_card_history_entry,get_card_output,get_note,get_plan_diary,get_status,get_tree,list_agent_sessions,list_card_history,list_cards,list_directory,list_notes,list_processes_tool,mark_goal_needs_corrections,mark_note_handled,move_card,pause_runtime,read_agent_session,read_control_actions,read_file,read_runtime_errors,read_runtime_events,restart_card,restart_goal,resume_runtime,run_shell_command` | `src/agents/analyst-tool-schemas.ts:21` |
 | `executor` | `diff_card,get_card_history_entry,get_note,kill_process,list_card_history,list_notes,list_project_files,load_skill,mark_note_handled,mcp_tool_call,read_project_file,run_project_command,start_and_wait,wait_for_process,write_project_file` | `src/agents/agent-adapter.ts:125` |
-| `planner` | `activate_card,add_note,cancel_card,create_card,delete_card,diff_card,edit_card,get_card,get_card_history_entry,get_tree,kill_process,list_card_history,list_cards,list_project_files,read_project_file,report_goal_blocked,report_goal_done,report_goal_failed,restart_card,run_project_command,start_and_wait,wait_for_process,write_project_file` | `src/agents/agent-adapter.ts:56` |
+| `planner` | `activate_card,add_note,cancel_card,create_card,delete_card,diff_card,edit_card,get_card,get_card_history_entry,get_tree,kill_process,list_card_history,list_cards,list_project_files,move_card,read_project_file,reorder_child,report_goal_blocked,report_goal_done,report_goal_failed,restart_card,run_project_command,start_and_wait,wait_for_process,write_project_file` | `src/agents/agent-adapter.ts:56` |
 | `reviewer` | `diff_card,get_card_history_entry,get_note,list_card_history,list_notes,list_project_files,load_skill,mark_note_handled,mcp_tool_call,read_project_file` | `src/agents/agent-adapter.ts:126` |
 <!-- saivage:agent-tools:end -->
 
