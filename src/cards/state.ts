@@ -21,6 +21,17 @@ export class CardStoreInvariantError extends Error {
   }
 }
 
+export class ReorderSetMismatchError extends Error {
+  constructor(
+    public readonly parentId: string,
+    public readonly missing: string[],
+    public readonly extra: string[],
+  ) {
+    super(`Reorder child set mismatch for parent '${parentId}': missing=[${missing.join(',')}], extra=[${extra.join(',')}].`);
+    this.name = 'ReorderSetMismatchError';
+  }
+}
+
 const TERMINAL_TYPES: ReadonlySet<CardType> = new Set<CardType>([
   'architecture',
   'code',
@@ -63,6 +74,7 @@ export function cardHistoryPath(projectRoot: string, id: string): string {
 
 export class CardStoreState {
   private readonly _cards = new Map<string, CardRecord>();
+  // Invariant: every array is sorted by each child card's persisted position.
   private readonly _childrenByParent = new Map<string, string[]>();
   private readonly _blocksInverse = new Map<string, string[]>();
   private readonly _depthCache = new Map<string, number>();
@@ -94,6 +106,26 @@ export class CardStoreState {
 
   childrenOf(parentId: string): string[] {
     return [...(this._childrenByParent.get(parentId) ?? [])];
+  }
+
+  reorderChildren(parentId: string, orderedChildIds: string[]): { changed: string[]; nextPositions: Map<string, number> } {
+    const current = this.childrenOf(parentId);
+    const desired = [...orderedChildIds];
+    const currentSet = new Set(current);
+    const desiredSet = new Set(desired);
+    const missing = current.filter((id) => !desiredSet.has(id));
+    const extra = desired.filter((id, index) => !currentSet.has(id) || desired.indexOf(id) !== index);
+    if (missing.length > 0 || extra.length > 0 || desired.length !== desiredSet.size) {
+      throw new ReorderSetMismatchError(parentId, missing, extra);
+    }
+    const nextPositions = new Map<string, number>();
+    const changed: string[] = [];
+    desired.forEach((id, index) => {
+      nextPositions.set(id, index);
+      const card = this._cards.get(id);
+      if (card && card.position !== index) changed.push(id);
+    });
+    return { changed, nextPositions };
   }
 
   descendantsOf(parentId: string): string[] {
@@ -151,11 +183,23 @@ export class CardStoreState {
     this._depthCache.clear();
   }
 
+  private sortChildEdges(parent: string): void {
+    const arr = this._childrenByParent.get(parent);
+    if (!arr) return;
+    arr.sort((a, b) => {
+      const ac = this._cards.get(a);
+      const bc = this._cards.get(b);
+      return (ac?.position ?? 0) - (bc?.position ?? 0) || a.localeCompare(b);
+    });
+    this._childrenByParent.set(parent, arr);
+  }
+
   private addChildEdge(parent: string | null, childId: string): void {
     if (parent === null) return;
     const arr = this._childrenByParent.get(parent) ?? [];
     if (!arr.includes(childId)) arr.push(childId);
     this._childrenByParent.set(parent, arr);
+    this.sortChildEdges(parent);
   }
 
   private removeChildEdge(parent: string | null, childId: string): void {
@@ -164,7 +208,10 @@ export class CardStoreState {
     if (!arr) return;
     const filtered = arr.filter((c) => c !== childId);
     if (filtered.length === 0) this._childrenByParent.delete(parent);
-    else this._childrenByParent.set(parent, filtered);
+    else {
+      this._childrenByParent.set(parent, filtered);
+      this.sortChildEdges(parent);
+    }
   }
 
   private addBlocksEdges(cardId: string, dependsOn: readonly string[]): void {
@@ -430,6 +477,25 @@ export function loadCardStoreState(
     (a, b) => (depthMemo.get(a.id) ?? 0) - (depthMemo.get(b.id) ?? 0),
   );
   for (const card of inDepthOrder) state.upsert(card);
+  const childrenByParent = new Map<string, CardRecord[]>();
+  for (const card of cardsRaw) {
+    if (card.parent === null) {
+      if (card.position !== 0) {
+        throw new CardStoreInvariantError(`Root card '${card.id}' has position ${card.position}, expected 0; recovery hint: 'saivage init'.`);
+      }
+      continue;
+    }
+    const arr = childrenByParent.get(card.parent) ?? [];
+    arr.push(card);
+    childrenByParent.set(card.parent, arr);
+  }
+  for (const [parentId, children] of childrenByParent.entries()) {
+    const positions = children.map((child) => child.position).sort((a, b) => a - b);
+    const contiguous = positions.every((position, index) => position === index);
+    if (!contiguous) {
+      throw new CardStoreInvariantError(`Parent '${parentId}' has non-contiguous child positions: [${positions.join(',')}]; recovery hint: 'saivage init'.`);
+    }
+  }
   // Per-card history contiguity invariant.
   for (const card of cardsRaw) {
     validateCardHistoryInvariant(card.id, card.version_seq, cardHistoryPath(projectRoot, card.id));

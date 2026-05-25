@@ -42,7 +42,7 @@ function runtimeUnavailableError(command: 'start_project' | 'stop_project'): { s
   return { success: false, actionable_error: { code: 'active_runtime_unavailable', message: `Cannot ${command}: ActiveRuntime is not running in this server process.`, nextAction: 'Start the server with runtime creation enabled or retry after runtime startup succeeds.' } };
 }
 
-function inputDefaults(): Omit<CardRecord, 'id' | 'created_at' | 'updated_at' | 'version_seq'> {
+function inputDefaults(): Omit<CardRecord, 'id' | 'created_at' | 'updated_at' | 'version_seq' | 'position'> {
   return { type: 'code', parent: null, depth: 0, title: '', description: '', status: 'backlog', subtype: null, instructions_file: null, tags: [], priority: 0, urgency: 'normal', created_by: 'user', assigned_to: null, depends_on: [], blocks: [], related: [], acceptance: '', result: null, metrics: null, artifacts: [], attachments: [], estimate: null, started_at: null, completed_at: null, duration_ms: null, error: null, retries: 0 };
 }
 
@@ -116,7 +116,8 @@ export function registerOperatorContractRoutes(options: {
       return { ok: true, body: result.state ?? readRuntimeState(projectRoot) };
     } }) as never,
     'cards.list': () => { const cards = store.list().map(withOperatorAllowedActions); return { body: { cards, total: cards.length } }; },
-    'cards.get': ({ params }) => { const id = (params as unknown as { id: string }).id; const card = store.read(id); if (!card) return { statusCode: 404, body: { error: 'Card not found', cardId: id } }; return { body: { card: withOperatorAllowedActions(card), children: store.listChildren(id).map((childId) => store.read(childId)).filter((c): c is CardRecord => c !== null).map(withOperatorAllowedActions), ancestorIds: store.getAncestors(id) } }; },
+    'cards.get': ({ params }) => { const id = (params as unknown as { id: string }).id; const card = store.read(id); if (!card) return { statusCode: 404, body: { error: 'Card not found', cardId: id } }; // children are emitted in persisted position order (S03).
+      return { body: { card: withOperatorAllowedActions(card), children: store.listChildren(id).map((childId) => store.read(childId)).filter((c): c is CardRecord => c !== null).map(withOperatorAllowedActions), ancestorIds: store.getAncestors(id) } }; },
 
     'cards.history.list': ({ params }) => {
       const id = (params as unknown as { id: string }).id;

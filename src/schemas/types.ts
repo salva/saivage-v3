@@ -45,7 +45,7 @@ export interface ArtifactRef { id: string; card_id: string; path: string; type: 
 export interface AttachmentRef { id: string; card_id: string; path: string; mime: string; title: string; description?: string; created_at: string; }
 export interface CardMetadata { max_review_retries?: number; [key: string]: unknown; }
 export interface CardRecord {
-  id: string; type: CardType; parent: string | null; depth: number; title: string; description: string; status: CardStatus; planner_state?: PlannerState; plannerState?: PlannerState;
+  id: string; type: CardType; parent: string | null; depth: number; position: number; title: string; description: string; status: CardStatus; planner_state?: PlannerState; plannerState?: PlannerState;
   subtype?: string | null; instructions_file?: string | null; tags: string[]; priority: number; urgency: Urgency; created_by: CreatedBy;
   created_at: string; updated_at: string; version_seq: number; assigned_to?: string | null; depends_on: string[]; blocks: string[]; related: string[];
   acceptance: string; result?: Record<string, unknown> | null; metrics?: Record<string, number | string | boolean | null> | null;

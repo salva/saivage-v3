@@ -10,7 +10,7 @@ import { getNotes } from '../../src/cards/notes.js';
 
 function makeCard(
   overrides: Partial<CardRecord> & { type: CardRecord['type']; title: string },
-): Omit<CardRecord, 'created_at' | 'updated_at' | 'id' | 'version_seq'> & { id?: string } {
+): Omit<CardRecord, 'created_at' | 'updated_at' | 'id' | 'version_seq' | 'position'> & { id?: string } {
   return {
     parent: 'project',
     depth: 1,

@@ -138,6 +138,16 @@ export class PlannerControlExecutor {
         case 'restart_card':
           result = { success: true, card: plannerTools.restartCard(String(args.cardId ?? '')) };
           break;
+        case 'move_card': {
+          const r = plannerTools.moveCard(String(args.id ?? ''), String(args.newParent ?? ''), { actor: 'planner', surface: 'runtime', toolCallId: invocation.toolCallId, sessionId: invocation.sessionId });
+          result = r;
+          break;
+        }
+        case 'reorder_child': {
+          const r = plannerTools.reorderChildren(String(args.parentId ?? ''), Array.isArray(args.orderedChildIds) ? args.orderedChildIds.map((v) => String(v)) : [], { actor: 'planner', surface: 'runtime', toolCallId: invocation.toolCallId, sessionId: invocation.sessionId });
+          result = r;
+          break;
+        }
         case 'report_goal_done':
         case 'report_goal_failed':
         case 'report_goal_blocked':

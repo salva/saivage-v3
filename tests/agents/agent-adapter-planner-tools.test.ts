@@ -33,7 +33,7 @@ function createMinimalAdapter(tmpDir: string): AgentAdapter {
   });
 }
 
-function makeCard(overrides: Partial<CardRecord> & { type: CardRecord['type']; title: string }): Omit<CardRecord, 'created_at' | 'updated_at' | 'id' | 'version_seq'> & { id?: string } {
+function makeCard(overrides: Partial<CardRecord> & { type: CardRecord['type']; title: string }): Omit<CardRecord, 'created_at' | 'updated_at' | 'id' | 'version_seq' | 'position'> & { id?: string } {
   return { parent: 'project', depth: 1, description: '', status: 'backlog', subtype: null, instructions_file: null, tags: [], priority: 0, urgency: 'normal', created_by: 'planner', assigned_to: null, depends_on: [], blocks: [], related: [], acceptance: '', result: null, metrics: null, artifacts: [], attachments: [], estimate: null, started_at: null, completed_at: null, duration_ms: null, error: null, status_text: null, status_text_updated_at: null, status_text_author_session_id: null, latest_self_report: null, retries: 0, ...overrides };
 }
 
@@ -96,7 +96,7 @@ describe('AgentAdapter planner tool surface', () => {
   it('keeps the exported planner tool definition order stable for prompt reproducibility', () => {
     const toolNames = adapter.getToolNamesForRole('planner');
     expect(toolNames).toEqual([
-      'create_card', 'edit_card', 'add_note', 'list_cards', 'get_card', 'get_tree',
+      'create_card', 'edit_card', 'move_card', 'reorder_child', 'add_note', 'list_cards', 'get_card', 'get_tree',
       'list_card_history', 'get_card_history_entry', 'diff_card',
       'list_project_files', 'read_project_file', 'write_project_file', 'wait_for_process',
       'kill_process', 'start_and_wait', 'run_project_command',

@@ -4,6 +4,8 @@ import type { CardRecord, CardStatus, ReviewAssessment, ReviewerIssue, ReviewerR
 import { decide } from '../permissions/index.js';
 import { CardStore } from '../cards/index.js';
 import { appendNote } from '../cards/index.js';
+import { recordControlAction, stableStringify } from '../persistence/index.js';
+import type { CardMutationContext } from '../cards/index.js';
 
 export type PlannerToolErrorKind =
   | 'subtree_not_ready'
@@ -219,6 +221,21 @@ export class PlannerToolsService {
     }
     this.store.update(cardId, changes);
     return this.store.update(cardId, { status: 'active' });
+  }
+
+
+  moveCard(id: string, newParent: string, ctx: CardMutationContext & { toolCallId?: string; sessionId?: string }): Record<string, unknown> {
+    const r = this.store.moveCard(id, newParent, { actor: 'planner', surface: 'runtime', reason: 'planner move_card' });
+    recordControlAction(this.projectRoot ?? this.store.projectRoot, { actor: 'planner', surface: 'runtime', action: 'card.move', target_kind: 'card', target_id: id, params_summary: stableStringify({ id, newParent, toolCallId: ctx.toolCallId, sessionId: ctx.sessionId }), confirmed: true, outcome: r.ok ? 'ok' : 'error', outcome_summary: r.ok ? 'mutation applied' : r.message, ...(r.ok ? {} : { error: r.message }) });
+    if (r.ok) return { success: true, data: r.data };
+    return { success: false, data: { reason: r.reason, message: r.message, current_parent: r.currentParent, attempted_parent: r.attemptedParent } };
+  }
+
+  reorderChildren(parentId: string, orderedChildIds: string[], ctx: CardMutationContext & { toolCallId?: string; sessionId?: string }): Record<string, unknown> {
+    const r = this.store.reorderChildren(parentId, orderedChildIds, { actor: 'planner', surface: 'runtime', reason: 'planner reorder_child' });
+    recordControlAction(this.projectRoot ?? this.store.projectRoot, { actor: 'planner', surface: 'runtime', action: 'card.reorder_child', target_kind: 'card', target_id: parentId, params_summary: stableStringify({ parentId, orderedChildIds, toolCallId: ctx.toolCallId, sessionId: ctx.sessionId }), confirmed: true, outcome: r.ok ? 'ok' : 'error', outcome_summary: r.ok ? 'mutation applied' : 'reorder_set_mismatch', ...(r.ok ? {} : { error: 'reorder_set_mismatch' }) });
+    if (r.ok) return { success: true, data: { parent_id: parentId, changed: r.changed } };
+    return { success: false, data: { reason: 'reorder_set_mismatch', missing: r.missing, extra: r.extra, parent_id: parentId } };
   }
 
   reportGoal(toolName: keyof typeof REPORTABLE_OUTCOMES, goalId: string, input: ReportGoalInput, sessionId?: string): ReportGoalResult {

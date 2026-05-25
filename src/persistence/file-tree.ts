@@ -46,6 +46,7 @@ function defaultProjectCard(): CardRecord {
     type: 'project',
     parent: null,
     depth: 0,
+    position: 0,
     title: 'project',
     description: '',
     status: 'backlog',

@@ -16,7 +16,7 @@ import type { CardRecord } from '../../src/schemas/types.js';
 
 function makeCard(
   overrides: Partial<CardRecord> & { type: string },
-): Omit<CardRecord, 'created_at' | 'updated_at' | 'id'> & { id?: string } {
+): Omit<CardRecord, 'created_at' | 'updated_at' | 'id' | 'position'> & { id?: string } {
   const defaults: Record<string, unknown> = {
     parent: 'project',
     depth: 1,
@@ -52,7 +52,7 @@ function makeCard(
   return {
     ...defaults,
     ...overrides,
-  } as Omit<CardRecord, 'created_at' | 'updated_at' | 'id'> & { id?: string };
+  } as Omit<CardRecord, 'created_at' | 'updated_at' | 'id' | 'position'> & { id?: string };
 }
 
 let tmpDir: string;
@@ -189,21 +189,23 @@ describe('CardStore selective patch behavior', () => {
 describe('ARCH-026 hierarchy graph authority', () => {
 
 
-  it('keeps graph reads correct after create-then-reparent', () => {
+  it('refuses parent changes through mutateCard; bounded moves use moveCard', () => {
     const a = store.create(makeCard({ type: 'goal', title: 'A', parent: 'project' }));
     const b = store.create(makeCard({ type: 'goal', title: 'B', parent: 'project' }));
     const child = store.create(makeCard({ type: 'code', title: 'Child', parent: a.id }));
 
-    store.mutateCard(
+    expect(() => store.mutateCard(
       child.id,
       { parent: b.id },
       { actor: 'analyst', surface: 'web-chat', reason: 'test reparent' },
-    );
+    )).toThrow(new RegExp('parent.*cannot be changed via update/mutateCard', 'i'));
 
-    expect(store.read(child.id)?.parent).toBe(b.id);
-    expect(store.listChildren(a.id)).not.toContain(child.id);
-    expect(store.listChildren(b.id)).toContain(child.id);
-    expect(store.getDescendantIds(a.id)).not.toContain(child.id);
+    const moved = store.moveCard(a.id, b.id, { actor: 'analyst', surface: 'web-chat', reason: 'test bounded move' });
+    expect(moved.ok).toBe(true);
+    expect(store.read(a.id)?.parent).toBe(b.id);
+    expect(store.listChildren('project')).not.toContain(a.id);
+    expect(store.listChildren(b.id)).toContain(a.id);
+    expect(store.getDescendantIds(b.id)).toContain(child.id);
   });
 
   it('ignores stale boot-time children snapshots and uses by-id authority', () => {
