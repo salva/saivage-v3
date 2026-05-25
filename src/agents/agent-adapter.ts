@@ -57,7 +57,6 @@ function tool(name: string, description: string, properties: Record<string, unkn
 const PLANNER_CARD_TOOL_NAMES = new Set([
   'create_card',
   'edit_card',
-  'add_note',
   'list_cards',
   'get_card',
   'get_tree',
@@ -72,7 +71,6 @@ const AUTHORITATIVE_PLANNER_TOOL_NAMES = [
   'cancel_card',
   'delete_card',
   'restart_card',
-  'add_note',
   'list_cards',
   'get_card',
   'get_tree',
@@ -324,7 +322,7 @@ export class AgentAdapter implements AgentRuntime {
 
   private formatNotificationGuidance(notification: NotificationRecord): string {
     const related = [notification.related_card_id ? `card=${notification.related_card_id}` : null, notification.related_note_id ? `note=${notification.related_note_id}` : null, notification.related_process_id ? `process=${notification.related_process_id}` : null, notification.related_version_seq ? `version=${notification.related_version_seq}` : null].filter(Boolean).join(', ');
-    return `- [${notification.kind}] severity=${notification.severity} ${notification.payload_summary}${related ? ` (${related})` : ''}. Use list_card_history/get_card_history_entry/diff_card/list_notes/get_note as needed, then continue with the requested work after incorporating the update.`;
+    return `- [${notification.kind}] severity=${notification.severity} ${notification.payload_summary}${related ? ` (${related})` : ''}. Use list_card_history/get_card_history_entry/diff_card as needed, then continue with the requested work after incorporating the update.`;
   }
 
   private buildNotificationInjectionMessage(notifications: NotificationRecord[], sessionId: string): AgentMessage { const lines = ['## Operator updates since your last turn', '', ...notifications.map((notification) => this.formatNotificationGuidance(notification))]; return { id: `msg-${sessionId}-notification-injection`, session_id: sessionId, role: 'user', kind: 'text', content: lines.join('\n'), timestamp: new Date().toISOString() }; }

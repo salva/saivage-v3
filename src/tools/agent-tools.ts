@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
+import { ANALYST_TOOL_DEFINITIONS } from '../agents/analyst-tool-schemas.js';
 import {
-  ANALYST_TOOL_DEFINITIONS,
   create_card,
   diff_card,
   edit_card,
@@ -25,7 +25,7 @@ import {
   terminate_process,
   type ToolContext,
   type ToolResult,
-} from '../agents/index.js';
+} from '../agents/analyst-tools.js';
 import type { CardAction, CardState, PermissionRole } from '../permissions/index.js';
 import { defineTool, type JsonSchemaObject, type ToolDefinition } from './runtime.js';
 

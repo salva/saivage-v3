@@ -155,7 +155,7 @@ export function markDescendantChanged(projectRoot: string, affectedCardId: strin
  *
  * This is the minimal wakeup signal for two kinds of analyst actions that
  * otherwise would be invisible to the planner until something else happened:
- *   - `add_note` with kind 'directive' or 'escalation' on a goal/project card
+ *   - analyst-authored correction/directive updates on a goal/project card
  *   - `edit_card` that mutates tracked fields (title, description, acceptance,
  *     depends_on, etc.) on any card under a planner subtree
  *

@@ -106,7 +106,7 @@
     "vitepress": "^1.6.4"
   },
   "jest": {
-    "preset": "ts-jest/presets/default-esm",
+    "preset": "ts-jest",
     "testEnvironment": "node",
     "roots": [
       "<rootDir>/tests"
@@ -118,19 +118,24 @@
       "^.+\\.tsx?$": [
         "ts-jest",
         {
-          "useESM": true
+          "tsconfig": {
+            "module": "CommonJS",
+            "moduleResolution": "Node",
+            "isolatedModules": true
+          }
         }
       ],
       "^.+\\.js$": [
         "ts-jest",
         {
-          "useESM": true
+          "tsconfig": {
+            "module": "CommonJS",
+            "moduleResolution": "Node",
+            "isolatedModules": true
+          }
         }
       ]
     },
-    "extensionsToTreatAsEsm": [
-      ".ts"
-    ],
     "testPathIgnorePatterns": [
       "<rootDir>/tests/playwright/"
     ]
