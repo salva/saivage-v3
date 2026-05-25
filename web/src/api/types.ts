@@ -47,6 +47,7 @@ export interface CardRecord {
   id: string;
   type: CardType;
   parent: string | null;
+  position?: number;
   depth: number;
   title: string;
   description: string;
@@ -379,11 +380,6 @@ export interface ProcessView {
   control: ProcessControlAvailability;
 }
 
-export interface ProcessTerminateResponse {
-  process: ProcessView;
-  terminated: boolean;
-  message: string;
-}
 
 export type AgentRole = 'analyst' | 'planner' | 'executor' | 'reviewer' | 'content_supervisor';
 export type AgentStatus = 'active' | 'waiting' | 'inactive' | 'done' | 'blocked' | 'failed';
@@ -508,12 +504,6 @@ export interface RuntimeSummary {
   lastCommand: RuntimeCommandRecord | null;
 }
 
-export interface RuntimeCommandResponse {
-  success: true;
-  command: RuntimeCommandRecord;
-  intent: RuntimeIntent;
-  run?: RuntimeRunRecord;
-}
 
 export interface RuntimeCommandErrorResponse {
   success: false;
@@ -759,20 +749,7 @@ export interface FreshnessState {
   isStale: boolean;
 }
 
-export interface FreezeResponse {
-  status: string;
-  freeze_id: string;
-  reason: string;
-  created_at: string;
-}
 
-export interface ResumeFromFreezeResponse {
-  status: string;
-  freeze_id: string;
-  restored_queue: string[];
-  restored_processes: string[];
-  restored_card_id: string | null;
-}
 
 export interface CardListResponse { cards: CardRecord[]; total: number; }
 export interface CardDetailResponse {
@@ -785,8 +762,6 @@ export interface CardDetailResponse {
   planning: CardPlanningSummary | null;
   dispatches: DispatchSummary;
 }
-export interface CardCreateResponse { card: CardRecord; }
-export interface CardUpdateResponse { card: CardRecord; }
 export interface CardHistoryListResponse { history: CardHistoryHeader[]; total: number; }
 export interface CardHistoryEntryResponse { entry: CardHistoryEntry; }
 export interface CardDiffResponse { diff: CardDiffRow[]; from: number; to: number; card_id: string; }
@@ -796,9 +771,7 @@ export interface ProvidersResponse { providers: Record<string, ProviderEntry>; w
 export interface AgentConversationResponse { session: AgentSession; messages: AgentMessage[]; }
 export interface AgentSessionsResponse { sessions: AgentSession[]; }
 export interface NotesListResponse { notes: NoteQueueEntry[]; total: number; }
-export interface NotesClearResponse { deleted: number; noteIds: string[]; }
 export interface NotificationsListResponse { notifications: NotificationRecord[]; total: number; }
-export interface NotificationAcknowledgeResponse { notification: NotificationRecord; }
 export interface ControlActionsListResponse { control_actions: ControlActionAuditEntry[]; total: number; }
 export interface ChatSessionsResponse { sessions: ChatSession[]; }
 export interface ChatMessagesResponse { sessionId: string; messages: ChatMessage[]; }
@@ -813,48 +786,5 @@ export interface DebugTimelineResponse { events: DebugTimelineEvent[]; total: nu
 export interface ProcessListResponse { processes: ProcessView[]; }
 export interface ProcessDetailResponse { process: ProcessView; }
 
-export interface CreateCardPayload {
-  type: CardType;
-  parent?: string | null;
-  title: string;
-  description?: string;
-  status?: CardStatus;
-  tags?: string[];
-  priority?: number;
-  urgency?: CardUrgency;
-  created_by?: CardCreator;
-  depends_on?: string[];
-  related?: string[];
-  acceptance?: string;
-  result?: Record<string, unknown>;
-  metrics?: Record<string, string | number | boolean | null>;
-  estimate?: string;
-  error?: string;
-  retries?: number;
-  subtype?: string;
-  assigned_to?: string;
-  instructions_file?: string;
-}
 
-export interface UpdateCardPayload {
-  title?: string;
-  description?: string;
-  status?: CardStatus;
-  tags?: string[];
-  priority?: number;
-  urgency?: CardUrgency;
-  acceptance?: string;
-  result?: Record<string, unknown> | null;
-  metrics?: Record<string, string | number | boolean | null> | null;
-  depends_on?: string[];
-  related?: string[];
-  estimate?: string | null;
-  error?: string | null;
-  retries?: number;
-  parent?: string | null;
-  assigned_to?: string | null;
-  type?: CardType;
-  subtype?: string | null;
-  instructions_file?: string | null;
-}
 

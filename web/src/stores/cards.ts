@@ -10,8 +10,6 @@ import type {
   CardStatus,
   CardListResponse,
   CardDetailResponse,
-  CreateCardPayload,
-  UpdateCardPayload,
   CardEvidence,
   CardLifecycleSummary,
   CardReviewSummary,
@@ -26,9 +24,6 @@ import type {
 import {
   listCards,
   getCard,
-  createCard,
-  updateCard,
-  deleteCard,
   listCardHistory,
   getCardHistoryEntry,
   getCardDiff,
@@ -236,6 +231,22 @@ export const useCardStore = defineStore('cards', () => {
     setCardStaleNotification(cardId, false);
   }
 
+
+  function isStale(cardId: string): boolean {
+    return staleNotificationByCard.value[cardId] === true;
+  }
+
+  function childrenOf(parentId: string): CardRecord[] {
+    return cards.value.filter((c) => c.parent === parentId)
+      .slice()
+      .sort((a, b) => {
+        const pa = a.position ?? Number.POSITIVE_INFINITY;
+        const pb = b.position ?? Number.POSITIVE_INFINITY;
+        if (pa !== pb) return pa - pb;
+        return a.id.localeCompare(b.id);
+      });
+  }
+
   function safeBackgroundRefresh(genAtStart: number): void {
     const params: { status?: string; type?: string; parent?: string; tag?: string } = {};
     if (filterStatus.value) params.status = filterStatus.value;
@@ -359,60 +370,6 @@ export const useCardStore = defineStore('cards', () => {
     }
   }
 
-  async function addCard(payload: CreateCardPayload): Promise<CardRecord> {
-    error.value = null;
-    try {
-      const response = await createCard(payload);
-      cards.value = [response.card, ...cards.value];
-      total.value++;
-      return response.card;
-    } catch (err) {
-      const msg = errorMessage(err, 'Failed to create card');
-      error.value = msg;
-      log.error('addCard', msg);
-      throw err;
-    }
-  }
-
-  async function editCard(id: string, payload: UpdateCardPayload): Promise<CardRecord> {
-    error.value = null;
-    try {
-      const response = await updateCard(id, payload);
-      const idx = cards.value.findIndex((c) => c.id === id);
-      if (idx !== -1) cards.value[idx] = response.card;
-      if (currentCard.value?.id === id) currentCard.value = response.card;
-      clearCurrentCardStaleNotification(id);
-      return response.card;
-    } catch (err) {
-      const msg = errorMessage(err, 'Failed to update card');
-      error.value = msg;
-      log.error('editCard', msg);
-      throw err;
-    } finally {
-      if (currentCard.value?.id === id) {
-        clearCurrentCardStaleNotification(id);
-      }
-    }
-  }
-
-  async function removeCard(id: string): Promise<void> {
-    error.value = null;
-    try {
-      await deleteCard(id);
-      const beforeLen = cards.value.length;
-      cards.value = cards.value.filter((c) => c.id !== id && c.parent !== id);
-      const removedCount = beforeLen - cards.value.length;
-      total.value = Math.max(0, total.value - removedCount);
-      if (currentCard.value?.id === id) {
-        clearCurrentDetail();
-      }
-    } catch (err) {
-      const msg = errorMessage(err, 'Failed to delete card');
-      error.value = msg;
-      log.error('removeCard', msg);
-      throw err;
-    }
-  }
 
   async function applyFilters(): Promise<void> {
     await fetchCards({
@@ -485,11 +442,6 @@ export const useCardStore = defineStore('cards', () => {
         if (relatedCardId) {
           setCardStaleNotification(relatedCardId, true);
         }
-      } else if (event === 'notification_acknowledged') {
-        const relatedCardId = (content.related_card_id as string | undefined) ?? null;
-        if (relatedCardId) {
-          setCardStaleNotification(relatedCardId, false);
-        }
       }
     });
   }
@@ -531,14 +483,13 @@ export const useCardStore = defineStore('cards', () => {
     cardTree,
     orderedCardTree,
     board,
+    isStale,
+    childrenOf,
     fetchCards,
     fetchCardDetail,
     fetchCardHistoryForCard,
     selectCardHistoryVersion,
     refreshCardHistory,
-    addCard,
-    editCard,
-    removeCard,
     applyFilters,
     clearFilters,
     setupWsListener,

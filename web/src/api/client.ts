@@ -9,19 +9,12 @@
 import type {
   CardListResponse,
   CardDetailResponse,
-  CardCreateResponse,
-  CardUpdateResponse,
-  CreateCardPayload,
-  UpdateCardPayload,
   RuntimeStateResponse,
-  RuntimeCommandResponse,
   ConfigResponse,
   ProvidersResponse,
   AgentConversationResponse,
   AgentSessionsResponse,
   NotesListResponse,
-  NotesClearResponse,
-  NoteRecord,
   ChatSessionsResponse,
   ChatMessagesResponse,
   ChatResponse,
@@ -33,16 +26,12 @@ import type {
   DoctorResponse,
   SupervisionResponse,
   McpToolsResponse,
-  FreezeResponse,
-  ResumeFromFreezeResponse,
   ProcessListResponse,
   ProcessDetailResponse,
-  ProcessTerminateResponse,
   CardHistoryListResponse,
   CardHistoryEntryResponse,
   CardDiffResponse,
   NotificationsListResponse,
-  NotificationAcknowledgeResponse,
   ControlActionsListResponse,
 } from './types';
 import { getAuthToken } from './auth';
@@ -195,45 +184,18 @@ export function getCardDiff(id: string, from: number, to: number): Promise<CardD
   });
 }
 
-export function createCard(payload: CreateCardPayload): Promise<CardCreateResponse> {
-  return operatorRequest('cards.create', 'POST', '/api/cards', undefined, payload) as unknown as Promise<CardCreateResponse>;
-}
 
-export function updateCard(id: string, payload: UpdateCardPayload): Promise<CardUpdateResponse> {
-  return operatorRequest('cards.update', 'PATCH', `/api/cards/${encodeURIComponent(id)}`, undefined, payload) as unknown as Promise<CardUpdateResponse>;
-}
 
-export function deleteCard(id: string): Promise<void> {
-  return request<void>('DELETE', `/api/cards/${encodeURIComponent(id)}`);
-}
 
 export function getRuntimeState(): Promise<RuntimeStateResponse> {
   return operatorRequest('runtime.getState', 'GET', '/api/state') as unknown as Promise<RuntimeStateResponse>;
 }
 
-export function startProject(): Promise<RuntimeCommandResponse> {
-  return operatorRequest('runtime.startProject', 'POST', '/api/runtime/start_project', undefined, {}) as unknown as Promise<RuntimeCommandResponse>;
-}
 
-export function stopProject(): Promise<RuntimeCommandResponse> {
-  return operatorRequest('runtime.stopProject', 'POST', '/api/runtime/stop_project', undefined, {}) as unknown as Promise<RuntimeCommandResponse>;
-}
 
-export function pauseRuntime(): Promise<RuntimeState> {
-  return operatorRequest('runtime.pause', 'POST', '/api/runtime/pause') as unknown as Promise<RuntimeState>;
-}
 
-export function resumeRuntime(): Promise<RuntimeState> {
-  return operatorRequest('runtime.resume', 'POST', '/api/runtime/resume') as unknown as Promise<RuntimeState>;
-}
 
-export function freezeRuntime(reason?: string): Promise<FreezeResponse> {
-  return request<FreezeResponse>('POST', '/api/runtime/freeze', undefined, reason ? { reason } : {});
-}
 
-export function resumeRuntimeFromFreeze(): Promise<ResumeFromFreezeResponse> {
-  return request<ResumeFromFreezeResponse>('POST', '/api/runtime/resume-from-freeze');
-}
 
 export function listAgentSessions(): Promise<AgentSessionsResponse> {
   return request<AgentSessionsResponse>('GET', '/api/agents');
@@ -259,25 +221,13 @@ export function listNotes(): Promise<NotesListResponse> {
   return request<NotesListResponse>('GET', '/api/notes');
 }
 
-export function acknowledgeNote(noteId: string): Promise<{ note: NoteRecord }> {
-  return request<{ note: NoteRecord }>('POST', `/api/notes/${encodeURIComponent(noteId)}/acknowledge`);
-}
 
-export function deleteNote(noteId: string): Promise<void> {
-  return request<void>('DELETE', `/api/notes/${encodeURIComponent(noteId)}`);
-}
 
-export function clearAllNotes(): Promise<NotesClearResponse> {
-  return request<NotesClearResponse>('DELETE', '/api/notes');
-}
 
 export function listNotifications(): Promise<NotificationsListResponse> {
   return request<NotificationsListResponse>('GET', '/api/notifications');
 }
 
-export function acknowledgeNotification(notificationId: string): Promise<NotificationAcknowledgeResponse> {
-  return request<NotificationAcknowledgeResponse>('POST', `/api/notifications/${encodeURIComponent(notificationId)}/acknowledge`);
-}
 
 export function listControlActions(query?: { card_id?: string; since?: string }): Promise<ControlActionsListResponse> {
   return request<ControlActionsListResponse>('GET', '/api/control-actions', query as Record<string, string> | undefined);
@@ -311,9 +261,6 @@ export function getProcess(processId: string): Promise<ProcessDetailResponse> {
   return request<ProcessDetailResponse>('GET', `/api/processes/${encodeURIComponent(processId)}`);
 }
 
-export function terminateProcess(processId: string): Promise<ProcessTerminateResponse> {
-  return request<ProcessTerminateResponse>('POST', `/api/processes/${encodeURIComponent(processId)}/terminate`);
-}
 
 export function getDebugState(): Promise<DebugStateResponse> {
   return request<DebugStateResponse>('GET', '/api/debug/state');

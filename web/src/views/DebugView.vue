@@ -55,6 +55,14 @@
                 <span class="dc-status" :class="'s-' + card.status">{{ card.status }}</span>
                 <span class="dc-priority">P{{ card.priority }}</span>
                 <span v-if="card.depends_on.length" class="dc-deps">{{ card.depends_on.length }}</span>
+                <section class="card-children-section" data-testid="debug-view-card-children" v-if="cardsStore.childrenOf(card.id).length > 0">
+                  <ul data-testid="debug-card-children-list">
+                    <li v-for="child in cardsStore.childrenOf(card.id)" :key="child.id" data-testid="debug-card-children-item">
+                      <span class="title">{{ child.title }}</span>
+                      <span class="status">{{ child.status }}</span>
+                    </li>
+                  </ul>
+                </section>
               </div>
             </div>
             <div v-if="debugCards.length === 0" class="debug-empty">No cards.</div>
@@ -122,7 +130,6 @@
           </div>
         </section>
 
-        <NotificationsPanel />
 
         <section class="debug-section">
           <div class="debug-section-header operator-header">
@@ -134,46 +141,6 @@
           <div class="debug-empty">Open Dashboard → Runtime Console for command errors, activation failures, and recovery state.</div>
         </section>
 
-        <section class="debug-section">
-          <div class="debug-section-header operator-header">
-            <div>
-              <h4 class="debug-section-title">Operator Notes ({{ operatorNotesTotal }})</h4>
-              <p class="operator-subtitle">Inspect current unhandled notes and acknowledge or delete them through the notes API.</p>
-            </div>
-            <div class="operator-actions-inline">
-              <button class="sv-fetch-btn" :disabled="operatorPanelBusy" @click="refreshNotes">Refresh</button>
-              <button class="sv-fetch-btn operator-danger-button" :disabled="clearNotesDisabled" @click="confirmClearNotes">{{ operatorClearLoading ? 'Clearing...' : 'Clear all' }}</button>
-            </div>
-          </div>
-
-          <div v-if="operatorNotesLoading && operatorNotesTotal === 0" class="debug-loading">Loading operator notes...</div>
-          <div v-else-if="operatorNotesError && operatorNotesTotal === 0" class="debug-error">{{ operatorNotesError }}</div>
-          <div v-else-if="operatorNotes.length === 0" class="debug-empty">No unhandled operator notes.</div>
-          <div v-else class="operator-notes-list">
-            <article v-for="entry in operatorNotes" :key="entry.note_id" class="operator-note-card">
-              <div class="operator-note-header">
-                <span class="operator-note-kind">{{ entry.kind }}</span>
-                <span class="operator-note-author">{{ entry.note?.author || 'unknown author' }}</span>
-                <span class="operator-note-time">{{ fmtDate(entry.timestamp) }}</span>
-              </div>
-              <div class="operator-note-body">
-                {{ entry.note?.content || 'Note details unavailable after reconciliation. Refresh notes.' }}
-              </div>
-              <div class="operator-note-meta">
-                <span class="mono">Card {{ entry.card_id }}</span>
-                <span class="mono">Note {{ entry.note_id }}</span>
-              </div>
-              <div class="operator-note-actions">
-                <button class="operator-button" :disabled="noteButtonsDisabled(entry.note_id)" :aria-label="`Acknowledge note ${entry.note_id}`" @click="debugStore.acknowledgeOperatorNote(entry.note_id)">
-                  {{ operatorNoteActionLoading[entry.note_id] === 'acknowledge' ? 'Acknowledging...' : 'Acknowledge' }}
-                </button>
-                <button class="operator-button operator-danger-button" :disabled="noteButtonsDisabled(entry.note_id)" :aria-label="`Delete note ${entry.note_id}`" @click="debugStore.deleteOperatorNote(entry.note_id)">
-                  {{ operatorNoteActionLoading[entry.note_id] === 'delete' ? 'Deleting...' : 'Delete' }}
-                </button>
-              </div>
-            </article>
-          </div>
-        </section>
       </div>
 
       <div v-if="localActiveTab === 'errors'" class="debug-tab-content">
@@ -333,12 +300,7 @@
               </div>
             </div>
 
-            <div class="process-controls">
-              <button v-if="showTerminateButton(proc)" class="operator-button operator-danger-button" :disabled="Boolean(processTerminateLoading[proc.id]) || processUnauthorized" :aria-label="`Terminate live-attached process ${proc.id}`" @click="confirmTerminateProcess(proc.id)">
-                {{ processTerminateLoading[proc.id] ? 'Terminating...' : 'Terminate process' }}
-              </button>
-              <div v-else class="process-empty-note">{{ terminateUnavailableCopy(proc) }}</div>
-            </div>
+
           </div>
         </div>
       </div>
@@ -379,15 +341,16 @@ import { computed, onMounted, onUnmounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { storeToRefs } from 'pinia';
 import { useDebugStore } from '../stores/debug';
+import { useCardStore } from '../stores/cards';
 import { formatTimestamp, isRecentTimestamp } from '../utils/timestamp';
 import { redactObservabilityValue } from '../utils/observabilityRedaction';
 import { useMcpStore } from '../stores/mcp';
 import { formatJson } from '../utils/format-json';
 import CodeBlock from '../components/code/CodeBlock.vue';
 import type { DebugError, DebugTimelineEvent, ProcessView } from '../api/types';
-import NotificationsPanel from '../components/cards/NotificationsPanel.vue';
 
 const debugStore = useDebugStore();
+const cardsStore = useCardStore();
 const mcpStore = useMcpStore();
 const router = useRouter();
 const {
@@ -395,14 +358,11 @@ const {
   errors, errorsTotal, errorsBySource,
   sortedTimeline, loading, error,
   processes, processesLoading, processesError,
-  processTerminateLoading, processControlError, processControlSuccess, processUnauthorized, processStale,
+  processControlError, processControlSuccess, processUnauthorized, processStale,
   doctorStatus, doctorChecks, doctorIssues, doctorLoading, doctorError,
   supervisionReviews, supervisionQuarantine, supervisionStats,
   supervisionLoading, supervisionError,
-  operatorNotes, operatorNotesTotal, operatorNotesLoading, operatorNotesError,
-  runtimeControlLoading, runtimeControlError, runtimeControlSuccess,
-  operatorNoteActionLoading, operatorClearLoading, operatorLastFetchedAt,
-  operatorStale, operatorUnauthorized, operatorPartialWarning, operatorDataFreshnessLabel,
+  operatorLastFetchedAt, operatorUnauthorized, runtimeControlError, runtimeControlSuccess, operatorDataFreshnessLabel,
 } = storeToRefs(debugStore);
 
 type TabId = 'state' | 'operator' | 'errors' | 'timeline' | 'mcp' | 'processes' | 'supervision';
@@ -420,24 +380,14 @@ const localActiveTab = ref<TabId>('state');
 const runtimeStatusLabel = computed(() => !debugRuntime.value ? 'Unavailable' : debugRuntime.value.status === 'frozen' ? 'Frozen' : debugRuntime.value.status === 'paused' ? 'Paused' : debugRuntime.value.status === 'running' ? 'Running' : debugRuntime.value.status === 'idle' ? 'Idle' : 'Error');
 const runtimeStatusTone = computed(() => !debugRuntime.value ? 'unavailable' : debugRuntime.value.status);
 const runtimeDispatchLabel = computed(() => !debugRuntime.value ? 'Unknown' : debugRuntime.value.paused ? 'Paused' : 'Dispatch active');
-const operatorPanelBusy = computed(() => operatorNotesLoading.value || runtimeControlLoading.value !== null || operatorClearLoading.value);
-const operatorWarningBannerMessage = computed(() => {
-  if (!operatorStale.value && !operatorPartialWarning.value) return null;
-  if (runtimeControlError.value) return runtimeControlError.value;
-  if (operatorPartialWarning.value) return operatorPartialWarning.value;
-  return 'This panel may be stale. Refresh to reconcile with server state.';
-});
-const clearNotesDisabled = computed(() => operatorUnauthorized.value || operatorNotes.value.length === 0 || operatorClearLoading.value || Object.keys(operatorNoteActionLoading.value).length > 0);
+const operatorPanelBusy = computed(() => loading.value);
+const operatorWarningBannerMessage = computed<string | null>(() => null);
+async function refreshOperatorControl(): Promise<void> { await debugStore.fetchOperatorControl().catch(() => {}); }
 const sortedProcesses = computed(() => [...processes.value].sort((a, b) => { if (a.status === 'running' && b.status !== 'running') return -1; if (a.status !== 'running' && b.status === 'running') return 1; return new Date(b.started_at).getTime() - new Date(a.started_at).getTime(); }));
 const selectedTimelineKinds = ref<string[]>([]);
 const timelineKindOptions = computed(() => Array.from(new Set(sortedTimeline.value.map((event) => event.kind))).sort());
 const filteredTimeline = computed(() => selectedTimelineKinds.value.length === 0 ? sortedTimeline.value : sortedTimeline.value.filter((event) => selectedTimelineKinds.value.includes(event.kind)));
 
-function noteButtonsDisabled(noteId: string): boolean { return operatorUnauthorized.value || operatorClearLoading.value || Boolean(operatorNoteActionLoading.value[noteId]); }
-async function refreshOperatorControl(): Promise<void> { await debugStore.fetchOperatorControl().catch(() => {}); }
-async function refreshNotes(): Promise<void> { await debugStore.fetchNotes().catch(() => {}); }
-async function confirmClearNotes(): Promise<void> { if (!window.confirm('Clear all unhandled operator notes?')) return; await debugStore.clearOperatorNotes(); }
-async function confirmTerminateProcess(processId: string): Promise<void> { if (!window.confirm(`Terminate process ${processId}? This sends a termination request to a live Saivage-managed process attached to this server. The server will re-check availability before signaling.`)) return; await debugStore.terminateOperatorProcess(processId); }
 function setTab(tab: TabId): void {
   localActiveTab.value = tab;
   if (tab === 'state') debugStore.fetchState().catch(() => {});
@@ -451,17 +401,9 @@ function setTab(tab: TabId): void {
 function browseQuarantineItem(quarantineId: string): void { router.push({ name: 'files', query: { path: '.saivage-work/quarantine/' + quarantineId } }); }
 function browseProcessLog(path: string): void { router.push({ name: 'files', query: { path } }); }
 function processLogEntries(proc: ProcessView): Array<{ key: string; label: string; value: string | null }> { return [{ key: 'combined', label: 'Combined', value: proc.logs.combined }, { key: 'stdout', label: 'Stdout', value: proc.logs.stdout }, { key: 'stderr', label: 'Stderr', value: proc.logs.stderr }]; }
-function showTerminateButton(proc: ProcessView): boolean { return !processUnauthorized.value && proc.control.can_terminate && proc.control.terminate_status === 'live-attached'; }
-function availabilityLabel(proc: ProcessView): string { return proc.control.terminate_status === 'live-attached' ? 'Live-attached' : proc.control.terminate_status === 'stale-not-attached' ? 'Degraded — not attached' : proc.control.terminate_status === 'already-ended' ? 'Ended' : 'Unknown'; }
+function availabilityLabel(proc: ProcessView): string { return proc.control.terminate_status === 'live-attached' ? 'Live-attached' : proc.control.terminate_status === 'stale-not-attached' ? 'Degraded - not attached' : proc.control.terminate_status === 'already-ended' ? 'Ended' : 'Unknown'; }
 function availabilityClass(proc: ProcessView): string { return proc.control.terminate_status === 'live-attached' ? 'process-availability-live' : proc.control.terminate_status === 'stale-not-attached' ? 'process-availability-warning' : proc.control.terminate_status === 'already-ended' ? 'process-availability-ended' : 'process-availability-unknown'; }
-function terminateUnavailableCopy(proc: ProcessView): string {
-  switch (proc.control.terminate_status) {
-    case 'stale-not-attached': return 'Termination unavailable: this record is marked running, but no live server-owned process is attached. Refresh, then inspect host process state before manual cleanup.';
-    case 'already-ended': return 'Process has ended; termination is unavailable.';
-    case 'unknown': return 'Termination availability is unknown. Refresh and inspect server status before manual cleanup.';
-    default: return 'Termination is unavailable for this process.';
-  }
-}
+
 interface CardStatusEntry { status: string; count: number }
 const cardStatusEntries = computed<CardStatusEntry[]>(() => { const counts: Record<string, number> = {}; for (const card of debugCards.value) counts[card.status] = (counts[card.status] || 0) + 1; return Object.entries(counts).map(([status, count]) => ({ status, count })); });
 const maxStatusCount = computed(() => Math.max(...cardStatusEntries.value.map((e) => e.count), 1));
@@ -546,7 +488,7 @@ onUnmounted(() => { mcpStore.stopPolling(); });
 .csb-fill.s-cancelled { background:#484f58; }
 .csb-count { font-size:11px; color:#c9d1d9; font-family:'SF Mono',monospace; }
 .debug-card-list { display:flex; flex-direction:column; gap:2px; }
-.dc-item { display:flex; align-items:center; gap:8px; padding:4px 8px; border-radius:4px; font-size:12px; }
+.dc-item { display:flex; align-items:center; flex-wrap:wrap; gap:8px; padding:4px 8px; border-radius:4px; font-size:12px; }
 .dc-item:hover { background:#161b22; }
 .dc-type { width:18px; text-align:center; font-family:'SF Mono',monospace; font-size:10px; font-weight:600; color:#8b949e; }
 .dc-title { flex:1; color:#c9d1d9; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
@@ -612,3 +554,4 @@ onUnmounted(() => { mcpStore.stopPolling(); });
 .process-empty-note { font-size:12px; color:#8b949e; line-height:1.5; }
 .process-controls { margin-top:8px; }
 </style>
+

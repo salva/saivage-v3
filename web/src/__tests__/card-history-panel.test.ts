@@ -5,7 +5,7 @@ import CardHistoryPanel from '../components/cards/CardHistoryPanel.vue';
 import { useCardStore } from '../stores/cards';
 
 vi.mock('../api/client', () => ({
-  listCards: vi.fn(), getCard: vi.fn(), createCard: vi.fn(), updateCard: vi.fn(), deleteCard: vi.fn(),
+  listCards: vi.fn(), getCard: vi.fn(),
   listCardHistory: vi.fn(), getCardHistoryEntry: vi.fn(), getCardDiff: vi.fn(),
   ApiError: class extends Error { status: number; body: Record<string, unknown>; constructor(status: number, message: string, body: Record<string, unknown> = {}) { super(message); this.status = status; this.body = body; } get isUnauthorized() { return this.status === 401; } get isNotFound() { return this.status === 404; } },
 }));

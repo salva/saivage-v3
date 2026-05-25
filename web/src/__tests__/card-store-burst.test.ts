@@ -13,9 +13,9 @@ import type { CardRecord, CardListResponse } from '../api/types';
 vi.mock('../api/client', () => ({
   listCards: vi.fn(),
   getCard: vi.fn(),
-  createCard: vi.fn(),
-  updateCard: vi.fn(),
-  deleteCard: vi.fn(),
+  
+ 
+ 
   ApiError: class extends Error {
     status: number;
     body: Record<string, unknown>;

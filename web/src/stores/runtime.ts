@@ -18,15 +18,10 @@ import type {
   RuntimeRunRecord,
   RuntimeActivationRecord,
   RuntimeCommandRecord,
-  RuntimeCommandResponse,
   ActionableErrorEnvelope,
 } from '../api/types';
 import {
   getRuntimeState,
-  pauseRuntime,
-  resumeRuntime,
-  startProject as startProjectRequest,
-  stopProject as stopProjectRequest,
   ApiError,
 } from '../api/client';
 import { getAuthToken } from '../api/auth';
@@ -215,51 +210,6 @@ export const useRuntimeStore = defineStore('runtime', () => {
   }
 
 
-  function patchRuntimeSnapshotFromCommand(response: RuntimeCommandResponse): void {
-    if (!runtime.value) return;
-
-    const commandTimestamp = response.command.completed_at ?? response.command.requested_at ?? response.intent.updated_at;
-    const nextCommands = [
-      ...(runtime.value.runtime_commands ?? []).filter((command) => command.command_id !== response.command.command_id),
-      response.command,
-    ];
-    const nextRuns = response.run
-      ? [
-        ...(runtime.value.runtime_runs ?? []).filter((run) => run.run_id !== response.run?.run_id),
-        response.run,
-      ]
-      : (runtime.value.runtime_runs ?? []);
-
-    if (response.command.command === 'start_project') {
-      runtime.value = {
-        ...runtime.value,
-        status: 'running',
-        paused: false,
-        paused_at: null,
-        current_card_id: response.run?.card_id ?? runtime.value.current_card_id ?? null,
-        current_agent_session_id: response.run?.session_id ?? runtime.value.current_agent_session_id ?? null,
-        updated_at: commandTimestamp,
-        runtime_intent: response.intent,
-        runtime_commands: nextCommands,
-        runtime_runs: nextRuns,
-      };
-      return;
-    }
-
-    runtime.value = {
-      ...runtime.value,
-      status: 'idle',
-      paused: false,
-      paused_at: null,
-      current_card_id: null,
-      current_agent_session_id: null,
-      updated_at: commandTimestamp,
-      runtime_intent: response.intent,
-      runtime_commands: nextCommands,
-      runtime_runs: nextRuns,
-    };
-  }
-
   function upsertRun(run: RuntimeRunRecord): void {
     if (run.kind === 'root') currentRun.value = run.finished_at ? currentRun.value?.run_id === run.run_id ? run : currentRun.value : run;
     if (run.kind === 'child') {
@@ -315,92 +265,6 @@ export const useRuntimeStore = defineStore('runtime', () => {
   }
 
 
-  async function startProject(): Promise<void> {
-    error.value = null;
-    lastActionableError.value = null;
-    commandInFlight.value = 'start_project';
-    try {
-      const response = await startProjectRequest();
-      intent.value = response.intent;
-      lastCommand.value = response.command;
-      if (response.run) upsertRun(response.run);
-      patchRuntimeSnapshotFromCommand(response);
-      markRestSync();
-    } catch (err) {
-      const msg = err instanceof ApiError ? err.message : 'Failed to start project runtime';
-      error.value = msg;
-      unauthorized.value = err instanceof ApiError && err.isUnauthorized;
-      if (err instanceof ApiError && err.body?.actionable_error) {
-        lastActionableError.value = err.body.actionable_error as ActionableErrorEnvelope;
-      }
-      log.error('startProject', msg);
-      throw err;
-    } finally {
-      commandInFlight.value = null;
-    }
-  }
-
-  async function stopProject(): Promise<void> {
-    error.value = null;
-    lastActionableError.value = null;
-    commandInFlight.value = 'stop_project';
-    try {
-      const response = await stopProjectRequest();
-      intent.value = response.intent;
-      lastCommand.value = response.command;
-      currentRun.value = response.run ?? null;
-      activeChildRuns.value = [];
-      patchRuntimeSnapshotFromCommand(response);
-      markRestSync();
-    } catch (err) {
-      const msg = err instanceof ApiError ? err.message : 'Failed to stop project runtime';
-      error.value = msg;
-      unauthorized.value = err instanceof ApiError && err.isUnauthorized;
-      if (err instanceof ApiError && err.body?.actionable_error) {
-        lastActionableError.value = err.body.actionable_error as ActionableErrorEnvelope;
-      }
-      log.error('stopProject', msg);
-      throw err;
-    } finally {
-      commandInFlight.value = null;
-    }
-  }
-
-  async function pause(): Promise<void> {
-    error.value = null;
-    try {
-      const response = await pauseRuntime();
-      log.info('Runtime paused:', response.status);
-      runtime.value = response;
-      applyRuntimeSummaryFromState(response);
-      statusBeforePause = response.status;
-      markRestSync();
-    } catch (err) {
-      const msg = err instanceof ApiError ? err.message : 'Failed to pause runtime';
-      error.value = msg;
-      unauthorized.value = err instanceof ApiError && err.isUnauthorized;
-      log.error('pause', msg);
-      throw err;
-    }
-  }
-
-  async function resume(): Promise<void> {
-    error.value = null;
-    try {
-      const response = await resumeRuntime();
-      log.info('Runtime resumed:', response.status);
-      runtime.value = response;
-      applyRuntimeSummaryFromState(response);
-      statusBeforePause = null;
-      markRestSync();
-    } catch (err) {
-      const msg = err instanceof ApiError ? err.message : 'Failed to resume runtime';
-      error.value = msg;
-      unauthorized.value = err instanceof ApiError && err.isUnauthorized;
-      log.error('resume', msg);
-      throw err;
-    }
-  }
 
   let wsUnsubscribe: (() => void) | null = null;
   let reconnectUnsubscribe: (() => void) | null = null;
@@ -529,10 +393,6 @@ export const useRuntimeStore = defineStore('runtime', () => {
     pauseActionDisabledReason,
     commandDisabledReason,
     fetchState,
-    startProject,
-    stopProject,
-    pause,
-    resume,
     setupWsListener,
   };
 });

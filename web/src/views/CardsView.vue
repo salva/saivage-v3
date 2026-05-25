@@ -52,9 +52,6 @@
               <option v-for="tag in allTags" :key="tag" :value="tag">{{ tag }}</option>
             </select>
           </div>
-          <button class="new-card-btn" @click="showNewCardForm = true" title="Create new card">
-            + New Card
-          </button>
         </div>
       </div>
 
@@ -74,7 +71,6 @@
           :expanded-ids="expandedTreeIds"
           @toggle="toggleTreeNode"
           @select="selectCard"
-          @action="handleTreeAction"
         />
 
         <!-- Board View -->
@@ -100,109 +96,22 @@
         />
       </div>
 
-      <!-- New Card Form Overlay -->
-      <div v-if="showNewCardForm" class="modal-overlay" @click.self="showNewCardForm = false">
-        <div class="modal-content">
-          <h3>New Card</h3>
-          <form @submit.prevent="createNewCard" novalidate>
-            <label>
-              Title
-              <input
-                ref="titleInput"
-                v-model="newCard.title"
-                class="form-input"
-                :class="{ 'form-input-error': formErrors.title }"
-                :aria-invalid="formErrors.title ? 'true' : 'false'"
-                aria-describedby="new-card-title-error"
-                @input="formErrors.title = ''"
-              />
-              <span v-if="formErrors.title" id="new-card-title-error" class="form-error">{{ formErrors.title }}</span>
-            </label>
-            <label>
-              Type
-              <select v-model="newCard.type" class="form-select" required>
-                <option v-for="tp in cardTypes" :key="tp" :value="tp">{{ tp }}</option>
-              </select>
-            </label>
-            <label>
-              Parent (optional)
-              <input
-                v-model="newCard.parent"
-                class="form-input"
-                :class="{ 'form-input-error': formErrors.parent }"
-                :aria-invalid="formErrors.parent ? 'true' : 'false'"
-                aria-describedby="new-card-parent-error"
-                placeholder="parent card ID"
-                @input="formErrors.parent = ''"
-              />
-              <span v-if="formErrors.parent" id="new-card-parent-error" class="form-error">{{ formErrors.parent }}</span>
-            </label>
-            <label>
-              Description
-              <textarea v-model="newCard.description" class="form-textarea" rows="3"></textarea>
-            </label>
-            <label>
-              Priority (0-100)
-              <input
-                v-model.number="newCard.priority"
-                type="number"
-                min="0"
-                max="100"
-                step="1"
-                class="form-input"
-                :class="{ 'form-input-error': formErrors.priority }"
-                :aria-invalid="formErrors.priority ? 'true' : 'false'"
-                aria-describedby="new-card-priority-help new-card-priority-error"
-                @input="formErrors.priority = ''"
-              />
-              <span id="new-card-priority-help" class="form-help">Use a whole-number priority from 0 to 100. Default: 50.</span>
-              <span v-if="formErrors.priority" id="new-card-priority-error" class="form-error">{{ formErrors.priority }}</span>
-            </label>
-            <label>
-              Tags (comma-separated)
-              <input v-model="newCard.tagsStr" class="form-input" placeholder="tag1, tag2" />
-            </label>
-            <div class="form-actions">
-              <button type="button" class="cancel-btn" @click="showNewCardForm = false">Cancel</button>
-              <button type="submit" class="submit-btn" :disabled="isCreateDisabled">Create</button>
-            </div>
-          </form>
-        </div>
-      </div>
-
-      <!-- Card Planning Menu -->
-      <div v-if="actionMenuTarget" class="modal-overlay" @click.self="actionMenuTarget = null">
-        <div class="action-menu" :style="actionMenuStyle">
-          <div class="action-menu-header">{{ actionMenuTarget.title }}</div>
-          <p class="action-menu-note">Planning metadata only. Execution is controlled from Runtime Console and activation records.</p>
-          <button @click="doAction('edit')">✏️ Open Details</button>
-          <button @click="doAction('note')">📝 Review Notes</button>
-          <button class="danger-action" @click="doAction('delete')">🗑️ Delete Draft Metadata</button>
-        </div>
-      </div>
     </template>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, computed, nextTick, onMounted, watch, reactive } from 'vue';
+import { ref, computed, onMounted, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { storeToRefs } from 'pinia';
 import { useCardStore } from '../stores/cards';
-import type {
-  CardRecord,
-  CardType,
-  CardStatus,
-  CreateCardPayload,
-} from '../api/types';
-import { createLogger } from '../utils/logger';
+import type { CardType, CardStatus } from '../api/types';
 import CardsTreeView from '../components/cards/CardsTreeView.vue';
 import CardsBoardView from '../components/cards/CardsBoardView.vue';
 import CardsLeaderboardView from '../components/cards/CardsLeaderboardView.vue';
 import CardsTimelineView from '../components/cards/CardsTimelineView.vue';
 import CardDetailView from '../components/cards/CardDetailView.vue';
 
-const log = createLogger('view:cards');
 
 // ── Router ────────────────────────────────────────────────
 
@@ -299,109 +208,6 @@ function selectCard(id: string): void {
   router.push({ name: 'card-detail', params: { id } });
 }
 
-// ── Action Menu ───────────────────────────────────────────
-
-const actionMenuTarget = ref<CardRecord | null>(null);
-const actionMenuStyle = ref({ top: '0px', left: '0px' });
-const showNewCardForm = ref(false);
-const titleInput = ref<HTMLInputElement | null>(null);
-const newCard = reactive({
-  title: '',
-  type: 'code' as CardType,
-  parent: '',
-  description: '',
-  priority: 50,
-  tagsStr: '',
-});
-const formErrors = reactive({
-  title: '',
-  parent: '',
-  priority: '',
-});
-const isCreateDisabled = computed(() => newCard.title.trim().length === 0);
-
-function handleTreeAction(card: CardRecord, event: MouseEvent): void {
-  actionMenuTarget.value = card;
-  actionMenuStyle.value = {
-    top: `${event.clientY}px`,
-    left: `${event.clientX}px`,
-  };
-}
-
-function resetFormErrors(): void {
-  formErrors.title = '';
-  formErrors.parent = '';
-  formErrors.priority = '';
-}
-
-function validateNewCardForm(): boolean {
-  resetFormErrors();
-  if (newCard.title.trim().length === 0) {
-    formErrors.title = 'Title is required';
-    void nextTick(() => titleInput.value?.focus());
-  }
-  const parentId = newCard.parent.trim();
-  if (parentId && !cards.value.some((card) => card.id === parentId)) {
-    formErrors.parent = 'Parent card not found';
-  }
-  if (!Number.isInteger(newCard.priority) || newCard.priority < 0 || newCard.priority > 100) {
-    formErrors.priority = 'Priority must be a whole number from 0 to 100';
-  }
-  return !formErrors.title && !formErrors.parent && !formErrors.priority;
-}
-
-async function createNewCard(): Promise<void> {
-  if (!validateNewCardForm()) return;
-
-  const payload: CreateCardPayload = {
-    title: newCard.title.trim(),
-    type: newCard.type,
-    parent: newCard.parent.trim() || null,
-    description: newCard.description,
-    priority: newCard.priority,
-    tags: newCard.tagsStr.split(',').map(t => t.trim()).filter(Boolean),
-    status: 'drafting',
-    created_by: 'user',
-  };
-
-  try {
-    await cardStore.addCard(payload);
-    showNewCardForm.value = false;
-    // Reset form
-    newCard.title = '';
-    newCard.type = 'code';
-    newCard.parent = '';
-    newCard.description = '';
-    newCard.priority = 50;
-    newCard.tagsStr = '';
-    resetFormErrors();
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : 'Failed';
-    log.error('create card', msg);
-  }
-}
-
-async function doAction(action: string): Promise<void> {
-  const card = actionMenuTarget.value;
-  if (!card) return;
-  actionMenuTarget.value = null;
-
-  switch (action) {
-    case 'edit':
-      // Go to detail view for editing
-      selectCard(card.id);
-      break;
-    case 'note':
-      // TODO: Open note dialog
-      selectCard(card.id);
-      break;
-    case 'delete':
-      if (confirm(`Delete "${card.title}" (${card.id})? This cannot be undone.`)) {
-        await cardStore.removeCard(card.id);
-      }
-      break;
-  }
-}
 
 // ── Navigation ────────────────────────────────────────────
 
@@ -583,23 +389,6 @@ watch(() => route.params.id, (newId) => {
   border-color: #58a6ff;
 }
 
-.new-card-btn {
-  padding: 5px 12px;
-  background: #238636;
-  border: 1px solid #2ea043;
-  border-radius: 4px;
-  color: #fff;
-  font-size: 12px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: background 0.15s;
-  font-family: inherit;
-  white-space: nowrap;
-}
-
-.new-card-btn:hover {
-  background: #2ea043;
-}
 
 /* ── Content ────────────────────────────────────────────── */
 
@@ -620,171 +409,4 @@ watch(() => route.params.id, (newId) => {
   color: #f85149;
 }
 
-/* ── Modal ──────────────────────────────────────────────── */
-
-.modal-overlay {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.6);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 100;
-}
-
-.modal-content {
-  background: #161b22;
-  border: 1px solid #30363d;
-  border-radius: 8px;
-  padding: 20px;
-  min-width: 400px;
-  max-width: 500px;
-}
-
-.modal-content h3 {
-  margin: 0 0 16px 0;
-  font-size: 16px;
-  color: #f0f6fc;
-}
-
-.modal-content label {
-  display: block;
-  margin-bottom: 10px;
-  font-size: 12px;
-  color: #8b949e;
-}
-
-.form-input,
-.form-select,
-.form-textarea {
-  display: block;
-  width: 100%;
-  margin-top: 4px;
-  padding: 6px 10px;
-  background: #0d1117;
-  border: 1px solid #30363d;
-  border-radius: 4px;
-  color: #c9d1d9;
-  font-size: 13px;
-  font-family: inherit;
-  box-sizing: border-box;
-}
-
-.form-textarea {
-  resize: vertical;
-}
-
-.form-input:focus,
-.form-select:focus,
-.form-textarea:focus {
-  outline: none;
-  border-color: #58a6ff;
-}
-
-.form-input-error,
-.form-input-error:focus {
-  border-color: #f85149;
-  box-shadow: 0 0 0 1px rgba(248, 81, 73, 0.35);
-}
-
-.form-error {
-  display: block;
-  margin-top: 4px;
-  color: #f85149;
-  font-size: 12px;
-}
-
-.form-help {
-  display: block;
-  margin-top: 4px;
-  color: #8b949e;
-  font-size: 11px;
-}
-
-.form-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-  margin-top: 16px;
-}
-
-.cancel-btn {
-  padding: 6px 14px;
-  background: #21262d;
-  border: 1px solid #30363d;
-  border-radius: 4px;
-  color: #c9d1d9;
-  font-size: 12px;
-  cursor: pointer;
-  font-family: inherit;
-}
-
-.submit-btn {
-  padding: 6px 14px;
-  background: #238636;
-  border: 1px solid #2ea043;
-  border-radius: 4px;
-  color: #fff;
-  font-size: 12px;
-  font-weight: 600;
-  cursor: pointer;
-  font-family: inherit;
-}
-
-.submit-btn:disabled {
-  opacity: 0.55;
-  cursor: not-allowed;
-}
-
-/* ── Action Menu ────────────────────────────────────────── */
-
-.action-menu {
-  position: fixed;
-  background: #161b22;
-  border: 1px solid #30363d;
-  border-radius: 6px;
-  min-width: 160px;
-  padding: 4px 0;
-  z-index: 200;
-  box-shadow: 0 8px 24px rgba(0,0,0,0.4);
-}
-
-.action-menu-header {
-  padding: 6px 12px;
-  font-size: 12px;
-  font-weight: 600;
-  color: #8b949e;
-  border-bottom: 1px solid #21262d;
-  margin-bottom: 4px;
-  max-width: 200px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.action-menu button {
-  display: block;
-  width: 100%;
-  padding: 6px 12px;
-  background: none;
-  border: none;
-  color: #c9d1d9;
-  font-size: 12px;
-  text-align: left;
-  cursor: pointer;
-  font-family: inherit;
-  transition: background 0.1s;
-}
-
-.action-menu button:hover {
-  background: #21262d;
-}
-
-.action-menu button.danger-action {
-  color: #f85149;
-}
-
-.action-menu button.danger-action:hover {
-  background: #241818;
-}
 </style>

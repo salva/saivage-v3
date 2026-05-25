@@ -1,7 +1,7 @@
 <template>
   <div class="stale-warning-ribbon" role="status">
-    <strong>Operator update pending.</strong>
-    <span>A notification was added for this card after the last acknowledgement. Review notifications and refresh card history before trusting current completion state.</span>
+    <strong>Card update available.</strong>
+    <span>This card changed after the current detail snapshot loaded. Refresh card history before trusting the completion state.</span>
   </div>
 </template>
 

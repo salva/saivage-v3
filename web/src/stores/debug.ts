@@ -41,15 +41,8 @@ import {
   getDoctor,
   getDebugSupervision,
   listProcesses,
-  terminateProcess,
   listNotes,
-  acknowledgeNote,
-  deleteNote,
-  clearAllNotes,
-  pauseRuntime,
-  resumeRuntime,
   listNotifications,
-  acknowledgeNotification,
   listControlActions,
   ApiError,
 } from '../api/client';
@@ -385,51 +378,6 @@ export const useDebugStore = defineStore('debug', () => {
     }
   }
 
-  async function terminateOperatorProcess(processId: string): Promise<void> {
-    processTerminateLoading.value = { ...processTerminateLoading.value, [processId]: true };
-    processControlError.value = null;
-    processControlSuccess.value = null;
-    try {
-      const response = await terminateProcess(processId);
-      upsertProcess(response.process);
-      processUnauthorized.value = false;
-      processStale.value = false;
-      processControlSuccess.value = response.message;
-      await fetchProcesses();
-    } catch (err) {
-      if (err instanceof ApiError) {
-        if (err.status === 401) {
-          processUnauthorized.value = true;
-          processControlError.value = 'Unauthorized. Provide a valid Saivage API token and refresh the page.';
-        } else if (err.status === 404) {
-          processControlError.value = `Process ${processId} was not found. Refreshing process list.`;
-          processStale.value = true;
-          await fetchProcesses();
-        } else if (err.status === 409 || err.status === 503) {
-          const process = err.body['process'] as ProcessView | undefined;
-          if (process) upsertProcess(process);
-          if (err.status === 409) {
-            processControlError.value = 'Process has already ended. Refreshing process list.';
-            processStale.value = false;
-            await fetchProcesses();
-          } else {
-            processControlError.value = 'Process is recorded as running, but this server has no live child process attached. Refresh, then inspect host process state before manual cleanup.';
-            processStale.value = true;
-          }
-        } else {
-          processControlError.value = err.message || 'Process control request failed.';
-          processStale.value = true;
-        }
-      } else {
-        processControlError.value = 'Process control request failed.';
-        processStale.value = true;
-      }
-    } finally {
-      const next = { ...processTerminateLoading.value };
-      delete next[processId];
-      processTerminateLoading.value = next;
-    }
-  }
 
   async function fetchDoctor(): Promise<void> {
     doctorLoading.value = true;
@@ -544,136 +492,11 @@ export const useDebugStore = defineStore('debug', () => {
     if (failures.length < 4) operatorLastFetchedAt.value = new Date().toISOString();
   }
 
-  async function acknowledgeOperatorNote(noteId: string): Promise<void> {
-    runtimeControlError.value = null;
-    runtimeControlSuccess.value = null;
-    operatorNoteActionLoading.value = { ...operatorNoteActionLoading.value, [noteId]: 'acknowledge' };
-    try {
-      await acknowledgeNote(noteId);
-      operatorNotes.value = operatorNotes.value.filter((entry) => entry.note_id !== noteId);
-      operatorNotesTotal.value = operatorNotes.value.length;
-      operatorUnauthorized.value = false;
-      operatorStale.value = false;
-      markOperatorSuccess('Note acknowledged.');
-    } catch (err) {
-      if (err instanceof ApiError && err.status === 404) {
-        operatorStale.value = true;
-        markOperatorError('That note is no longer in the unhandled queue. Refreshing notes.');
-        await fetchNotes().catch(() => {});
-      } else if (err instanceof ApiError && err.status === 401) {
-        operatorUnauthorized.value = true;
-        markOperatorError('Unauthorized. Provide a valid Saivage API token and refresh the page.');
-      } else {
-        markOperatorError(operatorErrorMessage(err));
-      }
-    } finally {
-      const next = { ...operatorNoteActionLoading.value };
-      delete next[noteId];
-      operatorNoteActionLoading.value = next;
-    }
-  }
 
-  async function deleteOperatorNote(noteId: string): Promise<void> {
-    runtimeControlError.value = null;
-    runtimeControlSuccess.value = null;
-    operatorNoteActionLoading.value = { ...operatorNoteActionLoading.value, [noteId]: 'delete' };
-    try {
-      await deleteNote(noteId);
-      operatorNotes.value = operatorNotes.value.filter((entry) => entry.note_id !== noteId);
-      operatorNotesTotal.value = operatorNotes.value.length;
-      operatorUnauthorized.value = false;
-      operatorStale.value = false;
-      markOperatorSuccess('Note deleted.');
-    } catch (err) {
-      if (err instanceof ApiError && err.status === 404) {
-        operatorStale.value = true;
-        markOperatorError('That note is no longer in the unhandled queue. Refreshing notes.');
-        await fetchNotes().catch(() => {});
-      } else if (err instanceof ApiError && err.status === 400) {
-        operatorStale.value = true;
-        markOperatorError('This note was already handled. Refreshing notes.');
-        await fetchNotes().catch(() => {});
-      } else if (err instanceof ApiError && err.status === 401) {
-        operatorUnauthorized.value = true;
-        markOperatorError('Unauthorized. Provide a valid Saivage API token and refresh the page.');
-      } else {
-        markOperatorError(operatorErrorMessage(err));
-      }
-    } finally {
-      const next = { ...operatorNoteActionLoading.value };
-      delete next[noteId];
-      operatorNoteActionLoading.value = next;
-    }
-  }
 
-  async function clearOperatorNotes(): Promise<void> {
-    runtimeControlError.value = null;
-    runtimeControlSuccess.value = null;
-    operatorClearLoading.value = true;
-    try {
-      const response = await clearAllNotes();
-      operatorNotes.value = [];
-      operatorNotesTotal.value = 0;
-      operatorUnauthorized.value = false;
-      operatorStale.value = false;
-      markOperatorSuccess(`Cleared ${response.deleted} unhandled notes.`);
-    } catch (err) {
-      if (err instanceof ApiError && err.status === 401) operatorUnauthorized.value = true;
-      markOperatorError(operatorErrorMessage(err));
-    } finally {
-      operatorClearLoading.value = false;
-    }
-  }
 
-  async function acknowledgeOperatorNotification(notificationId: string): Promise<void> {
-    notificationActionLoading.value = { ...notificationActionLoading.value, [notificationId]: true };
-    try {
-      await acknowledgeNotification(notificationId);
-      serverNotifications.value = serverNotifications.value.filter((item) => item.id !== notificationId);
-      notificationsState.value = notifications.value.length === 0 ? 'empty' : 'success';
-    } catch (err) {
-      notificationsError.value = operatorErrorMessage(err);
-      notificationsState.value = buildPanelState(err);
-    } finally {
-      const next = { ...notificationActionLoading.value };
-      delete next[notificationId];
-      notificationActionLoading.value = next;
-    }
-  }
 
-  async function pauseOperatorRuntime(): Promise<void> {
-    runtimeControlLoading.value = 'pause';
-    runtimeControlError.value = null;
-    runtimeControlSuccess.value = null;
-    try {
-      await pauseRuntime();
-      operatorUnauthorized.value = false;
-      markOperatorSuccess('Runtime pause requested successfully.');
-    } catch (err) {
-      if (err instanceof ApiError && err.status === 401) operatorUnauthorized.value = true;
-      markOperatorError(operatorErrorMessage(err));
-    } finally {
-      runtimeControlLoading.value = null;
-      await fetchState().catch(() => {});
-    }
-  }
 
-  async function resumeOperatorRuntime(): Promise<void> {
-    runtimeControlLoading.value = 'resume';
-    runtimeControlError.value = null;
-    runtimeControlSuccess.value = null;
-    try {
-      await resumeRuntime();
-      operatorUnauthorized.value = false;
-      markOperatorSuccess('Runtime resume requested successfully.');
-    } catch (err) {
-      if (err instanceof ApiError && err.status === 401) operatorUnauthorized.value = true;
-      markOperatorError(operatorErrorMessage(err));
-    } finally {
-      runtimeControlLoading.value = null;
-      await fetchState().catch(() => {});
-    }
-  }
 
   async function fetchAll(): Promise<void> {
     loading.value = true;
@@ -724,7 +547,7 @@ export const useDebugStore = defineStore('debug', () => {
 
       timelineEvents.value = [{ kind: `ws:${event}`, card_id: content.cardId as string | undefined, timestamp: new Date().toISOString(), ...content }, ...timelineEvents.value].slice(0, 500);
 
-      if (event === 'notification_added' || event === 'notification_acknowledged') {
+      if (event === 'notification_added') {
         void fetchNotifications().catch(() => {});
       }
       if (event === 'control_action_recorded') {
@@ -808,19 +631,12 @@ export const useDebugStore = defineStore('debug', () => {
     fetchErrors,
     fetchTimeline,
     fetchProcesses,
-    terminateOperatorProcess,
     fetchDoctor,
     fetchSupervision,
     fetchNotes,
     fetchNotifications,
     fetchControlActions,
     fetchOperatorControl,
-    acknowledgeOperatorNote,
-    deleteOperatorNote,
-    clearOperatorNotes,
-    acknowledgeOperatorNotification,
-    pauseOperatorRuntime,
-    resumeOperatorRuntime,
     fetchAll,
     setActiveTab,
     setupWsListener,

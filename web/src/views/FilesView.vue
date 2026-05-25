@@ -101,6 +101,17 @@
       </section>
     </div>
 
+
+    <section class="card-children-listing" data-testid="files-view-card-children" v-if="cardChildren.length > 0">
+      <h3 class="panel-title">Current Card Children</h3>
+      <ul data-testid="files-card-children-list">
+        <li v-for="child in cardChildren" :key="child.id" data-testid="files-card-children-item">
+          <span class="title">{{ child.title }}</span>
+          <span class="status">{{ child.status }}</span>
+        </li>
+      </ul>
+    </section>
+
     <div v-if="viewedFilePath" class="file-viewer">
       <div class="viewer-header">
         <span class="viewer-path">{{ viewedFilePath }}</span>
@@ -126,16 +137,19 @@ import { onMounted, watch, computed } from 'vue';
 import { useRoute } from 'vue-router';
 import { storeToRefs } from 'pinia';
 import { useFileStore } from '../stores/files';
+import { useCardStore } from '../stores/cards';
 import { createLogger } from '../utils/logger';
 import { formatTimestamp, isRecentTimestamp, timestampTitle } from '../utils/timestamp';
 import { formatJson } from '../utils/format-json';
 import CodeBlock from '../components/code/CodeBlock.vue';
 import MarkdownText from '../components/code/MarkdownText.vue';
+import type { CardRecord } from '../api/types';
 
 const log = createLogger('view:files');
 
 const route = useRoute();
 const fileStore = useFileStore();
+const cardsStore = useCardStore();
 const {
   metaFiles, metaLoading, metaBreadcrumbs,
   outputFiles, outputLoading, outputBreadcrumbs,
@@ -144,6 +158,12 @@ const {
   listError, viewerError, viewerState,
   isStale, unauthorized,
 } = storeToRefs(fileStore);
+
+const activeCardId = computed<string | null>(() => cardsStore.currentCard?.id ?? null);
+const cardChildren = computed<CardRecord[]>(() => {
+  const id = activeCardId.value;
+  return id ? cardsStore.childrenOf(id) : [];
+});
 
 const viewerStateTitle = computed(() => {
   switch (viewerState.value) {
@@ -260,6 +280,10 @@ watch(() => route.query.path, () => {
 .entry-name { font-size:12px; color:#c9d1d9; flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .entry-size { font-size:10px; color:#484f58; font-family:'SF Mono',monospace; }
 .entry-modified { font-size:10px; color:#484f58; }
+.card-children-listing { border-top:1px solid #30363d; padding:12px; background:#0d1117; }
+.card-children-listing ul { margin:8px 0 0; padding-left:18px; }
+.card-children-listing li { color:#c9d1d9; font-size:12px; margin:4px 0; }
+.card-children-listing .status { color:#8b949e; margin-left:8px; }
 .file-viewer { border-top:1px solid #30363d; max-height:40%; overflow:hidden; display:flex; flex-direction:column; }
 .viewer-header { display:flex; align-items:center; justify-content:space-between; padding:6px 12px; background:#161b22; border-bottom:1px solid #30363d; flex-shrink:0; }
 .viewer-path { font-size:11px; color:#58a6ff; font-family:'SF Mono',monospace; }

@@ -106,17 +106,6 @@
       </template>
 
       <template v-else>
-        <div class="status-section runtime-controls">
-          <h3 class="section-label">Execution Controls</h3>
-          <div class="runtime-command-row">
-            <button class="runtime-command start-project" :disabled="Boolean(startDisabledReason)" :title="startDisabledReason || 'Start root project execution'" @click="startProject">Start Project</button>
-            <button class="runtime-command stop-project" :disabled="Boolean(stopDisabledReason)" :title="stopDisabledReason || 'Stop root project execution'" @click="stopProject">Stop Project</button>
-          </div>
-          <p v-if="commandDisabledReason" class="operator-help">{{ commandDisabledReason }}</p>
-          <p v-else-if="intent?.status === 'running'" class="operator-help">Root execution intent is running; child work starts only from recorded activation edges.</p>
-          <p v-else class="operator-help">Root execution is stopped until an operator starts the project.</p>
-        </div>
-
         <div v-if="lastActionableError" class="status-section actionable-error" role="alert">
           <h3 class="section-label">Actionable Runtime Issue</h3>
           <p class="actionable-message">{{ lastActionableError.message }}</p>
@@ -241,6 +230,18 @@
           </div>
         </div>
 
+
+        <div class="status-section child-of-goal-panel" data-testid="dashboard-child-of-goal-panel">
+          <h3 class="section-label">Displayed Card Children</h3>
+          <ul data-testid="child-of-goal-list" class="child-of-goal-list">
+            <li v-for="child in goalChildren" :key="child.id" data-testid="child-of-goal-item" class="child-of-goal-item">
+              <span class="title">{{ child.title }}</span>
+              <span class="status">{{ child.status }}</span>
+            </li>
+          </ul>
+          <div v-if="goalChildren.length === 0" class="status-value dim list-empty">none</div>
+        </div>
+
         <div class="status-section">
           <h3 class="section-label">Card Index</h3>
           <div class="index-bars">
@@ -264,11 +265,13 @@ import { storeToRefs } from 'pinia';
 import { useRouter } from 'vue-router';
 import { useWsStore } from '../stores/ws';
 import { useRuntimeStore } from '../stores/runtime';
+import { useCardStore } from '../stores/cards';
 import type {
   ChatMessage,
   ChatSession,
   WsConnectionState,
   EntityLink,
+  CardRecord,
 } from '../api/types';
 import {
   listChatSessions,
@@ -283,6 +286,7 @@ const log = createLogger('view:dashboard');
 
 const wsStore = useWsStore();
 const runtimeStore = useRuntimeStore();
+const cardsStore = useCardStore();
 const router = useRouter();
 
 const { connectionState: wsConnectionState } = storeToRefs(wsStore);
@@ -305,8 +309,6 @@ const {
   unauthorized: runtimeUnauthorized,
   lastCommand,
   lastActionableError,
-  commandDisabledReason,
-  commandInFlight,
   liveUpdateLabel,
   liveUpdateDetail,
   lastFetchedAt,
@@ -324,8 +326,8 @@ const chatStatusMessage = ref<string | null>(null);
 const chatScrollRef = ref<HTMLElement | null>(null);
 
 const chatInputDisabled = computed(() => wsConnectionState.value !== 'connected');
-const startDisabledReason = computed(() => commandDisabledReason.value || (intent.value?.status === 'running' ? 'Project execution intent is already running.' : null));
-const stopDisabledReason = computed(() => commandDisabledReason.value || (intent.value?.status === 'stopped' ? 'Project execution intent is already stopped.' : null));
+const displayedGoalId = computed<string | null>(() => cardsStore.currentCard?.id ?? null);
+const goalChildren = computed<CardRecord[]>(() => displayedGoalId.value ? cardsStore.childrenOf(displayedGoalId.value) : []);
 const chatPlaceholder = computed(() => {
   switch (wsConnectionState.value) {
     case 'connected': return 'Message the analyst...';
@@ -562,23 +564,6 @@ function scrollToBottom(): void {
   });
 }
 
-async function startProject(): Promise<void> {
-  errorMsg.value = null;
-  try {
-    await runtimeStore.startProject();
-  } catch (err: unknown) {
-    errorMsg.value = err instanceof ApiError && err.body?.actionable_error ? null : (err instanceof Error ? err.message : 'Failed to start project runtime');
-  }
-}
-
-async function stopProject(): Promise<void> {
-  errorMsg.value = null;
-  try {
-    await runtimeStore.stopProject();
-  } catch (err: unknown) {
-    errorMsg.value = err instanceof ApiError && err.body?.actionable_error ? null : (err instanceof Error ? err.message : 'Failed to stop project runtime');
-  }
-}
 
 async function refreshRuntime(): Promise<void> {
   errorMsg.value = null;
@@ -753,11 +738,6 @@ onUnmounted(() => {
 .status-value.danger { color: #f85149; }
 .status-value.clickable { color: #58a6ff; cursor: pointer; text-decoration: underline; text-decoration-color: transparent; transition: text-decoration-color 0.15s; }
 .status-value.clickable:hover { text-decoration-color: #58a6ff; }
-.runtime-command-row { display: flex; gap: 8px; }
-.runtime-command { flex: 1; border: 1px solid #30363d; border-radius: 6px; padding: 7px 8px; color: #f0f6fc; font-size: 12px; font-weight: 600; cursor: pointer; }
-.runtime-command:disabled { opacity: 0.45; cursor: not-allowed; }
-.start-project { background: #238636; border-color: #2ea043; }
-.stop-project { background: #8b1e1e; border-color: #da3633; }
 .operator-help { margin: 8px 0 0; color: #8b949e; font-size: 11px; line-height: 1.4; }
 .actionable-error { background: #241818; border-bottom-color: #da3633; }
 .actionable-message { margin: 0 0 6px; color: #f0f6fc; font-size: 12px; line-height: 1.4; }
@@ -789,3 +769,4 @@ onUnmounted(() => {
 .index-count { font-size: 11px; color: #c9d1d9; font-family: 'SF Mono', monospace; text-align: right; }
 .history-grid .status-key { font-size: 11px; }
 </style>
+

@@ -1,7 +1,7 @@
 <template>
   <div class="tree-container">
     <div v-if="tree.length === 0" class="tree-empty">
-      No cards to display. Click "+ New Card" to create one.
+      No cards match the current read-only filters.
     </div>
     <ul v-else class="tree-list">
       <li v-for="node in renderedTree" :key="node.card.id">
@@ -9,7 +9,6 @@
           class="tree-node"
           :style="{ paddingLeft: `${node.depth * 20 + 8}px` }"
           @click="emit('select', node.card.id)"
-          @contextmenu.prevent="emit('action', node.card, $event)"
         >
           <!-- Expand/collapse toggle -->
           <span
@@ -61,25 +60,24 @@ const props = defineProps<{
 const emit = defineEmits<{
   toggle: [id: string];
   select: [id: string];
-  action: [card: CardRecord, event: MouseEvent];
 }>();
 
 // ── Type Icons ────────────────────────────────────────────
 
 const TYPE_ICONS: Record<CardType, string> = {
-  project: '🏠',
-  goal: '🎯',
-  architecture: '🏗️',
-  code: '💻',
-  test: '🧪',
-  doc: '📄',
-  data: '📊',
-  research: '🔬',
-  ops: '⚙️',
+  project: '(P)',
+  goal: '(G)',
+  architecture: '(A)',
+  code: '(C)',
+  test: '(T)',
+  doc: '(D)',
+  data: '(DA)',
+  research: '(R)',
+  ops: '(O)',
 };
 
 function typeIcon(type: CardType): string {
-  return TYPE_ICONS[type] || '❓';
+  return TYPE_ICONS[type] || '(?)';
 }
 
 // ── Tree Rendering ────────────────────────────────────────
