@@ -1,0 +1,154 @@
+{
+  "id": "inspect-stage000-node-blocker-loop-policy-20260525",
+  "request_id": "inspect-stage000-node-blocker-loop-policy-20260525",
+  "role": "inspector",
+  "created_at": "2026-05-25T03:27:30Z",
+  "scope": "Recent Stage 000 retry/hold history in /work/saivage-v3/.saivage/plan-history.json and stage summaries for retries/holds 15-18; no secrets/provider configs/opt/service controls/unauthorized paths read.",
+  "status": "completed",
+  "executive_summary": "Stage 000 is blocked by an operator-owned runtime prerequisite: repeated fresh retries 15, 16, 17, and 18 all record active Node v24.15.0 while both root and web package.json require >=22.12.0 <23. Within planner/manager scope, no corrective action remains other than preserving the archived escalation/hold evidence and waiting for explicit operator evidence that Node was fixed; continuing immediate fresh retries without such evidence is repeated probing and contradicts the no-probe hold intent.",
+  "questions_answered": [
+    {
+      "question": "1. Given repeated fresh retries observing Node v24.15.0 outside required >=22.12.0 <23, is there any planner/manager-scope corrective action remaining besides documenting hold and waiting for operator environment change?",
+      "answer": "No. The summaries and prerequisite artifacts consistently classify the blocker as operator-owned and explicitly prohibit manager/coder repair actions such as Node switching, dependency install, service/LXC control, or environment repair. Stage managers correctly stopped before validation because the project engine constraint is unsatisfied. The only in-scope next action before Node is fixed is documentation/hold state maintenance; at the plan-state level even additional no-probe hold stages are redundant once the hold is archived and current plan has no pending stage."
+    },
+    {
+      "question": "2. Does continuously queuing and dispatching immediate fresh retry stages violate the stated no repeated probing / operator hold intent when no evidence says Node was fixed?",
+      "answer": "Yes. Hold artifacts 16 and 17 state that holds must use prior evidence only and that no fresh Node/npm/jq/git/environment probe should run until the operator provides active Node >=22.12.0 <23. Despite that, history shows immediate fresh retries 16, 17, and 18 after hold entries, each probing Node and rediscovering v24.15.0. That pattern is inconsistent with the explicit no-probe operator hold intent unless there is intervening operator evidence of a runtime fix; no such evidence appears in the inspected history."
+    },
+    {
+      "question": "3. What plan state best represents a blocked operator hold without causing automatic retry loops: an active pending fresh retry, an active no-probe hold, or no pending stage with archived escalation and explicit operator-required action?",
+      "answer": "The best state is no pending stage with archived escalation/hold evidence and an explicit operator-required action. The current /work/saivage-v3/.saivage/plan.json already has current_stage_id null and an empty stages array, which accurately prevents automatic manager dispatch and retry loops. An active pending fresh retry causes probes; an active no-probe hold can still be repeatedly dispatched/escalated as seen in hold 16/17 and does not add new information after the hold artifact exists."
+    },
+    {
+      "question": "4. When Node is eventually fixed by the operator, what exact next stage should be seeded?",
+      "answer": "Seed a new fresh Stage 000 prerequisite retry stage, not Stage 001. The concrete id should follow the existing retry naming/numbering convention as the next unused retry: 000-breakage-detection-harness-fresh-retry-after-node-runtime-fixed-19. That stage should freshly verify Node >=22.12.0 <23 and all Stage 000 prerequisites before any validation/baseline work. Only after Stage 000 closes successfully should normal advancement pick the first published unrecorded stage, currently 001-real-llm-analyst-resolver."
+    }
+  ],
+  "findings": [
+    {
+      "id": "F1",
+      "severity": "blocker",
+      "title": "Stage 000 is blocked by active Node v24.15.0 outside the required Node 22.x range",
+      "evidence": [
+        "package.json lines 6-8 declare engines.node as >=22.12.0 <23 and npm as >=10 <12.",
+        "web/package.json lines 6-8 declare the same engines.node >=22.12.0 <23 and npm >=10 <12.",
+        ".saivage/stages/000-breakage-detection-harness-fresh-retry-after-node-runtime-fixed-17/prerequisite-evidence.json records node.observed v24.15.0, node.required >=22.12.0 <23, node.passed false, validation.attempted false.",
+        ".saivage/stages/000-breakage-detection-harness-fresh-retry-after-node-runtime-fixed-18/prerequisite-evidence.json records active_versions.node.stdout v24.15.0 and satisfies_required_range false, with validation.attempted false.",
+        ".saivage/plan-history.json entries 334, 337, 339, and 341 summarize fresh retries 15, 16, 17, and 18 as escalated on Node v24.15.0 outside >=22.12.0 <23."
+      ],
+      "root_cause": "The shell/runtime environment for /work/saivage-v3 still resolves node to v24.15.0, while the project contract requires Node >=22.12.0 <23. Runtime activation is explicitly outside manager/coder scope under the shared project constraints.",
+      "impact": "Blocks Stage 000 validation, baseline regeneration, run-gates.sh, validate-baseline.sh, and Stage 000 V.1-V.11. No downstream stage should be advanced until Stage 000 completes with fresh green prerequisites."
+    },
+    {
+      "id": "F2",
+      "severity": "high",
+      "title": "Repeated immediate fresh retries conflict with no-probe operator hold intent absent evidence of Node repair",
+      "evidence": [
+        ".saivage/stages/000-breakage-detection-harness-node-runtime-hold-16/hold.json has evidence_mode prior-summary-only, prohibited_actions.runtime_probe_attempted false, and next_action requiring operator Node >=22.12.0 <23 then a fresh retry.",
+        ".saivage/stages/000-breakage-detection-harness-node-runtime-hold-17/no-probe-operator-hold.json has evidence_source_mode stating no fresh environment/git/Node/npm/jq/validation/repair probe was run for the hold task, and next_actionable_step requiring operator-provided Node >=22.12.0 <23 followed by a fresh retry.",
+        "History tail shows the loop: fresh retry 16 -> hold 16 -> fresh retry 17 -> hold 17 -> fresh retry 18, all escalated; no inspected entry records operator-provided Node fix evidence between them.",
+        "Fresh retry 18 summary states the Manager performed a direct non-mutating prerequisite probe and again observed Node v24.15.0."
+      ],
+      "root_cause": "The planner loop appears to treat escalated hold/fresh-retry stages as a reason to enqueue another immediate fresh retry, instead of quiescing until an external operator action is recorded.",
+      "impact": "Consumes agents, repeats the same environment probe, creates noisy history, and risks violating the explicit operator-hold/no-repeated-probing instruction. It does not move Stage 000 closer to acceptance because the blocker is outside Saivage manager/coder authority."
+    },
+    {
+      "id": "F3",
+      "severity": "medium",
+      "title": "Current empty plan state is the correct blocked-hold representation",
+      "evidence": [
+        ".saivage/plan.json lines 2-4 show updated_at 2026-05-25T03:26:07.980Z, current_stage_id null, and stages [].",
+        "The plan-history tail contains archived escalations/holds through 000-breakage-detection-harness-fresh-retry-after-node-runtime-fixed-18.",
+        "No pending stage means the manager will not automatically dispatch another fresh probe or no-probe hold stage."
+      ],
+      "root_cause": "A blocked operator prerequisite is not an executable project stage until the operator changes the environment or supplies evidence that the runtime was fixed.",
+      "impact": "Maintaining current_stage_id null and stages [] prevents retry loops while preserving the archived evidence needed for Chat/Planner/operator status reporting."
+    },
+    {
+      "id": "F4",
+      "severity": "medium",
+      "title": "After operator Node fix, the next executable stage is a new fresh Stage 000 retry, not Stage 001",
+      "evidence": [
+        "Published stage directories are 000-breakage-detection-harness, 001-real-llm-analyst-resolver, and 002-tool-surface-alignment; the first published unrecorded stage is 001-real-llm-analyst-resolver, but Stage 000 remains incomplete in the retry/hold summaries.",
+        "Hold 16 and hold 17 artifacts both state that after operator provides Node >=22.12.0 <23, Stage 000 must run a fresh prerequisite retry before validation or baseline work.",
+        "Existing retry IDs use the convention 000-breakage-detection-harness-fresh-retry-after-node-runtime-fixed-N, with N=18 most recent; the next unused retry id is N=19."
+      ],
+      "root_cause": "Stage advancement rules apply after the current stage closes; Stage 000 has not closed because validation was never allowed to run under the wrong Node runtime.",
+      "impact": "Seeding Stage 001 immediately after Node repair would skip the required Stage 000 acceptance gate. Seeding 000-breakage-detection-harness-fresh-retry-after-node-runtime-fixed-19 preserves stage order and rechecks all prerequisites against the fixed runtime."
+    }
+  ],
+  "recommendations": [
+    {
+      "id": "R1",
+      "priority": "high",
+      "action": "Keep /work/saivage-v3/.saivage/plan.json with current_stage_id null and stages [] while Node remains unfixed; do not seed additional fresh retry or no-probe hold stages unless explicit operator evidence says Node >=22.12.0 <23 is active.",
+      "acceptance_criteria": [
+        "No new Stage 000 fresh retry or hold entry is added solely from the existing v24.15.0 evidence.",
+        "Operator-facing status references the archived hold/escalation artifacts and states the required external action: activate Node >=22.12.0 <23 for /work/saivage-v3."
+      ]
+    },
+    {
+      "id": "R2",
+      "priority": "high",
+      "action": "When the operator confirms/fixes Node, seed current_stage_id and stages with the next fresh retry id: 000-breakage-detection-harness-fresh-retry-after-node-runtime-fixed-19.",
+      "acceptance_criteria": [
+        "The fresh retry first runs a read-only prerequisite probe verifying Node satisfies >=22.12.0 <23 from /work/saivage-v3.",
+        "If prerequisites are green, continue Stage 000 plan validation exactly as published; if Node is still out of range, escalate once and return to no-pending-stage hold state."
+      ]
+    },
+    {
+      "id": "R3",
+      "priority": "medium",
+      "action": "Update planner retry policy/state machine so an escalation classified as operator-runtime-prerequisite hold is terminal/quiescent until an external operator-fix signal is present, rather than automatically enqueueing another immediate retry.",
+      "acceptance_criteria": [
+        "Planner distinguishes internal corrective retries from external-operator blockers.",
+        "For external-operator blockers, Planner archives the escalation and emits an operator-required action without setting a pending stage.",
+        "A fresh retry is only seeded after a distinct operator-fix event/evidence is recorded."
+      ]
+    }
+  ],
+  "artifacts": [
+    {
+      "path": "inspections/inspect-stage000-node-blocker-loop-policy-20260525.json",
+      "type": "inspection_report",
+      "committed": true
+    },
+    {
+      "path": "tmp/inspector-workspace/stage000-history-query.out",
+      "type": "diagnostic_log",
+      "committed": false
+    },
+    {
+      "path": "tmp/inspector-workspace/stage000-key-extracts.out",
+      "type": "diagnostic_log",
+      "committed": false
+    },
+    {
+      "path": "tmp/inspector-workspace/stage000-next-stage.out",
+      "type": "diagnostic_log",
+      "committed": false
+    }
+  ],
+  "commands_run": [
+    {
+      "command": "list_dir /work/saivage-v3/tools/inspector",
+      "result": "ENOENT: tools/inspector does not exist; no reusable inspector tools found."
+    },
+    {
+      "command": "python3 targeted query of .saivage/plan-history.json for Stage 000 retry/hold entries 15-18",
+      "result": "Found relevant entries at indices 334, 337, 338, 339, 340, and 341; all relevant fresh retries escalated on Node v24.15.0."
+    },
+    {
+      "command": "find .saivage/stages/... summaries/evidence for retry/hold 15-18",
+      "result": "Located summary.json, prerequisite-evidence.json, hold.json, and no-probe-operator-hold.json artifacts."
+    },
+    {
+      "command": "python3 compare published stage directories to plan-history ids",
+      "result": "Published stages count 3; 000-breakage-detection-harness recorded, first published unrecorded stage is 001-real-llm-analyst-resolver, but Stage 000 remains incomplete until fresh retry succeeds."
+    }
+  ],
+  "limitations": [
+    "Did not read secrets/provider configuration, /opt, service controls, shell history, or unauthorized paths.",
+    "Did not run a fresh node --version probe because the investigation question centers on policy given existing repeated probe evidence and no-probe hold intent."
+  ]
+}
