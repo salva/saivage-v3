@@ -42,7 +42,7 @@ function setupProject(projectRoot: string): void {
   }));
   const now = new Date().toISOString();
   writeFileSync(join(sd, 'cards', 'by-id', 'project.json'), JSON.stringify({
-    id: 'project', type: 'project', parent: null, depth: 0, title: 'project',
+    id: 'project', type: 'project', parent: null, depth: 0, position: 0, title: 'project',
     description: '', status: 'backlog', subtype: null, tags: [], priority: 0,
     urgency: 'normal', created_by: 'analyst', created_at: now, updated_at: now,
     assigned_to: null, depends_on: [], blocks: [], related: [], acceptance: '',

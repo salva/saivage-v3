@@ -28,7 +28,7 @@ function setupRoot(): string {
     server: { port: 8080, host: '127.0.0.1' },
   }, null, 2));
   const now = new Date().toISOString();
-  writeFileSync(join(sd, 'cards', 'by-id', 'project.json'), JSON.stringify({ id: 'project', type: 'project', parent: null, depth: 0, title: 'project', description: '', status: 'backlog', subtype: null, tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', created_at: now, updated_at: now, assigned_to: null, depends_on: [], blocks: [], related: [], acceptance: '', result: null, metrics: null, artifacts: [], attachments: [], estimate: null, started_at: null, completed_at: null, duration_ms: null, error: null, retries: 0, version_seq: 1 }));
+  writeFileSync(join(sd, 'cards', 'by-id', 'project.json'), JSON.stringify({ id: 'project', type: 'project', parent: null, depth: 0, position: 0, title: 'project', description: '', status: 'backlog', subtype: null, tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', created_at: now, updated_at: now, assigned_to: null, depends_on: [], blocks: [], related: [], acceptance: '', result: null, metrics: null, artifacts: [], attachments: [], estimate: null, started_at: null, completed_at: null, duration_ms: null, error: null, retries: 0, version_seq: 1 }));
   writeFileSync(join(sd, 'cards', 'index.json'), JSON.stringify({ cards: { project: { id: 'project', type: 'project', parent: null, status: 'backlog', title: 'project' } } }));
   writeFileSync(join(sd, 'cards', 'tree', 'project.children.json'), JSON.stringify([]));
   writeFileSync(join(sd, 'cards', 'dependencies', 'depends-on.json'), JSON.stringify({}));
