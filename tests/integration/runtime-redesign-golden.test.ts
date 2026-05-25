@@ -26,8 +26,8 @@ describe('runtime redesign final golden behavior', () => {
   it('active backend APIs expose explicit start_project/stop_project and no lets_dance or directive wakeup root kickoff', async () => {
     const projectRoot = tempRoot('saivage-runtime-golden-start-');
     try {
-      expect(operatorApiContracts['runtime.startProject'].path).toBe('/api/runtime/start_project');
-      expect(operatorApiContracts['runtime.stopProject'].path).toBe('/api/runtime/stop_project');
+      expect('runtime.startProject' in operatorApiContracts).toBe(false);
+      expect('runtime.stopProject' in operatorApiContracts).toBe(false);
       expect(ANALYST_TOOL_NAMES).not.toContain('lets_dance');
       expect(Object.keys(TOOL_REGISTRY)).not.toContain('lets_dance');
       expect('requestProjectDirectiveWakeup' in Runtime.prototype).toBe(false);
@@ -71,17 +71,11 @@ describe('runtime redesign final golden behavior', () => {
   it('runtime summaries use command/run/activation records rather than status-derived ready queue APIs', () => {
     expect('buildReadyQueue' in Runtime.prototype).toBe(false);
     expect('getReadyQueue' in Runtime.prototype).toBe(false);
-    expect(operatorApiContracts['runtime.startProject'].successSchemaName).toBe('RuntimeCommandResponse');
-    expect(operatorApiContracts['runtime.stopProject'].successSchemaName).toBe('RuntimeCommandResponse');
   });
 
   it('confirmed and preview_hash are scoped to preview tools, not card mutation gates', () => {
-    const createShape = operatorApiContracts['cards.create'].body!.safeParse({ title: 'x', confirmed: true, preview_hash: 'abc' });
-    const updateShape = operatorApiContracts['cards.update'].body!.safeParse({ confirmed: true, preview_hash: 'abc' });
-    expect(createShape.success).toBe(true);
-    expect(updateShape.success).toBe(true);
-    expect(createShape.success && 'confirmed' in createShape.data).toBe(false);
-    expect(updateShape.success && 'preview_hash' in updateShape.data).toBe(false);
+    expect('cards.create' in operatorApiContracts).toBe(false);
+    expect('cards.update' in operatorApiContracts).toBe(false);
   });
 
   it('active docs and prompts teach Runtime Console versus Planning Tree and no obsolete execution ritual remains active', () => {

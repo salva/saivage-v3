@@ -18,6 +18,7 @@ const runtimeState = {
   runtime_commands: [],
   runtime_runs: [],
   runtime_activations: [],
+  pid: 123,
 };
 
 
@@ -76,6 +77,7 @@ const card = {
   instructions_file: null,
   tags: [],
   priority: 0,
+  position: 0,
   urgency: 'normal',
   created_by: 'user',
   created_at: '2026-01-01T00:00:00.000Z',
@@ -104,40 +106,23 @@ describe('operator API contract registry', () => {
       'health.liveness',
       'health.readiness',
       'runtime.getState',
-      'runtime.startProject',
-      'runtime.stopProject',
-      'runtime.pause',
-      'runtime.resume',
       'cards.list',
       'cards.get',
       'cards.history.list',
       'cards.history.get',
       'cards.diff',
-      'cards.delete',
-      'cards.create',
-      'cards.update',
     ]);
     expect(operatorRouteInventory()).toEqual(expect.arrayContaining([
       expect.objectContaining({ operationId: 'health.liveness', method: 'GET', path: '/health', successSchemaName: 'HealthLivenessResponse' }),
       expect.objectContaining({ operationId: 'health.readiness', method: 'GET', path: '/health/ready', successSchemaName: 'HealthReadinessResponse' }),
-      expect.objectContaining({ operationId: 'runtime.startProject', method: 'POST', path: '/api/runtime/start_project', successSchemaName: 'RuntimeCommandResponse' }),
-      expect.objectContaining({ operationId: 'runtime.stopProject', method: 'POST', path: '/api/runtime/stop_project', successSchemaName: 'RuntimeCommandResponse' }),
-      expect.objectContaining({ operationId: 'runtime.pause', method: 'POST', path: '/api/runtime/pause', successSchemaName: 'RuntimeState' }),
-      expect.objectContaining({ operationId: 'runtime.resume', method: 'POST', path: '/api/runtime/resume', successSchemaName: 'RuntimeState' }),
     ]));
   });
 
   it('parses first-batch success examples', () => {
     expect(parseOperatorResponse('runtime.getState', { projectRoot: '/work/test', projectId: 'test', runtime: runtimeState, cardIndex: { total: 1, byStatus: { backlog: 1 }, byType: { code: 1 } } }).runtime).toEqual(runtimeState);
-    expect(parseOperatorResponse('runtime.startProject', { success: true, command: runtimeCommand, intent: runtimeIntent, run: runtimeRun }).run?.run_id).toBe('run-1');
-    expect(parseOperatorResponse('runtime.stopProject', { success: true, command: { ...runtimeCommand, command: 'stop_project' }, intent: { ...runtimeIntent, status: 'stopped' } }).intent.status).toBe('stopped');
     expect(parseOperatorResponse('runtime.getState', { projectRoot: '/work/test', projectId: 'test', runtime: runtimeState, cardIndex: { total: 1, byStatus: { backlog: 1 }, byType: { code: 1 } }, serverAvailability }).serverAvailability?.components.mcp.state).toBe('idle');
-    expect(parseOperatorResponse('runtime.pause', { ...runtimeState, status: 'paused', paused: true }).paused).toBe(true);
-    expect(parseOperatorResponse('runtime.resume', runtimeState).status).toBe('idle');
     expect(parseOperatorResponse('cards.list', { cards: [card], total: 1 }).total).toBe(1);
     expect(parseOperatorResponse('cards.get', { card, children: [], ancestorIds: [] }).card.id).toBe('card-1');
-    expect(parseOperatorResponse('cards.create', { card }).card.id).toBe('card-1');
-    expect(parseOperatorResponse('cards.update', { card }).card.status).toBe('backlog');
   });
 
 
@@ -154,16 +139,14 @@ describe('operator API contract registry', () => {
   });
 
   it('rejects malformed migrated responses', () => {
-    expect(operatorApiContracts['runtime.startProject'].error.parse({ success: false, actionable_error: { code: 'active_runtime_unavailable', message: 'missing runtime', nextAction: 'Start runtime.' } }).actionable_error.code).toBe('active_runtime_unavailable');
-    expect(() => parseOperatorResponse('runtime.pause', { status: 'paused' })).toThrow();
     expect(() => parseOperatorResponse('cards.list', { cards: [{}], total: 1 })).toThrow();
   });
 
 
   it('does not register obsolete lets_dance or preview-hash runtime controls', () => {
     const paths = operatorRouteInventory().map((route) => route.path);
-    expect(paths).toContain('/api/runtime/start_project');
-    expect(paths).toContain('/api/runtime/stop_project');
+    expect(paths).not.toContain('/api/runtime/start_project');
+    expect(paths).not.toContain('/api/runtime/stop_project');
     expect(paths).not.toContain('/api/runtime/lets_dance');
     expect(JSON.stringify(operatorApiContracts)).not.toMatch(/preview_hash|confirmed/);
   });

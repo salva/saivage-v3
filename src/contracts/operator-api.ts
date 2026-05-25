@@ -3,8 +3,6 @@ import {
   cardRecordSchema,
   cardStatusSchema,
   cardActionSchema,
-  cardTypeSchema,
-  createdBySchema,
   cardHistoryEntrySchema,
   cardHistoryHeaderSchema,
   runtimeStateSchema,
@@ -12,8 +10,6 @@ import {
   runtimeCommandRecordSchema,
   runtimeRunRecordSchema,
   runtimeActivationRecordSchema,
-  actionableErrorEnvelopeSchema,
-  urgencySchema,
 } from '../schemas/index.js';
 
 export type ContractAuthClass = 'public' | 'operator-session' | 'agent-session' | 'mcp-tool-token';
@@ -50,28 +46,6 @@ export const CardNotFoundErrorSchema = ApiErrorSchema.extend({
   cardId: z.string().optional(),
 });
 
-export const ActionableErrorEnvelopeSchema = actionableErrorEnvelopeSchema;
-
-export const RuntimeControlErrorSchema = ApiErrorSchema.extend({
-  action: z.string().optional(),
-  actionable_error: ActionableErrorEnvelopeSchema.optional(),
-});
-
-export const RuntimeControlRequestSchema = z.object({}).strict().optional();
-
-export const RuntimeCommandResponseSchema = z.object({
-  success: z.literal(true),
-  command: runtimeCommandRecordSchema,
-  intent: runtimeIntentSchema,
-  run: runtimeRunRecordSchema.optional(),
-});
-
-export const RuntimeCommandErrorResponseSchema = z.object({
-  success: z.literal(false),
-  command: runtimeCommandRecordSchema.optional(),
-  actionable_error: ActionableErrorEnvelopeSchema,
-});
-
 export const RuntimeSummarySchema = z.object({
   intent: runtimeIntentSchema,
   currentRun: runtimeRunRecordSchema.nullable(),
@@ -89,7 +63,6 @@ export const PlannerStateCardFieldsSchema = z.object({
   plannerState: cardStatusSchema.optional(),
 });
 
-export const EmptyBodySchema = z.object({}).passthrough().optional();
 export const CardIdParamsSchema = z.object({ id: z.string().min(1) });
 
 export const CardIndexSummarySchema = z.object({
@@ -146,9 +119,6 @@ export const CardDetailResponseSchema = z.object({
   ancestorIds: z.array(z.string()),
 });
 
-export const CardMutationResponseSchema = z.object({
-  card: cardRecordSchema,
-});
 export const CardHistoryParamsSchema = z.object({ id: z.string().min(1) });
 export const CardHistoryEntryParamsSchema = z.object({ id: z.string().min(1), seq: z.string().min(1) });
 const diffPivotSchema = z.union([
@@ -160,55 +130,6 @@ export const CardDiffQuerySchema = z.object({ from: diffPivotSchema.optional(), 
 export const CardHistoryListResponseSchema = z.object({ history: z.array(cardHistoryHeaderSchema), total: z.number().int().nonnegative() });
 export const CardHistoryEntryResponseSchema = z.object({ entry: cardHistoryEntrySchema });
 export const CardDiffResponseSchema = z.object({ diff: z.unknown(), from: z.number().int().positive(), to: z.number().int().positive(), card_id: z.string() });
-
-const cardCreateBaseSchema = z.object({
-  type: cardTypeSchema.optional(),
-  parent: z.string().nullable().optional(),
-  title: z.string().optional(),
-  description: z.string().optional(),
-  status: cardStatusSchema.optional(),
-  planner_state: cardStatusSchema.optional(),
-  tags: z.array(z.string()).optional(),
-  priority: z.number().int().min(0).max(100).optional(),
-  urgency: urgencySchema.optional(),
-  created_by: createdBySchema.optional(),
-  depends_on: z.array(z.string()).optional(),
-  related: z.array(z.string()).optional(),
-  acceptance: z.string().optional(),
-  result: z.record(z.string(), z.unknown()).nullable().optional(),
-  metrics: z.record(z.string(), z.union([z.number(), z.string(), z.boolean(), z.null()])).nullable().optional(),
-  estimate: z.string().nullable().optional(),
-  error: z.string().nullable().optional(),
-  retries: z.number().int().nonnegative().optional(),
-  subtype: z.string().nullable().optional(),
-  assigned_to: z.string().nullable().optional(),
-  instructions_file: z.string().nullable().optional(),
-});
-
-export const CardCreateBodySchema = cardCreateBaseSchema.strip();
-
-export const CardUpdateBodySchema = z.object({
-  title: z.string().optional(),
-  description: z.string().optional(),
-  status: cardStatusSchema.optional(),
-  planner_state: cardStatusSchema.optional(),
-  tags: z.array(z.string()).optional(),
-  priority: z.number().int().min(0).max(100).optional(),
-  urgency: urgencySchema.optional(),
-  acceptance: z.string().optional(),
-  result: z.record(z.string(), z.unknown()).nullable().optional(),
-  metrics: z.record(z.string(), z.union([z.number(), z.string(), z.boolean(), z.null()])).nullable().optional(),
-  depends_on: z.array(z.string()).optional(),
-  related: z.array(z.string()).optional(),
-  estimate: z.string().nullable().optional(),
-  error: z.string().nullable().optional(),
-  retries: z.number().int().nonnegative().optional(),
-  parent: z.string().nullable().optional(),
-  assigned_to: z.string().nullable().optional(),
-  type: cardTypeSchema.optional(),
-  subtype: z.string().nullable().optional(),
-  instructions_file: z.string().nullable().optional(),
-}).strip();
 
 export type OperatorRouteContract<
   TParams extends z.ZodTypeAny | undefined = z.ZodTypeAny | undefined,
@@ -270,50 +191,6 @@ export const operatorApiContracts = {
     ...operatorSessionContract,
     successSchemaName: 'RuntimeGetStateResponse',
   },
-  'runtime.startProject': {
-    operationId: 'runtime.startProject',
-    method: 'POST',
-    path: '/api/runtime/start_project',
-    body: RuntimeControlRequestSchema,
-    success: RuntimeCommandResponseSchema,
-    error: RuntimeCommandErrorResponseSchema,
-    response: { 200: RuntimeCommandResponseSchema, 400: ValidationErrorSchema, 401: UnauthorizedErrorSchema, 403: ForbiddenErrorSchema, 409: RuntimeCommandErrorResponseSchema, 500: ContractViolationErrorSchema, 503: RuntimeCommandErrorResponseSchema },
-    ...operatorSessionContract,
-    successSchemaName: 'RuntimeCommandResponse',
-  },
-  'runtime.stopProject': {
-    operationId: 'runtime.stopProject',
-    method: 'POST',
-    path: '/api/runtime/stop_project',
-    body: RuntimeControlRequestSchema,
-    success: RuntimeCommandResponseSchema,
-    error: RuntimeCommandErrorResponseSchema,
-    response: { 200: RuntimeCommandResponseSchema, 400: ValidationErrorSchema, 401: UnauthorizedErrorSchema, 403: ForbiddenErrorSchema, 409: RuntimeCommandErrorResponseSchema, 500: ContractViolationErrorSchema, 503: RuntimeCommandErrorResponseSchema },
-    ...operatorSessionContract,
-    successSchemaName: 'RuntimeCommandResponse',
-  },
-  'runtime.pause': {
-    operationId: 'runtime.pause',
-    method: 'POST',
-    path: '/api/runtime/pause',
-    body: EmptyBodySchema,
-    success: runtimeStateSchema,
-    error: RuntimeControlErrorSchema,
-    response: { 200: runtimeStateSchema, 400: ValidationErrorSchema, 401: UnauthorizedErrorSchema, 403: ForbiddenErrorSchema, 500: ContractViolationErrorSchema },
-    ...operatorSessionContract,
-    successSchemaName: 'RuntimeState',
-  },
-  'runtime.resume': {
-    operationId: 'runtime.resume',
-    method: 'POST',
-    path: '/api/runtime/resume',
-    body: EmptyBodySchema,
-    success: runtimeStateSchema,
-    error: RuntimeControlErrorSchema,
-    response: { 200: runtimeStateSchema, 400: ValidationErrorSchema, 401: UnauthorizedErrorSchema, 403: ForbiddenErrorSchema, 500: ContractViolationErrorSchema },
-    ...operatorSessionContract,
-    successSchemaName: 'RuntimeState',
-  },
   'cards.list': {
     operationId: 'cards.list',
     method: 'GET',
@@ -369,43 +246,6 @@ export const operatorApiContracts = {
     response: { 200: CardDiffResponseSchema, 400: ApiErrorSchema, 401: UnauthorizedErrorSchema, 403: ForbiddenErrorSchema, 404: ApiErrorSchema, 500: ContractViolationErrorSchema },
     ...operatorSessionContract,
     successSchemaName: 'CardDiffResponse',
-  },
-  'cards.delete': {
-    operationId: 'cards.delete',
-    method: 'DELETE',
-    path: '/api/cards/:id',
-    params: CardIdParamsSchema,
-    success: z.undefined(),
-    error: ApiErrorSchema,
-    response: { 400: ApiErrorSchema, 401: UnauthorizedErrorSchema, 403: ForbiddenErrorSchema, 404: ApiErrorSchema, 500: ContractViolationErrorSchema },
-    ...operatorSessionContract,
-    audit: { kind: 'control_action_recorded', action: 'card.delete', targetKind: 'card' },
-    successSchemaName: 'NoContent',
-  },
-  'cards.create': {
-    operationId: 'cards.create',
-    method: 'POST',
-    path: '/api/cards',
-    body: CardCreateBodySchema,
-    success: CardMutationResponseSchema,
-    error: ApiErrorSchema,
-    response: { 201: CardMutationResponseSchema, 400: ApiErrorSchema, 401: UnauthorizedErrorSchema, 403: ForbiddenErrorSchema, 500: ContractViolationErrorSchema },
-    ...operatorSessionContract,
-    audit: { kind: 'control_action_recorded', action: 'card.create', targetKind: 'card' },
-    successSchemaName: 'CardMutationResponse',
-  },
-  'cards.update': {
-    operationId: 'cards.update',
-    method: 'PATCH',
-    path: '/api/cards/:id',
-    params: CardIdParamsSchema,
-    body: CardUpdateBodySchema,
-    success: CardMutationResponseSchema,
-    error: CardNotFoundErrorSchema,
-    response: { 200: CardMutationResponseSchema, 400: ApiErrorSchema, 401: UnauthorizedErrorSchema, 403: ForbiddenErrorSchema, 404: CardNotFoundErrorSchema, 500: ContractViolationErrorSchema },
-    ...operatorSessionContract,
-    audit: { kind: 'control_action_recorded', action: 'card.update', targetKind: 'card', targetId: ({ body }) => ((body as { card?: { id?: string } })?.card?.id ?? null) },
-    successSchemaName: 'CardMutationResponse',
   },
 } as const satisfies Record<string, OperatorRouteContract>;
 

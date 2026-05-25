@@ -27,14 +27,7 @@ test('operator control room smoke walks browser routes with REST fixtures and We
   await expect.poll(async () => page.evaluate(() => window.__saivageWsFixture?.sockets.length ?? 0)).toBeGreaterThan(0);
   await expect(page.getByText(/Live updates connected/i).first()).toBeVisible();
 
-  const pauseButton = page.locator('.pause-chip');
-  await expect(pauseButton).toContainText('Pause');
-  await pauseButton.click();
-  await expect(pauseButton).toContainText('Resume');
-  await pauseButton.click();
-  await expect(pauseButton).toContainText('Pause');
-  expect(rest.pauseCalls).toBeGreaterThanOrEqual(1);
-  expect(rest.resumeCalls).toBeGreaterThanOrEqual(1);
+  await expect(page.locator('.pause-chip')).toHaveCount(0);
 
   await page.getByText('Cards').first().click();
   await expect(page).toHaveURL(/\/cards$/);

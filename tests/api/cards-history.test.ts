@@ -3,6 +3,7 @@ import Fastify, { type FastifyInstance } from 'fastify';
 import cors from '@fastify/cors';
 import websocket from '@fastify/websocket';
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { CardStore } from '../../src/cards/card-store.js';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
@@ -28,7 +29,7 @@ function initializeProjectRoot(root: string): void {
   mkdirSync(join(saivageDir, 'notes', 'by-card'), { recursive: true });
   mkdirSync(join(saivageDir, 'runtime'), { recursive: true });
   const now = new Date().toISOString();
-  writeFileSync(join(saivageDir, 'cards', 'by-id', 'project.json'), JSON.stringify({ id: 'project', type: 'project', parent: null, depth: 0, title: 'project', description: '', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', created_at: now, updated_at: now, depends_on: [], blocks: [], related: [], acceptance: 'token="secret-value"', artifacts: [], attachments: [], retries: 0, version_seq: 1 }));
+  writeFileSync(join(saivageDir, 'cards', 'by-id', 'project.json'), JSON.stringify({ id: 'project', type: 'project', parent: null, depth: 0, title: 'project', description: '', status: 'backlog', tags: [], priority: 0, position: 0, urgency: 'normal', created_by: 'analyst', created_at: now, updated_at: now, depends_on: [], blocks: [], related: [], acceptance: 'token="secret-value"', artifacts: [], attachments: [], retries: 0, version_seq: 1 }));
   writeFileSync(join(saivageDir, 'cards', 'index.json'), JSON.stringify({ cards: { project: { id: 'project', type: 'project', parent: null, status: 'backlog', title: 'project' } } }));
   writeFileSync(join(saivageDir, 'cards', 'tree', 'project.children.json'), JSON.stringify([]));
   writeFileSync(join(saivageDir, 'cards', 'dependencies', 'depends-on.json'), JSON.stringify({}));
@@ -50,16 +51,28 @@ beforeAll(async () => {
   await app.listen({ port: 0, host: '127.0.0.1' });
   port = (app.server.address() as { port: number }).port;
 
-  await fetch(url('/api/cards'), {
-    method: 'POST',
-    headers: { ...authHeader(authToken), 'content-type': 'application/json' },
-    body: JSON.stringify({ title: 'Tracked card', type: 'code', parent: 'project', acceptance: 'accept initial' }),
+  const store = new CardStore(TEST_ROOT);
+  const created = store.create({
+    id: 'code-1',
+    title: 'Tracked card',
+    type: 'code',
+    parent: 'project',
+    depth: 1,
+    description: '',
+    status: 'backlog',
+    tags: [],
+    priority: 0,
+    urgency: 'normal',
+    created_by: 'analyst',
+    depends_on: [],
+    related: [],
+    blocks: [],
+    acceptance: 'accept initial',
+    artifacts: [],
+    attachments: [],
+    retries: 0,
   });
-  await fetch(url('/api/cards/code-1'), {
-    method: 'PATCH',
-    headers: { ...authHeader(authToken), 'content-type': 'application/json' },
-    body: JSON.stringify({ description: 'apiKey="secret-123"', acceptance: 'updated acceptance' }),
-  });
+  store.mutateCard(created.id, { description: 'apiKey="secret-123"', acceptance: 'updated acceptance' }, { actor: 'analyst', surface: 'rest', reason: 'seed cards history test' });
 }, 30000);
 
 afterAll(async () => {

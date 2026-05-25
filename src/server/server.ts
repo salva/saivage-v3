@@ -21,7 +21,7 @@ import { TelegramBot } from '../telegram/index.js';
 import { setProjectNotificationDeliveryAdapters, clearProjectNotificationDeliveryAdapters } from '../notifications/index.js';
 import { TelegramNotificationDeliveryAdapter, buildTelegramStartupDiagnosticSummary, evaluateTelegramRecipientReadiness, normalizeTelegramNotificationChatIds } from '../telegram/index.js';
 import { ActiveRuntime } from '../runtime/index.js';
-import { buildCardRunsResponse, markGoalNeedsCorrections, normalizeAnalystIssues } from '../agents/index.js';
+import { buildCardRunsResponse } from '../agents/index.js';
 import { buildServerAvailability, type ServerAvailabilityInputs } from './availability.js';
 import { createResourceScope, type ResourceScope } from '../lifecycle/index.js';
 
@@ -51,14 +51,6 @@ function createEnvironmentFromProjectConfig(projectRoot: string): Environment {
 }
 
 function registerStage6RuntimeRoutes(fastify: FastifyInstance, projectRoot: string, _activeRuntime?: ActiveRuntime): void {
-  fastify.post('/api/runtime/goals/:id/needs_corrections', async (request, reply) => {
-    try {
-      const params = request.params as { id: string };
-      const body = (request.body ?? {}) as { issues?: unknown[]; note?: string };
-      const issues = normalizeAnalystIssues(body.issues ?? []);
-      return reply.send(markGoalNeedsCorrections(projectRoot, params.id, issues, body.note));
-    } catch (err) { return reply.status(400).send({ error: 'Failed to record goal corrections', message: err instanceof Error ? err.message : String(err) }); }
-  });
   fastify.get('/api/runtime/card-runs', async (_request, reply) => reply.send(buildCardRunsResponse(projectRoot)));
 }
 function registerRuntimeDispatchRoutes(fastify: FastifyInstance, projectRoot: string, activeRuntime?: ActiveRuntime, availabilityInputs?: ServerAvailabilityInputs): void { fastify.get('/api/runtime/status', async (_request, reply) => { try { const serverAvailability = availabilityInputs ? buildServerAvailability(availabilityInputs) : undefined; if (activeRuntime) { const status = activeRuntime.getStatus(); return reply.send({ runtime: status.status, paused: status.paused, currentCardId: status.currentCardId, goalCount: status.goalCount, lastTickAt: status.lastTickAt, pid: process.pid, ...(serverAvailability ? { serverAvailability } : {}) }); } const { readRuntimeState } = await import('../runtime/state.js'); const state = readRuntimeState(projectRoot); return reply.send({ runtime: state?.status ?? 'unknown', paused: state?.paused ?? false, currentCardId: state?.current_card_id ?? null, goalCount: 0, lastTickAt: state?.last_tick_at ?? null, pid: process.pid, ...(serverAvailability ? { serverAvailability } : {}) }); } catch (err) { return reply.status(500).send({ error: 'Failed to get runtime status', message: err instanceof Error ? err.message : String(err) }); } }); }

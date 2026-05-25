@@ -10,13 +10,9 @@ describe('obsolete backend trigger contracts are removed', () => {
     expect(Object.keys(TOOL_REGISTRY)).not.toContain('lets_dance');
   });
 
-  it('does not accept confirmed or preview_hash in card mutation contracts', () => {
-    const createShape = operatorApiContracts['cards.create'].body!.safeParse({ title: 'x', confirmed: true, preview_hash: 'abc' });
-    const updateShape = operatorApiContracts['cards.update'].body!.safeParse({ confirmed: true, preview_hash: 'abc' });
-    expect(createShape.success).toBe(true);
-    expect(updateShape.success).toBe(true);
-    expect(createShape.success && 'confirmed' in createShape.data).toBe(false);
-    expect(updateShape.success && 'preview_hash' in updateShape.data).toBe(false);
+  it('does not expose card mutation contracts', () => {
+    expect('cards.create' in operatorApiContracts).toBe(false);
+    expect('cards.update' in operatorApiContracts).toBe(false);
   });
 
   it('runtime no longer exposes directive wakeup API', () => {

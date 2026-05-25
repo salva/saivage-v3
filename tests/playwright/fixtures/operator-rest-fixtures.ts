@@ -17,13 +17,6 @@ const runtimeRunning = {
   updated_at: now,
 };
 
-const runtimePaused = {
-  ...runtimeRunning,
-  status: 'paused',
-  paused: true,
-  paused_at: now,
-};
-
 const card = {
   id: 'card-smoke',
   type: 'code',
@@ -145,8 +138,6 @@ const outputRoot = {
 export type OperatorRestObservations = {
   counts: Map<string, number>;
   unknown: string[];
-  pauseCalls: number;
-  resumeCalls: number;
 };
 
 function json(route: Route, payload: unknown, status = 200) {
@@ -158,7 +149,7 @@ function keyFor(method: string, pathname: string): string {
 }
 
 export async function installOperatorRestRoutes(page: Page): Promise<OperatorRestObservations> {
-  const observations: OperatorRestObservations = { counts: new Map(), unknown: [], pauseCalls: 0, resumeCalls: 0 };
+  const observations: OperatorRestObservations = { counts: new Map(), unknown: [] };
 
   await page.route('**/api/**', async (route) => {
     const request = route.request();
@@ -171,14 +162,6 @@ export async function installOperatorRestRoutes(page: Page): Promise<OperatorRes
     }
     if (request.method() === 'GET' && url.pathname === '/api/state') {
       return json(route, parseOperatorResponse('runtime.getState', { runtime: runtimeRunning, cardIndex: { total: 2, byStatus: { running: 1, done: 1 }, byType: { project: 1, code: 1 } } }));
-    }
-    if (request.method() === 'POST' && url.pathname === '/api/runtime/pause') {
-      observations.pauseCalls++;
-      return json(route, parseOperatorResponse('runtime.pause', runtimePaused));
-    }
-    if (request.method() === 'POST' && url.pathname === '/api/runtime/resume') {
-      observations.resumeCalls++;
-      return json(route, parseOperatorResponse('runtime.resume', runtimeRunning));
     }
     if (request.method() === 'GET' && url.pathname === '/api/cards') return json(route, cardList);
     if (request.method() === 'GET' && url.pathname === '/api/cards/card-smoke') return json(route, cardDetail);
