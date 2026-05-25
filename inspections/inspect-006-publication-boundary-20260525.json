@@ -1,0 +1,113 @@
+{
+  "id": "inspect-006-publication-boundary-20260525",
+  "role": "inspector",
+  "requested_by": "planner",
+  "requested_at": "2026-05-25T12:58:30.000Z",
+  "created_at": "2026-05-25T12:59:30.000Z",
+  "scope": "Verify analyst-as-control-surface stage advancement boundary after Stage 005 completion using only non-secret .saivage plan/history metadata and SPEC/analyst-as-control-surface PLAN stage/protocol/master-plan files.",
+  "status": "completed",
+  "executive_summary": "No published next sequential 006-* stage directory exists under SPEC/analyst-as-control-surface/PLAN/stages; the published immutable stage set currently stops at 005-right-panel-and-shell. Under PROTOCOL-r4 and the project advancement rule, the Planner must not synthesize Stage 006 from master-plan prose, drafts, notes, or prior history; the only compliant action is to hold/wait until an immutable 006-<slug> stage directory is published under PLAN/stages.",
+  "questions": [
+    {
+      "question": "Is there any published next sequential stage directory matching 006-* under /work/saivage-v3/SPEC/analyst-as-control-surface/PLAN/stages?",
+      "answer": "No. A direct listing of immediate stage children returned exactly 000-breakage-detection-harness through 005-right-panel-and-shell and no 006-* directory.",
+      "evidence": [
+        "Command: find SPEC/analyst-as-control-surface/PLAN/stages -maxdepth 1 -mindepth 1 -type d -printf '%f\\n' | sort",
+        "Output: 000-breakage-detection-harness; 001-real-llm-analyst-resolver; 002-tool-surface-alignment; 003-ordered-children-and-bounded-move; 004-notifications-queue-ephemeral; 005-right-panel-and-shell",
+        ".saivage/plan.json currently has current_stage_id null and stages [], updated_at 2026-05-25T12:57:51.811Z."
+      ]
+    },
+    {
+      "question": "Given the project objectives and PROTOCOL-r4/stage advancement rules, is the planner allowed to invent or seed Stage 006 from master-plan prose, drafts, notes, or prior history if no 006-* directory is published?",
+      "answer": "No. PROTOCOL-r4 defines the watched/published source as immediate regex-matching children of PLAN/stages only; drafts are explicitly ignored, and publication occurs only by atomically moving a complete NNN-<slug> directory into stages/. Master-plan prose maps S00..S10 to prefixes and describes intended content, but does not itself constitute publication or authorization to enqueue a missing directory.",
+      "evidence": [
+        "PROTOCOL-r4.md:26: published directory is exactly PLAN/stages; immediate children are stage directories named NNN-<slug> and contain definitive design.md/plan.md.",
+        "PROTOCOL-r4.md:28: drafts/ holds work-in-progress; the consumer ignores it.",
+        "PROTOCOL-r4.md:32-39: a stage is published in exactly one step by atomically moving the complete directory into stages/; consumer sees all files or does not see it at all.",
+        "PROTOCOL-r4.md:51-57: consumer owns queue; watches exactly PLAN/stages; only immediate children matching strict regex are considered; new stages are sorted by name and appended; documents are read directly from discovered directories.",
+        "00-MASTER-PLAN-r7.md:435: stage ids map deterministically to directory prefixes and the master plan names design/plan paths that MUST exist inside corresponding stages/NNN-<slug>/ directory. This is a requirement for publication, not a replacement for the directory."
+      ]
+    },
+    {
+      "question": "Are all published stages 000 through 005 represented by completed or verified-completed plan history, despite earlier schema-failure corrective stages?",
+      "answer": "Yes, with corrective nuance for stages that initially hit structured-return schema failures. Published stages 000-005 all have either direct completed history or later closeout/continuation verification confirming completion after earlier failed attempts.",
+      "evidence": [
+        "000: .saivage/plan-history.json entry 000-breakage-detection-harness-prereq-confirmed-schema-strict-retry completed_at 2026-05-25T06:58:12.674Z: 'Stage 000 prerequisite-confirmed schema-strict retry completed... V.1 through V.11 were executed in order... final review confirmed... V.11 zero NEW failures... empty expected-breakage ledger'.",
+        "001: entry 001-real-llm-analyst-resolver completed_at 2026-05-25T08:22:05.370Z: 'Stage 001 completed... ran validation, and closed with zero NEW baseline-gate failures'.",
+        "002: original 002-tool-surface-alignment at 2026-05-25T08:37:41.604Z failed before tasks due schema_mismatch, but 002-tool-surface-alignment-closeout-verification completed_at 2026-05-25T09:57:00.130Z independently verified implementation, A1-A8 green, and run-gates.sh --diff exited 0 with zero NEW failures.",
+        "003: original 003-ordered-children-and-bounded-move at 2026-05-25T10:26:18.454Z failed due schema_mismatch, but 003-ordered-children-and-bounded-move-phases-d-h-schema-strict completed_at 2026-05-25T11:05:47.696Z: 'Stage 003 continuation completed... Final gate driver exited 0 with zero NEW failures... Reviewer found no blockers'.",
+        "004: entry 004-notifications-queue-ephemeral completed_at 2026-05-25T12:11:45.384Z: 'Stage 004 completed... Final authoritative gate driver exited 0... reviewer confirmed all blockers resolved'.",
+        "005: entry 005-right-panel-and-shell completed_at 2026-05-25T12:48:47.309Z: 'Stage 005 completed... npm run build passed, and run-gates.sh --diff baseline-gates.json exited 0 with zero NEW failures'."
+      ]
+    },
+    {
+      "question": "What is the precise next compliant action available to the Planner right now?",
+      "answer": "Hold publication advancement and report that migration is waiting for a new immutable PLAN/stages/006-<slug>/ directory to be published by the authorized publication process. Do not seed current_stage_id, do not create a Stage 006 card from master-plan S06 prose, drafts, notes, or prior history, and do not skip to 007 or any later stage. Once a regex-valid 006-* directory appears under PLAN/stages, the Planner may enqueue that exact directory name in normal lexicographic order after confirming it is not already recorded in plan/history.",
+      "evidence": [
+        "Current .saivage/plan.json: current_stage_id is null and stages is [].",
+        ".saivage/plan-history.json includes 006-publication-wait-hold completed_at 2026-05-25T12:57:51.811Z, whose summary already records the same compliant hold: next sequential published stage 006-* is absent; do not invent/skip/seed; hold until a new immutable 006-<slug> stage directory is published.",
+        "PROTOCOL-r4 consumer rules line 53 consider only immediate PLAN/stages children matching ^[0-9]{3}-[a-z0-9]+(-[a-z0-9]+)*$; line 55 sorts new stages by name ascending."
+      ]
+    }
+  ],
+  "findings": [
+    {
+      "severity": "high",
+      "type": "publication-boundary",
+      "title": "Stage advancement is correctly blocked because no published 006-* stage directory exists.",
+      "details": "The authoritative published directory contains only six immediate regex-valid children, 000 through 005. Since current_stage_id is null and plan.stages is empty, there is no active executable stage. The next intended master-plan block S06 exists as prose at 00-MASTER-PLAN-r7.md:197, but there is no corresponding immutable stages/006-<slug>/ directory with definitive design.md and plan.md.",
+      "impact": "Planner cannot advance the migration without violating the stage publication contract. Any invented Stage 006 would bypass immutable per-stage design/plan review and could cause non-authoritative or incomplete work to execute."
+    },
+    {
+      "severity": "medium",
+      "type": "history-consistency",
+      "title": "History is consistent with 000-005 having closed or been verified after schema failures.",
+      "details": "The history contains failed schema attempts for 002 and 003, but later verification/continuation entries explicitly establish completion. Stage 000 also had many operator-hold/schema-failure entries before the successful schema-strict retry. Stages 001, 004, and 005 have direct completion summaries.",
+      "impact": "There is no evidence that the absence of Stage 006 is caused by unresolved 000-005 publication-stage work. The blocker is publication availability, not prior-stage completion."
+    }
+  ],
+  "commands_run": [
+    {
+      "command": "list_dir /work/saivage-v3/tools/inspector",
+      "result": "ENOENT; no reusable inspector tools directory exists."
+    },
+    {
+      "command": "find SPEC/analyst-as-control-surface/PLAN/stages -maxdepth 1 -mindepth 1 -type d -printf '%f\\n' | sort",
+      "result": "Returned 000 through 005 only; no 006-* directory."
+    },
+    {
+      "command": "jq focused queries against .saivage/plan-history.json for exact 000-006 and completion entries",
+      "result": "Confirmed completed/verified-completed history for 000-005 and existing 006-publication-wait-hold."
+    },
+    {
+      "command": "grep/nl excerpts from PROTOCOL-r4.md and 00-MASTER-PLAN-r7.md",
+      "result": "Confirmed publication and consumer rules: stages/ immediate regex-valid directories only; drafts ignored; atomic directory rename required; master plan requires matching stage directory paths."
+    }
+  ],
+  "artifacts": [
+    "inspections/inspect-006-publication-boundary-20260525.json",
+    "tmp/inspector-workspace/publication-boundary-evidence.txt",
+    "tmp/inspector-workspace/publication-boundary-focused.txt",
+    "tmp/inspector-workspace/exact-history-000-006.tsv",
+    "tmp/inspector-workspace/completion-history-000-005.tsv",
+    "tmp/inspector-workspace/protocol-master-excerpts.txt"
+  ],
+  "recommendations": [
+    {
+      "priority": "P0",
+      "action": "Keep .saivage/plan.json with current_stage_id null and do not seed any new stage until an immutable regex-valid directory matching SPEC/analyst-as-control-surface/PLAN/stages/006-* exists."
+    },
+    {
+      "priority": "P0",
+      "action": "Notify the operator/stage publisher that the next required artifact is a published PLAN/stages/006-<slug>/ directory containing definitive design.md and plan.md, published via PROTOCOL-r4 atomic directory rename."
+    },
+    {
+      "priority": "P1",
+      "action": "After publication, rescan PLAN/stages immediate children, sort by NNN-<slug>, confirm the exact 006-* name is absent from .saivage/plan.json stages and .saivage/plan-history.json, then seed that exact directory id as current_stage_id."
+    }
+  ],
+  "limitations": [
+    "No source code, secrets, provider/auth files, /opt paths, services, or deployment controls were inspected or touched.",
+    "The report relies on non-secret plan/history metadata and immutable PLAN protocol/master/stage-directory listings, as requested."
+  ]
+}
