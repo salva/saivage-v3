@@ -68,12 +68,9 @@ describe('initProjectTree', () => {
     expect(card.tags).toEqual([]);
   });
 
-  it('creates notes/queue.json with empty entries and next sequence', () => {
+  it('does not create the legacy notes queue', () => {
     initProjectTree(tmpDir);
-    const queue = JSON.parse(
-      readFileSync(join(tmpDir, '.saivage', 'notes', 'queue.json'), 'utf-8'),
-    );
-    expect(queue).toEqual({ next_note_sequence: 1, entries: [] });
+    expect(existsSync(join(tmpDir, '.saivage', 'notes'))).toBe(false);
   });
 
   it('creates views/leaderboard.json as empty array', () => {
@@ -135,7 +132,6 @@ describe('initProjectTree', () => {
       'cards/.commit',
       'diaries',
       'reviews/by-goal',
-      'notes/by-card',
       'agents/sessions',
       'agents/messages',
       'runtime',

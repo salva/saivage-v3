@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from '@jest/globals';
-import { mkdtempSync, mkdirSync, rmSync, existsSync, readFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, rmSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
@@ -9,6 +9,7 @@ import type { CardRecord, ReviewerResult, RuntimeState } from '../../src/schemas
 import { appendRuntimeRun } from '../../src/runtime/state.js';
 import { CardStore } from '../../src/cards/card-store.js';
 import { initProjectTree } from '../../src/persistence/file-tree.js';
+import { listControlActions } from '../../src/persistence/control-action-audit.js';
 
 function makeCard(overrides: Partial<CardRecord> & { type: CardRecord['type']; title: string }): Omit<CardRecord, 'created_at' | 'updated_at' | 'id' | 'version_seq' | 'position'> & { id?: string } {
   return { parent: 'project', depth: 1, description: '', status: 'backlog', subtype: null, instructions_file: null, tags: [], priority: 0, urgency: 'normal', created_by: 'planner', assigned_to: null, depends_on: [], blocks: [], related: [], acceptance: '', result: null, metrics: null, artifacts: [], attachments: [], estimate: null, started_at: null, completed_at: null, duration_ms: null, error: null, status_text: null, status_text_updated_at: null, status_text_author_session_id: null, latest_self_report: null, retries: 0, ...overrides };
@@ -64,7 +65,7 @@ describe('PlannerControlExecutor', () => {
     expect(store.read(goal.id)?.status).toBe('done');
   });
 
-  it('writes correction notes with projectRoot after reviewer retries are exhausted', async () => {
+  it('does not write legacy correction note files after reviewer retries are exhausted', async () => {
     const goal = store.create(makeCard({ type: 'goal', title: 'Goal', status: 'active', retries: 1 }));
     const review: ReviewerResult = { result: 'needs_corrections', summary: 'fix it', achieved: [], issues: [{ summary: 'missing evidence', severity: 'blocker' }], evidence_card_ids: [] };
     const executor = new PlannerControlExecutor({ cardStore: store, projectRoot: tmpDir, maxReviewRetries: 1, assessmentIdFactory: () => 'assessment-fail', reviewer: () => review });
@@ -73,11 +74,23 @@ describe('PlannerControlExecutor', () => {
 
     expect(result.kind).toBe('tool_result');
     expect(store.read(goal.id)?.status).toBe('changed');
-    const notesFile = join(tmpDir, '.saivage', 'notes', 'by-card', `${goal.id}.jsonl`);
-    expect(existsSync(notesFile)).toBe(true);
-    const noteBody = readFileSync(notesFile, 'utf-8');
-    expect(noteBody).toContain('pending_subtree_correction');
-    expect(noteBody).toContain('missing evidence');
+    expect(existsSync(join(tmpDir, '.saivage', 'notes'))).toBe(false);
+  });
+
+
+  it('dispatches queue_notification through planner-control and audits planner runtime surface', async () => {
+    store.create(makeCard({ id: 'goal', type: 'goal', title: 'Goal', status: 'active' }));
+    const executor = new PlannerControlExecutor({ cardStore: store, projectRoot: tmpDir });
+
+    const result = await executor.execute({ sessionId: 'planner:goal', toolCallId: 'call-notify', toolName: 'queue_notification', argumentsJson: JSON.stringify({ recipient: 'goal', kind: 'heads_up', body: 'planner body must not audit' }) });
+
+    expect(result).toMatchObject({ role: 'tool', kind: 'tool_result', tool: 'queue_notification', tool_call_id: 'call-notify' });
+    expect(JSON.parse(result.content)).toEqual({ success: true, data: { queued: true, recipient: 'goal' } });
+    const audit = listControlActions(tmpDir).find((entry) => entry.action === 'notification.queue' && entry.target_id === 'goal');
+    expect(audit).toEqual(expect.objectContaining({ actor: 'planner', surface: 'runtime', outcome: 'ok' }));
+    expect(audit?.outcome_summary).toBe('heads_up');
+    expect(audit?.params_summary).not.toContain('planner body must not audit');
+    expect(audit?.outcome_summary).not.toContain('planner body must not audit');
   });
 
   it('returns successful activate_card as a shared deferred activation envelope without mutating status', async () => {

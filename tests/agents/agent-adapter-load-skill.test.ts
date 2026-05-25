@@ -142,7 +142,7 @@ describe('AgentAdapter load_skill tool', () => {
       expect(tools[0].function.name).toBe('load_skill');
     });
 
-    it('returns analyst history/notes/correction tools without deleted root-start tools', () => {
+    it('returns analyst history/notification/correction tools without deleted root-start tools', () => {
       const toolNames = callBuildToolsForRole('analyst').map((tool) => tool.function.name);
       expect(toolNames).not.toContain('lets_dance');
       expect(toolNames).toEqual(expect.arrayContaining([
@@ -150,9 +150,7 @@ describe('AgentAdapter load_skill tool', () => {
         'list_card_history',
         'get_card_history_entry',
         'diff_card',
-        'list_notes',
-        'get_note',
-        'mark_note_handled',
+        'queue_notification',
       ]));
     });
 

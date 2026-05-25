@@ -33,7 +33,7 @@ function uniqueDir(): string {
 
 function setupProject(projectRoot: string): void {
   const sd = join(projectRoot, '.saivage');
-  for (const d of ['cards/by-id','cards/tree','cards/dependencies','notes/by-card','runtime','agents/sessions','agents/messages','diaries']) {
+  for (const d of ['cards/by-id','cards/tree','cards/dependencies','runtime','agents/sessions','agents/messages','diaries']) {
     mkdirSync(join(sd, d), { recursive: true });
   }
   writeFileSync(join(sd, 'saivage.json'), JSON.stringify({
@@ -56,7 +56,6 @@ function setupProject(projectRoot: string): void {
   writeFileSync(join(sd, 'cards', 'tree', 'project.children.json'), JSON.stringify([]));
   writeFileSync(join(sd, 'cards', 'dependencies', 'depends-on.json'), JSON.stringify({}));
   writeFileSync(join(sd, 'cards', 'dependencies', 'blocks.json'), JSON.stringify({}));
-  writeFileSync(join(sd, 'notes', 'queue.json'), JSON.stringify({ next_note_sequence: 1, entries: [] }));
   initRuntimeState(projectRoot);
 }
 
@@ -101,7 +100,7 @@ describe('Analyst Tool Definitions', () => {
     expect([...ANALYST_ISSUE_SEVERITY_VALUES]).toEqual(['info', 'warning', 'blocker']);
   });
 
-  it('emits enum JSON schema constraints and guidance for card, note, list, and corrections tools', () => {
+  it('emits enum JSON schema constraints and guidance for card, list, notification, and corrections tools', () => {
     const createProps = propertiesFor('create_card');
     expect(createProps.type.enum).toEqual([...CARD_TYPE_VALUES]);
     expect(createProps.status.enum).toEqual([...CARD_STATUS_VALUES]);
@@ -201,6 +200,40 @@ describe('Analyst Tools', () => {
     expect(store.read('code-1')).toBeNull();
   });
 
+
+
+  it('queues analyst notifications and audits metadata without body content', async () => {
+    const result = await queue_notification(ctx(projectRoot, store), { recipient: 'code-1', kind: 'heads_up', body: 'secret notification body' });
+
+    expect(result).toEqual({ success: true, data: { queued: true, recipient: 'code-1' } });
+    const audits = listControlActions(projectRoot);
+    expect(audits).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        actor: 'analyst',
+        surface: 'web-chat',
+        action: 'notification.queue',
+        target_id: 'code-1',
+        outcome: 'ok',
+      }),
+    ]));
+    const audit = audits.find((entry) => entry.action === 'notification.queue' && entry.target_id === 'code-1');
+    expect(audit?.params_summary).toContain('heads_up');
+    expect(audit?.params_summary).toContain('code-1');
+    expect(audit?.outcome_summary).not.toContain('secret notification body');
+    expect(audit?.params_summary).not.toContain('secret notification body');
+  });
+
+  it('returns unknown_recipient for analyst queue_notification without queueing', async () => {
+    const result = await queue_notification(ctx(projectRoot, store), { recipient: 'missing-target', kind: 'heads_up', body: 'body that must not audit' });
+
+    expect(result).toEqual({ success: false, data: { reason: 'unknown_recipient', recipient: 'missing-target' } });
+    const audits = listControlActions(projectRoot);
+    const audit = audits.find((entry) => entry.action === 'notification.queue' && entry.target_id === 'missing-target');
+    expect(audit).toBeDefined();
+    expect(audit?.outcome).toBe('error');
+    expect(audit?.outcome_summary).not.toContain('body that must not audit');
+    expect(audit?.params_summary).not.toContain('body that must not audit');
+  });
 
   it('audits analyst move_card and reorder_child with the calling surface', async () => {
     const sibling = store.create({ type: 'goal', parent: 'project', title: 'Sibling Goal', description: '', status: 'backlog', depth: 0, tags: [], priority: 1, urgency: 'normal', created_by: 'analyst', acceptance: '', depends_on: [], blocks: [], related: [], artifacts: [], attachments: [], retries: 0, id: 'goal-2' });

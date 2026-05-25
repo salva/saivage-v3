@@ -12,7 +12,9 @@ describe('RoleToolPolicy', () => {
     expect(RoleToolPolicy.listToolNamesForRole('planner')).toEqual([
       'create_card',
       'edit_card',
-      'add_note',
+      'move_card',
+      'reorder_child',
+      'queue_notification',
       'list_cards',
       'get_card',
       'get_tree',

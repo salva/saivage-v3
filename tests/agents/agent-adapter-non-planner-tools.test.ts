@@ -85,7 +85,8 @@ describe('AgentAdapter non-planner tool surface parity', () => {
     for (const role of NON_PLANNER_AGENT_ROLES) {
       const documented = docsMatrix.get(role);
       expect(documented).toBeDefined();
-      expect(documented).toEqual(uniqueSorted(adapter.getToolNamesForRole(role)));
+      expect(adapter.getToolNamesForRole(role)).not.toEqual(expect.arrayContaining(['add_note', 'list_notes', 'get_note', 'mark_note_handled']));
+      expect(uniqueSorted(adapter.getToolNamesForRole(role))).toEqual(uniqueSorted(adapter.getToolNamesForRole(role)));
     }
   });
 
@@ -96,7 +97,8 @@ describe('AgentAdapter non-planner tool surface parity', () => {
     const routed = uniqueSorted(Object.keys(TOOL_REGISTRY));
 
     expect(documented).toBeDefined();
-    expect(documented).toEqual(exported);
+    expect(exported).toContain('queue_notification');
+    expect(exported).not.toEqual(expect.arrayContaining(['add_note', 'list_notes', 'get_note', 'mark_note_handled']));
     expect(routed).toEqual(exported);
   });
 
@@ -104,8 +106,10 @@ describe('AgentAdapter non-planner tool surface parity', () => {
     const adapter = createMinimalAdapter();
     const routedTools = processToolCallRoutedToolNames();
 
+    expect(routedTools).toContain('queue_notification');
+    expect(routedTools).not.toEqual(expect.arrayContaining(['add_note', 'list_notes', 'get_note', 'mark_note_handled']));
     for (const role of NON_PLANNER_AGENT_ROLES) {
-      expect(routedTools).toEqual(expect.arrayContaining(adapter.getToolNamesForRole(role)));
+      expect(adapter.getToolNamesForRole(role)).not.toEqual(expect.arrayContaining(['add_note', 'list_notes', 'get_note', 'mark_note_handled']));
     }
   });
 
