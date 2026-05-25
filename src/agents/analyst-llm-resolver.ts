@@ -11,7 +11,7 @@ import {
 } from './llm-client.js';
 import { ANALYST_TOOL_DEFINITIONS } from './analyst-tool-schemas.js';
 import { loadConfig, getModelParamsForRole, getRuntimeConfig } from './config-schema.js';
-import type { RuntimeSection } from './config-schema.js';
+import type { RuntimeSection, SaivageConfig } from './config-schema.js';
 import { ModelRouter } from './model-router.js';
 import { ProviderRegistry } from './provider.js';
 import { capabilityRequestForLlmOptions } from './provider-capabilities.js';
@@ -103,6 +103,7 @@ export function getAnalystToolDefinitions(): ToolDefinition[] { return ANALYST_T
 export function getAnalystSystemPrompt(): string { return ANALYST_SYSTEM_PROMPT; }
 
 export class LlmIntentResolver {
+  private readonly config: SaivageConfig;
   private readonly registry: ProviderRegistry;
   private readonly router: ModelRouter;
   private readonly runtimeConfig: RuntimeSection;
@@ -112,6 +113,7 @@ export class LlmIntentResolver {
 
   constructor(private readonly projectRoot: string) {
     const { config } = loadConfig(projectRoot);
+    this.config = config;
     this.registry = new ProviderRegistry(config);
     this.router = new ModelRouter(config, this.registry);
     this.runtimeConfig = getRuntimeConfig(config);
@@ -131,8 +133,7 @@ export class LlmIntentResolver {
     const chain = await this.router.resolve('analyst', this.capabilityRequest());
     if (chain.length === 0) throw new AnalystOfflineError(ANALYST_OFFLINE_REPLY);
 
-    const { config } = this.router.getConfig ? { config: this.router.getConfig() } : loadConfig(this.projectRoot);
-    const modelParams = getModelParamsForRole(config, 'analyst');
+    const modelParams = getModelParamsForRole(this.config, 'analyst');
     const systemPrompt = `${getAnalystSystemPrompt()}\n\n${projectContext}`;
     const sessionId = messages.find((message) => message.session_id)?.session_id ?? 'analyst';
     let lastTransportError: Error | null = null;
