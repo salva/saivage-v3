@@ -23,7 +23,7 @@ mode="run"; baseline_file=""
 if [[ "${1:-}" == "--baseline" ]]; then mode="baseline"; shift; elif [[ "${1:-}" == "--diff" ]]; then mode="diff"; baseline_file="${2:-}"; shift 2 || true; fi
 if [[ "$mode" == "diff" && -z "$baseline_file" ]]; then echo "usage: $0 --diff <baseline.json>" >&2; exit 2; fi
 if ! command -v jq >/dev/null 2>&1; then echo "run-gates.sh: missing required dependency: jq" >&2; exit 127; fi
-json_escape() { jq -Rsa .; }
+json_escape() { jq -R .; }
 parse_tsc_like() { local gate="$1" log="$2" prefix="$3"; perl -ne 'if (/^(.+)\(([0-9]+),[0-9]+\): error TS([0-9]+):/) { $p=$1; $p =~ s#^\./##; if ($p !~ m#^(saivage-v3|saivage-e2e-checkers)/#) { $p="'"$prefix"'/$p"; } print "'"$gate"':$p:$2:TS$3\n"; }' "$log" | sort -u; }
 parse_web_vite() { local log="$1" exit_code="$2" tmp="$OUT_DIR/web-vite.ids"; : > "$tmp"; parse_tsc_like web-vite-build "$log" saivage-v3/web >> "$tmp"; if [[ ! -s "$tmp" ]]; then if grep -Eq '\[vite\]:|error during build' "$log"; then echo 'web-vite-build:saivage-v3-web:vite-failed' >> "$tmp"; elif [[ "$exit_code" != 0 ]]; then echo 'web-vite-build:saivage-v3-web:unknown-failure' >> "$tmp"; fi; fi; sort -u "$tmp"; }
 parse_vitest() {
