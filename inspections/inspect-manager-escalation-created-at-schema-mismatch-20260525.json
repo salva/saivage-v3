@@ -1,0 +1,98 @@
+{
+  "request_id": "inspect-manager-escalation-created-at-schema-mismatch-20260525",
+  "role": "inspector",
+  "project_root": "/work/saivage-v3",
+  "created_at": "2026-05-25T06:31:00.000Z",
+  "status": "completed",
+  "summary": "The failing object is the Manager StageSummary escalation object for .saivage/stages/000-breakage-detection-harness-operator-prereq-confirmed/summary.json. The project repository does not contain a StageSummary schema definition; the observed validation requirement for escalation.created_at is enforced by the external Saivage v2 harness/structured-return validator. The likely producer was the Manager's final StageSummary writer, which emitted an escalation object with stage_id, reason, attempted_remediations, and suggested_action but no created_at.",
+  "questions_answered": [
+    {
+      "question": "Where is the StageSummary/escalation schema defined, and does it require escalation.created_at for all escalations?",
+      "answer": "No StageSummary schema definition was found in project code under src/, tests/, package.json, or tsconfig.json. Project grep for StageSummary and escalation only found unrelated runtime/operator event schemas such as src/schemas/types.ts EscalationEvent and src/schemas/validators.ts escalationEventSchema, neither of which is the Manager StageSummary schema and neither has created_at. The evidence that the active StageSummary schema requires escalation.created_at is the structured-return validator error reported by the Planner: 'Manager emitted schema_mismatch: escalation.created_at: Required'. Since the project has no matching schema, that requirement is in the v2 harness/runtime outside /work/saivage-v3. The requirement appears to apply whenever the optional StageSummary.escalation object is present, because the failure names the nested path escalation.created_at rather than the top-level summary."
+    },
+    {
+      "question": "Which code path likely produced an escalation object without created_at during Manager dispatch?",
+      "answer": "The likely producer is the Manager final StageSummary generation path, not project application code. The on-disk summary at .saivage/stages/000-breakage-detection-harness-operator-prereq-confirmed/summary.json contains an escalation object at lines 89-101 with keys stage_id, reason, attempted_remediations, and suggested_action, but no created_at. This exactly matches the validator path 'escalation.created_at: Required'. The same summary shows that the Manager had already run/directly inspected validation artifacts and reviewer output, so the phrase 'failed before tasks' in recent history is not consistent with the local artifact evidence; the failure was before the Planner could consume a valid structured StageSummary, not necessarily before all Manager work executed."
+    },
+    {
+      "question": "Is this a project-code repair within /work/saivage-v3, a v2 harness/runtime repair outside the project, or a malformed stage instruction issue?",
+      "answer": "Primary classification: v2 harness/runtime structured-return repair outside project code. There is no project StageSummary validator/emitter to patch under src/ or tests/. It is not a malformed immutable stage instruction: the Stage 000 plan asks for escalation on failed validation and does not define the low-level JSON schema field set for Manager StageSummary.escalation. A local artifact backfill could be done under .saivage/stages as evidence repair, but it would not repair the underlying Manager emitter/validator mismatch for future escalations."
+    },
+    {
+      "question": "What is the smallest safe corrective action that would allow Stage 000 validation to run without replaying operator-wait heartbeats?",
+      "answer": "Smallest safe corrective action: fix the v2 harness Manager StageSummary escalation producer (or its return-normalization layer) to always add created_at: new Date().toISOString() when escalation is present and the model/manager omitted it, then retry the already-created '000-breakage-detection-harness-operator-prereq-confirmed' validation path rather than seeding another operator-wait heartbeat. If a one-time unblock is needed before harness code is patched, regenerate or patch only the rejected StageSummary return/artifact to include escalation.created_at with the original summary creation time and re-consume it; do not modify immutable SPEC/PLAN stage docs and do not create heartbeat stages."
+    },
+    {
+      "question": "Which files/tests should a corrective stage modify/run, if this is in project scope?",
+      "answer": "This is not in project scope based on the repository search. If the Planner nevertheless creates a project-local diagnostic/guard stage, it should only add documentation or guard artifacts under inspections/ or a non-secret test fixture; no src/ files are indicated. The actual corrective stage should target v2 harness code outside /work/saivage-v3: the Manager StageSummary schema/normalizer and tests that validate escalated StageSummary objects with and without explicit escalation.created_at. Within this project, the relevant evidence files are .saivage/stages/000-breakage-detection-harness-operator-prereq-confirmed/summary.json and prior .saivage/stages/000-breakage-detection-harness*/summary.json artifacts, but these are evidence, not product-code repair targets."
+    }
+  ],
+  "findings": "Executive Summary: I investigated the Stage 000 dispatch failure reported as 'Manager emitted schema_mismatch: escalation.created_at: Required'. The project repository does not define the Manager StageSummary schema; the concrete failing object is the Manager-produced escalation block in .saivage/stages/000-breakage-detection-harness-operator-prereq-confirmed/summary.json, which lacks created_at. This is a v2 harness/structured-return emitter-normalization issue, not a Stage 000 instruction defect or a product-code repair in /work/saivage-v3.\n\nDetailed Findings:\n1. Schema location and requirement: Searches for 'StageSummary', 'escalation.created_at', and escalation schema definitions in src/ and tests/ found no Manager StageSummary schema. Project code only defines unrelated runtime/operator escalation event types: src/schemas/types.ts has EscalationEvent with kind, goal_id, reason, and message; src/schemas/validators.ts has escalationEventSchema with kind, goal_id, reason, and message. The only evidence for created_at being required is the external structured-return error naming escalation.created_at. Therefore the schema is in the v2 harness/runtime layer, and its nested path indicates created_at is required on StageSummary.escalation whenever escalation exists.\n\n2. Likely producer: .saivage/stages/000-breakage-detection-harness-operator-prereq-confirmed/summary.json lines 89-101 contain the exact malformed escalation object. It has stage_id at line 90, reason at line 91, attempted_remediations at lines 92-99, and suggested_action at line 100. There is no created_at field before the object closes at line 101. This shape directly explains the schema path escalation.created_at: Required.\n\n3. Dispatch timing nuance: The recent plan history says the stage failed before tasks, but local evidence shows task artifacts and summary content exist. tasks.json exists, t1 and t9 reports exist, and summary.json lines 5-32 list Coder, manager-direct-validation, and Reviewer tasks. The more precise interpretation is that the Manager dispatch failed before returning a schema-valid StageSummary to the Planner, not that no work occurred on disk.\n\n4. Scope classification: Project grep found no StageSummary schema/emitter in /work/saivage-v3. The problem belongs to the external Saivage v2 harness Manager structured-return contract. Stage instructions are not malformed; the Stage 000 plan requires escalation when validation is not green, but does not govern the harness-internal escalation.created_at field.\n\n5. Smallest safe unblock: Add or normalize escalation.created_at in the v2 harness Manager StageSummary path and retry the prereq-confirmed validation/consumption path. Do not replay operator-wait heartbeat stages: the rejected summary itself says this is no longer the prior Node/npm/tmp/e2e prerequisite blocker and should not produce another operator-wait heartbeat.",
+  "evidence": [
+    {
+      "type": "file_excerpt",
+      "path": ".saivage/stages/000-breakage-detection-harness-operator-prereq-confirmed/summary.json",
+      "lines": "89-101",
+      "excerpt": "\"escalation\": { \"stage_id\": \"000-breakage-detection-harness-operator-prereq-confirmed\", \"reason\": ..., \"attempted_remediations\": [...], \"suggested_action\": ... } -- no created_at field is present."
+    },
+    {
+      "type": "command_output",
+      "path": "tmp/inspector-workspace/project-schema-grep-only.out",
+      "excerpt": "grep for StageSummary/escalation in src/tests found only unrelated project event schemas: src/schemas/types.ts EscalationEvent and src/schemas/validators.ts escalationEventSchema; no Manager StageSummary schema was found."
+    },
+    {
+      "type": "file_excerpt",
+      "path": ".saivage/stages/000-breakage-detection-harness-operator-prereq-confirmed/summary.json",
+      "lines": "5-32",
+      "excerpt": "The summary lists task records for t1-run-stage-000-validation, manager-direct-validation, and t9-review-stage-000-validation, showing on-disk work occurred despite the final structured StageSummary rejection."
+    },
+    {
+      "type": "file_excerpt",
+      "path": ".saivage/stages/000-breakage-detection-harness-operator-prereq-confirmed/summary.json",
+      "lines": "91-100",
+      "excerpt": "The escalation reason says the issue is no longer the prior prerequisite blocker and 'should not produce another operator-wait heartbeat'; suggested_action also says not to seed further prerequisite-wait/heartbeat stages."
+    }
+  ],
+  "recommendations": [
+    {
+      "priority": "high",
+      "scope": "v2-harness-outside-project",
+      "action": "Patch the v2 harness Manager StageSummary producer/normalizer so that when result is escalated and escalation is present, escalation.created_at is populated with an ISO timestamp if omitted by the Manager/model before schema validation.",
+      "acceptance": "A harness unit test validates an escalated Manager StageSummary missing escalation.created_at is normalized or rejected before dispatch with a deterministic repair; Manager dispatch returns schema-valid output."
+    },
+    {
+      "priority": "high",
+      "scope": "v2-harness-outside-project",
+      "action": "Add regression coverage for Manager StageSummary escalation objects, including valid explicit created_at, omitted created_at normalized to ISO string, and invalid non-date created_at rejected or repaired according to harness policy.",
+      "acceptance": "The harness test suite covering structured Manager returns passes and reports the exact nested path if escalation.created_at remains invalid."
+    },
+    {
+      "priority": "medium",
+      "scope": "stage-retry-policy",
+      "action": "After the harness repair, retry/consume the existing 000-breakage-detection-harness-operator-prereq-confirmed validation path and proceed to Stage 000 corrective validation blockers; do not seed another operator-wait heartbeat stage for the previously resolved prerequisite issue.",
+      "acceptance": "Planner receives a schema-valid escalated StageSummary for prereq-confirmed validation, preserving the V.2/V.3/V.10/V.11 blockers and no new operator-wait heartbeat stage appears in plan history."
+    }
+  ],
+  "artifacts": [
+    "inspections/inspect-manager-escalation-created-at-schema-mismatch-20260525.json",
+    "tmp/inspector-workspace/prereq-summary-numbered.out",
+    "tmp/inspector-workspace/project-schema-grep-only.out",
+    "tmp/inspector-workspace/prereq-confirmed-artifacts.out"
+  ],
+  "tests_run": [
+    {
+      "command": "grep/find searches for StageSummary, escalation.created_at, schema_mismatch, and Manager artifacts under /work/saivage-v3 excluding secret/provider files",
+      "result": "passed",
+      "notes": "No project StageSummary schema found; failing summary artifact located."
+    },
+    {
+      "command": "nl -ba .saivage/stages/000-breakage-detection-harness-operator-prereq-confirmed/summary.json | sed -n '1,115p'",
+      "result": "passed",
+      "notes": "Confirmed escalation object missing created_at at lines 89-101."
+    }
+  ],
+  "limitations": [
+    "Did not inspect /opt/saivage, provider config, secret files, or external v2 harness source because the assignment scope forbids those paths.",
+    "Could not identify the exact harness source file defining StageSummary because it is outside /work/saivage-v3 or not present in this repository."
+  ]
+}
