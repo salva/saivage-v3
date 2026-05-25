@@ -1,0 +1,176 @@
+{
+  "id": "inspect-stage-000-operator-wait-loop-20260525T0531Z",
+  "request_id": "inspect-stage-000-operator-wait-loop-20260525T0531Z",
+  "role": "inspector",
+  "created_at": "2026-05-25T05:31:00Z",
+  "scope": "Plan state for saivage-v3 analyst-as-control-surface migration Stage 000, focusing on repeated no-probe/no-git operator-wait heartbeat escalations and the unresolved Node runtime blocker. Inspected non-secret plan state, immutable Stage 000/protocol documents, prior inspection reports, and plan-history summaries. Did not read provider/auth secrets, invoke service/LXC controls, touch /opt, or probe Node/runtime state.",
+  "status": "completed",
+  "executive_summary": "Stage 000 remains externally blocked: the last authorized fresh evidence carried through heartbeat 39 is Node v24.15.0 while the project requires Node >=22.12.0 <23. Given the current empty plan queue and no external/operator signal of a runtime fix, the compliant Planner action is to hold with no pending stage; dispatching more heartbeats is compliant only as a status artifact but is not required by PROTOCOL-r4 and has already become a no-information loop.",
+  "questions_answered": [
+    {
+      "question": "1. Given the project objectives and recent history, is there any compliant action the Planner can take other than repeated strict operator-wait heartbeat stages while no external/operator signal confirms Node >=22.12.0 <23?",
+      "answer": "Yes: the Planner can and should keep the plan quiescent with current_stage_id null and stages [] while reporting the operator-required action. That is more compliant and less noisy than repeating heartbeat stages. It must not seed a fresh prerequisite retry or advance to Stage 001 until external/operator evidence says Node >=22.12.0 <23 is active. Repeated strict no-probe/no-git heartbeats have been accepted historically, but they do not advance Stage 000 and are not required by the stage publication protocol."
+    },
+    {
+      "question": "2. Would dispatching another heartbeat using only the latest summary remain compliant, or does the plan protocol require holding with an empty queue pending operator signal?",
+      "answer": "A strict no-probe/no-git heartbeat that uses only the latest summary would remain within the same constraints that heartbeats 24-39 followed, provided it performs no shell/git/MCP git/runtime probes/validation/product edits/fresh retry seeding. However, PROTOCOL-r4 does not require such heartbeats. Its consumer rules say the queue is scanned when empty and new published stages are appended by name; it does not define periodic wait-heartbeat stages. The better plan-state representation is the current empty queue pending operator signal."
+    },
+    {
+      "question": "3. Is it permissible to seed a fresh Stage 000 prerequisite retry without an external/operator signal, or would that violate the no-probe/no-retry constraints recorded in recent escalations?",
+      "answer": "It is not permissible under the recorded constraints. Recent summaries explicitly carry the last authorized fresh retry evidence (Node v24.15.0) and say to hold until an external/operator signal states Node >=22.12.0 <23 is active, then seed a fresh Stage 000 prerequisite retry. Seeding a fresh retry now would necessarily invite another Node/prerequisite probe without new evidence and would repeat the no-probe/no-retry violation pattern identified in prior inspection inspect-stage000-node-blocker-loop-policy-20260525."
+    },
+    {
+      "question": "4. What exact next stage, if any, should be added to the plan now?",
+      "answer": "None now. Leave /work/saivage-v3/.saivage/plan.json as current_stage_id null and stages []. After an explicit operator signal confirms Node >=22.12.0 <23 is active for /work/saivage-v3, add exactly one fresh Stage 000 prerequisite retry using the next unused retry id following the existing convention: 000-breakage-detection-harness-fresh-retry-after-node-runtime-fixed-40 (or, if the Planner maintains a separate fresh-retry counter rather than global Stage 000 suffixes, the next unused fresh-retry id in that counter). Do not add Stage 001 until Stage 000 closes."
+    }
+  ],
+  "findings": [
+    {
+      "id": "F1",
+      "severity": "blocker",
+      "title": "Stage 000 is still blocked on an operator-owned Node runtime prerequisite",
+      "evidence": [
+        "Plan-history tail extracted during this inspection shows heartbeats 35-39 all summarize: 'Stage 000 remains incomplete on the operator-owned Node runtime blocker' and carry 'last authorized fresh retry evidence Node v24.15.0 while project requires >=22.12.0 <23'. Diagnostic log: tmp/inspector-workspace/history-extract.out.",
+        "Stage 000 plan.md lines 8-14 require pre-condition 2: Node and npm versions match package engines, with node >=22.12.0, and node --version/npm --version are the confirming commands. Evidence extract: tmp/inspector-workspace/evidence.out.",
+        "Stage 000 design.md lines 21-24 put environment fixes out of product-code scope and state that if a gate cannot run on a fresh checkout, the environment fix is applied at environment level only, not encoded as a product-code patch.",
+        "Stage 000 design.md lines 25-27 exclude repair of the v2-on-v3 harness/container and require the implementer to stop and ask the operator if activation preflight fails."
+      ],
+      "root_cause": "The active runtime evidence available to the Planner is still Node v24.15.0, outside the required Node 22.x range. Changing the runtime is an operator/environment responsibility, not a Planner/Manager/Coder Stage 000 action.",
+      "impact": "Blocks Stage 000 prerequisite validation, baseline regeneration, V.1-V.11 validation, breakage triage, and all later stage advancement."
+    },
+    {
+      "id": "F2",
+      "severity": "high",
+      "title": "The current empty queue is the correct compliant hold state; protocol does not require heartbeat stages",
+      "evidence": [
+        "/work/saivage-v3/.saivage/plan.json lines 2-4 show updated_at 2026-05-25T05:30:19.967Z, current_stage_id null, and stages [].",
+        "PROTOCOL-r4 consumer rules lines 55-59 state that the consumer scans for new stages when its queue empties, sorts new stage directories by name, and appends them to the queue; no rule requires synthetic wait or heartbeat stages while externally blocked.",
+        "Prior inspection inspect-stage000-node-blocker-loop-policy-20260525 concluded that no pending stage with archived escalation/hold evidence best represents an operator hold and prevents automatic retry loops."
+      ],
+      "root_cause": "A blocked external prerequisite is not executable work. Heartbeats are bookkeeping/status artifacts, not a protocol-mandated queue item.",
+      "impact": "Leaving the queue empty prevents unnecessary Manager dispatches and avoids expanding plan history with repeated no-information escalations."
+    },
+    {
+      "id": "F3",
+      "severity": "high",
+      "title": "Another heartbeat would be narrowly compliant but low-value if it strictly avoids probes and git",
+      "evidence": [
+        "History entries 24-39 repeatedly state strict no-git/no-probe heartbeats were accepted when they used only the prior summary, wrote only permitted .saivage stage-local artifacts, and avoided shell, git/MCP git, validation, runtime probes, product/harness/immutable edits, and fresh retry seeding.",
+        "Heartbeat 23 was rejected because the Coder report stated MCP git_commit was attempted, demonstrating that even bookkeeping heartbeats have a real prohibited-action risk.",
+        "The last five recent histories in the request and the plan-history extraction all repeat the same conclusion: hold until external/operator signal states Node >=22.12.0 <23 is active."
+      ],
+      "root_cause": "The heartbeat mechanism has become a liveness/status loop around an unchanged external blocker. It can comply only by intentionally not gathering fresh evidence, which also means it cannot change the decision state.",
+      "impact": "Further heartbeats consume agents and increase the chance of another prohibited-action mistake without improving the Planner's information."
+    },
+    {
+      "id": "F4",
+      "severity": "blocker",
+      "title": "A fresh Stage 000 retry before operator signal would violate the recorded no-probe/no-retry hold constraints",
+      "evidence": [
+        "Heartbeat summaries 35-39 all end with the same condition: hold until external/operator signal states Node >=22.12.0 <23 is active, then seed a fresh Stage 000 prerequisite retry.",
+        "Prior inspection inspect-stage000-node-blocker-loop-policy-20260525 finding F2 found that repeated immediate fresh retries after no-probe holds conflicted with no-probe operator-hold intent absent evidence of Node repair.",
+        "Stage 000 cannot close without running prerequisite and validation commands, so any fresh retry would be a new probe rather than a prior-summary-only heartbeat."
+      ],
+      "root_cause": "Fresh retry semantics require checking the runtime/prerequisites. Without an intervening operator-fix event, that repeats the same unauthorized probe of the known Node blocker.",
+      "impact": "Would restart the loop, likely escalate on the same Node v24.15.0 evidence, and undermine the explicit operator-wait boundary."
+    },
+    {
+      "id": "F5",
+      "severity": "medium",
+      "title": "No published migration stage should be advanced while Stage 000 is incomplete",
+      "evidence": [
+        "Published stage directories currently visible are 000-breakage-detection-harness, 001-real-llm-analyst-resolver, and 002-tool-surface-alignment.",
+        "The project objectives require per-stage execution in order and stage advancement only when the current stage closes with acceptance green, validation gate met, breakage triage performed, and ledger updated.",
+        "Stage 000 remains incomplete according to every recent heartbeat summary and prior inspections."
+      ],
+      "root_cause": "Stage ordering rules are gated on successful closure, not mere presence in plan-history or repeated heartbeat escalation.",
+      "impact": "Seeding Stage 001 now would skip the foundational breakage-detection harness and compromise validation for all later migration stages."
+    }
+  ],
+  "recommendations": [
+    {
+      "id": "R1",
+      "priority": "P0",
+      "action": "Do not add any stage now. Preserve /work/saivage-v3/.saivage/plan.json with current_stage_id null and stages [] until an explicit external/operator signal states Node >=22.12.0 <23 is active for /work/saivage-v3.",
+      "acceptance_criteria": [
+        "No new Stage 000 heartbeat, fresh retry, or Stage 001 entry is seeded solely from the existing heartbeat-39 summary.",
+        "Operator-facing status states the required external action: activate Node >=22.12.0 <23 for the project runtime."
+      ]
+    },
+    {
+      "id": "R2",
+      "priority": "P0",
+      "action": "Reject any fresh Stage 000 prerequisite retry unless it is triggered by a distinct operator-fix signal/evidence newer than heartbeat 39. The retry must begin with a bounded non-secret prerequisite verification and stop immediately if Node is still outside >=22.12.0 <23.",
+      "acceptance_criteria": [
+        "The retry summary cites the operator signal that authorized fresh probing.",
+        "If Node satisfies the range, the retry continues through the published Stage 000 validation gate; if not, it records the failed prerequisite once and returns to empty-queue hold."
+      ]
+    },
+    {
+      "id": "R3",
+      "priority": "P1",
+      "action": "If organizational policy requires periodic liveness records despite no operator signal, dispatch only a strict no-git/no-probe heartbeat using the latest summary as its sole blocker evidence; prohibit shell, git/MCP git, validation, runtime probes, product/harness/immutable edits, and fresh retry seeding. Prefer R1 over this unless a heartbeat is explicitly required.",
+      "acceptance_criteria": [
+        "Heartbeat artifact states evidence_source=latest-summary-only and records no tool/runtime probe evidence.",
+        "Reviewer/manager report confirms no prohibited actions, especially no MCP git action/commit attempt."
+      ]
+    },
+    {
+      "id": "R4",
+      "priority": "P0",
+      "action": "After operator Node confirmation, seed exactly one fresh Stage 000 prerequisite retry with the next unused Stage 000 fresh-retry id following the repository's naming convention; based on current history suffixes through heartbeat-no-git-39, use 000-breakage-detection-harness-fresh-retry-after-node-runtime-fixed-40 unless the Planner's retry counter has a different next-unused fresh-retry value.",
+      "acceptance_criteria": [
+        "plan.json current_stage_id is set to that retry id only after operator evidence is recorded.",
+        "Stage 001 is not seeded until Stage 000 closes with its published acceptance and validation requirements satisfied."
+      ]
+    }
+  ],
+  "artifacts": [
+    {
+      "path": "inspections/inspect-stage-000-operator-wait-loop-20260525T0531Z.json",
+      "type": "inspection_report",
+      "committed": true
+    },
+    {
+      "path": "tmp/inspector-workspace/history-extract.out",
+      "type": "diagnostic_log",
+      "committed": false
+    },
+    {
+      "path": "tmp/inspector-workspace/evidence.out",
+      "type": "diagnostic_log",
+      "committed": false
+    }
+  ],
+  "commands_run": [
+    {
+      "command": "list_dir /work/saivage-v3/tools/inspector",
+      "result": "ENOENT: tools/inspector does not exist; no reusable inspector tools found."
+    },
+    {
+      "command": "read /work/saivage-v3/.saivage/plan.json",
+      "result": "current_stage_id is null and stages is an empty array."
+    },
+    {
+      "command": "jq targeted extraction from .saivage/plan-history.json for Stage 000 entries",
+      "result": "plan-history has 364 stages; extracted recent Stage 000 heartbeat summaries through heartbeat-no-git-39 without reading secret/provider files."
+    },
+    {
+      "command": "read immutable PROTOCOL-r4.md and Stage 000 design.md/plan.md",
+      "result": "Confirmed protocol consumer rules, Stage 000 Node prerequisite, and operator-owned environment/harness boundaries."
+    },
+    {
+      "command": "read prior inspection reports inspect-stage000-node-blocker-loop-policy-20260525, inspect-stage000-hold-no-more-in-scope-work, inspect-stage000-blockers-in-scope-options",
+      "result": "Confirmed prior conclusions that empty queue is the correct hold posture and fresh retries require operator Node-fix evidence."
+    },
+    {
+      "command": "git status and git log",
+      "result": "Observed no tracked modifications before report; recent commit e7b00a0 is prior node-blocker loop-policy inspection."
+    }
+  ],
+  "limitations": [
+    "Did not run node --version or any runtime/service probe because the question asks about compliance given no external/operator signal and recent history already records the last authorized fresh Node evidence.",
+    "Did not read .saivage/auth-profiles.json, .saivage/saivage.json, provider configs, env files, token files, shell history, /opt/saivage, or service/container controls.",
+    "The exact numeric suffix for the next fresh retry depends on Planner naming policy. This report recommends the next unused global Stage 000 suffix (40) from the inspected history, while noting that a separate fresh-retry counter could choose a different next-unused fresh-retry id."
+  ]
+}
