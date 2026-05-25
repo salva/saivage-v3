@@ -22,13 +22,18 @@ function isRecord(value: unknown): value is Record<string, unknown> { return val
 function ensureRecord(parent: RawConfig, key: string): RawConfig { if (!isRecord(parent[key])) parent[key] = {}; return parent[key] as RawConfig; }
 
 function withProjectLock<T>(projectRoot: string, work: () => T): T {
-  const previous = locks.get(projectRoot) ?? Promise.resolve();
+  const previous = locks.get(projectRoot);
+  if (previous) {
+    return { success: false, fieldPath: '/', message: 'Configuration write already in progress for this project.' } as T;
+  }
   let release!: () => void;
-  const current = previous.then(() => new Promise<void>((resolve) => { release = resolve; }));
+  const current = new Promise<void>((resolve) => { release = resolve; });
   locks.set(projectRoot, current);
-  // All current callers are synchronous; ensure serialized access in this tick.
   try { return work(); }
-  finally { release?.(); if (locks.get(projectRoot) === current) locks.delete(projectRoot); }
+  finally {
+    release();
+    if (locks.get(projectRoot) === current) locks.delete(projectRoot);
+  }
 }
 
 function readValidateWrite(projectRoot: string, patch: PatchFn, requiresRestart = false): ConfigWriteResult {

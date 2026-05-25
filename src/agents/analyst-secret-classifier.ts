@@ -8,7 +8,9 @@ export function assertAnalystInspectionTarget(absolutePath: string): void {
     assertNotSecretPath(absolutePath);
   } catch (err) {
     if (err instanceof SecretPathError) {
-      throw new SecretPathError('Access denied: secret-bearing path is off-limits.');
+      const redacted = new SecretPathError(absolutePath);
+      redacted.message = 'Access denied: secret-bearing path is off-limits.';
+      throw redacted;
     }
     throw err;
   }
