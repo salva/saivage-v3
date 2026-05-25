@@ -118,6 +118,23 @@ describe('AnalystChatPanel', () => {
     wrapper.unmount();
   });
 
+  it('focuses the composer when saivage:focus-chat is dispatched', async () => {
+    const button = document.createElement('button');
+    document.body.appendChild(button);
+    const wrapper = mount(AnalystChatPanel, { attachTo: document.body, global: { plugins: [createPinia()] } });
+    await flushPromises();
+    const textarea = wrapper.find('textarea').element as HTMLTextAreaElement;
+    button.focus();
+    expect(document.activeElement).toBe(button);
+
+    window.dispatchEvent(new CustomEvent('saivage:focus-chat'));
+    await flushPromises();
+
+    expect(document.activeElement).toBe(textarea);
+    wrapper.unmount();
+    button.remove();
+  });
+
   it('submits composer on Enter and keeps focus on the composer', async () => {
     const wrapper = mount(AnalystChatPanel, { attachTo: document.body, global: { plugins: [createPinia()] } });
     await flushPromises();

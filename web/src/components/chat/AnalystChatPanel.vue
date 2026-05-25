@@ -123,7 +123,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onMounted, ref } from 'vue';
+import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue';
 import { storeToRefs } from 'pinia';
 import { useAnalystChat } from '../../stores/analystChat';
 import type { ChatMessage } from '../../api/types';
@@ -235,6 +235,10 @@ function focusComposer(): void {
   composerRef.value?.focus();
 }
 
+function handleFocusChat(): void {
+  void nextTick(() => focusComposer());
+}
+
 function handleNewChat(): void {
   chat.createNewChat();
   void nextTick(() => focusComposer());
@@ -259,11 +263,16 @@ async function submitMessage(): Promise<void> {
 }
 
 onMounted(() => {
+  window.addEventListener('saivage:focus-chat', handleFocusChat);
   chat.fetchSessions().catch(() => {});
   if (activeSessionId.value) {
     chat.fetchMessages(activeSessionId.value).catch(() => {});
   }
-  void nextTick(() => focusComposer());
+  handleFocusChat();
+});
+
+onBeforeUnmount(() => {
+  window.removeEventListener('saivage:focus-chat', handleFocusChat);
 });
 </script>
 
