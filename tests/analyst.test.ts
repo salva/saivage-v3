@@ -36,9 +36,9 @@ function setupProject(projectRoot: string): void {
     mkdirSync(join(sd, d), { recursive: true });
   }
   writeFileSync(join(sd, 'saivage.json'), JSON.stringify({
-    server: { port: 0, host: '127.0.0.1' },
-    models: { default: ['test-model'] },
-    providers: { test: { priority: 10, models: ['test-model'], apiKey: 'secret-key' } },
+    server: { port: 8080, host: '127.0.0.1' },
+    models: { analyst: [] },
+    providers: {},
   }));
   const now = new Date().toISOString();
   writeFileSync(join(sd, 'cards', 'by-id', 'project.json'), JSON.stringify({

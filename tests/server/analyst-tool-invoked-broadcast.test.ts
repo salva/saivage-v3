@@ -1,4 +1,4 @@
-import { describe, expect, it, jest, beforeEach } from '@jest/globals';
+import { describe, expect, it, jest, beforeEach, afterEach } from '@jest/globals';
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -20,6 +20,10 @@ function setupRoot(): string {
   const root = mkdtempSync(join(tmpdir(), 'wave-m-broadcast-'));
   const sd = join(root, '.saivage');
   for (const d of ['cards/by-id', 'cards/tree', 'cards/dependencies', 'notes/by-card', 'runtime', 'agents/sessions', 'agents/messages']) mkdirSync(join(sd, d), { recursive: true });
+  writeFileSync(join(sd, 'saivage.json'), JSON.stringify({
+    models: { analyst: ['test-model'] },
+    providers: { test: { models: ['test-model'], apiKey: 'test-key', baseUrl: 'http://test-provider.invalid/v1' } },
+  }));
   const now = new Date().toISOString();
   writeFileSync(join(sd, 'cards', 'by-id', 'project.json'), JSON.stringify({ id: 'project', type: 'project', parent: null, depth: 0, title: 'project', description: '', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', created_at: now, updated_at: now, version_seq: 1, depends_on: [], blocks: [], related: [], acceptance: '', artifacts: [], attachments: [], retries: 0 }));
   writeFileSync(join(sd, 'cards', 'by-id', 'c-1.json'), JSON.stringify({ id: 'c-1', type: 'code', parent: 'project', depth: 1, title: 'card', description: '', status: 'backlog', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', created_at: now, updated_at: now, version_seq: 1, depends_on: [], blocks: [], related: [], acceptance: '', artifacts: [], attachments: [], retries: 0 }));
@@ -33,6 +37,24 @@ function setupRoot(): string {
   return root;
 }
 
+function mockToolCall(tool: string, args: Record<string, unknown>): jest.SpiedFunction<typeof fetch> {
+  return jest.spyOn(globalThis, 'fetch').mockImplementation(async () => new Response(JSON.stringify({
+    id: 'chatcmpl-test',
+    object: 'chat.completion',
+    created: 1,
+    model: 'test-model',
+    choices: [{
+      index: 0,
+      finish_reason: 'tool_calls',
+      message: {
+        role: 'assistant',
+        content: null,
+        tool_calls: [{ id: `call-${tool}`, type: 'function', function: { name: tool, arguments: JSON.stringify(args) } }],
+      },
+    }],
+  }), { status: 200, headers: { 'Content-Type': 'application/json' } }));
+}
+
 describe('analyst_tool_invoked event projection source', () => {
   let eventBus: InstanceType<typeof EventBus>;
   let broadcasts: BroadcastPayload[];
@@ -43,12 +65,17 @@ describe('analyst_tool_invoked event projection source', () => {
     eventBus.subscribe('analyst_tool_invoked', (event) => { broadcasts.push(event.payload as BroadcastPayload); });
   });
 
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
   it('broadcasts read_file payload', async () => {
     const root = setupRoot();
     try {
       writeFileSync(join(root, 'README.md'), 'hello');
+      mockToolCall('read_file', { path: 'README.md' });
       const handler = new AnalystHandler(root, undefined, { runtime: { eventBus } } as never, 'analyst', 'web-chat');
-      await handler['runOfflineFallback']('s1', 'inspect README.md');
+      await handler.handleMessage('s1', 'inspect README.md');
       expect(broadcasts.length).toBeGreaterThan(0);
       const payload = broadcasts.at(-1) as BroadcastPayload;
       expect(payload.sessionId).toBe('s1');
@@ -62,8 +89,9 @@ describe('analyst_tool_invoked event projection source', () => {
   it('broadcasts edit_card payload and preserves related card id', async () => {
     const root = setupRoot();
     try {
+      mockToolCall('edit_card', { id: 'c-1', title: 'updated' });
       const handler = new AnalystHandler(root, undefined, { runtime: { eventBus } } as never, 'analyst', 'web-chat');
-      await handler['runOfflineFallback']('s2', 'edit card c-1 title updated');
+      await handler.handleMessage('s2', 'edit card c-1 title updated');
       const payload = broadcasts.at(-1) as BroadcastPayload;
       expect(payload.tool).toBe('edit_card');
       expect(payload.success).toBe(false);
@@ -75,8 +103,9 @@ describe('analyst_tool_invoked event projection source', () => {
   it('broadcasts previewed destructive shell payload with classification and redacted secret paths', async () => {
     const root = setupRoot();
     try {
+      mockToolCall('run_shell_command', { command: 'cat .saivage/auth-profiles.json apiKey=super-secret' });
       const handler = new AnalystHandler(root, undefined, { runtime: { eventBus } } as never, 'analyst', 'web-chat');
-      await handler['runOfflineFallback']('s3', 'cat .saivage/auth-profiles.json apiKey=super-secret');
+      await handler.handleMessage('s3', 'cat .saivage/auth-profiles.json apiKey=super-secret');
       const payload = broadcasts.at(-1) as BroadcastPayload;
       expect(payload.tool).toBe('run_shell_command');
       expect(payload.classified_as).toBe('destructive');
@@ -89,8 +118,9 @@ describe('analyst_tool_invoked event projection source', () => {
   it('broadcasts failed shell payload without leaking command output or secret-bearing filenames', async () => {
     const root = setupRoot();
     try {
+      mockToolCall('run_shell_command', { command: 'python3 -c "import sys; sys.stderr.write(\'apiKey=secret-456 .env\'); sys.exit(2)"' });
       const handler = new AnalystHandler(root, undefined, { runtime: { eventBus } } as never, 'analyst', 'web-chat');
-      await handler['runOfflineFallback']('s4', 'run shell command python3 -c "import sys; sys.stderr.write(\'apiKey=secret-456 .env\'); sys.exit(2)"');
+      await handler.handleMessage('s4', 'run shell command python3 -c "import sys; sys.stderr.write(\'apiKey=secret-456 .env\'); sys.exit(2)"');
       const payload = broadcasts.at(-1) as BroadcastPayload;
       expect(payload.tool).toBe('run_shell_command');
       expect(payload.success).toBe(false);

@@ -1,7 +1,23 @@
+import { join } from 'node:path';
 import type { AgentMessage } from '../schemas/index.js';
-import type { ToolDefinition, LlmCompleteResult } from './llm-client.js';
+import type { ToolDefinition, ToolCall } from './llm-client.js';
+import {
+  LlmAuthError,
+  LlmClient,
+  LlmParseError,
+  LlmRateLimitError,
+  LlmServerError,
+  LlmTimeoutError,
+} from './llm-client.js';
 import { ANALYST_TOOL_DEFINITIONS } from './analyst-tool-schemas.js';
-import type { Candidate } from './provider.js';
+import { loadConfig, getModelParamsForRole, getRuntimeConfig } from './config-schema.js';
+import type { RuntimeSection } from './config-schema.js';
+import { ModelRouter } from './model-router.js';
+import { ProviderRegistry } from './provider.js';
+import { capabilityRequestForLlmOptions } from './provider-capabilities.js';
+import { resolveLlmTransportConfig } from './llm-transport.js';
+import { createLlmExchangeRecorder, toRecorderLogger } from './llm-exchange-recorder.js';
+import type { LlmExchangeRecorder, LlmExchangeRecorderLogger } from './llm-exchange-recorder.js';
 import {
   mark_goal_needs_corrections,
   create_card, edit_card, move_card, delete_card, add_note, list_cards, get_card, get_tree, get_plan_diary, get_card_output, get_status,
@@ -12,28 +28,14 @@ import {
 } from './analyst-tools.js';
 import type { ToolResult, ToolContext } from './analyst-tools.js';
 
-const ANALYST_SYSTEM_PROMPT = `You are the Saivage Analyst — the user's conversational interface to the Saivage system.
+export const ANALYST_OFFLINE_REPLY = "analyst is offline: no provider is configured for role=analyst, or the configured provider failed to authenticate. Configure a provider for role 'analyst' in the project configuration and try again.";
 
-Inspect first, then answer or act. You may inspect cards, runtime state/events/errors, processes, agent sessions, non-secret files, and bounded shell output. You may mutate planning metadata with card/note tools and runtime controls, but you do not perform delivery work yourself.
-
-Cards are durable project state. Notes are transient planner/executor context. If the user asks for a durable objective/scope/acceptance change, edit the relevant card and optionally add a directive note. If the user only wants to nudge a planner, add a note.
-
-Canonical vocabularies:
-- Card status: drafting | backlog | active | running | blocked | changed | done | failed | cancelled. There is no ready/todo/open/wip status.
-- Card type: project | goal | architecture | code | test | doc | data | research | ops.
-- Urgency: low | normal | high | critical.
-- Note kind: comment | progress | directive | escalation.
-- AnalystIssue severity: info | warning | blocker.
-
-Runtime control semantics:
-- Root project execution starts only through explicit runtime start_project controls owned by the runtime/operator API. Do not try to start root work by mutating card status or by recording directive files.
-- Child work starts only when a parent planner calls activate_card; card status is planner-owned metadata, not an executable trigger.
-- Mutation tools validate directly and return actionable errors. Do not add confirmed or preview_hash fields.
-
-Safety:
-- Never read or expose secret-bearing files or credentials.
-- Do not use shell to mutate source, deploy, run delivery builds/tests, or perform planner/executor work. Delegate work through cards, notes, or runtime controls.
-- If a tool returns success=false, explain the failure and suggest the next step. Keep replies grounded in fetched data.`;
+export class AnalystOfflineError extends Error {
+  constructor(message: string = ANALYST_OFFLINE_REPLY) {
+    super(message);
+    this.name = 'AnalystOfflineError';
+  }
+}
 
 type ToolFn = (ctx: ToolContext, params: Record<string, unknown>) => Promise<ToolResult>;
 
@@ -72,20 +74,128 @@ export const TOOL_REGISTRY: Record<string, ToolFn> = {
   read_agent_session: read_agent_session as unknown as ToolFn,
 };
 
-export interface AnalystLlmRuntimeOptions { projectRoot: string; sessionId?: string; ctx: Omit<ToolContext, 'sessionId'>; }
-export interface AnalystLlmResolvedToolCall { id: string; name: string; arguments: Record<string, unknown>; result: ToolResult; }
-export interface AnalystLlmResponse { content: string; toolCalls: AnalystLlmResolvedToolCall[]; raw: LlmCompleteResult; candidate?: Candidate; }
+function formatToolList(tools: ToolDefinition[]): string {
+  return tools.map((tool) => `- ${tool.function.name}: ${tool.function.description}`).join('\n');
+}
 
+const ANALYST_SYSTEM_PROMPT = `You are the Saivage Analyst — the user's conversational interface to the Saivage system. You inspect, steer, reconfigure, and repair the autonomous runtime by calling tools. You do not perform delivery work yourself; you delegate by creating or editing cards, by queueing notes, and by issuing runtime control actions.
+
+Available tools (call them via the tool-call API channel, never as plain text):
+${formatToolList(ANALYST_TOOL_DEFINITIONS)}
+
+Conversational behaviour:
+- Resolve deictic references ("this", "the current one", "that card", "and the other one too", "do it") against the IMMEDIATELY PRIOR user turn and the immediately prior assistant turn in this session. If the prior context does not pin a unique referent, ask ONE clarifying question and call NO tool until the user answers.
+- When the user's request is genuinely ambiguous (multiple equally plausible target entities, conflicting constraints, or a verb that maps to several tools), ask exactly ONE clarifying question and call NO tool until the user answers. Do not guess.
+
+Safety and grounding:
+- Never read or expose secret-bearing files or credentials.
+- Do not use shell commands to mutate source, deploy, run delivery builds/tests, or perform planner/executor work. Delegate work through cards, notes, or runtime controls.
+- If a tool returns success=false, explain the failure and suggest the next step. Keep replies grounded in fetched data.
+
+Vocabularies (canonical values; do not invent new ones):
+- Card status: drafting | backlog | active | running | blocked | changed | done | failed | cancelled.
+- Card type: project | goal | architecture | code | test | doc | data | research | ops.
+- Urgency: low | normal | high | critical.
+- Note kind: comment | progress | directive | escalation.
+- AnalystIssue severity: info | warning | blocker.`;
 
 export function getAnalystToolDefinitions(): ToolDefinition[] { return ANALYST_TOOL_DEFINITIONS; }
 export function getAnalystSystemPrompt(): string { return ANALYST_SYSTEM_PROMPT; }
 
-export async function resolveAnalystLlm(_messages: AgentMessage[], _options: AnalystLlmRuntimeOptions): Promise<AnalystLlmResponse> { throw new Error('Direct analyst LLM resolver is unavailable in this build; use LlmIntentResolver.chat through AnalystHandler.'); }
-
 export class LlmIntentResolver {
-  constructor(private readonly projectRoot: string) {}
-  async isAvailable(): Promise<boolean> { return false; }
-  async chat(_messages: AgentMessage[], _projectContext: string): Promise<{ content: string; toolCalls: Array<{ id: string; function: { name: string; arguments: string } }> }> { return { content: '', toolCalls: [] }; }
+  private readonly registry: ProviderRegistry;
+  private readonly router: ModelRouter;
+  private readonly runtimeConfig: RuntimeSection;
+  private readonly clientCache = new Map<string, LlmClient>();
+  private readonly recorderCache = new Map<string, LlmExchangeRecorder>();
+  private recorderLogger?: LlmExchangeRecorderLogger;
+
+  constructor(private readonly projectRoot: string) {
+    const { config } = loadConfig(projectRoot);
+    this.registry = new ProviderRegistry(config);
+    this.router = new ModelRouter(config, this.registry);
+    this.runtimeConfig = getRuntimeConfig(config);
+  }
+
+  setEventLogger(eventLogger?: unknown): void {
+    this.recorderLogger = eventLogger ? toRecorderLogger(eventLogger) : undefined;
+  }
+
+  async isAvailable(): Promise<boolean> {
+    const chain = await this.router.resolve('analyst', this.capabilityRequest());
+    return chain.length > 0;
+  }
+
+  async chat(messages: AgentMessage[], projectContext: string): Promise<{ content: string; toolCalls: ToolCall[] }> {
+    const tools = getAnalystToolDefinitions();
+    const chain = await this.router.resolve('analyst', this.capabilityRequest());
+    if (chain.length === 0) throw new AnalystOfflineError(ANALYST_OFFLINE_REPLY);
+
+    const { config } = this.router.getConfig ? { config: this.router.getConfig() } : loadConfig(this.projectRoot);
+    const modelParams = getModelParamsForRole(config, 'analyst');
+    const systemPrompt = `${getAnalystSystemPrompt()}\n\n${projectContext}`;
+    const sessionId = messages.find((message) => message.session_id)?.session_id ?? 'analyst';
+    let lastTransportError: Error | null = null;
+    let authFailures = 0;
+
+    for (const candidate of chain) {
+      try {
+        const { baseUrl, apiKey, cacheKey } = await resolveLlmTransportConfig(this.projectRoot, this.registry, candidate);
+        let client = this.clientCache.get(cacheKey);
+        if (!client) {
+          client = new LlmClient(baseUrl, apiKey, this.registry);
+          this.clientCache.set(cacheKey, client);
+        }
+        const result = await client.complete(candidate, systemPrompt, messages, sessionId, {
+          tools,
+          tool_choice: 'auto',
+          stream: false,
+          temperature: modelParams.temperature,
+          max_tokens: modelParams.maxTokens,
+          recorder: this.recorderForSession(sessionId),
+        });
+        this.registry.markSucceeded(candidate);
+        return { content: result.content ?? '', toolCalls: result.toolCalls };
+      } catch (err) {
+        if (err instanceof LlmAuthError) {
+          authFailures += 1;
+          this.registry.markFailed(candidate, this.runtimeConfig.recoveryDelayMs ?? 60000);
+          continue;
+        }
+        if (
+          err instanceof LlmRateLimitError ||
+          err instanceof LlmServerError ||
+          err instanceof LlmTimeoutError ||
+          err instanceof LlmParseError
+        ) {
+          lastTransportError = err;
+          continue;
+        }
+        throw err;
+      }
+    }
+
+    if (authFailures === chain.length) throw new AnalystOfflineError(ANALYST_OFFLINE_REPLY);
+    if (lastTransportError) throw lastTransportError;
+    throw new AnalystOfflineError(ANALYST_OFFLINE_REPLY);
+  }
+
+  private capabilityRequest(): ReturnType<typeof capabilityRequestForLlmOptions> {
+    return capabilityRequestForLlmOptions({ tools: getAnalystToolDefinitions(), tool_choice: 'auto', stream: false });
+  }
+
+  private recorderForSession(sessionId: string): LlmExchangeRecorder {
+    let recorder = this.recorderCache.get(sessionId);
+    if (!recorder) {
+      recorder = createLlmExchangeRecorder({
+        saivageDir: join(this.projectRoot, '.saivage'),
+        sessionId,
+        eventLogger: this.recorderLogger,
+      });
+      this.recorderCache.set(sessionId, recorder);
+    }
+    return recorder;
+  }
 }
 
 export const ANALYST_TOOL_REGISTRY = TOOL_REGISTRY;
