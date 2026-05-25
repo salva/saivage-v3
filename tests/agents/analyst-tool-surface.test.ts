@@ -8,6 +8,7 @@ import { AnalystHandler } from '../../src/agents/analyst-handler.js';
 import { ANALYST_TOOL_DEFINITIONS } from '../../src/agents/analyst-tool-schemas.js';
 import { TOOL_REGISTRY, getAnalystSystemPrompt } from '../../src/agents/analyst-llm-resolver.js';
 import { delete_card, reconfigure } from '../../src/agents/analyst-tools.js';
+import { CONFIRMATION_TTL_MS } from '../../src/agents/analyst-tool-runner.js';
 import type { ToolContext } from '../../src/agents/analyst-tools.js';
 import { ActiveRuntime } from '../../src/runtime/active-runtime.js';
 import { initRuntimeState } from '../../src/runtime/state.js';
@@ -66,7 +67,7 @@ describe('Contract C1 unsupported-action reply', () => {
     try {
       jest.spyOn(globalThis, 'fetch').mockImplementation(async () => toolResponse('not_a_tool', {}));
       const response = await new AnalystHandler(root).handleMessage('s-c1', 'perform unsupported action');
-      expect(response.message.content).toContain('Unsupported action: the Analyst cannot perform that request');
+      expect(response.message.content).toContain('That action is not supported by the Analyst on this surface.');
       expect(response.toolInvocations ?? []).toHaveLength(0);
     } finally { rmSync(root, { recursive: true, force: true }); }
   });
@@ -103,9 +104,9 @@ describe('Contract C2 partial-success reporting', () => {
       jest.spyOn(globalThis, 'fetch').mockImplementation(async () => toolResponse('delete_card', { ids: ['code-1', 'code-2', 'code-3'] }));
       const handler = new AnalystHandler(root);
       const preview = await handler.handleMessage('s-c2', 'delete code cards');
-      expect(preview.message.content).toContain('Please confirm: delete card');
+      expect(preview.message.content).toContain('About to delete card delete_card. This will affect 3 item(s): code-1, code-2, code-3.');
       const confirmed = await handler.handleMessage('s-c2', 'yes');
-      expect(confirmed.message.content).toContain('Partial success: 2/3 item(s) succeeded. Failed item(s): code-2: delete_card denied by permission matrix');
+      expect(confirmed.message.content).toContain('Partial success: 2 of 3 succeeded. Failed: code-2. Reasons: delete_card denied by permission matrix');
     } finally { if (procId) await killProcess(root, procId, 'SIGTERM'); rmSync(root, { recursive: true, force: true }); }
   });
 });
@@ -120,7 +121,7 @@ describe('Contract C3 unknown-internal-capability reply', () => {
       delete registry['queue_notification'];
       jest.spyOn(globalThis, 'fetch').mockImplementation(async () => toolResponse('queue_notification', { recipient: 'planner', kind: 'info', body: 'hello' }));
       const response = await new AnalystHandler(root).handleMessage('s-c3', 'queue a notification');
-      expect(response.message.content).toContain("Unknown capability: 'queue_notification' is not a registered Analyst tool");
+      expect(response.message.content).toContain('The Analyst cannot perform queue_notification; it is not a registered capability.');
       registry['queue_notification'] = saved;
     } finally { rmSync(root, { recursive: true, force: true }); }
   });
@@ -128,6 +129,44 @@ describe('Contract C3 unknown-internal-capability reply', () => {
 
 describe('Contract C4 conversational confirmation flow', () => {
   afterEach(() => { jest.restoreAllMocks(); });
+
+
+  it('emits stale-affirmation and amendment templates', async () => {
+    const root = setupRoot();
+    try {
+      seedDeleteCards(root);
+      const dateSpy = jest.spyOn(Date, 'now');
+      const baseNow = 1_700_000_000_000;
+      dateSpy.mockReturnValue(baseNow);
+      jest.spyOn(globalThis, 'fetch')
+        .mockImplementationOnce(async () => toolResponse('delete_card', { ids: ['code-1'] }))
+        .mockImplementationOnce(async () => toolResponse('delete_card', { ids: ['code-1'] }))
+        .mockImplementationOnce(async () => toolResponse('delete_card', { ids: ['code-2'] }));
+      const handler = new AnalystHandler(root);
+      await handler.handleMessage('s-c4-stale', 'delete code-1');
+      dateSpy.mockReturnValue(baseNow + CONFIRMATION_TTL_MS + 1);
+      const stale = await handler.handleMessage('s-c4-stale', 'yes');
+      expect(stale.message.content).toBe('The previous confirmation expired. Restate the request if you still want it.');
+
+      dateSpy.mockReturnValue(baseNow + 10);
+      await handler.handleMessage('s-c4-amend', 'delete code-1');
+      const amended = await handler.handleMessage('s-c4-amend', 'delete code-2 instead');
+      expect(amended.message.content).toBe("Amended. New proposal: delete card delete_card. Reply 'yes' to proceed, 'no' to cancel, or describe a further amendment.");
+    } finally { rmSync(root, { recursive: true, force: true }); }
+  });
+
+
+
+  it('requires C4 confirmation for mark_goal_needs_corrections', async () => {
+    const root = setupRoot();
+    try {
+      seedDeleteCards(root);
+      jest.spyOn(globalThis, 'fetch').mockImplementation(async () => toolResponse('mark_goal_needs_corrections', { goalId: 'goal-1', issues: [{ summary: 'needs fixes' }] }));
+      const response = await new AnalystHandler(root).handleMessage('s-c4-corrections', 'mark goal needs corrections');
+      expect(response.message.content).toBe("About to mark goal needs corrections mark_goal_needs_corrections. This will affect 1 item(s): goal-1. Reply 'yes' to proceed, 'no' to cancel, or describe an amendment.");
+    } finally { rmSync(root, { recursive: true, force: true }); }
+  });
+
   it('previews, cancels, and does not delete until an affirmative confirmation', async () => {
     const root = setupRoot();
     try {
@@ -135,7 +174,7 @@ describe('Contract C4 conversational confirmation flow', () => {
       jest.spyOn(globalThis, 'fetch').mockImplementation(async () => toolResponse('delete_card', { ids: ['code-1'] }));
       const handler = new AnalystHandler(root);
       const preview = await handler.handleMessage('s-c4', 'delete code-1');
-      expect(preview.message.content).toBe('Please confirm: delete card delete_card affecting 1 item(s): code-1. Reply yes to proceed or no to cancel.');
+      expect(preview.message.content).toBe("About to delete card delete_card. This will affect 1 item(s): code-1. Reply 'yes' to proceed, 'no' to cancel, or describe an amendment.");
       expect(store.read('code-1')).not.toBeNull();
       const cancelled = await handler.handleMessage('s-c4', 'no');
       expect(cancelled.message.content).toBe('Cancelled. No changes were made.');

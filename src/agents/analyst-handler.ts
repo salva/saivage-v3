@@ -10,7 +10,7 @@ import type { ActiveRuntime } from '../runtime/index.js';
 import type { ActorRole } from './authz.js';
 import { sanitizeAnalystText } from '../agents/analyst-sanitization.js';
 import { compactSession } from './compaction.js';
-import { ANALYST_DESTRUCTIVE_PREVIEW_TEMPLATE, ANALYST_PARTIAL_SUCCESS_TEMPLATE, ANALYST_UNKNOWN_CAPABILITY_TEMPLATE, CONFIRMATION_TTL_MS, PendingDestructiveStore } from './analyst-tool-runner.js';
+import { ANALYST_DESTRUCTIVE_AMENDMENT_TEMPLATE, ANALYST_DESTRUCTIVE_PREVIEW_TEMPLATE, ANALYST_DESTRUCTIVE_STALE_AFFIRMATION_TEMPLATE, ANALYST_PARTIAL_SUCCESS_TEMPLATE, ANALYST_UNKNOWN_CAPABILITY_TEMPLATE, CONFIRMATION_TTL_MS, PendingDestructiveStore, isDestructiveAnalystTool } from './analyst-tool-runner.js';
 import { recordControlAction, stableStringify } from '../persistence/index.js';
 
 export interface ActivityCallback {
@@ -181,6 +181,7 @@ export class AnalystHandler {
   private actor: ActorRole;
   private surface: ControlActionSurface;
   private pendingDestructive = new PendingDestructiveStore();
+  private amendmentSessions = new Set<string>();
 
   constructor(projectRoot: string, onActivity?: ActivityCallback, activeRuntime?: ActiveRuntime, actor: ActorRole = 'analyst', surface: ControlActionSurface = 'web-chat') {
     this.projectRoot = projectRoot;
@@ -217,9 +218,22 @@ export class AnalystHandler {
     appendMessage(this.projectRoot, sessionId, { role: 'user', kind: 'text', content: userContent });
 
     const expired = this.pendingDestructive.prune(Date.now());
-    for (const invocation of expired) this.recordPendingOutcome(invocation, 'rejected', 'destructive confirmation expired');
+    for (const invocation of expired) this.recordPendingOutcome(invocation, 'expired', 'destructive confirmation expired');
+    if (expired.some((invocation) => invocation.sessionId === sessionId) && this.isAffirmation(userContent)) {
+      const text = ANALYST_DESTRUCTIVE_STALE_AFFIRMATION_TEMPLATE();
+      const persisted = appendMessage(this.projectRoot, sessionId, { role: 'assistant', kind: 'text', content: text });
+      return { sessionId, message: { id: persisted.id, role: 'assistant', kind: 'text', content: text, timestamp: persisted.timestamp } };
+    }
     const pending = this.pendingDestructive.get(sessionId);
-    if (pending && Date.now() - pending.createdAt > CONFIRMATION_TTL_MS) this.pendingDestructive.delete(sessionId);
+    if (pending && Date.now() - pending.createdAt > CONFIRMATION_TTL_MS) {
+      this.pendingDestructive.delete(sessionId);
+      this.recordPendingOutcome(pending, 'expired', 'destructive confirmation expired');
+      if (this.isAffirmation(userContent)) {
+        const text = ANALYST_DESTRUCTIVE_STALE_AFFIRMATION_TEMPLATE();
+        const persisted = appendMessage(this.projectRoot, sessionId, { role: 'assistant', kind: 'text', content: text });
+        return { sessionId, message: { id: persisted.id, role: 'assistant', kind: 'text', content: text, timestamp: persisted.timestamp } };
+      }
+    }
     const activePending = this.pendingDestructive.get(sessionId);
     if (activePending) {
       if (this.isAffirmation(userContent)) {
@@ -234,13 +248,14 @@ export class AnalystHandler {
       }
       if (this.isCancellation(userContent)) {
         this.pendingDestructive.delete(sessionId);
-        this.recordPendingOutcome(activePending, 'rejected', 'destructive confirmation cancelled');
+        this.recordPendingOutcome(activePending, 'cancelled', 'destructive confirmation cancelled');
         const text = 'Cancelled. No changes were made.';
         const persisted = appendMessage(this.projectRoot, sessionId, { role: 'assistant', kind: 'text', content: text });
         return { sessionId, message: { id: persisted.id, role: 'assistant', kind: 'text', content: text, timestamp: persisted.timestamp } };
       }
       this.pendingDestructive.delete(sessionId);
-      this.recordPendingOutcome(activePending, 'rejected', 'destructive confirmation amended');
+      this.recordPendingOutcome(activePending, 'amended', 'destructive confirmation amended');
+      this.amendmentSessions.add(sessionId);
     }
 
     const llmAvailable = await this.llmResolver.isAvailable();
@@ -253,7 +268,7 @@ export class AnalystHandler {
 
   private isAffirmation(userContent: string): boolean { return new Set(['yes','y','confirm','proceed','do it','ok']).has(userContent.trim().toLowerCase()); }
   private isCancellation(userContent: string): boolean { return new Set(['no','n','cancel','stop','abort','never mind']).has(userContent.trim().toLowerCase()); }
-  private recordPendingOutcome(invocation: { tool: string; params: Record<string, unknown> }, outcome: 'rejected' | 'preview', summary: string): void {
+  private recordPendingOutcome(invocation: { tool: string; params: Record<string, unknown> }, outcome: 'rejected' | 'preview' | 'cancelled' | 'expired' | 'amended', summary: string): void {
     recordControlAction(this.projectRoot, { actor: this.actor, surface: this.surface, action: `destructive_confirmation.${invocation.tool}`, target_kind: null, target_id: null, params_summary: stableStringify(invocation.params), confirmed: false, outcome, outcome_summary: summary });
   }
   private destructivePreviewFor(tool: string, params: Record<string, unknown>): { actionVerb: string; targetDescription: string; ids: string[] } {
@@ -338,12 +353,18 @@ export class AnalystHandler {
         const toolFn = TOOL_REGISTRY[tc.function.name];
         let result: ToolResult;
         if (!toolFn) {
+          this.amendmentSessions.delete(sessionId);
           result = { success: false, error: ANALYST_UNKNOWN_CAPABILITY_TEMPLATE(tc.function.name) };
-        } else if (new Set(['delete_card','stop_project','terminate_process','abort_goal_subtree','restart_card_or_subtree','restart_goal','restart_server']).has(tc.function.name)) {
+        } else if (isDestructiveAnalystTool(tc.function.name)) {
           const preview = this.destructivePreviewFor(tc.function.name, params);
           this.pendingDestructive.set(sessionId, { sessionId, tool: tc.function.name, params, createdAt: Date.now(), actionVerb: preview.actionVerb, targetDescription: preview.targetDescription, ids: preview.ids });
-          result = { success: false, preview: { type: 'destructive_confirmation', summary: ANALYST_DESTRUCTIVE_PREVIEW_TEMPLATE(preview.actionVerb, preview.targetDescription, preview.ids.length, preview.ids), affectedCards: [], affectedProcesses: [], warnings: ['Awaiting conversational confirmation.'] } };
+          const isAmendment = this.amendmentSessions.delete(sessionId);
+          const summary = isAmendment
+            ? ANALYST_DESTRUCTIVE_AMENDMENT_TEMPLATE(preview.actionVerb, preview.targetDescription)
+            : ANALYST_DESTRUCTIVE_PREVIEW_TEMPLATE(preview.actionVerb, preview.targetDescription, preview.ids.length, preview.ids);
+          result = { success: false, preview: { type: 'destructive_confirmation', summary, affectedCards: [], affectedProcesses: [], warnings: ['Awaiting conversational confirmation.'] } };
         } else {
+          this.amendmentSessions.delete(sessionId);
           try { result = await toolFn(ctx, params); }
           catch (err) { result = { success: false, error: err instanceof Error ? err.message : String(err) }; }
         }

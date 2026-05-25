@@ -61,20 +61,44 @@ export async function runAuditedAnalystTool<P extends Record<string, unknown>>(c
   return result;
 }
 
+export const ANALYST_CAPABILITY_CLASSES = ['Inspect', 'Navigate', 'Mutate cards', 'Queue notifications', 'Control the runtime', 'Reconfigure', 'Investigate and repair'] as const;
+
+export const ANALYST_TOOL_SAFETY_CLASS: Record<string, SafetyClass> = {
+  delete_card: 'destructive',
+  stop_project: 'destructive',
+  terminate_process: 'destructive',
+  abort_goal_subtree: 'destructive',
+  restart_card_or_subtree: 'destructive',
+  restart_goal: 'destructive',
+  mark_goal_needs_corrections: 'destructive',
+  restart_server: 'destructive',
+};
+
+export function isDestructiveAnalystTool(toolName: string): boolean {
+  return ANALYST_TOOL_SAFETY_CLASS[toolName] === 'destructive';
+}
+
 export function ANALYST_UNSUPPORTED_ACTION_TEMPLATE(capabilityClass?: string, toolNames?: string[]): string {
-  const suffix = toolNames && toolNames.length > 0 ? ` Available ${capabilityClass ?? 'capability'} tools: ${toolNames.join(', ')}.` : '';
-  return `Unsupported action: the Analyst cannot perform that request with the registered ${capabilityClass ?? 'capability'} surface.${suffix}`;
+  const suffix = capabilityClass && toolNames && toolNames.length > 0 ? ` Closest available capability: ${capabilityClass}. Available tools in that class: ${toolNames.join(', ')}.` : '';
+  return `That action is not supported by the Analyst on this surface.${suffix}`;
 }
 
 export function ANALYST_PARTIAL_SUCCESS_TEMPLATE(succeeded: number, total: number, failedIds: string[], reasons: string[]): string {
-  const failures = failedIds.map((id, i) => `${id}: ${reasons[i] ?? 'unknown reason'}`).join('; ');
-  return `Partial success: ${succeeded}/${total} item(s) succeeded. Failed item(s): ${failures}.`;
+  return `Partial success: ${succeeded} of ${total} succeeded. Failed: ${failedIds.join(', ')}. Reasons: ${reasons.join('; ')}.`;
 }
 
 export function ANALYST_UNKNOWN_CAPABILITY_TEMPLATE(proposedToolName: string): string {
-  return `Unknown capability: '${proposedToolName}' is not a registered Analyst tool. No action was performed.`;
+  return `The Analyst cannot perform ${proposedToolName}; it is not a registered capability. Available capability classes: ${ANALYST_CAPABILITY_CLASSES.join(', ')}.`;
 }
 
 export function ANALYST_DESTRUCTIVE_PREVIEW_TEMPLATE(actionVerb: string, targetDescription: string, n: number, ids: string[]): string {
-  return `Please confirm: ${actionVerb} ${targetDescription} affecting ${n} item(s): ${ids.join(', ')}. Reply yes to proceed or no to cancel.`;
+  return `About to ${actionVerb} ${targetDescription}. This will affect ${n} item(s): ${ids.join(', ')}. Reply 'yes' to proceed, 'no' to cancel, or describe an amendment.`;
+}
+
+export function ANALYST_DESTRUCTIVE_AMENDMENT_TEMPLATE(actionVerb: string, targetDescription: string): string {
+  return `Amended. New proposal: ${actionVerb} ${targetDescription}. Reply 'yes' to proceed, 'no' to cancel, or describe a further amendment.`;
+}
+
+export function ANALYST_DESTRUCTIVE_STALE_AFFIRMATION_TEMPLATE(): string {
+  return 'The previous confirmation expired. Restate the request if you still want it.';
 }
