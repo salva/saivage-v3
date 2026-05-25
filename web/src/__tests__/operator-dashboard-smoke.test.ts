@@ -411,10 +411,7 @@ describe('operator dashboard synthetic smoke guard', () => {
     await waitForTransition();
     expect(wrapper.find('.token-overlay').exists()).toBe(false);
 
-    await wrapper.get('.analyst-chip').trigger('click');
-    await settle();
-    const analystPanel = wrapper.get('#analyst-chat-panel');
-    expect(analystPanel.classes()).toContain('open');
+    expect(wrapper.find('#analyst-chat-panel').exists()).toBe(true);
     const sessionPicker = wrapper.get<HTMLSelectElement>('.session-picker');
     const optionGroups = sessionPicker.findAll('optgroup');
     expect(optionGroups.map((group) => group.attributes('label'))).toEqual(['Analyst', 'Planner', 'Reviewer', 'Executor']);

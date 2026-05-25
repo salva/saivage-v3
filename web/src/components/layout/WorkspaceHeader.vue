@@ -6,19 +6,6 @@
     </div>
 
     <div class="header-right">
-      <button
-        class="status-chip analyst-chip"
-        type="button"
-        :title="analystButtonTitle"
-        :aria-label="analystButtonTitle"
-        :aria-expanded="analystDrawerOpen"
-        aria-controls="analyst-chat-panel"
-        @click="emit('toggle-analyst')"
-      >
-        <span class="chip-icon">💬</span>
-        Analyst
-      </button>
-
       <span
         class="status-chip ws-chip"
         :class="`ws-${connectionState}`"
@@ -62,14 +49,8 @@ const props = defineProps<{
   isStale?: boolean;
   isUnauthorized?: boolean;
   hasToken?: boolean;
-  analystDrawerOpen?: boolean;
 }>();
 
-const emit = defineEmits<{
-  'toggle-analyst': [];
-}>();
-
-const analystButtonTitle = 'Open persistent analyst chat (Ctrl/Cmd+J)';
 const wsLabel = computed(() => {
   const labels: Record<string, string> = {
     connected: 'WS LIVE',
@@ -178,11 +159,6 @@ const cueClass = computed(() => {
   color: #8b949e;
 }
 
-.analyst-chip {
-  cursor: pointer;
-  color: #79c0ff;
-  border-color: #1f6feb;
-}
 
 .chip-dot {
   width: 6px;
@@ -191,9 +167,6 @@ const cueClass = computed(() => {
   background: currentColor;
 }
 
-.chip-icon {
-  font-size: 10px;
-}
 
 .ws-connected {
   color: #3fb950;
@@ -250,7 +223,4 @@ const cueClass = computed(() => {
   border-color: #1f6feb;
 }
 
-.analyst-chip:hover {
-  filter: brightness(1.2);
-}
 </style>

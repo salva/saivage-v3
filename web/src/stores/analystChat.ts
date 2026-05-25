@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia';
-import { computed, ref, watch } from 'vue';
+import { computed, ref } from 'vue';
 import type { CardRecord, ChatMessage, ChatSession, DetailErrorState } from '../api/types';
 import {
   ApiError,
@@ -8,16 +8,9 @@ import {
   sendChatMessage,
 } from '../api/client';
 
-const DRAWER_STORAGE_KEY = 'analyst-chat:drawer-state';
-const DEFAULT_DRAWER_WIDTH = 420;
 const MAX_PENDING_TOOL_INVOCATIONS = 12;
 const MAX_PENDING_SUMMARY_LENGTH = 200;
 const FALLBACK_PENDING_SUMMARY = 'tool invoked';
-
-interface DrawerState {
-  open: boolean;
-  width: number;
-}
 
 interface PendingToolInvocation {
   id: string;
@@ -68,32 +61,6 @@ function buildErrorState(err: unknown, fallback: string): DetailErrorState {
     return { kind: 'network', status: null, message: err.message || fallback };
   }
   return { kind: 'unknown', status: null, message: fallback };
-}
-
-function parseStoredDrawerState(): DrawerState {
-  if (typeof window === 'undefined') {
-    return { open: false, width: DEFAULT_DRAWER_WIDTH };
-  }
-  try {
-    const raw = window.localStorage.getItem(DRAWER_STORAGE_KEY);
-    if (!raw) {
-      return { open: false, width: DEFAULT_DRAWER_WIDTH };
-    }
-    const parsed = JSON.parse(raw) as Partial<DrawerState>;
-    return {
-      open: parsed.open === true,
-      width: typeof parsed.width === 'number' && Number.isFinite(parsed.width)
-        ? Math.min(720, Math.max(320, parsed.width))
-        : DEFAULT_DRAWER_WIDTH,
-    };
-  } catch {
-    return { open: false, width: DEFAULT_DRAWER_WIDTH };
-  }
-}
-
-function persistDrawerState(open: boolean, width: number): void {
-  if (typeof window === 'undefined') return;
-  window.localStorage.setItem(DRAWER_STORAGE_KEY, JSON.stringify({ open, width }));
 }
 
 function mintSessionId(): string {
@@ -175,14 +142,10 @@ function pushPendingToolInvocation(
 }
 
 export const useAnalystChat = defineStore('analyst-chat', () => {
-  const storedDrawer = parseStoredDrawerState();
-
   const sessions = ref<ChatSession[]>([]);
   const activeSessionId = ref<string | null>(null);
   const messages = ref<ChatMessage[]>([]);
   const draft = ref('');
-  const drawerOpen = ref(storedDrawer.open);
-  const drawerWidth = ref(storedDrawer.width);
   const sessionsLoading = ref(false);
   const sessionsError = ref<DetailErrorState | null>(null);
   const messagesLoading = ref(false);
@@ -197,10 +160,6 @@ export const useAnalystChat = defineStore('analyst-chat', () => {
 
   const hasDraft = computed(() => draft.value.trim().length > 0);
   const activeSession = computed(() => sessions.value.find((session) => session.id === activeSessionId.value) ?? null);
-
-  watch([drawerOpen, drawerWidth], ([open, width]) => {
-    persistDrawerState(open, width);
-  }, { immediate: true });
 
   function ensureSessionInList(sessionId: string, role = inferSessionRole(sessionId)): void {
     if (sessions.value.some((session) => session.id === sessionId)) {
@@ -229,18 +188,6 @@ export const useAnalystChat = defineStore('analyst-chat', () => {
 
   function isUnsavedSession(sessionId: string | null): boolean {
     return Boolean(sessionId && unsavedSessionIds.value.has(sessionId));
-  }
-
-  function setDrawerOpen(open: boolean): void {
-    drawerOpen.value = open;
-  }
-
-  function toggleDrawer(): void {
-    drawerOpen.value = !drawerOpen.value;
-  }
-
-  function setDrawerWidth(width: number): void {
-    drawerWidth.value = Math.min(720, Math.max(320, width));
   }
 
   function setDraft(value: string): void {
@@ -521,8 +468,6 @@ export const useAnalystChat = defineStore('analyst-chat', () => {
     messages,
     draft,
     hasDraft,
-    drawerOpen,
-    drawerWidth,
     sessionsLoading,
     sessionsError,
     messagesLoading,
@@ -535,9 +480,6 @@ export const useAnalystChat = defineStore('analyst-chat', () => {
     pendingCardSeed,
     unsavedSessionIds,
     activeSessionWritable: computed(() => isWritableSession(activeSession.value)),
-    setDrawerOpen,
-    toggleDrawer,
-    setDrawerWidth,
     setDraft,
     fetchSessions,
     selectSession,

@@ -8,7 +8,7 @@ import AppShell from '../components/layout/AppShell.vue';
 vi.mock('../api/auth', () => ({ getAuthToken: vi.fn(() => 'token') }));
 
 vi.mock('../api/client', () => ({
-  listAgentSessions: vi.fn(async () => ({ sessions: [] })),
+  listAgentSessions: vi.fn(async () => ({ sessions: [{ id: 'analyst-test', role: 'analyst', status: 'active', started_at: '2026-01-01T00:00:00Z' }] })),
   getChatMessages: vi.fn(async (sessionId: string) => ({ sessionId, messages: [] })),
   sendChatMessage: vi.fn(async (sessionId: string) => ({ sessionId, message: { id: 'm1', content: 'ok', timestamp: '2025-01-01T00:00:00Z' } })),
   ApiError: class extends Error { status: number; body: Record<string, unknown>; constructor(status: number, message: string, body: Record<string, unknown> = {}) { super(message); this.status = status; this.body = body; } get isUnauthorized() { return this.status === 401; } },
@@ -53,7 +53,7 @@ const router = createRouter({
   ],
 });
 
-describe('AppShell analyst drawer', () => {
+describe('AppShell persistent analyst panel', () => {
   beforeEach(async () => {
     document.body.innerHTML = '';
     localStorage.clear();
@@ -61,26 +61,38 @@ describe('AppShell analyst drawer', () => {
     await router.isReady();
   });
 
-  it('opens from header button, persists to localStorage, and exposes expanded state', async () => {
+  it('renders workspace and analyst regions on first paint without drawer controls or localStorage state', async () => {
     const wrapper = mount(AppShell, { attachTo: document.body, global: { plugins: [createPinia(), router] } });
-    const button = wrapper.get('.analyst-chip');
-    expect(button.attributes('aria-expanded')).toBe('false');
-    const panelId = button.attributes('aria-controls');
-    expect(panelId).toBe('analyst-chat-panel');
-    await button.trigger('click');
     await flushPromises();
-    const panel = wrapper.get(`#${panelId}`);
-    expect(panel.attributes('role')).toBe('dialog');
-    expect(localStorage.getItem('analyst-chat:drawer-state')).toContain('"open":true');
-    expect(button.attributes('aria-expanded')).toBe('true');
-    expect(document.activeElement).toBe(wrapper.get('textarea').element);
+
+    expect(wrapper.find('.nav-rail').exists()).toBe(true);
+    expect(wrapper.find('.workspace-content').exists()).toBe(true);
+    expect(wrapper.find('#analyst-chat-panel').exists()).toBe(true);
+    expect(wrapper.find('.analyst' + '-chip').exists()).toBe(false);
+    expect(wrapper.find('[aria-controls="analyst-chat-panel"]').exists()).toBe(false);
+    expect(localStorage.getItem('analyst-chat:drawer-state')).toBeNull();
+
+    const composer = wrapper.get<HTMLTextAreaElement>('textarea[aria-label="Analyst chat composer"]');
+    expect(composer.element.disabled).toBe(false);
     wrapper.unmount();
   });
 
-
-  it('closes the analyst drawer on route changes so it does not overlay /files or /cards/:id', async () => {
+  it('leaves Ctrl/Cmd+J as a no-op for analyst visibility and drawer storage', async () => {
     const wrapper = mount(AppShell, { attachTo: document.body, global: { plugins: [createPinia(), router] } });
-    await wrapper.get('.analyst-chip').trigger('click');
+    await flushPromises();
+    const panel = wrapper.get('#analyst-chat-panel');
+
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'j', ctrlKey: true }));
+    await flushPromises();
+
+    expect(wrapper.find('#analyst-chat-panel').exists()).toBe(true);
+    expect(wrapper.get('#analyst-chat-panel').element).toBe(panel.element);
+    expect(localStorage.getItem('analyst-chat:drawer-state')).toBeNull();
+    wrapper.unmount();
+  });
+
+  it('keeps the analyst region visible across route changes', async () => {
+    const wrapper = mount(AppShell, { attachTo: document.body, global: { plugins: [createPinia(), router] } });
     await flushPromises();
     expect(wrapper.find('#analyst-chat-panel').exists()).toBe(true);
 
@@ -88,25 +100,13 @@ describe('AppShell analyst drawer', () => {
     await flushPromises();
     expect(router.currentRoute.value.path).toBe('/files');
     expect(wrapper.text()).toContain('Files');
-    expect(wrapper.find('#analyst-chat-panel').exists()).toBe(false);
-
-    await wrapper.get('.analyst-chip').trigger('click');
-    await flushPromises();
     expect(wrapper.find('#analyst-chat-panel').exists()).toBe(true);
+
     await router.push('/cards/card-1');
     await flushPromises();
     expect(router.currentRoute.value.path).toBe('/cards/card-1');
     expect(wrapper.text()).toContain('Card Detail');
-    expect(wrapper.find('#analyst-chat-panel').exists()).toBe(false);
-    wrapper.unmount();
-  });
-
-  it('toggles with Ctrl/Cmd+J keyboard shortcut', async () => {
-    const wrapper = mount(AppShell, { attachTo: document.body, global: { plugins: [createPinia(), router] } });
-    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'j', ctrlKey: true }));
-    await flushPromises();
-    expect(localStorage.getItem('analyst-chat:drawer-state')).toContain('"open":true');
-    expect(document.activeElement).toBe(wrapper.get('textarea').element);
+    expect(wrapper.find('#analyst-chat-panel').exists()).toBe(true);
     wrapper.unmount();
   });
 });

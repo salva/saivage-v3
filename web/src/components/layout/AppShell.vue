@@ -1,30 +1,28 @@
 <template>
   <div class="app-shell" @keydown="handleKeydown">
-    <NavRail
-      :nav-items="navItems"
-      :docs-href="docsHref"
-      @open-token="showTokenDialog = true"
-    />
-
-    <div class="main-area">
-      <WorkspaceHeader
-        :section-title="currentSectionTitle"
-        :project-name="projectName"
-        :connection-state="wsConnectionState"
-        :runtime-status="runtimeStatus"
-        :runtime-status-label="runtimeStatusLabel"
-        :live-update-label="liveUpdateLabel"
-        :live-update-detail="liveUpdateDetail"
-        :runtime-mode-label="runtimeModeLabel"
-        :runtime-mode-detail="runtimeDetail"
-        :is-stale="isRuntimeStale"
-        :is-unauthorized="runtimeUnauthorized"
-        :has-token="hasToken"
-        :analyst-drawer-open="analystChat.drawerOpen"
-        @toggle-analyst="toggleAnalystDrawer"
+    <div class="workspace-shell">
+      <NavRail
+        :nav-items="navItems"
+        :docs-href="docsHref"
+        @open-token="showTokenDialog = true"
       />
 
-      <div class="workspace-row">
+      <div class="workspace-stack">
+        <WorkspaceHeader
+          :section-title="currentSectionTitle"
+          :project-name="projectName"
+          :connection-state="wsConnectionState"
+          :runtime-status="runtimeStatus"
+          :runtime-status-label="runtimeStatusLabel"
+          :live-update-label="liveUpdateLabel"
+          :live-update-detail="liveUpdateDetail"
+          :runtime-mode-label="runtimeModeLabel"
+          :runtime-mode-detail="runtimeDetail"
+          :is-stale="isRuntimeStale"
+          :is-unauthorized="runtimeUnauthorized"
+          :has-token="hasToken"
+        />
+
         <main class="workspace-content">
           <div v-if="showAuthBanner" class="auth-required-banner" role="alert">
             <strong>API token required</strong>
@@ -38,10 +36,10 @@
             </transition>
           </router-view>
         </main>
-        <AnalystChatPanel v-if="analystChat.drawerOpen" />
       </div>
     </div>
 
+    <AnalystChatPanel />
     <AnalystToaster />
 
     <ApiTokenEntry
@@ -53,7 +51,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted, watch } from 'vue';
+import { ref, computed, onMounted, onUnmounted } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { storeToRefs } from 'pinia';
 import NavRail from '../nav/NavRail.vue';
@@ -64,14 +62,12 @@ import AnalystChatPanel from '../chat/AnalystChatPanel.vue';
 import AnalystToaster from '../chat/AnalystToaster.vue';
 import { useWsStore } from '../../stores/ws';
 import { useRuntimeStore } from '../../stores/runtime';
-import { useAnalystChat } from '../../stores/analystChat';
 import { getAuthToken } from '../../api/auth';
 import type { WsConnectionState } from '../../api/types';
 import { API_AUTH_REQUIRED_EVENT, dismissAuthBannerForSession, isAuthBannerDismissedForSession } from '../../utils/auth-events';
 
 const wsStore = useWsStore();
 const runtimeStore = useRuntimeStore();
-const analystChat = useAnalystChat();
 const { connectionState } = storeToRefs(wsStore);
 const {
   statusLabel,
@@ -121,20 +117,11 @@ const runtimeStatus = computed<string | null>(() => status.value ?? null);
 const runtimeStatusLabel = computed(() => statusLabel.value);
 const isRuntimeStale = computed(() => isStale.value);
 const runtimeUnauthorized = computed(() => unauthorized.value);
-function toggleAnalystDrawer(): void {
-  analystChat.toggleDrawer();
-}
-
 function handleKeydown(event: KeyboardEvent): void {
   const target = event.target as HTMLElement;
   if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable) return;
   const key = event.key;
   const map: Record<string, string> = { '1': 'dashboard', '2': 'cards', '3': 'agents', '4': 'files', '5': 'debug' };
-  if ((event.ctrlKey || event.metaKey) && key.toLowerCase() === 'j') {
-    event.preventDefault();
-    toggleAnalystDrawer();
-    return;
-  }
   if (map[key] && !event.ctrlKey && !event.metaKey && !event.altKey) {
     event.preventDefault();
     const item = navItems.find((n) => n.id === map[key]);
@@ -164,12 +151,6 @@ function dismissAuthBanner(): void {
   dismissAuthBannerForSession();
 }
 
-watch(() => route.fullPath, () => {
-  if (analystChat.drawerOpen) {
-    analystChat.setDrawerOpen(false);
-  }
-});
-
 onMounted(() => {
   wsStore.connect();
   runtimeStore.setupWsListener();
@@ -187,24 +168,28 @@ onUnmounted(() => {
 
 <style scoped>
 .app-shell {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) clamp(20rem, 25vw, 30vw);
+  grid-template-rows: 1fr;
   height: 100%;
   width: 100%;
   outline: none;
 }
 
-.main-area {
-  display: flex;
-  flex-direction: column;
-  flex: 1;
+.workspace-shell {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  grid-template-rows: 1fr;
   min-width: 0;
+  min-height: 0;
   overflow: hidden;
 }
 
-.workspace-row {
+.workspace-stack {
   display: flex;
-  flex: 1;
+  flex-direction: column;
   min-width: 0;
+  min-height: 0;
   overflow: hidden;
 }
 

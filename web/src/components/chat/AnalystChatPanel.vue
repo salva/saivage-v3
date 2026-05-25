@@ -2,11 +2,8 @@
   <aside
     id="analyst-chat-panel"
     class="analyst-chat-panel"
-    :class="{ open: drawerOpen }"
-    :style="panelStyle"
-    role="dialog"
-    aria-label="Analyst chat panel"
-    aria-modal="false"
+    role="region"
+    aria-labelledby="analyst-chat-title"
   >
     <div class="chat-header">
       <div>
@@ -126,7 +123,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onMounted, ref, watch } from 'vue';
+import { computed, nextTick, onMounted, ref } from 'vue';
 import { storeToRefs } from 'pinia';
 import { useAnalystChat } from '../../stores/analystChat';
 import type { ChatMessage } from '../../api/types';
@@ -140,8 +137,6 @@ const {
   activeSessionId,
   messages,
   draft,
-  drawerOpen,
-  drawerWidth,
   sessionsLoading,
   sessionsError,
   messagesLoading,
@@ -156,7 +151,6 @@ const {
 const expandedIds = ref(new Set<string>());
 const composerRef = ref<HTMLTextAreaElement | null>(null);
 
-const panelStyle = computed(() => ({ width: `${drawerWidth.value}px` }));
 const timelineItems = computed(() => [...messages.value].sort((a, b) => a.timestamp.localeCompare(b.timestamp)));
 const pendingToolInvocationsForActiveSession = computed(() => pendingToolInvocations.value.filter((item) => item.sessionId === activeSessionId.value));
 const READ_ONLY_TOOLTIP = 'Read-only — switch to analyst to send messages';
@@ -264,20 +258,12 @@ async function submitMessage(): Promise<void> {
   focusComposer();
 }
 
-watch(drawerOpen, (open) => {
-  if (open) {
-    void nextTick(() => focusComposer());
-  }
-});
-
 onMounted(() => {
   chat.fetchSessions().catch(() => {});
   if (activeSessionId.value) {
     chat.fetchMessages(activeSessionId.value).catch(() => {});
   }
-  if (drawerOpen.value) {
-    void nextTick(() => focusComposer());
-  }
+  void nextTick(() => focusComposer());
 });
 </script>
 
@@ -285,11 +271,11 @@ onMounted(() => {
 .analyst-chat-panel {
   display: flex;
   flex-direction: column;
+  width: 100%;
   height: 100%;
-  min-width: 320px;
-  max-width: 720px;
+  background: #161b22;
   border-left: 1px solid #30363d;
-  background: #0f141b;
+  overflow: hidden;
 }
 
 .chat-header {

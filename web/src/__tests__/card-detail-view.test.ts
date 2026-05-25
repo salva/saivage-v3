@@ -226,10 +226,16 @@ describe('CardDetailView generated file inspection', () => {
     const wrapper = mount(CardDetailView, { props: { cardId: 'card-1' }, global: { plugins: [pinia] } });
     await flushPromises();
     const button = wrapper.get('.discuss-btn');
-    expect(button.attributes('aria-label')).toBe('Discuss card with analyst');
+    expect(button.attributes('aria-label')).toBe('Seed analyst chat with this card');
+    const seedSpy = vi.spyOn(analystChat, 'seedCardContext');
+    const focusSpy = vi.fn();
+    window.addEventListener('saivage:focus-chat', focusSpy);
 
     await button.trigger('click');
     await flushPromises();
+    expect(seedSpy).toHaveBeenCalledTimes(1);
+    expect(seedSpy).toHaveBeenCalledWith(cardStore.currentCard);
+    expect(focusSpy).toHaveBeenCalledTimes(1);
     const firstHint = analystChat.syntheticHint.content;
     expect(analystChat.activeSessionId).toBe('card-card-1');
     expect(firstHint).toContain('Card title: Fix overlay');
@@ -241,6 +247,9 @@ describe('CardDetailView generated file inspection', () => {
 
     await button.trigger('click');
     await flushPromises();
+    expect(seedSpy).toHaveBeenCalledTimes(2);
+    expect(focusSpy).toHaveBeenCalledTimes(2);
+    window.removeEventListener('saivage:focus-chat', focusSpy);
     expect(analystChat.activeSessionId).toBe('card-card-1');
     expect(analystChat.syntheticHint.content).toBe(firstHint);
   });
