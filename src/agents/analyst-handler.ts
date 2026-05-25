@@ -10,6 +10,8 @@ import type { ActiveRuntime } from '../runtime/index.js';
 import type { ActorRole } from './authz.js';
 import { sanitizeAnalystText } from '../agents/analyst-sanitization.js';
 import { compactSession } from './compaction.js';
+import { ANALYST_DESTRUCTIVE_PREVIEW_TEMPLATE, ANALYST_PARTIAL_SUCCESS_TEMPLATE, ANALYST_UNKNOWN_CAPABILITY_TEMPLATE, CONFIRMATION_TTL_MS, PendingDestructiveStore } from './analyst-tool-runner.js';
+import { recordControlAction, stableStringify } from '../persistence/index.js';
 
 export interface ActivityCallback {
   (activity: { type: 'tool_call' | 'tool_result' | 'thinking'; content: Record<string, unknown> }): void;
@@ -178,6 +180,7 @@ export class AnalystHandler {
   private activeRuntime?: ActiveRuntime;
   private actor: ActorRole;
   private surface: ControlActionSurface;
+  private pendingDestructive = new PendingDestructiveStore();
 
   constructor(projectRoot: string, onActivity?: ActivityCallback, activeRuntime?: ActiveRuntime, actor: ActorRole = 'analyst', surface: ControlActionSurface = 'web-chat') {
     this.projectRoot = projectRoot;
@@ -213,12 +216,62 @@ export class AnalystHandler {
     if (duplicateResponse) return duplicateResponse;
     appendMessage(this.projectRoot, sessionId, { role: 'user', kind: 'text', content: userContent });
 
+    const expired = this.pendingDestructive.prune(Date.now());
+    for (const invocation of expired) this.recordPendingOutcome(invocation, 'rejected', 'destructive confirmation expired');
+    const pending = this.pendingDestructive.get(sessionId);
+    if (pending && Date.now() - pending.createdAt > CONFIRMATION_TTL_MS) this.pendingDestructive.delete(sessionId);
+    const activePending = this.pendingDestructive.get(sessionId);
+    if (activePending) {
+      if (this.isAffirmation(userContent)) {
+        this.pendingDestructive.delete(sessionId);
+        const ctx: ToolContext = { projectRoot: this.projectRoot, sessionId, activeRuntime: this.activeRuntime, actor: this.actor, surface: this.surface };
+        const toolFn = TOOL_REGISTRY[activePending.tool];
+        const result = toolFn ? await toolFn(ctx, activePending.params) : { success: false, error: ANALYST_UNKNOWN_CAPABILITY_TEMPLATE(activePending.tool) };
+        const preview = this.destructivePreviewFor(activePending.tool, activePending.params);
+        const text = this.responseTextForResult(result) ?? (result.success ? `Confirmed. ${preview.actionVerb} applied to ${preview.ids.length} item(s): ${preview.ids.join(', ')}.` : (result.error ?? 'Confirmed action failed.'));
+        const persisted = appendMessage(this.projectRoot, sessionId, { role: 'assistant', kind: 'text', content: text });
+        return { sessionId, message: { id: persisted.id, role: 'assistant', kind: 'text', content: text, timestamp: persisted.timestamp }, toolInvocations: [{ tool: activePending.tool, params: activePending.params, result }] };
+      }
+      if (this.isCancellation(userContent)) {
+        this.pendingDestructive.delete(sessionId);
+        this.recordPendingOutcome(activePending, 'rejected', 'destructive confirmation cancelled');
+        const text = 'Cancelled. No changes were made.';
+        const persisted = appendMessage(this.projectRoot, sessionId, { role: 'assistant', kind: 'text', content: text });
+        return { sessionId, message: { id: persisted.id, role: 'assistant', kind: 'text', content: text, timestamp: persisted.timestamp } };
+      }
+      this.pendingDestructive.delete(sessionId);
+      this.recordPendingOutcome(activePending, 'rejected', 'destructive confirmation amended');
+    }
+
     const llmAvailable = await this.llmResolver.isAvailable();
     if (!llmAvailable) {
       const persisted = appendMessage(this.projectRoot, sessionId, { role: 'assistant', kind: 'text', content: ANALYST_OFFLINE_REPLY });
       return { sessionId, message: { id: persisted.id, role: 'assistant', kind: 'text', content: ANALYST_OFFLINE_REPLY, timestamp: persisted.timestamp } };
     }
     return await this.runAnalystLoop(sessionId, userContent);
+  }
+
+  private isAffirmation(userContent: string): boolean { return new Set(['yes','y','confirm','proceed','do it','ok']).has(userContent.trim().toLowerCase()); }
+  private isCancellation(userContent: string): boolean { return new Set(['no','n','cancel','stop','abort','never mind']).has(userContent.trim().toLowerCase()); }
+  private recordPendingOutcome(invocation: { tool: string; params: Record<string, unknown> }, outcome: 'rejected' | 'preview', summary: string): void {
+    recordControlAction(this.projectRoot, { actor: this.actor, surface: this.surface, action: `destructive_confirmation.${invocation.tool}`, target_kind: null, target_id: null, params_summary: stableStringify(invocation.params), confirmed: false, outcome, outcome_summary: summary });
+  }
+  private destructivePreviewFor(tool: string, params: Record<string, unknown>): { actionVerb: string; targetDescription: string; ids: string[] } {
+    const ids = Array.isArray(params['ids']) ? params['ids'].map(String) : typeof params['id'] === 'string' ? [params['id']] : typeof params['goalId'] === 'string' ? [params['goalId']] : typeof params['processId'] === 'string' ? [params['processId']] : ['target'];
+    const actionVerb = tool.replace(/_/g, ' ');
+    return { actionVerb, targetDescription: tool, ids };
+  }
+  private responseTextForResult(result: ToolResult): string | null {
+    if (result.success && result.data && typeof result.data === 'object' && (result.data as Record<string, unknown>)['partial'] === true) {
+      const data = result.data as Record<string, unknown>;
+      const failures = Array.isArray(data['failures']) ? data['failures'] as Array<Record<string, unknown>> : [];
+      return ANALYST_PARTIAL_SUCCESS_TEMPLATE(Number(data['succeeded'] ?? 0), Number(data['total'] ?? 0), failures.map((failure) => String(failure['id'] ?? 'unknown')), failures.map((failure) => String(failure['reason'] ?? 'unknown reason')));
+    }
+    if (!result.success && result.data && typeof result.data === 'object' && (result.data as Record<string, unknown>)['reason'] === 'not_yet_available') {
+      const data = result.data as Record<string, unknown>;
+      return `Not yet available: this capability is owned by ${String(data['stage_owner'] ?? 'a later stage')}.`;
+    }
+    return null;
   }
 
   private async runAnalystLoop(sessionId: string, _userContent: string): Promise<AnalystResponse> {
@@ -285,7 +338,11 @@ export class AnalystHandler {
         const toolFn = TOOL_REGISTRY[tc.function.name];
         let result: ToolResult;
         if (!toolFn) {
-          result = { success: false, error: `Unknown tool: ${tc.function.name}` };
+          result = { success: false, error: ANALYST_UNKNOWN_CAPABILITY_TEMPLATE(tc.function.name) };
+        } else if (new Set(['delete_card','stop_project','terminate_process','abort_goal_subtree','restart_card_or_subtree','restart_goal','restart_server']).has(tc.function.name)) {
+          const preview = this.destructivePreviewFor(tc.function.name, params);
+          this.pendingDestructive.set(sessionId, { sessionId, tool: tc.function.name, params, createdAt: Date.now(), actionVerb: preview.actionVerb, targetDescription: preview.targetDescription, ids: preview.ids });
+          result = { success: false, preview: { type: 'destructive_confirmation', summary: ANALYST_DESTRUCTIVE_PREVIEW_TEMPLATE(preview.actionVerb, preview.targetDescription, preview.ids.length, preview.ids), affectedCards: [], affectedProcesses: [], warnings: ['Awaiting conversational confirmation.'] } };
         } else {
           try { result = await toolFn(ctx, params); }
           catch (err) { result = { success: false, error: err instanceof Error ? err.message : String(err) }; }
@@ -300,6 +357,11 @@ export class AnalystHandler {
         const truncated = resultJson.length > 16_000 ? resultJson.slice(0, 16_000) + '…[truncated]' : resultJson;
         appendMessage(this.projectRoot, sessionId, { role: 'tool', kind: 'tool_result', content: truncated, tool: tc.function.name, tool_call_id: tc.id });
         broadcastToolInvocation(this.activeRuntime, sessionId, tc.function.name, result);
+        const contractText = result.preview?.type === 'destructive_confirmation' ? result.preview.summary : this.responseTextForResult(result);
+        if (contractText) {
+          const persisted = appendMessage(this.projectRoot, sessionId, { role: 'assistant', kind: 'text', content: contractText });
+          return { sessionId, message: { id: persisted.id, role: 'assistant', kind: 'text', content: contractText, timestamp: persisted.timestamp }, toolInvocations };
+        }
       }
     }
   }

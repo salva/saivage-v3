@@ -1,6 +1,7 @@
 import { describe, expect, it } from '@jest/globals';
 
 import { RoleToolPolicy } from '../../src/agents/role-tool-policy.js';
+import { TOOL_REGISTRY } from '../../src/agents/analyst-llm-resolver.js';
 import { TOOL_TO_CARD_ACTION } from '../../src/permissions/index.js';
 import type { RoleToolPolicyRole } from '../../src/agents/role-tool-policy.js';
 
@@ -80,6 +81,15 @@ describe('RoleToolPolicy', () => {
   it('derives planner-control lifecycle tool names from the permission matrix mapping', () => {
     expect(Object.keys(TOOL_TO_CARD_ACTION)).toEqual(['activate_card', 'cancel_card', 'delete_card', 'restart_card']);
     expect(RoleToolPolicy.decide({ role: 'planner', action: 'invoke', surface: 'planner-control', toolName: 'restart_card', knownPlannerTool: true }).allowed).toBe(true);
+  });
+
+
+
+  it('keeps analyst policy exactly aligned with the analyst tool registry and denies Telegram shell', () => {
+    expect(RoleToolPolicy.listToolNamesForRole('analyst').sort()).toEqual(Object.keys(TOOL_REGISTRY).sort());
+    const telegramShell = RoleToolPolicy.assertAnalystSurfaceTool('run_shell_command', 'telegram');
+    expect(telegramShell.allowed).toBe(false);
+    expect(telegramShell.reasonCode).toBe('role_not_allowed');
   });
 
   it('keeps list decisions consistent with role tool lists', () => {

@@ -168,7 +168,7 @@ describe('Analyst Tools', () => {
   it('denies delete_card for matrix-disallowed target states', async () => {
     store.update('goal-1', { status: 'running' });
 
-    const result = await delete_card({ projectRoot, store, actor: 'runtime', surface: 'runtime' }, { id: 'goal-1' });
+    const result = await delete_card({ projectRoot, store, actor: 'runtime', surface: 'runtime' }, { ids: ['goal-1'] });
 
     expect(result.success).toBe(false);
     expect(result.error).toContain("delete_card denied by permission matrix");
@@ -181,7 +181,7 @@ describe('Analyst Tools', () => {
     store.update('goal-1', { status: 'backlog' });
     store.update('code-1', { status: 'running' });
 
-    const result = await delete_card({ projectRoot, store, actor: 'runtime', surface: 'runtime' }, { id: 'goal-1' });
+    const result = await delete_card({ projectRoot, store, actor: 'runtime', surface: 'runtime' }, { ids: ['goal-1'] });
 
     expect(result.success).toBe(false);
     expect(result.error).toContain("delete_card denied by permission matrix");
@@ -194,10 +194,10 @@ describe('Analyst Tools', () => {
   it('allows delete_card for a matrix-allowed state', async () => {
     store.update('code-1', { status: 'backlog' });
 
-    const result = await delete_card({ projectRoot, store, actor: 'runtime', surface: 'runtime' }, { id: 'code-1' });
+    const result = await delete_card({ projectRoot, store, actor: 'runtime', surface: 'runtime' }, { ids: ['code-1'] });
 
     expect(result.success).toBe(true);
-    expect(result.data).toEqual({ deleted: ['code-1'] });
+    expect(result.data).toEqual({ deleted: ['code-1'], top_level_deleted: ['code-1'] });
     expect(store.read('code-1')).toBeNull();
   });
 
