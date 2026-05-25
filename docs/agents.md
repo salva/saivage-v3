@@ -371,7 +371,7 @@ split-brain state (`src/runtime/state.ts#symbol:RuntimeStateLayoutError`,
 
 Planner tools are subtree-scoped to the planner's goal.
 
-Card mutation, inspection, and notes:
+Card mutation, inspection, and notifications:
 
 - `create_card(parent_id, type, title, description, status?, depends_on?, priority?, tags?, acceptance?)`
 - `edit_card(card_id, patch)`
@@ -380,7 +380,7 @@ Card mutation, inspection, and notes:
 - `cancel_card(card_id)` — see §7.1.
 - `delete_card(card_id)` — see §7.1.
 - `restart_card(card_id)` — see §7.1.
-- `add_note(card_id, body)`
+- `queue_notification(recipient, kind, body)`
 - `list_cards(filter?)`
 - `get_card(card_id)`
 - `get_tree(card_id?)`

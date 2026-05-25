@@ -42,7 +42,7 @@ export const ANALYST_TOOL_DEFINITIONS: ToolDefinition[] = [
   tool('abort_goal_subtree','Abort a goal and all descendants.',{ goalId: str('The ID of the goal card to abort.') },['goalId']),
   tool('restart_card_or_subtree','Restart a completed, failed, or cancelled card or goal subtree.',{ id: str('The ID of the card/goal to restart.') },['id']),
   tool('restart_goal','Restart a goal.',{ goalId: str('The ID of the goal card to restart.') },['goalId']),
-  tool('queue_notification','Queue a notification to a single recipient. S04 owns persistence; S02 reports not-yet-available.',{ recipient: str('Recipient card id or role.'), kind: str('Notification kind.'), body: str('Notification body.') },['recipient','kind','body']),
+  tool('queue_notification','Queue a notification ephemerally to a single recipient.',{ recipient: str('Recipient card id or role.'), kind: str('Notification kind.'), body: str('Notification body.') },['recipient','kind','body']),
   tool('reorder_child','Reorder the children of a parent card.',{ parentId: str('Parent whose children to reorder.'), orderedChildIds: arr(str('A child card ID in the new order.'),'New child id order; must be a permutation of the current child set.') },['parentId','orderedChildIds']),
   tool('navigate_workspace','Navigate the workspace area.',{ target: { type: 'object', properties: { kind: { type: 'string', enum: ['card','transcript','process','plan_diary','process_list','agent_session_list','config'] }, id: str('Optional target id.'), refinement: str('Optional view refinement.') }, required: ['kind'], additionalProperties: false } },['target']),
   tool('navigate_back','Navigate back in the workspace area.',{},[]),

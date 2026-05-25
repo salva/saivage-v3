@@ -96,7 +96,7 @@ describe('AgentAdapter planner tool surface', () => {
   it('keeps the exported planner tool definition order stable for prompt reproducibility', () => {
     const toolNames = adapter.getToolNamesForRole('planner');
     expect(toolNames).toEqual([
-      'create_card', 'edit_card', 'move_card', 'reorder_child', 'add_note', 'list_cards', 'get_card', 'get_tree',
+      'create_card', 'edit_card', 'move_card', 'reorder_child', 'queue_notification', 'list_cards', 'get_card', 'get_tree',
       'list_card_history', 'get_card_history_entry', 'diff_card',
       'list_project_files', 'read_project_file', 'write_project_file', 'wait_for_process',
       'kill_process', 'start_and_wait', 'run_project_command',
