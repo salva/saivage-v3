@@ -28,7 +28,7 @@ interface SyntheticHintState {
 }
 
 interface TimelineBadge {
-  kind: 'card-history' | 'notification' | 'notification-ack' | 'control-action' | 'tool-invoked';
+  kind: 'card-history' | 'notification' | 'control-action' | 'tool-invoked';
   label: string;
   timestamp: string;
 }
@@ -447,10 +447,6 @@ export const useAnalystChat = defineStore('analyst-chat', () => {
     }
     if (event === 'notification_added') {
       addBadgeForActiveSession('notification added', 'notification');
-      return;
-    }
-    if (event === 'notification_acknowledged') {
-      addBadgeForActiveSession('notification acknowledged', 'notification-ack');
       return;
     }
     if (event === 'control_action_recorded') {

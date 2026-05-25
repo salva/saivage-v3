@@ -1,11 +1,16 @@
 <template>
-  <div class="stale-warning-ribbon" role="status">
+  <div v-if="cardsStore.isStale(cardId)" class="stale-warning-ribbon" role="status">
     <strong>Card update available.</strong>
     <span>This card changed after the current detail snapshot loaded. Refresh card history before trusting the completion state.</span>
   </div>
 </template>
 
 <script setup lang="ts">
+import { useCardStore } from '../../stores/cards';
+
+defineProps<{ cardId: string }>();
+
+const cardsStore = useCardStore();
 </script>
 
 <style scoped>

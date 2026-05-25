@@ -20,7 +20,7 @@
           This card detail may be stale. Refresh to reload canonical card and evidence data from the server.
           <button type="button" class="retry-btn" @click="reloadDetail">Refresh card</button>
         </div>
-        <StaleWarningRibbon v-if="cardStore.isStale(currentCard.id)" />
+        <StaleWarningRibbon :card-id="currentCard.id" />
         <div v-if="lifecycle?.error || currentCard.error" class="detail-callout error" role="alert">
           Card error: {{ lifecycle?.error || currentCard.error }}
         </div>
