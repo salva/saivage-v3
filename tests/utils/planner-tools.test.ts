@@ -97,6 +97,7 @@ describe('PlannerToolsService', () => {
     runtimeState = {
       status: 'running',
       project_id: 'project',
+      pid: 1234,
       started_at: new Date().toISOString(),
       current_card_id: card.id,
       current_agent_session_id: 'planner-1',
@@ -130,6 +131,7 @@ describe('PlannerToolsService', () => {
     runtimeState = {
       status: 'running',
       project_id: 'project',
+      pid: 1234,
       started_at: new Date().toISOString(),
       current_card_id: child.id,
       current_agent_session_id: 'executor-1',
@@ -205,6 +207,7 @@ describe('PlannerToolsService', () => {
     runtimeState = {
       status: 'running',
       project_id: 'project',
+      pid: 1234,
       started_at: new Date().toISOString(),
       current_card_id: child.id,
       current_agent_session_id: 'executor-1',

@@ -34,6 +34,7 @@ function legacyRuntimeState(overrides: Partial<RuntimeState> = {}): RuntimeState
   return {
     status: 'paused',
     project_id: 'project',
+    pid: 1234,
     started_at: now,
     current_card_id: null,
     current_agent_session_id: null,

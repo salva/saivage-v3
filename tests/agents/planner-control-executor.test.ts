@@ -16,7 +16,7 @@ function makeCard(overrides: Partial<CardRecord> & { type: CardRecord['type']; t
 
 function runtimeWithActive(cardId: string): RuntimeState {
   const now = new Date().toISOString();
-  return { status: 'running', project_id: 'project', started_at: now, current_card_id: cardId, current_agent_session_id: 'executor:active', active_card_run: { card_id: cardId, card_type: 'code', runtime_status: 'running', phase: 'executor', caller_session_id: 'planner:goal', caller_tool_call_id: 'call-activate', planner_session_id: 'planner:goal', executor_session_id: 'executor:active', reviewer_session_id: null, correction_attempts: 0, started_at: now, last_turn_at: now }, paused: false, paused_at: null, queue: [], running_processes: [], updated_at: now, frozen_reason: null };
+  return { status: 'running', project_id: 'project', pid: 1234, started_at: now, current_card_id: cardId, current_agent_session_id: 'executor:active', active_card_run: { card_id: cardId, card_type: 'code', runtime_status: 'running', phase: 'executor', caller_session_id: 'planner:goal', caller_tool_call_id: 'call-activate', planner_session_id: 'planner:goal', executor_session_id: 'executor:active', reviewer_session_id: null, correction_attempts: 0, started_at: now, last_turn_at: now }, paused: false, paused_at: null, queue: [], running_processes: [], updated_at: now, frozen_reason: null };
 }
 
 function appendActivePlannerRun(projectRoot: string, cardId = 'goal'): void {
