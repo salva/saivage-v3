@@ -224,7 +224,7 @@ export class AnalystHandler {
     if (activePending) {
       if (this.isAffirmation(userContent)) {
         this.pendingDestructive.delete(sessionId);
-        const ctx: ToolContext = { projectRoot: this.projectRoot, sessionId, activeRuntime: this.activeRuntime, actor: this.actor, surface: this.surface };
+        const ctx: ToolContext = { projectRoot: this.projectRoot, sessionId, activeRuntime: this.activeRuntime, actor: this.actor, surface: this.surface, confirmedDestructive: true };
         const toolFn = TOOL_REGISTRY[activePending.tool];
         const result = toolFn ? await toolFn(ctx, activePending.params) : { success: false, error: ANALYST_UNKNOWN_CAPABILITY_TEMPLATE(activePending.tool) };
         const preview = this.destructivePreviewFor(activePending.tool, activePending.params);
@@ -357,7 +357,7 @@ export class AnalystHandler {
         const truncated = resultJson.length > 16_000 ? resultJson.slice(0, 16_000) + '…[truncated]' : resultJson;
         appendMessage(this.projectRoot, sessionId, { role: 'tool', kind: 'tool_result', content: truncated, tool: tc.function.name, tool_call_id: tc.id });
         broadcastToolInvocation(this.activeRuntime, sessionId, tc.function.name, result);
-        const contractText = result.preview?.type === 'destructive_confirmation' ? result.preview.summary : this.responseTextForResult(result);
+        const contractText = !toolFn ? result.error : (result.preview?.type === 'destructive_confirmation' ? result.preview.summary : this.responseTextForResult(result));
         if (contractText) {
           const persisted = appendMessage(this.projectRoot, sessionId, { role: 'assistant', kind: 'text', content: contractText });
           return { sessionId, message: { id: persisted.id, role: 'assistant', kind: 'text', content: contractText, timestamp: persisted.timestamp }, toolInvocations };

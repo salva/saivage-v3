@@ -47,7 +47,7 @@ function paramsSummary(params: unknown): string { return stableStringify(params)
 export async function runAuditedAnalystTool<P extends Record<string, unknown>>(ctx: ToolContext, params: P, spec: MutatingSpec<P>): Promise<ToolResult> {
   const verdict = evaluateAuthz({ actor: ctx.actor, surface: ctx.surface, safety_class: spec.safety_class });
   const auditBase = { actor: ctx.actor, surface: ctx.surface, action: spec.action, target_kind: spec.target_kind, target_id: spec.getTargetId(params), confirmed: true, params_summary: paramsSummary(params) };
-  if (verdict === 'deny' || verdict === 'preview_only') {
+  if (verdict === 'deny' || (verdict === 'preview_only' && !(spec.safety_class === 'destructive' && ctx.confirmedDestructive === true))) {
     recordControlAction(ctx.projectRoot, { ...auditBase, outcome: verdict === 'deny' ? 'denied' : 'rejected', outcome_summary: verdict === 'deny' ? 'authz denied' : 'interactive confirmation gate removed; use an authorized runtime/tool surface' });
     return { success: false, error: verdict === 'deny' ? `Denied by authorization policy for ${ctx.actor}/${ctx.surface}/${spec.safety_class}.` : `Action '${spec.action}' requires an authorized surface. confirmed/preview_hash confirmation is no longer accepted by mutation contracts.` };
   }
