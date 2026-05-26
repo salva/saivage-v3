@@ -14,6 +14,9 @@ import type {
 
 const SESSIONS_DIR = 'sessions';
 const MESSAGES_DIR = 'messages';
+const WORKER_ROLES = new Set<AgentRole>(['executor', 'reviewer']);
+const NON_TERMINAL_SESSION_STATUSES = new Set<SessionStatus>(['active', 'waiting']);
+
 
 function sessionsDir(saivageDir: string): string {
   return join(saivageDir, 'agents', SESSIONS_DIR);
@@ -164,15 +167,22 @@ export function markSessionWaiting(saivageDir: string, sessionId: string): Agent
   return setSessionStatus(saivageDir, sessionId, 'waiting');
 }
 
-export function failActiveWorkerSessions(
+export class DuplicateActiveSessionError extends Error {
+  constructor(role: AgentRole, cardId: string, conflictingSessionId: string) {
+    super(`Cannot start ${role} session for card_id '${cardId}': non-terminal session '${conflictingSessionId}' already exists.`);
+    this.name = 'DuplicateActiveSessionError';
+  }
+}
+
+export function reconcileOrphanedWorkerSessions(
   saivageDir: string,
-  reason = 'Session was left active by a previous runtime process.',
+  reason = 'Worker session was left active by a previous runtime process and was failed during startup reconciliation.',
 ): AgentSession[] {
-  const failed: AgentSession[] = [];
+  const swept: AgentSession[] = [];
 
   for (const sessionId of listSessions(saivageDir)) {
     const session = getSession(saivageDir, sessionId);
-    if (!session || (session.status !== 'active' && session.status !== 'waiting') || session.role === 'analyst') continue;
+    if (!session || !WORKER_ROLES.has(session.role) || !NON_TERMINAL_SESSION_STATUSES.has(session.status)) continue;
 
     const updated = completeSession(saivageDir, session.id, 'failed');
     appendMessage(saivageDir, session.id, {
@@ -180,10 +190,26 @@ export function failActiveWorkerSessions(
       kind: 'model_issue',
       content: reason,
     });
-    failed.push(updated);
+    swept.push(updated);
   }
 
-  return failed;
+  return swept;
+}
+
+export function assertNoActiveWorkerSession(
+  saivageDir: string,
+  role: AgentRole,
+  cardId: string | null | undefined,
+): void {
+  if (!WORKER_ROLES.has(role) || !cardId) return;
+
+  for (const sessionId of listSessions(saivageDir)) {
+    const session = getSession(saivageDir, sessionId);
+    if (!session) continue;
+    if (session.role === role && session.card_id === cardId && NON_TERMINAL_SESSION_STATUSES.has(session.status)) {
+      throw new DuplicateActiveSessionError(role, cardId, session.id);
+    }
+  }
 }
 
 export function updateSessionModel(

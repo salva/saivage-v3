@@ -4,7 +4,7 @@ import { loadConfig, getRuntimeConfig, getModelParamsForRole, getSelfCheckThresh
 import { ProviderRegistry, type Candidate } from './provider.js';
 import { ModelRouter } from './model-router.js';
 import { parsePlannerResult, parseExecutorResult, parseReviewerResult, buildExecutorFallbackResult, type PlannerResult, type ExecutorResult, type ReviewerResult } from './result-parser.js';
-import { createSession, completeSession, appendMessage, getSession, getSessionMessages, listSessions, markSessionWaiting, updateSessionModel } from './session-persistence.js';
+import { createSession, completeSession, appendMessage, getSession, getSessionMessages, listSessions, markSessionWaiting, updateSessionModel, assertNoActiveWorkerSession } from './session-persistence.js';
 import type { AgentMessage, HandoffSummary, LoggedEvent } from '../schemas/index.js';
 import type { NotificationCenter, NotificationQueueEntry } from '../notifications/index.js';
 import { compactSession } from './compaction.js';
@@ -444,6 +444,7 @@ export class AgentAdapter implements AgentRuntime {
       });
       throw new Error(noCandidateDecision.message);
     }
+    assertNoActiveWorkerSession(this.saivageDir, role as import('../schemas/types.js').AgentRole, cardId);
     const session = createSession(this.saivageDir, role as import('../schemas/types.js').AgentRole, goalId, cardId, undefined, requestedSessionId);
     await this.afterSessionCreatedHook?.(session.id);
     if (this.eventLogger) this.eventLogger.appendEvent({ kind: 'session_started', session_id: session.id, role: role as unknown as import('../schemas/types.js').AgentRole, goal_id: goalId, card_id: cardId });

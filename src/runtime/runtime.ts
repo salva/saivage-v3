@@ -21,6 +21,7 @@ import { createActivationCompletionEnvelope, parseActivationCompletionEnvelope }
 import { CardStore, PROJECT_CARD_ID } from '../cards/index.js';
 import { STARTABLE_STATES, RESTARTABLE_STATES } from '../permissions/index.js';
 import { consumeChangedCardActivation, injectQueuedSyntheticPlannerNotes, queueSyntheticPlannerNote, drainSyntheticPlannerNotes } from '../agents/index.js';
+import { reconcileOrphanedWorkerSessions } from '../agents/session-persistence.js';
 import {
   initRuntimeState,
   readRuntimeState,
@@ -98,7 +99,7 @@ const TRACKED_EVENT_KINDS: ReadonlySet<EventKind> = new Set(trackedEventKindValu
 
 export class Runtime extends EventEmitter {
   readonly projectRoot: string; readonly cardStore: CardStore; readonly agentRuntime: AgentRuntime; readonly eventBus: EventBus; readonly notificationCenter: NotificationCenter;
-  private _paused = false; private _running = false; private _shuttingDown = false; private _skillsEngine: SkillsEngine | null = null; private _eventLogger: EventLogger; private _ownsEventLogger: boolean; private _errorLogger: ErrorLogger; private _ownsErrorLogger: boolean; readonly runningProcesses: Set<string> = new Set(); private _supervisor: StuckAgentSupervisor; private _continuousImprovementReserved: boolean; private _autoDispatchBacklog: boolean; private _resumeHandoffContext: string | null = null; private _startupRepairPending = false; private _dispatchInFlight = new Set<string>(); private _backgroundDispatches = new Set<Promise<void>>(); private _lastLifecycleDisposeReport: RuntimeDisposeReportEntry[] = []; private _stateMachine: RuntimeStateMachine;
+  private _paused = false; private _running = false; private _shuttingDown = false; private _skillsEngine: SkillsEngine | null = null; private _eventLogger: EventLogger; private _ownsEventLogger: boolean; private _errorLogger: ErrorLogger; private _ownsErrorLogger: boolean; readonly runningProcesses: Set<string> = new Set(); private _supervisor: StuckAgentSupervisor; private _continuousImprovementReserved: boolean; private _autoDispatchBacklog: boolean; private _resumeHandoffContext: string | null = null; private _startupRepairPending = false; /* Goal/planner re-entrancy guard; worker manifest uniqueness is enforced in session persistence. */ private _dispatchInFlight = new Set<string>(); private _backgroundDispatches = new Set<Promise<void>>(); private _lastLifecycleDisposeReport: RuntimeDisposeReportEntry[] = []; private _stateMachine: RuntimeStateMachine;
 
   constructor(config: RuntimeConfig, agentRuntime?: AgentRuntime) {
     super();
@@ -599,6 +600,12 @@ export class Runtime extends EventEmitter {
     if (!state) state = initRuntimeState(this.projectRoot);
     acquireLock(this.projectRoot);
     await this.performCrashRecovery();
+    const swept = reconcileOrphanedWorkerSessions(join(this.projectRoot, '.saivage'));
+    if (swept.length > 0) {
+      const sweptSessionIds = swept.map((session) => session.id);
+      this.emit('startup_session_sweep', { swept_session_ids: sweptSessionIds });
+      this._eventLogger.appendEvent({ kind: 'startup_session_sweep', swept_session_ids: sweptSessionIds });
+    }
     reconcileProcessRecords(this.projectRoot);
     if (state.running_processes && state.running_processes.length > 0) { this.runningProcesses.clear(); }
     this._startupRepairPending = true;

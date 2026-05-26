@@ -108,25 +108,56 @@ describe('session-persistence', () => {
     });
   });
 
-  describe('failActiveWorkerSessions', () => {
-    it('marks active non-analyst sessions as failed and leaves analyst sessions active', () => {
+  describe('reconcileOrphanedWorkerSessions', () => {
+    it('fails only non-terminal executor and reviewer sessions and records model_issue messages', () => {
       const planner = mod.createSession(SAIVAGE_DIR, 'planner', 'goal-1', 'goal-1');
-      const waitingPlanner = mod.createSession(SAIVAGE_DIR, 'planner', 'goal-2', 'goal-2');
-      const executor = mod.createSession(SAIVAGE_DIR, 'executor', 'goal-1', 'card-1');
       const analyst = mod.createSession(SAIVAGE_DIR, 'analyst');
-      const done = mod.createSession(SAIVAGE_DIR, 'reviewer');
-      mod.markSessionWaiting(SAIVAGE_DIR, waitingPlanner.id);
-      mod.completeSession(SAIVAGE_DIR, done.id, 'done');
+      const activeExecutor = mod.createSession(SAIVAGE_DIR, 'executor', 'goal-1', 'card-1');
+      const waitingReviewer = mod.createSession(SAIVAGE_DIR, 'reviewer', 'goal-1', 'goal-1');
+      const doneExecutor = mod.createSession(SAIVAGE_DIR, 'executor', 'goal-2', 'card-2');
+      const failedReviewer = mod.createSession(SAIVAGE_DIR, 'reviewer', 'goal-3', 'goal-3');
+      mod.markSessionWaiting(SAIVAGE_DIR, waitingReviewer.id);
+      mod.completeSession(SAIVAGE_DIR, doneExecutor.id, 'done');
+      mod.completeSession(SAIVAGE_DIR, failedReviewer.id, 'failed');
 
-      const failed = mod.failActiveWorkerSessions(SAIVAGE_DIR, 'startup recovery');
+      const swept = mod.reconcileOrphanedWorkerSessions(SAIVAGE_DIR, 'startup recovery');
 
-      expect(failed.map((session) => session.id).sort()).toEqual([executor.id, planner.id, waitingPlanner.id].sort());
-      expect(mod.getSession(SAIVAGE_DIR, planner.id)?.status).toBe('failed');
-      expect(mod.getSession(SAIVAGE_DIR, waitingPlanner.id)?.status).toBe('failed');
-      expect(mod.getSession(SAIVAGE_DIR, executor.id)?.status).toBe('failed');
+      expect(swept.map((session) => session.id).sort()).toEqual([activeExecutor.id, waitingReviewer.id].sort());
+      expect(mod.getSession(SAIVAGE_DIR, activeExecutor.id)?.status).toBe('failed');
+      expect(mod.getSession(SAIVAGE_DIR, waitingReviewer.id)?.status).toBe('failed');
+      expect(mod.getSession(SAIVAGE_DIR, planner.id)?.status).toBe('active');
       expect(mod.getSession(SAIVAGE_DIR, analyst.id)?.status).toBe('active');
-      expect(mod.getSession(SAIVAGE_DIR, done.id)?.status).toBe('done');
-      expect(mod.getSessionMessages(SAIVAGE_DIR, planner.id).at(-1)?.content).toBe('startup recovery');
+      expect(mod.getSession(SAIVAGE_DIR, doneExecutor.id)?.status).toBe('done');
+      expect(mod.getSession(SAIVAGE_DIR, failedReviewer.id)?.status).toBe('failed');
+      for (const sessionId of [activeExecutor.id, waitingReviewer.id]) {
+        const messages = mod.getSessionMessages(SAIVAGE_DIR, sessionId);
+        expect(messages).toHaveLength(1);
+        expect(messages[0]).toEqual(expect.objectContaining({ role: 'system', kind: 'model_issue', content: 'startup recovery' }));
+      }
+    });
+  });
+
+  describe('assertNoActiveWorkerSession', () => {
+    it('throws DuplicateActiveSessionError for active or waiting same-role same-card workers', () => {
+      const activeExecutor = mod.createSession(SAIVAGE_DIR, 'executor', 'goal-1', 'card-1');
+      const waitingReviewer = mod.createSession(SAIVAGE_DIR, 'reviewer', 'goal-1', 'goal-1');
+      mod.markSessionWaiting(SAIVAGE_DIR, waitingReviewer.id);
+
+      expect(() => mod.assertNoActiveWorkerSession(SAIVAGE_DIR, 'executor', 'card-1')).toThrow(mod.DuplicateActiveSessionError);
+      expect(() => mod.assertNoActiveWorkerSession(SAIVAGE_DIR, 'executor', 'card-1')).toThrow(activeExecutor.id);
+      expect(() => mod.assertNoActiveWorkerSession(SAIVAGE_DIR, 'reviewer', 'goal-1')).toThrow(mod.DuplicateActiveSessionError);
+    });
+
+    it('allows terminal same-card workers, different worker roles, non-workers, and missing card ids', () => {
+      const doneExecutor = mod.createSession(SAIVAGE_DIR, 'executor', 'goal-1', 'card-1');
+      const activeReviewer = mod.createSession(SAIVAGE_DIR, 'reviewer', 'goal-1', 'card-1');
+      mod.completeSession(SAIVAGE_DIR, doneExecutor.id, 'done');
+
+      expect(() => mod.assertNoActiveWorkerSession(SAIVAGE_DIR, 'executor', 'card-1')).not.toThrow();
+      expect(() => mod.assertNoActiveWorkerSession(SAIVAGE_DIR, 'reviewer', 'different-card')).not.toThrow();
+      expect(() => mod.assertNoActiveWorkerSession(SAIVAGE_DIR, 'planner', 'card-1')).not.toThrow();
+      expect(() => mod.assertNoActiveWorkerSession(SAIVAGE_DIR, 'executor', null)).not.toThrow();
+      expect(mod.getSession(SAIVAGE_DIR, activeReviewer.id)?.status).toBe('active');
     });
   });
 
