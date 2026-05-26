@@ -26,6 +26,42 @@ const MAX_FILE_SIZE_BYTES = 1_048_576;
 const SAFE_SESSION_ID_RE = /^[a-zA-Z0-9_-]+$/;
 const BINARY_SAMPLE_BYTES = 4096;
 
+
+interface ChatWorkspaceContext {
+  view: string | null;
+  entityId: string | null;
+  refinement: Record<string, string> | null;
+}
+
+function isStringRecord(value: unknown): value is Record<string, string> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  return Object.values(value as Record<string, unknown>).every((entry) => typeof entry === 'string');
+}
+
+function validateWorkspaceContext(value: unknown): { ok: true; value: ChatWorkspaceContext } | { ok: false; error: string } {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return { ok: false, error: 'workspaceContext must be an object.' };
+  }
+  const ctx = value as Record<string, unknown>;
+  if (!(ctx.view === null || typeof ctx.view === 'string')) {
+    return { ok: false, error: 'workspaceContext.view must be a string or null.' };
+  }
+  if (!(ctx.entityId === null || typeof ctx.entityId === 'string')) {
+    return { ok: false, error: 'workspaceContext.entityId must be a string or null.' };
+  }
+  if (!(ctx.refinement === null || isStringRecord(ctx.refinement))) {
+    return { ok: false, error: 'workspaceContext.refinement must be an object with string values or null.' };
+  }
+  return {
+    ok: true,
+    value: {
+      view: ctx.view,
+      entityId: ctx.entityId,
+      refinement: ctx.refinement,
+    } as ChatWorkspaceContext,
+  };
+}
+
 const analystHandlersByRoot = new Map<string, { handler: AnalystHandler; activeRuntime?: ActiveRuntime }>();
 
 function getAnalystHandler(projectRoot: string, activeRuntime?: ActiveRuntime): AnalystHandler {
@@ -150,7 +186,7 @@ export function registerChatsFilesDebugRoutes(
     try {
       const params = request.params as { sessionId: string };
       const sessionId = params.sessionId;
-      const body = request.body as { content?: string };
+      const body = request.body as { content?: string; workspaceContext?: unknown };
 
       if (!SAFE_SESSION_ID_RE.test(sessionId)) {
         return reply.status(400).send({ error: 'Invalid session ID format.', sessionId });
@@ -160,8 +196,17 @@ export function registerChatsFilesDebugRoutes(
         return reply.status(400).send({ error: 'Message content is required' });
       }
 
+      let workspaceContext: ChatWorkspaceContext | undefined;
+      if (body.workspaceContext !== undefined) {
+        const validation = validateWorkspaceContext(body.workspaceContext);
+        if (!validation.ok) {
+          return reply.status(400).send({ error: validation.error });
+        }
+        workspaceContext = validation.value;
+      }
+
       const handler = getAnalystHandler(projectRoot, activeRuntime);
-      const response = await handler.handleMessage(sessionId, body.content);
+      const response = await handler.handleMessage(sessionId, body.content, workspaceContext);
 
       return reply.send({
         sessionId: response.sessionId,

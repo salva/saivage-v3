@@ -18,6 +18,7 @@ import type {
   ChatSessionsResponse,
   ChatMessagesResponse,
   ChatResponse,
+  WorkspaceContext,
   FilesListResponse,
   FileContent,
   DebugStateResponse,
@@ -241,8 +242,9 @@ export function getChatMessages(sessionId: string): Promise<ChatMessagesResponse
   return request<ChatMessagesResponse>('GET', `/api/chats/${encodeURIComponent(sessionId)}`);
 }
 
-export function sendChatMessage(sessionId: string, content: string): Promise<ChatResponse> {
-  return request<ChatResponse>('POST', `/api/chats/${encodeURIComponent(sessionId)}`, undefined, { content });
+export function sendChatMessage(sessionId: string, content: string, workspaceContext?: WorkspaceContext): Promise<ChatResponse> {
+  const body = workspaceContext === undefined ? { content } : { content, workspaceContext };
+  return request<ChatResponse>('POST', `/api/chats/${encodeURIComponent(sessionId)}`, undefined, body);
 }
 
 export function listFiles(path?: string): Promise<FilesListResponse> {

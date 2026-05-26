@@ -37,6 +37,13 @@
       <div v-if="sessionsLoading" class="state-panel" role="status">Loading analyst sessions…</div>
       <div v-else-if="sessionsError" class="state-panel error" role="alert">{{ sessionsError.message }}</div>
 
+      <section v-if="childrenOnScreen.length" class="on-screen-section" aria-labelledby="on-screen-title">
+        <h3 id="on-screen-title">On screen</h3>
+        <ul class="on-screen-children">
+          <li v-for="child in childrenOnScreen" :key="child.id">{{ child.id }} — {{ child.title }}</li>
+        </ul>
+      </section>
+
       <div v-if="messagesLoading" class="state-panel loading-skeleton" role="status">Loading history…</div>
       <div v-else-if="messagesError" class="state-panel error" role="alert">{{ messagesErrorLabel }}</div>
       <div v-else-if="!activeSessionId" class="state-panel" role="status">Select a session or start a new chat.</div>
@@ -126,12 +133,16 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue';
 import { storeToRefs } from 'pinia';
 import { useAnalystChat } from '../../stores/analystChat';
+import { useCardStore } from '../../stores/cards';
+import { useWorkspaceRouteStore } from '../../stores/workspaceRoute';
 import type { ChatMessage } from '../../api/types';
 import { presentToolCall, presentToolResult, safeJsonParse } from '../../utils/tool-presenters';
 import { formatJson } from '../../utils/format-json';
 import CodeBlock from '../code/CodeBlock.vue';
 
 const chat = useAnalystChat();
+const cards = useCardStore();
+const workspaceRoute = useWorkspaceRouteStore();
 const {
   sessions,
   activeSessionId,
@@ -152,6 +163,11 @@ const expandedIds = ref(new Set<string>());
 const composerRef = ref<HTMLTextAreaElement | null>(null);
 
 const timelineItems = computed(() => [...messages.value].sort((a, b) => a.timestamp.localeCompare(b.timestamp)));
+const childrenOnScreen = computed(() =>
+  workspaceRoute.view === 'cards' && workspaceRoute.entityId
+    ? cards.childrenOf(workspaceRoute.entityId)
+    : [],
+);
 const pendingToolInvocationsForActiveSession = computed(() => pendingToolInvocations.value.filter((item) => item.sessionId === activeSessionId.value));
 const READ_ONLY_TOOLTIP = 'Read-only — switch to analyst to send messages';
 const composerTitle = computed(() => activeSessionWritable.value ? 'Ask the analyst…' : READ_ONLY_TOOLTIP);
@@ -326,6 +342,26 @@ onBeforeUnmount(() => {
   display: flex;
   flex-direction: column;
   gap: 8px;
+}
+
+.on-screen-section {
+  border: 1px solid #30363d;
+  border-radius: 10px;
+  padding: 10px 12px;
+  background: #0d1117;
+}
+
+.on-screen-section h3 {
+  margin: 0 0 8px;
+  color: #f0f6fc;
+  font-size: 13px;
+}
+
+.on-screen-children {
+  margin: 0;
+  padding-left: 18px;
+  color: #c9d1d9;
+  font-size: 12px;
 }
 
 .message-list {

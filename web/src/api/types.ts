@@ -728,6 +728,12 @@ export interface ChatMessage {
   links?: EntityLink[];
 }
 
+export interface WorkspaceContext {
+  view: string | null;
+  entityId: string | null;
+  refinement: Record<string, string> | null;
+}
+
 export interface ChatResponse {
   sessionId: string;
   message: Record<string, unknown>;

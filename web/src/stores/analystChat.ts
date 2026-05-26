@@ -7,6 +7,7 @@ import {
   listAgentSessions,
   sendChatMessage,
 } from '../api/client';
+import { useWorkspaceRouteStore } from './workspaceRoute';
 
 const MAX_PENDING_TOOL_INVOCATIONS = 12;
 const MAX_PENDING_SUMMARY_LENGTH = 200;
@@ -337,10 +338,12 @@ export const useAnalystChat = defineStore('analyst-chat', () => {
     sending.value = true;
     sendError.value = null;
     try {
+      const workspaceRoute = useWorkspaceRouteStore();
+      const workspaceContext = workspaceRoute.current ?? { view: null, entityId: null, refinement: null };
       const hint = consumeSyntheticHint(sessionId);
       const payload = hint ? `${hint}\n\n${content}` : content;
       draft.value = '';
-      const response = await sendChatMessage(sessionId, payload);
+      const response = await sendChatMessage(sessionId, payload, workspaceContext);
       markSessionSaved(sessionId);
       const baseTimestamp = nowIso();
       const optimistic = {
@@ -388,6 +391,16 @@ export const useAnalystChat = defineStore('analyst-chat', () => {
           ];
         });
         messages.value = [...messages.value, ...toolMessages];
+      }
+
+      if (Array.isArray(response.toolInvocations)) {
+        const workspaceRoute = useWorkspaceRouteStore();
+        for (const invocation of response.toolInvocations) {
+          if (invocation.tool !== 'navigate_workspace' && invocation.tool !== 'navigate_back') continue;
+          const result = invocation.result;
+          if (!result || result.success !== true || !result.data || typeof result.data !== 'object') continue;
+          workspaceRoute.apply(result.data as Parameters<typeof workspaceRoute.apply>[0]);
+        }
       }
 
       await fetchMessages(response.sessionId);
