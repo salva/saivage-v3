@@ -1,36 +1,25 @@
 # Verification: Stage 011 Publication State
 
-Task: `t1-verify-011-publication-state`  
-Stage: `post-010-publication-wait-heartbeat-29`  
-Checked at: 2026-05-26T19:35:42Z
+Accessed: 2026-05-26T19:37:17Z
 
-## Executive summary
+## Executive Summary
 
-No strict immediate `011-*` stage has been published under `SPEC/analyst-as-control-surface/PLAN/stages/`.
+No strict immediate `011-*` stage directory is currently published under `SPEC/analyst-as-control-surface/PLAN/stages/`.
 
-The strict PROTOCOL-r4 immediate children currently end at:
+Under `PROTOCOL-r4.md` consumer rules, only immediate children of `PLAN/stages/` whose names match `^[0-9]{3}-[a-z0-9]+(-[a-z0-9]+)*$` are considered published stages. The inspected immediate children all match the strict format, but the highest published prefix is `010-test-suite-and-ledger-reconciliation`; there is no `011-<slug>` directory to verify.
 
-- `010-test-suite-and-ledger-reconciliation`
+Because no strict `011-*` stage exists, no `design.md` or `plan.md` for Stage 011 can be verified. The required next action is atomic publication of a complete `011-<slug>/` directory containing at minimum `design.md` and `plan.md`, per PROTOCOL-r4 Sections 2, 3, and 5.
 
-Because no strict `011-*` directory exists, there is no `design.md` or `plan.md` for Stage 011 to verify. Per the heartbeat stage objective, the correct outcome is escalation, not implementation or authoring of unpublished Stage 011 work.
+## Sources Checked
 
-## Protocol rule applied
+- `/work/saivage-v3/SPEC/analyst-as-control-surface/PLAN/PROTOCOL-r4.md`
+  - Section 2: published directory layout and minimum `design.md` / `plan.md` contents.
+  - Section 3: atomic publication primitive via same-filesystem directory rename.
+  - Section 5: consumer rules; strict immediate-child regex `^[0-9]{3}-[a-z0-9]+(-[a-z0-9]+)*$`.
+- `/work/saivage-v3/SPEC/analyst-as-control-surface/PLAN/stages/`
+  - Immediate children inspected read-only.
 
-`PROTOCOL-r4.md` section 5, Consumer rules, states that the watched directory is exactly:
-
-`saivage-v3/SPEC/analyst-as-control-surface/PLAN/stages/`
-
-Only immediate children whose names match the strict regex are considered:
-
-```text
-^[0-9]{3}-[a-z0-9]+(-[a-z0-9]+)*$
-```
-
-Source: `/work/saivage-v3/SPEC/analyst-as-control-surface/PLAN/PROTOCOL-r4.md`, read 2026-05-26.
-
-## Immediate children observed
-
-Read-only inspection of `/work/saivage-v3/SPEC/analyst-as-control-surface/PLAN/stages/` found these strict stage directories:
+## Immediate Children Observed
 
 ```text
 000-breakage-detection-harness
@@ -46,14 +35,23 @@ Read-only inspection of `/work/saivage-v3/SPEC/analyst-as-control-surface/PLAN/s
 010-test-suite-and-ledger-reconciliation
 ```
 
-Strict `011-*` matches: none.
+## Determination
 
-## Required next action
+- Strict immediate `011-*` child exists: **No**
+- Stage 011 `design.md` verified: **Not applicable; no Stage 011 directory exists**
+- Stage 011 `plan.md` verified: **Not applicable; no Stage 011 directory exists**
+- Implementation/design authored: **No**
+- Immutable SPEC/PLAN/stages files modified: **No**
 
-Publish Stage 011 atomically per PROTOCOL-r4:
+## Required Publication Action
 
-1. Build a complete directory outside `PLAN/stages/` on the same filesystem.
-2. Include at minimum `design.md` and `plan.md`.
-3. Atomically rename/move it into `PLAN/stages/` with final name `011-<slug>` matching `^[0-9]{3}-[a-z0-9]+(-[a-z0-9]+)*$`.
+Publish the next stage atomically as a complete directory named `011-<slug>` under:
 
-No Stage 011 content was authored, and no immutable SPEC/PLAN/stages files were modified.
+`/work/saivage-v3/SPEC/analyst-as-control-surface/PLAN/stages/`
+
+The directory must contain at minimum:
+
+- `design.md`
+- `plan.md`
+
+Publication must follow PROTOCOL-r4 Section 3: build the complete directory outside `stages/` on the same filesystem and atomically move it into `stages/` with its final strict name.
