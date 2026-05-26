@@ -144,7 +144,7 @@ describe('AnalystChatPanel', () => {
     await textarea.setValue('please inspect');
     await textarea.trigger('keydown', { key: 'Enter', shiftKey: false });
     await flushPromises();
-    expect(sendChatMessage).toHaveBeenCalledWith('chat-1', 'please inspect');
+    expect(sendChatMessage).toHaveBeenCalledWith('chat-1', 'please inspect', { view: null, entityId: null, refinement: null });
     expect(document.activeElement).toBe(textarea.element);
     wrapper.unmount();
   });

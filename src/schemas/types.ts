@@ -56,7 +56,7 @@ export interface CardRecord {
 export type CardHistoryKind = 'update' | 'status' | 'mutate' | 'depends' | 'delete' | 'archive';
 export interface CardHistoryEntry { entry_id: string; kind: CardHistoryKind; card_id: string; version_seq: number; snapshot: CardRecord; changed_at: string; changed_by_actor: NoteAuthor; changed_by_surface: ControlActionSurface; change_reason: string | null; changed_fields: string[]; change_summary: string; }
 export type CardHistoryHeader = Omit<CardHistoryEntry, 'snapshot'>;
-export interface ControlActionAuditEntry { id: string; actor: NoteAuthor; surface: ControlActionSurface; action: string; target_kind: 'card' | 'note' | 'process' | 'runtime' | 'config' | 'session' | null; target_id: string | null; params_summary: string; confirmed: boolean; outcome: 'ok' | 'error' | 'denied' | 'rejected' | 'preview' | 'cancelled' | 'expired' | 'amended'; outcome_summary: string; error?: string; created_at: string; }
+export interface ControlActionAuditEntry { id: string; actor: NoteAuthor; surface: ControlActionSurface; action: string; target_kind: 'card' | 'note' | 'process' | 'runtime' | 'config' | 'session' | null; target_id: string | null; params_summary: string; safety_class?: 'read_only' | 'low' | 'high' | 'destructive' | 'deployment'; confirmed: boolean; outcome: 'ok' | 'error' | 'denied' | 'rejected' | 'preview' | 'cancelled' | 'expired' | 'amended'; outcome_summary: string; error?: string; created_at: string; }
 export interface CardIndexEntry { id: string; type: CardType; parent: string | null; status: CardStatus; title: string; }
 export interface CardIndex { cards: Record<string, CardIndexEntry>; }
 export type CardChildrenIndex = string[];

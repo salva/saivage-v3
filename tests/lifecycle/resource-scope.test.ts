@@ -9,6 +9,12 @@ async function delay(ms: number): Promise<void> {
   await new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+async function waitForReady(child: { process: { stdout?: NodeJS.ReadableStream | null } }): Promise<void> {
+  const stdout = child.process.stdout;
+  if (!stdout) throw new Error('child stdout pipe missing');
+  await new Promise<void>((resolve) => stdout.once('data', () => resolve()));
+}
+
 describe('ResourceScope', () => {
   it('disposes children before parent resources and parent resources in reverse registration order', async () => {
     const scope = createResourceScope('root');
@@ -73,15 +79,15 @@ describe('ResourceScope', () => {
 
   it('spawn disposal waits for child process termination after SIGTERM', async () => {
     const scope = createResourceScope('child-process', { disposeTimeoutMs: 1_000 });
-    const child = scope.spawn(process.execPath, ['-e', 'process.on("SIGTERM", () => setTimeout(() => process.exit(0), 75)); setInterval(() => {}, 1000);'], {
+    const child = scope.spawn(process.execPath, ['-e', 'process.on("SIGTERM", () => setTimeout(() => process.exit(0), 75)); console.log("ready"); setInterval(() => {}, 1000);'], {
       name: 'sigterm-child',
-      stdio: 'ignore',
+      stdio: ['ignore', 'pipe', 'ignore'],
       timeoutMs: 500,
     });
     const exit = new Promise<{ code: number | null; signal: NodeJS.Signals | null }>((resolve) => {
       child.process.once('exit', (code, signal) => resolve({ code, signal }));
     });
-    await delay(100);
+    await waitForReady(child);
 
     const report = await scope.dispose();
     const { code, signal } = await exit;
@@ -94,13 +100,13 @@ describe('ResourceScope', () => {
 
   it('spawn disposal escalates to SIGKILL and reports non-graceful child termination', async () => {
     const scope = createResourceScope('child-process-kill', { disposeTimeoutMs: 1_000 });
-    const child = scope.spawn(process.execPath, ['-e', 'process.on("SIGTERM", () => {}); setInterval(() => {}, 1000);'], {
+    const child = scope.spawn(process.execPath, ['-e', 'process.on("SIGTERM", () => {}); console.log("ready"); setInterval(() => {}, 1000);'], {
       name: 'stubborn-child',
-      stdio: 'ignore',
+      stdio: ['ignore', 'pipe', 'ignore'],
       // timeoutMs:500 → outer cap 525ms covers SIGTERM grace (≥25ms inner) + SIGKILL escalation on slower hosts
       timeoutMs: 500,
     });
-    await delay(100);
+    await waitForReady(child);
 
     const report = await scope.dispose();
 
