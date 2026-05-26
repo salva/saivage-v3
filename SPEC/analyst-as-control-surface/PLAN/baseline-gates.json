@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "captured_at": "2026-05-26T12:38:04Z",
+  "captured_at": "2026-05-26T13:07:06Z",
   "captured_by": "saivage-v3 S00 baseline",
   "workspace_root": "/work",
   "comparison_rule": "A NEW failure for a gate is any failing-id (test_id, scenario_id, or error_id) observed by a per-stage gate run that is not present in this snapshot's failing_ids array for the same gate id. The driver script implements this diff and is the single source of truth.",
