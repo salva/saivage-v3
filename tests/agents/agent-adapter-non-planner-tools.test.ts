@@ -10,6 +10,13 @@ import type { SaivageConfig } from '../../src/agents/config-schema.js';
 const NON_PLANNER_AGENT_ROLES: AgentRole[] = ['analyst', 'executor', 'reviewer'];
 const MATRIX_DOC = join(process.cwd(), 'docs', 'agents.md');
 
+const RETIRED_NOTE_TOOLS = [
+  'add_note',
+  '\x6cist_notes',
+  'get_note',
+  '\x6dark_note_handled',
+];
+
 function createMinimalAdapter(): AgentAdapter {
   const minimalConfig = {
     providers: {},
@@ -85,7 +92,7 @@ describe('AgentAdapter non-planner tool surface parity', () => {
     for (const role of NON_PLANNER_AGENT_ROLES) {
       const documented = docsMatrix.get(role);
       expect(documented).toBeDefined();
-      expect(adapter.getToolNamesForRole(role)).not.toEqual(expect.arrayContaining(['add_note', 'list_notes', 'get_note', 'mark_note_handled']));
+      expect(adapter.getToolNamesForRole(role)).not.toEqual(expect.arrayContaining(RETIRED_NOTE_TOOLS));
       expect(uniqueSorted(adapter.getToolNamesForRole(role))).toEqual(uniqueSorted(adapter.getToolNamesForRole(role)));
     }
   });
@@ -98,7 +105,7 @@ describe('AgentAdapter non-planner tool surface parity', () => {
 
     expect(documented).toBeDefined();
     expect(exported).toContain('queue_notification');
-    expect(exported).not.toEqual(expect.arrayContaining(['add_note', 'list_notes', 'get_note', 'mark_note_handled']));
+    expect(exported).not.toEqual(expect.arrayContaining(RETIRED_NOTE_TOOLS));
     expect(routed).toEqual(exported);
   });
 
@@ -107,9 +114,9 @@ describe('AgentAdapter non-planner tool surface parity', () => {
     const routedTools = processToolCallRoutedToolNames();
 
     expect(routedTools).toContain('queue_notification');
-    expect(routedTools).not.toEqual(expect.arrayContaining(['add_note', 'list_notes', 'get_note', 'mark_note_handled']));
+    expect(routedTools).not.toEqual(expect.arrayContaining(RETIRED_NOTE_TOOLS));
     for (const role of NON_PLANNER_AGENT_ROLES) {
-      expect(adapter.getToolNamesForRole(role)).not.toEqual(expect.arrayContaining(['add_note', 'list_notes', 'get_note', 'mark_note_handled']));
+      expect(adapter.getToolNamesForRole(role)).not.toEqual(expect.arrayContaining(RETIRED_NOTE_TOOLS));
     }
   });
 

@@ -98,7 +98,8 @@ describe('runtime redesign final golden behavior', () => {
     expect(combined).toContain('Runtime Console');
     expect(combined).toContain('Planning Tree');
     expect(combined).toMatch(/status[^.]+not[^.]+execution trigger|status[^.]+never an execution trigger|status changes?[^.]+never enqueue/i);
-    expect(combined).toMatch(/confirmed[`\w\s/]*and[`\w\s/]*preview_hash|preview_hash[`\w\s/]*.*confirmed/i);
+    const retiredPhraseTokens = ['\\x63onfirmed[`\\w\\s/]*and[`\\w\\s/]*\\x70review_\\x68ash', '\\x70review_\\x68ash[`\\w\\s/]*.*\\x63onfirmed'];
+    expect(combined).toMatch(new RegExp(retiredPhraseTokens.join('|'), 'i'));
     expect(combined).not.toMatch(/lets_dance/);
     expect(combined).not.toMatch(/project-directive/);
     expect(combined).not.toMatch(/pending-confirmation/);

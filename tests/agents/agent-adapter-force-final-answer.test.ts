@@ -102,7 +102,7 @@ describe('AgentAdapter forceFinalAnswer planner recovery', () => {
 
   it('forces a parseable planner envelope after a repeated tool-call fingerprint and continues on the next planner cycle', async () => {
     const adapter = createMinimalAdapter(tmpDir);
-    const repeated = toolCallEnvelope([toolCall('call-repeat-1', 'list_notes', { cardId: 'goal-repeat', token: 'SYNTHETIC_PROVIDER_TOKEN', access_token: 'SYNTHETIC_ACCESS' })]);
+    const repeated = toolCallEnvelope([toolCall('call-repeat-1', '__synthetic_repeat_tool', { cardId: 'goal-repeat', token: 'SYNTHETIC_PROVIDER_TOKEN', access_token: 'SYNTHETIC_ACCESS' })]);
     const responses = [
       repeated,
       repeated,
@@ -130,12 +130,12 @@ describe('AgentAdapter forceFinalAnswer planner recovery', () => {
   it('continues through more than the former max tool rounds and accepts the eventual planner envelope', async () => {
     const adapter = createMinimalAdapter(tmpDir);
     const responses = [
-      toolCallEnvelope([toolCall('call-round-1', 'list_notes', { cardId: 'goal-max', round: 1 })]),
-      toolCallEnvelope([toolCall('call-round-2', 'list_notes', { cardId: 'goal-max', round: 2 })]),
-      toolCallEnvelope([toolCall('call-round-3', 'list_notes', { cardId: 'goal-max', round: 3 })]),
-      toolCallEnvelope([toolCall('call-round-4', 'list_notes', { cardId: 'goal-max', round: 4 })]),
-      toolCallEnvelope([toolCall('call-round-5', 'list_notes', { cardId: 'goal-max', round: 5 })]),
-      toolCallEnvelope([toolCall('call-round-6', 'list_notes', { cardId: 'goal-max', round: 6 })]),
+      toolCallEnvelope([toolCall('call-round-1', '__synthetic_repeat_tool', { cardId: 'goal-max', round: 1 })]),
+      toolCallEnvelope([toolCall('call-round-2', '__synthetic_repeat_tool', { cardId: 'goal-max', round: 2 })]),
+      toolCallEnvelope([toolCall('call-round-3', '__synthetic_repeat_tool', { cardId: 'goal-max', round: 3 })]),
+      toolCallEnvelope([toolCall('call-round-4', '__synthetic_repeat_tool', { cardId: 'goal-max', round: 4 })]),
+      toolCallEnvelope([toolCall('call-round-5', '__synthetic_repeat_tool', { cardId: 'goal-max', round: 5 })]),
+      toolCallEnvelope([toolCall('call-round-6', '__synthetic_repeat_tool', { cardId: 'goal-max', round: 6 })]),
       plannerEnvelope('continue', 'continued after many tool rounds'),
       plannerEnvelope('done', 'next planner cycle after many tool rounds succeeded'),
     ];
@@ -190,7 +190,7 @@ describe('AgentAdapter forceFinalAnswer planner recovery', () => {
     const adapter = createMinimalAdapter(tmpDir);
     adapter.runtimeConfig.recoveryDelayMs = 0;
     adapter.runtimeConfig.maxRecoveryRetries = 0;
-    const repeated = toolCallEnvelope([toolCall('call-repeat-secret', 'list_notes', { cardId: 'goal-force-fail', token: 'SYNTHETIC_PROVIDER_TOKEN' })]);
+    const repeated = toolCallEnvelope([toolCall('call-repeat-secret', '__synthetic_repeat_tool', { cardId: 'goal-force-fail', token: 'SYNTHETIC_PROVIDER_TOKEN' })]);
     const responses = [repeated, repeated];
     adapter.setLlmCallFn(async () => {
       const next = responses.shift();

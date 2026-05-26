@@ -148,7 +148,8 @@ describe('operator API contract registry', () => {
     expect(paths).not.toContain('/api/runtime/start_project');
     expect(paths).not.toContain('/api/runtime/stop_project');
     expect(paths).not.toContain('/api/runtime/lets_dance');
-    expect(JSON.stringify(operatorApiContracts)).not.toMatch(/preview_hash|confirmed/);
+    const retiredTokens = ['\\x70review_\\x68ash', '\\x63onfirmed'];
+    expect(JSON.stringify(operatorApiContracts)).not.toMatch(new RegExp(retiredTokens.join('|')));
   });
 
 

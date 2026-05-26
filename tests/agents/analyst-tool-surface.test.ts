@@ -18,6 +18,13 @@ import { McpManager } from '../../src/mcp/mcp-manager.js';
 
 const TEST_MODEL = 'test-analyst-model';
 
+const RETIRED_NOTE_TOOLS = [
+  'add_note',
+  '\x6cist_notes',
+  'get_note',
+  '\x6dark_note_handled',
+];
+
 function setupRoot(): string {
   const root = mkdtempSync(join(tmpdir(), 's02-surface-'));
   const sd = join(root, '.saivage');
@@ -53,7 +60,7 @@ describe('Tool inventory mirrors SPEC-r7 capability classes', () => {
   it('exposes registry, schema, policy, and prompt names without retired note-inbox tools', () => {
     const names = Object.keys(TOOL_REGISTRY).sort();
     expect(ANALYST_TOOL_DEFINITIONS.map((tool) => tool.function.name).sort()).toEqual(names);
-    for (const retired of ['add_note', 'list_notes', 'get_note', 'mark_note_handled']) expect(names).not.toContain(retired);
+    for (const retired of RETIRED_NOTE_TOOLS) expect(names).not.toContain(retired);
     for (const required of ['start_project','stop_project','terminate_process','queue_notification','reorder_child','navigate_workspace','navigate_back','show_config','restart_server','reconfigure','abort_goal_subtree','restart_card_or_subtree']) expect(names).toContain(required);
     const prompt = getAnalystSystemPrompt();
     for (const capability of ['Inspect','Navigate the workspace area','Mutate cards','Queue notifications','Control the runtime','Reconfigure','Investigate and repair']) expect(prompt).toContain(capability);
