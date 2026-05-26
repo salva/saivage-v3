@@ -13,6 +13,33 @@ import { compactSession } from './compaction.js';
 import { ANALYST_DESTRUCTIVE_AMENDMENT_TEMPLATE, ANALYST_DESTRUCTIVE_PREVIEW_TEMPLATE, ANALYST_DESTRUCTIVE_STALE_AFFIRMATION_TEMPLATE, ANALYST_PARTIAL_SUCCESS_TEMPLATE, ANALYST_UNKNOWN_CAPABILITY_TEMPLATE, CONFIRMATION_TTL_MS, PendingDestructiveStore, isDestructiveAnalystTool } from './analyst-tool-runner.js';
 import { recordControlAction, stableStringify } from '../persistence/index.js';
 
+
+export interface WorkspaceContext {
+  view: string | null;
+  entityId: string | null;
+  refinement: Record<string, string> | null;
+}
+
+function isWorkspaceContextEmpty(workspaceContext?: WorkspaceContext): boolean {
+  if (!workspaceContext) return true;
+  const refinement = workspaceContext.refinement;
+  return workspaceContext.view === null
+    && workspaceContext.entityId === null
+    && (!refinement || Object.keys(refinement).length === 0);
+}
+
+export function buildWorkspaceContextNote(workspaceContext?: WorkspaceContext): string {
+  if (isWorkspaceContextEmpty(workspaceContext)) return '[workspace-context] none — no entity is currently in focus';
+  const lines = ['[workspace-context]'];
+  if (workspaceContext?.view !== null && workspaceContext?.view !== undefined) lines.push(`view: ${workspaceContext.view}`);
+  if (workspaceContext?.entityId !== null && workspaceContext?.entityId !== undefined) lines.push(`entity: ${workspaceContext.entityId}`);
+  const refinement = workspaceContext?.refinement;
+  if (refinement && Object.keys(refinement).length > 0) {
+    lines.push(`refinement: ${Object.entries(refinement).map(([key, value]) => `${key}=${value}`).join(';')}`);
+  }
+  return lines.join('\n');
+}
+
 export interface ActivityCallback {
   (activity: { type: 'tool_call' | 'tool_result' | 'thinking'; content: Record<string, unknown> }): void;
 }
@@ -197,9 +224,9 @@ export class AnalystHandler {
     return Object.keys(TOOL_REGISTRY).filter((name) => !(this.surface === 'telegram' && name === 'run_shell_command'));
   }
 
-  async handleMessage(sessionId: string, userContent: string): Promise<AnalystResponse> {
+  async handleMessage(sessionId: string, userContent: string, workspaceContext?: WorkspaceContext): Promise<AnalystResponse> {
     const previous = this.sessionQueues.get(sessionId) ?? Promise.resolve(null as never);
-    const next = previous.catch(() => null as never).then(() => this.handleMessageSerial(sessionId, userContent));
+    const next = previous.catch(() => null as never).then(() => this.handleMessageSerial(sessionId, userContent, workspaceContext));
     this.sessionQueues.set(sessionId, next);
     try { return await next; } finally { if (this.sessionQueues.get(sessionId) === next) this.sessionQueues.delete(sessionId); }
   }
@@ -209,7 +236,7 @@ export class AnalystHandler {
     try { this.onActivity(activity); } catch { void 0; }
   }
 
-  private async handleMessageSerial(sessionId: string, userContent: string): Promise<AnalystResponse> {
+  private async handleMessageSerial(sessionId: string, userContent: string, workspaceContext?: WorkspaceContext): Promise<AnalystResponse> {
     let session = readSession(this.projectRoot, sessionId);
     if (!session) { const created = getOrCreateAnalystSession(this.projectRoot, sessionId); session = created.session; sessionId = created.sessionId; }
     const priorMessages = readMessages(this.projectRoot, sessionId);
@@ -263,7 +290,7 @@ export class AnalystHandler {
       const persisted = appendMessage(this.projectRoot, sessionId, { role: 'assistant', kind: 'text', content: ANALYST_OFFLINE_REPLY });
       return { sessionId, message: { id: persisted.id, role: 'assistant', kind: 'text', content: ANALYST_OFFLINE_REPLY, timestamp: persisted.timestamp } };
     }
-    return await this.runAnalystLoop(sessionId, userContent);
+    return await this.runAnalystLoop(sessionId, userContent, workspaceContext);
   }
 
   private isAffirmation(userContent: string): boolean { return new Set(['yes','y','confirm','proceed','do it','ok']).has(userContent.trim().toLowerCase()); }
@@ -289,7 +316,7 @@ export class AnalystHandler {
     return null;
   }
 
-  private async runAnalystLoop(sessionId: string, _userContent: string): Promise<AnalystResponse> {
+  private async runAnalystLoop(sessionId: string, _userContent: string, workspaceContext?: WorkspaceContext): Promise<AnalystResponse> {
     const toolInvocations: NonNullable<AnalystResponse['toolInvocations']> = [];
     const projectContext = this.buildProjectContext();
     const ctx: ToolContext = { projectRoot: this.projectRoot, sessionId, activeRuntime: this.activeRuntime, actor: this.actor, surface: this.surface };
@@ -315,10 +342,14 @@ export class AnalystHandler {
 
       const history = readMessages(this.projectRoot, sessionId);
       const bounded = trimToCleanToolBoundary(history);
+      const modelInput: AgentMessage[] = [
+        { id: `workspace-context-${sessionId}`, session_id: sessionId, role: 'system', kind: 'text', content: buildWorkspaceContextNote(workspaceContext), timestamp: now() },
+        ...bounded,
+      ];
 
       let llmResult;
       try {
-        llmResult = await this.llmResolver.chat(bounded, projectContext);
+        llmResult = await this.llmResolver.chat(modelInput, projectContext);
       } catch (err) {
         const errMsg = err instanceof AnalystOfflineError
           ? err.message
