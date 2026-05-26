@@ -1,0 +1,170 @@
+{
+  "id": "inspect-e2e-checker-ready-for-stage-010-retry",
+  "request_id": "inspect-e2e-checker-ready-for-stage-010-retry",
+  "requested_by": "planner",
+  "requested_at": "2026-05-26T10:49:00.000Z",
+  "completed_at": "2026-05-26T10:50:20.000Z",
+  "scope": [
+    "/work/saivage-e2e-checkers after Stage 010b",
+    "/work/saivage-v3 current git state"
+  ],
+  "status": "completed",
+  "summary": "Stage 010b unblocked checker versioning: /work/saivage-e2e-checkers is an independent clean git repository at HEAD 260fe981c66c67aa9b76d7b17cba8df6f756344c on branch main. The failed Stage 010 S9-S68 placeholder/static analyst scenarios are no longer in the default Playwright suite and are quarantined under e2e/analyst/quarantine, but the remaining analyst suite is only a one-test infrastructure guard; before a real Stage 010 retry, fixture code still needs removal of ambient .saivage auth/provider config copying.",
+  "findings": [
+    {
+      "title": "Executive summary",
+      "severity": "info",
+      "details": "The checker repository is now committable and clean, so the Stage 010a/010b versioning blocker is resolved. The next Stage 010 retry should be small and focused: delete/replace the unsafe ambient credential-copy fixture behavior, author real server-backed analyst scenarios, regenerate findings from observed behavior, then run the stage validation gates and ledger reconciliation. /work/saivage-v3 itself has preserved commits f85cf1ce and 5c6c9c6 with no tracked or product-file modifications, though many specification/research files remain untracked in the working tree."
+    },
+    {
+      "question": 1,
+      "title": "/work/saivage-e2e-checkers git repository state",
+      "severity": "info",
+      "answer": "Confirmed. /work/saivage-e2e-checkers is inside a git work tree, HEAD is 260fe981c66c67aa9b76d7b17cba8df6f756344c, the current branch is main, and status is clean.",
+      "evidence": [
+        "tmp/inspector-workspace/e2e-overview.txt: git rev-parse --is-inside-work-tree returned true.",
+        "tmp/inspector-workspace/e2e-overview.txt: git rev-parse HEAD returned 260fe981c66c67aa9b76d7b17cba8df6f756344c.",
+        "tmp/inspector-workspace/e2e-overview.txt: git branch --show-current returned main.",
+        "tmp/inspector-workspace/e2e-overview.txt: git status --short --branch returned only '## main'."
+      ],
+      "impact": "The acceptance blocker from Stage 010a (checker changes could not be committed/versioned) is no longer present."
+    },
+    {
+      "question": 2,
+      "title": "S9-S68 placeholder/static analyst tests are quarantined outside executable matching",
+      "severity": "medium",
+      "answer": "Confirmed for executable matching. The default Playwright config ignores e2e/analyst entirely, and the analyst config matches only e2e/analyst/scenarios.spec.js. That file now contains a single guard test that checks the quarantine exists and does not contain the old placeholder patterns in executable source. The quarantined placeholder artifacts are present under e2e/analyst/quarantine/2026-05-26-stage010-placeholder-quarantine/ and are not matched by playwright.analyst.config.js testMatch.",
+      "evidence": [
+        "/work/saivage-e2e-checkers/playwright.config.js:7-8 sets testDir './e2e' and testIgnore ['**/analyst/**'] for the default suite.",
+        "/work/saivage-e2e-checkers/playwright.analyst.config.js:9-10 sets testDir './e2e/analyst' and testMatch /scenarios\\.spec\\.js/, excluding quarantine files named scenarios.placeholder-stage010.quarantined.js.",
+        "/work/saivage-e2e-checkers/e2e/analyst/scenarios.spec.js:1-7 documents the placeholder quarantine; lines 15-16 point to the quarantine file; lines 18-25 define the single guard test.",
+        "npx playwright test --config playwright.analyst.config.js --list listed exactly 1 test: scenarios.spec.js:19 'failed Stage 010 placeholder scenarios are quarantined outside executable suite'.",
+        "npx playwright test --list listed 11 default checkers UI tests in e2e/checkers.spec.js and no analyst tests.",
+        "Focused S-label count found old S-label content only in quarantine/findings/docs plus one explanatory mention in current guard/findings; the quarantined JS file contains 198 S-label hits and quarantined findings contain 128 S-label hits."
+      ],
+      "current_executable_baseline": {
+        "default_playwright_suite": "11 executable checkers webapp UI tests in e2e/checkers.spec.js: initial render, home rows, selection/highlighting, illegal/opponent selection, quiet move flow, history growth, forced capture, capture removal/history, and new-game reset.",
+        "analyst_playwright_suite": "1 executable infrastructure guard test in e2e/analyst/scenarios.spec.js. It is not functional Stage 010 evidence and does not exercise analyst behavior.",
+        "findings_status": "/work/saivage-e2e-checkers/e2e/analyst/findings/findings.md:3-10 explicitly says Stage 010b invalidated the generated Stage 010 findings and that a real retry must regenerate findings from substantive server-backed Analyst scenarios."
+      },
+      "impact": "False Stage 010 coverage is no longer executable, but there is currently no substantive analyst functional validation baseline. Stage 010 retry still must create real scenarios."
+    },
+    {
+      "question": 3,
+      "title": "Ambient auth/provider config copying remains in the analyst fixture",
+      "severity": "high",
+      "answer": "Yes. The analyst fixture still copies .saivage/auth-profiles.json and .saivage/saivage.json from the checkers project into each temporary saivage-v3 project. This should be changed before a real Stage 010 retry because it depends on ambient ignored local config and conflicts with the project instruction not to read/log/copy secret/provider configuration as a work objective.",
+      "evidence": [
+        "/work/saivage-e2e-checkers/e2e/analyst/fixtures/saivage-server.js:4-6 says real LLM credentials from the checkers project are copied in.",
+        "/work/saivage-e2e-checkers/e2e/analyst/fixtures/saivage-server.js:9 imports copyFileSync.",
+        "/work/saivage-e2e-checkers/e2e/analyst/fixtures/saivage-server.js:59-69 computes CHECKERS_DIR/.saivage/auth-profiles.json and CHECKERS_DIR/.saivage/saivage.json and copyFileSync copies both into projectRoot/.saivage/.",
+        "/work/saivage-e2e-checkers/e2e/analyst/README.md:12-16 documents the same copying behavior.",
+        "/work/saivage-e2e-checkers/.gitignore:3 ignores .saivage/, so the copied source config is intentionally ambient/unversioned."
+      ],
+      "exact_files_lines_to_change": [
+        {
+          "file": "/work/saivage-e2e-checkers/e2e/analyst/fixtures/saivage-server.js",
+          "lines": "4-6, 9, 59-69",
+          "required_change": "Remove documentation and implementation that copies CHECKERS_DIR/.saivage/auth-profiles.json and CHECKERS_DIR/.saivage/saivage.json into temporary test projects. Also remove copyFileSync from the fs import if no longer used. Replace with a non-secret, explicit test configuration mechanism if the stage design authorizes one, or require the spawned server to use already-provided environment/model routing without copying secret files."
+        },
+        {
+          "file": "/work/saivage-e2e-checkers/e2e/analyst/README.md",
+          "lines": "12-16, and related run requirements if updated",
+          "required_change": "Update the suite description so it no longer instructs readers that .saivage/saivage.json and .saivage/auth-profiles.json are copied from the checker project. Document the replacement invocation contract for real analyst runs."
+        }
+      ],
+      "impact": "Leaving this behavior in place risks secret/config leakage through copied temp projects and makes test reproducibility depend on ignored local files. It is the main pre-retry cleanup item now that versioning is unblocked."
+    },
+    {
+      "question": 4,
+      "title": "/work/saivage-v3 commit preservation and working tree state",
+      "severity": "medium",
+      "answer": "Commits f85cf1ce98cd9373d471ca597bfb510c94a6089d and 5c6c9c6f1521436d18a62a3c40745adb8bee74fc are present and reachable from the current master branch. There are no tracked modifications and git diff --stat is empty, so I found no uncommitted product changes and no new misleading baseline-refresh diff. The working tree does have many pre-existing untracked SPEC/analyst-as-control-surface and research files, which are not product-code modifications but should not be confused with a clean repository state.",
+      "evidence": [
+        "git log shows HEAD 5c6c9c6f1521436d18a62a3c40745adb8bee74fc '[inspect-stage-010-failure-and-corrective-path] /work/saivage-v3 Stage 010 failure state' and parent/recent commit f85cf1ce98cd9373d471ca597bfb510c94a6089d '[tsk-t3-phases-d-e-unit-vitest-forbidden-tokens] ...'.",
+        "git cat-file -t for both f85cf1ce98cd9373d471ca597bfb510c94a6089d and 5c6c9c6f1521436d18a62a3c40745adb8bee74fc returned 'commit'.",
+        "git branch --contains for both commits returned '* master'.",
+        "git -C /work/saivage-v3 diff --stat produced no output.",
+        "git -C /work/saivage-v3 status --short listed only untracked SPEC/analyst-as-control-surface/... and research/stage-000-operator-wait-heartbeat-* paths before this inspection report was added."
+      ],
+      "impact": "Planner can retry Stage 010 from the preserved failure-diagnosis baseline without first reverting product-code drift. The untracked specification/research files remain a bookkeeping concern but are not evidence of product changes."
+    },
+    {
+      "question": 5,
+      "title": "Smallest recommended Stage 010 retry scope",
+      "severity": "high",
+      "answer": "Run a narrowly scoped Stage 010 retry that treats checker versioning as solved and does not redo Stage 010b. The retry should only (1) remove the unsafe ambient auth/provider fixture copying and update README docs, (2) replace the current one-test analyst guard with substantive server-backed analyst scenarios required by the immutable Stage 010 design/plan, (3) regenerate e2e/analyst/findings/findings.md from observed behavior rather than static placeholders, (4) run the pinned Stage 010 validation gate including analyst-e2e through the cookbook driver, and (5) reconcile the expected-breakage ledger by appending new failures or deleting only resolved entries whose target fix stage is Stage 010.",
+      "evidence": [
+        "Versioning unblocker is complete: e2e checker repo is clean at HEAD 260fe981c66c67aa9b76d7b17cba8df6f756344c on main.",
+        "Current analyst suite list has only one infrastructure guard test, so substantive coverage remains absent.",
+        "Ambient config copying remains at e2e/analyst/fixtures/saivage-server.js:59-69 and must be removed/replaced before relying on real scenarios."
+      ],
+      "impact": "This is the minimum scope that addresses the actual remaining blockers without broad replanning or redoing checker repository setup."
+    }
+  ],
+  "recommendations": [
+    {
+      "priority": 1,
+      "action": "In /work/saivage-e2e-checkers/e2e/analyst/fixtures/saivage-server.js, remove lines 59-69 that copy CHECKERS_DIR/.saivage/auth-profiles.json and CHECKERS_DIR/.saivage/saivage.json into temp projects, remove copyFileSync from line 9 if unused, and update lines 4-6 comments accordingly. Update /work/saivage-e2e-checkers/e2e/analyst/README.md lines 12-16 to document the replacement non-copying run contract.",
+      "acceptance": "A targeted grep for 'auth-profiles.json|saivage.json|copyFileSync|CHECKERS_DIR.*.saivage' in e2e/analyst/fixtures and README shows no ambient secret/provider config copying instructions or implementation."
+    },
+    {
+      "priority": 2,
+      "action": "Author the real Stage 010 analyst Playwright scenarios in /work/saivage-e2e-checkers/e2e/analyst/scenarios.spec.js under the existing playwright.analyst.config.js matching, replacing the one-test infrastructure guard as completion evidence while keeping the old placeholder files quarantined and unmatched.",
+      "acceptance": "npx playwright test --config playwright.analyst.config.js --list lists substantive analyst scenarios rather than only the quarantine guard, and no quarantined placeholder file is matched."
+    },
+    {
+      "priority": 3,
+      "action": "Regenerate /work/saivage-e2e-checkers/e2e/analyst/findings/findings.md from observed server-backed analyst behavior during the Stage 010 retry; do not reuse the quarantined S9-S68 placeholder findings.",
+      "acceptance": "findings.md no longer says it is not Stage 010 completion evidence and records scenario verdicts backed by observed API/tool behavior from the retry run."
+    },
+    {
+      "priority": 4,
+      "action": "During the Stage 010 retry, run the immutable Stage 010 plan validation gate through the cookbook driver, including analyst-e2e, then reconcile /work/saivage-v3/SPEC/analyst-as-control-surface/PLAN/expected-breakage-ledger.md using only the pinned append/delete rules.",
+      "acceptance": "Validation logs show the pinned commands ran; any remaining new failures have H3 ledger entries, and resolved entries whose target fix stage is Stage 010 are deleted as entire entries only."
+    }
+  ],
+  "artifacts": [
+    {
+      "path": "inspections/inspect-e2e-checker-ready-for-stage-010-retry.json",
+      "description": "Structured inspection report"
+    },
+    {
+      "path": "tmp/inspector-workspace/e2e-overview.txt",
+      "description": "Checker repository git state and file/test candidate overview"
+    },
+    {
+      "path": "tmp/inspector-workspace/playwright-list.txt",
+      "description": "Default Playwright --list output showing 11 checkers UI tests"
+    },
+    {
+      "path": "tmp/inspector-workspace/playwright-analyst-list.txt",
+      "description": "Analyst Playwright --list output showing the single quarantine guard"
+    },
+    {
+      "path": "tmp/inspector-workspace/e2e-specific-files.txt",
+      "description": "Numbered excerpts of relevant checker config/source/docs"
+    },
+    {
+      "path": "tmp/inspector-workspace/second-audit.txt",
+      "description": "Analyst config/tree/S-label and v3 git preservation audit"
+    }
+  ],
+  "commands_run": [
+    "git -C /work/saivage-e2e-checkers rev-parse --is-inside-work-tree",
+    "git -C /work/saivage-e2e-checkers rev-parse HEAD",
+    "git -C /work/saivage-e2e-checkers branch --show-current",
+    "git -C /work/saivage-e2e-checkers status --short --branch",
+    "npx playwright test --list (cwd /work/saivage-e2e-checkers)",
+    "npx playwright test --config playwright.analyst.config.js --list (cwd /work/saivage-e2e-checkers)",
+    "git -C /work/saivage-v3 cat-file -t f85cf1ce98cd9373d471ca597bfb510c94a6089d",
+    "git -C /work/saivage-v3 cat-file -t 5c6c9c6f1521436d18a62a3c40745adb8bee74fc",
+    "git -C /work/saivage-v3 branch --contains <commit>",
+    "git -C /work/saivage-v3 status --short",
+    "git -C /work/saivage-v3 diff --stat"
+  ],
+  "limitations": [
+    "I did not run the full analyst e2e suite because current analyst matching contains only a quarantine guard and because the request was readiness inspection rather than validation execution.",
+    "I did not read any secret/provider config file contents. I only identified code paths that copy or document those files by pathname."
+  ]
+}
