@@ -142,7 +142,6 @@ export const useWorkspaceRouteStore = defineStore('workspace-route', () => {
   const backStack = ref<WorkspaceContext[]>([]);
   const currentRouter = ref<Router | null>(null);
   const registered = ref(false);
-  let skipNextBackStackPush = false;
 
   const current = computed<WorkspaceContext>(() => ({
     view: view.value,
@@ -171,11 +170,7 @@ export const useWorkspaceRouteStore = defineStore('workspace-route', () => {
     registered.value = true;
     router.afterEach((to, from) => {
       const previous = snapshotFromRoute(from);
-      if (skipNextBackStackPush) {
-        skipNextBackStackPush = false;
-      } else {
-        pushBackStack(previous);
-      }
+      pushBackStack(previous);
       setFromSnapshot(snapshotFromRoute(to));
     });
   }
@@ -190,7 +185,6 @@ export const useWorkspaceRouteStore = defineStore('workspace-route', () => {
     const previous = backStack.value[backStack.value.length - 1];
     if (!previous) return;
     backStack.value = backStack.value.slice(0, -1);
-    skipNextBackStackPush = true;
     void router.push(routeForSnapshot(previous));
   }
 

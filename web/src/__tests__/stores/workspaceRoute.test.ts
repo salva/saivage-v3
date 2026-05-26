@@ -73,13 +73,18 @@ describe('workspaceRoute store', () => {
     expect(router.pushMock).toHaveBeenCalledTimes(rows.length);
   });
 
-  it('navigate_back pops the back-stack and pushes the popped snapshot', () => {
+  it('navigate_back pops the back-stack, pushes the popped snapshot, and lets afterEach record the route being left', () => {
     const router = makeRouter(route('cards'));
     const store = useWorkspaceRouteStore();
     store.registerRouterListener(router);
     router.triggerAfterEach(route('card-detail', { id: 'child' }), route('cards'));
+
     store.apply({ intent: 'navigate_back' });
     expect(router.pushMock).toHaveBeenCalledWith({ name: 'cards', query: undefined });
+
+    router.triggerAfterEach(route('cards'), route('card-detail', { id: 'child' }));
+    store.apply({ intent: 'navigate_back' });
+    expect(router.pushMock).toHaveBeenLastCalledWith({ name: 'card-detail', params: { id: 'child' }, query: undefined });
   });
 
   it('bounds the back-stack to 16 entries', () => {
