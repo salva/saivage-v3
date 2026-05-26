@@ -36,13 +36,19 @@ function buildMachine(projectRoot: string, opts?: { clock?: () => Date }): { mac
   const errorLogger = new ErrorLogger(join(projectRoot, '.saivage'));
   const scheduler = new FakeScheduler();
   const machine = new RuntimeStateMachine({
-    cardStore,
-    readState: () => readRuntimeState(projectRoot),
-    writeState: (changes: Partial<RuntimeState>) => updateRuntimeState(projectRoot, changes),
-    errorLogger,
-    clock: opts?.clock ?? (() => new Date()),
+    cards: {
+      readStatus: (cardId) => cardStore.read(cardId)?.status,
+      canTransition: (from, to) => cardStore.canTransition(from, to),
+      setStatus: (cardId, status) => { cardStore.setStatus(cardId, status); },
+    },
+    state: {
+      read: () => readRuntimeState(projectRoot),
+      patch: (changes: Partial<RuntimeState>) => updateRuntimeState(projectRoot, changes),
+    },
+    errors: errorLogger,
+    clock: { now: opts?.clock ?? (() => new Date()) },
     scheduler,
-    redispatchGoal: () => { /* noop */ },
+    redispatch: { redispatch: () => { /* noop */ } },
     tickIntervalMs: 5000,
   });
   return { machine, scheduler, errorLogger };
@@ -94,13 +100,19 @@ describe('RuntimeStateMachine (Step 2 skeleton)', () => {
       const errorLogger = new ErrorLogger(join(projectRoot, '.saivage'));
       const scheduler = new FakeScheduler();
       const machine = new RuntimeStateMachine({
-        cardStore,
-        readState: () => readRuntimeState(projectRoot),
-        writeState: (changes: Partial<RuntimeState>) => updateRuntimeState(projectRoot, changes),
-        errorLogger,
-        clock,
+        cards: {
+          readStatus: (cardId) => cardStore.read(cardId)?.status,
+          canTransition: (from, to) => cardStore.canTransition(from, to),
+          setStatus: (cardId, status) => { cardStore.setStatus(cardId, status); },
+        },
+        state: {
+          read: () => readRuntimeState(projectRoot),
+          patch: (changes: Partial<RuntimeState>) => updateRuntimeState(projectRoot, changes),
+        },
+        errors: errorLogger,
+        clock: { now: clock },
         scheduler,
-        redispatchGoal: () => undefined,
+        redispatch: { redispatch: () => undefined },
       });
       machineRef.current = machine;
       await machine.tick();
@@ -185,13 +197,19 @@ describe('RuntimeStateMachine.transitionCard (Step 5 decomposition)', () => {
       return origSetStatus(id, status);
     });
     const machine = new RuntimeStateMachine({
-      cardStore,
-      readState: () => readRuntimeState(projectRoot),
-      writeState: (changes: Partial<RuntimeState>) => updateRuntimeState(projectRoot, changes),
-      errorLogger,
-      clock: () => new Date(),
+      cards: {
+        readStatus: (cardId) => cardStore.read(cardId)?.status,
+        canTransition: (from, to) => cardStore.canTransition(from, to),
+        setStatus: (cardId, status) => { cardStore.setStatus(cardId, status); },
+      },
+      state: {
+        read: () => readRuntimeState(projectRoot),
+        patch: (changes: Partial<RuntimeState>) => updateRuntimeState(projectRoot, changes),
+      },
+      errors: errorLogger,
+      clock: { now: () => new Date() },
       scheduler,
-      redispatchGoal: () => undefined,
+      redispatch: { redispatch: () => undefined },
     });
     return { cardStore, machine, setStatusCalls, errorLogger };
   }

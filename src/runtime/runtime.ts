@@ -18,7 +18,7 @@ import type {
   RuntimeActivationRecord,
 } from '../schemas/index.js';
 import { createActivationCompletionEnvelope, parseActivationCompletionEnvelope } from '../schemas/index.js';
-import { CardStore } from '../cards/index.js';
+import { CardStore, PROJECT_CARD_ID } from '../cards/index.js';
 import { STARTABLE_STATES, RESTARTABLE_STATES } from '../permissions/index.js';
 import { consumeChangedCardActivation, injectQueuedSyntheticPlannerNotes, queueSyntheticPlannerNote, drainSyntheticPlannerNotes } from '../agents/index.js';
 import {
@@ -60,6 +60,7 @@ import type { ProcessRecord } from '../schemas/index.js';
 import { EventLogger } from '../observability/index.js';
 import { ErrorLogger } from '../observability/index.js';
 import { RuntimeStateMachine, type RuntimeScheduler, type RuntimeSchedulerHandle, type RuntimeCardAction } from './state-machine.js';
+import type { RuntimeCardPort, RuntimeStatePort } from './ports.js';
 import { EventBus } from '../events/index.js';
 import { trackedEventKindValues, type EventPayload } from '../events/index.js';
 import {
@@ -116,18 +117,27 @@ export class Runtime extends EventEmitter {
       setInterval: (handler, ms) => setInterval(handler, ms) as unknown as RuntimeSchedulerHandle,
       clearInterval: (handle) => clearInterval(handle as unknown as NodeJS.Timeout),
     };
+    const runtimeCards: RuntimeCardPort = {
+      readStatus: (cardId) => this.cardStore.read(cardId)?.status,
+      canTransition: (from, to) => this.cardStore.canTransition(from, to),
+      setStatus: (cardId, status) => { this.cardStore.setStatus(cardId, status); },
+    };
+    const runtimeState: RuntimeStatePort = {
+      read: () => readRuntimeState(this.projectRoot),
+      patch: (changes) => updateRuntimeState(this.projectRoot, changes),
+    };
     this._stateMachine = new RuntimeStateMachine({
-      cardStore: this.cardStore,
-      readState: () => readRuntimeState(this.projectRoot),
-      writeState: (changes) => updateRuntimeState(this.projectRoot, changes),
-      errorLogger: this._errorLogger,
-      clock: () => new Date(),
+      cards: runtimeCards,
+      state: runtimeState,
+      errors: this._errorLogger,
+      clock: { now: () => new Date() },
       scheduler,
-      redispatchGoal: (cardId) => { void this.dispatchGoal(cardId); },
+      redispatch: { redispatch: (cardId) => { void this.dispatchGoal(cardId); } },
+      projectCardId: PROJECT_CARD_ID,
     });
   }
 
-  get status(): RuntimeStatus { return readRuntimeState(this.projectRoot)?.status ?? 'idle'; } get paused(): boolean { return this._paused; } get eventLogger(): EventLogger { return this._eventLogger; } get errorLogger(): ErrorLogger { return this._errorLogger; } get supervisor(): StuckAgentSupervisor { return this._supervisor; } get lastLifecycleDisposeReport(): RuntimeDisposeReportEntry[] { return [...this._lastLifecycleDisposeReport]; } get stateMachine(): RuntimeStateMachine { return this._stateMachine; }
+  get status(): RuntimeStatus { return readRuntimeState(this.projectRoot)?.status ?? 'idle'; } get paused(): boolean { return this._paused; } get eventLogger(): EventLogger { return this._eventLogger; } get errorLogger(): ErrorLogger { return this._errorLogger; } get supervisor(): StuckAgentSupervisor { return this._supervisor; } get lastLifecycleDisposeReport(): RuntimeDisposeReportEntry[] { return [...this._lastLifecycleDisposeReport]; }
   emit(eventName: string, ...args: unknown[]): boolean {
     const emitted = eventName === 'error' ? false : super.emit(eventName, ...args);
     if (TRACKED_EVENT_KINDS.has(eventName as EventKind)) {
@@ -513,6 +523,15 @@ export class Runtime extends EventEmitter {
   async startProject(source: 'operator' | 'tool' | 'runtime' | 'analyst' = 'operator'): Promise<{ success: true; command: RuntimeCommandRecord; intent: RuntimeState['runtime_intent']; run: RuntimeRunRecord } | { success: false; command: RuntimeCommandRecord; error: ActionableErrorEnvelope }> {
     const command = appendRuntimeCommand(this.projectRoot, 'start_project', source);
     const state = readRuntimeState(this.projectRoot) ?? initRuntimeState(this.projectRoot);
+    if (!this.cardStore.read(PROJECT_CARD_ID)) {
+      const error = this.makeRuntimePreconditionError('runtime_start_project_card_missing', `Cannot start project runtime because project card '${PROJECT_CARD_ID}' does not exist.`, `Create or initialize the root project card with id '${PROJECT_CARD_ID}', then retry start_project.`, { projectCardId: PROJECT_CARD_ID });
+      const rejectedAt = now();
+      const rejectedCommand = { ...command, status: 'rejected' as const, completed_at: rejectedAt, error };
+      saveRuntimeState(this.projectRoot, { ...state, runtime_commands: (state.runtime_commands ?? []).map((item) => item.command_id === command.command_id ? rejectedCommand : item), updated_at: rejectedAt });
+      this.publishRuntimeLedgerEvent('runtime_command', { command: rejectedCommand });
+      this.publishRuntimeLedgerEvent('runtime_actionable_error', { actionable_error: error });
+      return { success: false, command: rejectedCommand, error };
+    }
     if (this._paused || state.paused || (state.runtime_intent?.status ?? 'stopped') === 'running') {
       const error = this.makeRuntimePreconditionError('runtime_start_precondition_failed', 'Project runtime is already running or paused.', 'Use stop_project to stop current intent, or resume/unpause before starting again.', { intent: (state.runtime_intent?.status ?? 'stopped'), paused: state.paused, activeRunId: (state.runtime_runs ?? []).find((run) => run.kind === 'root' && !run.finished_at)?.run_id ?? null });
       const rejectedAt = now();
@@ -523,10 +542,10 @@ export class Runtime extends EventEmitter {
       return { success: false, command: rejectedCommand, error };
     }
     upsertRuntimeIntent(this.projectRoot, 'running', command.command_id, 'explicit start_project command');
-    const run = appendRuntimeRun(this.projectRoot, { kind: 'root', card_id: 'project', parent_run_id: null, command_id: command.command_id, activation_id: null, phase: 'planner', runtime_status: 'running', session_id: null, result: null });
+    const run = appendRuntimeRun(this.projectRoot, { kind: 'root', card_id: PROJECT_CARD_ID, parent_run_id: null, command_id: command.command_id, activation_id: null, phase: 'planner', runtime_status: 'running', session_id: null, result: null });
     this.publishRuntimeLedgerEvent('runtime_run', { run });
     if (!this._paused) {
-      this.trackBackgroundDispatch(this.dispatchGoal('project')
+      this.trackBackgroundDispatch(this.dispatchGoal(PROJECT_CARD_ID)
         .then(() => {
           const currentState = readRuntimeState(this.projectRoot);
           const currentRun = (currentState?.runtime_runs ?? []).find((item) => item.run_id === run.run_id);
@@ -537,7 +556,7 @@ export class Runtime extends EventEmitter {
           if (updated) this.publishRuntimeLedgerEvent('runtime_run', { run: updated });
         })
         .catch(async () => {
-          try { await this._stateMachine.transition('goal_exit', { goalId: 'project', reason: 'dispatch_failed' }); } catch { void 0; }
+          try { await this._stateMachine.transition('goal_exit', { goalId: PROJECT_CARD_ID, reason: 'dispatch_failed' }); } catch { void 0; }
           const currentRun = (readRuntimeState(this.projectRoot)?.runtime_runs ?? []).find((item) => item.run_id === run.run_id);
           if (currentRun?.finished_at || currentRun?.runtime_status === 'error' || currentRun?.runtime_status === 'stopped') return;
           const updated = updateRuntimeRun(this.projectRoot, run.run_id, { phase: 'failed', runtime_status: 'error', finished_at: now(), result: 'failed' });
@@ -681,7 +700,7 @@ export class Runtime extends EventEmitter {
           this.appendChildUnwindToolResult(goalId, 'done', reviewResult.assessment.summary);
           await this._stateMachine.transition('reviewer_finished', { goalId, reason: 'review_pass' });
           this.emit('goal_completed', { goal_id: goalId, assessment }); this._eventLogger.appendEvent({ kind: 'goal_completed', goal_id: goalId, assessment });
-          if (goalId === 'project') { const projectCard = this.cardStore.read(goalId); if (projectCard) this.emitProjectRunCompleted(projectCard, assessment); }
+          if (goalId === PROJECT_CARD_ID) { const projectCard = this.cardStore.read(goalId); if (projectCard) this.emitProjectRunCompleted(projectCard, assessment); }
           return;
         } else {
           plannerDone = false;
@@ -727,7 +746,6 @@ export class Runtime extends EventEmitter {
           try { if (this._skillsEngine) { const instructionContent = await this._skillsEngine.loadInstructions('executor'); const skillsContent = await this._skillsEngine.selectAndFormat({ goalDescription: goalCard?.description ?? '', cardDescription: card.description, tags: card.tags, filePaths: [], availableTools: ['list_project_files', 'read_project_file', 'write_project_file', 'run_project_command', 'load_skill', 'mcp_tool_call'], targetRole: 'executor' }); const combinedSkills = [instructionContent, skillsContent].filter(Boolean).join('\\n\\n'); if (combinedSkills) executorPrompt = buildExecutorPrompt(card.type, combinedSkills); } } catch { void 0; }
           executorPrompt += `\n\n${this.buildCardContextBlock(card.id, goalId)}`;
           const result = this.agentRuntime.invokeExecutor(card.id, goalId, executorPrompt); execResult = result instanceof Promise ? await result : result;
-          const lastSessionId = (this.agentRuntime as FakeAgentAdapter).getLastSessionId?.('executor', goalId, card.id) ?? readRuntimeState(this.projectRoot)?.current_agent_session_id ?? null;
         } catch (err) { const errorMessage = err instanceof Error ? err.message : String(err); this.emitRuntimeDiagnostic({ card_id: card.id, goal_id: goalId, phase: 'executor', error: err }); this._eventLogger.appendEvent({ kind: 'runtime_diagnostic', card_id: card.id, goal_id: goalId, phase: 'executor', error_message: errorMessage }); this._errorLogger.appendError({ message: errorMessage, cardId: card.id, goalId, phase: 'executor' }); await this._stateMachine.transitionCard(card.id, 'fail', { reason: 'executor_exception', error: errorMessage }); this.appendChildUnwindToolResult(card.id, 'failed', `Terminal card ${card.id} execution failed before producing a result.`); this.emit('card_failed', { card_id: card.id, goal_id: goalId }); this._eventLogger.appendEvent({ kind: 'card_failed', card_id: card.id, goal_id: goalId }); failed = true; return { dispatchedGoal, executedTerminal, failed }; }
         const acceptedAt = now();
         const lastSessionId = (this.agentRuntime as FakeAgentAdapter).getLastSessionId?.('executor', goalId, card.id) ?? readRuntimeState(this.projectRoot)?.active_card_run?.executor_session_id ?? readRuntimeState(this.projectRoot)?.current_agent_session_id ?? null;

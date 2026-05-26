@@ -7,19 +7,19 @@ import { readRuntimeState } from '../../src/runtime/state.js';
 
 function root(): string { return mkdtempSync(join(tmpdir(), 'saivage-state-machine-wired-')); }
 
-describe('Runtime wires RuntimeStateMachine (Step 3, observe-only)', () => {
-  it('exposes the state machine and advances last_tick_at after a tick', async () => {
+describe('Runtime wires RuntimeStateMachine', () => {
+  it('advances last_tick_at through startup without exposing the state machine', async () => {
     const projectRoot = root();
     try {
       const runtime = new Runtime({ projectRoot, fakeAgentConfig: { mapping: {}, fixtureDir: '' }, autoDispatchBacklog: false });
-      expect(runtime.stateMachine).toBeDefined();
       await runtime.startup();
       try {
-        const before = readRuntimeState(projectRoot)?.last_tick_at ?? null;
-        await runtime.stateMachine.tick();
-        const after = readRuntimeState(projectRoot)?.last_tick_at ?? null;
+        let after = readRuntimeState(projectRoot)?.last_tick_at ?? null;
+        for (let i = 0; i < 10 && after === null; i += 1) {
+          await new Promise((resolve) => setTimeout(resolve, 10));
+          after = readRuntimeState(projectRoot)?.last_tick_at ?? null;
+        }
         expect(after).not.toBeNull();
-        if (before !== null) expect(new Date(after!).getTime()).toBeGreaterThanOrEqual(new Date(before).getTime());
       } finally {
         await runtime.shutdown();
       }
