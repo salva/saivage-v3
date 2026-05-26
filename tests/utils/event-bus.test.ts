@@ -1,11 +1,25 @@
 import { describe, expect, it, jest } from '@jest/globals';
-import { EventBus, EventRegistry, getEventSeverity, toLoggedEvent } from '../../src/events/index.js';
+import { EventBus, EventRegistry, agentEventKindValues, eventKindValues, getEventSeverity, runtimeEventKindValues, toLoggedEvent } from '../../src/events/index.js';
 
 describe('typed EventBus', () => {
   it('derives severity and known event metadata from the registry', () => {
     expect(EventRegistry.runtime_diagnostic.severity).toBe('error');
     expect(EventRegistry.subscriber_error.broadcast).toBe(false);
     expect(getEventSeverity('goal_completed')).toBe('info');
+  });
+
+  it('derives disjoint runtime and agent event catalogs from registry domain metadata', () => {
+    const runtimeKinds = new Set(runtimeEventKindValues);
+    const agentKinds = new Set(agentEventKindValues);
+
+    expect(EventRegistry.session_started.domain).toBe('agent');
+    expect(EventRegistry.runtime_diagnostic.domain).toBe('runtime');
+    expect(agentKinds.has('session_started')).toBe(true);
+    expect(agentKinds.has('mcp_tool_invocation')).toBe(true);
+    expect(runtimeKinds.has('runtime_diagnostic')).toBe(true);
+    expect(runtimeKinds.has('goal_completed')).toBe(true);
+    expect(runtimeEventKindValues.filter((kind) => agentKinds.has(kind))).toEqual([]);
+    expect([...runtimeEventKindValues, ...agentEventKindValues].sort()).toEqual([...eventKindValues].sort());
   });
 
   it('delivers typed events and supports subscribeMany filtering', () => {
