@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { mount } from '@vue/test-utils';
-import MarkdownText from '../components/code/MarkdownText.vue';
-import CodeBlock from '../components/code/CodeBlock.vue';
+import MarkdownText from '../../components/content/MarkdownText.vue';
+import CodeBlock from '../../components/content/CodeBlock.vue';
 
 describe('MarkdownText', () => {
   it('renders nothing children for empty input', () => {

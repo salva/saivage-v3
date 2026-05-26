@@ -12,7 +12,7 @@ import { API_AUTH_REQUIRED_EVENT, API_AUTH_DISMISSED_SESSION_KEY } from '../util
 
 vi.mock('../api/auth', () => ({ getAuthToken: vi.fn(() => null) }));
 vi.mock('../api/client', () => ({
-  listAgentSessions: vi.fn(async () => ({ sessions: [] })),
+  listChatSessions: vi.fn(async () => ({ sessions: [{ id: 'analyst', role: 'analyst', status: 'active', started_at: '2026-01-01T00:00:00Z' }] })),
   getChatMessages: vi.fn(async (sessionId: string) => ({ sessionId, messages: [] })),
   sendChatMessage: vi.fn(),
   ApiError: class extends Error { status: number; body: Record<string, unknown>; constructor(status: number, message: string, body: Record<string, unknown> = {}) { super(message); this.status = status; this.body = body; } get isUnauthorized() { return this.status === 401; } },
@@ -61,17 +61,17 @@ describe('AppShell API auth banner', () => {
 
     expect(wrapper.find('.auth-required-banner').text()).toContain('API token required');
     await wrapper.get('.auth-banner-action').trigger('click');
-    expect(wrapper.find('.token-overlay').exists()).toBe(true);
+    expect(wrapper.find('.ui-overlay').exists()).toBe(true);
     expect(wrapper.find('.auth-required-banner').exists()).toBe(true);
 
     await wrapper.get('.token-btn-cancel').trigger('click');
     await flushPromises();
     await waitForTransition();
-    expect(wrapper.find('.token-overlay').exists()).toBe(false);
+    expect(wrapper.find('.ui-overlay').exists()).toBe(false);
     expect(wrapper.find('.auth-required-banner').exists()).toBe(true);
 
     await wrapper.get('.auth-banner-action').trigger('click');
-    expect(wrapper.find('.token-overlay').exists()).toBe(true);
+    expect(wrapper.find('.ui-overlay').exists()).toBe(true);
 
     await wrapper.get('.auth-banner-dismiss').trigger('click');
     expect(wrapper.find('.auth-required-banner').exists()).toBe(false);

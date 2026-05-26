@@ -135,7 +135,7 @@ import { computed, ref, watch } from 'vue';
 import { storeToRefs } from 'pinia';
 import { useAgentStore } from '../../stores/agents';
 import { formatJson } from '../../utils/format-json';
-import CodeBlock from '../code/CodeBlock.vue';
+import CodeBlock from '../content/CodeBlock.vue';
 
 const props = defineProps<{ sessionId: string }>();
 

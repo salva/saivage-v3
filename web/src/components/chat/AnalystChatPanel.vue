@@ -109,7 +109,7 @@ import { useWorkspaceRouteStore } from '../../stores/workspaceRoute';
 import type { ChatMessage } from '../../api/types';
 import { presentToolCall, presentToolResult, safeJsonParse } from '../../utils/tool-presenters';
 import { formatJson } from '../../utils/format-json';
-import CodeBlock from '../code/CodeBlock.vue';
+import CodeBlock from '../content/CodeBlock.vue';
 
 const chat = useAnalystChat();
 const cards = useCardStore();

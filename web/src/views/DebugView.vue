@@ -346,7 +346,7 @@ import { formatTimestamp, isRecentTimestamp } from '../utils/timestamp';
 import { redactObservabilityValue } from '../utils/observabilityRedaction';
 import { useMcpStore } from '../stores/mcp';
 import { formatJson } from '../utils/format-json';
-import CodeBlock from '../components/code/CodeBlock.vue';
+import CodeBlock from '../components/content/CodeBlock.vue';
 import type { DebugError, DebugTimelineEvent, ProcessView } from '../api/types';
 
 const debugStore = useDebugStore();

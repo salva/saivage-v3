@@ -93,7 +93,7 @@ import type { CardHistoryHeader } from '../../api/types';
 import { formatTimestamp, isRecentTimestamp, timestampTitle } from '../../utils/timestamp';
 import { formatJson } from '../../utils/format-json';
 import { sanitizeCardHistoryValue } from '../../utils/sanitize-card-history';
-import CodeBlock from '../code/CodeBlock.vue';
+import CodeBlock from '../content/CodeBlock.vue';
 
 const props = defineProps<{ cardId: string }>();
 const cardStore = useCardStore();

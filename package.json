@@ -61,7 +61,7 @@
     "test:web:sweep:full": "npm run web:test:sweep:full",
     "preflight": "npm run web:test:sweep && npm run docs:verify",
     "preflight:full": "npm run preflight && npm run web:test:store:card-burst",
-    "lint": "eslint src/ && node scripts/check-import-boundaries.cjs",
+    "lint": "eslint src/ && node scripts/check-import-boundaries.cjs && node scripts/check-web-component-boundaries.cjs",
     "format": "prettier --check src/",
     "format:fix": "prettier --write src/",
     "docs:build": "vitepress build docs",

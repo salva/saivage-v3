@@ -274,7 +274,7 @@ import { createLogger } from '../../utils/logger';
 import { formatTimestamp, isRecentTimestamp, timestampTitle } from '../../utils/timestamp';
 import CardHistoryPanel from './CardHistoryPanel.vue';
 import StaleWarningRibbon from './StaleWarningRibbon.vue';
-import CodeBlock from '../code/CodeBlock.vue';
+import CodeBlock from '../content/CodeBlock.vue';
 import { formatJson } from '../../utils/format-json';
 
 const log = createLogger('comp:card-detail');

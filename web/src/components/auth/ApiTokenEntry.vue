@@ -1,68 +1,71 @@
 <template>
-  <Transition name="modal">
-    <div v-if="visible" class="token-overlay" @click.self="closeDialog">
-      <div class="token-dialog">
-        <h2 class="token-title">API Token</h2>
-        <p class="token-description">
-          Enter an API token to access a secured Saivage deployment.
-          The token is stored in <code class="inline-token">localStorage</code> and sent with every API request.
-        </p>
+  <Overlay :visible="visible" @dismiss="closeDialog">
+    <Card class="token-dialog">
+      <h2 class="token-title">API Token</h2>
+      <p class="token-description">
+        Enter an API token to access a secured Saivage deployment.
+        The token is stored in <code class="inline-token">localStorage</code> and sent with every API request.
+      </p>
 
-        <form @submit.prevent="saveToken" class="token-form">
-          <label class="token-label" for="api-token-input">Token</label>
-          <div class="token-input-row">
-            <input
-              id="api-token-input"
-              ref="inputRef"
-              v-model="token"
-              :type="showToken ? 'text' : 'password'"
-              class="token-input"
-              placeholder="64-char hex token"
-              autocomplete="off"
-              spellcheck="false"
-            />
-            <button
-              type="button"
-              class="token-toggle"
-              @click="showToken = !showToken"
-              :title="showToken ? 'Hide token' : 'Show token'"
-            >
-              {{ showToken ? '🙈' : '👁' }}
-            </button>
-          </div>
+      <form @submit.prevent="saveToken" class="token-form">
+        <label class="token-label" for="api-token-input">Token</label>
+        <div class="token-input-row">
+          <input
+            id="api-token-input"
+            ref="inputRef"
+            v-model="token"
+            :type="showToken ? 'text' : 'password'"
+            class="token-input"
+            placeholder="64-char hex token"
+            autocomplete="off"
+            spellcheck="false"
+          />
+          <Button
+            type="button"
+            class="token-toggle"
+            size="icon"
+            @click="showToken = !showToken"
+            :title="showToken ? 'Hide token' : 'Show token'"
+          >
+            {{ showToken ? '🙈' : '👁' }}
+          </Button>
+        </div>
 
-          <div class="token-actions">
-            <button type="submit" class="token-btn token-btn-save" :disabled="!token.trim()">
-              Save
-            </button>
-            <button
-              type="button"
-              class="token-btn token-btn-clear"
-              @click="clearToken"
-              :disabled="!savedToken"
-            >
-              Clear
-            </button>
-            <button type="button" class="token-btn token-btn-cancel" @click="closeDialog">
-              Cancel
-            </button>
-          </div>
-        </form>
+        <div class="token-actions">
+          <Button type="submit" class="token-btn-save" variant="primary" :disabled="!token.trim()">
+            Save
+          </Button>
+          <Button
+            type="button"
+            class="token-btn-clear"
+            variant="danger"
+            @click="clearToken"
+            :disabled="!savedToken"
+          >
+            Clear
+          </Button>
+          <Button type="button" class="token-btn-cancel" @click="closeDialog">
+            Cancel
+          </Button>
+        </div>
+      </form>
 
-        <p v-if="savedToken" class="token-status">
-          Token is set.
-        </p>
-        <p v-else class="token-status token-status-none">
-          No token configured.
-        </p>
-      </div>
-    </div>
-  </Transition>
+      <p v-if="savedToken" class="token-status">
+        Token is set.
+      </p>
+      <p v-else class="token-status token-status-none">
+        No token configured.
+      </p>
+    </Card>
+  </Overlay>
 </template>
 
 <script setup lang="ts">
 import { ref, watch, nextTick, onUnmounted } from 'vue';
 import { getAuthToken, setAuthToken, clearAuthToken } from '../../api/auth';
+import Button from '../ui/Button.vue';
+import Card from '../ui/Card.vue';
+import Overlay from '../ui/Overlay.vue';
 
 const props = defineProps<{
   visible: boolean;
@@ -137,21 +140,7 @@ function clearToken(): void {
 </script>
 
 <style scoped>
-.token-overlay {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.6);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 1000;
-}
-
 .token-dialog {
-  background: var(--surface-1);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 24px;
   width: 420px;
   max-width: 90vw;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
@@ -213,14 +202,9 @@ function clearToken(): void {
 }
 
 .token-toggle {
-  background: var(--surface-3);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  padding: 4px 8px;
-  cursor: pointer;
+  flex-shrink: 0;
   font-size: 16px;
   line-height: 1;
-  flex-shrink: 0;
 }
 
 .token-actions {
@@ -228,46 +212,8 @@ function clearToken(): void {
   gap: 8px;
 }
 
-.token-btn {
-  padding: 6px 16px;
-  border-radius: 6px;
-  font-size: 13px;
-  font-weight: 500;
-  cursor: pointer;
-  border: 1px solid var(--border);
-  font-family: inherit;
-  transition: background-color 0.15s;
-}
-
-.token-btn:disabled {
-  opacity: 0.4;
-  cursor: not-allowed;
-}
-
-.token-btn-save {
-  background: var(--accent);
-  color: var(--text);
-  border-color: var(--accent);
-}
-.token-btn-save:hover:not(:disabled) {
-  background: var(--accent);
-}
-
-.token-btn-clear {
-  background: var(--surface-3);
-  color: var(--danger);
-}
-.token-btn-clear:hover:not(:disabled) {
-  background: var(--border);
-}
-
 .token-btn-cancel {
-  background: var(--surface-3);
-  color: var(--text);
   margin-left: auto;
-}
-.token-btn-cancel:hover {
-  background: var(--border);
 }
 
 .token-status {
@@ -278,25 +224,5 @@ function clearToken(): void {
 
 .token-status-none {
   color: var(--text-muted);
-}
-
-/* Transition */
-.modal-enter-active,
-.modal-leave-active {
-  transition: opacity 0.2s ease;
-}
-.modal-enter-active .token-dialog,
-.modal-leave-active .token-dialog {
-  transition: transform 0.2s ease;
-}
-.modal-enter-from,
-.modal-leave-to {
-  opacity: 0;
-}
-.modal-enter-from .token-dialog {
-  transform: scale(0.95);
-}
-.modal-leave-to .token-dialog {
-  transform: scale(0.95);
 }
 </style>

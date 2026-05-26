@@ -141,8 +141,8 @@ import { useCardStore } from '../stores/cards';
 import { createLogger } from '../utils/logger';
 import { formatTimestamp, isRecentTimestamp, timestampTitle } from '../utils/timestamp';
 import { formatJson } from '../utils/format-json';
-import CodeBlock from '../components/code/CodeBlock.vue';
-import MarkdownText from '../components/code/MarkdownText.vue';
+import CodeBlock from '../components/content/CodeBlock.vue';
+import MarkdownText from '../components/content/MarkdownText.vue';
 import type { CardRecord } from '../api/types';
 
 const log = createLogger('view:files');

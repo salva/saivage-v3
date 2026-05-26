@@ -8,7 +8,7 @@ import debugViewSource from '../views/DebugView.vue?raw';
 import cardDetailSource from '../components/cards/CardDetailView.vue?raw';
 import cardsTreeSource from '../components/cards/CardsTreeView.vue?raw';
 import agentConversationSource from '../components/agents/AgentConversationView.vue?raw';
-import CodeBlock from '../components/code/CodeBlock.vue';
+import CodeBlock from '../components/content/CodeBlock.vue';
 
 const removedMutationTokens = new RegExp([
   'createCard',

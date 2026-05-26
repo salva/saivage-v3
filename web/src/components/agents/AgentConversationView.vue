@@ -121,8 +121,8 @@ import { createLogger } from '../../utils/logger';
 import { formatTimestamp, timestampTitle } from '../../utils/timestamp';
 import { presentToolCall, presentToolResult, safeJsonParse } from '../../utils/tool-presenters';
 import { formatJson } from '../../utils/format-json';
-import CodeBlock from '../code/CodeBlock.vue';
-import MarkdownText from '../code/MarkdownText.vue';
+import CodeBlock from '../content/CodeBlock.vue';
+import MarkdownText from '../content/MarkdownText.vue';
 import RawLlmExchangePanel from './RawLlmExchangePanel.vue';
 
 const log = createLogger('comp:agent-conv');

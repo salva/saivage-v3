@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { mount, flushPromises } from '@vue/test-utils';
 import { createPinia, setActivePinia } from 'pinia';
 import RawLlmExchangePanel from '../components/agents/RawLlmExchangePanel.vue';
-import CodeBlock from '../components/code/CodeBlock.vue';
+import CodeBlock from '../components/content/CodeBlock.vue';
 import { useAgentStore } from '../stores/agents';
 import { formatJson } from '../utils/format-json';
 import type { LlmExchange } from '../api/contracts';
