@@ -12,8 +12,3 @@ This file is the cumulative expected-breakage record for the analyst-as-control-
 
 ## Open entries
 
-### analyst-e2e:scenario-analyst-chat-context-child-order:step-1
-Failure mode: the analyst chat panel renders the current card's children in client-sorted order; an e2e checker that shuffles the backend order observes a mismatch.
-Reason acceptable now: `AnalystChatPanel` and its descendants are owned by S08 per MASTER-PLAN §4.1; S03 ships the backend contract and waits for S08 to flip the consumer.
-Target fix stage: S08
-Recorded by: S03 / 2026-05-25
