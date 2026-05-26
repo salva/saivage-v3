@@ -44,5 +44,5 @@ onUnmounted(() => {
 
 <style scoped>
 .analyst-toaster { position: fixed; right: 20px; bottom: 20px; display: flex; flex-direction: column; gap: 8px; z-index: 1000; pointer-events: none; }
-.toast { background: rgba(22,27,34,0.96); border: 1px solid #30363d; color: #f0f6fc; padding: 10px 12px; border-radius: 8px; box-shadow: 0 6px 18px rgba(0,0,0,0.3); }
+.toast { background: rgba(22,27,34,0.96); border: 1px solid var(--border); color: var(--text); padding: 10px 12px; border-radius: 8px; box-shadow: 0 6px 18px rgba(0,0,0,0.3); }
 </style>

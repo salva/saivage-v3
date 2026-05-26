@@ -127,7 +127,7 @@ function formatMetric(val: unknown): string {
 .lb-empty {
   padding: 32px;
   text-align: center;
-  color: #484f58;
+  color: var(--border-strong);
   font-size: 13px;
 }
 
@@ -146,11 +146,11 @@ function formatMetric(val: unknown): string {
   padding: 8px 12px;
   font-size: 11px;
   font-weight: 600;
-  color: #8b949e;
+  color: var(--text-muted);
   text-transform: uppercase;
   letter-spacing: 0.03em;
-  border-bottom: 1px solid #30363d;
-  background: #161b22;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface-1);
   position: sticky;
   top: 0;
   z-index: 1;
@@ -158,13 +158,13 @@ function formatMetric(val: unknown): string {
 
 .lb-table td {
   padding: 8px 12px;
-  border-bottom: 1px solid #21262d;
-  color: #c9d1d9;
+  border-bottom: 1px solid var(--surface-3);
+  color: var(--text);
 }
 
 .col-rank {
   width: 40px;
-  color: #484f58;
+  color: var(--border-strong);
   font-family: 'SF Mono', monospace;
   text-align: right;
 }
@@ -183,7 +183,7 @@ function formatMetric(val: unknown): string {
 
 .col-type {
   text-transform: capitalize;
-  color: #8b949e;
+  color: var(--text-muted);
   font-size: 12px;
 }
 
@@ -199,7 +199,7 @@ function formatMetric(val: unknown): string {
 }
 
 .high-priority {
-  color: #f85149;
+  color: var(--danger);
   font-weight: 600;
 }
 
@@ -209,15 +209,15 @@ function formatMetric(val: unknown): string {
 }
 
 .lb-row:hover {
-  background: #161b22;
+  background: var(--surface-1);
 }
 
 .row-done {
-  border-left: 3px solid #3fb950;
+  border-left: 3px solid var(--accent);
 }
 
 .row-failed {
-  border-left: 3px solid #f85149;
+  border-left: 3px solid var(--danger);
   opacity: 0.7;
 }
 </style>

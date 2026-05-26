@@ -101,8 +101,8 @@ const cueClass = computed(() => {
   justify-content: space-between;
   min-height: 48px;
   padding: 0 16px;
-  background: #161b22;
-  border-bottom: 1px solid #30363d;
+  background: var(--surface-1);
+  border-bottom: 1px solid var(--border);
   flex-shrink: 0;
 }
 
@@ -116,7 +116,7 @@ const cueClass = computed(() => {
 .section-title {
   font-size: 14px;
   font-weight: 600;
-  color: #f0f6fc;
+  color: var(--text);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -124,9 +124,9 @@ const cueClass = computed(() => {
 
 .project-name {
   font-size: 12px;
-  color: #8b949e;
+  color: var(--text-muted);
   padding: 2px 8px;
-  background: #21262d;
+  background: var(--surface-3);
   border-radius: 4px;
   white-space: nowrap;
   overflow: hidden;
@@ -155,8 +155,8 @@ const cueClass = computed(() => {
   line-height: 1;
   white-space: nowrap;
   border: 1px solid transparent;
-  background: #21262d;
-  color: #8b949e;
+  background: var(--surface-3);
+  color: var(--text-muted);
 }
 
 
@@ -169,58 +169,58 @@ const cueClass = computed(() => {
 
 
 .ws-connected {
-  color: #3fb950;
-  border-color: #238636;
+  color: var(--accent);
+  border-color: var(--accent);
 }
 .ws-connecting {
-  color: #d29922;
-  border-color: #9e6a03;
+  color: var(--warn);
+  border-color: var(--entry-warn-border);
 }
 .ws-offline,
 .ws-no-token {
-  color: #8b949e;
-  border-color: #484f58;
+  color: var(--text-muted);
+  border-color: var(--border-strong);
 }
 .ws-unauthorized {
-  color: #f85149;
-  border-color: #da3633;
+  color: var(--danger);
+  border-color: var(--danger);
 }
 
 .rt-running {
-  color: #3fb950;
-  border-color: #238636;
+  color: var(--accent);
+  border-color: var(--accent);
 }
 .rt-idle,
 .rt-unknown {
-  color: #8b949e;
-  border-color: #484f58;
+  color: var(--text-muted);
+  border-color: var(--border-strong);
 }
 .rt-paused {
-  color: #d29922;
-  border-color: #9e6a03;
+  color: var(--warn);
+  border-color: var(--entry-warn-border);
 }
 .rt-error {
-  color: #f85149;
-  border-color: #da3633;
+  color: var(--danger);
+  border-color: var(--danger);
 }
 .rt-frozen {
-  color: #79c0ff;
-  border-color: #1f6feb;
+  color: var(--accent-2);
+  border-color: var(--accent-2);
 }
 
 .cue-chip.cue-no-token,
 .cue-chip.cue-stale {
-  color: #d29922;
-  border-color: #9e6a03;
+  color: var(--warn);
+  border-color: var(--entry-warn-border);
 }
 .cue-chip.cue-unauthorized,
 .cue-chip.cue-degraded {
-  color: #f85149;
-  border-color: #da3633;
+  color: var(--danger);
+  border-color: var(--danger);
 }
 .cue-chip.cue-frozen {
-  color: #79c0ff;
-  border-color: #1f6feb;
+  color: var(--accent-2);
+  border-color: var(--accent-2);
 }
 
 </style>

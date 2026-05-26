@@ -128,7 +128,7 @@ const renderedTree = computed<TreeNode[]>(() => {
 .tree-empty {
   padding: 32px;
   text-align: center;
-  color: #484f58;
+  color: var(--border-strong);
   font-size: 13px;
 }
 
@@ -152,7 +152,7 @@ const renderedTree = computed<TreeNode[]>(() => {
 }
 
 .tree-node:hover {
-  background: #161b22;
+  background: var(--surface-1);
 }
 
 
@@ -163,15 +163,15 @@ const renderedTree = computed<TreeNode[]>(() => {
   align-items: center;
   justify-content: center;
   font-size: 10px;
-  color: #8b949e;
+  color: var(--text-muted);
   cursor: pointer;
   flex-shrink: 0;
   border-radius: 3px;
 }
 
 .node-toggle:hover {
-  color: #c9d1d9;
-  background: #21262d;
+  color: var(--text);
+  background: var(--surface-3);
 }
 
 .node-toggle.placeholder {
@@ -190,15 +190,15 @@ const renderedTree = computed<TreeNode[]>(() => {
   flex-shrink: 0;
 }
 
-.status-drafting { background: #484f58; }
-.status-backlog { background: #8b949e; }
-.status-active { background: #58a6ff; }
-.status-running { background: #3fb950; }
-.status-blocked { background: #d29922; }
-.status-done { background: #7ee787; }
-.status-failed { background: #f85149; }
-.status-cancelled { background: #484f58; opacity: 0.5; }
-.status-needs_verification { background: #d29922; }
+.status-drafting { background: var(--border-strong); }
+.status-backlog { background: var(--text-muted); }
+.status-active { background: var(--accent-2); }
+.status-running { background: var(--accent); }
+.status-blocked { background: var(--warn); }
+.status-done { background: var(--accent); }
+.status-failed { background: var(--danger); }
+.status-cancelled { background: var(--border-strong); opacity: 0.5; }
+.status-needs_verification { background: var(--warn); }
 
 .node-title {
   flex: 1;
@@ -206,11 +206,11 @@ const renderedTree = computed<TreeNode[]>(() => {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  color: #c9d1d9;
+  color: var(--text);
 }
 
 .tree-node:hover .node-title {
-  color: #f0f6fc;
+  color: var(--text);
 }
 
 .node-priority {
@@ -218,13 +218,13 @@ const renderedTree = computed<TreeNode[]>(() => {
   font-weight: 600;
   padding: 1px 4px;
   border-radius: 3px;
-  background: #21262d;
+  background: var(--surface-3);
   flex-shrink: 0;
 }
 
 .node-priority.high {
-  background: #241818;
-  color: #f85149;
+  background: var(--entry-danger-bg);
+  color: var(--danger);
 }
 
 .node-tags {
@@ -236,10 +236,10 @@ const renderedTree = computed<TreeNode[]>(() => {
 .node-tag {
   font-size: 10px;
   padding: 1px 5px;
-  background: #1c2738;
-  color: #58a6ff;
+  background: var(--entry-user-bg);
+  color: var(--accent-2);
   border-radius: 3px;
-  border: 1px solid #30363d;
+  border: 1px solid var(--border);
   max-width: 80px;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -248,7 +248,7 @@ const renderedTree = computed<TreeNode[]>(() => {
 
 .node-deps {
   font-size: 10px;
-  color: #8b949e;
+  color: var(--text-muted);
   font-family: 'SF Mono', monospace;
   flex-shrink: 0;
 }

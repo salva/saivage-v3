@@ -112,8 +112,8 @@ function legacyCopy(text: string): boolean {
 <style scoped>
 .code-block {
   position: relative;
-  background: #0d1117;
-  color: #c9d1d9;
+  background: var(--bg);
+  color: var(--text);
   border-radius: 6px;
   font-family: 'SF Mono', SFMono-Regular, ui-monospace, Menlo, Consolas, monospace;
   font-size: 12.5px;
@@ -148,7 +148,7 @@ function legacyCopy(text: string): boolean {
   top: 6px;
   right: 6px;
   background: rgba(110, 118, 129, 0.2);
-  color: #c9d1d9;
+  color: var(--text);
   border: 1px solid rgba(240, 246, 252, 0.1);
   border-radius: 4px;
   padding: 2px 8px;
@@ -165,7 +165,7 @@ function legacyCopy(text: string): boolean {
 .code-block__notice {
   padding: 6px 12px;
   font-size: 11.5px;
-  color: #8b949e;
+  color: var(--text-muted);
   background: rgba(110, 118, 129, 0.12);
   border-bottom: 1px solid rgba(240, 246, 252, 0.06);
 }

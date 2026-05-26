@@ -1,4 +1,6 @@
+import './styles/index.css';
 import 'highlight.js/styles/github-dark.css';
+import './styles/highlight-overrides.css';
 import { createApp } from 'vue';
 import { createPinia } from 'pinia';
 import { createRouter, createWebHistory, type RouteRecordRaw } from 'vue-router';

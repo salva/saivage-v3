@@ -96,7 +96,7 @@ const columns = computed<Column[]>(() =>
 .board-empty {
   padding: 32px;
   text-align: center;
-  color: #484f58;
+  color: var(--border-strong);
   font-size: 13px;
 }
 
@@ -111,10 +111,10 @@ const columns = computed<Column[]>(() =>
   flex: 1;
   min-width: 200px;
   max-width: 300px;
-  border-right: 1px solid #21262d;
+  border-right: 1px solid var(--surface-3);
   display: flex;
   flex-direction: column;
-  background: #0d1117;
+  background: var(--bg);
 }
 
 .board-column:last-child {
@@ -126,8 +126,8 @@ const columns = computed<Column[]>(() =>
   align-items: center;
   justify-content: space-between;
   padding: 10px 12px;
-  background: #161b22;
-  border-bottom: 1px solid #21262d;
+  background: var(--surface-1);
+  border-bottom: 1px solid var(--surface-3);
   flex-shrink: 0;
 }
 
@@ -137,7 +137,7 @@ const columns = computed<Column[]>(() =>
   gap: 6px;
   font-size: 12px;
   font-weight: 600;
-  color: #c9d1d9;
+  color: var(--text);
   text-transform: capitalize;
 }
 
@@ -147,20 +147,20 @@ const columns = computed<Column[]>(() =>
   border-radius: 50%;
 }
 
-.status-drafting { background: #484f58; }
-.status-backlog { background: #8b949e; }
-.status-active { background: #58a6ff; }
-.status-running { background: #3fb950; }
-.status-blocked { background: #d29922; }
-.status-changed { background: #bc8cff; }
-.status-done { background: #7ee787; }
-.status-failed { background: #f85149; }
-.status-cancelled { background: #484f58; }
-.status-needs_verification { background: #d29922; }
+.status-drafting { background: var(--border-strong); }
+.status-backlog { background: var(--text-muted); }
+.status-active { background: var(--accent-2); }
+.status-running { background: var(--accent); }
+.status-blocked { background: var(--warn); }
+.status-changed { background: var(--purple); }
+.status-done { background: var(--accent); }
+.status-failed { background: var(--danger); }
+.status-cancelled { background: var(--border-strong); }
+.status-needs_verification { background: var(--warn); }
 
 .column-count {
   font-size: 11px;
-  color: #484f58;
+  color: var(--border-strong);
   font-family: 'SF Mono', monospace;
 }
 
@@ -174,8 +174,8 @@ const columns = computed<Column[]>(() =>
 }
 
 .board-card {
-  background: #161b22;
-  border: 1px solid #21262d;
+  background: var(--surface-1);
+  border: 1px solid var(--surface-3);
   border-radius: 6px;
   padding: 10px;
   cursor: pointer;
@@ -183,8 +183,8 @@ const columns = computed<Column[]>(() =>
 }
 
 .board-card:hover {
-  border-color: #30363d;
-  background: #1c2128;
+  border-color: var(--border);
+  background: var(--surface-2);
 }
 
 .card-header-row {
@@ -202,7 +202,7 @@ const columns = computed<Column[]>(() =>
 .card-title {
   font-size: 13px;
   font-weight: 500;
-  color: #c9d1d9;
+  color: var(--text);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -220,13 +220,13 @@ const columns = computed<Column[]>(() =>
   font-weight: 600;
   padding: 1px 5px;
   border-radius: 3px;
-  background: #21262d;
-  color: #8b949e;
+  background: var(--surface-3);
+  color: var(--text-muted);
 }
 
 .card-priority.high {
-  background: #241818;
-  color: #f85149;
+  background: var(--entry-danger-bg);
+  color: var(--danger);
 }
 
 .card-tags {
@@ -237,20 +237,20 @@ const columns = computed<Column[]>(() =>
 .card-tag {
   font-size: 10px;
   padding: 1px 5px;
-  background: #1c2738;
-  color: #58a6ff;
+  background: var(--entry-user-bg);
+  color: var(--accent-2);
   border-radius: 3px;
-  border: 1px solid #30363d;
+  border: 1px solid var(--border);
 }
 
 .card-tag-more {
   font-size: 10px;
-  color: #484f58;
+  color: var(--border-strong);
 }
 
 .card-deps {
   margin-top: 6px;
   font-size: 10px;
-  color: #8b949e;
+  color: var(--text-muted);
 }
 </style>

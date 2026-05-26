@@ -3,36 +3,8 @@
     id="analyst-chat-panel"
     class="analyst-chat-panel"
     role="region"
-    aria-labelledby="analyst-chat-title"
+    aria-label="Analyst chat"
   >
-    <div class="chat-header">
-      <div>
-        <h2 id="analyst-chat-title">Analyst</h2>
-        <p class="subtle">Persistent operator chat and inspection transcript.</p>
-      </div>
-      <div class="chat-header-actions">
-        <select
-          class="session-picker"
-          :value="activeSessionId || ''"
-          aria-label="Analyst chat session picker"
-          @change="handleSessionChange"
-        >
-          <option value="">Select session</option>
-          <optgroup v-for="group in groupedSessions" :key="group.label" :label="group.label">
-            <option v-for="session in group.sessions" :key="session.id" :value="session.id">{{ session.id }}</option>
-          </optgroup>
-        </select>
-        <button
-          type="button"
-          class="secondary-btn"
-          aria-label="Start a new analyst chat"
-          @click="handleNewChat"
-        >
-          New chat
-        </button>
-      </div>
-    </div>
-
     <div class="chat-body">
       <div v-if="sessionsLoading" class="state-panel" role="status">Loading analyst sessions…</div>
       <div v-else-if="sessionsError" class="state-panel error" role="alert">{{ sessionsError.message }}</div>
@@ -46,7 +18,6 @@
 
       <div v-if="messagesLoading" class="state-panel loading-skeleton" role="status">Loading history…</div>
       <div v-else-if="messagesError" class="state-panel error" role="alert">{{ messagesErrorLabel }}</div>
-      <div v-else-if="!activeSessionId" class="state-panel" role="status">Select a session or start a new chat.</div>
       <div v-else-if="!messagesLoading && messages.length === 0 && timelineItems.length === 0 && pendingToolInvocationsForActiveSession.length === 0" class="state-panel" role="status">No messages yet. Ask the analyst something.</div>
       <div v-else class="message-list">
         <article
@@ -144,7 +115,6 @@ const chat = useAnalystChat();
 const cards = useCardStore();
 const workspaceRoute = useWorkspaceRouteStore();
 const {
-  sessions,
   activeSessionId,
   messages,
   draft,
@@ -171,24 +141,6 @@ const childrenOnScreen = computed(() =>
 const pendingToolInvocationsForActiveSession = computed(() => pendingToolInvocations.value.filter((item) => item.sessionId === activeSessionId.value));
 const READ_ONLY_TOOLTIP = 'Read-only — switch to analyst to send messages';
 const composerTitle = computed(() => activeSessionWritable.value ? 'Ask the analyst…' : READ_ONLY_TOOLTIP);
-const groupedSessions = computed(() => {
-  const labels: Record<string, string> = {
-    analyst: 'Analyst',
-    card: 'Card discussions',
-    planner: 'Planner',
-    reviewer: 'Reviewer',
-    executor: 'Executor',
-  };
-  const order = ['analyst', 'card', 'planner', 'reviewer', 'executor'];
-  const groups = new Map<string, typeof sessions.value>();
-  for (const session of sessions.value) {
-    const key = session.id.startsWith('card-') ? 'card' : String(session.role).split(':')[0];
-    groups.set(key, [...(groups.get(key) ?? []), session]);
-  }
-  return [...groups.entries()]
-    .sort(([a], [b]) => (order.indexOf(a) === -1 ? 99 : order.indexOf(a)) - (order.indexOf(b) === -1 ? 99 : order.indexOf(b)))
-    .map(([key, groupSessions]) => ({ label: labels[key] ?? key, sessions: groupSessions }));
-});
 const messagesErrorLabel = computed(() => {
   if (!messagesError.value) return '';
   if (messagesError.value.kind === 'unauthorized') {
@@ -241,22 +193,11 @@ function toggleExpanded(id: string): void {
   expandedIds.value = next;
 }
 
-async function handleSessionChange(event: Event): Promise<void> {
-  const value = (event.target as HTMLSelectElement).value;
-  if (!value) return;
-  await chat.selectSession(value);
-}
-
 function focusComposer(): void {
   composerRef.value?.focus();
 }
 
 function handleFocusChat(): void {
-  void nextTick(() => focusComposer());
-}
-
-function handleNewChat(): void {
-  chat.createNewChat();
   void nextTick(() => focusComposer());
 }
 
@@ -280,10 +221,9 @@ async function submitMessage(): Promise<void> {
 
 onMounted(() => {
   window.addEventListener('saivage:focus-chat', handleFocusChat);
-  chat.fetchSessions().catch(() => {});
-  if (activeSessionId.value) {
-    chat.fetchMessages(activeSessionId.value).catch(() => {});
-  }
+  chat.fetchSessions()
+    .then(() => chat.fetchMessages())
+    .catch(() => {});
   handleFocusChat();
 });
 
@@ -298,40 +238,18 @@ onBeforeUnmount(() => {
   flex-direction: column;
   width: 100%;
   height: 100%;
-  background: #161b22;
-  border-left: 1px solid #30363d;
+  background: var(--surface-1);
+  border-left: 1px solid var(--border);
   overflow: hidden;
 }
 
-.chat-header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 16px;
-  border-bottom: 1px solid #30363d;
-}
-
-.chat-header h2 {
-  margin: 0;
-  color: #f0f6fc;
-  font-size: 16px;
-}
-
 .subtle {
-  color: #8b949e;
+  color: var(--text-muted);
   font-size: 12px;
 }
 
-.chat-header-actions {
-  display: flex;
-  gap: 8px;
-}
-
-.session-picker,
 .composer-input,
-.primary-btn,
-.secondary-btn {
+.primary-btn {
   font: inherit;
 }
 
@@ -345,22 +263,22 @@ onBeforeUnmount(() => {
 }
 
 .on-screen-section {
-  border: 1px solid #30363d;
+  border: 1px solid var(--border);
   border-radius: 10px;
   padding: 10px 12px;
-  background: #0d1117;
+  background: var(--bg);
 }
 
 .on-screen-section h3 {
   margin: 0 0 8px;
-  color: #f0f6fc;
+  color: var(--text);
   font-size: 13px;
 }
 
 .on-screen-children {
   margin: 0;
   padding-left: 18px;
-  color: #c9d1d9;
+  color: var(--text);
   font-size: 12px;
 }
 
@@ -381,19 +299,19 @@ onBeforeUnmount(() => {
 .state-panel {
   border-radius: 10px;
   padding: 10px 12px;
-  background: #161b22;
-  color: #c9d1d9;
+  background: var(--surface-1);
+  color: var(--text);
 }
 
 .role-user .message-bubble {
-  background: #1f2937;
+  background: var(--surface-3);
 }
 
 .tool-chip {
   display: flex;
   justify-content: space-between;
   width: 100%;
-  border: 1px solid #30363d;
+  border: 1px solid var(--border);
   cursor: pointer;
 }
 
@@ -408,27 +326,27 @@ onBeforeUnmount(() => {
 }
 
 .tool-chip-icon { font-size: 13px; }
-.tool-chip-name { font-weight: 600; color: #d2a8ff; flex-shrink: 0; }
-.tool-chip-headline { color: #c9d1d9; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tool-chip-name { font-weight: 600; color: var(--purple); flex-shrink: 0; }
+.tool-chip-headline { color: var(--text); flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tool-chip-tag {
-  color: #8b949e;
-  border: 1px solid #30363d;
+  color: var(--text-muted);
+  border: 1px solid var(--border);
   border-radius: 999px;
   padding: 1px 8px;
   font-size: 11px;
   white-space: nowrap;
 }
-.tool-chip-caret { color: #8b949e; margin-left: auto; flex-shrink: 0; }
+.tool-chip-caret { color: var(--text-muted); margin-left: auto; flex-shrink: 0; }
 
-.tool-chip-call .tool-chip-name { color: #d2a8ff; }
-.tool-chip-ok .tool-chip-name { color: #7ee787; }
-.tool-chip-error { border-color: #f85149; }
-.tool-chip-error .tool-chip-name { color: #f85149; }
-.tool-chip-error .tool-chip-headline { color: #ffa198; }
+.tool-chip-call .tool-chip-name { color: var(--purple); }
+.tool-chip-ok .tool-chip-name { color: var(--accent); }
+.tool-chip-error { border-color: var(--danger); }
+.tool-chip-error .tool-chip-name { color: var(--danger); }
+.tool-chip-error .tool-chip-headline { color: var(--danger); }
 
 .tool-chip.pending {
   cursor: default;
-  border-color: #58a6ff;
+  border-color: var(--accent-2);
   align-items: flex-start;
   gap: 8px;
 }
@@ -446,10 +364,10 @@ onBeforeUnmount(() => {
 }
 
 .pending-tool-tag {
-  border: 1px solid #30363d;
+  border: 1px solid var(--border);
   border-radius: 999px;
   padding: 2px 8px;
-  color: #79c0ff;
+  color: var(--accent-2);
   font-size: 12px;
   white-space: nowrap;
 }
@@ -461,12 +379,12 @@ onBeforeUnmount(() => {
   display: flex;
   flex-direction: column;
   gap: 4px;
-  color: #79c0ff;
+  color: var(--accent-2);
   font-size: 12px;
 }
 
 .chat-composer {
-  border-top: 1px solid #30363d;
+  border-top: 1px solid var(--border);
   padding: 12px;
   display: flex;
   flex-direction: column;
@@ -477,9 +395,9 @@ onBeforeUnmount(() => {
   width: 100%;
   resize: vertical;
   border-radius: 8px;
-  border: 1px solid #30363d;
-  background: #0d1117;
-  color: #f0f6fc;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text);
   padding: 10px;
 }
 
@@ -489,14 +407,13 @@ onBeforeUnmount(() => {
   align-items: center;
 }
 
-.primary-btn,
-.secondary-btn {
+.primary-btn {
   border-radius: 8px;
-  border: 1px solid #30363d;
+  border: 1px solid var(--border);
   padding: 8px 12px;
   cursor: pointer;
-  background: #21262d;
-  color: #f0f6fc;
+  background: var(--surface-3);
+  color: var(--text);
 }
 
 .primary-btn:disabled {
@@ -505,6 +422,6 @@ onBeforeUnmount(() => {
 }
 
 .state-panel.error {
-  color: #ff7b72;
+  color: var(--danger);
 }
 </style>

@@ -1,0 +1,190 @@
+/* ─── Shared UI Patterns ─────────────────────────────────────────────────────
+   Primitive global classes that compose semantic variables. Components keep
+   layout-local rules in scoped CSS; reusable color/surface primitives live here.
+   Syntax classes (.syn-*) intentionally do not override highlight.js .hljs-*;
+   github-dark.css is imported after index.css and wins if a future element has
+   both class families.
+   ────────────────────────────────────────────────────────────────────────── */
+
+.entry-user {
+  border: 1px solid var(--entry-user-border);
+  background: var(--entry-user-bg);
+}
+
+.entry-accent {
+  border: 1px solid var(--entry-accent-border);
+  background: var(--entry-accent-bg);
+}
+
+.entry-warn {
+  border: 1px solid var(--entry-warn-border);
+  background: var(--entry-warn-bg);
+}
+
+.entry-danger {
+  border: 1px solid var(--entry-danger-border);
+  background: var(--entry-danger-bg);
+}
+
+.entry-purple {
+  border: 1px solid var(--entry-purple-border);
+  background: var(--entry-purple-bg);
+}
+
+.card {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface-1);
+  box-shadow: var(--shadow-1);
+}
+
+.card-active {
+  border-color: var(--accent-2);
+  box-shadow: var(--shadow-2);
+}
+
+.btn {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  color: var(--text);
+  cursor: pointer;
+}
+
+.btn:hover:not(:disabled) {
+  background: var(--hover-bg);
+  border-color: var(--border-strong);
+}
+
+.btn:disabled {
+  color: var(--text-faint);
+  cursor: not-allowed;
+  opacity: 0.7;
+}
+
+.btn-primary {
+  background: var(--btn-primary-bg);
+  border-color: var(--btn-primary-border);
+  color: var(--btn-primary-text);
+}
+
+.btn-primary:hover:not(:disabled) {
+  background: var(--btn-primary-bg-hover);
+}
+
+.btn-danger {
+  border-color: var(--entry-danger-border);
+  color: var(--danger);
+}
+
+.pill {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
+  background: var(--surface-2);
+  color: var(--text-muted);
+}
+
+.pill-warn {
+  border-color: var(--entry-warn-border);
+  color: var(--warn);
+}
+
+.pill-accent {
+  border-color: var(--entry-accent-border);
+  color: var(--accent);
+}
+
+.pill-danger {
+  border-color: var(--entry-danger-border);
+  color: var(--danger);
+}
+
+.code-inline {
+  border-radius: var(--radius-sm);
+  background: var(--code-bg);
+  color: var(--code-color);
+  font-family: var(--mono);
+}
+
+.code-block {
+  border: 1px solid var(--code-block-border);
+  border-radius: var(--radius-sm);
+  background: var(--code-block-bg);
+  color: var(--code-block-text);
+  font-family: var(--mono);
+}
+
+.syn-key { color: var(--syn-key); }
+.syn-string { color: var(--syn-string); }
+.syn-number { color: var(--syn-number); }
+.syn-boolean { color: var(--syn-boolean); }
+.syn-null { color: var(--syn-null); }
+.syn-punctuation { color: var(--syn-punctuation); }
+
+.panel-heading {
+  color: var(--text);
+}
+
+.panel-heading h2,
+.panel-heading h3 {
+  margin: 0;
+  color: var(--text);
+}
+
+.status-dot {
+  width: 0.55rem;
+  height: 0.55rem;
+  border-radius: var(--radius-pill);
+}
+
+.text-muted { color: var(--text-muted); }
+.text-faint { color: var(--text-faint); }
+.text-accent { color: var(--accent); }
+.text-warn { color: var(--warn); }
+.text-danger { color: var(--danger); }
+
+.overlay {
+  background: var(--overlay-bg);
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.spin {
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes pulse {
+  0%,
+  100% {
+    opacity: 0.35;
+  }
+
+  50% {
+    opacity: 1;
+  }
+}
+
+/* ─── F02 tone extensions (added by F01) ─────────────────────────────────── */
+
+/* Status-dot tone modifiers. .status-dot itself (size+radius) lives in
+   Block 1; these set the background color for each semantic tone. */
+.status-dot-ok      { background: var(--accent); }
+.status-dot-warn    { background: var(--warn); }
+.status-dot-danger  { background: var(--danger); }
+.status-dot-accent  { background: var(--accent-2); }
+.status-dot-muted   { background: var(--text-muted); }
+
+/* Card tone modifiers. The .card primitive (Block 1) supplies border-radius
+   and the default surface; these add per-tone border + background. */
+.card-warn   { border-color: var(--entry-warn-border);   background: var(--entry-warn-bg); }
+.card-danger { border-color: var(--entry-danger-border); background: var(--entry-danger-bg); }
+.card-accent { border-color: var(--entry-accent-border); background: var(--entry-accent-bg); }
+.card-user   { border-color: var(--entry-user-border);   background: var(--entry-user-bg); }
+.card-purple { border-color: var(--entry-purple-border); background: var(--entry-purple-bg); }
+
+/* Pill tone modifier — purple is the only one missing from v2. */
+.pill-purple { border-color: var(--entry-purple-border); color: var(--purple); }

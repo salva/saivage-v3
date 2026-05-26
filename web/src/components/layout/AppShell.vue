@@ -196,7 +196,7 @@ onUnmounted(() => {
 .workspace-content {
   flex: 1;
   overflow: auto;
-  background: #0d1117;
+  background: var(--bg);
 }
 
 .auth-required-banner {
@@ -207,22 +207,22 @@ onUnmounted(() => {
   align-items:center;
   gap:10px;
   padding:10px 14px;
-  background:#241818;
-  border-bottom:1px solid #da3633;
-  color:#ffd8d3;
+  background:var(--entry-danger-bg);
+  border-bottom:1px solid var(--danger);
+  color:var(--text);
   font-size:13px;
 }
-.auth-required-banner strong { color:#ff938a; }
+.auth-required-banner strong { color:var(--danger); }
 .auth-banner-action,.auth-banner-dismiss {
-  border:1px solid #30363d;
+  border:1px solid var(--border);
   border-radius:6px;
-  background:#161b22;
-  color:#c9d1d9;
+  background:var(--surface-1);
+  color:var(--text);
   padding:5px 9px;
   cursor:pointer;
   font-family:inherit;
 }
-.auth-banner-action { color:#58a6ff; border-color:#58a6ff; }
+.auth-banner-action { color:var(--accent-2); border-color:var(--accent-2); }
 .auth-banner-dismiss { margin-left:auto; }
 
 .fade-enter-active,

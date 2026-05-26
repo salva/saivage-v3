@@ -148,8 +148,8 @@ function clearToken(): void {
 }
 
 .token-dialog {
-  background: #161b22;
-  border: 1px solid #30363d;
+  background: var(--surface-1);
+  border: 1px solid var(--border);
   border-radius: 8px;
   padding: 24px;
   width: 420px;
@@ -160,19 +160,19 @@ function clearToken(): void {
 .token-title {
   font-size: 16px;
   font-weight: 600;
-  color: #f0f6fc;
+  color: var(--text);
   margin-bottom: 8px;
 }
 
 .token-description {
   font-size: 13px;
-  color: #8b949e;
+  color: var(--text-muted);
   line-height: 1.5;
   margin-bottom: 16px;
 }
 
 .token-description code {
-  background: #21262d;
+  background: var(--surface-3);
   padding: 1px 5px;
   border-radius: 3px;
   font-size: 12px;
@@ -187,7 +187,7 @@ function clearToken(): void {
 .token-label {
   font-size: 12px;
   font-weight: 600;
-  color: #c9d1d9;
+  color: var(--text);
 }
 
 .token-input-row {
@@ -198,10 +198,10 @@ function clearToken(): void {
 .token-input {
   flex: 1;
   padding: 8px 12px;
-  background: #0d1117;
-  border: 1px solid #30363d;
+  background: var(--bg);
+  border: 1px solid var(--border);
   border-radius: 6px;
-  color: #c9d1d9;
+  color: var(--text);
   font-size: 13px;
   font-family: ui-monospace, 'SF Mono', monospace;
   outline: none;
@@ -209,12 +209,12 @@ function clearToken(): void {
 }
 
 .token-input:focus {
-  border-color: #58a6ff;
+  border-color: var(--accent-2);
 }
 
 .token-toggle {
-  background: #21262d;
-  border: 1px solid #30363d;
+  background: var(--surface-3);
+  border: 1px solid var(--border);
   border-radius: 6px;
   padding: 4px 8px;
   cursor: pointer;
@@ -234,7 +234,7 @@ function clearToken(): void {
   font-size: 13px;
   font-weight: 500;
   cursor: pointer;
-  border: 1px solid #30363d;
+  border: 1px solid var(--border);
   font-family: inherit;
   transition: background-color 0.15s;
 }
@@ -245,39 +245,39 @@ function clearToken(): void {
 }
 
 .token-btn-save {
-  background: #238636;
-  color: #fff;
-  border-color: #238636;
+  background: var(--accent);
+  color: var(--text);
+  border-color: var(--accent);
 }
 .token-btn-save:hover:not(:disabled) {
-  background: #2ea043;
+  background: var(--accent);
 }
 
 .token-btn-clear {
-  background: #21262d;
-  color: #f85149;
+  background: var(--surface-3);
+  color: var(--danger);
 }
 .token-btn-clear:hover:not(:disabled) {
-  background: #30363d;
+  background: var(--border);
 }
 
 .token-btn-cancel {
-  background: #21262d;
-  color: #c9d1d9;
+  background: var(--surface-3);
+  color: var(--text);
   margin-left: auto;
 }
 .token-btn-cancel:hover {
-  background: #30363d;
+  background: var(--border);
 }
 
 .token-status {
   margin-top: 12px;
   font-size: 12px;
-  color: #3fb950;
+  color: var(--accent);
 }
 
 .token-status-none {
-  color: #8b949e;
+  color: var(--text-muted);
 }
 
 /* Transition */

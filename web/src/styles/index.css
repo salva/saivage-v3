@@ -1,0 +1,8 @@
+/* ─── Style Entry Point ──────────────────────────────────────────────────────
+   Import order matters: tokens → semantic → base → patterns
+   ────────────────────────────────────────────────────────────────────────── */
+
+@import "./tokens.css";
+@import "./semantic.css";
+@import "./base.css";
+@import "./patterns.css";

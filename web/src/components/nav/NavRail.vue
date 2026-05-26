@@ -88,8 +88,8 @@ function isActive(id: string): boolean {
   display: flex;
   flex-direction: column;
   width: 64px;
-  background: #161b22;
-  border-right: 1px solid #30363d;
+  background: var(--surface-1);
+  border-right: 1px solid var(--border);
   overflow: hidden;
   flex-shrink: 0;
   justify-content: space-between;
@@ -110,7 +110,7 @@ function isActive(id: string): boolean {
   gap: 2px;
   padding: 8px 4px 6px;
   text-decoration: none;
-  color: #8b949e;
+  color: var(--text-muted);
   border-radius: 0;
   transition: color 0.15s, background-color 0.15s;
   position: relative;
@@ -123,13 +123,13 @@ function isActive(id: string): boolean {
 }
 
 .nav-link:hover {
-  color: #c9d1d9;
-  background: #21262d;
+  color: var(--text);
+  background: var(--surface-3);
 }
 
 .nav-link.active {
-  color: #58a6ff;
-  background: #1c2738;
+  color: var(--accent-2);
+  background: var(--entry-user-bg);
 }
 
 .nav-link.active::before {
@@ -139,7 +139,7 @@ function isActive(id: string): boolean {
   top: 6px;
   bottom: 6px;
   width: 3px;
-  background: #58a6ff;
+  background: var(--accent-2);
   border-radius: 0 2px 2px 0;
 }
 
@@ -167,7 +167,7 @@ function isActive(id: string): boolean {
 .nav-shortcut {
   display: none;
   font-size: 9px;
-  color: #484f58;
+  color: var(--border-strong);
   position: absolute;
   right: 4px;
   top: 50%;
@@ -178,7 +178,7 @@ function isActive(id: string): boolean {
   display: flex;
   flex-direction: column;
   padding: 8px 0;
-  border-top: 1px solid #30363d;
+  border-top: 1px solid var(--border);
   gap: 2px;
 }
 
@@ -189,6 +189,6 @@ function isActive(id: string): boolean {
 
 .nav-external {
   font-size: 9px;
-  color: #484f58;
+  color: var(--border-strong);
 }
 </style>

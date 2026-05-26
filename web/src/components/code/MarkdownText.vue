@@ -52,6 +52,6 @@ function resolveLanguage(lang?: string): 'json' | 'bash' | 'diff' | 'typescript'
   padding: 1px 5px;
   font-family: 'SF Mono', SFMono-Regular, ui-monospace, Menlo, Consolas, monospace;
   font-size: 0.92em;
-  color: #c9d1d9;
+  color: var(--text);
 }
 </style>

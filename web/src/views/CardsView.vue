@@ -266,29 +266,29 @@ watch(() => route.params.id, (newId) => {
   align-items: center;
   gap: 12px;
   padding: 8px 16px;
-  background: #161b22;
-  border-bottom: 1px solid #30363d;
+  background: var(--surface-1);
+  border-bottom: 1px solid var(--border);
   flex-shrink: 0;
 }
 
 .back-btn {
   background: none;
-  border: 1px solid #30363d;
+  border: 1px solid var(--border);
   border-radius: 4px;
   padding: 4px 10px;
-  color: #58a6ff;
+  color: var(--accent-2);
   font-size: 12px;
   cursor: pointer;
   transition: background 0.15s;
 }
 
 .back-btn:hover {
-  background: #21262d;
+  background: var(--surface-3);
 }
 
 .card-id-path {
   font-size: 11px;
-  color: #484f58;
+  color: var(--border-strong);
   font-family: 'SF Mono', monospace;
 }
 
@@ -299,8 +299,8 @@ watch(() => route.params.id, (newId) => {
   align-items: center;
   justify-content: space-between;
   padding: 8px 12px;
-  background: #161b22;
-  border-bottom: 1px solid #30363d;
+  background: var(--surface-1);
+  border-bottom: 1px solid var(--border);
   flex-shrink: 0;
   gap: 12px;
   flex-wrap: wrap;
@@ -315,7 +315,7 @@ watch(() => route.params.id, (newId) => {
 .view-tabs {
   display: flex;
   gap: 2px;
-  background: #21262d;
+  background: var(--surface-3);
   border-radius: 6px;
   padding: 2px;
 }
@@ -324,7 +324,7 @@ watch(() => route.params.id, (newId) => {
   padding: 4px 12px;
   font-size: 12px;
   font-weight: 500;
-  color: #8b949e;
+  color: var(--text-muted);
   background: none;
   border: none;
   border-radius: 4px;
@@ -334,12 +334,12 @@ watch(() => route.params.id, (newId) => {
 }
 
 .view-tab:hover {
-  color: #c9d1d9;
+  color: var(--text);
 }
 
 .view-tab.active {
-  background: #30363d;
-  color: #f0f6fc;
+  background: var(--border);
+  color: var(--text);
 }
 
 .toolbar-right {
@@ -356,29 +356,29 @@ watch(() => route.params.id, (newId) => {
 .search-input {
   width: 180px;
   padding: 5px 10px;
-  background: #21262d;
-  border: 1px solid #30363d;
+  background: var(--surface-3);
+  border: 1px solid var(--border);
   border-radius: 4px;
-  color: #c9d1d9;
+  color: var(--text);
   font-size: 12px;
   font-family: inherit;
 }
 
 .search-input:focus {
   outline: none;
-  border-color: #58a6ff;
+  border-color: var(--accent-2);
 }
 
 .search-input::placeholder {
-  color: #484f58;
+  color: var(--border-strong);
 }
 
 .filter-select {
   padding: 5px 8px;
-  background: #21262d;
-  border: 1px solid #30363d;
+  background: var(--surface-3);
+  border: 1px solid var(--border);
   border-radius: 4px;
-  color: #c9d1d9;
+  color: var(--text);
   font-size: 12px;
   font-family: inherit;
   cursor: pointer;
@@ -386,7 +386,7 @@ watch(() => route.params.id, (newId) => {
 
 .filter-select:focus {
   outline: none;
-  border-color: #58a6ff;
+  border-color: var(--accent-2);
 }
 
 
@@ -401,12 +401,12 @@ watch(() => route.params.id, (newId) => {
 .cards-error {
   padding: 32px;
   text-align: center;
-  color: #8b949e;
+  color: var(--text-muted);
   font-size: 13px;
 }
 
 .cards-error {
-  color: #f85149;
+  color: var(--danger);
 }
 
 </style>

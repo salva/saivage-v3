@@ -104,7 +104,7 @@ function formatDuration(ms: number | null | undefined): string {
 .tl-empty {
   padding: 32px;
   text-align: center;
-  color: #484f58;
+  color: var(--border-strong);
   font-size: 13px;
 }
 
@@ -120,7 +120,7 @@ function formatDuration(ms: number | null | undefined): string {
   top: 0;
   bottom: 0;
   width: 2px;
-  background: #21262d;
+  background: var(--surface-3);
 }
 
 .timeline-event {
@@ -132,14 +132,14 @@ function formatDuration(ms: number | null | undefined): string {
 }
 
 .timeline-event:hover .tl-title {
-  color: #58a6ff;
+  color: var(--accent-2);
 }
 
 .tl-marker {
   width: 28px;
   height: 28px;
   border-radius: 50%;
-  background: #21262d;
+  background: var(--surface-3);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -147,16 +147,16 @@ function formatDuration(ms: number | null | undefined): string {
   z-index: 1;
   font-size: 14px;
   border: 2px solid;
-  border-color: #21262d;
+  border-color: var(--surface-3);
 }
 
-.tl-marker.status-done { border-color: #3fb950; background: #1a2418; }
-.tl-marker.status-failed { border-color: #f85149; background: #241818; }
-.tl-marker.status-running { border-color: #58a6ff; background: #1c2738; }
-.tl-marker.status-active { border-color: #58a6ff; background: #1c2738; }
-.tl-marker.status-blocked { border-color: #d29922; background: #241f18; }
-.tl-marker.status-cancelled { border-color: #484f58; background: #21262d; opacity: 0.6; }
-.tl-marker.status-needs_verification { border-color: #d29922; background: #241f18; }
+.tl-marker.status-done { border-color: var(--accent); background: var(--entry-accent-bg); }
+.tl-marker.status-failed { border-color: var(--danger); background: var(--entry-danger-bg); }
+.tl-marker.status-running { border-color: var(--accent-2); background: var(--entry-user-bg); }
+.tl-marker.status-active { border-color: var(--accent-2); background: var(--entry-user-bg); }
+.tl-marker.status-blocked { border-color: var(--warn); background: var(--entry-warn-bg); }
+.tl-marker.status-cancelled { border-color: var(--border-strong); background: var(--surface-3); opacity: 0.6; }
+.tl-marker.status-needs_verification { border-color: var(--warn); background: var(--entry-warn-bg); }
 
 .tl-icon {
   font-size: 12px;
@@ -170,7 +170,7 @@ function formatDuration(ms: number | null | undefined): string {
 .tl-title {
   font-size: 13px;
   font-weight: 500;
-  color: #c9d1d9;
+  color: var(--text);
   display: flex;
   align-items: center;
   gap: 6px;
@@ -197,34 +197,34 @@ function formatDuration(ms: number | null | undefined): string {
   border-radius: 8px;
 }
 
-.tl-status.status-done { background: #1a2418; color: #7ee787; }
-.tl-status.status-failed { background: #241818; color: #f85149; }
-.tl-status.status-running { background: #1c2738; color: #58a6ff; }
-.tl-status.status-active { background: #1c2738; color: #58a6ff; }
-.tl-status.status-blocked { background: #241f18; color: #d29922; }
-.tl-status.status-drafting { background: #21262d; color: #8b949e; }
-.tl-status.status-backlog { background: #21262d; color: #c9d1d9; }
-.tl-status.status-cancelled { background: #21262d; color: #484f58; }
+.tl-status.status-done { background: var(--entry-accent-bg); color: var(--accent); }
+.tl-status.status-failed { background: var(--entry-danger-bg); color: var(--danger); }
+.tl-status.status-running { background: var(--entry-user-bg); color: var(--accent-2); }
+.tl-status.status-active { background: var(--entry-user-bg); color: var(--accent-2); }
+.tl-status.status-blocked { background: var(--entry-warn-bg); color: var(--warn); }
+.tl-status.status-drafting { background: var(--surface-3); color: var(--text-muted); }
+.tl-status.status-backlog { background: var(--surface-3); color: var(--text); }
+.tl-status.status-cancelled { background: var(--surface-3); color: var(--border-strong); }
 
 .tl-time {
   font-size: 11px;
-  color: #484f58;
+  color: var(--border-strong);
 }
 
 .tl-duration {
   font-size: 11px;
-  color: #8b949e;
+  color: var(--text-muted);
   font-family: 'SF Mono', monospace;
 }
 
 .tl-error {
   margin-top: 4px;
   font-size: 11px;
-  color: #f85149;
+  color: var(--danger);
   padding: 4px 8px;
-  background: #241818;
+  background: var(--entry-danger-bg);
   border-radius: 4px;
-  border: 1px solid #da3633;
+  border: 1px solid var(--danger);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;

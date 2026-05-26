@@ -113,44 +113,44 @@ onMounted(() => {
 
 <style scoped>
 .agents-layout { height:100%; display:flex; flex-direction:column; }
-.agents-loading,.agents-empty,.agents-state { padding:32px; text-align:center; color:#8b949e; font-size:13px; }
-.agents-error { color:#f85149; }
-.agents-unauthorized { color:#ffb86b; }
-.agents-stale { margin:0 16px 12px; padding:12px 16px; border:1px solid #30363d; border-radius:8px; background:#161b22; text-align:left; }
-.agents-warning { margin:0 16px 12px; padding:12px 16px; border:1px solid #5a4a1a; border-radius:8px; background:#201a10; color:#ffb86b; text-align:left; }
+.agents-loading,.agents-empty,.agents-state { padding:32px; text-align:center; color:var(--text-muted); font-size:13px; }
+.agents-error { color:var(--danger); }
+.agents-unauthorized { color:var(--orange); }
+.agents-stale { margin:0 16px 12px; padding:12px 16px; border:1px solid var(--border); border-radius:8px; background:var(--surface-1); text-align:left; }
+.agents-warning { margin:0 16px 12px; padding:12px 16px; border:1px solid var(--entry-warn-border); border-radius:8px; background:var(--entry-warn-bg); color:var(--orange); text-align:left; }
 .agents-content { flex:1; overflow-y:auto; padding:16px; }
 .role-section { margin-bottom:20px; }
-.role-heading { display:flex; align-items:center; gap:8px; font-size:13px; font-weight:600; color:#f0f6fc; margin:0 0 10px 0; text-transform:capitalize; }
-.role-icon { font-size:11px; color:#8b949e; font-family:'SF Mono',monospace; }
-.role-count { font-size:11px; padding:1px 8px; border-radius:10px; background:#21262d; color:#8b949e; }
+.role-heading { display:flex; align-items:center; gap:8px; font-size:13px; font-weight:600; color:var(--text); margin:0 0 10px 0; text-transform:capitalize; }
+.role-icon { font-size:11px; color:var(--text-muted); font-family:'SF Mono',monospace; }
+.role-count { font-size:11px; padding:1px 8px; border-radius:10px; background:var(--surface-3); color:var(--text-muted); }
 .session-list { display:flex; flex-direction:column; gap:8px; }
-.session-card { padding:12px; background:#161b22; border:1px solid #21262d; border-radius:6px; cursor:pointer; transition:border-color .15s; border-left:3px solid transparent; }
-.session-card:hover { border-color:#30363d; }
-.session-card.status-active { border-left-color:#58a6ff; }
-.session-card.status-waiting { border-left-color:#d29922; }
-.session-card.status-done { border-left-color:#3fb950; }
-.session-card.status-blocked { border-left-color:#d29922; }
-.session-card.status-failed { border-left-color:#f85149; }
+.session-card { padding:12px; background:var(--surface-1); border:1px solid var(--surface-3); border-radius:6px; cursor:pointer; transition:border-color .15s; border-left:3px solid transparent; }
+.session-card:hover { border-color:var(--border); }
+.session-card.status-active { border-left-color:var(--accent-2); }
+.session-card.status-waiting { border-left-color:var(--warn); }
+.session-card.status-done { border-left-color:var(--accent); }
+.session-card.status-blocked { border-left-color:var(--warn); }
+.session-card.status-failed { border-left-color:var(--danger); }
 .session-top { display:flex; align-items:center; gap:8px; margin-bottom:6px; }
 .session-status-dot { width:8px; height:8px; border-radius:50%; }
-.s-active { background:#58a6ff; }
-.s-waiting { background:#d29922; }
-.s-done { background:#3fb950; }
-.s-blocked { background:#d29922; }
-.s-failed { background:#f85149; }
-.session-model { font-size:11px; color:#8b949e; font-family:'SF Mono',monospace; }
+.s-active { background:var(--accent-2); }
+.s-waiting { background:var(--warn); }
+.s-done { background:var(--accent); }
+.s-blocked { background:var(--warn); }
+.s-failed { background:var(--danger); }
+.session-model { font-size:11px; color:var(--text-muted); font-family:'SF Mono',monospace; }
 .session-status-badge { font-size:10px; font-weight:600; padding:1px 6px; border-radius:8px; text-transform:uppercase; }
-.session-status-badge.s-active { background:#1c2738; color:#58a6ff; }
-.session-status-badge.s-waiting { background:#241f18; color:#d29922; }
-.session-status-badge.s-done { background:#1a2418; color:#7ee787; }
-.session-status-badge.s-blocked { background:#241f18; color:#d29922; }
-.session-status-badge.s-failed { background:#241818; color:#f85149; }
-.session-meta { display:flex; gap:12px; font-size:11px; color:#8b949e; margin-bottom:4px; }
+.session-status-badge.s-active { background:var(--entry-user-bg); color:var(--accent-2); }
+.session-status-badge.s-waiting { background:var(--entry-warn-bg); color:var(--warn); }
+.session-status-badge.s-done { background:var(--entry-accent-bg); color:var(--accent); }
+.session-status-badge.s-blocked { background:var(--entry-warn-bg); color:var(--warn); }
+.session-status-badge.s-failed { background:var(--entry-danger-bg); color:var(--danger); }
+.session-meta { display:flex; gap:12px; font-size:11px; color:var(--text-muted); margin-bottom:4px; }
 .session-goal,.session-card-ref { font-family:'SF Mono',monospace; }
-.session-time { font-size:11px; color:#484f58; }
-.detail-header-bar { display:flex; align-items:center; gap:12px; padding:8px 16px; background:#161b22; border-bottom:1px solid #30363d; flex-shrink:0; }
-.back-btn { background:none; border:1px solid #30363d; border-radius:4px; padding:4px 10px; color:#58a6ff; font-size:12px; cursor:pointer; font-family:inherit; }
-.back-btn:hover { background:#21262d; }
-.agent-session-id { font-size:11px; color:#484f58; font-family:'SF Mono',monospace; }
+.session-time { font-size:11px; color:var(--border-strong); }
+.detail-header-bar { display:flex; align-items:center; gap:12px; padding:8px 16px; background:var(--surface-1); border-bottom:1px solid var(--border); flex-shrink:0; }
+.back-btn { background:none; border:1px solid var(--border); border-radius:4px; padding:4px 10px; color:var(--accent-2); font-size:12px; cursor:pointer; font-family:inherit; }
+.back-btn:hover { background:var(--surface-3); }
+.agent-session-id { font-size:11px; color:var(--border-strong); font-family:'SF Mono',monospace; }
 .agent-detail-view { height:100%; display:flex; flex-direction:column; overflow:hidden; }
 </style>
