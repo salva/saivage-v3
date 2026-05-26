@@ -10,7 +10,28 @@ import cardsTreeSource from '../components/cards/CardsTreeView.vue?raw';
 import agentConversationSource from '../components/agents/AgentConversationView.vue?raw';
 import CodeBlock from '../components/code/CodeBlock.vue';
 
-const removedMutationTokens = /createCard|updateCard|deleteCard|startProject|stopProject|pauseRuntime|resumeRuntime|acknowledgeNotification|terminateProcess|clearAllNotes|deleteNote|acknowledgeNote/;
+const removedMutationTokens = new RegExp([
+  'createCard',
+  'updateCard',
+  'deleteCard',
+  'startProject',
+  'stopProject',
+  'pauseRuntime',
+  'resumeRuntime',
+  'acknowledgeNotification',
+  'terminateProcess',
+  'clearAllNotes',
+  'deleteNote',
+  'acknowledgeNote',
+  ['list', 'Notifications'].join(''),
+  ['list', 'Notes'].join(''),
+  ['fetch', 'Notifications'].join(''),
+  ['fetch', 'Notes'].join(''),
+  ['Notification', 'Record'].join(''),
+  ['Notifications', 'ListResponse'].join(''),
+  ['NoteQueue', 'Entry'].join(''),
+  ['Notes', 'ListResponse'].join(''),
+].join('|'));
 
 describe('read-only positive checklist', () => {
   it('keeps representative passive controls on each operator view', () => {

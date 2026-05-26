@@ -231,14 +231,6 @@ export interface DetailFreshnessState {
   staleReason: 'ws-card-updated' | 'refresh-failed' | null;
 }
 
-export interface NoteQueueEntry {
-  card_id: string;
-  note_id: string;
-  timestamp: string;
-  kind: NoteKind;
-  note?: NoteRecord;
-}
-
 export type CardHistoryKind = 'update' | 'status' | 'mutate' | 'depends' | 'delete' | 'archive';
 
 export interface CardHistoryHeader {
@@ -262,23 +254,6 @@ export interface CardDiffRow {
   field: string;
   before: unknown;
   after: unknown;
-}
-
-export interface NotificationRecord {
-  id: string;
-  session_id: string | null;
-  kind: NotificationKind;
-  severity: NotificationSeverity;
-  payload_summary: string;
-  related_card_id?: string;
-  related_note_id?: string;
-  related_process_id?: string;
-  related_version_seq?: number;
-  source_actor: NoteAuthor;
-  source_surface: ControlActionSurface;
-  created_at: string;
-  delivered_at: string | null;
-  acknowledged_at: string | null;
 }
 
 export interface ControlActionAuditEntry {
@@ -776,8 +751,6 @@ export interface ConfigResponse { config: Record<string, unknown>; warnings?: st
 export interface ProvidersResponse { providers: Record<string, ProviderEntry>; warnings?: string[]; }
 export interface AgentConversationResponse { session: AgentSession; messages: AgentMessage[]; }
 export interface AgentSessionsResponse { sessions: AgentSession[]; }
-export interface NotesListResponse { notes: NoteQueueEntry[]; total: number; }
-export interface NotificationsListResponse { notifications: NotificationRecord[]; total: number; }
 export interface ControlActionsListResponse { control_actions: ControlActionAuditEntry[]; total: number; }
 export interface ChatSessionsResponse { sessions: ChatSession[]; }
 export interface ChatMessagesResponse { sessionId: string; messages: ChatMessage[]; }

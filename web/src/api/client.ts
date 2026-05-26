@@ -14,7 +14,6 @@ import type {
   ProvidersResponse,
   AgentConversationResponse,
   AgentSessionsResponse,
-  NotesListResponse,
   ChatSessionsResponse,
   ChatMessagesResponse,
   ChatResponse,
@@ -32,7 +31,6 @@ import type {
   CardHistoryListResponse,
   CardHistoryEntryResponse,
   CardDiffResponse,
-  NotificationsListResponse,
   ControlActionsListResponse,
 } from './types';
 import { getAuthToken } from './auth';
@@ -216,17 +214,6 @@ export function getConfig(): Promise<ConfigResponse> {
 
 export function getProviders(): Promise<ProvidersResponse> {
   return request<ProvidersResponse>('GET', '/api/providers');
-}
-
-export function listNotes(): Promise<NotesListResponse> {
-  return request<NotesListResponse>('GET', '/api/notes');
-}
-
-
-
-
-export function listNotifications(): Promise<NotificationsListResponse> {
-  return request<NotificationsListResponse>('GET', '/api/notifications');
 }
 
 
