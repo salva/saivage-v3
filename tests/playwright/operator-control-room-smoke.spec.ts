@@ -19,8 +19,9 @@ test('operator control room smoke walks browser routes with REST fixtures and We
 
   await expect(page.getByText('Dashboard').first()).toBeVisible();
   await expect(page.getByText('saivage-v3')).toBeVisible();
-  await expect(page.getByText('Active Card')).toBeVisible();
-  await expect(page.getByText('card-smoke').first()).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Runtime Console' })).toBeVisible();
+  await expect(page.getByText('Root Run')).toBeVisible();
+  await expect(page.getByText('planner-smok...')).toBeVisible();
   await expect(page.getByText('Total Cards')).toBeVisible();
   await expect(page.getByText(syntheticToken)).toHaveCount(0);
 
@@ -49,7 +50,7 @@ test('operator control room smoke walks browser routes with REST fixtures and We
   await expect(page).toHaveURL(/\/files$/);
   await expect(page.getByText('plan.json')).toBeVisible();
   await page.getByText('plan.json').click();
-  await expect(page.locator('.json-view')).toContainText('operator-playwright-smoke');
+  await expect(page.getByText('operator-playwright-smoke')).toBeVisible();
 
   await page.getByText('Debug').first().click();
   await expect(page).toHaveURL(/\/debug$/);
@@ -59,7 +60,7 @@ test('operator control room smoke walks browser routes with REST fixtures and We
 
   await page.goto('/dashboard');
   await page.evaluate(() => window.__saivageWsFixture?.emitRuntimeUpdate());
-  await expect(page.getByRole('region', { name: 'Runtime Status' }).getByText(/Total Cards\s*3/)).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Runtime Console' }).getByText(/Total Cards\s*3/)).toBeVisible();
 
   await page.goto('/route-that-does-not-exist');
   await expect(page.getByRole('heading', { name: /404 — Not found/i })).toBeVisible();

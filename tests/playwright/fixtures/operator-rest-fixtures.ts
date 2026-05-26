@@ -15,6 +15,10 @@ const runtimeRunning = {
   queue: ['card-next'],
   running_processes: ['proc-smoke'],
   updated_at: now,
+  runtime_intent: { status: 'running', updated_at: now, source_command_id: null, reason: null },
+  runtime_commands: [],
+  runtime_runs: [],
+  runtime_activations: [],
 };
 
 const card = {
@@ -22,6 +26,7 @@ const card = {
   type: 'code',
   parent: 'project-smoke',
   depth: 1,
+  position: 1,
   title: 'Synthetic dashboard smoke card',
   description: 'Exercise operator dashboard surfaces without provider calls.',
   status: 'done',
@@ -48,6 +53,7 @@ const projectCard = {
   type: 'project',
   parent: null,
   depth: 0,
+  position: 0,
   title: 'Synthetic Project',
   priority: 50,
   status: 'running',
@@ -161,7 +167,7 @@ export async function installOperatorRestRoutes(page: Page): Promise<OperatorRes
       return json(route, { ticket: 'synthetic-ws-ticket', expiresAt: '2026-05-19T12:05:00.000Z' });
     }
     if (request.method() === 'GET' && url.pathname === '/api/state') {
-      return json(route, parseOperatorResponse('runtime.getState', { runtime: runtimeRunning, cardIndex: { total: 2, byStatus: { running: 1, done: 1 }, byType: { project: 1, code: 1 } } }));
+      return json(route, parseOperatorResponse('runtime.getState', { projectRoot: '/work/saivage-e2e-checkers', projectId: 'project', runtime: runtimeRunning, cardIndex: { total: 2, byStatus: { running: 1, done: 1 }, byType: { project: 1, code: 1 } } }));
     }
     if (request.method() === 'GET' && url.pathname === '/api/cards') return json(route, cardList);
     if (request.method() === 'GET' && url.pathname === '/api/cards/card-smoke') return json(route, cardDetail);
