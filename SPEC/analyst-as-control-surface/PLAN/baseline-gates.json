@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "captured_at": "2026-05-26T11:20:55Z",
+  "captured_at": "2026-05-25T06:48:19Z",
   "captured_by": "saivage-v3 S00 baseline",
   "workspace_root": "/work",
   "comparison_rule": "A NEW failure for a gate is any failing-id (test_id, scenario_id, or error_id) observed by a per-stage gate run that is not present in this snapshot's failing_ids array for the same gate id. The driver script implements this diff and is the single source of truth.",
@@ -36,9 +36,18 @@
   "runner": "vitest (run mode, JSON reporter)",
   "failure_id_kind": "vitest_test",
   "expected_exit_code_when_clean": 0,
-  "observed_exit_code": 0,
+  "observed_exit_code": 1,
   "normalization_rule": "Parse the vitest JSON report at tmp/web-vitest-report.json (cwd-relative '../../tmp/web-vitest-report.json' resolves to workspace-root tmp/). Walk testResults[*]; for each assertion with status != 'passed' emit one failing-id 'web-vitest:<workspace-relative testFilePath>::<fullName>'. Suite-level failures with no assertionResults emit 'web-vitest:<workspace-relative testFilePath>::<SUITE>'.",
-  "failing_ids": []
+  "failing_ids": [
+    "web-vitest:saivage-v3/web/src/__tests__/api-client-contracts.test.ts::web API contract parser boundary parses migrated runtime responses and rejects malformed JSON payloads",
+    "web-vitest:saivage-v3/web/src/__tests__/api-token-entry.test.ts::ApiTokenEntry lifecycle does not leak token prefixes and shows the real token-format placeholder",
+    "web-vitest:saivage-v3/web/src/__tests__/api-websocket-contracts.test.ts::web websocket shared contract adapter/client dispatches known and unknown base-valid envelopes but drops malformed-known and invalid envelopes",
+    "web-vitest:saivage-v3/web/src/__tests__/api-websocket-contracts.test.ts::web websocket shared contract adapter/client exports shared fixture seams and parser helpers for ARCH-020",
+    "web-vitest:saivage-v3/web/src/__tests__/card-detail-view.test.ts::CardDetailView generated file inspection renders non-empty evidence with summary counters and file list",
+    "web-vitest:saivage-v3/web/src/__tests__/card-detail-view.test.ts::CardDetailView generated file inspection renders structured result values in a formatted pre/code JSON block",
+    "web-vitest:saivage-v3/web/src/__tests__/card-detail-view.test.ts::CardDetailView generated file inspection renders the empty evidence state as one sentence without counters or preview placeholder",
+    "web-vitest:saivage-v3/web/src/__tests__/runtime-store.test.ts::useRuntimeStore setupWsListener — WebSocket events handles runtime-state event and updates runtime + cardIndex"
+  ]
 }
 ,
 {
