@@ -11,8 +11,17 @@ export const ANALYST_ISSUE_SEVERITY_VALUES = ['info','warning','blocker'] as con
 
 function str(description: string): Record<string, unknown> { return { type: 'string', description }; }
 function strEnum(description: string, values: readonly string[]): Record<string, unknown> { return { type: 'string', description: `${description} Allowed values: ${values.join(', ')}.`, enum: [...values] }; }
+function enumOrArray(description: string, values: readonly string[]): Record<string, unknown> {
+  const scalar = strEnum(description, values);
+  return {
+    description: `${description} Accepts either one exact enum value or an array of exact enum values. Allowed values: ${values.join(', ')}.`,
+    anyOf: [
+      scalar,
+      { type: 'array', items: scalar },
+    ],
+  };
+}
 function int(description: string): Record<string, unknown> { return { type: 'integer', description }; }
-function bool(description: string): Record<string, unknown> { return { type: 'boolean', description }; }
 function arr(items: Record<string, unknown>, description?: string): Record<string, unknown> { const result: Record<string, unknown> = { type: 'array', items }; if (description) result.description = description; return result; }
 function tool(name: string, description: string, properties: Record<string, unknown>, required: string[] = []): ToolDefinition {
   return { type: 'function', function: { name, description, parameters: { type: 'object', properties, required, additionalProperties: false } } };
@@ -24,7 +33,7 @@ export const ANALYST_TOOL_DEFINITIONS: ToolDefinition[] = [
   tool('edit_card',`Edit an existing card. Pass id plus only the fields you actually want to change. Card status is planner metadata only and never an execution trigger. Terminal statuses are done/failed/cancelled. There is no 'ready' or 'todo' status.`,{ id: str('The ID of the card to edit.'), title: str('New title.'), description: str('New description.'), status: strEnum('New status.', CARD_STATUS_VALUES), tags: arr(str('A tag string'),'New tags.'), priority: int('New priority (0-100).'), urgency: strEnum('New urgency level.', URGENCY_VALUES), acceptance: str('New acceptance criteria.'), depends_on: arr(str('A card ID'),'New dependency list.') },['id']),
   tool('move_card','Move a card to a current sibling or to the current grandparent. Root moves and cross-tree moves are refused.',{ id: str('The ID of the card to move.'), newParent: str('The ID of the new parent card. Must be either a current sibling or the current grandparent; root moves are refused.') },['id','newParent']),
   tool('delete_card','Delete one or more cards (and all their descendants) in a single call.',{ ids: { ...arr(str('Card id to delete.')), minItems: 1 } },['ids']),
-  tool('list_cards','List and filter cards in the project.',{ status: strEnum('Filter by status.', CARD_STATUS_VALUES), type: strEnum('Filter by card type.', CARD_TYPE_VALUES), parent: str('Filter by parent card ID.'), tag: str('Filter by tag.') },[]),
+  tool('list_cards','List and filter cards in the project.',{ status: enumOrArray('Filter by status.', CARD_STATUS_VALUES), type: enumOrArray('Filter by card type.', CARD_TYPE_VALUES), parent: str('Filter by parent card ID.'), tag: str('Filter by tag.') },[]),
   tool('get_card','Get full details of a single card.',{ id: str('The ID of the card to retrieve.') },['id']),
   tool('get_tree','Show the card tree.',{ rootId: str('Optional root card ID.') },[]),
   tool('get_plan_diary','Read a goal planning diary.',{ goalId: str('The ID of the goal card.') },['goalId']),

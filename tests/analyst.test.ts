@@ -114,8 +114,14 @@ describe('Analyst Tool Definitions', () => {
     expect(toolByName('edit_card').function.description).toContain("There is no 'ready' or 'todo' status");
 
     const listProps = propertiesFor('list_cards');
-    expect(listProps.status.enum).toEqual([...CARD_STATUS_VALUES]);
-    expect(listProps.type.enum).toEqual([...CARD_TYPE_VALUES]);
+    const listStatus = listProps.status as { anyOf?: Array<{ enum?: unknown; items?: { enum?: unknown } }> };
+    const listType = listProps.type as { anyOf?: Array<{ enum?: unknown; items?: { enum?: unknown } }> };
+    expect(listStatus.anyOf?.[0]?.enum).toEqual([...CARD_STATUS_VALUES]);
+    expect(listStatus.anyOf?.[1]?.items?.enum).toEqual([...CARD_STATUS_VALUES]);
+    expect(listType.anyOf?.[0]?.enum).toEqual([...CARD_TYPE_VALUES]);
+    expect(listType.anyOf?.[1]?.items?.enum).toEqual([...CARD_TYPE_VALUES]);
+    expect(listProps.status.enum).toBeUndefined();
+    expect(listProps.type.enum).toBeUndefined();
 
     expect(toolByName('queue_notification').function.description).toContain('Queue a notification');
 
