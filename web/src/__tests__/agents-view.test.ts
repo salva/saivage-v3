@@ -96,17 +96,17 @@ vi.mock('../api/client', () => {
 
     expect(wrapper.text()).toContain('🔧 activate_card(cardId, reason)');
     expect(wrapper.text()).toContain('📤 activate_card → ok (activated G3)');
-    expect(wrapper.find('.tool-call .code-block').exists()).toBe(false);
+    expect(wrapper.find('.tool-call .tool-chip-body').exists()).toBe(false);
 
     await wrapper.findAll('.conv-tb-btn')[0].trigger('click');
     await flushPromises();
-    expect(wrapper.find('.tool-call .code-block').exists()).toBe(true);
-    expect(wrapper.find('.tool-result .code-block').exists()).toBe(true);
+    expect(wrapper.find('.tool-call .tool-chip-body').exists()).toBe(true);
+    expect(wrapper.find('.tool-result .tool-chip-body').exists()).toBe(true);
 
     await wrapper.findAll('.conv-tb-btn')[1].trigger('click');
     await flushPromises();
-    expect(wrapper.find('.tool-call .code-block').exists()).toBe(false);
-    expect(wrapper.find('.tool-result .code-block').exists()).toBe(false);
+    expect(wrapper.find('.tool-call .tool-chip-body').exists()).toBe(false);
+    expect(wrapper.find('.tool-result .tool-chip-body').exists()).toBe(false);
   });
 
 });
@@ -281,17 +281,17 @@ describe('AgentsView', () => {
     expect(wrapper.text()).toContain('activate_card');
     expect(wrapper.text()).toContain('card G3');
     expect(wrapper.text()).toContain('activated G3');
-    expect(wrapper.find('.tool-call .code-block').exists()).toBe(false);
+    expect(wrapper.find('.tool-call .tool-chip-body').exists()).toBe(false);
 
     await wrapper.findAll('.conv-tb-btn')[0].trigger('click');
     await flushPromises();
-    expect(wrapper.find('.tool-call .code-block').exists()).toBe(true);
-    expect(wrapper.find('.tool-result .code-block').exists()).toBe(true);
+    expect(wrapper.find('.tool-call .tool-chip-body').exists()).toBe(true);
+    expect(wrapper.find('.tool-result .tool-chip-body').exists()).toBe(true);
 
     await wrapper.findAll('.conv-tb-btn')[1].trigger('click');
     await flushPromises();
-    expect(wrapper.find('.tool-call .code-block').exists()).toBe(false);
-    expect(wrapper.find('.tool-result .code-block').exists()).toBe(false);
+    expect(wrapper.find('.tool-call .tool-chip-body').exists()).toBe(false);
+    expect(wrapper.find('.tool-result .tool-chip-body').exists()).toBe(false);
   });
 
   it('toolbar exposes a raw LLM exchange toggle that mounts and unmounts the panel', async () => {

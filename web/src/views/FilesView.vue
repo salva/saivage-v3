@@ -231,11 +231,22 @@ async function fetchOutputFiles(): Promise<void> {
   try { await fileStore.fetchOutputFiles(); } catch { }
 }
 
+function parentPath(path: string): string {
+  const index = path.lastIndexOf('/');
+  return index > 0 ? path.slice(0, index) : path;
+}
+
 function applyQueryPath(): void {
+  const root = route.query.root;
   const p = route.query.path;
-  if (typeof p === 'string' && p.startsWith('.saivage-work/')) {
-    log.info('applyQueryPath navigating output panel to', p);
-    fileStore.navigateOutput(p).catch(() => {});
+  if ((root !== 'meta' && root !== 'output') || typeof p !== 'string' || !p) return;
+  if (root === 'meta' && p.startsWith('.saivage/')) {
+    log.info('applyQueryPath opening metadata file', p);
+    fileStore.navigateMeta(parentPath(p)).then(() => fileStore.fetchFileContent(p)).catch(() => {});
+  }
+  if (root === 'output' && p.startsWith('.saivage-work/')) {
+    log.info('applyQueryPath opening output file', p);
+    fileStore.navigateOutput(parentPath(p)).then(() => fileStore.fetchFileContent(p)).catch(() => {});
   }
 }
 
@@ -246,7 +257,7 @@ onMounted(() => {
   applyQueryPath();
 });
 
-watch(() => route.query.path, () => {
+watch(() => [route.query.root, route.query.path], () => {
   applyQueryPath();
 });
 </script>

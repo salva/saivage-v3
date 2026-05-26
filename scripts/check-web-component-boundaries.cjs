@@ -74,8 +74,19 @@ for (const file of walk(webSrc)) {
   }
 }
 
-if (fs.existsSync(path.join(components, 'conversation'))) {
-  errors.push('web/src/components/conversation exists before the approved F03/F04/F05 conversation cycle');
+
+for (const file of walk(webSrc)) {
+  const fileRel = rel(file);
+  if (fileRel.includes('/__tests__/')) continue;
+  const text = fs.readFileSync(file, 'utf8');
+  let match;
+  importRe.lastIndex = 0;
+  while ((match = importRe.exec(text))) {
+    const spec = match[1] || match[2];
+    if (spec.includes('utils/tool-presenters/') && !spec.endsWith('utils/tool-presenters') && !spec.endsWith('utils/tool-presenters/index')) {
+      errors.push(`${fileRel}:${lineOf(text, match.index)}: production code must import the tool presenter barrel, not ${spec}`);
+    }
+  }
 }
 
 if (errors.length) {

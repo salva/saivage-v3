@@ -31,27 +31,12 @@
           ]"
         >
           <template v-if="item.kind === 'tool_call' || item.kind === 'tool_result'">
-            <button
-              type="button"
-              class="tool-chip"
-              :class="toolChipClasses(item)"
-              :aria-expanded="expandedIds.has(item.id)"
-              :aria-label="toolChipAriaLabel(item)"
-              @click="toggleExpanded(item.id)"
-            >
-              <span class="tool-chip-row">
-                <span class="tool-chip-icon" aria-hidden="true">{{ toolChipParts(item).icon }}</span>
-                <span class="tool-chip-name">{{ toolChipParts(item).name }}</span>
-                <span v-if="toolChipParts(item).headline" class="tool-chip-headline">{{ toolChipParts(item).headline }}</span>
-                <span v-if="toolChipParts(item).detail" class="tool-chip-tag">{{ toolChipParts(item).detail }}</span>
-                <span class="tool-chip-caret" aria-hidden="true">{{ expandedIds.has(item.id) ? '▾' : '▸' }}</span>
-              </span>
-            </button>
-            <CodeBlock
-              v-if="expandedIds.has(item.id)"
-              :code="toolChipDetail(item)"
-              language="json"
-              copyable
+            <ToolChip
+              :presentation="toolChipParts(item)"
+              :expanded="expandedIds.has(item.id)"
+              :variant="toolChipVariant(item)"
+              :label-prefix="`analyst ${item.kind.replace('_', ' ')}`"
+              @toggle="toggleExpanded(item.id)"
             />
           </template>
           <template v-else>
@@ -107,9 +92,8 @@ import { useAnalystChat } from '../../stores/analystChat';
 import { useCardStore } from '../../stores/cards';
 import { useWorkspaceRouteStore } from '../../stores/workspaceRoute';
 import type { ChatMessage } from '../../api/types';
-import { presentToolCall, presentToolResult, safeJsonParse } from '../../utils/tool-presenters';
-import { formatJson } from '../../utils/format-json';
-import CodeBlock from '../content/CodeBlock.vue';
+import { presentToolCall, presentToolResult, type ToolCallPresentation, type ToolResultPresentation } from '../../utils/tool-presenters';
+import ToolChip from '../conversation/ToolChip.vue';
 
 const chat = useAnalystChat();
 const cards = useCardStore();
@@ -149,41 +133,17 @@ const messagesErrorLabel = computed(() => {
   return messagesError.value.message;
 });
 
-interface ChipParts {
-  icon: string;
-  name: string;
-  headline: string;
-  detail?: string;
-  status: 'call' | 'ok' | 'error';
-}
+type ChipParts = ToolCallPresentation | ToolResultPresentation;
 
 function toolChipParts(message: ChatMessage): ChipParts {
-  if (message.kind === 'tool_call') {
-    const view = presentToolCall(message.content, message.tool);
-    return { icon: view.icon, name: view.name, headline: view.headline, detail: view.detail, status: 'call' };
-  }
-  const view = presentToolResult(message.content, { tool: message.tool, kind: message.kind });
-  return { icon: view.icon, name: view.name, headline: view.headline, detail: view.detail, status: view.status };
+  return message.kind === 'tool_call'
+    ? presentToolCall(message.content, message.tool)
+    : presentToolResult(message.content, { tool: message.tool, kind: message.kind });
 }
 
-function toolChipClasses(message: ChatMessage): Record<string, boolean> {
-  const parts = toolChipParts(message);
-  return {
-    'tool-chip-call': parts.status === 'call',
-    'tool-chip-ok': parts.status === 'ok',
-    'tool-chip-error': parts.status === 'error',
-  };
-}
-
-function toolChipAriaLabel(message: ChatMessage): string {
-  const action = expandedIds.value.has(message.id) ? 'Collapse' : 'Expand';
-  const parts = toolChipParts(message);
-  return `${action} analyst ${message.kind.replace('_', ' ')} details: ${parts.icon} ${parts.name} ${parts.headline}`.trim();
-}
-
-function toolChipDetail(message: ChatMessage): string {
-  const parsed = safeJsonParse(message.content);
-  return parsed === null ? message.content : formatJson(parsed);
+function toolChipVariant(message: ChatMessage): 'call' | 'ok' | 'error' {
+  if (message.kind === 'tool_call') return 'call';
+  return presentToolResult(message.content, { tool: message.tool, kind: message.kind }).status;
 }
 
 function toggleExpanded(id: string): void {
@@ -295,7 +255,6 @@ onBeforeUnmount(() => {
 }
 
 .message-bubble,
-.tool-chip,
 .state-panel {
   border-radius: 10px;
   padding: 10px 12px;
@@ -306,43 +265,6 @@ onBeforeUnmount(() => {
 .role-user .message-bubble {
   background: var(--surface-3);
 }
-
-.tool-chip {
-  display: flex;
-  justify-content: space-between;
-  width: 100%;
-  border: 1px solid var(--border);
-  cursor: pointer;
-}
-
-.tool-chip-row {
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-  width: 100%;
-  min-width: 0;
-  font-size: 12px;
-  font-family: 'SF Mono', monospace;
-}
-
-.tool-chip-icon { font-size: 13px; }
-.tool-chip-name { font-weight: 600; color: var(--purple); flex-shrink: 0; }
-.tool-chip-headline { color: var(--text); flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.tool-chip-tag {
-  color: var(--text-muted);
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  padding: 1px 8px;
-  font-size: 11px;
-  white-space: nowrap;
-}
-.tool-chip-caret { color: var(--text-muted); margin-left: auto; flex-shrink: 0; }
-
-.tool-chip-call .tool-chip-name { color: var(--purple); }
-.tool-chip-ok .tool-chip-name { color: var(--accent); }
-.tool-chip-error { border-color: var(--danger); }
-.tool-chip-error .tool-chip-name { color: var(--danger); }
-.tool-chip-error .tool-chip-headline { color: var(--danger); }
 
 .tool-chip.pending {
   cursor: default;

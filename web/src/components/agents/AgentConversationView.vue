@@ -60,51 +60,25 @@
             </div>
           </div>
 
-          <div
+          <ToolChip
             v-if="step.toolCall"
             class="conv-message tool-call"
-            :class="{ expanded: expandedToolCalls.has(step.toolCall.id) }"
-          >
-            <div class="tc-header" @click="agentStore.toggleToolCall(step.toolCall.id)">
-              <span class="tc-toggle">{{ expandedToolCalls.has(step.toolCall.id) ? '-' : '+' }}</span>
-              <span class="tc-tool">
-                <span class="tc-icon" aria-hidden="true">{{ toolCallView(step.toolCall).icon }}</span>
-                <span class="tc-name">{{ toolCallView(step.toolCall).name }}</span>
-                <span v-if="toolCallView(step.toolCall).headline" class="tc-headline">{{ toolCallView(step.toolCall).headline }}</span>
-                <span v-if="toolCallView(step.toolCall).detail" class="tc-detail">{{ toolCallView(step.toolCall).detail }}</span>
-              </span>
-              <span class="tc-time" :title="timestampTitle(step.toolCall.timestamp)">{{ fmtTime(step.toolCall.timestamp) }}</span>
-            </div>
-            <CodeBlock
-              v-if="expandedToolCalls.has(step.toolCall.id)"
-              :code="expandedDetail(step.toolCall)"
-              language="json"
-              copyable
-            />
-          </div>
+            :presentation="toolCallView(step.toolCall)"
+            :expanded="expandedToolCalls.has(step.toolCall.id)"
+            variant="call"
+            label-prefix="agent tool call"
+            @toggle="agentStore.toggleToolCall(step.toolCall.id)"
+          />
 
-          <div
+          <ToolChip
             v-if="step.toolResult"
             class="conv-message tool-result"
-            :class="{ expanded: expandedToolCalls.has(step.toolResult.id), 'is-error': toolResultView(step.toolResult).status === 'error' }"
-          >
-            <div class="tr-header" @click="agentStore.toggleToolCall(step.toolResult.id)">
-              <span class="tr-toggle">{{ expandedToolCalls.has(step.toolResult.id) ? '-' : '+' }}</span>
-              <span class="tr-label">
-                <span class="tr-icon" aria-hidden="true">{{ toolResultView(step.toolResult).icon }}</span>
-                <span class="tr-name">{{ toolResultView(step.toolResult).name }}</span>
-                <span v-if="toolResultView(step.toolResult).headline" class="tr-headline">{{ toolResultView(step.toolResult).headline }}</span>
-                <span v-if="toolResultView(step.toolResult).detail" class="tr-detail">{{ toolResultView(step.toolResult).detail }}</span>
-              </span>
-              <span class="tr-time" :title="timestampTitle(step.toolResult.timestamp)">{{ fmtTime(step.toolResult.timestamp) }}</span>
-            </div>
-            <CodeBlock
-              v-if="expandedToolCalls.has(step.toolResult.id)"
-              :code="expandedDetail(step.toolResult)"
-              language="json"
-              copyable
-            />
-          </div>
+            :presentation="toolResultView(step.toolResult)"
+            :expanded="expandedToolCalls.has(step.toolResult.id)"
+            :variant="toolResultView(step.toolResult).status"
+            label-prefix="agent tool result"
+            @toggle="agentStore.toggleToolCall(step.toolResult.id)"
+          />
         </div>
       </div>
     </template>
@@ -119,10 +93,9 @@ import { useAgentStore } from '../../stores/agents';
 import type { AgentMessage, EntityLink } from '../../api/types';
 import { createLogger } from '../../utils/logger';
 import { formatTimestamp, timestampTitle } from '../../utils/timestamp';
-import { presentToolCall, presentToolResult, safeJsonParse } from '../../utils/tool-presenters';
-import { formatJson } from '../../utils/format-json';
-import CodeBlock from '../content/CodeBlock.vue';
+import { presentToolCall, presentToolResult } from '../../utils/tool-presenters';
 import MarkdownText from '../content/MarkdownText.vue';
+import ToolChip from '../conversation/ToolChip.vue';
 import RawLlmExchangePanel from './RawLlmExchangePanel.vue';
 
 const log = createLogger('comp:agent-conv');
@@ -145,11 +118,6 @@ function toolCallView(msg: AgentMessage) {
 
 function toolResultView(msg: AgentMessage) {
   return presentToolResult(msg.content, { tool: msg.tool, kind: msg.kind });
-}
-
-function expandedDetail(msg: AgentMessage): string {
-  const parsed = safeJsonParse(msg.content);
-  return parsed === null ? msg.content : formatJson(parsed);
 }
 
 function linkLabel(link: EntityLink): string {
@@ -220,17 +188,5 @@ watch(() => props.sessionId, async (nid) => {
 .msg-links { display:flex; gap:4px; margin-top:6px; flex-wrap: wrap; }
 .msg-link { font-size:11px; padding:2px 6px; background:var(--entry-user-bg); color:var(--accent-2); border-radius:4px; border: 1px solid var(--border); cursor: pointer; }
 .msg-link:hover { filter: brightness(1.15); }
-.tool-call,.tool-result { padding:0; overflow:hidden; border:1px solid var(--surface-3); border-radius:6px; }
-.tc-header,.tr-header { display:flex; align-items:center; gap:8px; padding:8px 12px; cursor:pointer; user-select:none; transition:background .1s; }
-.tc-header:hover,.tr-header:hover { background:var(--surface-3); }
-.tc-toggle,.tr-toggle { width:14px; font-size:12px; font-weight:600; color:var(--text-muted); font-family:'SF Mono',monospace; }
-.tc-tool,.tr-label { display:flex; align-items:baseline; gap:6px; flex:1; min-width:0; font-size:12px; }
-.tc-icon,.tr-icon { font-size:13px; }
-.tc-name { font-weight:600; color:var(--purple); }
-.tr-name { font-weight:600; color:var(--accent); }
-.tool-result.is-error .tr-name { color:var(--danger); }
-.tc-headline,.tr-headline { color:var(--text); font-family:'SF Mono',monospace; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; min-width:0; flex:1; }
-.tool-result.is-error .tr-headline { color:var(--danger); }
-.tc-detail,.tr-detail { color:var(--text-muted); font-size:11px; font-family:'SF Mono',monospace; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:240px; }
-.tc-time,.tr-time { font-size:10px; color:var(--border-strong); margin-left:auto; }
+.tool-call,.tool-result { padding:0; border:0; background:transparent; }
 </style>

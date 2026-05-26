@@ -9,7 +9,7 @@ describe('FormattedContent', () => {
   it('renders JSON values through JsonView', () => {
     const wrapper = mount(FormattedContent, { props: { kind: 'json', value: { ok: true }, copyable: true } });
     expect(wrapper.findComponent(JsonView).exists()).toBe(true);
-    expect(wrapper.findComponent(CodeBlock).props('code')).toContain('"ok": true');
+    expect(wrapper.find('.json-token-view').text()).toContain('"ok": true');
   });
 
   it('renders markdown through MarkdownText', () => {

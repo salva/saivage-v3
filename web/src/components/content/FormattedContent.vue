@@ -1,13 +1,13 @@
 <template>
   <JsonView
-    v-if="kind === 'json'"
-    :value="value"
+    v-if="resolvedKind === 'json'"
+    :value="jsonValue"
     :copyable="copyable"
     :max-height="maxHeight"
     :wrap="wrap"
     :aria-label="ariaLabel"
   />
-  <MarkdownText v-else-if="kind === 'markdown'" :source="textValue" />
+  <MarkdownText v-else-if="resolvedKind === 'markdown'" :source="textValue" />
   <CodeBlock
     v-else
     :code="textValue"
@@ -27,7 +27,7 @@ import MarkdownText from './MarkdownText.vue';
 
 const props = withDefaults(defineProps<{
   value: unknown;
-  kind?: 'json' | 'markdown' | 'text';
+  kind?: 'json' | 'markdown' | 'text' | 'auto';
   copyable?: boolean;
   maxHeight?: string;
   wrap?: boolean;
@@ -41,4 +41,16 @@ const props = withDefaults(defineProps<{
 });
 
 const textValue = computed(() => typeof props.value === 'string' ? props.value : String(props.value ?? ''));
+const parsedStringJson = computed(() => {
+  if (typeof props.value !== 'string') return null;
+  const trimmed = props.value.trim();
+  if (!trimmed.startsWith('{') && !trimmed.startsWith('[')) return null;
+  try { return JSON.parse(trimmed) as unknown; } catch { return null; }
+});
+const resolvedKind = computed(() => {
+  if (props.kind !== 'auto') return props.kind;
+  if (parsedStringJson.value !== null || (props.value !== null && typeof props.value === 'object')) return 'json';
+  return 'markdown';
+});
+const jsonValue = computed(() => parsedStringJson.value ?? props.value);
 </script>

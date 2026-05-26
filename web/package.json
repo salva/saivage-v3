@@ -30,5 +30,9 @@
     "vite": "^6.4.2",
     "vitest": "^4.1.6",
     "vue-tsc": "^2.2.12"
-  }
+  },
+  "sideEffects": [
+    "src/utils/tool-presenters/**/*.ts",
+    "src/styles/**/*.css"
+  ]
 }
