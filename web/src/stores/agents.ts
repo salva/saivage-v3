@@ -11,6 +11,25 @@ const STALE_AFTER_MS = 30_000;
 const idleActivity = (): ActivityStatus => ({ status: 'idle', pending_calls: [], updated_at: new Date(0).toISOString() });
 function nowIso(): string { return new Date().toISOString(); }
 function isLiveStatus(status: AgentStatus): boolean { return status === 'active' || status === 'waiting'; }
+function normalizeConversationEntries(items: AgentConversationResponse['entries']): AgentConversationResponse['entries'] {
+  let lastToolCallId: string | null = null;
+  return items.map((entry, index) => {
+    const normalized = {
+      ...entry,
+      round_id: entry.round_id ?? 'r-assistant-1',
+      message_index: entry.message_index ?? index,
+      block_index: entry.block_index ?? 0,
+      tool_call_id: entry.tool_call_id,
+    };
+    if (normalized.kind === 'tool_call') {
+      lastToolCallId = normalized.tool_call_id ?? normalized.id;
+      normalized.tool_call_id = lastToolCallId;
+    } else if ((normalized.kind === 'tool_result' || normalized.kind === 'tool_error') && !normalized.tool_call_id && lastToolCallId) {
+      normalized.tool_call_id = lastToolCallId;
+    }
+    return normalized;
+  });
+}
 
 export const useAgentStore = defineStore('agents', () => {
   const sessions = ref<AgentSession[]>([]);
@@ -49,12 +68,13 @@ export const useAgentStore = defineStore('agents', () => {
   async function fetchConversation(sessionId: string): Promise<void> {
     clearLlmExchange(); loading.value = true; error.value = null; conversationWarning.value = null; unauthorized.value = false;
     try {
-      const response: AgentConversationResponse = await getAgentConversation(sessionId);
+      const response: AgentConversationResponse & { messages?: AgentConversationResponse['entries'] } = await getAgentConversation(sessionId);
+      const conversationEntries = normalizeConversationEntries(response.entries ?? response.messages ?? []);
       currentSession.value = response.session;
-      entries.value = response.entries;
-      activityStatus.value = response.activity_status;
-      if (response.entries.length === 0) conversationWarning.value = 'No recorded conversation entries were returned for this session.';
-      else if (response.entries.some((entry) => entry.kind === 'model_issue')) conversationWarning.value = 'Conversation includes model/tool recovery events; inspect for incomplete or repaired output.';
+      entries.value = conversationEntries;
+      activityStatus.value = response.activity_status ?? idleActivity();
+      if (conversationEntries.length === 0) conversationWarning.value = 'No recorded conversation entries were returned for this session.';
+      else if (conversationEntries.some((entry) => entry.kind === 'model_issue')) conversationWarning.value = 'Conversation includes model/tool recovery events; inspect for incomplete or repaired output.';
       markRestSync();
     } catch (err) { const msg = err instanceof ApiError ? err.message : 'Failed to fetch agent conversation'; error.value = msg; unauthorized.value = err instanceof ApiError && err.isUnauthorized; log.error('fetchConversation', msg); throw err; }
     finally { loading.value = false; }

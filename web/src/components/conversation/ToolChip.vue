@@ -37,9 +37,9 @@ const props = defineProps<{
 
 defineEmits<{ (event: 'toggle'): void }>();
 
-const classes = computed(() => ({ 'tool-chip-pending': props.status === 'pending', 'tool-chip-ok': props.status === 'ok', 'tool-chip-error': props.status === 'error' }));
-const headline = computed(() => props.result?.headline ?? props.call.headline);
-const detail = computed(() => props.result?.detail ?? props.call.detail ?? []);
+const classes = computed(() => ({ 'tool-chip-pending': props.status === 'pending', 'tool-chip-ok': props.status === 'ok', 'tool-chip-error': props.status === 'error', 'tool-call': true, 'tool-result': props.result !== null }));
+const headline = computed(() => props.call.headline);
+const detail = computed(() => props.result?.headline ?? props.result?.detail ?? props.call.detail ?? []);
 const isInteractive = (part: ToolCallPresentation['headline'][number]) => part.kind === 'file' || part.kind === 'url';
 const interactiveParts = computed(() => [...headline.value, ...detail.value].filter(isInteractive));
 const groupLabel = computed(() => `tool ${props.call.name} ${props.status}`);
