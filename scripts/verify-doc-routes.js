@@ -16,7 +16,7 @@ const RUNTIME_CONTROL_ROW_RE = /^\|\s*`(POST\s+\/api\/runtime\/(?:pause|resume|f
 
 const DEFAULT_REMOVED_ROUTES = new Set(['POST /api/runtime/dispatch']);
 const DEFAULT_OPERATOR_DOCS = new Set(['README.md','docs/index.md','docs/install.md','docs/configuration.md','docs/operation.md','docs/operator-runbook.md','docs/troubleshooting.md','docs/release-checklist.md']);
-const SOURCE_FILES = ['src/server/server.ts', 'src/server/routes', 'src/contracts/operator-api.ts', 'src/agents/agent-adapter.ts', 'src/agents/agent-tool-catalog.ts', 'src/agents/workspace-tools.ts', 'src/agents/config-schema.ts'];
+const SOURCE_FILES = ['src/server/server.ts', 'src/server/composition/fastify-app.ts', 'src/server/composition/route-composition.ts', 'src/server/routes', 'src/contracts/operator-api.ts', 'src/agents/agent-adapter.ts', 'src/agents/agent-tool-catalog.ts', 'src/agents/workspace-tools.ts', 'src/agents/config-schema.ts'];
 const OPERATION_DOC = 'docs/operation.md';
 const AGENTS_DOC = 'docs/agents.md';
 const CONFIG_DOC = 'docs/configuration.md';
@@ -401,12 +401,12 @@ export function verifyRuntimeControlDocs(options = {}) {
     if (row.request !== shape.request || row.response !== shape.response) failures.push({ type: 'runtime-control-shape', route, message: `${OPERATION_DOC} documents ${route} as ${row.request} -> ${row.response}, expected ${shape.request} -> ${shape.response}` });
   }
   if (verifySource) {
-    const hasEmptyJsonTolerance = sourceContains(projectRoot, 'src/server/server.ts', [
+    const hasEmptyJsonTolerance = ['src/server/server.ts', 'src/server/composition/fastify-app.ts'].some((relPath) => sourceContains(projectRoot, relPath, [
       "addContentTypeParser('application/json'",
       "rawBody.trim() === ''",
       'done(null, null)',
-    ]);
-    if (!hasEmptyJsonTolerance) failures.push({ type: 'runtime-control-empty-json-parser', message: 'src/server/server.ts must keep the application/json parser tolerant of empty bodies for runtime-control POST routes' });
+    ]));
+    if (!hasEmptyJsonTolerance) failures.push({ type: 'runtime-control-empty-json-parser', message: 'server Fastify composition must keep the application/json parser tolerant of empty bodies for runtime-control POST routes' });
   }
   return { ok: failures.length === 0, failures, expected, documented: rows };
 }
