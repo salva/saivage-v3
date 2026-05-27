@@ -10,7 +10,7 @@ vi.mock('../../api/client', () => ({
   ApiError: class extends Error { status: number; constructor(status: number, message: string) { super(message); this.status = status; } get isUnauthorized() { return this.status === 401; } get isNotFound() { return this.status === 404; } },
 }));
 vi.mock('../../stores/ws', () => ({ useWsStore: () => ({ onType: vi.fn(() => vi.fn()), onReconnect: vi.fn(() => vi.fn()) }) }));
-import { getAgentConversation } from '../../api/client';
+import { getAgentConversation, listAgentSessions } from '../../api/client';
 
 const session: AgentSession = { id: 's1', role: 'planner', status: 'active', started_at: '2026-01-01T00:00:00.000Z' };
 const entry: ConversationEntry = { id: 'm1', session_id: 's1', role: 'assistant', kind: 'text', content: 'hello', round_id: 'r-assistant-1', message_index: 0, block_index: 0, timestamp: '2026-01-01T00:00:01.000Z' };
@@ -18,6 +18,13 @@ const activity_status: ActivityStatus = { status: 'idle', pending_calls: [], upd
 
 describe('useAgentStore conversation entries', () => {
   beforeEach(() => { setActivePinia(createPinia()); vi.clearAllMocks(); });
+  it('loads sessions from the contract-backed agent list response', async () => {
+    vi.mocked(listAgentSessions).mockResolvedValue({ sessions: [session] });
+    const store = useAgentStore();
+    await store.fetchSessions();
+    expect(store.sessions).toEqual([session]);
+    expect(store.lastUpdatedBy).toBe('rest');
+  });
   it('loads entries and activity status from the conversation response', async () => {
     vi.mocked(getAgentConversation).mockResolvedValue({ session, entries: [entry], activity_status });
     const store = useAgentStore();

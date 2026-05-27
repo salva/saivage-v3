@@ -114,6 +114,7 @@ describe('operator API contract registry', () => {
       'runtime.cardRuns',
       'mcp.status',
       'mcp.tools',
+      'agents.list',
       'agents.conversation',
       'chats.list',
       'chats.get',
@@ -129,6 +130,7 @@ describe('operator API contract registry', () => {
       expect.objectContaining({ operationId: 'health.readiness', method: 'GET', path: '/health/ready', successSchemaName: 'HealthReadinessResponse' }),
       expect.objectContaining({ operationId: 'runtime.status', method: 'GET', path: '/api/runtime/status', successSchemaName: 'RuntimeStatusResponse' }),
       expect.objectContaining({ operationId: 'mcp.status', method: 'GET', path: '/api/mcp/status', successSchemaName: 'McpStatusResponse' }),
+      expect.objectContaining({ operationId: 'agents.list', method: 'GET', path: '/api/agents', successSchemaName: 'AgentListResponse' }),
       expect.objectContaining({ operationId: 'agents.conversation', method: 'GET', path: '/api/agents/:id/conversation', successSchemaName: 'AgentConversationResponse' }),
       expect.objectContaining({ operationId: 'chats.send', method: 'POST', path: '/api/chats/:sessionId', successSchemaName: 'ChatSendResponse' }),
       expect.objectContaining({ operationId: 'files.content', method: 'GET', path: '/api/files/content', successSchemaName: 'WorkspaceFileContentResponse' }),
@@ -160,6 +162,22 @@ describe('operator API contract registry', () => {
     expect(() => parseOperatorResponse('cards.list', { cards: [{}], total: 1 })).toThrow();
   });
 
+
+  it('uses sessions for the agent list response contract and inventory', () => {
+    const route = operatorRouteInventory().find((item) => item.operationId === 'agents.list');
+    expect(route).toEqual(expect.objectContaining({
+      operationId: 'agents.list',
+      method: 'GET',
+      path: '/api/agents',
+      requiresAuth: true,
+      successSchemaName: 'AgentListResponse',
+    }));
+    const parsed = parseOperatorResponse('agents.list', {
+      sessions: [{ id: 'planner-1', role: 'planner', status: 'active', started_at: '2026-01-01T00:00:00.000Z' }],
+    });
+    expect(parsed.sessions[0].id).toBe('planner-1');
+    expect(() => parseOperatorResponse('agents.list', { sessions: [{}] })).toThrow();
+  });
 
   it('uses entries for the agent conversation response contract and inventory', () => {
     const route = operatorRouteInventory().find((item) => item.operationId === 'agents.conversation');

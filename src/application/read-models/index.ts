@@ -6,3 +6,5 @@ export { CardsReadModelService } from './cards-read-model.js';
 export { ChatReadModelService, isSafeChatSessionId } from './chat-read-model.js';
 export { WorkspaceFileReadModelService } from './workspace-file-read-model.js';
 export { DebugReadModelService } from './debug-read-model.js';
+export { AgentOperatorReadModelService, isSafeAgentSessionId } from './agent-operator-read-model.js';
+export type { AgentOperatorConversationResponse, AgentOperatorSessionSummary, ListedAgentStatus } from './agent-operator-read-model.js';

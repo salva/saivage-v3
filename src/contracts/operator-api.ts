@@ -248,6 +248,9 @@ export const AgentActivityStatusSchema = z.object({
   pending_calls: z.array(z.object({ id: z.string(), tool: z.string(), started_at: z.string() }).catchall(z.unknown())),
   updated_at: z.string(),
 }).catchall(z.unknown());
+export const AgentListResponseSchema = z.object({
+  sessions: z.array(AgentSessionSummarySchema),
+});
 export const AgentConversationResponseSchema = z.object({
   session: AgentSessionSummarySchema,
   entries: z.array(AgentConversationEntrySchema),
@@ -336,6 +339,7 @@ export type McpStatusResponse = z.infer<typeof McpStatusResponseSchema>;
 export type McpInvocationStat = z.infer<typeof McpInvocationStatSchema>;
 export type McpToolDefinition = z.infer<typeof McpToolDefinitionSchema>;
 export type McpToolsResponse = z.infer<typeof McpToolsResponseSchema>;
+export type AgentListResponse = z.infer<typeof AgentListResponseSchema>;
 export type AgentConversationResponse = z.infer<typeof AgentConversationResponseSchema>;
 export type ChatListResponse = z.infer<typeof ChatListResponseSchema>;
 export type ChatEntriesResponse = z.infer<typeof ChatEntriesResponseSchema>;
@@ -501,6 +505,16 @@ export const operatorApiContracts = {
     response: { 200: McpToolsResponseSchema, 400: ValidationErrorSchema, 401: UnauthorizedErrorSchema, 403: ForbiddenErrorSchema, 500: ContractViolationErrorSchema },
     ...operatorSessionContract,
     successSchemaName: 'McpToolsResponse',
+  },
+  'agents.list': {
+    operationId: 'agents.list',
+    method: 'GET',
+    path: '/api/agents',
+    success: AgentListResponseSchema,
+    error: ApiErrorSchema,
+    response: { 200: AgentListResponseSchema, 400: ValidationErrorSchema, 401: UnauthorizedErrorSchema, 403: ForbiddenErrorSchema, 500: ContractViolationErrorSchema },
+    ...operatorSessionContract,
+    successSchemaName: 'AgentListResponse',
   },
   'agents.conversation': {
     operationId: 'agents.conversation',

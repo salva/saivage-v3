@@ -9,6 +9,7 @@ import {
   ChatReadModelService,
   DebugReadModelService,
   WorkspaceFileReadModelService,
+  AgentOperatorReadModelService,
   isSafeChatSessionId,
 } from '../../application/read-models/index.js';
 import type { McpStatusProvider, McpToolsReadModelProvider } from '../../mcp/manager-api.js';
@@ -53,6 +54,7 @@ export function registerOperatorContractRoutes(options: {
   const fileReadModel = new WorkspaceFileReadModelService(projectRoot);
   const debugReadModel = new DebugReadModelService(projectRoot);
   const getActiveRuntime = () => options.activeRuntimeProvider?.() ?? options.activeRuntime;
+  const agentReadModel = new AgentOperatorReadModelService(projectRoot, getActiveRuntime());
 
   const handlers: Partial<Record<keyof typeof operatorApiContracts, ContractHandler>> = {
     'health.liveness': () => ({ body: { status: 'ok', version: '0.1.0', project: 'saivage-v3' } }),
@@ -77,6 +79,7 @@ export function registerOperatorContractRoutes(options: {
       return { body: { servers: provider?.getStatus() ?? [], ...(serverAvailability ? { serverAvailability } : {}) } };
     },
     'mcp.tools': () => ({ body: options.mcpToolsProvider?.()?.getToolsReadModel() ?? { tools: [], servers: [], invocationStats: {}, serverDetails: [] } }),
+    'agents.list': () => ({ body: agentReadModel.listSessions() }),
     'chats.list': () => chatReadModel.listSessions(),
     'chats.get': ({ params }) => chatReadModel.getEntries((params as unknown as { sessionId: string }).sessionId),
     'chats.send': async ({ params, body }) => {

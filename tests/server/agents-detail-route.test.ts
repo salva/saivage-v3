@@ -46,7 +46,9 @@ describe('GET /api/agents/:id', () => {
     await app.register(cors);
     const { default: authPlugin } = await import('../../src/server/auth.js');
     await app.register(authPlugin);
+    const { registerOperatorContractRoutes } = await import('../../src/server/routes/operator-contracts.js');
     const { registerRuntimeConfigNotesRoutes } = await import('../../src/server/routes/runtime-config-notes.js');
+    registerOperatorContractRoutes({ fastify: app, projectRoot });
     registerRuntimeConfigNotesRoutes(app, projectRoot);
     await app.ready();
   });
@@ -59,6 +61,77 @@ describe('GET /api/agents/:id', () => {
   });
 
   const authHdr = (): Record<string, string> => ({ authorization: `Bearer ${AUTH_TOKEN}` });
+
+
+  it('lists messages-only and manifest-only sessions in descending started_at order', async () => {
+    writeMessages(projectRoot, 'planner-list-old', [
+      { timestamp: '2026-01-01T00:00:00.000Z', role: 'assistant', content: 'messages only' },
+    ]);
+    writeManifest(projectRoot, 'reviewer-list-new', { role: 'reviewer', started_at: '2026-01-02T00:00:00.000Z' });
+
+    const res = await app.inject({ method: 'GET', url: '/api/agents', headers: authHdr() });
+    expect(res.statusCode).toBe(200);
+    const sessions = res.json<{ sessions: Array<Record<string, unknown>> }>().sessions;
+    expect(sessions.map((session) => session['id'])).toEqual(['reviewer-list-new', 'planner-list-old']);
+    expect(sessions.find((session) => session['id'] === 'planner-list-old')).toMatchObject({
+      role: 'planner',
+      status: 'inactive',
+      started_at: '2026-01-01T00:00:00.000Z',
+    });
+    expect(sessions.find((session) => session['id'] === 'reviewer-list-new')).toMatchObject({
+      role: 'reviewer',
+      status: 'inactive',
+      started_at: '2026-01-02T00:00:00.000Z',
+    });
+  });
+
+  it('filters non-canonical analyst list sessions while preserving canonical analyst', async () => {
+    writeManifest(projectRoot, 'analyst', { role: 'analyst', started_at: '2026-01-01T00:00:00.000Z' });
+    writeManifest(projectRoot, 'chat-old', { role: 'analyst', started_at: '2026-01-02T00:00:00.000Z' });
+
+    const res = await app.inject({ method: 'GET', url: '/api/agents', headers: authHdr() });
+    expect(res.statusCode).toBe(200);
+    const ids = res.json<{ sessions: Array<{ id: string }> }>().sessions.map((session) => session.id);
+    expect(ids).toContain('analyst');
+    expect(ids).not.toContain('chat-old');
+  });
+
+  it('derives active, waiting, and inactive statuses from runtime state for the list route', async () => {
+    writeManifest(projectRoot, 'planner-active', { role: 'planner', started_at: '2026-02-03T00:00:00.000Z' });
+    writeManifest(projectRoot, 'planner-waiting', { role: 'planner', started_at: '2026-02-02T00:00:00.000Z' });
+    writeManifest(projectRoot, 'reviewer-inactive', { role: 'reviewer', started_at: '2026-02-01T00:00:00.000Z' });
+    const { saveRuntimeState, readRuntimeState } = await import('../../src/runtime/state.js');
+    const state = readRuntimeState(projectRoot);
+    if (!state) throw new Error('expected initialized runtime state');
+    saveRuntimeState(projectRoot, {
+      ...state,
+      current_card_id: 'project',
+      current_agent_session_id: 'planner-active',
+      active_card_run: {
+        card_id: 'project',
+        card_type: 'project',
+        phase: 'planner',
+        runtime_status: 'running',
+        caller_session_id: null,
+        caller_tool_call_id: null,
+        planner_session_id: 'planner-active',
+        correction_attempts: 0,
+        started_at: '2026-02-03T00:00:00.000Z',
+        last_turn_at: '2026-02-03T00:00:00.000Z',
+      },
+      runtime_runs: [
+        { run_id: 'run-active', kind: 'root', card_id: 'project', command_id: 'cmd-1', activation_id: null, parent_run_id: null, phase: 'planner', runtime_status: 'running', session_id: 'planner-active', started_at: '2026-02-03T00:00:00.000Z', updated_at: '2026-02-03T00:00:00.000Z', finished_at: null, result: null },
+        { run_id: 'run-waiting', kind: 'root', card_id: 'project', command_id: 'cmd-2', activation_id: null, parent_run_id: null, phase: 'planner', runtime_status: 'running', session_id: 'planner-waiting', started_at: '2026-02-02T00:00:00.000Z', updated_at: '2026-02-02T00:00:00.000Z', finished_at: null, result: null },
+      ],
+    });
+
+    const res = await app.inject({ method: 'GET', url: '/api/agents', headers: authHdr() });
+    expect(res.statusCode).toBe(200);
+    const byId = new Map(res.json<{ sessions: Array<Record<string, unknown>> }>().sessions.map((session) => [session['id'], session]));
+    expect(byId.get('planner-active')?.['status']).toBe('active');
+    expect(byId.get('planner-waiting')?.['status']).toBe('waiting');
+    expect(byId.get('reviewer-inactive')?.['status']).toBe('inactive');
+  });
 
   it('returns 200 with manifest, message counts, and last_activity_at from the latest message', async () => {
     const sessionId = 'analyst';

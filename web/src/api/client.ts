@@ -197,7 +197,7 @@ export function getRuntimeState(): Promise<RuntimeStateResponse> {
 
 
 export function listAgentSessions(): Promise<AgentSessionsResponse> {
-  return request<AgentSessionsResponse>('GET', '/api/agents');
+  return operatorRequest('agents.list', 'GET', '/api/agents') as Promise<AgentSessionsResponse>;
 }
 
 export function getAgentConversation(sessionId: string): Promise<AgentConversationResponse> {
