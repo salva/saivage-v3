@@ -119,10 +119,13 @@ function createAdapterForSelfCheck(
     applySelfCheck: (role, systemPrompt, sessionId) =>
       (adapter as unknown as Record<string, Function>)['applySelfCheck'](role, systemPrompt, sessionId),
     getRoundCounter: (role: string) => {
-      const counters = (adapter as unknown as { roundCounters: Map<string, number> }).roundCounters;
-      return counters.get(role) ?? 0;
+      const runner = (adapter as unknown as { roleRunner: { roundCounters: Map<string, number> } }).roleRunner;
+      return runner.roundCounters.get(role) ?? 0;
     },
-    getLastRole: () => (adapter as unknown as { lastRole: string | null }).lastRole,
+    getLastRole: () => {
+      const runner = (adapter as unknown as { roleRunner: { lastRole: string | null } }).roleRunner;
+      return runner.lastRole;
+    },
     resetOnRoleChange: (role: string) => {
       (adapter as unknown as Record<string, Function>)['resetOnRoleChange'](role);
     },
