@@ -11,6 +11,8 @@ import { type ServerAvailability } from '../../contracts/index.js';
 import { readLatestLlmExchange, LlmExchangeCorruptedError } from '../../agents/index.js';
 
 
+const GLOBAL_ANALYST_SESSION_ID = 'analyst';
+
 function saivageDir(projectRoot: string): string { return `${projectRoot}/.saivage`; }
 function redactValue<T>(value: T): T {
   return redactForOutbound(value, 'operator.api', { source: 'runtime-config-notes.route' }) as T;
@@ -38,6 +40,11 @@ function parseAgentRoleFromSessionId(sessionId: string): string {
   if (sessionId.startsWith('executor:') || sessionId.startsWith('executor-')) return 'executor';
   if (sessionId.startsWith('card-')) return 'analyst';
   return 'analyst';
+}
+
+function isNonCanonicalAnalystSession(sessionId: string, manifest?: Record<string, unknown> | null): boolean {
+  const role = typeof manifest?.['role'] === 'string' ? manifest['role'] : parseAgentRoleFromSessionId(sessionId);
+  return role === 'analyst' && sessionId !== GLOBAL_ANALYST_SESSION_ID;
 }
 
 function firstMessageTimestamp(projectRoot: string, sessionId: string): string | null {
@@ -80,6 +87,7 @@ function listedStatus(state: RuntimeState | null, session: Record<string, unknow
 function buildListedAgentSession(projectRoot: string, sessionId: string, state: RuntimeState | null): Record<string, unknown> | null {
   if (!SAFE_AGENT_ID_RE.test(sessionId)) return null;
   const manifest = readAgentSession(projectRoot, sessionId);
+  if (isNonCanonicalAnalystSession(sessionId, manifest)) return null;
   const startedAt = typeof manifest?.['started_at'] === 'string' ? manifest['started_at'] : firstMessageTimestamp(projectRoot, sessionId) ?? new Date(0).toISOString();
   return {
     ...(manifest ?? {}),
@@ -90,7 +98,7 @@ function buildListedAgentSession(projectRoot: string, sessionId: string, state: 
   };
 }
 
-export function registerRuntimeConfigNotesRoutes(fastify: FastifyInstance, projectRoot: string, activeRuntime?: ActiveRuntime, serverAvailabilityProvider?: () => ServerAvailability, saivageConfig?: SaivageConfig, configWarnings: readonly string[] = []): void {
+export function registerRuntimeConfigNotesRoutes(fastify: FastifyInstance, projectRoot: string, _activeRuntime?: ActiveRuntime, serverAvailabilityProvider?: () => ServerAvailability, saivageConfig?: SaivageConfig, configWarnings: readonly string[] = []): void {
   fastify.get('/api/control-actions', async (request, reply) => {
     try {
       const query = request.query as { card_id?: string; since?: string };
@@ -103,8 +111,8 @@ export function registerRuntimeConfigNotesRoutes(fastify: FastifyInstance, proje
   fastify.get('/api/config', async (_request, reply) => { if (!saivageConfig) return reply.status(500).send({ error: 'Configuration unavailable', message: 'Server was not started with a validated Environment config.' }); const config = redactForOutbound(saivageConfig, 'operator.api', { source: 'runtime-config-notes.config' }); return reply.send({ config, warnings: configWarnings }); });
   fastify.get('/api/providers', async (_request, reply) => { if (!saivageConfig) return reply.status(500).send({ error: 'Providers unavailable', message: 'Server was not started with a validated Environment config.' }); const providers: Record<string, unknown> = {}; for (const [name, provider] of Object.entries(saivageConfig.providers)) { const p = provider as ProviderEntry; providers[name] = { priority: p.priority, models: p.models, baseUrl: p.baseUrl, hasAccounts: p.accounts ? Object.keys(p.accounts).length : 0, status: 'unknown' }; } return reply.send({ providers }); });
   fastify.get('/api/agents', async (_request, reply) => { try { const sessionsDir = join(projectRoot, '.saivage', 'agents', 'sessions'); const sessionIds = new Set<string>(listAgentMessageSessionIds(projectRoot)); if (existsSync(sessionsDir)) { for (const file of readdirSync(sessionsDir).filter((entry) => entry.endsWith('.json'))) sessionIds.add(file.slice(0, -'.json'.length)); } const state = readRuntimeState(projectRoot); const sessions = Array.from(sessionIds).map((sessionId) => buildListedAgentSession(projectRoot, sessionId, state)).filter((session): session is Record<string, unknown> => Boolean(session)); sessions.sort((a, b) => String(b['started_at'] ?? '').localeCompare(String(a['started_at'] ?? '')) || String(a['id']).localeCompare(String(b['id']))); return reply.send({ sessions }); } catch (err) { return reply.status(500).send({ error: 'Failed to list agent sessions', message: err instanceof Error ? err.message : String(err) }); } });
-  fastify.get('/api/agents/:id', async (request, reply) => { try { const params = request.params as { id: string }; const sessionId = params.id; if (!SAFE_AGENT_ID_RE.test(sessionId)) return reply.status(400).send({ error: 'Invalid agent session ID' }); const manifest = readAgentSession(projectRoot, sessionId); const messages = readAgentMessages(projectRoot, sessionId); if (!manifest && messages.length === 0) return reply.status(404).send({ error: 'Agent session not found', sessionId }); const base = buildListedAgentSession(projectRoot, sessionId, readRuntimeState(projectRoot)) ?? { id: sessionId, role: parseAgentRoleFromSessionId(sessionId), status: 'inactive', started_at: new Date(0).toISOString() }; const lastActivity = lastMessageTimestamp(projectRoot, sessionId) ?? (typeof manifest?.['completed_at'] === 'string' ? (manifest['completed_at'] as string) : null) ?? (typeof base['started_at'] === 'string' ? (base['started_at'] as string) : null); const session = { ...base, message_count: messages.length, last_activity_at: lastActivity }; return reply.send({ session }); } catch (err) { return reply.status(500).send({ error: 'Failed to read agent session', message: err instanceof Error ? err.message : String(err) }); } });
-  fastify.get('/api/agents/:id/conversation', async (request, reply) => { try { const params = request.params as { id: string }; const sessionId = params.id; if (!SAFE_AGENT_ID_RE.test(sessionId)) return reply.status(400).send({ error: 'Invalid agent session ID' }); const messages = readAgentMessages(projectRoot, sessionId); const session = buildListedAgentSession(projectRoot, sessionId, readRuntimeState(projectRoot)); if (!session || (messages.length === 0 && !readAgentSession(projectRoot, sessionId))) return reply.status(404).send({ error: 'Agent session not found', sessionId }); return reply.send({ session, messages }); } catch (err) { return reply.status(500).send({ error: 'Failed to read agent conversation', message: err instanceof Error ? err.message : String(err) }); } });
+  fastify.get('/api/agents/:id', async (request, reply) => { try { const params = request.params as { id: string }; const sessionId = params.id; if (!SAFE_AGENT_ID_RE.test(sessionId)) return reply.status(400).send({ error: 'Invalid agent session ID' }); const manifest = readAgentSession(projectRoot, sessionId); const messages = readAgentMessages(projectRoot, sessionId); if (isNonCanonicalAnalystSession(sessionId, manifest)) return reply.status(404).send({ error: 'Agent session not found', sessionId }); if (!manifest && messages.length === 0) return reply.status(404).send({ error: 'Agent session not found', sessionId }); const base = buildListedAgentSession(projectRoot, sessionId, readRuntimeState(projectRoot)) ?? { id: sessionId, role: parseAgentRoleFromSessionId(sessionId), status: 'inactive', started_at: new Date(0).toISOString() }; const lastActivity = lastMessageTimestamp(projectRoot, sessionId) ?? (typeof manifest?.['completed_at'] === 'string' ? (manifest['completed_at'] as string) : null) ?? (typeof base['started_at'] === 'string' ? (base['started_at'] as string) : null); const session = { ...base, message_count: messages.length, last_activity_at: lastActivity }; return reply.send({ session }); } catch (err) { return reply.status(500).send({ error: 'Failed to read agent session', message: err instanceof Error ? err.message : String(err) }); } });
+  fastify.get('/api/agents/:id/conversation', async (request, reply) => { try { const params = request.params as { id: string }; const sessionId = params.id; if (!SAFE_AGENT_ID_RE.test(sessionId)) return reply.status(400).send({ error: 'Invalid agent session ID' }); const manifest = readAgentSession(projectRoot, sessionId); if (isNonCanonicalAnalystSession(sessionId, manifest)) return reply.status(404).send({ error: 'Agent session not found', sessionId }); const messages = readAgentMessages(projectRoot, sessionId); const session = buildListedAgentSession(projectRoot, sessionId, readRuntimeState(projectRoot)); if (!session || (messages.length === 0 && !manifest)) return reply.status(404).send({ error: 'Agent session not found', sessionId }); return reply.send({ session, messages }); } catch (err) { return reply.status(500).send({ error: 'Failed to read agent conversation', message: err instanceof Error ? err.message : String(err) }); } });
   fastify.get('/api/agents/:id/llm-exchange', async (request, reply) => {
     const params = request.params as { id: string };
     const sessionId = params.id;

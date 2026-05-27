@@ -138,7 +138,7 @@ function queueAnalystTurn(ws: WebSocket, turn: () => Promise<void>): Promise<voi
   return next;
 }
 
-export function registerWebSocket(fastify: FastifyInstance, projectRoot: string, activeRuntime?: ActiveRuntime): void {
+export function registerWebSocket(fastify: FastifyInstance, projectRoot: string, activeRuntime?: ActiveRuntime, requestServerRestart?: () => Promise<void>): void {
   fastify.addHook('onClose', async () => {
     resetWebSocketState(projectRoot);
   });
@@ -191,6 +191,7 @@ export function registerWebSocket(fastify: FastifyInstance, projectRoot: string,
 
               const handler = getAnalystHandler(projectRoot, {
                 activeRuntime,
+                requestServerRestart,
                 onActivity: (activity) => {
                   const sanitizedActivity = sanitizeAnalystPayload(activity) as Record<string, unknown>;
                   broadcast({ type: 'activity', content: sanitizedActivity });

@@ -16,14 +16,14 @@ import {
   type RuntimeConfig,
   type RuntimeStatus,
 } from './runtime.js';
-import { AgentAdapter } from '../agents/index.js';
+import { AgentAdapter } from '../agents/agent-adapter.js';
 import { EventLogger } from '../observability/index.js';
 import { ErrorLogger } from '../observability/index.js';
-import { SkillsEngine } from '../agents/index.js';
-import type { SaivageConfig } from '../agents/index.js';
+import { SkillsEngine } from '../agents/skills-engine.js';
+import type { SaivageConfig } from '../agents/config-schema.js';
 import type { McpManager } from '../mcp/index.js';
-import type { ServerInstance } from '../server/server.js';
 import type { RuntimeState, FreezeManifest } from '../schemas/index.js';
+import { appendRuntimeRun, readRuntimeState, upsertRuntimeActivation } from './state.js';
 
 // ── ActiveRuntime ──────────────────────────────────────────────
 
@@ -36,7 +36,6 @@ export class ActiveRuntime {
   private _projectRoot: string;
   private _config: SaivageConfig;
   private _mcpManager?: McpManager;
-  private _server?: ServerInstance;
 
   /**
    * @param projectRoot  Absolute path to the project root
@@ -71,6 +70,11 @@ export class ActiveRuntime {
       saivageDir,
       config: this._config,
       eventLogger: this._eventLogger,
+      activationLedger: {
+        readState: () => readRuntimeState(projectRoot),
+        appendRun: (input) => appendRuntimeRun(projectRoot, input),
+        upsertActivation: (input) => upsertRuntimeActivation(projectRoot, input),
+      },
     });
 
     // Wire the real LLM calling function
@@ -117,10 +121,6 @@ export class ActiveRuntime {
     this._mcpManager = mcpManager;
     this._agentAdapter.setMcpManager(mcpManager);
     mcpManager.setEventLogger(this._eventLogger);
-  }
-
-  setServer(server: ServerInstance): void {
-    this._server = server;
   }
 
   // ── Lifecycle ────────────────────────────────────────────────
@@ -241,10 +241,6 @@ export class ActiveRuntime {
 
   get mcpManager(): McpManager | undefined {
     return this._mcpManager;
-  }
-
-  get server(): ServerInstance | undefined {
-    return this._server;
   }
 
   /** Returns the AgentAdapter with the wired LlmCallFn. */

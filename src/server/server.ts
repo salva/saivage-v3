@@ -1,28 +1,18 @@
-import Fastify, { type FastifyInstance, type FastifyReply, type FastifyRequest } from 'fastify';
-import cors from '@fastify/cors';
-import websocket from '@fastify/websocket';
-import fastifyStatic from '@fastify/static';
-import { existsSync } from 'node:fs';
-import { join } from 'node:path';
-import { fileURLToPath } from 'node:url';
-import authPlugin from './auth.js';
-import { configureAuthPolicy } from './auth-policy.js';
-import { registerAuthRoutes } from './routes/auth.js';
-import { registerOperatorContractRoutes } from './routes/operator-contracts.js';
-import { registerRuntimeConfigNotesRoutes } from './routes/runtime-config-notes.js';
-import { registerInternalDebugRoutes, resetChatRouteState } from './routes/chats-files-debug.js';
-import { registerEventsRoute } from './routes/events.js';
-import { registerProcessRoutes } from './routes/processes.js';
-import { registerWebSocket, resetRuntimeEventSubscriptions, resetWebSocketState, wireRuntimeEvents } from './websocket.js';
+import type { FastifyInstance } from 'fastify';
 import { loadConfig, type SaivageConfig } from '../agents/index.js';
 import type { Environment } from '../config/index.js';
 import { McpManager } from '../mcp/index.js';
 import { TelegramBot } from '../telegram/index.js';
-import { setProjectNotificationDeliveryAdapters, clearProjectNotificationDeliveryAdapters } from '../notifications/index.js';
-import { TelegramNotificationDeliveryAdapter, buildTelegramStartupDiagnosticSummary, evaluateTelegramRecipientReadiness, normalizeTelegramNotificationChatIds } from '../telegram/index.js';
 import { ActiveRuntime } from '../runtime/index.js';
-import { buildServerAvailability, type ServerAvailabilityInputs } from './availability.js';
+import { configureAuthPolicy } from './auth-policy.js';
 import { createResourceScope, type ResourceScope } from '../lifecycle/index.js';
+import { createFastifyApp } from './composition/fastify-app.js';
+import { startActiveRuntime } from './composition/runtime-lifecycle.js';
+import { attachMcpManagerToRuntime, startMcpManager } from './composition/mcp-lifecycle.js';
+import { startTelegramNotifications } from './composition/telegram-lifecycle.js';
+import { registerServerRoutes } from './composition/route-composition.js';
+import { stopServerResources } from './composition/server-shutdown.js';
+import type { ServerAvailabilityInputs } from './availability.js';
 
 export interface ServerConfig { host: string; port: number; projectRoot: string; }
 export interface CreateServerOptions { environment: Environment; createRuntime?: boolean; scope?: ResourceScope; }
@@ -58,31 +48,15 @@ export async function createServer(optionsOrProjectRoot: CreateServerOptions | s
   const serverConfig = getServerConfig(environment);
   const saivageConfig: SaivageConfig = environment.config;
   configureAuthPolicy({ apiToken: environment.auth.apiToken });
-  let transportOpt: { target: string; options: Record<string, unknown> } | undefined;
-  if (environment.nodeEnv === 'development') { try { await import('pino-pretty'); transportOpt = { target: 'pino-pretty', options: { colorize: true } }; } catch (err) { console.warn(`pino-pretty not available, falling back to JSON transport: ${err instanceof Error ? err.message : String(err)}`); } }
-  const fastify = Fastify({ logger: { level: environment.server.logLevel, transport: transportOpt } });
-  fastify.addContentTypeParser('application/json', { parseAs: 'string' }, (_request, body, done) => {
-    const rawBody = typeof body === 'string' ? body : body.toString('utf-8');
-    if (rawBody.trim() === '') {
-      done(null, null);
-      return;
-    }
-    try {
-      done(null, JSON.parse(rawBody));
-    } catch (err) {
-      done(err instanceof Error ? err : new Error(String(err)), undefined);
-    }
-  });
-  await fastify.register(cors); await fastify.register(websocket); await fastify.register(authPlugin); registerAuthRoutes(fastify);
-  const thisFile = fileURLToPath(import.meta.url); const inDist = thisFile.includes('/dist/src/') || thisFile.includes('\\dist\\src\\'); const packageRoot = fileURLToPath(new URL(inDist ? '../../..' : '../..', import.meta.url));
-  const docsDistDir = join(packageRoot, 'docs', '.vitepress', 'dist'); const docsBuilt = existsSync(docsDistDir);
-  if (docsBuilt) { await fastify.register(fastifyStatic, { root: docsDistDir, prefix: '/docs/', wildcard: false, decorateReply: false }); fastify.get('/docs', async (_request, reply) => reply.redirect('/docs/')); } else { const docsUnavailable = async (_request: FastifyRequest, reply: FastifyReply) => reply.status(404).send({ error: 'Documentation not built. Run vitepress build docs/ to generate.' }); fastify.get('/docs/*', docsUnavailable); fastify.get('/docs', docsUnavailable); }
-  const webDistDir = join(packageRoot, 'web', 'dist');
-  if (existsSync(webDistDir)) { await fastify.register(fastifyStatic, { root: webDistDir, prefix: '/', wildcard: false }); fastify.setNotFoundHandler((request, reply) => { if (request.url === '/docs' || request.url.startsWith('/docs/')) { if (docsBuilt) return reply.callNotFound(); return reply.status(404).send({ error: 'Documentation not built. Run vitepress build docs/ to generate.' }); } if (request.url.startsWith('/api/')) return reply.status(404).send({ error: 'API route not found' }); reply.sendFile('index.html'); }); }
-  let activeRuntime: ActiveRuntime | undefined;
-  let mcpManager: McpManager | undefined;
-  let runtimeStartupFailure: { code: string; error: unknown } | undefined;
-  let mcpStartupFailure: { code: string; error: unknown } | undefined;
+
+  const fastify = await createFastifyApp(environment);
+  async function stop(): Promise<void> { await scope.dispose(); }
+  const requestRestart = async (): Promise<void> => {
+    setImmediate(async () => {
+      try { await stop(); } finally { process.exit(75); }
+    });
+  };
+
   const availabilityInputs: ServerAvailabilityInputs = {
     projectRoot,
     activeRuntime: () => activeRuntime,
@@ -90,33 +64,33 @@ export async function createServer(optionsOrProjectRoot: CreateServerOptions | s
     runtimeStartupFailure: () => runtimeStartupFailure,
     mcpStartupFailure: () => mcpStartupFailure,
   };
-  registerOperatorContractRoutes({ fastify, projectRoot, activeRuntimeProvider: () => activeRuntime, mcpStatusProvider: () => mcpManager, mcpToolsProvider: () => mcpManager, serverAvailabilityProvider: () => buildServerAvailability(availabilityInputs) });
-  if (createRuntime) { try { activeRuntime = new ActiveRuntime(projectRoot, saivageConfig); await activeRuntime.start(); wireRuntimeEvents(activeRuntime.runtime); fastify.log.info('ActiveRuntime started'); } catch (err) { runtimeStartupFailure = { code: 'active-runtime-start-failed', error: err }; fastify.log.warn(`ActiveRuntime initialization failed (continuing without runtime): ${err instanceof Error ? err.message : String(err)}`); } }
-  registerRuntimeConfigNotesRoutes(fastify, projectRoot, activeRuntime, () => buildServerAvailability(availabilityInputs), saivageConfig, environment.configWarnings); registerInternalDebugRoutes(fastify, projectRoot); registerEventsRoute(fastify, projectRoot); registerProcessRoutes(fastify, projectRoot); registerWebSocket(fastify, projectRoot, activeRuntime);
-  try { mcpManager = new McpManager(projectRoot, { scope: scope.child('mcp') }); await mcpManager.startAll(); fastify.log.info('MCP manager started'); } catch (err) { mcpStartupFailure = { code: 'mcp-manager-start-failed', error: err }; fastify.log.warn(`MCP manager initialization failed (continuing without MCP): ${err instanceof Error ? err.message : String(err)}`); }
-  if (activeRuntime && mcpManager) { activeRuntime.setMcpManager(mcpManager); }
-  let telegramBot: TelegramBot | undefined; const botToken = saivageConfig.telegram?.botToken;
-  const recipientRegistry = normalizeTelegramNotificationChatIds(saivageConfig.telegram?.notificationChatIds);
-  if (recipientRegistry.invalidValues.length > 0) fastify.log.warn(`Telegram notification recipient config ignored ${recipientRegistry.invalidValues.length} invalid value(s)`);
-  if (botToken) { try { telegramBot = new TelegramBot(projectRoot, saivageConfig); await telegramBot.start(); fastify.log.info('Telegram bot started'); } catch (err) { fastify.log.warn(`Telegram bot initialization failed: ${err instanceof Error ? err.message : String(err)}`); } }
-  const telegramReadiness = evaluateTelegramRecipientReadiness({ channels: saivageConfig.notifications?.channels, botToken, botAvailable: Boolean(telegramBot), recipients: recipientRegistry.recipients, invalidRecipientCount: recipientRegistry.invalidValues.length });
-  if (telegramReadiness.state === 'ready' && telegramBot) setProjectNotificationDeliveryAdapters(projectRoot, [new TelegramNotificationDeliveryAdapter(telegramBot, recipientRegistry.recipients)]);
-  else clearProjectNotificationDeliveryAdapters(projectRoot);
-  const diagnosticSummary = buildTelegramStartupDiagnosticSummary(telegramReadiness);
-  if (diagnosticSummary) {
-    fastify.log.warn(diagnosticSummary);
-  }
-  async function stopOwnedResources(): Promise<void> { resetChatRouteState(projectRoot); resetWebSocketState(); clearProjectNotificationDeliveryAdapters(projectRoot); if (activeRuntime) resetRuntimeEventSubscriptions(activeRuntime.runtime); try { await fastify.close(); } finally { if (telegramBot) { try { await telegramBot.stop(); fastify.log.info('Telegram bot stopped'); } catch (err) { fastify.log.warn(`Telegram bot stop failed: ${err instanceof Error ? err.message : String(err)}`); } } if (mcpManager) { try { await mcpManager.stopAll(); fastify.log.info('MCP manager stopped'); } catch (err) { fastify.log.warn(`MCP manager stop failed: ${err instanceof Error ? err.message : String(err)}`); } } if (activeRuntime) { try { await activeRuntime.stop(); fastify.log.info('ActiveRuntime stopped'); } catch (err) { fastify.log.warn(`ActiveRuntime stop failed: ${err instanceof Error ? err.message : String(err)}`); } } } }
-  scope.add({ dispose: stopOwnedResources }, { name: 'server-stop' });
-  async function stop(): Promise<void> { await scope.dispose(); }
-  const requestRestart = async (): Promise<void> => {
-    setImmediate(async () => {
-      try { await stop(); } finally { process.exit(75); }
-    });
-  };
-  const instance: ServerInstance = { fastify, config: serverConfig, saivageConfig, scope, mcpManager, telegramBot, activeRuntime, stop, requestRestart };
-  if (activeRuntime) activeRuntime.setServer(instance);
-  return instance;
+
+  const runtimeStartup = await startActiveRuntime({ createRuntime, projectRoot, saivageConfig, fastify });
+  const activeRuntime = runtimeStartup.activeRuntime;
+  const runtimeStartupFailure = runtimeStartup.startupFailure;
+
+  const mcpStartup = await startMcpManager({ projectRoot, scope, fastify });
+  const mcpManager = mcpStartup.mcpManager;
+  const mcpStartupFailure = mcpStartup.startupFailure;
+  attachMcpManagerToRuntime(activeRuntime, mcpManager);
+
+  const telegramBot = await startTelegramNotifications({ projectRoot, saivageConfig, fastify });
+
+  registerServerRoutes({
+    fastify,
+    projectRoot,
+    activeRuntimeProvider: () => activeRuntime,
+    mcpManagerProvider: () => mcpManager,
+    availabilityInputs,
+    saivageConfig,
+    configWarnings: environment.configWarnings,
+    requestServerRestart: requestRestart,
+  });
+
+  scope.add({ dispose: () => stopServerResources({ projectRoot, fastify, activeRuntime, mcpManager, telegramBot }) }, { name: 'server-stop' });
+
+  return { fastify, config: serverConfig, saivageConfig, scope, mcpManager, telegramBot, activeRuntime, stop, requestRestart };
 }
+
 export async function startServer(optionsOrProjectRoot: CreateServerOptions | string, createRuntime?: boolean): Promise<ServerInstance> { const server = await createServer(optionsOrProjectRoot as CreateServerOptions | string, createRuntime); const apiToken = typeof optionsOrProjectRoot === 'string' ? undefined : optionsOrProjectRoot.environment.auth.apiToken; validateDevModeHost(server.config.host, apiToken); await server.fastify.listen({ host: server.config.host, port: server.config.port }); return server; }
 export async function stopServer(server: ServerInstance): Promise<void> { await server.stop(); }

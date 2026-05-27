@@ -207,15 +207,17 @@ export class AnalystHandler {
   private activeRuntime?: ActiveRuntime;
   private actor: ActorRole;
   private surface: ControlActionSurface;
+  private requestServerRestart?: () => Promise<void>;
   private pendingDestructive = new PendingDestructiveStore();
   private amendmentSessions = new Set<string>();
 
-  constructor(projectRoot: string, onActivity?: ActivityCallback, activeRuntime?: ActiveRuntime, actor: ActorRole = 'analyst', surface: ControlActionSurface = 'web-chat') {
+  constructor(projectRoot: string, onActivity?: ActivityCallback, activeRuntime?: ActiveRuntime, actor: ActorRole = 'analyst', surface: ControlActionSurface = 'web-chat', requestServerRestart?: () => Promise<void>) {
     this.projectRoot = projectRoot;
     this.onActivity = onActivity;
     this.activeRuntime = activeRuntime;
     this.actor = actor;
     this.surface = surface;
+    this.requestServerRestart = requestServerRestart;
     this.llmResolver = new LlmIntentResolver(projectRoot);
     this.llmResolver.setEventLogger(activeRuntime?.runtime?.eventLogger);
   }
@@ -265,7 +267,7 @@ export class AnalystHandler {
     if (activePending) {
       if (this.isAffirmation(userContent)) {
         this.pendingDestructive.delete(sessionId);
-        const ctx: ToolContext = { projectRoot: this.projectRoot, sessionId, activeRuntime: this.activeRuntime, actor: this.actor, surface: this.surface, confirmedDestructive: true };
+        const ctx: ToolContext = { projectRoot: this.projectRoot, sessionId, activeRuntime: this.activeRuntime, requestServerRestart: this.requestServerRestart, actor: this.actor, surface: this.surface, confirmedDestructive: true };
         const toolFn = TOOL_REGISTRY[activePending.tool];
         const result = toolFn ? await toolFn(ctx, activePending.params) : { success: false, error: ANALYST_UNKNOWN_CAPABILITY_TEMPLATE(activePending.tool) };
         const preview = this.destructivePreviewFor(activePending.tool, activePending.params);
@@ -319,7 +321,7 @@ export class AnalystHandler {
   private async runAnalystLoop(sessionId: string, _userContent: string, workspaceContext?: WorkspaceContext): Promise<AnalystResponse> {
     const toolInvocations: NonNullable<AnalystResponse['toolInvocations']> = [];
     const projectContext = this.buildProjectContext();
-    const ctx: ToolContext = { projectRoot: this.projectRoot, sessionId, activeRuntime: this.activeRuntime, actor: this.actor, surface: this.surface };
+    const ctx: ToolContext = { projectRoot: this.projectRoot, sessionId, activeRuntime: this.activeRuntime, requestServerRestart: this.requestServerRestart, actor: this.actor, surface: this.surface };
     const previousToolCallFingerprints = new Set<string>();
 
     for (;;) {
@@ -450,10 +452,11 @@ interface CachedHandler {
   onActivity?: ActivityCallback;
   actor: ActorRole;
   surface: ControlActionSurface;
+  requestServerRestart?: () => Promise<void>;
 }
 const analystHandlersByRoot = new Map<string, CachedHandler>();
 
-export function getAnalystHandler(projectRoot: string, opts?: { activeRuntime?: ActiveRuntime; onActivity?: ActivityCallback; actor?: ActorRole; surface?: ControlActionSurface }): AnalystHandler {
+export function getAnalystHandler(projectRoot: string, opts?: { activeRuntime?: ActiveRuntime; onActivity?: ActivityCallback; actor?: ActorRole; surface?: ControlActionSurface; requestServerRestart?: () => Promise<void> }): AnalystHandler {
   const actor = opts?.actor ?? 'analyst';
   const surface = opts?.surface ?? 'web-chat';
   const cached = analystHandlersByRoot.get(projectRoot);
@@ -461,9 +464,10 @@ export function getAnalystHandler(projectRoot: string, opts?: { activeRuntime?: 
     && cached.activeRuntime === opts?.activeRuntime
     && cached.onActivity === opts?.onActivity
     && cached.actor === actor
-    && cached.surface === surface) return cached.handler;
-  const handler = new AnalystHandler(projectRoot, opts?.onActivity, opts?.activeRuntime, actor, surface);
-  analystHandlersByRoot.set(projectRoot, { handler, activeRuntime: opts?.activeRuntime, onActivity: opts?.onActivity, actor, surface });
+    && cached.surface === surface
+    && cached.requestServerRestart === opts?.requestServerRestart) return cached.handler;
+  const handler = new AnalystHandler(projectRoot, opts?.onActivity, opts?.activeRuntime, actor, surface, opts?.requestServerRestart);
+  analystHandlersByRoot.set(projectRoot, { handler, activeRuntime: opts?.activeRuntime, onActivity: opts?.onActivity, actor, surface, requestServerRestart: opts?.requestServerRestart });
   return handler;
 }
 

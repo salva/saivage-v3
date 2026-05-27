@@ -44,6 +44,7 @@ export function registerOperatorContractRoutes(options: {
   mcpStatusProvider?: () => McpStatusProvider | undefined;
   mcpToolsProvider?: () => McpToolsReadModelProvider | undefined;
   serverAvailabilityProvider?: () => ReturnType<typeof buildServerAvailability>;
+  requestServerRestart?: () => Promise<void>;
 }): void {
   const { fastify, projectRoot } = options;
   const runtime = new ContractRuntime();
@@ -91,7 +92,7 @@ export function registerOperatorContractRoutes(options: {
         workspaceContext = validation.value;
       }
       try {
-        const handler = getAnalystHandler(projectRoot, { activeRuntime: getActiveRuntime(), surface: 'web-chat' });
+        const handler = getAnalystHandler(projectRoot, { activeRuntime: getActiveRuntime(), surface: 'web-chat', requestServerRestart: options.requestServerRestart });
         const response = await handler.handleMessage(GLOBAL_ANALYST_SESSION_ID, requestBody.content, workspaceContext);
         return { body: { sessionId: response.sessionId, message: response.message, toolInvocations: response.toolInvocations ?? [] } };
       } catch (err) {
