@@ -5,7 +5,7 @@ import {
   LlmRateLimitError,
   LlmServerError,
   LlmTimeoutError,
-} from './llm-client.js';
+} from './llm-errors.js';
 import type { Candidate } from './provider.js';
 import type { CapabilityRequest, CapabilitySkipDiagnostic } from './provider-capabilities.js';
 

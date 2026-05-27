@@ -12,7 +12,7 @@ import {
   LoadSkillError,
   PERMITTED_ROLES,
 } from '../../src/agents/skill-tools.js';
-import type { ToolDefinition } from '../../src/agents/llm-client.js';
+import type { ToolDefinition } from '../../src/agents/llm-contracts.js';
 import { SkillsEngine } from '../../src/agents/skills-engine.js';
 import type { SkillIndexEntry, AgentRole as SchemaAgentRole } from '../../src/schemas/types.js';
 

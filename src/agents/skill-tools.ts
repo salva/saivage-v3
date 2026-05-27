@@ -8,7 +8,7 @@
  */
 
 import { SkillsEngine } from './skills-engine.js';
-import type { ToolDefinition } from './llm-client.js';
+import type { ToolDefinition } from './llm-contracts.js';
 
 // ── Types ─────────────────────────────────────────────────────
 

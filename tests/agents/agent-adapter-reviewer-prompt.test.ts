@@ -3,7 +3,8 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
-import { AgentAdapter, type LlmCallFn } from '../../src/agents/agent-adapter.js';
+import { AgentAdapter } from '../../src/agents/agent-adapter.js';
+import type { LlmCallFn } from '../../src/agents/llm-contracts.js';
 import { buildReviewerPrompt } from '../../src/agents/system-prompt.js';
 import type { SaivageConfig } from '../../src/agents/config-schema.js';
 import type { AgentMessage, CardRecord } from '../../src/schemas/types.js';

@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 
 import { AgentAdapter } from '../../src/agents/agent-adapter.js';
 import type { AgentRole } from '../../src/agents/agent-adapter.js';
-import type { ToolDefinition } from '../../src/agents/llm-client.js';
+import type { ToolDefinition } from '../../src/agents/llm-contracts.js';
 import {
   ServerNotRunningError,
   ToolNotFoundError,

@@ -1,4 +1,4 @@
-import type { ToolDefinition } from './llm-client.js';
+import type { ToolDefinition } from './llm-contracts.js';
 
 // Canonical vocabularies. Keep aligned with src/schemas/validators.ts.
 // Exported so analyst-tools.ts can produce "Allowed values: ..." hints using

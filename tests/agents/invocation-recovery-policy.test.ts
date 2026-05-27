@@ -10,7 +10,7 @@ import {
   LlmRateLimitError,
   LlmServerError,
   LlmTimeoutError,
-} from '../../src/agents/llm-client.js';
+} from '../../src/agents/llm-errors.js';
 import type { Candidate } from '../../src/agents/provider.js';
 
 const candidate: Candidate = { provider: 'openai-compatible', account: 'primary', model: 'gpt-test' };

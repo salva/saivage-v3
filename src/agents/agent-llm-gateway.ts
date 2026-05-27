@@ -1,10 +1,10 @@
 import type { AgentMessage } from '../schemas/index.js';
 import type { EventLogger } from '../observability/index.js';
-import { LlmClient, type LlmCompleteOptions } from './llm-client.js';
+import type { LlmCompleteOptions, LlmCallFn, LlmInvocationClient } from './llm-contracts.js';
+import { LlmProviderGateway } from './llm-provider-gateway.js';
 import type { Candidate, ProviderRegistry } from './provider.js';
 import { createLlmExchangeRecorder, toRecorderLogger, type LlmExchangeRecorder } from './llm-exchange-recorder.js';
 import { resolveLlmTransportConfig } from './llm-transport.js';
-import type { LlmCallFn } from './agent-adapter.js';
 
 export interface AgentLlmInvocationGatewayConfig {
   projectRoot: string;
@@ -18,7 +18,7 @@ export class AgentLlmInvocationGateway {
   private readonly saivageDir: string;
   private readonly registry: ProviderRegistry;
   private readonly eventLogger?: EventLogger;
-  private readonly llmClientCache: Map<string, LlmClient> = new Map();
+  private readonly llmClientCache: Map<string, LlmInvocationClient> = new Map();
   private readonly recorderCache: Map<string, LlmExchangeRecorder> = new Map();
 
   constructor(config: AgentLlmInvocationGatewayConfig) {
@@ -50,7 +50,7 @@ export class AgentLlmInvocationGateway {
       const { baseUrl, apiKey, cacheKey } = await resolveLlmTransportConfig(this.projectRoot, this.registry, candidate);
       let client = this.llmClientCache.get(cacheKey);
       if (!client) {
-        client = new LlmClient(baseUrl, apiKey, this.registry);
+        client = new LlmProviderGateway({ baseUrl, apiKey, registry: this.registry });
         this.llmClientCache.set(cacheKey, client);
       }
       const recorder = this.getOrCreateRecorder(sessionId);

@@ -1,14 +1,14 @@
 import { join } from 'node:path';
 import type { AgentMessage } from '../schemas/index.js';
-import type { ToolDefinition, ToolCall } from './llm-client.js';
+import type { ToolDefinition, ToolCall, LlmInvocationClient } from './llm-contracts.js';
 import {
   LlmAuthError,
-  LlmClient,
   LlmParseError,
   LlmRateLimitError,
   LlmServerError,
   LlmTimeoutError,
-} from './llm-client.js';
+} from './llm-errors.js';
+import { LlmProviderGateway } from './llm-provider-gateway.js';
 import { ANALYST_TOOL_DEFINITIONS } from './analyst-tool-schemas.js';
 import { RoleToolPolicy } from './role-tool-policy.js';
 import { ANALYST_UNSUPPORTED_ACTION_TEMPLATE } from './analyst-tool-runner.js';
@@ -132,7 +132,7 @@ export class LlmIntentResolver {
   private readonly registry: ProviderRegistry;
   private readonly router: ModelRouter;
   private readonly runtimeConfig: RuntimeSection;
-  private readonly clientCache = new Map<string, LlmClient>();
+  private readonly clientCache = new Map<string, LlmInvocationClient>();
   private readonly recorderCache = new Map<string, LlmExchangeRecorder>();
   private recorderLogger?: LlmExchangeRecorderLogger;
 
@@ -169,7 +169,7 @@ export class LlmIntentResolver {
         const { baseUrl, apiKey, cacheKey } = await resolveLlmTransportConfig(this.projectRoot, this.registry, candidate);
         let client = this.clientCache.get(cacheKey);
         if (!client) {
-          client = new LlmClient(baseUrl, apiKey, this.registry);
+          client = new LlmProviderGateway({ baseUrl, apiKey, registry: this.registry });
           this.clientCache.set(cacheKey, client);
         }
         const result = await client.complete(candidate, systemPrompt, messages, sessionId, {

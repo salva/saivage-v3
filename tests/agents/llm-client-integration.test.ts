@@ -25,12 +25,12 @@ import { EventEmitter } from 'node:events';
 
 // ── Dynamic imports ────────────────────────────────────────────
 
-let LlmClient: typeof import('../../src/agents/llm-client.js').LlmClient;
-let LlmAuthError: typeof import('../../src/agents/llm-client.js').LlmAuthError;
-let LlmRateLimitError: typeof import('../../src/agents/llm-client.js').LlmRateLimitError;
-let LlmServerError: typeof import('../../src/agents/llm-client.js').LlmServerError;
-let LlmTimeoutError: typeof import('../../src/agents/llm-client.js').LlmTimeoutError;
-let LlmParseError: typeof import('../../src/agents/llm-client.js').LlmParseError;
+let LlmProviderGateway: typeof import('../../src/agents/llm-provider-gateway.js').LlmProviderGateway;
+let LlmAuthError: typeof import('../../src/agents/llm-errors.js').LlmAuthError;
+let LlmRateLimitError: typeof import('../../src/agents/llm-errors.js').LlmRateLimitError;
+let LlmServerError: typeof import('../../src/agents/llm-errors.js').LlmServerError;
+let LlmTimeoutError: typeof import('../../src/agents/llm-errors.js').LlmTimeoutError;
+let LlmParseError: typeof import('../../src/agents/llm-errors.js').LlmParseError;
 
 let AgentAdapter: typeof import('../../src/agents/agent-adapter.js').AgentAdapter;
 let createAgentAdapter: typeof import('../../src/agents/agent-adapter.js').createAgentAdapter;
@@ -42,13 +42,14 @@ let resolveLlmTransportConfig: typeof import('../../src/agents/llm-transport.js'
 let loadConfig: typeof import('../../src/agents/config-schema.js').loadConfig;
 
 beforeAll(async () => {
-  const llmMod = await import('../../src/agents/llm-client.js');
-  LlmClient = llmMod.LlmClient;
-  LlmAuthError = llmMod.LlmAuthError;
-  LlmRateLimitError = llmMod.LlmRateLimitError;
-  LlmServerError = llmMod.LlmServerError;
-  LlmTimeoutError = llmMod.LlmTimeoutError;
-  LlmParseError = llmMod.LlmParseError;
+  const gatewayMod = await import('../../src/agents/llm-provider-gateway.js');
+  const errorsMod = await import('../../src/agents/llm-errors.js');
+  LlmProviderGateway = gatewayMod.LlmProviderGateway;
+  LlmAuthError = errorsMod.LlmAuthError;
+  LlmRateLimitError = errorsMod.LlmRateLimitError;
+  LlmServerError = errorsMod.LlmServerError;
+  LlmTimeoutError = errorsMod.LlmTimeoutError;
+  LlmParseError = errorsMod.LlmParseError;
 
   const adapterMod = await import('../../src/agents/agent-adapter.js');
   AgentAdapter = adapterMod.AgentAdapter;
@@ -250,7 +251,7 @@ describe('LlmClient Integration with Mock HTTP Server', () => {
     });
 
     try {
-      const client = new LlmClient(`http://localhost:${port}`, 'sk-test-key');
+      const client = new LlmProviderGateway({ baseUrl: `http://localhost:${port}`, apiKey: 'sk-test-key' });
       const result = await client.complete(
         cand(), sp(), msgs(), 'sess-1',
         { temperature: 0.5, max_tokens: 500 },
@@ -285,7 +286,7 @@ describe('LlmClient Integration with Mock HTTP Server', () => {
     });
 
     try {
-      const client = new LlmClient(`http://localhost:${port}/v1`, 'sk-test-key');
+      const client = new LlmProviderGateway({ baseUrl: `http://localhost:${port}/v1`, apiKey: 'sk-test-key' });
       await client.complete(
         cand(), sp(), msgs(), 'sess-v1-root',
         { temperature: 0.5, max_tokens: 500 },
@@ -304,7 +305,7 @@ describe('LlmClient Integration with Mock HTTP Server', () => {
     });
 
     try {
-      const client = new LlmClient(`http://localhost:${port}/githubcopilot.com`, 'copilot-token');
+      const client = new LlmProviderGateway({ baseUrl: `http://localhost:${port}/githubcopilot.com`, apiKey: 'copilot-token' });
       await client.complete(
         cand(), sp(), msgs(), 'sess-copilot-root',
         { temperature: 0.5, max_tokens: 500 },
@@ -330,10 +331,7 @@ describe('LlmClient Integration with Mock HTTP Server', () => {
     });
 
     try {
-      const client = new LlmClient(
-        `http://localhost:${port}/backend-api`,
-        makeJwtWithCodexAccount('acct-test-123'),
-      );
+      const client = new LlmProviderGateway({ baseUrl: `http://localhost:${port}/backend-api`, apiKey: makeJwtWithCodexAccount('acct-test-123') });
       const result = await client.complete(
         cand('openai-codex', 'gpt-5.4'), sp(), msgs(), 'sess-codex',
         { temperature: 0.5, max_tokens: 500 },
@@ -349,7 +347,7 @@ describe('LlmClient Integration with Mock HTTP Server', () => {
       const body = JSON.parse(cap.body);
       expect(body.model).toBe('gpt-5.4');
       expect(body.stream).toBe(true);
-      expect(body.max_output_tokens).toBe(500);
+      expect(body).not.toHaveProperty('max_output_tokens');
       expect(body.instructions).toBe(sp());
       expect(body.temperature).toBeUndefined();
     } finally {
@@ -357,17 +355,11 @@ describe('LlmClient Integration with Mock HTTP Server', () => {
     }
   });
 
-  it('should retry openai-codex once without max_output_tokens for unsupported-parameter quirk', async () => {
-    const { server, port, captures } = await createMultiCaptureMockServer((_req, res, index) => {
-      if (index === 0) {
-        res.writeHead(400, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ detail: 'Unsupported parameter: max_output_tokens' }));
-        return;
-      }
-
+  it('should make a single openai-codex attempt without max_output_tokens when max_tokens is configured', async () => {
+    const { server, port, captures } = await createMultiCaptureMockServer((_req, res) => {
       res.writeHead(200, { 'Content-Type': 'text/event-stream' });
       res.end([
-        `data: ${JSON.stringify({ type: 'response.output_text.delta', delta: 'Retry ' })}\n\n`,
+        `data: ${JSON.stringify({ type: 'response.output_text.delta', delta: 'Single ' })}\n\n`,
         `data: ${JSON.stringify({ type: 'response.output_text.delta', delta: 'succeeded' })}\n\n`,
         `data: ${JSON.stringify({ type: 'response.completed', response: { status: 'completed' } })}\n\n`,
         'data: [DONE]\n\n',
@@ -375,20 +367,16 @@ describe('LlmClient Integration with Mock HTTP Server', () => {
     });
 
     try {
-      const client = new LlmClient(
-        `http://localhost:${port}/backend-api`,
-        makeJwtWithCodexAccount('acct-test-123'),
-      );
+      const client = new LlmProviderGateway({ baseUrl: `http://localhost:${port}/backend-api`, apiKey: makeJwtWithCodexAccount('acct-test-123') });
       const result = await client.complete(
         cand('openai-codex', 'gpt-5.4'), sp(), msgs(), 'sess-codex-retry',
         { temperature: 0.5, max_tokens: 500 },
       );
 
-      expect(result.content).toBe('Retry succeeded');
-      expect(captures).toHaveLength(2);
-      expect(JSON.parse(captures[0].body).max_output_tokens).toBe(500);
-      expect(JSON.parse(captures[1].body)).not.toHaveProperty('max_output_tokens');
-      expect(captures[1].url).toBe('/backend-api/codex/responses');
+      expect(result.content).toBe('Single succeeded');
+      expect(captures).toHaveLength(1);
+      expect(JSON.parse(captures[0].body)).not.toHaveProperty('max_output_tokens');
+      expect(captures[0].url).toBe('/backend-api/codex/responses');
     } finally {
       await closeServer(server);
     }
@@ -411,10 +399,7 @@ describe('LlmClient Integration with Mock HTTP Server', () => {
     });
 
     try {
-      const client = new LlmClient(
-        `http://localhost:${port}/backend-api`,
-        makeJwtWithCodexAccount('acct-test-123'),
-      );
+      const client = new LlmProviderGateway({ baseUrl: `http://localhost:${port}/backend-api`, apiKey: makeJwtWithCodexAccount('acct-test-123') });
       const result = await client.complete(
         cand('openai-codex', 'gpt-5.4'), sp(), msgs(), 'sess-codex-output-item',
       );
@@ -447,10 +432,7 @@ describe('LlmClient Integration with Mock HTTP Server', () => {
     });
 
     try {
-      const client = new LlmClient(
-        `http://localhost:${port}/backend-api`,
-        makeJwtWithCodexAccount('acct-test-123'),
-      );
+      const client = new LlmProviderGateway({ baseUrl: `http://localhost:${port}/backend-api`, apiKey: makeJwtWithCodexAccount('acct-test-123') });
       const result = await client.complete(
         cand('openai-codex', 'gpt-5.4'), sp(), msgs(), 'sess-codex-function-call',
         {
@@ -487,10 +469,7 @@ describe('LlmClient Integration with Mock HTTP Server', () => {
     });
 
     try {
-      const client = new LlmClient(
-        `http://localhost:${port}/backend-api`,
-        makeJwtWithCodexAccount('acct-test-123'),
-      );
+      const client = new LlmProviderGateway({ baseUrl: `http://localhost:${port}/backend-api`, apiKey: makeJwtWithCodexAccount('acct-test-123') });
       await client.complete(
         cand('openai-codex', 'gpt-5.4'), sp(), [], 'sess-codex-empty',
       );
@@ -513,7 +492,7 @@ describe('LlmClient Integration with Mock HTTP Server', () => {
     });
 
     try {
-      const client = new LlmClient(`http://localhost:${port}`);
+      const client = new LlmProviderGateway({ baseUrl: `http://localhost:${port}` });
       await expect(
         client.complete(cand(), sp(), msgs(), 'sess-auth'),
       ).rejects.toThrow(LlmAuthError);
@@ -551,7 +530,7 @@ describe('LlmClient Integration with Mock HTTP Server', () => {
 
     let adapterTempDir = '';
     try {
-      const client = new LlmClient(`http://localhost:${port}`);
+      const client = new LlmProviderGateway({ baseUrl: `http://localhost:${port}` });
       let clientError: unknown;
       try {
         await client.complete(cand(), sp(), msgs(), 'sess-redact-client');
@@ -617,7 +596,7 @@ describe('LlmClient Integration with Mock HTTP Server', () => {
     });
 
     try {
-      const client = new LlmClient(`http://localhost:${port}`);
+      const client = new LlmProviderGateway({ baseUrl: `http://localhost:${port}` });
       await expect(
         client.complete(cand(), sp(), msgs(), 'sess-403'),
       ).rejects.toThrow(LlmAuthError);
@@ -635,7 +614,7 @@ describe('LlmClient Integration with Mock HTTP Server', () => {
     });
 
     try {
-      const client = new LlmClient(`http://localhost:${port}`);
+      const client = new LlmProviderGateway({ baseUrl: `http://localhost:${port}` });
       await expect(
         client.complete(cand(), sp(), msgs(), 'sess-rate'),
       ).rejects.toThrow(LlmRateLimitError);
@@ -653,7 +632,7 @@ describe('LlmClient Integration with Mock HTTP Server', () => {
     });
 
     try {
-      const client = new LlmClient(`http://localhost:${port}`);
+      const client = new LlmProviderGateway({ baseUrl: `http://localhost:${port}` });
       await expect(
         client.complete(cand(), sp(), msgs(), 'sess-500'),
       ).rejects.toThrow(LlmServerError);
@@ -669,7 +648,7 @@ describe('LlmClient Integration with Mock HTTP Server', () => {
     });
 
     try {
-      const client = new LlmClient(`http://localhost:${port}`);
+      const client = new LlmProviderGateway({ baseUrl: `http://localhost:${port}` });
       await expect(
         client.complete(cand(), sp(), msgs(), 'sess-502'),
       ).rejects.toThrow(LlmServerError);
@@ -686,7 +665,7 @@ describe('LlmClient Integration with Mock HTTP Server', () => {
     });
 
     try {
-      const client = new LlmClient(`http://localhost:${port}`);
+      const client = new LlmProviderGateway({ baseUrl: `http://localhost:${port}` });
       const controller = new AbortController();
       setTimeout(() => controller.abort(), 50);
 
@@ -709,7 +688,7 @@ describe('LlmClient Integration with Mock HTTP Server', () => {
     });
 
     try {
-      const client = new LlmClient(`http://localhost:${port}`);
+      const client = new LlmProviderGateway({ baseUrl: `http://localhost:${port}` });
       await expect(
         client.complete(cand(), sp(), msgs(), 'sess-parse'),
       ).rejects.toThrow(LlmParseError);
@@ -733,7 +712,7 @@ describe('LlmClient Integration with Mock HTTP Server', () => {
     });
 
     try {
-      const client = new LlmClient(`http://localhost:${port}`);
+      const client = new LlmProviderGateway({ baseUrl: `http://localhost:${port}` });
       await expect(
         client.complete(cand(), sp(), msgs(), 'sess-empty'),
       ).rejects.toThrow(LlmParseError);
@@ -757,7 +736,7 @@ describe('LlmClient Integration with Mock HTTP Server', () => {
     });
 
     try {
-      const client = new LlmClient(`http://localhost:${port}`);
+      const client = new LlmProviderGateway({ baseUrl: `http://localhost:${port}` });
       const result = await client.complete(cand(), sp(), msgs(), 'sess-null');
       expect(result.content).toBeNull();
       expect(result.toolCalls).toEqual([]);
@@ -839,14 +818,8 @@ describe('AgentAdapter + Router + LlmClient Full Integration', () => {
     }
   });
 
-  it('should emit one success and no failed event when Codex unsupported max_output_tokens retry succeeds', async () => {
-    const { server, port } = await createMultiCaptureMockServer((_req, res, index) => {
-      if (index === 0) {
-        res.writeHead(400, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ detail: 'Unsupported parameter: max_output_tokens' }));
-        return;
-      }
-
+  it('should emit one success and no failed event when Codex max_tokens is configured', async () => {
+    const { server, port, captures } = await createMultiCaptureMockServer((_req, res) => {
       res.writeHead(200, { 'Content-Type': 'text/event-stream' });
       res.end([
         `data: ${JSON.stringify({
@@ -888,6 +861,8 @@ describe('AgentAdapter + Router + LlmClient Full Integration', () => {
       const result = await adapter.invokePlanner('goal-codex-retry', sp(), msgs());
 
       expect(result.status).toBe('continue');
+      expect(captures).toHaveLength(1);
+      expect(JSON.parse(captures[0].body)).not.toHaveProperty('max_output_tokens');
       expect(successes).toHaveLength(1);
       expect(failures).toHaveLength(0);
     } finally {
@@ -988,7 +963,7 @@ describe('LlmClient Streaming Mode', () => {
     });
 
     try {
-      const client = new LlmClient(`http://localhost:${port}`, 'sk-test-key');
+      const client = new LlmProviderGateway({ baseUrl: `http://localhost:${port}`, apiKey: 'sk-test-key' });
       const result = await client.complete(
         cand(), sp(), msgs(), 'sess-stream-1', { stream: true },
       );
@@ -1010,7 +985,7 @@ describe('LlmClient Streaming Mode', () => {
     });
 
     try {
-      const client = new LlmClient(`http://localhost:${port}`, 'sk-test-key');
+      const client = new LlmProviderGateway({ baseUrl: `http://localhost:${port}`, apiKey: 'sk-test-key' });
       const result = await client.complete(
         cand(), sp(), msgs(), 'sess-stream-2', { stream: true },
       );
@@ -1029,7 +1004,7 @@ describe('LlmClient Streaming Mode', () => {
     });
 
     try {
-      const client = new LlmClient(`http://localhost:${port}`, 'sk-test-key');
+      const client = new LlmProviderGateway({ baseUrl: `http://localhost:${port}`, apiKey: 'sk-test-key' });
       await client.complete(
         cand(), sp(), msgs(), 'sess-stream-3', { stream: true },
       );
@@ -1048,7 +1023,7 @@ describe('LlmClient Streaming Mode', () => {
     });
 
     try {
-      const client = new LlmClient(`http://localhost:${port}`);
+      const client = new LlmProviderGateway({ baseUrl: `http://localhost:${port}` });
       const controller = new AbortController();
       setTimeout(() => controller.abort(), 75);
 
@@ -1479,7 +1454,7 @@ describe('LlmClient Edge Cases', () => {
     });
 
     try {
-      const client = new LlmClient(`http://localhost:${port}`); // no apiKey
+      const client = new LlmProviderGateway({ baseUrl: `http://localhost:${port}` }); // no apiKey
       await client.complete(cand(), sp(), msgs(), 'sess-noauth');
       expect(cap.headers['authorization']).toBeUndefined();
     } finally {
@@ -1494,7 +1469,7 @@ describe('LlmClient Edge Cases', () => {
     });
 
     try {
-      const client = new LlmClient(`http://localhost:${port}`);
+      const client = new LlmProviderGateway({ baseUrl: `http://localhost:${port}` });
       await client.complete(cand(), sp(), msgs(), 'sess-defaults');
       const body = JSON.parse(cap.body);
       expect(body.temperature).toBe(0.7);
@@ -1511,7 +1486,7 @@ describe('LlmClient Edge Cases', () => {
     });
 
     try {
-      const client = new LlmClient(`http://localhost:${port}`);
+      const client = new LlmProviderGateway({ baseUrl: `http://localhost:${port}` });
       const multiMsgs = [
         { id: '1', session_id: 's', role: 'system' as const, kind: 'text' as const, content: 'sys msg', timestamp: new Date().toISOString() },
         { id: '2', session_id: 's', role: 'assistant' as const, kind: 'text' as const, content: 'asst msg', timestamp: new Date().toISOString() },
@@ -1562,7 +1537,7 @@ describe('LlmClient provider capability guardrails', () => {
       supervisor: { enabled: true, intervalMs: 1200000, consecutiveStuckVerdicts: 3, logLines: 400 },
     };
     const registry = new ProviderRegistry(cfg);
-    const client = new LlmClient(`http://localhost:${port}`, undefined, registry);
+    const client = new LlmProviderGateway({ baseUrl: `http://localhost:${port}`, registry });
 
     try {
       await expect(client.complete(
@@ -1617,7 +1592,7 @@ describe('LlmClient provider capability guardrails', () => {
       supervisor: { enabled: true, intervalMs: 1200000, consecutiveStuckVerdicts: 3, logLines: 400 },
     };
     const registry = new ProviderRegistry(cfg);
-    const client = new LlmClient(`http://localhost:${port}`, 'synthetic-token', registry);
+    const client = new LlmProviderGateway({ baseUrl: `http://localhost:${port}`, apiKey: 'synthetic-token', registry });
 
     try {
       await expect(client.complete(
@@ -1666,7 +1641,7 @@ describe('LlmClient provider capability guardrails', () => {
       supervisor: { enabled: true, intervalMs: 1200000, consecutiveStuckVerdicts: 3, logLines: 400 },
     };
     const registry = new ProviderRegistry(cfg);
-    const client = new LlmClient(`http://localhost:${port}`, 'synthetic-token', registry);
+    const client = new LlmProviderGateway({ baseUrl: `http://localhost:${port}`, apiKey: 'synthetic-token', registry });
 
     try {
       await expect(client.complete(

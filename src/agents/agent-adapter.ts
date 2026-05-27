@@ -12,7 +12,7 @@ import { invokeWithRecovery, type RecoveryContext } from './recovery.js';
 import type { ContentSupervisor } from '../workspace/index.js';
 import { getSafeFileForAgent, type SafeFileResult } from '../workspace/index.js';
 import type { AgentExecutionPort, PlannerInvocationRequest, ExecutorInvocationRequest, ReviewerInvocationRequest, SessionReinvokeRequest, RuntimeActivationLedgerPort } from '../contracts/index.js';
-import type { LlmCompleteOptions } from './llm-client.js';
+import type { LlmCompleteOptions, LlmCallFn } from './llm-contracts.js';
 import { capabilityRequestForLlmOptions } from './provider-capabilities.js';
 import { defaultInvocationRecoveryPolicy, type InvocationRecoveryContext } from './invocation-recovery-policy.js';
 import { EventLogger } from '../observability/index.js';
@@ -35,7 +35,6 @@ import { decide as decideCardPermission } from '../permissions/index.js';
 export type AgentRole = OperationalAgentRole;
 export type InvokableAgentRole = AgentInvocationRole;
 export interface AgentAdapterConfig { projectRoot: string; saivageDir: string; config: SaivageConfig; eventBus?: EventEmitter; eventLogger?: EventLogger; activationLedger?: RuntimeActivationLedgerPort; }
-export type LlmCallFn = (candidate: Candidate, systemPrompt: string, messages: AgentMessage[], sessionId: string, opts?: LlmCompleteOptions) => Promise<string>;
 function delayInvocationRecovery(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, Math.max(0, ms)));
 }

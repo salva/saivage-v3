@@ -3,9 +3,10 @@ import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { AgentAdapter, type LlmCallFn } from '../../src/agents/agent-adapter.js';
+import { AgentAdapter } from '../../src/agents/agent-adapter.js';
+import type { LlmCallFn } from '../../src/agents/llm-contracts.js';
 import type { SaivageConfig } from '../../src/agents/config-schema.js';
-import { LlmAuthError, LlmServerError } from '../../src/agents/llm-client.js';
+import { LlmAuthError, LlmServerError } from '../../src/agents/llm-errors.js';
 import { getSession, getSessionMessages, listSessions } from '../../src/agents/session-persistence.js';
 
 function config(): SaivageConfig {

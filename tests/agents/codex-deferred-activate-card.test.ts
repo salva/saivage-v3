@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
 import { AgentAdapter } from '../../src/agents/agent-adapter.js';
-import { LlmClient } from '../../src/agents/llm-client.js';
+import { codexMessages } from '../../src/agents/llm-openai-codex-gateway.js';
 import { createSession, getSessionMessages } from '../../src/agents/session-persistence.js';
 import { initProjectTree } from '../../src/persistence/file-tree.js';
 import { CardStore } from '../../src/cards/card-store.js';
@@ -98,7 +98,7 @@ describe('Codex deferred activate_card history assembly', () => {
     expect(persisted.some((message) => message.role === 'tool' && message.tool_call_id === 'call_report_progress_stage_18')).toBe(true);
     expect(followUpMessages.map((message) => message.id)).toEqual(persisted.map((message) => message.id));
 
-    const codexInput = (new LlmClient('http://localhost:1', 'synthetic-token') as any).codexMessages(followUpMessages);
+    const codexInput = codexMessages(followUpMessages);
     expect(codexInput).toEqual(expect.arrayContaining([
       expect.objectContaining({ type: 'function_call_output', call_id: 'call_activate_stage_18' }),
     ]));

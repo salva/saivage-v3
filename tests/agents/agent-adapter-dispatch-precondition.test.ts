@@ -3,7 +3,8 @@ import { mkdtempSync, mkdirSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
-import { AgentAdapter, type LlmCallFn } from '../../src/agents/agent-adapter.js';
+import { AgentAdapter } from '../../src/agents/agent-adapter.js';
+import type { LlmCallFn } from '../../src/agents/llm-contracts.js';
 import { createSession, DuplicateActiveSessionError, listSessions } from '../../src/agents/session-persistence.js';
 
 function createMinimalAdapter(tmpDir: string): AgentAdapter {

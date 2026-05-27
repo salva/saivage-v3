@@ -1,6 +1,6 @@
-import type { ToolDefinition } from './llm-client.js';
+import type { ToolDefinition } from './llm-contracts.js';
 import { ANALYST_TOOL_DEFINITIONS } from './analyst-tool-schemas.js';
-import { LOAD_SKILL_TOOL_DEFINITION } from './skill-tools.js';
+import { LOAD_SKILL_TOOL_DEFINITION, MCP_TOOL_CALL_TOOL_DEFINITION } from './skill-tools.js';
 import { READ_ONLY_WORKSPACE_TOOL_DEFINITIONS, WORKSPACE_TOOL_DEFINITIONS } from './workspace-tools.js';
 
 function str(description: string): Record<string, unknown> { return { type: 'string', description }; }
@@ -8,8 +8,6 @@ function arr(items: Record<string, unknown>, description?: string): Record<strin
 function tool(name: string, description: string, properties: Record<string, unknown>, required: string[] = []): ToolDefinition {
   return { type: 'function', function: { name, description, parameters: { type: 'object', properties, required, additionalProperties: false } } };
 }
-
-export const MCP_TOOL_CALL_TOOL_DEFINITION: ToolDefinition = { type: 'function', function: { name: 'mcp_tool_call', description: 'Call an approved MCP (Model Context Protocol) tool on a configured MCP server. Availability is role- and policy-scoped at runtime.', parameters: { type: 'object', properties: { serverName: { type: 'string', description: 'Configured MCP server name' }, toolName: { type: 'string', description: 'Tool name on that MCP server' }, args: { type: 'object', description: 'Optional tool arguments', additionalProperties: true } }, required: ['serverName', 'toolName'], additionalProperties: false } } };
 
 const PLANNER_CARD_TOOL_NAMES = new Set([
   'create_card',

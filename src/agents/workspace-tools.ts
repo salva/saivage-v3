@@ -1,6 +1,6 @@
 import { existsSync, readdirSync, statSync } from 'node:fs';
 import { isAbsolute, join, relative, resolve } from 'node:path';
-import type { ToolDefinition } from './llm-client.js';
+import type { ToolDefinition } from './llm-contracts.js';
 import { readProjectFileAtomic, writeFileAtomic } from '../persistence/index.js';
 import { isWriteBlocked } from '../workspace/index.js';
 

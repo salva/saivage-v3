@@ -48,7 +48,7 @@ describe('AgentAdapter executor fallback integration', () => {
   });
 
   it('uses fallback after malformed final executor JSON and marks the session failed with preserved evidence', async () => {
-    const llmCallFn = jest.fn<import('../../src/agents/agent-adapter.js').LlmCallFn>()
+    const llmCallFn = jest.fn<import('../../src/agents/llm-contracts.js').LlmCallFn>()
       .mockResolvedValueOnce(JSON.stringify({
         toolCalls: [
           {

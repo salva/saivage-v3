@@ -2,7 +2,7 @@
  * Tests that verify LlmClient invokes the LlmExchangeRecorder correctly at
  * each capture point: non-stream success, stream success (tee correctness),
  * HTTP errors, network errors, parse errors, Codex success, Codex
- * max_output_tokens retry, and recorder failure isolation.
+ * max_tokens omission, and recorder failure isolation.
  */
 import { afterEach, beforeAll, describe, expect, it, jest } from '@jest/globals';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
@@ -11,13 +11,14 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { LlmExchangeRecorder, ExchangeHandle } from '../../src/agents/llm-exchange-recorder.js';
 
-let LlmClient: typeof import('../../src/agents/llm-client.js').LlmClient;
-let LlmParseError: typeof import('../../src/agents/llm-client.js').LlmParseError;
+let LlmProviderGateway: typeof import('../../src/agents/llm-provider-gateway.js').LlmProviderGateway;
+let LlmParseError: typeof import('../../src/agents/llm-errors.js').LlmParseError;
 
 beforeAll(async () => {
-  const mod = await import('../../src/agents/llm-client.js');
-  LlmClient = mod.LlmClient;
-  LlmParseError = mod.LlmParseError;
+  const gatewayMod = await import('../../src/agents/llm-provider-gateway.js');
+  const errorsMod = await import('../../src/agents/llm-errors.js');
+  LlmProviderGateway = gatewayMod.LlmProviderGateway;
+  LlmParseError = errorsMod.LlmParseError;
 });
 
 interface MockServer { server: Server; port: number; }
@@ -100,7 +101,7 @@ describe('LlmClient + LlmExchangeRecorder integration', () => {
     });
     try {
       const { recorder, begins, responses, errors } = makeMockRecorder();
-      const client = new LlmClient(`http://localhost:${port}`, 'sk');
+      const client = new LlmProviderGateway({ baseUrl: `http://localhost:${port}`, apiKey: 'sk' });
       const r = await client.complete(candidate, sys, msgs, 'sess-1', { recorder });
       expect(r.content).toBe('hi-back');
       expect(begins).toHaveLength(1);
@@ -126,7 +127,7 @@ describe('LlmClient + LlmExchangeRecorder integration', () => {
     });
     try {
       const { recorder, responses } = makeMockRecorder();
-      const client = new LlmClient(`http://localhost:${port}`, 'sk');
+      const client = new LlmProviderGateway({ baseUrl: `http://localhost:${port}`, apiKey: 'sk' });
       const r = await client.complete(candidate, sys, msgs, 'sess-2', { stream: true, recorder });
       expect(r.content).toBe('Hello');
       expect(responses).toHaveLength(1);
@@ -143,7 +144,7 @@ describe('LlmClient + LlmExchangeRecorder integration', () => {
     });
     try {
       const { recorder, responses, errors } = makeMockRecorder();
-      const client = new LlmClient(`http://localhost:${port}`, 'sk');
+      const client = new LlmProviderGateway({ baseUrl: `http://localhost:${port}`, apiKey: 'sk' });
       await expect(client.complete(candidate, sys, msgs, 'sess-3', { recorder })).rejects.toThrow();
       expect(responses).toHaveLength(0);
       expect(errors).toHaveLength(1);
@@ -156,7 +157,7 @@ describe('LlmClient + LlmExchangeRecorder integration', () => {
   it('records bodyRaw=null when fetch fails before any response', async () => {
     const { recorder, errors } = makeMockRecorder();
     // Use an unroutable port to force a network error before any body.
-    const client = new LlmClient('http://127.0.0.1:1', 'sk');
+    const client = new LlmProviderGateway({ baseUrl: 'http://127.0.0.1:1', apiKey: 'sk' });
     await expect(client.complete(candidate, sys, msgs, 'sess-4', { recorder })).rejects.toThrow();
     expect(errors).toHaveLength(1);
     const e = errors[0] as { bodyRaw: string | null };
@@ -171,7 +172,7 @@ describe('LlmClient + LlmExchangeRecorder integration', () => {
     });
     try {
       const { recorder, errors } = makeMockRecorder();
-      const client = new LlmClient(`http://localhost:${port}`, 'sk');
+      const client = new LlmProviderGateway({ baseUrl: `http://localhost:${port}`, apiKey: 'sk' });
       await expect(client.complete(candidate, sys, msgs, 'sess-5', { recorder })).rejects.toBeInstanceOf(LlmParseError);
       expect(errors).toHaveLength(1);
       const e = errors[0] as { errorName: string; bodyRaw: string };
@@ -193,7 +194,7 @@ describe('LlmClient + LlmExchangeRecorder integration', () => {
     });
     try {
       const { recorder, begins, responses, errors } = makeMockRecorder();
-      const client = new LlmClient(`http://localhost:${port}/backend-api`, makeJwt('acct-1'));
+      const client = new LlmProviderGateway({ baseUrl: `http://localhost:${port}/backend-api`, apiKey: makeJwt('acct-1') });
       const r = await client.complete(
         { provider: 'openai-codex', account: null, model: 'gpt-5.4' },
         sys, msgs, 'sess-6', { recorder },
@@ -208,32 +209,27 @@ describe('LlmClient + LlmExchangeRecorder integration', () => {
     } finally { await closeServer(server); }
   });
 
-  it('records two Codex attempts (error then ok) across max_output_tokens retry', async () => {
+  it('records one Codex attempt and omits max_output_tokens when max_tokens is configured', async () => {
     const okLines = [
       `data: ${JSON.stringify({ type: 'response.output_text.delta', delta: 'ok' })}\n\n`,
       `data: ${JSON.stringify({ type: 'response.completed', response: { status: 'completed' } })}\n\n`,
       'data: [DONE]\n\n',
     ];
-    const { server, port } = await startServer((_req, res, i) => {
-      if (i === 0) {
-        res.writeHead(400, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ detail: 'Unsupported parameter: max_output_tokens' }));
-        return;
-      }
+    const { server, port } = await startServer((_req, res) => {
       res.writeHead(200, { 'Content-Type': 'text/event-stream' });
       res.end(okLines.join(''));
     });
     try {
       const { recorder, begins, responses, errors } = makeMockRecorder();
-      const client = new LlmClient(`http://localhost:${port}/backend-api`, makeJwt('acct-1'));
+      const client = new LlmProviderGateway({ baseUrl: `http://localhost:${port}/backend-api`, apiKey: makeJwt('acct-1') });
       const r = await client.complete(
         { provider: 'openai-codex', account: null, model: 'gpt-5.4' },
         sys, msgs, 'sess-7', { max_tokens: 500, recorder },
       );
       expect(r.content).toBe('ok');
-      expect(begins).toHaveLength(2);
-      expect(errors).toHaveLength(1);
-      expect((errors[0] as { status: number }).status).toBe(400);
+      expect(begins).toHaveLength(1);
+      expect(begins[0].request.body).not.toHaveProperty('max_output_tokens');
+      expect(errors).toHaveLength(0);
       expect(responses).toHaveLength(1);
       const resp = responses[0] as { bodyRaw: string };
       expect(resp.bodyRaw).toBe(okLines.join(''));
@@ -242,7 +238,7 @@ describe('LlmClient + LlmExchangeRecorder integration', () => {
 
   it('records a single Codex network error without double-recording', async () => {
     const { recorder, begins, responses, errors } = makeMockRecorder();
-    const client = new LlmClient('http://127.0.0.1:1/backend-api', makeJwt('acct-1'));
+    const client = new LlmProviderGateway({ baseUrl: 'http://127.0.0.1:1/backend-api', apiKey: makeJwt('acct-1') });
     await expect(client.complete(
       { provider: 'openai-codex', account: null, model: 'gpt-5.4' },
       sys, msgs, 'sess-8', { recorder },
@@ -266,7 +262,7 @@ describe('LlmClient + LlmExchangeRecorder integration', () => {
         beginExchange: jest.fn(async () => { throw new Error('recorder-down'); }) as never,
         flush: async () => { /* */ },
       };
-      const client = new LlmClient(`http://localhost:${port}`, 'sk');
+      const client = new LlmProviderGateway({ baseUrl: `http://localhost:${port}`, apiKey: 'sk' });
       await expect(client.complete(candidate, sys, msgs, 'sess-9', { recorder }))
         .rejects.toThrow(/recorder-down/);
     } finally { await closeServer(server); }

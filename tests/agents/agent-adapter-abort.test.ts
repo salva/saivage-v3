@@ -678,7 +678,7 @@ describe('Integration: real invokeAgent candidate loop with cancellation', () =>
   });
 
   function makeHangingLlmCallFn(): {
-    llmCallFn: import('../../src/agents/agent-adapter.js').LlmCallFn;
+    llmCallFn: import('../../src/agents/llm-contracts.js').LlmCallFn;
     startedPromise: Promise<void>;
   } {
     let startedResolve!: () => void;
@@ -686,7 +686,7 @@ describe('Integration: real invokeAgent candidate loop with cancellation', () =>
       startedResolve = resolve;
     });
 
-    const llmCallFn: import('../../src/agents/agent-adapter.js').LlmCallFn = (
+    const llmCallFn: import('../../src/agents/llm-contracts.js').LlmCallFn = (
       _candidate,
       _systemPrompt,
       _messages,
@@ -711,7 +711,7 @@ describe('Integration: real invokeAgent candidate loop with cancellation', () =>
   }
 
   function makeSuccessLlmCallFn(response: string): {
-    llmCallFn: import('../../src/agents/agent-adapter.js').LlmCallFn;
+    llmCallFn: import('../../src/agents/llm-contracts.js').LlmCallFn;
   } {
     return {
       llmCallFn: (_candidate, _systemPrompt, _messages, _sessionId, _opts) => {
@@ -784,7 +784,7 @@ describe('Integration: real invokeAgent candidate loop with cancellation', () =>
 
     const attemptedCandidates: string[] = [];
 
-    const llmCallFn: import('../../src/agents/agent-adapter.js').LlmCallFn = (
+    const llmCallFn: import('../../src/agents/llm-contracts.js').LlmCallFn = (
       candidate,
       _systemPrompt,
       _messages,
@@ -850,7 +850,7 @@ describe('Integration: real invokeAgent candidate loop with cancellation', () =>
 
     const attemptedCandidates: string[] = [];
 
-    const llmCallFn: import('../../src/agents/agent-adapter.js').LlmCallFn = (
+    const llmCallFn: import('../../src/agents/llm-contracts.js').LlmCallFn = (
       candidate,
       _systemPrompt,
       _messages,
