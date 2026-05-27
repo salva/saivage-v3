@@ -23,6 +23,7 @@ This inventory maps every tracked Markdown file in the repository root and `docs
 
 | Path | Classification | Justification | Primary code anchor | Disposition |
 |---|---|---|---|---|
+| `AGENTS.md` | current | Repository-local Codex/agent instructions for current documentation authority, validation commands, and safety boundaries. | AGENTS.md:1 | keep |
 | `README.md` | current | The root landing page is the Stage 26 concise entry point with install, serve, runbook, design, historical, and key-concept links. | package.json:1 | keep |
 | `docs/agents.md` | current | This is the authoritative agent and runtime architecture reference for the current planner, tool, scheduler, and recovery contracts. | src/agents/agent-adapter.ts:1 | keep |
 | `docs/analyst.md` | current | The analyst guide aligns with the implemented analyst handler, authorization checks, and safe inspection tools. | src/agents/analyst-handler.ts:1 | keep |

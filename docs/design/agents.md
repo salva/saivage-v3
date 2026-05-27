@@ -151,12 +151,12 @@ Analyst card/note tools are routed through the card-scoped analyst handler regis
 
 LLM provider failures crossing into agent-visible state are sanitized
 before persistence or event emission. The enforcing paths are
-`src/agents/llm-client.ts:820` and `src/agents/agent-adapter.ts:215`,
+`src/agents/llm-errors.ts:6` and `src/agents/agent-adapter.ts:215`,
 with regression coverage in `tests/agents/llm-client-integration.test.ts`.
 Codex planner/executor calls translate the shared `max_tokens` budget to
 Responses `max_output_tokens` and retry once without it only for the
-known unsupported-parameter endpoint quirk (`src/agents/llm-client.ts:428`,
-`src/agents/llm-client.ts:454`; same test file).
+known unsupported-parameter endpoint quirk (`src/agents/llm-openai-codex-gateway.ts:172`,
+`src/agents/llm-openai-codex-gateway.ts:172`; same test file).
 
 ---
 

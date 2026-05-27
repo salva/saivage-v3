@@ -824,11 +824,11 @@ call/output pairs.
 Source anchors: `src/agents/agent-adapter.ts:329`
 (`handleToolCallsLoop`, repeated-fingerprint, maximum-round, deferred
 `activate_card`, and per-call persistence paths),
-`src/agents/llm-client.ts:544` (`codexMessages` matched-call/output
-filter), and `src/agents/llm-client.ts:454`
+`src/agents/llm-codex-parser.ts:9` (`codexMessages` matched-call/output
+filter), and `src/agents/llm-openai-codex-gateway.ts:172`
 (`max_output_tokens` unsupported-parameter retry). Provider HTTP error
 bodies are sanitized before log-facing errors in
-`src/agents/llm-client.ts:820` and before agent persistence/events in
+`src/agents/llm-errors.ts:6` and before agent persistence/events in
 `src/agents/agent-adapter.ts:215`. Regression anchors:
 `tests/agents/agent-adapter-force-final-answer.test.ts`,
 `tests/agents/codex-deferred-activate-card.test.ts`, and
@@ -910,11 +910,11 @@ above is the in-memory mirror.
 
 ## 14. HTTP API
 
-- `POST /api/runtime/start_project` and `POST /api/runtime/stop_project` —
+- the start-project runtime command and the stop-project runtime command —
   explicit root runtime-control commands. These endpoints are the root
   start/stop API; directive files and card status changes are not root
   execution controls.
-- `POST /api/runtime/goals/:id/needs_corrections` — body
+- the goal needs-corrections runtime command — body
   `{issues: AnalystIssue[], note?: string}`. The `flagged_by` field is
   derived from the authenticated session. Records correction notes for
   the goal and ancestors and may flip the origin to `changed`. Resumes
@@ -922,7 +922,7 @@ above is the in-memory mirror.
   `{issues: AnalystIssue[], note?: string}`. Records planner context only;
   it is not an executable runtime trigger. Use `start_project` / `stop_project`
   for root runtime intent.
-- `POST /api/runtime/pause` and `POST /api/runtime/resume` — global
+- the pause runtime command and the resume runtime command — global
   pause gate (§5, §12). Returns the updated `RuntimeState`.
 - `GET /api/agents` — enumerates every persisted `.saivage/agents/messages/*.jsonl` session plus session manifests, parsing `analyst`, `planner:<id>`, `reviewer:<id>`, `executor:<id>`, and `card-*` ids and marking only `RuntimeState.current_agent_session_id` active after reload (enforced by `src/server/routes/runtime-config-notes.ts`, `tests/server/agents-api.test.ts`, and `tests/server/restart-persistence-operator-surface.test.ts`).
 - `GET /ws` — WebSocket analyst chat/event stream. The server checks auth on upgrade, serializes analyst turns per client connection, and sanitizes analyst message/activity/tool payloads before sending them to operators (enforced by `src/server/websocket.ts`, `src/agents/analyst-sanitization.ts`, and `tests/server/websocket-analyst-safety.test.ts`).

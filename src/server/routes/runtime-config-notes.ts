@@ -130,4 +130,3 @@ export function registerRuntimeConfigNotesRoutes(fastify: FastifyInstance, proje
     }
   });
 }
-// Source-anchor preservation: runtime control routes moved to ContractRuntime.

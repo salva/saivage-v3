@@ -82,8 +82,8 @@ Generic resume is intentionally rejected for `frozen` and `error` states. This i
 
 What to do:
 
-1. If paused, use `POST /api/runtime/resume`.
-2. If frozen, use `POST /api/runtime/resume-from-freeze`.
+1. If paused, use the resume runtime command.
+2. If frozen, use the runtime resume-from-freeze control.
 3. If error, inspect Debug errors/timeline and fix the underlying failure before attempting recovery.
 4. Freeze before disruptive filesystem or deployment intervention.
 

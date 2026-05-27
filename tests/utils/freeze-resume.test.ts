@@ -14,9 +14,8 @@
  *   10. Freeze collects handoff summaries from sessions
  *   11. No active sessions produces empty handoff_summaries
  *   12. Resume injects handoff context
- *   13. CLI freeze --kill-processes sets kill action
- *   14. Manifest schema validation errors
- *   15. Freeze while already frozen and manifest missing
+ *   13. Manifest schema validation errors
+ *   14. Freeze while already frozen and manifest missing
  */
 
 import { describe, it, expect, beforeEach, afterEach } from '@jest/globals';

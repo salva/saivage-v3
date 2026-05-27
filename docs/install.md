@@ -187,7 +187,7 @@ SAIVAGE_API_TOKEN=test ./bin/saivage.js start
 
 ## Next Steps
 
-- Create a goal card via `POST /api/cards` — see **[OPERATION.md](operation.md)** for API usage.
+- Create a goal card via card creation command — see **[OPERATION.md](operation.md)** for API usage.
 - Open the web UI at `http://localhost:8080/` (if you built the web frontend).
 - Read **[CONFIGURATION.md](configuration.md)** to configure models, providers, MCP servers, Telegram, and notifications.
 - Read **[OPERATION.md](operation.md)** to learn about runtime management, backup, and recovery.

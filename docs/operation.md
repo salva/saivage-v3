@@ -87,81 +87,24 @@ Returns runtime-focused status data:
 
 If no `ActiveRuntime` is attached, the server falls back to runtime state on disk.
 
-## Runtime control endpoints
+## Runtime control surfaces
 
-Accepted shared pause/resume validation now applies to REST controls and analyst tools. Live in-memory propagation applies when the caller is wired to the server-owned `ActiveRuntime` (REST routes and server-hosted analyst chat/WebSocket when runtime creation is enabled):
+The current mounted operator HTTP surface exposes runtime observation routes rather than mutating runtime-control POST routes:
+
+- `GET /api/runtime/status` returns the compact runtime status read model.
+- `GET /api/runtime/card-runs` returns persisted runtime card-run records.
+- `GET /api/state` returns the broader runtime/card-index state snapshot.
+
+CLI `pause` and `resume` remain supported local/runtime-backed controls. They propagate through the live server when a runtime lock is present and a bearer token is available, otherwise they update persisted runtime state directly. The unsupported CLI `freeze` command has been deleted; runtime freeze/resume implementation remains in the runtime layer for in-process callers and tests, but it is not advertised as a current CLI compatibility surface.
+
+Accepted shared pause/resume validation applies to local runtime controls and analyst tools:
 
 - **live + `ActiveRuntime` available**: pause/resume propagates through the live runtime authority and updates in-memory dispatch state;
 - **no injected `ActiveRuntime`**: pause/resume operates on persisted runtime state only, which is valid for server-only inspection/control setups and direct utility contexts;
-- **frozen**: generic resume is rejected and operators must use `POST /api/runtime/resume-from-freeze`;
+- **frozen**: generic resume is rejected and operators must use the runtime resume-from-freeze control available to the runtime authority;
 - **runtime state unavailable**: pause/resume returns an actionable error instead of creating replacement state implicitly.
 
-### Start project
-
-```bash
-curl -X POST http://localhost:8080/api/runtime/start_project \
-  -H "Authorization: Bearer $SAIVAGE_API_TOKEN"
-```
-
-Starts root project execution through an explicit runtime command. The success response is a `RuntimeCommandResponse`: `success: true`, a `command` record, the updated runtime `intent`, and a root `run` record. If no `ActiveRuntime` is attached or start preconditions fail, the route returns `success: false` with an actionable error envelope.
-
-### Stop project
-
-```bash
-curl -X POST http://localhost:8080/api/runtime/stop_project \
-  -H "Authorization: Bearer $SAIVAGE_API_TOKEN"
-```
-
-Stops root project execution intent through an explicit runtime command. The success response is a `RuntimeCommandResponse`: `success: true`, the stop `command` record, the stopped runtime `intent`, and, when an open root run existed, `run` containing the authoritative terminalized root `RuntimeRunRecord`. The `run` field is intentionally optional: it is omitted when there was no open root run to terminalize, but command and intent still describe the accepted stop request.
-
-### Pause
-
-```bash
-curl -X POST http://localhost:8080/api/runtime/pause \
-  -H "Authorization: Bearer $SAIVAGE_API_TOKEN"
-```
-
-Pause stops new dispatch. Running processes are not forcibly killed by pause alone. The response body is the updated `RuntimeState`.
-
-### Resume
-
-```bash
-curl -X POST http://localhost:8080/api/runtime/resume \
-  -H "Authorization: Bearer $SAIVAGE_API_TOKEN"
-```
-
-Resume re-enables dispatch. Depending on queued work, the runtime may settle into `idle` or continue in `running`. The response body is the updated `RuntimeState`.
-
-### Dispatch and corrections
-
-Legacy explicit dispatch endpoints are not part of the current §14 API surface.
-Operators start root work with explicit runtime controls and record corrections as planner context:
-
-- Root project kickoff uses explicit runtime start controls (`start_project`/operator runtime controls); directive kickoff routes are removed.
-- `POST /api/runtime/goals/:id/needs_corrections` records goal corrections.
-- Project-level correction directives are no longer executable runtime triggers; use goal-scoped correction notes and explicit runtime controls.
-
-The runtime no longer scans directive files, status buckets, or status-derived dispatch queues to discover executable work. It runs root work from explicit runtime commands and child work from parent-planner activation records.
-
-### Freeze
-
-```bash
-curl -X POST http://localhost:8080/api/runtime/freeze \
-  -H "Authorization: Bearer $SAIVAGE_API_TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{"reason":"operator handoff before maintenance"}'
-```
-
-Freeze is an intentional operator handoff. Saivage records a freeze manifest and moves runtime state to `frozen` with pause semantics.
-
-### Resume from freeze
-
-```bash
-curl -X POST http://localhost:8080/api/runtime/resume-from-freeze \
-  -H "Authorization: Bearer $SAIVAGE_API_TOKEN"
-```
-
-If a freeze manifest exists, Saivage restores queued work, clears the manifest, and returns the restored queue and current card reference. Durable process reattach and termination are deferred and are not restored from freeze manifests in this cycle.
+Legacy explicit dispatch endpoints and stale mutating REST runtime-control routes are not part of the current operator HTTP route inventory. Root execution and goal corrections are runtime-owned commands surfaced through the current runtime/control-room architecture, not through directive-file scanning or obsolete compatibility endpoints.
 
 ## Planner control and completion semantics
 
@@ -247,7 +190,7 @@ Use these before editing runtime files manually.
 The current UI model is:
 
 - `GET /api/state` REST fetches remain authoritative after page load, refresh, reconnect, and whenever an operator needs a fresh complete snapshot.
-- Runtime command responses (`POST /api/runtime/start_project` and `POST /api/runtime/stop_project`) are authoritative for the command just submitted.
+- Runtime command responses (the start-project runtime command and the stop-project runtime command) are authoritative for the command just submitted.
 - WebSocket events improve freshness and live UX but are observational projections, not the only source of truth.
 - Unauthorized, offline, stale, and degraded states are intentional UI states, not implicit success states.
 
@@ -316,52 +259,37 @@ Every current operator-facing Fastify or contract-mounted route is listed exactl
 
 | Route | Purpose | Code anchor |
 |---|---|---|
-| `DELETE /api/cards/:id` | Delete a card through audited mutating control flow. | `src/contracts/operator-api.ts:381 "path: '/api/cards/:id'"` |
-| `DELETE /api/notes/:id` | Delete one unhandled note. | `src/server/routes/runtime-config-notes.ts:177` |
-| `DELETE /api/notes` | Clear all unhandled notes. | `src/server/routes/runtime-config-notes.ts:180` |
-| `GET /api/agents/:id/conversation` | Read one persisted agent conversation. | `src/server/routes/runtime-config-notes.ts:179` |
-| `GET /api/agents/:id` | Read one persisted agent-session summary (counts, timestamps; no payload). | `src/server/routes/runtime-config-notes.ts:192` |
-| `GET /api/agents` | List persisted agent sessions. | `src/server/routes/runtime-config-notes.ts:178` |
-| `POST /api/auth/ws-ticket` | Issue a short-lived one-use browser WebSocket ticket after bearer REST auth. | `src/server/routes/auth.ts:4` |
-| `GET /api/cards/:id/diff` | Diff card versions. | `src/contracts/operator-api.ts:384 "path: '/api/cards/:id/diff'"` |
-| `GET /api/cards/:id/history/:seq` | Read one card-history snapshot. | `src/contracts/operator-api.ts:373 "path: '/api/cards/:id/history/:seq'"` |
-| `GET /api/cards/:id/history` | List card-history headers. | `src/contracts/operator-api.ts:362 "path: '/api/cards/:id/history'"` |
-| `GET /api/cards/:id` | Read card detail with children and ancestors. | `src/contracts/operator-api.ts:350 "path: '/api/cards/:id'"` |
-| `GET /api/cards` | List cards. | `src/contracts/operator-api.ts:340 "path: '/api/cards'"` |
-| `GET /api/chats/:sessionId` | Read an analyst chat transcript. | `src/contracts/operator-api.ts:446 "path: '/api/chats/:sessionId'"` |
-| `GET /api/chats` | List analyst chat sessions. | `src/contracts/operator-api.ts:436 "path: '/api/chats'"` |
-| `GET /api/config` | Return redacted loaded configuration and warnings. | `src/server/routes/runtime-config-notes.ts:180` |
-| `GET /api/control-actions` | List control-action audit entries. | `src/server/routes/runtime-config-notes.ts:165` |
-| `GET /api/debug/errors` | Read runtime error records. | `src/contracts/operator-api.ts:501 "path: '/api/debug/errors'"` |
-| `GET /api/debug/state` | Dump runtime and card-index debug state. | `src/contracts/operator-api.ts:491 "path: '/api/debug/state'"` |
-| `GET /api/debug/timeline` | Read runtime event timeline records. | `src/contracts/operator-api.ts:511 "path: '/api/debug/timeline'"` |
-| `GET /api/events` | Query runtime/agent events with filters and pagination. | `src/server/routes/events.ts:42` |
-| `GET /api/files/content` | Preview contained text files with safety checks. | `src/contracts/operator-api.ts:480 "path: '/api/files/content'"` |
-| `GET /api/files` | List contained project files. | `src/contracts/operator-api.ts:469 "path: '/api/files'"` |
-| `GET /api/mcp/status` | Show MCP server status plus optional serverAvailability. | `src/contracts/operator-api.ts:416 "path: '/api/mcp/status'"` |
-| `GET /api/mcp/tools` | Show MCP tool inventory and invocation stats. | `src/contracts/operator-api.ts:426 "path: '/api/mcp/tools'"` |
-| `GET /api/notes` | List unhandled notes. | `src/server/routes/runtime-config-notes.ts:180` |
-| `GET /api/notifications` | List notifications. | `src/server/routes/runtime-config-notes.ts:165` |
-| `GET /api/processes/:id` | Read one safe process view. | `src/server/routes/processes.ts:112` |
-| `GET /api/processes` | List safe process views. | `src/server/routes/processes.ts:100` |
-| `GET /api/providers` | Return redacted provider summaries. | `src/server/routes/runtime-config-notes.ts:177` |
-| `GET /api/runtime/card-runs` | List runtime card-run records. | `src/contracts/operator-api.ts:406 "path: '/api/runtime/card-runs'"` |
-| `GET /api/runtime/status` | Read compact runtime status plus optional serverAvailability. | `src/contracts/operator-api.ts:396 "path: '/api/runtime/status'"` |
-| `GET /api/state` | Read RuntimeState plus card-index summary and optional availability. | `src/contracts/operator-api.ts:330 "path: '/api/state'"` |
-| `GET /health` | Public liveness probe. | `src/contracts/operator-api.ts:308 "path: '/health'"` |
-| `GET /health/ready` | Public readiness probe with optional availability summary. | `src/contracts/operator-api.ts:319 "path: '/health/ready'"` |
-| `PATCH /api/cards/:id` | Update allowed card fields through audited mutation. | `src/contracts/operator-api.ts:405 "path: '/api/cards/:id'"` |
-| `POST /api/cards` | Create a card through audited mutation. | `src/contracts/operator-api.ts:393 "path: '/api/cards'"` |
-| `POST /api/chats/:sessionId` | Send an analyst chat message. | `src/contracts/operator-api.ts:457 "path: '/api/chats/:sessionId'"` |
-| `POST /api/notes/:id/acknowledge` | Mark an unhandled note handled. | `src/server/routes/runtime-config-notes.ts:180` |
-| `POST /api/notifications/:id/acknowledge` | Acknowledge a notification. | `src/server/routes/runtime-config-notes.ts:145` |
-| `POST /api/runtime/freeze` | Freeze runtime for handoff. | `src/server/routes/runtime-config-notes.ts:174` |
-| `POST /api/runtime/start_project` | Start root project execution via explicit runtime command. | `src/contracts/operator-api.ts:281 "path: '/api/runtime/start_project'"` |
-| `POST /api/runtime/stop_project` | Stop root project execution intent via explicit runtime command. | `src/contracts/operator-api.ts:292 "path: '/api/runtime/stop_project'"` |
-| `POST /api/runtime/goals/:id/needs_corrections` | Record goal correction directive. | `src/server/server.ts:56 "fastify.post('/api/runtime/goals/:id/needs_corrections'"` |
-| `POST /api/runtime/pause` | Pause runtime and return RuntimeState. | `src/contracts/operator-api.ts:303 "path: '/api/runtime/pause'"` |
-| `POST /api/runtime/resume-from-freeze` | Resume from freeze manifest. | `src/server/routes/runtime-config-notes.ts:175` |
-| `POST /api/runtime/resume` | Resume runtime and return RuntimeState. | `src/contracts/operator-api.ts:314 "path: '/api/runtime/resume'"` |
+| `GET /api/agents/:id/conversation` | Read one persisted agent conversation. | `src/server/routes/runtime-config-notes.ts:115 "fastify.get('/api/agents/:id/conversation'"` |
+| `GET /api/agents/:id/llm-exchange` | Read the latest raw LLM exchange for an agent session. | `src/server/routes/runtime-config-notes.ts:116 "fastify.get('/api/agents/:id/llm-exchange'"` |
+| `GET /api/agents/:id` | Read one persisted agent-session summary. | `src/server/routes/runtime-config-notes.ts:114 "fastify.get('/api/agents/:id'"` |
+| `GET /api/agents` | List persisted agent sessions. | `src/server/routes/runtime-config-notes.ts:113 "fastify.get('/api/agents'"` |
+| `POST /api/auth/ws-ticket` | Issue a short-lived one-use browser WebSocket ticket after bearer REST auth. | `src/server/routes/auth.ts:5 "fastify.post('/api/auth/ws-ticket'"` |
+| `GET /api/cards/:id/diff` | Diff card versions. | `src/contracts/operator-api.ts:412 "path: '/api/cards/:id/diff'"` |
+| `GET /api/cards/:id/history/:seq` | Read one card-history snapshot. | `src/contracts/operator-api.ts:401 "path: '/api/cards/:id/history/:seq'"` |
+| `GET /api/cards/:id/history` | List card-history headers. | `src/contracts/operator-api.ts:390 "path: '/api/cards/:id/history'"` |
+| `GET /api/cards/:id` | Read card detail with children and ancestors. | `src/contracts/operator-api.ts:378 "path: '/api/cards/:id'"` |
+| `GET /api/cards` | List cards. | `src/contracts/operator-api.ts:368 "path: '/api/cards'"` |
+| `GET /api/chats/:sessionId` | Read an analyst chat transcript. | `src/contracts/operator-api.ts:474 "path: '/api/chats/:sessionId'"` |
+| `POST /api/chats/:sessionId` | Send an analyst chat message. | `src/contracts/operator-api.ts:485 "path: '/api/chats/:sessionId'"` |
+| `GET /api/chats` | List analyst chat sessions. | `src/contracts/operator-api.ts:464 "path: '/api/chats'"` |
+| `GET /api/config` | Return redacted loaded configuration and warnings. | `src/server/routes/runtime-config-notes.ts:111 "fastify.get('/api/config'"` |
+| `GET /api/control-actions` | List control-action audit entries. | `src/server/routes/runtime-config-notes.ts:102 "fastify.get('/api/control-actions'"` |
+| `GET /api/debug/errors` | Read runtime error records. | `src/contracts/operator-api.ts:529 "path: '/api/debug/errors'"` |
+| `GET /api/debug/state` | Dump runtime and card-index debug state. | `src/contracts/operator-api.ts:519 "path: '/api/debug/state'"` |
+| `GET /api/debug/timeline` | Read runtime event timeline records. | `src/contracts/operator-api.ts:539 "path: '/api/debug/timeline'"` |
+| `GET /api/events` | Query runtime/agent events with filters and pagination. | `src/server/routes/events.ts:42 "fastify.get('/api/events'"` |
+| `GET /api/files/content` | Preview contained text files with safety checks. | `src/contracts/operator-api.ts:508 "path: '/api/files/content'"` |
+| `GET /api/files` | List contained project files. | `src/contracts/operator-api.ts:497 "path: '/api/files'"` |
+| `GET /api/mcp/status` | Show MCP server status plus optional serverAvailability. | `src/contracts/operator-api.ts:444 "path: '/api/mcp/status'"` |
+| `GET /api/mcp/tools` | Show MCP tool inventory and invocation stats. | `src/contracts/operator-api.ts:454 "path: '/api/mcp/tools'"` |
+| `GET /api/processes/:id` | Read one safe process view. | `src/server/routes/processes.ts:112 "fastify.get('/api/processes/:id'"` |
+| `GET /api/processes` | List safe process views. | `src/server/routes/processes.ts:100 "fastify.get('/api/processes'"` |
+| `GET /api/providers` | Return redacted provider summaries. | `src/server/routes/runtime-config-notes.ts:112 "fastify.get('/api/providers'"` |
+| `GET /api/runtime/card-runs` | List runtime card-run records. | `src/contracts/operator-api.ts:434 "path: '/api/runtime/card-runs'"` |
+| `GET /api/runtime/status` | Read compact runtime status plus optional serverAvailability. | `src/contracts/operator-api.ts:424 "path: '/api/runtime/status'"` |
+| `GET /api/state` | Read RuntimeState plus card-index summary and optional availability. | `src/contracts/operator-api.ts:358 "path: '/api/state'"` |
+| `GET /health` | Public liveness probe. | `src/contracts/operator-api.ts:336 "path: '/health'"` |
+| `GET /health/ready` | Public readiness probe with optional availability summary. | `src/contracts/operator-api.ts:347 "path: '/health/ready'"` |
 <!-- saivage:operator-routes:end -->
 
 
@@ -379,14 +307,8 @@ These routes are mounted by `registerInternalDebugRoutes` for operator diagnosti
 <!-- saivage:runtime-controls:start -->
 ## Runtime control request/response shapes
 
-`npm run docs:verify` checks these shapes against the implemented runtime-control routes.
+Current mounted operator HTTP routes expose runtime state and card-run read models (`GET /api/runtime/status`, `GET /api/runtime/card-runs`) rather than mutating runtime-control POST routes. CLI pause/resume remain local/runtime-backed controls; the unsupported CLI freeze command has been deleted.
 
 | Route | Request body | Success response | Code anchor |
 |---|---|---|---|
-| `POST /api/runtime/start_project` | `empty-or-null-json-object` | `RuntimeCommandResponse` | `src/contracts/operator-api.ts:281 "path: '/api/runtime/start_project'"` |
-| `POST /api/runtime/stop_project` | `empty-or-null-json-object` | `RuntimeCommandResponse` | `src/contracts/operator-api.ts:292 "path: '/api/runtime/stop_project'"` |
-| `POST /api/runtime/pause` | `empty-or-null-json-object` | `RuntimeState` | `src/contracts/operator-api.ts:303 "path: '/api/runtime/pause'"` |
-| `POST /api/runtime/resume` | `empty-or-null-json-object` | `RuntimeState` | `src/contracts/operator-api.ts:314 "path: '/api/runtime/resume'"` |
-| `POST /api/runtime/freeze` | `optional-object:{reason?:string}` | `freeze-summary` | `src/server/routes/runtime-config-notes.ts:174` |
-| `POST /api/runtime/resume-from-freeze` | `empty-or-null-json-object` | `resume-from-freeze-summary` | `src/server/routes/runtime-config-notes.ts:175` |
 <!-- saivage:runtime-controls:end -->

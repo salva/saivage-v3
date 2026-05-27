@@ -1,9 +1,32 @@
-import { describe, it, expect } from '@jest/globals';
+import { describe, it, expect, jest } from '@jest/globals';
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync, existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { initProjectTree } from '../../src/persistence/file-tree.js';
 import { run } from '../../src/cli.js';
+
+
+describe('saivage CLI compatibility cleanup', () => {
+  it('does not advertise unsupported freeze or kill-processes help', async () => {
+    const log = jest.spyOn(console, 'log').mockImplementation(() => undefined);
+    try {
+      await run(['node', 'cli', 'help']);
+      const output = log.mock.calls.map((call) => String(call[0] ?? '')).join('\n');
+      expect(output).not.toContain('saivage freeze');
+      expect(output).not.toContain('--kill-processes');
+    } finally {
+      log.mockRestore();
+    }
+  });
+
+  it('treats freeze as an unknown command', async () => {
+    await expect(run(['node', 'cli', 'freeze'])).rejects.toThrow('Unknown command: freeze');
+  });
+
+  it('rejects the removed kill-processes option instead of parsing it', async () => {
+    await expect(run(['node', 'cli', 'status', '--kill-processes'])).rejects.toThrow(/Unknown option|Unknown argument|Option/);
+  });
+});
 
 describe('saivage reset', () => {
   it('clears cards runtime and notes while preserving auth, project, and objective files', async () => {

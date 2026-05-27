@@ -14,6 +14,10 @@ const IGNORED_DIRS = new Set([
   '.vitepress/dist',
   'web/dist',
   'old-documents',
+  'SPEC/v1/review-2026-05',
+  'SPEC/2026-05',
+  'SPEC/analyst-as-control-surface',
+  'proposals-for-review',
 ]);
 
 function parseArgs(argv) {

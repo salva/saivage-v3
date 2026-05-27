@@ -23,7 +23,7 @@ Planner/card state is not executable. Moving a card to `active`, `backlog`, `don
 
 Root execution starts only through an explicit runtime command:
 
-1. `POST /api/runtime/start_project`, the Dashboard Runtime Console, or the equivalent runtime command API records a `start_project` command.
+1. the start-project runtime command, the Dashboard Runtime Console, or the equivalent runtime command API records a `start_project` command.
 2. The runtime sets durable intent to `running`.
 3. The runtime appends a root `runtime_runs` record for `project`.
 4. Dispatch proceeds from that runtime-owned run.
