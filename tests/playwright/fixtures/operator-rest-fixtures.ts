@@ -195,6 +195,8 @@ export async function installOperatorRestRoutes(page: Page): Promise<OperatorRes
         size: 32,
         contentType: 'application/json',
         content: JSON.stringify({ project: 'synthetic-project', stage: 'operator-playwright-smoke' }),
+        redacted: false,
+        sensitivity: 'normal',
       });
     }
     if (request.method() === 'GET' && url.pathname === '/api/debug/state') return json(route, { runtime: runtimeRunning, cards: [], totalCards: 0 });

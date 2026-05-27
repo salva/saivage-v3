@@ -77,7 +77,7 @@ describe('useCardStore evidence support', () => {
     s.cards = [
       makeCard({ id: 'c-e', parent: 'goal-a', position: 3 }),
       makeCard({ id: 'c-b', parent: 'goal-a', position: 1 }),
-      makeCard({ id: 'c-d', parent: 'goal-a' }),
+      makeCard({ id: 'c-d', parent: 'goal-a', position: undefined }),
       makeCard({ id: 'c-a', parent: 'goal-a', position: 1 }),
       makeCard({ id: 'c-c', parent: 'goal-a', position: 2 }),
       makeCard({ id: 'other', parent: 'goal-b', position: 0 }),
