@@ -11,6 +11,7 @@ import { getCard, ApiError } from '../api/client';
 const wsTypeHandlers = new Map<string, Set<(e: any) => void>>();
 vi.mock('../stores/ws', () => ({ useWsStore: vi.fn(() => ({ onType: (type: string, handler: (e: any) => void) => { let set = wsTypeHandlers.get(type); if (!set) { set = new Set(); wsTypeHandlers.set(type, set); } set.add(handler); return () => set?.delete(handler); } })) }));
 import { useCardStore } from '../stores/cards';
+import { selectChildrenOf } from '../stores/card-read-model';
 
 function setupStore() { setActivePinia(createPinia()); wsTypeHandlers.clear(); vi.clearAllMocks(); return useCardStore(); }
 function makeCard(overrides: Partial<CardRecord> = {}): CardRecord { const id = overrides.id || 'c1'; return { id, type: 'code', parent: null, depth: 0, position: 0, title: `Card ${id}`, description: 'test', status: 'active', tags: [], priority: 5, urgency: 'normal', created_by: 'user', created_at: '2025-01-01T00:00:00Z', updated_at: '2025-01-01T00:00:00Z', version_seq: 1, depends_on: [], blocks: [], related: [], acceptance: '', artifacts: [], attachments: [], retries: 0, ...overrides }; }
@@ -72,7 +73,7 @@ describe('useCardStore evidence support', () => {
     expect(s.isStale('card-unknown')).toBe(false);
   });
 
-  it('returns children sorted by position with null-last id tiebreakers', () => {
+  it('keeps child ordering in the pure card read-model selector, not the store public API', () => {
     const s = setupStore();
     s.cards = [
       makeCard({ id: 'c-e', parent: 'goal-a', position: 3 }),
@@ -82,7 +83,8 @@ describe('useCardStore evidence support', () => {
       makeCard({ id: 'c-c', parent: 'goal-a', position: 2 }),
       makeCard({ id: 'other', parent: 'goal-b', position: 0 }),
     ];
-    expect(s.childrenOf('goal-a').map((card) => card.id)).toEqual(['c-a', 'c-b', 'c-c', 'c-e', 'c-d']);
-    expect(s.childrenOf('goal-unknown')).toEqual([]);
+    expect(selectChildrenOf([...s.cards], 'goal-a').map((card) => card.id)).toEqual(['c-a', 'c-b', 'c-c', 'c-e', 'c-d']);
+    expect(selectChildrenOf([...s.cards], 'goal-unknown')).toEqual([]);
+    expect('childrenOf' in s).toBe(false);
   });
 });

@@ -90,6 +90,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue';
 import { storeToRefs } from 'pinia';
 import { useAnalystChat } from '../../stores/analystChat';
 import { useCardStore } from '../../stores/cards';
+import { selectChildrenOf } from '../../stores/card-read-model';
 import { useWorkspaceRouteStore } from '../../stores/workspaceRoute';
 import type { ChatMessage } from '../../api/types';
 import { presentToolCall, presentToolResult, type ToolCallPresentation, type ToolResultPresentation } from '../../utils/tool-presenters';
@@ -119,7 +120,7 @@ const composerRef = ref<HTMLTextAreaElement | null>(null);
 const timelineItems = computed(() => [...messages.value].sort((a, b) => a.timestamp.localeCompare(b.timestamp)));
 const childrenOnScreen = computed(() =>
   workspaceRoute.view === 'cards' && workspaceRoute.entityId
-    ? cards.childrenOf(workspaceRoute.entityId)
+    ? selectChildrenOf([...cards.cards], workspaceRoute.entityId)
     : [],
 );
 const pendingToolInvocationsForActiveSession = computed(() => pendingToolInvocations.value.filter((item) => item.sessionId === activeSessionId.value));

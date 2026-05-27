@@ -40,7 +40,6 @@ import {
   errorMessage,
   markDetailStaleState,
   selectBoardColumns,
-  selectChildrenOf,
   selectFilteredCards,
   selectOrderedFilteredCards,
 } from './card-read-model';
@@ -156,10 +155,6 @@ export const useCardStore = defineStore('cards', () => {
 
   function isStale(cardId: string): boolean {
     return staleNotificationByCard.value[cardId] === true;
-  }
-
-  function childrenOf(parentId: string): CardRecord[] {
-    return selectChildrenOf(cards.value, parentId);
   }
 
   function safeBackgroundRefresh(genAtStart: number): void {
@@ -399,7 +394,6 @@ export const useCardStore = defineStore('cards', () => {
     orderedCardTree,
     board,
     isStale,
-    childrenOf,
     fetchCards,
     fetchCardDetail,
     fetchCardHistoryForCard,
