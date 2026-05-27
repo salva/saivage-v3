@@ -398,7 +398,7 @@ export interface FileEntry {
   modifiedAt: string;
 }
 
-export type FileContent = Omit<OperatorApiSuccess<'files.content'>, 'redacted' | 'sensitivity'> & { redacted?: boolean; sensitivity?: string };
+export type FileContent = OperatorApiSuccess<'files.content'>;
 
 export interface DebugState {
   runtime: RuntimeState | null;

@@ -54,6 +54,8 @@ const jsonContent: FileContent = {
   size: 2048,
   contentType: 'application/json',
   content: '{"version":3,"project":"saivage-v3"}',
+  redacted: false,
+  sensitivity: 'normal',
 };
 
 function makeRouter() {

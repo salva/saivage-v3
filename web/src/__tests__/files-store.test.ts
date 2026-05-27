@@ -90,6 +90,8 @@ const jsonContent = {
   size: 2048,
   contentType: 'application/json',
   content: '{"version":3,"project":"saivage-v3"}',
+  redacted: false,
+  sensitivity: 'normal',
 };
 
 const jsonWithPlusContent = {
@@ -97,6 +99,8 @@ const jsonWithPlusContent = {
   size: 512,
   contentType: 'application/ld+json',
   content: '{"@context":"https://schema.org"}',
+  redacted: false,
+  sensitivity: 'normal',
 };
 
 const jsonByExtensionContent = {
@@ -104,6 +108,8 @@ const jsonByExtensionContent = {
   size: 128,
   contentType: 'text/plain',
   content: '{"key":"value"}',
+  redacted: false,
+  sensitivity: 'normal',
 };
 
 const markdownContent = {
@@ -111,6 +117,8 @@ const markdownContent = {
   size: 1024,
   contentType: 'text/markdown',
   content: '# Report\n## Summary\nSome text.',
+  redacted: false,
+  sensitivity: 'normal',
 };
 
 const markdownByExtensionContent = {
@@ -118,6 +126,8 @@ const markdownByExtensionContent = {
   size: 256,
   contentType: 'text/plain',
   content: '# README\nHello world.',
+  redacted: false,
+  sensitivity: 'normal',
 };
 
 const plainTextContent = {
@@ -125,6 +135,8 @@ const plainTextContent = {
   size: 8192,
   contentType: 'text/plain',
   content: 'Line 1\nLine 2\nLine 3',
+  redacted: false,
+  sensitivity: 'normal',
 };
 
 describe('useFileStore', () => {
@@ -639,6 +651,8 @@ describe('useFileStore', () => {
         size: 100,
         contentType: '',
         content: '# Notes',
+        redacted: false,
+        sensitivity: 'normal',
       });
 
       await store.fetchFileContent('.saivage/notes.md');
