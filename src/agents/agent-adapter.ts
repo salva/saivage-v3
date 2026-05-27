@@ -17,7 +17,7 @@ import { capabilityRequestForLlmOptions } from './provider-capabilities.js';
 import { defaultInvocationRecoveryPolicy, type InvocationRecoveryContext } from './invocation-recovery-policy.js';
 import { EventLogger } from '../observability/index.js';
 import { buildReviewerPrompt } from './system-prompt.js';
-import type { McpManager } from '../mcp/index.js';
+import type { McpToolInvocationPort } from '../mcp/index.js';
 import { SkillsEngine } from './skills-engine.js';
 import { getProjectNotificationCenter } from '../notifications/notification-delivery.js';
 import { CardStore } from '../cards/index.js';
@@ -53,7 +53,7 @@ export class AgentAdapter implements AgentExecutionPort {
   readonly eventLogger?: EventLogger;
   private llmCallFn: LlmCallFn | null = null;
   private contentSupervisor?: ContentSupervisor;
-  private _mcpManager: McpManager | undefined;
+  private _mcpManager: McpToolInvocationPort | undefined;
   private _skillsEngine: SkillsEngine | undefined;
   private activationLedger?: RuntimeActivationLedgerPort;
   private readonly plannerControlExecutor: PlannerControlExecutor;
@@ -116,8 +116,8 @@ export class AgentAdapter implements AgentExecutionPort {
   setLlmCallFn(fn: LlmCallFn): void { this.llmCallFn = fn; }
   setContentSupervisor(supervisor: ContentSupervisor): void { this.contentSupervisor = supervisor; }
   getContentSupervisor(): ContentSupervisor | undefined { return this.contentSupervisor; }
-  setMcpManager(mcpManager: McpManager): void { this._mcpManager = mcpManager; }
-  getMcpManager(): McpManager | undefined { return this._mcpManager; }
+  setMcpManager(mcpManager: McpToolInvocationPort): void { this._mcpManager = mcpManager; }
+  getMcpManager(): McpToolInvocationPort | undefined { return this._mcpManager; }
   setSkillsEngine(engine: SkillsEngine): void { this._skillsEngine = engine; }
   getSkillsEngine(): SkillsEngine | undefined { return this._skillsEngine; }
   setAfterSessionCreatedHook(hook: SessionCreatedHook | null): void { this.sessionCoordinator.setAfterSessionCreatedHook(hook); }

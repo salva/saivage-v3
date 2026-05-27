@@ -12,7 +12,7 @@ import {
   InvalidArgumentsError,
   TransportError,
   TimeoutError,
-} from '../../src/mcp/mcp-manager.js';
+} from '../../src/mcp/index.js';
 
 function createMinimalAdapter(tmpDir: string): AgentAdapter {
   const minimalConfig = {
@@ -53,7 +53,7 @@ describe('AgentAdapter role tool + MCP policy', () => {
       invokeTool: jest.fn(),
       getServerTools: jest.fn(),
     };
-    adapter.setMcpManager(mockMcpManager as unknown as import('../../src/mcp/mcp-manager.js').McpManager);
+    adapter.setMcpManager(mockMcpManager as unknown as import('../../src/mcp/index.js').McpToolInvocationPort);
   });
 
   afterEach(() => {

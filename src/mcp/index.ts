@@ -1,16 +1,14 @@
-/**
- * MCP module — re-exports McpManager and related types.
- */
+/** MCP module public facade, protocol, errors, and narrow ports. */
 
-export { McpManager, MCP_INVOKE_TIMEOUT_MS } from './mcp-manager.js';
+export { McpManager } from './mcp-manager.js';
+export type { McpStatusProvider, McpToolInvocationPort, McpToolsReadModelProvider } from './mcp-manager.js';
 export {
-  McpInvokeError,
-  ServerNotRunningError,
-  ToolNotFoundError,
-  InvalidArgumentsError,
-  TimeoutError,
-  TransportError,
-} from './mcp-manager.js';
+  MCP_INVOKE_TIMEOUT_MS,
+  MCP_DISCOVERY_TIMEOUT_MS,
+  MCP_PROTOCOL_VERSION,
+  CLIENT_NAME,
+  CLIENT_VERSION,
+} from './protocol.js';
 export type {
   McpTransport,
   McpStatus,
@@ -23,4 +21,14 @@ export type {
   ListToolsResult,
   McpInitializeParams,
   ToolsCallResult,
-} from './mcp-manager.js';
+} from './protocol.js';
+export {
+  McpInvokeError,
+  ServerNotRunningError,
+  ToolNotFoundError,
+  InvalidArgumentsError,
+  TimeoutError,
+  TransportError,
+} from './errors.js';
+export { buildMcpToolsReadModel, buildMcpServerStatus } from './status-projection.js';
+export type { McpServerConfig, McpServerHandle } from './server-registry.js';

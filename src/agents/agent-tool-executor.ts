@@ -1,5 +1,5 @@
 import type { ContentSupervisor } from '../workspace/index.js';
-import type { McpManager, McpToolDefinition } from '../mcp/index.js';
+import { McpInvokeError, type McpToolDefinition, type McpToolInvocationPort } from '../mcp/index.js';
 import type { ToolRuntime, AGENT_TOOL_DEFINITIONS } from '../tools/index.js';
 import * as analystTools from './analyst-tools.js';
 import { loadSkill, LoadSkillError } from './skill-tools.js';
@@ -17,7 +17,7 @@ export interface AgentToolExecutorConfig {
   projectRoot: string;
   toolRuntime: ToolRuntime<typeof AGENT_TOOL_DEFINITIONS>;
   plannerControlExecutor: PlannerControlExecutor;
-  getMcpManager: () => McpManager | undefined;
+  getMcpManager: () => McpToolInvocationPort | undefined;
   getSkillsEngine: () => SkillsEngine | undefined;
   getContentSupervisor: () => ContentSupervisor | undefined;
 }
@@ -26,7 +26,7 @@ export class AgentToolExecutor {
   private readonly projectRoot: string;
   private readonly toolRuntime: ToolRuntime<typeof AGENT_TOOL_DEFINITIONS>;
   private readonly plannerControlExecutor: PlannerControlExecutor;
-  private readonly getMcpManagerProvider: () => McpManager | undefined;
+  private readonly getMcpManagerProvider: () => McpToolInvocationPort | undefined;
   private readonly getSkillsEngineProvider: () => SkillsEngine | undefined;
   private readonly getContentSupervisorProvider: () => ContentSupervisor | undefined;
 
@@ -85,7 +85,6 @@ export class AgentToolExecutor {
   async callMcpTool(role: AgentRole, serverName: string, toolName: string, args: Record<string, unknown>): Promise<unknown> {
     const mcpManager = this.getMcpManagerProvider();
     if (!mcpManager) throw new Error('MCP manager not configured. Call setMcpManager() first.');
-    const { McpInvokeError } = await import('../mcp/mcp-manager.js');
     const toolDefinition = this.getMcpToolDefinition(serverName, toolName);
     const policyDecision = this.decideToolInvocation(role, 'external-mcp', 'mcp_tool_call', { serverName, definition: toolDefinition });
     if (!policyDecision.allowed) throw new Error(policyDecision.message);
