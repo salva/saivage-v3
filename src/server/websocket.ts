@@ -189,6 +189,7 @@ export function registerWebSocket(fastify: FastifyInstance, projectRoot: string,
                 wsSessions.set(ws, currentSessionId);
               }
 
+              if (!activeRuntime) throw new Error('ActiveRuntime unavailable for analyst websocket.');
               const handler = getAnalystHandler(projectRoot, {
                 activeRuntime,
                 requestServerRestart,

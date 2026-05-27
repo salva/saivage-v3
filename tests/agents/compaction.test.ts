@@ -6,6 +6,7 @@ import { describe, it, expect, beforeAll, beforeEach, afterEach } from '@jest/gl
 import { existsSync, mkdirSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
+import { createTestActiveRuntime } from '../helpers/test-active-runtime.js';
 
 const TEST_ROOT = join(tmpdir(), `saivage-compaction-test-${Date.now()}`);
 const SAIVAGE_DIR = join(TEST_ROOT, '.saivage');
@@ -69,7 +70,7 @@ describe('compactSession', () => {
       contextLimit: 100000,
       threshold: 0.8,
       maxCompactions: 3,
-    });
+    }, createTestActiveRuntime());
 
     expect(result.compacted).toBe(false);
     expect(result.maxReached).toBe(false);
@@ -91,7 +92,7 @@ describe('compactSession', () => {
       contextLimit: 1000, // very small to trigger compaction
       threshold: 0.01, // almost always triggers
       maxCompactions: 3,
-    });
+    }, createTestActiveRuntime());
 
     expect(result.compacted).toBe(true);
     expect(result.usedFallback).toBe(true);
@@ -116,7 +117,7 @@ describe('compactSession', () => {
         contextLimit: 1000,
         threshold: 0.01,
         maxCompactions: 3,
-      });
+      }, createTestActiveRuntime());
     }
 
     // This should be the 4th attempt — max reached
@@ -131,7 +132,7 @@ describe('compactSession', () => {
       contextLimit: 1000,
       threshold: 0.01,
       maxCompactions: 3,
-    });
+    }, createTestActiveRuntime());
 
     expect(result.maxReached).toBe(true);
     expect(result.compactionCount).toBe(3);
@@ -157,7 +158,7 @@ describe('compactSession', () => {
         summarizerCalled = true;
         return `Summarized ${messages.length} messages.`;
       },
-    });
+    }, createTestActiveRuntime());
 
     expect(summarizerCalled).toBe(true);
     expect(result.usedFallback).toBe(false);
@@ -187,7 +188,7 @@ describe('compactSession', () => {
       summarizeFn: async () => {
         throw new Error('Summarization failed');
       },
-    });
+    }, createTestActiveRuntime());
 
     expect(result.usedFallback).toBe(true);
     expect(result.compacted).toBe(true);
@@ -211,7 +212,7 @@ describe('getCompactionCount / resetCompactionState', () => {
       contextLimit: 1000,
       threshold: 0.01,
       maxCompactions: 5,
-    });
+    }, createTestActiveRuntime());
 
     expect(compaction.getCompactionCount(session.id)).toBe(1);
 

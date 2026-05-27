@@ -7,7 +7,6 @@ import { parsePlannerResult, parseExecutorResult, parseReviewerResult, buildExec
 import { createSession, completeSession, appendMessage as appendPersistentMessage, getSession, getSessionMessages, markSessionWaiting, setSessionStatus, updateSessionModel, assertNoActiveAgentSession } from './session-persistence.js';
 import type { AgentInvocationRole, AgentMessage, HandoffSummary, LoggedEvent, OperationalAgentRole, MessageKind, MessageRole, EntityLink } from '../schemas/index.js';
 import type { NotificationCenter } from '../notifications/index.js';
-import { compactSession } from './compaction.js';
 import { invokeWithRecovery, type RecoveryContext } from './recovery.js';
 import type { ContentSupervisor } from '../workspace/index.js';
 import { getSafeFileForAgent, type SafeFileResult } from '../workspace/index.js';
@@ -332,10 +331,6 @@ export class AgentAdapter implements AgentExecutionPort {
             if (this.eventLogger) this.eventLogger.appendEvent({ kind: 'model_selected', session_id: session.id, provider: candidate.provider, model: candidate.model, role: role as unknown as import('../schemas/types.js').AgentRole });
             if (this.eventBus) this.eventBus.emit('model_selected', { session_id: session.id, provider: candidate.provider, model: candidate.model, role });
             if (recoveryCtx.isRecovery && recoveryCtx.directive) this.appendSessionMessage(session.id, { role: 'system', kind: 'model_recovered', content: recoveryCtx.directive });
-            const compactionResult = await compactSession(this.saivageDir, session.id, { contextLimit: 128000, threshold: this.runtimeConfig.compactionThreshold ?? 0.8, maxCompactions: this.runtimeConfig.maxCompactions ?? 3 });
-            if (compactionResult.maxReached) throw new Error(`Max compactions (${this.runtimeConfig.maxCompactions ?? 3}) reached for session ${session.id}. Session must be restarted with fresh context.`);
-            if (this.eventLogger && compactionResult.compacted) this.eventLogger.appendEvent({ kind: 'compaction_triggered', session_id: session.id, role: role as unknown as import('../schemas/types.js').AgentRole, tokens_before: compactionResult.tokensBefore, tokens_after: compactionResult.tokensAfter });
-            if (this.eventBus && compactionResult.compacted) this.eventBus.emit('compaction_triggered', { session_id: session.id, role, tokens_before: compactionResult.tokensBefore, tokens_after: compactionResult.tokensAfter });
             const abortController = new AbortController();
             this.sessionCoordinator.trackAbortController(session.id, abortController);
             const callStart = Date.now();

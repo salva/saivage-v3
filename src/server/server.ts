@@ -74,7 +74,7 @@ export async function createServer(optionsOrProjectRoot: CreateServerOptions | s
   const mcpStartupFailure = mcpStartup.startupFailure;
   attachMcpManagerToRuntime(activeRuntime, mcpManager);
 
-  const telegramBot = await startTelegramNotifications({ projectRoot, saivageConfig, fastify });
+  const telegramBot = await startTelegramNotifications({ projectRoot, saivageConfig, fastify, activeRuntime });
 
   registerServerRoutes({
     fastify,

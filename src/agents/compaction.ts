@@ -1,5 +1,6 @@
 import type { AgentMessage } from '../schemas/index.js';
 import { agentMessageSchema } from '../schemas/index.js';
+import type { ActiveRuntime } from '../runtime/control-api.js';
 import type { RuntimeAppendRecorder, RoundStamp } from './session-persistence.js';
 import {
   getSessionMessages,
@@ -29,8 +30,6 @@ export interface CompactionResult {
   /** Error if compaction failed entirely */
   error?: string;
 }
-
-export interface CompactionStampSource { stampCompacted(sessionId: string): RoundStamp; }
 
 export interface CompactionOptions {
   /** Context window limit in tokens */
@@ -97,7 +96,7 @@ export async function compactSession(
   saivageDir: string,
   sessionId: string,
   options: CompactionOptions,
-  activeRuntime?: CompactionStampSource & RuntimeAppendRecorder,
+  activeRuntime: ActiveRuntime & RuntimeAppendRecorder,
 ): Promise<CompactionResult> {
   const maxCompactions = options.maxCompactions ?? 3;
   const threshold = options.threshold ?? 0.8;
@@ -146,7 +145,7 @@ export async function compactSession(
 
       resultMessages = [createCompactionMessage(
         sessionId,
-        activeRuntime?.stampCompacted(sessionId) ?? { round_id: `r-compacted-${state.count + 1}`, message_index: 0, block_index: 0 },
+        activeRuntime.stampCompacted(sessionId),
         `msg-${sessionId}-compact-${state.count + 1}`,
         `[CONTEXT COMPACTION #${state.count + 1}]
 
@@ -166,7 +165,7 @@ ${summary}`,
         messages,
         keepFraction,
         state.count + 1,
-        activeRuntime?.stampCompacted(sessionId),
+        activeRuntime.stampCompacted(sessionId),
       );
     }
   } else {
@@ -177,7 +176,7 @@ ${summary}`,
       messages,
       keepFraction,
       state.count + 1,
-      activeRuntime?.stampCompacted(sessionId),
+      activeRuntime.stampCompacted(sessionId),
     );
   }
 
@@ -227,14 +226,14 @@ function createFallbackMessages(
   messages: AgentMessage[],
   keepFraction: number,
   compactionNum: number,
-  stamp?: RoundStamp,
+  stamp: RoundStamp,
 ): AgentMessage[] {
   const keepCount = Math.max(1, Math.floor(messages.length * keepFraction));
   const keptMessages = messages.slice(-keepCount);
 
   return [createCompactionMessage(
     sessionId,
-    stamp ?? { round_id: `r-compacted-${compactionNum}`, message_index: 0, block_index: 0 },
+    stamp,
     `msg-${sessionId}-compact-fallback-${compactionNum}`,
     `[CONTEXT COMPACTION #${compactionNum} — TRUNCATION FALLBACK]
 

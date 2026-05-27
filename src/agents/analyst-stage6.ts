@@ -101,11 +101,11 @@ export function discardSubtreeChangedSyntheticNotes(projectRoot: string, affecte
   return before - queue.notes.length;
 }
 
-export function injectQueuedSyntheticPlannerNotes(projectRoot: string, plannerSessionId: string): number {
+export function injectQueuedSyntheticPlannerNotes(projectRoot: string, plannerSessionId: string, activeRuntime: { stampUserMessage(sessionId: string): import('./session-persistence.js').RoundStamp }): number {
   const notes = drainSyntheticPlannerNotes(projectRoot, plannerSessionId);
   if (notes.length === 0) return 0;
   const lines = ['## Synthetic runtime notes since your last turn', '', ...notes.map((note) => `- ${note.kind} for ${note.affected_card_id}: ${note.summary}${note.descendant_card_ids.length ? ` (descendant_card_ids: ${note.descendant_card_ids.join(', ')})` : ''}`)];
-  appendMessage(saivageDir(projectRoot), plannerSessionId, { role: 'user', kind: 'text', content: lines.join('\n') });
+  appendMessage(saivageDir(projectRoot), plannerSessionId, { role: 'user', kind: 'text', content: lines.join('\n') }, activeRuntime.stampUserMessage(plannerSessionId));
   return notes.length;
 }
 

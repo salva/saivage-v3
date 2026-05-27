@@ -22,10 +22,18 @@ import { ErrorLogger } from '../observability/index.js';
 import { SkillsEngine } from '../agents/skills-engine.js';
 import type { SaivageConfig } from '../agents/config-schema.js';
 import type { McpManager } from '../mcp/manager-api.js';
-import type { RuntimeState, FreezeManifest } from '../schemas/index.js';
+import type { RuntimeState, FreezeManifest, AgentMessage } from '../schemas/index.js';
 import { appendRuntimeRun, readRuntimeState, upsertRuntimeActivation } from './state.js';
 
 // ── ActiveRuntime ──────────────────────────────────────────────
+
+export interface RoundStamp { round_id: string; message_index: number; block_index: number; }
+export interface PendingCall { id: string; tool: string; started_at: string; }
+export type ActivityStatus = 'idle' | 'thinking' | 'tool_calling' | 'responding' | 'compacting';
+export interface SessionActivity { status: ActivityStatus; pending_calls: PendingCall[]; updated_at: string; }
+export interface SessionRoundState { nextRound: number; currentRoundId: string | null; nextMessageIndex: number; nextBlockIndex: number; compactedCount: number; activity: SessionActivity; }
+
+function emptyActivity(): SessionActivity { return { status: 'idle', pending_calls: [], updated_at: new Date().toISOString() }; }
 
 export class ActiveRuntime {
   private _runtime: Runtime;
@@ -36,6 +44,7 @@ export class ActiveRuntime {
   private _projectRoot: string;
   private _config: SaivageConfig;
   private _mcpManager?: McpManager;
+  private _roundStates = new Map<string, SessionRoundState>();
 
   /**
    * @param projectRoot  Absolute path to the project root
@@ -93,6 +102,7 @@ export class ActiveRuntime {
       continuousImprovement: this._config.runtime.continuousImprovement,
       eventLogger: this._eventLogger,
       errorLogger: this._errorLogger,
+      activeRuntime: this,
       supervisorConfig: this._config.supervisor
         ? {
             enabled: this._config.supervisor.enabled,
@@ -121,6 +131,98 @@ export class ActiveRuntime {
     this._mcpManager = mcpManager;
     this._agentAdapter.setMcpManager(mcpManager);
     mcpManager.setEventLogger(this._eventLogger);
+  }
+
+
+
+  private getRoundState(sessionId: string): SessionRoundState {
+    let state = this._roundStates.get(sessionId);
+    if (!state) {
+      state = { nextRound: 1, currentRoundId: null, nextMessageIndex: 0, nextBlockIndex: 0, compactedCount: 0, activity: emptyActivity() };
+      this._roundStates.set(sessionId, state);
+    }
+    return state;
+  }
+
+  openAssistantRound(sessionId: string): RoundStamp {
+    const state = this.getRoundState(sessionId);
+    state.currentRoundId = `r-assistant-${state.nextRound++}`;
+    state.nextMessageIndex = 0;
+    state.nextBlockIndex = 0;
+    this.setActivityStatus(sessionId, 'thinking');
+    return this.stampInRound(sessionId);
+  }
+
+  stampInRound(sessionId: string): RoundStamp {
+    const state = this.getRoundState(sessionId);
+    if (!state.currentRoundId) state.currentRoundId = `r-assistant-${state.nextRound++}`;
+    return { round_id: state.currentRoundId, message_index: state.nextMessageIndex++, block_index: state.nextBlockIndex++ };
+  }
+
+  stampUserMessage(sessionId: string): RoundStamp {
+    const state = this.getRoundState(sessionId);
+    state.currentRoundId = null;
+    state.nextBlockIndex = 0;
+    return { round_id: `r-user-${state.nextRound++}`, message_index: 0, block_index: 0 };
+  }
+
+  stampPre(sessionId: string): RoundStamp {
+    const state = this.getRoundState(sessionId);
+    return { round_id: `r-pre-${state.nextRound++}`, message_index: 0, block_index: 0 };
+  }
+
+  stampCompacted(sessionId: string): RoundStamp {
+    const state = this.getRoundState(sessionId);
+    state.compactedCount += 1;
+    state.currentRoundId = null;
+    return { round_id: `r-compacted-${state.compactedCount}`, message_index: 0, block_index: 0 };
+  }
+
+  stampDiagnosticInCurrentRound(sessionId: string): RoundStamp {
+    const state = this.getRoundState(sessionId);
+    const round_id = state.currentRoundId ?? `r-diagnostic-${state.nextRound++}`;
+    return { round_id, message_index: state.nextMessageIndex++, block_index: state.nextBlockIndex++ };
+  }
+
+  closeRound(sessionId: string): void {
+    const state = this.getRoundState(sessionId);
+    state.currentRoundId = null;
+    state.nextBlockIndex = 0;
+    this.setActivityStatus(sessionId, 'idle');
+  }
+
+  rebuildSessionRoundState(sessionId: string, messages: AgentMessage[] = []): SessionRoundState {
+    let maxRound = 0;
+    let compactedCount = 0;
+    for (const message of messages) {
+      const match = /r-(?:pre|user|assistant|diagnostic)-(\d+)/.exec(message.round_id);
+      if (match) maxRound = Math.max(maxRound, Number(match[1]));
+      const compact = /r-compacted-(\d+)/.exec(message.round_id);
+      if (compact) compactedCount = Math.max(compactedCount, Number(compact[1]));
+    }
+    const state: SessionRoundState = { nextRound: maxRound + 1, currentRoundId: null, nextMessageIndex: 0, nextBlockIndex: 0, compactedCount, activity: emptyActivity() };
+    this._roundStates.set(sessionId, state);
+    return state;
+  }
+
+  getActivityStatus(sessionId: string): SessionActivity {
+    return this.getRoundState(sessionId).activity;
+  }
+
+  private setActivityStatus(sessionId: string, status: ActivityStatus): void {
+    const state = this.getRoundState(sessionId);
+    state.activity = { ...state.activity, status, updated_at: new Date().toISOString() };
+  }
+
+  recordAppend(message: AgentMessage): void {
+    const state = this.getRoundState(message.session_id);
+    if (message.kind === 'tool_call' && message.tool_call_id) {
+      state.activity = { status: 'tool_calling', pending_calls: [...state.activity.pending_calls, { id: message.tool_call_id, tool: message.tool ?? 'tool', started_at: message.timestamp }], updated_at: new Date().toISOString() };
+    } else if ((message.kind === 'tool_result' || message.kind === 'tool_error') && message.tool_call_id) {
+      state.activity = { status: 'responding', pending_calls: state.activity.pending_calls.filter((call) => call.id !== message.tool_call_id), updated_at: new Date().toISOString() };
+    } else if (message.kind === 'text' && message.role === 'assistant') {
+      state.activity = { ...state.activity, status: 'responding', updated_at: new Date().toISOString() };
+    }
   }
 
   // ── Lifecycle ────────────────────────────────────────────────
