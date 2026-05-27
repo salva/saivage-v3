@@ -66,7 +66,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue';
 import { storeToRefs } from 'pinia';
-import type { ActivityStatus, ChatMessage, ConversationEntry } from '../../api/types';
+import type { ActivityStatus, ConversationEntry } from '../../api/types';
 import { useAnalystChat } from '../../stores/analystChat';
 import { useCardStore } from '../../stores/cards';
 import { selectChildrenOf } from '../../stores/card-read-model';
@@ -95,14 +95,7 @@ const {
 
 const composerRef = ref<HTMLTextAreaElement | null>(null);
 
-function assertStampedChatMessage(message: ChatMessage): ConversationEntry {
-  if (!message.round_id || !Number.isFinite(message.message_index) || !Number.isFinite(message.block_index)) {
-    throw new Error(`Analyst chat message ${message.id} is missing required round stamp fields.`);
-  }
-  return message;
-}
-
-const timelineEntries = computed<ConversationEntry[]>(() => messages.value.map(assertStampedChatMessage));
+const timelineEntries = computed<ConversationEntry[]>(() => messages.value);
 const idleActivityStatus = computed<ActivityStatus | null>(() => null);
 const timelineControls = useAgentTimeline(timelineEntries, idleActivityStatus, () => activeSessionId.value);
 const childrenOnScreen = computed(() =>

@@ -514,20 +514,7 @@ export interface ChatSession {
   started_at: string;
 }
 
-export interface ChatMessage {
-  id: string;
-  session_id: string;
-  role: MessageRole;
-  kind: MessageKind;
-  content: string;
-  round_id: string;
-  message_index: number;
-  block_index: number;
-  tool?: string;
-  tool_call_id?: string;
-  timestamp: string;
-  links?: EntityLink[];
-}
+export type ChatMessage = ConversationEntry;
 
 export interface WorkspaceContext {
   view: string | null;
