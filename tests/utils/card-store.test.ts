@@ -96,6 +96,26 @@ describe('CardStore validation of persisted state', () => {
     expect(read?.title).toBe('Read Me');
   });
 
+  it('throws when a persisted project card uses a non-canonical id', () => {
+    const projectPath = join(tmpDir, '.saivage', 'cards', 'by-id', 'project.json');
+    const raw = JSON.parse(readFileSync(projectPath, 'utf-8')) as CardRecord;
+    rmSync(projectPath);
+    writeFileSync(
+      join(tmpDir, '.saivage', 'cards', 'by-id', 'root-spec-plan-project.json'),
+      JSON.stringify({ ...raw, id: 'root-spec-plan-project' }, null, 2),
+    );
+
+    expect(() => { store = new CardStore(tmpDir); }).toThrow(/expected canonical id 'project'/i);
+  });
+
+  it('throws when a persisted project card is not the root card', () => {
+    const projectPath = join(tmpDir, '.saivage', 'cards', 'by-id', 'project.json');
+    const raw = JSON.parse(readFileSync(projectPath, 'utf-8')) as CardRecord;
+    writeFileSync(projectPath, JSON.stringify({ ...raw, parent: 'goal-parent', depth: 1, position: 1 }, null, 2));
+
+    expect(() => { store = new CardStore(tmpDir); }).toThrow(/must be the root card/i);
+  });
+
   it('throws when persisted canonical card JSON is schema-invalid on read', () => {
     const created = store.create(makeCard({ type: 'goal', title: 'Broken' }));
     const path = join(tmpDir, '.saivage', 'cards', 'by-id', `${created.id}.json`);
@@ -127,6 +147,52 @@ describe('CardStore validation of persisted state', () => {
 });
 
 describe('CardStore CRUD still works with validated indexes', () => {
+  it('canonicalizes explicit project card ids to project on create', () => {
+    rmSync(tmpDir, { recursive: true, force: true });
+    tmpDir = mkdtempSync(join(tmpdir(), 'saivage-cs-project-id-'));
+    store = new CardStore(tmpDir);
+
+    const card = store.create(makeCard({
+      id: 'root-spec-plan-project',
+      type: 'project',
+      parent: null,
+      title: 'Root from docs',
+    }));
+
+    expect(card.id).toBe('project');
+    expect(card.parent).toBeNull();
+    expect(card.depth).toBe(0);
+    expect(card.position).toBe(0);
+    expect(existsSync(join(tmpDir, '.saivage', 'cards', 'by-id', 'project.json'))).toBe(true);
+    expect(existsSync(join(tmpDir, '.saivage', 'cards', 'by-id', 'root-spec-plan-project.json'))).toBe(false);
+  });
+
+  it('rejects attempts to create a project card under another card', () => {
+    const goal = store.create(makeCard({ type: 'goal', title: 'Parent' }));
+
+    expect(() => store.create(makeCard({
+      id: 'nested-project',
+      type: 'project',
+      parent: goal.id,
+      title: 'Nested project',
+    }))).toThrow(/must be the root card/i);
+  });
+
+  it('rejects project type changes through mutation', () => {
+    const goal = store.create(makeCard({ type: 'goal', title: 'Goal' }));
+
+    expect(() => store.mutateCard(
+      goal.id,
+      { type: 'project' },
+      { actor: 'analyst', surface: 'web-chat', reason: 'test' },
+    )).toThrow(/canonical id 'project'|type 'project'/i);
+    expect(() => store.mutateCard(
+      'project',
+      { type: 'goal' },
+      { actor: 'analyst', surface: 'web-chat', reason: 'test' },
+    )).toThrow(/canonical project card/i);
+  });
+
   it('stores nullable status_text fields on new cards by default', () => {
     const card = store.create(makeCard({ type: 'goal', title: 'Null status text defaults' }));
     expect(card.status_text).toBeNull();

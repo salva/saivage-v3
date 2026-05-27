@@ -9,10 +9,10 @@ import {
   cardRecordSchema,
   type CardHistoryEntry,
   type CardRecord,
-  type CardStatus,
-  type CardType,
 } from '../schemas/index.js';
 import { lastLineSync } from '../persistence/index.js';
+import { PROJECT_CARD_ID } from './project-card.js';
+import { isTerminalType } from './lifecycle.js';
 
 export class CardStoreInvariantError extends Error {
   constructor(message: string) {
@@ -30,30 +30,6 @@ export class ReorderSetMismatchError extends Error {
     super(`Reorder child set mismatch for parent '${parentId}': missing=[${missing.join(',')}], extra=[${extra.join(',')}].`);
     this.name = 'ReorderSetMismatchError';
   }
-}
-
-const TERMINAL_TYPES: ReadonlySet<CardType> = new Set<CardType>([
-  'architecture',
-  'code',
-  'test',
-  'doc',
-  'data',
-  'research',
-  'ops',
-]);
-
-export function isTerminalType(type: CardType): boolean {
-  return TERMINAL_TYPES.has(type);
-}
-
-const TERMINAL_STATES: ReadonlySet<CardStatus> = new Set<CardStatus>([
-  'done',
-  'failed',
-  'cancelled',
-]);
-
-export function isTerminalState(state: CardStatus): boolean {
-  return TERMINAL_STATES.has(state);
 }
 
 function byIdDir(projectRoot: string): string {
@@ -419,6 +395,19 @@ export function loadCardStoreState(
     throw new CardStoreInvariantError(
       `Multiple project cards on disk: ${projectCards.map((c) => c.id).join(', ')}.`,
     );
+  }
+  const projectCard = projectCards[0];
+  if (projectCard) {
+    if (projectCard.id !== PROJECT_CARD_ID) {
+      throw new CardStoreInvariantError(
+        `Project card '${projectCard.id}' is invalid: expected canonical id '${PROJECT_CARD_ID}'.`,
+      );
+    }
+    if (projectCard.parent !== null || projectCard.depth !== 0 || projectCard.position !== 0) {
+      throw new CardStoreInvariantError(
+        `Project card '${projectCard.id}' must be the root card with parent null, depth 0, and position 0.`,
+      );
+    }
   }
   for (const card of cardsRaw) {
     if (card.parent === card.id) {
