@@ -25,7 +25,6 @@ import {
 } from '../../src/agents/analyst-handler.js';
 import { sanitizeAnalystPayload, sanitizeAnalystText } from '../../src/agents/analyst-sanitization.js';
 import {
-  buildCardRunsResponse,
   consumeChangedCardActivation,
   injectQueuedSyntheticPlannerNotes,
   markGoalNeedsCorrections,
@@ -72,7 +71,6 @@ describe('agents module ownership boundary', () => {
     expect(agentsIndex.resetAnalystHandlerCache).toBe(resetAnalystHandlerCache);
     expect(agentsIndex.sanitizeAnalystPayload).toBe(sanitizeAnalystPayload);
     expect(agentsIndex.sanitizeAnalystText).toBe(sanitizeAnalystText);
-    expect(agentsIndex.buildCardRunsResponse).toBe(buildCardRunsResponse);
     expect(agentsIndex.consumeChangedCardActivation).toBe(consumeChangedCardActivation);
     expect(agentsIndex.injectQueuedSyntheticPlannerNotes).toBe(injectQueuedSyntheticPlannerNotes);
     expect(agentsIndex.markGoalNeedsCorrections).toBe(markGoalNeedsCorrections);
@@ -97,6 +95,7 @@ describe('agents module ownership boundary', () => {
   });
 
   it('does not export same-package-only modules as runtime values from the public package index', () => {
+    expect('buildCardRunsResponse' in agentsIndex).toBe(false);
     expect('ModelRouter' in agentsIndex).toBe(false);
     expect('createLlmClient' in agentsIndex).toBe(false);
     expect('invokeWithRecovery' in agentsIndex).toBe(false);

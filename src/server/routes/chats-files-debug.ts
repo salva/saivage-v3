@@ -1,16 +1,11 @@
-import { readdirSync, lstatSync, statSync, readFileSync, existsSync } from 'node:fs';
+import { readdirSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
-import { readRuntimeState } from '../../runtime/index.js';
-import { readFreezeManifest } from '../../runtime/index.js';
 import { CardStore } from '../../cards/index.js';
 import {
-  getSafeFileForAgent,
-  resolveContainedProjectPath,
   redactOperatorErrorMessage,
 } from '../../workspace/index.js';
-import { redactForOutbound } from '../../redaction/index.js';
-import { AnalystHandler } from '../../agents/index.js';
+import { GLOBAL_ANALYST_SESSION_ID, getAnalystHandler, resetAnalystHandlerCache } from '../../agents/index.js';
 import {
   listRecentReviews,
   listQuarantineIndex,
@@ -21,11 +16,7 @@ import type {
   DoctorIssue,
   DoctorResponse,
 } from '../../schemas/index.js';
-
-const MAX_FILE_SIZE_BYTES = 1_048_576;
-const SAFE_SESSION_ID_RE = /^[a-zA-Z0-9_-]+$/;
-const BINARY_SAMPLE_BYTES = 4096;
-
+import { ChatReadModelService, DebugReadModelService, WorkspaceFileReadModelService, isSafeChatSessionId } from '../../application/read-models/index.js';
 
 interface ChatWorkspaceContext {
   view: string | null;
@@ -62,45 +53,8 @@ function validateWorkspaceContext(value: unknown): { ok: true; value: ChatWorksp
   };
 }
 
-const analystHandlersByRoot = new Map<string, { handler: AnalystHandler; activeRuntime?: ActiveRuntime }>();
-
-function getAnalystHandler(projectRoot: string, activeRuntime?: ActiveRuntime): AnalystHandler {
-  const cached = analystHandlersByRoot.get(projectRoot);
-  if (cached && cached.activeRuntime === activeRuntime) {
-    return cached.handler;
-  }
-  const handler = new AnalystHandler(projectRoot, undefined, activeRuntime);
-  analystHandlersByRoot.set(projectRoot, { handler, activeRuntime });
-  return handler;
-}
-
 export function resetChatRouteState(projectRoot?: string): void {
-  if (projectRoot) {
-    analystHandlersByRoot.delete(projectRoot);
-    return;
-  }
-  analystHandlersByRoot.clear();
-}
-
-function isBinaryBuffer(buffer: Buffer): boolean {
-  const length = Math.min(buffer.length, BINARY_SAMPLE_BYTES);
-  if (length === 0) {
-    return false;
-  }
-
-  let suspicious = 0;
-  for (let i = 0; i < length; i++) {
-    const byte = buffer[i];
-    if (byte === 0) {
-      return true;
-    }
-    const isPrintable = byte === 9 || byte === 10 || byte === 13 || (byte >= 32 && byte <= 126);
-    if (!isPrintable) {
-      suspicious += 1;
-    }
-  }
-
-  return suspicious / length > 0.3;
+  resetAnalystHandlerCache(projectRoot);
 }
 
 export function registerChatsFilesDebugRoutes(
@@ -108,8 +62,10 @@ export function registerChatsFilesDebugRoutes(
   projectRoot: string,
   activeRuntime?: ActiveRuntime,
 ): void {
-  const store = new CardStore(projectRoot);
   const saivageDir = join(projectRoot, '.saivage');
+  const chatReadModel = new ChatReadModelService(projectRoot);
+  const fileReadModel = new WorkspaceFileReadModelService(projectRoot);
+  const debugReadModel = new DebugReadModelService(projectRoot);
 
   fastify.addHook('onClose', async () => {
     resetChatRouteState(projectRoot);
@@ -117,29 +73,8 @@ export function registerChatsFilesDebugRoutes(
 
   fastify.get('/api/chats', async (_request: FastifyRequest, reply: FastifyReply) => {
     try {
-      const sessionsDir = join(projectRoot, '.saivage', 'agents', 'sessions');
-      const sessions: Array<{ id: string; role: string; status: string; started_at: string }> = [];
-
-      if (existsSync(sessionsDir)) {
-        const files = readdirSync(sessionsDir).filter((f: string) => f.endsWith('.json'));
-        for (const file of files) {
-          try {
-            const data = JSON.parse(readFileSync(join(sessionsDir, file), 'utf-8'));
-            if ((data.role || 'analyst') !== 'analyst') {
-              continue;
-            }
-            sessions.push({
-              id: data.id || file.replace('.json', ''),
-              role: data.role || 'analyst',
-              status: data.status || 'done',
-              started_at: data.started_at || '',
-            });
-          } catch { void 0; 
-          }
-        }
-      }
-
-      return reply.send({ sessions });
+      const result = chatReadModel.listSessions();
+      return reply.status(result.statusCode ?? 200).send(result.body);
     } catch (err) {
       return reply.status(500).send({
         error: 'Failed to list chat sessions',
@@ -151,29 +86,8 @@ export function registerChatsFilesDebugRoutes(
   fastify.get('/api/chats/:sessionId', async (request: FastifyRequest, reply: FastifyReply) => {
     try {
       const params = request.params as { sessionId: string };
-      const sessionId = params.sessionId;
-
-      if (!SAFE_SESSION_ID_RE.test(sessionId)) {
-        return reply.status(400).send({ error: 'Invalid session ID format.', sessionId });
-      }
-
-      const messagesDir = join(projectRoot, '.saivage', 'agents', 'messages');
-      const messagesPath = join(messagesDir, `${sessionId}.jsonl`);
-      const messages: unknown[] = [];
-
-      if (existsSync(messagesPath)) {
-        const raw = readFileSync(messagesPath, 'utf-8');
-        for (const line of raw.split('\n')) {
-          if (line.trim()) {
-            try {
-              messages.push(JSON.parse(line));
-            } catch { void 0; 
-            }
-          }
-        }
-      }
-
-      return reply.send({ sessionId, messages });
+      const result = chatReadModel.getMessages(params.sessionId);
+      return reply.status(result.statusCode ?? 200).send(result.body);
     } catch (err) {
       return reply.status(500).send({
         error: 'Failed to read session messages',
@@ -188,8 +102,11 @@ export function registerChatsFilesDebugRoutes(
       const sessionId = params.sessionId;
       const body = request.body as { content?: string; workspaceContext?: unknown };
 
-      if (!SAFE_SESSION_ID_RE.test(sessionId)) {
+      if (!isSafeChatSessionId(sessionId)) {
         return reply.status(400).send({ error: 'Invalid session ID format.', sessionId });
+      }
+      if (sessionId !== GLOBAL_ANALYST_SESSION_ID) {
+        return reply.status(404).send({ error: 'Only the canonical analyst chat is available.', sessionId });
       }
 
       if (!body.content) {
@@ -205,8 +122,8 @@ export function registerChatsFilesDebugRoutes(
         workspaceContext = validation.value;
       }
 
-      const handler = getAnalystHandler(projectRoot, activeRuntime);
-      const response = await handler.handleMessage(sessionId, body.content, workspaceContext);
+      const handler = getAnalystHandler(projectRoot, { activeRuntime, surface: 'web-chat' });
+      const response = await handler.handleMessage(GLOBAL_ANALYST_SESSION_ID, body.content, workspaceContext);
 
       return reply.send({
         sessionId: response.sessionId,
@@ -224,55 +141,8 @@ export function registerChatsFilesDebugRoutes(
   fastify.get('/api/files', async (request: FastifyRequest, reply: FastifyReply) => {
     try {
       const query = request.query as { path?: string };
-      const requestedPath = query.path || '.';
-
-      const { safe, absolutePath, reason, relativePath } = resolveContainedProjectPath(projectRoot, requestedPath);
-      if (!safe) {
-        return reply.status(403).send({ error: reason });
-      }
-
-      const responsePath = relativePath ?? '.';
-
-      if (!existsSync(absolutePath)) {
-        return reply.status(404).send({ error: 'Path not found', path: responsePath });
-      }
-
-      const pathStat = statSync(absolutePath);
-      if (!pathStat.isDirectory()) {
-        return reply.status(400).send({ error: 'Path is not a directory', path: responsePath });
-      }
-
-      const entries = readdirSync(absolutePath);
-      const files = entries.flatMap((entry: string) => {
-        const lexicalEntryPath = join(responsePath === '.' ? '' : responsePath, entry).replace(/^$/, entry).replace(/\\/g, '/');
-        const containedEntry = resolveContainedProjectPath(projectRoot, lexicalEntryPath);
-        if (!containedEntry.safe || !containedEntry.relativePath || !existsSync(containedEntry.absolutePath)) {
-          return [];
-        }
-
-        try {
-          const linkStats = lstatSync(join(absolutePath, entry));
-          if (linkStats.isSymbolicLink()) {
-            const resolvedLink = resolveContainedProjectPath(projectRoot, join(absolutePath, entry));
-            if (!resolvedLink.safe) {
-              return [];
-            }
-          }
-
-          const entryStat = statSync(containedEntry.absolutePath);
-          return [{
-            name: entry,
-            path: containedEntry.relativePath,
-            type: entryStat.isDirectory() ? 'directory' : 'file',
-            size: entryStat.isFile() ? entryStat.size : undefined,
-            modifiedAt: entryStat.mtime.toISOString(),
-          }];
-        } catch {
-          return [];
-        }
-      });
-
-      return reply.send({ path: responsePath, files });
+      const result = fileReadModel.listFiles(query.path || '.');
+      return reply.status(result.statusCode ?? 200).send(result.body);
     } catch (err) {
       return reply.status(500).send({
         error: 'Failed to list directory',
@@ -284,63 +154,8 @@ export function registerChatsFilesDebugRoutes(
   fastify.get('/api/files/content', async (request: FastifyRequest, reply: FastifyReply) => {
     try {
       const query = request.query as { path?: string };
-      const requestedPath = query.path;
-
-      if (!requestedPath) {
-        return reply.status(400).send({ error: 'Path query parameter is required.' });
-      }
-
-      const { safe, absolutePath, reason, relativePath } = resolveContainedProjectPath(projectRoot, requestedPath);
-      if (!safe) {
-        return reply.status(403).send({ error: reason });
-      }
-
-      const responsePath = relativePath ?? '.';
-
-      if (!existsSync(absolutePath)) {
-        return reply.status(404).send({ error: 'File not found', path: responsePath });
-      }
-
-      const fileStat = statSync(absolutePath);
-      if (fileStat.isDirectory()) {
-        return reply.status(400).send({ error: 'Path is a directory', path: responsePath });
-      }
-
-      if (fileStat.size > MAX_FILE_SIZE_BYTES) {
-        return reply.status(413).send({
-          error: `File exceeds maximum size of ${MAX_FILE_SIZE_BYTES} bytes.`,
-          path: responsePath,
-          size: fileStat.size,
-          maxSize: MAX_FILE_SIZE_BYTES,
-        });
-      }
-
-      const rawBuffer = readFileSync(absolutePath);
-      if (isBinaryBuffer(rawBuffer)) {
-        return reply.status(415).send({
-          error: 'Binary or non-text file cannot be previewed.',
-          path: responsePath,
-        });
-      }
-
-      const rawContent = rawBuffer.toString('utf-8');
-      const safeResult = getSafeFileForAgent(responsePath, rawContent);
-
-      if (safeResult.blocked) {
-        return reply.status(403).send({
-          error: safeResult.reason || 'Access to this file is blocked for security reasons.',
-          path: responsePath,
-        });
-      }
-
-      return reply.send({
-        path: responsePath,
-        size: fileStat.size,
-        contentType: 'text/plain',
-        content: safeResult.safeContent,
-        redacted: Boolean(safeResult.reason),
-        sensitivity: safeResult.reason ? 'sensitive-redacted' : 'normal',
-      });
+      const result = fileReadModel.readFileContent(query.path);
+      return reply.status(result.statusCode ?? 200).send(result.body);
     } catch (err) {
       return reply.status(500).send({
         error: 'Failed to read file',
@@ -351,31 +166,7 @@ export function registerChatsFilesDebugRoutes(
 
   fastify.get('/api/debug/state', async (_request: FastifyRequest, reply: FastifyReply) => {
     try {
-      const state = readRuntimeState(projectRoot);
-      if (state && state.status === 'frozen') {
-        const manifest = readFreezeManifest(projectRoot);
-        if (manifest) {
-          state.frozen_reason = manifest.reason;
-        }
-      }
-
-      const cards = store.list();
-      const cardIndex = cards.map((c) => ({
-        id: c.id,
-        type: c.type,
-        parent: c.parent,
-        status: c.status,
-        title: c.title,
-        priority: c.priority,
-        depends_on: c.depends_on,
-        blocks: c.blocks,
-      }));
-
-      return reply.send({
-        runtime: state ? { ...state, pid: process.pid } : null,
-        cards: cardIndex,
-        totalCards: cards.length,
-      });
+      return reply.send(debugReadModel.getState());
     } catch (err) {
       return reply.status(500).send({
         error: 'Failed to dump debug state',
@@ -386,21 +177,7 @@ export function registerChatsFilesDebugRoutes(
 
   fastify.get('/api/debug/errors', async (_request: FastifyRequest, reply: FastifyReply) => {
     try {
-      const errorsPath = join(projectRoot, '.saivage', 'runtime', 'errors.jsonl');
-      const errors: unknown[] = [];
-
-      if (existsSync(errorsPath)) {
-        const raw = readFileSync(errorsPath, 'utf-8');
-        for (const line of raw.split('\n').filter(Boolean)) {
-          try {
-            errors.push(JSON.parse(line));
-          } catch { void 0; 
-          }
-        }
-      }
-
-      const redactedErrors = errors.map((entry) => redactForOutbound(entry, 'operator.api', { source: 'chats-files-debug' }));
-      return reply.send({ errors: redactedErrors, total: redactedErrors.length });
+      return reply.send(debugReadModel.getErrors());
     } catch (err) {
       return reply.status(500).send({
         error: 'Failed to read errors',
@@ -411,21 +188,7 @@ export function registerChatsFilesDebugRoutes(
 
   fastify.get('/api/debug/timeline', async (_request: FastifyRequest, reply: FastifyReply) => {
     try {
-      const eventsPath = join(projectRoot, '.saivage', 'runtime', 'events.jsonl');
-      const events: unknown[] = [];
-
-      if (existsSync(eventsPath)) {
-        const raw = readFileSync(eventsPath, 'utf-8');
-        for (const line of raw.split('\n').filter(Boolean)) {
-          try {
-            events.push(JSON.parse(line));
-          } catch { void 0; 
-          }
-        }
-      }
-
-      const redactedEvents = events.map((entry) => redactForOutbound(entry, 'operator.api', { source: 'chats-files-debug' }));
-      return reply.send({ events: redactedEvents, total: redactedEvents.length });
+      return reply.send(debugReadModel.getTimeline());
     } catch (err) {
       return reply.status(500).send({
         error: 'Failed to read timeline',

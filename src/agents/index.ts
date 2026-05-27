@@ -31,12 +31,12 @@ export {
   AgentAdapter,
 } from './agent-adapter.js';
 export type {
-  AgentRuntime,
   AgentRole,
 } from './agent-adapter.js';
 
 export {
   AnalystHandler,
+  GLOBAL_ANALYST_SESSION_ID,
   getAnalystHandler,
   getOrCreateAnalystSession,
   resetAnalystHandlerCache,
@@ -48,7 +48,6 @@ export {
 } from './analyst-sanitization.js';
 
 export {
-  buildCardRunsResponse,
   consumeChangedCardActivation,
   drainSyntheticPlannerNotes,
   injectQueuedSyntheticPlannerNotes,
