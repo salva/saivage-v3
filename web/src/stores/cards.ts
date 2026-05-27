@@ -31,63 +31,21 @@ import {
 } from '../api/client';
 import { useWsStore } from './ws';
 import { createLogger } from '../utils/logger';
+import {
+  buildDetailError,
+  buildDetailError as buildPanelError,
+  buildTree,
+  createEmptyDetailState,
+  createFreshDetailState,
+  errorMessage,
+  markDetailStaleState,
+  selectBoardColumns,
+  selectChildrenOf,
+  selectFilteredCards,
+  selectOrderedFilteredCards,
+} from './card-read-model';
 
 const log = createLogger('store:cards');
-
-function errorMessage(err: unknown, fallback: string): string {
-  if (err instanceof ApiError) return err.message;
-  if (err instanceof Error) return err.message;
-  return fallback;
-}
-
-function buildDetailError(err: unknown, fallback: string): DetailErrorState {
-  if (err instanceof ApiError) {
-    if (err.isUnauthorized) {
-      return { kind: 'unauthorized', status: err.status, message: err.message || 'Unauthorized.' };
-    }
-    if (err.isNotFound) {
-      return { kind: 'not-found', status: err.status, message: err.message || 'Card not found.' };
-    }
-    if (err.status >= 500) {
-      return { kind: 'server', status: err.status, message: err.message || fallback };
-    }
-    return { kind: 'unknown', status: err.status, message: err.message || fallback };
-  }
-  if (err instanceof Error) {
-    return { kind: 'network', status: null, message: err.message || fallback };
-  }
-  return { kind: 'unknown', status: null, message: fallback };
-}
-
-function buildPanelError(err: unknown, fallback: string): DetailErrorState {
-  return buildDetailError(err, fallback);
-}
-
-function buildTree(cards: CardRecord[]): CardRecord[] {
-  const byId = new Map<string, CardRecord & { children?: CardRecord[] }>();
-  const roots: CardRecord[] = [];
-
-  for (const card of cards) {
-    byId.set(card.id, { ...card, children: [] });
-  }
-
-  for (const card of byId.values()) {
-    if (card.parent && byId.has(card.parent)) {
-      const parent = byId.get(card.parent)!;
-      if (!parent.children) parent.children = [];
-      parent.children.push(card);
-    } else {
-      roots.push(card);
-    }
-  }
-
-  return roots;
-}
-
-function sortCards(a: CardRecord, b: CardRecord): number {
-  if (a.priority !== b.priority) return b.priority - a.priority;
-  return new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime();
-}
 
 export const useCardStore = defineStore('cards', () => {
   const cards = ref<CardRecord[]>([]);
@@ -104,11 +62,7 @@ export const useCardStore = defineStore('cards', () => {
   const currentPlanning = ref<CardPlanningSummary | null>(null);
   const currentDispatches = ref<DispatchSummary | null>(null);
   const currentDetailError = ref<DetailErrorState | null>(null);
-  const currentDetailFreshness = ref<DetailFreshnessState>({
-    isStale: false,
-    lastLoadedAt: null,
-    staleReason: null,
-  });
+  const currentDetailFreshness = ref<DetailFreshnessState>(createEmptyDetailState());
 
   const cardHistory = ref<CardHistoryHeader[]>([]);
   const cardHistoryLoading = ref(false);
@@ -128,43 +82,23 @@ export const useCardStore = defineStore('cards', () => {
   const filterTag = ref<string>('');
   const searchQuery = ref<string>('');
 
-  function applyCardFilters(source: CardRecord[]): CardRecord[] {
-    let result = source;
+  const activeFilters = computed(() => ({
+    status: filterStatus.value,
+    type: filterType.value,
+    parent: filterParent.value,
+    tag: filterTag.value,
+    query: searchQuery.value,
+  }));
 
-    if (filterStatus.value) result = result.filter((c) => c.status === filterStatus.value);
-    if (filterType.value) result = result.filter((c) => c.type === filterType.value);
-    if (filterTag.value) result = result.filter((c) => c.tags.includes(filterTag.value));
-    if (searchQuery.value) {
-      const q = searchQuery.value.toLowerCase();
-      result = result.filter((c) =>
-        c.title.toLowerCase().includes(q)
-        || c.description.toLowerCase().includes(q)
-        || c.id.toLowerCase().includes(q));
-    }
-    if (filterParent.value) result = result.filter((c) => c.parent === filterParent.value);
+  const filteredCards = computed<CardRecord[]>(() => selectFilteredCards(cards.value, activeFilters.value));
 
-    return result;
-  }
-
-  const filteredCards = computed<CardRecord[]>(() => [...applyCardFilters(cards.value)].sort(sortCards));
-
-  const orderedFilteredCards = computed<CardRecord[]>(() => applyCardFilters(cards.value));
+  const orderedFilteredCards = computed<CardRecord[]>(() => selectOrderedFilteredCards(cards.value, activeFilters.value));
 
   const cardTree = computed<CardRecord[]>(() => buildTree(filteredCards.value));
 
   const orderedCardTree = computed<CardRecord[]>(() => buildTree(orderedFilteredCards.value));
 
-  const board = computed<Map<CardStatus, CardRecord[]>>(() => {
-    const columns = new Map<CardStatus, CardRecord[]>();
-    const statuses: CardStatus[] = ['drafting', 'backlog', 'active', 'running', 'blocked', 'changed', 'done', 'failed', 'cancelled', 'needs_verification'];
-    for (const s of statuses) columns.set(s, []);
-    for (const card of filteredCards.value) {
-      const col = columns.get(card.status);
-      if (col) col.push(card);
-    }
-    for (const col of columns.values()) col.sort(sortCards);
-    return columns;
-  });
+  const board = computed<Map<CardStatus, CardRecord[]>>(() => selectBoardColumns(filteredCards.value));
 
   const currentCardHasStaleWarning = computed(() => {
     const cardId = currentCard.value?.id;
@@ -175,19 +109,11 @@ export const useCardStore = defineStore('cards', () => {
   function bumpGen(): number { return ++mutationGen; }
 
   function resetDetailFreshness(): void {
-    currentDetailFreshness.value = {
-      isStale: false,
-      lastLoadedAt: new Date().toISOString(),
-      staleReason: null,
-    };
+    currentDetailFreshness.value = createFreshDetailState(new Date().toISOString());
   }
 
   function markDetailStale(reason: DetailFreshnessState['staleReason']): void {
-    currentDetailFreshness.value = {
-      ...currentDetailFreshness.value,
-      isStale: true,
-      staleReason: reason,
-    };
+    currentDetailFreshness.value = markDetailStaleState(currentDetailFreshness.value, reason);
   }
 
   function clearCurrentDetail(): void {
@@ -200,11 +126,7 @@ export const useCardStore = defineStore('cards', () => {
     currentPlanning.value = null;
     currentDispatches.value = null;
     currentDetailError.value = null;
-    currentDetailFreshness.value = {
-      isStale: false,
-      lastLoadedAt: null,
-      staleReason: null,
-    };
+    currentDetailFreshness.value = createEmptyDetailState();
     clearCardHistoryState();
   }
 
@@ -237,14 +159,7 @@ export const useCardStore = defineStore('cards', () => {
   }
 
   function childrenOf(parentId: string): CardRecord[] {
-    return cards.value.filter((c) => c.parent === parentId)
-      .slice()
-      .sort((a, b) => {
-        const pa = a.position ?? Number.POSITIVE_INFINITY;
-        const pb = b.position ?? Number.POSITIVE_INFINITY;
-        if (pa !== pb) return pa - pb;
-        return a.id.localeCompare(b.id);
-      });
+    return selectChildrenOf(cards.value, parentId);
   }
 
   function safeBackgroundRefresh(genAtStart: number): void {

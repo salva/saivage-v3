@@ -171,14 +171,12 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue';
+import { ref, onMounted } from 'vue';
 import { storeToRefs } from 'pinia';
 import { useRouter } from 'vue-router';
 import { useRuntimeStore } from '../stores/runtime';
 import { useCardStore } from '../stores/cards';
-import type {
-  CardRecord,
-} from '../api/types';
+import { useDashboardReadModel } from '../composables/useDashboardReadModel';
 const runtimeStore = useRuntimeStore();
 const cardsStore = useCardStore();
 const router = useRouter();
@@ -210,18 +208,16 @@ const {
 
 const errorMsg = ref<string | null>(null);
 
-const displayedGoalId = computed<string | null>(() => cardsStore.currentCard?.id ?? null);
-const goalChildren = computed<CardRecord[]>(() => displayedGoalId.value ? cardsStore.childrenOf(displayedGoalId.value) : []);
-const runtimeBannerMessage = computed(() => {
-  if (runtimeUnauthorized.value) return 'Runtime snapshot is unavailable because the API token was rejected.';
-  if (isFrozen.value) return runtime.value?.frozen_reason || 'Runtime is frozen and needs operator attention.';
-  if (statusLabel.value === 'error') return 'Runtime is degraded. Inspect Debug and current evidence before treating work as healthy.';
-  if (runtimeIsStale.value) return 'Runtime snapshot is stale. Refresh to confirm the current REST state.';
-  return null;
-});
-const runtimeBannerClass = computed(() => {
-  if (runtimeUnauthorized.value || statusLabel.value === 'error') return 'runtime-status-banner-error';
-  return 'runtime-status-banner-warning';
+const { goalChildren, runtimeBannerMessage, runtimeBannerClass, barWidth } = useDashboardReadModel({
+  runtimeRefs: {
+    runtime,
+    statusLabel,
+    isFrozen,
+    isStale: runtimeIsStale,
+    unauthorized: runtimeUnauthorized,
+    cardIndex,
+  },
+  cardsStore,
 });
 
 function shortTime(ts?: string | null): string {
@@ -237,10 +233,7 @@ function goToAgent(id: string): void {
   router.push({ name: 'agent-detail', params: { id } });
 }
 
-function barWidth(count: number): string {
-  const max = Math.max(...Object.values(cardIndex.value.byType), 1);
-  return `${Math.round((count / max) * 100)}%`;
-}
+
 
 async function refreshRuntime(): Promise<void> {
   errorMsg.value = null;

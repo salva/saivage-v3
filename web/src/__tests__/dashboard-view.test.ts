@@ -16,10 +16,12 @@ describe('DashboardView S06 read-only contract', () => {
     expect(source).not.toMatch(/pauseRuntime|resumeRuntime|freezeRuntime|resumeRuntimeFromFreeze/);
   });
 
-  it('renders the new child-of-goal panel from cardsStore.childrenOf without mutating arms', () => {
+  it('renders the child-of-goal panel from the dashboard read-model composable without mutating arms', () => {
     expect(source).toContain('data-testid="dashboard-child-of-goal-panel"');
     expect(source).toContain('data-testid="child-of-goal-list"');
-    expect(source).toContain('cardsStore.childrenOf(displayedGoalId.value)');
+    expect(source).toContain('useDashboardReadModel');
+    expect(source).toContain('goalChildren');
+    expect(source).not.toContain('cardsStore.childrenOf(displayedGoalId.value)');
 
     const panelSource = source.slice(source.indexOf('data-testid="dashboard-child-of-goal-panel"'));
     expect(panelSource).not.toMatch(/@click|@submit|@drag|createCard|updateCard|deleteCard/);

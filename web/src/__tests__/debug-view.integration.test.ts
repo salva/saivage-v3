@@ -1,12 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import source from '../views/DebugView.vue?raw';
+import readModelSource from '../composables/useDebugReadModel?raw';
 
 describe('DebugView S06 diagnostic-only integration contract', () => {
   it('retains diagnostic tabs and refresh controls while removing mutation controls', () => {
-    expect(source).toContain("label: 'State'");
-    expect(source).toContain("label: 'Errors'");
-    expect(source).toContain("label: 'Timeline'");
-    expect(source).toContain("label: 'Processes'");
+    expect(readModelSource).toContain("label: 'State'");
+    expect(readModelSource).toContain("label: 'Errors'");
+    expect(readModelSource).toContain("label: 'Timeline'");
+    expect(readModelSource).toContain("label: 'Processes'");
+    expect(source).toContain('useDebugReadModel');
     expect(source).toContain('@click="refreshOperatorControl"');
     expect(source).toContain('@click="debugStore.fetchProcesses()"');
 
@@ -15,10 +17,11 @@ describe('DebugView S06 diagnostic-only integration contract', () => {
     expect(source).not.toMatch(/NotificationsPanel/);
   });
 
-  it('adds read-only per-card child rendering through cardsStore.childrenOf', () => {
+  it('adds read-only per-card child rendering through the debug read-model composable', () => {
     expect(source).toContain('data-testid="debug-view-card-children"');
     expect(source).toContain('data-testid="debug-card-children-list"');
-    expect(source).toContain('cardsStore.childrenOf(card.id)');
+    expect(source).toContain('childrenForCard(card.id)');
+    expect(source).not.toContain('cardsStore.childrenOf(card.id)');
 
     const start = source.indexOf('<section class="card-children-section"');
     const end = source.indexOf('</section>', start);

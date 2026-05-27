@@ -54,9 +54,9 @@
                 <span class="dc-status" :class="'s-' + card.status">{{ card.status }}</span>
                 <span class="dc-priority">P{{ card.priority }}</span>
                 <span v-if="card.depends_on.length" class="dc-deps">{{ card.depends_on.length }}</span>
-                <section class="card-children-section" data-testid="debug-view-card-children" v-if="cardsStore.childrenOf(card.id).length > 0">
+                <section class="card-children-section" data-testid="debug-view-card-children" v-if="childrenForCard(card.id).length > 0">
                   <ul data-testid="debug-card-children-list">
-                    <li v-for="child in cardsStore.childrenOf(card.id)" :key="child.id" data-testid="debug-card-children-item">
+                    <li v-for="child in childrenForCard(card.id)" :key="child.id" data-testid="debug-card-children-item">
                       <span class="title">{{ child.title }}</span>
                       <span class="status">{{ child.status }}</span>
                     </li>
@@ -336,17 +336,18 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref } from 'vue';
+import { onMounted, onUnmounted } from 'vue';
 import { useRouter } from 'vue-router';
 import { storeToRefs } from 'pinia';
 import { useDebugStore } from '../stores/debug';
 import { useCardStore } from '../stores/cards';
+import { useDebugReadModel } from '../composables/useDebugReadModel';
 import { formatTimestamp, isRecentTimestamp } from '../utils/timestamp';
 import { redactObservabilityValue } from '../utils/observabilityRedaction';
 import { useMcpStore } from '../stores/mcp';
 import { formatJson } from '../utils/format-json';
 import CodeBlock from '../components/content/CodeBlock.vue';
-import type { DebugError, DebugTimelineEvent, ProcessView } from '../api/types';
+import type { DebugTimelineEvent, ProcessView } from '../api/types';
 
 const debugStore = useDebugStore();
 const cardsStore = useCardStore();
@@ -354,8 +355,8 @@ const mcpStore = useMcpStore();
 const router = useRouter();
 const {
   debugRuntime, debugCards, debugTotalCards,
-  errors, errorsTotal, errorsBySource,
-  sortedTimeline, loading, error,
+  errors, errorsTotal,
+  loading, error,
   processes, processesLoading, processesError,
   processControlError, processControlSuccess, processUnauthorized, processStale,
   doctorStatus, doctorChecks, doctorIssues, doctorLoading, doctorError,
@@ -364,30 +365,27 @@ const {
   operatorLastFetchedAt, operatorUnauthorized, runtimeControlError, runtimeControlSuccess, operatorDataFreshnessLabel,
 } = storeToRefs(debugStore);
 
-type TabId = 'state' | 'operator' | 'errors' | 'timeline' | 'mcp' | 'processes' | 'supervision';
-const tabs = [
-  { id: 'state' as const, label: 'State' },
-  { id: 'operator' as const, label: 'Operator Control' },
-  { id: 'errors' as const, label: 'Errors' },
-  { id: 'timeline' as const, label: 'Timeline' },
-  { id: 'processes' as const, label: 'Processes' },
-  { id: 'supervision' as const, label: 'Supervision' },
-  { id: 'mcp' as const, label: 'MCP' },
-];
+const {
+  tabs,
+  localActiveTab,
+  selectedTimelineKinds,
+  runtimeStatusLabel,
+  runtimeStatusTone,
+  runtimeDispatchLabel,
+  operatorPanelBusy,
+  operatorWarningBannerMessage,
+  sortedProcesses,
+  timelineKindOptions,
+  filteredTimeline,
+  cardStatusEntries,
+  maxStatusCount,
+  errorSourceEntries,
+  childrenForCard,
+} = useDebugReadModel(debugStore, cardsStore);
 
-const localActiveTab = ref<TabId>('state');
-const runtimeStatusLabel = computed(() => !debugRuntime.value ? 'Unavailable' : debugRuntime.value.status === 'frozen' ? 'Frozen' : debugRuntime.value.status === 'paused' ? 'Paused' : debugRuntime.value.status === 'running' ? 'Running' : debugRuntime.value.status === 'idle' ? 'Idle' : 'Error');
-const runtimeStatusTone = computed(() => !debugRuntime.value ? 'unavailable' : debugRuntime.value.status);
-const runtimeDispatchLabel = computed(() => !debugRuntime.value ? 'Unknown' : debugRuntime.value.paused ? 'Paused' : 'Dispatch active');
-const operatorPanelBusy = computed(() => loading.value);
-const operatorWarningBannerMessage = computed<string | null>(() => null);
 async function refreshOperatorControl(): Promise<void> { await debugStore.fetchOperatorControl().catch(() => {}); }
-const sortedProcesses = computed(() => [...processes.value].sort((a, b) => { if (a.status === 'running' && b.status !== 'running') return -1; if (a.status !== 'running' && b.status === 'running') return 1; return new Date(b.started_at).getTime() - new Date(a.started_at).getTime(); }));
-const selectedTimelineKinds = ref<string[]>([]);
-const timelineKindOptions = computed(() => Array.from(new Set(sortedTimeline.value.map((event) => event.kind))).sort());
-const filteredTimeline = computed(() => selectedTimelineKinds.value.length === 0 ? sortedTimeline.value : sortedTimeline.value.filter((event) => selectedTimelineKinds.value.includes(event.kind)));
 
-function setTab(tab: TabId): void {
+function setTab(tab: typeof localActiveTab.value): void {
   localActiveTab.value = tab;
   if (tab === 'state') debugStore.fetchState().catch(() => {});
   else if (tab === 'operator') debugStore.fetchOperatorControl().catch(() => {});
@@ -403,11 +401,6 @@ function processLogEntries(proc: ProcessView): Array<{ key: string; label: strin
 function availabilityLabel(proc: ProcessView): string { return proc.control.terminate_status === 'live-attached' ? 'Live-attached' : proc.control.terminate_status === 'stale-not-attached' ? 'Degraded - not attached' : proc.control.terminate_status === 'already-ended' ? 'Ended' : 'Unknown'; }
 function availabilityClass(proc: ProcessView): string { return proc.control.terminate_status === 'live-attached' ? 'process-availability-live' : proc.control.terminate_status === 'stale-not-attached' ? 'process-availability-warning' : proc.control.terminate_status === 'already-ended' ? 'process-availability-ended' : 'process-availability-unknown'; }
 
-interface CardStatusEntry { status: string; count: number }
-const cardStatusEntries = computed<CardStatusEntry[]>(() => { const counts: Record<string, number> = {}; for (const card of debugCards.value) counts[card.status] = (counts[card.status] || 0) + 1; return Object.entries(counts).map(([status, count]) => ({ status, count })); });
-const maxStatusCount = computed(() => Math.max(...cardStatusEntries.value.map((e) => e.count), 1));
-interface ErrorSourceEntry { source: string; errors: DebugError[] }
-const errorSourceEntries = computed<ErrorSourceEntry[]>(() => { const entries: ErrorSourceEntry[] = []; for (const [source, errs] of errorsBySource.value) entries.push({ source, errors: errs }); return entries; });
 function fmtDate(ts: string): string { return formatTimestamp(ts, isRecentTimestamp(ts) ? 'relative' : 'absolute'); }
 function formatEventKind(kind: string): string { return kind.replace(/_/g, ' '); }
 function timelineKey(event: DebugTimelineEvent): string { return String(event.id || `${event.timestamp}:${event.kind}:${event.card_id || event.goal_id || event.session_id || ''}`); }

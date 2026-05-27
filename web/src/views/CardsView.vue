@@ -101,16 +101,15 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, watch } from 'vue';
+import { computed, onMounted, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
-import { storeToRefs } from 'pinia';
 import { useCardStore } from '../stores/cards';
-import type { CardType, CardStatus } from '../api/types';
 import CardsTreeView from '../components/cards/CardsTreeView.vue';
 import CardsBoardView from '../components/cards/CardsBoardView.vue';
 import CardsLeaderboardView from '../components/cards/CardsLeaderboardView.vue';
 import CardsTimelineView from '../components/cards/CardsTimelineView.vue';
 import CardDetailView from '../components/cards/CardDetailView.vue';
+import { useCardBrowserReadModel } from '../composables/useCardBrowserReadModel';
 
 
 // ── Router ────────────────────────────────────────────────
@@ -132,77 +131,23 @@ const {
   orderedCardTree,
   board,
   loading,
-  error,
   filteredCards,
-  total,
-  filterStatus: storeFilterStatus,
-  filterType: storeFilterType,
-  filterTag: storeFilterTag,
-  searchQuery: storeSearchQuery,
-} = storeToRefs(cardStore);
-
-const errorMsg = computed(() => error.value);
-
-// ── View State ────────────────────────────────────────────
-
-const activeView = ref<'tree' | 'board' | 'leaderboard' | 'timeline'>('tree');
-const viewTabs = [
-  { id: 'tree' as const, label: 'Tree' },
-  { id: 'board' as const, label: 'Board' },
-  { id: 'leaderboard' as const, label: 'Leaderboard' },
-  { id: 'timeline' as const, label: 'Timeline' },
-];
-
-const statuses: CardStatus[] = ['drafting', 'backlog', 'active', 'running', 'blocked', 'changed', 'done', 'failed', 'cancelled', 'needs_verification'];
-const cardTypes: CardType[] = ['project', 'goal', 'architecture', 'code', 'test', 'doc', 'data', 'research', 'ops'];
-
-// ── Filter State (local, synced to store) ─────────────────
-
-const filterStatus = ref('');
-const filterType = ref('');
-const filterTag = ref('');
-const searchQuery = ref('');
-
-const allTags = computed<string[]>(() => {
-  const set = new Set<string>();
-  for (const card of cards.value) {
-    for (const tag of card.tags) {
-      if (tag) set.add(tag);
-    }
-  }
-  return [...set].sort();
-});
-
-function applyFilters(): void {
-  cardStore.filterStatus = filterStatus.value as CardStatus | '';
-  cardStore.filterType = filterType.value as CardType | '';
-  cardStore.filterTag = filterTag.value;
-  cardStore.searchQuery = searchQuery.value;
-  cardStore.applyFilters().catch(() => {});
-}
-
-let searchTimer: ReturnType<typeof setTimeout> | null = null;
-function onSearchChange(): void {
-  if (searchTimer) clearTimeout(searchTimer);
-  searchTimer = setTimeout(() => {
-    cardStore.searchQuery = searchQuery.value;
-    applyFilters();
-  }, 300);
-}
-
-// ── Tree State ────────────────────────────────────────────
-
-const expandedTreeIds = ref<Set<string>>(new Set());
-
-function toggleTreeNode(id: string): void {
-  const set = new Set(expandedTreeIds.value);
-  if (set.has(id)) {
-    set.delete(id);
-  } else {
-    set.add(id);
-  }
-  expandedTreeIds.value = set;
-}
+  filterStatus,
+  filterType,
+  filterTag,
+  searchQuery,
+  activeView,
+  viewTabs,
+  statuses,
+  cardTypes,
+  allTags,
+  errorMsg,
+  expandedTreeIds,
+  applyFilters,
+  onSearchChange,
+  toggleTreeNode,
+  expandProjectByDefault,
+} = useCardBrowserReadModel(cardStore);
 
 function selectCard(id: string): void {
   router.push({ name: 'card-detail', params: { id } });
@@ -228,13 +173,7 @@ onMounted(async () => {
   } catch {
     // Error in store
   }
-  // Expand project card by default
-  if (cards.value.length > 0) {
-    const projectCard = cards.value.find(c => c.type === 'project');
-    if (projectCard) {
-      expandedTreeIds.value = new Set([projectCard.id]);
-    }
-  }
+  expandProjectByDefault();
 });
 
 // Watch for route changes back to /cards

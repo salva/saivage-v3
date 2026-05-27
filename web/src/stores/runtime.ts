@@ -27,6 +27,17 @@ import {
 import { useWsStore } from './ws';
 import { createLogger } from '../utils/logger';
 import { parseCoveredRuntimeStatusContent, parseKnownWsContent } from '../api/contracts';
+import {
+  reduceRuntimeWsEvent,
+  selectAvailabilityDetail,
+  selectLiveUpdateDetail,
+  selectLiveUpdateLabel,
+  selectLiveUpdateState,
+  selectRuntimeDetail,
+  selectRuntimeModeLabel,
+  selectRuntimeStatusLabel,
+  selectRuntimeSummary,
+} from './runtime-read-model';
 
 const log = createLogger('store:runtime');
 const STALE_AFTER_MS = 30_000;
@@ -76,75 +87,34 @@ export const useRuntimeStore = defineStore('runtime', () => {
     return Date.now() - new Date(latest).getTime() > STALE_AFTER_MS;
   });
 
-  const statusLabel = computed<string>(() => {
-    if (!runtime.value) return 'unknown';
-    if (runtime.value.status === 'frozen') return 'frozen';
-    if (runtime.value.paused) return 'paused';
-    return runtime.value.status;
-  });
+  const statusLabel = computed<string>(() => selectRuntimeStatusLabel(runtime.value));
 
   const doneGoals = computed<number>(() => cardIndex.value.byStatus['done'] ?? 0);
   const failedBlocked = computed<number>(
     () => (cardIndex.value.byStatus['failed'] ?? 0) + (cardIndex.value.byStatus['blocked'] ?? 0),
   );
-  const runtimeModeLabel = computed(() => {
-    if (isFrozen.value) return 'Frozen';
-    if (isPaused.value) return 'Paused';
-    return statusLabel.value === 'unknown'
-      ? 'Unknown'
-      : statusLabel.value.charAt(0).toUpperCase() + statusLabel.value.slice(1);
-  });
-  const availabilityDetail = computed(() => {
-    const availability = serverAvailability.value;
-    if (!availability) return null;
-    const runtimeComponent = availability.components.runtime;
-    const mcpComponent = availability.components.mcp;
-    const parts: string[] = [];
-    if (runtimeComponent.state === 'unavailable') parts.push(`Runtime unavailable: ${runtimeComponent.diagnostic?.summary ?? runtimeComponent.source}.`);
-    else if (runtimeComponent.state === 'degraded') parts.push('Runtime is using persisted state fallback.');
-    else if (runtimeComponent.state === 'unknown') parts.push('Runtime startup availability is unknown.');
-    if (mcpComponent.state === 'unavailable') parts.push(`MCP unavailable: ${mcpComponent.diagnostic?.summary ?? mcpComponent.source}.`);
-    else if (mcpComponent.state === 'degraded') parts.push(mcpComponent.diagnostic?.summary ?? 'MCP manager is degraded or empty.');
-    else if (mcpComponent.state === 'unknown') parts.push('MCP startup availability is unknown.');
-    return parts.length > 0 ? parts.join(' ') : null;
-  });
-  const runtimeDetail = computed(() => {
-    if (unauthorized.value) return 'Runtime snapshot unavailable until a valid API token is provided.';
-    if (isFrozen.value) return runtime.value?.frozen_reason || 'Runtime is frozen and needs operator attention.';
-    if (status.value === 'error') return 'Runtime reported an error state. Inspect Debug for recovery evidence.';
-    if (isPaused.value) return 'Runtime is paused. Use Runtime Console to resume active runs and activation edges when appropriate.';
-    if (isStale.value) return 'Runtime snapshot is stale. Refresh to resync with the authoritative REST state.';
-    if (!runtime.value) return availabilityDetail.value ?? 'Runtime state has not been loaded yet.';
-    return availabilityDetail.value ?? 'REST snapshot is authoritative; live updates may accelerate status changes.';
-  });
-  const liveUpdateState = computed<'live' | 'connecting' | 'offline' | 'unauthorized' | 'no-token' | 'stale'>(() => {
+  const runtimeModeLabel = computed(() => selectRuntimeModeLabel({ frozen: isFrozen.value, paused: isPaused.value, statusLabel: statusLabel.value }));
+  const availabilityDetail = computed(() => selectAvailabilityDetail(serverAvailability.value));
+  const runtimeDetail = computed(() => selectRuntimeDetail({
+    unauthorized: unauthorized.value,
+    runtime: runtime.value,
+    frozen: isFrozen.value,
+    paused: isPaused.value,
+    stale: isStale.value,
+    status: status.value,
+    availabilityDetail: availabilityDetail.value,
+  }));
+  const liveUpdateState = computed(() => {
     const ws = useWsStore();
-    if (ws.connectionState === 'unauthorized' || unauthorized.value) return 'unauthorized';
-    if (ws.connectionState === 'connecting') return 'connecting';
-    if (ws.connectionState === 'offline') return isStale.value ? 'stale' : 'offline';
-    if (isStale.value || ws.stale) return 'stale';
-    return 'live';
+    return selectLiveUpdateState({
+      connectionState: ws.connectionState,
+      unauthorized: unauthorized.value,
+      stale: isStale.value,
+      wsStale: ws.stale,
+    });
   });
-  const liveUpdateLabel = computed(() => {
-    switch (liveUpdateState.value) {
-      case 'live': return 'Live updates connected';
-      case 'connecting': return 'Live updates reconnecting';
-      case 'offline': return 'Live updates offline';
-      case 'unauthorized': return 'Live updates unauthorized';
-      case 'no-token': return 'No API token';
-      case 'stale': return 'Live updates stale';
-    }
-  });
-  const liveUpdateDetail = computed(() => {
-    switch (liveUpdateState.value) {
-      case 'live': return 'WebSocket is connected. REST remains the source of truth after refresh/reconnect.';
-      case 'connecting': return 'Trying to reconnect WebSocket live updates.';
-      case 'offline': return 'Using the last REST snapshot only until live updates reconnect.';
-      case 'unauthorized': return 'Token was rejected for API/WebSocket access.';
-      case 'no-token': return 'Docs are public, but API and WebSocket access require a token.';
-      case 'stale': return 'Live updates have gone quiet; refresh to confirm current runtime truth.';
-    }
-  });
+  const liveUpdateLabel = computed(() => selectLiveUpdateLabel(liveUpdateState.value));
+  const liveUpdateDetail = computed(() => selectLiveUpdateDetail(liveUpdateState.value));
   const pauseActionDisabledReason = computed(() => {
     if (loading.value) return 'Runtime state is still loading.';
     if (unauthorized.value) return 'Pause/resume requires a valid API token.';
@@ -155,66 +125,13 @@ export const useRuntimeStore = defineStore('runtime', () => {
 
 
   function applyRuntimeSummaryFromState(nextRuntime: RuntimeState | null): void {
-    if (!nextRuntime) {
-      intent.value = null;
-      currentRun.value = null;
-      activeChildRuns.value = [];
-      activations.value = [];
-      lastCommand.value = null;
-      return;
-    }
-    intent.value = nextRuntime.runtime_intent ?? null;
-    const runs = nextRuntime.runtime_runs ?? [];
-    currentRun.value = runs.find((run) => run.kind === 'root' && !run.finished_at) ?? runs.find((run) => run.kind === 'root') ?? null;
-    activeChildRuns.value = runs.filter((run) => run.kind === 'child' && !run.finished_at);
-    activations.value = nextRuntime.runtime_activations ?? [];
-    const commands = nextRuntime.runtime_commands ?? [];
-    lastCommand.value = commands.length > 0 ? commands[commands.length - 1] : null;
-    lastActionableError.value = lastCommand.value?.error ?? activations.value.find((activation) => activation.error)?.error ?? null;
-  }
-
-  function mergeRuntimeSummary(content: Record<string, unknown>): void {
-    if ('summary' in content || 'runtimeSummary' in content) {
-      const summary = (content.runtimeSummary ?? content.summary) as {
-        intent?: RuntimeIntent;
-        currentRun?: RuntimeRunRecord | null;
-        activeChildRuns?: RuntimeRunRecord[];
-        activations?: RuntimeActivationRecord[];
-        lastCommand?: RuntimeCommandRecord | null;
-        actionable_error?: ActionableErrorEnvelope;
-      } | null;
-      if (summary) {
-        if ('intent' in summary) intent.value = summary.intent ?? null;
-        if ('currentRun' in summary) currentRun.value = summary.currentRun ?? null;
-        if ('activeChildRuns' in summary) activeChildRuns.value = summary.activeChildRuns ?? [];
-        if ('activations' in summary) activations.value = summary.activations ?? [];
-        if ('lastCommand' in summary) lastCommand.value = summary.lastCommand ?? null;
-        if (summary.actionable_error) lastActionableError.value = summary.actionable_error;
-      }
-    }
-    if ('intent' in content) intent.value = (content.intent ?? null) as RuntimeIntent | null;
-    if ('currentRun' in content) currentRun.value = (content.currentRun ?? null) as RuntimeRunRecord | null;
-    if ('activeChildRuns' in content) activeChildRuns.value = (content.activeChildRuns ?? []) as RuntimeRunRecord[];
-    if ('activations' in content) activations.value = (content.activations ?? []) as RuntimeActivationRecord[];
-    if ('lastCommand' in content) lastCommand.value = (content.lastCommand ?? null) as RuntimeCommandRecord | null;
-    if ('actionable_error' in content) lastActionableError.value = (content.actionable_error ?? null) as ActionableErrorEnvelope | null;
-  }
-
-
-  function upsertRun(run: RuntimeRunRecord): void {
-    if (run.kind === 'root') currentRun.value = run.finished_at ? currentRun.value?.run_id === run.run_id ? run : currentRun.value : run;
-    if (run.kind === 'child') {
-      const others = activeChildRuns.value.filter((existing) => existing.run_id !== run.run_id);
-      activeChildRuns.value = run.finished_at ? others : [...others, run];
-    }
-  }
-
-  function upsertActivation(activation: RuntimeActivationRecord): void {
-    activations.value = [
-      ...activations.value.filter((existing) => existing.activation_id !== activation.activation_id),
-      activation,
-    ];
-    if (activation.error) lastActionableError.value = activation.error;
+    const summary = selectRuntimeSummary(nextRuntime);
+    intent.value = summary.intent;
+    currentRun.value = summary.currentRun;
+    activeChildRuns.value = summary.activeChildRuns;
+    activations.value = summary.activations;
+    lastCommand.value = summary.lastCommand;
+    lastActionableError.value = summary.lastActionableError;
   }
 
   function markRestSync(): void {
@@ -267,64 +184,35 @@ export const useRuntimeStore = defineStore('runtime', () => {
     const event = typeof content.event === 'string' ? content.event : '';
     markWsSync();
 
-    if (event === 'runtime-state') {
-      if (content.runtime) {
-        runtime.value = content.runtime as RuntimeState;
-        applyRuntimeSummaryFromState(runtime.value);
-      }
-      if (content.cardIndex) {
-        cardIndex.value = content.cardIndex as CardIndex;
-      }
-      if ('serverAvailability' in content) {
-        serverAvailability.value = (content.serverAvailability ?? null) as ServerAvailability | null;
-      }
-    }
-
-    if (event === 'runtime-paused' || event === 'runtime-resumed') {
-      if (runtime.value) {
-        if (event === 'runtime-paused') {
-          if (!runtime.value.paused) {
-            wsStatusBeforePause = runtime.value.status;
-          }
-        }
-        const restoredStatus = event === 'runtime-resumed'
-          ? (wsStatusBeforePause ?? runtime.value.status)
-          : 'paused';
-        runtime.value = {
-          ...runtime.value,
-          paused: event === 'runtime-paused',
-          status: restoredStatus,
-          paused_at: event === 'runtime-paused' ? new Date().toISOString() : null,
-        };
-        if (event === 'runtime-resumed') {
-          wsStatusBeforePause = null;
-        }
-      }
-    }
-
-    mergeRuntimeSummary(content as Record<string, unknown>);
-
-    if (event === 'runtime.run' && content.run) {
-      upsertRun(content.run as RuntimeRunRecord);
-    }
-
     const knownContent = parseKnownWsContent(envelope.content);
-    if (knownContent?.event === 'runtime.command') {
-      lastCommand.value = knownContent.command as RuntimeCommandRecord;
-      if (lastCommand.value.error) lastActionableError.value = lastCommand.value.error;
-    }
-    if (knownContent?.event === 'runtime.activation') {
-      upsertActivation(knownContent.activation as RuntimeActivationRecord);
-    }
-    if (knownContent?.event === 'runtime.actionable_error') {
-      lastActionableError.value = knownContent.actionable_error as ActionableErrorEnvelope;
-    }
+    const reduction = reduceRuntimeWsEvent({
+      runtime: runtime.value,
+      cardIndex: cardIndex.value,
+      serverAvailability: serverAvailability.value,
+      intent: intent.value,
+      currentRun: currentRun.value,
+      activeChildRuns: activeChildRuns.value,
+      activations: activations.value,
+      lastCommand: lastCommand.value,
+      lastActionableError: lastActionableError.value,
+      statusBeforePause: wsStatusBeforePause,
+    }, content as Record<string, unknown>, knownContent as Record<string, unknown> | null | undefined);
 
-    if (event === 'card-status-changed' && content.card) {
+    runtime.value = reduction.state.runtime;
+    cardIndex.value = reduction.state.cardIndex;
+    serverAvailability.value = reduction.state.serverAvailability;
+    intent.value = reduction.state.intent;
+    currentRun.value = reduction.state.currentRun;
+    activeChildRuns.value = reduction.state.activeChildRuns;
+    activations.value = reduction.state.activations;
+    lastCommand.value = reduction.state.lastCommand;
+    lastActionableError.value = reduction.state.lastActionableError;
+    wsStatusBeforePause = reduction.state.statusBeforePause;
+
+    if (reduction.shouldRefreshState) {
       fetchState().catch(() => {});
     }
   }
-
   function setupWsListener(): void {
     const ws = useWsStore();
     if (!reconnectUnsubscribe) {

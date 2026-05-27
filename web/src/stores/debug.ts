@@ -42,45 +42,16 @@ import {
 } from '../api/client';
 import { useWsStore } from './ws';
 import { createLogger } from '../utils/logger';
-import { redactObservabilityText, redactObservabilityValue } from '../utils/observabilityRedaction';
+import { redactObservabilityValue } from '../utils/observabilityRedaction';
+import {
+  selectErrorsBySeverity,
+  selectErrorsBySource,
+  selectOperatorDataFreshnessLabel,
+  selectSortedTimeline,
+  selectTimelineDerivedErrors,
+} from './debug-read-model';
 
 const log = createLogger('store:debug');
-const OPERATOR_STALE_AGE_MS = 60_000;
-
-const FAILURE_EVENT_KIND_RE = /^invocation_failed$|_error$|_failed$/;
-
-function eventFieldAsString(event: DebugTimelineEvent, field: string): string | null {
-  const value = event[field];
-  return typeof value === 'string' && value.trim() ? redactObservabilityText(value) : null;
-}
-
-function isErrorTimelineEvent(event: DebugTimelineEvent): boolean {
-  return FAILURE_EVENT_KIND_RE.test(event.kind) || Boolean(eventFieldAsString(event, 'error_message') || eventFieldAsString(event, 'error'));
-}
-
-function errorMessageFromEvent(event: DebugTimelineEvent): string {
-  return eventFieldAsString(event, 'error_message')
-    || eventFieldAsString(event, 'error')
-    || eventFieldAsString(event, 'message')
-    || `${event.kind} event recorded`;
-}
-
-function sessionFromEvent(event: DebugTimelineEvent): string {
-  return eventFieldAsString(event, 'session_id') || 'unknown-session';
-}
-
-function eventErrorDetails(event: DebugTimelineEvent): string | undefined {
-  const details: Record<string, unknown> = {};
-  for (const [key, value] of Object.entries(event)) {
-    if (['id', 'kind', 'timestamp', 'session_id', 'error_message', 'error', 'message'].includes(key)) continue;
-    if (value === undefined || value === null) continue;
-    details[key] = value;
-  }
-  const redacted = redactObservabilityValue(details);
-  return Object.keys(redacted).length > 0 ? JSON.stringify(redacted, null, 2) : undefined;
-}
-
-
 function operatorErrorMessage(err: unknown): string {
   if (err instanceof ApiError) {
     if (err.status === 401) {
@@ -166,45 +137,15 @@ export const useDebugStore = defineStore('debug', () => {
   const activeTab = ref<'state' | 'errors' | 'timeline' | 'supervision'>('state');
 
 
-  const eventDerivedErrors = computed<DebugError[]>(() =>
-    timelineEvents.value
-      .filter(isErrorTimelineEvent)
-      .map((event) => ({
-        source: sessionFromEvent(event),
-        type: event.kind,
-        severity: event.kind === 'invocation_failed' || event.kind.endsWith('_failed') ? 'warning' : 'error',
-        message: errorMessageFromEvent(event),
-        details: eventErrorDetails(event),
-        timestamp: event.timestamp,
-      })),
-  );
+  const eventDerivedErrors = computed<DebugError[]>(() => selectTimelineDerivedErrors(timelineEvents.value));
 
   const combinedErrors = computed<DebugError[]>(() => [...errors.value, ...eventDerivedErrors.value]);
 
-  const errorsBySource = computed<Map<string, DebugError[]>>(() => {
-    const map = new Map<string, DebugError[]>();
-    for (const e of combinedErrors.value) {
-      const list = map.get(e.source);
-      if (list) list.push(e); else map.set(e.source, [e]);
-    }
-    for (const list of map.values()) {
-      list.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
-    }
-    return map;
-  });
+  const errorsBySource = computed<Map<string, DebugError[]>>(() => selectErrorsBySource(combinedErrors.value));
 
-  const errorsBySeverity = computed<Map<string, DebugError[]>>(() => {
-    const map = new Map<string, DebugError[]>();
-    for (const e of combinedErrors.value) {
-      const list = map.get(e.severity);
-      if (list) list.push(e); else map.set(e.severity, [e]);
-    }
-    return map;
-  });
+  const errorsBySeverity = computed<Map<string, DebugError[]>>(() => selectErrorsBySeverity(combinedErrors.value));
 
-  const sortedTimeline = computed<DebugTimelineEvent[]>(() =>
-    [...timelineEvents.value].sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()),
-  );
+  const sortedTimeline = computed<DebugTimelineEvent[]>(() => selectSortedTimeline(timelineEvents.value));
 
   const problemCards = computed(() => debugCards.value.filter((c) => c.status === 'failed' || c.status === 'blocked'));
   const failedChecks = computed(() => doctorChecks.value.filter((c) => !c.passed));
@@ -227,12 +168,7 @@ export const useDebugStore = defineStore('debug', () => {
     return map;
   });
 
-  const operatorDataFreshnessLabel = computed(() => {
-    if (!operatorLastFetchedAt.value) return null;
-    const ageMs = Date.now() - new Date(operatorLastFetchedAt.value).getTime();
-    if (Number.isNaN(ageMs)) return null;
-    return ageMs > OPERATOR_STALE_AGE_MS ? 'stale' : 'fresh';
-  });
+  const operatorDataFreshnessLabel = computed(() => selectOperatorDataFreshnessLabel(operatorLastFetchedAt.value));
 
   function markOperatorSuccess(message: string): void {
     runtimeControlSuccess.value = message;
@@ -408,27 +344,14 @@ export const useDebugStore = defineStore('debug', () => {
     error.value = null;
 
     const results = await Promise.allSettled([
-      (async () => {
-        const response: DebugStateResponse = await getDebugState();
-        debugRuntime.value = response.runtime;
-        debugCards.value = response.cards;
-        debugTotalCards.value = response.totalCards;
-      })(),
-      (async () => {
-        const response: DebugErrorsResponse = await getDebugErrors();
-        errors.value = response.errors;
-        errorsTotal.value = response.total;
-      })(),
-      (async () => {
-        const response: DebugTimelineResponse = await getDebugTimeline();
-        timelineEvents.value = response.events;
-        timelineTotal.value = response.total;
-      })(),
+      fetchState(),
+      fetchErrors(),
+      fetchTimeline(),
     ]);
 
     const failures = results
-      .filter((r): r is PromiseRejectedResult => r.status === 'rejected')
-      .map((r) => (r.reason instanceof ApiError ? r.reason.message : 'Failed to fetch debug data'));
+      .filter((result): result is PromiseRejectedResult => result.status === 'rejected')
+      .map((result) => (result.reason instanceof ApiError ? result.reason.message : 'Failed to fetch debug data'));
 
     if (failures.length > 0) {
       error.value = failures.length >= 3 ? 'Failed to fetch debug data' : failures.join('; ');
