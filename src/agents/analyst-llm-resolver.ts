@@ -30,10 +30,10 @@ import {
 } from './analyst-tools.js';
 import type { ToolResult, ToolContext } from './analyst-tools.js';
 
-export const ANALYST_OFFLINE_REPLY = "analyst is offline: no provider is configured for role=analyst, or the configured provider failed to authenticate. Configure a provider for role 'analyst' in the project configuration and try again.";
+export const ANALYST_NO_MODEL_REPLY = "Analyst LLM unavailable: no model candidate is configured for role 'analyst'. Configure a provider/model for role 'analyst' in the project configuration and try again.";
 
 export class AnalystOfflineError extends Error {
-  constructor(message: string = ANALYST_OFFLINE_REPLY) {
+  constructor(message: string = ANALYST_NO_MODEL_REPLY) {
     super(message);
     this.name = 'AnalystOfflineError';
   }
@@ -148,21 +148,15 @@ export class LlmIntentResolver {
     this.recorderLogger = eventLogger ? toRecorderLogger(eventLogger) : undefined;
   }
 
-  async isAvailable(): Promise<boolean> {
-    const chain = await this.router.resolve('analyst', this.capabilityRequest());
-    return chain.length > 0;
-  }
-
   async chat(messages: AgentMessage[], projectContext: string): Promise<{ content: string; toolCalls: ToolCall[] }> {
     const tools = getAnalystToolDefinitions();
     const chain = await this.router.resolve('analyst', this.capabilityRequest());
-    if (chain.length === 0) throw new AnalystOfflineError(ANALYST_OFFLINE_REPLY);
+    if (chain.length === 0) throw new AnalystOfflineError(ANALYST_NO_MODEL_REPLY);
 
     const modelParams = getModelParamsForRole(this.config, 'analyst');
     const systemPrompt = `${getAnalystSystemPrompt()}\n\n${projectContext}`;
     const sessionId = messages.find((message) => message.session_id)?.session_id ?? 'analyst';
     let lastTransportError: Error | null = null;
-    let authFailures = 0;
 
     for (const candidate of chain) {
       try {
@@ -191,8 +185,8 @@ export class LlmIntentResolver {
         return { content: result.content ?? '', toolCalls: result.toolCalls };
       } catch (err) {
         if (err instanceof LlmAuthError) {
-          authFailures += 1;
           this.registry.markFailed(candidate, this.runtimeConfig.recoveryDelayMs ?? 60000);
+          lastTransportError = err;
           continue;
         }
         if (
@@ -208,9 +202,8 @@ export class LlmIntentResolver {
       }
     }
 
-    if (authFailures === chain.length) throw new AnalystOfflineError(ANALYST_OFFLINE_REPLY);
     if (lastTransportError) throw lastTransportError;
-    throw new AnalystOfflineError(ANALYST_OFFLINE_REPLY);
+    throw new AnalystOfflineError(ANALYST_NO_MODEL_REPLY);
   }
 
   private capabilityRequest(): ReturnType<typeof capabilityRequestForLlmOptions> {

@@ -92,25 +92,29 @@ describe('LlmIntentResolver analyst integration', () => {
     } finally { rmSync(root, { recursive: true, force: true }); }
   });
 
-  it('returns analyst is offline when models.analyst is empty', async () => {
+  it('reports missing analyst model candidates from the model call path without invoking provider transport', async () => {
     const root = setupRoot([]);
     try {
       const spy = jest.spyOn(globalThis, 'fetch');
       const handler = new AnalystHandler(root);
       const response = await handler.handleMessage('s-no-candidate', 'list my cards');
-      expect(response.message.content).toContain('analyst is offline');
+      expect(response.message.content).toContain("no model candidate is configured for role 'analyst'");
+      expect(response.message.content).not.toContain('failed to authenticate');
       expect(response.toolInvocations ?? []).toHaveLength(0);
       expect(spy).not.toHaveBeenCalled();
+      expect(readPersistedAssistant(root, 's-no-candidate')).toContain(response.message.content);
     } finally { rmSync(root, { recursive: true, force: true }); }
   });
 
-  it('returns analyst is offline when every candidate fails auth', async () => {
+  it('attempts analyst provider transport and reports auth failures as provider-call failures', async () => {
     const root = setupRoot();
     try {
       const spy = jest.spyOn(globalThis, 'fetch').mockImplementation(async () => new Response(JSON.stringify({ error: 'unauthorized' }), { status: 401 }));
       const handler = new AnalystHandler(root);
       const response = await handler.handleMessage('s-auth-failed', 'list my cards');
-      expect(response.message.content).toContain('analyst is offline');
+      expect(response.message.content).toContain('Analyst LLM unavailable: LLM authentication failed (HTTP 401)');
+      expect(response.message.content).not.toContain('analyst is offline');
+      expect(response.message.content).not.toContain("Configure a provider for role 'analyst'");
       expect(response.toolInvocations ?? []).toHaveLength(0);
       const calls = fetchCalls(spy);
       expect(calls).toHaveLength(1);

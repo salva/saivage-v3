@@ -4,7 +4,7 @@ import { writeFileAtomic } from '../persistence/index.js';
 import { agentSessionSchema, agentMessageSchema } from '../schemas/index.js';
 import type { AgentSession, AgentMessage, MessageRole, MessageKind, ControlActionSurface, ControlActionAuditEntry } from '../schemas/index.js';
 import type { ToolResult, ToolContext } from './analyst-tools.js';
-import { ANALYST_OFFLINE_REPLY, AnalystOfflineError, LlmIntentResolver, TOOL_REGISTRY } from './analyst-llm-resolver.js';
+import { AnalystOfflineError, LlmIntentResolver, TOOL_REGISTRY } from './analyst-llm-resolver.js';
 import { CardStore } from '../cards/index.js';
 import type { ActiveRuntime } from '../runtime/index.js';
 import type { ActorRole } from './authz.js';
@@ -287,11 +287,6 @@ export class AnalystHandler {
       this.amendmentSessions.add(sessionId);
     }
 
-    const llmAvailable = await this.llmResolver.isAvailable();
-    if (!llmAvailable) {
-      const persisted = appendMessage(this.projectRoot, sessionId, { role: 'assistant', kind: 'text', content: ANALYST_OFFLINE_REPLY });
-      return { sessionId, message: { id: persisted.id, role: 'assistant', kind: 'text', content: ANALYST_OFFLINE_REPLY, timestamp: persisted.timestamp } };
-    }
     return await this.runAnalystLoop(sessionId, userContent, workspaceContext);
   }
 
