@@ -31,7 +31,8 @@ function createMockConnectionManager() {
     reconnectAttempts: mockConnReconnectAttempts,
     connect: vi.fn(() => {
       mockConnConnectCalls++;
-      mockConnState.value = 'connecting';
+      if (mockConnState.value === 'connected') return;
+      mockConnState.value = authToken ? 'connecting' : 'no-token';
     }),
     disconnect: vi.fn(() => {
       mockConnDisconnectCalls++;
@@ -104,7 +105,7 @@ describe('useWsStore', () => {
       const store = setupStore();
       store.connect();
       expect(mockConnConnectCalls).toBe(1);
-      expect(store.connectionState).toBe('offline');
+      expect(store.connectionState).toBe('connecting');
     });
 
     it('marks no-token when no auth token is available', () => {

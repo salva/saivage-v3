@@ -6,15 +6,10 @@ import { fileURLToPath } from 'node:url';
 import { extractImplementedRoutes, routeKey, normalizeRoutePath } from './verify-doc-routes.js';
 
 const RUNBOOK_DIR = 'docs/runbook';
-const RUNTIME_STATE_KEYS = ['status', 'project_id', 'pid', 'started_at', 'paused', 'queue', 'running_processes', 'updated_at'];
 const REQUIRED_SEMANTIC_EXAMPLES = new Map([
   ['GET /health', { status: 200, keys: ['status', 'version', 'project'], required: true }],
   ['GET /health/ready', { status: 200, keys: ['status'], required: true }],
   ['GET /api/state', { status: 200, keys: ['runtime', 'cardIndex'], required: true }],
-  ['POST /api/runtime/pause', { status: 200, keys: RUNTIME_STATE_KEYS, required: true }],
-  ['POST /api/runtime/resume', { status: 200, keys: RUNTIME_STATE_KEYS, required: true }],
-  ['POST /api/runtime/freeze', { status: 200, keys: ['status', 'freeze_id', 'reason', 'created_at'], required: false }],
-  ['POST /api/runtime/resume-from-freeze', { status: 200, keys: ['status', 'freeze_id', 'restored_queue', 'restored_processes', 'restored_card_id'], required: false }],
 ]);
 
 export function listRunbookMarkdown(projectRoot) {

@@ -86,6 +86,13 @@ export function createWsConnection(): WsConnectionManager {
       return;
     }
 
+    if (!getAuthToken()) {
+      state.value = 'no-token';
+      sessionId.value = null;
+      shouldReconnect = false;
+      return;
+    }
+
     shouldReconnect = true;
     state.value = 'connecting';
     const attempt = ++connectAttempt;

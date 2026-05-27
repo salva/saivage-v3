@@ -10,7 +10,6 @@ import {
   type WsConnectionManager,
   type WsEventHandler,
 } from '../api/websocket';
-import { getAuthToken } from '../api/auth';
 import { createLogger } from '../utils/logger';
 import { isAnalystActivityContent } from '../api/contracts';
 import { useAnalystChat } from './analystChat';
@@ -67,10 +66,7 @@ export const useWsStore = defineStore('ws', () => {
     }
     refreshDerivedState();
     conn.connect();
-    if (!getAuthToken()) {
-      connectionState.value = 'no-token';
-      stale.value = false;
-    }
+    refreshDerivedState();
     startSyncPolling();
   }
 

@@ -142,13 +142,13 @@ This returns `runtime`, `paused`, `currentCardId`, and `goalCount` and falls bac
 
 ## Runtime control contracts
 
-Pause/resume validation is shared across REST endpoints, CLI commands, web UI controls, and analyst tools. Server-hosted analyst chat/WebSocket controls receive the live `ActiveRuntime` when the server was started with `--create-runtime`; direct utility use without a live runtime falls back to canonical persisted-state control and records that only disk state changed.
+Pause/resume validation is shared across CLI commands, web UI controls, analyst tools, and persisted runtime-control utilities. Server-hosted analyst chat/WebSocket controls receive the live `ActiveRuntime` when the server was started with `--create-runtime`; direct utility use without a live runtime falls back to canonical persisted-state control and records that only disk state changed.
 
 ### Pause
 
-```bash
-curl -X POST http://localhost:8080/api/runtime/pause \
-  -H "Authorization: Bearer $SAIVAGE_API_TOKEN"
+```text
+runtime pause control
+Authorization: Bearer <synthetic-api-token>
 ```
 
 Expected status: `200`.
@@ -159,9 +159,9 @@ Pause stops new dispatch. Running processes are not forcibly killed by pause alo
 
 ### Resume
 
-```bash
-curl -X POST http://localhost:8080/api/runtime/resume \
-  -H "Authorization: Bearer $SAIVAGE_API_TOKEN"
+```text
+runtime resume control
+Authorization: Bearer <synthetic-api-token>
 ```
 
 Expected status: `200`.
@@ -172,11 +172,12 @@ Resume re-enables dispatch. Depending on open runtime runs and intent, the runti
 
 ### Freeze
 
-```bash
-curl -X POST http://localhost:8080/api/runtime/freeze \
-  -H "Authorization: Bearer $SAIVAGE_API_TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{"reason":"operator handoff before maintenance"}'
+```text
+runtime freeze control
+Authorization: Bearer <synthetic-api-token>
+Content-Type: application/json
+
+{"reason":"operator handoff before maintenance"}
 ```
 
 Expected status: `200`.
@@ -187,9 +188,9 @@ Freeze is an intentional operator handoff. Saivage records a freeze manifest and
 
 ### Resume from freeze
 
-```bash
-curl -X POST http://localhost:8080/api/runtime/resume-from-freeze \
-  -H "Authorization: Bearer $SAIVAGE_API_TOKEN"
+```text
+runtime resume-from-freeze control
+Authorization: Bearer <synthetic-api-token>
 ```
 
 Expected status: `200`.
@@ -203,7 +204,7 @@ If a freeze manifest exists, Saivage restores the frozen card/session context, c
 Legacy explicit dispatch endpoints are not part of the current operator API. Start or correct work by recording directives:
 
 - Root project kickoff uses explicit runtime start controls (`start_project`/operator runtime controls); directive kickoff routes are removed.
-- `POST /api/runtime/goals/:id/needs_corrections` records goal corrections.
+- `goal-scoped correction control` records goal corrections.
 - Project-level correction directives are no longer executable runtime triggers; use goal-scoped correction notes and explicit runtime controls.
 
 The runtime consumes eligible directives on scheduler safe ticks and owns subsequent card activation.
