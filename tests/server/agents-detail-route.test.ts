@@ -13,7 +13,16 @@ const AUTH_TOKEN = 'test-agent-detail-token';
 function writeMessages(projectRoot: string, sessionId: string, messages: Array<Record<string, unknown>>): void {
   mkdirSync(join(projectRoot, '.saivage', 'agents', 'messages'), { recursive: true });
   const filePath = join(projectRoot, '.saivage', 'agents', 'messages', `${sessionId}.jsonl`);
-  writeFileSync(filePath, messages.map((m) => JSON.stringify(m)).join('\n') + '\n');
+  const stamped = messages.map((message, index) => ({
+    id: `msg-${sessionId}-${index + 1}`,
+    session_id: sessionId,
+    kind: 'text',
+    round_id: `r-${message['role'] === 'user' ? 'user' : 'assistant'}-${index + 1}`,
+    message_index: 0,
+    block_index: 0,
+    ...message,
+  }));
+  writeFileSync(filePath, stamped.map((m) => JSON.stringify(m)).join('\n') + '\n');
 }
 
 function writeManifest(projectRoot: string, sessionId: string, manifest: Record<string, unknown>): void {
@@ -52,7 +61,7 @@ describe('GET /api/agents/:id', () => {
   const authHdr = (): Record<string, string> => ({ authorization: `Bearer ${AUTH_TOKEN}` });
 
   it('returns 200 with manifest, message counts, and last_activity_at from the latest message', async () => {
-    const sessionId = 'analyst-detail-1';
+    const sessionId = 'analyst';
     writeManifest(projectRoot, sessionId, { role: 'analyst', started_at: '2026-01-01T00:00:00.000Z', completed_at: null });
     writeMessages(projectRoot, sessionId, [
       { timestamp: '2026-01-01T00:00:01.000Z', role: 'user', content: 'hi' },
@@ -100,7 +109,7 @@ describe('GET /api/agents/:id', () => {
   });
 
   it('falls back to started_at when neither messages nor completed_at are present', async () => {
-    const sessionId = 'analyst-detail-4';
+    const sessionId = 'analyst';
     writeManifest(projectRoot, sessionId, {
       role: 'analyst',
       started_at: '2026-04-01T00:00:00.000Z',
@@ -124,6 +133,23 @@ describe('GET /api/agents/:id', () => {
     const res = await app.inject({ method: 'GET', url: '/api/agents/missing-session', headers: authHdr() });
     expect(res.statusCode).toBe(404);
     expect(res.json<Record<string, unknown>>()).toEqual({ error: 'Agent session not found', sessionId: 'missing-session' });
+  });
+
+  it('does not expose historical non-canonical analyst sessions through the web API', async () => {
+    writeManifest(projectRoot, 'analyst', { role: 'analyst', started_at: '2026-01-01T00:00:00.000Z' });
+    writeManifest(projectRoot, 'chat-old', { role: 'analyst', started_at: '2026-01-02T00:00:00.000Z' });
+    writeManifest(projectRoot, 'planner-detail-5', { role: 'planner', started_at: '2026-01-03T00:00:00.000Z' });
+
+    const listRes = await app.inject({ method: 'GET', url: '/api/agents', headers: authHdr() });
+    expect(listRes.statusCode).toBe(200);
+    const ids = listRes.json<{ sessions: Array<{ id: string }> }>().sessions.map((session) => session.id);
+    expect(ids).toContain('analyst');
+    expect(ids).toContain('planner-detail-5');
+    expect(ids).not.toContain('chat-old');
+
+    const detailRes = await app.inject({ method: 'GET', url: '/api/agents/chat-old', headers: authHdr() });
+    expect(detailRes.statusCode).toBe(404);
+    expect(detailRes.json<Record<string, unknown>>()).toEqual({ error: 'Agent session not found', sessionId: 'chat-old' });
   });
 
   it('returns 401 when no auth token is provided', async () => {

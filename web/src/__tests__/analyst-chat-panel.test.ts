@@ -75,8 +75,8 @@ describe('AnalystChatPanel', () => {
     expect(toggle.attributes('aria-expanded')).toBe('false');
     await toggle.trigger('click');
     expect(chips[0].find('button.tool-chip-toggle').attributes('aria-expanded')).toBe('true');
-    expect(chips[0].find('button.tool-chip-toggle').attributes('aria-label')).toContain('Collapse analyst tool call details');
-    expect(wrapper.find('.json-token-view').text()).toContain('README.md');
+    expect(chips[0].find('button.tool-chip-toggle').attributes('aria-label')).toContain('Collapse tool read_file details');
+    expect(wrapper.findAll('.tool-chip-body').map((node) => node.text()).join('\n')).toContain('README.md');
     await chips[0].find('button.tool-chip-toggle').trigger('click');
     expect(wrapper.find('.tool-chip-body').exists()).toBe(false);
     wrapper.unmount();
@@ -87,10 +87,11 @@ describe('AnalystChatPanel', () => {
     await flushPromises();
 
     const chips = wrapper.findAll('.tool-chip');
-    expect(chips[1].text()).toContain('read_file');
-    expect(chips[1].classes()).toContain('tool-chip-ok');
-    await chips[1].find('button.tool-chip-toggle').trigger('click');
-    expect(wrapper.find('.json-token-view').text()).toContain('"ok": true');
+    const resultChip = chips.find((chip) => chip.classes().includes('tool-chip-ok'));
+    expect(resultChip).toBeDefined();
+    expect(resultChip!.text()).toContain('read_file');
+    await resultChip!.find('button.tool-chip-toggle').trigger('click');
+    expect(wrapper.findAll('.tool-chip-body').map((node) => node.text()).join('\n')).toContain('"ok":true');
     wrapper.unmount();
   });
 
@@ -132,7 +133,9 @@ describe('AnalystChatPanel', () => {
     store.ingestWsEvent({ event: 'analyst_tool_invoked', sessionId: 'stale-chat-id', tool: 'read_file', summary: 'opened docs', success: true });
     await flushPromises();
 
-    expect(wrapper.text()).toContain('🔧 read_file — opened docs');
+    expect(wrapper.text()).toContain('read_file');
+    expect(wrapper.text()).toContain('opened docs');
+    expect(wrapper.find('.tool-chip').exists()).toBe(true);
     expect(store.pendingToolInvocations[0].sessionId).toBe('analyst');
     wrapper.unmount();
   });
@@ -155,8 +158,9 @@ describe('AnalystChatPanel', () => {
 
     expect(wrapper.text()).toContain('run_shell_command');
     expect(wrapper.text()).toContain('[SECRET_PATH] redacted preview');
-    expect(wrapper.text()).toContain('destructive');
-    expect(wrapper.text()).toContain('card card-7');
+    expect(wrapper.find('.tool-chip').exists()).toBe(true);
+    expect(store.pendingToolInvocations[0].classifiedAs).toBe('destructive');
+    expect(store.pendingToolInvocations[0].relatedCardId).toBe('card-7');
     expect(store.pendingToolInvocations[0].sessionId).toBe('analyst');
     wrapper.unmount();
   });

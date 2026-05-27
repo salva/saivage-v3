@@ -44,7 +44,8 @@ test('operator control room smoke walks browser routes with REST fixtures and We
   await expect(page.getByText('planner').first()).toBeVisible();
   await page.locator('.session-card').first().click();
   await expect(page.locator('.detail-header-bar')).toContainText('analyst-smoke');
-  await expect(page.getByText('Synthetic agent transcript.').first()).toBeVisible();
+  await expect(page.locator('[data-testid="round-card"]').first()).toBeVisible();
+  await expect(page.locator('[data-testid="round-card"]').first()).toContainText('Synthetic agent transcript.');
 
   await page.getByText('Files').first().click();
   await expect(page).toHaveURL(/\/files$/);

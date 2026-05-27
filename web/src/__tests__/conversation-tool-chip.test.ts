@@ -17,7 +17,9 @@ describe('ToolChip', () => {
     expect(wrapper.attributes('role')).toBe('group');
     expect(wrapper.findAll('button.tool-chip-toggle')).toHaveLength(1);
     expect(wrapper.find('button.tool-chip-toggle a').exists()).toBe(false);
-    expect(wrapper.findComponent({ name: 'RouterLink' }).exists()).toBe(true);
+    expect(wrapper.find('.tool-chip-links').exists()).toBe(true);
+    expect(wrapper.find('.tool-chip-links a').exists()).toBe(true);
+    expect(wrapper.find('.tool-chip-main > button.tool-chip-toggle + .tool-chip-links').exists()).toBe(true);
   });
 
   it('emits toggle and renders formatted detail when expanded', async () => {

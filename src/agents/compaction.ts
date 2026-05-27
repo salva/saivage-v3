@@ -1,4 +1,6 @@
 import type { AgentMessage } from '../schemas/index.js';
+import { agentMessageSchema } from '../schemas/index.js';
+import type { RuntimeAppendRecorder, RoundStamp } from './session-persistence.js';
 import {
   getSessionMessages,
   replaceSessionMessages,
@@ -27,6 +29,8 @@ export interface CompactionResult {
   /** Error if compaction failed entirely */
   error?: string;
 }
+
+export interface CompactionStampSource { stampCompacted(sessionId: string): RoundStamp; }
 
 export interface CompactionOptions {
   /** Context window limit in tokens */
@@ -93,6 +97,7 @@ export async function compactSession(
   saivageDir: string,
   sessionId: string,
   options: CompactionOptions,
+  activeRuntime?: CompactionStampSource & RuntimeAppendRecorder,
 ): Promise<CompactionResult> {
   const maxCompactions = options.maxCompactions ?? 3;
   const threshold = options.threshold ?? 0.8;
@@ -139,24 +144,20 @@ export async function compactSession(
     try {
       const summary = await options.summarizeFn(messages);
 
-      // Create a summary message
-      const summaryMsg: AgentMessage = {
-        id: `msg-${sessionId}-compact-${state.count + 1}`,
-        session_id: sessionId,
-        role: 'system',
-        kind: 'model_repair',
-        round_id: `r-compacted-${state.count + 1}`,
-        message_index: 0,
-        block_index: 0,
-        content: `[CONTEXT COMPACTION #${state.count + 1}]\n\n` +
-          `The conversation has been summarized to conserve context. ` +
-          `Please re-read authoritative state from disk if needed.\n\n` +
-          `Summary of previous conversation:\n${summary}`,
-        timestamp: new Date().toISOString(),
-      };
+      resultMessages = [createCompactionMessage(
+        sessionId,
+        activeRuntime?.stampCompacted(sessionId) ?? { round_id: `r-compacted-${state.count + 1}`, message_index: 0, block_index: 0 },
+        `msg-${sessionId}-compact-${state.count + 1}`,
+        `[CONTEXT COMPACTION #${state.count + 1}]
 
-      // Keep the summary + directive
-      resultMessages = [summaryMsg];
+` +
+          `The conversation has been summarized to conserve context. ` +
+          `Please re-read authoritative state from disk if needed.
+
+` +
+          `Summary of previous conversation:
+${summary}`,
+      )];
     } catch {
       // Summarization failed — use fallback
       usedFallback = true;
@@ -165,6 +166,7 @@ export async function compactSession(
         messages,
         keepFraction,
         state.count + 1,
+        activeRuntime?.stampCompacted(sessionId),
       );
     }
   } else {
@@ -175,6 +177,7 @@ export async function compactSession(
       messages,
       keepFraction,
       state.count + 1,
+      activeRuntime?.stampCompacted(sessionId),
     );
   }
 
@@ -200,6 +203,21 @@ export async function compactSession(
   };
 }
 
+
+function createCompactionMessage(sessionId: string, stamp: RoundStamp, id: string, content: string): AgentMessage {
+  return agentMessageSchema.parse({
+    id,
+    session_id: sessionId,
+    role: 'system',
+    kind: 'model_repair',
+    round_id: stamp.round_id,
+    message_index: stamp.message_index,
+    block_index: stamp.block_index,
+    content,
+    timestamp: new Date().toISOString(),
+  });
+}
+
 /**
  * Create fallback messages when summarization fails.
  * Keeps the most recent keepFraction of messages plus a truncation notice.
@@ -209,28 +227,25 @@ function createFallbackMessages(
   messages: AgentMessage[],
   keepFraction: number,
   compactionNum: number,
+  stamp?: RoundStamp,
 ): AgentMessage[] {
   const keepCount = Math.max(1, Math.floor(messages.length * keepFraction));
   const keptMessages = messages.slice(-keepCount);
 
-  const truncationMsg: AgentMessage = {
-    id: `msg-${sessionId}-compact-fallback-${compactionNum}`,
-    session_id: sessionId,
-    role: 'system',
-    kind: 'model_repair',
-    round_id: `r-compacted-${compactionNum}`,
-    message_index: 0,
-    block_index: 0,
-    content: `[CONTEXT COMPACTION #${compactionNum} — TRUNCATION FALLBACK]\n\n` +
+  return [createCompactionMessage(
+    sessionId,
+    stamp ?? { round_id: `r-compacted-${compactionNum}`, message_index: 0, block_index: 0 },
+    `msg-${sessionId}-compact-fallback-${compactionNum}`,
+    `[CONTEXT COMPACTION #${compactionNum} — TRUNCATION FALLBACK]
+
+` +
       `The conversation history has been truncated to conserve context. ` +
       `${messages.length - keepCount} older messages were removed. ` +
       `Only the most recent ${keepCount} messages are preserved below. ` +
       `Please re-read authoritative state from disk if you need context from earlier in the conversation.`,
-    timestamp: new Date().toISOString(),
-  };
-
-  return [truncationMsg, ...keptMessages];
+  ), ...keptMessages];
 }
+
 
 /**
  * Reset compaction state for a session (e.g., when session restarts).

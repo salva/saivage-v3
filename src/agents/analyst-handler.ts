@@ -1,8 +1,8 @@
 import { join } from 'node:path';
 import { existsSync, readFileSync } from 'node:fs';
 import { writeFileAtomic } from '../persistence/index.js';
-import { agentSessionSchema, agentMessageSchema } from '../schemas/index.js';
-import type { AgentSession, AgentMessage, MessageRole, MessageKind, ControlActionSurface, ControlActionAuditEntry } from '../schemas/index.js';
+import { agentSessionSchema } from '../schemas/index.js';
+import type { AgentSession, AgentMessage, ControlActionSurface, ControlActionAuditEntry } from '../schemas/index.js';
 import type { ToolResult, ToolContext } from './analyst-tools.js';
 import { AnalystOfflineError, LlmIntentResolver, TOOL_REGISTRY } from './analyst-llm-resolver.js';
 import { CardStore } from '../cards/store-api.js';
@@ -10,6 +10,7 @@ import type { ActiveRuntime } from '../runtime/control-api.js';
 import type { ActorRole } from './authz.js';
 import { sanitizeAnalystText } from '../agents/analyst-sanitization.js';
 import { compactSession } from './compaction.js';
+import { appendMessage, getSessionMessages } from './session-persistence.js';
 import { ANALYST_DESTRUCTIVE_AMENDMENT_TEMPLATE, ANALYST_DESTRUCTIVE_PREVIEW_TEMPLATE, ANALYST_DESTRUCTIVE_STALE_AFFIRMATION_TEMPLATE, ANALYST_PARTIAL_SUCCESS_TEMPLATE, ANALYST_UNKNOWN_CAPABILITY_TEMPLATE, CONFIRMATION_TTL_MS, PendingDestructiveStore, isDestructiveAnalystTool } from './analyst-tool-runner.js';
 import { recordControlAction, stableStringify } from '../persistence/index.js';
 
@@ -64,40 +65,7 @@ export interface AnalystResponse {
 function now(): string { return new Date().toISOString(); }
 function saivageDir(projectRoot: string): string { return join(projectRoot, '.saivage'); }
 function sessionsDir(projectRoot: string): string { return join(saivageDir(projectRoot), 'agents', 'sessions'); }
-function messagesDir(projectRoot: string): string { return join(saivageDir(projectRoot), 'agents', 'messages'); }
 function sessionFilePath(projectRoot: string, sessionId: string): string { return join(sessionsDir(projectRoot), `${sessionId}.json`); }
-function messagesFilePath(projectRoot: string, sessionId: string): string { return join(messagesDir(projectRoot), `${sessionId}.jsonl`); }
-function newMessageId(sessionId: string, existingCount: number): string { return `msg-${sessionId}-${existingCount + 1}`; }
-
-function readMessages(projectRoot: string, sessionId: string): AgentMessage[] {
-  const mp = messagesFilePath(projectRoot, sessionId);
-  if (!existsSync(mp)) return [];
-  const raw = readFileSync(mp, 'utf-8');
-  if (raw.trim() === '') return [];
-  const lines = raw.split('\n').filter((line) => line.trim() !== '');
-  return lines.map((line) => agentMessageSchema.parse(JSON.parse(line)));
-}
-
-function stampForMessage(existing: AgentMessage[], message: { role: MessageRole; kind: MessageKind }): { round_id: string; message_index: number; block_index: number } {
-  const lastRound = [...existing].reverse().find((entry) => entry.round_id)?.round_id;
-  const nextUserRound = existing.filter((entry) => entry.role === 'user').length + 1;
-  if (message.role === 'user') return { round_id: `r-user-${nextUserRound}`, message_index: 0, block_index: 0 };
-  const round_id = lastRound ?? `r-assistant-${Math.max(1, existing.length + 1)}`;
-  const sameRound = existing.filter((entry) => entry.round_id === round_id);
-  const block_index = sameRound.length;
-  return { round_id, message_index: block_index, block_index };
-}
-
-function appendMessage(projectRoot: string, sessionId: string, message: { role: MessageRole; kind: MessageKind; content: string; tool?: string; tool_call_id?: string; }): AgentMessage {
-  const existing = readMessages(projectRoot, sessionId);
-  const stamp = stampForMessage(existing, message);
-  const msg: AgentMessage = { id: newMessageId(sessionId, existing.length), session_id: sessionId, role: message.role, kind: message.kind, content: message.content, round_id: stamp.round_id, message_index: stamp.message_index, block_index: stamp.block_index, tool: message.tool, tool_call_id: message.tool_call_id, timestamp: now() };
-  agentMessageSchema.parse(msg);
-  const mp = messagesFilePath(projectRoot, sessionId);
-  const line = JSON.stringify(msg) + '\n';
-  if (existsSync(mp)) writeFileAtomic(mp, readFileSync(mp, 'utf-8') + line); else writeFileAtomic(mp, line);
-  return msg;
-}
 
 const ANALYST_CONTEXT_LIMIT_TOKENS = 128_000;
 
@@ -252,16 +220,16 @@ export class AnalystHandler {
   private async handleMessageSerial(sessionId: string, userContent: string, workspaceContext?: WorkspaceContext): Promise<AnalystResponse> {
     let session = readSession(this.projectRoot, sessionId);
     if (!session) { const created = getOrCreateAnalystSession(this.projectRoot, sessionId); session = created.session; sessionId = created.sessionId; }
-    const priorMessages = readMessages(this.projectRoot, sessionId);
+    const priorMessages = getSessionMessages(saivageDir(this.projectRoot), sessionId);
     const duplicateResponse = this.findRecentDuplicateResponse(priorMessages, userContent);
     if (duplicateResponse) return duplicateResponse;
-    appendMessage(this.projectRoot, sessionId, { role: 'user', kind: 'text', content: userContent });
+    appendMessage(saivageDir(this.projectRoot), sessionId, { role: 'user', kind: 'text', content: userContent }, this.activeRuntime?.stampUserMessage(sessionId) ?? { round_id: 'r-user-1', message_index: 0, block_index: 0 }, this.activeRuntime);
 
     const expired = this.pendingDestructive.prune(Date.now());
     for (const invocation of expired) this.recordPendingOutcome(invocation, 'expired', 'destructive confirmation expired');
     if (expired.some((invocation) => invocation.sessionId === sessionId) && this.isAffirmation(userContent)) {
       const text = ANALYST_DESTRUCTIVE_STALE_AFFIRMATION_TEMPLATE();
-      const persisted = appendMessage(this.projectRoot, sessionId, { role: 'assistant', kind: 'text', content: text });
+      const persisted = appendMessage(saivageDir(this.projectRoot), sessionId, { role: 'assistant', kind: 'text', content: text }, this.activeRuntime?.stampInRound(sessionId) ?? { round_id: 'r-assistant-1', message_index: 0, block_index: 0 }, this.activeRuntime);
       return { sessionId, message: { id: persisted.id, role: 'assistant', kind: 'text', content: text, timestamp: persisted.timestamp } };
     }
     const pending = this.pendingDestructive.get(sessionId);
@@ -270,7 +238,7 @@ export class AnalystHandler {
       this.recordPendingOutcome(pending, 'expired', 'destructive confirmation expired');
       if (this.isAffirmation(userContent)) {
         const text = ANALYST_DESTRUCTIVE_STALE_AFFIRMATION_TEMPLATE();
-        const persisted = appendMessage(this.projectRoot, sessionId, { role: 'assistant', kind: 'text', content: text });
+        const persisted = appendMessage(saivageDir(this.projectRoot), sessionId, { role: 'assistant', kind: 'text', content: text }, this.activeRuntime?.stampInRound(sessionId) ?? { round_id: 'r-assistant-1', message_index: 0, block_index: 0 }, this.activeRuntime);
         return { sessionId, message: { id: persisted.id, role: 'assistant', kind: 'text', content: text, timestamp: persisted.timestamp } };
       }
     }
@@ -283,14 +251,14 @@ export class AnalystHandler {
         const result = toolFn ? await toolFn(ctx, activePending.params) : { success: false, error: ANALYST_UNKNOWN_CAPABILITY_TEMPLATE(activePending.tool) };
         const preview = this.destructivePreviewFor(activePending.tool, activePending.params);
         const text = this.responseTextForResult(result) ?? (result.success ? `Confirmed. ${preview.actionVerb} applied to ${preview.ids.length} item(s): ${preview.ids.join(', ')}.` : (result.error ?? 'Confirmed action failed.'));
-        const persisted = appendMessage(this.projectRoot, sessionId, { role: 'assistant', kind: 'text', content: text });
+        const persisted = appendMessage(saivageDir(this.projectRoot), sessionId, { role: 'assistant', kind: 'text', content: text }, this.activeRuntime?.stampInRound(sessionId) ?? { round_id: 'r-assistant-1', message_index: 0, block_index: 0 }, this.activeRuntime);
         return { sessionId, message: { id: persisted.id, role: 'assistant', kind: 'text', content: text, timestamp: persisted.timestamp }, toolInvocations: [{ tool: activePending.tool, params: activePending.params, result }] };
       }
       if (this.isCancellation(userContent)) {
         this.pendingDestructive.delete(sessionId);
         this.recordPendingOutcome(activePending, 'cancelled', 'destructive confirmation cancelled');
         const text = 'Cancelled. No changes were made.';
-        const persisted = appendMessage(this.projectRoot, sessionId, { role: 'assistant', kind: 'text', content: text });
+        const persisted = appendMessage(saivageDir(this.projectRoot), sessionId, { role: 'assistant', kind: 'text', content: text }, this.activeRuntime?.stampInRound(sessionId) ?? { round_id: 'r-assistant-1', message_index: 0, block_index: 0 }, this.activeRuntime);
         return { sessionId, message: { id: persisted.id, role: 'assistant', kind: 'text', content: text, timestamp: persisted.timestamp } };
       }
       this.pendingDestructive.delete(sessionId);
@@ -325,6 +293,7 @@ export class AnalystHandler {
   }
 
   private async runAnalystLoop(sessionId: string, _userContent: string, workspaceContext?: WorkspaceContext): Promise<AnalystResponse> {
+    this.activeRuntime?.openAssistantRound(sessionId);
     const toolInvocations: NonNullable<AnalystResponse['toolInvocations']> = [];
     const projectContext = this.buildProjectContext();
     const ctx: ToolContext = { projectRoot: this.projectRoot, sessionId, activeRuntime: this.activeRuntime, requestServerRestart: this.requestServerRestart, actor: this.actor, surface: this.surface };
@@ -345,10 +314,10 @@ export class AnalystHandler {
           contextLimit: ANALYST_CONTEXT_LIMIT_TOKENS,
           threshold: 0.8,
           maxCompactions: Number.MAX_SAFE_INTEGER,
-        });
+        }, this.activeRuntime);
       } catch { /* compaction is best-effort; continue with raw history */ }
 
-      const history = readMessages(this.projectRoot, sessionId);
+      const history = getSessionMessages(saivageDir(this.projectRoot), sessionId);
       const bounded = trimToCleanToolBoundary(history);
       const modelInput: AgentMessage[] = [
         { id: `workspace-context-${sessionId}`, session_id: sessionId, role: 'system', kind: 'text', content: buildWorkspaceContextNote(workspaceContext), round_id: `r-pre-1`, message_index: 0, block_index: 0, timestamp: now() },
@@ -362,13 +331,13 @@ export class AnalystHandler {
         const errMsg = err instanceof AnalystOfflineError
           ? err.message
           : `Analyst LLM unavailable: ${err instanceof Error ? err.message : String(err)}`;
-        const persisted = appendMessage(this.projectRoot, sessionId, { role: 'assistant', kind: 'text', content: errMsg });
+        const persisted = appendMessage(saivageDir(this.projectRoot), sessionId, { role: 'assistant', kind: 'text', content: errMsg }, this.activeRuntime?.stampInRound(sessionId) ?? { round_id: 'r-assistant-1', message_index: 0, block_index: 0 }, this.activeRuntime);
         return { sessionId, message: { id: persisted.id, role: 'assistant', kind: 'text', content: errMsg, timestamp: persisted.timestamp }, toolInvocations: toolInvocations.length > 0 ? toolInvocations : undefined };
       }
 
       if (!llmResult.toolCalls || llmResult.toolCalls.length === 0) {
         const finalText = (llmResult.content ?? '').trim() || 'Done.';
-        const persisted = appendMessage(this.projectRoot, sessionId, { role: 'assistant', kind: 'text', content: finalText });
+        const persisted = appendMessage(saivageDir(this.projectRoot), sessionId, { role: 'assistant', kind: 'text', content: finalText }, this.activeRuntime?.stampInRound(sessionId) ?? { round_id: 'r-assistant-1', message_index: 0, block_index: 0 }, this.activeRuntime);
         return { sessionId, message: { id: persisted.id, role: 'assistant', kind: 'text', content: finalText, timestamp: persisted.timestamp }, toolInvocations: toolInvocations.length > 0 ? toolInvocations : undefined };
       }
 
@@ -376,11 +345,11 @@ export class AnalystHandler {
       const fingerprint = toolCalls.map((tc) => `${tc.function.name}:${tc.function.arguments}`).sort().join('||');
       if (previousToolCallFingerprints.has(fingerprint)) {
         const noProgressText = 'I repeated the same tool calls without making progress. Please refine the request or inspect the latest tool results.';
-        const persisted = appendMessage(this.projectRoot, sessionId, { role: 'assistant', kind: 'text', content: noProgressText });
+        const persisted = appendMessage(saivageDir(this.projectRoot), sessionId, { role: 'assistant', kind: 'text', content: noProgressText }, this.activeRuntime?.stampInRound(sessionId) ?? { round_id: 'r-assistant-1', message_index: 0, block_index: 0 }, this.activeRuntime);
         return { sessionId, message: { id: persisted.id, role: 'assistant', kind: 'text', content: noProgressText, timestamp: persisted.timestamp }, toolInvocations: toolInvocations.length > 0 ? toolInvocations : undefined };
       }
       previousToolCallFingerprints.add(fingerprint);
-      appendMessage(this.projectRoot, sessionId, { role: 'assistant', kind: 'tool_call', content: JSON.stringify({ toolCalls }) });
+      appendMessage(saivageDir(this.projectRoot), sessionId, { role: 'assistant', kind: 'tool_call', content: JSON.stringify({ toolCalls }) }, this.activeRuntime?.stampInRound(sessionId) ?? { round_id: 'r-assistant-1', message_index: 0, block_index: 0 }, this.activeRuntime);
 
       for (const tc of toolCalls) {
         let params: Record<string, unknown> = {};
@@ -415,11 +384,11 @@ export class AnalystHandler {
 
         const resultJson = JSON.stringify(result);
         const truncated = resultJson.length > 16_000 ? resultJson.slice(0, 16_000) + '…[truncated]' : resultJson;
-        appendMessage(this.projectRoot, sessionId, { role: 'tool', kind: 'tool_result', content: truncated, tool: tc.function.name, tool_call_id: tc.id });
+        appendMessage(saivageDir(this.projectRoot), sessionId, { role: 'tool', kind: 'tool_result', content: truncated, tool: tc.function.name, tool_call_id: tc.id }, this.activeRuntime?.stampInRound(sessionId) ?? { round_id: 'r-assistant-1', message_index: 1, block_index: 1 }, this.activeRuntime);
         broadcastToolInvocation(this.activeRuntime, sessionId, tc.function.name, result);
         const contractText = !toolFn ? result.error : (result.preview?.type === 'destructive_confirmation' ? result.preview.summary : this.responseTextForResult(result));
         if (contractText) {
-          const persisted = appendMessage(this.projectRoot, sessionId, { role: 'assistant', kind: 'text', content: contractText });
+          const persisted = appendMessage(saivageDir(this.projectRoot), sessionId, { role: 'assistant', kind: 'text', content: contractText }, this.activeRuntime?.stampInRound(sessionId) ?? { round_id: 'r-assistant-1', message_index: 2, block_index: 2 }, this.activeRuntime);
           return { sessionId, message: { id: persisted.id, role: 'assistant', kind: 'text', content: contractText, timestamp: persisted.timestamp }, toolInvocations };
         }
       }

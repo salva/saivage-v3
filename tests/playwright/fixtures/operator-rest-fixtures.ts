@@ -139,6 +139,12 @@ const outputRoot = {
   files: [{ name: 'smoke-result.json', path: '.saivage-work/smoke-result.json', type: 'file', size: 64, modifiedAt: now }],
 };
 
+function stampedText(sessionId: string, id: string, content: string) {
+  return { id, session_id: sessionId, role: 'assistant', kind: 'text', content, round_id: 'r-assistant-1', message_index: 0, block_index: 0, timestamp: now };
+}
+
+const idleActivity = { status: 'idle', pending_calls: [], updated_at: now };
+
 export type OperatorRestObservations = {
   counts: Map<string, number>;
   unknown: string[];
@@ -177,7 +183,8 @@ export async function installOperatorRestRoutes(page: Page): Promise<OperatorRes
       const sessionId = decodeURIComponent(url.pathname.split('/')[3] ?? 'analyst-smoke');
       return json(route, {
         session: sessions.find((session) => session.id === sessionId) ?? sessions[0],
-        messages: [{ id: `msg-${sessionId}-1`, session_id: sessionId, role: 'assistant', kind: 'text', content: 'Synthetic agent transcript.', timestamp: now }],
+        entries: [stampedText(sessionId, `msg-${sessionId}-1`, 'Synthetic agent transcript.')],
+        activity_status: idleActivity,
       });
     }
     if (request.method() === 'GET' && url.pathname === '/api/files') {
@@ -213,7 +220,7 @@ export async function installOperatorRestRoutes(page: Page): Promise<OperatorRes
     if (request.method() === 'GET' && url.pathname === '/api/chats') return json(route, { sessions: [{ id: 'analyst-smoke', title: 'Synthetic analyst chat', updated_at: now }] });
     if (request.method() === 'GET' && url.pathname.startsWith('/api/chats/')) {
       const sessionId = decodeURIComponent(url.pathname.split('/')[3] ?? 'analyst-smoke');
-      return json(route, { sessionId, messages: [{ id: `chat-${sessionId}-1`, session_id: sessionId, role: 'assistant', kind: 'text', content: 'Synthetic agent transcript.', timestamp: now }] });
+      return json(route, { sessionId, messages: [stampedText(sessionId, `chat-${sessionId}-1`, 'Synthetic agent transcript.')] });
     }
     if (request.method() === 'POST' && url.pathname.startsWith('/api/chats/')) {
       const sessionId = decodeURIComponent(url.pathname.split('/')[3] ?? 'analyst-smoke');

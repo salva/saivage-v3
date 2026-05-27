@@ -4,8 +4,8 @@
       <button type="button" class="tool-chip-toggle" :aria-expanded="expanded" :aria-controls="detailsId" :aria-label="toggleLabel" @click="$emit('toggle')">
         <span class="tool-chip-icon" aria-hidden="true">{{ call.icon }}</span>
         <span class="tool-chip-name">{{ call.name }}</span>
-        <InlineParts v-if="headline.length" class="tool-chip-headline" :parts="headline" />
-        <InlineParts v-if="detail.length" class="tool-chip-tag" :parts="detail" />
+        <InlineParts v-if="nonInteractiveHeadline.length" class="tool-chip-headline" :parts="nonInteractiveHeadline" />
+        <InlineParts v-if="nonInteractiveDetail.length" class="tool-chip-tag" :parts="nonInteractiveDetail" />
         <span v-if="timestamp" class="tool-chip-time">{{ timestamp }}</span>
         <span class="tool-chip-caret" aria-hidden="true">{{ expanded ? '▾' : '▸' }}</span>
       </button>
@@ -41,6 +41,8 @@ const classes = computed(() => ({ 'tool-chip-pending': props.status === 'pending
 const headline = computed(() => props.call.headline);
 const detail = computed(() => props.result?.headline ?? props.result?.detail ?? props.call.detail ?? []);
 const isInteractive = (part: ToolCallPresentation['headline'][number]) => part.kind === 'file' || part.kind === 'url';
+const nonInteractiveHeadline = computed(() => headline.value.filter((part) => !isInteractive(part)));
+const nonInteractiveDetail = computed(() => detail.value.filter((part) => !isInteractive(part)));
 const interactiveParts = computed(() => [...headline.value, ...detail.value].filter(isInteractive));
 const groupLabel = computed(() => `tool ${props.call.name} ${props.status}`);
 const toggleLabel = computed(() => `${props.expanded ? 'Collapse' : 'Expand'} tool ${props.call.name} details`);

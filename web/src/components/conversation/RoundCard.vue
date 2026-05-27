@@ -1,5 +1,5 @@
 <template>
-  <section class="round-card" :class="`round-${round.kind}`">
+  <section class="round-card" data-testid="round-card" :class="`round-${round.kind}`">
     <CompactedCluster v-if="round.kind === 'compacted'" :entries="round.entries" />
     <template v-else>
       <header class="round-head">{{ round.kind }} round {{ round.ordinal }}</header>
