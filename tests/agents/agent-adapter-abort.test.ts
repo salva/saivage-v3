@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os';
 import { AgentAdapter } from '../../src/agents/agent-adapter.js';
 import { EventLogger } from '../../src/observability/event-logger.js';
 import { getEventSeverity } from '../../src/events/index.js';
-import type { AgentRuntime } from '../../src/agents/agent-runtime.js';
+import type { AgentExecutionPort as AgentRuntime } from '../../src/contracts/index.js';
 import { FakeAgentAdapter } from '../../src/agents/fake-agent.js';
 import { Runtime } from '../../src/runtime/runtime.js';
 import { initProjectTree } from '../../src/persistence/file-tree.js';
@@ -91,14 +91,14 @@ function createConfiguredAdapter(
 }
 
 function internals(adapter: AgentAdapter) {
-  const a = adapter as any;
+  const coordinator = (adapter as any).sessionCoordinator;
   return {
-    abortControllers: a._abortControllers as Map<string, AbortController>,
-    cancelledSessions: a._cancelledSessions as Set<string>,
+    abortControllers: coordinator.abortControllers as Map<string, AbortController>,
+    cancelledSessions: coordinator.cancelledSessions as Set<string>,
     setAbortController: (sessionId: string, ctrl: AbortController) =>
-      a._abortControllers.set(sessionId, ctrl),
+      coordinator.trackAbortController(sessionId, ctrl),
     addCancelledSession: (sessionId: string) =>
-      a._cancelledSessions.add(sessionId),
+      coordinator.cancelledSessions.add(sessionId),
   };
 }
 
@@ -545,13 +545,13 @@ describe('Runtime/Supervisor wiring for abort and force-cancel', () => {
 
   it('delegates abortSession to agentRuntime.cancelSession via mock AgentRuntime', () => {
     const mockAgentRuntime: AgentRuntime = {
-      invokePlanner(_goalId: string) {
+      invokePlanner(_request) {
         return { goal_card_id: 'p', created_cards: [], updated_cards: [], status: 'done' };
       },
-      invokeExecutor(_cardId: string, _goalId: string) {
+      invokeExecutor(_request) {
         return { card_id: 'c', status: 'done' as const, status_text: 'Completed successfully', artifacts: [], attachments: [], fallback_with_evidence: null };
       },
-      invokeReviewer(_goalId: string) {
+      invokeReviewer(_request) {
         return { assessment: { result: 'pass' as const, summary: '', achieved: [], issues: [], evidence_card_ids: [] } };
       },
       cancelSession(sessionId: string) {

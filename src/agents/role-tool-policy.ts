@@ -1,7 +1,8 @@
 import type { McpToolAnnotations } from '../mcp/index.js';
-import { TOOL_TO_CARD_ACTION } from '../permissions/index.js';
+import type { OperationalAgentRole } from '../schemas/index.js';
+import { MCP_WRAPPER_TOOL_NAMES, PLANNER_CONTROL_TOOL_NAMES, ROLE_TOOL_NAMES, SKILL_TOOL_NAMES, WORKSPACE_TOOL_NAMES } from './agent-tool-catalog.js';
 
-export type RoleToolPolicyRole = 'planner' | 'executor' | 'reviewer' | 'analyst';
+export type RoleToolPolicyRole = OperationalAgentRole;
 export type RoleToolPolicyAction = 'list' | 'invoke';
 export type RoleToolPolicySurface = 'planner-control' | 'agent-runtime' | 'workspace' | 'external-mcp' | 'skill';
 
@@ -35,104 +36,10 @@ export interface RoleToolPolicyDecision {
   auditTags: string[];
 }
 
-const ROLE_TOOL_NAMES: Record<RoleToolPolicyRole, readonly string[]> = {
-  planner: [
-    'create_card',
-    'edit_card',
-    'move_card',
-    'reorder_child',
-    'queue_notification',
-    'list_cards',
-    'get_card',
-    'get_tree',
-    'list_card_history',
-    'get_card_history_entry',
-    'diff_card',
-    'list_project_files',
-    'read_project_file',
-    'write_project_file',
-    'wait_for_process',
-    'kill_process',
-    'start_and_wait',
-    'run_project_command',
-    'activate_card',
-    'cancel_card',
-    'delete_card',
-    'restart_card',
-    'report_goal_done',
-    'report_goal_failed',
-    'report_goal_blocked',
-  ],
-  executor: [
-    'load_skill',
-    'list_project_files',
-    'read_project_file',
-    'write_project_file',
-    'wait_for_process',
-    'kill_process',
-    'start_and_wait',
-    'run_project_command',
-    'list_card_history',
-    'get_card_history_entry',
-    'diff_card',
-    'mcp_tool_call',
-  ],
-  reviewer: [
-    'load_skill',
-    'list_project_files',
-    'read_project_file',
-    'list_card_history',
-    'get_card_history_entry',
-    'diff_card',
-    'mcp_tool_call',
-  ],
-  analyst: [
-    'abort_goal_subtree',
-    'create_card',
-    'delete_card',
-    'diff_card',
-    'edit_card',
-    'get_card',
-    'get_card_history_entry',
-    'get_card_output',
-    'get_plan_diary',
-    'get_status',
-    'get_tree',
-    'list_agent_sessions',
-    'list_card_history',
-    'list_cards',
-    'list_directory',
-    'list_processes_tool',
-    'mark_goal_needs_corrections',
-    'move_card',
-    'navigate_back',
-    'navigate_workspace',
-    'pause_runtime',
-    'queue_notification',
-    'read_agent_session',
-    'read_control_actions',
-    'read_file',
-    'read_runtime_errors',
-    'read_runtime_events',
-    'reconfigure',
-    'reorder_child',
-    'restart_card_or_subtree',
-    'restart_goal',
-    'restart_server',
-    'resume_runtime',
-    'run_shell_command',
-    'show_config',
-    'start_project',
-    'stop_project',
-    'terminate_process',
-  ],};
-
 const VALID_ROLES = new Set<RoleToolPolicyRole>(Object.keys(ROLE_TOOL_NAMES) as RoleToolPolicyRole[]);
 const VALID_SURFACES = new Set<RoleToolPolicySurface>(['planner-control', 'agent-runtime', 'workspace', 'external-mcp', 'skill']);
-const PLANNER_CONTROL_TOOLS = new Set([...Object.keys(TOOL_TO_CARD_ACTION), 'move_card', 'reorder_child', 'report_goal_done', 'report_goal_failed', 'report_goal_blocked', 'queue_notification']);
-const SKILL_TOOLS = new Set(['load_skill']);
-const WORKSPACE_TOOLS = new Set(['list_project_files', 'read_project_file', 'write_project_file', 'start_and_wait', 'run_project_command', 'wait_for_process', 'kill_process']);
-const MCP_WRAPPER_TOOLS = new Set(['mcp_tool_call']);
+
+function roleToolNames(role: RoleToolPolicyRole): readonly string[] { return ROLE_TOOL_NAMES[role] ?? []; }
 
 function decision(input: RoleToolPolicyInput, allowed: boolean, reasonCode: RoleToolPolicyReasonCode, message: string): RoleToolPolicyDecision {
   const auditTags = [
@@ -155,14 +62,13 @@ function denied(input: RoleToolPolicyInput, reasonCode: RoleToolPolicyReasonCode
 
 export class RoleToolPolicy {
   static listToolNamesForRole(role: RoleToolPolicyRole): string[] {
-    return [...(ROLE_TOOL_NAMES[role] ?? [])];
+    return [...roleToolNames(role)];
   }
 
-
   static assertAnalystSurfaceTool(toolName: string, surface: 'web' | 'telegram' | string): RoleToolPolicyDecision {
-    const input: RoleToolPolicyInput = { role: 'analyst', action: 'invoke', surface: 'agent-runtime', toolName, knownRuntimeTool: ROLE_TOOL_NAMES.analyst.includes(toolName) };
+    const input: RoleToolPolicyInput = { role: 'analyst', action: 'invoke', surface: 'agent-runtime', toolName, knownRuntimeTool: roleToolNames('analyst').includes(toolName) };
     if (toolName === 'run_shell_command' && surface === 'telegram') return denied(input, 'role_not_allowed', 'run_shell_command is not available on Telegram.');
-    return ROLE_TOOL_NAMES.analyst.includes(toolName) ? allowed(input) : denied(input, 'unknown_tool');
+    return roleToolNames('analyst').includes(toolName) ? allowed(input) : denied(input, 'unknown_tool');
   }
 
   static decide(input: RoleToolPolicyInput): RoleToolPolicyDecision {
@@ -171,25 +77,25 @@ export class RoleToolPolicy {
       if (!VALID_SURFACES.has(input.surface)) return denied(input, 'surface_not_listed');
 
       if (input.action === 'list') {
-        return ROLE_TOOL_NAMES[input.role].includes(input.toolName) ? allowed(input) : denied(input, 'unknown_tool');
+        return roleToolNames(input.role).includes(input.toolName) ? allowed(input) : denied(input, 'unknown_tool');
       }
 
       if (input.surface === 'external-mcp') return this.decideExternalMcp(input);
       if (input.surface === 'planner-control') {
-        if (!PLANNER_CONTROL_TOOLS.has(input.toolName) || !input.knownPlannerTool) return denied(input, 'unknown_tool');
-        return input.role === 'planner' && ROLE_TOOL_NAMES.planner.includes(input.toolName) ? allowed(input) : denied(input, 'role_not_allowed');
+        if (!PLANNER_CONTROL_TOOL_NAMES.has(input.toolName) || !input.knownPlannerTool) return denied(input, 'unknown_tool');
+        return input.role === 'planner' && roleToolNames('planner').includes(input.toolName) ? allowed(input) : denied(input, 'role_not_allowed');
       }
       if (input.surface === 'agent-runtime') {
         if (!input.knownRuntimeTool) return denied(input, 'unknown_tool');
-        return ROLE_TOOL_NAMES[input.role].includes(input.toolName) ? allowed(input) : denied(input, 'role_not_allowed');
+        return roleToolNames(input.role).includes(input.toolName) ? allowed(input) : denied(input, 'role_not_allowed');
       }
       if (input.surface === 'workspace') {
-        if (!WORKSPACE_TOOLS.has(input.toolName)) return denied(input, 'unknown_tool');
-        return ROLE_TOOL_NAMES[input.role].includes(input.toolName) ? allowed(input) : denied(input, 'role_not_allowed');
+        if (!WORKSPACE_TOOL_NAMES.has(input.toolName)) return denied(input, 'unknown_tool');
+        return roleToolNames(input.role).includes(input.toolName) ? allowed(input) : denied(input, 'role_not_allowed');
       }
       if (input.surface === 'skill') {
-        if (!SKILL_TOOLS.has(input.toolName)) return denied(input, 'unknown_tool');
-        return ROLE_TOOL_NAMES[input.role].includes(input.toolName) ? allowed(input) : denied(input, 'role_not_allowed');
+        if (!SKILL_TOOL_NAMES.has(input.toolName)) return denied(input, 'unknown_tool');
+        return roleToolNames(input.role).includes(input.toolName) ? allowed(input) : denied(input, 'role_not_allowed');
       }
       return denied(input, 'surface_not_listed');
     } catch {
@@ -198,8 +104,8 @@ export class RoleToolPolicy {
   }
 
   private static decideExternalMcp(input: RoleToolPolicyInput): RoleToolPolicyDecision {
-    if (!MCP_WRAPPER_TOOLS.has(input.toolName) && input.toolName !== '') return denied(input, 'unknown_tool');
-    if (!ROLE_TOOL_NAMES[input.role].includes('mcp_tool_call')) return denied(input, 'role_not_allowed');
+    if (!MCP_WRAPPER_TOOL_NAMES.has(input.toolName) && input.toolName !== '') return denied(input, 'unknown_tool');
+    if (!roleToolNames(input.role).includes('mcp_tool_call')) return denied(input, 'role_not_allowed');
     if (input.role === 'analyst') return denied(input, 'role_not_allowed');
     if (input.role === 'executor') return allowed(input);
     if (!input.hasMcpDefinition || !input.mcpAnnotations) return denied(input, 'mcp_missing_metadata');

@@ -4,11 +4,21 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
 import { parseDeferredActivationEnvelope } from '../../src/schemas/validators.js';
-import { appendRuntimeRun, readRuntimeState } from '../../src/runtime/state.js';
+import { appendRuntimeRun, readRuntimeState, upsertRuntimeActivation } from '../../src/runtime/state.js';
 import { AgentAdapter } from '../../src/agents/agent-adapter.js';
 import { initProjectTree } from '../../src/persistence/file-tree.js';
 import { CardStore } from '../../src/cards/card-store.js';
 import type { CardRecord } from '../../src/schemas/types.js';
+import { AgentToolCatalog } from '../../src/agents/agent-tool-catalog.js';
+
+
+function activationLedger(projectRoot: string) {
+  return {
+    readState: () => readRuntimeState(projectRoot),
+    appendRun: (input: Parameters<typeof appendRuntimeRun>[1]) => appendRuntimeRun(projectRoot, input),
+    upsertActivation: (input: Parameters<typeof upsertRuntimeActivation>[1]) => upsertRuntimeActivation(projectRoot, input),
+  };
+}
 
 function createMinimalAdapter(tmpDir: string): AgentAdapter {
   const minimalConfig = {
@@ -30,6 +40,7 @@ function createMinimalAdapter(tmpDir: string): AgentAdapter {
     projectRoot: tmpDir,
     saivageDir: join(tmpDir, '.saivage'),
     config: minimalConfig,
+    activationLedger: activationLedger(tmpDir),
   });
 }
 
@@ -50,20 +61,8 @@ function plannerToolNamesFromAgentsDoc(): string[] {
   return unique(names);
 }
 
-function stringLiteralArray(source: string, constantName: string): string[] {
-  const match = source.match(new RegExp(`const ${constantName}[^=]*= (?:new Set\\()?\\[([\\s\\S]*?)\\]`));
-  if (!match) throw new Error(`Unable to find ${constantName} in agent-adapter.ts.`);
-  return [...match[1].matchAll(/'([a-z_]+)'/g)].map((entry) => entry[1]);
-}
-
 function processToolCallHandledPlannerTools(): string[] {
-  const adapterSource = readFileSync(join(process.cwd(), 'src', 'agents', 'agent-adapter.ts'), 'utf-8');
-  const workspaceSource = readFileSync(join(process.cwd(), 'src', 'agents', 'workspace-tools.ts'), 'utf-8');
-  const cardTools = stringLiteralArray(adapterSource, 'PLANNER_CARD_TOOL_NAMES');
-  const switchCases = [...adapterSource.matchAll(/case '([a-z_]+)':/g), ...readFileSync(join(process.cwd(), 'src', 'agents', 'planner-control-executor.ts'), 'utf-8').matchAll(/case '([a-z_]+)':/g)].map((match) => match[1]);
-  const workspaceTools = [...workspaceSource.matchAll(/name: '([a-z_]+)'/g)].map((match) => match[1]);
-  const explicitWorkspaceBranch = [...adapterSource.matchAll(/tc\.function\.name === '([a-z_]+)'/g)].map((match) => match[1]);
-  return unique([...cardTools, ...switchCases, ...workspaceTools.filter((name) => explicitWorkspaceBranch.includes(name))]);
+  return AgentToolCatalog.roleToolNames('planner');
 }
 
 describe('AgentAdapter planner tool surface', () => {
