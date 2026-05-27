@@ -152,6 +152,52 @@ describe('GET /api/agents/:id', () => {
     expect(detailRes.json<Record<string, unknown>>()).toEqual({ error: 'Agent session not found', sessionId: 'chat-old' });
   });
 
+
+  it('returns canonical conversation entries with required activity status and no messages field', async () => {
+    const sessionId = 'planner-conversation-1';
+    writeManifest(projectRoot, sessionId, { role: 'planner', started_at: '2026-05-01T00:00:00.000Z' });
+    writeMessages(projectRoot, sessionId, [
+      { timestamp: '2026-05-01T00:00:01.000Z', role: 'assistant', content: 'contract-backed entry' },
+    ]);
+
+    const res = await app.inject({ method: 'GET', url: `/api/agents/${sessionId}/conversation`, headers: authHdr() });
+    expect(res.statusCode).toBe(200);
+    const body = res.json<Record<string, unknown>>();
+    expect(body).toHaveProperty('session');
+    expect(body).toHaveProperty('entries');
+    expect(body).toHaveProperty('activity_status');
+    expect(body).not.toHaveProperty('messages');
+    expect((body['entries'] as Array<Record<string, unknown>>)[0]).toMatchObject({
+      session_id: sessionId,
+      role: 'assistant',
+      kind: 'text',
+      content: 'contract-backed entry',
+    });
+    expect(body['activity_status']).toEqual({ status: 'idle', pending_calls: [], updated_at: new Date(0).toISOString() });
+  });
+
+  it('returns 404 for missing canonical conversation sessions', async () => {
+    const res = await app.inject({ method: 'GET', url: '/api/agents/missing-conversation/conversation', headers: authHdr() });
+    expect(res.statusCode).toBe(404);
+    expect(res.json<Record<string, unknown>>()).toEqual({ error: 'Agent session not found', sessionId: 'missing-conversation' });
+  });
+
+  it('returns 401 for conversation requests without auth', async () => {
+    writeManifest(projectRoot, 'planner-conversation-auth', { role: 'planner', started_at: '2026-05-01T00:00:00.000Z' });
+    const res = await app.inject({ method: 'GET', url: '/api/agents/planner-conversation-auth/conversation' });
+    expect(res.statusCode).toBe(401);
+  });
+
+  it('does not expose non-canonical analyst conversations', async () => {
+    writeManifest(projectRoot, 'chat-old', { role: 'analyst', started_at: '2026-01-02T00:00:00.000Z' });
+    writeMessages(projectRoot, 'chat-old', [
+      { timestamp: '2026-01-02T00:00:01.000Z', role: 'assistant', content: 'historical analyst transcript' },
+    ]);
+    const res = await app.inject({ method: 'GET', url: '/api/agents/chat-old/conversation', headers: authHdr() });
+    expect(res.statusCode).toBe(404);
+    expect(res.json<Record<string, unknown>>()).toEqual({ error: 'Agent session not found', sessionId: 'chat-old' });
+  });
+
   it('returns 401 when no auth token is provided', async () => {
     writeManifest(projectRoot, 'analyst-auth', { role: 'analyst', started_at: '2026-01-01T00:00:00.000Z' });
     const res = await app.inject({ method: 'GET', url: '/api/agents/analyst-auth' });

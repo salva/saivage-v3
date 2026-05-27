@@ -211,6 +211,49 @@ export const McpToolsResponseSchema = z.object({
   })),
 });
 
+
+export const AgentConversationParamsSchema = z.object({ id: z.string().min(1) });
+export const AgentSessionSummarySchema = z.object({
+  id: z.string(),
+  role: z.string(),
+  goal_card_id: z.string().nullable().optional(),
+  card_id: z.string().nullable().optional(),
+  status: z.string(),
+  started_at: z.string(),
+  completed_at: z.string().nullable().optional(),
+  model: z.string().optional(),
+}).catchall(z.unknown());
+export const AgentConversationEntrySchema = z.object({
+  id: z.string(),
+  session_id: z.string(),
+  role: z.string(),
+  kind: z.string(),
+  content: z.string(),
+  round_id: z.string().optional(),
+  message_index: z.number().int().nonnegative().optional(),
+  block_index: z.number().int().nonnegative().optional(),
+  tool: z.string().optional(),
+  tool_call_id: z.string().optional(),
+  timestamp: z.string(),
+  links: z.array(z.object({
+    entity_type: z.string(),
+    entity_id: z.string(),
+    label: z.string().optional(),
+  }).catchall(z.unknown())).optional(),
+  model_spec: z.string().optional(),
+  requested_model_spec: z.string().optional(),
+}).catchall(z.unknown());
+export const AgentActivityStatusSchema = z.object({
+  status: z.enum(['idle', 'thinking', 'tool_calling', 'responding', 'compacting']),
+  pending_calls: z.array(z.object({ id: z.string(), tool: z.string(), started_at: z.string() }).catchall(z.unknown())),
+  updated_at: z.string(),
+}).catchall(z.unknown());
+export const AgentConversationResponseSchema = z.object({
+  session: AgentSessionSummarySchema,
+  entries: z.array(AgentConversationEntrySchema),
+  activity_status: AgentActivityStatusSchema,
+});
+
 export const ChatSessionParamsSchema = z.object({ sessionId: z.string().min(1) });
 export const ChatWorkspaceContextSchema = z.object({
   view: z.string().nullable(),
@@ -293,6 +336,7 @@ export type McpStatusResponse = z.infer<typeof McpStatusResponseSchema>;
 export type McpInvocationStat = z.infer<typeof McpInvocationStatSchema>;
 export type McpToolDefinition = z.infer<typeof McpToolDefinitionSchema>;
 export type McpToolsResponse = z.infer<typeof McpToolsResponseSchema>;
+export type AgentConversationResponse = z.infer<typeof AgentConversationResponseSchema>;
 export type ChatListResponse = z.infer<typeof ChatListResponseSchema>;
 export type ChatEntriesResponse = z.infer<typeof ChatEntriesResponseSchema>;
 export type ChatSendResponse = z.infer<typeof ChatSendResponseSchema>;
@@ -457,6 +501,17 @@ export const operatorApiContracts = {
     response: { 200: McpToolsResponseSchema, 400: ValidationErrorSchema, 401: UnauthorizedErrorSchema, 403: ForbiddenErrorSchema, 500: ContractViolationErrorSchema },
     ...operatorSessionContract,
     successSchemaName: 'McpToolsResponse',
+  },
+  'agents.conversation': {
+    operationId: 'agents.conversation',
+    method: 'GET',
+    path: '/api/agents/:id/conversation',
+    params: AgentConversationParamsSchema,
+    success: AgentConversationResponseSchema,
+    error: ApiErrorSchema,
+    response: { 200: AgentConversationResponseSchema, 400: ApiErrorSchema, 401: UnauthorizedErrorSchema, 403: ForbiddenErrorSchema, 404: ApiErrorSchema, 500: ContractViolationErrorSchema },
+    ...operatorSessionContract,
+    successSchemaName: 'AgentConversationResponse',
   },
   'chats.list': {
     operationId: 'chats.list',

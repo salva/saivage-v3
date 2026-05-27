@@ -14,6 +14,7 @@ export type {
   AvailabilityComponent,
   AvailabilityState,
 
+  AgentConversationResponse,
   CardDetailResponse,
   CardDiffResponse,
   CardHistoryEntryResponse,

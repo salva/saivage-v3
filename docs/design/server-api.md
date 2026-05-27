@@ -161,8 +161,8 @@ executor/card-scoped roles, and marks exactly `RuntimeState.current_agent_sessio
 active (`src/server/routes/runtime-config-notes.ts`,
 `tests/server/restart-persistence-operator-surface.test.ts`).
 
-`GET /api/agents/:id/conversation` returns the agent's recent conversation history (subject to context
-compaction — only the current window is available).
+`GET /api/agents/:id/conversation` returns `{ session, entries, activity_status }` for the agent's recent conversation history (subject to context
+compaction — only the current window is available). The transcript field is canonical `entries`; the response does not include a legacy `messages` field.
 
 Synthetic operator-update injections may appear in this conversation
 history when pending notifications were delivered to the session.

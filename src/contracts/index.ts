@@ -1,4 +1,9 @@
 export {
+  AgentActivityStatusSchema,
+  AgentConversationEntrySchema,
+  AgentConversationParamsSchema,
+  AgentConversationResponseSchema,
+  AgentSessionSummarySchema,
   ApiErrorSchema,
   AvailabilityComponentSchema,
   AvailabilityComponentSourceSchema,
@@ -70,6 +75,7 @@ export type {
 } from './llm-exchange.js';
 
 export type {
+  AgentConversationResponse,
   AvailabilityComponent,
   AvailabilityState,
   CardDetailResponse,

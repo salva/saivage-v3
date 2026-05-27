@@ -201,7 +201,7 @@ export function listAgentSessions(): Promise<AgentSessionsResponse> {
 }
 
 export function getAgentConversation(sessionId: string): Promise<AgentConversationResponse> {
-  return request<AgentConversationResponse>('GET', `/api/agents/${encodeURIComponent(sessionId)}/conversation`);
+  return operatorRequest('agents.conversation', 'GET', `/api/agents/${encodeURIComponent(sessionId)}/conversation`) as Promise<AgentConversationResponse>;
 }
 
 export function getAgentLlmExchange(sessionId: string): Promise<{ exchange: LlmExchange }> {

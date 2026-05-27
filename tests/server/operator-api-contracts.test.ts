@@ -114,6 +114,7 @@ describe('operator API contract registry', () => {
       'runtime.cardRuns',
       'mcp.status',
       'mcp.tools',
+      'agents.conversation',
       'chats.list',
       'chats.get',
       'chats.send',
@@ -128,6 +129,7 @@ describe('operator API contract registry', () => {
       expect.objectContaining({ operationId: 'health.readiness', method: 'GET', path: '/health/ready', successSchemaName: 'HealthReadinessResponse' }),
       expect.objectContaining({ operationId: 'runtime.status', method: 'GET', path: '/api/runtime/status', successSchemaName: 'RuntimeStatusResponse' }),
       expect.objectContaining({ operationId: 'mcp.status', method: 'GET', path: '/api/mcp/status', successSchemaName: 'McpStatusResponse' }),
+      expect.objectContaining({ operationId: 'agents.conversation', method: 'GET', path: '/api/agents/:id/conversation', successSchemaName: 'AgentConversationResponse' }),
       expect.objectContaining({ operationId: 'chats.send', method: 'POST', path: '/api/chats/:sessionId', successSchemaName: 'ChatSendResponse' }),
       expect.objectContaining({ operationId: 'files.content', method: 'GET', path: '/api/files/content', successSchemaName: 'WorkspaceFileContentResponse' }),
       expect.objectContaining({ operationId: 'debug.timeline', method: 'GET', path: '/api/debug/timeline', successSchemaName: 'DebugTimelineResponse' }),
@@ -156,6 +158,41 @@ describe('operator API contract registry', () => {
 
   it('rejects malformed migrated responses', () => {
     expect(() => parseOperatorResponse('cards.list', { cards: [{}], total: 1 })).toThrow();
+  });
+
+
+  it('uses entries for the agent conversation response contract and inventory', () => {
+    const route = operatorRouteInventory().find((item) => item.operationId === 'agents.conversation');
+    expect(route).toEqual(expect.objectContaining({
+      operationId: 'agents.conversation',
+      method: 'GET',
+      path: '/api/agents/:id/conversation',
+      requiresAuth: true,
+      successSchemaName: 'AgentConversationResponse',
+    }));
+    expect(operatorApiContracts['agents.conversation'].params?.parse({ id: 'planner-1' })).toEqual({ id: 'planner-1' });
+    const parsed = parseOperatorResponse('agents.conversation', {
+      session: { id: 'planner-1', role: 'planner', status: 'active', started_at: '2026-01-01T00:00:00.000Z' },
+      entries: [{
+        id: 'msg-1',
+        session_id: 'planner-1',
+        role: 'assistant',
+        kind: 'text',
+        content: 'hello',
+        round_id: 'r-assistant-1',
+        message_index: 0,
+        block_index: 0,
+        timestamp: '2026-01-01T00:00:01.000Z',
+      }],
+      activity_status: { status: 'idle', pending_calls: [], updated_at: '2026-01-01T00:00:02.000Z' },
+    });
+    expect(parsed.entries).toHaveLength(1);
+    expect(parsed).not.toHaveProperty('messages');
+    expect(() => parseOperatorResponse('agents.conversation', {
+      session: { id: 'planner-1', role: 'planner', status: 'active', started_at: '2026-01-01T00:00:00.000Z' },
+      messages: [],
+      activity_status: { status: 'idle', pending_calls: [], updated_at: '2026-01-01T00:00:02.000Z' },
+    })).toThrow();
   });
 
   it('uses entries for the analyst chat-history response contract', () => {

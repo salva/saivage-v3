@@ -72,7 +72,7 @@ export const useAgentStore = defineStore('agents', () => {
       const conversationEntries = normalizeConversationEntries(response.entries);
       currentSession.value = response.session;
       entries.value = conversationEntries;
-      activityStatus.value = response.activity_status ?? idleActivity();
+      activityStatus.value = response.activity_status;
       if (conversationEntries.length === 0) conversationWarning.value = 'No recorded conversation entries were returned for this session.';
       else if (conversationEntries.some((entry) => entry.kind === 'model_issue')) conversationWarning.value = 'Conversation includes model/tool recovery events; inspect for incomplete or repaired output.';
       markRestSync();

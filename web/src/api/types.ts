@@ -562,7 +562,7 @@ export type RuntimeStatusResponse = OperatorApiSuccess<'runtime.status'>;
 export type RuntimeCardRunsResponse = OperatorApiSuccess<'runtime.cardRuns'>;
 export interface ConfigResponse { config: Record<string, unknown>; warnings?: string[]; }
 export interface ProvidersResponse { providers: Record<string, ProviderEntry>; warnings?: string[]; }
-export interface AgentConversationResponse { session: AgentSession; entries: ConversationEntry[]; activity_status: ActivityStatus; }
+export type AgentConversationResponse = Omit<OperatorApiSuccess<'agents.conversation'>, 'session' | 'entries' | 'activity_status'> & { session: AgentSession; entries: ConversationEntry[]; activity_status: ActivityStatus; };
 export interface AgentSessionsResponse { sessions: AgentSession[]; }
 export interface ControlActionsListResponse { control_actions: ControlActionAuditEntry[]; total: number; }
 export type ChatSessionsResponse = OperatorApiSuccess<'chats.list'>;

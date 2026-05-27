@@ -181,11 +181,11 @@ export async function installOperatorRestRoutes(page: Page): Promise<OperatorRes
     if (request.method() === 'GET' && url.pathname === '/api/agents') return json(route, { sessions });
     if (request.method() === 'GET' && url.pathname.startsWith('/api/agents/') && url.pathname.endsWith('/conversation')) {
       const sessionId = decodeURIComponent(url.pathname.split('/')[3] ?? 'analyst-smoke');
-      return json(route, {
+      return json(route, parseOperatorResponse('agents.conversation', {
         session: sessions.find((session) => session.id === sessionId) ?? sessions[0],
         entries: [stampedText(sessionId, `msg-${sessionId}-1`, 'Synthetic agent transcript.')],
         activity_status: idleActivity,
-      });
+      }));
     }
     if (request.method() === 'GET' && url.pathname === '/api/files') {
       const path = url.searchParams.get('path');
