@@ -163,8 +163,8 @@ export const RuntimeCardRunsResponseSchema = z.object({
   })),
 });
 
-const McpTransportSchema = z.enum(['stdio', 'sse']);
-const McpStatusStateSchema = z.enum(['running', 'stopped', 'error']);
+export const McpTransportSchema = z.enum(['stdio', 'sse']);
+export const McpStatusStateSchema = z.enum(['running', 'stopped', 'error']);
 export const McpServerStatusSchema = z.object({
   name: z.string(),
   transport: McpTransportSchema,
@@ -178,13 +178,13 @@ export const McpStatusResponseSchema = z.object({
   servers: z.array(McpServerStatusSchema),
   serverAvailability: ServerAvailabilitySchema.optional(),
 });
-const McpInvocationStatSchema = z.object({
+export const McpInvocationStatSchema = z.object({
   total: z.number().int().nonnegative(),
   success: z.number().int().nonnegative(),
   error: z.number().int().nonnegative(),
   lastInvokedAt: z.string().optional(),
 });
-const McpToolDefinitionSchema = z.object({
+export const McpToolDefinitionSchema = z.object({
   name: z.string(),
   title: z.string().optional(),
   description: z.string().optional(),
@@ -273,6 +273,33 @@ export const DebugStateResponseSchema = z.object({
 });
 export const DebugErrorsResponseSchema = z.object({ errors: z.array(z.unknown()), total: z.number().int().nonnegative() });
 export const DebugTimelineResponseSchema = z.object({ events: z.array(z.unknown()), total: z.number().int().nonnegative() });
+
+
+export type HealthLivenessResponse = z.infer<typeof HealthLivenessResponseSchema>;
+export type HealthReadinessResponse = z.infer<typeof HealthReadinessResponseSchema>;
+export type RuntimeGetStateResponse = z.infer<typeof RuntimeGetStateResponseSchema>;
+export type CardListResponse = z.infer<typeof CardListResponseSchema>;
+export type CardDetailResponse = z.infer<typeof CardDetailResponseSchema>;
+export type CardHistoryListResponse = z.infer<typeof CardHistoryListResponseSchema>;
+export type CardHistoryEntryResponse = z.infer<typeof CardHistoryEntryResponseSchema>;
+export type CardDiffResponse = z.infer<typeof CardDiffResponseSchema>;
+export type RuntimeStatusResponse = z.infer<typeof RuntimeStatusResponseSchema>;
+export type RuntimeCardRunsResponse = z.infer<typeof RuntimeCardRunsResponseSchema>;
+export type McpTransport = z.infer<typeof McpTransportSchema>;
+export type McpStatusState = z.infer<typeof McpStatusStateSchema>;
+export type McpServerStatus = z.infer<typeof McpServerStatusSchema>;
+export type McpStatusResponse = z.infer<typeof McpStatusResponseSchema>;
+export type McpInvocationStat = z.infer<typeof McpInvocationStatSchema>;
+export type McpToolDefinition = z.infer<typeof McpToolDefinitionSchema>;
+export type McpToolsResponse = z.infer<typeof McpToolsResponseSchema>;
+export type ChatListResponse = z.infer<typeof ChatListResponseSchema>;
+export type ChatMessagesResponse = z.infer<typeof ChatMessagesResponseSchema>;
+export type ChatSendResponse = z.infer<typeof ChatSendResponseSchema>;
+export type WorkspaceFilesListResponse = z.infer<typeof WorkspaceFilesListResponseSchema>;
+export type WorkspaceFileContentResponse = z.infer<typeof WorkspaceFileContentResponseSchema>;
+export type DebugStateResponse = z.infer<typeof DebugStateResponseSchema>;
+export type DebugErrorsResponse = z.infer<typeof DebugErrorsResponseSchema>;
+export type DebugTimelineResponse = z.infer<typeof DebugTimelineResponseSchema>;
 
 export type OperatorRouteContract<
   TParams extends z.ZodTypeAny | undefined = z.ZodTypeAny | undefined,

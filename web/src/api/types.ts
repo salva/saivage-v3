@@ -1,35 +1,58 @@
-export type CardType =
-  | 'project'
-  | 'goal'
-  | 'architecture'
-  | 'code'
-  | 'test'
-  | 'doc'
-  | 'data'
-  | 'research'
-  | 'ops';
+import type {
+  ArtifactRef,
+  AttachmentRef,
+  CardHistoryEntry,
+  CardHistoryHeader,
+  CardRecord as ContractCardRecord,
+  CardStatus,
+  CardType,
+  ControlActionSurface,
+  CreatedBy as CardCreator,
+  McpInvocationStat,
+  McpStatusState,
+  McpToolDefinition,
+  McpToolsResponse as ContractMcpToolsResponse,
+  McpTransport,
+  NoteAuthor,
+  OperatorApiSuccess,
+  RuntimeActivationRecord,
+  RuntimeCommandRecord,
+  RuntimeIntent,
+  RuntimeRunRecord,
+  RuntimeState,
+  RuntimeStatus,
+  ServerAvailability,
+  Urgency as CardUrgency,
+} from './contracts';
 
-export type CardStatus =
-  | 'drafting'
-  | 'backlog'
-  | 'active'
-  | 'running'
-  | 'blocked'
-  | 'changed'
-  | 'done'
-  | 'failed'
-  | 'cancelled'
-  | 'needs_verification';
 
-export type CardAction = 'card.start' | 'card.cancel' | 'card.delete' | 'card.restart';
-export type CardUrgency = 'low' | 'normal' | 'high' | 'critical';
-export type CardCreator = 'user' | 'analyst' | 'planner';
+export type {
+  ArtifactRef,
+  AttachmentRef,
+  CardAction,
+  CardHistoryEntry,
+  CardHistoryHeader,
+  CardHistoryKind,
+  CardStatus,
+  CardType,
+  ControlActionSurface,
+  NoteAuthor,
+  RuntimeActivationRecord,
+  RuntimeActivationStatus,
+  RuntimeCommandName,
+  RuntimeCommandRecord,
+  RuntimeCommandStatus,
+  RuntimeIntent,
+  RuntimeIntentStatus,
+  RuntimeRunKind,
+  RuntimeRunPhase,
+  RuntimeRunRecord,
+  RuntimeState,
+  RuntimeStatus,
+  ServerAvailability,
+} from './contracts';
+
 export type SafeFileSensitivity = 'normal' | 'sensitive-blocked' | 'sensitive-redacted';
-export type NoteAuthor = 'user' | 'analyst' | 'planner' | 'executor' | 'reviewer' | 'runtime';
-export type NoteKind = 'comment' | 'progress' | 'directive' | 'escalation';
-export type ControlActionSurface = 'web-chat' | 'telegram' | 'rest' | 'cli' | 'runtime' | 'web-ui';
-export type NotificationSeverity = 'info' | 'warn' | 'block';
-export type NotificationKind = 'card_changed' | 'note_added' | 'process_state' | 'runtime_state' | 'config_changed';
 export type ControlActionOutcome = 'ok' | 'error' | 'denied' | 'rejected';
 
 export interface NoteRecord {
@@ -43,62 +66,7 @@ export interface NoteRecord {
   handled_at?: string | null;
 }
 
-export interface CardRecord {
-  id: string;
-  type: CardType;
-  parent: string | null;
-  position?: number;
-  depth: number;
-  title: string;
-  description: string;
-  status: CardStatus;
-  subtype?: string | null;
-  instructions_file?: string | null;
-  tags: string[];
-  priority: number;
-  urgency: CardUrgency;
-  created_by: CardCreator;
-  created_at: string;
-  updated_at: string;
-  version_seq?: number;
-  assigned_to?: string | null;
-  depends_on: string[];
-  blocks: string[];
-  related: string[];
-  acceptance: string;
-  result?: Record<string, unknown> | null;
-  metrics?: Record<string, number | string | boolean | null> | null;
-  artifacts: ArtifactRef[];
-  attachments: AttachmentRef[];
-  estimate?: string | null;
-  started_at?: string | null;
-  completed_at?: string | null;
-  duration_ms?: number | null;
-  error?: string | null;
-  retries: number;
-  notes?: NoteRecord[];
-  allowedActions?: CardAction[];
-}
-
-export interface ArtifactRef {
-  id: string;
-  card_id: string;
-  path: string;
-  type: 'model' | 'data' | 'config' | 'log' | 'report' | 'other';
-  description: string;
-  retain: boolean;
-  created_at: string;
-}
-
-export interface AttachmentRef {
-  id: string;
-  card_id: string;
-  path: string;
-  mime: string;
-  title: string;
-  description?: string;
-  created_at: string;
-}
+export type NoteKind = 'comment' | 'progress' | 'directive' | 'escalation';
 
 export interface GeneratedFileRef {
   path: string;
@@ -231,24 +199,6 @@ export interface DetailFreshnessState {
   staleReason: 'ws-card-updated' | 'refresh-failed' | null;
 }
 
-export type CardHistoryKind = 'update' | 'status' | 'mutate' | 'depends' | 'delete' | 'archive';
-
-export interface CardHistoryHeader {
-  entry_id: string;
-  kind: CardHistoryKind;
-  card_id: string;
-  version_seq: number;
-  changed_at: string;
-  changed_by_actor: NoteAuthor;
-  changed_by_surface: ControlActionSurface;
-  change_reason: string | null;
-  changed_fields: string[];
-  change_summary: string;
-}
-
-export interface CardHistoryEntry extends CardHistoryHeader {
-  snapshot: CardRecord;
-}
 
 export interface CardDiffRow {
   field: string;
@@ -398,15 +348,6 @@ export interface AgentMessage {
   links?: EntityLink[];
 }
 
-export type RuntimeStatus = 'idle' | 'running' | 'paused' | 'error' | 'frozen';
-export type RuntimeIntentStatus = 'running' | 'stopped';
-export type RuntimeCommandName = 'start_project' | 'stop_project';
-export type RuntimeCommandStatus = 'accepted' | 'rejected' | 'completed';
-export type RuntimeRunKind = 'root' | 'child';
-export type RuntimeRunPhase = 'pending' | 'planner' | 'executor' | 'reviewer' | 'completed' | 'failed' | 'blocked' | 'cancelled' | 'stopped';
-export type RuntimeRunStatus = 'idle' | 'running' | 'paused' | 'error' | 'frozen' | 'stopped' | 'cancelled';
-export type RuntimeRunResult = 'done' | 'failed' | 'blocked' | 'cancelled' | 'stopped';
-export type RuntimeActivationStatus = 'pending' | 'running' | 'completed' | 'failed' | 'blocked' | 'cancelled';
 
 export interface ActionableErrorEnvelope {
   code: string;
@@ -420,55 +361,6 @@ export interface ActionableErrorEnvelope {
   cardId?: string | null;
   parentCardId?: string | null;
   childCardId?: string | null;
-}
-
-export interface RuntimeIntent {
-  status: RuntimeIntentStatus;
-  updated_at: string;
-  source_command_id: string | null;
-  reason?: string | null;
-}
-
-export interface RuntimeCommandRecord {
-  command_id: string;
-  command: RuntimeCommandName;
-  status: RuntimeCommandStatus;
-  requested_at: string;
-  completed_at?: string | null;
-  source: 'operator' | 'tool' | 'runtime';
-  error?: ActionableErrorEnvelope | null;
-}
-
-export interface RuntimeRunRecord {
-  run_id: string;
-  kind: RuntimeRunKind;
-  card_id: string;
-  parent_run_id?: string | null;
-  command_id?: string | null;
-  activation_id?: string | null;
-  phase: RuntimeRunPhase;
-  runtime_status: RuntimeRunStatus;
-  session_id?: string | null;
-  started_at: string;
-  updated_at: string;
-  finished_at?: string | null;
-  result?: RuntimeRunResult | null;
-}
-
-export interface RuntimeActivationRecord {
-  activation_id: string;
-  idempotency_key: string;
-  parent_card_id: string;
-  parent_run_id: string;
-  parent_session_id: string;
-  parent_tool_call_id: string;
-  child_card_id: string;
-  status: RuntimeActivationStatus;
-  requested_at: string;
-  updated_at: string;
-  precondition: 'accepted' | 'rejected';
-  runtime_run_id?: string | null;
-  error?: ActionableErrorEnvelope | null;
 }
 
 export interface RuntimeSummary {
@@ -486,56 +378,9 @@ export interface RuntimeCommandErrorResponse {
   actionable_error: ActionableErrorEnvelope;
 }
 
-export interface RuntimeState {
-  status: RuntimeStatus;
-  project_id: string;
-  pid: number;
-  started_at: string;
-  current_card_id?: string | null;
-  current_agent_session_id?: string | null;
-  paused: boolean;
-  paused_at?: string | null;
-  /** Temporary debug compatibility only; execution control must use runtime_runs/runtime_activations. */
-  queue: string[];
-  running_processes: string[];
-  updated_at: string;
-  frozen_reason?: string | null;
-  runtime_intent?: RuntimeIntent;
-  runtime_commands?: RuntimeCommandRecord[];
-  runtime_runs?: RuntimeRunRecord[];
-  runtime_activations?: RuntimeActivationRecord[];
-}
-
-export interface CardIndex {
-  total: number;
-  byStatus: Record<string, number>;
-  byType: Record<string, number>;
-}
 
 
-export type AvailabilityState = 'available' | 'degraded' | 'idle' | 'unavailable' | 'unknown';
-export type AvailabilityComponentSource = 'startup' | 'active-runtime' | 'runtime-state' | 'mcp-manager' | 'health-check' | 'unknown';
 
-export interface AvailabilityDiagnostic {
-  code: string;
-  summary: string;
-}
-
-export interface AvailabilityComponent {
-  state: AvailabilityState;
-  source: AvailabilityComponentSource;
-  checkedAt: string;
-  diagnostic?: AvailabilityDiagnostic;
-}
-
-export interface ServerAvailability {
-  generatedAt: string;
-  components: {
-    api: AvailabilityComponent;
-    runtime: AvailabilityComponent;
-    mcp: AvailabilityComponent;
-  };
-}
 
 export interface ProviderEntry {
   priority: number;
@@ -553,14 +398,7 @@ export interface FileEntry {
   modifiedAt: string;
 }
 
-export interface FileContent {
-  path: string;
-  size: number;
-  contentType: string;
-  content: string;
-  redacted?: boolean;
-  sensitivity?: SafeFileSensitivity;
-}
+export type FileContent = Omit<OperatorApiSuccess<'files.content'>, 'redacted' | 'sensitivity'> & { redacted?: boolean; sensitivity?: string };
 
 export interface DebugState {
   runtime: RuntimeState | null;
@@ -651,38 +489,14 @@ export interface SupervisionResponse {
   stats: SupervisionStats;
 }
 
-export interface McpToolInvocationStats {
-  total: number;
-  success: number;
-  error: number;
-  lastInvokedAt?: string;
-}
-
-export interface McpToolWithStats {
-  name: string;
-  description?: string;
-  inputSchema: {
-    type: 'object';
-    properties?: Record<string, object>;
-    required?: string[];
-  };
-  stats: McpToolInvocationStats;
-}
-
-export interface McpServerWithTools {
-  name: string;
-  transport: string;
-  status: string;
-  toolCount: number;
-  tools: McpToolWithStats[];
-}
-
-export interface McpToolsResponse {
-  tools: any[];
-  servers: string[];
-  invocationStats: Record<string, McpToolInvocationStats>;
-  serverDetails: McpServerWithTools[];
-}
+export type McpToolInvocationStats = McpInvocationStat;
+export type McpToolWithStats = ContractMcpToolsResponse['serverDetails'][number]['tools'][number];
+export type McpServerWithTools = ContractMcpToolsResponse['serverDetails'][number];
+export type McpToolsResponse = OperatorApiSuccess<'mcp.tools'>;
+export type McpTool = McpToolDefinition;
+export type McpStatusResponse = OperatorApiSuccess<'mcp.status'>;
+export type McpTransportKind = McpTransport;
+export type McpStatusKind = McpStatusState;
 
 export interface ChatSession {
   id: string;
@@ -732,36 +546,33 @@ export interface FreshnessState {
 
 
 
-export interface CardListResponse { cards: CardRecord[]; total: number; }
-export interface CardDetailResponse {
-  card: CardRecord;
-  children: CardRecord[];
-  ancestorIds: string[];
+export type CardRecord = ContractCardRecord & { notes?: NoteRecord[]; children?: CardRecord[] };
+export type CardListResponse = OperatorApiSuccess<'cards.list'>;
+export type CardDetailResponse = OperatorApiSuccess<'cards.get'> & {
   evidence?: CardEvidence;
   lifecycle: CardLifecycleSummary;
   review: CardReviewSummary;
   planning: CardPlanningSummary | null;
   dispatches: DispatchSummary;
-}
-export interface CardHistoryListResponse { history: CardHistoryHeader[]; total: number; }
-export interface CardHistoryEntryResponse { entry: CardHistoryEntry; }
-export interface CardDiffResponse { diff: CardDiffRow[]; from: number; to: number; card_id: string; }
-export interface RuntimeStateResponse { projectRoot: string; projectId: string; runtime: RuntimeState | null; cardIndex: CardIndex; serverAvailability?: ServerAvailability; }
+};
+export type CardHistoryListResponse = OperatorApiSuccess<'cards.history.list'>;
+export type CardHistoryEntryResponse = OperatorApiSuccess<'cards.history.get'>;
+export type CardDiffResponse = OperatorApiSuccess<'cards.diff'> & { diff: CardDiffRow[]; };
+export type RuntimeStateResponse = OperatorApiSuccess<'runtime.getState'>;
+export type CardIndex = RuntimeStateResponse['cardIndex'];
+export type RuntimeStatusResponse = OperatorApiSuccess<'runtime.status'>;
+export type RuntimeCardRunsResponse = OperatorApiSuccess<'runtime.cardRuns'>;
 export interface ConfigResponse { config: Record<string, unknown>; warnings?: string[]; }
 export interface ProvidersResponse { providers: Record<string, ProviderEntry>; warnings?: string[]; }
 export interface AgentConversationResponse { session: AgentSession; messages: AgentMessage[]; }
 export interface AgentSessionsResponse { sessions: AgentSession[]; }
 export interface ControlActionsListResponse { control_actions: ControlActionAuditEntry[]; total: number; }
-export interface ChatSessionsResponse { sessions: ChatSession[]; }
-export interface ChatMessagesResponse { sessionId: string; messages: ChatMessage[]; }
-export interface FilesListResponse { path: string; files: FileEntry[]; }
-export interface DebugStateResponse {
-  runtime: RuntimeState | null;
-  cards: Array<{ id: string; type: CardType; parent: string | null; status: CardStatus; title: string; priority: number; depends_on: string[]; blocks: string[] }>;
-  totalCards: number;
-}
-export interface DebugErrorsResponse { errors: DebugError[]; total: number; }
-export interface DebugTimelineResponse { events: DebugTimelineEvent[]; total: number; }
+export type ChatSessionsResponse = OperatorApiSuccess<'chats.list'>;
+export type ChatMessagesResponse = OperatorApiSuccess<'chats.get'> & { messages: ChatMessage[]; };
+export type FilesListResponse = OperatorApiSuccess<'files.list'>;
+export type DebugStateResponse = OperatorApiSuccess<'debug.state'> & { runtime: RuntimeState | null; cards: Array<{ id: string; type: CardType; parent: string | null; status: CardStatus; title: string; priority: number; depends_on: string[]; blocks: string[] }>; };
+export type DebugErrorsResponse = Omit<OperatorApiSuccess<'debug.errors'>, 'errors'> & { errors: DebugError[]; };
+export type DebugTimelineResponse = Omit<OperatorApiSuccess<'debug.timeline'>, 'events'> & { events: DebugTimelineEvent[]; };
 export interface ProcessListResponse { processes: ProcessView[]; }
 export interface ProcessDetailResponse { process: ProcessView; }
 

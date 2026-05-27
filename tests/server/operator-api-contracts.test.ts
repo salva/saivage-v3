@@ -161,6 +161,68 @@ describe('operator API contract registry', () => {
   });
 
 
+
+  it('validates precise MCP tool response contracts', () => {
+    const parsed = parseOperatorResponse('mcp.tools', {
+      tools: [{ name: 'read_file', description: 'Read a file', inputSchema: { type: 'object', properties: { path: { type: 'string' } } } }],
+      servers: ['filesystem'],
+      invocationStats: { 'filesystem:read_file': { total: 1, success: 1, error: 0 } },
+      serverDetails: [{
+        name: 'filesystem',
+        transport: 'stdio',
+        status: 'running',
+        toolCount: 1,
+        tools: [{ name: 'read_file', inputSchema: { type: 'object' }, stats: { total: 1, success: 1, error: 0 } }],
+      }],
+    });
+    expect(parsed.tools[0].name).toBe('read_file');
+    expect(parsed.tools[0].inputSchema.type).toBe('object');
+
+    expect(() => parseOperatorResponse('mcp.tools', {
+      tools: [{ inputSchema: { type: 'object' } }],
+      servers: [],
+      invocationStats: {},
+      serverDetails: [],
+    })).toThrow();
+    expect(() => parseOperatorResponse('mcp.tools', {
+      tools: [{ name: 'bad', inputSchema: { type: 'string' } }],
+      servers: [],
+      invocationStats: {},
+      serverDetails: [],
+    })).toThrow();
+  });
+
+  it('accepts needs_verification in runtime run and activation contract fields', () => {
+    const runWithVerification = { ...runtimeRun, phase: 'needs_verification', result: 'needs_verification' };
+    const activationWithVerification = {
+      activation_id: 'act-needs-verification',
+      idempotency_key: 'run-1:planner:project:call-2:card-2',
+      parent_card_id: 'project',
+      parent_run_id: 'run-1',
+      parent_session_id: 'planner:project',
+      parent_tool_call_id: 'call-2',
+      child_card_id: 'card-2',
+      status: 'needs_verification',
+      requested_at: '2026-01-01T00:00:02.000Z',
+      updated_at: '2026-01-01T00:00:02.000Z',
+      precondition: 'accepted',
+      runtime_run_id: 'run-child-2',
+      error: null,
+    };
+    const parsed = parseOperatorResponse('runtime.getState', {
+      projectRoot: '/work/test',
+      projectId: 'test',
+      runtime: {
+        ...runtimeState,
+        runtime_runs: [runWithVerification],
+        runtime_activations: [activationWithVerification],
+      },
+      cardIndex: { total: 0, byStatus: {}, byType: {} },
+    });
+    expect(parsed.runtime?.runtime_runs?.[0]?.phase).toBe('needs_verification');
+    expect(parsed.runtime?.runtime_activations?.[0]?.status).toBe('needs_verification');
+  });
+
   it('keeps isolated internal diagnostics out of the operator contract inventory', () => {
     const contractPaths = operatorRouteInventory().map((route) => route.path);
     expect(contractPaths).not.toContain('/api/debug/doctor');

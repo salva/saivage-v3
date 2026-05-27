@@ -161,33 +161,33 @@ export function listCards(query?: {
   parent?: string;
   tag?: string;
 }): Promise<CardListResponse> {
-  return operatorRequest('cards.list', 'GET', '/api/cards', query as Record<string, string>) as unknown as Promise<CardListResponse>;
+  return operatorRequest('cards.list', 'GET', '/api/cards', query as Record<string, string>);
 }
 
 export function getCard(id: string): Promise<CardDetailResponse> {
-  return operatorRequest('cards.get', 'GET', `/api/cards/${encodeURIComponent(id)}`) as unknown as Promise<CardDetailResponse>;
+  return operatorRequest('cards.get', 'GET', `/api/cards/${encodeURIComponent(id)}`) as Promise<CardDetailResponse>;
 }
 
 export function listCardHistory(id: string): Promise<CardHistoryListResponse> {
-  return request<CardHistoryListResponse>('GET', `/api/cards/${encodeURIComponent(id)}/history`);
+  return operatorRequest('cards.history.list', 'GET', `/api/cards/${encodeURIComponent(id)}/history`);
 }
 
 export function getCardHistoryEntry(id: string, seq: number): Promise<CardHistoryEntryResponse> {
-  return request<CardHistoryEntryResponse>('GET', `/api/cards/${encodeURIComponent(id)}/history/${seq}`);
+  return operatorRequest('cards.history.get', 'GET', `/api/cards/${encodeURIComponent(id)}/history/${seq}`);
 }
 
 export function getCardDiff(id: string, from: number, to: number): Promise<CardDiffResponse> {
-  return request<CardDiffResponse>('GET', `/api/cards/${encodeURIComponent(id)}/diff`, {
+  return operatorRequest('cards.diff', 'GET', `/api/cards/${encodeURIComponent(id)}/diff`, {
     from: String(from),
     to: String(to),
-  });
+  }) as Promise<CardDiffResponse>;
 }
 
 
 
 
 export function getRuntimeState(): Promise<RuntimeStateResponse> {
-  return operatorRequest('runtime.getState', 'GET', '/api/state') as unknown as Promise<RuntimeStateResponse>;
+  return operatorRequest('runtime.getState', 'GET', '/api/state');
 }
 
 
@@ -222,24 +222,24 @@ export function listControlActions(query?: { card_id?: string; since?: string })
 }
 
 export function listChatSessions(): Promise<ChatSessionsResponse> {
-  return request<ChatSessionsResponse>('GET', '/api/chats');
+  return operatorRequest('chats.list', 'GET', '/api/chats');
 }
 
 export function getChatMessages(sessionId: string): Promise<ChatMessagesResponse> {
-  return request<ChatMessagesResponse>('GET', `/api/chats/${encodeURIComponent(sessionId)}`);
+  return operatorRequest('chats.get', 'GET', `/api/chats/${encodeURIComponent(sessionId)}`) as Promise<ChatMessagesResponse>;
 }
 
 export function sendChatMessage(sessionId: string, content: string, workspaceContext?: WorkspaceContext): Promise<ChatResponse> {
   const body = workspaceContext === undefined ? { content } : { content, workspaceContext };
-  return request<ChatResponse>('POST', `/api/chats/${encodeURIComponent(sessionId)}`, undefined, body);
+  return operatorRequest('chats.send', 'POST', `/api/chats/${encodeURIComponent(sessionId)}`, undefined, body) as Promise<ChatResponse>;
 }
 
 export function listFiles(path?: string): Promise<FilesListResponse> {
-  return request<FilesListResponse>('GET', '/api/files', path ? { path } : undefined);
+  return operatorRequest('files.list', 'GET', '/api/files', path ? { path } : undefined);
 }
 
 export function getFileContent(path: string): Promise<FileContent> {
-  return request<FileContent>('GET', '/api/files/content', { path });
+  return operatorRequest('files.content', 'GET', '/api/files/content', { path }) as Promise<FileContent>;
 }
 
 export function listProcesses(): Promise<ProcessListResponse> {
@@ -252,15 +252,15 @@ export function getProcess(processId: string): Promise<ProcessDetailResponse> {
 
 
 export function getDebugState(): Promise<DebugStateResponse> {
-  return request<DebugStateResponse>('GET', '/api/debug/state');
+  return operatorRequest('debug.state', 'GET', '/api/debug/state') as Promise<DebugStateResponse>;
 }
 
 export function getDebugErrors(): Promise<DebugErrorsResponse> {
-  return request<DebugErrorsResponse>('GET', '/api/debug/errors');
+  return operatorRequest('debug.errors', 'GET', '/api/debug/errors') as Promise<DebugErrorsResponse>;
 }
 
 export function getDebugTimeline(): Promise<DebugTimelineResponse> {
-  return request<DebugTimelineResponse>('GET', '/api/debug/timeline');
+  return operatorRequest('debug.timeline', 'GET', '/api/debug/timeline') as Promise<DebugTimelineResponse>;
 }
 
 export function getDoctor(): Promise<DoctorResponse> {
@@ -272,7 +272,7 @@ export function getDebugSupervision(): Promise<SupervisionResponse> {
 }
 
 export function getMcpTools(): Promise<McpToolsResponse> {
-  return request<McpToolsResponse>('GET', '/api/mcp/tools');
+  return operatorRequest('mcp.tools', 'GET', '/api/mcp/tools');
 }
 
 export { ApiError };

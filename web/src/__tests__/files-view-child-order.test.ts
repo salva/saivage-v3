@@ -6,7 +6,7 @@ import { useCardStore } from '../stores/cards';
 import type { CardRecord } from '../api/types';
 
 vi.mock('vue-router', () => ({ useRoute: () => ({ query: {} }) }));
-function card(overrides: Partial<CardRecord>): CardRecord { return { id: 'card', type: 'goal', parent: null, position: 0, depth: 0, title: 'Card', description: '', status: 'active', tags: [], priority: 1, urgency: 'normal', created_by: 'user', created_at: '2025-01-01T00:00:00Z', updated_at: '2025-01-01T00:00:00Z', depends_on: [], blocks: [], related: [], acceptance: '', artifacts: [], attachments: [], retries: 0, ...overrides }; }
+function card(overrides: Partial<CardRecord>): CardRecord { return { id: 'card', type: 'goal', parent: null, position: 0, depth: 0, title: 'Card', description: '', status: 'active', tags: [], priority: 1, urgency: 'normal', created_by: 'user', created_at: '2025-01-01T00:00:00Z', updated_at: '2025-01-01T00:00:00Z', version_seq: 1, depends_on: [], blocks: [], related: [], acceptance: '', artifacts: [], attachments: [], retries: 0, ...overrides }; }
 
 describe('scenario-files-view-child-order', () => {
   it('step-1', async () => {

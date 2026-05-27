@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import * as client from '../api/client';
+import type { OperatorApiSuccess } from '../api/contracts';
+import type { CardListResponse, McpToolsResponse, RuntimeStateResponse } from '../api/types';
 
 const removedMutationExports = [
   'createCard',
@@ -38,5 +40,19 @@ describe('operator API client contracts after S06 mutation removal', () => {
       expect(client).toHaveProperty(name);
       expect(typeof client[name]).toBe('function');
     }
+  });
+
+  it('uses shared operator contract aliases for approved public responses', () => {
+    const cards = null as unknown as CardListResponse;
+    const runtime = null as unknown as RuntimeStateResponse;
+    const mcp = null as unknown as McpToolsResponse;
+
+    const cardsContract: OperatorApiSuccess<'cards.list'> = cards;
+    const runtimeContract: OperatorApiSuccess<'runtime.getState'> = runtime;
+    const mcpContract: OperatorApiSuccess<'mcp.tools'> = mcp;
+
+    expect(cardsContract).toBeNull();
+    expect(runtimeContract).toBeNull();
+    expect(mcpContract).toBeNull();
   });
 });

@@ -33,6 +33,7 @@ vi.mock('../api/client', () => ({
 }));
 
 import { getMcpTools } from '../api/client';
+import type { McpToolsResponse } from '../api/types';
 
 // ── Helpers ───────────────────────────────────────────────────
 
@@ -82,14 +83,14 @@ const mockMcpToolsResponse = {
       tools: [],
     },
   ],
-};
+} satisfies McpToolsResponse;
 
 const mockEmptyResponse = {
   tools: [],
   servers: [],
   invocationStats: {},
   serverDetails: [],
-};
+} satisfies McpToolsResponse;
 
 // ── Tests ─────────────────────────────────────────────────────
 
@@ -215,15 +216,14 @@ describe('useMcpStore', () => {
       expect(store.error).toBeNull();
     });
 
-    it('handles response with missing serverDetails field', async () => {
+    it('handles a contract-valid response with no server details', async () => {
       const store = setupStore();
-      // serverDetails might be absent — store uses ?? []
       vi.mocked(getMcpTools).mockResolvedValue({
         tools: [{ name: 't', inputSchema: { type: 'object' } }],
         servers: ['s'],
         invocationStats: {},
-        // serverDetails intentionally omitted
-      } as any);
+        serverDetails: [],
+      });
 
       await store.fetchMcpData();
 
@@ -232,13 +232,14 @@ describe('useMcpStore', () => {
       expect(store.serverCount).toBe(0);
     });
 
-    it('handles response with missing invocationStats field', async () => {
+    it('handles a contract-valid response with empty invocation stats', async () => {
       const store = setupStore();
       vi.mocked(getMcpTools).mockResolvedValue({
         tools: [],
         servers: [],
-        // invocationStats intentionally omitted
-      } as any);
+        invocationStats: {},
+        serverDetails: [],
+      });
 
       await store.fetchMcpData();
 

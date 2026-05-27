@@ -4,11 +4,11 @@ import { createPinia, setActivePinia } from 'pinia';
 import DashboardView from '../views/DashboardView.vue';
 import { useCardStore } from '../stores/cards';
 import type { CardRecord } from '../api/types';
-vi.mock('../api/client', () => ({ listChatSessions: vi.fn(async () => ({ sessions: [] })), getChatMessages: vi.fn(async () => ({ sessionId: 'analyst', messages: [] })), sendChatMessage: vi.fn(), getRuntimeState: vi.fn(async () => ({ runtime: null, projectRoot: '.', projectId: 'fixture', cardIndex: { total: 0, byStatus: {}, byType: {} } })), ApiError: class extends Error { get isUnauthorized() { return false; } } }));
+vi.mock('../api/client', () => ({ getRuntimeState: vi.fn(async () => ({ runtime: null, projectRoot: '.', projectId: 'fixture', cardIndex: { total: 0, byStatus: {}, byType: {} } })), ApiError: class extends Error { get isUnauthorized() { return false; } } }));
 vi.mock('vue-router', () => ({ useRouter: () => ({ push: vi.fn() }) }));
 
 function card(overrides: Partial<CardRecord>): CardRecord {
-  return { id: 'card', type: 'goal', parent: null, position: 0, depth: 0, title: 'Card', description: '', status: 'active', tags: [], priority: 1, urgency: 'normal', created_by: 'user', created_at: '2025-01-01T00:00:00Z', updated_at: '2025-01-01T00:00:00Z', depends_on: [], blocks: [], related: [], acceptance: '', artifacts: [], attachments: [], retries: 0, ...overrides };
+  return { id: 'card', type: 'goal', parent: null, position: 0, depth: 0, title: 'Card', description: '', status: 'active', tags: [], priority: 1, urgency: 'normal', created_by: 'user', created_at: '2025-01-01T00:00:00Z', updated_at: '2025-01-01T00:00:00Z', version_seq: 1, depends_on: [], blocks: [], related: [], acceptance: '', artifacts: [], attachments: [], retries: 0, ...overrides };
 }
 
 describe('scenario-dashboard-child-order', () => {

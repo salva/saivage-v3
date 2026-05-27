@@ -11,6 +11,7 @@ import type {
   McpToolsResponse,
   McpServerWithTools,
   McpToolInvocationStats,
+  McpTool,
 } from '../api/types';
 import { getMcpTools, ApiError } from '../api/client';
 import { createLogger } from '../utils/logger';
@@ -21,7 +22,7 @@ export const useMcpStore = defineStore('mcp', () => {
   // ── State ──────────────────────────────────────────────────
 
   const servers = ref<McpServerWithTools[]>([]);
-  const allTools = ref<any[]>([]);
+  const allTools = ref<McpTool[]>([]);
   const serverNames = ref<string[]>([]);
   const invocationStats = ref<Record<string, McpToolInvocationStats>>({});
   const loading = ref(false);
