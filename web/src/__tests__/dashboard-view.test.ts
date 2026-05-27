@@ -2,13 +2,15 @@ import { describe, expect, it } from 'vitest';
 import source from '../views/DashboardView.vue?raw';
 
 describe('DashboardView S06 read-only contract', () => {
-  it('keeps refresh, navigation, and analyst chat while removing runtime command controls', () => {
-    expect(source).toContain('class="refresh-btn"');
+  it('keeps refresh and navigation while removing runtime command controls and dashboard chat', () => {
+    expect(source).toContain('class="ui-refresh-button"');
     expect(source).toContain('@click="refreshRuntime"');
-    expect(source).toContain('sendChatMessage');
     expect(source).toContain('goToCard');
     expect(source).toContain('goToAgent');
 
+    expect(source).not.toContain('sendChatMessage');
+    expect(source).not.toContain('Analyst Chat');
+    expect(source).not.toContain('class="chat-panel"');
     expect(source).not.toMatch(/Start Project|Stop Project|startProject|stopProject/);
     expect(source).not.toMatch(/runtime-command start-project|runtime-command stop-project/);
     expect(source).not.toMatch(/pauseRuntime|resumeRuntime|freezeRuntime|resumeRuntimeFromFreeze/);

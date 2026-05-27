@@ -7,8 +7,30 @@
 </template>
 
 <script setup lang="ts">
-withDefaults(defineProps<{ visible: boolean; transitionName?: string }>(), { transitionName: 'modal' });
+import { onBeforeUnmount, watch } from 'vue';
+
+const props = withDefaults(defineProps<{ visible: boolean; transitionName?: string }>(), { transitionName: 'modal' });
 const emit = defineEmits<{ dismiss: [] }>();
+
+let bodyModalOpenCount = 0;
+
+function syncModalOpenFlag(isOpen: boolean): void {
+  if (isOpen) {
+    bodyModalOpenCount += 1;
+  } else {
+    bodyModalOpenCount = Math.max(0, bodyModalOpenCount - 1);
+  }
+  document.body.toggleAttribute('data-modal-open', bodyModalOpenCount > 0);
+}
+
+watch(() => props.visible, (visible, wasVisible) => {
+  if (visible === wasVisible) return;
+  syncModalOpenFlag(visible);
+}, { immediate: true });
+
+onBeforeUnmount(() => {
+  if (props.visible) syncModalOpenFlag(false);
+});
 
 function onOverlayClick(event: MouseEvent): void {
   if (event.target === event.currentTarget) emit('dismiss');

@@ -66,13 +66,13 @@
         <div v-if="currentCard.depends_on.length" class="link-list-row">
           <span class="meta-key">Blocking dependencies</span>
           <div class="pill-list">
-            <button v-for="depId in currentCard.depends_on" :key="depId" type="button" class="nav-pill" @click="navigateCard(depId)">{{ depId }}</button>
+            <button v-for="depId in currentCard.depends_on" :key="depId" type="button" class="pill card-ref-button" @click="navigateCard(depId)">{{ depId }}</button>
           </div>
         </div>
         <div v-if="currentCard.blocks.length" class="link-list-row">
           <span class="meta-key">Cards blocked by this card</span>
           <div class="pill-list">
-            <button v-for="blockId in currentCard.blocks" :key="blockId" type="button" class="nav-pill" @click="navigateCard(blockId)">{{ blockId }}</button>
+            <button v-for="blockId in currentCard.blocks" :key="blockId" type="button" class="pill card-ref-button" @click="navigateCard(blockId)">{{ blockId }}</button>
           </div>
         </div>
         <div v-if="planning" class="planning-summary">
@@ -90,7 +90,7 @@
         <div v-if="currentAncestorIds.length" class="link-list-row">
           <span class="meta-key">Ancestors</span>
           <div class="pill-list">
-            <button v-for="ancestorId in currentAncestorIds" :key="ancestorId" type="button" class="nav-pill" @click="navigateCard(ancestorId)">{{ ancestorId }}</button>
+            <button v-for="ancestorId in currentAncestorIds" :key="ancestorId" type="button" class="pill card-ref-button" @click="navigateCard(ancestorId)">{{ ancestorId }}</button>
           </div>
         </div>
         <div v-if="currentChildren.length" class="children-list">
@@ -212,7 +212,7 @@
           <div v-if="review.review.evidence_card_ids.length" class="link-list-row">
             <span class="meta-key">Evidence cards</span>
             <div class="pill-list">
-              <button v-for="evidenceId in review.review.evidence_card_ids" :key="evidenceId" type="button" class="nav-pill" @click="navigateCard(evidenceId)">{{ evidenceId }}</button>
+              <button v-for="evidenceId in review.review.evidence_card_ids" :key="evidenceId" type="button" class="pill card-ref-button" @click="navigateCard(evidenceId)">{{ evidenceId }}</button>
             </div>
           </div>
         </template>
@@ -223,7 +223,7 @@
         <div v-if="dispatches.outgoing.length" class="list-block">
           <div class="meta-key">Outgoing dispatches</div>
           <div v-for="dispatch in dispatches.outgoing" :key="dispatch.dispatchId" class="verification-row">
-            <button type="button" class="nav-pill" @click="navigateCard(dispatch.targetCardId)">{{ dispatch.targetCardId }}</button>
+            <button type="button" class="pill card-ref-button" @click="navigateCard(dispatch.targetCardId)">{{ dispatch.targetCardId }}</button>
             <span class="badge">{{ dispatch.status }}</span>
             <span v-if="dispatch.outcome" class="badge subtle">{{ dispatch.outcome }}</span>
             <span>{{ dispatch.summary || 'No completion summary recorded.' }}</span>
@@ -232,7 +232,7 @@
         <div v-if="dispatches.incoming.length" class="list-block">
           <div class="meta-key">Incoming dispatches</div>
           <div v-for="dispatch in dispatches.incoming" :key="dispatch.dispatchId" class="verification-row">
-            <button type="button" class="nav-pill" @click="navigateCard(dispatch.parentCardId)">{{ dispatch.parentCardId }}</button>
+            <button type="button" class="pill card-ref-button" @click="navigateCard(dispatch.parentCardId)">{{ dispatch.parentCardId }}</button>
             <span class="badge">{{ dispatch.status }}</span>
             <span v-if="dispatch.outcome" class="badge subtle">{{ dispatch.outcome }}</span>
             <span>{{ dispatch.summary || 'No completion summary recorded.' }}</span>
@@ -565,7 +565,7 @@ function actionLabel(action: string): string {
 .preview-notice.error,.detail-callout.error { background:var(--entry-danger-bg); }
 .detail-callout.success { background:var(--entry-accent-bg); }
 
-.retry-btn,.nav-pill { padding:6px 10px; background:var(--surface-3); border:1px solid var(--border); color:var(--text); border-radius:4px; cursor:pointer; }
+.retry-btn,.card-ref-button { padding:6px 10px; background:var(--surface-3); border:1px solid var(--border); color:var(--text); border-radius:4px; cursor:pointer; }
 .empty-evidence { color:var(--text-muted); font-size:13px; padding:8px 0; }
 .pill-list { display:flex; flex-wrap:wrap; gap:8px; }
 .link-list-row,.list-block { margin-top:10px; }

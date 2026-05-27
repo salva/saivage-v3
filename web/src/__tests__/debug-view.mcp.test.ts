@@ -245,7 +245,7 @@ async function mountDebugViewWithMcpError() {
 }
 
 function clickMcpTab(wrapper: ReturnType<typeof mount>) {
-  const tabs = wrapper.findAll('.debug-tab');
+  const tabs = wrapper.findAll('.debug-tab-button');
   const mcpTab = tabs.find((t) => t.text() === 'MCP');
   if (mcpTab) {
     mcpTab.trigger('click');
@@ -268,7 +268,7 @@ describe('DebugView — MCP tab', () => {
 
   it('renders the MCP tab button', async () => {
     const wrapper = await mountDebugView();
-    const tabs = wrapper.findAll('.debug-tab');
+    const tabs = wrapper.findAll('.debug-tab-button');
     const labels = tabs.map((t) => t.text());
     expect(labels).toContain('MCP');
   });
@@ -460,7 +460,7 @@ describe('DebugView — MCP tab', () => {
     clickMcpTab(wrapper);
     await flushPromises();
 
-    const gridItems = wrapper.findAll('.dg-item');
+    const gridItems = wrapper.findAll('.debug-grid-item');
     const gridTexts = gridItems.map((el) => el.text());
 
     // Servers: 2
@@ -487,7 +487,7 @@ describe('DebugView — MCP tab', () => {
     clickMcpTab(wrapper);
     await flushPromises();
 
-    const gridItems = wrapper.findAll('.dg-item');
+    const gridItems = wrapper.findAll('.debug-grid-item');
     const gridTexts = gridItems.map((el) => el.text());
     expect(gridTexts.some((t) => t.includes('Invocations:') && t.includes('10') && t.includes('0 errors'))).toBe(true);
   });

@@ -4,8 +4,8 @@
       <li v-for="item in navItems" :key="item.id">
         <router-link
           :to="item.to"
-          class="nav-link"
-          :class="{ active: isActive(item.id) }"
+          class="nav-item-link"
+          :class="{ 'nav-item-link--active': isActive(item.id) }"
           :aria-current="isActive(item.id) ? 'page' : undefined"
           :title="`${item.label} (${item.shortcut})`"
         >
@@ -17,8 +17,10 @@
     </ul>
 
     <div class="nav-footer">
-      <button
-        class="nav-link api-token-btn"
+      <Button
+        class="nav-action-button"
+        size="icon"
+        variant="ghost"
         title="API token for API/WebSocket access — public docs do not require a token"
         aria-label="Manage API token for API and WebSocket access"
         @click="$emit('open-token')"
@@ -31,13 +33,13 @@
           </svg>
         </span>
         <span class="nav-label">Token</span>
-      </button>
+      </Button>
       <a
         v-if="docsHref"
         :href="docsHref"
         target="_blank"
         rel="noopener"
-        class="nav-link"
+        class="nav-item-link"
         title="Open public docs in a new tab"
         aria-label="Docs (opens in a new tab; public docs do not require API token)"
       >
@@ -59,6 +61,7 @@
 <script setup lang="ts">
 import { useRoute } from 'vue-router';
 import type { NavItem } from './types';
+import Button from '../ui/Button.vue';
 
 const props = defineProps<{
   navItems: NavItem[];
@@ -103,7 +106,7 @@ function isActive(id: string): boolean {
   gap: 2px;
 }
 
-.nav-link {
+.nav-item-link {
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -122,17 +125,17 @@ function isActive(id: string): boolean {
   font-size: inherit;
 }
 
-.nav-link:hover {
+.nav-item-link:hover {
   color: var(--text);
   background: var(--surface-3);
 }
 
-.nav-link.active {
+.nav-item-link--active {
   color: var(--accent-2);
   background: var(--entry-user-bg);
 }
 
-.nav-link.active::before {
+.nav-item-link--active::before {
   content: '';
   position: absolute;
   left: 0;
@@ -182,10 +185,18 @@ function isActive(id: string): boolean {
   gap: 2px;
 }
 
-.api-token-btn {
-  background: none;
+
+.nav-action-button {
+  width: 100%;
+  height: auto;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 4px 6px;
+  color: var(--text-muted);
   border: none;
+  border-radius: 0;
 }
+.nav-action-button:hover { color: var(--text); background: var(--surface-3); }
 
 .nav-external {
   font-size: 9px;

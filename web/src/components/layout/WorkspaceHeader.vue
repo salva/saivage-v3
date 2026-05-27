@@ -7,25 +7,25 @@
 
     <div class="header-right">
       <span
-        class="status-chip ws-chip"
+        class="pill header-chip"
         :class="`ws-${connectionState}`"
         :title="liveUpdateDetail"
       >
-        <span class="chip-dot"></span>
+        <span class="status-dot"></span>
         {{ liveUpdateLabel || wsLabel }}
       </span>
 
       <span
-        class="status-chip runtime-chip"
+        class="pill header-chip"
         :class="runtimeChipClass"
         :title="runtimeChipTitle"
       >
-        <span class="chip-dot"></span>
+        <span class="status-dot"></span>
         {{ runtimeModeLabel || runtimeStatusLabel }}
       </span>
 
-      <span v-if="stateCueLabel" class="status-chip cue-chip" :class="cueClass" :title="stateCueDetail">
-        <span class="chip-dot"></span>
+      <span v-if="stateCueLabel" class="pill header-chip cue-chip" :class="cueClass" :title="stateCueDetail">
+        <span class="status-dot"></span>
         {{ stateCueLabel }}
       </span>
     </div>
@@ -143,7 +143,7 @@ const cueClass = computed(() => {
   justify-content: flex-end;
 }
 
-.status-chip {
+.header-chip {
   display: inline-flex;
   align-items: center;
   gap: 5px;
@@ -159,13 +159,7 @@ const cueClass = computed(() => {
   color: var(--text-muted);
 }
 
-
-.chip-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: currentColor;
-}
+.header-chip .status-dot { background: currentColor; }
 
 
 .ws-connected {

@@ -188,3 +188,10 @@
 
 /* Pill tone modifier — purple is the only one missing from v2. */
 .pill-purple { border-color: var(--entry-purple-border); color: var(--purple); }
+
+
+.tablist > .pill[aria-pressed="true"] {
+  border-color: var(--entry-accent-border);
+  background: var(--entry-accent-bg);
+  color: var(--accent);
+}

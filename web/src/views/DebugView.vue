@@ -1,11 +1,11 @@
 <template>
   <div class="debug-layout">
-    <div class="debug-tabs">
+    <div class="tablist debug-tabs">
       <button
         v-for="tab in tabs"
         :key="tab.id"
-        class="debug-tab"
-        :class="{ active: localActiveTab === tab.id }"
+        class="pill debug-tab-button"
+        :aria-pressed="localActiveTab === tab.id"
         @click="setTab(tab.id)"
       >{{ tab.label }}</button>
     </div>
@@ -24,16 +24,16 @@
               </div>
             </div>
             <div v-if="debugRuntime" class="debug-grid">
-              <div class="dg-item"><span class="dg-key">Status:</span><span class="dg-value">{{ debugRuntime.status }}</span></div>
-              <div class="dg-item"><span class="dg-key">PID:</span><span class="dg-value">{{ debugRuntime.pid }}</span></div>
-              <div class="dg-item"><span class="dg-key">Started:</span><span class="dg-value">{{ fmtDate(debugRuntime.started_at) }}</span></div>
-              <div class="dg-item"><span class="dg-key">Paused:</span><span class="dg-value">{{ debugRuntime.paused ? 'Yes' : 'No' }}</span></div>
-              <div v-if="debugRuntime?.status === 'frozen'" class="dg-item">
+              <div class="debug-grid-item"><span class="dg-key">Status:</span><span class="dg-value">{{ debugRuntime.status }}</span></div>
+              <div class="debug-grid-item"><span class="dg-key">PID:</span><span class="dg-value">{{ debugRuntime.pid }}</span></div>
+              <div class="debug-grid-item"><span class="dg-key">Started:</span><span class="dg-value">{{ fmtDate(debugRuntime.started_at) }}</span></div>
+              <div class="debug-grid-item"><span class="dg-key">Paused:</span><span class="dg-value">{{ debugRuntime.paused ? 'Yes' : 'No' }}</span></div>
+              <div v-if="debugRuntime?.status === 'frozen'" class="debug-grid-item">
                 <span class="dg-key">Frozen:</span>
                 <span class="dg-value freeze-value">Yes</span>
               </div>
-              <div class="dg-item"><span class="dg-key">Current Card:</span><span class="dg-value mono">{{ debugRuntime.current_card_id || 'none' }}</span></div>
-              <div class="dg-item"><span class="dg-key">Agent Session:</span><span class="dg-value mono">{{ debugRuntime.current_agent_session_id || 'none' }}</span></div>
+              <div class="debug-grid-item"><span class="dg-key">Current Card:</span><span class="dg-value mono">{{ debugRuntime.current_card_id || 'none' }}</span></div>
+              <div class="debug-grid-item"><span class="dg-key">Agent Session:</span><span class="dg-value mono">{{ debugRuntime.current_agent_session_id || 'none' }}</span></div>
             </div>
             <div v-else class="debug-empty">No runtime state.</div>
           </section>
@@ -103,10 +103,10 @@
           <div v-if="loading && !debugRuntime" class="debug-loading">Loading runtime control state...</div>
           <div v-else class="operator-runtime-card">
             <div class="operator-runtime-summary">
-              <div class="dg-item"><span class="dg-key">Status:</span><span class="operator-status-badge" :class="'status-' + runtimeStatusTone">{{ runtimeStatusLabel }}</span></div>
-              <div class="dg-item"><span class="dg-key">Dispatch:</span><span class="dg-value">{{ runtimeDispatchLabel }}</span></div>
-              <div class="dg-item"><span class="dg-key">Current Card:</span><span class="dg-value mono">{{ debugRuntime?.current_card_id || 'none' }}</span></div>
-              <div class="dg-item"><span class="dg-key">Agent Session:</span><span class="dg-value mono">{{ debugRuntime?.current_agent_session_id || 'none' }}</span></div>
+              <div class="debug-grid-item"><span class="dg-key">Status:</span><span class="operator-status-badge" :class="'status-' + runtimeStatusTone">{{ runtimeStatusLabel }}</span></div>
+              <div class="debug-grid-item"><span class="dg-key">Dispatch:</span><span class="dg-value">{{ runtimeDispatchLabel }}</span></div>
+              <div class="debug-grid-item"><span class="dg-key">Current Card:</span><span class="dg-value mono">{{ debugRuntime?.current_card_id || 'none' }}</span></div>
+              <div class="debug-grid-item"><span class="dg-key">Agent Session:</span><span class="dg-value mono">{{ debugRuntime?.current_agent_session_id || 'none' }}</span></div>
             </div>
 
             <div v-if="debugRuntime?.status === 'frozen'" class="freeze-banner operator-freeze-guidance" role="alert">
@@ -196,10 +196,10 @@
           <section class="debug-section">
             <h4 class="debug-section-title">Summary</h4>
             <div class="debug-grid">
-              <div class="dg-item"><span class="dg-key">Servers:</span><span class="dg-value">{{ mcpStore.serverCount }}</span></div>
-              <div class="dg-item"><span class="dg-key">Tools:</span><span class="dg-value">{{ mcpStore.toolCount }}</span></div>
-              <div class="dg-item"><span class="dg-key">Invocations:</span><span class="dg-value">{{ mcpStore.totalInvocations }} ({{ mcpStore.totalErrors }} errors)</span></div>
-              <div v-if="mcpStore.lastRefreshed" class="dg-item"><span class="dg-key">Last Refreshed:</span><span class="dg-value">{{ fmtDate(mcpStore.lastRefreshed) }}</span></div>
+              <div class="debug-grid-item"><span class="dg-key">Servers:</span><span class="dg-value">{{ mcpStore.serverCount }}</span></div>
+              <div class="debug-grid-item"><span class="dg-key">Tools:</span><span class="dg-value">{{ mcpStore.toolCount }}</span></div>
+              <div class="debug-grid-item"><span class="dg-key">Invocations:</span><span class="dg-value">{{ mcpStore.totalInvocations }} ({{ mcpStore.totalErrors }} errors)</span></div>
+              <div v-if="mcpStore.lastRefreshed" class="debug-grid-item"><span class="dg-key">Last Refreshed:</span><span class="dg-value">{{ fmtDate(mcpStore.lastRefreshed) }}</span></div>
             </div>
           </section>
           <section v-for="server in mcpStore.servers" :key="server.name" class="debug-section">
@@ -420,9 +420,9 @@ onUnmounted(() => { mcpStore.stopPolling(); });
 <style scoped>
 .debug-layout { height:100%; display:flex; flex-direction:column; overflow:hidden; }
 .debug-tabs { display:flex; gap:2px; padding:8px 12px; background:var(--surface-1); border-bottom:1px solid var(--border); flex-shrink:0; flex-wrap:wrap; }
-.debug-tab { padding:5px 16px; font-size:12px; font-weight:500; color:var(--text-muted); background:none; border:none; border-radius:4px; cursor:pointer; font-family:inherit; transition:all .15s; }
-.debug-tab:hover { color:var(--text); background:var(--surface-3); }
-.debug-tab.active { background:var(--border); color:var(--text); }
+.debug-tab-button { padding:5px 16px; font-size:12px; font-weight:500; color:var(--text-muted); background:none; border:none; border-radius:4px; cursor:pointer; font-family:inherit; transition:all .15s; }
+.debug-tab-button:hover { color:var(--text); background:var(--surface-3); }
+
 .debug-content { flex:1; overflow-y:auto; }
 .debug-tab-content { padding:16px; }
 .debug-loading,.debug-empty,.debug-error { padding:32px; text-align:center; color:var(--text-muted); font-size:13px; }
@@ -431,7 +431,7 @@ onUnmounted(() => { mcpStore.stopPolling(); });
 .debug-section-header { display:flex; align-items:center; justify-content:space-between; margin-bottom:10px; }
 .debug-section-title { font-size:12px; font-weight:600; color:var(--text-muted); text-transform:uppercase; letter-spacing:.03em; margin:0; }
 .debug-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(250px,1fr)); gap:6px; }
-.dg-item { display:flex; gap:8px; }
+.debug-grid-item { display:flex; gap:8px; }
 .dg-key { font-size:12px; color:var(--text-muted); }
 .dg-value { font-size:12px; color:var(--text); }
 .dg-value.mono, .mono { font-family:'SF Mono',monospace; font-size:11px; color:var(--accent-2); }

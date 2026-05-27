@@ -39,13 +39,13 @@
     </div>
 
     <template v-else>
-      <nav v-if="exchange.attempts.length > 1" class="rlp-tabs" aria-label="Attempts">
+      <nav v-if="exchange.attempts.length > 1" class="tablist rlp-tabs" aria-label="Attempts">
         <button
           v-for="(att, idx) in exchange.attempts"
           :key="att.attempt"
           type="button"
-          class="rlp-tab"
-          :class="{ 'rlp-tab--active': idx === selectedIndex }"
+          class="pill rlp-attempt-tab"
+          :class="{  }"
           :aria-pressed="idx === selectedIndex"
           @click="selectedIndex = idx"
         >Attempt {{ att.attempt }}</button>
@@ -202,8 +202,8 @@ watch(() => props.sessionId, maybeFetch);
 .rlp-status { padding:16px; text-align:center; font-size:12px; color:var(--text-muted); }
 .rlp-status--error { color:var(--danger); background:var(--entry-danger-bg); border:1px solid var(--entry-danger-border); border-radius:4px; }
 .rlp-tabs { display:flex; gap:4px; border-bottom:1px solid var(--border); padding-bottom:6px; flex-wrap:wrap; }
-.rlp-tab { padding:3px 10px; background:var(--surface-1); border:1px solid var(--border); border-radius:4px; color:var(--text-muted); font-size:11px; cursor:pointer; font-family:inherit; }
-.rlp-tab--active { background:var(--entry-user-bg); color:var(--accent-2); border-color:var(--accent-2); }
+.rlp-attempt-tab { padding:3px 10px; background:var(--surface-1); border:1px solid var(--border); border-radius:4px; color:var(--text-muted); font-size:11px; cursor:pointer; font-family:inherit; }
+
 .rlp-panes { display:flex; gap:10px; }
 .rlp-pane { flex:1; min-width:0; display:flex; flex-direction:column; gap:6px; }
 .rlp-pane-title { margin:0; font-size:11px; font-weight:600; color:var(--text-muted); text-transform:uppercase; letter-spacing:.05em; }

@@ -160,7 +160,7 @@ async function mountDebugView() {
 }
 
 function clickSupervisionTab(wrapper: ReturnType<typeof mount>) {
-  const tabs = wrapper.findAll('.debug-tab');
+  const tabs = wrapper.findAll('.debug-tab-button');
   const supervisionTab = tabs.find((t) => t.text() === 'Supervision');
   if (supervisionTab) {
     supervisionTab.trigger('click');
@@ -184,7 +184,7 @@ describe('DebugView — supervision tab', () => {
 
   it('renders the Supervision tab button', async () => {
     const wrapper = await mountDebugView();
-    const tabs = wrapper.findAll('.debug-tab');
+    const tabs = wrapper.findAll('.debug-tab-button');
     const labels = tabs.map((t) => t.text());
     expect(labels).toContain('Supervision');
   });

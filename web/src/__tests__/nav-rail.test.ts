@@ -62,7 +62,7 @@ describe('NavRail', () => {
 
   it('keeps token button visible alongside Docs link', () => {
     const wrapper = mountNav({ docsHref: '/docs/' });
-    expect(wrapper.find('.api-token-btn').exists()).toBe(true);
+    expect(wrapper.find('.nav-action-button').exists()).toBe(true);
     expect(wrapper.text()).toContain('Token');
     expect(wrapper.text()).toContain('Docs');
   });

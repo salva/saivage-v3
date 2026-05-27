@@ -20,7 +20,7 @@ function mountHeader(connectionState: 'connected' | 'connecting' | 'offline' | '
 describe('WorkspaceHeader', () => {
   it('renders missing-token websocket state as neutral instead of unauthorized', () => {
     const wrapper = mountHeader('no-token');
-    const chip = wrapper.find('.ws-chip');
+    const chip = wrapper.findAll('.header-chip')[0];
 
     expect(chip.text()).toContain('NO TOKEN');
     expect(chip.classes()).toContain('ws-no-token');
@@ -29,7 +29,7 @@ describe('WorkspaceHeader', () => {
 
   it('keeps bad-token websocket state visibly unauthorized', () => {
     const wrapper = mountHeader('unauthorized');
-    const chip = wrapper.find('.ws-chip');
+    const chip = wrapper.findAll('.header-chip')[0];
 
     expect(chip.text()).toContain('WS UNAUTH');
     expect(chip.classes()).toContain('ws-unauthorized');
@@ -37,11 +37,11 @@ describe('WorkspaceHeader', () => {
 
   it('keeps runtime status observable without exposing header execution controls', async () => {
     const wrapper = mountHeader('connected');
-    const runtimeChip = wrapper.get('.runtime-chip');
+    const runtimeChip = wrapper.findAll('.header-chip')[1];
 
     expect(runtimeChip.text()).toContain('Running');
     expect(runtimeChip.attributes('title')).toContain('Dashboard → Runtime Console');
-    expect(wrapper.find('.pause-chip').exists()).toBe(false);
+    expect(wrapper.findAll('.header-chip')).toHaveLength(3);
     expect(wrapper.findAll('button').map((button) => button.text())).not.toContain('Pause');
     expect(wrapper.findAll('button').map((button) => button.text())).not.toContain('Resume');
     await runtimeChip.trigger('click');

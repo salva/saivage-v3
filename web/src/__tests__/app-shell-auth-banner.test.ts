@@ -59,27 +59,27 @@ describe('AppShell API auth banner', () => {
     window.dispatchEvent(new CustomEvent(API_AUTH_REQUIRED_EVENT, { detail: { status: 401, path: '/api/state' } }));
     await flushPromises();
 
-    expect(wrapper.find('.auth-required-banner').text()).toContain('API token required');
+    expect(wrapper.find('[data-testid="api-auth-banner"]').text()).toContain('API token required');
     await wrapper.get('.auth-banner-action').trigger('click');
     expect(wrapper.find('.ui-overlay').exists()).toBe(true);
-    expect(wrapper.find('.auth-required-banner').exists()).toBe(true);
+    expect(wrapper.find('[data-testid="api-auth-banner"]').exists()).toBe(true);
 
     await wrapper.get('.token-btn-cancel').trigger('click');
     await flushPromises();
     await waitForTransition();
     expect(wrapper.find('.ui-overlay').exists()).toBe(false);
-    expect(wrapper.find('.auth-required-banner').exists()).toBe(true);
+    expect(wrapper.find('[data-testid="api-auth-banner"]').exists()).toBe(true);
 
     await wrapper.get('.auth-banner-action').trigger('click');
     expect(wrapper.find('.ui-overlay').exists()).toBe(true);
 
     await wrapper.get('.auth-banner-dismiss').trigger('click');
-    expect(wrapper.find('.auth-required-banner').exists()).toBe(false);
+    expect(wrapper.find('[data-testid="api-auth-banner"]').exists()).toBe(false);
     expect(sessionStorage.getItem(API_AUTH_DISMISSED_SESSION_KEY)).toBe('true');
 
     window.dispatchEvent(new CustomEvent(API_AUTH_REQUIRED_EVENT, { detail: { status: 401, path: '/api/cards' } }));
     await flushPromises();
-    expect(wrapper.find('.auth-required-banner').exists()).toBe(false);
+    expect(wrapper.find('[data-testid="api-auth-banner"]').exists()).toBe(false);
     wrapper.unmount();
   });
 });

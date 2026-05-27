@@ -155,14 +155,14 @@ describe('RawLlmExchangePanel', () => {
       global: { plugins: [pinia] },
     });
     await flushPromises();
-    const tabs = wrapper.findAll('.rlp-tab');
+    const tabs = wrapper.findAll('.rlp-attempt-tab');
     expect(tabs.length).toBe(2);
-    expect(tabs[1].classes()).toContain('rlp-tab--active');
+    expect(tabs[1].attributes('aria-pressed')).toBe('true');
     expect(wrapper.find('.rlp-error-box').exists()).toBe(false);
 
     await tabs[0].trigger('click');
     await flushPromises();
-    expect(tabs[0].classes()).toContain('rlp-tab--active');
+    expect(tabs[0].attributes('aria-pressed')).toBe('true');
     expect(wrapper.find('.rlp-error-box').exists()).toBe(true);
     expect(wrapper.text()).toContain('CodexUnsupportedMaxOutputTokens');
   });

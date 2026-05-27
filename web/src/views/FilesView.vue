@@ -1,108 +1,71 @@
 <template>
   <div class="files-layout">
-    <div v-if="isStale || unauthorized" class="files-global-banner" :class="unauthorized ? 'banner-error' : 'banner-warning'">
+    <div
+      v-if="isStale || unauthorized"
+      class="files-status-banner"
+      :class="unauthorized ? 'entry-danger' : 'entry-warn'"
+      :role="unauthorized ? 'alert' : 'status'"
+      data-testid="files-status-banner"
+    >
       <template v-if="unauthorized">
         API access is unauthorized. Re-enter a valid token to browse files; public docs at /docs/ remain available.
       </template>
       <template v-else>
-        File listings may be stale. Refresh either pane to resync with the authoritative REST snapshot.
+        File listing may be stale. Refresh to resync with the authoritative REST snapshot.
       </template>
     </div>
 
-    <div v-if="listError" class="files-global-banner banner-error">
+    <div v-if="listError" class="entry-danger files-status-banner" role="alert" data-testid="files-list-error">
       {{ listError }}
     </div>
 
-    <div class="files-panels">
-      <section class="file-panel">
-        <div class="panel-header">
-          <h3 class="panel-title">Metadata</h3>
-          <span class="panel-root">.saivage/</span>
-          <button class="panel-refresh-btn" :disabled="metaLoading" @click="fetchMetaFiles" title="Refresh">*</button>
+    <section class="file-browser" :aria-label="activeRootLabel" data-testid="files-canonical-panel">
+      <div class="panel-header">
+        <div>
+          <h3 class="panel-title">{{ activeRootLabel }}</h3>
+          <span class="code-inline root-label">{{ activeRootPath }}/</span>
         </div>
-
-        <div class="file-breadcrumbs">
-          <span
-            v-for="(crumb, idx) in metaBreadcrumbs"
-            :key="idx"
-            class="crumb"
-            :class="{ active: idx === metaBreadcrumbs.length - 1 }"
-          >
-            <span v-if="idx > 0" class="crumb-sep">/</span>
-            <span class="crumb-link" @click="fileStore.navigateMeta(crumb.path)">{{ crumb.label }}</span>
-          </span>
+        <div class="root-switcher" role="group" aria-label="File root">
+          <button class="pill" :aria-pressed="activeRoot === 'meta'" @click="goToRoot('meta')">Metadata</button>
+          <button class="pill" :aria-pressed="activeRoot === 'output'" @click="goToRoot('output')">Output</button>
         </div>
+        <button class="btn refresh-button" :disabled="activeLoading" title="Refresh" data-testid="files-refresh" @click="refreshActiveRoot">↻</button>
+      </div>
 
-        <div v-if="metaLoading" class="panel-loading">Loading...</div>
-        <div v-else class="file-list">
-          <div
-            v-for="entry in metaFiles"
-            :key="entry.path"
-            class="file-entry"
-            :class="{ 'is-dir': entry.type === 'directory' }"
-            @click="entry.type === 'directory'
-              ? fileStore.navigateMeta(entry.path)
-              : fileStore.fetchFileContent(entry.path)"
-          >
-            <span class="entry-icon">{{ entry.type === 'directory' ? '📁' : fileIcon(entry.name) }}</span>
-            <span class="entry-name">{{ entry.name }}</span>
-            <span v-if="entry.type === 'file' && entry.size != null" class="entry-size">{{ fmtSize(entry.size) }}</span>
-            <span class="entry-modified" :title="timestampTitle(entry.modifiedAt)">{{ fmtDate(entry.modifiedAt) }}</span>
-          </div>
-          <div v-if="metaFiles.length === 0 && !metaLoading" class="panel-empty">No files</div>
-        </div>
-      </section>
+      <div class="file-breadcrumbs" data-testid="files-breadcrumbs">
+        <button
+          v-for="(crumb, idx) in activeBreadcrumbs"
+          :key="crumb.path"
+          class="pill crumb-button"
+          :aria-pressed="idx === activeBreadcrumbs.length - 1"
+          @click="openDirectory(crumb.path)"
+        >{{ crumb.label }}</button>
+      </div>
 
-      <section class="file-panel">
-        <div class="panel-header">
-          <h3 class="panel-title">Output</h3>
-          <span class="panel-root">.saivage-work/</span>
-          <button class="panel-refresh-btn" :disabled="outputLoading" @click="fetchOutputFiles" title="Refresh">*</button>
-        </div>
+      <div v-if="activeLoading" class="loading-state" data-testid="files-loading">Loading...</div>
+      <div v-else class="file-list" data-testid="files-list">
+        <button
+          v-for="entry in activeFiles"
+          :key="entry.path"
+          class="file-entry"
+          :class="{ 'is-dir': entry.type === 'directory' }"
+          @click="openEntry(entry)"
+        >
+          <span class="entry-icon">{{ entry.type === 'directory' ? '📁' : fileIcon(entry.name) }}</span>
+          <span class="entry-name">{{ entry.name }}</span>
+          <span v-if="entry.type === 'file' && entry.size != null" class="entry-size">{{ fmtSize(entry.size) }}</span>
+          <span class="entry-modified" :title="timestampTitle(entry.modifiedAt)">{{ fmtDate(entry.modifiedAt) }}</span>
+        </button>
+        <div v-if="activeFiles.length === 0 && !activeLoading" class="empty-state" data-testid="files-empty">No files</div>
+      </div>
 
-        <div class="file-breadcrumbs">
-          <span
-            v-for="(crumb, idx) in outputBreadcrumbs"
-            :key="idx"
-            class="crumb"
-            :class="{ active: idx === outputBreadcrumbs.length - 1 }"
-          >
-            <span v-if="idx > 0" class="crumb-sep">/</span>
-            <span class="crumb-link" @click="fileStore.navigateOutput(crumb.path)">{{ crumb.label }}</span>
-          </span>
-        </div>
+      <div v-if="activeRoot === 'output'" class="quarantine-footer">
+        <div class="quarantine-footer-label">Quarantine</div>
+        <button class="btn quarantine-footer-btn" @click="goToPath('output', '.saivage-work/quarantine')">Browse .saivage-work/quarantine/</button>
+      </div>
+    </section>
 
-        <div v-if="outputLoading" class="panel-loading">Loading...</div>
-        <div v-else class="file-list">
-          <div
-            v-for="entry in outputFiles"
-            :key="entry.path"
-            class="file-entry"
-            :class="{ 'is-dir': entry.type === 'directory' }"
-            @click="entry.type === 'directory'
-              ? fileStore.navigateOutput(entry.path)
-              : fileStore.fetchFileContent(entry.path)"
-          >
-            <span class="entry-icon">{{ entry.type === 'directory' ? '📁' : fileIcon(entry.name) }}</span>
-            <span class="entry-name">{{ entry.name }}</span>
-            <span v-if="entry.type === 'file' && entry.size != null" class="entry-size">{{ fmtSize(entry.size) }}</span>
-            <span class="entry-modified" :title="timestampTitle(entry.modifiedAt)">{{ fmtDate(entry.modifiedAt) }}</span>
-          </div>
-          <div v-if="outputFiles.length === 0 && !outputLoading" class="panel-empty">No files</div>
-        </div>
-
-        <div class="quarantine-footer">
-          <div class="quarantine-footer-label">Quarantine</div>
-          <button
-            class="quarantine-footer-btn"
-            @click="fileStore.navigateOutput('.saivage-work/quarantine')"
-          >Browse .saivage-work/quarantine/</button>
-        </div>
-      </section>
-    </div>
-
-
-    <section class="card-children-listing" data-testid="files-view-card-children" v-if="cardChildren.length > 0">
+    <section v-if="cardChildren.length > 0" class="card-children-listing" data-testid="files-view-card-children">
       <h3 class="panel-title">Current Card Children</h3>
       <ul data-testid="files-card-children-list">
         <li v-for="child in cardChildren" :key="child.id" data-testid="files-card-children-item">
@@ -112,10 +75,10 @@
       </ul>
     </section>
 
-    <div v-if="viewedFilePath" class="file-viewer">
+    <div v-if="viewedFilePath" class="file-viewer" data-testid="files-viewer">
       <div class="viewer-header">
         <span class="viewer-path">{{ viewedFilePath }}</span>
-        <button class="viewer-close-btn" @click="fileStore.clearViewedFile()">X</button>
+        <button class="btn viewer-close-btn" @click="fileStore.clearViewedFile()">X</button>
       </div>
       <div v-if="contentLoading" class="viewer-loading">Loading...</div>
       <div v-else-if="viewerState !== 'ready'" class="viewer-state" :class="viewerStateClass">
@@ -133,21 +96,21 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, watch, computed } from 'vue';
-import { useRoute } from 'vue-router';
+import { computed, onMounted, watch } from 'vue';
+import { useRoute, useRouter } from 'vue-router';
 import { storeToRefs } from 'pinia';
 import { useFileStore } from '../stores/files';
 import { useCardStore } from '../stores/cards';
-import { createLogger } from '../utils/logger';
 import { formatTimestamp, isRecentTimestamp, timestampTitle } from '../utils/timestamp';
 import { formatJson } from '../utils/format-json';
 import CodeBlock from '../components/content/CodeBlock.vue';
 import MarkdownText from '../components/content/MarkdownText.vue';
-import type { CardRecord } from '../api/types';
+import type { CardRecord, FileEntry } from '../api/types';
 
-const log = createLogger('view:files');
+type FileRoot = 'meta' | 'output';
 
 const route = useRoute();
+const router = useRouter();
 const fileStore = useFileStore();
 const cardsStore = useCardStore();
 const {
@@ -164,6 +127,12 @@ const cardChildren = computed<CardRecord[]>(() => {
   const id = activeCardId.value;
   return id ? cardsStore.childrenOf(id) : [];
 });
+const activeRoot = computed<FileRoot>(() => route.query.root === 'output' ? 'output' : 'meta');
+const activeRootPath = computed(() => activeRoot.value === 'meta' ? '.saivage' : '.saivage-work');
+const activeRootLabel = computed(() => activeRoot.value === 'meta' ? 'Metadata' : 'Output');
+const activeFiles = computed(() => activeRoot.value === 'meta' ? metaFiles.value : outputFiles.value);
+const activeLoading = computed(() => activeRoot.value === 'meta' ? metaLoading.value : outputLoading.value);
+const activeBreadcrumbs = computed(() => activeRoot.value === 'meta' ? metaBreadcrumbs.value : outputBreadcrumbs.value);
 
 const viewerStateTitle = computed(() => {
   switch (viewerState.value) {
@@ -196,14 +165,17 @@ const viewerStateClass = computed(() => {
     : 'viewer-state-warning';
 });
 
+const prettyJsonContent = computed(() => {
+  const raw = viewedFile.value?.content ?? '';
+  try { return formatJson(JSON.parse(raw)); } catch { return raw; }
+});
+
 function fileIcon(name: string): string {
   const ext = name.split('.').pop()?.toLowerCase();
   const icons: Record<string, string> = {
     json: '{}', jsonl: '{}', ndjson: '{}', md: 'MD', ts: 'TS', js: 'JS', txt: 'TX',
-    yaml: 'YM', yml: 'YM', toml: 'TO', lock: 'LK',
-    log: 'LG', csv: 'CV', html: '<>', css: '#',
-    png: 'PN', jpg: 'IM', jpeg: 'IM', gif: 'IM', svg: 'SV',
-    pdf: 'PD', zip: 'ZP', gz: 'GZ',
+    yaml: 'YM', yml: 'YM', toml: 'TO', lock: 'LK', log: 'LG', csv: 'CV', html: '<>', css: '#',
+    png: 'PN', jpg: 'IM', jpeg: 'IM', gif: 'IM', svg: 'SV', pdf: 'PD', zip: 'ZP', gz: 'GZ',
   };
   return icons[ext || ''] || '--';
 }
@@ -218,42 +190,74 @@ function fmtDate(ts: string): string {
   return formatTimestamp(ts, isRecentTimestamp(ts) ? 'relative' : 'absolute');
 }
 
-const prettyJsonContent = computed(() => {
-  const raw = viewedFile.value?.content ?? '';
-  try { return formatJson(JSON.parse(raw)); } catch { return raw; }
-});
-
-async function fetchMetaFiles(): Promise<void> {
-  try { await fileStore.fetchMetaFiles(); } catch { }
-}
-
-async function fetchOutputFiles(): Promise<void> {
-  try { await fileStore.fetchOutputFiles(); } catch { }
-}
-
 function parentPath(path: string): string {
-  const index = path.lastIndexOf('/');
-  return index > 0 ? path.slice(0, index) : path;
+  const normalized = path.replace(/\/+$/, '');
+  const index = normalized.lastIndexOf('/');
+  return index > 0 ? normalized.slice(0, index) : normalized;
+}
+
+function rootForPath(path: string): FileRoot | null {
+  if (path === '.saivage' || path.startsWith('.saivage/')) return 'meta';
+  if (path === '.saivage-work' || path.startsWith('.saivage-work/')) return 'output';
+  return null;
+}
+
+function canonicalPathForRoot(rootName: FileRoot, queryPath: unknown): string {
+  if (typeof queryPath !== 'string' || queryPath.length === 0) return rootName === 'meta' ? '.saivage' : '.saivage-work';
+  return queryPath;
+}
+
+function goToRoot(rootName: FileRoot): void {
+  void router.push({ name: 'files', query: { root: rootName, path: rootName === 'meta' ? '.saivage' : '.saivage-work' } });
+}
+
+function goToPath(rootName: FileRoot, path: string): void {
+  void router.push({ name: 'files', query: { root: rootName, path } });
+}
+
+function openDirectory(path: string): void {
+  goToPath(activeRoot.value, path);
+}
+
+function openEntry(entry: FileEntry): void {
+  if (entry.type === 'directory') {
+    fileStore.clearViewedFile();
+    const navigation = activeRoot.value === 'meta' ? fileStore.navigateMeta(entry.path) : fileStore.navigateOutput(entry.path);
+    void navigation.then(() => fileStore.clearViewedFile());
+    goToPath(activeRoot.value, entry.path);
+    return;
+  }
+  void fileStore.fetchFileContent(entry.path);
+}
+
+async function refreshActiveRoot(): Promise<void> {
+  const path = canonicalPathForRoot(activeRoot.value, route.query.path);
+  if (activeRoot.value === 'meta') await fileStore.fetchMetaFiles(path);
+  else await fileStore.fetchOutputFiles(path);
 }
 
 function applyQueryPath(): void {
-  const root = route.query.root;
-  const p = route.query.path;
-  if ((root !== 'meta' && root !== 'output') || typeof p !== 'string' || !p) return;
-  if (root === 'meta' && p.startsWith('.saivage/')) {
-    log.info('applyQueryPath opening metadata file', p);
-    fileStore.navigateMeta(parentPath(p)).then(() => fileStore.fetchFileContent(p)).catch(() => {});
+  const rootName = activeRoot.value;
+  const path = canonicalPathForRoot(rootName, route.query.path);
+  const pathRoot = rootForPath(path);
+  if (pathRoot && pathRoot !== rootName) {
+    goToPath(pathRoot, path);
+    return;
   }
-  if (root === 'output' && p.startsWith('.saivage-work/')) {
-    log.info('applyQueryPath opening output file', p);
-    fileStore.navigateOutput(parentPath(p)).then(() => fileStore.fetchFileContent(p)).catch(() => {});
-  }
+  const browse = rootName === 'meta' ? fileStore.navigateMeta : fileStore.navigateOutput;
+  browse(path)
+    .catch(() => {
+      const directory = path === activeRootPath.value ? path : parentPath(path);
+      return browse(directory).then(() => {
+        if (path !== directory) return fileStore.fetchFileContent(path);
+        return undefined;
+      });
+    })
+    .catch(() => {});
 }
 
 onMounted(() => {
   fileStore.setupWsListener();
-  fetchMetaFiles();
-  fetchOutputFiles();
   applyQueryPath();
 });
 
@@ -264,27 +268,18 @@ watch(() => [route.query.root, route.query.path], () => {
 
 <style scoped>
 .files-layout { height:100%; display:flex; flex-direction:column; overflow:hidden; }
-.files-global-banner { margin: 12px 12px 0; padding: 10px 12px; border-radius: 6px; font-size: 12px; }
-.banner-warning { background:var(--entry-warn-bg); border:1px solid var(--entry-warn-border); color:var(--warn); }
-.banner-error { background:var(--entry-danger-bg); border:1px solid var(--danger); color:var(--danger); }
-.files-panels { flex:1; display:flex; overflow:hidden; }
-.file-panel { flex:1; display:flex; flex-direction:column; border-right:1px solid var(--border); overflow:hidden; }
-.file-panel:last-child { border-right:none; }
-.panel-header { display:flex; align-items:center; gap:8px; padding:8px 12px; background:var(--surface-1); border-bottom:1px solid var(--border); flex-shrink:0; }
+.files-status-banner { margin: 12px 12px 0; padding: 10px 12px; border-radius: 6px; font-size: 12px; }
+.file-browser { flex:1; display:flex; flex-direction:column; overflow:hidden; border-bottom:1px solid var(--border); }
+.panel-header { display:flex; align-items:center; gap:12px; padding:8px 12px; background:var(--surface-1); border-bottom:1px solid var(--border); flex-shrink:0; }
 .panel-title { font-size:12px; font-weight:600; color:var(--text); margin:0; }
-.panel-root { font-size:10px; color:var(--border-strong); font-family:'SF Mono',monospace; }
-.panel-refresh-btn { background:none; border:1px solid var(--border); border-radius:4px; color:var(--text-muted); cursor:pointer; width:24px; height:24px; font-size:14px; display:flex; align-items:center; justify-content:center; margin-left:auto; }
-.panel-refresh-btn:hover:not(:disabled) { color:var(--accent-2); border-color:var(--accent-2); }
-.panel-refresh-btn:disabled { opacity:.5; cursor:not-allowed; }
-.file-breadcrumbs { display:flex; align-items:center; gap:2px; padding:6px 12px; background:var(--bg); border-bottom:1px solid var(--surface-3); flex-shrink:0; overflow-x:auto; }
-.crumb { font-size:11px; color:var(--border-strong); }
-.crumb.active .crumb-link { color:var(--accent-2); }
-.crumb-sep { margin:0 2px; color:var(--border); }
-.crumb-link { cursor:pointer; transition:color .1s; }
-.crumb-link:hover { color:var(--text); }
-.panel-loading,.panel-empty { padding:16px; text-align:center; color:var(--border-strong); font-size:12px; }
+.root-label { font-size:10px; padding:2px 4px; }
+.root-switcher { display:flex; align-items:center; gap:6px; margin-left:auto; }
+.root-switcher .pill, .crumb-button { cursor:pointer; padding:3px 8px; font-family:inherit; }
+.refresh-button { width:28px; height:28px; display:flex; align-items:center; justify-content:center; }
+.file-breadcrumbs { display:flex; align-items:center; gap:6px; padding:6px 12px; background:var(--bg); border-bottom:1px solid var(--surface-3); flex-shrink:0; overflow-x:auto; }
+.loading-state,.empty-state { padding:16px; text-align:center; color:var(--border-strong); font-size:12px; }
 .file-list { flex:1; overflow-y:auto; }
-.file-entry { display:flex; align-items:center; gap:8px; padding:6px 12px; cursor:pointer; transition:background .1s; border-bottom:1px solid var(--surface-3); }
+.file-entry { width:100%; display:flex; align-items:center; gap:8px; padding:6px 12px; cursor:pointer; transition:background .1s; border:0; border-bottom:1px solid var(--surface-3); background:transparent; font-family:inherit; text-align:left; }
 .file-entry:hover { background:var(--surface-1); }
 .file-entry.is-dir .entry-name { color:var(--accent-2); font-weight:500; }
 .entry-icon { width:22px; text-align:center; flex-shrink:0; font-family:'SF Mono',monospace; color:var(--text-muted); font-size:10px; }
@@ -298,8 +293,7 @@ watch(() => [route.query.root, route.query.path], () => {
 .file-viewer { border-top:1px solid var(--border); max-height:40%; overflow:hidden; display:flex; flex-direction:column; }
 .viewer-header { display:flex; align-items:center; justify-content:space-between; padding:6px 12px; background:var(--surface-1); border-bottom:1px solid var(--border); flex-shrink:0; }
 .viewer-path { font-size:11px; color:var(--accent-2); font-family:'SF Mono',monospace; }
-.viewer-close-btn { background:none; border:1px solid var(--border); border-radius:4px; color:var(--text-muted); cursor:pointer; width:24px; height:24px; font-size:14px; display:flex; align-items:center; justify-content:center; }
-.viewer-close-btn:hover { color:var(--danger); border-color:var(--danger); }
+.viewer-close-btn { width:24px; height:24px; display:flex; align-items:center; justify-content:center; }
 .viewer-loading { padding:16px; text-align:center; color:var(--border-strong); font-size:12px; }
 .viewer-state { padding: 16px; display:flex; flex-direction:column; gap:6px; font-size:12px; }
 .viewer-state-error { color:var(--danger); background:var(--entry-danger-bg); }
@@ -308,6 +302,5 @@ watch(() => [route.query.root, route.query.path], () => {
 .viewer-redaction-notice { margin-bottom:8px; padding:10px 12px; border-radius:6px; background:var(--entry-user-bg); color:var(--text); font-size:12px; }
 .quarantine-footer { display:flex; align-items:center; gap:8px; padding:8px 12px; background:var(--surface-2); border-top:1px solid var(--border); flex-shrink:0; }
 .quarantine-footer-label { font-size:10px; font-weight:600; color:var(--warn); text-transform:uppercase; letter-spacing:.05em; }
-.quarantine-footer-btn { background:none; border:1px solid var(--border); border-radius:4px; color:var(--text-muted); cursor:pointer; font-size:11px; font-family:'SF Mono',monospace; padding:3px 8px; transition:all .15s; }
-.quarantine-footer-btn:hover { color:var(--warn); border-color:var(--warn); }
+.quarantine-footer-btn { font-size:11px; font-family:'SF Mono',monospace; padding:3px 8px; }
 </style>

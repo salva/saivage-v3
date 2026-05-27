@@ -99,7 +99,7 @@ describe('FilesView', () => {
 
   it('renders both Metadata and Output panels', async () => {
     const { wrapper } = await mountFilesView();
-    expect(wrapper.findAll('.file-panel')).toHaveLength(2);
+    expect(wrapper.find('[data-testid="files-canonical-panel"]').exists()).toBe(true);
   });
 
   it('shows viewer state when file preview is blocked', async () => {
@@ -132,7 +132,7 @@ describe('FilesView', () => {
       },
     });
 
-    expect(wrapper.find('.files-global-banner.banner-error').text())
+    expect(wrapper.find('[data-testid="files-status-banner"]').text())
       .toContain('API access is unauthorized');
     expect(wrapper.text()).toContain('public docs at /docs/ remain available');
   });

@@ -20,7 +20,7 @@
           <div
             v-for="card in col.cards"
             :key="card.id"
-            class="board-card"
+            class="card board-item"
             @click="emit('select', card.id)"
           >
             <div class="card-header-row">
@@ -173,7 +173,7 @@ const columns = computed<Column[]>(() =>
   gap: 6px;
 }
 
-.board-card {
+.board-item {
   background: var(--surface-1);
   border: 1px solid var(--surface-3);
   border-radius: 6px;
@@ -182,7 +182,7 @@ const columns = computed<Column[]>(() =>
   transition: border-color 0.15s, background 0.15s;
 }
 
-.board-card:hover {
+.board-item:hover {
   border-color: var(--border);
   background: var(--surface-2);
 }

@@ -4,7 +4,7 @@
       <div class="panel-header">
         <h2 class="panel-title">Runtime Console</h2>
         <button
-          class="refresh-btn"
+          class="ui-refresh-button"
           :disabled="runtimeLoading"
           @click="refreshRuntime"
           title="Refresh"
@@ -13,7 +13,7 @@
         </button>
       </div>
 
-      <div v-if="runtimeBannerMessage" class="runtime-banner" :class="runtimeBannerClass">{{ runtimeBannerMessage }}</div>
+      <div v-if="runtimeBannerMessage" class="entry-warn runtime-status-banner" :class="runtimeBannerClass">{{ runtimeBannerMessage }}</div>
       <div v-if="runtimeLoading && !runtime" class="status-loading">Loading...</div>
 
       <template v-else-if="errorMsg" class="status-error">
@@ -21,7 +21,7 @@
       </template>
 
       <template v-else>
-        <div v-if="lastActionableError" class="status-section actionable-error" role="alert">
+        <div v-if="lastActionableError" class="status-section entry-danger actionable-runtime-issue" role="alert">
           <h3 class="section-label">Actionable Runtime Issue</h3>
           <p class="actionable-message">{{ lastActionableError.message }}</p>
           <p class="actionable-next">Next: {{ lastActionableError.nextAction }}</p>
@@ -61,7 +61,7 @@
             <div class="status-item">
               <span class="status-key">Runtime</span>
               <span class="status-chip" :class="`rt-${statusLabel}`">
-                <span class="chip-dot"></span>
+                <span class="status-dot"></span>
                 {{ statusLabel }}
               </span>
             </div>
@@ -220,8 +220,8 @@ const runtimeBannerMessage = computed(() => {
   return null;
 });
 const runtimeBannerClass = computed(() => {
-  if (runtimeUnauthorized.value || statusLabel.value === 'error') return 'runtime-banner-error';
-  return 'runtime-banner-warning';
+  if (runtimeUnauthorized.value || statusLabel.value === 'error') return 'runtime-status-banner-error';
+  return 'runtime-status-banner-warning';
 });
 
 function shortTime(ts?: string | null): string {
@@ -263,12 +263,12 @@ onMounted(async () => {
 .status-panel { width: 100%; min-width: 0; flex: 1; overflow-y: auto; background: var(--bg); display: flex; flex-direction: column; }
 .panel-header { display: flex; align-items: center; justify-content: space-between; padding: 12px 16px; border-bottom: 1px solid var(--border); flex-shrink: 0; }
 .panel-title { font-size: 13px; font-weight: 600; color: var(--text); margin: 0; }
-.runtime-banner { margin: 12px 16px 0; padding: 10px 12px; border-radius: 6px; font-size: 12px; }
-.runtime-banner-warning { background: var(--entry-warn-bg); border: 1px solid var(--entry-warn-border); color: var(--warn); }
-.runtime-banner-error { background: var(--entry-danger-bg); border: 1px solid var(--danger); color: var(--danger); }
-.refresh-btn { background: none; border: 1px solid var(--border); border-radius: 4px; color: var(--text-muted); cursor: pointer; width: 28px; height: 28px; font-size: 14px; display: flex; align-items: center; justify-content: center; transition: color 0.15s, border-color 0.15s; }
-.refresh-btn:hover:not(:disabled) { color: var(--accent-2); border-color: var(--accent-2); }
-.refresh-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.runtime-status-banner { margin: 12px 16px 0; padding: 10px 12px; border-radius: 6px; font-size: 12px; }
+.runtime-status-banner-warning { color: var(--warn); }
+.runtime-status-banner-error { border-color: var(--entry-danger-border); background: var(--entry-danger-bg); color: var(--danger); }
+.ui-refresh-button { background: none; border: 1px solid var(--border); border-radius: 4px; color: var(--text-muted); cursor: pointer; width: 28px; height: 28px; font-size: 14px; display: flex; align-items: center; justify-content: center; transition: color 0.15s, border-color 0.15s; }
+.ui-refresh-button:hover:not(:disabled) { color: var(--accent-2); border-color: var(--accent-2); }
+.ui-refresh-button:disabled { opacity: 0.5; cursor: not-allowed; }
 .status-loading,.status-error { padding: 16px; color: var(--text-muted); font-size: 12px; }
 .error-banner { padding: 10px 12px; background: var(--entry-danger-bg); border: 1px solid var(--danger); border-radius: 4px; color: var(--danger); font-size: 12px; margin: 12px; }
 .status-section { padding: 12px 16px; border-bottom: 1px solid var(--surface-3); }
@@ -284,7 +284,7 @@ onMounted(async () => {
 .status-value.clickable { color: var(--accent-2); cursor: pointer; text-decoration: underline; text-decoration-color: transparent; transition: text-decoration-color 0.15s; }
 .status-value.clickable:hover { text-decoration-color: var(--accent-2); }
 .operator-help { margin: 8px 0 0; color: var(--text-muted); font-size: 11px; line-height: 1.4; }
-.actionable-error { background: var(--entry-danger-bg); border-bottom-color: var(--danger); }
+.actionable-runtime-issue { border-left:0; border-right:0; border-top:0; border-radius:0; border-bottom-color: var(--danger); }
 .actionable-message { margin: 0 0 6px; color: var(--text); font-size: 12px; line-height: 1.4; }
 .actionable-next { margin: 0 0 6px; color: var(--orange); font-size: 12px; line-height: 1.4; }
 .actionable-meta { display: flex; flex-wrap: wrap; gap: 6px; color: var(--text-muted); font: 10px 'SF Mono', monospace; }
@@ -293,19 +293,19 @@ onMounted(async () => {
 .record-row span:last-child { color: var(--text-muted); font-family: 'SF Mono', monospace; }
 .list-empty { text-align: left; font-family: inherit; }
 .status-chip { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 600; font-family: inherit; border: 1px solid transparent; }
-.chip-dot { width: 5px; height: 5px; border-radius: 50%; }
+.status-chip .status-dot { width: 5px; height: 5px; border-radius: 50%; }
 .rt-running { color: var(--accent); border-color: var(--accent); background: var(--entry-accent-bg); }
 .rt-idle { color: var(--text-muted); border-color: var(--border-strong); background: var(--surface-3); }
 .rt-paused { color: var(--warn); border-color: var(--entry-warn-border); background: var(--entry-warn-bg); }
 .rt-frozen { color: var(--accent-2); border-color: var(--accent-2); background: var(--entry-user-bg); }
 .rt-error { color: var(--danger); border-color: var(--danger); background: var(--entry-danger-bg); }
 .rt-unknown { color: var(--text-muted); border-color: var(--border-strong); background: var(--surface-3); }
-.rt-running .chip-dot { background: var(--accent); }
-.rt-idle .chip-dot { background: var(--text-muted); }
-.rt-paused .chip-dot { background: var(--warn); }
-.rt-frozen .chip-dot { background: var(--accent-2); }
-.rt-error .chip-dot { background: var(--danger); }
-.rt-unknown .chip-dot { background: var(--text-muted); }
+.rt-running .status-dot { background: var(--accent); }
+.rt-idle .status-dot { background: var(--text-muted); }
+.rt-paused .status-dot { background: var(--warn); }
+.rt-frozen .status-dot { background: var(--accent-2); }
+.rt-error .status-dot { background: var(--danger); }
+.rt-unknown .status-dot { background: var(--text-muted); }
 .index-bars { display: flex; flex-direction: column; gap: 6px; }
 .index-bar-row { display: grid; grid-template-columns: 60px 1fr 30px; align-items: center; gap: 8px; }
 .index-label { font-size: 11px; color: var(--text-muted); text-align: right; }

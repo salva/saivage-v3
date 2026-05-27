@@ -24,11 +24,11 @@
         />
 
         <main class="workspace-content">
-          <div v-if="showAuthBanner" class="auth-required-banner" role="alert">
+          <div v-if="showAuthBanner" class="entry-danger auth-banner" role="alert" data-testid="api-auth-banner">
             <strong>API token required</strong>
             <span>Set a valid API token to load secured runtime data.</span>
-            <button type="button" class="auth-banner-action" @click="openTokenFromAuthBanner">Open Token modal</button>
-            <button type="button" class="auth-banner-dismiss" aria-label="Dismiss API token banner" @click="dismissAuthBanner">Dismiss</button>
+            <Button class="auth-banner-action" size="sm" variant="ghost" @click="openTokenFromAuthBanner">Open Token modal</Button>
+            <Button class="auth-banner-dismiss" size="sm" variant="ghost" aria-label="Dismiss API token banner" @click="dismissAuthBanner">Dismiss</Button>
           </div>
           <router-view v-slot="{ Component }">
             <transition name="fade" mode="out-in">
@@ -60,6 +60,7 @@ import WorkspaceHeader from './WorkspaceHeader.vue';
 import ApiTokenEntry from '../auth/ApiTokenEntry.vue';
 import AnalystChatPanel from '../chat/AnalystChatPanel.vue';
 import AnalystToaster from '../chat/AnalystToaster.vue';
+import Button from '../ui/Button.vue';
 import { useWsStore } from '../../stores/ws';
 import { useRuntimeStore } from '../../stores/runtime';
 import { getAuthToken } from '../../api/auth';
@@ -118,6 +119,7 @@ const runtimeStatusLabel = computed(() => statusLabel.value);
 const isRuntimeStale = computed(() => isStale.value);
 const runtimeUnauthorized = computed(() => unauthorized.value);
 function handleKeydown(event: KeyboardEvent): void {
+  if (document.body.dataset.modalOpen === 'true') return;
   const target = event.target as HTMLElement;
   if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable) return;
   const key = event.key;
@@ -199,7 +201,7 @@ onUnmounted(() => {
   background: var(--bg);
 }
 
-.auth-required-banner {
+.auth-banner {
   position: sticky;
   top: 0;
   z-index: 20;
@@ -207,22 +209,14 @@ onUnmounted(() => {
   align-items:center;
   gap:10px;
   padding:10px 14px;
-  background:var(--entry-danger-bg);
-  border-bottom:1px solid var(--danger);
+  border-left:0;
+  border-right:0;
+  border-top:0;
+  border-radius:0;
   color:var(--text);
   font-size:13px;
 }
-.auth-required-banner strong { color:var(--danger); }
-.auth-banner-action,.auth-banner-dismiss {
-  border:1px solid var(--border);
-  border-radius:6px;
-  background:var(--surface-1);
-  color:var(--text);
-  padding:5px 9px;
-  cursor:pointer;
-  font-family:inherit;
-}
-.auth-banner-action { color:var(--accent-2); border-color:var(--accent-2); }
+.auth-banner strong { color:var(--danger); }
 .auth-banner-dismiss { margin-left:auto; }
 
 .fade-enter-active,
