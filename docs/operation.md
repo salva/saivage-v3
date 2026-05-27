@@ -328,18 +328,18 @@ Every current operator-facing Fastify or contract-mounted route is listed exactl
 | `GET /api/cards/:id/history` | List card-history headers. | `src/contracts/operator-api.ts:347 "path: '/api/cards/:id/history'"` |
 | `GET /api/cards/:id` | Read card detail with children and ancestors. | `src/contracts/operator-api.ts:335 "path: '/api/cards/:id'"` |
 | `GET /api/cards` | List cards. | `src/contracts/operator-api.ts:325 "path: '/api/cards'"` |
-| `GET /api/chats/:sessionId` | Read an analyst chat transcript. | `src/server/routes/chats-files-debug.ts:114` |
-| `GET /api/chats` | List analyst chat sessions. | `src/server/routes/chats-files-debug.ts:81` |
+| `GET /api/chats/:sessionId` | Read an analyst chat transcript. | `src/server/routes/chats-files-debug.ts:86` |
+| `GET /api/chats` | List analyst chat sessions. | `src/server/routes/chats-files-debug.ts:74` |
 | `GET /api/config` | Return redacted loaded configuration and warnings. | `src/server/routes/runtime-config-notes.ts:180` |
 | `GET /api/control-actions` | List control-action audit entries. | `src/server/routes/runtime-config-notes.ts:165` |
-| `GET /api/debug/doctor` | Run persisted-card consistency checks. | `src/server/routes/chats-files-debug.ts:392` |
-| `GET /api/debug/errors` | Read runtime error records. | `src/server/routes/chats-files-debug.ts:342` |
-| `GET /api/debug/state` | Dump runtime and card-index debug state. | `src/server/routes/chats-files-debug.ts:307` |
-| `GET /api/debug/supervision` | Read content-supervision review/quarantine summary. | `src/server/routes/chats-files-debug.ts:457` |
-| `GET /api/debug/timeline` | Read runtime event timeline records. | `src/server/routes/chats-files-debug.ts:367` |
+| `GET /api/debug/doctor` | Run persisted-card consistency checks. | `src/server/routes/chats-files-debug.ts:200` |
+| `GET /api/debug/errors` | Read runtime error records. | `src/server/routes/chats-files-debug.ts:178` |
+| `GET /api/debug/state` | Dump runtime and card-index debug state. | `src/server/routes/chats-files-debug.ts:167` |
+| `GET /api/debug/supervision` | Read content-supervision review/quarantine summary. | `src/server/routes/chats-files-debug.ts:265` |
+| `GET /api/debug/timeline` | Read runtime event timeline records. | `src/server/routes/chats-files-debug.ts:189` |
 | `GET /api/events` | Query runtime/agent events with filters and pagination. | `src/server/routes/events.ts:42` |
-| `GET /api/files/content` | Preview contained text files with safety checks. | `src/server/routes/chats-files-debug.ts:238` |
-| `GET /api/files` | List contained project files. | `src/server/routes/chats-files-debug.ts:178` |
+| `GET /api/files/content` | Preview contained text files with safety checks. | `src/server/routes/chats-files-debug.ts:154` |
+| `GET /api/files` | List contained project files. | `src/server/routes/chats-files-debug.ts:141` |
 | `GET /api/mcp/status` | Show MCP server status plus optional serverAvailability. | `src/server/server.ts:113 "fastify.get('/api/mcp/status'"` |
 | `GET /api/mcp/tools` | Show MCP tool inventory and invocation stats. | `src/server/server.ts:114 "fastify.get('/api/mcp/tools'"` |
 | `GET /api/notes` | List unhandled notes. | `src/server/routes/runtime-config-notes.ts:180` |
@@ -354,7 +354,7 @@ Every current operator-facing Fastify or contract-mounted route is listed exactl
 | `GET /health/ready` | Public readiness probe with optional availability summary. | `src/contracts/operator-api.ts:260 "path: '/health/ready'"` |
 | `PATCH /api/cards/:id` | Update allowed card fields through audited mutation. | `src/contracts/operator-api.ts:405 "path: '/api/cards/:id'"` |
 | `POST /api/cards` | Create a card through audited mutation. | `src/contracts/operator-api.ts:393 "path: '/api/cards'"` |
-| `POST /api/chats/:sessionId` | Send an analyst chat message. | `src/server/routes/chats-files-debug.ts:148` |
+| `POST /api/chats/:sessionId` | Send an analyst chat message. | `src/server/routes/chats-files-debug.ts:99` |
 | `POST /api/notes/:id/acknowledge` | Mark an unhandled note handled. | `src/server/routes/runtime-config-notes.ts:180` |
 | `POST /api/notifications/:id/acknowledge` | Acknowledge a notification. | `src/server/routes/runtime-config-notes.ts:145` |
 | `POST /api/runtime/freeze` | Freeze runtime for handoff. | `src/server/routes/runtime-config-notes.ts:174` |
