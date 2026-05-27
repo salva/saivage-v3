@@ -262,6 +262,9 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Install web dependencies
+        run: cd web && npm ci
+
       - name: UI smoke validation profile
         run: npm run validate:ui-smoke
 
@@ -282,6 +285,9 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
+
+      - name: Install web dependencies
+        run: cd web && npm ci
 
       - name: Install Chromium browser
         run: npm run web:test:e2e:install
@@ -309,6 +315,9 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
+
+      - name: Install web dependencies
+        run: cd web && npm ci
 
       - name: Release validation profile
         run: npm run validate:release
