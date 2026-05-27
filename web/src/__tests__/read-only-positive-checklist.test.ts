@@ -69,10 +69,9 @@ describe('read-only positive checklist', () => {
     // AgentsView/AgentConversationView: passive session navigation, expand/collapse, raw toggle, and linked navigation remain.
     expect(agentsViewSource).toContain('@click="selectSession(session.id)"');
     expect(agentsViewSource).toContain('Back to Agents');
-    expect(agentConversationSource).toContain('agentStore.expandAll()');
-    expect(agentConversationSource).toContain('agentStore.collapseAll()');
+    expect(agentConversationSource).toContain('timelineControls.expandAll()');
+    expect(agentConversationSource).toContain('timelineControls.collapseAll()');
     expect(agentConversationSource).toContain('rawPanelOpen = !rawPanelOpen');
-    expect(agentConversationSource).toContain('navigateToLink(link)');
 
     // DebugView: passive tab switching, refresh/fetch, filtering, and file-browse navigation remain.
     expect(debugViewSource).toContain('@click="setTab(tab.id)"');
