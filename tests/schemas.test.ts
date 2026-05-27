@@ -332,10 +332,16 @@ describe('Core schemas still validate expected records', () => {
 });
 
 import {
+  EventRegistry as SchemaEventRegistry,
   agentEventKindValues,
   eventKindValues,
   runtimeEventKindValues,
-} from '../src/schemas/types.js';
+} from '../src/schemas/index.js';
+import {
+  EventRegistry as RuntimeEventRegistry,
+  eventKindValues as runtimePackageEventKindValues,
+  getEventSeverity,
+} from '../src/events/index.js';
 import {
   agentEventKindSchema,
   eventKindSchema,
@@ -353,6 +359,12 @@ describe('Runtime event catalog schemas', () => {
     expect(agentEventKindSchema.options).toEqual([...agentEventKindValues]);
     expect(eventKindSchema.options).toEqual([...eventKindValues]);
     expect(Object.keys(loggedEventSchemaByKind).sort()).toEqual([...eventKindValues].sort());
+  });
+
+  it('uses one bottom-layer event catalog for schemas and the events package', () => {
+    expect(runtimePackageEventKindValues).toEqual(eventKindValues);
+    expect(RuntimeEventRegistry).toBe(SchemaEventRegistry);
+    expect(getEventSeverity('runtime_diagnostic')).toBe(SchemaEventRegistry.runtime_diagnostic.severity);
   });
 
   it('strictly validates formerly missing event kinds with their payloads', () => {

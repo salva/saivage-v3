@@ -5,8 +5,9 @@ import {
   runtimeEventKindValues,
   type EventKind,
   type LoggedEvent,
+  agentRoleValues,
 } from './types.js';
-import { buildLoggedEventSchema } from '../events/index.js';
+import { buildLoggedEventSchema } from './event-catalog.js';
 
 
 export const cardTypeSchema = z.enum(['project','goal','architecture','code','test','doc','data','research','ops']);
@@ -35,7 +36,7 @@ export const diaryKindSchema = z.enum(['planner_invocation', 'planner_decision',
 export const diaryEntrySchema = z.object({ id: z.string().min(1), goal_card_id: z.string().min(1), invocation_id: z.string().min(1), kind: diaryKindSchema, timestamp: z.string().datetime(), input_summary: z.string().optional(), decision: z.string().optional(), rationale: z.string().optional(), created_cards: z.array(z.string()).optional(), updated_cards: z.array(z.string()).optional(), reviewed_cards: z.array(z.string()).optional(), assessment: reviewAssessmentSchema.optional(), raw: z.record(z.string(), z.unknown()).optional() });
 export const processStatusSchema = z.enum(['running', 'exited', 'failed', 'killed']);
 export const processRecordSchema = z.object({ id: z.string().min(1), card_id: z.string().min(1), command: z.string().min(1), command_hash: z.string().min(32), cwd: z.string().min(1), cwd_canonical: z.string().min(1), status: processStatusSchema, pid: z.number().int().nullable().optional(), started_at: z.string().datetime(), started_at_monotonic: z.number().finite(), completed_at: z.string().datetime().nullable().optional(), exit_code: z.number().int().nullable().optional(), signal: z.string().nullable().optional(), terminal_reason: z.enum(['exit', 'signal', 'spawn_error', 'lost', 'kill_unattached']).nullable().optional(), required_for_card_completion: z.boolean(), output_dir: z.string().min(1), stdout_path: z.string().min(1), stderr_path: z.string().min(1), combined_log_path: z.string().min(1), agent_session_id: z.string().nullable().optional(), goal_id: z.string().nullable().optional(), launch_reason: z.string().nullable().optional(), owner_kind: z.enum(['agent', 'operator', 'runtime']).nullable().optional(), background_policy: z.enum(['foreground']).nullable().optional(), process_group_id: z.number().int().nonnegative().nullable().optional(), reattach_state: z.enum(['attached', 'reattached', 'lost']).nullable().optional(), failure_classification: z.enum(['lost', 'spawn_error']).nullable().optional(), reattach_error: z.string().nullable().optional() });
-export const agentRoleSchema = z.enum(['analyst', 'planner', 'executor', 'reviewer', 'content_supervisor']);
+export const agentRoleSchema = z.enum(agentRoleValues);
 export const sessionStatusSchema = z.enum(['active', 'waiting', 'inactive', 'done', 'blocked', 'failed']);
 export const agentSessionSchema = z.object({ id: z.string().min(1), role: agentRoleSchema, goal_card_id: z.string().nullable().optional(), card_id: z.string().nullable().optional(), status: sessionStatusSchema, started_at: z.string().datetime(), completed_at: z.string().datetime().nullable().optional(), model: z.string().optional() });
 export const messageRoleSchema = z.enum(['user', 'assistant', 'system', 'tool']);

@@ -1,7 +1,19 @@
 export {
+  EventRegistry,
   eventKindValues,
   runtimeEventKindValues,
   agentEventKindValues,
+  trackedEventKindValues,
+  broadcastEventKindValues,
+  operatorBroadcastEventKindValues,
+  isOperatorBroadcastEventKind,
+  getEventSeverity,
+  buildLoggedEventSchema,
+} from './event-catalog.js';
+export {
+  agentRoleValues,
+  agentInvocationRoleValues,
+  operationalAgentRoleValues,
 } from './types.js';
 export type {
   CardType,
@@ -46,6 +58,8 @@ export type {
   ProcessStatus,
   ProcessRecord,
   AgentRole,
+  AgentInvocationRole,
+  OperationalAgentRole,
   SessionStatus,
   AgentSession,
   MessageRole,
@@ -131,6 +145,14 @@ export type {
   EventPayloadByKind,
   EventKind,
 } from './types.js';
+export type {
+  SeverityLevel,
+  OutboundPolicy,
+  EventDomain,
+  EventPayload,
+  EventSeverity,
+  OperatorBroadcastEventKind,
+} from './event-catalog.js';
 export {
   cardTypeSchema,
   cardStatusSchema,

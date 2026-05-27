@@ -71,7 +71,12 @@ export interface ReviewerResult { result: 'pass' | 'needs_corrections'; summary:
 export interface ReviewAssessment extends ReviewerResult { assessment_id: string; at: string; reviewer_session_id?: string; goal_card_id?: string; id?: string; created_at?: string; }
 export type ProcessStatus = 'running' | 'exited' | 'failed' | 'killed';
 export interface ProcessRecord { id: string; card_id: string; command: string; command_hash: string; cwd: string; cwd_canonical: string; status: ProcessStatus; pid?: number | null; started_at: string; started_at_monotonic: number; completed_at?: string | null; exit_code?: number | null; signal?: string | null; terminal_reason?: 'exit' | 'signal' | 'spawn_error' | 'lost' | 'kill_unattached' | null; required_for_card_completion: boolean; output_dir: string; stdout_path: string; stderr_path: string; combined_log_path: string; agent_session_id?: string | null; goal_id?: string | null; launch_reason?: string | null; owner_kind?: 'agent' | 'operator' | 'runtime' | null; background_policy?: 'foreground' | null; process_group_id?: number | null; reattach_state?: 'attached' | 'reattached' | 'lost' | null; failure_classification?: 'lost' | 'spawn_error' | null; reattach_error?: string | null; }
-export type AgentRole = 'analyst' | 'planner' | 'executor' | 'reviewer' | 'content_supervisor';
+export const agentRoleValues = ['analyst', 'planner', 'executor', 'reviewer', 'content_supervisor'] as const;
+export const agentInvocationRoleValues = ['planner', 'executor', 'reviewer'] as const;
+export const operationalAgentRoleValues = ['planner', 'executor', 'reviewer', 'analyst'] as const;
+export type AgentRole = typeof agentRoleValues[number];
+export type AgentInvocationRole = typeof agentInvocationRoleValues[number];
+export type OperationalAgentRole = typeof operationalAgentRoleValues[number];
 export type SessionStatus = 'active' | 'waiting' | 'inactive' | 'done' | 'blocked' | 'failed';
 export interface AgentSession { id: string; role: AgentRole; goal_card_id?: string | null; card_id?: string | null; status: SessionStatus; started_at: string; completed_at?: string | null; model?: string; }
 export type MessageRole = 'user' | 'assistant' | 'system' | 'tool';
@@ -105,9 +110,8 @@ export interface SkillTrigger { type: TriggerType; pattern: string; }
 export interface SkillIndexEntry { name: string; file: string; target_agents: AgentRole[]; triggers: SkillTrigger[]; updated_at: string; }
 
 
-import { eventKindValues, runtimeEventKindValues, agentEventKindValues } from '../events/index.js';
-import type { EventKind } from '../events/index.js';
-export { eventKindValues, runtimeEventKindValues, agentEventKindValues, type EventKind };
+import type { EventKind } from './event-catalog.js';
+export { eventKindValues, runtimeEventKindValues, agentEventKindValues, type EventKind } from './event-catalog.js';
 export type RuntimeEventKind = EventKind;
 export type AgentEventKind = EventKind;
 export interface BaseEvent { id: string; kind: EventKind; timestamp: string; session_id?: string; goal_id?: string; card_id?: string; }
