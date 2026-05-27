@@ -3,7 +3,8 @@ import source from '../views/DebugView.vue?raw';
 
 describe('DebugView processes tab after S06', () => {
   it('preserves process inspection and log browsing but removes termination controls', () => {
-    expect(source).toContain("label: 'Processes'");
+    expect(source).toContain("localActiveTab === 'processes'");
+    expect(source).toContain('<h4 class="debug-section-title">Processes</h4>');
     expect(source).toContain('debugStore.fetchProcesses()');
     expect(source).toContain('sortedProcesses');
     expect(source).toContain('processLogEntries(proc)');
