@@ -1,14 +1,14 @@
 import type { FastifyInstance } from 'fastify';
-import { readRuntimeState } from '../../runtime/index.js';
+import { readRuntimeState } from '../../runtime/state-api.js';
 import type { RuntimeState } from '../../schemas/index.js';
-import type { ActiveRuntime } from '../../runtime/index.js';
-import type { ProviderEntry, SaivageConfig } from '../../agents/index.js';
+import type { ActiveRuntime } from '../../runtime/control-api.js';
+import type { ProviderEntry, SaivageConfig } from '../../agents/config-api.js';
 import { redactForOutbound } from '../../redaction/index.js';
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { listControlActions } from '../../persistence/index.js';
 import { type ServerAvailability } from '../../contracts/index.js';
-import { readLatestLlmExchange, LlmExchangeCorruptedError } from '../../agents/index.js';
+import { readLatestLlmExchange, LlmExchangeCorruptedError } from '../../agents/session-api.js';
 
 
 const GLOBAL_ANALYST_SESSION_ID = 'analyst';

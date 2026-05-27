@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify';
-import type { ActiveRuntime } from '../../runtime/index.js';
-import type { McpManager } from '../../mcp/index.js';
+import type { ActiveRuntime } from '../../runtime/control-api.js';
+import type { McpManager } from '../../mcp/manager-api.js';
 import type { TelegramBot } from '../../telegram/index.js';
 import { clearProjectNotificationDeliveryAdapters } from '../../notifications/index.js';
 import { resetChatRouteState } from '../routes/chats-files-debug.js';

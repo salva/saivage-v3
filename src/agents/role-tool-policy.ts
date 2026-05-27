@@ -1,4 +1,4 @@
-import type { McpToolAnnotations } from '../mcp/index.js';
+import type { McpToolAnnotations } from '../mcp/protocol-api.js';
 import type { OperationalAgentRole } from '../schemas/index.js';
 import { MCP_WRAPPER_TOOL_NAMES, PLANNER_CONTROL_TOOL_NAMES, ROLE_TOOL_NAMES, SKILL_TOOL_NAMES, WORKSPACE_TOOL_NAMES } from './agent-tool-catalog.js';
 

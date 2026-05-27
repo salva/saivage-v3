@@ -1,7 +1,7 @@
 import { join } from 'node:path';
 import { createNotificationDeliveryService } from './notification-delivery.js';
-import { CardStore } from '../cards/index.js';
-import { listSessions, getSession } from '../agents/index.js';
+import { CardStore } from '../cards/store-api.js';
+import { listSessions, getSession } from '../agents/session-api.js';
 import type { AgentRole, AgentSession, ControlActionSurface, NoteAuthor } from '../schemas/index.js';
 
 export interface NotificationTriggerTarget {

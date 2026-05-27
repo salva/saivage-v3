@@ -1,8 +1,8 @@
 import { basename } from 'node:path';
-import { CardStore } from '../../cards/index.js';
+import { CardStore } from '../../cards/store-api.js';
 import type { CardHistoryEntry, CardRecord } from '../../schemas/index.js';
 import { allowedActions } from '../../permissions/index.js';
-import { readRuntimeState } from '../../runtime/index.js';
+import { readRuntimeState } from '../../runtime/state-api.js';
 import { redactForOutbound } from '../../redaction/index.js';
 import type { ServerAvailability } from '../../contracts/index.js';
 

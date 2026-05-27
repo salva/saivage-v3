@@ -1,6 +1,6 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { GLOBAL_ANALYST_SESSION_ID, getOrCreateAnalystSession } from '../../agents/index.js';
+import { GLOBAL_ANALYST_SESSION_ID, getOrCreateAnalystSession } from '../../agents/analyst-api.js';
 
 const SAFE_SESSION_ID_RE = /^[a-zA-Z0-9_-]+$/;
 

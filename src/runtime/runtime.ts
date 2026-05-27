@@ -18,7 +18,7 @@ import type {
   RuntimeActivationRecord,
 } from '../schemas/index.js';
 import { createActivationCompletionEnvelope, parseActivationCompletionEnvelope } from '../schemas/index.js';
-import { CardStore, PROJECT_CARD_ID } from '../cards/index.js';
+import { CardStore, PROJECT_CARD_ID } from '../cards/store-api.js';
 import { STARTABLE_STATES, RESTARTABLE_STATES } from '../permissions/index.js';
 import { consumeChangedCardActivation, injectQueuedSyntheticPlannerNotes, queueSyntheticPlannerNote, drainSyntheticPlannerNotes } from '../agents/analyst-stage6.js';
 import { reconcileOrphanedAgentSessions } from '../agents/session-persistence.js';
@@ -56,7 +56,7 @@ import {
 } from './process-runner.js';
 import type { RuntimeDisposeReportEntry } from './lifecycle.js';
 import { cleanAll, cleanStaleStash, cleanStalePreviews, cleanStaleUploads } from '../runtime/cleanup.js';
-import { registerArtifact, registerAttachment } from '../cards/index.js';
+import { registerArtifact, registerAttachment } from '../cards/artifact-api.js';
 import type { ProcessRecord } from '../schemas/index.js';
 import { EventLogger } from '../observability/index.js';
 import { ErrorLogger } from '../observability/index.js';

@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { initProjectTree } from '../../src/persistence/file-tree.js';
 import { initRuntimeState, updateRuntimeState } from '../../src/runtime/state.js';
-import { CardStore } from '../../src/cards/index.js';
+import { CardStore } from '../../src/cards/store-api.js';
 import {
   buildCardRunsResponse,
   buildRuntimeStatusReadModel,

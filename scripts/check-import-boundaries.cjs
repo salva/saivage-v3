@@ -26,6 +26,8 @@ const PREEXISTING_DEEP_IMPORT_EXCEPTIONS = new Set([
   'src/tools/agent-tools.ts->agents/analyst-tools.js',
 ]);
 const PREEXISTING_SERVER_IMPORT_EXCEPTIONS = new Set(['src/runtime/active-runtime.ts']);
+const ROOT_IMPORT_FORBIDDEN_PACKAGES = new Set(['agents', 'runtime', 'cards', 'mcp', 'server']);
+const EXPLICIT_PUBLIC_ENTRYPOINT_RE = /^(?:config|session|analyst|execution|tool|state|control|process|store|lifecycle|artifact|manager|protocol|status|server)-api(?:\.js|\.ts)?$/;
 
 function walk(dir) {
   const out = [];
@@ -60,8 +62,15 @@ function isPackageRootImport(parts) {
   return parts.length === 1 || (parts.length === 2 && /^index(?:\.[cm]?js|\.ts)?$/.test(parts[1]));
 }
 
+function isExplicitPublicEntrypoint(parts) {
+  return parts.length === 2 && EXPLICIT_PUBLIC_ENTRYPOINT_RE.test(parts[1]);
+}
+
 function isCrossPackageAllowed(fromPkg, parts) {
-  return parts[0] === fromPkg || isPackageRootImport(parts);
+  if (parts[0] === fromPkg) return true;
+  if (isExplicitPublicEntrypoint(parts)) return true;
+  if (isPackageRootImport(parts)) return !ROOT_IMPORT_FORBIDDEN_PACKAGES.has(parts[0]);
+  return false;
 }
 
 function normalizedParts(parts) { return parts.join('/').replace(/\.ts$/, '.js'); }
@@ -89,20 +98,25 @@ function isEventSchemaCatalogAllowed(fromPkg, parts) {
 
 function runSelfTest() {
   const cases = [
-    { fromPkg: 'agents', parts: ['cards'], ok: true, label: '@saivage/cards root' },
-    { fromPkg: 'agents', parts: ['cards', 'index.js'], ok: true, label: '../cards/index.js root' },
+    { fromPkg: 'agents', parts: ['cards'], ok: false, label: '@saivage/cards root is no longer a cross-package API' },
+    { fromPkg: 'agents', parts: ['cards', 'index.js'], ok: false, label: '../cards/index.js root is no longer a cross-package API' },
+    { fromPkg: 'agents', parts: ['cards', 'store-api.js'], ok: true, label: '../cards/store-api.js explicit public API' },
     { fromPkg: 'agents', parts: ['cards', 'card-store.js'], ok: false, label: '../cards/card-store.js two-part deep' },
     { fromPkg: 'agents', parts: ['cards', 'card-store'], ok: false, label: '@saivage/cards/card-store two-part deep' },
     { fromPkg: 'cards', parts: ['cards', 'card-store.js'], ok: true, label: 'same-package deep' },
     { fromPkg: 'runtime', parts: ['agents', 'nested', 'module.js'], ok: false, label: 'runtime must not import agent internals' },
     { fromPkg: 'runtime', parts: ['agents', 'index.js'], ok: false, label: 'runtime must not import agents index' },
+    { fromPkg: 'server', parts: ['runtime', 'control-api.js'], ok: true, label: 'server may use runtime control API' },
+    { fromPkg: 'server', parts: ['runtime'], ok: false, label: 'server must not use runtime root' },
     { fromPkg: 'runtime', parts: ['agents', 'default-agent-execution.js'], ok: true, label: 'runtime may use exact default execution factory' },
     { fromPkg: 'agents', parts: ['runtime'], ok: false, label: 'agents must not use runtime package root' },
     { fromPkg: 'agents', parts: ['runtime', 'index.js'], ok: false, label: 'agents must not use runtime index' },
     { fromPkg: 'agents', parts: ['runtime', 'state.js'], ok: false, label: 'agents must not deep-import runtime state' },
+    { fromPkg: 'agents', parts: ['runtime', 'state-api.js'], ok: false, label: 'agents still cannot depend on runtime state API' },
     { fromPkg: 'schemas', parts: ['events', 'index.js'], ok: false, label: 'schemas must not import events' },
     { fromPkg: 'events', parts: ['schemas', 'event-catalog.js'], ok: true, label: 'events may import schema catalog owner' },
-    { fromPkg: null, parts: ['agents', 'index.js'], ok: true, label: 'root entrypoint may import agents index' },
+    { fromPkg: null, parts: ['agents', 'index.js'], ok: false, label: 'root entrypoint must not import central package root' },
+    { fromPkg: null, parts: ['agents', 'tool-api.js'], ok: true, label: 'root entrypoint may import explicit agents tool API' },
     { fromPkg: null, parts: ['agents', 'authz.js'], ok: false, label: 'root entrypoint must not deep-import agents authz' },
   ];
   const failures = [];

@@ -1,8 +1,8 @@
 import { join } from 'node:path';
 import type { ActiveCardRun, AgentSession, CardRecord, CardStatus } from '../../schemas/index.js';
-import { CardStore } from '../../cards/index.js';
-import { getSession, listSessions } from '../../agents/index.js';
-import { readRuntimeState } from '../../runtime/index.js';
+import { CardStore } from '../../cards/store-api.js';
+import { getSession, listSessions } from '../../agents/session-api.js';
+import { readRuntimeState } from '../../runtime/state-api.js';
 
 export interface CardBreadcrumbNode { card_id: string; card_type: string; title: string; status_text?: string; }
 export interface DormantPlannerRow { goal_card_id: string; planner_session_id: string; latest_self_report: Record<string, unknown> | null; }

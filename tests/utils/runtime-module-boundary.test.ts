@@ -1,20 +1,25 @@
 import { describe, it, expect } from '@jest/globals';
 
+import { ActiveRuntime } from '../../src/runtime/index.js';
+import { ActiveRuntime as ControlApiActiveRuntime } from '../../src/runtime/control-api.js';
 import {
-  ActiveRuntime,
   readRuntimeState,
   updateRuntimeState,
   appendRuntimeRun,
   upsertRuntimeActivation,
+} from '../../src/runtime/state-api.js';
+import {
   listProcesses,
   tailOutput,
   getProcess,
+} from '../../src/runtime/process-api.js';
+import {
   pauseRuntimeControl,
   resumeRuntimeControl,
   RESUME_FROM_FREEZE_MESSAGE,
   readFreezeManifest,
   clearFreezeManifest,
-} from '../../src/runtime/index.js';
+} from '../../src/runtime/control-api.js';
 import { ActiveRuntime as LifecycleActiveRuntime } from '../../src/runtime/lifecycle.js';
 import { ActiveRuntime as RuntimeActiveRuntime } from '../../src/runtime/active-runtime.js';
 import { initRuntimeState, runtimeStatePath } from '../../src/runtime/state.js';
@@ -28,12 +33,13 @@ import { tmpdir } from 'node:os';
 import { initProjectTree } from '../../src/persistence/file-tree.js';
 
 describe('runtime module ownership boundary', () => {
-  it('exports the active runtime handle through the public src/runtime package index', () => {
+  it('keeps the runtime root limited to the stable runtime handle', () => {
     expect(ActiveRuntime).toBe(LifecycleActiveRuntime);
     expect(ActiveRuntime).toBe(RuntimeActiveRuntime);
+    expect(ActiveRuntime).toBe(ControlApiActiveRuntime);
   });
 
-  it('exports source-proven runtime state helpers through the public src/runtime package index', () => {
+  it('exports source-proven runtime state helpers through state-api', () => {
     const root = mkdtempSync(join(tmpdir(), 'runtime-boundary-state-'));
     try {
       initProjectTree(root);
@@ -49,19 +55,16 @@ describe('runtime module ownership boundary', () => {
     }
   });
 
-  it('exports source-proven process inspection helpers through the public src/runtime package index', () => {
+  it('exports source-proven process inspection helpers through process-api', () => {
     expect(listProcesses).toBe(directListProcesses);
     expect(tailOutput).toBe(directTailOutput);
     expect(getProcess).toBe(directGetProcess);
   });
 
-  it('exports runtime-owned pause/resume control authority from the src/runtime index', () => {
+  it('exports runtime-owned pause/resume and freeze authority through control-api', () => {
     expect(pauseRuntimeControl).toBe(directPauseRuntimeControl);
     expect(resumeRuntimeControl).toBe(directResumeRuntimeControl);
     expect(RESUME_FROM_FREEZE_MESSAGE).toBe(directResumeFromFreezeMessage);
-  });
-
-  it('exports source-proven freeze manifest readers from the src/runtime package index', () => {
     expect(readFreezeManifest).toBe(directReadFreezeManifest);
     expect(clearFreezeManifest).toBe(directClearFreezeManifest);
   });

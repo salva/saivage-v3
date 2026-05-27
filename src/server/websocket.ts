@@ -10,13 +10,13 @@
 
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import type { WebSocket } from 'ws';
-import { getOrCreateAnalystSession, getAnalystHandler, resetAnalystHandlerCache } from '../agents/index.js';
+import { getOrCreateAnalystSession, getAnalystHandler, resetAnalystHandlerCache } from '../agents/analyst-api.js';
 import type { EventBus, Subscription, DomainEvent } from '../events/index.js';
 import { toLoggedEvent } from '../events/index.js';
 import { operatorBroadcastEventKindValues, type OperatorBroadcastEventKind } from '../events/index.js';
 import { redactOperatorErrorMessage } from '../workspace/index.js';
-import { sanitizeAnalystPayload, sanitizeAnalystText } from '../agents/index.js';
-import type { ActiveRuntime } from '../runtime/index.js';
+import { sanitizeAnalystPayload, sanitizeAnalystText } from '../agents/analyst-api.js';
+import type { ActiveRuntime } from '../runtime/control-api.js';
 import { InboundAnalystMessageEnvelopeSchema, buildConnectedEnvelope, validateKnownWsEnvelope } from '../contracts/index.js';
 import type { WsEnvelope, WsEventType } from '../contracts/index.js';
 import { getAuthPolicy } from './auth-policy.js';

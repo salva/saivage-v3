@@ -6,13 +6,14 @@ import { tmpdir } from 'node:os';
 import { AgentAdapter } from '../../src/agents/agent-adapter.js';
 import type { AgentRole } from '../../src/agents/agent-adapter.js';
 import type { ToolDefinition } from '../../src/agents/llm-contracts.js';
+import type { McpToolInvocationPort } from '../../src/mcp/manager-api.js';
 import {
   ServerNotRunningError,
   ToolNotFoundError,
   InvalidArgumentsError,
   TransportError,
   TimeoutError,
-} from '../../src/mcp/index.js';
+} from '../../src/mcp/protocol-api.js';
 
 function createMinimalAdapter(tmpDir: string): AgentAdapter {
   const minimalConfig = {
@@ -53,7 +54,7 @@ describe('AgentAdapter role tool + MCP policy', () => {
       invokeTool: jest.fn(),
       getServerTools: jest.fn(),
     };
-    adapter.setMcpManager(mockMcpManager as unknown as import('../../src/mcp/index.js').McpToolInvocationPort);
+    adapter.setMcpManager(mockMcpManager as unknown as McpToolInvocationPort);
   });
 
   afterEach(() => {

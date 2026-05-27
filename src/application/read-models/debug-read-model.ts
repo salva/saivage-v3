@@ -1,7 +1,8 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { CardStore } from '../../cards/index.js';
-import { readFreezeManifest, readRuntimeState } from '../../runtime/index.js';
+import { CardStore } from '../../cards/store-api.js';
+import { readFreezeManifest } from '../../runtime/control-api.js';
+import { readRuntimeState } from '../../runtime/state-api.js';
 import { runtimeStateSchema } from '../../schemas/index.js';
 import type { RuntimeState } from '../../schemas/index.js';
 import { redactForOutbound } from '../../redaction/index.js';

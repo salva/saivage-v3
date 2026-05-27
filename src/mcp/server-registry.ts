@@ -1,5 +1,5 @@
 import type { ChildProcess } from 'node:child_process';
-import { loadConfig, type SaivageConfig } from '../agents/index.js';
+import { loadConfig, type SaivageConfig } from '../agents/config-api.js';
 import type { McpTransport } from './protocol.js';
 
 export interface McpServerHandle {

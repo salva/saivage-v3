@@ -1,5 +1,6 @@
 import type { ContentSupervisor } from '../workspace/index.js';
-import { McpInvokeError, type McpToolDefinition, type McpToolInvocationPort } from '../mcp/index.js';
+import type { McpToolInvocationPort } from '../mcp/manager-api.js';
+import { McpInvokeError, type McpToolDefinition } from '../mcp/protocol-api.js';
 import type { ToolRuntime, AGENT_TOOL_DEFINITIONS } from '../tools/index.js';
 import * as analystTools from './analyst-tools.js';
 import { loadSkill, LoadSkillError } from './skill-tools.js';

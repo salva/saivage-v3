@@ -1,5 +1,5 @@
 import type { RuntimeState } from '../schemas/index.js';
-import { PROJECT_CARD_ID } from '../cards/index.js';
+import { PROJECT_CARD_ID } from '../cards/store-api.js';
 import type {
   RuntimeCardPort,
   RuntimeClockPort,

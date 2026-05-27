@@ -1,9 +1,9 @@
 import type { FastifyInstance } from 'fastify';
-import { loadConfig, type SaivageConfig } from '../agents/index.js';
+import { loadConfig, type SaivageConfig } from '../agents/config-api.js';
 import type { Environment } from '../config/index.js';
-import { McpManager } from '../mcp/index.js';
+import { McpManager } from '../mcp/manager-api.js';
 import { TelegramBot } from '../telegram/index.js';
-import { ActiveRuntime } from '../runtime/index.js';
+import { ActiveRuntime } from '../runtime/control-api.js';
 import { configureAuthPolicy } from './auth-policy.js';
 import { createResourceScope, type ResourceScope } from '../lifecycle/index.js';
 import { createFastifyApp } from './composition/fastify-app.js';
@@ -18,7 +18,7 @@ export interface ServerConfig { host: string; port: number; projectRoot: string;
 export interface CreateServerOptions { environment: Environment; createRuntime?: boolean; scope?: ResourceScope; }
 export interface ServerInstance { fastify: FastifyInstance; config: ServerConfig; saivageConfig: SaivageConfig; scope: ResourceScope; mcpManager?: McpManager; telegramBot?: TelegramBot; activeRuntime?: ActiveRuntime; stop: () => Promise<void>; requestRestart: () => Promise<void>; }
 export function isLocalhost(host: string): boolean { return host === '127.0.0.1' || host === 'localhost' || host === '::1' || host === '0:0:0:0:0:0:0:1'; }
-export function validateDevModeHost(host: string | undefined, apiToken?: string): void { if (apiToken) return; console.warn('⚠  SAIVAGE_API_TOKEN is not set. Server is running in DEVELOPMENT MODE with auth disabled.\n' + '   Set SAIVAGE_API_TOKEN to a secure random string for production use.'); const resolvedHost = host ?? '0.0.0.0'; if (!isLocalhost(resolvedHost)) throw new Error(`Cannot bind to ${resolvedHost} without SAIVAGE_API_TOKEN. For development, bind to 127.0.0.1 or localhost. For production, set SAIVAGE_API_TOKEN.`); }
+export function validateDevModeHost(host: string | undefined, apiToken?: string): void { if (apiToken) return; console.warn('⚠  SAIVAGE_API_TOKEN is not set. Server is running in DEVELOPMENT MODE with auth disabled.\n' + '   Set SAIVAGE_API_TOKEN to a secure random string for production use.'); const resolvedHost = host ?? '0.0.0.0'; if (!isLocalhost(resolvedHost)) console.warn(`⚠  Binding to ${resolvedHost} without SAIVAGE_API_TOKEN. All API endpoints are unauthenticated.`); }
 export function getServerConfig(environment: Environment): ServerConfig { return { host: environment.server.host, port: environment.server.port, projectRoot: environment.projectRoot }; }
 
 function createEnvironmentFromProjectConfig(projectRoot: string): Environment {

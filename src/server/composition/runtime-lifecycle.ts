@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify';
-import type { SaivageConfig } from '../../agents/index.js';
-import { ActiveRuntime } from '../../runtime/index.js';
+import type { SaivageConfig } from '../../agents/config-api.js';
+import { ActiveRuntime } from '../../runtime/control-api.js';
 import { wireRuntimeEvents } from '../websocket.js';
 
 export type StartupFailure = { code: string; error: unknown };

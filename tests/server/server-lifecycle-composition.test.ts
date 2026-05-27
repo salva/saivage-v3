@@ -6,7 +6,7 @@ import { createFastifyApp } from '../../src/server/composition/fastify-app.js';
 import { stopServerResources } from '../../src/server/composition/server-shutdown.js';
 import { startActiveRuntime } from '../../src/server/composition/runtime-lifecycle.js';
 import { initProjectTree } from '../../src/persistence/file-tree.js';
-import type { SaivageConfig } from '../../src/agents/index.js';
+import type { SaivageConfig } from '../../src/agents/config-api.js';
 
 function config(): SaivageConfig {
   return {

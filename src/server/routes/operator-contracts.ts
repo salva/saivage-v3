@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify';
-import type { ActiveRuntime } from '../../runtime/index.js';
-import { GLOBAL_ANALYST_SESSION_ID, getAnalystHandler } from '../../agents/index.js';
+import type { ActiveRuntime } from '../../runtime/control-api.js';
+import { GLOBAL_ANALYST_SESSION_ID, getAnalystHandler } from '../../agents/analyst-api.js';
 import { operatorApiContracts } from '../../contracts/index.js';
 import {
   buildCardRunsResponse,
@@ -11,7 +11,7 @@ import {
   WorkspaceFileReadModelService,
   isSafeChatSessionId,
 } from '../../application/read-models/index.js';
-import type { McpStatusProvider, McpToolsReadModelProvider } from '../../mcp/index.js';
+import type { McpStatusProvider, McpToolsReadModelProvider } from '../../mcp/manager-api.js';
 import { redactOperatorErrorMessage } from '../../workspace/index.js';
 import { buildServerAvailability } from '../availability.js';
 import { ContractRuntime, type ContractHandler } from '../contract-runtime.js';

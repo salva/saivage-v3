@@ -1,7 +1,7 @@
 import type { FastifyInstance } from 'fastify';
-import type { SaivageConfig } from '../../agents/index.js';
-import type { ActiveRuntime } from '../../runtime/index.js';
-import type { McpManager } from '../../mcp/index.js';
+import type { SaivageConfig } from '../../agents/config-api.js';
+import type { ActiveRuntime } from '../../runtime/control-api.js';
+import type { McpManager } from '../../mcp/manager-api.js';
 import type { ServerAvailabilityInputs } from '../availability.js';
 import { buildServerAvailability } from '../availability.js';
 import { registerOperatorContractRoutes } from '../routes/operator-contracts.js';

@@ -21,7 +21,7 @@ import { EventLogger } from '../observability/index.js';
 import { ErrorLogger } from '../observability/index.js';
 import { SkillsEngine } from '../agents/skills-engine.js';
 import type { SaivageConfig } from '../agents/config-schema.js';
-import type { McpManager } from '../mcp/index.js';
+import type { McpManager } from '../mcp/manager-api.js';
 import type { RuntimeState, FreezeManifest } from '../schemas/index.js';
 import { appendRuntimeRun, readRuntimeState, upsertRuntimeActivation } from './state.js';
 

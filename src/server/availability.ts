@@ -1,6 +1,6 @@
-import type { McpStatusProvider } from '../mcp/index.js';
-import type { ActiveRuntime } from '../runtime/index.js';
-import { readRuntimeState } from '../runtime/index.js';
+import type { McpStatusProvider } from '../mcp/manager-api.js';
+import type { ActiveRuntime } from '../runtime/control-api.js';
+import { readRuntimeState } from '../runtime/state-api.js';
 import { redactOperatorErrorMessage } from '../workspace/index.js';
 import { redactSnippetForOutbound } from '../redaction/index.js';
 import type { ServerAvailability } from '../contracts/index.js';

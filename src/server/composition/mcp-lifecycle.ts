@@ -1,7 +1,7 @@
 import type { FastifyInstance } from 'fastify';
-import { McpManager } from '../../mcp/index.js';
+import { McpManager } from '../../mcp/manager-api.js';
 import type { ResourceScope } from '../../lifecycle/index.js';
-import type { ActiveRuntime } from '../../runtime/index.js';
+import type { ActiveRuntime } from '../../runtime/control-api.js';
 import type { StartupFailure } from './runtime-lifecycle.js';
 
 export interface McpStartupResult {

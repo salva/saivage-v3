@@ -2,10 +2,10 @@ import { randomUUID } from 'node:crypto';
 import type { CardRecord, CardStatus, ReviewAssessment, ReviewerIssue, ReviewerResult, RuntimeState } from '../schemas/index.js';
 import type { Recipient } from '../notifications/index.js';
 import { decide } from '../permissions/index.js';
-import { CardStore } from '../cards/index.js';
+import { CardStore } from '../cards/store-api.js';
 import { recordControlAction, stableStringify } from '../persistence/index.js';
 import { queueNotification } from '../notifications/index.js';
-import type { CardMutationContext } from '../cards/index.js';
+import type { CardMutationContext } from '../cards/store-api.js';
 
 export type PlannerToolErrorKind =
   | 'subtree_not_ready'

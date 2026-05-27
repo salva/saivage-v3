@@ -1,9 +1,9 @@
 import { readdirSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
-import { CardStore } from '../../cards/index.js';
+import { CardStore } from '../../cards/store-api.js';
 import { redactOperatorErrorMessage } from '../../workspace/index.js';
-import { resetAnalystHandlerCache } from '../../agents/index.js';
+import { resetAnalystHandlerCache } from '../../agents/analyst-api.js';
 import { listRecentReviews, listQuarantineIndex } from '../../workspace/index.js';
 import type { DoctorCheck, DoctorIssue, DoctorResponse } from '../../schemas/index.js';
 

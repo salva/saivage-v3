@@ -1,5 +1,5 @@
 import type { FastifyInstance } from 'fastify';
-import type { SaivageConfig } from '../../agents/index.js';
+import type { SaivageConfig } from '../../agents/config-api.js';
 import { setProjectNotificationDeliveryAdapters, clearProjectNotificationDeliveryAdapters } from '../../notifications/index.js';
 import {
   TelegramBot,
