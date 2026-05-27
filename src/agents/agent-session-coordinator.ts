@@ -106,7 +106,7 @@ export class AgentSessionCoordinator {
 
   buildNotificationInjectionMessage(notifications: NotificationQueueEntry[], sessionId: string) {
     const lines = ['## Queued notifications', '', ...notifications.map((notification) => this.formatNotificationGuidance(notification))];
-    return { id: `msg-${sessionId}-notification-injection`, session_id: sessionId, role: 'user' as const, kind: 'text' as const, content: lines.join('\\n'), timestamp: new Date().toISOString() };
+    return { id: `msg-${sessionId}-notification-injection`, session_id: sessionId, role: 'user' as const, kind: 'text' as const, content: lines.join('\\n'), round_id: `r-user-1`, message_index: 0, block_index: 0, timestamp: new Date().toISOString() };
   }
 
   buildModelMessages(sessionId: string) {

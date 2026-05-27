@@ -78,9 +78,20 @@ function readMessages(projectRoot: string, sessionId: string): AgentMessage[] {
   return lines.map((line) => agentMessageSchema.parse(JSON.parse(line)));
 }
 
+function stampForMessage(existing: AgentMessage[], message: { role: MessageRole; kind: MessageKind }): { round_id: string; message_index: number; block_index: number } {
+  const lastRound = [...existing].reverse().find((entry) => entry.round_id)?.round_id;
+  const nextUserRound = existing.filter((entry) => entry.role === 'user').length + 1;
+  if (message.role === 'user') return { round_id: `r-user-${nextUserRound}`, message_index: 0, block_index: 0 };
+  const round_id = lastRound ?? `r-assistant-${Math.max(1, existing.length + 1)}`;
+  const sameRound = existing.filter((entry) => entry.round_id === round_id);
+  const block_index = sameRound.length;
+  return { round_id, message_index: block_index, block_index };
+}
+
 function appendMessage(projectRoot: string, sessionId: string, message: { role: MessageRole; kind: MessageKind; content: string; tool?: string; tool_call_id?: string; }): AgentMessage {
   const existing = readMessages(projectRoot, sessionId);
-  const msg: AgentMessage = { id: newMessageId(sessionId, existing.length), session_id: sessionId, role: message.role, kind: message.kind, content: message.content, tool: message.tool, tool_call_id: message.tool_call_id, timestamp: now() };
+  const stamp = stampForMessage(existing, message);
+  const msg: AgentMessage = { id: newMessageId(sessionId, existing.length), session_id: sessionId, role: message.role, kind: message.kind, content: message.content, round_id: stamp.round_id, message_index: stamp.message_index, block_index: stamp.block_index, tool: message.tool, tool_call_id: message.tool_call_id, timestamp: now() };
   agentMessageSchema.parse(msg);
   const mp = messagesFilePath(projectRoot, sessionId);
   const line = JSON.stringify(msg) + '\n';
@@ -340,7 +351,7 @@ export class AnalystHandler {
       const history = readMessages(this.projectRoot, sessionId);
       const bounded = trimToCleanToolBoundary(history);
       const modelInput: AgentMessage[] = [
-        { id: `workspace-context-${sessionId}`, session_id: sessionId, role: 'system', kind: 'text', content: buildWorkspaceContextNote(workspaceContext), timestamp: now() },
+        { id: `workspace-context-${sessionId}`, session_id: sessionId, role: 'system', kind: 'text', content: buildWorkspaceContextNote(workspaceContext), round_id: `r-pre-1`, message_index: 0, block_index: 0, timestamp: now() },
         ...bounded,
       ];
 

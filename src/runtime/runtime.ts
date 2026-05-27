@@ -217,6 +217,7 @@ export class Runtime extends EventEmitter {
       edge.callerSessionId,
       edge.callerToolCallId,
       this.buildCardActivationOutcome(childCardId, outcome, summary),
+      { round_id: 'r-diagnostic-1', message_index: 0, block_index: 0 },
     );
   }
 
@@ -257,7 +258,7 @@ export class Runtime extends EventEmitter {
     const child = this.cardStore.read(childCardId);
     if (!child || !TERMINAL_STATUSES.has(child.status)) return false;
     const outcome = child.status === 'done' ? 'done' : child.status === 'cancelled' ? 'cancelled' : 'failed';
-    appendActivateCardToolResultOnce(join(this.projectRoot, '.saivage'), sessionId, toolCallId, this.buildCardActivationOutcome(childCardId, outcome, `Restart repair delivered terminal status '${child.status}' for card ${childCardId}.`));
+    appendActivateCardToolResultOnce(join(this.projectRoot, '.saivage'), sessionId, toolCallId, this.buildCardActivationOutcome(childCardId, outcome, `Restart repair delivered terminal status '${child.status}' for card ${childCardId}.`), { round_id: 'r-diagnostic-1', message_index: 0, block_index: 0 });
     return true;
   }
 
@@ -408,7 +409,7 @@ export class Runtime extends EventEmitter {
   }
 
   private appendPlannerResumeContext(goalId: string, plannerSessionId: string, resumeReason: 'initial' | 'reviewer_correction' | 'analyst_directive' | 'subtree_changed' | 'service_restart'): void {
-    appendMessage(join(this.projectRoot, '.saivage'), plannerSessionId, { role: 'user', kind: 'text', content: this.buildGoalContextBlock(goalId, resumeReason) });
+    appendMessage(join(this.projectRoot, '.saivage'), plannerSessionId, { role: 'user', kind: 'text', content: this.buildGoalContextBlock(goalId, resumeReason) }, { round_id: 'r-user-1', message_index: 0, block_index: 0 });
   }
 
   /** Build a card-context block (the card to execute + its parent goal) to attach to an executor prompt. */

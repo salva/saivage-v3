@@ -145,6 +145,9 @@ export async function compactSession(
         session_id: sessionId,
         role: 'system',
         kind: 'model_repair',
+        round_id: `r-compacted-${state.count + 1}`,
+        message_index: 0,
+        block_index: 0,
         content: `[CONTEXT COMPACTION #${state.count + 1}]\n\n` +
           `The conversation has been summarized to conserve context. ` +
           `Please re-read authoritative state from disk if needed.\n\n` +
@@ -215,6 +218,9 @@ function createFallbackMessages(
     session_id: sessionId,
     role: 'system',
     kind: 'model_repair',
+    round_id: `r-compacted-${compactionNum}`,
+    message_index: 0,
+    block_index: 0,
     content: `[CONTEXT COMPACTION #${compactionNum} — TRUNCATION FALLBACK]\n\n` +
       `The conversation history has been truncated to conserve context. ` +
       `${messages.length - keepCount} older messages were removed. ` +

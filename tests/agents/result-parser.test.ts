@@ -66,13 +66,20 @@ describe('parseExecutorResult', () => {
 describe('buildExecutorFallbackResult', () => {
   function msg(overrides: Partial<AgentMessage>): AgentMessage {
     return {
-      id: 'm',
-      session_id: 's',
-      role: 'tool',
-      kind: 'tool_result',
-      content: '{}',
-      timestamp: new Date().toISOString(),
-      ...overrides,
+      id: overrides.id ?? 'm',
+      session_id: overrides.session_id ?? 's',
+      role: overrides.role ?? 'tool',
+      kind: overrides.kind ?? 'tool_result',
+      content: overrides.content ?? '{}',
+      round_id: overrides.round_id ?? 'r-user-1',
+      message_index: overrides.message_index ?? 0,
+      block_index: overrides.block_index ?? 0,
+      timestamp: overrides.timestamp ?? new Date().toISOString(),
+      tool: overrides.tool,
+      tool_call_id: overrides.tool_call_id,
+      links: overrides.links,
+      model_spec: overrides.model_spec,
+      requested_model_spec: overrides.requested_model_spec,
     };
   }
 

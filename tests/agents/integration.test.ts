@@ -242,7 +242,7 @@ describe('Integration: Config → Router → Parsing', () => {
         role: 'user',
         kind: 'text',
         content: `Invocation ${callCount}`,
-      });
+      }, { round_id: 'r-user-1', message_index: 0, block_index: 0 });
       if (callCount === 1) {
         throw new Error('Model error');
       }

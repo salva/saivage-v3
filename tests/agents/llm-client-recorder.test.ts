@@ -72,7 +72,7 @@ function makeMockRecorder(): {
 
 const candidate = { provider: 'test-provider', account: null as string | null, model: 'test-model' };
 const sys = 'sys';
-const msgs = [{ id: '1', session_id: 's', role: 'user' as const, kind: 'text' as const, content: 'hi', timestamp: '2026-01-01T00:00:00Z' }];
+const msgs = [{ id: '1', session_id: 's', role: 'user' as const, kind: 'text' as const, content: 'hi', round_id: 'r-user-1', message_index: 0, block_index: 0, timestamp: '2026-01-01T00:00:00Z' }];
 
 function okBody(content = 'hello') {
   return JSON.stringify({

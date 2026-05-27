@@ -195,6 +195,9 @@ function msgs() {
       role: 'user' as const,
       kind: 'text' as const,
       content: 'Hello, how are you?',
+      round_id: 'r-user-1',
+      message_index: 0,
+      block_index: 0,
       timestamp: new Date().toISOString(),
     },
   ];
@@ -1488,9 +1491,9 @@ describe('LlmClient Edge Cases', () => {
     try {
       const client = new LlmProviderGateway({ baseUrl: `http://localhost:${port}` });
       const multiMsgs = [
-        { id: '1', session_id: 's', role: 'system' as const, kind: 'text' as const, content: 'sys msg', timestamp: new Date().toISOString() },
-        { id: '2', session_id: 's', role: 'assistant' as const, kind: 'text' as const, content: 'asst msg', timestamp: new Date().toISOString() },
-        { id: '3', session_id: 's', role: 'tool' as const, kind: 'text' as const, content: 'tool msg', timestamp: new Date().toISOString() },
+        { id: '1', session_id: 's', role: 'system' as const, kind: 'text' as const, content: 'sys msg', round_id: 'r-user-1', message_index: 0, block_index: 0, timestamp: new Date().toISOString() },
+        { id: '2', session_id: 's', role: 'assistant' as const, kind: 'text' as const, content: 'asst msg', round_id: 'r-user-1', message_index: 1, block_index: 1, timestamp: new Date().toISOString() },
+        { id: '3', session_id: 's', role: 'tool' as const, kind: 'text' as const, content: 'tool msg', round_id: 'r-user-1', message_index: 2, block_index: 2, timestamp: new Date().toISOString() },
       ];
       await client.complete(cand(), sp(), multiMsgs, 'sess-roles');
       const body = JSON.parse(cap.body);

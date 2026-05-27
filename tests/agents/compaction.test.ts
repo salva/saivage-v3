@@ -27,7 +27,7 @@ function cleanup() {
     rmSync(TEST_ROOT, { recursive: true, force: true });
   }
   // Reset compaction state between tests
-  compaction.resetCompactionState('planner-test-1');
+  compaction.resetCompactionState('planner-user-1');
 }
 
 beforeEach(() => {
@@ -63,7 +63,7 @@ describe('compactSession', () => {
       role: 'user',
       kind: 'text',
       content: 'Hello',
-    });
+    }, { round_id: 'r-user-1', message_index: 0, block_index: 0 });
 
     const result = await compaction.compactSession(SAIVAGE_DIR, session.id, {
       contextLimit: 100000,
@@ -84,7 +84,7 @@ describe('compactSession', () => {
         role: i % 2 === 0 ? 'user' : 'assistant',
         kind: 'text',
         content: `Message ${i}: ` + 'x'.repeat(200), // ~57 tokens per message
-      });
+      }, { round_id: 'r-user-1', message_index: 0, block_index: 0 });
     }
 
     const result = await compaction.compactSession(SAIVAGE_DIR, session.id, {
@@ -110,7 +110,7 @@ describe('compactSession', () => {
           role: 'user',
           kind: 'text',
           content: 'x'.repeat(200),
-        });
+        }, { round_id: 'r-user-1', message_index: 0, block_index: 0 });
       }
       await compaction.compactSession(SAIVAGE_DIR, session.id, {
         contextLimit: 1000,
@@ -125,7 +125,7 @@ describe('compactSession', () => {
         role: 'user',
         kind: 'text',
         content: 'x'.repeat(200),
-      });
+      }, { round_id: 'r-user-1', message_index: 0, block_index: 0 });
     }
     const result = await compaction.compactSession(SAIVAGE_DIR, session.id, {
       contextLimit: 1000,
@@ -145,7 +145,7 @@ describe('compactSession', () => {
         role: 'user',
         kind: 'text',
         content: 'x'.repeat(200),
-      });
+      }, { round_id: 'r-user-1', message_index: 0, block_index: 0 });
     }
 
     let summarizerCalled = false;
@@ -177,7 +177,7 @@ describe('compactSession', () => {
         role: 'user',
         kind: 'text',
         content: 'x'.repeat(200),
-      });
+      }, { round_id: 'r-user-1', message_index: 0, block_index: 0 });
     }
 
     const result = await compaction.compactSession(SAIVAGE_DIR, session.id, {
@@ -205,7 +205,7 @@ describe('getCompactionCount / resetCompactionState', () => {
         role: 'user',
         kind: 'text',
         content: 'x'.repeat(200),
-      });
+      }, { round_id: 'r-user-1', message_index: 0, block_index: 0 });
     }
     await compaction.compactSession(SAIVAGE_DIR, session.id, {
       contextLimit: 1000,

@@ -4,8 +4,8 @@ import { loadConfig, getRuntimeConfig, getModelParamsForRole } from './config-sc
 import { ProviderRegistry, type Candidate } from './provider.js';
 import { ModelRouter } from './model-router.js';
 import { parsePlannerResult, parseExecutorResult, parseReviewerResult, buildExecutorFallbackResult, type PlannerResult, type ExecutorResult, type ReviewerResult } from './result-parser.js';
-import { createSession, completeSession, appendMessage, getSession, getSessionMessages, markSessionWaiting, setSessionStatus, updateSessionModel, assertNoActiveAgentSession } from './session-persistence.js';
-import type { AgentInvocationRole, AgentMessage, HandoffSummary, LoggedEvent, OperationalAgentRole } from '../schemas/index.js';
+import { createSession, completeSession, appendMessage as appendPersistentMessage, getSession, getSessionMessages, markSessionWaiting, setSessionStatus, updateSessionModel, assertNoActiveAgentSession } from './session-persistence.js';
+import type { AgentInvocationRole, AgentMessage, HandoffSummary, LoggedEvent, OperationalAgentRole, MessageKind, MessageRole, EntityLink } from '../schemas/index.js';
 import type { NotificationCenter } from '../notifications/index.js';
 import { compactSession } from './compaction.js';
 import { invokeWithRecovery, type RecoveryContext } from './recovery.js';
@@ -61,6 +61,8 @@ export class AgentAdapter implements AgentExecutionPort {
   private readonly toolExecutor: AgentToolExecutor;
   private readonly llmGateway: AgentLlmInvocationGateway;
   private readonly roleRunner: AgentRoleRunner;
+  private readonly fallbackRoundCounters = new Map<string, number>();
+  private readonly fallbackBlockCounters = new Map<string, number>();
 
   constructor(cfg: AgentAdapterConfig) {
     this.projectRoot = cfg.projectRoot;
@@ -83,7 +85,7 @@ export class AgentAdapter implements AgentExecutionPort {
       reviewer: async (goalId, assessmentId, reviewerSessionId, report, parentSessionId) => {
         if (parentSessionId) markSessionWaiting(this.saivageDir, parentSessionId);
         try {
-          return (await this.invokeReviewer({ goalId, systemPrompt: buildReviewerPrompt(), contextMessages: [{ id: `review-report:${assessmentId}`, session_id: reviewerSessionId, role: 'user', kind: 'text', content: `The planner reports the following terminal outcome for goal '${goalId}'. Evaluate against the goal's acceptance criteria and respond with the canonical ReviewerResult JSON envelope.\n\n${JSON.stringify(report, null, 2)}`, timestamp: new Date().toISOString() }], assessmentId, reviewerSessionId })).assessment;
+          return (await this.invokeReviewer({ goalId, systemPrompt: buildReviewerPrompt(), contextMessages: [{ id: `review-report:${assessmentId}`, session_id: reviewerSessionId, role: 'user', kind: 'text', content: `The planner reports the following terminal outcome for goal '${goalId}'. Evaluate against the goal's acceptance criteria and respond with the canonical ReviewerResult JSON envelope.\n\n${JSON.stringify(report, null, 2)}`, round_id: 'r-user-1', message_index: 0, block_index: 0, timestamp: new Date().toISOString() }], assessmentId, reviewerSessionId })).assessment;
         } finally {
           if (parentSessionId) setSessionStatus(this.saivageDir, parentSessionId, 'active');
         }
@@ -150,7 +152,7 @@ export class AgentAdapter implements AgentExecutionPort {
     const request: PlannerInvocationRequest = typeof requestOrGoalId === 'string' ? { goalId: requestOrGoalId, systemPrompt, contextMessages } : requestOrGoalId;
     const plannerSessionId = `planner:${request.goalId}`;
     const existing = getSession(this.saivageDir, plannerSessionId);
-    if (existing) injectQueuedSyntheticPlannerNotes(this.projectRoot, plannerSessionId);
+    if (existing) injectQueuedSyntheticPlannerNotes(this.projectRoot, plannerSessionId, { stampUserMessage: (id: string) => this.nextFallbackRound(id, 'user') });
     return this.invokeAgent('planner', request.goalId, request.goalId, request.systemPrompt ?? '', request.contextMessages ?? [], parsePlannerResult);
   }
   async invokeExecutor(request: ExecutorInvocationRequest): Promise<ExecutorResult>;
@@ -175,15 +177,41 @@ export class AgentAdapter implements AgentExecutionPort {
     if (role === 'reviewer') return 'The tool-calling loop was terminated. Do NOT emit any further toolCalls. Reply with ONLY your final reviewer result JSON envelope: {"assessment":{"result":"pass"|"needs_corrections","summary":"...","issues":[]}}';
     return 'The tool-calling loop was terminated. Reply with ONLY your final result JSON envelope. Do NOT emit any further toolCalls.';
   }
+
+  private nextFallbackRound(sessionId: string, prefix: 'pre' | 'user' | 'assistant' | 'diagnostic' = 'assistant') {
+    const next = (this.fallbackRoundCounters.get(sessionId) ?? 0) + 1;
+    this.fallbackRoundCounters.set(sessionId, next);
+    if (prefix !== 'assistant') this.fallbackBlockCounters.set(sessionId, 0);
+    return { round_id: `r-${prefix}-${next}`, message_index: 0, block_index: 0 };
+  }
+  private stampInCurrentFallbackRound(sessionId: string) {
+    const current = this.fallbackRoundCounters.get(sessionId) ?? 0;
+    const round = current > 0 ? current : 1;
+    if (current === 0) this.fallbackRoundCounters.set(sessionId, 1);
+    const block = this.fallbackBlockCounters.get(sessionId) ?? 0;
+    this.fallbackBlockCounters.set(sessionId, block + 1);
+    return { round_id: `r-assistant-${round}`, message_index: block, block_index: block };
+  }
+  private appendSessionMessage(sessionId: string, message: { role: MessageRole; kind: MessageKind; content: string; tool?: string; tool_call_id?: string; links?: EntityLink[] }) {
+    const stamp = message.role === 'user'
+      ? this.nextFallbackRound(sessionId, 'user')
+      : message.kind === 'model_issue' || message.kind === 'model_repair' || message.kind === 'model_recovered'
+        ? this.nextFallbackRound(sessionId, 'diagnostic')
+        : message.role === 'assistant' && message.kind === 'text'
+          ? this.nextFallbackRound(sessionId, 'assistant')
+          : this.stampInCurrentFallbackRound(sessionId);
+    return appendPersistentMessage(this.saivageDir, sessionId, message, stamp);
+  }
+
   private async forceFinalAnswer(role: AgentRole, sessionId: string, candidate: Candidate, systemPrompt: string, modelParams: { temperature: number; maxTokens: number }, abortController: AbortController, reason: string): Promise<string> {
-    appendMessage(this.saivageDir, sessionId, { role: 'system', kind: 'model_issue', content: `${this.redactModelIssueText(reason)} Forcing final-answer turn without tools.` });
-    appendMessage(this.saivageDir, sessionId, { role: 'user', kind: 'text', content: this.buildForceFinalAnswerPrompt(role) });
+    this.appendSessionMessage(sessionId, { role: 'system', kind: 'model_issue', content: `${this.redactModelIssueText(reason)} Forcing final-answer turn without tools.` });
+    this.appendSessionMessage(sessionId, { role: 'user', kind: 'text', content: this.buildForceFinalAnswerPrompt(role) });
     const modelMessages = this.buildModelMessages(sessionId);
     try {
       const forced = await this.llmCallFn!(candidate, systemPrompt, modelMessages, sessionId, { temperature: modelParams.temperature, max_tokens: modelParams.maxTokens, signal: abortController.signal });
       return forced;
     } catch (err) {
-      appendMessage(this.saivageDir, sessionId, { role: 'system', kind: 'model_issue', content: `forceFinalAnswer LLM call failed: ${this.redactProviderErrorMessage(err)}` });
+      this.appendSessionMessage(sessionId, { role: 'system', kind: 'model_issue', content: `forceFinalAnswer LLM call failed: ${this.redactProviderErrorMessage(err)}` });
       throw err;
     }
   }
@@ -195,7 +223,7 @@ export class AgentAdapter implements AgentExecutionPort {
       if (!toolCalls) return { response: currentResponse, transportSucceeded: true };
       const callFingerprint = toolCalls.map((tc) => `${tc.function.name}:${tc.function.arguments}`).sort().join('||');
       if (previousCalls.has(callFingerprint)) {
-        appendMessage(this.saivageDir, sessionId, { role: 'system', kind: 'model_issue', content: `Repeated tool-call fingerprint detected; stopping tool loop as no-progress diagnostic: ${this.redactModelIssueText(callFingerprint)}` });
+        this.appendSessionMessage(sessionId, { role: 'system', kind: 'model_issue', content: `Repeated tool-call fingerprint detected; stopping tool loop as no-progress diagnostic: ${this.redactModelIssueText(callFingerprint)}` });
         const forced = await this.forceFinalAnswer(role, sessionId, candidate, systemPrompt, modelParams, abortController, 'Repeated tool-call fingerprint detected.');
         return { response: forced, transportSucceeded: true };
       }
@@ -206,7 +234,7 @@ export class AgentAdapter implements AgentExecutionPort {
       // Per-call rows let Codex history assembly drop only the deferred
       // activate_card call without hiding executed sibling tool calls/results.
       for (const tc of toolCalls) {
-        appendMessage(this.saivageDir, sessionId, { role: 'assistant', kind: 'tool_call', content: JSON.stringify({ toolCalls: [tc] }), tool: tc.function.name });
+        this.appendSessionMessage(sessionId, { role: 'assistant', kind: 'tool_call', content: JSON.stringify({ toolCalls: [tc] }), tool: tc.function.name });
       }
       const toolMessages: Array<{ role: 'tool'; kind: 'tool_result' | 'tool_error'; content: string; tool: string; tool_call_id: string }> = [];
       const deferredActivations: import('../schemas/types.js').DeferredActivationEnvelopeV1[] = [];
@@ -216,7 +244,7 @@ export class AgentAdapter implements AgentExecutionPort {
         if (deferred) deferredActivations.push(deferred);
         else toolMessages.push(msg);
       }
-      for (const msg of toolMessages) appendMessage(this.saivageDir, sessionId, { role: msg.role, kind: msg.kind, content: msg.content, tool: msg.tool, tool_call_id: msg.tool_call_id });
+      for (const msg of toolMessages) this.appendSessionMessage(sessionId, { role: msg.role, kind: msg.kind, content: msg.content, tool: msg.tool, tool_call_id: msg.tool_call_id });
       if (toolMessages.length === 0 && deferredActivations.length > 0) {
         const activatedIds: string[] = deferredActivations.map((envelope) => envelope.child_card_id);
         // Check whether any activated card has failed/blocked dependencies. If
@@ -237,12 +265,12 @@ export class AgentAdapter implements AgentExecutionPort {
         if (blockingReasons.length > 0) {
           const blockedReason = `Cannot activate child: ${blockingReasons.join('; ')}`;
           const synthEnvelope = JSON.stringify({ status: 'blocked', blocked_reason: blockedReason, summary: blockedReason, created_cards: [], updated_cards: [] });
-          appendMessage(this.saivageDir, sessionId, { role: 'system', kind: 'model_issue', content: `Synthesised planner BLOCKED envelope for deferred activate_card: ${this.redactModelIssueText(blockedReason)}` });
+          this.appendSessionMessage(sessionId, { role: 'system', kind: 'model_issue', content: `Synthesised planner BLOCKED envelope for deferred activate_card: ${this.redactModelIssueText(blockedReason)}` });
           return { response: synthEnvelope, transportSucceeded: true };
         }
         const synthSummary = activatedIds.length > 0 ? `Activated child card${activatedIds.length === 1 ? '' : 's'} ${activatedIds.join(', ')}; awaiting completion.` : 'Activated child card; awaiting completion.';
         const synthEnvelope = JSON.stringify({ status: 'continue', summary: synthSummary, created_cards: [], updated_cards: [] });
-        appendMessage(this.saivageDir, sessionId, { role: 'system', kind: 'model_issue', content: `Synthesised planner continuation envelope for deferred activate_card: ${this.redactModelIssueText(synthSummary)}` });
+        this.appendSessionMessage(sessionId, { role: 'system', kind: 'model_issue', content: `Synthesised planner continuation envelope for deferred activate_card: ${this.redactModelIssueText(synthSummary)}` });
         return { response: synthEnvelope, transportSucceeded: true };
       }
       const followUpTools = this.buildToolsForRole(role);
@@ -283,8 +311,8 @@ export class AgentAdapter implements AgentExecutionPort {
     this.sessionCoordinator.publishSessionStarted({ sessionId: session.id, role: role as unknown as import('../schemas/types.js').AgentRole, goalId, cardId });
     const baseSystemPrompt = systemPrompt;
     systemPrompt = this.applySelfCheck(role, systemPrompt, session.id);
-    for (const msg of contextMessages) appendMessage(this.saivageDir, session.id, { role: msg.role, kind: msg.kind, content: msg.content, tool: msg.tool, links: msg.links });
-    const recoveryOpts = { recoveryDelayMs: this.runtimeConfig.recoveryDelayMs ?? 60000, maxRetries: this.runtimeConfig.maxRecoveryRetries ?? 3, publishEvents: true, eventBus: this.eventBus, cardId, goalId, sessionId: session.id, agentRole: role, persistFailure: (error: Error, attempt: number, _ctx: RecoveryContext) => { try { appendMessage(this.saivageDir, session.id, { role: 'system', kind: 'model_issue', content: `Agent invocation failed (attempt ${attempt}): ${this.redactProviderErrorMessage(error.message)}` }); } catch { void 0; } if (this.eventLogger) this.eventLogger.appendEvent({ kind: 'retry_attempted', session_id: session.id, role: role as unknown as import('../schemas/types.js').AgentRole, attempt, directive: _ctx.directive }); if (this.eventBus) this.eventBus.emit('retry_attempted', { session_id: session.id, role, attempt, directive: _ctx.directive }); } };
+    for (const msg of contextMessages) appendPersistentMessage(this.saivageDir, session.id, { role: msg.role, kind: msg.kind, content: msg.content, tool: msg.tool, links: msg.links, model_spec: msg.model_spec, requested_model_spec: msg.requested_model_spec }, { round_id: msg.round_id, message_index: msg.message_index, block_index: msg.block_index });
+    const recoveryOpts = { recoveryDelayMs: this.runtimeConfig.recoveryDelayMs ?? 60000, maxRetries: this.runtimeConfig.maxRecoveryRetries ?? 3, publishEvents: true, eventBus: this.eventBus, cardId, goalId, sessionId: session.id, agentRole: role, persistFailure: (error: Error, attempt: number, _ctx: RecoveryContext) => { try { this.appendSessionMessage(session.id, { role: 'system', kind: 'model_issue', content: `Agent invocation failed (attempt ${attempt}): ${this.redactProviderErrorMessage(error.message)}` }); } catch { void 0; } if (this.eventLogger) this.eventLogger.appendEvent({ kind: 'retry_attempted', session_id: session.id, role: role as unknown as import('../schemas/types.js').AgentRole, attempt, directive: _ctx.directive }); if (this.eventBus) this.eventBus.emit('retry_attempted', { session_id: session.id, role, attempt, directive: _ctx.directive }); } };
     const agentFn = async (recoveryCtx: RecoveryContext) => {
       const candidateChain = await this.router.resolve(role, capabilityRequest);
       const capabilitySkips = this.router.getLastCapabilitySkips();
@@ -303,7 +331,7 @@ export class AgentAdapter implements AgentExecutionPort {
               updateSessionModel(this.saivageDir, session.id, candidate.model);
             if (this.eventLogger) this.eventLogger.appendEvent({ kind: 'model_selected', session_id: session.id, provider: candidate.provider, model: candidate.model, role: role as unknown as import('../schemas/types.js').AgentRole });
             if (this.eventBus) this.eventBus.emit('model_selected', { session_id: session.id, provider: candidate.provider, model: candidate.model, role });
-            if (recoveryCtx.isRecovery && recoveryCtx.directive) appendMessage(this.saivageDir, session.id, { role: 'system', kind: 'model_recovered', content: recoveryCtx.directive });
+            if (recoveryCtx.isRecovery && recoveryCtx.directive) this.appendSessionMessage(session.id, { role: 'system', kind: 'model_recovered', content: recoveryCtx.directive });
             const compactionResult = await compactSession(this.saivageDir, session.id, { contextLimit: 128000, threshold: this.runtimeConfig.compactionThreshold ?? 0.8, maxCompactions: this.runtimeConfig.maxCompactions ?? 3 });
             if (compactionResult.maxReached) throw new Error(`Max compactions (${this.runtimeConfig.maxCompactions ?? 3}) reached for session ${session.id}. Session must be restarted with fresh context.`);
             if (this.eventLogger && compactionResult.compacted) this.eventLogger.appendEvent({ kind: 'compaction_triggered', session_id: session.id, role: role as unknown as import('../schemas/types.js').AgentRole, tokens_before: compactionResult.tokensBefore, tokens_after: compactionResult.tokensAfter });
@@ -318,7 +346,7 @@ export class AgentAdapter implements AgentExecutionPort {
               const loopResult = await this.handleToolCallsLoop(rawResponse, role, session.id, candidate, systemPrompt, modelParams, abortController, { goalId, cardId });
               let finalResponse = loopResult.response;
               const callDuration = Date.now() - callStart;
-              appendMessage(this.saivageDir, session.id, { role: 'assistant', kind: 'text', content: finalResponse });
+              this.appendSessionMessage(session.id, { role: 'assistant', kind: 'text', content: finalResponse });
               let parsed: T;
               try { parsed = parser(finalResponse); } catch (err) {
                 const partial = (err && typeof err === 'object' && 'partial' in (err as Record<string, unknown>)) ? (err as { partial?: unknown }).partial : null;
@@ -329,41 +357,41 @@ export class AgentAdapter implements AgentExecutionPort {
                   // instead of the canonical envelope (e.g. when the provider
                   // dropped tool_calls into the content channel). Re-prompt
                   // once asking for the canonical result schema.
-                  appendMessage(this.saivageDir, session.id, { role: 'system', kind: 'model_issue', content: `Your previous response was a bare {"toolCalls":[...]} object in the content channel. That is NOT a valid ${role} result. Either issue real tool calls via the tool_calls API channel, or emit the canonical ${role} result JSON envelope now (with the required "status" field).` });
+                  this.appendSessionMessage(session.id, { role: 'system', kind: 'model_issue', content: `Your previous response was a bare {"toolCalls":[...]} object in the content channel. That is NOT a valid ${role} result. Either issue real tool calls via the tool_calls API channel, or emit the canonical ${role} result JSON envelope now (with the required "status" field).` });
                   if (this.eventLogger) this.eventLogger.appendEvent({ kind: 'model_issue', session_id: session.id, role: role as unknown as import('../schemas/types.js').AgentRole, message: 'toolCalls-in-content envelope rejected; re-prompted for canonical result' });
                   const retryMessages = getSessionMessages(this.saivageDir, session.id);
                   const retryResponse = await this.llmCallFn!(candidate, systemPrompt, retryMessages, session.id, llmOpts);
                   const retryLoop = await this.handleToolCallsLoop(retryResponse, role, session.id, candidate, systemPrompt, modelParams, abortController, { goalId, cardId });
                   finalResponse = retryLoop.response;
-                  appendMessage(this.saivageDir, session.id, { role: 'assistant', kind: 'text', content: finalResponse });
+                  this.appendSessionMessage(session.id, { role: 'assistant', kind: 'text', content: finalResponse });
                   try { parsed = parser(finalResponse); }
                   catch (err2) {
                     if (role === 'executor') {
                       const fallback = buildExecutorFallbackResult(finalResponse, { cardId, sessionMessages: getSessionMessages(this.saivageDir, session.id), reason: 'tool_calls_envelope_recovery' });
-                      if (fallback) { appendMessage(this.saivageDir, session.id, { role: 'system', kind: 'model_issue', content: `Executor result fallback constructed after toolCalls-envelope recovery parse failure: ${err2 instanceof Error ? this.redactProviderErrorMessage(err2.message) : 'unknown parse error'}` }); parsed = fallback as T; }
+                      if (fallback) { this.appendSessionMessage(session.id, { role: 'system', kind: 'model_issue', content: `Executor result fallback constructed after toolCalls-envelope recovery parse failure: ${err2 instanceof Error ? this.redactProviderErrorMessage(err2.message) : 'unknown parse error'}` }); parsed = fallback as T; }
                       else throw err2;
                     } else throw err2;
                   }
                 } else if (selfCheckValue !== null && (role === 'planner' || role === 'executor' || role === 'reviewer')) {
-                  appendMessage(this.saivageDir, session.id, { role: 'system', kind: 'model_issue', content: `Self-check acknowledged (status=${this.redactModelIssueText(selfCheckValue)}). Resume normal ${role} flow now — emit the final ${role} result JSON (with the canonical schema, NOT a self_check wrapper).` });
+                  this.appendSessionMessage(session.id, { role: 'system', kind: 'model_issue', content: `Self-check acknowledged (status=${this.redactModelIssueText(selfCheckValue)}). Resume normal ${role} flow now — emit the final ${role} result JSON (with the canonical schema, NOT a self_check wrapper).` });
                   if (this.eventLogger) this.eventLogger.appendEvent({ kind: 'self_check_triggered', session_id: session.id, role: role as unknown as import('../schemas/types.js').AgentRole, rounds: 0, threshold: 0, response: String(selfCheckValue) });
                   systemPrompt = baseSystemPrompt;
                   const retryMessages = getSessionMessages(this.saivageDir, session.id);
                   const retryResponse = await this.llmCallFn!(candidate, systemPrompt, retryMessages, session.id, llmOpts);
                   const retryLoop = await this.handleToolCallsLoop(retryResponse, role, session.id, candidate, systemPrompt, modelParams, abortController, { goalId, cardId });
                   finalResponse = retryLoop.response;
-                  appendMessage(this.saivageDir, session.id, { role: 'assistant', kind: 'text', content: finalResponse });
+                  this.appendSessionMessage(session.id, { role: 'assistant', kind: 'text', content: finalResponse });
                   try { parsed = parser(finalResponse); }
                   catch (err2) {
                     if (role === 'executor') {
                       const fallback = buildExecutorFallbackResult(finalResponse, { cardId, sessionMessages: getSessionMessages(this.saivageDir, session.id), reason: 'self_check_recovery' });
-                      if (fallback) { appendMessage(this.saivageDir, session.id, { role: 'system', kind: 'model_issue', content: `Executor result fallback constructed after self-check recovery parse failure: ${err2 instanceof Error ? this.redactProviderErrorMessage(err2.message) : 'unknown parse error'}` }); parsed = fallback as T; }
+                      if (fallback) { this.appendSessionMessage(session.id, { role: 'system', kind: 'model_issue', content: `Executor result fallback constructed after self-check recovery parse failure: ${err2 instanceof Error ? this.redactProviderErrorMessage(err2.message) : 'unknown parse error'}` }); parsed = fallback as T; }
                       else throw err2;
                     } else throw err2;
                   }
                 } else if (role === 'executor') {
                   const fallback = buildExecutorFallbackResult(finalResponse, { cardId, sessionMessages: getSessionMessages(this.saivageDir, session.id), reason: 'parse_failure' });
-                  if (fallback) { appendMessage(this.saivageDir, session.id, { role: 'system', kind: 'model_issue', content: `Executor result fallback constructed after parse failure: ${err instanceof Error ? this.redactProviderErrorMessage(err.message) : 'unknown parse error'}` }); parsed = fallback as T; }
+                  if (fallback) { this.appendSessionMessage(session.id, { role: 'system', kind: 'model_issue', content: `Executor result fallback constructed after parse failure: ${err instanceof Error ? this.redactProviderErrorMessage(err.message) : 'unknown parse error'}` }); parsed = fallback as T; }
                   else throw err;
                 } else throw err;
               }
@@ -379,7 +407,7 @@ export class AgentAdapter implements AgentExecutionPort {
             const policyContext: InvocationRecoveryContext = { role, candidate, attempt: sameCandidateRecoveryAttempt, maxAttempts: recoveryCtx.maxAttempts, recoveryDelayMs: this.runtimeConfig.recoveryDelayMs ?? 60000, maxRecoveryRetries: this.runtimeConfig.maxRecoveryRetries ?? 3, capabilityRequest, capabilitySkips, sessionId: session.id, goalId, cardId };
             const decision = defaultInvocationRecoveryPolicy.decideFailure(lastError, policyContext);
             if (decision.markFailed) this.registry.markFailed(candidate, decision.cooldownMs ?? (this.runtimeConfig.recoveryDelayMs ?? 60000));
-            if (decision.appendModelIssue) appendMessage(this.saivageDir, session.id, { role: 'system', kind: 'model_issue', content: this.redactModelIssueText(decision.message) });
+            if (decision.appendModelIssue) this.appendSessionMessage(session.id, { role: 'system', kind: 'model_issue', content: this.redactModelIssueText(decision.message) });
             if (this.eventLogger) this.eventLogger.appendEvent({ kind: 'invocation_failed', session_id: session.id, role: role as unknown as import('../schemas/types.js').AgentRole, attempt: recoveryCtx.attempt, error_message: this.redactModelIssueText(decision.message), failureClass: decision.failureClass, recoveryAction: decision.action, cooldownMs: decision.cooldownMs, retryDelayMs: decision.retryDelayMs, capabilitySkipReasons: decision.eventPayload.capabilitySkipReasons });
             if (this.eventBus) this.eventBus.emit('invocation_failed', { session_id: session.id, role, attempt: recoveryCtx.attempt, error_message: this.redactModelIssueText(decision.message), failureClass: decision.failureClass, recoveryAction: decision.action, cooldownMs: decision.cooldownMs, retryDelayMs: decision.retryDelayMs, capabilitySkipReasons: decision.eventPayload.capabilitySkipReasons });
             if (decision.abort || this.sessionCoordinator.isCancelled(session.id)) {

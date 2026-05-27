@@ -726,7 +726,7 @@ describe('Integration: real invokeAgent candidate loop with cancellation', () =>
 
     const invokePromise = adapter.invokePlanner(
       'goal-integration-1', 'You are a planner',
-      [{ id: 'msg-1', session_id: '', role: 'user', kind: 'text', content: 'Plan a task', timestamp: new Date().toISOString() }],
+      [{ id: 'msg-1', session_id: '', role: 'user', kind: 'text', content: 'Plan a task', round_id: 'r-user-1', message_index: 0, block_index: 0, timestamp: new Date().toISOString() }],
     );
 
     await startedPromise;
@@ -807,7 +807,7 @@ describe('Integration: real invokeAgent candidate loop with cancellation', () =>
       'card-1',
       'goal-1',
       'You are an executor',
-      [{ id: 'msg-1', session_id: '', role: 'user', kind: 'text', content: 'Execute a task', timestamp: new Date().toISOString() }],
+      [{ id: 'msg-1', session_id: '', role: 'user', kind: 'text', content: 'Execute a task', round_id: 'r-user-1', message_index: 0, block_index: 0, timestamp: new Date().toISOString() }],
     );
 
     await expect(invokePromise).rejects.toThrow(/cancelled/i);
@@ -873,7 +873,7 @@ describe('Integration: real invokeAgent candidate loop with cancellation', () =>
       'card-force',
       'goal-force',
       'You are an executor',
-      [{ id: 'msg-2', session_id: '', role: 'user', kind: 'text', content: 'Execute', timestamp: new Date().toISOString() }],
+      [{ id: 'msg-2', session_id: '', role: 'user', kind: 'text', content: 'Execute', round_id: 'r-user-1', message_index: 0, block_index: 0, timestamp: new Date().toISOString() }],
     );
 
     await expect(invokePromise).rejects.toThrow(/cancelled/i);
@@ -892,7 +892,7 @@ describe('Integration: real invokeAgent candidate loop with cancellation', () =>
       'card-success',
       'goal-success',
       'You are an executor',
-      [{ id: 'msg-3', session_id: '', role: 'user', kind: 'text', content: 'Do it', timestamp: new Date().toISOString() }],
+      [{ id: 'msg-3', session_id: '', role: 'user', kind: 'text', content: 'Do it', round_id: 'r-user-1', message_index: 0, block_index: 0, timestamp: new Date().toISOString() }],
     );
 
     expect(result.card_id).toBe('card-ok');
