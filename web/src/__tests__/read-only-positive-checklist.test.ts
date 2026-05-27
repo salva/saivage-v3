@@ -54,17 +54,17 @@ describe('read-only positive checklist', () => {
 
     // DashboardView: runtime refresh and passive navigation links remain while start/stop controls are gone.
     expect(dashboardViewSource).toContain('@click="refreshRuntime"');
-    expect(dashboardViewSource).toContain('@click="navigateToEntity(link)"');
     expect(dashboardViewSource).toContain('@click="goToCard(run.card_id)"');
+    expect(dashboardViewSource).toContain('@click="goToAgent(currentRun.session_id)"');
     expect(dashboardViewSource).not.toMatch(/runtime-command start-project|runtime-command stop-project/);
 
     // FilesView: read-only file refresh, breadcrumb/directory navigation, safe preview, and close remain.
-    expect(filesViewSource).toContain('@click="fetchMetaFiles"');
-    expect(filesViewSource).toContain('@click="fetchOutputFiles"');
-    expect(filesViewSource).toContain('navigateMeta(crumb.path)');
-    expect(filesViewSource).toContain('navigateOutput(crumb.path)');
+    expect(filesViewSource).toContain('@click="refreshActiveRoot"');
+    expect(filesViewSource).toContain("@click=\"goToRoot('meta')\"");
+    expect(filesViewSource).toContain("@click=\"goToRoot('output')\"");
+    expect(filesViewSource).toContain('@click="openDirectory(crumb.path)"');
     expect(filesViewSource).toContain('fileStore.fetchFileContent(entry.path)');
-    expect(filesViewSource).toContain('clearViewedFile()');
+    expect(filesViewSource).toContain('fileStore.clearViewedFile()');
 
     // AgentsView/AgentConversationView: passive session navigation, expand/collapse, raw toggle, and linked navigation remain.
     expect(agentsViewSource).toContain('@click="selectSession(session.id)"');

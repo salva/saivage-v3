@@ -2,9 +2,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
   issueWebSocketTicket: vi.fn(),
+  getAuthToken: vi.fn(),
 }));
 
 vi.mock('../api/client', () => ({ issueWebSocketTicket: mocks.issueWebSocketTicket }));
+vi.mock('../api/auth', () => ({ getAuthToken: mocks.getAuthToken }));
 vi.mock('../utils/logger', () => ({
   createLogger: () => ({ info: vi.fn(), warn: vi.fn(), error: vi.fn() }),
 }));
@@ -32,6 +34,7 @@ describe('websocket ticket client', () => {
   beforeEach(() => {
     vi.useFakeTimers();
     mocks.issueWebSocketTicket.mockReset();
+    mocks.getAuthToken.mockReturnValue('test-token');
     MockWebSocket.instances = [];
     vi.stubGlobal('WebSocket', MockWebSocket as any);
     window.history.replaceState({}, '', '/');

@@ -13,6 +13,7 @@ function mountHeader(connectionState: 'connected' | 'connecting' | 'offline' | '
       runtimeModeLabel: 'Running',
       runtimeModeDetail: 'Root run active.',
       hasToken: true,
+      liveUpdateLabel: undefined,
     },
   });
 }
@@ -41,7 +42,7 @@ describe('WorkspaceHeader', () => {
 
     expect(runtimeChip.text()).toContain('Running');
     expect(runtimeChip.attributes('title')).toContain('Dashboard → Runtime Console');
-    expect(wrapper.findAll('.header-chip')).toHaveLength(3);
+    expect(wrapper.findAll('.header-chip')).toHaveLength(2);
     expect(wrapper.findAll('button').map((button) => button.text())).not.toContain('Pause');
     expect(wrapper.findAll('button').map((button) => button.text())).not.toContain('Resume');
     await runtimeChip.trigger('click');
