@@ -9,13 +9,11 @@ function state(overrides: Partial<RuntimeState> = {}): RuntimeState {
     paused_at: null,
     current_card_id: null,
     current_agent_session_id: null,
-    queue: [],
     active_card_run: null,
     runtime_intent: { status: 'stopped', updated_at: '2026-05-26T00:00:00.000Z' },
     runtime_commands: [],
     runtime_runs: [],
     runtime_activations: [],
-    running_processes: [],
     updated_at: '2026-05-26T00:00:00.000Z',
     ...overrides,
   } as RuntimeState;
@@ -25,7 +23,7 @@ describe('runtime core reducers', () => {
   it('reduces lifecycle events to patches without persisting them', () => {
     expect(reduceRuntimeEvent(state(), 'paused', {}, '2026-05-26T01:00:00.000Z')).toEqual({ status: 'paused', paused: true, paused_at: '2026-05-26T01:00:00.000Z' });
     expect(reduceRuntimeEvent(state({ active_card_run: { card_id: 'c1', card_type: 'goal', runtime_status: 'running', phase: 'planner', caller_session_id: null, caller_tool_call_id: null, planner_session_id: 'planner:c1', correction_attempts: 0, started_at: 't', last_turn_at: 't' } }), 'resumed', {}, 'now')).toEqual({ status: 'running', paused: false, paused_at: null });
-    expect(reduceRuntimeEvent(state(), 'goal_exit', {}, 'now')).toEqual({ status: 'idle', current_card_id: null, current_agent_session_id: null, queue: [], active_card_run: null });
+    expect(reduceRuntimeEvent(state(), 'goal_exit', {}, 'now')).toEqual({ status: 'idle', current_card_id: null, current_agent_session_id: null, active_card_run: null });
   });
 
   it('plans invariant observations and corrections as data', () => {

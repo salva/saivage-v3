@@ -78,10 +78,6 @@
               <span v-else-if="currentAgentSessionId" class="status-value clickable" @click="goToAgent(currentAgentSessionId)">{{ currentAgentSessionId.slice(0, 12) }}...</span>
               <span v-else class="status-value dim">none</span>
             </div>
-            <div class="status-item">
-              <span class="status-key">Processes</span>
-              <span class="status-value">{{ runningProcessCount }} observed</span>
-            </div>
           </div>
         </div>
 
@@ -198,7 +194,6 @@ const {
   currentRun,
   activeChildRuns,
   activations,
-  runningProcessCount,
   doneGoals,
   failedBlocked,
   isStale: runtimeIsStale,

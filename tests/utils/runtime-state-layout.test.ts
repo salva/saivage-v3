@@ -41,8 +41,6 @@ function legacyRuntimeState(overrides: Partial<RuntimeState> = {}): RuntimeState
     active_card_run: null,
     paused: true,
     paused_at: now,
-    queue: ['legacy-card'],
-    running_processes: [],
     updated_at: now,
     frozen_reason: null,
     ...overrides,

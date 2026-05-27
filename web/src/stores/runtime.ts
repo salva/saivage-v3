@@ -24,7 +24,6 @@ import {
   getRuntimeState,
   ApiError,
 } from '../api/client';
-import { getAuthToken } from '../api/auth';
 import { useWsStore } from './ws';
 import { createLogger } from '../utils/logger';
 import { parseCoveredRuntimeStatusContent, parseKnownWsContent } from '../api/contracts';
@@ -64,16 +63,11 @@ export const useRuntimeStore = defineStore('runtime', () => {
   const isFrozen = computed(() => runtime.value?.status === 'frozen');
   const currentCardId = computed(() => runtime.value?.current_card_id ?? null);
   const currentAgentSessionId = computed(() => runtime.value?.current_agent_session_id ?? null);
-  const queueLength = computed(() => runtime.value?.queue?.length ?? 0);
-  const runningProcessCount = computed(() => runtime.value?.running_processes?.length ?? 0);
-  // Temporary compatibility for legacy debug panes only. Runtime Console controls must use intent/runs/activations.
-  const legacyQueueLength = queueLength;
   const rootRun = computed(() => currentRun.value);
   const commandDisabledReason = computed(() => {
     if (loading.value) return 'Runtime state is still loading.';
     if (commandInFlight.value) return `Runtime command ${commandInFlight.value} is already in flight.`;
     if (unauthorized.value) return 'Runtime commands require a valid API token.';
-    if (!getAuthToken()) return 'Enter an API token before controlling runtime.';
     return null;
   });
   const isStale = computed(() => {
@@ -116,7 +110,6 @@ export const useRuntimeStore = defineStore('runtime', () => {
   });
   const runtimeDetail = computed(() => {
     if (unauthorized.value) return 'Runtime snapshot unavailable until a valid API token is provided.';
-    if (!getAuthToken()) return 'Enter an API token to load runtime state and receive live updates.';
     if (isFrozen.value) return runtime.value?.frozen_reason || 'Runtime is frozen and needs operator attention.';
     if (status.value === 'error') return 'Runtime reported an error state. Inspect Debug for recovery evidence.';
     if (isPaused.value) return 'Runtime is paused. Use Runtime Console to resume active runs and activation edges when appropriate.';
@@ -126,7 +119,6 @@ export const useRuntimeStore = defineStore('runtime', () => {
   });
   const liveUpdateState = computed<'live' | 'connecting' | 'offline' | 'unauthorized' | 'no-token' | 'stale'>(() => {
     const ws = useWsStore();
-    if (!getAuthToken()) return 'no-token';
     if (ws.connectionState === 'unauthorized' || unauthorized.value) return 'unauthorized';
     if (ws.connectionState === 'connecting') return 'connecting';
     if (ws.connectionState === 'offline') return isStale.value ? 'stale' : 'offline';
@@ -156,7 +148,6 @@ export const useRuntimeStore = defineStore('runtime', () => {
   const pauseActionDisabledReason = computed(() => {
     if (loading.value) return 'Runtime state is still loading.';
     if (unauthorized.value) return 'Pause/resume requires a valid API token.';
-    if (!getAuthToken()) return 'Enter an API token before controlling runtime.';
     if (!runtime.value) return 'Runtime state is unavailable.';
     if (status.value === 'error' && !isPaused.value) return 'Runtime is in an error state; inspect Debug before pausing.';
     return null;
@@ -378,8 +369,6 @@ export const useRuntimeStore = defineStore('runtime', () => {
     isFrozen,
     currentCardId,
     currentAgentSessionId,
-    legacyQueueLength,
-    runningProcessCount,
     statusLabel,
     doneGoals,
     failedBlocked,

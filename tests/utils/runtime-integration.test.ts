@@ -674,7 +674,6 @@ describe('Runtime Integration', () => {
         status: 'idle',
         current_card_id: null,
         current_agent_session_id: null,
-        queue: [],
       });
 
       await runtime.shutdown();

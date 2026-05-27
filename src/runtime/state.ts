@@ -86,8 +86,6 @@ function defaultRuntimeState(): RuntimeState {
     active_card_run: null,
     paused: false,
     paused_at: null,
-    queue: [],
-    running_processes: [],
     updated_at: now,
     last_tick_at: null,
     frozen_reason: null,

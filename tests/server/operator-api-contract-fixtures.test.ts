@@ -13,8 +13,6 @@ const CORE_RUNTIME_STATE_KEYS = [
   'project_id',
   'started_at',
   'paused',
-  'queue',
-  'running_processes',
   'updated_at',
 ] as const;
 
@@ -40,8 +38,8 @@ function expectRuntimeStateContract(body: unknown): void {
   if (!parsed.success) return;
   expectTopLevelKeys(parsed.data as unknown as Record<string, unknown>, CORE_RUNTIME_STATE_KEYS);
   expect(parsed.data.project_id).toBe('project');
-  expect(Array.isArray(parsed.data.queue)).toBe(true);
-  expect(Array.isArray(parsed.data.running_processes)).toBe(true);
+  expect(parsed.data).not.toHaveProperty('queue');
+  expect(parsed.data).not.toHaveProperty('running_processes');
 }
 
 beforeEach(async () => {

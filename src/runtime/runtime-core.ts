@@ -26,7 +26,7 @@ export function reduceRuntimeEvent(
     case 'goal_exit':
     case 'card_terminated':
     case 'goal_completed':
-      return { status: 'idle', current_card_id: null, current_agent_session_id: null, queue: [], active_card_run: null };
+      return { status: 'idle', current_card_id: null, current_agent_session_id: null, active_card_run: null };
     case 'reviewer_started': {
       const goalId = (payload.goalId as string | undefined) ?? null;
       const reviewerSessionId = (payload.reviewerSessionId as string | undefined) ?? null;
@@ -34,7 +34,7 @@ export function reduceRuntimeEvent(
       return { current_card_id: goalId, current_agent_session_id: reviewerSessionId, active_card_run: activeCardRun };
     }
     case 'reviewer_finished':
-      return { status: 'idle', current_card_id: null, current_agent_session_id: null, queue: [], active_card_run: null };
+      return { status: 'idle', current_card_id: null, current_agent_session_id: null, active_card_run: null };
   }
 }
 

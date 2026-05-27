@@ -266,8 +266,9 @@ export const WorkspaceFileContentResponseSchema = z.object({
   sensitivity: z.string(),
 });
 
+export const DebugRuntimeStateSchema = runtimeStateSchema.extend({ pid: z.number().int().positive() });
 export const DebugStateResponseSchema = z.object({
-  runtime: z.record(z.string(), z.unknown()).and(z.object({ pid: z.number().int().positive() })).nullable(),
+  runtime: DebugRuntimeStateSchema.nullable(),
   cards: z.array(z.record(z.string(), z.unknown())),
   totalCards: z.number().int().nonnegative(),
 });

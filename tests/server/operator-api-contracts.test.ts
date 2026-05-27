@@ -12,8 +12,6 @@ const runtimeState = {
   current_agent_session_id: null,
   paused: false,
   paused_at: null,
-  queue: [],
-  running_processes: [],
   updated_at: '2026-01-01T00:00:01.000Z',
   runtime_intent: { status: 'stopped', updated_at: '2026-01-01T00:00:01.000Z', source_command_id: null, reason: null },
   runtime_commands: [],

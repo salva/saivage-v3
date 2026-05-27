@@ -54,7 +54,7 @@ describe('Runtime caller-edge reconstruction from unresolved activate_card calls
     expect(runtime.cardStore.read('code-parent-2')).toBeNull();
     expect(runtime.cardStore.read('code-parent-3')).toBeNull();
     expect(runtime.getState()?.runtime_activations ?? []).toEqual([]);
-    expect(runtime.getState()?.queue).toEqual([]);
+    expect(runtime.getState()?.runtime_activations ?? []).toEqual([]);
     expect(runtime.getState()?.active_card_run).toBeNull();
     expect(existsSync(join(tmpDir, '.saivage', 'runtime', 'planner-dispatches'))).toBe(false);
 

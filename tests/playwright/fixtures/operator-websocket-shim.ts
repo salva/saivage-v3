@@ -24,8 +24,6 @@ const runtimeUpdateEnvelope = parseKnownWsEnvelope({
       current_agent_session_id: 'planner-smoke',
       paused: false,
       paused_at: null,
-      queue: ['card-next'],
-      running_processes: ['proc-smoke'],
       updated_at: '2026-05-19T12:01:00.000Z',
       runtime_intent: { status: 'running', updated_at: '2026-05-19T12:01:00.000Z', source_command_id: null, reason: null },
       runtime_commands: [],

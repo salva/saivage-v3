@@ -46,7 +46,6 @@ describe('runtime store S06 read-only projection', () => {
     const store = useRuntimeStore();
 
     expect(store.statusLabel).toBe('unknown');
-    expect(store.runningProcessCount).toBe(0);
     expect(store.liveUpdateLabel).toBe('Live updates connected');
     expect(typeof store.fetchState).toBe('function');
     expect(typeof store.setupWsListener).toBe('function');

@@ -2,9 +2,12 @@ import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { CardStore } from '../../cards/index.js';
 import { readFreezeManifest, readRuntimeState } from '../../runtime/index.js';
+import { runtimeStateSchema } from '../../schemas/index.js';
+import type { RuntimeState } from '../../schemas/index.js';
 import { redactForOutbound } from '../../redaction/index.js';
 
-export interface DebugStateReadModel { runtime: (Record<string, unknown> & { pid: number }) | null; cards: Array<Record<string, unknown>>; totalCards: number; }
+export type DebugRuntimeReadModel = RuntimeState & { pid: number };
+export interface DebugStateReadModel { runtime: DebugRuntimeReadModel | null; cards: Array<Record<string, unknown>>; totalCards: number; }
 export interface DebugJsonlReadModel { errors?: unknown[]; events?: unknown[]; total: number; }
 
 export class DebugReadModelService {
@@ -19,7 +22,7 @@ export class DebugReadModelService {
     }
     const cards = this.store.list();
     const cardIndex = cards.map((c) => ({ id: c.id, type: c.type, parent: c.parent, status: c.status, title: c.title, priority: c.priority, depends_on: c.depends_on, blocks: c.blocks }));
-    return { runtime: state ? { ...state, pid } : null, cards: cardIndex, totalCards: cards.length };
+    return { runtime: state ? runtimeStateSchema.extend({ pid: runtimeStateSchema.shape.pid }).parse({ ...state, pid }) : null, cards: cardIndex, totalCards: cards.length };
   }
 
   getErrors(): DebugJsonlReadModel {

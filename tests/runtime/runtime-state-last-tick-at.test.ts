@@ -41,8 +41,6 @@ describe('RuntimeState.last_tick_at round-trip', () => {
       active_card_run: null,
       paused: false,
       paused_at: null,
-      queue: [],
-      running_processes: [],
       updated_at: new Date().toISOString(),
       pid: 123,
       last_tick_at: null,

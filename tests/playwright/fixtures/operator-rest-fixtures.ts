@@ -12,8 +12,6 @@ const runtimeRunning = {
   current_agent_session_id: 'planner-smoke',
   paused: false,
   paused_at: null,
-  queue: ['card-next'],
-  running_processes: ['proc-smoke'],
   updated_at: now,
   runtime_intent: { status: 'running', updated_at: now, source_command_id: null, reason: null },
   runtime_commands: [],

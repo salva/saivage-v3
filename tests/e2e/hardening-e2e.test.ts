@@ -648,7 +648,7 @@ describe('E2E — Crash and Restart Recovery', () => {
     const state = readRuntimeState(tmpDir);
     expect(state).not.toBeNull();
     expect(state!.status).toBe('idle');
-    expect(state!.queue).toEqual([]);
+    expect(state!.runtime_activations ?? []).toEqual(expect.arrayContaining([expect.objectContaining({ child_card_id: 'code-crash-1', status: 'completed' }), expect.objectContaining({ child_card_id: 'code-crash-2', status: 'completed' })]));
     expect(state!.current_card_id).toBeNull();
 
     await runtime.shutdown();
@@ -691,8 +691,6 @@ describe('Security — Auth, Path Traversal, and Redaction', () => {
         current_agent_session_id: null,
         paused: false,
         paused_at: null,
-        queue: [],
-        running_processes: [],
         updated_at: new Date().toISOString(),
       }),
     );

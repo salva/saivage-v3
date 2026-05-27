@@ -45,7 +45,6 @@ function corruptIdleState(): RuntimeState {
     current_card_id: null,
     current_agent_session_id: 'planner:goal-a',
     active_card_run: runningRun(),
-    running_processes: ['proc-1'],
     updated_at: new Date().toISOString(),
   };
   writeFileAtomic(statePath(), JSON.stringify({ version: 1, data: corrupted }, null, 2) + '\n');
@@ -113,7 +112,6 @@ describe('RuntimeState idle active_card_run invariant', () => {
       current_card_id: null,
       current_agent_session_id: null,
       active_card_run: null,
-      running_processes: [],
     });
     expect(cleared.active_card_run).toBeNull();
 
@@ -161,7 +159,6 @@ describe('RuntimeState idle active_card_run invariant', () => {
       current_card_id: parentRun?.card_id ?? null,
       current_agent_session_id: parentRun?.planner_session_id ?? null,
       active_card_run: parentRun,
-      running_processes: [],
       updated_at: new Date().toISOString(),
       paused: false,
       paused_at: null,
@@ -174,7 +171,6 @@ describe('RuntimeState idle active_card_run invariant', () => {
       current_card_id: null,
       current_agent_session_id: null,
       active_card_run: null,
-      running_processes: [],
     });
   });
 });

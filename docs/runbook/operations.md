@@ -153,7 +153,7 @@ curl -X POST http://localhost:8080/api/runtime/pause \
 
 Expected status: `200`.
 
-Expected top-level JSON keys: `status`, `project_id`, `started_at`, `paused`, `queue`, `running_processes`, `updated_at`.
+Expected top-level JSON keys: `status`, `project_id`, `started_at`, `paused`, `updated_at`.
 
 Pause stops new dispatch. Running processes are not forcibly killed by pause alone. The response body is the updated `RuntimeState`.
 
@@ -166,9 +166,9 @@ curl -X POST http://localhost:8080/api/runtime/resume \
 
 Expected status: `200`.
 
-Expected top-level JSON keys: `status`, `project_id`, `started_at`, `paused`, `queue`, `running_processes`, `updated_at`.
+Expected top-level JSON keys: `status`, `project_id`, `started_at`, `paused`, `updated_at`.
 
-Resume re-enables dispatch. Depending on queued work, the runtime may settle into `idle` or continue in `running`. The response body is the updated `RuntimeState`.
+Resume re-enables dispatch. Depending on open runtime runs and intent, the runtime may settle into `idle` or continue in `running`. The response body is the updated `RuntimeState`.
 
 ### Freeze
 
@@ -196,7 +196,7 @@ Expected status: `200`.
 
 Expected top-level JSON keys: `status`, `freeze_id`, `restored_queue`, `restored_processes`, `restored_card_id`.
 
-If a freeze manifest exists, Saivage restores queued work, clears the manifest, and returns the restored queue and current-card reference. Do not use generic resume from `frozen` or `error` states.
+If a freeze manifest exists, Saivage restores the frozen card/session context, clears the manifest, and returns the internal recovery queue plus current-card reference. Do not use generic resume from `frozen` or `error` states.
 
 ## Directives instead of legacy dispatch
 
@@ -244,7 +244,7 @@ Persistent state lives primarily in `.saivage/`; the authoritative runtime-state
 Recommended maintenance sequence:
 
 1. Pause or freeze the runtime.
-2. Confirm `/health`, `/api/state`, and the queue/current-card state.
+2. Confirm `/health`, `/api/state`, runtime intent/run/activation ledgers, `/api/processes`, and current-card state.
 3. Back up `.saivage/`.
 4. Back up `.saivage-work/` if process logs or generated artifacts are needed.
 5. Resume or `resume-from-freeze` when the maintenance window ends.

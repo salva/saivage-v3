@@ -175,8 +175,6 @@ describe('Freeze / Resume', () => {
         current_agent_session_id: null,
         paused: false,
         paused_at: null,
-        queue: ['card-1', 'card-2'],
-        running_processes: ['proc-1', 'proc-2'],
         updated_at: new Date().toISOString(),
       });
 
@@ -184,13 +182,13 @@ describe('Freeze / Resume', () => {
       const manifest = runtime.freeze('test resume');
       expect(manifest.freeze_id).toBeDefined();
       expect(manifest.current_card_id).toBe('goal-resume');
-      expect(manifest.queue).toEqual(['card-1', 'card-2']);
+      expect(manifest.queue).toEqual([]);
       expect(manifest.running_processes).toEqual([]);
 
       // Resume
       const result = runtime.resumeFromFreeze();
       expect(result.freeze_id).toBe(manifest.freeze_id);
-      expect(result.restored_queue).toEqual(['card-1', 'card-2']);
+      expect(result.restored_queue).toEqual([]);
       expect(result.restored_processes).toEqual([]);
       expect(result.restored_card_id).toBe('goal-resume');
 
@@ -199,8 +197,6 @@ describe('Freeze / Resume', () => {
       expect(state).not.toBeNull();
       expect(state!.status).toBe('idle');
       expect(state!.current_card_id).toBe('goal-resume');
-      expect(state!.queue).toEqual(['card-1', 'card-2']);
-      expect(state!.running_processes).toEqual([]);
 
       // Manifest should be cleared
       expect(readFreezeManifest(tmpDir)).toBeNull();
@@ -311,8 +307,6 @@ describe('Freeze / Resume', () => {
         current_agent_session_id: null,
         paused: false,
         paused_at: null,
-        queue: [],
-        running_processes: ['proc-default-1', 'proc-default-2'],
         updated_at: new Date().toISOString(),
       });
 
@@ -409,8 +403,6 @@ describe('Freeze / Resume', () => {
         current_agent_session_id: 'executor-card1-goal1-0',
         paused: false,
         paused_at: null,
-        queue: [],
-        running_processes: [],
         updated_at: new Date().toISOString(),
       });
 
