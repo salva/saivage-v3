@@ -21,7 +21,7 @@ import { createActivationCompletionEnvelope, parseActivationCompletionEnvelope }
 import { CardStore, PROJECT_CARD_ID } from '../cards/index.js';
 import { STARTABLE_STATES, RESTARTABLE_STATES } from '../permissions/index.js';
 import { consumeChangedCardActivation, injectQueuedSyntheticPlannerNotes, queueSyntheticPlannerNote, drainSyntheticPlannerNotes } from '../agents/analyst-stage6.js';
-import { reconcileOrphanedWorkerSessions } from '../agents/session-persistence.js';
+import { reconcileOrphanedAgentSessions } from '../agents/session-persistence.js';
 import {
   initRuntimeState,
   readRuntimeState,
@@ -99,7 +99,7 @@ const TRACKED_EVENT_KINDS: ReadonlySet<EventKind> = new Set(trackedEventKindValu
 
 export class Runtime extends EventEmitter {
   readonly projectRoot: string; readonly cardStore: CardStore; readonly agentRuntime: AgentExecutionPort; readonly eventBus: EventBus; readonly notificationCenter: NotificationCenter;
-  private _paused = false; private _running = false; private _shuttingDown = false; private _skillsEngine: SkillsEngine | null = null; private _eventLogger: EventLogger; private _ownsEventLogger: boolean; private _errorLogger: ErrorLogger; private _ownsErrorLogger: boolean; readonly runningProcesses: Set<string> = new Set(); private _supervisor: StuckAgentSupervisor; private _continuousImprovementReserved: boolean; private _autoDispatchBacklog: boolean; private _resumeHandoffContext: string | null = null; private _startupRepairPending = false; /* Goal/planner re-entrancy guard; worker manifest uniqueness is enforced in session persistence. */ private _dispatchInFlight = new Set<string>(); private _backgroundDispatches = new Set<Promise<void>>(); private _lastLifecycleDisposeReport: RuntimeDisposeReportEntry[] = []; private _stateMachine: RuntimeStateMachine;
+  private _paused = false; private _running = false; private _shuttingDown = false; private _skillsEngine: SkillsEngine | null = null; private _eventLogger: EventLogger; private _ownsEventLogger: boolean; private _errorLogger: ErrorLogger; private _ownsErrorLogger: boolean; readonly runningProcesses: Set<string> = new Set(); private _supervisor: StuckAgentSupervisor; private _continuousImprovementReserved: boolean; private _autoDispatchBacklog: boolean; private _resumeHandoffContext: string | null = null; private _startupRepairPending = false; /* Goal-level re-entrancy guard for dispatchGoal(goalId); the global single-active-non-analyst-session invariant is enforced by assertNoActiveAgentSession in session persistence. */ private _dispatchInFlight = new Set<string>(); private _backgroundDispatches = new Set<Promise<void>>(); private _lastLifecycleDisposeReport: RuntimeDisposeReportEntry[] = []; private _stateMachine: RuntimeStateMachine;
 
   constructor(config: RuntimeConfig, agentRuntime?: AgentExecutionPort) {
     super();
@@ -599,17 +599,23 @@ export class Runtime extends EventEmitter {
     if (!state) state = initRuntimeState(this.projectRoot);
     acquireLock(this.projectRoot);
     await this.performCrashRecovery();
-    const swept = reconcileOrphanedWorkerSessions(join(this.projectRoot, '.saivage'));
-    if (swept.length > 0) {
-      const sweptSessionIds = swept.map((session) => session.id);
-      this.emit('startup_session_sweep', { swept_session_ids: sweptSessionIds });
-      this._eventLogger.appendEvent({ kind: 'startup_session_sweep', swept_session_ids: sweptSessionIds });
-    }
     reconcileProcessRecords(this.projectRoot);
     this._startupRepairPending = true;
     const repairedState = await this.repairStartupActiveCardRun(state);
     this._startupRepairPending = false;
     if (!repairedState) state = initRuntimeState(this.projectRoot); else state = repairedState;
+    const swept = reconcileOrphanedAgentSessions(join(this.projectRoot, '.saivage'));
+    if (swept.length > 0) {
+      const sweptSessionIds = swept.map((session) => session.id);
+      this.emit('startup_session_sweep', { swept_session_ids: sweptSessionIds });
+      this._eventLogger.appendEvent({ kind: 'startup_session_sweep', swept_session_ids: sweptSessionIds });
+      const sweptSet = new Set(sweptSessionIds);
+      const postRepairState = readRuntimeState(this.projectRoot);
+      if (postRepairState?.current_agent_session_id && sweptSet.has(postRepairState.current_agent_session_id)) {
+        updateRuntimeState(this.projectRoot, { current_agent_session_id: null });
+        state = readRuntimeState(this.projectRoot) ?? state;
+      }
+    }
     this._paused = state.paused; this._running = true; this._shuttingDown = false;
     this.emit('started', { projectRoot: this.projectRoot }); this._eventLogger.appendEvent({ kind: 'started', project_root: this.projectRoot }); this._supervisor.start(); this._stateMachine.start();
     setTimeout(() => { void this._stateMachine.requestImmediateTick(); }, 0);

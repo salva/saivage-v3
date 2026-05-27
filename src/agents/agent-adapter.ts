@@ -4,7 +4,7 @@ import { loadConfig, getRuntimeConfig, getModelParamsForRole } from './config-sc
 import { ProviderRegistry, type Candidate } from './provider.js';
 import { ModelRouter } from './model-router.js';
 import { parsePlannerResult, parseExecutorResult, parseReviewerResult, buildExecutorFallbackResult, type PlannerResult, type ExecutorResult, type ReviewerResult } from './result-parser.js';
-import { createSession, completeSession, appendMessage, getSession, getSessionMessages, markSessionWaiting, updateSessionModel, assertNoActiveWorkerSession } from './session-persistence.js';
+import { createSession, completeSession, appendMessage, getSession, getSessionMessages, markSessionWaiting, setSessionStatus, updateSessionModel, assertNoActiveAgentSession } from './session-persistence.js';
 import type { AgentInvocationRole, AgentMessage, HandoffSummary, LoggedEvent, OperationalAgentRole } from '../schemas/index.js';
 import type { NotificationCenter } from '../notifications/index.js';
 import { compactSession } from './compaction.js';
@@ -80,7 +80,14 @@ export class AgentAdapter implements AgentExecutionPort {
       saivageDir: this.saivageDir,
       runtimeStateProvider: () => this.activationLedger?.readState() ?? null,
       activationLedger: { readState: () => this.activationLedger?.readState() ?? null, appendRun: (input) => this.activationLedger!.appendRun(input), upsertActivation: (input) => this.activationLedger!.upsertActivation(input) },
-      reviewer: async (goalId, assessmentId, reviewerSessionId, report) => (await this.invokeReviewer({ goalId, systemPrompt: buildReviewerPrompt(), contextMessages: [{ id: `review-report:${assessmentId}`, session_id: reviewerSessionId, role: 'user', kind: 'text', content: `The planner reports the following terminal outcome for goal '${goalId}'. Evaluate against the goal's acceptance criteria and respond with the canonical ReviewerResult JSON envelope.\n\n${JSON.stringify(report, null, 2)}`, timestamp: new Date().toISOString() }], assessmentId, reviewerSessionId })).assessment,
+      reviewer: async (goalId, assessmentId, reviewerSessionId, report, parentSessionId) => {
+        if (parentSessionId) markSessionWaiting(this.saivageDir, parentSessionId);
+        try {
+          return (await this.invokeReviewer({ goalId, systemPrompt: buildReviewerPrompt(), contextMessages: [{ id: `review-report:${assessmentId}`, session_id: reviewerSessionId, role: 'user', kind: 'text', content: `The planner reports the following terminal outcome for goal '${goalId}'. Evaluate against the goal's acceptance criteria and respond with the canonical ReviewerResult JSON envelope.\n\n${JSON.stringify(report, null, 2)}`, timestamp: new Date().toISOString() }], assessmentId, reviewerSessionId })).assessment;
+        } finally {
+          if (parentSessionId) setSessionStatus(this.saivageDir, parentSessionId, 'active');
+        }
+      },
       maxReviewRetries: this.runtimeConfig?.maxReviewRetries ?? 3,
       assessmentIdFactory: undefined,
       eventBusProvider: () => this.runtimeLedgerEventBus,
@@ -270,7 +277,7 @@ export class AgentAdapter implements AgentExecutionPort {
       });
       throw new Error(noCandidateDecision.message);
     }
-    assertNoActiveWorkerSession(this.saivageDir, role as import('../schemas/types.js').AgentRole, cardId);
+    assertNoActiveAgentSession(this.saivageDir, role as import('../schemas/types.js').AgentRole);
     const session = createSession(this.saivageDir, role as import('../schemas/types.js').AgentRole, goalId, cardId, undefined, requestedSessionId);
     await this.sessionCoordinator.notifySessionCreated(session.id);
     this.sessionCoordinator.publishSessionStarted({ sessionId: session.id, role: role as unknown as import('../schemas/types.js').AgentRole, goalId, cardId });

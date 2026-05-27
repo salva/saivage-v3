@@ -1,5 +1,4 @@
 import { randomUUID } from 'node:crypto';
-import { join } from 'node:path';
 import type { CardRecord, CardStatus, ReviewAssessment, ReviewerIssue, ReviewerResult, RuntimeState } from '../schemas/index.js';
 import type { Recipient } from '../notifications/index.js';
 import { decide } from '../permissions/index.js';
@@ -52,7 +51,7 @@ export interface ReportGoalResult {
 }
 
 export interface ReviewerInvoker {
-  (goalId: string, assessmentId: string, reviewerSessionId: string, report: GoalSelfReport): Promise<ReviewerResult> | ReviewerResult;
+  (goalId: string, assessmentId: string, reviewerSessionId: string, report: GoalSelfReport, parentSessionId?: string): Promise<ReviewerResult> | ReviewerResult;
 }
 
 export interface PlannerToolsServiceOptions {
@@ -289,7 +288,7 @@ export class PlannerToolsService {
     if (toolName === 'report_goal_done' && this.reviewer) {
       const assessmentId = this.assessmentIdFactory();
       const reviewerSessionId = `reviewer:${goalId}:${assessmentId}`;
-      const maybeReview = this.reviewer(goalId, assessmentId, reviewerSessionId, report);
+      const maybeReview = this.reviewer(goalId, assessmentId, reviewerSessionId, report, sessionId);
       if (maybeReview instanceof Promise) {
         return maybeReview.then((review) => this.applyReviewerAssessment(goal, report, input.status_text, sessionId, assessmentId, reviewerSessionId, review));
       }
