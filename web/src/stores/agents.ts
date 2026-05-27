@@ -68,8 +68,8 @@ export const useAgentStore = defineStore('agents', () => {
   async function fetchConversation(sessionId: string): Promise<void> {
     clearLlmExchange(); loading.value = true; error.value = null; conversationWarning.value = null; unauthorized.value = false;
     try {
-      const response: AgentConversationResponse & { messages?: AgentConversationResponse['entries'] } = await getAgentConversation(sessionId);
-      const conversationEntries = normalizeConversationEntries(response.entries ?? response.messages ?? []);
+      const response = await getAgentConversation(sessionId);
+      const conversationEntries = normalizeConversationEntries(response.entries);
       currentSession.value = response.session;
       entries.value = conversationEntries;
       activityStatus.value = response.activity_status ?? idleActivity();

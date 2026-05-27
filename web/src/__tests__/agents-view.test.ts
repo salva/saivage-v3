@@ -10,7 +10,7 @@ const apiMockState = vi.hoisted(() => ({
   sessions: [] as AgentSession[],
   conversation: {
     session: null as AgentSession | null,
-    messages: [] as any[],
+    entries: [] as any[],
   },
   listError: null as Error | null,
 }));
@@ -63,7 +63,7 @@ vi.mock('../api/client', () => {
   it('shows tool names and argument keys in collapsed rows and expands/collapses all rows', async () => {
     apiMockState.conversation = {
       session: plannerSession,
-      messages: [
+      entries: [
         {
           id: 'tc1',
           session_id: 'planner-1',
@@ -153,7 +153,7 @@ async function mountAgentsView(opts?: {
   apiMockState.listError = opts?.listError ?? null;
   apiMockState.conversation = {
     session: plannerSession,
-    messages: [
+    entries: [
       {
         id: 'm1',
         session_id: 'planner-1',
@@ -247,7 +247,7 @@ describe('AgentsView', () => {
   it('shows tool names and argument keys in collapsed rows and expands/collapses all rows', async () => {
     apiMockState.conversation = {
       session: plannerSession,
-      messages: [
+      entries: [
         {
           id: 'tc1',
           session_id: 'planner-1',
@@ -295,7 +295,7 @@ describe('AgentsView', () => {
   });
 
   it('toolbar exposes a raw LLM exchange toggle that mounts and unmounts the panel', async () => {
-    apiMockState.conversation = { session: plannerSession, messages: [] };
+    apiMockState.conversation = { session: plannerSession, entries: [] };
     const router = makeRouter();
     await router.push('/agents/planner-1');
     await router.isReady();
@@ -327,7 +327,7 @@ describe('AgentsView', () => {
   });
 
   it('resets the raw LLM exchange panel when the session id prop changes', async () => {
-    apiMockState.conversation = { session: plannerSession, messages: [] };
+    apiMockState.conversation = { session: plannerSession, entries: [] };
     const router = makeRouter();
     await router.push('/agents/planner-1');
     await router.isReady();
