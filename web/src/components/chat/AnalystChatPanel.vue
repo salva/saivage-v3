@@ -30,12 +30,9 @@
             { expanded: expandedIds.has(item.id) },
           ]"
         >
-          <template v-if="item.kind === 'tool_call' || item.kind === 'tool_result'">
+          <template v-if="item.kind === 'tool_call' || item.kind === 'tool_result' || item.kind === 'tool_error'">
             <ToolChip
-              :presentation="toolChipParts(item)"
-              :expanded="expandedIds.has(item.id)"
-              :variant="toolChipVariant(item)"
-              :label-prefix="`analyst ${item.kind.replace('_', ' ')}`"
+              v-bind="adaptChatMessageToToolChip(item, expandedIds.has(item.id))"
               @toggle="toggleExpanded(item.id)"
             />
           </template>
@@ -52,13 +49,10 @@
           :key="pending.id"
           class="message-row kind-tool_call pending-tool"
         >
-          <div class="tool-chip pending" role="status">
-            <span class="pending-tool-main">🔧 {{ pending.tool }} — {{ pending.summary }}</span>
-            <span v-if="pending.classifiedAs || pending.relatedCardId" class="pending-tool-meta">
-              <span v-if="pending.classifiedAs" class="pending-tool-tag">{{ pending.classifiedAs }}</span>
-              <span v-if="pending.relatedCardId" class="pending-tool-tag">card {{ pending.relatedCardId }}</span>
-            </span>
-          </div>
+          <ToolChip
+            v-bind="adaptPendingInvocationToToolChip({ id: pending.id, tool: pending.tool, started_at: new Date().toISOString(), summary: pending.summary }, expandedIds.has(pending.id))"
+            @toggle="toggleExpanded(pending.id)"
+          />
         </article>
       </div>
     </div>
@@ -92,9 +86,8 @@ import { useAnalystChat } from '../../stores/analystChat';
 import { useCardStore } from '../../stores/cards';
 import { selectChildrenOf } from '../../stores/card-read-model';
 import { useWorkspaceRouteStore } from '../../stores/workspaceRoute';
-import type { ChatMessage } from '../../api/types';
-import { presentToolCall, presentToolResult, type ToolCallPresentation, type ToolResultPresentation } from '../../utils/tool-presenters';
 import ToolChip from '../conversation/ToolChip.vue';
+import { adaptChatMessageToToolChip, adaptPendingInvocationToToolChip } from './tool-chip-adapter';
 
 const chat = useAnalystChat();
 const cards = useCardStore();
@@ -133,19 +126,6 @@ const messagesErrorLabel = computed(() => {
   }
   return messagesError.value.message;
 });
-
-type ChipParts = ToolCallPresentation | ToolResultPresentation;
-
-function toolChipParts(message: ChatMessage): ChipParts {
-  return message.kind === 'tool_call'
-    ? presentToolCall(message.content, message.tool)
-    : presentToolResult(message.content, { tool: message.tool, kind: message.kind });
-}
-
-function toolChipVariant(message: ChatMessage): 'call' | 'ok' | 'error' {
-  if (message.kind === 'tool_call') return 'call';
-  return presentToolResult(message.content, { tool: message.tool, kind: message.kind }).status;
-}
 
 function toggleExpanded(id: string): void {
   const next = new Set(expandedIds.value);
@@ -267,33 +247,6 @@ onBeforeUnmount(() => {
   background: var(--surface-3);
 }
 
-.tool-chip.pending {
-  cursor: default;
-  border-color: var(--accent-2);
-  align-items: flex-start;
-  gap: 8px;
-}
-
-.pending-tool-main {
-  min-width: 0;
-  overflow-wrap: anywhere;
-}
-
-.pending-tool-meta {
-  display: inline-flex;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-  gap: 6px;
-}
-
-.pending-tool-tag {
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  padding: 2px 8px;
-  color: var(--accent-2);
-  font-size: 12px;
-  white-space: nowrap;
-}
 
 .message-badges {
   list-style: none;

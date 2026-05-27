@@ -336,17 +336,26 @@ export interface EntityLink {
   label?: string;
 }
 
-export interface AgentMessage {
+export interface ConversationEntry {
   id: string;
   session_id: string;
   role: MessageRole;
   kind: MessageKind;
   content: string;
+  round_id: string;
+  message_index: number;
+  block_index: number;
   tool?: string;
   tool_call_id?: string;
   timestamp: string;
   links?: EntityLink[];
+  model_spec?: string;
+  requested_model_spec?: string;
 }
+
+export interface PendingCall { id: string; tool: string; started_at: string; }
+export type ActivityStatusKind = 'idle' | 'thinking' | 'tool_calling' | 'responding' | 'compacting';
+export interface ActivityStatus { status: ActivityStatusKind; pending_calls: PendingCall[]; updated_at: string; }
 
 
 export interface ActionableErrorEnvelope {
@@ -564,7 +573,7 @@ export type RuntimeStatusResponse = OperatorApiSuccess<'runtime.status'>;
 export type RuntimeCardRunsResponse = OperatorApiSuccess<'runtime.cardRuns'>;
 export interface ConfigResponse { config: Record<string, unknown>; warnings?: string[]; }
 export interface ProvidersResponse { providers: Record<string, ProviderEntry>; warnings?: string[]; }
-export interface AgentConversationResponse { session: AgentSession; messages: AgentMessage[]; }
+export interface AgentConversationResponse { session: AgentSession; entries: ConversationEntry[]; activity_status: ActivityStatus; }
 export interface AgentSessionsResponse { sessions: AgentSession[]; }
 export interface ControlActionsListResponse { control_actions: ControlActionAuditEntry[]; total: number; }
 export type ChatSessionsResponse = OperatorApiSuccess<'chats.list'>;

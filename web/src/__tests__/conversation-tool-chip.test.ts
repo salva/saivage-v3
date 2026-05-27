@@ -13,7 +13,7 @@ const presentation: ToolCallPresentation = {
 describe('ToolChip', () => {
   it('uses a group with one expand button and sibling router links without nested anchors', async () => {
     const r = router(); await r.push('/'); await r.isReady();
-    const wrapper = mount(ToolChip, { props: { presentation, expanded: false, variant: 'call', labelPrefix: 'tool call' }, global: { plugins: [r] } });
+    const wrapper = mount(ToolChip, { props: { call: presentation, result: null, callContent: JSON.stringify(presentation.body), resultContent: null, status: 'pending', expanded: false, detailsId: 'tool-test' }, global: { plugins: [r] } });
     expect(wrapper.attributes('role')).toBe('group');
     expect(wrapper.findAll('button.tool-chip-toggle')).toHaveLength(1);
     expect(wrapper.find('button.tool-chip-toggle a').exists()).toBe(false);
@@ -22,7 +22,7 @@ describe('ToolChip', () => {
 
   it('emits toggle and renders formatted detail when expanded', async () => {
     const r = router(); await r.push('/'); await r.isReady();
-    const wrapper = mount(ToolChip, { props: { presentation, expanded: true, variant: 'call', labelPrefix: 'tool call' }, global: { plugins: [r] } });
+    const wrapper = mount(ToolChip, { props: { call: presentation, result: null, callContent: JSON.stringify(presentation.body), resultContent: null, status: 'pending', expanded: true, detailsId: 'tool-test' }, global: { plugins: [r] } });
     expect(wrapper.find('.tool-chip-body').exists()).toBe(true);
   });
 });

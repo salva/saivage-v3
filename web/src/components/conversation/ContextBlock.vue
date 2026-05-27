@@ -1,0 +1,3 @@
+<template><article class="context-block" :class="`role-${entry.role}`"><header>{{ entry.role }} · {{ entry.kind }}</header><div>{{ entry.content }}</div></article></template>
+<script setup lang="ts">import type { ConversationEntry } from '../../api/types'; defineProps<{ entry: ConversationEntry }>();</script>
+<style scoped>.context-block{border:1px solid var(--surface-3);border-radius:8px;padding:10px;background:var(--surface-1);}.context-block header{font-size:11px;text-transform:uppercase;color:var(--text-muted);margin-bottom:4px;}.context-block div{white-space:pre-wrap;font-size:13px;line-height:1.5;}</style>
