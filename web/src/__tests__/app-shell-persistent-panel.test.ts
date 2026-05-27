@@ -8,8 +8,8 @@ import AppShell from '../components/layout/AppShell.vue';
 vi.mock('../api/auth', () => ({ getAuthToken: vi.fn(() => 'token') }));
 
 vi.mock('../api/client', () => ({
-  listAgentSessions: vi.fn(async () => ({ sessions: [{ id: 'analyst-test', role: 'analyst', status: 'active', started_at: '2026-01-01T00:00:00Z' }] })),
-  getChatMessages: vi.fn(async (sessionId: string) => ({ sessionId, messages: [] })),
+  listChatSessions: vi.fn(async () => ({ sessions: [{ id: 'analyst', role: 'analyst', status: 'active', started_at: '2026-01-01T00:00:00Z' }] })),
+  getChatEntries: vi.fn(async (sessionId: string) => ({ sessionId, entries: [] })),
   sendChatMessage: vi.fn(async (sessionId: string) => ({ sessionId, message: { id: 'm1', content: 'ok', timestamp: '2025-01-01T00:00:00Z' } })),
   ApiError: class extends Error { status: number; body: Record<string, unknown>; constructor(status: number, message: string, body: Record<string, unknown> = {}) { super(message); this.status = status; this.body = body; } get isUnauthorized() { return this.status === 401; } },
 }));

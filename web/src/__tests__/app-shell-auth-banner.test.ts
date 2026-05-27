@@ -13,7 +13,7 @@ import { API_AUTH_REQUIRED_EVENT, API_AUTH_DISMISSED_SESSION_KEY } from '../util
 vi.mock('../api/auth', () => ({ getAuthToken: vi.fn(() => null) }));
 vi.mock('../api/client', () => ({
   listChatSessions: vi.fn(async () => ({ sessions: [{ id: 'analyst', role: 'analyst', status: 'active', started_at: '2026-01-01T00:00:00Z' }] })),
-  getChatMessages: vi.fn(async (sessionId: string) => ({ sessionId, messages: [] })),
+  getChatEntries: vi.fn(async (sessionId: string) => ({ sessionId, entries: [] })),
   sendChatMessage: vi.fn(),
   ApiError: class extends Error { status: number; body: Record<string, unknown>; constructor(status: number, message: string, body: Record<string, unknown> = {}) { super(message); this.status = status; this.body = body; } get isUnauthorized() { return this.status === 401; } },
 }));

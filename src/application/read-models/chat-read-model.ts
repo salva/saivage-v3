@@ -14,20 +14,20 @@ export class ChatReadModelService {
     return { body: { sessions: [{ id: session.id, role: session.role, status: session.status, started_at: session.started_at }] } };
   }
 
-  getMessages(sessionId: string): ChatReadResult {
+  getEntries(sessionId: string): ChatReadResult {
     if (!SAFE_SESSION_ID_RE.test(sessionId)) return { statusCode: 400, body: { error: 'Invalid session ID format.', sessionId } };
     if (sessionId !== GLOBAL_ANALYST_SESSION_ID) return { statusCode: 404, body: { error: 'Only the canonical analyst chat is available.', sessionId } };
-    const messagesPath = join(this.projectRoot, '.saivage', 'agents', 'messages', `${GLOBAL_ANALYST_SESSION_ID}.jsonl`);
-    const messages: unknown[] = [];
-    if (existsSync(messagesPath)) {
-      const raw = readFileSync(messagesPath, 'utf-8');
+    const entriesPath = join(this.projectRoot, '.saivage', 'agents', 'messages', `${GLOBAL_ANALYST_SESSION_ID}.jsonl`);
+    const entries: unknown[] = [];
+    if (existsSync(entriesPath)) {
+      const raw = readFileSync(entriesPath, 'utf-8');
       for (const line of raw.split('\n')) {
         if (line.trim()) {
-          try { messages.push(JSON.parse(line)); } catch { void 0; }
+          try { entries.push(JSON.parse(line)); } catch { void 0; }
         }
       }
     }
-    return { body: { sessionId: GLOBAL_ANALYST_SESSION_ID, messages } };
+    return { body: { sessionId: GLOBAL_ANALYST_SESSION_ID, entries } };
   }
 }
 

@@ -220,7 +220,7 @@ export async function installOperatorRestRoutes(page: Page): Promise<OperatorRes
     if (request.method() === 'GET' && url.pathname === '/api/chats') return json(route, { sessions: [{ id: 'analyst-smoke', title: 'Synthetic analyst chat', updated_at: now }] });
     if (request.method() === 'GET' && url.pathname.startsWith('/api/chats/')) {
       const sessionId = decodeURIComponent(url.pathname.split('/')[3] ?? 'analyst-smoke');
-      return json(route, { sessionId, messages: [stampedText(sessionId, `chat-${sessionId}-1`, 'Synthetic agent transcript.')] });
+      return json(route, parseOperatorResponse('chats.get', { sessionId, entries: [stampedText(sessionId, `chat-${sessionId}-1`, 'Synthetic agent transcript.')] }));
     }
     if (request.method() === 'POST' && url.pathname.startsWith('/api/chats/')) {
       const sessionId = decodeURIComponent(url.pathname.split('/')[3] ?? 'analyst-smoke');

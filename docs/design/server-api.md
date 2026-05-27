@@ -194,7 +194,7 @@ rows should not be exposed.
 
 ```
 GET    /api/chats              List analyst chat sessions
-GET    /api/chats/:sessionId   Get messages for a specific session
+GET    /api/chats/:sessionId   Get transcript entries for a specific session
 POST   /api/chats/:sessionId   Send a message to a chat session (as user)
 ```
 

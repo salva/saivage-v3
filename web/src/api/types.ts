@@ -514,7 +514,6 @@ export interface ChatSession {
   started_at: string;
 }
 
-export type ChatMessage = ConversationEntry;
 
 export interface WorkspaceContext {
   view: string | null;
@@ -567,7 +566,7 @@ export interface AgentConversationResponse { session: AgentSession; entries: Con
 export interface AgentSessionsResponse { sessions: AgentSession[]; }
 export interface ControlActionsListResponse { control_actions: ControlActionAuditEntry[]; total: number; }
 export type ChatSessionsResponse = OperatorApiSuccess<'chats.list'>;
-export type ChatMessagesResponse = OperatorApiSuccess<'chats.get'> & { messages: ChatMessage[]; };
+export type ChatEntriesResponse = OperatorApiSuccess<'chats.get'> & { entries: ConversationEntry[]; };
 export type FilesListResponse = OperatorApiSuccess<'files.list'>;
 export type DebugStateResponse = OperatorApiSuccess<'debug.state'> & { runtime: RuntimeState | null; cards: Array<{ id: string; type: CardType; parent: string | null; status: CardStatus; title: string; priority: number; depends_on: string[]; blocks: string[] }>; };
 export type DebugErrorsResponse = Omit<OperatorApiSuccess<'debug.errors'>, 'errors'> & { errors: DebugError[]; };

@@ -5,12 +5,12 @@ import AnalystChatPanel from '../components/chat/AnalystChatPanel.vue';
 import { useAnalystChat } from '../stores/analystChat';
 
 const listChatSessions = vi.fn();
-const getChatMessages = vi.fn();
+const getChatEntries = vi.fn();
 const sendChatMessage = vi.fn();
 
 vi.mock('../api/client', () => ({
   listChatSessions: (...args: any[]) => listChatSessions(...args),
-  getChatMessages: (...args: any[]) => getChatMessages(...args),
+  getChatEntries: (...args: any[]) => getChatEntries(...args),
   sendChatMessage: (...args: any[]) => sendChatMessage(...args),
   ApiError: class extends Error { status: number; body: Record<string, unknown>; constructor(status: number, message: string, body: Record<string, unknown> = {}) { super(message); this.status = status; this.body = body; } get isUnauthorized() { return this.status === 401; } },
 }));
@@ -21,12 +21,12 @@ describe('AnalystChatPanel', () => {
     window.localStorage.clear();
     vi.useRealTimers();
     listChatSessions.mockReset();
-    getChatMessages.mockReset();
+    getChatEntries.mockReset();
     sendChatMessage.mockReset();
     listChatSessions.mockResolvedValue({ sessions: [{ id: 'analyst', role: 'analyst', status: 'active', started_at: '2025-01-01T00:00:00Z' }] });
-    getChatMessages.mockResolvedValue({
+    getChatEntries.mockResolvedValue({
       sessionId: 'analyst',
-      messages: [
+      entries: [
         { id: '1', session_id: 'analyst', role: 'assistant', kind: 'text', content: 'hello', round_id: 'r-assistant-1', message_index: 0, block_index: 0, timestamp: '2025-01-01T00:00:00Z' },
         { id: '2', session_id: 'analyst', role: 'assistant', kind: 'tool_call', tool: 'read_file', tool_call_id: 'call-1', content: JSON.stringify({ toolCalls: [{ id: 'call-1', function: { name: 'read_file', arguments: JSON.stringify({ path: 'README.md' }) } }] }), round_id: 'r-assistant-1', message_index: 1, block_index: 0, timestamp: '2025-01-01T00:00:01Z' },
         { id: '3', session_id: 'analyst', role: 'tool', kind: 'tool_result', tool: 'read_file', tool_call_id: 'call-1', content: JSON.stringify({ ok: true, content: 'docs' }), round_id: 'r-assistant-1', message_index: 1, block_index: 1, timestamp: '2025-01-01T00:00:02Z' },
@@ -37,14 +37,14 @@ describe('AnalystChatPanel', () => {
 
   it('shows Loading history… during initial fetch and gates empty state until loading completes', async () => {
     let resolveMessages: (value: any) => void = () => {};
-    getChatMessages.mockReturnValueOnce(new Promise((resolve) => { resolveMessages = resolve; }));
+    getChatEntries.mockReturnValueOnce(new Promise((resolve) => { resolveMessages = resolve; }));
     const wrapper = mount(AnalystChatPanel, { attachTo: document.body, global: { plugins: [createPinia()] } });
     await flushPromises();
 
     expect(wrapper.text()).toContain('Loading history…');
     expect(wrapper.text()).not.toContain('No messages yet. Ask the analyst something.');
 
-    resolveMessages({ sessionId: 'analyst', messages: [] });
+    resolveMessages({ sessionId: 'analyst', entries: [] });
     await flushPromises();
     expect(wrapper.text()).not.toContain('Loading history…');
     expect(wrapper.text()).toContain('No messages yet. Ask the analyst something.');

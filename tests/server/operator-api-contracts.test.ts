@@ -158,6 +158,12 @@ describe('operator API contract registry', () => {
     expect(() => parseOperatorResponse('cards.list', { cards: [{}], total: 1 })).toThrow();
   });
 
+  it('uses entries for the analyst chat-history response contract', () => {
+    expect(parseOperatorResponse('chats.get', { sessionId: 'analyst', entries: [] }).entries).toEqual([]);
+    expect(() => parseOperatorResponse('chats.get', { sessionId: 'analyst', messages: [] })).toThrow();
+  });
+
+
 
 
   it('validates precise MCP tool response contracts', () => {

@@ -78,7 +78,7 @@ export function registerOperatorContractRoutes(options: {
     },
     'mcp.tools': () => ({ body: options.mcpToolsProvider?.()?.getToolsReadModel() ?? { tools: [], servers: [], invocationStats: {}, serverDetails: [] } }),
     'chats.list': () => chatReadModel.listSessions(),
-    'chats.get': ({ params }) => chatReadModel.getMessages((params as unknown as { sessionId: string }).sessionId),
+    'chats.get': ({ params }) => chatReadModel.getEntries((params as unknown as { sessionId: string }).sessionId),
     'chats.send': async ({ params, body }) => {
       const sessionId = (params as unknown as { sessionId: string }).sessionId;
       const requestBody = body as { content?: string; workspaceContext?: unknown };

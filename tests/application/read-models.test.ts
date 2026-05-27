@@ -80,7 +80,7 @@ describe('application read models', () => {
     expect(service.readFileContent('reports/binary.bin').statusCode).toBe(415);
   });
 
-  it('reads canonical analyst messages and debug jsonl projections', () => {
+  it('reads canonical analyst entries and debug jsonl projections', () => {
     const messagesDir = join(root, '.saivage', 'agents', 'messages');
     mkdirSync(messagesDir, { recursive: true });
     writeFileSync(join(messagesDir, 'analyst.jsonl'), '{"role":"assistant","content":"hi"}\nnot-json\n');
@@ -88,10 +88,10 @@ describe('application read models', () => {
     mkdirSync(runtimeDir, { recursive: true });
     writeFileSync(join(runtimeDir, 'errors.jsonl'), '{"message":"apiKey=secret"}\n');
 
-    const chat = new ChatReadModelService(root).getMessages('analyst').body as { messages: unknown[] };
+    const chat = new ChatReadModelService(root).getEntries('analyst').body as { entries: unknown[] };
     const debug = new DebugReadModelService(root).getErrors() as { errors: unknown[]; total: number };
 
-    expect(chat.messages).toHaveLength(1);
+    expect(chat.entries).toHaveLength(1);
     expect(debug.total).toBe(1);
     expect(JSON.stringify(debug.errors)).not.toContain('secret');
     expect(existsSync(join(root, '.saivage', 'agents', 'messages', 'analyst.jsonl'))).toBe(true);

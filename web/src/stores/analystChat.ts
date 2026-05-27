@@ -1,9 +1,9 @@
 import { defineStore } from 'pinia';
 import { computed, ref } from 'vue';
-import type { CardRecord, ChatMessage, ChatSession, DetailErrorState } from '../api/types';
+import type { CardRecord, ChatSession, ConversationEntry, DetailErrorState } from '../api/types';
 import {
   ApiError,
-  getChatMessages,
+  getChatEntries,
   listChatSessions,
   sendChatMessage,
 } from '../api/client';
@@ -90,7 +90,7 @@ function buildPendingInvocationId(invocation: Omit<PendingToolInvocation, 'id'>)
   ].join(':');
 }
 
-function toolInvocationMatchesMessage(invocation: PendingToolInvocation, message: ChatMessage): boolean {
+function toolInvocationMatchesMessage(invocation: PendingToolInvocation, message: ConversationEntry): boolean {
   if (message.role !== 'tool' || message.tool !== invocation.tool) {
     return false;
   }
@@ -111,7 +111,7 @@ function toolInvocationMatchesMessage(invocation: PendingToolInvocation, message
 function dedupePendingToolInvocations(
   pending: PendingToolInvocation[],
   sessionId: string,
-  fetchedMessages: ChatMessage[],
+  fetchedMessages: ConversationEntry[],
 ): PendingToolInvocation[] {
   return pending.filter((invocation) => {
     if (invocation.sessionId !== sessionId) {
@@ -137,7 +137,7 @@ function pushPendingToolInvocation(
 export const useAnalystChat = defineStore('analyst-chat', () => {
   const sessions = ref<ChatSession[]>([]);
   const activeSessionId = ref<string | null>(ANALYST_SESSION_ID);
-  const messages = ref<ChatMessage[]>([]);
+  const messages = ref<ConversationEntry[]>([]);
   const draft = ref('');
   const sessionsLoading = ref(false);
   const sessionsError = ref<DetailErrorState | null>(null);
@@ -199,8 +199,8 @@ export const useAnalystChat = defineStore('analyst-chat', () => {
     messagesLoading.value = true;
     messagesError.value = null;
     try {
-      const response = await getChatMessages(canonicalSessionId);
-      const fetchedMessages = [...response.messages].sort((a, b) => a.timestamp.localeCompare(b.timestamp));
+      const response = await getChatEntries(canonicalSessionId);
+      const fetchedMessages = [...response.entries].sort((a, b) => a.timestamp.localeCompare(b.timestamp));
       messages.value = fetchedMessages;
       pendingToolInvocations.value = dedupePendingToolInvocations(
         pendingToolInvocations.value,
@@ -309,7 +309,7 @@ export const useAnalystChat = defineStore('analyst-chat', () => {
         links: Array.isArray((response.message as { links?: unknown[] }).links)
           ? (response.message as { links?: [] }).links
           : undefined,
-      } satisfies ChatMessage;
+      } satisfies ConversationEntry;
       messages.value = [...messages.value, optimistic];
 
       if (Array.isArray(response.toolInvocations)) {

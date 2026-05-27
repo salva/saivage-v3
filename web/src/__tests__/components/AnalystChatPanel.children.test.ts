@@ -6,13 +6,13 @@ import analystChatPanelSource from '../../components/chat/AnalystChatPanel.vue?r
 import { useCardStore } from '../../stores/cards';
 import { useWorkspaceRouteStore } from '../../stores/workspaceRoute';
 
-const listAgentSessions = vi.fn();
-const getChatMessages = vi.fn();
+const listChatSessions = vi.fn();
+const getChatEntries = vi.fn();
 const sendChatMessage = vi.fn();
 
 vi.mock('../../api/client', () => ({
-  listAgentSessions: (...args: any[]) => listAgentSessions(...args),
-  getChatMessages: (...args: any[]) => getChatMessages(...args),
+  listChatSessions: (...args: any[]) => listChatSessions(...args),
+  getChatEntries: (...args: any[]) => getChatEntries(...args),
   sendChatMessage: (...args: any[]) => sendChatMessage(...args),
   ApiError: class extends Error { status: number; body: Record<string, unknown>; constructor(status: number, message: string, body: Record<string, unknown> = {}) { super(message); this.status = status; this.body = body; } get isUnauthorized() { return this.status === 401; } },
 }));
@@ -46,12 +46,12 @@ function card(id: string, parent: string | null, position: number, title: string
 describe('AnalystChatPanel on-screen children', () => {
   beforeEach(() => {
     document.body.innerHTML = '';
-    listAgentSessions.mockReset();
-    getChatMessages.mockReset();
+    listChatSessions.mockReset();
+    getChatEntries.mockReset();
     sendChatMessage.mockReset();
-    listAgentSessions.mockResolvedValue({ sessions: [{ id: 'chat-1', role: 'analyst', status: 'active', started_at: '2025-01-01T00:00:00Z' }] });
-    getChatMessages.mockResolvedValue({ sessionId: 'chat-1', messages: [] });
-    sendChatMessage.mockResolvedValue({ sessionId: 'chat-1', message: { id: 'm1', content: 'ok', timestamp: '2025-01-01T00:00:00Z' } });
+    listChatSessions.mockResolvedValue({ sessions: [{ id: 'analyst', role: 'analyst', status: 'active', started_at: '2025-01-01T00:00:00Z' }] });
+    getChatEntries.mockResolvedValue({ sessionId: 'analyst', entries: [] });
+    sendChatMessage.mockResolvedValue({ sessionId: 'analyst', message: { id: 'm1', content: 'ok', timestamp: '2025-01-01T00:00:00Z' } });
   });
 
   it('imports the singular useCardStore symbol from ../../stores/cards', () => {

@@ -15,7 +15,7 @@ import type {
   AgentConversationResponse,
   AgentSessionsResponse,
   ChatSessionsResponse,
-  ChatMessagesResponse,
+  ChatEntriesResponse,
   ChatResponse,
   WorkspaceContext,
   FilesListResponse,
@@ -225,8 +225,8 @@ export function listChatSessions(): Promise<ChatSessionsResponse> {
   return operatorRequest('chats.list', 'GET', '/api/chats');
 }
 
-export function getChatMessages(sessionId: string): Promise<ChatMessagesResponse> {
-  return operatorRequest('chats.get', 'GET', `/api/chats/${encodeURIComponent(sessionId)}`) as Promise<ChatMessagesResponse>;
+export function getChatEntries(sessionId: string): Promise<ChatEntriesResponse> {
+  return operatorRequest('chats.get', 'GET', `/api/chats/${encodeURIComponent(sessionId)}`) as Promise<ChatEntriesResponse>;
 }
 
 export function sendChatMessage(sessionId: string, content: string, workspaceContext?: WorkspaceContext): Promise<ChatResponse> {

@@ -3,6 +3,7 @@ import Fastify from 'fastify';
 import { mkdtempSync, mkdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { createTestActiveRuntime } from '../helpers/test-active-runtime.js';
 
 const handleMessage = jest.fn<() => Promise<unknown>>();
 const getOrCreateAnalystSession = jest.fn();
@@ -50,7 +51,7 @@ describe('POST /api/chats/:sessionId workspaceContext', () => {
 
   async function app() {
     const fastify = Fastify();
-    registerOperatorContractRoutes({ fastify, projectRoot: root });
+    registerOperatorContractRoutes({ fastify, projectRoot: root, activeRuntime: createTestActiveRuntime() });
     await fastify.ready();
     return fastify;
   }

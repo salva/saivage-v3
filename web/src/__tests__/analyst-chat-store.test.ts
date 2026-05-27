@@ -1,17 +1,17 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { createPinia, setActivePinia } from 'pinia';
 import { useAnalystChat } from '../stores/analystChat';
-import type { ChatMessage } from '../api/types';
+import type { ConversationEntry } from '../api/types';
 
 const apiMocks = vi.hoisted(() => ({
   listChatSessions: vi.fn(),
-  getChatMessages: vi.fn(),
+  getChatEntries: vi.fn(),
   sendChatMessage: vi.fn(),
 }));
 
 vi.mock('../api/client', () => ({
   listChatSessions: apiMocks.listChatSessions,
-  getChatMessages: apiMocks.getChatMessages,
+  getChatEntries: apiMocks.getChatEntries,
   sendChatMessage: apiMocks.sendChatMessage,
   ApiError: class extends Error { status: number; body: Record<string, unknown>; constructor(status: number, message: string, body: Record<string, unknown> = {}) { super(message); this.status = status; this.body = body; } get isUnauthorized() { return this.status === 401; } },
 }));
@@ -23,10 +23,10 @@ describe('analyst chat store', () => {
     vi.setSystemTime(new Date('2025-01-01T00:00:00Z'));
     setActivePinia(createPinia());
     apiMocks.listChatSessions.mockReset();
-    apiMocks.getChatMessages.mockReset();
+    apiMocks.getChatEntries.mockReset();
     apiMocks.sendChatMessage.mockReset();
     apiMocks.listChatSessions.mockResolvedValue({ sessions: [{ id: 'analyst', role: 'analyst', status: 'active', started_at: '2025-01-01T00:00:00Z' }] });
-    apiMocks.getChatMessages.mockResolvedValue({ sessionId: 'analyst', messages: [] as ChatMessage[] });
+    apiMocks.getChatEntries.mockResolvedValue({ sessionId: 'analyst', entries: [] as ConversationEntry[] });
     apiMocks.sendChatMessage.mockResolvedValue({ sessionId: 'analyst', message: { id: 'm1', content: 'reply', timestamp: '2025-01-01T00:00:00Z' } });
   });
 
@@ -70,20 +70,20 @@ describe('analyst chat store', () => {
     await store.selectSession('analyst');
     store.ingestWsEvent({ event: 'analyst_tool_invoked', sessionId: 'stale-chat-id', tool: 'read_file', summary: 'opened docs', success: true });
 
-    apiMocks.getChatMessages.mockResolvedValueOnce({
+    apiMocks.getChatEntries.mockResolvedValueOnce({
       sessionId: 'analyst',
-      messages: [
+      entries: [
         { id: 'assistant-1', session_id: 'analyst', role: 'assistant', kind: 'text', content: 'still thinking', round_id: 'r-assistant-1', message_index: 0, block_index: 0, timestamp: '2025-01-01T00:00:01Z' },
-      ] satisfies ChatMessage[],
+      ] satisfies ConversationEntry[],
     });
     await store.fetchMessages('analyst');
     expect(store.pendingToolInvocations).toHaveLength(1);
 
-    apiMocks.getChatMessages.mockResolvedValueOnce({
+    apiMocks.getChatEntries.mockResolvedValueOnce({
       sessionId: 'analyst',
-      messages: [
+      entries: [
         { id: 'tool-1', session_id: 'analyst', role: 'tool', kind: 'tool_call', tool: 'read_file', content: JSON.stringify({ toolCalls: [{ tool: 'read_file', params: { path: 'docs/analyst.md' } }] }), round_id: 'r-assistant-1', message_index: 1, block_index: 0, timestamp: '2025-01-01T00:00:02Z' },
-      ] satisfies ChatMessage[],
+      ] satisfies ConversationEntry[],
     });
     await store.fetchMessages('analyst');
     expect(store.pendingToolInvocations).toEqual([]);
@@ -92,13 +92,13 @@ describe('analyst chat store', () => {
   it('canonicalizes requested fetch session ids to the single analyst chat', async () => {
     const store = useAnalystChat();
 
-    apiMocks.getChatMessages.mockResolvedValueOnce({
+    apiMocks.getChatEntries.mockResolvedValueOnce({
       sessionId: 'analyst',
-      messages: [] satisfies ChatMessage[],
+      entries: [] satisfies ConversationEntry[],
     });
     await store.fetchMessages('chat-2');
 
-    expect(apiMocks.getChatMessages).toHaveBeenLastCalledWith('analyst');
+    expect(apiMocks.getChatEntries).toHaveBeenLastCalledWith('analyst');
     expect(store.activeSessionId).toBe('analyst');
   });
 

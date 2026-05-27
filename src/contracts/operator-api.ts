@@ -229,9 +229,9 @@ export const ChatListResponseSchema = z.object({
     started_at: z.string(),
   }).catchall(z.unknown())),
 });
-export const ChatMessagesResponseSchema = z.object({
+export const ChatEntriesResponseSchema = z.object({
   sessionId: z.string(),
-  messages: z.array(z.unknown()),
+  entries: z.array(z.unknown()),
 });
 export const ChatSendResponseSchema = z.object({
   sessionId: z.string(),
@@ -294,7 +294,7 @@ export type McpInvocationStat = z.infer<typeof McpInvocationStatSchema>;
 export type McpToolDefinition = z.infer<typeof McpToolDefinitionSchema>;
 export type McpToolsResponse = z.infer<typeof McpToolsResponseSchema>;
 export type ChatListResponse = z.infer<typeof ChatListResponseSchema>;
-export type ChatMessagesResponse = z.infer<typeof ChatMessagesResponseSchema>;
+export type ChatEntriesResponse = z.infer<typeof ChatEntriesResponseSchema>;
 export type ChatSendResponse = z.infer<typeof ChatSendResponseSchema>;
 export type WorkspaceFilesListResponse = z.infer<typeof WorkspaceFilesListResponseSchema>;
 export type WorkspaceFileContentResponse = z.infer<typeof WorkspaceFileContentResponseSchema>;
@@ -473,11 +473,11 @@ export const operatorApiContracts = {
     method: 'GET',
     path: '/api/chats/:sessionId',
     params: ChatSessionParamsSchema,
-    success: ChatMessagesResponseSchema,
+    success: ChatEntriesResponseSchema,
     error: ApiErrorSchema,
-    response: { 200: ChatMessagesResponseSchema, 400: ApiErrorSchema, 401: UnauthorizedErrorSchema, 403: ForbiddenErrorSchema, 404: ApiErrorSchema, 500: ContractViolationErrorSchema },
+    response: { 200: ChatEntriesResponseSchema, 400: ApiErrorSchema, 401: UnauthorizedErrorSchema, 403: ForbiddenErrorSchema, 404: ApiErrorSchema, 500: ContractViolationErrorSchema },
     ...operatorSessionContract,
-    successSchemaName: 'ChatMessagesResponse',
+    successSchemaName: 'ChatEntriesResponse',
   },
   'chats.send': {
     operationId: 'chats.send',

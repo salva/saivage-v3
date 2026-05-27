@@ -20,7 +20,7 @@ export type {
   CardHistoryListResponse,
   CardListResponse,
   ChatListResponse,
-  ChatMessagesResponse,
+  ChatEntriesResponse,
   ChatSendResponse,
   DebugErrorsResponse,
   DebugStateResponse,
