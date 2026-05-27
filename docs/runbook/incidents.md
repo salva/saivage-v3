@@ -5,7 +5,7 @@ status: current
 disposition: keep
 owner: docs-maintainers
 superseded_by: none
-last_verified_against: src/server/routes/chats-files-debug.ts:178
+last_verified_against: src/server/routes/chats-files-debug.ts:19
 -->
 
 Use this page when runtime, UI, auth, evidence, or agent behavior is degraded. Start with [Operations](./operations.md) for normal procedures.
