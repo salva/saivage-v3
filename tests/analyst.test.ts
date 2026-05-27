@@ -396,7 +396,7 @@ describe('API Chat and WebSocket Integration', () => {
   function authHdr(): Record<string, string> { return { authorization: `Bearer ${authToken}` }; }
 
   it('returns a real analyst response message', async () => {
-    const res = await fetch(apiUrl('/api/chats/chat-int-1'), { method: 'POST', headers: { ...authHdr(), 'content-type': 'application/json' }, body: JSON.stringify({ content: 'list all cards' }) });
+    const res = await fetch(apiUrl('/api/chats/analyst'), { method: 'POST', headers: { ...authHdr(), 'content-type': 'application/json' }, body: JSON.stringify({ content: 'list all cards' }) });
     expect(res.status).toBe(200);
   });
 

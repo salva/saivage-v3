@@ -8,6 +8,7 @@ const mockResetAnalystHandlerCache = jest.fn();
 
 jest.unstable_mockModule('../../src/agents/analyst-handler.js', () => ({
   AnalystHandler: jest.fn(),
+  GLOBAL_ANALYST_SESSION_ID: 'analyst',
   getOrCreateAnalystSession: mockGetOrCreateAnalystSession,
   getAnalystHandler: mockGetAnalystHandler,
   resetAnalystHandlerCache: mockResetAnalystHandlerCache,

@@ -20,7 +20,7 @@ import type {
 import { createActivationCompletionEnvelope, parseActivationCompletionEnvelope } from '../schemas/index.js';
 import { CardStore, PROJECT_CARD_ID } from '../cards/index.js';
 import { STARTABLE_STATES, RESTARTABLE_STATES } from '../permissions/index.js';
-import { consumeChangedCardActivation, injectQueuedSyntheticPlannerNotes, queueSyntheticPlannerNote, drainSyntheticPlannerNotes } from '../agents/index.js';
+import { consumeChangedCardActivation, injectQueuedSyntheticPlannerNotes, queueSyntheticPlannerNote, drainSyntheticPlannerNotes } from '../agents/analyst-stage6.js';
 import { reconcileOrphanedWorkerSessions } from '../agents/session-persistence.js';
 import {
   initRuntimeState,
@@ -31,6 +31,7 @@ import {
   appendRuntimeRun,
   updateRuntimeRun,
   upsertRuntimeIntent,
+  upsertRuntimeActivation,
 } from './state.js';
 import {
   saveFreezeManifest,
@@ -38,15 +39,14 @@ import {
   clearFreezeManifest,
 } from './freeze-manifest.js';
 import { acquireLock, releaseLock } from './lock.js';
-import { FakeAgentAdapter, type FakeAgentConfig } from '../agents/index.js';
-import type { AgentRuntime } from '../agents/index.js';
-import type { PlannerResult, ReviewerResult } from '../agents/index.js';
+import { createDefaultAgentExecution } from '../agents/default-agent-execution.js';
+import type { AgentExecutionPort, PlannerResult, ReviewerResult, RuntimeActivationLedgerPort } from '../contracts/index.js';
 import {
   buildPlannerPrompt,
   buildExecutorPrompt,
   buildReviewerPrompt,
-} from '../agents/index.js';
-import { SkillsEngine } from '../agents/index.js';
+} from '../agents/system-prompt.js';
+import { SkillsEngine } from '../agents/skills-engine.js';
 import {
   disposeProcessRuntimeScope,
   listProcesses,
@@ -72,7 +72,7 @@ import {
   listSessions,
   getSession,
   getSessionMessages,
-} from '../agents/index.js';
+} from '../agents/session-persistence.js';
 import {
   StuckAgentSupervisor,
   DEFAULT_SUPERVISOR_CONFIG,
@@ -82,7 +82,7 @@ import {
 import { NotificationCenter } from '../notifications/index.js';
 
 export type RuntimeStatus = RStatus;
-export interface RuntimeConfig { projectRoot: string; fakeAgentConfig: FakeAgentConfig; skillsEngine?: SkillsEngine; eventLogger?: EventLogger; errorLogger?: ErrorLogger; maxGoalDepth?: number; supervisorConfig?: Partial<SupervisorConfig>; autoDispatchBacklog?: boolean; continuousImprovement?: boolean; }
+export interface RuntimeConfig { projectRoot: string; fakeAgentConfig: { mapping: Record<string, string>; fixtureDir: string; saivageDir?: string; autoActivateCreatedCards?: boolean };  agentExecutionFactory?: (projectRoot: string, fakeAgentConfig: RuntimeConfig['fakeAgentConfig'], activationLedger: RuntimeActivationLedgerPort) => AgentExecutionPort; skillsEngine?: SkillsEngine; eventLogger?: EventLogger; errorLogger?: ErrorLogger; maxGoalDepth?: number; supervisorConfig?: Partial<SupervisorConfig>; autoDispatchBacklog?: boolean; continuousImprovement?: boolean; }
 const TERMINAL_STATUSES: ReadonlySet<string> = new Set(['done', 'failed', 'cancelled']);
 function now(): string { return new Date().toISOString(); }
 function saivageWorkDir(projectRoot: string): string { return join(projectRoot, '.saivage-work'); }
@@ -98,17 +98,17 @@ function resolveRegisterableProcessMetadataSource(projectRoot: string, filePath:
 const TRACKED_EVENT_KINDS: ReadonlySet<EventKind> = new Set(trackedEventKindValues);
 
 export class Runtime extends EventEmitter {
-  readonly projectRoot: string; readonly cardStore: CardStore; readonly agentRuntime: AgentRuntime; readonly eventBus: EventBus; readonly notificationCenter: NotificationCenter;
+  readonly projectRoot: string; readonly cardStore: CardStore; readonly agentRuntime: AgentExecutionPort; readonly eventBus: EventBus; readonly notificationCenter: NotificationCenter;
   private _paused = false; private _running = false; private _shuttingDown = false; private _skillsEngine: SkillsEngine | null = null; private _eventLogger: EventLogger; private _ownsEventLogger: boolean; private _errorLogger: ErrorLogger; private _ownsErrorLogger: boolean; readonly runningProcesses: Set<string> = new Set(); private _supervisor: StuckAgentSupervisor; private _continuousImprovementReserved: boolean; private _autoDispatchBacklog: boolean; private _resumeHandoffContext: string | null = null; private _startupRepairPending = false; /* Goal/planner re-entrancy guard; worker manifest uniqueness is enforced in session persistence. */ private _dispatchInFlight = new Set<string>(); private _backgroundDispatches = new Set<Promise<void>>(); private _lastLifecycleDisposeReport: RuntimeDisposeReportEntry[] = []; private _stateMachine: RuntimeStateMachine;
 
-  constructor(config: RuntimeConfig, agentRuntime?: AgentRuntime) {
+  constructor(config: RuntimeConfig, agentRuntime?: AgentExecutionPort) {
     super();
     // EventEmitter promotes emit('error', ...) without a listener into a thrown
     // exception that escapes the local catch block. Several internal call sites
     // emit 'error' for diagnostics (e.g. artifact_registration failures inside
     // dispatchPendingActivations) and rely on continuing past it; without this guard the
     // dispatch pipeline aborts mid-flight and leaves active_card_run stale.
-    this.projectRoot = config.projectRoot; this.eventBus = new EventBus(); this.cardStore = new CardStore(config.projectRoot, config.maxGoalDepth, undefined, this.eventBus); this.agentRuntime = agentRuntime ?? new FakeAgentAdapter({ ...config.fakeAgentConfig, saivageDir: join(config.projectRoot, '.saivage') }); if (typeof (this.agentRuntime as { setSaivageDir?: (saivageDir: string) => void }).setSaivageDir === 'function') (this.agentRuntime as unknown as { setSaivageDir: (saivageDir: string) => void }).setSaivageDir(join(config.projectRoot, '.saivage')); this.notificationCenter = new NotificationCenter(config.projectRoot, this.eventBus); this._skillsEngine = config.skillsEngine ?? new SkillsEngine({ projectRoot: config.projectRoot }); this._continuousImprovementReserved = config.continuousImprovement ?? false; this._autoDispatchBacklog = config.autoDispatchBacklog ?? false;
+    this.projectRoot = config.projectRoot; this.eventBus = new EventBus(); this.cardStore = new CardStore(config.projectRoot, config.maxGoalDepth, undefined, this.eventBus); const activationLedger: RuntimeActivationLedgerPort = { readState: () => readRuntimeState(config.projectRoot), appendRun: (input) => appendRuntimeRun(config.projectRoot, input), upsertActivation: (input) => upsertRuntimeActivation(config.projectRoot, input) }; this.agentRuntime = agentRuntime ?? (config.agentExecutionFactory ?? createDefaultAgentExecution)(config.projectRoot, { ...config.fakeAgentConfig, saivageDir: join(config.projectRoot, '.saivage') }, activationLedger); if (typeof (this.agentRuntime as { setSaivageDir?: (saivageDir: string) => void }).setSaivageDir === 'function') (this.agentRuntime as unknown as { setSaivageDir: (saivageDir: string) => void }).setSaivageDir(join(config.projectRoot, '.saivage')); if (typeof (this.agentRuntime as { setActivationLedger?: (activationLedger: RuntimeActivationLedgerPort) => void }).setActivationLedger === 'function') (this.agentRuntime as unknown as { setActivationLedger: (activationLedger: RuntimeActivationLedgerPort) => void }).setActivationLedger(activationLedger); this.notificationCenter = new NotificationCenter(config.projectRoot, this.eventBus); this._skillsEngine = config.skillsEngine ?? new SkillsEngine({ projectRoot: config.projectRoot }); this._continuousImprovementReserved = config.continuousImprovement ?? false; this._autoDispatchBacklog = config.autoDispatchBacklog ?? false;
     if (config.eventLogger) { this._eventLogger = config.eventLogger; this._ownsEventLogger = false; } else { this._eventLogger = new EventLogger(join(config.projectRoot, '.saivage')); this._ownsEventLogger = true; }
     if (config.errorLogger) { this._errorLogger = config.errorLogger; this._ownsErrorLogger = false; } else { this._errorLogger = new ErrorLogger(join(config.projectRoot, '.saivage')); this._ownsErrorLogger = true; }
     const supervisorDeps: SupervisorDeps = { getRecentLogs: (maxLines: number) => { try { const logPath = eventsLogPath(this.projectRoot); if (!existsSync(logPath)) return ''; const raw = readFileSync(logPath, 'utf-8'); const allLines = raw.split('\n').filter(Boolean); return allLines.slice(-maxLines).join('\n'); } catch { return ''; } }, getActiveSessions: () => { try { const handoffs = this.agentRuntime.getActiveSessionHandoffs(); if (!(handoffs instanceof Promise)) { const active = handoffs.map((handoff) => ({ role: handoff.role, sessionId: handoff.session_id })); if (active.length > 0) return active; } } catch { void 0; } try { const state = readRuntimeState(this.projectRoot); if (state && state.current_agent_session_id) { const sessionId = state.current_agent_session_id; let role = 'executor'; if (sessionId.startsWith('planner-') || sessionId.startsWith('planner:')) role = 'planner'; else if (sessionId.startsWith('reviewer-') || sessionId.startsWith('reviewer:')) role = 'reviewer'; return [{ role, sessionId }]; } } catch { void 0; } return []; }, abortSession: (sessionId: string) => { void this.agentRuntime.cancelSession(sessionId); }, forceCancelSession: (sessionId: string) => { void this.agentRuntime.forceCancelSession(sessionId); }, emitEvent: (kind: string, data: Record<string, unknown>) => { this.emit(kind, data); if (TRACKED_EVENT_KINDS.has(kind as EventKind)) this._eventLogger.appendEvent({ kind: kind as EventKind, ...data }); }, isShuttingDown: () => this._shuttingDown };
@@ -674,7 +674,7 @@ export class Runtime extends EventEmitter {
         plannerPrompt += `\n\n## Parent Resume Context\n${resumeContext}`;
         const handoff = this.consumeResumeHandoffContext(); if (handoff) plannerPrompt += `\n\n## Resume Handoff\n${handoff}`;
         try { const goalCard = this.cardStore.read(goalId); if (goalCard && this._skillsEngine) { const plannerInstr = goalCard.depth === 0 ? await this._skillsEngine.loadPlannerInstructions() : (goalCard.instructions_file && goalCard.instructions_file.trim()) ? await this._skillsEngine.loadPlannerInstructions(goalCard.instructions_file.trim()) : ''; const skillsContent = await this._skillsEngine.selectAndFormat({ goalDescription: goalCard.description, cardDescription: goalCard.description, tags: goalCard.tags, filePaths: [], availableTools: ['list_project_files', 'read_project_file', 'load_skill', 'mcp_tool_call'], targetRole: 'planner' }); const combinedSkills = [plannerInstr, skillsContent].filter(Boolean).join('\n\n'); if (combinedSkills) plannerPrompt = buildPlannerPrompt(combinedSkills, currentDepth, maxDepth) + `\n\n## Parent Resume Context\n${resumeContext}`; } } catch { void 0; }
-        this.appendPlannerResumeContext(goalId, `planner:${goalId}`, resumeReason); injectQueuedSyntheticPlannerNotes(this.projectRoot, `planner:${goalId}`); const result = this.agentRuntime.invokePlanner(goalId, plannerPrompt); plannerResult = result instanceof Promise ? await result : result;
+        this.appendPlannerResumeContext(goalId, `planner:${goalId}`, resumeReason); injectQueuedSyntheticPlannerNotes(this.projectRoot, `planner:${goalId}`); const result = this.agentRuntime.invokePlanner({ goalId, systemPrompt: plannerPrompt }); plannerResult = result instanceof Promise ? await result : result;
       } catch (err) { const errorMessage = err instanceof Error ? err.message : String(err); this.emitRuntimeDiagnostic({ goal_id: goalId, phase: 'planner', error: err }); this._eventLogger.appendEvent({ kind: 'runtime_diagnostic', goal_id: goalId, phase: 'planner', error_message: errorMessage }); this._errorLogger.appendError({ message: errorMessage, goalId, phase: 'planner' }); await this._stateMachine.transitionCard(goalId, 'fail', { reason: 'planner_error', error: errorMessage }); await this.cardStore.update(goalId, { error: errorMessage, status_text: `Planner failed: ${errorMessage}` }); const failedRun = (readRuntimeState(this.projectRoot)?.runtime_runs ?? []).filter((run) => run.card_id === goalId && run.phase === 'planner' && run.runtime_status === 'running' && !run.finished_at && (!run.session_id || run.session_id === `planner:${goalId}`)).sort((a, b) => (b.kind === 'root' ? 1 : 0) - (a.kind === 'root' ? 1 : 0))[0]; if (failedRun) { const updated = updateRuntimeRun(this.projectRoot, failedRun.run_id, { phase: 'failed', runtime_status: 'error', finished_at: now(), result: 'failed' }); if (updated) this.publishRuntimeLedgerEvent('runtime_run', { run: updated }); } await this._stateMachine.transition('goal_exit', { goalId, reason: 'planner_error' }); throw err; }
       await this.applyPlannerResult(goalId, plannerResult);
       updateRuntimeState(this.projectRoot, { current_agent_session_id: `planner:${goalId}`, queue: [] });
@@ -752,10 +752,10 @@ export class Runtime extends EventEmitter {
           let executorPrompt = buildExecutorPrompt(card.type);
           try { if (this._skillsEngine) { const instructionContent = await this._skillsEngine.loadInstructions('executor'); const skillsContent = await this._skillsEngine.selectAndFormat({ goalDescription: goalCard?.description ?? '', cardDescription: card.description, tags: card.tags, filePaths: [], availableTools: ['list_project_files', 'read_project_file', 'write_project_file', 'run_project_command', 'load_skill', 'mcp_tool_call'], targetRole: 'executor' }); const combinedSkills = [instructionContent, skillsContent].filter(Boolean).join('\\n\\n'); if (combinedSkills) executorPrompt = buildExecutorPrompt(card.type, combinedSkills); } } catch { void 0; }
           executorPrompt += `\n\n${this.buildCardContextBlock(card.id, goalId)}`;
-          const result = this.agentRuntime.invokeExecutor(card.id, goalId, executorPrompt); execResult = result instanceof Promise ? await result : result;
+          const result = this.agentRuntime.invokeExecutor({ cardId: card.id, goalId, systemPrompt: executorPrompt }); execResult = result instanceof Promise ? await result : result;
         } catch (err) { const errorMessage = err instanceof Error ? err.message : String(err); this.emitRuntimeDiagnostic({ card_id: card.id, goal_id: goalId, phase: 'executor', error: err }); this._eventLogger.appendEvent({ kind: 'runtime_diagnostic', card_id: card.id, goal_id: goalId, phase: 'executor', error_message: errorMessage }); this._errorLogger.appendError({ message: errorMessage, cardId: card.id, goalId, phase: 'executor' }); await this._stateMachine.transitionCard(card.id, 'fail', { reason: 'executor_exception', error: errorMessage }); this.appendChildUnwindToolResult(card.id, 'failed', `Terminal card ${card.id} execution failed before producing a result.`); this.emit('card_failed', { card_id: card.id, goal_id: goalId }); this._eventLogger.appendEvent({ kind: 'card_failed', card_id: card.id, goal_id: goalId }); failed = true; return { dispatchedGoal, executedTerminal, failed }; }
         const acceptedAt = now();
-        const lastSessionId = (this.agentRuntime as FakeAgentAdapter).getLastSessionId?.('executor', goalId, card.id) ?? readRuntimeState(this.projectRoot)?.active_card_run?.executor_session_id ?? readRuntimeState(this.projectRoot)?.current_agent_session_id ?? null;
+        const lastSessionId = (this.agentRuntime as { getLastSessionId?: (role: 'executor', goalId: string, cardId: string) => string | null }).getLastSessionId?.('executor', goalId, card.id) ?? readRuntimeState(this.projectRoot)?.active_card_run?.executor_session_id ?? readRuntimeState(this.projectRoot)?.current_agent_session_id ?? null;
         const latestSelfReport = {
           result: execResult.status,
           outcome: execResult.status,
@@ -806,7 +806,7 @@ export class Runtime extends EventEmitter {
     const startedAt = now();
     const goalCard = this.cardStore.read(goalId);
     await this._stateMachine.transition('reviewer_started', { goalId, reviewerSessionId, activeCardRun: { card_id: goalId, card_type: goalCard?.type ?? 'goal', runtime_status: 'running', phase: 'reviewer', caller_session_id: null, caller_tool_call_id: null, planner_session_id: `planner:${goalId}`, reviewer_session_id: reviewerSessionId, correction_attempts: 0, started_at: startedAt, last_turn_at: startedAt } });
-    const result = await this.agentRuntime.invokeReviewer(goalId, reviewerPrompt, [], { assessmentId, reviewerSessionId });
+    const result = await this.agentRuntime.invokeReviewer({ goalId, systemPrompt: reviewerPrompt, contextMessages: [], assessmentId, reviewerSessionId });
     this.emit('review_complete', { goal_id: goalId, assessment: result.assessment }); this._eventLogger.appendEvent({ kind: 'review_complete', goal_id: goalId, assessment: result.assessment }); return result;
   }
 

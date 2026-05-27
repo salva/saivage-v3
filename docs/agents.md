@@ -1106,15 +1106,15 @@ Jest coverage before broader test runs.
 <!-- saivage:agent-tools:start -->
 ## Agent tool matrix (source-verified)
 
-`npm run docs:verify` compares this table with `src/agents/agent-adapter.ts`, `src/agents/workspace-tools.ts`, and the analyst tool definitions.
+`npm run docs:verify` compares this table with `src/agents/role-tool-policy.ts`, `src/agents/agent-adapter.ts`, `src/agents/workspace-tools.ts`, and the analyst tool definitions.
 
 | Role | Tools | Code anchor |
 |---|---|---|
-| `analyst` | `diff_card,get_card_history_entry,get_note,list_card_history,list_notes,mark_goal_needs_corrections,mark_note_handled` | `src/agents/role-tool-policy.ts:92` |
+| `analyst` | `abort_goal_subtree,create_card,delete_card,diff_card,edit_card,get_card,get_card_history_entry,get_card_output,get_plan_diary,get_status,get_tree,list_agent_sessions,list_card_history,list_cards,list_directory,list_processes_tool,mark_goal_needs_corrections,move_card,navigate_back,navigate_workspace,pause_runtime,queue_notification,read_agent_session,read_control_actions,read_file,read_runtime_errors,read_runtime_events,reconfigure,reorder_child,restart_card_or_subtree,restart_goal,restart_server,resume_runtime,run_shell_command,show_config,start_project,stop_project,terminate_process` | `src/agents/role-tool-policy.ts:77` |
 | `card-scoped analyst` | `abort_goal,add_note,create_card,delete_card,diff_card,edit_card,get_card,get_card_history_entry,get_card_output,get_note,get_plan_diary,get_status,get_tree,list_agent_sessions,list_card_history,list_cards,list_directory,list_notes,list_processes_tool,mark_goal_needs_corrections,mark_note_handled,move_card,pause_runtime,read_agent_session,read_control_actions,read_file,read_runtime_errors,read_runtime_events,restart_card,restart_goal,resume_runtime,run_shell_command` | `src/agents/analyst-tool-schemas.ts:21` |
-| `executor` | `diff_card,get_card_history_entry,get_note,kill_process,list_card_history,list_notes,list_project_files,load_skill,mark_note_handled,mcp_tool_call,read_project_file,run_project_command,start_and_wait,wait_for_process,write_project_file` | `src/agents/agent-adapter.ts:125` |
-| `planner` | `activate_card,add_note,cancel_card,create_card,delete_card,diff_card,edit_card,get_card,get_card_history_entry,get_tree,kill_process,list_card_history,list_cards,list_project_files,move_card,read_project_file,reorder_child,report_goal_blocked,report_goal_done,report_goal_failed,restart_card,run_project_command,start_and_wait,wait_for_process,write_project_file` | `src/agents/agent-adapter.ts:56` |
-| `reviewer` | `diff_card,get_card_history_entry,get_note,list_card_history,list_notes,list_project_files,load_skill,mark_note_handled,mcp_tool_call,read_project_file` | `src/agents/agent-adapter.ts:126` |
+| `executor` | `diff_card,get_card_history_entry,kill_process,list_card_history,list_project_files,load_skill,mcp_tool_call,read_project_file,run_project_command,start_and_wait,wait_for_process,write_project_file` | `src/agents/role-tool-policy.ts:58` |
+| `planner` | `activate_card,cancel_card,create_card,delete_card,diff_card,edit_card,get_card,get_card_history_entry,get_tree,kill_process,list_card_history,list_cards,list_project_files,move_card,queue_notification,read_project_file,reorder_child,report_goal_blocked,report_goal_done,report_goal_failed,restart_card,run_project_command,start_and_wait,wait_for_process,write_project_file` | `src/agents/role-tool-policy.ts:37` |
+| `reviewer` | `diff_card,get_card_history_entry,list_card_history,list_project_files,load_skill,mcp_tool_call,read_project_file` | `src/agents/role-tool-policy.ts:72` |
 <!-- saivage:agent-tools:end -->
 
 | `analyst` | `diff_card,get_card_history_entry,get_note,list_card_history,list_notes,mark_goal_needs_corrections,mark_note_handled` | `src/agents/agent-adapter.ts:127` |
