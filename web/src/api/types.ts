@@ -520,6 +520,9 @@ export interface ChatMessage {
   role: MessageRole;
   kind: MessageKind;
   content: string;
+  round_id: string;
+  message_index: number;
+  block_index: number;
   tool?: string;
   tool_call_id?: string;
   timestamp: string;

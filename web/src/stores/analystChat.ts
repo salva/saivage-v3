@@ -4,11 +4,12 @@ import type { CardRecord, ChatMessage, ChatSession, DetailErrorState } from '../
 import {
   ApiError,
   getChatMessages,
-  listAgentSessions,
+  listChatSessions,
   sendChatMessage,
 } from '../api/client';
 import { useWorkspaceRouteStore } from './workspaceRoute';
 
+export const ANALYST_SESSION_ID = 'analyst';
 const MAX_PENDING_TOOL_INVOCATIONS = 12;
 const MAX_PENDING_SUMMARY_LENGTH = 200;
 const FALLBACK_PENDING_SUMMARY = 'tool invoked';
@@ -40,12 +41,7 @@ function nowIso(): string {
 
 function isWritableSession(session: ChatSession | null): boolean {
   if (!session) return true;
-  return session.role === 'analyst' || session.role === 'card' || session.id.startsWith('card-');
-}
-
-function inferSessionRole(sessionId: string): string {
-  if (sessionId.startsWith('card-')) return 'card';
-  return 'analyst';
+  return session.id === ANALYST_SESSION_ID && session.role === 'analyst';
 }
 
 function buildErrorState(err: unknown, fallback: string): DetailErrorState {
@@ -62,10 +58,6 @@ function buildErrorState(err: unknown, fallback: string): DetailErrorState {
     return { kind: 'network', status: null, message: err.message || fallback };
   }
   return { kind: 'unknown', status: null, message: fallback };
-}
-
-function mintSessionId(): string {
-  return `chat-${Date.now()}`;
 }
 
 function normalizePendingSummary(summary: unknown): string {
@@ -144,7 +136,7 @@ function pushPendingToolInvocation(
 
 export const useAnalystChat = defineStore('analyst-chat', () => {
   const sessions = ref<ChatSession[]>([]);
-  const activeSessionId = ref<string | null>(null);
+  const activeSessionId = ref<string | null>(ANALYST_SESSION_ID);
   const messages = ref<ChatMessage[]>([]);
   const draft = ref('');
   const sessionsLoading = ref(false);
@@ -157,12 +149,11 @@ export const useAnalystChat = defineStore('analyst-chat', () => {
   const pendingToolInvocations = ref<PendingToolInvocation[]>([]);
   const messageBadges = ref<Record<string, TimelineBadge[]>>({});
   const pendingCardSeed = ref<{ sessionId: string; cardId: string } | null>(null);
-  const unsavedSessionIds = ref<Set<string>>(new Set());
 
   const hasDraft = computed(() => draft.value.trim().length > 0);
   const activeSession = computed(() => sessions.value.find((session) => session.id === activeSessionId.value) ?? null);
 
-  function ensureSessionInList(sessionId: string, role = inferSessionRole(sessionId)): void {
+  function ensureSessionInList(sessionId = ANALYST_SESSION_ID, role = 'analyst'): void {
     if (sessions.value.some((session) => session.id === sessionId)) {
       return;
     }
@@ -174,23 +165,6 @@ export const useAnalystChat = defineStore('analyst-chat', () => {
     }, ...sessions.value];
   }
 
-  function markSessionUnsaved(sessionId: string): void {
-    const next = new Set(unsavedSessionIds.value);
-    next.add(sessionId);
-    unsavedSessionIds.value = next;
-  }
-
-  function markSessionSaved(sessionId: string): void {
-    if (!unsavedSessionIds.value.has(sessionId)) return;
-    const next = new Set(unsavedSessionIds.value);
-    next.delete(sessionId);
-    unsavedSessionIds.value = next;
-  }
-
-  function isUnsavedSession(sessionId: string | null): boolean {
-    return Boolean(sessionId && unsavedSessionIds.value.has(sessionId));
-  }
-
   function setDraft(value: string): void {
     draft.value = value;
   }
@@ -199,16 +173,11 @@ export const useAnalystChat = defineStore('analyst-chat', () => {
     sessionsLoading.value = true;
     sessionsError.value = null;
     try {
-      const response = await listAgentSessions();
-      sessions.value = response.sessions.map((session) => ({
-        id: session.id,
-        role: session.id.startsWith('card-') ? 'card' : session.role,
-        status: session.status,
-        started_at: session.started_at,
-      }));
-      if (!activeSessionId.value && response.sessions.length > 0) {
-        activeSessionId.value = response.sessions[0].id;
-      }
+      const response = await listChatSessions();
+      const canonical = response.sessions.find((session) => session.id === ANALYST_SESSION_ID)
+        ?? { id: ANALYST_SESSION_ID, role: 'analyst', status: 'active', started_at: nowIso() };
+      sessions.value = [{ ...canonical, role: 'analyst' }];
+      activeSessionId.value = ANALYST_SESSION_ID;
     } catch (err) {
       sessionsError.value = buildErrorState(err, 'Failed to load analyst chat sessions.');
       throw err;
@@ -217,40 +186,25 @@ export const useAnalystChat = defineStore('analyst-chat', () => {
     }
   }
 
-  async function selectSession(sessionId: string): Promise<void> {
-    activeSessionId.value = sessionId;
-    ensureSessionInList(sessionId);
-    if (isUnsavedSession(sessionId)) {
-      messages.value = [];
-      messagesError.value = null;
-      messagesLoading.value = false;
-      return;
-    }
-    await fetchMessages(sessionId);
+  async function selectSession(_sessionId = ANALYST_SESSION_ID): Promise<void> {
+    activeSessionId.value = ANALYST_SESSION_ID;
+    ensureSessionInList();
+    await fetchMessages(ANALYST_SESSION_ID);
   }
 
   async function fetchMessages(sessionId = activeSessionId.value): Promise<void> {
-    if (!sessionId) {
-      messages.value = [];
-      return;
-    }
-    if (isUnsavedSession(sessionId)) {
-      activeSessionId.value = sessionId;
-      messages.value = [];
-      messagesError.value = null;
-      messagesLoading.value = false;
-      return;
-    }
-    activeSessionId.value = sessionId;
+    const canonicalSessionId = sessionId === ANALYST_SESSION_ID ? sessionId : ANALYST_SESSION_ID;
+    activeSessionId.value = ANALYST_SESSION_ID;
+    ensureSessionInList();
     messagesLoading.value = true;
     messagesError.value = null;
     try {
-      const response = await getChatMessages(sessionId);
+      const response = await getChatMessages(canonicalSessionId);
       const fetchedMessages = [...response.messages].sort((a, b) => a.timestamp.localeCompare(b.timestamp));
       messages.value = fetchedMessages;
       pendingToolInvocations.value = dedupePendingToolInvocations(
         pendingToolInvocations.value,
-        sessionId,
+        canonicalSessionId,
         fetchedMessages,
       );
     } catch (err) {
@@ -263,13 +217,10 @@ export const useAnalystChat = defineStore('analyst-chat', () => {
   }
 
   function createNewChat(): string {
-    const sessionId = mintSessionId();
-    activeSessionId.value = sessionId;
-    messages.value = [];
+    activeSessionId.value = ANALYST_SESSION_ID;
     messagesError.value = null;
-    ensureSessionInList(sessionId);
-    markSessionUnsaved(sessionId);
-    return sessionId;
+    ensureSessionInList();
+    return ANALYST_SESSION_ID;
   }
 
   function buildCardContextSeed(card: CardRecord): string {
@@ -302,17 +253,11 @@ export const useAnalystChat = defineStore('analyst-chat', () => {
   }
 
   function seedCardContext(card: CardRecord): string {
-    const sessionId = `card-${card.id}`;
-    const existingSession = sessions.value.find((session) => session.id === sessionId) ?? null;
-    activeSessionId.value = sessionId;
-    messages.value = [];
-    ensureSessionInList(sessionId, 'card');
-    if (!existingSession && !unsavedSessionIds.value.has(sessionId)) {
-      syntheticHint.value = { sessionId, content: buildCardContextSeed(card) };
-      pendingCardSeed.value = { sessionId, cardId: card.id };
-      markSessionUnsaved(sessionId);
-    }
-    return sessionId;
+    activeSessionId.value = ANALYST_SESSION_ID;
+    ensureSessionInList();
+    syntheticHint.value = { sessionId: ANALYST_SESSION_ID, content: buildCardContextSeed(card) };
+    pendingCardSeed.value = { sessionId: ANALYST_SESSION_ID, cardId: card.id };
+    return ANALYST_SESSION_ID;
   }
 
   function consumeSyntheticHint(sessionId: string): string | null {
@@ -328,8 +273,9 @@ export const useAnalystChat = defineStore('analyst-chat', () => {
     if (sending.value) return;
     const content = draft.value.trim();
     if (!content) return;
-    const sessionId = activeSessionId.value ?? createNewChat();
-    ensureSessionInList(sessionId);
+    const sessionId = ANALYST_SESSION_ID;
+    activeSessionId.value = ANALYST_SESSION_ID;
+    ensureSessionInList();
     if (!isWritableSession(activeSession.value)) {
       sendError.value = { kind: 'unknown', status: null, message: 'Read-only — switch to analyst to send messages' };
       return;
@@ -344,7 +290,6 @@ export const useAnalystChat = defineStore('analyst-chat', () => {
       const payload = hint ? `${hint}\n\n${content}` : content;
       draft.value = '';
       const response = await sendChatMessage(sessionId, payload, workspaceContext);
-      markSessionSaved(sessionId);
       const baseTimestamp = nowIso();
       const optimistic = {
         id: String((response.message as { id?: string }).id ?? `${sessionId}-assistant-${Date.now()}`),
@@ -352,6 +297,9 @@ export const useAnalystChat = defineStore('analyst-chat', () => {
         role: 'assistant' as const,
         kind: 'text' as const,
         content: String((response.message as { content?: string }).content ?? ''),
+        round_id: String((response.message as { round_id?: string }).round_id),
+        message_index: Number((response.message as { message_index?: number }).message_index),
+        block_index: Number((response.message as { block_index?: number }).block_index),
         tool: typeof (response.message as { tool?: string }).tool === 'string'
           ? String((response.message as { tool?: string }).tool)
           : undefined,
@@ -363,35 +311,6 @@ export const useAnalystChat = defineStore('analyst-chat', () => {
           : undefined,
       } satisfies ChatMessage;
       messages.value = [...messages.value, optimistic];
-
-      if (Array.isArray(response.toolInvocations)) {
-        const toolMessages: ChatMessage[] = response.toolInvocations.flatMap((invocation, index) => {
-          const messageBaseId = `${sessionId}-tool-${Date.now()}-${index}`;
-          const toolCallContent = JSON.stringify({ toolCalls: [{ tool: invocation.tool, params: invocation.params }] });
-          const resultContent = JSON.stringify(invocation.result ?? {});
-          return [
-            {
-              id: `${messageBaseId}-call`,
-              session_id: sessionId,
-              role: 'tool',
-              kind: 'tool_call',
-              content: toolCallContent,
-              tool: invocation.tool,
-              timestamp: new Date(Date.now() + index).toISOString(),
-            },
-            {
-              id: `${messageBaseId}-result`,
-              session_id: sessionId,
-              role: 'tool',
-              kind: 'tool_result',
-              content: resultContent,
-              tool: invocation.tool,
-              timestamp: new Date(Date.now() + index + 1).toISOString(),
-            },
-          ];
-        });
-        messages.value = [...messages.value, ...toolMessages];
-      }
 
       if (Array.isArray(response.toolInvocations)) {
         const workspaceRoute = useWorkspaceRouteStore();
@@ -430,20 +349,21 @@ export const useAnalystChat = defineStore('analyst-chat', () => {
         : null;
 
     if (event === 'analyst_tool_invoked' && payloadSessionId) {
+      const eventSessionId = ANALYST_SESSION_ID;
       const tool = normalizeToolName(payload.tool);
       const success = payload.success === true;
       const summary = normalizePendingSummary(payload.summary);
       const classifiedAs = typeof payload.classified_as === 'string' ? payload.classified_as : null;
       const relatedCardId = typeof payload.related_card_id === 'string' ? payload.related_card_id : null;
       pendingToolInvocations.value = pushPendingToolInvocation(pendingToolInvocations.value, {
-        sessionId: payloadSessionId,
+        sessionId: eventSessionId,
         tool,
         classifiedAs,
         success,
         summary,
         relatedCardId,
       });
-      if (payloadSessionId === activeSessionId.value) {
+      if (eventSessionId === activeSessionId.value) {
         addBadgeForActiveSession(`${tool}: ${summary}`, 'tool-invoked');
       }
       return;
@@ -487,7 +407,6 @@ export const useAnalystChat = defineStore('analyst-chat', () => {
     pendingToolInvocations,
     messageBadges,
     pendingCardSeed,
-    unsavedSessionIds,
     activeSessionWritable: computed(() => isWritableSession(activeSession.value)),
     setDraft,
     fetchSessions,
