@@ -131,6 +131,149 @@ export const CardHistoryListResponseSchema = z.object({ history: z.array(cardHis
 export const CardHistoryEntryResponseSchema = z.object({ entry: cardHistoryEntrySchema });
 export const CardDiffResponseSchema = z.object({ diff: z.unknown(), from: z.number().int().positive(), to: z.number().int().positive(), card_id: z.string() });
 
+
+export const RuntimeStatusResponseSchema = z.object({
+  runtime: z.string(),
+  paused: z.boolean(),
+  currentCardId: z.string().nullable(),
+  goalCount: z.number().int().nonnegative(),
+  lastTickAt: z.string().nullable(),
+  pid: z.number().int().positive(),
+  serverAvailability: ServerAvailabilitySchema.optional(),
+});
+
+export const RuntimeCardRunsResponseSchema = z.object({
+  active_card_run: z.unknown().nullable(),
+  active_breadcrumb: z.array(z.object({
+    card_id: z.string(),
+    card_type: z.string(),
+    title: z.string(),
+    status_text: z.string().optional(),
+  })),
+  dormant_planners: z.array(z.object({
+    goal_card_id: z.string(),
+    planner_session_id: z.string(),
+    latest_self_report: z.record(z.string(), z.unknown()).nullable(),
+  })),
+  cards_with_pending_corrections: z.array(z.object({
+    card_id: z.string(),
+    status: cardStatusSchema,
+    note_count: z.number().int().nonnegative(),
+    last_note_at: z.string().nullable(),
+  })),
+});
+
+const McpTransportSchema = z.enum(['stdio', 'sse']);
+const McpStatusStateSchema = z.enum(['running', 'stopped', 'error']);
+export const McpServerStatusSchema = z.object({
+  name: z.string(),
+  transport: McpTransportSchema,
+  status: McpStatusStateSchema,
+  pid: z.number().int().positive().optional(),
+  error: z.string().optional(),
+  startedAt: z.string().optional(),
+  tools_count: z.number().int().nonnegative().optional(),
+});
+export const McpStatusResponseSchema = z.object({
+  servers: z.array(McpServerStatusSchema),
+  serverAvailability: ServerAvailabilitySchema.optional(),
+});
+const McpInvocationStatSchema = z.object({
+  total: z.number().int().nonnegative(),
+  success: z.number().int().nonnegative(),
+  error: z.number().int().nonnegative(),
+  lastInvokedAt: z.string().optional(),
+});
+const McpToolDefinitionSchema = z.object({
+  name: z.string(),
+  title: z.string().optional(),
+  description: z.string().optional(),
+  inputSchema: z.object({ type: z.literal('object') }).catchall(z.unknown()),
+  outputSchema: z.object({ type: z.literal('object') }).catchall(z.unknown()).optional(),
+  annotations: z.record(z.string(), z.unknown()).optional(),
+  _meta: z.record(z.string(), z.unknown()).optional(),
+});
+export const McpToolsResponseSchema = z.object({
+  tools: z.array(McpToolDefinitionSchema),
+  servers: z.array(z.string()),
+  invocationStats: z.record(z.string(), McpInvocationStatSchema),
+  serverDetails: z.array(z.object({
+    name: z.string(),
+    transport: McpTransportSchema,
+    status: McpStatusStateSchema,
+    toolCount: z.number().int().nonnegative(),
+    tools: z.array(z.object({
+      name: z.string(),
+      description: z.string().optional(),
+      inputSchema: z.object({ type: z.literal('object') }).catchall(z.unknown()),
+      stats: McpInvocationStatSchema,
+    })),
+  })),
+});
+
+export const ChatSessionParamsSchema = z.object({ sessionId: z.string().min(1) });
+export const ChatWorkspaceContextSchema = z.object({
+  view: z.string().nullable(),
+  entityId: z.string().nullable(),
+  refinement: z.record(z.string(), z.string()).nullable(),
+});
+export const ChatSendRequestSchema = z.object({
+  content: z.string().optional(),
+  workspaceContext: z.unknown().optional(),
+});
+export const ChatListResponseSchema = z.object({
+  sessions: z.array(z.object({
+    id: z.string(),
+    role: z.string(),
+    status: z.string(),
+    started_at: z.string(),
+  }).catchall(z.unknown())),
+});
+export const ChatMessagesResponseSchema = z.object({
+  sessionId: z.string(),
+  messages: z.array(z.unknown()),
+});
+export const ChatSendResponseSchema = z.object({
+  sessionId: z.string(),
+  message: z.object({
+    id: z.string(),
+    role: z.literal('assistant'),
+    kind: z.literal('text'),
+    content: z.string(),
+    timestamp: z.string(),
+  }).catchall(z.unknown()),
+  toolInvocations: z.array(z.unknown()),
+});
+
+export const WorkspaceFilesQuerySchema = z.object({ path: z.string().optional() });
+export const WorkspaceFileContentQuerySchema = z.object({ path: z.string().optional() });
+export const WorkspaceFilesListResponseSchema = z.object({
+  path: z.string(),
+  files: z.array(z.object({
+    name: z.string(),
+    path: z.string(),
+    type: z.enum(['directory', 'file']),
+    size: z.number().int().nonnegative().optional(),
+    modifiedAt: z.string(),
+  })),
+});
+export const WorkspaceFileContentResponseSchema = z.object({
+  path: z.string(),
+  size: z.number().int().nonnegative(),
+  contentType: z.string(),
+  content: z.string(),
+  redacted: z.boolean(),
+  sensitivity: z.string(),
+});
+
+export const DebugStateResponseSchema = z.object({
+  runtime: z.record(z.string(), z.unknown()).and(z.object({ pid: z.number().int().positive() })).nullable(),
+  cards: z.array(z.record(z.string(), z.unknown())),
+  totalCards: z.number().int().nonnegative(),
+});
+export const DebugErrorsResponseSchema = z.object({ errors: z.array(z.unknown()), total: z.number().int().nonnegative() });
+export const DebugTimelineResponseSchema = z.object({ events: z.array(z.unknown()), total: z.number().int().nonnegative() });
+
 export type OperatorRouteContract<
   TParams extends z.ZodTypeAny | undefined = z.ZodTypeAny | undefined,
   TQuery extends z.ZodTypeAny | undefined = z.ZodTypeAny | undefined,
@@ -246,6 +389,131 @@ export const operatorApiContracts = {
     response: { 200: CardDiffResponseSchema, 400: ApiErrorSchema, 401: UnauthorizedErrorSchema, 403: ForbiddenErrorSchema, 404: ApiErrorSchema, 500: ContractViolationErrorSchema },
     ...operatorSessionContract,
     successSchemaName: 'CardDiffResponse',
+  },
+  'runtime.status': {
+    operationId: 'runtime.status',
+    method: 'GET',
+    path: '/api/runtime/status',
+    success: RuntimeStatusResponseSchema,
+    error: ApiErrorSchema,
+    response: { 200: RuntimeStatusResponseSchema, 400: ValidationErrorSchema, 401: UnauthorizedErrorSchema, 403: ForbiddenErrorSchema, 500: ContractViolationErrorSchema },
+    ...operatorSessionContract,
+    successSchemaName: 'RuntimeStatusResponse',
+  },
+  'runtime.cardRuns': {
+    operationId: 'runtime.cardRuns',
+    method: 'GET',
+    path: '/api/runtime/card-runs',
+    success: RuntimeCardRunsResponseSchema,
+    error: ApiErrorSchema,
+    response: { 200: RuntimeCardRunsResponseSchema, 400: ValidationErrorSchema, 401: UnauthorizedErrorSchema, 403: ForbiddenErrorSchema, 500: ContractViolationErrorSchema },
+    ...operatorSessionContract,
+    successSchemaName: 'RuntimeCardRunsResponse',
+  },
+  'mcp.status': {
+    operationId: 'mcp.status',
+    method: 'GET',
+    path: '/api/mcp/status',
+    success: McpStatusResponseSchema,
+    error: ApiErrorSchema,
+    response: { 200: McpStatusResponseSchema, 400: ValidationErrorSchema, 401: UnauthorizedErrorSchema, 403: ForbiddenErrorSchema, 500: ContractViolationErrorSchema },
+    ...operatorSessionContract,
+    successSchemaName: 'McpStatusResponse',
+  },
+  'mcp.tools': {
+    operationId: 'mcp.tools',
+    method: 'GET',
+    path: '/api/mcp/tools',
+    success: McpToolsResponseSchema,
+    error: ApiErrorSchema,
+    response: { 200: McpToolsResponseSchema, 400: ValidationErrorSchema, 401: UnauthorizedErrorSchema, 403: ForbiddenErrorSchema, 500: ContractViolationErrorSchema },
+    ...operatorSessionContract,
+    successSchemaName: 'McpToolsResponse',
+  },
+  'chats.list': {
+    operationId: 'chats.list',
+    method: 'GET',
+    path: '/api/chats',
+    success: ChatListResponseSchema,
+    error: ApiErrorSchema,
+    response: { 200: ChatListResponseSchema, 400: ValidationErrorSchema, 401: UnauthorizedErrorSchema, 403: ForbiddenErrorSchema, 500: ContractViolationErrorSchema },
+    ...operatorSessionContract,
+    successSchemaName: 'ChatListResponse',
+  },
+  'chats.get': {
+    operationId: 'chats.get',
+    method: 'GET',
+    path: '/api/chats/:sessionId',
+    params: ChatSessionParamsSchema,
+    success: ChatMessagesResponseSchema,
+    error: ApiErrorSchema,
+    response: { 200: ChatMessagesResponseSchema, 400: ApiErrorSchema, 401: UnauthorizedErrorSchema, 403: ForbiddenErrorSchema, 404: ApiErrorSchema, 500: ContractViolationErrorSchema },
+    ...operatorSessionContract,
+    successSchemaName: 'ChatMessagesResponse',
+  },
+  'chats.send': {
+    operationId: 'chats.send',
+    method: 'POST',
+    path: '/api/chats/:sessionId',
+    params: ChatSessionParamsSchema,
+    body: ChatSendRequestSchema,
+    success: ChatSendResponseSchema,
+    error: ApiErrorSchema,
+    response: { 200: ChatSendResponseSchema, 400: ApiErrorSchema, 401: UnauthorizedErrorSchema, 403: ForbiddenErrorSchema, 404: ApiErrorSchema, 500: ContractViolationErrorSchema },
+    ...operatorSessionContract,
+    successSchemaName: 'ChatSendResponse',
+  },
+  'files.list': {
+    operationId: 'files.list',
+    method: 'GET',
+    path: '/api/files',
+    query: WorkspaceFilesQuerySchema,
+    success: WorkspaceFilesListResponseSchema,
+    error: ApiErrorSchema,
+    response: { 200: WorkspaceFilesListResponseSchema, 400: ApiErrorSchema, 401: UnauthorizedErrorSchema, 403: ApiErrorSchema, 404: ApiErrorSchema, 500: ContractViolationErrorSchema },
+    ...operatorSessionContract,
+    successSchemaName: 'WorkspaceFilesListResponse',
+  },
+  'files.content': {
+    operationId: 'files.content',
+    method: 'GET',
+    path: '/api/files/content',
+    query: WorkspaceFileContentQuerySchema,
+    success: WorkspaceFileContentResponseSchema,
+    error: ApiErrorSchema,
+    response: { 200: WorkspaceFileContentResponseSchema, 400: ApiErrorSchema, 401: UnauthorizedErrorSchema, 403: ApiErrorSchema, 404: ApiErrorSchema, 413: ApiErrorSchema, 415: ApiErrorSchema, 500: ContractViolationErrorSchema },
+    ...operatorSessionContract,
+    successSchemaName: 'WorkspaceFileContentResponse',
+  },
+  'debug.state': {
+    operationId: 'debug.state',
+    method: 'GET',
+    path: '/api/debug/state',
+    success: DebugStateResponseSchema,
+    error: ApiErrorSchema,
+    response: { 200: DebugStateResponseSchema, 400: ValidationErrorSchema, 401: UnauthorizedErrorSchema, 403: ForbiddenErrorSchema, 500: ContractViolationErrorSchema },
+    ...operatorSessionContract,
+    successSchemaName: 'DebugStateResponse',
+  },
+  'debug.errors': {
+    operationId: 'debug.errors',
+    method: 'GET',
+    path: '/api/debug/errors',
+    success: DebugErrorsResponseSchema,
+    error: ApiErrorSchema,
+    response: { 200: DebugErrorsResponseSchema, 400: ValidationErrorSchema, 401: UnauthorizedErrorSchema, 403: ForbiddenErrorSchema, 500: ContractViolationErrorSchema },
+    ...operatorSessionContract,
+    successSchemaName: 'DebugErrorsResponse',
+  },
+  'debug.timeline': {
+    operationId: 'debug.timeline',
+    method: 'GET',
+    path: '/api/debug/timeline',
+    success: DebugTimelineResponseSchema,
+    error: ApiErrorSchema,
+    response: { 200: DebugTimelineResponseSchema, 400: ValidationErrorSchema, 401: UnauthorizedErrorSchema, 403: ForbiddenErrorSchema, 500: ContractViolationErrorSchema },
+    ...operatorSessionContract,
+    successSchemaName: 'DebugTimelineResponse',
   },
 } as const satisfies Record<string, OperatorRouteContract>;
 

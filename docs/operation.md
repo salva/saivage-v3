@@ -323,38 +323,36 @@ Every current operator-facing Fastify or contract-mounted route is listed exactl
 | `GET /api/agents/:id` | Read one persisted agent-session summary (counts, timestamps; no payload). | `src/server/routes/runtime-config-notes.ts:192` |
 | `GET /api/agents` | List persisted agent sessions. | `src/server/routes/runtime-config-notes.ts:178` |
 | `POST /api/auth/ws-ticket` | Issue a short-lived one-use browser WebSocket ticket after bearer REST auth. | `src/server/routes/auth.ts:4` |
-| `GET /api/cards/:id/diff` | Diff card versions. | `src/contracts/operator-api.ts:369 "path: '/api/cards/:id/diff'"` |
-| `GET /api/cards/:id/history/:seq` | Read one card-history snapshot. | `src/contracts/operator-api.ts:358 "path: '/api/cards/:id/history/:seq'"` |
-| `GET /api/cards/:id/history` | List card-history headers. | `src/contracts/operator-api.ts:347 "path: '/api/cards/:id/history'"` |
-| `GET /api/cards/:id` | Read card detail with children and ancestors. | `src/contracts/operator-api.ts:335 "path: '/api/cards/:id'"` |
-| `GET /api/cards` | List cards. | `src/contracts/operator-api.ts:325 "path: '/api/cards'"` |
-| `GET /api/chats/:sessionId` | Read an analyst chat transcript. | `src/server/routes/chats-files-debug.ts:86` |
-| `GET /api/chats` | List analyst chat sessions. | `src/server/routes/chats-files-debug.ts:74` |
+| `GET /api/cards/:id/diff` | Diff card versions. | `src/contracts/operator-api.ts:384 "path: '/api/cards/:id/diff'"` |
+| `GET /api/cards/:id/history/:seq` | Read one card-history snapshot. | `src/contracts/operator-api.ts:373 "path: '/api/cards/:id/history/:seq'"` |
+| `GET /api/cards/:id/history` | List card-history headers. | `src/contracts/operator-api.ts:362 "path: '/api/cards/:id/history'"` |
+| `GET /api/cards/:id` | Read card detail with children and ancestors. | `src/contracts/operator-api.ts:350 "path: '/api/cards/:id'"` |
+| `GET /api/cards` | List cards. | `src/contracts/operator-api.ts:340 "path: '/api/cards'"` |
+| `GET /api/chats/:sessionId` | Read an analyst chat transcript. | `src/contracts/operator-api.ts:446 "path: '/api/chats/:sessionId'"` |
+| `GET /api/chats` | List analyst chat sessions. | `src/contracts/operator-api.ts:436 "path: '/api/chats'"` |
 | `GET /api/config` | Return redacted loaded configuration and warnings. | `src/server/routes/runtime-config-notes.ts:180` |
 | `GET /api/control-actions` | List control-action audit entries. | `src/server/routes/runtime-config-notes.ts:165` |
-| `GET /api/debug/doctor` | Run persisted-card consistency checks. | `src/server/routes/chats-files-debug.ts:200` |
-| `GET /api/debug/errors` | Read runtime error records. | `src/server/routes/chats-files-debug.ts:178` |
-| `GET /api/debug/state` | Dump runtime and card-index debug state. | `src/server/routes/chats-files-debug.ts:167` |
-| `GET /api/debug/supervision` | Read content-supervision review/quarantine summary. | `src/server/routes/chats-files-debug.ts:265` |
-| `GET /api/debug/timeline` | Read runtime event timeline records. | `src/server/routes/chats-files-debug.ts:189` |
+| `GET /api/debug/errors` | Read runtime error records. | `src/contracts/operator-api.ts:501 "path: '/api/debug/errors'"` |
+| `GET /api/debug/state` | Dump runtime and card-index debug state. | `src/contracts/operator-api.ts:491 "path: '/api/debug/state'"` |
+| `GET /api/debug/timeline` | Read runtime event timeline records. | `src/contracts/operator-api.ts:511 "path: '/api/debug/timeline'"` |
 | `GET /api/events` | Query runtime/agent events with filters and pagination. | `src/server/routes/events.ts:42` |
-| `GET /api/files/content` | Preview contained text files with safety checks. | `src/server/routes/chats-files-debug.ts:154` |
-| `GET /api/files` | List contained project files. | `src/server/routes/chats-files-debug.ts:141` |
-| `GET /api/mcp/status` | Show MCP server status plus optional serverAvailability. | `src/server/server.ts:113 "fastify.get('/api/mcp/status'"` |
-| `GET /api/mcp/tools` | Show MCP tool inventory and invocation stats. | `src/server/server.ts:114 "fastify.get('/api/mcp/tools'"` |
+| `GET /api/files/content` | Preview contained text files with safety checks. | `src/contracts/operator-api.ts:480 "path: '/api/files/content'"` |
+| `GET /api/files` | List contained project files. | `src/contracts/operator-api.ts:469 "path: '/api/files'"` |
+| `GET /api/mcp/status` | Show MCP server status plus optional serverAvailability. | `src/contracts/operator-api.ts:416 "path: '/api/mcp/status'"` |
+| `GET /api/mcp/tools` | Show MCP tool inventory and invocation stats. | `src/contracts/operator-api.ts:426 "path: '/api/mcp/tools'"` |
 | `GET /api/notes` | List unhandled notes. | `src/server/routes/runtime-config-notes.ts:180` |
 | `GET /api/notifications` | List notifications. | `src/server/routes/runtime-config-notes.ts:165` |
 | `GET /api/processes/:id` | Read one safe process view. | `src/server/routes/processes.ts:112` |
 | `GET /api/processes` | List safe process views. | `src/server/routes/processes.ts:100` |
 | `GET /api/providers` | Return redacted provider summaries. | `src/server/routes/runtime-config-notes.ts:177` |
-| `GET /api/runtime/card-runs` | List runtime card-run records. | `src/server/server.ts:64 "fastify.get('/api/runtime/card-runs'"` |
-| `GET /api/runtime/status` | Read compact runtime status plus optional serverAvailability. | `src/server/server.ts:66 "fastify.get('/api/runtime/status'"` |
-| `GET /api/state` | Read RuntimeState plus card-index summary and optional availability. | `src/contracts/operator-api.ts:266 "path: '/api/state'"` |
-| `GET /health` | Public liveness probe. | `src/contracts/operator-api.ts:249 "path: '/health'"` |
-| `GET /health/ready` | Public readiness probe with optional availability summary. | `src/contracts/operator-api.ts:260 "path: '/health/ready'"` |
+| `GET /api/runtime/card-runs` | List runtime card-run records. | `src/contracts/operator-api.ts:406 "path: '/api/runtime/card-runs'"` |
+| `GET /api/runtime/status` | Read compact runtime status plus optional serverAvailability. | `src/contracts/operator-api.ts:396 "path: '/api/runtime/status'"` |
+| `GET /api/state` | Read RuntimeState plus card-index summary and optional availability. | `src/contracts/operator-api.ts:330 "path: '/api/state'"` |
+| `GET /health` | Public liveness probe. | `src/contracts/operator-api.ts:308 "path: '/health'"` |
+| `GET /health/ready` | Public readiness probe with optional availability summary. | `src/contracts/operator-api.ts:319 "path: '/health/ready'"` |
 | `PATCH /api/cards/:id` | Update allowed card fields through audited mutation. | `src/contracts/operator-api.ts:405 "path: '/api/cards/:id'"` |
 | `POST /api/cards` | Create a card through audited mutation. | `src/contracts/operator-api.ts:393 "path: '/api/cards'"` |
-| `POST /api/chats/:sessionId` | Send an analyst chat message. | `src/server/routes/chats-files-debug.ts:99` |
+| `POST /api/chats/:sessionId` | Send an analyst chat message. | `src/contracts/operator-api.ts:457 "path: '/api/chats/:sessionId'"` |
 | `POST /api/notes/:id/acknowledge` | Mark an unhandled note handled. | `src/server/routes/runtime-config-notes.ts:180` |
 | `POST /api/notifications/:id/acknowledge` | Acknowledge a notification. | `src/server/routes/runtime-config-notes.ts:145` |
 | `POST /api/runtime/freeze` | Freeze runtime for handoff. | `src/server/routes/runtime-config-notes.ts:174` |
@@ -365,6 +363,18 @@ Every current operator-facing Fastify or contract-mounted route is listed exactl
 | `POST /api/runtime/resume-from-freeze` | Resume from freeze manifest. | `src/server/routes/runtime-config-notes.ts:175` |
 | `POST /api/runtime/resume` | Resume runtime and return RuntimeState. | `src/contracts/operator-api.ts:314 "path: '/api/runtime/resume'"` |
 <!-- saivage:operator-routes:end -->
+
+
+<!-- saivage:internal-debug-routes:start -->
+## Internal diagnostic/debug HTTP route inventory
+
+These routes are mounted by `registerInternalDebugRoutes` for operator diagnostics, but are intentionally outside `operatorApiContracts` and the main operator contract inventory.
+
+| Route | Purpose | Code anchor |
+|---|---|---|
+| `GET /api/debug/doctor` | Run persisted-card consistency checks. | `src/server/routes/chats-files-debug.ts:26 "fastify.get('/api/debug/doctor'"` |
+| `GET /api/debug/supervision` | Read content-supervision review/quarantine summary. | `src/server/routes/chats-files-debug.ts:80 "fastify.get('/api/debug/supervision'"` |
+<!-- saivage:internal-debug-routes:end -->
 
 <!-- saivage:runtime-controls:start -->
 ## Runtime control request/response shapes

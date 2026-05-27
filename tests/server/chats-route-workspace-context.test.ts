@@ -5,15 +5,18 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 const handleMessage = jest.fn<() => Promise<unknown>>();
+const getOrCreateAnalystSession = jest.fn();
 
 jest.unstable_mockModule('../../src/agents/analyst-handler.js', () => ({
   AnalystHandler: jest.fn().mockImplementation(() => ({ handleMessage })),
+  GLOBAL_ANALYST_SESSION_ID: 'analyst',
   getAnalystHandler: jest.fn().mockImplementation(() => ({ handleMessage })),
   resetAnalystHandlerCache: jest.fn(),
-  getOrCreateAnalystSession: jest.fn(),
+  getOrCreateAnalystSession,
 }));
 
-const { registerChatsFilesDebugRoutes, resetChatRouteState } = await import('../../src/server/routes/chats-files-debug.js');
+const { registerOperatorContractRoutes } = await import('../../src/server/routes/operator-contracts.js');
+const { resetChatRouteState } = await import('../../src/server/routes/chats-files-debug.js');
 
 function setupRoot(): string {
   const root = mkdtempSync(join(tmpdir(), 's08-chat-route-'));
@@ -27,8 +30,13 @@ describe('POST /api/chats/:sessionId workspaceContext', () => {
   beforeEach(() => {
     root = setupRoot();
     handleMessage.mockReset();
+    getOrCreateAnalystSession.mockReset();
+    getOrCreateAnalystSession.mockReturnValue({
+      sessionId: 'analyst',
+      session: { id: 'analyst', role: 'analyst', status: 'active', started_at: '2025-01-01T00:00:00Z' },
+    });
     handleMessage.mockResolvedValue({
-      sessionId: 'chat-1',
+      sessionId: 'analyst',
       message: { id: 'm1', role: 'assistant', kind: 'text', content: 'ok', timestamp: '2025-01-01T00:00:00Z' },
       toolInvocations: [],
     });
@@ -42,7 +50,7 @@ describe('POST /api/chats/:sessionId workspaceContext', () => {
 
   async function app() {
     const fastify = Fastify();
-    registerChatsFilesDebugRoutes(fastify, root);
+    registerOperatorContractRoutes({ fastify, projectRoot: root });
     await fastify.ready();
     return fastify;
   }
@@ -50,9 +58,9 @@ describe('POST /api/chats/:sessionId workspaceContext', () => {
   it('omits the third handleMessage argument when workspaceContext is absent', async () => {
     const fastify = await app();
     try {
-      const response = await fastify.inject({ method: 'POST', url: '/api/chats/chat-1', payload: { content: 'hi' } });
+      const response = await fastify.inject({ method: 'POST', url: '/api/chats/analyst', payload: { content: 'hi' } });
       expect(response.statusCode).toBe(200);
-      expect(handleMessage).toHaveBeenCalledWith('chat-1', 'hi', undefined);
+      expect(handleMessage).toHaveBeenCalledWith('analyst', 'hi', undefined);
     } finally { await fastify.close(); }
   });
 
@@ -60,18 +68,28 @@ describe('POST /api/chats/:sessionId workspaceContext', () => {
     const fastify = await app();
     const workspaceContext = { view: 'cards', entityId: 'code-3', refinement: null };
     try {
-      const response = await fastify.inject({ method: 'POST', url: '/api/chats/chat-1', payload: { content: 'hi', workspaceContext } });
+      const response = await fastify.inject({ method: 'POST', url: '/api/chats/analyst', payload: { content: 'hi', workspaceContext } });
       expect(response.statusCode).toBe(200);
-      expect(handleMessage).toHaveBeenCalledWith('chat-1', 'hi', workspaceContext);
+      expect(handleMessage).toHaveBeenCalledWith('analyst', 'hi', workspaceContext);
     } finally { await fastify.close(); }
   });
 
   it('rejects malformed workspaceContext with 400', async () => {
     const fastify = await app();
     try {
-      const response = await fastify.inject({ method: 'POST', url: '/api/chats/chat-1', payload: { content: 'hi', workspaceContext: { view: 42, entityId: null, refinement: null } } });
+      const response = await fastify.inject({ method: 'POST', url: '/api/chats/analyst', payload: { content: 'hi', workspaceContext: { view: 42, entityId: null, refinement: null } } });
       expect(response.statusCode).toBe(400);
       expect(response.json()).toEqual({ error: 'workspaceContext.view must be a string or null.' });
+      expect(handleMessage).not.toHaveBeenCalled();
+    } finally { await fastify.close(); }
+  });
+
+  it('rejects non-canonical chat session ids', async () => {
+    const fastify = await app();
+    try {
+      const response = await fastify.inject({ method: 'POST', url: '/api/chats/chat-1', payload: { content: 'hi' } });
+      expect(response.statusCode).toBe(404);
+      expect(response.json()).toEqual({ error: 'Only the canonical analyst chat is available.', sessionId: 'chat-1' });
       expect(handleMessage).not.toHaveBeenCalled();
     } finally { await fastify.close(); }
   });

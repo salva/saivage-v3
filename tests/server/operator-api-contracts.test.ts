@@ -1,6 +1,7 @@
 import { describe, expect, it } from '@jest/globals';
 import { createRuntimeEnvelope } from '../../src/server/websocket.js';
 import { ServerAvailabilitySchema, operatorApiContracts, operatorRouteInventory, parseOperatorResponse } from '../../src/contracts/operator-api.js';
+import { internalDebugRoutes } from '../../src/server/routes/chats-files-debug.js';
 import { RuntimeActionableErrorEventSchema, RuntimeActivationEventSchema, RuntimeCommandEventSchema, RuntimeRunEventSchema, parseCoveredWsEnvelope, parseKnownWsEnvelope } from '../../src/contracts/operator-events.js';
 
 const runtimeState = {
@@ -111,10 +112,27 @@ describe('operator API contract registry', () => {
       'cards.history.list',
       'cards.history.get',
       'cards.diff',
+      'runtime.status',
+      'runtime.cardRuns',
+      'mcp.status',
+      'mcp.tools',
+      'chats.list',
+      'chats.get',
+      'chats.send',
+      'files.list',
+      'files.content',
+      'debug.state',
+      'debug.errors',
+      'debug.timeline',
     ]);
     expect(operatorRouteInventory()).toEqual(expect.arrayContaining([
       expect.objectContaining({ operationId: 'health.liveness', method: 'GET', path: '/health', successSchemaName: 'HealthLivenessResponse' }),
       expect.objectContaining({ operationId: 'health.readiness', method: 'GET', path: '/health/ready', successSchemaName: 'HealthReadinessResponse' }),
+      expect.objectContaining({ operationId: 'runtime.status', method: 'GET', path: '/api/runtime/status', successSchemaName: 'RuntimeStatusResponse' }),
+      expect.objectContaining({ operationId: 'mcp.status', method: 'GET', path: '/api/mcp/status', successSchemaName: 'McpStatusResponse' }),
+      expect.objectContaining({ operationId: 'chats.send', method: 'POST', path: '/api/chats/:sessionId', successSchemaName: 'ChatSendResponse' }),
+      expect.objectContaining({ operationId: 'files.content', method: 'GET', path: '/api/files/content', successSchemaName: 'WorkspaceFileContentResponse' }),
+      expect.objectContaining({ operationId: 'debug.timeline', method: 'GET', path: '/api/debug/timeline', successSchemaName: 'DebugTimelineResponse' }),
     ]));
   });
 
@@ -142,6 +160,16 @@ describe('operator API contract registry', () => {
     expect(() => parseOperatorResponse('cards.list', { cards: [{}], total: 1 })).toThrow();
   });
 
+
+  it('keeps isolated internal diagnostics out of the operator contract inventory', () => {
+    const contractPaths = operatorRouteInventory().map((route) => route.path);
+    expect(contractPaths).not.toContain('/api/debug/doctor');
+    expect(contractPaths).not.toContain('/api/debug/supervision');
+    expect(internalDebugRoutes).toEqual([
+      { method: 'GET', path: '/api/debug/doctor' },
+      { method: 'GET', path: '/api/debug/supervision' },
+    ]);
+  });
 
   it('does not register obsolete lets_dance or preview-hash runtime controls', () => {
     const paths = operatorRouteInventory().map((route) => route.path);

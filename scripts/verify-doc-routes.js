@@ -10,11 +10,13 @@ const CODE_LINE_ANCHOR_PATTERN = String.raw`[^\s:|]+:\d+(?:\s+"(?:\\.|[^"\\])*")
 const ROUTE_TABLE_ROW_RE = new RegExp('^\\|\\s*`(GET|POST|PATCH|DELETE|PUT)\\s+([^`]+)`\\s*\\|\\s*([^|]+?)\\s*\\|\\s*`(' + CODE_LINE_ANCHOR_PATTERN + ')`\\s*\\|');
 const ROLE_TOOL_ROW_RE = /^\|\s*`(planner|executor|reviewer|analyst)`\s*\|\s*`([^`]+)`\s*\|\s*`([^`]+:\d+)`\s*\|/;
 const CONFIG_ROW_RE = /^\|\s*`([^`]+)`\s*\|\s*`([^`]+)`\s*\|\s*`([^`]+:\d+)`\s*\|/;
+const INTERNAL_DEBUG_ROUTES = new Set(['GET /api/debug/doctor', 'GET /api/debug/supervision']);
+const INTERNAL_DEBUG_ROW_RE = new RegExp('^\|\s*`(GET\s+\/api\/debug\/(?:doctor|supervision))`\s*\|\s*([^|]+?)\s*\|\s*`(' + CODE_LINE_ANCHOR_PATTERN + ')`\s*\|');
 const RUNTIME_CONTROL_ROW_RE = /^\|\s*`(POST\s+\/api\/runtime\/(?:pause|resume|freeze|resume-from-freeze))`\s*\|\s*`([^`]+)`\s*\|\s*`([^`]+)`\s*\|\s*`([^`]+:\d+(?:\s+\"(?:\\\\.|[^\"\\\\])*\")?)`\s*\|/;
 
 const DEFAULT_REMOVED_ROUTES = new Set(['POST /api/runtime/dispatch']);
 const DEFAULT_OPERATOR_DOCS = new Set(['README.md','docs/index.md','docs/install.md','docs/configuration.md','docs/operation.md','docs/operator-runbook.md','docs/troubleshooting.md','docs/release-checklist.md']);
-const SOURCE_FILES = ['src/server/server.ts', 'src/server/routes', 'src/contracts/operator-api.ts', 'src/agents/agent-adapter.ts', 'src/agents/workspace-tools.ts', 'src/agents/config-schema.ts'];
+const SOURCE_FILES = ['src/server/server.ts', 'src/server/routes', 'src/contracts/operator-api.ts', 'src/agents/agent-adapter.ts', 'src/agents/agent-tool-catalog.ts', 'src/agents/workspace-tools.ts', 'src/agents/config-schema.ts'];
 const OPERATION_DOC = 'docs/operation.md';
 const AGENTS_DOC = 'docs/agents.md';
 const CONFIG_DOC = 'docs/configuration.md';
@@ -128,6 +130,20 @@ function parseRouteInventory(projectRoot, docPath = OPERATION_DOC) {
   return rows;
 }
 
+function parseInternalDebugInventory(projectRoot, docPath = OPERATION_DOC) {
+  const fullPath = join(projectRoot, docPath);
+  const rows = [];
+  if (!existsSync(fullPath)) return rows;
+  const content = readFileSync(fullPath, 'utf-8');
+  const block = extractMarkedBlock(content, 'internal-debug-routes') ?? '';
+  for (const [index, line] of block.split('\n').entries()) {
+    const match = line.match(ROUTE_TABLE_ROW_RE);
+    if (!match) continue;
+    rows.push({ key: routeKey(match[1], match[2]), method: match[1], path: normalizeRoutePath(match[2]), purpose: match[3].trim(), anchor: match[4], file: docPath, line: content.slice(0, content.indexOf(block)).split('\n').length + index + 1 });
+  }
+  return rows;
+}
+
 function parseRoleToolTable(projectRoot, docPath = AGENTS_DOC) {
   const fullPath = join(projectRoot, docPath);
   const rows = new Map();
@@ -180,13 +196,19 @@ function extractObjectArray(content, role) {
 }
 function uniqueSorted(values) { return Array.from(new Set(values)).sort(); }
 
+function extractToolDefinitionNames(content, _constName) {
+  return Array.from(content.matchAll(/tool\(\s*['"]([^'"]+)['"]/g)).map((m) => m[1]);
+}
+
 function extractImplementedAgentTools(projectRoot) {
-  const policy = readSource(projectRoot, 'src/agents/role-tool-policy.ts');
+  const catalog = readSource(projectRoot, 'src/agents/agent-tool-catalog.ts');
+  const analystSchemas = readSource(projectRoot, 'src/agents/analyst-tool-schemas.ts');
+  const catalogAnalystTools = extractObjectArray(catalog, 'analyst');
   return new Map([
-    ['planner', uniqueSorted(extractObjectArray(policy, 'planner'))],
-    ['executor', uniqueSorted(extractObjectArray(policy, 'executor'))],
-    ['reviewer', uniqueSorted(extractObjectArray(policy, 'reviewer'))],
-    ['analyst', uniqueSorted(extractObjectArray(policy, 'analyst'))],
+    ['planner', uniqueSorted(extractObjectArray(catalog, 'planner'))],
+    ['executor', uniqueSorted(extractObjectArray(catalog, 'executor'))],
+    ['reviewer', uniqueSorted(extractObjectArray(catalog, 'reviewer'))],
+    ['analyst', uniqueSorted(catalogAnalystTools.length > 0 ? catalogAnalystTools : extractToolDefinitionNames(analystSchemas, 'ANALYST_TOOL_DEFINITIONS'))],
   ]);
 }
 
@@ -314,21 +336,36 @@ export function verifyDocRoutes(options = {}) {
   }
 
   const inventoryRows = options.routeInventoryRows ?? parseRouteInventory(projectRoot);
+  const internalDebugRows = options.internalDebugRows ?? parseInternalDebugInventory(projectRoot);
   const inventoryCounts = new Map();
   for (const row of inventoryRows) {
     inventoryCounts.set(row.key, (inventoryCounts.get(row.key) ?? 0) + 1);
     verifyAnchor(projectRoot, row.anchor, failures, `route inventory ${row.key}`);
+    if (INTERNAL_DEBUG_ROUTES.has(row.key)) failures.push({ type: 'internal-debug-in-operator-inventory', route: row.key, message: `${OPERATION_DOC} must document ${row.key} in the internal debug inventory, not the operator route inventory` });
+  }
+  const internalDebugCounts = new Map();
+  for (const row of internalDebugRows) {
+    internalDebugCounts.set(row.key, (internalDebugCounts.get(row.key) ?? 0) + 1);
+    verifyAnchor(projectRoot, row.anchor, failures, `internal debug route ${row.key}`);
   }
   for (const route of implementedRoutes) {
-    const count = inventoryCounts.get(route) ?? 0;
-    if (count !== 1) failures.push({ type: 'route-inventory-count', route, message: `${OPERATION_DOC} must document implemented route ${route} exactly once in the operator route inventory; found ${count}` });
+    const count = INTERNAL_DEBUG_ROUTES.has(route) ? (internalDebugCounts.get(route) ?? 0) : (inventoryCounts.get(route) ?? 0);
+    if (count !== 1) {
+      const block = INTERNAL_DEBUG_ROUTES.has(route) ? 'internal debug inventory' : 'operator route inventory';
+      failures.push({ type: 'route-inventory-count', route, message: `${OPERATION_DOC} must document implemented route ${route} exactly once in the ${block}; found ${count}` });
+    }
   }
   for (const [route, count] of inventoryCounts) {
     if (!implementedRoutes.has(route)) failures.push({ type: 'route-inventory-missing', route, message: `${OPERATION_DOC} route inventory lists ${route}, but no matching Fastify or contract route was found` });
     if (count > 1) failures.push({ type: 'route-inventory-count', route, message: `${OPERATION_DOC} route inventory lists ${route} ${count} times` });
   }
+  for (const [route, count] of internalDebugCounts) {
+    if (!INTERNAL_DEBUG_ROUTES.has(route)) failures.push({ type: 'unexpected-internal-debug-route', route, message: `${OPERATION_DOC} internal debug inventory lists unclassified route ${route}` });
+    if (!implementedRoutes.has(route)) failures.push({ type: 'route-inventory-missing', route, message: `${OPERATION_DOC} internal debug inventory lists ${route}, but no matching Fastify route was found` });
+    if (count > 1) failures.push({ type: 'route-inventory-count', route, message: `${OPERATION_DOC} internal debug inventory lists ${route} ${count} times` });
+  }
 
-  return { ok: failures.length === 0, failures, documentedRoutes, implementedRoutes, checkedDocs: docPaths, routeInventoryRows: inventoryRows };
+  return { ok: failures.length === 0, failures, documentedRoutes, implementedRoutes, checkedDocs: docPaths, routeInventoryRows: inventoryRows, internalDebugRows };
 }
 
 export function verifyAgentToolDocs(options = {}) {
@@ -340,7 +377,7 @@ export function verifyAgentToolDocs(options = {}) {
     const row = documented.get(role);
     if (!row) { failures.push({ type: 'missing-agent-role', message: `${AGENTS_DOC} is missing agent-tool row for ${role}` }); continue; }
     verifyAnchor(projectRoot, row.anchor, failures, `agent tool row ${role}`);
-    if (!sameArray(row.tools, tools)) failures.push({ type: 'agent-tool-parity', role, message: `${AGENTS_DOC} tools for ${role} do not match src/agents/role-tool-policy.ts (doc=${row.tools.join(',')} source=${tools.join(',')})` });
+    if (!sameArray(row.tools, tools)) failures.push({ type: 'agent-tool-parity', role, message: `${AGENTS_DOC} tools for ${role} do not match src/agents/agent-tool-catalog.ts (doc=${row.tools.join(',')} source=${tools.join(',')})` });
   }
   return { ok: failures.length === 0, failures, expected, documented };
 }
