@@ -60,8 +60,9 @@ async function registerStaticAssets(fastify: FastifyInstance): Promise<void> {
 
   const webDistDir = join(packageRoot, 'web', 'dist');
   if (existsSync(webDistDir)) {
-    await fastify.register(fastifyStatic, { root: webDistDir, prefix: '/', wildcard: false });
+    await fastify.register(fastifyStatic, { root: webDistDir, prefix: '/', wildcard: false, index: false });
     fastify.setNotFoundHandler((request, reply) => {
+      if (request.url.startsWith('/assets/')) return reply.status(404).send({ error: 'Static asset not found' });
       if (request.url === '/docs' || request.url.startsWith('/docs/')) {
         if (docsBuilt) return reply.callNotFound();
         return reply.status(404).send({ error: 'Documentation not built. Run vitepress build docs/ to generate.' });

@@ -1,7 +1,8 @@
 import { describe, expect, it, jest } from '@jest/globals';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readdirSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
+import { createFastifyApp } from '../../src/server/composition/fastify-app.js';
 import { stopServerResources } from '../../src/server/composition/server-shutdown.js';
 import { startActiveRuntime } from '../../src/server/composition/runtime-lifecycle.js';
 import { initProjectTree } from '../../src/persistence/file-tree.js';
@@ -35,6 +36,28 @@ describe('server lifecycle composition', () => {
   it('starts no runtime when runtime creation is disabled', async () => {
     const result = await startActiveRuntime({ createRuntime: false, projectRoot: '/tmp/project', saivageConfig: config(), fastify: { log: { info: jest.fn(), warn: jest.fn() } } as any });
     expect(result).toEqual({});
+  });
+
+
+  it('serves built web assets instead of falling through to the SPA shell', async () => {
+    const assetDir = join(process.cwd(), 'web', 'dist', 'assets');
+    const assetName = existsSync(assetDir) ? readdirSync(assetDir).find((name) => name.endsWith('.js')) : undefined;
+    if (!assetName) return;
+
+    const fastify = await createFastifyApp({ ...config(), nodeEnv: 'test', projectRoot: process.cwd(), server: { logLevel: 'silent' } } as any);
+    try {
+      const assetResponse = await fastify.inject({ method: 'GET', url: `/assets/${assetName}` });
+      expect(assetResponse.statusCode).toBe(200);
+      expect(assetResponse.headers['content-type']).toContain('javascript');
+      expect(assetResponse.body).not.toContain('<!DOCTYPE html>');
+
+      const missingAssetResponse = await fastify.inject({ method: 'GET', url: '/assets/missing-wave010.js' });
+      expect(missingAssetResponse.statusCode).toBe(404);
+      expect(missingAssetResponse.headers['content-type']).toContain('application/json');
+      expect(missingAssetResponse.json()).toEqual({ error: 'Static asset not found' });
+    } finally {
+      await fastify.close();
+    }
   });
 
   it('stops owned resources in reset, fastify, telegram, mcp, runtime order while tolerating later failures', async () => {
