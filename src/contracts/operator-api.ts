@@ -212,7 +212,8 @@ export const McpToolsResponseSchema = z.object({
 });
 
 
-export const AgentConversationParamsSchema = z.object({ id: z.string().min(1) });
+export const AgentSessionParamsSchema = z.object({ id: z.string().min(1) });
+export const AgentConversationParamsSchema = AgentSessionParamsSchema;
 export const AgentSessionSummarySchema = z.object({
   id: z.string(),
   role: z.string(),
@@ -250,6 +251,13 @@ export const AgentActivityStatusSchema = z.object({
 }).catchall(z.unknown());
 export const AgentListResponseSchema = z.object({
   sessions: z.array(AgentSessionSummarySchema),
+});
+export const AgentSessionDetailSchema = AgentSessionSummarySchema.extend({
+  message_count: z.number().int().nonnegative(),
+  last_activity_at: z.string().nullable(),
+});
+export const AgentDetailResponseSchema = z.object({
+  session: AgentSessionDetailSchema,
 });
 export const AgentConversationResponseSchema = z.object({
   session: AgentSessionSummarySchema,
@@ -340,6 +348,7 @@ export type McpInvocationStat = z.infer<typeof McpInvocationStatSchema>;
 export type McpToolDefinition = z.infer<typeof McpToolDefinitionSchema>;
 export type McpToolsResponse = z.infer<typeof McpToolsResponseSchema>;
 export type AgentListResponse = z.infer<typeof AgentListResponseSchema>;
+export type AgentDetailResponse = z.infer<typeof AgentDetailResponseSchema>;
 export type AgentConversationResponse = z.infer<typeof AgentConversationResponseSchema>;
 export type ChatListResponse = z.infer<typeof ChatListResponseSchema>;
 export type ChatEntriesResponse = z.infer<typeof ChatEntriesResponseSchema>;
@@ -515,6 +524,17 @@ export const operatorApiContracts = {
     response: { 200: AgentListResponseSchema, 400: ValidationErrorSchema, 401: UnauthorizedErrorSchema, 403: ForbiddenErrorSchema, 500: ContractViolationErrorSchema },
     ...operatorSessionContract,
     successSchemaName: 'AgentListResponse',
+  },
+  'agents.detail': {
+    operationId: 'agents.detail',
+    method: 'GET',
+    path: '/api/agents/:id',
+    params: AgentSessionParamsSchema,
+    success: AgentDetailResponseSchema,
+    error: ApiErrorSchema,
+    response: { 200: AgentDetailResponseSchema, 400: ApiErrorSchema, 401: UnauthorizedErrorSchema, 403: ForbiddenErrorSchema, 404: ApiErrorSchema, 500: ContractViolationErrorSchema },
+    ...operatorSessionContract,
+    successSchemaName: 'AgentDetailResponse',
   },
   'agents.conversation': {
     operationId: 'agents.conversation',

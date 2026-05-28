@@ -115,6 +115,7 @@ describe('operator API contract registry', () => {
       'mcp.status',
       'mcp.tools',
       'agents.list',
+      'agents.detail',
       'agents.conversation',
       'chats.list',
       'chats.get',
@@ -131,6 +132,7 @@ describe('operator API contract registry', () => {
       expect.objectContaining({ operationId: 'runtime.status', method: 'GET', path: '/api/runtime/status', successSchemaName: 'RuntimeStatusResponse' }),
       expect.objectContaining({ operationId: 'mcp.status', method: 'GET', path: '/api/mcp/status', successSchemaName: 'McpStatusResponse' }),
       expect.objectContaining({ operationId: 'agents.list', method: 'GET', path: '/api/agents', successSchemaName: 'AgentListResponse' }),
+      expect.objectContaining({ operationId: 'agents.detail', method: 'GET', path: '/api/agents/:id', successSchemaName: 'AgentDetailResponse' }),
       expect.objectContaining({ operationId: 'agents.conversation', method: 'GET', path: '/api/agents/:id/conversation', successSchemaName: 'AgentConversationResponse' }),
       expect.objectContaining({ operationId: 'chats.send', method: 'POST', path: '/api/chats/:sessionId', successSchemaName: 'ChatSendResponse' }),
       expect.objectContaining({ operationId: 'files.content', method: 'GET', path: '/api/files/content', successSchemaName: 'WorkspaceFileContentResponse' }),
@@ -177,6 +179,45 @@ describe('operator API contract registry', () => {
     });
     expect(parsed.sessions[0].id).toBe('planner-1');
     expect(() => parseOperatorResponse('agents.list', { sessions: [{}] })).toThrow();
+  });
+
+
+  it('uses a precise agent detail response contract and inventory', () => {
+    const route = operatorRouteInventory().find((item) => item.operationId === 'agents.detail');
+    expect(route).toEqual(expect.objectContaining({
+      operationId: 'agents.detail',
+      method: 'GET',
+      path: '/api/agents/:id',
+      requiresAuth: true,
+      successSchemaName: 'AgentDetailResponse',
+    }));
+    expect(operatorApiContracts['agents.detail'].params?.parse({ id: 'planner-1' })).toEqual({ id: 'planner-1' });
+    const parsed = parseOperatorResponse('agents.detail', {
+      session: {
+        id: 'planner-1',
+        role: 'planner',
+        status: 'active',
+        started_at: '2026-01-01T00:00:00.000Z',
+        message_count: 2,
+        last_activity_at: '2026-01-01T00:00:02.000Z',
+      },
+    });
+    expect(parsed.session.message_count).toBe(2);
+    expect(parsed.session.last_activity_at).toBe('2026-01-01T00:00:02.000Z');
+    expect(parsed).not.toHaveProperty('messages');
+    expect(() => parseOperatorResponse('agents.detail', {
+      session: { id: 'planner-1', role: 'planner', status: 'active', started_at: '2026-01-01T00:00:00.000Z' },
+    })).toThrow();
+    expect(() => parseOperatorResponse('agents.detail', {
+      session: {
+        id: 'planner-1',
+        role: 'planner',
+        status: 'active',
+        started_at: '2026-01-01T00:00:00.000Z',
+        message_count: 2,
+        last_activity_at: 42,
+      },
+    })).toThrow();
   });
 
   it('uses entries for the agent conversation response contract and inventory', () => {

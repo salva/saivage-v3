@@ -148,6 +148,8 @@ describe('GET /api/agents/:id', () => {
     expect(body.session['role']).toBe('analyst');
     expect(body.session['message_count']).toBe(2);
     expect(body.session['last_activity_at']).toBe('2026-01-01T00:00:02.000Z');
+    expect(body).not.toHaveProperty('messages');
+    expect(body.session).not.toHaveProperty('messages');
   });
 
   it('returns 200 with messages-only when manifest is missing and infers role from id prefix', async () => {

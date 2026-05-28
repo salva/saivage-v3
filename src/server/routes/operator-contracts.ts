@@ -80,6 +80,7 @@ export function registerOperatorContractRoutes(options: {
     },
     'mcp.tools': () => ({ body: options.mcpToolsProvider?.()?.getToolsReadModel() ?? { tools: [], servers: [], invocationStats: {}, serverDetails: [] } }),
     'agents.list': () => ({ body: agentReadModel.listSessions() }),
+    'agents.detail': ({ params }) => agentReadModel.getSession((params as unknown as { id: string }).id),
     'chats.list': () => chatReadModel.listSessions(),
     'chats.get': ({ params }) => chatReadModel.getEntries((params as unknown as { sessionId: string }).sessionId),
     'chats.send': async ({ params, body }) => {
