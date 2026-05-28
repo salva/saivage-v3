@@ -60,6 +60,11 @@ function buildErrorState(err: unknown, fallback: string): DetailErrorState {
   return { kind: 'unknown', status: null, message: fallback };
 }
 
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : null;
+}
+
 function normalizePendingSummary(summary: unknown): string {
   if (typeof summary !== 'string') {
     return FALLBACK_PENDING_SUMMARY;
@@ -312,14 +317,12 @@ export const useAnalystChat = defineStore('analyst-chat', () => {
       } satisfies ConversationEntry;
       messages.value = [...messages.value, optimistic];
 
-      if (Array.isArray(response.toolInvocations)) {
-        const workspaceRoute = useWorkspaceRouteStore();
-        for (const invocation of response.toolInvocations) {
-          if (invocation.tool !== 'navigate_workspace' && invocation.tool !== 'navigate_back') continue;
-          const result = invocation.result;
-          if (!result || result.success !== true || !result.data || typeof result.data !== 'object') continue;
-          workspaceRoute.apply(result.data as Parameters<typeof workspaceRoute.apply>[0]);
-        }
+      for (const rawInvocation of response.toolInvocations) {
+        const invocation = asRecord(rawInvocation);
+        if (!invocation || (invocation.tool !== 'navigate_workspace' && invocation.tool !== 'navigate_back')) continue;
+        const result = asRecord(invocation.result);
+        if (!result || result.success !== true || !result.data || typeof result.data !== 'object') continue;
+        workspaceRoute.apply(result.data as Parameters<typeof workspaceRoute.apply>[0]);
       }
 
       await fetchMessages(response.sessionId);

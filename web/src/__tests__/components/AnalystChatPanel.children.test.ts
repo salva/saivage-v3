@@ -51,7 +51,7 @@ describe('AnalystChatPanel on-screen children', () => {
     sendChatMessage.mockReset();
     listChatSessions.mockResolvedValue({ sessions: [{ id: 'analyst', role: 'analyst', status: 'active', started_at: '2025-01-01T00:00:00Z' }] });
     getChatEntries.mockResolvedValue({ sessionId: 'analyst', entries: [] });
-    sendChatMessage.mockResolvedValue({ sessionId: 'analyst', message: { id: 'm1', content: 'ok', timestamp: '2025-01-01T00:00:00Z' } });
+    sendChatMessage.mockResolvedValue({ sessionId: 'analyst', message: { id: 'm1', role: 'assistant', kind: 'text', content: 'ok', timestamp: '2025-01-01T00:00:00Z' }, toolInvocations: [] });
   });
 
   it('imports the singular useCardStore symbol from ../../stores/cards', () => {

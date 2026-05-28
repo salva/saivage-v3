@@ -3,6 +3,7 @@ import Fastify from 'fastify';
 import { mkdtempSync, mkdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { ChatSendResponseSchema } from '../../src/contracts/operator-api-chats.js';
 import { createTestActiveRuntime } from '../helpers/test-active-runtime.js';
 
 const handleMessage = jest.fn<() => Promise<unknown>>();
@@ -61,6 +62,11 @@ describe('POST /api/chats/:sessionId workspaceContext', () => {
     try {
       const response = await fastify.inject({ method: 'POST', url: '/api/chats/analyst', payload: { content: 'hi' } });
       expect(response.statusCode).toBe(200);
+      expect(ChatSendResponseSchema.parse(response.json())).toEqual({
+        sessionId: 'analyst',
+        message: { id: 'm1', role: 'assistant', kind: 'text', content: 'ok', timestamp: '2025-01-01T00:00:00Z' },
+        toolInvocations: [],
+      });
       expect(handleMessage).toHaveBeenCalledWith('analyst', 'hi', undefined);
     } finally { await fastify.close(); }
   });
@@ -72,6 +78,24 @@ describe('POST /api/chats/:sessionId workspaceContext', () => {
       const response = await fastify.inject({ method: 'POST', url: '/api/chats/analyst', payload: { content: 'hi', workspaceContext } });
       expect(response.statusCode).toBe(200);
       expect(handleMessage).toHaveBeenCalledWith('analyst', 'hi', workspaceContext);
+    } finally { await fastify.close(); }
+  });
+
+
+  it('canonicalizes the analyst success body before contract response parsing', async () => {
+    handleMessage.mockResolvedValueOnce({
+      sessionId: 'analyst',
+      message: { id: 'm-loose', content: 'canonical reply', timestamp: '2025-01-01T00:00:02Z', extra: 'preserved' },
+    });
+    const fastify = await app();
+    try {
+      const response = await fastify.inject({ method: 'POST', url: '/api/chats/analyst', payload: { content: 'hi' } });
+      expect(response.statusCode).toBe(200);
+      expect(ChatSendResponseSchema.parse(response.json())).toEqual({
+        sessionId: 'analyst',
+        message: { id: 'm-loose', role: 'assistant', kind: 'text', content: 'canonical reply', timestamp: '2025-01-01T00:00:02Z', extra: 'preserved' },
+        toolInvocations: [],
+      });
     } finally { await fastify.close(); }
   });
 

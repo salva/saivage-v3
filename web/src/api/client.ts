@@ -236,7 +236,7 @@ export function getChatEntries(sessionId: string): Promise<ChatEntriesResponse> 
 
 export function sendChatMessage(sessionId: string, content: string, workspaceContext?: WorkspaceContext): Promise<ChatResponse> {
   const body = workspaceContext === undefined ? { content } : { content, workspaceContext };
-  return operatorRequest('chats.send', 'POST', `/api/chats/${encodeURIComponent(sessionId)}`, undefined, body) as Promise<ChatResponse>;
+  return operatorRequest('chats.send', 'POST', `/api/chats/${encodeURIComponent(sessionId)}`, undefined, body);
 }
 
 export function listFiles(path?: string): Promise<FilesListResponse> {

@@ -501,15 +501,6 @@ export interface WorkspaceContext {
   refinement: Record<string, string> | null;
 }
 
-export interface ChatResponse {
-  sessionId: string;
-  message: Record<string, unknown>;
-  toolInvocations?: Array<{
-    tool: string;
-    params: Record<string, unknown>;
-    result?: Record<string, unknown>;
-  }>;
-}
 
 export type WsConnectionState = 'connected' | 'connecting' | 'offline' | 'unauthorized' | 'no-token';
 export type { WsEventType, WsEnvelope } from './contracts';
@@ -550,6 +541,7 @@ export type AgentSessionsResponse = Omit<OperatorApiSuccess<'agents.list'>, 'ses
 export type ControlActionsListResponse = OperatorApiSuccess<'controlActions.list'>;
 export type ChatSessionsResponse = OperatorApiSuccess<'chats.list'>;
 export type ChatEntriesResponse = OperatorApiSuccess<'chats.get'> & { entries: ConversationEntry[]; };
+export type ChatResponse = OperatorApiSuccess<'chats.send'>;
 export type FilesListResponse = OperatorApiSuccess<'files.list'>;
 export type DebugStateResponse = OperatorApiSuccess<'debug.state'> & { runtime: RuntimeState | null; cards: Array<{ id: string; type: CardType; parent: string | null; status: CardStatus; title: string; priority: number; depends_on: string[]; blocks: string[] }>; };
 export type DebugErrorsResponse = Omit<OperatorApiSuccess<'debug.errors'>, 'errors'> & { errors: DebugError[]; };

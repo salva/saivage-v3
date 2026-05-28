@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import * as client from '../api/client';
 import type { OperatorApiSuccess } from '../api/contracts';
-import type { CardListResponse, McpToolsResponse, RuntimeStateResponse } from '../api/types';
+import type { CardListResponse, ChatResponse, McpToolsResponse, RuntimeStateResponse } from '../api/types';
 
 const removedMutationExports = [
   'createCard',
@@ -46,13 +46,16 @@ describe('operator API client contracts after S06 mutation removal', () => {
     const cards = null as unknown as CardListResponse;
     const runtime = null as unknown as RuntimeStateResponse;
     const mcp = null as unknown as McpToolsResponse;
+    const chat = null as unknown as ChatResponse;
 
     const cardsContract: OperatorApiSuccess<'cards.list'> = cards;
     const runtimeContract: OperatorApiSuccess<'runtime.getState'> = runtime;
     const mcpContract: OperatorApiSuccess<'mcp.tools'> = mcp;
+    const chatContract: OperatorApiSuccess<'chats.send'> = chat;
 
     expect(cardsContract).toBeNull();
     expect(runtimeContract).toBeNull();
     expect(mcpContract).toBeNull();
+    expect(chatContract).toBeNull();
   });
 });

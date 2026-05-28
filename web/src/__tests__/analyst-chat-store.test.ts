@@ -27,7 +27,7 @@ describe('analyst chat store', () => {
     apiMocks.sendChatMessage.mockReset();
     apiMocks.listChatSessions.mockResolvedValue({ sessions: [{ id: 'analyst', role: 'analyst', status: 'active', started_at: '2025-01-01T00:00:00Z' }] });
     apiMocks.getChatEntries.mockResolvedValue({ sessionId: 'analyst', entries: [] as ConversationEntry[] });
-    apiMocks.sendChatMessage.mockResolvedValue({ sessionId: 'analyst', message: { id: 'm1', content: 'reply', timestamp: '2025-01-01T00:00:00Z' } });
+    apiMocks.sendChatMessage.mockResolvedValue({ sessionId: 'analyst', message: { id: 'm1', role: 'assistant', kind: 'text', content: 'reply', timestamp: '2025-01-01T00:00:00Z' }, toolInvocations: [] });
   });
 
   it('seedCardContext reuses the canonical analyst session and seeds get_card context', () => {

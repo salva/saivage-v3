@@ -171,6 +171,13 @@ describe('operator API contract registry', () => {
     expect(parseOperatorResponse('runtime.getState', { projectRoot: '/work/test', projectId: 'test', runtime: runtimeState, cardIndex: { total: 1, byStatus: { backlog: 1 }, byType: { code: 1 } }, serverAvailability }).serverAvailability?.components.mcp.state).toBe('idle');
     expect(parseOperatorResponse('cards.list', { cards: [card], total: 1 }).total).toBe(1);
     expect(parseOperatorResponse('cards.get', { card, children: [], ancestorIds: [] }).card.id).toBe('card-1');
+    const chatSend = parseOperatorResponse('chats.send', {
+      sessionId: 'analyst',
+      message: { id: 'm1', role: 'assistant', kind: 'text', content: 'hello', timestamp: '2026-01-01T00:00:03.000Z' },
+      toolInvocations: [],
+    });
+    expect(chatSend.message.role).toBe('assistant');
+    expect(chatSend.toolInvocations).toEqual([]);
   });
 
 

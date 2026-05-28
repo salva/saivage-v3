@@ -29,7 +29,7 @@ describe('analyst chat workspace context', () => {
     apiMocks.getChatEntries.mockResolvedValue({ sessionId: 'analyst', entries: [] as ConversationEntry[] });
     apiMocks.sendChatMessage.mockResolvedValue({
       sessionId: 'analyst',
-      message: { id: 'm1', content: 'reply', timestamp: '2025-01-01T00:00:00Z' },
+      message: { id: 'm1', role: 'assistant', kind: 'text', content: 'reply', timestamp: '2025-01-01T00:00:00Z' },
       toolInvocations: [],
     });
   });
@@ -59,7 +59,7 @@ describe('analyst chat workspace context', () => {
     const payload = { intent: 'navigate_workspace' as const, target };
     apiMocks.sendChatMessage.mockResolvedValueOnce({
       sessionId: 'analyst',
-      message: { id: 'm1', content: 'reply', timestamp: '2025-01-01T00:00:00Z' },
+      message: { id: 'm1', role: 'assistant', kind: 'text', content: 'reply', timestamp: '2025-01-01T00:00:00Z' },
       toolInvocations: [{ tool: 'navigate_workspace', params: {}, result: { success: true, data: payload } }],
     });
     const workspaceRoute = useWorkspaceRouteStore();
@@ -75,7 +75,7 @@ describe('analyst chat workspace context', () => {
   it('does not dispatch failed navigation invocations', async () => {
     apiMocks.sendChatMessage.mockResolvedValueOnce({
       sessionId: 'analyst',
-      message: { id: 'm1', content: 'reply', timestamp: '2025-01-01T00:00:00Z' },
+      message: { id: 'm1', role: 'assistant', kind: 'text', content: 'reply', timestamp: '2025-01-01T00:00:00Z' },
       toolInvocations: [{ tool: 'navigate_back', params: {}, result: { success: false, error: 'denied' } }],
     });
     const workspaceRoute = useWorkspaceRouteStore();

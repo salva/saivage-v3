@@ -54,7 +54,21 @@ export function buildChatOperatorContractHandlers(options: ChatOperatorHandlerOp
         if (!activeRuntime) return { statusCode: 503, body: { error: 'ActiveRuntime unavailable.' } };
         const handler = getAnalystHandler(projectRoot, { activeRuntime, surface: 'web-chat', requestServerRestart: options.requestServerRestart });
         const response = await handler.handleMessage(GLOBAL_ANALYST_SESSION_ID, requestBody.content, workspaceContext);
-        return { body: { sessionId: response.sessionId, message: response.message, toolInvocations: response.toolInvocations ?? [] } };
+        const message = response.message;
+        return {
+          body: {
+            sessionId: response.sessionId,
+            message: {
+              ...message,
+              id: message.id,
+              role: 'assistant' as const,
+              kind: 'text' as const,
+              content: message.content,
+              timestamp: message.timestamp,
+            },
+            toolInvocations: response.toolInvocations ?? [],
+          },
+        };
       } catch (err) {
         return { statusCode: 500, body: { error: 'Failed to process chat message', message: redactOperatorErrorMessage(err instanceof Error ? err.message : String(err), projectRoot) } };
       }
