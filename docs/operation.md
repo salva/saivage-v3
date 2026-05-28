@@ -264,11 +264,11 @@ Every current operator-facing Fastify or contract-mounted route is listed exactl
 | `GET /api/agents/:id` | Read one persisted agent-session summary. | `src/contracts/operator-api-agents.ts:90 "path: '/api/agents/:id'"` |
 | `GET /api/agents` | List persisted agent sessions. | `src/contracts/operator-api-agents.ts:80 "path: '/api/agents'"` |
 | `POST /api/auth/ws-ticket` | Issue a short-lived one-use browser WebSocket ticket after bearer REST auth. | `src/server/routes/auth.ts:5 "fastify.post('/api/auth/ws-ticket'"` |
-| `GET /api/cards/:id/diff` | Diff card versions. | `src/contracts/operator-api.ts:301 "path: '/api/cards/:id/diff'"` |
-| `GET /api/cards/:id/history/:seq` | Read one card-history snapshot. | `src/contracts/operator-api.ts:290 "path: '/api/cards/:id/history/:seq'"` |
-| `GET /api/cards/:id/history` | List card-history headers. | `src/contracts/operator-api.ts:279 "path: '/api/cards/:id/history'"` |
-| `GET /api/cards/:id` | Read card detail with children and ancestors. | `src/contracts/operator-api.ts:267 "path: '/api/cards/:id'"` |
-| `GET /api/cards` | List cards. | `src/contracts/operator-api.ts:257 "path: '/api/cards'"` |
+| `GET /api/cards/:id/diff` | Diff card versions. | `src/contracts/operator-api-runtime-cards.ts:216 "path: '/api/cards/:id/diff'"` |
+| `GET /api/cards/:id/history/:seq` | Read one card-history snapshot. | `src/contracts/operator-api-runtime-cards.ts:205 "path: '/api/cards/:id/history/:seq'"` |
+| `GET /api/cards/:id/history` | List card-history headers. | `src/contracts/operator-api-runtime-cards.ts:194 "path: '/api/cards/:id/history'"` |
+| `GET /api/cards/:id` | Read card detail with children and ancestors. | `src/contracts/operator-api-runtime-cards.ts:182 "path: '/api/cards/:id'"` |
+| `GET /api/cards` | List cards. | `src/contracts/operator-api-runtime-cards.ts:172 "path: '/api/cards'"` |
 | `GET /api/chats/:sessionId` | Read an analyst chat transcript. | `src/contracts/operator-api-chats.ts:64 "path: '/api/chats/:sessionId'"` |
 | `POST /api/chats/:sessionId` | Send an analyst chat message. | `src/contracts/operator-api-chats.ts:75 "path: '/api/chats/:sessionId'"` |
 | `GET /api/chats` | List analyst chat sessions. | `src/contracts/operator-api-chats.ts:54 "path: '/api/chats'"` |
@@ -285,11 +285,11 @@ Every current operator-facing Fastify or contract-mounted route is listed exactl
 | `GET /api/processes/:id` | Read one safe process view. | `src/server/routes/processes.ts:112 "fastify.get('/api/processes/:id'"` |
 | `GET /api/processes` | List safe process views. | `src/server/routes/processes.ts:100 "fastify.get('/api/processes'"` |
 | `GET /api/providers` | Return redacted provider summaries. | `src/server/routes/runtime-config-notes.ts:22 "fastify.get('/api/providers'"` |
-| `GET /api/runtime/card-runs` | List runtime card-run records. | `src/contracts/operator-api.ts:323 "path: '/api/runtime/card-runs'"` |
-| `GET /api/runtime/status` | Read compact runtime status plus optional serverAvailability. | `src/contracts/operator-api.ts:313 "path: '/api/runtime/status'"` |
-| `GET /api/state` | Read RuntimeState plus card-index summary and optional availability. | `src/contracts/operator-api.ts:247 "path: '/api/state'"` |
-| `GET /health` | Public liveness probe. | `src/contracts/operator-api.ts:225 "path: '/health'"` |
-| `GET /health/ready` | Public readiness probe with optional availability summary. | `src/contracts/operator-api.ts:236 "path: '/health/ready'"` |
+| `GET /api/runtime/card-runs` | List runtime card-run records. | `src/contracts/operator-api-runtime-cards.ts:238 "path: '/api/runtime/card-runs'"` |
+| `GET /api/runtime/status` | Read compact runtime status plus optional serverAvailability. | `src/contracts/operator-api-runtime-cards.ts:228 "path: '/api/runtime/status'"` |
+| `GET /api/state` | Read RuntimeState plus card-index summary and optional availability. | `src/contracts/operator-api-runtime-cards.ts:162 "path: '/api/state'"` |
+| `GET /health` | Public liveness probe. | `src/contracts/operator-api-runtime-cards.ts:140 "path: '/health'"` |
+| `GET /health/ready` | Public readiness probe with optional availability summary. | `src/contracts/operator-api-runtime-cards.ts:151 "path: '/health/ready'"` |
 <!-- saivage:operator-routes:end -->
 
 

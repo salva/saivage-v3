@@ -1,6 +1,6 @@
 import { describe, expect, it } from '@jest/globals';
 import { createRuntimeEnvelope } from '../../src/server/websocket.js';
-import { ServerAvailabilitySchema, operatorApiContracts, operatorRouteInventory, parseOperatorResponse } from '../../src/contracts/operator-api.js';
+import { ServerAvailabilitySchema, operatorApiContracts, operatorRouteInventory, parseOperatorResponse, runtimeCardsOperatorApiContracts } from '../../src/contracts/operator-api.js';
 import { internalDebugRoutes } from '../../src/server/routes/chats-files-debug.js';
 import { RuntimeActionableErrorEventSchema, RuntimeActivationEventSchema, RuntimeCommandEventSchema, RuntimeRunEventSchema, parseCoveredWsEnvelope, parseKnownWsEnvelope } from '../../src/contracts/operator-events.js';
 
@@ -126,6 +126,18 @@ describe('operator API contract registry', () => {
       'debug.state',
       'debug.errors',
       'debug.timeline',
+    ]);
+    expect(Object.keys(runtimeCardsOperatorApiContracts)).toEqual([
+      'health.liveness',
+      'health.readiness',
+      'runtime.getState',
+      'cards.list',
+      'cards.get',
+      'cards.history.list',
+      'cards.history.get',
+      'cards.diff',
+      'runtime.status',
+      'runtime.cardRuns',
     ]);
     expect(operatorRouteInventory()).toEqual(expect.arrayContaining([
       expect.objectContaining({ operationId: 'health.liveness', method: 'GET', path: '/health', successSchemaName: 'HealthLivenessResponse' }),
