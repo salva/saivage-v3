@@ -12,7 +12,7 @@
         :title="liveUpdateDetail"
       >
         <span class="status-dot"></span>
-        {{ liveUpdateLabel || wsLabel }}
+        {{ wsDisplayLabel }}
       </span>
 
       <span
@@ -62,6 +62,11 @@ const wsLabel = computed(() => {
   return labels[props.connectionState] ?? 'WS ?';
 });
 
+const wsDisplayLabel = computed(() => {
+  if (props.connectionState === 'no-token' || props.connectionState === 'unauthorized') return wsLabel.value;
+  return props.liveUpdateLabel || wsLabel.value;
+});
+
 const runtimeChipClass = computed(() => `rt-${props.runtimeStatus || 'unknown'}`);
 const runtimeChipTitle = computed(() => {
   const detail = String(unref(props.runtimeModeDetail) || 'Runtime status is observable here; use Dashboard → Runtime Console for execution controls.');
@@ -69,7 +74,6 @@ const runtimeChipTitle = computed(() => {
   return `${detail} Use Dashboard → Runtime Console for execution controls.`;
 });
 const stateCueLabel = computed(() => {
-  if (!props.hasToken) return 'Docs public / API locked';
   if (props.isUnauthorized) return 'Unauthorized';
   if (props.isStale) return 'Stale snapshot';
   if (props.runtimeStatus === 'frozen') return 'Frozen';
@@ -77,7 +81,6 @@ const stateCueLabel = computed(() => {
   return null;
 });
 const stateCueDetail = computed(() => {
-  if (!props.hasToken) return 'API token affects API and WebSocket access only. Public docs remain available at /docs/.';
   if (props.isUnauthorized) return 'API and WebSocket access were rejected. Re-enter a valid token.';
   if (props.isStale) return 'You are viewing an older runtime snapshot. Refresh to resync authoritative REST state.';
   if (props.runtimeStatus === 'frozen') return props.runtimeModeDetail || 'Runtime is frozen and needs operator attention.';
@@ -85,7 +88,6 @@ const stateCueDetail = computed(() => {
   return '';
 });
 const cueClass = computed(() => {
-  if (!props.hasToken) return 'cue-no-token';
   if (props.isUnauthorized) return 'cue-unauthorized';
   if (props.isStale) return 'cue-stale';
   if (props.runtimeStatus === 'frozen') return 'cue-frozen';

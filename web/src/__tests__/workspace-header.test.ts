@@ -36,6 +36,40 @@ describe('WorkspaceHeader', () => {
     expect(chip.classes()).toContain('ws-unauthorized');
   });
 
+
+  it('does not mask auth websocket states with derived live update labels', () => {
+    const noToken = mount(WorkspaceHeader, {
+      props: {
+        sectionTitle: 'Dashboard',
+        projectName: 'saivage-v3',
+        connectionState: 'no-token',
+        runtimeStatus: 'running',
+        runtimeStatusLabel: 'running',
+        runtimeModeLabel: 'Running',
+        runtimeModeDetail: 'Root run active.',
+        hasToken: false,
+        liveUpdateLabel: 'Live updates offline',
+      },
+    });
+    expect(noToken.findAll('.header-chip')[0].text()).toContain('NO TOKEN');
+
+    const unauthorized = mount(WorkspaceHeader, {
+      props: {
+        sectionTitle: 'Dashboard',
+        projectName: 'saivage-v3',
+        connectionState: 'unauthorized',
+        runtimeStatus: 'running',
+        runtimeStatusLabel: 'running',
+        runtimeModeLabel: 'Running',
+        runtimeModeDetail: 'Root run active.',
+        isUnauthorized: true,
+        hasToken: true,
+        liveUpdateLabel: 'Live updates unauthorized',
+      },
+    });
+    expect(unauthorized.findAll('.header-chip')[0].text()).toContain('WS UNAUTH');
+  });
+
   it('keeps runtime status observable without exposing header execution controls', async () => {
     const wrapper = mountHeader('connected');
     const runtimeChip = wrapper.findAll('.header-chip')[1];

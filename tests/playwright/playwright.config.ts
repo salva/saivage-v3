@@ -20,7 +20,7 @@ export default defineConfig({
     video: 'retain-on-failure',
   },
   webServer: {
-    command: `cd ../../web && npm run build && npm run preview -- --host 127.0.0.1 --port ${port}`,
+    command: `VITE_SAIVAGE_API_TOKEN= sh -c 'cd ../../web && npm run build && npm run preview -- --host 127.0.0.1 --port ${port}'`,
     url: `http://127.0.0.1:${port}`,
     reuseExistingServer: !process.env.CI,
     timeout: 120_000,

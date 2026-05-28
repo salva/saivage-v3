@@ -145,10 +145,15 @@ function stampedText(sessionId: string, id: string, content: string) {
 
 const idleActivity = { status: 'idle', pending_calls: [], updated_at: now };
 
+export type OperatorRestOptions = {
+  unauthorized?: boolean | ((method: string, pathname: string) => boolean);
+};
+
 export type OperatorRestObservations = {
   counts: Map<string, number>;
   unknown: string[];
   chatPosts: Array<{ sessionId: string; body: Record<string, unknown> }>;
+  authorizations: string[];
 };
 
 function json(route: Route, payload: unknown, status = 200) {
@@ -159,8 +164,8 @@ function keyFor(method: string, pathname: string): string {
   return `${method.toUpperCase()} ${pathname}`;
 }
 
-export async function installOperatorRestRoutes(page: Page): Promise<OperatorRestObservations> {
-  const observations: OperatorRestObservations = { counts: new Map(), unknown: [], chatPosts: [] };
+export async function installOperatorRestRoutes(page: Page, options: OperatorRestOptions = {}): Promise<OperatorRestObservations> {
+  const observations: OperatorRestObservations = { counts: new Map(), unknown: [], chatPosts: [], authorizations: [] };
 
   const chatEntries = new Map<string, ReturnType<typeof stampedText>[]>();
 
@@ -169,6 +174,14 @@ export async function installOperatorRestRoutes(page: Page): Promise<OperatorRes
     const url = new URL(request.url());
     const key = keyFor(request.method(), url.pathname);
     observations.counts.set(key, (observations.counts.get(key) ?? 0) + 1);
+    const authorization = request.headers().authorization;
+    if (authorization) observations.authorizations.push(authorization);
+    const shouldReject = typeof options.unauthorized === 'function'
+      ? options.unauthorized(request.method(), url.pathname)
+      : options.unauthorized === true;
+    if (shouldReject) {
+      return json(route, { error: 'unauthorized', message: 'Synthetic 401: valid API token required' }, 401);
+    }
 
     if (request.method() === 'POST' && url.pathname === '/api/auth/ws-ticket') {
       return json(route, { ticket: 'synthetic-ws-ticket', expiresAt: '2026-05-19T12:05:00.000Z' });

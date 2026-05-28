@@ -10,8 +10,8 @@
  */
 
 import type { WsConnectionState, WsEnvelope, WsEventType } from './types';
-import { getAuthToken } from './auth';
 import { issueWebSocketTicket } from './client';
+import { getAuthToken } from './auth';
 import { buildInboundAnalystMessageEnvelope, parseKnownWsEnvelope, parseWsEnvelope } from './contracts';
 import { createLogger } from '../utils/logger';
 
@@ -86,14 +86,13 @@ export function createWsConnection(): WsConnectionManager {
       return;
     }
 
+    shouldReconnect = true;
     if (!getAuthToken()) {
       state.value = 'no-token';
       sessionId.value = null;
       shouldReconnect = false;
       return;
     }
-
-    shouldReconnect = true;
     state.value = 'connecting';
     const attempt = ++connectAttempt;
 
