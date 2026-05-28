@@ -136,7 +136,14 @@ const metaRuntime = {
 };
 const outputRoot = {
   path: '.saivage-work',
-  files: [{ name: 'smoke-result.json', path: '.saivage-work/smoke-result.json', type: 'file', size: 64, modifiedAt: now }],
+  files: [
+    { name: 'smoke-result.json', path: '.saivage-work/smoke-result.json', type: 'file', size: 64, modifiedAt: now },
+    { name: 'redacted-config.json', path: '.saivage-work/redacted-config.json', type: 'file', size: 96, modifiedAt: now },
+    { name: 'blocked-secret.json', path: '.saivage-work/blocked-secret.json', type: 'file', size: 96, modifiedAt: now },
+    { name: 'missing-log.txt', path: '.saivage-work/missing-log.txt', type: 'file', size: 16, modifiedAt: now },
+    { name: 'binary.bin', path: '.saivage-work/binary.bin', type: 'file', size: 4096, modifiedAt: now },
+    { name: 'huge.log', path: '.saivage-work/huge.log', type: 'file', size: 5242880, modifiedAt: now },
+  ],
 };
 
 function stampedText(sessionId: string, id: string, content: string) {
@@ -211,8 +218,41 @@ export async function installOperatorRestRoutes(page: Page, options: OperatorRes
       return json(route, metaRoot);
     }
     if (request.method() === 'GET' && url.pathname === '/api/files/content') {
+      const path = url.searchParams.get('path') ?? '.saivage/plan.json';
+      if (path === '.saivage-work/blocked-secret.json') {
+        return json(route, { error: 'forbidden', message: 'Synthetic preview blocked by content safety policy' }, 403);
+      }
+      if (path === '.saivage-work/missing-log.txt') {
+        return json(route, { error: 'not_found', message: 'Synthetic file no longer exists' }, 404);
+      }
+      if (path === '.saivage-work/binary.bin') {
+        return json(route, { error: 'unsupported_media_type', message: 'Synthetic binary preview unavailable' }, 415);
+      }
+      if (path === '.saivage-work/huge.log') {
+        return json(route, { error: 'payload_too_large', message: 'Synthetic file is too large for inline preview' }, 413);
+      }
+      if (path === '.saivage-work/redacted-config.json') {
+        return json(route, {
+          path,
+          size: 96,
+          contentType: 'application/json',
+          content: JSON.stringify({ provider: 'synthetic', token: '[REDACTED]' }),
+          redacted: true,
+          sensitivity: 'sensitive-redacted',
+        });
+      }
+      if (path === '.saivage-work/smoke-result.json') {
+        return json(route, {
+          path,
+          size: 64,
+          contentType: 'application/json',
+          content: JSON.stringify({ result: 'synthetic output preview', ok: true }),
+          redacted: false,
+          sensitivity: 'normal',
+        });
+      }
       return json(route, {
-        path: url.searchParams.get('path') ?? '.saivage/plan.json',
+        path,
         size: 32,
         contentType: 'application/json',
         content: JSON.stringify({ project: 'synthetic-project', stage: 'operator-playwright-smoke' }),
