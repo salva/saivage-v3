@@ -277,7 +277,7 @@ Every current operator-facing Fastify or contract-mounted route is listed exactl
 | `GET /api/debug/errors` | Read runtime error records. | `src/contracts/operator-api-files-debug.ts:85 "path: '/api/debug/errors'"` |
 | `GET /api/debug/state` | Dump runtime and card-index debug state. | `src/contracts/operator-api-files-debug.ts:75 "path: '/api/debug/state'"` |
 | `GET /api/debug/timeline` | Read runtime event timeline records. | `src/contracts/operator-api-files-debug.ts:95 "path: '/api/debug/timeline'"` |
-| `GET /api/events` | Query runtime/agent events with filters and pagination. | `src/server/routes/events.ts:42 "fastify.get('/api/events'"` |
+| `GET /api/events` | Query runtime/agent events with filters and pagination. | `src/contracts/operator-api-events.ts:35 "path: '/api/events'"` |
 | `GET /api/files/content` | Preview contained text files with safety checks. | `src/contracts/operator-api-files-debug.ts:64 "path: '/api/files/content'"` |
 | `GET /api/files` | List contained project files. | `src/contracts/operator-api-files-debug.ts:53 "path: '/api/files'"` |
 | `GET /api/mcp/status` | Show MCP server status plus optional serverAvailability. | `src/contracts/operator-api-mcp.ts:77 "path: '/api/mcp/status'"` |

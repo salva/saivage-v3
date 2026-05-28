@@ -27,6 +27,9 @@ export {
   ChatEntriesResponseSchema,
   ChatSendResponseSchema,
   ContractViolationErrorSchema,
+  EventsListFailureSchema,
+  EventsListResponseSchema,
+  EventsQuerySchema,
   DebugErrorsResponseSchema,
   DebugStateResponseSchema,
   DebugTimelineResponseSchema,
@@ -74,6 +77,10 @@ export {
 } from './operator-api-files-debug.js';
 
 export {
+  eventsOperatorApiContracts,
+} from './operator-api-events.js';
+
+export {
   mcpOperatorApiContracts,
 } from './operator-api-mcp.js';
 
@@ -112,6 +119,9 @@ export type {
   DebugErrorsResponse,
   DebugStateResponse,
   DebugTimelineResponse,
+  EventsListFailure,
+  EventsListResponse,
+  EventsQuery,
   HealthLivenessResponse,
   HealthReadinessResponse,
   HttpMethod,

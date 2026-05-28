@@ -3,6 +3,7 @@ import type { ActiveRuntime } from '../../runtime/control-api.js';
 import { operatorApiContracts } from '../../contracts/index.js';
 import { buildAgentOperatorContractHandlers } from './operator-agent-handlers.js';
 import { buildChatOperatorContractHandlers } from './operator-chat-handlers.js';
+import { buildEventsOperatorContractHandlers } from './operator-events-handlers.js';
 import { buildFilesDebugOperatorContractHandlers } from './operator-files-debug-handlers.js';
 import type {
   OperatorAvailabilityContext,
@@ -38,6 +39,7 @@ export function registerOperatorContractRoutes(options: OperatorContractRouteReg
     ...buildChatOperatorContractHandlers({ projectRoot, activeRuntimeProvider: getActiveRuntime, requestServerRestart: options.requestServerRestart }),
     ...buildFilesDebugOperatorContractHandlers({ projectRoot }),
     ...buildProcessOperatorContractHandlers({ projectRoot }),
+    ...buildEventsOperatorContractHandlers({ projectRoot }),
   };
 
   runtime.mount(fastify, operatorApiContracts, handlers);

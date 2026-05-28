@@ -7,7 +7,6 @@ import { buildServerAvailability } from '../availability.js';
 import { registerOperatorContractRoutes } from '../routes/operator-contracts.js';
 import { registerRuntimeConfigNotesRoutes } from '../routes/runtime-config-notes.js';
 import { registerInternalDebugRoutes } from '../routes/chats-files-debug.js';
-import { registerEventsRoute } from '../routes/events.js';
 import { registerWebSocket } from '../websocket.js';
 
 export function registerServerRoutes(options: {
@@ -33,6 +32,5 @@ export function registerServerRoutes(options: {
   });
   registerRuntimeConfigNotesRoutes(options.fastify, options.projectRoot, undefined, serverAvailabilityProvider, options.saivageConfig, options.configWarnings);
   registerInternalDebugRoutes(options.fastify, options.projectRoot);
-  registerEventsRoute(options.fastify, options.projectRoot);
   registerWebSocket(options.fastify, options.projectRoot, options.activeRuntimeProvider(), options.requestServerRestart);
 }

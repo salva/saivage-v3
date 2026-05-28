@@ -10,3 +10,5 @@ export { AgentOperatorReadModelService, isSafeAgentSessionId } from './agent-ope
 export type { AgentOperatorConversationResponse, AgentOperatorSessionSummary, ListedAgentStatus } from './agent-operator-read-model.js';
 export { ProcessReadModelService } from './process-read-model.js';
 export type { ProcessDetailResponse, ProcessListResponse, ProcessView } from './process-read-model.js';
+export { EventsReadModelService } from './events-read-model.js';
+export type { EventsListResponse, EventsQuery } from '../../contracts/index.js';

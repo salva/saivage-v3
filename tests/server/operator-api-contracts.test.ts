@@ -128,6 +128,7 @@ describe('operator API contract registry', () => {
       'debug.timeline',
       'processes.list',
       'processes.get',
+      'events.list',
     ]);
     expect(Object.keys(runtimeCardsOperatorApiContracts)).toEqual([
       'health.liveness',
@@ -155,6 +156,7 @@ describe('operator API contract registry', () => {
       expect.objectContaining({ operationId: 'debug.timeline', method: 'GET', path: '/api/debug/timeline', successSchemaName: 'DebugTimelineResponse' }),
       expect.objectContaining({ operationId: 'processes.list', method: 'GET', path: '/api/processes', successSchemaName: 'ProcessListResponse' }),
       expect.objectContaining({ operationId: 'processes.get', method: 'GET', path: '/api/processes/:id', successSchemaName: 'ProcessDetailResponse' }),
+      expect.objectContaining({ operationId: 'events.list', method: 'GET', path: '/api/events', successSchemaName: 'EventsListResponse' }),
     ]));
   });
 
@@ -180,6 +182,15 @@ describe('operator API contract registry', () => {
 
   it('rejects malformed migrated responses', () => {
     expect(() => parseOperatorResponse('cards.list', { cards: [{}], total: 1 })).toThrow();
+  });
+
+
+  it('validates events list response and legacy failure contracts', () => {
+    const event = { id: 'evt-started', kind: 'started', timestamp: '2026-01-01T00:00:00.000Z', project_root: '/work/test' };
+    expect(parseOperatorResponse('events.list', { events: [event], total: 1 }).events[0].id).toBe('evt-started');
+    expect(() => parseOperatorResponse('events.list', { events: [{}], total: 1 })).toThrow();
+    expect(operatorApiContracts['events.list'].response?.[500]?.parse({ error: 'Failed to query events', message: 'boom' })).toEqual({ error: 'Failed to query events', message: 'boom' });
+    expect(() => operatorApiContracts['events.list'].response?.[500]?.parse({ error: 'InternalServerError', message: 'boom' })).toThrow();
   });
 
   it('validates process list and detail response contracts', () => {
