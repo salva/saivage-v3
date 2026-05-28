@@ -1,10 +1,7 @@
-import { operatorApiContracts } from '../../contracts/index.js';
 import { DebugReadModelService, WorkspaceFileReadModelService } from '../../application/read-models/index.js';
-import type { ContractHandler } from '../contract-runtime.js';
+import type { OperatorContractHandlerMap, OperatorProjectContext } from './operator-handler-context.js';
 
-export function buildFilesDebugOperatorContractHandlers(options: {
-  projectRoot: string;
-}): Partial<Record<keyof typeof operatorApiContracts, ContractHandler>> {
+export function buildFilesDebugOperatorContractHandlers(options: OperatorProjectContext): OperatorContractHandlerMap {
   const fileReadModel = new WorkspaceFileReadModelService(options.projectRoot);
   const debugReadModel = new DebugReadModelService(options.projectRoot);
 

@@ -1,15 +1,16 @@
-import type { ActiveRuntime } from '../../runtime/control-api.js';
 import { readLatestLlmExchange, LlmExchangeCorruptedError } from '../../agents/session-api.js';
-import { operatorApiContracts } from '../../contracts/index.js';
 import { AgentOperatorReadModelService, isSafeAgentSessionId } from '../../application/read-models/index.js';
-import type { ContractHandler } from '../contract-runtime.js';
+import type {
+  OperatorContractHandlerMap,
+  OperatorProjectContext,
+  OperatorStaticRuntimeContext,
+} from './operator-handler-context.js';
 
 function saivageDir(projectRoot: string): string { return `${projectRoot}/.saivage`; }
 
-export function buildAgentOperatorContractHandlers(options: {
-  projectRoot: string;
-  activeRuntime?: ActiveRuntime;
-}): Partial<Record<keyof typeof operatorApiContracts, ContractHandler>> {
+type AgentOperatorHandlerOptions = OperatorProjectContext & OperatorStaticRuntimeContext;
+
+export function buildAgentOperatorContractHandlers(options: AgentOperatorHandlerOptions): OperatorContractHandlerMap {
   const { projectRoot } = options;
   const agentReadModel = new AgentOperatorReadModelService(projectRoot, options.activeRuntime);
 

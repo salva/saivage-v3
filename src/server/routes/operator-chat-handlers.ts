@@ -1,9 +1,12 @@
-import type { ActiveRuntime } from '../../runtime/control-api.js';
 import { GLOBAL_ANALYST_SESSION_ID, getAnalystHandler } from '../../agents/analyst-api.js';
-import { operatorApiContracts } from '../../contracts/index.js';
 import { ChatReadModelService, isSafeChatSessionId } from '../../application/read-models/index.js';
 import { redactOperatorErrorMessage } from '../../workspace/index.js';
-import type { ContractHandler } from '../contract-runtime.js';
+import type {
+  OperatorContractHandlerMap,
+  OperatorProjectContext,
+  OperatorRestartContext,
+  OperatorRuntimeProviderContext,
+} from './operator-handler-context.js';
 
 interface ChatWorkspaceContext {
   view: string | null;
@@ -25,15 +28,11 @@ function validateWorkspaceContext(value: unknown): { ok: true; value: ChatWorksp
   return { ok: true, value: { view: ctx.view, entityId: ctx.entityId, refinement: ctx.refinement } as ChatWorkspaceContext };
 }
 
-export function buildChatOperatorContractHandlers(options: {
-  projectRoot: string;
-  activeRuntime?: ActiveRuntime;
-  activeRuntimeProvider?: () => ActiveRuntime | undefined;
-  requestServerRestart?: () => Promise<void>;
-}): Partial<Record<keyof typeof operatorApiContracts, ContractHandler>> {
+type ChatOperatorHandlerOptions = OperatorProjectContext & OperatorRuntimeProviderContext & OperatorRestartContext;
+
+export function buildChatOperatorContractHandlers(options: ChatOperatorHandlerOptions): OperatorContractHandlerMap {
   const { projectRoot } = options;
   const chatReadModel = new ChatReadModelService(projectRoot);
-  const getActiveRuntime = () => options.activeRuntimeProvider?.() ?? options.activeRuntime;
 
   return {
     'chats.list': () => chatReadModel.listSessions(),
@@ -51,7 +50,7 @@ export function buildChatOperatorContractHandlers(options: {
         workspaceContext = validation.value;
       }
       try {
-        const activeRuntime = getActiveRuntime();
+        const activeRuntime = options.activeRuntimeProvider();
         if (!activeRuntime) return { statusCode: 503, body: { error: 'ActiveRuntime unavailable.' } };
         const handler = getAnalystHandler(projectRoot, { activeRuntime, surface: 'web-chat', requestServerRestart: options.requestServerRestart });
         const response = await handler.handleMessage(GLOBAL_ANALYST_SESSION_ID, requestBody.content, workspaceContext);

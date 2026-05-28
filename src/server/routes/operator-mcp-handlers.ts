@@ -1,13 +1,10 @@
-import type { McpStatusProvider, McpToolsReadModelProvider } from '../../mcp/manager-api.js';
-import { buildServerAvailability } from '../availability.js';
-import type { ContractHandler } from '../contract-runtime.js';
-import type { operatorApiContracts } from '../../contracts/index.js';
+import type {
+  OperatorAvailabilityContext,
+  OperatorContractHandlerMap,
+  OperatorMcpProviderContext,
+} from './operator-handler-context.js';
 
-export function buildMcpOperatorContractHandlers(options: {
-  mcpStatusProvider?: () => McpStatusProvider | undefined;
-  mcpToolsProvider?: () => McpToolsReadModelProvider | undefined;
-  serverAvailabilityProvider?: () => ReturnType<typeof buildServerAvailability>;
-}): Partial<Record<keyof typeof operatorApiContracts, ContractHandler>> {
+export function buildMcpOperatorContractHandlers(options: OperatorMcpProviderContext & OperatorAvailabilityContext): OperatorContractHandlerMap {
   return {
     'mcp.status': () => {
       const serverAvailability = options.serverAvailabilityProvider?.();

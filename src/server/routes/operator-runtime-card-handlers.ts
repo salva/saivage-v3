@@ -1,18 +1,18 @@
-import type { operatorApiContracts } from '../../contracts/index.js';
 import {
   buildCardRunsResponse,
   buildRuntimeStatusReadModel,
   CardsReadModelService,
 } from '../../application/read-models/index.js';
-import { buildServerAvailability } from '../availability.js';
-import type { ContractHandler } from '../contract-runtime.js';
-import type { ActiveRuntime } from '../../runtime/control-api.js';
+import type {
+  OperatorAvailabilityContext,
+  OperatorContractHandlerMap,
+  OperatorProjectContext,
+  OperatorRuntimeProviderContext,
+} from './operator-handler-context.js';
 
-export function buildRuntimeCardOperatorContractHandlers(options: {
-  projectRoot: string;
-  activeRuntimeProvider: () => ActiveRuntime | undefined;
-  serverAvailabilityProvider?: () => ReturnType<typeof buildServerAvailability>;
-}): Partial<Record<keyof typeof operatorApiContracts, ContractHandler>> {
+type RuntimeCardOperatorHandlerOptions = OperatorProjectContext & OperatorRuntimeProviderContext & OperatorAvailabilityContext;
+
+export function buildRuntimeCardOperatorContractHandlers(options: RuntimeCardOperatorHandlerOptions): OperatorContractHandlerMap {
   const { projectRoot } = options;
   const cardsReadModel = new CardsReadModelService(projectRoot);
 
