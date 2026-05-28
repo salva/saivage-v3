@@ -16,11 +16,12 @@ const RUNTIME_CONTROL_ROW_RE = /^\|\s*`(POST\s+\/api\/runtime\/(?:pause|resume|f
 
 const DEFAULT_REMOVED_ROUTES = new Set(['POST /api/runtime/dispatch']);
 const DEFAULT_OPERATOR_DOCS = new Set(['README.md','docs/index.md','docs/install.md','docs/configuration.md','docs/operation.md','docs/operator-runbook.md','docs/troubleshooting.md','docs/release-checklist.md']);
-const SOURCE_FILES = ['src/server/server.ts', 'src/server/composition/fastify-app.ts', 'src/server/composition/route-composition.ts', 'src/server/routes', 'src/server/routes/operator-contracts.ts', 'src/server/contract-runtime.ts', 'src/contracts/operator-api.ts', 'src/contracts/operator-api-runtime-cards.ts', 'src/contracts/operator-api-agents.ts', 'src/contracts/operator-api-chats.ts', 'src/contracts/operator-api-files-debug.ts', 'src/contracts/operator-api-mcp.ts', 'src/contracts/operator-api-processes.ts', 'src/contracts/operator-api-events.ts', 'src/contracts/operator-api-config.ts', 'src/agents/agent-adapter.ts', 'src/agents/agent-tool-catalog.ts', 'src/agents/workspace-tools.ts', 'src/agents/config-schema.ts'];
+const STATIC_SOURCE_FILES = ['src/server/server.ts', 'src/server/composition/fastify-app.ts', 'src/server/composition/route-composition.ts', 'src/server/routes', 'src/server/routes/operator-contracts.ts', 'src/server/contract-runtime.ts', 'src/agents/agent-adapter.ts', 'src/agents/agent-tool-catalog.ts', 'src/agents/workspace-tools.ts', 'src/agents/config-schema.ts'];
 const OPERATION_DOC = 'docs/operation.md';
 const AGENTS_DOC = 'docs/agents.md';
 const CONFIG_DOC = 'docs/configuration.md';
 const CONFIG_DOCS = ['docs/configuration.md', 'docs/design/configuration.md'];
+const CONTRACT_ROUTE_RE = /method:\s*['"`](GET|POST|PATCH|DELETE|PUT)['"`][\s\S]*?path:\s*['"`]([^'"`]+)['"`]/g;
 
 function listTsFiles(directory) {
   if (!existsSync(directory)) return [];
@@ -45,18 +46,37 @@ export function normalizeRoutePath(routePath) {
 }
 export function routeKey(method, routePath) { return `${method.toUpperCase()} ${normalizeRoutePath(routePath)}`; }
 
-function extractContractRoutes(projectRoot) {
-  const contractPaths = ['src/contracts/operator-api.ts', 'src/contracts/operator-api-runtime-cards.ts', 'src/contracts/operator-api-agents.ts', 'src/contracts/operator-api-chats.ts', 'src/contracts/operator-api-files-debug.ts', 'src/contracts/operator-api-mcp.ts', 'src/contracts/operator-api-processes.ts', 'src/contracts/operator-api-events.ts', 'src/contracts/operator-api-config.ts'].map((relPath) => join(projectRoot, relPath));
+export function discoverOperatorContractSourceFiles(projectRoot = process.cwd()) {
+  const contractsDirectory = join(projectRoot, 'src/contracts');
+  if (!existsSync(contractsDirectory)) return [];
+  return readdirSync(contractsDirectory, { withFileTypes: true })
+    .filter((entry) => entry.isFile() && /^operator-api.*\.ts$/.test(entry.name))
+    .map((entry) => relative(projectRoot, join(contractsDirectory, entry.name)))
+    .sort();
+}
+
+function extractContractRoutesFromSource(projectRoot, relPath) {
+  const contractPath = join(projectRoot, relPath);
   const routes = new Set();
-  const contractRe = /method:\s*['"`](GET|POST|PATCH|DELETE|PUT)['"`][\s\S]*?path:\s*['"`]([^'"`]+)['"`]/g;
-  for (const contractPath of contractPaths) {
-    if (!existsSync(contractPath)) continue;
-    const content = readFileSync(contractPath, 'utf-8');
-    for (const match of content.matchAll(contractRe)) {
-      const method = match[1].toUpperCase();
-      const routePath = match[2];
-      if (routePath.startsWith('/api/') || routePath === '/health' || routePath === '/health/ready') routes.add(routeKey(method, routePath));
-    }
+  if (!existsSync(contractPath)) return routes;
+  const content = readFileSync(contractPath, 'utf-8');
+  CONTRACT_ROUTE_RE.lastIndex = 0;
+  for (const match of content.matchAll(CONTRACT_ROUTE_RE)) {
+    const method = match[1].toUpperCase();
+    const routePath = match[2];
+    if (routePath.startsWith('/api/') || routePath === '/health' || routePath === '/health/ready') routes.add(routeKey(method, routePath));
+  }
+  return routes;
+}
+
+export function discoverOperatorContractRouteSources(projectRoot = process.cwd()) {
+  return discoverOperatorContractSourceFiles(projectRoot).filter((relPath) => extractContractRoutesFromSource(projectRoot, relPath).size > 0);
+}
+
+function extractContractRoutes(projectRoot) {
+  const routes = new Set();
+  for (const relPath of discoverOperatorContractRouteSources(projectRoot)) {
+    for (const route of extractContractRoutesFromSource(projectRoot, relPath)) routes.add(route);
   }
   return routes;
 }
@@ -431,6 +451,10 @@ export function verifyDocSourceContracts(options = {}) {
   return { ok: failures.length === 0, failures, routeResult, toolResult, runtimeControlResult, configResult };
 }
 
+function sourceFilesForReport(projectRoot) {
+  return [...STATIC_SOURCE_FILES, ...discoverOperatorContractRouteSources(projectRoot)].sort();
+}
+
 export function formatVerificationResult(result, projectRoot = process.cwd()) {
   const lines = [];
   lines.push('==> Verifying active docs against source contracts...');
@@ -441,7 +465,7 @@ export function formatVerificationResult(result, projectRoot = process.cwd()) {
     lines.push('  ✗ documentation/source drift detected:');
     for (const failure of result.failures) lines.push(`    - ${failure.message}`);
   }
-  lines.push(`  Source files: ${SOURCE_FILES.map((p) => relative(projectRoot, join(projectRoot, p))).join(', ')}`);
+  lines.push(`  Source files: ${sourceFilesForReport(projectRoot).map((p) => relative(projectRoot, join(projectRoot, p))).join(', ')}`);
   return lines.join('\n');
 }
 
