@@ -134,9 +134,16 @@ const metaRuntime = {
   path: '.saivage/runtime',
   files: [{ name: 'events.jsonl', path: '.saivage/runtime/events.jsonl', type: 'file', size: 128, modifiedAt: now }],
 };
+const outputReports = {
+  path: '.saivage-work/reports',
+  files: [
+    { name: 'summary.md', path: '.saivage-work/reports/summary.md', type: 'file', size: 72, modifiedAt: now },
+  ],
+};
 const outputRoot = {
   path: '.saivage-work',
   files: [
+    { name: 'reports', path: '.saivage-work/reports', type: 'directory', modifiedAt: now },
     { name: 'smoke-result.json', path: '.saivage-work/smoke-result.json', type: 'file', size: 64, modifiedAt: now },
     { name: 'redacted-config.json', path: '.saivage-work/redacted-config.json', type: 'file', size: 96, modifiedAt: now },
     { name: 'blocked-secret.json', path: '.saivage-work/blocked-secret.json', type: 'file', size: 96, modifiedAt: now },
@@ -213,8 +220,15 @@ export async function installOperatorRestRoutes(page: Page, options: OperatorRes
     if (request.method() === 'GET' && url.pathname === '/api/files') {
       const path = url.searchParams.get('path');
       if (path === '.saivage/runtime') return json(route, metaRuntime);
+      if (path === '.saivage-work/reports') return json(route, outputReports);
       if (path === '.saivage-work' || !path) return json(route, path === '.saivage-work' ? outputRoot : metaRoot);
       if (path === '.saivage-work/quarantine') return json(route, { path, files: [] });
+      if (path === '.saivage/plan.json' || path === '.saivage/runtime/events.jsonl' || path === '.saivage-work/smoke-result.json' || path === '.saivage-work/reports/summary.md') {
+        return json(route, { error: 'Path is not a directory', path }, 400);
+      }
+      if (path === '.saivage-work/stale' || path === '.saivage-work/stale/missing-log.txt') {
+        return json(route, { error: 'Path not found', path }, 404);
+      }
       return json(route, metaRoot);
     }
     if (request.method() === 'GET' && url.pathname === '/api/files/content') {
@@ -222,7 +236,7 @@ export async function installOperatorRestRoutes(page: Page, options: OperatorRes
       if (path === '.saivage-work/blocked-secret.json') {
         return json(route, { error: 'forbidden', message: 'Synthetic preview blocked by content safety policy' }, 403);
       }
-      if (path === '.saivage-work/missing-log.txt') {
+      if (path === '.saivage-work/missing-log.txt' || path === '.saivage-work/stale/missing-log.txt') {
         return json(route, { error: 'not_found', message: 'Synthetic file no longer exists' }, 404);
       }
       if (path === '.saivage-work/binary.bin') {
@@ -239,6 +253,16 @@ export async function installOperatorRestRoutes(page: Page, options: OperatorRes
           content: JSON.stringify({ provider: 'synthetic', token: '[REDACTED]' }),
           redacted: true,
           sensitivity: 'sensitive-redacted',
+        });
+      }
+      if (path === '.saivage-work/reports/summary.md') {
+        return json(route, {
+          path,
+          size: 72,
+          contentType: 'text/markdown',
+          content: '# Synthetic report\n\nDirectory deep-link content.',
+          redacted: false,
+          sensitivity: 'normal',
         });
       }
       if (path === '.saivage-work/smoke-result.json') {

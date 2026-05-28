@@ -175,3 +175,61 @@ test('Files view previews output files and renders preview safety states without
   expect(failedRequests).toEqual([]);
   expect(pageErrors).toEqual([]);
 });
+
+
+test('Files view restores direct query deep links, fallback previews, root switches, and history without token leaks', async ({ page }) => {
+  const pageErrors: string[] = [];
+  const failedRequests: string[] = [];
+  page.on('pageerror', (error) => pageErrors.push(error.message));
+  page.on('requestfailed', (request) => failedRequests.push(`${request.method()} ${request.url()} ${request.failure()?.errorText ?? ""}`));
+
+  await installOperatorWebSocketShim(page);
+  const rest = await installOperatorRestRoutes(page);
+
+  await page.goto('/files?root=output&path=.saivage-work/smoke-result.json');
+  await page.evaluate((token) => window.localStorage.setItem('saivage_api_token', token), syntheticToken);
+  await page.reload();
+
+  await expect(page).toHaveURL(/root=output.*path=\.saivage-work\/smoke-result\.json|path=\.saivage-work\/smoke-result\.json.*root=output/);
+  await expect(page.getByRole('region', { name: 'Output' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'smoke-result.json' })).toBeVisible();
+  await expect(page.getByTestId('files-breadcrumbs').getByRole('button', { name: '.saivage-work' })).toBeVisible();
+  await expect(page.getByTestId('files-viewer')).toContainText('.saivage-work/smoke-result.json');
+  await expect(page.getByText('synthetic output preview')).toBeVisible();
+
+  await page.goto('/files?root=output&path=.saivage-work/reports');
+  await expect(page.getByRole('region', { name: 'Output' })).toBeVisible();
+  await expect(page.getByTestId('files-breadcrumbs').getByRole('button', { name: 'reports' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'summary.md' })).toBeVisible();
+  await expect(page.getByTestId('files-viewer')).toHaveCount(0);
+
+  await page.goto('/files?root=output&path=.saivage-work/stale/missing-log.txt');
+  await expect(page.getByRole('region', { name: 'Output' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'smoke-result.json' })).toBeVisible();
+  await expect(page.getByTestId('files-viewer').locator('strong', { hasText: 'File not found' })).toBeVisible();
+  await expect(page.getByText('Synthetic file no longer exists')).toBeVisible();
+
+  await page.getByRole('button', { name: 'Metadata' }).click();
+  await expect(page).toHaveURL(/root=meta.*path=\.saivage|path=\.saivage.*root=meta/);
+  await expect(page.getByRole('region', { name: 'Metadata' })).toBeVisible();
+  await expect(page.getByTestId('files-viewer')).toHaveCount(0);
+
+  await page.goto('/files?root=meta&path=.saivage/runtime');
+  await expect(page.getByRole('button', { name: 'events.jsonl' })).toBeVisible();
+  await page.getByRole('button', { name: 'Output' }).click();
+  await expect(page.getByRole('region', { name: 'Output' })).toBeVisible();
+  await page.goBack();
+  await expect(page).toHaveURL(/root=meta.*path=\.saivage\/runtime|path=\.saivage\/runtime.*root=meta/);
+  await expect(page.getByRole('region', { name: 'Metadata' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'events.jsonl' })).toBeVisible();
+  await page.goForward();
+  await expect(page).toHaveURL(/root=output.*path=\.saivage-work|path=\.saivage-work.*root=output/);
+  await expect(page.getByRole('region', { name: 'Output' })).toBeVisible();
+
+  await expect(page.getByText(syntheticToken)).toHaveCount(0);
+  expect(rest.counts.get('GET /api/files')).toBeGreaterThanOrEqual(8);
+  expect(rest.counts.get('GET /api/files/content')).toBeGreaterThanOrEqual(2);
+  expect(rest.unknown).toEqual([]);
+  expect(failedRequests).toEqual([]);
+  expect(pageErrors).toEqual([]);
+});

@@ -203,6 +203,11 @@ function rootForPath(path: string): FileRoot | null {
   return null;
 }
 
+function looksLikeFilePath(path: string): boolean {
+  const leaf = path.replace(/\/+$/, '').split('/').pop() ?? '';
+  return leaf.includes('.') && path !== '.saivage' && path !== '.saivage-work';
+}
+
 function canonicalPathForRoot(rootName: FileRoot, queryPath: unknown): string {
   if (typeof queryPath !== 'string' || queryPath.length === 0) return rootName === 'meta' ? '.saivage' : '.saivage-work';
   return queryPath;
@@ -246,25 +251,30 @@ function applyQueryPath(): void {
     return;
   }
   const browse = rootName === 'meta' ? fileStore.navigateMeta : fileStore.navigateOutput;
-  browse(path)
-    .catch(() => {
-      const directory = path === activeRootPath.value ? path : parentPath(path);
-      return browse(directory).then(() => {
-        if (path !== directory) return fileStore.fetchFileContent(path);
+  if (looksLikeFilePath(path)) {
+    const directory = parentPath(path);
+    browse(directory)
+      .then(() => {
+        if (fileStore.listError) return browse(activeRootPath.value);
         return undefined;
-      });
-    })
+      })
+      .then(() => fileStore.fetchFileContent(path))
+      .catch(() => {});
+    return;
+  }
+  fileStore.clearViewedFile();
+  browse(path)
+    .catch(() => browse(activeRootPath.value))
     .catch(() => {});
 }
 
 onMounted(() => {
   fileStore.setupWsListener();
-  applyQueryPath();
 });
 
 watch(() => [route.query.root, route.query.path], () => {
   applyQueryPath();
-});
+}, { immediate: true });
 </script>
 
 <style scoped>
