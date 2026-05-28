@@ -69,6 +69,10 @@ export {
 } from './operator-api-chats.js';
 
 export {
+  filesDebugOperatorApiContracts,
+} from './operator-api-files-debug.js';
+
+export {
   exchangeAttemptSchema,
   exchangeErrorMetaSchema,
   exchangeRequestMetaSchema,

@@ -5,13 +5,12 @@ import {
   buildCardRunsResponse,
   buildRuntimeStatusReadModel,
   CardsReadModelService,
-  DebugReadModelService,
-  WorkspaceFileReadModelService,
 } from '../../application/read-models/index.js';
 import type { McpStatusProvider, McpToolsReadModelProvider } from '../../mcp/manager-api.js';
 import { buildServerAvailability } from '../availability.js';
 import { buildAgentOperatorContractHandlers } from './operator-agent-handlers.js';
 import { buildChatOperatorContractHandlers } from './operator-chat-handlers.js';
+import { buildFilesDebugOperatorContractHandlers } from './operator-files-debug-handlers.js';
 import { ContractRuntime, type ContractHandler } from '../contract-runtime.js';
 
 export function registerOperatorContractRoutes(options: {
@@ -27,8 +26,6 @@ export function registerOperatorContractRoutes(options: {
   const { fastify, projectRoot } = options;
   const runtime = new ContractRuntime();
   const cardsReadModel = new CardsReadModelService(projectRoot);
-  const fileReadModel = new WorkspaceFileReadModelService(projectRoot);
-  const debugReadModel = new DebugReadModelService(projectRoot);
   const getActiveRuntime = () => options.activeRuntimeProvider?.() ?? options.activeRuntime;
   const handlers: Partial<Record<keyof typeof operatorApiContracts, ContractHandler>> = {
     'health.liveness': () => ({ body: { status: 'ok', version: '0.1.0', project: 'saivage-v3' } }),
@@ -55,11 +52,7 @@ export function registerOperatorContractRoutes(options: {
     'mcp.tools': () => ({ body: options.mcpToolsProvider?.()?.getToolsReadModel() ?? { tools: [], servers: [], invocationStats: {}, serverDetails: [] } }),
     ...buildAgentOperatorContractHandlers({ projectRoot, activeRuntime: getActiveRuntime() }),
     ...buildChatOperatorContractHandlers({ projectRoot, activeRuntimeProvider: getActiveRuntime, requestServerRestart: options.requestServerRestart }),
-    'files.list': ({ query }) => fileReadModel.listFiles((query as { path?: string } | undefined)?.path || '.'),
-    'files.content': ({ query }) => fileReadModel.readFileContent((query as { path?: string } | undefined)?.path),
-    'debug.state': () => ({ body: debugReadModel.getState() }),
-    'debug.errors': () => ({ body: debugReadModel.getErrors() }),
-    'debug.timeline': () => ({ body: debugReadModel.getTimeline() }),
+    ...buildFilesDebugOperatorContractHandlers({ projectRoot }),
   };
 
   runtime.mount(fastify, operatorApiContracts, handlers);

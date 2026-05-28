@@ -24,6 +24,7 @@ import {
 } from './operator-api-core.js';
 import { agentOperatorApiContracts } from './operator-api-agents.js';
 import { chatOperatorApiContracts } from './operator-api-chats.js';
+import { filesDebugOperatorApiContracts } from './operator-api-files-debug.js';
 
 
 export {
@@ -53,6 +54,23 @@ export {
   ChatWorkspaceContextSchema,
 } from './operator-api-chats.js';
 export type { ChatEntriesResponse, ChatListResponse, ChatSendResponse } from './operator-api-chats.js';
+export {
+  DebugErrorsResponseSchema,
+  DebugRuntimeStateSchema,
+  DebugStateResponseSchema,
+  DebugTimelineResponseSchema,
+  WorkspaceFileContentQuerySchema,
+  WorkspaceFileContentResponseSchema,
+  WorkspaceFilesListResponseSchema,
+  WorkspaceFilesQuerySchema,
+} from './operator-api-files-debug.js';
+export type {
+  DebugErrorsResponse,
+  DebugStateResponse,
+  DebugTimelineResponse,
+  WorkspaceFileContentResponse,
+  WorkspaceFilesListResponse,
+} from './operator-api-files-debug.js';
 export {
   ApiErrorSchema,
   ContractViolationErrorSchema,
@@ -233,36 +251,6 @@ export const McpToolsResponseSchema = z.object({
 });
 
 
-export const WorkspaceFilesQuerySchema = z.object({ path: z.string().optional() });
-export const WorkspaceFileContentQuerySchema = z.object({ path: z.string().optional() });
-export const WorkspaceFilesListResponseSchema = z.object({
-  path: z.string(),
-  files: z.array(z.object({
-    name: z.string(),
-    path: z.string(),
-    type: z.enum(['directory', 'file']),
-    size: z.number().int().nonnegative().optional(),
-    modifiedAt: z.string(),
-  })),
-});
-export const WorkspaceFileContentResponseSchema = z.object({
-  path: z.string(),
-  size: z.number().int().nonnegative(),
-  contentType: z.string(),
-  content: z.string(),
-  redacted: z.boolean(),
-  sensitivity: z.string(),
-});
-
-export const DebugRuntimeStateSchema = runtimeStateSchema.extend({ pid: z.number().int().positive() });
-export const DebugStateResponseSchema = z.object({
-  runtime: DebugRuntimeStateSchema.nullable(),
-  cards: z.array(z.record(z.string(), z.unknown())),
-  totalCards: z.number().int().nonnegative(),
-});
-export const DebugErrorsResponseSchema = z.object({ errors: z.array(z.unknown()), total: z.number().int().nonnegative() });
-export const DebugTimelineResponseSchema = z.object({ events: z.array(z.unknown()), total: z.number().int().nonnegative() });
-
 
 export type HealthLivenessResponse = z.infer<typeof HealthLivenessResponseSchema>;
 export type HealthReadinessResponse = z.infer<typeof HealthReadinessResponseSchema>;
@@ -281,11 +269,6 @@ export type McpStatusResponse = z.infer<typeof McpStatusResponseSchema>;
 export type McpInvocationStat = z.infer<typeof McpInvocationStatSchema>;
 export type McpToolDefinition = z.infer<typeof McpToolDefinitionSchema>;
 export type McpToolsResponse = z.infer<typeof McpToolsResponseSchema>;
-export type WorkspaceFilesListResponse = z.infer<typeof WorkspaceFilesListResponseSchema>;
-export type WorkspaceFileContentResponse = z.infer<typeof WorkspaceFileContentResponseSchema>;
-export type DebugStateResponse = z.infer<typeof DebugStateResponseSchema>;
-export type DebugErrorsResponse = z.infer<typeof DebugErrorsResponseSchema>;
-export type DebugTimelineResponse = z.infer<typeof DebugTimelineResponseSchema>;
 
 export const operatorApiContracts = {
   'health.liveness': {
@@ -418,58 +401,7 @@ export const operatorApiContracts = {
   },
   ...agentOperatorApiContracts,
   ...chatOperatorApiContracts,
-  'files.list': {
-    operationId: 'files.list',
-    method: 'GET',
-    path: '/api/files',
-    query: WorkspaceFilesQuerySchema,
-    success: WorkspaceFilesListResponseSchema,
-    error: ApiErrorSchema,
-    response: { 200: WorkspaceFilesListResponseSchema, 400: ApiErrorSchema, 401: UnauthorizedErrorSchema, 403: ApiErrorSchema, 404: ApiErrorSchema, 500: ContractViolationErrorSchema },
-    ...operatorSessionContract,
-    successSchemaName: 'WorkspaceFilesListResponse',
-  },
-  'files.content': {
-    operationId: 'files.content',
-    method: 'GET',
-    path: '/api/files/content',
-    query: WorkspaceFileContentQuerySchema,
-    success: WorkspaceFileContentResponseSchema,
-    error: ApiErrorSchema,
-    response: { 200: WorkspaceFileContentResponseSchema, 400: ApiErrorSchema, 401: UnauthorizedErrorSchema, 403: ApiErrorSchema, 404: ApiErrorSchema, 413: ApiErrorSchema, 415: ApiErrorSchema, 500: ContractViolationErrorSchema },
-    ...operatorSessionContract,
-    successSchemaName: 'WorkspaceFileContentResponse',
-  },
-  'debug.state': {
-    operationId: 'debug.state',
-    method: 'GET',
-    path: '/api/debug/state',
-    success: DebugStateResponseSchema,
-    error: ApiErrorSchema,
-    response: { 200: DebugStateResponseSchema, 400: ValidationErrorSchema, 401: UnauthorizedErrorSchema, 403: ForbiddenErrorSchema, 500: ContractViolationErrorSchema },
-    ...operatorSessionContract,
-    successSchemaName: 'DebugStateResponse',
-  },
-  'debug.errors': {
-    operationId: 'debug.errors',
-    method: 'GET',
-    path: '/api/debug/errors',
-    success: DebugErrorsResponseSchema,
-    error: ApiErrorSchema,
-    response: { 200: DebugErrorsResponseSchema, 400: ValidationErrorSchema, 401: UnauthorizedErrorSchema, 403: ForbiddenErrorSchema, 500: ContractViolationErrorSchema },
-    ...operatorSessionContract,
-    successSchemaName: 'DebugErrorsResponse',
-  },
-  'debug.timeline': {
-    operationId: 'debug.timeline',
-    method: 'GET',
-    path: '/api/debug/timeline',
-    success: DebugTimelineResponseSchema,
-    error: ApiErrorSchema,
-    response: { 200: DebugTimelineResponseSchema, 400: ValidationErrorSchema, 401: UnauthorizedErrorSchema, 403: ForbiddenErrorSchema, 500: ContractViolationErrorSchema },
-    ...operatorSessionContract,
-    successSchemaName: 'DebugTimelineResponse',
-  },
+  ...filesDebugOperatorApiContracts,
 } as const satisfies Record<string, OperatorRouteContract>;
 
 export type OperatorApiOperationId = keyof typeof operatorApiContracts;
