@@ -13,6 +13,7 @@ import type {
   OperatorRuntimeProviderContext,
 } from './operator-handler-context.js';
 import { buildMcpOperatorContractHandlers } from './operator-mcp-handlers.js';
+import { buildProcessOperatorContractHandlers } from './operator-process-handlers.js';
 import { buildRuntimeCardOperatorContractHandlers } from './operator-runtime-card-handlers.js';
 import { ContractRuntime } from '../contract-runtime.js';
 
@@ -36,6 +37,7 @@ export function registerOperatorContractRoutes(options: OperatorContractRouteReg
     ...buildAgentOperatorContractHandlers({ projectRoot, activeRuntime: getActiveRuntime() }),
     ...buildChatOperatorContractHandlers({ projectRoot, activeRuntimeProvider: getActiveRuntime, requestServerRestart: options.requestServerRestart }),
     ...buildFilesDebugOperatorContractHandlers({ projectRoot }),
+    ...buildProcessOperatorContractHandlers({ projectRoot }),
   };
 
   runtime.mount(fastify, operatorApiContracts, handlers);

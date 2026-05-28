@@ -7,6 +7,7 @@ import { agentOperatorApiContracts } from './operator-api-agents.js';
 import { chatOperatorApiContracts } from './operator-api-chats.js';
 import { filesDebugOperatorApiContracts } from './operator-api-files-debug.js';
 import { mcpOperatorApiContracts } from './operator-api-mcp.js';
+import { processesOperatorApiContracts } from './operator-api-processes.js';
 import { runtimeCardsOperatorApiContracts } from './operator-api-runtime-cards.js';
 
 
@@ -128,12 +129,25 @@ export type {
   RuntimeStatusResponse,
 } from './operator-api-runtime-cards.js';
 
+export {
+  ProcessControlAvailabilitySchema,
+  ProcessDetailResponseSchema,
+  ProcessIdParamsSchema,
+  ProcessListResponseSchema,
+  ProcessLogRefsSchema,
+  ProcessNotFoundErrorSchema,
+  ProcessViewSchema,
+  processesOperatorApiContracts,
+} from './operator-api-processes.js';
+export type { ProcessDetailResponse, ProcessListResponse, ProcessView } from './operator-api-processes.js';
+
 export const operatorApiContracts = {
   ...runtimeCardsOperatorApiContracts,
   ...mcpOperatorApiContracts,
   ...agentOperatorApiContracts,
   ...chatOperatorApiContracts,
   ...filesDebugOperatorApiContracts,
+  ...processesOperatorApiContracts,
 } as const satisfies Record<string, OperatorRouteContract>;
 
 export type OperatorApiOperationId = keyof typeof operatorApiContracts;

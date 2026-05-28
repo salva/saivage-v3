@@ -126,6 +126,8 @@ describe('operator API contract registry', () => {
       'debug.state',
       'debug.errors',
       'debug.timeline',
+      'processes.list',
+      'processes.get',
     ]);
     expect(Object.keys(runtimeCardsOperatorApiContracts)).toEqual([
       'health.liveness',
@@ -151,6 +153,8 @@ describe('operator API contract registry', () => {
       expect.objectContaining({ operationId: 'chats.send', method: 'POST', path: '/api/chats/:sessionId', successSchemaName: 'ChatSendResponse' }),
       expect.objectContaining({ operationId: 'files.content', method: 'GET', path: '/api/files/content', successSchemaName: 'WorkspaceFileContentResponse' }),
       expect.objectContaining({ operationId: 'debug.timeline', method: 'GET', path: '/api/debug/timeline', successSchemaName: 'DebugTimelineResponse' }),
+      expect.objectContaining({ operationId: 'processes.list', method: 'GET', path: '/api/processes', successSchemaName: 'ProcessListResponse' }),
+      expect.objectContaining({ operationId: 'processes.get', method: 'GET', path: '/api/processes/:id', successSchemaName: 'ProcessDetailResponse' }),
     ]));
   });
 
@@ -177,6 +181,28 @@ describe('operator API contract registry', () => {
   it('rejects malformed migrated responses', () => {
     expect(() => parseOperatorResponse('cards.list', { cards: [{}], total: 1 })).toThrow();
   });
+
+  it('validates process list and detail response contracts', () => {
+    const process = {
+      id: 'proc-1',
+      status: 'running',
+      started_at: '2026-01-01T00:00:00.000Z',
+      ended_at: null,
+      exit_code: null,
+      timed_out: false,
+      owner: 'agent',
+      session_id: 'planner-1',
+      card_id: 'card-1',
+      command: 'npm test',
+      cwd: '.',
+      logs: { stdout: 'stdout.log', stderr: null, combined: 'combined.log' },
+      control: { can_view_logs: true, termination_available: false, unavailable_reason: 'Process termination is not available in this redesign cycle.' },
+    };
+    expect(parseOperatorResponse('processes.list', { processes: [process] }).processes[0].id).toBe('proc-1');
+    expect(parseOperatorResponse('processes.get', { process }).process.card_id).toBe('card-1');
+    expect(() => parseOperatorResponse('processes.list', { processes: [{ ...process, control: { can_view_logs: true, termination_available: true, unavailable_reason: 'no' } }] })).toThrow();
+  });
+
 
 
   it('uses sessions for the agent list response contract and inventory', () => {

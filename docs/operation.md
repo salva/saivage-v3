@@ -282,8 +282,8 @@ Every current operator-facing Fastify or contract-mounted route is listed exactl
 | `GET /api/files` | List contained project files. | `src/contracts/operator-api-files-debug.ts:53 "path: '/api/files'"` |
 | `GET /api/mcp/status` | Show MCP server status plus optional serverAvailability. | `src/contracts/operator-api-mcp.ts:77 "path: '/api/mcp/status'"` |
 | `GET /api/mcp/tools` | Show MCP tool inventory and invocation stats. | `src/contracts/operator-api-mcp.ts:87 "path: '/api/mcp/tools'"` |
-| `GET /api/processes/:id` | Read one safe process view. | `src/server/routes/processes.ts:112 "fastify.get('/api/processes/:id'"` |
-| `GET /api/processes` | List safe process views. | `src/server/routes/processes.ts:100 "fastify.get('/api/processes'"` |
+| `GET /api/processes/:id` | Read one safe process view. | `src/contracts/operator-api-processes.ts:64 "path: '/api/processes/:id'"` |
+| `GET /api/processes` | List safe process views. | `src/contracts/operator-api-processes.ts:54 "path: '/api/processes'"` |
 | `GET /api/providers` | Return redacted provider summaries. | `src/server/routes/runtime-config-notes.ts:22 "fastify.get('/api/providers'"` |
 | `GET /api/runtime/card-runs` | List runtime card-run records. | `src/contracts/operator-api-runtime-cards.ts:238 "path: '/api/runtime/card-runs'"` |
 | `GET /api/runtime/status` | Read compact runtime status plus optional serverAvailability. | `src/contracts/operator-api-runtime-cards.ts:228 "path: '/api/runtime/status'"` |
