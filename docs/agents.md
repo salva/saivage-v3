@@ -924,7 +924,7 @@ above is the in-memory mirror.
   for root runtime intent.
 - the pause runtime command and the resume runtime command — global
   pause gate (§5, §12). Returns the updated `RuntimeState`.
-- `GET /api/agents` — enumerates every persisted `.saivage/agents/messages/*.jsonl` session plus session manifests, parsing `analyst`, `planner:<id>`, `reviewer:<id>`, `executor:<id>`, and `card-*` ids and marking only `RuntimeState.current_agent_session_id` active after reload (enforced by `src/server/routes/runtime-config-notes.ts`, `tests/server/agents-api.test.ts`, and `tests/server/restart-persistence-operator-surface.test.ts`).
+- `GET /api/agents` — enumerates every persisted `.saivage/agents/messages/*.jsonl` session plus session manifests, parsing `analyst`, `planner:<id>`, `reviewer:<id>`, `executor:<id>`, and `card-*` ids and marking only `RuntimeState.current_agent_session_id` active after reload (enforced by `src/contracts/operator-api-agents.ts`, `src/server/routes/operator-agent-handlers.ts`, and `tests/server/agents-detail-route.test.ts`).
 - `GET /ws` — WebSocket analyst chat/event stream. The server checks auth on upgrade, serializes analyst turns per client connection, and sanitizes analyst message/activity/tool payloads before sending them to operators (enforced by `src/server/websocket.ts`, `src/agents/analyst-sanitization.ts`, and `tests/server/websocket-analyst-safety.test.ts`).
 - `GET /api/runtime/card-runs` — returns a typed union for operator UI:
 
@@ -1042,7 +1042,7 @@ role:
 | `src/server/server.ts` | Runtime correction, pause/resume, card-run, and operator HTTP endpoints. |
 | `src/server/websocket.ts` | WebSocket auth, per-client analyst-turn serialization, runtime-event fan-out, and sanitized analyst payload emission. |
 | `src/agents/analyst-sanitization.ts` | Shared analyst WebSocket/message sanitization for secret paths, credential literals, bounded strings, arrays, and secret-key fields. |
-| `src/server/routes/runtime-config-notes.ts` | Operator HTTP routes including `/api/agents` persisted-session enumeration. |
+| `src/server/routes/operator-agent-handlers.ts` | Operator HTTP handlers for `/api/agents*` persisted-session read models and LLM exchange lookup. |
 | `web/src/components/chat/AnalystChatPanel.vue` | Analyst session picker grouping and read-only composer affordance for non-analyst agent sessions. |
 | `web/src/stores/analystChat.ts` | Stable `card-<cardId>` per-card analyst discussions and first-turn card-context seeding. |
 

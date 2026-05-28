@@ -11,37 +11,47 @@ import {
   runtimeRunRecordSchema,
   runtimeActivationRecordSchema,
 } from '../schemas/index.js';
-import { llmExchangeSchema } from './llm-exchange.js';
+import {
+  ApiErrorSchema,
+  ContractViolationErrorSchema,
+  ForbiddenErrorSchema,
+  operatorSessionContract,
+  publicContract,
+  UnauthorizedErrorSchema,
+  ValidationErrorSchema,
+  type HttpMethod,
+  type OperatorRouteContract,
+} from './operator-api-core.js';
+import { agentOperatorApiContracts } from './operator-api-agents.js';
 
-export type ContractAuthClass = 'public' | 'operator-session' | 'agent-session' | 'mcp-tool-token';
 
-export const HttpMethodSchema = z.enum(['GET', 'POST', 'PATCH', 'DELETE']);
-export type HttpMethod = z.infer<typeof HttpMethodSchema>;
-
-export const ApiErrorSchema = z.object({
-  error: z.string(),
-  message: z.string().optional(),
-  statusCode: z.number().int().optional(),
-}).catchall(z.unknown());
-
-export const ValidationErrorSchema = ApiErrorSchema.extend({
-  error: z.union([z.literal('ValidationError'), z.literal('Request validation failed')]),
-  issues: z.array(z.object({ path: z.string(), message: z.string() })).optional(),
-});
-
-export const UnauthorizedErrorSchema = ApiErrorSchema.extend({
-  error: z.literal('Unauthorized'),
-  statusCode: z.literal(401).optional(),
-});
-
-export const ForbiddenErrorSchema = ApiErrorSchema.extend({
-  error: z.literal('Forbidden'),
-  statusCode: z.literal(403).optional(),
-});
-
-export const ContractViolationErrorSchema = ApiErrorSchema.extend({
-  error: z.literal('ContractViolation'),
-});
+export {
+  AgentActivityStatusSchema,
+  AgentConversationEntrySchema,
+  AgentConversationParamsSchema,
+  AgentConversationResponseSchema,
+  AgentLlmExchangeParamsSchema,
+  AgentLlmExchangeResponseSchema,
+  AgentListResponseSchema,
+  AgentSessionDetailSchema,
+  AgentSessionParamsSchema,
+  AgentSessionSummarySchema,
+} from './operator-api-agents.js';
+export type {
+  AgentConversationResponse,
+  AgentDetailResponse,
+  AgentListResponse,
+  AgentLlmExchangeResponse,
+} from './operator-api-agents.js';
+export {
+  ApiErrorSchema,
+  ContractViolationErrorSchema,
+  ForbiddenErrorSchema,
+  HttpMethodSchema,
+  UnauthorizedErrorSchema,
+  ValidationErrorSchema,
+} from './operator-api-core.js';
+export type { ContractAuthClass, HttpMethod, OperatorRouteContract } from './operator-api-core.js';
 
 export const CardNotFoundErrorSchema = ApiErrorSchema.extend({
   cardId: z.string().optional(),
@@ -213,63 +223,6 @@ export const McpToolsResponseSchema = z.object({
 });
 
 
-export const AgentSessionParamsSchema = z.object({ id: z.string().min(1) });
-export const AgentConversationParamsSchema = AgentSessionParamsSchema;
-export const AgentLlmExchangeParamsSchema = AgentSessionParamsSchema;
-export const AgentSessionSummarySchema = z.object({
-  id: z.string(),
-  role: z.string(),
-  goal_card_id: z.string().nullable().optional(),
-  card_id: z.string().nullable().optional(),
-  status: z.string(),
-  started_at: z.string(),
-  completed_at: z.string().nullable().optional(),
-  model: z.string().optional(),
-}).catchall(z.unknown());
-export const AgentConversationEntrySchema = z.object({
-  id: z.string(),
-  session_id: z.string(),
-  role: z.string(),
-  kind: z.string(),
-  content: z.string(),
-  round_id: z.string().optional(),
-  message_index: z.number().int().nonnegative().optional(),
-  block_index: z.number().int().nonnegative().optional(),
-  tool: z.string().optional(),
-  tool_call_id: z.string().optional(),
-  timestamp: z.string(),
-  links: z.array(z.object({
-    entity_type: z.string(),
-    entity_id: z.string(),
-    label: z.string().optional(),
-  }).catchall(z.unknown())).optional(),
-  model_spec: z.string().optional(),
-  requested_model_spec: z.string().optional(),
-}).catchall(z.unknown());
-export const AgentActivityStatusSchema = z.object({
-  status: z.enum(['idle', 'thinking', 'tool_calling', 'responding', 'compacting']),
-  pending_calls: z.array(z.object({ id: z.string(), tool: z.string(), started_at: z.string() }).catchall(z.unknown())),
-  updated_at: z.string(),
-}).catchall(z.unknown());
-export const AgentListResponseSchema = z.object({
-  sessions: z.array(AgentSessionSummarySchema),
-});
-export const AgentSessionDetailSchema = AgentSessionSummarySchema.extend({
-  message_count: z.number().int().nonnegative(),
-  last_activity_at: z.string().nullable(),
-});
-export const AgentDetailResponseSchema = z.object({
-  session: AgentSessionDetailSchema,
-});
-export const AgentConversationResponseSchema = z.object({
-  session: AgentSessionSummarySchema,
-  entries: z.array(AgentConversationEntrySchema),
-  activity_status: AgentActivityStatusSchema,
-});
-export const AgentLlmExchangeResponseSchema = z.object({
-  exchange: llmExchangeSchema,
-});
-
 export const ChatSessionParamsSchema = z.object({ sessionId: z.string().min(1) });
 export const ChatWorkspaceContextSchema = z.object({
   view: z.string().nullable(),
@@ -352,10 +305,6 @@ export type McpStatusResponse = z.infer<typeof McpStatusResponseSchema>;
 export type McpInvocationStat = z.infer<typeof McpInvocationStatSchema>;
 export type McpToolDefinition = z.infer<typeof McpToolDefinitionSchema>;
 export type McpToolsResponse = z.infer<typeof McpToolsResponseSchema>;
-export type AgentListResponse = z.infer<typeof AgentListResponseSchema>;
-export type AgentDetailResponse = z.infer<typeof AgentDetailResponseSchema>;
-export type AgentConversationResponse = z.infer<typeof AgentConversationResponseSchema>;
-export type AgentLlmExchangeResponse = z.infer<typeof AgentLlmExchangeResponseSchema>;
 export type ChatListResponse = z.infer<typeof ChatListResponseSchema>;
 export type ChatEntriesResponse = z.infer<typeof ChatEntriesResponseSchema>;
 export type ChatSendResponse = z.infer<typeof ChatSendResponseSchema>;
@@ -364,33 +313,6 @@ export type WorkspaceFileContentResponse = z.infer<typeof WorkspaceFileContentRe
 export type DebugStateResponse = z.infer<typeof DebugStateResponseSchema>;
 export type DebugErrorsResponse = z.infer<typeof DebugErrorsResponseSchema>;
 export type DebugTimelineResponse = z.infer<typeof DebugTimelineResponseSchema>;
-
-export type OperatorRouteContract<
-  TParams extends z.ZodTypeAny | undefined = z.ZodTypeAny | undefined,
-  TQuery extends z.ZodTypeAny | undefined = z.ZodTypeAny | undefined,
-  TBody extends z.ZodTypeAny | undefined = z.ZodTypeAny | undefined,
-  TSuccess extends z.ZodTypeAny = z.ZodTypeAny,
-  TError extends z.ZodTypeAny = z.ZodTypeAny,
-> = {
-  operationId: string;
-  method: HttpMethod;
-  path: string;
-  params?: TParams;
-  query?: TQuery;
-  body?: TBody;
-  success: TSuccess;
-  error: TError;
-  response?: Record<number, z.ZodTypeAny>;
-  auth?: ContractAuthClass;
-  permissions?: (context: { contract: OperatorRouteContract; params: unknown; query: unknown; body: unknown; request: unknown }) => boolean | { allowed: true } | { allowed: false; reason?: string } | Promise<boolean | { allowed: true } | { allowed: false; reason?: string }>;
-  audit?: { kind: string; action?: string; targetKind?: string | null; targetId?: (context: { request: unknown; body: unknown }) => string | null };
-  describe?: string;
-  requiresAuth: boolean;
-  successSchemaName: string;
-};
-
-const publicContract = { auth: 'public', requiresAuth: false } as const;
-const operatorSessionContract = { auth: 'operator-session', requiresAuth: true } as const;
 
 export const operatorApiContracts = {
   'health.liveness': {
@@ -521,49 +443,7 @@ export const operatorApiContracts = {
     ...operatorSessionContract,
     successSchemaName: 'McpToolsResponse',
   },
-  'agents.list': {
-    operationId: 'agents.list',
-    method: 'GET',
-    path: '/api/agents',
-    success: AgentListResponseSchema,
-    error: ApiErrorSchema,
-    response: { 200: AgentListResponseSchema, 400: ValidationErrorSchema, 401: UnauthorizedErrorSchema, 403: ForbiddenErrorSchema, 500: ContractViolationErrorSchema },
-    ...operatorSessionContract,
-    successSchemaName: 'AgentListResponse',
-  },
-  'agents.detail': {
-    operationId: 'agents.detail',
-    method: 'GET',
-    path: '/api/agents/:id',
-    params: AgentSessionParamsSchema,
-    success: AgentDetailResponseSchema,
-    error: ApiErrorSchema,
-    response: { 200: AgentDetailResponseSchema, 400: ApiErrorSchema, 401: UnauthorizedErrorSchema, 403: ForbiddenErrorSchema, 404: ApiErrorSchema, 500: ContractViolationErrorSchema },
-    ...operatorSessionContract,
-    successSchemaName: 'AgentDetailResponse',
-  },
-  'agents.conversation': {
-    operationId: 'agents.conversation',
-    method: 'GET',
-    path: '/api/agents/:id/conversation',
-    params: AgentConversationParamsSchema,
-    success: AgentConversationResponseSchema,
-    error: ApiErrorSchema,
-    response: { 200: AgentConversationResponseSchema, 400: ApiErrorSchema, 401: UnauthorizedErrorSchema, 403: ForbiddenErrorSchema, 404: ApiErrorSchema, 500: ContractViolationErrorSchema },
-    ...operatorSessionContract,
-    successSchemaName: 'AgentConversationResponse',
-  },
-  'agents.llmExchange': {
-    operationId: 'agents.llmExchange',
-    method: 'GET',
-    path: '/api/agents/:id/llm-exchange',
-    params: AgentLlmExchangeParamsSchema,
-    success: AgentLlmExchangeResponseSchema,
-    error: ApiErrorSchema,
-    response: { 200: AgentLlmExchangeResponseSchema, 400: ApiErrorSchema, 401: UnauthorizedErrorSchema, 403: ForbiddenErrorSchema, 404: ApiErrorSchema, 500: ApiErrorSchema },
-    ...operatorSessionContract,
-    successSchemaName: 'AgentLlmExchangeResponse',
-  },
+  ...agentOperatorApiContracts,
   'chats.list': {
     operationId: 'chats.list',
     method: 'GET',

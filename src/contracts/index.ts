@@ -61,6 +61,10 @@ export {
 } from './operator-api.js';
 
 export {
+  agentOperatorApiContracts,
+} from './operator-api-agents.js';
+
+export {
   exchangeAttemptSchema,
   exchangeErrorMetaSchema,
   exchangeRequestMetaSchema,
@@ -78,6 +82,8 @@ export type {
 
 export type {
   AgentConversationResponse,
+  AgentDetailResponse,
+  AgentListResponse,
   AgentLlmExchangeResponse,
   AvailabilityComponent,
   AvailabilityState,
