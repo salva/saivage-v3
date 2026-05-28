@@ -73,6 +73,10 @@ export {
 } from './operator-api-files-debug.js';
 
 export {
+  mcpOperatorApiContracts,
+} from './operator-api-mcp.js';
+
+export {
   exchangeAttemptSchema,
   exchangeErrorMetaSchema,
   exchangeRequestMetaSchema,

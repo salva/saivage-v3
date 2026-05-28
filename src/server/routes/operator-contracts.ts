@@ -11,6 +11,7 @@ import { buildServerAvailability } from '../availability.js';
 import { buildAgentOperatorContractHandlers } from './operator-agent-handlers.js';
 import { buildChatOperatorContractHandlers } from './operator-chat-handlers.js';
 import { buildFilesDebugOperatorContractHandlers } from './operator-files-debug-handlers.js';
+import { buildMcpOperatorContractHandlers } from './operator-mcp-handlers.js';
 import { ContractRuntime, type ContractHandler } from '../contract-runtime.js';
 
 export function registerOperatorContractRoutes(options: {
@@ -44,12 +45,7 @@ export function registerOperatorContractRoutes(options: {
     'cards.diff': ({ params, query }) => cardsReadModel.diffCard((params as unknown as { id: string }).id, query as unknown as { from?: string; to?: string }),
     'runtime.status': () => ({ body: buildRuntimeStatusReadModel({ projectRoot, activeRuntime: getActiveRuntime(), serverAvailability: options.serverAvailabilityProvider?.() }) }),
     'runtime.cardRuns': () => ({ body: buildCardRunsResponse(projectRoot) }),
-    'mcp.status': () => {
-      const serverAvailability = options.serverAvailabilityProvider?.();
-      const provider = options.mcpStatusProvider?.();
-      return { body: { servers: provider?.getStatus() ?? [], ...(serverAvailability ? { serverAvailability } : {}) } };
-    },
-    'mcp.tools': () => ({ body: options.mcpToolsProvider?.()?.getToolsReadModel() ?? { tools: [], servers: [], invocationStats: {}, serverDetails: [] } }),
+    ...buildMcpOperatorContractHandlers({ mcpStatusProvider: options.mcpStatusProvider, mcpToolsProvider: options.mcpToolsProvider, serverAvailabilityProvider: options.serverAvailabilityProvider }),
     ...buildAgentOperatorContractHandlers({ projectRoot, activeRuntime: getActiveRuntime() }),
     ...buildChatOperatorContractHandlers({ projectRoot, activeRuntimeProvider: getActiveRuntime, requestServerRestart: options.requestServerRestart }),
     ...buildFilesDebugOperatorContractHandlers({ projectRoot }),

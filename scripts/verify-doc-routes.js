@@ -16,7 +16,7 @@ const RUNTIME_CONTROL_ROW_RE = /^\|\s*`(POST\s+\/api\/runtime\/(?:pause|resume|f
 
 const DEFAULT_REMOVED_ROUTES = new Set(['POST /api/runtime/dispatch']);
 const DEFAULT_OPERATOR_DOCS = new Set(['README.md','docs/index.md','docs/install.md','docs/configuration.md','docs/operation.md','docs/operator-runbook.md','docs/troubleshooting.md','docs/release-checklist.md']);
-const SOURCE_FILES = ['src/server/server.ts', 'src/server/composition/fastify-app.ts', 'src/server/composition/route-composition.ts', 'src/server/routes', 'src/server/routes/operator-contracts.ts', 'src/server/contract-runtime.ts', 'src/contracts/operator-api.ts', 'src/contracts/operator-api-agents.ts', 'src/contracts/operator-api-chats.ts', 'src/contracts/operator-api-files-debug.ts', 'src/agents/agent-adapter.ts', 'src/agents/agent-tool-catalog.ts', 'src/agents/workspace-tools.ts', 'src/agents/config-schema.ts'];
+const SOURCE_FILES = ['src/server/server.ts', 'src/server/composition/fastify-app.ts', 'src/server/composition/route-composition.ts', 'src/server/routes', 'src/server/routes/operator-contracts.ts', 'src/server/contract-runtime.ts', 'src/contracts/operator-api.ts', 'src/contracts/operator-api-agents.ts', 'src/contracts/operator-api-chats.ts', 'src/contracts/operator-api-files-debug.ts', 'src/contracts/operator-api-mcp.ts', 'src/agents/agent-adapter.ts', 'src/agents/agent-tool-catalog.ts', 'src/agents/workspace-tools.ts', 'src/agents/config-schema.ts'];
 const OPERATION_DOC = 'docs/operation.md';
 const AGENTS_DOC = 'docs/agents.md';
 const CONFIG_DOC = 'docs/configuration.md';
@@ -46,7 +46,7 @@ export function normalizeRoutePath(routePath) {
 export function routeKey(method, routePath) { return `${method.toUpperCase()} ${normalizeRoutePath(routePath)}`; }
 
 function extractContractRoutes(projectRoot) {
-  const contractPaths = ['src/contracts/operator-api.ts', 'src/contracts/operator-api-agents.ts', 'src/contracts/operator-api-chats.ts', 'src/contracts/operator-api-files-debug.ts'].map((relPath) => join(projectRoot, relPath));
+  const contractPaths = ['src/contracts/operator-api.ts', 'src/contracts/operator-api-agents.ts', 'src/contracts/operator-api-chats.ts', 'src/contracts/operator-api-files-debug.ts', 'src/contracts/operator-api-mcp.ts'].map((relPath) => join(projectRoot, relPath));
   const routes = new Set();
   const contractRe = /method:\s*['"`](GET|POST|PATCH|DELETE|PUT)['"`][\s\S]*?path:\s*['"`]([^'"`]+)['"`]/g;
   for (const contractPath of contractPaths) {

@@ -22,9 +22,11 @@ import {
   type HttpMethod,
   type OperatorRouteContract,
 } from './operator-api-core.js';
+import { ServerAvailabilitySchema as SharedServerAvailabilitySchema } from './operator-api-availability.js';
 import { agentOperatorApiContracts } from './operator-api-agents.js';
 import { chatOperatorApiContracts } from './operator-api-chats.js';
 import { filesDebugOperatorApiContracts } from './operator-api-files-debug.js';
+import { mcpOperatorApiContracts } from './operator-api-mcp.js';
 
 
 export {
@@ -80,6 +82,32 @@ export {
   ValidationErrorSchema,
 } from './operator-api-core.js';
 export type { ContractAuthClass, HttpMethod, OperatorRouteContract } from './operator-api-core.js';
+export {
+  AvailabilityComponentSchema,
+  AvailabilityComponentSourceSchema,
+  AvailabilityDiagnosticSchema,
+  AvailabilityStateSchema,
+  ServerAvailabilitySchema,
+} from './operator-api-availability.js';
+export type { AvailabilityComponent, AvailabilityState, ServerAvailability } from './operator-api-availability.js';
+export {
+  McpInvocationStatSchema,
+  McpServerStatusSchema,
+  McpStatusResponseSchema,
+  McpStatusStateSchema,
+  McpToolDefinitionSchema,
+  McpToolsResponseSchema,
+  McpTransportSchema,
+} from './operator-api-mcp.js';
+export type {
+  McpInvocationStat,
+  McpServerStatus,
+  McpStatusResponse,
+  McpStatusState,
+  McpToolDefinition,
+  McpToolsResponse,
+  McpTransport,
+} from './operator-api-mcp.js';
 
 export const CardNotFoundErrorSchema = ApiErrorSchema.extend({
   cardId: z.string().optional(),
@@ -112,39 +140,16 @@ export const CardIndexSummarySchema = z.object({
 
 
 
-export const AvailabilityStateSchema = z.enum(['available', 'degraded', 'idle', 'unavailable', 'unknown']);
-export const AvailabilityComponentSourceSchema = z.enum(['startup', 'active-runtime', 'runtime-state', 'mcp-manager', 'health-check', 'unknown']);
-export const AvailabilityDiagnosticSchema = z.object({
-  code: z.string().min(1),
-  summary: z.string().min(1).max(240),
-});
-export const AvailabilityComponentSchema = z.object({
-  state: AvailabilityStateSchema,
-  source: AvailabilityComponentSourceSchema,
-  checkedAt: z.string().datetime(),
-  diagnostic: AvailabilityDiagnosticSchema.optional(),
-});
-export const ServerAvailabilitySchema = z.object({
-  generatedAt: z.string().datetime(),
-  components: z.object({
-    api: AvailabilityComponentSchema,
-    runtime: AvailabilityComponentSchema,
-    mcp: AvailabilityComponentSchema,
-  }),
-});
 export const HealthLivenessResponseSchema = z.object({ status: z.literal('ok'), version: z.string(), project: z.string() });
-export const HealthReadinessResponseSchema = z.object({ status: z.enum(['ready', 'not_ready']), serverAvailability: ServerAvailabilitySchema.optional() });
+export const HealthReadinessResponseSchema = z.object({ status: z.enum(['ready', 'not_ready']), serverAvailability: SharedServerAvailabilitySchema.optional() });
 
-export type AvailabilityState = z.infer<typeof AvailabilityStateSchema>;
-export type AvailabilityComponent = z.infer<typeof AvailabilityComponentSchema>;
-export type ServerAvailability = z.infer<typeof ServerAvailabilitySchema>;
 
 export const RuntimeGetStateResponseSchema = z.object({
   projectRoot: z.string().min(1),
   projectId: z.string().min(1),
   runtime: runtimeStateSchema.nullable(),
   cardIndex: CardIndexSummarySchema,
-  serverAvailability: ServerAvailabilitySchema.optional(),
+  serverAvailability: SharedServerAvailabilitySchema.optional(),
 });
 
 export const CardListResponseSchema = z.object({
@@ -178,7 +183,7 @@ export const RuntimeStatusResponseSchema = z.object({
   goalCount: z.number().int().nonnegative(),
   lastTickAt: z.string().nullable(),
   pid: z.number().int().positive(),
-  serverAvailability: ServerAvailabilitySchema.optional(),
+  serverAvailability: SharedServerAvailabilitySchema.optional(),
 });
 
 export const RuntimeCardRunsResponseSchema = z.object({
@@ -202,56 +207,6 @@ export const RuntimeCardRunsResponseSchema = z.object({
   })),
 });
 
-export const McpTransportSchema = z.enum(['stdio', 'sse']);
-export const McpStatusStateSchema = z.enum(['running', 'stopped', 'error']);
-export const McpServerStatusSchema = z.object({
-  name: z.string(),
-  transport: McpTransportSchema,
-  status: McpStatusStateSchema,
-  pid: z.number().int().positive().optional(),
-  error: z.string().optional(),
-  startedAt: z.string().optional(),
-  tools_count: z.number().int().nonnegative().optional(),
-});
-export const McpStatusResponseSchema = z.object({
-  servers: z.array(McpServerStatusSchema),
-  serverAvailability: ServerAvailabilitySchema.optional(),
-});
-export const McpInvocationStatSchema = z.object({
-  total: z.number().int().nonnegative(),
-  success: z.number().int().nonnegative(),
-  error: z.number().int().nonnegative(),
-  lastInvokedAt: z.string().optional(),
-});
-export const McpToolDefinitionSchema = z.object({
-  name: z.string(),
-  title: z.string().optional(),
-  description: z.string().optional(),
-  inputSchema: z.object({ type: z.literal('object') }).catchall(z.unknown()),
-  outputSchema: z.object({ type: z.literal('object') }).catchall(z.unknown()).optional(),
-  annotations: z.record(z.string(), z.unknown()).optional(),
-  _meta: z.record(z.string(), z.unknown()).optional(),
-});
-export const McpToolsResponseSchema = z.object({
-  tools: z.array(McpToolDefinitionSchema),
-  servers: z.array(z.string()),
-  invocationStats: z.record(z.string(), McpInvocationStatSchema),
-  serverDetails: z.array(z.object({
-    name: z.string(),
-    transport: McpTransportSchema,
-    status: McpStatusStateSchema,
-    toolCount: z.number().int().nonnegative(),
-    tools: z.array(z.object({
-      name: z.string(),
-      description: z.string().optional(),
-      inputSchema: z.object({ type: z.literal('object') }).catchall(z.unknown()),
-      stats: McpInvocationStatSchema,
-    })),
-  })),
-});
-
-
-
 export type HealthLivenessResponse = z.infer<typeof HealthLivenessResponseSchema>;
 export type HealthReadinessResponse = z.infer<typeof HealthReadinessResponseSchema>;
 export type RuntimeGetStateResponse = z.infer<typeof RuntimeGetStateResponseSchema>;
@@ -262,13 +217,6 @@ export type CardHistoryEntryResponse = z.infer<typeof CardHistoryEntryResponseSc
 export type CardDiffResponse = z.infer<typeof CardDiffResponseSchema>;
 export type RuntimeStatusResponse = z.infer<typeof RuntimeStatusResponseSchema>;
 export type RuntimeCardRunsResponse = z.infer<typeof RuntimeCardRunsResponseSchema>;
-export type McpTransport = z.infer<typeof McpTransportSchema>;
-export type McpStatusState = z.infer<typeof McpStatusStateSchema>;
-export type McpServerStatus = z.infer<typeof McpServerStatusSchema>;
-export type McpStatusResponse = z.infer<typeof McpStatusResponseSchema>;
-export type McpInvocationStat = z.infer<typeof McpInvocationStatSchema>;
-export type McpToolDefinition = z.infer<typeof McpToolDefinitionSchema>;
-export type McpToolsResponse = z.infer<typeof McpToolsResponseSchema>;
 
 export const operatorApiContracts = {
   'health.liveness': {
@@ -379,26 +327,7 @@ export const operatorApiContracts = {
     ...operatorSessionContract,
     successSchemaName: 'RuntimeCardRunsResponse',
   },
-  'mcp.status': {
-    operationId: 'mcp.status',
-    method: 'GET',
-    path: '/api/mcp/status',
-    success: McpStatusResponseSchema,
-    error: ApiErrorSchema,
-    response: { 200: McpStatusResponseSchema, 400: ValidationErrorSchema, 401: UnauthorizedErrorSchema, 403: ForbiddenErrorSchema, 500: ContractViolationErrorSchema },
-    ...operatorSessionContract,
-    successSchemaName: 'McpStatusResponse',
-  },
-  'mcp.tools': {
-    operationId: 'mcp.tools',
-    method: 'GET',
-    path: '/api/mcp/tools',
-    success: McpToolsResponseSchema,
-    error: ApiErrorSchema,
-    response: { 200: McpToolsResponseSchema, 400: ValidationErrorSchema, 401: UnauthorizedErrorSchema, 403: ForbiddenErrorSchema, 500: ContractViolationErrorSchema },
-    ...operatorSessionContract,
-    successSchemaName: 'McpToolsResponse',
-  },
+  ...mcpOperatorApiContracts,
   ...agentOperatorApiContracts,
   ...chatOperatorApiContracts,
   ...filesDebugOperatorApiContracts,
