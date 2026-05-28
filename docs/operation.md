@@ -259,8 +259,8 @@ Every current operator-facing Fastify or contract-mounted route is listed exactl
 
 | Route | Purpose | Code anchor |
 |---|---|---|
-| `GET /api/agents/:id/conversation` | Read one persisted agent conversation. | `src/server/routes/runtime-config-notes.ts:29 "fastify.get('/api/agents/:id/conversation'"` |
-| `GET /api/agents/:id/llm-exchange` | Read the latest raw LLM exchange for an agent session. | `src/server/routes/runtime-config-notes.ts:30 "fastify.get('/api/agents/:id/llm-exchange'"` |
+| `GET /api/agents/:id/conversation` | Read one persisted agent conversation. | `src/contracts/operator-api.ts:542 "path: '/api/agents/:id/conversation'"` |
+| `GET /api/agents/:id/llm-exchange` | Read the latest raw LLM exchange for an agent session. | `src/server/routes/runtime-config-notes.ts:26 "fastify.get('/api/agents/:id/llm-exchange'"` |
 | `GET /api/agents/:id` | Read one persisted agent-session summary. | `src/contracts/operator-api.ts:531 "path: '/api/agents/:id'"` |
 | `GET /api/agents` | List persisted agent sessions. | `src/contracts/operator-api.ts:521 "path: '/api/agents'"` |
 | `POST /api/auth/ws-ticket` | Issue a short-lived one-use browser WebSocket ticket after bearer REST auth. | `src/server/routes/auth.ts:5 "fastify.post('/api/auth/ws-ticket'"` |
