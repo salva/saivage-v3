@@ -148,6 +148,7 @@ const idleActivity = { status: 'idle', pending_calls: [], updated_at: now };
 export type OperatorRestObservations = {
   counts: Map<string, number>;
   unknown: string[];
+  chatPosts: Array<{ sessionId: string; body: Record<string, unknown> }>;
 };
 
 function json(route: Route, payload: unknown, status = 200) {
@@ -159,7 +160,9 @@ function keyFor(method: string, pathname: string): string {
 }
 
 export async function installOperatorRestRoutes(page: Page): Promise<OperatorRestObservations> {
-  const observations: OperatorRestObservations = { counts: new Map(), unknown: [] };
+  const observations: OperatorRestObservations = { counts: new Map(), unknown: [], chatPosts: [] };
+
+  const chatEntries = new Map<string, ReturnType<typeof stampedText>[]>();
 
   await page.route('**/api/**', async (route) => {
     const request = route.request();
@@ -213,18 +216,71 @@ export async function installOperatorRestRoutes(page: Page): Promise<OperatorRes
     }
     if (request.method() === 'GET' && url.pathname === '/api/debug/doctor') return json(route, { status: 'ok', checks: [], issues: [] });
     if (request.method() === 'GET' && url.pathname === '/api/debug/supervision') return json(route, { reviews: [], quarantine: [], stats: { total: 0, blocked: 0, passed: 0, sanitized: 0, byRisk: {}, bySourceKind: {} } });
-    if (request.method() === 'GET' && url.pathname === '/api/mcp/tools') return json(route, { tools: [], servers: [], invocationStats: {}, serverDetails: [] });
-    if (request.method() === 'GET' && url.pathname === '/api/processes') return json(route, { processes: [] });
+    if (request.method() === 'GET' && url.pathname === '/api/mcp/tools') {
+      return json(route, parseOperatorResponse('mcp.tools', {
+        tools: [
+          { name: 'read_project_file', description: 'Read a synthetic project file.', inputSchema: { type: 'object' } },
+        ],
+        servers: ['filesystem'],
+        invocationStats: { 'filesystem:read_project_file': { total: 3, success: 2, error: 1, lastInvokedAt: now } },
+        serverDetails: [{ name: 'filesystem', status: 'running', transport: 'stdio', toolCount: 1, tools: [{ name: 'read_project_file', description: 'Read a synthetic project file.', inputSchema: { type: 'object' }, stats: { total: 3, success: 2, error: 1, lastInvokedAt: now } }] }],
+      }));
+    }
+    if (request.method() === 'GET' && url.pathname === '/api/processes') {
+      return json(route, { processes: [{
+        id: 'proc-smoke',
+        status: 'completed',
+        command: 'npm run synthetic-smoke',
+        cwd: '/work/saivage-e2e-checkers',
+        card_id: 'card-smoke',
+        session_id: 'planner-smoke',
+        owner: 'planner',
+        started_at: now,
+        ended_at: now,
+        exit_code: 0,
+        timed_out: false,
+        logs: { combined: '.saivage/tmp/processes/proc-smoke.log', stdout: '.saivage/tmp/processes/proc-smoke.stdout.log', stderr: '.saivage/tmp/processes/proc-smoke.stderr.log' },
+        control: { can_terminate: false, terminate_status: 'already-ended', terminate_reason: 'Process already ended.', can_view_logs: true },
+      }] });
+    }
     if (request.method() === 'GET' && url.pathname === '/api/notifications') return json(route, { notifications: [], total: 0 });
     if (request.method() === 'GET' && url.pathname === '/api/control-actions') return json(route, { control_actions: [], total: 0 });
-    if (request.method() === 'GET' && url.pathname === '/api/chats') return json(route, { sessions: [{ id: 'analyst-smoke', title: 'Synthetic analyst chat', updated_at: now }] });
+    if (request.method() === 'GET' && url.pathname === '/api/chats') return json(route, { sessions: [{ id: 'analyst', role: 'analyst', status: 'active', title: 'Synthetic analyst chat', started_at: now, completed_at: null, updated_at: now }] });
     if (request.method() === 'GET' && url.pathname.startsWith('/api/chats/')) {
       const sessionId = decodeURIComponent(url.pathname.split('/')[3] ?? 'analyst-smoke');
-      return json(route, parseOperatorResponse('chats.get', { sessionId, entries: [stampedText(sessionId, `chat-${sessionId}-1`, 'Synthetic agent transcript.')] }));
+      return json(route, parseOperatorResponse('chats.get', {
+        sessionId,
+        entries: chatEntries.get(sessionId) ?? [stampedText(sessionId, `chat-${sessionId}-1`, 'Synthetic agent transcript.')],
+      }));
     }
     if (request.method() === 'POST' && url.pathname.startsWith('/api/chats/')) {
       const sessionId = decodeURIComponent(url.pathname.split('/')[3] ?? 'analyst-smoke');
-      return json(route, { sessionId, message: { id: `chat-${sessionId}-outbound`, session_id: sessionId, role: 'user', kind: 'text', content: 'Synthetic outbound chat.', timestamp: now } });
+      let body: Record<string, unknown> = {};
+      try {
+        body = request.postDataJSON() as Record<string, unknown>;
+      } catch {
+        body = {};
+      }
+      observations.chatPosts.push({ sessionId, body });
+      const content = typeof body.content === 'string' ? body.content : '';
+      const message = {
+        id: `chat-${sessionId}-assistant`,
+        session_id: sessionId,
+        role: 'assistant' as const,
+        kind: 'text' as const,
+        content: `Synthetic analyst response to: ${content}`,
+        round_id: 'r-assistant-send',
+        message_index: 1,
+        block_index: 0,
+        timestamp: now,
+        toolInvocations: [],
+      };
+      chatEntries.set(sessionId, [stampedText(sessionId, `chat-${sessionId}-1`, 'Synthetic agent transcript.'), message]);
+      return json(route, parseOperatorResponse('chats.send', {
+        sessionId,
+        message,
+        toolInvocations: [],
+      }));
     }
 
     observations.unknown.push(key);
