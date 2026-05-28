@@ -74,6 +74,7 @@ const props = defineProps<{
 const emit = defineEmits<{
   close: [];
   saved: [];
+  cleared: [];
 }>();
 
 const token = ref('');
@@ -136,6 +137,7 @@ function clearToken(): void {
   savedToken.value = null;
   token.value = '';
   showToken.value = false;
+  emit('cleared');
 }
 </script>
 

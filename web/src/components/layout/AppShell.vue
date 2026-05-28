@@ -45,7 +45,8 @@
     <ApiTokenEntry
       :visible="showTokenDialog"
       @close="showTokenDialog = false"
-      @saved="showTokenDialog = false"
+      @saved="handleTokenSaved"
+      @cleared="handleTokenCleared"
     />
   </div>
 </template>
@@ -151,6 +152,22 @@ function openTokenFromAuthBanner(): void {
 function dismissAuthBanner(): void {
   showAuthBanner.value = false;
   dismissAuthBannerForSession();
+}
+
+function refreshAuthDependentConnections(): void {
+  wsStore.disconnect();
+  wsStore.connect();
+  runtimeStore.fetchState().catch(() => {});
+}
+
+function handleTokenSaved(): void {
+  showTokenDialog.value = false;
+  showAuthBanner.value = false;
+  refreshAuthDependentConnections();
+}
+
+function handleTokenCleared(): void {
+  refreshAuthDependentConnections();
 }
 
 onMounted(() => {
