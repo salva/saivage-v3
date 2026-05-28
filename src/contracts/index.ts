@@ -65,6 +65,10 @@ export {
 } from './operator-api-agents.js';
 
 export {
+  chatOperatorApiContracts,
+} from './operator-api-chats.js';
+
+export {
   exchangeAttemptSchema,
   exchangeErrorMetaSchema,
   exchangeRequestMetaSchema,
