@@ -47,9 +47,7 @@ describe('GET /api/agents/:id', () => {
     const { default: authPlugin } = await import('../../src/server/auth.js');
     await app.register(authPlugin);
     const { registerOperatorContractRoutes } = await import('../../src/server/routes/operator-contracts.js');
-    const { registerRuntimeConfigNotesRoutes } = await import('../../src/server/routes/runtime-config-notes.js');
     registerOperatorContractRoutes({ fastify: app, projectRoot });
-    registerRuntimeConfigNotesRoutes(app, projectRoot);
     await app.ready();
   });
 

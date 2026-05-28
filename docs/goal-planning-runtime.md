@@ -54,4 +54,4 @@ Use the Dashboard **Runtime Console** for runtime intent, `start_project`, `stop
 
 ## Source grounding
 
-Core implementation anchors: `src/runtime/runtime.ts`, `src/runtime/state.ts`, `src/agents/planner-control-executor.ts`, `src/server/routes/runtime-config-notes.ts`, and the web Dashboard runtime console / planning-tree components under `web/src`.
+Core implementation anchors: `src/runtime/runtime.ts`, `src/runtime/state.ts`, `src/agents/planner-control-executor.ts`, the contract-backed operator route handlers under `src/server/routes/operator-*-handlers.ts`, and the web Dashboard runtime console / planning-tree components under `web/src`.

@@ -5,6 +5,7 @@ import {
 } from './operator-api-core.js';
 import { agentOperatorApiContracts } from './operator-api-agents.js';
 import { chatOperatorApiContracts } from './operator-api-chats.js';
+import { configOperatorApiContracts } from './operator-api-config.js';
 import { eventsOperatorApiContracts } from './operator-api-events.js';
 import { filesDebugOperatorApiContracts } from './operator-api-files-debug.js';
 import { mcpOperatorApiContracts } from './operator-api-mcp.js';
@@ -56,6 +57,26 @@ export type {
   WorkspaceFileContentResponse,
   WorkspaceFilesListResponse,
 } from './operator-api-files-debug.js';
+export {
+  ConfigGetResponseSchema,
+  ConfigUnavailableErrorSchema,
+  ControlActionsListFailureSchema,
+  ControlActionsListResponseSchema,
+  ControlActionsQuerySchema,
+  ProviderSummarySchema,
+  ProvidersListResponseSchema,
+  ProvidersUnavailableErrorSchema,
+} from './operator-api-config.js';
+export type {
+  ConfigGetResponse,
+  ConfigUnavailableError,
+  ControlActionsListFailure,
+  ControlActionsListResponse,
+  ControlActionsQuery,
+  ProviderSummary,
+  ProvidersListResponse,
+  ProvidersUnavailableError,
+} from './operator-api-config.js';
 export {
   EventsListFailureSchema,
   EventsListResponseSchema,
@@ -156,6 +177,7 @@ export const operatorApiContracts = {
   ...filesDebugOperatorApiContracts,
   ...processesOperatorApiContracts,
   ...eventsOperatorApiContracts,
+  ...configOperatorApiContracts,
 } as const satisfies Record<string, OperatorRouteContract>;
 
 export type OperatorApiOperationId = keyof typeof operatorApiContracts;

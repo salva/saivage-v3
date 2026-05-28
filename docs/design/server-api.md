@@ -158,7 +158,7 @@ GET    /api/agents/:id/conversation    Get conversation snapshot for an agent se
 `GET /api/agents` enumerates persisted `.saivage/agents/messages/*.jsonl`
 sessions plus manifests after restart/reload, parses analyst/planner/reviewer/
 executor/card-scoped roles, and marks exactly `RuntimeState.current_agent_session_id`
-active (`src/server/routes/runtime-config-notes.ts`,
+active (`src/server/routes/operator-agent-handlers.ts`,
 `tests/server/restart-persistence-operator-surface.test.ts`).
 
 `GET /api/agents/:id/conversation` returns `{ session, entries, activity_status }` for the agent's recent conversation history (subject to context

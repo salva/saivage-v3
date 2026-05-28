@@ -214,16 +214,16 @@ export function getAgentLlmExchange(sessionId: string): Promise<{ exchange: LlmE
 }
 
 export function getConfig(): Promise<ConfigResponse> {
-  return request<ConfigResponse>('GET', '/api/config');
+  return operatorRequest('config.get', 'GET', '/api/config');
 }
 
 export function getProviders(): Promise<ProvidersResponse> {
-  return request<ProvidersResponse>('GET', '/api/providers');
+  return operatorRequest('providers.list', 'GET', '/api/providers');
 }
 
 
 export function listControlActions(query?: { card_id?: string; since?: string }): Promise<ControlActionsListResponse> {
-  return request<ControlActionsListResponse>('GET', '/api/control-actions', query as Record<string, string> | undefined);
+  return operatorRequest('controlActions.list', 'GET', '/api/control-actions', query as Record<string, string> | undefined);
 }
 
 export function listChatSessions(): Promise<ChatSessionsResponse> {

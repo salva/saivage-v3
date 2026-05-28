@@ -272,8 +272,8 @@ Every current operator-facing Fastify or contract-mounted route is listed exactl
 | `GET /api/chats/:sessionId` | Read an analyst chat transcript. | `src/contracts/operator-api-chats.ts:64 "path: '/api/chats/:sessionId'"` |
 | `POST /api/chats/:sessionId` | Send an analyst chat message. | `src/contracts/operator-api-chats.ts:75 "path: '/api/chats/:sessionId'"` |
 | `GET /api/chats` | List analyst chat sessions. | `src/contracts/operator-api-chats.ts:54 "path: '/api/chats'"` |
-| `GET /api/config` | Return redacted loaded configuration and warnings. | `src/server/routes/runtime-config-notes.ts:21 "fastify.get('/api/config'"` |
-| `GET /api/control-actions` | List control-action audit entries. | `src/server/routes/runtime-config-notes.ts:12 "fastify.get('/api/control-actions'"` |
+| `GET /api/config` | Return redacted loaded configuration and warnings. | `src/contracts/operator-api-config.ts:65 "operationId: 'config.get'"` |
+| `GET /api/control-actions` | List control-action audit entries. | `src/contracts/operator-api-config.ts:85 "operationId: 'controlActions.list'"` |
 | `GET /api/debug/errors` | Read runtime error records. | `src/contracts/operator-api-files-debug.ts:85 "path: '/api/debug/errors'"` |
 | `GET /api/debug/state` | Dump runtime and card-index debug state. | `src/contracts/operator-api-files-debug.ts:75 "path: '/api/debug/state'"` |
 | `GET /api/debug/timeline` | Read runtime event timeline records. | `src/contracts/operator-api-files-debug.ts:95 "path: '/api/debug/timeline'"` |
@@ -284,7 +284,7 @@ Every current operator-facing Fastify or contract-mounted route is listed exactl
 | `GET /api/mcp/tools` | Show MCP tool inventory and invocation stats. | `src/contracts/operator-api-mcp.ts:87 "path: '/api/mcp/tools'"` |
 | `GET /api/processes/:id` | Read one safe process view. | `src/contracts/operator-api-processes.ts:64 "path: '/api/processes/:id'"` |
 | `GET /api/processes` | List safe process views. | `src/contracts/operator-api-processes.ts:54 "path: '/api/processes'"` |
-| `GET /api/providers` | Return redacted provider summaries. | `src/server/routes/runtime-config-notes.ts:22 "fastify.get('/api/providers'"` |
+| `GET /api/providers` | Return provider summaries. | `src/contracts/operator-api-config.ts:75 "operationId: 'providers.list'"` |
 | `GET /api/runtime/card-runs` | List runtime card-run records. | `src/contracts/operator-api-runtime-cards.ts:238 "path: '/api/runtime/card-runs'"` |
 | `GET /api/runtime/status` | Read compact runtime status plus optional serverAvailability. | `src/contracts/operator-api-runtime-cards.ts:228 "path: '/api/runtime/status'"` |
 | `GET /api/state` | Read RuntimeState plus card-index summary and optional availability. | `src/contracts/operator-api-runtime-cards.ts:162 "path: '/api/state'"` |

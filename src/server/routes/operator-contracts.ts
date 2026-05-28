@@ -3,10 +3,12 @@ import type { ActiveRuntime } from '../../runtime/control-api.js';
 import { operatorApiContracts } from '../../contracts/index.js';
 import { buildAgentOperatorContractHandlers } from './operator-agent-handlers.js';
 import { buildChatOperatorContractHandlers } from './operator-chat-handlers.js';
+import { buildConfigOperatorContractHandlers } from './operator-config-handlers.js';
 import { buildEventsOperatorContractHandlers } from './operator-events-handlers.js';
 import { buildFilesDebugOperatorContractHandlers } from './operator-files-debug-handlers.js';
 import type {
   OperatorAvailabilityContext,
+  OperatorConfigContext,
   OperatorContractHandlerMap,
   OperatorMcpProviderContext,
   OperatorProjectContext,
@@ -23,6 +25,7 @@ interface OperatorContractRouteRegistrationOptions extends
   OperatorMcpProviderContext,
   OperatorAvailabilityContext,
   OperatorRestartContext,
+  OperatorConfigContext,
   Partial<OperatorRuntimeProviderContext> {
   fastify: FastifyInstance;
   activeRuntime?: ActiveRuntime;
@@ -40,6 +43,7 @@ export function registerOperatorContractRoutes(options: OperatorContractRouteReg
     ...buildFilesDebugOperatorContractHandlers({ projectRoot }),
     ...buildProcessOperatorContractHandlers({ projectRoot }),
     ...buildEventsOperatorContractHandlers({ projectRoot }),
+    ...buildConfigOperatorContractHandlers({ projectRoot, saivageConfig: options.saivageConfig, configWarnings: options.configWarnings }),
   };
 
   runtime.mount(fastify, operatorApiContracts, handlers);

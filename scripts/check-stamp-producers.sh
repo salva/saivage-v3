@@ -19,7 +19,7 @@ check_absent 'optional chained stamp/open/close calls' 'activeRuntime\?\.(stampU
 check_absent 'literal round fallback' '\?\?\s*\{\s*round_id' 'src/ web/src/' ''
 check_absent 'local stamp producer methods outside ActiveRuntime' 'private (stampInRound|stampUserMessage|openAssistantRound|closeAssistantRound|stampPre|stampCompacted|stampDiagnosticInCurrentRound)' 'src/' 'src/runtime/active-runtime\.ts'
 check_absent 'legacy agent conversation fallback' 'legacyConversationEntry|legacyAgentMessage' 'src/' ''
-check_absent 'runtime-config safeParse fallback' '\.safeParse\(' 'src/server/routes/runtime-config-notes.ts' ''
+check_absent 'contract config route owner uses hand-mounted Fastify routes' "fastify\.(get|post|patch|delete)\('/api/(config|providers|control-actions)'" 'src/server/routes/' ''
 check_absent 'partial eventBus-as-never ActiveRuntime mocks' '\{ runtime: \{ eventBus \} \} as never' 'tests/' ''
 check_absent 'hard-coded RoundStamp literals outside stamp producers/helpers' "\{\s*round_id:\s*['\"]r-(diagnostic|user|assistant|pre|compacted|truncated)" 'src/ web/src/' 'src/runtime/active-runtime\.ts|src/agents/session-persistence\.ts'
 exit "$fail"

@@ -289,11 +289,9 @@ describe('E2E — Full Project Lifecycle', () => {
     await app.register(authPlugin);
 
     const { registerCardRoutes } = await import('../../src/server/routes/cards.js');
-    const { registerRuntimeConfigNotesRoutes } = await import('../../src/server/routes/runtime-config-notes.js');
     const { registerChatsFilesDebugRoutes } = await import('../../src/server/routes/chats-files-debug.js');
 
     registerCardRoutes(app, tmpDir);
-    registerRuntimeConfigNotesRoutes(app, tmpDir);
     registerChatsFilesDebugRoutes(app, tmpDir);
 
     await app.listen({ port: 0, host: '127.0.0.1' });
@@ -708,12 +706,10 @@ describe('Security — Auth, Path Traversal, and Redaction', () => {
     await app.register(authPlugin);
 
     const { registerCardRoutes } = await import('../../src/server/routes/cards.js');
-    const { registerRuntimeConfigNotesRoutes } = await import('../../src/server/routes/runtime-config-notes.js');
     const { registerChatsFilesDebugRoutes } = await import('../../src/server/routes/chats-files-debug.js');
     const { registerWebSocket } = await import('../../src/server/websocket.js');
 
     registerCardRoutes(app, tmpDir);
-    registerRuntimeConfigNotesRoutes(app, tmpDir);
     registerChatsFilesDebugRoutes(app, tmpDir);
     registerWebSocket(app, tmpDir);
 

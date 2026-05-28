@@ -5,7 +5,6 @@ import type { McpManager } from '../../mcp/manager-api.js';
 import type { ServerAvailabilityInputs } from '../availability.js';
 import { buildServerAvailability } from '../availability.js';
 import { registerOperatorContractRoutes } from '../routes/operator-contracts.js';
-import { registerRuntimeConfigNotesRoutes } from '../routes/runtime-config-notes.js';
 import { registerInternalDebugRoutes } from '../routes/chats-files-debug.js';
 import { registerWebSocket } from '../websocket.js';
 
@@ -29,8 +28,9 @@ export function registerServerRoutes(options: {
     mcpToolsProvider: options.mcpManagerProvider,
     serverAvailabilityProvider,
     requestServerRestart: options.requestServerRestart,
+    saivageConfig: options.saivageConfig,
+    configWarnings: options.configWarnings,
   });
-  registerRuntimeConfigNotesRoutes(options.fastify, options.projectRoot, undefined, serverAvailabilityProvider, options.saivageConfig, options.configWarnings);
   registerInternalDebugRoutes(options.fastify, options.projectRoot);
   registerWebSocket(options.fastify, options.projectRoot, options.activeRuntimeProvider(), options.requestServerRestart);
 }

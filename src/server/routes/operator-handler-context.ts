@@ -1,3 +1,4 @@
+import type { SaivageConfig } from '../../agents/config-api.js';
 import type { operatorApiContracts } from '../../contracts/index.js';
 import type { McpStatusProvider, McpToolsReadModelProvider } from '../../mcp/manager-api.js';
 import type { ActiveRuntime } from '../../runtime/control-api.js';
@@ -32,4 +33,9 @@ export interface OperatorMcpProviderContext {
 
 export interface OperatorRestartContext {
   requestServerRestart?: OperatorRestartRequester;
+}
+
+export interface OperatorConfigContext {
+  saivageConfig?: SaivageConfig;
+  configWarnings?: readonly string[];
 }

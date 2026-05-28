@@ -84,7 +84,7 @@ across the entire session. Survives runtime restarts via chat log
 persistence. Persisted conversations are inspectable through `/api/agents`,
 which enumerates analyst, planner, reviewer, executor, and per-card `card-*`
 message files and marks only the reloaded `RuntimeState.current_agent_session_id`
-active (see `src/server/routes/runtime-config-notes.ts`,
+active (see the contract-backed agent handlers under `src/server/routes/operator-agent-handlers.ts`,
 `tests/server/agents-api.test.ts`, and
 `tests/server/restart-persistence-operator-surface.test.ts`).
 

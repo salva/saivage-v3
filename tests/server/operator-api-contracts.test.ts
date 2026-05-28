@@ -129,6 +129,9 @@ describe('operator API contract registry', () => {
       'processes.list',
       'processes.get',
       'events.list',
+      'config.get',
+      'providers.list',
+      'controlActions.list',
     ]);
     expect(Object.keys(runtimeCardsOperatorApiContracts)).toEqual([
       'health.liveness',
@@ -157,6 +160,9 @@ describe('operator API contract registry', () => {
       expect.objectContaining({ operationId: 'processes.list', method: 'GET', path: '/api/processes', successSchemaName: 'ProcessListResponse' }),
       expect.objectContaining({ operationId: 'processes.get', method: 'GET', path: '/api/processes/:id', successSchemaName: 'ProcessDetailResponse' }),
       expect.objectContaining({ operationId: 'events.list', method: 'GET', path: '/api/events', successSchemaName: 'EventsListResponse' }),
+      expect.objectContaining({ operationId: 'config.get', method: 'GET', path: '/api/config', successSchemaName: 'ConfigGetResponse' }),
+      expect.objectContaining({ operationId: 'providers.list', method: 'GET', path: '/api/providers', successSchemaName: 'ProvidersListResponse' }),
+      expect.objectContaining({ operationId: 'controlActions.list', method: 'GET', path: '/api/control-actions', successSchemaName: 'ControlActionsListResponse' }),
     ]));
   });
 

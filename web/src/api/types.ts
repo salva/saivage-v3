@@ -53,8 +53,6 @@ export type {
 } from './contracts';
 
 export type SafeFileSensitivity = 'normal' | 'sensitive-blocked' | 'sensitive-redacted';
-export type ControlActionOutcome = 'ok' | 'error' | 'denied' | 'rejected';
-
 export interface NoteRecord {
   id: string;
   card_id: string;
@@ -206,20 +204,8 @@ export interface CardDiffRow {
   after: unknown;
 }
 
-export interface ControlActionAuditEntry {
-  id: string;
-  actor: NoteAuthor;
-  surface: ControlActionSurface;
-  action: string;
-  target_kind: 'card' | 'note' | 'process' | 'runtime' | 'config' | 'session' | null;
-  target_id: string | null;
-  params_summary: string;
-  confirmed: boolean;
-  outcome: ControlActionOutcome;
-  outcome_summary: string;
-  error?: string;
-  created_at: string;
-}
+export type ControlActionAuditEntry = OperatorApiSuccess<'controlActions.list'>['control_actions'][number];
+
 
 export type DiaryEntryKind =
   | 'planner_invocation'
@@ -391,13 +377,7 @@ export interface RuntimeCommandErrorResponse {
 
 
 
-export interface ProviderEntry {
-  priority: number;
-  models: string[];
-  baseUrl: string;
-  hasAccounts: number;
-  status: string;
-}
+export type ProviderEntry = OperatorApiSuccess<'providers.list'>['providers'][string];
 
 export interface FileEntry {
   name: string;
@@ -560,14 +540,14 @@ export type RuntimeStateResponse = OperatorApiSuccess<'runtime.getState'>;
 export type CardIndex = RuntimeStateResponse['cardIndex'];
 export type RuntimeStatusResponse = OperatorApiSuccess<'runtime.status'>;
 export type RuntimeCardRunsResponse = OperatorApiSuccess<'runtime.cardRuns'>;
-export interface ConfigResponse { config: Record<string, unknown>; warnings?: string[]; }
-export interface ProvidersResponse { providers: Record<string, ProviderEntry>; warnings?: string[]; }
+export type ConfigResponse = OperatorApiSuccess<'config.get'>;
+export type ProvidersResponse = OperatorApiSuccess<'providers.list'>;
 export type AgentDetailSession = OperatorApiSuccess<'agents.detail'>['session'];
 export type AgentDetailResponse = Omit<OperatorApiSuccess<'agents.detail'>, 'session'> & { session: AgentDetailSession; };
 export type AgentConversationResponse = Omit<OperatorApiSuccess<'agents.conversation'>, 'session' | 'entries' | 'activity_status'> & { session: AgentSession; entries: ConversationEntry[]; activity_status: ActivityStatus; };
 export type AgentLlmExchangeResponse = OperatorApiSuccess<'agents.llmExchange'>;
 export type AgentSessionsResponse = Omit<OperatorApiSuccess<'agents.list'>, 'sessions'> & { sessions: AgentSession[]; };
-export interface ControlActionsListResponse { control_actions: ControlActionAuditEntry[]; total: number; }
+export type ControlActionsListResponse = OperatorApiSuccess<'controlActions.list'>;
 export type ChatSessionsResponse = OperatorApiSuccess<'chats.list'>;
 export type ChatEntriesResponse = OperatorApiSuccess<'chats.get'> & { entries: ConversationEntry[]; };
 export type FilesListResponse = OperatorApiSuccess<'files.list'>;
