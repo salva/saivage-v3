@@ -3,6 +3,8 @@ export {
   AgentConversationEntrySchema,
   AgentConversationParamsSchema,
   AgentConversationResponseSchema,
+  AgentLlmExchangeParamsSchema,
+  AgentLlmExchangeResponseSchema,
   AgentSessionSummarySchema,
   ApiErrorSchema,
   AvailabilityComponentSchema,
@@ -76,6 +78,7 @@ export type {
 
 export type {
   AgentConversationResponse,
+  AgentLlmExchangeResponse,
   AvailabilityComponent,
   AvailabilityState,
   CardDetailResponse,

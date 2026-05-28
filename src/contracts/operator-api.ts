@@ -11,6 +11,7 @@ import {
   runtimeRunRecordSchema,
   runtimeActivationRecordSchema,
 } from '../schemas/index.js';
+import { llmExchangeSchema } from './llm-exchange.js';
 
 export type ContractAuthClass = 'public' | 'operator-session' | 'agent-session' | 'mcp-tool-token';
 
@@ -214,6 +215,7 @@ export const McpToolsResponseSchema = z.object({
 
 export const AgentSessionParamsSchema = z.object({ id: z.string().min(1) });
 export const AgentConversationParamsSchema = AgentSessionParamsSchema;
+export const AgentLlmExchangeParamsSchema = AgentSessionParamsSchema;
 export const AgentSessionSummarySchema = z.object({
   id: z.string(),
   role: z.string(),
@@ -263,6 +265,9 @@ export const AgentConversationResponseSchema = z.object({
   session: AgentSessionSummarySchema,
   entries: z.array(AgentConversationEntrySchema),
   activity_status: AgentActivityStatusSchema,
+});
+export const AgentLlmExchangeResponseSchema = z.object({
+  exchange: llmExchangeSchema,
 });
 
 export const ChatSessionParamsSchema = z.object({ sessionId: z.string().min(1) });
@@ -350,6 +355,7 @@ export type McpToolsResponse = z.infer<typeof McpToolsResponseSchema>;
 export type AgentListResponse = z.infer<typeof AgentListResponseSchema>;
 export type AgentDetailResponse = z.infer<typeof AgentDetailResponseSchema>;
 export type AgentConversationResponse = z.infer<typeof AgentConversationResponseSchema>;
+export type AgentLlmExchangeResponse = z.infer<typeof AgentLlmExchangeResponseSchema>;
 export type ChatListResponse = z.infer<typeof ChatListResponseSchema>;
 export type ChatEntriesResponse = z.infer<typeof ChatEntriesResponseSchema>;
 export type ChatSendResponse = z.infer<typeof ChatSendResponseSchema>;
@@ -546,6 +552,17 @@ export const operatorApiContracts = {
     response: { 200: AgentConversationResponseSchema, 400: ApiErrorSchema, 401: UnauthorizedErrorSchema, 403: ForbiddenErrorSchema, 404: ApiErrorSchema, 500: ContractViolationErrorSchema },
     ...operatorSessionContract,
     successSchemaName: 'AgentConversationResponse',
+  },
+  'agents.llmExchange': {
+    operationId: 'agents.llmExchange',
+    method: 'GET',
+    path: '/api/agents/:id/llm-exchange',
+    params: AgentLlmExchangeParamsSchema,
+    success: AgentLlmExchangeResponseSchema,
+    error: ApiErrorSchema,
+    response: { 200: AgentLlmExchangeResponseSchema, 400: ApiErrorSchema, 401: UnauthorizedErrorSchema, 403: ForbiddenErrorSchema, 404: ApiErrorSchema, 500: ApiErrorSchema },
+    ...operatorSessionContract,
+    successSchemaName: 'AgentLlmExchangeResponse',
   },
   'chats.list': {
     operationId: 'chats.list',

@@ -58,8 +58,8 @@ describe('GET /api/agents/:id/llm-exchange', () => {
     await app.register(cors);
     const { default: authPlugin } = await import('../../src/server/auth.js');
     await app.register(authPlugin);
-    const { registerRuntimeConfigNotesRoutes } = await import('../../src/server/routes/runtime-config-notes.js');
-    registerRuntimeConfigNotesRoutes(app, projectRoot);
+    const { registerOperatorContractRoutes } = await import('../../src/server/routes/operator-contracts.js');
+    registerOperatorContractRoutes({ fastify: app, projectRoot });
     await app.ready();
   });
 
@@ -118,6 +118,32 @@ describe('GET /api/agents/:id/llm-exchange', () => {
     });
 
     expect(res.statusCode).toBe(401);
+  });
+
+
+  it('returns 401 for an invalid auth token', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: '/api/agents/sess-403/llm-exchange',
+      headers: { authorization: 'Bearer wrong-token' },
+    });
+
+    expect([401, 403]).toContain(res.statusCode);
+  });
+
+  it('returns 500 when the exchange file violates the llm exchange schema', async () => {
+    const sessionId = 'sess-malformed';
+    const p = exchangePath(join(projectRoot, '.saivage'), sessionId);
+    writeFileSync(p, JSON.stringify({ sessionId, capturedAt: '2026-05-23T10:00:00.000Z', attempts: [] }));
+
+    const res = await app.inject({
+      method: 'GET',
+      url: `/api/agents/${sessionId}/llm-exchange`,
+      headers: authHdr(),
+    });
+
+    expect(res.statusCode).toBe(500);
+    expect(res.json<Record<string, unknown>>()).toEqual({ error: 'Corrupted LLM exchange record.' });
   });
 
   it('returns 500 when the exchange file is corrupted JSON', async () => {

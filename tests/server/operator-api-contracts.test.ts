@@ -117,6 +117,7 @@ describe('operator API contract registry', () => {
       'agents.list',
       'agents.detail',
       'agents.conversation',
+      'agents.llmExchange',
       'chats.list',
       'chats.get',
       'chats.send',
@@ -134,6 +135,7 @@ describe('operator API contract registry', () => {
       expect.objectContaining({ operationId: 'agents.list', method: 'GET', path: '/api/agents', successSchemaName: 'AgentListResponse' }),
       expect.objectContaining({ operationId: 'agents.detail', method: 'GET', path: '/api/agents/:id', successSchemaName: 'AgentDetailResponse' }),
       expect.objectContaining({ operationId: 'agents.conversation', method: 'GET', path: '/api/agents/:id/conversation', successSchemaName: 'AgentConversationResponse' }),
+      expect.objectContaining({ operationId: 'agents.llmExchange', method: 'GET', path: '/api/agents/:id/llm-exchange', successSchemaName: 'AgentLlmExchangeResponse' }),
       expect.objectContaining({ operationId: 'chats.send', method: 'POST', path: '/api/chats/:sessionId', successSchemaName: 'ChatSendResponse' }),
       expect.objectContaining({ operationId: 'files.content', method: 'GET', path: '/api/files/content', successSchemaName: 'WorkspaceFileContentResponse' }),
       expect.objectContaining({ operationId: 'debug.timeline', method: 'GET', path: '/api/debug/timeline', successSchemaName: 'DebugTimelineResponse' }),
@@ -252,6 +254,38 @@ describe('operator API contract registry', () => {
       messages: [],
       activity_status: { status: 'idle', pending_calls: [], updated_at: '2026-01-01T00:00:02.000Z' },
     })).toThrow();
+  });
+
+
+  it('uses the llm exchange response contract and inventory', () => {
+    const route = operatorRouteInventory().find((item) => item.operationId === 'agents.llmExchange');
+    expect(route).toEqual(expect.objectContaining({
+      operationId: 'agents.llmExchange',
+      method: 'GET',
+      path: '/api/agents/:id/llm-exchange',
+      requiresAuth: true,
+      successSchemaName: 'AgentLlmExchangeResponse',
+    }));
+    expect(operatorApiContracts['agents.llmExchange'].params?.parse({ id: 'planner-1' })).toEqual({ id: 'planner-1' });
+    const parsed = parseOperatorResponse('agents.llmExchange', {
+      exchange: {
+        sessionId: 'planner-1',
+        capturedAt: '2026-01-01T00:00:00.000Z',
+        transport: 'generic',
+        candidate: { provider: 'test-provider', model: 'test-model' },
+        attempts: [{
+          attempt: 0,
+          startedAt: '2026-01-01T00:00:00.000Z',
+          completedAt: '2026-01-01T00:00:01.000Z',
+          status: 'ok',
+          request: { endpoint: 'https://example.test/v1/chat', method: 'POST', headers: {}, body: { prompt: 'hi' } },
+          response: { status: 200, headers: {}, bodyRaw: '{"ok":true}', bodyParsed: { ok: true } },
+        }],
+      },
+    });
+    expect(parsed.exchange.sessionId).toBe('planner-1');
+    expect(() => parseOperatorResponse('agents.llmExchange', { exchange: { sessionId: 'planner-1' } })).toThrow();
+    expect(() => parseOperatorResponse('agents.llmExchange', { llm_exchange: parsed.exchange })).toThrow();
   });
 
   it('uses entries for the analyst chat-history response contract', () => {

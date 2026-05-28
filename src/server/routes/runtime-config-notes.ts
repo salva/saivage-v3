@@ -3,10 +3,7 @@ import type { ProviderEntry, SaivageConfig } from '../../agents/config-api.js';
 import { redactForOutbound } from '../../redaction/index.js';
 import { listControlActions } from '../../persistence/index.js';
 import { type ServerAvailability } from '../../contracts/index.js';
-import { readLatestLlmExchange, LlmExchangeCorruptedError } from '../../agents/session-api.js';
-import { isSafeAgentSessionId } from '../../application/read-models/index.js';
 
-function saivageDir(projectRoot: string): string { return `${projectRoot}/.saivage`; }
 function redactValue<T>(value: T): T {
   return redactForOutbound(value, 'operator.api', { source: 'runtime-config-notes.route' }) as T;
 }
@@ -23,20 +20,4 @@ export function registerRuntimeConfigNotesRoutes(fastify: FastifyInstance, proje
   });
   fastify.get('/api/config', async (_request, reply) => { if (!saivageConfig) return reply.status(500).send({ error: 'Configuration unavailable', message: 'Server was not started with a validated Environment config.' }); const config = redactForOutbound(saivageConfig, 'operator.api', { source: 'runtime-config-notes.config' }); return reply.send({ config, warnings: configWarnings }); });
   fastify.get('/api/providers', async (_request, reply) => { if (!saivageConfig) return reply.status(500).send({ error: 'Providers unavailable', message: 'Server was not started with a validated Environment config.' }); const providers: Record<string, unknown> = {}; for (const [name, provider] of Object.entries(saivageConfig.providers)) { const p = provider as ProviderEntry; providers[name] = { priority: p.priority, models: p.models, baseUrl: p.baseUrl, hasAccounts: p.accounts ? Object.keys(p.accounts).length : 0, status: 'unknown' }; } return reply.send({ providers }); });
-  fastify.get('/api/agents/:id/llm-exchange', async (request, reply) => {
-    const params = request.params as { id: string };
-    const sessionId = params.id;
-    if (!isSafeAgentSessionId(sessionId)) return reply.status(400).send({ error: 'Invalid agent session ID' });
-    try {
-      const exchange = await readLatestLlmExchange(saivageDir(projectRoot), sessionId);
-      if (!exchange) return reply.status(404).send({ error: 'No LLM exchange recorded for this session yet.' });
-      return reply.send({ exchange });
-    } catch (err) {
-      if (err instanceof LlmExchangeCorruptedError) {
-        request.log.error({ err, sessionId, cause: err.cause }, 'Corrupted LLM exchange record');
-        return reply.status(500).send({ error: 'Corrupted LLM exchange record.' });
-      }
-      return reply.status(500).send({ error: 'Failed to read LLM exchange', message: err instanceof Error ? err.message : String(err) });
-    }
-  });
 }

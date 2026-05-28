@@ -565,6 +565,7 @@ export interface ProvidersResponse { providers: Record<string, ProviderEntry>; w
 export type AgentDetailSession = OperatorApiSuccess<'agents.detail'>['session'];
 export type AgentDetailResponse = Omit<OperatorApiSuccess<'agents.detail'>, 'session'> & { session: AgentDetailSession; };
 export type AgentConversationResponse = Omit<OperatorApiSuccess<'agents.conversation'>, 'session' | 'entries' | 'activity_status'> & { session: AgentSession; entries: ConversationEntry[]; activity_status: ActivityStatus; };
+export type AgentLlmExchangeResponse = OperatorApiSuccess<'agents.llmExchange'>;
 export type AgentSessionsResponse = Omit<OperatorApiSuccess<'agents.list'>, 'sessions'> & { sessions: AgentSession[]; };
 export interface ControlActionsListResponse { control_actions: ControlActionAuditEntry[]; total: number; }
 export type ChatSessionsResponse = OperatorApiSuccess<'chats.list'>;

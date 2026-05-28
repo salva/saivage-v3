@@ -210,7 +210,7 @@ export function getAgentConversation(sessionId: string): Promise<AgentConversati
 }
 
 export function getAgentLlmExchange(sessionId: string): Promise<{ exchange: LlmExchange }> {
-  return request<{ exchange: LlmExchange }>('GET', `/api/agents/${encodeURIComponent(sessionId)}/llm-exchange`);
+  return operatorRequest('agents.llmExchange', 'GET', `/api/agents/${encodeURIComponent(sessionId)}/llm-exchange`) as Promise<{ exchange: LlmExchange }>;
 }
 
 export function getConfig(): Promise<ConfigResponse> {

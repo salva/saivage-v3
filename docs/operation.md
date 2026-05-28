@@ -259,37 +259,37 @@ Every current operator-facing Fastify or contract-mounted route is listed exactl
 
 | Route | Purpose | Code anchor |
 |---|---|---|
-| `GET /api/agents/:id/conversation` | Read one persisted agent conversation. | `src/contracts/operator-api.ts:542 "path: '/api/agents/:id/conversation'"` |
-| `GET /api/agents/:id/llm-exchange` | Read the latest raw LLM exchange for an agent session. | `src/server/routes/runtime-config-notes.ts:26 "fastify.get('/api/agents/:id/llm-exchange'"` |
-| `GET /api/agents/:id` | Read one persisted agent-session summary. | `src/contracts/operator-api.ts:531 "path: '/api/agents/:id'"` |
-| `GET /api/agents` | List persisted agent sessions. | `src/contracts/operator-api.ts:521 "path: '/api/agents'"` |
+| `GET /api/agents/:id/conversation` | Read one persisted agent conversation. | `src/contracts/operator-api.ts:548 "path: '/api/agents/:id/conversation'"` |
+| `GET /api/agents/:id/llm-exchange` | Read the latest raw LLM exchange for an agent session. | `src/contracts/operator-api.ts:559 "path: '/api/agents/:id/llm-exchange'"` |
+| `GET /api/agents/:id` | Read one persisted agent-session summary. | `src/contracts/operator-api.ts:537 "path: '/api/agents/:id'"` |
+| `GET /api/agents` | List persisted agent sessions. | `src/contracts/operator-api.ts:527 "path: '/api/agents'"` |
 | `POST /api/auth/ws-ticket` | Issue a short-lived one-use browser WebSocket ticket after bearer REST auth. | `src/server/routes/auth.ts:5 "fastify.post('/api/auth/ws-ticket'"` |
-| `GET /api/cards/:id/diff` | Diff card versions. | `src/contracts/operator-api.ts:469 "path: '/api/cards/:id/diff'"` |
-| `GET /api/cards/:id/history/:seq` | Read one card-history snapshot. | `src/contracts/operator-api.ts:458 "path: '/api/cards/:id/history/:seq'"` |
-| `GET /api/cards/:id/history` | List card-history headers. | `src/contracts/operator-api.ts:447 "path: '/api/cards/:id/history'"` |
-| `GET /api/cards/:id` | Read card detail with children and ancestors. | `src/contracts/operator-api.ts:435 "path: '/api/cards/:id'"` |
-| `GET /api/cards` | List cards. | `src/contracts/operator-api.ts:425 "path: '/api/cards'"` |
-| `GET /api/chats/:sessionId` | Read an analyst chat transcript. | `src/contracts/operator-api.ts:563 "path: '/api/chats/:sessionId'"` |
-| `POST /api/chats/:sessionId` | Send an analyst chat message. | `src/contracts/operator-api.ts:574 "path: '/api/chats/:sessionId'"` |
-| `GET /api/chats` | List analyst chat sessions. | `src/contracts/operator-api.ts:553 "path: '/api/chats'"` |
-| `GET /api/config` | Return redacted loaded configuration and warnings. | `src/server/routes/runtime-config-notes.ts:26 "fastify.get('/api/config'"` |
-| `GET /api/control-actions` | List control-action audit entries. | `src/server/routes/runtime-config-notes.ts:17 "fastify.get('/api/control-actions'"` |
-| `GET /api/debug/errors` | Read runtime error records. | `src/contracts/operator-api.ts:618 "path: '/api/debug/errors'"` |
-| `GET /api/debug/state` | Dump runtime and card-index debug state. | `src/contracts/operator-api.ts:608 "path: '/api/debug/state'"` |
-| `GET /api/debug/timeline` | Read runtime event timeline records. | `src/contracts/operator-api.ts:628 "path: '/api/debug/timeline'"` |
+| `GET /api/cards/:id/diff` | Diff card versions. | `src/contracts/operator-api.ts:475 "path: '/api/cards/:id/diff'"` |
+| `GET /api/cards/:id/history/:seq` | Read one card-history snapshot. | `src/contracts/operator-api.ts:464 "path: '/api/cards/:id/history/:seq'"` |
+| `GET /api/cards/:id/history` | List card-history headers. | `src/contracts/operator-api.ts:453 "path: '/api/cards/:id/history'"` |
+| `GET /api/cards/:id` | Read card detail with children and ancestors. | `src/contracts/operator-api.ts:441 "path: '/api/cards/:id'"` |
+| `GET /api/cards` | List cards. | `src/contracts/operator-api.ts:431 "path: '/api/cards'"` |
+| `GET /api/chats/:sessionId` | Read an analyst chat transcript. | `src/contracts/operator-api.ts:580 "path: '/api/chats/:sessionId'"` |
+| `POST /api/chats/:sessionId` | Send an analyst chat message. | `src/contracts/operator-api.ts:580 "path: '/api/chats/:sessionId'"` |
+| `GET /api/chats` | List analyst chat sessions. | `src/contracts/operator-api.ts:570 "path: '/api/chats'"` |
+| `GET /api/config` | Return redacted loaded configuration and warnings. | `src/server/routes/runtime-config-notes.ts:21 "fastify.get('/api/config'"` |
+| `GET /api/control-actions` | List control-action audit entries. | `src/server/routes/runtime-config-notes.ts:12 "fastify.get('/api/control-actions'"` |
+| `GET /api/debug/errors` | Read runtime error records. | `src/contracts/operator-api.ts:635 "path: '/api/debug/errors'"` |
+| `GET /api/debug/state` | Dump runtime and card-index debug state. | `src/contracts/operator-api.ts:625 "path: '/api/debug/state'"` |
+| `GET /api/debug/timeline` | Read runtime event timeline records. | `src/contracts/operator-api.ts:645 "path: '/api/debug/timeline'"` |
 | `GET /api/events` | Query runtime/agent events with filters and pagination. | `src/server/routes/events.ts:42 "fastify.get('/api/events'"` |
-| `GET /api/files/content` | Preview contained text files with safety checks. | `src/contracts/operator-api.ts:597 "path: '/api/files/content'"` |
-| `GET /api/files` | List contained project files. | `src/contracts/operator-api.ts:586 "path: '/api/files'"` |
-| `GET /api/mcp/status` | Show MCP server status plus optional serverAvailability. | `src/contracts/operator-api.ts:501 "path: '/api/mcp/status'"` |
-| `GET /api/mcp/tools` | Show MCP tool inventory and invocation stats. | `src/contracts/operator-api.ts:511 "path: '/api/mcp/tools'"` |
+| `GET /api/files/content` | Preview contained text files with safety checks. | `src/contracts/operator-api.ts:614 "path: '/api/files/content'"` |
+| `GET /api/files` | List contained project files. | `src/contracts/operator-api.ts:603 "path: '/api/files'"` |
+| `GET /api/mcp/status` | Show MCP server status plus optional serverAvailability. | `src/contracts/operator-api.ts:507 "path: '/api/mcp/status'"` |
+| `GET /api/mcp/tools` | Show MCP tool inventory and invocation stats. | `src/contracts/operator-api.ts:517 "path: '/api/mcp/tools'"` |
 | `GET /api/processes/:id` | Read one safe process view. | `src/server/routes/processes.ts:112 "fastify.get('/api/processes/:id'"` |
 | `GET /api/processes` | List safe process views. | `src/server/routes/processes.ts:100 "fastify.get('/api/processes'"` |
-| `GET /api/providers` | Return redacted provider summaries. | `src/server/routes/runtime-config-notes.ts:27 "fastify.get('/api/providers'"` |
-| `GET /api/runtime/card-runs` | List runtime card-run records. | `src/contracts/operator-api.ts:491 "path: '/api/runtime/card-runs'"` |
-| `GET /api/runtime/status` | Read compact runtime status plus optional serverAvailability. | `src/contracts/operator-api.ts:481 "path: '/api/runtime/status'"` |
-| `GET /api/state` | Read RuntimeState plus card-index summary and optional availability. | `src/contracts/operator-api.ts:415 "path: '/api/state'"` |
-| `GET /health` | Public liveness probe. | `src/contracts/operator-api.ts:393 "path: '/health'"` |
-| `GET /health/ready` | Public readiness probe with optional availability summary. | `src/contracts/operator-api.ts:404 "path: '/health/ready'"` |
+| `GET /api/providers` | Return redacted provider summaries. | `src/server/routes/runtime-config-notes.ts:22 "fastify.get('/api/providers'"` |
+| `GET /api/runtime/card-runs` | List runtime card-run records. | `src/contracts/operator-api.ts:497 "path: '/api/runtime/card-runs'"` |
+| `GET /api/runtime/status` | Read compact runtime status plus optional serverAvailability. | `src/contracts/operator-api.ts:487 "path: '/api/runtime/status'"` |
+| `GET /api/state` | Read RuntimeState plus card-index summary and optional availability. | `src/contracts/operator-api.ts:421 "path: '/api/state'"` |
+| `GET /health` | Public liveness probe. | `src/contracts/operator-api.ts:399 "path: '/health'"` |
+| `GET /health/ready` | Public readiness probe with optional availability summary. | `src/contracts/operator-api.ts:410 "path: '/health/ready'"` |
 <!-- saivage:operator-routes:end -->
 
 
