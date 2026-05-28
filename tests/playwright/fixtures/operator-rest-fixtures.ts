@@ -276,12 +276,13 @@ export async function installOperatorRestRoutes(page: Page, options: OperatorRes
       }
       observations.chatPosts.push({ sessionId, body });
       const content = typeof body.content === 'string' ? body.content : '';
+      const visiblePrompt = content.split('\n\n').at(-1)?.trim() || content.trim();
       const message = {
         id: `chat-${sessionId}-assistant`,
         session_id: sessionId,
         role: 'assistant' as const,
         kind: 'text' as const,
-        content: `Synthetic analyst response to: ${content}`,
+        content: `Synthetic analyst response to: ${visiblePrompt}`,
         round_id: 'r-assistant-send',
         message_index: 1,
         block_index: 0,
