@@ -145,6 +145,7 @@ const outputRoot = {
   files: [
     { name: 'reports', path: '.saivage-work/reports', type: 'directory', modifiedAt: now },
     { name: 'smoke-result.json', path: '.saivage-work/smoke-result.json', type: 'file', size: 64, modifiedAt: now },
+    { name: 'LICENSE', path: '.saivage-work/LICENSE', type: 'file', size: 48, modifiedAt: now },
     { name: 'redacted-config.json', path: '.saivage-work/redacted-config.json', type: 'file', size: 96, modifiedAt: now },
     { name: 'blocked-secret.json', path: '.saivage-work/blocked-secret.json', type: 'file', size: 96, modifiedAt: now },
     { name: 'missing-log.txt', path: '.saivage-work/missing-log.txt', type: 'file', size: 16, modifiedAt: now },
@@ -223,7 +224,7 @@ export async function installOperatorRestRoutes(page: Page, options: OperatorRes
       if (path === '.saivage-work/reports') return json(route, outputReports);
       if (path === '.saivage-work' || !path) return json(route, path === '.saivage-work' ? outputRoot : metaRoot);
       if (path === '.saivage-work/quarantine') return json(route, { path, files: [] });
-      if (path === '.saivage/plan.json' || path === '.saivage/runtime/events.jsonl' || path === '.saivage-work/smoke-result.json' || path === '.saivage-work/reports/summary.md') {
+      if (path === '.saivage/plan.json' || path === '.saivage/runtime/events.jsonl' || path === '.saivage-work/smoke-result.json' || path === '.saivage-work/LICENSE' || path === '.saivage-work/reports/summary.md') {
         return json(route, { error: 'Path is not a directory', path }, 400);
       }
       if (path === '.saivage-work/stale' || path === '.saivage-work/stale/missing-log.txt') {
@@ -261,6 +262,16 @@ export async function installOperatorRestRoutes(page: Page, options: OperatorRes
           size: 72,
           contentType: 'text/markdown',
           content: '# Synthetic report\n\nDirectory deep-link content.',
+          redacted: false,
+          sensitivity: 'normal',
+        });
+      }
+      if (path === '.saivage-work/LICENSE') {
+        return json(route, {
+          path,
+          size: 48,
+          contentType: 'text/plain',
+          content: 'synthetic extensionless output preview',
           redacted: false,
           sensitivity: 'normal',
         });

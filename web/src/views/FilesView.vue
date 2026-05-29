@@ -203,11 +203,6 @@ function rootForPath(path: string): FileRoot | null {
   return null;
 }
 
-function looksLikeFilePath(path: string): boolean {
-  const leaf = path.replace(/\/+$/, '').split('/').pop() ?? '';
-  return leaf.includes('.') && path !== '.saivage' && path !== '.saivage-work';
-}
-
 function canonicalPathForRoot(rootName: FileRoot, queryPath: unknown): string {
   if (typeof queryPath !== 'string' || queryPath.length === 0) return rootName === 'meta' ? '.saivage' : '.saivage-work';
   return queryPath;
@@ -251,19 +246,28 @@ function applyQueryPath(): void {
     return;
   }
   const browse = rootName === 'meta' ? fileStore.navigateMeta : fileStore.navigateOutput;
-  if (looksLikeFilePath(path)) {
-    const directory = parentPath(path);
-    browse(directory)
-      .then(() => {
-        if (fileStore.listError) return browse(activeRootPath.value);
-        return undefined;
-      })
-      .then(() => fileStore.fetchFileContent(path))
-      .catch(() => {});
-    return;
-  }
+
+  const browseDirectory = async (directoryPath: string): Promise<boolean> => {
+    await browse(directoryPath);
+    return !fileStore.listError;
+  };
+
   fileStore.clearViewedFile();
-  browse(path)
+  browseDirectory(path)
+    .then(async (listedDirectory) => {
+      if (listedDirectory) return;
+
+      if (fileStore.unauthorized) return;
+
+      const directory = parentPath(path);
+      const listedParent = directory !== path ? await browseDirectory(directory) : false;
+      if (fileStore.unauthorized) return;
+
+      if (!listedParent) await browse(activeRootPath.value);
+      if (fileStore.unauthorized) return;
+
+      await fileStore.fetchFileContent(path);
+    })
     .catch(() => browse(activeRootPath.value))
     .catch(() => {});
 }

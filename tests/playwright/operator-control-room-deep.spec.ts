@@ -197,6 +197,13 @@ test('Files view restores direct query deep links, fallback previews, root switc
   await expect(page.getByTestId('files-viewer')).toContainText('.saivage-work/smoke-result.json');
   await expect(page.getByText('synthetic output preview')).toBeVisible();
 
+  await page.goto('/files?root=output&path=.saivage-work/LICENSE');
+  await expect(page).toHaveURL(/root=output.*path=\.saivage-work\/LICENSE|path=\.saivage-work\/LICENSE.*root=output/);
+  await expect(page.getByRole('region', { name: 'Output' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'LICENSE' })).toBeVisible();
+  await expect(page.getByTestId('files-viewer')).toContainText('.saivage-work/LICENSE');
+  await expect(page.getByText('synthetic extensionless output preview')).toBeVisible();
+
   await page.goto('/files?root=output&path=.saivage-work/reports');
   await expect(page.getByRole('region', { name: 'Output' })).toBeVisible();
   await expect(page.getByTestId('files-breadcrumbs').getByRole('button', { name: 'reports' })).toBeVisible();
