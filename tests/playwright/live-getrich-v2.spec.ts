@@ -60,7 +60,7 @@ test.describe('saivage-v3 live deployment — getrich-v2', () => {
       'supervisor', 'security',
     ];
     for (const role of FALLBACK_ROLES) {
-      expect(models[role], `role ${role} routing`).toEqual(['gpt-5.5', 'moonshotai/kimi-k2.6']);
+      expect(models[role], `role ${role} routing`).toEqual(['gpt-5.5', 'glm-5.1']);
     }
   });
 
