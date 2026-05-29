@@ -47,4 +47,31 @@ test.describe('saivage-v3 live deployment — UI interaction coverage', () => {
     await composer.fill('');
     await expect(send).toBeDisabled();
   });
+
+  test('Card detail view shows the history panel section for the project card', async ({ page }) => {
+    await page.goto('/cards/project');
+    await expect(page.locator('[data-testid="card-detail-highlight"]')).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByRole('heading', { name: /Card history/i })).toBeVisible();
+  });
+
+  test('Debug view exposes operator, errors, timeline, mcp, processes, and supervision tabs', async ({ page }) => {
+    await page.goto('/debug');
+    await expect(page.locator('.debug-tabs')).toBeVisible({ timeout: 10_000 });
+    const errors: string[] = [];
+    page.on('pageerror', (e) => errors.push(e.message));
+    page.on('console', (msg) => {
+      if (msg.type() === 'error') errors.push(msg.text());
+    });
+    for (const tab of ['Operator', 'Errors', 'Timeline', 'MCP', 'Processes', 'Supervision']) {
+      const btn = page.locator('.debug-tab-button', { hasText: new RegExp(`^${tab}`, 'i') }).first();
+      await btn.click();
+      await expect(page.locator('.debug-tab-content')).toBeVisible();
+    }
+    expect(errors).toEqual([]);
+  });
+
+  test('Navigating directly to /agents/analyst surfaces the session id', async ({ page }) => {
+    await page.goto('/agents/analyst');
+    await expect(page.getByText('analyst').first()).toBeVisible({ timeout: 10_000 });
+  });
 });

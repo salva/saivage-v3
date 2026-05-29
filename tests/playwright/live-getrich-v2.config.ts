@@ -4,7 +4,7 @@ const baseURL = process.env.SAIVAGE_LIVE_BASE_URL ?? 'http://10.0.3.170:8080';
 
 export default defineConfig({
   testDir: '.',
-  testMatch: /live-getrich-v2(-extra|-ui)?\.spec\.ts/,
+  testMatch: /live-getrich-v2(-extra|-ui|-coverage)?\.spec\.ts/,
   fullyParallel: false,
   forbidOnly: Boolean(process.env.CI),
   retries: 0,
