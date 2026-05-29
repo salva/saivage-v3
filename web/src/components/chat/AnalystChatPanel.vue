@@ -5,7 +5,7 @@
     role="region"
     aria-label="Analyst chat"
   >
-    <div class="chat-scroll-area">
+    <div ref="scrollAreaRef" class="chat-scroll-area" data-testid="chat-scroll-container" @scroll="handleScroll">
       <div v-if="sessionsLoading" class="chat-status-card" role="status">Loading analyst sessions…</div>
       <div v-else-if="sessionsError" class="chat-status-card chat-status-error" role="alert">{{ sessionsError.message }}</div>
 
@@ -64,7 +64,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue';
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { storeToRefs } from 'pinia';
 import type { ActivityStatus, ConversationEntry } from '../../api/types';
 import { useAnalystChat } from '../../stores/analystChat';
@@ -94,6 +94,25 @@ const {
 } = storeToRefs(chat);
 
 const composerRef = ref<HTMLTextAreaElement | null>(null);
+const scrollAreaRef = ref<HTMLElement | null>(null);
+const STICK_TO_BOTTOM_THRESHOLD_PX = 64;
+let pinToBottom = true;
+
+function isNearBottom(el: HTMLElement): boolean {
+  return el.scrollHeight - el.scrollTop - el.clientHeight <= STICK_TO_BOTTOM_THRESHOLD_PX;
+}
+
+function scrollToBottom(): void {
+  const el = scrollAreaRef.value;
+  if (!el) return;
+  el.scrollTop = el.scrollHeight;
+}
+
+function handleScroll(): void {
+  const el = scrollAreaRef.value;
+  if (!el) return;
+  pinToBottom = isNearBottom(el);
+}
 
 const timelineEntries = computed<ConversationEntry[]>(() => messages.value);
 const idleActivityStatus = computed<ActivityStatus | null>(() => null);
@@ -144,8 +163,23 @@ onMounted(() => {
   window.addEventListener('saivage:focus-chat', handleFocusChat);
   chat.fetchSessions()
     .then(() => chat.fetchMessages())
+    .then(() => nextTick())
+    .then(() => scrollToBottom())
     .catch(() => {});
   handleFocusChat();
+});
+
+watch(
+  () => [messages.value.length, pendingToolInvocationsForActiveSession.value.length, timelineControls.timeline.value.rounds.length] as const,
+  () => {
+    if (!pinToBottom) return;
+    void nextTick(() => scrollToBottom());
+  },
+);
+
+watch(activeSessionId, () => {
+  pinToBottom = true;
+  void nextTick(() => scrollToBottom());
 });
 
 onBeforeUnmount(() => {
