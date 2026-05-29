@@ -64,4 +64,46 @@ test.describe('saivage-v3 live deployment — extra contract coverage', () => {
     const text = await res.text();
     expect(() => JSON.parse(text)).not.toThrow();
   });
+
+  test('runtime.status exposes runtime/paused/serverAvailability with healthy components', async ({ request }) => {
+    const res = await request.get('/api/runtime/status');
+    expect(res.status()).toBe(200);
+    const body = await res.json();
+    expect(typeof body.runtime).toBe('string');
+    expect(typeof body.paused).toBe('boolean');
+    expect(body.serverAvailability).toBeTruthy();
+    const components = body.serverAvailability.components;
+    for (const name of ['api', 'runtime', 'mcp']) {
+      expect(components[name]?.state, `component ${name}`).toBe('available');
+    }
+  });
+
+  test('processes.get for an unknown id returns 404 with the processId echoed back', async ({ request }) => {
+    const res = await request.get('/api/processes/does-not-exist-xyz');
+    expect(res.status()).toBe(404);
+    const body = await res.json();
+    expect(body.processId).toBe('does-not-exist-xyz');
+    expect(typeof body.error).toBe('string');
+  });
+
+  test('chats.send round-trip appends a user entry visible in chats.get', async ({ request }) => {
+    const before = await request.get('/api/chats/analyst');
+    expect(before.status()).toBe(200);
+    const beforeBody = await before.json();
+    const beforeCount = beforeBody.entries.length;
+
+    const marker = `live-e2e-roundtrip-${Date.now()}`;
+    const send = await request.post('/api/chats/analyst', {
+      data: { content: marker, workspaceContext: { view: 'dashboard', entityId: null, refinement: null } },
+      timeout: 120_000,
+    });
+    expect(send.status(), `POST /api/chats/analyst — body=${await send.text().catch(() => '<unreadable>')}`).toBe(200);
+
+    const after = await request.get('/api/chats/analyst');
+    expect(after.status()).toBe(200);
+    const afterBody = await after.json();
+    expect(afterBody.entries.length).toBeGreaterThan(beforeCount);
+    const texts = afterBody.entries.map((e: { content?: string; text?: string }) => e.content ?? e.text ?? '');
+    expect(texts.some((t: string) => t.includes(marker))).toBe(true);
+  });
 });
