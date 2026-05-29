@@ -17,6 +17,8 @@ import {
   type RuntimeStatus,
 } from './runtime.js';
 import { AgentAdapter } from '../agents/agent-adapter.js';
+import { FsCandidateAvailability } from '../agents/candidate-availability-store.js';
+import type { CandidateAvailability } from '../agents/candidate-availability.js';
 import { EventLogger } from '../observability/index.js';
 import { ErrorLogger } from '../observability/index.js';
 import { SkillsEngine } from '../agents/skills-engine.js';
@@ -125,6 +127,7 @@ export class ActiveRuntimeStampCounter implements ActiveRuntimeStampSource {
 export class ActiveRuntime {
   private _runtime: Runtime;
   private _agentAdapter: AgentAdapter;
+  private _candidateAvailability: FsCandidateAvailability;
   private _eventLogger: EventLogger;
   private _errorLogger: ErrorLogger;
   private _skillsEngine: SkillsEngine;
@@ -159,6 +162,13 @@ export class ActiveRuntime {
 
     this._skillsEngine = new SkillsEngine({ projectRoot });
 
+    // Construct the durable CandidateAvailability substrate BEFORE the
+    // AgentAdapter so the latter can persist provider markFailed/markSucceeded
+    // events to disk via the FsCandidateAvailability store.
+    this._candidateAvailability = new FsCandidateAvailability(projectRoot, {
+      compactBytes: this._config.runtime.candidateAvailabilityCompactBytes,
+    });
+
     // Create the AgentAdapter with config and shared EventLogger
     // (eventBus is not passed yet because the Runtime doesn't exist yet)
     this._agentAdapter = new AgentAdapter({
@@ -166,6 +176,7 @@ export class ActiveRuntime {
       saivageDir,
       config: this._config,
       eventLogger: this._eventLogger,
+      candidateAvailability: this._candidateAvailability,
       activationLedger: {
         readState: () => readRuntimeState(projectRoot),
         appendRun: (input) => appendRuntimeRun(projectRoot, input),
@@ -306,6 +317,9 @@ export class ActiveRuntime {
   /** Stop the runtime gracefully: shutdown, release lock, cleanup, close event and error loggers. */
   async stop(): Promise<void> {
     await this._runtime.shutdown();
+    // Release the candidate availability lockfile after runtime shutdown so
+    // a subsequent process can claim it.
+    this._candidateAvailability.dispose();
     // Close the shared event logger after the runtime shutdown has completed.
     // Runtime.shutdown() skips calling close() on shared EventLoggers since
     // lifecycle management is the owner's responsibility (us).
@@ -419,6 +433,11 @@ export class ActiveRuntime {
   /** Returns the AgentAdapter with the wired LlmCallFn. */
   get agentAdapter(): AgentAdapter {
     return this._agentAdapter;
+  }
+
+  /** Returns the on-disk CandidateAvailability substrate. */
+  get candidateAvailability(): CandidateAvailability {
+    return this._candidateAvailability;
   }
 
   /** Returns the shared SkillsEngine used by Runtime and AgentAdapter. */

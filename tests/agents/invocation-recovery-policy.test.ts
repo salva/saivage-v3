@@ -23,13 +23,14 @@ describe('InvocationRecoveryPolicy', () => {
     expect(policy.decideFailure(new LlmRequestError({ kind: 'auth_permanent', provider: 'openai-compatible', status: 401, message: 'bad token' }), baseContext)).toMatchObject({
       failure: { kind: 'auth_permanent' },
       action: 'failover_without_cooldown',
-      markFailed: false,
+      markFailed: true,
+      availability: { state: 'BLOCKED_UNTIL', reason: 'auth_permanent' },
     });
     expect(policy.decideFailure(new LlmRequestError({ kind: 'rate_limit', provider: 'openai-compatible', status: 429, message: 'too many requests' }), baseContext)).toMatchObject({
       failure: { kind: 'rate_limit' },
       action: 'cooldown_and_failover',
       markFailed: true,
-      cooldownMs: 25,
+      availability: { state: 'BLOCKED_UNTIL', reason: 'rate_limit' },
     });
     expect(policy.decideFailure(new LlmRequestError({ kind: 'server_transient', provider: 'openai-compatible', status: 500, message: 'upstream 500' }), baseContext)).toMatchObject({
       failure: { kind: 'server_transient' },

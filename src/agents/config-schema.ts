@@ -162,6 +162,7 @@ export const runtimeSectionSchema = z.object({
   continuous_improvement: z.boolean().default(false),
   max_review_retries: z.number().int().nonnegative().default(3),
   process_timeouts: processTimeoutsPersistedSchema.default({}),
+  candidate_availability_compact_bytes: z.number().int().positive().default(262144),
 }).strict().transform((runtime) => ({
   continuousImprovement: runtime.continuous_improvement,
   maxReviewRetries: runtime.max_review_retries,
@@ -170,6 +171,7 @@ export const runtimeSectionSchema = z.object({
     executorMs: runtime.process_timeouts.executor_ms,
     reviewerMs: runtime.process_timeouts.reviewer_ms,
   },
+  candidateAvailabilityCompactBytes: runtime.candidate_availability_compact_bytes,
   // Operational defaults retained for existing invocation recovery/self-check code.
   // These are intentionally not accepted from persisted runtime config; §13 is
   // authoritative for the operator-facing on-disk runtime section.

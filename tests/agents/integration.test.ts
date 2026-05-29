@@ -275,14 +275,15 @@ describe('Integration: Config → Router → Parsing', () => {
 
     const { config } = loadConfig(TEST_ROOT);
     const registry = new ProviderRegistry(config);
+    const availability = new (await import('../../src/agents/candidate-availability.js')).MemoryCandidateAvailability();
 
     // Mark github candidate as failed
-    registry.markFailed(
+    await availability.markFailed(
       { provider: 'github', account: null, model: 'gpt-5.5' },
-      60000,
+      { state: 'COOLING', untilMs: Date.now() + 60000, reason: 'test' },
     );
 
-    const router = new ModelRouter(config, registry);
+    const router = new ModelRouter(config, registry, undefined, availability);
     const chain = await router.resolve('planner');
 
     // Should skip github (cooldown) and use opencode

@@ -18,6 +18,7 @@ function config(): SaivageConfig {
     },
     server: { port: 8080, host: '0.0.0.0' },
     runtime: {
+      candidateAvailabilityCompactBytes: 262144,
       recoverAgentInvocations: true,
       healthCheckIntervalMs: 30000,
       idleShutdownMs: 300000,
@@ -62,7 +63,7 @@ describe('AgentAdapter invocation recovery policy integration', () => {
 
   it('does not mark auth failures as provider health failures and fails over to next candidate', async () => {
     const adapter = makeAdapter(root);
-    const markFailed = jest.spyOn(adapter.getRegistry(), 'markFailed');
+    const markFailed = jest.spyOn(adapter.candidateAvailability, 'markFailed');
     const llmCall = jest.fn<LlmCallFn>()
       .mockRejectedValueOnce(new LlmRequestError({ kind: 'auth_permanent', provider: 'p1', status: 401, message: 'api_key=sk-syntheticSECRET123456 rejected' }))
       .mockResolvedValueOnce(plannerDone());
@@ -71,8 +72,8 @@ describe('AgentAdapter invocation recovery policy integration', () => {
     const result = await adapter.invokePlanner('goal-1', 'prompt');
 
     expect(result.status).toBe('done');
-    expect(markFailed).not.toHaveBeenCalled();
-    expect(adapter.getRegistry().getHealth({ provider: 'p1', account: null, model: 'm1' }).failureCount).toBe(0);
+    expect(markFailed).toHaveBeenCalledWith({ provider: 'p1', account: null, model: 'm1' }, expect.objectContaining({ state: 'BLOCKED_UNTIL', reason: 'auth_permanent' }));
+    expect(adapter.candidateAvailability.isAvailable({ provider: 'p1', account: null, model: 'm1' })).toBe(false);
     const messages = getSessionMessages(join(root, '.saivage'), listSessions(join(root, '.saivage'))[0]);
     const issue = messages.find((message) => message.kind === 'model_issue');
     expect(issue?.content).toContain('auth error');
@@ -84,7 +85,7 @@ describe('AgentAdapter invocation recovery policy integration', () => {
     cfg.runtime.maxRecoveryRetries = 1;
     cfg.runtime.recoveryDelayMs = 0;
     const adapter = makeAdapter(root, cfg);
-    const markFailed = jest.spyOn(adapter.getRegistry(), 'markFailed');
+    const markFailed = jest.spyOn(adapter.candidateAvailability, 'markFailed');
     const seen: string[] = [];
     const llmCall = jest.fn<LlmCallFn>(async (candidate) => {
       seen.push(candidate.provider);
@@ -99,21 +100,21 @@ describe('AgentAdapter invocation recovery policy integration', () => {
     expect(seen).toEqual(['p1', 'p1']);
     expect(llmCall).toHaveBeenCalledTimes(2);
     expect(markFailed).not.toHaveBeenCalled();
-    expect(adapter.getRegistry().getHealth({ provider: 'p1', account: null, model: 'm1' }).failureCount).toBe(0);
-    expect(adapter.getRegistry().getHealth({ provider: 'p2', account: null, model: 'm2' }).failureCount).toBe(0);
+    expect(adapter.candidateAvailability.isAvailable({ provider: 'p1', account: null, model: 'm1' })).toBe(true);
+    expect(adapter.candidateAvailability.isAvailable({ provider: 'p2', account: null, model: 'm2' })).toBe(true);
   });
 
   it('marks transient server failures failed with cooldown before fallback succeeds', async () => {
     const adapter = makeAdapter(root);
-    const markFailed = jest.spyOn(adapter.getRegistry(), 'markFailed');
+    const markFailed = jest.spyOn(adapter.candidateAvailability, 'markFailed');
     adapter.setLlmCallFn(jest.fn<LlmCallFn>()
       .mockRejectedValueOnce(new LlmRequestError({ kind: 'server_transient', provider: 'p1', status: 502, message: 'upstream unavailable' }))
       .mockResolvedValueOnce(plannerDone()));
 
     await expect(adapter.invokePlanner('goal-1', 'prompt')).resolves.toMatchObject({ status: 'done' });
 
-    expect(markFailed).toHaveBeenCalledWith({ provider: 'p1', account: null, model: 'm1' }, 1);
-    expect(adapter.getRegistry().getHealth({ provider: 'p1', account: null, model: 'm1' }).failureCount).toBe(1);
+    expect(markFailed).toHaveBeenCalledWith({ provider: 'p1', account: null, model: 'm1' }, expect.objectContaining({ state: 'COOLING', reason: 'server_transient' }));
+    expect(adapter.candidateAvailability.isAvailable({ provider: 'p1', account: null, model: 'm1' })).toBe(false);
   });
 
   it('marks planner continue results as waiting rather than done', async () => {
@@ -131,13 +132,13 @@ describe('AgentAdapter invocation recovery policy integration', () => {
     cfg.providers.p1.capabilities = { toolCalls: 'none', toolChoice: 'none' };
     cfg.providers.p2.capabilities = { toolCalls: 'none', toolChoice: 'none' };
     const adapter = makeAdapter(root, cfg);
-    const markFailed = jest.spyOn(adapter.getRegistry(), 'markFailed');
+    const markFailed = jest.spyOn(adapter.candidateAvailability, 'markFailed');
     adapter.setLlmCallFn(jest.fn<LlmCallFn>().mockResolvedValue(plannerDone()));
 
     await expect(adapter.invokePlanner('goal-1', 'prompt')).rejects.toThrow('No capability-compatible candidates');
 
     expect(markFailed).not.toHaveBeenCalled();
-    expect(adapter.getRegistry().getHealth({ provider: 'p1', account: null, model: 'm1' }).failureCount).toBe(0);
+    expect(adapter.candidateAvailability.isAvailable({ provider: 'p1', account: null, model: 'm1' })).toBe(true);
   });
 
   it('preserves provider fallback behavior after unknown candidate errors', async () => {
@@ -153,6 +154,6 @@ describe('AgentAdapter invocation recovery policy integration', () => {
 
     expect(result.status).toBe('done');
     expect(seen).toEqual(['p1', 'p2']);
-    expect(adapter.getRegistry().getHealth({ provider: 'p1', account: null, model: 'm1' }).failureCount).toBe(1);
+    expect(adapter.candidateAvailability.isAvailable({ provider: 'p1', account: null, model: 'm1' })).toBe(false);
   });
 });

@@ -196,7 +196,7 @@ export class AnalystHandler {
     this.actor = actor;
     this.surface = surface;
     this.requestServerRestart = requestServerRestart;
-    this.llmResolver = new LlmIntentResolver(projectRoot);
+    this.llmResolver = new LlmIntentResolver(projectRoot, activeRuntime.candidateAvailability);
     this.llmResolver.setEventLogger(activeRuntime.runtime.eventLogger);
   }
 

@@ -2,6 +2,7 @@ import type { AgentRole } from '../schemas/index.js';
 import { unwrapFailure } from './llm-errors.js';
 import type { LlmFailure } from './llm-failure.js';
 import type { Candidate } from './provider.js';
+import type { AvailabilityDecision } from './candidate-availability.js';
 import type { CapabilityRequest, CapabilitySkipDiagnostic } from './provider-capabilities.js';
 
 export type InvocationRecoveryAction =
@@ -31,7 +32,7 @@ export interface InvocationRecoveryDecision {
   failure?: LlmFailure;
   message: string;
   eventPayload: Record<string, unknown>;
-  cooldownMs?: number;
+  availability?: AvailabilityDecision;
   retryDelayMs?: number;
   markFailed: boolean;
   markSucceeded: boolean;
@@ -93,13 +94,36 @@ export class InvocationRecoveryPolicy {
 
     switch (failure.kind) {
       case 'auth_permanent':
-        return this.buildDecision(context, 'failover_without_cooldown', failure, `Candidate ${candidate} failed with permanent auth error: ${sanitized}`, { appendModelIssue: true });
+        return this.buildDecision(context, 'failover_without_cooldown', failure, `Candidate ${candidate} failed with permanent auth error: ${sanitized}`, {
+          markFailed: true,
+          availability: { state: 'BLOCKED_UNTIL', untilMs: Date.now() + 3_600_000, reason: 'auth_permanent' },
+          appendModelIssue: true,
+        });
       case 'capability_mismatch':
         return this.buildDecision(context, 'failover_without_cooldown', failure, `Candidate ${candidate} is incompatible with requested capabilities: ${sanitized}`, { appendModelIssue: true });
-      case 'rate_limit':
+      case 'rate_limit': {
+        const now = Date.now();
+        let untilMs = 0;
+        if (typeof failure.retryAfterMs === 'number' && failure.retryAfterMs > 0) {
+          untilMs = now + failure.retryAfterMs;
+        } else if (typeof failure.resetsAt === 'string') {
+          const parsed = Date.parse(failure.resetsAt);
+          if (Number.isFinite(parsed) && parsed > now) untilMs = parsed;
+        }
+        if (untilMs <= now) untilMs = now + Math.max(context.recoveryDelayMs, 60_000);
+        return this.buildDecision(context, 'cooldown_and_failover', failure, `Candidate ${candidate} failed transiently: ${sanitized}`, {
+          markFailed: true,
+          availability: { state: 'BLOCKED_UNTIL', untilMs, reason: 'rate_limit' },
+          appendModelIssue: true,
+        });
+      }
       case 'server_transient':
       case 'timeout':
-        return this.buildDecision(context, 'cooldown_and_failover', failure, `Candidate ${candidate} failed transiently: ${sanitized}`, { markFailed: true, cooldownMs: context.recoveryDelayMs, appendModelIssue: true });
+        return this.buildDecision(context, 'cooldown_and_failover', failure, `Candidate ${candidate} failed transiently: ${sanitized}`, {
+          markFailed: true,
+          availability: { state: 'COOLING', untilMs: Date.now() + Math.max(context.recoveryDelayMs, 5_000), reason: failure.kind },
+          appendModelIssue: true,
+        });
       case 'contract_mismatch':
         return this.buildDecision(context, 'fail_invocation', failure, `Candidate ${candidate} violated tool-call contract: ${sanitized}`, { markFailed: false, appendModelIssue: true, abort: true });
       case 'token_budget_exceeded':
@@ -117,7 +141,11 @@ export class InvocationRecoveryPolicy {
       case 'cancelled':
         return this.buildDecision(context, 'abort_without_retry', failure, `Invocation cancelled for candidate ${candidate}: ${sanitized}`, { abort: true, appendModelIssue: false });
       case 'unknown':
-        return this.buildDecision(context, 'cooldown_and_failover', failure, `Candidate ${candidate} failed: ${sanitized}`, { markFailed: true, cooldownMs: context.recoveryDelayMs, appendModelIssue: true });
+        return this.buildDecision(context, 'cooldown_and_failover', failure, `Candidate ${candidate} failed: ${sanitized}`, {
+          markFailed: true,
+          availability: { state: 'COOLING', untilMs: Date.now() + Math.max(context.recoveryDelayMs, 5_000), reason: 'unknown' },
+          appendModelIssue: true,
+        });
       default:
         return assertNever(failure);
     }
@@ -169,7 +197,7 @@ export class InvocationRecoveryPolicy {
       failure: sanitizedFailure,
       recoveryAction: action,
       retryDelayMs: overrides.retryDelayMs,
-      cooldownMs: overrides.cooldownMs,
+      availability: overrides.availability,
       capabilitySkipReasons,
       error_message: sanitizeRecoveryMessage(message),
     };
@@ -182,7 +210,7 @@ export class InvocationRecoveryPolicy {
       failure: sanitizedFailure,
       message: sanitizeRecoveryMessage(message),
       eventPayload,
-      cooldownMs: overrides.cooldownMs,
+      availability: overrides.availability,
       retryDelayMs: overrides.retryDelayMs,
       markFailed: overrides.markFailed ?? false,
       markSucceeded: overrides.markSucceeded ?? false,

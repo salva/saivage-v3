@@ -32,7 +32,7 @@ function createMinimalAdapter(tmpDir: string): AgentAdapter {
     config: minimalConfig,
   });
   jest.spyOn(adapter.router, 'resolve').mockResolvedValue([{ provider: 'test-provider', account: null, model: 'test-model' }]);
-  jest.spyOn(adapter.registry, 'isHealthy').mockReturnValue(true);
+  jest.spyOn(adapter.candidateAvailability, 'isAvailable').mockReturnValue(true);
   return adapter;
 }
 

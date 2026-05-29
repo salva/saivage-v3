@@ -14,8 +14,13 @@ import { tmpdir } from 'node:os';
 
 import { ModelRouter } from '../../src/agents/model-router.js';
 import { ProviderRegistry } from '../../src/agents/provider.js';
+import { MemoryCandidateAvailability, type AvailabilityDecision } from '../../src/agents/candidate-availability.js';
 import { resolveLlmTransportConfig } from '../../src/agents/llm-transport.js';
 import type { SaivageConfig } from '../../src/agents/config-schema.js';
+
+function blockedDecision(ms = 60000): AvailabilityDecision {
+  return { state: 'COOLING', untilMs: Date.now() + ms, reason: 'test' };
+}
 
 function mockConfig(overrides: Partial<SaivageConfig> = {}): SaivageConfig {
   return {
@@ -23,6 +28,7 @@ function mockConfig(overrides: Partial<SaivageConfig> = {}): SaivageConfig {
     providers: {},
     server: { port: 8080, host: '0.0.0.0' },
     runtime: {
+      candidateAvailabilityCompactBytes: 262144,
       recoverAgentInvocations: true,
       healthCheckIntervalMs: 30000,
       idleShutdownMs: 300000,
@@ -132,11 +138,12 @@ describe('ModelRouter', () => {
         },
       });
       const registry = new ProviderRegistry(cfg);
-      registry.markFailed(
+      const availability = new MemoryCandidateAvailability();
+      await availability.markFailed(
         { provider: 'github', account: 'primary', model: 'gpt-5.5' },
-        60000,
+        blockedDecision(),
       );
-      const router = new ModelRouter(cfg, registry);
+      const router = new ModelRouter(cfg, registry, undefined, availability);
 
       const chain = await router.resolve('planner');
       expect(chain).toHaveLength(1);
@@ -158,11 +165,12 @@ describe('ModelRouter', () => {
         },
       });
       const registry = new ProviderRegistry(cfg);
-      registry.markFailed(
+      const availability = new MemoryCandidateAvailability();
+      await availability.markFailed(
         { provider: 'github', account: null, model: 'gpt-5.5' },
-        60000,
+        blockedDecision(),
       );
-      const router = new ModelRouter(cfg, registry);
+      const router = new ModelRouter(cfg, registry, undefined, availability);
 
       const chain = await router.resolve('planner');
       expect(chain).toHaveLength(1);
@@ -188,11 +196,12 @@ describe('ModelRouter', () => {
         },
       });
       const registry = new ProviderRegistry(cfg);
-      registry.markFailed(
+      const availability = new MemoryCandidateAvailability();
+      await availability.markFailed(
         { provider: 'github', account: null, model: 'gpt-5.5' },
-        60000,
+        blockedDecision(),
       );
-      const router = new ModelRouter(cfg, registry);
+      const router = new ModelRouter(cfg, registry, undefined, availability);
 
       const chain = await router.resolve('planner');
       expect(chain.length).toBeGreaterThan(0);
@@ -217,11 +226,12 @@ describe('ModelRouter', () => {
         },
       });
       const registry = new ProviderRegistry(cfg);
-      registry.markFailed(
+      const availability = new MemoryCandidateAvailability();
+      await availability.markFailed(
         { provider: 'github', account: null, model: 'gpt-5.5' },
-        60000,
+        blockedDecision(),
       );
-      const router = new ModelRouter(cfg, registry);
+      const router = new ModelRouter(cfg, registry, undefined, availability);
 
       const chain = await router.resolve('planner');
       expect(chain.length).toBeGreaterThan(0);
@@ -281,11 +291,12 @@ describe('ModelRouter', () => {
       // F07 requires the router to ignore it entirely.
       (cfg as Record<string, unknown>).failover = { 'gpt-5.5': ['deepseek-v4-pro'] };
       const registry = new ProviderRegistry(cfg);
-      registry.markFailed(
+      const availability = new MemoryCandidateAvailability();
+      await availability.markFailed(
         { provider: 'github', account: null, model: 'gpt-5.5' },
-        60000,
+        blockedDecision(),
       );
-      const router = new ModelRouter(cfg, registry);
+      const router = new ModelRouter(cfg, registry, undefined, availability);
 
       const chain = await router.resolve('planner');
       expect(chain.find((c) => c.model === 'deepseek-v4-pro')).toBeUndefined();
@@ -496,11 +507,12 @@ describe('ModelRouter', () => {
         },
       });
       const registry = new ProviderRegistry(cfg);
-      registry.markFailed(
+      const availability = new MemoryCandidateAvailability();
+      await availability.markFailed(
         { provider: 'github', account: null, model: 'gpt-5.5' },
-        60000,
+        blockedDecision(),
       );
-      const router = new ModelRouter(cfg, registry);
+      const router = new ModelRouter(cfg, registry, undefined, availability);
 
       const c = await router.nextCandidate('planner');
       expect(c).toBeNull();
@@ -521,7 +533,8 @@ describe('ModelRouter capability filtering', () => {
       },
     });
     const registry = new ProviderRegistry(cfg);
-    const router = new ModelRouter(cfg, registry);
+    const availability = new MemoryCandidateAvailability();
+    const router = new ModelRouter(cfg, registry, undefined, availability);
 
     const chain = await router.resolve('planner', { toolCalls: true });
 
@@ -529,7 +542,7 @@ describe('ModelRouter capability filtering', () => {
     expect(router.getLastCapabilitySkips()).toEqual([
       { candidate: { provider: 'p1', account: null, model: 'm1' }, reasons: ['unsupported_tool_calls'] },
     ]);
-    expect(registry.getHealth({ provider: 'p1', account: null, model: 'm1' }).failureCount).toBe(0);
+    expect(availability.isAvailable({ provider: 'p1', account: null, model: 'm1' })).toBe(true);
   });
 
   it('keeps health cooldown semantics separate from capability skips', async () => {
@@ -541,13 +554,14 @@ describe('ModelRouter capability filtering', () => {
       },
     });
     const registry = new ProviderRegistry(cfg);
-    registry.markFailed({ provider: 'compatibleButCooling', account: null, model: 'm1' }, 60000);
-    const router = new ModelRouter(cfg, registry);
+    const availability = new MemoryCandidateAvailability();
+    await availability.markFailed({ provider: 'compatibleButCooling', account: null, model: 'm1' }, blockedDecision());
+    const router = new ModelRouter(cfg, registry, undefined, availability);
 
     const chain = await router.resolve('planner', { toolChoice: true });
 
     expect(chain).toHaveLength(0);
     expect(router.getLastCapabilitySkips()[0].reasons).toEqual(['unsupported_tool_choice']);
-    expect(registry.getHealth({ provider: 'compatibleButCooling', account: null, model: 'm1' }).failureCount).toBe(1);
+    expect(availability.isAvailable({ provider: 'compatibleButCooling', account: null, model: 'm1' })).toBe(false);
   });
 });

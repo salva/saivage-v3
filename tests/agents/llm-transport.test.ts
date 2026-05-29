@@ -29,6 +29,7 @@ function config(providers: SaivageConfig['providers']): SaivageConfig {
     providers,
     server: { port: 8080, host: '127.0.0.1' },
     runtime: {
+      candidateAvailabilityCompactBytes: 262144,
       recoverAgentInvocations: true,
       healthCheckIntervalMs: 30000,
       idleShutdownMs: 300000,

@@ -3,6 +3,7 @@ import type { SaivageConfig, RuntimeSection } from './config-schema.js';
 import { loadConfig, getRuntimeConfig, getModelParamsForRole } from './config-schema.js';
 import { ProviderRegistry, type Candidate } from './provider.js';
 import { ModelRouter } from './model-router.js';
+import { type CandidateAvailability, MemoryCandidateAvailability } from './candidate-availability.js';
 import { parsePlannerResult, parseExecutorResult, parseReviewerResult, buildExecutorFallbackResult, type PlannerResult, type ExecutorResult, type ReviewerResult } from './result-parser.js';
 import { createSession, completeSession, appendMessage as appendPersistentMessage, getSession, getSessionMessages, markSessionWaiting, setSessionStatus, updateSessionModel, assertNoActiveAgentSession } from './session-persistence.js';
 import type { AgentInvocationRole, AgentMessage, HandoffSummary, LoggedEvent, OperationalAgentRole, MessageKind, MessageRole, EntityLink } from '../schemas/index.js';
@@ -34,7 +35,7 @@ import { decide as decideCardPermission } from '../permissions/index.js';
 
 export type AgentRole = OperationalAgentRole;
 export type InvokableAgentRole = AgentInvocationRole;
-export interface AgentAdapterConfig { projectRoot: string; saivageDir: string; config: SaivageConfig; eventBus?: EventEmitter; eventLogger?: EventLogger; activationLedger?: RuntimeActivationLedgerPort; }
+export interface AgentAdapterConfig { projectRoot: string; saivageDir: string; config: SaivageConfig; eventBus?: EventEmitter; eventLogger?: EventLogger; activationLedger?: RuntimeActivationLedgerPort; candidateAvailability?: CandidateAvailability; }
 function delayInvocationRecovery(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, Math.max(0, ms)));
 }
@@ -46,6 +47,7 @@ export class AgentAdapter implements AgentExecutionPort {
   readonly runtimeConfig: RuntimeSection;
   readonly registry: ProviderRegistry;
   readonly router: ModelRouter;
+  readonly candidateAvailability: CandidateAvailability;
   readonly notificationCenter: NotificationCenter;
   eventBus?: EventEmitter;
   private runtimeLedgerEventBus?: { emit(event: LoggedEvent): void };
@@ -70,7 +72,8 @@ export class AgentAdapter implements AgentExecutionPort {
     this.config = cfg.config;
     this.runtimeConfig = getRuntimeConfig(cfg.config);
     this.registry = new ProviderRegistry(cfg.config);
-    this.router = new ModelRouter(cfg.config, this.registry, cfg.projectRoot);
+    this.candidateAvailability = cfg.candidateAvailability ?? new MemoryCandidateAvailability();
+    this.router = new ModelRouter(cfg.config, this.registry, cfg.projectRoot, this.candidateAvailability);
     this.notificationCenter = getProjectNotificationCenter(cfg.projectRoot);
     this.eventBus = cfg.eventBus;
     this.eventLogger = cfg.eventLogger;
@@ -328,7 +331,7 @@ export class AgentAdapter implements AgentExecutionPort {
           let sameCandidateRecoveryAttempt = 1;
           for (;;) {
             if (this.sessionCoordinator.isCancelled(session.id)) throw new Error(`Agent invocation cancelled for session ${session.id}. Role: ${role}, goal: ${goalId}, card: ${cardId}`);
-            if (!this.registry.isHealthy(candidate)) break;
+            if (!this.candidateAvailability.isAvailable(candidate)) break;
             try {
               updateSessionModel(this.saivageDir, session.id, candidate.model);
             if (this.eventLogger) this.eventLogger.appendEvent({ kind: 'model_selected', session_id: session.id, provider: candidate.provider, model: candidate.model, role: role as unknown as import('../schemas/types.js').AgentRole });
@@ -395,7 +398,7 @@ export class AgentAdapter implements AgentExecutionPort {
                 } else throw err;
               }
               const successDecision = defaultInvocationRecoveryPolicy.decideSuccess({ role, candidate, attempt: recoveryCtx.attempt, maxAttempts: recoveryCtx.maxAttempts, recoveryDelayMs: this.runtimeConfig.recoveryDelayMs ?? 60000, maxRecoveryRetries: this.runtimeConfig.maxRecoveryRetries ?? 3, capabilityRequest, capabilitySkips, sessionId: session.id, goalId, cardId });
-              if (successDecision.markSucceeded) this.registry.markSucceeded(candidate);
+              if (successDecision.markSucceeded) await this.candidateAvailability.markSucceeded(candidate);
               if (this.eventLogger) this.eventLogger.appendEvent({ kind: 'invocation_succeeded', session_id: session.id, role: role as unknown as import('../schemas/types.js').AgentRole, attempt: recoveryCtx.attempt, duration_ms: callDuration, failure: successDecision.failure, recoveryAction: successDecision.action });
               if (this.eventBus) this.eventBus.emit('invocation_succeeded', { session_id: session.id, role, attempt: recoveryCtx.attempt, duration_ms: callDuration, recoveryAction: successDecision.action });
               this.sessionCoordinator.clearCancellation(session.id);
@@ -405,10 +408,10 @@ export class AgentAdapter implements AgentExecutionPort {
             lastError = err instanceof Error ? err : new Error(String(err));
             const policyContext: InvocationRecoveryContext = { role, candidate, attempt: sameCandidateRecoveryAttempt, maxAttempts: recoveryCtx.maxAttempts, recoveryDelayMs: this.runtimeConfig.recoveryDelayMs ?? 60000, maxRecoveryRetries: this.runtimeConfig.maxRecoveryRetries ?? 3, capabilityRequest, capabilitySkips, sessionId: session.id, goalId, cardId };
             const decision = defaultInvocationRecoveryPolicy.decideFailure(lastError, policyContext);
-            if (decision.markFailed) this.registry.markFailed(candidate, decision.cooldownMs ?? (this.runtimeConfig.recoveryDelayMs ?? 60000));
+            if (decision.markFailed && decision.availability) await this.candidateAvailability.markFailed(candidate, decision.availability);
             if (decision.appendModelIssue) this.appendSessionMessage(session.id, { role: 'system', kind: 'model_issue', content: this.redactModelIssueText(decision.message) });
-            if (this.eventLogger) this.eventLogger.appendEvent({ kind: 'invocation_failed', session_id: session.id, role: role as unknown as import('../schemas/types.js').AgentRole, attempt: recoveryCtx.attempt, error_message: this.redactModelIssueText(decision.message), failure: decision.failure, recoveryAction: decision.action, cooldownMs: decision.cooldownMs, retryDelayMs: decision.retryDelayMs, capabilitySkipReasons: decision.eventPayload.capabilitySkipReasons });
-            if (this.eventBus) this.eventBus.emit('invocation_failed', { session_id: session.id, role, attempt: recoveryCtx.attempt, error_message: this.redactModelIssueText(decision.message), failure: decision.failure, recoveryAction: decision.action, cooldownMs: decision.cooldownMs, retryDelayMs: decision.retryDelayMs, capabilitySkipReasons: decision.eventPayload.capabilitySkipReasons });
+            if (this.eventLogger) this.eventLogger.appendEvent({ kind: 'invocation_failed', session_id: session.id, role: role as unknown as import('../schemas/types.js').AgentRole, attempt: recoveryCtx.attempt, error_message: this.redactModelIssueText(decision.message), failure: decision.failure, recoveryAction: decision.action, availability: decision.availability, retryDelayMs: decision.retryDelayMs, capabilitySkipReasons: decision.eventPayload.capabilitySkipReasons });
+            if (this.eventBus) this.eventBus.emit('invocation_failed', { session_id: session.id, role, attempt: recoveryCtx.attempt, error_message: this.redactModelIssueText(decision.message), failure: decision.failure, recoveryAction: decision.action, availability: decision.availability, retryDelayMs: decision.retryDelayMs, capabilitySkipReasons: decision.eventPayload.capabilitySkipReasons });
             if (decision.abort || this.sessionCoordinator.isCancelled(session.id)) {
               this.sessionCoordinator.publishCancelledRetryStop(session.id, role as unknown as import('../schemas/types.js').AgentRole);
               if (decision.failure?.kind === 'cancelled' || this.sessionCoordinator.isCancelled(session.id)) throw new Error(`Agent invocation cancelled for session ${session.id}. Role: ${role}, goal: ${goalId}, card: ${cardId}`);
@@ -446,6 +449,7 @@ export class AgentAdapter implements AgentExecutionPort {
 
   getRouter(): ModelRouter { return this.router; }
   getRegistry(): ProviderRegistry { return this.registry; }
+  getCandidateAvailability(): CandidateAvailability { return this.candidateAvailability; }
 
   async flushRecorders(): Promise<void> { await this.llmGateway.flushRecorders(); }
 

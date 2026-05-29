@@ -154,6 +154,7 @@ describe('createCancellableRecovery', () => {
 describe('recoveryOptionsFromConfig', () => {
   it('should create options from runtime config', () => {
     const runtimeConfig: RuntimeSection = {
+      candidateAvailabilityCompactBytes: 262144,
       recoveryDelayMs: 30000,
       maxRecoveryRetries: 5,
       continuousImprovement: false,
@@ -178,6 +179,7 @@ describe('recoveryOptionsFromConfig', () => {
 
   it('should allow overrides', () => {
     const runtimeConfig: RuntimeSection = {
+      candidateAvailabilityCompactBytes: 262144,
       recoveryDelayMs: 30000,
       maxRecoveryRetries: 5,
       continuousImprovement: false,

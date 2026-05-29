@@ -43,37 +43,6 @@ export function parseCandidateKey(key: string): Candidate {
   };
 }
 
-// ── Health State ──────────────────────────────────────────────
-
-/**
- * Tracks the health of a specific candidate (provider/account/model).
- */
-export interface CandidateHealth {
-  /** Whether this candidate is currently in cooldown */
-  inCooldown: boolean;
-  /** When cooldown expires (timestamp ms). 0 if not in cooldown. */
-  cooldownUntilMs: number;
-  /** Number of consecutive failures */
-  failureCount: number;
-  /** Total success count */
-  successCount: number;
-  /** Timestamp of last attempt (0 if never attempted) */
-  lastAttemptMs: number;
-  /** Timestamp of last failure (0 if never failed) */
-  lastFailureMs: number;
-}
-
-function defaultHealth(): CandidateHealth {
-  return {
-    inCooldown: false,
-    cooldownUntilMs: 0,
-    failureCount: 0,
-    successCount: 0,
-    lastAttemptMs: 0,
-    lastFailureMs: 0,
-  };
-}
-
 // ── Account ───────────────────────────────────────────────────
 
 export class Account {
@@ -246,11 +215,8 @@ export class Provider {
 
 export class ProviderRegistry {
   private providers: Map<string, Provider> = new Map();
-  private healthStates: Map<string, CandidateHealth> = new Map();
-  private config: SaivageConfig;
 
   constructor(config: SaivageConfig) {
-    this.config = config;
     this.initProviders(config);
   }
 
@@ -280,86 +246,10 @@ export class ProviderRegistry {
     return this.getAll().filter((p) => p.canServe(model));
   }
 
-  // ── Health State Management ─────────────────────────────────
-
-  /** Get health state for a candidate (creates default if not tracked). */
-  getHealth(candidate: Candidate): CandidateHealth {
-    const key = candidateKey(candidate);
-    let health = this.healthStates.get(key);
-    if (!health) {
-      health = defaultHealth();
-      this.healthStates.set(key, health);
-    }
-    return health;
-  }
-
-  /** Check if a candidate is healthy (not in cooldown). */
-  isHealthy(candidate: Candidate): boolean {
-    const health = this.getHealth(candidate);
-    if (!health.inCooldown) return true;
-    if (Date.now() >= health.cooldownUntilMs) {
-      // Cooldown expired
-      health.inCooldown = false;
-      health.cooldownUntilMs = 0;
-      return true;
-    }
-    return false;
-  }
-
-  /**
-   * Mark a candidate as failed. Enters cooldown.
-   * Cooldown duration can be configured or uses default.
-   */
-  markFailed(candidate: Candidate, cooldownMs: number = 60000): void {
-    const key = candidateKey(candidate);
-    const health = this.getHealth(candidate);
-    health.inCooldown = true;
-    health.cooldownUntilMs = Date.now() + cooldownMs;
-    health.failureCount++;
-    health.lastAttemptMs = Date.now();
-    health.lastFailureMs = Date.now();
-    this.healthStates.set(key, health);
-  }
-
-  /** Mark a candidate as succeeded. Clears failure state. */
-  markSucceeded(candidate: Candidate): void {
-    const key = candidateKey(candidate);
-    const health = this.getHealth(candidate);
-    health.inCooldown = false;
-    health.cooldownUntilMs = 0;
-    health.failureCount = 0;
-    health.successCount++;
-    health.lastAttemptMs = Date.now();
-    this.healthStates.set(key, health);
-  }
-
-  /** Record a candidate attempt without marking success/failure yet. */
-  markAttempted(candidate: Candidate): void {
-    const key = candidateKey(candidate);
-    const health = this.getHealth(candidate);
-    health.lastAttemptMs = Date.now();
-    this.healthStates.set(key, health);
-  }
-
   /** Compute effective capabilities for a concrete candidate. */
   getEffectiveCapabilities(candidate: Candidate): EffectiveProviderCapabilities {
     const provider = this.get(candidate.provider);
     if (!provider) return builtInCapabilitiesForProvider(candidate.provider);
     return provider.getEffectiveCapabilities(candidate.model, candidate.account);
-  }
-
-  /** Get all health states for inspection. */
-  getAllHealth(): Map<string, CandidateHealth> {
-    return new Map(this.healthStates);
-  }
-
-  /** Reset all health states (useful for testing). */
-  resetHealth(): void {
-    this.healthStates.clear();
-  }
-
-  /** Get the cooldown duration from runtime config. */
-  getCooldownMs(): number {
-    return this.config.runtime.recoveryDelayMs ?? 60000;
   }
 }

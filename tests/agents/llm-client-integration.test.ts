@@ -1509,6 +1509,7 @@ describe('LlmClient provider capability guardrails', () => {
       },
       server: { port: 8080, host: '0.0.0.0' },
       runtime: {
+        candidateAvailabilityCompactBytes: 262144,
         recoverAgentInvocations: true,
         healthCheckIntervalMs: 30000,
         idleShutdownMs: 300000,
@@ -1564,6 +1565,7 @@ describe('LlmClient provider capability guardrails', () => {
       },
       server: { port: 8080, host: '0.0.0.0' },
       runtime: {
+        candidateAvailabilityCompactBytes: 262144,
         recoverAgentInvocations: true,
         healthCheckIntervalMs: 30000,
         idleShutdownMs: 300000,
@@ -1613,6 +1615,7 @@ describe('LlmClient provider capability guardrails', () => {
       providers: { 'openai-codex': { models: ['gpt-5.5'], baseUrl: `http://localhost:${port}` } },
       server: { port: 8080, host: '0.0.0.0' },
       runtime: {
+        candidateAvailabilityCompactBytes: 262144,
         recoverAgentInvocations: true,
         healthCheckIntervalMs: 30000,
         idleShutdownMs: 300000,

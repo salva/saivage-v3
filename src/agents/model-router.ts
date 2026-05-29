@@ -1,6 +1,7 @@
 import type { SaivageConfig } from './config-schema.js';
 import { getModelListForRole } from './config-schema.js';
 import { ProviderRegistry, type Candidate } from './provider.js';
+import { type CandidateAvailability, MemoryCandidateAvailability } from './candidate-availability.js';
 import {
   supportsCapabilityRequest,
   type CapabilityRequest,
@@ -16,15 +17,18 @@ import {
 export class ModelRouter {
   private registry: ProviderRegistry;
   private config: SaivageConfig;
+  private availability: CandidateAvailability;
   private lastCapabilitySkips: CapabilitySkipDiagnostic[] = [];
 
   constructor(
     config: SaivageConfig,
     registry: ProviderRegistry,
     _projectRoot?: string,
+    availability: CandidateAvailability = new MemoryCandidateAvailability(),
   ) {
     this.config = config;
     this.registry = registry;
+    this.availability = availability;
   }
 
   /**
@@ -116,7 +120,7 @@ export class ModelRouter {
           this.lastCapabilitySkips.push({ candidate: c, reasons: match.reasons });
           continue;
         }
-        if (!this.registry.isHealthy(c)) continue;
+        if (!this.availability.isAvailable(c)) continue;
         candidates.push(c);
       }
     }

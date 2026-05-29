@@ -27,6 +27,7 @@ function minimalConfig(): SaivageConfig {
     },
     server: { port: 8080, host: '0.0.0.0' },
     runtime: {
+      candidateAvailabilityCompactBytes: 262144,
       recoverAgentInvocations: true,
       healthCheckIntervalMs: 30000,
       idleShutdownMs: 300000,
@@ -96,7 +97,7 @@ describe('AgentAdapter planner-control reviewer prompt contract', () => {
     store = new CardStore(tmpDir);
     adapter = new AgentAdapter({ projectRoot: tmpDir, saivageDir: join(tmpDir, '.saivage'), config });
     jest.spyOn(adapter.router, 'resolve').mockResolvedValue([{ provider: 'test-provider', model: 'test-model', account: 'default' }]);
-    jest.spyOn(adapter.registry, 'isHealthy').mockReturnValue(true);
+    jest.spyOn(adapter.candidateAvailability, 'isAvailable').mockReturnValue(true);
   });
 
   afterEach(() => {

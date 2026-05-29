@@ -10,6 +10,7 @@ import { loadConfig, getModelParamsForRole, getRuntimeConfig } from './config-sc
 import type { RuntimeSection, SaivageConfig } from './config-schema.js';
 import { ModelRouter } from './model-router.js';
 import { ProviderRegistry } from './provider.js';
+import { type CandidateAvailability, MemoryCandidateAvailability } from './candidate-availability.js';
 import { capabilityRequestForLlmOptions } from './provider-capabilities.js';
 import { resolveLlmTransportConfig } from './llm-transport.js';
 import { createLlmExchangeRecorder, toRecorderLogger } from './llm-exchange-recorder.js';
@@ -124,11 +125,11 @@ export class LlmIntentResolver {
   private readonly recorderCache = new Map<string, LlmExchangeRecorder>();
   private recorderLogger?: LlmExchangeRecorderLogger;
 
-  constructor(private readonly projectRoot: string) {
+  constructor(private readonly projectRoot: string, private readonly availability: CandidateAvailability = new MemoryCandidateAvailability()) {
     const { config } = loadConfig(projectRoot);
     this.config = config;
     this.registry = new ProviderRegistry(config);
-    this.router = new ModelRouter(config, this.registry);
+    this.router = new ModelRouter(config, this.registry, projectRoot, this.availability);
     this.runtimeConfig = getRuntimeConfig(config);
   }
 
@@ -165,16 +166,16 @@ export class LlmIntentResolver {
         for (const toolCall of result.toolCalls ?? []) {
           const decision = RoleToolPolicy.assertAnalystSurfaceTool(toolCall.function.name, 'web');
           if (!decision.allowed) {
-            this.registry.markSucceeded(candidate);
+            await this.availability.markSucceeded(candidate);
             return { content: ANALYST_UNSUPPORTED_ACTION_TEMPLATE('Analyst', Object.keys(TOOL_REGISTRY)), toolCalls: [] };
           }
         }
-        this.registry.markSucceeded(candidate);
+        await this.availability.markSucceeded(candidate);
         return { content: result.content ?? '', toolCalls: result.toolCalls };
       } catch (err) {
         const failure = unwrapFailure(err);
         if (failure.kind === 'auth_permanent') {
-          this.registry.markFailed(candidate, this.runtimeConfig.recoveryDelayMs ?? 60000);
+          await this.availability.markFailed(candidate, { state: 'BLOCKED_UNTIL', untilMs: Date.now() + 3_600_000, reason: 'auth_permanent' });
           lastTransportError = err instanceof Error ? err : new Error(String(err));
           continue;
         }
@@ -184,6 +185,18 @@ export class LlmIntentResolver {
           failure.kind === 'timeout' ||
           failure.kind === 'parse_error'
         ) {
+          if (failure.kind !== 'parse_error') {
+            const now = Date.now();
+            let untilMs = now + Math.max(this.runtimeConfig.recoveryDelayMs ?? 60_000, 5_000);
+            if (failure.kind === 'rate_limit') {
+              if (typeof failure.retryAfterMs === 'number' && failure.retryAfterMs > 0) untilMs = now + failure.retryAfterMs;
+              else if (typeof failure.resetsAt === 'string') {
+                const parsed = Date.parse(failure.resetsAt);
+                if (Number.isFinite(parsed) && parsed > now) untilMs = parsed;
+              }
+            }
+            await this.availability.markFailed(candidate, { state: failure.kind === 'rate_limit' ? 'BLOCKED_UNTIL' : 'COOLING', untilMs, reason: failure.kind });
+          }
           lastTransportError = err instanceof Error ? err : new Error(String(err));
           continue;
         }

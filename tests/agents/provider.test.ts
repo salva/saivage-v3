@@ -19,6 +19,7 @@ function mockConfig(overrides: Partial<SaivageConfig> = {}): SaivageConfig {
     providers: {},
     server: { port: 8080, host: '0.0.0.0' },
     runtime: {
+      candidateAvailabilityCompactBytes: 262144,
       recoverAgentInvocations: true,
       healthCheckIntervalMs: 30000,
       idleShutdownMs: 300000,
@@ -191,64 +192,6 @@ describe('ProviderRegistry', () => {
     expect(gptProviders).toHaveLength(2);
     expect(gptProviders[0].name).toBe('a');
     expect(gptProviders[1].name).toBe('c');
-  });
-
-  describe('health state', () => {
-    it('should default to healthy', () => {
-      const cfg = mockConfig({
-        providers: {
-          p1: { priority: 10, models: ['m1'] },
-        },
-      });
-      const registry = new ProviderRegistry(cfg);
-      const c: Candidate = { provider: 'p1', account: null, model: 'm1' };
-      expect(registry.isHealthy(c)).toBe(true);
-    });
-
-    it('should enter cooldown on failure', () => {
-      const cfg = mockConfig({
-        providers: {
-          p1: { priority: 10, models: ['m1'] },
-        },
-      });
-      const registry = new ProviderRegistry(cfg);
-      const c: Candidate = { provider: 'p1', account: null, model: 'm1' };
-      registry.markFailed(c, 1000);
-      expect(registry.isHealthy(c)).toBe(false);
-
-      const health = registry.getHealth(c);
-      expect(health.inCooldown).toBe(true);
-      expect(health.failureCount).toBe(1);
-    });
-
-    it('should exit cooldown after delay expires', async () => {
-      const cfg = mockConfig({
-        providers: {
-          p1: { priority: 10, models: ['m1'] },
-        },
-      });
-      const registry = new ProviderRegistry(cfg);
-      const c: Candidate = { provider: 'p1', account: null, model: 'm1' };
-      registry.markFailed(c, 10); // 10ms cooldown
-      expect(registry.isHealthy(c)).toBe(false);
-      await new Promise((r) => setTimeout(r, 20));
-      expect(registry.isHealthy(c)).toBe(true);
-    });
-
-    it('should clear failure state on success', () => {
-      const cfg = mockConfig({
-        providers: {
-          p1: { priority: 10, models: ['m1'] },
-        },
-      });
-      const registry = new ProviderRegistry(cfg);
-      const c: Candidate = { provider: 'p1', account: null, model: 'm1' };
-      registry.markFailed(c, 60000);
-      expect(registry.isHealthy(c)).toBe(false);
-      registry.markSucceeded(c);
-      expect(registry.isHealthy(c)).toBe(true);
-      expect(registry.getHealth(c).failureCount).toBe(0);
-    });
   });
 });
 
