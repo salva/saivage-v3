@@ -549,7 +549,7 @@ describe('LlmClient Integration with Mock HTTP Server', () => {
 
       adapterTempDir = makeTempDir();
       writeSaivageJson(adapterTempDir, {
-        models: { planner: ['test-model'], default: ['test-model'] },
+        models: { default: ['test-model'] },
         providers: {
           'test-provider': {
             priority: 10,
@@ -781,7 +781,7 @@ describe('AgentAdapter + Router + LlmClient Full Integration', () => {
     try {
       tempDir = makeTempDir();
       writeSaivageJson(tempDir, {
-        models: { planner: ['test-model'], default: ['test-model'] },
+        models: { default: ['test-model'] },
         providers: {
           'test-provider': {
             priority: 10,
@@ -840,7 +840,7 @@ describe('AgentAdapter + Router + LlmClient Full Integration', () => {
     try {
       tempDir = makeTempDir();
       writeSaivageJson(tempDir, {
-        models: { planner: ['gpt-5.4'], default: ['gpt-5.4'], max_tokens: { planner: 500 } },
+        models: { default: ['gpt-5.4'], max_tokens: { planner: 500 } },
         providers: {
           'openai-codex': {
             priority: 10,
@@ -889,7 +889,7 @@ describe('AgentAdapter + Router + LlmClient Full Integration', () => {
     try {
       tempDir = makeTempDir();
       writeSaivageJson(tempDir, {
-        models: { executor: ['test-model'], default: ['test-model'] },
+        models: { default: ['test-model'] },
         providers: {
           'test-provider': {
             priority: 10,
@@ -925,7 +925,7 @@ describe('AgentAdapter + Router + LlmClient Full Integration', () => {
     try {
       tempDir = makeTempDir();
       writeSaivageJson(tempDir, {
-        models: { planner: ['test-model'], default: ['test-model'] },
+        models: { default: ['test-model'] },
         providers: {
           'test-provider': {
             priority: 10,
@@ -1063,7 +1063,7 @@ describe('Account-level Provider Config Overrides', () => {
     try {
       tempDir = makeTempDir();
       writeSaivageJson(tempDir, {
-        models: { planner: ['test-model'], default: ['test-model'] },
+        models: { default: ['test-model'] },
         providers: {
           'test-provider': {
             priority: 10,
@@ -1112,7 +1112,7 @@ describe('Account-level Provider Config Overrides', () => {
     try {
       tempDir = makeTempDir();
       writeSaivageJson(tempDir, {
-        models: { planner: ['test-model'], default: ['test-model'] },
+        models: { default: ['test-model'] },
         providers: {
           'test-provider': {
             priority: 10,
@@ -1154,7 +1154,7 @@ describe('Account-level Provider Config Overrides', () => {
     try {
       tempDir = makeTempDir();
       writeSaivageJson(tempDir, {
-        models: { planner: ['test-model'], default: ['test-model'] },
+        models: { default: ['test-model'] },
         providers: {
           'test-provider': {
             priority: 10,
@@ -1198,7 +1198,7 @@ describe('Account-level Provider Config Overrides', () => {
     try {
       tempDir = makeTempDir();
       writeSaivageJson(tempDir, {
-        models: { planner: ['test-model'], default: ['test-model'] },
+        models: { default: ['test-model'] },
         providers: {
           'opencode-go': {
             priority: 10,
@@ -1257,7 +1257,7 @@ describe('Config temperature/max_tokens flowing through AgentAdapter', () => {
     try {
       tempDir = makeTempDir();
       writeSaivageJson(tempDir, {
-        models: { planner: ['test-model'], default: ['test-model'] },
+        models: { default: ['test-model'] },
         providers: {
           'test-provider': {
             priority: 10,
@@ -1294,7 +1294,6 @@ describe('Config temperature/max_tokens flowing through AgentAdapter', () => {
       tempDir = makeTempDir();
       writeSaivageJson(tempDir, {
         models: {
-          planner: ['test-model'],
           default: ['test-model'],
           temperature: { planner: 0.3 },
           max_tokens: { planner: 2000 },
@@ -1335,7 +1334,6 @@ describe('Config temperature/max_tokens flowing through AgentAdapter', () => {
       tempDir = makeTempDir();
       writeSaivageJson(tempDir, {
         models: {
-          planner: ['test-model'],
           default: ['test-model'],
           temperature: { default: 0.5 },
           max_tokens: { planner: 8192 },
@@ -1376,7 +1374,6 @@ describe('Config temperature/max_tokens flowing through AgentAdapter', () => {
       tempDir = makeTempDir();
       writeSaivageJson(tempDir, {
         models: {
-          planner: ['test-model'],
           default: ['test-model'],
           temperature: { default: 0.2 },
           max_tokens: { default: 1000 },
@@ -1417,7 +1414,6 @@ describe('Config temperature/max_tokens flowing through AgentAdapter', () => {
       tempDir = makeTempDir();
       writeSaivageJson(tempDir, {
         models: {
-          planner: ['test-model'],
           default: ['test-model'],
           temperature: { planner: 0.1 },
           max_tokens: { default: 2048 },

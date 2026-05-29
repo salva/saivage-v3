@@ -27,8 +27,13 @@ function setupRoot(analystModels: string[] = [TEST_MODEL]): string {
 }
 
 function writeConfig(root: string, analystModels: string[]): void {
+  // F07: empty arrays are rejected; express "no usable analyst model" by listing a
+  // sentinel model that no provider advertises, so the router returns an empty chain.
+  const models = analystModels.length > 0
+    ? { analyst: analystModels }
+    : { analyst: ['__unconfigured__'] };
   writeFileSync(join(root, '.saivage', 'saivage.json'), JSON.stringify({
-    models: { analyst: analystModels },
+    models,
     providers: { test: { models: [TEST_MODEL], apiKey: 'test-key', baseUrl: 'http://test-provider.invalid/v1' } },
   }, null, 2));
 }

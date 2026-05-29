@@ -283,7 +283,7 @@ describe('AgentAdapter recorder wiring', () => {
       writeFileSync(
         join(root, '.saivage', 'saivage.json'),
         JSON.stringify({
-          models: { planner: ['test-model'], default: ['test-model'] },
+          models: { default: ['test-model'] },
           providers: {
             'test-provider': {
               priority: 10,

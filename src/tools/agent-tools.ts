@@ -116,7 +116,7 @@ const restartCardInput = z.object({ id: z.string() }).strict();
 const queueNotificationInput = z.object({ recipient: z.string(), kind: z.string(), body: z.string() }).strict();
 const reorderChildInput = z.object({ parentId: z.string(), orderedChildIds: z.array(z.string()) }).strict();
 const navigateWorkspaceInput = z.object({ target: z.object({ kind: z.enum(['card','transcript','process','plan_diary','process_list','agent_session_list','config']), id: z.string().optional(), refinement: z.string().optional() }).strict() }).strict();
-const reconfigureInput = z.object({ action: z.enum(['set_role_routing','set_failover_order','mcp_add','mcp_edit','mcp_remove','set_runtime_setting','set_server_setting']), role: z.string().optional(), model_candidate: z.string().optional(), ordered_providers: z.array(z.string()).optional(), name: z.string().optional(), command: z.string().optional(), args: z.array(z.string()).optional(), env: z.record(z.string()).optional(), key: z.string().optional(), value: z.unknown().optional() }).strict();
+const reconfigureInput = z.object({ action: z.enum(['set_role_routing','set_failover_chain','mcp_add','mcp_edit','mcp_remove','set_runtime_setting','set_server_setting']), role: z.string().optional(), model_candidate: z.string().optional(), for_model: z.string().optional(), ordered_failover_models: z.array(z.string()).optional(), name: z.string().optional(), command: z.string().optional(), args: z.array(z.string()).optional(), env: z.record(z.string()).optional(), key: z.string().optional(), value: z.unknown().optional() }).strict();
 
 const allRuntimeRoles = ['planner', 'executor', 'reviewer', 'analyst'] as const;
 

@@ -249,7 +249,7 @@ describe('config-schema', () => {
       expect(config.mcpServers?.test_server?.transport).toBe('stdio');
     });
 
-    it('should include failover from top-level key', () => {
+    it('should reject top-level failover with a migration message', () => {
       setupConfig({
         models: { default: ['deepseek-v4-flash'] },
         failover: {
@@ -257,10 +257,60 @@ describe('config-schema', () => {
         },
       });
 
+      expect(() => loadConfig(TEST_ROOT)).toThrow(/Top-level 'failover' is no longer supported/);
+    });
+
+    it('rejects a role array byte-equal to models.default', () => {
+      const result = saivageConfigSchema.safeParse({
+        models: {
+          default: ['gpt-5.5', 'kimi-k2.6'],
+          planner: ['gpt-5.5', 'kimi-k2.6'],
+        },
+      });
+      expect(result.success).toBe(false);
+      if (!result.success) {
+        const issue = result.error.issues.find((i) => i.path.join('.') === 'models.planner');
+        expect(issue?.message).toMatch(/identical to models\.default/);
+      }
+    });
+
+    it('accepts a role array that differs from models.default', () => {
+      setupConfig({
+        models: {
+          default: ['gpt-5.5', 'kimi-k2.6', 'deepseek-v4-pro'],
+          analyst: ['gpt-5.5', 'kimi-k2.6', 'glm-5.1'],
+        },
+      });
       const { config } = loadConfig(TEST_ROOT);
-      expect(config.failover).toBeDefined();
-      if (config.failover) {
-        expect(config.failover['kimi-k2.6']).toEqual(['deepseek-v4-pro']);
+      expect(getModelListForRole(config, 'analyst')).toEqual(['gpt-5.5', 'kimi-k2.6', 'glm-5.1']);
+    });
+
+    it('returns models.default for a role without an explicit override', () => {
+      setupConfig({
+        models: { default: ['gpt-5.5', 'kimi-k2.6'] },
+      });
+      const { config } = loadConfig(TEST_ROOT);
+      expect(getModelListForRole(config, 'planner')).toEqual(['gpt-5.5', 'kimi-k2.6']);
+    });
+
+    it('rejects models.default of length 0', () => {
+      const result = saivageConfigSchema.safeParse({
+        models: { default: [] },
+      });
+      expect(result.success).toBe(false);
+    });
+
+    it('rejects an empty per-role override array', () => {
+      const result = saivageConfigSchema.safeParse({
+        models: {
+          default: ['gpt-5.5'],
+          planner: [],
+        },
+      });
+      expect(result.success).toBe(false);
+      if (!result.success) {
+        const issue = result.error.issues.find((i) => i.path.join('.') === 'models.planner');
+        expect(issue?.message).toMatch(/empty array; remove the key to inherit models\.default/);
       }
     });
   });

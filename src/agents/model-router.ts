@@ -55,11 +55,6 @@ export class ModelRouter {
 
     const equivalents = this.config.models.equivalents ?? [];
     const failover = this.config.models.failover ?? {};
-    // Also support top-level failover (backwards compat)
-    const topFailover =
-      (this.config as Record<string, unknown>).failover as
-        | Record<string, string[]>
-        | undefined;
 
     const seenModels = new Set<string>();
 
@@ -85,7 +80,7 @@ export class ModelRouter {
         }
       }
 
-      const chain = failover[model] ?? topFailover?.[model];
+      const chain = failover[model];
       if (chain) {
         for (const foModel of chain) {
           if (seenModels.has(foModel)) continue;

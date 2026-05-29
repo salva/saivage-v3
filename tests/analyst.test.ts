@@ -39,7 +39,7 @@ function setupProject(projectRoot: string): void {
   }
   writeFileSync(join(sd, 'saivage.json'), JSON.stringify({
     server: { port: 8080, host: '127.0.0.1' },
-    models: { analyst: [] },
+    models: { default: ['test-model'] },
     providers: {},
   }));
   const now = new Date().toISOString();

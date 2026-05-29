@@ -63,7 +63,7 @@ const routingProfileSchema = z.object({
 });
 
 // Reserved keys that have non-role-list shapes inside the models section.
-const MODELS_RESERVED_KEYS = new Set(['temperature', 'max_tokens', 'profiles', 'routing', 'equivalents', 'failover']);
+const MODELS_RESERVED_KEYS = new Set(['temperature', 'max_tokens', 'profiles', 'routing', 'equivalents', 'failover', 'default']);
 
 // Models section: role names are open — any string key whose value is a model list is accepted.
 // Reserved sub-keys carry richer shapes (per-role temperatures, routing, etc.).
@@ -75,9 +75,12 @@ const modelsSectionSchema = z
     routing: z.record(z.string(), z.string()).optional(),
     equivalents: z.array(z.array(z.string())).optional(),
     failover: z.record(z.string(), z.array(z.string())).optional(),
+    default: z.array(z.string()).min(1).optional(),
   })
   .passthrough()
   .superRefine((value, ctx) => {
+    const defaultChain = (value as { default?: string[] }).default;
+    const defaultKey = defaultChain ? JSON.stringify(defaultChain) : null;
     for (const [key, raw] of Object.entries(value)) {
       if (MODELS_RESERVED_KEYS.has(key)) continue;
       const parsed = modelListSchema.safeParse(raw);
@@ -85,8 +88,17 @@ const modelsSectionSchema = z
         ctx.addIssue({ code: z.ZodIssueCode.custom, path: [key], message: `models.${key} must be a model name or an array of model names` });
         continue;
       }
+      const arr = parsed.data;
+      if (arr.length === 0) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, path: [key], message: `models.${key}: empty array; remove the key to inherit models.default.` });
+        continue;
+      }
+      if (defaultKey !== null && JSON.stringify(arr) === defaultKey) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, path: [key], message: `models.${key}: identical to models.default; remove the override.` });
+        continue;
+      }
       // Normalize: replace the raw entry with the parsed (always-array) form.
-      (value as Record<string, unknown>)[key] = parsed.data;
+      (value as Record<string, unknown>)[key] = arr;
     }
   });
 
@@ -235,8 +247,7 @@ export const saivageConfigSchema = z.object({
   telegram: telegramSectionSchema.optional(),
   notifications: notificationsSectionSchema.optional(),
   mcpServers: z.record(z.string(), mcpServerEntrySchema).optional(),
-  failover: z.record(z.string(), z.array(z.string())).optional(),
-});
+}).strict();
 
 // ── Derived Types ─────────────────────────────────────────────
 
@@ -345,6 +356,10 @@ export function loadConfig(projectRoot: string, env: EnvironmentSource = process
   // Interpolate env vars
   const { value: interpolated, warnings } = interpolateValue(rawObj, env);
 
+  if (isRecord(interpolated) && 'failover' in interpolated) {
+    throw new Error("Configuration validation failed:\n  - failover: Top-level 'failover' is no longer supported. Move entries under 'models.failover'.");
+  }
+
   // Validate with Zod
   const parsed = saivageConfigSchema.safeParse(interpolated);
   if (!parsed.success) {
@@ -392,9 +407,9 @@ export function getModelListForRole(
   }
 
   // Fallback to default
-  const fallback = (models as Record<string, unknown>)['default'];
+  const fallback = models.default;
   if (Array.isArray(fallback)) {
-    return fallback as string[];
+    return fallback;
   }
 
   throw new Error(`No model list configured for role '${role}' and no default.`);

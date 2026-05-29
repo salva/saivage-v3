@@ -21,7 +21,7 @@ import { decide } from '../permissions/index.js';
 import { assertAnalystInspectionTarget, isAnalystSecretPath, redactAnalystSecretValue } from './analyst-secret-classifier.js';
 import { runAuditedAnalystTool } from './analyst-tool-runner.js';
 import { queueNotification, resolveRecipient } from '../notifications/index.js';
-import { getRedactedConfig, mcpAdd, mcpEdit, mcpRemove, setFailoverOrder, setRoleRouting, setRuntimeSetting, setServerSetting } from './analyst-config-writer.js';
+import { getRedactedConfig, mcpAdd, mcpEdit, mcpRemove, setFailoverChain, setRoleRouting, setRuntimeSetting, setServerSetting } from './analyst-config-writer.js';
 
 /**
  * Convert a raw tool error message (often a stringified Zod issue array
@@ -141,7 +141,7 @@ export async function show_config(ctx: ToolContext, _params: Record<string, neve
 
 export async function restart_server(ctx: ToolContext, params: Record<string, never> = {}): Promise<ToolResult> { return runAuditedAnalystTool(ctx, params, { action: 'runtime.restart_server', safety_class: 'destructive', target_kind: 'runtime', getTargetId: () => 'server', run: async () => { if (!ctx.requestServerRestart) return { success: false, error: 'Server restart primitive is not available.' }; await ctx.requestServerRestart(); return { success: true, data: { restart_requested: true } }; } }); }
 
-type ReconfigureParams = { action: 'set_role_routing' | 'set_failover_order' | 'mcp_add' | 'mcp_edit' | 'mcp_remove' | 'set_runtime_setting' | 'set_server_setting'; role?: string; model_candidate?: string; ordered_providers?: string[]; name?: string; command?: string; args?: string[]; env?: Record<string, string>; key?: string; value?: unknown };
+type ReconfigureParams = { action: 'set_role_routing' | 'set_failover_chain' | 'mcp_add' | 'mcp_edit' | 'mcp_remove' | 'set_runtime_setting' | 'set_server_setting'; role?: string; model_candidate?: string; for_model?: string; ordered_failover_models?: string[]; name?: string; command?: string; args?: string[]; env?: Record<string, string>; key?: string; value?: unknown };
 
 export async function reconfigure(ctx: ToolContext, params: ReconfigureParams): Promise<ToolResult> {
   const actionName = `reconfigure.${params.action.replace(/^set_/, 'set_')}`;
@@ -152,7 +152,7 @@ export async function reconfigure(ctx: ToolContext, params: ReconfigureParams): 
     let result;
     switch (params.action) {
       case 'set_role_routing': result = setRoleRouting(ctx.projectRoot, params.role!, params.model_candidate!); break;
-      case 'set_failover_order': result = setFailoverOrder(ctx.projectRoot, params.role!, params.ordered_providers!); break;
+      case 'set_failover_chain': result = setFailoverChain(ctx.projectRoot, params.for_model!, params.ordered_failover_models!); break;
       case 'mcp_add':
         result = mcpAdd(ctx.projectRoot, params.name!, params.command!, params.args, params.env);
         if (result.success) { ctx.activeRuntime?.mcpManager?.reloadServersFromConfig(); await ctx.activeRuntime?.mcpManager?.startServer(params.name!); }

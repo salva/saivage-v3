@@ -14,7 +14,7 @@ function makeRoot(config: Record<string, unknown>): string {
   mkdirSync(join(saivageDir, 'agents', 'sessions'), { recursive: true });
   mkdirSync(join(saivageDir, 'agents', 'messages'), { recursive: true });
   writeFileSync(join(saivageDir, 'saivage.json'), JSON.stringify({
-    models: { default: ['test-model'], analyst: ['test-model'] },
+    models: { default: ['test-model'] },
     providers: { test: { models: ['test-model'], apiKey: 'test-key', baseUrl: 'http://test-provider.invalid/v1' } },
     runtime: { continuousImprovement: false, startup: { reconcileOrphanedSessions: false } },
     supervisor: { enabled: false, intervalMs: 60000, consecutiveStuckVerdicts: 3, logLines: 10 },

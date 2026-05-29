@@ -57,10 +57,11 @@ export function setRoleRouting(projectRoot: string, role: string, modelCandidate
   });
 }
 
-export function setFailoverOrder(projectRoot: string, role: string, orderedProviders: string[]): ConfigWriteResult {
+export function setFailoverChain(projectRoot: string, forModel: string, orderedFailoverModels: string[]): ConfigWriteResult {
   return readValidateWrite(projectRoot, (raw) => {
-    const failover = ensureRecord(raw, 'failover');
-    failover[role] = orderedProviders;
+    const models = ensureRecord(raw, 'models');
+    const failover = ensureRecord(models, 'failover');
+    failover[forModel] = orderedFailoverModels;
   });
 }
 

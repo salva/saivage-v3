@@ -267,19 +267,19 @@ describe('ModelRouter', () => {
       expect(chain).toHaveLength(0);
     });
 
-    it('should support top-level failover key', async () => {
+    it('top-level failover is no longer honoured by the router', async () => {
       const cfg = mockConfig({
         models: {
           planner: ['gpt-5.5'],
-        },
-        failover: {
-          'gpt-5.5': ['deepseek-v4-pro'],
         },
         providers: {
           github: { priority: 10, models: ['gpt-5.5'] },
           opencode: { priority: 20, models: ['deepseek-v4-pro'] },
         },
       });
+      // Synthetically inject a top-level failover key (no longer in SaivageConfig type);
+      // F07 requires the router to ignore it entirely.
+      (cfg as Record<string, unknown>).failover = { 'gpt-5.5': ['deepseek-v4-pro'] };
       const registry = new ProviderRegistry(cfg);
       registry.markFailed(
         { provider: 'github', account: null, model: 'gpt-5.5' },
@@ -288,8 +288,7 @@ describe('ModelRouter', () => {
       const router = new ModelRouter(cfg, registry);
 
       const chain = await router.resolve('planner');
-      expect(chain.length).toBeGreaterThan(0);
-      expect(chain[0].model).toBe('deepseek-v4-pro');
+      expect(chain.find((c) => c.model === 'deepseek-v4-pro')).toBeUndefined();
     });
 
     describe('auth profile integration', () => {
