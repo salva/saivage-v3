@@ -373,4 +373,60 @@ test.describe('saivage-v3 live deployment — failure-mode coverage', () => {
     expect(typeof body.serverAvailability).toBe('object');
     expect(typeof body.serverAvailability.components).toBe('object');
   });
+
+  test('GET /api/files lists the project root with name/path/type descriptors', async ({ request }) => {
+    const res = await request.get('/api/files');
+    expect(res.status()).toBe(200);
+    const body = await res.json();
+    expect(typeof body.path).toBe('string');
+    expect(Array.isArray(body.files)).toBe(true);
+    expect(body.files.length).toBeGreaterThan(0);
+    for (const f of body.files) {
+      expect(typeof f.name).toBe('string');
+      expect(typeof f.path).toBe('string');
+      expect(['file', 'directory']).toContain(f.type);
+    }
+  });
+
+  test('GET /api/files with a traversal path is rejected with 403', async ({ request }) => {
+    const res = await request.get('/api/files?path=../../etc');
+    expect(res.status()).toBe(403);
+    const body = await res.json();
+    expect(typeof (body.error ?? body.message)).toBe('string');
+  });
+
+  test('GET /api/config returns the config envelope with providers/models and a warnings list', async ({ request }) => {
+    const res = await request.get('/api/config');
+    expect(res.status()).toBe(200);
+    const body = await res.json();
+    expect(typeof body.config).toBe('object');
+    expect(typeof body.config.providers).toBe('object');
+    expect(typeof body.config.models).toBe('object');
+    expect(Array.isArray(body.warnings)).toBe(true);
+  });
+
+  test('WS /ws closes cleanly after receiving an initial frame', async ({ baseURL }) => {
+    const wsURL = (baseURL ?? 'http://10.0.3.170:8080').replace(/^http/i, 'ws') + '/ws';
+    const ws = new WebSocket(wsURL);
+    try {
+      await new Promise<void>((resolve, reject) => {
+        const timer = setTimeout(() => reject(new Error('WS open timeout')), 10_000);
+        ws.once('open', () => { clearTimeout(timer); resolve(); });
+        ws.once('error', (err) => { clearTimeout(timer); reject(err); });
+      });
+      await new Promise<void>((resolve, reject) => {
+        const timer = setTimeout(() => reject(new Error('WS first frame timeout')), 10_000);
+        ws.once('message', () => { clearTimeout(timer); resolve(); });
+      });
+      const closed = new Promise<number>((resolve, reject) => {
+        const timer = setTimeout(() => reject(new Error('WS close timeout')), 10_000);
+        ws.once('close', (code: number) => { clearTimeout(timer); resolve(code); });
+      });
+      ws.close(1000, 'test-complete');
+      const code = await closed;
+      expect([1000, 1005, 1006]).toContain(code);
+    } finally {
+      if (ws.readyState !== WebSocket.CLOSED) ws.terminate();
+    }
+  });
 });
