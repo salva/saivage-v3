@@ -1,0 +1,3 @@
+APPROVED. No architectural blocker: r2 fixes the r1 batch split, removes the cooldown cap, centralizes CandidateAvailability ownership, and preserves F05's contract-mismatch/no-cooldown rule.
+Advisory before implementation: align the expired server-hint rule (§2.2/tests say stay HEALTHY, policy pseudocode falls back to default COOLING) and delete or rework exported test-only createAgentAdapter so it cannot instantiate availability outside ActiveRuntime.
+VERDICT: APPROVED

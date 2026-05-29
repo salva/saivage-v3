@@ -1,0 +1,15 @@
+# Issue index — LLM gateway review, 2026-05
+
+| id  | title | severity | transversality | one-line summary |
+| --- | --- | --- | --- | --- |
+| [F01](F01-response-format-tools-mutex.md) | response_format + tools[] requested together | critical | cross-cutting (assembler, gateway, capabilities, classifier, cooldown) | planner/executor/reviewer always send both, which `opencode-go` rejects and `deepseek-v4-pro` mishandles. |
+| [F02](F02-deepseek-prose-extractjson-failure.md) | deepseek prose breaks extractJson | high | result-parser; triggered by F01 | when deepseek answers with prose, `extractJson` throws `Could not extract valid JSON from response`. |
+| [F03](F03-cooldown-policy-and-persistence.md) | cooldown ignores Retry-After and never persists | high | recovery/router stack | rate-limited candidates are retried 60 s later (config default) regardless of `resets_at`, and cooldown is lost on process restart. |
+| [F04](F04-observability-event-gaps.md) | LLM-routing events miss the fields that matter | medium | schemas + adapter emit sites | `model_selected` lacks `attempt`; `invocation_succeeded`/`_failed` lack `provider`/`model`/diagnostics. |
+| [F05](F05-envelope-vs-toolcalls-orthogonality.md) | envelope vs tool calls are not orthogonal | high | cross-cutting (contracts, gateways, adapter, parser) | the runtime asks for both result carriers from the same turn and then flattens them; root cause behind F01/F02/F09/F11. |
+| [F06](F06-tool-definition-typed-serializer.md) | no typed serializer for wire tool definitions | medium | runtime + 2 gateways | each gateway ad-hoc reshapes the internal tool definition; only `roles`/`action` are stripped today, by accident of mapping. |
+| [F07](F07-fallback-chain-duplication.md) | fallback chains duplicated per role; no tier abstraction | medium (evidence pending) | config schema | roles redeclare the same chains; cannot be confirmed against local config — needs container audit. |
+| [F08](F08-failure-classification-fragile.md) | failure classifier is HTTP-status-only and string-regex | medium-high | llm-errors + recovery policy | opencode-go's 400 contract error is classified as `server_transient` and triggers `cooldown_and_failover`; provider bodies are never parsed. |
+| [F09](F09-extractjson-brittle.md) | extractJson brace-span fallback is unsafe | medium | result-parser | the first-`{`-to-last-`}` slice can extract wrong or invalid JSON from prose. |
+| [F10](F10-response-format-not-a-capability.md) | `response_format` is not a capability | medium-high | capabilities + router + gateways + assembler | the router cannot skip JSON-mode-incapable providers; the codex gateway silently ignores `response_format`; no single owner. |
+| [F11](F11-response-format-and-toolcalls-dropped-on-followup.md) | `response_format` dropped on tool follow-up turn; tool calls dropped when content present | medium | adapter + agent-llm-gateway | new live bugs not in the operator brief: turn-to-turn drift in option assembly, and `result.content ?? JSON.stringify({toolCalls})` losing tool calls. |

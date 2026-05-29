@@ -1,0 +1,17 @@
+F1. Missing direct LLM gateway call site outside `AgentAdapter`.
+
+What is wrong: The analysis correctly treats `LlmCompleteOptions`, `LlmCompleteResult`, `LlmCallFn`, provider gateways, the adapter, the tool-call loop, and the result parser as cross-cutting, but it does not cover every consumer of the shared gateway/result contract. In particular, `AnalystLlmResolver` calls `LlmProviderGateway.complete` directly and consumes the old `{ content, toolCalls }` result shape. Any implementation based on the proposed discriminated `LlmCompleteResult` union will have to update this call site and preserve or redefine analyst tools-only behavior.
+
+Evidence: The analysis scopes the concrete runtime problem to "three operational roles — `planner`, `executor`, `reviewer`" and its out-of-scope/transversality sections name the adapter and provider gateways but not `AnalystLlmResolver`. Verified call site: [src/agents/analyst-llm-resolver.ts#L160](src/agents/analyst-llm-resolver.ts#L160) constructs `new LlmProviderGateway`, [src/agents/analyst-llm-resolver.ts#L163](src/agents/analyst-llm-resolver.ts#L163) calls `client.complete(...)`, [src/agents/analyst-llm-resolver.ts#L171](src/agents/analyst-llm-resolver.ts#L171) iterates `result.toolCalls`, and [src/agents/analyst-llm-resolver.ts#L179](src/agents/analyst-llm-resolver.ts#L179) returns `result.content` and `result.toolCalls`.
+
+Required change: Add `AnalystLlmResolver` to the call-site and transversality inventory, state how the new result union is consumed by tools-only analyst turns, and add a testable invariant or test-plan row for this direct provider-gateway consumer. If analyst behavior is intentionally out of scope, the analysis must say why the shared contract change still cannot break it.
+
+F2. Some file/line evidence is stale and not strict enough for approval.
+
+What is wrong: The analysis relies on specific file/line references, but at least the `extractJson` and tool-loop references no longer point at the statements being discussed in current HEAD. Because this document is intended to drive implementation, stale citations undermine the correctness-with-evidence axis.
+
+Evidence: The analysis states that `extractJson` throws `ResultParseError("Could not extract valid JSON from response")` from [src/agents/result-parser.ts#L257](src/agents/result-parser.ts#L257) and repeats the `extractJson` reference at [src/agents/result-parser.ts#L257](src/agents/result-parser.ts#L257) in its invariants. Verified current code has `extractJson` starting at [src/agents/result-parser.ts#L278](src/agents/result-parser.ts#L278) and the throw at [src/agents/result-parser.ts#L292](src/agents/result-parser.ts#L292). The analysis also cites `handleToolCallsLoop` at [src/agents/agent-adapter.ts#L196](src/agents/agent-adapter.ts#L196), while the current loop starts at [src/agents/agent-adapter.ts#L220](src/agents/agent-adapter.ts#L220) and the follow-up call that drops `response_format` is at [src/agents/agent-adapter.ts#L280](src/agents/agent-adapter.ts#L280).
+
+Required change: Refresh all source citations against current HEAD, especially the result parser and adapter tool-loop references, and make each link target the exact statement used as evidence rather than a nearby historical location.
+
+VERDICT: CHANGES_REQUESTED
