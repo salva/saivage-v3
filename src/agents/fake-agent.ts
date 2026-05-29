@@ -3,8 +3,8 @@ import { resolve } from 'node:path';
 import type { ReviewAssessment, CardStatus, ArtifactRef, AgentMessage, HandoffSummary, AgentSession } from '../schemas/index.js';
 import type { AgentExecutionPort, PlannerInvocationRequest, ExecutorInvocationRequest, ReviewerInvocationRequest, SessionReinvokeRequest, RuntimeActivationLedgerPort } from '../contracts/index.js';
 import { appendMessage, completeSession, createSession, markSessionWaiting } from '../agents/session-persistence.js';
+import type { ActiveRuntimeStampSource } from '../agents/session-persistence.js';
 import type { PlannerResult, ExecutorResult, ReviewerResult, PlannerStatus, ExecutorFallbackReason } from '../agents/result-parser.js';
-import type { ActiveRuntime } from '../runtime/control-api.js';
 
 export interface FakeArtifactDef {
   sourceFile: string;
@@ -41,7 +41,7 @@ export interface FakePlannerResult {
 
 export interface FakeReviewerResult { assessment: ReviewAssessment; }
 export interface FakeAgentFixture { name: string; planner?: FakePlannerResult[]; executor?: Record<string, FakeExecutorResult>; reviewer?: FakeReviewerResult[]; }
-export interface FakeAgentConfig { mapping: Record<string, string>; fixtureDir: string; saivageDir?: string; autoActivateCreatedCards?: boolean; activationLedger?: RuntimeActivationLedgerPort; activeRuntime?: ActiveRuntime; }
+export interface FakeAgentConfig { mapping: Record<string, string>; fixtureDir: string; saivageDir?: string; autoActivateCreatedCards?: boolean; activationLedger?: RuntimeActivationLedgerPort; activeRuntime?: ActiveRuntimeStampSource; }
 interface FakeActiveSession { sessionId: string; role: 'planner' | 'executor' | 'reviewer'; goalId: string; cardId: string | null; lastAction: string; nextAction: string; contextSummary: string; }
 
 function convertPlannerResult(raw: FakePlannerResult): PlannerResult {
@@ -67,12 +67,13 @@ export class FakeAgentAdapter implements AgentExecutionPort {
   constructor(config: FakeAgentConfig) { this.config = config; }
   setSaivageDir(saivageDir: string): void { this.config = { ...this.config, saivageDir }; }
   setActivationLedger(activationLedger: RuntimeActivationLedgerPort): void { this.config = { ...this.config, activationLedger }; }
+  setActiveRuntime(activeRuntime: ActiveRuntimeStampSource): void { this.config = { ...this.config, activeRuntime }; }
   private loadFixture(name: string): FakeAgentFixture { const fixturePath = resolve(this.config.fixtureDir, `${name}.json`); if (!existsSync(fixturePath)) throw new Error(`FakeAgent fixture not found: ${fixturePath}`); return JSON.parse(readFileSync(fixturePath, 'utf-8')) as FakeAgentFixture; }
   private resolveFixture(id: string): FakeAgentFixture { const name = this.config.mapping[id] ?? this.config.mapping['*']; if (!name) throw new Error(`No FakeAgent fixture mapping for '${id}' and no '*' wildcard configured.`); return this.loadFixture(name); }
   private nextSessionId(role: string): string { this.sessionCounter += 1; return `fake-${role}-${this.sessionCounter}`; }
   private registerSession(role: 'planner' | 'executor' | 'reviewer', goalId: string, cardId: string | null, nextAction: string, fixtureName: string, requestedSessionId?: string): string { const sessionId = requestedSessionId ?? this.nextSessionId(role); this.activeSessions.set(sessionId, { sessionId, role, goalId, cardId, lastAction: 'Session started', nextAction, contextSummary: `Goal: ${goalId}, Card: ${cardId ?? 'N/A'}` }); this.cancelledSessions.delete(sessionId); this.sessionFixtures.set(sessionId, { role, fixtureName, goalId, cardId }); this.lastSessionByRoleAndTarget.set(`${role}:${goalId}:${cardId ?? '_'}`, sessionId); return sessionId; }
   private completeSession(sessionId: string): void { this.activeSessions.delete(sessionId); this.cancelledSessions.delete(sessionId); }
-  private get activeRuntime(): ActiveRuntime { if (!this.config.activeRuntime) throw new Error('FakeAgentAdapter fixture persistence requires ActiveRuntime.'); return this.config.activeRuntime; }
+  private get activeRuntime(): ActiveRuntimeStampSource { if (!this.config.activeRuntime) throw new Error('FakeAgentAdapter fixture persistence requires ActiveRuntime.'); return this.config.activeRuntime; }
   getLastSessionId(role: 'planner' | 'executor' | 'reviewer', goalId: string, cardId: string | null = null): string | null { return this.lastSessionByRoleAndTarget.get(`${role}:${goalId}:${cardId ?? '_'}`) ?? null; }
   getSessionRecord(sessionId: string): AgentSession | null { const session = this.sessionFixtures.get(sessionId); if (!session) return null; return { id: sessionId, role: session.role, goal_card_id: session.goalId, card_id: session.cardId, status: 'active', started_at: new Date().toISOString() }; }
   cancelSession(sessionId: string): boolean { if (!this.activeSessions.has(sessionId)) return false; this.cancelledSessions.add(sessionId); this.activeSessions.delete(sessionId); return true; }

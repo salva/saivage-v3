@@ -35,6 +35,94 @@ export interface SessionRoundState { nextRound: number; currentRoundId: string |
 
 function emptyActivity(): SessionActivity { return { status: 'idle', pending_calls: [], updated_at: new Date().toISOString() }; }
 
+
+export interface ActiveRuntimeStampSource {
+  openAssistantRound(sessionId: string): RoundStamp;
+  stampInRound(sessionId: string): RoundStamp;
+  stampUserMessage(sessionId: string): RoundStamp;
+  stampPre(sessionId: string): RoundStamp;
+  stampCompacted(sessionId: string): RoundStamp;
+  stampDiagnosticInCurrentRound(sessionId: string): RoundStamp;
+  closeRound(sessionId: string): void;
+  recordAppend(message: AgentMessage): void;
+  getActivityStatus(sessionId: string): SessionActivity;
+}
+
+export class ActiveRuntimeStampCounter implements ActiveRuntimeStampSource {
+  private _roundStates = new Map<string, SessionRoundState>();
+
+  private getRoundState(sessionId: string): SessionRoundState {
+    let state = this._roundStates.get(sessionId);
+    if (!state) {
+      state = { nextRound: 1, currentRoundId: null, nextMessageIndex: 0, nextBlockIndex: 0, compactedCount: 0, activity: emptyActivity() };
+      this._roundStates.set(sessionId, state);
+    }
+    return state;
+  }
+
+  openAssistantRound(sessionId: string): RoundStamp {
+    const state = this.getRoundState(sessionId);
+    state.currentRoundId = `r-assistant-${state.nextRound++}`;
+    state.nextMessageIndex = 0;
+    state.nextBlockIndex = 0;
+    state.activity = { ...state.activity, status: 'thinking', updated_at: new Date().toISOString() };
+    return this.stampInRound(sessionId);
+  }
+
+  stampInRound(sessionId: string): RoundStamp {
+    const state = this.getRoundState(sessionId);
+    if (!state.currentRoundId) state.currentRoundId = `r-assistant-${state.nextRound++}`;
+    return { round_id: state.currentRoundId, message_index: state.nextMessageIndex++, block_index: state.nextBlockIndex++ };
+  }
+
+  stampUserMessage(sessionId: string): RoundStamp {
+    const state = this.getRoundState(sessionId);
+    state.currentRoundId = null;
+    state.nextBlockIndex = 0;
+    return { round_id: `r-user-${state.nextRound++}`, message_index: 0, block_index: 0 };
+  }
+
+  stampPre(sessionId: string): RoundStamp {
+    const state = this.getRoundState(sessionId);
+    return { round_id: `r-pre-${state.nextRound++}`, message_index: 0, block_index: 0 };
+  }
+
+  stampCompacted(sessionId: string): RoundStamp {
+    const state = this.getRoundState(sessionId);
+    state.compactedCount += 1;
+    state.currentRoundId = null;
+    return { round_id: `r-compacted-${state.compactedCount}`, message_index: 0, block_index: 0 };
+  }
+
+  stampDiagnosticInCurrentRound(sessionId: string): RoundStamp {
+    const state = this.getRoundState(sessionId);
+    const round_id = state.currentRoundId ?? `r-diagnostic-${state.nextRound++}`;
+    return { round_id, message_index: state.nextMessageIndex++, block_index: state.nextBlockIndex++ };
+  }
+
+  closeRound(sessionId: string): void {
+    const state = this.getRoundState(sessionId);
+    state.currentRoundId = null;
+    state.nextBlockIndex = 0;
+    state.activity = { ...state.activity, status: 'idle', updated_at: new Date().toISOString() };
+  }
+
+  recordAppend(message: AgentMessage): void {
+    const state = this.getRoundState(message.session_id);
+    if (message.kind === 'tool_call' && message.tool_call_id) {
+      state.activity = { status: 'tool_calling', pending_calls: [...state.activity.pending_calls, { id: message.tool_call_id, tool: message.tool ?? 'tool', started_at: message.timestamp }], updated_at: new Date().toISOString() };
+    } else if ((message.kind === 'tool_result' || message.kind === 'tool_error') && message.tool_call_id) {
+      state.activity = { status: 'responding', pending_calls: state.activity.pending_calls.filter((call) => call.id !== message.tool_call_id), updated_at: new Date().toISOString() };
+    } else if (message.kind === 'text' && message.role === 'assistant') {
+      state.activity = { ...state.activity, status: 'responding', updated_at: new Date().toISOString() };
+    }
+  }
+
+  getActivityStatus(sessionId: string): SessionActivity {
+    return this.getRoundState(sessionId).activity;
+  }
+}
+
 export class ActiveRuntime {
   private _runtime: Runtime;
   private _agentAdapter: AgentAdapter;

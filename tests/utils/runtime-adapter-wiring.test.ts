@@ -8,7 +8,7 @@ import { Runtime } from '../../src/runtime/runtime.js';
 import { FakeAgentAdapter, type FakeAgentFixture } from '../../src/agents/fake-agent.js';
 import { releaseLock } from '../../src/runtime/lock.js';
 import type { CardRecord } from '../../src/schemas/types.js';
-import type { AgentRuntime } from '../../src/agents/agent-runtime.js';
+import type { AgentExecutionPort as AgentRuntime } from '../../src/contracts/index.js';
 
 function makeFixtureDir(tmpDir: string): string {
   const dir = join(tmpDir, 'fixtures');
@@ -236,7 +236,7 @@ describe('Runtime Adapter Wiring', () => {
 
     it('any object implementing AgentRuntime can be injected', () => {
       const minimalRt: AgentRuntime = {
-        invokePlanner(_goalId: string) {
+        invokePlanner(_request) {
           return {
             created_cards: [],
             updated_cards: [],
@@ -244,7 +244,7 @@ describe('Runtime Adapter Wiring', () => {
             summary: 'done',
           };
         },
-        invokeExecutor(_cardId: string, _goalId: string) {
+        invokeExecutor(_request) {
           return {
             card_id: 'code-test',
             status: 'done' as const,
@@ -254,7 +254,7 @@ describe('Runtime Adapter Wiring', () => {
             fallback_with_evidence: null,
           };
         },
-        invokeReviewer(_goalId: string) {
+        invokeReviewer(_request) {
           return {
             assessment: {
               result: 'pass' as const,

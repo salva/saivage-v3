@@ -106,4 +106,26 @@ test.describe('saivage-v3 live deployment — extra contract coverage', () => {
     const texts = afterBody.entries.map((e: { content?: string; text?: string }) => e.content ?? e.text ?? '');
     expect(texts.some((t: string) => t.includes(marker))).toBe(true);
   });
+
+  test('destructive-confirmation gate is gone: analyst card mutation request is not rejected with authorized-surface error', async ({ request }) => {
+    const before = await request.get('/api/chats/analyst');
+    const beforeCount = (await before.json()).entries.length;
+
+    const send = await request.post('/api/chats/analyst', {
+      data: {
+        content: "update the project card title to 'E2E Gate Removal Smoke Test'",
+        workspaceContext: { view: 'dashboard', entityId: null, refinement: null },
+      },
+      timeout: 120_000,
+    });
+    expect(send.status(), `POST /api/chats/analyst — body=${await send.text().catch(() => '<unreadable>')}`).toBe(200);
+
+    const after = await request.get('/api/chats/analyst');
+    const entries = (await after.json()).entries.slice(beforeCount) as Array<{ content?: string; text?: string }>;
+    const text = entries.map((e) => e.content ?? e.text ?? '').join('\n');
+    expect(text).not.toContain('requires an authorized surface');
+    expect(text).not.toContain('confirmed/preview_hash');
+    expect(text).not.toContain('preview to proceed');
+    expect(text).not.toContain('preview_only');
+  });
 });

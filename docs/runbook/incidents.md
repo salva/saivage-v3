@@ -61,19 +61,18 @@ What to do:
 2. Use `/api/state`, card detail, and Debug as the source of truth after reconnect.
 3. If offline persists, verify the service process, port binding, and journal logs.
 
-## Preview-only or denied control action
+## Denied control action
 
-Mutating controls use a static authorization table keyed by actor, surface, and safety class.
+Mutating controls use a static authorization table keyed by actor, surface, and safety class. The verdict is `allow` or `deny`; there is no interactive confirmation gate.
 
-- `deny` fails and writes a denied audit entry.
-- `preview_only` returns a preview and `preview_hash`; committing that bounded tool/control action requires `confirmed: true` and the matching hash. Preview hashes do not authorize card status changes, runtime start/stop, planner-state updates, or `activate_card`.
 - `allow` commits immediately through the canonical service.
+- `deny` fails and writes a denied audit entry.
 
 What to do:
 
 1. Confirm the intended surface: `web-chat`, `web-ui`, `rest`, `cli`, `runtime`, or `telegram`.
-2. Re-submit with `confirmed: true` and the matching preview hash only for the same preview-only tool/control action; use Runtime Console/API `start_project`/`stop_project` or parent-planner `activate_card` for execution control.
-3. Inspect `/api/control-actions` to see whether the request was denied, rejected, previewed, or committed.
+2. Use the canonical owner for the action: Runtime Console/API `start_project`/`stop_project` or parent-planner `activate_card` for execution control.
+3. Inspect `/api/control-actions` to see whether the request was denied or committed.
 4. Change the authz table in `src/agents/authz.ts` rather than bypassing individual routes if policy is wrong.
 
 ## Frozen, paused, or error runtime state

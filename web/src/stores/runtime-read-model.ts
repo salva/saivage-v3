@@ -128,7 +128,7 @@ export function selectLiveUpdateState(options: {
   wsStale: boolean;
 }): LiveUpdateState {
   if (options.connectionState === 'unauthorized' || options.unauthorized) return 'unauthorized';
-  if (options.connectionState === 'no-token') return 'no-token';
+  if (options.connectionState === 'no-token') return options.stale ? 'stale' : 'offline';
   if (options.connectionState === 'connecting') return 'connecting';
   if (options.connectionState === 'offline') return options.stale ? 'stale' : 'offline';
   if (options.stale || options.wsStale) return 'stale';
@@ -141,7 +141,7 @@ export function selectLiveUpdateLabel(state: LiveUpdateState): string {
     case 'connecting': return 'Live updates reconnecting';
     case 'offline': return 'Live updates offline';
     case 'unauthorized': return 'Live updates unauthorized';
-    case 'no-token': return 'No API token';
+    case 'no-token': return 'Live updates offline';
     case 'stale': return 'Live updates stale';
   }
 }
@@ -152,7 +152,7 @@ export function selectLiveUpdateDetail(state: LiveUpdateState): string {
     case 'connecting': return 'Trying to reconnect WebSocket live updates.';
     case 'offline': return 'Using the last REST snapshot only until live updates reconnect.';
     case 'unauthorized': return 'Token was rejected for API/WebSocket access.';
-    case 'no-token': return 'Docs are public, but API and WebSocket access require a token.';
+    case 'no-token': return 'Using the last REST snapshot only until live updates reconnect.';
     case 'stale': return 'Live updates have gone quiet; refresh to confirm current runtime truth.';
   }
 }

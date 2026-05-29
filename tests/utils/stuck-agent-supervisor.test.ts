@@ -15,7 +15,7 @@ import {
 import { Runtime } from '../../src/runtime/runtime.js';
 import { initProjectTree } from '../../src/persistence/file-tree.js';
 import { releaseLock } from '../../src/runtime/lock.js';
-import type { AgentRuntime } from '../../src/agents/agent-runtime.js';
+import type { AgentExecutionPort as AgentRuntime } from '../../src/contracts/index.js';
 
 interface MockedDeps extends SupervisorDeps {
   getRecentLogs: jest.MockedFunction<SupervisorDeps['getRecentLogs']>;

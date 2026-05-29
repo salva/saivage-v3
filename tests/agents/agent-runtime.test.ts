@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { initProjectTree } from '../../src/persistence/file-tree.js';
 import { FakeAgentAdapter, type FakeAgentFixture } from '../../src/agents/fake-agent.js';
 import { AgentAdapter } from '../../src/agents/agent-adapter.js';
-import type { AgentRuntime } from '../../src/agents/agent-runtime.js';
+import type { AgentExecutionPort as AgentRuntime } from '../../src/contracts/index.js';
 import type { SaivageConfig } from '../../src/agents/config-schema.js';
 import type { PlannerResult } from '../../src/agents/result-parser.js';
 import { getSessionMessages, listSessions } from '../../src/agents/session-persistence.js';

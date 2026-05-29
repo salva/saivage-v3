@@ -14,7 +14,10 @@ function makeRoot(config: Record<string, unknown>): string {
   mkdirSync(join(saivageDir, 'agents', 'sessions'), { recursive: true });
   mkdirSync(join(saivageDir, 'agents', 'messages'), { recursive: true });
   writeFileSync(join(saivageDir, 'saivage.json'), JSON.stringify({
-    models: { default: ['test-model'] },
+    models: { default: ['test-model'], analyst: ['test-model'] },
+    providers: { test: { models: ['test-model'], apiKey: 'test-key', baseUrl: 'http://test-provider.invalid/v1' } },
+    runtime: { continuousImprovement: false, startup: { reconcileOrphanedSessions: false } },
+    supervisor: { enabled: false, intervalMs: 60000, consecutiveStuckVerdicts: 3, logLines: 10 },
     server: { host: '127.0.0.1', port: 18080 },
     ...config,
   }, null, 2));
@@ -66,7 +69,8 @@ describe('server Telegram startup diagnostics', () => {
       const server = await createServer(root, false);
       await server.stop();
     });
-    expect(output).toContain('missing_recipients');
+    expect(output).toContain('Telegram bot requires ActiveRuntime.');
+    expect(output).toContain('missing_bot_token');
     expect(output).not.toContain('123456:TEST_TOKEN');
     expect(operatorLog(root)).toBe('');
   });
@@ -84,12 +88,12 @@ describe('server Telegram startup diagnostics', () => {
     expect(operatorLog(root)).toBe('');
   });
 
-  it('registers a Telegram adapter for valid configured recipients without startup diagnostic', async () => {
+  it('does not register a Telegram adapter without ActiveRuntime even for valid configured recipients', async () => {
     mockTelegramLongPoll();
     const root = makeRoot({ telegram: { botToken: '123456:TEST_TOKEN', notificationChatIds: [111111, 222222, 111111] }, notifications: { channels: ['telegram'] } });
     const server = await createServer(root, false);
-    expect(getProjectNotificationDeliveryAdapters(root).map((adapter) => adapter.name)).toEqual(['telegram']);
+    expect(getProjectNotificationDeliveryAdapters(root)).toEqual([]);
     await server.stop();
-    expect(operatorLog(root)).not.toContain('Telegram notification readiness');
+    expect(operatorLog(root)).toBe('');
   });
 });

@@ -3,6 +3,10 @@ import type { ParsedRoundId, TimelineRoundKind } from './types';
 const ROUND_RE = /^r-(pre|user|assistant|diagnostic|compacted)-(\d+)$/;
 const TIERS: Record<TimelineRoundKind, number> = { pre: 0, user: 1, assistant: 2, diagnostic: 2, compacted: 3 };
 
+export function isRoundId(roundId: unknown): roundId is string {
+  return typeof roundId === 'string' && ROUND_RE.test(roundId);
+}
+
 export function parseRoundId(roundId: string): ParsedRoundId {
   const match = ROUND_RE.exec(roundId);
   if (!match) throw new Error(`Invalid round id: ${roundId}`);

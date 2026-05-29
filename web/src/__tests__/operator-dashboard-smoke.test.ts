@@ -3,10 +3,10 @@ import dashboardSource from '../views/DashboardView.vue?raw';
 import appShellSource from '../components/layout/AppShell.vue?raw';
 
 describe('operator dashboard S06 smoke contract', () => {
-  it('keeps the analyst composer and passive runtime refresh without start/stop buttons', () => {
-    expect(dashboardSource).toContain('Analyst Chat');
-    expect(dashboardSource).toContain('class="chat-input"');
-    expect(dashboardSource).toContain('@click="sendChat"');
+  it('keeps passive runtime refresh and removes the dashboard-local analyst chat', () => {
+    expect(dashboardSource).not.toContain('Analyst Chat');
+    expect(dashboardSource).not.toContain('class="chat-input"');
+    expect(dashboardSource).not.toContain('@click="sendChat"');
     expect(dashboardSource).toContain('Runtime Console');
     expect(dashboardSource).toContain('@click="refreshRuntime"');
 

@@ -1,10 +1,11 @@
 import type { FastifyInstance } from 'fastify';
+import type { ActiveRuntime } from '../../runtime/control-api.js';
 import { registerOperatorContractRoutes } from './operator-contracts.js';
 import { configureAuthPolicy } from '../auth-policy.js';
 
-export function registerCardRoutes(fastify: FastifyInstance, projectRoot: string): void {
+export function registerCardRoutes(fastify: FastifyInstance, projectRoot: string, activeRuntime?: ActiveRuntime): void {
   configureAuthPolicy({ apiToken: process.env['SAIVAGE_API_TOKEN'] });
-  registerOperatorContractRoutes({ fastify, projectRoot });
+  registerOperatorContractRoutes({ fastify, projectRoot, activeRuntime });
 }
 
 /*

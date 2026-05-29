@@ -7,7 +7,7 @@ import { TOOL_REGISTRY } from '../../src/agents/analyst-llm-resolver.js';
 import { PlannerControlExecutor } from '../../src/agents/planner-control-executor.js';
 import { operatorApiContracts } from '../../src/contracts/operator-api.js';
 import { Runtime } from '../../src/runtime/runtime.js';
-import { appendRuntimeRun, readRuntimeState } from '../../src/runtime/state.js';
+import { appendRuntimeRun, readRuntimeState, upsertRuntimeActivation } from '../../src/runtime/state.js';
 import { CardStore } from '../../src/cards/card-store.js';
 import { initProjectTree } from '../../src/persistence/file-tree.js';
 
@@ -22,10 +22,20 @@ function setupCards() {
   return { projectRoot, cardStore };
 }
 
+
+function activationLedger(projectRoot: string) {
+  return {
+    readState: () => readRuntimeState(projectRoot),
+    appendRun: (input: Parameters<typeof appendRuntimeRun>[1]) => appendRuntimeRun(projectRoot, input),
+    upsertActivation: (input: Parameters<typeof upsertRuntimeActivation>[1]) => upsertRuntimeActivation(projectRoot, input),
+  };
+}
+
 describe('runtime redesign final golden behavior', () => {
   it('active backend APIs expose explicit start_project/stop_project and no lets_dance or directive wakeup root kickoff', async () => {
     const projectRoot = tempRoot('saivage-runtime-golden-start-');
     try {
+      initProjectTree(projectRoot);
       expect('runtime.startProject' in operatorApiContracts).toBe(false);
       expect('runtime.stopProject' in operatorApiContracts).toBe(false);
       expect(ANALYST_TOOL_NAMES).not.toContain('lets_dance');
@@ -51,7 +61,7 @@ describe('runtime redesign final golden behavior', () => {
       ctx.cardStore.update('code-a', { status: 'active' });
       expect(readRuntimeState(ctx.projectRoot)?.runtime_runs ?? []).toHaveLength(0);
 
-      const exec = new PlannerControlExecutor({ projectRoot: ctx.projectRoot, cardStore: ctx.cardStore });
+      const exec = new PlannerControlExecutor({ projectRoot: ctx.projectRoot, cardStore: ctx.cardStore, activationLedger: activationLedger(ctx.projectRoot) });
       const rejected = await exec.execute({ toolName: 'activate_card', toolCallId: 'call-a', argumentsJson: JSON.stringify({ cardId: 'code-a' }), parentCardId: 'goal-a', sessionId: 'planner:goal-a' });
       expect(rejected.kind).toBe('tool_error');
       expect(JSON.parse(rejected.content).actionable_error.code).toBe('activate_card_parent_not_active');
@@ -98,8 +108,6 @@ describe('runtime redesign final golden behavior', () => {
     expect(combined).toContain('Runtime Console');
     expect(combined).toContain('Planning Tree');
     expect(combined).toMatch(/status[^.]+not[^.]+execution trigger|status[^.]+never an execution trigger|status changes?[^.]+never enqueue/i);
-    const retiredPhraseTokens = ['\\x63onfirmed[`\\w\\s/]*and[`\\w\\s/]*\\x70review_\\x68ash', '\\x70review_\\x68ash[`\\w\\s/]*.*\\x63onfirmed'];
-    expect(combined).toMatch(new RegExp(retiredPhraseTokens.join('|'), 'i'));
     expect(combined).not.toMatch(/lets_dance/);
     expect(combined).not.toMatch(/project-directive/);
     expect(combined).not.toMatch(/pending-confirmation/);

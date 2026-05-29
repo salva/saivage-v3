@@ -98,26 +98,24 @@ Core rules:
 - every mutating call declares a safety class:
   `read_only | low | high | destructive | deployment`
 - a static authz table keyed by `(actor, surface, safety_class)`
-  returns `allow | deny | preview_only`
-- confirmation is driven by the verdict, not the safety class alone
-- `preview_only` is a bounded tool/control safety verdict: commit requires
-  `confirmed: true` plus a matching preview hash derived from the request
-  parameters, and this handshake is not an execution trigger for card status,
-  planner state, runtime start/stop, or `activate_card`
+  returns `allow | deny`
+- `allow` commits immediately through the canonical service
+- `deny` rejects and writes a denied audit entry
 - every mutating call writes one control-action audit entry
 - read-only inspection paths rely on transport auth plus redaction and
   do not fill the audit log
 
 Default behavior highlights:
 
-- analyst on `web-chat`: `preview_only` for `high` and `destructive`,
-  `deny` for `deployment`
-- analyst on `telegram`: `preview_only` for `high`, `deny` for
-  `destructive` and `deployment`
-- REST and CLI are more permissive by default
+- user on `web-chat`, `rest`, and `cli`: all safety classes `allow`
+- analyst on `web-chat`: `allow` for `read_only`/`low`/`high`/`destructive`, `deny` for `deployment`
+- analyst on `telegram`: `deny` for `destructive` and `deployment`
+- analyst on `rest`: `deny` for `destructive` and `deployment`
+- planner / executor / reviewer on `runtime`: `deny` for `high`/`destructive`/`deployment`
 
-Operators customize the table in source instead of adding per-tool
-confirmation drift.
+Operators customize the table in source rather than adding per-tool
+confirmation drift. There is no interactive confirmation gate: a verdict
+of `allow` commits immediately and `deny` rejects.
 
 ---
 

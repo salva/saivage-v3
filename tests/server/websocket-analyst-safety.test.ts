@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, jest } from '@jest/globals';
 import type { WebSocket } from 'ws';
 import { RuntimeRunEventSchema, parseKnownWsEnvelope } from '../../src/contracts/operator-events.js';
+import { createTestActiveRuntime } from '../helpers/test-active-runtime.js';
 
 const mockGetOrCreateAnalystSession = jest.fn();
 const mockGetAnalystHandler = jest.fn();
@@ -61,7 +62,7 @@ describe('websocket analyst safety', () => {
   it('websocket fanout projection bounds and redacts analyst tool summaries', async () => {
     const { ws } = createSocket();
     const { route, fastify } = createRoute();
-    registerWebSocket(fastify, '/tmp/project');
+    registerWebSocket(fastify, '/tmp/project', createTestActiveRuntime());
     route.handler(ws, { headers: {}, query: {} });
 
     const { EventBus } = await import('../../src/events/bus.js');
@@ -79,7 +80,7 @@ describe('websocket analyst safety', () => {
   it('broadcast only reaches authenticated websocket clients', () => {
     configureAuthPolicy({ apiToken: 'top-secret' });
     const { route, fastify } = createRoute();
-    registerWebSocket(fastify, '/tmp/project');
+    registerWebSocket(fastify, '/tmp/project', createTestActiveRuntime());
 
     const authorized = createSocket();
     const unauthorized = createSocket();
@@ -99,7 +100,7 @@ describe('websocket analyst safety', () => {
   it('accepts a valid one-use websocket ticket and sends connected status', () => {
     configureAuthPolicy({ apiToken: 'arch004-test-token' });
     const { route, fastify } = createRoute();
-    registerWebSocket(fastify, '/tmp/project');
+    registerWebSocket(fastify, '/tmp/project', createTestActiveRuntime());
     const ticket = getAuthPolicy().issueWebSocketTicket().ticket;
     const { ws } = createSocket();
 
@@ -132,7 +133,7 @@ describe('websocket analyst safety', () => {
 
   it('sends a valid runtime-state snapshot without CardStore health when no active runtime exists', () => {
     const { route, fastify } = createRoute();
-    registerWebSocket(fastify, '/tmp/project');
+    registerWebSocket(fastify, '/tmp/project', createTestActiveRuntime());
     const { ws } = createSocket();
 
     route.handler(ws, { headers: {}, query: {} });
@@ -145,7 +146,7 @@ describe('websocket analyst safety', () => {
   it('rejects /ws token query, missing, invalid, and reused tickets with generic 1008 close reason', () => {
     configureAuthPolicy({ apiToken: 'arch004-test-token' });
     const { route, fastify } = createRoute();
-    registerWebSocket(fastify, '/tmp/project');
+    registerWebSocket(fastify, '/tmp/project', createTestActiveRuntime());
 
     const tokenSocket = createSocket();
     route.handler(tokenSocket.ws, { headers: {}, query: { token: 'arch004-test-token' } });
@@ -176,7 +177,7 @@ describe('websocket analyst safety', () => {
     configureAuthPolicy({ apiToken: 'arch004-test-token' });
     jest.useFakeTimers();
     const { route, fastify } = createRoute();
-    registerWebSocket(fastify, '/tmp/project');
+    registerWebSocket(fastify, '/tmp/project', createTestActiveRuntime());
     const ticket = getAuthPolicy().issueWebSocketTicket().ticket;
     jest.advanceTimersByTime(31_000);
     const { ws } = createSocket();
@@ -211,7 +212,7 @@ describe('websocket analyst safety', () => {
         }],
       })),
     });
-    registerWebSocket(fastify, '/tmp/project');
+    registerWebSocket(fastify, '/tmp/project', createTestActiveRuntime());
     route.handler(ws, { headers: {}, query: {} });
 
     await handlers.get('message')?.(Buffer.from(JSON.stringify({ type: 'message', content: { text: 'inspect secrets' } })));
@@ -229,7 +230,7 @@ describe('websocket analyst safety', () => {
     const { ws, handlers } = createSocket();
     const { route, fastify } = createRoute();
     mockGetAnalystHandler.mockReturnValue({ handleMessage: jest.fn() });
-    registerWebSocket(fastify, '/tmp/project');
+    registerWebSocket(fastify, '/tmp/project', createTestActiveRuntime());
     route.handler(ws, { headers: {}, query: {} });
 
     await handlers.get('message')?.(Buffer.from(JSON.stringify({ type: 'message', content: {} })));
@@ -243,7 +244,7 @@ describe('websocket analyst safety', () => {
   it('validates activity fanout through the shared registry', async () => {
     const { ws } = createSocket();
     const { route, fastify } = createRoute();
-    registerWebSocket(fastify, '/tmp/project');
+    registerWebSocket(fastify, '/tmp/project', createTestActiveRuntime());
     route.handler(ws, { headers: {}, query: {} });
 
     const { EventBus } = await import('../../src/events/bus.js');
@@ -277,7 +278,7 @@ describe('websocket analyst safety', () => {
       };
     });
     mockGetAnalystHandler.mockReturnValue({ handleMessage });
-    registerWebSocket(fastify, '/tmp/project');
+    registerWebSocket(fastify, '/tmp/project', createTestActiveRuntime());
     route.handler(ws, { headers: {}, query: {} });
 
     const firstTurn = handlers.get('message')?.(Buffer.from(JSON.stringify({ type: 'message', content: { text: 'first' } })));
@@ -329,7 +330,7 @@ describe('websocket analyst safety', () => {
         }),
       };
     });
-    registerWebSocket(fastify, '/tmp/project');
+    registerWebSocket(fastify, '/tmp/project', createTestActiveRuntime());
     route.handler(ws, { headers: {}, query: {} });
 
     await handlers.get('message')?.(Buffer.from(JSON.stringify({ type: 'message', content: { text: 'activity please' } })));
@@ -360,7 +361,7 @@ describe('websocket analyst safety', () => {
         },
       })),
     });
-    registerWebSocket(fastify, '/tmp/project');
+    registerWebSocket(fastify, '/tmp/project', createTestActiveRuntime());
     route.handler(ws, { headers: {}, query: {} });
 
     await handlers.get('message')?.(Buffer.from(JSON.stringify({ type: 'message', content: { text: 'large response' } })));

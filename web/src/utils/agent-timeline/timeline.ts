@@ -1,6 +1,6 @@
 import type { ActivityStatus, ConversationEntry } from '../../api/types';
-import { parseRoundId, roundIdSortKey } from './round-id';
-import type { AgentTimeline, TimelineRound, ToolPair } from './types';
+import { isRoundId, parseRoundId, roundIdSortKey } from './round-id';
+import type { AgentTimeline, TimelineRound, TimelineRoundKind, ToolPair } from './types';
 
 function compareEntry(a: ConversationEntry, b: ConversationEntry): number {
   return a.message_index - b.message_index || a.block_index - b.block_index || a.timestamp.localeCompare(b.timestamp) || a.id.localeCompare(b.id);
@@ -15,12 +15,26 @@ function buildToolPairs(entries: ConversationEntry[]): ToolPair[] {
   });
 }
 
+function fallbackRoundKind(entry: ConversationEntry): TimelineRoundKind {
+  if (entry.role === 'user') return 'user';
+  if (entry.kind === 'model_issue' || entry.kind === 'model_repair' || entry.kind === 'model_recovered') return 'diagnostic';
+  return 'assistant';
+}
+
+function normalizeEntry(entry: ConversationEntry, index: number): ConversationEntry {
+  const round_id = isRoundId(entry.round_id) ? entry.round_id : `r-${fallbackRoundKind(entry)}-${index + 1}`;
+  const message_index = Number.isFinite(entry.message_index) ? entry.message_index : index;
+  const block_index = Number.isFinite(entry.block_index) ? entry.block_index : 0;
+  return { ...entry, round_id, message_index, block_index };
+}
+
 export function entriesToTimeline(entries: readonly ConversationEntry[], activityStatus: ActivityStatus | null): AgentTimeline {
   const grouped = new Map<string, ConversationEntry[]>();
-  for (const entry of entries) {
-    const bucket = grouped.get(entry.round_id) ?? [];
-    bucket.push(entry);
-    grouped.set(entry.round_id, bucket);
+  for (const [index, entry] of entries.entries()) {
+    const normalized = normalizeEntry(entry, index);
+    const bucket = grouped.get(normalized.round_id) ?? [];
+    bucket.push(normalized);
+    grouped.set(normalized.round_id, bucket);
   }
   const rounds: TimelineRound[] = [...grouped.entries()]
     .sort(([a], [b]) => { const ak = roundIdSortKey(a); const bk = roundIdSortKey(b); return ak[0] - bk[0] || ak[1] - bk[1] || ak[2].localeCompare(bk[2]); })

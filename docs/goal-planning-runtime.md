@@ -44,9 +44,9 @@ On success, the runtime creates or returns a durable `runtime_activations` recor
 
 Runtime startup reads the authoritative state file under `.saivage/tmp/state/runtime.json`. It preserves intent, commands, runs, activations, and active-card-run information so operators can see what was requested and what remains unresolved. Legacy state layout migration is bounded to file-layout repair; it does not revive old directive or status-driven execution semantics.
 
-## Confirmation and actionable errors
+## Actionable errors
 
-`confirmed` and `preview_hash` are used only by preview-style tool contracts such as analyst shell command confirmation. Card mutations, planner-state updates, runtime commands, and `activate_card` do not use preview hashes as mutation gates. Invalid requests return actionable error envelopes with a stable `code`, context/current state, and `nextAction`.
+Card mutations, planner-state updates, runtime commands, and `activate_card` have no interactive confirmation gate: authz returns `allow` (commit) or `deny` (reject). Invalid requests return actionable error envelopes with a stable `code`, context/current state, and `nextAction`.
 
 ## UI model
 

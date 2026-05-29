@@ -91,7 +91,6 @@ describe('contract-backed config/providers/control-actions routes', () => {
         target_kind: 'card',
         target_id: 'card-1',
         params_summary: 'token=should-redact',
-        confirmed: true,
         outcome: 'ok',
         outcome_summary: 'updated',
       });
@@ -104,7 +103,6 @@ describe('contract-backed config/providers/control-actions routes', () => {
         target_kind: 'card',
         target_id: 'card-1',
         params_summary: 'safe params',
-        confirmed: true,
         outcome: 'ok',
         outcome_summary: 'updated',
       });
@@ -117,7 +115,6 @@ describe('contract-backed config/providers/control-actions routes', () => {
         target_kind: 'card',
         target_id: 'card-2',
         params_summary: 'safe params',
-        confirmed: true,
         outcome: 'ok',
         outcome_summary: 'updated',
       });

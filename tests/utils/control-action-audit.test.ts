@@ -28,7 +28,6 @@ describe('control action audit persistence', () => {
       target_kind: 'card',
       target_id: 'goal-1',
       params_summary: 'apiKey="secret-123" token=hunter2 nested password=abc123',
-      confirmed: true,
       outcome: 'error',
       outcome_summary: 'request rejected because secret=bad-value leaked',
       error: 'provider token=shh-secret api-key="still-secret"',
@@ -62,7 +61,6 @@ describe('control action audit persistence', () => {
       target_kind: 'runtime',
       target_id: 'project',
       params_summary: 'pause runtime',
-      confirmed: true,
       outcome: 'ok',
       outcome_summary: 'paused',
     });
@@ -79,7 +77,6 @@ describe('control action audit persistence', () => {
         target_kind: 'note',
         target_id: 'n-goal-1-1',
         params_summary: 'password=swordfish',
-        confirmed: false,
         outcome: 'denied',
         outcome_summary: 'denied',
         created_at: '2026-01-02T00:00:00.000Z',

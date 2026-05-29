@@ -63,7 +63,7 @@ When entries were hidden, the response reports a `redacted_count` and appends a 
 
 ### Shell commands
 
-If a shell command targets a denylisted secret-bearing path, the command is classified as unsafe. On analyst web chat, destructive shell commands return a redacted preview with a `preview_hash` and do not execute unless the caller re-submits with `confirmed: true` plus the matching hash under a surface/authz combination that permits preview-only confirmation. On Telegram, `run_shell_command` remains unavailable.
+If a shell command targets a denylisted secret-bearing path, the command is classified as unsafe. Destructive shell commands run only when the authz table allows them for the calling `(actor, surface, safety_class)`; otherwise they are denied. On Telegram, `run_shell_command` remains unavailable.
 
 ## Shell-command classification rules
 
@@ -73,7 +73,7 @@ Possible classes:
 
 - **`read_only`** — pure inspection; allowed on web chat; not audited as a mutating control action
 - **`low`** — non-read-only but not obviously destructive; allowed on web chat; audited
-- **`destructive`** — unsafe host mutation or secret-targeting behavior; preview-only on analyst web chat, and unavailable on Telegram
+- **`destructive`** — unsafe host mutation or secret-targeting behavior; subject to the authz table (allowed on analyst CLI, denied on analyst telegram and analyst REST) and unavailable on Telegram
 
 ### Read-only examples
 
@@ -105,9 +105,9 @@ Examples:
 
 These are still inspection-oriented commands. Their output is bounded, timeout-limited, and redacted before persistence.
 
-### Destructive or preview-only examples
+### Destructive examples
 
-Examples of commands treated as destructive on analyst web chat, so they return a redacted preview/confirmation flow instead of executing immediately:
+Examples of commands treated as destructive. They execute when the authz table allows the calling surface and are denied otherwise:
 
 - `sudo systemctl restart saivage`
 - `rm -rf .saivage-work/tmp`
@@ -120,9 +120,7 @@ Examples of commands treated as destructive on analyst web chat, so they return 
 
 On Telegram, `run_shell_command` remains unavailable.
 
-This `confirmed`/`preview_hash` handshake is a shell-tool safety contract only. It must not be copied into card CRUD, planner-state mutation, runtime start/stop, or `activate_card` semantics. Those surfaces either apply directly through their owner or return actionable precondition errors.
-
-## Shell parameter bounds and confirmation semantics
+## Shell parameter bounds
 
 `run_shell_command` accepts these parameters:
 
@@ -130,15 +128,12 @@ This `confirmed`/`preview_hash` handshake is a shell-tool safety contract only. 
 - `cwd` — optional working directory; defaults to the project root
 - `timeoutMs` — optional timeout in milliseconds; default `15000`, clamped to a maximum of `60000`
 - `maxOutputBytes` — optional per-stream output cap in bytes; default `65536`, clamped to a maximum of `1048576`
-- `confirmed` — optional boolean used to confirm a preview-only action
-- `preview_hash` — optional string returned by the prior preview response
 
 Current hardening behavior:
 
 - malformed parameter types are rejected before execution;
 - `cwd` must stay within the project root;
 - secret-bearing `cwd` paths are rejected before execution;
-- preview hashing uses the normalized execution inputs, so over-large timeout/output values cannot bypass confirmation matching;
 - stdout/stderr are redacted before return or persistence and may include a `[truncated N bytes]` footer when capped.
 
 ## Delegation invariant

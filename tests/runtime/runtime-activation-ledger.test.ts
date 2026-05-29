@@ -6,7 +6,7 @@ import { PlannerControlExecutor } from '../../src/agents/planner-control-executo
 import { ActiveRuntime } from '../../src/runtime/active-runtime.js';
 import { CardStore } from '../../src/cards/card-store.js';
 import { initProjectTree } from '../../src/persistence/file-tree.js';
-import { appendRuntimeRun, readRuntimeState } from '../../src/runtime/state.js';
+import { appendRuntimeRun, readRuntimeState, upsertRuntimeActivation } from '../../src/runtime/state.js';
 import { EventBus } from '../../src/events/index.js';
 import { EventLogger } from '../../src/observability/event-logger.js';
 import { loggedEventSchema } from '../../src/schemas/validators.js';
@@ -23,11 +23,20 @@ function setup() {
   return { projectRoot, cardStore };
 }
 
+
+function activationLedger(projectRoot: string) {
+  return {
+    readState: () => readRuntimeState(projectRoot),
+    appendRun: (input: Parameters<typeof appendRuntimeRun>[1]) => appendRuntimeRun(projectRoot, input),
+    upsertActivation: (input: Parameters<typeof upsertRuntimeActivation>[1]) => upsertRuntimeActivation(projectRoot, input),
+  };
+}
+
 describe('runtime activation ledger target contract (Wave 1)', () => {
   it('only an active parent planner run can activate a child card', async () => {
     const ctx = setup();
     try {
-      const exec = new PlannerControlExecutor({ projectRoot: ctx.projectRoot, cardStore: ctx.cardStore });
+      const exec = new PlannerControlExecutor({ projectRoot: ctx.projectRoot, cardStore: ctx.cardStore, activationLedger: activationLedger(ctx.projectRoot) });
       const msg = await exec.execute({ toolName: 'activate_card', toolCallId: 'call-a', argumentsJson: JSON.stringify({ cardId: 'code-a' }), parentCardId: 'goal-a', sessionId: 'planner:goal-a' });
       expect(msg.kind).toBe('tool_error');
       const body = JSON.parse(msg.content);
@@ -39,7 +48,7 @@ describe('runtime activation ledger target contract (Wave 1)', () => {
     const ctx = setup();
     try {
       appendRuntimeRun(ctx.projectRoot, { run_id: 'run-parent', kind: 'root', card_id: 'goal-a', parent_run_id: null, command_id: 'cmd-a', activation_id: null, phase: 'planner', runtime_status: 'running', session_id: 'planner:goal-a', result: null });
-      const exec = new PlannerControlExecutor({ projectRoot: ctx.projectRoot, cardStore: ctx.cardStore });
+      const exec = new PlannerControlExecutor({ projectRoot: ctx.projectRoot, cardStore: ctx.cardStore, activationLedger: activationLedger(ctx.projectRoot) });
       const invocation = { toolName: 'activate_card', toolCallId: 'call-a', argumentsJson: JSON.stringify({ cardId: 'code-a' }), parentCardId: 'goal-a', sessionId: 'planner:goal-a' };
       const first = JSON.parse((await exec.execute(invocation)).content);
       const second = JSON.parse((await exec.execute(invocation)).content);
@@ -63,7 +72,7 @@ describe('runtime activation ledger target contract (Wave 1)', () => {
     try {
       appendRuntimeRun(ctx.projectRoot, { run_id: 'run-parent-other-session', kind: 'root', card_id: 'goal-a', parent_run_id: null, command_id: 'cmd-a', activation_id: null, phase: 'planner', runtime_status: 'running', session_id: 'planner:goal-a:old-session', result: null });
       appendRuntimeRun(ctx.projectRoot, { run_id: 'run-parent-matching-session', kind: 'root', card_id: 'goal-a', parent_run_id: null, command_id: 'cmd-b', activation_id: null, phase: 'planner', runtime_status: 'running', session_id: 'planner:goal-a:current-session', result: null });
-      const exec = new PlannerControlExecutor({ projectRoot: ctx.projectRoot, cardStore: ctx.cardStore });
+      const exec = new PlannerControlExecutor({ projectRoot: ctx.projectRoot, cardStore: ctx.cardStore, activationLedger: activationLedger(ctx.projectRoot) });
       const invocation = { toolName: 'activate_card', toolCallId: 'call-current', argumentsJson: JSON.stringify({ cardId: 'code-a' }), parentCardId: 'goal-a', sessionId: 'planner:goal-a:current-session' };
 
       const firstMsg = await exec.execute(invocation);
@@ -106,7 +115,7 @@ describe('runtime activation ledger target contract (Wave 1)', () => {
       const eventBus = new EventBus();
       const events: Array<{ kind: string; run?: unknown; activation?: unknown }> = [];
       const sub = eventBus.subscribe({ handler: (event) => { if (event.kind === 'runtime_run' || event.kind === 'runtime_activation') events.push(event); } });
-      const exec = new PlannerControlExecutor({ projectRoot: ctx.projectRoot, cardStore: ctx.cardStore, eventLogger: logger, eventBus });
+      const exec = new PlannerControlExecutor({ projectRoot: ctx.projectRoot, cardStore: ctx.cardStore, activationLedger: activationLedger(ctx.projectRoot), eventLogger: logger, eventBus });
 
       const msg = await exec.execute({ toolName: 'activate_card', toolCallId: 'call-a', argumentsJson: JSON.stringify({ cardId: 'code-a' }), parentCardId: 'goal-a', sessionId: 'planner:goal-a' });
       sub.unsubscribe();
@@ -186,7 +195,7 @@ describe('runtime activation ledger target contract (Wave 1)', () => {
     const ctx = setup();
     try {
       appendRuntimeRun(ctx.projectRoot, { run_id: 'run-parent-sessionless', kind: 'root', card_id: 'goal-a', parent_run_id: null, command_id: 'cmd-a', activation_id: null, phase: 'planner', runtime_status: 'running', session_id: null, result: null });
-      const exec = new PlannerControlExecutor({ projectRoot: ctx.projectRoot, cardStore: ctx.cardStore });
+      const exec = new PlannerControlExecutor({ projectRoot: ctx.projectRoot, cardStore: ctx.cardStore, activationLedger: activationLedger(ctx.projectRoot) });
       const msg = await exec.execute({ toolName: 'activate_card', toolCallId: 'call-current', argumentsJson: JSON.stringify({ cardId: 'code-a' }), parentCardId: 'goal-a', sessionId: 'planner:goal-a:current-session' });
 
       expect(msg.kind).toBe('tool_error');
@@ -214,7 +223,7 @@ describe('runtime activation ledger target contract (Wave 1)', () => {
     const ctx = setup();
     try {
       appendRuntimeRun(ctx.projectRoot, { run_id: 'run-parent-other-session', kind: 'root', card_id: 'goal-a', parent_run_id: null, command_id: 'cmd-a', activation_id: null, phase: 'planner', runtime_status: 'running', session_id: 'planner:goal-a:other-session', result: null });
-      const exec = new PlannerControlExecutor({ projectRoot: ctx.projectRoot, cardStore: ctx.cardStore });
+      const exec = new PlannerControlExecutor({ projectRoot: ctx.projectRoot, cardStore: ctx.cardStore, activationLedger: activationLedger(ctx.projectRoot) });
       const msg = await exec.execute({ toolName: 'activate_card', toolCallId: 'call-current', argumentsJson: JSON.stringify({ cardId: 'code-a' }), parentCardId: 'goal-a', sessionId: 'planner:goal-a:current-session' });
 
       expect(msg.kind).toBe('tool_error');

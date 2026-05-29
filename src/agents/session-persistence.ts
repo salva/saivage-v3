@@ -15,6 +15,18 @@ import type {
 const SESSIONS_DIR = 'sessions';
 const MESSAGES_DIR = 'messages';
 
+export interface RoundStamp { round_id: string; message_index: number; block_index: number; }
+export interface RuntimeAppendRecorder { recordAppend(message: AgentMessage): void; }
+export interface ActiveRuntimeStampSource extends RuntimeAppendRecorder {
+  openAssistantRound(sessionId: string): RoundStamp;
+  stampInRound(sessionId: string): RoundStamp;
+  stampUserMessage(sessionId: string): RoundStamp;
+  stampPre(sessionId: string): RoundStamp;
+  stampCompacted(sessionId: string): RoundStamp;
+  stampDiagnosticInCurrentRound(sessionId: string): RoundStamp;
+  closeRound(sessionId: string): void;
+}
+
 function sessionsDir(saivageDir: string): string {
   return join(saivageDir, 'agents', SESSIONS_DIR);
 }
@@ -183,6 +195,8 @@ export class ConcurrentAgentSessionError extends Error {
 export function reconcileOrphanedAgentSessions(
   saivageDir: string,
   reason = 'Session was left active by a previous runtime process and was failed during startup reconciliation. The runtime now enforces a global single-active-non-analyst-session invariant.',
+  stampForSession?: (sessionId: string) => RoundStamp,
+  activeRuntime?: RuntimeAppendRecorder,
 ): AgentSession[] {
   const swept: AgentSession[] = [];
 
@@ -195,7 +209,7 @@ export function reconcileOrphanedAgentSessions(
       role: 'system',
       kind: 'model_issue',
       content: reason,
-    });
+    }, stampForSession ? stampForSession(session.id) : { round_id: 'r-pre-1', message_index: 0, block_index: 0 }, activeRuntime);
     swept.push(updated);
   }
 
@@ -244,7 +258,11 @@ export function appendMessage(
     tool?: string;
     tool_call_id?: string;
     links?: EntityLink[];
+    model_spec?: string;
+    requested_model_spec?: string;
   },
+  stamp: RoundStamp,
+  activeRuntime?: RuntimeAppendRecorder,
 ): AgentMessage {
   const existing = getSessionMessages(saivageDir, sessionId);
   const msg: AgentMessage = {
@@ -253,10 +271,15 @@ export function appendMessage(
     role: message.role,
     kind: message.kind,
     content: message.content,
+    round_id: stamp.round_id,
+    message_index: stamp.message_index,
+    block_index: stamp.block_index,
     tool: message.tool,
     tool_call_id: message.tool_call_id,
     timestamp: new Date().toISOString(),
     links: message.links,
+    model_spec: message.model_spec,
+    requested_model_spec: message.requested_model_spec,
   };
 
   agentMessageSchema.parse(msg);
@@ -270,6 +293,7 @@ export function appendMessage(
     writeFileAtomic(mp, line);
   }
 
+  activeRuntime?.recordAppend(msg);
   return msg;
 }
 
@@ -296,9 +320,10 @@ export function replaceSessionMessages(
   messages: AgentMessage[],
 ): void {
   const mp = messagesPath(saivageDir, sessionId);
+  const validated = messages.map((m) => agentMessageSchema.parse(m));
   const content =
-    messages.map((m) => JSON.stringify(m)).join('\n') +
-    (messages.length > 0 ? '\n' : '');
+    validated.map((m) => JSON.stringify(m)).join('\n') +
+    (validated.length > 0 ? '\n' : '');
   writeFileAtomic(mp, content);
 }
 
@@ -418,6 +443,8 @@ export function appendActivateCardToolResultOnce(
   sessionId: string,
   toolCallId: string,
   content: string,
+  stamp: RoundStamp,
+  activeRuntime?: RuntimeAppendRecorder,
 ): AgentMessage {
   const messages = getSessionMessages(saivageDir, sessionId);
   const existing = messages.find((message) => message.kind === 'tool_result' && message.tool_call_id === toolCallId);
@@ -428,5 +455,5 @@ export function appendActivateCardToolResultOnce(
     content,
     tool: 'activate_card',
     tool_call_id: toolCallId,
-  });
+  }, stamp, activeRuntime);
 }

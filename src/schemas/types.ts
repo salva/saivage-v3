@@ -56,7 +56,7 @@ export interface CardRecord {
 export type CardHistoryKind = 'update' | 'status' | 'mutate' | 'depends' | 'delete' | 'archive';
 export interface CardHistoryEntry { entry_id: string; kind: CardHistoryKind; card_id: string; version_seq: number; snapshot: CardRecord; changed_at: string; changed_by_actor: NoteAuthor; changed_by_surface: ControlActionSurface; change_reason: string | null; changed_fields: string[]; change_summary: string; }
 export type CardHistoryHeader = Omit<CardHistoryEntry, 'snapshot'>;
-export interface ControlActionAuditEntry { id: string; actor: NoteAuthor; surface: ControlActionSurface; action: string; target_kind: 'card' | 'note' | 'process' | 'runtime' | 'config' | 'session' | null; target_id: string | null; params_summary: string; safety_class?: 'read_only' | 'low' | 'high' | 'destructive' | 'deployment'; confirmed: boolean; outcome: 'ok' | 'error' | 'denied' | 'rejected' | 'preview' | 'cancelled' | 'expired' | 'amended'; outcome_summary: string; error?: string; created_at: string; }
+export interface ControlActionAuditEntry { id: string; actor: NoteAuthor; surface: ControlActionSurface; action: string; target_kind: 'card' | 'note' | 'process' | 'runtime' | 'config' | 'session' | null; target_id: string | null; params_summary: string; safety_class?: 'read_only' | 'low' | 'high' | 'destructive' | 'deployment'; outcome: 'ok' | 'error' | 'denied'; outcome_summary: string; error?: string; created_at: string; }
 export interface CardIndexEntry { id: string; type: CardType; parent: string | null; status: CardStatus; title: string; }
 export interface CardIndex { cards: Record<string, CardIndexEntry>; }
 export type CardChildrenIndex = string[];
@@ -82,7 +82,7 @@ export interface AgentSession { id: string; role: AgentRole; goal_card_id?: stri
 export type MessageRole = 'user' | 'assistant' | 'system' | 'tool';
 export type MessageKind = 'text' | 'activity' | 'tool_call' | 'tool_result' | 'tool_error' | 'model_issue' | 'model_repair' | 'model_recovered';
 export interface EntityLink { entity_type: 'card' | 'process' | 'artifact' | 'attachment' | 'quarantine'; entity_id: string; label?: string; }
-export interface AgentMessage { id: string; session_id: string; role: MessageRole; kind: MessageKind; content: string; tool?: string; tool_call_id?: string; timestamp: string; links?: EntityLink[]; }
+export interface AgentMessage { id: string; session_id: string; role: MessageRole; kind: MessageKind; content: string; round_id: string; message_index: number; block_index: number; tool?: string; tool_call_id?: string; timestamp: string; links?: EntityLink[]; model_spec?: string; requested_model_spec?: string; }
 export interface DeferredActivationEnvelopeV1 { kind: 'deferred_activate_card'; version: 1; parent_card_id: string; child_card_id: string; planner_session_id: string; tool_call_id: string; requested_at: string; }
 export type ActivationCompletionOutcome = 'done' | 'failed' | 'blocked' | 'cancelled' | 'timed_out' | 'needs_verification';
 export interface ActivationCompletionEnvelopeV1 { kind: 'activate_card_completion'; version: 1; child_card_id: string; outcome: ActivationCompletionOutcome; summary: string; result?: Record<string, unknown> | null; review?: ReviewAssessment | null; artifacts?: ArtifactRef[]; attachments?: AttachmentRef[]; evidence_card_ids?: string[]; error?: string | null; completed_by_session_id?: string | null; success: boolean; cardId: string; failure_kind?: string; }

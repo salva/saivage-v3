@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os';
 import { PlannerControlExecutor } from '../../src/agents/planner-control-executor.js';
 import { parseDeferredActivationEnvelope } from '../../src/schemas/validators.js';
 import type { CardRecord, ReviewerResult, RuntimeState } from '../../src/schemas/types.js';
-import { appendRuntimeRun } from '../../src/runtime/state.js';
+import { appendRuntimeRun, readRuntimeState, upsertRuntimeActivation } from '../../src/runtime/state.js';
 import { CardStore } from '../../src/cards/card-store.js';
 import { initProjectTree } from '../../src/persistence/file-tree.js';
 import { listControlActions } from '../../src/persistence/control-action-audit.js';
@@ -17,7 +17,16 @@ function makeCard(overrides: Partial<CardRecord> & { type: CardRecord['type']; t
 
 function runtimeWithActive(cardId: string): RuntimeState {
   const now = new Date().toISOString();
-  return { status: 'running', project_id: 'project', pid: 1234, started_at: now, current_card_id: cardId, current_agent_session_id: 'executor:active', active_card_run: { card_id: cardId, card_type: 'code', runtime_status: 'running', phase: 'executor', caller_session_id: 'planner:goal', caller_tool_call_id: 'call-activate', planner_session_id: 'planner:goal', executor_session_id: 'executor:active', reviewer_session_id: null, correction_attempts: 0, started_at: now, last_turn_at: now }, paused: false, paused_at: null, queue: [], running_processes: [], updated_at: now, frozen_reason: null };
+  return { status: 'running', project_id: 'project', pid: 1234, started_at: now, current_card_id: cardId, current_agent_session_id: 'executor:active', active_card_run: { card_id: cardId, card_type: 'code', runtime_status: 'running', phase: 'executor', caller_session_id: 'planner:goal', caller_tool_call_id: 'call-activate', planner_session_id: 'planner:goal', executor_session_id: 'executor:active', reviewer_session_id: null, correction_attempts: 0, started_at: now, last_turn_at: now }, paused: false, paused_at: null, updated_at: now, frozen_reason: null };
+}
+
+
+function activationLedger(projectRoot: string) {
+  return {
+    readState: () => readRuntimeState(projectRoot),
+    appendRun: (input: Parameters<typeof appendRuntimeRun>[1]) => appendRuntimeRun(projectRoot, input),
+    upsertActivation: (input: Parameters<typeof upsertRuntimeActivation>[1]) => upsertRuntimeActivation(projectRoot, input),
+  };
 }
 
 function appendActivePlannerRun(projectRoot: string, cardId = 'goal'): void {
@@ -80,7 +89,7 @@ describe('PlannerControlExecutor', () => {
 
   it('dispatches queue_notification through planner-control and audits planner runtime surface', async () => {
     store.create(makeCard({ id: 'goal', type: 'goal', title: 'Goal', status: 'active' }));
-    const executor = new PlannerControlExecutor({ cardStore: store, projectRoot: tmpDir });
+    const executor = new PlannerControlExecutor({ cardStore: store, projectRoot: tmpDir, activationLedger: activationLedger(tmpDir) });
 
     const result = await executor.execute({ sessionId: 'planner:goal', toolCallId: 'call-notify', toolName: 'queue_notification', argumentsJson: JSON.stringify({ recipient: 'goal', kind: 'heads_up', body: 'planner body must not audit' }) });
 
@@ -97,7 +106,7 @@ describe('PlannerControlExecutor', () => {
     store.create(makeCard({ id: 'goal', type: 'goal', title: 'Goal', status: 'active' }));
     const child = store.create(makeCard({ type: 'code', title: 'Child', parent: 'goal', depth: 2 }));
     appendActivePlannerRun(tmpDir);
-    const executor = new PlannerControlExecutor({ cardStore: store, projectRoot: tmpDir });
+    const executor = new PlannerControlExecutor({ cardStore: store, projectRoot: tmpDir, activationLedger: activationLedger(tmpDir) });
 
     const result = await executor.execute({ sessionId: 'planner:goal', toolCallId: 'call-activate', toolName: 'activate_card', parentCardId: 'goal', argumentsJson: JSON.stringify({ cardId: child.id }) });
 
@@ -114,7 +123,7 @@ describe('PlannerControlExecutor', () => {
     const blockedDep = store.create(makeCard({ type: 'code', title: 'Dep', status: 'blocked' }));
     const blockedTarget = store.create(makeCard({ type: 'code', title: 'Blocked target', parent: 'goal', depth: 2, depends_on: [blockedDep.id] }));
     appendActivePlannerRun(tmpDir);
-    const executor = new PlannerControlExecutor({ cardStore: store, projectRoot: tmpDir });
+    const executor = new PlannerControlExecutor({ cardStore: store, projectRoot: tmpDir, activationLedger: activationLedger(tmpDir) });
 
     const cancel = await executor.execute({ sessionId: 'planner:goal', toolCallId: 'call-cancel', toolName: 'cancel_card', argumentsJson: JSON.stringify({ cardId: child.id }) });
     expect(cancel.kind).toBe('tool_result');

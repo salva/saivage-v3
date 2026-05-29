@@ -10,8 +10,6 @@ const baseRuntimeState = () => ({
   active_card_run: null,
   paused: false,
   paused_at: null,
-  queue: [],
-  running_processes: [],
   updated_at: '2026-05-23T00:00:00.000Z',
   frozen_reason: null,
   runtime_intent: { status: 'stopped' as const, updated_at: '2026-05-23T00:00:00.000Z', source_command_id: null, reason: null },

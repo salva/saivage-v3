@@ -110,7 +110,6 @@ const diffCardInput = z.object({ cardId: z.string(), fromSeq: z.number().int().o
 const markGoalNeedsCorrectionsInput = z.object({ goalId: z.string(), issues: z.array(z.unknown()), note: z.string().optional() }).strict();
 
 const emptyInput = z.object({}).strict();
-const deleteCardInput = z.object({ ids: z.array(z.string()).min(1) }).strict();
 const processInput = z.object({ processId: z.string() }).strict();
 const abortGoalInput = z.object({ goalId: z.string() }).strict();
 const restartCardInput = z.object({ id: z.string() }).strict();

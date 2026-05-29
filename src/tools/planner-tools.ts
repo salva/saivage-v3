@@ -226,7 +226,7 @@ export class PlannerToolsService {
 
   moveCard(id: string, newParent: string, ctx: CardMutationContext & { toolCallId?: string; sessionId?: string }): Record<string, unknown> {
     const r = this.store.moveCard(id, newParent, { actor: 'planner', surface: 'runtime', reason: 'planner move_card' });
-    recordControlAction(this.projectRoot ?? this.store.projectRoot, { actor: 'planner', surface: 'runtime', action: 'card.move', target_kind: 'card', target_id: id, params_summary: stableStringify({ id, newParent, toolCallId: ctx.toolCallId, sessionId: ctx.sessionId }), confirmed: true, outcome: r.ok ? 'ok' : 'error', outcome_summary: r.ok ? 'mutation applied' : r.message, ...(r.ok ? {} : { error: r.message }) });
+    recordControlAction(this.projectRoot ?? this.store.projectRoot, { actor: 'planner', surface: 'runtime', action: 'card.move', target_kind: 'card', target_id: id, params_summary: stableStringify({ id, newParent, toolCallId: ctx.toolCallId, sessionId: ctx.sessionId }), outcome: r.ok ? 'ok' : 'error', outcome_summary: r.ok ? 'mutation applied' : r.message, ...(r.ok ? {} : { error: r.message }) });
     if (r.ok) return { success: true, data: r.data };
     return { success: false, data: { reason: r.reason, message: r.message, current_parent: r.currentParent, attempted_parent: r.attemptedParent } };
   }
@@ -235,13 +235,13 @@ export class PlannerToolsService {
     const projectRoot = this.projectRoot ?? this.store.projectRoot;
     queueNotification(projectRoot, recipient, kind, body, { actor: 'planner', surface: 'runtime' });
     const targetId = recipient.kind === 'card' ? recipient.cardId : recipient.kind === 'role' ? recipient.role : recipient.sessionId;
-    recordControlAction(projectRoot, { actor: 'planner', surface: 'runtime', action: 'notification.queue', target_kind: 'session', target_id: targetId, params_summary: stableStringify({ recipient, kind, toolCallId: ctx.toolCallId, sessionId: ctx.sessionId }), confirmed: true, outcome: 'ok', outcome_summary: kind });
+    recordControlAction(projectRoot, { actor: 'planner', surface: 'runtime', action: 'notification.queue', target_kind: 'session', target_id: targetId, params_summary: stableStringify({ recipient, kind, toolCallId: ctx.toolCallId, sessionId: ctx.sessionId }), outcome: 'ok', outcome_summary: kind });
     return { success: true, data: { queued: true, recipient: targetId } };
   }
 
   reorderChildren(parentId: string, orderedChildIds: string[], ctx: CardMutationContext & { toolCallId?: string; sessionId?: string }): Record<string, unknown> {
     const r = this.store.reorderChildren(parentId, orderedChildIds, { actor: 'planner', surface: 'runtime', reason: 'planner reorder_child' });
-    recordControlAction(this.projectRoot ?? this.store.projectRoot, { actor: 'planner', surface: 'runtime', action: 'card.reorder_child', target_kind: 'card', target_id: parentId, params_summary: stableStringify({ parentId, orderedChildIds, toolCallId: ctx.toolCallId, sessionId: ctx.sessionId }), confirmed: true, outcome: r.ok ? 'ok' : 'error', outcome_summary: r.ok ? 'mutation applied' : 'reorder_set_mismatch', ...(r.ok ? {} : { error: 'reorder_set_mismatch' }) });
+    recordControlAction(this.projectRoot ?? this.store.projectRoot, { actor: 'planner', surface: 'runtime', action: 'card.reorder_child', target_kind: 'card', target_id: parentId, params_summary: stableStringify({ parentId, orderedChildIds, toolCallId: ctx.toolCallId, sessionId: ctx.sessionId }), outcome: r.ok ? 'ok' : 'error', outcome_summary: r.ok ? 'mutation applied' : 'reorder_set_mismatch', ...(r.ok ? {} : { error: 'reorder_set_mismatch' }) });
     if (r.ok) return { success: true, data: { parent_id: parentId, changed: r.changed } };
     return { success: false, data: { reason: 'reorder_set_mismatch', missing: r.missing, extra: r.extra, parent_id: parentId } };
   }

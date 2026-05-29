@@ -1,12 +1,12 @@
 import { describe, expect, it, jest, beforeEach, afterEach } from '@jest/globals';
+import { AnalystHandler } from '../../src/agents/analyst-handler.js';
+import { EventBus } from '../../src/events/bus.js';
+import { initRuntimeState } from '../../src/runtime/state.js';
+import { createTestActiveRuntime } from '../helpers/test-active-runtime.js';
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
-const { AnalystHandler } = await import('../../src/agents/analyst-handler.js');
-const { EventBus } = await import('../../src/events/bus.js');
-const { initRuntimeState } = await import('../../src/runtime/state.js');
-const { createTestActiveRuntime } = await import('../helpers/test-active-runtime.js');
 
 type BroadcastPayload = {
   sessionId: string;
@@ -101,7 +101,7 @@ describe('analyst_tool_invoked event projection source', () => {
     } finally { rmSync(root, { recursive: true, force: true }); }
   });
 
-  it('broadcasts previewed destructive shell payload with classification and redacted secret paths', async () => {
+  it('broadcasts denied secret-bearing shell payload without leaking real paths', async () => {
     const root = setupRoot();
     try {
       mockToolCall('run_shell_command', { command: 'cat .saivage/auth-profiles.json apiKey=super-secret' });
@@ -109,7 +109,6 @@ describe('analyst_tool_invoked event projection source', () => {
       await handler.handleMessage('s3', 'cat .saivage/auth-profiles.json apiKey=super-secret');
       const payload = broadcasts.at(-1) as BroadcastPayload;
       expect(payload.tool).toBe('run_shell_command');
-      expect(payload.classified_as).toBe('destructive');
       expect(payload.success).toBe(false);
       expect(payload.summary).not.toMatch(/auth-profiles\.json|super-secret/i);
       expect(payload.summary.length).toBeLessThanOrEqual(200);

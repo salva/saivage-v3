@@ -62,4 +62,4 @@ The envelope includes stable `code`, message, parent/child/session ids where kno
 
 ## Non-goals and removed rituals
 
-This contract intentionally excludes legacy start rituals: no analyst chat start tool, no project directive file wakeup, no status-derived dispatch scan, and no `confirmed`/`preview_hash` mutation gate for planner/card/runtime control.
+This contract intentionally excludes legacy start rituals: no analyst chat start tool, no project directive file wakeup, no status-derived dispatch scan, and no interactive destructive-confirmation gate for planner/card/runtime control — authz reduces to `allow` or `deny`.

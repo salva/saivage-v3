@@ -1,5 +1,5 @@
 import { existsSync, readFileSync } from 'node:fs';
-import { createHash, randomUUID } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
 import { join } from 'node:path';
 import { redactTextForOutbound } from '../redaction/index.js';
 import { controlActionAuditEntrySchema } from '../schemas/index.js';
@@ -18,17 +18,6 @@ export function stableStringify(value: unknown): string {
   if (Array.isArray(value)) return `[${value.map((item) => stableStringify(item)).join(',')}]`;
   const obj = value as Record<string, unknown>;
   return `{${Object.keys(obj).sort().map((key) => `${JSON.stringify(key)}:${stableStringify(obj[key])}`).join(',')}}`;
-}
-
-export function previewHashParams(value: unknown): unknown {
-  if (value === null || typeof value !== 'object') return value;
-  if (Array.isArray(value)) return value.map((item) => previewHashParams(item));
-  const { confirmed, preview_hash, ...rest } = value as Record<string, unknown>; void confirmed; void preview_hash;
-  return Object.fromEntries(Object.entries(rest).map(([key, entryValue]) => [key, previewHashParams(entryValue)]));
-}
-
-export function hashPreviewParams(value: unknown): string {
-  return createHash('sha256').update(stableStringify(previewHashParams(value))).digest('hex');
 }
 
 function sanitizeAuditText(text: string): string {

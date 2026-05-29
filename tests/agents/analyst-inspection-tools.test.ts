@@ -106,13 +106,12 @@ describe('analyst inspection tools secret-path policy', () => {
     }
   });
 
-  it('run_shell_command secret-bearing paths stay preview-only and do not leak real secret path names', async () => {
+  it('run_shell_command secret-bearing paths are denied and do not leak real secret path names', async () => {
     const root = mkdtempSync(join(tmpdir(), 'wave-k-inspect-'));
     try {
       const result = await run_shell_command(ctx(root), { command: 'cat .saivage/auth-profiles.json apiKey=super-secret' });
       expect(result.success).toBe(false);
-      expect(result.error).toMatch(/authorized surface|confirmation/i);
-      expect(result.data).toEqual(expect.objectContaining({ classified_as: expect.any(String) }));
+      expect(result.error).toMatch(/secret|denied|off-limits/i);
       expect(JSON.stringify(result)).not.toMatch(/auth-profiles\.json/i);
     } finally {
       rmSync(root, { recursive: true, force: true });

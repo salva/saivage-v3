@@ -32,16 +32,16 @@ describe('Audited analyst tool runner', () => {
       });
       expect(result.success).toBe(true);
       const [entry] = readAudit(root);
-      expect(entry).toMatchObject({ actor: 'analyst', surface: 'web-chat', action: 'card.test_low', target_kind: 'card', target_id: 'card-1', confirmed: true, outcome: 'ok' });
+      expect(entry).toMatchObject({ actor: 'analyst', surface: 'web-chat', action: 'card.test_low', target_kind: 'card', target_id: 'card-1', outcome: 'ok' });
       expect(typeof entry.created_at).toBe('string');
       expect(() => new Date(String(entry.created_at)).toISOString()).not.toThrow();
     } finally { rmSync(root, { recursive: true, force: true }); }
   });
 
-  it('allows conversationally confirmed destructive tools and records the audit entry', async () => {
+  it('allows destructive analyst tools on web-chat without an out-of-band confirmation gate', async () => {
     const root = setupRoot();
     try {
-      const ctx: ToolContext = { projectRoot: root, actor: 'analyst', surface: 'web-chat', confirmedDestructive: true };
+      const ctx: ToolContext = { projectRoot: root, actor: 'analyst', surface: 'web-chat' };
       const result = await runAuditedAnalystTool(ctx, { id: 'card-1' }, {
         action: 'card.test_delete',
         safety_class: 'destructive',
@@ -50,7 +50,7 @@ describe('Audited analyst tool runner', () => {
         run: async () => ({ success: true, data: { deleted: ['card-1'] } }),
       });
       expect(result.success).toBe(true);
-      expect(readAudit(root)[0]).toMatchObject({ action: 'card.test_delete', outcome: 'ok', confirmed: true });
+      expect(readAudit(root)[0]).toMatchObject({ action: 'card.test_delete', outcome: 'ok' });
     } finally { rmSync(root, { recursive: true, force: true }); }
   });
 
