@@ -17,7 +17,7 @@ function writeMessages(projectRoot: string, sessionId: string, messages: Array<R
     id: `msg-${sessionId}-${index + 1}`,
     session_id: sessionId,
     kind: 'text',
-    round_id: `r-${message['role'] === 'user' ? 'user' : 'assistant'}-${index + 1}`,
+    round_id: `r-${message['role'] === 'user' ? 'user' : 'assistant'}-${(index + 1).toString(16).padStart(32, '0')}`,
     message_index: 0,
     block_index: 0,
     ...message,

@@ -8,6 +8,8 @@ import {
   agentRoleValues,
 } from './types.js';
 import { buildLoggedEventSchema } from './event-catalog.js';
+import { roundIdGrammar } from '../agents/round-id.js';
+export { roundIdGrammar, assertRoundId, type RoundKind } from '../agents/round-id.js';
 
 
 export const cardTypeSchema = z.enum(['project','goal','architecture','code','test','doc','data','research','ops']);
@@ -42,7 +44,6 @@ export const agentSessionSchema = z.object({ id: z.string().min(1), role: agentR
 export const messageRoleSchema = z.enum(['user', 'assistant', 'system', 'tool']);
 export const messageKindSchema = z.enum(['text', 'activity', 'tool_call', 'tool_result', 'tool_error', 'model_issue', 'model_repair', 'model_recovered']);
 export const entityLinkSchema = z.object({ entity_type: z.enum(['card', 'process', 'artifact', 'attachment', 'quarantine']), entity_id: z.string().min(1), label: z.string().optional() });
-export const roundIdGrammar = /^(?:r-(?:pre|user|assistant|diagnostic)-\d+|r-compacted-\d+)$/;
 export const agentMessageSchema = z.object({ id: z.string().min(1), session_id: z.string().min(1), role: messageRoleSchema, kind: messageKindSchema, content: z.string(), round_id: z.string().regex(roundIdGrammar), message_index: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER), block_index: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER), tool: z.string().optional(), tool_call_id: z.string().optional(), timestamp: z.string().datetime(), links: z.array(entityLinkSchema).optional(), model_spec: z.string().optional(), requested_model_spec: z.string().optional() }).superRefine((message, ctx) => { if ((message.kind === 'tool_call' || message.kind === 'tool_result' || message.kind === 'tool_error') && message.tool_call_id !== undefined && typeof message.tool_call_id !== 'string') ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'tool_call_id must be a scalar string when present on tool entries', path: ['tool_call_id'] }); });
 
 export const deferredActivationEnvelopeV1Schema: z.ZodType<import('./types.js').DeferredActivationEnvelopeV1> = z.object({ kind: z.literal('deferred_activate_card'), version: z.literal(1), parent_card_id: z.string().min(1), child_card_id: z.string().min(1), planner_session_id: z.string().min(1), tool_call_id: z.string().min(1), requested_at: z.string().datetime() }).strict();

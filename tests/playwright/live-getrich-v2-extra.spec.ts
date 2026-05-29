@@ -128,4 +128,28 @@ test.describe('saivage-v3 live deployment — extra contract coverage', () => {
     expect(text).not.toContain('preview to proceed');
     expect(text).not.toContain('preview_only');
   });
+
+  test('two back-to-back chats.send POSTs produce two distinct 32-hex round_ids', async ({ request }) => {
+    const HEX_ROUND = /^r-user-[0-9a-f]{32}$/;
+    const before = await request.get('/api/chats/analyst');
+    const beforeCount = (await before.json()).entries.length as number;
+
+    const stamp = Date.now();
+    const post1 = await request.post('/api/chats/analyst', { data: { content: `round-id-uniqueness-probe-A-${stamp}`, workspaceContext: { view: 'dashboard', entityId: null, refinement: null } }, timeout: 120_000 });
+    expect(post1.status()).toBe(200);
+    const post2 = await request.post('/api/chats/analyst', { data: { content: `round-id-uniqueness-probe-B-${stamp}`, workspaceContext: { view: 'dashboard', entityId: null, refinement: null } }, timeout: 120_000 });
+    expect(post2.status()).toBe(200);
+
+    const after = await request.get('/api/chats/analyst');
+    const allEntries = (await after.json()).entries as Array<{ role: string; content?: string; text?: string; round_id?: string }>;
+    const newEntries = allEntries.slice(beforeCount);
+    const userEntries = newEntries.filter((e) => e.role === 'user');
+    expect(userEntries.length).toBeGreaterThanOrEqual(2);
+    const probeRoundIds = userEntries
+      .filter((e) => (e.content ?? e.text ?? '').includes(`round-id-uniqueness-probe-`) && (e.content ?? e.text ?? '').includes(String(stamp)))
+      .map((e) => e.round_id ?? '');
+    expect(probeRoundIds.length).toBeGreaterThanOrEqual(2);
+    for (const id of probeRoundIds) expect(id).toMatch(HEX_ROUND);
+    expect(new Set(probeRoundIds).size).toBe(probeRoundIds.length);
+  });
 });

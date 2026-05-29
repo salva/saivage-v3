@@ -16,7 +16,7 @@ function normalizeConversationEntries(items: AgentConversationResponse['entries'
   return items.map((entry, index) => {
     const normalized = {
       ...entry,
-      round_id: entry.round_id ?? 'r-assistant-1',
+      round_id: entry.round_id ?? 'r-assistant-00000000000000000000000000000001',
       message_index: entry.message_index ?? index,
       block_index: entry.block_index ?? 0,
       tool_call_id: entry.tool_call_id,

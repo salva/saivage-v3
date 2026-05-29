@@ -2,7 +2,7 @@
   <section class="round-card" data-testid="round-card" :class="`round-${round.kind}`">
     <CompactedCluster v-if="round.kind === 'compacted'" :entries="round.entries" />
     <template v-else>
-      <header class="round-head">{{ round.kind }} round {{ round.ordinal }}</header>
+      <header class="round-head">{{ round.kind }} round {{ round.position }}</header>
       <ContextBlock v-for="entry in round.texts" :key="entry.id" :entry="entry" />
       <DiagnosticRow v-for="entry in round.diagnostics" :key="entry.id" :entry="entry" />
       <ToolChip v-for="pair in round.toolPairs" :key="pair.call.id" v-bind="toolPairProps(pair, expandedIds.has(pair.call.id))" @toggle="$emit('toggle', pair.call.id)" />

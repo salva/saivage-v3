@@ -73,7 +73,7 @@ describe('analyst chat store', () => {
     apiMocks.getChatEntries.mockResolvedValueOnce({
       sessionId: 'analyst',
       entries: [
-        { id: 'assistant-1', session_id: 'analyst', role: 'assistant', kind: 'text', content: 'still thinking', round_id: 'r-assistant-1', message_index: 0, block_index: 0, timestamp: '2025-01-01T00:00:01Z' },
+        { id: 'assistant-1', session_id: 'analyst', role: 'assistant', kind: 'text', content: 'still thinking', round_id: 'r-assistant-00000000000000000000000000000001', message_index: 0, block_index: 0, timestamp: '2025-01-01T00:00:01Z' },
       ] satisfies ConversationEntry[],
     });
     await store.fetchMessages('analyst');
@@ -82,7 +82,7 @@ describe('analyst chat store', () => {
     apiMocks.getChatEntries.mockResolvedValueOnce({
       sessionId: 'analyst',
       entries: [
-        { id: 'tool-1', session_id: 'analyst', role: 'tool', kind: 'tool_call', tool: 'read_file', content: JSON.stringify({ toolCalls: [{ tool: 'read_file', params: { path: 'docs/analyst.md' } }] }), round_id: 'r-assistant-1', message_index: 1, block_index: 0, timestamp: '2025-01-01T00:00:02Z' },
+        { id: 'tool-1', session_id: 'analyst', role: 'tool', kind: 'tool_call', tool: 'read_file', content: JSON.stringify({ toolCalls: [{ tool: 'read_file', params: { path: 'docs/analyst.md' } }] }), round_id: 'r-assistant-00000000000000000000000000000001', message_index: 1, block_index: 0, timestamp: '2025-01-01T00:00:02Z' },
       ] satisfies ConversationEntry[],
     });
     await store.fetchMessages('analyst');

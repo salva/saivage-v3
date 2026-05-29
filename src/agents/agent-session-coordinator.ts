@@ -3,6 +3,7 @@ import type { AgentRole, HandoffSummary } from '../schemas/index.js';
 import type { NotificationCenter, NotificationQueueEntry } from '../notifications/index.js';
 import type { EventLogger } from '../observability/index.js';
 import { getSession, getSessionMessages, listSessions } from './session-persistence.js';
+import { generateRoundId } from './round-id-server.js';
 
 export type SessionCreatedHook = (sessionId: string) => void | Promise<void>;
 
@@ -106,7 +107,7 @@ export class AgentSessionCoordinator {
 
   buildNotificationInjectionMessage(notifications: NotificationQueueEntry[], sessionId: string) {
     const lines = ['## Queued notifications', '', ...notifications.map((notification) => this.formatNotificationGuidance(notification))];
-    return { id: `msg-${sessionId}-notification-injection`, session_id: sessionId, role: 'user' as const, kind: 'text' as const, content: lines.join('\\n'), round_id: `r-user-1`, message_index: 0, block_index: 0, timestamp: new Date().toISOString() };
+    return { id: `msg-${sessionId}-notification-injection`, session_id: sessionId, role: 'user' as const, kind: 'text' as const, content: lines.join('\\n'), round_id: generateRoundId('user'), message_index: 0, block_index: 0, timestamp: new Date().toISOString() };
   }
 
   buildModelMessages(sessionId: string) {

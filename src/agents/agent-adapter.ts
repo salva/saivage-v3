@@ -13,6 +13,7 @@ import { getSafeFileForAgent, type SafeFileResult } from '../workspace/index.js'
 import type { AgentExecutionPort, PlannerInvocationRequest, ExecutorInvocationRequest, ReviewerInvocationRequest, SessionReinvokeRequest, RuntimeActivationLedgerPort } from '../contracts/index.js';
 import type { LlmCompleteOptions, LlmCallFn } from './llm-contracts.js';
 import { capabilityRequestForLlmOptions } from './provider-capabilities.js';
+import { generateRoundId } from './round-id-server.js';
 import { defaultInvocationRecoveryPolicy, type InvocationRecoveryContext } from './invocation-recovery-policy.js';
 import { EventLogger } from '../observability/index.js';
 import { buildReviewerPrompt } from './system-prompt.js';
@@ -60,7 +61,7 @@ export class AgentAdapter implements AgentExecutionPort {
   private readonly toolExecutor: AgentToolExecutor;
   private readonly llmGateway: AgentLlmInvocationGateway;
   private readonly roleRunner: AgentRoleRunner;
-  private readonly fallbackRoundCounters = new Map<string, number>();
+  private readonly fallbackCurrentRoundId = new Map<string, string>();
   private readonly fallbackBlockCounters = new Map<string, number>();
 
   constructor(cfg: AgentAdapterConfig) {
@@ -84,7 +85,7 @@ export class AgentAdapter implements AgentExecutionPort {
       reviewer: async (goalId, assessmentId, reviewerSessionId, report, parentSessionId) => {
         if (parentSessionId) markSessionWaiting(this.saivageDir, parentSessionId);
         try {
-          return (await this.invokeReviewer({ goalId, systemPrompt: buildReviewerPrompt(), contextMessages: [{ id: `review-report:${assessmentId}`, session_id: reviewerSessionId, role: 'user', kind: 'text', content: `The planner reports the following terminal outcome for goal '${goalId}'. Evaluate against the goal's acceptance criteria and respond with the canonical ReviewerResult JSON envelope.\n\n${JSON.stringify(report, null, 2)}`, round_id: 'r-user-1', message_index: 0, block_index: 0, timestamp: new Date().toISOString() }], assessmentId, reviewerSessionId })).assessment;
+          return (await this.invokeReviewer({ goalId, systemPrompt: buildReviewerPrompt(), contextMessages: [{ id: `review-report:${assessmentId}`, session_id: reviewerSessionId, role: 'user', kind: 'text', content: `The planner reports the following terminal outcome for goal '${goalId}'. Evaluate against the goal's acceptance criteria and respond with the canonical ReviewerResult JSON envelope.\n\n${JSON.stringify(report, null, 2)}`, round_id: generateRoundId('user'), message_index: 0, block_index: 0, timestamp: new Date().toISOString() }], assessmentId, reviewerSessionId })).assessment;
         } finally {
           if (parentSessionId) setSessionStatus(this.saivageDir, parentSessionId, 'active');
         }
@@ -178,18 +179,20 @@ export class AgentAdapter implements AgentExecutionPort {
   }
 
   private nextFallbackRound(sessionId: string, prefix: 'pre' | 'user' | 'assistant' | 'diagnostic' = 'assistant') {
-    const next = (this.fallbackRoundCounters.get(sessionId) ?? 0) + 1;
-    this.fallbackRoundCounters.set(sessionId, next);
+    const id = generateRoundId(prefix);
+    this.fallbackCurrentRoundId.set(sessionId, id);
     if (prefix !== 'assistant') this.fallbackBlockCounters.set(sessionId, 0);
-    return { round_id: `r-${prefix}-${next}`, message_index: 0, block_index: 0 };
+    return { round_id: id, message_index: 0, block_index: 0 };
   }
   private stampInCurrentFallbackRound(sessionId: string) {
-    const current = this.fallbackRoundCounters.get(sessionId) ?? 0;
-    const round = current > 0 ? current : 1;
-    if (current === 0) this.fallbackRoundCounters.set(sessionId, 1);
+    let current = this.fallbackCurrentRoundId.get(sessionId);
+    if (!current) {
+      current = generateRoundId('assistant');
+      this.fallbackCurrentRoundId.set(sessionId, current);
+    }
     const block = this.fallbackBlockCounters.get(sessionId) ?? 0;
     this.fallbackBlockCounters.set(sessionId, block + 1);
-    return { round_id: `r-assistant-${round}`, message_index: block, block_index: block };
+    return { round_id: current, message_index: block, block_index: block };
   }
   private appendSessionMessage(sessionId: string, message: { role: MessageRole; kind: MessageKind; content: string; tool?: string; tool_call_id?: string; links?: EntityLink[] }) {
     const stamp = message.role === 'user'

@@ -24,6 +24,7 @@ import type { SaivageConfig } from '../agents/config-schema.js';
 import type { McpManager } from '../mcp/manager-api.js';
 import type { RuntimeState, FreezeManifest, AgentMessage } from '../schemas/index.js';
 import { appendRuntimeRun, readRuntimeState, upsertRuntimeActivation } from './state.js';
+import { generateRoundId } from '../agents/round-id-server.js';
 
 // ── ActiveRuntime ──────────────────────────────────────────────
 
@@ -31,7 +32,7 @@ export interface RoundStamp { round_id: string; message_index: number; block_ind
 export interface PendingCall { id: string; tool: string; started_at: string; }
 export type ActivityStatus = 'idle' | 'thinking' | 'tool_calling' | 'responding' | 'compacting';
 export interface SessionActivity { status: ActivityStatus; pending_calls: PendingCall[]; updated_at: string; }
-export interface SessionRoundState { nextRound: number; currentRoundId: string | null; nextMessageIndex: number; nextBlockIndex: number; compactedCount: number; activity: SessionActivity; }
+export interface SessionRoundState { currentRoundId: string | null; nextMessageIndex: number; nextBlockIndex: number; activity: SessionActivity; }
 
 function emptyActivity(): SessionActivity { return { status: 'idle', pending_calls: [], updated_at: new Date().toISOString() }; }
 
@@ -54,7 +55,7 @@ export class ActiveRuntimeStampCounter implements ActiveRuntimeStampSource {
   private getRoundState(sessionId: string): SessionRoundState {
     let state = this._roundStates.get(sessionId);
     if (!state) {
-      state = { nextRound: 1, currentRoundId: null, nextMessageIndex: 0, nextBlockIndex: 0, compactedCount: 0, activity: emptyActivity() };
+      state = { currentRoundId: null, nextMessageIndex: 0, nextBlockIndex: 0, activity: emptyActivity() };
       this._roundStates.set(sessionId, state);
     }
     return state;
@@ -62,7 +63,7 @@ export class ActiveRuntimeStampCounter implements ActiveRuntimeStampSource {
 
   openAssistantRound(sessionId: string): RoundStamp {
     const state = this.getRoundState(sessionId);
-    state.currentRoundId = `r-assistant-${state.nextRound++}`;
+    state.currentRoundId = generateRoundId('assistant');
     state.nextMessageIndex = 0;
     state.nextBlockIndex = 0;
     state.activity = { ...state.activity, status: 'thinking', updated_at: new Date().toISOString() };
@@ -71,7 +72,7 @@ export class ActiveRuntimeStampCounter implements ActiveRuntimeStampSource {
 
   stampInRound(sessionId: string): RoundStamp {
     const state = this.getRoundState(sessionId);
-    if (!state.currentRoundId) state.currentRoundId = `r-assistant-${state.nextRound++}`;
+    if (!state.currentRoundId) state.currentRoundId = generateRoundId('assistant');
     return { round_id: state.currentRoundId, message_index: state.nextMessageIndex++, block_index: state.nextBlockIndex++ };
   }
 
@@ -79,24 +80,22 @@ export class ActiveRuntimeStampCounter implements ActiveRuntimeStampSource {
     const state = this.getRoundState(sessionId);
     state.currentRoundId = null;
     state.nextBlockIndex = 0;
-    return { round_id: `r-user-${state.nextRound++}`, message_index: 0, block_index: 0 };
+    return { round_id: generateRoundId('user'), message_index: 0, block_index: 0 };
   }
 
-  stampPre(sessionId: string): RoundStamp {
-    const state = this.getRoundState(sessionId);
-    return { round_id: `r-pre-${state.nextRound++}`, message_index: 0, block_index: 0 };
+  stampPre(_sessionId: string): RoundStamp {
+    return { round_id: generateRoundId('pre'), message_index: 0, block_index: 0 };
   }
 
   stampCompacted(sessionId: string): RoundStamp {
     const state = this.getRoundState(sessionId);
-    state.compactedCount += 1;
     state.currentRoundId = null;
-    return { round_id: `r-compacted-${state.compactedCount}`, message_index: 0, block_index: 0 };
+    return { round_id: generateRoundId('compacted'), message_index: 0, block_index: 0 };
   }
 
   stampDiagnosticInCurrentRound(sessionId: string): RoundStamp {
     const state = this.getRoundState(sessionId);
-    const round_id = state.currentRoundId ?? `r-diagnostic-${state.nextRound++}`;
+    const round_id = state.currentRoundId ?? generateRoundId('diagnostic');
     return { round_id, message_index: state.nextMessageIndex++, block_index: state.nextBlockIndex++ };
   }
 
@@ -226,7 +225,7 @@ export class ActiveRuntime {
   private getRoundState(sessionId: string): SessionRoundState {
     let state = this._roundStates.get(sessionId);
     if (!state) {
-      state = { nextRound: 1, currentRoundId: null, nextMessageIndex: 0, nextBlockIndex: 0, compactedCount: 0, activity: emptyActivity() };
+      state = { currentRoundId: null, nextMessageIndex: 0, nextBlockIndex: 0, activity: emptyActivity() };
       this._roundStates.set(sessionId, state);
     }
     return state;
@@ -234,7 +233,7 @@ export class ActiveRuntime {
 
   openAssistantRound(sessionId: string): RoundStamp {
     const state = this.getRoundState(sessionId);
-    state.currentRoundId = `r-assistant-${state.nextRound++}`;
+    state.currentRoundId = generateRoundId('assistant');
     state.nextMessageIndex = 0;
     state.nextBlockIndex = 0;
     this.setActivityStatus(sessionId, 'thinking');
@@ -243,7 +242,7 @@ export class ActiveRuntime {
 
   stampInRound(sessionId: string): RoundStamp {
     const state = this.getRoundState(sessionId);
-    if (!state.currentRoundId) state.currentRoundId = `r-assistant-${state.nextRound++}`;
+    if (!state.currentRoundId) state.currentRoundId = generateRoundId('assistant');
     return { round_id: state.currentRoundId, message_index: state.nextMessageIndex++, block_index: state.nextBlockIndex++ };
   }
 
@@ -251,24 +250,22 @@ export class ActiveRuntime {
     const state = this.getRoundState(sessionId);
     state.currentRoundId = null;
     state.nextBlockIndex = 0;
-    return { round_id: `r-user-${state.nextRound++}`, message_index: 0, block_index: 0 };
+    return { round_id: generateRoundId('user'), message_index: 0, block_index: 0 };
   }
 
-  stampPre(sessionId: string): RoundStamp {
-    const state = this.getRoundState(sessionId);
-    return { round_id: `r-pre-${state.nextRound++}`, message_index: 0, block_index: 0 };
+  stampPre(_sessionId: string): RoundStamp {
+    return { round_id: generateRoundId('pre'), message_index: 0, block_index: 0 };
   }
 
   stampCompacted(sessionId: string): RoundStamp {
     const state = this.getRoundState(sessionId);
-    state.compactedCount += 1;
     state.currentRoundId = null;
-    return { round_id: `r-compacted-${state.compactedCount}`, message_index: 0, block_index: 0 };
+    return { round_id: generateRoundId('compacted'), message_index: 0, block_index: 0 };
   }
 
   stampDiagnosticInCurrentRound(sessionId: string): RoundStamp {
     const state = this.getRoundState(sessionId);
-    const round_id = state.currentRoundId ?? `r-diagnostic-${state.nextRound++}`;
+    const round_id = state.currentRoundId ?? generateRoundId('diagnostic');
     return { round_id, message_index: state.nextMessageIndex++, block_index: state.nextBlockIndex++ };
   }
 
@@ -277,20 +274,6 @@ export class ActiveRuntime {
     state.currentRoundId = null;
     state.nextBlockIndex = 0;
     this.setActivityStatus(sessionId, 'idle');
-  }
-
-  rebuildSessionRoundState(sessionId: string, messages: AgentMessage[] = []): SessionRoundState {
-    let maxRound = 0;
-    let compactedCount = 0;
-    for (const message of messages) {
-      const match = /r-(?:pre|user|assistant|diagnostic)-(\d+)/.exec(message.round_id);
-      if (match) maxRound = Math.max(maxRound, Number(match[1]));
-      const compact = /r-compacted-(\d+)/.exec(message.round_id);
-      if (compact) compactedCount = Math.max(compactedCount, Number(compact[1]));
-    }
-    const state: SessionRoundState = { nextRound: maxRound + 1, currentRoundId: null, nextMessageIndex: 0, nextBlockIndex: 0, compactedCount, activity: emptyActivity() };
-    this._roundStates.set(sessionId, state);
-    return state;
   }
 
   getActivityStatus(sessionId: string): SessionActivity {

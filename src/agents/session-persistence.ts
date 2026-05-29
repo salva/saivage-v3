@@ -1,6 +1,7 @@
 import { existsSync, readFileSync, unlinkSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { agentSessionSchema, agentMessageSchema } from '../schemas/index.js';
+import { generateRoundId } from './round-id-server.js';
 import { explainLegacyStateRejection, writeFileAtomic } from '../persistence/index.js';
 import type {
   AgentSession,
@@ -209,7 +210,7 @@ export function reconcileOrphanedAgentSessions(
       role: 'system',
       kind: 'model_issue',
       content: reason,
-    }, stampForSession ? stampForSession(session.id) : { round_id: 'r-pre-1', message_index: 0, block_index: 0 }, activeRuntime);
+    }, stampForSession ? stampForSession(session.id) : { round_id: generateRoundId('pre'), message_index: 0, block_index: 0 }, activeRuntime);
     swept.push(updated);
   }
 

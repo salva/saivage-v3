@@ -244,7 +244,7 @@ describe('session-persistence', () => {
         role: 'assistant',
         kind: 'text',
         content: 'Hello world',
-      }, { round_id: 'r-user-1', message_index: 0, block_index: 0 });
+      }, { round_id: 'r-user-00000000000000000000000000000001', message_index: 0, block_index: 0 });
       expect(msg.session_id).toBe(session.id);
       expect(msg.role).toBe('assistant');
       expect(msg.content).toBe('Hello world');
@@ -252,8 +252,8 @@ describe('session-persistence', () => {
 
     it('should append messages in order', () => {
       const session = mod.createSession(SAIVAGE_DIR, 'planner');
-      mod.appendMessage(SAIVAGE_DIR, session.id, { role: 'user', kind: 'text', content: 'First' }, { round_id: 'r-user-1', message_index: 0, block_index: 0 });
-      mod.appendMessage(SAIVAGE_DIR, session.id, { role: 'assistant', kind: 'text', content: 'Second' }, { round_id: 'r-user-1', message_index: 0, block_index: 0 });
+      mod.appendMessage(SAIVAGE_DIR, session.id, { role: 'user', kind: 'text', content: 'First' }, { round_id: 'r-user-00000000000000000000000000000001', message_index: 0, block_index: 0 });
+      mod.appendMessage(SAIVAGE_DIR, session.id, { role: 'assistant', kind: 'text', content: 'Second' }, { round_id: 'r-user-00000000000000000000000000000001', message_index: 0, block_index: 0 });
 
       const messages = mod.getSessionMessages(SAIVAGE_DIR, session.id);
       expect(messages).toHaveLength(2);
@@ -271,8 +271,8 @@ describe('session-persistence', () => {
 
     it('should return all messages', () => {
       const session = mod.createSession(SAIVAGE_DIR, 'planner');
-      mod.appendMessage(SAIVAGE_DIR, session.id, { role: 'user', kind: 'text', content: 'msg1' }, { round_id: 'r-user-1', message_index: 0, block_index: 0 });
-      mod.appendMessage(SAIVAGE_DIR, session.id, { role: 'assistant', kind: 'text', content: 'msg2' }, { round_id: 'r-user-1', message_index: 0, block_index: 0 });
+      mod.appendMessage(SAIVAGE_DIR, session.id, { role: 'user', kind: 'text', content: 'msg1' }, { round_id: 'r-user-00000000000000000000000000000001', message_index: 0, block_index: 0 });
+      mod.appendMessage(SAIVAGE_DIR, session.id, { role: 'assistant', kind: 'text', content: 'msg2' }, { round_id: 'r-user-00000000000000000000000000000001', message_index: 0, block_index: 0 });
 
       const messages = mod.getSessionMessages(SAIVAGE_DIR, session.id);
       expect(messages).toHaveLength(2);
@@ -282,7 +282,7 @@ describe('session-persistence', () => {
   describe('replaceSessionMessages', () => {
     it('should replace all messages', () => {
       const session = mod.createSession(SAIVAGE_DIR, 'planner');
-      mod.appendMessage(SAIVAGE_DIR, session.id, { role: 'user', kind: 'text', content: 'old' }, { round_id: 'r-user-1', message_index: 0, block_index: 0 });
+      mod.appendMessage(SAIVAGE_DIR, session.id, { role: 'user', kind: 'text', content: 'old' }, { round_id: 'r-user-00000000000000000000000000000001', message_index: 0, block_index: 0 });
 
       mod.replaceSessionMessages(SAIVAGE_DIR, session.id, [
         {
@@ -291,7 +291,7 @@ describe('session-persistence', () => {
           role: 'system',
           kind: 'model_repair',
           content: 'Summary',
-          round_id: 'r-compacted-1',
+          round_id: 'r-compacted-00000000000000000000000000000001',
           message_index: 0,
           block_index: 0,
           timestamp: new Date().toISOString(),
@@ -311,7 +311,7 @@ describe('session-persistence', () => {
         role: 'user',
         kind: 'text',
         content: 'This is a test message with some words',
-      }, { round_id: 'r-user-1', message_index: 0, block_index: 0 });
+      }, { round_id: 'r-user-00000000000000000000000000000001', message_index: 0, block_index: 0 });
 
       const count = mod.getSessionTokenCount(SAIVAGE_DIR, session.id);
       expect(count).toBeGreaterThan(0);
@@ -329,7 +329,7 @@ describe('session-persistence', () => {
             { id: 'call-older', function: { name: 'activate_card', arguments: JSON.stringify({ cardId: 'child-1' }) } },
           ],
         }),
-      }, { round_id: 'r-user-1', message_index: 0, block_index: 0 });
+      }, { round_id: 'r-user-00000000000000000000000000000001', message_index: 0, block_index: 0 });
       mod.appendMessage(SAIVAGE_DIR, session.id, {
         role: 'assistant',
         kind: 'tool_call',
@@ -338,7 +338,7 @@ describe('session-persistence', () => {
             { id: 'call-newer', function: { name: 'activate_card', arguments: JSON.stringify({ cardId: 'child-1' }) } },
           ],
         }),
-      }, { round_id: 'r-user-1', message_index: 0, block_index: 0 });
+      }, { round_id: 'r-user-00000000000000000000000000000001', message_index: 0, block_index: 0 });
 
       expect(mod.findUniqueUnresolvedActivateCardToolCall(SAIVAGE_DIR, session.id, 'child-1')).toEqual({
         session_id: session.id,
@@ -351,7 +351,7 @@ describe('session-persistence', () => {
   describe('deleteSession', () => {
     it('should delete session and messages', () => {
       const session = mod.createSession(SAIVAGE_DIR, 'planner');
-      mod.appendMessage(SAIVAGE_DIR, session.id, { role: 'user', kind: 'text', content: 'test' }, { round_id: 'r-user-1', message_index: 0, block_index: 0 });
+      mod.appendMessage(SAIVAGE_DIR, session.id, { role: 'user', kind: 'text', content: 'test' }, { round_id: 'r-user-00000000000000000000000000000001', message_index: 0, block_index: 0 });
 
       mod.deleteSession(SAIVAGE_DIR, session.id);
       expect(mod.getSession(SAIVAGE_DIR, session.id)).toBeNull();
@@ -389,8 +389,8 @@ describe('session-persistence', () => {
   describe('buildConversationContext', () => {
     it('should build a context string from messages', () => {
       const session = mod.createSession(SAIVAGE_DIR, 'planner');
-      mod.appendMessage(SAIVAGE_DIR, session.id, { role: 'user', kind: 'text', content: 'Hello' }, { round_id: 'r-user-1', message_index: 0, block_index: 0 });
-      mod.appendMessage(SAIVAGE_DIR, session.id, { role: 'assistant', kind: 'text', content: 'Hi there' }, { round_id: 'r-user-1', message_index: 0, block_index: 0 });
+      mod.appendMessage(SAIVAGE_DIR, session.id, { role: 'user', kind: 'text', content: 'Hello' }, { round_id: 'r-user-00000000000000000000000000000001', message_index: 0, block_index: 0 });
+      mod.appendMessage(SAIVAGE_DIR, session.id, { role: 'assistant', kind: 'text', content: 'Hi there' }, { round_id: 'r-user-00000000000000000000000000000001', message_index: 0, block_index: 0 });
 
       const messages = mod.getSessionMessages(SAIVAGE_DIR, session.id);
       const ctx = mod.buildConversationContext(messages);

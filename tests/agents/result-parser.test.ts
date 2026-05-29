@@ -71,7 +71,7 @@ describe('buildExecutorFallbackResult', () => {
       role: overrides.role ?? 'tool',
       kind: overrides.kind ?? 'tool_result',
       content: overrides.content ?? '{}',
-      round_id: overrides.round_id ?? 'r-user-1',
+      round_id: overrides.round_id ?? 'r-user-00000000000000000000000000000001',
       message_index: overrides.message_index ?? 0,
       block_index: overrides.block_index ?? 0,
       timestamp: overrides.timestamp ?? new Date().toISOString(),

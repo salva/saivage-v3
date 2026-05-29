@@ -1,5 +1,5 @@
 import type { ActivityStatus, ConversationEntry } from '../../api/types';
-import { isRoundId, parseRoundId, roundIdSortKey } from './round-id';
+import { isRoundId, parseRoundId } from './round-id';
 import type { AgentTimeline, TimelineRound, TimelineRoundKind, ToolPair } from './types';
 
 function compareEntry(a: ConversationEntry, b: ConversationEntry): number {
@@ -21,11 +21,32 @@ function fallbackRoundKind(entry: ConversationEntry): TimelineRoundKind {
   return 'assistant';
 }
 
+function fallbackRoundId(entry: ConversationEntry, index: number): string {
+  const suffix = (index + 1).toString(16).padStart(32, '0');
+  return `r-${fallbackRoundKind(entry)}-${suffix}`;
+}
+
 function normalizeEntry(entry: ConversationEntry, index: number): ConversationEntry {
-  const round_id = isRoundId(entry.round_id) ? entry.round_id : `r-${fallbackRoundKind(entry)}-${index + 1}`;
+  const round_id = isRoundId(entry.round_id) ? entry.round_id : fallbackRoundId(entry, index);
   const message_index = Number.isFinite(entry.message_index) ? entry.message_index : index;
   const block_index = Number.isFinite(entry.block_index) ? entry.block_index : 0;
   return { ...entry, round_id, message_index, block_index };
+}
+
+function roundOrderKey(entries: ConversationEntry[]): [number, string, string] {
+  let minMsg = Number.POSITIVE_INFINITY;
+  let minTs = '';
+  let minId = '';
+  for (const entry of entries) {
+    if (entry.message_index < minMsg) {
+      minMsg = entry.message_index;
+      minTs = entry.timestamp;
+      minId = entry.id;
+    } else if (entry.message_index === minMsg) {
+      if (!minTs || entry.timestamp.localeCompare(minTs) < 0) { minTs = entry.timestamp; minId = entry.id; }
+    }
+  }
+  return [Number.isFinite(minMsg) ? minMsg : 0, minTs, minId];
 }
 
 export function entriesToTimeline(entries: readonly ConversationEntry[], activityStatus: ActivityStatus | null): AgentTimeline {
@@ -36,13 +57,14 @@ export function entriesToTimeline(entries: readonly ConversationEntry[], activit
     bucket.push(normalized);
     grouped.set(normalized.round_id, bucket);
   }
-  const rounds: TimelineRound[] = [...grouped.entries()]
-    .sort(([a], [b]) => { const ak = roundIdSortKey(a); const bk = roundIdSortKey(b); return ak[0] - bk[0] || ak[1] - bk[1] || ak[2].localeCompare(bk[2]); })
-    .map(([id, roundEntries]) => {
-      const parsed = parseRoundId(id);
-      const sorted = [...roundEntries].sort(compareEntry);
-      return { id, kind: parsed.kind, ordinal: parsed.ordinal, entries: sorted, texts: sorted.filter((entry) => entry.kind === 'text' || entry.kind === 'activity'), diagnostics: sorted.filter((entry) => entry.kind === 'model_issue' || entry.kind === 'model_repair' || entry.kind === 'model_recovered'), toolPairs: buildToolPairs(sorted), activityStatus: null };
-    });
+  const sortedGroups = [...grouped.entries()]
+    .map(([id, roundEntries]) => ({ id, entries: roundEntries, key: roundOrderKey(roundEntries) }))
+    .sort((a, b) => a.key[0] - b.key[0] || a.key[1].localeCompare(b.key[1]) || a.key[2].localeCompare(b.key[2]));
+  const rounds: TimelineRound[] = sortedGroups.map(({ id, entries: roundEntries }, idx) => {
+    const parsed = parseRoundId(id);
+    const sorted = [...roundEntries].sort(compareEntry);
+    return { id, kind: parsed.kind, position: idx + 1, entries: sorted, texts: sorted.filter((entry) => entry.kind === 'text' || entry.kind === 'activity'), diagnostics: sorted.filter((entry) => entry.kind === 'model_issue' || entry.kind === 'model_repair' || entry.kind === 'model_recovered'), toolPairs: buildToolPairs(sorted), activityStatus: null };
+  });
   const activeRound = [...rounds].reverse().find((round: TimelineRound) => round.kind === 'assistant') ?? rounds[rounds.length - 1] ?? null;
   if (activeRound && activityStatus && activityStatus.status !== 'idle') activeRound.activityStatus = activityStatus;
   return { rounds, activeRoundId: activeRound?.id ?? null };

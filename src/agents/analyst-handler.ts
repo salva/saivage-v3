@@ -11,6 +11,7 @@ import type { ActorRole } from './authz.js';
 import { sanitizeAnalystText } from '../agents/analyst-sanitization.js';
 import { compactSession } from './compaction.js';
 import { appendMessage, getSessionMessages } from './session-persistence.js';
+import { generateRoundId } from './round-id-server.js';
 import { ANALYST_PARTIAL_SUCCESS_TEMPLATE, ANALYST_UNKNOWN_CAPABILITY_TEMPLATE } from './analyst-tool-runner.js';
 
 
@@ -267,7 +268,7 @@ export class AnalystHandler {
       const history = getSessionMessages(saivageDir(this.projectRoot), sessionId);
       const bounded = trimToCleanToolBoundary(history);
       const modelInput: AgentMessage[] = [
-        { id: `workspace-context-${sessionId}`, session_id: sessionId, role: 'system', kind: 'text', content: buildWorkspaceContextNote(workspaceContext), round_id: `r-pre-1`, message_index: 0, block_index: 0, timestamp: now() },
+        { id: `workspace-context-${sessionId}`, session_id: sessionId, role: 'system', kind: 'text', content: buildWorkspaceContextNote(workspaceContext), round_id: generateRoundId('pre'), message_index: 0, block_index: 0, timestamp: now() },
         ...bounded,
       ];
 

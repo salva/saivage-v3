@@ -302,7 +302,7 @@ describe('operator API contract registry', () => {
         role: 'assistant',
         kind: 'text',
         content: 'hello',
-        round_id: 'r-assistant-1',
+        round_id: 'r-assistant-00000000000000000000000000000001',
         message_index: 0,
         block_index: 0,
         timestamp: '2026-01-01T00:00:01.000Z',

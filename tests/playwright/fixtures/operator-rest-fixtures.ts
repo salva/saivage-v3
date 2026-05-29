@@ -155,7 +155,7 @@ const outputRoot = {
 };
 
 function stampedText(sessionId: string, id: string, content: string) {
-  return { id, session_id: sessionId, role: 'assistant', kind: 'text', content, round_id: 'r-assistant-1', message_index: 0, block_index: 0, timestamp: now };
+  return { id, session_id: sessionId, role: 'assistant', kind: 'text', content, round_id: 'r-assistant-00000000000000000000000000000001', message_index: 0, block_index: 0, timestamp: now };
 }
 
 const idleActivity = { status: 'idle', pending_calls: [], updated_at: now };
