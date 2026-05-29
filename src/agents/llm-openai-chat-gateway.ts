@@ -21,6 +21,7 @@ interface ChatCompletionRequest {
   stream: boolean;
   tools?: ToolDefinition[];
   tool_choice?: unknown;
+  response_format?: { type: 'json_object' };
 }
 
 interface ChatCompletionResponse {
@@ -163,18 +164,50 @@ export function buildOpenAIChatRequest(
     }),
   ];
 
+  const sanitized = sanitizeToolCallSequences(apiMessages);
+
   const requestBody: ChatCompletionRequest = {
     model: candidate.model,
-    messages: apiMessages,
+    messages: sanitized,
     temperature: opts?.temperature ?? 0.7,
     max_tokens: opts?.max_tokens ?? 4096,
     stream: opts?.stream ?? false,
   };
   if (opts?.tools && opts.tools.length > 0) {
-    requestBody.tools = opts.tools;
+    requestBody.tools = opts.tools.map((t) => ({ type: t.type, function: t.function }));
     if (opts.tool_choice !== undefined) requestBody.tool_choice = opts.tool_choice;
   }
+  if (opts?.response_format) requestBody.response_format = opts.response_format;
   return requestBody;
+}
+
+/**
+ * Strict providers (e.g. DeepSeek) require every assistant message with
+ * `tool_calls` to be immediately followed by a `tool` message for each
+ * `tool_call_id`. When the conversation has dangling tool_calls (from a
+ * mid-loop failover or a stale history), drop the orphan tool_calls so the
+ * request remains protocol-valid.
+ */
+function sanitizeToolCallSequences(msgs: ChatMessage[]): ChatMessage[] {
+  const out: ChatMessage[] = [];
+  for (let i = 0; i < msgs.length; i++) {
+    const m = msgs[i];
+    if (m.role === 'assistant' && m.tool_calls && m.tool_calls.length > 0) {
+      const need = new Set(m.tool_calls.map((c) => c.id));
+      let j = i + 1;
+      while (j < msgs.length && msgs[j].role === 'tool') {
+        const tcid = msgs[j].tool_call_id;
+        if (tcid) need.delete(tcid);
+        j++;
+      }
+      if (need.size > 0) {
+        if (m.content && m.content.length > 0) out.push({ role: 'assistant', content: m.content });
+        continue;
+      }
+    }
+    out.push(m);
+  }
+  return out;
 }
 
 function toChatRole(role: string): 'system' | 'user' | 'assistant' | 'tool' {

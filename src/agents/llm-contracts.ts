@@ -35,6 +35,7 @@ export interface LlmCompleteOptions {
   signal?: AbortSignal;
   tools?: ToolDefinition[];
   tool_choice?: 'auto' | 'none' | 'required' | { type: 'function'; function: { name: string } };
+  response_format?: { type: 'json_object' };
   recorder?: LlmExchangeRecorder;
 }
 

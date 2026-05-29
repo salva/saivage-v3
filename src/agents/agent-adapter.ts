@@ -338,7 +338,8 @@ export class AgentAdapter implements AgentExecutionPort {
             this.sessionCoordinator.trackAbortController(session.id, abortController);
             const callStart = Date.now();
             try {
-              const llmOpts: LlmCompleteOptions = { temperature: modelParams.temperature, max_tokens: modelParams.maxTokens, signal: abortController.signal, ...(tools.length > 0 ? { tools, tool_choice } : {}) };
+              const expectsJsonEnvelope = role === 'planner' || role === 'executor' || role === 'reviewer';
+              const llmOpts: LlmCompleteOptions = { temperature: modelParams.temperature, max_tokens: modelParams.maxTokens, signal: abortController.signal, ...(tools.length > 0 ? { tools, tool_choice } : {}), ...(expectsJsonEnvelope ? { response_format: { type: 'json_object' as const } } : {}) };
               const firstTurnMessages = this.buildModelMessages(session.id);
               const rawResponse = await this.llmCallFn!(candidate, systemPrompt, firstTurnMessages, session.id, llmOpts);
               const loopResult = await this.handleToolCallsLoop(rawResponse, role, session.id, candidate, systemPrompt, modelParams, abortController, { goalId, cardId });
