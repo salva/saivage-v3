@@ -1,7 +1,12 @@
-import { z } from 'zod';
-import { reviewerResultSchema } from '../schemas/index.js';
 import type { ArtifactRef } from '../schemas/index.js';
 import type { AgentMessage } from '../schemas/index.js';
+import {
+  PlannerResultSchema as rawPlannerResultSchema,
+  ExecutorResultSchema as rawExecutorResultSchema,
+  ReviewerResultSchema as rawReviewerResultSchema,
+  executorArtifactDefSchema,
+  executorAttachmentDefSchema,
+} from './role-envelope-schemas.js';
 
 export interface PlannerCardCreate {
   type: string;
@@ -90,64 +95,6 @@ export class ResultParseError extends Error {
     this.issues = issues;
   }
 }
-
-const plannerCardCreateSchema = z.object({
-  type: z.string().min(1),
-  title: z.string().min(1),
-  description: z.string(),
-  status: z.string(),
-  depends_on: z.array(z.string()),
-  priority: z.number().int(),
-  tags: z.array(z.string()).optional(),
-  id: z.string().optional(),
-});
-
-const plannerCardUpdateSchema = z.object({
-  id: z.string().min(1),
-  status: z.string().optional(),
-  title: z.string().optional(),
-  description: z.string().optional(),
-  acceptance: z.string().optional(),
-});
-
-const rawPlannerResultSchema = z.object({
-  status: z.enum(['continue', 'done', 'blocked']),
-  blocked_reason: z.string().nullable().optional(),
-  created_cards: z.array(plannerCardCreateSchema).optional().default([]),
-  updated_cards: z.array(plannerCardUpdateSchema).optional().default([]),
-  summary: z.string().optional(),
-}).strict();
-
-const executorArtifactDefSchema = z.object({
-  type: z.enum(['model', 'data', 'config', 'log', 'report', 'other']),
-  description: z.string(),
-  retain: z.boolean(),
-  sourceFile: z.string().optional(),
-  path: z.string().optional(),
-});
-
-const executorAttachmentDefSchema = z.object({
-  mime: z.string(),
-  title: z.string(),
-  description: z.string().optional(),
-  sourceFile: z.string().optional(),
-  path: z.string().optional(),
-});
-
-const rawExecutorResultSchema = z.object({
-  card_id: z.string().optional(),
-  status: z.enum(['done', 'failed']),
-  status_text: z.string().min(1),
-  error: z.string().optional(),
-  result: z.record(z.string(), z.unknown()).optional(),
-  artifacts: z.array(executorArtifactDefSchema).optional().default([]),
-  attachments: z.array(executorAttachmentDefSchema).optional().default([]),
-  summary: z.string().optional(),
-});
-
-const rawReviewerResultSchema = z.object({
-  assessment: reviewerResultSchema,
-}).strict();
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object' && !Array.isArray(value);

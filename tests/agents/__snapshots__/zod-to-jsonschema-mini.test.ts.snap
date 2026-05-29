@@ -1,0 +1,290 @@
+// Jest Snapshot v1, https://goo.gl/fbAQLP
+
+exports[`zodToJsonSchemaMini — role schemas snapshot: executor schema 1`] = `
+{
+  "additionalProperties": true,
+  "properties": {
+    "artifacts": {
+      "items": {
+        "additionalProperties": true,
+        "properties": {
+          "description": {
+            "type": "string",
+          },
+          "path": {
+            "type": "string",
+          },
+          "retain": {
+            "type": "boolean",
+          },
+          "sourceFile": {
+            "type": "string",
+          },
+          "type": {
+            "enum": [
+              "model",
+              "data",
+              "config",
+              "log",
+              "report",
+              "other",
+            ],
+            "type": "string",
+          },
+        },
+        "required": [
+          "type",
+          "description",
+          "retain",
+        ],
+        "type": "object",
+      },
+      "type": "array",
+    },
+    "attachments": {
+      "items": {
+        "additionalProperties": true,
+        "properties": {
+          "description": {
+            "type": "string",
+          },
+          "mime": {
+            "type": "string",
+          },
+          "path": {
+            "type": "string",
+          },
+          "sourceFile": {
+            "type": "string",
+          },
+          "title": {
+            "type": "string",
+          },
+        },
+        "required": [
+          "mime",
+          "title",
+        ],
+        "type": "object",
+      },
+      "type": "array",
+    },
+    "card_id": {
+      "type": "string",
+    },
+    "error": {
+      "type": "string",
+    },
+    "result": {
+      "additionalProperties": {},
+      "type": "object",
+    },
+    "status": {
+      "enum": [
+        "done",
+        "failed",
+      ],
+      "type": "string",
+    },
+    "status_text": {
+      "minLength": 1,
+      "type": "string",
+    },
+    "summary": {
+      "type": "string",
+    },
+  },
+  "required": [
+    "status",
+    "status_text",
+  ],
+  "type": "object",
+}
+`;
+
+exports[`zodToJsonSchemaMini — role schemas snapshot: planner schema 1`] = `
+{
+  "additionalProperties": false,
+  "properties": {
+    "blocked_reason": {
+      "anyOf": [
+        {
+          "type": "string",
+        },
+        {
+          "type": "null",
+        },
+      ],
+    },
+    "created_cards": {
+      "items": {
+        "additionalProperties": true,
+        "properties": {
+          "depends_on": {
+            "items": {
+              "type": "string",
+            },
+            "type": "array",
+          },
+          "description": {
+            "type": "string",
+          },
+          "id": {
+            "type": "string",
+          },
+          "priority": {
+            "type": "integer",
+          },
+          "status": {
+            "type": "string",
+          },
+          "tags": {
+            "items": {
+              "type": "string",
+            },
+            "type": "array",
+          },
+          "title": {
+            "minLength": 1,
+            "type": "string",
+          },
+          "type": {
+            "minLength": 1,
+            "type": "string",
+          },
+        },
+        "required": [
+          "type",
+          "title",
+          "description",
+          "status",
+          "depends_on",
+          "priority",
+        ],
+        "type": "object",
+      },
+      "type": "array",
+    },
+    "status": {
+      "enum": [
+        "continue",
+        "done",
+        "blocked",
+      ],
+      "type": "string",
+    },
+    "summary": {
+      "type": "string",
+    },
+    "updated_cards": {
+      "items": {
+        "additionalProperties": true,
+        "properties": {
+          "acceptance": {
+            "type": "string",
+          },
+          "description": {
+            "type": "string",
+          },
+          "id": {
+            "minLength": 1,
+            "type": "string",
+          },
+          "status": {
+            "type": "string",
+          },
+          "title": {
+            "type": "string",
+          },
+        },
+        "required": [
+          "id",
+        ],
+        "type": "object",
+      },
+      "type": "array",
+    },
+  },
+  "required": [
+    "status",
+  ],
+  "type": "object",
+}
+`;
+
+exports[`zodToJsonSchemaMini — role schemas snapshot: reviewer schema 1`] = `
+{
+  "additionalProperties": false,
+  "properties": {
+    "assessment": {
+      "additionalProperties": false,
+      "properties": {
+        "achieved": {
+          "items": {
+            "type": "string",
+          },
+          "type": "array",
+        },
+        "evidence_card_ids": {
+          "items": {
+            "type": "string",
+          },
+          "type": "array",
+        },
+        "issues": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "evidence_card_id": {
+                "type": "string",
+              },
+              "recommendation": {
+                "type": "string",
+              },
+              "severity": {
+                "enum": [
+                  "info",
+                  "warning",
+                  "blocker",
+                ],
+                "type": "string",
+              },
+              "summary": {
+                "type": "string",
+              },
+            },
+            "required": [
+              "summary",
+              "severity",
+            ],
+            "type": "object",
+          },
+          "type": "array",
+        },
+        "result": {
+          "enum": [
+            "pass",
+            "needs_corrections",
+          ],
+          "type": "string",
+        },
+        "summary": {
+          "type": "string",
+        },
+      },
+      "required": [
+        "result",
+        "summary",
+        "achieved",
+        "issues",
+        "evidence_card_ids",
+      ],
+      "type": "object",
+    },
+  },
+  "required": [
+    "assessment",
+  ],
+  "type": "object",
+}
+`;
