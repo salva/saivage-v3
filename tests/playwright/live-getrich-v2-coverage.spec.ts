@@ -227,4 +227,62 @@ test.describe('saivage-v3 live deployment — failure-mode coverage', () => {
     const text = await res.text();
     expect(() => JSON.parse(text)).not.toThrow();
   });
+
+  test('POST /api/chats/:id with non-string content returns 400 ValidationError', async ({ request }) => {
+    const res = await request.post('/api/chats/analyst', { data: { content: 12345 } });
+    expect(res.status()).toBe(400);
+    const body = await res.json();
+    expect(body.error).toBe('ValidationError');
+    expect(Array.isArray(body.issues)).toBe(true);
+    expect(body.issues.some((i: { path: string }) => i.path === 'content')).toBe(true);
+  });
+
+  test('GET /api/files/content on a directory returns 400', async ({ request }) => {
+    const res = await request.get('/api/files/content?path=.saivage');
+    expect(res.status()).toBe(400);
+    const body = await res.json();
+    expect(body.error).toMatch(/directory/i);
+    expect(body.path).toBe('.saivage');
+  });
+
+  test('GET /api/files/content for a nonexistent file returns 404', async ({ request }) => {
+    const res = await request.get('/api/files/content?path=no-such-file.txt');
+    expect(res.status()).toBe(404);
+    const body = await res.json();
+    expect(body.error).toMatch(/not found/i);
+    expect(body.path).toBe('no-such-file.txt');
+  });
+
+  test('GET /api/cards/:id/history/:seq for an unknown seq returns 404', async ({ request }) => {
+    const res = await request.get('/api/cards/project/history/999999');
+    expect(res.status()).toBe(404);
+    const body = await res.json();
+    expect(body.error).toMatch(/history entry not found/i);
+    expect(body.cardId).toBe('project');
+    expect(body.version_seq).toBe(999999);
+  });
+
+  test('PUT on a GET-only route returns API-route-not-found 404', async ({ request }) => {
+    const res = await request.put('/api/cards', { data: {} });
+    expect(res.status()).toBe(404);
+    const body = await res.json();
+    expect(body.error).toMatch(/route not found/i);
+  });
+
+  test('POST on a GET-only /api/control-actions returns 404', async ({ request }) => {
+    const res = await request.post('/api/control-actions', { data: {} });
+    expect(res.status()).toBe(404);
+    const body = await res.json();
+    expect(body.error).toMatch(/route not found/i);
+  });
+
+  test('POST /api/auth/ws-ticket issues a WS ticket with an expiry', async ({ request }) => {
+    const res = await request.post('/api/auth/ws-ticket');
+    expect(res.status()).toBe(200);
+    const body = await res.json();
+    expect(typeof body.ticket).toBe('string');
+    expect(body.ticket).toMatch(/^wst_/);
+    expect(typeof body.expiresAt).toBe('string');
+    expect(Number.isFinite(Date.parse(body.expiresAt))).toBe(true);
+  });
 });
