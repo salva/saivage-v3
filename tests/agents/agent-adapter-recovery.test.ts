@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { AgentAdapter } from '../../src/agents/agent-adapter.js';
 import type { LlmCallFn } from '../../src/agents/llm-contracts.js';
 import type { SaivageConfig } from '../../src/agents/config-schema.js';
-import { LlmAuthError, LlmServerError } from '../../src/agents/llm-errors.js';
+import { LlmRequestError } from '../../src/agents/llm-failure.js';
 import { getSession, getSessionMessages, listSessions } from '../../src/agents/session-persistence.js';
 
 function config(): SaivageConfig {
@@ -64,7 +64,7 @@ describe('AgentAdapter invocation recovery policy integration', () => {
     const adapter = makeAdapter(root);
     const markFailed = jest.spyOn(adapter.getRegistry(), 'markFailed');
     const llmCall = jest.fn<LlmCallFn>()
-      .mockRejectedValueOnce(new LlmAuthError('api_key=sk-syntheticSECRET123456 rejected'))
+      .mockRejectedValueOnce(new LlmRequestError({ kind: 'auth_permanent', provider: 'p1', status: 401, message: 'api_key=sk-syntheticSECRET123456 rejected' }))
       .mockResolvedValueOnce(plannerDone());
     adapter.setLlmCallFn(llmCall);
 
@@ -107,7 +107,7 @@ describe('AgentAdapter invocation recovery policy integration', () => {
     const adapter = makeAdapter(root);
     const markFailed = jest.spyOn(adapter.getRegistry(), 'markFailed');
     adapter.setLlmCallFn(jest.fn<LlmCallFn>()
-      .mockRejectedValueOnce(new LlmServerError('upstream unavailable'))
+      .mockRejectedValueOnce(new LlmRequestError({ kind: 'server_transient', provider: 'p1', status: 502, message: 'upstream unavailable' }))
       .mockResolvedValueOnce(plannerDone()));
 
     await expect(adapter.invokePlanner('goal-1', 'prompt')).resolves.toMatchObject({ status: 'done' });

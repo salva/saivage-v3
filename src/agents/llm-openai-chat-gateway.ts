@@ -2,7 +2,8 @@ import type { AgentMessage } from '../schemas/index.js';
 import type { Candidate } from './provider.js';
 import type { LlmCompleteOptions, LlmCompleteResult, ToolCall, ToolDefinition } from './llm-contracts.js';
 import { parsePersistedToolCalls } from './llm-contracts.js';
-import { LlmParseError, LlmServerError, normalizeLlmTransportError, handleLlmHttpError } from './llm-errors.js';
+import { LlmRequestError, unwrapFailure } from './llm-errors.js';
+import { classifierFor, classifyTransportFailure, defaultHttpClassifier } from './llm-failure-classifiers.js';
 import { beginRecordedExchange, recordResponseError, teeStreamForRecorder } from './llm-recording.js';
 import { readOpenAIChatStream } from './llm-stream-parser.js';
 
@@ -85,16 +86,19 @@ export class OpenAIChatGateway {
       }
 
       if (!response.ok) {
+        const ctx = { provider: candidate.provider, model: candidate.model };
+        const bodyText = await response.clone().text().catch(() => '');
+        const failure = classifierFor(candidate.provider).classifyHttp(response, bodyText, ctx)
+          ?? defaultHttpClassifier(response, bodyText, ctx);
         if (handle) {
           recordedErr = true;
-          const errBody = await response.clone().text().catch(() => null);
-          await handle.recordError({ errorName: 'LlmServerError', message: `HTTP ${response.status}`, status: response.status, bodyRaw: errBody });
+          await handle.recordError({ errorName: 'LlmRequestError', message: failure.message, status: response.status, bodyRaw: bodyText });
         }
-        await handleLlmHttpError(response, 'llm-openai-chat-gateway');
+        throw new LlmRequestError(failure);
       }
 
       if (requestBody.stream) {
-        if (!response.body) throw new LlmServerError('Streaming response has no body', response.status);
+        if (!response.body) throw new LlmRequestError({ kind: 'server_transient', provider: candidate.provider, status: response.status, message: 'Streaming response has no body' });
         if (handle) {
           const tee = teeStreamForRecorder(response.body);
           const result = await readOpenAIChatStream(tee.stream);
@@ -109,10 +113,10 @@ export class OpenAIChatGateway {
       try {
         parsed = JSON.parse(rawText) as ChatCompletionResponse;
       } catch (err) {
-        throw new LlmParseError(`Failed to parse chat completions response: ${err instanceof Error ? err.message : String(err)}`, rawText);
+        throw new LlmRequestError({ kind: 'parse_error', provider: candidate.provider, message: `Failed to parse chat completions response: ${err instanceof Error ? err.message : String(err)}`, bodyPreview: rawText.slice(0, 500) });
       }
       if (!parsed.choices || parsed.choices.length === 0) {
-        throw new LlmParseError('Chat completions response contains no choices', rawText);
+        throw new LlmRequestError({ kind: 'parse_error', provider: candidate.provider, message: 'Chat completions response contains no choices', bodyPreview: rawText.slice(0, 500) });
       }
       const choice = parsed.choices[0];
       const result: LlmCompleteResult = {
@@ -124,7 +128,9 @@ export class OpenAIChatGateway {
       return result;
     } catch (err) {
       if (handle && !recordedErr) await recordResponseError(handle, err, rawText ?? null);
-      throw normalizeLlmTransportError(err, 'LLM');
+      if (err instanceof LlmRequestError) throw err;
+      const failure = classifyTransportFailure(err, { provider: candidate.provider, model: candidate.model });
+      throw new LlmRequestError(failure);
     }
   }
 

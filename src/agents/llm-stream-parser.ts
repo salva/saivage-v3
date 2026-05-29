@@ -1,5 +1,5 @@
 import type { LlmCompleteResult, ToolCall } from './llm-contracts.js';
-import { LlmServerError, LlmTimeoutError } from './llm-errors.js';
+import { LlmRequestError } from './llm-errors.js';
 
 export async function readOpenAIChatStream(body: ReadableStream<Uint8Array>): Promise<LlmCompleteResult> {
   const reader = body.getReader();
@@ -30,11 +30,11 @@ export async function readOpenAIChatStream(body: ReadableStream<Uint8Array>): Pr
 
     return buildOpenAIChatStreamResult(contentChunks, toolCallAccumulators, finishReason);
   } catch (err) {
-    if (err instanceof LlmTimeoutError || err instanceof LlmServerError) throw err;
+    if (err instanceof LlmRequestError) throw err;
     if (err instanceof DOMException && err.name === 'AbortError') {
-      throw new LlmTimeoutError('Streaming LLM request aborted due to timeout');
+      throw new LlmRequestError({ kind: 'cancelled', provider: 'unknown', reason: 'timeout', message: 'Streaming LLM request aborted due to timeout' });
     }
-    throw new LlmServerError(`Error reading LLM stream: ${err instanceof Error ? err.message : String(err)}`);
+    throw new LlmRequestError({ kind: 'parse_error', provider: 'unknown', message: `Error reading LLM stream: ${err instanceof Error ? err.message : String(err)}` });
   } finally {
     reader.releaseLock();
   }

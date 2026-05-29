@@ -3,7 +3,8 @@ import type { AgentMessage } from '../schemas/index.js';
 import type { Candidate } from './provider.js';
 import type { LlmCompleteOptions, LlmCompleteResult, ToolDefinition } from './llm-contracts.js';
 import { parsePersistedToolCalls } from './llm-contracts.js';
-import { LlmAuthError, LlmServerError, handleLlmHttpError, normalizeLlmTransportError } from './llm-errors.js';
+import { LlmRequestError } from './llm-errors.js';
+import { classifierFor, classifyTransportFailure, defaultHttpClassifier } from './llm-failure-classifiers.js';
 import { readOpenAICodexStream } from './llm-codex-parser.js';
 import { beginRecordedExchange, recordResponseError, teeStreamForRecorder } from './llm-recording.js';
 
@@ -38,7 +39,7 @@ export class OpenAICodexGateway {
     _sessionId: string,
     opts?: LlmCompleteOptions,
   ): Promise<LlmCompleteResult> {
-    if (!this.apiKey) throw new LlmAuthError('OpenAI Codex provider not configured', 401);
+    if (!this.apiKey) throw new LlmRequestError({ kind: 'auth_permanent', provider: candidate.provider, status: 401, message: 'OpenAI Codex provider not configured' });
 
     const body = buildOpenAICodexRequest(candidate, systemPrompt, messages, opts);
     const headers: Record<string, string> = {
@@ -72,14 +73,17 @@ export class OpenAICodexGateway {
       });
 
       if (!response.ok) {
+        const ctx = { provider: candidate.provider, model: candidate.model };
+        const bodyText = await response.clone().text().catch(() => '');
+        const failure = classifierFor(candidate.provider).classifyHttp(response, bodyText, ctx)
+          ?? defaultHttpClassifier(response, bodyText, ctx);
         if (handle && !recordedErr) {
           recordedErr = true;
-          const errBody = await response.clone().text().catch(() => null);
-          await handle.recordError({ errorName: 'LlmServerError', message: `HTTP ${response.status}`, status: response.status, bodyRaw: errBody });
+          await handle.recordError({ errorName: 'LlmRequestError', message: failure.message, status: response.status, bodyRaw: bodyText });
         }
-        await handleLlmHttpError(response, 'llm-openai-codex-gateway');
+        throw new LlmRequestError(failure);
       }
-      if (!response.body) throw new LlmServerError('OpenAI Codex streaming response has no body', response.status);
+      if (!response.body) throw new LlmRequestError({ kind: 'server_transient', provider: candidate.provider, status: response.status, message: 'OpenAI Codex streaming response has no body' });
 
       if (handle) {
         const tee = teeStreamForRecorder(response.body);
@@ -91,7 +95,9 @@ export class OpenAICodexGateway {
       return await readOpenAICodexStream(response.body);
     } catch (err) {
       if (handle && !recordedErr) await recordResponseError(handle, err, streamBuffer ?? null);
-      throw normalizeLlmTransportError(err, 'OpenAI Codex');
+      if (err instanceof LlmRequestError) throw err;
+      const failure = classifyTransportFailure(err, { provider: candidate.provider, model: candidate.model });
+      throw new LlmRequestError(failure);
     }
   }
 
@@ -174,7 +180,7 @@ export function openAICodexAccountId(token: string): string {
     if (typeof accountId !== 'string' || accountId.length === 0) throw new Error('missing chatgpt_account_id claim');
     return accountId;
   } catch (err) {
-    throw new LlmAuthError(`Failed to extract OpenAI Codex account id: ${err instanceof Error ? err.message : String(err)}`, 401);
+    throw new LlmRequestError({ kind: 'auth_permanent', provider: 'openai-codex', status: 401, message: `Failed to extract OpenAI Codex account id: ${err instanceof Error ? err.message : String(err)}` });
   }
 }
 

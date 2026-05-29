@@ -4,13 +4,7 @@ import {
   InvocationRecoveryPolicy,
   sanitizeRecoveryMessage,
 } from '../../src/agents/invocation-recovery-policy.js';
-import {
-  LlmAuthError,
-  LlmParseError,
-  LlmRateLimitError,
-  LlmServerError,
-  LlmTimeoutError,
-} from '../../src/agents/llm-errors.js';
+import { LlmRequestError } from '../../src/agents/llm-failure.js';
 import type { Candidate } from '../../src/agents/provider.js';
 
 const candidate: Candidate = { provider: 'openai-compatible', account: 'primary', model: 'gpt-test' };
@@ -26,24 +20,24 @@ const baseContext = {
 
 describe('InvocationRecoveryPolicy', () => {
   it('maps structured Llm errors to explicit recovery classes and health decisions', () => {
-    expect(policy.decideFailure(new LlmAuthError('bad token'), baseContext)).toMatchObject({
-      failureClass: 'auth_permanent',
+    expect(policy.decideFailure(new LlmRequestError({ kind: 'auth_permanent', provider: 'openai-compatible', status: 401, message: 'bad token' }), baseContext)).toMatchObject({
+      failure: { kind: 'auth_permanent' },
       action: 'failover_without_cooldown',
       markFailed: false,
     });
-    expect(policy.decideFailure(new LlmRateLimitError('too many requests'), baseContext)).toMatchObject({
-      failureClass: 'rate_limit_transient',
+    expect(policy.decideFailure(new LlmRequestError({ kind: 'rate_limit', provider: 'openai-compatible', status: 429, message: 'too many requests' }), baseContext)).toMatchObject({
+      failure: { kind: 'rate_limit' },
       action: 'cooldown_and_failover',
       markFailed: true,
       cooldownMs: 25,
     });
-    expect(policy.decideFailure(new LlmServerError('upstream 500'), baseContext)).toMatchObject({
-      failureClass: 'server_transient',
+    expect(policy.decideFailure(new LlmRequestError({ kind: 'server_transient', provider: 'openai-compatible', status: 500, message: 'upstream 500' }), baseContext)).toMatchObject({
+      failure: { kind: 'server_transient' },
       action: 'cooldown_and_failover',
       markFailed: true,
     });
-    expect(policy.decideFailure(new LlmTimeoutError('timed out'), baseContext)).toMatchObject({
-      failureClass: 'timeout_transient',
+    expect(policy.decideFailure(new LlmRequestError({ kind: 'timeout', provider: 'openai-compatible', message: 'timed out' }), baseContext)).toMatchObject({
+      failure: { kind: 'timeout' },
       action: 'cooldown_and_failover',
       markFailed: true,
     });
@@ -51,7 +45,14 @@ describe('InvocationRecoveryPolicy', () => {
 
   it('treats ARCH-008 capability diagnostics as static non-health failures', () => {
     const decision = policy.decideFailure(
-      new LlmServerError('Candidate p/_/m does not support requested LLM capabilities: unsupported_tool_calls'),
+      new LlmRequestError({
+        kind: 'capability_mismatch',
+        provider: 'openai-compatible',
+        model: 'gpt-test',
+        requested: ['unsupported_tool_calls'],
+        supported: [],
+        message: 'Candidate p/_/m does not support requested LLM capabilities: unsupported_tool_calls',
+      }),
       {
         ...baseContext,
         capabilitySkips: [{ candidate, reasons: ['unsupported_tool_calls'] }],
@@ -59,7 +60,7 @@ describe('InvocationRecoveryPolicy', () => {
     );
 
     expect(decision).toMatchObject({
-      failureClass: 'capability_mismatch',
+      failure: { kind: 'capability_mismatch' },
       action: 'failover_without_cooldown',
       markFailed: false,
       appendModelIssue: true,
@@ -74,7 +75,7 @@ describe('InvocationRecoveryPolicy', () => {
       capabilitySkips: [{ candidate, reasons: ['unsupported_tool_choice'] }],
     });
     expect(capabilityDecision).toMatchObject({
-      failureClass: 'capability_mismatch',
+      failure: { kind: 'capability_mismatch' },
       action: 'abort_without_retry',
       markFailed: false,
       abort: true,
@@ -83,7 +84,7 @@ describe('InvocationRecoveryPolicy', () => {
 
     const healthDecision = policy.decideNoCandidates({ ...baseContext, candidate: undefined, capabilitySkips: [] });
     expect(healthDecision).toMatchObject({
-      failureClass: 'unknown',
+      failure: { kind: 'unknown' },
       action: 'abort_without_retry',
       markFailed: false,
     });
@@ -91,35 +92,46 @@ describe('InvocationRecoveryPolicy', () => {
   });
 
   it('bounds parse/contract retry by maxRecoveryRetries without poisoning provider health', () => {
-    const retryDecision = policy.decideFailure(new LlmParseError('invalid json', '{'), baseContext);
+    const retryDecision = policy.decideFailure(
+      new LlmRequestError({ kind: 'parse_error', provider: 'openai-compatible', message: 'invalid json', bodyPreview: '{' }),
+      baseContext,
+    );
     expect(retryDecision).toMatchObject({
-      failureClass: 'parse_or_contract',
+      failure: { kind: 'parse_error' },
       action: 'retry_same_after_delay',
       markFailed: false,
       retryDelayMs: 25,
     });
 
-    const exhaustedDecision = policy.decideFailure(new SyntaxError('Unexpected token'), {
-      ...baseContext,
-      attempt: 3,
-      maxRecoveryRetries: 2,
-    });
+    const exhaustedDecision = policy.decideFailure(
+      new LlmRequestError({ kind: 'parse_error', provider: 'openai-compatible', message: 'Unexpected token' }),
+      {
+        ...baseContext,
+        attempt: 3,
+        maxRecoveryRetries: 2,
+      },
+    );
     expect(exhaustedDecision).toMatchObject({
-      failureClass: 'parse_or_contract',
+      failure: { kind: 'parse_error' },
       action: 'failover_without_cooldown',
       markFailed: false,
     });
   });
 
   it('keeps cancellation abortive and unknown errors compatibility-transient', () => {
-    expect(policy.decideFailure(new Error('Agent invocation cancelled for session s1'), baseContext)).toMatchObject({
-      failureClass: 'cancelled',
+    expect(
+      policy.decideFailure(
+        new LlmRequestError({ kind: 'cancelled', provider: 'openai-compatible', reason: 'abort', message: 'Agent invocation cancelled for session s1' }),
+        baseContext,
+      ),
+    ).toMatchObject({
+      failure: { kind: 'cancelled' },
       action: 'abort_without_retry',
       abort: true,
       markFailed: false,
     });
     expect(policy.decideFailure(new Error('mystery outage'), baseContext)).toMatchObject({
-      failureClass: 'unknown',
+      failure: { kind: 'unknown' },
       action: 'cooldown_and_failover',
       markFailed: true,
     });
@@ -127,7 +139,12 @@ describe('InvocationRecoveryPolicy', () => {
 
   it('redacts synthetic secrets from policy messages and payloads', () => {
     const decision = policy.decideFailure(
-      new LlmServerError('failed with api_key=sk-testSECRET123456 and Authorization: Bearer ghp_syntheticSECRET123456'),
+      new LlmRequestError({
+        kind: 'server_transient',
+        provider: 'openai-compatible',
+        status: 500,
+        message: 'failed with api_key=sk-testSECRET123456 and Authorization: Bearer ghp_syntheticSECRET123456',
+      }),
       baseContext,
     );
 

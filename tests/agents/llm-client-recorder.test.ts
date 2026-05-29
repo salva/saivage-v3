@@ -12,13 +12,13 @@ import { join } from 'node:path';
 import type { LlmExchangeRecorder, ExchangeHandle } from '../../src/agents/llm-exchange-recorder.js';
 
 let LlmProviderGateway: typeof import('../../src/agents/llm-provider-gateway.js').LlmProviderGateway;
-let LlmParseError: typeof import('../../src/agents/llm-errors.js').LlmParseError;
+let LlmRequestError: typeof import('../../src/agents/llm-failure.js').LlmRequestError;
 
 beforeAll(async () => {
   const gatewayMod = await import('../../src/agents/llm-provider-gateway.js');
-  const errorsMod = await import('../../src/agents/llm-errors.js');
+  const failureMod = await import('../../src/agents/llm-failure.js');
   LlmProviderGateway = gatewayMod.LlmProviderGateway;
-  LlmParseError = errorsMod.LlmParseError;
+  LlmRequestError = failureMod.LlmRequestError;
 });
 
 interface MockServer { server: Server; port: number; }
@@ -173,10 +173,10 @@ describe('LlmClient + LlmExchangeRecorder integration', () => {
     try {
       const { recorder, errors } = makeMockRecorder();
       const client = new LlmProviderGateway({ baseUrl: `http://localhost:${port}`, apiKey: 'sk' });
-      await expect(client.complete(candidate, sys, msgs, 'sess-5', { recorder })).rejects.toBeInstanceOf(LlmParseError);
+      await expect(client.complete(candidate, sys, msgs, 'sess-5', { recorder })).rejects.toBeInstanceOf(LlmRequestError);
       expect(errors).toHaveLength(1);
       const e = errors[0] as { errorName: string; bodyRaw: string };
-      expect(e.errorName).toBe('LlmParseError');
+      expect(e.errorName).toBe('LlmRequestError');
       expect(e.bodyRaw).toBe(garbage);
     } finally { await closeServer(server); }
   });

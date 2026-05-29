@@ -1,5 +1,5 @@
 import type { LlmCompleteResult, ToolCall } from './llm-contracts.js';
-import { LlmParseError, LlmServerError, LlmTimeoutError, redactProviderErrorText } from './llm-errors.js';
+import { LlmRequestError, redactProviderErrorText } from './llm-errors.js';
 
 export async function readOpenAICodexStream(body: ReadableStream<Uint8Array>): Promise<LlmCompleteResult> {
   const reader = body.getReader();
@@ -35,11 +35,11 @@ export async function readOpenAICodexStream(body: ReadableStream<Uint8Array>): P
     if (toolCalls.length > 0) finishReason = 'tool_calls';
     return { content: content || null, toolCalls, finishReason };
   } catch (err) {
-    if (err instanceof LlmServerError || err instanceof LlmParseError) throw err;
+    if (err instanceof LlmRequestError) throw err;
     if (err instanceof DOMException && err.name === 'AbortError') {
-      throw new LlmTimeoutError('OpenAI Codex streaming request aborted due to timeout');
+      throw new LlmRequestError({ kind: 'cancelled', provider: 'openai-codex', reason: 'timeout', message: 'OpenAI Codex streaming request aborted due to timeout' });
     }
-    throw new LlmServerError(`Error reading OpenAI Codex stream: ${err instanceof Error ? err.message : String(err)}`);
+    throw new LlmRequestError({ kind: 'parse_error', provider: 'openai-codex', message: `Error reading OpenAI Codex stream: ${err instanceof Error ? err.message : String(err)}` });
   } finally {
     reader.releaseLock();
   }
@@ -115,9 +115,9 @@ export function handleOpenAICodexSseChunk(
     } else if (type === 'response.failed') {
       const response = event['response'] as Record<string, unknown> | undefined;
       const error = response?.['error'] as Record<string, unknown> | undefined;
-      throw new LlmServerError(`OpenAI Codex response failed: ${redactProviderErrorText(String(error?.['message'] ?? 'unknown error'), 'llm-codex-parser')}`);
+      throw new LlmRequestError({ kind: 'parse_error', provider: 'openai-codex', message: `OpenAI Codex response failed: ${redactProviderErrorText(String(error?.['message'] ?? 'unknown error'), 'llm-codex-parser')}` });
     } else if (type === 'error') {
-      throw new LlmServerError(`OpenAI Codex stream error: ${redactProviderErrorText(String(event['message'] ?? JSON.stringify(event)), 'llm-codex-parser')}`);
+      throw new LlmRequestError({ kind: 'parse_error', provider: 'openai-codex', message: `OpenAI Codex stream error: ${redactProviderErrorText(String(event['message'] ?? JSON.stringify(event)), 'llm-codex-parser')}` });
     }
   }
 }

@@ -1,6 +1,6 @@
 import type { Candidate } from './provider.js';
 import type { LlmExchangeRecorder } from './llm-exchange-recorder.js';
-import { LlmServerError } from './llm-errors.js';
+import { LlmRequestError } from './llm-errors.js';
 
 const STREAM_TEE_MAX_BYTES = 16 * 1024 * 1024;
 
@@ -75,7 +75,9 @@ export async function recordResponseError(
 ): Promise<void> {
   if (!handle) return;
   const e = err as Error;
-  const status = err instanceof LlmServerError ? err.statusCode : undefined;
+  const status = err instanceof LlmRequestError && 'status' in err.failure
+    ? (err.failure as { status?: number }).status
+    : undefined;
   await handle.recordError({
     errorName: e.name ?? 'Error',
     message: e.message ?? String(err),

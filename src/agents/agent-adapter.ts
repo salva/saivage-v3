@@ -396,7 +396,7 @@ export class AgentAdapter implements AgentExecutionPort {
               }
               const successDecision = defaultInvocationRecoveryPolicy.decideSuccess({ role, candidate, attempt: recoveryCtx.attempt, maxAttempts: recoveryCtx.maxAttempts, recoveryDelayMs: this.runtimeConfig.recoveryDelayMs ?? 60000, maxRecoveryRetries: this.runtimeConfig.maxRecoveryRetries ?? 3, capabilityRequest, capabilitySkips, sessionId: session.id, goalId, cardId });
               if (successDecision.markSucceeded) this.registry.markSucceeded(candidate);
-              if (this.eventLogger) this.eventLogger.appendEvent({ kind: 'invocation_succeeded', session_id: session.id, role: role as unknown as import('../schemas/types.js').AgentRole, attempt: recoveryCtx.attempt, duration_ms: callDuration, failureClass: successDecision.failureClass, recoveryAction: successDecision.action });
+              if (this.eventLogger) this.eventLogger.appendEvent({ kind: 'invocation_succeeded', session_id: session.id, role: role as unknown as import('../schemas/types.js').AgentRole, attempt: recoveryCtx.attempt, duration_ms: callDuration, failure: successDecision.failure, recoveryAction: successDecision.action });
               if (this.eventBus) this.eventBus.emit('invocation_succeeded', { session_id: session.id, role, attempt: recoveryCtx.attempt, duration_ms: callDuration, recoveryAction: successDecision.action });
               this.sessionCoordinator.clearCancellation(session.id);
               return parsed;
@@ -407,16 +407,16 @@ export class AgentAdapter implements AgentExecutionPort {
             const decision = defaultInvocationRecoveryPolicy.decideFailure(lastError, policyContext);
             if (decision.markFailed) this.registry.markFailed(candidate, decision.cooldownMs ?? (this.runtimeConfig.recoveryDelayMs ?? 60000));
             if (decision.appendModelIssue) this.appendSessionMessage(session.id, { role: 'system', kind: 'model_issue', content: this.redactModelIssueText(decision.message) });
-            if (this.eventLogger) this.eventLogger.appendEvent({ kind: 'invocation_failed', session_id: session.id, role: role as unknown as import('../schemas/types.js').AgentRole, attempt: recoveryCtx.attempt, error_message: this.redactModelIssueText(decision.message), failureClass: decision.failureClass, recoveryAction: decision.action, cooldownMs: decision.cooldownMs, retryDelayMs: decision.retryDelayMs, capabilitySkipReasons: decision.eventPayload.capabilitySkipReasons });
-            if (this.eventBus) this.eventBus.emit('invocation_failed', { session_id: session.id, role, attempt: recoveryCtx.attempt, error_message: this.redactModelIssueText(decision.message), failureClass: decision.failureClass, recoveryAction: decision.action, cooldownMs: decision.cooldownMs, retryDelayMs: decision.retryDelayMs, capabilitySkipReasons: decision.eventPayload.capabilitySkipReasons });
+            if (this.eventLogger) this.eventLogger.appendEvent({ kind: 'invocation_failed', session_id: session.id, role: role as unknown as import('../schemas/types.js').AgentRole, attempt: recoveryCtx.attempt, error_message: this.redactModelIssueText(decision.message), failure: decision.failure, recoveryAction: decision.action, cooldownMs: decision.cooldownMs, retryDelayMs: decision.retryDelayMs, capabilitySkipReasons: decision.eventPayload.capabilitySkipReasons });
+            if (this.eventBus) this.eventBus.emit('invocation_failed', { session_id: session.id, role, attempt: recoveryCtx.attempt, error_message: this.redactModelIssueText(decision.message), failure: decision.failure, recoveryAction: decision.action, cooldownMs: decision.cooldownMs, retryDelayMs: decision.retryDelayMs, capabilitySkipReasons: decision.eventPayload.capabilitySkipReasons });
             if (decision.abort || this.sessionCoordinator.isCancelled(session.id)) {
               this.sessionCoordinator.publishCancelledRetryStop(session.id, role as unknown as import('../schemas/types.js').AgentRole);
-              if (decision.failureClass === 'cancelled' || this.sessionCoordinator.isCancelled(session.id)) throw new Error(`Agent invocation cancelled for session ${session.id}. Role: ${role}, goal: ${goalId}, card: ${cardId}`);
+              if (decision.failure?.kind === 'cancelled' || this.sessionCoordinator.isCancelled(session.id)) throw new Error(`Agent invocation cancelled for session ${session.id}. Role: ${role}, goal: ${goalId}, card: ${cardId}`);
               throw lastError;
             }
             if (decision.action === 'retry_same_after_delay') {
-              if (this.eventLogger) this.eventLogger.appendEvent({ kind: 'retry_attempted', session_id: session.id, role: role as unknown as import('../schemas/types.js').AgentRole, attempt: recoveryCtx.attempt, directive: this.redactModelIssueText(decision.message), failureClass: decision.failureClass, recoveryAction: decision.action, retryDelayMs: decision.retryDelayMs });
-              if (this.eventBus) this.eventBus.emit('retry_attempted', { session_id: session.id, role, attempt: recoveryCtx.attempt, directive: this.redactModelIssueText(decision.message), failureClass: decision.failureClass, recoveryAction: decision.action, retryDelayMs: decision.retryDelayMs });
+              if (this.eventLogger) this.eventLogger.appendEvent({ kind: 'retry_attempted', session_id: session.id, role: role as unknown as import('../schemas/types.js').AgentRole, attempt: recoveryCtx.attempt, directive: this.redactModelIssueText(decision.message), failure: decision.failure, recoveryAction: decision.action, retryDelayMs: decision.retryDelayMs });
+              if (this.eventBus) this.eventBus.emit('retry_attempted', { session_id: session.id, role, attempt: recoveryCtx.attempt, directive: this.redactModelIssueText(decision.message), failure: decision.failure, recoveryAction: decision.action, retryDelayMs: decision.retryDelayMs });
               await delayInvocationRecovery(decision.retryDelayMs ?? 0);
               sameCandidateRecoveryAttempt += 1;
               continue;

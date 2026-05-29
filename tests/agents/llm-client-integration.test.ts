@@ -26,11 +26,7 @@ import { EventEmitter } from 'node:events';
 // ── Dynamic imports ────────────────────────────────────────────
 
 let LlmProviderGateway: typeof import('../../src/agents/llm-provider-gateway.js').LlmProviderGateway;
-let LlmAuthError: typeof import('../../src/agents/llm-errors.js').LlmAuthError;
-let LlmRateLimitError: typeof import('../../src/agents/llm-errors.js').LlmRateLimitError;
-let LlmServerError: typeof import('../../src/agents/llm-errors.js').LlmServerError;
-let LlmTimeoutError: typeof import('../../src/agents/llm-errors.js').LlmTimeoutError;
-let LlmParseError: typeof import('../../src/agents/llm-errors.js').LlmParseError;
+let LlmRequestError: typeof import('../../src/agents/llm-failure.js').LlmRequestError;
 
 let AgentAdapter: typeof import('../../src/agents/agent-adapter.js').AgentAdapter;
 let createAgentAdapter: typeof import('../../src/agents/agent-adapter.js').createAgentAdapter;
@@ -43,13 +39,9 @@ let loadConfig: typeof import('../../src/agents/config-schema.js').loadConfig;
 
 beforeAll(async () => {
   const gatewayMod = await import('../../src/agents/llm-provider-gateway.js');
-  const errorsMod = await import('../../src/agents/llm-errors.js');
+  const failureMod = await import('../../src/agents/llm-failure.js');
   LlmProviderGateway = gatewayMod.LlmProviderGateway;
-  LlmAuthError = errorsMod.LlmAuthError;
-  LlmRateLimitError = errorsMod.LlmRateLimitError;
-  LlmServerError = errorsMod.LlmServerError;
-  LlmTimeoutError = errorsMod.LlmTimeoutError;
-  LlmParseError = errorsMod.LlmParseError;
+  LlmRequestError = failureMod.LlmRequestError;
 
   const adapterMod = await import('../../src/agents/agent-adapter.js');
   AgentAdapter = adapterMod.AgentAdapter;
@@ -488,7 +480,7 @@ describe('LlmClient Integration with Mock HTTP Server', () => {
 
   // ── TC2: Auth error (401) ────────────────────────────────────
 
-  it('should throw LlmAuthError on 401', async () => {
+  it('should throw LlmRequestError(auth_permanent) on 401', async () => {
     const { server, port } = await createMockServer((_req, res) => {
       res.writeHead(401, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ error: { message: 'Invalid API key' } }));
@@ -498,7 +490,7 @@ describe('LlmClient Integration with Mock HTTP Server', () => {
       const client = new LlmProviderGateway({ baseUrl: `http://localhost:${port}` });
       await expect(
         client.complete(cand(), sp(), msgs(), 'sess-auth'),
-      ).rejects.toThrow(LlmAuthError);
+      ).rejects.toMatchObject({ failure: { kind: 'auth_permanent' } });
     } finally {
       await closeServer(server);
     }
@@ -540,7 +532,8 @@ describe('LlmClient Integration with Mock HTTP Server', () => {
       } catch (err) {
         clientError = err;
       }
-      expect(clientError).toBeInstanceOf(LlmAuthError);
+      expect(clientError).toBeInstanceOf(LlmRequestError);
+      expect((clientError as InstanceType<typeof LlmRequestError>).failure.kind).toBe('auth_permanent');
       const clientErrorMessage = clientError instanceof Error ? clientError.message : String(clientError);
       for (const secret of Object.values(syntheticSecrets)) {
         expect(clientErrorMessage).not.toContain(secret);
@@ -568,7 +561,7 @@ describe('LlmClient Integration with Mock HTTP Server', () => {
 
       await expect(
         adapter.invokePlanner('goal-1', sp(), msgs()),
-      ).rejects.toThrow(LlmAuthError);
+      ).rejects.toMatchObject({ failure: { kind: 'auth_permanent' } });
 
       const agentsDir = join(adapterTempDir, '.saivage', 'agents');
       const readPersisted = (dir: string): string => {
@@ -592,7 +585,7 @@ describe('LlmClient Integration with Mock HTTP Server', () => {
     }
   }, 15000);
 
-  it('should throw LlmAuthError on 403', async () => {
+  it('should throw LlmRequestError(auth_permanent) on 403', async () => {
     const { server, port } = await createMockServer((_req, res) => {
       res.writeHead(403, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ error: { message: 'Forbidden' } }));
@@ -602,7 +595,7 @@ describe('LlmClient Integration with Mock HTTP Server', () => {
       const client = new LlmProviderGateway({ baseUrl: `http://localhost:${port}` });
       await expect(
         client.complete(cand(), sp(), msgs(), 'sess-403'),
-      ).rejects.toThrow(LlmAuthError);
+      ).rejects.toMatchObject({ failure: { kind: 'auth_permanent' } });
     } finally {
       await closeServer(server);
     }
@@ -610,7 +603,7 @@ describe('LlmClient Integration with Mock HTTP Server', () => {
 
   // ── TC3: Rate limit (429) ────────────────────────────────────
 
-  it('should throw LlmRateLimitError on 429', async () => {
+  it('should throw LlmRequestError(rate_limit) on 429', async () => {
     const { server, port } = await createMockServer((_req, res) => {
       res.writeHead(429, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ error: { message: 'Rate limited' } }));
@@ -620,7 +613,7 @@ describe('LlmClient Integration with Mock HTTP Server', () => {
       const client = new LlmProviderGateway({ baseUrl: `http://localhost:${port}` });
       await expect(
         client.complete(cand(), sp(), msgs(), 'sess-rate'),
-      ).rejects.toThrow(LlmRateLimitError);
+      ).rejects.toMatchObject({ failure: { kind: 'rate_limit' } });
     } finally {
       await closeServer(server);
     }
@@ -628,7 +621,7 @@ describe('LlmClient Integration with Mock HTTP Server', () => {
 
   // ── TC4: Server error (500) ──────────────────────────────────
 
-  it('should throw LlmServerError on 500', async () => {
+  it('should throw LlmRequestError(server_transient) on 500', async () => {
     const { server, port } = await createMockServer((_req, res) => {
       res.writeHead(500, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ error: { message: 'Server error' } }));
@@ -638,13 +631,13 @@ describe('LlmClient Integration with Mock HTTP Server', () => {
       const client = new LlmProviderGateway({ baseUrl: `http://localhost:${port}` });
       await expect(
         client.complete(cand(), sp(), msgs(), 'sess-500'),
-      ).rejects.toThrow(LlmServerError);
+      ).rejects.toMatchObject({ failure: { kind: 'server_transient' } });
     } finally {
       await closeServer(server);
     }
   });
 
-  it('should throw LlmServerError on 502', async () => {
+  it('should throw LlmRequestError(server_transient) on 502', async () => {
     const { server, port } = await createMockServer((_req, res) => {
       res.writeHead(502, { 'Content-Type': 'text/plain' });
       res.end('Bad Gateway');
@@ -654,7 +647,7 @@ describe('LlmClient Integration with Mock HTTP Server', () => {
       const client = new LlmProviderGateway({ baseUrl: `http://localhost:${port}` });
       await expect(
         client.complete(cand(), sp(), msgs(), 'sess-502'),
-      ).rejects.toThrow(LlmServerError);
+      ).rejects.toMatchObject({ failure: { kind: 'server_transient' } });
     } finally {
       await closeServer(server);
     }
@@ -662,7 +655,7 @@ describe('LlmClient Integration with Mock HTTP Server', () => {
 
   // ── TC5: Timeout ─────────────────────────────────────────────
 
-  it('should throw LlmTimeoutError when AbortSignal fires', async () => {
+  it('should throw LlmRequestError(cancelled) when AbortSignal fires', async () => {
     const { server, port } = await createMockServer(() => {
       // Never respond — hangs
     });
@@ -676,7 +669,7 @@ describe('LlmClient Integration with Mock HTTP Server', () => {
         client.complete(cand(), sp(), msgs(), 'sess-timeout', {
           signal: controller.signal,
         }),
-      ).rejects.toThrow(LlmTimeoutError);
+      ).rejects.toMatchObject({ failure: { kind: 'cancelled' } });
     } finally {
       await closeServer(server);
     }
@@ -684,7 +677,7 @@ describe('LlmClient Integration with Mock HTTP Server', () => {
 
   // ── TC6: Parse error (malformed JSON) ────────────────────────
 
-  it('should throw LlmParseError on non-JSON response', async () => {
+  it('should throw LlmRequestError(parse_error) on non-JSON response', async () => {
     const { server, port } = await createMockServer((_req, res) => {
       res.writeHead(200, { 'Content-Type': 'text/plain' });
       res.end('This is not JSON at all');
@@ -694,7 +687,7 @@ describe('LlmClient Integration with Mock HTTP Server', () => {
       const client = new LlmProviderGateway({ baseUrl: `http://localhost:${port}` });
       await expect(
         client.complete(cand(), sp(), msgs(), 'sess-parse'),
-      ).rejects.toThrow(LlmParseError);
+      ).rejects.toMatchObject({ failure: { kind: 'parse_error' } });
     } finally {
       await closeServer(server);
     }
@@ -702,7 +695,7 @@ describe('LlmClient Integration with Mock HTTP Server', () => {
 
   // ── TC7: Parse error (missing choices) ───────────────────────
 
-  it('should throw LlmParseError on empty choices array', async () => {
+  it('should throw LlmRequestError(parse_error) on empty choices array', async () => {
     const { server, port } = await createMockServer((_req, res) => {
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({
@@ -718,7 +711,7 @@ describe('LlmClient Integration with Mock HTTP Server', () => {
       const client = new LlmProviderGateway({ baseUrl: `http://localhost:${port}` });
       await expect(
         client.complete(cand(), sp(), msgs(), 'sess-empty'),
-      ).rejects.toThrow(LlmParseError);
+      ).rejects.toMatchObject({ failure: { kind: 'parse_error' } });
     } finally {
       await closeServer(server);
     }
@@ -1018,7 +1011,7 @@ describe('LlmClient Streaming Mode', () => {
     }
   });
 
-  it('should throw LlmTimeoutError when streaming is aborted', async () => {
+  it('should throw LlmRequestError(cancelled) when streaming is aborted', async () => {
     const { server, port } = await createMockServer((_req, res) => {
       res.writeHead(200, { 'Content-Type': 'text/event-stream' });
       res.write(streamLine('partial...'));
@@ -1034,7 +1027,7 @@ describe('LlmClient Streaming Mode', () => {
         client.complete(cand(), sp(), msgs(), 'sess-stream-timeout', {
           stream: true, signal: controller.signal,
         }),
-      ).rejects.toThrow(LlmTimeoutError);
+      ).rejects.toMatchObject({ failure: { kind: 'cancelled' } });
     } finally {
       await closeServer(server);
     }

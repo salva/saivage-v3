@@ -1,13 +1,7 @@
 import { join } from 'node:path';
 import type { AgentMessage } from '../schemas/index.js';
 import type { ToolDefinition, ToolCall, LlmInvocationClient } from './llm-contracts.js';
-import {
-  LlmAuthError,
-  LlmParseError,
-  LlmRateLimitError,
-  LlmServerError,
-  LlmTimeoutError,
-} from './llm-errors.js';
+import { unwrapFailure } from './llm-errors.js';
 import { LlmProviderGateway } from './llm-provider-gateway.js';
 import { ANALYST_TOOL_DEFINITIONS } from './analyst-tool-schemas.js';
 import { RoleToolPolicy } from './role-tool-policy.js';
@@ -178,18 +172,19 @@ export class LlmIntentResolver {
         this.registry.markSucceeded(candidate);
         return { content: result.content ?? '', toolCalls: result.toolCalls };
       } catch (err) {
-        if (err instanceof LlmAuthError) {
+        const failure = unwrapFailure(err);
+        if (failure.kind === 'auth_permanent') {
           this.registry.markFailed(candidate, this.runtimeConfig.recoveryDelayMs ?? 60000);
-          lastTransportError = err;
+          lastTransportError = err instanceof Error ? err : new Error(String(err));
           continue;
         }
         if (
-          err instanceof LlmRateLimitError ||
-          err instanceof LlmServerError ||
-          err instanceof LlmTimeoutError ||
-          err instanceof LlmParseError
+          failure.kind === 'rate_limit' ||
+          failure.kind === 'server_transient' ||
+          failure.kind === 'timeout' ||
+          failure.kind === 'parse_error'
         ) {
-          lastTransportError = err;
+          lastTransportError = err instanceof Error ? err : new Error(String(err));
           continue;
         }
         throw err;

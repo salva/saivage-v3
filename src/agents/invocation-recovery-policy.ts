@@ -1,30 +1,16 @@
 import type { AgentRole } from '../schemas/index.js';
-import {
-  LlmAuthError,
-  LlmParseError,
-  LlmRateLimitError,
-  LlmServerError,
-  LlmTimeoutError,
-} from './llm-errors.js';
+import { unwrapFailure } from './llm-errors.js';
+import type { LlmFailure } from './llm-failure.js';
 import type { Candidate } from './provider.js';
 import type { CapabilityRequest, CapabilitySkipDiagnostic } from './provider-capabilities.js';
-
-export type InvocationFailureClass =
-  | 'capability_mismatch'
-  | 'auth_permanent'
-  | 'rate_limit_transient'
-  | 'server_transient'
-  | 'timeout_transient'
-  | 'parse_or_contract'
-  | 'cancelled'
-  | 'unknown';
 
 export type InvocationRecoveryAction =
   | 'mark_succeeded'
   | 'cooldown_and_failover'
   | 'failover_without_cooldown'
   | 'retry_same_after_delay'
-  | 'abort_without_retry';
+  | 'abort_without_retry'
+  | 'fail_invocation';
 
 export interface InvocationRecoveryContext {
   role: AgentRole | string;
@@ -42,7 +28,7 @@ export interface InvocationRecoveryContext {
 
 export interface InvocationRecoveryDecision {
   action: InvocationRecoveryAction;
-  failureClass?: InvocationFailureClass;
+  failure?: LlmFailure;
   message: string;
   eventPayload: Record<string, unknown>;
   cooldownMs?: number;
@@ -80,32 +66,17 @@ export function sanitizeRecoveryMessage(value: unknown, maxLength = 500): string
   return text;
 }
 
-function isAbortLike(error: unknown): boolean {
-  if (error instanceof DOMException && error.name === 'AbortError') return true;
-  if (!(error instanceof Error)) return false;
-  return /\bcancell?ed\b|\babort(?:ed)?\b/i.test(error.message) || error.name === 'AbortError';
-}
-
-function isCapabilityMismatch(error: unknown, context: InvocationRecoveryContext): boolean {
-  if ((context.capabilitySkips?.length ?? 0) > 0) {
-    const message = error instanceof Error ? error.message : String(error ?? '');
-    if (/does not support requested LLM capabilities|unsupported_/i.test(message)) return true;
-  }
-  if (!(error instanceof Error)) return false;
-  return /does not support requested LLM capabilities|unsupported_(?:tool_calls|tool_choice|transport_protocol|response_shape|streaming)/i.test(error.message);
+function assertNever(x: never): never {
+  throw new Error('Unhandled failure kind: ' + JSON.stringify(x));
 }
 
 export class InvocationRecoveryPolicy {
-  classify(error: unknown, context: InvocationRecoveryContext): InvocationFailureClass {
-    if (isAbortLike(error)) return 'cancelled';
-    if (isCapabilityMismatch(error, context)) return 'capability_mismatch';
-    if (error instanceof LlmAuthError) return 'auth_permanent';
-    if (error instanceof LlmRateLimitError) return 'rate_limit_transient';
-    if (error instanceof LlmServerError) return 'server_transient';
-    if (error instanceof LlmTimeoutError) return 'timeout_transient';
-    if (error instanceof LlmParseError) return 'parse_or_contract';
-    if (error instanceof SyntaxError || error instanceof TypeError || (error instanceof Error && /parse|schema|contract|validation failed|invalid .*json/i.test(error.message))) return 'parse_or_contract';
-    return 'unknown';
+  classify(error: unknown): LlmFailure {
+    const failure = unwrapFailure(error);
+    if (failure.kind === 'unknown' && error instanceof Error && (error.name === 'ZodError' || error.name === 'SyntaxError' || error.name === 'ResultParseError')) {
+      return { kind: 'parse_error', provider: failure.provider, message: failure.message };
+    }
+    return failure;
   }
 
   decideSuccess(context: InvocationRecoveryContext): InvocationRecoveryDecision {
@@ -116,34 +87,39 @@ export class InvocationRecoveryPolicy {
   }
 
   decideFailure(error: unknown, context: InvocationRecoveryContext): InvocationRecoveryDecision {
-    const failureClass = this.classify(error, context);
+    const failure = this.classify(error);
     const sanitized = sanitizeRecoveryMessage(error);
     const candidate = candidateLabel(context.candidate);
 
-    switch (failureClass) {
+    switch (failure.kind) {
       case 'auth_permanent':
-        return this.buildDecision(context, 'failover_without_cooldown', failureClass, `Candidate ${candidate} failed with permanent auth error: ${sanitized}`, { appendModelIssue: true });
+        return this.buildDecision(context, 'failover_without_cooldown', failure, `Candidate ${candidate} failed with permanent auth error: ${sanitized}`, { appendModelIssue: true });
       case 'capability_mismatch':
-        return this.buildDecision(context, 'failover_without_cooldown', failureClass, `Candidate ${candidate} is incompatible with requested capabilities: ${sanitized}`, { appendModelIssue: true });
-      case 'rate_limit_transient':
+        return this.buildDecision(context, 'failover_without_cooldown', failure, `Candidate ${candidate} is incompatible with requested capabilities: ${sanitized}`, { appendModelIssue: true });
+      case 'rate_limit':
       case 'server_transient':
-      case 'timeout_transient':
-        return this.buildDecision(context, 'cooldown_and_failover', failureClass, `Candidate ${candidate} failed transiently: ${sanitized}`, { markFailed: true, cooldownMs: context.recoveryDelayMs, appendModelIssue: true });
-      case 'parse_or_contract': {
+      case 'timeout':
+        return this.buildDecision(context, 'cooldown_and_failover', failure, `Candidate ${candidate} failed transiently: ${sanitized}`, { markFailed: true, cooldownMs: context.recoveryDelayMs, appendModelIssue: true });
+      case 'contract_mismatch':
+        return this.buildDecision(context, 'fail_invocation', failure, `Candidate ${candidate} violated tool-call contract: ${sanitized}`, { markFailed: false, appendModelIssue: true, abort: true });
+      case 'token_budget_exceeded':
+        return this.buildDecision(context, 'failover_without_cooldown', failure, `Candidate ${candidate} exceeded token budget: ${sanitized}`, { appendModelIssue: true });
+      case 'parse_error': {
         const canRetrySame = context.attempt <= context.maxRecoveryRetries;
         return this.buildDecision(
           context,
           canRetrySame ? 'retry_same_after_delay' : 'failover_without_cooldown',
-          failureClass,
+          failure,
           `Candidate ${candidate} produced an invalid response contract: ${sanitized}`,
           { retryDelayMs: canRetrySame ? context.recoveryDelayMs : undefined, appendModelIssue: true },
         );
       }
       case 'cancelled':
-        return this.buildDecision(context, 'abort_without_retry', failureClass, `Invocation cancelled for candidate ${candidate}: ${sanitized}`, { abort: true, appendModelIssue: false });
+        return this.buildDecision(context, 'abort_without_retry', failure, `Invocation cancelled for candidate ${candidate}: ${sanitized}`, { abort: true, appendModelIssue: false });
       case 'unknown':
+        return this.buildDecision(context, 'cooldown_and_failover', failure, `Candidate ${candidate} failed: ${sanitized}`, { markFailed: true, cooldownMs: context.recoveryDelayMs, appendModelIssue: true });
       default:
-        return this.buildDecision(context, 'cooldown_and_failover', failureClass, `Candidate ${candidate} failed: ${sanitized}`, { markFailed: true, cooldownMs: context.recoveryDelayMs, appendModelIssue: true });
+        return assertNever(failure);
     }
   }
 
@@ -154,10 +130,20 @@ export class InvocationRecoveryPolicy {
     const message = capabilityOnly
       ? `No capability-compatible candidates available for role '${context.role}'. Skipped reasons: ${reasons.join(', ') || 'unknown'}.`
       : `No healthy candidates available for role '${context.role}'.`;
+    const synthetic: LlmFailure = capabilityOnly
+      ? {
+          kind: 'capability_mismatch',
+          provider: context.candidate?.provider ?? 'unknown',
+          model: context.candidate?.model ?? 'unknown',
+          requested: reasons,
+          supported: [],
+          message,
+        }
+      : { kind: 'unknown', provider: context.candidate?.provider ?? 'unknown', message };
     return this.buildDecision(
       context,
       'abort_without_retry',
-      capabilityOnly ? 'capability_mismatch' : 'unknown',
+      synthetic,
       message,
       { abort: true, appendModelIssue: false, capabilitySkipReasons: reasons },
     );
@@ -166,11 +152,12 @@ export class InvocationRecoveryPolicy {
   private buildDecision(
     context: InvocationRecoveryContext,
     action: InvocationRecoveryAction,
-    failureClass: InvocationFailureClass | undefined,
+    failure: LlmFailure | undefined,
     message: string,
     overrides: Partial<InvocationRecoveryDecision> = {},
   ): InvocationRecoveryDecision {
     const capabilitySkipReasons = overrides.capabilitySkipReasons ?? Array.from(new Set((context.capabilitySkips ?? []).flatMap((skip) => skip.reasons))).sort();
+    const sanitizedFailure: LlmFailure | undefined = failure ? { ...failure, message: sanitizeRecoveryMessage(failure.message) } : undefined;
     const eventPayload: Record<string, unknown> = {
       session_id: context.sessionId,
       role: context.role,
@@ -179,7 +166,7 @@ export class InvocationRecoveryPolicy {
       provider: context.candidate?.provider,
       model: context.candidate?.model,
       account: context.candidate?.account ?? undefined,
-      failureClass,
+      failure: sanitizedFailure,
       recoveryAction: action,
       retryDelayMs: overrides.retryDelayMs,
       cooldownMs: overrides.cooldownMs,
@@ -187,11 +174,12 @@ export class InvocationRecoveryPolicy {
       error_message: sanitizeRecoveryMessage(message),
     };
     for (const key of Object.keys(eventPayload)) {
-      if (eventPayload[key] === undefined || (Array.isArray(eventPayload[key]) && eventPayload[key].length === 0)) delete eventPayload[key];
+      const v = eventPayload[key];
+      if (v === undefined || (Array.isArray(v) && v.length === 0)) delete eventPayload[key];
     }
     return {
       action,
-      failureClass,
+      failure: sanitizedFailure,
       message: sanitizeRecoveryMessage(message),
       eventPayload,
       cooldownMs: overrides.cooldownMs,

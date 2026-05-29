@@ -2,7 +2,7 @@ import type { AgentMessage } from '../schemas/index.js';
 import type { Candidate, ProviderRegistry } from './provider.js';
 import { capabilityRequestForLlmOptions, supportsCapabilityRequest } from './provider-capabilities.js';
 import type { LlmCompleteOptions, LlmCompleteResult, LlmInvocationClient } from './llm-contracts.js';
-import { LlmServerError } from './llm-errors.js';
+import { LlmRequestError } from './llm-errors.js';
 import { OpenAIChatGateway } from './llm-openai-chat-gateway.js';
 import { OpenAICodexGateway } from './llm-openai-codex-gateway.js';
 
@@ -48,9 +48,14 @@ export class LlmProviderGateway implements LlmInvocationClient {
     const capabilities = this.registry.getEffectiveCapabilities(candidate);
     const match = supportsCapabilityRequest(capabilities, request);
     if (!match.supported) {
-      throw new LlmServerError(
-        `Candidate ${candidate.provider}/${candidate.account ?? '_'}/${candidate.model} does not support requested LLM capabilities: ${match.reasons.join(', ')}`,
-      );
+      throw new LlmRequestError({
+        kind: 'capability_mismatch',
+        provider: candidate.provider,
+        model: candidate.model,
+        requested: match.reasons,
+        supported: [],
+        message: `Candidate ${candidate.provider}/${candidate.account ?? '_'}/${candidate.model} does not support requested LLM capabilities: ${match.reasons.join(', ')}`,
+      });
     }
   }
 }
