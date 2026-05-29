@@ -1,7 +1,6 @@
 import { z } from 'zod';
 import {
   ApiErrorSchema,
-  ContractViolationErrorSchema,
   ForbiddenErrorSchema,
   operatorSessionContract,
   UnauthorizedErrorSchema,
@@ -73,7 +72,7 @@ export const mcpOperatorApiContracts = {
     path: '/api/mcp/status',
     success: McpStatusResponseSchema,
     error: ApiErrorSchema,
-    response: { 200: McpStatusResponseSchema, 400: ValidationErrorSchema, 401: UnauthorizedErrorSchema, 403: ForbiddenErrorSchema, 500: ContractViolationErrorSchema },
+    response: { 200: McpStatusResponseSchema, 400: ValidationErrorSchema, 401: UnauthorizedErrorSchema, 403: ForbiddenErrorSchema, 500: ApiErrorSchema },
     ...operatorSessionContract,
     successSchemaName: 'McpStatusResponse',
   },
@@ -83,7 +82,7 @@ export const mcpOperatorApiContracts = {
     path: '/api/mcp/tools',
     success: McpToolsResponseSchema,
     error: ApiErrorSchema,
-    response: { 200: McpToolsResponseSchema, 400: ValidationErrorSchema, 401: UnauthorizedErrorSchema, 403: ForbiddenErrorSchema, 500: ContractViolationErrorSchema },
+    response: { 200: McpToolsResponseSchema, 400: ValidationErrorSchema, 401: UnauthorizedErrorSchema, 403: ForbiddenErrorSchema, 500: ApiErrorSchema },
     ...operatorSessionContract,
     successSchemaName: 'McpToolsResponse',
   },

@@ -62,60 +62,33 @@ const routingProfileSchema = z.object({
   allowed: z.array(z.string()).default([]),
 });
 
-// Models section
-const modelsSectionSchema = z.object({
-  // Per-role model lists
-  planner: modelListSchema.optional(),
-  executor: modelListSchema.optional(),
-  reviewer: modelListSchema.optional(),
-  analyst: modelListSchema.optional(),
-  manager: modelListSchema.optional(),
-  coder: modelListSchema.optional(),
-  researcher: modelListSchema.optional(),
-  data_agent: modelListSchema.optional(),
-  inspector: modelListSchema.optional(),
-  chat: modelListSchema.optional(),
-  default: modelListSchema.optional(),
-  // Per-role temperature (0..2)
-  temperature: z
-    .object({
-      planner: z.number().min(0).max(2).optional(),
-      executor: z.number().min(0).max(2).optional(),
-      reviewer: z.number().min(0).max(2).optional(),
-      analyst: z.number().min(0).max(2).optional(),
-      manager: z.number().min(0).max(2).optional(),
-      coder: z.number().min(0).max(2).optional(),
-      researcher: z.number().min(0).max(2).optional(),
-      data_agent: z.number().min(0).max(2).optional(),
-      inspector: z.number().min(0).max(2).optional(),
-      chat: z.number().min(0).max(2).optional(),
-      default: z.number().min(0).max(2).optional(),
-    })
-    .optional(),
-  // Per-role max_tokens
-  max_tokens: z
-    .object({
-      planner: z.number().int().positive().optional(),
-      executor: z.number().int().positive().optional(),
-      reviewer: z.number().int().positive().optional(),
-      analyst: z.number().int().positive().optional(),
-      manager: z.number().int().positive().optional(),
-      coder: z.number().int().positive().optional(),
-      researcher: z.number().int().positive().optional(),
-      data_agent: z.number().int().positive().optional(),
-      inspector: z.number().int().positive().optional(),
-      chat: z.number().int().positive().optional(),
-      default: z.number().int().positive().optional(),
-    })
-    .optional(),
-  // Routing profiles
-  profiles: z.record(z.string(), routingProfileSchema).optional(),
-  routing: z.record(z.string(), z.string()).optional(),
-  // Model equivalents
-  equivalents: z.array(z.array(z.string())).optional(),
-  // Failover chains
-  failover: z.record(z.string(), z.array(z.string())).optional(),
-});
+// Reserved keys that have non-role-list shapes inside the models section.
+const MODELS_RESERVED_KEYS = new Set(['temperature', 'max_tokens', 'profiles', 'routing', 'equivalents', 'failover']);
+
+// Models section: role names are open — any string key whose value is a model list is accepted.
+// Reserved sub-keys carry richer shapes (per-role temperatures, routing, etc.).
+const modelsSectionSchema = z
+  .object({
+    temperature: z.record(z.string(), z.number().min(0).max(2)).optional(),
+    max_tokens: z.record(z.string(), z.number().int().positive()).optional(),
+    profiles: z.record(z.string(), routingProfileSchema).optional(),
+    routing: z.record(z.string(), z.string()).optional(),
+    equivalents: z.array(z.array(z.string())).optional(),
+    failover: z.record(z.string(), z.array(z.string())).optional(),
+  })
+  .passthrough()
+  .superRefine((value, ctx) => {
+    for (const [key, raw] of Object.entries(value)) {
+      if (MODELS_RESERVED_KEYS.has(key)) continue;
+      const parsed = modelListSchema.safeParse(raw);
+      if (!parsed.success) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, path: [key], message: `models.${key} must be a model name or an array of model names` });
+        continue;
+      }
+      // Normalize: replace the raw entry with the parsed (always-array) form.
+      (value as Record<string, unknown>)[key] = parsed.data;
+    }
+  });
 
 // Provider capabilities
 export const providerCapabilitySchema = z.object({
@@ -419,8 +392,9 @@ export function getModelListForRole(
   }
 
   // Fallback to default
-  if (models.default) {
-    return models.default;
+  const fallback = (models as Record<string, unknown>)['default'];
+  if (Array.isArray(fallback)) {
+    return fallback as string[];
   }
 
   throw new Error(`No model list configured for role '${role}' and no default.`);

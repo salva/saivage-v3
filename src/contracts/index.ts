@@ -28,7 +28,6 @@ export {
   ChatSendResponseSchema,
   ConfigGetResponseSchema,
   ConfigUnavailableErrorSchema,
-  ContractViolationErrorSchema,
   ControlActionsListFailureSchema,
   ControlActionsListResponseSchema,
   ControlActionsQuerySchema,

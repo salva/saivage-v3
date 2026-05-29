@@ -26,10 +26,6 @@ export const ForbiddenErrorSchema = ApiErrorSchema.extend({
   statusCode: z.literal(403).optional(),
 });
 
-export const ContractViolationErrorSchema = ApiErrorSchema.extend({
-  error: z.literal('ContractViolation'),
-});
-
 export const operatorSessionContract = { auth: 'operator-session', requiresAuth: true } as const;
 export const publicContract = { auth: 'public', requiresAuth: false } as const;
 

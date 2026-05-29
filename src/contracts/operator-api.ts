@@ -85,7 +85,6 @@ export {
 export type { EventsListFailure, EventsListResponse, EventsQuery } from './operator-api-events.js';
 export {
   ApiErrorSchema,
-  ContractViolationErrorSchema,
   ForbiddenErrorSchema,
   HttpMethodSchema,
   UnauthorizedErrorSchema,
