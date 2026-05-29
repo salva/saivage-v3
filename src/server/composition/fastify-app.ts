@@ -30,7 +30,9 @@ export async function createFastifyApp(environment: Environment): Promise<Fastif
     try {
       done(null, JSON.parse(rawBody));
     } catch (err) {
-      done(err instanceof Error ? err : new Error(String(err)), undefined);
+      const error = err instanceof Error ? err : new Error(String(err));
+      (error as Error & { statusCode?: number }).statusCode = 400;
+      done(error, undefined);
     }
   });
 
@@ -60,6 +62,10 @@ async function registerStaticAssets(fastify: FastifyInstance): Promise<void> {
 
   const webDistDir = join(packageRoot, 'web', 'dist');
   if (existsSync(webDistDir)) {
+    const webAssetsDir = join(webDistDir, 'assets');
+    if (existsSync(webAssetsDir)) {
+      await fastify.register(fastifyStatic, { root: webAssetsDir, prefix: '/assets/', decorateReply: false });
+    }
     await fastify.register(fastifyStatic, { root: webDistDir, prefix: '/', wildcard: false, index: false });
     fastify.setNotFoundHandler((request, reply) => {
       if (request.url.startsWith('/assets/')) return reply.status(404).send({ error: 'Static asset not found' });

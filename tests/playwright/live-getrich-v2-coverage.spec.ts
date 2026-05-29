@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import WebSocket from 'ws';
 
 /**
  * Live read-only coverage for the contract endpoints not exercised by the
@@ -284,5 +285,92 @@ test.describe('saivage-v3 live deployment — failure-mode coverage', () => {
     expect(body.ticket).toMatch(/^wst_/);
     expect(typeof body.expiresAt).toBe('string');
     expect(Number.isFinite(Date.parse(body.expiresAt))).toBe(true);
+  });
+
+  test('WS /ws delivers a connected envelope and a runtime-state snapshot on open', async ({ baseURL }) => {
+    const wsURL = (baseURL ?? 'http://10.0.3.170:8080').replace(/^http/i, 'ws') + '/ws';
+    const ws = new WebSocket(wsURL);
+    const frames: unknown[] = [];
+    try {
+      await new Promise<void>((resolve, reject) => {
+        const timer = setTimeout(() => reject(new Error('WS open timeout')), 10_000);
+        ws.once('open', () => { clearTimeout(timer); resolve(); });
+        ws.once('error', (err) => { clearTimeout(timer); reject(err); });
+      });
+      await new Promise<void>((resolve, reject) => {
+        const timer = setTimeout(() => reject(new Error(`WS did not deliver 2 frames; got ${frames.length}`)), 10_000);
+        ws.on('message', (raw: Buffer) => {
+          try { frames.push(JSON.parse(raw.toString('utf-8'))); } catch { /* keep raw */ }
+          if (frames.length >= 2) { clearTimeout(timer); resolve(); }
+        });
+      });
+    } finally {
+      ws.close();
+    }
+    const events = frames.map((f) => (f as { type?: string; content?: { event?: string } }).content?.event);
+    expect(events).toContain('connected');
+    expect(events.some((e) => e && e !== 'connected')).toBe(true);
+  });
+
+  test('POST /api/chats/analyst with malformed JSON body returns a clean 400', async ({ request }) => {
+    const res = await request.post('/api/chats/analyst', {
+      headers: { 'content-type': 'application/json' },
+      data: 'not-json',
+    });
+    expect(res.status()).toBe(400);
+    const body = await res.json();
+    expect(typeof body).toBe('object');
+    expect(body).not.toBeNull();
+    expect(typeof (body.error ?? body.message)).toBe('string');
+  });
+
+  test('chats.send round-trip with two messages preserves both in chats.get', async ({ request }) => {
+    const before = await request.get('/api/chats/analyst');
+    expect(before.status()).toBe(200);
+    const beforeCount = (await before.json()).entries.length;
+
+    const marker = `live-e2e-multi-${Date.now()}`;
+    for (const suffix of ['a', 'b']) {
+      const res = await request.post('/api/chats/analyst', {
+        data: { content: `${marker}-${suffix}`, workspaceContext: { view: 'dashboard', entityId: null, refinement: null } },
+        timeout: 120_000,
+      });
+      expect(res.status(), `POST ${suffix} — body=${await res.text().catch(() => '<unreadable>')}`).toBe(200);
+    }
+
+    const after = await request.get('/api/chats/analyst');
+    expect(after.status()).toBe(200);
+    const afterBody = await after.json();
+    expect(afterBody.entries.length).toBeGreaterThanOrEqual(beforeCount + 2);
+    const texts: string[] = afterBody.entries.map((e: { content?: string; text?: string }) => e.content ?? e.text ?? '');
+    expect(texts.some((t) => t.includes(`${marker}-a`))).toBe(true);
+    expect(texts.some((t) => t.includes(`${marker}-b`))).toBe(true);
+  });
+
+  test('GET /api/cards lists cards with id/type/version_seq descriptors', async ({ request }) => {
+    const res = await request.get('/api/cards');
+    expect(res.status()).toBe(200);
+    const body = await res.json();
+    expect(Array.isArray(body.cards)).toBe(true);
+    expect(typeof body.total).toBe('number');
+    expect(body.cards.length).toBeGreaterThan(0);
+    for (const card of body.cards) {
+      expect(typeof card.id).toBe('string');
+      expect(typeof card.type).toBe('string');
+      expect(typeof card.version_seq).toBe('number');
+    }
+    expect(body.cards.some((c: { id: string }) => c.id === 'project')).toBe(true);
+  });
+
+  test('GET /api/state exposes runtime_runs and runtime_activations as arrays', async ({ request }) => {
+    const res = await request.get('/api/state');
+    expect(res.status()).toBe(200);
+    const body = await res.json();
+    expect(typeof body.runtime).toBe('object');
+    expect(Array.isArray(body.runtime.runtime_runs)).toBe(true);
+    expect(Array.isArray(body.runtime.runtime_activations)).toBe(true);
+    expect(Array.isArray(body.runtime.runtime_commands)).toBe(true);
+    expect(typeof body.serverAvailability).toBe('object');
+    expect(typeof body.serverAvailability.components).toBe('object');
   });
 });
