@@ -7,6 +7,7 @@ import { LlmRequestError } from './llm-errors.js';
 import { classifierFor, classifyTransportFailure, defaultHttpClassifier } from './llm-failure-classifiers.js';
 import { readOpenAICodexStream } from './llm-codex-parser.js';
 import { beginRecordedExchange, recordResponseError, teeStreamForRecorder, deriveTerminalToolFromOptions } from './llm-recording.js';
+import { serializeToolsForCodex } from './tool-definition-serializer.js';
 
 const OPENAI_CODEX_JWT_CLAIM = 'https://api.openai.com/auth';
 
@@ -16,7 +17,6 @@ type CodexMessage =
   | { role: 'assistant'; content: Array<{ type: 'output_text'; text: string }> }
   | { role: 'system' | 'developer'; content: string }
   | Record<string, unknown>;
-interface CodexTool { type: 'function'; name: string; description: string; parameters: Record<string, unknown>; }
 
 export interface OpenAICodexGatewayConfig {
   baseUrl: string;
@@ -134,10 +134,12 @@ export function buildOpenAICodexRequest(
     stream: true,
     instructions: systemPrompt,
     input,
-    tools: tools.map(codexTool),
-    tool_choice: toolChoice,
-    parallel_tool_calls: false,
   };
+  if (tools.length > 0) {
+    body.tools = serializeToolsForCodex(tools);
+    body.tool_choice = toolChoice;
+    body.parallel_tool_calls = false;
+  }
   return body;
 }
 
@@ -188,13 +190,4 @@ export function openAICodexAccountId(token: string): string {
   } catch (err) {
     throw new LlmRequestError({ kind: 'auth_permanent', provider: 'openai-codex', status: 401, message: `Failed to extract OpenAI Codex account id: ${err instanceof Error ? err.message : String(err)}` });
   }
-}
-
-function codexTool(tool: ToolDefinition): CodexTool {
-  return {
-    type: 'function',
-    name: tool.function.name,
-    description: tool.function.description,
-    parameters: tool.function.parameters,
-  };
 }

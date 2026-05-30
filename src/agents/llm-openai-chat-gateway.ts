@@ -6,6 +6,7 @@ import { LlmRequestError } from './llm-errors.js';
 import { classifierFor, classifyTransportFailure, defaultHttpClassifier } from './llm-failure-classifiers.js';
 import { beginRecordedExchange, recordResponseError, teeStreamForRecorder, deriveTerminalToolFromOptions } from './llm-recording.js';
 import { readOpenAIChatStream } from './llm-stream-parser.js';
+import { serializeToolsForChat, type WireToolDefinitionChat } from './tool-definition-serializer.js';
 
 interface ChatMessage {
   role: 'system' | 'user' | 'assistant' | 'tool';
@@ -25,9 +26,9 @@ interface ChatCompletionRequest {
   temperature: number;
   max_tokens: number;
   stream: boolean;
-  tools: ToolDefinition[];
-  tool_choice: 'auto' | ChatToolChoice;
-  parallel_tool_calls: false;
+  tools?: readonly WireToolDefinitionChat[];
+  tool_choice?: 'auto' | ChatToolChoice;
+  parallel_tool_calls?: false;
 }
 
 interface ChatCompletionResponse {
@@ -188,16 +189,19 @@ export function buildOpenAIChatRequest(
       ? { type: 'function', function: { name: opts.tool_choice.toolName } }
       : 'auto';
 
-  return {
+  const body: ChatCompletionRequest = {
     model: candidate.model,
     messages: sanitized,
     temperature: opts.temperature ?? 0.7,
     max_tokens: opts.max_tokens ?? 4096,
     stream: opts.stream ?? false,
-    tools: tools.map((t) => ({ type: t.type, function: t.function })),
-    tool_choice: toolChoice,
-    parallel_tool_calls: false,
   };
+  if (tools.length > 0) {
+    body.tools = serializeToolsForChat(tools);
+    body.tool_choice = toolChoice;
+    body.parallel_tool_calls = false;
+  }
+  return body;
 }
 
 function sanitizeToolCallSequences(msgs: ChatMessage[]): ChatMessage[] {

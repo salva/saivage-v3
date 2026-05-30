@@ -1,0 +1,333 @@
+// Jest Snapshot v1, https://goo.gl/fbAQLP
+
+exports[`tool-definition-serializer snapshots Chat wire shape for a planner tool (activate_card) 1`] = `
+[
+  {
+    "function": {
+      "description": "Activate a card so runtime can proceed with the next planner-controlled step.",
+      "name": "activate_card",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "cardId": {
+            "description": "The ID of the card to activate.",
+            "type": "string",
+          },
+        },
+        "required": [
+          "cardId",
+        ],
+        "type": "object",
+      },
+    },
+    "type": "function",
+  },
+]
+`;
+
+exports[`tool-definition-serializer snapshots Chat wire shape for sample catalog tools 1`] = `
+[
+  {
+    "function": {
+      "description": "List files under the Saivage project root. Paths are project-relative; Saivage internal state directories are omitted.",
+      "name": "list_project_files",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "maxResults": {
+            "description": "Maximum file paths to return. Defaults to 200; capped at 1000.",
+            "type": "integer",
+          },
+          "path": {
+            "description": "Project-relative directory to list. Defaults to the project root.",
+            "type": "string",
+          },
+        },
+        "type": "object",
+      },
+    },
+    "type": "function",
+  },
+  {
+    "function": {
+      "description": "Create a new card in the card tree. Status defaults to 'drafting'. Card status is planner metadata only; it does not start runtime work. There is no 'ready' status.",
+      "name": "create_card",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "acceptance": {
+            "description": "Optional acceptance criteria text.",
+            "type": "string",
+          },
+          "depends_on": {
+            "description": "Optional dependency list.",
+            "items": {
+              "description": "A card ID",
+              "type": "string",
+            },
+            "type": "array",
+          },
+          "description": {
+            "description": "A detailed description.",
+            "type": "string",
+          },
+          "id": {
+            "description": "Optional pre-assigned card ID.",
+            "type": "string",
+          },
+          "parent": {
+            "description": "The ID of the parent card. Use null only for a root project card.",
+            "type": "string",
+          },
+          "priority": {
+            "description": "Optional priority value (0-100).",
+            "type": "integer",
+          },
+          "status": {
+            "description": "Optional initial status. Allowed values: drafting, backlog, active, running, blocked, changed, done, failed, cancelled, needs_verification.",
+            "enum": [
+              "drafting",
+              "backlog",
+              "active",
+              "running",
+              "blocked",
+              "changed",
+              "done",
+              "failed",
+              "cancelled",
+              "needs_verification",
+            ],
+            "type": "string",
+          },
+          "tags": {
+            "description": "Optional tags.",
+            "items": {
+              "description": "A tag string",
+              "type": "string",
+            },
+            "type": "array",
+          },
+          "title": {
+            "description": "A short title.",
+            "type": "string",
+          },
+          "type": {
+            "description": "The card type. Allowed values: project, goal, architecture, code, test, doc, data, research, ops.",
+            "enum": [
+              "project",
+              "goal",
+              "architecture",
+              "code",
+              "test",
+              "doc",
+              "data",
+              "research",
+              "ops",
+            ],
+            "type": "string",
+          },
+          "urgency": {
+            "description": "Optional urgency level. Allowed values: low, normal, high, critical.",
+            "enum": [
+              "low",
+              "normal",
+              "high",
+              "critical",
+            ],
+            "type": "string",
+          },
+        },
+        "required": [
+          "type",
+          "title",
+          "description",
+        ],
+        "type": "object",
+      },
+    },
+    "type": "function",
+  },
+  {
+    "function": {
+      "description": "Load a skill on-demand during an agent session. Skills provide domain-specific instructions, coding standards, or project conventions. Use this when you encounter a situation that requires a skill not already in your context. Provide the skill name to load its content.",
+      "name": "load_skill",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "description": "The name of the skill to load (must match an entry in the skills index)",
+            "type": "string",
+          },
+        },
+        "required": [
+          "name",
+        ],
+        "type": "object",
+      },
+    },
+    "type": "function",
+  },
+]
+`;
+
+exports[`tool-definition-serializer snapshots Codex wire shape for a planner tool (activate_card) 1`] = `
+[
+  {
+    "description": "Activate a card so runtime can proceed with the next planner-controlled step.",
+    "name": "activate_card",
+    "parameters": {
+      "additionalProperties": false,
+      "properties": {
+        "cardId": {
+          "description": "The ID of the card to activate.",
+          "type": "string",
+        },
+      },
+      "required": [
+        "cardId",
+      ],
+      "type": "object",
+    },
+    "type": "function",
+  },
+]
+`;
+
+exports[`tool-definition-serializer snapshots Codex wire shape for sample catalog tools 1`] = `
+[
+  {
+    "description": "List files under the Saivage project root. Paths are project-relative; Saivage internal state directories are omitted.",
+    "name": "list_project_files",
+    "parameters": {
+      "additionalProperties": false,
+      "properties": {
+        "maxResults": {
+          "description": "Maximum file paths to return. Defaults to 200; capped at 1000.",
+          "type": "integer",
+        },
+        "path": {
+          "description": "Project-relative directory to list. Defaults to the project root.",
+          "type": "string",
+        },
+      },
+      "type": "object",
+    },
+    "type": "function",
+  },
+  {
+    "description": "Create a new card in the card tree. Status defaults to 'drafting'. Card status is planner metadata only; it does not start runtime work. There is no 'ready' status.",
+    "name": "create_card",
+    "parameters": {
+      "additionalProperties": false,
+      "properties": {
+        "acceptance": {
+          "description": "Optional acceptance criteria text.",
+          "type": "string",
+        },
+        "depends_on": {
+          "description": "Optional dependency list.",
+          "items": {
+            "description": "A card ID",
+            "type": "string",
+          },
+          "type": "array",
+        },
+        "description": {
+          "description": "A detailed description.",
+          "type": "string",
+        },
+        "id": {
+          "description": "Optional pre-assigned card ID.",
+          "type": "string",
+        },
+        "parent": {
+          "description": "The ID of the parent card. Use null only for a root project card.",
+          "type": "string",
+        },
+        "priority": {
+          "description": "Optional priority value (0-100).",
+          "type": "integer",
+        },
+        "status": {
+          "description": "Optional initial status. Allowed values: drafting, backlog, active, running, blocked, changed, done, failed, cancelled, needs_verification.",
+          "enum": [
+            "drafting",
+            "backlog",
+            "active",
+            "running",
+            "blocked",
+            "changed",
+            "done",
+            "failed",
+            "cancelled",
+            "needs_verification",
+          ],
+          "type": "string",
+        },
+        "tags": {
+          "description": "Optional tags.",
+          "items": {
+            "description": "A tag string",
+            "type": "string",
+          },
+          "type": "array",
+        },
+        "title": {
+          "description": "A short title.",
+          "type": "string",
+        },
+        "type": {
+          "description": "The card type. Allowed values: project, goal, architecture, code, test, doc, data, research, ops.",
+          "enum": [
+            "project",
+            "goal",
+            "architecture",
+            "code",
+            "test",
+            "doc",
+            "data",
+            "research",
+            "ops",
+          ],
+          "type": "string",
+        },
+        "urgency": {
+          "description": "Optional urgency level. Allowed values: low, normal, high, critical.",
+          "enum": [
+            "low",
+            "normal",
+            "high",
+            "critical",
+          ],
+          "type": "string",
+        },
+      },
+      "required": [
+        "type",
+        "title",
+        "description",
+      ],
+      "type": "object",
+    },
+    "type": "function",
+  },
+  {
+    "description": "Load a skill on-demand during an agent session. Skills provide domain-specific instructions, coding standards, or project conventions. Use this when you encounter a situation that requires a skill not already in your context. Provide the skill name to load its content.",
+    "name": "load_skill",
+    "parameters": {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "description": "The name of the skill to load (must match an entry in the skills index)",
+          "type": "string",
+        },
+      },
+      "required": [
+        "name",
+      ],
+      "type": "object",
+    },
+    "type": "function",
+  },
+]
+`;
