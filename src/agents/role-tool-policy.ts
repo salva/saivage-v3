@@ -4,7 +4,7 @@ import { MCP_WRAPPER_TOOL_NAMES, PLANNER_CONTROL_TOOL_NAMES, ROLE_TOOL_NAMES, SK
 
 export type RoleToolPolicyRole = OperationalAgentRole;
 export type RoleToolPolicyAction = 'list' | 'invoke';
-export type RoleToolPolicySurface = 'planner-control' | 'agent-runtime' | 'workspace' | 'external-mcp' | 'skill';
+export type RoleToolPolicySurface = 'planner-control' | 'agent-runtime' | 'workspace' | 'external-mcp' | 'skill' | 'contract-terminal';
 
 export type RoleToolPolicyReasonCode =
   | 'allowed'
@@ -27,6 +27,7 @@ export interface RoleToolPolicyInput {
   hasMcpDefinition?: boolean;
   knownPlannerTool?: boolean;
   knownRuntimeTool?: boolean;
+  contractTerminals?: readonly string[];
 }
 
 export interface RoleToolPolicyDecision {
@@ -37,7 +38,7 @@ export interface RoleToolPolicyDecision {
 }
 
 const VALID_ROLES = new Set<RoleToolPolicyRole>(Object.keys(ROLE_TOOL_NAMES) as RoleToolPolicyRole[]);
-const VALID_SURFACES = new Set<RoleToolPolicySurface>(['planner-control', 'agent-runtime', 'workspace', 'external-mcp', 'skill']);
+const VALID_SURFACES = new Set<RoleToolPolicySurface>(['planner-control', 'agent-runtime', 'workspace', 'external-mcp', 'skill', 'contract-terminal']);
 
 function roleToolNames(role: RoleToolPolicyRole): readonly string[] { return ROLE_TOOL_NAMES[role] ?? []; }
 
@@ -96,6 +97,11 @@ export class RoleToolPolicy {
       if (input.surface === 'skill') {
         if (!SKILL_TOOL_NAMES.has(input.toolName)) return denied(input, 'unknown_tool');
         return roleToolNames(input.role).includes(input.toolName) ? allowed(input) : denied(input, 'role_not_allowed');
+      }
+      if (input.surface === 'contract-terminal') {
+        const terminals = input.contractTerminals ?? [];
+        if (terminals.length === 0) return denied(input, 'unknown_tool');
+        return terminals.includes(input.toolName) ? allowed(input) : denied(input, 'unknown_tool');
       }
       return denied(input, 'surface_not_listed');
     } catch {
