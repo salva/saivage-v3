@@ -5,6 +5,9 @@ import { eventKindValues } from '../../../src/schemas/event-catalog';
 
 const CANONICAL_EVENT_KINDS = new Set<string>(eventKindValues as readonly string[]);
 export function isCanonicalEventKind(kind: string): boolean { return CANONICAL_EVENT_KINDS.has(kind); }
+export function filterCanonicalEvents(events: DebugTimelineEvent[]): DebugTimelineEvent[] {
+  return events.filter((event) => isCanonicalEventKind(event.kind));
+}
 
 const FAILURE_EVENT_KIND_RE = /^llm_attempt$|_error$|_failed$/;
 export const OPERATOR_STALE_AGE_MS = 60_000;
@@ -41,7 +44,7 @@ export function eventErrorDetails(event: DebugTimelineEvent): string | undefined
 }
 
 export function selectTimelineDerivedErrors(events: DebugTimelineEvent[]): DebugError[] {
-  return events
+  return filterCanonicalEvents(events)
     .filter(isErrorTimelineEvent)
     .map((event) => ({
       source: sessionFromEvent(event),
@@ -75,8 +78,7 @@ export function selectErrorsBySeverity(errors: DebugError[]): Map<string, DebugE
 }
 
 export function selectSortedTimeline(events: DebugTimelineEvent[]): DebugTimelineEvent[] {
-  return events
-    .filter((event) => isCanonicalEventKind(event.kind))
+  return filterCanonicalEvents(events)
     .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
 }
 

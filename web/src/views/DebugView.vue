@@ -320,7 +320,7 @@
           <div v-else-if="doctorStatus === null && doctorChecks.length === 0" class="debug-empty" style="padding:16px;">No diagnostics run yet. Click Fetch to check card/index consistency.</div>
           <template v-else>
             <div class="doctor-status-banner" :class="doctorStatus === 'ok' ? 'doctor-ok' : 'doctor-issues'"><span class="doctor-status-icon">{{ doctorStatus === 'ok' ? '✓' : '⚠' }}</span><span class="doctor-status-text">{{ doctorStatus === 'ok' ? 'All checks passed' : 'Issues found' }} ({{ doctorChecks.length }} checks)</span></div>
-            <div class="doctor-checks-list"><div v-for="check in doctorChecks" :key="check.name" class="doctor-check-item" :class="check.passed ? 'check-passed' : 'check-failed'"><span class="check-icon">{{ check.passed ? '✓' : '✗' }}</span><div class="check-body"><span class="check-name">{{ check.name }}</span><span v-if="check.details" class="check-details">{{ check.details }}</span></div></div></div>
+            <div class="doctor-checks-list"><div v-for="check in doctorChecks" :key="check.name" class="doctor-check-item" :class="check.passed ? 'check-passed' : 'check-failed'"><span class="check-icon">{{ check.passed ? '✓' : '✗' }}</span><div class="check-body"><span class="check-name">{{ check.name }}</span><span v-if="check.details" class="mcp-sep" aria-hidden="true">·</span><span v-if="check.details" class="check-details">{{ check.details }}</span></div></div></div>
             <div v-if="doctorIssues.length > 0" class="doctor-issues"><h5 class="doctor-issues-title">Issues ({{ doctorIssues.length }})</h5><div v-for="(issue, idx) in doctorIssues" :key="idx" class="doctor-issue-item" :class="'issue-' + issue.severity"><span class="issue-severity-badge" :class="'iss-' + issue.severity">{{ issue.severity }}</span><span class="issue-message">{{ issue.message }}</span></div></div>
           </template>
         </section>
@@ -543,7 +543,7 @@ onUnmounted(() => { mcpStore.stopPolling(); });
 .mcp-tool-card { padding:8px 12px; background:var(--surface-1); border:1px solid var(--surface-3); border-radius:6px; margin-bottom:6px; }
 .mcp-server-title { display:flex; align-items:center; flex-wrap:wrap; gap:8px; }
 .mcp-server-name { text-transform:none; color:var(--text); }
-.mcp-sep { color:var(--text-muted); font-weight:400; }
+.mcp-sep { color:var(--text-muted); font-weight:400; margin:0 6px; }
 .mcp-tool-name-row { display:flex; align-items:baseline; flex-wrap:wrap; gap:8px; margin-bottom:4px; }
 .mcp-tool-name { font-family:'SF Mono',monospace; font-size:12px; color:var(--accent-2); font-weight:600; }
 .mcp-tool-desc { font-size:12px; color:var(--text-muted); }
