@@ -6,7 +6,7 @@ import { ModelRouter } from './model-router.js';
 import { type CandidateAvailability, MemoryCandidateAvailability } from './candidate-availability.js';
 import { PlannerResultSchema, ExecutorResultSchema, ReviewerResultSchema } from './role-envelope-schemas.js';
 import { createSession, completeSession, appendMessage as appendPersistentMessage, getSession, markSessionWaiting, setSessionStatus, updateSessionModel, assertNoActiveAgentSession } from './session-persistence.js';
-import type { AgentInvocationRole, AgentMessage, HandoffSummary, LoggedEvent, OperationalAgentRole, MessageKind, MessageRole, EntityLink } from '../schemas/index.js';
+import type { AgentInvocationRole, AgentMessage, HandoffSummary, LoggedEvent, OperationalAgentRole, MessageKind, MessageRole, EntityLink, LlmAttemptOutcome, LlmAttemptPayload, LlmFailureClass } from '../schemas/index.js';
 import type { NotificationCenter } from '../notifications/index.js';
 import { invokeWithRecovery, type RecoveryContext } from './recovery.js';
 import type { ContentSupervisor } from '../workspace/index.js';
@@ -253,7 +253,18 @@ export class AgentAdapter implements AgentExecutionPort {
     const baseSystemPrompt = systemPrompt;
     systemPrompt = this.applySelfCheck(role, systemPrompt, session.id);
     for (const msg of contextMessages) appendPersistentMessage(this.saivageDir, session.id, { role: msg.role, kind: msg.kind, content: msg.content, tool: msg.tool, links: msg.links, model_spec: msg.model_spec, requested_model_spec: msg.requested_model_spec }, { round_id: msg.round_id, message_index: msg.message_index, block_index: msg.block_index });
-    const recoveryOpts = { recoveryDelayMs: this.runtimeConfig.recoveryDelayMs ?? 60000, maxRetries: this.runtimeConfig.maxRecoveryRetries ?? 3, publishEvents: true, eventBus: this.eventBus, cardId, goalId, sessionId: session.id, agentRole: role, persistFailure: (error: Error, attempt: number, _ctx: RecoveryContext) => { try { this.appendSessionMessage(session.id, { role: 'system', kind: 'model_issue', content: `Agent invocation failed (attempt ${attempt}): ${this.redactProviderErrorMessage(error.message)}` }); } catch { void 0; } if (this.eventLogger) this.eventLogger.appendEvent({ kind: 'retry_attempted', session_id: session.id, role: role as unknown as import('../schemas/types.js').AgentRole, attempt, directive: _ctx.directive }); if (this.eventBus) this.eventBus.emit('retry_attempted', { session_id: session.id, role, attempt, directive: _ctx.directive }); } };
+    const recoveryOpts = { recoveryDelayMs: this.runtimeConfig.recoveryDelayMs ?? 60000, maxRetries: this.runtimeConfig.maxRecoveryRetries ?? 3, publishEvents: true, eventBus: this.eventBus, cardId, goalId, sessionId: session.id, agentRole: role, persistFailure: (error: Error, attempt: number, _ctx: RecoveryContext) => { try { this.appendSessionMessage(session.id, { role: 'system', kind: 'model_issue', content: `Agent invocation failed (attempt ${attempt}): ${this.redactProviderErrorMessage(error.message)}` }); } catch { void 0; } } };
+    const invocationStart = Date.now();
+    let attemptOutcomeCount = 0;
+    let lastSucceededAttemptPayload: LlmAttemptPayload | undefined;
+    let lastFailedFailureClass: LlmFailureClass | undefined;
+    const recordAttemptOutcome = (payload: LlmAttemptPayload): void => {
+      attemptOutcomeCount += 1;
+      if (payload.outcome.kind === 'succeeded') lastSucceededAttemptPayload = payload;
+      else lastFailedFailureClass = payload.outcome.failure_class;
+      if (this.eventLogger) this.eventLogger.appendEvent({ kind: 'llm_attempt', ...payload });
+      if (this.eventBus) this.eventBus.emit('llm_attempt', payload);
+    };
     const agentFn = async (recoveryCtx: RecoveryContext) => {
       const candidateChain = await this.router.resolve(role, capabilityRequest);
       const capabilitySkips = this.router.getLastCapabilitySkips();
@@ -268,14 +279,15 @@ export class AgentAdapter implements AgentExecutionPort {
           for (;;) {
             if (this.sessionCoordinator.isCancelled(session.id)) throw new Error(`Agent invocation cancelled for session ${session.id}. Role: ${role}, goal: ${goalId}, card: ${cardId}`);
             if (!this.candidateAvailability.isAvailable(candidate)) break;
+            let callStart = 0;
+            let startedAtIso = '';
             try {
               updateSessionModel(this.saivageDir, session.id, candidate.model);
-            if (this.eventLogger) this.eventLogger.appendEvent({ kind: 'model_selected', session_id: session.id, provider: candidate.provider, model: candidate.model, role: role as unknown as import('../schemas/types.js').AgentRole });
-            if (this.eventBus) this.eventBus.emit('model_selected', { session_id: session.id, provider: candidate.provider, model: candidate.model, role });
             if (recoveryCtx.isRecovery && recoveryCtx.directive) this.appendSessionMessage(session.id, { role: 'system', kind: 'model_recovered', content: recoveryCtx.directive });
             const abortController = new AbortController();
             this.sessionCoordinator.trackAbortController(session.id, abortController);
-            const callStart = Date.now();
+            callStart = Date.now();
+            startedAtIso = new Date(callStart).toISOString();
             try {
               const expectsEnvelope = role === 'planner' || role === 'executor' || role === 'reviewer';
               const envelopeRole = expectsEnvelope ? (role as EnvelopeBearingRole) : null;
@@ -371,27 +383,65 @@ export class AgentAdapter implements AgentExecutionPort {
               const parsed: T = parseEnvelope(finalEnvelope);
               const successDecision = defaultInvocationRecoveryPolicy.decideSuccess({ role, candidate, attempt: recoveryCtx.attempt, maxAttempts: recoveryCtx.maxAttempts, recoveryDelayMs: this.runtimeConfig.recoveryDelayMs ?? 60000, maxRecoveryRetries: this.runtimeConfig.maxRecoveryRetries ?? 3, capabilityRequest, capabilitySkips, sessionId: session.id, goalId, cardId });
               if (successDecision.markSucceeded) await this.candidateAvailability.markSucceeded(candidate);
-              if (this.eventLogger) this.eventLogger.appendEvent({ kind: 'invocation_succeeded', session_id: session.id, role: role as unknown as import('../schemas/types.js').AgentRole, attempt: recoveryCtx.attempt, duration_ms: callDuration, failure: successDecision.failure, recoveryAction: successDecision.action, terminal_tool: terminalToolName });
-              if (this.eventBus) this.eventBus.emit('invocation_succeeded', { session_id: session.id, role, attempt: recoveryCtx.attempt, duration_ms: callDuration, recoveryAction: successDecision.action, terminal_tool: terminalToolName });
+              const succeededOutcome: LlmAttemptOutcome = { kind: 'succeeded', terminal_tool: terminalToolName! };
+              const succeededCapSkips = this.router.getLastCapabilitySkips();
+              recordAttemptOutcome({
+                session_id: session.id,
+                role: role as unknown as import('../schemas/types.js').AgentRole,
+                attempt: recoveryCtx.attempt,
+                same_candidate_attempt: sameCandidateRecoveryAttempt,
+                provider: candidate.provider,
+                model: candidate.model,
+                account: candidate.account ?? '_',
+                started_at: startedAtIso,
+                duration_ms: callDuration,
+                outcome: succeededOutcome,
+                capability_skip_reasons: succeededCapSkips && succeededCapSkips.length > 0
+                  ? succeededCapSkips.map((d) => ({ provider: d.candidate.provider, model: d.candidate.model, reasons: d.reasons.slice() }))
+                  : undefined,
+              });
               this.sessionCoordinator.clearCancellation(session.id);
               return parsed;
             } finally { this.sessionCoordinator.clearAbortController(session.id); }
             } catch (err) {
             lastError = err instanceof Error ? err : new Error(String(err));
+            const failureDurationMs = Date.now() - callStart;
             const policyContext: InvocationRecoveryContext = { role, candidate, attempt: sameCandidateRecoveryAttempt, maxAttempts: recoveryCtx.maxAttempts, recoveryDelayMs: this.runtimeConfig.recoveryDelayMs ?? 60000, maxRecoveryRetries: this.runtimeConfig.maxRecoveryRetries ?? 3, capabilityRequest, capabilitySkips, sessionId: session.id, goalId, cardId };
             const decision = defaultInvocationRecoveryPolicy.decideFailure(lastError, policyContext);
             if (decision.markFailed && decision.availability) await this.candidateAvailability.markFailed(candidate, decision.availability);
             if (decision.appendModelIssue) this.appendSessionMessage(session.id, { role: 'system', kind: 'model_issue', content: this.redactModelIssueText(decision.message) });
-            if (this.eventLogger) this.eventLogger.appendEvent({ kind: 'invocation_failed', session_id: session.id, role: role as unknown as import('../schemas/types.js').AgentRole, attempt: recoveryCtx.attempt, error_message: this.redactModelIssueText(decision.message), failure: decision.failure, recoveryAction: decision.action, availability: decision.availability, retryDelayMs: decision.retryDelayMs, capabilitySkipReasons: decision.eventPayload.capabilitySkipReasons });
-            if (this.eventBus) this.eventBus.emit('invocation_failed', { session_id: session.id, role, attempt: recoveryCtx.attempt, error_message: this.redactModelIssueText(decision.message), failure: decision.failure, recoveryAction: decision.action, availability: decision.availability, retryDelayMs: decision.retryDelayMs, capabilitySkipReasons: decision.eventPayload.capabilitySkipReasons });
+            const failedOutcome: LlmAttemptOutcome = {
+              kind: 'failed',
+              failure_class: (decision.failure?.kind ?? 'unknown') as LlmFailureClass,
+              recovery_action: decision.action,
+              error_name: lastError.name,
+              error_message: this.redactModelIssueText(decision.message),
+              error_preview: this.redactProviderErrorMessage(lastError.message.slice(0, 240)),
+              cooldown_ms: decision.availability ? Math.max(0, decision.availability.untilMs - Date.now()) : undefined,
+              retry_delay_ms: decision.retryDelayMs,
+            };
+            const failedCapSkips = this.router.getLastCapabilitySkips();
+            recordAttemptOutcome({
+              session_id: session.id,
+              role: role as unknown as import('../schemas/types.js').AgentRole,
+              attempt: recoveryCtx.attempt,
+              same_candidate_attempt: sameCandidateRecoveryAttempt,
+              provider: candidate.provider,
+              model: candidate.model,
+              account: candidate.account ?? '_',
+              started_at: startedAtIso,
+              duration_ms: failureDurationMs,
+              outcome: failedOutcome,
+              capability_skip_reasons: failedCapSkips && failedCapSkips.length > 0
+                ? failedCapSkips.map((d) => ({ provider: d.candidate.provider, model: d.candidate.model, reasons: d.reasons.slice() }))
+                : undefined,
+            });
             if (decision.abort || this.sessionCoordinator.isCancelled(session.id)) {
               this.sessionCoordinator.publishCancelledRetryStop(session.id, role as unknown as import('../schemas/types.js').AgentRole);
               if (decision.failure?.kind === 'cancelled' || this.sessionCoordinator.isCancelled(session.id)) throw new Error(`Agent invocation cancelled for session ${session.id}. Role: ${role}, goal: ${goalId}, card: ${cardId}`);
               throw lastError;
             }
             if (decision.action === 'retry_same_after_delay') {
-              if (this.eventLogger) this.eventLogger.appendEvent({ kind: 'retry_attempted', session_id: session.id, role: role as unknown as import('../schemas/types.js').AgentRole, attempt: recoveryCtx.attempt, directive: this.redactModelIssueText(decision.message), failure: decision.failure, recoveryAction: decision.action, retryDelayMs: decision.retryDelayMs });
-              if (this.eventBus) this.eventBus.emit('retry_attempted', { session_id: session.id, role, attempt: recoveryCtx.attempt, directive: this.redactModelIssueText(decision.message), failure: decision.failure, recoveryAction: decision.action, retryDelayMs: decision.retryDelayMs });
               await delayInvocationRecovery(decision.retryDelayMs ?? 0);
               sameCandidateRecoveryAttempt += 1;
               continue;
@@ -403,6 +453,25 @@ export class AgentAdapter implements AgentExecutionPort {
       } finally { this.sessionCoordinator.clearCancellation(session.id); }
     };
     const attempts = await invokeWithRecovery(agentFn, recoveryOpts);
+    const summaryLast = attempts[attempts.length - 1];
+    const summaryCancelled = this.sessionCoordinator.isCancelled(session.id) || (typeof summaryLast?.error?.message === 'string' && /cancelled/i.test(summaryLast.error.message));
+    const verdict: 'succeeded' | 'exhausted' | 'cancelled' = summaryLast?.success ? 'succeeded' : summaryCancelled ? 'cancelled' : 'exhausted';
+    const summaryPayload = {
+      session_id: session.id,
+      role: role as unknown as import('../schemas/types.js').AgentRole,
+      goal_id: goalId,
+      card_id: cardId,
+      attempts_count: attemptOutcomeCount,
+      total_duration_ms: Date.now() - invocationStart,
+      verdict,
+      final_provider: verdict === 'succeeded' ? lastSucceededAttemptPayload?.provider : undefined,
+      final_model: verdict === 'succeeded' ? lastSucceededAttemptPayload?.model : undefined,
+      final_account: verdict === 'succeeded' ? lastSucceededAttemptPayload?.account : undefined,
+      final_terminal_tool: verdict === 'succeeded' && lastSucceededAttemptPayload?.outcome.kind === 'succeeded' ? lastSucceededAttemptPayload.outcome.terminal_tool : undefined,
+      last_failure_class: verdict === 'succeeded' ? undefined : lastFailedFailureClass,
+    };
+    if (this.eventLogger) this.eventLogger.appendEvent({ kind: 'llm_invocation_summary', ...summaryPayload });
+    if (this.eventBus) this.eventBus.emit('llm_invocation_summary', summaryPayload);
     const lastAttempt = attempts[attempts.length - 1];
     if (lastAttempt.success && lastAttempt.result !== undefined) {
       const resultValue = lastAttempt.result as T;

@@ -179,10 +179,10 @@
             <div v-for="event in filteredTimeline" :key="timelineKey(event)" class="tl-event">
               <span class="tl-event-type">{{ formatEventKind(event.kind) }}</span>
               <span
-                v-if="typeof event.terminal_tool === 'string'"
+                v-if="eventTerminalTool(event)"
                 class="tl-event-terminal-tool"
                 title="terminal tool emitted on this attempt"
-              >{{ event.terminal_tool }}</span>
+              >{{ eventTerminalTool(event) }}</span>
               <span v-if="event.card_id" class="tl-event-card mono">Card: {{ event.card_id }}</span>
               <span v-if="event.goal_id" class="tl-event-card mono">Goal: {{ event.goal_id }}</span>
               <span v-if="event.session_id" class="tl-event-card mono">Session: {{ event.session_id }}</span>
@@ -409,6 +409,14 @@ function availabilityClass(proc: ProcessView): string { return proc.control.term
 function fmtDate(ts: string): string { return formatTimestamp(ts, isRecentTimestamp(ts) ? 'relative' : 'absolute'); }
 function formatEventKind(kind: string): string { return kind.replace(/_/g, ' '); }
 function timelineKey(event: DebugTimelineEvent): string { return String(event.id || `${event.timestamp}:${event.kind}:${event.card_id || event.goal_id || event.session_id || ''}`); }
+function eventTerminalTool(event: DebugTimelineEvent): string | null {
+  const outcome = (event as { outcome?: { kind?: string; terminal_tool?: unknown } }).outcome;
+  if (outcome && outcome.kind === 'succeeded' && typeof outcome.terminal_tool === 'string') return outcome.terminal_tool;
+  const direct = (event as { final_terminal_tool?: unknown }).final_terminal_tool;
+  if (typeof direct === 'string') return direct;
+  const legacy = (event as { terminal_tool?: unknown }).terminal_tool;
+  return typeof legacy === 'string' ? legacy : null;
+}
 function timelineDetails(event: DebugTimelineEvent): Record<string, unknown> { const details: Record<string, unknown> = {}; for (const [key, value] of Object.entries(event)) { if (['id', 'kind', 'timestamp', 'card_id', 'goal_id', 'session_id', 'terminal_tool'].includes(key)) continue; if (value === undefined || value === null) continue; details[key] = value; } return redactObservabilityValue(details); }
 
 onMounted(async () => { debugStore.setupWsListener(); await debugStore.fetchAll(); mcpStore.fetchMcpData().catch(() => {}); mcpStore.startPolling(15000); });

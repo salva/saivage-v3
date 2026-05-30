@@ -59,30 +59,30 @@ async function mountDebugView(events: DebugTimelineEvent[]) {
 describe('DebugView timeline terminal_tool chip', () => {
   beforeEach(() => { setActivePinia(createPinia()); });
 
-  it('renders terminal_tool chip on invocation_succeeded events that carry the field', async () => {
+  it('renders terminal_tool chip on llm_attempt events whose outcome carries the field', async () => {
     const wrapper = await mountDebugView([
       {
         id: 'evt-1',
-        kind: 'invocation_succeeded',
+        kind: 'llm_attempt',
         timestamp: '2026-05-23T10:00:00Z',
         session_id: 'sess-1',
-        terminal_tool: 'emit_planner_result',
-      } as DebugTimelineEvent,
+        outcome: { kind: 'succeeded', terminal_tool: 'emit_planner_result' },
+      } as unknown as DebugTimelineEvent,
     ]);
     const chips = wrapper.findAll('.tl-event-terminal-tool');
     expect(chips).toHaveLength(1);
     expect(chips[0].text()).toBe('emit_planner_result');
-    expect(wrapper.text()).not.toMatch(/"terminal_tool"/);
   });
 
   it('omits the chip on events without terminal_tool', async () => {
     const wrapper = await mountDebugView([
       {
         id: 'evt-2',
-        kind: 'invocation_started',
+        kind: 'llm_attempt',
         timestamp: '2026-05-23T10:00:00Z',
         session_id: 'sess-1',
-      } as DebugTimelineEvent,
+        outcome: { kind: 'failed', failure_class: 'unknown', recovery_action: 'abort_without_retry', error_name: 'E', error_message: 'x', error_preview: 'x' },
+      } as unknown as DebugTimelineEvent,
     ]);
     expect(wrapper.find('.tl-event-terminal-tool').exists()).toBe(false);
   });

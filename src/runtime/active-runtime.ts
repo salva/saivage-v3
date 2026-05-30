@@ -214,7 +214,7 @@ export class ActiveRuntime {
     this._runtime = new Runtime(runtimeConfig, this._agentAdapter);
 
     // Wire the Runtime EventEmitter as the AgentAdapter's event bus
-    // so agent events (session_started, model_selected, etc.) propagate
+    // so agent events (session_started, llm_attempt, etc.) propagate
     // through the Runtime's EventEmitter to WebSocket clients.
     this._agentAdapter.setEventBus(this._runtime);
     this._agentAdapter.setRuntimeLedgerEventBus(this._runtime.eventBus);

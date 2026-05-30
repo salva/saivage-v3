@@ -1,11 +1,11 @@
 import { ENVELOPE_SCHEMAS, type EnvelopeBearingRole } from './role-envelope-schemas.js';
 import { zodToJsonSchemaMini, type JsonSchema } from './zod-to-jsonschema-mini.js';
 
-export const ROLE_RESULT_TOOL_NAMES: Record<EnvelopeBearingRole, string> = {
+export const ROLE_RESULT_TOOL_NAMES = {
   planner: 'emit_planner_result',
   executor: 'emit_executor_result',
   reviewer: 'emit_reviewer_result',
-};
+} as const satisfies Record<EnvelopeBearingRole, string>;
 
 export interface RoleResultToolDefinition {
   type: 'function';

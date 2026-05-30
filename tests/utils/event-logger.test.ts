@@ -61,13 +61,26 @@ describe('EventLogger runtime event validation', () => {
     const logger = new EventLogger(makeSaivageDir());
     try {
       logger.appendEvent({
-        kind: 'invocation_failed',
+        kind: 'llm_attempt',
         id: 'evt-secret-variant-redaction',
         timestamp,
         session_id: 'planner:secret-variant-test',
         role: 'planner',
         attempt: 1,
-        error_message: 'variant redaction test',
+        same_candidate_attempt: 1,
+        provider: 'openai',
+        model: 'gpt-test',
+        account: '_',
+        started_at: timestamp,
+        duration_ms: 0,
+        outcome: {
+          kind: 'failed',
+          failure_class: 'unknown',
+          recovery_action: 'abort_without_retry',
+          error_name: 'TestError',
+          error_message: 'variant redaction test',
+          error_preview: 'variant redaction test',
+        },
         provider_error: {
           api_key: 'SYNTHETIC_API_KEY',
           access_token: 'SYNTHETIC_ACCESS_TOKEN',
@@ -78,7 +91,7 @@ describe('EventLogger runtime event validation', () => {
           safe: 'visible',
         },
       });
-      const [event] = logger.getEvents({ kind: 'invocation_failed' });
+      const [event] = logger.getEvents({ kind: 'llm_attempt' });
       const serialized = JSON.stringify(event);
       expect(serialized).not.toContain('SYNTHETIC_API_KEY');
       expect(serialized).not.toContain('SYNTHETIC_ACCESS_TOKEN');

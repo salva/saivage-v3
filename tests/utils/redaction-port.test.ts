@@ -134,13 +134,26 @@ describe('redacted outbound sinks', () => {
     const errorLogger = new ErrorLogger(saivageDir);
     try {
       eventLogger.appendEvent({
-        kind: 'invocation_failed',
+        kind: 'llm_attempt',
         id: 'evt-redaction-port',
         timestamp: '2026-05-23T00:00:00.000Z',
         session_id: 'planner:redaction-port-test',
         role: 'planner',
         attempt: 1,
-        error_message: `Provider failed Bearer ${RAW_TOKEN}`,
+        same_candidate_attempt: 1,
+        provider: 'openai',
+        model: 'gpt-test',
+        account: '_',
+        started_at: '2026-05-23T00:00:00.000Z',
+        duration_ms: 0,
+        outcome: {
+          kind: 'failed',
+          failure_class: 'unknown',
+          recovery_action: 'abort_without_retry',
+          error_name: 'TestError',
+          error_message: `Provider failed Bearer ${RAW_TOKEN}`,
+          error_preview: `Provider failed Bearer ${RAW_TOKEN}`,
+        },
         provider_error: { access_token: RAW_ACCESS, safe: 'visible' },
       });
       errorLogger.appendError({
@@ -148,7 +161,7 @@ describe('redacted outbound sinks', () => {
         provider_error: { authorization: `Bearer ${RAW_TOKEN}`, safe: 'visible' },
       });
 
-      const [event] = eventLogger.getEvents({ kind: 'invocation_failed' });
+      const [event] = eventLogger.getEvents({ kind: 'llm_attempt' });
       const [error] = errorLogger.getErrors();
       expectNoSyntheticSecret(JSON.stringify(event));
       expectNoSyntheticSecret(JSON.stringify(error));

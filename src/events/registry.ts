@@ -9,6 +9,7 @@ export {
   isOperatorBroadcastEventKind,
   getEventSeverity,
   buildLoggedEventSchema,
+  payloadSchemaByKind,
   type SeverityLevel,
   type OutboundPolicy,
   type EventDomain,

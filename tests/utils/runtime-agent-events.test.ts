@@ -61,15 +61,15 @@ describe('Agent Events → Runtime EventEmitter', () => {
         data: data as Record<string, unknown>,
       });
     });
-    runtime.on('model_selected', (data: unknown) => {
+    runtime.on('llm_attempt', (data: unknown) => {
       received.push({
-        name: 'model_selected',
+        name: 'llm_attempt',
         data: data as Record<string, unknown>,
       });
     });
-    runtime.on('invocation_succeeded', (data: unknown) => {
+    runtime.on('llm_invocation_summary', (data: unknown) => {
       received.push({
-        name: 'invocation_succeeded',
+        name: 'llm_invocation_summary',
         data: data as Record<string, unknown>,
       });
     });
@@ -81,56 +81,62 @@ describe('Agent Events → Runtime EventEmitter', () => {
       goal_id: 'goal-1',
       card_id: 'card-1',
     });
-    runtime.emitAgentEvent('model_selected', {
-      session_id: 'sess-1',
-      provider: 'test',
-      model: 'm1',
-      role: 'planner',
-    });
-    runtime.emitAgentEvent('invocation_succeeded', {
+    runtime.emitAgentEvent('llm_attempt', {
       session_id: 'sess-1',
       role: 'planner',
       attempt: 1,
+      same_candidate_attempt: 1,
+      provider: 'test',
+      model: 'm1',
+      account: '_',
+      started_at: '2026-05-23T00:00:00.000Z',
       duration_ms: 150,
-      terminal_tool: 'emit_planner_result',
+      outcome: { kind: 'succeeded', terminal_tool: 'emit_planner_result' },
+    });
+    runtime.emitAgentEvent('llm_invocation_summary', {
+      session_id: 'sess-1',
+      role: 'planner',
+      goal_id: 'goal-1',
+      card_id: 'card-1',
+      attempts_count: 1,
+      total_duration_ms: 150,
+      verdict: 'succeeded',
+      final_provider: 'test',
+      final_model: 'm1',
+      final_account: '_',
+      final_terminal_tool: 'emit_planner_result',
     });
 
     // Assert
     expect(received.length).toBe(3);
     expect(received[0].name).toBe('session_started');
     expect((received[0].data as Record<string, unknown>).session_id).toBe('sess-1');
-    expect(received[1].name).toBe('model_selected');
+    expect(received[1].name).toBe('llm_attempt');
     expect((received[1].data as Record<string, unknown>).model).toBe('m1');
-    expect(received[2].name).toBe('invocation_succeeded');
-    expect((received[2].data as Record<string, unknown>).duration_ms).toBe(150);
+    expect(received[2].name).toBe('llm_invocation_summary');
+    expect((received[2].data as Record<string, unknown>).total_duration_ms).toBe(150);
   });
 
-  it('emits all 6 agent event types through EventEmitter', () => {
+  it('emits all 4 agent event types through EventEmitter', () => {
     runtime = new Runtime(makeDefaultConfig(tmpDir, fixtureDir));
 
     const received: string[] = [];
     runtime.on('session_started', () => received.push('session_started'));
-    runtime.on('model_selected', () => received.push('model_selected'));
-    runtime.on('invocation_succeeded', () => received.push('invocation_succeeded'));
-    runtime.on('invocation_failed', () => received.push('invocation_failed'));
-    runtime.on('retry_attempted', () => received.push('retry_attempted'));
+    runtime.on('llm_attempt', () => received.push('llm_attempt'));
+    runtime.on('llm_invocation_summary', () => received.push('llm_invocation_summary'));
     runtime.on('compaction_triggered', () => received.push('compaction_triggered'));
 
-    // Act — emit all 6 event types
     runtime.emitAgentEvent('session_started', { session_id: 's1', role: 'planner', goal_id: 'g1', card_id: 'c1' });
-    runtime.emitAgentEvent('model_selected', { session_id: 's1', provider: 'p', model: 'm', role: 'planner' });
-    runtime.emitAgentEvent('invocation_succeeded', { session_id: 's1', role: 'planner', attempt: 1, duration_ms: 100, terminal_tool: 'emit_planner_result' });
-    runtime.emitAgentEvent('invocation_failed', { session_id: 's1', role: 'planner', attempt: 1, error_message: 'err' });
-    runtime.emitAgentEvent('retry_attempted', { session_id: 's1', role: 'planner', attempt: 2, directive: 'retry' });
+    runtime.emitAgentEvent('llm_attempt', { session_id: 's1', role: 'planner', attempt: 1, same_candidate_attempt: 1, provider: 'p', model: 'm', account: '_', started_at: '2026-05-23T00:00:00.000Z', duration_ms: 100, outcome: { kind: 'succeeded', terminal_tool: 'emit_planner_result' } });
+    runtime.emitAgentEvent('llm_attempt', { session_id: 's1', role: 'planner', attempt: 1, same_candidate_attempt: 1, provider: 'p', model: 'm', account: '_', started_at: '2026-05-23T00:00:00.000Z', duration_ms: 50, outcome: { kind: 'failed', failure_class: 'unknown', recovery_action: 'abort_without_retry', error_name: 'E', error_message: 'err', error_preview: 'err' } });
+    runtime.emitAgentEvent('llm_invocation_summary', { session_id: 's1', role: 'planner', goal_id: 'g1', card_id: 'c1', attempts_count: 2, total_duration_ms: 150, verdict: 'exhausted', last_failure_class: 'unknown' });
     runtime.emitAgentEvent('compaction_triggered', { session_id: 's1', role: 'planner', tokens_before: 1000, tokens_after: 500 });
 
-    // Assert
     expect(received).toEqual([
       'session_started',
-      'model_selected',
-      'invocation_succeeded',
-      'invocation_failed',
-      'retry_attempted',
+      'llm_attempt',
+      'llm_attempt',
+      'llm_invocation_summary',
       'compaction_triggered',
     ]);
   });
@@ -141,19 +147,17 @@ describe('Agent Events → Runtime EventEmitter', () => {
     // Simulate what wireRuntimeEvents does by directly tracking events
     const received: string[] = [];
     const trackedEvents = [
-      'session_started', 'model_selected',
-      'invocation_succeeded', 'invocation_failed',
-      'retry_attempted', 'compaction_triggered',
+      'session_started', 'llm_attempt', 'llm_invocation_summary', 'compaction_triggered',
     ];
     for (const evt of trackedEvents) {
       runtime.on(evt, () => received.push(evt));
     }
 
     runtime.emitAgentEvent('session_started', { session_id: 's1', role: 'planner', goal_id: 'g1', card_id: 'c1' });
-    runtime.emitAgentEvent('invocation_succeeded', { session_id: 's1', role: 'planner', attempt: 1, duration_ms: 100, terminal_tool: 'emit_planner_result' });
+    runtime.emitAgentEvent('llm_invocation_summary', { session_id: 's1', role: 'planner', goal_id: 'g1', card_id: 'c1', attempts_count: 1, total_duration_ms: 100, verdict: 'succeeded', final_provider: 'p', final_model: 'm', final_account: '_', final_terminal_tool: 'emit_planner_result' });
 
     expect(received).toContain('session_started');
-    expect(received).toContain('invocation_succeeded');
+    expect(received).toContain('llm_invocation_summary');
   });
 
   it('does not double-log agent events to EventLogger (EventLogger count unchanged)', () => {
@@ -172,8 +176,7 @@ describe('Agent Events → Runtime EventEmitter', () => {
     // Flush and check events.jsonl — should be empty (or only have startup events)
     const events = runtime.eventLogger.getEvents();
     const agentEventKinds = [
-      'session_started', 'model_selected', 'invocation_succeeded',
-      'invocation_failed', 'retry_attempted', 'compaction_triggered',
+      'session_started', 'llm_attempt', 'llm_invocation_summary', 'compaction_triggered',
     ];
     const agentEvents = events.filter(e => agentEventKinds.includes(e.kind));
     expect(agentEvents.length).toBe(0);
@@ -238,7 +241,7 @@ describe('ActiveRuntime → AgentAdapter eventBus wiring', () => {
 
     const received: string[] = [];
     bus.on('session_started', () => received.push('session_started'));
-    bus.on('invocation_succeeded', () => received.push('invocation_succeeded'));
+    bus.on('llm_invocation_summary', () => received.push('llm_invocation_summary'));
 
     // Emit through the adapter's eventBus the way AgentAdapter.invokeAgent() does
     (adapter as unknown as { eventBus: EventEmitter }).eventBus.emit('session_started', {
@@ -248,16 +251,22 @@ describe('ActiveRuntime → AgentAdapter eventBus wiring', () => {
       card_id: 'c1',
     });
 
-    (adapter as unknown as { eventBus: EventEmitter }).eventBus.emit('invocation_succeeded', {
+    (adapter as unknown as { eventBus: EventEmitter }).eventBus.emit('llm_invocation_summary', {
       session_id: 'sess-test',
       role: 'planner',
-      attempt: 1,
-      duration_ms: 200,
-      terminal_tool: 'emit_planner_result',
+      goal_id: 'g1',
+      card_id: 'c1',
+      attempts_count: 1,
+      total_duration_ms: 200,
+      verdict: 'succeeded',
+      final_provider: 'p',
+      final_model: 'm',
+      final_account: '_',
+      final_terminal_tool: 'emit_planner_result',
     });
 
     expect(received).toContain('session_started');
-    expect(received).toContain('invocation_succeeded');
+    expect(received).toContain('llm_invocation_summary');
   });
 
   it('Runtime can be used as AgentAdapter eventBus to forward events', () => {

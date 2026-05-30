@@ -1,4 +1,4 @@
-import { EventRegistry, type EventKind, type EventPayload, type SeverityLevel, getEventSeverity } from './registry.js';
+import { EventRegistry, payloadSchemaByKind, type EventKind, type EventPayload, type SeverityLevel, getEventSeverity } from './registry.js';
 
 export { EventRegistry, getEventSeverity, type EventKind, type EventPayload, type SeverityLevel };
 export const SEVERITY_ORDER: SeverityLevel[] = ['info', 'warning', 'error'];
@@ -136,14 +136,14 @@ export class EventBus {
   }
 
   private createEvent<K extends EventKind>(kind: K, payload: EventPayload<K>, options?: { correlationId?: string }): DomainEvent<K> {
-    EventRegistry[kind].schema.parse(payload);
+    payloadSchemaByKind[kind].parse(payload);
     const ts = Date.now();
     return { ...(payload as Record<string, unknown>), id: `evt-${ts}-${eventIdSuffix()}`, kind, payload, ts, timestamp: new Date(ts).toISOString(), correlationId: options?.correlationId } as DomainEvent<K>;
   }
 
   private fromLegacyRecord(record: { kind: EventKind; id?: string; timestamp?: string; correlationId?: string } & object): DomainEvent {
     const { kind, id, timestamp, correlationId, ...payload } = record as { kind: EventKind; id?: string; timestamp?: string; correlationId?: string } & Record<string, unknown>;
-    EventRegistry[kind].schema.parse(payload);
+    payloadSchemaByKind[kind].parse(payload);
     const ts = timestamp ? Date.parse(timestamp) : Date.now();
     return { ...payload, id: id ?? `evt-${Date.now()}-${eventIdSuffix()}`, kind, payload: payload as EventPayload<EventKind>, ts: Number.isFinite(ts) ? ts : Date.now(), timestamp: timestamp ?? new Date().toISOString(), correlationId } as DomainEvent;
   }

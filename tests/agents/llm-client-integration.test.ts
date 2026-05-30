@@ -575,7 +575,7 @@ describe('LlmClient Integration with Mock HTTP Server', () => {
       });
       const events = new EventEmitter();
       const failures: unknown[] = [];
-      events.on('invocation_failed', (event) => failures.push(event));
+      events.on('llm_attempt', (event: { outcome?: { kind?: string } }) => { if (event?.outcome?.kind === 'failed') failures.push(event); });
       const adapter = createAgentAdapter(adapterTempDir, events);
       adapter.setLlmCallFn(adapter.createLlmCallFn());
 
@@ -870,8 +870,10 @@ describe('AgentAdapter + Router + LlmClient Full Integration', () => {
       const events = new EventEmitter();
       const successes: unknown[] = [];
       const failures: unknown[] = [];
-      events.on('invocation_succeeded', (event) => successes.push(event));
-      events.on('invocation_failed', (event) => failures.push(event));
+      events.on('llm_attempt', (event: { outcome?: { kind?: string } }) => {
+        if (event?.outcome?.kind === 'succeeded') successes.push(event);
+        else if (event?.outcome?.kind === 'failed') failures.push(event);
+      });
 
       const adapter = createAgentAdapter(tempDir, events);
       adapter.setLlmCallFn(adapter.createLlmCallFn());

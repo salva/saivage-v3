@@ -2,7 +2,7 @@ import type { CardRecord, DebugError, DebugTimelineEvent, ProcessView, RuntimeSt
 import { redactObservabilityText, redactObservabilityValue } from '../utils/observabilityRedaction';
 import { selectChildrenOf } from './card-read-model';
 
-const FAILURE_EVENT_KIND_RE = /^invocation_failed$|_error$|_failed$/;
+const FAILURE_EVENT_KIND_RE = /^llm_attempt$|_error$|_failed$/;
 export const OPERATOR_STALE_AGE_MS = 60_000;
 
 function eventFieldAsString(event: DebugTimelineEvent, field: string): string | null {
@@ -42,7 +42,7 @@ export function selectTimelineDerivedErrors(events: DebugTimelineEvent[]): Debug
     .map((event) => ({
       source: sessionFromEvent(event),
       type: event.kind,
-      severity: event.kind === 'invocation_failed' || event.kind.endsWith('_failed') ? 'warning' : 'error',
+      severity: (event.kind === 'llm_attempt' && (event as { outcome?: { kind?: string } }).outcome?.kind === 'failed') || event.kind.endsWith('_failed') ? 'warning' : 'error',
       message: errorMessageFromEvent(event),
       details: eventErrorDetails(event),
       timestamp: event.timestamp,
