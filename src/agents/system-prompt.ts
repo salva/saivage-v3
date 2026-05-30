@@ -1,4 +1,7 @@
 import type { CardType } from '../schemas/index.js';
+import type { Contract } from '../contracts/contract.js';
+
+type AnyContract = Contract<unknown, unknown>;
 
 const SAIVAGE_INTRO = 'You are operating inside **Saivage**, an autonomous multi-agent system.';
 
@@ -33,6 +36,7 @@ You must plan within this limit — do not create goal cards that would exceed t
 }
 
 export function buildPlannerPrompt(
+  contract: AnyContract,
   skills?: string,
   currentDepth?: number,
   maxDepth?: number,
@@ -59,38 +63,11 @@ ${depthContext}### Responsibilities
 - Activating a terminal card that already reached a terminal state fails with tool_error kind \`terminal_card_requires_restart\`; call \`restart_card\` first.
 - Goal completion reports can fail with \`subtree_not_ready\` or \`invalid_evidence\`; if that happens, fix the subtree/evidence and recur on the same goal.
 
-### Expected JSON Output Format
+### Terminal Tools (Contract)
 
-Your response MUST be a single JSON object with the fields below.
-Wrap it in a \`\`\`json code block or return raw JSON.
+End your turn by emitting exactly one of the terminal tools below. The runtime verifies the envelope against this contract; if verification fails you will be invoked again with a repair message.
 
-\`\`\`json
-{
-  "status": "string (one of: continue, done, blocked)",
-  "blocked_reason": "string (required when status is blocked)",
-  "created_cards": [
-    {
-      "type": "string (one of: ${PLANNER_CREATABLE_CARD_TYPES.join(', ')})",
-      "title": "string (short, imperative)",
-      "description": "string",
-      "status": "string (usually 'backlog')",
-      "depends_on": ["string (card ID)"],
-      "priority": "number (integer, lower = more urgent, 0 = highest)",
-      "tags": ["string (optional tags)"],
-      "id": "string (optional, pre-assigned card ID)"
-    }
-  ],
-  "updated_cards": [
-    {
-      "id": "string (REQUIRED, existing card ID)",
-      "status": "string (optional new status)",
-      "title": "string (optional updated title)",
-      "description": "string (optional updated description)"
-    }
-  ],
-  "summary": "string (brief reasoning about this planning step)"
-}
-\`\`\`
+${contract.describe()}
 
 ### Behavioral Guidelines
 - **Be incremental**: Create 1–3 cards per invocation. Do not over-plan.
@@ -105,7 +82,7 @@ Wrap it in a \`\`\`json code block or return raw JSON.
   return prompt;
 }
 
-export function buildExecutorPrompt(cardType?: string, skills?: string): string {
+export function buildExecutorPrompt(contract: AnyContract, cardType?: string, skills?: string): string {
   const typeGuidance = cardType ? buildTypeGuidance(cardType) : '';
   const typeNote = cardType
     ? `\n### Card Type: \`${cardType}\`\n${typeGuidance}`
@@ -124,38 +101,14 @@ You are the **Executor** agent. Your job is to execute a single terminal card an
 4. **Provide terminal status_text**: Every terminal executor result must include a non-empty \`status_text\` summarizing the outcome.
 5. **Use workspace tools for filesystem work**: Use \`list_project_files\`, \`read_project_file\`, \`write_project_file\`, and \`run_project_command\` to inspect, modify, and verify the real project workspace.
 
-### Expected JSON Output Format
+### Constraints
+- **Project files vs. process metadata**: Artifact and attachment \`sourceFile\` / \`path\` entries must point under \`.saivage-work\` to Saivage process metadata or output — never a project source, config, test, data, or documentation file or directory. Project file changes belong in \`result.generated_files\`, \`status_text\`, and \`summary\`. Artifact types: ${ARTIFACT_TYPES.join(', ')}.
 
-Your response MUST be a single JSON object. Wrap it in a \`\`\`json code block or return raw JSON.
+### Terminal Tools (Contract)
 
-\`\`\`json
-{
-  "card_id": "string (the ID of the card you executed)",
-  "status": "string ('done' or 'failed')",
-  "status_text": "string (required concise terminal outcome summary)",
-  "error": "string (if failed, a clear description of what went wrong)",
-  "result": { "key": "value", "generated_files": ["project-relative path for changed or created project files"] },
-  "artifacts": [
-    {
-      "type": "string (one of: ${ARTIFACT_TYPES.join(', ')})",
-      "description": "string",
-      "retain": "boolean",
-      "sourceFile": "string (optional path under .saivage-work to Saivage process metadata/output; never a project source/config/test file or directory)",
-      "path": "string (optional path under .saivage-work to Saivage process metadata/output; never a project source/config/test file or directory)"
-    }
-  ],
-  "attachments": [
-    {
-      "mime": "string",
-      "title": "string",
-      "description": "string (optional)",
-      "sourceFile": "string (optional path under .saivage-work to Saivage process metadata/output; never a project source/config/test file or directory)",
-      "path": "string (optional path under .saivage-work to Saivage process metadata/output; never a project source/config/test file or directory)"
-    }
-  ],
-  "summary": "string (brief summary of what was done)"
-}
-\`\`\`${typeNote}
+End your turn by emitting exactly one of the terminal tools below. The runtime verifies the envelope against this contract; if verification fails you will be invoked again with a repair message.
+
+${contract.describe()}${typeNote}
 
 ### Behavioral Guidelines
 - **Do the work**: Actually perform the task.
@@ -200,7 +153,7 @@ function buildTypeGuidance(cardType: string): string {
   }
 }
 
-export function buildReviewerPrompt(skills?: string): string {
+export function buildReviewerPrompt(contract: AnyContract, skills?: string): string {
   const prompt = `${SAIVAGE_INTRO}
 
 ## Your Role — Reviewer
@@ -213,34 +166,17 @@ You are the **Reviewer** agent. Your job is to evaluate whether a goal's accepta
 3. **Report clearly**: Provide the canonical ReviewerResult assessment only, with concrete issues for any unmet criteria.
 4. **Be thorough**: A passing review means EVERY acceptance criterion is satisfied with evidence.
 
-### Expected JSON Output Format
+### Terminal Tools (Contract)
 
-Your response MUST be a single JSON object. Wrap it in a \`\`\`json code block or return raw JSON.
+End your turn by emitting exactly one of the terminal tools below. The runtime verifies the envelope against this contract; if verification fails you will be invoked again with a repair message.
 
-\`\`\`json
-{
-  "assessment": {
-    "result": "string ('pass' or 'needs_corrections')",
-    "summary": "string",
-    "achieved": ["string"],
-    "issues": [
-      {
-        "summary": "string",
-        "severity": "string ('info', 'warning', or 'blocker')",
-        "evidence_card_id": "string (optional card ID)",
-        "recommendation": "string (optional corrective action)"
-      }
-    ],
-    "evidence_card_ids": ["string"]
-  }
-}
-\`\`\`
+${contract.describe()}
 
 ### Behavioral Guidelines
 - **Use only the canonical result values**: \`pass\` or \`needs_corrections\`.
 - **Use the issues field**: Put unmet criteria in \`issues\` with severity and recommendations.
 - **Be thorough, not lenient**.
-- **Cite evidence**.
+- **Cite evidence**: Every \`issues[]\` entry must reference an \`evidence_card_id\` and the \`evidence_card_ids\` array must list every descendant card you relied on.
 - **Consider the whole tree**.
 - **Check artifacts**.
 - **Load skills on-demand**.`;

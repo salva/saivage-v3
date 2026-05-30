@@ -8,6 +8,9 @@ import {
   buildExecutorPrompt,
   buildReviewerPrompt,
 } from '../../src/agents/system-prompt.js';
+import { createPlannerContract } from '../../src/contracts/planner-contract.js';
+import { createExecutorContract } from '../../src/contracts/executor-contract.js';
+import { createReviewerContract } from '../../src/contracts/reviewer-contract.js';
 import type { SkillIndexEntry, AgentRole } from '../../src/schemas/types.js';
 
 function makeEntry(overrides: Partial<SkillIndexEntry> = {}): SkillIndexEntry {
@@ -620,14 +623,18 @@ describe('SkillsEngine', () => {
   // ═══════════════ System Prompt Integration ═══════════════
 
   describe('System Prompt Integration', () => {
+    const plannerContract = createPlannerContract({ goalId: 'g', parentSessionId: '' });
+    const executorContract = createExecutorContract({ cardId: 'c', goalId: 'g' });
+    const reviewerContract = createReviewerContract({ goalId: 'g', assessmentId: 'a' });
+
     it('buildPlannerPrompt(skills) appends skills when provided', () => {
-      const prompt = buildPlannerPrompt('--- SKILL: test ---\ncontent\n--- END SKILL ---');
+      const prompt = buildPlannerPrompt(plannerContract, '--- SKILL: test ---\ncontent\n--- END SKILL ---');
       expect(prompt).toContain('--- SKILL: test ---');
       expect(prompt).toContain('--- END SKILL ---');
     });
 
     it('buildExecutorPrompt(cardType, skills) appends skills', () => {
-      const prompt = buildExecutorPrompt('code',
+      const prompt = buildExecutorPrompt(executorContract, 'code',
         '--- SKILL: test ---\ncontent\n--- END SKILL ---');
       expect(prompt).toContain('--- SKILL: test ---');
       expect(prompt).toContain('--- END SKILL ---');
@@ -635,7 +642,7 @@ describe('SkillsEngine', () => {
     });
 
     it('buildReviewerPrompt(skills) appends skills', () => {
-      const prompt = buildReviewerPrompt(
+      const prompt = buildReviewerPrompt(reviewerContract,
         '--- SKILL: test ---\ncontent\n--- END SKILL ---');
       expect(prompt).toContain('--- SKILL: test ---');
       expect(prompt).toContain('--- END SKILL ---');
@@ -643,32 +650,32 @@ describe('SkillsEngine', () => {
     });
 
     it('buildPlannerPrompt() without skills returns base prompt', () => {
-      const prompt = buildPlannerPrompt();
+      const prompt = buildPlannerPrompt(plannerContract);
       expect(prompt).toContain('Planner');
       expect(prompt).not.toContain('--- SKILL:');
     });
 
     it('buildExecutorPrompt(cardType) without skills returns base prompt', () => {
-      const prompt = buildExecutorPrompt('code');
+      const prompt = buildExecutorPrompt(executorContract, 'code');
       expect(prompt).toContain('Executor');
       expect(prompt).not.toContain('--- SKILL:');
     });
 
     it('buildReviewerPrompt() without skills returns base prompt', () => {
-      const prompt = buildReviewerPrompt();
+      const prompt = buildReviewerPrompt(reviewerContract);
       expect(prompt).toContain('Reviewer');
       expect(prompt).not.toContain('--- SKILL:');
     });
 
     it('skills are appended after double newline', () => {
-      const base = buildPlannerPrompt();
-      const withSkills = buildPlannerPrompt('--- SKILL: x ---\n\n--- END SKILL ---');
+      const base = buildPlannerPrompt(plannerContract);
+      const withSkills = buildPlannerPrompt(plannerContract, '--- SKILL: x ---\n\n--- END SKILL ---');
       expect(withSkills).toBe(base + '\n\n--- SKILL: x ---\n\n--- END SKILL ---');
     });
 
     it('empty skills string is not appended (guard)', () => {
-      const base = buildPlannerPrompt();
-      expect(buildPlannerPrompt('')).toBe(base);
+      const base = buildPlannerPrompt(plannerContract);
+      expect(buildPlannerPrompt(plannerContract, '')).toBe(base);
     });
   });
 });

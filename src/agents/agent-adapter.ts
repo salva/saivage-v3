@@ -98,7 +98,8 @@ export class AgentAdapter implements AgentExecutionPort {
       reviewer: async (goalId, assessmentId, reviewerSessionId, report, parentSessionId) => {
         if (parentSessionId) markSessionWaiting(this.saivageDir, parentSessionId);
         try {
-          return (await this.invokeReviewer({ goalId, systemPrompt: buildReviewerPrompt(), contextMessages: [{ id: `review-report:${assessmentId}`, session_id: reviewerSessionId, role: 'user', kind: 'text', content: `The planner reports the following terminal outcome for goal '${goalId}'. Evaluate against the goal's acceptance criteria and respond with the canonical ReviewerResult JSON envelope.\n\n${JSON.stringify(report, null, 2)}`, round_id: generateRoundId('user'), message_index: 0, block_index: 0, timestamp: new Date().toISOString() }], assessmentId, reviewerSessionId, contract: createReviewerContract({ goalId, assessmentId }) })).assessment;
+          const reviewerContract = createReviewerContract({ goalId, assessmentId });
+          return (await this.invokeReviewer({ goalId, systemPrompt: buildReviewerPrompt(reviewerContract), contextMessages: [{ id: `review-report:${assessmentId}`, session_id: reviewerSessionId, role: 'user', kind: 'text', content: `The planner reports the following terminal outcome for goal '${goalId}'. Evaluate against the goal's acceptance criteria and respond with the canonical ReviewerResult JSON envelope.\n\n${JSON.stringify(report, null, 2)}`, round_id: generateRoundId('user'), message_index: 0, block_index: 0, timestamp: new Date().toISOString() }], assessmentId, reviewerSessionId, contract: reviewerContract })).assessment;
         } finally {
           if (parentSessionId) setSessionStatus(this.saivageDir, parentSessionId, 'active');
         }

@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os';
 import { AgentAdapter } from '../../src/agents/agent-adapter.js';
 import type { LlmCallFn } from '../../src/agents/llm-contracts.js';
 import { buildReviewerPrompt } from '../../src/agents/system-prompt.js';
+import { createReviewerContract } from '../../src/contracts/reviewer-contract.js';
 import type { SaivageConfig } from '../../src/agents/config-schema.js';
 import type { AgentMessage, CardRecord } from '../../src/schemas/types.js';
 import { CardStore } from '../../src/cards/card-store.js';
@@ -161,12 +162,12 @@ describe('AgentAdapter planner-control reviewer prompt contract', () => {
     expect(result).toEqual(expect.objectContaining({ status: 'done', summary: 'Planner accepted reviewer assessment.' }));
     const reviewerCall = llmCalls.find((call) => call.sessionId.startsWith(`reviewer:${goal.id}:`));
     expect(reviewerCall).toBeDefined();
-    expect(reviewerCall?.systemPrompt).toBe(buildReviewerPrompt());
     expect(reviewerCall?.sessionId).toMatch(new RegExp(`^reviewer:${goal.id}:.+`));
     expect(reviewerCall?.messages).toHaveLength(1);
     const reviewMessage = reviewerCall!.messages[0];
     const actualAssessmentId = reviewerCall!.sessionId.slice(`reviewer:${goal.id}:`.length);
     expect(actualAssessmentId.length).toBeGreaterThan(0);
+    expect(reviewerCall?.systemPrompt).toBe(buildReviewerPrompt(createReviewerContract({ goalId: goal.id, assessmentId: actualAssessmentId })));
     expect(reviewMessage).toEqual(expect.objectContaining({
       session_id: reviewerCall!.sessionId,
       role: 'user',
