@@ -102,7 +102,6 @@ describe('AgentAdapter planner tool surface', () => {
       'kill_process', 'start_and_wait', 'run_project_command',
       'activate_card', 'cancel_card', 'delete_card', 'restart_card',
       'report_goal_done', 'report_goal_failed', 'report_goal_blocked',
-      'emit_planner_result',
     ]);
   });
 

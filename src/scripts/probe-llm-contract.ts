@@ -11,8 +11,10 @@
 import { loadConfig } from '../agents/config-schema.js';
 import { ProviderRegistry, type Candidate, type Provider } from '../agents/provider.js';
 import { LlmProviderGateway } from '../agents/llm-provider-gateway.js';
-import { buildLlmOptions, type LlmRolePhase } from '../agents/llm-options-factory.js';
-import { ROLE_RESULT_TOOLS } from '../agents/role-result-tools.js';
+import { buildLlmOptions } from '../agents/llm-options-factory.js';
+import { createPlannerContract } from '../contracts/planner-contract.js';
+import { createExecutorContract } from '../contracts/executor-contract.js';
+import { createReviewerContract } from '../contracts/reviewer-contract.js';
 import { unwrapFailure } from '../agents/llm-errors.js';
 import type { ToolDefinition } from '../agents/llm-contracts.js';
 import type { OperationalAgentRole, AgentMessage } from '../schemas/index.js';
@@ -84,11 +86,17 @@ function resolveRoleModels(config: ReturnType<typeof loadConfig>['config'], role
 
 function buildOptionsForRole(role: OperationalAgentRole) {
   if (role === 'analyst') {
-    const phase: LlmRolePhase = 'tools';
-    return buildLlmOptions(role, phase, [PING_TOOL], { temperature: 0, max_tokens: 64 }, undefined, undefined);
+    return buildLlmOptions(role, [PING_TOOL], [], { temperature: 0, max_tokens: 64 }, undefined, undefined);
   }
-  const phase: LlmRolePhase = 'terminal';
-  return buildLlmOptions(role, phase, [ROLE_RESULT_TOOLS[role]], { temperature: 0, max_tokens: 64 }, undefined, undefined);
+  const contract =
+    role === 'planner'
+      ? createPlannerContract({ goalId: 'probe-goal', parentSessionId: '' })
+      : role === 'executor'
+        ? createExecutorContract({ cardId: 'probe-card', goalId: 'probe-goal' })
+        : createReviewerContract({ goalId: 'probe-goal', assessmentId: 'probe-assessment' });
+  const tools = contract.terminals.map((t) => t.toolDefinition);
+  const offered = contract.terminals.map((t) => t.name);
+  return buildLlmOptions(role, tools, offered, { temperature: 0, max_tokens: 64 }, undefined, undefined);
 }
 
 function buildPingMessage(): AgentMessage {

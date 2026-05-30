@@ -158,8 +158,8 @@ export class LlmIntentResolver {
         }
         const result = await client.complete(candidate, systemPrompt, messages, sessionId, buildLlmOptions(
           'analyst',
-          'tools',
           tools,
+          [],
           { temperature: modelParams.temperature, max_tokens: modelParams.maxTokens },
           undefined,
           this.recorderForSession(sessionId),

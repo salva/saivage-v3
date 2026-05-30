@@ -325,7 +325,7 @@ export class AgentAdapter implements AgentExecutionPort {
                 budget: createRepairBudget(1),
                 maxToolTurns,
                 invokeTurn: async () => {
-                  const llmOpts = buildLlmOptions(role, 'tools', turnTools, { temperature: modelParams.temperature, max_tokens: modelParams.maxTokens }, abortController.signal, undefined);
+                  const llmOpts = buildLlmOptions(role, turnTools, contract.terminals.map((t) => t.name), { temperature: modelParams.temperature, max_tokens: modelParams.maxTokens }, abortController.signal, undefined);
                   const turnMessages = this.buildModelMessages(session.id);
                   return this.llmCallFn!(candidate, systemPrompt, turnMessages, session.id, llmOpts);
                 },
