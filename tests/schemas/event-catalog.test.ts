@@ -49,7 +49,7 @@ describe('llm_attempt payload schema', () => {
 
 describe('llm_invocation_summary payload schema (refine rules)', () => {
   const schema = payloadSchemaByKind.llm_invocation_summary;
-  const base = { session_id: 's', role: 'planner', goal_id: 'g', card_id: 'c', attempts_count: 1, total_duration_ms: 10 };
+  const base = { session_id: 's', role: 'planner', goal_id: 'g', card_id: 'c', contract_id: 'planner.v1', attempts_count: 1, repair_attempts: 0, total_duration_ms: 10 };
   it('requires final_* when verdict=succeeded', () => {
     expect(() => schema.parse({ ...base, verdict: 'succeeded' })).toThrow();
     expect(() => schema.parse({
@@ -61,5 +61,29 @@ describe('llm_invocation_summary payload schema (refine rules)', () => {
     expect(() => schema.parse({ ...base, verdict: 'exhausted' })).toThrow();
     expect(() => schema.parse({ ...base, verdict: 'exhausted', last_failure_class: 'rate_limit' })).not.toThrow();
     expect(() => schema.parse({ ...base, verdict: 'cancelled', last_failure_class: 'cancelled' })).not.toThrow();
+  });
+  it('accepts optional contract_verdict', () => {
+    expect(() => schema.parse({ ...base, verdict: 'exhausted', last_failure_class: 'rate_limit', contract_verdict: 'repair_exhausted' })).not.toThrow();
+  });
+  it('rejects unknown contract_verdict value', () => {
+    expect(() => schema.parse({ ...base, verdict: 'exhausted', last_failure_class: 'rate_limit', contract_verdict: 'bogus' })).toThrow();
+  });
+});
+
+describe('llm_verifier_rejection payload schema', () => {
+  const schema = payloadSchemaByKind.llm_verifier_rejection;
+  const valid = {
+    session_id: 's', role: 'planner', contract_id: 'planner.v1',
+    attempt: 0, repair_round: 1, obligation_codes: ['missing_done_signal'], proposed_present: false,
+  };
+  it('accepts a valid rejection', () => {
+    expect(() => schema.parse(valid)).not.toThrow();
+  });
+  it('rejects unknown fields (strict)', () => {
+    expect(() => schema.parse({ ...valid, extra: 1 })).toThrow();
+  });
+  it('requires obligation_codes', () => {
+    const { obligation_codes: _o, ...rest } = valid;
+    expect(() => schema.parse(rest)).toThrow();
   });
 });

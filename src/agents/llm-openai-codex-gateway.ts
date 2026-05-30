@@ -54,6 +54,7 @@ export class OpenAICodexGateway {
     const endpoint = this.openAICodexResponsesUrl();
     const handle = await beginRecordedExchange(opts.recorder, {
       transport: 'codex',
+      contract_id: opts.contract_id,
       candidate,
       endpoint,
       headers,

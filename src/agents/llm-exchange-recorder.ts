@@ -32,6 +32,7 @@ export interface ExchangeHandle {
 
 export interface BeginExchangeInput {
   transport: 'generic' | 'codex';
+  contract_id: string;
   candidate: { provider: string; model: string; account?: string };
   request: ExchangeRequestMeta;
   terminalTool: TerminalToolName | null;
@@ -108,6 +109,7 @@ export function createLlmExchangeRecorder(
     if (current === null) {
       current = {
         sessionId,
+        contract_id: meta.contract_id,
         capturedAt: startedAt,
         transport: meta.transport,
         candidate: { ...meta.candidate },
@@ -116,6 +118,7 @@ export function createLlmExchangeRecorder(
     } else {
       current = {
         ...current,
+        contract_id: meta.contract_id,
         transport: meta.transport,
         candidate: { ...meta.candidate },
         attempts: [...current.attempts, attempt],

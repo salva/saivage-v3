@@ -12,7 +12,7 @@ const runtimeRecordSchema = anyRecord;
 const actionableErrorEnvelopeSchema = anyRecord;
 const projectRunCompletedShape = { project_card_id: z.string().optional(), result: z.enum(['done', 'failed', 'blocked']).optional(), summary: z.string().optional(), failure_kind: z.string().optional(), blocked_reason: z.string().optional() } satisfies z.ZodRawShape;
 
-const failureClassSchema = z.enum(['auth_permanent', 'rate_limit', 'server_transient', 'timeout', 'contract_mismatch', 'capability_mismatch', 'token_budget_exceeded', 'parse_error', 'cancelled', 'unknown']);
+const failureClassSchema = z.enum(['auth_permanent', 'rate_limit', 'server_transient', 'timeout', 'provider_protocol_error', 'capability_mismatch', 'token_budget_exceeded', 'parse_error', 'cancelled', 'unknown']);
 const recoveryActionSchema = z.enum(['mark_succeeded', 'cooldown_and_failover', 'failover_without_cooldown', 'retry_same_after_delay', 'abort_without_retry', 'fail_invocation']);
 const verdictSchema = z.enum(['succeeded', 'exhausted', 'cancelled']);
 
@@ -47,14 +47,27 @@ const llmInvocationSummaryBaseShape = {
   role: agentRoleSchema,
   goal_id: z.string(),
   card_id: z.string(),
+  contract_id: z.string(),
   attempts_count: z.number().int().nonnegative(),
   total_duration_ms: z.number().nonnegative(),
   verdict: verdictSchema,
+  repair_attempts: z.number().int().nonnegative(),
+  contract_verdict: z.enum(['satisfied', 'repair_exhausted', 'no_progress']).optional(),
   final_provider: z.string().optional(),
   final_model: z.string().optional(),
   final_account: z.string().optional(),
   final_terminal_tool: terminalToolNameSchema.optional(),
   last_failure_class: failureClassSchema.optional(),
+} satisfies z.ZodRawShape;
+
+const llmVerifierRejectionBaseShape = {
+  session_id: z.string(),
+  role: agentRoleSchema,
+  contract_id: z.string(),
+  attempt: z.number().int().nonnegative(),
+  repair_round: z.number().int().positive(),
+  obligation_codes: z.array(z.string()),
+  proposed_present: z.boolean(),
 } satisfies z.ZodRawShape;
 
 export const llmInvocationSummaryRefine = (data: unknown, ctx: z.RefinementCtx): void => {
@@ -122,6 +135,7 @@ export const EventRegistry = {
   session_started: open({ session_id: z.string(), role: agentRoleSchema, goal_id: z.string(), card_id: z.string() }, { domain: 'agent', severity: 'info', tracked: true, audit: true, broadcast: true, outbound: 'operator' }),
   llm_attempt: { domain: 'agent', strict: true as const, baseShape: llmAttemptBaseShape, refine: undefined as ((data: unknown, ctx: z.RefinementCtx) => void) | undefined, severity: 'info', tracked: true, audit: true, broadcast: true, outbound: 'operator' },
   llm_invocation_summary: { domain: 'agent', strict: true as const, baseShape: llmInvocationSummaryBaseShape, refine: llmInvocationSummaryRefine as ((data: unknown, ctx: z.RefinementCtx) => void) | undefined, severity: 'info', tracked: true, audit: true, broadcast: true, outbound: 'operator' },
+  llm_verifier_rejection: { domain: 'agent', strict: true as const, baseShape: llmVerifierRejectionBaseShape, refine: undefined as ((data: unknown, ctx: z.RefinementCtx) => void) | undefined, severity: 'warning', tracked: true, audit: true, broadcast: true, outbound: 'operator' },
   compaction_triggered: open({ session_id: z.string(), role: agentRoleSchema, tokens_before: z.number(), tokens_after: z.number() }, { domain: 'agent', severity: 'info', tracked: true, audit: true, broadcast: true, outbound: 'operator' }),
   self_check_triggered: open({ session_id: z.string(), role: agentRoleSchema, rounds: z.number(), threshold: z.number(), response: z.string().nullable().optional() }, { domain: 'agent', severity: 'info', tracked: true, audit: true, broadcast: true, outbound: 'operator' }),
   model_issue: open({ session_id: z.string(), role: agentRoleSchema.optional(), message: z.string() }, { domain: 'agent', severity: 'warning', tracked: true, audit: true, broadcast: true, outbound: 'operator' }),

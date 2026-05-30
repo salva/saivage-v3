@@ -30,6 +30,7 @@ export function buildLlmOptions(
     signal,
     recorder,
     stream: false as const,
+    contract_id: `${role}.v1`,
   };
 
   if (phase === 'tools') {

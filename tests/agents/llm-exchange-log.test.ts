@@ -28,6 +28,7 @@ afterEach(() => {
 function sampleExchange(sessionId = 'sess-1'): LlmExchange {
   return {
     sessionId,
+    contract_id: 'test.v1',
     capturedAt: '2026-05-23T00:00:00.000Z',
     transport: 'generic',
     candidate: { provider: 'openai', model: 'gpt-x', account: 'acct-a' },

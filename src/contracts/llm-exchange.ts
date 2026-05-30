@@ -37,6 +37,7 @@ export type TerminalToolName = (typeof TERMINAL_TOOL_NAMES)[number];
 
 export const llmExchangeSchema = z.object({
   sessionId: z.string(),
+  contract_id: z.string(),
   capturedAt: z.string(),
   transport: z.enum(['generic', 'codex']),
   candidate: z.object({

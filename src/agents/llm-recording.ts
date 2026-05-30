@@ -49,6 +49,7 @@ export function teeStreamForRecorder(body: ReadableStream<Uint8Array>): {
 
 export interface LlmRecorderRequest {
   transport: 'generic' | 'codex';
+  contract_id: string;
   candidate: Candidate;
   endpoint: string;
   headers: Record<string, string>;
@@ -74,6 +75,7 @@ export async function beginRecordedExchange(
   if (!recorder) return undefined;
   return recorder.beginExchange({
     transport: request.transport,
+    contract_id: request.contract_id,
     candidate: {
       provider: request.candidate.provider,
       model: request.candidate.model,

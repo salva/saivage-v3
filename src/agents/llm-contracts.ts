@@ -37,6 +37,7 @@ interface LlmCompleteOptionsBase extends LlmModelParams {
   signal?: AbortSignal;
   recorder?: LlmExchangeRecorder;
   capabilityRequest?: CapabilityRequest;
+  contract_id: string;
 }
 
 export interface LlmCompleteOptionsTools extends LlmCompleteOptionsBase {

@@ -32,8 +32,8 @@ describe('llmInvocationSummaryEventSchema envelope', () => {
   it('accepts succeeded with final_* fields', () => {
     const evt = {
       id: 's1', kind: 'llm_invocation_summary', timestamp: isoNow(),
-      session_id: 'sess', role: 'planner', goal_id: 'g', card_id: 'c',
-      attempts_count: 1, total_duration_ms: 12, verdict: 'succeeded',
+      session_id: 'sess', role: 'planner', goal_id: 'g', card_id: 'c', contract_id: 'planner.v1',
+      attempts_count: 1, repair_attempts: 0, total_duration_ms: 12, verdict: 'succeeded',
       final_provider: 'p', final_model: 'm', final_account: '_', final_terminal_tool: 'emit_planner_result',
     };
     expect(() => llmInvocationSummaryEventSchema.parse(evt)).not.toThrow();
@@ -41,16 +41,16 @@ describe('llmInvocationSummaryEventSchema envelope', () => {
   it('rejects succeeded missing final fields', () => {
     const evt = {
       id: 's1', kind: 'llm_invocation_summary', timestamp: isoNow(),
-      session_id: 'sess', role: 'planner', goal_id: 'g', card_id: 'c',
-      attempts_count: 1, total_duration_ms: 12, verdict: 'succeeded',
+      session_id: 'sess', role: 'planner', goal_id: 'g', card_id: 'c', contract_id: 'planner.v1',
+      attempts_count: 1, repair_attempts: 0, total_duration_ms: 12, verdict: 'succeeded',
     };
     expect(() => llmInvocationSummaryEventSchema.parse(evt)).toThrow();
   });
   it('accepts exhausted with last_failure_class', () => {
     const evt = {
       id: 's1', kind: 'llm_invocation_summary', timestamp: isoNow(),
-      session_id: 'sess', role: 'planner', goal_id: 'g', card_id: 'c',
-      attempts_count: 3, total_duration_ms: 30, verdict: 'exhausted',
+      session_id: 'sess', role: 'planner', goal_id: 'g', card_id: 'c', contract_id: 'planner.v1',
+      attempts_count: 3, repair_attempts: 0, total_duration_ms: 30, verdict: 'exhausted',
       last_failure_class: 'rate_limit',
     };
     expect(() => llmInvocationSummaryEventSchema.parse(evt)).not.toThrow();

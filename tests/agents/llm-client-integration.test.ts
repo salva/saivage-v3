@@ -250,7 +250,7 @@ function makeJwtWithCodexAccount(accountId: string): string {
 import type { LlmCompleteOptions, LlmCompleteResult, ToolCall } from '../../src/agents/llm-contracts.js';
 
 function toolsOpts(extra: Partial<LlmCompleteOptions> = {}): LlmCompleteOptions {
-  return { phase: 'tools', tools: [], tool_choice: { kind: 'auto' }, ...(extra as object) } as LlmCompleteOptions;
+  return { phase: 'tools', tools: [], tool_choice: { kind: 'auto' }, contract_id: 'test.v1', ...(extra as object) } as LlmCompleteOptions;
 }
 
 function asMessage(r: LlmCompleteResult): { content: string; tool_calls: ToolCall[]; finishReason: string } {

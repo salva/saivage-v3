@@ -71,6 +71,7 @@ export class OpenAIChatGateway {
 
     const handle = await beginRecordedExchange(opts.recorder, {
       transport: 'generic',
+      contract_id: opts.contract_id,
       candidate,
       endpoint: url,
       headers,

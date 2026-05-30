@@ -15,6 +15,7 @@ const AUTH_TOKEN = 'test-llm-exchange-token';
 function makeExchange(sessionId: string): LlmExchange {
   return {
     sessionId,
+    contract_id: 'test.v1',
     capturedAt: '2026-05-23T10:00:00.000Z',
     transport: 'generic',
     candidate: { provider: 'test-provider', model: 'test-model' },
