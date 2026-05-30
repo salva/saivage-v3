@@ -293,13 +293,11 @@ export class AgentAdapter implements AgentExecutionPort {
               const envelopeRole = expectsEnvelope ? (role as EnvelopeBearingRole) : null;
               const terminalToolName = envelopeRole ? ROLE_RESULT_TOOL_NAMES[envelopeRole] : null;
               const terminalToolDef = envelopeRole ? ROLE_RESULT_TOOLS[envelopeRole] : null;
+              const turnTools = terminalToolDef ? [...tools, terminalToolDef] : tools;
               const maxToolTurns = this.runtimeConfig.maxToolTurns ?? 16;
               let finalEnvelope: Record<string, unknown> | null = null;
               for (let turn = 0; turn < maxToolTurns; turn++) {
-                const isLast = turn === maxToolTurns - 1;
-                const phase: 'tools' | 'terminal' = (isLast && expectsEnvelope) ? 'terminal' : 'tools';
-                const turnTools = phase === 'terminal' && terminalToolDef ? [terminalToolDef] : tools;
-                const llmOpts = buildLlmOptions(role, phase, turnTools, { temperature: modelParams.temperature, max_tokens: modelParams.maxTokens }, abortController.signal, undefined);
+                const llmOpts = buildLlmOptions(role, 'tools', turnTools, { temperature: modelParams.temperature, max_tokens: modelParams.maxTokens }, abortController.signal, undefined);
                 const turnMessages = this.buildModelMessages(session.id);
                 const result = await this.llmCallFn!(candidate, systemPrompt, turnMessages, session.id, llmOpts);
 
@@ -309,7 +307,17 @@ export class AgentAdapter implements AgentExecutionPort {
                     finalEnvelope = { content: result.content };
                     break;
                   }
-                  throw new LlmRequestError({ kind: 'contract_mismatch', subtype: 'terminal_tool_missing', provider: candidate.provider, message: `Role '${role}' returned a plain message during ${phase} phase; expected tool_calls.` });
+                  // Plain message during a tool-bearing turn: persist the assistant text, then nudge the
+                  // agent to either call another tool or emit the terminal envelope, and continue the loop.
+                  if (result.content && result.content.length > 0) {
+                    this.appendSessionMessage(session.id, { role: 'assistant', kind: 'text', content: result.content });
+                  }
+                  const remaining = maxToolTurns - turn - 1;
+                  const nudge = remaining > 0
+                    ? `Your previous reply was a plain message, but this turn expects tool calls. Either call an action tool to make progress, or call '${terminalToolName}' to finish with your final envelope. You have ${remaining} turn${remaining === 1 ? '' : 's'} left.`
+                    : `Your previous reply was a plain message and this is the last turn. You must call '${terminalToolName}' now with your final envelope.`;
+                  this.appendSessionMessage(session.id, { role: 'system', kind: 'model_repair', content: nudge });
+                  continue;
                 }
 
                 // tool_calls path
