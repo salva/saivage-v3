@@ -35,7 +35,6 @@ describe('RoleToolPolicy', () => {
       'report_goal_done',
       'report_goal_failed',
       'report_goal_blocked',
-      'emit_planner_result',
     ]);
     expect(RoleToolPolicy.listToolNamesForRole('executor')).toContain('mcp_tool_call');
     expect(RoleToolPolicy.listToolNamesForRole('reviewer')).toContain('mcp_tool_call');

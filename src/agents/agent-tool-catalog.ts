@@ -2,7 +2,6 @@ import type { ToolDefinition } from './llm-contracts.js';
 import { ANALYST_TOOL_DEFINITIONS } from './analyst-tool-schemas.js';
 import { LOAD_SKILL_TOOL_DEFINITION, MCP_TOOL_CALL_TOOL_DEFINITION } from './skill-tools.js';
 import { READ_ONLY_WORKSPACE_TOOL_DEFINITIONS, WORKSPACE_TOOL_DEFINITIONS } from './workspace-tools.js';
-import { EMIT_PLANNER_RESULT, EMIT_EXECUTOR_RESULT, EMIT_REVIEWER_RESULT, ROLE_RESULT_TOOL_NAMES } from './role-result-tools.js';
 
 function str(description: string): Record<string, unknown> { return { type: 'string', description }; }
 function arr(items: Record<string, unknown>, description?: string): Record<string, unknown> { const result: Record<string, unknown> = { type: 'array', items }; if (description) result.description = description; return result; }
@@ -102,7 +101,6 @@ export const ROLE_TOOL_NAMES = {
     'report_goal_done',
     'report_goal_failed',
     'report_goal_blocked',
-    ROLE_RESULT_TOOL_NAMES.planner,
   ],
   executor: [
     'load_skill',
@@ -117,7 +115,6 @@ export const ROLE_TOOL_NAMES = {
     'get_card_history_entry',
     'diff_card',
     'mcp_tool_call',
-    ROLE_RESULT_TOOL_NAMES.executor,
   ],
   reviewer: [
     'load_skill',
@@ -127,7 +124,6 @@ export const ROLE_TOOL_NAMES = {
     'get_card_history_entry',
     'diff_card',
     'mcp_tool_call',
-    ROLE_RESULT_TOOL_NAMES.reviewer,
   ],
   analyst: ANALYST_TOOL_DEFINITIONS.map((definition) => definition.function.name),
 } as const;
@@ -139,9 +135,6 @@ export const ALL_TOOL_DEFINITIONS_BY_NAME = new Map<string, ToolDefinition>([
   ...READ_ONLY_WORKSPACE_TOOL_DEFINITIONS,
   MCP_TOOL_CALL_TOOL_DEFINITION,
   ...PLANNER_TOOL_DEFINITIONS,
-  EMIT_PLANNER_RESULT,
-  EMIT_EXECUTOR_RESULT,
-  EMIT_REVIEWER_RESULT,
 ].map((definition) => [definition.function.name, definition]));
 
 export class AgentToolCatalog {
