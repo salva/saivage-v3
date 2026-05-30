@@ -1,0 +1,24 @@
+# Batch B Plan Review R1
+
+## Verdict
+
+Changes requested. The plan resolves the right F05/F06/F07 target shape, but it has substantive integration and execution holes that should be corrected before approval.
+
+## Findings
+
+1. **Batch A ownership and failure boundaries are not reconciled.** The ordering section says Batch B lands after Batch A's verifier-and-repair loop and after removal of `contract_mismatch` from the transport failure union, but step 2 still builds `verifyAgainstTerminals` around `LlmRequestError` and the approved Batch B design's `contract_mismatch`-style failure object. Batch A design r3's adopted direction keeps contract violations out of `LlmRequestError` entirely and introduces `src/agents/contract.ts`, `ContractVerifier.check<TEnvelope>(contract, parse)`, and typed contract outcomes. Batch B then creates a second `Contract<Envelope, TypedResult>` in `src/contracts/contract.ts` and routes `contract.verify(call)` into Batch A's `pendingDone` slot without specifying whether it supersedes, adapts, or deletes the Batch A contract/check surface. This is the same cross-batch contract-ownership problem flagged in the Batch A plan review, and as written it can neither typecheck cleanly after Batch A nor give Batch C the stable contract/verifier seam it assumes. The plan needs an explicit handoff: which `Contract` module survives, what shape failed verification returns, and how Batch A's `ObligationReport` / repair-loop outcome consumes Batch B terminal failures without reintroducing transport-shaped contract errors.
+
+2. **The claimed compile-green step ordering is not yet credible.** Step 2 can fail immediately after Batch A because `LlmRequestError` no longer accepts a contract-mismatch arm. Step 4 says the role envelope schemas are moved out of `role-envelope-schemas.ts` while that old file remains for later deletion; unless the same step rewrites the old module to import/re-export the moved schemas until step 18, existing callers will break. Several later steps also delete or shrink symbols that Batch A may already have deleted (`LlmRolePhase`, terminal phase fields, role-result tools, terminal protocol), so the plan needs to mark those as post-Batch-A adaptations/no-ops or fold them into the exact steps that update all live call sites. Otherwise the "tree compiles after each" guarantee is aspirational rather than actionable.
+
+3. **Validation still targets the wrong test runner for root tests.** `saivage-v3/package.json` uses Jest for root `tests/` (`npm test` / `npm run test:direct`), while Vitest is only used under `web/`. The validation block's `npx vitest run tests/contracts tests/agents/agent-adapter ...` command will not exercise the intended root suites. Replace it with a Jest-targeted command such as `npm test -- --runInBand tests/contracts tests/agents/agent-adapter.test.ts tests/agents/system-prompt.test.ts tests/agents/llm-recording.test.ts` (or the local equivalent), keep `npm run typecheck`, and keep any web Vitest commands scoped through the existing `web:test:*` scripts. The link to the validation skill also points four directories up, which resolves under `saivage-v3/.github`; the workspace skill lives one directory higher under the workspace root `.github`.
+
+4. **The prompt rewrite omits a design-required preservation step.** The approved design explicitly notes that narrative constraints currently embedded in the hand-written JSON examples, such as executor file-scope constraints that are not represented in the zod schema, must move to a separate prose block or into schema descriptions rendered by `jsonSchemaToProse`. Step 12 only says to replace the "Expected JSON Output Format" sections with `contract.describe()` and delete self-check. If implemented literally, it can drop non-schema behavioral constraints while claiming F07 is fixed. Add an explicit prompt step and tests asserting that non-schema role constraints survive the contract-rendered terminal section.
+
+5. **The new authorization surface lacks direct tests.** Step 8 adds the `contract-terminal` surface to `RoleToolPolicy`, but the test plan does not add or rewrite policy tests. Because this is the boundary that prevents contract terminal tools from becoming generally role-allowed action tools, the plan should include focused allow/deny coverage for `contractTerminals.includes(toolName)`, rejection outside that set, and unchanged behavior for the existing surfaces.
+
+## Non-Blocking Notes
+
+- The final desired Batch B shape is otherwise aligned with the brief: role-keyed contract maps are deleted, deferred activation becomes an explicit planner terminal, prompt terminal documentation is contract-derived, and legacy parser/synthesis paths are removed.
+- The rollback section is acceptable as a whole-batch revert once the cross-batch ownership issue is fixed; no partial rollback path is needed under the architecture-first rule.
+
+VERDICT: CHANGES_REQUESTED
