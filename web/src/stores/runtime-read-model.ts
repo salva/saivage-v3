@@ -157,24 +157,22 @@ export function selectLiveUpdateDetail(state: LiveUpdateState): string {
   }
 }
 
-export function mergeRuntimeSummaryPatch(content: Record<string, unknown>): RuntimeSummaryMergePatch {
+function isObjectLike(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+export function mergeRuntimeSummaryPatch(content: unknown): RuntimeSummaryMergePatch {
   const patch: RuntimeSummaryMergePatch = {};
+  if (!isObjectLike(content)) return patch;
   if ('summary' in content || 'runtimeSummary' in content) {
-    const summary = (content.runtimeSummary ?? content.summary) as {
-      intent?: RuntimeIntent;
-      currentRun?: RuntimeRunRecord | null;
-      activeChildRuns?: RuntimeRunRecord[];
-      activations?: RuntimeActivationRecord[];
-      lastCommand?: RuntimeCommandRecord | null;
-      actionable_error?: ActionableErrorEnvelope;
-    } | null;
-    if (summary) {
-      if ('intent' in summary) patch.intent = summary.intent ?? null;
-      if ('currentRun' in summary) patch.currentRun = summary.currentRun ?? null;
-      if ('activeChildRuns' in summary) patch.activeChildRuns = summary.activeChildRuns ?? [];
-      if ('activations' in summary) patch.activations = summary.activations ?? [];
-      if ('lastCommand' in summary) patch.lastCommand = summary.lastCommand ?? null;
-      if (summary.actionable_error) patch.lastActionableError = summary.actionable_error;
+    const summary = content.runtimeSummary ?? content.summary;
+    if (isObjectLike(summary)) {
+      if ('intent' in summary) patch.intent = (summary.intent ?? null) as RuntimeIntent | null;
+      if ('currentRun' in summary) patch.currentRun = (summary.currentRun ?? null) as RuntimeRunRecord | null;
+      if ('activeChildRuns' in summary) patch.activeChildRuns = (summary.activeChildRuns ?? []) as RuntimeRunRecord[];
+      if ('activations' in summary) patch.activations = (summary.activations ?? []) as RuntimeActivationRecord[];
+      if ('lastCommand' in summary) patch.lastCommand = (summary.lastCommand ?? null) as RuntimeCommandRecord | null;
+      if (summary.actionable_error) patch.lastActionableError = summary.actionable_error as ActionableErrorEnvelope;
     }
   }
   if ('intent' in content) patch.intent = (content.intent ?? null) as RuntimeIntent | null;

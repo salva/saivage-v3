@@ -82,7 +82,24 @@ describe('analyst chat store', () => {
     apiMocks.getChatEntries.mockResolvedValueOnce({
       sessionId: 'analyst',
       entries: [
-        { id: 'tool-1', session_id: 'analyst', role: 'tool', kind: 'tool_call', tool: 'read_file', content: JSON.stringify({ role: 'assistant', tool_calls: [{ id: 'tool-1', type: 'function', function: { name: 'read_file', arguments: JSON.stringify({ path: 'docs/analyst.md' }) } }] }), round_id: 'r-assistant-00000000000000000000000000000001', message_index: 1, block_index: 0, timestamp: '2025-01-01T00:00:02Z' },
+        { id: 'tool-1', session_id: 'analyst', role: 'assistant', kind: 'tool_call', tool: 'read_file', tool_call_id: 'tool-1', content: JSON.stringify({ role: 'assistant', tool_calls: [{ id: 'tool-1', type: 'function', function: { name: 'read_file', arguments: JSON.stringify({ path: 'docs/analyst.md' }) } }] }), round_id: 'r-assistant-00000000000000000000000000000001', message_index: 1, block_index: 0, timestamp: '2025-01-01T00:00:02Z' },
+      ] satisfies ConversationEntry[],
+    });
+    await store.fetchMessages('analyst');
+    expect(store.pendingToolInvocations).toEqual([]);
+  });
+
+  it('resolves pending tool chip via persisted single-row tool_call (assistant) + tool_result (tool) pair (E09 regression)', async () => {
+    const store = useAnalystChat();
+    await store.selectSession('analyst');
+    store.ingestWsEvent({ event: 'analyst_tool_invoked', sessionId: 'analyst', tool: 'list_cards', summary: 'listed cards', success: true });
+    expect(store.pendingToolInvocations).toHaveLength(1);
+
+    apiMocks.getChatEntries.mockResolvedValueOnce({
+      sessionId: 'analyst',
+      entries: [
+        { id: 'tc-1', session_id: 'analyst', role: 'assistant', kind: 'tool_call', tool: 'list_cards', tool_call_id: 'call-77', content: JSON.stringify({ role: 'assistant', tool_calls: [{ id: 'call-77', type: 'function', function: { name: 'list_cards', arguments: '{}' } }] }), round_id: 'r-assistant-00000000000000000000000000000002', message_index: 0, block_index: 0, timestamp: '2025-01-01T00:00:03Z' },
+        { id: 'tr-1', session_id: 'analyst', role: 'tool', kind: 'tool_result', tool: 'list_cards', tool_call_id: 'call-77', content: '{}', round_id: 'r-assistant-00000000000000000000000000000002', message_index: 0, block_index: 1, timestamp: '2025-01-01T00:00:04Z' },
       ] satisfies ConversationEntry[],
     });
     await store.fetchMessages('analyst');

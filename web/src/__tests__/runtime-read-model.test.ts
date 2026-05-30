@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { CardIndex, RuntimeRunRecord, RuntimeState } from '../api/types';
-import { reduceRuntimeWsEvent, selectLiveUpdateState, selectRuntimeStatusLabel, selectRuntimeSummary } from '../stores/runtime-read-model';
+import { mergeRuntimeSummaryPatch, reduceRuntimeWsEvent, selectLiveUpdateState, selectRuntimeStatusLabel, selectRuntimeSummary } from '../stores/runtime-read-model';
 
 function runtime(overrides: Partial<RuntimeState> = {}): RuntimeState {
   return {
@@ -72,5 +72,31 @@ describe('runtime-read-model', () => {
   it('single-sources status and live update labels', () => {
     expect(selectRuntimeStatusLabel(runtime({ paused: true }))).toBe('paused');
     expect(selectLiveUpdateState({ connectionState: 'no-token', unauthorized: false, stale: false, wsStale: false })).toBe('no-token');
+  });
+});
+
+describe('mergeRuntimeSummaryPatch', () => {
+  it('returns an empty patch and does not throw when summary is a string (E01 regression)', () => {
+    expect(() => mergeRuntimeSummaryPatch({ summary: 'completed' })).not.toThrow();
+    expect(mergeRuntimeSummaryPatch({ summary: 'completed' })).toEqual({});
+  });
+
+  it('returns an empty patch when runtimeSummary is a non-object scalar', () => {
+    expect(mergeRuntimeSummaryPatch({ runtimeSummary: 42 })).toEqual({});
+  });
+
+  it('extracts nested summary fields when the envelope is an object', () => {
+    expect(mergeRuntimeSummaryPatch({ summary: { intent: 'running', currentRun: null } })).toEqual({ intent: 'running', currentRun: null });
+  });
+
+  it('extracts top-level intent without requiring a nested summary envelope', () => {
+    expect(mergeRuntimeSummaryPatch({ intent: 'idle' })).toEqual({ intent: 'idle' });
+  });
+
+  it('returns an empty patch and does not throw when content itself is not an object', () => {
+    expect(() => mergeRuntimeSummaryPatch(null)).not.toThrow();
+    expect(mergeRuntimeSummaryPatch(null)).toEqual({});
+    expect(() => mergeRuntimeSummaryPatch('boom')).not.toThrow();
+    expect(mergeRuntimeSummaryPatch('boom')).toEqual({});
   });
 });

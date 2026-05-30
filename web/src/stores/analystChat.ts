@@ -97,20 +97,19 @@ function buildPendingInvocationId(invocation: Omit<PendingToolInvocation, 'id'>)
 }
 
 function toolInvocationMatchesMessage(invocation: PendingToolInvocation, message: ConversationEntry): boolean {
-  if (message.role !== 'tool' || message.tool !== invocation.tool) {
-    return false;
-  }
-
-  if (message.kind === 'tool_call') {
+  if (message.tool !== invocation.tool) return false;
+  if (message.kind === 'tool_call' && message.role === 'assistant') {
     try {
       const call = parseToolCallMessage(JSON.parse(message.content));
       return call.name === invocation.tool;
     } catch {
-      return true;
+      return false;
     }
   }
-
-  return message.kind === 'tool_result';
+  if ((message.kind === 'tool_result' || message.kind === 'tool_error') && message.role === 'tool') {
+    return true;
+  }
+  return false;
 }
 
 function dedupePendingToolInvocations(

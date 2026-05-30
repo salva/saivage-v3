@@ -15,7 +15,7 @@ describe('FormattedContent', () => {
   it('renders markdown through MarkdownText', () => {
     const wrapper = mount(FormattedContent, { props: { kind: 'markdown', value: 'hello `world`' } });
     expect(wrapper.findComponent(MarkdownText).exists()).toBe(true);
-    expect(wrapper.find('code.inline-token').text()).toBe('world');
+    expect(wrapper.find('code').text()).toBe('world');
   });
 
   it('renders text through CodeBlock', () => {

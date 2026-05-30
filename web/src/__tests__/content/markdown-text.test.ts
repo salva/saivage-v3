@@ -1,53 +1,51 @@
 import { describe, expect, it } from 'vitest';
 import { mount } from '@vue/test-utils';
 import MarkdownText from '../../components/content/MarkdownText.vue';
-import CodeBlock from '../../components/content/CodeBlock.vue';
 
 describe('MarkdownText', () => {
-  it('renders nothing children for empty input', () => {
+  it('renders empty output for empty input', () => {
     const wrapper = mount(MarkdownText, { props: { source: '' } });
-    expect(wrapper.findComponent(CodeBlock).exists()).toBe(false);
-    expect(wrapper.findAll('code.inline-token')).toHaveLength(0);
-    expect(wrapper.findAll('span.md-text')).toHaveLength(0);
+    expect(wrapper.find('.markdown-text').html()).toContain('class="markdown-text"');
+    expect(wrapper.find('.markdown-text').text()).toBe('');
   });
 
-  it('renders a single md-text span for plain text', () => {
-    const wrapper = mount(MarkdownText, { props: { source: 'hello' } });
-    const spans = wrapper.findAll('span.md-text');
-    expect(spans).toHaveLength(1);
-    expect(spans[0].text()).toBe('hello');
-    expect(wrapper.findComponent(CodeBlock).exists()).toBe(false);
+  it('renders plain text as a paragraph', () => {
+    const wrapper = mount(MarkdownText, { props: { source: 'hello world' } });
+    expect(wrapper.find('p').exists()).toBe(true);
+    expect(wrapper.find('p').text()).toBe('hello world');
   });
 
-  it('uses CodeBlock for fenced segments', () => {
+  it('renders fenced code as <pre><code>', () => {
     const wrapper = mount(MarkdownText, { props: { source: '```json\n{"a":1}\n```' } });
-    const cb = wrapper.findComponent(CodeBlock);
-    expect(cb.exists()).toBe(true);
-    const cbProps = cb.props() as { language?: string; code?: string };
-    expect(cbProps.language).toBe('json');
-    expect(cbProps.code).toBe('{"a":1}\n');
+    expect(wrapper.find('pre code').exists()).toBe(true);
+    expect(wrapper.find('pre code').text()).toContain('{"a":1}');
   });
 
-  it('uses inline-token <code> for inline segments', () => {
-    const wrapper = mount(MarkdownText, { props: { source: 'a `b` c' } });
-    expect(wrapper.findAll('code.inline-token')).toHaveLength(1);
-    expect(wrapper.find('code.inline-token').text()).toBe('b');
+  it('renders inline code with <code>', () => {
+    const wrapper = mount(MarkdownText, { props: { source: 'see `foo()` here' } });
+    const codes = wrapper.findAll('code').filter((node) => !node.element.parentElement || node.element.parentElement.tagName !== 'PRE');
+    expect(codes).toHaveLength(1);
+    expect(codes[0].text()).toBe('foo()');
   });
 
-  it('renders mixed text/inline/fence in order', () => {
-    const wrapper = mount(MarkdownText, {
-      props: { source: 'before `inline` mid\n```bash\nls\n```\nafter' },
-    });
-    const codeBlocks = wrapper.findAllComponents(CodeBlock);
-    expect(codeBlocks).toHaveLength(1);
-    expect((codeBlocks[0].props() as { language?: string }).language).toBe('bash');
-    expect(wrapper.findAll('code.inline-token')).toHaveLength(1);
-    expect(wrapper.findAll('span.md-text').length).toBeGreaterThanOrEqual(2);
+  it('renders GFM tables with thead/tbody and th/td (E08 regression)', () => {
+    const source = '| Card | Status |\n| --- | --- |\n| Goal | active |\n| Child | done |';
+    const wrapper = mount(MarkdownText, { props: { source } });
+    expect(wrapper.find('table').exists()).toBe(true);
+    expect(wrapper.find('thead').exists()).toBe(true);
+    expect(wrapper.find('tbody').exists()).toBe(true);
+    expect(wrapper.findAll('thead tr')).toHaveLength(1);
+    expect(wrapper.findAll('tbody tr')).toHaveLength(2);
+    expect(wrapper.findAll('th')).toHaveLength(2);
+    expect(wrapper.findAll('tbody td')).toHaveLength(4);
+    expect(wrapper.find('thead').text()).toContain('Card');
+    expect(wrapper.find('tbody').text()).toContain('active');
   });
 
-  it('falls back to text language for unknown fenced language', () => {
-    const wrapper = mount(MarkdownText, { props: { source: '```cobol\nfoo\n```' } });
-    const cb = wrapper.findComponent(CodeBlock);
-    expect((cb.props() as { language?: string }).language).toBe('text');
+  it('sanitizes script tags out of untrusted markdown', () => {
+    const wrapper = mount(MarkdownText, { props: { source: 'before <script>alert(1)</script> after' } });
+    expect(wrapper.html()).not.toContain('<script');
+    expect(wrapper.text()).toContain('before');
+    expect(wrapper.text()).toContain('after');
   });
 });
