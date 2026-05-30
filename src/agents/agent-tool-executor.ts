@@ -49,14 +49,6 @@ export class AgentToolExecutor {
       .filter((tool): tool is NonNullable<ReturnType<typeof AgentToolCatalog.definitionFor>> => Boolean(tool));
   }
 
-  parseToolCallsFromResponse(rawResponse: string): ParsedToolCall[] | null {
-    try {
-      const parsed = JSON.parse(rawResponse);
-      if (parsed && typeof parsed === 'object' && Array.isArray(parsed.toolCalls) && parsed.toolCalls.length > 0) return parsed.toolCalls;
-    } catch { void 0; }
-    return null;
-  }
-
   private getMcpToolDefinition(serverName: string, toolName: string): McpToolDefinition | null {
     const mcpManager = this.getMcpManagerProvider();
     if (!mcpManager) return null;

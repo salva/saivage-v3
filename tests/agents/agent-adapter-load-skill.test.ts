@@ -40,7 +40,7 @@ function createMinimalAdapter(tmpDir: string): AgentAdapter {
       compactionThreshold: 0.8,
       maxCompactions: 3,
       recoveryDelayMs: 60000,
-      maxRecoveryRetries: 3,
+      maxRecoveryRetries: 3, maxToolTurns: 16,
       selfCheck: { planner: 0, executor: 0, reviewer: 0, analyst: 0 },
     },
     security: {},
@@ -174,7 +174,7 @@ describe('AgentAdapter load_skill tool', () => {
     });
   });
 
-  describe('parseToolCallsFromResponse', () => {
+  describe.skip('parseToolCallsFromResponse (removed in F05 — tools-only union)', () => {
     let tmpDir: string;
     let adapter: AgentAdapter;
 
@@ -456,7 +456,7 @@ describe('AgentAdapter load_skill tool', () => {
       expect(names).not.toContain('load_skill');
     });
 
-    it('parses a tool_calls JSON for load_skill', () => {
+    it.skip('parses a tool_calls JSON for load_skill (F05: parseToolCallsFromResponse removed)', () => {
       const payload = JSON.stringify({
         toolCalls: [
           {

@@ -97,6 +97,7 @@ export {
   exchangeRequestMetaSchema,
   exchangeResponseMetaSchema,
   llmExchangeSchema,
+  TERMINAL_TOOL_NAMES,
 } from './llm-exchange.js';
 
 export type {
@@ -105,6 +106,7 @@ export type {
   ExchangeRequestMeta,
   ExchangeResponseMeta,
   LlmExchange,
+  TerminalToolName,
 } from './llm-exchange.js';
 
 export type {

@@ -325,8 +325,9 @@ describe('session-persistence', () => {
         role: 'assistant',
         kind: 'tool_call',
         content: JSON.stringify({
-          toolCalls: [
-            { id: 'call-older', function: { name: 'activate_card', arguments: JSON.stringify({ cardId: 'child-1' }) } },
+          role: 'assistant',
+          tool_calls: [
+            { id: 'call-older', type: 'function', function: { name: 'activate_card', arguments: JSON.stringify({ cardId: 'child-1' }) } },
           ],
         }),
       }, { round_id: 'r-user-00000000000000000000000000000001', message_index: 0, block_index: 0 });
@@ -334,8 +335,9 @@ describe('session-persistence', () => {
         role: 'assistant',
         kind: 'tool_call',
         content: JSON.stringify({
-          toolCalls: [
-            { id: 'call-newer', function: { name: 'activate_card', arguments: JSON.stringify({ cardId: 'child-1' }) } },
+          role: 'assistant',
+          tool_calls: [
+            { id: 'call-newer', type: 'function', function: { name: 'activate_card', arguments: JSON.stringify({ cardId: 'child-1' }) } },
           ],
         }),
       }, { round_id: 'r-user-00000000000000000000000000000001', message_index: 0, block_index: 0 });

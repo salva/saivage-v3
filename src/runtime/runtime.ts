@@ -22,6 +22,7 @@ import { CardStore, PROJECT_CARD_ID } from '../cards/store-api.js';
 import { STARTABLE_STATES, RESTARTABLE_STATES } from '../permissions/index.js';
 import { consumeChangedCardActivation, injectQueuedSyntheticPlannerNotes, queueSyntheticPlannerNote, drainSyntheticPlannerNotes } from '../agents/analyst-stage6.js';
 import { reconcileOrphanedAgentSessions } from '../agents/session-persistence.js';
+import { parseToolCallMessage } from '../agents/persisted-tool-call.js';
 import {
   initRuntimeState,
   readRuntimeState,
@@ -234,13 +235,14 @@ export class Runtime extends EventEmitter {
   private findUnresolvedActivateCards(sessionId: string): Array<{ session_id: string; tool_call_id: string; card_id: string }> {
     const messages = getSessionMessages(join(this.projectRoot, '.saivage'), sessionId);
     const activateCardToolCallIds = new Set<string>();
+    const parsedCalls: Array<{ id: string; name: string; args: Record<string, unknown> }> = [];
     for (const message of messages) {
       if (message.role !== 'assistant' || message.kind !== 'tool_call') continue;
-      let parsed: { toolCalls?: Array<{ id?: unknown; function?: { name?: unknown } }> };
-      try { parsed = JSON.parse(message.content) as typeof parsed; } catch { continue; }
-      for (const call of parsed.toolCalls ?? []) {
-        if (call.function?.name === 'activate_card' && typeof call.id === 'string') activateCardToolCallIds.add(call.id);
-      }
+      let raw: unknown;
+      try { raw = JSON.parse(message.content); } catch { continue; }
+      const call = parseToolCallMessage(raw);
+      parsedCalls.push(call);
+      if (call.name === 'activate_card') activateCardToolCallIds.add(call.id);
     }
     const resolved = new Set(messages.filter((message) => {
       if (typeof message.tool_call_id !== 'string' || !activateCardToolCallIds.has(message.tool_call_id)) return false;
@@ -248,18 +250,10 @@ export class Runtime extends EventEmitter {
       return message.kind === 'tool_result' && Boolean(parseActivationCompletionEnvelope(message.content));
     }).map((message) => message.tool_call_id as string));
     const calls: Array<{ session_id: string; tool_call_id: string; card_id: string }> = [];
-    for (const message of messages) {
-      if (message.role !== 'assistant' || message.kind !== 'tool_call') continue;
-      let parsed: { toolCalls?: Array<{ id?: unknown; function?: { name?: unknown; arguments?: unknown } }> };
-      try { parsed = JSON.parse(message.content) as typeof parsed; } catch { continue; }
-      for (const call of parsed.toolCalls ?? []) {
-        if (call.function?.name !== 'activate_card' || typeof call.id !== 'string' || resolved.has(call.id)) continue;
-        if (typeof call.function.arguments !== 'string') continue;
-        try {
-          const args = JSON.parse(call.function.arguments) as { cardId?: unknown };
-          if (typeof args.cardId === 'string') calls.push({ session_id: sessionId, tool_call_id: call.id, card_id: args.cardId });
-        } catch { void 0; }
-      }
+    for (const call of parsedCalls) {
+      if (call.name !== 'activate_card' || resolved.has(call.id)) continue;
+      const cardId = call.args.cardId;
+      if (typeof cardId === 'string') calls.push({ session_id: sessionId, tool_call_id: call.id, card_id: cardId });
     }
     return calls;
   }

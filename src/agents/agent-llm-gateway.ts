@@ -1,6 +1,6 @@
 import type { AgentMessage } from '../schemas/index.js';
 import type { EventLogger } from '../observability/index.js';
-import type { LlmCompleteOptions, LlmCallFn, LlmInvocationClient } from './llm-contracts.js';
+import type { LlmCompleteOptions, LlmCompleteResult, LlmCallFn, LlmInvocationClient } from './llm-contracts.js';
 import { LlmProviderGateway } from './llm-provider-gateway.js';
 import type { Candidate, ProviderRegistry } from './provider.js';
 import { createLlmExchangeRecorder, toRecorderLogger, type LlmExchangeRecorder } from './llm-exchange-recorder.js';
@@ -46,7 +46,7 @@ export class AgentLlmInvocationGateway {
   }
 
   createLlmCallFn(): LlmCallFn {
-    return async (candidate: Candidate, systemPrompt: string, messages: AgentMessage[], sessionId: string, opts?: LlmCompleteOptions): Promise<string> => {
+    return async (candidate: Candidate, systemPrompt: string, messages: AgentMessage[], sessionId: string, opts: LlmCompleteOptions): Promise<LlmCompleteResult> => {
       const { baseUrl, apiKey, cacheKey } = await resolveLlmTransportConfig(this.projectRoot, this.registry, candidate);
       let client = this.llmClientCache.get(cacheKey);
       if (!client) {
@@ -54,8 +54,7 @@ export class AgentLlmInvocationGateway {
         this.llmClientCache.set(cacheKey, client);
       }
       const recorder = this.getOrCreateRecorder(sessionId);
-      const result = await client.complete(candidate, systemPrompt, messages, sessionId, { ...opts, recorder });
-      return result.content ?? JSON.stringify({ toolCalls: result.toolCalls });
+      return await client.complete(candidate, systemPrompt, messages, sessionId, { ...opts, recorder });
     };
   }
 }

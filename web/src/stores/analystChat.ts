@@ -102,9 +102,9 @@ function toolInvocationMatchesMessage(invocation: PendingToolInvocation, message
 
   if (message.kind === 'tool_call') {
     try {
-      const parsed = JSON.parse(message.content) as { toolCalls?: Array<{ tool?: unknown }> };
-      return Array.isArray(parsed.toolCalls)
-        && parsed.toolCalls.some((call) => String(call.tool ?? invocation.tool) === invocation.tool);
+      const parsed = JSON.parse(message.content) as { tool_calls?: Array<{ function?: { name?: unknown } }> };
+      return Array.isArray(parsed.tool_calls)
+        && parsed.tool_calls.some((call) => String(call.function?.name ?? invocation.tool) === invocation.tool);
     } catch {
       return true;
     }

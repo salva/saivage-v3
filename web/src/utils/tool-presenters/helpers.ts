@@ -67,7 +67,7 @@ export function pathParts(pathValue: unknown): InlinePart[] {
 
 export function readToolCallEnvelope(rawContent: string, fallbackName?: string): ToolCallEnvelope {
   const parsed = asRecord(safeJsonParse(rawContent));
-  const toolCalls = Array.isArray(parsed?.toolCalls) ? parsed.toolCalls : [];
+  const toolCalls = Array.isArray(parsed?.tool_calls) ? parsed.tool_calls : [];
   const first = asRecord(toolCalls[0]);
   const fn = asRecord(first?.function);
   const name = typeof fn?.name === 'string'

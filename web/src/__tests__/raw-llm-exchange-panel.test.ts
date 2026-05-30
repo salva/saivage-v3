@@ -15,6 +15,7 @@ function makeAttempt(overrides: Partial<ExchangeAttempt> = {}): ExchangeAttempt 
     startedAt: '2026-05-23T10:00:00Z',
     completedAt: '2026-05-23T10:00:01Z',
     status: 'ok',
+    terminalTool: null,
     request: {
       endpoint: 'https://api.example.com/v1/chat',
       method: 'POST',

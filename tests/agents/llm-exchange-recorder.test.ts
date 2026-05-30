@@ -41,6 +41,7 @@ describe('llm-exchange-recorder', () => {
       transport: 'generic',
       candidate: sampleCandidate,
       request: sampleRequest,
+      terminalTool: null,
     });
     await handle.recordResponse({
       status: 200,
@@ -68,6 +69,7 @@ describe('llm-exchange-recorder', () => {
       transport: 'generic',
       candidate: sampleCandidate,
       request: sampleRequest,
+      terminalTool: null,
     });
     await handle.recordError({
       errorName: 'HttpError',
@@ -89,10 +91,10 @@ describe('llm-exchange-recorder', () => {
     const saivage = makeSaivageDir();
     const rec = createLlmExchangeRecorder({ saivageDir: saivage, sessionId: 'sess-retry' });
 
-    const h1 = await rec.beginExchange({ transport: 'generic', candidate: sampleCandidate, request: sampleRequest });
+    const h1 = await rec.beginExchange({ transport: 'generic', candidate: sampleCandidate, request: sampleRequest, terminalTool: null });
     await h1.recordError({ errorName: 'HttpError', message: 'first', status: 500, bodyRaw: null });
 
-    const h2 = await rec.beginExchange({ transport: 'generic', candidate: sampleCandidate, request: sampleRequest });
+    const h2 = await rec.beginExchange({ transport: 'generic', candidate: sampleCandidate, request: sampleRequest, terminalTool: null });
     await h2.recordResponse({ status: 200, bodyRaw: 'ok', bodyParsed: null });
     await rec.flush();
 
@@ -105,8 +107,8 @@ describe('llm-exchange-recorder', () => {
   it('keeps handle correlation across interleaved concurrent calls', async () => {
     const saivage = makeSaivageDir();
     const rec = createLlmExchangeRecorder({ saivageDir: saivage, sessionId: 'sess-concur' });
-    const h1 = await rec.beginExchange({ transport: 'generic', candidate: sampleCandidate, request: sampleRequest });
-    const h2 = await rec.beginExchange({ transport: 'generic', candidate: sampleCandidate, request: sampleRequest });
+    const h1 = await rec.beginExchange({ transport: 'generic', candidate: sampleCandidate, request: sampleRequest, terminalTool: null });
+    const h2 = await rec.beginExchange({ transport: 'generic', candidate: sampleCandidate, request: sampleRequest, terminalTool: null });
 
     await Promise.all([
       h2.recordError({ errorName: 'E', message: 'm', bodyRaw: null }),
@@ -134,7 +136,7 @@ describe('llm-exchange-recorder', () => {
       _writeExchange: failingWrite as unknown as (sd: string, e: LlmExchange) => Promise<void>,
     });
 
-    const handle = await rec.beginExchange({ transport: 'generic', candidate: sampleCandidate, request: sampleRequest });
+    const handle = await rec.beginExchange({ transport: 'generic', candidate: sampleCandidate, request: sampleRequest, terminalTool: null });
     await expect(handle.recordResponse({ status: 200, bodyRaw: null, bodyParsed: null })).resolves.toBeUndefined();
     await rec.flush();
 
@@ -162,7 +164,7 @@ describe('llm-exchange-recorder', () => {
       sessionId: 'sess-flush',
       _writeExchange: slowWrite,
     });
-    const handle = await rec.beginExchange({ transport: 'generic', candidate: sampleCandidate, request: sampleRequest });
+    const handle = await rec.beginExchange({ transport: 'generic', candidate: sampleCandidate, request: sampleRequest, terminalTool: null });
     void handle.recordResponse({ status: 200, bodyRaw: null, bodyParsed: null });
 
     let flushDone = false;
@@ -190,6 +192,7 @@ describe('llm-exchange-recorder', () => {
         },
         body: { messages: [] },
       },
+      terminalTool: null,
     });
     await handle.recordResponse({ status: 200, bodyRaw: null, bodyParsed: null });
     await rec.flush();
@@ -203,7 +206,7 @@ describe('llm-exchange-recorder', () => {
     const rec = createLlmExchangeRecorder({ saivageDir: saivage, sessionId: 'sess-stress' });
     const handles = await Promise.all(
       Array.from({ length: 25 }, () =>
-        rec.beginExchange({ transport: 'generic', candidate: sampleCandidate, request: sampleRequest }),
+        rec.beginExchange({ transport: 'generic', candidate: sampleCandidate, request: sampleRequest, terminalTool: null }),
       ),
     );
     const ops: Array<Promise<void>> = [];

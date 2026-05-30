@@ -29,7 +29,11 @@ export const exchangeAttemptSchema = z.object({
   request: exchangeRequestMetaSchema,
   response: exchangeResponseMetaSchema.optional(),
   error: exchangeErrorMetaSchema.optional(),
+  terminalTool: z.enum(['emit_planner_result', 'emit_executor_result', 'emit_reviewer_result']).nullable(),
 });
+
+export const TERMINAL_TOOL_NAMES = ['emit_planner_result', 'emit_executor_result', 'emit_reviewer_result'] as const;
+export type TerminalToolName = (typeof TERMINAL_TOOL_NAMES)[number];
 
 export const llmExchangeSchema = z.object({
   sessionId: z.string(),

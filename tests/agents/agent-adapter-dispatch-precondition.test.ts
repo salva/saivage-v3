@@ -38,15 +38,15 @@ describe('AgentAdapter dispatch precondition', () => {
     jest.spyOn(adapter.router, 'resolve').mockResolvedValue([{ provider: 'test', account: 'default', model: 'fake-model' }]);
     llmCallFn = jest.fn<LlmCallFn>().mockImplementation(async (_candidate, _systemPrompt, _messages, sessionId) => {
       if (sessionId.startsWith('planner:')) {
-        return JSON.stringify({ status: 'done', summary: 'done', created_cards: [], updated_cards: [] });
+        return {
+          kind: 'tool_calls',
+          tool_calls: [{ id: 'c1', type: 'function', function: { name: 'emit_planner_result', arguments: JSON.stringify({ status: 'done', summary: 'done', created_cards: [], updated_cards: [] }) } }],
+        };
       }
-      return JSON.stringify({
-        card_id: 'card-X',
-        status: 'done',
-        status_text: 'completed',
-        artifacts: [],
-        attachments: [],
-      });
+      return {
+        kind: 'tool_calls',
+        tool_calls: [{ id: 'c2', type: 'function', function: { name: 'emit_executor_result', arguments: JSON.stringify({ card_id: 'card-X', status: 'done', status_text: 'completed', artifacts: [], attachments: [] }) } }],
+      };
     });
     adapter.setLlmCallFn(llmCallFn);
   });

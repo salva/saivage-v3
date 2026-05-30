@@ -6,6 +6,7 @@ import type {
   ExchangeRequestMeta,
   ExchangeResponseMeta,
   LlmExchange,
+  TerminalToolName,
 } from '../contracts/index.js';
 
 /**
@@ -33,6 +34,7 @@ export interface BeginExchangeInput {
   transport: 'generic' | 'codex';
   candidate: { provider: string; model: string; account?: string };
   request: ExchangeRequestMeta;
+  terminalTool: TerminalToolName | null;
 }
 
 export interface LlmExchangeRecorder {
@@ -100,6 +102,7 @@ export function createLlmExchangeRecorder(
       startedAt,
       status: 'in-progress',
       request: redactedRequest,
+      terminalTool: meta.terminalTool,
     };
 
     if (current === null) {

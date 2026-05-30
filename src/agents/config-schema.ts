@@ -186,6 +186,7 @@ export const runtimeSectionSchema = z.object({
   compactionTimeoutMs: 1200000,
   compactionKeepFraction: 0.2,
   maxRecoveryRetries: 3,
+  maxToolTurns: 16,
   selfCheck: { executor: 15, planner: 30, analyst: 0 },
 }));
 

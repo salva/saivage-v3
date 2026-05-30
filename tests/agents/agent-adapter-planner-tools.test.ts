@@ -29,7 +29,7 @@ function createMinimalAdapter(tmpDir: string): AgentAdapter {
       compactionThreshold: 0.8,
       maxCompactions: 3,
       recoveryDelayMs: 60000,
-      maxRecoveryRetries: 3,
+      maxRecoveryRetries: 3, maxToolTurns: 16,
       selfCheck: { planner: 0, executor: 0, reviewer: 0, analyst: 0 },
     },
     security: {},
@@ -84,8 +84,9 @@ describe('AgentAdapter planner tool surface', () => {
 
   it('matches docs/agents.md §7 planner tools to exported definitions and processToolCall routing', () => {
     const documentedToolNames = plannerToolNamesFromAgentsDoc();
-    const exportedToolNames = adapter.getToolNamesForRole('planner');
-    const handledToolNames = processToolCallHandledPlannerTools();
+    const TERMINAL_TOOLS = new Set(['emit_planner_result', 'emit_executor_result', 'emit_reviewer_result']);
+    const exportedToolNames = adapter.getToolNamesForRole('planner').filter((n) => !TERMINAL_TOOLS.has(n));
+    const handledToolNames = processToolCallHandledPlannerTools().filter((n) => !TERMINAL_TOOLS.has(n));
 
     expect(exportedToolNames).toEqual(expect.arrayContaining(documentedToolNames));
     expect(documentedToolNames).toEqual(expect.arrayContaining(exportedToolNames));
@@ -101,6 +102,7 @@ describe('AgentAdapter planner tool surface', () => {
       'kill_process', 'start_and_wait', 'run_project_command',
       'activate_card', 'cancel_card', 'delete_card', 'restart_card',
       'report_goal_done', 'report_goal_failed', 'report_goal_blocked',
+      'emit_planner_result',
     ]);
   });
 

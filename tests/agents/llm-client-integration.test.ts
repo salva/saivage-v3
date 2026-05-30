@@ -212,6 +212,19 @@ function okResp(content: string, model = 'test-model') {
   };
 }
 
+function okToolCallResp(toolName: string, argumentsJson: string, model = 'test-model') {
+  return {
+    id: 'chatcmpl-test-123',
+    object: 'chat.completion',
+    created: Math.floor(Date.now() / 1000),
+    model,
+    choices: [
+      { index: 0, message: { role: 'assistant', content: null, tool_calls: [{ id: 'call_t1', type: 'function', function: { name: toolName, arguments: argumentsJson } }] }, finish_reason: 'tool_calls' },
+    ],
+    usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
+  };
+}
+
 function streamLine(content: string, done = false): string {
   if (done) return 'data: [DONE]\n\n';
   const obj = {
@@ -234,6 +247,17 @@ function makeJwtWithCodexAccount(accountId: string): string {
   return `${header}.${payload}.sig`;
 }
 
+import type { LlmCompleteOptions, LlmCompleteResult, ToolCall } from '../../src/agents/llm-contracts.js';
+
+function toolsOpts(extra: Partial<LlmCompleteOptions> = {}): LlmCompleteOptions {
+  return { phase: 'tools', tools: [], tool_choice: { kind: 'auto' }, ...(extra as object) } as LlmCompleteOptions;
+}
+
+function asMessage(r: LlmCompleteResult): { content: string; toolCalls: ToolCall[]; finishReason: string } {
+  if (r.kind === 'message') return { content: r.content, toolCalls: [], finishReason: 'stop' };
+  return { content: '', toolCalls: r.tool_calls, finishReason: 'tool_calls' };
+}
+
 // ── Test Cases ─────────────────────────────────────────────────
 
 describe('LlmClient Integration with Mock HTTP Server', () => {
@@ -249,13 +273,12 @@ describe('LlmClient Integration with Mock HTTP Server', () => {
       const client = new LlmProviderGateway({ baseUrl: `http://localhost:${port}`, apiKey: 'sk-test-key' });
       const result = await client.complete(
         cand(), sp(), msgs(), 'sess-1',
-        { temperature: 0.5, max_tokens: 500 },
-      );
+        toolsOpts({ temperature: 0.5, max_tokens: 500 }));
 
       // result is LlmCompleteResult with .content, .toolCalls, .finishReason
-      expect(result.content).toBe('Hello from test model!');
-      expect(result.toolCalls).toEqual([]);
-      expect(result.finishReason).toBe('stop');
+      expect(asMessage(result).content).toBe('Hello from test model!');
+      expect(asMessage(result).toolCalls).toEqual([]);
+      expect(asMessage(result).finishReason).toBe('stop');
       expect(cap.method).toBe('POST');
       expect(cap.url).toBe('/v1/chat/completions');
       expect(cap.headers['content-type']).toBe('application/json');
@@ -284,8 +307,7 @@ describe('LlmClient Integration with Mock HTTP Server', () => {
       const client = new LlmProviderGateway({ baseUrl: `http://localhost:${port}/v1`, apiKey: 'sk-test-key' });
       await client.complete(
         cand(), sp(), msgs(), 'sess-v1-root',
-        { temperature: 0.5, max_tokens: 500 },
-      );
+        toolsOpts({ temperature: 0.5, max_tokens: 500 }));
 
       expect(cap.url).toBe('/v1/chat/completions');
     } finally {
@@ -303,8 +325,7 @@ describe('LlmClient Integration with Mock HTTP Server', () => {
       const client = new LlmProviderGateway({ baseUrl: `http://localhost:${port}/githubcopilot.com`, apiKey: 'copilot-token' });
       await client.complete(
         cand(), sp(), msgs(), 'sess-copilot-root',
-        { temperature: 0.5, max_tokens: 500 },
-      );
+        toolsOpts({ temperature: 0.5, max_tokens: 500 }));
 
       expect(cap.url).toBe('/githubcopilot.com/chat/completions');
       expect(cap.headers['editor-version']).toBe('vscode/1.107.0');
@@ -329,11 +350,10 @@ describe('LlmClient Integration with Mock HTTP Server', () => {
       const client = new LlmProviderGateway({ baseUrl: `http://localhost:${port}/backend-api`, apiKey: makeJwtWithCodexAccount('acct-test-123') });
       const result = await client.complete(
         cand('openai-codex', 'gpt-5.4'), sp(), msgs(), 'sess-codex',
-        { temperature: 0.5, max_tokens: 500 },
-      );
+        toolsOpts({ temperature: 0.5, max_tokens: 500 }));
 
-      expect(result.content).toBe('Codex works');
-      expect(result.toolCalls).toEqual([]);
+      expect(asMessage(result).content).toBe('Codex works');
+      expect(asMessage(result).toolCalls).toEqual([]);
       expect(cap.url).toBe('/backend-api/codex/responses');
       expect(cap.headers['accept']).toBe('text/event-stream');
       expect(cap.headers['chatgpt-account-id']).toBe('acct-test-123');
@@ -365,10 +385,9 @@ describe('LlmClient Integration with Mock HTTP Server', () => {
       const client = new LlmProviderGateway({ baseUrl: `http://localhost:${port}/backend-api`, apiKey: makeJwtWithCodexAccount('acct-test-123') });
       const result = await client.complete(
         cand('openai-codex', 'gpt-5.4'), sp(), msgs(), 'sess-codex-retry',
-        { temperature: 0.5, max_tokens: 500 },
-      );
+        toolsOpts({ temperature: 0.5, max_tokens: 500 }));
 
-      expect(result.content).toBe('Single succeeded');
+      expect(asMessage(result).content).toBe('Single succeeded');
       expect(captures).toHaveLength(1);
       expect(JSON.parse(captures[0].body)).not.toHaveProperty('max_output_tokens');
       expect(captures[0].url).toBe('/backend-api/codex/responses');
@@ -397,11 +416,12 @@ describe('LlmClient Integration with Mock HTTP Server', () => {
       const client = new LlmProviderGateway({ baseUrl: `http://localhost:${port}/backend-api`, apiKey: makeJwtWithCodexAccount('acct-test-123') });
       const result = await client.complete(
         cand('openai-codex', 'gpt-5.4'), sp(), msgs(), 'sess-codex-output-item',
+      toolsOpts(),
       );
 
-      expect(result.content).toBe('{"status":"done","summary":"ok"}');
-      expect(result.toolCalls).toEqual([]);
-      expect(result.finishReason).toBe('stop');
+      expect(asMessage(result).content).toBe('{"status":"done","summary":"ok"}');
+      expect(asMessage(result).toolCalls).toEqual([]);
+      expect(asMessage(result).finishReason).toBe('stop');
     } finally {
       await closeServer(server);
     }
@@ -430,7 +450,7 @@ describe('LlmClient Integration with Mock HTTP Server', () => {
       const client = new LlmProviderGateway({ baseUrl: `http://localhost:${port}/backend-api`, apiKey: makeJwtWithCodexAccount('acct-test-123') });
       const result = await client.complete(
         cand('openai-codex', 'gpt-5.4'), sp(), msgs(), 'sess-codex-function-call',
-        {
+        toolsOpts({
           tools: [{
             type: 'function',
             function: {
@@ -439,12 +459,11 @@ describe('LlmClient Integration with Mock HTTP Server', () => {
               parameters: { type: 'object', properties: { path: { type: 'string' } } },
             },
           }],
-        },
-      );
+        }));
 
-      expect(result.content).toBeNull();
-      expect(result.finishReason).toBe('tool_calls');
-      expect(result.toolCalls).toEqual([
+      expect(asMessage(result).content).toBe('');
+      expect(asMessage(result).finishReason).toBe('tool_calls');
+      expect(asMessage(result).toolCalls).toEqual([
         {
           id: 'call_1',
           type: 'function',
@@ -467,6 +486,7 @@ describe('LlmClient Integration with Mock HTTP Server', () => {
       const client = new LlmProviderGateway({ baseUrl: `http://localhost:${port}/backend-api`, apiKey: makeJwtWithCodexAccount('acct-test-123') });
       await client.complete(
         cand('openai-codex', 'gpt-5.4'), sp(), [], 'sess-codex-empty',
+      toolsOpts(),
       );
 
       const body = JSON.parse(cap.body);
@@ -489,7 +509,7 @@ describe('LlmClient Integration with Mock HTTP Server', () => {
     try {
       const client = new LlmProviderGateway({ baseUrl: `http://localhost:${port}` });
       await expect(
-        client.complete(cand(), sp(), msgs(), 'sess-auth'),
+        client.complete(cand(), sp(), msgs(), 'sess-auth', toolsOpts()),
       ).rejects.toMatchObject({ failure: { kind: 'auth_permanent' } });
     } finally {
       await closeServer(server);
@@ -528,7 +548,7 @@ describe('LlmClient Integration with Mock HTTP Server', () => {
       const client = new LlmProviderGateway({ baseUrl: `http://localhost:${port}` });
       let clientError: unknown;
       try {
-        await client.complete(cand(), sp(), msgs(), 'sess-redact-client');
+        await client.complete(cand(), sp(), msgs(), 'sess-redact-client', toolsOpts());
       } catch (err) {
         clientError = err;
       }
@@ -594,7 +614,7 @@ describe('LlmClient Integration with Mock HTTP Server', () => {
     try {
       const client = new LlmProviderGateway({ baseUrl: `http://localhost:${port}` });
       await expect(
-        client.complete(cand(), sp(), msgs(), 'sess-403'),
+        client.complete(cand(), sp(), msgs(), 'sess-403', toolsOpts()),
       ).rejects.toMatchObject({ failure: { kind: 'auth_permanent' } });
     } finally {
       await closeServer(server);
@@ -612,7 +632,7 @@ describe('LlmClient Integration with Mock HTTP Server', () => {
     try {
       const client = new LlmProviderGateway({ baseUrl: `http://localhost:${port}` });
       await expect(
-        client.complete(cand(), sp(), msgs(), 'sess-rate'),
+        client.complete(cand(), sp(), msgs(), 'sess-rate', toolsOpts()),
       ).rejects.toMatchObject({ failure: { kind: 'rate_limit' } });
     } finally {
       await closeServer(server);
@@ -630,7 +650,7 @@ describe('LlmClient Integration with Mock HTTP Server', () => {
     try {
       const client = new LlmProviderGateway({ baseUrl: `http://localhost:${port}` });
       await expect(
-        client.complete(cand(), sp(), msgs(), 'sess-500'),
+        client.complete(cand(), sp(), msgs(), 'sess-500', toolsOpts()),
       ).rejects.toMatchObject({ failure: { kind: 'server_transient' } });
     } finally {
       await closeServer(server);
@@ -646,7 +666,7 @@ describe('LlmClient Integration with Mock HTTP Server', () => {
     try {
       const client = new LlmProviderGateway({ baseUrl: `http://localhost:${port}` });
       await expect(
-        client.complete(cand(), sp(), msgs(), 'sess-502'),
+        client.complete(cand(), sp(), msgs(), 'sess-502', toolsOpts()),
       ).rejects.toMatchObject({ failure: { kind: 'server_transient' } });
     } finally {
       await closeServer(server);
@@ -666,9 +686,9 @@ describe('LlmClient Integration with Mock HTTP Server', () => {
       setTimeout(() => controller.abort(), 50);
 
       await expect(
-        client.complete(cand(), sp(), msgs(), 'sess-timeout', {
+        client.complete(cand(), sp(), msgs(), 'sess-timeout', toolsOpts({
           signal: controller.signal,
-        }),
+        })),
       ).rejects.toMatchObject({ failure: { kind: 'cancelled' } });
     } finally {
       await closeServer(server);
@@ -686,7 +706,7 @@ describe('LlmClient Integration with Mock HTTP Server', () => {
     try {
       const client = new LlmProviderGateway({ baseUrl: `http://localhost:${port}` });
       await expect(
-        client.complete(cand(), sp(), msgs(), 'sess-parse'),
+        client.complete(cand(), sp(), msgs(), 'sess-parse', toolsOpts()),
       ).rejects.toMatchObject({ failure: { kind: 'parse_error' } });
     } finally {
       await closeServer(server);
@@ -710,7 +730,7 @@ describe('LlmClient Integration with Mock HTTP Server', () => {
     try {
       const client = new LlmProviderGateway({ baseUrl: `http://localhost:${port}` });
       await expect(
-        client.complete(cand(), sp(), msgs(), 'sess-empty'),
+        client.complete(cand(), sp(), msgs(), 'sess-empty', toolsOpts()),
       ).rejects.toMatchObject({ failure: { kind: 'parse_error' } });
     } finally {
       await closeServer(server);
@@ -733,10 +753,10 @@ describe('LlmClient Integration with Mock HTTP Server', () => {
 
     try {
       const client = new LlmProviderGateway({ baseUrl: `http://localhost:${port}` });
-      const result = await client.complete(cand(), sp(), msgs(), 'sess-null');
-      expect(result.content).toBeNull();
-      expect(result.toolCalls).toEqual([]);
-      expect(result.finishReason).toBe('stop');
+      const result = await client.complete(cand(), sp(), msgs(), 'sess-null', toolsOpts());
+      expect(asMessage(result).content).toBe('');
+      expect(asMessage(result).toolCalls).toEqual([]);
+      expect(asMessage(result).finishReason).toBe('stop');
     } finally {
       await closeServer(server);
     }
@@ -755,7 +775,7 @@ describe('AgentAdapter + Router + LlmClient Full Integration', () => {
   it('should flow config → router → adapter → llmCallFn → response → parsing', async () => {
     const { server, port } = await createMockServer((_req, res) => {
       res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify(okResp(JSON.stringify({
+      res.end(JSON.stringify(okToolCallResp('emit_planner_result', JSON.stringify({
         created_cards: [
           {
             type: 'code',
@@ -821,8 +841,10 @@ describe('AgentAdapter + Router + LlmClient Full Integration', () => {
         `data: ${JSON.stringify({
           type: 'response.output_item.done',
           item: {
-            type: 'message',
-            content: [{ type: 'output_text', text: JSON.stringify({ created_cards: [], updated_cards: [], status: 'continue' }) }],
+            type: 'function_call',
+            call_id: 'call_codex_1',
+            name: 'emit_planner_result',
+            arguments: JSON.stringify({ created_cards: [], updated_cards: [], status: 'continue' }),
           },
         })}\n\n`,
         `data: ${JSON.stringify({ type: 'response.completed', response: { status: 'completed' } })}\n\n`,
@@ -870,7 +892,7 @@ describe('AgentAdapter + Router + LlmClient Full Integration', () => {
   it('should invoke executor through adapter with mock server', async () => {
     const { server, port } = await createMockServer((_req, res) => {
       res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify(okResp(JSON.stringify({
+      res.end(JSON.stringify(okToolCallResp('emit_executor_result', JSON.stringify({
         card_id: 'code-1',
         status: 'done',
         status_text: 'Executor completed successfully',
@@ -961,9 +983,8 @@ describe('LlmClient Streaming Mode', () => {
     try {
       const client = new LlmProviderGateway({ baseUrl: `http://localhost:${port}`, apiKey: 'sk-test-key' });
       const result = await client.complete(
-        cand(), sp(), msgs(), 'sess-stream-1', { stream: true },
-      );
-      expect(result.content).toBe('Hello world from streaming model!');
+        cand(), sp(), msgs(), 'sess-stream-1', toolsOpts({ stream: true }));
+      expect(asMessage(result).content).toBe('Hello world from streaming model!');
     } finally {
       await closeServer(server);
     }
@@ -983,9 +1004,8 @@ describe('LlmClient Streaming Mode', () => {
     try {
       const client = new LlmProviderGateway({ baseUrl: `http://localhost:${port}`, apiKey: 'sk-test-key' });
       const result = await client.complete(
-        cand(), sp(), msgs(), 'sess-stream-2', { stream: true },
-      );
-      expect(result.content).toBe('partial done');
+        cand(), sp(), msgs(), 'sess-stream-2', toolsOpts({ stream: true }));
+      expect(asMessage(result).content).toBe('partial done');
     } finally {
       await closeServer(server);
     }
@@ -1002,8 +1022,7 @@ describe('LlmClient Streaming Mode', () => {
     try {
       const client = new LlmProviderGateway({ baseUrl: `http://localhost:${port}`, apiKey: 'sk-test-key' });
       await client.complete(
-        cand(), sp(), msgs(), 'sess-stream-3', { stream: true },
-      );
+        cand(), sp(), msgs(), 'sess-stream-3', toolsOpts({ stream: true }));
       const body = JSON.parse(cap.body);
       expect(body.stream).toBe(true);
     } finally {
@@ -1024,9 +1043,9 @@ describe('LlmClient Streaming Mode', () => {
       setTimeout(() => controller.abort(), 75);
 
       await expect(
-        client.complete(cand(), sp(), msgs(), 'sess-stream-timeout', {
+        client.complete(cand(), sp(), msgs(), 'sess-stream-timeout', toolsOpts({
           stream: true, signal: controller.signal,
-        }),
+        })),
       ).rejects.toMatchObject({ failure: { kind: 'cancelled' } });
     } finally {
       await closeServer(server);
@@ -1046,7 +1065,7 @@ describe('Account-level Provider Config Overrides', () => {
   it('should use account-level baseUrl and apiKey when configured', async () => {
     const { server, port, cap } = await createMockServer((_req, res) => {
       res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify(okResp(JSON.stringify({
+      res.end(JSON.stringify(okToolCallResp('emit_planner_result', JSON.stringify({
         created_cards: [],
         updated_cards: [],
         status: 'continue',
@@ -1095,7 +1114,7 @@ describe('Account-level Provider Config Overrides', () => {
   it('should fall back to provider baseUrl/apiKey when account has none', async () => {
     const { server, port, cap } = await createMockServer((_req, res) => {
       res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify(okResp(JSON.stringify({
+      res.end(JSON.stringify(okToolCallResp('emit_planner_result', JSON.stringify({
         created_cards: [],
         updated_cards: [],
         status: 'continue',
@@ -1137,7 +1156,7 @@ describe('Account-level Provider Config Overrides', () => {
   it('should use project auth profile token when no static apiKey is configured', async () => {
     const { server, port, cap } = await createMockServer((_req, res) => {
       res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify(okResp(JSON.stringify({
+      res.end(JSON.stringify(okToolCallResp('emit_planner_result', JSON.stringify({
         created_cards: [],
         updated_cards: [],
         status: 'continue',
@@ -1239,12 +1258,16 @@ describe('Config temperature/max_tokens flowing through AgentAdapter', () => {
     });
   }
 
+  function plannerResp() {
+    return okToolCallResp('emit_planner_result', plannerContent());
+  }
+
   // ── TC1: Default temperature (0.7) and max_tokens (4096) ─────
 
   it('should send default temperature 0.7 and max_tokens 4096 when not overridden in config', async () => {
     const { server, port, cap } = await createMockServer((_req, res) => {
       res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify(okResp(plannerContent())));
+      res.end(JSON.stringify(plannerResp()));
     });
 
     try {
@@ -1280,7 +1303,7 @@ describe('Config temperature/max_tokens flowing through AgentAdapter', () => {
   it('should send per-role temperature override when models.temperature.planner is set', async () => {
     const { server, port, cap } = await createMockServer((_req, res) => {
       res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify(okResp(plannerContent())));
+      res.end(JSON.stringify(plannerResp()));
     });
 
     try {
@@ -1320,7 +1343,7 @@ describe('Config temperature/max_tokens flowing through AgentAdapter', () => {
   it('should send per-role max_tokens override and fall back to default temperature', async () => {
     const { server, port, cap } = await createMockServer((_req, res) => {
       res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify(okResp(plannerContent())));
+      res.end(JSON.stringify(plannerResp()));
     });
 
     try {
@@ -1360,7 +1383,7 @@ describe('Config temperature/max_tokens flowing through AgentAdapter', () => {
   it('should use models.default temperature and max_tokens when no per-role values', async () => {
     const { server, port, cap } = await createMockServer((_req, res) => {
       res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify(okResp(plannerContent())));
+      res.end(JSON.stringify(plannerResp()));
     });
 
     try {
@@ -1400,7 +1423,7 @@ describe('Config temperature/max_tokens flowing through AgentAdapter', () => {
   it('should use per-role temp and default max_tokens when role overrides only temperature', async () => {
     const { server, port, cap } = await createMockServer((_req, res) => {
       res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify(okResp(plannerContent())));
+      res.end(JSON.stringify(plannerResp()));
     });
 
     try {
@@ -1447,7 +1470,7 @@ describe('LlmClient Edge Cases', () => {
 
     try {
       const client = new LlmProviderGateway({ baseUrl: `http://localhost:${port}` }); // no apiKey
-      await client.complete(cand(), sp(), msgs(), 'sess-noauth');
+      await client.complete(cand(), sp(), msgs(), 'sess-noauth', toolsOpts());
       expect(cap.headers['authorization']).toBeUndefined();
     } finally {
       await closeServer(server);
@@ -1462,7 +1485,7 @@ describe('LlmClient Edge Cases', () => {
 
     try {
       const client = new LlmProviderGateway({ baseUrl: `http://localhost:${port}` });
-      await client.complete(cand(), sp(), msgs(), 'sess-defaults');
+      await client.complete(cand(), sp(), msgs(), 'sess-defaults', toolsOpts());
       const body = JSON.parse(cap.body);
       expect(body.temperature).toBe(0.7);
       expect(body.max_tokens).toBe(4096);
@@ -1484,7 +1507,7 @@ describe('LlmClient Edge Cases', () => {
         { id: '2', session_id: 's', role: 'assistant' as const, kind: 'text' as const, content: 'asst msg', round_id: 'r-user-00000000000000000000000000000001', message_index: 1, block_index: 1, timestamp: new Date().toISOString() },
         { id: '3', session_id: 's', role: 'tool' as const, kind: 'text' as const, content: 'tool msg', round_id: 'r-user-00000000000000000000000000000001', message_index: 2, block_index: 2, timestamp: new Date().toISOString() },
       ];
-      await client.complete(cand(), sp(), multiMsgs, 'sess-roles');
+      await client.complete(cand(), sp(), multiMsgs, 'sess-roles', toolsOpts());
       const body = JSON.parse(cap.body);
       expect(body.messages).toHaveLength(4); // system prompt + 3
       expect(body.messages[1].role).toBe('system');
@@ -1523,7 +1546,7 @@ describe('LlmClient provider capability guardrails', () => {
         maxCompactions: 3,
         compactionTimeoutMs: 1200000,
         compactionKeepFraction: 0.2,
-        maxRecoveryRetries: 3,
+        maxRecoveryRetries: 3, maxToolTurns: 16,
         selfCheck: { executor: 15, planner: 30, analyst: 0 },
       },
       security: { injectionScanner: true, maxScanLengthBytes: 102400 },
@@ -1538,11 +1561,10 @@ describe('LlmClient provider capability guardrails', () => {
         sp(),
         msgs(),
         'sess-cap',
-        {
+        toolsOpts({
           tools: [{ type: 'function', function: { name: 'do_work', description: 'work', parameters: { type: 'object' } } }],
-          tool_choice: 'auto',
-        },
-      )).rejects.toThrow(/unsupported_tool_calls/);
+          tool_choice: { kind: 'auto' },
+        }))).rejects.toThrow(/unsupported_tool_calls/);
       expect(cap.body).toBe('');
     } finally {
       await closeServer(server);
@@ -1579,7 +1601,7 @@ describe('LlmClient provider capability guardrails', () => {
         maxCompactions: 3,
         compactionTimeoutMs: 1200000,
         compactionKeepFraction: 0.2,
-        maxRecoveryRetries: 3,
+        maxRecoveryRetries: 3, maxToolTurns: 16,
         selfCheck: { executor: 15, planner: 30, analyst: 0 },
       },
       security: { injectionScanner: true, maxScanLengthBytes: 102400 },
@@ -1594,11 +1616,10 @@ describe('LlmClient provider capability guardrails', () => {
         sp(),
         msgs(),
         'sess-codex-overridden',
-        {
+        toolsOpts({
           tools: [{ type: 'function', function: { name: 'do_work', description: 'work', parameters: { type: 'object' } } }],
-          tool_choice: 'auto',
-        },
-      )).rejects.toThrow(/unsupported_tool_calls|unsupported_tool_choice/);
+          tool_choice: { kind: 'auto' },
+        }))).rejects.toThrow(/unsupported_tool_calls|unsupported_tool_choice/);
       expect(cap.body).toBe('');
     } finally {
       await closeServer(server);
@@ -1629,7 +1650,7 @@ describe('LlmClient provider capability guardrails', () => {
         maxCompactions: 3,
         compactionTimeoutMs: 1200000,
         compactionKeepFraction: 0.2,
-        maxRecoveryRetries: 3,
+        maxRecoveryRetries: 3, maxToolTurns: 16,
         selfCheck: { executor: 15, planner: 30, analyst: 0 },
       },
       security: { injectionScanner: true, maxScanLengthBytes: 102400 },
@@ -1644,6 +1665,7 @@ describe('LlmClient provider capability guardrails', () => {
         sp(),
         msgs(),
         'sess-codex',
+        toolsOpts(),
       )).rejects.toThrow();
       expect(cap.url).not.toBe('/v1/chat/completions');
     } finally {

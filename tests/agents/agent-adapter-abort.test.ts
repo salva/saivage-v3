@@ -34,7 +34,7 @@ function createMinimalAdapter(
       compactionThreshold: 0.8,
       maxCompactions: 3,
       recoveryDelayMs: 60000,
-      maxRecoveryRetries: 3,
+      maxRecoveryRetries: 3, maxToolTurns: 16,
       selfCheck: { planner: 0, executor: 0, reviewer: 0, analyst: 0 },
     },
     security: {},
@@ -524,7 +524,7 @@ describe('Runtime/Supervisor wiring for abort and force-cancel', () => {
           compactionThreshold: 0.8,
           maxCompactions: 3,
           recoveryDelayMs: 60000,
-          maxRecoveryRetries: 3,
+          maxRecoveryRetries: 3, maxToolTurns: 16,
           selfCheck: { planner: 0, executor: 0, reviewer: 0, analyst: 0 },
         },
         security: {},
@@ -694,7 +694,7 @@ describe('Integration: real invokeAgent candidate loop with cancellation', () =>
       opts,
     ) => {
       startedResolve();
-      return new Promise<string>((_resolve, reject) => {
+      return new Promise<import('../../src/agents/llm-contracts.js').LlmCompleteResult>((_resolve, reject) => {
         if (opts?.signal) {
           if (opts.signal.aborted) {
             reject(new DOMException('Aborted', 'AbortError'));
@@ -715,7 +715,10 @@ describe('Integration: real invokeAgent candidate loop with cancellation', () =>
   } {
     return {
       llmCallFn: (_candidate, _systemPrompt, _messages, _sessionId, _opts) => {
-        return Promise.resolve(response);
+        return Promise.resolve({
+          kind: 'tool_calls',
+          tool_calls: [{ id: 'call-success', type: 'function', function: { name: 'emit_executor_result', arguments: response } }],
+        } as import('../../src/agents/llm-contracts.js').LlmCompleteResult);
       },
     };
   }
@@ -798,7 +801,10 @@ describe('Integration: real invokeAgent candidate loop with cancellation', () =>
         throw new Error('Candidate 1 network error');
       }
 
-      return Promise.resolve('{"card_id":"card-2","status":"done","artifacts":[],"attachments":[]}');
+      return Promise.resolve({
+        kind: 'tool_calls',
+        tool_calls: [{ id: 'call-1', type: 'function', function: { name: 'emit_executor_result', arguments: '{"card_id":"card-2","status":"done","artifacts":[],"attachments":[]}' } }],
+      } as import('../../src/agents/llm-contracts.js').LlmCompleteResult);
     };
 
     multiAdapter.setLlmCallFn(llmCallFn);
@@ -864,7 +870,10 @@ describe('Integration: real invokeAgent candidate loop with cancellation', () =>
         throw new Error('Candidate 1 error');
       }
 
-      return Promise.resolve('{"card_id":"card-2","status":"done","artifacts":[],"attachments":[]}');
+      return Promise.resolve({
+        kind: 'tool_calls',
+        tool_calls: [{ id: 'call-1', type: 'function', function: { name: 'emit_executor_result', arguments: '{"card_id":"card-2","status":"done","artifacts":[],"attachments":[]}' } }],
+      } as import('../../src/agents/llm-contracts.js').LlmCompleteResult);
     };
 
     multiAdapter.setLlmCallFn(llmCallFn);

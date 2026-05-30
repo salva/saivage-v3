@@ -1,10 +1,10 @@
 import type { AgentMessage } from '../schemas/index.js';
 import type { Candidate } from './provider.js';
-import type { LlmCompleteOptions, LlmCompleteResult, ToolCall, ToolDefinition } from './llm-contracts.js';
-import { parsePersistedToolCalls } from './llm-contracts.js';
-import { LlmRequestError, unwrapFailure } from './llm-errors.js';
+import type { LlmCompleteOptions, LlmCompleteResult, ToolCall, ToolDefinition, LlmUsage } from './llm-contracts.js';
+import { parseToolCallMessage } from './persisted-tool-call.js';
+import { LlmRequestError } from './llm-errors.js';
 import { classifierFor, classifyTransportFailure, defaultHttpClassifier } from './llm-failure-classifiers.js';
-import { beginRecordedExchange, recordResponseError, teeStreamForRecorder } from './llm-recording.js';
+import { beginRecordedExchange, recordResponseError, teeStreamForRecorder, deriveTerminalToolFromOptions } from './llm-recording.js';
 import { readOpenAIChatStream } from './llm-stream-parser.js';
 
 interface ChatMessage {
@@ -14,15 +14,20 @@ interface ChatMessage {
   tool_call_id?: string;
 }
 
+interface ChatToolChoice {
+  type: 'function';
+  function: { name: string };
+}
+
 interface ChatCompletionRequest {
   model: string;
   messages: ChatMessage[];
   temperature: number;
   max_tokens: number;
   stream: boolean;
-  tools?: ToolDefinition[];
-  tool_choice?: unknown;
-  response_format?: { type: 'json_object' };
+  tools: ToolDefinition[];
+  tool_choice: 'auto' | ChatToolChoice;
+  parallel_tool_calls: false;
 }
 
 interface ChatCompletionResponse {
@@ -30,6 +35,7 @@ interface ChatCompletionResponse {
     message?: { content: string | null; tool_calls?: ToolCall[] };
     finish_reason?: string | null;
   }>;
+  usage?: LlmUsage;
 }
 
 export interface OpenAIChatGatewayConfig {
@@ -51,7 +57,7 @@ export class OpenAIChatGateway {
     systemPrompt: string,
     messages: AgentMessage[],
     _sessionId: string,
-    opts?: LlmCompleteOptions,
+    opts: LlmCompleteOptions,
   ): Promise<LlmCompleteResult> {
     const requestBody = buildOpenAIChatRequest(candidate, systemPrompt, messages, opts);
     const url = this.chatCompletionsUrl();
@@ -62,12 +68,13 @@ export class OpenAIChatGateway {
     };
     if (this.apiKey) headers['Authorization'] = `Bearer ${this.apiKey}`;
 
-    const handle = await beginRecordedExchange(opts?.recorder, {
+    const handle = await beginRecordedExchange(opts.recorder, {
       transport: 'generic',
       candidate,
       endpoint: url,
       headers,
       body: requestBody,
+      terminalTool: deriveTerminalToolFromOptions(opts),
     });
     let recordedErr = false;
     let rawText: string | undefined;
@@ -75,7 +82,7 @@ export class OpenAIChatGateway {
     try {
       let response: Response;
       try {
-        response = await fetch(url, { method: 'POST', headers, body: JSON.stringify(requestBody), signal: opts?.signal });
+        response = await fetch(url, { method: 'POST', headers, body: JSON.stringify(requestBody), signal: opts.signal });
       } catch (err) {
         if (handle) {
           recordedErr = true;
@@ -119,11 +126,10 @@ export class OpenAIChatGateway {
         throw new LlmRequestError({ kind: 'parse_error', provider: candidate.provider, message: 'Chat completions response contains no choices', bodyPreview: rawText.slice(0, 500) });
       }
       const choice = parsed.choices[0];
-      const result: LlmCompleteResult = {
-        content: choice.message?.content ?? null,
-        toolCalls: choice.message?.tool_calls ?? [],
-        finishReason: (choice.finish_reason as 'stop' | 'tool_calls' | 'length' | null) ?? null,
-      };
+      const toolCalls = choice.message?.tool_calls ?? [];
+      const result: LlmCompleteResult = toolCalls.length > 0
+        ? { kind: 'tool_calls', tool_calls: toolCalls, usage: parsed.usage }
+        : { kind: 'message', content: choice.message?.content ?? '', usage: parsed.usage };
       if (handle) await handle.recordResponse({ status: response.status, bodyRaw: rawText, bodyParsed: parsed });
       return result;
     } catch (err) {
@@ -155,16 +161,17 @@ export function buildOpenAIChatRequest(
   candidate: Candidate,
   systemPrompt: string,
   messages: AgentMessage[],
-  opts?: LlmCompleteOptions,
+  opts: LlmCompleteOptions,
 ): ChatCompletionRequest {
   const apiMessages: ChatMessage[] = [
     { role: 'system', content: systemPrompt },
-    ...messages.map((m) => {
+    ...messages.map((m): ChatMessage => {
       if (m.role === 'assistant' && m.kind === 'tool_call') {
-        return { role: 'assistant' as const, content: '', tool_calls: parsePersistedToolCalls(m.content) };
+        const call = parseToolCallMessage(JSON.parse(m.content));
+        return { role: 'assistant', content: '', tool_calls: [{ id: call.id, type: 'function', function: { name: call.name, arguments: JSON.stringify(call.args) } }] };
       }
       if (m.role === 'tool') {
-        return { role: 'tool' as const, content: m.content, tool_call_id: m.tool_call_id ?? m.id };
+        return { role: 'tool', content: m.content, tool_call_id: m.tool_call_id ?? m.id };
       }
       return { role: toChatRole(m.role), content: m.content };
     }),
@@ -172,28 +179,27 @@ export function buildOpenAIChatRequest(
 
   const sanitized = sanitizeToolCallSequences(apiMessages);
 
-  const requestBody: ChatCompletionRequest = {
+  const tools: ToolDefinition[] = opts.phase === 'terminal'
+    ? [opts.terminalToolDefinition]
+    : opts.tools;
+  const toolChoice: 'auto' | ChatToolChoice = opts.phase === 'terminal'
+    ? { type: 'function', function: { name: opts.terminalToolName } }
+    : opts.tool_choice.kind === 'required_named'
+      ? { type: 'function', function: { name: opts.tool_choice.toolName } }
+      : 'auto';
+
+  return {
     model: candidate.model,
     messages: sanitized,
-    temperature: opts?.temperature ?? 0.7,
-    max_tokens: opts?.max_tokens ?? 4096,
-    stream: opts?.stream ?? false,
+    temperature: opts.temperature ?? 0.7,
+    max_tokens: opts.max_tokens ?? 4096,
+    stream: opts.stream ?? false,
+    tools: tools.map((t) => ({ type: t.type, function: t.function })),
+    tool_choice: toolChoice,
+    parallel_tool_calls: false,
   };
-  if (opts?.tools && opts.tools.length > 0) {
-    requestBody.tools = opts.tools.map((t) => ({ type: t.type, function: t.function }));
-    if (opts.tool_choice !== undefined) requestBody.tool_choice = opts.tool_choice;
-  }
-  if (opts?.response_format) requestBody.response_format = opts.response_format;
-  return requestBody;
 }
 
-/**
- * Strict providers (e.g. DeepSeek) require every assistant message with
- * `tool_calls` to be immediately followed by a `tool` message for each
- * `tool_call_id`. When the conversation has dangling tool_calls (from a
- * mid-loop failover or a stale history), drop the orphan tool_calls so the
- * request remains protocol-valid.
- */
 function sanitizeToolCallSequences(msgs: ChatMessage[]): ChatMessage[] {
   const out: ChatMessage[] = [];
   for (let i = 0; i < msgs.length; i++) {

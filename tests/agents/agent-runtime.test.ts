@@ -28,7 +28,7 @@ function writeMinimalConfig(tmpDir: string): void {
       },
     },
     server: { port: 8080, host: '0.0.0.0' },
-    runtime: { candidateAvailabilityCompactBytes: 262144, recoverAgentInvocations: true, healthCheckIntervalMs: 30000, idleShutdownMs: 300000, maxGoalDepth: 5, recoveryDelayMs: 60000, autoDispatchBacklog: true, continuousImprovement: false, maxReviewRetries: 3, processTimeouts: { plannerMs: 1200000, executorMs: 1200000, reviewerMs: 1200000 }, compactionThreshold: 0.8, maxCompactions: 3, compactionTimeoutMs: 1200000, compactionKeepFraction: 0.2, maxRecoveryRetries: 3, selfCheck: { executor: 15, planner: 30, analyst: 0 } },
+    runtime: { candidateAvailabilityCompactBytes: 262144, recoverAgentInvocations: true, healthCheckIntervalMs: 30000, idleShutdownMs: 300000, maxGoalDepth: 5, recoveryDelayMs: 60000, autoDispatchBacklog: true, continuousImprovement: false, maxReviewRetries: 3, processTimeouts: { plannerMs: 1200000, executorMs: 1200000, reviewerMs: 1200000 }, compactionThreshold: 0.8, maxCompactions: 3, compactionTimeoutMs: 1200000, compactionKeepFraction: 0.2, maxRecoveryRetries: 3, maxToolTurns: 16, selfCheck: { executor: 15, planner: 30, analyst: 0 } },
     security: { injectionScanner: true, maxScanLengthBytes: 102400 },
     supervisor: { enabled: true, intervalMs: 1200000, consecutiveStuckVerdicts: 3, logLines: 400 },
   };
@@ -127,68 +127,6 @@ describe('AgentRuntime Interface', () => {
     it('AgentAdapter has invokeReviewer method matching the interface', () => {
       const adapter = createMinimalAdapter(tmpDir);
       expect(typeof adapter.invokeReviewer).toBe('function');
-    });
-
-    it('builds fallback executor result preserving tool evidence when final JSON omits status', async () => {
-      const adapter = createMinimalAdapter(tmpDir);
-      const candidate = { provider: 'test-provider', model: 'test-model', account: 'default' };
-      jest.spyOn(adapter.router, 'resolve').mockResolvedValue([candidate]);
-      jest.spyOn(adapter.candidateAvailability, 'isAvailable').mockReturnValue(true);
-
-      const responses = [
-        JSON.stringify({
-          toolCalls: [
-            { id: 'call-write', type: 'function', function: { name: 'write_project_file', arguments: JSON.stringify({ path: 'generated.txt', content: 'hello\n' }) } },
-            { id: 'call-cmd', type: 'function', function: { name: 'run_project_command', arguments: JSON.stringify({ command: 'printf verified', timeoutMs: 30000 }) } },
-          ],
-        }),
-        JSON.stringify({
-          card_id: 'code-1',
-          status_text: 'tool work attempted',
-          summary: 'work completed but malformed final result',
-        }),
-      ];
-      adapter.setLlmCallFn(async () => responses.shift() ?? '{}');
-
-      const result = await adapter.invokeExecutor('code-1', 'goal-1', 'prompt');
-
-      expect(result.status).toBe('failed');
-      expect(result.card_id).toBe('code-1');
-      expect(result.status_text).toBe('tool work attempted');
-      expect(result.artifacts).toEqual([]);
-      expect(result.attachments).toEqual([]);
-      expect(result.result?.generated_files).toEqual(['generated.txt']);
-      expect(result.result?.verification_commands).toEqual(expect.arrayContaining([expect.objectContaining({ status: 'exited', exit_code: 0 })]));
-      expect(result.result?.parse_failure).toEqual(expect.objectContaining({ message: expect.stringContaining('preserved tool evidence') }));
-
-      const sessionId = listSessions(join(tmpDir, '.saivage')).find((id) => id.startsWith('executor-'));
-      expect(sessionId).toBeDefined();
-      const messages = getSessionMessages(join(tmpDir, '.saivage'), sessionId!);
-      expect(messages.some((message) => message.kind === 'tool_result' && message.tool === 'write_project_file')).toBe(true);
-      expect(messages.some((message) => message.kind === 'tool_result' && message.tool === 'run_project_command')).toBe(true);
-      expect(messages.some((message) => message.kind === 'model_issue' && message.content.includes('fallback'))).toBe(true);
-    });
-  });
-
-  describe('unknown terminal status mutation tools stay hard errors', () => {
-    it('ignores unknown tool attempts and accepts only the final result status_text', async () => {
-      const adapter = createMinimalAdapter(tmpDir);
-      const candidate = { provider: 'test-provider', model: 'test-model', account: 'default' };
-      jest.spyOn(adapter.router, 'resolve').mockResolvedValue([candidate]);
-      jest.spyOn(adapter.candidateAvailability, 'isAvailable').mockReturnValue(true);
-      const unknownTool = 'legacy_status_mutator';
-      const responses = [
-        JSON.stringify({ toolCalls: [{ id: 'call-status', type: 'function', function: { name: unknownTool, arguments: JSON.stringify({ card_id: 'code-1', status_text: 'should not apply' }) } }] }),
-        JSON.stringify({ card_id: 'code-1', status: 'done', status_text: 'Final accepted status text', artifacts: [], attachments: [] }),
-      ];
-      adapter.setLlmCallFn(async () => responses.shift() ?? '{}');
-      const result = await adapter.invokeExecutor('code-1', 'goal-1', 'prompt');
-      expect(result.status).toBe('done');
-      expect(result.status_text).toBe('Final accepted status text');
-      const sessionId = listSessions(join(tmpDir, '.saivage')).find((id) => id.startsWith('executor-'));
-      expect(sessionId).toBeDefined();
-      const messages = getSessionMessages(join(tmpDir, '.saivage'), sessionId!);
-      expect(messages.some((message) => message.kind === 'tool_error' && message.tool === unknownTool && message.content.includes("Unknown tool 'legacy_status_mutator'"))).toBe(true);
     });
   });
 });

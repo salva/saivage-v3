@@ -94,9 +94,8 @@ function readOpenAIChatStreamLine(
 export function buildOpenAIChatStreamResult(
   contentChunks: string[],
   toolCallAccumulators: Map<number, { id?: string; type?: string; name?: string; arguments: string }>,
-  finishReason: 'stop' | 'tool_calls' | 'length' | null,
+  _finishReason: 'stop' | 'tool_calls' | 'length' | null,
 ): LlmCompleteResult {
-  const content = contentChunks.length > 0 ? contentChunks.join('') : null;
   const toolCalls: ToolCall[] = [];
   const sortedIndices = [...toolCallAccumulators.keys()].sort((a, b) => a - b);
   for (const index of sortedIndices) {
@@ -110,5 +109,6 @@ export function buildOpenAIChatStreamResult(
       },
     });
   }
-  return { content, toolCalls, finishReason };
+  if (toolCalls.length > 0) return { kind: 'tool_calls', tool_calls: toolCalls };
+  return { kind: 'message', content: contentChunks.join('') };
 }

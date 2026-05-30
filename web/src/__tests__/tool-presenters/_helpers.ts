@@ -1,7 +1,7 @@
 import type { InlinePart } from '../../utils/tool-presenters';
 
 export function callEnvelope(name: string, args: Record<string, unknown> = {}): string {
-  return JSON.stringify({ toolCalls: [{ id: `call-${name}`, function: { name, arguments: JSON.stringify(args) } }] });
+  return JSON.stringify({ role: 'assistant', tool_calls: [{ id: `call-${name}`, type: 'function', function: { name, arguments: JSON.stringify(args) } }] });
 }
 
 export function inlineText(parts: InlinePart[] | undefined): string {

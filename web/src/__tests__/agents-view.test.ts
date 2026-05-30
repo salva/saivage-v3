@@ -69,7 +69,7 @@ vi.mock('../api/client', () => {
           session_id: 'planner-1',
           role: 'assistant',
           kind: 'tool_call',
-          content: JSON.stringify({ toolCalls: [{ function: { name: 'activate_card', arguments: JSON.stringify({ cardId: 'G3', reason: 'ready' }) } }] }),
+          content: JSON.stringify({ role: 'assistant', tool_calls: [{ id: 'tc1', type: 'function', function: { name: 'activate_card', arguments: JSON.stringify({ cardId: 'G3', reason: 'ready' }) } }] }),
           timestamp: '2025-06-01T08:06:00Z',
         },
         {
@@ -253,7 +253,7 @@ describe('AgentsView', () => {
           session_id: 'planner-1',
           role: 'assistant',
           kind: 'tool_call',
-          content: JSON.stringify({ toolCalls: [{ function: { name: 'activate_card', arguments: JSON.stringify({ cardId: 'G3', reason: 'ready' }) } }] }),
+          content: JSON.stringify({ role: 'assistant', tool_calls: [{ id: 'tc1', type: 'function', function: { name: 'activate_card', arguments: JSON.stringify({ cardId: 'G3', reason: 'ready' }) } }] }),
           timestamp: '2025-06-01T08:06:00Z',
         },
         {

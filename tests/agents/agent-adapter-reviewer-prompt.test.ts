@@ -41,7 +41,7 @@ function minimalConfig(): SaivageConfig {
       maxCompactions: 3,
       compactionTimeoutMs: 1200000,
       compactionKeepFraction: 0.2,
-      maxRecoveryRetries: 3,
+      maxRecoveryRetries: 3, maxToolTurns: 16,
       selfCheck: { executor: 15, planner: 30, analyst: 0 },
     },
     security: { injectionScanner: true, maxScanLengthBytes: 102400 },
@@ -131,28 +131,29 @@ describe('AgentAdapter planner-control reviewer prompt contract', () => {
     const llmCallFn: LlmCallFn = async (_candidate, systemPrompt, messages, sessionId) => {
       llmCalls.push({ systemPrompt, messages, sessionId });
       if (sessionId === `planner:${goal.id}` && llmCalls.filter((call) => call.sessionId === sessionId).length === 1) {
-        return JSON.stringify({
-          toolCalls: [
-            {
-              id: 'call-report-goal-done',
-              type: 'function',
-              function: { name: 'report_goal_done', arguments: JSON.stringify(plannerReport) },
-            },
-          ],
-        });
+        return {
+          kind: 'tool_calls',
+          tool_calls: [{ id: 'call-report-goal-done', type: 'function', function: { name: 'report_goal_done', arguments: JSON.stringify(plannerReport) } }],
+        };
       }
       if (sessionId.startsWith(`reviewer:${goal.id}:`)) {
-        return JSON.stringify({
-          assessment: {
-            result: 'pass',
-            summary: 'Canonical reviewer result accepted.',
-            achieved: ['Reviewer prompt contract adopted'],
-            issues: [],
-            evidence_card_ids: [evidence.id],
-          },
-        });
+        return {
+          kind: 'tool_calls',
+          tool_calls: [{ id: 'call-reviewer', type: 'function', function: { name: 'emit_reviewer_result', arguments: JSON.stringify({
+            assessment: {
+              result: 'pass',
+              summary: 'Canonical reviewer result accepted.',
+              achieved: ['Reviewer prompt contract adopted'],
+              issues: [],
+              evidence_card_ids: [evidence.id],
+            },
+          }) } }],
+        };
       }
-      return JSON.stringify({ status: 'done', summary: 'Planner accepted reviewer assessment.', created_cards: [], updated_cards: [] });
+      return {
+        kind: 'tool_calls',
+        tool_calls: [{ id: 'call-planner-done', type: 'function', function: { name: 'emit_planner_result', arguments: JSON.stringify({ status: 'done', summary: 'Planner accepted reviewer assessment.', created_cards: [], updated_cards: [] }) } }],
+      };
     };
     adapter.setLlmCallFn(llmCallFn);
 

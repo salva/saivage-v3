@@ -1,6 +1,7 @@
 import type { AgentMessage } from '../schemas/index.js';
 import type { Candidate } from './provider.js';
 import type { LlmExchangeRecorder } from './llm-exchange-recorder.js';
+import type { CapabilityRequest } from './provider-capabilities.js';
 
 export interface ToolFunctionDefinition {
   name: string;
@@ -22,22 +23,45 @@ export interface ToolCall {
   };
 }
 
-export interface LlmCompleteResult {
-  content: string | null;
-  toolCalls: ToolCall[];
-  finishReason: 'stop' | 'tool_calls' | 'length' | null;
-}
+export type TerminalChoice =
+  | { kind: 'auto' }
+  | { kind: 'required_named'; toolName: string };
 
-export interface LlmCompleteOptions {
+export interface LlmModelParams {
   temperature?: number;
   max_tokens?: number;
+}
+
+interface LlmCompleteOptionsBase extends LlmModelParams {
   stream?: boolean;
   signal?: AbortSignal;
-  tools?: ToolDefinition[];
-  tool_choice?: 'auto' | 'none' | 'required' | { type: 'function'; function: { name: string } };
-  response_format?: { type: 'json_object' };
   recorder?: LlmExchangeRecorder;
+  capabilityRequest?: CapabilityRequest;
 }
+
+export interface LlmCompleteOptionsTools extends LlmCompleteOptionsBase {
+  phase: 'tools';
+  tools: ToolDefinition[];
+  tool_choice: TerminalChoice;
+}
+
+export interface LlmCompleteOptionsTerminal extends LlmCompleteOptionsBase {
+  phase: 'terminal';
+  terminalToolName: string;
+  terminalToolDefinition: ToolDefinition;
+}
+
+export type LlmCompleteOptions = LlmCompleteOptionsTools | LlmCompleteOptionsTerminal;
+
+export interface LlmUsage {
+  prompt_tokens?: number;
+  completion_tokens?: number;
+  total_tokens?: number;
+}
+
+export type LlmCompleteResult =
+  | { kind: 'tool_calls'; tool_calls: ToolCall[]; usage?: LlmUsage }
+  | { kind: 'message'; content: string; usage?: LlmUsage };
 
 export interface LlmInvocationClient {
   complete(
@@ -45,7 +69,7 @@ export interface LlmInvocationClient {
     systemPrompt: string,
     messages: AgentMessage[],
     sessionId: string,
-    opts?: LlmCompleteOptions,
+    opts: LlmCompleteOptions,
   ): Promise<LlmCompleteResult>;
 }
 
@@ -54,17 +78,5 @@ export type LlmCallFn = (
   systemPrompt: string,
   messages: AgentMessage[],
   sessionId: string,
-  opts?: LlmCompleteOptions,
-) => Promise<string>;
-
-export function parsePersistedToolCalls(content: string): ToolCall[] {
-  try {
-    const parsed = JSON.parse(content) as unknown;
-    if (parsed && typeof parsed === 'object' && Array.isArray((parsed as { toolCalls?: unknown }).toolCalls)) {
-      return (parsed as { toolCalls: ToolCall[] }).toolCalls;
-    }
-  } catch {
-    // Fall through to empty list.
-  }
-  return [];
-}
+  opts: LlmCompleteOptions,
+) => Promise<LlmCompleteResult>;

@@ -21,6 +21,18 @@ beforeAll(async () => {
   LlmRequestError = failureMod.LlmRequestError;
 });
 
+
+import type { LlmCompleteOptions, LlmCompleteResult, ToolCall } from '../../src/agents/llm-contracts.js';
+
+function toolsOpts(extra: Partial<LlmCompleteOptions> = {}): LlmCompleteOptions {
+  return { phase: 'tools', tools: [], tool_choice: { kind: 'auto' }, ...(extra as object) } as LlmCompleteOptions;
+}
+
+function asMessage(r: LlmCompleteResult): { content: string; toolCalls: ToolCall[]; finishReason: string } {
+  if (r.kind === 'message') return { content: r.content, toolCalls: [], finishReason: 'stop' };
+  return { content: '', toolCalls: r.tool_calls, finishReason: 'tool_calls' };
+}
+
 interface MockServer { server: Server; port: number; }
 function startServer(
   handler: (req: IncomingMessage, res: ServerResponse, index: number) => void,
@@ -102,8 +114,8 @@ describe('LlmClient + LlmExchangeRecorder integration', () => {
     try {
       const { recorder, begins, responses, errors } = makeMockRecorder();
       const client = new LlmProviderGateway({ baseUrl: `http://localhost:${port}`, apiKey: 'sk' });
-      const r = await client.complete(candidate, sys, msgs, 'sess-1', { recorder });
-      expect(r.content).toBe('hi-back');
+      const r = await client.complete(candidate, sys, msgs, 'sess-1', toolsOpts({ recorder }));
+      expect(asMessage(r).content).toBe('hi-back');
       expect(begins).toHaveLength(1);
       expect(begins[0].transport).toBe('generic');
       expect(responses).toHaveLength(1);
@@ -128,8 +140,8 @@ describe('LlmClient + LlmExchangeRecorder integration', () => {
     try {
       const { recorder, responses } = makeMockRecorder();
       const client = new LlmProviderGateway({ baseUrl: `http://localhost:${port}`, apiKey: 'sk' });
-      const r = await client.complete(candidate, sys, msgs, 'sess-2', { stream: true, recorder });
-      expect(r.content).toBe('Hello');
+      const r = await client.complete(candidate, sys, msgs, 'sess-2', toolsOpts({ stream: true, recorder }));
+      expect(asMessage(r).content).toBe('Hello');
       expect(responses).toHaveLength(1);
       const resp = responses[0] as { bodyRaw: string; bodyParsed: { content: string } };
       expect(resp.bodyRaw).toBe(chunks.join(''));
@@ -145,7 +157,7 @@ describe('LlmClient + LlmExchangeRecorder integration', () => {
     try {
       const { recorder, responses, errors } = makeMockRecorder();
       const client = new LlmProviderGateway({ baseUrl: `http://localhost:${port}`, apiKey: 'sk' });
-      await expect(client.complete(candidate, sys, msgs, 'sess-3', { recorder })).rejects.toThrow();
+      await expect(client.complete(candidate, sys, msgs, 'sess-3', toolsOpts({ recorder }))).rejects.toThrow();
       expect(responses).toHaveLength(0);
       expect(errors).toHaveLength(1);
       const e = errors[0] as { status: number; bodyRaw: string };
@@ -158,7 +170,7 @@ describe('LlmClient + LlmExchangeRecorder integration', () => {
     const { recorder, errors } = makeMockRecorder();
     // Use an unroutable port to force a network error before any body.
     const client = new LlmProviderGateway({ baseUrl: 'http://127.0.0.1:1', apiKey: 'sk' });
-    await expect(client.complete(candidate, sys, msgs, 'sess-4', { recorder })).rejects.toThrow();
+    await expect(client.complete(candidate, sys, msgs, 'sess-4', toolsOpts({ recorder }))).rejects.toThrow();
     expect(errors).toHaveLength(1);
     const e = errors[0] as { bodyRaw: string | null };
     expect(e.bodyRaw).toBeNull();
@@ -173,7 +185,7 @@ describe('LlmClient + LlmExchangeRecorder integration', () => {
     try {
       const { recorder, errors } = makeMockRecorder();
       const client = new LlmProviderGateway({ baseUrl: `http://localhost:${port}`, apiKey: 'sk' });
-      await expect(client.complete(candidate, sys, msgs, 'sess-5', { recorder })).rejects.toBeInstanceOf(LlmRequestError);
+      await expect(client.complete(candidate, sys, msgs, 'sess-5', toolsOpts({ recorder }))).rejects.toBeInstanceOf(LlmRequestError);
       expect(errors).toHaveLength(1);
       const e = errors[0] as { errorName: string; bodyRaw: string };
       expect(e.errorName).toBe('LlmRequestError');
@@ -197,9 +209,8 @@ describe('LlmClient + LlmExchangeRecorder integration', () => {
       const client = new LlmProviderGateway({ baseUrl: `http://localhost:${port}/backend-api`, apiKey: makeJwt('acct-1') });
       const r = await client.complete(
         { provider: 'openai-codex', account: null, model: 'gpt-5.4' },
-        sys, msgs, 'sess-6', { recorder },
-      );
-      expect(r.content).toBe('Codex');
+        sys, msgs, 'sess-6', toolsOpts({ recorder }));
+      expect(asMessage(r).content).toBe('Codex');
       expect(begins).toHaveLength(1);
       expect(begins[0].transport).toBe('codex');
       expect(errors).toHaveLength(0);
@@ -224,9 +235,8 @@ describe('LlmClient + LlmExchangeRecorder integration', () => {
       const client = new LlmProviderGateway({ baseUrl: `http://localhost:${port}/backend-api`, apiKey: makeJwt('acct-1') });
       const r = await client.complete(
         { provider: 'openai-codex', account: null, model: 'gpt-5.4' },
-        sys, msgs, 'sess-7', { max_tokens: 500, recorder },
-      );
-      expect(r.content).toBe('ok');
+        sys, msgs, 'sess-7', toolsOpts({ max_tokens: 500, recorder }));
+      expect(asMessage(r).content).toBe('ok');
       expect(begins).toHaveLength(1);
       expect(begins[0].request.body).not.toHaveProperty('max_output_tokens');
       expect(errors).toHaveLength(0);
@@ -241,8 +251,7 @@ describe('LlmClient + LlmExchangeRecorder integration', () => {
     const client = new LlmProviderGateway({ baseUrl: 'http://127.0.0.1:1/backend-api', apiKey: makeJwt('acct-1') });
     await expect(client.complete(
       { provider: 'openai-codex', account: null, model: 'gpt-5.4' },
-      sys, msgs, 'sess-8', { recorder },
-    )).rejects.toThrow();
+      sys, msgs, 'sess-8', toolsOpts({ recorder }))).rejects.toThrow();
     expect(begins).toHaveLength(1);
     expect(responses).toHaveLength(0);
     expect(errors).toHaveLength(1);
@@ -263,7 +272,7 @@ describe('LlmClient + LlmExchangeRecorder integration', () => {
         flush: async () => { /* */ },
       };
       const client = new LlmProviderGateway({ baseUrl: `http://localhost:${port}`, apiKey: 'sk' });
-      await expect(client.complete(candidate, sys, msgs, 'sess-9', { recorder }))
+      await expect(client.complete(candidate, sys, msgs, 'sess-9', toolsOpts({ recorder })))
         .rejects.toThrow(/recorder-down/);
     } finally { await closeServer(server); }
   });
@@ -298,8 +307,8 @@ describe('AgentAdapter recorder wiring', () => {
       const { createAgentAdapter } = await import('../../src/agents/agent-adapter.js');
       const adapter = createAgentAdapter(root);
       const fn = adapter.createLlmCallFn();
-      const out = await fn(candidate, sys, msgs, 'sess-adapter-1');
-      expect(out).toBe('adapter-ok');
+      const out = await fn(candidate, sys, msgs, 'sess-adapter-1', toolsOpts());
+      expect(asMessage(out).content).toBe('adapter-ok');
       await adapter.flushRecorders();
       const { readLatestLlmExchange } = await import('../../src/agents/llm-exchange-log.js');
       const got = await readLatestLlmExchange(join(root, '.saivage'), 'sess-adapter-1');

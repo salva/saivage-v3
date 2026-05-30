@@ -31,12 +31,6 @@ describe('AgentToolExecutor', () => {
     });
   }
 
-  it('parses content-channel tool calls without adapter internals', () => {
-    const calls = executor().parseToolCallsFromResponse(JSON.stringify({ toolCalls: [{ id: 'tc-1', type: 'function', function: { name: 'read_project_file', arguments: '{}' } }] }));
-
-    expect(calls?.[0].function.name).toBe('read_project_file');
-  });
-
   it('rejects unknown planner tools using the shared catalog', async () => {
     const result = await executor().processToolCall({ id: 'tc-unknown', type: 'function', function: { name: 'not_a_planner_tool', arguments: '{}' } }, 'planner', 'planner:goal', { goalId: 'goal' });
 

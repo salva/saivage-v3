@@ -8,6 +8,7 @@ const payload = <T extends z.ZodRawShape>(shape: T) => z.object(shape).passthrou
 const anyRecord = z.record(z.string(), z.unknown());
 
 const agentRoleSchema = z.enum(['planner', 'executor', 'reviewer', 'manager', 'researcher', 'coder', 'tester', 'ux', 'critic']);
+const terminalToolNameSchema = z.enum(['emit_planner_result', 'emit_executor_result', 'emit_reviewer_result']);
 const runtimeRecordSchema = anyRecord;
 const actionableErrorEnvelopeSchema = anyRecord;
 const projectRunCompletedSchema = z.object({ project_card_id: z.string().optional(), result: z.enum(['done', 'failed', 'blocked']).optional(), summary: z.string().optional(), failure_kind: z.string().optional(), blocked_reason: z.string().optional() }).passthrough();
@@ -47,7 +48,7 @@ export const EventRegistry = {
   resumed_from_freeze: { domain: 'runtime', schema: payload({ freeze_id: z.string() }), severity: 'info', tracked: true, audit: true, broadcast: true, outbound: 'operator' },
   session_started: { domain: 'agent', schema: payload({ session_id: z.string(), role: agentRoleSchema, goal_id: z.string(), card_id: z.string() }), severity: 'info', tracked: true, audit: true, broadcast: true, outbound: 'operator' },
   model_selected: { domain: 'agent', schema: payload({ session_id: z.string(), provider: z.string(), model: z.string(), role: agentRoleSchema }), severity: 'info', tracked: true, audit: true, broadcast: true, outbound: 'operator' },
-  invocation_succeeded: { domain: 'agent', schema: payload({ session_id: z.string(), role: agentRoleSchema, attempt: z.number(), duration_ms: z.number() }), severity: 'info', tracked: true, audit: true, broadcast: true, outbound: 'operator' },
+  invocation_succeeded: { domain: 'agent', schema: payload({ session_id: z.string(), role: agentRoleSchema, attempt: z.number(), duration_ms: z.number(), terminal_tool: terminalToolNameSchema.nullable() }), severity: 'info', tracked: true, audit: true, broadcast: true, outbound: 'operator' },
   invocation_failed: { domain: 'agent', schema: payload({ session_id: z.string(), role: agentRoleSchema, attempt: z.number(), error_message: z.string() }), severity: 'info', tracked: true, audit: true, broadcast: true, outbound: 'operator' },
   retry_attempted: { domain: 'agent', schema: payload({ session_id: z.string(), role: agentRoleSchema, attempt: z.number(), directive: z.string().optional() }), severity: 'info', tracked: true, audit: true, broadcast: true, outbound: 'operator' },
   compaction_triggered: { domain: 'agent', schema: payload({ session_id: z.string(), role: agentRoleSchema, tokens_before: z.number(), tokens_after: z.number() }), severity: 'info', tracked: true, audit: true, broadcast: true, outbound: 'operator' },

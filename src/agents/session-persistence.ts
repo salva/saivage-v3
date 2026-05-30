@@ -3,6 +3,7 @@ import { join } from 'node:path';
 import { agentSessionSchema, agentMessageSchema } from '../schemas/index.js';
 import { generateRoundId } from './round-id-server.js';
 import { explainLegacyStateRejection, writeFileAtomic } from '../persistence/index.js';
+import { parseToolCallMessage } from './persisted-tool-call.js';
 import type {
   AgentSession,
   AgentMessage,
@@ -377,14 +378,16 @@ export interface UnresolvedActivateCardToolCall {
   card_id: string;
 }
 
-function parseToolCalls(content: string): Array<{ id?: unknown; function?: { name?: unknown; arguments?: unknown } }> {
+function parseToolCalls(content: string): Array<{ id: string; function: { name: string; arguments: string } }> {
+  let parsed: unknown;
   try {
-    const parsed = JSON.parse(content);
-    if (parsed && typeof parsed === 'object' && Array.isArray((parsed as { toolCalls?: unknown }).toolCalls)) {
-      return (parsed as { toolCalls: Array<{ id?: unknown; function?: { name?: unknown; arguments?: unknown } }> }).toolCalls;
-    }
-  } catch { void 0; }
-  return [];
+    parsed = JSON.parse(content);
+  } catch {
+    return [];
+  }
+  if (!parsed || typeof parsed !== 'object') return [];
+  const call = parseToolCallMessage(parsed);
+  return [{ id: call.id, function: { name: call.name, arguments: JSON.stringify(call.args) } }];
 }
 
 function parseCardId(args: unknown): string | null {

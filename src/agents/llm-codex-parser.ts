@@ -6,7 +6,6 @@ export async function readOpenAICodexStream(body: ReadableStream<Uint8Array>): P
   const decoder = new TextDecoder();
   let buffer = '';
   let content = '';
-  let finishReason: LlmCompleteResult['finishReason'] = 'stop';
   const pendingToolCalls = new Map<string, { id: string; name: string; args: string }>();
   const finalizedToolCalls = new Set<string>();
   const toolCalls: ToolCall[] = [];
@@ -27,13 +26,13 @@ export async function readOpenAICodexStream(body: ReadableStream<Uint8Array>): P
           } else if (!content.endsWith(delta)) {
             content += delta;
           }
-        }, (reason) => { finishReason = reason; });
+        }, (_reason) => { /* ignored */ });
         boundary = buffer.indexOf('\n\n');
       }
     }
 
-    if (toolCalls.length > 0) finishReason = 'tool_calls';
-    return { content: content || null, toolCalls, finishReason };
+    if (toolCalls.length > 0) return { kind: 'tool_calls', tool_calls: toolCalls };
+    return { kind: 'message', content };
   } catch (err) {
     if (err instanceof LlmRequestError) throw err;
     if (err instanceof DOMException && err.name === 'AbortError') {
@@ -51,7 +50,7 @@ export function handleOpenAICodexSseChunk(
   finalizedToolCalls: Set<string>,
   toolCalls: ToolCall[],
   appendContent: (delta: string) => void,
-  setFinishReason: (reason: LlmCompleteResult['finishReason']) => void,
+  setFinishReason: (reason: 'stop' | 'tool_calls' | 'length') => void,
 ): void {
   const dataLines = chunk
     .split('\n')

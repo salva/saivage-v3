@@ -125,7 +125,7 @@ export class InvocationRecoveryPolicy {
           appendModelIssue: true,
         });
       case 'contract_mismatch':
-        return this.buildDecision(context, 'fail_invocation', failure, `Candidate ${candidate} violated tool-call contract: ${sanitized}`, { markFailed: false, appendModelIssue: true, abort: true });
+        return this.buildDecision(context, 'fail_invocation', failure, `Candidate ${candidate} violated tool-call contract (subtype=${failure.subtype}): ${sanitized}`, { markFailed: false, appendModelIssue: true, abort: true });
       case 'token_budget_exceeded':
         return this.buildDecision(context, 'failover_without_cooldown', failure, `Candidate ${candidate} exceeded token budget: ${sanitized}`, { appendModelIssue: true });
       case 'parse_error': {

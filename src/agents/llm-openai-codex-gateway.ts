@@ -2,11 +2,11 @@ import { Buffer } from 'node:buffer';
 import type { AgentMessage } from '../schemas/index.js';
 import type { Candidate } from './provider.js';
 import type { LlmCompleteOptions, LlmCompleteResult, ToolDefinition } from './llm-contracts.js';
-import { parsePersistedToolCalls } from './llm-contracts.js';
+import { parseToolCallMessage } from './persisted-tool-call.js';
 import { LlmRequestError } from './llm-errors.js';
 import { classifierFor, classifyTransportFailure, defaultHttpClassifier } from './llm-failure-classifiers.js';
 import { readOpenAICodexStream } from './llm-codex-parser.js';
-import { beginRecordedExchange, recordResponseError, teeStreamForRecorder } from './llm-recording.js';
+import { beginRecordedExchange, recordResponseError, teeStreamForRecorder, deriveTerminalToolFromOptions } from './llm-recording.js';
 
 const OPENAI_CODEX_JWT_CLAIM = 'https://api.openai.com/auth';
 
@@ -37,7 +37,7 @@ export class OpenAICodexGateway {
     systemPrompt: string,
     messages: AgentMessage[],
     _sessionId: string,
-    opts?: LlmCompleteOptions,
+    opts: LlmCompleteOptions,
   ): Promise<LlmCompleteResult> {
     if (!this.apiKey) throw new LlmRequestError({ kind: 'auth_permanent', provider: candidate.provider, status: 401, message: 'OpenAI Codex provider not configured' });
 
@@ -52,18 +52,19 @@ export class OpenAICodexGateway {
       'OpenAI-Beta': 'responses=experimental',
     };
     const endpoint = this.openAICodexResponsesUrl();
-    const handle = await beginRecordedExchange(opts?.recorder, {
+    const handle = await beginRecordedExchange(opts.recorder, {
       transport: 'codex',
       candidate,
       endpoint,
       headers,
       body,
+      terminalTool: deriveTerminalToolFromOptions(opts),
     });
     let recordedErr = false;
     let streamBuffer: string | undefined;
 
     try {
-      const response = await fetch(endpoint, { method: 'POST', headers, body: JSON.stringify(body), signal: opts?.signal }).catch((err: unknown) => {
+      const response = await fetch(endpoint, { method: 'POST', headers, body: JSON.stringify(body), signal: opts.signal }).catch((err: unknown) => {
         if (handle) {
           recordedErr = true;
           const e = err as Error;
@@ -112,24 +113,31 @@ export function buildOpenAICodexRequest(
   candidate: Candidate,
   systemPrompt: string,
   messages: AgentMessage[],
-  opts?: LlmCompleteOptions,
+  opts: LlmCompleteOptions,
 ): Record<string, unknown> {
   const input = codexMessages(messages);
   if (input.length === 0) {
     input.push({ role: 'user', content: [{ type: 'input_text', text: 'Proceed with the task described in the instructions.' }] });
   }
+  const tools: ToolDefinition[] = opts.phase === 'terminal'
+    ? [opts.terminalToolDefinition]
+    : opts.tools;
+  // Codex Responses API uses flat tool_choice: either 'auto' or a string tool name.
+  const toolChoice: string = opts.phase === 'terminal'
+    ? opts.terminalToolName
+    : opts.tool_choice.kind === 'required_named'
+      ? opts.tool_choice.toolName
+      : 'auto';
   const body: Record<string, unknown> = {
     model: candidate.model,
     store: false,
     stream: true,
     instructions: systemPrompt,
     input,
+    tools: tools.map(codexTool),
+    tool_choice: toolChoice,
+    parallel_tool_calls: false,
   };
-  if (opts?.tools && opts.tools.length > 0) {
-    body.tools = opts.tools.map(codexTool);
-    body.tool_choice = opts.tool_choice ?? 'auto';
-    body.parallel_tool_calls = true;
-  }
   return body;
 }
 
@@ -138,9 +146,8 @@ export function codexMessages(messages: AgentMessage[]): CodexMessage[] {
   const callIdsSeen = new Set<string>();
   for (const message of messages) {
     if (message.role === 'assistant' && message.kind === 'tool_call') {
-      for (const toolCall of parsePersistedToolCalls(message.content)) {
-        if (toolCall.id) callIdsSeen.add(toolCall.id);
-      }
+      const call = parseToolCallMessage(JSON.parse(message.content));
+      callIdsSeen.add(call.id);
     } else if (message.role === 'tool') {
       const toolMessage = message as AgentMessage & { tool_call_id?: string };
       const id = toolMessage.tool_call_id ?? message.id;
@@ -153,10 +160,9 @@ export function codexMessages(messages: AgentMessage[]): CodexMessage[] {
     if (message.role === 'user') {
       result.push({ role: 'user', content: [{ type: 'input_text', text: message.content }] });
     } else if (message.role === 'assistant' && message.kind === 'tool_call') {
-      for (const toolCall of parsePersistedToolCalls(message.content)) {
-        if (!toolCall.id || !callIdsWithOutput.has(toolCall.id)) continue;
-        result.push({ type: 'function_call', call_id: toolCall.id, name: toolCall.function.name, arguments: toolCall.function.arguments });
-      }
+      const call = parseToolCallMessage(JSON.parse(message.content));
+      if (!callIdsWithOutput.has(call.id)) continue;
+      result.push({ type: 'function_call', call_id: call.id, name: call.name, arguments: JSON.stringify(call.args) });
     } else if (message.role === 'assistant') {
       result.push({ role: 'assistant', content: [{ type: 'output_text', text: message.content }] });
     } else if (message.role === 'tool') {

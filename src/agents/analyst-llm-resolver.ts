@@ -15,6 +15,7 @@ import { capabilityRequestForLlmOptions } from './provider-capabilities.js';
 import { resolveLlmTransportConfig } from './llm-transport.js';
 import { createLlmExchangeRecorder, toRecorderLogger } from './llm-exchange-recorder.js';
 import type { LlmExchangeRecorder, LlmExchangeRecorderLogger } from './llm-exchange-recorder.js';
+import { buildLlmOptions } from './llm-options-factory.js';
 import {
   mark_goal_needs_corrections,
   create_card, edit_card, move_card, delete_card, list_cards, get_card, get_tree, get_plan_diary, get_card_output, get_status,
@@ -155,15 +156,19 @@ export class LlmIntentResolver {
           client = new LlmProviderGateway({ baseUrl, apiKey, registry: this.registry });
           this.clientCache.set(cacheKey, client);
         }
-        const result = await client.complete(candidate, systemPrompt, messages, sessionId, {
+        const result = await client.complete(candidate, systemPrompt, messages, sessionId, buildLlmOptions(
+          'analyst',
+          'tools',
           tools,
-          tool_choice: 'auto',
-          stream: false,
-          temperature: modelParams.temperature,
-          max_tokens: modelParams.maxTokens,
-          recorder: this.recorderForSession(sessionId),
-        });
-        for (const toolCall of result.toolCalls ?? []) {
+          { temperature: modelParams.temperature, max_tokens: modelParams.maxTokens },
+          undefined,
+          this.recorderForSession(sessionId),
+        ));
+        if (result.kind === 'message') {
+          await this.availability.markSucceeded(candidate);
+          return { content: result.content, toolCalls: [] };
+        }
+        for (const toolCall of result.tool_calls) {
           const decision = RoleToolPolicy.assertAnalystSurfaceTool(toolCall.function.name, 'web');
           if (!decision.allowed) {
             await this.availability.markSucceeded(candidate);
@@ -171,7 +176,7 @@ export class LlmIntentResolver {
           }
         }
         await this.availability.markSucceeded(candidate);
-        return { content: result.content ?? '', toolCalls: result.toolCalls };
+        return { content: '', toolCalls: result.tool_calls };
       } catch (err) {
         const failure = unwrapFailure(err);
         if (failure.kind === 'auth_permanent') {

@@ -92,6 +92,7 @@ describe('Agent Events → Runtime EventEmitter', () => {
       role: 'planner',
       attempt: 1,
       duration_ms: 150,
+      terminal_tool: 'emit_planner_result',
     });
 
     // Assert
@@ -118,7 +119,7 @@ describe('Agent Events → Runtime EventEmitter', () => {
     // Act — emit all 6 event types
     runtime.emitAgentEvent('session_started', { session_id: 's1', role: 'planner', goal_id: 'g1', card_id: 'c1' });
     runtime.emitAgentEvent('model_selected', { session_id: 's1', provider: 'p', model: 'm', role: 'planner' });
-    runtime.emitAgentEvent('invocation_succeeded', { session_id: 's1', role: 'planner', attempt: 1, duration_ms: 100 });
+    runtime.emitAgentEvent('invocation_succeeded', { session_id: 's1', role: 'planner', attempt: 1, duration_ms: 100, terminal_tool: 'emit_planner_result' });
     runtime.emitAgentEvent('invocation_failed', { session_id: 's1', role: 'planner', attempt: 1, error_message: 'err' });
     runtime.emitAgentEvent('retry_attempted', { session_id: 's1', role: 'planner', attempt: 2, directive: 'retry' });
     runtime.emitAgentEvent('compaction_triggered', { session_id: 's1', role: 'planner', tokens_before: 1000, tokens_after: 500 });
@@ -149,7 +150,7 @@ describe('Agent Events → Runtime EventEmitter', () => {
     }
 
     runtime.emitAgentEvent('session_started', { session_id: 's1', role: 'planner', goal_id: 'g1', card_id: 'c1' });
-    runtime.emitAgentEvent('invocation_succeeded', { session_id: 's1', role: 'planner', attempt: 1, duration_ms: 100 });
+    runtime.emitAgentEvent('invocation_succeeded', { session_id: 's1', role: 'planner', attempt: 1, duration_ms: 100, terminal_tool: 'emit_planner_result' });
 
     expect(received).toContain('session_started');
     expect(received).toContain('invocation_succeeded');
@@ -252,6 +253,7 @@ describe('ActiveRuntime → AgentAdapter eventBus wiring', () => {
       role: 'planner',
       attempt: 1,
       duration_ms: 200,
+      terminal_tool: 'emit_planner_result',
     });
 
     expect(received).toContain('session_started');

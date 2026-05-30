@@ -28,7 +28,7 @@ export class LlmProviderGateway implements LlmInvocationClient {
     systemPrompt: string,
     messages: AgentMessage[],
     sessionId: string,
-    opts?: LlmCompleteOptions,
+    opts: LlmCompleteOptions,
   ): Promise<LlmCompleteResult> {
     this.assertCandidateCapabilities(candidate, opts);
     if (candidate.provider === 'openai-codex') {
@@ -37,12 +37,18 @@ export class LlmProviderGateway implements LlmInvocationClient {
     return new OpenAIChatGateway({ baseUrl: this.baseUrl, apiKey: this.apiKey }).complete(candidate, systemPrompt, messages, sessionId, opts);
   }
 
-  private assertCandidateCapabilities(candidate: Candidate, opts?: LlmCompleteOptions): void {
+  private assertCandidateCapabilities(candidate: Candidate, opts: LlmCompleteOptions): void {
     if (!this.registry) return;
+    const tools = opts.phase === 'terminal' ? [opts.terminalToolDefinition] : opts.tools;
+    const toolChoice = opts.phase === 'terminal'
+      ? { type: 'function', function: { name: opts.terminalToolName } }
+      : opts.tool_choice.kind === 'required_named'
+        ? { type: 'function', function: { name: opts.tool_choice.toolName } }
+        : 'auto';
     const request = capabilityRequestForLlmOptions({
-      tools: opts?.tools,
-      tool_choice: opts?.tool_choice,
-      stream: opts?.stream,
+      tools,
+      tool_choice: toolChoice,
+      stream: opts.stream,
       responseShape: candidate.provider === 'openai-codex' ? 'codex-backend' : 'openai-chat-choice',
     });
     const capabilities = this.registry.getEffectiveCapabilities(candidate);
