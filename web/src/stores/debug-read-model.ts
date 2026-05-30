@@ -1,6 +1,10 @@
 import type { CardRecord, DebugError, DebugTimelineEvent, ProcessView, RuntimeState } from '../api/types';
 import { redactObservabilityText, redactObservabilityValue } from '../utils/observabilityRedaction';
 import { selectChildrenOf } from './card-read-model';
+import { eventKindValues } from '../../../src/schemas/event-catalog';
+
+const CANONICAL_EVENT_KINDS = new Set<string>(eventKindValues as readonly string[]);
+export function isCanonicalEventKind(kind: string): boolean { return CANONICAL_EVENT_KINDS.has(kind); }
 
 const FAILURE_EVENT_KIND_RE = /^llm_attempt$|_error$|_failed$/;
 export const OPERATOR_STALE_AGE_MS = 60_000;
@@ -71,7 +75,9 @@ export function selectErrorsBySeverity(errors: DebugError[]): Map<string, DebugE
 }
 
 export function selectSortedTimeline(events: DebugTimelineEvent[]): DebugTimelineEvent[] {
-  return [...events].sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+  return events
+    .filter((event) => isCanonicalEventKind(event.kind))
+    .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
 }
 
 export function selectOperatorDataFreshnessLabel(lastFetchedAt: string | null, nowMs = Date.now()): 'fresh' | 'stale' | null {
@@ -129,7 +135,8 @@ export function selectSortedProcesses(processes: ReadonlyArray<ProcessView>): Pr
 }
 
 export function selectTimelineKindOptions(events: DebugTimelineEvent[]): string[] {
-  return Array.from(new Set(events.map((event) => event.kind))).sort();
+  const present = new Set(events.map((event) => event.kind).filter(isCanonicalEventKind));
+  return Array.from(present).sort();
 }
 
 export function filterTimelineByKinds(events: DebugTimelineEvent[], selectedKinds: string[]): DebugTimelineEvent[] {

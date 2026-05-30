@@ -6,7 +6,7 @@
         <span class="tool-chip-name">{{ call.name }}</span>
         <InlineParts v-if="nonInteractiveHeadline.length" class="tool-chip-headline" :parts="nonInteractiveHeadline" />
         <InlineParts v-if="nonInteractiveDetail.length" class="tool-chip-tag" :parts="nonInteractiveDetail" />
-        <span v-if="timestamp" class="tool-chip-time">{{ timestamp }}</span>
+        <span v-if="timestamp" class="tool-chip-time" :title="timestampTitle">{{ formattedTimestamp }}</span>
         <span class="tool-chip-caret" aria-hidden="true">{{ expanded ? '▾' : '▸' }}</span>
       </button>
       <InlineParts v-if="interactiveParts.length" class="tool-chip-links" :parts="interactiveParts" />
@@ -23,6 +23,7 @@ import { computed } from 'vue';
 import InlineParts from '../content/InlineParts.vue';
 import FormattedContent from '../content/FormattedContent.vue';
 import type { ToolCallPresentation, ToolResultPresentation } from '../../utils/tool-presenters';
+import { formatTimestamp, isRecentTimestamp, timestampTitle as absoluteTimestampTitle } from '../../utils/timestamp';
 
 const props = defineProps<{
   call: ToolCallPresentation;
@@ -46,6 +47,8 @@ const nonInteractiveDetail = computed(() => detail.value.filter((part) => !isInt
 const interactiveParts = computed(() => [...headline.value, ...detail.value].filter(isInteractive));
 const groupLabel = computed(() => `tool ${props.call.name} ${props.status}`);
 const toggleLabel = computed(() => `${props.expanded ? 'Collapse' : 'Expand'} tool ${props.call.name} details`);
+const formattedTimestamp = computed(() => props.timestamp ? formatTimestamp(props.timestamp, isRecentTimestamp(props.timestamp) ? 'relative' : 'absolute') : '');
+const timestampTitle = computed(() => props.timestamp ? absoluteTimestampTitle(props.timestamp) : '');
 </script>
 
 <style scoped>

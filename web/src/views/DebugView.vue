@@ -208,16 +208,19 @@
             </div>
           </section>
           <section v-for="server in mcpStore.servers" :key="server.name" class="debug-section">
-            <h4 class="debug-section-title">
-              {{ server.name }}
+            <h4 class="debug-section-title mcp-server-title">
+              <span class="mcp-server-name">{{ server.name }}</span>
               <span class="mcp-server-badge" :class="'mcp-status-' + server.status">{{ server.status }}</span>
+              <span class="mcp-sep" aria-hidden="true">·</span>
               <span class="mcp-server-transport">{{ server.transport }}</span>
+              <span class="mcp-sep" aria-hidden="true">·</span>
               <span class="mcp-tool-count">{{ server.toolCount }} tools</span>
             </h4>
             <div v-if="server.tools.length === 0" class="debug-empty" style="padding:8px;font-size:12px;">No tools discovered.</div>
             <div v-for="tool in server.tools" :key="tool.name" class="mcp-tool-card">
               <div class="mcp-tool-name-row">
                 <span class="mcp-tool-name">{{ tool.name }}</span>
+                <span class="mcp-sep" aria-hidden="true">·</span>
                 <span class="mcp-tool-desc">{{ tool.description || 'No description' }}</span>
               </div>
               <div class="mcp-tool-stats">
@@ -538,6 +541,23 @@ onUnmounted(() => { mcpStore.stopPolling(); });
 .mcp-server-transport { font-size:10px; color:var(--border-strong); margin-left:6px; font-family:'SF Mono',monospace; }
 .mcp-tool-count { font-size:10px; color:var(--text-muted); margin-left:6px; }
 .mcp-tool-card { padding:8px 12px; background:var(--surface-1); border:1px solid var(--surface-3); border-radius:6px; margin-bottom:6px; }
+.mcp-server-title { display:flex; align-items:center; flex-wrap:wrap; gap:8px; }
+.mcp-server-name { text-transform:none; color:var(--text); }
+.mcp-sep { color:var(--text-muted); font-weight:400; }
+.mcp-tool-name-row { display:flex; align-items:baseline; flex-wrap:wrap; gap:8px; margin-bottom:4px; }
+.mcp-tool-name { font-family:'SF Mono',monospace; font-size:12px; color:var(--accent-2); font-weight:600; }
+.mcp-tool-desc { font-size:12px; color:var(--text-muted); }
+.mcp-tool-stats { display:flex; flex-wrap:wrap; gap:12px; font-size:11px; color:var(--text-muted); }
+.mcp-stat-item { display:inline-flex; align-items:center; gap:4px; }
+.mcp-stat-success { color:var(--accent); }
+.mcp-stat-error { color:var(--danger); }
+.sv-stats-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(140px,1fr)); gap:10px; margin-bottom:12px; }
+.sv-stat-card { display:flex; flex-direction:column; align-items:flex-start; gap:4px; padding:12px; background:var(--surface-1); border:1px solid var(--surface-3); border-radius:6px; }
+.sv-stat-num { font-size:22px; font-weight:700; color:var(--text); line-height:1; }
+.sv-stat-label { font-size:11px; color:var(--text-muted); text-transform:uppercase; letter-spacing:.03em; }
+.sv-stat-card.sv-stat-blocked .sv-stat-num { color:var(--danger); }
+.sv-stat-card.sv-stat-passed .sv-stat-num { color:var(--accent); }
+.sv-stat-card.sv-stat-sanitized .sv-stat-num { color:var(--warn); }
 .process-header { display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-bottom:10px; }
 .process-status-badge { font-size:10px; font-weight:600; padding:2px 8px; border-radius:999px; text-transform:uppercase; }
 .process-status-badge.ps-running { background:var(--entry-accent-bg); color:var(--accent); }

@@ -27,4 +27,15 @@ describe('ToolChip', () => {
     const wrapper = mount(ToolChip, { props: { call: presentation, result: null, callContent: JSON.stringify(presentation.body), resultContent: null, status: 'pending', expanded: true, detailsId: 'tool-test' }, global: { plugins: [r] } });
     expect(wrapper.find('.tool-chip-body').exists()).toBe(true);
   });
+
+  it('renders timestamp in a human-friendly form instead of raw ISO', async () => {
+    const r = router(); await r.push('/'); await r.isReady();
+    const ts = '2026-05-30T06:50:18.761Z';
+    const wrapper = mount(ToolChip, { props: { call: presentation, result: null, callContent: '{}', resultContent: null, status: 'pending', expanded: false, detailsId: 'tool-ts', timestamp: ts }, global: { plugins: [r] } });
+    const span = wrapper.find('.tool-chip-time');
+    expect(span.exists()).toBe(true);
+    expect(span.text()).not.toBe(ts);
+    expect(span.text()).toMatch(/ago|just now|\bm\b|\bh\b|\bd\b|2026/i);
+    expect(span.attributes('title')).toBeTruthy();
+  });
 });
