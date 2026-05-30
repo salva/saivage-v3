@@ -8,6 +8,7 @@ import {
   sendChatMessage,
 } from '../api/client';
 import { useWorkspaceRouteStore } from './workspaceRoute';
+import { parseToolCallMessage } from '../utils/persistedToolCall';
 
 export const ANALYST_SESSION_ID = 'analyst';
 const MAX_PENDING_TOOL_INVOCATIONS = 12;
@@ -102,9 +103,8 @@ function toolInvocationMatchesMessage(invocation: PendingToolInvocation, message
 
   if (message.kind === 'tool_call') {
     try {
-      const parsed = JSON.parse(message.content) as { tool_calls?: Array<{ function?: { name?: unknown } }> };
-      return Array.isArray(parsed.tool_calls)
-        && parsed.tool_calls.some((call) => String(call.function?.name ?? invocation.tool) === invocation.tool);
+      const call = parseToolCallMessage(JSON.parse(message.content));
+      return call.name === invocation.tool;
     } catch {
       return true;
     }

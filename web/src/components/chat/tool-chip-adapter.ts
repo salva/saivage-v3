@@ -25,7 +25,7 @@ export function adaptChatMessageToToolChip(call: ConversationEntry, result: Conv
     }
   }
 
-  const callPres = presentToolCall(call.content, call.tool);
+  const callPres = presentToolCall(call.content);
   const resultPres = result ? presentToolResult(result.content, { tool: result.tool, kind: result.kind }) : null;
   return {
     call: callPres,
@@ -41,6 +41,13 @@ export function adaptChatMessageToToolChip(call: ConversationEntry, result: Conv
 
 export function adaptPendingInvocationToToolChip(pending: PendingCall & { summary?: string }, expanded: boolean): ToolChipPropsBag {
   const summary = pending.summary ?? `${pending.tool} is running`;
-  const callContent = JSON.stringify({ tool: pending.tool, summary });
-  return { call: presentToolCall(callContent, pending.tool), result: null, callContent, resultContent: null, status: 'pending', expanded, detailsId: `pending-tool-${pending.id}`, timestamp: pending.started_at };
+  const callContent = JSON.stringify({
+    role: 'assistant',
+    tool_calls: [{
+      id: `pending-${pending.id}`,
+      type: 'function',
+      function: { name: pending.tool, arguments: JSON.stringify({ summary }) },
+    }],
+  });
+  return { call: presentToolCall(callContent), result: null, callContent, resultContent: null, status: 'pending', expanded, detailsId: `pending-tool-${pending.id}`, timestamp: pending.started_at };
 }

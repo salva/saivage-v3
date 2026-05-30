@@ -1,4 +1,5 @@
-import type { InlinePart, ResultPresenterContext, ToolCallEnvelope } from './types';
+import { parseToolCallMessage } from '../persistedToolCall';
+import type { InlinePart, ResultPresenterContext, ToolCallMessage } from './types';
 
 export function safeJsonParse(content: string): unknown {
   try { return JSON.parse(content) as unknown; } catch { return null; }
@@ -6,11 +7,6 @@ export function safeJsonParse(content: string): unknown {
 
 export function asRecord(value: unknown): Record<string, unknown> | null {
   return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : null;
-}
-
-function parseArgs(value: unknown): unknown {
-  if (typeof value === 'string') return safeJsonParse(value) ?? value;
-  return value;
 }
 
 export function str(value: unknown): string {
@@ -65,18 +61,10 @@ export function pathParts(pathValue: unknown): InlinePart[] {
   return [file ?? { kind: 'text', text: shortPath(path) }];
 }
 
-export function readToolCallEnvelope(rawContent: string, fallbackName?: string): ToolCallEnvelope {
-  const parsed = asRecord(safeJsonParse(rawContent));
-  const toolCalls = Array.isArray(parsed?.tool_calls) ? parsed.tool_calls : [];
-  const first = asRecord(toolCalls[0]);
-  const fn = asRecord(first?.function);
-  const name = typeof fn?.name === 'string'
-    ? fn.name
-    : typeof first?.tool === 'string'
-      ? first.tool
-      : fallbackName ?? 'tool_call';
-  const args = fn && 'arguments' in fn ? parseArgs(fn.arguments) : parseArgs(first?.params ?? {});
-  return { name, args };
+export function readToolCallMessage(rawContent: string): ToolCallMessage {
+  const row = JSON.parse(rawContent);
+  const call = parseToolCallMessage(row);
+  return { name: call.name, args: call.args };
 }
 
 export function describeCardOutcome(ctx: ResultPresenterContext, defaultVerb: string): { headline: InlinePart[]; detail?: InlinePart[] } {

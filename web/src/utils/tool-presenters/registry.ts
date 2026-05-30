@@ -1,4 +1,4 @@
-import { argKeys, asRecord, oneLine, readToolCallEnvelope, resultName, safeJsonParse, textPart } from './helpers';
+import { argKeys, asRecord, oneLine, readToolCallMessage, resultName, safeJsonParse, textPart } from './helpers';
 import type { CallPresenter, ResultPresenter, ToolCallPresentation, ToolPresenterRegistration, ToolResultPresentation } from './types';
 
 const RESULT_ICON_OK = '↩';
@@ -17,19 +17,18 @@ export function assertDefault(): void {
   if (!defaultRegistrationLoaded) throw new Error('tool presenter default registration was not loaded');
 }
 
-export function presentToolCall(rawContent: string, fallbackName?: string): ToolCallPresentation {
-  const envelope = readToolCallEnvelope(rawContent, fallbackName);
-  const argsRecord = asRecord(envelope.args) ?? {};
-  const presenter = callPresenters.get(envelope.name);
+export function presentToolCall(rawContent: string): ToolCallPresentation {
+  const message = readToolCallMessage(rawContent);
+  const presenter = callPresenters.get(message.name);
   if (presenter) {
-    const rendered = presenter(argsRecord);
-    return { icon: rendered.icon, name: envelope.name, headline: rendered.headline, detail: rendered.detail, body: envelope.args, bodyKind: 'json' };
+    const rendered = presenter(message.args);
+    return { icon: rendered.icon, name: message.name, headline: rendered.headline, detail: rendered.detail, body: message.args, bodyKind: 'json' };
   }
-  const keys = argKeys(argsRecord);
+  const keys = argKeys(message.args);
   return {
-    icon: '🔧', name: envelope.name,
-    headline: textPart(keys ? `(${keys})` : ''), detail: textPart(oneLine(envelope.args, 96)),
-    body: envelope.args, bodyKind: 'json',
+    icon: '🔧', name: message.name,
+    headline: textPart(keys ? `(${keys})` : ''), detail: textPart(oneLine(message.args, 96)),
+    body: message.args, bodyKind: 'json',
   };
 }
 

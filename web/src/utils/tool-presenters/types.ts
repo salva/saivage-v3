@@ -25,9 +25,9 @@ export interface ToolResultPresentation {
   bodyKind: 'json' | 'markdown' | 'text';
 }
 
-export interface ToolCallEnvelope {
+export interface ToolCallMessage {
   name: string;
-  args: unknown;
+  args: Record<string, unknown>;
 }
 
 export interface CallPresenterResult {

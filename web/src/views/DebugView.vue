@@ -178,6 +178,11 @@
           <div v-else class="timeline-list">
             <div v-for="event in filteredTimeline" :key="timelineKey(event)" class="tl-event">
               <span class="tl-event-type">{{ formatEventKind(event.kind) }}</span>
+              <span
+                v-if="typeof event.terminal_tool === 'string'"
+                class="tl-event-terminal-tool"
+                title="terminal tool emitted on this attempt"
+              >{{ event.terminal_tool }}</span>
               <span v-if="event.card_id" class="tl-event-card mono">Card: {{ event.card_id }}</span>
               <span v-if="event.goal_id" class="tl-event-card mono">Goal: {{ event.goal_id }}</span>
               <span v-if="event.session_id" class="tl-event-card mono">Session: {{ event.session_id }}</span>
@@ -404,7 +409,7 @@ function availabilityClass(proc: ProcessView): string { return proc.control.term
 function fmtDate(ts: string): string { return formatTimestamp(ts, isRecentTimestamp(ts) ? 'relative' : 'absolute'); }
 function formatEventKind(kind: string): string { return kind.replace(/_/g, ' '); }
 function timelineKey(event: DebugTimelineEvent): string { return String(event.id || `${event.timestamp}:${event.kind}:${event.card_id || event.goal_id || event.session_id || ''}`); }
-function timelineDetails(event: DebugTimelineEvent): Record<string, unknown> { const details: Record<string, unknown> = {}; for (const [key, value] of Object.entries(event)) { if (['id', 'kind', 'timestamp', 'card_id', 'goal_id', 'session_id'].includes(key)) continue; if (value === undefined || value === null) continue; details[key] = value; } return redactObservabilityValue(details); }
+function timelineDetails(event: DebugTimelineEvent): Record<string, unknown> { const details: Record<string, unknown> = {}; for (const [key, value] of Object.entries(event)) { if (['id', 'kind', 'timestamp', 'card_id', 'goal_id', 'session_id', 'terminal_tool'].includes(key)) continue; if (value === undefined || value === null) continue; details[key] = value; } return redactObservabilityValue(details); }
 
 onMounted(async () => { debugStore.setupWsListener(); await debugStore.fetchAll(); mcpStore.fetchMcpData().catch(() => {}); mcpStore.startPolling(15000); });
 onUnmounted(() => { mcpStore.stopPolling(); });
@@ -517,6 +522,7 @@ onUnmounted(() => { mcpStore.stopPolling(); });
 .tl-event-type { font-family:'SF Mono',monospace; font-size:11px; color:var(--accent-2); font-weight:500; }
 .tl-event-card { font-size:10px; color:var(--text-muted); }
 .tl-event-time { font-size:10px; color:var(--border-strong); margin-left:auto; }
+.tl-event-terminal-tool { padding:1px 6px; background:var(--surface-3); border:1px solid var(--border); border-radius:8px; color:var(--accent-2); font-family:'SF Mono',monospace; font-size:10px; }
 .mcp-server-badge { font-size:10px; font-weight:600; padding:1px 5px; border-radius:4px; text-transform:uppercase; margin-left:8px; }
 .mcp-server-badge.mcp-status-running { background:var(--entry-accent-bg); color:var(--accent); }
 .mcp-server-badge.mcp-status-stopped { background:var(--surface-3); color:var(--text-muted); }

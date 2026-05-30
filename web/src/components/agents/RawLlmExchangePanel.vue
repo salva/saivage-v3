@@ -51,6 +51,15 @@
         >Attempt {{ att.attempt }}</button>
       </nav>
 
+      <div v-if="selectedAttempt" class="rlp-attempt-meta">
+        <span class="rlp-meta-item">Status: <span class="rlp-meta-value">{{ selectedAttempt.status }}</span></span>
+        <span
+          v-if="selectedAttempt.terminalTool"
+          class="rlp-terminal-tool-badge"
+          :title="`terminal tool emitted on this attempt`"
+        >{{ selectedAttempt.terminalTool }}</span>
+      </div>
+
       <div v-if="selectedAttempt" class="rlp-panes">
         <div class="rlp-pane">
           <h3 class="rlp-pane-title">Request</h3>
@@ -203,6 +212,8 @@ watch(() => props.sessionId, maybeFetch);
 .rlp-status--error { color:var(--danger); background:var(--entry-danger-bg); border:1px solid var(--entry-danger-border); border-radius:4px; }
 .rlp-tabs { display:flex; gap:4px; border-bottom:1px solid var(--border); padding-bottom:6px; flex-wrap:wrap; }
 .rlp-attempt-tab { padding:3px 10px; background:var(--surface-1); border:1px solid var(--border); border-radius:4px; color:var(--text-muted); font-size:11px; cursor:pointer; font-family:inherit; }
+.rlp-attempt-meta { display:flex; flex-wrap:wrap; align-items:center; gap:8px; font-size:11px; color:var(--text-muted); }
+.rlp-terminal-tool-badge { padding:2px 8px; background:var(--surface-3); border:1px solid var(--border); border-radius:10px; color:var(--accent-2); font-family:'SF Mono',monospace; font-size:10px; }
 
 .rlp-panes { display:flex; gap:10px; }
 .rlp-pane { flex:1; min-width:0; display:flex; flex-direction:column; gap:6px; }
