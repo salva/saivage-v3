@@ -64,12 +64,7 @@ export function createActivationCompletionEnvelope(input: { child_card_id: strin
 export function parseDeferredActivationEnvelope(value: unknown): import('./types.js').DeferredActivationEnvelopeV1 | null {
   const raw = typeof value === 'string' ? safeParseJson(value) : value;
   const parsed = deferredActivationEnvelopeV1Schema.safeParse(raw);
-  if (parsed.success) return parsed.data;
-  if (raw && typeof raw === 'object' && (raw as Record<string, unknown>).__saivage_defer_tool_result === true) {
-    const child = (raw as Record<string, unknown>).child_card_id ?? (raw as Record<string, unknown>).cardId ?? (raw as Record<string, unknown>).card_id;
-    if (typeof child === 'string' && child.length > 0) return { kind: 'deferred_activate_card', version: 1, parent_card_id: 'legacy', child_card_id: child, planner_session_id: 'legacy', tool_call_id: 'legacy', requested_at: new Date(0).toISOString() };
-  }
-  return null;
+  return parsed.success ? parsed.data : null;
 }
 
 export function parseActivationCompletionEnvelope(value: unknown): import('./types.js').ActivationCompletionEnvelopeV1 | null {

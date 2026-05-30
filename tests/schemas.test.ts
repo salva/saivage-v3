@@ -32,8 +32,7 @@ describe('Activation envelope schemas', () => {
     expect(parseDeferredActivationEnvelope(JSON.stringify({ kind: 'deferred_activate_card', version: 1, child_card_id: 'code-a' }))).toBeNull();
   });
 
-  it('parses legacy deferred sentinels and legacy completion JSON into typed envelopes', () => {
-    expect(parseDeferredActivationEnvelope(JSON.stringify({ __saivage_defer_tool_result: true, cardId: 'legacy-child' }))?.child_card_id).toBe('legacy-child');
+  it('parses legacy completion JSON into typed envelopes', () => {
     const completion = parseActivationCompletionEnvelope(JSON.stringify({ success: false, cardId: 'legacy-child', outcome: 'failed', summary: 'old', failure_kind: 'service_restart' }));
     expect(completion).toEqual(expect.objectContaining({ kind: 'activate_card_completion', version: 1, child_card_id: 'legacy-child', cardId: 'legacy-child', success: false, failure_kind: 'service_restart' }));
   });

@@ -5,7 +5,7 @@ import { ProviderRegistry, type Candidate } from './provider.js';
 import { ModelRouter } from './model-router.js';
 import { type CandidateAvailability, MemoryCandidateAvailability } from './candidate-availability.js';
 import { createSession, completeSession, appendMessage as appendPersistentMessage, getSession, markSessionWaiting, setSessionStatus, updateSessionModel, assertNoActiveAgentSession } from './session-persistence.js';
-import type { AgentInvocationRole, AgentMessage, HandoffSummary, LoggedEvent, OperationalAgentRole, MessageKind, MessageRole, EntityLink, LlmAttemptOutcome, LlmAttemptPayload, LlmFailureClass, DeferredActivationEnvelopeV1 } from '../schemas/index.js';
+import type { AgentInvocationRole, AgentMessage, HandoffSummary, LoggedEvent, OperationalAgentRole, MessageKind, MessageRole, EntityLink, LlmAttemptOutcome, LlmAttemptPayload, LlmFailureClass } from '../schemas/index.js';
 import type { NotificationCenter } from '../notifications/index.js';
 import { invokeWithRecovery, type RecoveryContext } from './recovery.js';
 import type { ContentSupervisor } from '../workspace/index.js';
@@ -25,7 +25,6 @@ import { SkillsEngine } from './skills-engine.js';
 import { getProjectNotificationCenter } from '../notifications/notification-delivery.js';
 import { CardStore } from '../cards/store-api.js';
 import { injectQueuedSyntheticPlannerNotes } from '../agents/analyst-stage6.js';
-import { parseDeferredActivationEnvelope } from '../schemas/index.js';
 import { PlannerControlExecutor } from './planner-control-executor.js';
 import type { Contract } from '../contracts/contract.js';
 import { createPlannerContract, type PlannerEnvelope, type PlannerTypedResult } from '../contracts/planner-contract.js';
@@ -316,7 +315,6 @@ export class AgentAdapter implements AgentExecutionPort {
               const turnTools = [...tools, ...contract.terminals.map((t) => t.toolDefinition)];
               const maxToolTurns = this.runtimeConfig.maxToolTurns ?? 16;
               const verifier = createContractVerifier();
-              const runtimeDoneQueue: E[] = [];
               const io: AgentLoopDriverIO<E, R> = {
                 contract,
                 verifier,
@@ -343,40 +341,10 @@ export class AgentAdapter implements AgentExecutionPort {
                 },
                 executeActionToolCalls: async (result) => {
                   if (result.kind !== 'tool_calls') return { runtimeSignalledDone: false };
-                  const toolMessages: Array<{ role: 'tool'; kind: 'tool_result' | 'tool_error'; content: string; tool: string; tool_call_id: string }> = [];
-                  const deferredActivations: DeferredActivationEnvelopeV1[] = [];
                   for (const tc of result.tool_calls) {
                     if (contract.isTerminalToolName(tc.function.name)) continue;
                     const msg = await this.processToolCall(tc, role, session.id, { goalId, cardId });
-                    const deferred = role === 'planner' && tc.function.name === 'activate_card' ? parseDeferredActivationEnvelope(msg.content) : null;
-                    if (deferred) deferredActivations.push(deferred);
-                    else toolMessages.push(msg);
-                  }
-                  for (const msg of toolMessages) this.appendSessionMessage(session.id, { role: msg.role, kind: msg.kind, content: msg.content, tool: msg.tool, tool_call_id: msg.tool_call_id });
-                  if (toolMessages.length === 0 && deferredActivations.length > 0 && role === 'planner') {
-                    const activatedIds = deferredActivations.map((envelope) => envelope.child_card_id);
-                    const cardStoreSynth = new CardStore(this.projectRoot);
-                    const blockingReasons: string[] = [];
-                    for (const cid of activatedIds) {
-                      const card = cardStoreSynth.read(cid);
-                      if (!card) { blockingReasons.push(`card ${cid} not found`); continue; }
-                      for (const depId of (card.depends_on ?? [])) {
-                        const dep = cardStoreSynth.read(depId);
-                        if (dep && (dep.status === 'failed' || dep.status === 'blocked')) {
-                          blockingReasons.push(`${cid} depends on ${depId} (status=${dep.status})`);
-                        }
-                      }
-                    }
-                    if (blockingReasons.length > 0) {
-                      const blockedReason = `Cannot activate child: ${blockingReasons.join('; ')}`;
-                      this.appendSessionMessage(session.id, { role: 'system', kind: 'model_issue', content: `Synthesised planner BLOCKED envelope for deferred activate_card: ${this.redactModelIssueText(blockedReason)}` });
-                      runtimeDoneQueue.push({ kind: 'result', payload: { status: 'blocked', blocked_reason: blockedReason, summary: blockedReason, created_cards: [], updated_cards: [] } } as unknown as E);
-                    } else {
-                      const synthSummary = activatedIds.length > 0 ? `Activated child card${activatedIds.length === 1 ? '' : 's'} ${activatedIds.join(', ')}; awaiting completion.` : 'Activated child card; awaiting completion.';
-                      this.appendSessionMessage(session.id, { role: 'system', kind: 'model_issue', content: `Synthesised planner continuation envelope for deferred activate_card: ${this.redactModelIssueText(synthSummary)}` });
-                      runtimeDoneQueue.push({ kind: 'deferred', payload: deferredActivations[0] } as unknown as E);
-                    }
-                    return { runtimeSignalledDone: true };
+                    this.appendSessionMessage(session.id, { role: msg.role, kind: msg.kind, content: msg.content, tool: msg.tool, tool_call_id: msg.tool_call_id });
                   }
                   return { runtimeSignalledDone: false };
                 },
@@ -397,7 +365,6 @@ export class AgentAdapter implements AgentExecutionPort {
                   if (this.eventLogger) this.eventLogger.appendEvent({ kind: 'llm_verifier_rejection', session_id: event.session_id, role: event.role as import('../schemas/types.js').AgentRole, contract_id: event.contract_id, attempt: event.attempt, repair_round: event.repair_round, obligation_codes: event.obligation_codes, proposed_present: event.proposed_present });
                   if (this.eventBus) this.eventBus.emit('llm_verifier_rejection', event);
                 },
-                takeRuntimeDoneEnvelope: () => runtimeDoneQueue.shift() ?? null,
               };
               const driver = createAgentLoopDriver<E, R>(io);
               const outcome = await driver.run();
