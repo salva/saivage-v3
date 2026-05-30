@@ -28,7 +28,7 @@ function writeMinimalConfig(tmpDir: string): void {
       },
     },
     server: { port: 8080, host: '0.0.0.0' },
-    runtime: { candidateAvailabilityCompactBytes: 262144, recoverAgentInvocations: true, healthCheckIntervalMs: 30000, idleShutdownMs: 300000, maxGoalDepth: 5, recoveryDelayMs: 60000, autoDispatchBacklog: true, continuousImprovement: false, maxReviewRetries: 3, processTimeouts: { plannerMs: 1200000, executorMs: 1200000, reviewerMs: 1200000 }, compactionThreshold: 0.8, maxCompactions: 3, compactionTimeoutMs: 1200000, compactionKeepFraction: 0.2, maxRecoveryRetries: 3, maxToolTurns: 16, selfCheck: { executor: 15, planner: 30, analyst: 0 } },
+    runtime: { candidateAvailabilityCompactBytes: 262144, recoverAgentInvocations: true, healthCheckIntervalMs: 30000, idleShutdownMs: 300000, maxGoalDepth: 5, recoveryDelayMs: 60000, autoDispatchBacklog: true, continuousImprovement: false, maxReviewRetries: 3, processTimeouts: { plannerMs: 1200000, executorMs: 1200000, reviewerMs: 1200000 }, compactionThreshold: 0.8, maxCompactions: 3, compactionTimeoutMs: 1200000, compactionKeepFraction: 0.2, maxRecoveryRetries: 3, maxToolTurns: 16 },
     security: { injectionScanner: true, maxScanLengthBytes: 102400 },
     supervisor: { enabled: true, intervalMs: 1200000, consecutiveStuckVerdicts: 3, logLines: 400 },
   };

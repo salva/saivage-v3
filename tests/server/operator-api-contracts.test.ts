@@ -332,6 +332,7 @@ describe('operator API contract registry', () => {
     const parsed = parseOperatorResponse('agents.llmExchange', {
       exchange: {
         sessionId: 'planner-1',
+        contract_id: 'planner.v1',
         capturedAt: '2026-01-01T00:00:00.000Z',
         transport: 'generic',
         candidate: { provider: 'test-provider', model: 'test-model' },

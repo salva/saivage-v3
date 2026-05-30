@@ -19,7 +19,6 @@ const LEGACY_RUNTIME_KEYS = new Set([
   'compactionTimeoutMs',
   'compactionKeepFraction',
   'maxRecoveryRetries',
-  'selfCheck',
 ]);
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -143,13 +142,6 @@ const serverSectionSchema = z.object({
   host: z.string().default('0.0.0.0'),
 });
 
-// Self-check configuration for the self-check mechanism
-const selfCheckSchema = z.object({
-  executor: z.number().int().nonnegative().default(15),
-  planner: z.number().int().nonnegative().default(30),
-  analyst: z.number().int().nonnegative().default(0),
-});
-
 // Runtime section
 const processTimeoutsPersistedSchema = z.object({
   planner_ms: z.number().int().positive().default(1200000),
@@ -186,7 +178,6 @@ export const runtimeSectionSchema = z.object({
   compactionKeepFraction: 0.2,
   maxRecoveryRetries: 3,
   maxToolTurns: 16,
-  selfCheck: { executor: 15, planner: 30, analyst: 0 },
 }));
 
 // Security section
@@ -263,7 +254,6 @@ export type RuntimeSection = z.infer<typeof runtimeSectionSchema>;
 export type ModelsSection = z.infer<typeof modelsSectionSchema>;
 export type NotificationChannelConfig = z.infer<typeof notificationChannelSchema>;
 export type NotificationSeverityConfig = z.infer<typeof notificationSeveritySchema>;
-export type SelfCheckConfig = z.infer<typeof selfCheckSchema>;
 
 // ── Token Endpoint Resolution ─────────────────────────────────
 
@@ -376,7 +366,6 @@ export function loadConfig(projectRoot: string, env: EnvironmentSource = process
     const legacy = migration.legacyRuntime;
     if (typeof legacy['recoveryDelayMs'] === 'number') runtime.recoveryDelayMs = legacy['recoveryDelayMs'];
     if (typeof legacy['maxRecoveryRetries'] === 'number') runtime.maxRecoveryRetries = legacy['maxRecoveryRetries'];
-    if (isRecord(legacy['selfCheck'])) runtime.selfCheck = selfCheckSchema.parse(legacy['selfCheck']);
   }
 
   return { config: parsed.data, warnings };
@@ -424,15 +413,3 @@ export function getRuntimeConfig(config: SaivageConfig): RuntimeSection {
   return config.runtime;
 }
 
-/**
- * Get the self-check round threshold for a role.
- * Returns 0 (never) for unknown roles.
- */
-export function getSelfCheckThreshold(
-  config: SaivageConfig,
-  role: string,
-): number {
-  const sc = config.runtime.selfCheck;
-  if (!sc) return 0;
-  return (sc as Record<string, number | undefined>)[role] ?? 0;
-}

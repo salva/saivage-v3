@@ -165,7 +165,6 @@ export const llmAttemptEventSchema = buildLoggedEventSchema('llm_attempt');
 export const llmInvocationSummaryEventSchema = buildLoggedEventSchema('llm_invocation_summary');
 export const llmVerifierRejectionEventSchema = buildLoggedEventSchema('llm_verifier_rejection');
 export const compactionTriggeredEventSchema = passthroughBaseEventSchema.extend({ kind: z.literal('compaction_triggered'), session_id: z.string(), role: agentRoleSchema, tokens_before: z.number(), tokens_after: z.number() });
-export const selfCheckTriggeredEventSchema = passthroughBaseEventSchema.extend({ kind: z.literal('self_check_triggered'), session_id: z.string(), role: agentRoleSchema, rounds: z.number(), threshold: z.number(), response: z.string().nullable().optional() });
 export const modelIssueEventSchema = passthroughBaseEventSchema.extend({ kind: z.literal('model_issue'), session_id: z.string(), role: agentRoleSchema.optional(), message: z.string() });
 export const sessionCancelledEventSchema = passthroughBaseEventSchema.extend({ kind: z.literal('session_cancelled'), session_id: z.string() });
 export const sessionForceCancelledEventSchema = passthroughBaseEventSchema.extend({ kind: z.literal('session_force_cancelled'), session_id: z.string() });

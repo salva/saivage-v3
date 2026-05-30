@@ -51,7 +51,7 @@ export interface ExecutorAttachmentDef {
   path?: string;
 }
 
-export type ExecutorFallbackReason = 'tool_calls_envelope_recovery' | 'self_check_recovery' | 'parse_failure';
+export type ExecutorFallbackReason = 'tool_calls_envelope_recovery' | 'parse_failure';
 
 export interface ExecutorResult {
   card_id: string;

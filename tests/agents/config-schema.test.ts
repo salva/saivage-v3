@@ -134,14 +134,12 @@ describe('config-schema', () => {
           continuousImprovement: false,
           maxRecoveryRetries: 9,
           recoveryDelayMs: 12345,
-          selfCheck: { executor: 1, planner: 2, analyst: 3 },
         },
       });
 
       const { config } = loadConfig(TEST_ROOT);
       expect(config.runtime.maxRecoveryRetries).toBe(9);
       expect(config.runtime.recoveryDelayMs).toBe(12345);
-      expect(config.runtime.selfCheck).toEqual({ executor: 1, planner: 2, analyst: 3 });
       const migrated = JSON.parse(readFileSync(CONFIG_PATH, 'utf-8'));
       expect(migrated.runtime).toEqual({ continuous_improvement: false, max_review_retries: 9 });
     });
