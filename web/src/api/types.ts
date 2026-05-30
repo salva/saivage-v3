@@ -303,6 +303,7 @@ export type MessageKind =
   | 'tool_error'
   | 'model_issue'
   | 'model_repair'
+  | 'context_compaction'
   | 'model_recovered';
 
 export interface AgentSession {

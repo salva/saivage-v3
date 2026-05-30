@@ -214,7 +214,7 @@ export class AgentAdapter implements AgentExecutionPort {
   private appendSessionMessage(sessionId: string, message: { role: MessageRole; kind: MessageKind; content: string; tool?: string; tool_call_id?: string; links?: EntityLink[] }) {
     const stamp = message.role === 'user'
       ? this.nextFallbackRound(sessionId, 'user')
-      : message.kind === 'model_issue' || message.kind === 'model_repair' || message.kind === 'model_recovered'
+      : message.kind === 'model_issue' || message.kind === 'model_repair' || message.kind === 'context_compaction' || message.kind === 'model_recovered'
         ? this.nextFallbackRound(sessionId, 'diagnostic')
         : message.role === 'assistant' && message.kind === 'text'
           ? this.nextFallbackRound(sessionId, 'assistant')

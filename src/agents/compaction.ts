@@ -207,7 +207,7 @@ function createCompactionMessage(sessionId: string, stamp: RoundStamp, id: strin
     id,
     session_id: sessionId,
     role: 'system',
-    kind: 'model_repair',
+    kind: 'context_compaction',
     round_id: stamp.round_id,
     message_index: stamp.message_index,
     block_index: stamp.block_index,

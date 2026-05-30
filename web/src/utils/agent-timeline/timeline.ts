@@ -24,7 +24,7 @@ function buildToolPairs(entries: ConversationEntry[]): ToolPair[] {
 
 function fallbackRoundKind(entry: ConversationEntry): TimelineRoundKind {
   if (entry.role === 'user') return 'user';
-  if (entry.kind === 'model_issue' || entry.kind === 'model_repair' || entry.kind === 'model_recovered') return 'diagnostic';
+  if (entry.kind === 'model_issue' || entry.kind === 'model_repair' || entry.kind === 'context_compaction' || entry.kind === 'model_recovered') return 'diagnostic';
   return 'assistant';
 }
 
@@ -70,7 +70,7 @@ export function entriesToTimeline(entries: readonly ConversationEntry[], activit
   const rounds: TimelineRound[] = sortedGroups.map(({ id, entries: roundEntries }, idx) => {
     const parsed = parseRoundId(id);
     const sorted = [...roundEntries].sort(compareEntry);
-    return { id, kind: parsed.kind, position: idx + 1, entries: sorted, texts: sorted.filter((entry) => entry.kind === 'text' || entry.kind === 'activity'), diagnostics: sorted.filter((entry) => entry.kind === 'model_issue' || entry.kind === 'model_repair' || entry.kind === 'model_recovered'), toolPairs: buildToolPairs(sorted), activityStatus: null };
+    return { id, kind: parsed.kind, position: idx + 1, entries: sorted, texts: sorted.filter((entry) => entry.kind === 'text' || entry.kind === 'activity'), diagnostics: sorted.filter((entry) => entry.kind === 'model_issue' || entry.kind === 'model_repair' || entry.kind === 'context_compaction' || entry.kind === 'model_recovered'), toolPairs: buildToolPairs(sorted), activityStatus: null };
   });
   const activeRound = [...rounds].reverse().find((round: TimelineRound) => round.kind === 'assistant') ?? rounds[rounds.length - 1] ?? null;
   if (activeRound && activityStatus && activityStatus.status !== 'idle') activeRound.activityStatus = activityStatus;
