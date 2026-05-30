@@ -2,24 +2,23 @@ import { describe, it, expect } from '@jest/globals';
 import {
   parseToolCallMessage,
   serializeToolCallMessage,
+  PersistedRowCorruptError,
 } from '../../src/agents/persisted-tool-call.js';
-import { unwrapFailure } from '../../src/agents/llm-failure.js';
 
 describe('parseToolCallMessage', () => {
-  it('rejects legacy {toolCalls:[...]} wrapper as contract_mismatch / legacy_message_shape', () => { // legacy_message_shape: negative-test
-    const legacy = { toolCalls: [{ id: 'c1', name: 'emit_planner_result', args: {} }] }; // legacy_message_shape: negative-test
+  it('rejects legacy {toolCalls:[...]} wrapper as PersistedRowCorruptError(legacy_tool_calls_wrapper)', () => {
+    const legacy = { toolCalls: [{ id: 'c1', name: 'emit_planner_result', args: {} }] };
     let caught: unknown;
     try {
       parseToolCallMessage(legacy);
     } catch (err) {
       caught = err;
     }
-    const failure = unwrapFailure(caught);
-    expect(failure.kind).toBe('contract_mismatch');
-    expect(failure).toMatchObject({ kind: 'contract_mismatch', subtype: 'legacy_message_shape' });
+    expect(caught).toBeInstanceOf(PersistedRowCorruptError);
+    expect((caught as PersistedRowCorruptError).code).toBe('legacy_tool_calls_wrapper');
   });
 
-  it('rejects malformed JSON in arguments as tool_arguments_invalid_json', () => {
+  it('rejects malformed JSON in arguments as PersistedRowCorruptError(invalid_json)', () => {
     const row = {
       role: 'assistant',
       tool_calls: [
@@ -36,9 +35,8 @@ describe('parseToolCallMessage', () => {
     } catch (err) {
       caught = err;
     }
-    const failure = unwrapFailure(caught);
-    expect(failure.kind).toBe('contract_mismatch');
-    expect(failure).toMatchObject({ kind: 'contract_mismatch', subtype: 'tool_arguments_invalid_json' });
+    expect(caught).toBeInstanceOf(PersistedRowCorruptError);
+    expect((caught as PersistedRowCorruptError).code).toBe('invalid_json');
   });
 
   it('round-trips a valid tool call through serialize/parse', () => {

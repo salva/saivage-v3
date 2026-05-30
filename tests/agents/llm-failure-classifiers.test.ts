@@ -7,16 +7,16 @@ function mockResponse(status: number, headers: Record<string, string> = {}, body
 }
 
 describe('per-provider failure classifiers', () => {
-  it('opencode-go: HTTP 400 with response_format/function_call clash → contract_mismatch', () => {
+  it('opencode-go: HTTP 400 with response_format/function_call clash → provider_protocol_error', () => {
     const body = '{"error":"You cannot specify response format and function call at the same time"}';
     const failure = classifierFor('opencode-go').classifyHttp(mockResponse(400), body, { provider: 'opencode-go', model: 'm' });
-    expect(failure?.kind).toBe('contract_mismatch');
-    expect(failure?.kind === 'contract_mismatch' && failure.status).toBe(400);
+    expect(failure?.kind).toBe('provider_protocol_error');
+    expect(failure?.kind === 'provider_protocol_error' && failure.status).toBe(400);
   });
 
-  it('opencode-go: any HTTP 400 → contract_mismatch', () => {
+  it('opencode-go: any HTTP 400 → provider_protocol_error', () => {
     const failure = classifierFor('opencode-go').classifyHttp(mockResponse(400), '{"error":"random bad request"}', { provider: 'opencode-go', model: 'm' });
-    expect(failure?.kind).toBe('contract_mismatch');
+    expect(failure?.kind).toBe('provider_protocol_error');
   });
 
   it('openai-chat: 429 with Retry-After: 12 seconds → retryAfterMs 12000', () => {

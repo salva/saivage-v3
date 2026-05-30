@@ -1,4 +1,4 @@
-import type { LlmFailure } from './llm-failure.js';
+import type { LlmTransportFailure } from './llm-failure.js';
 import type { ObligationReport } from './contract-verifier.js';
 
 export interface RepairBudget {
@@ -20,5 +20,5 @@ export type InvocationOutcomeOf<Envelope, TypedResult> =
     }
   | { kind: 'repair_exhausted'; lastReport: ObligationReport; repairAttempts: number }
   | { kind: 'no_progress'; turnsConsumed: number; repairAttempts: number }
-  | { kind: 'transport_failed'; failure: LlmFailure }
+  | { kind: 'transport_failed'; failure: LlmTransportFailure }
   | { kind: 'cancelled'; reason: 'abort' | 'timeout' };

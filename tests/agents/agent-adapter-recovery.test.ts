@@ -105,7 +105,7 @@ describe('AgentAdapter invocation recovery policy integration', () => {
   });
 
   it.skip('retries parse/contract failures on the same candidate without using fallback', async () => {
-    // M05: tools-only flow turns parse failures into contract_mismatch which aborts; retry semantics moved to M09.
+    // M05: tools-only flow turns parse failures into provider_protocol_error which aborts; retry semantics moved to M09.
     const cfg = config();
     cfg.runtime.maxRecoveryRetries = 1;
     cfg.runtime.recoveryDelayMs = 0;

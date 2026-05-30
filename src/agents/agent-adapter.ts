@@ -335,7 +335,7 @@ export class AgentAdapter implements AgentExecutionPort {
                   if (terminalCall) {
                     let parsedArgs: Record<string, unknown>;
                     try { parsedArgs = JSON.parse(terminalCall.function.arguments) as Record<string, unknown>; } catch (e) {
-                      throw new LlmRequestError({ kind: 'contract_mismatch', subtype: 'tool_arguments_invalid_json', provider: candidate.provider, message: `Terminal tool '${terminalToolName}' arguments are not valid JSON: ${e instanceof Error ? e.message : String(e)}` });
+                      throw new LlmRequestError({ kind: 'provider_protocol_error', provider: candidate.provider, status: 0, message: `Terminal tool '${terminalToolName}' arguments are not valid JSON: ${e instanceof Error ? e.message : String(e)}` });
                     }
                     const envelope = validateTerminalToolCall({ id: terminalCall.id, name: terminalCall.function.name, args: parsedArgs }, envelopeRole);
                     finalEnvelope = envelope;
@@ -383,7 +383,7 @@ export class AgentAdapter implements AgentExecutionPort {
               }
 
               if (finalEnvelope === null) {
-                throw new LlmRequestError({ kind: 'contract_mismatch', subtype: 'terminal_tool_missing', provider: candidate.provider, message: `Role '${role}' did not emit terminal tool within ${maxToolTurns} turns.` });
+                throw new LlmRequestError({ kind: 'provider_protocol_error', provider: candidate.provider, status: 0, message: `Role '${role}' did not emit terminal tool within ${maxToolTurns} turns.` });
               }
               const finalResponse = JSON.stringify(finalEnvelope);
               const callDuration = Date.now() - callStart;

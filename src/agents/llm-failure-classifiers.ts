@@ -1,4 +1,4 @@
-import type { LlmFailure } from './llm-failure.js';
+import type { LlmTransportFailure } from './llm-failure.js';
 import { redactProviderErrorText } from './llm-errors.js';
 
 export interface ClassifierContext {
@@ -7,8 +7,8 @@ export interface ClassifierContext {
 }
 
 export interface ProviderFailureClassifier {
-  classifyHttp(response: Response, bodyText: string, ctx: ClassifierContext): LlmFailure | undefined;
-  classifyTransport(err: unknown, ctx: ClassifierContext): LlmFailure | undefined;
+  classifyHttp(response: Response, bodyText: string, ctx: ClassifierContext): LlmTransportFailure | undefined;
+  classifyTransport(err: unknown, ctx: ClassifierContext): LlmTransportFailure | undefined;
 }
 
 const KNOWN_PROVIDERS = ['openai-codex', 'opencode-go', 'openai-chat', 'opencode', 'github-copilot', 'nvidia-nim'] as const;
@@ -43,7 +43,7 @@ function bodyMatches(bodyText: string, fragment: string): boolean {
   return bodyText.toLowerCase().includes(fragment.toLowerCase());
 }
 
-export function defaultHttpClassifier(response: Response, bodyText: string, ctx: ClassifierContext): LlmFailure {
+export function defaultHttpClassifier(response: Response, bodyText: string, ctx: ClassifierContext): LlmTransportFailure {
   const status = response.status;
   const provider = ctx.provider;
   const source = `llm-${provider}`;
@@ -55,9 +55,9 @@ export function defaultHttpClassifier(response: Response, bodyText: string, ctx:
   if (status === 429) {
     const retryAfterMs = parseRetryAfterMs(response.headers);
     const resetsAt = parseResetsAt(response.headers);
-    const failure: LlmFailure = { kind: 'rate_limit', provider, status, message: `LLM rate limit exceeded (HTTP 429)${d}` };
-    if (retryAfterMs !== undefined) (failure as Extract<LlmFailure, { kind: 'rate_limit' }>).retryAfterMs = retryAfterMs;
-    if (resetsAt !== undefined) (failure as Extract<LlmFailure, { kind: 'rate_limit' }>).resetsAt = resetsAt;
+    const failure: LlmTransportFailure = { kind: 'rate_limit', provider, status, message: `LLM rate limit exceeded (HTTP 429)${d}` };
+    if (retryAfterMs !== undefined) (failure as Extract<LlmTransportFailure, { kind: 'rate_limit' }>).retryAfterMs = retryAfterMs;
+    if (resetsAt !== undefined) (failure as Extract<LlmTransportFailure, { kind: 'rate_limit' }>).resetsAt = resetsAt;
     return failure;
   }
   if (status === 400 && bodyMatches(bodyText, 'context_length_exceeded')) {
@@ -72,7 +72,7 @@ export function defaultHttpClassifier(response: Response, bodyText: string, ctx:
   return { kind: 'server_transient', provider, status, message: `LLM request failed (HTTP ${status})${d}` };
 }
 
-function defaultTransportClassifier(err: unknown, ctx: ClassifierContext): LlmFailure | undefined {
+function defaultTransportClassifier(err: unknown, ctx: ClassifierContext): LlmTransportFailure | undefined {
   if (err instanceof DOMException && err.name === 'AbortError') {
     return { kind: 'cancelled', provider: ctx.provider, reason: 'abort', message: 'LLM request aborted' };
   }
@@ -99,24 +99,25 @@ const OPENCODE_GO_CONTRACT_FRAGMENTS = [
 const OpenCodeGoClassifier: ProviderFailureClassifier = {
   classifyHttp(response, bodyText, ctx) {
     if (response.status === 400) {
+      const bodyPreview = bodyText.slice(0, 500);
       for (const fragment of OPENCODE_GO_CONTRACT_FRAGMENTS) {
         if (bodyMatches(bodyText, fragment)) {
           return {
-            kind: 'contract_mismatch',
+            kind: 'provider_protocol_error',
             provider: ctx.provider,
-            subtype: 'unknown',
             status: 400,
-            message: `LLM contract mismatch (HTTP 400)${detail(bodyText, `llm-${ctx.provider}`)}`,
+            message: `LLM provider protocol error (HTTP 400)${detail(bodyText, `llm-${ctx.provider}`)}`,
+            bodyPreview,
           };
         }
       }
-      // Any other HTTP 400 from opencode-go is also a contract violation per F08 plan.
+      // Any other HTTP 400 from opencode-go is also a provider protocol error.
       return {
-        kind: 'contract_mismatch',
+        kind: 'provider_protocol_error',
         provider: ctx.provider,
-        subtype: 'unknown',
         status: 400,
-        message: `LLM contract mismatch (HTTP 400)${detail(bodyText, `llm-${ctx.provider}`)}`,
+        message: `LLM provider protocol error (HTTP 400)${detail(bodyText, `llm-${ctx.provider}`)}`,
+        bodyPreview,
       };
     }
     return undefined;
@@ -144,7 +145,7 @@ export function classifierFor(provider: string): ProviderFailureClassifier {
   return CLASSIFIERS[provider] ?? PassthroughClassifier;
 }
 
-export function classifyTransportFailure(err: unknown, ctx: ClassifierContext): LlmFailure {
+export function classifyTransportFailure(err: unknown, ctx: ClassifierContext): LlmTransportFailure {
   return classifierFor(ctx.provider).classifyTransport(err, ctx)
       ?? defaultTransportClassifier(err, ctx)
       ?? { kind: 'unknown', provider: ctx.provider, message: err instanceof Error ? err.message : String(err) };

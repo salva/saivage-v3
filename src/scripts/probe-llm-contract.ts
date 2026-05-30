@@ -36,6 +36,7 @@ interface ProbeRow {
   ms: number;
   kind?: string;
   subtype?: string;
+  bodyPreview?: string;
   error?: string;
   reason?: string;
 }
@@ -137,7 +138,7 @@ async function probeOne(
     return { provider: provider.name, role, model, status: 'ok', ms: Date.now() - start };
   } catch (err) {
     const failure = unwrapFailure(err);
-    const subtype = failure.kind === 'contract_mismatch' ? failure.subtype : undefined;
+    const bodyPreview = failure.kind === 'provider_protocol_error' ? failure.bodyPreview : undefined;
     return {
       provider: provider.name,
       role,
@@ -145,8 +146,9 @@ async function probeOne(
       status: 'error',
       ms: Date.now() - start,
       kind: failure.kind,
-      subtype,
+      subtype: undefined,
       error: failure.message,
+      bodyPreview,
     };
   }
 }

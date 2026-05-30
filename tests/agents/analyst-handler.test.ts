@@ -3,9 +3,8 @@ import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createTestActiveRuntime } from '../helpers/test-active-runtime.js';
-import { unwrapFailure } from '../../src/agents/llm-failure.js';
 import { trimToCleanToolBoundary } from '../../src/agents/analyst-handler.js';
-import { serializeToolCallMessage } from '../../src/agents/persisted-tool-call.js';
+import { serializeToolCallMessage, PersistedRowCorruptError } from '../../src/agents/persisted-tool-call.js';
 import type { AgentMessage } from '../../src/schemas/index.js';
 
 const { AnalystHandler } = await import('../../src/agents/analyst-handler.js');
@@ -140,18 +139,16 @@ describe('AnalystHandler F05 contract', () => {
     expect(trimmedOrphan.filter((m) => m.role === 'tool').map((m) => m.tool_call_id).sort()).toEqual(['call-x', 'call-y']);
   });
 
-  it('legacy {toolCalls:[...]} persisted row makes trimToCleanToolBoundary throw LlmRequestError(contract_mismatch, legacy_message_shape)', () => { // legacy_message_shape: negative-test
+  it('legacy {toolCalls:[...]} persisted row makes trimToCleanToolBoundary throw PersistedRowCorruptError(legacy_tool_calls_wrapper)', () => {
     const baseRound = 'r-assistant-00000000000000000000000000000002';
-    // legacy_message_shape: negative-test — synthesize deprecated wrapper persisted row
-    const legacyContent = JSON.stringify({ toolCalls: [{ id: 'old-1', name: 'list_cards', args: {} }] }); // legacy_message_shape: negative-test
+    const legacyContent = JSON.stringify({ toolCalls: [{ id: 'old-1', name: 'list_cards', args: {} }] });
     const messages: AgentMessage[] = [
       syntheticMessage({ id: 'u1', role: 'user', kind: 'text', content: 'hi', round_id: 'r-user-00000000000000000000000000000000' }),
       syntheticMessage({ id: 'a1', role: 'assistant', kind: 'tool_call', content: legacyContent, tool: 'list_cards', round_id: baseRound, message_index: 1 }),
     ];
     let caught: unknown;
     try { trimToCleanToolBoundary(messages); } catch (err) { caught = err; }
-    expect(caught).toBeDefined();
-    const failure = unwrapFailure(caught);
-    expect(failure).toMatchObject({ kind: 'contract_mismatch', subtype: 'legacy_message_shape', provider: 'persistence' });
+    expect(caught).toBeInstanceOf(PersistedRowCorruptError);
+    expect((caught as PersistedRowCorruptError).code).toBe('legacy_tool_calls_wrapper');
   });
 });

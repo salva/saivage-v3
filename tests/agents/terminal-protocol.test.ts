@@ -3,7 +3,7 @@ import { validateTerminalToolCall } from '../../src/agents/terminal-protocol.js'
 import { unwrapFailure } from '../../src/agents/llm-failure.js';
 
 describe('validateTerminalToolCall', () => {
-  it('missing call ⇒ contract_mismatch / terminal_tool_missing', () => {
+  it('missing call ⇒ provider_protocol_error (terminal tool missing)', () => {
     let caught: unknown;
     try {
       validateTerminalToolCall(undefined, 'planner');
@@ -11,10 +11,11 @@ describe('validateTerminalToolCall', () => {
       caught = err;
     }
     const failure = unwrapFailure(caught);
-    expect(failure).toMatchObject({ kind: 'contract_mismatch', subtype: 'terminal_tool_missing' });
+    expect(failure.kind).toBe('provider_protocol_error');
+    expect(failure.message).toMatch(/terminal tool call missing/);
   });
 
-  it('wrong tool name ⇒ contract_mismatch / terminal_tool_unexpected', () => {
+  it('wrong tool name ⇒ provider_protocol_error (terminal tool unexpected)', () => {
     let caught: unknown;
     try {
       validateTerminalToolCall({ id: 'c1', name: 'emit_reviewer_result', args: {} }, 'planner');
@@ -22,10 +23,11 @@ describe('validateTerminalToolCall', () => {
       caught = err;
     }
     const failure = unwrapFailure(caught);
-    expect(failure).toMatchObject({ kind: 'contract_mismatch', subtype: 'terminal_tool_unexpected' });
+    expect(failure.kind).toBe('provider_protocol_error');
+    expect(failure.message).toMatch(/unexpected name/);
   });
 
-  it('valid name but invalid args ⇒ contract_mismatch / tool_arguments_schema_violation', () => {
+  it('valid name but invalid args ⇒ provider_protocol_error (schema violation)', () => {
     let caught: unknown;
     try {
       validateTerminalToolCall(
@@ -36,7 +38,8 @@ describe('validateTerminalToolCall', () => {
       caught = err;
     }
     const failure = unwrapFailure(caught);
-    expect(failure).toMatchObject({ kind: 'contract_mismatch', subtype: 'tool_arguments_schema_violation' });
+    expect(failure.kind).toBe('provider_protocol_error');
+    expect(failure.message).toMatch(/failed schema validation/);
   });
 
   it('valid name and valid args returns parsed object', () => {

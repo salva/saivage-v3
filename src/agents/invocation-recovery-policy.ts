@@ -1,6 +1,6 @@
 import type { AgentRole } from '../schemas/index.js';
 import { unwrapFailure } from './llm-errors.js';
-import type { LlmFailure } from './llm-failure.js';
+import type { LlmTransportFailure } from './llm-failure.js';
 import type { Candidate } from './provider.js';
 import type { AvailabilityDecision } from './candidate-availability.js';
 import type { CapabilityRequest, CapabilitySkipDiagnostic } from './provider-capabilities.js';
@@ -29,7 +29,7 @@ export interface InvocationRecoveryContext {
 
 export interface InvocationRecoveryDecision {
   action: InvocationRecoveryAction;
-  failure?: LlmFailure;
+  failure?: LlmTransportFailure;
   message: string;
   eventPayload: Record<string, unknown>;
   availability?: AvailabilityDecision;
@@ -72,7 +72,7 @@ function assertNever(x: never): never {
 }
 
 export class InvocationRecoveryPolicy {
-  classify(error: unknown): LlmFailure {
+  classify(error: unknown): LlmTransportFailure {
     const failure = unwrapFailure(error);
     if (failure.kind === 'unknown' && error instanceof Error && (error.name === 'ZodError' || error.name === 'SyntaxError')) {
       return { kind: 'parse_error', provider: failure.provider, message: failure.message };
@@ -124,8 +124,8 @@ export class InvocationRecoveryPolicy {
           availability: { state: 'COOLING', untilMs: Date.now() + Math.max(context.recoveryDelayMs, 5_000), reason: failure.kind },
           appendModelIssue: true,
         });
-      case 'contract_mismatch':
-        return this.buildDecision(context, 'fail_invocation', failure, `Candidate ${candidate} violated tool-call contract (subtype=${failure.subtype}): ${sanitized}`, { markFailed: false, appendModelIssue: true, abort: true });
+      case 'provider_protocol_error':
+        return this.buildDecision(context, 'failover_without_cooldown', failure, `Candidate ${candidate} returned a malformed protocol response: ${sanitized}`, { markFailed: true, appendModelIssue: true });
       case 'token_budget_exceeded':
         return this.buildDecision(context, 'failover_without_cooldown', failure, `Candidate ${candidate} exceeded token budget: ${sanitized}`, { appendModelIssue: true });
       case 'parse_error': {
@@ -158,7 +158,7 @@ export class InvocationRecoveryPolicy {
     const message = capabilityOnly
       ? `No capability-compatible candidates available for role '${context.role}'. Skipped reasons: ${reasons.join(', ') || 'unknown'}.`
       : `No healthy candidates available for role '${context.role}'.`;
-    const synthetic: LlmFailure = capabilityOnly
+    const synthetic: LlmTransportFailure = capabilityOnly
       ? {
           kind: 'capability_mismatch',
           provider: context.candidate?.provider ?? 'unknown',
@@ -180,12 +180,12 @@ export class InvocationRecoveryPolicy {
   private buildDecision(
     context: InvocationRecoveryContext,
     action: InvocationRecoveryAction,
-    failure: LlmFailure | undefined,
+    failure: LlmTransportFailure | undefined,
     message: string,
     overrides: Partial<InvocationRecoveryDecision> = {},
   ): InvocationRecoveryDecision {
     const capabilitySkipReasons = overrides.capabilitySkipReasons ?? Array.from(new Set((context.capabilitySkips ?? []).flatMap((skip) => skip.reasons))).sort();
-    const sanitizedFailure: LlmFailure | undefined = failure ? { ...failure, message: sanitizeRecoveryMessage(failure.message) } : undefined;
+    const sanitizedFailure: LlmTransportFailure | undefined = failure ? { ...failure, message: sanitizeRecoveryMessage(failure.message) } : undefined;
     const eventPayload: Record<string, unknown> = {
       session_id: context.sessionId,
       role: context.role,
