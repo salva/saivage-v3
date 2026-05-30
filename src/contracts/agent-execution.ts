@@ -5,6 +5,10 @@ import type {
   RuntimeRunRecord,
   RuntimeState,
 } from '../schemas/index.js';
+import type { Contract } from './contract.js';
+import type { PlannerEnvelope, PlannerTypedResult } from './planner-contract.js';
+import type { ExecutorResultEnvelope } from './executor-envelope.js';
+import type { ReviewerResultEnvelope } from './reviewer-envelope.js';
 
 export interface PlannerCardCreate {
   type: string;
@@ -86,6 +90,7 @@ export interface PlannerInvocationRequest {
   goalId: string;
   systemPrompt?: string;
   contextMessages?: AgentMessage[];
+  contract: Contract<PlannerEnvelope, PlannerTypedResult>;
 }
 
 export interface ExecutorInvocationRequest {
@@ -93,6 +98,7 @@ export interface ExecutorInvocationRequest {
   goalId: string;
   systemPrompt?: string;
   contextMessages?: AgentMessage[];
+  contract: Contract<ExecutorResultEnvelope, ExecutorResult>;
 }
 
 export interface ReviewerInvocationRequest {
@@ -101,6 +107,7 @@ export interface ReviewerInvocationRequest {
   contextMessages?: AgentMessage[];
   assessmentId?: string;
   reviewerSessionId?: string;
+  contract: Contract<ReviewerResultEnvelope, ReviewerResult>;
 }
 
 export interface SessionReinvokeRequest {

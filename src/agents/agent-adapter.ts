@@ -99,7 +99,7 @@ export class AgentAdapter implements AgentExecutionPort {
       reviewer: async (goalId, assessmentId, reviewerSessionId, report, parentSessionId) => {
         if (parentSessionId) markSessionWaiting(this.saivageDir, parentSessionId);
         try {
-          return (await this.invokeReviewer({ goalId, systemPrompt: buildReviewerPrompt(), contextMessages: [{ id: `review-report:${assessmentId}`, session_id: reviewerSessionId, role: 'user', kind: 'text', content: `The planner reports the following terminal outcome for goal '${goalId}'. Evaluate against the goal's acceptance criteria and respond with the canonical ReviewerResult JSON envelope.\n\n${JSON.stringify(report, null, 2)}`, round_id: generateRoundId('user'), message_index: 0, block_index: 0, timestamp: new Date().toISOString() }], assessmentId, reviewerSessionId })).assessment;
+          return (await this.invokeReviewer({ goalId, systemPrompt: buildReviewerPrompt(), contextMessages: [{ id: `review-report:${assessmentId}`, session_id: reviewerSessionId, role: 'user', kind: 'text', content: `The planner reports the following terminal outcome for goal '${goalId}'. Evaluate against the goal's acceptance criteria and respond with the canonical ReviewerResult JSON envelope.\n\n${JSON.stringify(report, null, 2)}`, round_id: generateRoundId('user'), message_index: 0, block_index: 0, timestamp: new Date().toISOString() }], assessmentId, reviewerSessionId, contract: createReviewerContract({ goalId, assessmentId }) })).assessment;
         } finally {
           if (parentSessionId) setSessionStatus(this.saivageDir, parentSessionId, 'active');
         }
@@ -162,31 +162,56 @@ export class AgentAdapter implements AgentExecutionPort {
   async invokePlanner(request: PlannerInvocationRequest): Promise<PlannerResult>;
   async invokePlanner(goalId: string, systemPrompt?: string, contextMessages?: AgentMessage[]): Promise<PlannerResult>;
   async invokePlanner(requestOrGoalId: PlannerInvocationRequest | string, systemPrompt: string = '', contextMessages: AgentMessage[] = []): Promise<PlannerResult> {
-    const request: PlannerInvocationRequest = typeof requestOrGoalId === 'string' ? { goalId: requestOrGoalId, systemPrompt, contextMessages } : requestOrGoalId;
+    const goalId = typeof requestOrGoalId === 'string' ? requestOrGoalId : requestOrGoalId.goalId;
+    const contract = typeof requestOrGoalId === 'string'
+      ? createPlannerContract({ goalId, parentSessionId: '' })
+      : requestOrGoalId.contract;
+    const request: PlannerInvocationRequest = typeof requestOrGoalId === 'string' ? { goalId, systemPrompt, contextMessages, contract } : requestOrGoalId;
     const plannerSessionId = `planner:${request.goalId}`;
     const existing = getSession(this.saivageDir, plannerSessionId);
     if (existing) injectQueuedSyntheticPlannerNotes(this.projectRoot, plannerSessionId, { stampUserMessage: (id: string) => this.nextFallbackRound(id, 'user') });
-    const contract = createPlannerContract({ goalId: request.goalId, parentSessionId: '' });
     const typedResult = await this.invokeAgent<PlannerEnvelope, PlannerTypedResult>('planner', request.goalId, request.goalId, request.systemPrompt ?? '', request.contextMessages ?? [], contract);
     return typedResult.result;
   }
   async invokeExecutor(request: ExecutorInvocationRequest): Promise<ExecutorResult>;
   async invokeExecutor(cardId: string, goalId: string, systemPrompt?: string, contextMessages?: AgentMessage[]): Promise<ExecutorResult>;
   async invokeExecutor(requestOrCardId: ExecutorInvocationRequest | string, goalId?: string, systemPrompt: string = '', contextMessages: AgentMessage[] = []): Promise<ExecutorResult> {
-    const request: ExecutorInvocationRequest = typeof requestOrCardId === 'string' ? { cardId: requestOrCardId, goalId: goalId ?? '', systemPrompt, contextMessages } : requestOrCardId;
-    const contract = createExecutorContract({ cardId: request.cardId, goalId: request.goalId });
+    const cardId = typeof requestOrCardId === 'string' ? requestOrCardId : requestOrCardId.cardId;
+    const resolvedGoalId = typeof requestOrCardId === 'string' ? (goalId ?? '') : requestOrCardId.goalId;
+    const contract = typeof requestOrCardId === 'string'
+      ? createExecutorContract({ cardId, goalId: resolvedGoalId })
+      : requestOrCardId.contract;
+    const request: ExecutorInvocationRequest = typeof requestOrCardId === 'string' ? { cardId, goalId: resolvedGoalId, systemPrompt, contextMessages, contract } : requestOrCardId;
     return this.invokeAgent<ExecutorResultEnvelope, ExecutorResult>('executor', request.goalId, request.cardId, request.systemPrompt ?? '', request.contextMessages ?? [], contract);
   }
   async invokeReviewer(request: ReviewerInvocationRequest): Promise<ReviewerResult>;
   async invokeReviewer(goalId: string, systemPrompt?: string, contextMessages?: AgentMessage[], options?: { assessmentId?: string; reviewerSessionId?: string }): Promise<ReviewerResult>;
   async invokeReviewer(requestOrGoalId: ReviewerInvocationRequest | string, systemPrompt: string = '', contextMessages: AgentMessage[] = [], options: { assessmentId?: string; reviewerSessionId?: string } = {}): Promise<ReviewerResult> {
-    const request: ReviewerInvocationRequest = typeof requestOrGoalId === 'string' ? { goalId: requestOrGoalId, systemPrompt, contextMessages, assessmentId: options.assessmentId, reviewerSessionId: options.reviewerSessionId } : requestOrGoalId;
-    const contract = createReviewerContract({ goalId: request.goalId, assessmentId: request.assessmentId ?? '' });
+    const goalId = typeof requestOrGoalId === 'string' ? requestOrGoalId : requestOrGoalId.goalId;
+    const assessmentId = typeof requestOrGoalId === 'string' ? options.assessmentId : requestOrGoalId.assessmentId;
+    const contract = typeof requestOrGoalId === 'string'
+      ? createReviewerContract({ goalId, assessmentId: assessmentId ?? '' })
+      : requestOrGoalId.contract;
+    const request: ReviewerInvocationRequest = typeof requestOrGoalId === 'string' ? { goalId, systemPrompt, contextMessages, assessmentId: options.assessmentId, reviewerSessionId: options.reviewerSessionId, contract } : requestOrGoalId;
     return this.invokeAgent<ReviewerResultEnvelope, ReviewerResult>('reviewer', request.goalId, request.goalId, request.systemPrompt ?? '', request.contextMessages ?? [], contract, request.reviewerSessionId);
   }
   async reinvokeSession(request: SessionReinvokeRequest): Promise<ExecutorResult | ReviewerResult>;
   async reinvokeSession(sessionId: string, systemPrompt?: string, contextMessages?: AgentMessage[]): Promise<ExecutorResult | ReviewerResult>;
-  async reinvokeSession(requestOrSessionId: SessionReinvokeRequest | string, systemPrompt: string = '', contextMessages: AgentMessage[] = []): Promise<ExecutorResult | ReviewerResult> { const request: SessionReinvokeRequest = typeof requestOrSessionId === 'string' ? { sessionId: requestOrSessionId, systemPrompt, contextMessages } : requestOrSessionId; const session = getSession(this.saivageDir, request.sessionId); if (!session) throw new Error(`Session not found: ${request.sessionId}`); if (session.role === 'executor') return this.invokeExecutor({ cardId: session.card_id ?? session.goal_card_id ?? '', goalId: session.goal_card_id ?? '', systemPrompt: request.systemPrompt, contextMessages: request.contextMessages }); if (session.role === 'reviewer') return this.invokeReviewer({ goalId: session.goal_card_id ?? '', systemPrompt: request.systemPrompt, contextMessages: request.contextMessages, reviewerSessionId: session.id }); throw new Error(`Session '${request.sessionId}' is not reinvokable.`); }
+  async reinvokeSession(requestOrSessionId: SessionReinvokeRequest | string, systemPrompt: string = '', contextMessages: AgentMessage[] = []): Promise<ExecutorResult | ReviewerResult> {
+    const request: SessionReinvokeRequest = typeof requestOrSessionId === 'string' ? { sessionId: requestOrSessionId, systemPrompt, contextMessages } : requestOrSessionId;
+    const session = getSession(this.saivageDir, request.sessionId);
+    if (!session) throw new Error(`Session not found: ${request.sessionId}`);
+    if (session.role === 'executor') {
+      const cardId = session.card_id ?? session.goal_card_id ?? '';
+      const reGoalId = session.goal_card_id ?? '';
+      return this.invokeExecutor({ cardId, goalId: reGoalId, systemPrompt: request.systemPrompt, contextMessages: request.contextMessages, contract: createExecutorContract({ cardId, goalId: reGoalId }) });
+    }
+    if (session.role === 'reviewer') {
+      const reGoalId = session.goal_card_id ?? '';
+      return this.invokeReviewer({ goalId: reGoalId, systemPrompt: request.systemPrompt, contextMessages: request.contextMessages, reviewerSessionId: session.id, contract: createReviewerContract({ goalId: reGoalId, assessmentId: '' }) });
+    }
+    throw new Error(`Session '${request.sessionId}' is not reinvokable.`);
+  }
 
   private async processToolCall(tc: { id: string; type: string; function: { name: string; arguments: string } }, role: AgentRole, sessionId: string, invocation?: { goalId?: string; cardId?: string }) {
     return this.toolExecutor.processToolCall(tc, role, sessionId, invocation);
