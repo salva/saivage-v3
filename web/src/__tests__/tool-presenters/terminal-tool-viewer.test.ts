@@ -23,6 +23,7 @@ function makeAttempt(overrides: Partial<ExchangeAttempt> = {}): ExchangeAttempt 
 function makeExchange(attempt: ExchangeAttempt): LlmExchange {
   return {
     sessionId: 'sess-1',
+    contract_id: 'executor.v1',
     capturedAt: '2026-05-23T10:00:01Z',
     transport: 'generic',
     candidate: { provider: 'openai', model: 'gpt-4', account: 'default' },
