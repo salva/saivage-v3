@@ -207,7 +207,7 @@ describe('provider capabilities', () => {
     expect(candidateKey(candidate)).toBe('openai-codex/_/gpt-5.5');
     expect(registry.getEffectiveCapabilities(candidate)).toMatchObject({
       transportProtocol: 'openai-codex-backend',
-      responseShape: 'codex-backend',
+      exclusiveToolChoiceSupport: 'parallel_off',
     });
   });
 
@@ -216,12 +216,12 @@ describe('provider capabilities', () => {
       providers: {
         opencode: {
           models: ['m1'],
-          capabilities: { toolCalls: 'none', contextWindowTokens: 1000 },
+          capabilities: { toolsMode: 'unsupported', contextWindowTokens: 1000 },
           accounts: {
-            primary: { capabilities: { toolChoice: 'none', contextWindowTokens: 2000 } },
+            primary: { capabilities: { exclusiveToolChoiceSupport: 'unsupported', contextWindowTokens: 2000 } },
           },
           modelCapabilities: {
-            m1: { toolCalls: 'native', maxOutputTokens: 3000 },
+            m1: { toolsMode: 'native', maxOutputTokens: 3000 },
           },
         },
       },
@@ -229,8 +229,8 @@ describe('provider capabilities', () => {
     const registry = new ProviderRegistry(cfg);
     const capabilities = registry.getEffectiveCapabilities({ provider: 'opencode', account: 'primary', model: 'm1' });
 
-    expect(capabilities.toolCalls).toBe('native');
-    expect(capabilities.toolChoice).toBe('none');
+    expect(capabilities.toolsMode).toBe('native');
+    expect(capabilities.exclusiveToolChoiceSupport).toBe('unsupported');
     expect(capabilities.contextWindowTokens).toBe(2000);
     expect(capabilities.maxOutputTokens).toBe(3000);
     expect(capabilities.transportProtocol).toBe('openai-chat-completions');

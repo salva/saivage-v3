@@ -105,9 +105,8 @@ const modelsSectionSchema = z
 // Provider capabilities
 export const providerCapabilitySchema = z.object({
   transportProtocol: z.enum(['openai-chat-completions', 'openai-codex-backend']).optional(),
-  toolCalls: z.enum(['native', 'none']).optional(),
-  toolChoice: z.enum(['auto', 'none']).optional(),
-  responseShape: z.enum(['openai-chat-choice', 'codex-backend']).optional(),
+  toolsMode: z.enum(['native', 'unsupported']).optional(),
+  exclusiveToolChoiceSupport: z.enum(['native', 'parallel_off', 'unsupported']).optional(),
   streaming: z.boolean().optional(),
   contextWindowTokens: z.number().int().positive().optional(),
   maxOutputTokens: z.number().int().positive().optional(),

@@ -1528,7 +1528,7 @@ describe('LlmClient provider capability guardrails', () => {
     const cfg = {
       models: { default: ['test-model'] },
       providers: {
-        p1: { models: ['test-model'], capabilities: { toolCalls: 'none' as const } },
+        p1: { models: ['test-model'], capabilities: { toolsMode: 'unsupported' as const } },
       },
       server: { port: 8080, host: '0.0.0.0' },
       runtime: {
@@ -1564,7 +1564,7 @@ describe('LlmClient provider capability guardrails', () => {
         toolsOpts({
           tools: [{ type: 'function', function: { name: 'do_work', description: 'work', parameters: { type: 'object' } } }],
           tool_choice: { kind: 'auto' },
-        }))).rejects.toThrow(/unsupported_tool_calls/);
+        }))).rejects.toThrow(/unsupported_tools_mode/);
       expect(cap.body).toBe('');
     } finally {
       await closeServer(server);
@@ -1582,7 +1582,7 @@ describe('LlmClient provider capability guardrails', () => {
         'openai-codex': {
           models: ['gpt-5.5'],
           baseUrl: `http://localhost:${port}`,
-          capabilities: { toolCalls: 'none' as const, toolChoice: 'none' as const },
+          capabilities: { toolsMode: 'unsupported' as const, exclusiveToolChoiceSupport: 'unsupported' as const },
         },
       },
       server: { port: 8080, host: '0.0.0.0' },
@@ -1619,7 +1619,7 @@ describe('LlmClient provider capability guardrails', () => {
         toolsOpts({
           tools: [{ type: 'function', function: { name: 'do_work', description: 'work', parameters: { type: 'object' } } }],
           tool_choice: { kind: 'auto' },
-        }))).rejects.toThrow(/unsupported_tool_calls|unsupported_tool_choice/);
+        }))).rejects.toThrow(/unsupported_tools_mode|unsupported_exclusive_tool_choice/);
       expect(cap.body).toBe('');
     } finally {
       await closeServer(server);

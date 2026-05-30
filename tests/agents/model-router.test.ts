@@ -528,19 +528,19 @@ describe('ModelRouter capability filtering', () => {
         failover: { m1: ['m2'] },
       },
       providers: {
-        p1: { priority: 10, models: ['m1'], capabilities: { toolCalls: 'none' } },
-        p2: { priority: 20, models: ['m2'], capabilities: { toolCalls: 'native' } },
+        p1: { priority: 10, models: ['m1'], capabilities: { toolsMode: 'unsupported' } },
+        p2: { priority: 20, models: ['m2'], capabilities: { toolsMode: 'native' } },
       },
     });
     const registry = new ProviderRegistry(cfg);
     const availability = new MemoryCandidateAvailability();
     const router = new ModelRouter(cfg, registry, undefined, availability);
 
-    const chain = await router.resolve('planner', { toolCalls: true });
+    const chain = await router.resolve('planner', { requiresTools: true });
 
     expect(chain).toEqual([{ provider: 'p2', account: null, model: 'm2' }]);
     expect(router.getLastCapabilitySkips()).toEqual([
-      { candidate: { provider: 'p1', account: null, model: 'm1' }, reasons: ['unsupported_tool_calls'] },
+      { candidate: { provider: 'p1', account: null, model: 'm1' }, reasons: ['unsupported_tools_mode'] },
     ]);
     expect(availability.isAvailable({ provider: 'p1', account: null, model: 'm1' })).toBe(true);
   });
@@ -549,7 +549,7 @@ describe('ModelRouter capability filtering', () => {
     const cfg = mockConfig({
       models: { planner: ['m1'] },
       providers: {
-        healthyButIncompatible: { priority: 10, models: ['m1'], capabilities: { toolChoice: 'none' } },
+        healthyButIncompatible: { priority: 10, models: ['m1'], capabilities: { exclusiveToolChoiceSupport: 'unsupported' } },
         compatibleButCooling: { priority: 20, models: ['m1'] },
       },
     });
@@ -558,10 +558,10 @@ describe('ModelRouter capability filtering', () => {
     await availability.markFailed({ provider: 'compatibleButCooling', account: null, model: 'm1' }, blockedDecision());
     const router = new ModelRouter(cfg, registry, undefined, availability);
 
-    const chain = await router.resolve('planner', { toolChoice: true });
+    const chain = await router.resolve('planner', { requiresExclusiveToolChoice: true });
 
     expect(chain).toHaveLength(0);
-    expect(router.getLastCapabilitySkips()[0].reasons).toEqual(['unsupported_tool_choice']);
+    expect(router.getLastCapabilitySkips()[0].reasons).toEqual(['unsupported_exclusive_tool_choice']);
     expect(availability.isAvailable({ provider: 'compatibleButCooling', account: null, model: 'm1' })).toBe(false);
   });
 });

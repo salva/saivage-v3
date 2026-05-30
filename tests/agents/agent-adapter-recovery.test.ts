@@ -13,8 +13,8 @@ function config(): SaivageConfig {
   return ({
     models: { planner: ['m1', 'm2'], executor: ['m1', 'm2'], reviewer: ['m1'], analyst: ['m1'] },
     providers: {
-      p1: { priority: 10, models: ['m1'], capabilities: { toolCalls: 'native', toolChoice: 'auto' } },
-      p2: { priority: 20, models: ['m2'], capabilities: { toolCalls: 'native', toolChoice: 'auto' } },
+      p1: { priority: 10, models: ['m1'], capabilities: { toolsMode: 'native', exclusiveToolChoiceSupport: 'native' } },
+      p2: { priority: 20, models: ['m2'], capabilities: { toolsMode: 'native', exclusiveToolChoiceSupport: 'native' } },
     },
     server: { port: 8080, host: '0.0.0.0' },
     runtime: {
@@ -154,8 +154,8 @@ describe('AgentAdapter invocation recovery policy integration', () => {
 
   it('does not mark capability mismatch or fallback exhaustion as health failure', async () => {
     const cfg = config();
-    cfg.providers.p1.capabilities = { toolCalls: 'none', toolChoice: 'none' };
-    cfg.providers.p2.capabilities = { toolCalls: 'none', toolChoice: 'none' };
+    cfg.providers.p1.capabilities = { toolsMode: 'unsupported', exclusiveToolChoiceSupport: 'unsupported' };
+    cfg.providers.p2.capabilities = { toolsMode: 'unsupported', exclusiveToolChoiceSupport: 'unsupported' };
     const adapter = makeAdapter(root, cfg);
     const markFailed = jest.spyOn(adapter.candidateAvailability, 'markFailed');
     adapter.setLlmCallFn(jest.fn<LlmCallFn>().mockResolvedValue(plannerDone()));

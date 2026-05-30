@@ -38,7 +38,7 @@ function baseAdapterConfig(roleModels: Partial<Record<'planner' | 'executor' | '
   return ({
     models: { planner: ['m1'], executor: ['m1'], reviewer: ['m1'], analyst: ['m1'], ...roleModels },
     providers: {
-      p1: { priority: 10, models: ['m1'], capabilities: { toolCalls: 'native', toolChoice: 'auto' } },
+      p1: { priority: 10, models: ['m1'], capabilities: { toolsMode: 'native', exclusiveToolChoiceSupport: 'native' } },
     },
     server: { port: 8080, host: '0.0.0.0' },
     runtime: {

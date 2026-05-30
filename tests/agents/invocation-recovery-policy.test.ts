@@ -50,13 +50,13 @@ describe('InvocationRecoveryPolicy', () => {
         kind: 'capability_mismatch',
         provider: 'openai-compatible',
         model: 'gpt-test',
-        requested: ['unsupported_tool_calls'],
+        requested: ['unsupported_tools_mode'],
         supported: [],
-        message: 'Candidate p/_/m does not support requested LLM capabilities: unsupported_tool_calls',
+        message: 'Candidate p/_/m does not support requested LLM capabilities: unsupported_tools_mode',
       }),
       {
         ...baseContext,
-        capabilitySkips: [{ candidate, reasons: ['unsupported_tool_calls'] }],
+        capabilitySkips: [{ candidate, reasons: ['unsupported_tools_mode'] }],
       },
     );
 
@@ -66,14 +66,14 @@ describe('InvocationRecoveryPolicy', () => {
       markFailed: false,
       appendModelIssue: true,
     });
-    expect(decision.eventPayload.capabilitySkipReasons).toEqual(['unsupported_tool_calls']);
+    expect(decision.eventPayload.capabilitySkipReasons).toEqual(['unsupported_tools_mode']);
   });
 
   it('distinguishes capability-only no-candidate exhaustion from health exhaustion', () => {
     const capabilityDecision = policy.decideNoCandidates({
       ...baseContext,
       candidate: undefined,
-      capabilitySkips: [{ candidate, reasons: ['unsupported_tool_choice'] }],
+      capabilitySkips: [{ candidate, reasons: ['unsupported_exclusive_tool_choice'] }],
     });
     expect(capabilityDecision).toMatchObject({
       failure: { kind: 'capability_mismatch' },

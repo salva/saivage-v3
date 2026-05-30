@@ -227,10 +227,8 @@ export class AgentAdapter implements AgentExecutionPort {
     this.resetOnRoleChange(role);
     const modelParams = getModelParamsForRole(this.config, role);
     const tools = this.buildToolsForRole(role);
-    const tool_choice: 'auto' | undefined = tools.length > 0 ? 'auto' : undefined;
     const capabilityRequest = capabilityRequestForLlmOptions({
       tools,
-      tool_choice,
       stream: false,
     });
     const candidates = await this.router.resolve(role, capabilityRequest);

@@ -420,12 +420,12 @@ describe('provider capability schema', () => {
       providers: {
         'github-copilot': {
           models: ['gpt-5.5'],
-          capabilities: { toolCalls: 'native', responseShape: 'openai-chat-choice' },
+          capabilities: { toolsMode: 'native' },
           modelCapabilities: {
             'gpt-5.5': { maxOutputTokens: 8192, quirks: ['large-context'] },
           },
           accounts: {
-            primary: { capabilities: { toolChoice: 'auto' } },
+            primary: { capabilities: { exclusiveToolChoiceSupport: 'native' } },
           },
         },
       },
@@ -433,8 +433,8 @@ describe('provider capability schema', () => {
 
     expect(result.success).toBe(true);
     if (result.success) {
-      expect(result.data.providers['github-copilot'].capabilities?.toolCalls).toBe('native');
-      expect(result.data.providers['github-copilot'].accounts?.primary?.capabilities?.toolChoice).toBe('auto');
+      expect(result.data.providers['github-copilot'].capabilities?.toolsMode).toBe('native');
+      expect(result.data.providers['github-copilot'].accounts?.primary?.capabilities?.exclusiveToolChoiceSupport).toBe('native');
       expect(result.data.providers['github-copilot'].modelCapabilities?.['gpt-5.5']?.maxOutputTokens).toBe(8192);
     }
   });
@@ -443,7 +443,7 @@ describe('provider capability schema', () => {
     const result = saivageConfigSchema.safeParse({
       models: { default: ['m1'] },
       providers: {
-        p1: { models: ['m1'], capabilities: { toolCalls: 'sometimes' } },
+        p1: { models: ['m1'], capabilities: { toolsMode: 'sometimes' } },
       },
     });
 

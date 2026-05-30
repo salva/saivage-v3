@@ -214,7 +214,7 @@ export class LlmIntentResolver {
   }
 
   private capabilityRequest(): ReturnType<typeof capabilityRequestForLlmOptions> {
-    return capabilityRequestForLlmOptions({ tools: getAnalystToolDefinitions(), tool_choice: 'auto', stream: false });
+    return capabilityRequestForLlmOptions({ tools: getAnalystToolDefinitions(), stream: false });
   }
 
   private recorderForSession(sessionId: string): LlmExchangeRecorder {
