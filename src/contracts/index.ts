@@ -251,3 +251,47 @@ export type {
   ReviewerIssue,
   ReviewerResult,
 } from './agent-execution.js';
+
+export type {
+  Contract,
+  ContractTerminalDescriptor,
+  ContractToolDefinition,
+  ContractViolation,
+  ContractVerifyOk,
+  ContractVerifyFail,
+  ContractVerifyResult,
+} from './contract.js';
+
+export { verifyAgainstTerminals } from './verify-against-terminals.js';
+export { describeTerminals } from './describe-terminals.js';
+export { jsonSchemaToProse } from './json-schema-to-prose.js';
+
+export {
+  PlannerResultEnvelopeSchema,
+  type PlannerResultEnvelope,
+} from './planner-envelope.js';
+export {
+  ExecutorResultEnvelopeSchema,
+  executorArtifactDefSchema,
+  executorAttachmentDefSchema,
+  type ExecutorResultEnvelope,
+} from './executor-envelope.js';
+export {
+  ReviewerResultEnvelopeSchema,
+  type ReviewerResultEnvelope,
+} from './reviewer-envelope.js';
+
+export {
+  createPlannerContract,
+  type PlannerContractInput,
+  type PlannerEnvelope,
+  type PlannerTypedResult,
+} from './planner-contract.js';
+export {
+  createExecutorContract,
+  type ExecutorContractInput,
+} from './executor-contract.js';
+export {
+  createReviewerContract,
+  type ReviewerContractInput,
+} from './reviewer-contract.js';

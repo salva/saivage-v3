@@ -1,0 +1,23 @@
+spec-r1
+spec-r2
+spec-r3
+spec-r4
+spec-r5
+spec-r6
+protocol-r1
+protocol-r2
+protocol-r3
+master-plan-r1
+master-plan-r2
+master-plan-r3
+master-plan-r4
+master-plan-r5
+master-plan-r6
+review-r
+prior round
+earlier round
+previous version
+previous draft
+before the refactor
+was superseded
+older revision
