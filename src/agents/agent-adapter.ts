@@ -4,14 +4,14 @@ import { loadConfig, getRuntimeConfig, getModelParamsForRole } from './config-sc
 import { ProviderRegistry, type Candidate } from './provider.js';
 import { ModelRouter } from './model-router.js';
 import { type CandidateAvailability, MemoryCandidateAvailability } from './candidate-availability.js';
-import { parsePlannerResult, parseExecutorResult, parseReviewerResult, buildExecutorFallbackResult, type PlannerResult, type ExecutorResult, type ReviewerResult } from './result-parser.js';
-import { createSession, completeSession, appendMessage as appendPersistentMessage, getSession, getSessionMessages, markSessionWaiting, setSessionStatus, updateSessionModel, assertNoActiveAgentSession } from './session-persistence.js';
+import { PlannerResultSchema, ExecutorResultSchema, ReviewerResultSchema } from './role-envelope-schemas.js';
+import { createSession, completeSession, appendMessage as appendPersistentMessage, getSession, markSessionWaiting, setSessionStatus, updateSessionModel, assertNoActiveAgentSession } from './session-persistence.js';
 import type { AgentInvocationRole, AgentMessage, HandoffSummary, LoggedEvent, OperationalAgentRole, MessageKind, MessageRole, EntityLink } from '../schemas/index.js';
 import type { NotificationCenter } from '../notifications/index.js';
 import { invokeWithRecovery, type RecoveryContext } from './recovery.js';
 import type { ContentSupervisor } from '../workspace/index.js';
 import { getSafeFileForAgent, type SafeFileResult } from '../workspace/index.js';
-import type { AgentExecutionPort, PlannerInvocationRequest, ExecutorInvocationRequest, ReviewerInvocationRequest, SessionReinvokeRequest, RuntimeActivationLedgerPort } from '../contracts/index.js';
+import type { AgentExecutionPort, PlannerInvocationRequest, ExecutorInvocationRequest, ReviewerInvocationRequest, SessionReinvokeRequest, RuntimeActivationLedgerPort, PlannerResult, ExecutorResult, ReviewerResult } from '../contracts/index.js';
 import type { LlmCompleteOptions, LlmCallFn } from './llm-contracts.js';
 import { buildLlmOptions } from './llm-options-factory.js';
 import { ROLE_RESULT_TOOLS, ROLE_RESULT_TOOL_NAMES } from './role-result-tools.js';
@@ -44,6 +44,21 @@ export type InvokableAgentRole = AgentInvocationRole;
 export interface AgentAdapterConfig { projectRoot: string; saivageDir: string; config: SaivageConfig; eventBus?: EventEmitter; eventLogger?: EventLogger; activationLedger?: RuntimeActivationLedgerPort; candidateAvailability?: CandidateAvailability; }
 function delayInvocationRecovery(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, Math.max(0, ms)));
+}
+
+function envelopeToPlannerResult(envelope: Record<string, unknown>): PlannerResult {
+  const parsed = PlannerResultSchema.parse(envelope);
+  return { status: parsed.status, blocked_reason: parsed.blocked_reason ?? undefined, created_cards: parsed.created_cards, updated_cards: parsed.updated_cards, summary: parsed.summary };
+}
+
+function envelopeToExecutorResult(envelope: Record<string, unknown>): ExecutorResult {
+  const parsed = ExecutorResultSchema.parse(envelope);
+  return { card_id: parsed.card_id ?? '', status: parsed.status, status_text: parsed.status_text, error: parsed.error, result: parsed.result, artifacts: parsed.artifacts ?? [], attachments: parsed.attachments ?? [], summary: parsed.summary, fallback_with_evidence: null };
+}
+
+function envelopeToReviewerResult(envelope: Record<string, unknown>): ReviewerResult {
+  const parsed = ReviewerResultSchema.parse(envelope);
+  return { assessment: parsed.assessment };
 }
 
 export class AgentAdapter implements AgentExecutionPort {
@@ -162,14 +177,14 @@ export class AgentAdapter implements AgentExecutionPort {
     const plannerSessionId = `planner:${request.goalId}`;
     const existing = getSession(this.saivageDir, plannerSessionId);
     if (existing) injectQueuedSyntheticPlannerNotes(this.projectRoot, plannerSessionId, { stampUserMessage: (id: string) => this.nextFallbackRound(id, 'user') });
-    return this.invokeAgent('planner', request.goalId, request.goalId, request.systemPrompt ?? '', request.contextMessages ?? [], parsePlannerResult);
+    return this.invokeAgent('planner', request.goalId, request.goalId, request.systemPrompt ?? '', request.contextMessages ?? [], envelopeToPlannerResult);
   }
   async invokeExecutor(request: ExecutorInvocationRequest): Promise<ExecutorResult>;
   async invokeExecutor(cardId: string, goalId: string, systemPrompt?: string, contextMessages?: AgentMessage[]): Promise<ExecutorResult>;
-  async invokeExecutor(requestOrCardId: ExecutorInvocationRequest | string, goalId?: string, systemPrompt: string = '', contextMessages: AgentMessage[] = []): Promise<ExecutorResult> { const request: ExecutorInvocationRequest = typeof requestOrCardId === 'string' ? { cardId: requestOrCardId, goalId: goalId ?? '', systemPrompt, contextMessages } : requestOrCardId; return this.invokeAgent('executor', request.goalId, request.cardId, request.systemPrompt ?? '', request.contextMessages ?? [], parseExecutorResult); }
+  async invokeExecutor(requestOrCardId: ExecutorInvocationRequest | string, goalId?: string, systemPrompt: string = '', contextMessages: AgentMessage[] = []): Promise<ExecutorResult> { const request: ExecutorInvocationRequest = typeof requestOrCardId === 'string' ? { cardId: requestOrCardId, goalId: goalId ?? '', systemPrompt, contextMessages } : requestOrCardId; return this.invokeAgent('executor', request.goalId, request.cardId, request.systemPrompt ?? '', request.contextMessages ?? [], envelopeToExecutorResult); }
   async invokeReviewer(request: ReviewerInvocationRequest): Promise<ReviewerResult>;
   async invokeReviewer(goalId: string, systemPrompt?: string, contextMessages?: AgentMessage[], options?: { assessmentId?: string; reviewerSessionId?: string }): Promise<ReviewerResult>;
-  async invokeReviewer(requestOrGoalId: ReviewerInvocationRequest | string, systemPrompt: string = '', contextMessages: AgentMessage[] = [], options: { assessmentId?: string; reviewerSessionId?: string } = {}): Promise<ReviewerResult> { const request: ReviewerInvocationRequest = typeof requestOrGoalId === 'string' ? { goalId: requestOrGoalId, systemPrompt, contextMessages, assessmentId: options.assessmentId, reviewerSessionId: options.reviewerSessionId } : requestOrGoalId; return this.invokeAgent('reviewer', request.goalId, request.goalId, request.systemPrompt ?? '', request.contextMessages ?? [], parseReviewerResult, request.reviewerSessionId); }
+  async invokeReviewer(requestOrGoalId: ReviewerInvocationRequest | string, systemPrompt: string = '', contextMessages: AgentMessage[] = [], options: { assessmentId?: string; reviewerSessionId?: string } = {}): Promise<ReviewerResult> { const request: ReviewerInvocationRequest = typeof requestOrGoalId === 'string' ? { goalId: requestOrGoalId, systemPrompt, contextMessages, assessmentId: options.assessmentId, reviewerSessionId: options.reviewerSessionId } : requestOrGoalId; return this.invokeAgent('reviewer', request.goalId, request.goalId, request.systemPrompt ?? '', request.contextMessages ?? [], envelopeToReviewerResult, request.reviewerSessionId); }
   async reinvokeSession(request: SessionReinvokeRequest): Promise<ExecutorResult | ReviewerResult>;
   async reinvokeSession(sessionId: string, systemPrompt?: string, contextMessages?: AgentMessage[]): Promise<ExecutorResult | ReviewerResult>;
   async reinvokeSession(requestOrSessionId: SessionReinvokeRequest | string, systemPrompt: string = '', contextMessages: AgentMessage[] = []): Promise<ExecutorResult | ReviewerResult> { const request: SessionReinvokeRequest = typeof requestOrSessionId === 'string' ? { sessionId: requestOrSessionId, systemPrompt, contextMessages } : requestOrSessionId; const session = getSession(this.saivageDir, request.sessionId); if (!session) throw new Error(`Session not found: ${request.sessionId}`); if (session.role === 'executor') return this.invokeExecutor({ cardId: session.card_id ?? session.goal_card_id ?? '', goalId: session.goal_card_id ?? '', systemPrompt: request.systemPrompt, contextMessages: request.contextMessages }); if (session.role === 'reviewer') return this.invokeReviewer({ goalId: session.goal_card_id ?? '', systemPrompt: request.systemPrompt, contextMessages: request.contextMessages, reviewerSessionId: session.id }); throw new Error(`Session '${request.sessionId}' is not reinvokable.`); }
@@ -207,7 +222,7 @@ export class AgentAdapter implements AgentExecutionPort {
     return appendPersistentMessage(this.saivageDir, sessionId, message, stamp);
   }
 
-  private async invokeAgent<T>(role: AgentRole, goalId: string, cardId: string, systemPrompt: string, contextMessages: AgentMessage[], parser: (raw: string) => T, requestedSessionId?: string): Promise<T> {
+  private async invokeAgent<T>(role: AgentRole, goalId: string, cardId: string, systemPrompt: string, contextMessages: AgentMessage[], parseEnvelope: (env: Record<string, unknown>) => T, requestedSessionId?: string): Promise<T> {
     if (!this.llmCallFn) throw new Error('No LLM call function registered. Call setLlmCallFn() first.');
     this.resetOnRoleChange(role);
     const modelParams = getModelParamsForRole(this.config, role);
@@ -269,7 +284,7 @@ export class AgentAdapter implements AgentExecutionPort {
               const terminalToolName = envelopeRole ? ROLE_RESULT_TOOL_NAMES[envelopeRole] : null;
               const terminalToolDef = envelopeRole ? ROLE_RESULT_TOOLS[envelopeRole] : null;
               const maxToolTurns = this.runtimeConfig.maxToolTurns ?? 16;
-              let finalEnvelopeStr: string | null = null;
+              let finalEnvelope: Record<string, unknown> | null = null;
               for (let turn = 0; turn < maxToolTurns; turn++) {
                 const isLast = turn === maxToolTurns - 1;
                 const phase: 'tools' | 'terminal' = (isLast && expectsEnvelope) ? 'terminal' : 'tools';
@@ -281,7 +296,7 @@ export class AgentAdapter implements AgentExecutionPort {
                 if (result.kind === 'message') {
                   if (!expectsEnvelope) {
                     // analyst-style invocation (not currently routed through invokeAgent)
-                    finalEnvelopeStr = result.content;
+                    finalEnvelope = { content: result.content };
                     break;
                   }
                   throw new LlmRequestError({ kind: 'contract_mismatch', subtype: 'terminal_tool_missing', provider: candidate.provider, message: `Role '${role}' returned a plain message during ${phase} phase; expected tool_calls.` });
@@ -305,7 +320,7 @@ export class AgentAdapter implements AgentExecutionPort {
                       throw new LlmRequestError({ kind: 'contract_mismatch', subtype: 'tool_arguments_invalid_json', provider: candidate.provider, message: `Terminal tool '${terminalToolName}' arguments are not valid JSON: ${e instanceof Error ? e.message : String(e)}` });
                     }
                     const envelope = validateTerminalToolCall({ id: terminalCall.id, name: terminalCall.function.name, args: parsedArgs }, envelopeRole);
-                    finalEnvelopeStr = JSON.stringify(envelope);
+                    finalEnvelope = envelope;
                     break;
                   }
                 }
@@ -338,31 +353,24 @@ export class AgentAdapter implements AgentExecutionPort {
                   }
                   if (blockingReasons.length > 0) {
                     const blockedReason = `Cannot activate child: ${blockingReasons.join('; ')}`;
-                    finalEnvelopeStr = JSON.stringify({ status: 'blocked', blocked_reason: blockedReason, summary: blockedReason, created_cards: [], updated_cards: [] });
+                    finalEnvelope = { status: 'blocked', blocked_reason: blockedReason, summary: blockedReason, created_cards: [], updated_cards: [] };
                     this.appendSessionMessage(session.id, { role: 'system', kind: 'model_issue', content: `Synthesised planner BLOCKED envelope for deferred activate_card: ${this.redactModelIssueText(blockedReason)}` });
                     break;
                   }
                   const synthSummary = activatedIds.length > 0 ? `Activated child card${activatedIds.length === 1 ? '' : 's'} ${activatedIds.join(', ')}; awaiting completion.` : 'Activated child card; awaiting completion.';
-                  finalEnvelopeStr = JSON.stringify({ status: 'continue', summary: synthSummary, created_cards: [], updated_cards: [] });
+                  finalEnvelope = { status: 'continue', summary: synthSummary, created_cards: [], updated_cards: [] };
                   this.appendSessionMessage(session.id, { role: 'system', kind: 'model_issue', content: `Synthesised planner continuation envelope for deferred activate_card: ${this.redactModelIssueText(synthSummary)}` });
                   break;
                 }
               }
 
-              if (finalEnvelopeStr === null) {
+              if (finalEnvelope === null) {
                 throw new LlmRequestError({ kind: 'contract_mismatch', subtype: 'terminal_tool_missing', provider: candidate.provider, message: `Role '${role}' did not emit terminal tool within ${maxToolTurns} turns.` });
               }
-              const finalResponse = finalEnvelopeStr;
+              const finalResponse = JSON.stringify(finalEnvelope);
               const callDuration = Date.now() - callStart;
               this.appendSessionMessage(session.id, { role: 'assistant', kind: 'text', content: finalResponse });
-              let parsed: T;
-              try { parsed = parser(finalResponse); } catch (err) {
-                if (role === 'executor') {
-                  const fallback = buildExecutorFallbackResult(finalResponse, { cardId, sessionMessages: getSessionMessages(this.saivageDir, session.id), reason: 'parse_failure' });
-                  if (fallback) { this.appendSessionMessage(session.id, { role: 'system', kind: 'model_issue', content: `Executor result fallback constructed after parse failure: ${err instanceof Error ? this.redactProviderErrorMessage(err.message) : 'unknown parse error'}` }); parsed = fallback as T; }
-                  else throw err;
-                } else throw err;
-              }
+              const parsed: T = parseEnvelope(finalEnvelope);
               const successDecision = defaultInvocationRecoveryPolicy.decideSuccess({ role, candidate, attempt: recoveryCtx.attempt, maxAttempts: recoveryCtx.maxAttempts, recoveryDelayMs: this.runtimeConfig.recoveryDelayMs ?? 60000, maxRecoveryRetries: this.runtimeConfig.maxRecoveryRetries ?? 3, capabilityRequest, capabilitySkips, sessionId: session.id, goalId, cardId });
               if (successDecision.markSucceeded) await this.candidateAvailability.markSucceeded(candidate);
               if (this.eventLogger) this.eventLogger.appendEvent({ kind: 'invocation_succeeded', session_id: session.id, role: role as unknown as import('../schemas/types.js').AgentRole, attempt: recoveryCtx.attempt, duration_ms: callDuration, failure: successDecision.failure, recoveryAction: successDecision.action, terminal_tool: terminalToolName });

@@ -7,7 +7,7 @@ import { FakeAgentAdapter, type FakeAgentFixture } from '../../src/agents/fake-a
 import { AgentAdapter } from '../../src/agents/agent-adapter.js';
 import type { AgentExecutionPort as AgentRuntime } from '../../src/contracts/index.js';
 import type { SaivageConfig } from '../../src/agents/config-schema.js';
-import type { PlannerResult } from '../../src/agents/result-parser.js';
+import type { PlannerResult } from '../../src/contracts/index.js';
 import { getSessionMessages, listSessions } from '../../src/agents/session-persistence.js';
 
 function assertAgentRuntime(rt: AgentRuntime): AgentRuntime { return rt; }

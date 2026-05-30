@@ -4,7 +4,7 @@ import type { ReviewAssessment, CardStatus, ArtifactRef, AgentMessage, HandoffSu
 import type { AgentExecutionPort, PlannerInvocationRequest, ExecutorInvocationRequest, ReviewerInvocationRequest, SessionReinvokeRequest, RuntimeActivationLedgerPort } from '../contracts/index.js';
 import { appendMessage, completeSession, createSession, markSessionWaiting } from '../agents/session-persistence.js';
 import type { ActiveRuntimeStampSource } from '../agents/session-persistence.js';
-import type { PlannerResult, ExecutorResult, ReviewerResult, PlannerStatus, ExecutorFallbackReason } from '../agents/result-parser.js';
+import type { PlannerResult, ExecutorResult, ReviewerResult, PlannerStatus, ExecutorFallbackReason } from '../contracts/index.js';
 
 export interface FakeArtifactDef {
   sourceFile: string;

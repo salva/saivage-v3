@@ -7,7 +7,7 @@ import { Runtime } from '../../src/runtime/runtime.js';
 import { initProjectTree } from '../../src/persistence/file-tree.js';
 import { CardStore } from '../../src/cards/card-store.js';
 import type { AgentExecutionPort as AgentRuntime } from '../../src/contracts/index.js';
-import type { PlannerResult, ExecutorResult, ReviewerResult } from '../../src/agents/result-parser.js';
+import type { PlannerResult, ExecutorResult, ReviewerResult } from '../../src/contracts/index.js';
 import type { HandoffSummary } from '../../src/schemas/types.js';
 
 class StubAgentRuntime implements AgentRuntime {

@@ -74,7 +74,7 @@ function assertNever(x: never): never {
 export class InvocationRecoveryPolicy {
   classify(error: unknown): LlmFailure {
     const failure = unwrapFailure(error);
-    if (failure.kind === 'unknown' && error instanceof Error && (error.name === 'ZodError' || error.name === 'SyntaxError' || error.name === 'ResultParseError')) {
+    if (failure.kind === 'unknown' && error instanceof Error && (error.name === 'ZodError' || error.name === 'SyntaxError')) {
       return { kind: 'parse_error', provider: failure.provider, message: failure.message };
     }
     return failure;

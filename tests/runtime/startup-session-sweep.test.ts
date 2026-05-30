@@ -8,7 +8,7 @@ import { initProjectTree } from '../../src/persistence/file-tree.js';
 import { createSession, completeSession, getSession, getSessionMessages, markSessionWaiting } from '../../src/agents/session-persistence.js';
 import { readRuntimeState, updateRuntimeState } from '../../src/runtime/state.js';
 import type { AgentExecutionPort as AgentRuntime } from '../../src/contracts/index.js';
-import type { PlannerResult, ExecutorResult, ReviewerResult } from '../../src/agents/result-parser.js';
+import type { PlannerResult, ExecutorResult, ReviewerResult } from '../../src/contracts/index.js';
 import type { HandoffSummary } from '../../src/schemas/types.js';
 
 class NoopAgentRuntime implements AgentRuntime {
