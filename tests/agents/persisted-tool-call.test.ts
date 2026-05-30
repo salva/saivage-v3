@@ -6,8 +6,8 @@ import {
 import { unwrapFailure } from '../../src/agents/llm-failure.js';
 
 describe('parseToolCallMessage', () => {
-  it('rejects legacy {toolCalls:[...]} wrapper as contract_mismatch / legacy_message_shape', () => {
-    const legacy = { toolCalls: [{ id: 'c1', name: 'emit_planner_result', args: {} }] };
+  it('rejects legacy {toolCalls:[...]} wrapper as contract_mismatch / legacy_message_shape', () => { // legacy_message_shape: negative-test
+    const legacy = { toolCalls: [{ id: 'c1', name: 'emit_planner_result', args: {} }] }; // legacy_message_shape: negative-test
     let caught: unknown;
     try {
       parseToolCallMessage(legacy);

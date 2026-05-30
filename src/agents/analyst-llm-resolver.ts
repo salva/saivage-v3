@@ -1,6 +1,6 @@
 import { join } from 'node:path';
 import type { AgentMessage } from '../schemas/index.js';
-import type { ToolDefinition, ToolCall, LlmInvocationClient } from './llm-contracts.js';
+import type { ToolDefinition, LlmInvocationClient, LlmCompleteResult } from './llm-contracts.js';
 import { unwrapFailure } from './llm-errors.js';
 import { LlmProviderGateway } from './llm-provider-gateway.js';
 import { ANALYST_TOOL_DEFINITIONS } from './analyst-tool-schemas.js';
@@ -138,7 +138,7 @@ export class LlmIntentResolver {
     this.recorderLogger = eventLogger ? toRecorderLogger(eventLogger) : undefined;
   }
 
-  async chat(messages: AgentMessage[], projectContext: string): Promise<{ content: string; toolCalls: ToolCall[] }> {
+  async chat(messages: AgentMessage[], projectContext: string): Promise<LlmCompleteResult> {
     const tools = getAnalystToolDefinitions();
     const chain = await this.router.resolve('analyst', this.capabilityRequest());
     if (chain.length === 0) throw new AnalystOfflineError(ANALYST_NO_MODEL_REPLY);
@@ -166,17 +166,17 @@ export class LlmIntentResolver {
         ));
         if (result.kind === 'message') {
           await this.availability.markSucceeded(candidate);
-          return { content: result.content, toolCalls: [] };
+          return result;
         }
         for (const toolCall of result.tool_calls) {
           const decision = RoleToolPolicy.assertAnalystSurfaceTool(toolCall.function.name, 'web');
           if (!decision.allowed) {
             await this.availability.markSucceeded(candidate);
-            return { content: ANALYST_UNSUPPORTED_ACTION_TEMPLATE('Analyst', Object.keys(TOOL_REGISTRY)), toolCalls: [] };
+            return { kind: 'message', content: ANALYST_UNSUPPORTED_ACTION_TEMPLATE('Analyst', Object.keys(TOOL_REGISTRY)) };
           }
         }
         await this.availability.markSucceeded(candidate);
-        return { content: '', toolCalls: result.tool_calls };
+        return result;
       } catch (err) {
         const failure = unwrapFailure(err);
         if (failure.kind === 'auth_permanent') {

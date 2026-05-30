@@ -253,9 +253,9 @@ function toolsOpts(extra: Partial<LlmCompleteOptions> = {}): LlmCompleteOptions 
   return { phase: 'tools', tools: [], tool_choice: { kind: 'auto' }, ...(extra as object) } as LlmCompleteOptions;
 }
 
-function asMessage(r: LlmCompleteResult): { content: string; toolCalls: ToolCall[]; finishReason: string } {
-  if (r.kind === 'message') return { content: r.content, toolCalls: [], finishReason: 'stop' };
-  return { content: '', toolCalls: r.tool_calls, finishReason: 'tool_calls' };
+function asMessage(r: LlmCompleteResult): { content: string; tool_calls: ToolCall[]; finishReason: string } {
+  if (r.kind === 'message') return { content: r.content, tool_calls: [], finishReason: 'stop' };
+  return { content: '', tool_calls: r.tool_calls, finishReason: 'tool_calls' };
 }
 
 // ── Test Cases ─────────────────────────────────────────────────
@@ -277,7 +277,7 @@ describe('LlmClient Integration with Mock HTTP Server', () => {
 
       // result is LlmCompleteResult with .content, .toolCalls, .finishReason
       expect(asMessage(result).content).toBe('Hello from test model!');
-      expect(asMessage(result).toolCalls).toEqual([]);
+      expect(asMessage(result).tool_calls).toEqual([]);
       expect(asMessage(result).finishReason).toBe('stop');
       expect(cap.method).toBe('POST');
       expect(cap.url).toBe('/v1/chat/completions');
@@ -353,7 +353,7 @@ describe('LlmClient Integration with Mock HTTP Server', () => {
         toolsOpts({ temperature: 0.5, max_tokens: 500 }));
 
       expect(asMessage(result).content).toBe('Codex works');
-      expect(asMessage(result).toolCalls).toEqual([]);
+      expect(asMessage(result).tool_calls).toEqual([]);
       expect(cap.url).toBe('/backend-api/codex/responses');
       expect(cap.headers['accept']).toBe('text/event-stream');
       expect(cap.headers['chatgpt-account-id']).toBe('acct-test-123');
@@ -420,7 +420,7 @@ describe('LlmClient Integration with Mock HTTP Server', () => {
       );
 
       expect(asMessage(result).content).toBe('{"status":"done","summary":"ok"}');
-      expect(asMessage(result).toolCalls).toEqual([]);
+      expect(asMessage(result).tool_calls).toEqual([]);
       expect(asMessage(result).finishReason).toBe('stop');
     } finally {
       await closeServer(server);
@@ -463,7 +463,7 @@ describe('LlmClient Integration with Mock HTTP Server', () => {
 
       expect(asMessage(result).content).toBe('');
       expect(asMessage(result).finishReason).toBe('tool_calls');
-      expect(asMessage(result).toolCalls).toEqual([
+      expect(asMessage(result).tool_calls).toEqual([
         {
           id: 'call_1',
           type: 'function',
@@ -755,7 +755,7 @@ describe('LlmClient Integration with Mock HTTP Server', () => {
       const client = new LlmProviderGateway({ baseUrl: `http://localhost:${port}` });
       const result = await client.complete(cand(), sp(), msgs(), 'sess-null', toolsOpts());
       expect(asMessage(result).content).toBe('');
-      expect(asMessage(result).toolCalls).toEqual([]);
+      expect(asMessage(result).tool_calls).toEqual([]);
       expect(asMessage(result).finishReason).toBe('stop');
     } finally {
       await closeServer(server);

@@ -15,8 +15,8 @@ export function parseToolCallMessage(row: unknown): PersistedToolCall {
   if (!isObject(row)) {
     throw new Error(`persisted tool-call row is not an object (got ${typeof row})`);
   }
-  if (Array.isArray((row as { toolCalls?: unknown }).toolCalls)) {
-    throw new Error('persistence row uses deprecated {toolCalls:[...]} wrapper; expected one tool_call per row');
+  if (Array.isArray((row as { toolCalls?: unknown }).toolCalls)) { // legacy_message_shape: detector
+    throw new Error('persistence row uses deprecated {toolCalls:[...]} wrapper; expected one tool_call per row'); // legacy_message_shape: detector
   }
   const toolCalls = (row as { tool_calls?: unknown }).tool_calls;
   if (!Array.isArray(toolCalls) || toolCalls.length !== 1) {

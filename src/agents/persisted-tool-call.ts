@@ -31,7 +31,7 @@ export function parseToolCallMessage(row: unknown): PersistedToolCall {
       message: `persisted tool-call row is not an object (got ${typeof row})`,
     });
   }
-  if (Array.isArray((row as { toolCalls?: unknown }).toolCalls)) {
+  if (Array.isArray((row as { toolCalls?: unknown }).toolCalls)) { // legacy_message_shape: detector
     throw new LlmRequestError({
       kind: 'contract_mismatch',
       subtype: 'legacy_message_shape',

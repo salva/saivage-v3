@@ -61,10 +61,10 @@ function plannerDone(status: 'continue' | 'done' = 'done'): LlmCompleteResult {
   };
 }
 
-function plannerToolResult(toolCalls: { id: string; name: string; arguments: string }[]): LlmCompleteResult {
+function plannerToolResult(tool_calls: { id: string; name: string; arguments: string }[]): LlmCompleteResult {
   return {
     kind: 'tool_calls',
-    tool_calls: toolCalls.map((tc) => ({ id: tc.id, type: 'function' as const, function: { name: tc.name, arguments: tc.arguments } })),
+    tool_calls: tool_calls.map((tc) => ({ id: tc.id, type: 'function' as const, function: { name: tc.name, arguments: tc.arguments } })),
   };
 }
 

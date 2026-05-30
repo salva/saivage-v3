@@ -28,9 +28,9 @@ function toolsOpts(extra: Partial<LlmCompleteOptions> = {}): LlmCompleteOptions 
   return { phase: 'tools', tools: [], tool_choice: { kind: 'auto' }, ...(extra as object) } as LlmCompleteOptions;
 }
 
-function asMessage(r: LlmCompleteResult): { content: string; toolCalls: ToolCall[]; finishReason: string } {
-  if (r.kind === 'message') return { content: r.content, toolCalls: [], finishReason: 'stop' };
-  return { content: '', toolCalls: r.tool_calls, finishReason: 'tool_calls' };
+function asMessage(r: LlmCompleteResult): { content: string; tool_calls: ToolCall[]; finishReason: string } {
+  if (r.kind === 'message') return { content: r.content, tool_calls: [], finishReason: 'stop' };
+  return { content: '', tool_calls: r.tool_calls, finishReason: 'tool_calls' };
 }
 
 interface MockServer { server: Server; port: number; }

@@ -33,9 +33,9 @@ export function reviewerResult(payload: unknown): LlmCompleteResult {
   return toolCallsResult([envelopeToolCall('emit_reviewer_result', payload)]);
 }
 
-export function asMessage(r: LlmCompleteResult): { content: string; toolCalls: ToolCall[]; finishReason: string } {
-  if (r.kind === 'message') return { content: r.content, toolCalls: [], finishReason: 'stop' };
-  return { content: '', toolCalls: r.tool_calls, finishReason: 'tool_calls' };
+export function asMessage(r: LlmCompleteResult): { content: string; tool_calls: ToolCall[]; finishReason: string } {
+  if (r.kind === 'message') return { content: r.content, tool_calls: [], finishReason: 'stop' };
+  return { content: '', tool_calls: r.tool_calls, finishReason: 'tool_calls' };
 }
 
 export function singleToolDef(name = 'fake_tool'): ToolDefinition {

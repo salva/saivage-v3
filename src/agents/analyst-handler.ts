@@ -13,6 +13,7 @@ import { compactSession } from './compaction.js';
 import { appendMessage, getSessionMessages } from './session-persistence.js';
 import { generateRoundId } from './round-id-server.js';
 import { ANALYST_PARTIAL_SUCCESS_TEMPLATE, ANALYST_UNKNOWN_CAPABILITY_TEMPLATE } from './analyst-tool-runner.js';
+import { parseToolCallMessage, serializeToolCallMessage } from './persisted-tool-call.js';
 
 
 export interface WorkspaceContext {
@@ -69,16 +70,12 @@ function sessionFilePath(projectRoot: string, sessionId: string): string { retur
 
 const ANALYST_CONTEXT_LIMIT_TOKENS = 128_000;
 
-function trimToCleanToolBoundary(messages: AgentMessage[]): AgentMessage[] {
+export function trimToCleanToolBoundary(messages: AgentMessage[]): AgentMessage[] {
   const callIdsInSlice = new Set<string>();
   for (const m of messages) {
     if (m.role === 'assistant' && m.kind === 'tool_call') {
-      try {
-        const parsed = JSON.parse(m.content) as { toolCalls?: Array<{ id?: string }> };
-        for (const tc of parsed.toolCalls ?? []) {
-          if (typeof tc?.id === 'string') callIdsInSlice.add(tc.id);
-        }
-      } catch { /* leave empty */ }
+      const parsed = parseToolCallMessage(JSON.parse(m.content));
+      callIdsInSlice.add(parsed.id);
     }
   }
   const cleaned: AgentMessage[] = [];
@@ -96,14 +93,8 @@ function trimToCleanToolBoundary(messages: AgentMessage[]): AgentMessage[] {
   const finalMessages: AgentMessage[] = [];
   for (const m of cleaned) {
     if (m.role === 'assistant' && m.kind === 'tool_call') {
-      let allPresent = true;
-      try {
-        const parsed = JSON.parse(m.content) as { toolCalls?: Array<{ id?: string }> };
-        for (const tc of parsed.toolCalls ?? []) {
-          if (!tc?.id || !resultIds.has(tc.id)) { allPresent = false; break; }
-        }
-      } catch { allPresent = false; }
-      if (!allPresent) continue;
+      const parsed = parseToolCallMessage(JSON.parse(m.content));
+      if (!resultIds.has(parsed.id)) continue;
     }
     finalMessages.push(m);
   }
@@ -283,13 +274,13 @@ export class AnalystHandler {
         return { sessionId, message: { id: persisted.id, role: 'assistant', kind: 'text', content: errMsg, timestamp: persisted.timestamp }, toolInvocations: toolInvocations.length > 0 ? toolInvocations : undefined };
       }
 
-      if (!llmResult.toolCalls || llmResult.toolCalls.length === 0) {
+      if (llmResult.kind === 'message') {
         const finalText = (llmResult.content ?? '').trim() || 'Done.';
         const persisted = appendMessage(saivageDir(this.projectRoot), sessionId, { role: 'assistant', kind: 'text', content: finalText }, this.activeRuntime.stampInRound(sessionId), this.activeRuntime);
         return { sessionId, message: { id: persisted.id, role: 'assistant', kind: 'text', content: finalText, timestamp: persisted.timestamp }, toolInvocations: toolInvocations.length > 0 ? toolInvocations : undefined };
       }
 
-      const toolCalls = llmResult.toolCalls;
+      const toolCalls = llmResult.tool_calls;
       const fingerprint = toolCalls.map((tc) => `${tc.function.name}:${tc.function.arguments}`).sort().join('||');
       if (previousToolCallFingerprints.has(fingerprint)) {
         const noProgressText = 'I repeated the same tool calls without making progress. Please refine the request or inspect the latest tool results.';
@@ -297,7 +288,15 @@ export class AnalystHandler {
         return { sessionId, message: { id: persisted.id, role: 'assistant', kind: 'text', content: noProgressText, timestamp: persisted.timestamp }, toolInvocations: toolInvocations.length > 0 ? toolInvocations : undefined };
       }
       previousToolCallFingerprints.add(fingerprint);
-      appendMessage(saivageDir(this.projectRoot), sessionId, { role: 'assistant', kind: 'tool_call', content: JSON.stringify({ toolCalls }) }, this.activeRuntime.stampInRound(sessionId), this.activeRuntime);
+      for (const tc of toolCalls) {
+        let parsedArgs: Record<string, unknown>;
+        try {
+          const candidate = JSON.parse(tc.function.arguments) as unknown;
+          parsedArgs = candidate && typeof candidate === 'object' && !Array.isArray(candidate) ? candidate as Record<string, unknown> : {};
+        } catch { parsedArgs = {}; }
+        const row = serializeToolCallMessage({ id: tc.id, name: tc.function.name, args: parsedArgs });
+        appendMessage(saivageDir(this.projectRoot), sessionId, { role: 'assistant', kind: 'tool_call', content: JSON.stringify(row), tool: tc.function.name }, this.activeRuntime.stampInRound(sessionId), this.activeRuntime);
+      }
 
       for (const tc of toolCalls) {
         let params: Record<string, unknown> = {};

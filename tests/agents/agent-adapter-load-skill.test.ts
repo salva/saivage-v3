@@ -174,104 +174,6 @@ describe('AgentAdapter load_skill tool', () => {
     });
   });
 
-  describe.skip('parseToolCallsFromResponse (removed in F05 — tools-only union)', () => {
-    let tmpDir: string;
-    let adapter: AgentAdapter;
-
-    beforeEach(() => {
-      tmpDir = mkdtempSync(join(tmpdir(), 'saivage-parse-tools-test-'));
-      mkdirSync(join(tmpDir, '.saivage'), { recursive: true });
-      adapter = createMinimalAdapter(tmpDir);
-    });
-
-    afterEach(() => {
-      rmSync(tmpDir, { recursive: true, force: true });
-    });
-
-    function callParseToolCalls(raw: string): Array<{
-      id: string;
-      type: string;
-      function: { name: string; arguments: string };
-    }> | null {
-      return (adapter as any).parseToolCallsFromResponse(raw);
-    }
-
-    it('parses a valid tool_calls JSON payload correctly', () => {
-      const toolCallsPayload = JSON.stringify({
-        toolCalls: [
-          {
-            id: 'call_abc123',
-            type: 'function',
-            function: {
-              name: 'load_skill',
-              arguments: '{"name":"test-skill"}',
-            },
-          },
-        ],
-      });
-
-      const result = callParseToolCalls(toolCallsPayload);
-      expect(result).not.toBeNull();
-      expect(result!).toHaveLength(1);
-      expect(result![0].id).toBe('call_abc123');
-      expect(result![0].function.name).toBe('load_skill');
-      expect(result![0].function.arguments).toBe('{"name":"test-skill"}');
-    });
-
-    it('returns null for a plain text response (no JSON)', () => {
-      const result = callParseToolCalls('This is a plain text response.');
-      expect(result).toBeNull();
-    });
-
-    it('returns null for invalid JSON', () => {
-      const result = callParseToolCalls('{ not valid json }');
-      expect(result).toBeNull();
-    });
-
-    it('returns null for JSON without toolCalls array', () => {
-      const result = callParseToolCalls(JSON.stringify({ foo: 'bar' }));
-      expect(result).toBeNull();
-    });
-
-    it('returns null for JSON with empty toolCalls array', () => {
-      const result = callParseToolCalls(JSON.stringify({ toolCalls: [] }));
-      expect(result).toBeNull();
-    });
-
-    it('returns null for non-object JSON (e.g. a number)', () => {
-      const result = callParseToolCalls('42');
-      expect(result).toBeNull();
-    });
-
-    it('returns null for null JSON', () => {
-      const result = callParseToolCalls('null');
-      expect(result).toBeNull();
-    });
-
-    it('handles multiple tool calls in a single payload', () => {
-      const toolCallsPayload = JSON.stringify({
-        toolCalls: [
-          {
-            id: 'call_1',
-            type: 'function',
-            function: { name: 'load_skill', arguments: '{"name":"alpha"}' },
-          },
-          {
-            id: 'call_2',
-            type: 'function',
-            function: { name: 'load_skill', arguments: '{"name":"beta"}' },
-          },
-        ],
-      });
-
-      const result = callParseToolCalls(toolCallsPayload);
-      expect(result).not.toBeNull();
-      expect(result!).toHaveLength(2);
-      expect(result![0].id).toBe('call_1');
-      expect(result![1].id).toBe('call_2');
-    });
-  });
-
   describe('processToolCall', () => {
     let tmpDir: string;
     let adapter: AgentAdapter;
@@ -429,14 +331,6 @@ describe('AgentAdapter load_skill tool', () => {
       return (adapter as any).buildToolsForRole(role);
     }
 
-    function callParseToolCalls(raw: string): Array<{
-      id: string;
-      type: string;
-      function: { name: string; arguments: string };
-    }> | null {
-      return (adapter as any).parseToolCallsFromResponse(raw);
-    }
-
     async function callProcessToolCall(
       tc: { id: string; type: string; function: { name: string; arguments: string } },
       role: AgentRole,
@@ -454,22 +348,6 @@ describe('AgentAdapter load_skill tool', () => {
       const names = tools.map((tool) => tool.function.name);
       expect(names).toContain('create_card');
       expect(names).not.toContain('load_skill');
-    });
-
-    it.skip('parses a tool_calls JSON for load_skill (F05: parseToolCallsFromResponse removed)', () => {
-      const payload = JSON.stringify({
-        toolCalls: [
-          {
-            id: 'call_int_1',
-            type: 'function',
-            function: { name: 'load_skill', arguments: '{"name":"docs-guide"}' },
-          },
-        ],
-      });
-
-      const parsed = callParseToolCalls(payload);
-      expect(parsed).not.toBeNull();
-      expect(parsed![0].function.name).toBe('load_skill');
     });
 
     it('rejects planner load_skill because it is not in authoritative §7', async () => {

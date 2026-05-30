@@ -12,8 +12,8 @@ describe('tool presenter registry', () => {
     expect(registeredResultToolNamesForTest()).toContain('read_file');
   });
 
-  it('readToolCallMessage raises on legacy {toolCalls:[...]} wrapper', () => {
-    const legacy = JSON.stringify({ toolCalls: [{ name: 'x', params: {} }] });
+  it('readToolCallMessage raises on legacy {toolCalls:[...]} wrapper', () => { // legacy_message_shape: negative-test
+    const legacy = JSON.stringify({ toolCalls: [{ name: 'x', params: {} }] }); // legacy_message_shape: negative-test
     expect(() => readToolCallMessage(legacy)).toThrow(/toolCalls/);
   });
 
