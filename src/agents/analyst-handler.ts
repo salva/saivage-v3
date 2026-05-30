@@ -295,7 +295,7 @@ export class AnalystHandler {
           parsedArgs = candidate && typeof candidate === 'object' && !Array.isArray(candidate) ? candidate as Record<string, unknown> : {};
         } catch { parsedArgs = {}; }
         const row = serializeToolCallMessage({ id: tc.id, name: tc.function.name, args: parsedArgs });
-        appendMessage(saivageDir(this.projectRoot), sessionId, { role: 'assistant', kind: 'tool_call', content: JSON.stringify(row), tool: tc.function.name }, this.activeRuntime.stampInRound(sessionId), this.activeRuntime);
+        appendMessage(saivageDir(this.projectRoot), sessionId, { role: 'assistant', kind: 'tool_call', content: JSON.stringify(row), tool: tc.function.name, tool_call_id: tc.id }, this.activeRuntime.stampInRound(sessionId), this.activeRuntime);
       }
 
       for (const tc of toolCalls) {

@@ -1,4 +1,5 @@
 import type { ActivityStatus, ConversationEntry } from '../../api/types';
+import { parseToolCallMessage } from '../persistedToolCall';
 import { isRoundId, parseRoundId } from './round-id';
 import type { AgentTimeline, TimelineRound, TimelineRoundKind, ToolPair } from './types';
 
@@ -6,11 +7,17 @@ function compareEntry(a: ConversationEntry, b: ConversationEntry): number {
   return a.message_index - b.message_index || a.block_index - b.block_index || a.timestamp.localeCompare(b.timestamp) || a.id.localeCompare(b.id);
 }
 
+function callIdOf(entry: ConversationEntry): string | undefined {
+  if (entry.tool_call_id) return entry.tool_call_id;
+  try { return parseToolCallMessage(JSON.parse(entry.content)).id; } catch { return undefined; }
+}
+
 function buildToolPairs(entries: ConversationEntry[]): ToolPair[] {
   const calls = entries.filter((entry) => entry.kind === 'tool_call');
   const results = entries.filter((entry) => entry.kind === 'tool_result' || entry.kind === 'tool_error');
   return calls.map((call) => {
-    const result = results.find((entry) => entry.tool_call_id && entry.tool_call_id === call.tool_call_id) ?? null;
+    const id = callIdOf(call);
+    const result = id ? results.find((entry) => callIdOf(entry) === id) ?? null : null;
     return { call, result, status: result?.kind === 'tool_error' ? 'error' : result ? 'ok' : 'pending' };
   });
 }

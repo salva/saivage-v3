@@ -318,7 +318,7 @@ export class AgentAdapter implements AgentExecutionPort {
                 for (const tc of toolCallsThisTurn) {
                   let parsedArgs: Record<string, unknown>;
                   try { parsedArgs = JSON.parse(tc.function.arguments) as Record<string, unknown>; if (!parsedArgs || typeof parsedArgs !== 'object' || Array.isArray(parsedArgs)) parsedArgs = {}; } catch { parsedArgs = {}; }
-                  this.appendSessionMessage(session.id, { role: 'assistant', kind: 'tool_call', content: JSON.stringify(serializeToolCallMessage({ id: tc.id, name: tc.function.name, args: parsedArgs })), tool: tc.function.name });
+                  this.appendSessionMessage(session.id, { role: 'assistant', kind: 'tool_call', content: JSON.stringify(serializeToolCallMessage({ id: tc.id, name: tc.function.name, args: parsedArgs })), tool: tc.function.name, tool_call_id: tc.id });
                 }
 
                 // If terminal tool was called, validate envelope and exit

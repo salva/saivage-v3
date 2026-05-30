@@ -7,7 +7,8 @@
           class="ui-refresh-button"
           :disabled="runtimeLoading"
           @click="refreshRuntime"
-          title="Refresh"
+          :title="runtimeLoading ? 'Refreshing — please wait' : 'Refresh runtime state'"
+          :aria-label="runtimeLoading ? 'Refreshing — please wait' : 'Refresh runtime state'"
         >
           ↻
         </button>
@@ -41,7 +42,7 @@
             </div>
             <div class="status-item">
               <span class="status-key">Updated</span>
-              <span class="status-value">{{ shortTime(intent?.updated_at) }}</span>
+              <span class="status-value" :title="shortTimeTitle(intent?.updated_at)">{{ shortTime(intent?.updated_at) }}</span>
             </div>
             <div class="status-item">
               <span class="status-key">Live State</span>
@@ -110,11 +111,11 @@
           <div class="status-grid">
             <div class="status-item">
               <span class="status-key">Last REST Sync</span>
-              <span class="status-value">{{ shortTime(lastFetchedAt) }}</span>
+              <span class="status-value" :title="shortTimeTitle(lastFetchedAt)">{{ shortTime(lastFetchedAt) }}</span>
             </div>
             <div class="status-item">
               <span class="status-key">Last WS Event</span>
-              <span class="status-value">{{ shortTime(lastWsEventAt) }}</span>
+              <span class="status-value" :title="shortTimeTitle(lastWsEventAt)">{{ shortTime(lastWsEventAt) }}</span>
             </div>
             <div class="status-item">
               <span class="status-key">Updated By</span>
@@ -177,6 +178,7 @@ import { useRouter } from 'vue-router';
 import { useRuntimeStore } from '../stores/runtime';
 import { useCardStore } from '../stores/cards';
 import { useDashboardReadModel } from '../composables/useDashboardReadModel';
+import { formatTimestamp, isRecentTimestamp, timestampTitle } from '../utils/timestamp';
 const runtimeStore = useRuntimeStore();
 const cardsStore = useCardStore();
 const router = useRouter();
@@ -222,7 +224,10 @@ const { goalChildren, runtimeBannerMessage, runtimeBannerClass, barWidth } = use
 
 function shortTime(ts?: string | null): string {
   if (!ts) return 'unknown';
-  try { return new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }); } catch { return ts; }
+  return formatTimestamp(ts, isRecentTimestamp(ts) ? 'relative' : 'absolute');
+}
+function shortTimeTitle(ts?: string | null): string {
+  return ts ? timestampTitle(ts) : '';
 }
 
 function goToCard(id: string): void {
