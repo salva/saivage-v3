@@ -6,7 +6,6 @@ import type {
   ExchangeRequestMeta,
   ExchangeResponseMeta,
   LlmExchange,
-  TerminalToolName,
 } from '../contracts/index.js';
 
 /**
@@ -26,16 +25,17 @@ export interface LlmExchangeRecorderLogger {
 }
 
 export interface ExchangeHandle {
-  recordResponse(meta: ExchangeResponseMeta): Promise<void>;
+  recordResponse(meta: ExchangeResponseMeta, terminalToolFired: string | null): Promise<void>;
   recordError(meta: ExchangeErrorMeta): Promise<void>;
 }
 
 export interface BeginExchangeInput {
   transport: 'generic' | 'codex';
   contract_id: string;
+  contractName: string;
   candidate: { provider: string; model: string; account?: string };
   request: ExchangeRequestMeta;
-  terminalTool: TerminalToolName | null;
+  terminalToolOffered: readonly string[];
 }
 
 export interface LlmExchangeRecorder {
@@ -103,13 +103,15 @@ export function createLlmExchangeRecorder(
       startedAt,
       status: 'in-progress',
       request: redactedRequest,
-      terminalTool: meta.terminalTool,
+      terminalToolOffered: [...meta.terminalToolOffered],
+      terminalToolFired: null,
     };
 
     if (current === null) {
       current = {
         sessionId,
         contract_id: meta.contract_id,
+        contractName: meta.contractName,
         capturedAt: startedAt,
         transport: meta.transport,
         candidate: { ...meta.candidate },
@@ -119,6 +121,7 @@ export function createLlmExchangeRecorder(
       current = {
         ...current,
         contract_id: meta.contract_id,
+        contractName: meta.contractName,
         transport: meta.transport,
         candidate: { ...meta.candidate },
         attempts: [...current.attempts, attempt],
@@ -128,7 +131,7 @@ export function createLlmExchangeRecorder(
     await enqueueWrite(() => snapshotCurrent(), attemptIndex);
 
     const handle: ExchangeHandle = {
-      async recordResponse(responseMeta: ExchangeResponseMeta): Promise<void> {
+      async recordResponse(responseMeta: ExchangeResponseMeta, terminalToolFired: string | null): Promise<void> {
         const completedAt = new Date().toISOString();
         const redacted = redactForOutbound(responseMeta, 'operator.api', {
           source: 'llm-client.exchange-capture',
@@ -138,7 +141,7 @@ export function createLlmExchangeRecorder(
             ...current,
             attempts: current.attempts.map((a) =>
               a.attempt === attemptIndex
-                ? { ...a, status: 'ok', completedAt, response: redacted, error: undefined }
+                ? { ...a, status: 'ok', completedAt, response: redacted, error: undefined, terminalToolFired }
                 : a,
             ),
           };

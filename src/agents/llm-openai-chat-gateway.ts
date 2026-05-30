@@ -4,7 +4,7 @@ import type { LlmCompleteOptions, LlmCompleteResult, ToolCall, ToolDefinition, L
 import { parseToolCallMessage } from './persisted-tool-call.js';
 import { LlmRequestError } from './llm-errors.js';
 import { classifierFor, classifyTransportFailure, defaultHttpClassifier } from './llm-failure-classifiers.js';
-import { beginRecordedExchange, recordResponseError, teeStreamForRecorder, deriveTerminalToolFromOptions } from './llm-recording.js';
+import { beginRecordedExchange, recordResponseError, teeStreamForRecorder } from './llm-recording.js';
 import { readOpenAIChatStream } from './llm-stream-parser.js';
 import { serializeToolsForChat, type WireToolDefinitionChat } from './tool-definition-serializer.js';
 
@@ -72,11 +72,12 @@ export class OpenAIChatGateway {
     const handle = await beginRecordedExchange(opts.recorder, {
       transport: 'generic',
       contract_id: opts.contract_id,
+      contractName: opts.contractName,
       candidate,
       endpoint: url,
       headers,
       body: requestBody,
-      terminalTool: deriveTerminalToolFromOptions(opts),
+      terminalToolOffered: opts.terminalToolOffered,
     });
     let recordedErr = false;
     let rawText: string | undefined;
@@ -111,7 +112,7 @@ export class OpenAIChatGateway {
         if (handle) {
           const tee = teeStreamForRecorder(response.body);
           const result = await readOpenAIChatStream(tee.stream);
-          await handle.recordResponse({ status: response.status, bodyRaw: tee.getBuffer(), bodyParsed: result });
+          await handle.recordResponse({ status: response.status, bodyRaw: tee.getBuffer(), bodyParsed: result }, firedTerminalFromResult(result, opts));
           return result;
         }
         return await readOpenAIChatStream(response.body);
@@ -132,7 +133,7 @@ export class OpenAIChatGateway {
       const result: LlmCompleteResult = toolCalls.length > 0
         ? { kind: 'tool_calls', tool_calls: toolCalls, usage: parsed.usage }
         : { kind: 'message', content: choice.message?.content ?? '', usage: parsed.usage };
-      if (handle) await handle.recordResponse({ status: response.status, bodyRaw: rawText, bodyParsed: parsed });
+      if (handle) await handle.recordResponse({ status: response.status, bodyRaw: rawText, bodyParsed: parsed }, firedTerminalFromResult(result, opts));
       return result;
     } catch (err) {
       if (handle && !recordedErr) await recordResponseError(handle, err, rawText ?? null);
@@ -203,6 +204,15 @@ export function buildOpenAIChatRequest(
     body.parallel_tool_calls = false;
   }
   return body;
+}
+
+function firedTerminalFromResult(result: LlmCompleteResult, opts: LlmCompleteOptions): string | null {
+  if (result.kind !== 'tool_calls') return null;
+  const offered = new Set(opts.terminalToolOffered);
+  for (const call of result.tool_calls) {
+    if (offered.has(call.function.name)) return call.function.name;
+  }
+  return null;
 }
 
 function sanitizeToolCallSequences(msgs: ChatMessage[]): ChatMessage[] {

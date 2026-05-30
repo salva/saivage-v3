@@ -47,6 +47,8 @@ describe('buildOpenAIChatRequest wire shape', () => {
     const opts: LlmCompleteOptions = {
       phase: 'terminal',
       contract_id: 'test.v1',
+      contractName: 'planner',
+      terminalToolOffered: ['emit_planner_result'],
       terminalToolName: 'emit_planner_result',
       terminalToolDefinition: PLANNER_TERMINAL_TOOL,
     };
@@ -75,6 +77,8 @@ describe('buildOpenAIChatRequest wire shape', () => {
     const opts: LlmCompleteOptions = {
       phase: 'tools',
       contract_id: 'test.v1',
+      contractName: 'planner',
+      terminalToolOffered: [],
       tools: [SAMPLE_TOOL],
       tool_choice: { kind: 'auto' },
     };
@@ -89,6 +93,8 @@ describe('buildOpenAIChatRequest wire shape', () => {
     const opts: LlmCompleteOptions = {
       phase: 'tools',
       contract_id: 'test.v1',
+      contractName: 'analyst',
+      terminalToolOffered: [],
       tools: [],
       tool_choice: { kind: 'auto' },
     };

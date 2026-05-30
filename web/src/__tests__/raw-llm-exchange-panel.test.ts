@@ -15,7 +15,8 @@ function makeAttempt(overrides: Partial<ExchangeAttempt> = {}): ExchangeAttempt 
     startedAt: '2026-05-23T10:00:00Z',
     completedAt: '2026-05-23T10:00:01Z',
     status: 'ok',
-    terminalTool: null,
+    terminalToolOffered: [],
+    terminalToolFired: null,
     request: {
       endpoint: 'https://api.example.com/v1/chat',
       method: 'POST',
@@ -36,6 +37,7 @@ function makeExchange(overrides: Partial<LlmExchange> = {}): LlmExchange {
   return {
     sessionId: 'sess-1',
     contract_id: 'executor.v1',
+    contractName: 'executor',
     capturedAt: '2026-05-23T10:00:01Z',
     transport: 'generic',
     candidate: { provider: 'openai', model: 'gpt-4', account: 'default' },

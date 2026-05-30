@@ -13,7 +13,8 @@ function makeAttempt(overrides: Partial<ExchangeAttempt> = {}): ExchangeAttempt 
     startedAt: '2026-05-23T10:00:00Z',
     completedAt: '2026-05-23T10:00:01Z',
     status: 'ok',
-    terminalTool: null,
+    terminalToolOffered: [],
+    terminalToolFired: null,
     request: { endpoint: 'https://api.example.com/v1/chat', method: 'POST', headers: {}, body: {} },
     response: { status: 200, headers: {}, bodyRaw: '{}', bodyParsed: {} },
     ...overrides,
@@ -24,6 +25,7 @@ function makeExchange(attempt: ExchangeAttempt): LlmExchange {
   return {
     sessionId: 'sess-1',
     contract_id: 'executor.v1',
+    contractName: 'executor',
     capturedAt: '2026-05-23T10:00:01Z',
     transport: 'generic',
     candidate: { provider: 'openai', model: 'gpt-4', account: 'default' },
@@ -52,15 +54,15 @@ describe('RawLlmExchangePanel terminal_tool badge', () => {
 
   for (const name of ['emit_planner_result', 'emit_executor_result', 'emit_reviewer_result'] as const) {
     it(`renders the terminal_tool badge with ${name}`, async () => {
-      const wrapper = await mountWithExchange(makeExchange(makeAttempt({ terminalTool: name })));
+      const wrapper = await mountWithExchange(makeExchange(makeAttempt({ terminalToolFired: name, terminalToolOffered: [name] })));
       const badge = wrapper.find('.rlp-terminal-tool-badge');
       expect(badge.exists()).toBe(true);
       expect(badge.text()).toBe(name);
     });
   }
 
-  it('omits the badge when terminalTool is null', async () => {
-    const wrapper = await mountWithExchange(makeExchange(makeAttempt({ terminalTool: null })));
+  it('omits the badge when terminalToolFired is null', async () => {
+    const wrapper = await mountWithExchange(makeExchange(makeAttempt({ terminalToolFired: null, terminalToolOffered: [] })));
     expect(wrapper.find('.rlp-terminal-tool-badge').exists()).toBe(false);
   });
 });

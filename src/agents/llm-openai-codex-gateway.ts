@@ -6,7 +6,7 @@ import { parseToolCallMessage } from './persisted-tool-call.js';
 import { LlmRequestError } from './llm-errors.js';
 import { classifierFor, classifyTransportFailure, defaultHttpClassifier } from './llm-failure-classifiers.js';
 import { readOpenAICodexStream } from './llm-codex-parser.js';
-import { beginRecordedExchange, recordResponseError, teeStreamForRecorder, deriveTerminalToolFromOptions } from './llm-recording.js';
+import { beginRecordedExchange, recordResponseError, teeStreamForRecorder } from './llm-recording.js';
 import { serializeToolsForCodex } from './tool-definition-serializer.js';
 
 const OPENAI_CODEX_JWT_CLAIM = 'https://api.openai.com/auth';
@@ -55,11 +55,12 @@ export class OpenAICodexGateway {
     const handle = await beginRecordedExchange(opts.recorder, {
       transport: 'codex',
       contract_id: opts.contract_id,
+      contractName: opts.contractName,
       candidate,
       endpoint,
       headers,
       body,
-      terminalTool: deriveTerminalToolFromOptions(opts),
+      terminalToolOffered: opts.terminalToolOffered,
     });
     let recordedErr = false;
     let streamBuffer: string | undefined;
@@ -91,7 +92,7 @@ export class OpenAICodexGateway {
         const tee = teeStreamForRecorder(response.body);
         const result = await readOpenAICodexStream(tee.stream);
         streamBuffer = tee.getBuffer();
-        await handle.recordResponse({ status: response.status, bodyRaw: streamBuffer, bodyParsed: result });
+        await handle.recordResponse({ status: response.status, bodyRaw: streamBuffer, bodyParsed: result }, firedTerminalFromCodexResult(result, opts));
         return result;
       }
       return await readOpenAICodexStream(response.body);
@@ -142,6 +143,15 @@ export function buildOpenAICodexRequest(
     body.parallel_tool_calls = false;
   }
   return body;
+}
+
+function firedTerminalFromCodexResult(result: LlmCompleteResult, opts: LlmCompleteOptions): string | null {
+  if (result.kind !== 'tool_calls') return null;
+  const offered = new Set(opts.terminalToolOffered);
+  for (const call of result.tool_calls) {
+    if (offered.has(call.function.name)) return call.function.name;
+  }
+  return null;
 }
 
 export function codexMessages(messages: AgentMessage[]): CodexMessage[] {

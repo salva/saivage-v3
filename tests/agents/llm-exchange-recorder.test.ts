@@ -42,14 +42,14 @@ describe('llm-exchange-recorder', () => {
       contract_id: 'test.v1',
       candidate: sampleCandidate,
       request: sampleRequest,
-      terminalTool: null,
+      contractName: 'test', terminalToolOffered: [],
     });
     await handle.recordResponse({
       status: 200,
       headers: { 'content-type': 'application/json' },
       bodyRaw: '{"ok":true}',
       bodyParsed: { ok: true },
-    });
+    }, null);
     await rec.flush();
 
     const got = await readLatestLlmExchange(saivage, 'sess-ok');
@@ -71,7 +71,7 @@ describe('llm-exchange-recorder', () => {
       contract_id: 'test.v1',
       candidate: sampleCandidate,
       request: sampleRequest,
-      terminalTool: null,
+      contractName: 'test', terminalToolOffered: [],
     });
     await handle.recordError({
       errorName: 'HttpError',
@@ -93,11 +93,11 @@ describe('llm-exchange-recorder', () => {
     const saivage = makeSaivageDir();
     const rec = createLlmExchangeRecorder({ saivageDir: saivage, sessionId: 'sess-retry' });
 
-    const h1 = await rec.beginExchange({ transport: 'generic', contract_id: 'test.v1', candidate: sampleCandidate, request: sampleRequest, terminalTool: null });
+    const h1 = await rec.beginExchange({ transport: 'generic', contract_id: 'test.v1', candidate: sampleCandidate, request: sampleRequest, contractName: 'test', terminalToolOffered: [] });
     await h1.recordError({ errorName: 'HttpError', message: 'first', status: 500, bodyRaw: null });
 
-    const h2 = await rec.beginExchange({ transport: 'generic', contract_id: 'test.v1', candidate: sampleCandidate, request: sampleRequest, terminalTool: null });
-    await h2.recordResponse({ status: 200, bodyRaw: 'ok', bodyParsed: null });
+    const h2 = await rec.beginExchange({ transport: 'generic', contract_id: 'test.v1', candidate: sampleCandidate, request: sampleRequest, contractName: 'test', terminalToolOffered: [] });
+    await h2.recordResponse({ status: 200, bodyRaw: 'ok', bodyParsed: null }, null);
     await rec.flush();
 
     const got = await readLatestLlmExchange(saivage, 'sess-retry');
@@ -109,12 +109,12 @@ describe('llm-exchange-recorder', () => {
   it('keeps handle correlation across interleaved concurrent calls', async () => {
     const saivage = makeSaivageDir();
     const rec = createLlmExchangeRecorder({ saivageDir: saivage, sessionId: 'sess-concur' });
-    const h1 = await rec.beginExchange({ transport: 'generic', contract_id: 'test.v1', candidate: sampleCandidate, request: sampleRequest, terminalTool: null });
-    const h2 = await rec.beginExchange({ transport: 'generic', contract_id: 'test.v1', candidate: sampleCandidate, request: sampleRequest, terminalTool: null });
+    const h1 = await rec.beginExchange({ transport: 'generic', contract_id: 'test.v1', candidate: sampleCandidate, request: sampleRequest, contractName: 'test', terminalToolOffered: [] });
+    const h2 = await rec.beginExchange({ transport: 'generic', contract_id: 'test.v1', candidate: sampleCandidate, request: sampleRequest, contractName: 'test', terminalToolOffered: [] });
 
     await Promise.all([
       h2.recordError({ errorName: 'E', message: 'm', bodyRaw: null }),
-      h1.recordResponse({ status: 200, bodyRaw: null, bodyParsed: { ok: 1 } }),
+      h1.recordResponse({ status: 200, bodyRaw: null, bodyParsed: { ok: 1 } }, null),
     ]);
     await rec.flush();
 
@@ -138,8 +138,8 @@ describe('llm-exchange-recorder', () => {
       _writeExchange: failingWrite as unknown as (sd: string, e: LlmExchange) => Promise<void>,
     });
 
-    const handle = await rec.beginExchange({ transport: 'generic', contract_id: 'test.v1', candidate: sampleCandidate, request: sampleRequest, terminalTool: null });
-    await expect(handle.recordResponse({ status: 200, bodyRaw: null, bodyParsed: null })).resolves.toBeUndefined();
+    const handle = await rec.beginExchange({ transport: 'generic', contract_id: 'test.v1', candidate: sampleCandidate, request: sampleRequest, contractName: 'test', terminalToolOffered: [] });
+    await expect(handle.recordResponse({ status: 200, bodyRaw: null, bodyParsed: null }, null)).resolves.toBeUndefined();
     await rec.flush();
 
     expect(calls.length).toBeGreaterThanOrEqual(1);
@@ -166,8 +166,8 @@ describe('llm-exchange-recorder', () => {
       sessionId: 'sess-flush',
       _writeExchange: slowWrite,
     });
-    const handle = await rec.beginExchange({ transport: 'generic', contract_id: 'test.v1', candidate: sampleCandidate, request: sampleRequest, terminalTool: null });
-    void handle.recordResponse({ status: 200, bodyRaw: null, bodyParsed: null });
+    const handle = await rec.beginExchange({ transport: 'generic', contract_id: 'test.v1', candidate: sampleCandidate, request: sampleRequest, contractName: 'test', terminalToolOffered: [] });
+    void handle.recordResponse({ status: 200, bodyRaw: null, bodyParsed: null }, null);
 
     let flushDone = false;
     const flushPromise = rec.flush().then(() => { flushDone = true; });
@@ -195,9 +195,9 @@ describe('llm-exchange-recorder', () => {
         },
         body: { messages: [] },
       },
-      terminalTool: null,
+      contractName: 'test', terminalToolOffered: [],
     });
-    await handle.recordResponse({ status: 200, bodyRaw: null, bodyParsed: null });
+    await handle.recordResponse({ status: 200, bodyRaw: null, bodyParsed: null }, null);
     await rec.flush();
 
     const raw = readFileSync(exchangePath(saivage, 'sess-redact'), 'utf8');
@@ -209,13 +209,13 @@ describe('llm-exchange-recorder', () => {
     const rec = createLlmExchangeRecorder({ saivageDir: saivage, sessionId: 'sess-stress' });
     const handles = await Promise.all(
       Array.from({ length: 25 }, () =>
-        rec.beginExchange({ transport: 'generic', contract_id: 'test.v1', candidate: sampleCandidate, request: sampleRequest, terminalTool: null }),
+        rec.beginExchange({ transport: 'generic', contract_id: 'test.v1', candidate: sampleCandidate, request: sampleRequest, contractName: 'test', terminalToolOffered: [] }),
       ),
     );
     const ops: Array<Promise<void>> = [];
     for (let i = 0; i < handles.length; i++) {
       const h = handles[i]!;
-      if (i % 2 === 0) ops.push(h.recordResponse({ status: 200, bodyRaw: null, bodyParsed: null }));
+      if (i % 2 === 0) ops.push(h.recordResponse({ status: 200, bodyRaw: null, bodyParsed: null }, null));
       else ops.push(h.recordError({ errorName: 'E', message: 'm', bodyRaw: null }));
     }
     await Promise.all(ops);

@@ -1,7 +1,7 @@
 import type { LlmCompleteOptions, LlmCompleteResult, ToolCall, ToolDefinition } from '../../src/agents/llm-contracts.js';
 
 export function toolsOpts(extra: Partial<LlmCompleteOptions> = {}): LlmCompleteOptions {
-  return { phase: 'tools', tools: [], tool_choice: { kind: 'auto' }, contract_id: 'test.v1', ...(extra as object) } as LlmCompleteOptions;
+  return { phase: 'tools', tools: [], tool_choice: { kind: 'auto' }, contract_id: 'test.v1', contractName: 'test', terminalToolOffered: [], ...(extra as object) } as LlmCompleteOptions;
 }
 
 export function messageResult(content: string): LlmCompleteResult {

@@ -16,6 +16,7 @@ function makeExchange(sessionId: string): LlmExchange {
   return {
     sessionId,
     contract_id: 'test.v1',
+    contractName: 'test',
     capturedAt: '2026-05-23T10:00:00.000Z',
     transport: 'generic',
     candidate: { provider: 'test-provider', model: 'test-model' },
@@ -25,7 +26,8 @@ function makeExchange(sessionId: string): LlmExchange {
         startedAt: '2026-05-23T10:00:00.000Z',
         completedAt: '2026-05-23T10:00:01.000Z',
         status: 'ok',
-        terminalTool: null,
+        terminalToolOffered: [],
+        terminalToolFired: null,
         request: {
           endpoint: 'https://example.test/v1/chat',
           method: 'POST',

@@ -1,8 +1,5 @@
 import type { Candidate } from './provider.js';
 import type { LlmExchangeRecorder } from './llm-exchange-recorder.js';
-import type { LlmCompleteOptions } from './llm-contracts.js';
-import type { TerminalToolName } from '../contracts/index.js';
-import { TERMINAL_TOOL_NAMES } from '../contracts/index.js';
 import { LlmRequestError } from './llm-errors.js';
 
 const STREAM_TEE_MAX_BYTES = 16 * 1024 * 1024;
@@ -50,22 +47,12 @@ export function teeStreamForRecorder(body: ReadableStream<Uint8Array>): {
 export interface LlmRecorderRequest {
   transport: 'generic' | 'codex';
   contract_id: string;
+  contractName: string;
   candidate: Candidate;
   endpoint: string;
   headers: Record<string, string>;
   body: unknown;
-  terminalTool: TerminalToolName | null;
-}
-
-function asTerminalToolName(name: string | null): TerminalToolName | null {
-  if (name === null) return null;
-  return (TERMINAL_TOOL_NAMES as readonly string[]).includes(name) ? (name as TerminalToolName) : null;
-}
-
-export function deriveTerminalToolFromOptions(opts: LlmCompleteOptions): TerminalToolName | null {
-  if (opts.phase === 'terminal') return asTerminalToolName(opts.terminalToolName);
-  if (opts.tool_choice.kind === 'required_named') return asTerminalToolName(opts.tool_choice.toolName);
-  return null;
+  terminalToolOffered: readonly string[];
 }
 
 export async function beginRecordedExchange(
@@ -76,13 +63,14 @@ export async function beginRecordedExchange(
   return recorder.beginExchange({
     transport: request.transport,
     contract_id: request.contract_id,
+    contractName: request.contractName,
     candidate: {
       provider: request.candidate.provider,
       model: request.candidate.model,
       account: request.candidate.account ?? undefined,
     },
     request: { endpoint: request.endpoint, method: 'POST', headers: request.headers, body: request.body },
-    terminalTool: request.terminalTool,
+    terminalToolOffered: request.terminalToolOffered,
   });
 }
 

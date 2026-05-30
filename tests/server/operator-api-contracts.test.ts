@@ -333,6 +333,7 @@ describe('operator API contract registry', () => {
       exchange: {
         sessionId: 'planner-1',
         contract_id: 'planner.v1',
+        contractName: 'planner',
         capturedAt: '2026-01-01T00:00:00.000Z',
         transport: 'generic',
         candidate: { provider: 'test-provider', model: 'test-model' },
@@ -341,7 +342,8 @@ describe('operator API contract registry', () => {
           startedAt: '2026-01-01T00:00:00.000Z',
           completedAt: '2026-01-01T00:00:01.000Z',
           status: 'ok',
-          terminalTool: null,
+          terminalToolOffered: [],
+          terminalToolFired: null,
           request: { endpoint: 'https://example.test/v1/chat', method: 'POST', headers: {}, body: { prompt: 'hi' } },
           response: { status: 200, headers: {}, bodyRaw: '{"ok":true}', bodyParsed: { ok: true } },
         }],

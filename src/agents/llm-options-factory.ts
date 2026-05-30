@@ -10,6 +10,8 @@ import type {
 import { ROLE_RESULT_TOOL_NAMES } from './role-result-tools.js';
 import type { EnvelopeBearingRole } from './role-envelope-schemas.js';
 
+const ROLE_RESULT_TOOL_NAMES_VALUES: readonly string[] = Object.values(ROLE_RESULT_TOOL_NAMES);
+
 export type LlmRolePhase = 'tools' | 'terminal';
 
 function isEnvelopeBearing(role: OperationalAgentRole): role is EnvelopeBearingRole {
@@ -31,6 +33,11 @@ export function buildLlmOptions(
     recorder,
     stream: false as const,
     contract_id: `${role}.v1`,
+    contractName: role,
+    terminalToolOffered:
+      phase === 'terminal' && isEnvelopeBearing(role)
+        ? [ROLE_RESULT_TOOL_NAMES[role]]
+        : tools.filter((t) => ROLE_RESULT_TOOL_NAMES_VALUES.includes(t.function.name)).map((t) => t.function.name),
   };
 
   if (phase === 'tools') {

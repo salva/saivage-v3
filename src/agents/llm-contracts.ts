@@ -38,6 +38,8 @@ interface LlmCompleteOptionsBase extends LlmModelParams {
   recorder?: LlmExchangeRecorder;
   capabilityRequest?: CapabilityRequest;
   contract_id: string;
+  contractName: string;
+  terminalToolOffered: readonly string[];
 }
 
 export interface LlmCompleteOptionsTools extends LlmCompleteOptionsBase {

@@ -54,10 +54,15 @@
       <div v-if="selectedAttempt" class="rlp-attempt-meta">
         <span class="rlp-meta-item">Status: <span class="rlp-meta-value">{{ selectedAttempt.status }}</span></span>
         <span
-          v-if="selectedAttempt.terminalTool"
+          v-if="selectedAttempt.terminalToolFired"
           class="rlp-terminal-tool-badge"
           :title="`terminal tool emitted on this attempt`"
-        >{{ selectedAttempt.terminalTool }}</span>
+        >{{ selectedAttempt.terminalToolFired }}</span>
+        <span
+          v-if="selectedAttempt.terminalToolOffered && selectedAttempt.terminalToolOffered.length > 0"
+          class="rlp-meta-item"
+          :title="`terminal tools offered to the model on this attempt`"
+        >Offered: <span class="rlp-meta-value">{{ selectedAttempt.terminalToolOffered.join(', ') }}</span></span>
       </div>
 
       <div v-if="selectedAttempt" class="rlp-panes">

@@ -29,6 +29,7 @@ function sampleExchange(sessionId = 'sess-1'): LlmExchange {
   return {
     sessionId,
     contract_id: 'test.v1',
+    contractName: 'test',
     capturedAt: '2026-05-23T00:00:00.000Z',
     transport: 'generic',
     candidate: { provider: 'openai', model: 'gpt-x', account: 'acct-a' },
@@ -38,7 +39,8 @@ function sampleExchange(sessionId = 'sess-1'): LlmExchange {
         startedAt: '2026-05-23T00:00:00.000Z',
         completedAt: '2026-05-23T00:00:01.000Z',
         status: 'ok',
-        terminalTool: null,
+        terminalToolOffered: [],
+        terminalToolFired: null,
         request: {
           endpoint: 'https://api.example.test/v1/chat',
           method: 'POST',
