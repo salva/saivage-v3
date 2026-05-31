@@ -3,11 +3,11 @@
 import { copyFileSync, existsSync, mkdirSync, readdirSync, rmSync, statSync } from 'node:fs';
 import { basename, dirname, extname, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { REQUIRED_PROMPT_FILES } from './prompt-asset-inventory.js';
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const sourceDir = join(repoRoot, 'src', 'prompts');
 const outputDir = join(repoRoot, 'dist', 'prompts');
-const requiredPromptFiles = ['planner.md', 'executor.md', 'reviewer.md'];
 
 function listMarkdownFiles(directory) {
   if (!existsSync(directory)) {
@@ -29,6 +29,11 @@ function listMarkdownFiles(directory) {
 
 function copyPromptAssets() {
   const files = listMarkdownFiles(sourceDir);
+  const sourceMissing = REQUIRED_PROMPT_FILES.filter((file) => !files.includes(file));
+  if (sourceMissing.length > 0) {
+    throw new Error(`Prompt asset source inventory incomplete; missing required files: ${sourceMissing.join(', ')}`);
+  }
+
   rmSync(outputDir, { recursive: true, force: true });
   mkdirSync(outputDir, { recursive: true });
 
@@ -36,12 +41,12 @@ function copyPromptAssets() {
     copyFileSync(join(sourceDir, file), join(outputDir, basename(file)));
   }
 
-  const missing = requiredPromptFiles.filter((file) => !existsSync(join(outputDir, file)));
-  if (missing.length > 0) {
-    throw new Error(`Prompt asset copy incomplete; missing required files: ${missing.join(', ')}`);
+  const outputMissing = REQUIRED_PROMPT_FILES.filter((file) => !existsSync(join(outputDir, file)));
+  if (outputMissing.length > 0) {
+    throw new Error(`Prompt asset copy incomplete; missing required files: ${outputMissing.join(', ')}`);
   }
 
-  console.log(`Copied ${files.length} prompt asset(s) to ${relative(repoRoot, outputDir)}`);
+  console.log(`Copied ${files.length} prompt asset(s) to ${relative(repoRoot, outputDir)}: ${files.join(', ')}`);
 }
 
 try {
