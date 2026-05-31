@@ -1,7 +1,7 @@
 import { EventEmitter } from 'node:events';
 import type { SaivageConfig, RuntimeSection } from './config-schema.js';
 import { loadConfig, getRuntimeConfig, getModelParamsForRole } from './config-schema.js';
-import { ProviderRegistry, type Candidate } from './provider.js';
+import { ProviderRegistry } from './provider.js';
 import { ModelRouter } from './model-router.js';
 import { type CandidateAvailability, MemoryCandidateAvailability } from './candidate-availability.js';
 import { createSession, completeSession, appendMessage as appendPersistentMessage, getSession, markSessionWaiting, setSessionStatus, updateSessionModel, assertNoActiveAgentSession } from './session-persistence.js';

@@ -11,8 +11,7 @@ export interface ProviderFailureClassifier {
   classifyTransport(err: unknown, ctx: ClassifierContext): LlmTransportFailure | undefined;
 }
 
-const KNOWN_PROVIDERS = ['openai-codex', 'opencode-go', 'openai-chat', 'opencode', 'github-copilot', 'nvidia-nim'] as const;
-export type KnownProvider = (typeof KNOWN_PROVIDERS)[number];
+export type KnownProvider = 'openai-codex' | 'opencode-go' | 'openai-chat' | 'opencode' | 'github-copilot' | 'nvidia-nim';
 
 function detail(bodyText: string, source: string): string {
   if (!bodyText) return '';
