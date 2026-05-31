@@ -696,8 +696,33 @@ export class Runtime extends EventEmitter {
       if (this._paused) { this.emit('dispatch_blocked', { reason: 'paused', goal_id: goalId }); this._eventLogger.appendEvent({ kind: 'dispatch_blocked', reason: 'paused', goal_id: goalId }); return; }
       const hasUnfinishedChildWork = this.cardStore.list().some((card) => card.parent === goalId && card.status !== 'done' && card.status !== 'failed' && card.status !== 'cancelled');
       const hasGoalDispatch = execution.dispatchedGoal; const createdCardIds = (plannerResult.created_cards ?? []).map((card) => card.id).filter((id): id is string => Boolean(id));
-      if (plannerResult.status === 'blocked') { await this._stateMachine.transitionCard(goalId, 'block', { blocked_reason: plannerResult.blocked_reason ?? null }); await this.cardStore.update(goalId, { result: { ...(this.cardStore.read(goalId)?.result ?? {}), planning: { status: 'blocked', blocked_reason: plannerResult.blocked_reason ?? null, created_cards: createdCardIds } } }); await this._stateMachine.transition('card_terminated', { goalId, reason: 'planner_blocked' }); return; }
-      if (plannerResult.status === 'done' && !hasGoalDispatch && !hasUnfinishedChildWork) plannerDone = true; else { plannerDone = false; await this.cardStore.update(goalId, { result: { ...(this.cardStore.read(goalId)?.result ?? {}), planning: { status: 'continue', planner_declared_done: plannerResult.status === 'done', has_unfinished_child_work: hasUnfinishedChildWork, resume_reason: hasGoalDispatch ? 'dispatch_completed' : 'review_completed', created_cards: createdCardIds } } }); if (plannerResult.status === 'done' && !hasGoalDispatch && hasUnfinishedChildWork) { await this._stateMachine.transition('goal_exit', { goalId, reason: 'planner_done_with_unfinished_child_work' }); return; } }
+      const updatedCardIds = (plannerResult.updated_cards ?? []).map((card) => card.id).filter((id): id is string => Boolean(id));
+      if (plannerResult.status === 'blocked') { await this._stateMachine.transitionCard(goalId, 'block', { blocked_reason: plannerResult.blocked_reason ?? null }); await this.cardStore.update(goalId, { result: { ...(this.cardStore.read(goalId)?.result ?? {}), planning: { status: 'blocked', blocked_reason: plannerResult.blocked_reason ?? null, created_cards: createdCardIds, updated_cards: updatedCardIds } } }); await this._stateMachine.transition('card_terminated', { goalId, reason: 'planner_blocked' }); return; }
+      const hasPlannerAction = createdCardIds.length > 0 || updatedCardIds.length > 0 || hasGoalDispatch || hasUnfinishedChildWork || execution.executedTerminal;
+      if (plannerResult.status === 'continue' && !hasPlannerAction) {
+        const blockedReason = 'Planner returned continue without creating/updating cards, activating child work, leaving unfinished child work, or declaring a blocker.';
+        await this._stateMachine.transitionCard(goalId, 'block', { blocked_reason: blockedReason });
+        await this.cardStore.update(goalId, {
+          error: blockedReason,
+          status_text: blockedReason,
+          result: {
+            ...(this.cardStore.read(goalId)?.result ?? {}),
+            planning: {
+              status: 'blocked',
+              blocked_reason: blockedReason,
+              planner_declared_done: false,
+              has_unfinished_child_work: false,
+              resume_reason: 'non_actionable_continue',
+              created_cards: [],
+              updated_cards: [],
+              summary: plannerResult.summary ?? null,
+            },
+          },
+        });
+        await this._stateMachine.transition('card_terminated', { goalId, reason: 'planner_non_actionable_continue' });
+        return;
+      }
+      if (plannerResult.status === 'done' && !hasGoalDispatch && !hasUnfinishedChildWork) plannerDone = true; else { plannerDone = false; await this.cardStore.update(goalId, { error: null, result: { ...(this.cardStore.read(goalId)?.result ?? {}), planning: { status: 'continue', planner_declared_done: plannerResult.status === 'done', has_unfinished_child_work: hasUnfinishedChildWork, resume_reason: hasGoalDispatch ? 'dispatch_completed' : 'review_completed', created_cards: createdCardIds, updated_cards: updatedCardIds } } }); if (plannerResult.status === 'done' && !hasGoalDispatch && hasUnfinishedChildWork) { await this._stateMachine.transition('goal_exit', { goalId, reason: 'planner_done_with_unfinished_child_work' }); return; } }
       if (plannerDone) {
         const assessmentId = this.nextReviewerAssessmentId(goalId);
         const reviewerSessionId = this.reviewerSessionId(goalId, assessmentId);
