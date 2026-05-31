@@ -271,3 +271,16 @@ export {
 export type {
   LoggedEventCompatResult,
 } from './validators.js';
+export {
+  normalizeStageSummary,
+  normalizeTaskReport,
+} from './worker-report-normalizer.js';
+export type {
+  NormalizationResult,
+  NormalizedStageSummary,
+  NormalizedTaskReport,
+  StageSummaryResult,
+  WorkerChecklistResult,
+  WorkerIssue,
+  WorkerReportStatus,
+} from './worker-report-normalizer.js';
