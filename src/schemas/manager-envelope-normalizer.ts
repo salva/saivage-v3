@@ -1,8 +1,8 @@
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { normalizeWorkerDispatchTaskReport } from './worker-dispatch-envelope-normalizer.js';
 import {
   normalizeStageSummary,
-  normalizeTaskReport,
   type NormalizedStageSummary,
   type NormalizedTaskReport,
   type NormalizationResult,
@@ -74,8 +74,8 @@ export function normalizeRunManagerArtifacts(
         continue;
       }
 
-      const normalizedReport = normalizeTaskReport(rawReport);
-      diagnostics.push(...normalizedReport.diagnostics.map((entry) => `reports/${reportFile}: ${entry}`));
+      const normalizedReport = normalizeWorkerDispatchTaskReport(rawReport, { source: `reports/${reportFile}` });
+      diagnostics.push(...normalizedReport.diagnostics);
       if (!normalizedReport.ok || !normalizedReport.data) {
         diagnostics.push(`reports/${reportFile}: TaskReport could not be normalized for schema-facing return`);
         return { ok: false, diagnostics };

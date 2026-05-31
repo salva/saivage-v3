@@ -2,11 +2,13 @@ import { describe, expect, it } from '@jest/globals';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { normalizeRunManagerArtifacts } from '../../src/schemas/manager-envelope-normalizer.js';
+import { normalizeWorkerDispatchTaskReport } from '../../src/schemas/worker-dispatch-envelope-normalizer.js';
 import { normalizeStageSummary, normalizeTaskReport } from '../../src/schemas/worker-report-normalizer.js';
 
 const repairStageRoot = join(process.cwd(), '.saivage', 'stages', 'repair-deployed-prompts-and-smoketest');
 const stage04Root = join(process.cwd(), '.saivage', 'stages', 'await-operator-clearance-smoketest-escalation-04');
 const stage07Root = join(process.cwd(), '.saivage', 'stages', 'await-operator-clearance-smoketest-escalation-07');
+const reviewerAliasStageRoot = join(process.cwd(), '.saivage', 'stages', 'harden-reviewer-status-alias-normalization');
 
 function readRepairStageJson(relativePath: string): unknown {
   return JSON.parse(readFileSync(join(repairStageRoot, relativePath), 'utf8'));
@@ -14,6 +16,10 @@ function readRepairStageJson(relativePath: string): unknown {
 
 function readStage04Json(relativePath: string): unknown {
   return JSON.parse(readFileSync(join(stage04Root, relativePath), 'utf8'));
+}
+
+function readReviewerAliasStageJson(relativePath: string): unknown {
+  return JSON.parse(readFileSync(join(reviewerAliasStageRoot, relativePath), 'utf8'));
 }
 
 describe('worker report compatibility normalization', () => {
@@ -212,6 +218,39 @@ describe('worker report compatibility normalization', () => {
       'reports/t2-stage-review.json: checklist_results[0].required defaulted to true',
       'reports/t2-stage-review.json: failure_reason null removed from successful report',
     ]));
+  });
+
+
+  it('normalizes the recent Coder dispatch return report before strict schema validation', () => {
+    const normalized = normalizeWorkerDispatchTaskReport(
+      readReviewerAliasStageJson('reports/t1-reviewer-status-alias-tests.json'),
+      { source: 'reports/t1-reviewer-status-alias-tests.json' },
+    );
+
+    expect(normalized.ok).toBe(true);
+    expect(normalized.data?.task_id).toBe('t1-reviewer-status-alias-tests');
+    expect(normalized.data?.status).toBe('completed');
+    expect(normalized.data?.failure_reason).toBeUndefined();
+    expect(JSON.stringify(normalized.data)).not.toContain('"failure_reason":null');
+    expect(normalized.diagnostics).toContain(
+      'reports/t1-reviewer-status-alias-tests.json: failure_reason null removed from successful report',
+    );
+  });
+
+  it('normalizes the recent Reviewer dispatch return report before strict schema validation', () => {
+    const normalized = normalizeWorkerDispatchTaskReport(
+      readReviewerAliasStageJson('reports/t2-stage-review.json'),
+      { source: 'reports/t2-stage-review.json' },
+    );
+
+    expect(normalized.ok).toBe(true);
+    expect(normalized.data?.task_id).toBe('t2-stage-review');
+    expect(normalized.data?.status).toBe('completed');
+    expect(normalized.data?.failure_reason).toBeUndefined();
+    expect(JSON.stringify(normalized.data)).not.toContain('"failure_reason":null');
+    expect(normalized.diagnostics).toContain(
+      'reports/t2-stage-review.json: failure_reason null removed from successful report',
+    );
   });
 
   it('reports clear diagnostics for unrepairable worker report shapes', () => {
