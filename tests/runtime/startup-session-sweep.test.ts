@@ -12,7 +12,7 @@ import type { PlannerResult, ExecutorResult, ReviewerResult } from '../../src/co
 import type { HandoffSummary } from '../../src/schemas/types.js';
 
 class NoopAgentRuntime implements AgentRuntime {
-  invokePlanner(): Promise<PlannerResult> { return Promise.resolve({ status: 'done', created_cards: [], updated_cards: [] }); }
+  invokePlanner(): Promise<PlannerResult> { return Promise.resolve({ status: 'continue', created_cards: [], updated_cards: [] }); }
   invokeExecutor(): Promise<ExecutorResult> { return Promise.resolve({ card_id: 'x', status: 'done', status_text: 'noop', artifacts: [], attachments: [], fallback_with_evidence: null }); }
   invokeReviewer(): Promise<ReviewerResult> { return Promise.resolve({ assessment: { result: 'pass', summary: 'noop', achieved: [], issues: [], evidence_card_ids: [] } }); }
   cancelSession(): boolean { return false; }
@@ -79,4 +79,46 @@ describe('startup agent session sweep', () => {
     expect(stateAfterStartup?.current_agent_session_id).toBeNull();
     // /api/agents reads these same persisted manifests; route coverage is therefore exercised by the manifest assertions above.
   });
+  it('requeues an interrupted planner active run on startup', async () => {
+    updateRuntimeState(projectRoot, {
+      status: 'running',
+      current_card_id: 'project',
+      current_agent_session_id: 'planner:project',
+      active_card_run: {
+        card_id: 'project',
+        card_type: 'project',
+        runtime_status: 'running',
+        phase: 'planner',
+        caller_session_id: null,
+        caller_tool_call_id: null,
+        planner_session_id: 'planner:project',
+        correction_attempts: 0,
+        started_at: new Date().toISOString(),
+        last_turn_at: new Date().toISOString(),
+      },
+      runtime_intent: {
+        status: 'running',
+        source_command_id: 'cmd-started-before-restart',
+        updated_at: new Date().toISOString(),
+        reason: 'test interrupted planner run',
+      },
+    });
+
+    const runtime = new Runtime({ projectRoot, fakeAgentConfig: { mapping: {}, fixtureDir: '' } }, new NoopAgentRuntime());
+    try {
+      await runtime.startup();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      const project = runtime.cardStore.read('project');
+      expect(project?.status).toBe('blocked');
+      expect(project?.result?.planning).toEqual(expect.objectContaining({
+        status: 'blocked',
+        resume_reason: 'non_actionable_continue',
+      }));
+      expect(runtime.getState()?.active_card_run).toBeNull();
+    } finally {
+      await runtime.shutdown();
+    }
+  });
+
 });
