@@ -9,6 +9,7 @@ export interface SanitizedClearanceForbiddenActions {
 
 export interface SanitizedClearanceReport {
   clearance_present?: boolean;
+  clearance_absent?: boolean;
   action_taken?: string;
   health_checked?: boolean;
   systemd_checked?: boolean;
@@ -54,16 +55,24 @@ function cloneReport(report: SanitizedClearanceReport): SanitizedClearanceReport
 }
 
 function hasAbsentClearance(report: SanitizedClearanceReport): boolean {
-  return report.clearance_present === false;
+  return report.clearance_present === false || report.clearance_absent === true;
+}
+
+function absentClearanceDiagnosticSuffix(report: SanitizedClearanceReport): string {
+  if (report.clearance_present === false && report.clearance_absent === true) {
+    return 'clearance_present=false or clearance_absent=true';
+  }
+  return report.clearance_absent === true ? 'clearance_absent=true' : 'clearance_present=false';
 }
 
 function validateBooleanFalse(
   diagnostics: string[],
   value: unknown,
   path: string,
+  absentSignal: string,
 ): void {
   if (value !== false) {
-    diagnostics.push(`${path} must be false when clearance_present=false`);
+    diagnostics.push(`${path} must be false when ${absentSignal}`);
   }
 }
 
@@ -73,7 +82,9 @@ function validateBooleanFalse(
  * When a report says operator clearance is absent, it must also say no health,
  * systemd, supervision/capability, or runtime-state mutation action occurred.
  * This intentionally rejects omitted values as unsafe/ambiguous so stage
- * artifacts cannot invert the meaning of forbidden-action booleans.
+ * artifacts cannot invert the meaning of forbidden-action booleans. Either
+ * clearance_present=false or clearance_absent=true is treated as an absent-
+ * clearance signal.
  */
 export function validateSanitizedClearanceReport(
   report: unknown,
@@ -89,18 +100,20 @@ export function validateSanitizedClearanceReport(
     return { ok: true, diagnostics };
   }
 
+  const absentSignal = absentClearanceDiagnosticSuffix(typedReport);
   for (const field of ABSENT_CLEARANCE_FALSE_FIELDS) {
-    validateBooleanFalse(diagnostics, typedReport[field], field);
+    validateBooleanFalse(diagnostics, typedReport[field], field, absentSignal);
   }
 
   if (!isRecord(typedReport.forbidden_actions_performed)) {
-    diagnostics.push('forbidden_actions_performed must be an object when clearance_present=false');
+    diagnostics.push(`forbidden_actions_performed must be an object when ${absentSignal}`);
   } else {
     for (const field of ABSENT_CLEARANCE_FORBIDDEN_ACTION_FALSE_FIELDS) {
       validateBooleanFalse(
         diagnostics,
         typedReport.forbidden_actions_performed[field],
         `forbidden_actions_performed.${String(field)}`,
+        absentSignal,
       );
     }
   }
