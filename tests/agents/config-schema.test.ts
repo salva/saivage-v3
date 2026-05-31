@@ -247,7 +247,7 @@ describe('config-schema', () => {
       expect(config.mcpServers?.test_server?.transport).toBe('stdio');
     });
 
-    it('should reject top-level failover with a migration message', () => {
+    it('normalizes top-level failover into models.failover', () => {
       setupConfig({
         models: { default: ['deepseek-v4-flash'] },
         failover: {
@@ -255,20 +255,33 @@ describe('config-schema', () => {
         },
       });
 
-      expect(() => loadConfig(TEST_ROOT)).toThrow(/Top-level 'failover' is no longer supported/);
+      const { config } = loadConfig(TEST_ROOT);
+      expect(config.models.failover?.['kimi-k2.6']).toEqual(['deepseek-v4-pro']);
     });
 
-    it('rejects a role array byte-equal to models.default', () => {
+    it('normalizes object-shaped top-level modelEquivalents into models.equivalents', () => {
+      setupConfig({
+        models: { default: ['deepseek-v4-flash'] },
+        modelEquivalents: {
+          'kimi-k2.6': ['deepseek-v4-pro'],
+        },
+      });
+
+      const { config } = loadConfig(TEST_ROOT);
+      expect(config.models.equivalents).toEqual([['kimi-k2.6', 'deepseek-v4-pro']]);
+    });
+
+    it('drops a role array byte-equal to models.default so the role inherits default', () => {
       const result = saivageConfigSchema.safeParse({
         models: {
           default: ['gpt-5.5', 'kimi-k2.6'],
           planner: ['gpt-5.5', 'kimi-k2.6'],
         },
       });
-      expect(result.success).toBe(false);
-      if (!result.success) {
-        const issue = result.error.issues.find((i) => i.path.join('.') === 'models.planner');
-        expect(issue?.message).toMatch(/identical to models\.default/);
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect((result.data.models as Record<string, unknown>).planner).toBeUndefined();
+        expect(result.data.models.default).toEqual(['gpt-5.5', 'kimi-k2.6']);
       }
     });
 

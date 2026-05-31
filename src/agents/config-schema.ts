@@ -48,6 +48,29 @@ function migrateLegacyRuntimeSection(rawObj: unknown): { value: unknown; migrate
   return { value: { ...rawObj, runtime: migratedRuntime }, migrated: true, legacyRuntime: runtime };
 }
 
+
+export function normalizeLegacyRootConfig(rawObj: unknown): unknown {
+  if (!isRecord(rawObj)) return rawObj;
+
+  const normalized: Record<string, unknown> = { ...rawObj };
+  const models = isRecord(normalized['models'])
+    ? { ...(normalized['models'] as Record<string, unknown>) }
+    : {};
+
+  if ('failover' in normalized && !('failover' in models)) {
+    models['failover'] = normalized['failover'];
+  }
+  delete normalized['failover'];
+
+  if ('modelEquivalents' in normalized && !('equivalents' in models)) {
+    models['equivalents'] = normalized['modelEquivalents'];
+  }
+  delete normalized['modelEquivalents'];
+
+  normalized['models'] = models;
+  return normalized;
+}
+
 // ── Zod Schemas ───────────────────────────────────────────────
 
 // Model list: a single string or array of strings, normalized to array
@@ -61,6 +84,17 @@ const routingProfileSchema = z.object({
   allowed: z.array(z.string()).default([]),
 });
 
+const modelEquivalentsSchema = z.preprocess((value) => {
+  if (isRecord(value)) {
+    return Object.entries(value).flatMap(([model, equivalents]) => {
+      if (Array.isArray(equivalents)) return [[model, ...equivalents]];
+      if (typeof equivalents === 'string') return [[model, equivalents]];
+      return [];
+    });
+  }
+  return value;
+}, z.array(z.array(z.string())));
+
 // Reserved keys that have non-role-list shapes inside the models section.
 const MODELS_RESERVED_KEYS = new Set(['temperature', 'max_tokens', 'profiles', 'routing', 'equivalents', 'failover', 'default']);
 
@@ -72,7 +106,7 @@ const modelsSectionSchema = z
     max_tokens: z.record(z.string(), z.number().int().positive()).optional(),
     profiles: z.record(z.string(), routingProfileSchema).optional(),
     routing: z.record(z.string(), z.string()).optional(),
-    equivalents: z.array(z.array(z.string())).optional(),
+    equivalents: modelEquivalentsSchema.optional(),
     failover: z.record(z.string(), z.array(z.string())).optional(),
     default: z.array(z.string()).min(1).optional(),
   })
@@ -93,7 +127,7 @@ const modelsSectionSchema = z
         continue;
       }
       if (defaultKey !== null && JSON.stringify(arr) === defaultKey) {
-        ctx.addIssue({ code: z.ZodIssueCode.custom, path: [key], message: `models.${key}: identical to models.default; remove the override.` });
+        delete (value as Record<string, unknown>)[key];
         continue;
       }
       // Normalize: replace the raw entry with the parsed (always-array) form.
@@ -240,6 +274,7 @@ export const saivageConfigSchema = z.object({
   telegram: telegramSectionSchema.optional(),
   notifications: notificationsSectionSchema.optional(),
   mcpServers: z.record(z.string(), mcpServerEntrySchema).optional(),
+  rag: z.unknown().optional(),
 }).strict();
 
 // ── Derived Types ─────────────────────────────────────────────
@@ -345,15 +380,14 @@ export function loadConfig(projectRoot: string, env: EnvironmentSource = process
     writeFileSync(configPath, JSON.stringify(rawObj, null, 2) + '\n', 'utf-8');
   }
 
+  rawObj = normalizeLegacyRootConfig(rawObj);
+
   // Interpolate env vars
   const { value: interpolated, warnings } = interpolateValue(rawObj, env);
-
-  if (isRecord(interpolated) && 'failover' in interpolated) {
-    throw new Error("Configuration validation failed:\n  - failover: Top-level 'failover' is no longer supported. Move entries under 'models.failover'.");
-  }
+  const normalizedInterpolated = normalizeLegacyRootConfig(interpolated);
 
   // Validate with Zod
-  const parsed = saivageConfigSchema.safeParse(interpolated);
+  const parsed = saivageConfigSchema.safeParse(normalizedInterpolated);
   if (!parsed.success) {
     const issues = parsed.error.issues
       .map((i) => `  - ${i.path.join('.')}: ${i.message}`)

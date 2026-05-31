@@ -68,7 +68,7 @@
     "format:fix": "prettier --write src/",
     "docs:build": "vitepress build docs",
     "docs:verify": "bash scripts/docs-verify.sh",
-    "build": "tsc && npm run docs:build && cd web && npm run build",
+    "build": "tsc && node scripts/copy-prompt-assets.js && npm run docs:build && cd web && npm run build",
     "web:test:operator-smoke": "cd web && npx vitest run src/__tests__/operator-dashboard-smoke.test.ts",
     "web:test:card-history-panel": "cd web && npx vitest run src/__tests__/card-history-panel.test.ts",
     "test:web:operator-smoke": "npm run web:test:operator-smoke",
