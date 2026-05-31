@@ -102,7 +102,12 @@ export function planProjectRootRedispatch(input: {
   if ((state.active_card_run ?? null) !== null) return { shouldRedispatch: false };
   const intentStatus = state.runtime_intent?.status ?? 'stopped';
   if (intentStatus !== 'running') return { shouldRedispatch: false };
-  const openRootRun = (state.runtime_runs ?? []).find((run) => run.kind === 'root' && run.card_id === projectCardId && !run.finished_at);
-  if (!openRootRun) return { shouldRedispatch: false };
-  return { shouldRedispatch: true, cardId: projectCardId, reason: 'open_root_run' };
+  const rootRuns = (state.runtime_runs ?? []).filter((run) => run.kind === 'root' && run.card_id === projectCardId);
+  const openRootRun = rootRuns.find((run) => !run.finished_at);
+  if (openRootRun) return { shouldRedispatch: true, cardId: projectCardId, reason: 'open_root_run' };
+  const latestRootRun = rootRuns.slice().sort((a, b) => (b.updated_at ?? '').localeCompare(a.updated_at ?? ''))[0];
+  if (latestRootRun?.result === 'failed' || latestRootRun?.runtime_status === 'error' || latestRootRun?.phase === 'failed') {
+    return { shouldRedispatch: true, cardId: projectCardId, reason: 'failed_root_run_with_running_intent' };
+  }
+  return { shouldRedispatch: false };
 }

@@ -229,6 +229,8 @@ describe('Runtime executor fallback evidence persistence', () => {
 
     const codeCard = runtime.cardStore.read('code-active') as CardRecord;
     expect(codeCard.status).toBe('done');
+    expect(codeCard.completed_at).toEqual(expect.any(String));
+    expect(Date.parse(codeCard.completed_at!)).not.toBeNaN();
     expect(codeCard.result).toEqual(expect.objectContaining({
       evidence: 'active pending activation completed',
       latest_self_report: expect.objectContaining({ outcome: 'done' }),

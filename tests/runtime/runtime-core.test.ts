@@ -36,12 +36,18 @@ describe('runtime core reducers', () => {
     ]));
   });
 
-  it('plans canonical project-root redispatch only for an idle running intent with an open root run', () => {
+  it('plans canonical project-root redispatch for a running intent with an open or failed root run', () => {
     const runningRoot = state({
       runtime_intent: { status: 'running', source_command_id: 'cmd-1', updated_at: '2026-05-26T00:00:00.000Z' },
       runtime_runs: [{ run_id: 'run-1', kind: 'root', card_id: 'project', parent_run_id: null, command_id: 'cmd-1', activation_id: null, phase: 'planner', runtime_status: 'running', session_id: null, result: null, started_at: 't', updated_at: 't' }],
     });
     expect(planProjectRootRedispatch({ state: runningRoot, projectCardId: 'project' })).toEqual({ shouldRedispatch: true, cardId: 'project', reason: 'open_root_run' });
+
+    const failedRoot = state({
+      runtime_intent: { status: 'running', source_command_id: 'cmd-1', updated_at: '2026-05-26T00:00:00.000Z' },
+      runtime_runs: [{ run_id: 'run-1', kind: 'root', card_id: 'project', parent_run_id: null, command_id: 'cmd-1', activation_id: null, phase: 'failed', runtime_status: 'error', session_id: 'planner:project', result: 'failed', started_at: 't', updated_at: '2026-05-26T01:00:00.000Z', finished_at: '2026-05-26T01:00:00.000Z' }],
+    });
+    expect(planProjectRootRedispatch({ state: failedRoot, projectCardId: 'project' })).toEqual({ shouldRedispatch: true, cardId: 'project', reason: 'failed_root_run_with_running_intent' });
     expect(planProjectRootRedispatch({ state: state({ paused: true }), projectCardId: 'project' })).toEqual({ shouldRedispatch: false });
   });
 });
