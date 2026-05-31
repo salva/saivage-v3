@@ -1,0 +1,94 @@
+{
+  "request_id": "inspect-active-worker-dispatch-control-plane",
+  "role": "inspector",
+  "status": "completed",
+  "summary": "The failing run_reviewer/run_coder/run_manager boundary for this session is not the diedrico runtime on port 8081. It is the Manager/control-plane service saivage.service, PID 7105, running /usr/bin/node dist/cli.js serve /work/saivage-v3 from WorkingDirectory=/opt/saivage. That deployed /opt/saivage tree is stale relative to /work/saivage-v3 commits 41d8810 and e65b81b: /opt/saivage lacks dist/src/schemas/worker-dispatch-envelope-normalizer.js and its schemas/index.js and manager-envelope-normalizer.js hashes differ from /work/saivage-v3/dist. Therefore the live session tools are validating/returning with stale compiled schema-boundary code even though /work/saivage-v3 builds successfully.",
+  "questions": {
+    "1_active_runtime_tool_boundary": {
+      "answer": "The active run_* worker-dispatch/control-plane boundary for this session is the systemd unit saivage.service, not saivage-v3.service. Non-secret process evidence shows PID 7105: /usr/bin/node dist/cli.js serve /work/saivage-v3, cwd /opt/saivage, cgroup /system.slice/saivage.service. The v3 product runtime is separate: PID 19733: /usr/bin/node /opt/saivage/bin/saivage.js start --create-runtime --port 8081 --host 0.0.0.0, cgroup /system.slice/saivage-v3.service, WorkingDirectory=/work/diedrico-lessons. Source files under /work/saivage-v3/src/schemas define the intended normalization, but the active control plane imports compiled code from /opt/saivage/dist, not directly from /work/saivage-v3/src.",
+      "evidence": [
+        "systemctl show saivage.service: WorkingDirectory=/opt/saivage; ExecStart=/usr/bin/node dist/cli.js serve /work/saivage-v3; MainPID=7105; ActiveState=active.",
+        "ps probe: PID 7105 /usr/bin/node dist/cli.js serve /work/saivage-v3; PID 19733 /usr/bin/node /opt/saivage/bin/saivage.js start --create-runtime --port 8081 --host 0.0.0.0.",
+        "systemctl status showed saivage.service emitting current inspector agent activity, confirming it is the live control-plane service for this session."
+      ]
+    },
+    "2_stale_or_different_code": {
+      "answer": "Yes. The live boundary is using stale deployed compiled code under /opt/saivage. It is a deployment copy, not the current /work/saivage-v3/dist output. /opt/saivage/dist/src/schemas/worker-dispatch-envelope-normalizer.js is missing, while /work/saivage-v3/dist/src/schemas/worker-dispatch-envelope-normalizer.js exists. /opt/saivage/dist/src/schemas/index.js does not export normalizeWorkerDispatchTaskReport, while /work/saivage-v3/dist/src/schemas/index.js does. /opt/saivage/dist/src/schemas/manager-envelope-normalizer.js still imports normalizeTaskReport directly; current /work/saivage-v3/dist imports normalizeWorkerDispatchTaskReport from ./worker-dispatch-envelope-normalizer.js.",
+      "evidence": [
+        "Current /work/saivage-v3 HEAD is e65b81b468b5b3a84738d19392d6a620ac0edccb, with 41d8810 and e65b81b in recent git log.",
+        "Hash comparison: /work/saivage-v3/dist/src/schemas/manager-envelope-normalizer.js sha256=632db97ac9e935aa14fd6b524d309302d2be9b1eed8dc2492e8a1be5fcd4bec9; /opt/saivage/dist/src/schemas/manager-envelope-normalizer.js sha256=be2fa652ca4d2446e32145008f904c8af1e009fb3a3106295fb5c86876bafe93.",
+        "Hash comparison: /work/saivage-v3/dist/src/schemas/index.js sha256=6ce0357f494c934f8adb9a605096460dfc6dd37ec8cf5a40f37130d34a21eafc; /opt/saivage/dist/src/schemas/index.js sha256=2ef2cb2ed587a17e635c529a9563b39399fa9fdddb51618f1d6306783bb383bd.",
+        "File existence: MISSING /opt/saivage/dist/src/schemas/worker-dispatch-envelope-normalizer.js; present under /work/saivage-v3/dist/src/schemas/worker-dispatch-envelope-normalizer.js.",
+        "Code comparison: /opt/saivage/dist/src/schemas/manager-envelope-normalizer.js imports normalizeTaskReport and calls normalizeTaskReport(rawReport); /work/saivage-v3/dist/src/schemas/manager-envelope-normalizer.js imports normalizeWorkerDispatchTaskReport and calls normalizeWorkerDispatchTaskReport(rawReport, { source: `reports/${reportFile}` })."
+      ]
+    },
+    "3_minimal_action_needed": {
+      "answer": "Deploy the current built /work/saivage-v3 output to the active control-plane tree /opt/saivage and restart saivage.service. The minimally targeted file set for the observed stale schema boundary is dist/src/schemas/worker-dispatch-envelope-normalizer.js, worker-dispatch-envelope-normalizer.d.ts, manager-envelope-normalizer.js, manager-envelope-normalizer.d.ts, index.js, and index.d.ts from /work/saivage-v3/dist/src/schemas to /opt/saivage/dist/src/schemas, followed by systemctl restart saivage.service. Safer release action: run npm run build in /work/saivage-v3, rsync the built project/deploy layout to /opt/saivage, then restart saivage.service. Restarting only saivage-v3.service on port 8081 will not update the session run_* tools because they are served by saivage.service PID 7105.",
+      "rationale": "The source/build already contains normalizeWorkerDispatchTaskReport and exports it. The live failure persists because the serving /opt/saivage control-plane process has not loaded those built files. Node will not pick up replaced ESM modules until the process restarts."
+    },
+    "4_ownership": {
+      "answer": "The source fix is within /work/saivage-v3 ownership and already appears present in commits 41d8810 and e65b81b. Applying it to the active run_* boundary requires deployment/restart of /opt/saivage and saivage.service, which is outside the source tree but within the stated supervisor/operator deployment privileges. It does not require changes to /work/diedrico-lessons/diedrico or secret-bearing files. If policy treats the current session's saivage.service as operator-owned control-plane infrastructure rather than v3 deploy surface, then an operator/runtime restart is required; technically, the required change is a stale deploy/restart, not new application code."
+    }
+  },
+  "findings": [
+    {
+      "id": "F1",
+      "severity": "high",
+      "title": "Active run_* session tools are served by stale /opt/saivage control-plane deployment",
+      "confidence": "high",
+      "details": "The current inspector session is executing inside saivage.service from /opt/saivage. That tree lacks the newly built worker-dispatch normalizer file and has stale schema index/manager normalizer compiled outputs. Successful source build in /work/saivage-v3 is therefore insufficient for live run_reviewer/run_coder/run_manager behavior until /opt/saivage is redeployed and saivage.service restarted.",
+      "evidence_refs": [
+        "tmp/inspector-workspace/systemd-safe.out",
+        "tmp/inspector-workspace/service-unit-evidence.out",
+        "tmp/inspector-workspace/hash-opt-evidence.out",
+        "tmp/inspector-workspace/normalize-use.out"
+      ]
+    },
+    {
+      "id": "F2",
+      "severity": "medium",
+      "title": "The diedrico v3 runtime service is not the failing control-plane boundary",
+      "confidence": "high",
+      "details": "saivage-v3.service is active on port 8081 from /opt/saivage/bin/saivage.js with WorkingDirectory=/work/diedrico-lessons, but the run_* tools used by this planning/worker session are associated with saivage.service, whose ExecStart is dist/cli.js serve /work/saivage-v3. Fix validation for this session by updating/restarting saivage.service, not only the diedrico runtime."
+    },
+    {
+      "id": "F3",
+      "severity": "medium",
+      "title": "No reusable tools/inspector directory exists in /work/saivage-v3",
+      "confidence": "high",
+      "details": "The requested tools/inspector/ path was checked and does not exist. Investigation artifacts were written under tmp/inspector-workspace/ as requested."
+    }
+  ],
+  "recommended_actions": [
+    {
+      "priority": 1,
+      "action": "From /work/saivage-v3, run npm run build; deploy the current build to /opt/saivage using the project's normal deploy/rsync procedure; restart saivage.service; then retry a run_reviewer/run_coder TaskReport with failure_reason:null.",
+      "expected_result": "The active control plane loads dist/src/schemas/worker-dispatch-envelope-normalizer.js and schemas/index.js exports normalizeWorkerDispatchTaskReport; successful TaskReports omit failure_reason before strict schema validation."
+    },
+    {
+      "priority": 2,
+      "action": "Add a deploy verification gate that compares /work/saivage-v3/dist/src/schemas/index.js and /opt/saivage/dist/src/schemas/index.js hashes, and asserts /opt/saivage/dist/src/schemas/worker-dispatch-envelope-normalizer.js exists before declaring the repair live.",
+      "expected_result": "Future source-only fixes cannot be mistaken for live control-plane fixes."
+    },
+    {
+      "priority": 3,
+      "action": "Document or encode that run_manager/run_coder/run_reviewer for supervisor sessions are served by saivage.service from /opt/saivage, while the product runtime on 8081 is saivage-v3.service.",
+      "expected_result": "Reduced confusion between source tree, deployed control plane, and diedrico runtime service boundaries."
+    }
+  ],
+  "secret_safety": {
+    "status": "compliant",
+    "notes": "No .saivage/auth-profiles.json, .saivage/saivage.json, provider configs, env files, raw token stores, or shell history were read or quoted. Evidence is limited to source paths, hashes, process arguments, systemd unit metadata, and non-secret source/compiled code snippets."
+  },
+  "artifacts": [
+    "tmp/inspector-workspace/initial-probe.out",
+    "tmp/inspector-workspace/grep-probe.out",
+    "tmp/inspector-workspace/git-evidence.out",
+    "tmp/inspector-workspace/hash-opt-evidence.out",
+    "tmp/inspector-workspace/systemd-safe.out",
+    "tmp/inspector-workspace/process-boundary.out",
+    "tmp/inspector-workspace/service-unit-evidence.out",
+    "tmp/inspector-workspace/control-plane-service.out",
+    "inspections/inspect-active-worker-dispatch-control-plane.json"
+  ]
+}
