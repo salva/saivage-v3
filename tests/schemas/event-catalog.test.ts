@@ -33,6 +33,12 @@ describe('llm_attempt payload schema', () => {
   it('accepts a succeeded attempt', () => {
     expect(() => schema.parse(validAttemptSucceeded)).not.toThrow();
   });
+  it('accepts a succeeded deferred planner attempt', () => {
+    expect(() => schema.parse({
+      ...validAttemptSucceeded,
+      outcome: { kind: 'succeeded', terminal_tool: 'emit_planner_deferred' },
+    })).not.toThrow();
+  });
   it('accepts a failed attempt', () => {
     expect(() => schema.parse(validAttemptFailed)).not.toThrow();
   });
@@ -55,6 +61,10 @@ describe('llm_invocation_summary payload schema (refine rules)', () => {
     expect(() => schema.parse({
       ...base, verdict: 'succeeded',
       final_provider: 'p', final_model: 'm', final_account: '_', final_terminal_tool: 'emit_planner_result',
+    })).not.toThrow();
+    expect(() => schema.parse({
+      ...base, verdict: 'succeeded',
+      final_provider: 'p', final_model: 'm', final_account: '_', final_terminal_tool: 'emit_planner_deferred',
     })).not.toThrow();
   });
   it('requires last_failure_class when verdict!=succeeded', () => {

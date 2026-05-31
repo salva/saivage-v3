@@ -7,7 +7,7 @@ export type EventDomain = 'runtime' | 'agent';
 const anyRecord = z.record(z.string(), z.unknown());
 
 const agentRoleSchema = z.enum(['planner', 'executor', 'reviewer', 'manager', 'researcher', 'coder', 'tester', 'ux', 'critic']);
-const terminalToolNameSchema = z.enum(['emit_planner_result', 'emit_executor_result', 'emit_reviewer_result']);
+const terminalToolNameSchema = z.enum(['emit_planner_result', 'emit_planner_deferred', 'emit_executor_result', 'emit_reviewer_result']);
 const runtimeRecordSchema = anyRecord;
 const actionableErrorEnvelopeSchema = anyRecord;
 const projectRunCompletedShape = { project_card_id: z.string().optional(), result: z.enum(['done', 'failed', 'blocked']).optional(), summary: z.string().optional(), failure_kind: z.string().optional(), blocked_reason: z.string().optional() } satisfies z.ZodRawShape;
