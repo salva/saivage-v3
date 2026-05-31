@@ -285,6 +285,9 @@ export {
   normalizeStageSummary,
   normalizeTaskReport,
 } from './worker-report-normalizer.js';
+export {
+  normalizeWorkerDispatchTaskReport,
+} from './worker-dispatch-envelope-normalizer.js';
 export type {
   NormalizationResult,
   NormalizedStageSummary,

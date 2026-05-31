@@ -1,6 +1,7 @@
 import { describe, expect, it } from '@jest/globals';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { z } from 'zod';
 import { normalizeRunManagerArtifacts } from '../../src/schemas/manager-envelope-normalizer.js';
 import { normalizeWorkerDispatchTaskReport } from '../../src/schemas/worker-dispatch-envelope-normalizer.js';
 import { normalizeStageSummary, normalizeTaskReport } from '../../src/schemas/worker-report-normalizer.js';
@@ -21,6 +22,23 @@ function readStage04Json(relativePath: string): unknown {
 function readReviewerAliasStageJson(relativePath: string): unknown {
   return JSON.parse(readFileSync(join(reviewerAliasStageRoot, relativePath), 'utf8'));
 }
+
+
+const strictTaskReportSchema = z.object({
+  task_id: z.string(),
+  stage_id: z.string(),
+  status: z.enum(['completed', 'failed']),
+  checklist_results: z.array(z.object({
+    description: z.string(),
+    required: z.boolean(),
+    passed: z.boolean(),
+    note: z.string().optional(),
+    evidence: z.unknown().optional(),
+  }).strict()),
+  issues_found: z.array(z.record(z.string(), z.unknown())),
+  summary: z.string(),
+  failure_reason: z.string().optional(),
+}).passthrough();
 
 describe('worker report compatibility normalization', () => {
   it('normalizes repair-stage StageSummary task id arrays into numeric task counts and preserves ids', () => {
@@ -251,6 +269,20 @@ describe('worker report compatibility normalization', () => {
     expect(normalized.diagnostics).toContain(
       'reports/t2-stage-review.json: failure_reason null removed from successful report',
     );
+  });
+
+  it('normalizes a successful Reviewer dispatch object before strict schema validation rejects failure_reason:null', () => {
+    const rawReport = readReviewerAliasStageJson('reports/t2-stage-review.json');
+
+    expect(strictTaskReportSchema.safeParse(rawReport).success).toBe(false);
+
+    const normalized = normalizeWorkerDispatchTaskReport(rawReport, { source: 'reports/t2-stage-review.json' });
+
+    expect(normalized.ok).toBe(true);
+    expect(normalized.data).toBeDefined();
+    expect(strictTaskReportSchema.safeParse(normalized.data).success).toBe(true);
+    expect(normalized.data).not.toHaveProperty('failure_reason');
+    expect(JSON.stringify(normalized.data)).not.toContain('"failure_reason":null');
   });
 
   it('reports clear diagnostics for unrepairable worker report shapes', () => {
