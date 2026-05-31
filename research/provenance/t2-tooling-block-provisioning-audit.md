@@ -1,0 +1,30 @@
+# t2 tooling-block provisioning audit provenance
+
+- Task: `t2-tooling-block-provisioning-audit`
+- Stage: `repair-post-terminal-forward-progress-001`
+- Access date: 2026-05-31 UTC
+- Source inspected: `/work/diedrico-lessons/pipeline-status.md`
+- Retrieval method: local filesystem read via bounded shell script from `/work/saivage-v3`; output filtered to the `Blocked on tooling` section and secret-shaped key/value patterns redacted.
+- Direct edits to source status: none; `pipeline-status.md` was not modified.
+- Attempt log artifacts:
+  - `.saivage/tmp/t2-pipeline-tooling-scan.stdout.log`
+  - `.saivage/tmp/t2-pipeline-tooling-scan.stderr.log`
+  - `.saivage/tmp/t2-block-and-tool-check.stdout.log`
+  - `.saivage/tmp/t2-block-and-tool-check.stderr.log`
+  - `.saivage/tmp/t2-tooling-smoke.stdout.log`
+  - `.saivage/tmp/t2-tooling-smoke.stderr.log`
+- Blocked marker result: section present; named missing capability is `None`.
+- Tool availability validated:
+  - `ffmpeg`: `/usr/bin/ffmpeg`, version line observed as FFmpeg 7.1.1 Ubuntu build.
+  - `ffprobe`: `/usr/bin/ffprobe`, version line observed as FFprobe 7.1.1 Ubuntu build.
+  - `espeak-ng`: `/usr/bin/espeak-ng`, version line observed as eSpeak NG 1.52.0.
+  - `node`: `/usr/bin/node`, version v24.15.0.
+  - `npm`: `/usr/bin/npm`, version 11.12.1.
+  - `npx`: `/usr/bin/npx`.
+- Capability smoke validation:
+  - `espeak-ng` generated `.saivage/tmp/t2-tooling-audit/tts-smoke.wav`.
+  - `ffprobe` parsed the WAV as PCM signed 16-bit mono at 22050 Hz.
+  - `ffmpeg` generated `.saivage/tmp/t2-tooling-audit/media-smoke.mp4` from synthetic lavfi video/audio inputs.
+  - `ffprobe` identified video and audio streams in the MP4.
+- Downloads/provisioning: no external downloads, package installs, or service restarts were needed.
+- License/terms: not applicable; no third-party dataset or package artifact was acquired in this task.
