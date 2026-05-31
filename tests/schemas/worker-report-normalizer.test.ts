@@ -51,6 +51,48 @@ describe('worker report compatibility normalization', () => {
     expect(normalized.diagnostics).toContain('failure_reason null removed from successful report');
   });
 
+  it('normalizes reviewer status pass deterministically to completed for schema-facing validation', () => {
+    const normalized = normalizeTaskReport({
+      task_id: 't2-stage-review',
+      stage_id: 'harden-reviewer-status-alias-normalization',
+      status: 'pass',
+      checklist_results: [
+        {
+          description: 'Reviewer confirms status alias pass is accepted as successful.',
+          required: true,
+          passed: true,
+        },
+      ],
+      issues_found: [],
+      summary: 'Reviewer passed the stage using the pass alias.',
+    });
+
+    expect(normalized.ok).toBe(true);
+    expect(normalized.data?.status).toBe('completed');
+    expect(normalized.diagnostics).toContain("status 'pass' normalized to 'completed'");
+  });
+
+  it('normalizes reviewer status passed deterministically to completed for schema-facing validation', () => {
+    const normalized = normalizeTaskReport({
+      task_id: 't2-stage-review',
+      stage_id: 'harden-reviewer-status-alias-normalization',
+      status: 'passed',
+      checklist_results: [
+        {
+          description: 'Reviewer confirms status alias passed is accepted as successful.',
+          required: true,
+          passed: true,
+        },
+      ],
+      issues_found: [],
+      summary: 'Reviewer passed the stage using the passed alias.',
+    });
+
+    expect(normalized.ok).toBe(true);
+    expect(normalized.data?.status).toBe('completed');
+    expect(normalized.diagnostics).toContain("status 'passed' normalized to 'completed'");
+  });
+
   it('normalizes reviewer status passed deterministically to completed and preserves evidence', () => {
     const normalized = normalizeTaskReport(readRepairStageJson('reports/t2-stage-review.json'));
 
