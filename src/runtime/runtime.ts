@@ -758,7 +758,22 @@ export class Runtime extends EventEmitter {
           this.appendChildUnwindToolResult(card.id, outcome, `Child goal ${card.id} finished with status ${completedCard?.status ?? 'unknown'}.`);
           dispatchedGoal = true; if (outcome !== 'done') return { dispatchedGoal, executedTerminal, failed }; continue;
         }
-        { const startAction: RuntimeCardAction = (STARTABLE_STATES as readonly CardStatus[]).includes(card.status) ? 'start' : 'restart'; await this._stateMachine.transitionCard(card.id, startAction, { goalId }); } { const startedAt = now(); updateRuntimeState(this.projectRoot, { current_card_id: card.id, active_card_run: { card_id: card.id, card_type: card.type, runtime_status: 'running', phase: 'executor', caller_session_id: callerEdge?.callerSessionId ?? `planner:${goalId}`, caller_tool_call_id: callerEdge?.callerToolCallId ?? null, executor_session_id: `executor-${card.id}`, correction_attempts: 0, started_at: startedAt, last_turn_at: startedAt } }); }
+        {
+          const startAction: RuntimeCardAction | null = (STARTABLE_STATES as readonly CardStatus[]).includes(card.status)
+            ? 'start'
+            : (RESTARTABLE_STATES as readonly CardStatus[]).includes(card.status)
+              ? 'restart'
+              : card.status === 'active'
+                ? 'reviewer_repair_resume'
+                : card.status === 'running'
+                  ? null
+                  : 'restart';
+          const transitioned = startAction === null
+            ? true
+            : await this._stateMachine.transitionCard(card.id, startAction, { goalId, reason: 'pending_activation_dispatch' });
+          if (!transitioned) { failed = true; return { dispatchedGoal, executedTerminal, failed }; }
+        }
+        { const startedAt = now(); updateRuntimeState(this.projectRoot, { current_card_id: card.id, active_card_run: { card_id: card.id, card_type: card.type, runtime_status: 'running', phase: 'executor', caller_session_id: callerEdge?.callerSessionId ?? `planner:${goalId}`, caller_tool_call_id: callerEdge?.callerToolCallId ?? null, executor_session_id: `executor-${card.id}`, correction_attempts: 0, started_at: startedAt, last_turn_at: startedAt } }); }
         let execResult;
         try {
           const executorContract = createExecutorContract({ cardId: card.id, goalId });

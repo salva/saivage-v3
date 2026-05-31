@@ -9,7 +9,7 @@ import { initProjectTree } from '../../src/persistence/file-tree.js';
 import type { AgentExecutionPort as AgentRuntime } from '../../src/contracts/index.js';
 import type { PlannerResult, ExecutorResult, ReviewerResult } from '../../src/contracts/index.js';
 import type { CardRecord, HandoffSummary } from '../../src/schemas/types.js';
-import { appendRuntimeRun, upsertRuntimeActivation } from '../../src/runtime/state.js';
+import { appendRuntimeRun, readRuntimeState, upsertRuntimeActivation } from '../../src/runtime/state.js';
 
 class StubAgentRuntime implements AgentRuntime {
   constructor(
@@ -185,5 +185,58 @@ describe('Runtime executor fallback evidence persistence', () => {
     expect(completion.outcome).toBe('done');
     expect(completion.artifacts).toEqual([]);
     expect(completion.attachments).toEqual([]);
+  });
+
+
+  it('resumes an already-active pending terminal activation before executor finish', async () => {
+    const plannerResult: PlannerResult = {
+      status: 'done',
+      created_cards: [],
+      updated_cards: [],
+    };
+    const executorResult: ExecutorResult = {
+      card_id: 'code-active',
+      status: 'done',
+      status_text: 'Active pending activation completed',
+      summary: 'completed active pending activation',
+      fallback_with_evidence: null,
+      artifacts: [],
+      attachments: [],
+      result: { evidence: 'active pending activation completed' },
+    };
+    const reviewerResult: ReviewerResult = {
+      assessment: {
+        result: 'pass',
+        summary: 'Active pending activation completed and reviewed.',
+        achieved: ['Active pending activation completed.'],
+        issues: [],
+        evidence_card_ids: ['code-active'],
+      },
+    };
+
+    const parentSession = createSession(join(projectRoot, '.saivage'), 'planner', 'project', 'project');
+    appendMessage(join(projectRoot, '.saivage'), parentSession.id, { role: 'assistant', kind: 'tool_call', tool: 'activate_card', content: JSON.stringify({ role: 'assistant', tool_calls: [{ id: 'activate-project-code-active', type: 'function', function: { name: 'activate_card', arguments: JSON.stringify({ cardId: 'code-active' }) } }] }) }, { round_id: 'r-user-00000000000000000000000000000002', message_index: 0, block_index: 0 });
+    const store = new (await import('../../src/cards/card-store.js')).CardStore(projectRoot);
+    store.create({ id: 'code-active', type: 'code', parent: 'project', depth: 1, title: 'Already active terminal card', description: 'Complete an already-active pending activation', status: 'backlog', depends_on: [], priority: 1, tags: [], urgency: 'normal', created_by: 'planner', blocks: [], related: [], acceptance: '', artifacts: [], attachments: [], retries: 0 });
+    store.setStatus('code-active', 'active');
+    const parentRun = appendRuntimeRun(projectRoot, { run_id: 'test-parent-run-active', kind: 'root', card_id: 'project', parent_run_id: null, command_id: null, activation_id: null, phase: 'planner', runtime_status: 'running', session_id: parentSession.id, result: null });
+    const childRun = appendRuntimeRun(projectRoot, { run_id: 'test-child-run-active', kind: 'child', card_id: 'code-active', parent_run_id: parentRun.run_id, command_id: null, activation_id: null, phase: 'pending', runtime_status: 'running', session_id: null, result: null });
+    upsertRuntimeActivation(projectRoot, { idempotency_key: 'test-parent-run-active:activate-project-code-active:code-active', parent_card_id: 'project', parent_run_id: parentRun.run_id, parent_session_id: parentSession.id, parent_tool_call_id: 'activate-project-code-active', child_card_id: 'code-active', status: 'pending', precondition: 'accepted', runtime_run_id: childRun.run_id, error: null });
+
+    const runtime = new Runtime({ projectRoot, fakeAgentConfig: { mapping: {}, fixtureDir: '' } }, new StubAgentRuntime(plannerResult, executorResult, reviewerResult));
+    await runtime.dispatchGoal('project');
+    await runtime.shutdown();
+
+    const codeCard = runtime.cardStore.read('code-active') as CardRecord;
+    expect(codeCard.status).toBe('done');
+    expect(codeCard.result).toEqual(expect.objectContaining({
+      evidence: 'active pending activation completed',
+      latest_self_report: expect.objectContaining({ outcome: 'done' }),
+    }));
+    const activation = readRuntimeState(projectRoot)?.runtime_activations?.find((record) => record.child_card_id === 'code-active');
+    expect(activation?.status).toBe('completed');
+    const toolResult = getSessionMessages(join(projectRoot, '.saivage'), parentSession.id).find((message) => message.kind === 'tool_result' && message.tool_call_id === 'activate-project-code-active');
+    expect(toolResult).toBeDefined();
+    expect(JSON.parse(toolResult!.content)).toEqual(expect.objectContaining({ outcome: 'done' }));
   });
 });
