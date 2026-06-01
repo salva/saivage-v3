@@ -1579,6 +1579,20 @@ export class Runtime extends EventEmitter {
     );
   }
 
+  private isReviewerCapacityPlannerBlocker(blockedReason: string | null | undefined): boolean {
+    if (!blockedReason) return false;
+    const normalized = blockedReason.toLowerCase();
+    return (
+      normalized.includes('report_goal_done') &&
+      normalized.includes('reviewer') &&
+      (normalized.includes('provider capacity') ||
+        normalized.includes('capacity is unavailable') ||
+        normalized.includes('reviewer/provider capacity') ||
+        normalized.includes('reviewer capacity') ||
+        normalized.includes('reviewer unavailable'))
+    );
+  }
+
   private async alignBlockedPlanningCardStatuses(): Promise<void> {
     for (const card of this.cardStore.list()) {
       if (card.type !== 'project' && card.type !== 'goal') continue;
@@ -2230,11 +2244,15 @@ export class Runtime extends EventEmitter {
           const preservedPlanning = preservePreciseBlocker
             ? (currentResult.planning as Record<string, unknown>)
             : null;
+          const plannerBlockedReason = plannerResult.blocked_reason ?? null;
+          const reviewerCapacityPlannerBlocker = this.isReviewerCapacityPlannerBlocker(
+            plannerBlockedReason,
+          );
           const blockedReason = preservePreciseBlocker
             ? typeof preservedPlanning?.blocked_reason === 'string'
               ? preservedPlanning.blocked_reason
-              : (currentCard?.error ?? plannerResult.blocked_reason ?? null)
-            : (plannerResult.blocked_reason ?? null);
+              : (currentCard?.error ?? plannerBlockedReason)
+            : plannerBlockedReason;
           await this._stateMachine.transitionCard(goalId, 'block', {
             blocked_reason: blockedReason,
           });
@@ -2247,21 +2265,34 @@ export class Runtime extends EventEmitter {
                 ? {
                     ...preservedPlanning,
                     preserved_from_generic_planner_blocked: true,
-                    generic_planner_blocked_reason: plannerResult.blocked_reason ?? null,
+                    generic_planner_blocked_reason: plannerBlockedReason,
                   }
-                : {
-                    status: 'blocked',
-                    blocked_reason: plannerResult.blocked_reason ?? null,
-                    resume_reason: 'planner_blocked',
-                    created_cards: createdCardIds,
-                    updated_cards: updatedCardIds,
-                  },
+                : reviewerCapacityPlannerBlocker
+                  ? {
+                      status: 'blocked',
+                      blocked_reason: blockedReason,
+                      resume_reason: 'reviewer_unavailable',
+                      failure_kind: 'reviewer_invocation_failed',
+                      inferred_from_planner_blocked_reason: true,
+                      created_cards: createdCardIds,
+                      updated_cards: updatedCardIds,
+                    }
+                  : {
+                      status: 'blocked',
+                      blocked_reason: plannerBlockedReason,
+                      resume_reason: 'planner_blocked',
+                      created_cards: createdCardIds,
+                      updated_cards: updatedCardIds,
+                    },
             },
           });
           this.finishOpenPlannerRun(goalId, 'blocked');
           await this._stateMachine.transition('card_terminated', {
             goalId,
-            reason: preservePreciseBlocker ? 'reviewer_invocation_failed' : 'planner_blocked',
+            reason:
+              preservePreciseBlocker || reviewerCapacityPlannerBlocker
+                ? 'reviewer_invocation_failed'
+                : 'planner_blocked',
           });
           return;
         }

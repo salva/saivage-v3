@@ -154,4 +154,43 @@ describe('planner output actionability guard', () => {
     }));
   });
 
+
+  it('classifies accepted-retry reviewer capacity text as a precise reviewer blocker', async () => {
+    const reviewerCapacityReason =
+      'Project work is complete and all child cards are done, but terminal acceptance cannot produce reviewer assessment output because reviewer/provider capacity is unavailable. report_goal_done was re-issued with full validation evidence and failed only on reviewer/provider capacity; restore reviewer/provider capacity and retry terminal acceptance.';
+    const fixture: FakeAgentFixture = {
+      name: 'accepted-retry-reviewer-capacity-blocked',
+      planner: [{
+        status: 'blocked',
+        blocked_reason: reviewerCapacityReason,
+        created_cards: [],
+        updated_cards: [],
+        summary: 'Planner reported only reviewer/provider capacity as the terminal acceptance blocker.',
+      }],
+    };
+    writeFixture(fixtureDir, 'accepted-retry-reviewer-capacity-blocked', fixture);
+    const fakeAgent = new FakeAgentAdapter({ mapping: { project: 'accepted-retry-reviewer-capacity-blocked' }, fixtureDir });
+    runtime = new Runtime({ projectRoot: tmpDir, fakeAgentConfig: { mapping: { project: 'accepted-retry-reviewer-capacity-blocked' }, fixtureDir } }, fakeAgent);
+
+    await runtime.startup();
+    await runtime.dispatchGoal('project');
+
+    const project = runtime.cardStore.read('project');
+    expect(project?.status).toBe('blocked');
+    expect(project?.error).toBe(reviewerCapacityReason);
+    expect(project?.status_text).toBe(reviewerCapacityReason);
+    expect(project?.result?.planning).toEqual(expect.objectContaining({
+      status: 'blocked',
+      blocked_reason: reviewerCapacityReason,
+      resume_reason: 'reviewer_unavailable',
+      failure_kind: 'reviewer_invocation_failed',
+      inferred_from_planner_blocked_reason: true,
+      created_cards: [],
+      updated_cards: [],
+    }));
+    expect(project?.result?.planning).not.toEqual(expect.objectContaining({
+      resume_reason: 'planner_blocked',
+    }));
+  });
+
 });
