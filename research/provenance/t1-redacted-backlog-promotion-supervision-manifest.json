@@ -1,0 +1,62 @@
+{
+  "task_id": "t1-redacted-backlog-promotion-supervision",
+  "stage_id": "supervision-cycle-034-watch-backlog-promotion-status-refresh",
+  "access_date": "2026-06-01T08:28:55.139730+00:00",
+  "retrieval_method": "local filesystem metadata, systemctl property queries, bounded HTTP GET status checks, journal error-shaped count only",
+  "sources": [
+    {
+      "type": "http_endpoint",
+      "url": "http://localhost:8081/health"
+    },
+    {
+      "type": "http_endpoint",
+      "url": "http://localhost:8081/health/ready"
+    },
+    {
+      "type": "http_endpoint",
+      "url": "http://localhost:5173/"
+    },
+    {
+      "type": "local_path",
+      "path": "/work/diedrico-lessons/.saivage/cards/by-id"
+    },
+    {
+      "type": "local_path",
+      "path": "/work/diedrico-lessons/.saivage/runtime/events.jsonl"
+    },
+    {
+      "type": "local_path",
+      "path": "/work/diedrico-lessons/.saivage/tmp/state/runtime.json"
+    },
+    {
+      "type": "local_path",
+      "path": "/work/diedrico-lessons/pipeline-status.md"
+    },
+    {
+      "type": "local_path",
+      "path": "/work/diedrico-lessons/catalog.md"
+    },
+    {
+      "type": "local_path",
+      "path": "/work/diedrico-lessons/backlog.md"
+    },
+    {
+      "type": "local_path",
+      "path": "/work/diedrico-lessons/curriculum.md"
+    },
+    {
+      "type": "local_path",
+      "path": "/work/diedrico-lessons/lessons"
+    },
+    {
+      "type": "local_path",
+      "path": "/work/diedrico-lessons/.saivage/reviews"
+    },
+    {
+      "type": "local_path",
+      "path": "/work/diedrico-lessons/.saivage/diaries"
+    }
+  ],
+  "license_or_terms": "Local operational runtime/project files; no external dataset license involved.",
+  "redaction": "Raw content intentionally not persisted."
+}
