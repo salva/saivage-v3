@@ -10,10 +10,14 @@ import { getSessionMessages } from '../../src/agents/session-persistence.js';
 import type { AgentToolMessage } from '../../src/agents/agent-tool-executor.js';
 
 function config(): SaivageConfig {
-  return ({
+  return {
     models: { planner: ['m1'], executor: ['m1'], reviewer: ['m1'], analyst: ['m1'] },
     providers: {
-      p1: { priority: 10, models: ['m1'], capabilities: { toolsMode: 'native', exclusiveToolChoiceSupport: 'native' } },
+      p1: {
+        priority: 10,
+        models: ['m1'],
+        capabilities: { toolsMode: 'native', exclusiveToolChoiceSupport: 'native' },
+      },
     },
     server: { port: 8080, host: '0.0.0.0' },
     runtime: {
@@ -37,7 +41,7 @@ function config(): SaivageConfig {
     },
     security: { injectionScanner: false, maxScanLengthBytes: 102400 },
     supervisor: { enabled: false, intervalMs: 1200000, consecutiveStuckVerdicts: 3, logLines: 400 },
-  } as unknown) as SaivageConfig;
+  } as unknown as SaivageConfig;
 }
 
 describe('AgentAdapter planner deferred-activation flow', () => {
@@ -54,17 +58,11 @@ describe('AgentAdapter planner deferred-activation flow', () => {
   });
 
   it('emits activate_card then emit_planner_deferred and projects to deferred typed result', async () => {
-    const adapter = new AgentAdapter({ projectRoot: root, saivageDir: join(root, '.saivage'), config: config() });
-
-    (adapter as unknown as { toolExecutor: { processToolCall: (...args: unknown[]) => Promise<AgentToolMessage> } }).toolExecutor.processToolCall = jest.fn(async (
-      tc: { id: string; function: { name: string; arguments: string } },
-    ): Promise<AgentToolMessage> => ({
-      role: 'tool',
-      kind: 'tool_result',
-      content: JSON.stringify({ success: true, child_card_id: 'child-1', parent_card_id: 'goal-1' }),
-      tool: tc.function.name,
-      tool_call_id: tc.id,
-    })) as never;
+    const adapter = new AgentAdapter({
+      projectRoot: root,
+      saivageDir: join(root, '.saivage'),
+      config: config(),
+    });
 
     const deferredEnvelope = {
       kind: 'deferred_activate_card',
@@ -76,18 +74,50 @@ describe('AgentAdapter planner deferred-activation flow', () => {
       requested_at: '2026-01-01T00:00:00.000Z',
     };
 
+    (
+      adapter as unknown as {
+        toolExecutor: { processToolCall: (...args: unknown[]) => Promise<AgentToolMessage> };
+      }
+    ).toolExecutor.processToolCall = jest.fn(
+      async (tc: {
+        id: string;
+        function: { name: string; arguments: string };
+      }): Promise<AgentToolMessage> => ({
+        role: 'tool',
+        kind: 'tool_result',
+        content: JSON.stringify({ success: true, deferred: deferredEnvelope }),
+        tool: tc.function.name,
+        tool_call_id: tc.id,
+      }),
+    ) as never;
+
     let turn = 0;
     const llmCall = jest.fn<LlmCallFn>(async (): Promise<LlmCompleteResult> => {
       turn += 1;
       if (turn === 1) {
         return {
           kind: 'tool_calls',
-          tool_calls: [{ id: 'call-activate', type: 'function', function: { name: 'activate_card', arguments: JSON.stringify({ cardId: 'child-1' }) } }],
+          tool_calls: [
+            {
+              id: 'call-activate',
+              type: 'function',
+              function: { name: 'activate_card', arguments: JSON.stringify({ cardId: 'child-1' }) },
+            },
+          ],
         };
       }
       return {
         kind: 'tool_calls',
-        tool_calls: [{ id: 'call-deferred', type: 'function', function: { name: 'emit_planner_deferred', arguments: JSON.stringify(deferredEnvelope) } }],
+        tool_calls: [
+          {
+            id: 'call-deferred',
+            type: 'function',
+            function: {
+              name: 'emit_planner_deferred',
+              arguments: JSON.stringify(deferredEnvelope),
+            },
+          },
+        ],
       };
     });
     adapter.setLlmCallFn(llmCall);
@@ -96,13 +126,83 @@ describe('AgentAdapter planner deferred-activation flow', () => {
 
     expect(result.status).toBe('continue');
     expect(result.summary).toContain('child-1');
-    expect(llmCall).toHaveBeenCalledTimes(2);
+    expect(llmCall).toHaveBeenCalledTimes(1);
 
     const messages = getSessionMessages(join(root, '.saivage'), 'planner:goal-1');
     const toolCallNames = messages
       .filter((m) => m.role === 'assistant' && m.kind === 'tool_call')
       .map((m) => m.tool);
     expect(toolCallNames).toContain('activate_card');
-    expect(toolCallNames).toContain('emit_planner_deferred');
+    expect(toolCallNames).not.toContain('emit_planner_deferred');
+  });
+
+  it('does not auto-defer when activate_card fails without a deferred activation envelope', async () => {
+    const adapter = new AgentAdapter({
+      projectRoot: root,
+      saivageDir: join(root, '.saivage'),
+      config: config(),
+    });
+
+    (
+      adapter as unknown as {
+        toolExecutor: { processToolCall: (...args: unknown[]) => Promise<AgentToolMessage> };
+      }
+    ).toolExecutor.processToolCall = jest.fn(
+      async (tc: {
+        id: string;
+        function: { name: string; arguments: string };
+      }): Promise<AgentToolMessage> => ({
+        role: 'tool',
+        kind: 'tool_error',
+        content: JSON.stringify({ success: false, error: 'child missing' }),
+        tool: tc.function.name,
+        tool_call_id: tc.id,
+      }),
+    ) as never;
+
+    let turn = 0;
+    const llmCall = jest.fn<LlmCallFn>(async (): Promise<LlmCompleteResult> => {
+      turn += 1;
+      if (turn === 1) {
+        return {
+          kind: 'tool_calls',
+          tool_calls: [
+            {
+              id: 'call-activate',
+              type: 'function',
+              function: {
+                name: 'activate_card',
+                arguments: JSON.stringify({ cardId: 'missing-child' }),
+              },
+            },
+          ],
+        };
+      }
+      return {
+        kind: 'tool_calls',
+        tool_calls: [
+          {
+            id: 'call-result',
+            type: 'function',
+            function: {
+              name: 'emit_planner_result',
+              arguments: JSON.stringify({
+                status: 'blocked',
+                created_cards: [],
+                updated_cards: [],
+                blocked_reason: 'activation failed',
+                summary: 'activation failed',
+              }),
+            },
+          },
+        ],
+      };
+    });
+    adapter.setLlmCallFn(llmCall);
+
+    const result = await adapter.invokePlanner('goal-1', 'prompt');
+
+    expect(result.status).toBe('blocked');
+    expect(llmCall).toHaveBeenCalledTimes(2);
   });
 });

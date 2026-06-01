@@ -62,6 +62,7 @@ import type { McpToolInvocationPort } from '../mcp/manager-api.js';
 import { SkillsEngine } from './skills-engine.js';
 import { getProjectNotificationCenter } from '../notifications/notification-delivery.js';
 import { CardStore } from '../cards/store-api.js';
+import { parseDeferredActivationEnvelope } from '../schemas/validators.js';
 import { injectQueuedSyntheticPlannerNotes } from '../agents/analyst-stage6.js';
 import { PlannerControlExecutor } from './planner-control-executor.js';
 import type { Contract } from '../contracts/contract.js';
@@ -662,6 +663,7 @@ export class AgentAdapter implements AgentExecutionPort {
     let lastSucceededAttemptPayload: LlmAttemptPayload | undefined;
     let lastFailedFailureClass: LlmFailureClass | undefined;
     let lastRepairAttempts = 0;
+    let pendingPlannerDeferredEnvelope: PlannerEnvelope | null = null;
     let lastContractVerdict: 'satisfied' | 'repair_exhausted' | 'no_progress' | undefined;
     const recordAttemptOutcome = (payload: LlmAttemptPayload): void => {
       attemptOutcomeCount += 1;
@@ -794,8 +796,24 @@ export class AgentAdapter implements AgentExecutionPort {
                         tool: msg.tool,
                         tool_call_id: msg.tool_call_id,
                       });
+                      if (role === 'planner' && tc.function.name === 'activate_card') {
+                        try {
+                          const body = JSON.parse(msg.content) as { deferred?: unknown };
+                          const deferred =
+                            msg.kind === 'tool_result'
+                              ? parseDeferredActivationEnvelope(body.deferred)
+                              : null;
+                          if (deferred)
+                            pendingPlannerDeferredEnvelope = {
+                              kind: 'deferred',
+                              payload: deferred,
+                            };
+                        } catch {
+                          void 0;
+                        }
+                      }
                     }
-                    return { runtimeSignalledDone: false };
+                    return { runtimeSignalledDone: Boolean(pendingPlannerDeferredEnvelope) };
                   },
                   persistDuplicateDoneIgnored: (toolCallId, toolName) => {
                     this.appendSessionMessage(session.id, {
@@ -846,6 +864,14 @@ export class AgentAdapter implements AgentExecutionPort {
                       });
                     if (this.eventBus) this.eventBus.emit('llm_verifier_rejection', event);
                   },
+                  takeRuntimeDoneEnvelope:
+                    role === 'planner'
+                      ? () => {
+                          const envelope = pendingPlannerDeferredEnvelope;
+                          pendingPlannerDeferredEnvelope = null;
+                          return envelope as E | null;
+                        }
+                      : undefined,
                 };
                 const driver = createAgentLoopDriver<E, R>(io);
                 const outcome = await driver.run();
