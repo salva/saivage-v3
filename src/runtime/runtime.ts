@@ -1336,7 +1336,21 @@ export class Runtime extends EventEmitter {
       this.publishRuntimeLedgerEvent('runtime_actionable_error', { actionable_error: error });
       return { success: false, command: rejectedCommand, error };
     }
-    if (this._paused || state.paused || (state.runtime_intent?.status ?? 'stopped') === 'running') {
+    const openRootRun = (state.runtime_runs ?? []).find(
+      (run) => run.kind === 'root' && !run.finished_at,
+    );
+    const staleRunningIntentWithoutActiveRootRun =
+      (state.runtime_intent?.status ?? 'stopped') === 'running' &&
+      !openRootRun &&
+      state.status === 'idle' &&
+      (state.active_card_run ?? null) === null &&
+      (state.current_card_id ?? null) === null;
+    if (
+      this._paused ||
+      state.paused ||
+      ((state.runtime_intent?.status ?? 'stopped') === 'running' &&
+        !staleRunningIntentWithoutActiveRootRun)
+    ) {
       const error = this.makeRuntimePreconditionError(
         'runtime_start_precondition_failed',
         'Project runtime is already running or paused.',
@@ -1344,9 +1358,7 @@ export class Runtime extends EventEmitter {
         {
           intent: state.runtime_intent?.status ?? 'stopped',
           paused: state.paused,
-          activeRunId:
-            (state.runtime_runs ?? []).find((run) => run.kind === 'root' && !run.finished_at)
-              ?.run_id ?? null,
+          activeRunId: openRootRun?.run_id ?? null,
         },
       );
       const rejectedAt = now();

@@ -7,7 +7,7 @@ import { createRuntimeEnvelope } from '../../src/server/websocket.js';
 import { RuntimeCommandEventSchema, RuntimeRunEventSchema, parseKnownWsEnvelope } from '../../src/contracts/operator-events.js';
 import { loggedEventSchema } from '../../src/schemas/validators.js';
 import { initProjectTree } from '../../src/persistence/file-tree.js';
-import { appendRuntimeRun, readRuntimeState, upsertRuntimeActivation } from '../../src/runtime/state.js';
+import { appendRuntimeRun, readRuntimeState, upsertRuntimeActivation, upsertRuntimeIntent } from '../../src/runtime/state.js';
 import { PlannerControlExecutor } from '../../src/agents/planner-control-executor.js';
 import type { AgentExecutionPort as AgentRuntime } from '../../src/contracts/index.js';
 
@@ -37,6 +37,82 @@ describe('runtime command ledger target contract (Wave 1)', () => {
       expect(state.runtime_commands).toEqual(expect.arrayContaining([expect.objectContaining({ command: 'start_project', status: 'completed' })]));
       expect(state.runtime_runs).toEqual(expect.arrayContaining([expect.objectContaining({ kind: 'root', card_id: 'project', command_id: result.command.command_id })]));
       expect(calls).toEqual(['project']);
+    } finally { rmSync(projectRoot, { recursive: true, force: true }); }
+  });
+
+
+  it('start_project reconciles stale running intent when no active root run exists', async () => {
+    const projectRoot = root();
+    try {
+      initProjectTree(projectRoot);
+      upsertRuntimeIntent(projectRoot, 'running', 'cmd-old', 'stale running intent from prior completed run');
+      const runtime = new Runtime({ projectRoot, fakeAgentConfig: { mapping: {}, fixtureDir: '' }, autoDispatchBacklog: false });
+      const calls: string[] = [];
+      runtime.dispatchGoal = (async (goalId: string) => { calls.push(goalId); }) as Runtime['dispatchGoal'];
+
+      const result = await runtime.startProject('operator');
+
+      expect(result.success).toBe(true);
+      if (!result.success) throw new Error(`expected startProject to succeed, got ${result.error.code}`);
+      const state = readRuntimeState(projectRoot)!;
+      expect(state.runtime_intent).toEqual(expect.objectContaining({
+        status: 'running',
+        source_command_id: result.command.command_id,
+        reason: 'explicit start_project command',
+      }));
+      expect(state.runtime_runs).toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          run_id: result.run.run_id,
+          kind: 'root',
+          card_id: 'project',
+          command_id: result.command.command_id,
+        }),
+      ]));
+      expect(state.runtime_commands).toEqual(expect.arrayContaining([
+        expect.objectContaining({ command_id: result.command.command_id, command: 'start_project', status: 'completed' }),
+      ]));
+      expect(calls).toEqual(['project']);
+    } finally { rmSync(projectRoot, { recursive: true, force: true }); }
+  });
+
+  it('start_project still rejects running intent when an open root run exists', async () => {
+    const projectRoot = root();
+    try {
+      initProjectTree(projectRoot);
+      upsertRuntimeIntent(projectRoot, 'running', 'cmd-open', 'active run still owns project execution');
+      appendRuntimeRun(projectRoot, {
+        run_id: 'run-open-root',
+        kind: 'root',
+        card_id: 'project',
+        parent_run_id: null,
+        command_id: 'cmd-open',
+        activation_id: null,
+        phase: 'planner',
+        runtime_status: 'running',
+        session_id: 'planner:project',
+        result: null,
+      });
+      const runtime = new Runtime({ projectRoot, fakeAgentConfig: { mapping: {}, fixtureDir: '' }, autoDispatchBacklog: false });
+      const calls: string[] = [];
+      runtime.dispatchGoal = (async (goalId: string) => { calls.push(goalId); }) as Runtime['dispatchGoal'];
+
+      const result = await runtime.startProject('operator');
+
+      expect(result.success).toBe(false);
+      if (result.success) throw new Error('expected startProject to fail');
+      expect(result.error.code).toBe('runtime_start_precondition_failed');
+      expect(result.error.currentState).toEqual(expect.objectContaining({
+        intent: 'running',
+        activeRunId: 'run-open-root',
+      }));
+      expect(calls).toEqual([]);
+      const state = readRuntimeState(projectRoot)!;
+      expect(state.runtime_runs).toEqual(expect.arrayContaining([
+        expect.objectContaining({ run_id: 'run-open-root', runtime_status: 'running' }),
+      ]));
+      expect(state.runtime_commands).toEqual(expect.arrayContaining([
+        expect.objectContaining({ command_id: result.command.command_id, command: 'start_project', status: 'rejected' }),
+      ]));
     } finally { rmSync(projectRoot, { recursive: true, force: true }); }
   });
 
