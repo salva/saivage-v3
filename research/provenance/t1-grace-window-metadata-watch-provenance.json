@@ -1,0 +1,35 @@
+{
+  "artifact": ".saivage/stages/supervision-cycle-038-grace-watch-post-method-intro-completion/reports/t1-grace-window-metadata-watch.snapshot.json",
+  "attempts": [
+    {
+      "method": "local_metadata_collection",
+      "status": "success",
+      "timestamp": "2026-06-01T11:36:39.213285+00:00"
+    },
+    {
+      "method": "classification_correction_after_metadata_review",
+      "note": "No additional raw bodies collected; label corrected using existing metadata-only facts.",
+      "status": "success",
+      "timestamp": "2026-06-01T11:37:38Z"
+    }
+  ],
+  "checksum_sha256": "7c321e943298edc99f3507c8600e6dc738e66edb30df59cbbe7872a08a085cfd",
+  "created_at": "2026-06-01T11:36:39.213285+00:00",
+  "license_terms": "local operational telemetry/project artifacts; no external dataset license applicable",
+  "retrieval_method": "local filesystem metadata reads; systemctl show selected non-secret properties; HTTP GET endpoint status/header metadata only",
+  "schema": "redacted supervision metadata snapshot JSON v1",
+  "sources": [
+    "/work/saivage-v3/.saivage/stages/supervision-cycle-037-watch-method-intro-executor/summary.json",
+    "/work/diedrico-lessons/.saivage/tmp/state/runtime.json",
+    "/work/diedrico-lessons/.saivage/cards/by-id",
+    "/work/diedrico-lessons/.saivage/runtime/events.jsonl",
+    "/work/diedrico-lessons/pipeline-status.md",
+    "/work/diedrico-lessons/backlog.md",
+    "/work/diedrico-lessons/catalog.md",
+    "/work/diedrico-lessons/curriculum.md",
+    "/work/diedrico-lessons/.saivage/reviews",
+    "/work/diedrico-lessons/.saivage/diaries",
+    "/work/diedrico-lessons/lessons"
+  ],
+  "updated_at": "2026-06-01T11:37:38Z"
+}
