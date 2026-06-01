@@ -114,9 +114,9 @@ export function handleOpenAICodexSseChunk(
     } else if (type === 'response.failed') {
       const response = event['response'] as Record<string, unknown> | undefined;
       const error = response?.['error'] as Record<string, unknown> | undefined;
-      throw new LlmRequestError({ kind: 'parse_error', provider: 'openai-codex', message: `OpenAI Codex response failed: ${redactProviderErrorText(String(error?.['message'] ?? 'unknown error'), 'llm-codex-parser')}` });
+      throw createCodexStreamError('OpenAI Codex response failed', error ?? response ?? event);
     } else if (type === 'error') {
-      throw new LlmRequestError({ kind: 'parse_error', provider: 'openai-codex', message: `OpenAI Codex stream error: ${redactProviderErrorText(String(event['message'] ?? JSON.stringify(event)), 'llm-codex-parser')}` });
+      throw createCodexStreamError('OpenAI Codex stream error', event);
     }
   }
 }
@@ -141,4 +141,17 @@ function appendCodexMessageContent(item: Record<string, unknown>, appendContent:
     const typedPart = part as Record<string, unknown>;
     if (typedPart['type'] === 'output_text' && typeof typedPart['text'] === 'string') appendContent(typedPart['text']);
   }
+}
+
+function createCodexStreamError(prefix: string, payload: Record<string, unknown>): LlmRequestError {
+  const nested = payload['error'];
+  const error = nested && typeof nested === 'object' ? nested as Record<string, unknown> : payload;
+  const code = typeof error['code'] === 'string' ? error['code'] : '';
+  const rawMessage = String(error['message'] ?? payload['message'] ?? JSON.stringify(payload));
+  const codePrefix = code ? `${code}: ` : '';
+  const message = `${prefix}: ${codePrefix}${redactProviderErrorText(rawMessage, 'llm-codex-parser')}`;
+  if (/context_length_exceeded/i.test(code) || /context window|context length|token budget/i.test(rawMessage)) {
+    return new LlmRequestError({ kind: 'token_budget_exceeded', provider: 'openai-codex', status: 400, message });
+  }
+  return new LlmRequestError({ kind: 'parse_error', provider: 'openai-codex', message });
 }
