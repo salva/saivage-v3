@@ -1,0 +1,18 @@
+{
+  "access_date": "2026-06-01T06:31:22.100624+00:00",
+  "artifacts": [
+    "/work/saivage-v3/.saivage/stages/supervision-cycle-029-watch-blocked-token-budget-status/reports/t1-probe-redacted.json",
+    "/work/saivage-v3/.saivage/stages/supervision-cycle-029-watch-blocked-token-budget-status/reports/t1-project-card-metadata.stdout.json",
+    "/work/saivage-v3/.saivage/notes/supervision-2026-06-01.md"
+  ],
+  "redaction_policy": "No raw HTTP bodies, raw logs, raw card bodies, product document content, or secret-shaped values included.",
+  "retrieval_methods": [
+    "systemctl show metadata",
+    "HTTP GET status/sample bytes only",
+    "metadata-only filesystem stat and schema-key scans",
+    "journalctl redacted count scan"
+  ],
+  "source_type": "local-runtime-observation",
+  "stage_id": "supervision-cycle-029-watch-blocked-token-budget-status",
+  "task_id": "t1-redacted-blocker-stability-observation"
+}
