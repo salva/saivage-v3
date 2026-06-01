@@ -1,12 +1,30 @@
 import type { AgentMessage } from '../schemas/index.js';
 import type { Candidate } from './provider.js';
-import type { LlmCompleteOptions, LlmCompleteResult, ToolCall, ToolDefinition, LlmUsage } from './llm-contracts.js';
+import type {
+  LlmCompleteOptions,
+  LlmCompleteResult,
+  ToolCall,
+  ToolDefinition,
+  LlmUsage,
+} from './llm-contracts.js';
 import { parseToolCallMessage } from './persisted-tool-call.js';
 import { LlmRequestError } from './llm-errors.js';
-import { classifierFor, classifyTransportFailure, defaultHttpClassifier } from './llm-failure-classifiers.js';
-import { beginRecordedExchange, recordResponseError, teeStreamForRecorder } from './llm-recording.js';
+import {
+  classifierFor,
+  classifyTransportFailure,
+  defaultHttpClassifier,
+} from './llm-failure-classifiers.js';
+import {
+  beginRecordedExchange,
+  recordResponseError,
+  teeStreamForRecorder,
+} from './llm-recording.js';
 import { readOpenAIChatStream } from './llm-stream-parser.js';
-import { serializeToolsForChat, type WireToolDefinitionChat } from './tool-definition-serializer.js';
+import {
+  serializeToolsForChat,
+  type WireToolDefinitionChat,
+} from './tool-definition-serializer.js';
+import { appendFinalOutboundLlmRequestSectionSizesDiagnostic } from './llm-request-diagnostics.js';
 
 interface ChatMessage {
   role: 'system' | 'user' | 'assistant' | 'tool';
@@ -85,7 +103,12 @@ export class OpenAIChatGateway {
     try {
       let response: Response;
       try {
-        response = await fetch(url, { method: 'POST', headers, body: JSON.stringify(requestBody), signal: opts.signal });
+        response = await fetch(url, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify(requestBody),
+          signal: opts.signal,
+        });
       } catch (err) {
         if (handle) {
           recordedErr = true;
@@ -97,22 +120,57 @@ export class OpenAIChatGateway {
 
       if (!response.ok) {
         const ctx = { provider: candidate.provider, model: candidate.model };
-        const bodyText = await response.clone().text().catch(() => '');
-        const failure = classifierFor(candidate.provider).classifyHttp(response, bodyText, ctx)
-          ?? defaultHttpClassifier(response, bodyText, ctx);
+        const bodyText = await response
+          .clone()
+          .text()
+          .catch(() => '');
+        const failure =
+          classifierFor(candidate.provider).classifyHttp(response, bodyText, ctx) ??
+          defaultHttpClassifier(response, bodyText, ctx);
+        if (failure.kind === 'token_budget_exceeded')
+          failure.message = appendFinalOutboundLlmRequestSectionSizesDiagnostic(
+            failure.message,
+            requestBody.messages[0]?.content ?? systemPrompt,
+            requestBody.messages.slice(1).map((message) => ({
+              role: message.role,
+              kind: message.tool_calls ? 'tool_call' : message.role === 'tool' ? 'tool_result' : 'text',
+              tool: message.tool_calls?.[0]?.function.name,
+              content:
+                message.tool_calls && message.tool_calls.length > 0
+                  ? JSON.stringify(message.tool_calls)
+                  : message.content,
+            })),
+            requestBody.tools?.length ?? 0,
+            JSON.stringify(requestBody.tools ?? []).length,
+            opts,
+          );
         if (handle) {
           recordedErr = true;
-          await handle.recordError({ errorName: 'LlmRequestError', message: failure.message, status: response.status, bodyRaw: bodyText });
+          await handle.recordError({
+            errorName: 'LlmRequestError',
+            message: failure.message,
+            status: response.status,
+            bodyRaw: bodyText,
+          });
         }
         throw new LlmRequestError(failure);
       }
 
       if (requestBody.stream) {
-        if (!response.body) throw new LlmRequestError({ kind: 'server_transient', provider: candidate.provider, status: response.status, message: 'Streaming response has no body' });
+        if (!response.body)
+          throw new LlmRequestError({
+            kind: 'server_transient',
+            provider: candidate.provider,
+            status: response.status,
+            message: 'Streaming response has no body',
+          });
         if (handle) {
           const tee = teeStreamForRecorder(response.body);
           const result = await readOpenAIChatStream(tee.stream);
-          await handle.recordResponse({ status: response.status, bodyRaw: tee.getBuffer(), bodyParsed: result }, firedTerminalFromResult(result, opts));
+          await handle.recordResponse(
+            { status: response.status, bodyRaw: tee.getBuffer(), bodyParsed: result },
+            firedTerminalFromResult(result, opts),
+          );
           return result;
         }
         return await readOpenAIChatStream(response.body);
@@ -123,22 +181,40 @@ export class OpenAIChatGateway {
       try {
         parsed = JSON.parse(rawText) as ChatCompletionResponse;
       } catch (err) {
-        throw new LlmRequestError({ kind: 'parse_error', provider: candidate.provider, message: `Failed to parse chat completions response: ${err instanceof Error ? err.message : String(err)}`, bodyPreview: rawText.slice(0, 500) });
+        throw new LlmRequestError({
+          kind: 'parse_error',
+          provider: candidate.provider,
+          message: `Failed to parse chat completions response: ${err instanceof Error ? err.message : String(err)}`,
+          bodyPreview: rawText.slice(0, 500),
+        });
       }
       if (!parsed.choices || parsed.choices.length === 0) {
-        throw new LlmRequestError({ kind: 'parse_error', provider: candidate.provider, message: 'Chat completions response contains no choices', bodyPreview: rawText.slice(0, 500) });
+        throw new LlmRequestError({
+          kind: 'parse_error',
+          provider: candidate.provider,
+          message: 'Chat completions response contains no choices',
+          bodyPreview: rawText.slice(0, 500),
+        });
       }
       const choice = parsed.choices[0];
       const toolCalls = choice.message?.tool_calls ?? [];
-      const result: LlmCompleteResult = toolCalls.length > 0
-        ? { kind: 'tool_calls', tool_calls: toolCalls, usage: parsed.usage }
-        : { kind: 'message', content: choice.message?.content ?? '', usage: parsed.usage };
-      if (handle) await handle.recordResponse({ status: response.status, bodyRaw: rawText, bodyParsed: parsed }, firedTerminalFromResult(result, opts));
+      const result: LlmCompleteResult =
+        toolCalls.length > 0
+          ? { kind: 'tool_calls', tool_calls: toolCalls, usage: parsed.usage }
+          : { kind: 'message', content: choice.message?.content ?? '', usage: parsed.usage };
+      if (handle)
+        await handle.recordResponse(
+          { status: response.status, bodyRaw: rawText, bodyParsed: parsed },
+          firedTerminalFromResult(result, opts),
+        );
       return result;
     } catch (err) {
       if (handle && !recordedErr) await recordResponseError(handle, err, rawText ?? null);
       if (err instanceof LlmRequestError) throw err;
-      const failure = classifyTransportFailure(err, { provider: candidate.provider, model: candidate.model });
+      const failure = classifyTransportFailure(err, {
+        provider: candidate.provider,
+        model: candidate.model,
+      });
       throw new LlmRequestError(failure);
     }
   }
@@ -171,7 +247,17 @@ export function buildOpenAIChatRequest(
     ...messages.map((m): ChatMessage => {
       if (m.role === 'assistant' && m.kind === 'tool_call') {
         const call = parseToolCallMessage(JSON.parse(m.content));
-        return { role: 'assistant', content: '', tool_calls: [{ id: call.id, type: 'function', function: { name: call.name, arguments: JSON.stringify(call.args) } }] };
+        return {
+          role: 'assistant',
+          content: '',
+          tool_calls: [
+            {
+              id: call.id,
+              type: 'function',
+              function: { name: call.name, arguments: JSON.stringify(call.args) },
+            },
+          ],
+        };
       }
       if (m.role === 'tool') {
         return { role: 'tool', content: m.content, tool_call_id: m.tool_call_id ?? m.id };
@@ -182,14 +268,14 @@ export function buildOpenAIChatRequest(
 
   const sanitized = sanitizeToolCallSequences(apiMessages);
 
-  const tools: ToolDefinition[] = opts.phase === 'terminal'
-    ? [opts.terminalToolDefinition]
-    : opts.tools;
-  const toolChoice: 'auto' | ChatToolChoice = opts.phase === 'terminal'
-    ? { type: 'function', function: { name: opts.terminalToolName } }
-    : opts.tool_choice.kind === 'required_named'
-      ? { type: 'function', function: { name: opts.tool_choice.toolName } }
-      : 'auto';
+  const tools: ToolDefinition[] =
+    opts.phase === 'terminal' ? [opts.terminalToolDefinition] : opts.tools;
+  const toolChoice: 'auto' | ChatToolChoice =
+    opts.phase === 'terminal'
+      ? { type: 'function', function: { name: opts.terminalToolName } }
+      : opts.tool_choice.kind === 'required_named'
+        ? { type: 'function', function: { name: opts.tool_choice.toolName } }
+        : 'auto';
 
   const body: ChatCompletionRequest = {
     model: candidate.model,
@@ -206,7 +292,10 @@ export function buildOpenAIChatRequest(
   return body;
 }
 
-function firedTerminalFromResult(result: LlmCompleteResult, opts: LlmCompleteOptions): string | null {
+function firedTerminalFromResult(
+  result: LlmCompleteResult,
+  opts: LlmCompleteOptions,
+): string | null {
   if (result.kind !== 'tool_calls') return null;
   const offered = new Set(opts.terminalToolOffered);
   for (const call of result.tool_calls) {
@@ -239,10 +328,15 @@ function sanitizeToolCallSequences(msgs: ChatMessage[]): ChatMessage[] {
 
 function toChatRole(role: string): 'system' | 'user' | 'assistant' | 'tool' {
   switch (role) {
-    case 'system': return 'system';
-    case 'user': return 'user';
-    case 'assistant': return 'assistant';
-    case 'tool': return 'tool';
-    default: return 'user';
+    case 'system':
+      return 'system';
+    case 'user':
+      return 'user';
+    case 'assistant':
+      return 'assistant';
+    case 'tool':
+      return 'tool';
+    default:
+      return 'user';
   }
 }
