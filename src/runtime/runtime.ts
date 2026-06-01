@@ -1446,6 +1446,13 @@ export class Runtime extends EventEmitter {
       this.publishRuntimeLedgerEvent('runtime_actionable_error', { actionable_error: error });
       return { success: false, command: rejectedCommand, error };
     }
+    const projectCard = this.cardStore.read(PROJECT_CARD_ID);
+    const blockedPlanning = this.getBlockedPlanning(projectCard);
+    const retryingTokenBudgetPlanningBlocker =
+      source !== 'runtime' &&
+      projectCard?.status === 'blocked' &&
+      blockedPlanning?.resume_reason === 'planner_context_length_exceeded' &&
+      blockedPlanning?.failure_kind === 'token_budget_exceeded';
     const openRootRun = (state.runtime_runs ?? []).find(
       (run) => run.kind === 'root' && !run.finished_at,
     );
@@ -1454,12 +1461,14 @@ export class Runtime extends EventEmitter {
       !openRootRun &&
       state.status === 'idle' &&
       (state.active_card_run ?? null) === null &&
-      (state.current_card_id ?? null) === null;
+      (state.current_card_id ?? null) === null &&
+      !this.cardHasBlockedPlanning(projectCard);
     if (
       this._paused ||
       state.paused ||
       ((state.runtime_intent?.status ?? 'stopped') === 'running' &&
-        !staleRunningIntentWithoutActiveRootRun)
+        !staleRunningIntentWithoutActiveRootRun &&
+        !retryingTokenBudgetPlanningBlocker)
     ) {
       const error = this.makeRuntimePreconditionError(
         'runtime_start_precondition_failed',
@@ -1489,11 +1498,46 @@ export class Runtime extends EventEmitter {
       this.publishRuntimeLedgerEvent('runtime_actionable_error', { actionable_error: error });
       return { success: false, command: rejectedCommand, error };
     }
+    if (retryingTokenBudgetPlanningBlocker) {
+      const retryPlanning = {
+        status: 'continue',
+        summary: null,
+        blocked_reason: null,
+        resume_reason: 'planner_context_history_compacted_retry',
+        previous_failure_kind: 'token_budget_exceeded',
+        persisted_history_compacted: this.compactPersistedPlannerHistoryForRetry(
+          `planner:${PROJECT_CARD_ID}`,
+        ),
+        created_cards: [],
+        updated_cards: [],
+        updated_at: new Date().toISOString(),
+      };
+      await this.cardStore.update(PROJECT_CARD_ID, {
+        status: 'active',
+        error: null,
+        status_text: null,
+        result: {
+          ...(projectCard?.result && typeof projectCard.result === 'object'
+            ? (projectCard.result as Record<string, unknown>)
+            : {}),
+          planning: retryPlanning,
+        } as CardRecord['result'],
+      });
+      this._eventLogger.appendEvent({
+        kind: 'runtime_diagnostic',
+        goal_id: PROJECT_CARD_ID,
+        phase: 'planner_blocked_retry',
+        error_message:
+          'Accepted explicit retry for project planner token-budget blocker after clearing stale blocked planning metadata.',
+      });
+    }
     upsertRuntimeIntent(
       this.projectRoot,
       'running',
       command.command_id,
-      'explicit start_project command',
+      retryingTokenBudgetPlanningBlocker
+        ? 'explicit start_project retry for compacted planner token-budget blocker'
+        : 'explicit start_project command',
     );
     const run = appendRuntimeRun(this.projectRoot, {
       kind: 'root',

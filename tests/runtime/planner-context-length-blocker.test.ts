@@ -440,6 +440,109 @@ describe('planner context-length failures', () => {
     expect(runtime.cardStore.read('next-safe-work')?.parent).toBe('project');
   });
 
+  it('explicit start_project retries a blocked token-budget project after clearing stale planning metadata', async () => {
+    const fixtureDir = join(tmpDir, 'fixtures');
+    const fakeAgent = new ContinuePlannerCapturingAdapter({
+      mapping: { project: 'unused' },
+      fixtureDir,
+    });
+    runtime = new Runtime(
+      { projectRoot: tmpDir, fakeAgentConfig: { mapping: { project: 'unused' }, fixtureDir } },
+      fakeAgent,
+    );
+    const blockedReason =
+      'Planner context exceeded the selected LLM token budget before scheduler output could be produced; compact/trim planner context before resuming.';
+    runtime.cardStore.update('project', {
+      status: 'blocked',
+      error: blockedReason,
+      status_text: blockedReason,
+      result: {
+        planning: {
+          status: 'blocked',
+          resume_reason: 'planner_context_length_exceeded',
+          failure_kind: 'token_budget_exceeded',
+          blocked_reason: blockedReason,
+          created_cards: [],
+          updated_cards: [],
+        },
+      },
+    });
+
+    await runtime.startup();
+    const startResult = await runtime.startProject('operator');
+    expect(startResult.success).toBe(true);
+    for (let attempt = 0; attempt < 20 && runtime.getBackgroundDispatchCount() > 0; attempt += 1)
+      await new Promise((resolve) => setTimeout(resolve, 5));
+
+    const project = runtime.cardStore.read('project');
+    expect(project?.status).not.toBe('blocked');
+    expect(project?.error).toBeNull();
+    expect(project?.status_text).toBeNull();
+    expect(project?.result?.planning).toEqual(
+      expect.objectContaining({
+        status: 'continue',
+      }),
+    );
+    expect(project?.result?.planning).not.toEqual(
+      expect.objectContaining({
+        resume_reason: 'planner_context_length_exceeded',
+        failure_kind: 'token_budget_exceeded',
+      }),
+    );
+    expect(runtime.cardStore.read('next-safe-work')?.parent).toBe('project');
+  });
+
+  it('runtime source start_project still does not retry a blocked token-budget project automatically', async () => {
+    const fixtureDir = join(tmpDir, 'fixtures');
+    const fakeAgent = new ContinuePlannerCapturingAdapter({
+      mapping: { project: 'unused' },
+      fixtureDir,
+    });
+    runtime = new Runtime(
+      { projectRoot: tmpDir, fakeAgentConfig: { mapping: { project: 'unused' }, fixtureDir } },
+      fakeAgent,
+    );
+    const blockedReason =
+      'Planner context exceeded the selected LLM token budget before scheduler output could be produced; compact/trim planner context before resuming.';
+    runtime.cardStore.update('project', {
+      status: 'blocked',
+      error: blockedReason,
+      status_text: blockedReason,
+      result: {
+        planning: {
+          status: 'blocked',
+          resume_reason: 'planner_context_length_exceeded',
+          failure_kind: 'token_budget_exceeded',
+          blocked_reason: blockedReason,
+          created_cards: [],
+          updated_cards: [],
+        },
+      },
+    });
+    updateRuntimeState(tmpDir, {
+      status: 'idle',
+      current_card_id: null,
+      current_agent_session_id: null,
+      active_card_run: null,
+      runtime_intent: {
+        status: 'running',
+        updated_at: new Date().toISOString(),
+        source_command_id: 'cmd-old',
+        reason: 'stale running intent should not automatically retry token-budget blocker',
+      },
+      runtime_runs: [],
+    });
+
+    await runtime.startup();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const startResult = await runtime.startProject('runtime');
+
+    expect(startResult.success).toBe(false);
+    expect(runtime.cardStore.read('project')?.status).toBe('blocked');
+    expect(runtime.cardStore.read('next-safe-work')).toBeNull();
+    expect(runtime.getBackgroundDispatchCount()).toBe(0);
+  });
+
   it('allows explicit retry of a persisted context-length blocker to surface a newer precise planner blocker', async () => {
     const fixtureDir = join(tmpDir, 'fixtures');
     const fakeAgent = new DonePlannerWithPassingReviewerAdapter({
