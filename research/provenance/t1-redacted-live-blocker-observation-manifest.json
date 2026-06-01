@@ -1,0 +1,22 @@
+{
+  "artifact_checksums": {
+    ".saivage/stages/repair-planner-terminal-tool-exhausted-retry-001/observations/t1-redacted-live-blocker-observation-20260601T090440Z.json": "a07fb9bbede65875eb617896e6592f18303413cf28186f08fca602d2c913cdb4"
+  },
+  "attempts": [
+    {
+      "method": "systemctl show/journalctl metadata",
+      "status": "completed"
+    },
+    {
+      "method": "curl status-code only",
+      "status": "completed"
+    },
+    {
+      "method": "filesystem JSON/stat metadata scan",
+      "status": "completed"
+    }
+  ],
+  "created_at": "2026-06-01T09:04:40.425730+00:00",
+  "redaction": "metadata-only",
+  "task_id": "t1-redacted-live-blocker-observation"
+}
