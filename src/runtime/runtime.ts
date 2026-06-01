@@ -579,6 +579,17 @@ export class Runtime extends EventEmitter {
 
   getBackgroundDispatchCount(): number { return this._backgroundDispatches.size; }
 
+  private finishOpenPlannerRun(goalId: string, result: 'blocked' | 'failed'): void {
+    const targetPhase = result === 'blocked' ? 'blocked' : 'failed';
+    const targetRuntimeStatus = result === 'blocked' ? 'error' : 'error';
+    const openRun = (readRuntimeState(this.projectRoot)?.runtime_runs ?? [])
+      .filter((run) => run.card_id === goalId && run.phase === 'planner' && run.runtime_status === 'running' && !run.finished_at && (!run.session_id || run.session_id === `planner:${goalId}`))
+      .sort((a, b) => (b.kind === 'root' ? 1 : 0) - (a.kind === 'root' ? 1 : 0))[0];
+    if (!openRun) return;
+    const updated = updateRuntimeRun(this.projectRoot, openRun.run_id, { phase: targetPhase, runtime_status: targetRuntimeStatus, finished_at: now(), result });
+    if (updated) this.publishRuntimeLedgerEvent('runtime_run', { run: updated });
+  }
+
   private bindPlannerSessionToOpenRun(goalId: string, plannerSessionId: string): void {
     const state = readRuntimeState(this.projectRoot);
     const openRun = (state?.runtime_runs ?? [])
@@ -826,7 +837,13 @@ export class Runtime extends EventEmitter {
       const hasUnfinishedChildWork = this.cardStore.list().some((card) => card.parent === goalId && card.status !== 'done' && card.status !== 'failed' && card.status !== 'cancelled');
       const hasGoalDispatch = execution.dispatchedGoal; const createdCardIds = (plannerResult.created_cards ?? []).map((card) => card.id).filter((id): id is string => Boolean(id));
       const updatedCardIds = (plannerResult.updated_cards ?? []).map((card) => card.id).filter((id): id is string => Boolean(id));
-      if (plannerResult.status === 'blocked') { await this._stateMachine.transitionCard(goalId, 'block', { blocked_reason: plannerResult.blocked_reason ?? null }); await this.cardStore.update(goalId, { result: { ...(this.cardStore.read(goalId)?.result ?? {}), planning: { status: 'blocked', blocked_reason: plannerResult.blocked_reason ?? null, created_cards: createdCardIds, updated_cards: updatedCardIds } } }); await this._stateMachine.transition('card_terminated', { goalId, reason: 'planner_blocked' }); return; }
+      if (plannerResult.status === 'blocked') {
+        await this._stateMachine.transitionCard(goalId, 'block', { blocked_reason: plannerResult.blocked_reason ?? null });
+        await this.cardStore.update(goalId, { result: { ...(this.cardStore.read(goalId)?.result ?? {}), planning: { status: 'blocked', blocked_reason: plannerResult.blocked_reason ?? null, resume_reason: 'planner_blocked', created_cards: createdCardIds, updated_cards: updatedCardIds } } });
+        this.finishOpenPlannerRun(goalId, 'blocked');
+        await this._stateMachine.transition('card_terminated', { goalId, reason: 'planner_blocked' });
+        return;
+      }
       const hasPlannerAction = createdCardIds.length > 0 || updatedCardIds.length > 0 || hasGoalDispatch || hasUnfinishedChildWork || execution.executedTerminal;
       if (plannerResult.status === 'continue' && !hasPlannerAction) {
         const blockedReason = 'Planner returned continue without creating/updating cards, activating child work, leaving unfinished child work, or declaring a blocker.';
@@ -848,6 +865,7 @@ export class Runtime extends EventEmitter {
             },
           },
         });
+        this.finishOpenPlannerRun(goalId, 'blocked');
         await this._stateMachine.transition('card_terminated', { goalId, reason: 'planner_non_actionable_continue' });
         return;
       }
@@ -880,6 +898,7 @@ export class Runtime extends EventEmitter {
               },
             },
           });
+          this.finishOpenPlannerRun(goalId, 'blocked');
           await this._stateMachine.transition('card_terminated', { goalId, reason: 'reviewer_invocation_failed' });
           return;
         }
