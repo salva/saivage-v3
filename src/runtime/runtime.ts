@@ -855,7 +855,34 @@ export class Runtime extends EventEmitter {
       if (plannerDone) {
         const assessmentId = this.nextReviewerAssessmentId(goalId);
         const reviewerSessionId = this.reviewerSessionId(goalId, assessmentId);
-        const reviewResult = await this.invokeReviewer(goalId, planCard.id, assessmentId, reviewerSessionId);
+        let reviewResult: ReviewerResult;
+        try {
+          reviewResult = await this.invokeReviewer(goalId, planCard.id, assessmentId, reviewerSessionId);
+        } catch (err) {
+          const errorMessage = err instanceof Error ? err.message : String(err);
+          const blockedReason = `Reviewer invocation failed before assessment output could be produced: ${errorMessage}`;
+          this.emitRuntimeDiagnostic({ goal_id: goalId, phase: 'reviewer', error: err });
+          this._eventLogger.appendEvent({ kind: 'runtime_diagnostic', goal_id: goalId, phase: 'reviewer', error_message: errorMessage });
+          this._errorLogger.appendError({ message: errorMessage, goalId, phase: 'reviewer' });
+          await this._stateMachine.transitionCard(goalId, 'block', { blocked_reason: blockedReason });
+          await this.cardStore.update(goalId, {
+            error: blockedReason,
+            status_text: blockedReason,
+            result: {
+              ...(this.cardStore.read(goalId)?.result ?? {}),
+              planning: {
+                status: 'blocked',
+                blocked_reason: blockedReason,
+                resume_reason: 'reviewer_unavailable',
+                failure_kind: 'reviewer_invocation_failed',
+                created_cards: [],
+                updated_cards: [],
+              },
+            },
+          });
+          await this._stateMachine.transition('card_terminated', { goalId, reason: 'reviewer_invocation_failed' });
+          return;
+        }
         const validation = this.validateReviewerAssessment(goalId, reviewResult.assessment);
         if (reviewResult.assessment.result === 'pass' && !validation.valid) {
           const invalidAssessment = this.buildReviewAssessment(goalId, assessmentId, reviewerSessionId, reviewResult.assessment, { result: 'needs_corrections', summary: `Reviewer pass rejected: ${validation.reason}`, achieved: [], issues: [{ summary: validation.reason ?? 'Reviewer evidence validation failed.', severity: 'blocker' as const }] });
