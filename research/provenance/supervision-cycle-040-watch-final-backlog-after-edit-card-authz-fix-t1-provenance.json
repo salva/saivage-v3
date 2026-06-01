@@ -1,0 +1,44 @@
+{
+  "access_date": "2026-06-01T13:10:51.082976+00:00",
+  "artifacts": [
+    {
+      "path": "/work/saivage-v3/.saivage/stages/supervision-cycle-040-watch-final-backlog-after-edit-card-authz-fix/reports/live-metadata.json",
+      "schema": "JSON supervision metadata snapshot",
+      "sha256": "f07205a75882138b021d7ff879aef32a3cbd830606cd4a9ab2e68f79eca336f1"
+    }
+  ],
+  "sources": [
+    {
+      "license_or_terms": "not applicable; local operational state for this project",
+      "paths_or_endpoints": [
+        "systemd:saivage-v3.service",
+        "systemd:diedrico.service",
+        "http://localhost:8081/health",
+        "http://localhost:8081/health/ready",
+        "http://localhost:5173/",
+        "/work/diedrico-lessons/.saivage/cards/by-id/*.json",
+        "/work/diedrico-lessons/.saivage/tmp/state/runtime.json",
+        "/work/diedrico-lessons/.saivage/runtime/events.jsonl",
+        "/work/diedrico-lessons/pipeline-status.md",
+        "/work/diedrico-lessons/backlog.md",
+        "/work/diedrico-lessons/catalog.md",
+        "/work/diedrico-lessons/curriculum.md",
+        "/work/diedrico-lessons/lessons/"
+      ],
+      "redaction": "raw HTTP bodies, raw logs, card/event bodies, product content, environment dumps, and secret-shaped values were not persisted; artifact contains status/counts/mtimes/sizes/checksums/keyword categories only",
+      "retrieval_method": "bounded local shell metadata probe plus status-code-only HTTP checks",
+      "type": "local runtime/service metadata"
+    }
+  ],
+  "stage_id": "supervision-cycle-040-watch-final-backlog-after-edit-card-authz-fix",
+  "task_id": "t1-redacted-supervision-observation",
+  "validation": {
+    "card_counts_checked": true,
+    "endpoint_status_codes_checked": true,
+    "event_line_count_and_keyword_categories_checked": true,
+    "json_parse_ok": true,
+    "product_surface_mtimes_and_sha256_checked": true,
+    "runtime_state_parsed": true,
+    "service_status_checked": true
+  }
+}
