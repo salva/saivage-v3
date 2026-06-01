@@ -923,9 +923,7 @@ export class Runtime extends EventEmitter {
     this._eventLogger.appendEvent({ kind: 'project_run_completed', ...payload });
   }
 
-  private buildGoalContextCardTree(
-    cardId: string,
-  ): Array<{
+  private buildGoalContextCardTree(cardId: string): Array<{
     id: string;
     type: string;
     title: string;
@@ -1273,6 +1271,43 @@ export class Runtime extends EventEmitter {
     if (updated) this.publishRuntimeLedgerEvent('runtime_run', { run: updated });
   }
 
+  private reconcileIdleRunningRootRuns(state: RuntimeState): RuntimeState {
+    if (
+      (state.runtime_intent?.status ?? 'stopped') !== 'running' ||
+      state.status !== 'idle' ||
+      (state.current_card_id ?? null) !== null ||
+      (state.active_card_run ?? null) !== null
+    )
+      return state;
+    const openRootRuns = (state.runtime_runs ?? []).filter(
+      (run) => run.kind === 'root' && !run.finished_at,
+    );
+    if (openRootRuns.length === 0) return state;
+    const at = now();
+    const projectCard = this.cardStore.read(PROJECT_CARD_ID);
+    const projectTerminal = projectCard ? TERMINAL_STATUSES.has(projectCard.status) : false;
+    let reconciled = state;
+    for (const run of openRootRuns) {
+      const updated = updateRuntimeRun(this.projectRoot, run.run_id, {
+        phase: projectTerminal ? 'completed' : 'failed',
+        runtime_status: projectTerminal ? 'idle' : 'error',
+        finished_at: at,
+        result: projectTerminal ? 'done' : 'failed',
+      });
+      if (updated) {
+        this.publishRuntimeLedgerEvent('runtime_run', { run: updated });
+        reconciled = readRuntimeState(this.projectRoot) ?? reconciled;
+      }
+    }
+    this._eventLogger.appendEvent({
+      kind: 'runtime_diagnostic',
+      phase: 'startup',
+      error_message:
+        'Reconciled running runtime intent with open root run while runtime was idle and had no active card run.',
+    });
+    return readRuntimeState(this.projectRoot) ?? reconciled;
+  }
+
   private bindPlannerSessionToOpenRun(goalId: string, plannerSessionId: string): void {
     const state = readRuntimeState(this.projectRoot);
     const openRun = (state?.runtime_runs ?? [])
@@ -1298,9 +1333,7 @@ export class Runtime extends EventEmitter {
     if (updated) this.publishRuntimeLedgerEvent('runtime_run', { run: updated });
   }
 
-  async startProject(
-    source: 'operator' | 'tool' | 'runtime' | 'analyst' = 'operator',
-  ): Promise<
+  async startProject(source: 'operator' | 'tool' | 'runtime' | 'analyst' = 'operator'): Promise<
     | {
         success: true;
         command: RuntimeCommandRecord;
@@ -1474,9 +1507,7 @@ export class Runtime extends EventEmitter {
     };
   }
 
-  async stopProject(
-    source: 'operator' | 'tool' | 'runtime' | 'analyst' = 'operator',
-  ): Promise<{
+  async stopProject(source: 'operator' | 'tool' | 'runtime' | 'analyst' = 'operator'): Promise<{
     success: true;
     command: RuntimeCommandRecord;
     intent: RuntimeState['runtime_intent'];
@@ -1671,6 +1702,16 @@ export class Runtime extends EventEmitter {
     this._eventLogger.appendEvent({ kind: 'started', project_root: this.projectRoot });
     this._supervisor.start();
     this._stateMachine.start();
+    state = this.reconcileIdleRunningRootRuns(readRuntimeState(this.projectRoot) ?? state);
+    const shouldRestartRunningIntent =
+      (state.runtime_intent?.status ?? 'stopped') === 'running' &&
+      state.status === 'idle' &&
+      (state.current_card_id ?? null) === null &&
+      (state.active_card_run ?? null) === null &&
+      (state.runtime_runs ?? []).every((run) => run.kind !== 'root' || Boolean(run.finished_at));
+    if (shouldRestartRunningIntent) {
+      this.trackBackgroundDispatch(this.startProject('runtime').then(() => undefined));
+    }
     const startupActiveRun = state.active_card_run;
     if (startupActiveRun?.phase === 'planner' && startupActiveRun.runtime_status === 'running') {
       const startupCard = this.cardStore.read(startupActiveRun.card_id);
@@ -2245,9 +2286,8 @@ export class Runtime extends EventEmitter {
             ? (currentResult.planning as Record<string, unknown>)
             : null;
           const plannerBlockedReason = plannerResult.blocked_reason ?? null;
-          const reviewerCapacityPlannerBlocker = this.isReviewerCapacityPlannerBlocker(
-            plannerBlockedReason,
-          );
+          const reviewerCapacityPlannerBlocker =
+            this.isReviewerCapacityPlannerBlocker(plannerBlockedReason);
           const blockedReason = preservePreciseBlocker
             ? typeof preservedPlanning?.blocked_reason === 'string'
               ? preservedPlanning.blocked_reason
