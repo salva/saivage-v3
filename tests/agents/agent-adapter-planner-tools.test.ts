@@ -166,6 +166,15 @@ describe('AgentAdapter planner tool surface', () => {
     expect(JSON.parse(result.content)).toEqual(expect.objectContaining({ success: true, card: expect.objectContaining({ id: goal.id, status: 'cancelled' }) }));
   });
 
+
+  it('allows the advertised planner edit_card tool on the runtime surface', async () => {
+    const card = store.create(makeCard({ type: 'goal', title: 'Editable goal', status: 'backlog' }));
+    const result = await (adapter as any).processToolCall({ id: 'call-edit', type: 'function', function: { name: 'edit_card', arguments: JSON.stringify({ id: card.id, priority: 5 }) } }, 'planner', 'planner-session', { goalId: card.id, cardId: card.id });
+    expect(result).toMatchObject({ role: 'tool', kind: 'tool_result', tool: 'edit_card', tool_call_id: 'call-edit' });
+    expect(JSON.parse(result.content)).toEqual(expect.objectContaining({ success: true }));
+    expect(store.read(card.id)?.priority).toBe(5);
+  });
+
   it('hard-errors non-authoritative planner tool names', async () => {
     const result = await (adapter as any).processToolCall({ id: 'call-unknown', type: 'function', function: { name: 'set_status_text', arguments: '{}' } }, 'planner', 'planner-session', { goalId: 'project', cardId: 'project' });
     expect(result.kind).toBe('tool_error');
