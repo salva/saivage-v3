@@ -1,0 +1,53 @@
+{
+  "access_date_utc": "2026-06-01T11:12:25.423005Z",
+  "attempts": [
+    {
+      "method": "local shell metadata collection",
+      "status": "success"
+    },
+    {
+      "method": "selected JSON/JSONL parsing",
+      "status": "success"
+    },
+    {
+      "method": "narrow project blocker extraction",
+      "status": "success"
+    }
+  ],
+  "checksums": "source file checksums captured as truncated sha256_16 in t1-files.stdout.log; generated artifact checksums computed below after write",
+  "generated_artifacts": {
+    ".saivage/stages/recover-root-after-cancel-policy-fix/reports/t1-pre-retry-redacted-state.json": {
+      "sha256": "6b507aae9fbb7d0ab1dd8176d207e9148b33dda5bad76a5b6b42714b4710c59b",
+      "size": 7920
+    },
+    "research/provenance/t1-pre-retry-redacted-state-provenance.json": {
+      "sha256": "8a36c949c4e3529c64dad85f58f9e57c490167921353baef9399b3992afd3ff2",
+      "size": 1843
+    }
+  },
+  "license_or_terms": "not applicable: operational metadata from local project/runtime state",
+  "redaction": "Raw HTTP bodies, raw card bodies, raw events, environment and secret-shaped values were not written into the report.",
+  "retrieval_methods": [
+    "systemctl show/is-active metadata",
+    "curl status/byte/time metadata without body retention",
+    "Python read/parse of local JSON/JSONL/Markdown files for selected metadata only"
+  ],
+  "schema": "JSON TaskReport-compatible evidence summary with redacted metadata fields; provenance JSON lists sources and retrieval methods",
+  "source_type": "local runtime/project state and localhost health endpoints; no external downloads",
+  "sources": [
+    "/work/diedrico-lessons/.saivage/cards/by-id/project.json",
+    "/work/diedrico-lessons/.saivage/cards/by-id/*.json",
+    "/work/diedrico-lessons/.saivage/runtime/events.jsonl",
+    "/work/diedrico-lessons/.saivage/tmp/state/runtime.json",
+    "/work/diedrico-lessons/pipeline-status.md",
+    "/work/diedrico-lessons/backlog.md",
+    "/work/diedrico-lessons/catalog.md",
+    "/work/diedrico-lessons/curriculum.md",
+    "systemd:saivage-v3.service",
+    "systemd:diedrico.service",
+    "http://localhost:8081/health",
+    "http://localhost:8081/health/ready",
+    "http://localhost:5173/"
+  ],
+  "task_id": "t1-pre-retry-redacted-state"
+}
