@@ -1,0 +1,20 @@
+{
+  "accessed_at_utc": "2026-06-01T10:44:41Z",
+  "artifact": "/work/saivage-v3/.saivage/stages/repair-post-deferred-fix-promoted-child-cancelled-root-still-running/reports/t1-redacted-live-cancelled-child-state.json",
+  "license_or_terms": "not applicable; local operational metadata",
+  "method": "local metadata probe via Python; targeted JSON parsing and stat calls; HTTP status-code probes; systemctl metadata; journal keyword counts only",
+  "redaction": "metadata only; no raw logs/bodies/card/event/product content or secrets",
+  "schema": "redacted operational metadata JSON: service endpoint facts, runtime keys/status, card inventory/status/counts, cancelled child categories, event kind counts, file stats",
+  "sha256": "06c75cdd004b7867d62126a41e43c3d0232fe6282738057fcc2dd3534e2a001b",
+  "size_bytes": 41489,
+  "sources": [
+    "/work/diedrico-lessons/.saivage/tmp/state/runtime.json",
+    "/work/diedrico-lessons/.saivage/cards/by-id/*.json",
+    "/work/diedrico-lessons/.saivage/runtime/events.jsonl",
+    "/work/diedrico-lessons/pipeline-status.md",
+    "/work/diedrico-lessons/backlog.md",
+    "/work/diedrico-lessons/catalog.md",
+    "/work/diedrico-lessons/curriculum.md",
+    "/work/diedrico-lessons/lessons/"
+  ]
+}
