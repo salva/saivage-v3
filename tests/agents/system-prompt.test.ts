@@ -145,3 +145,13 @@ describe('System Prompt Builder', () => {
     });
   });
 });
+
+describe('planner system prompt', () => {
+  it('describes cancel_card as destructive recovery-only guidance', () => {
+    const prompt = buildPlannerPrompt(createPlannerContract({ goalId: 'project', parentSessionId: 'planner:project' }));
+    expect(prompt).toContain('Use cancellation only for cleanup/recovery');
+    expect(prompt).toContain('Do not cancel the next actionable backlog child');
+    expect(prompt).toContain('is not a scheduling primitive');
+    expect(prompt).toContain('after any cancellation, either activate a replacement child or emit a terminal goal report');
+  });
+});

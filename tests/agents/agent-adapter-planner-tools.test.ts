@@ -127,6 +127,16 @@ describe('AgentAdapter planner tool surface', () => {
   });
 
 
+
+  it('advertises cancel_card as destructive cleanup/recovery rather than scheduling', () => {
+    const plannerTools = (adapter as any).buildToolsForRole('planner');
+    const cancelDefinition = plannerTools.find((entry: { function: { name: string } }) => entry.function.name === 'cancel_card');
+    expect(cancelDefinition).toBeDefined();
+    expect(cancelDefinition.function.description).toContain('Destructively cancel');
+    expect(cancelDefinition.function.description).toContain('not a scheduling/defer primitive');
+    expect(cancelDefinition.function.description).toContain('actionable backlog work');
+  });
+
   it('advertises planner delete_card only with the planner-control cardId schema', () => {
     const runtimeDeleteDefinitions = (adapter as any).toolRuntime.schema().filter((entry: { function: { name: string } }) => entry.function.name === 'delete_card');
     expect(runtimeDeleteDefinitions).toHaveLength(0);

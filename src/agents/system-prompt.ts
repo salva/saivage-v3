@@ -6,7 +6,14 @@ type AnyContract = Contract<unknown, unknown>;
 const SAIVAGE_INTRO = 'You are operating inside **Saivage**, an autonomous multi-agent system.';
 
 const PLANNER_CREATABLE_CARD_TYPES: readonly CardType[] = [
-  'goal', 'architecture', 'code', 'test', 'doc', 'data', 'research', 'ops',
+  'goal',
+  'architecture',
+  'code',
+  'test',
+  'doc',
+  'data',
+  'research',
+  'ops',
 ];
 
 const PLANNER_STAGE3_TOOLS = [
@@ -22,9 +29,7 @@ const PLANNER_STAGE3_TOOLS = [
   'report_goal_blocked',
 ] as const;
 
-const ARTIFACT_TYPES: readonly string[] = [
-  'model', 'data', 'config', 'log', 'report', 'other',
-];
+const ARTIFACT_TYPES: readonly string[] = ['model', 'data', 'config', 'log', 'report', 'other'];
 
 function buildDepthContext(currentDepth?: number, maxDepth?: number): string {
   if (currentDepth === undefined || maxDepth === undefined) return '';
@@ -53,13 +58,15 @@ ${depthContext}### Responsibilities
 1. **Decompose goals**: Break down high-level goals into sub-cards of type \`${PLANNER_CREATABLE_CARD_TYPES.join('`, `')}\`. Prefer terminal (leaf) types — only use \`goal\` when recursion is truly warranted.
 2. **Use the stage-3 planner tool surface**: You may create/read/update cards and use only these structural/goal-report tools: \`${PLANNER_STAGE3_TOOLS.join('`, `')}\`.
 3. **Transfer control with activate_card**: Planners recur on the same goal. Executors are one-shot per activation of a terminal card. When a child should run, call \`activate_card\`; changing a card status or planner metadata is never an execution trigger.
-4. **Report terminal goal outcomes explicitly**: Every terminal goal report must include a non-empty \`status_text\`. Use \`report_goal_done\`, \`report_goal_failed\`, or \`report_goal_blocked\` instead of informal summaries.
-5. **Handle reviewer interruption correctly**: If you resume with \`resume_reason: 'reviewer_interrupted'\`, inspect the subtree and the interrupted assessment context, then re-issue \`report_goal_done\` so runtime can rerun acceptance gates and the reviewer.
-6. **Declare blockage honestly**: Return \`status: "blocked"\` with \`blocked_reason\` only when no useful next card can be created without parent/operator input.
+4. **Use cancellation only for cleanup/recovery**: \`cancel_card\` is destructive. Do not cancel the next actionable backlog child just to avoid or defer executing it. Only cancel cards that are obsolete, duplicate, mis-scoped, or explicitly rejected by operator/reviewer context; after any cancellation, either activate a replacement child or emit a terminal goal report (\`report_goal_blocked\`, \`report_goal_failed\`, or \`report_goal_done\`) in the same bounded turn.
+5. **Report terminal goal outcomes explicitly**: Every terminal goal report must include a non-empty \`status_text\`. Use \`report_goal_done\`, \`report_goal_failed\`, or \`report_goal_blocked\` instead of informal summaries.
+6. **Handle reviewer interruption correctly**: If you resume with \`resume_reason: 'reviewer_interrupted'\`, inspect the subtree and the interrupted assessment context, then re-issue \`report_goal_done\` so runtime can rerun acceptance gates and the reviewer.
+7. **Declare blockage honestly**: Return \`status: "blocked"\` with \`blocked_reason\` only when no useful next card can be created without parent/operator input.
 
 ### Tool and state rules
 - Do **not** use or mention obsolete tools such as \`start_planner\`, \`start_executor\`, \`run_card\`, or \`set_status_text\`.
 - \`activate_card\` on an already-active target fails with tool_error kind \`card_already_active\`.
+- \`cancel_card\` is not a scheduling primitive and does not run or postpone work; if the next useful child should execute, call \`activate_card\` instead.
 - Activating a terminal card that already reached a terminal state fails with tool_error kind \`terminal_card_requires_restart\`; call \`restart_card\` first.
 - Goal completion reports can fail with \`subtree_not_ready\` or \`invalid_evidence\`; if that happens, fix the subtree/evidence and recur on the same goal.
 
@@ -72,7 +79,7 @@ ${contract.describe()}
 ### Behavioral Guidelines
 - **Be incremental**: Create 1–3 cards per invocation. Do not over-plan.
 - **Recur on the same goal**: Planning is iterative. Finish a move, transfer control with \`activate_card\`, then expect to be invoked again for the same goal.
-- **Use planner state deliberately**: Do not mark work done just because it was dispatched, and do not expect status changes to start work; only accepted goal reports finalize the goal.
+- **Use planner state deliberately**: Do not mark work done just because it was dispatched, do not cancel actionable backlog work instead of activating it, and do not expect status changes to start work; only accepted goal reports finalize the goal.
 - **Require status_text in terminal reports**: Every final report you trigger for a goal must include a concise, user-visible \`status_text\`.
 - **Update, don't duplicate**: If a card already exists, use \`updated_cards\` to change it.
 - **Don't create plan cards**: Planning state belongs to the goal card.
@@ -82,11 +89,13 @@ ${contract.describe()}
   return prompt;
 }
 
-export function buildExecutorPrompt(contract: AnyContract, cardType?: string, skills?: string): string {
+export function buildExecutorPrompt(
+  contract: AnyContract,
+  cardType?: string,
+  skills?: string,
+): string {
   const typeGuidance = cardType ? buildTypeGuidance(cardType) : '';
-  const typeNote = cardType
-    ? `\n### Card Type: \`${cardType}\`\n${typeGuidance}`
-    : '';
+  const typeNote = cardType ? `\n### Card Type: \`${cardType}\`\n${typeGuidance}` : '';
 
   let result = `${SAIVAGE_INTRO}
 
@@ -184,7 +193,6 @@ ${contract.describe()}
   if (skills && skills.length > 0) return prompt + '\n\n' + skills;
   return prompt;
 }
-
 
 export const systemPromptBuilder = {
   buildPlannerPrompt,

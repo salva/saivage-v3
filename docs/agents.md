@@ -377,7 +377,7 @@ Card mutation, inspection, and notifications:
 - `edit_card(card_id, patch)`
 - `move_card(card_id, new_parent_id)` — bounded to sibling descent or grandparent ascent.
 - `reorder_child(parent_id, ordered_child_ids)` — persists explicit child order within a parent.
-- `cancel_card(card_id)` — see §7.1.
+- `cancel_card(card_id)` — destructive cleanup/recovery only; see §7.1.
 - `delete_card(card_id)` — see §7.1.
 - `restart_card(card_id)` — see §7.1.
 - `queue_notification(recipient, kind, body)`
@@ -428,12 +428,13 @@ calling planner's goal subtree.
 
 - `cancel_card(card_id)`
   - Allowed transitions: from `backlog`, `active`, or `changed` to
-    `cancelled`.
+    `cancelled`. This is a destructive cleanup/recovery primitive, not a scheduler primitive: planners must not cancel the next actionable backlog child merely to avoid, postpone, or replace `activate_card`.
   - Refused for the active leaf, for any card whose subtree contains
     the active leaf, for cards in status `running`, and for cards
     already in a terminal status (`done`, `failed`, `blocked`,
     `cancelled`). Cancellation cascading onto running ancestors of
     the active leaf is a future stage (§17).
+  - Required follow-up: after a successful cancellation, the planner must either activate a replacement child or emit a terminal goal report (`report_goal_blocked`, `report_goal_failed`, or `report_goal_done`) in the same bounded turn; repeated edit/cancel loops are invalid no-progress behavior.
   - Effect: marks the card `cancelled`, persists a synthetic
     `latest_self_report` of result `failed` (reason `cancelled`)
     when none exists, leaves the planner session (if any) `Dormant`,
