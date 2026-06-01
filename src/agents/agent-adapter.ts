@@ -663,7 +663,7 @@ export class AgentAdapter implements AgentExecutionPort {
     let lastSucceededAttemptPayload: LlmAttemptPayload | undefined;
     let lastFailedFailureClass: LlmFailureClass | undefined;
     let lastRepairAttempts = 0;
-    let pendingPlannerDeferredEnvelope: PlannerEnvelope | null = null;
+    let pendingPlannerRuntimeEnvelope: PlannerEnvelope | null = null;
     let lastContractVerdict: 'satisfied' | 'repair_exhausted' | 'no_progress' | undefined;
     const recordAttemptOutcome = (payload: LlmAttemptPayload): void => {
       attemptOutcomeCount += 1;
@@ -804,7 +804,7 @@ export class AgentAdapter implements AgentExecutionPort {
                               ? parseDeferredActivationEnvelope(body.deferred)
                               : null;
                           if (deferred)
-                            pendingPlannerDeferredEnvelope = {
+                            pendingPlannerRuntimeEnvelope = {
                               kind: 'deferred',
                               payload: deferred,
                             };
@@ -812,8 +812,49 @@ export class AgentAdapter implements AgentExecutionPort {
                           void 0;
                         }
                       }
+                      if (
+                        role === 'planner' &&
+                        msg.kind === 'tool_result' &&
+                        (tc.function.name === 'report_goal_done' ||
+                          tc.function.name === 'report_goal_failed' ||
+                          tc.function.name === 'report_goal_blocked')
+                      ) {
+                        try {
+                          const body = JSON.parse(msg.content) as {
+                            accepted?: unknown;
+                            card?: { status?: unknown };
+                          };
+                          const status = body.card?.status;
+                          if (body.accepted === true && status === 'done')
+                            pendingPlannerRuntimeEnvelope = {
+                              kind: 'result',
+                              payload: {
+                                status: 'done',
+                                created_cards: [],
+                                updated_cards: [],
+                                summary: `${tc.function.name} accepted for goal ${goalId}.`,
+                              },
+                            };
+                          else if (
+                            body.accepted === true &&
+                            (status === 'blocked' || status === 'failed' || status === 'changed')
+                          )
+                            pendingPlannerRuntimeEnvelope = {
+                              kind: 'result',
+                              payload: {
+                                status: 'blocked',
+                                blocked_reason: `${tc.function.name} accepted with goal status ${String(status)}.`,
+                                created_cards: [],
+                                updated_cards: [],
+                                summary: `${tc.function.name} accepted for goal ${goalId}.`,
+                              },
+                            };
+                        } catch {
+                          void 0;
+                        }
+                      }
                     }
-                    return { runtimeSignalledDone: Boolean(pendingPlannerDeferredEnvelope) };
+                    return { runtimeSignalledDone: Boolean(pendingPlannerRuntimeEnvelope) };
                   },
                   persistDuplicateDoneIgnored: (toolCallId, toolName) => {
                     this.appendSessionMessage(session.id, {
@@ -867,8 +908,8 @@ export class AgentAdapter implements AgentExecutionPort {
                   takeRuntimeDoneEnvelope:
                     role === 'planner'
                       ? () => {
-                          const envelope = pendingPlannerDeferredEnvelope;
-                          pendingPlannerDeferredEnvelope = null;
+                          const envelope = pendingPlannerRuntimeEnvelope;
+                          pendingPlannerRuntimeEnvelope = null;
                           return envelope as E | null;
                         }
                       : undefined,

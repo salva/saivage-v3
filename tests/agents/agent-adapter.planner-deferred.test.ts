@@ -205,4 +205,65 @@ describe('AgentAdapter planner deferred-activation flow', () => {
     expect(result.status).toBe('blocked');
     expect(llmCall).toHaveBeenCalledTimes(2);
   });
+
+  it('projects an accepted report_goal_blocked action to a terminal planner result without a second LLM echo', async () => {
+    const adapter = new AgentAdapter({
+      projectRoot: root,
+      saivageDir: join(root, '.saivage'),
+      config: config(),
+    });
+
+    (
+      adapter as unknown as {
+        toolExecutor: { processToolCall: (...args: unknown[]) => Promise<AgentToolMessage> };
+      }
+    ).toolExecutor.processToolCall = jest.fn(
+      async (tc: {
+        id: string;
+        function: { name: string; arguments: string };
+      }): Promise<AgentToolMessage> => ({
+        role: 'tool',
+        kind: 'tool_result',
+        content: JSON.stringify({
+          accepted: true,
+          card: { id: 'goal-1', status: 'blocked' },
+        }),
+        tool: tc.function.name,
+        tool_call_id: tc.id,
+      }),
+    ) as never;
+
+    const llmCall = jest.fn<LlmCallFn>(async (): Promise<LlmCompleteResult> => ({
+      kind: 'tool_calls',
+      tool_calls: [
+        {
+          id: 'call-report-blocked',
+          type: 'function',
+          function: {
+            name: 'report_goal_blocked',
+            arguments: JSON.stringify({
+              goalId: 'goal-1',
+              status_text: 'blocked after child completion',
+              summary: 'blocked after child completion',
+            }),
+          },
+        },
+      ],
+    }));
+    adapter.setLlmCallFn(llmCall);
+
+    const result = await adapter.invokePlanner('goal-1', 'prompt');
+
+    expect(result.status).toBe('blocked');
+    expect(result.blocked_reason).toContain('report_goal_blocked accepted');
+    expect(llmCall).toHaveBeenCalledTimes(1);
+
+    const messages = getSessionMessages(join(root, '.saivage'), 'planner:goal-1');
+    const toolCallNames = messages
+      .filter((m) => m.role === 'assistant' && m.kind === 'tool_call')
+      .map((m) => m.tool);
+    expect(toolCallNames).toEqual(['report_goal_blocked']);
+    expect(messages.some((m) => m.tool === 'emit_planner_result')).toBe(false);
+  });
+
 });
