@@ -1,0 +1,24 @@
+# t1 redacted live state observation provenance
+
+- Task: t1-redacted-live-state-observation
+- Stage: repair-project-card-terminal-error-to-status-dispatch-001
+- Access date (UTC): 2026-06-01T06:09:08.833Z
+- Sources: local runtime/service state only; no external downloads.
+- Source paths checked (metadata only):
+  - /work/diedrico-lessons/.saivage/cards/by-id/project.json
+  - /work/diedrico-lessons/.saivage/cards/by-id/
+  - /work/diedrico-lessons/.saivage/runtime/events.jsonl
+  - /work/diedrico-lessons/pipeline-status.md
+  - /work/diedrico-lessons/curriculum.md
+  - /work/diedrico-lessons/backlog.md
+  - /work/diedrico-lessons/catalog.md
+  - /work/diedrico-lessons/lessons/
+  - /work/diedrico-lessons/.saivage/reviews/
+  - /work/diedrico-lessons/.saivage/diaries/
+- Service/endpoint methods: systemctl show selected non-secret properties; journalctl grep count for error-like terms only; curl status/timing only for http://localhost:8081/health, http://localhost:8081/health/ready, and http://localhost:5173/.
+- Retrieval method: local filesystem stat/hash and structural JSON categorization; raw card bodies, raw event lines, raw HTTP bodies, raw logs, environment dumps, auth/provider values, and secret-shaped values were not persisted.
+- Evidence artifact: .saivage/tmp/repair-project-card-terminal-error-to-status-dispatch-001/t1-redacted-live-state-observation.evidence.json
+- Evidence checksum (sha256): events.jsonl=0e094d56aee68516ae6952119186be58e943bd75cec4016b01b67de00c318b03; project card sha256=8d0640d50e9891728c56b3f7159d8d584fdea0f716e90166f09a565ac47d120d; pipeline-status sha256=05a6be1055144d414a01ce8f7eb245c9b0bb688fb6911905452531da1c0abb0c.
+- License/terms: not applicable; all sources are local operational state for this project.
+- Schema: redacted-live-state-observation/v1.
+- Validation: artifact parsed as JSON; service/endpoint status codes captured; file sizes/mtimes/checksums captured; project-card terminal metadata represented only as key/category summaries.
