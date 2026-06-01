@@ -1,0 +1,13 @@
+{
+  "artifact": "/work/saivage-v3/.saivage/stages/repair-stale-root-run-intent-and-next-work-dispatch-001/artifacts/t1-redacted-live-observation.json",
+  "artifact_sha256": "eda2fddb2455aaf8d04108d9056a559f417b608ba130d865369740a35473d23e",
+  "created_at_utc": "2026-06-01T07:35:55.020631+00:00",
+  "redaction": "secret-shaped lines/keys omitted; raw file bodies and HTTP bodies not stored",
+  "retrieval_method": "Python metadata summarizer executed locally; no external downloads",
+  "schema": "JSON object with files, runtime_state, cards, product_surfaces, events, services, http, derived",
+  "sources": [
+    "local systemd metadata",
+    "local HTTP health endpoints",
+    "local Saivage runtime/card/event/product status files"
+  ]
+}
