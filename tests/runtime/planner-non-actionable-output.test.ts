@@ -99,4 +99,59 @@ describe('planner output actionability guard', () => {
     expect(runtime.getState()?.active_card_run).toBeNull();
     expect(runtime.getState()?.current_card_id).toBeNull();
   });
+
+
+  it('preserves a precise reviewer-capacity blocker over later generic planner_blocked fallback', async () => {
+    const reviewerBlockedReason =
+      'Reviewer invocation failed before assessment output could be produced for goal project; reviewer/provider capacity is unavailable for terminal acceptance.';
+    const genericPlannerReason = 'Planner returned a generic blocker after a report_goal_done tool error.';
+    const fixture: FakeAgentFixture = {
+      name: 'generic-blocked-after-reviewer-capacity',
+      planner: [{
+        status: 'blocked',
+        blocked_reason: genericPlannerReason,
+        created_cards: [],
+        updated_cards: [],
+        summary: 'Planner stopped after seeing report_goal_done tool_error.',
+      }],
+    };
+    writeFixture(fixtureDir, 'generic-blocked-after-reviewer-capacity', fixture);
+    const fakeAgent = new FakeAgentAdapter({ mapping: { project: 'generic-blocked-after-reviewer-capacity' }, fixtureDir });
+    runtime = new Runtime({ projectRoot: tmpDir, fakeAgentConfig: { mapping: { project: 'generic-blocked-after-reviewer-capacity' }, fixtureDir } }, fakeAgent);
+    runtime.cardStore.update('project', {
+      status: 'active',
+      error: reviewerBlockedReason,
+      status_text: reviewerBlockedReason,
+      result: {
+        planning: {
+          status: 'blocked',
+          blocked_reason: reviewerBlockedReason,
+          resume_reason: 'reviewer_unavailable',
+          failure_kind: 'reviewer_invocation_failed',
+          created_cards: [],
+          updated_cards: [],
+        },
+      },
+    });
+
+    await runtime.startup();
+    await runtime.dispatchGoal('project');
+
+    const project = runtime.cardStore.read('project');
+    expect(project?.status).toBe('blocked');
+    expect(project?.error).toBe(reviewerBlockedReason);
+    expect(project?.status_text).toBe(reviewerBlockedReason);
+    expect(project?.result?.planning).toEqual(expect.objectContaining({
+      status: 'blocked',
+      blocked_reason: reviewerBlockedReason,
+      resume_reason: 'reviewer_unavailable',
+      failure_kind: 'reviewer_invocation_failed',
+      preserved_from_generic_planner_blocked: true,
+      generic_planner_blocked_reason: genericPlannerReason,
+    }));
+    expect(project?.result?.planning).not.toEqual(expect.objectContaining({
+      resume_reason: 'planner_blocked',
+    }));
+  });
+
 });
