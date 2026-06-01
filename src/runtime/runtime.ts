@@ -1577,17 +1577,28 @@ export class Runtime extends EventEmitter {
   }
 
   private cardHasBlockedPlanning(card: CardRecord | null): boolean {
+    return this.getBlockedPlanning(card) !== null;
+  }
+
+  private getBlockedPlanning(card: CardRecord | null): Record<string, unknown> | null {
     const planning =
       card?.result && typeof card.result === 'object'
         ? (card.result as { planning?: unknown }).planning
         : null;
-    return Boolean(
-      planning &&
-      typeof planning === 'object' &&
-      (planning as { status?: unknown }).status === 'blocked',
-    );
+    if (!planning || typeof planning !== 'object') return null;
+    const blockedPlanning = planning as Record<string, unknown>;
+    return blockedPlanning.status === 'blocked' ? blockedPlanning : null;
   }
 
+  private blockedPlanningReason(
+    card: CardRecord | null,
+    planning: Record<string, unknown>,
+  ): string {
+    return typeof planning.blocked_reason === 'string' && planning.blocked_reason.trim()
+      ? planning.blocked_reason
+      : (card?.error ??
+          'Project planning is blocked; resolve the durable planning blocker before terminal project completion.');
+  }
   private shouldPreservePrecisePlanningBlocker(
     card: CardRecord | null,
     incomingResumeReason: string,
@@ -1627,7 +1638,7 @@ export class Runtime extends EventEmitter {
   private async alignBlockedPlanningCardStatuses(): Promise<void> {
     for (const card of this.cardStore.list()) {
       if (card.type !== 'project' && card.type !== 'goal') continue;
-      if (card.status !== 'active' && card.status !== 'running') continue;
+      if (card.status === 'blocked') continue;
       const planning =
         card.result && typeof card.result === 'object'
           ? (card.result as { planning?: unknown }).planning
@@ -1708,7 +1719,8 @@ export class Runtime extends EventEmitter {
       state.status === 'idle' &&
       (state.current_card_id ?? null) === null &&
       (state.active_card_run ?? null) === null &&
-      (state.runtime_runs ?? []).every((run) => run.kind !== 'root' || Boolean(run.finished_at));
+      (state.runtime_runs ?? []).every((run) => run.kind !== 'root' || Boolean(run.finished_at)) &&
+      !this.cardHasBlockedPlanning(this.cardStore.read(PROJECT_CARD_ID));
     if (shouldRestartRunningIntent) {
       this.trackBackgroundDispatch(this.startProject('runtime').then(() => undefined));
     }
@@ -2332,6 +2344,32 @@ export class Runtime extends EventEmitter {
             reason:
               preservePreciseBlocker || reviewerCapacityPlannerBlocker
                 ? 'reviewer_invocation_failed'
+                : 'planner_blocked',
+          });
+          return;
+        }
+        const blockedPlanning = this.getBlockedPlanning(this.cardStore.read(goalId));
+        if (blockedPlanning) {
+          const currentCard = this.cardStore.read(goalId);
+          const blockedReason = this.blockedPlanningReason(currentCard, blockedPlanning);
+          await this._stateMachine.transitionCard(goalId, 'block', {
+            blocked_reason: blockedReason,
+          });
+          await this.cardStore.update(goalId, {
+            status: 'blocked',
+            error: blockedReason,
+            status_text: blockedReason,
+            result: {
+              ...(this.cardStore.read(goalId)?.result ?? {}),
+              planning: blockedPlanning,
+            },
+          });
+          this.finishOpenPlannerRun(goalId, 'blocked');
+          await this._stateMachine.transition('card_terminated', {
+            goalId,
+            reason:
+              typeof blockedPlanning.resume_reason === 'string'
+                ? blockedPlanning.resume_reason
                 : 'planner_blocked',
           });
           return;
