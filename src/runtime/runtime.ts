@@ -692,10 +692,12 @@ export class Runtime extends EventEmitter {
       const blockedReason = typeof blockedPlanning.blocked_reason === 'string'
         ? blockedPlanning.blocked_reason
         : 'Planner context exceeded the selected LLM token budget before scheduler output could be produced; compact/trim planner context before resuming.';
-      const transitioned = await this._stateMachine.transitionCard(card.id, 'block', { blocked_reason: blockedReason });
-      if (transitioned) {
-        this.finishOpenPlannerRun(card.id, 'blocked');
-        await this.cardStore.update(card.id, { error: card.error ?? blockedReason, status_text: card.status_text ?? blockedReason });
+      await this._stateMachine.transitionCard(card.id, 'block', { blocked_reason: blockedReason });
+      this.finishOpenPlannerRun(card.id, 'blocked');
+      await this.cardStore.update(card.id, { status: 'blocked', error: card.error ?? blockedReason, status_text: card.status_text ?? blockedReason });
+      const state = readRuntimeState(this.projectRoot);
+      if (state?.current_card_id === card.id || state?.active_card_run?.card_id === card.id) {
+        updateRuntimeState(this.projectRoot, { status: 'idle', current_card_id: null, current_agent_session_id: null, active_card_run: null });
       }
     }
   }
@@ -706,6 +708,7 @@ export class Runtime extends EventEmitter {
     if (!state) state = initRuntimeState(this.projectRoot);
     acquireLock(this.projectRoot);
     await this.alignBlockedPlanningCardStatuses();
+    state = readRuntimeState(this.projectRoot) ?? state;
     await this.performCrashRecovery();
     reconcileProcessRecords(this.projectRoot);
     this._startupRepairPending = true;
@@ -801,6 +804,7 @@ export class Runtime extends EventEmitter {
           const blockedReason = 'Planner context exceeded the selected LLM token budget before scheduler output could be produced; compact/trim planner context before resuming.';
           await this._stateMachine.transitionCard(goalId, 'block', { blocked_reason: blockedReason });
           await this.cardStore.update(goalId, {
+            status: 'blocked',
             error: blockedReason,
             status_text: blockedReason,
             result: {
@@ -841,7 +845,7 @@ export class Runtime extends EventEmitter {
       const updatedCardIds = (plannerResult.updated_cards ?? []).map((card) => card.id).filter((id): id is string => Boolean(id));
       if (plannerResult.status === 'blocked') {
         await this._stateMachine.transitionCard(goalId, 'block', { blocked_reason: plannerResult.blocked_reason ?? null });
-        await this.cardStore.update(goalId, { result: { ...(this.cardStore.read(goalId)?.result ?? {}), planning: { status: 'blocked', blocked_reason: plannerResult.blocked_reason ?? null, resume_reason: 'planner_blocked', created_cards: createdCardIds, updated_cards: updatedCardIds } } });
+        await this.cardStore.update(goalId, { status: 'blocked', ...(plannerResult.blocked_reason ? { error: plannerResult.blocked_reason, status_text: plannerResult.blocked_reason } : {}), result: { ...(this.cardStore.read(goalId)?.result ?? {}), planning: { status: 'blocked', blocked_reason: plannerResult.blocked_reason ?? null, resume_reason: 'planner_blocked', created_cards: createdCardIds, updated_cards: updatedCardIds } } });
         this.finishOpenPlannerRun(goalId, 'blocked');
         await this._stateMachine.transition('card_terminated', { goalId, reason: 'planner_blocked' });
         return;
@@ -851,6 +855,7 @@ export class Runtime extends EventEmitter {
         const blockedReason = 'Planner returned continue without creating/updating cards, activating child work, leaving unfinished child work, or declaring a blocker.';
         await this._stateMachine.transitionCard(goalId, 'block', { blocked_reason: blockedReason });
         await this.cardStore.update(goalId, {
+          status: 'blocked',
           error: blockedReason,
           status_text: blockedReason,
           result: {
@@ -886,6 +891,7 @@ export class Runtime extends EventEmitter {
           this._errorLogger.appendError({ message: errorMessage, goalId, phase: 'reviewer' });
           await this._stateMachine.transitionCard(goalId, 'block', { blocked_reason: blockedReason });
           await this.cardStore.update(goalId, {
+            status: 'blocked',
             error: blockedReason,
             status_text: blockedReason,
             result: {

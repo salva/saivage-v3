@@ -65,4 +65,38 @@ describe('planner output actionability guard', () => {
     expect(runtime.getState()?.active_card_run).toBeNull();
     expect(runtime.getState()?.current_card_id).toBeNull();
   });
+
+  it('persists a planner-declared blocker as blocked card status and idle runtime state', async () => {
+    const fixture: FakeAgentFixture = {
+      name: 'blocked-project-planner',
+      planner: [{
+        status: 'blocked',
+        blocked_reason: 'test planner declared a durable blocker',
+        created_cards: [],
+        updated_cards: [],
+        summary: 'Planner stopped with an explicit blocker.',
+      }],
+    };
+    writeFixture(fixtureDir, 'blocked-project-planner', fixture);
+    const fakeAgent = new FakeAgentAdapter({ mapping: { project: 'blocked-project-planner' }, fixtureDir });
+    runtime = new Runtime({ projectRoot: tmpDir, fakeAgentConfig: { mapping: { project: 'blocked-project-planner' }, fixtureDir } }, fakeAgent);
+
+    await runtime.startup();
+    await runtime.dispatchGoal('project');
+
+    const project = runtime.cardStore.read('project');
+    expect(project?.status).toBe('blocked');
+    expect(project?.error).toBe('test planner declared a durable blocker');
+    expect(project?.status_text).toBe('test planner declared a durable blocker');
+    expect(project?.result?.planning).toEqual(expect.objectContaining({
+      status: 'blocked',
+      resume_reason: 'planner_blocked',
+      blocked_reason: 'test planner declared a durable blocker',
+      created_cards: [],
+      updated_cards: [],
+    }));
+    expect(runtime.getState()?.status).toBe('idle');
+    expect(runtime.getState()?.active_card_run).toBeNull();
+    expect(runtime.getState()?.current_card_id).toBeNull();
+  });
 });

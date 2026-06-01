@@ -3,6 +3,7 @@ import { mkdtempSync, mkdirSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { initProjectTree } from '../../src/persistence/file-tree.js';
+import { updateRuntimeState } from '../../src/runtime/state.js';
 import { Runtime } from '../../src/runtime/runtime.js';
 import { FakeAgentAdapter } from '../../src/agents/fake-agent.js';
 import { LlmRequestError } from '../../src/agents/llm-errors.js';
@@ -77,6 +78,7 @@ describe('planner context-length failures', () => {
         },
       },
     });
+    updateRuntimeState(tmpDir, { status: 'running', current_card_id: 'project', current_agent_session_id: 'planner:project', active_card_run: { card_id: 'project', card_type: 'project', runtime_status: 'running', phase: 'planner', caller_session_id: null, caller_tool_call_id: null, planner_session_id: 'planner:project', correction_attempts: 0, started_at: new Date().toISOString(), last_turn_at: new Date().toISOString() } });
 
     await runtime.startup();
 
@@ -88,6 +90,9 @@ describe('planner context-length failures', () => {
       resume_reason: 'planner_context_length_exceeded',
       failure_kind: 'token_budget_exceeded',
     }));
+    expect(runtime.getState()?.status).toBe('idle');
+    expect(runtime.getState()?.current_card_id).toBeNull();
+    expect(runtime.getState()?.active_card_run).toBeNull();
   });
 
 });
