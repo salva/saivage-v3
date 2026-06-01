@@ -1,0 +1,44 @@
+{
+  "artifact": {
+    "path": "/work/saivage-v3/.saivage/stages/supervision-cycle-031-watch-audit-card-progress/data/t1-redacted-observation-metadata.json",
+    "sha256": "c15f9f039e1db091fc7436664e33c945653213840f63a2a284ff0e22e33633dd",
+    "size": 11924
+  },
+  "created_at": "2026-06-01T07:59:22.553694+00:00",
+  "redaction": "No raw logs, HTTP bodies, card bodies, product document content, lesson content, or secret values stored; only status codes, counts, mtimes, schema keys, and category markers.",
+  "sources": [
+    {
+      "kind": "local_service_metadata",
+      "methods": [
+        "systemctl show/is-active",
+        "journalctl count-only scan"
+      ],
+      "units": [
+        "saivage-v3.service",
+        "diedrico.service"
+      ]
+    },
+    {
+      "kind": "local_http_metadata",
+      "urls": [
+        "http://localhost:8081/health",
+        "http://localhost:8081/health/ready",
+        "http://localhost:5173/"
+      ]
+    },
+    {
+      "kind": "local_file_metadata",
+      "paths": [
+        "/work/diedrico-lessons/.saivage/cards/by-id/",
+        "/work/diedrico-lessons/.saivage/runtime/events.jsonl",
+        "/work/diedrico-lessons/.saivage/tmp/state/runtime.json",
+        "/work/diedrico-lessons/pipeline-status.md",
+        "/work/diedrico-lessons/catalog.md",
+        "/work/diedrico-lessons/backlog.md",
+        "/work/diedrico-lessons/curriculum.md",
+        "/work/diedrico-lessons/lessons/"
+      ]
+    }
+  ],
+  "task_id": "t1-redacted-audit-card-progress-observation"
+}
