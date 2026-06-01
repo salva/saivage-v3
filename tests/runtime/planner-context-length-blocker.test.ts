@@ -61,4 +61,33 @@ describe('planner context-length failures', () => {
     expect(runtime.getState()?.active_card_run).toBeNull();
     expect(runtime.getState()?.current_card_id).toBeNull();
   });
+  it('aligns active/running card status with persisted context-length planning blockers on startup', async () => {
+    const fixtureDir = join(tmpDir, 'fixtures');
+    const fakeAgent = new ContextLengthPlannerAdapter({ mapping: { project: 'unused' }, fixtureDir });
+    runtime = new Runtime({ projectRoot: tmpDir, fakeAgentConfig: { mapping: { project: 'unused' }, fixtureDir } }, fakeAgent);
+    const blockedReason = 'Planner context exceeded the selected LLM token budget before scheduler output could be produced; compact/trim planner context before resuming.';
+    runtime.cardStore.update('project', {
+      status: 'running',
+      result: {
+        planning: {
+          status: 'blocked',
+          resume_reason: 'planner_context_length_exceeded',
+          failure_kind: 'token_budget_exceeded',
+          blocked_reason: blockedReason,
+        },
+      },
+    });
+
+    await runtime.startup();
+
+    const project = runtime.cardStore.read('project');
+    expect(project?.status).toBe('blocked');
+    expect(project?.status_text).toBe(blockedReason);
+    expect(project?.result?.planning).toEqual(expect.objectContaining({
+      status: 'blocked',
+      resume_reason: 'planner_context_length_exceeded',
+      failure_kind: 'token_budget_exceeded',
+    }));
+  });
+
 });

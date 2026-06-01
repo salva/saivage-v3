@@ -104,6 +104,50 @@ function isTokenBudgetFailure(error: unknown): boolean {
   const message = error instanceof Error ? error.message : String(error);
   return /context_length_exceeded|token budget exceeded|maximum context length/i.test(message);
 }
+
+const PLANNER_CONTEXT_STRING_LIMIT = 500;
+const PLANNER_CONTEXT_ARRAY_LIMIT = 5;
+const PLANNER_CONTEXT_OBJECT_KEY_LIMIT = 12;
+const PLANNER_CONTEXT_MAX_DEPTH = 3;
+
+function truncatePlannerContextString(value: string): string {
+  if (value.length <= PLANNER_CONTEXT_STRING_LIMIT) return value;
+  return `${value.slice(0, PLANNER_CONTEXT_STRING_LIMIT)}…[truncated ${value.length - PLANNER_CONTEXT_STRING_LIMIT} chars]`;
+}
+
+function summarizeForPlannerContext(value: unknown, depth = 0): unknown {
+  if (value === null || value === undefined) return value ?? null;
+  if (typeof value === 'string') return truncatePlannerContextString(value);
+  if (typeof value === 'number' || typeof value === 'boolean') return value;
+  if (Array.isArray(value)) {
+    const items = value.slice(0, PLANNER_CONTEXT_ARRAY_LIMIT).map((item) => summarizeForPlannerContext(item, depth + 1));
+    return value.length > PLANNER_CONTEXT_ARRAY_LIMIT
+      ? { items, omitted_count: value.length - PLANNER_CONTEXT_ARRAY_LIMIT }
+      : items;
+  }
+  if (typeof value !== 'object') return String(value);
+  const entries = Object.entries(value as Record<string, unknown>);
+  if (depth >= PLANNER_CONTEXT_MAX_DEPTH) {
+    return {
+      kind: 'object_summary',
+      keys: entries.slice(0, PLANNER_CONTEXT_OBJECT_KEY_LIMIT).map(([key]) => key),
+      omitted_keys: Math.max(0, entries.length - PLANNER_CONTEXT_OBJECT_KEY_LIMIT),
+    };
+  }
+  const summarized: Record<string, unknown> = {};
+  for (const [key, item] of entries.slice(0, PLANNER_CONTEXT_OBJECT_KEY_LIMIT)) summarized[key] = summarizeForPlannerContext(item, depth + 1);
+  if (entries.length > PLANNER_CONTEXT_OBJECT_KEY_LIMIT) summarized.omitted_keys = entries.length - PLANNER_CONTEXT_OBJECT_KEY_LIMIT;
+  return summarized;
+}
+
+function summarizeEvidenceRefsForPlannerContext(refs: unknown[] | undefined): Record<string, unknown> {
+  const list = Array.isArray(refs) ? refs : [];
+  return {
+    count: list.length,
+    items: list.slice(0, PLANNER_CONTEXT_ARRAY_LIMIT).map((ref) => summarizeForPlannerContext(ref, 1)),
+    omitted_count: Math.max(0, list.length - PLANNER_CONTEXT_ARRAY_LIMIT),
+  };
+}
 function resolveEvidenceSourcePath(projectRoot: string, filePath: string): string { if (!filePath) return filePath; return isAbsolute(filePath) ? resolve(filePath) : resolve(projectRoot, filePath); }
 function pathIsInside(parentPath: string, candidatePath: string): boolean { const rel = relative(resolve(parentPath), resolve(candidatePath)); return rel === '' || (!!rel && !rel.startsWith('..') && !isAbsolute(rel)); }
 function resolveRegisterableProcessMetadataSource(projectRoot: string, filePath: string): { sourceFile: string } | { ignored: string } {
@@ -183,8 +227,21 @@ export class Runtime extends EventEmitter {
     const children = this.cardStore.listChildren(goalId)
       .map((id) => this.cardStore.read(id))
       .filter((card): card is CardRecord => Boolean(card))
-      .map((card) => ({ id: card.id, type: card.type, status: card.status, result: card.result ?? null, error: card.error ?? null, artifacts: card.artifacts ?? [], attachments: card.attachments ?? [] }));
-    return JSON.stringify({ goal_id: goalId, children, latest_review: reviewState ?? null }, null, 2);
+      .map((card) => ({
+        id: card.id,
+        type: card.type,
+        status: card.status,
+        status_text: card.status_text ? truncatePlannerContextString(card.status_text) : null,
+        result_summary: summarizeForPlannerContext(card.result ?? null),
+        error: card.error ? truncatePlannerContextString(card.error) : null,
+        artifacts: summarizeEvidenceRefsForPlannerContext(card.artifacts),
+        attachments: summarizeEvidenceRefsForPlannerContext(card.attachments),
+      }));
+    return JSON.stringify({
+      goal_id: goalId,
+      children,
+      latest_review_summary: summarizeForPlannerContext(reviewState ?? null),
+    }, null, 2);
   }
 
   private findCallerEdge(childCardId: string): { parentCardId: string; callerSessionId: string; callerToolCallId: string } | null {
@@ -412,8 +469,8 @@ export class Runtime extends EventEmitter {
       status_text: goal.status_text ?? null,
       child_card_tree: this.buildGoalContextCardTree(goal.id),
       notes: this.buildGoalContextNotes(goal.id),
-      latest_self_report: goal.latest_self_report ?? null,
-      latest_review_result: review ?? null,
+      latest_self_report: summarizeForPlannerContext(goal.latest_self_report ?? null),
+      latest_review_result: summarizeForPlannerContext(review ?? null),
       correction_attempts: activeRun?.correction_attempts ?? 0,
       max_review_retries: 0,
       resume_reason: resumeReason,
@@ -613,11 +670,29 @@ export class Runtime extends EventEmitter {
   async start_project(): Promise<Awaited<ReturnType<Runtime['startProject']>>> { return this.startProject('operator'); }
   async stop_project(): Promise<Awaited<ReturnType<Runtime['stopProject']>>> { return this.stopProject('operator'); }
 
+  private async alignBlockedPlanningCardStatuses(): Promise<void> {
+    for (const card of this.cardStore.list()) {
+      if (card.type !== 'project' && card.type !== 'goal') continue;
+      if (card.status !== 'active' && card.status !== 'running') continue;
+      const planning = card.result && typeof card.result === 'object' ? (card.result as { planning?: unknown }).planning : null;
+      if (!planning || typeof planning !== 'object') continue;
+      const blockedPlanning = planning as { status?: unknown; resume_reason?: unknown; failure_kind?: unknown; blocked_reason?: unknown };
+      if (blockedPlanning.status !== 'blocked') continue;
+      if (blockedPlanning.resume_reason !== 'planner_context_length_exceeded' && blockedPlanning.failure_kind !== 'token_budget_exceeded') continue;
+      const blockedReason = typeof blockedPlanning.blocked_reason === 'string'
+        ? blockedPlanning.blocked_reason
+        : 'Planner context exceeded the selected LLM token budget before scheduler output could be produced; compact/trim planner context before resuming.';
+      const transitioned = await this._stateMachine.transitionCard(card.id, 'block', { blocked_reason: blockedReason });
+      if (transitioned) await this.cardStore.update(card.id, { error: card.error ?? blockedReason, status_text: card.status_text ?? blockedReason });
+    }
+  }
+
   async startup(): Promise<void> {
     if (this._running) throw new Error('Runtime is already running.');
     let state = readRuntimeState(this.projectRoot);
     if (!state) state = initRuntimeState(this.projectRoot);
     acquireLock(this.projectRoot);
+    await this.alignBlockedPlanningCardStatuses();
     await this.performCrashRecovery();
     reconcileProcessRecords(this.projectRoot);
     this._startupRepairPending = true;
