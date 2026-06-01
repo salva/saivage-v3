@@ -97,6 +97,8 @@ import {
   listSessions,
   getSession,
   getSessionMessages,
+  replaceSessionMessages,
+  estimateMessageTokens,
 } from '../agents/session-persistence.js';
 import {
   StuckAgentSupervisor,
@@ -230,6 +232,63 @@ function resolveRegisterableProcessMetadataSource(
     };
   return { sourceFile };
 }
+
+const PLANNER_PERSISTED_HISTORY_COMPACTION_LIMIT_TOKENS = 24000;
+const PLANNER_PERSISTED_HISTORY_RECENT_MESSAGE_LIMIT = 24;
+const PLANNER_PERSISTED_HISTORY_SNIPPET_LIMIT = 240;
+
+function truncatePersistedPlannerHistorySnippet(content: string): string {
+  if (content.length <= PLANNER_PERSISTED_HISTORY_SNIPPET_LIMIT) return content;
+  return `${content.slice(0, PLANNER_PERSISTED_HISTORY_SNIPPET_LIMIT)}…[truncated ${content.length - PLANNER_PERSISTED_HISTORY_SNIPPET_LIMIT} chars]`;
+}
+
+function buildPersistedPlannerHistoryCompactionMessage(
+  sessionId: string,
+  messages: import('../schemas/index.js').AgentMessage[],
+  stamp: { round_id: string; message_index: number; block_index: number },
+): import('../schemas/index.js').AgentMessage {
+  const roleKindCounts = new Map<string, number>();
+  for (const message of messages) {
+    const key = `${message.role}/${message.kind}${message.tool ? `/${message.tool}` : ''}`;
+    roleKindCounts.set(key, (roleKindCounts.get(key) ?? 0) + 1);
+  }
+  const recent = messages.slice(-PLANNER_PERSISTED_HISTORY_RECENT_MESSAGE_LIMIT).map((message) => ({
+    role: message.role,
+    kind: message.kind,
+    tool: message.tool ?? null,
+    timestamp: message.timestamp,
+    content:
+      message.kind === 'tool_call' ||
+      message.kind === 'tool_result' ||
+      message.kind === 'tool_error'
+        ? `[${message.kind} content omitted from persisted planner history compaction; current cards/runtime state are authoritative]`
+        : truncatePersistedPlannerHistorySnippet(message.content),
+  }));
+  return {
+    id: `msg-${sessionId}-persisted-history-compact-${Date.now()}`,
+    session_id: sessionId,
+    role: 'system',
+    kind: 'context_compaction',
+    content:
+      '[PERSISTED PLANNER SESSION HISTORY COMPACTED]\n' +
+      'This session history exceeded the safe resend budget and was compacted during planner retry. Scheduler-critical facts are preserved in current Goal Context, Goal Evidence Context, card state, runtime activations, and the bounded recent-message summaries below. Older transcript/tool bodies were omitted; re-read cards/files with tools if needed.\n\n' +
+      JSON.stringify(
+        {
+          original_message_count: messages.length,
+          original_estimated_tokens: estimateMessageTokens(messages),
+          role_kind_counts: Object.fromEntries(roleKindCounts),
+          recent_message_summaries: recent,
+        },
+        null,
+        2,
+      ),
+    round_id: stamp.round_id,
+    message_index: stamp.message_index,
+    block_index: stamp.block_index,
+    timestamp: new Date().toISOString(),
+  };
+}
+
 const TRACKED_EVENT_KINDS: ReadonlySet<EventKind> = new Set(trackedEventKindValues);
 
 export class Runtime extends EventEmitter {
@@ -506,6 +565,24 @@ export class Runtime extends EventEmitter {
 
   private diagnosticStamp(sessionId: string) {
     return this._activeRuntime.stampDiagnosticInCurrentRound(sessionId);
+  }
+
+  private compactPersistedPlannerHistoryForRetry(plannerSessionId: string): boolean {
+    const messages = getSessionMessages(join(this.projectRoot, '.saivage'), plannerSessionId);
+    if (estimateMessageTokens(messages) < PLANNER_PERSISTED_HISTORY_COMPACTION_LIMIT_TOKENS)
+      return false;
+    const compacted = buildPersistedPlannerHistoryCompactionMessage(
+      plannerSessionId,
+      messages,
+      this.diagnosticStamp(plannerSessionId),
+    );
+    replaceSessionMessages(join(this.projectRoot, '.saivage'), plannerSessionId, [compacted]);
+    this._eventLogger.appendEvent({
+      kind: 'runtime_diagnostic',
+      phase: 'planner_history_compaction',
+      error_message: `Compacted oversized persisted planner history for ${plannerSessionId}; original_message_count=${messages.length}; original_estimated_tokens=${estimateMessageTokens(messages)}.`,
+    });
+    return true;
   }
 
   private userStamp(sessionId: string) {
@@ -2049,14 +2126,40 @@ export class Runtime extends EventEmitter {
           refreshed.result && typeof refreshed.result === 'object'
             ? (refreshed.result as Record<string, unknown>)
             : {};
-        if (!existingResult.planning || typeof existingResult.planning !== 'object') {
+        const existingPlanning =
+          existingResult.planning && typeof existingResult.planning === 'object'
+            ? (existingResult.planning as Record<string, unknown>)
+            : null;
+        const hasTokenBudgetPlanningBlocker =
+          existingPlanning?.status === 'blocked' &&
+          existingPlanning.resume_reason === 'planner_context_length_exceeded' &&
+          existingPlanning.failure_kind === 'token_budget_exceeded';
+        const retryingTokenBudgetBlocker =
+          currentStatus !== 'active' &&
+          currentStatus !== 'running' &&
+          hasTokenBudgetPlanningBlocker;
+        const plannerSessionId = `planner:${goalId}`;
+        const compactedPersistedPlannerHistory =
+          retryingTokenBudgetBlocker || existingPlanning === null
+            ? this.compactPersistedPlannerHistoryForRetry(plannerSessionId)
+            : false;
+        if (!existingPlanning || retryingTokenBudgetBlocker) {
           await this.cardStore.update(goalId, {
+            error: retryingTokenBudgetBlocker ? null : refreshed.error,
+            status_text: retryingTokenBudgetBlocker ? null : refreshed.status_text,
             result: {
               ...existingResult,
               planning: {
                 status: 'continue',
                 summary: null,
                 blocked_reason: null,
+                resume_reason: retryingTokenBudgetBlocker
+                  ? 'planner_context_history_compacted_retry'
+                  : 'initial',
+                previous_failure_kind: retryingTokenBudgetBlocker
+                  ? 'token_budget_exceeded'
+                  : undefined,
+                persisted_history_compacted: compactedPersistedPlannerHistory,
                 created_cards: [],
                 updated_cards: [],
                 updated_at: new Date().toISOString(),
@@ -2066,7 +2169,6 @@ export class Runtime extends EventEmitter {
         }
         planCard = this.cardStore.read(goalId)!;
         const startedAt = now();
-        const plannerSessionId = `planner:${goalId}`;
         updateRuntimeState(this.projectRoot, {
           status: 'running',
           current_card_id: goalId,
@@ -2348,9 +2450,46 @@ export class Runtime extends EventEmitter {
           });
           return;
         }
-        const blockedPlanning = this.getBlockedPlanning(this.cardStore.read(goalId));
+        const currentGoalCardAfterPlanner = this.cardStore.read(goalId);
+        const currentPlanningAfterPlanner =
+          currentGoalCardAfterPlanner?.result &&
+          typeof currentGoalCardAfterPlanner.result === 'object'
+            ? ((currentGoalCardAfterPlanner.result as Record<string, unknown>).planning as
+                | Record<string, unknown>
+                | undefined)
+            : undefined;
+        const activeTokenBudgetPlanningBlocker =
+          currentPlanningAfterPlanner?.status === 'blocked' &&
+          currentPlanningAfterPlanner.resume_reason === 'planner_context_length_exceeded' &&
+          currentPlanningAfterPlanner.failure_kind === 'token_budget_exceeded';
+        if (plannerResult.status === 'done' && activeTokenBudgetPlanningBlocker) {
+          const blockedPlanning = currentPlanningAfterPlanner;
+          const blockedReason = this.blockedPlanningReason(
+            currentGoalCardAfterPlanner,
+            blockedPlanning,
+          );
+          await this._stateMachine.transitionCard(goalId, 'block', {
+            blocked_reason: blockedReason,
+          });
+          await this.cardStore.update(goalId, {
+            status: 'blocked',
+            error: blockedReason,
+            status_text: blockedReason,
+            result: {
+              ...(this.cardStore.read(goalId)?.result ?? {}),
+              planning: blockedPlanning,
+            },
+          });
+          this.finishOpenPlannerRun(goalId, 'blocked');
+          await this._stateMachine.transition('card_terminated', {
+            goalId,
+            reason: 'planner_context_length_exceeded',
+          });
+          return;
+        }
+        const blockedPlanning = this.getBlockedPlanning(currentGoalCardAfterPlanner);
         if (blockedPlanning) {
-          const currentCard = this.cardStore.read(goalId);
+          const currentCard = currentGoalCardAfterPlanner;
           const blockedReason = this.blockedPlanningReason(currentCard, blockedPlanning);
           await this._stateMachine.transitionCard(goalId, 'block', {
             blocked_reason: blockedReason,
@@ -2411,6 +2550,45 @@ export class Runtime extends EventEmitter {
           });
           return;
         }
+        const doneWithActiveTokenBudgetPlanningBlocker = (() => {
+          if (plannerResult.status !== 'done') return null;
+          const currentCard = this.cardStore.read(goalId);
+          const currentPlanning =
+            currentCard?.result && typeof currentCard.result === 'object'
+              ? ((currentCard.result as Record<string, unknown>).planning as
+                  | Record<string, unknown>
+                  | undefined)
+              : undefined;
+          return currentPlanning?.status === 'blocked' &&
+            currentPlanning.resume_reason === 'planner_context_length_exceeded' &&
+            currentPlanning.failure_kind === 'token_budget_exceeded'
+            ? { currentCard, currentPlanning }
+            : null;
+        })();
+        if (doneWithActiveTokenBudgetPlanningBlocker) {
+          const blockedReason = this.blockedPlanningReason(
+            doneWithActiveTokenBudgetPlanningBlocker.currentCard,
+            doneWithActiveTokenBudgetPlanningBlocker.currentPlanning,
+          );
+          await this._stateMachine.transitionCard(goalId, 'block', {
+            blocked_reason: blockedReason,
+          });
+          await this.cardStore.update(goalId, {
+            status: 'blocked',
+            error: blockedReason,
+            status_text: blockedReason,
+            result: {
+              ...(this.cardStore.read(goalId)?.result ?? {}),
+              planning: doneWithActiveTokenBudgetPlanningBlocker.currentPlanning,
+            },
+          });
+          this.finishOpenPlannerRun(goalId, 'blocked');
+          await this._stateMachine.transition('card_terminated', {
+            goalId,
+            reason: 'planner_context_length_exceeded',
+          });
+          return;
+        }
         if (goalId === PROJECT_CARD_ID && plannerResult.status === 'done' && !hasPlannerAction) {
           const blockedReason =
             'Project planner returned done without creating/updating cards, activating child work, leaving unfinished child work, producing terminal child output, or declaring a blocker; continuous project runtime requires a durable next milestone or explicit blocker.';
@@ -2455,6 +2633,23 @@ export class Runtime extends EventEmitter {
                 planner_declared_done: plannerResult.status === 'done',
                 has_unfinished_child_work: hasUnfinishedChildWork,
                 resume_reason: hasGoalDispatch ? 'dispatch_completed' : 'review_completed',
+                ...(this.cardStore.read(goalId)?.result &&
+                typeof this.cardStore.read(goalId)?.result === 'object' &&
+                (this.cardStore.read(goalId)?.result as Record<string, unknown>).planning &&
+                typeof (this.cardStore.read(goalId)?.result as Record<string, unknown>).planning ===
+                  'object'
+                  ? (() => {
+                      const previousPlanning = (
+                        this.cardStore.read(goalId)?.result as Record<string, unknown>
+                      ).planning as Record<string, unknown>;
+                      return previousPlanning.persisted_history_compacted
+                        ? {
+                            persisted_history_compacted: true,
+                            previous_failure_kind: previousPlanning.previous_failure_kind,
+                          }
+                        : {};
+                    })()
+                  : {}),
                 created_cards: createdCardIds,
                 updated_cards: updatedCardIds,
               },
