@@ -51,6 +51,8 @@ import {
   buildReviewerPrompt,
 } from '../agents/system-prompt.js';
 import { SkillsEngine } from '../agents/skills-engine.js';
+import { unwrapFailure } from '../agents/llm-errors.js';
+import type { LlmTransportFailure } from '../agents/llm-errors.js';
 import {
   disposeProcessRuntimeScope,
   listProcesses,
@@ -92,6 +94,16 @@ const TERMINAL_STATUSES: ReadonlySet<string> = new Set(['done', 'failed', 'cance
 function now(): string { return new Date().toISOString(); }
 function saivageWorkDir(projectRoot: string): string { return join(projectRoot, '.saivage-work'); }
 function eventsLogPath(projectRoot: string): string { return join(projectRoot, '.saivage', 'runtime', 'events.jsonl'); }
+function isTokenBudgetFailure(error: unknown): boolean {
+  if (error && typeof error === 'object' && (error as { failure?: unknown }).failure) {
+    const failure = (error as { failure: LlmTransportFailure }).failure;
+    if (failure?.kind === 'token_budget_exceeded') return true;
+  }
+  const failure = unwrapFailure(error);
+  if (failure.kind === 'token_budget_exceeded') return true;
+  const message = error instanceof Error ? error.message : String(error);
+  return /context_length_exceeded|token budget exceeded|maximum context length/i.test(message);
+}
 function resolveEvidenceSourcePath(projectRoot: string, filePath: string): string { if (!filePath) return filePath; return isAbsolute(filePath) ? resolve(filePath) : resolve(projectRoot, filePath); }
 function pathIsInside(parentPath: string, candidatePath: string): boolean { const rel = relative(resolve(parentPath), resolve(candidatePath)); return rel === '' || (!!rel && !rel.startsWith('..') && !isAbsolute(rel)); }
 function resolveRegisterableProcessMetadataSource(projectRoot: string, filePath: string): { sourceFile: string } | { ignored: string } {
@@ -691,7 +703,45 @@ export class Runtime extends EventEmitter {
         const handoff = this.consumeResumeHandoffContext(); if (handoff) plannerPrompt += `\n\n## Resume Handoff\n${handoff}`;
         try { const goalCard = this.cardStore.read(goalId); if (goalCard && this._skillsEngine) { const plannerInstr = goalCard.depth === 0 ? await this._skillsEngine.loadPlannerInstructions() : (goalCard.instructions_file && goalCard.instructions_file.trim()) ? await this._skillsEngine.loadPlannerInstructions(goalCard.instructions_file.trim()) : ''; const skillsContent = await this._skillsEngine.selectAndFormat({ goalDescription: goalCard.description, cardDescription: goalCard.description, tags: goalCard.tags, filePaths: [], availableTools: ['list_project_files', 'read_project_file', 'load_skill', 'mcp_tool_call'], targetRole: 'planner' }); const combinedSkills = [plannerInstr, skillsContent].filter(Boolean).join('\n\n'); if (combinedSkills) plannerPrompt = buildPlannerPrompt(plannerContract, combinedSkills, currentDepth, maxDepth) + `\n\n${goalContext}\n\n## Parent Resume Context\n${resumeContext}`; } } catch { void 0; }
         injectQueuedSyntheticPlannerNotes(this.projectRoot, `planner:${goalId}`, { stampUserMessage: (id: string) => this.userStamp(id) }); const result = this.agentRuntime.invokePlanner({ goalId, systemPrompt: plannerPrompt, contract: plannerContract }); plannerResult = result instanceof Promise ? await result : result;
-      } catch (err) { const errorMessage = err instanceof Error ? err.message : String(err); this.emitRuntimeDiagnostic({ goal_id: goalId, phase: 'planner', error: err }); this._eventLogger.appendEvent({ kind: 'runtime_diagnostic', goal_id: goalId, phase: 'planner', error_message: errorMessage }); this._errorLogger.appendError({ message: errorMessage, goalId, phase: 'planner' }); await this._stateMachine.transitionCard(goalId, 'fail', { reason: 'planner_error', error: errorMessage }); await this.cardStore.update(goalId, { error: errorMessage, status_text: `Planner failed: ${errorMessage}` }); const failedRun = (readRuntimeState(this.projectRoot)?.runtime_runs ?? []).filter((run) => run.card_id === goalId && run.phase === 'planner' && run.runtime_status === 'running' && !run.finished_at && (!run.session_id || run.session_id === `planner:${goalId}`)).sort((a, b) => (b.kind === 'root' ? 1 : 0) - (a.kind === 'root' ? 1 : 0))[0]; if (failedRun) { const updated = updateRuntimeRun(this.projectRoot, failedRun.run_id, { phase: 'failed', runtime_status: 'error', finished_at: now(), result: 'failed' }); if (updated) this.publishRuntimeLedgerEvent('runtime_run', { run: updated }); } await this._stateMachine.transition('goal_exit', { goalId, reason: 'planner_error' }); throw err; }
+      } catch (err) {
+        const errorMessage = err instanceof Error ? err.message : String(err);
+        this.emitRuntimeDiagnostic({ goal_id: goalId, phase: 'planner', error: err });
+        this._eventLogger.appendEvent({ kind: 'runtime_diagnostic', goal_id: goalId, phase: 'planner', error_message: errorMessage });
+        this._errorLogger.appendError({ message: errorMessage, goalId, phase: 'planner' });
+        const failedRun = (readRuntimeState(this.projectRoot)?.runtime_runs ?? []).filter((run) => run.card_id === goalId && run.phase === 'planner' && run.runtime_status === 'running' && !run.finished_at && (!run.session_id || run.session_id === `planner:${goalId}`)).sort((a, b) => (b.kind === 'root' ? 1 : 0) - (a.kind === 'root' ? 1 : 0))[0];
+        if (isTokenBudgetFailure(err)) {
+          const blockedReason = 'Planner context exceeded the selected LLM token budget before scheduler output could be produced; compact/trim planner context before resuming.';
+          await this._stateMachine.transitionCard(goalId, 'block', { blocked_reason: blockedReason });
+          await this.cardStore.update(goalId, {
+            error: blockedReason,
+            status_text: blockedReason,
+            result: {
+              ...(this.cardStore.read(goalId)?.result ?? {}),
+              planning: {
+                status: 'blocked',
+                blocked_reason: blockedReason,
+                resume_reason: 'planner_context_length_exceeded',
+                failure_kind: 'token_budget_exceeded',
+                provider_status: (err as { failure?: { status?: number } }).failure?.status ?? null,
+                created_cards: [],
+                updated_cards: [],
+                summary: 'Planner LLM invocation failed with a context-length/token-budget error before returning scheduler output.',
+              },
+            },
+          });
+          if (failedRun) {
+            const updated = updateRuntimeRun(this.projectRoot, failedRun.run_id, { phase: 'blocked', runtime_status: 'error', finished_at: now(), result: 'blocked' });
+            if (updated) this.publishRuntimeLedgerEvent('runtime_run', { run: updated });
+          }
+          await this._stateMachine.transition('card_terminated', { goalId, reason: 'planner_context_length_exceeded' });
+          return;
+        }
+        await this._stateMachine.transitionCard(goalId, 'fail', { reason: 'planner_error', error: errorMessage });
+        await this.cardStore.update(goalId, { error: errorMessage, status_text: `Planner failed: ${errorMessage}` });
+        if (failedRun) { const updated = updateRuntimeRun(this.projectRoot, failedRun.run_id, { phase: 'failed', runtime_status: 'error', finished_at: now(), result: 'failed' }); if (updated) this.publishRuntimeLedgerEvent('runtime_run', { run: updated }); }
+        await this._stateMachine.transition('goal_exit', { goalId, reason: 'planner_error' });
+        throw err;
+      }
       await this.applyPlannerResult(goalId, plannerResult);
       updateRuntimeState(this.projectRoot, { current_agent_session_id: `planner:${goalId}` });
       const execution = await this.dispatchPendingActivations(goalId);
