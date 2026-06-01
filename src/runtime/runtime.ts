@@ -1359,11 +1359,11 @@ export class Runtime extends EventEmitter {
     const openRootRuns = (state.runtime_runs ?? []).filter(
       (run) => run.kind === 'root' && !run.finished_at,
     );
-    if (openRootRuns.length === 0) return state;
     const at = now();
     const projectCard = this.cardStore.read(PROJECT_CARD_ID);
     const projectTerminal = projectCard ? TERMINAL_STATUSES.has(projectCard.status) : false;
     let reconciled = state;
+    if (openRootRuns.length === 0 && !projectTerminal) return state;
     for (const run of openRootRuns) {
       const updated = updateRuntimeRun(this.projectRoot, run.run_id, {
         phase: projectTerminal ? 'completed' : 'failed',
@@ -1376,11 +1376,26 @@ export class Runtime extends EventEmitter {
         reconciled = readRuntimeState(this.projectRoot) ?? reconciled;
       }
     }
+    if (projectTerminal) {
+      const current = readRuntimeState(this.projectRoot) ?? reconciled;
+      reconciled = saveRuntimeState(this.projectRoot, {
+        ...current,
+        runtime_intent: {
+          status: 'stopped',
+          updated_at: at,
+          source_command_id: current.runtime_intent?.source_command_id ?? null,
+          reason:
+            'project card is terminal and runtime is idle with no active/current card; root run reconciled to expected idle',
+        },
+        updated_at: at,
+      });
+    }
     this._eventLogger.appendEvent({
       kind: 'runtime_diagnostic',
       phase: 'startup',
-      error_message:
-        'Reconciled running runtime intent with open root run while runtime was idle and had no active card run.',
+      error_message: projectTerminal
+        ? 'Reconciled running runtime intent to expected idle because the project card is terminal and no active card run exists.'
+        : 'Reconciled running runtime intent with open root run while runtime was idle and had no active card run.',
     });
     return readRuntimeState(this.projectRoot) ?? reconciled;
   }
