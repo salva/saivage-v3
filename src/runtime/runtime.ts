@@ -1473,6 +1473,13 @@ export class Runtime extends EventEmitter {
       projectCard?.status === 'blocked' &&
       blockedPlanning?.resume_reason === 'planner_context_length_exceeded' &&
       blockedPlanning?.failure_kind === 'token_budget_exceeded';
+    const retryingTerminalToolPlanningBlocker =
+      source !== 'runtime' &&
+      projectCard?.status === 'blocked' &&
+      blockedPlanning?.resume_reason === 'planner_terminal_tool_exhausted' &&
+      blockedPlanning?.failure_kind === 'planner_contract_terminal_tool_exhausted';
+    const retryingPlanningBlocker =
+      retryingTokenBudgetPlanningBlocker || retryingTerminalToolPlanningBlocker;
     const openRootRun = (state.runtime_runs ?? []).find(
       (run) => run.kind === 'root' && !run.finished_at,
     );
@@ -1488,7 +1495,7 @@ export class Runtime extends EventEmitter {
       state.paused ||
       ((state.runtime_intent?.status ?? 'stopped') === 'running' &&
         !staleRunningIntentWithoutActiveRootRun &&
-        !retryingTokenBudgetPlanningBlocker)
+        !retryingPlanningBlocker)
     ) {
       const error = this.makeRuntimePreconditionError(
         'runtime_start_precondition_failed',
@@ -1518,16 +1525,21 @@ export class Runtime extends EventEmitter {
       this.publishRuntimeLedgerEvent('runtime_actionable_error', { actionable_error: error });
       return { success: false, command: rejectedCommand, error };
     }
-    if (retryingTokenBudgetPlanningBlocker) {
+    if (retryingPlanningBlocker) {
+      const previousFailureKind = retryingTokenBudgetPlanningBlocker
+        ? 'token_budget_exceeded'
+        : 'planner_contract_terminal_tool_exhausted';
       const retryPlanning = {
         status: 'continue',
         summary: null,
         blocked_reason: null,
-        resume_reason: 'planner_context_history_compacted_retry',
-        previous_failure_kind: 'token_budget_exceeded',
-        persisted_history_compacted: this.compactPersistedPlannerHistoryForRetry(
-          `planner:${PROJECT_CARD_ID}`,
-        ),
+        resume_reason: retryingTokenBudgetPlanningBlocker
+          ? 'planner_context_history_compacted_retry'
+          : 'planner_terminal_tool_exhausted_retry',
+        previous_failure_kind: previousFailureKind,
+        persisted_history_compacted: retryingTokenBudgetPlanningBlocker
+          ? this.compactPersistedPlannerHistoryForRetry(`planner:${PROJECT_CARD_ID}`)
+          : false,
         created_cards: [],
         updated_cards: [],
         updated_at: new Date().toISOString(),
@@ -1548,7 +1560,9 @@ export class Runtime extends EventEmitter {
         goal_id: PROJECT_CARD_ID,
         phase: 'planner_blocked_retry',
         error_message:
-          'Accepted explicit retry for project planner token-budget blocker after clearing stale blocked planning metadata.',
+          retryingTokenBudgetPlanningBlocker
+            ? 'Accepted explicit retry for project planner token-budget blocker after clearing stale blocked planning metadata.'
+            : 'Accepted explicit retry for project planner terminal-tool exhaustion blocker after clearing stale blocked planning metadata.',
       });
     }
     upsertRuntimeIntent(
@@ -1557,7 +1571,9 @@ export class Runtime extends EventEmitter {
       command.command_id,
       retryingTokenBudgetPlanningBlocker
         ? 'explicit start_project retry for compacted planner token-budget blocker'
-        : 'explicit start_project command',
+        : retryingTerminalToolPlanningBlocker
+          ? 'explicit start_project retry for planner terminal-tool exhaustion blocker'
+          : 'explicit start_project command',
     );
     const run = appendRuntimeRun(this.projectRoot, {
       kind: 'root',
@@ -2232,19 +2248,28 @@ export class Runtime extends EventEmitter {
           existingPlanning?.status === 'blocked' &&
           existingPlanning.resume_reason === 'planner_context_length_exceeded' &&
           existingPlanning.failure_kind === 'token_budget_exceeded';
+        const hasTerminalToolPlanningBlocker =
+          existingPlanning?.status === 'blocked' &&
+          existingPlanning.resume_reason === 'planner_terminal_tool_exhausted' &&
+          existingPlanning.failure_kind === 'planner_contract_terminal_tool_exhausted';
         const retryingTokenBudgetBlocker =
           currentStatus !== 'active' &&
           currentStatus !== 'running' &&
           hasTokenBudgetPlanningBlocker;
+        const retryingTerminalToolBlocker =
+          currentStatus !== 'active' &&
+          currentStatus !== 'running' &&
+          hasTerminalToolPlanningBlocker;
+        const retryingPlanningBlocker = retryingTokenBudgetBlocker || retryingTerminalToolBlocker;
         const plannerSessionId = `planner:${goalId}`;
         const compactedPersistedPlannerHistory =
           retryingTokenBudgetBlocker || existingPlanning === null
             ? this.compactPersistedPlannerHistoryForRetry(plannerSessionId)
             : false;
-        if (!existingPlanning || retryingTokenBudgetBlocker) {
+        if (!existingPlanning || retryingPlanningBlocker) {
           await this.cardStore.update(goalId, {
-            error: retryingTokenBudgetBlocker ? null : refreshed.error,
-            status_text: retryingTokenBudgetBlocker ? null : refreshed.status_text,
+            error: retryingPlanningBlocker ? null : refreshed.error,
+            status_text: retryingPlanningBlocker ? null : refreshed.status_text,
             result: {
               ...existingResult,
               planning: {
@@ -2253,10 +2278,14 @@ export class Runtime extends EventEmitter {
                 blocked_reason: null,
                 resume_reason: retryingTokenBudgetBlocker
                   ? 'planner_context_history_compacted_retry'
-                  : 'initial',
+                  : retryingTerminalToolBlocker
+                    ? 'planner_terminal_tool_exhausted_retry'
+                    : 'initial',
                 previous_failure_kind: retryingTokenBudgetBlocker
                   ? 'token_budget_exceeded'
-                  : undefined,
+                  : retryingTerminalToolBlocker
+                    ? 'planner_contract_terminal_tool_exhausted'
+                    : undefined,
                 persisted_history_compacted: compactedPersistedPlannerHistory,
                 created_cards: [],
                 updated_cards: [],
@@ -2750,12 +2779,12 @@ export class Runtime extends EventEmitter {
                       const previousPlanning = (
                         this.cardStore.read(goalId)?.result as Record<string, unknown>
                       ).planning as Record<string, unknown>;
-                      return previousPlanning.persisted_history_compacted
-                        ? {
-                            persisted_history_compacted: true,
-                            previous_failure_kind: previousPlanning.previous_failure_kind,
-                          }
-                        : {};
+                      const retryMetadata: Record<string, unknown> = {};
+                      if (previousPlanning.persisted_history_compacted)
+                        retryMetadata.persisted_history_compacted = true;
+                      if (typeof previousPlanning.previous_failure_kind === 'string')
+                        retryMetadata.previous_failure_kind = previousPlanning.previous_failure_kind;
+                      return retryMetadata;
                     })()
                   : {}),
                 created_cards: createdCardIds,
