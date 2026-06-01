@@ -689,12 +689,14 @@ export class Runtime extends EventEmitter {
       if (!planning || typeof planning !== 'object') continue;
       const blockedPlanning = planning as { status?: unknown; resume_reason?: unknown; failure_kind?: unknown; blocked_reason?: unknown };
       if (blockedPlanning.status !== 'blocked') continue;
-      if (blockedPlanning.resume_reason !== 'planner_context_length_exceeded' && blockedPlanning.failure_kind !== 'token_budget_exceeded') continue;
       const blockedReason = typeof blockedPlanning.blocked_reason === 'string'
         ? blockedPlanning.blocked_reason
         : 'Planner context exceeded the selected LLM token budget before scheduler output could be produced; compact/trim planner context before resuming.';
       const transitioned = await this._stateMachine.transitionCard(card.id, 'block', { blocked_reason: blockedReason });
-      if (transitioned) await this.cardStore.update(card.id, { error: card.error ?? blockedReason, status_text: card.status_text ?? blockedReason });
+      if (transitioned) {
+        this.finishOpenPlannerRun(card.id, 'blocked');
+        await this.cardStore.update(card.id, { error: card.error ?? blockedReason, status_text: card.status_text ?? blockedReason });
+      }
     }
   }
 
