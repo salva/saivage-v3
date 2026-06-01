@@ -95,4 +95,43 @@ describe('planner context-length failures', () => {
     expect(runtime.getState()?.active_card_run).toBeNull();
   });
 
+  it('does not redispatch a persisted blocked planning card on startup', async () => {
+    const fixtureDir = join(tmpDir, 'fixtures');
+    const fakeAgent = new ContextLengthPlannerAdapter({ mapping: { project: 'unused' }, fixtureDir });
+    runtime = new Runtime({ projectRoot: tmpDir, fakeAgentConfig: { mapping: { project: 'unused' }, fixtureDir } }, fakeAgent);
+    const blockedReason = 'planner remains durably blocked until an explicit operator or state change';
+    runtime.cardStore.update('project', {
+      status: 'blocked',
+      error: blockedReason,
+      status_text: blockedReason,
+      result: {
+        planning: {
+          status: 'blocked',
+          resume_reason: 'planner_context_length_exceeded',
+          failure_kind: 'token_budget_exceeded',
+          blocked_reason: blockedReason,
+        },
+      },
+    });
+    updateRuntimeState(tmpDir, { status: 'running', current_card_id: 'project', current_agent_session_id: 'planner:project', active_card_run: { card_id: 'project', card_type: 'project', runtime_status: 'running', phase: 'planner', caller_session_id: null, caller_tool_call_id: null, planner_session_id: 'planner:project', correction_attempts: 0, started_at: new Date().toISOString(), last_turn_at: new Date().toISOString() } });
+
+    await runtime.startup();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await (runtime as unknown as { _stateMachine: { requestImmediateTick(): Promise<void> } })._stateMachine.requestImmediateTick();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const project = runtime.cardStore.read('project');
+    expect(project?.status).toBe('blocked');
+    expect(project?.error).toBe(blockedReason);
+    expect(project?.result?.planning).toEqual(expect.objectContaining({
+      status: 'blocked',
+      resume_reason: 'planner_context_length_exceeded',
+      failure_kind: 'token_budget_exceeded',
+    }));
+    expect(runtime.getState()?.status).toBe('idle');
+    expect(runtime.getState()?.current_card_id).toBeNull();
+    expect(runtime.getState()?.active_card_run).toBeNull();
+    expect(runtime.getBackgroundDispatchCount()).toBe(0);
+  });
+
 });

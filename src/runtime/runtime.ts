@@ -194,7 +194,7 @@ export class Runtime extends EventEmitter {
       errors: this._errorLogger,
       clock: { now: () => new Date() },
       scheduler,
-      redispatch: { redispatch: (cardId) => { void this.dispatchGoal(cardId); } },
+      redispatch: { redispatch: (cardId) => { if (!this.cardHasBlockedPlanning(this.cardStore.read(cardId))) void this.dispatchGoal(cardId); } },
       projectCardId: PROJECT_CARD_ID,
     });
   }
@@ -394,6 +394,11 @@ export class Runtime extends EventEmitter {
     }
 
     if (run.phase === 'planner') {
+      if (this.cardHasBlockedPlanning(card)) {
+        this.finishOpenPlannerRun(run.card_id, 'blocked');
+        const repaired = saveRuntimeState(this.projectRoot, { ...previousState!, status: 'idle', current_card_id: null, current_agent_session_id: null, active_card_run: null, updated_at: now(), paused: false, paused_at: null });
+        return repaired;
+      }
       const nextRun = { ...run, runtime_status: 'running' as const, last_turn_at: now() };
       const repaired = saveRuntimeState(this.projectRoot, { ...previousState!, status: 'running', current_card_id: run.card_id, current_agent_session_id: run.planner_session_id ?? `planner:${run.card_id}`, active_card_run: nextRun, updated_at: now(), paused: false, paused_at: null });
       return repaired;
@@ -681,6 +686,11 @@ export class Runtime extends EventEmitter {
   async start_project(): Promise<Awaited<ReturnType<Runtime['startProject']>>> { return this.startProject('operator'); }
   async stop_project(): Promise<Awaited<ReturnType<Runtime['stopProject']>>> { return this.stopProject('operator'); }
 
+  private cardHasBlockedPlanning(card: CardRecord | null): boolean {
+    const planning = card?.result && typeof card.result === 'object' ? (card.result as { planning?: unknown }).planning : null;
+    return Boolean(planning && typeof planning === 'object' && (planning as { status?: unknown }).status === 'blocked');
+  }
+
   private async alignBlockedPlanningCardStatuses(): Promise<void> {
     for (const card of this.cardStore.list()) {
       if (card.type !== 'project' && card.type !== 'goal') continue;
@@ -731,7 +741,10 @@ export class Runtime extends EventEmitter {
     this.emit('started', { projectRoot: this.projectRoot }); this._eventLogger.appendEvent({ kind: 'started', project_root: this.projectRoot }); this._supervisor.start(); this._stateMachine.start();
     const startupActiveRun = state.active_card_run;
     if (startupActiveRun?.phase === 'planner' && startupActiveRun.runtime_status === 'running') {
-      this.trackBackgroundDispatch(this.dispatchGoal(startupActiveRun.card_id));
+      const startupCard = this.cardStore.read(startupActiveRun.card_id);
+      if (!this.cardHasBlockedPlanning(startupCard)) {
+        this.trackBackgroundDispatch(this.dispatchGoal(startupActiveRun.card_id));
+      }
     }
     setTimeout(() => { void this._stateMachine.requestImmediateTick(); }, 0);
   }
