@@ -2373,6 +2373,37 @@ export class Runtime extends EventEmitter {
           });
           return;
         }
+        if (goalId === PROJECT_CARD_ID && plannerResult.status === 'done' && !hasPlannerAction) {
+          const blockedReason =
+            'Project planner returned done without creating/updating cards, activating child work, leaving unfinished child work, producing terminal child output, or declaring a blocker; continuous project runtime requires a durable next milestone or explicit blocker.';
+          await this._stateMachine.transitionCard(goalId, 'block', {
+            blocked_reason: blockedReason,
+          });
+          await this.cardStore.update(goalId, {
+            status: 'blocked',
+            error: blockedReason,
+            status_text: blockedReason,
+            result: {
+              ...(this.cardStore.read(goalId)?.result ?? {}),
+              planning: {
+                status: 'blocked',
+                blocked_reason: blockedReason,
+                planner_declared_done: true,
+                has_unfinished_child_work: false,
+                resume_reason: 'non_actionable_project_done',
+                created_cards: [],
+                updated_cards: [],
+                summary: plannerResult.summary ?? null,
+              },
+            },
+          });
+          this.finishOpenPlannerRun(goalId, 'blocked');
+          await this._stateMachine.transition('card_terminated', {
+            goalId,
+            reason: 'planner_non_actionable_project_done',
+          });
+          return;
+        }
         if (plannerResult.status === 'done' && !hasGoalDispatch && !hasUnfinishedChildWork)
           plannerDone = true;
         else {

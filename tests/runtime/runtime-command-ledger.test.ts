@@ -851,6 +851,101 @@ describe('runtime command ledger target contract (Wave 1)', () => {
     }
   });
 
+  it('project planner done without durable action blocks instead of completing silently', async () => {
+    const projectRoot = root();
+    try {
+      initProjectTree(projectRoot);
+      const invokeReviewer = jest.fn<AgentRuntime['invokeReviewer']>(() => {
+        throw new Error('reviewer should not run for non-actionable project done');
+      });
+      const agentRuntime: AgentRuntime = {
+        invokePlanner() {
+          return {
+            status: 'done',
+            created_cards: [],
+            updated_cards: [],
+            summary: 'no next work declared',
+          };
+        },
+        invokeExecutor() {
+          throw new Error('executor should not run');
+        },
+        invokeReviewer,
+        cancelSession() {
+          return false;
+        },
+        forceCancelSession() {
+          return false;
+        },
+        getHandoffSummary() {
+          return null;
+        },
+        getActiveSessionHandoffs() {
+          return [];
+        },
+      };
+      const runtime = new Runtime(
+        {
+          projectRoot,
+          fakeAgentConfig: { mapping: {}, fixtureDir: '' },
+          autoDispatchBacklog: false,
+        },
+        agentRuntime,
+      );
+
+      const result = await runtime.startProject('operator');
+      if (!result.success) throw new Error(`startProject failed: ${result.error.message}`);
+      await new Promise<void>((resolve, reject) => {
+        const deadline = Date.now() + 2000;
+        const poll = () => {
+          if (runtime.getBackgroundDispatchCount() === 0) return resolve();
+          if (Date.now() >= deadline)
+            return reject(
+              new Error(
+                `background dispatches did not drain; count=${runtime.getBackgroundDispatchCount()}`,
+              ),
+            );
+          setTimeout(poll, 10);
+        };
+        poll();
+      });
+
+      expect(invokeReviewer).not.toHaveBeenCalled();
+      const project = runtime.cardStore.read('project')!;
+      expect(project.status).toBe('blocked');
+      expect(project.result?.planning).toEqual(
+        expect.objectContaining({
+          status: 'blocked',
+          resume_reason: 'non_actionable_project_done',
+          planner_declared_done: true,
+          created_cards: [],
+          updated_cards: [],
+        }),
+      );
+      expect(project.error).toContain('Project planner returned done without creating/updating cards');
+      const state = readRuntimeState(projectRoot)!;
+      expect(state.status).toBe('idle');
+      expect(state.current_card_id).toBeNull();
+      expect(state.current_agent_session_id).toBeNull();
+      expect(state.active_card_run).toBeNull();
+      expect(state.runtime_runs).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            run_id: result.run.run_id,
+            kind: 'root',
+            card_id: 'project',
+            phase: 'blocked',
+            runtime_status: 'error',
+            result: 'blocked',
+            finished_at: expect.any(String),
+          }),
+        ]),
+      );
+    } finally {
+      rmSync(projectRoot, { recursive: true, force: true });
+    }
+  });
+
   it('stop_project records stopped intent and terminally marks open root runs', async () => {
     const projectRoot = root();
     try {
