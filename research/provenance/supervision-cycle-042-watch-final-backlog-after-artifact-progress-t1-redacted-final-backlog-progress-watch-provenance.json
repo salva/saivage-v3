@@ -1,0 +1,71 @@
+{
+  "access_date": "2026-06-01T13:26:17.939558Z",
+  "attempts": [
+    {
+      "attempt": 1,
+      "method": "python metadata probe",
+      "reason": "IndentationError before data collection; no external source or secret-bearing data persisted beyond error log.",
+      "status": "failed"
+    },
+    {
+      "attempt": 2,
+      "method": "corrected python metadata probe",
+      "output": "reports/live-metadata.json",
+      "status": "success"
+    }
+  ],
+  "checksums": "Not applicable to mutable local runtime observation; file sizes/mtimes and parse/status checks recorded instead.",
+  "license_terms": "Local operational/runtime metadata from project-owned files and services; no external dataset license applicable.",
+  "redaction": "Raw logs, HTTP bodies, event lines, raw card/runtime JSON bodies, environment variables, provider/auth values, and lesson content were excluded.",
+  "retrieval_methods": [
+    "systemctl show selected properties",
+    "HTTP status/header probes with response bodies discarded",
+    "filesystem stat and selected JSON metadata reads",
+    "events/journal keyword category counts with raw lines discarded"
+  ],
+  "schema": "JSON report with service states, HTTP status codes, card status counts, selected target/project status fields, file stat metadata, artifact category counts, review/diary counts, and keyword category counts.",
+  "sources": [
+    {
+      "method": "systemctl show selected non-secret properties",
+      "sources": [
+        "saivage-v3.service",
+        "diedrico.service"
+      ],
+      "type": "local_systemd_metadata"
+    },
+    {
+      "method": "urllib status/header probe; bodies discarded",
+      "sources": [
+        "http://localhost:8081/health",
+        "http://localhost:8081/health/ready",
+        "http://localhost:5173/"
+      ],
+      "type": "local_http_status"
+    },
+    {
+      "method": "stat and selected JSON metadata fields only",
+      "sources": [
+        "/work/diedrico-lessons/.saivage/cards/by-id/",
+        "/work/diedrico-lessons/.saivage/tmp/state/runtime.json",
+        "/work/diedrico-lessons/lessons/002-intro-to-the-dihedral-method/",
+        "/work/diedrico-lessons/pipeline-status.md",
+        "/work/diedrico-lessons/backlog.md",
+        "/work/diedrico-lessons/catalog.md",
+        "/work/diedrico-lessons/curriculum.md",
+        "/work/diedrico-lessons/.saivage/reviews/",
+        "/work/diedrico-lessons/.saivage/diaries/"
+      ],
+      "type": "local_filesystem_metadata"
+    },
+    {
+      "method": "keyword category counts only; raw lines discarded",
+      "sources": [
+        "/work/diedrico-lessons/.saivage/runtime/events.jsonl",
+        "journalctl last 20m for saivage-v3.service and diedrico.service"
+      ],
+      "type": "local_event_journal_categories"
+    }
+  ],
+  "stage_id": "supervision-cycle-042-watch-final-backlog-after-artifact-progress",
+  "task_id": "t1-redacted-final-backlog-progress-watch"
+}
