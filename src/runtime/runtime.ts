@@ -157,6 +157,11 @@ function isTokenBudgetFailure(error: unknown): boolean {
   return /context_length_exceeded|token budget exceeded|maximum context length/i.test(message);
 }
 
+function isPlannerTerminalToolExhaustion(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return /Role 'planner' did not emit terminal tool within \d+ turns\./.test(message);
+}
+
 const PLANNER_CONTEXT_STRING_LIMIT = 500;
 const PLANNER_CONTEXT_ARRAY_LIMIT = 5;
 const PLANNER_CONTEXT_OBJECT_KEY_LIMIT = 12;
@@ -1774,6 +1779,40 @@ export class Runtime extends EventEmitter {
   private async alignBlockedPlanningCardStatuses(): Promise<void> {
     for (const card of this.cardStore.list()) {
       if (card.type !== 'project' && card.type !== 'goal') continue;
+      if (card.status === 'failed' && isPlannerTerminalToolExhaustion(card.error ?? '')) {
+        const blockedReason =
+          'Planner did not emit a terminal scheduler tool within the allowed repair turns; operator or runtime repair must restore a contract-valid planner response before continuing backlog promotion.';
+        await this.cardStore.update(card.id, {
+          status: 'blocked',
+          error: blockedReason,
+          status_text: blockedReason,
+          result: {
+            ...(card.result ?? {}),
+            planning: {
+              status: 'blocked',
+              blocked_reason: blockedReason,
+              resume_reason: 'planner_terminal_tool_exhausted',
+              failure_kind: 'planner_contract_terminal_tool_exhausted',
+              provider_status: null,
+              created_cards: [],
+              updated_cards: [],
+              summary:
+                'Planner LLM invocation exhausted contract repair turns before returning a terminal scheduler tool.',
+            },
+          },
+        });
+        this.finishOpenPlannerRun(card.id, 'blocked');
+        const state = readRuntimeState(this.projectRoot);
+        if (state?.current_card_id === card.id || state?.active_card_run?.card_id === card.id) {
+          updateRuntimeState(this.projectRoot, {
+            status: 'idle',
+            current_card_id: null,
+            current_agent_session_id: null,
+            active_card_run: null,
+          });
+        }
+        continue;
+      }
       if (card.status === 'blocked') continue;
       const planning =
         card.result && typeof card.result === 'object'
@@ -2354,9 +2393,17 @@ export class Runtime extends EventEmitter {
                 (!run.session_id || run.session_id === `planner:${goalId}`),
             )
             .sort((a, b) => (b.kind === 'root' ? 1 : 0) - (a.kind === 'root' ? 1 : 0))[0];
-          if (isTokenBudgetFailure(err)) {
-            const blockedReason =
-              'Planner context exceeded the selected LLM token budget before scheduler output could be produced; compact/trim planner context before resuming.';
+          if (isTokenBudgetFailure(err) || isPlannerTerminalToolExhaustion(err)) {
+            const tokenBudgetFailure = isTokenBudgetFailure(err);
+            const blockedReason = tokenBudgetFailure
+              ? 'Planner context exceeded the selected LLM token budget before scheduler output could be produced; compact/trim planner context before resuming.'
+              : 'Planner did not emit a terminal scheduler tool within the allowed repair turns; operator or runtime repair must restore a contract-valid planner response before continuing backlog promotion.';
+            const resumeReason = tokenBudgetFailure
+              ? 'planner_context_length_exceeded'
+              : 'planner_terminal_tool_exhausted';
+            const failureKind = tokenBudgetFailure
+              ? 'token_budget_exceeded'
+              : 'planner_contract_terminal_tool_exhausted';
             await this._stateMachine.transitionCard(goalId, 'block', {
               blocked_reason: blockedReason,
             });
@@ -2369,14 +2416,16 @@ export class Runtime extends EventEmitter {
                 planning: {
                   status: 'blocked',
                   blocked_reason: blockedReason,
-                  resume_reason: 'planner_context_length_exceeded',
-                  failure_kind: 'token_budget_exceeded',
-                  provider_status:
-                    (err as { failure?: { status?: number } }).failure?.status ?? null,
+                  resume_reason: resumeReason,
+                  failure_kind: failureKind,
+                  provider_status: tokenBudgetFailure
+                    ? ((err as { failure?: { status?: number } }).failure?.status ?? null)
+                    : null,
                   created_cards: [],
                   updated_cards: [],
-                  summary:
-                    'Planner LLM invocation failed with a context-length/token-budget error before returning scheduler output.',
+                  summary: tokenBudgetFailure
+                    ? 'Planner LLM invocation failed with a context-length/token-budget error before returning scheduler output.'
+                    : 'Planner LLM invocation exhausted contract repair turns before returning a terminal scheduler tool.',
                 },
               },
             });
@@ -2391,7 +2440,7 @@ export class Runtime extends EventEmitter {
             }
             await this._stateMachine.transition('card_terminated', {
               goalId,
-              reason: 'planner_context_length_exceeded',
+              reason: resumeReason,
             });
             return;
           }

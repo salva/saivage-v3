@@ -32,6 +32,14 @@ class ContextLengthPlannerAdapter extends FakeAgentAdapter {
   }
 }
 
+class TerminalToolExhaustionPlannerAdapter extends FakeAgentAdapter {
+  invokePlanner(_request: PlannerInvocationRequest): PlannerResult;
+  invokePlanner(_goalId: string, _systemPrompt?: string): PlannerResult;
+  invokePlanner(): PlannerResult {
+    throw new Error("Role 'planner' did not emit terminal tool within 16 turns.");
+  }
+}
+
 class ContinuePlannerCapturingAdapter extends FakeAgentAdapter {
   capturedPrompt = '';
 
@@ -144,6 +152,86 @@ describe('planner context-length failures', () => {
     expect(runtime.getState()?.active_card_run).toBeNull();
     expect(runtime.getState()?.current_card_id).toBeNull();
   });
+
+  it('persists planner terminal-tool exhaustion as a durable blocker instead of failing the project', async () => {
+    const fixtureDir = join(tmpDir, 'fixtures');
+    const fakeAgent = new TerminalToolExhaustionPlannerAdapter({
+      mapping: { project: 'unused' },
+      fixtureDir,
+    });
+    runtime = new Runtime(
+      { projectRoot: tmpDir, fakeAgentConfig: { mapping: { project: 'unused' }, fixtureDir } },
+      fakeAgent,
+    );
+
+    await runtime.startup();
+    await expect(runtime.dispatchGoal('project')).resolves.toBeUndefined();
+
+    const project = runtime.cardStore.read('project');
+    expect(project?.status).toBe('blocked');
+    expect(project?.error).toContain('Planner did not emit a terminal scheduler tool');
+    expect(project?.result?.planning).toEqual(
+      expect.objectContaining({
+        status: 'blocked',
+        resume_reason: 'planner_terminal_tool_exhausted',
+        failure_kind: 'planner_contract_terminal_tool_exhausted',
+        created_cards: [],
+        updated_cards: [],
+      }),
+    );
+    expect(runtime.getState()?.status).toBe('idle');
+    expect(runtime.getState()?.active_card_run).toBeNull();
+    expect(runtime.getState()?.current_card_id).toBeNull();
+  });
+
+  it('aligns a persisted failed project from planner terminal-tool exhaustion to a precise blocker on startup', async () => {
+    const fixtureDir = join(tmpDir, 'fixtures');
+    const fakeAgent = new TerminalToolExhaustionPlannerAdapter({
+      mapping: { project: 'unused' },
+      fixtureDir,
+    });
+    runtime = new Runtime(
+      { projectRoot: tmpDir, fakeAgentConfig: { mapping: { project: 'unused' }, fixtureDir } },
+      fakeAgent,
+    );
+    runtime.cardStore.update('project', {
+      status: 'failed',
+      error: "Role 'planner' did not emit terminal tool within 16 turns.",
+      status_text: "Planner failed: Role 'planner' did not emit terminal tool within 16 turns.",
+      result: {
+        planning: {
+          status: 'continue',
+          resume_reason: 'review_completed',
+          created_cards: [],
+          updated_cards: [],
+        },
+      },
+    });
+    updateRuntimeState(tmpDir, {
+      status: 'idle',
+      current_card_id: null,
+      current_agent_session_id: null,
+      active_card_run: null,
+    });
+
+    await runtime.startup();
+
+    const project = runtime.cardStore.read('project');
+    expect(project?.status).toBe('blocked');
+    expect(project?.error).toContain('Planner did not emit a terminal scheduler tool');
+    expect(project?.result?.planning).toEqual(
+      expect.objectContaining({
+        status: 'blocked',
+        resume_reason: 'planner_terminal_tool_exhausted',
+        failure_kind: 'planner_contract_terminal_tool_exhausted',
+      }),
+    );
+    expect(runtime.getState()?.status).toBe('idle');
+    expect(runtime.getState()?.current_card_id).toBeNull();
+    expect(runtime.getState()?.active_card_run).toBeNull();
+    expect(runtime.getBackgroundDispatchCount()).toBe(0);
+  });
+
   it('aligns active/running card status with persisted context-length planning blockers on startup', async () => {
     const fixtureDir = join(tmpDir, 'fixtures');
     const fakeAgent = new ContextLengthPlannerAdapter({
