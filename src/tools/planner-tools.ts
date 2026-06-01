@@ -1,5 +1,12 @@
 import { randomUUID } from 'node:crypto';
-import type { CardRecord, CardStatus, ReviewAssessment, ReviewerIssue, ReviewerResult, RuntimeState } from '../schemas/index.js';
+import type {
+  CardRecord,
+  CardStatus,
+  ReviewAssessment,
+  ReviewerIssue,
+  ReviewerResult,
+  RuntimeState,
+} from '../schemas/index.js';
 import type { Recipient } from '../notifications/index.js';
 import { decide } from '../permissions/index.js';
 import { CardStore } from '../cards/store-api.js';
@@ -12,9 +19,14 @@ export type PlannerToolErrorKind =
   | 'invalid_evidence'
   | 'terminal_card_requires_restart'
   | 'card_already_active'
-  | 'invalid_card_status';
+  | 'invalid_card_status'
+  | 'reviewer_invocation_failed';
 
-export type SubtreeReadinessReason = { kind: 'descendant_blocking'; card_id: string; status: 'blocked' | 'changed' };
+export type SubtreeReadinessReason = {
+  kind: 'descendant_blocking';
+  card_id: string;
+  status: 'blocked' | 'changed';
+};
 
 export class PlannerToolError extends Error {
   constructor(
@@ -51,7 +63,13 @@ export interface ReportGoalResult {
 }
 
 export interface ReviewerInvoker {
-  (goalId: string, assessmentId: string, reviewerSessionId: string, report: GoalSelfReport, parentSessionId?: string): Promise<ReviewerResult> | ReviewerResult;
+  (
+    goalId: string,
+    assessmentId: string,
+    reviewerSessionId: string,
+    report: GoalSelfReport,
+    parentSessionId?: string,
+  ): Promise<ReviewerResult> | ReviewerResult;
 }
 
 export interface PlannerToolsServiceOptions {
@@ -62,7 +80,10 @@ export interface PlannerToolsServiceOptions {
   assessmentIdFactory?: () => string;
 }
 
-const REPORTABLE_OUTCOMES: Record<'report_goal_done' | 'report_goal_failed' | 'report_goal_blocked', Extract<CardStatus, 'done' | 'failed' | 'blocked'>> = {
+const REPORTABLE_OUTCOMES: Record<
+  'report_goal_done' | 'report_goal_failed' | 'report_goal_blocked',
+  Extract<CardStatus, 'done' | 'failed' | 'blocked'>
+> = {
   report_goal_done: 'done',
   report_goal_failed: 'failed',
   report_goal_blocked: 'blocked',
@@ -79,9 +100,15 @@ function requireCard(store: CardStore, cardId: string): CardRecord {
   return card;
 }
 
-function isGoalLike(card: CardRecord): boolean { return card.type === 'goal' || card.type === 'project'; }
+function isGoalLike(card: CardRecord): boolean {
+  return card.type === 'goal' || card.type === 'project';
+}
 
-function subtreeContainsActiveLeaf(store: CardStore, state: RuntimeState | null, cardId: string): boolean {
+function subtreeContainsActiveLeaf(
+  store: CardStore,
+  state: RuntimeState | null,
+  cardId: string,
+): boolean {
   const activeLeaf = state?.active_card_run?.card_id;
   if (!activeLeaf) return false;
   return activeLeaf === cardId || store.getDescendantIds(cardId).includes(activeLeaf);
@@ -93,33 +120,59 @@ function hasDurableEvidence(card: CardRecord): boolean {
   if (!result || typeof result !== 'object') return false;
   if (card.type === 'goal' || card.type === 'project') {
     const review = (result as { review?: unknown }).review;
-    return !!review && typeof review === 'object' && (review as { result?: unknown }).result === 'pass';
+    return (
+      !!review && typeof review === 'object' && (review as { result?: unknown }).result === 'pass'
+    );
   }
   return !!(result as { executor?: unknown }).executor || Object.keys(result).length > 0;
 }
 
-function assertEvidenceCardsReady(store: CardStore, goalId: string, evidenceCardIds: string[]): void {
+function reviewerInvocationFailedMessage(goalId: string): string {
+  return `Reviewer invocation failed before assessment output could be produced for goal '${goalId}'; reviewer/provider capacity is unavailable for terminal acceptance.`;
+}
+
+function assertEvidenceCardsReady(
+  store: CardStore,
+  goalId: string,
+  evidenceCardIds: string[],
+): void {
   const subtree = new Set([goalId, ...store.getDescendantIds(goalId)]);
   for (const evidenceId of evidenceCardIds) {
     if (!subtree.has(evidenceId)) {
-      throw new PlannerToolError('invalid_evidence', `Evidence card '${evidenceId}' is not in the subtree of goal '${goalId}'.`);
+      throw new PlannerToolError(
+        'invalid_evidence',
+        `Evidence card '${evidenceId}' is not in the subtree of goal '${goalId}'.`,
+      );
     }
     const card = requireCard(store, evidenceId);
     if (card.status !== 'done') {
-      throw new PlannerToolError('invalid_evidence', `Evidence card '${evidenceId}' must be done before it can support goal '${goalId}'.`);
+      throw new PlannerToolError(
+        'invalid_evidence',
+        `Evidence card '${evidenceId}' must be done before it can support goal '${goalId}'.`,
+      );
     }
     if (!hasDurableEvidence(card)) {
-      throw new PlannerToolError('invalid_evidence', `Evidence card '${evidenceId}' has no durable evidence for goal '${goalId}'.`);
+      throw new PlannerToolError(
+        'invalid_evidence',
+        `Evidence card '${evidenceId}' has no durable evidence for goal '${goalId}'.`,
+      );
     }
   }
 }
 
-function collectSubtreeReadinessReasons(store: CardStore, goalId: string): SubtreeReadinessReason[] {
+function collectSubtreeReadinessReasons(
+  store: CardStore,
+  goalId: string,
+): SubtreeReadinessReason[] {
   const reasons: SubtreeReadinessReason[] = [];
   for (const descendantId of store.getDescendantIds(goalId)) {
     const descendant = requireCard(store, descendantId);
     if (descendant.status === 'blocked' || descendant.status === 'changed') {
-      reasons.push({ kind: 'descendant_blocking', card_id: descendantId, status: descendant.status });
+      reasons.push({
+        kind: 'descendant_blocking',
+        card_id: descendantId,
+        status: descendant.status,
+      });
     }
   }
   return reasons;
@@ -145,7 +198,8 @@ export class PlannerToolsService {
       this.projectRoot = runtimeStateProviderOrOptions?.projectRoot;
       this.reviewer = runtimeStateProviderOrOptions?.reviewer;
       this.maxReviewRetries = runtimeStateProviderOrOptions?.maxReviewRetries ?? 3;
-      this.assessmentIdFactory = runtimeStateProviderOrOptions?.assessmentIdFactory ?? (() => randomUUID());
+      this.assessmentIdFactory =
+        runtimeStateProviderOrOptions?.assessmentIdFactory ?? (() => randomUUID());
     }
   }
 
@@ -153,14 +207,24 @@ export class PlannerToolsService {
     const card = requireCard(this.store, cardId);
     const runtimeState = this.runtimeStateProvider?.() ?? null;
     if (runtimeState?.active_card_run?.card_id === cardId) {
-      throw new PlannerToolError('card_already_active', `Card '${cardId}' is already the active runtime leaf.`);
+      throw new PlannerToolError(
+        'card_already_active',
+        `Card '${cardId}' is already the active runtime leaf.`,
+      );
     }
     if (card.status === 'active' || card.status === 'running') {
       throw new PlannerToolError('card_already_active', `Card '${cardId}' is already active.`);
     }
-    const startDecision = decide({ role: 'planner', action: 'card.start', targetState: card.status });
+    const startDecision = decide({
+      role: 'planner',
+      action: 'card.start',
+      targetState: card.status,
+    });
     if (!startDecision.allowed && !isGoalLike(card)) {
-      throw new PlannerToolError('terminal_card_requires_restart', `Card '${cardId}' is terminal and must be restarted before activation.`);
+      throw new PlannerToolError(
+        'terminal_card_requires_restart',
+        `Card '${cardId}' is terminal and must be restarted before activation.`,
+      );
     }
     return this.store.update(cardId, { status: 'active' });
   }
@@ -168,14 +232,25 @@ export class PlannerToolsService {
   cancelCard(cardId: string): CardRecord {
     const card = requireCard(this.store, cardId);
     if (!decide({ role: 'planner', action: 'card.cancel', targetState: card.status }).allowed) {
-      throw new PlannerToolError('invalid_card_status', `Card '${cardId}' in status '${card.status}' cannot be cancelled.`);
+      throw new PlannerToolError(
+        'invalid_card_status',
+        `Card '${cardId}' in status '${card.status}' cannot be cancelled.`,
+      );
     }
     if (subtreeContainsActiveLeaf(this.store, this.runtimeStateProvider?.() ?? null, cardId)) {
-      throw new PlannerToolError('card_already_active', `Card '${cardId}' cannot be cancelled while its subtree contains the active runtime leaf.`);
+      throw new PlannerToolError(
+        'card_already_active',
+        `Card '${cardId}' cannot be cancelled while its subtree contains the active runtime leaf.`,
+      );
     }
     const changes: Partial<CardRecord> = { status: 'cancelled' };
     if (!card.latest_self_report) {
-      changes.latest_self_report = { result: 'failed', outcome: 'failed', reason: 'cancelled', at: new Date().toISOString() };
+      changes.latest_self_report = {
+        result: 'failed',
+        outcome: 'failed',
+        reason: 'cancelled',
+        at: new Date().toISOString(),
+      };
     }
     return this.store.update(cardId, changes);
   }
@@ -187,10 +262,16 @@ export class PlannerToolsService {
     for (const id of ids) {
       const card = requireCard(this.store, id);
       if (runtimeState?.active_card_run?.card_id === id) {
-        throw new PlannerToolError('card_already_active', `Card '${cardId}' cannot be deleted while its subtree contains the active runtime leaf.`);
+        throw new PlannerToolError(
+          'card_already_active',
+          `Card '${cardId}' cannot be deleted while its subtree contains the active runtime leaf.`,
+        );
       }
       if (!decide({ role: 'planner', action: 'card.delete', targetState: card.status }).allowed) {
-        throw new PlannerToolError('invalid_card_status', `Card '${id}' in status '${card.status}' cannot be deleted.`);
+        throw new PlannerToolError(
+          'invalid_card_status',
+          `Card '${id}' in status '${card.status}' cannot be deleted.`,
+        );
       }
     }
     void root;
@@ -200,10 +281,16 @@ export class PlannerToolsService {
   restartCard(cardId: string): CardRecord {
     const card = requireCard(this.store, cardId);
     if (subtreeContainsActiveLeaf(this.store, this.runtimeStateProvider?.() ?? null, cardId)) {
-      throw new PlannerToolError('card_already_active', `Card '${cardId}' cannot be restarted while its subtree contains the active runtime leaf.`);
+      throw new PlannerToolError(
+        'card_already_active',
+        `Card '${cardId}' cannot be restarted while its subtree contains the active runtime leaf.`,
+      );
     }
     if (!decide({ role: 'planner', action: 'card.restart', targetState: card.status }).allowed) {
-      throw new PlannerToolError('invalid_card_status', `Card '${cardId}' in status '${card.status}' cannot be restarted.`);
+      throw new PlannerToolError(
+        'invalid_card_status',
+        `Card '${cardId}' in status '${card.status}' cannot be restarted.`,
+      );
     }
     const currentResult = cloneResult(card);
     if (isGoalLike(card)) delete currentResult.review;
@@ -223,42 +310,144 @@ export class PlannerToolsService {
     return this.store.update(cardId, { status: 'active' });
   }
 
-
-  moveCard(id: string, newParent: string, ctx: CardMutationContext & { toolCallId?: string; sessionId?: string }): Record<string, unknown> {
-    const r = this.store.moveCard(id, newParent, { actor: 'planner', surface: 'runtime', reason: 'planner move_card' });
-    recordControlAction(this.projectRoot ?? this.store.projectRoot, { actor: 'planner', surface: 'runtime', action: 'card.move', target_kind: 'card', target_id: id, params_summary: stableStringify({ id, newParent, toolCallId: ctx.toolCallId, sessionId: ctx.sessionId }), outcome: r.ok ? 'ok' : 'error', outcome_summary: r.ok ? 'mutation applied' : r.message, ...(r.ok ? {} : { error: r.message }) });
+  moveCard(
+    id: string,
+    newParent: string,
+    ctx: CardMutationContext & { toolCallId?: string; sessionId?: string },
+  ): Record<string, unknown> {
+    const r = this.store.moveCard(id, newParent, {
+      actor: 'planner',
+      surface: 'runtime',
+      reason: 'planner move_card',
+    });
+    recordControlAction(this.projectRoot ?? this.store.projectRoot, {
+      actor: 'planner',
+      surface: 'runtime',
+      action: 'card.move',
+      target_kind: 'card',
+      target_id: id,
+      params_summary: stableStringify({
+        id,
+        newParent,
+        toolCallId: ctx.toolCallId,
+        sessionId: ctx.sessionId,
+      }),
+      outcome: r.ok ? 'ok' : 'error',
+      outcome_summary: r.ok ? 'mutation applied' : r.message,
+      ...(r.ok ? {} : { error: r.message }),
+    });
     if (r.ok) return { success: true, data: r.data };
-    return { success: false, data: { reason: r.reason, message: r.message, current_parent: r.currentParent, attempted_parent: r.attemptedParent } };
+    return {
+      success: false,
+      data: {
+        reason: r.reason,
+        message: r.message,
+        current_parent: r.currentParent,
+        attempted_parent: r.attemptedParent,
+      },
+    };
   }
 
-  queueNotification(recipient: Recipient, kind: string, body: string, ctx: CardMutationContext & { toolCallId?: string; sessionId?: string }): Record<string, unknown> {
+  queueNotification(
+    recipient: Recipient,
+    kind: string,
+    body: string,
+    ctx: CardMutationContext & { toolCallId?: string; sessionId?: string },
+  ): Record<string, unknown> {
     const projectRoot = this.projectRoot ?? this.store.projectRoot;
     queueNotification(projectRoot, recipient, kind, body, { actor: 'planner', surface: 'runtime' });
-    const targetId = recipient.kind === 'card' ? recipient.cardId : recipient.kind === 'role' ? recipient.role : recipient.sessionId;
-    recordControlAction(projectRoot, { actor: 'planner', surface: 'runtime', action: 'notification.queue', target_kind: 'session', target_id: targetId, params_summary: stableStringify({ recipient, kind, toolCallId: ctx.toolCallId, sessionId: ctx.sessionId }), outcome: 'ok', outcome_summary: kind });
+    const targetId =
+      recipient.kind === 'card'
+        ? recipient.cardId
+        : recipient.kind === 'role'
+          ? recipient.role
+          : recipient.sessionId;
+    recordControlAction(projectRoot, {
+      actor: 'planner',
+      surface: 'runtime',
+      action: 'notification.queue',
+      target_kind: 'session',
+      target_id: targetId,
+      params_summary: stableStringify({
+        recipient,
+        kind,
+        toolCallId: ctx.toolCallId,
+        sessionId: ctx.sessionId,
+      }),
+      outcome: 'ok',
+      outcome_summary: kind,
+    });
     return { success: true, data: { queued: true, recipient: targetId } };
   }
 
-  reorderChildren(parentId: string, orderedChildIds: string[], ctx: CardMutationContext & { toolCallId?: string; sessionId?: string }): Record<string, unknown> {
-    const r = this.store.reorderChildren(parentId, orderedChildIds, { actor: 'planner', surface: 'runtime', reason: 'planner reorder_child' });
-    recordControlAction(this.projectRoot ?? this.store.projectRoot, { actor: 'planner', surface: 'runtime', action: 'card.reorder_child', target_kind: 'card', target_id: parentId, params_summary: stableStringify({ parentId, orderedChildIds, toolCallId: ctx.toolCallId, sessionId: ctx.sessionId }), outcome: r.ok ? 'ok' : 'error', outcome_summary: r.ok ? 'mutation applied' : 'reorder_set_mismatch', ...(r.ok ? {} : { error: 'reorder_set_mismatch' }) });
+  reorderChildren(
+    parentId: string,
+    orderedChildIds: string[],
+    ctx: CardMutationContext & { toolCallId?: string; sessionId?: string },
+  ): Record<string, unknown> {
+    const r = this.store.reorderChildren(parentId, orderedChildIds, {
+      actor: 'planner',
+      surface: 'runtime',
+      reason: 'planner reorder_child',
+    });
+    recordControlAction(this.projectRoot ?? this.store.projectRoot, {
+      actor: 'planner',
+      surface: 'runtime',
+      action: 'card.reorder_child',
+      target_kind: 'card',
+      target_id: parentId,
+      params_summary: stableStringify({
+        parentId,
+        orderedChildIds,
+        toolCallId: ctx.toolCallId,
+        sessionId: ctx.sessionId,
+      }),
+      outcome: r.ok ? 'ok' : 'error',
+      outcome_summary: r.ok ? 'mutation applied' : 'reorder_set_mismatch',
+      ...(r.ok ? {} : { error: 'reorder_set_mismatch' }),
+    });
     if (r.ok) return { success: true, data: { parent_id: parentId, changed: r.changed } };
-    return { success: false, data: { reason: 'reorder_set_mismatch', missing: r.missing, extra: r.extra, parent_id: parentId } };
+    return {
+      success: false,
+      data: {
+        reason: 'reorder_set_mismatch',
+        missing: r.missing,
+        extra: r.extra,
+        parent_id: parentId,
+      },
+    };
   }
 
-  reportGoal(toolName: keyof typeof REPORTABLE_OUTCOMES, goalId: string, input: ReportGoalInput, sessionId?: string): ReportGoalResult {
+  reportGoal(
+    toolName: keyof typeof REPORTABLE_OUTCOMES,
+    goalId: string,
+    input: ReportGoalInput,
+    sessionId?: string,
+  ): ReportGoalResult {
     const result = this.reportGoalSync(toolName, goalId, input, sessionId);
     if (result instanceof Promise) {
-      throw new Error('Asynchronous reviewer is not supported by reportGoal(); use reportGoalAsync().');
+      throw new Error(
+        'Asynchronous reviewer is not supported by reportGoal(); use reportGoalAsync().',
+      );
     }
     return result;
   }
 
-  async reportGoalAsync(toolName: keyof typeof REPORTABLE_OUTCOMES, goalId: string, input: ReportGoalInput, sessionId?: string): Promise<ReportGoalResult> {
+  async reportGoalAsync(
+    toolName: keyof typeof REPORTABLE_OUTCOMES,
+    goalId: string,
+    input: ReportGoalInput,
+    sessionId?: string,
+  ): Promise<ReportGoalResult> {
     return await this.reportGoalSync(toolName, goalId, input, sessionId);
   }
 
-  private reportGoalSync(toolName: keyof typeof REPORTABLE_OUTCOMES, goalId: string, input: ReportGoalInput, sessionId?: string): ReportGoalResult | Promise<ReportGoalResult> {
+  private reportGoalSync(
+    toolName: keyof typeof REPORTABLE_OUTCOMES,
+    goalId: string,
+    input: ReportGoalInput,
+    sessionId?: string,
+  ): ReportGoalResult | Promise<ReportGoalResult> {
     const goal = requireCard(this.store, goalId);
     if ((goal.type !== 'goal' && goal.type !== 'project') || !input.status_text.trim()) {
       throw new Error(`Tool '${toolName}' requires a goal/project card and non-empty status_text.`);
@@ -267,8 +456,15 @@ export class PlannerToolsService {
     if (toolName === 'report_goal_done') {
       const reasons = collectSubtreeReadinessReasons(this.store, goalId);
       if (reasons.length > 0) {
-        this.appendSyntheticNote(goalId, `subtree_not_ready: ${reasons.map((r) => `${r.card_id} is ${r.status}`).join(', ')}`);
-        throw new PlannerToolError('subtree_not_ready', `Goal '${goalId}' cannot be reported done while descendants are blocked or changed.`, { reasons });
+        this.appendSyntheticNote(
+          goalId,
+          `subtree_not_ready: ${reasons.map((r) => `${r.card_id} is ${r.status}`).join(', ')}`,
+        );
+        throw new PlannerToolError(
+          'subtree_not_ready',
+          `Goal '${goalId}' cannot be reported done while descendants are blocked or changed.`,
+          { reasons },
+        );
       }
       assertEvidenceCardsReady(this.store, goalId, evidenceCardIds);
     } else if (evidenceCardIds.length > 0) {
@@ -288,18 +484,89 @@ export class PlannerToolsService {
     if (toolName === 'report_goal_done' && this.reviewer) {
       const assessmentId = this.assessmentIdFactory();
       const reviewerSessionId = `reviewer:${goalId}:${assessmentId}`;
-      const maybeReview = this.reviewer(goalId, assessmentId, reviewerSessionId, report, sessionId);
-      if (maybeReview instanceof Promise) {
-        return maybeReview.then((review) => this.applyReviewerAssessment(goal, report, input.status_text, sessionId, assessmentId, reviewerSessionId, review));
+      try {
+        const maybeReview = this.reviewer(
+          goalId,
+          assessmentId,
+          reviewerSessionId,
+          report,
+          sessionId,
+        );
+        if (maybeReview instanceof Promise) {
+          return maybeReview
+            .then((review) =>
+              this.applyReviewerAssessment(
+                goal,
+                report,
+                input.status_text,
+                sessionId,
+                assessmentId,
+                reviewerSessionId,
+                review,
+              ),
+            )
+            .catch((err: unknown) => {
+              throw this.persistReviewerInvocationBlock(goalId, err);
+            });
+        }
+        return this.applyReviewerAssessment(
+          goal,
+          report,
+          input.status_text,
+          sessionId,
+          assessmentId,
+          reviewerSessionId,
+          maybeReview,
+        );
+      } catch (err) {
+        throw this.persistReviewerInvocationBlock(goalId, err);
       }
-      return this.applyReviewerAssessment(goal, report, input.status_text, sessionId, assessmentId, reviewerSessionId, maybeReview);
     }
 
-    const updated = this.acceptReport(goal, toolName, report, input.status_text, sessionId, undefined);
+    const updated = this.acceptReport(
+      goal,
+      toolName,
+      report,
+      input.status_text,
+      sessionId,
+      undefined,
+    );
     return { card: updated, accepted: true };
   }
 
-  private applyReviewerAssessment(goal: CardRecord, report: GoalSelfReport, statusText: string, sessionId: string | undefined, assessmentId: string, reviewerSessionId: string, rawReview: ReviewerResult): ReportGoalResult {
+  private persistReviewerInvocationBlock(goalId: string, err: unknown): PlannerToolError {
+    if (err instanceof PlannerToolError) return err;
+    const message = reviewerInvocationFailedMessage(goalId);
+    const current = requireCard(this.store, goalId);
+    this.store.update(goalId, {
+      status: 'blocked',
+      error: message,
+      status_text: message,
+      status_text_updated_at: new Date().toISOString(),
+      result: {
+        ...cloneResult(current),
+        planning: {
+          status: 'blocked',
+          blocked_reason: message,
+          resume_reason: 'reviewer_unavailable',
+          failure_kind: 'reviewer_invocation_failed',
+          created_cards: [],
+          updated_cards: [],
+        },
+      },
+    });
+    return new PlannerToolError('reviewer_invocation_failed', message);
+  }
+
+  private applyReviewerAssessment(
+    goal: CardRecord,
+    report: GoalSelfReport,
+    statusText: string,
+    sessionId: string | undefined,
+    assessmentId: string,
+    reviewerSessionId: string,
+    rawReview: ReviewerResult,
+  ): ReportGoalResult {
     const review = rawReview;
     const assessment: ReviewAssessment = {
       ...review,
@@ -308,10 +575,19 @@ export class PlannerToolsService {
       reviewer_session_id: reviewerSessionId,
       goal_card_id: goal.id,
     };
-    this.store.update(goal.id, { result: { ...cloneResult(requireCard(this.store, goal.id)), review: assessment } });
+    this.store.update(goal.id, {
+      result: { ...cloneResult(requireCard(this.store, goal.id)), review: assessment },
+    });
 
     if (assessment.result === 'pass') {
-      const updated = this.acceptReport(requireCard(this.store, goal.id), 'report_goal_done', report, statusText, sessionId, assessment);
+      const updated = this.acceptReport(
+        requireCard(this.store, goal.id),
+        'report_goal_done',
+        report,
+        statusText,
+        sessionId,
+        assessment,
+      );
       return { card: updated, accepted: true, assessment };
     }
 
@@ -326,7 +602,14 @@ export class PlannerToolsService {
     return { card: requireCard(this.store, goal.id), accepted: true, assessment };
   }
 
-  private acceptReport(goal: CardRecord, toolName: keyof typeof REPORTABLE_OUTCOMES, report: GoalSelfReport, statusText: string, sessionId: string | undefined, assessment: ReviewAssessment | undefined): CardRecord {
+  private acceptReport(
+    goal: CardRecord,
+    toolName: keyof typeof REPORTABLE_OUTCOMES,
+    report: GoalSelfReport,
+    statusText: string,
+    sessionId: string | undefined,
+    assessment: ReviewAssessment | undefined,
+  ): CardRecord {
     const result: Record<string, unknown> = { ...cloneResult(goal), latest_self_report: report };
     if (assessment) result.review = assessment;
     return this.store.update(goal.id, {
@@ -340,7 +623,9 @@ export class PlannerToolsService {
     });
   }
 
-  private appendSyntheticNote(_cardId: string, _content: string): void { return; }
+  private appendSyntheticNote(_cardId: string, _content: string): void {
+    return;
+  }
 
   private writePendingSubtreeCorrectionNotes(originId: string, issues: ReviewerIssue[]): void {
     const body = `pending_subtree_correction from ${originId}: ${issues.map((issue) => issue.summary).join('; ')}`;
