@@ -12,7 +12,7 @@ Use this page for day-to-day Saivage operation. Incident recovery lives in [Inci
 
 ## Supported local runtime
 
-Run Saivage with Node.js 22. The root and web `package.json` engines declare `node >=22.12.0 <23` and `npm >=10 <12`, matching the CI `actions/setup-node@v4` validation profile. Check `node --version` and `npm --version` before `npm install`, `npm ci`, builds, or runtime startup.
+Run Saivage with Node.js 24. The root and web `package.json` engines declare `node >=24 <25` and `npm >=10 <12`, matching the CI `actions/setup-node@v4` validation profile. Check `node --version` and `npm --version` before `npm install`, `npm ci`, builds, or runtime startup.
 
 ## Startup modes
 

@@ -452,12 +452,12 @@ An API token for the Saivage server itself is set via the
 
 | Section | Fields | Code anchor |
 |---|---|---|
-| `top-level` | `failover,mcpServers,models,notifications,providers,runtime,security,server,supervisor,telegram` | `src/agents/config-schema.ts:294` |
-| `models` | `analyst,chat,coder,data_agent,default,equivalents,executor,failover,inspector,manager,max_tokens,planner,profiles,researcher,reviewer,routing,temperature` | `src/agents/config-schema.ts:131` |
+| `top-level` | `mcpServers,models,notifications,providers,rag,runtime,security,server,supervisor,telegram` | `src/agents/config-schema.ts:267` |
+| `models` | `default,equivalents,failover,max_tokens,profiles,routing,temperature` | `src/agents/config-schema.ts:103` |
 | `providers.entry` | `accounts,apiKey,authProfile,baseUrl,capabilities,modelCapabilities,models,priority,tokenEndpoint` | `src/agents/config-schema.ts:198` |
 | `providers.account` | `apiKey,authProfile,baseUrl,capabilities,models,priority,tokenEndpoint` | `src/agents/config-schema.ts:188` |
 | `server` | `host,port` | `src/agents/config-schema.ts:209` |
-| `runtime` | `continuous_improvement,max_review_retries,process_timeouts` | `src/agents/config-schema.ts:226` |
+| `runtime` | `candidate_availability_compact_bytes,continuous_improvement,max_review_retries,process_timeouts` | `src/agents/config-schema.ts:186` |
 | `runtime.process_timeouts` | `executor_ms,planner_ms,reviewer_ms` | `src/agents/config-schema.ts:220` |
 | `security` | `injectionModel,injectionScanner,maxScanLengthBytes` | `src/agents/config-schema.ts:252` |
 | `supervisor` | `consecutiveStuckVerdicts,enabled,intervalMs,logLines,model` | `src/agents/config-schema.ts:259` |

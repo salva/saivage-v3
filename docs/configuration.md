@@ -23,7 +23,7 @@ Configuration is loaded from `.saivage/saivage.json` in the project root directo
   "telegram": { ... },
   "notifications": { ... },
   "mcpServers": { ... },
-  "failover": { ... }
+  "rag": { ... }
 }
 ```
 
@@ -114,9 +114,9 @@ Groups of model strings treated as equivalent for failover purposes:
 }
 ```
 
-### Failover Chains (deprecated location)
+### Failover Chains
 
-Failover can also be configured in the `models.failover` section (in addition to the top-level `failover`):
+Failover is configured in `models.failover`; legacy top-level `failover` is normalized into this section at load time:
 
 ```json
 {
@@ -217,6 +217,7 @@ Controls the persisted §13 runtime settings. The on-disk section accepts only t
 |---|---|---|---|
 | `continuous_improvement` | boolean | `false` | Enable idle depth-0 planner continuous improvement cycles |
 | `max_review_retries` | number | `3` | Default maximum reviewer correction attempts for goal cards; card metadata can override with `max_review_retries` |
+| `candidate_availability_compact_bytes` | number | `262144` | Maximum bytes retained for compacted provider/model candidate availability state |
 | `process_timeouts.planner_ms` | number | `1200000` | Planner invocation timeout in milliseconds |
 | `process_timeouts.executor_ms` | number | `1200000` | Executor invocation timeout in milliseconds |
 | `process_timeouts.reviewer_ms` | number | `1200000` | Reviewer invocation timeout in milliseconds |
@@ -341,16 +342,18 @@ MCP server status is available at `GET /api/mcp/status`.
 
 ---
 
-## Failover Section (`failover`)
+## Failover Chains (`models.failover`)
 
-Top-level model failover chains. When a model is unavailable, the runtime tries the next model in the chain.
+Model failover chains live under `models.failover`. When a model is unavailable, the runtime tries the next model in the chain. Legacy top-level `failover` is accepted only as a load-time migration convenience and is removed from normalized config.
 
 ```json
 {
-  "failover": {
-    "kimi-k2.6": ["deepseek-v4-pro"],
-    "deepseek-v4-flash": ["qwen3.5-plus"],
-    "minimax-m2.7": ["kimi-k2.6"]
+  "models": {
+    "failover": {
+      "kimi-k2.6": ["deepseek-v4-pro"],
+      "deepseek-v4-flash": ["qwen3.5-plus"],
+      "minimax-m2.7": ["kimi-k2.6"]
+    }
   }
 }
 ```
@@ -409,6 +412,11 @@ Unknown environment variables resolve to an empty string and generate a warning.
     "routing": {
       "coder": "powerful",
       "chat": "fast"
+    },
+    "failover": {
+      "kimi-k2.6": ["deepseek-v4-pro"],
+      "deepseek-v4-flash": ["qwen3.5-plus"],
+      "minimax-m2.7": ["kimi-k2.6"]
     }
   },
   "providers": {
@@ -417,11 +425,6 @@ Unknown environment variables resolve to an empty string and generate a warning.
       "models": ["minimax-m2.7", "kimi-k2.6", "deepseek-v4-pro", "deepseek-v4-flash", "qwen3.5-plus"],
       "priority": 10
     }
-  },
-  "failover": {
-    "kimi-k2.6": ["deepseek-v4-pro"],
-    "deepseek-v4-flash": ["qwen3.5-plus"],
-    "minimax-m2.7": ["kimi-k2.6"]
   },
   "security": {
     "injectionScanner": true,
@@ -436,6 +439,7 @@ Unknown environment variables resolve to an empty string and generate a warning.
   "runtime": {
     "continuous_improvement": true,
     "max_review_retries": 3,
+    "candidate_availability_compact_bytes": 262144,
     "process_timeouts": {
       "planner_ms": 1200000,
       "executor_ms": 1200000,
@@ -452,12 +456,12 @@ Unknown environment variables resolve to an empty string and generate a warning.
 
 | Section | Fields | Code anchor |
 |---|---|---|
-| `top-level` | `failover,mcpServers,models,notifications,providers,runtime,security,server,supervisor,telegram` | `src/agents/config-schema.ts:294` |
-| `models` | `analyst,chat,coder,data_agent,default,equivalents,executor,failover,inspector,manager,max_tokens,planner,profiles,researcher,reviewer,routing,temperature` | `src/agents/config-schema.ts:131` |
+| `top-level` | `mcpServers,models,notifications,providers,rag,runtime,security,server,supervisor,telegram` | `src/agents/config-schema.ts:267` |
+| `models` | `default,equivalents,failover,max_tokens,profiles,routing,temperature` | `src/agents/config-schema.ts:103` |
 | `providers.entry` | `accounts,apiKey,authProfile,baseUrl,capabilities,modelCapabilities,models,priority,tokenEndpoint` | `src/agents/config-schema.ts:198` |
 | `providers.account` | `apiKey,authProfile,baseUrl,capabilities,models,priority,tokenEndpoint` | `src/agents/config-schema.ts:188` |
 | `server` | `host,port` | `src/agents/config-schema.ts:209` |
-| `runtime` | `continuous_improvement,max_review_retries,process_timeouts` | `src/agents/config-schema.ts:226` |
+| `runtime` | `candidate_availability_compact_bytes,continuous_improvement,max_review_retries,process_timeouts` | `src/agents/config-schema.ts:186` |
 | `runtime.process_timeouts` | `executor_ms,planner_ms,reviewer_ms` | `src/agents/config-schema.ts:220` |
 | `security` | `injectionModel,injectionScanner,maxScanLengthBytes` | `src/agents/config-schema.ts:252` |
 | `supervisor` | `consecutiveStuckVerdicts,enabled,intervalMs,logLines,model` | `src/agents/config-schema.ts:259` |

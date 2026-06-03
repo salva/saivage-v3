@@ -1,4 +1,4 @@
-# Saivage v3 Codex Instructions
+# Saivage v3 AI Agent Instructions
 
 <!-- doc-authority
 status: current
@@ -10,7 +10,7 @@ last_verified_against: scripts/check-doc-authority-metadata.js:1
 
 Scope: `/home/salva/g/ml/saivage-v3`.
 
-Read `/home/salva/g/ml/CODEX_PROJECT_MEMORY.md` and the current docs before substantial work here.
+Read `/home/salva/g/ml/CODEX_PROJECT_MEMORY.md` and the current docs before substantial work here. OpenCode loads this file through `.opencode/opencode.json` because `saivage-v3` is its own Git repository.
 
 ## Current Authority
 

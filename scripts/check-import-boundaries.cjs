@@ -25,7 +25,7 @@ const PREEXISTING_DEEP_IMPORT_EXCEPTIONS = new Set([
   'src/tools/agent-tools.ts->agents/analyst-tool-schemas.js',
   'src/tools/agent-tools.ts->agents/analyst-tools.js',
 ]);
-const PREEXISTING_SERVER_IMPORT_EXCEPTIONS = new Set(['src/runtime/active-runtime.ts']);
+const PREEXISTING_SERVER_IMPORT_EXCEPTIONS = new Set();
 const ROOT_IMPORT_FORBIDDEN_PACKAGES = new Set(['agents', 'runtime', 'cards', 'mcp', 'server']);
 const EXPLICIT_PUBLIC_ENTRYPOINT_RE = /^(?:config|session|analyst|execution|tool|state|control|process|store|lifecycle|artifact|manager|protocol|status|server)-api(?:\.js|\.ts)?$/;
 

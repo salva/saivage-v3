@@ -15,10 +15,10 @@ const DEFAULT_WORKFLOW_DIRS = ['.github/workflows'];
 
 const REQUIRED_WORKFLOW_PROFILES = ['validate:routine', 'validate:docs'];
 
-const EXPECTED_NODE_MAJOR = '22';
-const EXPECTED_NODE_ENGINE = '>=22.12.0 <23';
+const EXPECTED_NODE_MAJOR = '24';
+const EXPECTED_NODE_ENGINE = '>=24 <25';
 const EXPECTED_NPM_ENGINE = '>=10 <12';
-const RUNTIME_REFERENCE_PATTERN = /Node(?:\.js)?\s+22[\s\S]{0,160}(?:npm\s+10|package\.json\s+engines|package engines|CI|GitHub Actions)/i;
+const RUNTIME_REFERENCE_PATTERN = /Node(?:\.js)?\s+24[\s\S]{0,160}(?:npm\s+10|package\.json\s+engines|package engines|CI|GitHub Actions)/i;
 const REQUIRED_RUNTIME_DOC_FILES = ['README.md', 'docs/runbook/operations.md', 'docs/runbook/release.md'];
 const PASS_WITH_NO_TESTS_FLAG = '--passWithNoTests';
 

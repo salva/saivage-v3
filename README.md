@@ -12,7 +12,7 @@ Saivage v3 is an autonomous multi-agent runtime for software-development work. A
 
 ## Quick start
 
-Use Node.js 22 (the repository engines require `node >=22.12.0 <23` and `npm >=10 <12`, matching the GitHub Actions validation profile), then install dependencies:
+Use Node.js 24 (the repository engines require `node >=24 <25` and `npm >=10 <12`, matching the GitHub Actions validation profile), then install dependencies:
 
 ```bash
 npm install
@@ -61,7 +61,7 @@ curl http://localhost:8080/health
 
 ## Verification
 
-Run the validation profile that matches the change type; see the [validation matrix](docs/runbook/release.md#validation-matrix) for details. The checked-in GitHub Actions workflow at [`.github/workflows/validation.yml`](.github/workflows/validation.yml) is least-privilege and secret-free (`contents: read`, no `secrets.*` or token-like env assignments), cancels superseded runs for the same workflow/ref, sets up Node.js 22 with npm caching, installs with `npm ci`, and runs `npm run validate:routine` plus `npm run validate:docs` automatically on push/pull request. `workflow_dispatch` inputs expose the heavier `npm run validate:ui-smoke` and `npm run validate:release` profiles as manual gates.
+Run the validation profile that matches the change type; see the [validation matrix](docs/runbook/release.md#validation-matrix) for details. The checked-in GitHub Actions workflow at [`.github/workflows/validation.yml`](.github/workflows/validation.yml) is least-privilege and secret-free (`contents: read`, no `secrets.*` or token-like env assignments), cancels superseded runs for the same workflow/ref, sets up Node.js 24 with npm caching, installs with `npm ci`, and runs `npm run validate:routine` plus `npm run validate:docs` automatically on push/pull request. `workflow_dispatch` inputs expose the heavier `npm run validate:ui-smoke` and `npm run validate:release` profiles as manual gates.
 
 ```bash
 npm run validate:docs

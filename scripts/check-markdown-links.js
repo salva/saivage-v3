@@ -15,6 +15,8 @@ const IGNORED_DIRS = new Set([
   'web/dist',
   'old-documents',
   'SPEC/v1/review-2026-05',
+  'SPEC/v0.2/review-2026-05-agent-autonomy',
+  'SPEC/review-2026-05',
   'SPEC/2026-05',
   'SPEC/analyst-as-control-surface',
   'proposals-for-review',

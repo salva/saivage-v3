@@ -235,7 +235,7 @@ function extractImplementedAgentTools(projectRoot) {
 }
 
 function objectFields(content, constName) {
-  const startRe = new RegExp(`(?:export\\s+)?const\\s+${constName}\\s*=\\s*z\\.object\\(\\{`);
+  const startRe = new RegExp(`(?:export\\s+)?const\\s+${constName}\\s*=\\s*z\\s*(?:\\.object)?\\(\\s*\\{`);
   const start = content.search(startRe);
   if (start === -1) return [];
   const bodyStart = content.indexOf('{', start) + 1;
@@ -250,10 +250,11 @@ function objectFields(content, constName) {
   const body = content.slice(bodyStart, i);
   const fields = [];
   for (const line of body.split('\n')) {
-    const match = line.match(/^\s{2}([A-Za-z_][A-Za-z0-9_]*):/);
-    if (match) fields.push(match[1]);
+    const match = line.match(/^(\s{2,})([A-Za-z_][A-Za-z0-9_]*):/);
+    if (match) fields.push({ indent: match[1].length, name: match[2] });
   }
-  return uniqueSorted(fields);
+  const shallowest = Math.min(...fields.map((field) => field.indent));
+  return uniqueSorted(fields.filter((field) => field.indent === shallowest).map((field) => field.name));
 }
 
 function extractConfigSchema(projectRoot) {
