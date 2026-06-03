@@ -1,0 +1,67 @@
+import type { CardStore } from '../cards/store-api.js';
+import type { RuntimeState } from '../schemas/index.js';
+import { queueSyntheticPlannerNote } from './synthetic-planner-notes.js';
+import { saveRuntimeState } from './state.js';
+import { cardHasBlockedPlanning } from './planning-blockers.js';
+import type { ActivationUnwindRunner } from './activation-unwind.js';
+import {
+  decideStartupActiveRunRepair,
+  executeStartupActiveRunRepairDecision,
+} from './startup-repair.js';
+import type { RuntimeStateMachine } from './state-machine.js';
+import type { RuntimeRunLedger } from './runtime-run-ledger.js';
+
+const TERMINAL_STATUSES: ReadonlySet<string> = new Set(['done', 'failed', 'cancelled']);
+
+function now(): string {
+  return new Date().toISOString();
+}
+
+export class ActivationRepairRunner {
+  constructor(
+    private readonly deps: {
+      projectRoot: string;
+      cards: CardStore;
+      stateMachine: RuntimeStateMachine;
+      activationUnwind: ActivationUnwindRunner;
+      runLedger: RuntimeRunLedger;
+    },
+  ) {}
+
+  repairStartupActiveCardRun(previousState: RuntimeState | null): Promise<RuntimeState | null> {
+    const run = previousState?.active_card_run ?? null;
+    const card = run ? this.deps.cards.read(run.card_id) : null;
+    const persistedReview =
+      card?.result && typeof card.result === 'object'
+        ? (card.result as { review?: unknown }).review
+        : undefined;
+    const decision = decideStartupActiveRunRepair({
+      previousState,
+      card,
+      hasPersistedReview: Boolean(persistedReview),
+      cardHasBlockedPlanning: card ? cardHasBlockedPlanning(card) : false,
+      isTerminalCardStatus: card ? TERMINAL_STATUSES.has(card.status) : false,
+    });
+
+    return executeStartupActiveRunRepairDecision({
+      decision,
+      previousState,
+      effects: {
+        now,
+        repairOrphanActivateCardToolCalls: () => this.deps.activationUnwind.repairOrphanActivateCardToolCalls(),
+        transitionCard: (cardId, event, details) =>
+          this.deps.stateMachine.transitionCard(cardId, event, details),
+        updateCard: (cardId, patch) => this.deps.cards.update(cardId, patch),
+        appendChildUnwindToolResult: (cardId, outcome, summary) =>
+          this.deps.activationUnwind.appendChildUnwindToolResult(cardId, outcome, summary),
+        parentPlannerRunFor: (cardId) => this.deps.activationUnwind.parentPlannerRunFor(cardId),
+        findCallerEdge: (cardId) => this.deps.activationUnwind.findCallerEdge(cardId),
+        synthesizeTerminalActivationResult: (sessionId, toolCallId, cardId) =>
+          this.deps.activationUnwind.synthesizeTerminalActivationResult(sessionId, toolCallId, cardId),
+        finishOpenPlannerRun: (cardId, result) => this.deps.runLedger.finishOpenPlannerRun(cardId, result),
+        queueSyntheticPlannerNote: (note) => queueSyntheticPlannerNote(this.deps.projectRoot, note),
+        saveState: (state) => saveRuntimeState(this.deps.projectRoot, state),
+      },
+    });
+  }
+}

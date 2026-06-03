@@ -2,9 +2,9 @@ import type { ActivationCompletionOutcome, RuntimeState } from '../schemas/index
 import type { ExecutorResult, PlannerResult, ReviewerResult } from '../contracts/index.js';
 
 export type ActivationState =
-  | { phase: 'planner'; cardId: string; plannerSessionId: string; correctionAttempts: number }
-  | { phase: 'executor'; cardId: string; goalId: string; executorSessionId: string }
-  | { phase: 'reviewer'; cardId: string; reviewerSessionId: string; assessmentId: string }
+  | { phase: 'planner'; cardId: string; plannerSessionId: string; correctionAttempts: number; activeRun?: NonNullable<RuntimeState['active_card_run']> }
+  | { phase: 'executor'; cardId: string; goalId: string; executorSessionId: string; activeRun?: NonNullable<RuntimeState['active_card_run']> }
+  | { phase: 'reviewer'; cardId: string; reviewerSessionId: string; assessmentId: string; activeRun?: NonNullable<RuntimeState['active_card_run']> }
   | { phase: 'completed'; cardId: string; outcome: ActivationCompletionOutcome }
   | { phase: 'repairing'; cardId: string; previous: NonNullable<RuntimeState['active_card_run']> };
 
@@ -40,6 +40,7 @@ export function activationStateFromActiveRun(activeRun: RuntimeState['active_car
       cardId: activeRun.card_id,
       plannerSessionId: activeRun.planner_session_id ?? `planner:${activeRun.card_id}`,
       correctionAttempts: activeRun.correction_attempts,
+      activeRun,
     };
   }
   if (activeRun.phase === 'executor') {
@@ -48,6 +49,7 @@ export function activationStateFromActiveRun(activeRun: RuntimeState['active_car
       cardId: activeRun.card_id,
       goalId: activeRun.planner_session_id?.replace(/^planner:/, '') ?? activeRun.card_id,
       executorSessionId: activeRun.executor_session_id ?? `executor:${activeRun.card_id}`,
+      activeRun,
     };
   }
   if (activeRun.phase === 'reviewer') {
@@ -56,6 +58,7 @@ export function activationStateFromActiveRun(activeRun: RuntimeState['active_car
       cardId: activeRun.card_id,
       reviewerSessionId: activeRun.reviewer_session_id ?? `reviewer:${activeRun.card_id}`,
       assessmentId: activeRun.reviewer_session_id?.split(':').slice(2).join(':') || `assessment-${activeRun.card_id}-1`,
+      activeRun,
     };
   }
   return { phase: 'repairing', cardId: activeRun.card_id, previous: activeRun };
@@ -66,45 +69,48 @@ export function activeRunFromActivationState(state: ActivationState, nowIso: str
   if (state.phase === 'repairing') return state.previous;
   if (state.phase === 'planner') {
     return {
+      ...state.activeRun,
       card_id: state.cardId,
-      card_type: 'goal',
-      runtime_status: 'running',
+      card_type: state.activeRun?.card_type ?? 'goal',
+      runtime_status: state.activeRun?.runtime_status ?? 'running',
       phase: 'planner',
-      caller_session_id: null,
-      caller_tool_call_id: null,
+      caller_session_id: state.activeRun?.caller_session_id ?? null,
+      caller_tool_call_id: state.activeRun?.caller_tool_call_id ?? null,
       planner_session_id: state.plannerSessionId,
       correction_attempts: state.correctionAttempts,
-      started_at: nowIso,
-      last_turn_at: nowIso,
+      started_at: state.activeRun?.started_at ?? nowIso,
+      last_turn_at: state.activeRun?.last_turn_at ?? nowIso,
     };
   }
   if (state.phase === 'executor') {
     return {
+      ...state.activeRun,
       card_id: state.cardId,
-      card_type: 'code',
-      runtime_status: 'running',
+      card_type: state.activeRun?.card_type ?? 'code',
+      runtime_status: state.activeRun?.runtime_status ?? 'running',
       phase: 'executor',
-      caller_session_id: null,
-      caller_tool_call_id: null,
-      planner_session_id: `planner:${state.goalId}`,
+      caller_session_id: state.activeRun?.caller_session_id ?? null,
+      caller_tool_call_id: state.activeRun?.caller_tool_call_id ?? null,
+      planner_session_id: state.activeRun?.planner_session_id ?? `planner:${state.goalId}`,
       executor_session_id: state.executorSessionId,
-      correction_attempts: 0,
-      started_at: nowIso,
-      last_turn_at: nowIso,
+      correction_attempts: state.activeRun?.correction_attempts ?? 0,
+      started_at: state.activeRun?.started_at ?? nowIso,
+      last_turn_at: state.activeRun?.last_turn_at ?? nowIso,
     };
   }
   return {
+    ...state.activeRun,
     card_id: state.cardId,
-    card_type: 'goal',
-    runtime_status: 'running',
+    card_type: state.activeRun?.card_type ?? 'goal',
+    runtime_status: state.activeRun?.runtime_status ?? 'running',
     phase: 'reviewer',
-    caller_session_id: null,
-    caller_tool_call_id: null,
-    planner_session_id: `planner:${state.cardId}`,
+    caller_session_id: state.activeRun?.caller_session_id ?? null,
+    caller_tool_call_id: state.activeRun?.caller_tool_call_id ?? null,
+    planner_session_id: state.activeRun?.planner_session_id ?? `planner:${state.cardId}`,
     reviewer_session_id: state.reviewerSessionId,
-    correction_attempts: 0,
-    started_at: nowIso,
-    last_turn_at: nowIso,
+    correction_attempts: state.activeRun?.correction_attempts ?? 0,
+    started_at: state.activeRun?.started_at ?? nowIso,
+    last_turn_at: state.activeRun?.last_turn_at ?? nowIso,
   };
 }
 
