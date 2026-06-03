@@ -223,7 +223,7 @@ export class Runtime {
   private _backgroundDispatches = new Set<Promise<void>>();
   private _lastLifecycleDisposeReport: RuntimeDisposeReportEntry[] = [];
   private _stateMachine: RuntimeStateMachine;
-  private readonly _activeRuntime: RuntimeStampSource;
+  private readonly _sessionStamper: RuntimeStampSource;
   private readonly _goalDispatcher: RuntimeConfig['goalDispatcher'];
   private readonly _diagnosticsSink: RuntimeConfig['diagnosticsSink'];
 
@@ -243,7 +243,7 @@ export class Runtime {
       appendRun: (input) => appendRuntimeRun(config.projectRoot, input),
       upsertActivation: (input) => upsertRuntimeActivation(config.projectRoot, input),
     };
-    this._activeRuntime = config.activeRuntime ?? new SessionStampCounter();
+    this._sessionStamper = config.sessionStamper ?? new SessionStampCounter();
     this.agentRuntime =
       agentRuntime ??
       (config.agentExecutionFactory ?? createDefaultAgentExecution)(
@@ -251,7 +251,7 @@ export class Runtime {
         {
           ...config.fakeAgentConfig,
           saivageDir: join(config.projectRoot, '.saivage'),
-          activeRuntime: this._activeRuntime,
+          sessionStamper: this._sessionStamper,
         },
         activationLedger,
       );
@@ -277,15 +277,15 @@ export class Runtime {
     if (
       typeof (
         this.agentRuntime as {
-          setActiveRuntime?: (activeRuntime: RuntimeStampSource) => void;
+          setSessionStamper?: (sessionStamper: RuntimeStampSource) => void;
         }
-      ).setActiveRuntime === 'function'
+      ).setSessionStamper === 'function'
     )
       (
         this.agentRuntime as unknown as {
-          setActiveRuntime: (activeRuntime: RuntimeStampSource) => void;
+          setSessionStamper: (sessionStamper: RuntimeStampSource) => void;
         }
-      ).setActiveRuntime(this._activeRuntime);
+      ).setSessionStamper(this._sessionStamper);
     this.notificationCenter = new NotificationCenter(config.projectRoot, this.eventBus);
     this._skillsEngine = config.skillsEngine ?? null;
     this._continuousImprovementReserved = config.continuousImprovement ?? false;
@@ -473,7 +473,7 @@ export class Runtime {
   }
 
   private diagnosticStamp(sessionId: string) {
-    return this._activeRuntime.stampDiagnosticInCurrentRound(sessionId);
+    return this._sessionStamper.stampDiagnosticInCurrentRound(sessionId);
   }
 
   private compactPersistedPlannerHistoryForRetry(plannerSessionId: string): boolean {
@@ -495,7 +495,7 @@ export class Runtime {
   }
 
   private userStamp(sessionId: string) {
-    return this._activeRuntime.stampUserMessage(sessionId);
+    return this._sessionStamper.stampUserMessage(sessionId);
   }
 
   private buildGoalEvidenceContext(goalId: string): string {
@@ -567,7 +567,7 @@ export class Runtime {
       edge.callerToolCallId,
       this.buildCardActivationOutcome(childCardId, outcome, summary),
       this.diagnosticStamp(edge.callerSessionId),
-      this._activeRuntime,
+      this._sessionStamper,
     );
   }
 
@@ -597,7 +597,7 @@ export class Runtime {
         `Restart repair delivered terminal status '${child.status}' for card ${childCardId}.`,
       ),
       this.diagnosticStamp(sessionId),
-      this._activeRuntime,
+      this._sessionStamper,
     );
     return true;
   }
@@ -741,7 +741,7 @@ export class Runtime {
       plannerSessionId,
       { role: 'user', kind: 'text', content: this.buildGoalContextBlock(goalId, resumeReason) },
       this.userStamp(plannerSessionId),
-      this._activeRuntime,
+      this._sessionStamper,
     );
   }
 

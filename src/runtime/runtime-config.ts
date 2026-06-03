@@ -59,7 +59,7 @@ export interface RuntimeConfig {
   skillsEngine?: RuntimeSkillsPort;
   eventLogger?: EventLogger;
   errorLogger?: ErrorLogger;
-  activeRuntime?: RuntimeStampSource;
+  sessionStamper?: RuntimeStampSource;
   maxGoalDepth?: number;
   supervisorConfig?: Partial<SupervisorConfig>;
   autoDispatchBacklog?: boolean;

@@ -90,9 +90,9 @@ export function sendToClient(ws: WebSocket, event: WsEnvelope): void {
   }
 }
 
-export function sendRuntimeStateSnapshotToClient(ws: WebSocket, activeRuntime?: RuntimeApplication): void {
+export function sendRuntimeStateSnapshotToClient(ws: WebSocket, runtimeApplication?: RuntimeApplication): void {
   const content: WsEnvelope['content'] = { event: 'runtime-state' };
-  void activeRuntime;
+  void runtimeApplication;
   sendToClient(ws, { type: 'status', content });
 }
 
@@ -139,7 +139,7 @@ function queueAnalystTurn(ws: WebSocket, turn: () => Promise<void>): Promise<voi
   return next;
 }
 
-export function registerWebSocket(fastify: FastifyInstance, projectRoot: string, activeRuntime?: RuntimeApplication, requestServerRestart?: () => Promise<void>): void {
+export function registerWebSocket(fastify: FastifyInstance, projectRoot: string, runtimeApplication?: RuntimeApplication, requestServerRestart?: () => Promise<void>): void {
   fastify.addHook('onClose', async () => {
     resetWebSocketState(projectRoot);
   });
@@ -164,7 +164,7 @@ export function registerWebSocket(fastify: FastifyInstance, projectRoot: string,
         timestamp: new Date().toISOString(),
         clientCount: authenticatedClients.size,
       }));
-      sendRuntimeStateSnapshotToClient(ws, activeRuntime);
+      sendRuntimeStateSnapshotToClient(ws, runtimeApplication);
 
       ws.on('message', (raw: Buffer | ArrayBuffer | Buffer[]) => {
         return queueAnalystTurn(ws, async () => {
@@ -190,9 +190,9 @@ export function registerWebSocket(fastify: FastifyInstance, projectRoot: string,
                 wsSessions.set(ws, currentSessionId);
               }
 
-              if (!activeRuntime) throw new Error('Runtime application unavailable for analyst websocket.');
+              if (!runtimeApplication) throw new Error('Runtime application unavailable for analyst websocket.');
               const handler = getAnalystHandler(projectRoot, {
-                runtimeDeps: activeRuntime.analystDeps,
+                runtimeDeps: runtimeApplication.analystDeps,
                 requestServerRestart,
                 onActivity: (activity) => {
                   const sanitizedActivity = sanitizeAnalystPayload(activity) as Record<string, unknown>;

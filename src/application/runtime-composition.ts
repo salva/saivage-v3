@@ -74,7 +74,7 @@ export function createRuntimeApplication(projectRoot: string, config: SaivageCon
     continuousImprovement: config.runtime.continuousImprovement,
     eventLogger,
     errorLogger,
-    activeRuntime: stamper,
+    sessionStamper: stamper,
     supervisorConfig: config.supervisor
       ? {
           enabled: config.supervisor.enabled,

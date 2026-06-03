@@ -41,7 +41,7 @@ export interface FakePlannerResult {
 
 export interface FakeReviewerResult { assessment: ReviewAssessment; }
 export interface FakeAgentFixture { name: string; planner?: FakePlannerResult[]; executor?: Record<string, FakeExecutorResult>; reviewer?: FakeReviewerResult[]; }
-export interface FakeAgentConfig { mapping: Record<string, string>; fixtureDir: string; saivageDir?: string; autoActivateCreatedCards?: boolean; activationLedger?: RuntimeActivationLedgerPort; activeRuntime?: SessionStamper; }
+export interface FakeAgentConfig { mapping: Record<string, string>; fixtureDir: string; saivageDir?: string; autoActivateCreatedCards?: boolean; activationLedger?: RuntimeActivationLedgerPort; sessionStamper?: SessionStamper; }
 interface FakeActiveSession { sessionId: string; role: 'planner' | 'executor' | 'reviewer'; goalId: string; cardId: string | null; lastAction: string; nextAction: string; contextSummary: string; }
 
 function convertPlannerResult(raw: FakePlannerResult): PlannerResult {
@@ -67,13 +67,13 @@ export class FakeAgentAdapter implements AgentExecutionPort {
   constructor(config: FakeAgentConfig) { this.config = config; }
   setSaivageDir(saivageDir: string): void { this.config = { ...this.config, saivageDir }; }
   setActivationLedger(activationLedger: RuntimeActivationLedgerPort): void { this.config = { ...this.config, activationLedger }; }
-  setActiveRuntime(activeRuntime: SessionStamper): void { this.config = { ...this.config, activeRuntime }; }
+  setSessionStamper(sessionStamper: SessionStamper): void { this.config = { ...this.config, sessionStamper }; }
   private loadFixture(name: string): FakeAgentFixture { const fixturePath = resolve(this.config.fixtureDir, `${name}.json`); if (!existsSync(fixturePath)) throw new Error(`FakeAgent fixture not found: ${fixturePath}`); return JSON.parse(readFileSync(fixturePath, 'utf-8')) as FakeAgentFixture; }
   private resolveFixture(id: string): FakeAgentFixture { const name = this.config.mapping[id] ?? this.config.mapping['*']; if (!name) throw new Error(`No FakeAgent fixture mapping for '${id}' and no '*' wildcard configured.`); return this.loadFixture(name); }
   private nextSessionId(role: string): string { this.sessionCounter += 1; return `fake-${role}-${this.sessionCounter}`; }
   private registerSession(role: 'planner' | 'executor' | 'reviewer', goalId: string, cardId: string | null, nextAction: string, fixtureName: string, requestedSessionId?: string): string { const sessionId = requestedSessionId ?? this.nextSessionId(role); this.activeSessions.set(sessionId, { sessionId, role, goalId, cardId, lastAction: 'Session started', nextAction, contextSummary: `Goal: ${goalId}, Card: ${cardId ?? 'N/A'}` }); this.cancelledSessions.delete(sessionId); this.sessionFixtures.set(sessionId, { role, fixtureName, goalId, cardId }); this.lastSessionByRoleAndTarget.set(`${role}:${goalId}:${cardId ?? '_'}`, sessionId); return sessionId; }
   private completeSession(sessionId: string): void { this.activeSessions.delete(sessionId); this.cancelledSessions.delete(sessionId); }
-  private get activeRuntime(): SessionStamper { if (!this.config.activeRuntime) throw new Error('FakeAgentAdapter fixture persistence requires active runtime stamper.'); return this.config.activeRuntime; }
+  private get sessionStamper(): SessionStamper { if (!this.config.sessionStamper) throw new Error('FakeAgentAdapter fixture persistence requires session stamper.'); return this.config.sessionStamper; }
   getLastSessionId(role: 'planner' | 'executor' | 'reviewer', goalId: string, cardId: string | null = null): string | null { return this.lastSessionByRoleAndTarget.get(`${role}:${goalId}:${cardId ?? '_'}`) ?? null; }
   getSessionRecord(sessionId: string): AgentSession | null { const session = this.sessionFixtures.get(sessionId); if (!session) return null; return { id: sessionId, role: session.role, goal_card_id: session.goalId, card_id: session.cardId, status: 'active', started_at: new Date().toISOString() }; }
   cancelSession(sessionId: string): boolean { if (!this.activeSessions.has(sessionId)) return false; this.cancelledSessions.add(sessionId); this.activeSessions.delete(sessionId); return true; }
@@ -83,7 +83,39 @@ export class FakeAgentAdapter implements AgentExecutionPort {
   invokePlanner(request: PlannerInvocationRequest): PlannerResult;
   invokePlanner(goalId: string, systemPrompt?: string, contextMessages?: AgentMessage[]): PlannerResult;
   invokePlanner(requestOrGoalId: PlannerInvocationRequest | string): PlannerResult { return this.invokePlannerForGoal(typeof requestOrGoalId === 'string' ? requestOrGoalId : requestOrGoalId.goalId); }
-  private invokePlannerForGoal(goalId: string): PlannerResult { const fixture = this.resolveFixture(goalId); if (!fixture.planner || fixture.planner.length === 0) throw new Error(`FakeAgent fixture '${fixture.name}' has no planner results.`); const count = this.plannerCounters.get(fixture.name) ?? 0; if (count >= fixture.planner.length) throw new Error(`FakeAgent fixture '${fixture.name}' exhausted planner results (called ${count + 1} times, only ${fixture.planner.length} available).`); const sessionId = this.registerSession('planner', goalId, goalId, `Planning goal ${goalId}`, fixture.name); let persistedSessionId: string | null = null; let converted: PlannerResult | null = null; try { if (this.config.saivageDir) { persistedSessionId = createSession(this.config.saivageDir, 'planner', goalId, goalId).id; this.activeRuntime.openAssistantRound(persistedSessionId); } if (this.cancelledSessions.has(sessionId)) throw new Error(`Fake planner session cancelled: ${sessionId}`); const result = fixture.planner[count]; this.plannerCounters.set(fixture.name, count + 1); converted = convertPlannerResult(result); if (this.config.autoActivateCreatedCards !== false && this.config.saivageDir && persistedSessionId && converted.created_cards.length > 0) { const toolCalls = converted.created_cards.map((card) => ({ id: `activate:${goalId}:${card.id}:${count}`, type: 'function', function: { name: 'activate_card', arguments: JSON.stringify({ cardId: card.id }) } })); for (const toolCall of toolCalls) appendMessage(this.config.saivageDir, persistedSessionId, { role: 'assistant', kind: 'tool_call', content: JSON.stringify({ role: 'assistant', tool_calls: [toolCall] }), tool: 'activate_card', tool_call_id: toolCall.id }, this.activeRuntime.stampInRound(persistedSessionId)); this.createFixtureActivationRecords(goalId, persistedSessionId, toolCalls); } return converted; } finally { if (this.config.saivageDir && persistedSessionId) { this.activeRuntime.closeRound(persistedSessionId); if (converted?.status === 'continue') markSessionWaiting(this.config.saivageDir, persistedSessionId); else if (converted?.status === 'blocked') completeSession(this.config.saivageDir, persistedSessionId, 'blocked'); else completeSession(this.config.saivageDir, persistedSessionId, 'done'); } this.completeSession(sessionId); } }
+  private invokePlannerForGoal(goalId: string): PlannerResult {
+    const fixture = this.resolveFixture(goalId);
+    if (!fixture.planner || fixture.planner.length === 0) throw new Error(`FakeAgent fixture '${fixture.name}' has no planner results.`);
+    const count = this.plannerCounters.get(fixture.name) ?? 0;
+    if (count >= fixture.planner.length) throw new Error(`FakeAgent fixture '${fixture.name}' exhausted planner results (called ${count + 1} times, only ${fixture.planner.length} available).`);
+    const sessionId = this.registerSession('planner', goalId, goalId, `Planning goal ${goalId}`, fixture.name);
+    let persistedSessionId: string | null = null;
+    let converted: PlannerResult | null = null;
+    try {
+      if (this.config.saivageDir) {
+        persistedSessionId = createSession(this.config.saivageDir, 'planner', goalId, goalId).id;
+        this.sessionStamper.openAssistantRound(persistedSessionId);
+      }
+      if (this.cancelledSessions.has(sessionId)) throw new Error(`Fake planner session cancelled: ${sessionId}`);
+      const result = fixture.planner[count];
+      this.plannerCounters.set(fixture.name, count + 1);
+      converted = convertPlannerResult(result);
+      if (this.config.autoActivateCreatedCards !== false && this.config.saivageDir && persistedSessionId && converted.created_cards.length > 0) {
+        const toolCalls = converted.created_cards.map((card) => ({ id: `activate:${goalId}:${card.id}:${count}`, type: 'function', function: { name: 'activate_card', arguments: JSON.stringify({ cardId: card.id }) } }));
+        for (const toolCall of toolCalls) appendMessage(this.config.saivageDir, persistedSessionId, { role: 'assistant', kind: 'tool_call', content: JSON.stringify({ role: 'assistant', tool_calls: [toolCall] }), tool: 'activate_card', tool_call_id: toolCall.id }, this.sessionStamper.stampInRound(persistedSessionId));
+        this.createFixtureActivationRecords(goalId, persistedSessionId, toolCalls);
+      }
+      return converted;
+    } finally {
+      if (this.config.saivageDir && persistedSessionId) {
+        this.sessionStamper.closeRound(persistedSessionId);
+        if (converted?.status === 'continue') markSessionWaiting(this.config.saivageDir, persistedSessionId);
+        else if (converted?.status === 'blocked') completeSession(this.config.saivageDir, persistedSessionId, 'blocked');
+        else completeSession(this.config.saivageDir, persistedSessionId, 'done');
+      }
+      this.completeSession(sessionId);
+    }
+  }
 
   private createFixtureActivationRecords(goalId: string, plannerSessionId: string, toolCalls: Array<{ id: string; function: { arguments: string } }>): void {
     if (!this.config.saivageDir) return;

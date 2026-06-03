@@ -124,6 +124,10 @@ describe('runtime module ownership boundary', () => {
     expect(source).not.toContain('active-runtime.js');
     expect(source).not.toContain('ActiveRuntimeStampCounter');
     expect(source).not.toContain('ActiveRuntimeStampSource');
+    expect(source).not.toContain('_activeRuntime');
+    expect(source).not.toContain('setActiveRuntime');
+    expect(source).not.toContain('config.activeRuntime');
+    expect(source).not.toContain('activeRuntime: this._');
     expect(source).not.toContain('extends EventEmitter');
     expect(source).not.toContain('start_project()');
     expect(source).not.toContain('stop_project()');
