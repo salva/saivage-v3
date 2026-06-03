@@ -1,8 +1,7 @@
 import type { CardStore } from '../cards/store-api.js';
-import type { RuntimeState } from '../schemas/index.js';
+import type { ActivationCompletionOutcome, RuntimeState } from '../schemas/index.js';
 import { queueSyntheticPlannerNote } from './synthetic-planner-notes.js';
 import { cardHasBlockedPlanning } from './planning-blockers.js';
-import type { ActivationUnwindRunner } from './activation-unwind.js';
 import {
   decideStartupActiveRunRepair,
   executeStartupActiveRunRepairDecision,
@@ -17,13 +16,21 @@ function now(): string {
   return new Date().toISOString();
 }
 
+export interface ActivationRepairUnwindPort {
+  repairOrphanActivateCardToolCalls(): void;
+  appendChildUnwindToolResult(cardId: string, outcome: ActivationCompletionOutcome, summary: string): void;
+  parentPlannerRunFor(cardId: string): RuntimeState['active_card_run'];
+  findCallerEdge(cardId: string): { callerSessionId: string; callerToolCallId: string } | null;
+  synthesizeTerminalActivationResult(sessionId: string, toolCallId: string, cardId: string): boolean;
+}
+
 export class ActivationRepairRunner {
   constructor(
     private readonly deps: {
       projectRoot: string;
       cards: CardStore;
       stateMachine: RuntimeStateMachine;
-      activationUnwind: ActivationUnwindRunner;
+      activationUnwind: ActivationRepairUnwindPort;
       runLedger: RuntimeRunLedger;
       mutations: RuntimeStateMutationPort;
     },

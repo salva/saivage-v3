@@ -1,9 +1,8 @@
 import type { CardStore } from '../cards/store-api.js';
 import type { RuntimeState } from '../schemas/index.js';
-import type { ActivationUnwindRunner } from './activation-unwind.js';
 import type { RuntimeStateMachine } from './state-machine.js';
 import type { RuntimeRunLedger } from './runtime-run-ledger.js';
-import { ActivationRepairRunner } from './activation-repair.js';
+import { ActivationRepairRunner, type ActivationRepairUnwindPort } from './activation-repair.js';
 import type { RuntimeStateMutationPort } from './mutations.js';
 
 export function repairRuntimeStartupActiveCardRun(input: {
@@ -11,7 +10,7 @@ export function repairRuntimeStartupActiveCardRun(input: {
   previousState: RuntimeState | null;
   cards: CardStore;
   stateMachine: RuntimeStateMachine;
-  activationUnwind: ActivationUnwindRunner;
+  activationUnwind: ActivationRepairUnwindPort;
   runLedger: RuntimeRunLedger;
   mutations: RuntimeStateMutationPort;
 }): Promise<RuntimeState | null> {
