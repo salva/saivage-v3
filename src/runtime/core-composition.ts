@@ -13,6 +13,22 @@ import type { CardStore } from '../cards/store-api.js';
 import type { ErrorLogger, EventLogger } from '../observability/index.js';
 import type { StuckAgentSupervisor, StuckVerdict } from './stuck-agent-supervisor.js';
 
+type EmitAgentEvent = (name: string, data: Record<string, unknown>) => void;
+
+function createAgentEventBus(getEmitAgentEvent: () => EmitAgentEvent | null): NodeEventEmitter {
+  const agentEventBus = new NodeEventEmitter();
+  const emitOnAgentEventBus = agentEventBus.emit.bind(agentEventBus);
+  agentEventBus.emit = (eventName: string | symbol, ...args: unknown[]): boolean => {
+    const emitted = emitOnAgentEventBus(eventName, ...args);
+    if (typeof eventName === 'string') {
+      const data = args[0] && typeof args[0] === 'object' ? (args[0] as Record<string, unknown>) : { raw: args[0] };
+      getEmitAgentEvent()?.(eventName, data);
+    }
+    return emitted;
+  };
+  return agentEventBus;
+}
+
 function getRuntimeStatus(projectRoot: string, cards: RuntimeCoreParts['cards']): ReturnType<RuntimeApi['getStatus']> {
   const state = readRuntimeState(projectRoot);
   const allCards = cards.list();
@@ -90,19 +106,10 @@ export function createRuntimeCoreContainer(input: {
   getActivityStatus?: RuntimeApi['getActivityStatus'];
   goalDispatcher?: RuntimeConfig['goalDispatcher'];
 }): RuntimeCoreContainer {
-  let emitAgentEvent: ((name: string, data: Record<string, unknown>) => void) | null = null;
+  let emitAgentEvent: EmitAgentEvent | null = null;
   let runtimeControls: RuntimeControlHooks | null = null;
   let runtimeCoreParts: RuntimeCoreParts | undefined;
-  const agentEventBus = new NodeEventEmitter();
-  const emitOnAgentEventBus = agentEventBus.emit.bind(agentEventBus);
-  agentEventBus.emit = (eventName: string | symbol, ...args: unknown[]): boolean => {
-    const emitted = emitOnAgentEventBus(eventName, ...args);
-    if (typeof eventName === 'string') {
-      const data = args[0] && typeof args[0] === 'object' ? (args[0] as Record<string, unknown>) : { raw: args[0] };
-      emitAgentEvent?.(eventName, data);
-    }
-    return emitted;
-  };
+  const agentEventBus = createAgentEventBus(() => emitAgentEvent);
   new Runtime(
     {
       ...input.config,
@@ -167,22 +174,13 @@ export function createRuntimeCoreTestContainer(input: {
   let freeze: ((reason?: string) => import('../schemas/index.js').FreezeManifest) | null = null;
   let resumeFromFreeze: (() => RuntimeResumeFromFreezeResult) | null = null;
   let consumeResumeHandoffContext: (() => string | null) | null = null;
-  let emitAgentEvent: ((name: string, data: Record<string, unknown>) => void) | null = null;
+  let emitAgentEvent: EmitAgentEvent | null = null;
   let dispatchGoal: ((goalId: string) => Promise<void>) | null = null;
   let runtimeControls: RuntimeControlHooks | null = null;
   let onRuntimeEvent: ((eventName: string | symbol, listener: (...args: unknown[]) => void) => void) | null = null;
   let runtimeCoreParts: RuntimeCoreParts | undefined;
   let runtimeTestParts: RuntimeTestParts | undefined;
-  const agentEventBus = new NodeEventEmitter();
-  const emitOnAgentEventBus = agentEventBus.emit.bind(agentEventBus);
-  agentEventBus.emit = (eventName: string | symbol, ...args: unknown[]): boolean => {
-    const emitted = emitOnAgentEventBus(eventName, ...args);
-    if (typeof eventName === 'string') {
-      const data = args[0] && typeof args[0] === 'object' ? (args[0] as Record<string, unknown>) : { raw: args[0] };
-      emitAgentEvent?.(eventName, data);
-    }
-    return emitted;
-  };
+  const agentEventBus = createAgentEventBus(() => emitAgentEvent);
   const runtime = new Runtime(
     {
       ...input.config,
