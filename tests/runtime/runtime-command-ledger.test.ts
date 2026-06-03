@@ -34,7 +34,7 @@ function root(): string {
   return mkdtempSync(join(tmpdir(), 'saivage-runtime-command-'));
 }
 
-let scheduler: RuntimeTestHarness['scheduler'];
+let dispatchTools: RuntimeTestHarness['dispatchTestTools'];
 let diagnostics: RuntimeTestHarness['diagnostics'];
 let cards: RuntimeTestHarness['cards'];
 let loggerTools: RuntimeTestHarness['loggerTestTools'];
@@ -54,7 +54,7 @@ function makeRuntime(
     ...(agentRuntime ? { agentRuntime } : {}),
     ...(goalDispatcher ? { goalDispatcher } : {}),
   });
-  scheduler = harness.scheduler;
+  dispatchTools = harness.dispatchTestTools;
   diagnostics = harness.diagnostics;
   cards = harness.cards;
   loggerTools = harness.loggerTestTools;
@@ -424,7 +424,7 @@ describe('runtime command ledger target contract (Wave 1)', () => {
         },
       });
 
-      await scheduler.dispatchGoal('project');
+      await dispatchTools.dispatchGoal('project');
       sub.unsubscribe();
 
       expect(observedSessionIds).toEqual(['planner:project']);
@@ -603,7 +603,7 @@ describe('runtime command ledger target contract (Wave 1)', () => {
         retries: 0,
       });
 
-      await scheduler.dispatchGoal('goal-a');
+      await dispatchTools.dispatchGoal('goal-a');
 
       expect(observedRuns).toEqual([{ phase: 'planner', session_id: 'planner:goal-a' }]);
       expect(activationResults).toEqual([
@@ -685,7 +685,7 @@ describe('runtime command ledger target contract (Wave 1)', () => {
       const consoleSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
 
       try {
-        await expect(scheduler.dispatchGoal('project')).rejects.toThrow('planner boom');
+        await expect(dispatchTools.dispatchGoal('project')).rejects.toThrow('planner boom');
       } finally {
         sub.unsubscribe();
         consoleSpy.mockRestore();

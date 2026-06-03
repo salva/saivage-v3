@@ -44,7 +44,7 @@ async function waitFor(condition: () => boolean, timeoutMs = 2000): Promise<void
 describe('Runtime Integration', () => {
   let tmpDir: string;
   let fixtureDir: string;
-  let scheduler: RuntimeTestHarness['scheduler'];
+  let dispatchTools: RuntimeTestHarness['dispatchTestTools'];
   let harness: RuntimeTestHarness;
 
   beforeEach(() => {
@@ -542,7 +542,7 @@ describe('Runtime Integration', () => {
       },
       ...(input?.agentRuntime ? { agentRuntime: input.agentRuntime } : {}),
     });
-    scheduler = harness.scheduler;
+    dispatchTools = harness.dispatchTestTools;
   }
 
   function makeGoalCard(store: CardStore, id: string, title: string): CardRecord {
@@ -648,7 +648,7 @@ describe('Runtime Integration', () => {
       });
       makeRuntime({ overrides: { 'goal-blocked': 'blocked-planner-goal' }, agentRuntime: fakeAgent });
       await harness.api.start();
-      await scheduler.dispatchGoal('goal-blocked');
+      await dispatchTools.dispatchGoal('goal-blocked');
 
       const goal = store.read('goal-blocked');
       expect(goal!.status).toBe('blocked');
@@ -672,7 +672,7 @@ describe('Runtime Integration', () => {
       const completedEvents: string[] = [];
       harness.events.on('goal_completed', () => completedEvents.push('goal_completed'));
 
-      await scheduler.dispatchGoal('goal-planner-done');
+      await dispatchTools.dispatchGoal('goal-planner-done');
 
       expect(store.read('goal-planner-done')!.status).toBe('done');
       expect(completedEvents).toContain('goal_completed');

@@ -256,7 +256,7 @@ describe('E2E — Full Project Lifecycle', () => {
       },
     });
     await harness.api.start();
-    await harness.scheduler.dispatchGoal('e2e-goal');
+    await harness.dispatchTestTools.dispatchGoal('e2e-goal');
 
     const goal = store.read('e2e-goal');
     expect(goal).not.toBeNull();
@@ -448,7 +448,7 @@ describe('E2E — Full Project Lifecycle', () => {
       },
     });
     await harness.api.start();
-    await harness.scheduler.dispatchGoal('art-goal');
+    await harness.dispatchTestTools.dispatchGoal('art-goal');
 
     const card = store.read('code-art-1');
     expect(card).not.toBeNull();
@@ -608,7 +608,7 @@ describe('E2E — Crash and Restart Recovery', () => {
     expect(goal).not.toBeNull();
 
     await harness.api.start();
-    await harness.scheduler.dispatchGoal('crash-goal');
+    await harness.dispatchTestTools.dispatchGoal('crash-goal');
 
     const goalAfter = store.read('crash-goal');
     expect(goalAfter!.status).toBe('done');
@@ -643,7 +643,7 @@ describe('E2E — Crash and Restart Recovery', () => {
     expect(store.read('code-crash-2')!.status).toBe('backlog');
 
     await harness.api.start();
-    await harness.scheduler.dispatchGoal('crash-goal');
+    await harness.dispatchTestTools.dispatchGoal('crash-goal');
 
     expect(store.read('crash-goal')!.status).toBe('done');
 

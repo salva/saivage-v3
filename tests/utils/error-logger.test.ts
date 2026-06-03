@@ -372,7 +372,7 @@ describe('ErrorLogger', () => {
 describe('Runtime Integration — Error Propagation', () => {
   let tmpDir: string;
   let fixtureDir: string;
-  let scheduler: RuntimeTestHarness['scheduler'];
+  let dispatchTools: RuntimeTestHarness['dispatchTestTools'];
   let runtimeApi: RuntimeTestHarness['api'];
   let loggerTools: RuntimeTestHarness['loggerTestTools'];
 
@@ -390,7 +390,7 @@ describe('Runtime Integration — Error Propagation', () => {
         ...(input.errorLogger ? { errorLogger: input.errorLogger } : {}),
       },
     });
-    scheduler = harness.scheduler;
+    dispatchTools = harness.dispatchTestTools;
     runtimeApi = harness.api;
     loggerTools = harness.loggerTestTools;
   }
@@ -506,7 +506,7 @@ describe('Runtime Integration — Error Propagation', () => {
     makeRuntime({ mapping: { 'goal-happy': 'happy-err-test', project: 'happy-err-test' } });
 
     await runtimeApi.start();
-    await scheduler.dispatchGoal('goal-happy');
+    await dispatchTools.dispatchGoal('goal-happy');
 
     const goal = store.read('goal-happy');
     expect(goal!.status).toBe('done');
@@ -562,7 +562,7 @@ describe('Runtime Integration — Error Propagation', () => {
     runtimeApi.subscribe({ allowedKinds: ['runtime_diagnostic'], handler: (event) => { diagnosticEvents.push(event); } });
 
     await runtimeApi.start();
-    await scheduler.dispatchGoal('goal-throw');
+    await dispatchTools.dispatchGoal('goal-throw');
 
     expect(diagnosticEvents.length).toBeGreaterThanOrEqual(1);
 
@@ -775,7 +775,7 @@ describe('ErrorLogger + EventLogger consistency', () => {
     harness.api.subscribe({ allowedKinds: ['runtime_diagnostic'], handler: (event) => { diagnosticEvents.push(event); } });
 
     await harness.api.start();
-    await harness.scheduler.dispatchGoal('goal-dl');
+    await harness.dispatchTestTools.dispatchGoal('goal-dl');
 
     expect(diagnosticEvents.length).toBeGreaterThanOrEqual(1);
 

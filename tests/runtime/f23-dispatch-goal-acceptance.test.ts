@@ -55,9 +55,9 @@ describe('F23 — dispatchGoal acceptance', () => {
       config: { projectRoot, fakeAgentConfig: { mapping: {}, fixtureDir: '' } },
       agentRuntime: new StubAgentRuntime(plannerResult, executorResult, reviewerResult),
     });
-    const { api, scheduler } = harness;
+    const { api, dispatchTestTools } = harness;
     await api.start();
-    await scheduler.dispatchGoal('project');
+    await dispatchTestTools.dispatchGoal('project');
     await api.shutdown();
 
     const project = harness.cards.read('project');
@@ -79,12 +79,12 @@ describe('F23 — dispatchGoal acceptance', () => {
     const executorResult: ExecutorResult = { card_id: 'x', status: 'done', status_text: 'noop', artifacts: [], attachments: [], fallback_with_evidence: null };
     const reviewerResult: ReviewerResult = { assessment: { result: 'pass', summary: 'noop', achieved: [], issues: [], evidence_card_ids: [] } };
 
-    const { api, scheduler } = createRuntimeTestHarness({
+    const { api, dispatchTestTools } = createRuntimeTestHarness({
       config: { projectRoot, fakeAgentConfig: { mapping: {}, fixtureDir: '' } },
       agentRuntime: new StubAgentRuntime(plannerResult, executorResult, reviewerResult),
     });
     await api.start();
-    await scheduler.dispatchGoal('project');
+    await dispatchTestTools.dispatchGoal('project');
     await api.shutdown();
 
     const errs = readErrorsJsonl(projectRoot);
@@ -101,12 +101,12 @@ describe('F23 — dispatchGoal acceptance', () => {
     const executorResult: ExecutorResult = { card_id: 'x', status: 'done', status_text: 'noop', artifacts: [], attachments: [], fallback_with_evidence: null };
     const reviewerResult: ReviewerResult = { assessment: { result: 'pass', summary: 'noop', achieved: [], issues: [], evidence_card_ids: [] } };
 
-    const { api, scheduler } = createRuntimeTestHarness({
+    const { api, dispatchTestTools } = createRuntimeTestHarness({
       config: { projectRoot, fakeAgentConfig: { mapping: {}, fixtureDir: '' } },
       agentRuntime: new StubAgentRuntime(plannerResult, executorResult, reviewerResult),
     });
     await api.start();
-    await scheduler.dispatchGoal('code-1');
+    await dispatchTestTools.dispatchGoal('code-1');
     await api.shutdown();
 
     const errs = readErrorsJsonl(projectRoot);

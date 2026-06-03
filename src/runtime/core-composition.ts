@@ -60,7 +60,7 @@ export interface RuntimeCoreContainer {
   state: {
     read(): RuntimeState | null;
   };
-  scheduler: {
+  dispatchTestTools: {
     dispatchGoal(goalId: string): Promise<void>;
   };
   events: {
@@ -220,7 +220,7 @@ export function createRuntimeCoreContainer(input: {
     state: {
       read: () => readRuntimeState(input.config.projectRoot),
     },
-    scheduler: {
+    dispatchTestTools: {
       dispatchGoal: (goalId) => {
         if (!dispatchGoal) throw new Error('Runtime dispatchGoal hook is unavailable.');
         return dispatchGoal(goalId);

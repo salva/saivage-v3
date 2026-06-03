@@ -54,7 +54,7 @@ describe('Runtime caller-edge reconstruction from unresolved activate_card calls
     const mapping = { project: 'project-parent', 'goal-parent-1': 'goal-two-leaves', 'goal-parent-2': 'goal-one-leaf' };
     const fakeAgent = new FakeAgentAdapter({ mapping, fixtureDir, autoActivateCreatedCards: false });
     harness = createHarness(mapping, fakeAgent);
-    await harness.api.start(); await harness.scheduler.dispatchGoal('project');
+    await harness.api.start(); await harness.dispatchTestTools.dispatchGoal('project');
 
     expect(harness.cards.read('goal-parent-1')?.status).toBe('backlog');
     expect(harness.cards.read('goal-parent-2')).toBeNull();
@@ -84,7 +84,7 @@ describe('Runtime caller-edge reconstruction from unresolved activate_card calls
     harness = createHarness(mapping, fakeAgent);
     const completionEvents: Array<Record<string, unknown>> = [];
     harness.events.on('project_run_completed', (event) => completionEvents.push(event as Record<string, unknown>));
-    await harness.api.start(); await harness.scheduler.dispatchGoal('project');
+    await harness.api.start(); await harness.dispatchTestTools.dispatchGoal('project');
 
     expect(harness.state.read()?.active_card_run).toBeNull();
     expect(harness.state.read()?.current_card_id).toBeNull();

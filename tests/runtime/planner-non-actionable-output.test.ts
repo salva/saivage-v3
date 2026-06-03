@@ -59,7 +59,7 @@ describe('planner output actionability guard', () => {
     harness = createHarness(mapping, fakeAgent);
 
     await harness.api.start();
-    await harness.scheduler.dispatchGoal('project');
+    await harness.dispatchTestTools.dispatchGoal('project');
 
     const project = harness.cards.read('project');
     expect(project?.status).toBe('blocked');
@@ -91,7 +91,7 @@ describe('planner output actionability guard', () => {
     harness = createHarness(mapping, fakeAgent);
 
     await harness.api.start();
-    await harness.scheduler.dispatchGoal('project');
+    await harness.dispatchTestTools.dispatchGoal('project');
 
     const project = harness.cards.read('project');
     expect(project?.status).toBe('blocked');
@@ -145,7 +145,7 @@ describe('planner output actionability guard', () => {
     });
 
     await harness.api.start();
-    await harness.scheduler.dispatchGoal('project');
+    await harness.dispatchTestTools.dispatchGoal('project');
 
     const project = harness.cards.read('project');
     expect(project?.status).toBe('blocked');
@@ -184,7 +184,7 @@ describe('planner output actionability guard', () => {
     harness = createHarness(mapping, fakeAgent);
 
     await harness.api.start();
-    await harness.scheduler.dispatchGoal('project');
+    await harness.dispatchTestTools.dispatchGoal('project');
 
     const project = harness.cards.read('project');
     expect(project?.status).toBe('blocked');

@@ -46,7 +46,7 @@ function makeGoalCard(store: CardStore, id: string, title: string): CardRecord {
 describe('Runtime Adapter Wiring', () => {
   let tmpDir: string;
   let fixtureDir: string;
-  let scheduler: RuntimeTestHarness['scheduler'];
+  let dispatchTools: RuntimeTestHarness['dispatchTestTools'];
   let harness: RuntimeTestHarness;
 
   beforeEach(() => {
@@ -167,7 +167,7 @@ describe('Runtime Adapter Wiring', () => {
       config: makeConfig(),
       ...(agentRuntime ? { agentRuntime } : {}),
     });
-    scheduler = harness.scheduler;
+    dispatchTools = harness.dispatchTestTools;
   }
 
   describe('Dependency injection: Runtime accepts AgentRuntime', () => {
@@ -201,7 +201,7 @@ describe('Runtime Adapter Wiring', () => {
         goalCompleted = true;
       });
 
-      await scheduler.dispatchGoal('goal-1');
+      await dispatchTools.dispatchGoal('goal-1');
 
       const goal = store.read('goal-1');
       expect(goal).not.toBeNull();
@@ -234,7 +234,7 @@ describe('Runtime Adapter Wiring', () => {
       harness.events.on('review_failed', () => events.push('review_failed'));
       harness.events.on('card_failed', () => events.push('card_failed'));
 
-      await scheduler.dispatchGoal('goal-1');
+      await dispatchTools.dispatchGoal('goal-1');
 
       expect(events).toContain('goal_completed');
       expect(events).not.toContain('review_failed');
@@ -315,7 +315,7 @@ describe('Runtime Adapter Wiring', () => {
         goalCompleted = true;
       });
 
-      await scheduler.dispatchGoal('goal-1');
+      await dispatchTools.dispatchGoal('goal-1');
 
       const goal = store.read('goal-1');
       expect(goal!.status).toBe('done');
@@ -413,7 +413,7 @@ describe('Runtime Adapter Wiring', () => {
         goalCompleted = true;
       });
 
-      await scheduler.dispatchGoal('goal-lifecycle');
+      await dispatchTools.dispatchGoal('goal-lifecycle');
 
       const finalGoal = store.read('goal-lifecycle');
       expect(finalGoal!.status).toBe('done');
@@ -439,7 +439,7 @@ describe('Runtime Adapter Wiring', () => {
 
       makeRuntime(fakeAgent);
       await harness.api.start();
-      await scheduler.dispatchGoal('goal-1');
+      await dispatchTools.dispatchGoal('goal-1');
 
       const goal = store.read('goal-1');
       expect(goal!.status).toBe('done');

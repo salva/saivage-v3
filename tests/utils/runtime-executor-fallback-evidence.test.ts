@@ -98,7 +98,7 @@ describe('Runtime executor fallback evidence persistence', () => {
     upsertRuntimeActivation(projectRoot, { idempotency_key: 'test-parent-run:activate-project-code-1:code-1', parent_card_id: 'project', parent_run_id: parentRun.run_id, parent_session_id: parentSession.id, parent_tool_call_id: 'activate-project-code-1', child_card_id: 'code-1', status: 'pending', precondition: 'accepted', runtime_run_id: childRun.run_id, error: null });
     const harness = createHarness(projectRoot, new StubAgentRuntime(plannerResult, executorResult, reviewerResult));
     await harness.api.start();
-    await harness.scheduler.dispatchGoal('project');
+    await harness.dispatchTestTools.dispatchGoal('project');
     await harness.api.shutdown();
 
     const codeCard = harness.cards.read('code-1') as CardRecord;
@@ -170,7 +170,7 @@ describe('Runtime executor fallback evidence persistence', () => {
     upsertRuntimeActivation(projectRoot, { idempotency_key: 'test-parent-run:activate-project-code-1:code-1', parent_card_id: 'project', parent_run_id: parentRun.run_id, parent_session_id: parentSession.id, parent_tool_call_id: 'activate-project-code-1', child_card_id: 'code-1', status: 'pending', precondition: 'accepted', runtime_run_id: childRun.run_id, error: null });
     const harness = createHarness(projectRoot, new StubAgentRuntime(plannerResult, executorResult, reviewerResult));
     await harness.api.start();
-    await harness.scheduler.dispatchGoal('project');
+    await harness.dispatchTestTools.dispatchGoal('project');
     await harness.api.shutdown();
 
     const codeCard = harness.cards.read('code-1') as CardRecord;
@@ -231,7 +231,7 @@ describe('Runtime executor fallback evidence persistence', () => {
     upsertRuntimeActivation(projectRoot, { idempotency_key: 'test-parent-run-active:activate-project-code-active:code-active', parent_card_id: 'project', parent_run_id: parentRun.run_id, parent_session_id: parentSession.id, parent_tool_call_id: 'activate-project-code-active', child_card_id: 'code-active', status: 'pending', precondition: 'accepted', runtime_run_id: childRun.run_id, error: null });
 
     const harness = createHarness(projectRoot, new StubAgentRuntime(plannerResult, executorResult, reviewerResult));
-    await harness.scheduler.dispatchGoal('project');
+    await harness.dispatchTestTools.dispatchGoal('project');
     await harness.api.shutdown();
 
     const codeCard = harness.cards.read('code-active') as CardRecord;

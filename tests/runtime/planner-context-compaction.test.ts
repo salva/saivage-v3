@@ -93,7 +93,7 @@ describe('planner prompt context compaction', () => {
     });
 
     await harness.api.start();
-    await harness.scheduler.dispatchGoal('project');
+    await harness.dispatchTestTools.dispatchGoal('project');
 
     expect(fakeAgent.capturedPrompt.length).toBeLessThan(30000);
     expect(fakeAgent.capturedPrompt).toContain('result_summary');

@@ -101,6 +101,8 @@ describe('runtime module ownership boundary', () => {
       expect(source).not.toContain('harness.eventLogger.');
       expect(source).not.toContain('harness.runtime.supervisor');
       expect(source).not.toContain('harness.eventBus');
+      expect(source).not.toContain('harness.scheduler');
+      expect(source).not.toContain("RuntimeTestHarness['scheduler']");
       expect(source).not.toContain('harness.runtime.projectRoot');
       expect(source).not.toContain('harness.runtime.on(');
       expect(source).not.toContain('harness.runtime.emitAgentEvent');

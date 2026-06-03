@@ -16,7 +16,7 @@ describe('runtime core composition', () => {
       expect(harness.agentEventBus).toBeDefined();
       expect(harness.runtimeLedgerEvents).toBeDefined();
       expect(typeof harness.events.on).toBe('function');
-      expect(typeof harness.scheduler.dispatchGoal).toBe('function');
+      expect(typeof harness.dispatchTestTools.dispatchGoal).toBe('function');
       expect(typeof harness.lifecycleTestTools.emitAgentEvent).toBe('function');
       expect(typeof harness.lifecycleTestTools.performCrashRecovery).toBe('function');
       expect(typeof harness.lifecycleTestTools.requestImmediateTick).toBe('function');

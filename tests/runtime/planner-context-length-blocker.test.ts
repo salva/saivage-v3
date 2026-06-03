@@ -144,7 +144,7 @@ describe('planner context-length failures', () => {
     createRuntime(fakeAgent);
 
     await harness.api.start();
-    await expect(harness.scheduler.dispatchGoal('project')).resolves.toBeUndefined();
+    await expect(harness.dispatchTestTools.dispatchGoal('project')).resolves.toBeUndefined();
 
     const project = harness.cards.read('project');
     expect(project?.status).toBe('blocked');
@@ -171,7 +171,7 @@ describe('planner context-length failures', () => {
     createRuntime(fakeAgent);
 
     await harness.api.start();
-    await expect(harness.scheduler.dispatchGoal('project')).resolves.toBeUndefined();
+    await expect(harness.dispatchTestTools.dispatchGoal('project')).resolves.toBeUndefined();
 
     const project = harness.cards.read('project');
     expect(project?.status).toBe('blocked');
@@ -491,7 +491,7 @@ describe('planner context-length failures', () => {
     });
 
     await harness.api.start();
-    await harness.scheduler.dispatchGoal('project');
+    await harness.dispatchTestTools.dispatchGoal('project');
 
     const messages = getSessionMessages(saivageDir, 'planner:project');
     expect(messages).toHaveLength(1);
@@ -736,7 +736,7 @@ describe('planner context-length failures', () => {
     });
 
     await harness.api.start();
-    await harness.scheduler.dispatchGoal('project');
+    await harness.dispatchTestTools.dispatchGoal('project');
 
     const project = harness.cards.read('project');
     expect(project?.status).toBe('blocked');
