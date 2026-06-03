@@ -126,7 +126,7 @@ describe('Runtime continuousImprovement reserved config', () => {
 
     expect(improvementListener).not.toHaveBeenCalled();
     expect(continuousPlanListener).not.toHaveBeenCalled();
-    expect(harness?.cards.read('goal-ci-1')).toBeNull();
+    expect(harness?.cardTestTools.read('goal-ci-1')).toBeNull();
   });
 
   it('runtime shutdown is idempotent and disposes the process lifecycle scope before logger close', async () => {

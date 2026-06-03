@@ -146,7 +146,7 @@ describe('planner context-length failures', () => {
     await harness.api.start();
     await expect(harness.dispatchTestTools.dispatchGoal('project')).resolves.toBeUndefined();
 
-    const project = harness.cards.read('project');
+    const project = harness.cardTestTools.read('project');
     expect(project?.status).toBe('blocked');
     expect(project?.error).toContain('Planner context exceeded');
     expect(project?.result?.planning).toEqual(
@@ -158,8 +158,8 @@ describe('planner context-length failures', () => {
         updated_cards: [],
       }),
     );
-    expect(harness.state.read()?.active_card_run).toBeNull();
-    expect(harness.state.read()?.current_card_id).toBeNull();
+    expect(harness.stateTestTools.read()?.active_card_run).toBeNull();
+    expect(harness.stateTestTools.read()?.current_card_id).toBeNull();
   });
 
   it('persists planner terminal-tool exhaustion as a durable blocker instead of failing the project', async () => {
@@ -173,7 +173,7 @@ describe('planner context-length failures', () => {
     await harness.api.start();
     await expect(harness.dispatchTestTools.dispatchGoal('project')).resolves.toBeUndefined();
 
-    const project = harness.cards.read('project');
+    const project = harness.cardTestTools.read('project');
     expect(project?.status).toBe('blocked');
     expect(project?.error).toContain('Planner did not emit a terminal scheduler tool');
     expect(project?.result?.planning).toEqual(
@@ -185,9 +185,9 @@ describe('planner context-length failures', () => {
         updated_cards: [],
       }),
     );
-    expect(harness.state.read()?.status).toBe('idle');
-    expect(harness.state.read()?.active_card_run).toBeNull();
-    expect(harness.state.read()?.current_card_id).toBeNull();
+    expect(harness.stateTestTools.read()?.status).toBe('idle');
+    expect(harness.stateTestTools.read()?.active_card_run).toBeNull();
+    expect(harness.stateTestTools.read()?.current_card_id).toBeNull();
   });
 
   it('aligns a persisted failed project from planner terminal-tool exhaustion to a precise blocker on startup', async () => {
@@ -197,7 +197,7 @@ describe('planner context-length failures', () => {
       fixtureDir,
     });
     createRuntime(fakeAgent);
-    harness.cards.update('project', {
+    harness.cardTestTools.update('project', {
       status: 'failed',
       error: "Role 'planner' did not emit terminal tool within 16 turns.",
       status_text: "Planner failed: Role 'planner' did not emit terminal tool within 16 turns.",
@@ -219,7 +219,7 @@ describe('planner context-length failures', () => {
 
     await harness.api.start();
 
-    const project = harness.cards.read('project');
+    const project = harness.cardTestTools.read('project');
     expect(project?.status).toBe('blocked');
     expect(project?.error).toContain('Planner did not emit a terminal scheduler tool');
     expect(project?.result?.planning).toEqual(
@@ -229,9 +229,9 @@ describe('planner context-length failures', () => {
         failure_kind: 'planner_contract_terminal_tool_exhausted',
       }),
     );
-    expect(harness.state.read()?.status).toBe('idle');
-    expect(harness.state.read()?.current_card_id).toBeNull();
-    expect(harness.state.read()?.active_card_run).toBeNull();
+    expect(harness.stateTestTools.read()?.status).toBe('idle');
+    expect(harness.stateTestTools.read()?.current_card_id).toBeNull();
+    expect(harness.stateTestTools.read()?.active_card_run).toBeNull();
     expect(harness.diagnostics.getBackgroundDispatchCount()).toBe(0);
   });
 
@@ -244,7 +244,7 @@ describe('planner context-length failures', () => {
     createRuntime(fakeAgent);
     const blockedReason =
       'Planner context exceeded the selected LLM token budget before scheduler output could be produced; compact/trim planner context before resuming.';
-    harness.cards.update('project', {
+    harness.cardTestTools.update('project', {
       status: 'running',
       result: {
         planning: {
@@ -275,7 +275,7 @@ describe('planner context-length failures', () => {
 
     await harness.api.start();
 
-    const project = harness.cards.read('project');
+    const project = harness.cardTestTools.read('project');
     expect(project?.status).toBe('blocked');
     expect(project?.status_text).toBe(blockedReason);
     expect(project?.result?.planning).toEqual(
@@ -285,9 +285,9 @@ describe('planner context-length failures', () => {
         failure_kind: 'token_budget_exceeded',
       }),
     );
-    expect(harness.state.read()?.status).toBe('idle');
-    expect(harness.state.read()?.current_card_id).toBeNull();
-    expect(harness.state.read()?.active_card_run).toBeNull();
+    expect(harness.stateTestTools.read()?.status).toBe('idle');
+    expect(harness.stateTestTools.read()?.current_card_id).toBeNull();
+    expect(harness.stateTestTools.read()?.active_card_run).toBeNull();
   });
 
   it('does not redispatch a persisted blocked planning card on startup', async () => {
@@ -299,7 +299,7 @@ describe('planner context-length failures', () => {
     createRuntime(fakeAgent);
     const blockedReason =
       'planner remains durably blocked until an explicit operator or state change';
-    harness.cards.update('project', {
+    harness.cardTestTools.update('project', {
       status: 'blocked',
       error: blockedReason,
       status_text: blockedReason,
@@ -335,7 +335,7 @@ describe('planner context-length failures', () => {
     await harness.lifecycleTestTools.requestImmediateTick();
     await new Promise((resolve) => setTimeout(resolve, 0));
 
-    const project = harness.cards.read('project');
+    const project = harness.cardTestTools.read('project');
     expect(project?.status).toBe('blocked');
     expect(project?.error).toBe(blockedReason);
     expect(project?.result?.planning).toEqual(
@@ -345,9 +345,9 @@ describe('planner context-length failures', () => {
         failure_kind: 'token_budget_exceeded',
       }),
     );
-    expect(harness.state.read()?.status).toBe('idle');
-    expect(harness.state.read()?.current_card_id).toBeNull();
-    expect(harness.state.read()?.active_card_run).toBeNull();
+    expect(harness.stateTestTools.read()?.status).toBe('idle');
+    expect(harness.stateTestTools.read()?.current_card_id).toBeNull();
+    expect(harness.stateTestTools.read()?.active_card_run).toBeNull();
     expect(harness.diagnostics.getBackgroundDispatchCount()).toBe(0);
   });
 
@@ -360,7 +360,7 @@ describe('planner context-length failures', () => {
     createRuntime(fakeAgent);
     const blockedReason =
       'Planner context exceeded the selected LLM token budget before scheduler output could be produced; compact/trim planner context before resuming.';
-    harness.cards.update('project', {
+    harness.cardTestTools.update('project', {
       status: 'done',
       error: blockedReason,
       status_text: blockedReason,
@@ -376,7 +376,7 @@ describe('planner context-length failures', () => {
 
     await harness.api.start();
 
-    const project = harness.cards.read('project');
+    const project = harness.cardTestTools.read('project');
     expect(project?.status).toBe('blocked');
     expect(project?.error).toBe(blockedReason);
     expect(project?.status_text).toBe(blockedReason);
@@ -387,9 +387,9 @@ describe('planner context-length failures', () => {
         failure_kind: 'token_budget_exceeded',
       }),
     );
-    expect(harness.state.read()?.status).toBe('idle');
-    expect(harness.state.read()?.current_card_id).toBeNull();
-    expect(harness.state.read()?.active_card_run).toBeNull();
+    expect(harness.stateTestTools.read()?.status).toBe('idle');
+    expect(harness.stateTestTools.read()?.current_card_id).toBeNull();
+    expect(harness.stateTestTools.read()?.active_card_run).toBeNull();
   });
 
   it('does not restart running intent when the project has a durable planning blocker', async () => {
@@ -401,7 +401,7 @@ describe('planner context-length failures', () => {
     createRuntime(fakeAgent);
     const blockedReason =
       'Planner context exceeded the selected LLM token budget before scheduler output could be produced; compact/trim planner context before resuming.';
-    harness.cards.update('project', {
+    harness.cardTestTools.update('project', {
       status: 'done',
       error: blockedReason,
       status_text: blockedReason,
@@ -431,7 +431,7 @@ describe('planner context-length failures', () => {
     await harness.api.start();
     await new Promise((resolve) => setTimeout(resolve, 0));
 
-    const project = harness.cards.read('project');
+    const project = harness.cardTestTools.read('project');
     expect(project?.status).toBe('blocked');
     expect(project?.result?.planning).toEqual(
       expect.objectContaining({
@@ -439,10 +439,10 @@ describe('planner context-length failures', () => {
         resume_reason: 'planner_context_length_exceeded',
       }),
     );
-    expect(harness.state.read()?.status).toBe('idle');
-    expect(harness.state.read()?.current_card_id).toBeNull();
-    expect(harness.state.read()?.active_card_run).toBeNull();
-    expect(harness.state.read()?.runtime_runs ?? []).toHaveLength(0);
+    expect(harness.stateTestTools.read()?.status).toBe('idle');
+    expect(harness.stateTestTools.read()?.current_card_id).toBeNull();
+    expect(harness.stateTestTools.read()?.active_card_run).toBeNull();
+    expect(harness.stateTestTools.read()?.runtime_runs ?? []).toHaveLength(0);
     expect(harness.diagnostics.getBackgroundDispatchCount()).toBe(0);
   });
 
@@ -474,7 +474,7 @@ describe('planner context-length failures', () => {
     }
     const blockedReason =
       'Planner context exceeded the selected LLM token budget before scheduler output could be produced; compact/trim planner context before resuming.';
-    harness.cards.update('project', {
+    harness.cardTestTools.update('project', {
       status: 'blocked',
       error: blockedReason,
       status_text: blockedReason,
@@ -499,7 +499,7 @@ describe('planner context-length failures', () => {
     expect(messages[0].content).toContain('PERSISTED PLANNER SESSION HISTORY COMPACTED');
     expect(messages[0].content).toContain('recent_message_summaries');
     expect(messages[0].content).not.toContain('oversized-history-body '.repeat(20));
-    const project = harness.cards.read('project');
+    const project = harness.cardTestTools.read('project');
     expect(project?.status).not.toBe('blocked');
     expect(project?.error).toBeNull();
     expect(project?.result?.planning).toEqual(
@@ -511,7 +511,7 @@ describe('planner context-length failures', () => {
     );
     expect(fakeAgent.capturedPrompt).toContain('Parent Resume Context');
     expect(fakeAgent.capturedPrompt).toContain('resume_reason');
-    expect(harness.cards.read('next-safe-work')?.parent).toBe('project');
+    expect(harness.cardTestTools.read('next-safe-work')?.parent).toBe('project');
   });
 
   it('explicit start_project retries a blocked token-budget project after clearing stale planning metadata', async () => {
@@ -523,7 +523,7 @@ describe('planner context-length failures', () => {
     createRuntime(fakeAgent);
     const blockedReason =
       'Planner context exceeded the selected LLM token budget before scheduler output could be produced; compact/trim planner context before resuming.';
-    harness.cards.update('project', {
+    harness.cardTestTools.update('project', {
       status: 'blocked',
       error: blockedReason,
       status_text: blockedReason,
@@ -545,7 +545,7 @@ describe('planner context-length failures', () => {
     for (let attempt = 0; attempt < 20 && harness.diagnostics.getBackgroundDispatchCount() > 0; attempt += 1)
       await new Promise((resolve) => setTimeout(resolve, 5));
 
-    const project = harness.cards.read('project');
+    const project = harness.cardTestTools.read('project');
     expect(project?.status).not.toBe('blocked');
     expect(project?.error).toBeNull();
     expect(project?.status_text).toBeNull();
@@ -560,7 +560,7 @@ describe('planner context-length failures', () => {
         failure_kind: 'token_budget_exceeded',
       }),
     );
-    expect(harness.cards.read('next-safe-work')?.parent).toBe('project');
+    expect(harness.cardTestTools.read('next-safe-work')?.parent).toBe('project');
   });
 
 
@@ -573,7 +573,7 @@ describe('planner context-length failures', () => {
     createRuntime(fakeAgent);
     const blockedReason =
       'Planner did not emit a terminal scheduler tool within the allowed repair turns; operator or runtime repair must restore a contract-valid planner response before continuing backlog promotion.';
-    harness.cards.update('project', {
+    harness.cardTestTools.update('project', {
       status: 'blocked',
       error: blockedReason,
       status_text: blockedReason,
@@ -595,7 +595,7 @@ describe('planner context-length failures', () => {
     for (let attempt = 0; attempt < 20 && harness.diagnostics.getBackgroundDispatchCount() > 0; attempt += 1)
       await new Promise((resolve) => setTimeout(resolve, 5));
 
-    const project = harness.cards.read('project');
+    const project = harness.cardTestTools.read('project');
     expect(project?.status).not.toBe('blocked');
     expect(project?.error).toBeNull();
     expect(project?.status_text).toBeNull();
@@ -611,7 +611,7 @@ describe('planner context-length failures', () => {
         failure_kind: 'planner_contract_terminal_tool_exhausted',
       }),
     );
-    expect(harness.cards.read('next-safe-work')?.parent).toBe('project');
+    expect(harness.cardTestTools.read('next-safe-work')?.parent).toBe('project');
   });
 
   it('runtime source start_project does not automatically retry a blocked terminal-tool project', async () => {
@@ -623,7 +623,7 @@ describe('planner context-length failures', () => {
     createRuntime(fakeAgent);
     const blockedReason =
       'Planner did not emit a terminal scheduler tool within the allowed repair turns; operator or runtime repair must restore a contract-valid planner response before continuing backlog promotion.';
-    harness.cards.update('project', {
+    harness.cardTestTools.update('project', {
       status: 'blocked',
       error: blockedReason,
       status_text: blockedReason,
@@ -657,8 +657,8 @@ describe('planner context-length failures', () => {
     const startResult = await harness.api.startProject('runtime');
 
     expect(startResult.success).toBe(false);
-    expect(harness.cards.read('project')?.status).toBe('blocked');
-    expect(harness.cards.read('next-safe-work')).toBeNull();
+    expect(harness.cardTestTools.read('project')?.status).toBe('blocked');
+    expect(harness.cardTestTools.read('next-safe-work')).toBeNull();
     expect(harness.diagnostics.getBackgroundDispatchCount()).toBe(0);
   });
 
@@ -671,7 +671,7 @@ describe('planner context-length failures', () => {
     createRuntime(fakeAgent);
     const blockedReason =
       'Planner context exceeded the selected LLM token budget before scheduler output could be produced; compact/trim planner context before resuming.';
-    harness.cards.update('project', {
+    harness.cardTestTools.update('project', {
       status: 'blocked',
       error: blockedReason,
       status_text: blockedReason,
@@ -705,8 +705,8 @@ describe('planner context-length failures', () => {
     const startResult = await harness.api.startProject('runtime');
 
     expect(startResult.success).toBe(false);
-    expect(harness.cards.read('project')?.status).toBe('blocked');
-    expect(harness.cards.read('next-safe-work')).toBeNull();
+    expect(harness.cardTestTools.read('project')?.status).toBe('blocked');
+    expect(harness.cardTestTools.read('next-safe-work')).toBeNull();
     expect(harness.diagnostics.getBackgroundDispatchCount()).toBe(0);
   });
 
@@ -719,7 +719,7 @@ describe('planner context-length failures', () => {
     createRuntime(fakeAgent);
     const blockedReason =
       'Planner context exceeded the selected LLM token budget before scheduler output could be produced; compact/trim planner context before resuming.';
-    harness.cards.update('project', {
+    harness.cardTestTools.update('project', {
       status: 'active',
       error: blockedReason,
       status_text: blockedReason,
@@ -738,7 +738,7 @@ describe('planner context-length failures', () => {
     await harness.api.start();
     await harness.dispatchTestTools.dispatchGoal('project');
 
-    const project = harness.cards.read('project');
+    const project = harness.cardTestTools.read('project');
     expect(project?.status).toBe('blocked');
     expect(project?.error).toContain(
       'Project planner returned done without creating/updating cards',
@@ -760,8 +760,8 @@ describe('planner context-length failures', () => {
       }),
     );
     expect(project?.result?.review).toBeUndefined();
-    expect(harness.state.read()?.status).toBe('idle');
-    expect(harness.state.read()?.active_card_run).toBeNull();
-    expect(harness.state.read()?.current_card_id).toBeNull();
+    expect(harness.stateTestTools.read()?.status).toBe('idle');
+    expect(harness.stateTestTools.read()?.active_card_run).toBeNull();
+    expect(harness.stateTestTools.read()?.current_card_id).toBeNull();
   });
 });

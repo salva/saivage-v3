@@ -56,14 +56,14 @@ describe('Runtime caller-edge reconstruction from unresolved activate_card calls
     harness = createHarness(mapping, fakeAgent);
     await harness.api.start(); await harness.dispatchTestTools.dispatchGoal('project');
 
-    expect(harness.cards.read('goal-parent-1')?.status).toBe('backlog');
-    expect(harness.cards.read('goal-parent-2')).toBeNull();
-    expect(harness.cards.read('code-parent-1')).toBeNull();
-    expect(harness.cards.read('code-parent-2')).toBeNull();
-    expect(harness.cards.read('code-parent-3')).toBeNull();
-    expect(harness.state.read()?.runtime_activations ?? []).toEqual([]);
-    expect(harness.state.read()?.runtime_activations ?? []).toEqual([]);
-    expect(harness.state.read()?.active_card_run).toBeNull();
+    expect(harness.cardTestTools.read('goal-parent-1')?.status).toBe('backlog');
+    expect(harness.cardTestTools.read('goal-parent-2')).toBeNull();
+    expect(harness.cardTestTools.read('code-parent-1')).toBeNull();
+    expect(harness.cardTestTools.read('code-parent-2')).toBeNull();
+    expect(harness.cardTestTools.read('code-parent-3')).toBeNull();
+    expect(harness.stateTestTools.read()?.runtime_activations ?? []).toEqual([]);
+    expect(harness.stateTestTools.read()?.runtime_activations ?? []).toEqual([]);
+    expect(harness.stateTestTools.read()?.active_card_run).toBeNull();
     expect(existsSync(join(tmpDir, '.saivage', 'runtime', 'planner-dispatches'))).toBe(false);
 
     const projectActivateMessages = activateMessages(tmpDir, 'project');
@@ -71,7 +71,7 @@ describe('Runtime caller-edge reconstruction from unresolved activate_card calls
     const projectResults = projectActivateMessages.filter((m) => m.kind === 'tool_result');
     expect(activateToolCallIds(tmpDir, 'project')).toEqual([]);
     expect(projectResults).toHaveLength(0);
-    expect(harness.cards.read('project')?.result?.review).toBeUndefined();
+    expect(harness.cardTestTools.read('project')?.result?.review).toBeUndefined();
   });
 
   it('does not infer nested execution from backlog child statuses without activate_card edges', async () => {
@@ -86,12 +86,12 @@ describe('Runtime caller-edge reconstruction from unresolved activate_card calls
     harness.events.on('project_run_completed', (event) => completionEvents.push(event as Record<string, unknown>));
     await harness.api.start(); await harness.dispatchTestTools.dispatchGoal('project');
 
-    expect(harness.state.read()?.active_card_run).toBeNull();
-    expect(harness.state.read()?.current_card_id).toBeNull();
-    expect(harness.cards.read('goal-parent')?.status).toBe('backlog');
-    expect(harness.cards.read('goal-child')).toBeNull();
-    expect(harness.cards.read('code-leaf')).toBeNull();
-    expect(harness.state.read()?.runtime_activations ?? []).toEqual([]);
+    expect(harness.stateTestTools.read()?.active_card_run).toBeNull();
+    expect(harness.stateTestTools.read()?.current_card_id).toBeNull();
+    expect(harness.cardTestTools.read('goal-parent')?.status).toBe('backlog');
+    expect(harness.cardTestTools.read('goal-child')).toBeNull();
+    expect(harness.cardTestTools.read('code-leaf')).toBeNull();
+    expect(harness.stateTestTools.read()?.runtime_activations ?? []).toEqual([]);
     expect(activateToolCallIds(tmpDir, 'project')).toEqual([]);
     expect(activateMessages(tmpDir, 'project').filter((m) => m.kind === 'tool_result')).toHaveLength(0);
     expect(activateMessages(tmpDir, 'goal-parent')).toHaveLength(0);

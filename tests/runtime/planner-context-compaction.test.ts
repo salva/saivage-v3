@@ -54,7 +54,7 @@ describe('planner prompt context compaction', () => {
     });
 
     const longBlob = 'artifact-body-'.repeat(1000);
-    harness.cards.update('project', {
+    harness.cardTestTools.update('project', {
       latest_self_report: {
         summary: longBlob,
         details: { nested: longBlob },
@@ -66,7 +66,7 @@ describe('planner prompt context compaction', () => {
         },
       },
     });
-    harness.cards.create({
+    harness.cardTestTools.create({
       id: 'child-heavy',
       type: 'code',
       parent: 'project',

@@ -101,9 +101,9 @@ describe('Runtime executor fallback evidence persistence', () => {
     await harness.dispatchTestTools.dispatchGoal('project');
     await harness.api.shutdown();
 
-    const codeCard = harness.cards.read('code-1') as CardRecord;
+    const codeCard = harness.cardTestTools.read('code-1') as CardRecord;
     expect(codeCard.status).toBe('needs_verification');
-    expect(harness.cards.read('project')?.status).not.toBe('done');
+    expect(harness.cardTestTools.read('project')?.status).not.toBe('done');
     expect(codeCard.result).toEqual(expect.objectContaining({
       generated_files: ['generated/output.txt'],
       verification_commands: [expect.objectContaining({ command: 'npm test -- result-parser', process_id: 'proc-55', status: 'exited', exit_code: 0, timed_out: false })],
@@ -173,7 +173,7 @@ describe('Runtime executor fallback evidence persistence', () => {
     await harness.dispatchTestTools.dispatchGoal('project');
     await harness.api.shutdown();
 
-    const codeCard = harness.cards.read('code-1') as CardRecord;
+    const codeCard = harness.cardTestTools.read('code-1') as CardRecord;
     expect(codeCard.status).toBe('done');
     expect(codeCard.error).toBeNull();
     expect(codeCard.artifacts).toEqual([]);
@@ -234,7 +234,7 @@ describe('Runtime executor fallback evidence persistence', () => {
     await harness.dispatchTestTools.dispatchGoal('project');
     await harness.api.shutdown();
 
-    const codeCard = harness.cards.read('code-active') as CardRecord;
+    const codeCard = harness.cardTestTools.read('code-active') as CardRecord;
     expect(codeCard.status).toBe('done');
     expect(codeCard.completed_at).toEqual(expect.any(String));
     expect(Date.parse(codeCard.completed_at!)).not.toBeNaN();

@@ -33,7 +33,7 @@ export interface RuntimeCoreContainer {
     emit(event: LoggedEvent): void;
     emitAnalystToolInvoked(payload: EventPayload<'analyst_tool_invoked'>): void;
   };
-  cards: CardStore;
+  cardTestTools: CardStore;
   loggerTestTools: {
     isSameErrorLogger(errorLogger: ErrorLogger): boolean;
     appendError(input: Parameters<ErrorLogger['appendError']>[0]): void;
@@ -57,7 +57,7 @@ export interface RuntimeCoreContainer {
     setChecksProvider(provider: () => Promise<StuckVerdict>): void;
     runCheck(): Promise<void>;
   };
-  state: {
+  stateTestTools: {
     read(): RuntimeState | null;
   };
   dispatchTestTools: {
@@ -193,7 +193,7 @@ export function createRuntimeCoreContainer(input: {
       emit: (event) => runtimeParts.eventBus.emit(event),
       emitAnalystToolInvoked: (payload) => runtimeParts.eventBus.emit('analyst_tool_invoked', payload),
     },
-    cards: runtimeParts.cards,
+    cardTestTools: runtimeParts.cards,
     agentRuntimeTestTools: {
       isSameAgentRuntime: (agentRuntime) => runtimeParts.agentRuntime === agentRuntime,
       getConstructorName: () => runtimeParts.agentRuntime.constructor.name,
@@ -217,7 +217,7 @@ export function createRuntimeCoreContainer(input: {
       setChecksProvider: (provider) => runtimeParts.supervisor.setChecksProvider(provider),
       runCheck: () => (runtimeParts.supervisor as unknown as { _runCheck: () => Promise<void> })._runCheck(),
     },
-    state: {
+    stateTestTools: {
       read: () => readRuntimeState(input.config.projectRoot),
     },
     dispatchTestTools: {

@@ -117,13 +117,13 @@ describe('startup agent session sweep', () => {
       await api.start();
       await new Promise((resolve) => setTimeout(resolve, 0));
 
-      const project = harness.cards.read('project');
+      const project = harness.cardTestTools.read('project');
       expect(project?.status).toBe('blocked');
       expect(project?.result?.planning).toEqual(expect.objectContaining({
         status: 'blocked',
         resume_reason: 'non_actionable_continue',
       }));
-      expect(harness.state.read()?.active_card_run).toBeNull();
+      expect(harness.stateTestTools.read()?.active_card_run).toBeNull();
     } finally {
       await api.shutdown();
     }

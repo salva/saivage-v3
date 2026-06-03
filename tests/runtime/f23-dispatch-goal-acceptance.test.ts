@@ -60,7 +60,7 @@ describe('F23 — dispatchGoal acceptance', () => {
     await dispatchTestTools.dispatchGoal('project');
     await api.shutdown();
 
-    const project = harness.cards.read('project');
+    const project = harness.cardTestTools.read('project');
     // Goal must have transitioned out of the original 'failed' status via state-machine restart.
     expect(project?.status).not.toBe('failed');
     const errs = readErrorsJsonl(projectRoot);

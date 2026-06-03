@@ -93,6 +93,8 @@ describe('runtime module ownership boundary', () => {
       expect(source).not.toContain('runtime.eventLogger');
       expect(source).not.toContain('runtime.supervisor');
       expect(source).not.toContain('harness.runtime.cardStore');
+      expect(source).not.toContain('harness.cards.');
+      expect(source).not.toContain("RuntimeTestHarness['cards']");
       expect(source).not.toContain('harness.runtime.agentRuntime');
       expect(source).not.toContain('harness.agentRuntime.');
       expect(source).not.toContain('harness.runtime.errorLogger');
@@ -101,6 +103,8 @@ describe('runtime module ownership boundary', () => {
       expect(source).not.toContain('harness.eventLogger.');
       expect(source).not.toContain('harness.runtime.supervisor');
       expect(source).not.toContain('harness.eventBus');
+      expect(source).not.toContain('harness.state.');
+      expect(source).not.toContain("RuntimeTestHarness['state']");
       expect(source).not.toContain('harness.scheduler');
       expect(source).not.toContain("RuntimeTestHarness['scheduler']");
       expect(source).not.toContain('harness.runtime.projectRoot');

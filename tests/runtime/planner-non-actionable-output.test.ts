@@ -61,7 +61,7 @@ describe('planner output actionability guard', () => {
     await harness.api.start();
     await harness.dispatchTestTools.dispatchGoal('project');
 
-    const project = harness.cards.read('project');
+    const project = harness.cardTestTools.read('project');
     expect(project?.status).toBe('blocked');
     expect(project?.error).toContain('Planner returned continue without creating/updating cards');
     expect(project?.result?.planning).toEqual(expect.objectContaining({
@@ -70,8 +70,8 @@ describe('planner output actionability guard', () => {
       created_cards: [],
       updated_cards: [],
     }));
-    expect(harness.state.read()?.active_card_run).toBeNull();
-    expect(harness.state.read()?.current_card_id).toBeNull();
+    expect(harness.stateTestTools.read()?.active_card_run).toBeNull();
+    expect(harness.stateTestTools.read()?.current_card_id).toBeNull();
   });
 
   it('persists a planner-declared blocker as blocked card status and idle runtime state', async () => {
@@ -93,7 +93,7 @@ describe('planner output actionability guard', () => {
     await harness.api.start();
     await harness.dispatchTestTools.dispatchGoal('project');
 
-    const project = harness.cards.read('project');
+    const project = harness.cardTestTools.read('project');
     expect(project?.status).toBe('blocked');
     expect(project?.error).toBe('test planner declared a durable blocker');
     expect(project?.status_text).toBe('test planner declared a durable blocker');
@@ -104,9 +104,9 @@ describe('planner output actionability guard', () => {
       created_cards: [],
       updated_cards: [],
     }));
-    expect(harness.state.read()?.status).toBe('idle');
-    expect(harness.state.read()?.active_card_run).toBeNull();
-    expect(harness.state.read()?.current_card_id).toBeNull();
+    expect(harness.stateTestTools.read()?.status).toBe('idle');
+    expect(harness.stateTestTools.read()?.active_card_run).toBeNull();
+    expect(harness.stateTestTools.read()?.current_card_id).toBeNull();
   });
 
 
@@ -128,7 +128,7 @@ describe('planner output actionability guard', () => {
     const mapping = { project: 'generic-blocked-after-reviewer-capacity' };
     const fakeAgent = new FakeAgentAdapter({ mapping, fixtureDir });
     harness = createHarness(mapping, fakeAgent);
-    harness.cards.update('project', {
+    harness.cardTestTools.update('project', {
       status: 'active',
       error: reviewerBlockedReason,
       status_text: reviewerBlockedReason,
@@ -147,7 +147,7 @@ describe('planner output actionability guard', () => {
     await harness.api.start();
     await harness.dispatchTestTools.dispatchGoal('project');
 
-    const project = harness.cards.read('project');
+    const project = harness.cardTestTools.read('project');
     expect(project?.status).toBe('blocked');
     expect(project?.error).toBe(reviewerBlockedReason);
     expect(project?.status_text).toBe(reviewerBlockedReason);
@@ -186,7 +186,7 @@ describe('planner output actionability guard', () => {
     await harness.api.start();
     await harness.dispatchTestTools.dispatchGoal('project');
 
-    const project = harness.cards.read('project');
+    const project = harness.cardTestTools.read('project');
     expect(project?.status).toBe('blocked');
     expect(project?.error).toBe(reviewerCapacityReason);
     expect(project?.status_text).toBe(reviewerCapacityReason);

@@ -819,7 +819,7 @@ describe('Runtime Integration', () => {
 
       makeRuntime();
 
-      expect(harness.state.read()?.runtime_activations ?? []).toEqual([]);
+      expect(harness.stateTestTools.read()?.runtime_activations ?? []).toEqual([]);
       expect(store.read('code-q-1')!.status).toBe('backlog');
       expect(store.read('code-q-2')!.status).toBe('backlog');
     });
