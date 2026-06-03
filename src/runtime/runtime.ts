@@ -197,6 +197,12 @@ function buildPersistedPlannerHistoryCompactionMessage(
 
 const TRACKED_EVENT_KINDS: ReadonlySet<EventKind> = new Set(trackedEventKindValues);
 
+type ConfigurableAgentRuntime = AgentExecutionPort & {
+  setSaivageDir?: (saivageDir: string) => void;
+  setActivationLedger?: (activationLedger: RuntimeActivationLedgerPort) => void;
+  setSessionStamper?: (sessionStamper: RuntimeStampSource) => void;
+};
+
 export class Runtime {
   private readonly projectRoot: string;
   private readonly cardStore: CardStore;
@@ -255,37 +261,10 @@ export class Runtime {
         },
         activationLedger,
       );
-    if (
-      typeof (this.agentRuntime as { setSaivageDir?: (saivageDir: string) => void })
-        .setSaivageDir === 'function'
-    )
-      (
-        this.agentRuntime as unknown as { setSaivageDir: (saivageDir: string) => void }
-      ).setSaivageDir(join(config.projectRoot, '.saivage'));
-    if (
-      typeof (
-        this.agentRuntime as {
-          setActivationLedger?: (activationLedger: RuntimeActivationLedgerPort) => void;
-        }
-      ).setActivationLedger === 'function'
-    )
-      (
-        this.agentRuntime as unknown as {
-          setActivationLedger: (activationLedger: RuntimeActivationLedgerPort) => void;
-        }
-      ).setActivationLedger(activationLedger);
-    if (
-      typeof (
-        this.agentRuntime as {
-          setSessionStamper?: (sessionStamper: RuntimeStampSource) => void;
-        }
-      ).setSessionStamper === 'function'
-    )
-      (
-        this.agentRuntime as unknown as {
-          setSessionStamper: (sessionStamper: RuntimeStampSource) => void;
-        }
-      ).setSessionStamper(this._sessionStamper);
+    const configurableAgentRuntime = this.agentRuntime as ConfigurableAgentRuntime;
+    configurableAgentRuntime.setSaivageDir?.(join(config.projectRoot, '.saivage'));
+    configurableAgentRuntime.setActivationLedger?.(activationLedger);
+    configurableAgentRuntime.setSessionStamper?.(this._sessionStamper);
     this.notificationCenter = new NotificationCenter(config.projectRoot, this.eventBus);
     this._skillsEngine = config.skillsEngine ?? null;
     this._continuousImprovementReserved = config.continuousImprovement ?? false;
