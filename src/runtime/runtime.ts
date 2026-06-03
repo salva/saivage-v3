@@ -63,14 +63,9 @@ import {
 import { buildCurrentAgentSessionPatch, buildDispatchPausedRuntimeStatePatch, buildShutdownRuntimeStatePatch, planSweptCurrentAgentSessionPatch } from './runtime-core.js';
 import { cardHasBlockedPlanning } from './planning-blockers.js';
 import { nextReviewerAssessmentId, reviewerSessionId as makeReviewerSessionId, validateReviewerAssessment } from './reviewer-assessment.js';
-import { ActivationUnwindRunner, selectChildGoalActivationOutcome, selectPendingActivationChildCardIds } from './activation-unwind.js';
+import { ActivationUnwindRunner } from './activation-unwind.js';
 import { buildProjectRunCompletedPayload } from './project-run-completion.js';
-import { buildCardContextBlock as buildRuntimeCardContextBlock, buildGoalEvidenceContext as buildRuntimeGoalEvidenceContext } from './context-builder.js';
-import { buildExecutorActiveRunPatch, resolveExecutorLastSessionId, selectExecutorStartAction } from './phases/executor-phase.js';
-import { ExecutorPhaseRunner } from './phases/executor-phase-runner.js';
-import { buildIgnoredExecutorEvidencePatch, createExecutorEvidenceRegistrar, registerExecutorEvidence, summarizeExecutorEvidenceRegistrationFailure } from './phases/executor-evidence.js';
-import { handleExecutorInvocationFailure } from './phases/executor-invocation-failure.js';
-import { handleExecutorCompletion } from './phases/executor-completion-handler.js';
+import { buildGoalEvidenceContext as buildRuntimeGoalEvidenceContext } from './context-builder.js';
 import { buildReviewerActiveRun, decideReviewerPhase } from './phases/reviewer-phase.js';
 import { ReviewerPhaseRunner } from './phases/reviewer-phase-runner.js';
 import { handleReviewerInvocationFailure } from './phases/reviewer-invocation-failure.js';
@@ -91,6 +86,7 @@ import { RuntimePauseResumeController } from './runtime-pause-resume.js';
 import { alignBlockedPlanningCardStatuses, isPlannerTerminalToolExhaustion } from './startup-blocked-planning.js';
 import { reconcileIdleRunningRootRuns } from './startup-run-reconciliation.js';
 import { RuntimeRunLedger } from './runtime-run-ledger.js';
+import { PendingActivationDispatcher } from './pending-activation-dispatcher.js';
 
 const TERMINAL_STATUSES: ReadonlySet<string> = new Set(['done', 'failed', 'cancelled']);
 function now(): string {
@@ -160,6 +156,7 @@ class Runtime {
   private _projectCommands!: RuntimeProjectCommandRunner;
   private _pauseResume!: RuntimePauseResumeController;
   private readonly _runLedger: RuntimeRunLedger;
+  private _pendingActivations!: PendingActivationDispatcher;
   private readonly _sessionStamper: RuntimeStampSource;
   private readonly _goalDispatcher: RuntimeConfig['goalDispatcher'];
   private readonly _diagnosticsSink: RuntimeTestHooks['diagnosticsSink'];
@@ -351,6 +348,22 @@ class Runtime {
         this._paused = paused;
       },
       emit: (eventName, data) => this.emit(eventName, data),
+      now,
+    });
+    this._pendingActivations = new PendingActivationDispatcher({
+      projectRoot: this.projectRoot,
+      cards: this.cardStore,
+      agentRuntime: this.agentRuntime,
+      skillsEngine: this._skillsEngine,
+      stateMachine: this._stateMachine,
+      activationUnwind: this._activationUnwind,
+      eventLogger: this._eventLogger,
+      errorLogger: this._errorLogger,
+      isPaused: () => this._paused,
+      isShuttingDown: () => this._shuttingDown,
+      dispatchGoalThroughScheduler: (goalId) => this.dispatchGoalThroughScheduler(goalId),
+      emit: (eventName, data) => this.emit(eventName, data),
+      emitRuntimeDiagnostic: (input) => this.emitRuntimeDiagnostic(input),
       now,
     });
     hooks.corePartsSink?.setRuntimeCoreParts({
@@ -830,7 +843,7 @@ class Runtime {
           transitionCard: (cardId, action, input) => this._stateMachine.transitionCard(cardId, action, input),
         }).apply(goalId, plannerResult);
         updateRuntimeState(this.projectRoot, buildCurrentAgentSessionPatch(`planner:${goalId}`));
-        const execution = await this.dispatchPendingActivations(goalId);
+        const execution = await this._pendingActivations.dispatch(goalId);
         if (execution.failed) plannerDone = false;
         if (this._shuttingDown) break;
         if (this._paused) {
@@ -964,156 +977,6 @@ class Runtime {
     } finally {
       this._dispatchInFlight.delete(goalId);
     }
-  }
-
-  private getPendingActivationCards(goalId: string): CardRecord[] {
-    return selectPendingActivationChildCardIds(readRuntimeState(this.projectRoot), goalId)
-      .map((childCardId) => this.cardStore.read(childCardId))
-      .filter((card): card is CardRecord => Boolean(card));
-  }
-
-  private async dispatchPendingActivations(
-    goalId: string,
-  ): Promise<{ dispatchedGoal: boolean; executedTerminal: boolean; failed: boolean }> {
-    let activationCards = this.getPendingActivationCards(goalId);
-    const goalCard = this.cardStore.read(goalId);
-    let dispatchedGoal = false;
-    let executedTerminal = false;
-    let failed = false;
-    while (activationCards.length > 0 && !this._shuttingDown) {
-      if (this._paused) return { dispatchedGoal, executedTerminal, failed };
-      for (const card of activationCards) {
-        if (this._shuttingDown || this._paused) return { dispatchedGoal, executedTerminal, failed };
-        const callerEdge = this._activationUnwind.findCallerEdge(card.id);
-        if (card.type === 'goal') {
-          await this.dispatchGoalThroughScheduler(card.id);
-          const completedCard = this.cardStore.read(card.id);
-          const outcome = selectChildGoalActivationOutcome(completedCard);
-          this._activationUnwind.appendChildUnwindToolResult(
-            card.id,
-            outcome,
-            `Child goal ${card.id} finished with status ${completedCard?.status ?? 'unknown'}.`,
-          );
-          dispatchedGoal = true;
-          if (outcome !== 'done') return { dispatchedGoal, executedTerminal, failed };
-          continue;
-        }
-        {
-          const startAction = selectExecutorStartAction(card.status);
-          const transitioned =
-            startAction === null
-              ? true
-              : await this._stateMachine.transitionCard(card.id, startAction, {
-                  goalId,
-                  reason: 'pending_activation_dispatch',
-                });
-          if (!transitioned) {
-            failed = true;
-            return { dispatchedGoal, executedTerminal, failed };
-          }
-        }
-        {
-          const startedAt = now();
-          updateRuntimeState(this.projectRoot, buildExecutorActiveRunPatch({ card, goalId, callerEdge, at: startedAt }));
-        }
-        let execResult;
-        try {
-          execResult = await new ExecutorPhaseRunner({
-            agentRuntime: this.agentRuntime,
-            skillsEngine: this._skillsEngine,
-            buildCardContextBlock: (cardId, parentGoalId) => buildRuntimeCardContextBlock({ cardId, goalId: parentGoalId, cards: this.cardStore }),
-          }).run({ card, goalId, goalCard });
-        } catch (err) {
-          await handleExecutorInvocationFailure({
-            cardId: card.id,
-            goalId,
-            error: err,
-            effects: {
-              emitRuntimeDiagnostic: (input) => this.emitRuntimeDiagnostic(input),
-              appendRuntimeDiagnostic: (input) => this._eventLogger.appendEvent({ kind: 'runtime_diagnostic', ...input }),
-              appendError: (input) => this._errorLogger.appendError(input),
-              transitionCard: (cardId, event, details) => this._stateMachine.transitionCard(cardId, event, details),
-              appendChildUnwindToolResult: (cardId, outcome, summary) => this._activationUnwind.appendChildUnwindToolResult(cardId, outcome, summary),
-              emitCardFailed: (cardId, parentGoalId) => {
-                this.emit('card_failed', { card_id: cardId, goal_id: parentGoalId });
-                this._eventLogger.appendEvent({ kind: 'card_failed', card_id: cardId, goal_id: parentGoalId });
-              },
-            },
-          });
-          failed = true;
-          return { dispatchedGoal, executedTerminal, failed };
-        }
-        const acceptedAt = now();
-        const stateAfterExecutor = readRuntimeState(this.projectRoot);
-        const lastSessionId = resolveExecutorLastSessionId({
-          adapterLastSessionId: (
-            this.agentRuntime as {
-              getLastSessionId?: (role: 'executor', goalId: string, cardId: string) => string | null;
-            }
-          ).getLastSessionId?.('executor', goalId, card.id),
-          activeRunExecutorSessionId: stateAfterExecutor?.active_card_run?.executor_session_id,
-          currentAgentSessionId: stateAfterExecutor?.current_agent_session_id,
-        });
-        const {
-          artifactRegistrationErrors,
-          attachmentRegistrationErrors,
-          ignoredArtifactRegistrations,
-          ignoredAttachmentRegistrations,
-        } = registerExecutorEvidence(
-          createExecutorEvidenceRegistrar({
-            projectRoot: this.projectRoot,
-            cards: this.cardStore,
-            cardId: card.id,
-            onRegistrationError: ({ phase, error, errorMessage }) => {
-              this.emitRuntimeDiagnostic({ card_id: card.id, goal_id: goalId, phase, error });
-              this._eventLogger.appendEvent({ kind: 'runtime_diagnostic', card_id: card.id, phase, error_message: errorMessage });
-              this._errorLogger.appendError({ message: errorMessage, cardId: card.id, goalId, phase });
-            },
-          }),
-          execResult,
-        );
-        const ignoredEvidencePatch = buildIgnoredExecutorEvidencePatch({
-          existingResult: this.cardStore.read(card.id)?.result,
-          ignoredArtifactRegistrations,
-          ignoredAttachmentRegistrations,
-        });
-        if (ignoredEvidencePatch) await this.cardStore.update(card.id, ignoredEvidencePatch);
-        const { registrationFailed, registrationError } = summarizeExecutorEvidenceRegistrationFailure({
-          execStatus: execResult.status,
-          artifactRegistrationErrors,
-          attachmentRegistrationErrors,
-        });
-        const completion = await handleExecutorCompletion({
-          cardId: card.id,
-          goalId,
-          execResult,
-          acceptedAt,
-          lastSessionId,
-          registrationFailed,
-          registrationError,
-          artifactRegistrationErrors,
-          attachmentRegistrationErrors,
-          effects: {
-            now,
-            transitionCard: (cardId, event, details) => this._stateMachine.transitionCard(cardId, event, details),
-            readCard: (cardId) => this.cardStore.read(cardId),
-            updateCard: (cardId, patch) => this.cardStore.update(cardId, patch),
-            appendChildUnwindToolResult: (cardId, outcome, summary) => this._activationUnwind.appendChildUnwindToolResult(cardId, outcome, summary),
-            emitCardFailed: (cardId, parentGoalId) => {
-              this.emit('card_failed', { card_id: cardId, goal_id: parentGoalId });
-              this._eventLogger.appendEvent({ kind: 'card_failed', card_id: cardId, goal_id: parentGoalId });
-            },
-          },
-        });
-        executedTerminal = executedTerminal || completion.executedTerminal;
-        if (!completion.transitioned || completion.failed) {
-          failed = true;
-          return { dispatchedGoal, executedTerminal, failed };
-        }
-      }
-      activationCards = this.getPendingActivationCards(goalId);
-    }
-    return { dispatchedGoal, executedTerminal, failed };
   }
 
 }
