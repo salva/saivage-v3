@@ -51,7 +51,6 @@ import { compactPersistedPlannerHistoryForRetry } from './persisted-planner-hist
 import { isPlannerTerminalToolExhaustion } from './startup-blocked-planning.js';
 import { buildProjectRunCompletedPayload } from './project-run-completion.js';
 import type { RuntimeStateMutationPort } from './mutations.js';
-import { activationFromRuntimeState } from './card-activation.js';
 
 const MAX_PLANNER_ITERATIONS = 50;
 
@@ -243,7 +242,6 @@ export class RuntimeCardDispatcher {
       kind: 'patchRuntimeState',
       patch: buildPlannerActiveRunPatch({ goal: planCard, plannerSessionId: setup.plannerSessionId, at: this.deps.now() }),
     });
-    activationFromRuntimeState(readRuntimeState(this.deps.projectRoot));
     this.deps.runLedger.bindPlannerSessionToOpenRun(goalId, setup.plannerSessionId);
     return planCard;
   }
