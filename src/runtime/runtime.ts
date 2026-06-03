@@ -1379,7 +1379,10 @@ export class Runtime {
           if (failure.kind === 'handled') return;
           throw failure.error;
         }
-        await this.applyPlannerResult(goalId, plannerResult);
+        await new PlannerResultApplier({
+          cardStore: this.cardStore,
+          transitionCard: (cardId, action, input) => this._stateMachine.transitionCard(cardId, action, input),
+        }).apply(goalId, plannerResult);
         updateRuntimeState(this.projectRoot, buildCurrentAgentSessionPatch(`planner:${goalId}`));
         const execution = await this.dispatchPendingActivations(goalId);
         if (execution.failed) plannerDone = false;
@@ -1664,12 +1667,6 @@ export class Runtime {
     return { dispatchedGoal, executedTerminal, failed };
   }
 
-  private async applyPlannerResult(goalId: string, plannerResult: PlannerResult): Promise<void> {
-    await new PlannerResultApplier({
-      cardStore: this.cardStore,
-      transitionCard: (cardId, action, input) => this._stateMachine.transitionCard(cardId, action, input),
-    }).apply(goalId, plannerResult);
-  }
   private async simulateCrash(): Promise<void> {
     const allCards = this.cardStore.list();
     for (const card of allCards)
