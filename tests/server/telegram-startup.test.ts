@@ -69,7 +69,7 @@ describe('server Telegram startup diagnostics', () => {
       const server = await createServer(root, false);
       await server.stop();
     });
-    expect(output).toContain('Telegram bot requires ActiveRuntime.');
+    expect(output).toContain('Telegram bot requires runtime analyst services.');
     expect(output).toContain('missing_bot_token');
     expect(output).not.toContain('123456:TEST_TOKEN');
     expect(operatorLog(root)).toBe('');
@@ -88,7 +88,7 @@ describe('server Telegram startup diagnostics', () => {
     expect(operatorLog(root)).toBe('');
   });
 
-  it('does not register a Telegram adapter without ActiveRuntime even for valid configured recipients', async () => {
+  it('does not register a Telegram adapter without runtime analyst services even for valid configured recipients', async () => {
     mockTelegramLongPoll();
     const root = makeRoot({ telegram: { botToken: '123456:TEST_TOKEN', notificationChatIds: [111111, 222222, 111111] }, notifications: { channels: ['telegram'] } });
     const server = await createServer(root, false);

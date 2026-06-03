@@ -2,7 +2,7 @@ import { describe, expect, it, jest } from '@jest/globals';
 import { restart_server, type ToolContext } from '../../src/agents/analyst-tools.js';
 
 describe('analyst server restart composition', () => {
-  it('uses the server-supplied restart callback instead of ActiveRuntime server backlink', async () => {
+  it('uses the server-supplied restart callback instead of a runtime server backlink', async () => {
     const requestServerRestart = jest.fn(async () => undefined);
     const ctx: ToolContext = { projectRoot: '/tmp/project', actor: 'runtime', surface: 'runtime', requestServerRestart };
     const result = await restart_server(ctx);

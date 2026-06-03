@@ -189,9 +189,9 @@ describe('Agent Events → Runtime EventEmitter', () => {
   });
 });
 
-// ── Test ActiveRuntime AgentAdapter Integration ──────────────
+// ── Test AgentAdapter event bus integration ──────────────
 
-describe('ActiveRuntime → AgentAdapter eventBus wiring', () => {
+describe('AgentAdapter eventBus wiring', () => {
   let tmpDir: string;
 
   beforeEach(() => {

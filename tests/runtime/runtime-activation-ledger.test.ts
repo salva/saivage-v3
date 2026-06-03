@@ -163,14 +163,14 @@ describe('runtime activation ledger target contract (Wave 1)', () => {
       });
 
       const result = await (agentAdapter as any).processToolCall(
-        { id: 'call-active-runtime', type: 'function', function: { name: 'activate_card', arguments: JSON.stringify({ cardId: 'code-a' }) } },
+        { id: 'call-runtime-ledger', type: 'function', function: { name: 'activate_card', arguments: JSON.stringify({ cardId: 'code-a' }) } },
         'planner',
         'planner:goal-a',
         { goalId: 'goal-a', cardId: 'goal-a' },
       );
       sub.unsubscribe();
 
-      expect(result).toMatchObject({ role: 'tool', kind: 'tool_result', tool: 'activate_card', tool_call_id: 'call-active-runtime' });
+      expect(result).toMatchObject({ role: 'tool', kind: 'tool_result', tool: 'activate_card', tool_call_id: 'call-runtime-ledger' });
       expect(events.map((event) => event.kind)).toEqual(['runtime_run', 'runtime_activation']);
       expect(events).toHaveLength(2);
       for (const event of events) expect(loggedEventSchema.parse(event)).toEqual(event);
@@ -179,7 +179,7 @@ describe('runtime activation ledger target contract (Wave 1)', () => {
       const activation = state.runtime_activations!.find((record) => record.child_card_id === 'code-a');
       const childRun = state.runtime_runs!.find((record) => record.run_id === activation!.runtime_run_id);
       expect(events[0]).toEqual(expect.objectContaining({ kind: 'runtime_run', run: childRun }));
-      expect(activation?.idempotency_key).toBe('run-parent:planner:goal-a:call-active-runtime:code-a');
+      expect(activation?.idempotency_key).toBe('run-parent:planner:goal-a:call-runtime-ledger:code-a');
       expect(events[1]).toEqual(expect.objectContaining({ kind: 'runtime_activation', activation }));
       expect((events[1] as any).activation.idempotency_key).toBe(activation?.idempotency_key);
 

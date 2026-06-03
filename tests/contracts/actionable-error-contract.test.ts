@@ -22,7 +22,7 @@ describe('actionable error envelope target contract (Wave 1)', () => {
   it('runtime command errors still use actionable envelopes outside the pruned REST contract', () => {
     const actionableError = createActionableErrorEnvelope({
       code: 'runtime_unavailable',
-      message: 'ActiveRuntime is not attached.',
+      message: 'Runtime application is not attached.',
       currentState: { command: 'start_project' },
       nextAction: 'Start the runtime before retrying start_project through the Analyst.',
       docsRef: 'docs/operation.md#start-project',
