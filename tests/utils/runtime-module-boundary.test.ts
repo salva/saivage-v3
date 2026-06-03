@@ -284,6 +284,15 @@ describe('runtime module ownership boundary', () => {
     expect(source).not.toContain('../agents/analyst-stage6.js');
   });
 
+  it('keeps lifecycle implementation wiring out of concrete Runtime', () => {
+    const source = readFileSync(join(process.cwd(), 'src/runtime/runtime.ts'), 'utf8');
+    expect(source).toContain('RuntimeLifecycleController');
+    expect(source).not.toContain('performRuntimeStartup');
+    expect(source).not.toContain('performRuntimeShutdown');
+    expect(source).not.toContain('performRuntimeCrashRecovery');
+    expect(source).not.toContain('repairRuntimeStartupActiveCardRun');
+  });
+
   it('keeps application extras outside the RuntimeApi shape', () => {
     const source = readFileSync(join(process.cwd(), 'src/application/runtime-composition.ts'), 'utf8');
     expect(source).toContain('readonly runtimeApi: RuntimeApi');
