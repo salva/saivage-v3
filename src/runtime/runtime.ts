@@ -22,10 +22,8 @@ import {
   readRuntimeState,
   saveRuntimeState,
   updateRuntimeState,
-  appendRuntimeCommand,
   appendRuntimeRun,
   updateRuntimeRun,
-  upsertRuntimeIntent,
   upsertRuntimeActivation,
 } from './state.js';
 import { acquireLock, releaseLock } from './lock.js';
@@ -63,8 +61,8 @@ import {
   type SupervisorConfig,
   type SupervisorDeps,
 } from '../runtime/stuck-agent-supervisor.js';
-import { buildCompletedRuntimeCommandState, buildCurrentAgentSessionPatch, buildDispatchPausedRuntimeStatePatch, buildPauseRuntimeStatePatch, buildRejectedRuntimeCommandState, buildResumeRuntimeStatePatch, buildShutdownRuntimeStatePatch, planClearActiveCardRunPatch, planIdleRunningRootRunReconciliation, planOpenPlannerRunTerminalUpdate, planOpenRootRunStopUpdates, planPlannerRunSessionBinding, planRootRunDispatchFailureUpdate, planRootRunDispatchSuccessUpdate, planStartProjectPrecondition, planSweptCurrentAgentSessionPatch } from './runtime-core.js';
-import { cardHasBlockedPlanning, getBlockedPlanning } from './planning-blockers.js';
+import { buildCurrentAgentSessionPatch, buildDispatchPausedRuntimeStatePatch, buildPauseRuntimeStatePatch, buildResumeRuntimeStatePatch, buildShutdownRuntimeStatePatch, planClearActiveCardRunPatch, planIdleRunningRootRunReconciliation, planOpenPlannerRunTerminalUpdate, planPlannerRunSessionBinding, planSweptCurrentAgentSessionPatch } from './runtime-core.js';
+import { cardHasBlockedPlanning } from './planning-blockers.js';
 import { nextReviewerAssessmentId, reviewerSessionId as makeReviewerSessionId, validateReviewerAssessment } from './reviewer-assessment.js';
 import { ActivationUnwindRunner, selectChildGoalActivationOutcome, selectPendingActivationChildCardIds } from './activation-unwind.js';
 import { buildProjectRunCompletedPayload } from './project-run-completion.js';
@@ -78,7 +76,7 @@ import { buildReviewerActiveRun, decideReviewerPhase } from './phases/reviewer-p
 import { ReviewerPhaseRunner } from './phases/reviewer-phase-runner.js';
 import { handleReviewerInvocationFailure } from './phases/reviewer-invocation-failure.js';
 import { handleReviewerAssessmentDecision } from './phases/reviewer-assessment-handler.js';
-import { buildPlannerActivationPlanningPatch, buildPlannerActiveRunPatch, buildPlannerInvocationFailureBlocker, buildProjectPlannerRetryPatch, decideGoalActivationTransition, decidePlannerPostDispatch, describeProjectPlannerRetry, planPlannerActivationSetup, summarizePlannerPostDispatch } from './phases/planner-phase.js';
+import { buildPlannerActivationPlanningPatch, buildPlannerActiveRunPatch, buildPlannerInvocationFailureBlocker, decideGoalActivationTransition, decidePlannerPostDispatch, planPlannerActivationSetup, summarizePlannerPostDispatch } from './phases/planner-phase.js';
 import { handlePlannerInvocationFailure, selectPlannerInvocationFailureRun, type PlannerInvocationFailureKind } from './phases/planner-invocation-failure.js';
 import { handlePlannerPostDispatchDecision } from './phases/planner-post-dispatch-handler.js';
 import { PlannerPhaseRunner } from './phases/planner-phase-runner.js';
@@ -86,9 +84,10 @@ import { PlannerResultApplier } from './phases/planner-result-applier.js';
 import { decideStartupActiveRunRepair, executeStartupActiveRunRepairDecision, selectStartupPlannerRedispatchCardId, shouldRestartRunningIntentOnStartup } from './startup-repair.js';
 import { SessionStampCounter } from '../contracts/session-stamper.js';
 import type { RuntimeCompositionHooks, RuntimeConfig, RuntimeSkillsPort, RuntimeStampSource, RuntimeTestHooks } from './runtime-config.js';
-import { compactPersistedPlannerHistoryForRetry } from './persisted-planner-history.js';
 import { performRuntimeCrashRecovery } from './crash-recovery.js';
 import { RuntimeGoalContextCoordinator } from './runtime-goal-context.js';
+import { RuntimeProjectCommandRunner } from './runtime-project-commands.js';
+import { compactPersistedPlannerHistoryForRetry } from './persisted-planner-history.js';
 
 const TERMINAL_STATUSES: ReadonlySet<string> = new Set(['done', 'failed', 'cancelled']);
 function now(): string {
@@ -160,6 +159,7 @@ class Runtime {
   private _stateMachine: RuntimeStateMachine;
   private readonly _activationUnwind: ActivationUnwindRunner;
   private readonly _goalContext: RuntimeGoalContextCoordinator;
+  private _projectCommands!: RuntimeProjectCommandRunner;
   private readonly _sessionStamper: RuntimeStampSource;
   private readonly _goalDispatcher: RuntimeConfig['goalDispatcher'];
   private readonly _diagnosticsSink: RuntimeTestHooks['diagnosticsSink'];
@@ -317,6 +317,26 @@ class Runtime {
       },
       projectCardId: PROJECT_CARD_ID,
     });
+    this._projectCommands = new RuntimeProjectCommandRunner({
+      projectRoot: this.projectRoot,
+      cards: this.cardStore,
+      agentRuntime: this.agentRuntime,
+      eventLogger: this._eventLogger,
+      sessionStamper: this._sessionStamper,
+      stateMachine: this._stateMachine,
+      dispatchInFlight: this._dispatchInFlight,
+      isPaused: () => this._paused,
+      setShuttingDown: (shuttingDown) => {
+        this._shuttingDown = shuttingDown;
+      },
+      now,
+      publishRuntimeCommand: (command) => this.publishRuntimeLedgerEvent('runtime_command', { command }),
+      publishRuntimeRun: (run) => this.publishRuntimeLedgerEvent('runtime_run', { run }),
+      publishActionableError: (error) =>
+        this.publishRuntimeLedgerEvent('runtime_actionable_error', { actionable_error: error }),
+      trackBackgroundDispatch: (dispatch) => this.trackBackgroundDispatch(dispatch),
+      dispatchGoalThroughScheduler: (goalId) => this.dispatchGoalThroughScheduler(goalId),
+    });
     hooks.corePartsSink?.setRuntimeCoreParts({
       eventBus: this.eventBus,
       cards: this.cardStore,
@@ -336,8 +356,8 @@ class Runtime {
       shutdown: () => this.shutdown(),
       pause: () => this.pause(),
       resume: () => this.resume(),
-      startProject: (source) => this.startProject(source),
-      stopProject: (source) => this.stopProject(source),
+      startProject: (source) => this._projectCommands.startProject(source),
+      stopProject: (source) => this._projectCommands.stopProject(source),
     });
     this.publishDiagnostics();
     testHooks.lifecycleTestToolsSink?.setPerformCrashRecovery(() =>
@@ -544,179 +564,6 @@ class Runtime {
     if (updated) this.publishRuntimeLedgerEvent('runtime_run', { run: updated });
   }
 
-  private async startProject(source: 'operator' | 'tool' | 'runtime' | 'analyst' = 'operator'): Promise<
-    | {
-        success: true;
-        command: RuntimeCommandRecord;
-        intent: RuntimeState['runtime_intent'];
-        run: RuntimeRunRecord;
-      }
-    | { success: false; command: RuntimeCommandRecord; error: ActionableErrorEnvelope }
-  > {
-    const command = appendRuntimeCommand(this.projectRoot, 'start_project', source);
-    const state = readRuntimeState(this.projectRoot) ?? initRuntimeState(this.projectRoot);
-    const projectCard = this.cardStore.read(PROJECT_CARD_ID);
-    const blockedPlanning = getBlockedPlanning(projectCard);
-    const startDecision = planStartProjectPrecondition({
-      state,
-      projectCardId: PROJECT_CARD_ID,
-      projectCardExists: projectCard !== null,
-      projectCardStatus: projectCard?.status ?? null,
-      hasBlockedPlanning: cardHasBlockedPlanning(projectCard),
-      blockedPlanning,
-      paused: this._paused,
-      source,
-    });
-    if (startDecision.error) {
-      const error = startDecision.error;
-      const rejectedAt = now();
-      const rejection = buildRejectedRuntimeCommandState({ state, command, error, at: rejectedAt });
-      const rejectedCommand = rejection.rejectedCommand;
-      saveRuntimeState(this.projectRoot, rejection.state);
-      this.publishRuntimeLedgerEvent('runtime_command', { command: rejectedCommand });
-      this.publishRuntimeLedgerEvent('runtime_actionable_error', { actionable_error: error });
-      return { success: false, command: rejectedCommand, error };
-    }
-    const { retryingPlanningBlocker, retryingTerminalToolPlanningBlocker, retryingTokenBudgetPlanningBlocker } = startDecision;
-    if (retryingPlanningBlocker) {
-      const retryDescription = describeProjectPlannerRetry({ retryingTokenBudgetBlocker: retryingTokenBudgetPlanningBlocker });
-      await this.cardStore.update(
-        PROJECT_CARD_ID,
-        buildProjectPlannerRetryPatch({
-          existingResult: projectCard?.result,
-          retryingTokenBudgetBlocker: retryingTokenBudgetPlanningBlocker,
-          compactedPersistedPlannerHistory: retryingTokenBudgetPlanningBlocker
-            ? compactPersistedPlannerHistoryForRetry({
-                projectRoot: this.projectRoot,
-                plannerSessionId: `planner:${PROJECT_CARD_ID}`,
-                sessionStamper: this._sessionStamper,
-                eventLogger: this._eventLogger,
-              })
-            : false,
-        }),
-      );
-      this._eventLogger.appendEvent({
-        kind: 'runtime_diagnostic',
-        goal_id: PROJECT_CARD_ID,
-        phase: 'planner_blocked_retry',
-        error_message: retryDescription.diagnosticMessage,
-      });
-    }
-    const retryDescription = retryingPlanningBlocker
-      ? describeProjectPlannerRetry({ retryingTokenBudgetBlocker: retryingTokenBudgetPlanningBlocker })
-      : null;
-    upsertRuntimeIntent(
-      this.projectRoot,
-      'running',
-      command.command_id,
-      retryDescription?.intentReason ?? 'explicit start_project command',
-    );
-    const run = appendRuntimeRun(this.projectRoot, {
-      kind: 'root',
-      card_id: PROJECT_CARD_ID,
-      parent_run_id: null,
-      command_id: command.command_id,
-      activation_id: null,
-      phase: 'planner',
-      runtime_status: 'running',
-      session_id: null,
-      result: null,
-    });
-    this.publishRuntimeLedgerEvent('runtime_run', { run });
-    if (!this._paused) {
-      this.trackBackgroundDispatch(
-        this.dispatchGoalThroughScheduler(PROJECT_CARD_ID)
-          .then(() => {
-            const plan = planRootRunDispatchSuccessUpdate({ state: readRuntimeState(this.projectRoot), runId: run.run_id, nowIso: now() });
-            if (!plan) return;
-            const updated = updateRuntimeRun(this.projectRoot, plan.runId, plan.updates);
-            if (updated) this.publishRuntimeLedgerEvent('runtime_run', { run: updated });
-          })
-          .catch(async () => {
-            try {
-              await this._stateMachine.transition('goal_exit', {
-                goalId: PROJECT_CARD_ID,
-                reason: 'dispatch_failed',
-              });
-            } catch {
-              void 0;
-            }
-            const plan = planRootRunDispatchFailureUpdate({ state: readRuntimeState(this.projectRoot), runId: run.run_id, nowIso: now() });
-            if (!plan) return;
-            const updated = updateRuntimeRun(this.projectRoot, plan.runId, plan.updates);
-            if (updated) this.publishRuntimeLedgerEvent('runtime_run', { run: updated });
-          }),
-      );
-    }
-    const current = readRuntimeState(this.projectRoot) ?? state;
-    const completedAt = now();
-    const completion = buildCompletedRuntimeCommandState({ state: current, command, at: completedAt });
-    const completedCommand = completion.completedCommand;
-    saveRuntimeState(this.projectRoot, completion.state);
-    this.publishRuntimeLedgerEvent('runtime_command', { command: completedCommand });
-    return {
-      success: true,
-      command: completedCommand,
-      intent: (readRuntimeState(this.projectRoot) ?? current).runtime_intent,
-      run:
-        ((readRuntimeState(this.projectRoot) ?? current).runtime_runs ?? []).find(
-          (item) => item.run_id === run.run_id,
-        ) ?? run,
-    };
-  }
-
-  private async stopProject(source: 'operator' | 'tool' | 'runtime' | 'analyst' = 'operator'): Promise<{
-    success: true;
-    command: RuntimeCommandRecord;
-    intent: RuntimeState['runtime_intent'];
-    run?: RuntimeRunRecord;
-  }> {
-    const command = appendRuntimeCommand(this.projectRoot, 'stop_project', source);
-    this._shuttingDown = true;
-    const state = upsertRuntimeIntent(
-      this.projectRoot,
-      'stopped',
-      command.command_id,
-      'explicit stop_project command',
-    );
-    for (const cardId of this._dispatchInFlight)
-      void this.agentRuntime.forceCancelSession(`planner:${cardId}`);
-    const stopRunPlans = planOpenRootRunStopUpdates({ state, nowIso: now() });
-    const stoppedRunIds = stopRunPlans.map((plan) => plan.runId);
-    for (const plan of stopRunPlans) {
-      const updated = updateRuntimeRun(this.projectRoot, plan.runId, plan.updates);
-      if (updated) this.publishRuntimeLedgerEvent('runtime_run', { run: updated });
-    }
-    const current = readRuntimeState(this.projectRoot) ?? state;
-    const completedAt = now();
-    const completion = buildCompletedRuntimeCommandState({
-      state: current,
-      command,
-      at: completedAt,
-      statePatch: {
-      status: 'idle',
-      active_card_run: null,
-      current_card_id: null,
-      current_agent_session_id: null,
-      },
-    });
-    const completedCommand = completion.completedCommand;
-    saveRuntimeState(this.projectRoot, completion.state);
-    this.publishRuntimeLedgerEvent('runtime_command', { command: completedCommand });
-    this._shuttingDown = false;
-    const persisted = readRuntimeState(this.projectRoot) ?? current;
-    const stoppedRun =
-      stoppedRunIds.length > 0
-        ? (persisted.runtime_runs ?? []).find((item) => item.run_id === stoppedRunIds[0])
-        : undefined;
-    return {
-      success: true,
-      command: completedCommand,
-      intent: persisted.runtime_intent,
-      ...(stoppedRun ? { run: stoppedRun } : {}),
-    };
-  }
-
   private async alignBlockedPlanningCardStatuses(): Promise<void> {
     for (const card of this.cardStore.list()) {
       if (card.type !== 'project' && card.type !== 'goal') continue;
@@ -810,7 +657,7 @@ class Runtime {
     this._stateMachine.start();
     state = this.reconcileIdleRunningRootRuns(readRuntimeState(this.projectRoot) ?? state);
     if (shouldRestartRunningIntentOnStartup({ state, projectHasBlockedPlanning: cardHasBlockedPlanning(this.cardStore.read(PROJECT_CARD_ID)) })) {
-      this.trackBackgroundDispatch(this.startProject('runtime').then(() => undefined));
+      this.trackBackgroundDispatch(this._projectCommands.startProject('runtime').then(() => undefined));
     }
     const startupActiveRunCardId = state.active_card_run?.card_id ?? null;
     const startupPlannerRedispatchCardId = selectStartupPlannerRedispatchCardId({
