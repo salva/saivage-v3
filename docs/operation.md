@@ -95,13 +95,13 @@ The current mounted operator HTTP surface exposes runtime observation routes rat
 - `GET /api/runtime/card-runs` returns persisted runtime card-run records.
 - `GET /api/state` returns the broader runtime/card-index state snapshot.
 
-CLI `pause` and `resume` remain supported local/runtime-backed controls. They propagate through the live server when a runtime lock is present and a bearer token is available, otherwise they update persisted runtime state directly. The unsupported CLI `freeze` command has been deleted; runtime freeze/resume implementation remains in the runtime layer for in-process callers and tests, but it is not advertised as a current CLI compatibility surface.
+CLI `pause` and `resume` remain supported local/runtime-backed controls. They propagate through the live server when a runtime lock is present and a bearer token is available, otherwise they update persisted runtime state directly. The unsupported CLI `freeze` command and in-process runtime freeze/resume control surface have been deleted; freeze manifests remain schema/persistence helpers only.
 
 Accepted shared pause/resume validation applies to local runtime controls and analyst tools:
 
 - **live runtime available**: pause/resume propagates through the live runtime authority and updates in-memory dispatch state;
 - **no injected runtime**: pause/resume operates on persisted runtime state only, which is valid for server-only inspection/control setups and direct utility contexts;
-- **frozen**: generic resume is rejected and operators must use the runtime resume-from-freeze control available to the runtime authority;
+- **frozen**: generic resume is rejected with actionable recovery guidance; no current operator HTTP route resumes frozen runtime state;
 - **runtime state unavailable**: pause/resume returns an actionable error instead of creating replacement state implicitly.
 
 Legacy explicit dispatch endpoints and stale mutating REST runtime-control routes are not part of the current operator HTTP route inventory. Root execution and goal corrections are runtime-owned commands surfaced through the current runtime/control-room architecture, not through directive-file scanning or obsolete compatibility endpoints.
@@ -244,11 +244,11 @@ Persistent state lives primarily in `.saivage/`. Generated and temporary work ou
 
 Recommended operator sequence for maintenance or backup:
 
-1. Pause or freeze the runtime.
+1. Pause the runtime.
 2. Confirm current runtime health and queue state.
 3. Back up `.saivage/`.
 4. Back up `.saivage-work/` if you need process logs or generated artifacts.
-5. Resume or `resume-from-freeze` when the maintenance window ends.
+5. Resume when the maintenance window ends.
 
 For recovery and incident workflows, use the [Operator Runbook](/operator-runbook) and [Troubleshooting](/troubleshooting).
 

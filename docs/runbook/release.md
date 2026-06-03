@@ -107,7 +107,7 @@ The canonical web test namespace remains `web:test*`; `test:web*` aliases must c
 
 - [ ] Pause and resume behave as documented and return `RuntimeState`.
 - [ ] Freeze records a freeze state and reason.
-- [ ] `resume-from-freeze` restores from a valid manifest.
+- [ ] Frozen-state incidents have explicit project recovery notes; no generic frozen-state recovery route is advertised.
 - [ ] Operators are not forced to infer completion from empty queues alone.
 
 ## Build and serving checks

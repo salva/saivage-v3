@@ -5,7 +5,7 @@ import type { EventPayload } from '../events/index.js';
 import type { LoggedEvent } from '../schemas/index.js';
 import type { RuntimeApi } from './runtime-api.js';
 import { Runtime } from './runtime.js';
-import type { RuntimeConfig, RuntimeControlHooks, RuntimeCoreParts, RuntimeResumeFromFreezeResult, RuntimeTestParts } from './runtime-config.js';
+import type { RuntimeConfig, RuntimeControlHooks, RuntimeCoreParts, RuntimeTestParts } from './runtime-config.js';
 import type { RuntimeDisposeReportEntry } from './lifecycle.js';
 import { readRuntimeState } from './state.js';
 import type { RuntimeState } from '../schemas/index.js';
@@ -94,9 +94,6 @@ export interface RuntimeCoreTestContainer extends RuntimeCoreContainer {
     simulateCrash(): Promise<void>;
     performCrashRecovery(): Promise<void>;
     requestImmediateTick(): Promise<void>;
-    freeze(reason?: string): import('../schemas/index.js').FreezeManifest;
-    resumeFromFreeze(): RuntimeResumeFromFreezeResult;
-    consumeResumeHandoffContext(): string | null;
   };
 }
 
@@ -171,9 +168,6 @@ export function createRuntimeCoreTestContainer(input: {
   let simulateCrash: (() => Promise<void>) | null = null;
   let performCrashRecovery: (() => Promise<void>) | null = null;
   let requestImmediateTick: (() => Promise<void>) | null = null;
-  let freeze: ((reason?: string) => import('../schemas/index.js').FreezeManifest) | null = null;
-  let resumeFromFreeze: (() => RuntimeResumeFromFreezeResult) | null = null;
-  let consumeResumeHandoffContext: (() => string | null) | null = null;
   let emitAgentEvent: EmitAgentEvent | null = null;
   let dispatchGoal: ((goalId: string) => Promise<void>) | null = null;
   let runtimeControls: RuntimeControlHooks | null = null;
@@ -205,15 +199,6 @@ export function createRuntimeCoreTestContainer(input: {
         },
         setRequestImmediateTick: (nextRequestImmediateTick) => {
           requestImmediateTick = nextRequestImmediateTick;
-        },
-        setFreeze: (nextFreeze) => {
-          freeze = nextFreeze;
-        },
-        setResumeFromFreeze: (nextResumeFromFreeze) => {
-          resumeFromFreeze = nextResumeFromFreeze;
-        },
-        setConsumeResumeHandoffContext: (nextConsumeResumeHandoffContext) => {
-          consumeResumeHandoffContext = nextConsumeResumeHandoffContext;
         },
       },
       agentEventSink: {
@@ -332,18 +317,6 @@ export function createRuntimeCoreTestContainer(input: {
       requestImmediateTick: () => {
         if (!requestImmediateTick) throw new Error('Runtime immediate tick hook is unavailable.');
         return requestImmediateTick();
-      },
-      freeze: (reason) => {
-        if (!freeze) throw new Error('Runtime freeze hook is unavailable.');
-        return freeze(reason);
-      },
-      resumeFromFreeze: () => {
-        if (!resumeFromFreeze) throw new Error('Runtime resume-from-freeze hook is unavailable.');
-        return resumeFromFreeze();
-      },
-      consumeResumeHandoffContext: () => {
-        if (!consumeResumeHandoffContext) throw new Error('Runtime resume handoff context hook is unavailable.');
-        return consumeResumeHandoffContext();
       },
     },
   };

@@ -5,7 +5,6 @@ import type { EventLogger, ErrorLogger } from '../observability/index.js';
 import type { SessionActivity, SessionStamper } from '../contracts/session-stamper.js';
 import type { RuntimeDisposeReportEntry } from './lifecycle.js';
 import type { StuckAgentSupervisor, SupervisorConfig } from './stuck-agent-supervisor.js';
-import type { FreezeManifest } from '../schemas/index.js';
 import type { RuntimeApi } from './runtime-api.js';
 
 export interface RuntimeSkillsPort {
@@ -24,13 +23,6 @@ export interface RuntimeSkillsPort {
 export type RuntimeStampSource = SessionStamper & {
   getActivityStatus(sessionId: string): SessionActivity;
 };
-
-export interface RuntimeResumeFromFreezeResult {
-  freeze_id: string;
-  restored_queue: string[];
-  restored_processes: string[];
-  restored_card_id: string | null;
-}
 
 export type RuntimeControlHooks = Pick<RuntimeApi, 'start' | 'shutdown' | 'pause' | 'resume' | 'startProject' | 'stopProject'>;
 
@@ -55,9 +47,6 @@ export interface RuntimeCompositionHooks {
     setSimulateCrash(simulateCrash: () => Promise<void>): void;
     setPerformCrashRecovery(performCrashRecovery: () => Promise<void>): void;
     setRequestImmediateTick(requestImmediateTick: () => Promise<void>): void;
-    setFreeze(freeze: (reason?: string) => FreezeManifest): void;
-    setResumeFromFreeze(resumeFromFreeze: () => RuntimeResumeFromFreezeResult): void;
-    setConsumeResumeHandoffContext(consumeResumeHandoffContext: () => string | null): void;
   };
   agentEventSink?: {
     setEmitAgentEvent(emitAgentEvent: (name: string, data: Record<string, unknown>) => void): void;

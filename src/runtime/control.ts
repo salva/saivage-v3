@@ -11,13 +11,13 @@ import type { RuntimeState } from '../schemas/index.js';
  *   pause/resume behavior and mirror the resulting in-memory state.
  * - live + no runtime API authority: mutate only persisted runtime state so
  *   operator controls still work against server-only or analyst-only contexts.
- * - frozen: generic resume is rejected everywhere with actionable
- *   resume-from-freeze guidance; pause is idempotent and preserves frozen state.
+ * - frozen: generic resume is rejected everywhere with actionable incident
+ *   recovery guidance; pause is idempotent and preserves frozen state.
  * - stopped/unavailable: if no runtime state exists, controls fail with an
  *   actionable initialization error rather than creating an unsafe shim state.
  */
 
-export const RESUME_FROM_FREEZE_MESSAGE = 'Runtime is frozen. Use POST /api/runtime/resume-from-freeze to restore from the freeze manifest before resuming dispatch.';
+export const FROZEN_RUNTIME_RECOVERY_MESSAGE = 'Runtime is frozen. Inspect runtime/debug state and use project-specific recovery; generic resume cannot restore frozen state.';
 
 export interface RuntimeControlContext {
   projectRoot: string;
@@ -32,7 +32,7 @@ export interface RuntimeControlResult {
   paused?: boolean;
   error?: string;
   message?: string;
-  action?: 'resume-from-freeze';
+  action?: 'inspect-frozen-state';
   state?: RuntimeState;
 }
 
@@ -105,8 +105,8 @@ export function resumeRuntimeControl(ctx: RuntimeControlContext): RuntimeControl
         code: 'frozen',
         statusCode: 400,
         error: 'Runtime is frozen',
-        message: RESUME_FROM_FREEZE_MESSAGE,
-        action: 'resume-from-freeze',
+        message: FROZEN_RUNTIME_RECOVERY_MESSAGE,
+        action: 'inspect-frozen-state',
       };
     }
     let state: RuntimeState;

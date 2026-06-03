@@ -40,7 +40,7 @@ journalctl -u saivage-v3-target.service -n 100 --no-pager
 3. Confirm no critical agent/process action is mid-flight in Debug.
 4. Restart the relevant unit.
 5. Re-check `/health`, `/api/state`, and recent journal entries.
-6. Resume or `resume-from-freeze` only after the service is coherent.
+6. Resume only after the service is coherent; frozen states require project-specific incident recovery.
 
 Example commands:
 

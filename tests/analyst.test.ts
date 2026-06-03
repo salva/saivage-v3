@@ -301,7 +301,7 @@ describe('Analyst Tools', () => {
     const result = await resume_runtime(ctx(projectRoot, store), {});
 
     expect(result.success).toBe(false);
-    expect(result.error).toContain('resume-from-freeze');
+    expect(result.error).toContain('generic resume cannot restore frozen state');
     expect(result.error).toContain('Runtime is frozen');
 
     const after = readRuntimeState(projectRoot);

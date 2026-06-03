@@ -117,7 +117,7 @@ describe('runtime core reducers', () => {
     ]);
   });
 
-  it('builds pause, resume, freeze, and resume-from-freeze state shapes', () => {
+  it('builds pause, resume, and freeze-manifest state helper shapes', () => {
     const activeState = state({
       started_at: 'started',
       current_card_id: 'goal-a',

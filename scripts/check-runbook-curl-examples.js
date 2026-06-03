@@ -86,8 +86,6 @@ export function seedRuntimeFixture() {
     active_card_run: null,
     paused: false,
     paused_at: null,
-    queue: [],
-    running_processes: [],
     updated_at: now,
     frozen_reason: null,
   };
@@ -105,25 +103,6 @@ export function responseFor(key, fixture) {
   }
   if (key === 'GET /api/state') {
     return { statusCode: 200, body: { runtime: fixture.state, cardIndex: { total: 0, byStatus: {}, byType: {} } } };
-  }
-  if (key === 'POST /api/runtime/pause') {
-    fixture.state = { ...fixture.state, status: 'paused', paused: true, paused_at: now, updated_at: now };
-    return { statusCode: 200, body: fixture.state };
-  }
-  if (key === 'POST /api/runtime/resume') {
-    fixture.state = { ...fixture.state, status: 'idle', paused: false, paused_at: null, updated_at: now };
-    return { statusCode: 200, body: fixture.state };
-  }
-  if (key === 'POST /api/runtime/freeze') {
-    fixture.state = { ...fixture.state, status: 'frozen', paused: true, paused_at: now, updated_at: now, frozen_reason: 'operator handoff before maintenance' };
-    fixture.freezeManifest = { freeze_id: 'fixture-freeze', queue: fixture.state.queue, current_card_id: fixture.state.current_card_id };
-    return { statusCode: 200, body: { status: 'frozen', freeze_id: 'fixture-freeze', reason: fixture.state.frozen_reason, created_at: now } };
-  }
-  if (key === 'POST /api/runtime/resume-from-freeze') {
-    const manifest = fixture.freezeManifest ?? { freeze_id: 'fixture-freeze', queue: [], current_card_id: null };
-    fixture.state = { ...fixture.state, status: 'idle', paused: false, paused_at: null, queue: manifest.queue, running_processes: [], frozen_reason: null, updated_at: now };
-    fixture.freezeManifest = null;
-    return { statusCode: 200, body: { status: 'resumed', freeze_id: manifest.freeze_id, restored_queue: manifest.queue, restored_processes: [], restored_card_id: manifest.current_card_id } };
   }
   return null;
 }

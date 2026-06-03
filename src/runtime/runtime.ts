@@ -2,11 +2,9 @@ import { EventEmitter } from 'node:events';
 import { join } from 'node:path';
 import { existsSync, rmSync, readdirSync, readFileSync } from 'node:fs';
 import type {
-  FreezeManifest,
   CardRecord,
   RuntimeState,
   EventKind,
-  HandoffSummary,
   ReviewAssessment,
   ActivationCompletionOutcome,
   ActionableErrorEnvelope,
@@ -36,7 +34,6 @@ import {
   upsertRuntimeIntent,
   upsertRuntimeActivation,
 } from './state.js';
-import { saveFreezeManifest, readFreezeManifest, clearFreezeManifest } from './freeze-manifest.js';
 import { acquireLock, releaseLock } from './lock.js';
 import { createDefaultAgentExecution } from './default-agent-execution.js';
 import type {
@@ -87,7 +84,7 @@ import {
   type SupervisorConfig,
   type SupervisorDeps,
 } from '../runtime/stuck-agent-supervisor.js';
-import { buildCompletedRuntimeCommandState, buildCurrentAgentSessionPatch, buildDispatchPausedRuntimeStatePatch, buildFreezeManifest, buildFreezeRuntimeStatePatch, buildPauseRuntimeStatePatch, buildRejectedRuntimeCommandState, buildResumeFromFreezeRuntimeStatePatch, buildResumeHandoffContext, buildResumeRuntimeStatePatch, buildShutdownRuntimeStatePatch, planClearActiveCardRunPatch, planIdleRunningRootRunReconciliation, planOpenPlannerRunTerminalUpdate, planOpenRootRunStopUpdates, planPlannerRunSessionBinding, planRootRunDispatchFailureUpdate, planRootRunDispatchSuccessUpdate, planStartProjectPrecondition, planSweptCurrentAgentSessionPatch, reduceActivationCompletion } from './runtime-core.js';
+import { buildCompletedRuntimeCommandState, buildCurrentAgentSessionPatch, buildDispatchPausedRuntimeStatePatch, buildPauseRuntimeStatePatch, buildRejectedRuntimeCommandState, buildResumeRuntimeStatePatch, buildShutdownRuntimeStatePatch, planClearActiveCardRunPatch, planIdleRunningRootRunReconciliation, planOpenPlannerRunTerminalUpdate, planOpenRootRunStopUpdates, planPlannerRunSessionBinding, planRootRunDispatchFailureUpdate, planRootRunDispatchSuccessUpdate, planStartProjectPrecondition, planSweptCurrentAgentSessionPatch, reduceActivationCompletion } from './runtime-core.js';
 import { cardHasBlockedPlanning, getBlockedPlanning } from './planning-blockers.js';
 import { nextReviewerAssessmentId, reviewerSessionId as makeReviewerSessionId, validateReviewerAssessment } from './reviewer-assessment.js';
 import { findActivationCallerEdge, findUnresolvedActivateCardCalls, selectChildGoalActivationOutcome, selectPendingActivationChildCardIds } from './activation-unwind.js';
@@ -394,9 +391,6 @@ export class Runtime {
     hooks.lifecycleTestToolsSink?.setSimulateCrash(() => this.simulateCrash());
     hooks.lifecycleTestToolsSink?.setPerformCrashRecovery(() => this.performCrashRecovery());
     hooks.lifecycleTestToolsSink?.setRequestImmediateTick(() => this._stateMachine.requestImmediateTick());
-    hooks.lifecycleTestToolsSink?.setFreeze((reason) => this.freeze(reason));
-    hooks.lifecycleTestToolsSink?.setResumeFromFreeze(() => this.resumeFromFreeze());
-    hooks.lifecycleTestToolsSink?.setConsumeResumeHandoffContext(() => this.consumeResumeHandoffContext());
     hooks.agentEventSink?.setEmitAgentEvent((name, data) => this.emitAgentEvent(name, data));
   }
 
@@ -1255,83 +1249,6 @@ export class Runtime {
     this.emit('resumed');
     this._eventLogger.appendEvent({ kind: 'resumed' });
     void this._stateMachine.requestImmediateTick();
-  }
-  private freeze(reason?: string): FreezeManifest {
-    if ((readRuntimeState(this.projectRoot)?.status ?? 'idle') === 'frozen') {
-      const existing = readFreezeManifest(this.projectRoot);
-      if (existing) return existing;
-    }
-    this._paused = true;
-    const state = readRuntimeState(this.projectRoot);
-    const frozenAt = new Date();
-    const freezeId = `freeze-${frozenAt.toISOString().replace(/[:.]/g, '-')}`;
-    let handoffSummaries: HandoffSummary[] = [];
-    try {
-      const raw = this.agentRuntime.getActiveSessionHandoffs();
-      handoffSummaries = raw instanceof Promise ? [] : raw;
-    } catch {
-      void 0;
-    }
-    const frozenAtIso = frozenAt.toISOString();
-    const manifest = buildFreezeManifest({
-      state,
-      freezeId,
-      reason,
-      frozenAt: frozenAtIso,
-      pid: process.pid,
-      handoffSummaries,
-      runtimeVersion: '0.1.0',
-    });
-    saveFreezeManifest(this.projectRoot, manifest);
-    try {
-      updateRuntimeState(this.projectRoot, buildFreezeRuntimeStatePatch({ state, frozenAt: frozenAtIso }));
-    } catch {
-      void 0;
-    }
-    this.emit('frozen', { freeze_id: manifest.freeze_id, reason: manifest.reason });
-    this._eventLogger.appendEvent({
-      kind: 'frozen',
-      freeze_id: manifest.freeze_id,
-      reason: manifest.reason,
-    });
-    return manifest;
-  }
-  private resumeFromFreeze(): {
-    freeze_id: string;
-    restored_queue: string[];
-    restored_processes: string[];
-    restored_card_id: string | null;
-  } {
-    const manifest = readFreezeManifest(this.projectRoot);
-    if (!manifest)
-      throw new Error('Cannot resume: no freeze manifest found. The runtime is not frozen.');
-    if (manifest.schema_version > 1)
-      throw new Error(
-        `Cannot resume: freeze manifest schema version ${manifest.schema_version} is newer than the supported version 1. Upgrade Saivage to resume this freeze.`,
-      );
-    const currentVersion = '0.1.0';
-    if (manifest.runtime_version !== currentVersion)
-      console.warn(
-        `Resuming from freeze created by runtime version ${manifest.runtime_version} with current version ${currentVersion}. State may differ.`,
-      );
-    this._paused = false;
-    const processIds: string[] = [];
-    try {
-      updateRuntimeState(this.projectRoot, buildResumeFromFreezeRuntimeStatePatch(manifest));
-    } catch {
-      void 0;
-    }
-    this._runningProcesses.clear();
-    this._resumeHandoffContext = buildResumeHandoffContext(manifest);
-    clearFreezeManifest(this.projectRoot);
-    this.emit('resumed_from_freeze', { freeze_id: manifest.freeze_id });
-    this._eventLogger.appendEvent({ kind: 'resumed_from_freeze', freeze_id: manifest.freeze_id });
-    return {
-      freeze_id: manifest.freeze_id,
-      restored_queue: manifest.queue,
-      restored_processes: processIds,
-      restored_card_id: manifest.current_card_id,
-    };
   }
   private async performCrashRecovery(): Promise<void> {
     const allCards = this.cardStore.list();

@@ -170,34 +170,9 @@ Expected top-level JSON keys: `status`, `project_id`, `started_at`, `paused`, `u
 
 Resume re-enables dispatch. Depending on open runtime runs and intent, the runtime may settle into `idle` or continue in `running`. The response body is the updated `RuntimeState`.
 
-### Freeze
+### Frozen state
 
-```text
-runtime freeze control
-Authorization: Bearer <synthetic-api-token>
-Content-Type: application/json
-
-{"reason":"operator handoff before maintenance"}
-```
-
-Expected status: `200`.
-
-Expected top-level JSON keys: `status`, `freeze_id`, `reason`, `created_at`.
-
-Freeze is an intentional operator handoff. Saivage records a freeze manifest and moves runtime state to `frozen` with pause semantics.
-
-### Resume from freeze
-
-```text
-runtime resume-from-freeze control
-Authorization: Bearer <synthetic-api-token>
-```
-
-Expected status: `200`.
-
-Expected top-level JSON keys: `status`, `freeze_id`, `restored_queue`, `restored_processes`, `restored_card_id`.
-
-If a freeze manifest exists, Saivage restores the frozen card/session context, clears the manifest, and returns the internal recovery queue plus current-card reference. Do not use generic resume from `frozen` or `error` states.
+Generic resume is intentionally rejected from `frozen` or `error` states. The current operator HTTP route inventory does not expose freeze or dedicated frozen-state recovery controls; freeze manifests are retained as schema/persistence helpers only. Treat a frozen state as an incident: inspect runtime/debug state, repair the underlying condition, and use project-specific recovery rather than generic resume.
 
 ## Directives instead of legacy dispatch
 
@@ -244,11 +219,11 @@ Persistent state lives primarily in `.saivage/`; the authoritative runtime-state
 
 Recommended maintenance sequence:
 
-1. Pause or freeze the runtime.
+1. Pause the runtime.
 2. Confirm `/health`, `/api/state`, runtime intent/run/activation ledgers, `/api/processes`, and current-card state.
 3. Back up `.saivage/`.
 4. Back up `.saivage-work/` if process logs or generated artifacts are needed.
-5. Resume or `resume-from-freeze` when the maintenance window ends.
+5. Resume when the maintenance window ends.
 
 
 ## Runtime Console and Planning Tree split

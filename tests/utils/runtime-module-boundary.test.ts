@@ -14,14 +14,14 @@ import {
 import {
   pauseRuntimeControl,
   resumeRuntimeControl,
-  RESUME_FROM_FREEZE_MESSAGE,
+  FROZEN_RUNTIME_RECOVERY_MESSAGE,
   readFreezeManifest,
   clearFreezeManifest,
 } from '../../src/runtime/control-api.js';
 import { initRuntimeState, runtimeStatePath } from '../../src/runtime/state.js';
 import { readRuntimeState as directReadRuntimeState, updateRuntimeState as directUpdateRuntimeState, appendRuntimeRun as directAppendRuntimeRun, upsertRuntimeActivation as directUpsertRuntimeActivation } from '../../src/runtime/state.js';
 import { listProcesses as directListProcesses, tailOutput as directTailOutput, getProcess as directGetProcess } from '../../src/runtime/process-runner.js';
-import { pauseRuntimeControl as directPauseRuntimeControl, resumeRuntimeControl as directResumeRuntimeControl, RESUME_FROM_FREEZE_MESSAGE as directResumeFromFreezeMessage } from '../../src/runtime/control.js';
+import { pauseRuntimeControl as directPauseRuntimeControl, resumeRuntimeControl as directResumeRuntimeControl, FROZEN_RUNTIME_RECOVERY_MESSAGE as directFrozenRuntimeRecoveryMessage } from '../../src/runtime/control.js';
 import { readFreezeManifest as directReadFreezeManifest, clearFreezeManifest as directClearFreezeManifest } from '../../src/runtime/freeze-manifest.js';
 import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync } from 'node:fs';
 import { join } from 'node:path';
@@ -257,7 +257,7 @@ describe('runtime module ownership boundary', () => {
   it('exports runtime-owned pause/resume and freeze authority through control-api', () => {
     expect(pauseRuntimeControl).toBe(directPauseRuntimeControl);
     expect(resumeRuntimeControl).toBe(directResumeRuntimeControl);
-    expect(RESUME_FROM_FREEZE_MESSAGE).toBe(directResumeFromFreezeMessage);
+    expect(FROZEN_RUNTIME_RECOVERY_MESSAGE).toBe(directFrozenRuntimeRecoveryMessage);
     expect(readFreezeManifest).toBe(directReadFreezeManifest);
     expect(clearFreezeManifest).toBe(directClearFreezeManifest);
   });
