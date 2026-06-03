@@ -13,17 +13,13 @@ import {
   appendRuntimeRun,
   upsertRuntimeActivation,
 } from './state.js';
-import { acquireLock, releaseLock } from './lock.js';
+import { acquireLock } from './lock.js';
 import { createDefaultAgentExecution } from './default-agent-execution.js';
 import type { AgentExecutionPort, RuntimeActivationLedgerPort } from '../contracts/index.js';
 import {
-  disposeProcessRuntimeScope,
   listProcesses,
   reconcileProcessRecords,
 } from './process-runner.js';
-import {
-  cleanAll,
-} from '../runtime/cleanup.js';
 import { EventLogger } from '../observability/index.js';
 import { ErrorLogger } from '../observability/index.js';
 import {
@@ -35,7 +31,7 @@ import type { RuntimeCardPort, RuntimeStatePort } from './ports.js';
 import {
   StuckAgentSupervisor,
 } from '../runtime/stuck-agent-supervisor.js';
-import { buildShutdownRuntimeStatePatch, planSweptCurrentAgentSessionPatch } from './runtime-core.js';
+import { planSweptCurrentAgentSessionPatch } from './runtime-core.js';
 import { cardHasBlockedPlanning } from './planning-blockers.js';
 import { ActivationUnwindRunner } from './activation-unwind.js';
 import { decideStartupActiveRunRepair, executeStartupActiveRunRepairDecision, selectStartupPlannerRedispatchCardId, shouldRestartRunningIntentOnStartup } from './startup-repair.js';
@@ -53,13 +49,11 @@ import { RuntimeCardDispatcher } from './runtime-card-dispatcher.js';
 import { createRuntimeSupervisor } from './supervisor-factory.js';
 import { RuntimeEventPublisher } from './runtime-event-publisher.js';
 import { RuntimeDiagnostics } from './runtime-diagnostics.js';
+import { performRuntimeShutdown } from './runtime-shutdown.js';
 
 const TERMINAL_STATUSES: ReadonlySet<string> = new Set(['done', 'failed', 'cancelled']);
 function now(): string {
   return new Date().toISOString();
-}
-function saivageWorkDir(projectRoot: string): string {
-  return join(projectRoot, '.saivage-work');
 }
 type ConfigurableAgentRuntime = AgentExecutionPort & {
   setSaivageDir?: (saivageDir: string) => void;
@@ -435,79 +429,27 @@ class Runtime {
     }, 0);
   }
   private async shutdown(): Promise<void> {
-    if (this._dispatchInFlight.size > 0) {
-      await Promise.allSettled(
-        Array.from(this._dispatchInFlight).map((cardId) =>
-          this.agentRuntime.forceCancelSession(`planner:${cardId}`),
-        ),
-      );
-    }
-    if (!this._running) return;
-    this._supervisor.stop();
-    this._stateMachine.stop();
-    if ((readRuntimeState(this.projectRoot)?.status ?? 'idle') === 'frozen') {
-      try {
-        this._diagnostics.setLastLifecycleDisposeReport(await disposeProcessRuntimeScope(this.projectRoot));
-      } catch (error) {
-        this._diagnostics.setLastLifecycleDisposeReport([
-          {
-            id: 'process-runtime-scope',
-            kind: 'disposable',
-            status: 'failed',
-            error: error instanceof Error ? error.message : String(error),
-          },
-        ]);
-      }
-      try {
-        releaseLock(this.projectRoot);
-      } catch {
-        void 0;
-      }
-      this._running = false;
-      this._shuttingDown = false;
-      this._events.emit('shutdown');
-      this._eventLogger.appendEvent({ kind: 'shutdown' });
-      if (this._ownsEventLogger) this._eventLogger.close();
-      if (this._ownsErrorLogger) this._errorLogger.close();
-      return;
-    }
-    this._shuttingDown = true;
-    this._running = false;
-    try {
-      const disposeReport = await disposeProcessRuntimeScope(this.projectRoot);
-      this._diagnostics.setLastLifecycleDisposeReport(disposeReport);
-      for (const id of disposeReport
-        .filter((entry) => entry.kind === 'child_process')
-        .map((entry) => entry.id.replace(/^child:/, '')))
-        this._runningProcesses.delete(id);
-    } catch (error) {
-      this._diagnostics.setLastLifecycleDisposeReport([
-        {
-          id: 'process-runtime-scope',
-          kind: 'disposable',
-          status: 'failed',
-          error: error instanceof Error ? error.message : String(error),
-        },
-      ]);
-    }
-    try {
-      updateRuntimeState(this.projectRoot, buildShutdownRuntimeStatePatch());
-    } catch {
-      void 0;
-    }
-    try {
-      releaseLock(this.projectRoot);
-    } catch {
-      void 0;
-    }
-    try {
-      cleanAll(saivageWorkDir(this.projectRoot), this.cardStore);
-    } catch {
-      void 0;
-    }
-    this._events.emit('shutdown');
-    this._eventLogger.appendEvent({ kind: 'shutdown' });
-    if (this._ownsEventLogger) this._eventLogger.close();
-    if (this._ownsErrorLogger) this._errorLogger.close();
+    await performRuntimeShutdown({
+      projectRoot: this.projectRoot,
+      cards: this.cardStore,
+      agentRuntime: this.agentRuntime,
+      supervisor: this._supervisor,
+      stateMachine: this._stateMachine,
+      diagnostics: this._diagnostics,
+      eventLogger: this._eventLogger,
+      errorLogger: this._errorLogger,
+      ownsEventLogger: this._ownsEventLogger,
+      ownsErrorLogger: this._ownsErrorLogger,
+      runningProcesses: this._runningProcesses,
+      dispatchInFlight: this._dispatchInFlight,
+      isRunning: () => this._running,
+      setRunning: (running) => {
+        this._running = running;
+      },
+      setShuttingDown: (shuttingDown) => {
+        this._shuttingDown = shuttingDown;
+      },
+      emitShutdown: () => this._events.emit('shutdown'),
+    });
   }
 }
