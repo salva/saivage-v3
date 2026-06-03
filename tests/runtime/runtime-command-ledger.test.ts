@@ -17,6 +17,7 @@ import {
   upsertRuntimeIntent,
 } from '../../src/runtime/state.js';
 import { PlannerControlExecutor } from '../../src/agents/planner-control-executor.js';
+import { CardStore } from '../../src/cards/card-store.js';
 import type { AgentExecutionPort as AgentRuntime } from '../../src/contracts/index.js';
 import { createRuntimeTestHarness, type RuntimeTestHarness } from '../utils/runtime-test-harness.js';
 
@@ -359,7 +360,7 @@ describe('runtime command ledger target contract (Wave 1)', () => {
           observedSessionIds.push(parentRun?.session_id);
           const exec = new PlannerControlExecutor({
             projectRoot,
-            cardStore: cards,
+            cardStore: new CardStore(projectRoot),
             activationLedger: activationLedger(projectRoot),
           });
           const msg = await exec.execute({
@@ -524,7 +525,7 @@ describe('runtime command ledger target contract (Wave 1)', () => {
           observedRuns.push({ phase: parentRun?.phase, session_id: parentRun?.session_id });
           const exec = new PlannerControlExecutor({
             projectRoot,
-            cardStore: cards,
+            cardStore: new CardStore(projectRoot),
             activationLedger: activationLedger(projectRoot),
           });
           const msg = await exec.execute({

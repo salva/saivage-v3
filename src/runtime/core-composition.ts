@@ -33,7 +33,7 @@ export interface RuntimeCoreContainer {
     emit(event: LoggedEvent): void;
     emitAnalystToolInvoked(payload: EventPayload<'analyst_tool_invoked'>): void;
   };
-  cardTestTools: CardStore;
+  cardTestTools: Pick<CardStore, 'read' | 'update' | 'create' | 'setStatus'>;
   loggerTestTools: {
     isSameErrorLogger(errorLogger: ErrorLogger): boolean;
     appendError(input: Parameters<ErrorLogger['appendError']>[0]): void;
