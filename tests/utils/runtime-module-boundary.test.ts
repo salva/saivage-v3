@@ -60,6 +60,9 @@ describe('runtime module ownership boundary', () => {
       const source = readFileSync(join(process.cwd(), filePath), 'utf8');
       expect(source).not.toContain("from './runtime.js'");
       expect(source).not.toContain('from "./runtime.js"');
+      expect(source).not.toContain('RuntimeConfig');
+      expect(source).not.toContain('RuntimeSkillsPort');
+      expect(source).not.toContain('RuntimeStampSource');
     }
   });
 
