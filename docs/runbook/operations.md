@@ -22,7 +22,7 @@ Run Saivage with Node.js 24. The root and web `package.json` engines declare `no
 SAIVAGE_API_TOKEN=your-token node dist/src/server/server.js
 ```
 
-This starts Fastify, public docs/SPA serving, auth-protected API routes, `/ws`, MCP startup, and optional Telegram startup. It does **not** create an `ActiveRuntime` dispatch loop.
+This starts Fastify, public docs/SPA serving, auth-protected API routes, `/ws`, MCP startup, and optional Telegram startup. It does **not** create a live runtime dispatch loop.
 
 ### Server with runtime creation
 
@@ -30,7 +30,7 @@ This starts Fastify, public docs/SPA serving, auth-protected API routes, `/ws`, 
 SAIVAGE_API_TOKEN=your-token node dist/src/server/server.js --create-runtime
 ```
 
-With `--create-runtime`, Saivage initializes `ActiveRuntime`, reads or creates runtime state, runs startup repair/settle behavior, and can dispatch queued work. The CLI start path exposes the same flag:
+With `--create-runtime`, Saivage initializes the live runtime authority, reads or creates runtime state, runs startup repair/settle behavior, and can dispatch queued work. The CLI start path exposes the same flag:
 
 ```bash
 SAIVAGE_API_TOKEN=your-token ./bin/saivage.js start --create-runtime
@@ -138,11 +138,11 @@ curl -H "Authorization: Bearer $SAIVAGE_API_TOKEN" \
   http://localhost:8080/api/runtime/status
 ```
 
-This returns `runtime`, `paused`, `currentCardId`, and `goalCount` and falls back to persisted state if no live `ActiveRuntime` is attached.
+This returns `runtime`, `paused`, `currentCardId`, and `goalCount` and falls back to persisted state if no live runtime authority is attached.
 
 ## Runtime control contracts
 
-Pause/resume validation is shared across CLI commands, web UI controls, analyst tools, and persisted runtime-control utilities. Server-hosted analyst chat/WebSocket controls receive the live `ActiveRuntime` when the server was started with `--create-runtime`; direct utility use without a live runtime falls back to canonical persisted-state control and records that only disk state changed.
+Pause/resume validation is shared across CLI commands, web UI controls, analyst tools, and persisted runtime-control utilities. Server-hosted analyst chat/WebSocket controls receive the live `RuntimeApi` when the server was started with `--create-runtime`; direct utility use without a live runtime falls back to canonical persisted-state control and records that only disk state changed.
 
 ### Pause
 

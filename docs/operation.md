@@ -18,7 +18,7 @@ This guide covers current runtime behavior, health and control endpoints, docs a
 SAIVAGE_API_TOKEN=your-token node dist/src/server/server.js
 ```
 
-This starts the Fastify server, public docs/SPA serving, auth-protected API routes, WebSocket support, MCP startup, and optional Telegram startup, but **does not** create an `ActiveRuntime` dispatch loop.
+This starts the Fastify server, public docs/SPA serving, auth-protected API routes, WebSocket support, MCP startup, and optional Telegram startup, but **does not** create a live runtime dispatch loop.
 
 ### Server with runtime creation
 
@@ -26,7 +26,7 @@ This starts the Fastify server, public docs/SPA serving, auth-protected API rout
 SAIVAGE_API_TOKEN=your-token node dist/src/server/server.js --create-runtime
 ```
 
-With runtime creation enabled, Saivage initializes `ActiveRuntime`, reads or creates runtime state, repairs restart-visible runtime ledgers, and then runs only work authorized by explicit runtime intent or parent-planner activation records. Runtime creation does not scan status buckets or backlog queues to discover new work.
+With runtime creation enabled, Saivage initializes the live runtime authority, reads or creates runtime state, repairs restart-visible runtime ledgers, and then runs only work authorized by explicit runtime intent or parent-planner activation records. Runtime creation does not scan status buckets or backlog queues to discover new work.
 
 ## Public vs protected surfaces
 
@@ -85,7 +85,7 @@ Returns runtime-focused status data:
 - runtime command/run/activation and intent metadata when available through detailed runtime surfaces
 - optional `serverAvailability` with the same component contract as `/health`
 
-If no `ActiveRuntime` is attached, the server falls back to runtime state on disk.
+If no live runtime authority is attached, the server falls back to runtime state on disk.
 
 ## Runtime control surfaces
 
@@ -99,8 +99,8 @@ CLI `pause` and `resume` remain supported local/runtime-backed controls. They pr
 
 Accepted shared pause/resume validation applies to local runtime controls and analyst tools:
 
-- **live + `ActiveRuntime` available**: pause/resume propagates through the live runtime authority and updates in-memory dispatch state;
-- **no injected `ActiveRuntime`**: pause/resume operates on persisted runtime state only, which is valid for server-only inspection/control setups and direct utility contexts;
+- **live runtime available**: pause/resume propagates through the live runtime authority and updates in-memory dispatch state;
+- **no injected runtime**: pause/resume operates on persisted runtime state only, which is valid for server-only inspection/control setups and direct utility contexts;
 - **frozen**: generic resume is rejected and operators must use the runtime resume-from-freeze control available to the runtime authority;
 - **runtime state unavailable**: pause/resume returns an actionable error instead of creating replacement state implicitly.
 
