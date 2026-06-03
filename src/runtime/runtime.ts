@@ -234,7 +234,9 @@ class Runtime {
       now,
     });
     hooks.corePartsSink?.setRuntimeCoreParts({
-      eventBus: this._events.eventBus,
+      subscribe: (options) => this._events.eventBus.subscribe(options),
+      publishRuntimeLedgerEvent: (event) => this._events.eventBus.emit(event),
+      emitAnalystToolInvoked: (payload) => this._events.eventBus.emit('analyst_tool_invoked', payload),
       countGoals: () => this.cardStore.list().filter((card) => card.type === 'goal').length,
     });
     testHooks.testPartsSink?.setRuntimeTestParts({

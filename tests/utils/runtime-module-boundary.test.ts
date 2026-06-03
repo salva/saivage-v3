@@ -171,6 +171,7 @@ describe('runtime module ownership boundary', () => {
     const coreParts = source.slice(start, end);
     expect(coreParts).not.toContain('CardStore');
     expect(coreParts).not.toContain('cards:');
+    expect(coreParts).not.toContain('EventBus');
     expect(coreParts).toContain('countGoals');
   });
 

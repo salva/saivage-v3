@@ -144,15 +144,15 @@ export function createRuntimeCoreContainer(input: {
     resume: () => controls.resume(),
     startProject: (source) => controls.startProject(source),
     stopProject: (source) => controls.stopProject(source),
-    subscribe: (options) => coreParts.eventBus.subscribe(options),
+    subscribe: (options) => coreParts.subscribe(options),
     getStatus: () => getRuntimeStatus(input.config.projectRoot, coreParts),
     getActivityStatus: input.getActivityStatus ?? (() => ({ status: 'idle', pending_calls: [], updated_at: new Date(0).toISOString() })),
   };
   const runtimeLedgerEvents = {
-    emit: (event: LoggedEvent) => coreParts.eventBus.emit(event),
+    emit: (event: LoggedEvent) => coreParts.publishRuntimeLedgerEvent(event),
   };
   const emitAnalystToolInvoked = (payload: EventPayload<'analyst_tool_invoked'>) =>
-    coreParts.eventBus.emit('analyst_tool_invoked', payload);
+    coreParts.emitAnalystToolInvoked(payload);
   input.wireAgentEventBus?.(agentEventBus);
   input.wireRuntimeLedgerEvents?.(runtimeLedgerEvents);
   input.wireAnalystToolInvokedEmitter?.(emitAnalystToolInvoked);
@@ -252,7 +252,7 @@ export function createRuntimeCoreTestContainer(input: {
     resume: () => controls.resume(),
     startProject: (source) => controls.startProject(source),
     stopProject: (source) => controls.stopProject(source),
-    subscribe: (options) => runtimeParts.eventBus.subscribe(options),
+    subscribe: (options) => runtimeParts.subscribe(options),
     getStatus: () => getRuntimeStatus(input.config.projectRoot, runtimeParts),
     getActivityStatus: input.getActivityStatus ?? (() => ({ status: 'idle', pending_calls: [], updated_at: new Date(0).toISOString() })),
   };
@@ -261,8 +261,8 @@ export function createRuntimeCoreTestContainer(input: {
     projectRoot: input.config.projectRoot,
     agentEventBus,
     runtimeLedgerEvents: {
-      emit: (event) => runtimeParts.eventBus.emit(event),
-      emitAnalystToolInvoked: (payload) => runtimeParts.eventBus.emit('analyst_tool_invoked', payload),
+      emit: (event) => runtimeParts.publishRuntimeLedgerEvent(event),
+      emitAnalystToolInvoked: (payload) => runtimeParts.emitAnalystToolInvoked(payload),
     },
     cardTestTools: runtimeParts.cards,
     agentRuntimeTestTools: {

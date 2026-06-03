@@ -1,11 +1,12 @@
 import type { AgentExecutionPort, RuntimeActivationLedgerPort } from '../contracts/index.js';
 import type { CardStore } from '../cards/store-api.js';
-import type { EventBus } from '../events/index.js';
 import type { EventLogger, ErrorLogger } from '../observability/index.js';
 import type { SessionStamper } from '../contracts/session-stamper.js';
 import type { RuntimeDisposeReportEntry } from './lifecycle.js';
 import type { StuckAgentSupervisor, SupervisorConfig } from './stuck-agent-supervisor.js';
 import type { RuntimeApi } from './runtime-api.js';
+import type { EventPayload } from '../events/index.js';
+import type { LoggedEvent } from '../schemas/index.js';
 
 export interface RuntimeSkillsPort {
   loadPlannerInstructions(filePath?: string): Promise<string>;
@@ -23,7 +24,9 @@ export interface RuntimeSkillsPort {
 export type RuntimeControlHooks = Pick<RuntimeApi, 'start' | 'shutdown' | 'pause' | 'resume' | 'startProject' | 'stopProject'>;
 
 export interface RuntimeCoreParts {
-  eventBus: EventBus;
+  subscribe: RuntimeApi['subscribe'];
+  publishRuntimeLedgerEvent(event: LoggedEvent): void;
+  emitAnalystToolInvoked(payload: EventPayload<'analyst_tool_invoked'>): void;
   countGoals(): number;
 }
 
