@@ -1,6 +1,5 @@
 import { EventEmitter } from 'node:events';
 import { join } from 'node:path';
-import { existsSync, readFileSync } from 'node:fs';
 import type {
   RuntimeState,
   EventKind,
@@ -44,9 +43,6 @@ import { EventBus } from '../events/index.js';
 import { trackedEventKindValues, type EventPayload } from '../events/index.js';
 import {
   StuckAgentSupervisor,
-  DEFAULT_SUPERVISOR_CONFIG,
-  type SupervisorConfig,
-  type SupervisorDeps,
 } from '../runtime/stuck-agent-supervisor.js';
 import { buildCurrentAgentSessionPatch, buildShutdownRuntimeStatePatch, planSweptCurrentAgentSessionPatch } from './runtime-core.js';
 import { cardHasBlockedPlanning } from './planning-blockers.js';
@@ -63,6 +59,7 @@ import { reconcileIdleRunningRootRuns } from './startup-run-reconciliation.js';
 import { RuntimeRunLedger } from './runtime-run-ledger.js';
 import { PendingActivationDispatcher } from './pending-activation-dispatcher.js';
 import { RuntimeCardDispatcher } from './runtime-card-dispatcher.js';
+import { createRuntimeSupervisor } from './supervisor-factory.js';
 
 const TERMINAL_STATUSES: ReadonlySet<string> = new Set(['done', 'failed', 'cancelled']);
 function now(): string {
@@ -70,9 +67,6 @@ function now(): string {
 }
 function saivageWorkDir(projectRoot: string): string {
   return join(projectRoot, '.saivage-work');
-}
-function eventsLogPath(projectRoot: string): string {
-  return join(projectRoot, '.saivage', 'runtime', 'events.jsonl');
 }
 const TRACKED_EVENT_KINDS: ReadonlySet<EventKind> = new Set(trackedEventKindValues);
 
@@ -197,65 +191,14 @@ class Runtime {
       this._errorLogger = new ErrorLogger(join(config.projectRoot, '.saivage'));
       this._ownsErrorLogger = true;
     }
-    const supervisorDeps: SupervisorDeps = {
-      getRecentLogs: (maxLines: number) => {
-        try {
-          const logPath = eventsLogPath(this.projectRoot);
-          if (!existsSync(logPath)) return '';
-          const raw = readFileSync(logPath, 'utf-8');
-          const allLines = raw.split('\n').filter(Boolean);
-          return allLines.slice(-maxLines).join('\n');
-        } catch {
-          return '';
-        }
-      },
-      getActiveSessions: () => {
-        try {
-          const handoffs = this.agentRuntime.getActiveSessionHandoffs();
-          if (!(handoffs instanceof Promise)) {
-            const active = handoffs.map((handoff) => ({
-              role: handoff.role,
-              sessionId: handoff.session_id,
-            }));
-            if (active.length > 0) return active;
-          }
-        } catch {
-          void 0;
-        }
-        try {
-          const state = readRuntimeState(this.projectRoot);
-          if (state && state.current_agent_session_id) {
-            const sessionId = state.current_agent_session_id;
-            let role = 'executor';
-            if (sessionId.startsWith('planner-') || sessionId.startsWith('planner:'))
-              role = 'planner';
-            else if (sessionId.startsWith('reviewer-') || sessionId.startsWith('reviewer:'))
-              role = 'reviewer';
-            return [{ role, sessionId }];
-          }
-        } catch {
-          void 0;
-        }
-        return [];
-      },
-      abortSession: (sessionId: string) => {
-        void this.agentRuntime.cancelSession(sessionId);
-      },
-      forceCancelSession: (sessionId: string) => {
-        void this.agentRuntime.forceCancelSession(sessionId);
-      },
-      emitEvent: (kind: string, data: Record<string, unknown>) => {
-        this.emit(kind, data);
-        if (TRACKED_EVENT_KINDS.has(kind as EventKind))
-          this._eventLogger.appendEvent({ kind: kind as EventKind, ...data });
-      },
+    this._supervisor = createRuntimeSupervisor({
+      projectRoot: this.projectRoot,
+      agentRuntime: this.agentRuntime,
+      eventLogger: this._eventLogger,
+      supervisorConfig: config.supervisorConfig,
+      emit: (kind, data) => this.emit(kind, data),
       isShuttingDown: () => this._shuttingDown,
-    };
-    const mergedSupervisorConfig: SupervisorConfig = {
-      ...DEFAULT_SUPERVISOR_CONFIG,
-      ...config.supervisorConfig,
-    };
-    this._supervisor = new StuckAgentSupervisor(mergedSupervisorConfig, supervisorDeps);
+    });
     const scheduler: RuntimeScheduler = {
       setInterval: (handler, ms) => setInterval(handler, ms) as unknown as RuntimeSchedulerHandle,
       clearInterval: (handle) => clearInterval(handle as unknown as NodeJS.Timeout),
