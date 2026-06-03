@@ -434,10 +434,6 @@ export class Runtime {
     return this._sessionStamper.stampUserMessage(sessionId);
   }
 
-  private buildGoalEvidenceContext(goalId: string): string {
-    return buildRuntimeGoalEvidenceContext({ goalId, cards: this.cardStore });
-  }
-
   private findCallerEdge(
     childCardId: string,
   ): { parentCardId: string; callerSessionId: string; callerToolCallId: string } | null {
@@ -679,11 +675,6 @@ export class Runtime {
       this.userStamp(plannerSessionId),
       this._sessionStamper,
     );
-  }
-
-  /** Build a card-context block (the card to execute + its parent goal) to attach to an executor prompt. */
-  private buildCardContextBlock(cardId: string, goalId: string): string {
-    return buildRuntimeCardContextBlock({ cardId, goalId, cards: this.cardStore });
   }
 
   private async persistReviewState(goalId: string, assessment: ReviewAssessment): Promise<void> {
@@ -1346,7 +1337,7 @@ export class Runtime {
             skillsEngine: this._skillsEngine,
             maxDepth: this.cardStore.maxDepth,
             readGoalCard: (cardId) => this.cardStore.read(cardId),
-            buildGoalEvidenceContext: (cardId) => this.buildGoalEvidenceContext(cardId),
+            buildGoalEvidenceContext: (cardId) => buildRuntimeGoalEvidenceContext({ goalId: cardId, cards: this.cardStore }),
             buildGoalContextBlock: (cardId, resumeReason) => this.buildGoalContextBlock(cardId, resumeReason),
             inferResumeReason: (cardId, fallback) => this.inferResumeReason(cardId, fallback),
             consumeResumeHandoffContext: () => this.consumeResumeHandoffContext(),
@@ -1435,7 +1426,7 @@ export class Runtime {
               skillsEngine: this._skillsEngine,
               readGoalCard: (cardId) => this.cardStore.read(cardId),
               buildGoalContextBlock: (cardId) => this.buildGoalContextBlock(cardId),
-              buildGoalEvidenceContext: (cardId) => this.buildGoalEvidenceContext(cardId),
+              buildGoalEvidenceContext: (cardId) => buildRuntimeGoalEvidenceContext({ goalId: cardId, cards: this.cardStore }),
               markReviewerStarted: async ({ goalId: startedGoalId, reviewerSessionId: startedReviewerSessionId, goalCard }) => {
                 const startedAt = now();
                 await this._stateMachine.transition('reviewer_started', {
@@ -1578,7 +1569,7 @@ export class Runtime {
           execResult = await new ExecutorPhaseRunner({
             agentRuntime: this.agentRuntime,
             skillsEngine: this._skillsEngine,
-            buildCardContextBlock: (cardId, parentGoalId) => this.buildCardContextBlock(cardId, parentGoalId),
+            buildCardContextBlock: (cardId, parentGoalId) => buildRuntimeCardContextBlock({ cardId, goalId: parentGoalId, cards: this.cardStore }),
           }).run({ card, goalId, goalCard });
         } catch (err) {
           await handleExecutorInvocationFailure({
