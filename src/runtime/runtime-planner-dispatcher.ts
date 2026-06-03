@@ -1,5 +1,4 @@
 import type { AgentExecutionPort } from '../contracts/index.js';
-import type { RuntimeRunRecord } from '../schemas/index.js';
 import type { ErrorLogger, EventLogger } from '../observability/index.js';
 import type { CardStore } from '../cards/store-api.js';
 import type { SessionStamper } from '../contracts/session-stamper.js';
@@ -9,19 +8,11 @@ import type { RuntimeGoalContextCoordinator } from './runtime-goal-context.js';
 import type { RuntimeRunLedger } from './runtime-run-ledger.js';
 import type { PendingActivationDispatcher } from './pending-activation-dispatcher.js';
 import type { RuntimeReviewerDispatcher } from './runtime-reviewer-dispatcher.js';
-import { readRuntimeState } from './state.js';
-import {
-  buildDispatchPausedRuntimeStatePatch,
-} from './runtime-core.js';
-import {
-  classifyPlannerInvocationFailure,
-  handlePlannerInvocationFailure,
-  selectPlannerInvocationFailureRun,
-} from './phases/planner-invocation-failure.js';
-import { isPlannerTerminalToolExhaustion } from './startup-blocked-planning.js';
+import { buildDispatchPausedRuntimeStatePatch } from './runtime-core.js';
 import type { RuntimeStateMutationPort } from './mutations.js';
 import { PlannerActivationRunner } from './phases/planner-activation-runner.js';
 import { PlannerIterationRunner } from './phases/planner-iteration-runner.js';
+import { PlannerFailureHandler } from './phases/planner-failure-handler.js';
 
 const MAX_PLANNER_ITERATIONS = 50;
 
@@ -44,7 +35,7 @@ export interface RuntimePlannerDispatcherDeps {
   consumeResumeHandoffContext(): string | null;
   emit(eventName: string, data: Record<string, unknown>): void;
   emitRuntimeDiagnostic(input: { goal_id?: string; card_id?: string; phase?: string; error: unknown }): void;
-  publishRuntimeRun(run: RuntimeRunRecord): void;
+  plannerFailureHandler: PlannerFailureHandler;
   now(): string;
 }
 
@@ -101,30 +92,6 @@ export class RuntimePlannerDispatcher {
     }
   }
 
-  private async handlePlannerFailure(goalId: string, err: unknown) {
-    const failedRun = selectPlannerInvocationFailureRun({ state: readRuntimeState(this.deps.projectRoot), goalId });
-    const failure = classifyPlannerInvocationFailure(err, isPlannerTerminalToolExhaustion);
-    return handlePlannerInvocationFailure({
-      goalId,
-      error: err,
-      failureKind: failure.failureKind,
-      providerStatus: failure.providerStatus,
-      existingResult: this.deps.cards.read(goalId)?.result,
-      failedRun,
-      effects: {
-        now: this.deps.now,
-        emitRuntimeDiagnostic: (input) => this.deps.emitRuntimeDiagnostic(input),
-        appendRuntimeDiagnostic: (input) => this.deps.eventLogger.appendEvent({ kind: 'runtime_diagnostic', ...input }),
-        appendError: (input) => this.deps.errorLogger.appendError(input),
-        transitionCard: (cardId, event, details) => this.deps.stateMachine.transitionCard(cardId, event, details),
-        updateCard: (cardId, patch) => this.deps.cards.update(cardId, patch),
-        updateRuntimeRun: (runId, updates) => this.deps.mutations.apply({ kind: 'updateRuntimeRun', runId, updates }),
-        publishRuntimeRun: (run) => this.deps.publishRuntimeRun(run),
-        transitionRuntime: (event, details) => this.deps.stateMachine.transition(event, details),
-      },
-    });
-  }
-
   private plannerActivationRunner(): PlannerActivationRunner {
     return new PlannerActivationRunner({
       projectRoot: this.deps.projectRoot,
@@ -151,7 +118,7 @@ export class RuntimePlannerDispatcher {
       isPaused: () => this.deps.isPaused(),
       isShuttingDown: () => this.deps.isShuttingDown(),
       consumeResumeHandoffContext: () => this.deps.consumeResumeHandoffContext(),
-      handlePlannerFailure: (error) => this.handlePlannerFailure(goalId, error),
+      handlePlannerFailure: (error) => this.deps.plannerFailureHandler.handle(goalId, error),
     });
   }
 

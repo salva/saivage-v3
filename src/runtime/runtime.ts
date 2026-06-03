@@ -27,6 +27,7 @@ import { ExecutorActivationDispatcher } from './executor-activation-dispatcher.j
 import { RuntimeCardDispatcher } from './runtime-card-dispatcher.js';
 import { RuntimeReviewerDispatcher } from './runtime-reviewer-dispatcher.js';
 import { RuntimePlannerDispatcher } from './runtime-planner-dispatcher.js';
+import { PlannerFailureHandler } from './phases/planner-failure-handler.js';
 import { createRuntimeSupervisor } from './supervisor-factory.js';
 import { RuntimeEventPublisher } from './runtime-event-publisher.js';
 import { RuntimeDiagnostics } from './runtime-diagnostics.js';
@@ -258,7 +259,17 @@ class Runtime {
       consumeResumeHandoffContext: () => this.consumeResumeHandoffContext(),
       emit: (eventName, data) => this._events.emit(eventName, data),
       emitRuntimeDiagnostic: (input) => this._events.emitRuntimeDiagnostic(input),
-      publishRuntimeRun: (run) => this._events.publishRuntimeLedgerEvent('runtime_run', { run }),
+      plannerFailureHandler: new PlannerFailureHandler({
+        projectRoot: this.projectRoot,
+        cards: this.cardStore,
+        eventLogger: this._eventLogger,
+        errorLogger: this._errorLogger,
+        stateMachine: this._stateMachine,
+        mutations: this._mutations,
+        emitRuntimeDiagnostic: (input) => this._events.emitRuntimeDiagnostic(input),
+        publishRuntimeRun: (run) => this._events.publishRuntimeLedgerEvent('runtime_run', { run }),
+        now,
+      }),
       now,
     });
     this._cardDispatcher = new RuntimeCardDispatcher({
