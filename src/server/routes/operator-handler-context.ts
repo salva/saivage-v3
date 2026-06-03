@@ -7,7 +7,7 @@ import type { buildServerAvailability } from '../availability.js';
 import type { ContractHandler } from '../contract-runtime.js';
 
 export type OperatorContractHandlerMap = Partial<Record<keyof typeof operatorApiContracts, ContractHandler>>;
-export type OperatorActiveRuntimeProvider = () => RuntimeApplication | undefined;
+export type OperatorRuntimeApplicationProvider = () => RuntimeApplication | undefined;
 export type OperatorServerAvailabilityProvider = () => ReturnType<typeof buildServerAvailability>;
 export type OperatorRestartRequester = () => Promise<void>;
 
@@ -16,11 +16,11 @@ export interface OperatorProjectContext {
 }
 
 export interface OperatorRuntimeProviderContext {
-  activeRuntimeProvider: OperatorActiveRuntimeProvider;
+  runtimeApplicationProvider: OperatorRuntimeApplicationProvider;
 }
 
 export interface OperatorStaticRuntimeContext {
-  activeRuntime?: Pick<RuntimeApi, 'getActivityStatus'>;
+  runtimeApplication?: Pick<RuntimeApi, 'getActivityStatus'>;
 }
 
 export interface OperatorAvailabilityContext {

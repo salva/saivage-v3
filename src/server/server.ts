@@ -7,7 +7,7 @@ import type { RuntimeApplication } from '../application/runtime-composition.js';
 import { configureAuthPolicy } from './auth-policy.js';
 import { createResourceScope, type ResourceScope } from '../lifecycle/index.js';
 import { createFastifyApp } from './composition/fastify-app.js';
-import { startActiveRuntime } from './composition/runtime-lifecycle.js';
+import { startRuntimeApplication } from './composition/runtime-lifecycle.js';
 import { attachMcpManagerToRuntime, startMcpManager } from './composition/mcp-lifecycle.js';
 import { startTelegramNotifications } from './composition/telegram-lifecycle.js';
 import { registerServerRoutes } from './composition/route-composition.js';
@@ -16,7 +16,7 @@ import type { ServerAvailabilityInputs } from './availability.js';
 
 export interface ServerConfig { host: string; port: number; projectRoot: string; }
 export interface CreateServerOptions { environment: Environment; createRuntime?: boolean; scope?: ResourceScope; }
-export interface ServerInstance { fastify: FastifyInstance; config: ServerConfig; saivageConfig: SaivageConfig; scope: ResourceScope; mcpManager?: McpManager; telegramBot?: TelegramBot; activeRuntime?: RuntimeApplication; stop: () => Promise<void>; requestRestart: () => Promise<void>; }
+export interface ServerInstance { fastify: FastifyInstance; config: ServerConfig; saivageConfig: SaivageConfig; scope: ResourceScope; mcpManager?: McpManager; telegramBot?: TelegramBot; runtimeApplication?: RuntimeApplication; stop: () => Promise<void>; requestRestart: () => Promise<void>; }
 export function isLocalhost(host: string): boolean { return host === '127.0.0.1' || host === 'localhost' || host === '::1' || host === '0:0:0:0:0:0:0:1'; }
 export function validateDevModeHost(host: string | undefined, apiToken?: string): void { if (apiToken) return; console.warn('⚠  SAIVAGE_API_TOKEN is not set. Server is running in DEVELOPMENT MODE with auth disabled.\n' + '   Set SAIVAGE_API_TOKEN to a secure random string for production use.'); const resolvedHost = host ?? '0.0.0.0'; if (!isLocalhost(resolvedHost)) console.warn(`⚠  Binding to ${resolvedHost} without SAIVAGE_API_TOKEN. All API endpoints are unauthenticated.`); }
 export function getServerConfig(environment: Environment): ServerConfig { return { host: environment.server.host, port: environment.server.port, projectRoot: environment.projectRoot }; }
@@ -59,27 +59,27 @@ export async function createServer(optionsOrProjectRoot: CreateServerOptions | s
 
   const availabilityInputs: ServerAvailabilityInputs = {
     projectRoot,
-    activeRuntime: () => activeRuntime,
+    runtimeApplication: () => runtimeApplication,
     mcpManager: () => mcpManager,
     runtimeStartupFailure: () => runtimeStartupFailure,
     mcpStartupFailure: () => mcpStartupFailure,
   };
 
-  const runtimeStartup = await startActiveRuntime({ createRuntime, projectRoot, saivageConfig, fastify });
-  const activeRuntime = runtimeStartup.activeRuntime;
+  const runtimeStartup = await startRuntimeApplication({ createRuntime, projectRoot, saivageConfig, fastify });
+  const runtimeApplication = runtimeStartup.runtimeApplication;
   const runtimeStartupFailure = runtimeStartup.startupFailure;
 
   const mcpStartup = await startMcpManager({ projectRoot, scope, fastify });
   const mcpManager = mcpStartup.mcpManager;
   const mcpStartupFailure = mcpStartup.startupFailure;
-  attachMcpManagerToRuntime(activeRuntime, mcpManager);
+  attachMcpManagerToRuntime(runtimeApplication, mcpManager);
 
-  const telegramBot = await startTelegramNotifications({ projectRoot, saivageConfig, fastify, activeRuntime });
+  const telegramBot = await startTelegramNotifications({ projectRoot, saivageConfig, fastify, runtimeApplication });
 
   registerServerRoutes({
     fastify,
     projectRoot,
-    activeRuntimeProvider: () => activeRuntime,
+    runtimeApplicationProvider: () => runtimeApplication,
     mcpManagerProvider: () => mcpManager,
     availabilityInputs,
     saivageConfig,
@@ -87,9 +87,9 @@ export async function createServer(optionsOrProjectRoot: CreateServerOptions | s
     requestServerRestart: requestRestart,
   });
 
-  scope.add({ dispose: () => stopServerResources({ projectRoot, fastify, activeRuntime, mcpManager, telegramBot }) }, { name: 'server-stop' });
+  scope.add({ dispose: () => stopServerResources({ projectRoot, fastify, runtimeApplication, mcpManager, telegramBot }) }, { name: 'server-stop' });
 
-  return { fastify, config: serverConfig, saivageConfig, scope, mcpManager, telegramBot, activeRuntime, stop, requestRestart };
+  return { fastify, config: serverConfig, saivageConfig, scope, mcpManager, telegramBot, runtimeApplication, stop, requestRestart };
 }
 
 export async function startServer(optionsOrProjectRoot: CreateServerOptions | string, createRuntime?: boolean): Promise<ServerInstance> { const server = await createServer(optionsOrProjectRoot as CreateServerOptions | string, createRuntime); const apiToken = typeof optionsOrProjectRoot === 'string' ? undefined : optionsOrProjectRoot.environment.auth.apiToken; validateDevModeHost(server.config.host, apiToken); await server.fastify.listen({ host: server.config.host, port: server.config.port }); return server; }

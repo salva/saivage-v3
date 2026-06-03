@@ -14,9 +14,9 @@ export async function startTelegramNotifications(options: {
   projectRoot: string;
   saivageConfig: SaivageConfig;
   fastify: FastifyInstance;
-  activeRuntime?: RuntimeApplication;
+  runtimeApplication?: RuntimeApplication;
 }): Promise<TelegramBot | undefined> {
-  const { projectRoot, saivageConfig, fastify, activeRuntime } = options;
+  const { projectRoot, saivageConfig, fastify, runtimeApplication } = options;
   let telegramBot: TelegramBot | undefined;
   const botToken = saivageConfig.telegram?.botToken;
   const recipientRegistry = normalizeTelegramNotificationChatIds(saivageConfig.telegram?.notificationChatIds);
@@ -24,8 +24,8 @@ export async function startTelegramNotifications(options: {
   if (recipientRegistry.invalidValues.length > 0) fastify.log.warn(`Telegram notification recipient config ignored ${recipientRegistry.invalidValues.length} invalid value(s)`);
   if (botToken) {
     try {
-      if (!activeRuntime) throw new Error('Telegram bot requires runtime analyst services.');
-      telegramBot = new TelegramBot(projectRoot, activeRuntime.analystDeps, saivageConfig);
+      if (!runtimeApplication) throw new Error('Telegram bot requires runtime analyst services.');
+      telegramBot = new TelegramBot(projectRoot, runtimeApplication.analystDeps, saivageConfig);
       await telegramBot.start();
       fastify.log.info('Telegram bot started');
     } catch (err) {

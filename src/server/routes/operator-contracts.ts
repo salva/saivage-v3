@@ -28,18 +28,18 @@ interface OperatorContractRouteRegistrationOptions extends
   OperatorConfigContext,
   Partial<OperatorRuntimeProviderContext> {
   fastify: FastifyInstance;
-  activeRuntime?: RuntimeApplication;
+  runtimeApplication?: RuntimeApplication;
 }
 
 export function registerOperatorContractRoutes(options: OperatorContractRouteRegistrationOptions): void {
   const { fastify, projectRoot } = options;
   const runtime = new ContractRuntime();
-  const getActiveRuntime = () => options.activeRuntimeProvider?.() ?? options.activeRuntime;
+  const getRuntimeApplication = () => options.runtimeApplicationProvider?.() ?? options.runtimeApplication;
   const handlers: OperatorContractHandlerMap = {
-    ...buildRuntimeCardOperatorContractHandlers({ projectRoot, activeRuntimeProvider: getActiveRuntime, serverAvailabilityProvider: options.serverAvailabilityProvider }),
+    ...buildRuntimeCardOperatorContractHandlers({ projectRoot, runtimeApplicationProvider: getRuntimeApplication, serverAvailabilityProvider: options.serverAvailabilityProvider }),
     ...buildMcpOperatorContractHandlers({ mcpStatusProvider: options.mcpStatusProvider, mcpToolsProvider: options.mcpToolsProvider, serverAvailabilityProvider: options.serverAvailabilityProvider }),
-    ...buildAgentOperatorContractHandlers({ projectRoot, activeRuntime: getActiveRuntime()?.runtimeApi }),
-    ...buildChatOperatorContractHandlers({ projectRoot, activeRuntimeProvider: getActiveRuntime, requestServerRestart: options.requestServerRestart }),
+    ...buildAgentOperatorContractHandlers({ projectRoot, runtimeApplication: getRuntimeApplication()?.runtimeApi }),
+    ...buildChatOperatorContractHandlers({ projectRoot, runtimeApplicationProvider: getRuntimeApplication, requestServerRestart: options.requestServerRestart }),
     ...buildFilesDebugOperatorContractHandlers({ projectRoot }),
     ...buildProcessOperatorContractHandlers({ projectRoot }),
     ...buildEventsOperatorContractHandlers({ projectRoot }),

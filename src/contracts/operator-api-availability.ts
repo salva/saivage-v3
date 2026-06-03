@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
 export const AvailabilityStateSchema = z.enum(['available', 'degraded', 'idle', 'unavailable', 'unknown']);
-export const AvailabilityComponentSourceSchema = z.enum(['startup', 'active-runtime', 'runtime-state', 'mcp-manager', 'health-check', 'unknown']);
+export const AvailabilityComponentSourceSchema = z.enum(['startup', 'runtime-application', 'runtime-state', 'mcp-manager', 'health-check', 'unknown']);
 export const AvailabilityDiagnosticSchema = z.object({
   code: z.string().min(1),
   summary: z.string().min(1).max(240),

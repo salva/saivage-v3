@@ -25,7 +25,7 @@ const serverAvailability = {
   generatedAt: '2026-01-01T00:00:02.000Z',
   components: {
     api: { state: 'available', source: 'health-check', checkedAt: '2026-01-01T00:00:02.000Z' },
-    runtime: { state: 'available', source: 'active-runtime', checkedAt: '2026-01-01T00:00:02.000Z' },
+    runtime: { state: 'available', source: 'runtime-application', checkedAt: '2026-01-01T00:00:02.000Z' },
     mcp: { state: 'idle', source: 'mcp-manager', checkedAt: '2026-01-01T00:00:02.000Z', diagnostic: { code: 'mcp-manager-empty', summary: 'No MCP servers configured.' } },
   },
 };

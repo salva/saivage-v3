@@ -11,7 +11,7 @@ import { registerWebSocket } from '../websocket.js';
 export function registerServerRoutes(options: {
   fastify: FastifyInstance;
   projectRoot: string;
-  activeRuntimeProvider: () => RuntimeApplication | undefined;
+  runtimeApplicationProvider: () => RuntimeApplication | undefined;
   mcpManagerProvider: () => McpManager | undefined;
   availabilityInputs: ServerAvailabilityInputs;
   saivageConfig: SaivageConfig;
@@ -23,7 +23,7 @@ export function registerServerRoutes(options: {
   registerOperatorContractRoutes({
     fastify: options.fastify,
     projectRoot: options.projectRoot,
-    activeRuntimeProvider: options.activeRuntimeProvider,
+    runtimeApplicationProvider: options.runtimeApplicationProvider,
     mcpStatusProvider: options.mcpManagerProvider,
     mcpToolsProvider: options.mcpManagerProvider,
     serverAvailabilityProvider,
@@ -32,5 +32,5 @@ export function registerServerRoutes(options: {
     configWarnings: options.configWarnings,
   });
   registerInternalDebugRoutes(options.fastify, options.projectRoot);
-  registerWebSocket(options.fastify, options.projectRoot, options.activeRuntimeProvider(), options.requestServerRestart);
+  registerWebSocket(options.fastify, options.projectRoot, options.runtimeApplicationProvider(), options.requestServerRestart);
 }

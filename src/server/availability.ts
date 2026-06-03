@@ -12,7 +12,7 @@ type StartupFailure = {
 
 export interface ServerAvailabilityInputs {
   projectRoot: string;
-  activeRuntime?: () => RuntimeApplication | undefined;
+  runtimeApplication?: () => RuntimeApplication | undefined;
   mcpManager?: () => McpStatusProvider | undefined;
   runtimeStartupFailure?: () => StartupFailure | undefined;
   mcpStartupFailure?: () => StartupFailure | undefined;
@@ -40,7 +40,7 @@ function diagnostic(code: string, error: unknown, projectRoot: string) {
 export function buildServerAvailability(inputs: ServerAvailabilityInputs): ServerAvailability {
   const generatedAt = nowIso();
   const checkedAt = generatedAt;
-  const activeRuntime = inputs.activeRuntime?.();
+  const runtimeApplication = inputs.runtimeApplication?.();
   const mcpManager = inputs.mcpManager?.();
   const runtimeFailure = inputs.runtimeStartupFailure?.();
   const mcpFailure = inputs.mcpStartupFailure?.();
@@ -52,8 +52,8 @@ export function buildServerAvailability(inputs: ServerAvailabilityInputs): Serve
   };
 
   let runtime: ServerAvailability['components']['runtime'];
-  if (activeRuntime) {
-    runtime = { state: 'available', source: 'active-runtime', checkedAt };
+  if (runtimeApplication) {
+    runtime = { state: 'available', source: 'runtime-application', checkedAt };
   } else if (runtimeFailure) {
     runtime = {
       state: 'unavailable',

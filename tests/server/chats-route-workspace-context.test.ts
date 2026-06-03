@@ -52,7 +52,7 @@ describe('POST /api/chats/:sessionId workspaceContext', () => {
 
   async function app() {
     const fastify = Fastify();
-    registerOperatorContractRoutes({ fastify, projectRoot: root, activeRuntime: createTestRuntimeApplication() });
+    registerOperatorContractRoutes({ fastify, projectRoot: root, runtimeApplication: createTestRuntimeApplication() });
     await fastify.ready();
     return fastify;
   }

@@ -3,9 +3,9 @@ import type { RuntimeApplication } from '../../application/runtime-composition.j
 import { registerOperatorContractRoutes } from './operator-contracts.js';
 import { configureAuthPolicy } from '../auth-policy.js';
 
-export function registerCardRoutes(fastify: FastifyInstance, projectRoot: string, activeRuntime?: RuntimeApplication): void {
+export function registerCardRoutes(fastify: FastifyInstance, projectRoot: string, runtimeApplication?: RuntimeApplication): void {
   configureAuthPolicy({ apiToken: process.env['SAIVAGE_API_TOKEN'] });
-  registerOperatorContractRoutes({ fastify, projectRoot, activeRuntime });
+  registerOperatorContractRoutes({ fastify, projectRoot, runtimeApplication });
 }
 
 /*

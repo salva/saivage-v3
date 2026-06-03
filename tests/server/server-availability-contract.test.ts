@@ -59,7 +59,7 @@ describe('server availability contract', () => {
     rmSync(tmpDir, { recursive: true, force: true });
   });
 
-  it('marks runtime degraded when no ActiveRuntime is attached but persisted state exists', () => {
+  it('marks runtime degraded when no live runtime is attached but persisted state exists', () => {
     setupProject(tmpDir, true);
     const availability = buildServerAvailability({ projectRoot: tmpDir });
     expect(availability.components.api.state).toBe('available');
@@ -71,11 +71,11 @@ describe('server availability contract', () => {
     setupProject(tmpDir, false);
     const availability = buildServerAvailability({
       projectRoot: tmpDir,
-      runtimeStartupFailure: () => ({ code: 'active-runtime-start-failed', error: new Error(`token=super-secret ${tmpDir}/.saivage/auth-profiles.json`) }),
+      runtimeStartupFailure: () => ({ code: 'runtime-application-start-failed', error: new Error(`token=super-secret ${tmpDir}/.saivage/auth-profiles.json`) }),
       mcpStartupFailure: () => ({ code: 'mcp-manager-start-failed', error: new Error('password=hunter2 failed') }),
     });
     expect(availability.components.runtime.state).toBe('unavailable');
-    expect(availability.components.runtime.diagnostic?.code).toBe('active-runtime-start-failed');
+    expect(availability.components.runtime.diagnostic?.code).toBe('runtime-application-start-failed');
     expect(availability.components.runtime.diagnostic?.summary).not.toContain('super-secret');
     expect(availability.components.runtime.diagnostic?.summary).not.toContain(tmpDir);
     expect(availability.components.mcp.state).toBe('unavailable');

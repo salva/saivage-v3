@@ -24,6 +24,6 @@ export async function startMcpManager(options: {
   }
 }
 
-export function attachMcpManagerToRuntime(activeRuntime: { setMcpManager(mcpManager: McpManager): void } | undefined, mcpManager: McpManager | undefined): void {
-  if (activeRuntime && mcpManager) activeRuntime.setMcpManager(mcpManager);
+export function attachMcpManagerToRuntime(runtimeApplication: { setMcpManager(mcpManager: McpManager): void } | undefined, mcpManager: McpManager | undefined): void {
+  if (runtimeApplication && mcpManager) runtimeApplication.setMcpManager(mcpManager);
 }
