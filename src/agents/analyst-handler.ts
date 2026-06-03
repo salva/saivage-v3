@@ -76,31 +76,6 @@ export interface AnalystRuntimeDeps {
   mcpManager?: McpManager;
 }
 
-type LegacyAnalystRuntimeDeps = SessionStamper & {
-  startProject: RuntimeApi['startProject'];
-  stopProject: RuntimeApi['stopProject'];
-  pause: RuntimeApi['pause'];
-  resume: RuntimeApi['resume'];
-  getActivityStatus(sessionId: string): SessionActivity;
-  candidateAvailability?: CandidateAvailability;
-  eventLogger?: EventLogger;
-  emitAnalystToolInvoked?: (payload: EventPayload<'analyst_tool_invoked'>) => void;
-  mcpManager?: McpManager;
-};
-
-function normalizeAnalystRuntimeDeps(deps: AnalystRuntimeDeps | LegacyAnalystRuntimeDeps): AnalystRuntimeDeps {
-  if ('stamper' in deps) return deps;
-  return {
-    runtime: deps,
-    stamper: deps,
-    candidateAvailability: deps.candidateAvailability,
-    eventLogger: deps.eventLogger,
-    emitAnalystToolInvoked: deps.emitAnalystToolInvoked ?? (() => undefined),
-    mcpManager: deps.mcpManager,
-  };
-}
-
-
 function now(): string { return new Date().toISOString(); }
 function saivageDir(projectRoot: string): string { return join(projectRoot, '.saivage'); }
 function sessionsDir(projectRoot: string): string { return join(saivageDir(projectRoot), 'agents', 'sessions'); }
@@ -218,10 +193,10 @@ export class AnalystHandler {
   private surface: ControlActionSurface;
   private requestServerRestart?: () => Promise<void>;
 
-  constructor(projectRoot: string, runtimeDeps: AnalystRuntimeDeps | LegacyAnalystRuntimeDeps, onActivity?: ActivityCallback, actor: ActorRole = 'analyst', surface: ControlActionSurface = 'web-chat', requestServerRestart?: () => Promise<void>) {
+  constructor(projectRoot: string, runtimeDeps: AnalystRuntimeDeps, onActivity?: ActivityCallback, actor: ActorRole = 'analyst', surface: ControlActionSurface = 'web-chat', requestServerRestart?: () => Promise<void>) {
     this.projectRoot = projectRoot;
     this.onActivity = onActivity;
-    this.runtimeDeps = normalizeAnalystRuntimeDeps(runtimeDeps);
+    this.runtimeDeps = runtimeDeps;
     this.actor = actor;
     this.surface = surface;
     this.requestServerRestart = requestServerRestart;

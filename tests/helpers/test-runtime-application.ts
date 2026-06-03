@@ -21,7 +21,7 @@ function testRuntimeCommand(command: 'start_project' | 'stop_project'): Awaited<
   return { command_id: `test-${command}`, command, status: 'completed', requested_at: testRuntimeTimestamp(), completed_at: testRuntimeTimestamp(), source: 'runtime' };
 }
 
-export function createTestAnalystRuntime(opts: { eventBus?: EventBus } = {}): TestAnalystRuntime {
+function createFlatTestAnalystRuntime(opts: { eventBus?: EventBus } = {}): TestAnalystRuntime {
   const eventBus = opts.eventBus ?? new EventBus();
   const states = new Map<string, TestRoundState>();
   const stateFor = (sessionId: string): TestRoundState => {
@@ -109,8 +109,20 @@ export function createTestAnalystRuntime(opts: { eventBus?: EventBus } = {}): Te
   return runtime;
 }
 
+export function createTestAnalystRuntime(opts: { eventBus?: EventBus } = {}): AnalystRuntimeDeps {
+  const analystRuntime = createFlatTestAnalystRuntime(opts);
+  return {
+    runtime: analystRuntime,
+    stamper: analystRuntime,
+    candidateAvailability: analystRuntime.candidateAvailability,
+    eventLogger: analystRuntime.eventLogger,
+    emitAnalystToolInvoked: (payload) => analystRuntime.emitAnalystToolInvoked(payload),
+    mcpManager: analystRuntime.mcpManager,
+  };
+}
+
 export function createTestRuntimeApplication(opts: { eventBus?: EventBus } = {}): RuntimeApplication {
-  const analystRuntime = createTestAnalystRuntime(opts);
+  const analystRuntime = createFlatTestAnalystRuntime(opts);
   return {
     runtimeApi: {
       start: () => analystRuntime.start(),

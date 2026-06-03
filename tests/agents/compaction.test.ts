@@ -70,7 +70,7 @@ describe('compactSession', () => {
       contextLimit: 100000,
       threshold: 0.8,
       maxCompactions: 3,
-    }, createTestAnalystRuntime());
+    }, createTestAnalystRuntime().stamper);
 
     expect(result.compacted).toBe(false);
     expect(result.maxReached).toBe(false);
@@ -92,7 +92,7 @@ describe('compactSession', () => {
       contextLimit: 1000, // very small to trigger compaction
       threshold: 0.01, // almost always triggers
       maxCompactions: 3,
-    }, createTestAnalystRuntime());
+    }, createTestAnalystRuntime().stamper);
 
     expect(result.compacted).toBe(true);
     expect(result.usedFallback).toBe(true);
@@ -117,7 +117,7 @@ describe('compactSession', () => {
         contextLimit: 1000,
         threshold: 0.01,
         maxCompactions: 3,
-      }, createTestAnalystRuntime());
+      }, createTestAnalystRuntime().stamper);
     }
 
     // This should be the 4th attempt — max reached
@@ -132,7 +132,7 @@ describe('compactSession', () => {
       contextLimit: 1000,
       threshold: 0.01,
       maxCompactions: 3,
-    }, createTestAnalystRuntime());
+    }, createTestAnalystRuntime().stamper);
 
     expect(result.maxReached).toBe(true);
     expect(result.compactionCount).toBe(3);
@@ -158,7 +158,7 @@ describe('compactSession', () => {
         summarizerCalled = true;
         return `Summarized ${messages.length} messages.`;
       },
-    }, createTestAnalystRuntime());
+    }, createTestAnalystRuntime().stamper);
 
     expect(summarizerCalled).toBe(true);
     expect(result.usedFallback).toBe(false);
@@ -188,7 +188,7 @@ describe('compactSession', () => {
       summarizeFn: async () => {
         throw new Error('Summarization failed');
       },
-    }, createTestAnalystRuntime());
+    }, createTestAnalystRuntime().stamper);
 
     expect(result.usedFallback).toBe(true);
     expect(result.compacted).toBe(true);
@@ -212,7 +212,7 @@ describe('getCompactionCount / resetCompactionState', () => {
       contextLimit: 1000,
       threshold: 0.01,
       maxCompactions: 5,
-    }, createTestAnalystRuntime());
+    }, createTestAnalystRuntime().stamper);
 
     expect(compaction.getCompactionCount(session.id)).toBe(1);
 
