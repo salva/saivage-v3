@@ -392,9 +392,11 @@ export class Runtime {
       },
       projectCardId: PROJECT_CARD_ID,
     });
-    config.internalsSink?.setRuntimeInternals({
+    config.corePartsSink?.setRuntimeCoreParts({
       eventBus: this.eventBus,
       cards: this.cardStore,
+    });
+    config.testPartsSink?.setRuntimeTestParts({
       agentRuntime: this.agentRuntime,
       errorLogger: this._errorLogger,
       eventLogger: this._eventLogger,
@@ -420,6 +422,7 @@ export class Runtime {
     config.lifecycleTestToolsSink?.setResumeFromFreeze(() => this.resumeFromFreeze());
     config.lifecycleTestToolsSink?.setConsumeResumeHandoffContext(() => this.consumeResumeHandoffContext());
     config.lifecycleTestToolsSink?.setEmitAgentEvent((name, data) => this.emitAgentEvent(name, data));
+    config.agentEventSink?.setEmitAgentEvent((name, data) => this.emitAgentEvent(name, data));
   }
 
   private publishDiagnostics(): void {

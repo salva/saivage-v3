@@ -5,7 +5,7 @@ import type { EventPayload } from '../events/index.js';
 import type { LoggedEvent } from '../schemas/index.js';
 import type { RuntimeApi } from './runtime-api.js';
 import { Runtime } from './runtime.js';
-import type { RuntimeConfig, RuntimeControlHooks, RuntimeInternalParts, RuntimeResumeFromFreezeResult } from './runtime-config.js';
+import type { RuntimeConfig, RuntimeControlHooks, RuntimeCoreParts, RuntimeResumeFromFreezeResult, RuntimeTestParts } from './runtime-config.js';
 import type { RuntimeDisposeReportEntry } from './lifecycle.js';
 import { readRuntimeState } from './state.js';
 import type { RuntimeState } from '../schemas/index.js';
@@ -13,7 +13,7 @@ import type { CardStore } from '../cards/store-api.js';
 import type { ErrorLogger, EventLogger } from '../observability/index.js';
 import type { StuckAgentSupervisor, StuckVerdict } from './stuck-agent-supervisor.js';
 
-function getRuntimeStatus(projectRoot: string, cards: RuntimeInternalParts['cards']): ReturnType<RuntimeApi['getStatus']> {
+function getRuntimeStatus(projectRoot: string, cards: RuntimeCoreParts['cards']): ReturnType<RuntimeApi['getStatus']> {
   const state = readRuntimeState(projectRoot);
   const allCards = cards.list();
   return {
@@ -90,12 +90,64 @@ export function createRuntimeCoreContainer(input: {
   getActivityStatus?: RuntimeApi['getActivityStatus'];
   goalDispatcher?: RuntimeConfig['goalDispatcher'];
 }): RuntimeCoreContainer {
-  const core = createRuntimeCoreTestContainer(input);
+  let emitAgentEvent: ((name: string, data: Record<string, unknown>) => void) | null = null;
+  let runtimeControls: RuntimeControlHooks | null = null;
+  let runtimeCoreParts: RuntimeCoreParts | undefined;
+  const agentEventBus = new NodeEventEmitter();
+  const emitOnAgentEventBus = agentEventBus.emit.bind(agentEventBus);
+  agentEventBus.emit = (eventName: string | symbol, ...args: unknown[]): boolean => {
+    const emitted = emitOnAgentEventBus(eventName, ...args);
+    if (typeof eventName === 'string') {
+      const data = args[0] && typeof args[0] === 'object' ? (args[0] as Record<string, unknown>) : { raw: args[0] };
+      emitAgentEvent?.(eventName, data);
+    }
+    return emitted;
+  };
+  new Runtime(
+    {
+      ...input.config,
+      ...(input.goalDispatcher ? { goalDispatcher: input.goalDispatcher } : {}),
+      agentEventSink: {
+        setEmitAgentEvent: (nextEmitAgentEvent) => {
+          emitAgentEvent = nextEmitAgentEvent;
+        },
+      },
+      corePartsSink: {
+        setRuntimeCoreParts: (nextCoreParts) => {
+          runtimeCoreParts = nextCoreParts;
+        },
+      },
+      controlSink: {
+        setRuntimeControls: (nextRuntimeControls) => {
+          runtimeControls = nextRuntimeControls;
+        },
+      },
+    },
+    input.agentRuntime,
+  );
+  if (!runtimeCoreParts) throw new Error('Runtime core parts were not provided during core composition.');
+  const controls = runtimeControls as RuntimeControlHooks | null;
+  if (!controls) throw new Error('Runtime controls were not provided during core composition.');
+  const coreParts = runtimeCoreParts;
+  const api: RuntimeApi = {
+    start: () => controls.start(),
+    shutdown: () => controls.shutdown(),
+    pause: () => controls.pause(),
+    resume: () => controls.resume(),
+    startProject: (source) => controls.startProject(source),
+    stopProject: (source) => controls.stopProject(source),
+    subscribe: (options) => coreParts.eventBus.subscribe(options),
+    getStatus: () => getRuntimeStatus(input.config.projectRoot, coreParts.cards),
+    getActivityStatus: input.getActivityStatus ?? (() => ({ status: 'idle', pending_calls: [], updated_at: new Date(0).toISOString() })),
+  };
   return {
-    api: core.api,
-    projectRoot: core.projectRoot,
-    agentEventBus: core.agentEventBus,
-    runtimeLedgerEvents: core.runtimeLedgerEvents,
+    api,
+    projectRoot: input.config.projectRoot,
+    agentEventBus,
+    runtimeLedgerEvents: {
+      emit: (event) => coreParts.eventBus.emit(event),
+      emitAnalystToolInvoked: (payload) => coreParts.eventBus.emit('analyst_tool_invoked', payload),
+    },
   };
 }
 
@@ -117,7 +169,8 @@ export function createRuntimeCoreTestContainer(input: {
   let dispatchGoal: ((goalId: string) => Promise<void>) | null = null;
   let runtimeControls: RuntimeControlHooks | null = null;
   let onRuntimeEvent: ((eventName: string | symbol, listener: (...args: unknown[]) => void) => void) | null = null;
-  let runtimeInternals: RuntimeInternalParts | undefined;
+  let runtimeCoreParts: RuntimeCoreParts | undefined;
+  let runtimeTestParts: RuntimeTestParts | undefined;
   const agentEventBus = new NodeEventEmitter();
   const emitOnAgentEventBus = agentEventBus.emit.bind(agentEventBus);
   agentEventBus.emit = (eventName: string | symbol, ...args: unknown[]): boolean => {
@@ -163,9 +216,19 @@ export function createRuntimeCoreTestContainer(input: {
           emitAgentEvent = nextEmitAgentEvent;
         },
       },
-      internalsSink: {
-        setRuntimeInternals: (nextInternals) => {
-          runtimeInternals = nextInternals;
+      agentEventSink: {
+        setEmitAgentEvent: (nextEmitAgentEvent) => {
+          emitAgentEvent = nextEmitAgentEvent;
+        },
+      },
+      corePartsSink: {
+        setRuntimeCoreParts: (nextCoreParts) => {
+          runtimeCoreParts = nextCoreParts;
+        },
+      },
+      testPartsSink: {
+        setRuntimeTestParts: (nextTestParts) => {
+          runtimeTestParts = nextTestParts;
         },
       },
       schedulerSink: {
@@ -186,12 +249,13 @@ export function createRuntimeCoreTestContainer(input: {
     },
     input.agentRuntime,
   );
-  if (!runtimeInternals) throw new Error('Runtime internals were not provided during core composition.');
+  if (!runtimeCoreParts) throw new Error('Runtime core parts were not provided during core composition.');
+  if (!runtimeTestParts) throw new Error('Runtime test parts were not provided during test core composition.');
   const controls = runtimeControls as RuntimeControlHooks | null;
   if (!controls) throw new Error('Runtime controls were not provided during core composition.');
   const addRuntimeEventListener = onRuntimeEvent as ((eventName: string | symbol, listener: (...args: unknown[]) => void) => void) | null;
   if (!addRuntimeEventListener) throw new Error('Runtime event listener hook was not provided during core composition.');
-  const runtimeParts = runtimeInternals;
+  const runtimeParts = { ...runtimeCoreParts, ...runtimeTestParts };
   const api: RuntimeApi = {
     start: () => controls.start(),
     shutdown: () => controls.shutdown(),

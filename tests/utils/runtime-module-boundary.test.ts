@@ -126,6 +126,8 @@ describe('runtime module ownership boundary', () => {
     const source = readFileSync(join(process.cwd(), 'src/runtime/core-composition.ts'), 'utf8');
     expect(source).not.toContain('  runtime: Runtime;');
     expect(source).not.toContain('agentEventBus: runtime');
+    expect(source).not.toContain('RuntimeInternalParts');
+    expect(source).not.toContain('internalsSink');
   });
 
   it('keeps production runtime core composition free of test tools', () => {
@@ -138,6 +140,14 @@ describe('runtime module ownership boundary', () => {
     expect(productionInterface).not.toContain('TestTools');
     expect(productionInterface).not.toContain('cardTestTools');
     expect(productionInterface).not.toContain('lifecycleTestTools');
+    const productionFactoryStart = source.indexOf('export function createRuntimeCoreContainer');
+    const testFactoryStart = source.indexOf('export function createRuntimeCoreTestContainer');
+    expect(productionFactoryStart).toBeGreaterThanOrEqual(0);
+    expect(testFactoryStart).toBeGreaterThan(productionFactoryStart);
+    const productionFactory = source.slice(productionFactoryStart, testFactoryStart);
+    expect(productionFactory).not.toContain('createRuntimeCoreTestContainer');
+    expect(productionFactory).not.toContain('testPartsSink');
+    expect(productionFactory).not.toContain('lifecycleTestToolsSink');
   });
 
   it('keeps runtime core independent from ActiveRuntime adapter', () => {

@@ -34,9 +34,12 @@ export interface RuntimeResumeFromFreezeResult {
 
 export type RuntimeControlHooks = Pick<RuntimeApi, 'start' | 'shutdown' | 'pause' | 'resume' | 'startProject' | 'stopProject'>;
 
-export interface RuntimeInternalParts {
+export interface RuntimeCoreParts {
   eventBus: EventBus;
   cards: CardStore;
+}
+
+export interface RuntimeTestParts {
   agentRuntime: AgentExecutionPort;
   errorLogger: ErrorLogger;
   eventLogger: EventLogger;
@@ -78,8 +81,14 @@ export interface RuntimeConfig {
     setConsumeResumeHandoffContext(consumeResumeHandoffContext: () => string | null): void;
     setEmitAgentEvent(emitAgentEvent: (name: string, data: Record<string, unknown>) => void): void;
   };
-  internalsSink?: {
-    setRuntimeInternals(internals: RuntimeInternalParts): void;
+  agentEventSink?: {
+    setEmitAgentEvent(emitAgentEvent: (name: string, data: Record<string, unknown>) => void): void;
+  };
+  corePartsSink?: {
+    setRuntimeCoreParts(parts: RuntimeCoreParts): void;
+  };
+  testPartsSink?: {
+    setRuntimeTestParts(parts: RuntimeTestParts): void;
   };
   schedulerSink?: {
     setDispatchGoal(dispatchGoal: (goalId: string) => Promise<void>): void;
