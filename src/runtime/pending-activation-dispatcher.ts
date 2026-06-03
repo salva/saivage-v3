@@ -2,9 +2,9 @@ import type { CardRecord } from '../schemas/index.js';
 import type { CardStore } from '../cards/store-api.js';
 import type { ActivationUnwindRunner } from './activation-unwind.js';
 import {
-  selectChildGoalActivationOutcome,
   selectPendingActivationChildCardIds,
 } from './activation-unwind.js';
+import { deliverChildGoalActivationHandoff } from './activation-handoff.js';
 import { readRuntimeState } from './state.js';
 import { ExecutorActivationDispatcher } from './executor-activation-dispatcher.js';
 import type { RuntimeLifecycleState } from './runtime-lifecycle-state.js';
@@ -33,16 +33,17 @@ export class PendingActivationDispatcher {
         if (this.deps.lifecycle.isShuttingDown() || this.deps.lifecycle.isPaused()) return { dispatchedGoal, executedTerminal, failed };
         const callerEdge = this.deps.activationUnwind.findCallerEdge(card.id);
         if (card.type === 'goal') {
-          await this.deps.dispatchGoalThroughScheduler(card.id);
-          const completedCard = this.deps.cards.read(card.id);
-          const outcome = selectChildGoalActivationOutcome(completedCard);
-          this.deps.activationUnwind.appendChildUnwindToolResult(
-            card.id,
-            outcome,
-            `Child goal ${card.id} finished with status ${completedCard?.status ?? 'unknown'}.`,
-          );
+          const handoff = await deliverChildGoalActivationHandoff({
+            childCardId: card.id,
+            effects: {
+              dispatchGoal: (childCardId) => this.deps.dispatchGoalThroughScheduler(childCardId),
+              readCard: (childCardId) => this.deps.cards.read(childCardId),
+              appendChildUnwindToolResult: (childCardId, outcome, summary) =>
+                this.deps.activationUnwind.appendChildUnwindToolResult(childCardId, outcome, summary),
+            },
+          });
           dispatchedGoal = true;
-          if (outcome !== 'done') return { dispatchedGoal, executedTerminal, failed };
+          if (!handoff.completedSuccessfully) return { dispatchedGoal, executedTerminal, failed };
           continue;
         }
         const terminalDispatch = await this.deps.executorActivations.dispatch({ goalId, goalCard, card, callerEdge });
