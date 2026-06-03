@@ -27,6 +27,7 @@ import {
 } from './phases/planner-phase.js';
 import { compactPersistedPlannerHistoryForRetry } from './persisted-planner-history.js';
 import type { RuntimeStateMutationPort } from './mutations.js';
+import type { RuntimeLifecycleState } from './runtime-lifecycle-state.js';
 
 type RuntimeCommandSource = Parameters<RuntimeApi['startProject']>[0];
 
@@ -40,9 +41,7 @@ export class RuntimeProjectCommandRunner {
       sessionStamper: SessionStamper;
       stateMachine: RuntimeStateMachine;
       mutations: RuntimeStateMutationPort;
-      dispatchInFlight: Set<string>;
-      isPaused(): boolean;
-      setShuttingDown(shuttingDown: boolean): void;
+      lifecycle: RuntimeLifecycleState;
       now(): string;
       publishRuntimeCommand(command: RuntimeCommandRecord): void;
       publishRuntimeRun(run: RuntimeRunRecord): void;
@@ -72,7 +71,7 @@ export class RuntimeProjectCommandRunner {
       projectCardStatus: projectCard?.status ?? null,
       hasBlockedPlanning: cardHasBlockedPlanning(projectCard),
       blockedPlanning,
-      paused: this.deps.isPaused(),
+      paused: this.deps.lifecycle.isPaused(),
       source,
     });
     if (startDecision.error) {
@@ -135,7 +134,7 @@ export class RuntimeProjectCommandRunner {
       },
     });
     this.deps.publishRuntimeRun(run);
-    if (!this.deps.isPaused()) {
+    if (!this.deps.lifecycle.isPaused()) {
       this.deps.trackBackgroundDispatch(
         this.deps.dispatchGoalThroughScheduler(PROJECT_CARD_ID)
           .then(() => {
@@ -182,14 +181,14 @@ export class RuntimeProjectCommandRunner {
     run?: RuntimeRunRecord;
   }> {
     const command = this.deps.mutations.apply({ kind: 'appendRuntimeCommand', commandKind: 'stop_project', source });
-    this.deps.setShuttingDown(true);
+    this.deps.lifecycle.setShuttingDown(true);
     const state = this.deps.mutations.apply({
       kind: 'upsertRuntimeIntent',
       status: 'stopped',
       sourceCommandId: command.command_id,
       reason: 'explicit stop_project command',
     });
-    for (const cardId of this.deps.dispatchInFlight)
+    for (const cardId of this.deps.lifecycle.dispatchInFlight)
       void this.deps.agentRuntime.forceCancelSession(`planner:${cardId}`);
     const stopRunPlans = planOpenRootRunStopUpdates({ state, nowIso: this.deps.now() });
     const stoppedRunIds = stopRunPlans.map((plan) => plan.runId);
@@ -213,7 +212,7 @@ export class RuntimeProjectCommandRunner {
     const completedCommand = completion.completedCommand;
     this.deps.mutations.apply({ kind: 'replaceRuntimeState', state: completion.state });
     this.deps.publishRuntimeCommand(completedCommand);
-    this.deps.setShuttingDown(false);
+    this.deps.lifecycle.setShuttingDown(false);
     const persisted = readRuntimeState(this.deps.projectRoot) ?? current;
     const stoppedRun =
       stoppedRunIds.length > 0

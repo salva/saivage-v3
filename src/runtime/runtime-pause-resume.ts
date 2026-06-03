@@ -5,6 +5,7 @@ import { readRuntimeState } from './state.js';
 import type { RuntimeStateMachine } from './state-machine.js';
 import type { RuntimeGoalContextCoordinator } from './runtime-goal-context.js';
 import type { RuntimeStateMutationPort } from './mutations.js';
+import type { RuntimeLifecycleState } from './runtime-lifecycle-state.js';
 
 export class RuntimePauseResumeController {
   constructor(
@@ -14,14 +15,14 @@ export class RuntimePauseResumeController {
       stateMachine: RuntimeStateMachine;
       goalContext: RuntimeGoalContextCoordinator;
       mutations: RuntimeStateMutationPort;
-      setPaused(paused: boolean): void;
+      lifecycle: RuntimeLifecycleState;
       emit(eventName: string, data?: Record<string, unknown>): void;
       now(): string;
     },
   ) {}
 
   pause(): void {
-    this.deps.setPaused(true);
+    this.deps.lifecycle.setPaused(true);
     setProcessTerminalBuffering(this.deps.projectRoot, true);
     try {
       this.deps.mutations.apply({ kind: 'patchRuntimeState', patch: buildPauseRuntimeStatePatch(this.deps.now()) });
@@ -33,7 +34,7 @@ export class RuntimePauseResumeController {
   }
 
   resume(): void {
-    this.deps.setPaused(false);
+    this.deps.lifecycle.setPaused(false);
     setProcessTerminalBuffering(this.deps.projectRoot, false);
     try {
       const state = readRuntimeState(this.deps.projectRoot);

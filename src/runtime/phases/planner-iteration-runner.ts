@@ -7,6 +7,7 @@ import type { PendingActivationDispatcher } from '../pending-activation-dispatch
 import type { RuntimeRunLedger } from '../runtime-run-ledger.js';
 import type { RuntimeStateMachine } from '../state-machine.js';
 import type { RuntimeStateMutationPort } from '../mutations.js';
+import type { RuntimeLifecycleState } from '../runtime-lifecycle-state.js';
 import { buildGoalEvidenceContext } from '../context-builder.js';
 import { buildCurrentAgentSessionPatch } from '../runtime-core.js';
 import { decidePlannerPostDispatch, summarizePlannerPostDispatch } from './planner-phase.js';
@@ -30,9 +31,7 @@ export interface PlannerIterationRunnerDeps {
   pendingActivations: PendingActivationDispatcher;
   mutations: RuntimeStateMutationPort;
   runLedger: RuntimeRunLedger;
-  isPaused(): boolean;
-  isShuttingDown(): boolean;
-  consumeResumeHandoffContext(): string | null;
+  lifecycle: RuntimeLifecycleState;
   handlePlannerFailure(error: unknown): Promise<{ kind: 'handled' } | { kind: 'rethrow'; error: unknown }>;
 }
 
@@ -51,7 +50,7 @@ export class PlannerIterationRunner {
         buildGoalEvidenceContext: (cardId) => buildGoalEvidenceContext({ goalId: cardId, cards: this.deps.cards }),
         buildGoalContextBlock: (cardId, resumeReason) => this.deps.goalContext.buildGoalContextBlock(cardId, resumeReason),
         inferResumeReason: (cardId, fallback) => this.deps.goalContext.inferResumeReason(cardId, fallback),
-        consumeResumeHandoffContext: () => this.deps.consumeResumeHandoffContext(),
+        consumeResumeHandoffContext: () => this.deps.lifecycle.consumeResumeHandoffContext(),
         injectSyntheticPlannerNotes: (cardId) => {
           this.deps.goalContext.injectQueuedPlannerNotes(`planner:${cardId}`);
         },
@@ -68,8 +67,8 @@ export class PlannerIterationRunner {
     }).apply(goalId, plannerResult);
     this.deps.mutations.apply({ kind: 'patchRuntimeState', patch: buildCurrentAgentSessionPatch(`planner:${goalId}`) });
     const execution = await this.deps.pendingActivations.dispatch(goalId);
-    if (this.deps.isShuttingDown()) return { kind: 'shutdown' };
-    if (this.deps.isPaused()) return { kind: 'paused' };
+    if (this.deps.lifecycle.isShuttingDown()) return { kind: 'shutdown' };
+    if (this.deps.lifecycle.isPaused()) return { kind: 'paused' };
 
     const postDispatchSummary = summarizePlannerPostDispatch({ plannerResult, childCards: this.deps.cards.list(), goalId });
     const postDispatchDecision = decidePlannerPostDispatch({

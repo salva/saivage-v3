@@ -11,6 +11,7 @@ import {
   type SupervisorDeps,
 } from './stuck-agent-supervisor.js';
 import { readRuntimeState } from './state.js';
+import type { RuntimeLifecycleState } from './runtime-lifecycle-state.js';
 
 const TRACKED_EVENT_KINDS: ReadonlySet<EventKind> = new Set(trackedEventKindValues);
 
@@ -23,8 +24,8 @@ export function createRuntimeSupervisor(input: {
   agentRuntime: AgentExecutionPort;
   eventLogger: EventLogger;
   supervisorConfig?: Partial<SupervisorConfig>;
+  lifecycle: RuntimeLifecycleState;
   emit(kind: string, data: Record<string, unknown>): void;
-  isShuttingDown(): boolean;
 }): StuckAgentSupervisor {
   const supervisorDeps: SupervisorDeps = {
     getRecentLogs: (maxLines: number) => {
@@ -76,7 +77,7 @@ export function createRuntimeSupervisor(input: {
       if (TRACKED_EVENT_KINDS.has(kind as EventKind))
         input.eventLogger.appendEvent({ kind: kind as EventKind, ...data });
     },
-    isShuttingDown: () => input.isShuttingDown(),
+    isShuttingDown: () => input.lifecycle.isShuttingDown(),
   };
   return new StuckAgentSupervisor(
     { ...DEFAULT_SUPERVISOR_CONFIG, ...input.supervisorConfig },

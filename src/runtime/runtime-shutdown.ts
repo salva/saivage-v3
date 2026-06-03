@@ -11,6 +11,7 @@ import type { RuntimeStateMachine } from './state-machine.js';
 import { readRuntimeState } from './state.js';
 import type { RuntimeDiagnostics } from './runtime-diagnostics.js';
 import type { RuntimeStateMutationPort } from './mutations.js';
+import type { RuntimeLifecycleState } from './runtime-lifecycle-state.js';
 
 function saivageWorkDir(projectRoot: string): string {
   return join(projectRoot, '.saivage-work');
@@ -39,21 +40,17 @@ export async function performRuntimeShutdown(input: {
   errorLogger: ErrorLogger;
   ownsEventLogger: boolean;
   ownsErrorLogger: boolean;
-  runningProcesses: Set<string>;
-  dispatchInFlight: Set<string>;
-  isRunning(): boolean;
-  setRunning(running: boolean): void;
-  setShuttingDown(shuttingDown: boolean): void;
+  lifecycle: RuntimeLifecycleState;
   emitShutdown(): void;
 }): Promise<void> {
-  if (input.dispatchInFlight.size > 0) {
+  if (input.lifecycle.dispatchInFlight.size > 0) {
     await Promise.allSettled(
-      Array.from(input.dispatchInFlight).map((cardId) =>
+      Array.from(input.lifecycle.dispatchInFlight).map((cardId) =>
         input.agentRuntime.forceCancelSession(`planner:${cardId}`),
       ),
     );
   }
-  if (!input.isRunning()) return;
+  if (!input.lifecycle.isRunning()) return;
   input.supervisor.stop();
   input.stateMachine.stop();
   if ((readRuntimeState(input.projectRoot)?.status ?? 'idle') === 'frozen') {
@@ -67,23 +64,23 @@ export async function performRuntimeShutdown(input: {
     } catch {
       void 0;
     }
-    input.setRunning(false);
-    input.setShuttingDown(false);
+    input.lifecycle.setRunning(false);
+    input.lifecycle.setShuttingDown(false);
     input.emitShutdown();
     input.eventLogger.appendEvent({ kind: 'shutdown' });
     if (input.ownsEventLogger) input.eventLogger.close();
     if (input.ownsErrorLogger) input.errorLogger.close();
     return;
   }
-  input.setShuttingDown(true);
-  input.setRunning(false);
+  input.lifecycle.setShuttingDown(true);
+  input.lifecycle.setRunning(false);
   try {
     const disposeReport = await disposeProcessRuntimeScope(input.projectRoot);
     input.diagnostics.setLastLifecycleDisposeReport(disposeReport);
     for (const id of disposeReport
       .filter((entry) => entry.kind === 'child_process')
       .map((entry) => entry.id.replace(/^child:/, '')))
-      input.runningProcesses.delete(id);
+      input.lifecycle.runningProcesses.delete(id);
   } catch (error) {
     input.diagnostics.setLastLifecycleDisposeReport(processDisposeFailureReport(error));
   }

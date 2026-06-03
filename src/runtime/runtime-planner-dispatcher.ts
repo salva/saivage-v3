@@ -10,6 +10,7 @@ import type { PendingActivationDispatcher } from './pending-activation-dispatche
 import type { RuntimeReviewerDispatcher } from './runtime-reviewer-dispatcher.js';
 import { buildDispatchPausedRuntimeStatePatch } from './runtime-core.js';
 import type { RuntimeStateMutationPort } from './mutations.js';
+import type { RuntimeLifecycleState } from './runtime-lifecycle-state.js';
 import { PlannerActivationRunner } from './phases/planner-activation-runner.js';
 import { PlannerIterationRunner } from './phases/planner-iteration-runner.js';
 import { PlannerFailureHandler } from './phases/planner-failure-handler.js';
@@ -30,9 +31,7 @@ export interface RuntimePlannerDispatcherDeps {
   mutations: RuntimeStateMutationPort;
   runLedger: RuntimeRunLedger;
   sessionStamper: SessionStamper;
-  isPaused(): boolean;
-  isShuttingDown(): boolean;
-  consumeResumeHandoffContext(): string | null;
+  lifecycle: RuntimeLifecycleState;
   emit(eventName: string, data: Record<string, unknown>): void;
   emitRuntimeDiagnostic(input: { goal_id?: string; card_id?: string; phase?: string; error: unknown }): void;
   plannerFailureHandler: PlannerFailureHandler;
@@ -43,7 +42,7 @@ export class RuntimePlannerDispatcher {
   constructor(private readonly deps: RuntimePlannerDispatcherDeps) {}
 
   async dispatchGoal(goalId: string): Promise<void> {
-    if (this.deps.isPaused()) {
+    if (this.deps.lifecycle.isPaused()) {
       this.emitDispatchBlocked(goalId);
       return;
     }
@@ -62,8 +61,8 @@ export class RuntimePlannerDispatcher {
       return;
     }
     let plannerDone = false;
-    for (let iter = 0; iter < MAX_PLANNER_ITERATIONS && !plannerDone && !this.deps.isShuttingDown(); iter++) {
-      if (this.deps.isPaused()) {
+    for (let iter = 0; iter < MAX_PLANNER_ITERATIONS && !plannerDone && !this.deps.lifecycle.isShuttingDown(); iter++) {
+      if (this.deps.lifecycle.isPaused()) {
         this.emitDispatchBlocked(goalId);
         this.deps.mutations.apply({ kind: 'patchRuntimeState', patch: buildDispatchPausedRuntimeStatePatch() });
         return;
@@ -82,7 +81,7 @@ export class RuntimePlannerDispatcher {
         plannerDone = false;
       }
     }
-    if (this.deps.isShuttingDown()) {
+    if (this.deps.lifecycle.isShuttingDown()) {
       this.deps.emit('dispatch_interrupted', { goal_id: goalId, reason: 'shutdown' });
       this.deps.eventLogger.appendEvent({
         kind: 'dispatch_interrupted',
@@ -115,9 +114,7 @@ export class RuntimePlannerDispatcher {
       pendingActivations: this.deps.pendingActivations,
       mutations: this.deps.mutations,
       runLedger: this.deps.runLedger,
-      isPaused: () => this.deps.isPaused(),
-      isShuttingDown: () => this.deps.isShuttingDown(),
-      consumeResumeHandoffContext: () => this.deps.consumeResumeHandoffContext(),
+      lifecycle: this.deps.lifecycle,
       handlePlannerFailure: (error) => this.deps.plannerFailureHandler.handle(goalId, error),
     });
   }

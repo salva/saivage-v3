@@ -7,6 +7,7 @@ import {
 } from './activation-unwind.js';
 import { readRuntimeState } from './state.js';
 import { ExecutorActivationDispatcher } from './executor-activation-dispatcher.js';
+import type { RuntimeLifecycleState } from './runtime-lifecycle-state.js';
 
 export class PendingActivationDispatcher {
   constructor(
@@ -14,8 +15,7 @@ export class PendingActivationDispatcher {
       projectRoot: string;
       cards: CardStore;
       activationUnwind: ActivationUnwindRunner;
-      isPaused(): boolean;
-      isShuttingDown(): boolean;
+      lifecycle: RuntimeLifecycleState;
       dispatchGoalThroughScheduler(goalId: string): Promise<void>;
       executorActivations: ExecutorActivationDispatcher;
     },
@@ -27,10 +27,10 @@ export class PendingActivationDispatcher {
     let dispatchedGoal = false;
     let executedTerminal = false;
     let failed = false;
-    while (activationCards.length > 0 && !this.deps.isShuttingDown()) {
-      if (this.deps.isPaused()) return { dispatchedGoal, executedTerminal, failed };
+    while (activationCards.length > 0 && !this.deps.lifecycle.isShuttingDown()) {
+      if (this.deps.lifecycle.isPaused()) return { dispatchedGoal, executedTerminal, failed };
       for (const card of activationCards) {
-        if (this.deps.isShuttingDown() || this.deps.isPaused()) return { dispatchedGoal, executedTerminal, failed };
+        if (this.deps.lifecycle.isShuttingDown() || this.deps.lifecycle.isPaused()) return { dispatchedGoal, executedTerminal, failed };
         const callerEdge = this.deps.activationUnwind.findCallerEdge(card.id);
         if (card.type === 'goal') {
           await this.deps.dispatchGoalThroughScheduler(card.id);

@@ -39,6 +39,7 @@ import { createConfiguredAgentRuntime } from './agent-runtime-factory.js';
 import { createRuntimeStateMachine } from './state-machine-factory.js';
 import { ActivationScheduler } from './scheduler.js';
 import { createRuntimeStateMutationPort, type RuntimeStateMutationPort } from './mutations.js';
+import { RuntimeLifecycleState } from './runtime-lifecycle-state.js';
 
 function now(): string {
   return new Date().toISOString();
@@ -57,22 +58,14 @@ class Runtime {
   private readonly cardStore: CardStore;
   private readonly agentRuntime: AgentExecutionPort;
   private readonly _events: RuntimeEventPublisher;
-  private _paused = false;
-  private _running = false;
-  private _shuttingDown = false;
   private _skillsEngine: RuntimeSkillsPort | null = null;
   private _eventLogger: EventLogger;
   private _ownsEventLogger: boolean;
   private _errorLogger: ErrorLogger;
   private _ownsErrorLogger: boolean;
-  private readonly _runningProcesses: Set<string> = new Set();
   private _supervisor: StuckAgentSupervisor;
   private _continuousImprovementReserved: boolean;
   private _autoDispatchBacklog: boolean;
-  private _resumeHandoffContext: string | null = null;
-  private _startupRepairPending = false;
-  /* Goal-level re-entrancy guard for dispatchGoal(goalId); the global single-active-non-analyst-session invariant is enforced by assertNoActiveAgentSession in session persistence. */ private _dispatchInFlight =
-    new Set<string>();
   private readonly _diagnostics: RuntimeDiagnostics;
   private _stateMachine: RuntimeStateMachine;
   private readonly _activationUnwind: ActivationUnwindRunner;
@@ -89,6 +82,7 @@ class Runtime {
   private readonly _mutations: RuntimeStateMutationPort;
   private readonly _sessionStamper: SessionStamper;
   private readonly _goalDispatcher: RuntimeConfig['goalDispatcher'];
+  private readonly lifecycle = new RuntimeLifecycleState();
 
   constructor(
     config: RuntimeConfig,
@@ -154,8 +148,8 @@ class Runtime {
       agentRuntime: this.agentRuntime,
       eventLogger: this._eventLogger,
       supervisorConfig: config.supervisorConfig,
+      lifecycle: this.lifecycle,
       emit: (kind, data) => this._events.emit(kind, data),
-      isShuttingDown: () => this._shuttingDown,
     });
     this._activationScheduler = new ActivationScheduler(
       this._goalDispatcher,
@@ -178,11 +172,7 @@ class Runtime {
       sessionStamper: this._sessionStamper,
       stateMachine: this._stateMachine,
       mutations: this._mutations,
-      dispatchInFlight: this._dispatchInFlight,
-      isPaused: () => this._paused,
-      setShuttingDown: (shuttingDown) => {
-        this._shuttingDown = shuttingDown;
-      },
+      lifecycle: this.lifecycle,
       now,
       publishRuntimeCommand: (command) => this._events.publishRuntimeLedgerEvent('runtime_command', { command }),
       publishRuntimeRun: (run) => this._events.publishRuntimeLedgerEvent('runtime_run', { run }),
@@ -197,9 +187,7 @@ class Runtime {
       stateMachine: this._stateMachine,
       goalContext: this._goalContext,
       mutations: this._mutations,
-      setPaused: (paused) => {
-        this._paused = paused;
-      },
+      lifecycle: this.lifecycle,
       emit: (eventName, data) => this._events.emit(eventName, data),
       now,
     });
@@ -221,8 +209,7 @@ class Runtime {
       projectRoot: this.projectRoot,
       cards: this.cardStore,
       activationUnwind: this._activationUnwind,
-      isPaused: () => this._paused,
-      isShuttingDown: () => this._shuttingDown,
+      lifecycle: this.lifecycle,
       dispatchGoalThroughScheduler: (goalId) => this._activationScheduler.dispatch(goalId),
       executorActivations: this._executorActivations,
     });
@@ -254,9 +241,7 @@ class Runtime {
       mutations: this._mutations,
       runLedger: this._runLedger,
       sessionStamper: this._sessionStamper,
-      isPaused: () => this._paused,
-      isShuttingDown: () => this._shuttingDown,
-      consumeResumeHandoffContext: () => this.consumeResumeHandoffContext(),
+      lifecycle: this.lifecycle,
       emit: (eventName, data) => this._events.emit(eventName, data),
       emitRuntimeDiagnostic: (input) => this._events.emitRuntimeDiagnostic(input),
       plannerFailureHandler: new PlannerFailureHandler({
@@ -274,7 +259,7 @@ class Runtime {
     });
     this._cardDispatcher = new RuntimeCardDispatcher({
       plannerDispatcher: this._plannerDispatcher,
-      dispatchInFlight: this._dispatchInFlight,
+      lifecycle: this.lifecycle,
     });
     hooks.corePartsSink?.setRuntimeCoreParts({
       subscribe: (options) => this._events.eventBus.subscribe(options),
@@ -313,11 +298,6 @@ class Runtime {
     hooks.agentEventSink?.setEmitAgentEvent((name, data) => this._events.emitAgentEvent(name, data));
   }
 
-  private consumeResumeHandoffContext(): string | null {
-    const ctx = this._resumeHandoffContext;
-    this._resumeHandoffContext = null;
-    return ctx;
-  }
   private async startup(): Promise<void> {
     await performRuntimeStartup({
       projectRoot: this.projectRoot,
@@ -329,19 +309,7 @@ class Runtime {
       events: this._events,
       eventLogger: this._eventLogger,
       mutations: this._mutations,
-      isRunning: () => this._running,
-      setPaused: (paused) => {
-        this._paused = paused;
-      },
-      setRunning: (running) => {
-        this._running = running;
-      },
-      setShuttingDown: (shuttingDown) => {
-        this._shuttingDown = shuttingDown;
-      },
-      setStartupRepairPending: (pending) => {
-        this._startupRepairPending = pending;
-      },
+      lifecycle: this.lifecycle,
       repairStartupActiveCardRun: (previousState) =>
         repairRuntimeStartupActiveCardRun({
           projectRoot: this.projectRoot,
@@ -369,15 +337,7 @@ class Runtime {
       errorLogger: this._errorLogger,
       ownsEventLogger: this._ownsEventLogger,
       ownsErrorLogger: this._ownsErrorLogger,
-      runningProcesses: this._runningProcesses,
-      dispatchInFlight: this._dispatchInFlight,
-      isRunning: () => this._running,
-      setRunning: (running) => {
-        this._running = running;
-      },
-      setShuttingDown: (shuttingDown) => {
-        this._shuttingDown = shuttingDown;
-      },
+      lifecycle: this.lifecycle,
       emitShutdown: () => this._events.emit('shutdown'),
     });
   }

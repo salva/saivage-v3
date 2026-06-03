@@ -22,6 +22,7 @@ import type { RuntimeProjectCommandRunner } from './runtime-project-commands.js'
 import type { StuckAgentSupervisor } from '../runtime/stuck-agent-supervisor.js';
 import type { RuntimeEventPublisher } from './runtime-event-publisher.js';
 import type { RuntimeStateMutationPort } from './mutations.js';
+import type { RuntimeLifecycleState } from './runtime-lifecycle-state.js';
 
 function now(): string {
   return new Date().toISOString();
@@ -37,16 +38,12 @@ export async function performRuntimeStartup(input: {
   events: RuntimeEventPublisher;
   eventLogger: EventLogger;
   mutations: RuntimeStateMutationPort;
-  isRunning(): boolean;
-  setPaused(paused: boolean): void;
-  setRunning(running: boolean): void;
-  setShuttingDown(shuttingDown: boolean): void;
-  setStartupRepairPending(pending: boolean): void;
+  lifecycle: RuntimeLifecycleState;
   repairStartupActiveCardRun(previousState: RuntimeState | null): Promise<RuntimeState | null>;
   dispatchGoalThroughScheduler(goalId: string): Promise<void>;
   trackBackgroundDispatch(dispatch: Promise<void>): void;
 }): Promise<void> {
-  if (input.isRunning()) throw new Error('Runtime is already running.');
+  if (input.lifecycle.isRunning()) throw new Error('Runtime is already running.');
   let state = readRuntimeState(input.projectRoot);
   if (!state) state = initRuntimeState(input.projectRoot);
   acquireLock(input.projectRoot);
@@ -64,9 +61,9 @@ export async function performRuntimeStartup(input: {
     transitionCard: (cardId, event) => input.stateMachine.transitionCard(cardId, event),
   });
   reconcileProcessRecords(input.projectRoot);
-  input.setStartupRepairPending(true);
+  input.lifecycle.setStartupRepairPending(true);
   const repairedState = await input.repairStartupActiveCardRun(state);
-  input.setStartupRepairPending(false);
+  input.lifecycle.setStartupRepairPending(false);
   if (!repairedState) state = initRuntimeState(input.projectRoot);
   else state = repairedState;
   const swept = reconcileOrphanedAgentSessions(join(input.projectRoot, '.saivage'));
@@ -84,9 +81,9 @@ export async function performRuntimeStartup(input: {
       state = readRuntimeState(input.projectRoot) ?? state;
     }
   }
-  input.setPaused(state.paused);
-  input.setRunning(true);
-  input.setShuttingDown(false);
+  input.lifecycle.setPaused(state.paused);
+  input.lifecycle.setRunning(true);
+  input.lifecycle.setShuttingDown(false);
   input.events.emit('started', { projectRoot: input.projectRoot });
   input.eventLogger.appendEvent({ kind: 'started', project_root: input.projectRoot });
   input.supervisor.start();
