@@ -56,7 +56,6 @@ import {
   cleanStalePreviews,
   cleanStaleUploads,
 } from '../runtime/cleanup.js';
-import { registerArtifact, registerAttachment } from '../cards/artifact-api.js';
 import { EventLogger } from '../observability/index.js';
 import { ErrorLogger } from '../observability/index.js';
 import {
@@ -93,7 +92,7 @@ import { buildProjectRunCompletedPayload } from './project-run-completion.js';
 import { buildCardContextBlock as buildRuntimeCardContextBlock, buildGoalContextBlock as renderGoalContextBlock, buildGoalContextPayload as buildRuntimeGoalContextPayload, buildGoalEvidenceContext as buildRuntimeGoalEvidenceContext } from './context-builder.js';
 import { buildExecutorActiveRunPatch, resolveExecutorLastSessionId, selectExecutorStartAction } from './phases/executor-phase.js';
 import { ExecutorPhaseRunner } from './phases/executor-phase-runner.js';
-import { buildIgnoredExecutorEvidencePatch, registerExecutorEvidence, resolveRegisterableProcessMetadataSource, summarizeExecutorEvidenceRegistrationFailure } from './phases/executor-evidence.js';
+import { buildIgnoredExecutorEvidencePatch, createExecutorEvidenceRegistrar, registerExecutorEvidence, summarizeExecutorEvidenceRegistrationFailure } from './phases/executor-evidence.js';
 import { handleExecutorInvocationFailure } from './phases/executor-invocation-failure.js';
 import { handleExecutorCompletion } from './phases/executor-completion-handler.js';
 import { buildReviewerActiveRun, decideReviewerPhase } from './phases/reviewer-phase.js';
@@ -409,41 +408,6 @@ export class Runtime {
     }
     return emitted;
   }
-  private registerArtifactOnCard(
-    cardId: string,
-    artifact: {
-      type: 'model' | 'data' | 'config' | 'log' | 'report' | 'other';
-      description: string;
-      retain: boolean;
-    },
-    sourceFile: string,
-  ) {
-    const resolved = resolveRegisterableProcessMetadataSource(this.projectRoot, sourceFile);
-    if ('ignored' in resolved) throw new Error(resolved.ignored);
-    return registerArtifact(
-      saivageWorkDir(this.projectRoot),
-      this.cardStore,
-      cardId,
-      artifact,
-      resolved.sourceFile,
-    );
-  }
-  private registerAttachmentOnCard(
-    cardId: string,
-    attachment: { mime: string; title: string; description?: string },
-    sourceFile: string,
-  ) {
-    const resolved = resolveRegisterableProcessMetadataSource(this.projectRoot, sourceFile);
-    if ('ignored' in resolved) throw new Error(resolved.ignored);
-    return registerAttachment(
-      saivageWorkDir(this.projectRoot),
-      this.cardStore,
-      cardId,
-      attachment,
-      resolved.sourceFile,
-    );
-  }
-
   private diagnosticStamp(sessionId: string) {
     return this._sessionStamper.stampDiagnosticInCurrentRound(sessionId);
   }
@@ -1633,26 +1597,16 @@ export class Runtime {
           ignoredArtifactRegistrations,
           ignoredAttachmentRegistrations,
         } = registerExecutorEvidence(
-          {
+          createExecutorEvidenceRegistrar({
             projectRoot: this.projectRoot,
-            registerArtifact: (input) =>
-              this.registerArtifactOnCard(
-                card.id,
-                { type: input.type, description: input.description, retain: input.retain },
-                input.sourceFile,
-              ),
-            registerAttachment: (input) =>
-              this.registerAttachmentOnCard(
-                card.id,
-                { mime: input.mime, title: input.title, description: input.description },
-                input.sourceFile,
-              ),
+            cards: this.cardStore,
+            cardId: card.id,
             onRegistrationError: ({ phase, error, errorMessage }) => {
               this.emitRuntimeDiagnostic({ card_id: card.id, goal_id: goalId, phase, error });
               this._eventLogger.appendEvent({ kind: 'runtime_diagnostic', card_id: card.id, phase, error_message: errorMessage });
               this._errorLogger.appendError({ message: errorMessage, cardId: card.id, goalId, phase });
             },
-          },
+          }),
           execResult,
         );
         const ignoredEvidencePatch = buildIgnoredExecutorEvidencePatch({

@@ -1,4 +1,6 @@
 import { isAbsolute, relative, resolve } from 'node:path';
+import { registerArtifact, registerAttachment } from '../../cards/artifact-api.js';
+import type { CardStore } from '../../cards/store-api.js';
 import type { ExecutorResult } from '../../contracts/index.js';
 import type { CardRecord } from '../../schemas/index.js';
 
@@ -14,6 +16,24 @@ export interface ExecutorEvidenceRegistrarDeps {
   registerArtifact(input: { type: 'model' | 'data' | 'config' | 'log' | 'report' | 'other'; description: string; retain: boolean; sourceFile: string }): void;
   registerAttachment(input: { mime: string; title: string; description?: string; sourceFile: string }): void;
   onRegistrationError(input: { phase: 'artifact_registration' | 'attachment_registration'; error: unknown; errorMessage: string }): void;
+}
+
+export function createExecutorEvidenceRegistrar(input: {
+  projectRoot: string;
+  cards: CardStore;
+  cardId: string;
+  onRegistrationError(input: { phase: 'artifact_registration' | 'attachment_registration'; error: unknown; errorMessage: string }): void;
+}): ExecutorEvidenceRegistrarDeps {
+  return {
+    projectRoot: input.projectRoot,
+    registerArtifact: (artifact) => {
+      registerArtifact(saivageWorkDir(input.projectRoot), input.cards, input.cardId, artifact, artifact.sourceFile);
+    },
+    registerAttachment: (attachment) => {
+      registerAttachment(saivageWorkDir(input.projectRoot), input.cards, input.cardId, attachment, attachment.sourceFile);
+    },
+    onRegistrationError: input.onRegistrationError,
+  };
 }
 
 function saivageWorkDir(projectRoot: string): string {
