@@ -110,7 +110,7 @@ import { PlannerPhaseRunner } from './phases/planner-phase-runner.js';
 import { PlannerResultApplier } from './phases/planner-result-applier.js';
 import { decideStartupActiveRunRepair, executeStartupActiveRunRepairDecision, selectStartupPlannerRedispatchCardId, shouldRestartRunningIntentOnStartup } from './startup-repair.js';
 import { SessionStampCounter } from '../contracts/session-stamper.js';
-import type { RuntimeConfig, RuntimeSkillsPort, RuntimeStampSource } from './runtime-config.js';
+import type { RuntimeCompositionHooks, RuntimeConfig, RuntimeSkillsPort, RuntimeStampSource } from './runtime-config.js';
 
 const TERMINAL_STATUSES: ReadonlySet<string> = new Set(['done', 'failed', 'cancelled']);
 function now(): string {
@@ -229,12 +229,12 @@ export class Runtime {
   private _stateMachine: RuntimeStateMachine;
   private readonly _sessionStamper: RuntimeStampSource;
   private readonly _goalDispatcher: RuntimeConfig['goalDispatcher'];
-  private readonly _diagnosticsSink: RuntimeConfig['diagnosticsSink'];
+  private readonly _diagnosticsSink: RuntimeCompositionHooks['diagnosticsSink'];
 
-  constructor(config: RuntimeConfig, agentRuntime?: AgentExecutionPort) {
+  constructor(config: RuntimeConfig, agentRuntime?: AgentExecutionPort, hooks: RuntimeCompositionHooks = {}) {
     this.projectRoot = config.projectRoot;
     this._goalDispatcher = config.goalDispatcher;
-    this._diagnosticsSink = config.diagnosticsSink;
+    this._diagnosticsSink = hooks.diagnosticsSink;
     this.eventBus = new EventBus();
     this.cardStore = new CardStore(
       config.projectRoot,
@@ -368,21 +368,21 @@ export class Runtime {
       },
       projectCardId: PROJECT_CARD_ID,
     });
-    config.corePartsSink?.setRuntimeCoreParts({
+    hooks.corePartsSink?.setRuntimeCoreParts({
       eventBus: this.eventBus,
       cards: this.cardStore,
     });
-    config.testPartsSink?.setRuntimeTestParts({
+    hooks.testPartsSink?.setRuntimeTestParts({
       agentRuntime: this.agentRuntime,
       errorLogger: this._errorLogger,
       eventLogger: this._eventLogger,
       supervisor: this._supervisor,
     });
-    config.schedulerSink?.setDispatchGoal((goalId) => this.dispatchGoal(goalId));
-    config.eventListenerSink?.setRuntimeEventListener((eventName, listener) => {
+    hooks.schedulerSink?.setDispatchGoal((goalId) => this.dispatchGoal(goalId));
+    hooks.eventListenerSink?.setRuntimeEventListener((eventName, listener) => {
       this.eventEmitter.on(eventName, listener);
     });
-    config.controlSink?.setRuntimeControls({
+    hooks.controlSink?.setRuntimeControls({
       start: () => this.startup(),
       shutdown: () => this.shutdown(),
       pause: () => this.pause(),
@@ -391,13 +391,13 @@ export class Runtime {
       stopProject: (source) => this.stopProject(source),
     });
     this.publishDiagnostics();
-    config.lifecycleTestToolsSink?.setSimulateCrash(() => this.simulateCrash());
-    config.lifecycleTestToolsSink?.setPerformCrashRecovery(() => this.performCrashRecovery());
-    config.lifecycleTestToolsSink?.setRequestImmediateTick(() => this._stateMachine.requestImmediateTick());
-    config.lifecycleTestToolsSink?.setFreeze((reason) => this.freeze(reason));
-    config.lifecycleTestToolsSink?.setResumeFromFreeze(() => this.resumeFromFreeze());
-    config.lifecycleTestToolsSink?.setConsumeResumeHandoffContext(() => this.consumeResumeHandoffContext());
-    config.agentEventSink?.setEmitAgentEvent((name, data) => this.emitAgentEvent(name, data));
+    hooks.lifecycleTestToolsSink?.setSimulateCrash(() => this.simulateCrash());
+    hooks.lifecycleTestToolsSink?.setPerformCrashRecovery(() => this.performCrashRecovery());
+    hooks.lifecycleTestToolsSink?.setRequestImmediateTick(() => this._stateMachine.requestImmediateTick());
+    hooks.lifecycleTestToolsSink?.setFreeze((reason) => this.freeze(reason));
+    hooks.lifecycleTestToolsSink?.setResumeFromFreeze(() => this.resumeFromFreeze());
+    hooks.lifecycleTestToolsSink?.setConsumeResumeHandoffContext(() => this.consumeResumeHandoffContext());
+    hooks.agentEventSink?.setEmitAgentEvent((name, data) => this.emitAgentEvent(name, data));
   }
 
   private publishDiagnostics(): void {

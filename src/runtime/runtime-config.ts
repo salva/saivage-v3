@@ -46,28 +46,7 @@ export interface RuntimeTestParts {
   supervisor: StuckAgentSupervisor;
 }
 
-export interface RuntimeConfig {
-  projectRoot: string;
-  fakeAgentConfig: {
-    mapping: Record<string, string>;
-    fixtureDir: string;
-    saivageDir?: string;
-    autoActivateCreatedCards?: boolean;
-  };
-  agentExecutionFactory?: (
-    projectRoot: string,
-    fakeAgentConfig: RuntimeConfig['fakeAgentConfig'],
-    activationLedger: RuntimeActivationLedgerPort,
-  ) => AgentExecutionPort;
-  skillsEngine?: RuntimeSkillsPort;
-  eventLogger?: EventLogger;
-  errorLogger?: ErrorLogger;
-  sessionStamper?: RuntimeStampSource;
-  maxGoalDepth?: number;
-  supervisorConfig?: Partial<SupervisorConfig>;
-  autoDispatchBacklog?: boolean;
-  continuousImprovement?: boolean;
-  goalDispatcher?: (goalId: string, dispatch: (goalId: string) => Promise<void>) => Promise<void>;
+export interface RuntimeCompositionHooks {
   diagnosticsSink?: {
     setBackgroundDispatchCount(count: number): void;
     setLastLifecycleDisposeReport(report: RuntimeDisposeReportEntry[]): void;
@@ -98,4 +77,28 @@ export interface RuntimeConfig {
   eventListenerSink?: {
     setRuntimeEventListener(on: (eventName: string | symbol, listener: (...args: unknown[]) => void) => void): void;
   };
+}
+
+export interface RuntimeConfig {
+  projectRoot: string;
+  fakeAgentConfig: {
+    mapping: Record<string, string>;
+    fixtureDir: string;
+    saivageDir?: string;
+    autoActivateCreatedCards?: boolean;
+  };
+  agentExecutionFactory?: (
+    projectRoot: string,
+    fakeAgentConfig: RuntimeConfig['fakeAgentConfig'],
+    activationLedger: RuntimeActivationLedgerPort,
+  ) => AgentExecutionPort;
+  skillsEngine?: RuntimeSkillsPort;
+  eventLogger?: EventLogger;
+  errorLogger?: ErrorLogger;
+  sessionStamper?: RuntimeStampSource;
+  maxGoalDepth?: number;
+  supervisorConfig?: Partial<SupervisorConfig>;
+  autoDispatchBacklog?: boolean;
+  continuousImprovement?: boolean;
+  goalDispatcher?: (goalId: string, dispatch: (goalId: string) => Promise<void>) => Promise<void>;
 }

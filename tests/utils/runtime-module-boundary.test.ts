@@ -152,6 +152,16 @@ describe('runtime module ownership boundary', () => {
     expect(productionFactory).not.toContain('lifecycleTestToolsSink');
   });
 
+  it('keeps RuntimeConfig free of composition sinks', () => {
+    const source = readFileSync(join(process.cwd(), 'src/runtime/runtime-config.ts'), 'utf8');
+    const start = source.indexOf('export interface RuntimeConfig');
+    expect(start).toBeGreaterThanOrEqual(0);
+    const runtimeConfig = source.slice(start);
+    expect(runtimeConfig).not.toContain('Sink');
+    expect(runtimeConfig).not.toContain('setRuntime');
+    expect(runtimeConfig).not.toContain('setDispatchGoal');
+  });
+
   it('keeps agent event emission out of lifecycle test tools', () => {
     const source = readFileSync(join(process.cwd(), 'src/runtime/core-composition.ts'), 'utf8');
     const lifecycleToolsStart = source.indexOf('  lifecycleTestTools: {');

@@ -107,6 +107,9 @@ export function createRuntimeCoreContainer(input: {
     {
       ...input.config,
       ...(input.goalDispatcher ? { goalDispatcher: input.goalDispatcher } : {}),
+    },
+    input.agentRuntime,
+    {
       agentEventSink: {
         setEmitAgentEvent: (nextEmitAgentEvent) => {
           emitAgentEvent = nextEmitAgentEvent;
@@ -123,7 +126,6 @@ export function createRuntimeCoreContainer(input: {
         },
       },
     },
-    input.agentRuntime,
   );
   if (!runtimeCoreParts) throw new Error('Runtime core parts were not provided during core composition.');
   const controls = runtimeControls as RuntimeControlHooks | null;
@@ -185,6 +187,9 @@ export function createRuntimeCoreTestContainer(input: {
     {
       ...input.config,
       ...(input.goalDispatcher ? { goalDispatcher: input.goalDispatcher } : {}),
+    },
+    input.agentRuntime,
+    {
       diagnosticsSink: {
         setBackgroundDispatchCount: (count) => {
           backgroundDispatchCount = count;
@@ -244,7 +249,6 @@ export function createRuntimeCoreTestContainer(input: {
         },
       },
     },
-    input.agentRuntime,
   );
   if (!runtimeCoreParts) throw new Error('Runtime core parts were not provided during core composition.');
   if (!runtimeTestParts) throw new Error('Runtime test parts were not provided during test core composition.');
