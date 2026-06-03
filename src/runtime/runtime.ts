@@ -1,6 +1,6 @@
 import { EventEmitter } from 'node:events';
 import { join } from 'node:path';
-import { existsSync, rmSync, readdirSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import type {
   CardRecord,
   RuntimeState,
@@ -52,9 +52,6 @@ import {
 import type { RuntimeDisposeReportEntry } from './lifecycle.js';
 import {
   cleanAll,
-  cleanStaleStash,
-  cleanStalePreviews,
-  cleanStaleUploads,
 } from '../runtime/cleanup.js';
 import { EventLogger } from '../observability/index.js';
 import { ErrorLogger } from '../observability/index.js';
@@ -106,6 +103,7 @@ import { decideStartupActiveRunRepair, executeStartupActiveRunRepairDecision, se
 import { SessionStampCounter } from '../contracts/session-stamper.js';
 import type { RuntimeCompositionHooks, RuntimeConfig, RuntimeSkillsPort, RuntimeStampSource } from './runtime-config.js';
 import { compactPersistedPlannerHistoryForRetry } from './persisted-planner-history.js';
+import { performRuntimeCrashRecovery } from './crash-recovery.js';
 
 const TERMINAL_STATUSES: ReadonlySet<string> = new Set(['done', 'failed', 'cancelled']);
 function now(): string {
@@ -334,7 +332,13 @@ class Runtime {
       stopProject: (source) => this.stopProject(source),
     });
     this.publishDiagnostics();
-    hooks.lifecycleTestToolsSink?.setPerformCrashRecovery(() => this.performCrashRecovery());
+    hooks.lifecycleTestToolsSink?.setPerformCrashRecovery(() =>
+      performRuntimeCrashRecovery({
+        projectRoot: this.projectRoot,
+        cards: this.cardStore.list(),
+        transitionCard: (cardId, event) => this._stateMachine.transitionCard(cardId, event),
+      }),
+    );
     hooks.lifecycleTestToolsSink?.setRequestImmediateTick(() => this._stateMachine.requestImmediateTick());
     hooks.agentEventSink?.setEmitAgentEvent((name, data) => this.emitAgentEvent(name, data));
   }
@@ -978,7 +982,11 @@ class Runtime {
     acquireLock(this.projectRoot);
     await this.alignBlockedPlanningCardStatuses();
     state = readRuntimeState(this.projectRoot) ?? state;
-    await this.performCrashRecovery();
+    await performRuntimeCrashRecovery({
+      projectRoot: this.projectRoot,
+      cards: this.cardStore.list(),
+      transitionCard: (cardId, event) => this._stateMachine.transitionCard(cardId, event),
+    });
     reconcileProcessRecords(this.projectRoot);
     this._startupRepairPending = true;
     const repairedState = await this.repairStartupActiveCardRun(state);
@@ -1137,46 +1145,6 @@ class Runtime {
     this.emit('resumed');
     this._eventLogger.appendEvent({ kind: 'resumed' });
     void this._stateMachine.requestImmediateTick();
-  }
-  private async performCrashRecovery(): Promise<void> {
-    const allCards = this.cardStore.list();
-    for (const card of allCards)
-      if (card.status === 'active' || card.status === 'running') {
-        await this._stateMachine.transitionCard(card.id, 'crash_recovery_drop_to_backlog');
-      }
-    const tmpRuntimeDir = join(this.projectRoot, '.saivage-work', 'tmp', 'runtime');
-    if (existsSync(tmpRuntimeDir)) {
-      try {
-        const entries = readdirSync(tmpRuntimeDir);
-        for (const entry of entries) {
-          if (entry === 'runtime.lock') continue;
-          if (entry.endsWith('.tmp') || entry.endsWith('.tmp.') || entry.includes('.tmp.')) {
-            try {
-              rmSync(join(tmpRuntimeDir, entry), { recursive: true, force: true });
-            } catch {
-              void 0;
-            }
-          }
-        }
-      } catch {
-        void 0;
-      }
-    }
-    try {
-      cleanStaleStash(saivageWorkDir(this.projectRoot), 24 * 60 * 60 * 1000);
-    } catch {
-      void 0;
-    }
-    try {
-      cleanStalePreviews(saivageWorkDir(this.projectRoot), 24 * 60 * 60 * 1000);
-    } catch {
-      void 0;
-    }
-    try {
-      cleanStaleUploads(saivageWorkDir(this.projectRoot), 24 * 60 * 60 * 1000);
-    } catch {
-      void 0;
-    }
   }
   private async dispatchGoal(goalId: string): Promise<void> {
     if (this._dispatchInFlight.has(goalId)) return;
