@@ -15,6 +15,12 @@ type TestAnalystRuntime = RuntimeApi & AnalystRuntimeDeps['stamper'] & {
   setMcpManager(mcpManager: NonNullable<AnalystRuntimeDeps['mcpManager']>): void;
 };
 
+function testRuntimeTimestamp(): string { return new Date(0).toISOString(); }
+
+function testRuntimeCommand(command: 'start_project' | 'stop_project'): Awaited<ReturnType<RuntimeApi['startProject']>>['command'] {
+  return { command_id: `test-${command}`, command, status: 'completed', requested_at: testRuntimeTimestamp(), completed_at: testRuntimeTimestamp(), source: 'runtime' };
+}
+
 export function createTestAnalystRuntime(opts: { eventBus?: EventBus } = {}): TestAnalystRuntime {
   const eventBus = opts.eventBus ?? new EventBus();
   const states = new Map<string, TestRoundState>();
@@ -26,17 +32,33 @@ export function createTestAnalystRuntime(opts: { eventBus?: EventBus } = {}): Te
     }
     return state;
   };
-  const runtime = {
-    runtime: { eventBus, eventLogger: undefined },
+  const runtime: TestAnalystRuntime = {
     eventLogger: undefined,
     candidateAvailability: undefined,
-    mcpManager: undefined as unknown,
+    mcpManager: undefined,
     async start(): Promise<void> {},
     async shutdown(): Promise<void> {},
     pause(): void {},
     resume(): void {},
-    async startProject(): Promise<{ success: true }> { return { success: true }; },
-    async stopProject(): Promise<{ success: true }> { return { success: true }; },
+    async startProject(): ReturnType<RuntimeApi['startProject']> {
+      const timestamp = testRuntimeTimestamp();
+      const command = testRuntimeCommand('start_project');
+      return {
+        success: true,
+        command,
+        intent: { status: 'running', updated_at: timestamp, source_command_id: command.command_id, reason: 'test runtime start' },
+        run: { run_id: 'test-root-run', kind: 'root', card_id: 'project', command_id: command.command_id, phase: 'planner', runtime_status: 'running', started_at: timestamp, updated_at: timestamp },
+      };
+    },
+    async stopProject(): ReturnType<RuntimeApi['stopProject']> {
+      const timestamp = testRuntimeTimestamp();
+      const command = testRuntimeCommand('stop_project');
+      return {
+        success: true,
+        command,
+        intent: { status: 'stopped', updated_at: timestamp, source_command_id: command.command_id, reason: 'test runtime stop' },
+      };
+    },
     subscribe: eventBus.subscribe.bind(eventBus),
     getStatus(): { status: 'idle'; paused: false; currentCardId: null; goalCount: 0; lastTickAt: null } { return { status: 'idle', paused: false, currentCardId: null, goalCount: 0, lastTickAt: null }; },
     emitAnalystToolInvoked(payload: Parameters<EventBus['emit']>[1]): void {
@@ -84,7 +106,7 @@ export function createTestAnalystRuntime(opts: { eventBus?: EventBus } = {}): Te
     recordAppend(): void {},
     getActivityStatus(): { status: 'idle'; pending_calls: []; updated_at: string } { return { status: 'idle', pending_calls: [], updated_at: new Date(0).toISOString() }; },
   };
-  return runtime as unknown as TestAnalystRuntime;
+  return runtime;
 }
 
 export function createTestRuntimeApplication(opts: { eventBus?: EventBus } = {}): RuntimeApplication {
