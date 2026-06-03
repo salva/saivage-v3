@@ -15,7 +15,7 @@ import {
 import {
   StuckAgentSupervisor,
 } from '../runtime/stuck-agent-supervisor.js';
-import { ActivationUnwindRunner } from './activation-unwind.js';
+import { ActivationUnwindRunner, createFileActivationUnwindSessionPort } from './activation-unwind.js';
 import { SessionStampCounter, type SessionStamper } from '../contracts/session-stamper.js';
 import type { RuntimeCompositionHooks, RuntimeConfig, RuntimeSkillsPort, RuntimeTestHooks } from './runtime-config.js';
 import { RuntimeGoalContextCoordinator } from './runtime-goal-context.js';
@@ -116,8 +116,8 @@ class Runtime {
     );
     this._sessionStamper = config.sessionStamper ?? new SessionStampCounter();
     this._activationUnwind = new ActivationUnwindRunner({
-      projectRoot: this.projectRoot,
       cards: this.cardStore,
+      sessionPort: createFileActivationUnwindSessionPort(this.projectRoot),
       sessionStamper: this._sessionStamper,
       mutations: this._mutations,
       now,

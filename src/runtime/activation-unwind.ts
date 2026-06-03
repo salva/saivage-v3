@@ -14,6 +14,8 @@ import {
 import type { SessionStamper } from '../contracts/session-stamper.js';
 import type { RuntimeStateMutationPort } from './mutations.js';
 
+type ActivationUnwindStamp = Parameters<typeof appendActivateCardToolResultOnce>[4];
+
 const TERMINAL_STATUSES: ReadonlySet<string> = new Set(['done', 'failed', 'cancelled']);
 
 export interface UnresolvedActivateCardCall {
@@ -22,9 +24,29 @@ export interface UnresolvedActivateCardCall {
   card_id: string;
 }
 
-export interface ActivationUnwindSessionPort {
+export interface ActivationUnwindCallerSessionPort {
   findPlannerSessionForCard(parentCardId: string): { id: string } | null | undefined;
   findUniqueUnresolvedActivateCardToolCall(sessionId: string, childCardId: string): { tool_call_id: string } | null | undefined;
+}
+
+export interface ActivationUnwindSessionPort extends ActivationUnwindCallerSessionPort {
+  appendActivateCardToolResultOnce(sessionId: string, toolCallId: string, content: string, stamp: ActivationUnwindStamp, stamper: SessionStamper): AgentMessage;
+  listSessions(): string[];
+  getSession(sessionId: string): { role?: string } | null;
+  getSessionMessages(sessionId: string): AgentMessage[];
+}
+
+export function createFileActivationUnwindSessionPort(projectRoot: string): ActivationUnwindSessionPort {
+  const saivageDir = join(projectRoot, '.saivage');
+  return {
+    findPlannerSessionForCard: (parentCardId) => findPlannerSessionForCard(saivageDir, parentCardId),
+    findUniqueUnresolvedActivateCardToolCall: (sessionId, childCardId) => findUniqueUnresolvedActivateCardToolCall(saivageDir, sessionId, childCardId),
+    appendActivateCardToolResultOnce: (sessionId, toolCallId, content, stamp, stamper) =>
+      appendActivateCardToolResultOnce(saivageDir, sessionId, toolCallId, content, stamp, stamper),
+    listSessions: () => listSessions(saivageDir),
+    getSession: (sessionId) => getSession(saivageDir, sessionId),
+    getSessionMessages: (sessionId) => getSessionMessages(saivageDir, sessionId),
+  };
 }
 
 export interface ActivationUnwindCardPort {
@@ -40,7 +62,7 @@ export interface ActivationCallerEdge {
 export function findActivationCallerEdge(input: {
   childCardId: string;
   cardPort: ActivationUnwindCardPort;
-  sessionPort: ActivationUnwindSessionPort;
+  sessionPort: ActivationUnwindCallerSessionPort;
 }): ActivationCallerEdge | null {
   const parentCardId = input.cardPort.getParent(input.childCardId);
   if (!parentCardId) return null;
@@ -114,8 +136,8 @@ export interface ActivationUnwindRunnerCards {
 export class ActivationUnwindRunner {
   constructor(
     private readonly deps: {
-      projectRoot: string;
       cards: ActivationUnwindRunnerCards;
+      sessionPort: ActivationUnwindSessionPort;
       sessionStamper: SessionStamper;
       mutations: RuntimeStateMutationPort;
       now(): string;
@@ -123,14 +145,10 @@ export class ActivationUnwindRunner {
   ) {}
 
   findCallerEdge(childCardId: string): ActivationCallerEdge | null {
-    const saivageDir = join(this.deps.projectRoot, '.saivage');
     return findActivationCallerEdge({
       childCardId,
       cardPort: { getParent: (cardId) => this.deps.cards.getParent(cardId) },
-      sessionPort: {
-        findPlannerSessionForCard: (parentCardId) => findPlannerSessionForCard(saivageDir, parentCardId),
-        findUniqueUnresolvedActivateCardToolCall: (sessionId, cardId) => findUniqueUnresolvedActivateCardToolCall(saivageDir, sessionId, cardId),
-      },
+      sessionPort: this.deps.sessionPort,
     });
   }
 
@@ -142,8 +160,7 @@ export class ActivationUnwindRunner {
     this.markActivationComplete(childCardId, outcome);
     const edge = this.findCallerEdge(childCardId);
     if (!edge) return;
-    appendActivateCardToolResultOnce(
-      join(this.deps.projectRoot, '.saivage'),
+    this.deps.sessionPort.appendActivateCardToolResultOnce(
       edge.callerSessionId,
       edge.callerToolCallId,
       this.buildCardActivationOutcome(childCardId, outcome, summary),
@@ -161,8 +178,7 @@ export class ActivationUnwindRunner {
     if (!child || !TERMINAL_STATUSES.has(child.status)) return false;
     const outcome =
       child.status === 'done' ? 'done' : child.status === 'cancelled' ? 'cancelled' : 'failed';
-    appendActivateCardToolResultOnce(
-      join(this.deps.projectRoot, '.saivage'),
+    this.deps.sessionPort.appendActivateCardToolResultOnce(
       sessionId,
       toolCallId,
       this.buildCardActivationOutcome(
@@ -177,8 +193,8 @@ export class ActivationUnwindRunner {
   }
 
   repairOrphanActivateCardToolCalls(): void {
-    for (const sessionId of listSessions(join(this.deps.projectRoot, '.saivage'))) {
-      const session = getSession(join(this.deps.projectRoot, '.saivage'), sessionId);
+    for (const sessionId of this.deps.sessionPort.listSessions()) {
+      const session = this.deps.sessionPort.getSession(sessionId);
       if (!session || session.role !== 'planner') continue;
       for (const call of this.findUnresolvedActivateCards(sessionId))
         this.synthesizeTerminalActivationResult(call.session_id, call.tool_call_id, call.card_id);
@@ -247,7 +263,7 @@ export class ActivationUnwindRunner {
   private findUnresolvedActivateCards(sessionId: string): UnresolvedActivateCardCall[] {
     return findUnresolvedActivateCardCalls(
       sessionId,
-      getSessionMessages(join(this.deps.projectRoot, '.saivage'), sessionId),
+      this.deps.sessionPort.getSessionMessages(sessionId),
     );
   }
 }
