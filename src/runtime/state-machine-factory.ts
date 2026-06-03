@@ -7,12 +7,14 @@ import {
   type RuntimeScheduler,
   type RuntimeSchedulerHandle,
 } from './state-machine.js';
-import { readRuntimeState, updateRuntimeState } from './state.js';
+import { readRuntimeState } from './state.js';
+import type { RuntimeStateMutationPort } from './mutations.js';
 
 export function createRuntimeStateMachine(input: {
   projectRoot: string;
   cards: CardStore;
   errorLogger: ErrorLogger;
+  mutations: RuntimeStateMutationPort;
   dispatchGoalThroughScheduler(goalId: string): void;
 }): RuntimeStateMachine {
   const scheduler: RuntimeScheduler = {
@@ -28,7 +30,12 @@ export function createRuntimeStateMachine(input: {
   };
   const runtimeState: RuntimeStatePort = {
     read: () => readRuntimeState(input.projectRoot),
-    patch: (changes) => updateRuntimeState(input.projectRoot, changes),
+    patch: (changes) => {
+      input.mutations.apply({ kind: 'patchRuntimeState', patch: changes });
+      const state = readRuntimeState(input.projectRoot);
+      if (!state) throw new Error('Runtime state missing after mutation patch.');
+      return state;
+    },
   };
   return new RuntimeStateMachine({
     cards: runtimeCards,

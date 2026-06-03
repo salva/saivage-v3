@@ -107,7 +107,7 @@ class Runtime {
       this._errorLogger = new ErrorLogger(join(config.projectRoot, '.saivage'));
       this._ownsErrorLogger = true;
     }
-    this._events = new RuntimeEventPublisher(this.projectRoot, this._eventLogger);
+    this._events = new RuntimeEventPublisher(this._eventLogger, this._mutations);
     this.cardStore = new CardStore(
       config.projectRoot,
       config.maxGoalDepth,
@@ -156,6 +156,7 @@ class Runtime {
       projectRoot: this.projectRoot,
       cards: this.cardStore,
       errorLogger: this._errorLogger,
+      mutations: this._mutations,
       dispatchGoalThroughScheduler: (cardId) => {
         void this._activationScheduler.dispatch(cardId);
       },
@@ -185,6 +186,7 @@ class Runtime {
       eventLogger: this._eventLogger,
       stateMachine: this._stateMachine,
       goalContext: this._goalContext,
+      mutations: this._mutations,
       setPaused: (paused) => {
         this._paused = paused;
       },

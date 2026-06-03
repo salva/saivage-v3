@@ -1,9 +1,10 @@
 import type { EventLogger } from '../observability/index.js';
 import { setProcessTerminalBuffering } from './process-runner.js';
 import { buildPauseRuntimeStatePatch, buildResumeRuntimeStatePatch } from './runtime-core.js';
-import { readRuntimeState, updateRuntimeState } from './state.js';
+import { readRuntimeState } from './state.js';
 import type { RuntimeStateMachine } from './state-machine.js';
 import type { RuntimeGoalContextCoordinator } from './runtime-goal-context.js';
+import type { RuntimeStateMutationPort } from './mutations.js';
 
 export class RuntimePauseResumeController {
   constructor(
@@ -12,6 +13,7 @@ export class RuntimePauseResumeController {
       eventLogger: EventLogger;
       stateMachine: RuntimeStateMachine;
       goalContext: RuntimeGoalContextCoordinator;
+      mutations: RuntimeStateMutationPort;
       setPaused(paused: boolean): void;
       emit(eventName: string, data?: Record<string, unknown>): void;
       now(): string;
@@ -22,7 +24,7 @@ export class RuntimePauseResumeController {
     this.deps.setPaused(true);
     setProcessTerminalBuffering(this.deps.projectRoot, true);
     try {
-      updateRuntimeState(this.deps.projectRoot, buildPauseRuntimeStatePatch(this.deps.now()));
+      this.deps.mutations.apply({ kind: 'patchRuntimeState', patch: buildPauseRuntimeStatePatch(this.deps.now()) });
     } catch {
       void 0;
     }
@@ -45,7 +47,7 @@ export class RuntimePauseResumeController {
         );
         this.deps.goalContext.injectQueuedPlannerNotes(plannerSessionId);
       }
-      updateRuntimeState(this.deps.projectRoot, buildResumeRuntimeStatePatch(state));
+      this.deps.mutations.apply({ kind: 'patchRuntimeState', patch: buildResumeRuntimeStatePatch(state) });
     } catch {
       void 0;
     }
