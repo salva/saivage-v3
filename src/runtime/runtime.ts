@@ -1,17 +1,8 @@
 import { join } from 'node:path';
 import { CardStore } from '../cards/store-api.js';
-import {
-  readRuntimeState,
-} from './state.js';
 import type { AgentExecutionPort } from '../contracts/index.js';
-import {
-  listProcesses,
-} from './process-runner.js';
 import { EventLogger } from '../observability/index.js';
 import { ErrorLogger } from '../observability/index.js';
-import {
-  RuntimeStateMachine,
-} from './state-machine.js';
 import {
   StuckAgentSupervisor,
 } from '../runtime/stuck-agent-supervisor.js';
@@ -19,15 +10,7 @@ import { ActivationUnwindRunner, createFileActivationUnwindSessionPort } from '.
 import { SessionStampCounter, type SessionStamper } from '../contracts/session-stamper.js';
 import type { RuntimeCompositionHooks, RuntimeConfig, RuntimeSkillsPort, RuntimeTestHooks } from './runtime-config.js';
 import { RuntimeGoalContextCoordinator } from './runtime-goal-context.js';
-import { RuntimeProjectCommandRunner } from './runtime-project-commands.js';
-import { RuntimePauseResumeController } from './runtime-pause-resume.js';
 import { RuntimeRunLedger } from './runtime-run-ledger.js';
-import { PendingActivationDispatcher } from './pending-activation-dispatcher.js';
-import { ExecutorActivationDispatcher } from './executor-activation-dispatcher.js';
-import { RuntimeCardDispatcher } from './runtime-card-dispatcher.js';
-import { RuntimeReviewerDispatcher } from './runtime-reviewer-dispatcher.js';
-import { RuntimePlannerDispatcher } from './runtime-planner-dispatcher.js';
-import { PlannerFailureHandler } from './phases/planner-failure-handler.js';
 import { createRuntimeSupervisor } from './supervisor-factory.js';
 import { RuntimeEventPublisher } from './runtime-event-publisher.js';
 import { RuntimeDiagnostics } from './runtime-diagnostics.js';
@@ -36,10 +19,9 @@ import { performRuntimeStartup } from './runtime-startup.js';
 import { performRuntimeCrashRecovery } from './crash-recovery.js';
 import { repairRuntimeStartupActiveCardRun } from './runtime-startup-active-run-repair.js';
 import { createConfiguredAgentRuntime } from './agent-runtime-factory.js';
-import { createRuntimeStateMachine } from './state-machine-factory.js';
-import { ActivationScheduler } from './scheduler.js';
 import { createRuntimeStateMutationPort, type RuntimeStateMutationPort } from './mutations.js';
 import { RuntimeLifecycleState } from './runtime-lifecycle-state.js';
+import { createRuntimeDispatchCollaborators, type RuntimeDispatchCollaborators } from './runtime-dispatch-composition.js';
 
 function now(): string {
   return new Date().toISOString();
@@ -64,24 +46,16 @@ class Runtime {
   private _errorLogger: ErrorLogger;
   private _ownsErrorLogger: boolean;
   private _supervisor: StuckAgentSupervisor;
-  private _continuousImprovementReserved: boolean;
-  private _autoDispatchBacklog: boolean;
   private readonly _diagnostics: RuntimeDiagnostics;
-  private _stateMachine: RuntimeStateMachine;
+  private _stateMachine: RuntimeDispatchCollaborators['stateMachine'];
   private readonly _activationUnwind: ActivationUnwindRunner;
   private readonly _goalContext: RuntimeGoalContextCoordinator;
-  private _projectCommands!: RuntimeProjectCommandRunner;
-  private _pauseResume!: RuntimePauseResumeController;
+  private _projectCommands!: RuntimeDispatchCollaborators['projectCommands'];
+  private _pauseResume!: RuntimeDispatchCollaborators['pauseResume'];
   private readonly _runLedger: RuntimeRunLedger;
-  private _pendingActivations!: PendingActivationDispatcher;
-  private _executorActivations!: ExecutorActivationDispatcher;
-  private _reviewerDispatcher!: RuntimeReviewerDispatcher;
-  private _plannerDispatcher!: RuntimePlannerDispatcher;
-  private _cardDispatcher!: RuntimeCardDispatcher;
-  private _activationScheduler!: ActivationScheduler;
+  private _activationScheduler!: RuntimeDispatchCollaborators['activationScheduler'];
   private readonly _mutations: RuntimeStateMutationPort;
   private readonly _sessionStamper: SessionStamper;
-  private readonly _goalDispatcher: RuntimeConfig['goalDispatcher'];
   private readonly lifecycle = new RuntimeLifecycleState();
 
   constructor(
@@ -91,7 +65,6 @@ class Runtime {
     testHooks: RuntimeTestHooks = {},
   ) {
     this.projectRoot = config.projectRoot;
-    this._goalDispatcher = config.goalDispatcher;
     this._diagnostics = new RuntimeDiagnostics(testHooks.diagnosticsSink);
     this._mutations = createRuntimeStateMutationPort(this.projectRoot);
     if (config.eventLogger) {
@@ -141,8 +114,6 @@ class Runtime {
       agentRuntime,
     });
     this._skillsEngine = config.skillsEngine ?? null;
-    this._continuousImprovementReserved = config.continuousImprovement ?? false;
-    this._autoDispatchBacklog = config.autoDispatchBacklog ?? false;
     this._supervisor = createRuntimeSupervisor({
       projectRoot: this.projectRoot,
       agentRuntime: this.agentRuntime,
@@ -151,116 +122,28 @@ class Runtime {
       lifecycle: this.lifecycle,
       emit: (kind, data) => this._events.emit(kind, data),
     });
-    this._activationScheduler = new ActivationScheduler(
-      this._goalDispatcher,
-      (goalId) => this._cardDispatcher.dispatchGoal(goalId),
-    );
-    this._stateMachine = createRuntimeStateMachine({
+    const dispatchCollaborators = createRuntimeDispatchCollaborators({
       projectRoot: this.projectRoot,
-      cards: this.cardStore,
-      errorLogger: this._errorLogger,
-      mutations: this._mutations,
-      dispatchGoalThroughScheduler: (cardId) => {
-        void this._activationScheduler.dispatch(cardId);
-      },
-    });
-    this._projectCommands = new RuntimeProjectCommandRunner({
-      projectRoot: this.projectRoot,
+      config,
       cards: this.cardStore,
       agentRuntime: this.agentRuntime,
+      getSkillsEngine: () => this._skillsEngine,
       eventLogger: this._eventLogger,
+      errorLogger: this._errorLogger,
+      events: this._events,
+      diagnostics: this._diagnostics,
+      mutations: this._mutations,
+      lifecycle: this.lifecycle,
       sessionStamper: this._sessionStamper,
-      stateMachine: this._stateMachine,
-      mutations: this._mutations,
-      lifecycle: this.lifecycle,
-      now,
-      publishRuntimeCommand: (command) => this._events.publishRuntimeLedgerEvent('runtime_command', { command }),
-      publishRuntimeRun: (run) => this._events.publishRuntimeLedgerEvent('runtime_run', { run }),
-      publishActionableError: (error) =>
-        this._events.publishRuntimeLedgerEvent('runtime_actionable_error', { actionable_error: error }),
-      trackBackgroundDispatch: (dispatch) => this._diagnostics.trackBackgroundDispatch(dispatch),
-      dispatchGoalThroughScheduler: (goalId) => this._activationScheduler.dispatch(goalId),
-    });
-    this._pauseResume = new RuntimePauseResumeController({
-      projectRoot: this.projectRoot,
-      eventLogger: this._eventLogger,
-      stateMachine: this._stateMachine,
+      activationUnwind: this._activationUnwind,
       goalContext: this._goalContext,
-      mutations: this._mutations,
-      lifecycle: this.lifecycle,
-      emit: (eventName, data) => this._events.emit(eventName, data),
-      now,
-    });
-    this._executorActivations = new ExecutorActivationDispatcher({
-      projectRoot: this.projectRoot,
-      cards: this.cardStore,
-      agentRuntime: this.agentRuntime,
-      skillsEngine: this._skillsEngine,
-      stateMachine: this._stateMachine,
-      activationUnwind: this._activationUnwind,
-      mutations: this._mutations,
-      eventLogger: this._eventLogger,
-      errorLogger: this._errorLogger,
-      emit: (eventName, data) => this._events.emit(eventName, data),
-      emitRuntimeDiagnostic: (input) => this._events.emitRuntimeDiagnostic(input),
-      now,
-    });
-    this._pendingActivations = new PendingActivationDispatcher({
-      projectRoot: this.projectRoot,
-      cards: this.cardStore,
-      activationUnwind: this._activationUnwind,
-      lifecycle: this.lifecycle,
-      dispatchGoalThroughScheduler: (goalId) => this._activationScheduler.dispatch(goalId),
-      executorActivations: this._executorActivations,
-    });
-    this._reviewerDispatcher = new RuntimeReviewerDispatcher({
-      cards: this.cardStore,
-      agentRuntime: this.agentRuntime,
-      skillsEngine: () => this._skillsEngine,
-      eventLogger: this._eventLogger,
-      errorLogger: this._errorLogger,
-      stateMachine: this._stateMachine,
-      goalContext: this._goalContext,
-      activationUnwind: this._activationUnwind,
       runLedger: this._runLedger,
-      emit: (eventName, data) => this._events.emit(eventName, data),
-      emitRuntimeDiagnostic: (input) => this._events.emitRuntimeDiagnostic(input),
       now,
     });
-    this._plannerDispatcher = new RuntimePlannerDispatcher({
-      projectRoot: this.projectRoot,
-      cards: this.cardStore,
-      agentRuntime: this.agentRuntime,
-      skillsEngine: () => this._skillsEngine,
-      eventLogger: this._eventLogger,
-      errorLogger: this._errorLogger,
-      stateMachine: this._stateMachine,
-      goalContext: this._goalContext,
-      pendingActivations: this._pendingActivations,
-      reviewerDispatcher: this._reviewerDispatcher,
-      mutations: this._mutations,
-      runLedger: this._runLedger,
-      sessionStamper: this._sessionStamper,
-      lifecycle: this.lifecycle,
-      emit: (eventName, data) => this._events.emit(eventName, data),
-      emitRuntimeDiagnostic: (input) => this._events.emitRuntimeDiagnostic(input),
-      plannerFailureHandler: new PlannerFailureHandler({
-        projectRoot: this.projectRoot,
-        cards: this.cardStore,
-        eventLogger: this._eventLogger,
-        errorLogger: this._errorLogger,
-        stateMachine: this._stateMachine,
-        mutations: this._mutations,
-        emitRuntimeDiagnostic: (input) => this._events.emitRuntimeDiagnostic(input),
-        publishRuntimeRun: (run) => this._events.publishRuntimeLedgerEvent('runtime_run', { run }),
-        now,
-      }),
-      now,
-    });
-    this._cardDispatcher = new RuntimeCardDispatcher({
-      plannerDispatcher: this._plannerDispatcher,
-      lifecycle: this.lifecycle,
-    });
+    this._activationScheduler = dispatchCollaborators.activationScheduler;
+    this._stateMachine = dispatchCollaborators.stateMachine;
+    this._projectCommands = dispatchCollaborators.projectCommands;
+    this._pauseResume = dispatchCollaborators.pauseResume;
     hooks.corePartsSink?.setRuntimeCoreParts({
       subscribe: (options) => this._events.eventBus.subscribe(options),
       publishRuntimeLedgerEvent: (event) => this._events.eventBus.emit(event),
