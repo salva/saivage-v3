@@ -4,7 +4,7 @@ import { EventBus } from '../events/bus.js';
 import type { EventPayload } from '../events/index.js';
 import type { LoggedEvent } from '../schemas/index.js';
 import type { RuntimeApi } from './runtime-api.js';
-import { Runtime } from './runtime.js';
+import { initializeRuntimeImplementation } from './runtime.js';
 import type { RuntimeConfig, RuntimeControlHooks, RuntimeCoreParts, RuntimeTestParts } from './runtime-config.js';
 import type { RuntimeDisposeReportEntry } from './lifecycle.js';
 import { readRuntimeState } from './state.js';
@@ -107,7 +107,7 @@ export function createRuntimeCoreContainer(input: {
   let runtimeControls: RuntimeControlHooks | null = null;
   let runtimeCoreParts: RuntimeCoreParts | undefined;
   const agentEventBus = createAgentEventBus(() => emitAgentEvent);
-  new Runtime(
+  initializeRuntimeImplementation(
     {
       ...input.config,
       ...(input.goalDispatcher ? { goalDispatcher: input.goalDispatcher } : {}),
@@ -175,7 +175,7 @@ export function createRuntimeCoreTestContainer(input: {
   let runtimeCoreParts: RuntimeCoreParts | undefined;
   let runtimeTestParts: RuntimeTestParts | undefined;
   const agentEventBus = createAgentEventBus(() => emitAgentEvent);
-  const runtime = new Runtime(
+  initializeRuntimeImplementation(
     {
       ...input.config,
       ...(input.goalDispatcher ? { goalDispatcher: input.goalDispatcher } : {}),

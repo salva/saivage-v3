@@ -198,7 +198,11 @@ type ConfigurableAgentRuntime = AgentExecutionPort & {
   setSessionStamper?: (sessionStamper: RuntimeStampSource) => void;
 };
 
-export class Runtime {
+export function initializeRuntimeImplementation(config: RuntimeConfig, agentRuntime?: AgentExecutionPort, hooks: RuntimeCompositionHooks = {}): void {
+  new Runtime(config, agentRuntime, hooks);
+}
+
+class Runtime {
   private readonly projectRoot: string;
   private readonly cardStore: CardStore;
   private readonly agentRuntime: AgentExecutionPort;

@@ -179,6 +179,7 @@ describe('runtime module ownership boundary', () => {
     expect(source).not.toContain('ActiveRuntimeStampCounter');
     expect(source).not.toContain('ActiveRuntimeStampSource');
     expect(source).not.toContain('_activeRuntime');
+    expect(source).not.toContain('export class Runtime');
     expect(source).not.toContain('setActiveRuntime');
     expect(source).not.toContain('config.activeRuntime');
     expect(source).not.toContain('activeRuntime: this._');
