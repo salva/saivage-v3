@@ -1,8 +1,7 @@
 import { join } from 'node:path';
-import { CardStore, PROJECT_CARD_ID } from '../cards/store-api.js';
+import { CardStore } from '../cards/store-api.js';
 import {
   readRuntimeState,
-  updateRuntimeState,
 } from './state.js';
 import type { AgentExecutionPort } from '../contracts/index.js';
 import {
@@ -12,14 +11,10 @@ import { EventLogger } from '../observability/index.js';
 import { ErrorLogger } from '../observability/index.js';
 import {
   RuntimeStateMachine,
-  type RuntimeScheduler,
-  type RuntimeSchedulerHandle,
 } from './state-machine.js';
-import type { RuntimeCardPort, RuntimeStatePort } from './ports.js';
 import {
   StuckAgentSupervisor,
 } from '../runtime/stuck-agent-supervisor.js';
-import { cardHasBlockedPlanning } from './planning-blockers.js';
 import { ActivationUnwindRunner } from './activation-unwind.js';
 import { SessionStampCounter } from '../contracts/session-stamper.js';
 import type { RuntimeCompositionHooks, RuntimeConfig, RuntimeSkillsPort, RuntimeStampSource, RuntimeTestHooks } from './runtime-config.js';
@@ -37,6 +32,7 @@ import { performRuntimeStartup } from './runtime-startup.js';
 import { performRuntimeCrashRecovery } from './crash-recovery.js';
 import { repairRuntimeStartupActiveCardRun } from './runtime-startup-active-run-repair.js';
 import { createConfiguredAgentRuntime } from './agent-runtime-factory.js';
+import { createRuntimeStateMachine } from './state-machine-factory.js';
 
 function now(): string {
   return new Date().toISOString();
@@ -146,34 +142,13 @@ class Runtime {
       emit: (kind, data) => this._events.emit(kind, data),
       isShuttingDown: () => this._shuttingDown,
     });
-    const scheduler: RuntimeScheduler = {
-      setInterval: (handler, ms) => setInterval(handler, ms) as unknown as RuntimeSchedulerHandle,
-      clearInterval: (handle) => clearInterval(handle as unknown as NodeJS.Timeout),
-    };
-    const runtimeCards: RuntimeCardPort = {
-      readStatus: (cardId) => this.cardStore.read(cardId)?.status,
-      canTransition: (from, to) => this.cardStore.canTransition(from, to),
-      setStatus: (cardId, status) => {
-        this.cardStore.setStatus(cardId, status);
+    this._stateMachine = createRuntimeStateMachine({
+      projectRoot: this.projectRoot,
+      cards: this.cardStore,
+      errorLogger: this._errorLogger,
+      dispatchGoalThroughScheduler: (cardId) => {
+        void this.dispatchGoalThroughScheduler(cardId);
       },
-    };
-    const runtimeState: RuntimeStatePort = {
-      read: () => readRuntimeState(this.projectRoot),
-      patch: (changes) => updateRuntimeState(this.projectRoot, changes),
-    };
-    this._stateMachine = new RuntimeStateMachine({
-      cards: runtimeCards,
-      state: runtimeState,
-      errors: this._errorLogger,
-      clock: { now: () => new Date() },
-      scheduler,
-      redispatch: {
-        redispatch: (cardId) => {
-          if (!cardHasBlockedPlanning(this.cardStore.read(cardId)))
-            void this.dispatchGoalThroughScheduler(cardId);
-        },
-      },
-      projectCardId: PROJECT_CARD_ID,
     });
     this._projectCommands = new RuntimeProjectCommandRunner({
       projectRoot: this.projectRoot,
