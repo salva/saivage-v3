@@ -1,4 +1,5 @@
-import { reduceActivation, type ActivationDecision, type ActivationEvent, type ActivationState } from './activation-reducer.js';
+import type { RuntimeState } from '../schemas/index.js';
+import { activationStateFromActiveRun, reduceActivation, type ActivationDecision, type ActivationEvent, type ActivationState } from './activation-reducer.js';
 
 export class CardActivation {
   private _state: ActivationState;
@@ -16,4 +17,9 @@ export class CardActivation {
     this._state = decision.state;
     return decision;
   }
+}
+
+export function activationFromRuntimeState(state: RuntimeState | null): CardActivation | null {
+  const activationState = activationStateFromActiveRun(state?.active_card_run ?? null);
+  return activationState ? new CardActivation(activationState) : null;
 }

@@ -82,17 +82,26 @@ export function createRuntimeApplication(projectRoot: string, config: SaivageCon
         }
       : undefined,
   };
+  let emitAnalystToolInvoked: ((payload: EventPayload<'analyst_tool_invoked'>) => void) | null = null;
 
   const runtimeCore = createRuntimeCoreContainer({
     config: runtimeConfig,
     agentRuntime: agentAdapter,
     getActivityStatus: (sessionId) => stamper.getActivityStatus(sessionId),
+    wireAgentEventBus: (agentEventBus) => {
+      agentAdapter.setEventBus(agentEventBus);
+    },
+    wireRuntimeLedgerEvents: (runtimeLedgerEvents) => {
+      agentAdapter.setRuntimeLedgerEventBus(runtimeLedgerEvents);
+    },
+    wireAnalystToolInvokedEmitter: (emit) => {
+      emitAnalystToolInvoked = emit;
+    },
   });
-  agentAdapter.setEventBus(runtimeCore.agentEventBus);
-  agentAdapter.setRuntimeLedgerEventBus(runtimeCore.runtimeLedgerEvents);
-
-  const emitAnalystToolInvoked = (payload: EventPayload<'analyst_tool_invoked'>): void => {
-    runtimeCore.runtimeLedgerEvents.emitAnalystToolInvoked(payload);
+  if (!emitAnalystToolInvoked) throw new Error('Runtime analyst event emitter was not provided.');
+  const emitAnalystToolInvokedFromRuntime = (payload: EventPayload<'analyst_tool_invoked'>): void => {
+    if (!emitAnalystToolInvoked) throw new Error('Runtime analyst event emitter is unavailable.');
+    emitAnalystToolInvoked(payload);
   };
   const runtimeApi: RuntimeApi = {
     ...runtimeCore.api,
@@ -107,7 +116,7 @@ export function createRuntimeApplication(projectRoot: string, config: SaivageCon
   return {
     runtimeApi,
     get analystDeps() {
-      return buildAnalystDeps({ runtimeApi, stamper, candidateAvailability, eventLogger, emitAnalystToolInvoked, mcpManager });
+      return buildAnalystDeps({ runtimeApi, stamper, candidateAvailability, eventLogger, emitAnalystToolInvoked: emitAnalystToolInvokedFromRuntime, mcpManager });
     },
     setMcpManager(nextMcpManager) {
       mcpManager = nextMcpManager;

@@ -13,7 +13,7 @@ import type { RuntimeRunLedger } from './runtime-run-ledger.js';
 import type { ActivationUnwindRunner } from './activation-unwind.js';
 import type { PendingActivationDispatcher } from './pending-activation-dispatcher.js';
 import { consumeChangedCardActivation } from './synthetic-planner-notes.js';
-import { readRuntimeState, updateRuntimeRun, updateRuntimeState } from './state.js';
+import { readRuntimeState, updateRuntimeRun } from './state.js';
 import {
   buildCurrentAgentSessionPatch,
   buildDispatchPausedRuntimeStatePatch,
@@ -50,6 +50,8 @@ import {
 import { compactPersistedPlannerHistoryForRetry } from './persisted-planner-history.js';
 import { isPlannerTerminalToolExhaustion } from './startup-blocked-planning.js';
 import { buildProjectRunCompletedPayload } from './project-run-completion.js';
+import type { RuntimeStateMutationPort } from './mutations.js';
+import { activationFromRuntimeState } from './card-activation.js';
 
 const MAX_PLANNER_ITERATIONS = 50;
 
@@ -77,6 +79,7 @@ export class RuntimeCardDispatcher {
       goalContext: RuntimeGoalContextCoordinator;
       activationUnwind: ActivationUnwindRunner;
       pendingActivations: PendingActivationDispatcher;
+      mutations: RuntimeStateMutationPort;
       runLedger: RuntimeRunLedger;
       sessionStamper: SessionStamper;
       dispatchInFlight: Set<string>;
@@ -118,7 +121,7 @@ export class RuntimeCardDispatcher {
       for (let iter = 0; iter < MAX_PLANNER_ITERATIONS && !plannerDone && !this.deps.isShuttingDown(); iter++) {
         if (this.deps.isPaused()) {
           this.emitDispatchBlocked(goalId);
-          updateRuntimeState(this.deps.projectRoot, buildDispatchPausedRuntimeStatePatch());
+          this.deps.mutations.apply({ kind: 'patchRuntimeState', patch: buildDispatchPausedRuntimeStatePatch() });
           return;
         }
         let plannerResult: PlannerResult;
@@ -145,7 +148,7 @@ export class RuntimeCardDispatcher {
           cardStore: this.deps.cards,
           transitionCard: (cardId, action, input) => this.deps.stateMachine.transitionCard(cardId, action, input),
         }).apply(goalId, plannerResult);
-        updateRuntimeState(this.deps.projectRoot, buildCurrentAgentSessionPatch(`planner:${goalId}`));
+        this.deps.mutations.apply({ kind: 'patchRuntimeState', patch: buildCurrentAgentSessionPatch(`planner:${goalId}`) });
         const execution = await this.deps.pendingActivations.dispatch(goalId);
         if (execution.failed) plannerDone = false;
         if (this.deps.isShuttingDown()) break;
@@ -236,10 +239,11 @@ export class RuntimeCardDispatcher {
       );
     }
     const planCard = this.deps.cards.read(goalId)!;
-    updateRuntimeState(
-      this.deps.projectRoot,
-      buildPlannerActiveRunPatch({ goal: planCard, plannerSessionId: setup.plannerSessionId, at: this.deps.now() }),
-    );
+    this.deps.mutations.apply({
+      kind: 'patchRuntimeState',
+      patch: buildPlannerActiveRunPatch({ goal: planCard, plannerSessionId: setup.plannerSessionId, at: this.deps.now() }),
+    });
+    activationFromRuntimeState(readRuntimeState(this.deps.projectRoot));
     this.deps.runLedger.bindPlannerSessionToOpenRun(goalId, setup.plannerSessionId);
     return planCard;
   }

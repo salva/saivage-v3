@@ -1,6 +1,6 @@
 import { describe, expect, it } from '@jest/globals';
 import { activeRunFromActivationState, activationStateFromActiveRun, reduceActivation } from '../../src/runtime/activation-reducer.js';
-import { CardActivation } from '../../src/runtime/card-activation.js';
+import { activationFromRuntimeState, CardActivation } from '../../src/runtime/card-activation.js';
 import type { RuntimeState } from '../../src/schemas/types.js';
 
 const plannerRun: NonNullable<RuntimeState['active_card_run']> = {
@@ -21,6 +21,12 @@ describe('activation reducer and CardActivation shell', () => {
     const state = activationStateFromActiveRun(plannerRun);
     expect(state).toEqual(expect.objectContaining({ phase: 'planner', cardId: 'goal-a', plannerSessionId: 'planner:goal-a', correctionAttempts: 2 }));
     expect(activeRunFromActivationState(state!, 't1')).toEqual(plannerRun);
+  });
+
+  it('creates a CardActivation from runtime state snapshots', () => {
+    expect(activationFromRuntimeState(null)).toBeNull();
+    expect(activationFromRuntimeState({ active_card_run: null } as RuntimeState)).toBeNull();
+    expect(activationFromRuntimeState({ active_card_run: plannerRun } as RuntimeState)?.state).toEqual(expect.objectContaining({ phase: 'planner', cardId: 'goal-a' }));
   });
 
   it('round-trips executor active run snapshots without losing caller metadata', () => {

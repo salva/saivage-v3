@@ -7,6 +7,31 @@ import { createRuntimeStateMutationPort } from '../../src/runtime/mutations.js';
 import { initRuntimeState, readRuntimeState, updateRuntimeState } from '../../src/runtime/state.js';
 
 describe('runtime mutations', () => {
+  it('applies runtime state patches through the mutation port', () => {
+    const projectRoot = mkdtempSync(join(tmpdir(), 'runtime-mutations-patch-'));
+    try {
+      initProjectTree(projectRoot);
+      initRuntimeState(projectRoot);
+
+      createRuntimeStateMutationPort(projectRoot).apply({
+        kind: 'patchRuntimeState',
+        patch: {
+          paused: true,
+          current_card_id: 'goal-a',
+          current_agent_session_id: 'planner:goal-a',
+        },
+      });
+
+      expect(readRuntimeState(projectRoot)).toEqual(expect.objectContaining({
+        paused: true,
+        current_card_id: 'goal-a',
+        current_agent_session_id: 'planner:goal-a',
+      }));
+    } finally {
+      rmSync(projectRoot, { recursive: true, force: true });
+    }
+  });
+
   it('completes activation records through the mutation port', () => {
     const projectRoot = mkdtempSync(join(tmpdir(), 'runtime-mutations-'));
     try {

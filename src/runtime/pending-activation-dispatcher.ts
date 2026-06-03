@@ -24,7 +24,9 @@ import {
 import { handleExecutorInvocationFailure } from './phases/executor-invocation-failure.js';
 import { handleExecutorCompletion } from './phases/executor-completion-handler.js';
 import { buildCardContextBlock } from './context-builder.js';
-import { readRuntimeState, updateRuntimeState } from './state.js';
+import { readRuntimeState } from './state.js';
+import type { RuntimeStateMutationPort } from './mutations.js';
+import { activationFromRuntimeState } from './card-activation.js';
 
 export class PendingActivationDispatcher {
   constructor(
@@ -35,6 +37,7 @@ export class PendingActivationDispatcher {
       skillsEngine: RuntimeSkillsPort | null;
       stateMachine: RuntimeStateMachine;
       activationUnwind: ActivationUnwindRunner;
+      mutations: RuntimeStateMutationPort;
       eventLogger: EventLogger;
       errorLogger: ErrorLogger;
       isPaused(): boolean;
@@ -84,15 +87,16 @@ export class PendingActivationDispatcher {
             return { dispatchedGoal, executedTerminal, failed };
           }
         }
-        updateRuntimeState(
-          this.deps.projectRoot,
-          buildExecutorActiveRunPatch({
+        this.deps.mutations.apply({
+          kind: 'patchRuntimeState',
+          patch: buildExecutorActiveRunPatch({
             card,
             goalId,
             callerEdge,
             at: this.deps.now(),
           }),
-        );
+        });
+        activationFromRuntimeState(readRuntimeState(this.deps.projectRoot));
         let execResult;
         try {
           execResult = await new ExecutorPhaseRunner({

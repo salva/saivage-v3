@@ -34,7 +34,7 @@ import { repairRuntimeStartupActiveCardRun } from './runtime-startup-active-run-
 import { createConfiguredAgentRuntime } from './agent-runtime-factory.js';
 import { createRuntimeStateMachine } from './state-machine-factory.js';
 import { ActivationScheduler } from './scheduler.js';
-import { createRuntimeStateMutationPort } from './mutations.js';
+import { createRuntimeStateMutationPort, type RuntimeStateMutationPort } from './mutations.js';
 
 function now(): string {
   return new Date().toISOString();
@@ -79,6 +79,7 @@ class Runtime {
   private _pendingActivations!: PendingActivationDispatcher;
   private _cardDispatcher!: RuntimeCardDispatcher;
   private _activationScheduler!: ActivationScheduler;
+  private readonly _mutations: RuntimeStateMutationPort;
   private readonly _sessionStamper: SessionStamper;
   private readonly _goalDispatcher: RuntimeConfig['goalDispatcher'];
 
@@ -91,6 +92,7 @@ class Runtime {
     this.projectRoot = config.projectRoot;
     this._goalDispatcher = config.goalDispatcher;
     this._diagnostics = new RuntimeDiagnostics(testHooks.diagnosticsSink);
+    this._mutations = createRuntimeStateMutationPort(this.projectRoot);
     if (config.eventLogger) {
       this._eventLogger = config.eventLogger;
       this._ownsEventLogger = false;
@@ -117,7 +119,7 @@ class Runtime {
       projectRoot: this.projectRoot,
       cards: this.cardStore,
       sessionStamper: this._sessionStamper,
-      mutations: createRuntimeStateMutationPort(this.projectRoot),
+      mutations: this._mutations,
       now,
     });
     this._goalContext = new RuntimeGoalContextCoordinator({
@@ -196,6 +198,7 @@ class Runtime {
       skillsEngine: this._skillsEngine,
       stateMachine: this._stateMachine,
       activationUnwind: this._activationUnwind,
+      mutations: this._mutations,
       eventLogger: this._eventLogger,
       errorLogger: this._errorLogger,
       isPaused: () => this._paused,
@@ -216,6 +219,7 @@ class Runtime {
       goalContext: this._goalContext,
       activationUnwind: this._activationUnwind,
       pendingActivations: this._pendingActivations,
+      mutations: this._mutations,
       runLedger: this._runLedger,
       sessionStamper: this._sessionStamper,
       dispatchInFlight: this._dispatchInFlight,

@@ -43,14 +43,14 @@ function getRuntimeStatus(projectRoot: string, coreParts: RuntimeCoreParts): Ret
 export interface RuntimeCoreContainer {
   api: RuntimeApi;
   projectRoot: string;
+}
+
+export interface RuntimeCoreTestContainer extends RuntimeCoreContainer {
   agentEventBus: NodeEventEmitter;
   runtimeLedgerEvents: {
     emit(event: LoggedEvent): void;
     emitAnalystToolInvoked(payload: EventPayload<'analyst_tool_invoked'>): void;
   };
-}
-
-export interface RuntimeCoreTestContainer extends RuntimeCoreContainer {
   cardTestTools: Pick<CardStore, 'read' | 'update' | 'create' | 'setStatus'>;
   loggerTestTools: {
     isSameErrorLogger(errorLogger: ErrorLogger): boolean;
@@ -100,6 +100,9 @@ export function createRuntimeCoreContainer(input: {
   agentRuntime?: AgentExecutionPort;
   getActivityStatus?: RuntimeApi['getActivityStatus'];
   goalDispatcher?: RuntimeConfig['goalDispatcher'];
+  wireAgentEventBus?: (agentEventBus: NodeEventEmitter) => void;
+  wireRuntimeLedgerEvents?: (runtimeLedgerEvents: { emit(event: LoggedEvent): void }) => void;
+  wireAnalystToolInvokedEmitter?: (emitAnalystToolInvoked: (payload: EventPayload<'analyst_tool_invoked'>) => void) => void;
 }): RuntimeCoreContainer {
   let emitAgentEvent: EmitAgentEvent | null = null;
   let runtimeControls: RuntimeControlHooks | null = null;
@@ -145,14 +148,17 @@ export function createRuntimeCoreContainer(input: {
     getStatus: () => getRuntimeStatus(input.config.projectRoot, coreParts),
     getActivityStatus: input.getActivityStatus ?? (() => ({ status: 'idle', pending_calls: [], updated_at: new Date(0).toISOString() })),
   };
+  const runtimeLedgerEvents = {
+    emit: (event: LoggedEvent) => coreParts.eventBus.emit(event),
+  };
+  const emitAnalystToolInvoked = (payload: EventPayload<'analyst_tool_invoked'>) =>
+    coreParts.eventBus.emit('analyst_tool_invoked', payload);
+  input.wireAgentEventBus?.(agentEventBus);
+  input.wireRuntimeLedgerEvents?.(runtimeLedgerEvents);
+  input.wireAnalystToolInvokedEmitter?.(emitAnalystToolInvoked);
   return {
     api,
     projectRoot: input.config.projectRoot,
-    agentEventBus,
-    runtimeLedgerEvents: {
-      emit: (event) => coreParts.eventBus.emit(event),
-      emitAnalystToolInvoked: (payload) => coreParts.eventBus.emit('analyst_tool_invoked', payload),
-    },
   };
 }
 

@@ -12,7 +12,7 @@ describe('runtime core composition', () => {
     try {
       initProjectTree(projectRoot);
       const core = createRuntimeCoreContainer({ config: { projectRoot, fakeAgentConfig: { mapping: {}, fixtureDir: '' }, autoDispatchBacklog: false } });
-      expect(Object.keys(core).sort()).toEqual(['agentEventBus', 'api', 'projectRoot', 'runtimeLedgerEvents']);
+      expect(Object.keys(core).sort()).toEqual(['api', 'projectRoot']);
     } finally {
       rmSync(projectRoot, { recursive: true, force: true });
     }

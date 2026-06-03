@@ -144,6 +144,9 @@ describe('runtime module ownership boundary', () => {
     expect(productionInterface).not.toContain('TestTools');
     expect(productionInterface).not.toContain('cardTestTools');
     expect(productionInterface).not.toContain('lifecycleTestTools');
+    expect(productionInterface).not.toContain('agentEventBus');
+    expect(productionInterface).not.toContain('runtimeLedgerEvents');
+    expect(productionInterface).not.toContain('emitAnalystToolInvoked');
     const productionFactoryStart = source.indexOf('export function createRuntimeCoreContainer');
     const testFactoryStart = source.indexOf('export function createRuntimeCoreTestContainer');
     expect(productionFactoryStart).toBeGreaterThanOrEqual(0);
