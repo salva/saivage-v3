@@ -25,6 +25,7 @@ import { RuntimeRunLedger } from './runtime-run-ledger.js';
 import { PendingActivationDispatcher } from './pending-activation-dispatcher.js';
 import { ExecutorActivationDispatcher } from './executor-activation-dispatcher.js';
 import { RuntimeCardDispatcher } from './runtime-card-dispatcher.js';
+import { RuntimeReviewerDispatcher } from './runtime-reviewer-dispatcher.js';
 import { createRuntimeSupervisor } from './supervisor-factory.js';
 import { RuntimeEventPublisher } from './runtime-event-publisher.js';
 import { RuntimeDiagnostics } from './runtime-diagnostics.js';
@@ -79,6 +80,7 @@ class Runtime {
   private readonly _runLedger: RuntimeRunLedger;
   private _pendingActivations!: PendingActivationDispatcher;
   private _executorActivations!: ExecutorActivationDispatcher;
+  private _reviewerDispatcher!: RuntimeReviewerDispatcher;
   private _cardDispatcher!: RuntimeCardDispatcher;
   private _activationScheduler!: ActivationScheduler;
   private readonly _mutations: RuntimeStateMutationPort;
@@ -221,6 +223,20 @@ class Runtime {
       dispatchGoalThroughScheduler: (goalId) => this._activationScheduler.dispatch(goalId),
       executorActivations: this._executorActivations,
     });
+    this._reviewerDispatcher = new RuntimeReviewerDispatcher({
+      cards: this.cardStore,
+      agentRuntime: this.agentRuntime,
+      skillsEngine: () => this._skillsEngine,
+      eventLogger: this._eventLogger,
+      errorLogger: this._errorLogger,
+      stateMachine: this._stateMachine,
+      goalContext: this._goalContext,
+      activationUnwind: this._activationUnwind,
+      runLedger: this._runLedger,
+      emit: (eventName, data) => this._events.emit(eventName, data),
+      emitRuntimeDiagnostic: (input) => this._events.emitRuntimeDiagnostic(input),
+      now,
+    });
     this._cardDispatcher = new RuntimeCardDispatcher({
       projectRoot: this.projectRoot,
       cards: this.cardStore,
@@ -230,8 +246,8 @@ class Runtime {
       errorLogger: this._errorLogger,
       stateMachine: this._stateMachine,
       goalContext: this._goalContext,
-      activationUnwind: this._activationUnwind,
       pendingActivations: this._pendingActivations,
+      reviewerDispatcher: this._reviewerDispatcher,
       mutations: this._mutations,
       runLedger: this._runLedger,
       sessionStamper: this._sessionStamper,

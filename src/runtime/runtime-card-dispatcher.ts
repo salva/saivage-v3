@@ -1,6 +1,6 @@
-import type { AgentExecutionPort, PlannerResult, ReviewerResult } from '../contracts/index.js';
+import type { AgentExecutionPort, PlannerResult } from '../contracts/index.js';
 import { unwrapFailure, type LlmTransportFailure } from '../contracts/llm-failure.js';
-import type { CardRecord, ReviewAssessment } from '../schemas/index.js';
+import type { CardRecord } from '../schemas/index.js';
 import type { RuntimeRunRecord } from '../schemas/index.js';
 import type { ErrorLogger, EventLogger } from '../observability/index.js';
 import type { CardStore } from '../cards/store-api.js';
@@ -10,8 +10,8 @@ import type { RuntimeSkillsPort } from './runtime-config.js';
 import type { RuntimeStateMachine } from './state-machine.js';
 import type { RuntimeGoalContextCoordinator } from './runtime-goal-context.js';
 import type { RuntimeRunLedger } from './runtime-run-ledger.js';
-import type { ActivationUnwindRunner } from './activation-unwind.js';
 import type { PendingActivationDispatcher } from './pending-activation-dispatcher.js';
+import type { RuntimeReviewerDispatcher } from './runtime-reviewer-dispatcher.js';
 import { consumeChangedCardActivation } from './synthetic-planner-notes.js';
 import { readRuntimeState } from './state.js';
 import {
@@ -35,21 +35,8 @@ import {
 import { handlePlannerPostDispatchDecision } from './phases/planner-post-dispatch-handler.js';
 import { PlannerPhaseRunner } from './phases/planner-phase-runner.js';
 import { PlannerResultApplier } from './phases/planner-result-applier.js';
-import {
-  buildReviewerActiveRun,
-  decideReviewerPhase,
-} from './phases/reviewer-phase.js';
-import { ReviewerPhaseRunner } from './phases/reviewer-phase-runner.js';
-import { handleReviewerInvocationFailure } from './phases/reviewer-invocation-failure.js';
-import { handleReviewerAssessmentDecision } from './phases/reviewer-assessment-handler.js';
-import {
-  nextReviewerAssessmentId,
-  reviewerSessionId as makeReviewerSessionId,
-  validateReviewerAssessment,
-} from './reviewer-assessment.js';
 import { compactPersistedPlannerHistoryForRetry } from './persisted-planner-history.js';
 import { isPlannerTerminalToolExhaustion } from './startup-blocked-planning.js';
-import { buildProjectRunCompletedPayload } from './project-run-completion.js';
 import type { RuntimeStateMutationPort } from './mutations.js';
 
 const MAX_PLANNER_ITERATIONS = 50;
@@ -76,8 +63,8 @@ export class RuntimeCardDispatcher {
       errorLogger: ErrorLogger;
       stateMachine: RuntimeStateMachine;
       goalContext: RuntimeGoalContextCoordinator;
-      activationUnwind: ActivationUnwindRunner;
       pendingActivations: PendingActivationDispatcher;
+      reviewerDispatcher: RuntimeReviewerDispatcher;
       mutations: RuntimeStateMutationPort;
       runLedger: RuntimeRunLedger;
       sessionStamper: SessionStamper;
@@ -178,7 +165,7 @@ export class RuntimeCardDispatcher {
         plannerDone = postDispatch.plannerDone;
         if (postDispatch.shouldReturn) return;
         if (plannerDone) {
-          const completed = await this.runReviewer(goalId);
+          const completed = await this.deps.reviewerDispatcher.runReviewer(goalId);
           if (completed) return;
           plannerDone = false;
         }
@@ -277,91 +264,6 @@ export class RuntimeCardDispatcher {
     });
   }
 
-  private async runReviewer(goalId: string): Promise<boolean> {
-    const assessmentId = nextReviewerAssessmentId(goalId, this.deps.cards.read(goalId)?.result);
-    const reviewerSessionId = makeReviewerSessionId(goalId, assessmentId);
-    let reviewResult: ReviewerResult;
-    try {
-      reviewResult = await new ReviewerPhaseRunner({
-        agentRuntime: this.deps.agentRuntime,
-        skillsEngine: this.deps.skillsEngine(),
-        readGoalCard: (cardId) => this.deps.cards.read(cardId),
-        buildGoalContextBlock: (cardId) => this.deps.goalContext.buildGoalContextBlock(cardId),
-        buildGoalEvidenceContext: (cardId) => buildGoalEvidenceContext({ goalId: cardId, cards: this.deps.cards }),
-        markReviewerStarted: async ({ goalId: startedGoalId, reviewerSessionId: startedReviewerSessionId, goalCard }) => {
-          await this.deps.stateMachine.transition('reviewer_started', {
-            goalId: startedGoalId,
-            reviewerSessionId: startedReviewerSessionId,
-            activeCardRun: buildReviewerActiveRun({
-              goalId: startedGoalId,
-              reviewerSessionId: startedReviewerSessionId,
-              goalCard,
-              at: this.deps.now(),
-            }),
-          });
-        },
-      }).run({ goalId, assessmentId, reviewerSessionId });
-      this.deps.emit('review_complete', { goal_id: goalId, assessment: reviewResult.assessment });
-      this.deps.eventLogger.appendEvent({
-        kind: 'review_complete',
-        goal_id: goalId,
-        assessment: reviewResult.assessment,
-      });
-    } catch (err) {
-      await handleReviewerInvocationFailure({
-        goalId,
-        error: err,
-        existingResult: this.deps.cards.read(goalId)?.result,
-        effects: {
-          emitRuntimeDiagnostic: (input) => this.deps.emitRuntimeDiagnostic(input),
-          appendRuntimeDiagnostic: (input) => this.deps.eventLogger.appendEvent({ kind: 'runtime_diagnostic', ...input }),
-          appendError: (input) => this.deps.errorLogger.appendError(input),
-          transitionCard: (cardId, event, details) => this.deps.stateMachine.transitionCard(cardId, event, details),
-          updateCard: (cardId, patch) => this.deps.cards.update(cardId, patch),
-          finishOpenPlannerRun: (cardId, result) => this.deps.runLedger.finishOpenPlannerRun(cardId, result),
-          transitionRuntime: (event, details) => this.deps.stateMachine.transition(event, details),
-        },
-      });
-      return true;
-    }
-    const validation = validateReviewerAssessment({ goalId, assessment: reviewResult.assessment, readCard: (evidenceId) => this.deps.cards.read(evidenceId) });
-    const reviewerDecision = decideReviewerPhase({ assessment: reviewResult.assessment, validation });
-    const reviewerOutcome = await handleReviewerAssessmentDecision({
-      goalId,
-      projectCardId: PROJECT_CARD_ID,
-      assessmentId,
-      reviewerSessionId,
-      reviewResult,
-      decision: reviewerDecision,
-      effects: {
-        now: this.deps.now,
-        readCard: (cardId) => this.deps.cards.read(cardId),
-        transitionCard: (cardId, event, details) => this.deps.stateMachine.transitionCard(cardId, event, details),
-        updateCard: (cardId, patch) => this.deps.cards.update(cardId, patch),
-        persistReviewState: (cardId, assessment) => this.persistReviewState(cardId, assessment),
-        emitReviewFailed: (cardId, assessment) => {
-          this.deps.emit('review_failed', { goal_id: cardId, assessment });
-          this.deps.eventLogger.appendEvent({ kind: 'review_failed', goal_id: cardId, assessment });
-        },
-        emitGoalCompleted: (cardId, assessment) => {
-          this.deps.emit('goal_completed', { goal_id: cardId, assessment });
-          this.deps.eventLogger.appendEvent({ kind: 'goal_completed', goal_id: cardId, assessment });
-        },
-        appendChildUnwindToolResult: (cardId, outcome, summary) => this.deps.activationUnwind.appendChildUnwindToolResult(cardId, outcome, summary),
-        transitionRuntime: (event, details) => this.deps.stateMachine.transition(event, details),
-        emitProjectRunCompleted: (cardId, assessment) => this.emitProjectRunCompleted(cardId, assessment),
-      },
-    });
-    return reviewerOutcome.kind === 'completed';
-  }
-
-  private async persistReviewState(goalId: string, assessment: ReviewerResult['assessment']): Promise<void> {
-    const goal = this.deps.cards.read(goalId);
-    await this.deps.cards.update(goalId, {
-      result: { ...(goal?.result ?? {}), review: assessment },
-    });
-  }
-
   private async blockGoalWithPlanning(input: {
     goalId: string;
     blockedReason: string;
@@ -385,14 +287,6 @@ export class RuntimeCardDispatcher {
       goalId: input.goalId,
       reason: input.terminalReason,
     });
-  }
-
-  private emitProjectRunCompleted(cardId: string, assessment: ReviewAssessment): void {
-    const projectCard = this.deps.cards.read(cardId);
-    if (!projectCard) return;
-    const payload = buildProjectRunCompletedPayload(projectCard, assessment);
-    this.deps.emit('project_run_completed', { ...payload });
-    this.deps.eventLogger.appendEvent({ kind: 'project_run_completed', ...payload });
   }
 
   private emitDispatchBlocked(goalId: string): void {
