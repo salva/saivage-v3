@@ -110,17 +110,11 @@ on the untracked path.
 
 ```
 GET    /api/state                      Runtime state + card index summary
-POST   /api/runtime/pause              Pause runtime dispatch
-POST   /api/runtime/resume             Resume runtime dispatch
-POST   /api/runtime/freeze             Freeze runtime and write freeze manifest
-POST   /api/runtime/resume-from-freeze Resume from freeze manifest
+GET    /api/runtime/status             Runtime status read model
+GET    /api/runtime/card-runs          Runtime card-run read model
 ```
 
-Pause/resume/freeze routes use canonical runtime-control helpers and
-must stay in parity with analyst, CLI, and web UI behavior.
-
-Generic resume from `frozen` is intentionally rejected; the operator
-must use `resume-from-freeze`.
+Runtime mutation controls are not exposed as generic operator HTTP routes in the current route inventory. CLI pause/resume remain local/runtime-backed controls; freeze manifests remain schema/persistence helpers only, and there is no generic HTTP freeze or resume-from-freeze route.
 
 ### Notifications
 

@@ -26,7 +26,7 @@ Use it to:
 - explain why work is blocked, stale, failing, or waiting;
 - create or amend cards when project work needs to be delegated;
 - add non-executable notes for planner/operator context;
-- call canonical controls such as runtime `start_project`, `stop_project`, pause, freeze, and resume when those controls are the right operator action. Process termination controls are deferred in this cycle.
+- call canonical controls such as runtime `start_project`, `stop_project`, pause, and resume when those controls are the right operator action. Freeze controls are not exposed as a supported analyst/runtime surface in this cycle. Process termination controls are deferred.
 
 Do **not** use the analyst as a substitute executor.
 

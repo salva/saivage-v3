@@ -1,5 +1,6 @@
 import type { ActivationCompletionOutcome, RuntimeState } from '../schemas/index.js';
 import type { ExecutorResult, PlannerResult, ReviewerResult } from '../contracts/index.js';
+import type { RuntimeMutation } from './mutations.js';
 
 export type ActivationState =
   | { phase: 'planner'; cardId: string; plannerSessionId: string; correctionAttempts: number; activeRun?: NonNullable<RuntimeState['active_card_run']> }
@@ -30,6 +31,7 @@ export type ActivationEffect =
 export interface ActivationDecision {
   state: ActivationState;
   effects: ActivationEffect[];
+  mutations: RuntimeMutation[];
 }
 
 export function activationStateFromActiveRun(activeRun: RuntimeState['active_card_run']): ActivationState | null {
@@ -115,9 +117,16 @@ export function activeRunFromActivationState(state: ActivationState, nowIso: str
 }
 
 export function reduceActivation(state: ActivationState, event: ActivationEvent): ActivationDecision {
-  if (event.type === 'pauseRequested') return { state, effects: [{ kind: 'pauseActivation', cardId: state.cardId }] };
-  if (event.type === 'cancelRequested') return { state, effects: [{ kind: 'cancelActivation', cardId: state.cardId, reason: event.reason }] };
-  if (event.type === 'restartRepairRequested') return { state: { phase: 'repairing', cardId: state.cardId, previous: activeRunFromActivationState(state, new Date(0).toISOString())! }, effects: [{ kind: 'repairActivation', cardId: state.cardId }] };
-  if (event.type === 'complete') return { state: { phase: 'completed', cardId: state.cardId, outcome: event.outcome }, effects: [{ kind: 'unwindActivation', cardId: state.cardId, outcome: event.outcome }] };
-  return { state, effects: [] };
+  if (event.type === 'pauseRequested') return { state, effects: [{ kind: 'pauseActivation', cardId: state.cardId }], mutations: [] };
+  if (event.type === 'cancelRequested') return { state, effects: [{ kind: 'cancelActivation', cardId: state.cardId, reason: event.reason }], mutations: [] };
+  if (event.type === 'restartRepairRequested') return { state: { phase: 'repairing', cardId: state.cardId, previous: activeRunFromActivationState(state, new Date(0).toISOString())! }, effects: [{ kind: 'repairActivation', cardId: state.cardId }], mutations: [] };
+  if (event.type === 'complete') {
+    const completedAt = new Date().toISOString();
+    return {
+      state: { phase: 'completed', cardId: state.cardId, outcome: event.outcome },
+      effects: [{ kind: 'unwindActivation', cardId: state.cardId, outcome: event.outcome }],
+      mutations: [{ kind: 'completeActivation', childCardId: state.cardId, outcome: event.outcome, completedAt }],
+    };
+  }
+  return { state, effects: [], mutations: [] };
 }

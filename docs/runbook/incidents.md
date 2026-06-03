@@ -27,7 +27,7 @@ curl -H "Authorization: Bearer $SAIVAGE_API_TOKEN" \
 
 3. Open Debug and inspect errors, timeline, doctor, supervision, processes, notifications, MCP, and control actions.
 4. Open affected card detail or agent conversation for evidence and history.
-5. Pause or freeze before manual intervention if state is still mutating.
+5. Pause before manual intervention if state is still mutating; treat frozen states as incidents requiring project-specific recovery.
 
 ## Unauthorized API or WebSocket access
 

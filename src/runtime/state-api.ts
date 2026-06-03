@@ -1,2 +1,2 @@
 export type { RuntimeStatus } from '../schemas/index.js';
-export { readRuntimeState, updateRuntimeState, appendRuntimeRun, upsertRuntimeActivation } from './state.js';
+export { readRuntimeState } from './state.js';

@@ -12,7 +12,7 @@ This runbook is the current operator entry point for starting, controlling, diag
 
 ## Sections
 
-- [Operations](./operations.md) — startup, auth, public/protected surfaces, health, runtime state, pause/resume/freeze, WebSocket chat, backups, and LXC/systemd operations.
+- [Operations](./operations.md) — startup, auth, public/protected surfaces, health, runtime state, pause/resume, WebSocket chat, backups, and LXC/systemd operations.
 - [Incidents](./incidents.md) — unauthorized access, stale UI state, frozen/error runtime recovery, evidence issues, preview-only actions, and degraded-agent workflows.
 - [Release](./release.md) — release-candidate documentation, security, runtime-control, build, web, and serving gates.
 - [Dependency hygiene](./dependency-hygiene.md) — high/critical production audit gate, monthly review cadence, lockfile freshness, waivers, and rollback semantics.
@@ -33,7 +33,7 @@ curl -H "Authorization: Bearer $SAIVAGE_API_TOKEN" \
   http://localhost:8080/api/state
 ```
 
-3. Pause before low-risk maintenance, or freeze before disruptive handoff.
+3. Pause before low-risk maintenance; treat frozen states as incidents requiring project-specific recovery.
 4. Inspect Debug, Cards, Agents, Files, and Notifications in the Web Control Room before editing runtime files manually.
 5. Use this runbook for procedures and [Troubleshooting incidents](./incidents.md) for recovery paths.
 

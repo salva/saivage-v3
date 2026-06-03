@@ -36,7 +36,7 @@ journalctl -u saivage-v3-target.service -n 100 --no-pager
 ## Safe restart flow
 
 1. Check health and authenticated runtime state.
-2. Pause or freeze before disruptive maintenance.
+2. Pause before disruptive maintenance; do not rely on generic freeze controls.
 3. Confirm no critical agent/process action is mid-flight in Debug.
 4. Restart the relevant unit.
 5. Re-check `/health`, `/api/state`, and recent journal entries.

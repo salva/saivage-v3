@@ -68,9 +68,11 @@ describe('activation reducer and CardActivation shell', () => {
   });
 
   it('emits unwind effects on completion', () => {
-    expect(reduceActivation({ phase: 'planner', cardId: 'goal-a', plannerSessionId: 'planner:goal-a', correctionAttempts: 0 }, { type: 'complete', outcome: 'done' })).toEqual({
+    const decision = reduceActivation({ phase: 'planner', cardId: 'goal-a', plannerSessionId: 'planner:goal-a', correctionAttempts: 0 }, { type: 'complete', outcome: 'done' });
+    expect(decision).toEqual({
       state: { phase: 'completed', cardId: 'goal-a', outcome: 'done' },
       effects: [{ kind: 'unwindActivation', cardId: 'goal-a', outcome: 'done' }],
+      mutations: [expect.objectContaining({ kind: 'completeActivation', childCardId: 'goal-a', outcome: 'done' })],
     });
   });
 
@@ -78,6 +80,7 @@ describe('activation reducer and CardActivation shell', () => {
     const activation = new CardActivation({ phase: 'planner', cardId: 'goal-a', plannerSessionId: 'planner:goal-a', correctionAttempts: 0 });
     const decision = activation.dispatch({ type: 'cancelRequested', reason: 'operator' });
     expect(decision.effects).toEqual([{ kind: 'cancelActivation', cardId: 'goal-a', reason: 'operator' }]);
+    expect(decision.mutations).toEqual([]);
     expect(activation.state.phase).toBe('planner');
   });
 });

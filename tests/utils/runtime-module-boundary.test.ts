@@ -2,9 +2,6 @@ import { describe, it, expect } from '@jest/globals';
 
 import {
   readRuntimeState,
-  updateRuntimeState,
-  appendRuntimeRun,
-  upsertRuntimeActivation,
 } from '../../src/runtime/state-api.js';
 import {
   listProcesses,
@@ -64,6 +61,14 @@ describe('runtime module ownership boundary', () => {
       expect(source).not.toContain('RuntimeSkillsPort');
       expect(source).not.toContain('RuntimeStampSource');
     }
+  });
+
+  it('keeps public runtime state API read-only', async () => {
+    const stateApi = await import('../../src/runtime/state-api.js');
+    expect('readRuntimeState' in stateApi).toBe(true);
+    expect('updateRuntimeState' in stateApi).toBe(false);
+    expect('appendRuntimeRun' in stateApi).toBe(false);
+    expect('upsertRuntimeActivation' in stateApi).toBe(false);
   });
 
   it('keeps tests on the runtime test harness instead of concrete Runtime imports', () => {
@@ -275,16 +280,13 @@ describe('runtime module ownership boundary', () => {
     expect(source).not.toContain('new ActiveRuntime');
   });
 
-  it('exports source-proven runtime state helpers through state-api', () => {
+  it('exports source-proven runtime state reads through state-api', () => {
     const root = mkdtempSync(join(tmpdir(), 'runtime-boundary-state-'));
     try {
       initProjectTree(root);
       const state = initRuntimeState(root);
       expect(existsSync(runtimeStatePath(root))).toBe(true);
       expect(readRuntimeState).toBe(directReadRuntimeState);
-      expect(updateRuntimeState).toBe(directUpdateRuntimeState);
-      expect(appendRuntimeRun).toBe(directAppendRuntimeRun);
-      expect(upsertRuntimeActivation).toBe(directUpsertRuntimeActivation);
       expect(readRuntimeState(root)).toMatchObject({ project_id: state.project_id, status: 'idle' });
     } finally {
       rmSync(root, { recursive: true, force: true });

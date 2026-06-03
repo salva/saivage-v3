@@ -35,7 +35,7 @@ curl http://localhost:8080/health
 <!-- doc-authority-status:start -->
 | Link | Authority status | Reader guidance |
 |---|---|---|
-| [Operator runbook](docs/runbook/index.md) | current authority | Start, pause, resume, freeze, diagnose, and release Saivage from the implemented runbook. |
+| [Operator runbook](docs/runbook/index.md) | current authority | Start, pause, resume, diagnose, recover incidents, and release Saivage from the implemented runbook. |
 | [Design documentation](docs/design/index.md) | current authority | Use as the concept map for design-era pages; follow status labels before relying on linked topic pages. |
 | [Documentation index](docs/index.md) | current authority | Curated table of contents for current docs and findings dossiers. |
 | [Documentation inventory](docs/documentation-inventory.md) | current authority | Source-of-truth ledger for every root and `docs/` Markdown file classification/disposition. |
