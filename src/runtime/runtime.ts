@@ -1430,12 +1430,32 @@ export class Runtime {
           const reviewerSessionId = makeReviewerSessionId(goalId, assessmentId);
           let reviewResult: ReviewerResult;
           try {
-            reviewResult = await this.invokeReviewer(
-              goalId,
-              planCard.id,
-              assessmentId,
-              reviewerSessionId,
-            );
+            reviewResult = await new ReviewerPhaseRunner({
+              agentRuntime: this.agentRuntime,
+              skillsEngine: this._skillsEngine,
+              readGoalCard: (cardId) => this.cardStore.read(cardId),
+              buildGoalContextBlock: (cardId) => this.buildGoalContextBlock(cardId),
+              buildGoalEvidenceContext: (cardId) => this.buildGoalEvidenceContext(cardId),
+              markReviewerStarted: async ({ goalId: startedGoalId, reviewerSessionId: startedReviewerSessionId, goalCard }) => {
+                const startedAt = now();
+                await this._stateMachine.transition('reviewer_started', {
+                  goalId: startedGoalId,
+                  reviewerSessionId: startedReviewerSessionId,
+                  activeCardRun: buildReviewerActiveRun({
+                    goalId: startedGoalId,
+                    reviewerSessionId: startedReviewerSessionId,
+                    goalCard,
+                    at: startedAt,
+                  }),
+                });
+              },
+            }).run({ goalId, assessmentId, reviewerSessionId });
+            this.emit('review_complete', { goal_id: goalId, assessment: reviewResult.assessment });
+            this._eventLogger.appendEvent({
+              kind: 'review_complete',
+              goal_id: goalId,
+              assessment: reviewResult.assessment,
+            });
           } catch (err) {
             await handleReviewerInvocationFailure({
               goalId,
@@ -1651,41 +1671,6 @@ export class Runtime {
       activationCards = this.getPendingActivationCards(goalId);
     }
     return { dispatchedGoal, executedTerminal, failed };
-  }
-
-  private async invokeReviewer(
-    goalId: string,
-    _planCardId: string,
-    assessmentId: string,
-    reviewerSessionId: string,
-  ): Promise<ReviewerResult> {
-    const result = await new ReviewerPhaseRunner({
-      agentRuntime: this.agentRuntime,
-      skillsEngine: this._skillsEngine,
-      readGoalCard: (cardId) => this.cardStore.read(cardId),
-      buildGoalContextBlock: (cardId) => this.buildGoalContextBlock(cardId),
-      buildGoalEvidenceContext: (cardId) => this.buildGoalEvidenceContext(cardId),
-      markReviewerStarted: async ({ goalId: startedGoalId, reviewerSessionId: startedReviewerSessionId, goalCard }) => {
-        const startedAt = now();
-        await this._stateMachine.transition('reviewer_started', {
-          goalId: startedGoalId,
-          reviewerSessionId: startedReviewerSessionId,
-          activeCardRun: buildReviewerActiveRun({
-            goalId: startedGoalId,
-            reviewerSessionId: startedReviewerSessionId,
-            goalCard,
-            at: startedAt,
-          }),
-        });
-      },
-    }).run({ goalId, assessmentId, reviewerSessionId });
-    this.emit('review_complete', { goal_id: goalId, assessment: result.assessment });
-    this._eventLogger.appendEvent({
-      kind: 'review_complete',
-      goal_id: goalId,
-      assessment: result.assessment,
-    });
-    return result;
   }
 
   private async applyPlannerResult(goalId: string, plannerResult: PlannerResult): Promise<void> {
