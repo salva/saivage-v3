@@ -14,9 +14,7 @@ import type {
 import { CardStore, PROJECT_CARD_ID } from '../cards/store-api.js';
 import {
   consumeChangedCardActivation,
-  injectQueuedSyntheticPlannerNotes,
   queueSyntheticPlannerNote,
-  drainSyntheticPlannerNotes,
 } from './synthetic-planner-notes.js';
 import { reconcileOrphanedAgentSessions } from './session-persistence.js';
 import {
@@ -60,9 +58,6 @@ import type { RuntimeCardPort, RuntimeStatePort } from './ports.js';
 import { EventBus } from '../events/index.js';
 import { trackedEventKindValues, type EventPayload } from '../events/index.js';
 import {
-  appendMessage,
-} from './session-persistence.js';
-import {
   StuckAgentSupervisor,
   DEFAULT_SUPERVISOR_CONFIG,
   type SupervisorConfig,
@@ -72,9 +67,8 @@ import { buildCompletedRuntimeCommandState, buildCurrentAgentSessionPatch, build
 import { cardHasBlockedPlanning, getBlockedPlanning } from './planning-blockers.js';
 import { nextReviewerAssessmentId, reviewerSessionId as makeReviewerSessionId, validateReviewerAssessment } from './reviewer-assessment.js';
 import { ActivationUnwindRunner, selectChildGoalActivationOutcome, selectPendingActivationChildCardIds } from './activation-unwind.js';
-import { inferGoalResumeReason, type GoalResumeReason } from './goal-context.js';
 import { buildProjectRunCompletedPayload } from './project-run-completion.js';
-import { buildCardContextBlock as buildRuntimeCardContextBlock, buildGoalContextBlock as renderGoalContextBlock, buildGoalContextPayload as buildRuntimeGoalContextPayload, buildGoalEvidenceContext as buildRuntimeGoalEvidenceContext } from './context-builder.js';
+import { buildCardContextBlock as buildRuntimeCardContextBlock, buildGoalEvidenceContext as buildRuntimeGoalEvidenceContext } from './context-builder.js';
 import { buildExecutorActiveRunPatch, resolveExecutorLastSessionId, selectExecutorStartAction } from './phases/executor-phase.js';
 import { ExecutorPhaseRunner } from './phases/executor-phase-runner.js';
 import { buildIgnoredExecutorEvidencePatch, createExecutorEvidenceRegistrar, registerExecutorEvidence, summarizeExecutorEvidenceRegistrationFailure } from './phases/executor-evidence.js';
@@ -94,6 +88,7 @@ import { SessionStampCounter } from '../contracts/session-stamper.js';
 import type { RuntimeCompositionHooks, RuntimeConfig, RuntimeSkillsPort, RuntimeStampSource, RuntimeTestHooks } from './runtime-config.js';
 import { compactPersistedPlannerHistoryForRetry } from './persisted-planner-history.js';
 import { performRuntimeCrashRecovery } from './crash-recovery.js';
+import { RuntimeGoalContextCoordinator } from './runtime-goal-context.js';
 
 const TERMINAL_STATUSES: ReadonlySet<string> = new Set(['done', 'failed', 'cancelled']);
 function now(): string {
@@ -164,6 +159,7 @@ class Runtime {
   private _lastLifecycleDisposeReport: RuntimeDisposeReportEntry[] = [];
   private _stateMachine: RuntimeStateMachine;
   private readonly _activationUnwind: ActivationUnwindRunner;
+  private readonly _goalContext: RuntimeGoalContextCoordinator;
   private readonly _sessionStamper: RuntimeStampSource;
   private readonly _goalDispatcher: RuntimeConfig['goalDispatcher'];
   private readonly _diagnosticsSink: RuntimeTestHooks['diagnosticsSink'];
@@ -195,6 +191,11 @@ class Runtime {
       cards: this.cardStore,
       sessionStamper: this._sessionStamper,
       now,
+    });
+    this._goalContext = new RuntimeGoalContextCoordinator({
+      projectRoot: this.projectRoot,
+      cards: this.cardStore,
+      sessionStamper: this._sessionStamper,
     });
     this.agentRuntime =
       agentRuntime ??
@@ -365,10 +366,6 @@ class Runtime {
     }
     return emitted;
   }
-  private userStamp(sessionId: string) {
-    return this._sessionStamper.stampUserMessage(sessionId);
-  }
-
   private async repairStartupActiveCardRun(
     previousState: RuntimeState | null,
   ): Promise<RuntimeState | null> {
@@ -403,78 +400,6 @@ class Runtime {
         saveState: (state) => saveRuntimeState(this.projectRoot, state),
       },
     });
-  }
-
-  private buildGoalContextNotes(goalId: string): Array<Record<string, unknown>> {
-    return drainSyntheticPlannerNotes(this.projectRoot, `planner:${goalId}`).map((note) => ({
-      kind: note.kind,
-      origin_card_id: note.affected_card_id,
-      descendant_card_ids: note.descendant_card_ids,
-      body: note.summary,
-      at: note.created_at,
-    }));
-  }
-
-  private inferResumeReason(
-    goalId: string,
-    fallback: GoalResumeReason = 'initial',
-  ): GoalResumeReason {
-    const state = readRuntimeState(this.projectRoot);
-    const notes = this.buildGoalContextNotes(goalId);
-    return inferGoalResumeReason({ goalId, fallback, activeRun: state?.active_card_run, notes });
-  }
-
-  private buildGoalContextPayload(
-    goalId: string,
-    resumeReason:
-      | 'initial'
-      | 'reviewer_correction'
-      | 'analyst_directive'
-      | 'subtree_changed'
-      | 'service_restart' = 'initial',
-  ): Record<string, unknown> | null {
-    const goal = this.cardStore.read(goalId);
-    const state = readRuntimeState(this.projectRoot);
-    return buildRuntimeGoalContextPayload({
-      goalId,
-      resumeReason,
-      cards: this.cardStore,
-      notes: this.buildGoalContextNotes(goalId),
-      activeRun: state?.active_card_run?.card_id === goalId ? state.active_card_run : null,
-    });
-  }
-
-  /** Build a canonical §9 goal-context block to attach to prompts and synthetic planner turns. */
-  private buildGoalContextBlock(
-    goalId: string,
-    resumeReason:
-      | 'initial'
-      | 'reviewer_correction'
-      | 'analyst_directive'
-      | 'subtree_changed'
-      | 'service_restart' = 'initial',
-  ): string {
-    const payload = this.buildGoalContextPayload(goalId, resumeReason);
-    return renderGoalContextBlock({ goalId, resumeReason, payload });
-  }
-
-  private appendPlannerResumeContext(
-    goalId: string,
-    plannerSessionId: string,
-    resumeReason:
-      | 'initial'
-      | 'reviewer_correction'
-      | 'analyst_directive'
-      | 'subtree_changed'
-      | 'service_restart',
-  ): void {
-    appendMessage(
-      join(this.projectRoot, '.saivage'),
-      plannerSessionId,
-      { role: 'user', kind: 'text', content: this.buildGoalContextBlock(goalId, resumeReason) },
-      this.userStamp(plannerSessionId),
-      this._sessionStamper,
-    );
   }
 
   private async persistReviewState(goalId: string, assessment: ReviewAssessment): Promise<void> {
@@ -997,14 +922,12 @@ class Runtime {
       const plannerSessionId =
         state?.active_card_run?.planner_session_id ?? state?.current_agent_session_id;
       if (plannerSessionId && state?.active_card_run?.card_id) {
-        this.appendPlannerResumeContext(
+        this._goalContext.appendPlannerResumeContext(
           state.active_card_run.card_id,
           plannerSessionId,
-          this.inferResumeReason(state.active_card_run.card_id),
+          this._goalContext.inferResumeReason(state.active_card_run.card_id),
         );
-        injectQueuedSyntheticPlannerNotes(this.projectRoot, plannerSessionId, {
-          stampUserMessage: (id: string) => this.userStamp(id),
-        });
+        this._goalContext.injectQueuedPlannerNotes(plannerSessionId);
       }
       updateRuntimeState(this.projectRoot, buildResumeRuntimeStatePatch(state));
     } catch {
@@ -1112,13 +1035,11 @@ class Runtime {
             maxDepth: this.cardStore.maxDepth,
             readGoalCard: (cardId) => this.cardStore.read(cardId),
             buildGoalEvidenceContext: (cardId) => buildRuntimeGoalEvidenceContext({ goalId: cardId, cards: this.cardStore }),
-            buildGoalContextBlock: (cardId, resumeReason) => this.buildGoalContextBlock(cardId, resumeReason),
-            inferResumeReason: (cardId, fallback) => this.inferResumeReason(cardId, fallback),
+            buildGoalContextBlock: (cardId, resumeReason) => this._goalContext.buildGoalContextBlock(cardId, resumeReason),
+            inferResumeReason: (cardId, fallback) => this._goalContext.inferResumeReason(cardId, fallback),
             consumeResumeHandoffContext: () => this.consumeResumeHandoffContext(),
             injectSyntheticPlannerNotes: (cardId) => {
-              injectQueuedSyntheticPlannerNotes(this.projectRoot, `planner:${cardId}`, {
-                stampUserMessage: (id: string) => this.userStamp(id),
-              });
+              this._goalContext.injectQueuedPlannerNotes(`planner:${cardId}`);
             },
           }).run({ goalId, iteration: iter });
         } catch (err) {
@@ -1202,7 +1123,7 @@ class Runtime {
               agentRuntime: this.agentRuntime,
               skillsEngine: this._skillsEngine,
               readGoalCard: (cardId) => this.cardStore.read(cardId),
-              buildGoalContextBlock: (cardId) => this.buildGoalContextBlock(cardId),
+              buildGoalContextBlock: (cardId) => this._goalContext.buildGoalContextBlock(cardId),
               buildGoalEvidenceContext: (cardId) => buildRuntimeGoalEvidenceContext({ goalId: cardId, cards: this.cardStore }),
               markReviewerStarted: async ({ goalId: startedGoalId, reviewerSessionId: startedReviewerSessionId, goalCard }) => {
                 const startedAt = now();
