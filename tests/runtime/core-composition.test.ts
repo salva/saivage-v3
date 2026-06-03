@@ -29,7 +29,7 @@ describe('runtime core composition', () => {
       expect(harness.runtimeLedgerEvents).toBeDefined();
       expect(typeof harness.eventTestTools.on).toBe('function');
       expect(typeof harness.dispatchTestTools.dispatchGoal).toBe('function');
-      expect(typeof harness.lifecycleTestTools.emitAgentEvent).toBe('function');
+      expect(typeof harness.eventTestTools.emitAgentEvent).toBe('function');
       expect(typeof harness.lifecycleTestTools.performCrashRecovery).toBe('function');
       expect(typeof harness.lifecycleTestTools.requestImmediateTick).toBe('function');
     } finally {

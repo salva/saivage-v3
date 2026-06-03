@@ -421,7 +421,6 @@ export class Runtime {
     config.lifecycleTestToolsSink?.setFreeze((reason) => this.freeze(reason));
     config.lifecycleTestToolsSink?.setResumeFromFreeze(() => this.resumeFromFreeze());
     config.lifecycleTestToolsSink?.setConsumeResumeHandoffContext(() => this.consumeResumeHandoffContext());
-    config.lifecycleTestToolsSink?.setEmitAgentEvent((name, data) => this.emitAgentEvent(name, data));
     config.agentEventSink?.setEmitAgentEvent((name, data) => this.emitAgentEvent(name, data));
   }
 

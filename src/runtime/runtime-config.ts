@@ -79,7 +79,6 @@ export interface RuntimeConfig {
     setFreeze(freeze: (reason?: string) => FreezeManifest): void;
     setResumeFromFreeze(resumeFromFreeze: () => RuntimeResumeFromFreezeResult): void;
     setConsumeResumeHandoffContext(consumeResumeHandoffContext: () => string | null): void;
-    setEmitAgentEvent(emitAgentEvent: (name: string, data: Record<string, unknown>) => void): void;
   };
   agentEventSink?: {
     setEmitAgentEvent(emitAgentEvent: (name: string, data: Record<string, unknown>) => void): void;

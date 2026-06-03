@@ -79,13 +79,13 @@ describe('Agent Events → Runtime EventEmitter', () => {
     });
 
     // Act
-    harness!.lifecycleTestTools.emitAgentEvent('session_started', {
+    harness!.eventTestTools.emitAgentEvent('session_started', {
       session_id: 'sess-1',
       role: 'planner',
       goal_id: 'goal-1',
       card_id: 'card-1',
     });
-    harness!.lifecycleTestTools.emitAgentEvent('llm_attempt', {
+    harness!.eventTestTools.emitAgentEvent('llm_attempt', {
       session_id: 'sess-1',
       role: 'planner',
       attempt: 1,
@@ -97,7 +97,7 @@ describe('Agent Events → Runtime EventEmitter', () => {
       duration_ms: 150,
       outcome: { kind: 'succeeded', terminal_tool: 'emit_planner_result' },
     });
-    harness!.lifecycleTestTools.emitAgentEvent('llm_invocation_summary', {
+    harness!.eventTestTools.emitAgentEvent('llm_invocation_summary', {
       session_id: 'sess-1',
       role: 'planner',
       goal_id: 'goal-1',
@@ -132,11 +132,11 @@ describe('Agent Events → Runtime EventEmitter', () => {
     harness!.eventTestTools.on('llm_invocation_summary', () => received.push('llm_invocation_summary'));
     harness!.eventTestTools.on('compaction_triggered', () => received.push('compaction_triggered'));
 
-    harness!.lifecycleTestTools.emitAgentEvent('session_started', { session_id: 's1', role: 'planner', goal_id: 'g1', card_id: 'c1' });
-    harness!.lifecycleTestTools.emitAgentEvent('llm_attempt', { session_id: 's1', role: 'planner', attempt: 1, same_candidate_attempt: 1, provider: 'p', model: 'm', account: '_', started_at: '2026-05-23T00:00:00.000Z', duration_ms: 100, outcome: { kind: 'succeeded', terminal_tool: 'emit_planner_result' } });
-    harness!.lifecycleTestTools.emitAgentEvent('llm_attempt', { session_id: 's1', role: 'planner', attempt: 1, same_candidate_attempt: 1, provider: 'p', model: 'm', account: '_', started_at: '2026-05-23T00:00:00.000Z', duration_ms: 50, outcome: { kind: 'failed', failure_class: 'unknown', recovery_action: 'abort_without_retry', error_name: 'E', error_message: 'err', error_preview: 'err' } });
-    harness!.lifecycleTestTools.emitAgentEvent('llm_invocation_summary', { session_id: 's1', role: 'planner', goal_id: 'g1', card_id: 'c1', contract_id: 'planner.v1', attempts_count: 2, total_duration_ms: 150, verdict: 'exhausted', repair_attempts: 0, last_failure_class: 'unknown' });
-    harness!.lifecycleTestTools.emitAgentEvent('compaction_triggered', { session_id: 's1', role: 'planner', tokens_before: 1000, tokens_after: 500 });
+    harness!.eventTestTools.emitAgentEvent('session_started', { session_id: 's1', role: 'planner', goal_id: 'g1', card_id: 'c1' });
+    harness!.eventTestTools.emitAgentEvent('llm_attempt', { session_id: 's1', role: 'planner', attempt: 1, same_candidate_attempt: 1, provider: 'p', model: 'm', account: '_', started_at: '2026-05-23T00:00:00.000Z', duration_ms: 100, outcome: { kind: 'succeeded', terminal_tool: 'emit_planner_result' } });
+    harness!.eventTestTools.emitAgentEvent('llm_attempt', { session_id: 's1', role: 'planner', attempt: 1, same_candidate_attempt: 1, provider: 'p', model: 'm', account: '_', started_at: '2026-05-23T00:00:00.000Z', duration_ms: 50, outcome: { kind: 'failed', failure_class: 'unknown', recovery_action: 'abort_without_retry', error_name: 'E', error_message: 'err', error_preview: 'err' } });
+    harness!.eventTestTools.emitAgentEvent('llm_invocation_summary', { session_id: 's1', role: 'planner', goal_id: 'g1', card_id: 'c1', contract_id: 'planner.v1', attempts_count: 2, total_duration_ms: 150, verdict: 'exhausted', repair_attempts: 0, last_failure_class: 'unknown' });
+    harness!.eventTestTools.emitAgentEvent('compaction_triggered', { session_id: 's1', role: 'planner', tokens_before: 1000, tokens_after: 500 });
 
     expect(received).toEqual([
       'session_started',
@@ -159,8 +159,8 @@ describe('Agent Events → Runtime EventEmitter', () => {
       harness!.eventTestTools.on(evt, () => received.push(evt));
     }
 
-    harness!.lifecycleTestTools.emitAgentEvent('session_started', { session_id: 's1', role: 'planner', goal_id: 'g1', card_id: 'c1' });
-    harness!.lifecycleTestTools.emitAgentEvent('llm_invocation_summary', { session_id: 's1', role: 'planner', goal_id: 'g1', card_id: 'c1', contract_id: 'planner.v1', attempts_count: 1, total_duration_ms: 100, verdict: 'succeeded', repair_attempts: 0, final_provider: 'p', final_model: 'm', final_account: '_', final_terminal_tool: 'emit_planner_result' });
+    harness!.eventTestTools.emitAgentEvent('session_started', { session_id: 's1', role: 'planner', goal_id: 'g1', card_id: 'c1' });
+    harness!.eventTestTools.emitAgentEvent('llm_invocation_summary', { session_id: 's1', role: 'planner', goal_id: 'g1', card_id: 'c1', contract_id: 'planner.v1', attempts_count: 1, total_duration_ms: 100, verdict: 'succeeded', repair_attempts: 0, final_provider: 'p', final_model: 'm', final_account: '_', final_terminal_tool: 'emit_planner_result' });
 
     expect(received).toContain('session_started');
     expect(received).toContain('llm_invocation_summary');
@@ -172,7 +172,7 @@ describe('Agent Events → Runtime EventEmitter', () => {
     // has no agent events after calling emitAgentEvent.
     createRuntime();
 
-    harness!.lifecycleTestTools.emitAgentEvent('session_started', {
+    harness!.eventTestTools.emitAgentEvent('session_started', {
       session_id: 's1',
       role: 'planner',
       goal_id: 'g1',

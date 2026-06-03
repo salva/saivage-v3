@@ -103,7 +103,7 @@ describe('Runtime caller-edge reconstruction from unresolved activate_card calls
     const harness = createRuntimeTestHarness({
       config: { projectRoot: tmpDir, fakeAgentConfig: { mapping: {}, fixtureDir } },
     });
-    expect(typeof harness.lifecycleTestTools.emitAgentEvent).toBe('function');
+    expect(typeof harness.eventTestTools.emitAgentEvent).toBe('function');
     expect(typeof AgentAdapter.prototype.getSafeFileContent).toBe('function');
     expect(typeof createAgentAdapter).toBe('function');
   });

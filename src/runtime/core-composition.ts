@@ -68,6 +68,7 @@ export interface RuntimeCoreTestContainer extends RuntimeCoreContainer {
   };
   eventTestTools: {
     on(eventName: string | symbol, listener: (...args: unknown[]) => void): void;
+    emitAgentEvent(name: string, data: Record<string, unknown>): void;
   };
   diagnosticTestTools: {
     getBackgroundDispatchCount(): number;
@@ -80,7 +81,6 @@ export interface RuntimeCoreTestContainer extends RuntimeCoreContainer {
     freeze(reason?: string): import('../schemas/index.js').FreezeManifest;
     resumeFromFreeze(): RuntimeResumeFromFreezeResult;
     consumeResumeHandoffContext(): string | null;
-    emitAgentEvent(name: string, data: Record<string, unknown>): void;
   };
 }
 
@@ -212,9 +212,6 @@ export function createRuntimeCoreTestContainer(input: {
         setConsumeResumeHandoffContext: (nextConsumeResumeHandoffContext) => {
           consumeResumeHandoffContext = nextConsumeResumeHandoffContext;
         },
-        setEmitAgentEvent: (nextEmitAgentEvent) => {
-          emitAgentEvent = nextEmitAgentEvent;
-        },
       },
       agentEventSink: {
         setEmitAgentEvent: (nextEmitAgentEvent) => {
@@ -312,6 +309,10 @@ export function createRuntimeCoreTestContainer(input: {
       on: (eventName, listener) => {
         addRuntimeEventListener(eventName, listener);
       },
+      emitAgentEvent: (name, data) => {
+        if (!emitAgentEvent) throw new Error('Runtime agent event hook is unavailable.');
+        emitAgentEvent(name, data);
+      },
     },
     diagnosticTestTools: {
       getBackgroundDispatchCount: () => backgroundDispatchCount,
@@ -341,10 +342,6 @@ export function createRuntimeCoreTestContainer(input: {
       consumeResumeHandoffContext: () => {
         if (!consumeResumeHandoffContext) throw new Error('Runtime resume handoff context hook is unavailable.');
         return consumeResumeHandoffContext();
-      },
-      emitAgentEvent: (name, data) => {
-        if (!emitAgentEvent) throw new Error('Runtime agent event hook is unavailable.');
-        emitAgentEvent(name, data);
       },
     },
   };
