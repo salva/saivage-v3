@@ -1,12 +1,6 @@
-import { EventEmitter } from 'node:events';
 import { join } from 'node:path';
 import type {
   RuntimeState,
-  EventKind,
-  ActionableErrorEnvelope,
-  RuntimeCommandRecord,
-  RuntimeRunRecord,
-  RuntimeActivationRecord,
 } from '../schemas/index.js';
 import { CardStore, PROJECT_CARD_ID } from '../cards/store-api.js';
 import { queueSyntheticPlannerNote } from './synthetic-planner-notes.js';
@@ -39,12 +33,10 @@ import {
   type RuntimeSchedulerHandle,
 } from './state-machine.js';
 import type { RuntimeCardPort, RuntimeStatePort } from './ports.js';
-import { EventBus } from '../events/index.js';
-import { trackedEventKindValues, type EventPayload } from '../events/index.js';
 import {
   StuckAgentSupervisor,
 } from '../runtime/stuck-agent-supervisor.js';
-import { buildCurrentAgentSessionPatch, buildShutdownRuntimeStatePatch, planSweptCurrentAgentSessionPatch } from './runtime-core.js';
+import { buildShutdownRuntimeStatePatch, planSweptCurrentAgentSessionPatch } from './runtime-core.js';
 import { cardHasBlockedPlanning } from './planning-blockers.js';
 import { ActivationUnwindRunner } from './activation-unwind.js';
 import { decideStartupActiveRunRepair, executeStartupActiveRunRepairDecision, selectStartupPlannerRedispatchCardId, shouldRestartRunningIntentOnStartup } from './startup-repair.js';
@@ -60,6 +52,7 @@ import { RuntimeRunLedger } from './runtime-run-ledger.js';
 import { PendingActivationDispatcher } from './pending-activation-dispatcher.js';
 import { RuntimeCardDispatcher } from './runtime-card-dispatcher.js';
 import { createRuntimeSupervisor } from './supervisor-factory.js';
+import { RuntimeEventPublisher } from './runtime-event-publisher.js';
 
 const TERMINAL_STATUSES: ReadonlySet<string> = new Set(['done', 'failed', 'cancelled']);
 function now(): string {
@@ -68,8 +61,6 @@ function now(): string {
 function saivageWorkDir(projectRoot: string): string {
   return join(projectRoot, '.saivage-work');
 }
-const TRACKED_EVENT_KINDS: ReadonlySet<EventKind> = new Set(trackedEventKindValues);
-
 type ConfigurableAgentRuntime = AgentExecutionPort & {
   setSaivageDir?: (saivageDir: string) => void;
   setActivationLedger?: (activationLedger: RuntimeActivationLedgerPort) => void;
@@ -89,8 +80,7 @@ class Runtime {
   private readonly projectRoot: string;
   private readonly cardStore: CardStore;
   private readonly agentRuntime: AgentExecutionPort;
-  private readonly eventBus: EventBus;
-  private readonly eventEmitter = new EventEmitter();
+  private readonly _events: RuntimeEventPublisher;
   private _paused = false;
   private _running = false;
   private _shuttingDown = false;
@@ -130,12 +120,26 @@ class Runtime {
     this.projectRoot = config.projectRoot;
     this._goalDispatcher = config.goalDispatcher;
     this._diagnosticsSink = testHooks.diagnosticsSink;
-    this.eventBus = new EventBus();
+    if (config.eventLogger) {
+      this._eventLogger = config.eventLogger;
+      this._ownsEventLogger = false;
+    } else {
+      this._eventLogger = new EventLogger(join(config.projectRoot, '.saivage'));
+      this._ownsEventLogger = true;
+    }
+    if (config.errorLogger) {
+      this._errorLogger = config.errorLogger;
+      this._ownsErrorLogger = false;
+    } else {
+      this._errorLogger = new ErrorLogger(join(config.projectRoot, '.saivage'));
+      this._ownsErrorLogger = true;
+    }
+    this._events = new RuntimeEventPublisher(this.projectRoot, this._eventLogger);
     this.cardStore = new CardStore(
       config.projectRoot,
       config.maxGoalDepth,
       undefined,
-      this.eventBus,
+      this._events.eventBus,
     );
     const activationLedger: RuntimeActivationLedgerPort = {
       readState: () => readRuntimeState(config.projectRoot),
@@ -157,7 +161,7 @@ class Runtime {
     this._runLedger = new RuntimeRunLedger({
       projectRoot: this.projectRoot,
       now,
-      publishRuntimeRun: (run) => this.publishRuntimeLedgerEvent('runtime_run', { run }),
+      publishRuntimeRun: (run) => this._events.publishRuntimeLedgerEvent('runtime_run', { run }),
     });
     this.agentRuntime =
       agentRuntime ??
@@ -177,26 +181,12 @@ class Runtime {
     this._skillsEngine = config.skillsEngine ?? null;
     this._continuousImprovementReserved = config.continuousImprovement ?? false;
     this._autoDispatchBacklog = config.autoDispatchBacklog ?? false;
-    if (config.eventLogger) {
-      this._eventLogger = config.eventLogger;
-      this._ownsEventLogger = false;
-    } else {
-      this._eventLogger = new EventLogger(join(config.projectRoot, '.saivage'));
-      this._ownsEventLogger = true;
-    }
-    if (config.errorLogger) {
-      this._errorLogger = config.errorLogger;
-      this._ownsErrorLogger = false;
-    } else {
-      this._errorLogger = new ErrorLogger(join(config.projectRoot, '.saivage'));
-      this._ownsErrorLogger = true;
-    }
     this._supervisor = createRuntimeSupervisor({
       projectRoot: this.projectRoot,
       agentRuntime: this.agentRuntime,
       eventLogger: this._eventLogger,
       supervisorConfig: config.supervisorConfig,
-      emit: (kind, data) => this.emit(kind, data),
+      emit: (kind, data) => this._events.emit(kind, data),
       isShuttingDown: () => this._shuttingDown,
     });
     const scheduler: RuntimeScheduler = {
@@ -241,10 +231,10 @@ class Runtime {
         this._shuttingDown = shuttingDown;
       },
       now,
-      publishRuntimeCommand: (command) => this.publishRuntimeLedgerEvent('runtime_command', { command }),
-      publishRuntimeRun: (run) => this.publishRuntimeLedgerEvent('runtime_run', { run }),
+      publishRuntimeCommand: (command) => this._events.publishRuntimeLedgerEvent('runtime_command', { command }),
+      publishRuntimeRun: (run) => this._events.publishRuntimeLedgerEvent('runtime_run', { run }),
       publishActionableError: (error) =>
-        this.publishRuntimeLedgerEvent('runtime_actionable_error', { actionable_error: error }),
+        this._events.publishRuntimeLedgerEvent('runtime_actionable_error', { actionable_error: error }),
       trackBackgroundDispatch: (dispatch) => this.trackBackgroundDispatch(dispatch),
       dispatchGoalThroughScheduler: (goalId) => this.dispatchGoalThroughScheduler(goalId),
     });
@@ -256,7 +246,7 @@ class Runtime {
       setPaused: (paused) => {
         this._paused = paused;
       },
-      emit: (eventName, data) => this.emit(eventName, data),
+      emit: (eventName, data) => this._events.emit(eventName, data),
       now,
     });
     this._pendingActivations = new PendingActivationDispatcher({
@@ -271,8 +261,8 @@ class Runtime {
       isPaused: () => this._paused,
       isShuttingDown: () => this._shuttingDown,
       dispatchGoalThroughScheduler: (goalId) => this.dispatchGoalThroughScheduler(goalId),
-      emit: (eventName, data) => this.emit(eventName, data),
-      emitRuntimeDiagnostic: (input) => this.emitRuntimeDiagnostic(input),
+      emit: (eventName, data) => this._events.emit(eventName, data),
+      emitRuntimeDiagnostic: (input) => this._events.emitRuntimeDiagnostic(input),
       now,
     });
     this._cardDispatcher = new RuntimeCardDispatcher({
@@ -292,13 +282,13 @@ class Runtime {
       isPaused: () => this._paused,
       isShuttingDown: () => this._shuttingDown,
       consumeResumeHandoffContext: () => this.consumeResumeHandoffContext(),
-      emit: (eventName, data) => this.emit(eventName, data),
-      emitRuntimeDiagnostic: (input) => this.emitRuntimeDiagnostic(input),
-      publishRuntimeRun: (run) => this.publishRuntimeLedgerEvent('runtime_run', { run }),
+      emit: (eventName, data) => this._events.emit(eventName, data),
+      emitRuntimeDiagnostic: (input) => this._events.emitRuntimeDiagnostic(input),
+      publishRuntimeRun: (run) => this._events.publishRuntimeLedgerEvent('runtime_run', { run }),
       now,
     });
     hooks.corePartsSink?.setRuntimeCoreParts({
-      eventBus: this.eventBus,
+      eventBus: this._events.eventBus,
       cards: this.cardStore,
     });
     testHooks.testPartsSink?.setRuntimeTestParts({
@@ -309,7 +299,7 @@ class Runtime {
     });
     testHooks.schedulerSink?.setDispatchGoal((goalId) => this._cardDispatcher.dispatchGoal(goalId));
     testHooks.eventListenerSink?.setRuntimeEventListener((eventName, listener) => {
-      this.eventEmitter.on(eventName, listener);
+      this._events.on(eventName, listener);
     });
     hooks.controlSink?.setRuntimeControls({
       start: () => this.startup(),
@@ -328,23 +318,12 @@ class Runtime {
       }),
     );
     testHooks.lifecycleTestToolsSink?.setRequestImmediateTick(() => this._stateMachine.requestImmediateTick());
-    hooks.agentEventSink?.setEmitAgentEvent((name, data) => this.emitAgentEvent(name, data));
+    hooks.agentEventSink?.setEmitAgentEvent((name, data) => this._events.emitAgentEvent(name, data));
   }
 
   private publishDiagnostics(): void {
     this._diagnosticsSink?.setBackgroundDispatchCount(this._backgroundDispatches.size);
     this._diagnosticsSink?.setLastLifecycleDisposeReport([...this._lastLifecycleDisposeReport]);
-  }
-  private emit(eventName: string, ...args: unknown[]): boolean {
-    const emitted = eventName === 'error' ? false : this.eventEmitter.emit(eventName, ...args);
-    if (TRACKED_EVENT_KINDS.has(eventName as EventKind)) {
-      const data =
-        args[0] && typeof args[0] === 'object'
-          ? (args[0] as Record<string, unknown>)
-          : { raw: args[0] };
-      this.eventBus.emit(eventName as EventKind, data as EventPayload<EventKind>);
-    }
-    return emitted;
   }
   private async repairStartupActiveCardRun(
     previousState: RuntimeState | null,
@@ -387,55 +366,6 @@ class Runtime {
     this._resumeHandoffContext = null;
     return ctx;
   }
-  private emitAgentEvent(name: string, data: Record<string, unknown>): void {
-    if (name === 'session_started' && typeof data.session_id === 'string') {
-      try {
-        updateRuntimeState(this.projectRoot, buildCurrentAgentSessionPatch(data.session_id));
-      } catch {
-        void 0;
-      }
-    }
-    this.emit(name, data);
-  }
-
-  private emitRuntimeDiagnostic(input: {
-    goal_id?: string;
-    card_id?: string;
-    phase?: string;
-    error: unknown;
-  }): void {
-    const error = input.error instanceof Error ? input.error : new Error(String(input.error));
-    this.emit('runtime_diagnostic', {
-      goal_id: input.goal_id,
-      card_id: input.card_id,
-      phase: input.phase,
-      error_message: error.message,
-      error_name: error.name,
-    });
-  }
-
-  private publishRuntimeLedgerEvent(
-    kind: 'runtime_command',
-    payload: { command: RuntimeCommandRecord },
-  ): void;
-  private publishRuntimeLedgerEvent(kind: 'runtime_run', payload: { run: RuntimeRunRecord }): void;
-  private publishRuntimeLedgerEvent(
-    kind: 'runtime_activation',
-    payload: { activation: RuntimeActivationRecord },
-  ): void;
-  private publishRuntimeLedgerEvent(
-    kind: 'runtime_actionable_error',
-    payload: { actionable_error: ActionableErrorEnvelope },
-  ): void;
-  private publishRuntimeLedgerEvent(
-    kind: 'runtime_command' | 'runtime_run' | 'runtime_activation' | 'runtime_actionable_error',
-    payload: Record<string, unknown>,
-  ): void {
-    const logged = this._eventLogger.appendEvent({ kind, ...payload });
-    this.eventBus.emit(logged);
-    this.eventEmitter.emit(kind, payload);
-  }
-
   private trackBackgroundDispatch(dispatch: Promise<void>): void {
     this._backgroundDispatches.add(dispatch);
     this.publishDiagnostics();
@@ -479,7 +409,7 @@ class Runtime {
     const swept = reconcileOrphanedAgentSessions(join(this.projectRoot, '.saivage'));
     if (swept.length > 0) {
       const sweptSessionIds = swept.map((session) => session.id);
-      this.emit('startup_session_sweep', { swept_session_ids: sweptSessionIds });
+      this._events.emit('startup_session_sweep', { swept_session_ids: sweptSessionIds });
       this._eventLogger.appendEvent({
         kind: 'startup_session_sweep',
         swept_session_ids: sweptSessionIds,
@@ -494,7 +424,7 @@ class Runtime {
     this._paused = state.paused;
     this._running = true;
     this._shuttingDown = false;
-    this.emit('started', { projectRoot: this.projectRoot });
+    this._events.emit('started', { projectRoot: this.projectRoot });
     this._eventLogger.appendEvent({ kind: 'started', project_root: this.projectRoot });
     this._supervisor.start();
     this._stateMachine.start();
@@ -504,7 +434,7 @@ class Runtime {
       cards: this.cardStore,
       eventLogger: this._eventLogger,
       now,
-      publishRuntimeRun: (run) => this.publishRuntimeLedgerEvent('runtime_run', { run }),
+      publishRuntimeRun: (run) => this._events.publishRuntimeLedgerEvent('runtime_run', { run }),
     });
     if (shouldRestartRunningIntentOnStartup({ state, projectHasBlockedPlanning: cardHasBlockedPlanning(this.cardStore.read(PROJECT_CARD_ID)) })) {
       this.trackBackgroundDispatch(this._projectCommands.startProject('runtime').then(() => undefined));
@@ -554,7 +484,7 @@ class Runtime {
       }
       this._running = false;
       this._shuttingDown = false;
-      this.emit('shutdown');
+      this._events.emit('shutdown');
       this._eventLogger.appendEvent({ kind: 'shutdown' });
       if (this._ownsEventLogger) this._eventLogger.close();
       if (this._ownsErrorLogger) this._errorLogger.close();
@@ -595,7 +525,7 @@ class Runtime {
     } catch {
       void 0;
     }
-    this.emit('shutdown');
+    this._events.emit('shutdown');
     this._eventLogger.appendEvent({ kind: 'shutdown' });
     if (this._ownsEventLogger) this._eventLogger.close();
     if (this._ownsErrorLogger) this._errorLogger.close();
