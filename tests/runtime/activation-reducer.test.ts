@@ -45,6 +45,13 @@ describe('activation reducer and CardActivation shell', () => {
     expect(activationFromRuntimeState({ active_card_run: plannerRun } as RuntimeState)?.state).toEqual(expect.objectContaining({ phase: 'planner', cardId: 'goal-a' }));
   });
 
+  it('round-trips active run snapshots through the CardActivation shell', () => {
+    const activation = CardActivation.fromActiveRun(plannerRun);
+
+    expect(activation?.toActiveRun('t1')).toEqual(plannerRun);
+    expect(CardActivation.fromActiveRun(null)).toBeNull();
+  });
+
   it('round-trips executor active run snapshots without losing caller metadata', () => {
     const executorRun: NonNullable<RuntimeState['active_card_run']> = {
       card_id: 'task-a',

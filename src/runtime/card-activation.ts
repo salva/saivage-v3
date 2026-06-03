@@ -1,11 +1,18 @@
 import type { RuntimeState } from '../schemas/index.js';
-import { activationStateFromActiveRun, reduceActivation, type ActivationDecision, type ActivationEvent, type ActivationState } from './activation-reducer.js';
+import { activeRunFromActivationState, activationStateFromActiveRun, reduceActivation, type ActivationDecision, type ActivationEvent, type ActivationState } from './activation-reducer.js';
+
+export type ActiveCardRun = NonNullable<RuntimeState['active_card_run']>;
 
 export class CardActivation {
   private _state: ActivationState;
 
   constructor(initialState: ActivationState) {
     this._state = initialState;
+  }
+
+  static fromActiveRun(activeRun: RuntimeState['active_card_run']): CardActivation | null {
+    const activationState = activationStateFromActiveRun(activeRun);
+    return activationState ? new CardActivation(activationState) : null;
   }
 
   get state(): ActivationState {
@@ -17,9 +24,12 @@ export class CardActivation {
     this._state = decision.state;
     return decision;
   }
+
+  toActiveRun(nowIso: string): RuntimeState['active_card_run'] {
+    return activeRunFromActivationState(this._state, nowIso);
+  }
 }
 
 export function activationFromRuntimeState(state: RuntimeState | null): CardActivation | null {
-  const activationState = activationStateFromActiveRun(state?.active_card_run ?? null);
-  return activationState ? new CardActivation(activationState) : null;
+  return CardActivation.fromActiveRun(state?.active_card_run ?? null);
 }
