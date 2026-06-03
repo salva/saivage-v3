@@ -531,12 +531,6 @@ class Runtime {
     });
   }
 
-  private emitProjectRunCompleted(card: CardRecord, assessment?: ReviewAssessment): void {
-    const payload = buildProjectRunCompletedPayload(card, assessment);
-    this.emit('project_run_completed', payload);
-    this._eventLogger.appendEvent({ kind: 'project_run_completed', ...payload });
-  }
-
   private buildGoalContextNotes(goalId: string): Array<Record<string, unknown>> {
     return drainSyntheticPlannerNotes(this.projectRoot, `planner:${goalId}`).map((note) => ({
       kind: note.kind,
@@ -1400,7 +1394,10 @@ class Runtime {
               transitionRuntime: (event, details) => this._stateMachine.transition(event, details),
               emitProjectRunCompleted: (cardId, assessment) => {
                 const projectCard = this.cardStore.read(cardId);
-                if (projectCard) this.emitProjectRunCompleted(projectCard, assessment);
+                if (!projectCard) return;
+                const payload = buildProjectRunCompletedPayload(projectCard, assessment);
+                this.emit('project_run_completed', payload);
+                this._eventLogger.appendEvent({ kind: 'project_run_completed', ...payload });
               },
             },
           });
