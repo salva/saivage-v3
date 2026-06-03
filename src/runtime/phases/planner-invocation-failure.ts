@@ -1,7 +1,30 @@
 import type { CardRecord, RuntimeRunRecord, RuntimeState } from '../../schemas/index.js';
+import { unwrapFailure, type LlmTransportFailure } from '../../contracts/llm-failure.js';
 import { buildPlannerInvocationFailureBlocker } from './planner-phase.js';
 
 export type PlannerInvocationFailureKind = 'token_budget' | 'terminal_tool' | 'generic';
+
+function isTokenBudgetFailure(error: unknown): boolean {
+  if (error && typeof error === 'object' && (error as { failure?: unknown }).failure) {
+    const failure = (error as { failure: LlmTransportFailure }).failure;
+    if (failure?.kind === 'token_budget_exceeded') return true;
+  }
+  const failure = unwrapFailure(error);
+  if (failure.kind === 'token_budget_exceeded') return true;
+  const message = error instanceof Error ? error.message : String(error);
+  return /context_length_exceeded|token budget exceeded|maximum context length/i.test(message);
+}
+
+export function classifyPlannerInvocationFailure(
+  error: unknown,
+  isTerminalToolExhaustion: (error: unknown) => boolean,
+): { failureKind: PlannerInvocationFailureKind; providerStatus: number | null } {
+  const tokenBudgetFailure = isTokenBudgetFailure(error);
+  return {
+    failureKind: tokenBudgetFailure ? 'token_budget' : isTerminalToolExhaustion(error) ? 'terminal_tool' : 'generic',
+    providerStatus: tokenBudgetFailure ? ((error as { failure?: { status?: number } }).failure?.status ?? null) : null,
+  };
+}
 
 export interface PlannerInvocationFailureEffects {
   now(): string;

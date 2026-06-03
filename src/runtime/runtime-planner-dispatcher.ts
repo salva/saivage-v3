@@ -1,6 +1,4 @@
 import type { AgentExecutionPort, PlannerResult } from '../contracts/index.js';
-import { unwrapFailure, type LlmTransportFailure } from '../contracts/llm-failure.js';
-import type { CardRecord } from '../schemas/index.js';
 import type { RuntimeRunRecord } from '../schemas/index.js';
 import type { ErrorLogger, EventLogger } from '../observability/index.js';
 import type { CardStore } from '../cards/store-api.js';
@@ -12,7 +10,6 @@ import type { RuntimeGoalContextCoordinator } from './runtime-goal-context.js';
 import type { RuntimeRunLedger } from './runtime-run-ledger.js';
 import type { PendingActivationDispatcher } from './pending-activation-dispatcher.js';
 import type { RuntimeReviewerDispatcher } from './runtime-reviewer-dispatcher.js';
-import { consumeChangedCardActivation } from './synthetic-planner-notes.js';
 import { readRuntimeState } from './state.js';
 import {
   buildCurrentAgentSessionPatch,
@@ -20,37 +17,22 @@ import {
 } from './runtime-core.js';
 import { buildGoalEvidenceContext } from './context-builder.js';
 import {
-  buildPlannerActivationPlanningPatch,
-  buildPlannerActiveRunPatch,
-  decideGoalActivationTransition,
   decidePlannerPostDispatch,
-  planPlannerActivationSetup,
   summarizePlannerPostDispatch,
 } from './phases/planner-phase.js';
 import {
+  classifyPlannerInvocationFailure,
   handlePlannerInvocationFailure,
   selectPlannerInvocationFailureRun,
-  type PlannerInvocationFailureKind,
 } from './phases/planner-invocation-failure.js';
 import { handlePlannerPostDispatchDecision } from './phases/planner-post-dispatch-handler.js';
 import { PlannerPhaseRunner } from './phases/planner-phase-runner.js';
 import { PlannerResultApplier } from './phases/planner-result-applier.js';
-import { compactPersistedPlannerHistoryForRetry } from './persisted-planner-history.js';
 import { isPlannerTerminalToolExhaustion } from './startup-blocked-planning.js';
 import type { RuntimeStateMutationPort } from './mutations.js';
+import { PlannerActivationRunner } from './phases/planner-activation-runner.js';
 
 const MAX_PLANNER_ITERATIONS = 50;
-
-function isTokenBudgetFailure(error: unknown): boolean {
-  if (error && typeof error === 'object' && (error as { failure?: unknown }).failure) {
-    const failure = (error as { failure: LlmTransportFailure }).failure;
-    if (failure?.kind === 'token_budget_exceeded') return true;
-  }
-  const failure = unwrapFailure(error);
-  if (failure.kind === 'token_budget_exceeded') return true;
-  const message = error instanceof Error ? error.message : String(error);
-  return /context_length_exceeded|token budget exceeded|maximum context length/i.test(message);
-}
 
 export interface RuntimePlannerDispatcherDeps {
   projectRoot: string;
@@ -83,9 +65,8 @@ export class RuntimePlannerDispatcher {
       this.emitDispatchBlocked(goalId);
       return;
     }
-    let planCard: CardRecord;
     try {
-      planCard = await this.activatePlanner(goalId);
+      await this.plannerActivationRunner().activate(goalId);
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : String(err);
       this.deps.emitRuntimeDiagnostic({ goal_id: goalId, phase: 'activate', error: err });
@@ -98,8 +79,6 @@ export class RuntimePlannerDispatcher {
       this.deps.errorLogger.appendError({ message: errorMessage, goalId, phase: 'activate' });
       return;
     }
-    void planCard;
-
     let plannerDone = false;
     for (let iter = 0; iter < MAX_PLANNER_ITERATIONS && !plannerDone && !this.deps.isShuttingDown(); iter++) {
       if (this.deps.isPaused()) {
@@ -177,71 +156,14 @@ export class RuntimePlannerDispatcher {
     }
   }
 
-  private async activatePlanner(goalId: string): Promise<CardRecord> {
-    consumeChangedCardActivation(this.deps.projectRoot, goalId);
-    const goalCard = this.deps.cards.read(goalId);
-    if (!goalCard) throw new Error(`Goal '${goalId}' not found.`);
-    if (goalCard.type !== 'project' && goalCard.type !== 'goal')
-      throw new Error(`dispatchGoal requires a project or goal card, got type '${goalCard.type}'.`);
-    const currentStatus = goalCard.status;
-    const activationTransition = decideGoalActivationTransition(currentStatus);
-    if (activationTransition.kind === 'invalid_status') {
-      throw new Error(`Goal '${goalId}' is in status '${currentStatus}' which is neither startable nor restartable.`);
-    }
-    if (activationTransition.kind === 'transition') {
-      const transitioned = await this.deps.stateMachine.transitionCard(goalId, activationTransition.action, { goalId });
-      if (!transitioned)
-        throw new Error(`Goal '${goalId}' could not be transitioned via ${activationTransition.action} from status '${currentStatus}'.`);
-    }
-    const refreshed = this.deps.cards.read(goalId);
-    if (!refreshed) throw new Error(`Goal '${goalId}' disappeared during activation.`);
-    const setup = planPlannerActivationSetup({ goalId, initialStatus: currentStatus, refreshedCard: refreshed });
-    const compactedPersistedPlannerHistory =
-      setup.shouldCompactPersistedPlannerHistory
-        ? compactPersistedPlannerHistoryForRetry({
-            projectRoot: this.deps.projectRoot,
-            plannerSessionId: setup.plannerSessionId,
-            sessionStamper: this.deps.sessionStamper,
-            eventLogger: this.deps.eventLogger,
-          })
-        : false;
-    if (setup.shouldUpdatePlanning) {
-      await this.deps.cards.update(
-        goalId,
-        buildPlannerActivationPlanningPatch({
-          existingResult: setup.existingResult,
-          existingError: refreshed.error,
-          existingStatusText: refreshed.status_text,
-          retryingTokenBudgetBlocker: setup.retryingTokenBudgetBlocker,
-          retryingTerminalToolBlocker: setup.retryingTerminalToolBlocker,
-          compactedPersistedPlannerHistory,
-        }),
-      );
-    }
-    const planCard = this.deps.cards.read(goalId)!;
-    this.deps.mutations.apply({
-      kind: 'patchRuntimeState',
-      patch: buildPlannerActiveRunPatch({ goal: planCard, plannerSessionId: setup.plannerSessionId, at: this.deps.now() }),
-    });
-    this.deps.runLedger.bindPlannerSessionToOpenRun(goalId, setup.plannerSessionId);
-    return planCard;
-  }
-
   private async handlePlannerFailure(goalId: string, err: unknown) {
     const failedRun = selectPlannerInvocationFailureRun({ state: readRuntimeState(this.deps.projectRoot), goalId });
-    const tokenBudgetFailure = isTokenBudgetFailure(err);
-    const failureKind: PlannerInvocationFailureKind = tokenBudgetFailure
-      ? 'token_budget'
-      : isPlannerTerminalToolExhaustion(err)
-        ? 'terminal_tool'
-        : 'generic';
+    const failure = classifyPlannerInvocationFailure(err, isPlannerTerminalToolExhaustion);
     return handlePlannerInvocationFailure({
       goalId,
       error: err,
-      failureKind,
-      providerStatus: tokenBudgetFailure
-        ? ((err as { failure?: { status?: number } }).failure?.status ?? null)
-        : null,
+      failureKind: failure.failureKind,
+      providerStatus: failure.providerStatus,
       existingResult: this.deps.cards.read(goalId)?.result,
       failedRun,
       effects: {
@@ -255,6 +177,19 @@ export class RuntimePlannerDispatcher {
         publishRuntimeRun: (run) => this.deps.publishRuntimeRun(run),
         transitionRuntime: (event, details) => this.deps.stateMachine.transition(event, details),
       },
+    });
+  }
+
+  private plannerActivationRunner(): PlannerActivationRunner {
+    return new PlannerActivationRunner({
+      projectRoot: this.deps.projectRoot,
+      cards: this.deps.cards,
+      eventLogger: this.deps.eventLogger,
+      stateMachine: this.deps.stateMachine,
+      mutations: this.deps.mutations,
+      runLedger: this.deps.runLedger,
+      sessionStamper: this.deps.sessionStamper,
+      now: this.deps.now,
     });
   }
 
