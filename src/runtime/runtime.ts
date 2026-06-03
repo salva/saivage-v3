@@ -60,7 +60,7 @@ import {
   type SupervisorConfig,
   type SupervisorDeps,
 } from '../runtime/stuck-agent-supervisor.js';
-import { buildCurrentAgentSessionPatch, buildDispatchPausedRuntimeStatePatch, buildShutdownRuntimeStatePatch, planIdleRunningRootRunReconciliation, planOpenPlannerRunTerminalUpdate, planPlannerRunSessionBinding, planSweptCurrentAgentSessionPatch } from './runtime-core.js';
+import { buildCurrentAgentSessionPatch, buildDispatchPausedRuntimeStatePatch, buildShutdownRuntimeStatePatch, planOpenPlannerRunTerminalUpdate, planPlannerRunSessionBinding, planSweptCurrentAgentSessionPatch } from './runtime-core.js';
 import { cardHasBlockedPlanning } from './planning-blockers.js';
 import { nextReviewerAssessmentId, reviewerSessionId as makeReviewerSessionId, validateReviewerAssessment } from './reviewer-assessment.js';
 import { ActivationUnwindRunner, selectChildGoalActivationOutcome, selectPendingActivationChildCardIds } from './activation-unwind.js';
@@ -89,6 +89,7 @@ import { RuntimeProjectCommandRunner } from './runtime-project-commands.js';
 import { compactPersistedPlannerHistoryForRetry } from './persisted-planner-history.js';
 import { RuntimePauseResumeController } from './runtime-pause-resume.js';
 import { alignBlockedPlanningCardStatuses, isPlannerTerminalToolExhaustion } from './startup-blocked-planning.js';
+import { reconcileIdleRunningRootRuns } from './startup-run-reconciliation.js';
 
 const TERMINAL_STATUSES: ReadonlySet<string> = new Set(['done', 'failed', 'cancelled']);
 function now(): string {
@@ -540,31 +541,6 @@ class Runtime {
     if (updated) this.publishRuntimeLedgerEvent('runtime_run', { run: updated });
   }
 
-  private reconcileIdleRunningRootRuns(state: RuntimeState): RuntimeState {
-    const projectCard = this.cardStore.read(PROJECT_CARD_ID);
-    const projectTerminal = projectCard ? TERMINAL_STATUSES.has(projectCard.status) : false;
-    const plan = planIdleRunningRootRunReconciliation({ state, projectTerminal, nowIso: now() });
-    if (!plan) return state;
-    let reconciled = state;
-    for (const update of plan.runUpdates) {
-      const updated = updateRuntimeRun(this.projectRoot, update.runId, update.updates);
-      if (updated) {
-        this.publishRuntimeLedgerEvent('runtime_run', { run: updated });
-        reconciled = readRuntimeState(this.projectRoot) ?? reconciled;
-      }
-    }
-    if (plan.statePatch) {
-      updateRuntimeState(this.projectRoot, plan.statePatch);
-      reconciled = readRuntimeState(this.projectRoot) ?? reconciled;
-    }
-    this._eventLogger.appendEvent({
-      kind: 'runtime_diagnostic',
-      phase: 'startup',
-      error_message: plan.diagnosticMessage,
-    });
-    return readRuntimeState(this.projectRoot) ?? reconciled;
-  }
-
   private bindPlannerSessionToOpenRun(goalId: string, plannerSessionId: string): void {
     const plan = planPlannerRunSessionBinding({ state: readRuntimeState(this.projectRoot), goalId, plannerSessionId });
     if (!plan) return;
@@ -617,7 +593,14 @@ class Runtime {
     this._eventLogger.appendEvent({ kind: 'started', project_root: this.projectRoot });
     this._supervisor.start();
     this._stateMachine.start();
-    state = this.reconcileIdleRunningRootRuns(readRuntimeState(this.projectRoot) ?? state);
+    state = reconcileIdleRunningRootRuns({
+      projectRoot: this.projectRoot,
+      state: readRuntimeState(this.projectRoot) ?? state,
+      cards: this.cardStore,
+      eventLogger: this._eventLogger,
+      now,
+      publishRuntimeRun: (run) => this.publishRuntimeLedgerEvent('runtime_run', { run }),
+    });
     if (shouldRestartRunningIntentOnStartup({ state, projectHasBlockedPlanning: cardHasBlockedPlanning(this.cardStore.read(PROJECT_CARD_ID)) })) {
       this.trackBackgroundDispatch(this._projectCommands.startProject('runtime').then(() => undefined));
     }
