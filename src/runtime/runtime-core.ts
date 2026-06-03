@@ -216,7 +216,7 @@ export function buildResumeHandoffContext(manifest: FreezeManifest): string | nu
     .join('\n');
 }
 
-export function planClearActiveRuntimeCardPatch(input: {
+export function planClearActiveCardRunPatch(input: {
   state: RuntimeState | null;
   cardId: string;
 }): Partial<RuntimeState> | null {

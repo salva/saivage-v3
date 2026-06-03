@@ -7,9 +7,9 @@ import type { RuntimeState } from '../schemas/index.js';
  * Shared runtime-control authority for pause/resume semantics.
  *
  * Accepted semantics:
- * - live + active runtime available: mutate persisted state through runtime-owned
+ * - live + runtime API available: mutate persisted state through runtime-owned
  *   pause/resume behavior and mirror the resulting in-memory state.
- * - live + no active runtime authority: mutate only persisted runtime state so
+ * - live + no runtime API authority: mutate only persisted runtime state so
  *   operator controls still work against server-only or analyst-only contexts.
  * - frozen: generic resume is rejected everywhere with actionable
  *   resume-from-freeze guidance; pause is idempotent and preserves frozen state.
@@ -21,7 +21,7 @@ export const RESUME_FROM_FREEZE_MESSAGE = 'Runtime is frozen. Use POST /api/runt
 
 export interface RuntimeControlContext {
   projectRoot: string;
-  activeRuntime?: Pick<RuntimeApi, 'pause' | 'resume'>;
+  runtimeApi?: Pick<RuntimeApi, 'pause' | 'resume'>;
 }
 
 export interface RuntimeControlResult {
@@ -58,8 +58,8 @@ export function pauseRuntimeControl(ctx: RuntimeControlContext): RuntimeControlR
       };
     }
     let state: RuntimeState;
-    if (ctx.activeRuntime) {
-      ctx.activeRuntime.pause();
+    if (ctx.runtimeApi) {
+      ctx.runtimeApi.pause();
       state = readRuntimeState(ctx.projectRoot) ?? current;
     } else {
       state = updateRuntimeState(ctx.projectRoot, {
@@ -110,8 +110,8 @@ export function resumeRuntimeControl(ctx: RuntimeControlContext): RuntimeControl
       };
     }
     let state: RuntimeState;
-    if (ctx.activeRuntime) {
-      ctx.activeRuntime.resume();
+    if (ctx.runtimeApi) {
+      ctx.runtimeApi.resume();
       state = readRuntimeState(ctx.projectRoot) ?? current;
     } else {
       state = updateRuntimeState(ctx.projectRoot, {

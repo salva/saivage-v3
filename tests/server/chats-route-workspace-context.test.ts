@@ -4,7 +4,7 @@ import { mkdtempSync, mkdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { ChatSendResponseSchema } from '../../src/contracts/operator-api-chats.js';
-import { createTestRuntimeApplication } from '../helpers/test-active-runtime.js';
+import { createTestRuntimeApplication } from '../helpers/test-runtime-application.js';
 
 const handleMessage = jest.fn<(sessionId: string, content: string, workspaceContext?: unknown) => Promise<unknown>>();
 const getOrCreateAnalystSession = jest.fn();

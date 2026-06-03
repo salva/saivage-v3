@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, jest } from '@jest/globals';
 import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { createTestActiveRuntime } from '../helpers/test-active-runtime.js';
+import { createTestAnalystRuntime } from '../helpers/test-runtime-application.js';
 
 const { AnalystHandler } = await import('../../src/agents/analyst-handler.js');
 
@@ -84,7 +84,7 @@ describe('LlmIntentResolver analyst integration', () => {
     const root = setupRoot();
     try {
       const spy = mockContentResponses('Here are your cards.');
-      const handler = new AnalystHandler(root, createTestActiveRuntime());
+      const handler = new AnalystHandler(root, createTestAnalystRuntime());
       await handler.handleMessage('s-real-post', 'list my cards');
       const calls = fetchCalls(spy);
       expect(calls).toHaveLength(1);
@@ -102,7 +102,7 @@ describe('LlmIntentResolver analyst integration', () => {
     const root = setupRoot([]);
     try {
       const spy = jest.spyOn(globalThis, 'fetch');
-      const handler = new AnalystHandler(root, createTestActiveRuntime());
+      const handler = new AnalystHandler(root, createTestAnalystRuntime());
       const response = await handler.handleMessage('s-no-candidate', 'list my cards');
       expect(response.message.content).toContain("no model candidate is configured for role 'analyst'");
       expect(response.message.content).not.toContain('failed to authenticate');
@@ -116,7 +116,7 @@ describe('LlmIntentResolver analyst integration', () => {
     const root = setupRoot();
     try {
       const spy = jest.spyOn(globalThis, 'fetch').mockImplementation(async () => new Response(JSON.stringify({ error: 'unauthorized' }), { status: 401 }));
-      const handler = new AnalystHandler(root, createTestActiveRuntime());
+      const handler = new AnalystHandler(root, createTestAnalystRuntime());
       const response = await handler.handleMessage('s-auth-failed', 'list my cards');
       expect(response.message.content).toContain('Analyst LLM unavailable: LLM authentication failed (HTTP 401)');
       expect(response.message.content).not.toContain('analyst is offline');
@@ -132,7 +132,7 @@ describe('LlmIntentResolver analyst integration', () => {
     const root = setupRoot();
     try {
       const spy = mockContentResponses('Goal goal-7 is visible.', 'Which following item did you mean?');
-      const handler = new AnalystHandler(root, createTestActiveRuntime());
+      const handler = new AnalystHandler(root, createTestAnalystRuntime());
       await handler.handleMessage('s-context', 'show me goal-7');
       await handler.handleMessage('s-context', 'and the one after it');
       const secondBody = fetchCalls(spy)[1].body;
@@ -152,7 +152,7 @@ describe('LlmIntentResolver analyst integration', () => {
     try {
       const clarification = 'Which cancelled cards should I delete?';
       mockContentResponses(clarification);
-      const handler = new AnalystHandler(root, createTestActiveRuntime());
+      const handler = new AnalystHandler(root, createTestAnalystRuntime());
       const response = await handler.handleMessage('s-content-only', 'delete the cancelled cards');
       expect(response.toolInvocations ?? []).toHaveLength(0);
       expect(response.message.content).toBe(clarification);

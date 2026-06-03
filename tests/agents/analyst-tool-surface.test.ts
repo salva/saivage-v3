@@ -13,7 +13,7 @@ import { initRuntimeState } from '../../src/runtime/state.js';
 import { startProcess, killProcess } from '../../src/runtime/process-runner.js';
 import { loadConfig } from '../../src/agents/config-schema.js';
 import { McpManager } from '../../src/mcp/mcp-manager.js';
-import { createTestActiveRuntime } from '../helpers/test-active-runtime.js';
+import { createTestAnalystRuntime } from '../helpers/test-runtime-application.js';
 import { createRuntimeApplication } from '../../src/application/runtime-composition.js';
 
 const TEST_MODEL = 'test-analyst-model';
@@ -73,7 +73,7 @@ describe('Contract C1 unsupported-action reply', () => {
     const root = setupRoot();
     try {
       jest.spyOn(globalThis, 'fetch').mockImplementation(async () => toolResponse('not_a_tool', {}));
-      const response = await new AnalystHandler(root, createTestActiveRuntime()).handleMessage('s-c1', 'perform unsupported action');
+      const response = await new AnalystHandler(root, createTestAnalystRuntime()).handleMessage('s-c1', 'perform unsupported action');
       expect(response.message.content).toContain('That action is not supported by the Analyst on this surface.');
       expect(response.toolInvocations ?? []).toHaveLength(0);
     } finally { rmSync(root, { recursive: true, force: true }); }
@@ -109,7 +109,7 @@ describe('Contract C2 partial-success reporting', () => {
       procId = proc.id;
       store.update('code-2', { status: 'running' });
       jest.spyOn(globalThis, 'fetch').mockImplementation(async () => toolResponse('delete_card', { ids: ['code-1', 'code-2', 'code-3'] }));
-      const handler = new AnalystHandler(root, createTestActiveRuntime());
+      const handler = new AnalystHandler(root, createTestAnalystRuntime());
       const response = await handler.handleMessage('s-c2', 'delete code cards');
       expect(response.message.content).toContain('Partial success: 2 of 3 succeeded. Failed: code-2. Reasons: delete_card denied by permission matrix');
     } finally { if (procId) await killProcess(root, procId, 'SIGTERM'); rmSync(root, { recursive: true, force: true }); }
@@ -125,7 +125,7 @@ describe('Contract C3 unknown-internal-capability reply', () => {
       const saved = registry['queue_notification'];
       delete registry['queue_notification'];
       jest.spyOn(globalThis, 'fetch').mockImplementation(async () => toolResponse('queue_notification', { recipient: 'planner', kind: 'info', body: 'hello' }));
-      const response = await new AnalystHandler(root, createTestActiveRuntime()).handleMessage('s-c3', 'queue a notification');
+      const response = await new AnalystHandler(root, createTestAnalystRuntime()).handleMessage('s-c3', 'queue a notification');
       expect(response.message.content).toContain('The Analyst cannot perform queue_notification; it is not a registered capability.');
       registry['queue_notification'] = saved;
     } finally { rmSync(root, { recursive: true, force: true }); }

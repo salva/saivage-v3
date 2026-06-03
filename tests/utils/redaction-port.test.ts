@@ -25,7 +25,7 @@ import {
 
 import { TelegramBot } from '../../src/telegram/bot.js';
 import { AgentAdapter } from '../../src/agents/agent-adapter.js';
-import { createTestRuntimeApplication } from '../helpers/test-active-runtime.js';
+import { createTestRuntimeApplication } from '../helpers/test-runtime-application.js';
 
 const RAW_TOKEN = 'SYNTHETIC_PROVIDER_TOKEN';
 const RAW_ACCESS = 'SYNTHETIC_ACCESS';

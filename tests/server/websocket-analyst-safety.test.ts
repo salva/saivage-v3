@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, jest } from '@jest/globals';
 import type { WebSocket } from 'ws';
 import { RuntimeRunEventSchema, parseKnownWsEnvelope } from '../../src/contracts/operator-events.js';
-import { createTestRuntimeApplication } from '../helpers/test-active-runtime.js';
+import { createTestRuntimeApplication } from '../helpers/test-runtime-application.js';
 
 const mockGetOrCreateAnalystSession = jest.fn();
 const mockGetAnalystHandler = jest.fn();
@@ -112,11 +112,11 @@ describe('websocket analyst safety', () => {
   });
 
   it('sends a validated runtime-state snapshot after connected status for authenticated clients', () => {
-    const activeRuntime = {
+    const runtimeApplication = {
       runtime: {},
     } as any;
     const { route, fastify } = createRoute();
-    registerWebSocket(fastify, '/tmp/project', activeRuntime);
+    registerWebSocket(fastify, '/tmp/project', runtimeApplication);
     const { ws } = createSocket();
 
     route.handler(ws, { headers: {}, query: {} });

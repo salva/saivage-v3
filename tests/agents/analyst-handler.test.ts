@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, jest } from '@jest/globals';
 import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { createTestActiveRuntime } from '../helpers/test-active-runtime.js';
+import { createTestAnalystRuntime } from '../helpers/test-runtime-application.js';
 import { trimToCleanToolBoundary } from '../../src/agents/analyst-handler.js';
 import { serializeToolCallMessage, PersistedRowCorruptError } from '../../src/agents/persisted-tool-call.js';
 import type { AgentMessage } from '../../src/schemas/index.js';
@@ -71,7 +71,7 @@ describe('AnalystHandler F05 contract', () => {
     const root = setupRoot();
     try {
       jest.spyOn(globalThis, 'fetch').mockImplementation(async () => messageResponse('Hello user.'));
-      const handler = new AnalystHandler(root, createTestActiveRuntime());
+      const handler = new AnalystHandler(root, createTestAnalystRuntime());
       const response = await handler.handleMessage('s-msg', 'hi');
       expect(response.message.content).toBe('Hello user.');
       expect(response.toolInvocations ?? []).toHaveLength(0);
@@ -93,7 +93,7 @@ describe('AnalystHandler F05 contract', () => {
         ]);
         return messageResponse('Done.');
       });
-      const handler = new AnalystHandler(root, createTestActiveRuntime());
+      const handler = new AnalystHandler(root, createTestAnalystRuntime());
       const response = await handler.handleMessage('s-multi', 'list everything');
       expect(response.message.content).toBe('Done.');
       const rows = readPersistedRows(root, 's-multi');

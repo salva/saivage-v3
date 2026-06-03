@@ -95,7 +95,7 @@ export async function compactSession(
   saivageDir: string,
   sessionId: string,
   options: CompactionOptions,
-  activeRuntime: SessionStamper,
+  sessionStamper: SessionStamper,
 ): Promise<CompactionResult> {
   const maxCompactions = options.maxCompactions ?? 3;
   const threshold = options.threshold ?? 0.8;
@@ -144,7 +144,7 @@ export async function compactSession(
 
       resultMessages = [createCompactionMessage(
         sessionId,
-        activeRuntime.stampCompacted(sessionId),
+        sessionStamper.stampCompacted(sessionId),
         `msg-${sessionId}-compact-${state.count + 1}`,
         `[CONTEXT COMPACTION #${state.count + 1}]
 
@@ -164,7 +164,7 @@ ${summary}`,
         messages,
         keepFraction,
         state.count + 1,
-        activeRuntime.stampCompacted(sessionId),
+        sessionStamper.stampCompacted(sessionId),
       );
     }
   } else {
@@ -175,7 +175,7 @@ ${summary}`,
       messages,
       keepFraction,
       state.count + 1,
-      activeRuntime.stampCompacted(sessionId),
+      sessionStamper.stampCompacted(sessionId),
     );
   }
 

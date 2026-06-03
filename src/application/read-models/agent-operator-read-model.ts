@@ -23,7 +23,7 @@ export interface AgentOperatorConversationResponse {
 }
 
 export class AgentOperatorReadModelService {
-  constructor(private readonly projectRoot: string, private readonly activeRuntime?: Pick<RuntimeApi, 'getActivityStatus'>) {}
+  constructor(private readonly projectRoot: string, private readonly runtimeApi?: Pick<RuntimeApi, 'getActivityStatus'>) {}
 
   listSessions(): { sessions: AgentOperatorSessionSummary[] } {
     const sessionsDir = join(this.projectRoot, '.saivage', 'agents', 'sessions');
@@ -66,7 +66,7 @@ export class AgentOperatorReadModelService {
     const messages = this.readConversationEntries(sessionId);
     const session = this.buildSessionSummary(sessionId, readRuntimeState(this.projectRoot));
     if (!session || (messages.length === 0 && !manifest)) return { statusCode: 404, body: { error: 'Agent session not found', sessionId } };
-    const activity_status = this.activeRuntime?.getActivityStatus(sessionId) ?? { status: 'idle' as const, pending_calls: [], updated_at: new Date(0).toISOString() };
+    const activity_status = this.runtimeApi?.getActivityStatus(sessionId) ?? { status: 'idle' as const, pending_calls: [], updated_at: new Date(0).toISOString() };
     return { body: { session, entries: messages, activity_status } };
   }
 

@@ -14,15 +14,15 @@ export interface RuntimeStatusReadModel {
 
 export interface RuntimeStatusInputs {
   projectRoot: string;
-  activeRuntime?: Pick<RuntimeApi, 'getStatus'>;
+  runtimeApi?: Pick<RuntimeApi, 'getStatus'>;
   pid?: number;
   serverAvailability?: ServerAvailability;
 }
 
 export function buildRuntimeStatusReadModel(inputs: RuntimeStatusInputs): RuntimeStatusReadModel {
   const pid = inputs.pid ?? process.pid;
-  if (inputs.activeRuntime) {
-    const status = inputs.activeRuntime.getStatus();
+  if (inputs.runtimeApi) {
+    const status = inputs.runtimeApi.getStatus();
     return {
       runtime: status.status,
       paused: status.paused,

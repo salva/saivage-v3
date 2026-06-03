@@ -189,7 +189,7 @@ export function reconcileOrphanedAgentSessions(
   saivageDir: string,
   reason = 'Session was left active by a previous runtime process and was failed during startup reconciliation. The runtime now enforces a global single-active-non-analyst-session invariant.',
   stampForSession?: (sessionId: string) => RoundStamp,
-  activeRuntime?: RuntimeAppendRecorder,
+  appendRecorder?: RuntimeAppendRecorder,
 ): AgentSession[] {
   const swept: AgentSession[] = [];
 
@@ -202,7 +202,7 @@ export function reconcileOrphanedAgentSessions(
       role: 'system',
       kind: 'model_issue',
       content: reason,
-    }, stampForSession ? stampForSession(session.id) : { round_id: generateRoundId('pre'), message_index: 0, block_index: 0 }, activeRuntime);
+    }, stampForSession ? stampForSession(session.id) : { round_id: generateRoundId('pre'), message_index: 0, block_index: 0 }, appendRecorder);
     swept.push(updated);
   }
 
@@ -255,7 +255,7 @@ export function appendMessage(
     requested_model_spec?: string;
   },
   stamp: RoundStamp,
-  activeRuntime?: RuntimeAppendRecorder,
+  appendRecorder?: RuntimeAppendRecorder,
 ): AgentMessage {
   const existing = getSessionMessages(saivageDir, sessionId);
   const msg: AgentMessage = {
@@ -286,7 +286,7 @@ export function appendMessage(
     writeFileAtomic(mp, line);
   }
 
-  activeRuntime?.recordAppend(msg);
+  appendRecorder?.recordAppend(msg);
   return msg;
 }
 
@@ -439,7 +439,7 @@ export function appendActivateCardToolResultOnce(
   toolCallId: string,
   content: string,
   stamp: RoundStamp,
-  activeRuntime?: RuntimeAppendRecorder,
+  appendRecorder?: RuntimeAppendRecorder,
 ): AgentMessage {
   const messages = getSessionMessages(saivageDir, sessionId);
   const existing = messages.find((message) => message.kind === 'tool_result' && message.tool_call_id === toolCallId);
@@ -450,5 +450,5 @@ export function appendActivateCardToolResultOnce(
     content,
     tool: 'activate_card',
     tool_call_id: toolCallId,
-  }, stamp, activeRuntime);
+  }, stamp, appendRecorder);
 }

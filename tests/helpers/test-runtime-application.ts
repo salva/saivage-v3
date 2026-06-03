@@ -15,7 +15,7 @@ type TestAnalystRuntime = RuntimeApi & AnalystRuntimeDeps['stamper'] & {
   setMcpManager(mcpManager: NonNullable<AnalystRuntimeDeps['mcpManager']>): void;
 };
 
-export function createTestActiveRuntime(opts: { eventBus?: EventBus } = {}): TestAnalystRuntime {
+export function createTestAnalystRuntime(opts: { eventBus?: EventBus } = {}): TestAnalystRuntime {
   const eventBus = opts.eventBus ?? new EventBus();
   const states = new Map<string, TestRoundState>();
   const stateFor = (sessionId: string): TestRoundState => {
@@ -88,29 +88,29 @@ export function createTestActiveRuntime(opts: { eventBus?: EventBus } = {}): Tes
 }
 
 export function createTestRuntimeApplication(opts: { eventBus?: EventBus } = {}): RuntimeApplication {
-  const activeRuntime = createTestActiveRuntime(opts);
+  const analystRuntime = createTestAnalystRuntime(opts);
   return {
     runtimeApi: {
-      start: () => activeRuntime.start(),
-      shutdown: () => activeRuntime.shutdown(),
-      pause: () => activeRuntime.pause(),
-      resume: () => activeRuntime.resume(),
-      startProject: (source) => activeRuntime.startProject(source),
-      stopProject: (source) => activeRuntime.stopProject(source),
-      subscribe: (options) => activeRuntime.subscribe(options),
-      getStatus: () => activeRuntime.getStatus(),
-      getActivityStatus: (sessionId) => activeRuntime.getActivityStatus(sessionId),
+      start: () => analystRuntime.start(),
+      shutdown: () => analystRuntime.shutdown(),
+      pause: () => analystRuntime.pause(),
+      resume: () => analystRuntime.resume(),
+      startProject: (source) => analystRuntime.startProject(source),
+      stopProject: (source) => analystRuntime.stopProject(source),
+      subscribe: (options) => analystRuntime.subscribe(options),
+      getStatus: () => analystRuntime.getStatus(),
+      getActivityStatus: (sessionId) => analystRuntime.getActivityStatus(sessionId),
     },
     get analystDeps() {
       return {
-        runtime: activeRuntime,
-        stamper: activeRuntime,
-        candidateAvailability: activeRuntime.candidateAvailability,
-        eventLogger: activeRuntime.eventLogger,
-        emitAnalystToolInvoked: (payload: Parameters<typeof activeRuntime.emitAnalystToolInvoked>[0]) => activeRuntime.emitAnalystToolInvoked(payload),
-        mcpManager: activeRuntime.mcpManager,
+        runtime: analystRuntime,
+        stamper: analystRuntime,
+        candidateAvailability: analystRuntime.candidateAvailability,
+        eventLogger: analystRuntime.eventLogger,
+        emitAnalystToolInvoked: (payload: Parameters<typeof analystRuntime.emitAnalystToolInvoked>[0]) => analystRuntime.emitAnalystToolInvoked(payload),
+        mcpManager: analystRuntime.mcpManager,
       };
     },
-    setMcpManager: (mcpManager) => activeRuntime.setMcpManager(mcpManager),
+    setMcpManager: (mcpManager) => analystRuntime.setMcpManager(mcpManager),
   };
 }

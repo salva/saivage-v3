@@ -26,7 +26,7 @@ import {
   URGENCY_VALUES,
 } from '../src/agents/analyst-tool-schemas.js';
 import { cardStatusSchema, cardTypeSchema,  urgencySchema } from '../src/schemas/validators.js';
-import { createTestActiveRuntime, createTestRuntimeApplication } from './helpers/test-active-runtime.js';
+import { createTestAnalystRuntime, createTestRuntimeApplication } from './helpers/test-runtime-application.js';
 
 function uniqueDir(): string {
   return join(tmpdir(), `saivage-analyst-test-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`);
@@ -346,7 +346,7 @@ describe('Analyst Handler', () => {
   });
 
   it('deduplicates the same chat message when two transports submit it together', async () => {
-    const handler = new AnalystHandler(projectRoot, createTestActiveRuntime());
+    const handler = new AnalystHandler(projectRoot, createTestAnalystRuntime());
     const first = await handler.handleMessage('s16', 'list all cards');
     const second = await handler.handleMessage('s16', 'list all cards');
     expect(second.message.content).toBe(first.message.content);

@@ -88,7 +88,7 @@ import {
   type SupervisorDeps,
 } from '../runtime/stuck-agent-supervisor.js';
 import { NotificationCenter } from '../notifications/index.js';
-import { buildCompletedRuntimeCommandState, buildCurrentAgentSessionPatch, buildDispatchPausedRuntimeStatePatch, buildFreezeManifest, buildFreezeRuntimeStatePatch, buildPauseRuntimeStatePatch, buildRejectedRuntimeCommandState, buildResumeFromFreezeRuntimeStatePatch, buildResumeHandoffContext, buildResumeRuntimeStatePatch, buildShutdownRuntimeStatePatch, planClearActiveRuntimeCardPatch, planIdleRunningRootRunReconciliation, planOpenPlannerRunTerminalUpdate, planOpenRootRunStopUpdates, planPlannerRunSessionBinding, planRootRunDispatchFailureUpdate, planRootRunDispatchSuccessUpdate, planStartProjectPrecondition, planSweptCurrentAgentSessionPatch, reduceActivationCompletion } from './runtime-core.js';
+import { buildCompletedRuntimeCommandState, buildCurrentAgentSessionPatch, buildDispatchPausedRuntimeStatePatch, buildFreezeManifest, buildFreezeRuntimeStatePatch, buildPauseRuntimeStatePatch, buildRejectedRuntimeCommandState, buildResumeFromFreezeRuntimeStatePatch, buildResumeHandoffContext, buildResumeRuntimeStatePatch, buildShutdownRuntimeStatePatch, planClearActiveCardRunPatch, planIdleRunningRootRunReconciliation, planOpenPlannerRunTerminalUpdate, planOpenRootRunStopUpdates, planPlannerRunSessionBinding, planRootRunDispatchFailureUpdate, planRootRunDispatchSuccessUpdate, planStartProjectPrecondition, planSweptCurrentAgentSessionPatch, reduceActivationCompletion } from './runtime-core.js';
 import { cardHasBlockedPlanning, getBlockedPlanning } from './planning-blockers.js';
 import { nextReviewerAssessmentId, reviewerSessionId as makeReviewerSessionId, validateReviewerAssessment } from './reviewer-assessment.js';
 import { findActivationCallerEdge, findUnresolvedActivateCardCalls, selectChildGoalActivationOutcome, selectPendingActivationChildCardIds } from './activation-unwind.js';
@@ -1078,7 +1078,7 @@ export class Runtime {
           },
         });
         this.finishOpenPlannerRun(card.id, 'blocked');
-        const patch = planClearActiveRuntimeCardPatch({ state: readRuntimeState(this.projectRoot), cardId: card.id });
+        const patch = planClearActiveCardRunPatch({ state: readRuntimeState(this.projectRoot), cardId: card.id });
         if (patch) updateRuntimeState(this.projectRoot, patch);
         continue;
       }
@@ -1106,7 +1106,7 @@ export class Runtime {
         error: card.error ?? blockedReason,
         status_text: card.status_text ?? blockedReason,
       });
-      const patch = planClearActiveRuntimeCardPatch({ state: readRuntimeState(this.projectRoot), cardId: card.id });
+      const patch = planClearActiveCardRunPatch({ state: readRuntimeState(this.projectRoot), cardId: card.id });
       if (patch) updateRuntimeState(this.projectRoot, patch);
     }
   }
