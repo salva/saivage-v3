@@ -140,6 +140,18 @@ export function selectChildGoalActivationOutcome(card: Pick<CardRecord, 'status'
   return 'failed';
 }
 
+export function selectTerminalActivationSynthesis(input: {
+  childCardId: string;
+  card: Pick<CardRecord, 'status'> | null | undefined;
+}): { outcome: ActivationCompletionOutcome; summary: string } | null {
+  if (!input.card || !TERMINAL_STATUSES.has(input.card.status)) return null;
+  const outcome = input.card.status === 'done' ? 'done' : input.card.status === 'cancelled' ? 'cancelled' : 'failed';
+  return {
+    outcome,
+    summary: `Restart repair delivered terminal status '${input.card.status}' for card ${input.childCardId}.`,
+  };
+}
+
 export function buildParentPlannerActiveRun(input: {
   parentCardId: string;
   parent: Pick<CardRecord, 'type'>;
@@ -207,16 +219,15 @@ export class ActivationUnwindRunner {
     childCardId: string,
   ): boolean {
     const child = this.deps.cards.read(childCardId);
-    if (!child || !TERMINAL_STATUSES.has(child.status)) return false;
-    const outcome =
-      child.status === 'done' ? 'done' : child.status === 'cancelled' ? 'cancelled' : 'failed';
+    const decision = selectTerminalActivationSynthesis({ childCardId, card: child });
+    if (!decision) return false;
     this.deps.sessionPort.appendActivateCardToolResultOnce(
       sessionId,
       toolCallId,
       this.buildCardActivationOutcome(
         childCardId,
-        outcome,
-        `Restart repair delivered terminal status '${child.status}' for card ${childCardId}.`,
+        decision.outcome,
+        decision.summary,
       ),
       this.deps.sessionStamper.stampDiagnosticInCurrentRound(sessionId),
       this.deps.sessionStamper,

@@ -1,5 +1,5 @@
 import { describe, expect, it, jest } from '@jest/globals';
-import { buildParentPlannerActiveRun, findActivationCallerEdge, findUnresolvedActivateCardCalls, repairOrphanActivateCardToolCalls, selectChildGoalActivationOutcome, selectPendingActivationChildCardIds } from '../../src/runtime/activation-unwind.js';
+import { buildParentPlannerActiveRun, findActivationCallerEdge, findUnresolvedActivateCardCalls, repairOrphanActivateCardToolCalls, selectChildGoalActivationOutcome, selectPendingActivationChildCardIds, selectTerminalActivationSynthesis } from '../../src/runtime/activation-unwind.js';
 import { createActivationCompletionEnvelope } from '../../src/schemas/index.js';
 import { serializeToolCallMessage } from '../../src/agents/persisted-tool-call.js';
 import type { AgentMessage } from '../../src/schemas/types.js';
@@ -165,6 +165,23 @@ describe('activation unwind helpers', () => {
     expect(selectChildGoalActivationOutcome({ status: 'cancelled' } as any)).toBe('cancelled');
     expect(selectChildGoalActivationOutcome({ status: 'failed' } as any)).toBe('failed');
     expect(selectChildGoalActivationOutcome(null)).toBe('failed');
+  });
+
+  it('selects terminal activation synthesis outcomes for restart repair', () => {
+    expect(selectTerminalActivationSynthesis({ childCardId: 'child-a', card: { status: 'done' } as any })).toEqual({
+      outcome: 'done',
+      summary: "Restart repair delivered terminal status 'done' for card child-a.",
+    });
+    expect(selectTerminalActivationSynthesis({ childCardId: 'child-a', card: { status: 'cancelled' } as any })).toEqual({
+      outcome: 'cancelled',
+      summary: "Restart repair delivered terminal status 'cancelled' for card child-a.",
+    });
+    expect(selectTerminalActivationSynthesis({ childCardId: 'child-a', card: { status: 'failed' } as any })).toEqual({
+      outcome: 'failed',
+      summary: "Restart repair delivered terminal status 'failed' for card child-a.",
+    });
+    expect(selectTerminalActivationSynthesis({ childCardId: 'child-a', card: { status: 'blocked' } as any })).toBeNull();
+    expect(selectTerminalActivationSynthesis({ childCardId: 'child-a', card: null })).toBeNull();
   });
 
   it('builds parent planner active runs from explicit inputs', () => {
