@@ -21,7 +21,6 @@ import {
   listProcesses,
   reconcileProcessRecords,
 } from './process-runner.js';
-import type { RuntimeDisposeReportEntry } from './lifecycle.js';
 import {
   cleanAll,
 } from '../runtime/cleanup.js';
@@ -53,6 +52,7 @@ import { PendingActivationDispatcher } from './pending-activation-dispatcher.js'
 import { RuntimeCardDispatcher } from './runtime-card-dispatcher.js';
 import { createRuntimeSupervisor } from './supervisor-factory.js';
 import { RuntimeEventPublisher } from './runtime-event-publisher.js';
+import { RuntimeDiagnostics } from './runtime-diagnostics.js';
 
 const TERMINAL_STATUSES: ReadonlySet<string> = new Set(['done', 'failed', 'cancelled']);
 function now(): string {
@@ -97,8 +97,7 @@ class Runtime {
   private _startupRepairPending = false;
   /* Goal-level re-entrancy guard for dispatchGoal(goalId); the global single-active-non-analyst-session invariant is enforced by assertNoActiveAgentSession in session persistence. */ private _dispatchInFlight =
     new Set<string>();
-  private _backgroundDispatches = new Set<Promise<void>>();
-  private _lastLifecycleDisposeReport: RuntimeDisposeReportEntry[] = [];
+  private readonly _diagnostics: RuntimeDiagnostics;
   private _stateMachine: RuntimeStateMachine;
   private readonly _activationUnwind: ActivationUnwindRunner;
   private readonly _goalContext: RuntimeGoalContextCoordinator;
@@ -109,7 +108,6 @@ class Runtime {
   private _cardDispatcher!: RuntimeCardDispatcher;
   private readonly _sessionStamper: RuntimeStampSource;
   private readonly _goalDispatcher: RuntimeConfig['goalDispatcher'];
-  private readonly _diagnosticsSink: RuntimeTestHooks['diagnosticsSink'];
 
   constructor(
     config: RuntimeConfig,
@@ -119,7 +117,7 @@ class Runtime {
   ) {
     this.projectRoot = config.projectRoot;
     this._goalDispatcher = config.goalDispatcher;
-    this._diagnosticsSink = testHooks.diagnosticsSink;
+    this._diagnostics = new RuntimeDiagnostics(testHooks.diagnosticsSink);
     if (config.eventLogger) {
       this._eventLogger = config.eventLogger;
       this._ownsEventLogger = false;
@@ -235,7 +233,7 @@ class Runtime {
       publishRuntimeRun: (run) => this._events.publishRuntimeLedgerEvent('runtime_run', { run }),
       publishActionableError: (error) =>
         this._events.publishRuntimeLedgerEvent('runtime_actionable_error', { actionable_error: error }),
-      trackBackgroundDispatch: (dispatch) => this.trackBackgroundDispatch(dispatch),
+      trackBackgroundDispatch: (dispatch) => this._diagnostics.trackBackgroundDispatch(dispatch),
       dispatchGoalThroughScheduler: (goalId) => this.dispatchGoalThroughScheduler(goalId),
     });
     this._pauseResume = new RuntimePauseResumeController({
@@ -309,7 +307,7 @@ class Runtime {
       startProject: (source) => this._projectCommands.startProject(source),
       stopProject: (source) => this._projectCommands.stopProject(source),
     });
-    this.publishDiagnostics();
+    this._diagnostics.publish();
     testHooks.lifecycleTestToolsSink?.setPerformCrashRecovery(() =>
       performRuntimeCrashRecovery({
         projectRoot: this.projectRoot,
@@ -321,10 +319,6 @@ class Runtime {
     hooks.agentEventSink?.setEmitAgentEvent((name, data) => this._events.emitAgentEvent(name, data));
   }
 
-  private publishDiagnostics(): void {
-    this._diagnosticsSink?.setBackgroundDispatchCount(this._backgroundDispatches.size);
-    this._diagnosticsSink?.setLastLifecycleDisposeReport([...this._lastLifecycleDisposeReport]);
-  }
   private async repairStartupActiveCardRun(
     previousState: RuntimeState | null,
   ): Promise<RuntimeState | null> {
@@ -366,17 +360,6 @@ class Runtime {
     this._resumeHandoffContext = null;
     return ctx;
   }
-  private trackBackgroundDispatch(dispatch: Promise<void>): void {
-    this._backgroundDispatches.add(dispatch);
-    this.publishDiagnostics();
-    dispatch
-      .finally(() => {
-        this._backgroundDispatches.delete(dispatch);
-        this.publishDiagnostics();
-      })
-      .catch(() => undefined);
-  }
-
   private dispatchGoalThroughScheduler(goalId: string): Promise<void> {
     return this._goalDispatcher
       ? this._goalDispatcher(goalId, (nextGoalId: string) => this._cardDispatcher.dispatchGoal(nextGoalId))
@@ -437,7 +420,7 @@ class Runtime {
       publishRuntimeRun: (run) => this._events.publishRuntimeLedgerEvent('runtime_run', { run }),
     });
     if (shouldRestartRunningIntentOnStartup({ state, projectHasBlockedPlanning: cardHasBlockedPlanning(this.cardStore.read(PROJECT_CARD_ID)) })) {
-      this.trackBackgroundDispatch(this._projectCommands.startProject('runtime').then(() => undefined));
+      this._diagnostics.trackBackgroundDispatch(this._projectCommands.startProject('runtime').then(() => undefined));
     }
     const startupActiveRunCardId = state.active_card_run?.card_id ?? null;
     const startupPlannerRedispatchCardId = selectStartupPlannerRedispatchCardId({
@@ -445,7 +428,7 @@ class Runtime {
       activeCardHasBlockedPlanning: startupActiveRunCardId ? cardHasBlockedPlanning(this.cardStore.read(startupActiveRunCardId)) : false,
     });
     if (startupPlannerRedispatchCardId) {
-      this.trackBackgroundDispatch(this.dispatchGoalThroughScheduler(startupPlannerRedispatchCardId));
+      this._diagnostics.trackBackgroundDispatch(this.dispatchGoalThroughScheduler(startupPlannerRedispatchCardId));
     }
     setTimeout(() => {
       void this._stateMachine.requestImmediateTick();
@@ -464,18 +447,16 @@ class Runtime {
     this._stateMachine.stop();
     if ((readRuntimeState(this.projectRoot)?.status ?? 'idle') === 'frozen') {
       try {
-        this._lastLifecycleDisposeReport = await disposeProcessRuntimeScope(this.projectRoot);
-        this.publishDiagnostics();
+        this._diagnostics.setLastLifecycleDisposeReport(await disposeProcessRuntimeScope(this.projectRoot));
       } catch (error) {
-        this._lastLifecycleDisposeReport = [
+        this._diagnostics.setLastLifecycleDisposeReport([
           {
             id: 'process-runtime-scope',
             kind: 'disposable',
             status: 'failed',
             error: error instanceof Error ? error.message : String(error),
           },
-        ];
-        this.publishDiagnostics();
+        ]);
       }
       try {
         releaseLock(this.projectRoot);
@@ -493,22 +474,21 @@ class Runtime {
     this._shuttingDown = true;
     this._running = false;
     try {
-      this._lastLifecycleDisposeReport = await disposeProcessRuntimeScope(this.projectRoot);
-      this.publishDiagnostics();
-      for (const id of this._lastLifecycleDisposeReport
+      const disposeReport = await disposeProcessRuntimeScope(this.projectRoot);
+      this._diagnostics.setLastLifecycleDisposeReport(disposeReport);
+      for (const id of disposeReport
         .filter((entry) => entry.kind === 'child_process')
         .map((entry) => entry.id.replace(/^child:/, '')))
         this._runningProcesses.delete(id);
     } catch (error) {
-      this._lastLifecycleDisposeReport = [
+      this._diagnostics.setLastLifecycleDisposeReport([
         {
           id: 'process-runtime-scope',
           kind: 'disposable',
           status: 'failed',
           error: error instanceof Error ? error.message : String(error),
         },
-      ];
-      this.publishDiagnostics();
+      ]);
     }
     try {
       updateRuntimeState(this.projectRoot, buildShutdownRuntimeStatePatch());
