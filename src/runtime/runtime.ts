@@ -60,7 +60,7 @@ import {
   type SupervisorConfig,
   type SupervisorDeps,
 } from '../runtime/stuck-agent-supervisor.js';
-import { buildCurrentAgentSessionPatch, buildDispatchPausedRuntimeStatePatch, buildShutdownRuntimeStatePatch, planOpenPlannerRunTerminalUpdate, planPlannerRunSessionBinding, planSweptCurrentAgentSessionPatch } from './runtime-core.js';
+import { buildCurrentAgentSessionPatch, buildDispatchPausedRuntimeStatePatch, buildShutdownRuntimeStatePatch, planSweptCurrentAgentSessionPatch } from './runtime-core.js';
 import { cardHasBlockedPlanning } from './planning-blockers.js';
 import { nextReviewerAssessmentId, reviewerSessionId as makeReviewerSessionId, validateReviewerAssessment } from './reviewer-assessment.js';
 import { ActivationUnwindRunner, selectChildGoalActivationOutcome, selectPendingActivationChildCardIds } from './activation-unwind.js';
@@ -90,6 +90,7 @@ import { compactPersistedPlannerHistoryForRetry } from './persisted-planner-hist
 import { RuntimePauseResumeController } from './runtime-pause-resume.js';
 import { alignBlockedPlanningCardStatuses, isPlannerTerminalToolExhaustion } from './startup-blocked-planning.js';
 import { reconcileIdleRunningRootRuns } from './startup-run-reconciliation.js';
+import { RuntimeRunLedger } from './runtime-run-ledger.js';
 
 const TERMINAL_STATUSES: ReadonlySet<string> = new Set(['done', 'failed', 'cancelled']);
 function now(): string {
@@ -158,6 +159,7 @@ class Runtime {
   private readonly _goalContext: RuntimeGoalContextCoordinator;
   private _projectCommands!: RuntimeProjectCommandRunner;
   private _pauseResume!: RuntimePauseResumeController;
+  private readonly _runLedger: RuntimeRunLedger;
   private readonly _sessionStamper: RuntimeStampSource;
   private readonly _goalDispatcher: RuntimeConfig['goalDispatcher'];
   private readonly _diagnosticsSink: RuntimeTestHooks['diagnosticsSink'];
@@ -194,6 +196,11 @@ class Runtime {
       projectRoot: this.projectRoot,
       cards: this.cardStore,
       sessionStamper: this._sessionStamper,
+    });
+    this._runLedger = new RuntimeRunLedger({
+      projectRoot: this.projectRoot,
+      now,
+      publishRuntimeRun: (run) => this.publishRuntimeLedgerEvent('runtime_run', { run }),
     });
     this.agentRuntime =
       agentRuntime ??
@@ -424,7 +431,7 @@ class Runtime {
         parentPlannerRunFor: (cardId) => this._activationUnwind.parentPlannerRunFor(cardId),
         findCallerEdge: (cardId) => this._activationUnwind.findCallerEdge(cardId),
         synthesizeTerminalActivationResult: (sessionId, toolCallId, cardId) => this._activationUnwind.synthesizeTerminalActivationResult(sessionId, toolCallId, cardId),
-        finishOpenPlannerRun: (cardId, result) => this.finishOpenPlannerRun(cardId, result),
+        finishOpenPlannerRun: (cardId, result) => this._runLedger.finishOpenPlannerRun(cardId, result),
         queueSyntheticPlannerNote: (note) => queueSyntheticPlannerNote(this.projectRoot, note),
         saveState: (state) => saveRuntimeState(this.projectRoot, state),
       },
@@ -456,7 +463,7 @@ class Runtime {
         planning: input.planning,
       },
     });
-    this.finishOpenPlannerRun(input.goalId, 'blocked');
+    this._runLedger.finishOpenPlannerRun(input.goalId, 'blocked');
     await this._stateMachine.transition('card_terminated', {
       goalId: input.goalId,
       reason: input.terminalReason,
@@ -534,20 +541,6 @@ class Runtime {
       : this.dispatchGoal(goalId);
   }
 
-  private finishOpenPlannerRun(goalId: string, result: 'blocked' | 'failed'): void {
-    const plan = planOpenPlannerRunTerminalUpdate({ state: readRuntimeState(this.projectRoot), goalId, result, nowIso: now() });
-    if (!plan) return;
-    const updated = updateRuntimeRun(this.projectRoot, plan.runId, plan.updates);
-    if (updated) this.publishRuntimeLedgerEvent('runtime_run', { run: updated });
-  }
-
-  private bindPlannerSessionToOpenRun(goalId: string, plannerSessionId: string): void {
-    const plan = planPlannerRunSessionBinding({ state: readRuntimeState(this.projectRoot), goalId, plannerSessionId });
-    if (!plan) return;
-    const updated = updateRuntimeRun(this.projectRoot, plan.runId, plan.updates);
-    if (updated) this.publishRuntimeLedgerEvent('runtime_run', { run: updated });
-  }
-
   private async startup(): Promise<void> {
     if (this._running) throw new Error('Runtime is already running.');
     let state = readRuntimeState(this.projectRoot);
@@ -556,7 +549,7 @@ class Runtime {
     await alignBlockedPlanningCardStatuses({
       cards: this.cardStore,
       transitionCard: (cardId, event, details) => this._stateMachine.transitionCard(cardId, event, details),
-      finishOpenPlannerRun: (goalId, result) => this.finishOpenPlannerRun(goalId, result),
+      finishOpenPlannerRun: (goalId, result) => this._runLedger.finishOpenPlannerRun(goalId, result),
       projectRoot: this.projectRoot,
     });
     state = readRuntimeState(this.projectRoot) ?? state;
@@ -759,7 +752,7 @@ class Runtime {
         planCard = this.cardStore.read(goalId)!;
         const startedAt = now();
         updateRuntimeState(this.projectRoot, buildPlannerActiveRunPatch({ goal: planCard, plannerSessionId: setup.plannerSessionId, at: startedAt }));
-        this.bindPlannerSessionToOpenRun(goalId, setup.plannerSessionId);
+        this._runLedger.bindPlannerSessionToOpenRun(goalId, setup.plannerSessionId);
       } catch (err) {
         const errorMessage = err instanceof Error ? err.message : String(err);
         this.emitRuntimeDiagnostic({ goal_id: goalId, phase: 'activate', error: err });
@@ -914,7 +907,7 @@ class Runtime {
                 appendError: (input) => this._errorLogger.appendError(input),
                 transitionCard: (cardId, event, details) => this._stateMachine.transitionCard(cardId, event, details),
                 updateCard: (cardId, patch) => this.cardStore.update(cardId, patch),
-                finishOpenPlannerRun: (cardId, result) => this.finishOpenPlannerRun(cardId, result),
+                finishOpenPlannerRun: (cardId, result) => this._runLedger.finishOpenPlannerRun(cardId, result),
                 transitionRuntime: (event, details) => this._stateMachine.transition(event, details),
               },
             });
