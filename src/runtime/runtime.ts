@@ -3,11 +3,8 @@ import { CardStore, PROJECT_CARD_ID } from '../cards/store-api.js';
 import {
   readRuntimeState,
   updateRuntimeState,
-  appendRuntimeRun,
-  upsertRuntimeActivation,
 } from './state.js';
-import { createDefaultAgentExecution } from './default-agent-execution.js';
-import type { AgentExecutionPort, RuntimeActivationLedgerPort } from '../contracts/index.js';
+import type { AgentExecutionPort } from '../contracts/index.js';
 import {
   listProcesses,
 } from './process-runner.js';
@@ -39,16 +36,11 @@ import { performRuntimeShutdown } from './runtime-shutdown.js';
 import { performRuntimeStartup } from './runtime-startup.js';
 import { performRuntimeCrashRecovery } from './crash-recovery.js';
 import { repairRuntimeStartupActiveCardRun } from './runtime-startup-active-run-repair.js';
+import { createConfiguredAgentRuntime } from './agent-runtime-factory.js';
 
 function now(): string {
   return new Date().toISOString();
 }
-type ConfigurableAgentRuntime = AgentExecutionPort & {
-  setSaivageDir?: (saivageDir: string) => void;
-  setActivationLedger?: (activationLedger: RuntimeActivationLedgerPort) => void;
-  setSessionStamper?: (sessionStamper: RuntimeStampSource) => void;
-};
-
 export function initializeRuntimeImplementation(
   config: RuntimeConfig,
   agentRuntime?: AgentExecutionPort,
@@ -121,11 +113,6 @@ class Runtime {
       undefined,
       this._events.eventBus,
     );
-    const activationLedger: RuntimeActivationLedgerPort = {
-      readState: () => readRuntimeState(config.projectRoot),
-      appendRun: (input) => appendRuntimeRun(config.projectRoot, input),
-      upsertActivation: (input) => upsertRuntimeActivation(config.projectRoot, input),
-    };
     this._sessionStamper = config.sessionStamper ?? new SessionStampCounter();
     this._activationUnwind = new ActivationUnwindRunner({
       projectRoot: this.projectRoot,
@@ -143,21 +130,11 @@ class Runtime {
       now,
       publishRuntimeRun: (run) => this._events.publishRuntimeLedgerEvent('runtime_run', { run }),
     });
-    this.agentRuntime =
-      agentRuntime ??
-      (config.agentExecutionFactory ?? createDefaultAgentExecution)(
-        config.projectRoot,
-        {
-          ...config.fakeAgentConfig,
-          saivageDir: join(config.projectRoot, '.saivage'),
-          sessionStamper: this._sessionStamper,
-        },
-        activationLedger,
-      );
-    const configurableAgentRuntime = this.agentRuntime as ConfigurableAgentRuntime;
-    configurableAgentRuntime.setSaivageDir?.(join(config.projectRoot, '.saivage'));
-    configurableAgentRuntime.setActivationLedger?.(activationLedger);
-    configurableAgentRuntime.setSessionStamper?.(this._sessionStamper);
+    this.agentRuntime = createConfiguredAgentRuntime({
+      config,
+      sessionStamper: this._sessionStamper,
+      agentRuntime,
+    });
     this._skillsEngine = config.skillsEngine ?? null;
     this._continuousImprovementReserved = config.continuousImprovement ?? false;
     this._autoDispatchBacklog = config.autoDispatchBacklog ?? false;
