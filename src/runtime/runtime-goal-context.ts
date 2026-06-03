@@ -11,14 +11,14 @@ import {
 } from './synthetic-planner-notes.js';
 import { appendMessage } from './session-persistence.js';
 import { readRuntimeState } from './state.js';
-import type { RuntimeStampSource } from './runtime-config.js';
+import type { SessionStamper } from '../contracts/session-stamper.js';
 
 export class RuntimeGoalContextCoordinator {
   constructor(
     private readonly deps: {
       projectRoot: string;
       cards: RuntimeContextCardReader;
-      sessionStamper: RuntimeStampSource;
+      sessionStamper: SessionStamper;
     },
   ) {}
 

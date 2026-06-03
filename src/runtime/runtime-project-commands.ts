@@ -10,7 +10,7 @@ import type {
 import type { EventLogger } from '../observability/index.js';
 import type { RuntimeStateMachine } from './state-machine.js';
 import type { RuntimeApi } from './runtime-api.js';
-import type { RuntimeStampSource } from './runtime-config.js';
+import type { SessionStamper } from '../contracts/session-stamper.js';
 import {
   appendRuntimeCommand,
   appendRuntimeRun,
@@ -44,7 +44,7 @@ export class RuntimeProjectCommandRunner {
       cards: CardStore;
       agentRuntime: AgentExecutionPort;
       eventLogger: EventLogger;
-      sessionStamper: RuntimeStampSource;
+      sessionStamper: SessionStamper;
       stateMachine: RuntimeStateMachine;
       dispatchInFlight: Set<string>;
       isPaused(): boolean;

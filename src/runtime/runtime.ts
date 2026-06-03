@@ -16,8 +16,8 @@ import {
   StuckAgentSupervisor,
 } from '../runtime/stuck-agent-supervisor.js';
 import { ActivationUnwindRunner } from './activation-unwind.js';
-import { SessionStampCounter } from '../contracts/session-stamper.js';
-import type { RuntimeCompositionHooks, RuntimeConfig, RuntimeSkillsPort, RuntimeStampSource, RuntimeTestHooks } from './runtime-config.js';
+import { SessionStampCounter, type SessionStamper } from '../contracts/session-stamper.js';
+import type { RuntimeCompositionHooks, RuntimeConfig, RuntimeSkillsPort, RuntimeTestHooks } from './runtime-config.js';
 import { RuntimeGoalContextCoordinator } from './runtime-goal-context.js';
 import { RuntimeProjectCommandRunner } from './runtime-project-commands.js';
 import { RuntimePauseResumeController } from './runtime-pause-resume.js';
@@ -79,7 +79,7 @@ class Runtime {
   private _pendingActivations!: PendingActivationDispatcher;
   private _cardDispatcher!: RuntimeCardDispatcher;
   private _activationScheduler!: ActivationScheduler;
-  private readonly _sessionStamper: RuntimeStampSource;
+  private readonly _sessionStamper: SessionStamper;
   private readonly _goalDispatcher: RuntimeConfig['goalDispatcher'];
 
   constructor(

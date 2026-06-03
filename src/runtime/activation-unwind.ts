@@ -11,7 +11,7 @@ import {
   getSessionMessages,
   listSessions,
 } from './session-persistence.js';
-import type { RuntimeStampSource } from './runtime-config.js';
+import type { SessionStamper } from '../contracts/session-stamper.js';
 import type { RuntimeStateMutationPort } from './mutations.js';
 
 const TERMINAL_STATUSES: ReadonlySet<string> = new Set(['done', 'failed', 'cancelled']);
@@ -116,7 +116,7 @@ export class ActivationUnwindRunner {
     private readonly deps: {
       projectRoot: string;
       cards: ActivationUnwindRunnerCards;
-      sessionStamper: RuntimeStampSource;
+      sessionStamper: SessionStamper;
       mutations: RuntimeStateMutationPort;
       now(): string;
     },

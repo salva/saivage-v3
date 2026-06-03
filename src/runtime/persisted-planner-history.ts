@@ -6,7 +6,7 @@ import {
   getSessionMessages,
   replaceSessionMessages,
 } from './session-persistence.js';
-import type { RuntimeStampSource } from './runtime-config.js';
+import type { SessionStamper } from '../contracts/session-stamper.js';
 
 const PLANNER_PERSISTED_HISTORY_COMPACTION_LIMIT_TOKENS = 24000;
 const PLANNER_PERSISTED_HISTORY_RECENT_MESSAGE_LIMIT = 24;
@@ -67,7 +67,7 @@ function buildPersistedPlannerHistoryCompactionMessage(
 export function compactPersistedPlannerHistoryForRetry(input: {
   projectRoot: string;
   plannerSessionId: string;
-  sessionStamper: RuntimeStampSource;
+  sessionStamper: SessionStamper;
   eventLogger: EventLogger;
 }): boolean {
   const messages = getSessionMessages(join(input.projectRoot, '.saivage'), input.plannerSessionId);

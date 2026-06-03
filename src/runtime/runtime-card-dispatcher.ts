@@ -5,7 +5,8 @@ import type { RuntimeRunRecord } from '../schemas/index.js';
 import type { ErrorLogger, EventLogger } from '../observability/index.js';
 import type { CardStore } from '../cards/store-api.js';
 import { PROJECT_CARD_ID } from '../cards/store-api.js';
-import type { RuntimeSkillsPort, RuntimeStampSource } from './runtime-config.js';
+import type { SessionStamper } from '../contracts/session-stamper.js';
+import type { RuntimeSkillsPort } from './runtime-config.js';
 import type { RuntimeStateMachine } from './state-machine.js';
 import type { RuntimeGoalContextCoordinator } from './runtime-goal-context.js';
 import type { RuntimeRunLedger } from './runtime-run-ledger.js';
@@ -77,7 +78,7 @@ export class RuntimeCardDispatcher {
       activationUnwind: ActivationUnwindRunner;
       pendingActivations: PendingActivationDispatcher;
       runLedger: RuntimeRunLedger;
-      sessionStamper: RuntimeStampSource;
+      sessionStamper: SessionStamper;
       dispatchInFlight: Set<string>;
       isPaused(): boolean;
       isShuttingDown(): boolean;

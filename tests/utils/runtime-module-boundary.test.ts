@@ -174,6 +174,7 @@ describe('runtime module ownership boundary', () => {
     expect(runtimeConfig).not.toContain('Sink');
     expect(runtimeConfig).not.toContain('setRuntime');
     expect(runtimeConfig).not.toContain('setDispatchGoal');
+    expect(source).not.toContain('RuntimeStampSource');
   });
 
   it('keeps production composition hooks separate from test hooks', () => {

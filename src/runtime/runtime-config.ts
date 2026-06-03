@@ -2,7 +2,7 @@ import type { AgentExecutionPort, RuntimeActivationLedgerPort } from '../contrac
 import type { CardStore } from '../cards/store-api.js';
 import type { EventBus } from '../events/index.js';
 import type { EventLogger, ErrorLogger } from '../observability/index.js';
-import type { SessionActivity, SessionStamper } from '../contracts/session-stamper.js';
+import type { SessionStamper } from '../contracts/session-stamper.js';
 import type { RuntimeDisposeReportEntry } from './lifecycle.js';
 import type { StuckAgentSupervisor, SupervisorConfig } from './stuck-agent-supervisor.js';
 import type { RuntimeApi } from './runtime-api.js';
@@ -19,10 +19,6 @@ export interface RuntimeSkillsPort {
     targetRole?: string;
   }): Promise<string>;
 }
-
-export type RuntimeStampSource = SessionStamper & {
-  getActivityStatus(sessionId: string): SessionActivity;
-};
 
 export type RuntimeControlHooks = Pick<RuntimeApi, 'start' | 'shutdown' | 'pause' | 'resume' | 'startProject' | 'stopProject'>;
 
@@ -87,7 +83,7 @@ export interface RuntimeConfig {
   skillsEngine?: RuntimeSkillsPort;
   eventLogger?: EventLogger;
   errorLogger?: ErrorLogger;
-  sessionStamper?: RuntimeStampSource;
+  sessionStamper?: SessionStamper;
   maxGoalDepth?: number;
   supervisorConfig?: Partial<SupervisorConfig>;
   autoDispatchBacklog?: boolean;

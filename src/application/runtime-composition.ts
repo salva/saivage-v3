@@ -12,7 +12,7 @@ import { appendRuntimeRun, readRuntimeState, upsertRuntimeActivation } from '../
 import type { RuntimeConfig } from '../runtime/runtime-config.js';
 import type { RuntimeApi } from '../runtime/control-api.js';
 import { createRuntimeCoreContainer } from '../runtime/core-composition.js';
-import { SessionStampCounter, type SessionActivity, type SessionStamper } from '../contracts/session-stamper.js';
+import { SessionStampCounter } from '../contracts/session-stamper.js';
 
 export interface RuntimeApplication {
   readonly runtimeApi: RuntimeApi;
@@ -20,11 +20,9 @@ export interface RuntimeApplication {
   setMcpManager(mcpManager: McpManager): void;
 }
 
-type ApplicationSessionStamper = SessionStamper & { getActivityStatus(sessionId: string): SessionActivity };
-
 function buildAnalystDeps(input: {
   runtimeApi: RuntimeApi;
-  stamper: ApplicationSessionStamper;
+  stamper: SessionStampCounter;
   candidateAvailability: CandidateAvailability;
   eventLogger: EventLogger;
   emitAnalystToolInvoked(payload: EventPayload<'analyst_tool_invoked'>): void;

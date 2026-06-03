@@ -1,18 +1,19 @@
 import { join } from 'node:path';
 import type { AgentExecutionPort, RuntimeActivationLedgerPort } from '../contracts/index.js';
-import type { RuntimeConfig, RuntimeStampSource } from './runtime-config.js';
+import type { RuntimeConfig } from './runtime-config.js';
+import type { SessionStamper } from '../contracts/session-stamper.js';
 import { createDefaultAgentExecution } from './default-agent-execution.js';
 import { appendRuntimeRun, readRuntimeState, upsertRuntimeActivation } from './state.js';
 
 type ConfigurableAgentRuntime = AgentExecutionPort & {
   setSaivageDir?: (saivageDir: string) => void;
   setActivationLedger?: (activationLedger: RuntimeActivationLedgerPort) => void;
-  setSessionStamper?: (sessionStamper: RuntimeStampSource) => void;
+  setSessionStamper?: (sessionStamper: SessionStamper) => void;
 };
 
 export function createConfiguredAgentRuntime(input: {
   config: RuntimeConfig;
-  sessionStamper: RuntimeStampSource;
+  sessionStamper: SessionStamper;
   agentRuntime?: AgentExecutionPort;
 }): AgentExecutionPort {
   const activationLedger: RuntimeActivationLedgerPort = {
