@@ -39,7 +39,6 @@ import {
   disposeProcessRuntimeScope,
   listProcesses,
   reconcileProcessRecords,
-  setProcessTerminalBuffering,
 } from './process-runner.js';
 import type { RuntimeDisposeReportEntry } from './lifecycle.js';
 import {
@@ -61,7 +60,7 @@ import {
   type SupervisorConfig,
   type SupervisorDeps,
 } from '../runtime/stuck-agent-supervisor.js';
-import { buildCurrentAgentSessionPatch, buildDispatchPausedRuntimeStatePatch, buildPauseRuntimeStatePatch, buildResumeRuntimeStatePatch, buildShutdownRuntimeStatePatch, planClearActiveCardRunPatch, planIdleRunningRootRunReconciliation, planOpenPlannerRunTerminalUpdate, planPlannerRunSessionBinding, planSweptCurrentAgentSessionPatch } from './runtime-core.js';
+import { buildCurrentAgentSessionPatch, buildDispatchPausedRuntimeStatePatch, buildShutdownRuntimeStatePatch, planClearActiveCardRunPatch, planIdleRunningRootRunReconciliation, planOpenPlannerRunTerminalUpdate, planPlannerRunSessionBinding, planSweptCurrentAgentSessionPatch } from './runtime-core.js';
 import { cardHasBlockedPlanning } from './planning-blockers.js';
 import { nextReviewerAssessmentId, reviewerSessionId as makeReviewerSessionId, validateReviewerAssessment } from './reviewer-assessment.js';
 import { ActivationUnwindRunner, selectChildGoalActivationOutcome, selectPendingActivationChildCardIds } from './activation-unwind.js';
@@ -88,6 +87,7 @@ import { performRuntimeCrashRecovery } from './crash-recovery.js';
 import { RuntimeGoalContextCoordinator } from './runtime-goal-context.js';
 import { RuntimeProjectCommandRunner } from './runtime-project-commands.js';
 import { compactPersistedPlannerHistoryForRetry } from './persisted-planner-history.js';
+import { RuntimePauseResumeController } from './runtime-pause-resume.js';
 
 const TERMINAL_STATUSES: ReadonlySet<string> = new Set(['done', 'failed', 'cancelled']);
 function now(): string {
@@ -160,6 +160,7 @@ class Runtime {
   private readonly _activationUnwind: ActivationUnwindRunner;
   private readonly _goalContext: RuntimeGoalContextCoordinator;
   private _projectCommands!: RuntimeProjectCommandRunner;
+  private _pauseResume!: RuntimePauseResumeController;
   private readonly _sessionStamper: RuntimeStampSource;
   private readonly _goalDispatcher: RuntimeConfig['goalDispatcher'];
   private readonly _diagnosticsSink: RuntimeTestHooks['diagnosticsSink'];
@@ -337,6 +338,17 @@ class Runtime {
       trackBackgroundDispatch: (dispatch) => this.trackBackgroundDispatch(dispatch),
       dispatchGoalThroughScheduler: (goalId) => this.dispatchGoalThroughScheduler(goalId),
     });
+    this._pauseResume = new RuntimePauseResumeController({
+      projectRoot: this.projectRoot,
+      eventLogger: this._eventLogger,
+      stateMachine: this._stateMachine,
+      goalContext: this._goalContext,
+      setPaused: (paused) => {
+        this._paused = paused;
+      },
+      emit: (eventName, data) => this.emit(eventName, data),
+      now,
+    });
     hooks.corePartsSink?.setRuntimeCoreParts({
       eventBus: this.eventBus,
       cards: this.cardStore,
@@ -354,8 +366,8 @@ class Runtime {
     hooks.controlSink?.setRuntimeControls({
       start: () => this.startup(),
       shutdown: () => this.shutdown(),
-      pause: () => this.pause(),
-      resume: () => this.resume(),
+      pause: () => this._pauseResume.pause(),
+      resume: () => this._pauseResume.resume(),
       startProject: (source) => this._projectCommands.startProject(source),
       stopProject: (source) => this._projectCommands.stopProject(source),
     });
@@ -749,40 +761,6 @@ class Runtime {
     this._eventLogger.appendEvent({ kind: 'shutdown' });
     if (this._ownsEventLogger) this._eventLogger.close();
     if (this._ownsErrorLogger) this._errorLogger.close();
-  }
-  private pause(): void {
-    this._paused = true;
-    setProcessTerminalBuffering(this.projectRoot, true);
-    try {
-      updateRuntimeState(this.projectRoot, buildPauseRuntimeStatePatch(now()));
-    } catch {
-      void 0;
-    }
-    this.emit('paused');
-    this._eventLogger.appendEvent({ kind: 'paused' });
-  }
-  private resume(): void {
-    this._paused = false;
-    setProcessTerminalBuffering(this.projectRoot, false);
-    try {
-      const state = readRuntimeState(this.projectRoot);
-      const plannerSessionId =
-        state?.active_card_run?.planner_session_id ?? state?.current_agent_session_id;
-      if (plannerSessionId && state?.active_card_run?.card_id) {
-        this._goalContext.appendPlannerResumeContext(
-          state.active_card_run.card_id,
-          plannerSessionId,
-          this._goalContext.inferResumeReason(state.active_card_run.card_id),
-        );
-        this._goalContext.injectQueuedPlannerNotes(plannerSessionId);
-      }
-      updateRuntimeState(this.projectRoot, buildResumeRuntimeStatePatch(state));
-    } catch {
-      void 0;
-    }
-    this.emit('resumed');
-    this._eventLogger.appendEvent({ kind: 'resumed' });
-    void this._stateMachine.requestImmediateTick();
   }
   private async dispatchGoal(goalId: string): Promise<void> {
     if (this._dispatchInFlight.has(goalId)) return;
