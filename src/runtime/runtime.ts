@@ -6,14 +6,10 @@ import type {
   RuntimeState,
   EventKind,
   ReviewAssessment,
-  ActivationCompletionOutcome,
   ActionableErrorEnvelope,
   RuntimeCommandRecord,
   RuntimeRunRecord,
   RuntimeActivationRecord,
-} from '../schemas/index.js';
-import {
-  createActivationCompletionEnvelope,
 } from '../schemas/index.js';
 import { CardStore, PROJECT_CARD_ID } from '../cards/store-api.js';
 import {
@@ -64,13 +60,7 @@ import type { RuntimeCardPort, RuntimeStatePort } from './ports.js';
 import { EventBus } from '../events/index.js';
 import { trackedEventKindValues, type EventPayload } from '../events/index.js';
 import {
-  appendActivateCardToolResultOnce,
   appendMessage,
-  findPlannerSessionForCard,
-  findUniqueUnresolvedActivateCardToolCall,
-  listSessions,
-  getSession,
-  getSessionMessages,
 } from './session-persistence.js';
 import {
   StuckAgentSupervisor,
@@ -78,10 +68,10 @@ import {
   type SupervisorConfig,
   type SupervisorDeps,
 } from '../runtime/stuck-agent-supervisor.js';
-import { buildCompletedRuntimeCommandState, buildCurrentAgentSessionPatch, buildDispatchPausedRuntimeStatePatch, buildPauseRuntimeStatePatch, buildRejectedRuntimeCommandState, buildResumeRuntimeStatePatch, buildShutdownRuntimeStatePatch, planClearActiveCardRunPatch, planIdleRunningRootRunReconciliation, planOpenPlannerRunTerminalUpdate, planOpenRootRunStopUpdates, planPlannerRunSessionBinding, planRootRunDispatchFailureUpdate, planRootRunDispatchSuccessUpdate, planStartProjectPrecondition, planSweptCurrentAgentSessionPatch, reduceActivationCompletion } from './runtime-core.js';
+import { buildCompletedRuntimeCommandState, buildCurrentAgentSessionPatch, buildDispatchPausedRuntimeStatePatch, buildPauseRuntimeStatePatch, buildRejectedRuntimeCommandState, buildResumeRuntimeStatePatch, buildShutdownRuntimeStatePatch, planClearActiveCardRunPatch, planIdleRunningRootRunReconciliation, planOpenPlannerRunTerminalUpdate, planOpenRootRunStopUpdates, planPlannerRunSessionBinding, planRootRunDispatchFailureUpdate, planRootRunDispatchSuccessUpdate, planStartProjectPrecondition, planSweptCurrentAgentSessionPatch } from './runtime-core.js';
 import { cardHasBlockedPlanning, getBlockedPlanning } from './planning-blockers.js';
 import { nextReviewerAssessmentId, reviewerSessionId as makeReviewerSessionId, validateReviewerAssessment } from './reviewer-assessment.js';
-import { findActivationCallerEdge, findUnresolvedActivateCardCalls, selectChildGoalActivationOutcome, selectPendingActivationChildCardIds } from './activation-unwind.js';
+import { ActivationUnwindRunner, selectChildGoalActivationOutcome, selectPendingActivationChildCardIds } from './activation-unwind.js';
 import { inferGoalResumeReason, type GoalResumeReason } from './goal-context.js';
 import { buildProjectRunCompletedPayload } from './project-run-completion.js';
 import { buildCardContextBlock as buildRuntimeCardContextBlock, buildGoalContextBlock as renderGoalContextBlock, buildGoalContextPayload as buildRuntimeGoalContextPayload, buildGoalEvidenceContext as buildRuntimeGoalEvidenceContext } from './context-builder.js';
@@ -173,6 +163,7 @@ class Runtime {
   private _backgroundDispatches = new Set<Promise<void>>();
   private _lastLifecycleDisposeReport: RuntimeDisposeReportEntry[] = [];
   private _stateMachine: RuntimeStateMachine;
+  private readonly _activationUnwind: ActivationUnwindRunner;
   private readonly _sessionStamper: RuntimeStampSource;
   private readonly _goalDispatcher: RuntimeConfig['goalDispatcher'];
   private readonly _diagnosticsSink: RuntimeTestHooks['diagnosticsSink'];
@@ -199,6 +190,12 @@ class Runtime {
       upsertActivation: (input) => upsertRuntimeActivation(config.projectRoot, input),
     };
     this._sessionStamper = config.sessionStamper ?? new SessionStampCounter();
+    this._activationUnwind = new ActivationUnwindRunner({
+      projectRoot: this.projectRoot,
+      cards: this.cardStore,
+      sessionStamper: this._sessionStamper,
+      now,
+    });
     this.agentRuntime =
       agentRuntime ??
       (config.agentExecutionFactory ?? createDefaultAgentExecution)(
@@ -368,141 +365,8 @@ class Runtime {
     }
     return emitted;
   }
-  private diagnosticStamp(sessionId: string) {
-    return this._sessionStamper.stampDiagnosticInCurrentRound(sessionId);
-  }
-
   private userStamp(sessionId: string) {
     return this._sessionStamper.stampUserMessage(sessionId);
-  }
-
-  private findCallerEdge(
-    childCardId: string,
-  ): { parentCardId: string; callerSessionId: string; callerToolCallId: string } | null {
-    const saivageDir = join(this.projectRoot, '.saivage');
-    return findActivationCallerEdge({
-      childCardId,
-      cardPort: { getParent: (cardId) => this.cardStore.getParent(cardId) },
-      sessionPort: {
-        findPlannerSessionForCard: (parentCardId) => findPlannerSessionForCard(saivageDir, parentCardId),
-        findUniqueUnresolvedActivateCardToolCall: (sessionId, cardId) => findUniqueUnresolvedActivateCardToolCall(saivageDir, sessionId, cardId),
-      },
-    });
-  }
-
-  private buildCardActivationOutcome(
-    childCardId: string,
-    outcome: ActivationCompletionOutcome,
-    summary: string,
-  ): string {
-    const child = this.cardStore.read(childCardId);
-    const failureKind =
-      child?.result &&
-      typeof child.result === 'object' &&
-      typeof (child.result as { failure_kind?: unknown }).failure_kind === 'string'
-        ? (child.result as { failure_kind: string }).failure_kind
-        : undefined;
-    return JSON.stringify(
-      createActivationCompletionEnvelope({
-        child_card_id: childCardId,
-        outcome,
-        summary,
-        result: child?.result ?? null,
-        review: (child?.result?.review as ReviewAssessment | null | undefined) ?? null,
-        artifacts: child?.artifacts ?? [],
-        attachments: child?.attachments ?? [],
-        evidence_card_ids: child
-          ? [child.id, ...this.cardStore.getDescendantIds(child.id)]
-          : [childCardId],
-        error: child?.error ?? null,
-        failure_kind: failureKind,
-      }),
-    );
-  }
-
-  private markActivationComplete(childCardId: string, outcome: ActivationCompletionOutcome): void {
-    const state = readRuntimeState(this.projectRoot);
-    const next = reduceActivationCompletion(state, childCardId, outcome, now());
-    if (!next) return;
-    saveRuntimeState(this.projectRoot, next);
-  }
-
-  private appendChildUnwindToolResult(
-    childCardId: string,
-    outcome: ActivationCompletionOutcome,
-    summary: string,
-  ): void {
-    this.markActivationComplete(childCardId, outcome);
-    const edge = this.findCallerEdge(childCardId);
-    if (!edge) return;
-    appendActivateCardToolResultOnce(
-      join(this.projectRoot, '.saivage'),
-      edge.callerSessionId,
-      edge.callerToolCallId,
-      this.buildCardActivationOutcome(childCardId, outcome, summary),
-      this.diagnosticStamp(edge.callerSessionId),
-      this._sessionStamper,
-    );
-  }
-
-  private findUnresolvedActivateCards(sessionId: string) {
-    return findUnresolvedActivateCardCalls(
-      sessionId,
-      getSessionMessages(join(this.projectRoot, '.saivage'), sessionId),
-    );
-  }
-
-  private synthesizeTerminalActivationResult(
-    sessionId: string,
-    toolCallId: string,
-    childCardId: string,
-  ): boolean {
-    const child = this.cardStore.read(childCardId);
-    if (!child || !TERMINAL_STATUSES.has(child.status)) return false;
-    const outcome =
-      child.status === 'done' ? 'done' : child.status === 'cancelled' ? 'cancelled' : 'failed';
-    appendActivateCardToolResultOnce(
-      join(this.projectRoot, '.saivage'),
-      sessionId,
-      toolCallId,
-      this.buildCardActivationOutcome(
-        childCardId,
-        outcome,
-        `Restart repair delivered terminal status '${child.status}' for card ${childCardId}.`,
-      ),
-      this.diagnosticStamp(sessionId),
-      this._sessionStamper,
-    );
-    return true;
-  }
-
-  private repairOrphanActivateCardToolCalls(): void {
-    for (const sessionId of listSessions(join(this.projectRoot, '.saivage'))) {
-      const session = getSession(join(this.projectRoot, '.saivage'), sessionId);
-      if (!session || session.role !== 'planner') continue;
-      for (const call of this.findUnresolvedActivateCards(sessionId))
-        this.synthesizeTerminalActivationResult(call.session_id, call.tool_call_id, call.card_id);
-    }
-  }
-
-  private parentPlannerRunFor(childCardId: string): RuntimeState['active_card_run'] {
-    const parentCardId = this.cardStore.getParent(childCardId);
-    if (!parentCardId) return null;
-    const parent = this.cardStore.read(parentCardId);
-    if (!parent) return null;
-    const stamp = now();
-    return {
-      card_id: parentCardId,
-      card_type: parent.type,
-      runtime_status: 'running',
-      phase: 'planner',
-      caller_session_id: null,
-      caller_tool_call_id: null,
-      planner_session_id: `planner:${parentCardId}`,
-      correction_attempts: 0,
-      started_at: stamp,
-      last_turn_at: stamp,
-    };
   }
 
   private async repairStartupActiveCardRun(
@@ -527,13 +391,13 @@ class Runtime {
       previousState,
       effects: {
         now,
-        repairOrphanActivateCardToolCalls: () => this.repairOrphanActivateCardToolCalls(),
+        repairOrphanActivateCardToolCalls: () => this._activationUnwind.repairOrphanActivateCardToolCalls(),
         transitionCard: (cardId, event, details) => this._stateMachine.transitionCard(cardId, event, details),
         updateCard: (cardId, patch) => this.cardStore.update(cardId, patch),
-        appendChildUnwindToolResult: (cardId, outcome, summary) => this.appendChildUnwindToolResult(cardId, outcome, summary),
-        parentPlannerRunFor: (cardId) => this.parentPlannerRunFor(cardId),
-        findCallerEdge: (cardId) => this.findCallerEdge(cardId),
-        synthesizeTerminalActivationResult: (sessionId, toolCallId, cardId) => this.synthesizeTerminalActivationResult(sessionId, toolCallId, cardId),
+        appendChildUnwindToolResult: (cardId, outcome, summary) => this._activationUnwind.appendChildUnwindToolResult(cardId, outcome, summary),
+        parentPlannerRunFor: (cardId) => this._activationUnwind.parentPlannerRunFor(cardId),
+        findCallerEdge: (cardId) => this._activationUnwind.findCallerEdge(cardId),
+        synthesizeTerminalActivationResult: (sessionId, toolCallId, cardId) => this._activationUnwind.synthesizeTerminalActivationResult(sessionId, toolCallId, cardId),
         finishOpenPlannerRun: (cardId, result) => this.finishOpenPlannerRun(cardId, result),
         queueSyntheticPlannerNote: (note) => queueSyntheticPlannerNote(this.projectRoot, note),
         saveState: (state) => saveRuntimeState(this.projectRoot, state),
@@ -1400,7 +1264,7 @@ class Runtime {
                 this.emit('goal_completed', { goal_id: cardId, assessment });
                 this._eventLogger.appendEvent({ kind: 'goal_completed', goal_id: cardId, assessment });
               },
-              appendChildUnwindToolResult: (cardId, outcome, summary) => this.appendChildUnwindToolResult(cardId, outcome, summary),
+              appendChildUnwindToolResult: (cardId, outcome, summary) => this._activationUnwind.appendChildUnwindToolResult(cardId, outcome, summary),
               transitionRuntime: (event, details) => this._stateMachine.transition(event, details),
               emitProjectRunCompleted: (cardId, assessment) => {
                 const projectCard = this.cardStore.read(cardId);
@@ -1448,12 +1312,12 @@ class Runtime {
       if (this._paused) return { dispatchedGoal, executedTerminal, failed };
       for (const card of activationCards) {
         if (this._shuttingDown || this._paused) return { dispatchedGoal, executedTerminal, failed };
-        const callerEdge = this.findCallerEdge(card.id);
+        const callerEdge = this._activationUnwind.findCallerEdge(card.id);
         if (card.type === 'goal') {
           await this.dispatchGoalThroughScheduler(card.id);
           const completedCard = this.cardStore.read(card.id);
           const outcome = selectChildGoalActivationOutcome(completedCard);
-          this.appendChildUnwindToolResult(
+          this._activationUnwind.appendChildUnwindToolResult(
             card.id,
             outcome,
             `Child goal ${card.id} finished with status ${completedCard?.status ?? 'unknown'}.`,
@@ -1497,7 +1361,7 @@ class Runtime {
               appendRuntimeDiagnostic: (input) => this._eventLogger.appendEvent({ kind: 'runtime_diagnostic', ...input }),
               appendError: (input) => this._errorLogger.appendError(input),
               transitionCard: (cardId, event, details) => this._stateMachine.transitionCard(cardId, event, details),
-              appendChildUnwindToolResult: (cardId, outcome, summary) => this.appendChildUnwindToolResult(cardId, outcome, summary),
+              appendChildUnwindToolResult: (cardId, outcome, summary) => this._activationUnwind.appendChildUnwindToolResult(cardId, outcome, summary),
               emitCardFailed: (cardId, parentGoalId) => {
                 this.emit('card_failed', { card_id: cardId, goal_id: parentGoalId });
                 this._eventLogger.appendEvent({ kind: 'card_failed', card_id: cardId, goal_id: parentGoalId });
@@ -1562,7 +1426,7 @@ class Runtime {
             transitionCard: (cardId, event, details) => this._stateMachine.transitionCard(cardId, event, details),
             readCard: (cardId) => this.cardStore.read(cardId),
             updateCard: (cardId, patch) => this.cardStore.update(cardId, patch),
-            appendChildUnwindToolResult: (cardId, outcome, summary) => this.appendChildUnwindToolResult(cardId, outcome, summary),
+            appendChildUnwindToolResult: (cardId, outcome, summary) => this._activationUnwind.appendChildUnwindToolResult(cardId, outcome, summary),
             emitCardFailed: (cardId, parentGoalId) => {
               this.emit('card_failed', { card_id: cardId, goal_id: parentGoalId });
               this._eventLogger.appendEvent({ kind: 'card_failed', card_id: cardId, goal_id: parentGoalId });
