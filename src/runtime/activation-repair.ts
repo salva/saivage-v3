@@ -1,7 +1,6 @@
 import type { CardStore } from '../cards/store-api.js';
 import type { RuntimeState } from '../schemas/index.js';
 import { queueSyntheticPlannerNote } from './synthetic-planner-notes.js';
-import { saveRuntimeState } from './state.js';
 import { cardHasBlockedPlanning } from './planning-blockers.js';
 import type { ActivationUnwindRunner } from './activation-unwind.js';
 import {
@@ -10,6 +9,7 @@ import {
 } from './startup-repair.js';
 import type { RuntimeStateMachine } from './state-machine.js';
 import type { RuntimeRunLedger } from './runtime-run-ledger.js';
+import type { RuntimeStateMutationPort } from './mutations.js';
 
 const TERMINAL_STATUSES: ReadonlySet<string> = new Set(['done', 'failed', 'cancelled']);
 
@@ -25,6 +25,7 @@ export class ActivationRepairRunner {
       stateMachine: RuntimeStateMachine;
       activationUnwind: ActivationUnwindRunner;
       runLedger: RuntimeRunLedger;
+      mutations: RuntimeStateMutationPort;
     },
   ) {}
 
@@ -60,7 +61,10 @@ export class ActivationRepairRunner {
           this.deps.activationUnwind.synthesizeTerminalActivationResult(sessionId, toolCallId, cardId),
         finishOpenPlannerRun: (cardId, result) => this.deps.runLedger.finishOpenPlannerRun(cardId, result),
         queueSyntheticPlannerNote: (note) => queueSyntheticPlannerNote(this.deps.projectRoot, note),
-        saveState: (state) => saveRuntimeState(this.deps.projectRoot, state),
+        saveState: (state) => {
+          this.deps.mutations.apply({ kind: 'replaceRuntimeState', state });
+          return state;
+        },
       },
     });
   }

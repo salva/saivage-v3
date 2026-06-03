@@ -4,6 +4,7 @@ import { readRuntimeState, saveRuntimeState, updateRuntimeState } from './state.
 
 export type RuntimeMutation =
   | { kind: 'patchRuntimeState'; patch: Partial<RuntimeState> }
+  | { kind: 'replaceRuntimeState'; state: RuntimeState }
   | { kind: 'completeActivation'; childCardId: string; outcome: ActivationCompletionOutcome; completedAt: string };
 
 export interface RuntimeStateMutationPort {
@@ -14,6 +15,9 @@ export function applyRuntimeMutation(projectRoot: string, mutation: RuntimeMutat
   switch (mutation.kind) {
     case 'patchRuntimeState':
       updateRuntimeState(projectRoot, mutation.patch);
+      return;
+    case 'replaceRuntimeState':
+      saveRuntimeState(projectRoot, mutation.state);
       return;
     case 'completeActivation': {
       const next = reduceActivationCompletion(

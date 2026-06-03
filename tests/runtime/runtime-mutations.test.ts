@@ -76,4 +76,24 @@ describe('runtime mutations', () => {
       rmSync(projectRoot, { recursive: true, force: true });
     }
   });
+
+  it('replaces runtime state through the mutation port', () => {
+    const projectRoot = mkdtempSync(join(tmpdir(), 'runtime-mutations-replace-'));
+    try {
+      initProjectTree(projectRoot);
+      const state = initRuntimeState(projectRoot);
+
+      createRuntimeStateMutationPort(projectRoot).apply({
+        kind: 'replaceRuntimeState',
+        state: { ...state, paused: true, updated_at: '2026-01-01T00:00:00.000Z' },
+      });
+
+      expect(readRuntimeState(projectRoot)).toEqual(expect.objectContaining({
+        paused: true,
+        updated_at: '2026-01-01T00:00:00.000Z',
+      }));
+    } finally {
+      rmSync(projectRoot, { recursive: true, force: true });
+    }
+  });
 });

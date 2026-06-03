@@ -8,8 +8,9 @@ import { disposeProcessRuntimeScope } from './process-runner.js';
 import { buildShutdownRuntimeStatePatch } from './runtime-core.js';
 import { releaseLock } from './lock.js';
 import type { RuntimeStateMachine } from './state-machine.js';
-import { readRuntimeState, updateRuntimeState } from './state.js';
+import { readRuntimeState } from './state.js';
 import type { RuntimeDiagnostics } from './runtime-diagnostics.js';
+import type { RuntimeStateMutationPort } from './mutations.js';
 
 function saivageWorkDir(projectRoot: string): string {
   return join(projectRoot, '.saivage-work');
@@ -33,6 +34,7 @@ export async function performRuntimeShutdown(input: {
   supervisor: StuckAgentSupervisor;
   stateMachine: RuntimeStateMachine;
   diagnostics: RuntimeDiagnostics;
+  mutations: RuntimeStateMutationPort;
   eventLogger: EventLogger;
   errorLogger: ErrorLogger;
   ownsEventLogger: boolean;
@@ -86,7 +88,7 @@ export async function performRuntimeShutdown(input: {
     input.diagnostics.setLastLifecycleDisposeReport(processDisposeFailureReport(error));
   }
   try {
-    updateRuntimeState(input.projectRoot, buildShutdownRuntimeStatePatch());
+    input.mutations.apply({ kind: 'patchRuntimeState', patch: buildShutdownRuntimeStatePatch() });
   } catch {
     void 0;
   }

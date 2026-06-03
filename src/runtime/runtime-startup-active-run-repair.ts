@@ -4,6 +4,7 @@ import type { ActivationUnwindRunner } from './activation-unwind.js';
 import type { RuntimeStateMachine } from './state-machine.js';
 import type { RuntimeRunLedger } from './runtime-run-ledger.js';
 import { ActivationRepairRunner } from './activation-repair.js';
+import type { RuntimeStateMutationPort } from './mutations.js';
 
 export function repairRuntimeStartupActiveCardRun(input: {
   projectRoot: string;
@@ -12,6 +13,7 @@ export function repairRuntimeStartupActiveCardRun(input: {
   stateMachine: RuntimeStateMachine;
   activationUnwind: ActivationUnwindRunner;
   runLedger: RuntimeRunLedger;
+  mutations: RuntimeStateMutationPort;
 }): Promise<RuntimeState | null> {
   return new ActivationRepairRunner(input).repairStartupActiveCardRun(input.previousState);
 }

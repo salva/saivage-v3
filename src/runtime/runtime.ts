@@ -285,6 +285,7 @@ class Runtime {
       supervisor: this._supervisor,
       events: this._events,
       eventLogger: this._eventLogger,
+      mutations: this._mutations,
       isRunning: () => this._running,
       setPaused: (paused) => {
         this._paused = paused;
@@ -306,6 +307,7 @@ class Runtime {
           stateMachine: this._stateMachine,
           activationUnwind: this._activationUnwind,
           runLedger: this._runLedger,
+          mutations: this._mutations,
         }),
       dispatchGoalThroughScheduler: (goalId) => this._activationScheduler.dispatch(goalId),
       trackBackgroundDispatch: (dispatch) => this._diagnostics.trackBackgroundDispatch(dispatch),
@@ -319,6 +321,7 @@ class Runtime {
       supervisor: this._supervisor,
       stateMachine: this._stateMachine,
       diagnostics: this._diagnostics,
+      mutations: this._mutations,
       eventLogger: this._eventLogger,
       errorLogger: this._errorLogger,
       ownsEventLogger: this._ownsEventLogger,

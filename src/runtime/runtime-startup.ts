@@ -4,7 +4,7 @@ import { PROJECT_CARD_ID } from '../cards/store-api.js';
 import type { EventLogger } from '../observability/index.js';
 import type { RuntimeState } from '../schemas/index.js';
 import { reconcileOrphanedAgentSessions } from './session-persistence.js';
-import { initRuntimeState, readRuntimeState, updateRuntimeState } from './state.js';
+import { initRuntimeState, readRuntimeState } from './state.js';
 import { acquireLock } from './lock.js';
 import { reconcileProcessRecords } from './process-runner.js';
 import { cardHasBlockedPlanning } from './planning-blockers.js';
@@ -21,6 +21,7 @@ import type { RuntimeRunLedger } from './runtime-run-ledger.js';
 import type { RuntimeProjectCommandRunner } from './runtime-project-commands.js';
 import type { StuckAgentSupervisor } from '../runtime/stuck-agent-supervisor.js';
 import type { RuntimeEventPublisher } from './runtime-event-publisher.js';
+import type { RuntimeStateMutationPort } from './mutations.js';
 
 function now(): string {
   return new Date().toISOString();
@@ -35,6 +36,7 @@ export async function performRuntimeStartup(input: {
   supervisor: StuckAgentSupervisor;
   events: RuntimeEventPublisher;
   eventLogger: EventLogger;
+  mutations: RuntimeStateMutationPort;
   isRunning(): boolean;
   setPaused(paused: boolean): void;
   setRunning(running: boolean): void;
@@ -77,7 +79,7 @@ export async function performRuntimeStartup(input: {
     const postRepairState = readRuntimeState(input.projectRoot);
     const patch = planSweptCurrentAgentSessionPatch({ state: postRepairState, sweptSessionIds });
     if (patch) {
-      updateRuntimeState(input.projectRoot, patch);
+      input.mutations.apply({ kind: 'patchRuntimeState', patch });
       state = readRuntimeState(input.projectRoot) ?? state;
     }
   }
