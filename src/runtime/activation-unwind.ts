@@ -140,6 +140,25 @@ export function selectChildGoalActivationOutcome(card: Pick<CardRecord, 'status'
   return 'failed';
 }
 
+export function buildParentPlannerActiveRun(input: {
+  parentCardId: string;
+  parent: Pick<CardRecord, 'type'>;
+  at: string;
+}): NonNullable<RuntimeState['active_card_run']> {
+  return {
+    card_id: input.parentCardId,
+    card_type: input.parent.type,
+    runtime_status: 'running',
+    phase: 'planner',
+    caller_session_id: null,
+    caller_tool_call_id: null,
+    planner_session_id: `planner:${input.parentCardId}`,
+    correction_attempts: 0,
+    started_at: input.at,
+    last_turn_at: input.at,
+  };
+}
+
 export interface ActivationUnwindRunnerCards {
   read(cardId: string): CardRecord | null;
   getDescendantIds(cardId: string): string[];
@@ -218,19 +237,7 @@ export class ActivationUnwindRunner {
     if (!parentCardId) return null;
     const parent = this.deps.cards.read(parentCardId);
     if (!parent) return null;
-    const stamp = this.deps.now();
-    return {
-      card_id: parentCardId,
-      card_type: parent.type,
-      runtime_status: 'running',
-      phase: 'planner',
-      caller_session_id: null,
-      caller_tool_call_id: null,
-      planner_session_id: `planner:${parentCardId}`,
-      correction_attempts: 0,
-      started_at: stamp,
-      last_turn_at: stamp,
-    };
+    return buildParentPlannerActiveRun({ parentCardId, parent, at: this.deps.now() });
   }
 
   private markActivationComplete(childCardId: string, outcome: ActivationCompletionOutcome): void {
