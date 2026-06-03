@@ -170,6 +170,7 @@ class Runtime {
       eventLogger: this._eventLogger,
       sessionStamper: this._sessionStamper,
       stateMachine: this._stateMachine,
+      mutations: this._mutations,
       dispatchInFlight: this._dispatchInFlight,
       isPaused: () => this._paused,
       setShuttingDown: (shuttingDown) => {

@@ -11,15 +11,7 @@ import type { EventLogger } from '../observability/index.js';
 import type { RuntimeStateMachine } from './state-machine.js';
 import type { RuntimeApi } from './runtime-api.js';
 import type { SessionStamper } from '../contracts/session-stamper.js';
-import {
-  appendRuntimeCommand,
-  appendRuntimeRun,
-  initRuntimeState,
-  readRuntimeState,
-  saveRuntimeState,
-  updateRuntimeRun,
-  upsertRuntimeIntent,
-} from './state.js';
+import { initRuntimeState, readRuntimeState } from './state.js';
 import {
   buildCompletedRuntimeCommandState,
   buildRejectedRuntimeCommandState,
@@ -34,6 +26,7 @@ import {
   describeProjectPlannerRetry,
 } from './phases/planner-phase.js';
 import { compactPersistedPlannerHistoryForRetry } from './persisted-planner-history.js';
+import type { RuntimeStateMutationPort } from './mutations.js';
 
 type RuntimeCommandSource = Parameters<RuntimeApi['startProject']>[0];
 
@@ -46,6 +39,7 @@ export class RuntimeProjectCommandRunner {
       eventLogger: EventLogger;
       sessionStamper: SessionStamper;
       stateMachine: RuntimeStateMachine;
+      mutations: RuntimeStateMutationPort;
       dispatchInFlight: Set<string>;
       isPaused(): boolean;
       setShuttingDown(shuttingDown: boolean): void;
@@ -67,7 +61,7 @@ export class RuntimeProjectCommandRunner {
       }
     | { success: false; command: RuntimeCommandRecord; error: ActionableErrorEnvelope }
   > {
-    const command = appendRuntimeCommand(this.deps.projectRoot, 'start_project', source);
+    const command = this.deps.mutations.apply({ kind: 'appendRuntimeCommand', commandKind: 'start_project', source });
     const state = readRuntimeState(this.deps.projectRoot) ?? initRuntimeState(this.deps.projectRoot);
     const projectCard = this.deps.cards.read(PROJECT_CARD_ID);
     const blockedPlanning = getBlockedPlanning(projectCard);
@@ -86,7 +80,7 @@ export class RuntimeProjectCommandRunner {
       const rejectedAt = this.deps.now();
       const rejection = buildRejectedRuntimeCommandState({ state, command, error, at: rejectedAt });
       const rejectedCommand = rejection.rejectedCommand;
-      saveRuntimeState(this.deps.projectRoot, rejection.state);
+      this.deps.mutations.apply({ kind: 'replaceRuntimeState', state: rejection.state });
       this.deps.publishRuntimeCommand(rejectedCommand);
       this.deps.publishActionableError(error);
       return { success: false, command: rejectedCommand, error };
@@ -120,22 +114,25 @@ export class RuntimeProjectCommandRunner {
     const retryDescription = retryingPlanningBlocker
       ? describeProjectPlannerRetry({ retryingTokenBudgetBlocker: retryingTokenBudgetPlanningBlocker })
       : null;
-    upsertRuntimeIntent(
-      this.deps.projectRoot,
-      'running',
-      command.command_id,
-      retryDescription?.intentReason ?? 'explicit start_project command',
-    );
-    const run = appendRuntimeRun(this.deps.projectRoot, {
-      kind: 'root',
-      card_id: PROJECT_CARD_ID,
-      parent_run_id: null,
-      command_id: command.command_id,
-      activation_id: null,
-      phase: 'planner',
-      runtime_status: 'running',
-      session_id: null,
-      result: null,
+    this.deps.mutations.apply({
+      kind: 'upsertRuntimeIntent',
+      status: 'running',
+      sourceCommandId: command.command_id,
+      reason: retryDescription?.intentReason ?? 'explicit start_project command',
+    });
+    const run = this.deps.mutations.apply({
+      kind: 'appendRuntimeRun',
+      run: {
+        kind: 'root',
+        card_id: PROJECT_CARD_ID,
+        parent_run_id: null,
+        command_id: command.command_id,
+        activation_id: null,
+        phase: 'planner',
+        runtime_status: 'running',
+        session_id: null,
+        result: null,
+      },
     });
     this.deps.publishRuntimeRun(run);
     if (!this.deps.isPaused()) {
@@ -144,7 +141,7 @@ export class RuntimeProjectCommandRunner {
           .then(() => {
             const plan = planRootRunDispatchSuccessUpdate({ state: readRuntimeState(this.deps.projectRoot), runId: run.run_id, nowIso: this.deps.now() });
             if (!plan) return;
-            const updated = updateRuntimeRun(this.deps.projectRoot, plan.runId, plan.updates);
+            const updated = this.deps.mutations.apply({ kind: 'updateRuntimeRun', runId: plan.runId, updates: plan.updates });
             if (updated) this.deps.publishRuntimeRun(updated);
           })
           .catch(async () => {
@@ -158,7 +155,7 @@ export class RuntimeProjectCommandRunner {
             }
             const plan = planRootRunDispatchFailureUpdate({ state: readRuntimeState(this.deps.projectRoot), runId: run.run_id, nowIso: this.deps.now() });
             if (!plan) return;
-            const updated = updateRuntimeRun(this.deps.projectRoot, plan.runId, plan.updates);
+            const updated = this.deps.mutations.apply({ kind: 'updateRuntimeRun', runId: plan.runId, updates: plan.updates });
             if (updated) this.deps.publishRuntimeRun(updated);
           }),
       );
@@ -167,7 +164,7 @@ export class RuntimeProjectCommandRunner {
     const completedAt = this.deps.now();
     const completion = buildCompletedRuntimeCommandState({ state: current, command, at: completedAt });
     const completedCommand = completion.completedCommand;
-    saveRuntimeState(this.deps.projectRoot, completion.state);
+    this.deps.mutations.apply({ kind: 'replaceRuntimeState', state: completion.state });
     this.deps.publishRuntimeCommand(completedCommand);
     const persisted = readRuntimeState(this.deps.projectRoot) ?? current;
     return {
@@ -184,20 +181,20 @@ export class RuntimeProjectCommandRunner {
     intent: RuntimeState['runtime_intent'];
     run?: RuntimeRunRecord;
   }> {
-    const command = appendRuntimeCommand(this.deps.projectRoot, 'stop_project', source);
+    const command = this.deps.mutations.apply({ kind: 'appendRuntimeCommand', commandKind: 'stop_project', source });
     this.deps.setShuttingDown(true);
-    const state = upsertRuntimeIntent(
-      this.deps.projectRoot,
-      'stopped',
-      command.command_id,
-      'explicit stop_project command',
-    );
+    const state = this.deps.mutations.apply({
+      kind: 'upsertRuntimeIntent',
+      status: 'stopped',
+      sourceCommandId: command.command_id,
+      reason: 'explicit stop_project command',
+    });
     for (const cardId of this.deps.dispatchInFlight)
       void this.deps.agentRuntime.forceCancelSession(`planner:${cardId}`);
     const stopRunPlans = planOpenRootRunStopUpdates({ state, nowIso: this.deps.now() });
     const stoppedRunIds = stopRunPlans.map((plan) => plan.runId);
     for (const plan of stopRunPlans) {
-      const updated = updateRuntimeRun(this.deps.projectRoot, plan.runId, plan.updates);
+      const updated = this.deps.mutations.apply({ kind: 'updateRuntimeRun', runId: plan.runId, updates: plan.updates });
       if (updated) this.deps.publishRuntimeRun(updated);
     }
     const current = readRuntimeState(this.deps.projectRoot) ?? state;
@@ -214,7 +211,7 @@ export class RuntimeProjectCommandRunner {
       },
     });
     const completedCommand = completion.completedCommand;
-    saveRuntimeState(this.deps.projectRoot, completion.state);
+    this.deps.mutations.apply({ kind: 'replaceRuntimeState', state: completion.state });
     this.deps.publishRuntimeCommand(completedCommand);
     this.deps.setShuttingDown(false);
     const persisted = readRuntimeState(this.deps.projectRoot) ?? current;

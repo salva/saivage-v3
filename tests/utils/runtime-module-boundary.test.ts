@@ -71,6 +71,18 @@ describe('runtime module ownership boundary', () => {
     expect('upsertRuntimeActivation' in stateApi).toBe(false);
   });
 
+  it('keeps runtime state writers behind the mutation port', () => {
+    const allowed = new Set([
+      join(process.cwd(), 'src/runtime/state.ts'),
+      join(process.cwd(), 'src/runtime/mutations.ts'),
+    ]);
+    const writerImportPattern = /import\s+\{[^}]*\b(saveRuntimeState|updateRuntimeState|appendRuntimeCommand|upsertRuntimeIntent|appendRuntimeRun|updateRuntimeRun|upsertRuntimeActivation)\b[^}]*\}\s+from ['"]\.\/state\.js['"]/;
+    for (const filePath of listTypeScriptFiles(join(process.cwd(), 'src/runtime'))) {
+      if (allowed.has(filePath)) continue;
+      expect(readFileSync(filePath, 'utf8')).not.toMatch(writerImportPattern);
+    }
+  });
+
   it('keeps tests on the runtime test harness instead of concrete Runtime imports', () => {
     const singleQuoteRuntimeImport = "from '../../src/runtime/" + "runtime.js'";
     const doubleQuoteRuntimeImport = 'from "../../src/runtime/' + 'runtime.js"';

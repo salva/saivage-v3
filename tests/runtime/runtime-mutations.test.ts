@@ -157,4 +157,34 @@ describe('runtime mutations', () => {
       rmSync(projectRoot, { recursive: true, force: true });
     }
   });
+
+  it('mutates runtime commands and intent through the mutation port', () => {
+    const projectRoot = mkdtempSync(join(tmpdir(), 'runtime-mutations-commands-'));
+    try {
+      initProjectTree(projectRoot);
+      initRuntimeState(projectRoot);
+
+      const mutations = createRuntimeStateMutationPort(projectRoot);
+      const command = mutations.apply({ kind: 'appendRuntimeCommand', commandKind: 'start_project', source: 'operator' });
+      const state = mutations.apply({
+        kind: 'upsertRuntimeIntent',
+        status: 'running',
+        sourceCommandId: command.command_id,
+        reason: 'test start',
+      });
+
+      expect(command).toEqual(expect.objectContaining({ command: 'start_project', status: 'accepted' }));
+      expect(state.runtime_intent).toEqual(expect.objectContaining({
+        status: 'running',
+        source_command_id: command.command_id,
+        reason: 'test start',
+      }));
+      expect(readRuntimeState(projectRoot)).toEqual(expect.objectContaining({
+        runtime_commands: [expect.objectContaining({ command_id: command.command_id })],
+        runtime_intent: expect.objectContaining({ source_command_id: command.command_id }),
+      }));
+    } finally {
+      rmSync(projectRoot, { recursive: true, force: true });
+    }
+  });
 });
