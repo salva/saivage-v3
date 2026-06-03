@@ -294,7 +294,7 @@ export function createRuntimeCoreTestContainer(input: {
       start: () => runtimeParts.supervisor.start(),
       stop: () => runtimeParts.supervisor.stop(),
       setChecksProvider: (provider) => runtimeParts.supervisor.setChecksProvider(provider),
-      runCheck: () => (runtimeParts.supervisor as unknown as { _runCheck: () => Promise<void> })._runCheck(),
+      runCheck: () => runtimeParts.supervisor.runCheck(),
     },
     stateTestTools: {
       read: () => readRuntimeState(input.config.projectRoot),

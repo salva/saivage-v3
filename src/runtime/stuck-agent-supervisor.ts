@@ -299,6 +299,11 @@ export class StuckAgentSupervisor {
     this._checksProvider = provider;
   }
 
+  /** Execute one check cycle immediately. */
+  runCheck(): Promise<void> {
+    return this._runCheck();
+  }
+
   // ── Accessors (for testing) ─────────────────────────────────
 
   /** Current consecutive stuck verdict count (for test assertions). */

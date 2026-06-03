@@ -128,6 +128,7 @@ describe('runtime module ownership boundary', () => {
     expect(source).not.toContain('agentEventBus: runtime');
     expect(source).not.toContain('RuntimeInternalParts');
     expect(source).not.toContain('internalsSink');
+    expect(source).not.toContain('._runCheck(');
   });
 
   it('keeps production runtime core composition free of test tools', () => {
