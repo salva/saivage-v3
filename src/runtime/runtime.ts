@@ -1,12 +1,7 @@
 import { join } from 'node:path';
-import type {
-  RuntimeState,
-} from '../schemas/index.js';
 import { CardStore, PROJECT_CARD_ID } from '../cards/store-api.js';
-import { queueSyntheticPlannerNote } from './synthetic-planner-notes.js';
 import {
   readRuntimeState,
-  saveRuntimeState,
   updateRuntimeState,
   appendRuntimeRun,
   upsertRuntimeActivation,
@@ -29,7 +24,6 @@ import {
 } from '../runtime/stuck-agent-supervisor.js';
 import { cardHasBlockedPlanning } from './planning-blockers.js';
 import { ActivationUnwindRunner } from './activation-unwind.js';
-import { decideStartupActiveRunRepair, executeStartupActiveRunRepairDecision } from './startup-repair.js';
 import { SessionStampCounter } from '../contracts/session-stamper.js';
 import type { RuntimeCompositionHooks, RuntimeConfig, RuntimeSkillsPort, RuntimeStampSource, RuntimeTestHooks } from './runtime-config.js';
 import { RuntimeGoalContextCoordinator } from './runtime-goal-context.js';
@@ -44,8 +38,8 @@ import { RuntimeDiagnostics } from './runtime-diagnostics.js';
 import { performRuntimeShutdown } from './runtime-shutdown.js';
 import { performRuntimeStartup } from './runtime-startup.js';
 import { performRuntimeCrashRecovery } from './crash-recovery.js';
+import { repairRuntimeStartupActiveCardRun } from './runtime-startup-active-run-repair.js';
 
-const TERMINAL_STATUSES: ReadonlySet<string> = new Set(['done', 'failed', 'cancelled']);
 function now(): string {
   return new Date().toISOString();
 }
@@ -307,42 +301,6 @@ class Runtime {
     hooks.agentEventSink?.setEmitAgentEvent((name, data) => this._events.emitAgentEvent(name, data));
   }
 
-  private async repairStartupActiveCardRun(
-    previousState: RuntimeState | null,
-  ): Promise<RuntimeState | null> {
-    const run = previousState?.active_card_run ?? null;
-    const card = run ? this.cardStore.read(run.card_id) : null;
-    const persistedReview =
-      card?.result && typeof card.result === 'object'
-        ? (card.result as { review?: unknown }).review
-        : undefined;
-    const decision = decideStartupActiveRunRepair({
-      previousState,
-      card,
-      hasPersistedReview: Boolean(persistedReview),
-      cardHasBlockedPlanning: card ? cardHasBlockedPlanning(card) : false,
-      isTerminalCardStatus: card ? TERMINAL_STATUSES.has(card.status) : false,
-    });
-
-    return executeStartupActiveRunRepairDecision({
-      decision,
-      previousState,
-      effects: {
-        now,
-        repairOrphanActivateCardToolCalls: () => this._activationUnwind.repairOrphanActivateCardToolCalls(),
-        transitionCard: (cardId, event, details) => this._stateMachine.transitionCard(cardId, event, details),
-        updateCard: (cardId, patch) => this.cardStore.update(cardId, patch),
-        appendChildUnwindToolResult: (cardId, outcome, summary) => this._activationUnwind.appendChildUnwindToolResult(cardId, outcome, summary),
-        parentPlannerRunFor: (cardId) => this._activationUnwind.parentPlannerRunFor(cardId),
-        findCallerEdge: (cardId) => this._activationUnwind.findCallerEdge(cardId),
-        synthesizeTerminalActivationResult: (sessionId, toolCallId, cardId) => this._activationUnwind.synthesizeTerminalActivationResult(sessionId, toolCallId, cardId),
-        finishOpenPlannerRun: (cardId, result) => this._runLedger.finishOpenPlannerRun(cardId, result),
-        queueSyntheticPlannerNote: (note) => queueSyntheticPlannerNote(this.projectRoot, note),
-        saveState: (state) => saveRuntimeState(this.projectRoot, state),
-      },
-    });
-  }
-
   private consumeResumeHandoffContext(): string | null {
     const ctx = this._resumeHandoffContext;
     this._resumeHandoffContext = null;
@@ -377,7 +335,15 @@ class Runtime {
       setStartupRepairPending: (pending) => {
         this._startupRepairPending = pending;
       },
-      repairStartupActiveCardRun: (state) => this.repairStartupActiveCardRun(state),
+      repairStartupActiveCardRun: (previousState) =>
+        repairRuntimeStartupActiveCardRun({
+          projectRoot: this.projectRoot,
+          previousState,
+          cards: this.cardStore,
+          stateMachine: this._stateMachine,
+          activationUnwind: this._activationUnwind,
+          runLedger: this._runLedger,
+        }),
       dispatchGoalThroughScheduler: (goalId) => this.dispatchGoalThroughScheduler(goalId),
       trackBackgroundDispatch: (dispatch) => this._diagnostics.trackBackgroundDispatch(dispatch),
     });
