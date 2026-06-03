@@ -391,7 +391,6 @@ class Runtime {
       stopProject: (source) => this.stopProject(source),
     });
     this.publishDiagnostics();
-    hooks.lifecycleTestToolsSink?.setSimulateCrash(() => this.simulateCrash());
     hooks.lifecycleTestToolsSink?.setPerformCrashRecovery(() => this.performCrashRecovery());
     hooks.lifecycleTestToolsSink?.setRequestImmediateTick(() => this._stateMachine.requestImmediateTick());
     hooks.agentEventSink?.setEmitAgentEvent((name, data) => this.emitAgentEvent(name, data));
@@ -1671,12 +1670,4 @@ class Runtime {
     return { dispatchedGoal, executedTerminal, failed };
   }
 
-  private async simulateCrash(): Promise<void> {
-    const allCards = this.cardStore.list();
-    for (const card of allCards)
-      if (card.status === 'active' || card.status === 'running') {
-        await this._stateMachine.transitionCard(card.id, 'crash_recovery_drop_to_backlog');
-      }
-    this._running = false;
-  }
 }

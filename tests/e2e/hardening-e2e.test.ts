@@ -588,7 +588,7 @@ describe('E2E — Crash and Restart Recovery', () => {
         },
       },
     });
-    await harness.lifecycleTestTools.simulateCrash();
+    await harness.lifecycleTestTools.performCrashRecovery();
 
     const card1 = store.read('code-crash-1');
     expect(card1!.status).toBe('backlog');

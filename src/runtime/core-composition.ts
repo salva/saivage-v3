@@ -91,7 +91,6 @@ export interface RuntimeCoreTestContainer extends RuntimeCoreContainer {
     getLastLifecycleDisposeReport(): RuntimeDisposeReportEntry[];
   };
   lifecycleTestTools: {
-    simulateCrash(): Promise<void>;
     performCrashRecovery(): Promise<void>;
     requestImmediateTick(): Promise<void>;
   };
@@ -165,7 +164,6 @@ export function createRuntimeCoreTestContainer(input: {
 }): RuntimeCoreTestContainer {
   let backgroundDispatchCount = 0;
   let lastLifecycleDisposeReport: RuntimeDisposeReportEntry[] = [];
-  let simulateCrash: (() => Promise<void>) | null = null;
   let performCrashRecovery: (() => Promise<void>) | null = null;
   let requestImmediateTick: (() => Promise<void>) | null = null;
   let emitAgentEvent: EmitAgentEvent | null = null;
@@ -191,9 +189,6 @@ export function createRuntimeCoreTestContainer(input: {
         },
       },
       lifecycleTestToolsSink: {
-        setSimulateCrash: (nextSimulateCrash) => {
-          simulateCrash = nextSimulateCrash;
-        },
         setPerformCrashRecovery: (nextPerformCrashRecovery) => {
           performCrashRecovery = nextPerformCrashRecovery;
         },
@@ -306,10 +301,6 @@ export function createRuntimeCoreTestContainer(input: {
       getLastLifecycleDisposeReport: () => [...lastLifecycleDisposeReport],
     },
     lifecycleTestTools: {
-      simulateCrash: () => {
-        if (!simulateCrash) throw new Error('Runtime crash simulation hook is unavailable.');
-        return simulateCrash();
-      },
       performCrashRecovery: () => {
         if (!performCrashRecovery) throw new Error('Runtime crash recovery hook is unavailable.');
         return performCrashRecovery();

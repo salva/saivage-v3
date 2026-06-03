@@ -789,7 +789,7 @@ describe('Runtime Integration', () => {
       });
 
       makeRuntime();
-      await harness.lifecycleTestTools.simulateCrash();
+      await harness.lifecycleTestTools.performCrashRecovery();
 
       const goal = store.read('goal-1');
       expect(goal!.status).toBe('backlog');

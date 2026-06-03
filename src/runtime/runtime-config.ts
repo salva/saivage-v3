@@ -44,7 +44,6 @@ export interface RuntimeCompositionHooks {
     setLastLifecycleDisposeReport(report: RuntimeDisposeReportEntry[]): void;
   };
   lifecycleTestToolsSink?: {
-    setSimulateCrash(simulateCrash: () => Promise<void>): void;
     setPerformCrashRecovery(performCrashRecovery: () => Promise<void>): void;
     setRequestImmediateTick(requestImmediateTick: () => Promise<void>): void;
   };

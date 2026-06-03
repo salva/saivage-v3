@@ -80,7 +80,6 @@ describe('runtime module ownership boundary', () => {
       expect(source).not.toContain('runtime.dispatchGoal');
       expect(source).not.toContain('dispatchGoal =');
       expect(source).not.toContain('runtime.getBackgroundDispatchCount');
-      expect(source).not.toContain('runtime.simulateCrash');
       expect(source).not.toContain('runtime.emitAgentEvent');
       expect(source).not.toContain('runtime.on(');
       expect(source).not.toContain('runtime.performCrashRecovery');
@@ -205,7 +204,6 @@ describe('runtime module ownership boundary', () => {
     expect(source).not.toContain('  registerAttachmentOnCard(');
     expect(source).not.toContain('  getBackgroundDispatchCount(');
     expect(source).not.toContain('  get lastLifecycleDisposeReport(');
-    expect(source).not.toContain('  async simulateCrash(');
     expect(source).not.toContain('  freeze(');
     expect(source).not.toContain('  resumeFromFreeze(');
     expect(source).not.toContain('  async performCrashRecovery(');
