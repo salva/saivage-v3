@@ -55,6 +55,7 @@ export async function performRuntimeStartup(input: {
     transitionCard: (cardId, event, details) => input.stateMachine.transitionCard(cardId, event, details),
     finishOpenPlannerRun: (goalId, result) => input.runLedger.finishOpenPlannerRun(goalId, result),
     projectRoot: input.projectRoot,
+    mutations: input.mutations,
   });
   state = readRuntimeState(input.projectRoot) ?? state;
   await performRuntimeCrashRecovery({
@@ -95,6 +96,7 @@ export async function performRuntimeStartup(input: {
     state: readRuntimeState(input.projectRoot) ?? state,
     cards: input.cards,
     eventLogger: input.eventLogger,
+    mutations: input.mutations,
     now,
     publishRuntimeRun: (run) => input.events.publishRuntimeLedgerEvent('runtime_run', { run }),
   });

@@ -1,7 +1,8 @@
-import { readRuntimeState, updateRuntimeState } from './state.js';
+import { readRuntimeState } from './state.js';
 import type { RuntimeApi } from './runtime-api.js';
 import { queueNotification } from '../notifications/index.js';
 import type { RuntimeState } from '../schemas/index.js';
+import { createRuntimeStateMutationPort } from './mutations.js';
 
 /**
  * Shared runtime-control authority for pause/resume semantics.
@@ -62,11 +63,15 @@ export function pauseRuntimeControl(ctx: RuntimeControlContext): RuntimeControlR
       ctx.runtimeApi.pause();
       state = readRuntimeState(ctx.projectRoot) ?? current;
     } else {
-      state = updateRuntimeState(ctx.projectRoot, {
-        status: 'paused',
-        paused: true,
-        paused_at: new Date().toISOString(),
+      createRuntimeStateMutationPort(ctx.projectRoot).apply({
+        kind: 'patchRuntimeState',
+        patch: {
+          status: 'paused',
+          paused: true,
+          paused_at: new Date().toISOString(),
+        },
       });
+      state = readRuntimeState(ctx.projectRoot) ?? current;
     }
     queueNotification(ctx.projectRoot, { kind: 'role', role: 'planner' }, 'runtime_state', 'Runtime was paused.', { actor: 'runtime', surface: 'runtime' });
     return {
@@ -114,11 +119,15 @@ export function resumeRuntimeControl(ctx: RuntimeControlContext): RuntimeControl
       ctx.runtimeApi.resume();
       state = readRuntimeState(ctx.projectRoot) ?? current;
     } else {
-      state = updateRuntimeState(ctx.projectRoot, {
-        status: 'idle',
-        paused: false,
-        paused_at: null,
+      createRuntimeStateMutationPort(ctx.projectRoot).apply({
+        kind: 'patchRuntimeState',
+        patch: {
+          status: 'idle',
+          paused: false,
+          paused_at: null,
+        },
       });
+      state = readRuntimeState(ctx.projectRoot) ?? current;
     }
     queueNotification(ctx.projectRoot, { kind: 'role', role: 'planner' }, 'runtime_state', 'Runtime was resumed.', { actor: 'runtime', surface: 'runtime' });
     return {
