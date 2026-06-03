@@ -161,6 +161,31 @@ describe('runtime module ownership boundary', () => {
     expect(runtimeConfig).not.toContain('setDispatchGoal');
   });
 
+  it('keeps production composition hooks separate from test hooks', () => {
+    const source = readFileSync(join(process.cwd(), 'src/runtime/runtime-config.ts'), 'utf8');
+    const productionStart = source.indexOf('export interface RuntimeCompositionHooks');
+    const testStart = source.indexOf('export interface RuntimeTestHooks');
+    const configStart = source.indexOf('export interface RuntimeConfig');
+    expect(productionStart).toBeGreaterThanOrEqual(0);
+    expect(testStart).toBeGreaterThan(productionStart);
+    expect(configStart).toBeGreaterThan(testStart);
+    const productionHooks = source.slice(productionStart, testStart);
+    expect(productionHooks).toContain('agentEventSink');
+    expect(productionHooks).toContain('corePartsSink');
+    expect(productionHooks).toContain('controlSink');
+    expect(productionHooks).not.toContain('diagnosticsSink');
+    expect(productionHooks).not.toContain('lifecycleTestToolsSink');
+    expect(productionHooks).not.toContain('testPartsSink');
+    expect(productionHooks).not.toContain('schedulerSink');
+    expect(productionHooks).not.toContain('eventListenerSink');
+    const testHooks = source.slice(testStart, configStart);
+    expect(testHooks).toContain('diagnosticsSink');
+    expect(testHooks).toContain('lifecycleTestToolsSink');
+    expect(testHooks).toContain('testPartsSink');
+    expect(testHooks).toContain('schedulerSink');
+    expect(testHooks).toContain('eventListenerSink');
+  });
+
   it('keeps agent event emission out of lifecycle test tools', () => {
     const source = readFileSync(join(process.cwd(), 'src/runtime/core-composition.ts'), 'utf8');
     const lifecycleToolsStart = source.indexOf('  lifecycleTestTools: {');

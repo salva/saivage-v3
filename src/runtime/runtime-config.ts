@@ -39,6 +39,18 @@ export interface RuntimeTestParts {
 }
 
 export interface RuntimeCompositionHooks {
+  agentEventSink?: {
+    setEmitAgentEvent(emitAgentEvent: (name: string, data: Record<string, unknown>) => void): void;
+  };
+  corePartsSink?: {
+    setRuntimeCoreParts(parts: RuntimeCoreParts): void;
+  };
+  controlSink?: {
+    setRuntimeControls(controls: RuntimeControlHooks): void;
+  };
+}
+
+export interface RuntimeTestHooks {
   diagnosticsSink?: {
     setBackgroundDispatchCount(count: number): void;
     setLastLifecycleDisposeReport(report: RuntimeDisposeReportEntry[]): void;
@@ -47,20 +59,11 @@ export interface RuntimeCompositionHooks {
     setPerformCrashRecovery(performCrashRecovery: () => Promise<void>): void;
     setRequestImmediateTick(requestImmediateTick: () => Promise<void>): void;
   };
-  agentEventSink?: {
-    setEmitAgentEvent(emitAgentEvent: (name: string, data: Record<string, unknown>) => void): void;
-  };
-  corePartsSink?: {
-    setRuntimeCoreParts(parts: RuntimeCoreParts): void;
-  };
   testPartsSink?: {
     setRuntimeTestParts(parts: RuntimeTestParts): void;
   };
   schedulerSink?: {
     setDispatchGoal(dispatchGoal: (goalId: string) => Promise<void>): void;
-  };
-  controlSink?: {
-    setRuntimeControls(controls: RuntimeControlHooks): void;
   };
   eventListenerSink?: {
     setRuntimeEventListener(on: (eventName: string | symbol, listener: (...args: unknown[]) => void) => void): void;

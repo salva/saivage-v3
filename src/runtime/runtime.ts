@@ -101,7 +101,7 @@ import { PlannerPhaseRunner } from './phases/planner-phase-runner.js';
 import { PlannerResultApplier } from './phases/planner-result-applier.js';
 import { decideStartupActiveRunRepair, executeStartupActiveRunRepairDecision, selectStartupPlannerRedispatchCardId, shouldRestartRunningIntentOnStartup } from './startup-repair.js';
 import { SessionStampCounter } from '../contracts/session-stamper.js';
-import type { RuntimeCompositionHooks, RuntimeConfig, RuntimeSkillsPort, RuntimeStampSource } from './runtime-config.js';
+import type { RuntimeCompositionHooks, RuntimeConfig, RuntimeSkillsPort, RuntimeStampSource, RuntimeTestHooks } from './runtime-config.js';
 import { compactPersistedPlannerHistoryForRetry } from './persisted-planner-history.js';
 import { performRuntimeCrashRecovery } from './crash-recovery.js';
 
@@ -139,8 +139,13 @@ type ConfigurableAgentRuntime = AgentExecutionPort & {
   setSessionStamper?: (sessionStamper: RuntimeStampSource) => void;
 };
 
-export function initializeRuntimeImplementation(config: RuntimeConfig, agentRuntime?: AgentExecutionPort, hooks: RuntimeCompositionHooks = {}): void {
-  new Runtime(config, agentRuntime, hooks);
+export function initializeRuntimeImplementation(
+  config: RuntimeConfig,
+  agentRuntime?: AgentExecutionPort,
+  hooks: RuntimeCompositionHooks = {},
+  testHooks: RuntimeTestHooks = {},
+): void {
+  new Runtime(config, agentRuntime, hooks, testHooks);
 }
 
 class Runtime {
@@ -170,12 +175,17 @@ class Runtime {
   private _stateMachine: RuntimeStateMachine;
   private readonly _sessionStamper: RuntimeStampSource;
   private readonly _goalDispatcher: RuntimeConfig['goalDispatcher'];
-  private readonly _diagnosticsSink: RuntimeCompositionHooks['diagnosticsSink'];
+  private readonly _diagnosticsSink: RuntimeTestHooks['diagnosticsSink'];
 
-  constructor(config: RuntimeConfig, agentRuntime?: AgentExecutionPort, hooks: RuntimeCompositionHooks = {}) {
+  constructor(
+    config: RuntimeConfig,
+    agentRuntime?: AgentExecutionPort,
+    hooks: RuntimeCompositionHooks = {},
+    testHooks: RuntimeTestHooks = {},
+  ) {
     this.projectRoot = config.projectRoot;
     this._goalDispatcher = config.goalDispatcher;
-    this._diagnosticsSink = hooks.diagnosticsSink;
+    this._diagnosticsSink = testHooks.diagnosticsSink;
     this.eventBus = new EventBus();
     this.cardStore = new CardStore(
       config.projectRoot,
@@ -313,14 +323,14 @@ class Runtime {
       eventBus: this.eventBus,
       cards: this.cardStore,
     });
-    hooks.testPartsSink?.setRuntimeTestParts({
+    testHooks.testPartsSink?.setRuntimeTestParts({
       agentRuntime: this.agentRuntime,
       errorLogger: this._errorLogger,
       eventLogger: this._eventLogger,
       supervisor: this._supervisor,
     });
-    hooks.schedulerSink?.setDispatchGoal((goalId) => this.dispatchGoal(goalId));
-    hooks.eventListenerSink?.setRuntimeEventListener((eventName, listener) => {
+    testHooks.schedulerSink?.setDispatchGoal((goalId) => this.dispatchGoal(goalId));
+    testHooks.eventListenerSink?.setRuntimeEventListener((eventName, listener) => {
       this.eventEmitter.on(eventName, listener);
     });
     hooks.controlSink?.setRuntimeControls({
@@ -332,14 +342,14 @@ class Runtime {
       stopProject: (source) => this.stopProject(source),
     });
     this.publishDiagnostics();
-    hooks.lifecycleTestToolsSink?.setPerformCrashRecovery(() =>
+    testHooks.lifecycleTestToolsSink?.setPerformCrashRecovery(() =>
       performRuntimeCrashRecovery({
         projectRoot: this.projectRoot,
         cards: this.cardStore.list(),
         transitionCard: (cardId, event) => this._stateMachine.transitionCard(cardId, event),
       }),
     );
-    hooks.lifecycleTestToolsSink?.setRequestImmediateTick(() => this._stateMachine.requestImmediateTick());
+    testHooks.lifecycleTestToolsSink?.setRequestImmediateTick(() => this._stateMachine.requestImmediateTick());
     hooks.agentEventSink?.setEmitAgentEvent((name, data) => this.emitAgentEvent(name, data));
   }
 
