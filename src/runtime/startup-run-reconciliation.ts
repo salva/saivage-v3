@@ -2,7 +2,7 @@ import type { CardRecord, RuntimeRunRecord, RuntimeState } from '../schemas/inde
 import type { EventLogger } from '../observability/index.js';
 import { PROJECT_CARD_ID } from '../cards/store-api.js';
 import { planIdleRunningRootRunReconciliation } from './runtime-core.js';
-import { readRuntimeState, updateRuntimeRun } from './state.js';
+import { readRuntimeState } from './state.js';
 import type { RuntimeStateMutationPort } from './mutations.js';
 
 const TERMINAL_STATUSES: ReadonlySet<string> = new Set(['done', 'failed', 'cancelled']);
@@ -26,7 +26,7 @@ export function reconcileIdleRunningRootRuns(input: {
   if (!plan) return input.state;
   let reconciled = input.state;
   for (const update of plan.runUpdates) {
-    const updated = updateRuntimeRun(input.projectRoot, update.runId, update.updates);
+    const updated = input.mutations.apply({ kind: 'updateRuntimeRun', runId: update.runId, updates: update.updates });
     if (updated) {
       input.publishRuntimeRun(updated);
       reconciled = readRuntimeState(input.projectRoot) ?? reconciled;

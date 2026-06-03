@@ -13,7 +13,7 @@ import type { RuntimeRunLedger } from './runtime-run-ledger.js';
 import type { ActivationUnwindRunner } from './activation-unwind.js';
 import type { PendingActivationDispatcher } from './pending-activation-dispatcher.js';
 import { consumeChangedCardActivation } from './synthetic-planner-notes.js';
-import { readRuntimeState, updateRuntimeRun } from './state.js';
+import { readRuntimeState } from './state.js';
 import {
   buildCurrentAgentSessionPatch,
   buildDispatchPausedRuntimeStatePatch,
@@ -272,7 +272,7 @@ export class RuntimeCardDispatcher {
         appendError: (input) => this.deps.errorLogger.appendError(input),
         transitionCard: (cardId, event, details) => this.deps.stateMachine.transitionCard(cardId, event, details),
         updateCard: (cardId, patch) => this.deps.cards.update(cardId, patch),
-        updateRuntimeRun: (runId, updates) => updateRuntimeRun(this.deps.projectRoot, runId, updates),
+        updateRuntimeRun: (runId, updates) => this.deps.mutations.apply({ kind: 'updateRuntimeRun', runId, updates }),
         publishRuntimeRun: (run) => this.deps.publishRuntimeRun(run),
         transitionRuntime: (event, details) => this.deps.stateMachine.transition(event, details),
       },

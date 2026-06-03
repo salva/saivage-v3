@@ -3,7 +3,8 @@ import type { AgentExecutionPort, RuntimeActivationLedgerPort } from '../contrac
 import type { RuntimeConfig } from './runtime-config.js';
 import type { SessionStamper } from '../contracts/session-stamper.js';
 import { createDefaultAgentExecution } from './default-agent-execution.js';
-import { appendRuntimeRun, readRuntimeState, upsertRuntimeActivation } from './state.js';
+import { readRuntimeState } from './state.js';
+import type { RuntimeStateMutationPort } from './mutations.js';
 
 type ConfigurableAgentRuntime = AgentExecutionPort & {
   setSaivageDir?: (saivageDir: string) => void;
@@ -14,12 +15,13 @@ type ConfigurableAgentRuntime = AgentExecutionPort & {
 export function createConfiguredAgentRuntime(input: {
   config: RuntimeConfig;
   sessionStamper: SessionStamper;
+  mutations: RuntimeStateMutationPort;
   agentRuntime?: AgentExecutionPort;
 }): AgentExecutionPort {
   const activationLedger: RuntimeActivationLedgerPort = {
     readState: () => readRuntimeState(input.config.projectRoot),
-    appendRun: (run) => appendRuntimeRun(input.config.projectRoot, run),
-    upsertActivation: (activation) => upsertRuntimeActivation(input.config.projectRoot, activation),
+    appendRun: (run) => input.mutations.apply({ kind: 'appendRuntimeRun', run }),
+    upsertActivation: (activation) => input.mutations.apply({ kind: 'upsertRuntimeActivation', activation }),
   };
   const runtime =
     input.agentRuntime ??

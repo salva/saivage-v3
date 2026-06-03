@@ -130,11 +130,13 @@ class Runtime {
     this._runLedger = new RuntimeRunLedger({
       projectRoot: this.projectRoot,
       now,
+      mutations: this._mutations,
       publishRuntimeRun: (run) => this._events.publishRuntimeLedgerEvent('runtime_run', { run }),
     });
     this.agentRuntime = createConfiguredAgentRuntime({
       config,
       sessionStamper: this._sessionStamper,
+      mutations: this._mutations,
       agentRuntime,
     });
     this._skillsEngine = config.skillsEngine ?? null;

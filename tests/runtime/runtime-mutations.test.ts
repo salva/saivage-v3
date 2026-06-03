@@ -96,4 +96,65 @@ describe('runtime mutations', () => {
       rmSync(projectRoot, { recursive: true, force: true });
     }
   });
+
+  it('mutates runtime runs and activations through the mutation port', () => {
+    const projectRoot = mkdtempSync(join(tmpdir(), 'runtime-mutations-ledger-'));
+    try {
+      initProjectTree(projectRoot);
+      initRuntimeState(projectRoot);
+
+      const mutations = createRuntimeStateMutationPort(projectRoot);
+      const run = mutations.apply({
+        kind: 'appendRuntimeRun',
+        run: {
+          card_id: 'goal-a',
+          kind: 'root',
+          parent_run_id: null,
+          command_id: null,
+          activation_id: null,
+          phase: 'planner',
+          runtime_status: 'running',
+          session_id: 'planner:goal-a',
+          result: null,
+        },
+      });
+      const updatedRun = mutations.apply({
+        kind: 'updateRuntimeRun',
+        runId: run.run_id,
+        updates: { phase: 'completed', runtime_status: 'idle', result: 'done' },
+      });
+      const activation = mutations.apply({
+        kind: 'upsertRuntimeActivation',
+        activation: {
+          idempotency_key: 'idem-1',
+          parent_card_id: 'parent',
+          parent_run_id: 'run-parent',
+          parent_session_id: 'planner:parent',
+          parent_tool_call_id: 'call-1',
+          child_card_id: 'goal-a',
+          status: 'running',
+          precondition: 'accepted',
+          runtime_run_id: run.run_id,
+          error: null,
+        },
+      });
+
+      expect(updatedRun).toEqual(expect.objectContaining({
+        run_id: run.run_id,
+        phase: 'completed',
+        runtime_status: 'idle',
+        result: 'done',
+      }));
+      expect(activation).toEqual(expect.objectContaining({
+        idempotency_key: 'idem-1',
+        child_card_id: 'goal-a',
+      }));
+      expect(readRuntimeState(projectRoot)).toEqual(expect.objectContaining({
+        runtime_runs: [expect.objectContaining({ run_id: run.run_id, phase: 'completed' })],
+        runtime_activations: [expect.objectContaining({ activation_id: activation.activation_id })],
+      }));
+    } finally {
+      rmSync(projectRoot, { recursive: true, force: true });
+    }
+  });
 });

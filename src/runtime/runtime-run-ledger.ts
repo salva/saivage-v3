@@ -3,13 +3,15 @@ import {
   planOpenPlannerRunTerminalUpdate,
   planPlannerRunSessionBinding,
 } from './runtime-core.js';
-import { readRuntimeState, updateRuntimeRun } from './state.js';
+import { readRuntimeState } from './state.js';
+import type { RuntimeStateMutationPort } from './mutations.js';
 
 export class RuntimeRunLedger {
   constructor(
     private readonly deps: {
       projectRoot: string;
       now(): string;
+      mutations: RuntimeStateMutationPort;
       publishRuntimeRun(run: RuntimeRunRecord): void;
     },
   ) {}
@@ -22,7 +24,7 @@ export class RuntimeRunLedger {
       nowIso: this.deps.now(),
     });
     if (!plan) return;
-    const updated = updateRuntimeRun(this.deps.projectRoot, plan.runId, plan.updates);
+    const updated = this.deps.mutations.apply({ kind: 'updateRuntimeRun', runId: plan.runId, updates: plan.updates });
     if (updated) this.deps.publishRuntimeRun(updated);
   }
 
@@ -33,7 +35,7 @@ export class RuntimeRunLedger {
       plannerSessionId,
     });
     if (!plan) return;
-    const updated = updateRuntimeRun(this.deps.projectRoot, plan.runId, plan.updates);
+    const updated = this.deps.mutations.apply({ kind: 'updateRuntimeRun', runId: plan.runId, updates: plan.updates });
     if (updated) this.deps.publishRuntimeRun(updated);
   }
 }
