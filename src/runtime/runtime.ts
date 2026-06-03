@@ -23,6 +23,7 @@ import { RuntimeProjectCommandRunner } from './runtime-project-commands.js';
 import { RuntimePauseResumeController } from './runtime-pause-resume.js';
 import { RuntimeRunLedger } from './runtime-run-ledger.js';
 import { PendingActivationDispatcher } from './pending-activation-dispatcher.js';
+import { ExecutorActivationDispatcher } from './executor-activation-dispatcher.js';
 import { RuntimeCardDispatcher } from './runtime-card-dispatcher.js';
 import { createRuntimeSupervisor } from './supervisor-factory.js';
 import { RuntimeEventPublisher } from './runtime-event-publisher.js';
@@ -77,6 +78,7 @@ class Runtime {
   private _pauseResume!: RuntimePauseResumeController;
   private readonly _runLedger: RuntimeRunLedger;
   private _pendingActivations!: PendingActivationDispatcher;
+  private _executorActivations!: ExecutorActivationDispatcher;
   private _cardDispatcher!: RuntimeCardDispatcher;
   private _activationScheduler!: ActivationScheduler;
   private readonly _mutations: RuntimeStateMutationPort;
@@ -196,7 +198,7 @@ class Runtime {
       emit: (eventName, data) => this._events.emit(eventName, data),
       now,
     });
-    this._pendingActivations = new PendingActivationDispatcher({
+    this._executorActivations = new ExecutorActivationDispatcher({
       projectRoot: this.projectRoot,
       cards: this.cardStore,
       agentRuntime: this.agentRuntime,
@@ -206,12 +208,18 @@ class Runtime {
       mutations: this._mutations,
       eventLogger: this._eventLogger,
       errorLogger: this._errorLogger,
-      isPaused: () => this._paused,
-      isShuttingDown: () => this._shuttingDown,
-      dispatchGoalThroughScheduler: (goalId) => this._activationScheduler.dispatch(goalId),
       emit: (eventName, data) => this._events.emit(eventName, data),
       emitRuntimeDiagnostic: (input) => this._events.emitRuntimeDiagnostic(input),
       now,
+    });
+    this._pendingActivations = new PendingActivationDispatcher({
+      projectRoot: this.projectRoot,
+      cards: this.cardStore,
+      activationUnwind: this._activationUnwind,
+      isPaused: () => this._paused,
+      isShuttingDown: () => this._shuttingDown,
+      dispatchGoalThroughScheduler: (goalId) => this._activationScheduler.dispatch(goalId),
+      executorActivations: this._executorActivations,
     });
     this._cardDispatcher = new RuntimeCardDispatcher({
       projectRoot: this.projectRoot,
