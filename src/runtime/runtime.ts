@@ -4,21 +4,17 @@ import type {
 } from '../schemas/index.js';
 import { CardStore, PROJECT_CARD_ID } from '../cards/store-api.js';
 import { queueSyntheticPlannerNote } from './synthetic-planner-notes.js';
-import { reconcileOrphanedAgentSessions } from './session-persistence.js';
 import {
-  initRuntimeState,
   readRuntimeState,
   saveRuntimeState,
   updateRuntimeState,
   appendRuntimeRun,
   upsertRuntimeActivation,
 } from './state.js';
-import { acquireLock } from './lock.js';
 import { createDefaultAgentExecution } from './default-agent-execution.js';
 import type { AgentExecutionPort, RuntimeActivationLedgerPort } from '../contracts/index.js';
 import {
   listProcesses,
-  reconcileProcessRecords,
 } from './process-runner.js';
 import { EventLogger } from '../observability/index.js';
 import { ErrorLogger } from '../observability/index.js';
@@ -31,18 +27,14 @@ import type { RuntimeCardPort, RuntimeStatePort } from './ports.js';
 import {
   StuckAgentSupervisor,
 } from '../runtime/stuck-agent-supervisor.js';
-import { planSweptCurrentAgentSessionPatch } from './runtime-core.js';
 import { cardHasBlockedPlanning } from './planning-blockers.js';
 import { ActivationUnwindRunner } from './activation-unwind.js';
-import { decideStartupActiveRunRepair, executeStartupActiveRunRepairDecision, selectStartupPlannerRedispatchCardId, shouldRestartRunningIntentOnStartup } from './startup-repair.js';
+import { decideStartupActiveRunRepair, executeStartupActiveRunRepairDecision } from './startup-repair.js';
 import { SessionStampCounter } from '../contracts/session-stamper.js';
 import type { RuntimeCompositionHooks, RuntimeConfig, RuntimeSkillsPort, RuntimeStampSource, RuntimeTestHooks } from './runtime-config.js';
-import { performRuntimeCrashRecovery } from './crash-recovery.js';
 import { RuntimeGoalContextCoordinator } from './runtime-goal-context.js';
 import { RuntimeProjectCommandRunner } from './runtime-project-commands.js';
 import { RuntimePauseResumeController } from './runtime-pause-resume.js';
-import { alignBlockedPlanningCardStatuses } from './startup-blocked-planning.js';
-import { reconcileIdleRunningRootRuns } from './startup-run-reconciliation.js';
 import { RuntimeRunLedger } from './runtime-run-ledger.js';
 import { PendingActivationDispatcher } from './pending-activation-dispatcher.js';
 import { RuntimeCardDispatcher } from './runtime-card-dispatcher.js';
@@ -50,6 +42,8 @@ import { createRuntimeSupervisor } from './supervisor-factory.js';
 import { RuntimeEventPublisher } from './runtime-event-publisher.js';
 import { RuntimeDiagnostics } from './runtime-diagnostics.js';
 import { performRuntimeShutdown } from './runtime-shutdown.js';
+import { performRuntimeStartup } from './runtime-startup.js';
+import { performRuntimeCrashRecovery } from './crash-recovery.js';
 
 const TERMINAL_STATUSES: ReadonlySet<string> = new Set(['done', 'failed', 'cancelled']);
 function now(): string {
@@ -361,72 +355,32 @@ class Runtime {
   }
 
   private async startup(): Promise<void> {
-    if (this._running) throw new Error('Runtime is already running.');
-    let state = readRuntimeState(this.projectRoot);
-    if (!state) state = initRuntimeState(this.projectRoot);
-    acquireLock(this.projectRoot);
-    await alignBlockedPlanningCardStatuses({
+    await performRuntimeStartup({
+      projectRoot: this.projectRoot,
       cards: this.cardStore,
-      transitionCard: (cardId, event, details) => this._stateMachine.transitionCard(cardId, event, details),
-      finishOpenPlannerRun: (goalId, result) => this._runLedger.finishOpenPlannerRun(goalId, result),
-      projectRoot: this.projectRoot,
-    });
-    state = readRuntimeState(this.projectRoot) ?? state;
-    await performRuntimeCrashRecovery({
-      projectRoot: this.projectRoot,
-      cards: this.cardStore.list(),
-      transitionCard: (cardId, event) => this._stateMachine.transitionCard(cardId, event),
-    });
-    reconcileProcessRecords(this.projectRoot);
-    this._startupRepairPending = true;
-    const repairedState = await this.repairStartupActiveCardRun(state);
-    this._startupRepairPending = false;
-    if (!repairedState) state = initRuntimeState(this.projectRoot);
-    else state = repairedState;
-    const swept = reconcileOrphanedAgentSessions(join(this.projectRoot, '.saivage'));
-    if (swept.length > 0) {
-      const sweptSessionIds = swept.map((session) => session.id);
-      this._events.emit('startup_session_sweep', { swept_session_ids: sweptSessionIds });
-      this._eventLogger.appendEvent({
-        kind: 'startup_session_sweep',
-        swept_session_ids: sweptSessionIds,
-      });
-      const postRepairState = readRuntimeState(this.projectRoot);
-      const patch = planSweptCurrentAgentSessionPatch({ state: postRepairState, sweptSessionIds });
-      if (patch) {
-        updateRuntimeState(this.projectRoot, patch);
-        state = readRuntimeState(this.projectRoot) ?? state;
-      }
-    }
-    this._paused = state.paused;
-    this._running = true;
-    this._shuttingDown = false;
-    this._events.emit('started', { projectRoot: this.projectRoot });
-    this._eventLogger.appendEvent({ kind: 'started', project_root: this.projectRoot });
-    this._supervisor.start();
-    this._stateMachine.start();
-    state = reconcileIdleRunningRootRuns({
-      projectRoot: this.projectRoot,
-      state: readRuntimeState(this.projectRoot) ?? state,
-      cards: this.cardStore,
+      stateMachine: this._stateMachine,
+      runLedger: this._runLedger,
+      projectCommands: this._projectCommands,
+      supervisor: this._supervisor,
+      events: this._events,
       eventLogger: this._eventLogger,
-      now,
-      publishRuntimeRun: (run) => this._events.publishRuntimeLedgerEvent('runtime_run', { run }),
+      isRunning: () => this._running,
+      setPaused: (paused) => {
+        this._paused = paused;
+      },
+      setRunning: (running) => {
+        this._running = running;
+      },
+      setShuttingDown: (shuttingDown) => {
+        this._shuttingDown = shuttingDown;
+      },
+      setStartupRepairPending: (pending) => {
+        this._startupRepairPending = pending;
+      },
+      repairStartupActiveCardRun: (state) => this.repairStartupActiveCardRun(state),
+      dispatchGoalThroughScheduler: (goalId) => this.dispatchGoalThroughScheduler(goalId),
+      trackBackgroundDispatch: (dispatch) => this._diagnostics.trackBackgroundDispatch(dispatch),
     });
-    if (shouldRestartRunningIntentOnStartup({ state, projectHasBlockedPlanning: cardHasBlockedPlanning(this.cardStore.read(PROJECT_CARD_ID)) })) {
-      this._diagnostics.trackBackgroundDispatch(this._projectCommands.startProject('runtime').then(() => undefined));
-    }
-    const startupActiveRunCardId = state.active_card_run?.card_id ?? null;
-    const startupPlannerRedispatchCardId = selectStartupPlannerRedispatchCardId({
-      state,
-      activeCardHasBlockedPlanning: startupActiveRunCardId ? cardHasBlockedPlanning(this.cardStore.read(startupActiveRunCardId)) : false,
-    });
-    if (startupPlannerRedispatchCardId) {
-      this._diagnostics.trackBackgroundDispatch(this.dispatchGoalThroughScheduler(startupPlannerRedispatchCardId));
-    }
-    setTimeout(() => {
-      void this._stateMachine.requestImmediateTick();
-    }, 0);
   }
   private async shutdown(): Promise<void> {
     await performRuntimeShutdown({
