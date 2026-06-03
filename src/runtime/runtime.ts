@@ -26,6 +26,7 @@ import { PendingActivationDispatcher } from './pending-activation-dispatcher.js'
 import { ExecutorActivationDispatcher } from './executor-activation-dispatcher.js';
 import { RuntimeCardDispatcher } from './runtime-card-dispatcher.js';
 import { RuntimeReviewerDispatcher } from './runtime-reviewer-dispatcher.js';
+import { RuntimePlannerDispatcher } from './runtime-planner-dispatcher.js';
 import { createRuntimeSupervisor } from './supervisor-factory.js';
 import { RuntimeEventPublisher } from './runtime-event-publisher.js';
 import { RuntimeDiagnostics } from './runtime-diagnostics.js';
@@ -81,6 +82,7 @@ class Runtime {
   private _pendingActivations!: PendingActivationDispatcher;
   private _executorActivations!: ExecutorActivationDispatcher;
   private _reviewerDispatcher!: RuntimeReviewerDispatcher;
+  private _plannerDispatcher!: RuntimePlannerDispatcher;
   private _cardDispatcher!: RuntimeCardDispatcher;
   private _activationScheduler!: ActivationScheduler;
   private readonly _mutations: RuntimeStateMutationPort;
@@ -237,7 +239,7 @@ class Runtime {
       emitRuntimeDiagnostic: (input) => this._events.emitRuntimeDiagnostic(input),
       now,
     });
-    this._cardDispatcher = new RuntimeCardDispatcher({
+    this._plannerDispatcher = new RuntimePlannerDispatcher({
       projectRoot: this.projectRoot,
       cards: this.cardStore,
       agentRuntime: this.agentRuntime,
@@ -251,7 +253,6 @@ class Runtime {
       mutations: this._mutations,
       runLedger: this._runLedger,
       sessionStamper: this._sessionStamper,
-      dispatchInFlight: this._dispatchInFlight,
       isPaused: () => this._paused,
       isShuttingDown: () => this._shuttingDown,
       consumeResumeHandoffContext: () => this.consumeResumeHandoffContext(),
@@ -259,6 +260,10 @@ class Runtime {
       emitRuntimeDiagnostic: (input) => this._events.emitRuntimeDiagnostic(input),
       publishRuntimeRun: (run) => this._events.publishRuntimeLedgerEvent('runtime_run', { run }),
       now,
+    });
+    this._cardDispatcher = new RuntimeCardDispatcher({
+      plannerDispatcher: this._plannerDispatcher,
+      dispatchInFlight: this._dispatchInFlight,
     });
     hooks.corePartsSink?.setRuntimeCoreParts({
       subscribe: (options) => this._events.eventBus.subscribe(options),
