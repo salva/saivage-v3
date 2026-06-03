@@ -15,7 +15,7 @@ import { ErrorLogger, type ErrorRecord, type ErrorInput } from '../../src/observ
 import { releaseLock } from '../../src/runtime/lock.js';
 import type { FakeAgentFixture } from '../../src/agents/fake-agent.js';
 import type { CardRecord } from '../../src/schemas/types.js';
-import { createRuntimeTestHarness, type RuntimeTestHarness } from './runtime-test-harness.js';
+import { createRuntimeCoreTestContainer, type RuntimeCoreTestContainer } from '../../src/runtime/core-composition.js';
 
 function makeFixtureDir(tmpDir: string): string {
   const dir = join(tmpDir, 'fixtures');
@@ -372,15 +372,15 @@ describe('ErrorLogger', () => {
 describe('Runtime Integration — Error Propagation', () => {
   let tmpDir: string;
   let fixtureDir: string;
-  let dispatchTools: RuntimeTestHarness['dispatchTestTools'];
-  let runtimeApi: RuntimeTestHarness['api'];
-  let loggerTools: RuntimeTestHarness['loggerTestTools'];
+  let dispatchTools: RuntimeCoreTestContainer['dispatchTestTools'];
+  let runtimeApi: RuntimeCoreTestContainer['api'];
+  let loggerTools: RuntimeCoreTestContainer['loggerTestTools'];
 
   function makeRuntime(input: {
     mapping?: Record<string, string>;
     errorLogger?: ErrorLogger;
   } = {}): void {
-    const harness = createRuntimeTestHarness({
+    const harness = createRuntimeCoreTestContainer({
       config: {
         projectRoot: tmpDir,
         fakeAgentConfig: {
@@ -762,7 +762,7 @@ describe('ErrorLogger + EventLogger consistency', () => {
     const store = new CardStore(tmpDir);
     makeGoalCard(store, 'goal-dl', 'Dual Log Goal');
 
-    const harness = createRuntimeTestHarness({
+    const harness = createRuntimeCoreTestContainer({
       config: {
         projectRoot: tmpDir,
         fakeAgentConfig: {

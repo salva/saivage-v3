@@ -17,7 +17,7 @@ import type {
   PlannerResult,
   ReviewerResult,
 } from '../../src/contracts/index.js';
-import { createRuntimeTestHarness, type RuntimeTestHarness } from '../utils/runtime-test-harness.js';
+import { createRuntimeCoreTestContainer, type RuntimeCoreTestContainer } from '../../src/runtime/core-composition.js';
 
 class ContextLengthPlannerAdapter extends FakeAgentAdapter {
   invokePlanner(_request: PlannerInvocationRequest): PlannerResult;
@@ -99,11 +99,11 @@ class DonePlannerWithPassingReviewerAdapter extends FakeAgentAdapter {
 
 describe('planner context-length failures', () => {
   let tmpDir: string;
-  let harness: RuntimeTestHarness;
+  let harness: RuntimeCoreTestContainer;
 
-  function createHarness(fakeAgent: FakeAgentAdapter): RuntimeTestHarness {
+  function createHarness(fakeAgent: FakeAgentAdapter): RuntimeCoreTestContainer {
     const fixtureDir = join(tmpDir, 'fixtures');
-    return createRuntimeTestHarness({
+    return createRuntimeCoreTestContainer({
       config: { projectRoot: tmpDir, fakeAgentConfig: { mapping: { project: 'unused' }, fixtureDir } },
       agentRuntime: fakeAgent,
     });

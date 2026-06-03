@@ -9,7 +9,7 @@ import type { AgentExecutionPort as AgentRuntime } from '../../src/contracts/ind
 import type { PlannerResult, ExecutorResult, ReviewerResult } from '../../src/contracts/index.js';
 import type { CardRecord, HandoffSummary } from '../../src/schemas/types.js';
 import { appendRuntimeRun, readRuntimeState, upsertRuntimeActivation } from '../../src/runtime/state.js';
-import { createRuntimeTestHarness, type RuntimeTestHarness } from './runtime-test-harness.js';
+import { createRuntimeCoreTestContainer, type RuntimeCoreTestContainer } from '../../src/runtime/core-composition.js';
 
 class StubAgentRuntime implements AgentRuntime {
   constructor(
@@ -26,8 +26,8 @@ class StubAgentRuntime implements AgentRuntime {
   getActiveSessionHandoffs(): HandoffSummary[] { return []; }
 }
 
-function createHarness(projectRoot: string, agentRuntime: AgentRuntime): RuntimeTestHarness {
-  return createRuntimeTestHarness({
+function createHarness(projectRoot: string, agentRuntime: AgentRuntime): RuntimeCoreTestContainer {
+  return createRuntimeCoreTestContainer({
     config: { projectRoot, fakeAgentConfig: { mapping: {}, fixtureDir: '' } },
     agentRuntime,
   });

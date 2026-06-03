@@ -10,7 +10,7 @@ import { AgentAdapter } from '../../src/agents/agent-adapter.js';
 import { EventLogger } from '../../src/observability/event-logger.js';
 import { saivageConfigSchema } from '../../src/agents/config-schema.js';
 import type { FakeAgentFixture } from '../../src/agents/fake-agent.js';
-import { createRuntimeTestHarness, type RuntimeTestHarness } from './runtime-test-harness.js';
+import { createRuntimeCoreTestContainer, type RuntimeCoreTestContainer } from '../../src/runtime/core-composition.js';
 
 function makeFixtureDir(tmpDir: string): string {
   const dir = join(tmpDir, 'fixtures');
@@ -35,10 +35,10 @@ function makeDefaultConfig(tmpDir: string, fixtureDir: string) {
 describe('Agent Events → Runtime EventEmitter', () => {
   let tmpDir: string;
   let fixtureDir: string;
-  let harness: RuntimeTestHarness | undefined;
+  let harness: RuntimeCoreTestContainer | undefined;
 
   function createRuntime(): void {
-    harness = createRuntimeTestHarness({ config: makeDefaultConfig(tmpDir, fixtureDir) });
+    harness = createRuntimeCoreTestContainer({ config: makeDefaultConfig(tmpDir, fixtureDir) });
   }
 
   beforeEach(() => {

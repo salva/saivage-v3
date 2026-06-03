@@ -87,7 +87,6 @@ import {
   type SupervisorConfig,
   type SupervisorDeps,
 } from '../runtime/stuck-agent-supervisor.js';
-import { NotificationCenter } from '../notifications/index.js';
 import { buildCompletedRuntimeCommandState, buildCurrentAgentSessionPatch, buildDispatchPausedRuntimeStatePatch, buildFreezeManifest, buildFreezeRuntimeStatePatch, buildPauseRuntimeStatePatch, buildRejectedRuntimeCommandState, buildResumeFromFreezeRuntimeStatePatch, buildResumeHandoffContext, buildResumeRuntimeStatePatch, buildShutdownRuntimeStatePatch, planClearActiveCardRunPatch, planIdleRunningRootRunReconciliation, planOpenPlannerRunTerminalUpdate, planOpenRootRunStopUpdates, planPlannerRunSessionBinding, planRootRunDispatchFailureUpdate, planRootRunDispatchSuccessUpdate, planStartProjectPrecondition, planSweptCurrentAgentSessionPatch, reduceActivationCompletion } from './runtime-core.js';
 import { cardHasBlockedPlanning, getBlockedPlanning } from './planning-blockers.js';
 import { nextReviewerAssessmentId, reviewerSessionId as makeReviewerSessionId, validateReviewerAssessment } from './reviewer-assessment.js';
@@ -209,7 +208,6 @@ export class Runtime {
   private readonly agentRuntime: AgentExecutionPort;
   private readonly eventBus: EventBus;
   private readonly eventEmitter = new EventEmitter();
-  private readonly notificationCenter: NotificationCenter;
   private _paused = false;
   private _running = false;
   private _shuttingDown = false;
@@ -265,7 +263,6 @@ export class Runtime {
     configurableAgentRuntime.setSaivageDir?.(join(config.projectRoot, '.saivage'));
     configurableAgentRuntime.setActivationLedger?.(activationLedger);
     configurableAgentRuntime.setSessionStamper?.(this._sessionStamper);
-    this.notificationCenter = new NotificationCenter(config.projectRoot, this.eventBus);
     this._skillsEngine = config.skillsEngine ?? null;
     this._continuousImprovementReserved = config.continuousImprovement ?? false;
     this._autoDispatchBacklog = config.autoDispatchBacklog ?? false;

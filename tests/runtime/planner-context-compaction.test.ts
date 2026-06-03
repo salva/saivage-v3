@@ -6,7 +6,7 @@ import { initProjectTree } from '../../src/persistence/file-tree.js';
 import { FakeAgentAdapter } from '../../src/agents/fake-agent.js';
 import { releaseLock } from '../../src/runtime/lock.js';
 import type { PlannerInvocationRequest, PlannerResult } from '../../src/contracts/index.js';
-import { createRuntimeTestHarness, type RuntimeTestHarness } from '../utils/runtime-test-harness.js';
+import { createRuntimeCoreTestContainer, type RuntimeCoreTestContainer } from '../../src/runtime/core-composition.js';
 
 class CapturingPlannerAdapter extends FakeAgentAdapter {
   capturedPrompt = '';
@@ -29,7 +29,7 @@ class CapturingPlannerAdapter extends FakeAgentAdapter {
 
 describe('planner prompt context compaction', () => {
   let tmpDir: string;
-  let harness: RuntimeTestHarness;
+  let harness: RuntimeCoreTestContainer;
 
   beforeEach(() => {
     tmpDir = mkdtempSync(join(tmpdir(), 'saivage-planner-context-compaction-'));
@@ -48,7 +48,7 @@ describe('planner prompt context compaction', () => {
   it('summarizes child evidence and long self-report fields instead of embedding artifact-heavy bodies in full', async () => {
     const fixtureDir = join(tmpDir, 'fixtures');
     const fakeAgent = new CapturingPlannerAdapter({ mapping: { project: 'unused' }, fixtureDir });
-    harness = createRuntimeTestHarness({
+    harness = createRuntimeCoreTestContainer({
       config: { projectRoot: tmpDir, fakeAgentConfig: { mapping: { project: 'unused' }, fixtureDir } },
       agentRuntime: fakeAgent,
     });

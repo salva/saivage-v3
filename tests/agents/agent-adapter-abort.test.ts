@@ -11,7 +11,7 @@ import { FakeAgentAdapter } from '../../src/agents/fake-agent.js';
 import { initProjectTree } from '../../src/persistence/file-tree.js';
 import { releaseLock } from '../../src/runtime/lock.js';
 import { getSession } from '../../src/agents/session-persistence.js';
-import { createRuntimeTestHarness } from '../utils/runtime-test-harness.js';
+import { createRuntimeCoreTestContainer } from '../../src/runtime/core-composition.js';
 
 type CancellationTracker = {
   abortCalls: Array<{ sessionId: string }>;
@@ -570,7 +570,7 @@ describe('Runtime/Supervisor wiring for abort and force-cancel', () => {
       },
     };
 
-    const harness = createRuntimeTestHarness({
+    const harness = createRuntimeCoreTestContainer({
       config: {
         projectRoot: tmpDir,
         fakeAgentConfig: { mapping: {}, fixtureDir: tmpDir },
@@ -591,7 +591,7 @@ describe('Runtime/Supervisor wiring for abort and force-cancel', () => {
   });
 
   it('wires abortSession to FakeAgentAdapter.cancelSession when no explicit runtime', () => {
-    const harness = createRuntimeTestHarness({
+    const harness = createRuntimeCoreTestContainer({
       config: {
         projectRoot: tmpDir,
         fakeAgentConfig: { mapping: { '*': 'default' }, fixtureDir: tmpDir },
@@ -609,7 +609,7 @@ describe('Runtime/Supervisor wiring for abort and force-cancel', () => {
     const ctrl = new AbortController();
     internals(adapter).setAbortController('wired-session', ctrl);
 
-    const harness = createRuntimeTestHarness({
+    const harness = createRuntimeCoreTestContainer({
       config: {
         projectRoot: tmpDir,
         fakeAgentConfig: { mapping: {}, fixtureDir: tmpDir },
@@ -631,7 +631,7 @@ describe('Runtime/Supervisor wiring for abort and force-cancel', () => {
     const eventLogger = new EventLogger(join(tmpDir, '.saivage'));
     const adapter = createMinimalAdapter(tmpDir, { eventLogger });
 
-    const harness = createRuntimeTestHarness({
+    const harness = createRuntimeCoreTestContainer({
       config: {
         projectRoot: tmpDir,
         fakeAgentConfig: { mapping: {}, fixtureDir: tmpDir },

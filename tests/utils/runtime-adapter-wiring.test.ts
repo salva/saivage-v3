@@ -8,7 +8,7 @@ import { FakeAgentAdapter, type FakeAgentFixture } from '../../src/agents/fake-a
 import { releaseLock } from '../../src/runtime/lock.js';
 import type { CardRecord } from '../../src/schemas/types.js';
 import type { AgentExecutionPort as AgentRuntime } from '../../src/contracts/index.js';
-import { createRuntimeTestHarness, type RuntimeTestHarness } from './runtime-test-harness.js';
+import { createRuntimeCoreTestContainer, type RuntimeCoreTestContainer } from '../../src/runtime/core-composition.js';
 
 function makeFixtureDir(tmpDir: string): string {
   const dir = join(tmpDir, 'fixtures');
@@ -46,8 +46,8 @@ function makeGoalCard(store: CardStore, id: string, title: string): CardRecord {
 describe('Runtime Adapter Wiring', () => {
   let tmpDir: string;
   let fixtureDir: string;
-  let dispatchTools: RuntimeTestHarness['dispatchTestTools'];
-  let harness: RuntimeTestHarness;
+  let dispatchTools: RuntimeCoreTestContainer['dispatchTestTools'];
+  let harness: RuntimeCoreTestContainer;
 
   beforeEach(() => {
     tmpDir = mkdtempSync(join(tmpdir(), 'saivage-raw-'));
@@ -163,7 +163,7 @@ describe('Runtime Adapter Wiring', () => {
   }
 
   function makeRuntime(agentRuntime?: AgentRuntime): void {
-    harness = createRuntimeTestHarness({
+    harness = createRuntimeCoreTestContainer({
       config: makeConfig(),
       ...(agentRuntime ? { agentRuntime } : {}),
     });

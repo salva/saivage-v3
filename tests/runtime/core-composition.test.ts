@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { initProjectTree } from '../../src/persistence/file-tree.js';
 import { createRuntimeCoreContainer } from '../../src/runtime/core-composition.js';
-import { createRuntimeTestHarness } from '../utils/runtime-test-harness.js';
+import { createRuntimeCoreTestContainer } from '../../src/runtime/core-composition.js';
 
 describe('runtime core composition', () => {
   it('keeps production core composition limited to production ports', () => {
@@ -22,7 +22,7 @@ describe('runtime core composition', () => {
     const projectRoot = mkdtempSync(join(tmpdir(), 'runtime-core-composition-'));
     try {
       initProjectTree(projectRoot);
-      const harness = createRuntimeTestHarness({ config: { projectRoot, fakeAgentConfig: { mapping: {}, fixtureDir: '' }, autoDispatchBacklog: false } });
+      const harness = createRuntimeCoreTestContainer({ config: { projectRoot, fakeAgentConfig: { mapping: {}, fixtureDir: '' }, autoDispatchBacklog: false } });
       expect(Object.keys(harness.api).sort()).toEqual(['getActivityStatus', 'getStatus', 'pause', 'resume', 'shutdown', 'start', 'startProject', 'stopProject', 'subscribe']);
       expect(harness.projectRoot).toBe(projectRoot);
       expect(harness.agentEventBus).toBeDefined();
@@ -41,7 +41,7 @@ describe('runtime core composition', () => {
     const projectRoot = mkdtempSync(join(tmpdir(), 'runtime-core-composition-events-'));
     try {
       initProjectTree(projectRoot);
-      const harness = createRuntimeTestHarness({ config: { projectRoot, fakeAgentConfig: { mapping: {}, fixtureDir: '' }, autoDispatchBacklog: false } });
+      const harness = createRuntimeCoreTestContainer({ config: { projectRoot, fakeAgentConfig: { mapping: {}, fixtureDir: '' }, autoDispatchBacklog: false } });
       const received: unknown[] = [];
       harness.eventTestTools.on('session_started', (event) => received.push(event));
 

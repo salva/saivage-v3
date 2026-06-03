@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { initProjectTree } from '../../src/persistence/file-tree.js';
 import { FakeAgentAdapter, type FakeAgentFixture } from '../../src/agents/fake-agent.js';
 import { releaseLock } from '../../src/runtime/lock.js';
-import { createRuntimeTestHarness, type RuntimeTestHarness } from '../utils/runtime-test-harness.js';
+import { createRuntimeCoreTestContainer, type RuntimeCoreTestContainer } from '../../src/runtime/core-composition.js';
 
 function makeFixtureDir(baseDir: string): string {
   const dir = join(baseDir, 'fixtures');
@@ -20,10 +20,10 @@ function writeFixture(dir: string, name: string, fixture: FakeAgentFixture): voi
 describe('planner output actionability guard', () => {
   let tmpDir: string;
   let fixtureDir: string;
-  let harness: RuntimeTestHarness;
+  let harness: RuntimeCoreTestContainer;
 
-  function createHarness(mapping: Record<string, string>, fakeAgent: FakeAgentAdapter): RuntimeTestHarness {
-    return createRuntimeTestHarness({
+  function createHarness(mapping: Record<string, string>, fakeAgent: FakeAgentAdapter): RuntimeCoreTestContainer {
+    return createRuntimeCoreTestContainer({
       config: { projectRoot: tmpDir, fakeAgentConfig: { mapping, fixtureDir } },
       agentRuntime: fakeAgent,
     });

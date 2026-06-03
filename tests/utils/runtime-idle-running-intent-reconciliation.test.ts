@@ -12,10 +12,10 @@ import {
 } from '../../src/runtime/state.js';
 import { releaseLock } from '../../src/runtime/lock.js';
 import { FakeAgentAdapter } from '../../src/agents/fake-agent.js';
-import { createRuntimeTestHarness, type RuntimeTestHarness } from './runtime-test-harness.js';
+import { createRuntimeCoreTestContainer, type RuntimeCoreTestContainer } from '../../src/runtime/core-composition.js';
 
 let root: string | null = null;
-let harness: RuntimeTestHarness | null = null;
+let harness: RuntimeCoreTestContainer | null = null;
 
 afterEach(async () => {
   if (harness) {
@@ -80,7 +80,7 @@ describe('Runtime stale running-intent reconciliation', () => {
       fixtureDir: root,
     });
     const dispatched: string[] = [];
-    harness = createRuntimeTestHarness({
+    harness = createRuntimeCoreTestContainer({
       config: { projectRoot: root, fakeAgentConfig: { mapping: { project: 'missing-fixture-should-not-dispatch' }, fixtureDir: root }, autoDispatchBacklog: false },
       agentRuntime: fakeAgent,
       goalDispatcher: async (goalId) => { dispatched.push(goalId); },
@@ -150,7 +150,7 @@ describe('Runtime stale running-intent reconciliation', () => {
       mapping: { project: 'missing-fixture-should-not-dispatch' },
       fixtureDir: root,
     });
-    harness = createRuntimeTestHarness({
+    harness = createRuntimeCoreTestContainer({
       config: { projectRoot: root, fakeAgentConfig: { mapping: { project: 'missing-fixture-should-not-dispatch' }, fixtureDir: root }, autoDispatchBacklog: false },
       agentRuntime: fakeAgent,
     });

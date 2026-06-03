@@ -15,7 +15,7 @@ import {
   removeStaleLock,
 } from '../../src/runtime/lock.js';
 import type { CardRecord } from '../../src/schemas/types.js';
-import { createRuntimeTestHarness, type RuntimeTestHarness } from './runtime-test-harness.js';
+import { createRuntimeCoreTestContainer, type RuntimeCoreTestContainer } from '../../src/runtime/core-composition.js';
 
 // ── Helpers ───────────────────────────────────────────────────
 
@@ -44,8 +44,8 @@ async function waitFor(condition: () => boolean, timeoutMs = 2000): Promise<void
 describe('Runtime Integration', () => {
   let tmpDir: string;
   let fixtureDir: string;
-  let dispatchTools: RuntimeTestHarness['dispatchTestTools'];
-  let harness: RuntimeTestHarness;
+  let dispatchTools: RuntimeCoreTestContainer['dispatchTestTools'];
+  let harness: RuntimeCoreTestContainer;
 
   beforeEach(() => {
     tmpDir = mkdtempSync(join(tmpdir(), 'saivage-rt-'));
@@ -535,7 +535,7 @@ describe('Runtime Integration', () => {
   }
 
   function makeRuntime(input?: { overrides?: Record<string, string>; agentRuntime?: FakeAgentAdapter; autoDispatchBacklog?: boolean }): void {
-    harness = createRuntimeTestHarness({
+    harness = createRuntimeCoreTestContainer({
       config: {
         ...makeDefaultConfig(input?.overrides),
         ...(input?.autoDispatchBacklog !== undefined ? { autoDispatchBacklog: input.autoDispatchBacklog } : {}),

@@ -8,7 +8,7 @@ import { CardStore } from '../../src/cards/card-store.js';
 import type { AgentExecutionPort as AgentRuntime } from '../../src/contracts/index.js';
 import type { PlannerResult, ExecutorResult, ReviewerResult } from '../../src/contracts/index.js';
 import type { HandoffSummary } from '../../src/schemas/types.js';
-import { createRuntimeTestHarness } from '../utils/runtime-test-harness.js';
+import { createRuntimeCoreTestContainer } from '../../src/runtime/core-composition.js';
 
 class StubAgentRuntime implements AgentRuntime {
   constructor(
@@ -51,7 +51,7 @@ describe('F23 — dispatchGoal acceptance', () => {
     const executorResult: ExecutorResult = { card_id: 'x', status: 'done', status_text: 'noop', artifacts: [], attachments: [], fallback_with_evidence: null };
     const reviewerResult: ReviewerResult = { assessment: { result: 'pass', summary: 'noop', achieved: [], issues: [], evidence_card_ids: [] } };
 
-    const harness = createRuntimeTestHarness({
+    const harness = createRuntimeCoreTestContainer({
       config: { projectRoot, fakeAgentConfig: { mapping: {}, fixtureDir: '' } },
       agentRuntime: new StubAgentRuntime(plannerResult, executorResult, reviewerResult),
     });
@@ -79,7 +79,7 @@ describe('F23 — dispatchGoal acceptance', () => {
     const executorResult: ExecutorResult = { card_id: 'x', status: 'done', status_text: 'noop', artifacts: [], attachments: [], fallback_with_evidence: null };
     const reviewerResult: ReviewerResult = { assessment: { result: 'pass', summary: 'noop', achieved: [], issues: [], evidence_card_ids: [] } };
 
-    const { api, dispatchTestTools } = createRuntimeTestHarness({
+    const { api, dispatchTestTools } = createRuntimeCoreTestContainer({
       config: { projectRoot, fakeAgentConfig: { mapping: {}, fixtureDir: '' } },
       agentRuntime: new StubAgentRuntime(plannerResult, executorResult, reviewerResult),
     });
@@ -101,7 +101,7 @@ describe('F23 — dispatchGoal acceptance', () => {
     const executorResult: ExecutorResult = { card_id: 'x', status: 'done', status_text: 'noop', artifacts: [], attachments: [], fallback_with_evidence: null };
     const reviewerResult: ReviewerResult = { assessment: { result: 'pass', summary: 'noop', achieved: [], issues: [], evidence_card_ids: [] } };
 
-    const { api, dispatchTestTools } = createRuntimeTestHarness({
+    const { api, dispatchTestTools } = createRuntimeCoreTestContainer({
       config: { projectRoot, fakeAgentConfig: { mapping: {}, fixtureDir: '' } },
       agentRuntime: new StubAgentRuntime(plannerResult, executorResult, reviewerResult),
     });

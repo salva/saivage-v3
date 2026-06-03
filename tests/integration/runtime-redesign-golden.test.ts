@@ -9,7 +9,7 @@ import { operatorApiContracts } from '../../src/contracts/operator-api.js';
 import { appendRuntimeRun, readRuntimeState, upsertRuntimeActivation } from '../../src/runtime/state.js';
 import { CardStore } from '../../src/cards/card-store.js';
 import { initProjectTree } from '../../src/persistence/file-tree.js';
-import { createRuntimeTestHarness } from '../utils/runtime-test-harness.js';
+import { createRuntimeCoreTestContainer } from '../../src/runtime/core-composition.js';
 
 function tempRoot(prefix: string): string { return mkdtempSync(join(tmpdir(), prefix)); }
 
@@ -42,7 +42,7 @@ describe('runtime redesign final golden behavior', () => {
       expect(Object.keys(TOOL_REGISTRY)).not.toContain('lets_dance');
 
       const dispatched: string[] = [];
-      const { api } = createRuntimeTestHarness({
+      const { api } = createRuntimeCoreTestContainer({
         config: { projectRoot, fakeAgentConfig: { mapping: {}, fixtureDir: '' }, autoDispatchBacklog: false },
         goalDispatcher: async (goalId) => { dispatched.push(goalId); },
       });
@@ -84,7 +84,7 @@ describe('runtime redesign final golden behavior', () => {
     const projectRoot = tempRoot('saivage-runtime-golden-summary-');
     try {
       initProjectTree(projectRoot);
-      const harness = createRuntimeTestHarness({
+      const harness = createRuntimeCoreTestContainer({
         config: { projectRoot, fakeAgentConfig: { mapping: {}, fixtureDir: '' }, autoDispatchBacklog: false },
       });
       expect('buildReadyQueue' in harness).toBe(false);

@@ -9,7 +9,7 @@ import { readRuntimeState, updateRuntimeState } from '../../src/runtime/state.js
 import type { AgentExecutionPort as AgentRuntime } from '../../src/contracts/index.js';
 import type { PlannerResult, ExecutorResult, ReviewerResult } from '../../src/contracts/index.js';
 import type { HandoffSummary } from '../../src/schemas/types.js';
-import { createRuntimeTestHarness } from '../utils/runtime-test-harness.js';
+import { createRuntimeCoreTestContainer } from '../../src/runtime/core-composition.js';
 
 class NoopAgentRuntime implements AgentRuntime {
   invokePlanner(): Promise<PlannerResult> { return Promise.resolve({ status: 'continue', created_cards: [], updated_cards: [] }); }
@@ -55,7 +55,7 @@ describe('startup agent session sweep', () => {
     const analystBefore = readFileSync(join(saivageDir, 'agents', 'sessions', `${analyst.id}.json`), 'utf8');
     updateRuntimeState(projectRoot, { current_agent_session_id: activePlanner.id });
 
-    const harness = createRuntimeTestHarness({
+    const harness = createRuntimeCoreTestContainer({
       config: { projectRoot, fakeAgentConfig: { mapping: {}, fixtureDir: '' } },
       agentRuntime: new NoopAgentRuntime(),
     });
@@ -108,7 +108,7 @@ describe('startup agent session sweep', () => {
       },
     });
 
-    const harness = createRuntimeTestHarness({
+    const harness = createRuntimeCoreTestContainer({
       config: { projectRoot, fakeAgentConfig: { mapping: {}, fixtureDir: '' } },
       agentRuntime: new NoopAgentRuntime(),
     });

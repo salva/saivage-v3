@@ -46,6 +46,7 @@ describe('runtime module ownership boundary', () => {
     expect('ActiveRuntime' in controlApi).toBe(false);
     expect('ActiveRuntime' in lifecycle).toBe(false);
     expect(existsSync(join(process.cwd(), 'src/runtime/active-runtime.ts'))).toBe(false);
+    expect(existsSync(join(process.cwd(), 'tests/utils/runtime-test-harness.ts'))).toBe(false);
   });
 
   it('keeps RuntimeApi independent from concrete Runtime', () => {
@@ -94,7 +95,7 @@ describe('runtime module ownership boundary', () => {
       expect(source).not.toContain('runtime.supervisor');
       expect(source).not.toContain('harness.runtime.cardStore');
       expect(source).not.toContain('harness.cards.');
-      expect(source).not.toContain("RuntimeTestHarness['cards']");
+      expect(source).not.toContain("RuntimeCoreTestContainer['cards']");
       expect(source).not.toContain('harness.runtime.agentRuntime');
       expect(source).not.toContain('harness.agentRuntime.');
       expect(source).not.toContain('harness.runtime.errorLogger');
@@ -104,20 +105,20 @@ describe('runtime module ownership boundary', () => {
       expect(source).not.toContain('harness.runtime.supervisor');
       expect(source).not.toContain('harness.eventBus');
       expect(source).not.toContain('harness.events.');
-      expect(source).not.toContain("RuntimeTestHarness['events']");
+      expect(source).not.toContain("RuntimeCoreTestContainer['events']");
       expect(source).not.toContain('harness.diagnostics.');
-      expect(source).not.toContain("RuntimeTestHarness['diagnostics']");
+      expect(source).not.toContain("RuntimeCoreTestContainer['diagnostics']");
       expect(source).not.toContain('harness.state.');
-      expect(source).not.toContain("RuntimeTestHarness['state']");
+      expect(source).not.toContain("RuntimeCoreTestContainer['state']");
       expect(source).not.toContain('harness.scheduler');
-      expect(source).not.toContain("RuntimeTestHarness['scheduler']");
+      expect(source).not.toContain("RuntimeCoreTestContainer['scheduler']");
       expect(source).not.toContain('harness.runtime.projectRoot');
       expect(source).not.toContain('harness.runtime.on(');
       expect(source).not.toContain('harness.runtime.emitAgentEvent');
       expect(source).not.toContain('harness.runtime.performCrashRecovery');
       expect(source).not.toContain('harness.runtime._stateMachine');
       expect(source).not.toContain('harness.supervisor.');
-      expect(source).not.toContain("RuntimeTestHarness['runtime']");
+      expect(source).not.toContain("RuntimeCoreTestContainer['runtime']");
       expect(source).not.toContain('runtime.projectRoot');
     }
   });
@@ -182,6 +183,7 @@ describe('runtime module ownership boundary', () => {
     expect(source).not.toContain('  readonly projectRoot');
     expect(source).not.toContain('  readonly agentRuntime');
     expect(source).not.toContain('  readonly eventBus');
+    expect(source).not.toContain('notificationCenter');
     expect(source).not.toContain('  get eventLogger(');
     expect(source).not.toContain('  get errorLogger(');
     expect(source).not.toContain('  get supervisor(');

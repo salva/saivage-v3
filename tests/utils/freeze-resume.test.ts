@@ -37,7 +37,7 @@ import {
 } from '../../src/runtime/state.js';
 import { releaseLock } from '../../src/runtime/lock.js';
 import type { CardRecord, FreezeManifest, HandoffSummary } from '../../src/schemas/types.js';
-import { createRuntimeTestHarness, type RuntimeTestHarness } from './runtime-test-harness.js';
+import { createRuntimeCoreTestContainer, type RuntimeCoreTestContainer } from '../../src/runtime/core-composition.js';
 
 // ── Test Harness ────────────────────────────────────────────────
 
@@ -99,7 +99,7 @@ function createHappyFixture(): FakeAgentFixture {
 describe('Freeze / Resume', () => {
   let tmpDir: string;
   let fixtureDir: string;
-  let harness: RuntimeTestHarness;
+  let harness: RuntimeCoreTestContainer;
 
   beforeEach(() => {
     tmpDir = mkdtempSync(join(tmpdir(), 'saivage-fr-'));
@@ -124,7 +124,7 @@ describe('Freeze / Resume', () => {
   }
 
   function makeRuntime(agentRuntime?: FakeAgentAdapter): void {
-    harness = createRuntimeTestHarness({
+    harness = createRuntimeCoreTestContainer({
       config: makeConfig(),
       ...(agentRuntime ? { agentRuntime } : {}),
     });

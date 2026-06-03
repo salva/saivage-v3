@@ -7,7 +7,7 @@ import { FakeAgentAdapter, type FakeAgentFixture, type FakeReviewerResult } from
 import { releaseLock } from '../../src/runtime/lock.js';
 import { getSessionMessages } from '../../src/agents/session-persistence.js';
 import { AgentAdapter, createAgentAdapter } from '../../src/agents/agent-adapter.js';
-import { createRuntimeTestHarness, type RuntimeTestHarness } from './runtime-test-harness.js';
+import { createRuntimeCoreTestContainer, type RuntimeCoreTestContainer } from '../../src/runtime/core-composition.js';
 
 function activateMessages(root: string, plannerCardId: string) {
   return getSessionMessages(join(root, '.saivage'), `planner:${plannerCardId}`).filter((m) => m.tool === 'activate_card');
@@ -29,10 +29,10 @@ function activateToolCallIds(root: string, plannerCardId: string): string[] {
 describe('Runtime caller-edge reconstruction from unresolved activate_card calls', () => {
   let tmpDir: string;
   let fixtureDir: string;
-  let harness: RuntimeTestHarness;
+  let harness: RuntimeCoreTestContainer;
 
-  function createHarness(mapping: Record<string, string>, fakeAgent: FakeAgentAdapter): RuntimeTestHarness {
-    return createRuntimeTestHarness({
+  function createHarness(mapping: Record<string, string>, fakeAgent: FakeAgentAdapter): RuntimeCoreTestContainer {
+    return createRuntimeCoreTestContainer({
       config: { projectRoot: tmpDir, fakeAgentConfig: { mapping, fixtureDir, autoActivateCreatedCards: false } },
       agentRuntime: fakeAgent,
     });
@@ -100,7 +100,7 @@ describe('Runtime caller-edge reconstruction from unresolved activate_card calls
   });
 
   it('preserves public harness and adapter APIs', () => {
-    const harness = createRuntimeTestHarness({
+    const harness = createRuntimeCoreTestContainer({
       config: { projectRoot: tmpDir, fakeAgentConfig: { mapping: {}, fixtureDir } },
     });
     expect(typeof harness.eventTestTools.emitAgentEvent).toBe('function');

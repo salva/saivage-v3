@@ -15,7 +15,7 @@ import {
 import { initProjectTree } from '../../src/persistence/file-tree.js';
 import { releaseLock } from '../../src/runtime/lock.js';
 import type { AgentExecutionPort as AgentRuntime } from '../../src/contracts/index.js';
-import { createRuntimeTestHarness, type RuntimeTestHarness } from './runtime-test-harness.js';
+import { createRuntimeCoreTestContainer, type RuntimeCoreTestContainer } from '../../src/runtime/core-composition.js';
 
 interface MockedDeps extends SupervisorDeps {
   getRecentLogs: jest.MockedFunction<SupervisorDeps['getRecentLogs']>;
@@ -420,7 +420,7 @@ describe('RuntimeIntegration', () => {
   });
 
   it('supervisor starts on Runtime startup when enabled', async () => {
-    const harness = createRuntimeTestHarness({
+    const harness = createRuntimeCoreTestContainer({
       config: {
         projectRoot: tmpDir,
         fakeAgentConfig: { mapping: {}, fixtureDir: tmpDir },
@@ -433,7 +433,7 @@ describe('RuntimeIntegration', () => {
   });
 
   it('supervisor stops on Runtime shutdown', async () => {
-    const harness = createRuntimeTestHarness({
+    const harness = createRuntimeCoreTestContainer({
       config: {
         projectRoot: tmpDir,
         fakeAgentConfig: { mapping: {}, fixtureDir: tmpDir },
@@ -446,7 +446,7 @@ describe('RuntimeIntegration', () => {
   });
 
   it('supervisor does not start when disabled', async () => {
-    const harness = createRuntimeTestHarness({
+    const harness = createRuntimeCoreTestContainer({
       config: {
         projectRoot: tmpDir,
         fakeAgentConfig: { mapping: {}, fixtureDir: tmpDir },
@@ -459,7 +459,7 @@ describe('RuntimeIntegration', () => {
   });
 
   it('supervisor with custom config', async () => {
-    const harness = createRuntimeTestHarness({
+    const harness = createRuntimeCoreTestContainer({
       config: {
         projectRoot: tmpDir,
         fakeAgentConfig: { mapping: {}, fixtureDir: tmpDir },
@@ -474,7 +474,7 @@ describe('RuntimeIntegration', () => {
   });
 
   it('supervisor default when no explicit config', async () => {
-    const harness = createRuntimeTestHarness({
+    const harness = createRuntimeCoreTestContainer({
       config: {
         projectRoot: tmpDir,
         fakeAgentConfig: { mapping: {}, fixtureDir: tmpDir },
@@ -486,7 +486,7 @@ describe('RuntimeIntegration', () => {
   });
 
   it('supervisor events emitted via Runtime.emit', async () => {
-    const harness = createRuntimeTestHarness({
+    const harness = createRuntimeCoreTestContainer({
       config: {
         projectRoot: tmpDir,
         fakeAgentConfig: { mapping: {}, fixtureDir: tmpDir },
@@ -518,8 +518,8 @@ describe('Runtime supervisor cancellation integration', () => {
     rmSync(tmpDir, { recursive: true, force: true });
   });
 
-  function createRuntimeWithAgent(agentRuntime: AgentRuntime): RuntimeTestHarness {
-    return createRuntimeTestHarness({
+  function createRuntimeWithAgent(agentRuntime: AgentRuntime): RuntimeCoreTestContainer {
+    return createRuntimeCoreTestContainer({
       config: {
         projectRoot: tmpDir,
         fakeAgentConfig: { mapping: {}, fixtureDir: tmpDir },

@@ -8,7 +8,7 @@ import type { FakeAgentFixture } from '../../src/agents/fake-agent.js';
 import { releaseLock } from '../../src/runtime/lock.js';
 import { startProcess, snapshotProcessRuntimeScope } from '../../src/runtime/process-runner.js';
 import type { CardRecord, CardStatus } from '../../src/schemas/types.js';
-import { createRuntimeTestHarness, type RuntimeTestHarness } from './runtime-test-harness.js';
+import { createRuntimeCoreTestContainer, type RuntimeCoreTestContainer } from '../../src/runtime/core-composition.js';
 
 function makeFixtureDir(tmpDir: string): string {
   const dir = join(tmpDir, 'fixtures');
@@ -76,12 +76,12 @@ function createProjectImprovementFixture(fixtureDir: string): void {
 describe('Runtime continuousImprovement reserved config', () => {
   let tmpDir: string;
   let fixtureDir: string;
-  let harness: RuntimeTestHarness | undefined;
+  let harness: RuntimeCoreTestContainer | undefined;
 
-  function createRuntime(config: Omit<Parameters<typeof createRuntimeTestHarness>[0]['config'], 'projectRoot' | 'fakeAgentConfig'> & {
-    fakeAgentConfig: Parameters<typeof createRuntimeTestHarness>[0]['config']['fakeAgentConfig'];
+  function createRuntime(config: Omit<Parameters<typeof createRuntimeCoreTestContainer>[0]['config'], 'projectRoot' | 'fakeAgentConfig'> & {
+    fakeAgentConfig: Parameters<typeof createRuntimeCoreTestContainer>[0]['config']['fakeAgentConfig'];
   }): void {
-    harness = createRuntimeTestHarness({
+    harness = createRuntimeCoreTestContainer({
       config: { projectRoot: tmpDir, ...config },
     });
   }

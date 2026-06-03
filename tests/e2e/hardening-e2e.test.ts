@@ -33,7 +33,7 @@ import { quarantineContent } from '../../src/workspace/quarantine.js';
 import { isStashPathAllowed, getSafeFileForAgent } from '../../src/workspace/file-access-security.js';
 import { releaseLock } from '../../src/runtime/lock.js';
 import type { CardRecord } from '../../src/schemas/types.js';
-import { createRuntimeTestHarness } from '../utils/runtime-test-harness.js';
+import { createRuntimeCoreTestContainer } from '../../src/runtime/core-composition.js';
 
 function makeFixtureDir(tmpDir: string): string {
   const dir = join(tmpDir, 'fixtures');
@@ -246,7 +246,7 @@ describe('E2E — Full Project Lifecycle', () => {
     writeLifecycleFixture(artifactSourcePath);
     makeGoalCard(store, 'e2e-goal', 'E2E Test Goal');
 
-    const harness = createRuntimeTestHarness({
+    const harness = createRuntimeCoreTestContainer({
       config: {
         projectRoot: tmpDir,
         fakeAgentConfig: {
@@ -438,7 +438,7 @@ describe('E2E — Full Project Lifecycle', () => {
 
     makeGoalCard(store, 'art-goal', 'Artifact Goal');
 
-    const harness = createRuntimeTestHarness({
+    const harness = createRuntimeCoreTestContainer({
       config: {
         projectRoot: tmpDir,
         fakeAgentConfig: {
@@ -579,7 +579,7 @@ describe('E2E — Crash and Restart Recovery', () => {
     makeTerminalCard(store, 'code-crash-1', 'crash-goal', { status: 'running' });
     makeTerminalCard(store, 'code-crash-2', 'crash-goal', { status: 'active' });
 
-    const harness = createRuntimeTestHarness({
+    const harness = createRuntimeCoreTestContainer({
       config: {
         projectRoot: tmpDir,
         fakeAgentConfig: {
@@ -627,7 +627,7 @@ describe('E2E — Crash and Restart Recovery', () => {
     makeTerminalCard(store, 'code-crash-1', 'crash-goal', { status: 'running' });
     makeTerminalCard(store, 'code-crash-2', 'crash-goal', { status: 'active' });
 
-    const harness = createRuntimeTestHarness({
+    const harness = createRuntimeCoreTestContainer({
       config: {
         projectRoot: tmpDir,
         fakeAgentConfig: {

@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { readRuntimeState } from '../../src/runtime/state.js';
-import { createRuntimeTestHarness } from '../utils/runtime-test-harness.js';
+import { createRuntimeCoreTestContainer } from '../../src/runtime/core-composition.js';
 
 function root(): string { return mkdtempSync(join(tmpdir(), 'saivage-state-machine-wired-')); }
 
@@ -11,7 +11,7 @@ describe('Runtime wires RuntimeStateMachine', () => {
   it('advances last_tick_at through startup without exposing the state machine', async () => {
     const projectRoot = root();
     try {
-      const { api } = createRuntimeTestHarness({
+      const { api } = createRuntimeCoreTestContainer({
         config: { projectRoot, fakeAgentConfig: { mapping: {}, fixtureDir: '' }, autoDispatchBacklog: false },
       });
       await api.start();

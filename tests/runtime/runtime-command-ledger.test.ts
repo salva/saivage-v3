@@ -19,7 +19,7 @@ import {
 import { PlannerControlExecutor } from '../../src/agents/planner-control-executor.js';
 import { CardStore } from '../../src/cards/card-store.js';
 import type { AgentExecutionPort as AgentRuntime } from '../../src/contracts/index.js';
-import { createRuntimeTestHarness, type RuntimeTestHarness } from '../utils/runtime-test-harness.js';
+import { createRuntimeCoreTestContainer, type RuntimeCoreTestContainer } from '../../src/runtime/core-composition.js';
 
 function activationLedger(projectRoot: string) {
   return {
@@ -35,18 +35,18 @@ function root(): string {
   return mkdtempSync(join(tmpdir(), 'saivage-runtime-command-'));
 }
 
-let dispatchTools: RuntimeTestHarness['dispatchTestTools'];
-let diagnostics: RuntimeTestHarness['diagnosticTestTools'];
-let cards: RuntimeTestHarness['cardTestTools'];
-let loggerTools: RuntimeTestHarness['loggerTestTools'];
-let subscribe: RuntimeTestHarness['api']['subscribe'];
+let dispatchTools: RuntimeCoreTestContainer['dispatchTestTools'];
+let diagnostics: RuntimeCoreTestContainer['diagnosticTestTools'];
+let cards: RuntimeCoreTestContainer['cardTestTools'];
+let loggerTools: RuntimeCoreTestContainer['loggerTestTools'];
+let subscribe: RuntimeCoreTestContainer['api']['subscribe'];
 
 function makeRuntime(
   projectRoot: string,
   agentRuntime?: AgentRuntime,
-  goalDispatcher?: Parameters<typeof createRuntimeTestHarness>[0]['goalDispatcher'],
-): RuntimeTestHarness['api'] {
-  const harness = createRuntimeTestHarness({
+  goalDispatcher?: Parameters<typeof createRuntimeCoreTestContainer>[0]['goalDispatcher'],
+): RuntimeCoreTestContainer['api'] {
+  const harness = createRuntimeCoreTestContainer({
     config: {
       projectRoot,
       fakeAgentConfig: { mapping: {}, fixtureDir: '' },
