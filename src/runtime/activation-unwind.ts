@@ -109,6 +109,19 @@ export function findUnresolvedActivateCardCalls(
   return calls;
 }
 
+export function repairOrphanActivateCardToolCalls(input: {
+  sessionPort: Pick<ActivationUnwindSessionPort, 'listSessions' | 'getSession' | 'getSessionMessages'>;
+  synthesizeTerminalActivationResult(sessionId: string, toolCallId: string, cardId: string): boolean;
+}): void {
+  for (const sessionId of input.sessionPort.listSessions()) {
+    const session = input.sessionPort.getSession(sessionId);
+    if (!session || session.role !== 'planner') continue;
+    for (const call of findUnresolvedActivateCardCalls(sessionId, input.sessionPort.getSessionMessages(sessionId))) {
+      input.synthesizeTerminalActivationResult(call.session_id, call.tool_call_id, call.card_id);
+    }
+  }
+}
+
 export function selectPendingActivationChildCardIds(state: RuntimeState | null, parentCardId: string): string[] {
   return (state?.runtime_activations ?? [])
     .filter(
@@ -193,12 +206,11 @@ export class ActivationUnwindRunner {
   }
 
   repairOrphanActivateCardToolCalls(): void {
-    for (const sessionId of this.deps.sessionPort.listSessions()) {
-      const session = this.deps.sessionPort.getSession(sessionId);
-      if (!session || session.role !== 'planner') continue;
-      for (const call of this.findUnresolvedActivateCards(sessionId))
-        this.synthesizeTerminalActivationResult(call.session_id, call.tool_call_id, call.card_id);
-    }
+    repairOrphanActivateCardToolCalls({
+      sessionPort: this.deps.sessionPort,
+      synthesizeTerminalActivationResult: (sessionId, toolCallId, cardId) =>
+        this.synthesizeTerminalActivationResult(sessionId, toolCallId, cardId),
+    });
   }
 
   parentPlannerRunFor(childCardId: string): RuntimeState['active_card_run'] {
@@ -257,13 +269,6 @@ export class ActivationUnwindRunner {
         error: child?.error ?? null,
         failure_kind: failureKind,
       }),
-    );
-  }
-
-  private findUnresolvedActivateCards(sessionId: string): UnresolvedActivateCardCall[] {
-    return findUnresolvedActivateCardCalls(
-      sessionId,
-      this.deps.sessionPort.getSessionMessages(sessionId),
     );
   }
 }

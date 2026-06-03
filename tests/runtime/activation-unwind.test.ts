@@ -1,5 +1,5 @@
-import { describe, expect, it } from '@jest/globals';
-import { findActivationCallerEdge, findUnresolvedActivateCardCalls, selectChildGoalActivationOutcome, selectPendingActivationChildCardIds } from '../../src/runtime/activation-unwind.js';
+import { describe, expect, it, jest } from '@jest/globals';
+import { findActivationCallerEdge, findUnresolvedActivateCardCalls, repairOrphanActivateCardToolCalls, selectChildGoalActivationOutcome, selectPendingActivationChildCardIds } from '../../src/runtime/activation-unwind.js';
 import { createActivationCompletionEnvelope } from '../../src/schemas/index.js';
 import { serializeToolCallMessage } from '../../src/agents/persisted-tool-call.js';
 import type { AgentMessage } from '../../src/schemas/types.js';
@@ -73,6 +73,66 @@ describe('activation unwind helpers', () => {
       message({ content: '{bad json' }),
       message({ content: JSON.stringify(serializeToolCallMessage({ id: 'call-1', name: 'read_card', args: { cardId: 'child-a' } })) }),
     ])).toEqual([]);
+  });
+
+  it('repairs unresolved activate_card calls only from planner sessions', () => {
+    const synthesize = jest.fn((sessionId: string, toolCallId: string, cardId: string) => {
+      void sessionId;
+      void toolCallId;
+      void cardId;
+      return true;
+    });
+    repairOrphanActivateCardToolCalls({
+      sessionPort: {
+        listSessions: () => ['planner:parent', 'executor:child', 'missing'],
+        getSession: (sessionId) => {
+          if (sessionId === 'planner:parent') return { role: 'planner' };
+          if (sessionId === 'executor:child') return { role: 'executor' };
+          return null;
+        },
+        getSessionMessages: (sessionId) => sessionId === 'planner:parent'
+          ? [activateCall('call-1', 'child-a')]
+          : [activateCall('call-ignored', 'child-b')],
+      },
+      synthesizeTerminalActivationResult: synthesize,
+    });
+
+    expect(synthesize).toHaveBeenCalledTimes(1);
+    expect(synthesize).toHaveBeenCalledWith('planner:parent', 'call-1', 'child-a');
+  });
+
+  it('does not repair already resolved activate_card calls', () => {
+    const completion = createActivationCompletionEnvelope({
+      child_card_id: 'child-a',
+      outcome: 'done',
+      summary: 'ok',
+      result: null,
+      review: null,
+      artifacts: [],
+      attachments: [],
+      evidence_card_ids: ['child-a'],
+      error: null,
+      failure_kind: undefined,
+    });
+    const synthesize = jest.fn((sessionId: string, toolCallId: string, cardId: string) => {
+      void sessionId;
+      void toolCallId;
+      void cardId;
+      return true;
+    });
+    repairOrphanActivateCardToolCalls({
+      sessionPort: {
+        listSessions: () => ['planner:parent'],
+        getSession: () => ({ role: 'planner' }),
+        getSessionMessages: () => [
+          activateCall('call-1', 'child-a'),
+          message({ kind: 'tool_result', role: 'tool', tool_call_id: 'call-1', content: JSON.stringify(completion) }),
+        ],
+      },
+      synthesizeTerminalActivationResult: synthesize,
+    });
+
+    expect(synthesize).not.toHaveBeenCalled();
   });
 
   it('selects pending activation child ids for a parent in requested order', () => {
