@@ -83,7 +83,7 @@ describe('Runtime caller-edge reconstruction from unresolved activate_card calls
     const fakeAgent = new FakeAgentAdapter({ mapping, fixtureDir, autoActivateCreatedCards: false });
     harness = createHarness(mapping, fakeAgent);
     const completionEvents: Array<Record<string, unknown>> = [];
-    harness.events.on('project_run_completed', (event) => completionEvents.push(event as Record<string, unknown>));
+    harness.eventTestTools.on('project_run_completed', (event) => completionEvents.push(event as Record<string, unknown>));
     await harness.api.start(); await harness.dispatchTestTools.dispatchGoal('project');
 
     expect(harness.stateTestTools.read()?.active_card_run).toBeNull();

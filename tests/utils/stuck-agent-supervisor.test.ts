@@ -494,8 +494,8 @@ describe('RuntimeIntegration', () => {
       },
     });
     const events: string[] = [];
-    harness.events.on('stuck_supervisor_started', () => events.push('started'));
-    harness.events.on('stuck_supervisor_stopped', () => events.push('stopped'));
+    harness.eventTestTools.on('stuck_supervisor_started', () => events.push('started'));
+    harness.eventTestTools.on('stuck_supervisor_stopped', () => events.push('stopped'));
     await harness.api.start();
     expect(events).toContain('started');
     await harness.api.shutdown();

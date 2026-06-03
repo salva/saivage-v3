@@ -197,7 +197,7 @@ describe('Runtime Adapter Wiring', () => {
       await harness.api.start();
 
       let goalCompleted = false;
-      harness.events.on('goal_completed', () => {
+      harness.eventTestTools.on('goal_completed', () => {
         goalCompleted = true;
       });
 
@@ -230,9 +230,9 @@ describe('Runtime Adapter Wiring', () => {
       await harness.api.start();
 
       const events: string[] = [];
-      harness.events.on('goal_completed', () => events.push('goal_completed'));
-      harness.events.on('review_failed', () => events.push('review_failed'));
-      harness.events.on('card_failed', () => events.push('card_failed'));
+      harness.eventTestTools.on('goal_completed', () => events.push('goal_completed'));
+      harness.eventTestTools.on('review_failed', () => events.push('review_failed'));
+      harness.eventTestTools.on('card_failed', () => events.push('card_failed'));
 
       await dispatchTools.dispatchGoal('goal-1');
 
@@ -311,7 +311,7 @@ describe('Runtime Adapter Wiring', () => {
       await harness.api.start();
 
       let goalCompleted = false;
-      harness.events.on('goal_completed', () => {
+      harness.eventTestTools.on('goal_completed', () => {
         goalCompleted = true;
       });
 
@@ -409,7 +409,7 @@ describe('Runtime Adapter Wiring', () => {
       expect(goalAfterStartup!.status).toBe('backlog');
 
       let goalCompleted = false;
-      harness.events.on('goal_completed', () => {
+      harness.eventTestTools.on('goal_completed', () => {
         goalCompleted = true;
       });
 

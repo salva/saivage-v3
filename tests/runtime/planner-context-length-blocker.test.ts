@@ -232,7 +232,7 @@ describe('planner context-length failures', () => {
     expect(harness.stateTestTools.read()?.status).toBe('idle');
     expect(harness.stateTestTools.read()?.current_card_id).toBeNull();
     expect(harness.stateTestTools.read()?.active_card_run).toBeNull();
-    expect(harness.diagnostics.getBackgroundDispatchCount()).toBe(0);
+    expect(harness.diagnosticTestTools.getBackgroundDispatchCount()).toBe(0);
   });
 
   it('aligns active/running card status with persisted context-length planning blockers on startup', async () => {
@@ -348,7 +348,7 @@ describe('planner context-length failures', () => {
     expect(harness.stateTestTools.read()?.status).toBe('idle');
     expect(harness.stateTestTools.read()?.current_card_id).toBeNull();
     expect(harness.stateTestTools.read()?.active_card_run).toBeNull();
-    expect(harness.diagnostics.getBackgroundDispatchCount()).toBe(0);
+    expect(harness.diagnosticTestTools.getBackgroundDispatchCount()).toBe(0);
   });
 
   it('aligns done project status with persisted precise planning blockers on startup', async () => {
@@ -443,7 +443,7 @@ describe('planner context-length failures', () => {
     expect(harness.stateTestTools.read()?.current_card_id).toBeNull();
     expect(harness.stateTestTools.read()?.active_card_run).toBeNull();
     expect(harness.stateTestTools.read()?.runtime_runs ?? []).toHaveLength(0);
-    expect(harness.diagnostics.getBackgroundDispatchCount()).toBe(0);
+    expect(harness.diagnosticTestTools.getBackgroundDispatchCount()).toBe(0);
   });
 
   it('compacts oversized persisted planner history and clears stale token-budget blocker before retry', async () => {
@@ -542,7 +542,7 @@ describe('planner context-length failures', () => {
     await harness.api.start();
     const startResult = await harness.api.startProject('operator');
     expect(startResult.success).toBe(true);
-    for (let attempt = 0; attempt < 20 && harness.diagnostics.getBackgroundDispatchCount() > 0; attempt += 1)
+    for (let attempt = 0; attempt < 20 && harness.diagnosticTestTools.getBackgroundDispatchCount() > 0; attempt += 1)
       await new Promise((resolve) => setTimeout(resolve, 5));
 
     const project = harness.cardTestTools.read('project');
@@ -592,7 +592,7 @@ describe('planner context-length failures', () => {
     await harness.api.start();
     const startResult = await harness.api.startProject('operator');
     expect(startResult.success).toBe(true);
-    for (let attempt = 0; attempt < 20 && harness.diagnostics.getBackgroundDispatchCount() > 0; attempt += 1)
+    for (let attempt = 0; attempt < 20 && harness.diagnosticTestTools.getBackgroundDispatchCount() > 0; attempt += 1)
       await new Promise((resolve) => setTimeout(resolve, 5));
 
     const project = harness.cardTestTools.read('project');
@@ -659,7 +659,7 @@ describe('planner context-length failures', () => {
     expect(startResult.success).toBe(false);
     expect(harness.cardTestTools.read('project')?.status).toBe('blocked');
     expect(harness.cardTestTools.read('next-safe-work')).toBeNull();
-    expect(harness.diagnostics.getBackgroundDispatchCount()).toBe(0);
+    expect(harness.diagnosticTestTools.getBackgroundDispatchCount()).toBe(0);
   });
 
   it('runtime source start_project still does not retry a blocked token-budget project automatically', async () => {
@@ -707,7 +707,7 @@ describe('planner context-length failures', () => {
     expect(startResult.success).toBe(false);
     expect(harness.cardTestTools.read('project')?.status).toBe('blocked');
     expect(harness.cardTestTools.read('next-safe-work')).toBeNull();
-    expect(harness.diagnostics.getBackgroundDispatchCount()).toBe(0);
+    expect(harness.diagnosticTestTools.getBackgroundDispatchCount()).toBe(0);
   });
 
   it('allows explicit retry of a persisted context-length blocker to surface a newer precise planner blocker', async () => {

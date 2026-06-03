@@ -59,19 +59,19 @@ describe('Agent Events → Runtime EventEmitter', () => {
     createRuntime();
 
     const received: Array<{ name: string; data: Record<string, unknown> }> = [];
-    harness!.events.on('session_started', (data: unknown) => {
+    harness!.eventTestTools.on('session_started', (data: unknown) => {
       received.push({
         name: 'session_started',
         data: data as Record<string, unknown>,
       });
     });
-    harness!.events.on('llm_attempt', (data: unknown) => {
+    harness!.eventTestTools.on('llm_attempt', (data: unknown) => {
       received.push({
         name: 'llm_attempt',
         data: data as Record<string, unknown>,
       });
     });
-    harness!.events.on('llm_invocation_summary', (data: unknown) => {
+    harness!.eventTestTools.on('llm_invocation_summary', (data: unknown) => {
       received.push({
         name: 'llm_invocation_summary',
         data: data as Record<string, unknown>,
@@ -127,10 +127,10 @@ describe('Agent Events → Runtime EventEmitter', () => {
     createRuntime();
 
     const received: string[] = [];
-    harness!.events.on('session_started', () => received.push('session_started'));
-    harness!.events.on('llm_attempt', () => received.push('llm_attempt'));
-    harness!.events.on('llm_invocation_summary', () => received.push('llm_invocation_summary'));
-    harness!.events.on('compaction_triggered', () => received.push('compaction_triggered'));
+    harness!.eventTestTools.on('session_started', () => received.push('session_started'));
+    harness!.eventTestTools.on('llm_attempt', () => received.push('llm_attempt'));
+    harness!.eventTestTools.on('llm_invocation_summary', () => received.push('llm_invocation_summary'));
+    harness!.eventTestTools.on('compaction_triggered', () => received.push('compaction_triggered'));
 
     harness!.lifecycleTestTools.emitAgentEvent('session_started', { session_id: 's1', role: 'planner', goal_id: 'g1', card_id: 'c1' });
     harness!.lifecycleTestTools.emitAgentEvent('llm_attempt', { session_id: 's1', role: 'planner', attempt: 1, same_candidate_attempt: 1, provider: 'p', model: 'm', account: '_', started_at: '2026-05-23T00:00:00.000Z', duration_ms: 100, outcome: { kind: 'succeeded', terminal_tool: 'emit_planner_result' } });
@@ -156,7 +156,7 @@ describe('Agent Events → Runtime EventEmitter', () => {
       'session_started', 'llm_attempt', 'llm_invocation_summary', 'compaction_triggered',
     ];
     for (const evt of trackedEvents) {
-      harness!.events.on(evt, () => received.push(evt));
+      harness!.eventTestTools.on(evt, () => received.push(evt));
     }
 
     harness!.lifecycleTestTools.emitAgentEvent('session_started', { session_id: 's1', role: 'planner', goal_id: 'g1', card_id: 'c1' });

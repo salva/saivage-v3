@@ -15,7 +15,7 @@ describe('runtime core composition', () => {
       expect(harness.projectRoot).toBe(projectRoot);
       expect(harness.agentEventBus).toBeDefined();
       expect(harness.runtimeLedgerEvents).toBeDefined();
-      expect(typeof harness.events.on).toBe('function');
+      expect(typeof harness.eventTestTools.on).toBe('function');
       expect(typeof harness.dispatchTestTools.dispatchGoal).toBe('function');
       expect(typeof harness.lifecycleTestTools.emitAgentEvent).toBe('function');
       expect(typeof harness.lifecycleTestTools.performCrashRecovery).toBe('function');
@@ -31,7 +31,7 @@ describe('runtime core composition', () => {
       initProjectTree(projectRoot);
       const harness = createRuntimeTestHarness({ config: { projectRoot, fakeAgentConfig: { mapping: {}, fixtureDir: '' }, autoDispatchBacklog: false } });
       const received: unknown[] = [];
-      harness.events.on('session_started', (event) => received.push(event));
+      harness.eventTestTools.on('session_started', (event) => received.push(event));
 
       harness.agentEventBus.emit('session_started', { session_id: 's1', role: 'planner', goal_id: 'project', card_id: 'project' });
 

@@ -118,8 +118,8 @@ describe('Runtime continuousImprovement reserved config', () => {
       if ((data as { source?: string }).source === 'continuous-improvement') return true;
       return false;
     });
-    harness!.events.on('improvement_invoked', improvementListener);
-    harness!.events.on('plan_updated', continuousPlanListener);
+    harness!.eventTestTools.on('improvement_invoked', improvementListener);
+    harness!.eventTestTools.on('plan_updated', continuousPlanListener);
 
     await harness!.api.start();
     await new Promise<void>((resolve) => setTimeout(resolve, 200));
@@ -140,7 +140,7 @@ describe('Runtime continuousImprovement reserved config', () => {
     await harness!.api.shutdown();
     await harness!.api.shutdown();
     expect(snapshotProcessRuntimeScope(tmpDir).resources).toHaveLength(0);
-    expect(harness?.diagnostics.getLastLifecycleDisposeReport()).toEqual(expect.arrayContaining([
+    expect(harness?.diagnosticTestTools.getLastLifecycleDisposeReport()).toEqual(expect.arrayContaining([
       expect.objectContaining({ kind: 'child_process', status: expect.stringMatching(/detached|killed/) }),
     ]));
   });

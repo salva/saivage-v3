@@ -670,7 +670,7 @@ describe('Runtime Integration', () => {
       await harness.api.start();
 
       const completedEvents: string[] = [];
-      harness.events.on('goal_completed', () => completedEvents.push('goal_completed'));
+      harness.eventTestTools.on('goal_completed', () => completedEvents.push('goal_completed'));
 
       await dispatchTools.dispatchGoal('goal-planner-done');
 

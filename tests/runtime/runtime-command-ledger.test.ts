@@ -35,7 +35,7 @@ function root(): string {
 }
 
 let dispatchTools: RuntimeTestHarness['dispatchTestTools'];
-let diagnostics: RuntimeTestHarness['diagnostics'];
+let diagnostics: RuntimeTestHarness['diagnosticTestTools'];
 let cards: RuntimeTestHarness['cardTestTools'];
 let loggerTools: RuntimeTestHarness['loggerTestTools'];
 let subscribe: RuntimeTestHarness['api']['subscribe'];
@@ -55,7 +55,7 @@ function makeRuntime(
     ...(goalDispatcher ? { goalDispatcher } : {}),
   });
   dispatchTools = harness.dispatchTestTools;
-  diagnostics = harness.diagnostics;
+  diagnostics = harness.diagnosticTestTools;
   cards = harness.cardTestTools;
   loggerTools = harness.loggerTestTools;
   subscribe = harness.api.subscribe;

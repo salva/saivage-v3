@@ -90,7 +90,7 @@ describe('Runtime stale running-intent reconciliation', () => {
     await new Promise<void>((resolve, reject) => {
       const deadline = Date.now() + 2000;
       const poll = () => {
-        if (dispatched.length > 0 && harness?.diagnostics.getBackgroundDispatchCount() === 0) return resolve();
+        if (dispatched.length > 0 && harness?.diagnosticTestTools.getBackgroundDispatchCount() === 0) return resolve();
         if (Date.now() >= deadline) return reject(new Error('startup did not redispatch running intent'));
         setTimeout(poll, 10);
       };
@@ -105,7 +105,7 @@ describe('Runtime stale running-intent reconciliation', () => {
     expect(reconciledRun?.runtime_status).toBe('idle');
     expect(reconciledRun?.result).toBe('done');
     expect(reconciledRun?.finished_at).toBeTruthy();
-    expect(harness.diagnostics.getBackgroundDispatchCount()).toBe(0);
+    expect(harness.diagnosticTestTools.getBackgroundDispatchCount()).toBe(0);
   });
 
   it('stops expected-idle intent when all root runs are already closed and project is terminal', async () => {
@@ -163,6 +163,6 @@ describe('Runtime stale running-intent reconciliation', () => {
     expect(reconciled?.active_card_run).toBeNull();
     expect(reconciled?.runtime_intent?.status).toBe('stopped');
     expect(reconciled?.runtime_intent?.reason).toContain('expected idle');
-    expect(harness.diagnostics.getBackgroundDispatchCount()).toBe(0);
+    expect(harness.diagnosticTestTools.getBackgroundDispatchCount()).toBe(0);
   });
 });

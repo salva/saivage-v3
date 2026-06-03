@@ -63,10 +63,10 @@ export interface RuntimeCoreContainer {
   dispatchTestTools: {
     dispatchGoal(goalId: string): Promise<void>;
   };
-  events: {
+  eventTestTools: {
     on(eventName: string | symbol, listener: (...args: unknown[]) => void): void;
   };
-  diagnostics: {
+  diagnosticTestTools: {
     getBackgroundDispatchCount(): number;
     getLastLifecycleDisposeReport(): RuntimeDisposeReportEntry[];
   };
@@ -226,12 +226,12 @@ export function createRuntimeCoreContainer(input: {
         return dispatchGoal(goalId);
       },
     },
-    events: {
+    eventTestTools: {
       on: (eventName, listener) => {
         addRuntimeEventListener(eventName, listener);
       },
     },
-    diagnostics: {
+    diagnosticTestTools: {
       getBackgroundDispatchCount: () => backgroundDispatchCount,
       getLastLifecycleDisposeReport: () => [...lastLifecycleDisposeReport],
     },
