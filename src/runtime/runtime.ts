@@ -14,12 +14,9 @@ import { RuntimeRunLedger } from './runtime-run-ledger.js';
 import { createRuntimeSupervisor } from './supervisor-factory.js';
 import { RuntimeEventPublisher } from './runtime-event-publisher.js';
 import { RuntimeDiagnostics } from './runtime-diagnostics.js';
-import { performRuntimeShutdown } from './runtime-shutdown.js';
-import { performRuntimeStartup } from './runtime-startup.js';
-import { performRuntimeCrashRecovery } from './crash-recovery.js';
-import { repairRuntimeStartupActiveCardRun } from './runtime-startup-active-run-repair.js';
 import { createConfiguredAgentRuntime } from './agent-runtime-factory.js';
 import { createRuntimeStateMutationPort, type RuntimeStateMutationPort } from './mutations.js';
+import { RuntimeLifecycleController } from './runtime-lifecycle-controller.js';
 import { RuntimeLifecycleState } from './runtime-lifecycle-state.js';
 import { createRuntimeDispatchCollaborators, type RuntimeDispatchCollaborators } from './runtime-dispatch-composition.js';
 
@@ -57,6 +54,7 @@ class Runtime {
   private readonly _mutations: RuntimeStateMutationPort;
   private readonly _sessionStamper: SessionStamper;
   private readonly lifecycle = new RuntimeLifecycleState();
+  private _lifecycleController!: RuntimeLifecycleController;
 
   constructor(
     config: RuntimeConfig,
@@ -144,6 +142,25 @@ class Runtime {
     this._stateMachine = dispatchCollaborators.stateMachine;
     this._projectCommands = dispatchCollaborators.projectCommands;
     this._pauseResume = dispatchCollaborators.pauseResume;
+    this._lifecycleController = new RuntimeLifecycleController({
+      projectRoot: this.projectRoot,
+      cards: this.cardStore,
+      agentRuntime: this.agentRuntime,
+      supervisor: this._supervisor,
+      stateMachine: this._stateMachine,
+      runLedger: this._runLedger,
+      projectCommands: this._projectCommands,
+      events: this._events,
+      eventLogger: this._eventLogger,
+      errorLogger: this._errorLogger,
+      ownsEventLogger: this._ownsEventLogger,
+      ownsErrorLogger: this._ownsErrorLogger,
+      diagnostics: this._diagnostics,
+      mutations: this._mutations,
+      lifecycle: this.lifecycle,
+      activationUnwind: this._activationUnwind,
+      activationScheduler: this._activationScheduler,
+    });
     hooks.corePartsSink?.setRuntimeCoreParts({
       subscribe: (options) => this._events.eventBus.subscribe(options),
       publishRuntimeLedgerEvent: (event) => this._events.eventBus.emit(event),
@@ -162,66 +179,16 @@ class Runtime {
       this._events.on(eventName, listener);
     });
     hooks.controlSink?.setRuntimeControls({
-      start: () => this.startup(),
-      shutdown: () => this.shutdown(),
+      start: () => this._lifecycleController.start(),
+      shutdown: () => this._lifecycleController.shutdown(),
       pause: () => this._pauseResume.pause(),
       resume: () => this._pauseResume.resume(),
       startProject: (source) => this._projectCommands.startProject(source),
       stopProject: (source) => this._projectCommands.stopProject(source),
     });
     this._diagnostics.publish();
-    testHooks.lifecycleTestToolsSink?.setPerformCrashRecovery(() =>
-      performRuntimeCrashRecovery({
-        projectRoot: this.projectRoot,
-        cards: this.cardStore.list(),
-        transitionCard: (cardId, event) => this._stateMachine.transitionCard(cardId, event),
-      }),
-    );
-    testHooks.lifecycleTestToolsSink?.setRequestImmediateTick(() => this._stateMachine.requestImmediateTick());
+    testHooks.lifecycleTestToolsSink?.setPerformCrashRecovery(() => this._lifecycleController.performCrashRecovery());
+    testHooks.lifecycleTestToolsSink?.setRequestImmediateTick(() => this._lifecycleController.requestImmediateTick());
     hooks.agentEventSink?.setEmitAgentEvent((name, data) => this._events.emitAgentEvent(name, data));
-  }
-
-  private async startup(): Promise<void> {
-    await performRuntimeStartup({
-      projectRoot: this.projectRoot,
-      cards: this.cardStore,
-      stateMachine: this._stateMachine,
-      runLedger: this._runLedger,
-      projectCommands: this._projectCommands,
-      supervisor: this._supervisor,
-      events: this._events,
-      eventLogger: this._eventLogger,
-      mutations: this._mutations,
-      lifecycle: this.lifecycle,
-      repairStartupActiveCardRun: (previousState) =>
-        repairRuntimeStartupActiveCardRun({
-          projectRoot: this.projectRoot,
-          previousState,
-          cards: this.cardStore,
-          stateMachine: this._stateMachine,
-          activationUnwind: this._activationUnwind,
-          runLedger: this._runLedger,
-          mutations: this._mutations,
-        }),
-      dispatchGoalThroughScheduler: (goalId) => this._activationScheduler.dispatch(goalId),
-      trackBackgroundDispatch: (dispatch) => this._diagnostics.trackBackgroundDispatch(dispatch),
-    });
-  }
-  private async shutdown(): Promise<void> {
-    await performRuntimeShutdown({
-      projectRoot: this.projectRoot,
-      cards: this.cardStore,
-      agentRuntime: this.agentRuntime,
-      supervisor: this._supervisor,
-      stateMachine: this._stateMachine,
-      diagnostics: this._diagnostics,
-      mutations: this._mutations,
-      eventLogger: this._eventLogger,
-      errorLogger: this._errorLogger,
-      ownsEventLogger: this._ownsEventLogger,
-      ownsErrorLogger: this._ownsErrorLogger,
-      lifecycle: this.lifecycle,
-      emitShutdown: () => this._events.emit('shutdown'),
-    });
   }
 }
