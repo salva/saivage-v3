@@ -60,7 +60,7 @@ import {
   type SupervisorConfig,
   type SupervisorDeps,
 } from '../runtime/stuck-agent-supervisor.js';
-import { buildCurrentAgentSessionPatch, buildDispatchPausedRuntimeStatePatch, buildShutdownRuntimeStatePatch, planClearActiveCardRunPatch, planIdleRunningRootRunReconciliation, planOpenPlannerRunTerminalUpdate, planPlannerRunSessionBinding, planSweptCurrentAgentSessionPatch } from './runtime-core.js';
+import { buildCurrentAgentSessionPatch, buildDispatchPausedRuntimeStatePatch, buildShutdownRuntimeStatePatch, planIdleRunningRootRunReconciliation, planOpenPlannerRunTerminalUpdate, planPlannerRunSessionBinding, planSweptCurrentAgentSessionPatch } from './runtime-core.js';
 import { cardHasBlockedPlanning } from './planning-blockers.js';
 import { nextReviewerAssessmentId, reviewerSessionId as makeReviewerSessionId, validateReviewerAssessment } from './reviewer-assessment.js';
 import { ActivationUnwindRunner, selectChildGoalActivationOutcome, selectPendingActivationChildCardIds } from './activation-unwind.js';
@@ -75,7 +75,7 @@ import { buildReviewerActiveRun, decideReviewerPhase } from './phases/reviewer-p
 import { ReviewerPhaseRunner } from './phases/reviewer-phase-runner.js';
 import { handleReviewerInvocationFailure } from './phases/reviewer-invocation-failure.js';
 import { handleReviewerAssessmentDecision } from './phases/reviewer-assessment-handler.js';
-import { buildPlannerActivationPlanningPatch, buildPlannerActiveRunPatch, buildPlannerInvocationFailureBlocker, decideGoalActivationTransition, decidePlannerPostDispatch, planPlannerActivationSetup, summarizePlannerPostDispatch } from './phases/planner-phase.js';
+import { buildPlannerActivationPlanningPatch, buildPlannerActiveRunPatch, decideGoalActivationTransition, decidePlannerPostDispatch, planPlannerActivationSetup, summarizePlannerPostDispatch } from './phases/planner-phase.js';
 import { handlePlannerInvocationFailure, selectPlannerInvocationFailureRun, type PlannerInvocationFailureKind } from './phases/planner-invocation-failure.js';
 import { handlePlannerPostDispatchDecision } from './phases/planner-post-dispatch-handler.js';
 import { PlannerPhaseRunner } from './phases/planner-phase-runner.js';
@@ -88,6 +88,7 @@ import { RuntimeGoalContextCoordinator } from './runtime-goal-context.js';
 import { RuntimeProjectCommandRunner } from './runtime-project-commands.js';
 import { compactPersistedPlannerHistoryForRetry } from './persisted-planner-history.js';
 import { RuntimePauseResumeController } from './runtime-pause-resume.js';
+import { alignBlockedPlanningCardStatuses, isPlannerTerminalToolExhaustion } from './startup-blocked-planning.js';
 
 const TERMINAL_STATUSES: ReadonlySet<string> = new Set(['done', 'failed', 'cancelled']);
 function now(): string {
@@ -108,11 +109,6 @@ function isTokenBudgetFailure(error: unknown): boolean {
   if (failure.kind === 'token_budget_exceeded') return true;
   const message = error instanceof Error ? error.message : String(error);
   return /context_length_exceeded|token budget exceeded|maximum context length/i.test(message);
-}
-
-function isPlannerTerminalToolExhaustion(error: unknown): boolean {
-  const message = error instanceof Error ? error.message : String(error);
-  return /Role 'planner' did not emit terminal tool within \d+ turns\./.test(message);
 }
 
 const TRACKED_EVENT_KINDS: ReadonlySet<EventKind> = new Set(trackedEventKindValues);
@@ -576,63 +572,17 @@ class Runtime {
     if (updated) this.publishRuntimeLedgerEvent('runtime_run', { run: updated });
   }
 
-  private async alignBlockedPlanningCardStatuses(): Promise<void> {
-    for (const card of this.cardStore.list()) {
-      if (card.type !== 'project' && card.type !== 'goal') continue;
-      if (card.status === 'failed' && isPlannerTerminalToolExhaustion(card.error ?? '')) {
-        const plannerFailureBlocker = buildPlannerInvocationFailureBlocker({
-          tokenBudgetFailure: false,
-          providerStatus: null,
-        });
-        await this.cardStore.update(card.id, {
-          status: 'blocked',
-          error: plannerFailureBlocker.blockedReason,
-          status_text: plannerFailureBlocker.blockedReason,
-          result: {
-            ...(card.result ?? {}),
-            planning: plannerFailureBlocker.planning,
-          },
-        });
-        this.finishOpenPlannerRun(card.id, 'blocked');
-        const patch = planClearActiveCardRunPatch({ state: readRuntimeState(this.projectRoot), cardId: card.id });
-        if (patch) updateRuntimeState(this.projectRoot, patch);
-        continue;
-      }
-      if (card.status === 'blocked') continue;
-      const planning =
-        card.result && typeof card.result === 'object'
-          ? (card.result as { planning?: unknown }).planning
-          : null;
-      if (!planning || typeof planning !== 'object') continue;
-      const blockedPlanning = planning as {
-        status?: unknown;
-        resume_reason?: unknown;
-        failure_kind?: unknown;
-        blocked_reason?: unknown;
-      };
-      if (blockedPlanning.status !== 'blocked') continue;
-      const blockedReason =
-        typeof blockedPlanning.blocked_reason === 'string'
-          ? blockedPlanning.blocked_reason
-          : 'Planner context exceeded the selected LLM token budget before scheduler output could be produced; compact/trim planner context before resuming.';
-      await this._stateMachine.transitionCard(card.id, 'block', { blocked_reason: blockedReason });
-      this.finishOpenPlannerRun(card.id, 'blocked');
-      await this.cardStore.update(card.id, {
-        status: 'blocked',
-        error: card.error ?? blockedReason,
-        status_text: card.status_text ?? blockedReason,
-      });
-      const patch = planClearActiveCardRunPatch({ state: readRuntimeState(this.projectRoot), cardId: card.id });
-      if (patch) updateRuntimeState(this.projectRoot, patch);
-    }
-  }
-
   private async startup(): Promise<void> {
     if (this._running) throw new Error('Runtime is already running.');
     let state = readRuntimeState(this.projectRoot);
     if (!state) state = initRuntimeState(this.projectRoot);
     acquireLock(this.projectRoot);
-    await this.alignBlockedPlanningCardStatuses();
+    await alignBlockedPlanningCardStatuses({
+      cards: this.cardStore,
+      transitionCard: (cardId, event, details) => this._stateMachine.transitionCard(cardId, event, details),
+      finishOpenPlannerRun: (goalId, result) => this.finishOpenPlannerRun(goalId, result),
+      projectRoot: this.projectRoot,
+    });
     state = readRuntimeState(this.projectRoot) ?? state;
     await performRuntimeCrashRecovery({
       projectRoot: this.projectRoot,
