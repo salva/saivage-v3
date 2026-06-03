@@ -3,9 +3,21 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { initProjectTree } from '../../src/persistence/file-tree.js';
+import { createRuntimeCoreContainer } from '../../src/runtime/core-composition.js';
 import { createRuntimeTestHarness } from '../utils/runtime-test-harness.js';
 
 describe('runtime core composition', () => {
+  it('keeps production core composition limited to production ports', () => {
+    const projectRoot = mkdtempSync(join(tmpdir(), 'runtime-core-production-'));
+    try {
+      initProjectTree(projectRoot);
+      const core = createRuntimeCoreContainer({ config: { projectRoot, fakeAgentConfig: { mapping: {}, fixtureDir: '' }, autoDispatchBacklog: false } });
+      expect(Object.keys(core).sort()).toEqual(['agentEventBus', 'api', 'projectRoot', 'runtimeLedgerEvents']);
+    } finally {
+      rmSync(projectRoot, { recursive: true, force: true });
+    }
+  });
+
   it('creates a narrow runtime API plus test-only internals', () => {
     const projectRoot = mkdtempSync(join(tmpdir(), 'runtime-core-composition-'));
     try {

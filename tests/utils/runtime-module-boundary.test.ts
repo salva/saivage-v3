@@ -128,6 +128,18 @@ describe('runtime module ownership boundary', () => {
     expect(source).not.toContain('agentEventBus: runtime');
   });
 
+  it('keeps production runtime core composition free of test tools', () => {
+    const source = readFileSync(join(process.cwd(), 'src/runtime/core-composition.ts'), 'utf8');
+    const start = source.indexOf('export interface RuntimeCoreContainer');
+    const end = source.indexOf('export interface RuntimeCoreTestContainer');
+    expect(start).toBeGreaterThanOrEqual(0);
+    expect(end).toBeGreaterThan(start);
+    const productionInterface = source.slice(start, end);
+    expect(productionInterface).not.toContain('TestTools');
+    expect(productionInterface).not.toContain('cardTestTools');
+    expect(productionInterface).not.toContain('lifecycleTestTools');
+  });
+
   it('keeps runtime core independent from ActiveRuntime adapter', () => {
     const source = readFileSync(join(process.cwd(), 'src/runtime/runtime.ts'), 'utf8');
     expect(source).not.toContain("../agents/");

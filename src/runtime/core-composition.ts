@@ -33,6 +33,9 @@ export interface RuntimeCoreContainer {
     emit(event: LoggedEvent): void;
     emitAnalystToolInvoked(payload: EventPayload<'analyst_tool_invoked'>): void;
   };
+}
+
+export interface RuntimeCoreTestContainer extends RuntimeCoreContainer {
   cardTestTools: Pick<CardStore, 'read' | 'update' | 'create' | 'setStatus'>;
   loggerTestTools: {
     isSameErrorLogger(errorLogger: ErrorLogger): boolean;
@@ -87,6 +90,21 @@ export function createRuntimeCoreContainer(input: {
   getActivityStatus?: RuntimeApi['getActivityStatus'];
   goalDispatcher?: RuntimeConfig['goalDispatcher'];
 }): RuntimeCoreContainer {
+  const core = createRuntimeCoreTestContainer(input);
+  return {
+    api: core.api,
+    projectRoot: core.projectRoot,
+    agentEventBus: core.agentEventBus,
+    runtimeLedgerEvents: core.runtimeLedgerEvents,
+  };
+}
+
+export function createRuntimeCoreTestContainer(input: {
+  config: RuntimeConfig;
+  agentRuntime?: AgentExecutionPort;
+  getActivityStatus?: RuntimeApi['getActivityStatus'];
+  goalDispatcher?: RuntimeConfig['goalDispatcher'];
+}): RuntimeCoreTestContainer {
   let backgroundDispatchCount = 0;
   let lastLifecycleDisposeReport: RuntimeDisposeReportEntry[] = [];
   let simulateCrash: (() => Promise<void>) | null = null;
