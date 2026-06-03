@@ -1,5 +1,5 @@
 import { describe, expect, it } from '@jest/globals';
-import { activeRunFromActivationState, activationStateFromActiveRun, reduceActivation } from '../../src/runtime/activation-reducer.js';
+import { activeRunFromActivationState, activationStateFromActiveRun, plannerActivationStateFromGoal, reduceActivation } from '../../src/runtime/activation-reducer.js';
 import { activationFromRuntimeState, CardActivation } from '../../src/runtime/card-activation.js';
 import type { RuntimeState } from '../../src/schemas/types.js';
 
@@ -21,6 +21,22 @@ describe('activation reducer and CardActivation shell', () => {
     const state = activationStateFromActiveRun(plannerRun);
     expect(state).toEqual(expect.objectContaining({ phase: 'planner', cardId: 'goal-a', plannerSessionId: 'planner:goal-a', correctionAttempts: 2 }));
     expect(activeRunFromActivationState(state!, 't1')).toEqual(plannerRun);
+  });
+
+  it('builds planner activation state from goal identity without losing card type', () => {
+    const state = plannerActivationStateFromGoal({
+      goal: { id: 'project', type: 'project' } as any,
+      plannerSessionId: 'planner:project',
+    });
+
+    expect(activeRunFromActivationState(state, 't1')).toEqual(expect.objectContaining({
+      card_id: 'project',
+      card_type: 'project',
+      phase: 'planner',
+      planner_session_id: 'planner:project',
+      started_at: 't1',
+      last_turn_at: 't1',
+    }));
   });
 
   it('creates a CardActivation from runtime state snapshots', () => {

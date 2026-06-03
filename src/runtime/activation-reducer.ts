@@ -1,9 +1,9 @@
-import type { ActivationCompletionOutcome, RuntimeState } from '../schemas/index.js';
+import type { ActivationCompletionOutcome, CardRecord, RuntimeState } from '../schemas/index.js';
 import type { ExecutorResult, PlannerResult, ReviewerResult } from '../contracts/index.js';
 import type { RuntimeMutation } from './mutations.js';
 
 export type ActivationState =
-  | { phase: 'planner'; cardId: string; plannerSessionId: string; correctionAttempts: number; activeRun?: NonNullable<RuntimeState['active_card_run']> }
+  | { phase: 'planner'; cardId: string; plannerSessionId: string; correctionAttempts: number; cardType?: CardRecord['type']; activeRun?: NonNullable<RuntimeState['active_card_run']> }
   | { phase: 'executor'; cardId: string; goalId: string; executorSessionId: string; activeRun?: NonNullable<RuntimeState['active_card_run']> }
   | { phase: 'reviewer'; cardId: string; reviewerSessionId: string; assessmentId: string; activeRun?: NonNullable<RuntimeState['active_card_run']> }
   | { phase: 'completed'; cardId: string; outcome: ActivationCompletionOutcome }
@@ -73,7 +73,7 @@ export function activeRunFromActivationState(state: ActivationState, nowIso: str
     return {
       ...state.activeRun,
       card_id: state.cardId,
-      card_type: state.activeRun?.card_type ?? 'goal',
+      card_type: state.activeRun?.card_type ?? state.cardType ?? 'goal',
       runtime_status: state.activeRun?.runtime_status ?? 'running',
       phase: 'planner',
       caller_session_id: state.activeRun?.caller_session_id ?? null,
@@ -113,6 +113,19 @@ export function activeRunFromActivationState(state: ActivationState, nowIso: str
     correction_attempts: state.activeRun?.correction_attempts ?? 0,
     started_at: state.activeRun?.started_at ?? nowIso,
     last_turn_at: state.activeRun?.last_turn_at ?? nowIso,
+  };
+}
+
+export function plannerActivationStateFromGoal(input: {
+  goal: Pick<CardRecord, 'id' | 'type'>;
+  plannerSessionId: string;
+}): Extract<ActivationState, { phase: 'planner' }> {
+  return {
+    phase: 'planner',
+    cardId: input.goal.id,
+    cardType: input.goal.type,
+    plannerSessionId: input.plannerSessionId,
+    correctionAttempts: 0,
   };
 }
 

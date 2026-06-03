@@ -2,6 +2,7 @@ import type { CardRecord, RuntimeState } from '../../schemas/index.js';
 import type { PlannerResult } from '../../contracts/index.js';
 import { STARTABLE_STATES, RESTARTABLE_STATES } from '../../permissions/index.js';
 import { blockedPlanningReason, getBlockedPlanning, isReviewerCapacityPlannerBlocker, shouldPreservePrecisePlanningBlocker } from '../planning-blockers.js';
+import { activeRunFromActivationState, plannerActivationStateFromGoal } from '../activation-reducer.js';
 
 export type GoalActivationTransitionDecision =
   | { kind: 'none' }
@@ -324,22 +325,15 @@ export function buildPlannerActiveRunPatch(input: {
   plannerSessionId: string;
   at: string;
 }): Partial<RuntimeState> {
+  const activeRun = activeRunFromActivationState(
+    plannerActivationStateFromGoal({ goal: input.goal, plannerSessionId: input.plannerSessionId }),
+    input.at,
+  );
   return {
     status: 'running',
     current_card_id: input.goal.id,
     current_agent_session_id: input.plannerSessionId,
-    active_card_run: {
-      card_id: input.goal.id,
-      card_type: input.goal.type,
-      runtime_status: 'running',
-      phase: 'planner',
-      caller_session_id: null,
-      caller_tool_call_id: null,
-      planner_session_id: input.plannerSessionId,
-      correction_attempts: 0,
-      started_at: input.at,
-      last_turn_at: input.at,
-    },
+    active_card_run: activeRun,
   };
 }
 
