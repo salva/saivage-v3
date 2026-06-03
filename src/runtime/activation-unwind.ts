@@ -11,9 +11,8 @@ import {
   getSessionMessages,
   listSessions,
 } from './session-persistence.js';
-import { readRuntimeState, saveRuntimeState } from './state.js';
-import { reduceActivationCompletion } from './runtime-core.js';
 import type { RuntimeStampSource } from './runtime-config.js';
+import type { RuntimeStateMutationPort } from './mutations.js';
 
 const TERMINAL_STATUSES: ReadonlySet<string> = new Set(['done', 'failed', 'cancelled']);
 
@@ -118,6 +117,7 @@ export class ActivationUnwindRunner {
       projectRoot: string;
       cards: ActivationUnwindRunnerCards;
       sessionStamper: RuntimeStampSource;
+      mutations: RuntimeStateMutationPort;
       now(): string;
     },
   ) {}
@@ -206,10 +206,12 @@ export class ActivationUnwindRunner {
   }
 
   private markActivationComplete(childCardId: string, outcome: ActivationCompletionOutcome): void {
-    const state = readRuntimeState(this.deps.projectRoot);
-    const next = reduceActivationCompletion(state, childCardId, outcome, this.deps.now());
-    if (!next) return;
-    saveRuntimeState(this.deps.projectRoot, next);
+    this.deps.mutations.apply({
+      kind: 'completeActivation',
+      childCardId,
+      outcome,
+      completedAt: this.deps.now(),
+    });
   }
 
   private buildCardActivationOutcome(

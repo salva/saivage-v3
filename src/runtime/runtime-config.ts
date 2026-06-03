@@ -28,10 +28,11 @@ export type RuntimeControlHooks = Pick<RuntimeApi, 'start' | 'shutdown' | 'pause
 
 export interface RuntimeCoreParts {
   eventBus: EventBus;
-  cards: CardStore;
+  countGoals(): number;
 }
 
 export interface RuntimeTestParts {
+  cards: Pick<CardStore, 'read' | 'update' | 'create' | 'setStatus'>;
   agentRuntime: AgentExecutionPort;
   errorLogger: ErrorLogger;
   eventLogger: EventLogger;

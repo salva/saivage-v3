@@ -33,6 +33,8 @@ import { performRuntimeCrashRecovery } from './crash-recovery.js';
 import { repairRuntimeStartupActiveCardRun } from './runtime-startup-active-run-repair.js';
 import { createConfiguredAgentRuntime } from './agent-runtime-factory.js';
 import { createRuntimeStateMachine } from './state-machine-factory.js';
+import { ActivationScheduler } from './scheduler.js';
+import { createRuntimeStateMutationPort } from './mutations.js';
 
 function now(): string {
   return new Date().toISOString();
@@ -76,6 +78,7 @@ class Runtime {
   private readonly _runLedger: RuntimeRunLedger;
   private _pendingActivations!: PendingActivationDispatcher;
   private _cardDispatcher!: RuntimeCardDispatcher;
+  private _activationScheduler!: ActivationScheduler;
   private readonly _sessionStamper: RuntimeStampSource;
   private readonly _goalDispatcher: RuntimeConfig['goalDispatcher'];
 
@@ -114,6 +117,7 @@ class Runtime {
       projectRoot: this.projectRoot,
       cards: this.cardStore,
       sessionStamper: this._sessionStamper,
+      mutations: createRuntimeStateMutationPort(this.projectRoot),
       now,
     });
     this._goalContext = new RuntimeGoalContextCoordinator({
@@ -142,12 +146,16 @@ class Runtime {
       emit: (kind, data) => this._events.emit(kind, data),
       isShuttingDown: () => this._shuttingDown,
     });
+    this._activationScheduler = new ActivationScheduler(
+      this._goalDispatcher,
+      (goalId) => this._cardDispatcher.dispatchGoal(goalId),
+    );
     this._stateMachine = createRuntimeStateMachine({
       projectRoot: this.projectRoot,
       cards: this.cardStore,
       errorLogger: this._errorLogger,
       dispatchGoalThroughScheduler: (cardId) => {
-        void this.dispatchGoalThroughScheduler(cardId);
+        void this._activationScheduler.dispatch(cardId);
       },
     });
     this._projectCommands = new RuntimeProjectCommandRunner({
@@ -168,7 +176,7 @@ class Runtime {
       publishActionableError: (error) =>
         this._events.publishRuntimeLedgerEvent('runtime_actionable_error', { actionable_error: error }),
       trackBackgroundDispatch: (dispatch) => this._diagnostics.trackBackgroundDispatch(dispatch),
-      dispatchGoalThroughScheduler: (goalId) => this.dispatchGoalThroughScheduler(goalId),
+      dispatchGoalThroughScheduler: (goalId) => this._activationScheduler.dispatch(goalId),
     });
     this._pauseResume = new RuntimePauseResumeController({
       projectRoot: this.projectRoot,
@@ -192,7 +200,7 @@ class Runtime {
       errorLogger: this._errorLogger,
       isPaused: () => this._paused,
       isShuttingDown: () => this._shuttingDown,
-      dispatchGoalThroughScheduler: (goalId) => this.dispatchGoalThroughScheduler(goalId),
+      dispatchGoalThroughScheduler: (goalId) => this._activationScheduler.dispatch(goalId),
       emit: (eventName, data) => this._events.emit(eventName, data),
       emitRuntimeDiagnostic: (input) => this._events.emitRuntimeDiagnostic(input),
       now,
@@ -221,15 +229,16 @@ class Runtime {
     });
     hooks.corePartsSink?.setRuntimeCoreParts({
       eventBus: this._events.eventBus,
-      cards: this.cardStore,
+      countGoals: () => this.cardStore.list().filter((card) => card.type === 'goal').length,
     });
     testHooks.testPartsSink?.setRuntimeTestParts({
+      cards: this.cardStore,
       agentRuntime: this.agentRuntime,
       errorLogger: this._errorLogger,
       eventLogger: this._eventLogger,
       supervisor: this._supervisor,
     });
-    testHooks.schedulerSink?.setDispatchGoal((goalId) => this._cardDispatcher.dispatchGoal(goalId));
+    testHooks.schedulerSink?.setDispatchGoal((goalId) => this._activationScheduler.dispatch(goalId));
     testHooks.eventListenerSink?.setRuntimeEventListener((eventName, listener) => {
       this._events.on(eventName, listener);
     });
@@ -258,12 +267,6 @@ class Runtime {
     this._resumeHandoffContext = null;
     return ctx;
   }
-  private dispatchGoalThroughScheduler(goalId: string): Promise<void> {
-    return this._goalDispatcher
-      ? this._goalDispatcher(goalId, (nextGoalId: string) => this._cardDispatcher.dispatchGoal(nextGoalId))
-      : this._cardDispatcher.dispatchGoal(goalId);
-  }
-
   private async startup(): Promise<void> {
     await performRuntimeStartup({
       projectRoot: this.projectRoot,
@@ -296,7 +299,7 @@ class Runtime {
           activationUnwind: this._activationUnwind,
           runLedger: this._runLedger,
         }),
-      dispatchGoalThroughScheduler: (goalId) => this.dispatchGoalThroughScheduler(goalId),
+      dispatchGoalThroughScheduler: (goalId) => this._activationScheduler.dispatch(goalId),
       trackBackgroundDispatch: (dispatch) => this._diagnostics.trackBackgroundDispatch(dispatch),
     });
   }

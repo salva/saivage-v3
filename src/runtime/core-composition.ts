@@ -29,14 +29,13 @@ function createAgentEventBus(getEmitAgentEvent: () => EmitAgentEvent | null): No
   return agentEventBus;
 }
 
-function getRuntimeStatus(projectRoot: string, cards: RuntimeCoreParts['cards']): ReturnType<RuntimeApi['getStatus']> {
+function getRuntimeStatus(projectRoot: string, coreParts: RuntimeCoreParts): ReturnType<RuntimeApi['getStatus']> {
   const state = readRuntimeState(projectRoot);
-  const allCards = cards.list();
   return {
     status: state?.status ?? 'idle',
     paused: state?.paused ?? false,
     currentCardId: state?.current_card_id ?? null,
-    goalCount: allCards.filter((card) => card.type === 'goal').length,
+    goalCount: coreParts.countGoals(),
     lastTickAt: state?.last_tick_at ?? null,
   };
 }
@@ -143,7 +142,7 @@ export function createRuntimeCoreContainer(input: {
     startProject: (source) => controls.startProject(source),
     stopProject: (source) => controls.stopProject(source),
     subscribe: (options) => coreParts.eventBus.subscribe(options),
-    getStatus: () => getRuntimeStatus(input.config.projectRoot, coreParts.cards),
+    getStatus: () => getRuntimeStatus(input.config.projectRoot, coreParts),
     getActivityStatus: input.getActivityStatus ?? (() => ({ status: 'idle', pending_calls: [], updated_at: new Date(0).toISOString() })),
   };
   return {
@@ -248,7 +247,7 @@ export function createRuntimeCoreTestContainer(input: {
     startProject: (source) => controls.startProject(source),
     stopProject: (source) => controls.stopProject(source),
     subscribe: (options) => runtimeParts.eventBus.subscribe(options),
-    getStatus: () => getRuntimeStatus(input.config.projectRoot, runtimeParts.cards),
+    getStatus: () => getRuntimeStatus(input.config.projectRoot, runtimeParts),
     getActivityStatus: input.getActivityStatus ?? (() => ({ status: 'idle', pending_calls: [], updated_at: new Date(0).toISOString() })),
   };
   return {

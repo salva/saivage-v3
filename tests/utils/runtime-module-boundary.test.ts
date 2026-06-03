@@ -151,6 +151,18 @@ describe('runtime module ownership boundary', () => {
     expect(productionFactory).not.toContain('lifecycleTestToolsSink');
   });
 
+  it('keeps production runtime core parts free of concrete card mutation authority', () => {
+    const source = readFileSync(join(process.cwd(), 'src/runtime/runtime-config.ts'), 'utf8');
+    const start = source.indexOf('export interface RuntimeCoreParts');
+    const end = source.indexOf('export interface RuntimeTestParts');
+    expect(start).toBeGreaterThanOrEqual(0);
+    expect(end).toBeGreaterThan(start);
+    const coreParts = source.slice(start, end);
+    expect(coreParts).not.toContain('CardStore');
+    expect(coreParts).not.toContain('cards:');
+    expect(coreParts).toContain('countGoals');
+  });
+
   it('keeps RuntimeConfig free of composition sinks', () => {
     const source = readFileSync(join(process.cwd(), 'src/runtime/runtime-config.ts'), 'utf8');
     const start = source.indexOf('export interface RuntimeConfig');
