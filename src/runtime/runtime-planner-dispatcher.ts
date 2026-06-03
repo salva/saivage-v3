@@ -1,8 +1,7 @@
-import type { AgentExecutionPort, PlannerResult } from '../contracts/index.js';
+import type { AgentExecutionPort } from '../contracts/index.js';
 import type { RuntimeRunRecord } from '../schemas/index.js';
 import type { ErrorLogger, EventLogger } from '../observability/index.js';
 import type { CardStore } from '../cards/store-api.js';
-import { PROJECT_CARD_ID } from '../cards/store-api.js';
 import type { SessionStamper } from '../contracts/session-stamper.js';
 import type { RuntimeSkillsPort } from './runtime-config.js';
 import type { RuntimeStateMachine } from './state-machine.js';
@@ -12,25 +11,17 @@ import type { PendingActivationDispatcher } from './pending-activation-dispatche
 import type { RuntimeReviewerDispatcher } from './runtime-reviewer-dispatcher.js';
 import { readRuntimeState } from './state.js';
 import {
-  buildCurrentAgentSessionPatch,
   buildDispatchPausedRuntimeStatePatch,
 } from './runtime-core.js';
-import { buildGoalEvidenceContext } from './context-builder.js';
-import {
-  decidePlannerPostDispatch,
-  summarizePlannerPostDispatch,
-} from './phases/planner-phase.js';
 import {
   classifyPlannerInvocationFailure,
   handlePlannerInvocationFailure,
   selectPlannerInvocationFailureRun,
 } from './phases/planner-invocation-failure.js';
-import { handlePlannerPostDispatchDecision } from './phases/planner-post-dispatch-handler.js';
-import { PlannerPhaseRunner } from './phases/planner-phase-runner.js';
-import { PlannerResultApplier } from './phases/planner-result-applier.js';
 import { isPlannerTerminalToolExhaustion } from './startup-blocked-planning.js';
 import type { RuntimeStateMutationPort } from './mutations.js';
 import { PlannerActivationRunner } from './phases/planner-activation-runner.js';
+import { PlannerIterationRunner } from './phases/planner-iteration-runner.js';
 
 const MAX_PLANNER_ITERATIONS = 50;
 
@@ -86,60 +77,14 @@ export class RuntimePlannerDispatcher {
         this.deps.mutations.apply({ kind: 'patchRuntimeState', patch: buildDispatchPausedRuntimeStatePatch() });
         return;
       }
-      let plannerResult: PlannerResult;
-      try {
-        plannerResult = await new PlannerPhaseRunner({
-          agentRuntime: this.deps.agentRuntime,
-          skillsEngine: this.deps.skillsEngine(),
-          maxDepth: this.deps.cards.maxDepth,
-          readGoalCard: (cardId) => this.deps.cards.read(cardId),
-          buildGoalEvidenceContext: (cardId) => buildGoalEvidenceContext({ goalId: cardId, cards: this.deps.cards }),
-          buildGoalContextBlock: (cardId, resumeReason) => this.deps.goalContext.buildGoalContextBlock(cardId, resumeReason),
-          inferResumeReason: (cardId, fallback) => this.deps.goalContext.inferResumeReason(cardId, fallback),
-          consumeResumeHandoffContext: () => this.deps.consumeResumeHandoffContext(),
-          injectSyntheticPlannerNotes: (cardId) => {
-            this.deps.goalContext.injectQueuedPlannerNotes(`planner:${cardId}`);
-          },
-        }).run({ goalId, iteration: iter });
-      } catch (err) {
-        const failure = await this.handlePlannerFailure(goalId, err);
-        if (failure.kind === 'handled') return;
-        throw failure.error;
-      }
-      await new PlannerResultApplier({
-        cardStore: this.deps.cards,
-        transitionCard: (cardId, action, input) => this.deps.stateMachine.transitionCard(cardId, action, input),
-      }).apply(goalId, plannerResult);
-      this.deps.mutations.apply({ kind: 'patchRuntimeState', patch: buildCurrentAgentSessionPatch(`planner:${goalId}`) });
-      const execution = await this.deps.pendingActivations.dispatch(goalId);
-      if (execution.failed) plannerDone = false;
-      if (this.deps.isShuttingDown()) break;
-      if (this.deps.isPaused()) {
+      const iteration = await this.plannerIterationRunner(goalId).run({ goalId, iteration: iter });
+      if (iteration.kind === 'planner_failure_handled' || iteration.kind === 'post_dispatch_return') return;
+      if (iteration.kind === 'shutdown') break;
+      if (iteration.kind === 'paused') {
         this.emitDispatchBlocked(goalId);
         return;
       }
-      const postDispatchSummary = summarizePlannerPostDispatch({ plannerResult, childCards: this.deps.cards.list(), goalId });
-      const postDispatchDecision = decidePlannerPostDispatch({
-        plannerResult,
-        currentCard: this.deps.cards.read(goalId),
-        createdCardIds: postDispatchSummary.createdCardIds,
-        updatedCardIds: postDispatchSummary.updatedCardIds,
-        hasGoalDispatch: execution.dispatchedGoal,
-        hasUnfinishedChildWork: postDispatchSummary.hasUnfinishedChildWork,
-        executedTerminal: execution.executedTerminal,
-        isProjectCard: goalId === PROJECT_CARD_ID,
-      });
-      const postDispatch = await handlePlannerPostDispatchDecision({
-        goalId,
-        decision: postDispatchDecision,
-        effects: {
-          blockGoalWithPlanning: (input) => this.blockGoalWithPlanning(input),
-          updateGoalCard: (cardId, patch) => this.deps.cards.update(cardId, patch),
-          transitionGoalExit: (cardId, reason) => this.deps.stateMachine.transition('goal_exit', { goalId: cardId, reason }),
-        },
-      });
-      plannerDone = postDispatch.plannerDone;
-      if (postDispatch.shouldReturn) return;
+      plannerDone = iteration.plannerDone;
       if (plannerDone) {
         const completed = await this.deps.reviewerDispatcher.runReviewer(goalId);
         if (completed) return;
@@ -193,28 +138,20 @@ export class RuntimePlannerDispatcher {
     });
   }
 
-  private async blockGoalWithPlanning(input: {
-    goalId: string;
-    blockedReason: string;
-    planning: Record<string, unknown>;
-    terminalReason: string;
-  }): Promise<void> {
-    await this.deps.stateMachine.transitionCard(input.goalId, 'block', {
-      blocked_reason: input.blockedReason,
-    });
-    await this.deps.cards.update(input.goalId, {
-      status: 'blocked',
-      error: input.blockedReason,
-      status_text: input.blockedReason,
-      result: {
-        ...(this.deps.cards.read(input.goalId)?.result ?? {}),
-        planning: input.planning,
-      },
-    });
-    this.deps.runLedger.finishOpenPlannerRun(input.goalId, 'blocked');
-    await this.deps.stateMachine.transition('card_terminated', {
-      goalId: input.goalId,
-      reason: input.terminalReason,
+  private plannerIterationRunner(goalId: string): PlannerIterationRunner {
+    return new PlannerIterationRunner({
+      cards: this.deps.cards,
+      agentRuntime: this.deps.agentRuntime,
+      skillsEngine: () => this.deps.skillsEngine(),
+      stateMachine: this.deps.stateMachine,
+      goalContext: this.deps.goalContext,
+      pendingActivations: this.deps.pendingActivations,
+      mutations: this.deps.mutations,
+      runLedger: this.deps.runLedger,
+      isPaused: () => this.deps.isPaused(),
+      isShuttingDown: () => this.deps.isShuttingDown(),
+      consumeResumeHandoffContext: () => this.deps.consumeResumeHandoffContext(),
+      handlePlannerFailure: (error) => this.handlePlannerFailure(goalId, error),
     });
   }
 
