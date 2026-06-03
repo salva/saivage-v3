@@ -27,13 +27,13 @@ import { tmpdir } from 'node:os';
 
 import { initProjectTree } from '../../src/persistence/file-tree.js';
 import { CardStore } from '../../src/cards/card-store.js';
-import { Runtime } from '../../src/runtime/runtime.js';
 import type { FakeAgentFixture } from '../../src/agents/fake-agent.js';
 import { scanContent } from '../../src/workspace/heuristic-scanner.js';
 import { quarantineContent } from '../../src/workspace/quarantine.js';
 import { isStashPathAllowed, getSafeFileForAgent } from '../../src/workspace/file-access-security.js';
 import { releaseLock } from '../../src/runtime/lock.js';
 import type { CardRecord } from '../../src/schemas/types.js';
+import { createRuntimeTestHarness } from '../utils/runtime-test-harness.js';
 
 function makeFixtureDir(tmpDir: string): string {
   const dir = join(tmpDir, 'fixtures');
@@ -246,16 +246,17 @@ describe('E2E — Full Project Lifecycle', () => {
     writeLifecycleFixture(artifactSourcePath);
     makeGoalCard(store, 'e2e-goal', 'E2E Test Goal');
 
-    const runtime = new Runtime({
-      projectRoot: tmpDir,
-      fakeAgentConfig: {
-        mapping: { 'e2e-goal': 'e2e-lifecycle' },
-        fixtureDir,
+    const harness = createRuntimeTestHarness({
+      config: {
+        projectRoot: tmpDir,
+        fakeAgentConfig: {
+          mapping: { 'e2e-goal': 'e2e-lifecycle' },
+          fixtureDir,
+        },
       },
     });
-
-    await runtime.startup();
-    await runtime.dispatchGoal('e2e-goal');
+    await harness.api.start();
+    await harness.scheduler.dispatchGoal('e2e-goal');
 
     const goal = store.read('e2e-goal');
     expect(goal).not.toBeNull();
@@ -331,7 +332,7 @@ describe('E2E — Full Project Lifecycle', () => {
       await app.close();
     }
 
-    await runtime.shutdown();
+    await harness.api.shutdown();
   }, 30000);
 
   it('produces artifacts during execution and they are registered in card records', async () => {
@@ -437,16 +438,17 @@ describe('E2E — Full Project Lifecycle', () => {
 
     makeGoalCard(store, 'art-goal', 'Artifact Goal');
 
-    const runtime = new Runtime({
-      projectRoot: tmpDir,
-      fakeAgentConfig: {
-        mapping: { 'art-goal': 'artifact-producer' },
-        fixtureDir,
+    const harness = createRuntimeTestHarness({
+      config: {
+        projectRoot: tmpDir,
+        fakeAgentConfig: {
+          mapping: { 'art-goal': 'artifact-producer' },
+          fixtureDir,
+        },
       },
     });
-
-    await runtime.startup();
-    await runtime.dispatchGoal('art-goal');
+    await harness.api.start();
+    await harness.scheduler.dispatchGoal('art-goal');
 
     const card = store.read('code-art-1');
     expect(card).not.toBeNull();
@@ -455,7 +457,7 @@ describe('E2E — Full Project Lifecycle', () => {
     expect(card!.artifacts[0].type).toBe('data');
     expect(card!.artifacts[0].retain).toBe(true);
 
-    await runtime.shutdown();
+    await harness.api.shutdown();
   });
 });
 
@@ -577,15 +579,16 @@ describe('E2E — Crash and Restart Recovery', () => {
     makeTerminalCard(store, 'code-crash-1', 'crash-goal', { status: 'running' });
     makeTerminalCard(store, 'code-crash-2', 'crash-goal', { status: 'active' });
 
-    const runtime = new Runtime({
-      projectRoot: tmpDir,
-      fakeAgentConfig: {
-        mapping: { 'crash-goal': 'e2e-crash-recovery' },
-        fixtureDir,
+    const harness = createRuntimeTestHarness({
+      config: {
+        projectRoot: tmpDir,
+        fakeAgentConfig: {
+          mapping: { 'crash-goal': 'e2e-crash-recovery' },
+          fixtureDir,
+        },
       },
     });
-
-    await runtime.simulateCrash();
+    await harness.lifecycleTestTools.simulateCrash();
 
     const card1 = store.read('code-crash-1');
     expect(card1!.status).toBe('backlog');
@@ -604,8 +607,8 @@ describe('E2E — Crash and Restart Recovery', () => {
     const goal = store.read('crash-goal');
     expect(goal).not.toBeNull();
 
-    await runtime.startup();
-    await runtime.dispatchGoal('crash-goal');
+    await harness.api.start();
+    await harness.scheduler.dispatchGoal('crash-goal');
 
     const goalAfter = store.read('crash-goal');
     expect(goalAfter!.status).toBe('done');
@@ -613,7 +616,7 @@ describe('E2E — Crash and Restart Recovery', () => {
     expect(store.read('code-crash-1')!.status).toBe('done');
     expect(store.read('code-crash-2')!.status).toBe('done');
 
-    await runtime.shutdown();
+    await harness.api.shutdown();
   });
 
   it('resumes safely after crash without corrupted runtime state', async () => {
@@ -624,21 +627,23 @@ describe('E2E — Crash and Restart Recovery', () => {
     makeTerminalCard(store, 'code-crash-1', 'crash-goal', { status: 'running' });
     makeTerminalCard(store, 'code-crash-2', 'crash-goal', { status: 'active' });
 
-    const runtime = new Runtime({
-      projectRoot: tmpDir,
-      fakeAgentConfig: {
-        mapping: { 'crash-goal': 'e2e-crash-recovery' },
-        fixtureDir,
+    const harness = createRuntimeTestHarness({
+      config: {
+        projectRoot: tmpDir,
+        fakeAgentConfig: {
+          mapping: { 'crash-goal': 'e2e-crash-recovery' },
+          fixtureDir,
+        },
       },
     });
 
-    await runtime.performCrashRecovery();
+    await harness.lifecycleTestTools.performCrashRecovery();
 
     expect(store.read('code-crash-1')!.status).toBe('backlog');
     expect(store.read('code-crash-2')!.status).toBe('backlog');
 
-    await runtime.startup();
-    await runtime.dispatchGoal('crash-goal');
+    await harness.api.start();
+    await harness.scheduler.dispatchGoal('crash-goal');
 
     expect(store.read('crash-goal')!.status).toBe('done');
 
@@ -649,7 +654,7 @@ describe('E2E — Crash and Restart Recovery', () => {
     expect(state!.runtime_activations ?? []).toEqual(expect.arrayContaining([expect.objectContaining({ child_card_id: 'code-crash-1', status: 'completed' }), expect.objectContaining({ child_card_id: 'code-crash-2', status: 'completed' })]));
     expect(state!.current_card_id).toBeNull();
 
-    await runtime.shutdown();
+    await harness.api.shutdown();
   });
 });
 

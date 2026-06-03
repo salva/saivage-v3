@@ -24,7 +24,6 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { initProjectTree } from '../../src/persistence/file-tree.js';
 import { CardStore } from '../../src/cards/card-store.js';
-import { Runtime } from '../../src/runtime/runtime.js';
 import { FakeAgentAdapter, type FakeAgentFixture } from '../../src/agents/fake-agent.js';
 import {
   readFreezeManifest,
@@ -38,6 +37,7 @@ import {
 } from '../../src/runtime/state.js';
 import { releaseLock } from '../../src/runtime/lock.js';
 import type { CardRecord, FreezeManifest, HandoffSummary } from '../../src/schemas/types.js';
+import { createRuntimeTestHarness, type RuntimeTestHarness } from './runtime-test-harness.js';
 
 // ── Test Harness ────────────────────────────────────────────────
 
@@ -99,7 +99,7 @@ function createHappyFixture(): FakeAgentFixture {
 describe('Freeze / Resume', () => {
   let tmpDir: string;
   let fixtureDir: string;
-  let runtime: Runtime;
+  let harness: RuntimeTestHarness;
 
   beforeEach(() => {
     tmpDir = mkdtempSync(join(tmpdir(), 'saivage-fr-'));
@@ -109,7 +109,7 @@ describe('Freeze / Resume', () => {
 
   afterEach(() => {
     try {
-      if (runtime) runtime.shutdown();
+      if (harness) harness.api.shutdown();
     } catch { /* ignore */ }
     try { releaseLock(tmpDir); } catch { /* ignore */ }
     rmSync(tmpDir, { recursive: true, force: true });
@@ -123,31 +123,43 @@ describe('Freeze / Resume', () => {
     };
   }
 
+  function makeRuntime(agentRuntime?: FakeAgentAdapter): void {
+    harness = createRuntimeTestHarness({
+      config: makeConfig(),
+      ...(agentRuntime ? { agentRuntime } : {}),
+    });
+  }
+
+  function freeze(reason?: string) { return harness.lifecycleTestTools.freeze(reason); }
+  function resumeFromFreeze() { return harness.lifecycleTestTools.resumeFromFreeze(); }
+  function status() { return harness.api.getStatus().status; }
+  function paused() { return harness.api.getStatus().paused; }
+
   // ═══════════════════════════════════════════════════════════════
   // Freeze Idempotency
   // ═══════════════════════════════════════════════════════════════
 
   describe('Freeze idempotency', () => {
     it('freeze() on frozen runtime returns existing manifest', async () => {
-      runtime = new Runtime(makeConfig());
-      await runtime.startup();
+      makeRuntime();
+      await harness.api.start();
 
-      const firstManifest = runtime.freeze('first freeze');
+      const firstManifest = freeze('first freeze');
       expect(firstManifest.freeze_id).toBeDefined();
       expect(firstManifest.reason).toBe('first freeze');
 
-      const secondManifest = runtime.freeze('second freeze');
+      const secondManifest = freeze('second freeze');
       expect(secondManifest.freeze_id).toBe(firstManifest.freeze_id);
       expect(secondManifest.reason).toBe('first freeze'); // unchanged
     });
 
     it('freeze() when already frozen does not change manifest', async () => {
-      runtime = new Runtime(makeConfig());
-      await runtime.startup();
+      makeRuntime();
+      await harness.api.start();
 
-      const m1 = runtime.freeze('original');
+      const m1 = freeze('original');
       const now = new Date();
-      const m2 = runtime.freeze('should be ignored');
+      const m2 = freeze('should be ignored');
 
       expect(m2.created_at).toBe(m1.created_at); // timestamp unchanged
     });
@@ -159,8 +171,8 @@ describe('Freeze / Resume', () => {
 
   describe('Resume from freeze', () => {
     it('resumeFromFreeze() restores queue and card but not deferred processes', async () => {
-      runtime = new Runtime(makeConfig());
-      await runtime.startup();
+      makeRuntime();
+      await harness.api.start();
 
       // Set up runtime state with a queue and current_card_id
       const store = new CardStore(tmpDir);
@@ -178,14 +190,14 @@ describe('Freeze / Resume', () => {
       });
 
       // Freeze and verify manifest
-      const manifest = runtime.freeze('test resume');
+      const manifest = freeze('test resume');
       expect(manifest.freeze_id).toBeDefined();
       expect(manifest.current_card_id).toBe('goal-resume');
       expect(manifest.queue).toEqual([]);
       expect(manifest.running_processes).toEqual([]);
 
       // Resume
-      const result = runtime.resumeFromFreeze();
+      const result = resumeFromFreeze();
       expect(result.freeze_id).toBe(manifest.freeze_id);
       expect(result.restored_queue).toEqual([]);
       expect(result.restored_processes).toEqual([]);
@@ -208,17 +220,17 @@ describe('Freeze / Resume', () => {
 
   describe('Resume error cases', () => {
     it('resumeFromFreeze() throws when no freeze manifest exists', async () => {
-      runtime = new Runtime(makeConfig());
-      await runtime.startup();
+      makeRuntime();
+      await harness.api.start();
 
-      expect(() => runtime.resumeFromFreeze()).toThrow(
+      expect(() => resumeFromFreeze()).toThrow(
         'Cannot resume: no freeze manifest found'
       );
     });
 
     it('resumeFromFreeze() throws when schema version is newer than supported', async () => {
-      runtime = new Runtime(makeConfig());
-      await runtime.startup();
+      makeRuntime();
+      await harness.api.start();
 
       // Save a manifest with a future schema version
       const badManifest: FreezeManifest = {
@@ -239,7 +251,7 @@ describe('Freeze / Resume', () => {
       };
       saveFreezeManifest(tmpDir, badManifest);
 
-      expect(() => runtime.resumeFromFreeze()).toThrow(
+      expect(() => resumeFromFreeze()).toThrow(
         /schema version 999 is newer/
       );
 
@@ -253,10 +265,10 @@ describe('Freeze / Resume', () => {
 
   describe('Freeze while idle', () => {
     it('freeze() while idle saves manifest with empty state', async () => {
-      runtime = new Runtime(makeConfig());
-      await runtime.startup();
+      makeRuntime();
+      await harness.api.start();
 
-      const manifest = runtime.freeze('idle freeze');
+      const manifest = freeze('idle freeze');
       expect(manifest.current_card_id).toBeNull();
       expect(manifest.queue).toEqual([]);
       expect(manifest.running_processes).toEqual([]);
@@ -270,21 +282,21 @@ describe('Freeze / Resume', () => {
 
   describe('Freeze while paused', () => {
     it('freeze() while paused upgrades pause to freeze', async () => {
-      runtime = new Runtime(makeConfig());
-      await runtime.startup();
+      makeRuntime();
+      await harness.api.start();
 
-      runtime.pause();
-      expect(runtime.paused).toBe(true);
-      expect(runtime.status).toBe('paused');
+      harness.api.pause();
+      expect(paused()).toBe(true);
+      expect(status()).toBe('paused');
 
-      const manifest = runtime.freeze('pause upgrade');
+      const manifest = freeze('pause upgrade');
       expect(manifest.reason).toBe('pause upgrade');
 
       // After freeze, status is 'frozen'
-      expect(runtime.status).toBe('frozen');
+      expect(status()).toBe('frozen');
 
       // Resume should work
-      const result = runtime.resumeFromFreeze();
+      const result = resumeFromFreeze();
       expect(result.freeze_id).toBe(manifest.freeze_id);
     });
   });
@@ -295,8 +307,8 @@ describe('Freeze / Resume', () => {
 
   describe('Deferred process reconciliation during freeze', () => {
     it('does not persist process action plans for reattach/kill/detach', async () => {
-      runtime = new Runtime(makeConfig());
-      await runtime.startup();
+      makeRuntime();
+      await harness.api.start();
 
       updateRuntimeState(tmpDir, {
         status: 'idle' as const,
@@ -309,7 +321,7 @@ describe('Freeze / Resume', () => {
         updated_at: new Date().toISOString(),
       });
 
-      const manifest = runtime.freeze('process reconciliation deferred');
+      const manifest = freeze('process reconciliation deferred');
       expect(manifest.running_processes).toEqual([]);
       expect(JSON.stringify(manifest)).not.toMatch(/reattach|detach|kill/);
     });
@@ -338,10 +350,10 @@ describe('Freeze / Resume', () => {
     });
 
     it('no active sessions produces empty handoff_summaries', async () => {
-      runtime = new Runtime(makeConfig());
-      await runtime.startup();
+      makeRuntime();
+      await harness.api.start();
 
-      const manifest = runtime.freeze('no sessions');
+      const manifest = freeze('no sessions');
       expect(manifest.handoff_summaries).toEqual([]);
     });
 
@@ -373,10 +385,10 @@ describe('Freeze / Resume', () => {
       customRt.getActiveSessionHandoffs = () => mockHandoffs;
 
       writeFixture(fixtureDir, 'happy', createHappyFixture());
-      runtime = new Runtime(makeConfig(), customRt);
-      await runtime.startup();
+      makeRuntime(customRt);
+      await harness.api.start();
 
-      const manifest = runtime.freeze('with handoffs');
+      const manifest = freeze('with handoffs');
       expect(manifest.handoff_summaries).toHaveLength(2);
       expect(manifest.handoff_summaries[0].session_id).toBe('planner-goal1-0');
       expect(manifest.handoff_summaries[0].role).toBe('planner');
@@ -390,8 +402,8 @@ describe('Freeze / Resume', () => {
 
   describe('Handoff context injection on resume', () => {
     it('resumeFromFreeze() stores handoff context for dispatch loop', async () => {
-      runtime = new Runtime(makeConfig());
-      await runtime.startup();
+      makeRuntime();
+      await harness.api.start();
 
       // Set up state with an active session
       updateRuntimeState(tmpDir, {
@@ -433,10 +445,10 @@ describe('Freeze / Resume', () => {
       saveFreezeManifest(tmpDir, manifest);
 
       // Resume and check handoff context
-      const result = runtime.resumeFromFreeze();
+      const result = resumeFromFreeze();
       expect(result.freeze_id).toBe('handoff-resume-test');
 
-      const context = runtime.consumeResumeHandoffContext();
+      const context = harness.lifecycleTestTools.consumeResumeHandoffContext();
       expect(context).not.toBeNull();
       expect(context).toContain('[Handoff]');
       expect(context).toContain('executor-card1-goal1-0');
@@ -445,12 +457,12 @@ describe('Freeze / Resume', () => {
     });
 
     it('resume without handoff summaries returns null context', async () => {
-      runtime = new Runtime(makeConfig());
-      await runtime.startup();
+      makeRuntime();
+      await harness.api.start();
 
       // Freeze without active sessions
-      const manifest = runtime.freeze('no handoffs');
-      const context = runtime.consumeResumeHandoffContext();
+      const manifest = freeze('no handoffs');
+      const context = harness.lifecycleTestTools.consumeResumeHandoffContext();
       expect(context).toBeNull();
     });
   });
@@ -503,38 +515,38 @@ describe('Freeze / Resume', () => {
 
   describe('Freeze status transitions', () => {
     it('freeze sets runtime status to frozen', async () => {
-      runtime = new Runtime(makeConfig());
-      await runtime.startup();
+      makeRuntime();
+      await harness.api.start();
 
-      expect(runtime.status).toBe('idle');
-      runtime.freeze();
-      expect(runtime.status).toBe('frozen');
-      expect(runtime.paused).toBe(true);
+      expect(status()).toBe('idle');
+      freeze();
+      expect(status()).toBe('frozen');
+      expect(paused()).toBe(true);
     });
 
     it('resumeFromFreeze sets runtime status to idle', async () => {
-      runtime = new Runtime(makeConfig());
-      await runtime.startup();
+      makeRuntime();
+      await harness.api.start();
 
-      runtime.freeze();
-      expect(runtime.status).toBe('frozen');
+      freeze();
+      expect(status()).toBe('frozen');
 
-      runtime.resumeFromFreeze();
-      expect(runtime.status).toBe('idle');
-      expect(runtime.paused).toBe(false);
+      resumeFromFreeze();
+      expect(status()).toBe('idle');
+      expect(paused()).toBe(false);
     });
 
     it('shutdown while frozen does not require full cleanup', async () => {
-      runtime = new Runtime(makeConfig());
-      await runtime.startup();
+      makeRuntime();
+      await harness.api.start();
 
-      runtime.freeze();
-      await runtime.shutdown();
+      freeze();
+      await harness.api.shutdown();
 
       // Should not throw — shutdown handles frozen state gracefully.
       // Status remains 'frozen' on disk (freeze manifest persists); only
       // resumeFromFreeze() clears it back to 'idle'.
-      expect(runtime.status).toBe('frozen');
+      expect(status()).toBe('frozen');
     });
   });
 

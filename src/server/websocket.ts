@@ -11,12 +11,13 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import type { WebSocket } from 'ws';
 import { getOrCreateAnalystSession, getAnalystHandler, resetAnalystHandlerCache } from '../agents/analyst-api.js';
-import type { EventBus, Subscription, DomainEvent } from '../events/index.js';
+import type { Subscription, DomainEvent } from '../events/index.js';
 import { toLoggedEvent } from '../events/index.js';
 import { operatorBroadcastEventKindValues, type OperatorBroadcastEventKind } from '../events/index.js';
 import { redactOperatorErrorMessage } from '../workspace/index.js';
 import { sanitizeAnalystPayload, sanitizeAnalystText } from '../agents/analyst-api.js';
-import type { ActiveRuntime } from '../runtime/control-api.js';
+import type { RuntimeApplication } from '../application/runtime-composition.js';
+import type { RuntimeApi } from '../runtime/control-api.js';
 import { InboundAnalystMessageEnvelopeSchema, buildConnectedEnvelope, validateKnownWsEnvelope } from '../contracts/index.js';
 import type { WsEnvelope, WsEventType } from '../contracts/index.js';
 import { getAuthPolicy } from './auth-policy.js';
@@ -46,9 +47,9 @@ export function resetWebSocketState(projectRoot?: string): void {
   resetAnalystHandlerCache(projectRoot);
 }
 
-export function resetRuntimeEventSubscriptions(runtime?: { eventBus: EventBus }): void {
+export function resetRuntimeEventSubscriptions(runtime?: Pick<RuntimeApi, 'subscribe'>): void {
   if (runtime) {
-    const key = runtime.eventBus as object;
+    const key = runtime as object;
     const subscription = runtimeEventSubscriptions.get(key);
     if (subscription) {
       subscription.unsubscribe();
@@ -89,7 +90,7 @@ export function sendToClient(ws: WebSocket, event: WsEnvelope): void {
   }
 }
 
-export function sendRuntimeStateSnapshotToClient(ws: WebSocket, activeRuntime?: ActiveRuntime): void {
+export function sendRuntimeStateSnapshotToClient(ws: WebSocket, activeRuntime?: RuntimeApplication): void {
   const content: WsEnvelope['content'] = { event: 'runtime-state' };
   void activeRuntime;
   sendToClient(ws, { type: 'status', content });
@@ -138,7 +139,7 @@ function queueAnalystTurn(ws: WebSocket, turn: () => Promise<void>): Promise<voi
   return next;
 }
 
-export function registerWebSocket(fastify: FastifyInstance, projectRoot: string, activeRuntime?: ActiveRuntime, requestServerRestart?: () => Promise<void>): void {
+export function registerWebSocket(fastify: FastifyInstance, projectRoot: string, activeRuntime?: RuntimeApplication, requestServerRestart?: () => Promise<void>): void {
   fastify.addHook('onClose', async () => {
     resetWebSocketState(projectRoot);
   });
@@ -191,7 +192,7 @@ export function registerWebSocket(fastify: FastifyInstance, projectRoot: string,
 
               if (!activeRuntime) throw new Error('ActiveRuntime unavailable for analyst websocket.');
               const handler = getAnalystHandler(projectRoot, {
-                activeRuntime,
+                runtimeDeps: activeRuntime.analystDeps,
                 requestServerRestart,
                 onActivity: (activity) => {
                   const sanitizedActivity = sanitizeAnalystPayload(activity) as Record<string, unknown>;
@@ -318,15 +319,14 @@ export function createRuntimeEnvelope(
 }
 
 export function wireRuntimeEvents(runtime: {
-  on: (event: string, handler: (...args: unknown[]) => void) => void;
-  eventBus: EventBus;
+  subscribe: RuntimeApi['subscribe'];
 }): void {
-  const eventBusRef = runtime.eventBus as object;
+  const eventBusRef = runtime as object;
   if (runtimeEventSubscriptions.has(eventBusRef)) {
     return;
   }
 
-  const subscription = runtime.eventBus.subscribe({
+  const subscription = runtime.subscribe({
     minSeverity: 'info',
     allowedKinds: [...operatorBroadcastEventKindValues],
     handler: (event: DomainEvent<OperatorBroadcastEventKind>) => {

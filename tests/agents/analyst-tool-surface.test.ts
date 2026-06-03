@@ -9,12 +9,12 @@ import { ANALYST_TOOL_DEFINITIONS } from '../../src/agents/analyst-tool-schemas.
 import { TOOL_REGISTRY, getAnalystSystemPrompt } from '../../src/agents/analyst-llm-resolver.js';
 import { delete_card, reconfigure } from '../../src/agents/analyst-tools.js';
 import type { ToolContext } from '../../src/agents/analyst-tools.js';
-import { ActiveRuntime } from '../../src/runtime/active-runtime.js';
 import { initRuntimeState } from '../../src/runtime/state.js';
 import { startProcess, killProcess } from '../../src/runtime/process-runner.js';
 import { loadConfig } from '../../src/agents/config-schema.js';
 import { McpManager } from '../../src/mcp/mcp-manager.js';
 import { createTestActiveRuntime } from '../helpers/test-active-runtime.js';
+import { createRuntimeApplication } from '../../src/application/runtime-composition.js';
 
 const TEST_MODEL = 'test-analyst-model';
 
@@ -137,10 +137,10 @@ describe('Reconfigure MCP live manager refresh', () => {
     const root = setupRoot();
     try {
       const config = loadConfig(root).config;
-      const activeRuntime = new ActiveRuntime(root, config);
+      const runtimeApplication = createRuntimeApplication(root, config);
       const mcpManager = new McpManager(root);
-      activeRuntime.setMcpManager(mcpManager);
-      const ctx: ToolContext = { projectRoot: root, actor: 'analyst', surface: 'web-chat', activeRuntime };
+      runtimeApplication.setMcpManager(mcpManager);
+      const ctx: ToolContext = { projectRoot: root, actor: 'analyst', surface: 'web-chat', runtime: runtimeApplication.analystDeps.runtime, mcpManager };
 
       const added = await reconfigure(ctx, { action: 'mcp_add', name: 'test-server', command: '/bin/true', args: [] });
       expect(added.success).toBe(true);
@@ -156,7 +156,7 @@ describe('Reconfigure MCP live manager refresh', () => {
       expect(removed.success).toBe(true);
       expect(mcpManager.getStatus().some((status) => status.name === 'test-server')).toBe(false);
       await mcpManager.stopAll();
-      await activeRuntime.stop().catch(() => undefined);
+      await runtimeApplication.runtimeApi.shutdown().catch(() => undefined);
     } finally { rmSync(root, { recursive: true, force: true }); }
   });
 });

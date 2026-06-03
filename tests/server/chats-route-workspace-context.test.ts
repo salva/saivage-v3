@@ -4,9 +4,9 @@ import { mkdtempSync, mkdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { ChatSendResponseSchema } from '../../src/contracts/operator-api-chats.js';
-import { createTestActiveRuntime } from '../helpers/test-active-runtime.js';
+import { createTestRuntimeApplication } from '../helpers/test-active-runtime.js';
 
-const handleMessage = jest.fn<() => Promise<unknown>>();
+const handleMessage = jest.fn<(sessionId: string, content: string, workspaceContext?: unknown) => Promise<unknown>>();
 const getOrCreateAnalystSession = jest.fn();
 
 jest.unstable_mockModule('../../src/agents/analyst-handler.js', () => ({
@@ -52,7 +52,7 @@ describe('POST /api/chats/:sessionId workspaceContext', () => {
 
   async function app() {
     const fastify = Fastify();
-    registerOperatorContractRoutes({ fastify, projectRoot: root, activeRuntime: createTestActiveRuntime() });
+    registerOperatorContractRoutes({ fastify, projectRoot: root, activeRuntime: createTestRuntimeApplication() });
     await fastify.ready();
     return fastify;
   }

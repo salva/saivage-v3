@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import type { SaivageConfig } from '../../agents/config-api.js';
-import type { ActiveRuntime } from '../../runtime/control-api.js';
+import type { RuntimeApplication } from '../../application/runtime-composition.js';
 import { setProjectNotificationDeliveryAdapters, clearProjectNotificationDeliveryAdapters } from '../../notifications/index.js';
 import {
   TelegramBot,
@@ -14,7 +14,7 @@ export async function startTelegramNotifications(options: {
   projectRoot: string;
   saivageConfig: SaivageConfig;
   fastify: FastifyInstance;
-  activeRuntime?: ActiveRuntime;
+  activeRuntime?: RuntimeApplication;
 }): Promise<TelegramBot | undefined> {
   const { projectRoot, saivageConfig, fastify, activeRuntime } = options;
   let telegramBot: TelegramBot | undefined;
@@ -24,8 +24,8 @@ export async function startTelegramNotifications(options: {
   if (recipientRegistry.invalidValues.length > 0) fastify.log.warn(`Telegram notification recipient config ignored ${recipientRegistry.invalidValues.length} invalid value(s)`);
   if (botToken) {
     try {
-      if (!activeRuntime) throw new Error('Telegram bot requires ActiveRuntime.');
-      telegramBot = new TelegramBot(projectRoot, activeRuntime, saivageConfig);
+      if (!activeRuntime) throw new Error('Telegram bot requires runtime analyst services.');
+      telegramBot = new TelegramBot(projectRoot, activeRuntime.analystDeps, saivageConfig);
       await telegramBot.start();
       fastify.log.info('Telegram bot started');
     } catch (err) {

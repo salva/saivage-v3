@@ -4,13 +4,13 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { EventEmitter } from 'node:events';
 
-import { Runtime } from '../../src/runtime/runtime.js';
 import { initProjectTree } from '../../src/persistence/file-tree.js';
 import { releaseLock } from '../../src/runtime/lock.js';
 import { AgentAdapter } from '../../src/agents/agent-adapter.js';
 import { EventLogger } from '../../src/observability/event-logger.js';
 import { saivageConfigSchema } from '../../src/agents/config-schema.js';
 import type { FakeAgentFixture } from '../../src/agents/fake-agent.js';
+import { createRuntimeTestHarness, type RuntimeTestHarness } from './runtime-test-harness.js';
 
 function makeFixtureDir(tmpDir: string): string {
   const dir = join(tmpDir, 'fixtures');
@@ -35,7 +35,11 @@ function makeDefaultConfig(tmpDir: string, fixtureDir: string) {
 describe('Agent Events → Runtime EventEmitter', () => {
   let tmpDir: string;
   let fixtureDir: string;
-  let runtime: Runtime;
+  let harness: RuntimeTestHarness | undefined;
+
+  function createRuntime(): void {
+    harness = createRuntimeTestHarness({ config: makeDefaultConfig(tmpDir, fixtureDir) });
+  }
 
   beforeEach(() => {
     tmpDir = mkdtempSync(join(tmpdir(), 'saivage-aev-'));
@@ -44,30 +48,30 @@ describe('Agent Events → Runtime EventEmitter', () => {
   });
 
   afterEach(() => {
-    if (runtime) {
-      try { runtime.shutdown(); } catch { /* ignore */ }
+    if (harness) {
+      try { harness.api.shutdown(); } catch { /* ignore */ }
     }
     try { releaseLock(tmpDir); } catch { /* ignore */ }
     rmSync(tmpDir, { recursive: true, force: true });
   });
 
   it('Runtime.emitAgentEvent() emits through EventEmitter to listeners', () => {
-    runtime = new Runtime(makeDefaultConfig(tmpDir, fixtureDir));
+    createRuntime();
 
     const received: Array<{ name: string; data: Record<string, unknown> }> = [];
-    runtime.on('session_started', (data: unknown) => {
+    harness!.events.on('session_started', (data: unknown) => {
       received.push({
         name: 'session_started',
         data: data as Record<string, unknown>,
       });
     });
-    runtime.on('llm_attempt', (data: unknown) => {
+    harness!.events.on('llm_attempt', (data: unknown) => {
       received.push({
         name: 'llm_attempt',
         data: data as Record<string, unknown>,
       });
     });
-    runtime.on('llm_invocation_summary', (data: unknown) => {
+    harness!.events.on('llm_invocation_summary', (data: unknown) => {
       received.push({
         name: 'llm_invocation_summary',
         data: data as Record<string, unknown>,
@@ -75,13 +79,13 @@ describe('Agent Events → Runtime EventEmitter', () => {
     });
 
     // Act
-    runtime.emitAgentEvent('session_started', {
+    harness!.lifecycleTestTools.emitAgentEvent('session_started', {
       session_id: 'sess-1',
       role: 'planner',
       goal_id: 'goal-1',
       card_id: 'card-1',
     });
-    runtime.emitAgentEvent('llm_attempt', {
+    harness!.lifecycleTestTools.emitAgentEvent('llm_attempt', {
       session_id: 'sess-1',
       role: 'planner',
       attempt: 1,
@@ -93,7 +97,7 @@ describe('Agent Events → Runtime EventEmitter', () => {
       duration_ms: 150,
       outcome: { kind: 'succeeded', terminal_tool: 'emit_planner_result' },
     });
-    runtime.emitAgentEvent('llm_invocation_summary', {
+    harness!.lifecycleTestTools.emitAgentEvent('llm_invocation_summary', {
       session_id: 'sess-1',
       role: 'planner',
       goal_id: 'goal-1',
@@ -120,19 +124,19 @@ describe('Agent Events → Runtime EventEmitter', () => {
   });
 
   it('emits all 4 agent event types through EventEmitter', () => {
-    runtime = new Runtime(makeDefaultConfig(tmpDir, fixtureDir));
+    createRuntime();
 
     const received: string[] = [];
-    runtime.on('session_started', () => received.push('session_started'));
-    runtime.on('llm_attempt', () => received.push('llm_attempt'));
-    runtime.on('llm_invocation_summary', () => received.push('llm_invocation_summary'));
-    runtime.on('compaction_triggered', () => received.push('compaction_triggered'));
+    harness!.events.on('session_started', () => received.push('session_started'));
+    harness!.events.on('llm_attempt', () => received.push('llm_attempt'));
+    harness!.events.on('llm_invocation_summary', () => received.push('llm_invocation_summary'));
+    harness!.events.on('compaction_triggered', () => received.push('compaction_triggered'));
 
-    runtime.emitAgentEvent('session_started', { session_id: 's1', role: 'planner', goal_id: 'g1', card_id: 'c1' });
-    runtime.emitAgentEvent('llm_attempt', { session_id: 's1', role: 'planner', attempt: 1, same_candidate_attempt: 1, provider: 'p', model: 'm', account: '_', started_at: '2026-05-23T00:00:00.000Z', duration_ms: 100, outcome: { kind: 'succeeded', terminal_tool: 'emit_planner_result' } });
-    runtime.emitAgentEvent('llm_attempt', { session_id: 's1', role: 'planner', attempt: 1, same_candidate_attempt: 1, provider: 'p', model: 'm', account: '_', started_at: '2026-05-23T00:00:00.000Z', duration_ms: 50, outcome: { kind: 'failed', failure_class: 'unknown', recovery_action: 'abort_without_retry', error_name: 'E', error_message: 'err', error_preview: 'err' } });
-    runtime.emitAgentEvent('llm_invocation_summary', { session_id: 's1', role: 'planner', goal_id: 'g1', card_id: 'c1', contract_id: 'planner.v1', attempts_count: 2, total_duration_ms: 150, verdict: 'exhausted', repair_attempts: 0, last_failure_class: 'unknown' });
-    runtime.emitAgentEvent('compaction_triggered', { session_id: 's1', role: 'planner', tokens_before: 1000, tokens_after: 500 });
+    harness!.lifecycleTestTools.emitAgentEvent('session_started', { session_id: 's1', role: 'planner', goal_id: 'g1', card_id: 'c1' });
+    harness!.lifecycleTestTools.emitAgentEvent('llm_attempt', { session_id: 's1', role: 'planner', attempt: 1, same_candidate_attempt: 1, provider: 'p', model: 'm', account: '_', started_at: '2026-05-23T00:00:00.000Z', duration_ms: 100, outcome: { kind: 'succeeded', terminal_tool: 'emit_planner_result' } });
+    harness!.lifecycleTestTools.emitAgentEvent('llm_attempt', { session_id: 's1', role: 'planner', attempt: 1, same_candidate_attempt: 1, provider: 'p', model: 'm', account: '_', started_at: '2026-05-23T00:00:00.000Z', duration_ms: 50, outcome: { kind: 'failed', failure_class: 'unknown', recovery_action: 'abort_without_retry', error_name: 'E', error_message: 'err', error_preview: 'err' } });
+    harness!.lifecycleTestTools.emitAgentEvent('llm_invocation_summary', { session_id: 's1', role: 'planner', goal_id: 'g1', card_id: 'c1', contract_id: 'planner.v1', attempts_count: 2, total_duration_ms: 150, verdict: 'exhausted', repair_attempts: 0, last_failure_class: 'unknown' });
+    harness!.lifecycleTestTools.emitAgentEvent('compaction_triggered', { session_id: 's1', role: 'planner', tokens_before: 1000, tokens_after: 500 });
 
     expect(received).toEqual([
       'session_started',
@@ -144,7 +148,7 @@ describe('Agent Events → Runtime EventEmitter', () => {
   });
 
   it('wireRuntimeEvents catches agent events broadcast from runtime', () => {
-    runtime = new Runtime(makeDefaultConfig(tmpDir, fixtureDir));
+    createRuntime();
 
     // Simulate what wireRuntimeEvents does by directly tracking events
     const received: string[] = [];
@@ -152,11 +156,11 @@ describe('Agent Events → Runtime EventEmitter', () => {
       'session_started', 'llm_attempt', 'llm_invocation_summary', 'compaction_triggered',
     ];
     for (const evt of trackedEvents) {
-      runtime.on(evt, () => received.push(evt));
+      harness!.events.on(evt, () => received.push(evt));
     }
 
-    runtime.emitAgentEvent('session_started', { session_id: 's1', role: 'planner', goal_id: 'g1', card_id: 'c1' });
-    runtime.emitAgentEvent('llm_invocation_summary', { session_id: 's1', role: 'planner', goal_id: 'g1', card_id: 'c1', contract_id: 'planner.v1', attempts_count: 1, total_duration_ms: 100, verdict: 'succeeded', repair_attempts: 0, final_provider: 'p', final_model: 'm', final_account: '_', final_terminal_tool: 'emit_planner_result' });
+    harness!.lifecycleTestTools.emitAgentEvent('session_started', { session_id: 's1', role: 'planner', goal_id: 'g1', card_id: 'c1' });
+    harness!.lifecycleTestTools.emitAgentEvent('llm_invocation_summary', { session_id: 's1', role: 'planner', goal_id: 'g1', card_id: 'c1', contract_id: 'planner.v1', attempts_count: 1, total_duration_ms: 100, verdict: 'succeeded', repair_attempts: 0, final_provider: 'p', final_model: 'm', final_account: '_', final_terminal_tool: 'emit_planner_result' });
 
     expect(received).toContain('session_started');
     expect(received).toContain('llm_invocation_summary');
@@ -166,9 +170,9 @@ describe('Agent Events → Runtime EventEmitter', () => {
     // New Runtimes create a fresh EventLogger. We verify that emitAgentEvent
     // does NOT call _eventLogger.appendEvent by checking the events.jsonl file
     // has no agent events after calling emitAgentEvent.
-    runtime = new Runtime(makeDefaultConfig(tmpDir, fixtureDir));
+    createRuntime();
 
-    runtime.emitAgentEvent('session_started', {
+    harness!.lifecycleTestTools.emitAgentEvent('session_started', {
       session_id: 's1',
       role: 'planner',
       goal_id: 'g1',
@@ -176,11 +180,11 @@ describe('Agent Events → Runtime EventEmitter', () => {
     });
 
     // Flush and check events.jsonl — should be empty (or only have startup events)
-    const events = runtime.eventLogger.getEvents();
+    const events = harness!.loggerTestTools.getEvents();
     const agentEventKinds = [
       'session_started', 'llm_attempt', 'llm_invocation_summary', 'compaction_triggered',
     ];
-    const agentEvents = events.filter(e => agentEventKinds.includes(e.kind));
+    const agentEvents = events.filter((e) => agentEventKinds.includes(e.kind));
     expect(agentEvents.length).toBe(0);
   });
 });
@@ -271,13 +275,12 @@ describe('ActiveRuntime → AgentAdapter eventBus wiring', () => {
     expect(received).toContain('llm_invocation_summary');
   });
 
-  it('Runtime can be used as AgentAdapter eventBus to forward events', () => {
+  it('AgentAdapter forwards events through an injected eventBus', () => {
     const saivageDir = join(tmpDir, '.saivage');
     const eventLogger = new EventLogger(saivageDir);
     const config = minimalConfig();
 
-    // Create a Runtime that acts as the event bus
-    const rt = new Runtime(makeDefaultConfig(tmpDir, makeFixtureDir(tmpDir)));
+    const eventBus = new EventEmitter();
 
     const adapter = new AgentAdapter({
       projectRoot: tmpDir,
@@ -286,14 +289,13 @@ describe('ActiveRuntime → AgentAdapter eventBus wiring', () => {
       eventLogger,
     });
 
-    // Wire Runtime as event bus — this is what ActiveRuntime does
-    adapter.setEventBus(rt);
+    adapter.setEventBus(eventBus);
 
     const received: Array<{ name: string; data: Record<string, unknown> }> = [];
-    rt.on('session_started', (data: unknown) => {
+    eventBus.on('session_started', (data: unknown) => {
       received.push({ name: 'session_started', data: data as Record<string, unknown> });
     });
-    rt.on('compaction_triggered', (data: unknown) => {
+    eventBus.on('compaction_triggered', (data: unknown) => {
       received.push({ name: 'compaction_triggered', data: data as Record<string, unknown> });
     });
 

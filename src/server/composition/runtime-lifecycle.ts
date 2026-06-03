@@ -1,12 +1,12 @@
 import type { FastifyInstance } from 'fastify';
 import type { SaivageConfig } from '../../agents/config-api.js';
-import { ActiveRuntime } from '../../runtime/control-api.js';
+import { createRuntimeApplication, type RuntimeApplication } from '../../application/runtime-composition.js';
 import { wireRuntimeEvents } from '../websocket.js';
 
 export type StartupFailure = { code: string; error: unknown };
 
 export interface RuntimeStartupResult {
-  activeRuntime?: ActiveRuntime;
+  activeRuntime?: RuntimeApplication;
   startupFailure?: StartupFailure;
 }
 
@@ -19,9 +19,9 @@ export async function startActiveRuntime(options: {
   if (!options.createRuntime) return {};
 
   try {
-    const activeRuntime = new ActiveRuntime(options.projectRoot, options.saivageConfig);
-    await activeRuntime.start();
-    wireRuntimeEvents(activeRuntime.runtime);
+    const activeRuntime = createRuntimeApplication(options.projectRoot, options.saivageConfig);
+    await activeRuntime.runtimeApi.start();
+    wireRuntimeEvents(activeRuntime.runtimeApi);
     options.fastify.log.info('ActiveRuntime started');
     return { activeRuntime };
   } catch (err) {

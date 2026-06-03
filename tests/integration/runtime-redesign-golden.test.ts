@@ -6,10 +6,10 @@ import { ANALYST_TOOL_NAMES } from '../../src/agents/analyst-tool-schemas.js';
 import { TOOL_REGISTRY } from '../../src/agents/analyst-llm-resolver.js';
 import { PlannerControlExecutor } from '../../src/agents/planner-control-executor.js';
 import { operatorApiContracts } from '../../src/contracts/operator-api.js';
-import { Runtime } from '../../src/runtime/runtime.js';
 import { appendRuntimeRun, readRuntimeState, upsertRuntimeActivation } from '../../src/runtime/state.js';
 import { CardStore } from '../../src/cards/card-store.js';
 import { initProjectTree } from '../../src/persistence/file-tree.js';
+import { createRuntimeTestHarness } from '../utils/runtime-test-harness.js';
 
 function tempRoot(prefix: string): string { return mkdtempSync(join(tmpdir(), prefix)); }
 
@@ -40,12 +40,14 @@ describe('runtime redesign final golden behavior', () => {
       expect('runtime.stopProject' in operatorApiContracts).toBe(false);
       expect(ANALYST_TOOL_NAMES).not.toContain('lets_dance');
       expect(Object.keys(TOOL_REGISTRY)).not.toContain('lets_dance');
-      expect('requestProjectDirectiveWakeup' in Runtime.prototype).toBe(false);
 
-      const runtime = new Runtime({ projectRoot, fakeAgentConfig: { mapping: {}, fixtureDir: '' }, autoDispatchBacklog: false });
       const dispatched: string[] = [];
-      runtime.dispatchGoal = (async (goalId: string) => { dispatched.push(goalId); }) as Runtime['dispatchGoal'];
-      const result = await runtime.startProject('operator');
+      const { api } = createRuntimeTestHarness({
+        config: { projectRoot, fakeAgentConfig: { mapping: {}, fixtureDir: '' }, autoDispatchBacklog: false },
+        goalDispatcher: async (goalId) => { dispatched.push(goalId); },
+      });
+      expect('requestProjectDirectiveWakeup' in api).toBe(false);
+      const result = await api.startProject('operator');
       expect(result.success).toBe(true);
       const state = readRuntimeState(projectRoot)!;
       expect(state.runtime_intent?.status).toBe('running');
@@ -79,8 +81,15 @@ describe('runtime redesign final golden behavior', () => {
   });
 
   it('runtime summaries use command/run/activation records rather than status-derived ready queue APIs', () => {
-    expect('buildReadyQueue' in Runtime.prototype).toBe(false);
-    expect('getReadyQueue' in Runtime.prototype).toBe(false);
+    const projectRoot = tempRoot('saivage-runtime-golden-summary-');
+    try {
+      initProjectTree(projectRoot);
+      const harness = createRuntimeTestHarness({
+        config: { projectRoot, fakeAgentConfig: { mapping: {}, fixtureDir: '' }, autoDispatchBacklog: false },
+      });
+      expect('buildReadyQueue' in harness).toBe(false);
+      expect('getReadyQueue' in harness).toBe(false);
+    } finally { rmSync(projectRoot, { recursive: true, force: true }); }
   });
 
   it('operator contract registry no longer exposes card mutation entries', () => {

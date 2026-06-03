@@ -50,12 +50,12 @@ const PACKAGE_SCRIPTS = {
 };
 
 const PACKAGE_JSON = JSON.stringify({
-  engines: { node: '>=22.12.0 <23', npm: '>=10 <12' },
+  engines: { node: '>=24 <25', npm: '>=10 <12' },
   scripts: PACKAGE_SCRIPTS,
 });
 
 const WEB_PACKAGE_JSON = JSON.stringify({
-  engines: { node: '>=22.12.0 <23', npm: '>=10 <12' },
+  engines: { node: '>=24 <25', npm: '>=10 <12' },
   scripts: { build: 'vite build' },
 });
 
@@ -111,7 +111,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 24
           cache: npm
       - run: npm ci
       - run: npm run validate:routine
@@ -124,7 +124,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 24
           cache: npm
       - run: npm ci
       - run: npm run build
@@ -137,7 +137,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 24
           cache: npm
       - run: npm ci
       - run: npm run validate:ui-smoke
@@ -149,7 +149,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 24
           cache: npm
       - run: npm ci
       - run: npm run web:test:e2e:install
@@ -163,7 +163,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 24
           cache: npm
       - run: npm ci
       - run: npm run validate:release
@@ -178,7 +178,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 24
           cache: npm
       - run: npm ci
       - run: cd web && npm ci
@@ -211,10 +211,10 @@ jobs:
 function validFiles(overrides = {}) {
   return {
     'package.json': PACKAGE_JSON,
-    'README.md': 'Use Node.js 22 with `node >=22.12.0 <23` and `npm >=10 <12`, matching package.json engines and GitHub Actions CI.\n```bash\nnpm run docs:verify\nnpm run typecheck\nnpm run build\nnpm test\nnpm run web:test:operator-smoke\n```\n' + VALID_PROFILE_DOCS,
+    'README.md': 'Use Node.js 24 with `node >=24 <25` and `npm >=10 <12`, matching package.json engines and GitHub Actions CI.\n```bash\nnpm run docs:verify\nnpm run typecheck\nnpm run build\nnpm test\nnpm run web:test:operator-smoke\n```\n' + VALID_PROFILE_DOCS,
     'web/package.json': WEB_PACKAGE_JSON,
-    'docs/runbook/operations.md': 'Run Saivage with Node.js 22; package.json engines require `node >=22.12.0 <23` and `npm >=10 <12`, matching CI.\n',
-    'docs/runbook/release.md': 'Release uses Node.js 22 with package engines `node >=22.12.0 <23` and `npm >=10 <12`, matching CI.\n```bash\nnpm run docs:build\nnpm run web:test:sweep\nnpm run test:web:sweep\n```\n' + VALID_PROFILE_DOCS,
+    'docs/runbook/operations.md': 'Run Saivage with Node.js 24; package.json engines require `node >=24 <25` and `npm >=10 <12`, matching CI.\n',
+    'docs/runbook/release.md': 'Release uses Node.js 24 with package engines `node >=24 <25` and `npm >=10 <12`, matching CI.\n```bash\nnpm run docs:build\nnpm run web:test:sweep\nnpm run test:web:sweep\n```\n' + VALID_PROFILE_DOCS,
     'docs/runbook/incidents.md': 'Validation-command confusion: canonical `npm run web:test:analyst-ui` and alias `npm run test:web:analyst-ui`; smoke uses `npm run web:test:operator-smoke` or `npm run test:web:operator-smoke`.\n',
     'docs/runbook/index.md': 'No extra validation commands here.\n',
     '.github/workflows/validation.yml': VALID_WORKFLOW,
@@ -250,7 +250,7 @@ describe('validation cadence guard', () => {
   });
 
   it('fails clearly when root npm test uses --passWithNoTests', () => {
-    const packageWithPermissiveTest = JSON.stringify({ engines: { node: '>=22.12.0 <23', npm: '>=10 <12' }, scripts: { ...PACKAGE_SCRIPTS, test: 'jest --passWithNoTests' } });
+    const packageWithPermissiveTest = JSON.stringify({ engines: { node: '>=24 <25', npm: '>=10 <12' }, scripts: { ...PACKAGE_SCRIPTS, test: 'jest --passWithNoTests' } });
     withFixture(validFiles({ 'package.json': packageWithPermissiveTest }), (root) => {
       const result = verifyValidationCadence({ root });
       expect(result.ok).toBe(false);
@@ -263,7 +263,7 @@ describe('validation cadence guard', () => {
     withFixture(validFiles({ 'package.json': packageWithNode20 }), (root) => {
       const result = verifyValidationCadence({ root });
       expect(result.ok).toBe(false);
-      expect(result.failures).toContain('package.json engines.node must be ">=22.12.0 <23" to match CI Node 22, but is ">=20 <21"');
+      expect(result.failures).toContain('package.json engines.node must be ">=24 <25" to match CI Node 24, but is ">=20 <21"');
     });
   });
 
@@ -276,12 +276,12 @@ describe('validation cadence guard', () => {
     });
   });
 
-  it('fails clearly when setup-node drifts from Node 22', () => {
-    const workflowWithoutNode22 = VALID_WORKFLOW.replace('          node-version: 22', '          node-version: 20');
-    withFixture(validFiles({ '.github/workflows/validation.yml': workflowWithoutNode22 }), (root) => {
+  it('fails clearly when setup-node drifts from Node 24', () => {
+    const workflowWithoutNode24 = VALID_WORKFLOW.replace('          node-version: 24', '          node-version: 20');
+    withFixture(validFiles({ '.github/workflows/validation.yml': workflowWithoutNode24 }), (root) => {
       const result = verifyValidationCadence({ root });
       expect(result.ok).toBe(false);
-      expect(result.failures).toContain('.github/workflows/validation.yml must use actions/setup-node@v4 with node-version: 22');
+      expect(result.failures).toContain('.github/workflows/validation.yml must use actions/setup-node@v4 with node-version: 24');
     });
   });
 
@@ -295,7 +295,7 @@ describe('validation cadence guard', () => {
 
   it('fails clearly when a documented test:web alias is missing', () => {
     const { 'test:web:analyst-ui': _alias, ...scripts } = PACKAGE_SCRIPTS;
-    withFixture(validFiles({ 'package.json': JSON.stringify({ engines: { node: '>=22.12.0 <23', npm: '>=10 <12' }, scripts }) }), (root) => {
+    withFixture(validFiles({ 'package.json': JSON.stringify({ engines: { node: '>=24 <25', npm: '>=10 <12' }, scripts }) }), (root) => {
       const result = verifyValidationCadence({ root });
       expect(result.ok).toBe(false);
       expect(result.failures).toContain('docs/runbook/incidents.md: npm run test:web:analyst-ui documents npm run test:web:analyst-ui, but package.json has no "test:web:analyst-ui" script');
@@ -305,7 +305,7 @@ describe('validation cadence guard', () => {
 
   it('fails clearly when a documented test:web alias drifts from its canonical web:test target', () => {
     const packageWithDriftedAlias = JSON.stringify({
-      engines: { node: '>=22.12.0 <23', npm: '>=10 <12' },
+      engines: { node: '>=24 <25', npm: '>=10 <12' },
       scripts: { ...PACKAGE_SCRIPTS, 'test:web:operator-smoke': 'cd web && npx vitest run src/__tests__/operator-dashboard-smoke.test.ts' },
     });
     withFixture(validFiles({ 'package.json': packageWithDriftedAlias }), (root) => {
@@ -317,7 +317,7 @@ describe('validation cadence guard', () => {
 
   it('fails clearly when dependency hygiene scripts are missing', () => {
     const { 'audit:security': _auditSecurity, ...scripts } = PACKAGE_SCRIPTS;
-    withFixture(validFiles({ 'package.json': JSON.stringify({ engines: { node: '>=22.12.0 <23', npm: '>=10 <12' }, scripts }) }), (root) => {
+    withFixture(validFiles({ 'package.json': JSON.stringify({ engines: { node: '>=24 <25', npm: '>=10 <12' }, scripts }) }), (root) => {
       const result = verifyValidationCadence({ root });
       expect(result.ok).toBe(false);
       expect(result.failures).toContain('package.json is missing required validation script "audit:security" (combined production dependency security gate)');

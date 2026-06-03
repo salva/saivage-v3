@@ -4,11 +4,11 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { initProjectTree } from '../../src/persistence/file-tree.js';
 import { CardStore } from '../../src/cards/card-store.js';
-import { Runtime } from '../../src/runtime/runtime.js';
 import { FakeAgentAdapter, type FakeAgentFixture } from '../../src/agents/fake-agent.js';
 import { releaseLock } from '../../src/runtime/lock.js';
 import type { CardRecord } from '../../src/schemas/types.js';
 import type { AgentExecutionPort as AgentRuntime } from '../../src/contracts/index.js';
+import { createRuntimeTestHarness, type RuntimeTestHarness } from './runtime-test-harness.js';
 
 function makeFixtureDir(tmpDir: string): string {
   const dir = join(tmpDir, 'fixtures');
@@ -46,7 +46,8 @@ function makeGoalCard(store: CardStore, id: string, title: string): CardRecord {
 describe('Runtime Adapter Wiring', () => {
   let tmpDir: string;
   let fixtureDir: string;
-  let runtime: Runtime;
+  let scheduler: RuntimeTestHarness['scheduler'];
+  let harness: RuntimeTestHarness;
 
   beforeEach(() => {
     tmpDir = mkdtempSync(join(tmpdir(), 'saivage-raw-'));
@@ -161,6 +162,14 @@ describe('Runtime Adapter Wiring', () => {
     };
   }
 
+  function makeRuntime(agentRuntime?: AgentRuntime): void {
+    harness = createRuntimeTestHarness({
+      config: makeConfig(),
+      ...(agentRuntime ? { agentRuntime } : {}),
+    });
+    scheduler = harness.scheduler;
+  }
+
   describe('Dependency injection: Runtime accepts AgentRuntime', () => {
     it('Runtime constructor accepts FakeAgentAdapter as AgentRuntime', () => {
       createHappyPathFixture();
@@ -170,8 +179,8 @@ describe('Runtime Adapter Wiring', () => {
         fixtureDir,
       });
 
-      runtime = new Runtime(makeConfig(), fakeAgent);
-      expect(runtime.agentRuntime).toBe(fakeAgent);
+      makeRuntime(fakeAgent);
+      expect(harness.agentRuntimeTestTools.isSameAgentRuntime(fakeAgent)).toBe(true);
     });
 
     it('Runtime dispatches a goal through the injected FakeAgentAdapter', async () => {
@@ -184,15 +193,15 @@ describe('Runtime Adapter Wiring', () => {
         fixtureDir,
       });
 
-      runtime = new Runtime(makeConfig(), fakeAgent);
-      await runtime.startup();
+      makeRuntime(fakeAgent);
+      await harness.api.start();
 
       let goalCompleted = false;
-      runtime.on('goal_completed', () => {
+      harness.events.on('goal_completed', () => {
         goalCompleted = true;
       });
 
-      await runtime.dispatchGoal('goal-1');
+      await scheduler.dispatchGoal('goal-1');
 
       const goal = store.read('goal-1');
       expect(goal).not.toBeNull();
@@ -204,7 +213,7 @@ describe('Runtime Adapter Wiring', () => {
 
       expect(goalCompleted).toBe(true);
 
-      await runtime.shutdown();
+      await harness.api.shutdown();
     });
 
     it('injected adapter produces the same results as default path', async () => {
@@ -217,21 +226,21 @@ describe('Runtime Adapter Wiring', () => {
         fixtureDir,
       });
 
-      runtime = new Runtime(makeConfig(), fakeAgent);
-      await runtime.startup();
+      makeRuntime(fakeAgent);
+      await harness.api.start();
 
       const events: string[] = [];
-      runtime.on('goal_completed', () => events.push('goal_completed'));
-      runtime.on('review_failed', () => events.push('review_failed'));
-      runtime.on('card_failed', () => events.push('card_failed'));
+      harness.events.on('goal_completed', () => events.push('goal_completed'));
+      harness.events.on('review_failed', () => events.push('review_failed'));
+      harness.events.on('card_failed', () => events.push('card_failed'));
 
-      await runtime.dispatchGoal('goal-1');
+      await scheduler.dispatchGoal('goal-1');
 
       expect(events).toContain('goal_completed');
       expect(events).not.toContain('review_failed');
       expect(events).not.toContain('card_failed');
 
-      await runtime.shutdown();
+      await harness.api.shutdown();
     });
 
     it('any object implementing AgentRuntime can be injected', () => {
@@ -279,8 +288,8 @@ describe('Runtime Adapter Wiring', () => {
         },
       };
 
-      runtime = new Runtime(makeConfig(), minimalRt);
-      expect(runtime.agentRuntime).toBe(minimalRt);
+      makeRuntime(minimalRt);
+      expect(harness.agentRuntimeTestTools.isSameAgentRuntime(minimalRt)).toBe(true);
     });
   });
 
@@ -288,10 +297,9 @@ describe('Runtime Adapter Wiring', () => {
     it('Runtime creates FakeAgentAdapter internally when no agentRuntime passed', () => {
       createHappyPathFixture();
 
-      runtime = new Runtime(makeConfig());
+      makeRuntime();
 
-      expect(runtime.agentRuntime).toBeDefined();
-      expect(runtime.agentRuntime).toBeInstanceOf(FakeAgentAdapter);
+      expect(harness.agentRuntimeTestTools.getConstructorName()).toBe(FakeAgentAdapter.name);
     });
 
     it('Runtime dispatches goal with internally-created FakeAgentAdapter', async () => {
@@ -299,21 +307,21 @@ describe('Runtime Adapter Wiring', () => {
       const store = new CardStore(tmpDir);
       makeGoalCard(store, 'goal-1', 'Happy Goal');
 
-      runtime = new Runtime(makeConfig());
-      await runtime.startup();
+      makeRuntime();
+      await harness.api.start();
 
       let goalCompleted = false;
-      runtime.on('goal_completed', () => {
+      harness.events.on('goal_completed', () => {
         goalCompleted = true;
       });
 
-      await runtime.dispatchGoal('goal-1');
+      await scheduler.dispatchGoal('goal-1');
 
       const goal = store.read('goal-1');
       expect(goal!.status).toBe('done');
       expect(goalCompleted).toBe(true);
 
-      await runtime.shutdown();
+      await harness.api.shutdown();
     });
   });
 
@@ -394,18 +402,18 @@ describe('Runtime Adapter Wiring', () => {
         fixtureDir,
       });
 
-      runtime = new Runtime(makeConfig(), fakeAgent);
-      await runtime.startup();
+      makeRuntime(fakeAgent);
+      await harness.api.start();
 
       const goalAfterStartup = store.read('goal-lifecycle');
       expect(goalAfterStartup!.status).toBe('backlog');
 
       let goalCompleted = false;
-      runtime.on('goal_completed', () => {
+      harness.events.on('goal_completed', () => {
         goalCompleted = true;
       });
 
-      await runtime.dispatchGoal('goal-lifecycle');
+      await scheduler.dispatchGoal('goal-lifecycle');
 
       const finalGoal = store.read('goal-lifecycle');
       expect(finalGoal!.status).toBe('done');
@@ -416,7 +424,7 @@ describe('Runtime Adapter Wiring', () => {
 
       expect(goalCompleted).toBe(true);
 
-      await runtime.shutdown();
+      await harness.api.shutdown();
     });
 
     it('reporter correctly identifies passed tests when injected adapter works', async () => {
@@ -429,14 +437,14 @@ describe('Runtime Adapter Wiring', () => {
         fixtureDir,
       });
 
-      runtime = new Runtime(makeConfig(), fakeAgent);
-      await runtime.startup();
-      await runtime.dispatchGoal('goal-1');
+      makeRuntime(fakeAgent);
+      await harness.api.start();
+      await scheduler.dispatchGoal('goal-1');
 
       const goal = store.read('goal-1');
       expect(goal!.status).toBe('done');
 
-      await runtime.shutdown();
+      await harness.api.shutdown();
     });
   });
 });

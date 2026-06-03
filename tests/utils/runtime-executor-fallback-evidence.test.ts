@@ -3,13 +3,13 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
-import { Runtime } from '../../src/runtime/runtime.js';
 import { appendMessage, createSession, getSessionMessages } from '../../src/agents/session-persistence.js';
 import { initProjectTree } from '../../src/persistence/file-tree.js';
 import type { AgentExecutionPort as AgentRuntime } from '../../src/contracts/index.js';
 import type { PlannerResult, ExecutorResult, ReviewerResult } from '../../src/contracts/index.js';
 import type { CardRecord, HandoffSummary } from '../../src/schemas/types.js';
 import { appendRuntimeRun, readRuntimeState, upsertRuntimeActivation } from '../../src/runtime/state.js';
+import { createRuntimeTestHarness, type RuntimeTestHarness } from './runtime-test-harness.js';
 
 class StubAgentRuntime implements AgentRuntime {
   constructor(
@@ -24,6 +24,13 @@ class StubAgentRuntime implements AgentRuntime {
   forceCancelSession(): boolean { return false; }
   getHandoffSummary(): HandoffSummary | null { return null; }
   getActiveSessionHandoffs(): HandoffSummary[] { return []; }
+}
+
+function createHarness(projectRoot: string, agentRuntime: AgentRuntime): RuntimeTestHarness {
+  return createRuntimeTestHarness({
+    config: { projectRoot, fakeAgentConfig: { mapping: {}, fixtureDir: '' } },
+    agentRuntime,
+  });
 }
 
 describe('Runtime executor fallback evidence persistence', () => {
@@ -89,14 +96,14 @@ describe('Runtime executor fallback evidence persistence', () => {
     const parentRun = appendRuntimeRun(projectRoot, { run_id: 'test-parent-run', kind: 'root', card_id: 'project', parent_run_id: null, command_id: null, activation_id: null, phase: 'planner', runtime_status: 'running', session_id: parentSession.id, result: null });
     const childRun = appendRuntimeRun(projectRoot, { run_id: 'test-child-run', kind: 'child', card_id: 'code-1', parent_run_id: parentRun.run_id, command_id: null, activation_id: null, phase: 'pending', runtime_status: 'running', session_id: null, result: null });
     upsertRuntimeActivation(projectRoot, { idempotency_key: 'test-parent-run:activate-project-code-1:code-1', parent_card_id: 'project', parent_run_id: parentRun.run_id, parent_session_id: parentSession.id, parent_tool_call_id: 'activate-project-code-1', child_card_id: 'code-1', status: 'pending', precondition: 'accepted', runtime_run_id: childRun.run_id, error: null });
-    const runtime = new Runtime({ projectRoot, fakeAgentConfig: { mapping: {}, fixtureDir: '' } }, new StubAgentRuntime(plannerResult, executorResult, reviewerResult));
-    await runtime.startup();
-    await runtime.dispatchGoal('project');
-    await runtime.shutdown();
+    const harness = createHarness(projectRoot, new StubAgentRuntime(plannerResult, executorResult, reviewerResult));
+    await harness.api.start();
+    await harness.scheduler.dispatchGoal('project');
+    await harness.api.shutdown();
 
-    const codeCard = runtime.cardStore.read('code-1') as CardRecord;
+    const codeCard = harness.cards.read('code-1') as CardRecord;
     expect(codeCard.status).toBe('needs_verification');
-    expect(runtime.cardStore.read('project')?.status).not.toBe('done');
+    expect(harness.cards.read('project')?.status).not.toBe('done');
     expect(codeCard.result).toEqual(expect.objectContaining({
       generated_files: ['generated/output.txt'],
       verification_commands: [expect.objectContaining({ command: 'npm test -- result-parser', process_id: 'proc-55', status: 'exited', exit_code: 0, timed_out: false })],
@@ -161,12 +168,12 @@ describe('Runtime executor fallback evidence persistence', () => {
     const parentRun = appendRuntimeRun(projectRoot, { run_id: 'test-parent-run', kind: 'root', card_id: 'project', parent_run_id: null, command_id: null, activation_id: null, phase: 'planner', runtime_status: 'running', session_id: parentSession.id, result: null });
     const childRun = appendRuntimeRun(projectRoot, { run_id: 'test-child-run', kind: 'child', card_id: 'code-1', parent_run_id: parentRun.run_id, command_id: null, activation_id: null, phase: 'pending', runtime_status: 'running', session_id: null, result: null });
     upsertRuntimeActivation(projectRoot, { idempotency_key: 'test-parent-run:activate-project-code-1:code-1', parent_card_id: 'project', parent_run_id: parentRun.run_id, parent_session_id: parentSession.id, parent_tool_call_id: 'activate-project-code-1', child_card_id: 'code-1', status: 'pending', precondition: 'accepted', runtime_run_id: childRun.run_id, error: null });
-    const runtime = new Runtime({ projectRoot, fakeAgentConfig: { mapping: {}, fixtureDir: '' } }, new StubAgentRuntime(plannerResult, executorResult, reviewerResult));
-    await runtime.startup();
-    await runtime.dispatchGoal('project');
-    await runtime.shutdown();
+    const harness = createHarness(projectRoot, new StubAgentRuntime(plannerResult, executorResult, reviewerResult));
+    await harness.api.start();
+    await harness.scheduler.dispatchGoal('project');
+    await harness.api.shutdown();
 
-    const codeCard = runtime.cardStore.read('code-1') as CardRecord;
+    const codeCard = harness.cards.read('code-1') as CardRecord;
     expect(codeCard.status).toBe('done');
     expect(codeCard.error).toBeNull();
     expect(codeCard.artifacts).toEqual([]);
@@ -223,11 +230,11 @@ describe('Runtime executor fallback evidence persistence', () => {
     const childRun = appendRuntimeRun(projectRoot, { run_id: 'test-child-run-active', kind: 'child', card_id: 'code-active', parent_run_id: parentRun.run_id, command_id: null, activation_id: null, phase: 'pending', runtime_status: 'running', session_id: null, result: null });
     upsertRuntimeActivation(projectRoot, { idempotency_key: 'test-parent-run-active:activate-project-code-active:code-active', parent_card_id: 'project', parent_run_id: parentRun.run_id, parent_session_id: parentSession.id, parent_tool_call_id: 'activate-project-code-active', child_card_id: 'code-active', status: 'pending', precondition: 'accepted', runtime_run_id: childRun.run_id, error: null });
 
-    const runtime = new Runtime({ projectRoot, fakeAgentConfig: { mapping: {}, fixtureDir: '' } }, new StubAgentRuntime(plannerResult, executorResult, reviewerResult));
-    await runtime.dispatchGoal('project');
-    await runtime.shutdown();
+    const harness = createHarness(projectRoot, new StubAgentRuntime(plannerResult, executorResult, reviewerResult));
+    await harness.scheduler.dispatchGoal('project');
+    await harness.api.shutdown();
 
-    const codeCard = runtime.cardStore.read('code-active') as CardRecord;
+    const codeCard = harness.cards.read('code-active') as CardRecord;
     expect(codeCard.status).toBe('done');
     expect(codeCard.completed_at).toEqual(expect.any(String));
     expect(Date.parse(codeCard.completed_at!)).not.toBeNaN();

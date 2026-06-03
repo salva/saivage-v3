@@ -3,12 +3,12 @@ import { mkdtempSync, rmSync, readFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
-import { Runtime } from '../../src/runtime/runtime.js';
 import { initProjectTree } from '../../src/persistence/file-tree.js';
 import { CardStore } from '../../src/cards/card-store.js';
 import type { AgentExecutionPort as AgentRuntime } from '../../src/contracts/index.js';
 import type { PlannerResult, ExecutorResult, ReviewerResult } from '../../src/contracts/index.js';
 import type { HandoffSummary } from '../../src/schemas/types.js';
+import { createRuntimeTestHarness } from '../utils/runtime-test-harness.js';
 
 class StubAgentRuntime implements AgentRuntime {
   constructor(
@@ -51,12 +51,16 @@ describe('F23 — dispatchGoal acceptance', () => {
     const executorResult: ExecutorResult = { card_id: 'x', status: 'done', status_text: 'noop', artifacts: [], attachments: [], fallback_with_evidence: null };
     const reviewerResult: ReviewerResult = { assessment: { result: 'pass', summary: 'noop', achieved: [], issues: [], evidence_card_ids: [] } };
 
-    const runtime = new Runtime({ projectRoot, fakeAgentConfig: { mapping: {}, fixtureDir: '' } }, new StubAgentRuntime(plannerResult, executorResult, reviewerResult));
-    await runtime.startup();
-    await runtime.dispatchGoal('project');
-    await runtime.shutdown();
+    const harness = createRuntimeTestHarness({
+      config: { projectRoot, fakeAgentConfig: { mapping: {}, fixtureDir: '' } },
+      agentRuntime: new StubAgentRuntime(plannerResult, executorResult, reviewerResult),
+    });
+    const { api, scheduler } = harness;
+    await api.start();
+    await scheduler.dispatchGoal('project');
+    await api.shutdown();
 
-    const project = runtime.cardStore.read('project');
+    const project = harness.cards.read('project');
     // Goal must have transitioned out of the original 'failed' status via state-machine restart.
     expect(project?.status).not.toBe('failed');
     const errs = readErrorsJsonl(projectRoot);
@@ -75,10 +79,13 @@ describe('F23 — dispatchGoal acceptance', () => {
     const executorResult: ExecutorResult = { card_id: 'x', status: 'done', status_text: 'noop', artifacts: [], attachments: [], fallback_with_evidence: null };
     const reviewerResult: ReviewerResult = { assessment: { result: 'pass', summary: 'noop', achieved: [], issues: [], evidence_card_ids: [] } };
 
-    const runtime = new Runtime({ projectRoot, fakeAgentConfig: { mapping: {}, fixtureDir: '' } }, new StubAgentRuntime(plannerResult, executorResult, reviewerResult));
-    await runtime.startup();
-    await runtime.dispatchGoal('project');
-    await runtime.shutdown();
+    const { api, scheduler } = createRuntimeTestHarness({
+      config: { projectRoot, fakeAgentConfig: { mapping: {}, fixtureDir: '' } },
+      agentRuntime: new StubAgentRuntime(plannerResult, executorResult, reviewerResult),
+    });
+    await api.start();
+    await scheduler.dispatchGoal('project');
+    await api.shutdown();
 
     const errs = readErrorsJsonl(projectRoot);
     const activateErrs = errs.filter((e) => (e as { phase?: string }).phase === 'activate');
@@ -94,10 +101,13 @@ describe('F23 — dispatchGoal acceptance', () => {
     const executorResult: ExecutorResult = { card_id: 'x', status: 'done', status_text: 'noop', artifacts: [], attachments: [], fallback_with_evidence: null };
     const reviewerResult: ReviewerResult = { assessment: { result: 'pass', summary: 'noop', achieved: [], issues: [], evidence_card_ids: [] } };
 
-    const runtime = new Runtime({ projectRoot, fakeAgentConfig: { mapping: {}, fixtureDir: '' } }, new StubAgentRuntime(plannerResult, executorResult, reviewerResult));
-    await runtime.startup();
-    await runtime.dispatchGoal('code-1');
-    await runtime.shutdown();
+    const { api, scheduler } = createRuntimeTestHarness({
+      config: { projectRoot, fakeAgentConfig: { mapping: {}, fixtureDir: '' } },
+      agentRuntime: new StubAgentRuntime(plannerResult, executorResult, reviewerResult),
+    });
+    await api.start();
+    await scheduler.dispatchGoal('code-1');
+    await api.shutdown();
 
     const errs = readErrorsJsonl(projectRoot);
     const activateErrs = errs.filter((e) => (e as { phase?: string }).phase === 'activate');

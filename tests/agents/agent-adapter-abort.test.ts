@@ -8,10 +8,10 @@ import { EventLogger } from '../../src/observability/event-logger.js';
 import { getEventSeverity } from '../../src/events/index.js';
 import type { AgentExecutionPort as AgentRuntime } from '../../src/contracts/index.js';
 import { FakeAgentAdapter } from '../../src/agents/fake-agent.js';
-import { Runtime } from '../../src/runtime/runtime.js';
 import { initProjectTree } from '../../src/persistence/file-tree.js';
 import { releaseLock } from '../../src/runtime/lock.js';
 import { getSession } from '../../src/agents/session-persistence.js';
+import { createRuntimeTestHarness } from '../utils/runtime-test-harness.js';
 
 type CancellationTracker = {
   abortCalls: Array<{ sessionId: string }>;
@@ -570,35 +570,37 @@ describe('Runtime/Supervisor wiring for abort and force-cancel', () => {
       },
     };
 
-    const runtime = new Runtime(
-      {
+    const harness = createRuntimeTestHarness({
+      config: {
         projectRoot: tmpDir,
         fakeAgentConfig: { mapping: {}, fixtureDir: tmpDir },
         supervisorConfig: { enabled: true, intervalMs: 100, consecutiveStuckVerdicts: 2, logLines: 50 },
       },
-      mockAgentRuntime,
-    );
+      agentRuntime: mockAgentRuntime,
+    });
 
-    runtime.agentRuntime.cancelSession('test-session');
+    harness.agentRuntimeTestTools.cancelSession('test-session');
     expect(cancellationTracker.abortCalls).toHaveLength(1);
     expect(cancellationTracker.abortCalls[0].sessionId).toBe('test-session');
 
-    runtime.agentRuntime.forceCancelSession('force-session');
+    harness.agentRuntimeTestTools.forceCancelSession('force-session');
     expect(cancellationTracker.forceCancelCalls).toHaveLength(1);
     expect(cancellationTracker.forceCancelCalls[0].sessionId).toBe('force-session');
 
-    runtime.supervisor.stop();
+    harness.supervisorTestTools.stop();
   });
 
   it('wires abortSession to FakeAgentAdapter.cancelSession when no explicit runtime', () => {
-    const runtime = new Runtime({
-      projectRoot: tmpDir,
-      fakeAgentConfig: { mapping: { '*': 'default' }, fixtureDir: tmpDir },
-      supervisorConfig: { enabled: false },
+    const harness = createRuntimeTestHarness({
+      config: {
+        projectRoot: tmpDir,
+        fakeAgentConfig: { mapping: { '*': 'default' }, fixtureDir: tmpDir },
+        supervisorConfig: { enabled: false },
+      },
     });
 
-    expect(runtime.agentRuntime).toBeInstanceOf(FakeAgentAdapter);
-    expect(runtime.agentRuntime.cancelSession('test')).toBe(false);
+    expect(harness.agentRuntimeTestTools.getConstructorName()).toBe(FakeAgentAdapter.name);
+    expect(harness.agentRuntimeTestTools.cancelSession('test')).toBe(false);
   });
 
   it('wires abortSession to AgentAdapter.cancelSession when AgentAdapter is injected', () => {
@@ -607,21 +609,21 @@ describe('Runtime/Supervisor wiring for abort and force-cancel', () => {
     const ctrl = new AbortController();
     internals(adapter).setAbortController('wired-session', ctrl);
 
-    const runtime = new Runtime(
-      {
+    const harness = createRuntimeTestHarness({
+      config: {
         projectRoot: tmpDir,
         fakeAgentConfig: { mapping: {}, fixtureDir: tmpDir },
         supervisorConfig: { enabled: false },
         eventLogger,
       },
-      adapter,
-    );
+      agentRuntime: adapter,
+    });
 
-    const result = runtime.agentRuntime.cancelSession('wired-session');
+    const result = harness.agentRuntimeTestTools.cancelSession('wired-session');
     expect(result).toBe(true);
     expect(ctrl.signal.aborted).toBe(true);
 
-    runtime.supervisor.stop();
+    harness.supervisorTestTools.stop();
     eventLogger.close();
   });
 
@@ -629,21 +631,21 @@ describe('Runtime/Supervisor wiring for abort and force-cancel', () => {
     const eventLogger = new EventLogger(join(tmpDir, '.saivage'));
     const adapter = createMinimalAdapter(tmpDir, { eventLogger });
 
-    const runtime = new Runtime(
-      {
+    const harness = createRuntimeTestHarness({
+      config: {
         projectRoot: tmpDir,
         fakeAgentConfig: { mapping: {}, fixtureDir: tmpDir },
         supervisorConfig: { enabled: false },
         eventLogger,
       },
-      adapter,
-    );
+      agentRuntime: adapter,
+    });
 
-    const result = runtime.agentRuntime.forceCancelSession('no-controller-force');
+    const result = harness.agentRuntimeTestTools.forceCancelSession('no-controller-force');
     expect(result).toBe(false);
     expect(internals(adapter).cancelledSessions.has('no-controller-force')).toBe(true);
 
-    runtime.supervisor.stop();
+    harness.supervisorTestTools.stop();
     eventLogger.close();
   });
 });

@@ -1,10 +1,10 @@
 import { describe, it, expect } from '@jest/globals';
-import { ActiveRuntimeStampCounter } from '../../src/runtime/active-runtime.js';
+import { SessionStampCounter } from '../../src/contracts/session-stamper.js';
 import { roundIdGrammar } from '../../src/agents/round-id.js';
 
-describe('ActiveRuntimeStampCounter — collision-free round_id', () => {
+describe('SessionStampCounter — collision-free round_id', () => {
   it('emits a unique 32-hex round_id for each stampUserMessage call within one session', () => {
-    const counter = new ActiveRuntimeStampCounter();
+    const counter = new SessionStampCounter();
     const a = counter.stampUserMessage('s');
     const b = counter.stampUserMessage('s');
     expect(a.round_id).not.toBe(b.round_id);
@@ -14,14 +14,14 @@ describe('ActiveRuntimeStampCounter — collision-free round_id', () => {
   });
 
   it('emits unique round_ids across different sessions', () => {
-    const counter = new ActiveRuntimeStampCounter();
+    const counter = new SessionStampCounter();
     const a = counter.stampUserMessage('session-a');
     const b = counter.stampUserMessage('session-b');
     expect(a.round_id).not.toBe(b.round_id);
   });
 
   it('reuses currentRoundId across stampInRound calls but mints a new one after closeRound', () => {
-    const counter = new ActiveRuntimeStampCounter();
+    const counter = new SessionStampCounter();
     counter.openAssistantRound('s');
     const a = counter.stampInRound('s');
     const b = counter.stampInRound('s');
@@ -33,7 +33,7 @@ describe('ActiveRuntimeStampCounter — collision-free round_id', () => {
   });
 
   it('emits unique stampPre / stampCompacted ids', () => {
-    const counter = new ActiveRuntimeStampCounter();
+    const counter = new SessionStampCounter();
     const p1 = counter.stampPre('s');
     const p2 = counter.stampPre('s');
     const c1 = counter.stampCompacted('s');

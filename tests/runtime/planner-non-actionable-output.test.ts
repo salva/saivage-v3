@@ -3,9 +3,9 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { initProjectTree } from '../../src/persistence/file-tree.js';
-import { Runtime } from '../../src/runtime/runtime.js';
 import { FakeAgentAdapter, type FakeAgentFixture } from '../../src/agents/fake-agent.js';
 import { releaseLock } from '../../src/runtime/lock.js';
+import { createRuntimeTestHarness, type RuntimeTestHarness } from '../utils/runtime-test-harness.js';
 
 function makeFixtureDir(baseDir: string): string {
   const dir = join(baseDir, 'fixtures');
@@ -20,7 +20,14 @@ function writeFixture(dir: string, name: string, fixture: FakeAgentFixture): voi
 describe('planner output actionability guard', () => {
   let tmpDir: string;
   let fixtureDir: string;
-  let runtime: Runtime;
+  let harness: RuntimeTestHarness;
+
+  function createHarness(mapping: Record<string, string>, fakeAgent: FakeAgentAdapter): RuntimeTestHarness {
+    return createRuntimeTestHarness({
+      config: { projectRoot: tmpDir, fakeAgentConfig: { mapping, fixtureDir } },
+      agentRuntime: fakeAgent,
+    });
+  }
 
   beforeEach(() => {
     tmpDir = mkdtempSync(join(tmpdir(), 'saivage-planner-actionability-'));
@@ -29,8 +36,8 @@ describe('planner output actionability guard', () => {
   });
 
   afterEach(async () => {
-    if (runtime) {
-      try { await runtime.shutdown(); } catch { /* noop */ }
+    if (harness) {
+      try { await harness.api.shutdown(); } catch { /* noop */ }
     }
     try { releaseLock(tmpDir); } catch { /* noop */ }
     rmSync(tmpDir, { recursive: true, force: true });
@@ -47,13 +54,14 @@ describe('planner output actionability guard', () => {
       }],
     };
     writeFixture(fixtureDir, 'non-actionable-project-planner', fixture);
-    const fakeAgent = new FakeAgentAdapter({ mapping: { project: 'non-actionable-project-planner' }, fixtureDir });
-    runtime = new Runtime({ projectRoot: tmpDir, fakeAgentConfig: { mapping: { project: 'non-actionable-project-planner' }, fixtureDir } }, fakeAgent);
+    const mapping = { project: 'non-actionable-project-planner' };
+    const fakeAgent = new FakeAgentAdapter({ mapping, fixtureDir });
+    harness = createHarness(mapping, fakeAgent);
 
-    await runtime.startup();
-    await runtime.dispatchGoal('project');
+    await harness.api.start();
+    await harness.scheduler.dispatchGoal('project');
 
-    const project = runtime.cardStore.read('project');
+    const project = harness.cards.read('project');
     expect(project?.status).toBe('blocked');
     expect(project?.error).toContain('Planner returned continue without creating/updating cards');
     expect(project?.result?.planning).toEqual(expect.objectContaining({
@@ -62,8 +70,8 @@ describe('planner output actionability guard', () => {
       created_cards: [],
       updated_cards: [],
     }));
-    expect(runtime.getState()?.active_card_run).toBeNull();
-    expect(runtime.getState()?.current_card_id).toBeNull();
+    expect(harness.state.read()?.active_card_run).toBeNull();
+    expect(harness.state.read()?.current_card_id).toBeNull();
   });
 
   it('persists a planner-declared blocker as blocked card status and idle runtime state', async () => {
@@ -78,13 +86,14 @@ describe('planner output actionability guard', () => {
       }],
     };
     writeFixture(fixtureDir, 'blocked-project-planner', fixture);
-    const fakeAgent = new FakeAgentAdapter({ mapping: { project: 'blocked-project-planner' }, fixtureDir });
-    runtime = new Runtime({ projectRoot: tmpDir, fakeAgentConfig: { mapping: { project: 'blocked-project-planner' }, fixtureDir } }, fakeAgent);
+    const mapping = { project: 'blocked-project-planner' };
+    const fakeAgent = new FakeAgentAdapter({ mapping, fixtureDir });
+    harness = createHarness(mapping, fakeAgent);
 
-    await runtime.startup();
-    await runtime.dispatchGoal('project');
+    await harness.api.start();
+    await harness.scheduler.dispatchGoal('project');
 
-    const project = runtime.cardStore.read('project');
+    const project = harness.cards.read('project');
     expect(project?.status).toBe('blocked');
     expect(project?.error).toBe('test planner declared a durable blocker');
     expect(project?.status_text).toBe('test planner declared a durable blocker');
@@ -95,9 +104,9 @@ describe('planner output actionability guard', () => {
       created_cards: [],
       updated_cards: [],
     }));
-    expect(runtime.getState()?.status).toBe('idle');
-    expect(runtime.getState()?.active_card_run).toBeNull();
-    expect(runtime.getState()?.current_card_id).toBeNull();
+    expect(harness.state.read()?.status).toBe('idle');
+    expect(harness.state.read()?.active_card_run).toBeNull();
+    expect(harness.state.read()?.current_card_id).toBeNull();
   });
 
 
@@ -116,9 +125,10 @@ describe('planner output actionability guard', () => {
       }],
     };
     writeFixture(fixtureDir, 'generic-blocked-after-reviewer-capacity', fixture);
-    const fakeAgent = new FakeAgentAdapter({ mapping: { project: 'generic-blocked-after-reviewer-capacity' }, fixtureDir });
-    runtime = new Runtime({ projectRoot: tmpDir, fakeAgentConfig: { mapping: { project: 'generic-blocked-after-reviewer-capacity' }, fixtureDir } }, fakeAgent);
-    runtime.cardStore.update('project', {
+    const mapping = { project: 'generic-blocked-after-reviewer-capacity' };
+    const fakeAgent = new FakeAgentAdapter({ mapping, fixtureDir });
+    harness = createHarness(mapping, fakeAgent);
+    harness.cards.update('project', {
       status: 'active',
       error: reviewerBlockedReason,
       status_text: reviewerBlockedReason,
@@ -134,10 +144,10 @@ describe('planner output actionability guard', () => {
       },
     });
 
-    await runtime.startup();
-    await runtime.dispatchGoal('project');
+    await harness.api.start();
+    await harness.scheduler.dispatchGoal('project');
 
-    const project = runtime.cardStore.read('project');
+    const project = harness.cards.read('project');
     expect(project?.status).toBe('blocked');
     expect(project?.error).toBe(reviewerBlockedReason);
     expect(project?.status_text).toBe(reviewerBlockedReason);
@@ -169,13 +179,14 @@ describe('planner output actionability guard', () => {
       }],
     };
     writeFixture(fixtureDir, 'accepted-retry-reviewer-capacity-blocked', fixture);
-    const fakeAgent = new FakeAgentAdapter({ mapping: { project: 'accepted-retry-reviewer-capacity-blocked' }, fixtureDir });
-    runtime = new Runtime({ projectRoot: tmpDir, fakeAgentConfig: { mapping: { project: 'accepted-retry-reviewer-capacity-blocked' }, fixtureDir } }, fakeAgent);
+    const mapping = { project: 'accepted-retry-reviewer-capacity-blocked' };
+    const fakeAgent = new FakeAgentAdapter({ mapping, fixtureDir });
+    harness = createHarness(mapping, fakeAgent);
 
-    await runtime.startup();
-    await runtime.dispatchGoal('project');
+    await harness.api.start();
+    await harness.scheduler.dispatchGoal('project');
 
-    const project = runtime.cardStore.read('project');
+    const project = harness.cards.read('project');
     expect(project?.status).toBe('blocked');
     expect(project?.error).toBe(reviewerCapacityReason);
     expect(project?.status_text).toBe(reviewerCapacityReason);

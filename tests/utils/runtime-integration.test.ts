@@ -5,7 +5,6 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { initProjectTree } from '../../src/persistence/file-tree.js';
 import { CardStore } from '../../src/cards/card-store.js';
-import { Runtime } from '../../src/runtime/runtime.js';
 import { readRuntimeState } from '../../src/runtime/state.js';
 import { FakeAgentAdapter } from '../../src/agents/fake-agent.js';
 import type { FakeAgentFixture } from '../../src/agents/fake-agent.js';
@@ -16,6 +15,7 @@ import {
   removeStaleLock,
 } from '../../src/runtime/lock.js';
 import type { CardRecord } from '../../src/schemas/types.js';
+import { createRuntimeTestHarness, type RuntimeTestHarness } from './runtime-test-harness.js';
 
 // ── Helpers ───────────────────────────────────────────────────
 
@@ -44,7 +44,8 @@ async function waitFor(condition: () => boolean, timeoutMs = 2000): Promise<void
 describe('Runtime Integration', () => {
   let tmpDir: string;
   let fixtureDir: string;
-  let runtime: Runtime;
+  let scheduler: RuntimeTestHarness['scheduler'];
+  let harness: RuntimeTestHarness;
 
   beforeEach(() => {
     tmpDir = mkdtempSync(join(tmpdir(), 'saivage-rt-'));
@@ -533,6 +534,17 @@ describe('Runtime Integration', () => {
     };
   }
 
+  function makeRuntime(input?: { overrides?: Record<string, string>; agentRuntime?: FakeAgentAdapter; autoDispatchBacklog?: boolean }): void {
+    harness = createRuntimeTestHarness({
+      config: {
+        ...makeDefaultConfig(input?.overrides),
+        ...(input?.autoDispatchBacklog !== undefined ? { autoDispatchBacklog: input.autoDispatchBacklog } : {}),
+      },
+      ...(input?.agentRuntime ? { agentRuntime: input.agentRuntime } : {}),
+    });
+    scheduler = harness.scheduler;
+  }
+
   function makeGoalCard(store: CardStore, id: string, title: string): CardRecord {
     return store.create({
       id,
@@ -591,19 +603,16 @@ describe('Runtime Integration', () => {
       const store = new CardStore(tmpDir);
       makeGoalCard(store, 'goal-1', 'Happy Goal');
 
-      runtime = new Runtime({
-        ...makeDefaultConfig(),
-        autoDispatchBacklog: true,
-      });
+      makeRuntime({ autoDispatchBacklog: true });
 
-      await runtime.startup();
+      await harness.api.start();
       await new Promise((resolve) => setTimeout(resolve, 25));
 
       expect(store.read('goal-1')?.status).toBe('backlog');
       expect(store.read('code-happy-1')).toBeNull();
       expect(store.read('code-happy-2')).toBeNull();
 
-      await runtime.shutdown();
+      await harness.api.shutdown();
     });
 
   });
@@ -637,12 +646,9 @@ describe('Runtime Integration', () => {
         mapping: { 'goal-blocked': 'blocked-planner-goal' },
         fixtureDir,
       });
-      runtime = new Runtime({
-        projectRoot: tmpDir,
-        fakeAgentConfig: { mapping: { 'goal-blocked': 'blocked-planner-goal' }, fixtureDir },
-      }, fakeAgent);
-      await runtime.startup();
-      await runtime.dispatchGoal('goal-blocked');
+      makeRuntime({ overrides: { 'goal-blocked': 'blocked-planner-goal' }, agentRuntime: fakeAgent });
+      await harness.api.start();
+      await scheduler.dispatchGoal('goal-blocked');
 
       const goal = store.read('goal-blocked');
       expect(goal!.status).toBe('blocked');
@@ -652,7 +658,7 @@ describe('Runtime Integration', () => {
       });
       expect(fakeAgent.getPlannerCount('goal-blocked')).toBe(1);
 
-      await runtime.shutdown();
+      await harness.api.shutdown();
     });
 
     it('idles persisted runtime state when planner already marked reviewed goal done', async () => {
@@ -660,13 +666,13 @@ describe('Runtime Integration', () => {
       const store = new CardStore(tmpDir);
       makeGoalCard(store, 'goal-planner-done', 'Planner Done Goal');
 
-      runtime = new Runtime(makeDefaultConfig());
-      await runtime.startup();
+      makeRuntime();
+      await harness.api.start();
 
       const completedEvents: string[] = [];
-      runtime.on('goal_completed', () => completedEvents.push('goal_completed'));
+      harness.events.on('goal_completed', () => completedEvents.push('goal_completed'));
 
-      await runtime.dispatchGoal('goal-planner-done');
+      await scheduler.dispatchGoal('goal-planner-done');
 
       expect(store.read('goal-planner-done')!.status).toBe('done');
       expect(completedEvents).toContain('goal_completed');
@@ -676,7 +682,7 @@ describe('Runtime Integration', () => {
         current_agent_session_id: null,
       });
 
-      await runtime.shutdown();
+      await harness.api.shutdown();
     });
   });
 
@@ -782,8 +788,8 @@ describe('Runtime Integration', () => {
         status: 'running',
       });
 
-      runtime = new Runtime(makeDefaultConfig());
-      await runtime.simulateCrash();
+      makeRuntime();
+      await harness.lifecycleTestTools.simulateCrash();
 
       const goal = store.read('goal-1');
       expect(goal!.status).toBe('backlog');
@@ -811,9 +817,9 @@ describe('Runtime Integration', () => {
         priority: 1,
       });
 
-      runtime = new Runtime(makeDefaultConfig());
+      makeRuntime();
 
-      expect(runtime.getState()?.runtime_activations ?? []).toEqual([]);
+      expect(harness.state.read()?.runtime_activations ?? []).toEqual([]);
       expect(store.read('code-q-1')!.status).toBe('backlog');
       expect(store.read('code-q-2')!.status).toBe('backlog');
     });

@@ -1,5 +1,5 @@
 import type { FastifyInstance } from 'fastify';
-import type { ActiveRuntime } from '../../runtime/control-api.js';
+import type { RuntimeApplication } from '../../application/runtime-composition.js';
 import { operatorApiContracts } from '../../contracts/index.js';
 import { buildAgentOperatorContractHandlers } from './operator-agent-handlers.js';
 import { buildChatOperatorContractHandlers } from './operator-chat-handlers.js';
@@ -28,7 +28,7 @@ interface OperatorContractRouteRegistrationOptions extends
   OperatorConfigContext,
   Partial<OperatorRuntimeProviderContext> {
   fastify: FastifyInstance;
-  activeRuntime?: ActiveRuntime;
+  activeRuntime?: RuntimeApplication;
 }
 
 export function registerOperatorContractRoutes(options: OperatorContractRouteRegistrationOptions): void {
@@ -38,7 +38,7 @@ export function registerOperatorContractRoutes(options: OperatorContractRouteReg
   const handlers: OperatorContractHandlerMap = {
     ...buildRuntimeCardOperatorContractHandlers({ projectRoot, activeRuntimeProvider: getActiveRuntime, serverAvailabilityProvider: options.serverAvailabilityProvider }),
     ...buildMcpOperatorContractHandlers({ mcpStatusProvider: options.mcpStatusProvider, mcpToolsProvider: options.mcpToolsProvider, serverAvailabilityProvider: options.serverAvailabilityProvider }),
-    ...buildAgentOperatorContractHandlers({ projectRoot, activeRuntime: getActiveRuntime() }),
+    ...buildAgentOperatorContractHandlers({ projectRoot, activeRuntime: getActiveRuntime()?.runtimeApi }),
     ...buildChatOperatorContractHandlers({ projectRoot, activeRuntimeProvider: getActiveRuntime, requestServerRestart: options.requestServerRestart }),
     ...buildFilesDebugOperatorContractHandlers({ projectRoot }),
     ...buildProcessOperatorContractHandlers({ projectRoot }),

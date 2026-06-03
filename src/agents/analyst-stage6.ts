@@ -1,12 +1,11 @@
-import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { z } from 'zod';
 import type { AgentSession, CardRecord, CardStatus, RuntimeStatus } from '../schemas/index.js';
 import { CardStore } from '../cards/store-api.js';
-import { appendMessage, findPlannerSessionForCard, getSession, listSessions } from './session-persistence.js';
-import { writeFileAtomic } from '../persistence/index.js';
+import { findPlannerSessionForCard, getSession, listSessions } from './session-persistence.js';
 import { sanitizeAnalystPayload, sanitizeAnalystText } from './analyst-sanitization.js';
 import { readRuntimeState } from '../runtime/state-api.js';
+import { consumeChangedCardActivation, discardSubtreeChangedSyntheticNotes, drainSyntheticPlannerNotes, injectQueuedSyntheticPlannerNotes, queueSyntheticPlannerNote, type SyntheticPlannerNote } from '../runtime/synthetic-planner-notes.js';
 
 export const analystIssueSchema = z.object({
   summary: z.string().min(1),
@@ -18,26 +17,7 @@ export const analystIssuesSchema = z.array(analystIssueSchema);
 
 export type AnalystIssue = z.infer<typeof analystIssueSchema>;
 
-export interface SyntheticPlannerNote {
-  id: string;
-  target_planner_session_id: string;
-  target_goal_card_id: string;
-  kind: 'analyst_note' | 'pending_subtree_correction' | 'subtree_changed' | 'reviewer_interrupted';
-  affected_card_id: string;
-  descendant_card_ids: string[];
-  summary: string;
-  created_at: string;
-}
-
-interface SyntheticQueue { notes: SyntheticPlannerNote[]; }
-
-
 function saivageDir(projectRoot: string): string { return join(projectRoot, '.saivage'); }
-function syntheticQueuePath(projectRoot: string): string { return join(saivageDir(projectRoot), 'runtime', 'synthetic-notes.json'); }
-function now(): string { return new Date().toISOString(); }
-function readJson<T>(path: string, fallback: T): T { if (!existsSync(path)) return fallback; try { return JSON.parse(readFileSync(path, 'utf-8')) as T; } catch { return fallback; } }
-function readSyntheticQueue(projectRoot: string): SyntheticQueue { return readJson<SyntheticQueue>(syntheticQueuePath(projectRoot), { notes: [] }); }
-function writeSyntheticQueue(projectRoot: string, queue: SyntheticQueue): void { writeFileAtomic(syntheticQueuePath(projectRoot), JSON.stringify(queue, null, 2) + '\n'); }
 
 export function normalizeAnalystIssues(input: unknown): AnalystIssue[] {
   const parsed = analystIssuesSchema.parse(input);
@@ -74,40 +54,7 @@ export function findDeepestContainingPlanner(projectRoot: string, store: CardSto
   return null;
 }
 
-export function queueSyntheticPlannerNote(projectRoot: string, input: Omit<SyntheticPlannerNote, 'id' | 'created_at'>): SyntheticPlannerNote | null {
-  const queue = readSyntheticQueue(projectRoot);
-  const existing = queue.notes.find((note) => note.target_planner_session_id === input.target_planner_session_id && note.kind === input.kind && note.affected_card_id === input.affected_card_id && note.summary === input.summary);
-  if (existing) return existing;
-  const note: SyntheticPlannerNote = { ...input, id: `synthetic-${Date.now()}-${queue.notes.length + 1}`, created_at: now() };
-  queue.notes.push(note);
-  writeSyntheticQueue(projectRoot, queue);
-  return note;
-}
-
-export function drainSyntheticPlannerNotes(projectRoot: string, plannerSessionId: string): SyntheticPlannerNote[] {
-  const queue = readSyntheticQueue(projectRoot);
-  const drained = queue.notes.filter((note) => note.target_planner_session_id === plannerSessionId);
-  if (drained.length === 0) return [];
-  queue.notes = queue.notes.filter((note) => note.target_planner_session_id !== plannerSessionId);
-  writeSyntheticQueue(projectRoot, queue);
-  return drained;
-}
-
-export function discardSubtreeChangedSyntheticNotes(projectRoot: string, affectedCardId: string): number {
-  const queue = readSyntheticQueue(projectRoot);
-  const before = queue.notes.length;
-  queue.notes = queue.notes.filter((note) => !(note.kind === 'subtree_changed' && (note.affected_card_id === affectedCardId || note.descendant_card_ids.includes(affectedCardId))));
-  writeSyntheticQueue(projectRoot, queue);
-  return before - queue.notes.length;
-}
-
-export function injectQueuedSyntheticPlannerNotes(projectRoot: string, plannerSessionId: string, activeRuntime: { stampUserMessage(sessionId: string): import('./session-persistence.js').RoundStamp }): number {
-  const notes = drainSyntheticPlannerNotes(projectRoot, plannerSessionId);
-  if (notes.length === 0) return 0;
-  const lines = ['## Synthetic runtime notes since your last turn', '', ...notes.map((note) => `- ${note.kind} for ${note.affected_card_id}: ${note.summary}${note.descendant_card_ids.length ? ` (descendant_card_ids: ${note.descendant_card_ids.join(', ')})` : ''}`)];
-  appendMessage(saivageDir(projectRoot), plannerSessionId, { role: 'user', kind: 'text', content: lines.join('\n') }, activeRuntime.stampUserMessage(plannerSessionId));
-  return notes.length;
-}
+export { consumeChangedCardActivation, discardSubtreeChangedSyntheticNotes, drainSyntheticPlannerNotes, injectQueuedSyntheticPlannerNotes, queueSyntheticPlannerNote };
 
 export function markGoalNeedsCorrections(projectRoot: string, originGoalId: string, issues: AnalystIssue[], note?: string): { origin_goal_id: string; notes_recorded_on_goal_ids: string[]; status_transition: { from: CardStatus; to: CardStatus } | null } {
   const store = new CardStore(projectRoot);
@@ -165,13 +112,6 @@ export function notifyPlannerOfAnalystAction(
       summary: sanitizeAnalystText(summary, 1000),
     });
   }
-}
-
-export function consumeChangedCardActivation(projectRoot: string, cardId: string): number {
-  const store = new CardStore(projectRoot);
-  const card = store.read(cardId);
-  if (card?.status === 'changed') store.update(cardId, { status: 'running' });
-  return discardSubtreeChangedSyntheticNotes(projectRoot, cardId);
 }
 
 export function normalizeRuntimeStatus(status: RuntimeStatus | undefined, paused: boolean | undefined): 'idle' | 'running' | 'paused' {

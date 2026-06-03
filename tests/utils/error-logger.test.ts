@@ -11,11 +11,11 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { initProjectTree } from '../../src/persistence/file-tree.js';
 import { CardStore } from '../../src/cards/card-store.js';
-import { Runtime } from '../../src/runtime/runtime.js';
 import { ErrorLogger, type ErrorRecord, type ErrorInput } from '../../src/observability/error-logger.js';
 import { releaseLock } from '../../src/runtime/lock.js';
 import type { FakeAgentFixture } from '../../src/agents/fake-agent.js';
 import type { CardRecord } from '../../src/schemas/types.js';
+import { createRuntimeTestHarness, type RuntimeTestHarness } from './runtime-test-harness.js';
 
 function makeFixtureDir(tmpDir: string): string {
   const dir = join(tmpDir, 'fixtures');
@@ -372,7 +372,28 @@ describe('ErrorLogger', () => {
 describe('Runtime Integration — Error Propagation', () => {
   let tmpDir: string;
   let fixtureDir: string;
-  let runtime: Runtime;
+  let scheduler: RuntimeTestHarness['scheduler'];
+  let runtimeApi: RuntimeTestHarness['api'];
+  let loggerTools: RuntimeTestHarness['loggerTestTools'];
+
+  function makeRuntime(input: {
+    mapping?: Record<string, string>;
+    errorLogger?: ErrorLogger;
+  } = {}): void {
+    const harness = createRuntimeTestHarness({
+      config: {
+        projectRoot: tmpDir,
+        fakeAgentConfig: {
+          mapping: input.mapping ?? { '*': 'default' },
+          fixtureDir,
+        },
+        ...(input.errorLogger ? { errorLogger: input.errorLogger } : {}),
+      },
+    });
+    scheduler = harness.scheduler;
+    runtimeApi = harness.api;
+    loggerTools = harness.loggerTestTools;
+  }
 
   beforeEach(() => {
     tmpDir = mkdtempSync(join(tmpdir(), 'saivage-rt-el-'));
@@ -389,81 +410,56 @@ describe('Runtime Integration — Error Propagation', () => {
     rmSync(tmpDir, { recursive: true, force: true });
   });
 
-  it('errorLogger getter is exposed on Runtime', () => {
-    runtime = new Runtime({
-      projectRoot: tmpDir,
-      fakeAgentConfig: {
-        mapping: { '*': 'default' },
-        fixtureDir,
-      },
-    });
+  it('errorLogger is exposed through the runtime harness', () => {
+    makeRuntime();
 
-    expect(runtime.errorLogger).toBeDefined();
-    expect(runtime.errorLogger).toBeInstanceOf(ErrorLogger);
-    runtime.errorLogger.close();
+    expect(loggerTools.getErrorsPath()).toBe(join(tmpDir, '.saivage', 'runtime', 'errors.jsonl'));
+    loggerTools.closeErrorLogger();
   });
 
-  it('runtime.errorLogger.appendError() writes to errors.jsonl', () => {
-    runtime = new Runtime({
-      projectRoot: tmpDir,
-      fakeAgentConfig: {
-        mapping: { '*': 'default' },
-        fixtureDir,
-      },
-    });
+  it('logger test tools appendError() writes to errors.jsonl', () => {
+    makeRuntime();
 
-    runtime.errorLogger.appendError({
+    loggerTools.appendError({
       message: 'Test from runtime',
       cardId: 'card-rt-1',
       goalId: 'goal-rt-1',
       phase: 'executor',
     });
-    runtime.errorLogger.flushSync();
+    loggerTools.flushErrors();
 
-    const errors = runtime.errorLogger.getErrors();
+    const errors = loggerTools.getErrors();
     expect(errors.length).toBe(1);
     expect(errors[0].message).toBe('Test from runtime');
     expect(errors[0].cardId).toBe('card-rt-1');
     expect(errors[0].goalId).toBe('goal-rt-1');
     expect(errors[0].phase).toBe('executor');
 
-    runtime.errorLogger.close();
+    loggerTools.closeErrorLogger();
   });
 
-  it('runtime.errorLogger.getErrors() returns persisted records', () => {
-    runtime = new Runtime({
-      projectRoot: tmpDir,
-      fakeAgentConfig: {
-        mapping: { '*': 'default' },
-        fixtureDir,
-      },
-    });
+  it('logger test tools getErrors() returns persisted records', () => {
+    makeRuntime();
 
-    runtime.errorLogger.appendError({ message: 'E1', cardId: 'c1' });
-    runtime.errorLogger.appendError({ message: 'E2', cardId: 'c2' });
-    runtime.errorLogger.flushSync();
+    loggerTools.appendError({ message: 'E1', cardId: 'c1' });
+    loggerTools.appendError({ message: 'E2', cardId: 'c2' });
+    loggerTools.flushErrors();
 
-    const errors = runtime.errorLogger.getErrors();
+    const errors = loggerTools.getErrors();
     expect(errors.length).toBe(2);
     expect(errors[0].message).toBe('E1');
     expect(errors[1].message).toBe('E2');
 
-    runtime.errorLogger.close();
+    loggerTools.closeErrorLogger();
   });
 
   it('errorLogger.getErrorsPath() points to .saivage/runtime/errors.jsonl', () => {
-    runtime = new Runtime({
-      projectRoot: tmpDir,
-      fakeAgentConfig: {
-        mapping: { '*': 'default' },
-        fixtureDir,
-      },
-    });
+    makeRuntime();
 
-    const path = runtime.errorLogger.getErrorsPath();
+    const path = loggerTools.getErrorsPath();
     expect(path).toBe(join(tmpDir, '.saivage', 'runtime', 'errors.jsonl'));
 
-    runtime.errorLogger.close();
+    loggerTools.closeErrorLogger();
   });
 
   it('after successful dispatchGoal, errorLogger is accessible', async () => {
@@ -507,24 +503,18 @@ describe('Runtime Integration — Error Propagation', () => {
     const store = new CardStore(tmpDir);
     makeGoalCard(store, 'goal-happy', 'Happy Goal');
 
-    runtime = new Runtime({
-      projectRoot: tmpDir,
-      fakeAgentConfig: {
-        mapping: { 'goal-happy': 'happy-err-test', project: 'happy-err-test' },
-        fixtureDir,
-      },
-    });
+    makeRuntime({ mapping: { 'goal-happy': 'happy-err-test', project: 'happy-err-test' } });
 
-    await runtime.startup();
-    await runtime.dispatchGoal('goal-happy');
+    await runtimeApi.start();
+    await scheduler.dispatchGoal('goal-happy');
 
     const goal = store.read('goal-happy');
     expect(goal!.status).toBe('done');
 
-    const errors = runtime.errorLogger.getErrors();
+    const errors = loggerTools.getErrors();
     expect(Array.isArray(errors)).toBe(true);
 
-    await runtime.shutdown();
+    await runtimeApi.shutdown();
   });
 
   it('executor throw during dispatchGoal logs to errors.jsonl and events.jsonl', async () => {
@@ -566,23 +556,17 @@ describe('Runtime Integration — Error Propagation', () => {
     const store = new CardStore(tmpDir);
     makeGoalCard(store, 'goal-throw', 'Throw Goal');
 
-    runtime = new Runtime({
-      projectRoot: tmpDir,
-      fakeAgentConfig: {
-        mapping: { 'goal-throw': 'throw-err', project: 'throw-err' },
-        fixtureDir,
-      },
-    });
+    makeRuntime({ mapping: { 'goal-throw': 'throw-err', project: 'throw-err' } });
 
     const diagnosticEvents: unknown[] = [];
-    runtime.eventBus.subscribe('runtime_diagnostic', (event) => { diagnosticEvents.push(event); });
+    runtimeApi.subscribe({ allowedKinds: ['runtime_diagnostic'], handler: (event) => { diagnosticEvents.push(event); } });
 
-    await runtime.startup();
-    await runtime.dispatchGoal('goal-throw');
+    await runtimeApi.start();
+    await scheduler.dispatchGoal('goal-throw');
 
     expect(diagnosticEvents.length).toBeGreaterThanOrEqual(1);
 
-    const errors = runtime.errorLogger.getErrors();
+    const errors = loggerTools.getErrors();
     expect(errors.length).toBeGreaterThanOrEqual(1);
 
     const execErrors = errors.filter((e) => e.phase === 'executor');
@@ -598,29 +582,22 @@ describe('Runtime Integration — Error Propagation', () => {
       ]),
     );
 
-    await runtime.shutdown();
+    await runtimeApi.shutdown();
   });
 
   it('injected errorLogger is used instead of creating a new one', () => {
     const injected = new ErrorLogger(join(tmpDir, '.saivage'));
 
-    runtime = new Runtime({
-      projectRoot: tmpDir,
-      fakeAgentConfig: {
-        mapping: { '*': 'default' },
-        fixtureDir,
-      },
-      errorLogger: injected,
-    });
+    makeRuntime({ errorLogger: injected });
 
-    expect(runtime.errorLogger).toBe(injected);
+    expect(loggerTools.isSameErrorLogger(injected)).toBe(true);
 
     injected.appendError({ message: 'Before shutdown' });
     injected.flushSync();
-    const errors = runtime.errorLogger.getErrors();
+    const errors = loggerTools.getErrors();
     expect(errors.length).toBe(1);
 
-    runtime.errorLogger.close();
+    loggerTools.closeErrorLogger();
   });
 });
 
@@ -785,23 +762,24 @@ describe('ErrorLogger + EventLogger consistency', () => {
     const store = new CardStore(tmpDir);
     makeGoalCard(store, 'goal-dl', 'Dual Log Goal');
 
-    const runtime = new Runtime({
-      projectRoot: tmpDir,
-      fakeAgentConfig: {
-        mapping: { 'goal-dl': 'dual-log', project: 'dual-log' },
-        fixtureDir,
+    const harness = createRuntimeTestHarness({
+      config: {
+        projectRoot: tmpDir,
+        fakeAgentConfig: {
+          mapping: { 'goal-dl': 'dual-log', project: 'dual-log' },
+          fixtureDir,
+        },
       },
     });
-
     const diagnosticEvents: unknown[] = [];
-    runtime.eventBus.subscribe('runtime_diagnostic', (event) => { diagnosticEvents.push(event); });
+    harness.api.subscribe({ allowedKinds: ['runtime_diagnostic'], handler: (event) => { diagnosticEvents.push(event); } });
 
-    await runtime.startup();
-    await runtime.dispatchGoal('goal-dl');
+    await harness.api.start();
+    await harness.scheduler.dispatchGoal('goal-dl');
 
     expect(diagnosticEvents.length).toBeGreaterThanOrEqual(1);
 
-    const errors = runtime.errorLogger.getErrors();
+    const errors = harness.loggerTestTools.getErrors();
     expect(errors.length).toBeGreaterThanOrEqual(1);
 
     const executorErrors = errors.filter(
@@ -819,7 +797,7 @@ describe('ErrorLogger + EventLogger consistency', () => {
       ]),
     );
 
-    runtime.eventLogger.flushSync();
+    harness.loggerTestTools.flushEvents();
 
     const eventsPath = join(saivageDir, 'runtime', 'events.jsonl');
     expect(existsSync(eventsPath)).toBe(true);
@@ -841,6 +819,6 @@ describe('ErrorLogger + EventLogger consistency', () => {
       ]),
     );
 
-    await runtime.shutdown();
+    await harness.api.shutdown();
   });
 });

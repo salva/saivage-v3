@@ -226,5 +226,3 @@ export class RuntimeLifecycleScope {
 export function createRuntimeLifecycleScope(scopeId: string): RuntimeLifecycleScope {
   return new RuntimeLifecycleScope(scopeId);
 }
-
-export { ActiveRuntime } from './active-runtime.js';

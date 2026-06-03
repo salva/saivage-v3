@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import { readRuntimeState } from '../../runtime/state-api.js';
 import { agentMessageSchema } from '../../schemas/index.js';
 import type { RuntimeState } from '../../schemas/index.js';
-import type { ActiveRuntime } from '../../runtime/control-api.js';
+import type { RuntimeApi } from '../../runtime/control-api.js';
 
 export const GLOBAL_OPERATOR_AGENT_SESSION_ID = 'analyst';
 export const SAFE_AGENT_ID_RE = /^[a-zA-Z0-9_:-]+$/;
@@ -23,7 +23,7 @@ export interface AgentOperatorConversationResponse {
 }
 
 export class AgentOperatorReadModelService {
-  constructor(private readonly projectRoot: string, private readonly activeRuntime?: ActiveRuntime) {}
+  constructor(private readonly projectRoot: string, private readonly activeRuntime?: Pick<RuntimeApi, 'getActivityStatus'>) {}
 
   listSessions(): { sessions: AgentOperatorSessionSummary[] } {
     const sessionsDir = join(this.projectRoot, '.saivage', 'agents', 'sessions');

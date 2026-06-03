@@ -1,5 +1,5 @@
 import type { FastifyInstance } from 'fastify';
-import type { ActiveRuntime } from '../../runtime/control-api.js';
+import type { RuntimeApplication } from '../../application/runtime-composition.js';
 import type { McpManager } from '../../mcp/manager-api.js';
 import type { TelegramBot } from '../../telegram/index.js';
 import { clearProjectNotificationDeliveryAdapters } from '../../notifications/index.js';
@@ -9,7 +9,7 @@ import { resetRuntimeEventSubscriptions, resetWebSocketState } from '../websocke
 export async function stopServerResources(options: {
   projectRoot: string;
   fastify: FastifyInstance;
-  activeRuntime?: ActiveRuntime;
+  activeRuntime?: RuntimeApplication;
   mcpManager?: McpManager;
   telegramBot?: TelegramBot;
 }): Promise<void> {
@@ -17,7 +17,7 @@ export async function stopServerResources(options: {
   resetChatRouteState(projectRoot);
   resetWebSocketState(projectRoot);
   clearProjectNotificationDeliveryAdapters(projectRoot);
-  if (activeRuntime) resetRuntimeEventSubscriptions(activeRuntime.runtime);
+  if (activeRuntime) resetRuntimeEventSubscriptions(activeRuntime.runtimeApi);
 
   try {
     await fastify.close();
@@ -40,7 +40,7 @@ export async function stopServerResources(options: {
     }
     if (activeRuntime) {
       try {
-        await activeRuntime.stop();
+        await activeRuntime.runtimeApi.shutdown();
         fastify.log.info('ActiveRuntime stopped');
       } catch (err) {
         fastify.log.warn(`ActiveRuntime stop failed: ${err instanceof Error ? err.message : String(err)}`);

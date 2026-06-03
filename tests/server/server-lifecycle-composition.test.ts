@@ -67,7 +67,7 @@ describe('server lifecycle composition', () => {
     const fastify = { close: jest.fn(async () => { calls.push('fastify'); }), log: { info: jest.fn(), warn: jest.fn() } } as any;
     const telegramBot = { stop: jest.fn(async () => { calls.push('telegram'); throw new Error('telegram stop failed'); }) } as any;
     const mcpManager = { stopAll: jest.fn(async () => { calls.push('mcp'); }) } as any;
-    const activeRuntime = { runtime: { eventBus: {} }, stop: jest.fn(async () => { calls.push('runtime'); }) } as any;
+    const activeRuntime = { runtimeApi: { shutdown: jest.fn(async () => { calls.push('runtime'); }) } } as any;
     try {
       await stopServerResources({ projectRoot: root, fastify, telegramBot, mcpManager, activeRuntime });
       expect(calls).toEqual(['fastify', 'telegram', 'mcp', 'runtime']);

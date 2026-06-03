@@ -1,5 +1,5 @@
 import { readRuntimeState, updateRuntimeState } from './state.js';
-import type { ActiveRuntime } from './active-runtime.js';
+import type { RuntimeApi } from './runtime-api.js';
 import { queueNotification } from '../notifications/index.js';
 import type { RuntimeState } from '../schemas/index.js';
 
@@ -21,7 +21,7 @@ export const RESUME_FROM_FREEZE_MESSAGE = 'Runtime is frozen. Use POST /api/runt
 
 export interface RuntimeControlContext {
   projectRoot: string;
-  activeRuntime?: ActiveRuntime;
+  activeRuntime?: Pick<RuntimeApi, 'pause' | 'resume'>;
 }
 
 export interface RuntimeControlResult {

@@ -1,6 +1,6 @@
 import type { AgentMessage } from '../schemas/index.js';
 import { agentMessageSchema } from '../schemas/index.js';
-import type { ActiveRuntimeStampSource, RoundStamp } from './session-persistence.js';
+import type { RoundStamp, SessionStamper } from './session-persistence.js';
 import {
   getSessionMessages,
   replaceSessionMessages,
@@ -95,7 +95,7 @@ export async function compactSession(
   saivageDir: string,
   sessionId: string,
   options: CompactionOptions,
-  activeRuntime: ActiveRuntimeStampSource,
+  activeRuntime: SessionStamper,
 ): Promise<CompactionResult> {
   const maxCompactions = options.maxCompactions ?? 3;
   const threshold = options.threshold ?? 0.8;

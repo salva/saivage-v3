@@ -4,7 +4,6 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { initProjectTree } from '../../src/persistence/file-tree.js';
 import { CardStore } from '../../src/cards/card-store.js';
-import { Runtime } from '../../src/runtime/runtime.js';
 import {
   appendRuntimeRun,
   initRuntimeState,
@@ -13,18 +12,19 @@ import {
 } from '../../src/runtime/state.js';
 import { releaseLock } from '../../src/runtime/lock.js';
 import { FakeAgentAdapter } from '../../src/agents/fake-agent.js';
+import { createRuntimeTestHarness, type RuntimeTestHarness } from './runtime-test-harness.js';
 
 let root: string | null = null;
-let runtime: Runtime | null = null;
+let harness: RuntimeTestHarness | null = null;
 
 afterEach(async () => {
-  if (runtime) {
+  if (harness) {
     try {
-      await runtime.shutdown();
+      await harness.api.shutdown();
     } catch {
       // ignore cleanup failures in temp projects
     }
-    runtime = null;
+    harness = null;
   }
   if (root) {
     try {
@@ -38,7 +38,7 @@ afterEach(async () => {
 });
 
 describe('Runtime stale running-intent reconciliation', () => {
-  it('stops expected-idle intent when the project and root run are already terminal with no active card', async () => {
+  it('reconciles an open root run and preserves running intent for redispatch', async () => {
     root = mkdtempSync(join(tmpdir(), 'saivage-idle-running-intent-'));
     initProjectTree(root);
     const cards = new CardStore(root);
@@ -79,22 +79,33 @@ describe('Runtime stale running-intent reconciliation', () => {
       mapping: { project: 'missing-fixture-should-not-dispatch' },
       fixtureDir: root,
     });
-    runtime = new Runtime({ projectRoot: root, fakeAgentConfig: { mapping: { project: 'missing-fixture-should-not-dispatch' }, fixtureDir: root } }, fakeAgent);
+    const dispatched: string[] = [];
+    harness = createRuntimeTestHarness({
+      config: { projectRoot: root, fakeAgentConfig: { mapping: { project: 'missing-fixture-should-not-dispatch' }, fixtureDir: root }, autoDispatchBacklog: false },
+      agentRuntime: fakeAgent,
+      goalDispatcher: async (goalId) => { dispatched.push(goalId); },
+    });
 
-    await runtime.startup();
+    await harness.api.start();
+    await new Promise<void>((resolve, reject) => {
+      const deadline = Date.now() + 2000;
+      const poll = () => {
+        if (dispatched.length > 0 && harness?.diagnostics.getBackgroundDispatchCount() === 0) return resolve();
+        if (Date.now() >= deadline) return reject(new Error('startup did not redispatch running intent'));
+        setTimeout(poll, 10);
+      };
+      poll();
+    });
 
     const reconciled = readRuntimeState(root);
-    expect(reconciled?.status).toBe('idle');
-    expect(reconciled?.current_card_id).toBeNull();
-    expect(reconciled?.active_card_run).toBeNull();
-    expect(reconciled?.runtime_intent?.status).toBe('stopped');
-    expect(reconciled?.runtime_intent?.reason).toContain('expected idle');
+    expect(dispatched).toEqual(['project']);
+    expect(reconciled?.runtime_intent?.status).toBe('running');
     const reconciledRun = (reconciled?.runtime_runs ?? []).find((run) => run.run_id === rootRun.run_id);
     expect(reconciledRun?.phase).toBe('completed');
     expect(reconciledRun?.runtime_status).toBe('idle');
     expect(reconciledRun?.result).toBe('done');
     expect(reconciledRun?.finished_at).toBeTruthy();
-    expect(runtime.getBackgroundDispatchCount()).toBe(0);
+    expect(harness.diagnostics.getBackgroundDispatchCount()).toBe(0);
   });
 
   it('stops expected-idle intent when all root runs are already closed and project is terminal', async () => {
@@ -139,9 +150,12 @@ describe('Runtime stale running-intent reconciliation', () => {
       mapping: { project: 'missing-fixture-should-not-dispatch' },
       fixtureDir: root,
     });
-    runtime = new Runtime({ projectRoot: root, fakeAgentConfig: { mapping: { project: 'missing-fixture-should-not-dispatch' }, fixtureDir: root } }, fakeAgent);
+    harness = createRuntimeTestHarness({
+      config: { projectRoot: root, fakeAgentConfig: { mapping: { project: 'missing-fixture-should-not-dispatch' }, fixtureDir: root }, autoDispatchBacklog: false },
+      agentRuntime: fakeAgent,
+    });
 
-    await runtime.startup();
+    await harness.api.start();
 
     const reconciled = readRuntimeState(root);
     expect(reconciled?.status).toBe('idle');
@@ -149,6 +163,6 @@ describe('Runtime stale running-intent reconciliation', () => {
     expect(reconciled?.active_card_run).toBeNull();
     expect(reconciled?.runtime_intent?.status).toBe('stopped');
     expect(reconciled?.runtime_intent?.reason).toContain('expected idle');
-    expect(runtime.getBackgroundDispatchCount()).toBe(0);
+    expect(harness.diagnostics.getBackgroundDispatchCount()).toBe(0);
   });
 });

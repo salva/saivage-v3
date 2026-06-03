@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { PlannerControlExecutor } from '../../src/agents/planner-control-executor.js';
-import { ActiveRuntime } from '../../src/runtime/active-runtime.js';
+import { AgentAdapter } from '../../src/agents/agent-adapter.js';
 import { CardStore } from '../../src/cards/card-store.js';
 import { initProjectTree } from '../../src/persistence/file-tree.js';
 import { appendRuntimeRun, readRuntimeState, upsertRuntimeActivation } from '../../src/runtime/state.js';
@@ -133,9 +133,9 @@ describe('runtime activation ledger target contract (Wave 1)', () => {
     } finally { logger?.close(); rmSync(ctx.projectRoot, { recursive: true, force: true }); }
   });
 
-  it('ActiveRuntime AgentAdapter activate_card publishes exact logged ledger events once to runtime.eventBus', async () => {
+  it('AgentAdapter activate_card publishes exact logged ledger events once to runtime ledger event bus', async () => {
     const ctx = setup();
-    let activeRuntime: ActiveRuntime | null = null;
+    let logger: EventLogger | null = null;
     try {
       appendRuntimeRun(ctx.projectRoot, { run_id: 'run-parent', kind: 'root', card_id: 'goal-a', parent_run_id: null, command_id: 'cmd-a', activation_id: null, phase: 'planner', runtime_status: 'running', session_id: 'planner:goal-a', result: null });
       const config = {
@@ -146,14 +146,23 @@ describe('runtime activation ledger target contract (Wave 1)', () => {
         security: {},
         supervisor: { enabled: false },
       } as unknown as SaivageConfig;
-      activeRuntime = new ActiveRuntime(ctx.projectRoot, config);
+      logger = new EventLogger(join(ctx.projectRoot, '.saivage'));
+      const eventBus = new EventBus();
+      const agentAdapter = new AgentAdapter({
+        projectRoot: ctx.projectRoot,
+        saivageDir: join(ctx.projectRoot, '.saivage'),
+        config,
+        eventLogger: logger,
+        activationLedger: activationLedger(ctx.projectRoot),
+      });
+      agentAdapter.setRuntimeLedgerEventBus(eventBus);
       const events: Array<{ kind: string; run?: unknown; activation?: unknown; id?: string; timestamp?: string }> = [];
-      const sub = activeRuntime.runtime.eventBus.subscribe({
+      const sub = eventBus.subscribe({
         allowedKinds: ['runtime_run', 'runtime_activation'],
         handler: (event) => { events.push(event); },
       });
 
-      const result = await (activeRuntime.agentAdapter as any).processToolCall(
+      const result = await (agentAdapter as any).processToolCall(
         { id: 'call-active-runtime', type: 'function', function: { name: 'activate_card', arguments: JSON.stringify({ cardId: 'code-a' }) } },
         'planner',
         'planner:goal-a',
@@ -174,8 +183,8 @@ describe('runtime activation ledger target contract (Wave 1)', () => {
       expect(events[1]).toEqual(expect.objectContaining({ kind: 'runtime_activation', activation }));
       expect((events[1] as any).activation.idempotency_key).toBe(activation?.idempotency_key);
 
-      const persistedRunEvents = activeRuntime.eventLogger.getEvents({ kind: 'runtime_run' }).filter((event) => (event as any).run?.run_id === childRun!.run_id);
-      const persistedActivationEvents = activeRuntime.eventLogger.getEvents({ kind: 'runtime_activation' }).filter((event) => (event as any).activation?.activation_id === activation!.activation_id);
+      const persistedRunEvents = logger.getEvents({ kind: 'runtime_run' }).filter((event) => (event as any).run?.run_id === childRun!.run_id);
+      const persistedActivationEvents = logger.getEvents({ kind: 'runtime_activation' }).filter((event) => (event as any).activation?.activation_id === activation!.activation_id);
       expect(persistedRunEvents).toEqual([expect.objectContaining({ kind: events[0].kind, run: events[0].run })]);
       expect(persistedActivationEvents).toEqual([expect.objectContaining({ kind: events[1].kind, activation: events[1].activation })]);
       expect((persistedActivationEvents[0] as any).activation.idempotency_key).toBe(activation?.idempotency_key);
@@ -185,8 +194,7 @@ describe('runtime activation ledger target contract (Wave 1)', () => {
       expect(RuntimeActivationEventSchema.parse(projected[1]).content.activation).toEqual(activation);
       for (const envelope of projected) expect(parseKnownWsEnvelope(envelope)).toEqual(envelope);
     } finally {
-      activeRuntime?.eventLogger.close();
-      activeRuntime?.errorLogger.close();
+      logger?.close();
       rmSync(ctx.projectRoot, { recursive: true, force: true });
     }
   });

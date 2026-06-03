@@ -26,7 +26,7 @@ import {
   URGENCY_VALUES,
 } from '../src/agents/analyst-tool-schemas.js';
 import { cardStatusSchema, cardTypeSchema,  urgencySchema } from '../src/schemas/validators.js';
-import { createTestActiveRuntime } from './helpers/test-active-runtime.js';
+import { createTestActiveRuntime, createTestRuntimeApplication } from './helpers/test-active-runtime.js';
 
 function uniqueDir(): string {
   return join(tmpdir(), `saivage-analyst-test-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`);
@@ -377,9 +377,9 @@ describe('API Chat and WebSocket Integration', () => {
     const { registerChatsFilesDebugRoutes } = await import('../src/server/routes/chats-files-debug.js');
     const { registerWebSocket } = await import('../src/server/websocket.js');
 
-    registerCardRoutes(app, projectRoot, createTestActiveRuntime());
+    registerCardRoutes(app, projectRoot, createTestRuntimeApplication());
     registerChatsFilesDebugRoutes(app, projectRoot);
-    registerWebSocket(app, projectRoot, createTestActiveRuntime());
+    registerWebSocket(app, projectRoot, createTestRuntimeApplication());
 
     await app.listen({ port: 0, host: '127.0.0.1' });
     port = (app.server.address() as { port: number }).port;

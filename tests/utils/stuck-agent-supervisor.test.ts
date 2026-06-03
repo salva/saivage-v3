@@ -12,10 +12,10 @@ import {
   type SupervisorDeps,
   type StuckVerdict,
 } from '../../src/runtime/stuck-agent-supervisor.js';
-import { Runtime } from '../../src/runtime/runtime.js';
 import { initProjectTree } from '../../src/persistence/file-tree.js';
 import { releaseLock } from '../../src/runtime/lock.js';
 import type { AgentExecutionPort as AgentRuntime } from '../../src/contracts/index.js';
+import { createRuntimeTestHarness, type RuntimeTestHarness } from './runtime-test-harness.js';
 
 interface MockedDeps extends SupervisorDeps {
   getRecentLogs: jest.MockedFunction<SupervisorDeps['getRecentLogs']>;
@@ -420,75 +420,85 @@ describe('RuntimeIntegration', () => {
   });
 
   it('supervisor starts on Runtime startup when enabled', async () => {
-    const rt = new Runtime({
-      projectRoot: tmpDir,
-      fakeAgentConfig: { mapping: {}, fixtureDir: tmpDir },
-      supervisorConfig: cfg(),
+    const harness = createRuntimeTestHarness({
+      config: {
+        projectRoot: tmpDir,
+        fakeAgentConfig: { mapping: {}, fixtureDir: tmpDir },
+        supervisorConfig: cfg(),
+      },
     });
-    await rt.startup();
-    expect(rt.supervisor).toBeDefined();
-    expect(rt.supervisor.running).toBe(true);
-    await rt.shutdown();
+    await harness.api.start();
+    expect(harness.supervisorTestTools.isRunning()).toBe(true);
+    await harness.api.shutdown();
   });
 
   it('supervisor stops on Runtime shutdown', async () => {
-    const rt = new Runtime({
-      projectRoot: tmpDir,
-      fakeAgentConfig: { mapping: {}, fixtureDir: tmpDir },
-      supervisorConfig: cfg(),
+    const harness = createRuntimeTestHarness({
+      config: {
+        projectRoot: tmpDir,
+        fakeAgentConfig: { mapping: {}, fixtureDir: tmpDir },
+        supervisorConfig: cfg(),
+      },
     });
-    await rt.startup();
-    await rt.shutdown();
-    expect(rt.supervisor.running).toBe(false);
+    await harness.api.start();
+    await harness.api.shutdown();
+    expect(harness.supervisorTestTools.isRunning()).toBe(false);
   });
 
   it('supervisor does not start when disabled', async () => {
-    const rt = new Runtime({
-      projectRoot: tmpDir,
-      fakeAgentConfig: { mapping: {}, fixtureDir: tmpDir },
-      supervisorConfig: cfg({ enabled: false }),
+    const harness = createRuntimeTestHarness({
+      config: {
+        projectRoot: tmpDir,
+        fakeAgentConfig: { mapping: {}, fixtureDir: tmpDir },
+        supervisorConfig: cfg({ enabled: false }),
+      },
     });
-    await rt.startup();
-    expect(rt.supervisor.running).toBe(false);
-    await rt.shutdown();
+    await harness.api.start();
+    expect(harness.supervisorTestTools.isRunning()).toBe(false);
+    await harness.api.shutdown();
   });
 
   it('supervisor with custom config', async () => {
-    const rt = new Runtime({
-      projectRoot: tmpDir,
-      fakeAgentConfig: { mapping: {}, fixtureDir: tmpDir },
-      supervisorConfig: {
-        enabled: true, intervalMs: 300000, consecutiveStuckVerdicts: 5, logLines: 100,
+    const harness = createRuntimeTestHarness({
+      config: {
+        projectRoot: tmpDir,
+        fakeAgentConfig: { mapping: {}, fixtureDir: tmpDir },
+        supervisorConfig: {
+          enabled: true, intervalMs: 300000, consecutiveStuckVerdicts: 5, logLines: 100,
+        },
       },
     });
-    await rt.startup();
-    expect(rt.supervisor.running).toBe(true);
-    await rt.shutdown();
+    await harness.api.start();
+    expect(harness.supervisorTestTools.isRunning()).toBe(true);
+    await harness.api.shutdown();
   });
 
   it('supervisor default when no explicit config', async () => {
-    const rt = new Runtime({
-      projectRoot: tmpDir,
-      fakeAgentConfig: { mapping: {}, fixtureDir: tmpDir },
+    const harness = createRuntimeTestHarness({
+      config: {
+        projectRoot: tmpDir,
+        fakeAgentConfig: { mapping: {}, fixtureDir: tmpDir },
+      },
     });
-    expect(rt.supervisor).toBeDefined();
-    await rt.startup();
-    expect(rt.supervisor.running).toBe(true);
-    await rt.shutdown();
+    await harness.api.start();
+    expect(harness.supervisorTestTools.isRunning()).toBe(true);
+    await harness.api.shutdown();
   });
 
   it('supervisor events emitted via Runtime.emit', async () => {
-    const rt = new Runtime({
-      projectRoot: tmpDir,
-      fakeAgentConfig: { mapping: {}, fixtureDir: tmpDir },
-      supervisorConfig: cfg(),
+    const harness = createRuntimeTestHarness({
+      config: {
+        projectRoot: tmpDir,
+        fakeAgentConfig: { mapping: {}, fixtureDir: tmpDir },
+        supervisorConfig: cfg(),
+      },
     });
     const events: string[] = [];
-    rt.on('stuck_supervisor_started', () => events.push('started'));
-    rt.on('stuck_supervisor_stopped', () => events.push('stopped'));
-    await rt.startup();
+    harness.events.on('stuck_supervisor_started', () => events.push('started'));
+    harness.events.on('stuck_supervisor_stopped', () => events.push('stopped'));
+    await harness.api.start();
     expect(events).toContain('started');
-    await rt.shutdown();
+    await harness.api.shutdown();
     expect(events).toContain('stopped');
   });
 });
@@ -508,22 +518,20 @@ describe('Runtime supervisor cancellation integration', () => {
     rmSync(tmpDir, { recursive: true, force: true });
   });
 
-  function createRuntimeWithAgent(agentRuntime: AgentRuntime): Runtime {
-    return new Runtime({
-      projectRoot: tmpDir,
-      fakeAgentConfig: { mapping: {}, fixtureDir: tmpDir },
-      supervisorConfig: { enabled: true, intervalMs: 1_000_000, consecutiveStuckVerdicts: 1, logLines: 10 },
-    }, agentRuntime);
-  }
-
-  async function runCheck(supervisor: StuckAgentSupervisor): Promise<void> {
-    const internal = supervisor as unknown as { _runCheck: () => Promise<void> };
-    await internal._runCheck();
+  function createRuntimeWithAgent(agentRuntime: AgentRuntime): RuntimeTestHarness {
+    return createRuntimeTestHarness({
+      config: {
+        projectRoot: tmpDir,
+        fakeAgentConfig: { mapping: {}, fixtureDir: tmpDir },
+        supervisorConfig: { enabled: true, intervalMs: 1_000_000, consecutiveStuckVerdicts: 1, logLines: 10 },
+      },
+      agentRuntime,
+    });
   }
 
   it('supervisor cancels a stuck active session through runtime wiring', async () => {
-    const cancelSession = jest.fn(() => true);
-    const forceCancelSession = jest.fn(() => true);
+    const cancelSession = jest.fn<AgentRuntime['cancelSession']>(() => true);
+    const forceCancelSession = jest.fn<AgentRuntime['forceCancelSession']>(() => true);
 
     const agentRuntime: AgentRuntime = {
       invokePlanner() {
@@ -551,21 +559,21 @@ describe('Runtime supervisor cancellation integration', () => {
       },
     };
 
-    const rt = createRuntimeWithAgent(agentRuntime);
-    rt.supervisor.setChecksProvider(async () => stuck());
-    rt.supervisor.start();
-    await runCheck(rt.supervisor);
-    await runCheck(rt.supervisor);
+    const harness = createRuntimeWithAgent(agentRuntime);
+    harness.supervisorTestTools.setChecksProvider(async () => stuck());
+    harness.supervisorTestTools.start();
+    await harness.supervisorTestTools.runCheck();
+    await harness.supervisorTestTools.runCheck();
 
     expect(cancelSession).toHaveBeenCalledWith('sess-executor-1');
     expect(forceCancelSession).not.toHaveBeenCalled();
-    rt.supervisor.stop();
+    harness.supervisorTestTools.stop();
   });
 
   it('supervisor force-cancels when graceful cancel does not clear the active session', async () => {
     let active = true;
-    const cancelSession = jest.fn(() => true);
-    const forceCancelSession = jest.fn(() => {
+    const cancelSession = jest.fn<AgentRuntime['cancelSession']>(() => true);
+    const forceCancelSession = jest.fn<AgentRuntime['forceCancelSession']>(() => {
       active = false;
       return true;
     });
@@ -598,17 +606,17 @@ describe('Runtime supervisor cancellation integration', () => {
       },
     };
 
-    const rt = createRuntimeWithAgent(agentRuntime);
-    rt.supervisor.setChecksProvider(async () => stuck());
-    rt.supervisor.start();
-    await runCheck(rt.supervisor);
-    await runCheck(rt.supervisor);
+    const harness = createRuntimeWithAgent(agentRuntime);
+    harness.supervisorTestTools.setChecksProvider(async () => stuck());
+    harness.supervisorTestTools.start();
+    await harness.supervisorTestTools.runCheck();
+    await harness.supervisorTestTools.runCheck();
     expect(cancelSession).toHaveBeenCalledWith('sess-reviewer-1');
 
     await jest.advanceTimersByTimeAsync(600000);
     await Promise.resolve();
 
     expect(forceCancelSession).toHaveBeenCalledWith('sess-reviewer-1');
-    rt.supervisor.stop();
+    harness.supervisorTestTools.stop();
   });
 });

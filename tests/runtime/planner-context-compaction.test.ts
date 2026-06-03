@@ -3,10 +3,10 @@ import { mkdtempSync, mkdirSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { initProjectTree } from '../../src/persistence/file-tree.js';
-import { Runtime } from '../../src/runtime/runtime.js';
 import { FakeAgentAdapter } from '../../src/agents/fake-agent.js';
 import { releaseLock } from '../../src/runtime/lock.js';
 import type { PlannerInvocationRequest, PlannerResult } from '../../src/contracts/index.js';
+import { createRuntimeTestHarness, type RuntimeTestHarness } from '../utils/runtime-test-harness.js';
 
 class CapturingPlannerAdapter extends FakeAgentAdapter {
   capturedPrompt = '';
@@ -29,7 +29,7 @@ class CapturingPlannerAdapter extends FakeAgentAdapter {
 
 describe('planner prompt context compaction', () => {
   let tmpDir: string;
-  let runtime: Runtime;
+  let harness: RuntimeTestHarness;
 
   beforeEach(() => {
     tmpDir = mkdtempSync(join(tmpdir(), 'saivage-planner-context-compaction-'));
@@ -38,8 +38,8 @@ describe('planner prompt context compaction', () => {
   });
 
   afterEach(async () => {
-    if (runtime) {
-      try { await runtime.shutdown(); } catch { /* noop */ }
+    if (harness) {
+      try { await harness.api.shutdown(); } catch { /* noop */ }
     }
     try { releaseLock(tmpDir); } catch { /* noop */ }
     rmSync(tmpDir, { recursive: true, force: true });
@@ -48,10 +48,13 @@ describe('planner prompt context compaction', () => {
   it('summarizes child evidence and long self-report fields instead of embedding artifact-heavy bodies in full', async () => {
     const fixtureDir = join(tmpDir, 'fixtures');
     const fakeAgent = new CapturingPlannerAdapter({ mapping: { project: 'unused' }, fixtureDir });
-    runtime = new Runtime({ projectRoot: tmpDir, fakeAgentConfig: { mapping: { project: 'unused' }, fixtureDir } }, fakeAgent);
+    harness = createRuntimeTestHarness({
+      config: { projectRoot: tmpDir, fakeAgentConfig: { mapping: { project: 'unused' }, fixtureDir } },
+      agentRuntime: fakeAgent,
+    });
 
     const longBlob = 'artifact-body-'.repeat(1000);
-    runtime.cardStore.update('project', {
+    harness.cards.update('project', {
       latest_self_report: {
         summary: longBlob,
         details: { nested: longBlob },
@@ -63,7 +66,7 @@ describe('planner prompt context compaction', () => {
         },
       },
     });
-    runtime.cardStore.create({
+    harness.cards.create({
       id: 'child-heavy',
       type: 'code',
       parent: 'project',
@@ -89,8 +92,8 @@ describe('planner prompt context compaction', () => {
       },
     });
 
-    await runtime.startup();
-    await runtime.dispatchGoal('project');
+    await harness.api.start();
+    await harness.scheduler.dispatchGoal('project');
 
     expect(fakeAgent.capturedPrompt.length).toBeLessThan(30000);
     expect(fakeAgent.capturedPrompt).toContain('result_summary');

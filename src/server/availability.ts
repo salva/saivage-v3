@@ -1,5 +1,5 @@
 import type { McpStatusProvider } from '../mcp/manager-api.js';
-import type { ActiveRuntime } from '../runtime/control-api.js';
+import type { RuntimeApplication } from '../application/runtime-composition.js';
 import { readRuntimeState } from '../runtime/state-api.js';
 import { redactOperatorErrorMessage } from '../workspace/index.js';
 import { redactSnippetForOutbound } from '../redaction/index.js';
@@ -12,7 +12,7 @@ type StartupFailure = {
 
 export interface ServerAvailabilityInputs {
   projectRoot: string;
-  activeRuntime?: () => ActiveRuntime | undefined;
+  activeRuntime?: () => RuntimeApplication | undefined;
   mcpManager?: () => McpStatusProvider | undefined;
   runtimeStartupFailure?: () => StartupFailure | undefined;
   mcpStartupFailure?: () => StartupFailure | undefined;

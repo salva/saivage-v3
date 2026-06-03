@@ -31,7 +31,7 @@ export function buildRuntimeCardOperatorContractHandlers(options: RuntimeCardOpe
       return cardsReadModel.getHistoryEntry(id, seq);
     },
     'cards.diff': ({ params, query }) => cardsReadModel.diffCard((params as unknown as { id: string }).id, query as unknown as { from?: string; to?: string }),
-    'runtime.status': () => ({ body: buildRuntimeStatusReadModel({ projectRoot, activeRuntime: options.activeRuntimeProvider(), serverAvailability: options.serverAvailabilityProvider?.() }) }),
+    'runtime.status': () => ({ body: buildRuntimeStatusReadModel({ projectRoot, activeRuntime: options.activeRuntimeProvider()?.runtimeApi, serverAvailability: options.serverAvailabilityProvider?.() }) }),
     'runtime.cardRuns': () => ({ body: buildCardRunsResponse(projectRoot) }),
   };
 }

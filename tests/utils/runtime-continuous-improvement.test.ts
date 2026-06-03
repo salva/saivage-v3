@@ -4,11 +4,11 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { initProjectTree } from '../../src/persistence/file-tree.js';
 import { CardStore } from '../../src/cards/card-store.js';
-import { Runtime } from '../../src/runtime/runtime.js';
 import type { FakeAgentFixture } from '../../src/agents/fake-agent.js';
 import { releaseLock } from '../../src/runtime/lock.js';
 import { startProcess, snapshotProcessRuntimeScope } from '../../src/runtime/process-runner.js';
 import type { CardRecord, CardStatus } from '../../src/schemas/types.js';
+import { createRuntimeTestHarness, type RuntimeTestHarness } from './runtime-test-harness.js';
 
 function makeFixtureDir(tmpDir: string): string {
   const dir = join(tmpDir, 'fixtures');
@@ -76,7 +76,15 @@ function createProjectImprovementFixture(fixtureDir: string): void {
 describe('Runtime continuousImprovement reserved config', () => {
   let tmpDir: string;
   let fixtureDir: string;
-  let runtime: Runtime | undefined;
+  let harness: RuntimeTestHarness | undefined;
+
+  function createRuntime(config: Omit<Parameters<typeof createRuntimeTestHarness>[0]['config'], 'projectRoot' | 'fakeAgentConfig'> & {
+    fakeAgentConfig: Parameters<typeof createRuntimeTestHarness>[0]['config']['fakeAgentConfig'];
+  }): void {
+    harness = createRuntimeTestHarness({
+      config: { projectRoot: tmpDir, ...config },
+    });
+  }
 
   beforeEach(() => {
     tmpDir = mkdtempSync(join(tmpdir(), 'saivage-ci-noop-'));
@@ -85,8 +93,8 @@ describe('Runtime continuousImprovement reserved config', () => {
   });
 
   afterEach(async () => {
-    if (runtime) {
-      try { await runtime.shutdown(); } catch {}
+    if (harness) {
+      try { await harness.api.shutdown(); } catch {}
     }
     try { releaseLock(tmpDir); } catch {}
     rmSync(tmpDir, { recursive: true, force: true });
@@ -100,8 +108,7 @@ describe('Runtime continuousImprovement reserved config', () => {
     makeGoalCard(setupStore, 'goal-2', 'Feature B');
     advanceToTerminal(setupStore, 'goal-2', 'done');
 
-    runtime = new Runtime({
-      projectRoot: tmpDir,
+    createRuntime({
       continuousImprovement: true,
       fakeAgentConfig: { mapping: { project: 'project-improvement' }, fixtureDir },
     });
@@ -111,43 +118,40 @@ describe('Runtime continuousImprovement reserved config', () => {
       if ((data as { source?: string }).source === 'continuous-improvement') return true;
       return false;
     });
-    runtime.on('improvement_invoked', improvementListener);
-    runtime.on('plan_updated', continuousPlanListener);
+    harness!.events.on('improvement_invoked', improvementListener);
+    harness!.events.on('plan_updated', continuousPlanListener);
 
-    await runtime.startup();
+    await harness!.api.start();
     await new Promise<void>((resolve) => setTimeout(resolve, 200));
 
     expect(improvementListener).not.toHaveBeenCalled();
     expect(continuousPlanListener).not.toHaveBeenCalled();
-    expect(runtime.cardStore.read('goal-ci-1')).toBeNull();
+    expect(harness?.cards.read('goal-ci-1')).toBeNull();
   });
 
   it('runtime shutdown is idempotent and disposes the process lifecycle scope before logger close', async () => {
-    runtime = new Runtime({
-      projectRoot: tmpDir,
+    createRuntime({
       continuousImprovement: false,
       fakeAgentConfig: { mapping: {}, fixtureDir },
     });
-    await runtime.startup();
+    await harness!.api.start();
     const rec = startProcess(tmpDir, 'sleep 5', { cardId: 'card-runtime-shutdown', ownerKind: 'runtime' });
-    runtime.trackProcessStarted(rec.id);
     expect(snapshotProcessRuntimeScope(tmpDir).resources.length).toBeGreaterThan(0);
-    await runtime.shutdown();
-    await runtime.shutdown();
+    await harness!.api.shutdown();
+    await harness!.api.shutdown();
     expect(snapshotProcessRuntimeScope(tmpDir).resources).toHaveLength(0);
-    expect(runtime.lastLifecycleDisposeReport).toEqual(expect.arrayContaining([
+    expect(harness?.diagnostics.getLastLifecycleDisposeReport()).toEqual(expect.arrayContaining([
       expect.objectContaining({ kind: 'child_process', status: expect.stringMatching(/detached|killed/) }),
     ]));
   });
 
   it('partial startup failure releases runtime-owned process scope resources', async () => {
-    runtime = new Runtime({
-      projectRoot: tmpDir,
+    createRuntime({
       continuousImprovement: false,
       fakeAgentConfig: { mapping: {}, fixtureDir },
     });
     const rec = startProcess(tmpDir, 'sleep 5', { cardId: 'card-partial-startup', ownerKind: 'runtime' });
-    await runtime.shutdown();
+    await harness!.api.shutdown();
     expect(snapshotProcessRuntimeScope(tmpDir).resources.length).toBeGreaterThan(0);
     await import('../../src/runtime/process-runner.js').then(({ disposeProcessRuntimeScope }) => disposeProcessRuntimeScope(tmpDir));
     expect(snapshotProcessRuntimeScope(tmpDir).resources).toHaveLength(0);
@@ -160,13 +164,12 @@ describe('Runtime continuousImprovement reserved config', () => {
     makeGoalCard(setupStore, 'goal-1', 'Done Goal');
     advanceToTerminal(setupStore, 'goal-1', 'done');
 
-    runtime = new Runtime({
-      projectRoot: tmpDir,
+    createRuntime({
       continuousImprovement: true,
       fakeAgentConfig: { mapping: { project: 'project-improvement' }, fixtureDir },
     });
 
-    await runtime.startup();
+    await harness!.api.start();
     await new Promise<void>((resolve) => setTimeout(resolve, 200));
 
     const eventsPath = join(tmpDir, '.saivage', 'runtime', 'events.jsonl');

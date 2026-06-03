@@ -3,13 +3,13 @@ import { mkdtempSync, rmSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
-import { Runtime } from '../../src/runtime/runtime.js';
 import { initProjectTree } from '../../src/persistence/file-tree.js';
 import { createSession, completeSession, getSession, getSessionMessages, markSessionWaiting } from '../../src/agents/session-persistence.js';
 import { readRuntimeState, updateRuntimeState } from '../../src/runtime/state.js';
 import type { AgentExecutionPort as AgentRuntime } from '../../src/contracts/index.js';
 import type { PlannerResult, ExecutorResult, ReviewerResult } from '../../src/contracts/index.js';
 import type { HandoffSummary } from '../../src/schemas/types.js';
+import { createRuntimeTestHarness } from '../utils/runtime-test-harness.js';
 
 class NoopAgentRuntime implements AgentRuntime {
   invokePlanner(): Promise<PlannerResult> { return Promise.resolve({ status: 'continue', created_cards: [], updated_cards: [] }); }
@@ -55,10 +55,14 @@ describe('startup agent session sweep', () => {
     const analystBefore = readFileSync(join(saivageDir, 'agents', 'sessions', `${analyst.id}.json`), 'utf8');
     updateRuntimeState(projectRoot, { current_agent_session_id: activePlanner.id });
 
-    const runtime = new Runtime({ projectRoot, fakeAgentConfig: { mapping: {}, fixtureDir: '' } }, new NoopAgentRuntime());
-    await runtime.startup();
+    const harness = createRuntimeTestHarness({
+      config: { projectRoot, fakeAgentConfig: { mapping: {}, fixtureDir: '' } },
+      agentRuntime: new NoopAgentRuntime(),
+    });
+    const { api } = harness;
+    await api.start();
     const stateAfterStartup = readRuntimeState(projectRoot);
-    await runtime.shutdown();
+    await api.shutdown();
 
     for (const sessionId of [activeExecutor.id, activeReviewer.id, activePlanner.id]) {
       expect(getSession(saivageDir, sessionId)?.status).toBe('failed');
@@ -104,20 +108,24 @@ describe('startup agent session sweep', () => {
       },
     });
 
-    const runtime = new Runtime({ projectRoot, fakeAgentConfig: { mapping: {}, fixtureDir: '' } }, new NoopAgentRuntime());
+    const harness = createRuntimeTestHarness({
+      config: { projectRoot, fakeAgentConfig: { mapping: {}, fixtureDir: '' } },
+      agentRuntime: new NoopAgentRuntime(),
+    });
+    const { api } = harness;
     try {
-      await runtime.startup();
+      await api.start();
       await new Promise((resolve) => setTimeout(resolve, 0));
 
-      const project = runtime.cardStore.read('project');
+      const project = harness.cards.read('project');
       expect(project?.status).toBe('blocked');
       expect(project?.result?.planning).toEqual(expect.objectContaining({
         status: 'blocked',
         resume_reason: 'non_actionable_continue',
       }));
-      expect(runtime.getState()?.active_card_run).toBeNull();
+      expect(harness.state.read()?.active_card_run).toBeNull();
     } finally {
-      await runtime.shutdown();
+      await api.shutdown();
     }
   });
 

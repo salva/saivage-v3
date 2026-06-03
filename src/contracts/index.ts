@@ -108,6 +108,36 @@ export type {
 } from './llm-exchange.js';
 
 export type {
+  ActivityStatus,
+  PendingCall,
+  RoundStamp,
+  RuntimeAppendRecorder,
+  SessionActivity,
+  SessionRoundState,
+  SessionStamper,
+} from './session-stamper.js';
+
+export {
+  MemoryCandidateAvailability,
+} from './candidate-availability.js';
+
+export type {
+  AvailabilityDecision,
+  CandidateAvailability,
+  CandidateAvailabilityEntry,
+  CandidateState,
+} from './candidate-availability.js';
+
+export {
+  candidateKey,
+  parseCandidateKey,
+} from './provider-candidate.js';
+
+export type {
+  Candidate,
+} from './provider-candidate.js';
+
+export type {
   AgentConversationResponse,
   AgentDetailResponse,
   AgentListResponse,

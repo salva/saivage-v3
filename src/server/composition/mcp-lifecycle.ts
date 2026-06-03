@@ -1,7 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { McpManager } from '../../mcp/manager-api.js';
 import type { ResourceScope } from '../../lifecycle/index.js';
-import type { ActiveRuntime } from '../../runtime/control-api.js';
 import type { StartupFailure } from './runtime-lifecycle.js';
 
 export interface McpStartupResult {
@@ -25,6 +24,6 @@ export async function startMcpManager(options: {
   }
 }
 
-export function attachMcpManagerToRuntime(activeRuntime: ActiveRuntime | undefined, mcpManager: McpManager | undefined): void {
+export function attachMcpManagerToRuntime(activeRuntime: { setMcpManager(mcpManager: McpManager): void } | undefined, mcpManager: McpManager | undefined): void {
   if (activeRuntime && mcpManager) activeRuntime.setMcpManager(mcpManager);
 }

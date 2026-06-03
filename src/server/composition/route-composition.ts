@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import type { SaivageConfig } from '../../agents/config-api.js';
-import type { ActiveRuntime } from '../../runtime/control-api.js';
+import type { RuntimeApplication } from '../../application/runtime-composition.js';
 import type { McpManager } from '../../mcp/manager-api.js';
 import type { ServerAvailabilityInputs } from '../availability.js';
 import { buildServerAvailability } from '../availability.js';
@@ -11,7 +11,7 @@ import { registerWebSocket } from '../websocket.js';
 export function registerServerRoutes(options: {
   fastify: FastifyInstance;
   projectRoot: string;
-  activeRuntimeProvider: () => ActiveRuntime | undefined;
+  activeRuntimeProvider: () => RuntimeApplication | undefined;
   mcpManagerProvider: () => McpManager | undefined;
   availabilityInputs: ServerAvailabilityInputs;
   saivageConfig: SaivageConfig;

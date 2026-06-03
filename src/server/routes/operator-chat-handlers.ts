@@ -52,7 +52,7 @@ export function buildChatOperatorContractHandlers(options: ChatOperatorHandlerOp
       try {
         const activeRuntime = options.activeRuntimeProvider();
         if (!activeRuntime) return { statusCode: 503, body: { error: 'ActiveRuntime unavailable.' } };
-        const handler = getAnalystHandler(projectRoot, { activeRuntime, surface: 'web-chat', requestServerRestart: options.requestServerRestart });
+        const handler = getAnalystHandler(projectRoot, { runtimeDeps: activeRuntime.analystDeps, surface: 'web-chat', requestServerRestart: options.requestServerRestart });
         const response = await handler.handleMessage(GLOBAL_ANALYST_SESSION_ID, requestBody.content, workspaceContext);
         const message = response.message;
         return {

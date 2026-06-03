@@ -1,4 +1,4 @@
-import type { ActiveRuntime } from '../../runtime/control-api.js';
+import type { RuntimeApi } from '../../runtime/control-api.js';
 import { readRuntimeState } from '../../runtime/state-api.js';
 import type { ServerAvailability } from '../../contracts/index.js';
 
@@ -14,7 +14,7 @@ export interface RuntimeStatusReadModel {
 
 export interface RuntimeStatusInputs {
   projectRoot: string;
-  activeRuntime?: Pick<ActiveRuntime, 'getStatus'>;
+  activeRuntime?: Pick<RuntimeApi, 'getStatus'>;
   pid?: number;
   serverAvailability?: ServerAvailability;
 }

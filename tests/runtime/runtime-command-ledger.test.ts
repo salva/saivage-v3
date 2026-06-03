@@ -2,7 +2,6 @@ import { describe, expect, it, jest } from '@jest/globals';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { Runtime } from '../../src/runtime/runtime.js';
 import { createRuntimeEnvelope } from '../../src/server/websocket.js';
 import {
   RuntimeCommandEventSchema,
@@ -19,6 +18,7 @@ import {
 } from '../../src/runtime/state.js';
 import { PlannerControlExecutor } from '../../src/agents/planner-control-executor.js';
 import type { AgentExecutionPort as AgentRuntime } from '../../src/contracts/index.js';
+import { createRuntimeTestHarness, type RuntimeTestHarness } from '../utils/runtime-test-harness.js';
 
 function activationLedger(projectRoot: string) {
   return {
@@ -34,21 +34,44 @@ function root(): string {
   return mkdtempSync(join(tmpdir(), 'saivage-runtime-command-'));
 }
 
+let scheduler: RuntimeTestHarness['scheduler'];
+let diagnostics: RuntimeTestHarness['diagnostics'];
+let cards: RuntimeTestHarness['cards'];
+let loggerTools: RuntimeTestHarness['loggerTestTools'];
+let subscribe: RuntimeTestHarness['api']['subscribe'];
+
+function makeRuntime(
+  projectRoot: string,
+  agentRuntime?: AgentRuntime,
+  goalDispatcher?: Parameters<typeof createRuntimeTestHarness>[0]['goalDispatcher'],
+): RuntimeTestHarness['api'] {
+  const harness = createRuntimeTestHarness({
+    config: {
+      projectRoot,
+      fakeAgentConfig: { mapping: {}, fixtureDir: '' },
+      autoDispatchBacklog: false,
+    },
+    ...(agentRuntime ? { agentRuntime } : {}),
+    ...(goalDispatcher ? { goalDispatcher } : {}),
+  });
+  scheduler = harness.scheduler;
+  diagnostics = harness.diagnostics;
+  cards = harness.cards;
+  loggerTools = harness.loggerTestTools;
+  subscribe = harness.api.subscribe;
+  return harness.api;
+}
+
 describe('runtime command ledger target contract (Wave 1)', () => {
   it('start_project records running intent and creates a root run before dispatch side effects', async () => {
     const projectRoot = root();
     try {
       initProjectTree(projectRoot);
-      const runtime = new Runtime({
-        projectRoot,
-        fakeAgentConfig: { mapping: {}, fixtureDir: '' },
-        autoDispatchBacklog: false,
-      });
       const calls: string[] = [];
-      runtime.dispatchGoal = (async (goalId: string) => {
+      const api = makeRuntime(projectRoot, undefined, async (goalId: string) => {
         calls.push(goalId);
-      }) as Runtime['dispatchGoal'];
-      const result = await runtime.startProject('operator');
+      });
+      const result = await api.startProject('operator');
       expect(result.success).toBe(true);
       const state = readRuntimeState(projectRoot)!;
       expect(state.runtime_intent!.status).toBe('running');
@@ -95,27 +118,22 @@ describe('runtime command ledger target contract (Wave 1)', () => {
         result: null,
       });
       const calls: string[] = [];
-      const runtime = new Runtime({
-        projectRoot,
-        fakeAgentConfig: { mapping: {}, fixtureDir: '' },
-        autoDispatchBacklog: false,
-      });
-      runtime.cardStore.setStatus('project', 'active');
-      runtime.cardStore.setStatus('project', 'running');
-      runtime.cardStore.setStatus('project', 'done');
-      runtime.dispatchGoal = (async (goalId: string) => {
+      const api = makeRuntime(projectRoot, undefined, async (goalId: string) => {
         calls.push(goalId);
-      }) as Runtime['dispatchGoal'];
+      });
+      cards.setStatus('project', 'active');
+      cards.setStatus('project', 'running');
+      cards.setStatus('project', 'done');
 
-      await runtime.startup();
+      await api.start();
       await new Promise<void>((resolve, reject) => {
         const deadline = Date.now() + 2000;
         const poll = () => {
-          if (calls.length > 0 && runtime.getBackgroundDispatchCount() === 0) return resolve();
+          if (calls.length > 0 && diagnostics.getBackgroundDispatchCount() === 0) return resolve();
           if (Date.now() >= deadline)
             return reject(
               new Error(
-                `startup restart did not dispatch; calls=${calls.length}; background=${runtime.getBackgroundDispatchCount()}`,
+                `startup restart did not dispatch; calls=${calls.length}; background=${diagnostics.getBackgroundDispatchCount()}`,
               ),
             );
           setTimeout(poll, 10);
@@ -146,7 +164,7 @@ describe('runtime command ledger target contract (Wave 1)', () => {
         ]),
       );
       expect(state.runtime_intent).toEqual(expect.objectContaining({ status: 'running' }));
-      await runtime.shutdown();
+      await api.shutdown();
     } finally {
       rmSync(projectRoot, { recursive: true, force: true });
     }
@@ -162,17 +180,12 @@ describe('runtime command ledger target contract (Wave 1)', () => {
         'cmd-old',
         'stale running intent from prior completed run',
       );
-      const runtime = new Runtime({
-        projectRoot,
-        fakeAgentConfig: { mapping: {}, fixtureDir: '' },
-        autoDispatchBacklog: false,
-      });
       const calls: string[] = [];
-      runtime.dispatchGoal = (async (goalId: string) => {
+      const api = makeRuntime(projectRoot, undefined, async (goalId: string) => {
         calls.push(goalId);
-      }) as Runtime['dispatchGoal'];
+      });
 
-      const result = await runtime.startProject('operator');
+      const result = await api.startProject('operator');
 
       expect(result.success).toBe(true);
       if (!result.success)
@@ -232,17 +245,12 @@ describe('runtime command ledger target contract (Wave 1)', () => {
         session_id: 'planner:project',
         result: null,
       });
-      const runtime = new Runtime({
-        projectRoot,
-        fakeAgentConfig: { mapping: {}, fixtureDir: '' },
-        autoDispatchBacklog: false,
-      });
       const calls: string[] = [];
-      runtime.dispatchGoal = (async (goalId: string) => {
+      const api = makeRuntime(projectRoot, undefined, async (goalId: string) => {
         calls.push(goalId);
-      }) as Runtime['dispatchGoal'];
+      });
 
-      const result = await runtime.startProject('operator');
+      const result = await api.startProject('operator');
 
       expect(result.success).toBe(false);
       if (result.success) throw new Error('expected startProject to fail');
@@ -277,17 +285,12 @@ describe('runtime command ledger target contract (Wave 1)', () => {
   it('start_project rejects before setting running intent when the canonical project card is missing', async () => {
     const projectRoot = root();
     try {
-      const runtime = new Runtime({
-        projectRoot,
-        fakeAgentConfig: { mapping: {}, fixtureDir: '' },
-        autoDispatchBacklog: false,
-      });
       const calls: string[] = [];
-      runtime.dispatchGoal = (async (goalId: string) => {
+      const api = makeRuntime(projectRoot, undefined, async (goalId: string) => {
         calls.push(goalId);
-      }) as Runtime['dispatchGoal'];
+      });
 
-      const result = await runtime.startProject('operator');
+      const result = await api.startProject('operator');
 
       expect(result.success).toBe(false);
       if (result.success) throw new Error('expected startProject to fail');
@@ -342,7 +345,6 @@ describe('runtime command ledger target contract (Wave 1)', () => {
       const observedSessionIds: Array<string | null | undefined> = [];
       const activationResults: unknown[] = [];
       const ledgerEvents: unknown[] = [];
-      let runtime: Runtime;
       const agentRuntime: AgentRuntime = {
         async invokePlanner(request) {
           const goalId = request.goalId;
@@ -357,7 +359,7 @@ describe('runtime command ledger target contract (Wave 1)', () => {
           observedSessionIds.push(parentRun?.session_id);
           const exec = new PlannerControlExecutor({
             projectRoot,
-            cardStore: runtime.cardStore,
+            cardStore: cards,
             activationLedger: activationLedger(projectRoot),
           });
           const msg = await exec.execute({
@@ -394,15 +396,8 @@ describe('runtime command ledger target contract (Wave 1)', () => {
           return [];
         },
       };
-      runtime = new Runtime(
-        {
-          projectRoot,
-          fakeAgentConfig: { mapping: {}, fixtureDir: '' },
-          autoDispatchBacklog: false,
-        },
-        agentRuntime,
-      );
-      runtime.cardStore.create({
+      makeRuntime(projectRoot, agentRuntime);
+      cards.create({
         id: 'child-a',
         type: 'code',
         parent: 'project',
@@ -422,14 +417,14 @@ describe('runtime command ledger target contract (Wave 1)', () => {
         acceptance: '',
         retries: 0,
       });
-      const sub = runtime.eventBus.subscribe({
+      const sub = subscribe({
         allowedKinds: ['runtime_run'],
         handler: (event) => {
           ledgerEvents.push(event);
         },
       });
 
-      await runtime.dispatchGoal('project');
+      await scheduler.dispatchGoal('project');
       sub.unsubscribe();
 
       expect(observedSessionIds).toEqual(['planner:project']);
@@ -520,7 +515,6 @@ describe('runtime command ledger target contract (Wave 1)', () => {
       });
       const observedRuns: Array<{ phase?: string; session_id?: string | null }> = [];
       const activationResults: unknown[] = [];
-      let runtime: Runtime;
       const agentRuntime: AgentRuntime = {
         async invokePlanner(request) {
           const goalId = request.goalId;
@@ -530,7 +524,7 @@ describe('runtime command ledger target contract (Wave 1)', () => {
           observedRuns.push({ phase: parentRun?.phase, session_id: parentRun?.session_id });
           const exec = new PlannerControlExecutor({
             projectRoot,
-            cardStore: runtime.cardStore,
+            cardStore: cards,
             activationLedger: activationLedger(projectRoot),
           });
           const msg = await exec.execute({
@@ -567,15 +561,8 @@ describe('runtime command ledger target contract (Wave 1)', () => {
           return [];
         },
       };
-      runtime = new Runtime(
-        {
-          projectRoot,
-          fakeAgentConfig: { mapping: {}, fixtureDir: '' },
-          autoDispatchBacklog: false,
-        },
-        agentRuntime,
-      );
-      runtime.cardStore.create({
+      makeRuntime(projectRoot, agentRuntime);
+      cards.create({
         id: 'goal-a',
         type: 'goal',
         parent: 'project',
@@ -595,7 +582,7 @@ describe('runtime command ledger target contract (Wave 1)', () => {
         acceptance: '',
         retries: 0,
       });
-      runtime.cardStore.create({
+      cards.create({
         id: 'grandchild-a',
         type: 'code',
         parent: 'goal-a',
@@ -616,7 +603,7 @@ describe('runtime command ledger target contract (Wave 1)', () => {
         retries: 0,
       });
 
-      await runtime.dispatchGoal('goal-a');
+      await scheduler.dispatchGoal('goal-a');
 
       expect(observedRuns).toEqual([{ phase: 'planner', session_id: 'planner:goal-a' }]);
       expect(activationResults).toEqual([
@@ -688,15 +675,8 @@ describe('runtime command ledger target contract (Wave 1)', () => {
           return [];
         },
       };
-      const runtime = new Runtime(
-        {
-          projectRoot,
-          fakeAgentConfig: { mapping: {}, fixtureDir: '' },
-          autoDispatchBacklog: false,
-        },
-        agentRuntime,
-      );
-      const sub = runtime.eventBus.subscribe({
+      makeRuntime(projectRoot, agentRuntime);
+      const sub = subscribe({
         allowedKinds: ['runtime_diagnostic'],
         handler: () => {
           throw new Error('subscriber boom');
@@ -705,7 +685,7 @@ describe('runtime command ledger target contract (Wave 1)', () => {
       const consoleSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
 
       try {
-        await expect(runtime.dispatchGoal('project')).rejects.toThrow('planner boom');
+        await expect(scheduler.dispatchGoal('project')).rejects.toThrow('planner boom');
       } finally {
         sub.unsubscribe();
         consoleSpy.mockRestore();
@@ -716,7 +696,7 @@ describe('runtime command ledger target contract (Wave 1)', () => {
       expect(state.current_card_id).toBeNull();
       expect(state.current_agent_session_id).toBeNull();
       expect(state.active_card_run).toBeNull();
-      expect(runtime.cardStore.read('project')).toEqual(
+      expect(cards.read('project')).toEqual(
         expect.objectContaining({ status: 'failed', error: 'planner boom' }),
       );
       expect(state.runtime_runs).toEqual(
@@ -731,7 +711,7 @@ describe('runtime command ledger target contract (Wave 1)', () => {
           }),
         ]),
       );
-      expect(runtime.errorLogger.getErrors()).toEqual(
+      expect(loggerTools.getErrors()).toEqual(
         expect.arrayContaining([
           expect.objectContaining({ goalId: 'project', phase: 'planner', message: 'planner boom' }),
         ]),
@@ -768,14 +748,7 @@ describe('runtime command ledger target contract (Wave 1)', () => {
           return [];
         },
       };
-      const runtime = new Runtime(
-        {
-          projectRoot,
-          fakeAgentConfig: { mapping: {}, fixtureDir: '' },
-          autoDispatchBacklog: false,
-        },
-        agentRuntime,
-      );
+      const api = makeRuntime(projectRoot, agentRuntime);
       const events: Array<{
         kind: string;
         run?: {
@@ -787,14 +760,14 @@ describe('runtime command ledger target contract (Wave 1)', () => {
         };
         command?: { command_id?: string; command?: string; status?: string };
       }> = [];
-      const sub = runtime.eventBus.subscribe({
+      const sub = subscribe({
         handler: (event) => {
           if (event.kind === 'runtime_run' || event.kind === 'runtime_command')
             events.push(event as never);
         },
       });
 
-      const result = await runtime.startProject('operator');
+      const result = await api.startProject('operator');
       await new Promise<void>((resolve) => setImmediate(resolve));
       sub.unsubscribe();
 
@@ -827,7 +800,7 @@ describe('runtime command ledger target contract (Wave 1)', () => {
       expect(state.current_card_id).toBeNull();
       expect(state.current_agent_session_id).toBeNull();
       expect(state.active_card_run).toBeNull();
-      expect(runtime.cardStore.read('project')).toEqual(
+      expect(cards.read('project')).toEqual(
         expect.objectContaining({ status: 'failed', error: 'planner start boom' }),
       );
       expect(state.runtime_intent).toEqual(
@@ -884,25 +857,18 @@ describe('runtime command ledger target contract (Wave 1)', () => {
           return [];
         },
       };
-      const runtime = new Runtime(
-        {
-          projectRoot,
-          fakeAgentConfig: { mapping: {}, fixtureDir: '' },
-          autoDispatchBacklog: false,
-        },
-        agentRuntime,
-      );
+      const api = makeRuntime(projectRoot, agentRuntime);
 
-      const result = await runtime.startProject('operator');
+      const result = await api.startProject('operator');
       if (!result.success) throw new Error(`startProject failed: ${result.error.message}`);
       await new Promise<void>((resolve, reject) => {
         const deadline = Date.now() + 2000;
         const poll = () => {
-          if (runtime.getBackgroundDispatchCount() === 0) return resolve();
+          if (diagnostics.getBackgroundDispatchCount() === 0) return resolve();
           if (Date.now() >= deadline)
             return reject(
               new Error(
-                `background dispatches did not drain; count=${runtime.getBackgroundDispatchCount()}`,
+                `background dispatches did not drain; count=${diagnostics.getBackgroundDispatchCount()}`,
               ),
             );
           setTimeout(poll, 10);
@@ -911,7 +877,7 @@ describe('runtime command ledger target contract (Wave 1)', () => {
       });
 
       expect(invokeReviewer).not.toHaveBeenCalled();
-      const project = runtime.cardStore.read('project')!;
+      const project = cards.read('project')!;
       expect(project.status).toBe('blocked');
       expect(project.result?.planning).toEqual(
         expect.objectContaining({
@@ -950,18 +916,13 @@ describe('runtime command ledger target contract (Wave 1)', () => {
     const projectRoot = root();
     try {
       initProjectTree(projectRoot);
-      const runtime = new Runtime({
-        projectRoot,
-        fakeAgentConfig: { mapping: {}, fixtureDir: '' },
-        autoDispatchBacklog: false,
-      });
-      runtime.dispatchGoal = (async () => {
+      const api = makeRuntime(projectRoot, undefined, async () => {
         await new Promise<void>((resolve) => setImmediate(resolve));
-      }) as Runtime['dispatchGoal'];
-      const startResult = await runtime.startProject('operator');
+      });
+      const startResult = await api.startProject('operator');
       if (!startResult.success)
         throw new Error(`startProject failed: ${startResult.error.message}`);
-      const result = await runtime.stopProject('operator');
+      const result = await api.stopProject('operator');
       expect(result.success).toBe(true);
       expect(result.run).toMatchObject({
         run_id: startResult.run.run_id,
@@ -1039,21 +1000,14 @@ describe('runtime command ledger target contract (Wave 1)', () => {
           return [];
         },
       };
-      const runtime = new Runtime(
-        {
-          projectRoot,
-          fakeAgentConfig: { mapping: {}, fixtureDir: '' },
-          autoDispatchBacklog: false,
-        },
-        agentRuntime,
-      );
+      const api = makeRuntime(projectRoot, agentRuntime);
 
-      const startResult = await runtime.startProject('operator');
+      const startResult = await api.startProject('operator');
       if (!startResult.success)
         throw new Error(`startProject failed: ${startResult.error.message}`);
       await plannerStarted;
 
-      const stopResult = await runtime.stopProject('operator');
+      const stopResult = await api.stopProject('operator');
       expect(stopResult.success).toBe(true);
       expect(forceCancelSession).toHaveBeenCalledWith('planner:project');
 
@@ -1061,11 +1015,11 @@ describe('runtime command ledger target contract (Wave 1)', () => {
       await new Promise<void>((resolve, reject) => {
         const deadline = Date.now() + 2000;
         const poll = () => {
-          if (runtime.getBackgroundDispatchCount() === 0) return resolve();
+          if (diagnostics.getBackgroundDispatchCount() === 0) return resolve();
           if (Date.now() >= deadline)
             return reject(
               new Error(
-                `background dispatches did not drain; count=${runtime.getBackgroundDispatchCount()}`,
+                `background dispatches did not drain; count=${diagnostics.getBackgroundDispatchCount()}`,
               ),
             );
           setTimeout(poll, 10);
@@ -1118,33 +1072,26 @@ describe('runtime command ledger target contract (Wave 1)', () => {
           return [];
         },
       };
-      const runtime = new Runtime(
-        {
-          projectRoot,
-          fakeAgentConfig: { mapping: {}, fixtureDir: '' },
-          autoDispatchBacklog: false,
-        },
-        agentRuntime,
-      );
-      await runtime.startup();
+      const api = makeRuntime(projectRoot, agentRuntime);
+      await api.start();
 
-      const startResult = await runtime.startProject('operator');
+      const startResult = await api.startProject('operator');
       if (!startResult.success)
         throw new Error(`startProject failed: ${startResult.error.message}`);
       await plannerStarted;
 
-      await runtime.shutdown();
+      await api.shutdown();
       expect(forceCancelSession).toHaveBeenCalledWith('planner:project');
 
       releasePlanner();
       await new Promise<void>((resolve, reject) => {
         const deadline = Date.now() + 2000;
         const poll = () => {
-          if (runtime.getBackgroundDispatchCount() === 0) return resolve();
+          if (diagnostics.getBackgroundDispatchCount() === 0) return resolve();
           if (Date.now() >= deadline)
             return reject(
               new Error(
-                `background dispatches did not drain; count=${runtime.getBackgroundDispatchCount()}`,
+                `background dispatches did not drain; count=${diagnostics.getBackgroundDispatchCount()}`,
               ),
             );
           setTimeout(poll, 10);
@@ -1160,23 +1107,18 @@ describe('runtime command ledger target contract (Wave 1)', () => {
     const projectRoot = root();
     try {
       initProjectTree(projectRoot);
-      const runtime = new Runtime({
-        projectRoot,
-        fakeAgentConfig: { mapping: {}, fixtureDir: '' },
-        autoDispatchBacklog: false,
-      });
       let releaseDispatch!: () => void;
       const dispatchBlocked = new Promise<void>((resolve) => {
         releaseDispatch = resolve;
       });
-      runtime.dispatchGoal = (async () => {
+      const api = makeRuntime(projectRoot, undefined, async () => {
         await dispatchBlocked;
-      }) as Runtime['dispatchGoal'];
+      });
 
-      const startResult = await runtime.startProject('operator');
+      const startResult = await api.startProject('operator');
       if (!startResult.success)
         throw new Error(`startProject failed: ${startResult.error.message}`);
-      const stopResult = await runtime.stopProject('operator');
+      const stopResult = await api.stopProject('operator');
       expect(stopResult.run).toMatchObject({
         run_id: startResult.run.run_id,
         phase: 'stopped',
@@ -1188,11 +1130,11 @@ describe('runtime command ledger target contract (Wave 1)', () => {
       await new Promise<void>((resolve, reject) => {
         const deadline = Date.now() + 2000;
         const poll = () => {
-          if (runtime.getBackgroundDispatchCount() === 0) return resolve();
+          if (diagnostics.getBackgroundDispatchCount() === 0) return resolve();
           if (Date.now() >= deadline)
             return reject(
               new Error(
-                `background dispatches did not drain; count=${runtime.getBackgroundDispatchCount()}`,
+                `background dispatches did not drain; count=${diagnostics.getBackgroundDispatchCount()}`,
               ),
             );
           setTimeout(poll, 10);
@@ -1229,12 +1171,8 @@ describe('runtime command ledger target contract (Wave 1)', () => {
   it('stop_project omits run when no root run was open', async () => {
     const projectRoot = root();
     try {
-      const runtime = new Runtime({
-        projectRoot,
-        fakeAgentConfig: { mapping: {}, fixtureDir: '' },
-        autoDispatchBacklog: false,
-      });
-      const result = await runtime.stopProject('operator');
+      const api = makeRuntime(projectRoot);
+      const result = await api.stopProject('operator');
       expect(result.success).toBe(true);
       expect(result.intent!.status).toBe('stopped');
       expect(result.run).toBeUndefined();
@@ -1247,25 +1185,20 @@ describe('runtime command ledger target contract (Wave 1)', () => {
     const projectRoot = root();
     try {
       initProjectTree(projectRoot);
-      const runtime = new Runtime({
-        projectRoot,
-        fakeAgentConfig: { mapping: {}, fixtureDir: '' },
-        autoDispatchBacklog: false,
-      });
-      runtime.dispatchGoal = (async () => {
+      const api = makeRuntime(projectRoot, undefined, async () => {
         await new Promise<void>((resolve) => setImmediate(resolve));
-      }) as Runtime['dispatchGoal'];
+      });
       const events: Array<{ kind: string; command?: unknown; run?: unknown }> = [];
-      const sub = runtime.eventBus.subscribe({
+      const sub = subscribe({
         handler: (event) => {
           if (event.kind === 'runtime_command' || event.kind === 'runtime_run') events.push(event);
         },
       });
 
-      const start = await runtime.startProject('operator');
+      const start = await api.startProject('operator');
       if (!start.success) throw new Error(`startProject failed: ${start.error.message}`);
       expect(start.success).toBe(true);
-      const stop = await runtime.stopProject('operator');
+      const stop = await api.stopProject('operator');
       sub.unsubscribe();
 
       const state = readRuntimeState(projectRoot)!;
@@ -1311,14 +1244,9 @@ describe('runtime command ledger target contract (Wave 1)', () => {
     const projectRoot = root();
     try {
       initProjectTree(projectRoot);
-      const runtime = new Runtime({
-        projectRoot,
-        fakeAgentConfig: { mapping: {}, fixtureDir: '' },
-        autoDispatchBacklog: false,
-      });
-      runtime.dispatchGoal = (async () => {}) as Runtime['dispatchGoal'];
-      await runtime.startup();
-      const result = await runtime.startProject('operator');
+      const api = makeRuntime(projectRoot, undefined, async () => undefined);
+      await api.start();
+      const result = await api.startProject('operator');
       if (!result.success) throw new Error(`startProject failed: ${result.error.message}`);
       expect(result.success).toBe(true);
       const parentRun = result.run;
@@ -1363,7 +1291,7 @@ describe('runtime command ledger target contract (Wave 1)', () => {
         ]),
       );
 
-      await runtime.shutdown();
+      await api.shutdown();
 
       const afterShutdown = readRuntimeState(projectRoot)!;
       expect(afterShutdown.status).toBe('idle');

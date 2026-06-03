@@ -5,6 +5,7 @@ export {
   getOrCreateAnalystSession,
   resetAnalystHandlerCache,
 } from './analyst-handler.js';
+export type { AnalystRuntimeDeps } from './analyst-handler.js';
 export { sanitizeAnalystPayload, sanitizeAnalystText } from './analyst-sanitization.js';
 export {
   consumeChangedCardActivation,

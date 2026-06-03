@@ -6,7 +6,12 @@ import type { AgentSession, AgentMessage, ControlActionSurface, ControlActionAud
 import type { ToolResult, ToolContext } from './analyst-tools.js';
 import { AnalystOfflineError, LlmIntentResolver, TOOL_REGISTRY } from './analyst-llm-resolver.js';
 import { CardStore } from '../cards/store-api.js';
-import type { ActiveRuntime } from '../runtime/control-api.js';
+import type { RuntimeApi } from '../runtime/control-api.js';
+import type { EventPayload } from '../events/index.js';
+import type { SessionActivity, SessionStamper } from '../contracts/session-stamper.js';
+import type { CandidateAvailability } from './candidate-availability.js';
+import type { EventLogger } from '../observability/index.js';
+import type { McpManager } from '../mcp/manager-api.js';
 import type { ActorRole } from './authz.js';
 import { sanitizeAnalystText } from '../agents/analyst-sanitization.js';
 import { compactSession } from './compaction.js';
@@ -60,6 +65,39 @@ export interface AnalystResponse {
     params: Record<string, unknown>;
     result: ToolResult;
   }>;
+}
+
+export interface AnalystRuntimeDeps {
+  runtime: Pick<RuntimeApi, 'startProject' | 'stopProject' | 'pause' | 'resume'>;
+  stamper: SessionStamper & { getActivityStatus(sessionId: string): SessionActivity };
+  candidateAvailability?: CandidateAvailability;
+  eventLogger?: EventLogger;
+  emitAnalystToolInvoked(payload: EventPayload<'analyst_tool_invoked'>): void;
+  mcpManager?: McpManager;
+}
+
+type LegacyAnalystRuntimeDeps = SessionStamper & {
+  startProject: RuntimeApi['startProject'];
+  stopProject: RuntimeApi['stopProject'];
+  pause: RuntimeApi['pause'];
+  resume: RuntimeApi['resume'];
+  getActivityStatus(sessionId: string): SessionActivity;
+  candidateAvailability?: CandidateAvailability;
+  eventLogger?: EventLogger;
+  emitAnalystToolInvoked?: (payload: EventPayload<'analyst_tool_invoked'>) => void;
+  mcpManager?: McpManager;
+};
+
+function normalizeAnalystRuntimeDeps(deps: AnalystRuntimeDeps | LegacyAnalystRuntimeDeps): AnalystRuntimeDeps {
+  if ('stamper' in deps) return deps;
+  return {
+    runtime: deps,
+    stamper: deps,
+    candidateAvailability: deps.candidateAvailability,
+    eventLogger: deps.eventLogger,
+    emitAnalystToolInvoked: deps.emitAnalystToolInvoked ?? (() => undefined),
+    mcpManager: deps.mcpManager,
+  };
 }
 
 
@@ -164,9 +202,9 @@ function summarizeForBroadcast(tool: string, result: ToolResult): { summary: str
 
 
 
-function broadcastToolInvocation(activeRuntime: ActiveRuntime, sessionId: string, tool: string, result: ToolResult): void {
+function broadcastToolInvocation(deps: AnalystRuntimeDeps, sessionId: string, tool: string, result: ToolResult): void {
   const payload = summarizeForBroadcast(tool, result);
-  activeRuntime.runtime.eventBus.emit('analyst_tool_invoked', { sessionId, tool, success: result.success, ...payload });
+  deps.emitAnalystToolInvoked({ sessionId, tool, success: result.success, ...payload });
 }
 
 
@@ -175,20 +213,20 @@ export class AnalystHandler {
   private onActivity?: ActivityCallback;
   private llmResolver: LlmIntentResolver;
   private sessionQueues: Map<string, Promise<AnalystResponse>> = new Map();
-  private readonly activeRuntime: ActiveRuntime;
+  private readonly runtimeDeps: AnalystRuntimeDeps;
   private actor: ActorRole;
   private surface: ControlActionSurface;
   private requestServerRestart?: () => Promise<void>;
 
-  constructor(projectRoot: string, activeRuntime: ActiveRuntime, onActivity?: ActivityCallback, actor: ActorRole = 'analyst', surface: ControlActionSurface = 'web-chat', requestServerRestart?: () => Promise<void>) {
+  constructor(projectRoot: string, runtimeDeps: AnalystRuntimeDeps | LegacyAnalystRuntimeDeps, onActivity?: ActivityCallback, actor: ActorRole = 'analyst', surface: ControlActionSurface = 'web-chat', requestServerRestart?: () => Promise<void>) {
     this.projectRoot = projectRoot;
     this.onActivity = onActivity;
-    this.activeRuntime = activeRuntime;
+    this.runtimeDeps = normalizeAnalystRuntimeDeps(runtimeDeps);
     this.actor = actor;
     this.surface = surface;
     this.requestServerRestart = requestServerRestart;
-    this.llmResolver = new LlmIntentResolver(projectRoot, activeRuntime.candidateAvailability);
-    this.llmResolver.setEventLogger(activeRuntime.runtime.eventLogger);
+    this.llmResolver = new LlmIntentResolver(projectRoot, this.runtimeDeps.candidateAvailability);
+    this.llmResolver.setEventLogger(this.runtimeDeps.eventLogger);
   }
 
   getAvailableToolNames(): string[] {
@@ -213,7 +251,7 @@ export class AnalystHandler {
     const priorMessages = getSessionMessages(saivageDir(this.projectRoot), sessionId);
     const duplicateResponse = this.findRecentDuplicateResponse(priorMessages, userContent);
     if (duplicateResponse) return duplicateResponse;
-    appendMessage(saivageDir(this.projectRoot), sessionId, { role: 'user', kind: 'text', content: userContent }, this.activeRuntime.stampUserMessage(sessionId), this.activeRuntime);
+    appendMessage(saivageDir(this.projectRoot), sessionId, { role: 'user', kind: 'text', content: userContent }, this.runtimeDeps.stamper.stampUserMessage(sessionId), this.runtimeDeps.stamper);
 
     return await this.runAnalystLoop(sessionId, userContent, workspaceContext);
   }
@@ -232,10 +270,10 @@ export class AnalystHandler {
   }
 
   private async runAnalystLoop(sessionId: string, _userContent: string, workspaceContext?: WorkspaceContext): Promise<AnalystResponse> {
-    this.activeRuntime.openAssistantRound(sessionId);
+    this.runtimeDeps.stamper.openAssistantRound(sessionId);
     const toolInvocations: NonNullable<AnalystResponse['toolInvocations']> = [];
     const projectContext = this.buildProjectContext();
-    const ctx: ToolContext = { projectRoot: this.projectRoot, sessionId, activeRuntime: this.activeRuntime, requestServerRestart: this.requestServerRestart, actor: this.actor, surface: this.surface };
+    const ctx: ToolContext = { projectRoot: this.projectRoot, sessionId, runtime: this.runtimeDeps.runtime, mcpManager: this.runtimeDeps.mcpManager, requestServerRestart: this.requestServerRestart, actor: this.actor, surface: this.surface };
     const previousToolCallFingerprints = new Set<string>();
 
     for (;;) {
@@ -253,7 +291,7 @@ export class AnalystHandler {
           contextLimit: ANALYST_CONTEXT_LIMIT_TOKENS,
           threshold: 0.8,
           maxCompactions: Number.MAX_SAFE_INTEGER,
-        }, this.activeRuntime);
+        }, this.runtimeDeps.stamper);
       } catch { /* compaction is best-effort; continue with raw history */ }
 
       const history = getSessionMessages(saivageDir(this.projectRoot), sessionId);
@@ -270,13 +308,13 @@ export class AnalystHandler {
         const errMsg = err instanceof AnalystOfflineError
           ? err.message
           : `Analyst LLM unavailable: ${err instanceof Error ? err.message : String(err)}`;
-        const persisted = appendMessage(saivageDir(this.projectRoot), sessionId, { role: 'assistant', kind: 'text', content: errMsg }, this.activeRuntime.stampInRound(sessionId), this.activeRuntime);
+        const persisted = appendMessage(saivageDir(this.projectRoot), sessionId, { role: 'assistant', kind: 'text', content: errMsg }, this.runtimeDeps.stamper.stampInRound(sessionId), this.runtimeDeps.stamper);
         return { sessionId, message: { id: persisted.id, role: 'assistant', kind: 'text', content: errMsg, timestamp: persisted.timestamp }, toolInvocations: toolInvocations.length > 0 ? toolInvocations : undefined };
       }
 
       if (llmResult.kind === 'message') {
         const finalText = (llmResult.content ?? '').trim() || 'Done.';
-        const persisted = appendMessage(saivageDir(this.projectRoot), sessionId, { role: 'assistant', kind: 'text', content: finalText }, this.activeRuntime.stampInRound(sessionId), this.activeRuntime);
+        const persisted = appendMessage(saivageDir(this.projectRoot), sessionId, { role: 'assistant', kind: 'text', content: finalText }, this.runtimeDeps.stamper.stampInRound(sessionId), this.runtimeDeps.stamper);
         return { sessionId, message: { id: persisted.id, role: 'assistant', kind: 'text', content: finalText, timestamp: persisted.timestamp }, toolInvocations: toolInvocations.length > 0 ? toolInvocations : undefined };
       }
 
@@ -284,7 +322,7 @@ export class AnalystHandler {
       const fingerprint = toolCalls.map((tc) => `${tc.function.name}:${tc.function.arguments}`).sort().join('||');
       if (previousToolCallFingerprints.has(fingerprint)) {
         const noProgressText = 'I repeated the same tool calls without making progress. Please refine the request or inspect the latest tool results.';
-        const persisted = appendMessage(saivageDir(this.projectRoot), sessionId, { role: 'assistant', kind: 'text', content: noProgressText }, this.activeRuntime.stampInRound(sessionId), this.activeRuntime);
+        const persisted = appendMessage(saivageDir(this.projectRoot), sessionId, { role: 'assistant', kind: 'text', content: noProgressText }, this.runtimeDeps.stamper.stampInRound(sessionId), this.runtimeDeps.stamper);
         return { sessionId, message: { id: persisted.id, role: 'assistant', kind: 'text', content: noProgressText, timestamp: persisted.timestamp }, toolInvocations: toolInvocations.length > 0 ? toolInvocations : undefined };
       }
       previousToolCallFingerprints.add(fingerprint);
@@ -295,7 +333,7 @@ export class AnalystHandler {
           parsedArgs = candidate && typeof candidate === 'object' && !Array.isArray(candidate) ? candidate as Record<string, unknown> : {};
         } catch { parsedArgs = {}; }
         const row = serializeToolCallMessage({ id: tc.id, name: tc.function.name, args: parsedArgs });
-        appendMessage(saivageDir(this.projectRoot), sessionId, { role: 'assistant', kind: 'tool_call', content: JSON.stringify(row), tool: tc.function.name, tool_call_id: tc.id }, this.activeRuntime.stampInRound(sessionId), this.activeRuntime);
+        appendMessage(saivageDir(this.projectRoot), sessionId, { role: 'assistant', kind: 'tool_call', content: JSON.stringify(row), tool: tc.function.name, tool_call_id: tc.id }, this.runtimeDeps.stamper.stampInRound(sessionId), this.runtimeDeps.stamper);
       }
 
       for (const tc of toolCalls) {
@@ -321,11 +359,11 @@ export class AnalystHandler {
 
         const resultJson = JSON.stringify(result);
         const truncated = resultJson.length > 16_000 ? resultJson.slice(0, 16_000) + '…[truncated]' : resultJson;
-        appendMessage(saivageDir(this.projectRoot), sessionId, { role: 'tool', kind: 'tool_result', content: truncated, tool: tc.function.name, tool_call_id: tc.id }, this.activeRuntime.stampInRound(sessionId), this.activeRuntime);
-        broadcastToolInvocation(this.activeRuntime, sessionId, tc.function.name, result);
+        appendMessage(saivageDir(this.projectRoot), sessionId, { role: 'tool', kind: 'tool_result', content: truncated, tool: tc.function.name, tool_call_id: tc.id }, this.runtimeDeps.stamper.stampInRound(sessionId), this.runtimeDeps.stamper);
+        broadcastToolInvocation(this.runtimeDeps, sessionId, tc.function.name, result);
         const contractText = !toolFn ? result.error : this.responseTextForResult(result);
         if (contractText) {
-          const persisted = appendMessage(saivageDir(this.projectRoot), sessionId, { role: 'assistant', kind: 'text', content: contractText }, this.activeRuntime.stampInRound(sessionId), this.activeRuntime);
+          const persisted = appendMessage(saivageDir(this.projectRoot), sessionId, { role: 'assistant', kind: 'text', content: contractText }, this.runtimeDeps.stamper.stampInRound(sessionId), this.runtimeDeps.stamper);
           return { sessionId, message: { id: persisted.id, role: 'assistant', kind: 'text', content: contractText, timestamp: persisted.timestamp }, toolInvocations };
         }
       }
@@ -360,7 +398,7 @@ export class AnalystHandler {
 
 interface CachedHandler {
   handler: AnalystHandler;
-  activeRuntime: ActiveRuntime;
+  runtimeDeps: AnalystRuntimeDeps;
   onActivity?: ActivityCallback;
   actor: ActorRole;
   surface: ControlActionSurface;
@@ -368,18 +406,18 @@ interface CachedHandler {
 }
 const analystHandlersByRoot = new Map<string, CachedHandler>();
 
-export function getAnalystHandler(projectRoot: string, opts: { activeRuntime: ActiveRuntime; onActivity?: ActivityCallback; actor?: ActorRole; surface?: ControlActionSurface; requestServerRestart?: () => Promise<void> }): AnalystHandler {
+export function getAnalystHandler(projectRoot: string, opts: { runtimeDeps: AnalystRuntimeDeps; onActivity?: ActivityCallback; actor?: ActorRole; surface?: ControlActionSurface; requestServerRestart?: () => Promise<void> }): AnalystHandler {
   const actor = opts.actor ?? 'analyst';
   const surface = opts.surface ?? 'web-chat';
   const cached = analystHandlersByRoot.get(projectRoot);
   if (cached
-    && cached.activeRuntime === opts.activeRuntime
+    && cached.runtimeDeps === opts.runtimeDeps
     && cached.onActivity === opts.onActivity
     && cached.actor === actor
     && cached.surface === surface
     && cached.requestServerRestart === opts.requestServerRestart) return cached.handler;
-  const handler = new AnalystHandler(projectRoot, opts.activeRuntime, opts.onActivity, actor, surface, opts.requestServerRestart);
-  analystHandlersByRoot.set(projectRoot, { handler, activeRuntime: opts.activeRuntime, onActivity: opts.onActivity, actor, surface, requestServerRestart: opts.requestServerRestart });
+  const handler = new AnalystHandler(projectRoot, opts.runtimeDeps, opts.onActivity, actor, surface, opts.requestServerRestart);
+  analystHandlersByRoot.set(projectRoot, { handler, runtimeDeps: opts.runtimeDeps, onActivity: opts.onActivity, actor, surface, requestServerRestart: opts.requestServerRestart });
   return handler;
 }
 
