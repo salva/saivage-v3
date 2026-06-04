@@ -1,5 +1,5 @@
 import { describe, expect, it } from '@jest/globals';
-import { buildBlockedPlannerStartupState, buildChildRunStartupState, buildResumePlannerStartupState, buildReviewerInterruptedStartupState, decideStartupActiveRunRepair, executeStartupActiveRunRepairDecision, selectStartupPlannerRedispatchCardId, shouldRestartRunningIntentOnStartup, type StartupActiveRunRepairEffects } from '../../src/runtime/startup-repair.js';
+import { buildBlockedPlannerStartupState, buildChildRunStartupState, buildResumePlannerStartupState, buildReviewerInterruptedStartupState, decideStartupActiveRunRepair, executeStartupActiveRunRepairDecision, rehydrateStartupActivation, selectStartupPlannerRedispatchCardId, shouldRestartRunningIntentOnStartup, type StartupActiveRunRepairEffects } from '../../src/runtime/startup-repair.js';
 import type { CardRecord, RuntimeState } from '../../src/schemas/types.js';
 
 function state(run: NonNullable<RuntimeState['active_card_run']> | null): RuntimeState {
@@ -13,6 +13,14 @@ function run(phase: NonNullable<RuntimeState['active_card_run']>['phase']): NonN
 const card = { id: 'card-a', status: 'running' } as unknown as CardRecord;
 
 describe('startup active run repair decisions', () => {
+  it('rehydrates startup activation snapshots from persisted active runs', () => {
+    const snapshot = rehydrateStartupActivation(state(run('planner')));
+
+    expect(snapshot?.run).toEqual(expect.objectContaining({ phase: 'planner', card_id: 'card-a' }));
+    expect(snapshot?.activation.state).toEqual(expect.objectContaining({ phase: 'planner', cardId: 'card-a' }));
+    expect(rehydrateStartupActivation(state(null))).toBeNull();
+  });
+
   it('repairs orphan tool calls when no active run or card exists', () => {
     expect(decideStartupActiveRunRepair({ previousState: state(null), card: null, hasPersistedReview: false, cardHasBlockedPlanning: false, isTerminalCardStatus: false })).toEqual({ kind: 'repair_orphan_tool_calls', state: state(null) });
     expect(decideStartupActiveRunRepair({ previousState: state(run('planner')), card: null, hasPersistedReview: false, cardHasBlockedPlanning: false, isTerminalCardStatus: false }).kind).toBe('repair_orphan_tool_calls');

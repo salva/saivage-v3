@@ -1,10 +1,7 @@
 import type { CardRecord } from '../../schemas/index.js';
-import type { CardStore } from '../../cards/store-api.js';
-import type { EventLogger } from '../../observability/index.js';
 import type { SessionStamper } from '../../contracts/session-stamper.js';
-import type { RuntimeStateMachine } from '../state-machine.js';
 import type { RuntimeRunLedger } from '../runtime-run-ledger.js';
-import type { RuntimeStateMutationPort } from '../mutations.js';
+import type { RuntimeServices } from '../runtime-services.js';
 import { consumeChangedCardActivation } from '../synthetic-planner-notes.js';
 import {
   buildPlannerActivationPlanningPatch,
@@ -14,15 +11,16 @@ import {
 } from './planner-phase.js';
 import { compactPersistedPlannerHistoryForRetry } from '../persisted-planner-history.js';
 
-export interface PlannerActivationRunnerDeps {
-  projectRoot: string;
-  cards: CardStore;
-  eventLogger: EventLogger;
-  stateMachine: RuntimeStateMachine;
-  mutations: RuntimeStateMutationPort;
+export interface PlannerActivationRunnerDeps extends Pick<RuntimeServices,
+  | 'projectRoot'
+  | 'cards'
+  | 'eventLogger'
+  | 'stateMachine'
+  | 'mutations'
+  | 'now'
+> {
   runLedger: RuntimeRunLedger;
   sessionStamper: SessionStamper;
-  now(): string;
 }
 
 export class PlannerActivationRunner {

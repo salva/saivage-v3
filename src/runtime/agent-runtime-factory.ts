@@ -2,7 +2,7 @@ import { join } from 'node:path';
 import type { AgentExecutionPort, RuntimeActivationLedgerPort } from '../contracts/index.js';
 import type { RuntimeConfig } from './runtime-config.js';
 import type { SessionStamper } from '../contracts/session-stamper.js';
-import { createDefaultAgentExecution } from './default-agent-execution.js';
+import { FakeAgentAdapter, type FakeAgentConfig } from './fake-agent.js';
 import { readRuntimeState } from './state.js';
 import type { RuntimeStateMutationPort } from './mutations.js';
 
@@ -11,6 +11,17 @@ type ConfigurableAgentRuntime = AgentExecutionPort & {
   setActivationLedger?: (activationLedger: RuntimeActivationLedgerPort) => void;
   setSessionStamper?: (sessionStamper: SessionStamper) => void;
 };
+
+export function createDefaultAgentExecution(
+  _projectRoot: string,
+  fakeAgentConfig: FakeAgentConfig,
+  activationLedger: RuntimeActivationLedgerPort,
+): AgentExecutionPort {
+  return new FakeAgentAdapter({
+    ...fakeAgentConfig,
+    activationLedger,
+  });
+}
 
 export function createConfiguredAgentRuntime(input: {
   config: RuntimeConfig;

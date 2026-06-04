@@ -1,5 +1,5 @@
 import { describe, expect, it } from '@jest/globals';
-import { buildProjectRunCompletedPayload } from '../../src/runtime/project-run-completion.js';
+import { buildProjectRunCompletedPayload } from '../../src/runtime/runtime-reviewer-dispatcher.js';
 import type { CardRecord, ReviewAssessment } from '../../src/schemas/types.js';
 
 function card(overrides: Partial<CardRecord> = {}): CardRecord {

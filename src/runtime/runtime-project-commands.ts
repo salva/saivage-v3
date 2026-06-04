@@ -1,5 +1,4 @@
 import type { AgentExecutionPort } from '../contracts/index.js';
-import type { CardStore } from '../cards/store-api.js';
 import { PROJECT_CARD_ID } from '../cards/store-api.js';
 import type {
   ActionableErrorEnvelope,
@@ -7,8 +6,6 @@ import type {
   RuntimeRunRecord,
   RuntimeState,
 } from '../schemas/index.js';
-import type { EventLogger } from '../observability/index.js';
-import type { RuntimeStateMachine } from './state-machine.js';
 import type { RuntimeApi } from './runtime-api.js';
 import type { SessionStamper } from '../contracts/session-stamper.js';
 import { initRuntimeState, readRuntimeState } from './state.js';
@@ -26,23 +23,23 @@ import {
   describeProjectPlannerRetry,
 } from './phases/planner-phase.js';
 import { compactPersistedPlannerHistoryForRetry } from './persisted-planner-history.js';
-import type { RuntimeStateMutationPort } from './mutations.js';
-import type { RuntimeLifecycleState } from './runtime-lifecycle-state.js';
+import type { RuntimeServices } from './runtime-services.js';
 
 type RuntimeCommandSource = Parameters<RuntimeApi['startProject']>[0];
 
 export class RuntimeProjectCommandRunner {
   constructor(
-    private readonly deps: {
-      projectRoot: string;
-      cards: CardStore;
+    private readonly deps: Pick<RuntimeServices,
+      | 'projectRoot'
+      | 'cards'
+      | 'eventLogger'
+      | 'stateMachine'
+      | 'mutations'
+      | 'lifecycle'
+      | 'now'
+    > & {
       agentRuntime: AgentExecutionPort;
-      eventLogger: EventLogger;
       sessionStamper: SessionStamper;
-      stateMachine: RuntimeStateMachine;
-      mutations: RuntimeStateMutationPort;
-      lifecycle: RuntimeLifecycleState;
-      now(): string;
       publishRuntimeCommand(command: RuntimeCommandRecord): void;
       publishRuntimeRun(run: RuntimeRunRecord): void;
       publishActionableError(error: ActionableErrorEnvelope): void;
@@ -71,7 +68,7 @@ export class RuntimeProjectCommandRunner {
       projectCardStatus: projectCard?.status ?? null,
       hasBlockedPlanning: cardHasBlockedPlanning(projectCard),
       blockedPlanning,
-      paused: this.deps.lifecycle.isPaused(),
+      paused: this.deps.lifecycle.paused,
       source,
     });
     if (startDecision.error) {
@@ -134,7 +131,7 @@ export class RuntimeProjectCommandRunner {
       },
     });
     this.deps.publishRuntimeRun(run);
-    if (!this.deps.lifecycle.isPaused()) {
+    if (!this.deps.lifecycle.paused) {
       this.deps.trackBackgroundDispatch(
         this.deps.dispatchGoalThroughScheduler(PROJECT_CARD_ID)
           .then(() => {
@@ -181,7 +178,7 @@ export class RuntimeProjectCommandRunner {
     run?: RuntimeRunRecord;
   }> {
     const command = this.deps.mutations.apply({ kind: 'appendRuntimeCommand', commandKind: 'stop_project', source });
-    this.deps.lifecycle.setShuttingDown(true);
+    this.deps.lifecycle.shuttingDown = true;
     const state = this.deps.mutations.apply({
       kind: 'upsertRuntimeIntent',
       status: 'stopped',
@@ -212,7 +209,7 @@ export class RuntimeProjectCommandRunner {
     const completedCommand = completion.completedCommand;
     this.deps.mutations.apply({ kind: 'replaceRuntimeState', state: completion.state });
     this.deps.publishRuntimeCommand(completedCommand);
-    this.deps.lifecycle.setShuttingDown(false);
+    this.deps.lifecycle.shuttingDown = false;
     const persisted = readRuntimeState(this.deps.projectRoot) ?? current;
     const stoppedRun =
       stoppedRunIds.length > 0

@@ -1,16 +1,11 @@
-import type { RuntimeState } from '../schemas/index.js';
-import { PROJECT_CARD_ID } from '../cards/store-api.js';
-import type {
-  RuntimeCardPort,
-  RuntimeClockPort,
-  RuntimeErrorPort,
-  RuntimeRedispatchPort,
-  RuntimeSchedulerHandle,
-  RuntimeSchedulerPort,
-  RuntimeStatePort,
-} from './ports.js';
+import type { CardStatus, RuntimeState } from '../schemas/index.js';
+import { PROJECT_CARD_ID, type CardStore } from '../cards/store-api.js';
+import type { ErrorLogger } from '../observability/index.js';
 import { planProjectRootRedispatch, observeRuntimeStateInvariants, reduceRuntimeEvent, type RuntimeStateMachineEvent } from './runtime-core.js';
 import { planCardTransition } from './transition-policy.js';
+import { cardHasBlockedPlanning } from './planning-blockers.js';
+import { readRuntimeState } from './state.js';
+import type { RuntimeStateMutationPort } from './mutations.js';
 
 export type RuntimeCardAction =
   | 'start'
@@ -25,8 +20,38 @@ export type RuntimeCardAction =
   | 'reviewer_repair_resume'
   | 'crash_recovery_drop_to_backlog';
 
-export type { RuntimeStateMachineEvent, RuntimeSchedulerHandle };
+export type { RuntimeStateMachineEvent };
 export type RuntimeScheduler = RuntimeSchedulerPort;
+
+export interface RuntimeCardPort {
+  readStatus(cardId: string): CardStatus | undefined;
+  canTransition(from: CardStatus, to: CardStatus): boolean;
+  setStatus(cardId: string, status: CardStatus): void;
+}
+
+export interface RuntimeStatePort {
+  read(): RuntimeState | null;
+  patch(changes: Partial<RuntimeState>): RuntimeState;
+}
+
+export interface RuntimeErrorPort {
+  appendError(error: Record<string, unknown>): void;
+}
+
+export type RuntimeSchedulerHandle = object;
+
+export interface RuntimeSchedulerPort {
+  setInterval(handler: () => void, ms: number): RuntimeSchedulerHandle;
+  clearInterval(handle: RuntimeSchedulerHandle): void;
+}
+
+export interface RuntimeClockPort {
+  now(): Date;
+}
+
+export interface RuntimeRedispatchPort {
+  redispatch(cardId: string): void;
+}
 
 export const DEFAULT_TICK_INTERVAL_MS = 5000;
 
@@ -39,6 +64,49 @@ export interface RuntimeStateMachineDeps {
   redispatch: RuntimeRedispatchPort;
   projectCardId?: string;
   tickIntervalMs?: number;
+}
+
+export function createRuntimeStateMachine(input: {
+  projectRoot: string;
+  cards: CardStore;
+  errorLogger: ErrorLogger;
+  mutations: RuntimeStateMutationPort;
+  dispatchGoalThroughScheduler(goalId: string): void;
+}): RuntimeStateMachine {
+  const scheduler: RuntimeScheduler = {
+    setInterval: (handler, ms) => setInterval(handler, ms) as unknown as RuntimeSchedulerHandle,
+    clearInterval: (handle) => clearInterval(handle as unknown as NodeJS.Timeout),
+  };
+  const runtimeCards: RuntimeCardPort = {
+    readStatus: (cardId) => input.cards.read(cardId)?.status,
+    canTransition: (from, to) => input.cards.canTransition(from, to),
+    setStatus: (cardId, status) => {
+      input.cards.setStatus(cardId, status);
+    },
+  };
+  const runtimeState: RuntimeStatePort = {
+    read: () => readRuntimeState(input.projectRoot),
+    patch: (changes) => {
+      input.mutations.apply({ kind: 'patchRuntimeState', patch: changes });
+      const state = readRuntimeState(input.projectRoot);
+      if (!state) throw new Error('Runtime state missing after mutation patch.');
+      return state;
+    },
+  };
+  return new RuntimeStateMachine({
+    cards: runtimeCards,
+    state: runtimeState,
+    errors: input.errorLogger,
+    clock: { now: () => new Date() },
+    scheduler,
+    redispatch: {
+      redispatch: (cardId) => {
+        if (!cardHasBlockedPlanning(input.cards.read(cardId)))
+          input.dispatchGoalThroughScheduler(cardId);
+      },
+    },
+    projectCardId: PROJECT_CARD_ID,
+  });
 }
 
 export class RuntimeStateMachine {

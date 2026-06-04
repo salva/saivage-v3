@@ -1,5 +1,5 @@
 import { describe, expect, it, jest } from '@jest/globals';
-import { deliverChildGoalActivationHandoff } from '../../src/runtime/activation-handoff.js';
+import { deliverChildGoalActivationHandoff } from '../../src/runtime/pending-activation-dispatcher.js';
 
 describe('deliverChildGoalActivationHandoff', () => {
   it('dispatches the child goal and appends a successful parent result', async () => {

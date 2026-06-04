@@ -1,21 +1,20 @@
-import { EventEmitter } from 'node:events';
 import type {
   ActionableErrorEnvelope,
   RuntimeActivationRecord,
   RuntimeCommandRecord,
   RuntimeRunRecord,
 } from '../schemas/index.js';
-import { EventBus, trackedEventKindValues, type EventPayload } from '../events/index.js';
+import { EventBus, eventKindValues, trackedEventKindValues, type EventPayload } from '../events/index.js';
 import type { EventKind } from '../events/index.js';
 import type { EventLogger } from '../observability/index.js';
 import { buildCurrentAgentSessionPatch } from './runtime-core.js';
 import type { RuntimeStateMutationPort } from './mutations.js';
 
 const TRACKED_EVENT_KINDS: ReadonlySet<EventKind> = new Set(trackedEventKindValues);
+const EVENT_KINDS: ReadonlySet<EventKind> = new Set(eventKindValues);
 
 export class RuntimeEventPublisher {
   readonly eventBus = new EventBus();
-  private readonly eventEmitter = new EventEmitter();
 
   constructor(
     private readonly eventLogger: EventLogger,
@@ -23,19 +22,25 @@ export class RuntimeEventPublisher {
   ) {}
 
   on(eventName: string | symbol, listener: (...args: unknown[]) => void): void {
-    this.eventEmitter.on(eventName, listener);
+    if (typeof eventName !== 'string' || !EVENT_KINDS.has(eventName as EventKind)) {
+      void listener;
+      return;
+    }
+    this.eventBus.subscribe(eventName as EventKind, (event) => {
+      listener(event.payload);
+    });
   }
 
   emit(eventName: string, ...args: unknown[]): boolean {
-    const emitted = eventName === 'error' ? false : this.eventEmitter.emit(eventName, ...args);
     if (TRACKED_EVENT_KINDS.has(eventName as EventKind)) {
       const data =
         args[0] && typeof args[0] === 'object'
           ? (args[0] as Record<string, unknown>)
           : { raw: args[0] };
       this.eventBus.emit(eventName as EventKind, data as EventPayload<EventKind>);
+      return true;
     }
-    return emitted;
+    return false;
   }
 
   emitAgentEvent(name: string, data: Record<string, unknown>): void {
@@ -81,6 +86,5 @@ export class RuntimeEventPublisher {
   ): void {
     const logged = this.eventLogger.appendEvent({ kind, ...payload });
     this.eventBus.emit(logged);
-    this.eventEmitter.emit(kind, payload);
   }
 }

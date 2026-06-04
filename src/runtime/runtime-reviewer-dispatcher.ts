@@ -1,13 +1,11 @@
 import type { AgentExecutionPort, ReviewerResult } from '../contracts/index.js';
-import type { CardRecord, ReviewAssessment } from '../schemas/index.js';
-import type { ErrorLogger, EventLogger } from '../observability/index.js';
-import type { CardStore } from '../cards/store-api.js';
+import type { CardRecord, ProjectRunCompletedPayload, ReviewAssessment } from '../schemas/index.js';
 import { PROJECT_CARD_ID } from '../cards/store-api.js';
 import type { RuntimeSkillsPort } from './runtime-config.js';
-import type { RuntimeStateMachine } from './state-machine.js';
 import type { RuntimeGoalContextCoordinator } from './runtime-goal-context.js';
 import type { RuntimeRunLedger } from './runtime-run-ledger.js';
 import type { ActivationUnwindRunner } from './activation-unwind.js';
+import type { RuntimeServices } from './runtime-services.js';
 import { buildGoalEvidenceContext } from './context-builder.js';
 import { buildReviewerActiveRun, decideReviewerPhase } from './phases/reviewer-phase.js';
 import { ReviewerPhaseRunner } from './phases/reviewer-phase-runner.js';
@@ -18,21 +16,46 @@ import {
   reviewerSessionId as makeReviewerSessionId,
   validateReviewerAssessment,
 } from './reviewer-assessment.js';
-import { buildProjectRunCompletedPayload } from './project-run-completion.js';
 
-export interface RuntimeReviewerDispatcherDeps {
-  cards: CardStore;
+export function buildProjectRunCompletedPayload(
+  card: CardRecord,
+  assessment?: ReviewAssessment,
+): ProjectRunCompletedPayload {
+  const outcome = card.status === 'blocked' ? 'blocked' : card.status === 'failed' ? 'failed' : 'done';
+  const summary = assessment?.summary ?? card.status_text ?? card.error ?? `project ${outcome}`;
+  if (outcome === 'blocked') {
+    return {
+      project_card_id: card.id,
+      result: outcome,
+      summary,
+      blocked_reason: card.error ?? undefined,
+    };
+  }
+  if (outcome === 'failed') {
+    return {
+      project_card_id: card.id,
+      result: outcome,
+      summary,
+      failure_kind: card.error ?? undefined,
+    };
+  }
+  return { project_card_id: card.id, result: outcome, summary };
+}
+
+export interface RuntimeReviewerDispatcherDeps extends Pick<RuntimeServices,
+  | 'cards'
+  | 'eventLogger'
+  | 'errorLogger'
+  | 'stateMachine'
+  | 'emit'
+  | 'emitRuntimeDiagnostic'
+  | 'now'
+> {
   agentRuntime: AgentExecutionPort;
   skillsEngine(): RuntimeSkillsPort | null;
-  eventLogger: EventLogger;
-  errorLogger: ErrorLogger;
-  stateMachine: RuntimeStateMachine;
   goalContext: RuntimeGoalContextCoordinator;
   activationUnwind: ActivationUnwindRunner;
   runLedger: RuntimeRunLedger;
-  emit(eventName: string, data: Record<string, unknown>): void;
-  emitRuntimeDiagnostic(input: { goal_id?: string; card_id?: string; phase?: string; error: unknown }): void;
-  now(): string;
 }
 
 export class RuntimeReviewerDispatcher {

@@ -1,5 +1,5 @@
 import { describe, expect, it, jest } from '@jest/globals';
-import { buildParentPlannerActiveRun, findActivationCallerEdge, findUnresolvedActivateCardCalls, repairOrphanActivateCardToolCalls, selectChildGoalActivationOutcome, selectPendingActivationChildCardIds, selectTerminalActivationSynthesis } from '../../src/runtime/activation-unwind.js';
+import { buildParentPlannerActiveRun, completeChildActivationForParent, findActivationCallerEdge, findUnresolvedActivateCardCalls, repairOrphanActivateCardToolCalls, selectChildGoalActivationOutcome, selectPendingActivationChildCardIds, selectTerminalActivationSynthesis } from '../../src/runtime/activation-unwind.js';
 import { createActivationCompletionEnvelope } from '../../src/schemas/index.js';
 import { serializeToolCallMessage } from '../../src/agents/persisted-tool-call.js';
 import type { AgentMessage } from '../../src/schemas/types.js';
@@ -39,6 +39,54 @@ describe('activation unwind helpers', () => {
       cardPort: { getParent: () => null },
       sessionPort: { findPlannerSessionForCard: () => null, findUniqueUnresolvedActivateCardToolCall: () => null },
     })).toBeNull();
+  });
+
+  it('completes activation state before appending the parent tool result once', () => {
+    const calls: string[] = [];
+    completeChildActivationForParent({
+      childCardId: 'child-a',
+      outcome: 'done',
+      summary: 'child done',
+      effects: {
+        markActivationComplete: (childCardId, outcome) => calls.push(`complete:${childCardId}:${outcome}`),
+        findCallerEdge: (childCardId) => {
+          calls.push(`edge:${childCardId}`);
+          return { parentCardId: 'parent-a', callerSessionId: 'planner:parent-a', callerToolCallId: 'call-a' };
+        },
+        buildActivationOutcome: (childCardId, outcome, summary) => {
+          calls.push(`outcome:${childCardId}:${outcome}:${summary}`);
+          return 'payload';
+        },
+        appendParentToolResultOnce: (edge, content) => calls.push(`append:${edge.callerSessionId}:${edge.callerToolCallId}:${content}`),
+      },
+    });
+
+    expect(calls).toEqual([
+      'complete:child-a:done',
+      'edge:child-a',
+      'outcome:child-a:done:child done',
+      'append:planner:parent-a:call-a:payload',
+    ]);
+  });
+
+  it('still completes activation state when no parent caller edge is found', () => {
+    const calls: string[] = [];
+    completeChildActivationForParent({
+      childCardId: 'child-a',
+      outcome: 'failed',
+      summary: 'missing edge',
+      effects: {
+        markActivationComplete: (childCardId, outcome) => calls.push(`complete:${childCardId}:${outcome}`),
+        findCallerEdge: () => null,
+        buildActivationOutcome: () => {
+          calls.push('unexpected-build');
+          return 'payload';
+        },
+        appendParentToolResultOnce: () => calls.push('unexpected-append'),
+      },
+    });
+
+    expect(calls).toEqual(['complete:child-a:failed']);
   });
 
   it('finds unresolved activate_card tool calls', () => {

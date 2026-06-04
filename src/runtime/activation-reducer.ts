@@ -2,6 +2,14 @@ import type { ActivationCompletionOutcome, CardRecord, RuntimeState } from '../s
 import type { ExecutorResult, PlannerResult, ReviewerResult } from '../contracts/index.js';
 import type { RuntimeMutation } from './mutations.js';
 
+/**
+ * @internal
+ * @stage activation-state-machine
+ *
+ * Reducer model for activation snapshots. The production hot path has not made
+ * this reducer authoritative yet; RuntimeStateMachine owns card phase
+ * transitions and RuntimeStateMutationPort owns persisted activation completion.
+ */
 export type ActivationState =
   | { phase: 'planner'; cardId: string; plannerSessionId: string; correctionAttempts: number; cardType?: CardRecord['type']; activeRun?: NonNullable<RuntimeState['active_card_run']> }
   | { phase: 'executor'; cardId: string; goalId: string; executorSessionId: string; activeRun?: NonNullable<RuntimeState['active_card_run']> }

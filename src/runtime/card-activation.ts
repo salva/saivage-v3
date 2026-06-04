@@ -3,6 +3,15 @@ import { activeRunFromActivationState, activationStateFromActiveRun, reduceActiv
 
 export type ActiveCardRun = NonNullable<RuntimeState['active_card_run']>;
 
+/**
+ * @internal
+ * @stage activation-state-machine
+ *
+ * Snapshot helper around activation-reducer.ts. This is not the authoritative
+ * runtime transition engine; hot-path card transitions still go through
+ * RuntimeStateMachine and activation completion still goes through the runtime
+ * mutation port.
+ */
 export class CardActivation {
   private _state: ActivationState;
 

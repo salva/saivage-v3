@@ -1,30 +1,37 @@
 import type { RuntimeDisposeReportEntry } from './lifecycle.js';
 import type { RuntimeTestHooks } from './runtime-config.js';
 
-export class RuntimeDiagnostics {
-  private readonly backgroundDispatches = new Set<Promise<void>>();
-  private lastLifecycleDisposeReport: RuntimeDisposeReportEntry[] = [];
+export interface RuntimeDiagnostics {
+  publish(): void;
+  trackBackgroundDispatch(dispatch: Promise<void>): void;
+  setLastLifecycleDisposeReport(report: RuntimeDisposeReportEntry[]): void;
+}
 
-  constructor(private readonly diagnosticsSink: RuntimeTestHooks['diagnosticsSink']) {}
+export function createRuntimeDiagnostics(diagnosticsSink: RuntimeTestHooks['diagnosticsSink']): RuntimeDiagnostics {
+  const backgroundDispatches = new Set<Promise<void>>();
+  let lastLifecycleDisposeReport: RuntimeDisposeReportEntry[] = [];
 
-  publish(): void {
-    this.diagnosticsSink?.setBackgroundDispatchCount(this.backgroundDispatches.size);
-    this.diagnosticsSink?.setLastLifecycleDisposeReport([...this.lastLifecycleDisposeReport]);
+  function publish(): void {
+    diagnosticsSink?.setBackgroundDispatchCount(backgroundDispatches.size);
+    diagnosticsSink?.setLastLifecycleDisposeReport([...lastLifecycleDisposeReport]);
   }
 
-  trackBackgroundDispatch(dispatch: Promise<void>): void {
-    this.backgroundDispatches.add(dispatch);
-    this.publish();
+  return {
+    publish,
+    trackBackgroundDispatch(dispatch: Promise<void>): void {
+    backgroundDispatches.add(dispatch);
+    publish();
     dispatch
       .finally(() => {
-        this.backgroundDispatches.delete(dispatch);
-        this.publish();
+        backgroundDispatches.delete(dispatch);
+        publish();
       })
       .catch(() => undefined);
-  }
+    },
 
-  setLastLifecycleDisposeReport(report: RuntimeDisposeReportEntry[]): void {
-    this.lastLifecycleDisposeReport = report;
-    this.publish();
-  }
+    setLastLifecycleDisposeReport(report: RuntimeDisposeReportEntry[]): void {
+    lastLifecycleDisposeReport = report;
+    publish();
+    },
+  };
 }

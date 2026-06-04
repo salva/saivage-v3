@@ -1,4 +1,16 @@
 import type { CardRecord, RuntimeState } from '../schemas/index.js';
+import { CardActivation } from './card-activation.js';
+
+export interface StartupActivationSnapshot {
+  activation: CardActivation;
+  run: NonNullable<RuntimeState['active_card_run']>;
+}
+
+export function rehydrateStartupActivation(previousState: RuntimeState | null): StartupActivationSnapshot | null {
+  const run = previousState?.active_card_run ?? null;
+  const activation = CardActivation.fromActiveRun(run);
+  return activation && run ? { activation, run } : null;
+}
 
 export type StartupActiveRunRepairDecision =
   | { kind: 'repair_orphan_tool_calls'; state: RuntimeState | null }

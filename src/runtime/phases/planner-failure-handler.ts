@@ -1,8 +1,5 @@
-import type { CardStore } from '../../cards/store-api.js';
 import type { RuntimeRunRecord } from '../../schemas/index.js';
-import type { ErrorLogger, EventLogger } from '../../observability/index.js';
-import type { RuntimeStateMachine } from '../state-machine.js';
-import type { RuntimeStateMutationPort } from '../mutations.js';
+import type { RuntimeServices } from '../runtime-services.js';
 import { readRuntimeState } from '../state.js';
 import { isPlannerTerminalToolExhaustion } from '../startup-blocked-planning.js';
 import {
@@ -11,16 +8,17 @@ import {
   selectPlannerInvocationFailureRun,
 } from './planner-invocation-failure.js';
 
-export interface PlannerFailureHandlerDeps {
-  projectRoot: string;
-  cards: CardStore;
-  eventLogger: EventLogger;
-  errorLogger: ErrorLogger;
-  stateMachine: RuntimeStateMachine;
-  mutations: RuntimeStateMutationPort;
-  emitRuntimeDiagnostic(input: { goal_id?: string; card_id?: string; phase?: string; error: unknown }): void;
+export interface PlannerFailureHandlerDeps extends Pick<RuntimeServices,
+  | 'projectRoot'
+  | 'cards'
+  | 'eventLogger'
+  | 'errorLogger'
+  | 'stateMachine'
+  | 'mutations'
+  | 'emitRuntimeDiagnostic'
+  | 'now'
+> {
   publishRuntimeRun(run: RuntimeRunRecord): void;
-  now(): string;
 }
 
 export class PlannerFailureHandler {

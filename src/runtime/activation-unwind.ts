@@ -1,20 +1,10 @@
-import { join } from 'node:path';
 import type { AgentMessage, ActivationCompletionOutcome, CardRecord, ReviewAssessment } from '../schemas/index.js';
 import type { RuntimeState } from '../schemas/index.js';
 import { createActivationCompletionEnvelope, parseActivationCompletionEnvelope } from '../schemas/index.js';
 import { parseToolCallMessage } from '../contracts/persisted-tool-call.js';
-import {
-  appendActivateCardToolResultOnce,
-  findPlannerSessionForCard,
-  findUniqueUnresolvedActivateCardToolCall,
-  getSession,
-  getSessionMessages,
-  listSessions,
-} from './session-persistence.js';
 import type { SessionStamper } from '../contracts/session-stamper.js';
 import type { RuntimeStateMutationPort } from './mutations.js';
-
-type ActivationUnwindStamp = Parameters<typeof appendActivateCardToolResultOnce>[4];
+import type { RuntimeSessionPersistencePort } from './session-persistence-port.js';
 
 const TERMINAL_STATUSES: ReadonlySet<string> = new Set(['done', 'failed', 'cancelled']);
 
@@ -29,25 +19,7 @@ export interface ActivationUnwindCallerSessionPort {
   findUniqueUnresolvedActivateCardToolCall(sessionId: string, childCardId: string): { tool_call_id: string } | null | undefined;
 }
 
-export interface ActivationUnwindSessionPort extends ActivationUnwindCallerSessionPort {
-  appendActivateCardToolResultOnce(sessionId: string, toolCallId: string, content: string, stamp: ActivationUnwindStamp, stamper: SessionStamper): AgentMessage;
-  listSessions(): string[];
-  getSession(sessionId: string): { role?: string } | null;
-  getSessionMessages(sessionId: string): AgentMessage[];
-}
-
-export function createFileActivationUnwindSessionPort(projectRoot: string): ActivationUnwindSessionPort {
-  const saivageDir = join(projectRoot, '.saivage');
-  return {
-    findPlannerSessionForCard: (parentCardId) => findPlannerSessionForCard(saivageDir, parentCardId),
-    findUniqueUnresolvedActivateCardToolCall: (sessionId, childCardId) => findUniqueUnresolvedActivateCardToolCall(saivageDir, sessionId, childCardId),
-    appendActivateCardToolResultOnce: (sessionId, toolCallId, content, stamp, stamper) =>
-      appendActivateCardToolResultOnce(saivageDir, sessionId, toolCallId, content, stamp, stamper),
-    listSessions: () => listSessions(saivageDir),
-    getSession: (sessionId) => getSession(saivageDir, sessionId),
-    getSessionMessages: (sessionId) => getSessionMessages(saivageDir, sessionId),
-  };
-}
+export type ActivationUnwindSessionPort = RuntimeSessionPersistencePort;
 
 export interface ActivationUnwindCardPort {
   getParent(childCardId: string): string | null | undefined;
@@ -57,6 +29,28 @@ export interface ActivationCallerEdge {
   parentCardId: string;
   callerSessionId: string;
   callerToolCallId: string;
+}
+
+export interface ChildActivationCompletionEffectsPort {
+  markActivationComplete(childCardId: string, outcome: ActivationCompletionOutcome): void;
+  findCallerEdge(childCardId: string): ActivationCallerEdge | null;
+  buildActivationOutcome(childCardId: string, outcome: ActivationCompletionOutcome, summary: string): string;
+  appendParentToolResultOnce(edge: ActivationCallerEdge, content: string): void;
+}
+
+export function completeChildActivationForParent(input: {
+  childCardId: string;
+  outcome: ActivationCompletionOutcome;
+  summary: string;
+  effects: ChildActivationCompletionEffectsPort;
+}): void {
+  input.effects.markActivationComplete(input.childCardId, input.outcome);
+  const edge = input.effects.findCallerEdge(input.childCardId);
+  if (!edge) return;
+  input.effects.appendParentToolResultOnce(
+    edge,
+    input.effects.buildActivationOutcome(input.childCardId, input.outcome, input.summary),
+  );
 }
 
 export function findActivationCallerEdge(input: {
@@ -201,16 +195,26 @@ export class ActivationUnwindRunner {
     outcome: ActivationCompletionOutcome,
     summary: string,
   ): void {
-    this.markActivationComplete(childCardId, outcome);
-    const edge = this.findCallerEdge(childCardId);
-    if (!edge) return;
-    this.deps.sessionPort.appendActivateCardToolResultOnce(
-      edge.callerSessionId,
-      edge.callerToolCallId,
-      this.buildCardActivationOutcome(childCardId, outcome, summary),
-      this.deps.sessionStamper.stampDiagnosticInCurrentRound(edge.callerSessionId),
-      this.deps.sessionStamper,
-    );
+    completeChildActivationForParent({
+      childCardId,
+      outcome,
+      summary,
+      effects: {
+        markActivationComplete: (cardId, completionOutcome) => this.markActivationComplete(cardId, completionOutcome),
+        findCallerEdge: (cardId) => this.findCallerEdge(cardId),
+        buildActivationOutcome: (cardId, completionOutcome, completionSummary) =>
+          this.buildCardActivationOutcome(cardId, completionOutcome, completionSummary),
+        appendParentToolResultOnce: (edge, content) => {
+          this.deps.sessionPort.appendActivateCardToolResultOnce(
+            edge.callerSessionId,
+            edge.callerToolCallId,
+            content,
+            this.deps.sessionStamper.stampDiagnosticInCurrentRound(edge.callerSessionId),
+            this.deps.sessionStamper,
+          );
+        },
+      },
+    });
   }
 
   synthesizeTerminalActivationResult(

@@ -1,9 +1,6 @@
 import type { AgentExecutionPort } from '../contracts/index.js';
 import type { CardRecord } from '../schemas/index.js';
-import type { ErrorLogger, EventLogger } from '../observability/index.js';
-import type { CardStore } from '../cards/store-api.js';
 import type { RuntimeSkillsPort } from './runtime-config.js';
-import type { RuntimeStateMachine } from './state-machine.js';
 import type { ActivationCallerEdge, ActivationUnwindRunner } from './activation-unwind.js';
 import {
   buildExecutorActiveRunPatch,
@@ -21,21 +18,22 @@ import { handleExecutorInvocationFailure } from './phases/executor-invocation-fa
 import { handleExecutorCompletion } from './phases/executor-completion-handler.js';
 import { buildCardContextBlock } from './context-builder.js';
 import { readRuntimeState } from './state.js';
-import type { RuntimeStateMutationPort } from './mutations.js';
+import type { RuntimeServices } from './runtime-services.js';
 
-export interface ExecutorActivationDispatcherDeps {
-  projectRoot: string;
-  cards: CardStore;
+export interface ExecutorActivationDispatcherDeps extends Pick<RuntimeServices,
+  | 'projectRoot'
+  | 'cards'
+  | 'eventLogger'
+  | 'errorLogger'
+  | 'stateMachine'
+  | 'mutations'
+  | 'emit'
+  | 'emitRuntimeDiagnostic'
+  | 'now'
+> {
   agentRuntime: AgentExecutionPort;
   skillsEngine: RuntimeSkillsPort | null;
-  stateMachine: RuntimeStateMachine;
   activationUnwind: ActivationUnwindRunner;
-  mutations: RuntimeStateMutationPort;
-  eventLogger: EventLogger;
-  errorLogger: ErrorLogger;
-  emit(eventName: string, data: Record<string, unknown>): void;
-  emitRuntimeDiagnostic(input: { goal_id?: string; card_id?: string; phase?: string; error: unknown }): void;
-  now(): string;
 }
 
 export class ExecutorActivationDispatcher {

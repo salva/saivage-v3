@@ -11,7 +11,7 @@ import type { RuntimeStateMachine } from './state-machine.js';
 import { readRuntimeState } from './state.js';
 import type { RuntimeDiagnostics } from './runtime-diagnostics.js';
 import type { RuntimeStateMutationPort } from './mutations.js';
-import type { RuntimeLifecycleState } from './runtime-lifecycle-state.js';
+import type { LifecycleFlags } from './runtime-lifecycle-state.js';
 
 function saivageWorkDir(projectRoot: string): string {
   return join(projectRoot, '.saivage-work');
@@ -40,7 +40,7 @@ export async function performRuntimeShutdown(input: {
   errorLogger: ErrorLogger;
   ownsEventLogger: boolean;
   ownsErrorLogger: boolean;
-  lifecycle: RuntimeLifecycleState;
+  lifecycle: LifecycleFlags;
   emitShutdown(): void;
 }): Promise<void> {
   if (input.lifecycle.dispatchInFlight.size > 0) {
@@ -50,7 +50,7 @@ export async function performRuntimeShutdown(input: {
       ),
     );
   }
-  if (!input.lifecycle.isRunning()) return;
+  if (!input.lifecycle.running) return;
   input.supervisor.stop();
   input.stateMachine.stop();
   if ((readRuntimeState(input.projectRoot)?.status ?? 'idle') === 'frozen') {
@@ -64,16 +64,16 @@ export async function performRuntimeShutdown(input: {
     } catch {
       void 0;
     }
-    input.lifecycle.setRunning(false);
-    input.lifecycle.setShuttingDown(false);
+    input.lifecycle.running = false;
+    input.lifecycle.shuttingDown = false;
     input.emitShutdown();
     input.eventLogger.appendEvent({ kind: 'shutdown' });
     if (input.ownsEventLogger) input.eventLogger.close();
     if (input.ownsErrorLogger) input.errorLogger.close();
     return;
   }
-  input.lifecycle.setShuttingDown(true);
-  input.lifecycle.setRunning(false);
+  input.lifecycle.shuttingDown = true;
+  input.lifecycle.running = false;
   try {
     const disposeReport = await disposeProcessRuntimeScope(input.projectRoot);
     input.diagnostics.setLastLifecycleDisposeReport(disposeReport);

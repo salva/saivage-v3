@@ -6,19 +6,20 @@ import { ErrorLogger } from '../observability/index.js';
 import {
   StuckAgentSupervisor,
 } from '../runtime/stuck-agent-supervisor.js';
-import { ActivationUnwindRunner, createFileActivationUnwindSessionPort } from './activation-unwind.js';
+import { ActivationUnwindRunner } from './activation-unwind.js';
 import { SessionStampCounter, type SessionStamper } from '../contracts/session-stamper.js';
 import type { RuntimeCompositionHooks, RuntimeConfig, RuntimeSkillsPort, RuntimeTestHooks } from './runtime-config.js';
-import { RuntimeGoalContextCoordinator } from './runtime-goal-context.js';
-import { RuntimeRunLedger } from './runtime-run-ledger.js';
-import { createRuntimeSupervisor } from './supervisor-factory.js';
+import { createRuntimeGoalContextCoordinator, type RuntimeGoalContextCoordinator } from './runtime-goal-context.js';
+import { createRuntimeRunLedger, type RuntimeRunLedger } from './runtime-run-ledger.js';
+import { createRuntimeSupervisor } from './stuck-agent-supervisor.js';
 import { RuntimeEventPublisher } from './runtime-event-publisher.js';
-import { RuntimeDiagnostics } from './runtime-diagnostics.js';
+import { createRuntimeDiagnostics, type RuntimeDiagnostics } from './runtime-diagnostics.js';
 import { createConfiguredAgentRuntime } from './agent-runtime-factory.js';
 import { createRuntimeStateMutationPort, type RuntimeStateMutationPort } from './mutations.js';
-import { RuntimeLifecycleController } from './runtime-lifecycle-controller.js';
-import { RuntimeLifecycleState } from './runtime-lifecycle-state.js';
+import { createRuntimeLifecycleController, type RuntimeLifecycleController } from './runtime-lifecycle-controller.js';
+import { createLifecycleFlags } from './runtime-lifecycle-state.js';
 import { createRuntimeDispatchCollaborators, type RuntimeDispatchCollaborators } from './runtime-dispatch-composition.js';
+import { createFileRuntimeSessionPersistencePort } from './session-persistence-port.js';
 
 function now(): string {
   return new Date().toISOString();
@@ -50,10 +51,10 @@ class Runtime {
   private _projectCommands!: RuntimeDispatchCollaborators['projectCommands'];
   private _pauseResume!: RuntimeDispatchCollaborators['pauseResume'];
   private readonly _runLedger: RuntimeRunLedger;
-  private _activationScheduler!: RuntimeDispatchCollaborators['activationScheduler'];
+  private _plannerDispatcher!: RuntimeDispatchCollaborators['plannerDispatcher'];
   private readonly _mutations: RuntimeStateMutationPort;
   private readonly _sessionStamper: SessionStamper;
-  private readonly lifecycle = new RuntimeLifecycleState();
+  private readonly lifecycle = createLifecycleFlags();
   private _lifecycleController!: RuntimeLifecycleController;
 
   constructor(
@@ -63,7 +64,7 @@ class Runtime {
     testHooks: RuntimeTestHooks = {},
   ) {
     this.projectRoot = config.projectRoot;
-    this._diagnostics = new RuntimeDiagnostics(testHooks.diagnosticsSink);
+    this._diagnostics = createRuntimeDiagnostics(testHooks.diagnosticsSink);
     this._mutations = createRuntimeStateMutationPort(this.projectRoot);
     if (config.eventLogger) {
       this._eventLogger = config.eventLogger;
@@ -89,17 +90,17 @@ class Runtime {
     this._sessionStamper = config.sessionStamper ?? new SessionStampCounter();
     this._activationUnwind = new ActivationUnwindRunner({
       cards: this.cardStore,
-      sessionPort: createFileActivationUnwindSessionPort(this.projectRoot),
+      sessionPort: createFileRuntimeSessionPersistencePort(this.projectRoot),
       sessionStamper: this._sessionStamper,
       mutations: this._mutations,
       now,
     });
-    this._goalContext = new RuntimeGoalContextCoordinator({
+    this._goalContext = createRuntimeGoalContextCoordinator({
       projectRoot: this.projectRoot,
       cards: this.cardStore,
       sessionStamper: this._sessionStamper,
     });
-    this._runLedger = new RuntimeRunLedger({
+    this._runLedger = createRuntimeRunLedger({
       projectRoot: this.projectRoot,
       now,
       mutations: this._mutations,
@@ -138,11 +139,11 @@ class Runtime {
       runLedger: this._runLedger,
       now,
     });
-    this._activationScheduler = dispatchCollaborators.activationScheduler;
+    this._plannerDispatcher = dispatchCollaborators.plannerDispatcher;
     this._stateMachine = dispatchCollaborators.stateMachine;
     this._projectCommands = dispatchCollaborators.projectCommands;
     this._pauseResume = dispatchCollaborators.pauseResume;
-    this._lifecycleController = new RuntimeLifecycleController({
+    this._lifecycleController = createRuntimeLifecycleController({
       projectRoot: this.projectRoot,
       cards: this.cardStore,
       agentRuntime: this.agentRuntime,
@@ -159,7 +160,7 @@ class Runtime {
       mutations: this._mutations,
       lifecycle: this.lifecycle,
       activationUnwind: this._activationUnwind,
-      activationScheduler: this._activationScheduler,
+      plannerDispatcher: this._plannerDispatcher,
     });
     hooks.corePartsSink?.setRuntimeCoreParts({
       subscribe: (options) => this._events.eventBus.subscribe(options),
@@ -174,7 +175,7 @@ class Runtime {
       eventLogger: this._eventLogger,
       supervisor: this._supervisor,
     });
-    testHooks.schedulerSink?.setDispatchGoal((goalId) => this._activationScheduler.dispatch(goalId));
+    testHooks.schedulerSink?.setDispatchGoal((goalId) => this._plannerDispatcher.dispatchGoal(goalId));
     testHooks.eventListenerSink?.setRuntimeEventListener((eventName, listener) => {
       this._events.on(eventName, listener);
     });

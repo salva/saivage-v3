@@ -5,6 +5,7 @@ import { cardHasBlockedPlanning } from './planning-blockers.js';
 import {
   decideStartupActiveRunRepair,
   executeStartupActiveRunRepairDecision,
+  rehydrateStartupActivation,
 } from './startup-repair.js';
 import type { RuntimeStateMachine } from './state-machine.js';
 import type { RuntimeRunLedger } from './runtime-run-ledger.js';
@@ -37,7 +38,7 @@ export class ActivationRepairRunner {
   ) {}
 
   repairStartupActiveCardRun(previousState: RuntimeState | null): Promise<RuntimeState | null> {
-    const run = previousState?.active_card_run ?? null;
+    const run = rehydrateStartupActivation(previousState)?.run ?? null;
     const card = run ? this.deps.cards.read(run.card_id) : null;
     const persistedReview =
       card?.result && typeof card.result === 'object'

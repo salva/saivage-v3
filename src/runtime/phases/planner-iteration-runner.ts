@@ -1,13 +1,11 @@
 import type { AgentExecutionPort, PlannerResult } from '../../contracts/index.js';
-import type { CardStore } from '../../cards/store-api.js';
 import { PROJECT_CARD_ID } from '../../cards/store-api.js';
 import type { RuntimeSkillsPort } from '../runtime-config.js';
 import type { RuntimeGoalContextCoordinator } from '../runtime-goal-context.js';
 import type { PendingActivationDispatcher } from '../pending-activation-dispatcher.js';
 import type { RuntimeRunLedger } from '../runtime-run-ledger.js';
-import type { RuntimeStateMachine } from '../state-machine.js';
-import type { RuntimeStateMutationPort } from '../mutations.js';
-import type { RuntimeLifecycleState } from '../runtime-lifecycle-state.js';
+import type { RuntimeServices } from '../runtime-services.js';
+import { consumeResumeHandoffContext } from '../runtime-lifecycle-state.js';
 import { buildGoalEvidenceContext } from '../context-builder.js';
 import { buildCurrentAgentSessionPatch } from '../runtime-core.js';
 import { decidePlannerPostDispatch, summarizePlannerPostDispatch } from './planner-phase.js';
@@ -22,16 +20,17 @@ export type PlannerIterationResult =
   | { kind: 'paused' }
   | { kind: 'shutdown' };
 
-export interface PlannerIterationRunnerDeps {
-  cards: CardStore;
+export interface PlannerIterationRunnerDeps extends Pick<RuntimeServices,
+  | 'cards'
+  | 'stateMachine'
+  | 'mutations'
+  | 'lifecycle'
+> {
   agentRuntime: AgentExecutionPort;
   skillsEngine(): RuntimeSkillsPort | null;
-  stateMachine: RuntimeStateMachine;
   goalContext: RuntimeGoalContextCoordinator;
   pendingActivations: PendingActivationDispatcher;
-  mutations: RuntimeStateMutationPort;
   runLedger: RuntimeRunLedger;
-  lifecycle: RuntimeLifecycleState;
   handlePlannerFailure(error: unknown): Promise<{ kind: 'handled' } | { kind: 'rethrow'; error: unknown }>;
 }
 
@@ -50,7 +49,7 @@ export class PlannerIterationRunner {
         buildGoalEvidenceContext: (cardId) => buildGoalEvidenceContext({ goalId: cardId, cards: this.deps.cards }),
         buildGoalContextBlock: (cardId, resumeReason) => this.deps.goalContext.buildGoalContextBlock(cardId, resumeReason),
         inferResumeReason: (cardId, fallback) => this.deps.goalContext.inferResumeReason(cardId, fallback),
-        consumeResumeHandoffContext: () => this.deps.lifecycle.consumeResumeHandoffContext(),
+        consumeResumeHandoffContext: () => consumeResumeHandoffContext(this.deps.lifecycle),
         injectSyntheticPlannerNotes: (cardId) => {
           this.deps.goalContext.injectQueuedPlannerNotes(`planner:${cardId}`);
         },
@@ -67,8 +66,8 @@ export class PlannerIterationRunner {
     }).apply(goalId, plannerResult);
     this.deps.mutations.apply({ kind: 'patchRuntimeState', patch: buildCurrentAgentSessionPatch(`planner:${goalId}`) });
     const execution = await this.deps.pendingActivations.dispatch(goalId);
-    if (this.deps.lifecycle.isShuttingDown()) return { kind: 'shutdown' };
-    if (this.deps.lifecycle.isPaused()) return { kind: 'paused' };
+    if (this.deps.lifecycle.shuttingDown) return { kind: 'shutdown' };
+    if (this.deps.lifecycle.paused) return { kind: 'paused' };
 
     const postDispatchSummary = summarizePlannerPostDispatch({ plannerResult, childCards: this.deps.cards.list(), goalId });
     const postDispatchDecision = decidePlannerPostDispatch({

@@ -1,1 +1,1 @@
-export * from '../runtime/default-agent-execution.js';
+export { createDefaultAgentExecution } from '../runtime/agent-runtime-factory.js';

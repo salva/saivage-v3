@@ -1,48 +1,62 @@
 import type { AgentExecutionPort } from '../contracts/index.js';
-import type { ErrorLogger, EventLogger } from '../observability/index.js';
-import type { CardStore } from '../cards/store-api.js';
 import type { SessionStamper } from '../contracts/session-stamper.js';
-import type { RuntimeSkillsPort } from './runtime-config.js';
-import type { RuntimeStateMachine } from './state-machine.js';
+import type { RuntimeConfig, RuntimeSkillsPort } from './runtime-config.js';
 import type { RuntimeGoalContextCoordinator } from './runtime-goal-context.js';
 import type { RuntimeRunLedger } from './runtime-run-ledger.js';
 import type { PendingActivationDispatcher } from './pending-activation-dispatcher.js';
 import type { RuntimeReviewerDispatcher } from './runtime-reviewer-dispatcher.js';
 import { buildDispatchPausedRuntimeStatePatch } from './runtime-core.js';
-import type { RuntimeStateMutationPort } from './mutations.js';
-import type { RuntimeLifecycleState } from './runtime-lifecycle-state.js';
+import type { RuntimeServices } from './runtime-services.js';
 import { PlannerActivationRunner } from './phases/planner-activation-runner.js';
 import { PlannerIterationRunner } from './phases/planner-iteration-runner.js';
 import { PlannerFailureHandler } from './phases/planner-failure-handler.js';
 
 const MAX_PLANNER_ITERATIONS = 50;
 
-export interface RuntimePlannerDispatcherDeps {
-  projectRoot: string;
-  cards: CardStore;
+export interface RuntimePlannerDispatcherDeps extends Pick<RuntimeServices,
+  | 'projectRoot'
+  | 'cards'
+  | 'eventLogger'
+  | 'errorLogger'
+  | 'stateMachine'
+  | 'mutations'
+  | 'lifecycle'
+  | 'emit'
+  | 'emitRuntimeDiagnostic'
+  | 'now'
+> {
   agentRuntime: AgentExecutionPort;
   skillsEngine(): RuntimeSkillsPort | null;
-  eventLogger: EventLogger;
-  errorLogger: ErrorLogger;
-  stateMachine: RuntimeStateMachine;
   goalContext: RuntimeGoalContextCoordinator;
   pendingActivations: PendingActivationDispatcher;
   reviewerDispatcher: RuntimeReviewerDispatcher;
-  mutations: RuntimeStateMutationPort;
   runLedger: RuntimeRunLedger;
   sessionStamper: SessionStamper;
-  lifecycle: RuntimeLifecycleState;
-  emit(eventName: string, data: Record<string, unknown>): void;
-  emitRuntimeDiagnostic(input: { goal_id?: string; card_id?: string; phase?: string; error: unknown }): void;
+  goalDispatcher: RuntimeConfig['goalDispatcher'];
   plannerFailureHandler: PlannerFailureHandler;
-  now(): string;
 }
 
 export class RuntimePlannerDispatcher {
   constructor(private readonly deps: RuntimePlannerDispatcherDeps) {}
 
   async dispatchGoal(goalId: string): Promise<void> {
-    if (this.deps.lifecycle.isPaused()) {
+    return this.deps.goalDispatcher
+      ? this.deps.goalDispatcher(goalId, (nextGoalId) => this.dispatchGoalInternal(nextGoalId))
+      : this.dispatchGoalInternal(goalId);
+  }
+
+  private async dispatchGoalInternal(goalId: string): Promise<void> {
+    if (this.deps.lifecycle.dispatchInFlight.has(goalId)) return;
+    this.deps.lifecycle.dispatchInFlight.add(goalId);
+    try {
+      await this.runPlannerLoop(goalId);
+    } finally {
+      this.deps.lifecycle.dispatchInFlight.delete(goalId);
+    }
+  }
+
+  private async runPlannerLoop(goalId: string): Promise<void> {
+    if (this.deps.lifecycle.paused) {
       this.emitDispatchBlocked(goalId);
       return;
     }
@@ -61,8 +75,8 @@ export class RuntimePlannerDispatcher {
       return;
     }
     let plannerDone = false;
-    for (let iter = 0; iter < MAX_PLANNER_ITERATIONS && !plannerDone && !this.deps.lifecycle.isShuttingDown(); iter++) {
-      if (this.deps.lifecycle.isPaused()) {
+    for (let iter = 0; iter < MAX_PLANNER_ITERATIONS && !plannerDone && !this.deps.lifecycle.shuttingDown; iter++) {
+      if (this.deps.lifecycle.paused) {
         this.emitDispatchBlocked(goalId);
         this.deps.mutations.apply({ kind: 'patchRuntimeState', patch: buildDispatchPausedRuntimeStatePatch() });
         return;
@@ -81,7 +95,7 @@ export class RuntimePlannerDispatcher {
         plannerDone = false;
       }
     }
-    if (this.deps.lifecycle.isShuttingDown()) {
+    if (this.deps.lifecycle.shuttingDown) {
       this.deps.emit('dispatch_interrupted', { goal_id: goalId, reason: 'shutdown' });
       this.deps.eventLogger.appendEvent({
         kind: 'dispatch_interrupted',
