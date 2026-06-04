@@ -6,6 +6,7 @@ import type { CardRecord } from '../../src/schemas/index.js';
 import {
   commitExecutorParkedVerification,
   commitExecutorSuccess,
+  commitPlannerBlocked,
   commitPlannerDone,
   commitReviewerPass,
   validateEvidenceCompleteness,
@@ -187,6 +188,30 @@ describe('terminal commit functions', () => {
       effects: fx,
     });
     expect(receipt.lifecycle.result).toEqual({ kind: 'planner_done', created_cards: ['child-a'], updated_cards: [], summary: 'doc planning done' });
+  });
+
+  it('commits planner blocked and can preserve legacy nested planning metadata', async () => {
+    const fx = effects();
+    const planning = { status: 'blocked', blocked_reason: 'token budget', resume_reason: 'planner_context_length_exceeded', failure_kind: 'token_budget_exceeded', created_cards: [], updated_cards: [] };
+    const receipt = await commitPlannerBlocked({
+      card: card({ id: 'goal-a', type: 'goal', result: { existing: true } }),
+      blockedReason: 'token budget',
+      resumeReason: 'planner_context_length_exceeded',
+      createdCards: [],
+      updatedCards: [],
+      preservedResult: { existing: true },
+      planning,
+      effects: fx,
+    });
+
+    expect(receipt.result).toEqual({ kind: 'planner_blocked', blocked_reason: 'token budget', resume_reason: 'planner_context_length_exceeded', created_cards: [], updated_cards: [] });
+    expect(receipt.patch).toEqual(expect.objectContaining({
+      status: 'blocked',
+      error: 'token budget',
+      completed_at: null,
+      result: { existing: true, planning },
+    }));
+    expect(fx.transitions[0]).toEqual(expect.objectContaining({ event: 'block' }));
   });
 
   it('rejects executor success when generated files are missing or unsafe', async () => {

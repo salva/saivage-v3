@@ -12,6 +12,7 @@ import { decidePlannerPostDispatch, summarizePlannerPostDispatch } from './plann
 import { handlePlannerPostDispatchDecision } from './planner-post-dispatch-handler.js';
 import { PlannerPhaseRunner } from './planner-phase-runner.js';
 import { PlannerResultApplier } from './planner-result-applier.js';
+import { commitPlannerBlocked } from '../terminal-commit/index.js';
 
 export type PlannerIterationResult =
   | { kind: 'continue'; plannerDone: boolean }
@@ -25,6 +26,7 @@ export interface PlannerIterationRunnerDeps extends Pick<RuntimeServices,
   | 'stateMachine'
   | 'mutations'
   | 'lifecycle'
+  | 'now'
 > {
   agentRuntime: AgentExecutionPort;
   skillsEngine(): RuntimeSkillsPort | null;
@@ -62,7 +64,9 @@ export class PlannerIterationRunner {
 
     await new PlannerResultApplier({
       cardStore: this.deps.cards,
+      now: this.deps.now,
       transitionCard: (cardId, action, details) => this.deps.stateMachine.transitionCard(cardId, action, details),
+      updateCard: (cardId, patch) => this.deps.cards.update(cardId, patch),
     }).apply(goalId, plannerResult);
     this.deps.mutations.apply({ kind: 'patchRuntimeState', patch: buildCurrentAgentSessionPatch(`planner:${goalId}`) });
     const execution = await this.deps.pendingActivations.dispatch(goalId);
@@ -99,16 +103,19 @@ export class PlannerIterationRunner {
     planning: Record<string, unknown>;
     terminalReason: string;
   }): Promise<void> {
-    await this.deps.stateMachine.transitionCard(input.goalId, 'block', {
-      blocked_reason: input.blockedReason,
-    });
-    await this.deps.cards.update(input.goalId, {
-      status: 'blocked',
-      error: input.blockedReason,
-      status_text: input.blockedReason,
-      result: {
-        ...(this.deps.cards.read(input.goalId)?.result ?? {}),
-        planning: input.planning,
+    const card = this.deps.cards.read(input.goalId);
+    if (!card) throw new Error(`Cannot block missing planner goal '${input.goalId}'.`);
+    await commitPlannerBlocked({
+      card,
+      blockedReason: input.blockedReason,
+      resumeReason: input.terminalReason,
+      createdCards: Array.isArray(input.planning.created_cards) ? input.planning.created_cards.filter((id): id is string => typeof id === 'string') : [],
+      updatedCards: Array.isArray(input.planning.updated_cards) ? input.planning.updated_cards.filter((id): id is string => typeof id === 'string') : [],
+      preservedResult: card.result,
+      planning: input.planning,
+      effects: {
+        transitionCard: (cardId, event, details) => this.deps.stateMachine.transitionCard(cardId, event as 'block', details),
+        updateCard: (cardId, patch) => this.deps.cards.update(cardId, patch),
       },
     });
     this.deps.runLedger.finishOpenPlannerRun(input.goalId, 'blocked');

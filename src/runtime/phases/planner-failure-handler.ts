@@ -32,7 +32,7 @@ export class PlannerFailureHandler {
       error,
       failureKind: failure.failureKind,
       providerStatus: failure.providerStatus,
-      existingResult: this.deps.cards.read(goalId)?.result,
+      currentCard: this.deps.cards.read(goalId),
       failedRun,
       effects: {
         now: this.deps.now,

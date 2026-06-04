@@ -1,6 +1,7 @@
 import type { CardRecord, RuntimeRunRecord, RuntimeState } from '../../schemas/index.js';
 import { unwrapFailure, type LlmTransportFailure } from '../../contracts/llm-failure.js';
 import { buildPlannerInvocationFailureBlocker } from './planner-phase.js';
+import { commitPlannerBlocked } from '../terminal-commit/index.js';
 
 export type PlannerInvocationFailureKind = 'token_budget' | 'terminal_tool' | 'generic';
 
@@ -60,7 +61,7 @@ export async function handlePlannerInvocationFailure(input: {
   error: unknown;
   failureKind: PlannerInvocationFailureKind;
   providerStatus: number | null;
-  existingResult: CardRecord['result'] | undefined;
+  currentCard: CardRecord | null | undefined;
   failedRun: RuntimeRunRecord | null | undefined;
   effects: PlannerInvocationFailureEffects;
 }): Promise<{ kind: 'handled' } | { kind: 'rethrow'; error: unknown }> {
@@ -70,20 +71,22 @@ export async function handlePlannerInvocationFailure(input: {
   input.effects.appendError({ message: errorMessage, goalId: input.goalId, phase: 'planner' });
 
   if (input.failureKind === 'token_budget' || input.failureKind === 'terminal_tool') {
+    if (!input.currentCard) throw new Error(`Cannot block missing planner goal '${input.goalId}'.`);
     const plannerFailureBlocker = buildPlannerInvocationFailureBlocker({
       tokenBudgetFailure: input.failureKind === 'token_budget',
       providerStatus: input.providerStatus,
     });
-    await input.effects.transitionCard(input.goalId, 'block', {
-      blocked_reason: plannerFailureBlocker.blockedReason,
-    });
-    await input.effects.updateCard(input.goalId, {
-      status: 'blocked',
-      error: plannerFailureBlocker.blockedReason,
-      status_text: plannerFailureBlocker.blockedReason,
-      result: {
-        ...(input.existingResult ?? {}),
-        planning: plannerFailureBlocker.planning,
+    await commitPlannerBlocked({
+      card: input.currentCard,
+      blockedReason: plannerFailureBlocker.blockedReason,
+      resumeReason: plannerFailureBlocker.resumeReason,
+      createdCards: [],
+      updatedCards: [],
+      preservedResult: input.currentCard.result,
+      planning: plannerFailureBlocker.planning,
+      effects: {
+        transitionCard: (cardId, event, details) => input.effects.transitionCard(cardId, event as 'block', details),
+        updateCard: (cardId, patch) => input.effects.updateCard(cardId, patch),
       },
     });
     if (input.failedRun) {

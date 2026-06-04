@@ -29,6 +29,8 @@ export async function commitPlannerBlocked(input: {
   resumeReason: string;
   createdCards: string[];
   updatedCards: string[];
+  preservedResult?: CardRecord['result'];
+  planning?: Record<string, unknown>;
   effects: TerminalCommitEffects;
 }): Promise<TerminalCommitReceipt<Extract<CardLifecycleState, { status: 'blocked' }>, PlannerBlockedResult>> {
   if (!input.blockedReason.trim()) throw new Error('Cannot commit planner blocked without a non-empty blocked reason.');
@@ -37,7 +39,10 @@ export async function commitPlannerBlocked(input: {
   const lifecycle = { status: 'blocked', result, error: input.blockedReason, completed_at: null } satisfies Extract<CardLifecycleState, { status: 'blocked' }>;
   assertNoTerminalOverlayErrors(input.card, lifecycle);
   const transitioned = await input.effects.transitionCard(input.card.id, 'block', { blocked_reason: input.blockedReason });
-  const patch = { ...lifecyclePatch(lifecycle), status_text: input.blockedReason };
+  const patchResult = input.planning
+    ? { ...(input.preservedResult && typeof input.preservedResult === 'object' ? input.preservedResult : {}), planning: input.planning }
+    : lifecycle.result;
+  const patch = { ...lifecyclePatch(lifecycle), result: patchResult as CardRecord['result'], status_text: input.blockedReason };
   await input.effects.updateCard(input.card.id, patch);
   return { lifecycle, result, patch, transitioned: transitioned !== false };
 }

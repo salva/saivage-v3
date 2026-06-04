@@ -1,6 +1,6 @@
 import { describe, expect, it } from '@jest/globals';
 import { handlePlannerInvocationFailure, selectPlannerInvocationFailureRun, type PlannerInvocationFailureEffects } from '../../src/runtime/phases/planner-invocation-failure.js';
-import type { RuntimeRunRecord, RuntimeState } from '../../src/schemas/types.js';
+import type { CardRecord, RuntimeRunRecord, RuntimeState } from '../../src/schemas/types.js';
 
 const failedRun = { run_id: 'run-a' } as RuntimeRunRecord;
 
@@ -32,7 +32,7 @@ describe('planner invocation failure handler', () => {
       error: new Error('context length exceeded'),
       failureKind: 'token_budget',
       providerStatus: 400,
-      existingResult: { existing: true },
+      currentCard: baseCard({ id: 'goal-a', type: 'goal', result: { existing: true } }),
       failedRun,
       effects,
     });
@@ -50,7 +50,7 @@ describe('planner invocation failure handler', () => {
       error,
       failureKind: 'generic',
       providerStatus: null,
-      existingResult: undefined,
+      currentCard: baseCard({ id: 'goal-a', type: 'goal' }),
       failedRun,
       effects: testEffects({
         transitionCard: async (cardId, event) => { calls.push(`${event}:${cardId}`); },
@@ -76,5 +76,33 @@ function testEffects(overrides: Partial<PlannerInvocationFailureEffects> = {}): 
     publishRuntimeRun: () => undefined,
     transitionRuntime: async () => undefined,
     ...overrides,
+  };
+}
+
+function baseCard(overrides: Partial<CardRecord> = {}): CardRecord {
+  return {
+    id: overrides.id ?? 'card-a',
+    type: overrides.type ?? 'goal',
+    parent: overrides.parent ?? 'project',
+    depth: overrides.depth ?? 1,
+    position: overrides.position ?? 0,
+    title: overrides.title ?? 'Card',
+    description: overrides.description ?? '',
+    status: overrides.status ?? 'running',
+    tags: overrides.tags ?? [],
+    priority: overrides.priority ?? 0,
+    urgency: overrides.urgency ?? 'normal',
+    created_by: overrides.created_by ?? 'planner',
+    created_at: overrides.created_at ?? '2026-01-01T00:00:00.000Z',
+    updated_at: overrides.updated_at ?? '2026-01-01T00:00:00.000Z',
+    version_seq: overrides.version_seq ?? 1,
+    depends_on: overrides.depends_on ?? [],
+    blocks: overrides.blocks ?? [],
+    related: overrides.related ?? [],
+    acceptance: overrides.acceptance ?? '',
+    result: overrides.result ?? null,
+    artifacts: overrides.artifacts ?? [],
+    attachments: overrides.attachments ?? [],
+    retries: overrides.retries ?? 0,
   };
 }

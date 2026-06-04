@@ -1,6 +1,7 @@
 import type { PlannerResult } from '../../contracts/index.js';
 import type { CardRecord, CardStatus } from '../../schemas/index.js';
 import type { CardMutationContext } from '../../cards/store-api.js';
+import { commitPlannerDone } from '../terminal-commit/index.js';
 
 export interface PlannerResultCardStore {
   read(cardId: string): CardRecord | null | undefined;
@@ -10,7 +11,9 @@ export interface PlannerResultCardStore {
 
 export interface PlannerResultApplierDeps {
   cardStore: PlannerResultCardStore;
-  transitionCard(cardId: string, action: 'planner_set_status', input: { requestedStatus: CardStatus }): Promise<unknown>;
+  now(): string;
+  transitionCard(cardId: string, action: 'planner_set_status' | 'complete', input: Record<string, unknown>): Promise<unknown>;
+  updateCard(cardId: string, patch: Partial<CardRecord>): Promise<unknown> | unknown;
 }
 
 export class PlannerResultApplier {
@@ -56,9 +59,24 @@ export class PlannerResultApplier {
           });
         }
         if (update.status !== undefined) {
-          await this.deps.transitionCard(update.id, 'planner_set_status', {
-            requestedStatus: update.status as CardStatus,
-          });
+          const targetCard = this.deps.cardStore.read(update.id);
+          if (update.status === 'done' && targetCard && targetCard.type !== 'project' && targetCard.type !== 'goal') {
+            await commitPlannerDone({
+              card: targetCard,
+              createdCards: (plannerResult.created_cards ?? []).map((card) => card.id).filter((id): id is string => Boolean(id)),
+              updatedCards: (plannerResult.updated_cards ?? []).map((card) => card.id).filter((id): id is string => Boolean(id)),
+              summary: plannerResult.summary ?? 'Planner marked card done.',
+              completedAt: this.deps.now(),
+              effects: {
+                transitionCard: (cardId, event, details) => this.deps.transitionCard(cardId, event as 'complete', details),
+                updateCard: (cardId, patch) => this.deps.updateCard(cardId, patch),
+              },
+            });
+          } else {
+            await this.deps.transitionCard(update.id, 'planner_set_status', {
+              requestedStatus: update.status as CardStatus,
+            });
+          }
         }
       }
     }

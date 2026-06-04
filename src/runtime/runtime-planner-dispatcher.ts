@@ -129,6 +129,7 @@ export class RuntimePlannerDispatcher {
       mutations: this.deps.mutations,
       runLedger: this.deps.runLedger,
       lifecycle: this.deps.lifecycle,
+      now: this.deps.now,
       handlePlannerFailure: (error) => this.deps.plannerFailureHandler.handle(goalId, error),
     });
   }
