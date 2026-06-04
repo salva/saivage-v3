@@ -209,7 +209,7 @@ describe('Analyst Tool Definitions', () => {
   it('emits enum JSON schema constraints and guidance for card, list, notification, and corrections tools', () => {
     const createProps = propertiesFor('create_card');
     expect(createProps.type.enum).toEqual([...CREATE_CARD_TYPE_VALUES]);
-    expect(createProps.type.enum).not.toContain('project');
+    expect(createProps.type.enum).toContain('project');
     expect(createProps.status.enum).toEqual([...CARD_STATUS_VALUES]);
     expect(createProps.urgency.enum).toEqual([...URGENCY_VALUES]);
     expect(createProps.status.description).toContain(
@@ -298,7 +298,34 @@ describe('Analyst Tools', () => {
     expect(c.id).toMatch(/^code-/);
   });
 
-  it('rejects create_card for the initialized project card', async () => {
+  it('creates the first project card in an empty store', async () => {
+    const emptyRoot = uniqueDir();
+    mkdirSync(join(emptyRoot, '.saivage', 'cards', 'by-id'), { recursive: true });
+    const emptyStore = new CardStore(emptyRoot);
+
+    try {
+      const result = await create_card(ctx(emptyRoot, emptyStore), {
+        type: 'project',
+        parent: null,
+        title: 'Project',
+        description: 'New project instructions',
+      });
+
+      expect(result.success).toBe(true);
+      expect(result.data).toEqual(
+        expect.objectContaining({
+          id: 'project',
+          type: 'project',
+          parent: null,
+          title: 'Project',
+        }),
+      );
+    } finally {
+      rmSync(emptyRoot, { recursive: true, force: true });
+    }
+  });
+
+  it('rejects duplicate project card creation', async () => {
     const result = await create_card(ctx(projectRoot, store), {
       type: 'project',
       parent: null,
@@ -307,9 +334,7 @@ describe('Analyst Tools', () => {
     });
 
     expect(result.success).toBe(false);
-    expect(result.error).toContain("create_card failed: field 'type' received 'project'");
-    expect(result.error).toContain(`Allowed values: ${CREATE_CARD_TYPE_VALUES.join(', ')}`);
-    expect(result.error).toContain("See the 'create_card' tool's parameter schema");
+    expect(result.error).toContain('Cannot create duplicate project card');
   });
 
   it('denies delete_card for matrix-disallowed target states', async () => {

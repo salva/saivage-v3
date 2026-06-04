@@ -26,16 +26,7 @@ export const CARD_TYPE_VALUES = [
   'research',
   'ops',
 ] as const;
-export const CREATE_CARD_TYPE_VALUES = [
-  'goal',
-  'architecture',
-  'code',
-  'test',
-  'doc',
-  'data',
-  'research',
-  'ops',
-] as const;
+export const CREATE_CARD_TYPE_VALUES = CARD_TYPE_VALUES;
 export const URGENCY_VALUES = ['low', 'normal', 'high', 'critical'] as const;
 export const NOTE_KIND_VALUES = ['comment', 'progress', 'directive', 'escalation'] as const;
 export const ANALYST_ISSUE_SEVERITY_VALUES = ['info', 'warning', 'blocker'] as const;
@@ -106,7 +97,7 @@ export const ANALYST_TOOL_DEFINITIONS: ToolDefinition[] = [
   ),
   tool(
     'create_card',
-    `Create a new non-project card in the card tree. The root project card is created by initialization; use edit_card with id 'project' to change project instructions. Status defaults to 'drafting'. Card status is planner metadata only; it does not start runtime work. There is no 'ready' status.`,
+    `Create a new card in the card tree. The first root project card may be created with type 'project' and parent null; after that, use edit_card with id 'project' to change project instructions. Status defaults to 'drafting'. Card status is planner metadata only; it does not start runtime work. There is no 'ready' status.`,
     {
       type: strEnum('The non-project card type.', CREATE_CARD_TYPE_VALUES),
       parent: str(

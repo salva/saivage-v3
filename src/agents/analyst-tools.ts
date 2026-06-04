@@ -511,11 +511,10 @@ export async function create_card(
         const store = getStore(ctx);
         const parent =
           normalizeParentValue(params.parent) ?? defaultParentForCreate(store, params.type);
-        if (parent === null) {
+        if (parent === null && params.type !== 'project') {
           return {
             success: false,
-            error:
-              "create_card cannot create the root project card. Use edit_card with id 'project' to change project instructions.",
+            error: `Cannot create ${params.type} card without a parent. Inspect the card tree and provide an existing parent ID.`,
           };
         }
         if (parent === undefined) {
@@ -524,7 +523,7 @@ export async function create_card(
             error: `Cannot create ${params.type} card without a parent. Inspect the card tree and provide an existing parent ID.`,
           };
         }
-        if (!store.read(parent))
+        if (parent !== null && !store.read(parent))
           return { success: false, error: `Parent card '${parent}' does not exist.` };
 
         const card = store.create({

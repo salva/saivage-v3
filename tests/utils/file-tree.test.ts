@@ -1,8 +1,21 @@
 import { describe, it, expect, beforeEach, afterEach } from '@jest/globals';
-import { existsSync, readFileSync, readdirSync, rmSync, mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  mkdtempSync,
+  mkdirSync,
+  writeFileSync,
+} from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { initProjectTree, isInitialized, listDiscardedSaivageDirs, writeFileAtomic } from '../../src/persistence/file-tree.js';
+import {
+  initProjectTree,
+  isInitialized,
+  listDiscardedSaivageDirs,
+  writeFileAtomic,
+} from '../../src/persistence/file-tree.js';
 
 let tmpDir: string;
 
@@ -33,9 +46,7 @@ describe('initProjectTree', () => {
 
   it('creates project.json with valid ProjectConfig', () => {
     initProjectTree(tmpDir);
-    const config = JSON.parse(
-      readFileSync(join(tmpDir, '.saivage', 'project.json'), 'utf-8'),
-    );
+    const config = JSON.parse(readFileSync(join(tmpDir, '.saivage', 'project.json'), 'utf-8'));
     expect(config.id).toBe('project');
     expect(typeof config.name).toBe('string');
     expect(config.max_goal_depth).toBe(5);
@@ -46,26 +57,9 @@ describe('initProjectTree', () => {
     expect(config.updated_at).toBeDefined();
   });
 
-  it('creates the project card at cards/by-id/project.json', () => {
+  it('starts with an empty card store', () => {
     initProjectTree(tmpDir);
-    const card = JSON.parse(
-      readFileSync(join(tmpDir, '.saivage', 'cards', 'by-id', 'project.json'), 'utf-8'),
-    );
-    expect(card.id).toBe('project');
-    expect(card.type).toBe('project');
-    expect(card.parent).toBeNull();
-    expect(card.depth).toBe(0);
-    expect(card.status).toBe('backlog');
-    expect(card.title).toBe('project');
-    expect(card.created_by).toBe('analyst');
-    expect(card.version_seq).toBe(1);
-    expect(card.retries).toBe(0);
-    expect(card.artifacts).toEqual([]);
-    expect(card.attachments).toEqual([]);
-    expect(card.depends_on).toEqual([]);
-    expect(card.blocks).toEqual([]);
-    expect(card.related).toEqual([]);
-    expect(card.tags).toEqual([]);
+    expect(readdirSync(join(tmpDir, '.saivage', 'cards', 'by-id'))).toEqual([]);
   });
 
   it('does not create the legacy notes queue', () => {
@@ -115,10 +109,7 @@ describe('initProjectTree', () => {
   it('creates supervision/quarantine-index.json', () => {
     initProjectTree(tmpDir);
     const qi = JSON.parse(
-      readFileSync(
-        join(tmpDir, '.saivage', 'supervision', 'quarantine-index.json'),
-        'utf-8',
-      ),
+      readFileSync(join(tmpDir, '.saivage', 'supervision', 'quarantine-index.json'), 'utf-8'),
     );
     expect(qi).toEqual([]);
   });
@@ -163,46 +154,34 @@ describe('initProjectTree', () => {
 
   it('is idempotent — calling twice does not change files', () => {
     initProjectTree(tmpDir);
-    const cardBefore = readFileSync(
-      join(tmpDir, '.saivage', 'cards', 'by-id', 'project.json'),
-      'utf-8',
-    );
-    const configBefore = readFileSync(
-      join(tmpDir, '.saivage', 'project.json'),
-      'utf-8',
-    );
+    const cardsBefore = readdirSync(join(tmpDir, '.saivage', 'cards', 'by-id'));
+    const configBefore = readFileSync(join(tmpDir, '.saivage', 'project.json'), 'utf-8');
 
     initProjectTree(tmpDir);
 
-    const cardAfter = readFileSync(
-      join(tmpDir, '.saivage', 'cards', 'by-id', 'project.json'),
-      'utf-8',
-    );
-    const configAfter = readFileSync(
-      join(tmpDir, '.saivage', 'project.json'),
-      'utf-8',
-    );
+    const cardsAfter = readdirSync(join(tmpDir, '.saivage', 'cards', 'by-id'));
+    const configAfter = readFileSync(join(tmpDir, '.saivage', 'project.json'), 'utf-8');
 
-    expect(cardAfter).toBe(cardBefore);
+    expect(cardsAfter).toEqual(cardsBefore);
     expect(configAfter).toBe(configBefore);
     expect(listDiscardedSaivageDirs(tmpDir)).toEqual([]);
   });
 
-  it('does not create duplicate project cards on repeated calls', () => {
+  it('does not create project cards on repeated calls', () => {
     initProjectTree(tmpDir);
     initProjectTree(tmpDir);
     initProjectTree(tmpDir);
 
-    const card = JSON.parse(
-      readFileSync(join(tmpDir, '.saivage', 'cards', 'by-id', 'project.json'), 'utf-8'),
-    );
-    expect(card.id).toBe('project');
+    expect(readdirSync(join(tmpDir, '.saivage', 'cards', 'by-id'))).toEqual([]);
   });
 
   it('discards legacy .saivage layouts and creates a fresh tree', () => {
     const legacyDir = join(tmpDir, '.saivage');
     mkdirSync(join(legacyDir, 'runtime'), { recursive: true });
-    writeFileSync(join(legacyDir, 'runtime', 'state.json'), JSON.stringify({ status: 'running' }, null, 2));
+    writeFileSync(
+      join(legacyDir, 'runtime', 'state.json'),
+      JSON.stringify({ status: 'running' }, null, 2),
+    );
     writeFileSync(join(legacyDir, 'old-layout.json'), '{"legacy":true}');
 
     initProjectTree(tmpDir);
@@ -210,7 +189,9 @@ describe('initProjectTree', () => {
     const discarded = listDiscardedSaivageDirs(tmpDir);
     expect(discarded).toHaveLength(1);
     expect(existsSync(join(tmpDir, discarded[0], 'old-layout.json'))).toBe(true);
-    expect(JSON.parse(readFileSync(join(tmpDir, '.saivage', 'project.json'), 'utf-8')).id).toBe('project');
+    expect(JSON.parse(readFileSync(join(tmpDir, '.saivage', 'project.json'), 'utf-8')).id).toBe(
+      'project',
+    );
   });
 
   it('keeps already-new .saivage state instead of discarding it', () => {

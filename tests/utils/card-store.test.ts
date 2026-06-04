@@ -58,10 +58,15 @@ function makeCard(
 let tmpDir: string;
 let store: CardStore;
 
+function createRootProject(): CardRecord {
+  return store.create(makeCard({ type: 'project', parent: null, depth: 0, title: 'project' }));
+}
+
 beforeEach(() => {
   tmpDir = mkdtempSync(join(tmpdir(), 'saivage-cs-'));
   initProjectTree(tmpDir);
   store = new CardStore(tmpDir);
+  createRootProject();
 });
 
 afterEach(() => {
@@ -83,8 +88,8 @@ describe('Clean-slate boot', () => {
     );
     expect(discarded).toHaveLength(1);
     expect(existsSync(join(tmpDir, discarded[0], 'legacy-plan.json'))).toBe(true);
-    expect(store.list().map((card) => card.id)).toEqual(['project']);
-    expect(existsSync(join(tmpDir, '.saivage', 'cards', 'by-id', 'project.json'))).toBe(true);
+    expect(store.list()).toEqual([]);
+    expect(existsSync(join(tmpDir, '.saivage', 'cards', 'by-id', 'project.json'))).toBe(false);
   });
 });
 
@@ -105,15 +110,22 @@ describe('CardStore validation of persisted state', () => {
       JSON.stringify({ ...raw, id: 'root-spec-plan-project' }, null, 2),
     );
 
-    expect(() => { store = new CardStore(tmpDir); }).toThrow(/expected canonical id 'project'/i);
+    expect(() => {
+      store = new CardStore(tmpDir);
+    }).toThrow(/expected canonical id 'project'/i);
   });
 
   it('throws when a persisted project card is not the root card', () => {
     const projectPath = join(tmpDir, '.saivage', 'cards', 'by-id', 'project.json');
     const raw = JSON.parse(readFileSync(projectPath, 'utf-8')) as CardRecord;
-    writeFileSync(projectPath, JSON.stringify({ ...raw, parent: 'goal-parent', depth: 1, position: 1 }, null, 2));
+    writeFileSync(
+      projectPath,
+      JSON.stringify({ ...raw, parent: 'goal-parent', depth: 1, position: 1 }, null, 2),
+    );
 
-    expect(() => { store = new CardStore(tmpDir); }).toThrow(/must be the root card/i);
+    expect(() => {
+      store = new CardStore(tmpDir);
+    }).toThrow(/must be the root card/i);
   });
 
   it('throws when persisted canonical card JSON is schema-invalid on read', () => {
@@ -125,7 +137,9 @@ describe('CardStore validation of persisted state', () => {
     };
     writeFileSync(path, JSON.stringify(broken, null, 2));
 
-    expect(() => { store = new CardStore(tmpDir); }).toThrow(/Card record .* is invalid|invalid/i);
+    expect(() => {
+      store = new CardStore(tmpDir);
+    }).toThrow(/Card record .* is invalid|invalid/i);
   });
 
   it('throws when persisted canonical card JSON is schema-invalid during list', () => {
@@ -137,7 +151,9 @@ describe('CardStore validation of persisted state', () => {
     };
     writeFileSync(path, JSON.stringify(broken, null, 2));
 
-    expect(() => { store = new CardStore(tmpDir); }).toThrow(/Card record .* is invalid|invalid/i);
+    expect(() => {
+      store = new CardStore(tmpDir);
+    }).toThrow(/Card record .* is invalid|invalid/i);
   });
 
   it('treats missing optional children index as empty', () => {
@@ -152,45 +168,57 @@ describe('CardStore CRUD still works with validated indexes', () => {
     tmpDir = mkdtempSync(join(tmpdir(), 'saivage-cs-project-id-'));
     store = new CardStore(tmpDir);
 
-    const card = store.create(makeCard({
-      id: 'root-spec-plan-project',
-      type: 'project',
-      parent: null,
-      title: 'Root from docs',
-    }));
+    const card = store.create(
+      makeCard({
+        id: 'root-spec-plan-project',
+        type: 'project',
+        parent: null,
+        title: 'Root from docs',
+      }),
+    );
 
     expect(card.id).toBe('project');
     expect(card.parent).toBeNull();
     expect(card.depth).toBe(0);
     expect(card.position).toBe(0);
     expect(existsSync(join(tmpDir, '.saivage', 'cards', 'by-id', 'project.json'))).toBe(true);
-    expect(existsSync(join(tmpDir, '.saivage', 'cards', 'by-id', 'root-spec-plan-project.json'))).toBe(false);
+    expect(
+      existsSync(join(tmpDir, '.saivage', 'cards', 'by-id', 'root-spec-plan-project.json')),
+    ).toBe(false);
   });
 
   it('rejects attempts to create a project card under another card', () => {
     const goal = store.create(makeCard({ type: 'goal', title: 'Parent' }));
 
-    expect(() => store.create(makeCard({
-      id: 'nested-project',
-      type: 'project',
-      parent: goal.id,
-      title: 'Nested project',
-    }))).toThrow(/must be the root card/i);
+    expect(() =>
+      store.create(
+        makeCard({
+          id: 'nested-project',
+          type: 'project',
+          parent: goal.id,
+          title: 'Nested project',
+        }),
+      ),
+    ).toThrow(/must be the root card/i);
   });
 
   it('rejects project type changes through mutation', () => {
     const goal = store.create(makeCard({ type: 'goal', title: 'Goal' }));
 
-    expect(() => store.mutateCard(
-      goal.id,
-      { type: 'project' },
-      { actor: 'analyst', surface: 'web-chat', reason: 'test' },
-    )).toThrow(/canonical id 'project'|type 'project'/i);
-    expect(() => store.mutateCard(
-      'project',
-      { type: 'goal' },
-      { actor: 'analyst', surface: 'web-chat', reason: 'test' },
-    )).toThrow(/canonical project card/i);
+    expect(() =>
+      store.mutateCard(
+        goal.id,
+        { type: 'project' },
+        { actor: 'analyst', surface: 'web-chat', reason: 'test' },
+      ),
+    ).toThrow(/canonical id 'project'|type 'project'/i);
+    expect(() =>
+      store.mutateCard(
+        'project',
+        { type: 'goal' },
+        { actor: 'analyst', surface: 'web-chat', reason: 'test' },
+      ),
+    ).toThrow(/canonical project card/i);
   });
 
   it('stores nullable status_text fields on new cards by default', () => {
@@ -214,9 +242,9 @@ describe('CardStore CRUD still works with validated indexes', () => {
 
     const next = store.create(makeCard({ type: 'goal', title: 'Next' }));
     expect(next.id).toBe('goal-2');
-    expect(() => store.create(makeCard({ id: deleted.id, type: 'goal', title: 'Explicit Reuse' }))).toThrow(
-      /already reserved by history or archive state/,
-    );
+    expect(() =>
+      store.create(makeCard({ id: deleted.id, type: 'goal', title: 'Explicit Reuse' })),
+    ).toThrow(/already reserved by history or archive state/);
   });
 
   it('does not reuse ids reserved by archived cards', () => {
@@ -227,9 +255,9 @@ describe('CardStore CRUD still works with validated indexes', () => {
 
     const next = store.create(makeCard({ type: 'goal', title: 'Next' }));
     expect(next.id).toBe('goal-2');
-    expect(() => store.create(makeCard({ id: archived.id, type: 'goal', title: 'Explicit Reuse' }))).toThrow(
-      /already reserved by history or archive state/,
-    );
+    expect(() =>
+      store.create(makeCard({ id: archived.id, type: 'goal', title: 'Explicit Reuse' })),
+    ).toThrow(/already reserved by history or archive state/);
   });
 
   it('reserves ids from history after store reload', () => {
@@ -287,14 +315,11 @@ describe('CardStore selective patch behavior', () => {
   });
 });
 
-
 describe('ARCH-026 hierarchy graph authority', () => {
-
-
-
-
   it('keeps version_seq stable for a sibling whose position is unchanged after reorderChildren', () => {
-    const parent = store.create(makeCard({ type: 'goal', title: 'Stable Parent', parent: 'project' }));
+    const parent = store.create(
+      makeCard({ type: 'goal', title: 'Stable Parent', parent: 'project' }),
+    );
     const first = store.create(makeCard({ type: 'code', title: 'First', parent: parent.id }));
     const stable = store.create(makeCard({ type: 'code', title: 'Stable', parent: parent.id }));
     const third = store.create(makeCard({ type: 'code', title: 'Third', parent: parent.id }));
@@ -316,11 +341,13 @@ describe('ARCH-026 hierarchy graph authority', () => {
     const b = store.create(makeCard({ type: 'goal', title: 'B', parent: 'project' }));
     const child = store.create(makeCard({ type: 'code', title: 'Child', parent: a.id }));
 
-    expect(() => store.mutateCard(
-      child.id,
-      { parent: b.id },
-      { actor: 'analyst', surface: 'web-chat', reason: 'test reparent' },
-    )).toThrow(/card reparenting is not supported/i);
+    expect(() =>
+      store.mutateCard(
+        child.id,
+        { parent: b.id },
+        { actor: 'analyst', surface: 'web-chat', reason: 'test reparent' },
+      ),
+    ).toThrow(/card reparenting is not supported/i);
   });
 
   it('ignores stale boot-time children snapshots and uses by-id authority', () => {
@@ -339,9 +366,9 @@ describe('ARCH-026 hierarchy graph authority', () => {
     const raw = JSON.parse(readFileSync(path, 'utf-8')) as CardRecord;
     writeFileSync(path, JSON.stringify({ ...raw, parent: 'missing-parent' }, null, 2));
 
-    expect(() => { store = new CardStore(tmpDir); }).toThrow(
-      /missing parent 'missing-parent'|parent .* not found/i,
-    );
+    expect(() => {
+      store = new CardStore(tmpDir);
+    }).toThrow(/missing parent 'missing-parent'|parent .* not found/i);
   });
 
   it('keeps listChildren and descendants consistent without any legacy snapshots', () => {

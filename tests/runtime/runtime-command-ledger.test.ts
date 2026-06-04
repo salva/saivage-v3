@@ -19,7 +19,10 @@ import {
 import { PlannerControlExecutor } from '../../src/agents/planner-control-executor.js';
 import { CardStore } from '../../src/cards/card-store.js';
 import type { AgentExecutionPort as AgentRuntime } from '../../src/contracts/index.js';
-import { createRuntimeCoreTestContainer, type RuntimeCoreTestContainer } from '../../src/runtime/core-composition.js';
+import {
+  createRuntimeCoreTestContainer,
+  type RuntimeCoreTestContainer,
+} from '../../src/runtime/core-composition.js';
 
 function activationLedger(projectRoot: string) {
   return {
@@ -33,6 +36,31 @@ function activationLedger(projectRoot: string) {
 
 function root(): string {
   return mkdtempSync(join(tmpdir(), 'saivage-runtime-command-'));
+}
+
+function initProjectWithRoot(projectRoot: string): void {
+  initProjectTree(projectRoot);
+  const store = new CardStore(projectRoot);
+  store.create({
+    id: 'project',
+    type: 'project',
+    parent: null,
+    depth: 0,
+    title: 'project',
+    description: '',
+    status: 'backlog',
+    tags: [],
+    priority: 0,
+    urgency: 'normal',
+    created_by: 'analyst',
+    acceptance: '',
+    depends_on: [],
+    blocks: [],
+    related: [],
+    artifacts: [],
+    attachments: [],
+    retries: 0,
+  });
 }
 
 async function waitForBackgroundDispatchesToDrain(): Promise<void> {
@@ -84,7 +112,7 @@ describe('runtime command ledger target contract (Wave 1)', () => {
   it('start_project records running intent and creates a root run before dispatch side effects', async () => {
     const projectRoot = root();
     try {
-      initProjectTree(projectRoot);
+      initProjectWithRoot(projectRoot);
       const calls: string[] = [];
       const api = makeRuntime(projectRoot, undefined, async (goalId: string) => {
         calls.push(goalId);
@@ -116,7 +144,7 @@ describe('runtime command ledger target contract (Wave 1)', () => {
   it('startup reconciles idle running intent with stale open root run and restarts project scheduling', async () => {
     const projectRoot = root();
     try {
-      initProjectTree(projectRoot);
+      initProjectWithRoot(projectRoot);
       upsertRuntimeIntent(
         projectRoot,
         'running',
@@ -144,7 +172,12 @@ describe('runtime command ledger target contract (Wave 1)', () => {
         status: 'done',
         lifecycle: {
           status: 'done',
-          result: { kind: 'planner_done', created_cards: [], updated_cards: [], summary: 'seeded done' },
+          result: {
+            kind: 'planner_done',
+            created_cards: [],
+            updated_cards: [],
+            summary: 'seeded done',
+          },
           error: null,
           completed_at: new Date().toISOString(),
         },
@@ -198,7 +231,7 @@ describe('runtime command ledger target contract (Wave 1)', () => {
   it('start_project reconciles stale running intent when no active root run exists', async () => {
     const projectRoot = root();
     try {
-      initProjectTree(projectRoot);
+      initProjectWithRoot(projectRoot);
       upsertRuntimeIntent(
         projectRoot,
         'running',
@@ -251,7 +284,7 @@ describe('runtime command ledger target contract (Wave 1)', () => {
   it('start_project still rejects running intent when an open root run exists', async () => {
     const projectRoot = root();
     try {
-      initProjectTree(projectRoot);
+      initProjectWithRoot(projectRoot);
       upsertRuntimeIntent(
         projectRoot,
         'running',
@@ -341,7 +374,7 @@ describe('runtime command ledger target contract (Wave 1)', () => {
   it('dispatchGoal binds an open planner run to the planner session before planner tool calls', async () => {
     const projectRoot = root();
     try {
-      initProjectTree(projectRoot);
+      initProjectWithRoot(projectRoot);
       appendRuntimeRun(projectRoot, {
         run_id: 'run-root-sessionless',
         kind: 'root',
@@ -510,7 +543,7 @@ describe('runtime command ledger target contract (Wave 1)', () => {
   it('dispatchGoal promotes a pending child goal run before nested planner tool calls', async () => {
     const projectRoot = root();
     try {
-      initProjectTree(projectRoot);
+      initProjectWithRoot(projectRoot);
       appendRuntimeRun(projectRoot, {
         run_id: 'run-child-pending',
         kind: 'child',
@@ -659,7 +692,7 @@ describe('runtime command ledger target contract (Wave 1)', () => {
   it('dispatchGoal logs planner failures and clears active runtime state even if event subscribers fail', async () => {
     const projectRoot = root();
     try {
-      initProjectTree(projectRoot);
+      initProjectWithRoot(projectRoot);
       appendRuntimeRun(projectRoot, {
         run_id: 'run-root-failure',
         kind: 'root',
@@ -722,7 +755,11 @@ describe('runtime command ledger target contract (Wave 1)', () => {
             run_id: 'run-root-failure',
             phase: 'failed',
             runtime_status: 'error',
-            outcome: expect.objectContaining({ kind: 'completed', result: 'failed', error: 'planner boom' }),
+            outcome: expect.objectContaining({
+              kind: 'completed',
+              result: 'failed',
+              error: 'planner boom',
+            }),
             session_id: 'planner:project',
             finished_at: expect.any(String),
           }),
@@ -741,7 +778,7 @@ describe('runtime command ledger target contract (Wave 1)', () => {
   it('start_project planner failure terminally publishes the root run exactly once', async () => {
     const projectRoot = root();
     try {
-      initProjectTree(projectRoot);
+      initProjectWithRoot(projectRoot);
       const agentRuntime: AgentRuntime = {
         invokePlanner() {
           throw new Error('planner start boom');
@@ -799,7 +836,11 @@ describe('runtime command ledger target contract (Wave 1)', () => {
           command_id: result.command.command_id,
           phase: 'failed',
           runtime_status: 'error',
-          outcome: expect.objectContaining({ kind: 'completed', result: 'failed', error: 'planner start boom' }),
+          outcome: expect.objectContaining({
+            kind: 'completed',
+            result: 'failed',
+            error: 'planner start boom',
+          }),
           session_id: 'planner:project',
           finished_at: expect.any(String),
         }),
@@ -810,8 +851,10 @@ describe('runtime command ledger target contract (Wave 1)', () => {
           event.run?.run_id === rootRun.run_id &&
           event.run.phase === 'failed' &&
           event.run.runtime_status === 'error' &&
-          (event.run as { outcome?: { kind?: string; result?: string } }).outcome?.kind === 'completed' &&
-          (event.run as { outcome?: { kind?: string; result?: string } }).outcome?.result === 'failed',
+          (event.run as { outcome?: { kind?: string; result?: string } }).outcome?.kind ===
+            'completed' &&
+          (event.run as { outcome?: { kind?: string; result?: string } }).outcome?.result ===
+            'failed',
       );
       expect(terminalFailedRootEvents).toHaveLength(1);
       expect(state.status).toBe('idle');
@@ -819,7 +862,10 @@ describe('runtime command ledger target contract (Wave 1)', () => {
       expect(state.current_agent_session_id).toBeNull();
       expect(state.active_card_run).toBeNull();
       expect(cards.read('project')).toEqual(
-        expect.objectContaining({ status: 'running', status_text: 'Planner failed: planner start boom' }),
+        expect.objectContaining({
+          status: 'running',
+          status_text: 'Planner failed: planner start boom',
+        }),
       );
       expect(state.runtime_intent).toEqual(
         expect.objectContaining({
@@ -845,7 +891,7 @@ describe('runtime command ledger target contract (Wave 1)', () => {
   it('project planner done without durable action blocks instead of completing silently', async () => {
     const projectRoot = root();
     try {
-      initProjectTree(projectRoot);
+      initProjectWithRoot(projectRoot);
       const invokeReviewer = jest.fn<AgentRuntime['invokeReviewer']>(() => {
         throw new Error('reviewer should not run for non-actionable project done');
       });
@@ -900,12 +946,14 @@ describe('runtime command ledger target contract (Wave 1)', () => {
       expect(project.lifecycle.result).toEqual(
         expect.objectContaining({
           kind: 'planner_blocked',
-            resume_reason: 'planner_non_actionable_project_done',
+          resume_reason: 'planner_non_actionable_project_done',
           created_cards: [],
           updated_cards: [],
         }),
       );
-      expect(project.lifecycle.error).toContain('Project planner returned done without creating/updating cards');
+      expect(project.lifecycle.error).toContain(
+        'Project planner returned done without creating/updating cards',
+      );
       const state = readRuntimeState(projectRoot)!;
       expect(state.status).toBe('idle');
       expect(state.current_card_id).toBeNull();
@@ -932,7 +980,7 @@ describe('runtime command ledger target contract (Wave 1)', () => {
   it('stop_project records stopped intent and terminally marks open root runs', async () => {
     const projectRoot = root();
     try {
-      initProjectTree(projectRoot);
+      initProjectWithRoot(projectRoot);
       const api = makeRuntime(projectRoot, undefined, async () => {
         await new Promise<void>((resolve) => setImmediate(resolve));
       });
@@ -979,7 +1027,7 @@ describe('runtime command ledger target contract (Wave 1)', () => {
   it('stop_project force-cancels the in-flight project planner session', async () => {
     const projectRoot = root();
     try {
-      initProjectTree(projectRoot);
+      initProjectWithRoot(projectRoot);
       let releasePlanner!: () => void;
       const plannerBlocked = new Promise<void>((resolve) => {
         releasePlanner = resolve;
@@ -1051,7 +1099,7 @@ describe('runtime command ledger target contract (Wave 1)', () => {
   it('shutdown force-cancels the in-flight project planner session', async () => {
     const projectRoot = root();
     try {
-      initProjectTree(projectRoot);
+      initProjectWithRoot(projectRoot);
       let releasePlanner!: () => void;
       const plannerBlocked = new Promise<void>((resolve) => {
         releasePlanner = resolve;
@@ -1123,7 +1171,7 @@ describe('runtime command ledger target contract (Wave 1)', () => {
   it('delayed start_project dispatch completion cannot overwrite a stopped root run', async () => {
     const projectRoot = root();
     try {
-      initProjectTree(projectRoot);
+      initProjectWithRoot(projectRoot);
       let releaseDispatch!: () => void;
       const dispatchBlocked = new Promise<void>((resolve) => {
         releaseDispatch = resolve;
@@ -1201,7 +1249,7 @@ describe('runtime command ledger target contract (Wave 1)', () => {
   it('start_project and stop_project publish runtime ledger events matching persisted records', async () => {
     const projectRoot = root();
     try {
-      initProjectTree(projectRoot);
+      initProjectWithRoot(projectRoot);
       const api = makeRuntime(projectRoot, undefined, async () => {
         await new Promise<void>((resolve) => setImmediate(resolve));
       });
@@ -1260,7 +1308,7 @@ describe('runtime command ledger target contract (Wave 1)', () => {
   it('shutdown preserves runtime intent, command, run, and activation ledgers after project start and child activation setup', async () => {
     const projectRoot = root();
     try {
-      initProjectTree(projectRoot);
+      initProjectWithRoot(projectRoot);
       const api = makeRuntime(projectRoot, undefined, async () => undefined);
       await api.start();
       const result = await api.startProject('operator');
@@ -1362,7 +1410,7 @@ describe('runtime command ledger target contract (Wave 1)', () => {
           expect.objectContaining({
             phase: 'completed',
             runtime_status: 'idle',
-              outcome: expect.objectContaining({ kind: 'completed', result: 'done' }),
+            outcome: expect.objectContaining({ kind: 'completed', result: 'done' }),
             finished_at: expect.any(String),
           }),
         );
