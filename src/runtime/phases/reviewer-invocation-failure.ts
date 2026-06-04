@@ -1,4 +1,4 @@
-import type { CardRecord } from '../../schemas/index.js';
+import type { CardLifecycleState, CardRecord } from '../../schemas/index.js';
 import { buildReviewerInvocationFailurePatch } from './reviewer-phase.js';
 
 export interface ReviewerInvocationFailureEffects {
@@ -14,7 +14,7 @@ export interface ReviewerInvocationFailureEffects {
 export async function handleReviewerInvocationFailure(input: {
   goalId: string;
   error: unknown;
-  existingResult: CardRecord['result'] | undefined;
+  existingLifecycle: CardLifecycleState;
   effects: ReviewerInvocationFailureEffects;
 }): Promise<void> {
   const errorMessage = input.error instanceof Error ? input.error.message : String(input.error);
@@ -25,7 +25,7 @@ export async function handleReviewerInvocationFailure(input: {
   await input.effects.transitionCard(input.goalId, 'block', { blocked_reason: blockedReason });
   await input.effects.updateCard(
     input.goalId,
-    buildReviewerInvocationFailurePatch({ existingResult: input.existingResult, blockedReason }),
+    buildReviewerInvocationFailurePatch({ existingLifecycle: input.existingLifecycle, blockedReason }),
   );
   input.effects.finishOpenPlannerRun(input.goalId, 'blocked');
   await input.effects.transitionRuntime('card_terminated', {

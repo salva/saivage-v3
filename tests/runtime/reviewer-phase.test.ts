@@ -15,23 +15,22 @@ describe('reviewer phase decisions', () => {
 
   it('builds reviewer invocation failure card patch', () => {
     expect(buildReviewerInvocationFailurePatch({
-      existingResult: { previous: true },
+      existingLifecycle: { status: 'running', result: null, error: null, completed_at: null },
       blockedReason: 'reviewer failed',
     })).toEqual({
       status: 'blocked',
-      error: 'reviewer failed',
       status_text: 'reviewer failed',
-      result: {
-        previous: true,
-        planning: {
-          status: 'blocked',
+      lifecycle: expect.objectContaining({
+        status: 'blocked',
+        error: 'reviewer failed',
+        result: expect.objectContaining({
+          kind: 'planner_blocked',
           blocked_reason: 'reviewer failed',
           resume_reason: 'reviewer_unavailable',
-          failure_kind: 'reviewer_invocation_failed',
           created_cards: [],
           updated_cards: [],
-        },
-      },
+        }),
+      }),
     });
   });
 

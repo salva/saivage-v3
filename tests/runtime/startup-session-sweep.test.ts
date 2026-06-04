@@ -119,7 +119,7 @@ describe('startup agent session sweep', () => {
 
       const project = harness.cardTestTools.read('project');
       expect(project?.status).toBe('blocked');
-      expect(project?.result?.planning).toEqual(expect.objectContaining({
+      expect(project?.lifecycle.result?.planning).toEqual(expect.objectContaining({
         status: 'blocked',
         resume_reason: 'non_actionable_continue',
       }));

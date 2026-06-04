@@ -1,6 +1,6 @@
 import type { CardRecord, RuntimeState } from '../schemas/index.js';
 import { CardActivation } from './card-activation.js';
-import { lifecyclePatch } from './terminal-commit/lifecycle-patch.js';
+import { lifecycleCardPatch } from './terminal-commit/lifecycle-patch.js';
 
 export interface StartupActivationSnapshot {
   activation: CardActivation;
@@ -208,7 +208,7 @@ export async function executeStartupActiveRunRepairDecision(input: {
           error: 'Execution interrupted by service restart.',
         });
         await effects.repairTerminalLifecycle(run.card_id, {
-          ...lifecyclePatch({
+          ...lifecycleCardPatch({
             status: 'failed',
             result: {
               kind: 'executor_failure',

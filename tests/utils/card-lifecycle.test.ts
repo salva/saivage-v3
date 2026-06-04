@@ -12,9 +12,10 @@ import {
   validateMutablePatch,
   validateTransition,
 } from '../../src/cards/lifecycle.js';
-import type { CardRecord } from '../../src/schemas/types.js';
+import type { CardLifecycleState, CardRecord } from '../../src/schemas/index.js';
 
 function baseCard(overrides: Partial<CardRecord> = {}): CardRecord {
+  const lifecycle = overrides.lifecycle ?? ({ status: overrides.status ?? 'backlog', result: null, error: null, completed_at: null } as CardLifecycleState);
   return {
     id: 'goal-1',
     type: 'goal',
@@ -37,15 +38,13 @@ function baseCard(overrides: Partial<CardRecord> = {}): CardRecord {
     blocks: [],
     related: [],
     acceptance: '',
-    result: null,
+    lifecycle,
     metrics: null,
     artifacts: [],
     attachments: [],
     estimate: null,
     started_at: null,
-    completed_at: null,
     duration_ms: null,
-    error: null,
     status_text: null,
     status_text_updated_at: null,
     status_text_author_session_id: null,
@@ -82,16 +81,16 @@ describe('card lifecycle domain rules', () => {
   });
 
   it('locks terminal lifecycle fields behind explicit commit or repair contexts', () => {
-    const done = baseCard({ status: 'done', result: { ok: true }, completed_at: '2026-01-01T00:10:00.000Z' });
-    expect(() => validateMutablePatch(done, { error: 'stale' }, { childCount: 0 })).toThrow(/lifecycle-owned/);
-    expect(() => validateMutablePatch(done, { result: { ok: false } }, { childCount: 0 }, { actor: 'analyst', surface: 'web-chat', reason: 'analyst edit' })).toThrow(/lifecycle-owned/);
-    expect(() => validateMutablePatch(done, { completed_at: '2026-01-01T00:11:00.000Z' }, { childCount: 0 }, { actor: 'runtime', surface: 'runtime', reason: 'terminal lifecycle commit' })).not.toThrow();
-    expect(() => validateMutablePatch(done, { error: null }, { childCount: 0 }, { actor: 'runtime', surface: 'runtime', reason: 'terminal lifecycle repair' })).not.toThrow();
+    const done = baseCard({ status: 'done', lifecycle: { status: 'done', result: { kind: 'planner_done', created_cards: [], updated_cards: [], summary: 'done' }, error: null, completed_at: '2026-01-01T00:10:00.000Z' } });
+    expect(() => validateMutablePatch(done, { lifecycle: { ...done.lifecycle, error: 'stale' } as never }, { childCount: 0 })).toThrow(/lifecycle-owned/);
+    expect(() => validateMutablePatch(done, { lifecycle: { ...done.lifecycle, result: { ok: false } } as never }, { childCount: 0 }, { actor: 'analyst', surface: 'web-chat', reason: 'analyst edit' })).toThrow(/lifecycle-owned/);
+    expect(() => validateMutablePatch(done, { lifecycle: { ...done.lifecycle, completed_at: '2026-01-01T00:11:00.000Z' } as never }, { childCount: 0 }, { actor: 'runtime', surface: 'runtime', reason: 'terminal lifecycle commit' })).not.toThrow();
+    expect(() => validateMutablePatch(done, { lifecycle: { ...done.lifecycle, error: null } as never }, { childCount: 0 }, { actor: 'runtime', surface: 'runtime', reason: 'terminal lifecycle repair' })).not.toThrow();
   });
 
   it('allows restart patches to clear lifecycle fields while reopening', () => {
-    const blocked = baseCard({ status: 'blocked', result: { planning: { status: 'blocked' } }, error: 'blocked' });
-    expect(() => validateMutablePatch(blocked, { status: 'backlog', result: null, error: null, completed_at: null }, { childCount: 0 })).not.toThrow();
+    const blocked = baseCard({ status: 'blocked', lifecycle: { status: 'blocked', result: { kind: 'planner_blocked', blocked_reason: 'blocked', resume_reason: 'planner_blocked', created_cards: [], updated_cards: [] }, error: 'blocked', completed_at: null } });
+    expect(() => validateMutablePatch(blocked, { status: 'backlog', lifecycle: { status: 'backlog', result: null, error: null, completed_at: null } }, { childCount: 0 })).not.toThrow();
   });
 
   it('rejects project-card type drift and nested project creation identity', () => {

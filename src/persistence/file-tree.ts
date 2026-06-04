@@ -49,6 +49,7 @@ function defaultProjectCard(): CardRecord {
     title: 'project',
     description: '',
     status: 'backlog',
+    lifecycle: { status: 'backlog', result: null, error: null, completed_at: null },
     tags: [],
     priority: 0,
     urgency: 'normal',

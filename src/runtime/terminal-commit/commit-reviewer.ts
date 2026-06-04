@@ -1,5 +1,5 @@
 import type { CardLifecycleState, CardRecord, PlannerBlockedResult, PlannerDoneResult, ReviewerCorrectionResult, ReviewerPassResult } from '../../schemas/index.js';
-import { lifecyclePatch } from './lifecycle-patch.js';
+import { lifecycleCardPatch } from './lifecycle-patch.js';
 import type { TerminalCommitEffects, TerminalCommitReceipt } from './commit-executor.js';
 import { validateTerminalOverlay } from './validators.js';
 
@@ -19,7 +19,7 @@ export async function commitReviewerPass(input: {
   const transitioned = input.card.status === 'done'
     ? true
     : await input.effects.transitionCard(input.card.id, 'complete', input.transitionDetails ?? { assessment_id: input.assessmentId });
-  const patch = { ...lifecyclePatch(lifecycle), status_text: input.reviewSummary };
+  const patch = { ...lifecycleCardPatch(lifecycle), status_text: input.reviewSummary };
   await input.effects.updateCard(input.card.id, patch);
   return { lifecycle, result, patch, transitioned: transitioned !== false };
 }

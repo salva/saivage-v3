@@ -55,13 +55,11 @@ function makeCard(
     retries: 0,
     subtype: null,
     assigned_to: null,
-    result: null,
+    lifecycle: { status: 'backlog', result: null, error: null, completed_at: null },
     metrics: null,
     estimate: null,
     started_at: null,
-    completed_at: null,
     duration_ms: null,
-    error: null,
   });
 }
 

@@ -20,6 +20,7 @@ function makeCard(
 ): Omit<CardRecord, 'created_at' | 'updated_at' | 'id' | 'version_seq' | 'position'> & {
   id?: string;
 } {
+  const lifecycle = overrides.lifecycle ?? ({ status: overrides.status ?? 'backlog', result: null, error: null, completed_at: null } as CardRecord['lifecycle']);
   return {
     parent: 'project',
     depth: 1,
@@ -36,15 +37,13 @@ function makeCard(
     blocks: [],
     related: [],
     acceptance: '',
-    result: null,
+    lifecycle,
     metrics: null,
     artifacts: [],
     attachments: [],
     estimate: null,
     started_at: null,
-    completed_at: null,
     duration_ms: null,
-    error: null,
     status_text: null,
     status_text_updated_at: null,
     status_text_author_session_id: null,
@@ -166,7 +165,7 @@ describe('PlannerControlExecutor', () => {
         parent: goal.id,
         depth: 2,
         status: 'done',
-        result: { executor: { summary: 'done' } },
+        lifecycle: { status: 'done', result: { kind: 'executor_success', executor: { summary: 'done' }, generated_files: [], verified_at: '2026-01-01T00:00:00.000Z', latest_self_report: { result: 'done', outcome: 'done', summary: 'done', status_text: 'done', at: '2026-01-01T00:00:00.000Z' }, warnings: [] }, error: null, completed_at: '2026-01-01T00:00:00.000Z' },
       }),
     );
     const review: ReviewerResult = {
@@ -237,7 +236,7 @@ describe('PlannerControlExecutor', () => {
         parent: goal.id,
         depth: 2,
         status: 'done',
-        result: { executor: { summary: 'done' } },
+        lifecycle: { status: 'done', result: { kind: 'executor_success', executor: { summary: 'done' }, generated_files: [], verified_at: '2026-01-01T00:00:00.000Z', latest_self_report: { result: 'done', outcome: 'done', summary: 'done', status_text: 'done', at: '2026-01-01T00:00:00.000Z' }, warnings: [] }, error: null, completed_at: '2026-01-01T00:00:00.000Z' },
       }),
     );
     const executor = new PlannerControlExecutor({
@@ -277,19 +276,18 @@ describe('PlannerControlExecutor', () => {
     const blocked = store.read(goal.id);
     expect(blocked).toMatchObject({
       status: 'blocked',
-      error: expect.stringContaining(
-        'Reviewer invocation failed before assessment output could be produced',
-      ),
+      lifecycle: expect.objectContaining({
+        error: expect.stringContaining(
+          'Reviewer invocation failed before assessment output could be produced',
+        ),
+      }),
     });
-    expect(blocked?.error).not.toContain('provider pool exhausted');
-    expect(blocked?.result).toMatchObject({
-      planning: {
-        status: 'blocked',
+    expect(blocked?.lifecycle.error).not.toContain('provider pool exhausted');
+    expect(blocked?.lifecycle.result).toMatchObject({
+      kind: 'planner_blocked',
         resume_reason: 'reviewer_unavailable',
-        failure_kind: 'reviewer_invocation_failed',
         created_cards: [],
         updated_cards: [],
-      },
     });
   });
 

@@ -22,13 +22,13 @@ export function buildProjectRunCompletedPayload(
   assessment?: ReviewAssessment,
 ): ProjectRunCompletedPayload {
   const outcome = card.status === 'blocked' ? 'blocked' : card.status === 'failed' ? 'failed' : 'done';
-  const summary = assessment?.summary ?? card.status_text ?? card.error ?? `project ${outcome}`;
+  const summary = assessment?.summary ?? card.status_text ?? card.lifecycle.error ?? `project ${outcome}`;
   if (outcome === 'blocked') {
     return {
       project_card_id: card.id,
       result: outcome,
       summary,
-      blocked_reason: card.error ?? undefined,
+      blocked_reason: card.lifecycle.error ?? undefined,
     };
   }
   if (outcome === 'failed') {
@@ -36,7 +36,7 @@ export function buildProjectRunCompletedPayload(
       project_card_id: card.id,
       result: outcome,
       summary,
-      failure_kind: card.error ?? undefined,
+      failure_kind: card.lifecycle.error ?? undefined,
     };
   }
   return { project_card_id: card.id, result: outcome, summary };
@@ -62,7 +62,7 @@ export class RuntimeReviewerDispatcher {
   constructor(private readonly deps: RuntimeReviewerDispatcherDeps) {}
 
   async runReviewer(goalId: string): Promise<boolean> {
-    const assessmentId = nextReviewerAssessmentId(goalId, this.deps.cards.read(goalId)?.result);
+    const assessmentId = nextReviewerAssessmentId(goalId, this.deps.cards.read(goalId)?.lifecycle.result);
     const reviewerSessionId = makeReviewerSessionId(goalId, assessmentId);
     let reviewResult: ReviewerResult;
     try {
@@ -95,7 +95,7 @@ export class RuntimeReviewerDispatcher {
       await handleReviewerInvocationFailure({
         goalId,
         error: err,
-        existingResult: this.deps.cards.read(goalId)?.result,
+          existingLifecycle: this.deps.cards.read(goalId)!.lifecycle,
         effects: {
           emitRuntimeDiagnostic: (input) => this.deps.emitRuntimeDiagnostic(input),
           appendRuntimeDiagnostic: (input) => this.deps.eventLogger.appendEvent({ kind: 'runtime_diagnostic', ...input }),

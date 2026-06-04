@@ -1,6 +1,6 @@
 import { describe, expect, it } from '@jest/globals';
 import { handleExecutorCompletion, type ExecutorCompletionEffects } from '../../src/runtime/phases/executor-completion-handler.js';
-import type { CardRecord } from '../../src/schemas/types.js';
+import type { CardLifecycleState, CardRecord } from '../../src/schemas/index.js';
 import type { ExecutorResult } from '../../src/contracts/index.js';
 
 const acceptedAt = '2026-01-01T00:00:00.000Z';
@@ -28,8 +28,8 @@ describe('executor completion handler', () => {
       effects: testEffects({
         transitionCard: async (cardId, event, details) => { calls.push(`${event}:${cardId}:${details.finalStatus}`); return true; },
         now: () => completedAt,
-        readCard: () => cardRecord({ id: 'code-a', result: { previous: true }, completed_at: null }),
-        updateCard: async (_cardId, patch) => { calls.push(`update:${patch.completed_at}`); expect(patch.result).toMatchObject({ kind: 'executor_success', executor: { output: true }, latest_self_report: { result: 'done' } }); },
+        readCard: () => cardRecord({ id: 'code-a', lifecycle: { status: 'running', result: null, error: null, completed_at: null } }),
+        updateCard: async (_cardId, patch) => { calls.push(`update:${patch.lifecycle?.completed_at}`); expect(patch.lifecycle?.result).toMatchObject({ kind: 'executor_success', executor: { output: true }, latest_self_report: { result: 'done' } }); },
         appendChildUnwindToolResult: (cardId, outcome) => { calls.push(`unwind:${cardId}:${outcome}`); },
       }),
     });
@@ -55,7 +55,7 @@ describe('executor completion handler', () => {
       effects: testEffects({
         transitionCard: async (cardId, event, details) => { calls.push(`${event}:${cardId}:${details.finalStatus}:${details.reason}`); return true; },
         now: () => completedAt,
-        updateCard: async (_cardId, patch) => { calls.push(`update:${patch.error}`); expect(patch.result).toMatchObject({ kind: 'executor_failure', partial_result: { evidence_registration_failures: { artifacts: ['artifact failed'] } } }); },
+        updateCard: async (_cardId, patch) => { calls.push(`update:${patch.lifecycle?.error}`); expect(patch.lifecycle?.result).toMatchObject({ kind: 'executor_failure', partial_result: { evidence_registration_failures: { artifacts: ['artifact failed'] } } }); },
         appendChildUnwindToolResult: (cardId, outcome) => { calls.push(`unwind:${cardId}:${outcome}`); },
         emitCardFailed: (cardId, goalId) => { calls.push(`failed:${cardId}:${goalId}`); },
       }),
@@ -86,8 +86,8 @@ describe('executor completion handler', () => {
       attachmentRegistrationErrors: [],
       effects: testEffects({
         transitionCard: async (cardId, event, details) => { calls.push(`${event}:${cardId}:${details.finalStatus}:${details.reason}`); return true; },
-        readCard: () => cardRecord({ id: 'code-a', result: { previous: true }, completed_at: null, error: 'stale' }),
-        updateCard: async (_cardId, patch) => { calls.push(`update:${patch.status}:${patch.error}:${patch.completed_at}`); expect(patch.result).toMatchObject({ kind: 'executor_needs_verification', preserved_result: { previous: true, output: true, fallback_with_evidence: { reason: 'parse_failure' } } }); },
+        readCard: () => cardRecord({ id: 'code-a', lifecycle: { status: 'running', result: null, error: 'stale', completed_at: null } }),
+        updateCard: async (_cardId, patch) => { calls.push(`update:${patch.status}:${patch.lifecycle?.error}:${patch.lifecycle?.completed_at}`); expect(patch.lifecycle?.result).toMatchObject({ kind: 'executor_needs_verification', preserved_result: { output: true, fallback_with_evidence: { reason: 'parse_failure' } } }); },
         appendChildUnwindToolResult: (cardId, outcome) => { calls.push(`unwind:${cardId}:${outcome}`); },
       }),
     });
@@ -110,6 +110,7 @@ function testEffects(overrides: Partial<ExecutorCompletionEffects> = {}): Execut
 }
 
 function cardRecord(overrides: Partial<CardRecord> = {}): CardRecord {
+  const lifecycle = overrides.lifecycle ?? ({ status: overrides.status ?? 'running', result: null, error: null, completed_at: null } as CardLifecycleState);
   return {
     id: overrides.id ?? 'code-a',
     type: overrides.type ?? 'code',
@@ -133,15 +134,13 @@ function cardRecord(overrides: Partial<CardRecord> = {}): CardRecord {
     blocks: overrides.blocks ?? [],
     related: overrides.related ?? [],
     acceptance: overrides.acceptance ?? '',
-    result: overrides.result ?? null,
+    lifecycle,
     metrics: overrides.metrics ?? null,
     artifacts: overrides.artifacts ?? [],
     attachments: overrides.attachments ?? [],
     estimate: overrides.estimate ?? null,
     started_at: overrides.started_at ?? null,
-    completed_at: overrides.completed_at ?? null,
     duration_ms: overrides.duration_ms ?? null,
-    error: overrides.error ?? null,
     status_text: overrides.status_text ?? null,
     status_text_updated_at: overrides.status_text_updated_at ?? null,
     status_text_author_session_id: overrides.status_text_author_session_id ?? null,

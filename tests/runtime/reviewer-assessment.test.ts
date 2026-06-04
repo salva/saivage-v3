@@ -27,7 +27,7 @@ function card(overrides: Partial<CardRecord> = {}): CardRecord {
     attachments: [],
     acceptance: '',
     retries: 0,
-    result: { execution: { status: 'done' } },
+    lifecycle: { status: 'done', result: { kind: 'planner_done', created_cards: [], updated_cards: [], summary: 'done' }, error: null, completed_at: '2026-01-01T00:00:00.000Z' },
     ...overrides,
   } as CardRecord;
 }
@@ -35,7 +35,7 @@ function card(overrides: Partial<CardRecord> = {}): CardRecord {
 describe('reviewer assessment helpers', () => {
   it('generates stable incrementing assessment and session ids', () => {
     expect(nextReviewerAssessmentId('goal/a', undefined)).toBe('assessment-goal-a-1');
-    expect(nextReviewerAssessmentId('goal/a', { review: { assessment_id: 'assessment-goal-a-3' } })).toBe('assessment-goal-a-4');
+    expect(nextReviewerAssessmentId('goal/a', { kind: 'reviewer_pass', planning: { kind: 'planner_done', created_cards: [], updated_cards: [], summary: 'done' }, review_summary: 'ok', assessment_id: 'assessment-goal-a-3' })).toBe('assessment-goal-a-4');
     expect(reviewerSessionId('goal/a', 'assessment-goal-a-4')).toBe('reviewer:goal/a:assessment-goal-a-4');
   });
 
@@ -58,7 +58,7 @@ describe('reviewer assessment helpers', () => {
     expect(validateReviewerAssessment({ goalId: 'goal-a', assessment: assessment({ evidence_card_ids: ['missing'] }), readCard }).reason).toContain('missing');
     cards.set('child-blocked', card({ id: 'child-blocked', status: 'blocked' }));
     expect(validateReviewerAssessment({ goalId: 'goal-a', assessment: assessment({ evidence_card_ids: ['child-blocked'] }), readCard }).reason).toContain('non-complete');
-    cards.set('empty', card({ id: 'empty', artifacts: [], attachments: [], result: null }));
+    cards.set('empty', card({ id: 'empty', artifacts: [], attachments: [], lifecycle: { status: 'done', result: { kind: 'planner_done', created_cards: [], updated_cards: [], summary: 'done' }, error: null, completed_at: '2026-01-01T00:00:00.000Z' } }));
     expect(validateReviewerAssessment({ goalId: 'goal-a', assessment: assessment({ evidence_card_ids: ['empty'] }), readCard }).reason).toContain('without durable');
   });
 });

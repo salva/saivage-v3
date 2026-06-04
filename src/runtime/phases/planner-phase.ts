@@ -1,9 +1,9 @@
-import type { CardRecord, RuntimeState } from '../../schemas/index.js';
+import type { CardRecord, PlannerBlockedResult, RuntimeState } from '../../schemas/index.js';
 import type { PlannerResult } from '../../contracts/index.js';
 import { STARTABLE_STATES, RESTARTABLE_STATES } from '../../permissions/index.js';
 import { blockedPlanningReason, getBlockedPlanning, isReviewerCapacityPlannerBlocker, shouldPreservePrecisePlanningBlocker } from '../planning-blockers.js';
 import { activeRunFromActivationState, plannerActivationStateFromGoal } from '../activation-reducer.js';
-import { lifecyclePatch } from '../terminal-commit/lifecycle-patch.js';
+import { lifecycleCardPatch } from '../terminal-commit/lifecycle-patch.js';
 
 export type GoalActivationTransitionDecision =
   | { kind: 'none' }
@@ -43,15 +43,12 @@ export function shouldBlockNonActionableContinue(input: {
 export function getActiveTokenBudgetPlanningBlocker(input: {
   plannerResult: PlannerResult;
   currentCard: CardRecord | null | undefined;
-}): { currentCard: CardRecord | null; currentPlanning: Record<string, unknown> } | null {
+}): { currentCard: CardRecord | null; currentPlanning: PlannerBlockedResult } | null {
   if (input.plannerResult.status !== 'done') return null;
-  const currentPlanning =
-    input.currentCard?.result && typeof input.currentCard.result === 'object'
-      ? ((input.currentCard.result as Record<string, unknown>).planning as Record<string, unknown> | undefined)
-      : undefined;
-  return currentPlanning?.status === 'blocked' &&
+  const currentPlanning = getBlockedPlanning(input.currentCard ?? null);
+  return currentPlanning &&
     currentPlanning.resume_reason === 'planner_context_length_exceeded' &&
-    currentPlanning.failure_kind === 'token_budget_exceeded'
+    input.currentCard?.status === 'blocked'
     ? { currentCard: input.currentCard ?? null, currentPlanning }
     : null;
 }
@@ -61,32 +58,25 @@ export function buildPlannerBlockedDecision(input: {
   plannerBlockedReason: string | null;
   createdCardIds: readonly string[];
   updatedCardIds: readonly string[];
-}): { blockedReason: string | null; planning: Record<string, unknown>; terminalReason: string } {
+}): { blockedReason: string | null; planning: PlannerBlockedResult; terminalReason: string } {
   const preservePreciseBlocker = shouldPreservePrecisePlanningBlocker(input.currentCard ?? null, 'planner_blocked');
-  const currentResult =
-    input.currentCard?.result && typeof input.currentCard.result === 'object'
-      ? (input.currentCard.result as Record<string, unknown>)
-      : {};
-  const preservedPlanning = preservePreciseBlocker ? (currentResult.planning as Record<string, unknown>) : null;
+  const preservedPlanning = preservePreciseBlocker ? getBlockedPlanning(input.currentCard ?? null) : null;
   const reviewerCapacityPlannerBlocker = isReviewerCapacityPlannerBlocker(input.plannerBlockedReason);
   const blockedReason = preservePreciseBlocker
     ? typeof preservedPlanning?.blocked_reason === 'string'
       ? preservedPlanning.blocked_reason
-      : (input.currentCard?.error ?? input.currentCard?.status_text ?? input.plannerBlockedReason)
+      : (input.currentCard?.lifecycle.error ?? input.currentCard?.status_text ?? input.plannerBlockedReason)
     : input.plannerBlockedReason;
   if (preservePreciseBlocker) {
     return {
       blockedReason,
       planning: {
         ...preservedPlanning,
-        status: 'blocked',
-        blocked_reason: blockedReason,
+        kind: 'planner_blocked',
+        blocked_reason: blockedReason ?? 'Planner blocked without a reason.',
         resume_reason: 'reviewer_unavailable',
-        failure_kind: 'reviewer_invocation_failed',
-        created_cards: input.createdCardIds,
-        updated_cards: input.updatedCardIds,
-        preserved_from_generic_planner_blocked: true,
-        generic_planner_blocked_reason: input.plannerBlockedReason,
+        created_cards: [...input.createdCardIds],
+        updated_cards: [...input.updatedCardIds],
       },
       terminalReason: 'reviewer_invocation_failed',
     };
@@ -95,13 +85,11 @@ export function buildPlannerBlockedDecision(input: {
     return {
       blockedReason,
       planning: {
-        status: 'blocked',
-        blocked_reason: blockedReason,
+        kind: 'planner_blocked',
+        blocked_reason: blockedReason ?? 'Reviewer capacity is unavailable.',
         resume_reason: 'reviewer_unavailable',
-        failure_kind: 'reviewer_invocation_failed',
-        inferred_from_planner_blocked_reason: true,
-        created_cards: input.createdCardIds,
-        updated_cards: input.updatedCardIds,
+        created_cards: [...input.createdCardIds],
+        updated_cards: [...input.updatedCardIds],
       },
       terminalReason: 'reviewer_invocation_failed',
     };
@@ -109,11 +97,11 @@ export function buildPlannerBlockedDecision(input: {
   return {
     blockedReason,
     planning: {
-      status: 'blocked',
-      blocked_reason: input.plannerBlockedReason,
+      kind: 'planner_blocked',
+      blocked_reason: input.plannerBlockedReason ?? 'Planner blocked without a reason.',
       resume_reason: 'planner_blocked',
-      created_cards: input.createdCardIds,
-      updated_cards: input.updatedCardIds,
+      created_cards: [...input.createdCardIds],
+      updated_cards: [...input.updatedCardIds],
     },
     terminalReason: 'planner_blocked',
   };
@@ -122,7 +110,7 @@ export function buildPlannerBlockedDecision(input: {
 export function buildPlannerInvocationFailureBlocker(input: {
   tokenBudgetFailure: boolean;
   providerStatus: number | null;
-}): { blockedReason: string; resumeReason: string; failureKind: string; planning: Record<string, unknown> } {
+}): { blockedReason: string; resumeReason: string; failureKind: string; planning: PlannerBlockedResult } {
   const blockedReason = input.tokenBudgetFailure
     ? 'Planner context exceeded the selected LLM token budget before scheduler output could be produced; compact/trim planner context before resuming.'
     : 'Planner did not emit a terminal scheduler tool within the allowed repair turns; operator or runtime repair must restore a contract-valid planner response before continuing backlog promotion.';
@@ -137,22 +125,17 @@ export function buildPlannerInvocationFailureBlocker(input: {
     resumeReason,
     failureKind,
     planning: {
-      status: 'blocked',
+      kind: 'planner_blocked',
       blocked_reason: blockedReason,
       resume_reason: resumeReason,
-      failure_kind: failureKind,
-      provider_status: input.tokenBudgetFailure ? input.providerStatus : null,
       created_cards: [],
       updated_cards: [],
-      summary: input.tokenBudgetFailure
-        ? 'Planner LLM invocation failed with a context-length/token-budget error before returning scheduler output.'
-        : 'Planner LLM invocation exhausted contract repair turns before returning a terminal scheduler tool.',
     },
   };
 }
 
 export function buildPlannerContinuePatch(input: {
-  existingResult: CardRecord['result'] | undefined;
+  existingLifecycle: CardRecord['lifecycle'] | undefined;
   plannerDeclaredDone: boolean;
   hasUnfinishedChildWork: boolean;
   hasGoalDispatch: boolean;
@@ -164,7 +147,7 @@ export function buildPlannerContinuePatch(input: {
 }
 
 export type PlannerPostDispatchDecision =
-  | { kind: 'block'; blockedReason: string; planning: Record<string, unknown>; terminalReason: string }
+  | { kind: 'block'; blockedReason: string; planning: PlannerBlockedResult; terminalReason: string }
   | { kind: 'continue'; patch: Partial<CardRecord> }
   | { kind: 'exit_with_unfinished_child_work'; patch: Partial<CardRecord>; terminalReason: string }
   | { kind: 'ready_for_review' };
@@ -226,14 +209,11 @@ export function decidePlannerPostDispatch(input: {
       kind: 'block',
       blockedReason,
       planning: {
-        status: 'blocked',
+        kind: 'planner_blocked',
         blocked_reason: blockedReason,
-        planner_declared_done: false,
-        has_unfinished_child_work: false,
         resume_reason: 'non_actionable_continue',
         created_cards: [],
         updated_cards: [],
-        summary: input.plannerResult.summary ?? null,
       },
       terminalReason: 'planner_non_actionable_continue',
     };
@@ -245,14 +225,11 @@ export function decidePlannerPostDispatch(input: {
       kind: 'block',
       blockedReason,
       planning: {
-        status: 'blocked',
+        kind: 'planner_blocked',
         blocked_reason: blockedReason,
-        planner_declared_done: true,
-        has_unfinished_child_work: false,
         resume_reason: 'non_actionable_project_done',
         created_cards: [],
         updated_cards: [],
-        summary: input.plannerResult.summary ?? null,
       },
       terminalReason: 'planner_non_actionable_project_done',
     };
@@ -263,7 +240,7 @@ export function decidePlannerPostDispatch(input: {
   }
 
   const patch = buildPlannerContinuePatch({
-    existingResult: input.currentCard?.result,
+    existingLifecycle: input.currentCard?.lifecycle,
     plannerDeclaredDone: input.plannerResult.status === 'done',
     hasUnfinishedChildWork: input.hasUnfinishedChildWork,
     hasGoalDispatch: input.hasGoalDispatch,
@@ -321,8 +298,8 @@ export function buildPlannerActiveRunPatch(input: {
 
 export interface PlannerActivationSetup {
   plannerSessionId: string;
-  existingResult: Record<string, unknown>;
-  existingPlanning: Record<string, unknown> | null;
+  existingResult: CardRecord['lifecycle']['result'];
+  existingPlanning: PlannerBlockedResult | null;
   retryingTokenBudgetBlocker: boolean;
   retryingTerminalToolBlocker: boolean;
   retryingPlanningBlocker: boolean;
@@ -335,22 +312,12 @@ export function planPlannerActivationSetup(input: {
   initialStatus: CardRecord['status'];
   refreshedCard: CardRecord;
 }): PlannerActivationSetup {
-  const existingResult =
-    input.refreshedCard.result && typeof input.refreshedCard.result === 'object'
-      ? (input.refreshedCard.result as Record<string, unknown>)
-      : {};
-  const existingPlanning =
-    existingResult.planning && typeof existingResult.planning === 'object'
-      ? (existingResult.planning as Record<string, unknown>)
-      : null;
+  const existingResult = input.refreshedCard.lifecycle.result;
+  const existingPlanning = getBlockedPlanning(input.refreshedCard);
   const hasTokenBudgetPlanningBlocker =
-    existingPlanning?.status === 'blocked' &&
-    existingPlanning.resume_reason === 'planner_context_length_exceeded' &&
-    existingPlanning.failure_kind === 'token_budget_exceeded';
+    existingPlanning?.resume_reason === 'planner_context_length_exceeded';
   const hasTerminalToolPlanningBlocker =
-    existingPlanning?.status === 'blocked' &&
-    existingPlanning.resume_reason === 'planner_terminal_tool_exhausted' &&
-    existingPlanning.failure_kind === 'planner_contract_terminal_tool_exhausted';
+    existingPlanning?.resume_reason === 'planner_terminal_tool_exhausted';
   const retryingTokenBudgetBlocker =
     input.initialStatus !== 'active' &&
     input.initialStatus !== 'running' &&
@@ -373,7 +340,7 @@ export function planPlannerActivationSetup(input: {
 }
 
 export function buildPlannerActivationPlanningPatch(input: {
-  existingResult: Record<string, unknown>;
+  existingResult: CardRecord['lifecycle']['result'];
   existingError: string | null | undefined;
   existingStatusText: string | null | undefined;
   retryingTokenBudgetBlocker: boolean;
@@ -387,13 +354,13 @@ export function buildPlannerActivationPlanningPatch(input: {
 }
 
 export function buildProjectPlannerRetryPatch(input: {
-  existingResult: CardRecord['result'] | undefined;
+  existingLifecycle: CardRecord['lifecycle'] | undefined;
   retryingTokenBudgetBlocker: boolean;
   compactedPersistedPlannerHistory: boolean;
 }): Partial<CardRecord> {
   void input;
   return {
-    ...lifecyclePatch({ status: 'active', result: null, error: null, completed_at: null }),
+    ...lifecycleCardPatch({ status: 'active', result: null, error: null, completed_at: null }),
     status_text: null,
   };
 }

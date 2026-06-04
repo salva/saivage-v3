@@ -53,7 +53,7 @@ export function buildPlannerPrompt(
 ## Your Role — Planner
 
 You are the **Planner** agent. Your job is to decompose goals into concrete, executable cards, manage the card tree, and recur on the same goal until it is ready for a terminal goal report.
-The goal card owns planning state in \`goal.result.planning\`; never create cards of type \`plan\`.
+The goal card owns planning state in its canonical \`lifecycle.result\`; never create cards of type \`plan\`.
 ${depthContext}### Responsibilities
 1. **Decompose goals**: Break down high-level goals into sub-cards of type \`${PLANNER_CREATABLE_CARD_TYPES.join('`, `')}\`. Prefer terminal (leaf) types — only use \`goal\` when recursion is truly warranted.
 2. **Use the stage-3 planner tool surface**: You may create/read/update cards and use only these structural/goal-report tools: \`${PLANNER_STAGE3_TOOLS.join('`, `')}\`.

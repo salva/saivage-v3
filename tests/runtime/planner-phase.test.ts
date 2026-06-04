@@ -1,7 +1,9 @@
 import { describe, expect, it } from '@jest/globals';
 import { buildPlannerActivationPlanningPatch, buildPlannerActiveRunPatch, buildPlannerBlockedDecision, buildPlannerContinuePatch, buildPlannerInvocationFailureBlocker, buildProjectPlannerRetryPatch, decideGoalActivationTransition, decidePlannerPostDispatch, describeProjectPlannerRetry, getActiveTokenBudgetPlanningBlocker, hasPlannerAction, planPlannerActivationSetup, shouldBlockNonActionableContinue, summarizePlannerPostDispatch } from '../../src/runtime/phases/planner-phase.js';
-import type { CardRecord } from '../../src/schemas/types.js';
+import type { CardRecord, PlannerBlockedResult } from '../../src/schemas/index.js';
 import type { PlannerResult } from '../../src/contracts/index.js';
+
+const tokenBudgetPlanning: PlannerBlockedResult = { kind: 'planner_blocked', blocked_reason: 'Token budget exceeded', resume_reason: 'planner_context_length_exceeded', created_cards: [], updated_cards: [] };
 
 function plannerResult(status: PlannerResult['status']): PlannerResult {
   return { status, summary: 'summary', created_cards: [], updated_cards: [] } as PlannerResult;
@@ -28,21 +30,21 @@ describe('planner phase decisions', () => {
   });
 
   it('detects active token-budget planning blockers on planner done', () => {
-    const card = { result: { planning: { status: 'blocked', resume_reason: 'planner_context_length_exceeded', failure_kind: 'token_budget_exceeded' } } } as unknown as CardRecord;
-    expect(getActiveTokenBudgetPlanningBlocker({ plannerResult: plannerResult('done'), currentCard: card })).toEqual({ currentCard: card, currentPlanning: card.result!.planning });
+    const card = { status: 'blocked', lifecycle: { status: 'blocked', result: tokenBudgetPlanning, error: 'Token budget exceeded', completed_at: null } } as unknown as CardRecord;
+    expect(getActiveTokenBudgetPlanningBlocker({ plannerResult: plannerResult('done'), currentCard: card })).toEqual({ currentCard: card, currentPlanning: card.lifecycle.result });
     expect(getActiveTokenBudgetPlanningBlocker({ plannerResult: plannerResult('continue'), currentCard: card })).toBeNull();
   });
 
   it('builds generic and reviewer-unavailable planner blocker planning payloads', () => {
     expect(buildPlannerBlockedDecision({ currentCard: null, plannerBlockedReason: 'blocked', createdCardIds: ['a'], updatedCardIds: [] })).toEqual({
       blockedReason: 'blocked',
-      planning: { status: 'blocked', blocked_reason: 'blocked', resume_reason: 'planner_blocked', created_cards: ['a'], updated_cards: [] },
+      planning: { kind: 'planner_blocked', blocked_reason: 'blocked', resume_reason: 'planner_blocked', created_cards: ['a'], updated_cards: [] },
       terminalReason: 'planner_blocked',
     });
     expect(buildPlannerBlockedDecision({ currentCard: null, plannerBlockedReason: 'report_goal_done reviewer unavailable: exhausted', createdCardIds: [], updatedCardIds: ['b'] })).toEqual(expect.objectContaining({
       blockedReason: 'report_goal_done reviewer unavailable: exhausted',
       terminalReason: 'reviewer_invocation_failed',
-      planning: expect.objectContaining({ resume_reason: 'reviewer_unavailable', failure_kind: 'reviewer_invocation_failed', updated_cards: ['b'] }),
+      planning: expect.objectContaining({ kind: 'planner_blocked', resume_reason: 'reviewer_unavailable', updated_cards: ['b'] }),
     }));
   });
 
@@ -50,23 +52,22 @@ describe('planner phase decisions', () => {
     expect(buildPlannerInvocationFailureBlocker({ tokenBudgetFailure: true, providerStatus: 400 })).toEqual(expect.objectContaining({
       resumeReason: 'planner_context_length_exceeded',
       failureKind: 'token_budget_exceeded',
-      planning: expect.objectContaining({ provider_status: 400 }),
+      planning: expect.objectContaining({ kind: 'planner_blocked' }),
     }));
     expect(buildPlannerInvocationFailureBlocker({ tokenBudgetFailure: false, providerStatus: 400 })).toEqual(expect.objectContaining({
       resumeReason: 'planner_terminal_tool_exhausted',
       failureKind: 'planner_contract_terminal_tool_exhausted',
-      planning: expect.objectContaining({ provider_status: null }),
+      planning: expect.objectContaining({ kind: 'planner_blocked' }),
     }));
   });
 
   it('does not build legacy planner continue lifecycle overlays', () => {
     expect(buildPlannerContinuePatch({
-      existingResult: {
-        previous: true,
-        planning: {
-          persisted_history_compacted: true,
-          previous_failure_kind: 'token_budget_exceeded',
-        },
+      existingLifecycle: {
+        status: 'running',
+        result: null,
+        error: null,
+        completed_at: null,
       },
       plannerDeclaredDone: true,
       hasUnfinishedChildWork: true,
@@ -89,7 +90,7 @@ describe('planner phase decisions', () => {
     })).toEqual({
       kind: 'block',
       blockedReason: 'blocked by planner',
-      planning: { status: 'blocked', blocked_reason: 'blocked by planner', resume_reason: 'planner_blocked', created_cards: ['created-a'], updated_cards: [] },
+      planning: { kind: 'planner_blocked', blocked_reason: 'blocked by planner', resume_reason: 'planner_blocked', created_cards: ['created-a'], updated_cards: [] },
       terminalReason: 'planner_blocked',
     });
   });
@@ -203,7 +204,7 @@ describe('planner phase decisions', () => {
       initialStatus: 'blocked',
       refreshedCard: {
         status: 'active',
-        result: { previous: true, planning: { status: 'blocked', resume_reason: 'planner_context_length_exceeded', failure_kind: 'token_budget_exceeded' } },
+        lifecycle: { status: 'active', result: tokenBudgetPlanning, error: null, completed_at: null },
       } as unknown as CardRecord,
     });
     expect(retry).toEqual(expect.objectContaining({
@@ -213,12 +214,12 @@ describe('planner phase decisions', () => {
       shouldCompactPersistedPlannerHistory: true,
       shouldUpdatePlanning: true,
     }));
-    expect(retry.existingResult).toEqual(expect.objectContaining({ previous: true }));
+    expect(retry.existingResult).toEqual(tokenBudgetPlanning);
 
     expect(planPlannerActivationSetup({
       goalId: 'goal-a',
       initialStatus: 'active',
-      refreshedCard: { status: 'active', result: null } as unknown as CardRecord,
+      refreshedCard: { status: 'active', lifecycle: { status: 'active', result: null, error: null, completed_at: null } } as unknown as CardRecord,
     })).toEqual(expect.objectContaining({
       existingPlanning: null,
       retryingPlanningBlocker: false,
@@ -229,7 +230,7 @@ describe('planner phase decisions', () => {
 
   it('builds planner activation patches without lifecycle overlays', () => {
     const patch = buildPlannerActivationPlanningPatch({
-      existingResult: { previous: true },
+      existingResult: null,
       existingError: 'old error',
       existingStatusText: 'old status',
       retryingTokenBudgetBlocker: true,
@@ -241,11 +242,11 @@ describe('planner phase decisions', () => {
 
   it('builds project planner retry patches and descriptions', () => {
     const patch = buildProjectPlannerRetryPatch({
-      existingResult: { previous: true },
+      existingLifecycle: { status: 'blocked', result: tokenBudgetPlanning, error: 'Token budget exceeded', completed_at: null },
       retryingTokenBudgetBlocker: false,
       compactedPersistedPlannerHistory: true,
     });
-    expect(patch).toEqual({ status: 'active', result: null, error: null, completed_at: null, status_text: null });
+    expect(patch).toEqual({ status: 'active', lifecycle: { status: 'active', result: null, error: null, completed_at: null }, status_text: null });
     expect(describeProjectPlannerRetry({ retryingTokenBudgetBlocker: true }).intentReason).toContain('token-budget blocker');
     expect(describeProjectPlannerRetry({ retryingTokenBudgetBlocker: false }).diagnosticMessage).toContain('terminal-tool exhaustion');
   });

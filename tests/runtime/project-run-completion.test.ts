@@ -33,7 +33,7 @@ describe('project run completion helper', () => {
   });
 
   it('builds blocked and failed payload details', () => {
-    expect(buildProjectRunCompletedPayload(card({ status: 'blocked', error: 'needs operator' }))).toEqual({ project_card_id: 'project', result: 'blocked', summary: 'needs operator', blocked_reason: 'needs operator' });
-    expect(buildProjectRunCompletedPayload(card({ status: 'failed', error: 'planner_error' }))).toEqual({ project_card_id: 'project', result: 'failed', summary: 'planner_error', failure_kind: 'planner_error' });
+    expect(buildProjectRunCompletedPayload(card({ status: 'blocked', lifecycle: { status: 'blocked', result: { kind: 'planner_blocked', blocked_reason: 'needs operator', resume_reason: 'planner_blocked', created_cards: [], updated_cards: [] }, error: 'needs operator', completed_at: null } }))).toEqual({ project_card_id: 'project', result: 'blocked', summary: 'needs operator', blocked_reason: 'needs operator' });
+    expect(buildProjectRunCompletedPayload(card({ status: 'failed', lifecycle: { status: 'failed', result: { kind: 'executor_failure', error: 'planner_error', partial_result: null, latest_self_report: { result: 'failed', outcome: 'failed', summary: 'planner_error', status_text: 'failed', at: '2026-01-01T00:00:00.000Z' } }, error: 'planner_error', completed_at: '2026-01-01T00:00:00.000Z' } }))).toEqual({ project_card_id: 'project', result: 'failed', summary: 'planner_error', failure_kind: 'planner_error' });
   });
 });

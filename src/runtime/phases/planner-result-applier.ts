@@ -1,11 +1,11 @@
 import type { PlannerResult } from '../../contracts/index.js';
 import type { CardRecord, CardStatus } from '../../schemas/index.js';
-import type { CardMutationContext } from '../../cards/store-api.js';
+import type { CardMutationContext, NewCardInput } from '../../cards/store-api.js';
 import { commitPlannerDone } from '../terminal-commit/index.js';
 
 export interface PlannerResultCardStore {
   read(cardId: string): CardRecord | null | undefined;
-  create(card: Omit<CardRecord, 'id' | 'created_at' | 'updated_at' | 'version_seq' | 'position'> & { id?: string }): unknown;
+  create(card: NewCardInput): unknown;
   mutateCard(cardId: string, changes: Partial<CardRecord>, meta: CardMutationContext): unknown;
 }
 

@@ -272,7 +272,7 @@ describe('E2E — Full Project Lifecycle', () => {
 
     const planCard = store.read('plan-e2e-goal');
     expect(planCard).toBeNull();
-    expect(goal!.result?.planning).toMatchObject({ status: 'done' });
+    expect(goal!.lifecycle.result).toMatchObject({ kind: 'reviewer_pass' });
 
     const updatedCard1 = store.read('code-e2e-1');
     expect(updatedCard1!.artifacts.length).toBeGreaterThan(0);

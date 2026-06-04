@@ -66,6 +66,7 @@ import {
   prunePartialPatch,
   summarizeChangedFields,
   validateTransition as validateLifecycleTransition,
+  type NewCardInput,
 } from './lifecycle.js';
 
 export interface CardMutationContext {
@@ -313,9 +314,7 @@ export class CardStore {
 
   // ── Mutations ────────────────────────────────────────────────
 
-  create(
-    input: Omit<CardRecord, 'created_at' | 'updated_at' | 'id' | 'version_seq' | 'position'> & { id?: string },
-  ): CardRecord {
+  create(input: NewCardInput): CardRecord {
     assertCanCreateCard(input);
     this.refreshState();
     const nowStamp = now();
@@ -496,7 +495,20 @@ export class CardStore {
     if (!card) throw new Error(`Card '${id}' not found.`);
     this.validateTransition(card.status, newStatus);
     if (card.status === newStatus) return card;
-    return this.applyPatch(id, { status: newStatus }, 'status', {
+    const lifecycle = (() => {
+      switch (newStatus) {
+        case 'drafting':
+        case 'backlog':
+        case 'active':
+        case 'running':
+        case 'changed':
+        case 'cancelled':
+          return { status: newStatus, result: null, error: null, completed_at: null } as CardRecord['lifecycle'];
+        default:
+          return card.lifecycle;
+      }
+    })();
+    return this.applyPatch(id, { status: newStatus, lifecycle }, 'status', {
       actor: 'runtime',
       surface: 'runtime',
       reason: `status -> ${newStatus}`,
@@ -556,7 +568,7 @@ export class CardStore {
         card,
         children: this.state.childrenOf(card.id),
         history: existsSync(historyFile) ? readFileSync(historyFile, 'utf-8') : '',
-        result: card.result,
+        result: card.lifecycle.result,
         evidence_refs: { artifacts: card.artifacts, attachments: card.attachments },
       };
       writeFileAtomic(archiveCardPath(this.projectRoot, card.id), JSON.stringify(archivePayload, null, 2) + '\n');

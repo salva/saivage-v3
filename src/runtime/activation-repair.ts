@@ -40,10 +40,7 @@ export class ActivationRepairRunner {
   repairStartupActiveCardRun(previousState: RuntimeState | null): Promise<RuntimeState | null> {
     const run = rehydrateStartupActivation(previousState)?.run ?? null;
     const card = run ? this.deps.cards.read(run.card_id) : null;
-    const persistedReview =
-      card?.result && typeof card.result === 'object'
-        ? (card.result as { review?: unknown }).review
-        : undefined;
+    const persistedReview = card?.lifecycle.result?.kind === 'reviewer_pass' ? card.lifecycle.result : undefined;
     const decision = decideStartupActiveRunRepair({
       previousState,
       card,

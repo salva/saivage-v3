@@ -897,16 +897,15 @@ describe('runtime command ledger target contract (Wave 1)', () => {
       expect(invokeReviewer).not.toHaveBeenCalled();
       const project = cards.read('project')!;
       expect(project.status).toBe('blocked');
-      expect(project.result?.planning).toEqual(
+      expect(project.lifecycle.result).toEqual(
         expect.objectContaining({
-          status: 'blocked',
+          kind: 'planner_blocked',
           resume_reason: 'non_actionable_project_done',
-          planner_declared_done: true,
           created_cards: [],
           updated_cards: [],
         }),
       );
-      expect(project.error).toContain('Project planner returned done without creating/updating cards');
+      expect(project.lifecycle.error).toContain('Project planner returned done without creating/updating cards');
       const state = readRuntimeState(projectRoot)!;
       expect(state.status).toBe('idle');
       expect(state.current_card_id).toBeNull();

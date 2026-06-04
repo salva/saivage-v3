@@ -1,13 +1,9 @@
-import type { CardRecord, ReviewAssessment } from '../schemas/index.js';
+import type { CardRecord, CardLifecycleState, ReviewAssessment } from '../schemas/index.js';
 import type { ReviewerResult } from '../contracts/index.js';
 
-export function nextReviewerAssessmentId(goalId: string, existingResult: CardRecord['result'] | undefined): string {
+export function nextReviewerAssessmentId(goalId: string, existingResult: CardLifecycleState['result'] | undefined): string {
   const escapedGoal = goalId.replace(/[^A-Za-z0-9_.:-]/g, '-');
-  const review =
-    existingResult && typeof existingResult === 'object'
-      ? (existingResult as { review?: { assessment_id?: unknown } }).review
-      : undefined;
-  const prior = typeof review?.assessment_id === 'string' ? review.assessment_id : '';
+  const prior = existingResult?.kind === 'reviewer_pass' ? existingResult.assessment_id : '';
   const match = prior.match(new RegExp(`^assessment-${escapedGoal}-(\\d+)$`));
   const next = match ? Number(match[1]) + 1 : 1;
   return `assessment-${escapedGoal}-${next}`;
@@ -56,7 +52,7 @@ export function validateReviewerAssessment(input: {
     if (evidenceId !== goalId && card.status !== 'done') {
       return { valid: false, reason: `Reviewer cited non-complete evidence card '${evidenceId}' with status '${card.status}'.` };
     }
-    if ((card.artifacts?.length ?? 0) === 0 && (card.attachments?.length ?? 0) === 0 && !card.result) {
+    if ((card.artifacts?.length ?? 0) === 0 && (card.attachments?.length ?? 0) === 0 && !card.lifecycle.result) {
       return { valid: false, reason: `Reviewer cited card '${evidenceId}' without durable result, artifact, or attachment evidence.` };
     }
   }

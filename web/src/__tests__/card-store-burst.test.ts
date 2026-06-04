@@ -88,7 +88,8 @@ function makeCard(overrides: Partial<CardRecord> = {}): CardRecord {
     attachments: [],
     retries: 0,
     ...overrides,
-  };
+    lifecycle: (overrides.lifecycle ?? { status: overrides.status ?? 'active', result: null, error: null, completed_at: null }) as CardRecord['lifecycle'],
+  } as CardRecord;
 }
 
 function mlr(cards: CardRecord[], total?: number): CardListResponse {

@@ -1,6 +1,5 @@
 import { basename } from 'node:path';
 import { CardStore } from '../../cards/store-api.js';
-import { projectCardLifecycleState } from '../../schemas/index.js';
 import type { CardHistoryEntry, CardLifecycleState, CardRecord } from '../../schemas/index.js';
 import { allowedActions } from '../../permissions/index.js';
 import { readRuntimeState } from '../../runtime/state-api.js';
@@ -12,7 +11,7 @@ export type ReadModelResult<T> = { statusCode?: number; body: T };
 type CardReadModel = CardRecord & { lifecycle: CardLifecycleState };
 
 function withOperatorAllowedActions(card: CardRecord): CardReadModel {
-  return { ...card, lifecycle: projectCardLifecycleState(card), allowedActions: allowedActions('operator', card.status) };
+  return { ...card, allowedActions: allowedActions('operator', card.lifecycle.status) };
 }
 
 function redactValue<T>(value: T, source = 'cards-read-model'): T {

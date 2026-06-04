@@ -43,7 +43,7 @@ export async function handleExecutorCompletion(input: {
         executor: preservedExecutorResult(latestCard, input.execResult),
         generatedFiles: resultGeneratedFiles(input.execResult),
         acceptedAt: input.acceptedAt,
-        completedAt: latestCard.completed_at ?? input.effects.now(),
+        completedAt: latestCard.lifecycle.completed_at ?? input.effects.now(),
         summary: input.execResult.summary ?? input.execResult.status_text,
         statusText: input.execResult.status_text,
         sessionId: input.lastSessionId,
@@ -56,7 +56,7 @@ export async function handleExecutorCompletion(input: {
           error: input.registrationError ?? input.execResult.error ?? input.execResult.summary ?? input.execResult.status_text,
           partialResult: failedPartialResult(input),
           acceptedAt: input.acceptedAt,
-          completedAt: latestCard.completed_at ?? input.effects.now(),
+           completedAt: latestCard.lifecycle.completed_at ?? input.effects.now(),
           statusText: input.execResult.status_text,
           sessionId: input.lastSessionId,
           transitionReason: outcomeDecision.reason,
@@ -100,7 +100,7 @@ function executorResultPayload(execResult: ExecutorResult): Record<string, unkno
 
 function preservedVerificationResult(card: CardRecord, execResult: ExecutorResult): Record<string, unknown> {
   return {
-    ...recordResult(card.result),
+    ...recordResult(card.lifecycle.result),
     ...executorResultPayload(execResult),
     fallback_with_evidence: execResult.fallback_with_evidence,
   };
@@ -108,14 +108,14 @@ function preservedVerificationResult(card: CardRecord, execResult: ExecutorResul
 
 function preservedExecutorResult(card: CardRecord, execResult: ExecutorResult): Record<string, unknown> {
   return {
-    ...recordResult(card.result),
+    ...recordResult(card.lifecycle.result),
     ...executorResultPayload(execResult),
   };
 }
 
 function failedPartialResult(input: Parameters<typeof handleExecutorCompletion>[0]): Record<string, unknown> | null {
   const partial = {
-    ...recordResult((input.effects.readCard(input.cardId) ?? input.card).result),
+    ...recordResult((input.effects.readCard(input.cardId) ?? input.card).lifecycle.result),
     ...executorResultPayload(input.execResult),
     ...(input.registrationFailed
       ? {
@@ -129,7 +129,7 @@ function failedPartialResult(input: Parameters<typeof handleExecutorCompletion>[
   return Object.keys(partial).length > 0 ? partial : null;
 }
 
-function recordResult(result: CardRecord['result']): Record<string, unknown> {
+function recordResult(result: CardLifecycleState['result']): Record<string, unknown> {
   return result && typeof result === 'object' && !Array.isArray(result) ? result as Record<string, unknown> : {};
 }
 

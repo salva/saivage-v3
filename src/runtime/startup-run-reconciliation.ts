@@ -1,5 +1,4 @@
 import type { CardRecord, RuntimeRunRecord, RuntimeState } from '../schemas/index.js';
-import { projectCardLifecycleState } from '../schemas/index.js';
 import type { EventLogger } from '../observability/index.js';
 import { PROJECT_CARD_ID } from '../cards/store-api.js';
 import { planIdleRunningRootRunReconciliation } from './runtime-core.js';
@@ -19,7 +18,7 @@ export function reconcileIdleRunningRootRuns(input: {
 }): RuntimeState {
   const projectCard = input.cards.read(PROJECT_CARD_ID);
   const projectTerminal = projectCard ? TERMINAL_STATUSES.has(projectCard.status) : false;
-  const projectLifecycle = projectCard && projectTerminal ? projectCardLifecycleState(projectCard) : null;
+  const projectLifecycle = projectCard && projectTerminal ? projectCard.lifecycle : null;
   const plan = planIdleRunningRootRunReconciliation({
     state: input.state,
     projectTerminal,

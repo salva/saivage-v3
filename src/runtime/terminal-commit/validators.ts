@@ -88,7 +88,7 @@ export function validateEvidenceCompleteness(input: {
   evidenceCardIds?: string[];
   assessment?: Pick<ReviewAssessment, 'evidence_card_ids'>;
 }): EvidenceCompleteness {
-  const evidenceIds = input.evidenceCardIds ?? input.assessment?.evidence_card_ids ?? evidenceIdsFromResult(input.card.result);
+  const evidenceIds = input.evidenceCardIds ?? input.assessment?.evidence_card_ids ?? evidenceIdsFromResult(input.card.lifecycle.result);
   const reasons: string[] = [];
   if (evidenceIds.length === 0) reasons.push('Reviewer assessment must cite at least one evidence_card_id.');
 
@@ -101,7 +101,7 @@ export function validateEvidenceCompleteness(input: {
     if (evidenceId !== input.card.id && evidenceCard.status !== 'done') {
       reasons.push(`Reviewer cited non-complete evidence card '${evidenceId}' with status '${evidenceCard.status}'.`);
     }
-    if ((evidenceCard.artifacts?.length ?? 0) === 0 && (evidenceCard.attachments?.length ?? 0) === 0 && !evidenceCard.result) {
+    if ((evidenceCard.artifacts?.length ?? 0) === 0 && (evidenceCard.attachments?.length ?? 0) === 0 && !evidenceCard.lifecycle.result) {
       reasons.push(`Reviewer cited card '${evidenceId}' without durable result, artifact, or attachment evidence.`);
     }
   }
@@ -109,19 +109,7 @@ export function validateEvidenceCompleteness(input: {
   return { semantically_complete: reasons.length === 0, reasons };
 }
 
-function evidenceIdsFromResult(result: CardRecord['result'] | undefined): string[] {
-  const direct = recordValue(result, 'evidence_card_ids');
-  if (Array.isArray(direct)) return direct.filter((value): value is string => typeof value === 'string');
-  const review = recordValue(result, 'review');
-  const nested = recordValue(review, 'evidence_card_ids');
-  if (Array.isArray(nested)) return nested.filter((value): value is string => typeof value === 'string');
+function evidenceIdsFromResult(result: CardLifecycleState['result']): string[] {
+  if (result?.kind === 'executor_success') return result.generated_files;
   return [];
-}
-
-function recordValue(value: unknown, key: string): unknown {
-  return isRecord(value) ? value[key] : undefined;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === 'object' && !Array.isArray(value);
 }

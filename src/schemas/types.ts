@@ -58,13 +58,15 @@ export type ControlActionSurface = 'web-chat' | 'telegram' | 'rest' | 'cli' | 'r
 export interface ArtifactRef { id: string; card_id: string; path: string; type: 'model' | 'data' | 'config' | 'log' | 'report' | 'other'; description: string; retain: boolean; created_at: string; }
 export interface AttachmentRef { id: string; card_id: string; path: string; mime: string; title: string; description?: string; created_at: string; }
 export interface CardMetadata { max_review_retries?: number; [key: string]: unknown; }
+import type { CardLifecycleState } from './lifecycle.js';
+
 export interface CardRecord {
   id: string; type: CardType; parent: string | null; depth: number; position: number; title: string; description: string; status: CardStatus; planner_state?: PlannerState; plannerState?: PlannerState;
   subtype?: string | null; instructions_file?: string | null; tags: string[]; priority: number; urgency: Urgency; created_by: CreatedBy;
   created_at: string; updated_at: string; version_seq: number; assigned_to?: string | null; depends_on: string[]; blocks: string[]; related: string[];
-  acceptance: string; result?: Record<string, unknown> | null; metrics?: Record<string, number | string | boolean | null> | null;
-  artifacts: ArtifactRef[]; attachments: AttachmentRef[]; estimate?: string | null; started_at?: string | null; completed_at?: string | null;
-  duration_ms?: number | null; error?: string | null; status_text?: string | null; status_text_updated_at?: string | null;
+  acceptance: string; lifecycle: CardLifecycleState; metrics?: Record<string, number | string | boolean | null> | null;
+  artifacts: ArtifactRef[]; attachments: AttachmentRef[]; estimate?: string | null; started_at?: string | null;
+  duration_ms?: number | null; status_text?: string | null; status_text_updated_at?: string | null;
   status_text_author_session_id?: string | null; latest_self_report?: Record<string, unknown> | null; metadata?: CardMetadata | null; allowedActions?: CardAction[]; retries: number;
 }
 export type CardHistoryKind = 'update' | 'status' | 'mutate' | 'depends' | 'delete' | 'archive';

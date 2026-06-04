@@ -1,5 +1,6 @@
 import type { ReviewerResult } from '../../contracts/index.js';
-import type { CardRecord, RuntimeState } from '../../schemas/index.js';
+import type { CardLifecycleState, CardRecord, RuntimeState } from '../../schemas/index.js';
+import { lifecycleCardPatch } from '../terminal-commit/lifecycle-patch.js';
 
 export type ReviewerPhaseDecision =
   | { kind: 'invalid_pass'; reason: string }
@@ -18,24 +19,24 @@ export function decideReviewerPhase(input: {
 }
 
 export function buildReviewerInvocationFailurePatch(input: {
-  existingResult: CardRecord['result'] | undefined;
+  existingLifecycle: CardLifecycleState;
   blockedReason: string;
 }): Partial<CardRecord> {
-  return {
+  const lifecycle = {
     status: 'blocked',
     error: input.blockedReason,
-    status_text: input.blockedReason,
+    completed_at: null,
     result: {
-      ...(input.existingResult ?? {}),
-      planning: {
-        status: 'blocked',
-        blocked_reason: input.blockedReason,
-        resume_reason: 'reviewer_unavailable',
-        failure_kind: 'reviewer_invocation_failed',
-        created_cards: [],
-        updated_cards: [],
-      },
+      kind: 'planner_blocked',
+      blocked_reason: input.blockedReason,
+      resume_reason: 'reviewer_unavailable',
+      created_cards: [],
+      updated_cards: [],
     },
+  } satisfies Extract<CardLifecycleState, { status: 'blocked' }>;
+  return {
+    ...lifecycleCardPatch(lifecycle),
+    status_text: input.blockedReason,
   };
 }
 

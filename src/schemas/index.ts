@@ -46,7 +46,6 @@ export {
   needsVerificationResultSchema,
   plannerBlockedResultSchema,
   plannerDoneResultSchema,
-  projectCardLifecycleState,
   reviewerCorrectionResultSchema,
   reviewerPassResultSchema,
   runtimeRunOutcomeSchema,

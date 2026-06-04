@@ -1,4 +1,5 @@
 import type { CardRecord, CardStatus, CardType } from '../schemas/index.js';
+import type { CardLifecycleState } from '../schemas/index.js';
 import { PROJECT_CARD_ID } from './project-card.js';
 
 export interface CardMutationContext {
@@ -7,7 +8,7 @@ export interface CardMutationContext {
   reason?: string;
 }
 
-export type NewCardInput = Omit<CardRecord, 'created_at' | 'updated_at' | 'id' | 'version_seq' | 'position'> & { id?: string };
+export type NewCardInput = Omit<CardRecord, 'created_at' | 'updated_at' | 'id' | 'version_seq' | 'position' | 'lifecycle'> & { id?: string; lifecycle?: CardLifecycleState };
 
 const CRITICAL_FIELDS: ReadonlySet<string> = new Set([
   'type',
@@ -43,9 +44,7 @@ const LIFECYCLE_LOCKED_STATES: ReadonlySet<CardStatus> = new Set<CardStatus>([
 
 const TERMINAL_LIFECYCLE_FIELDS: ReadonlySet<string> = new Set([
   'status',
-  'result',
-  'error',
-  'completed_at',
+  'lifecycle',
 ]);
 
 const EXPLICIT_LIFECYCLE_WRITE_REASONS: ReadonlySet<string> = new Set([
@@ -174,7 +173,7 @@ export function validateMutablePatch(
   const reopensLifecycle = changes.status !== undefined && changes.status !== existing.status && !LIFECYCLE_LOCKED_STATES.has(changes.status);
   const explicitLifecycleWrite = ctx?.surface === 'runtime' && ctx.actor === 'runtime' && !!ctx.reason && EXPLICIT_LIFECYCLE_WRITE_REASONS.has(ctx.reason);
   const explicitStatusTransition =
-    changedKeys.length === 1 &&
+    (changedKeys.length === 1 || (changedKeys.length === 2 && changedKeys.includes('lifecycle'))) &&
     changes.status !== undefined &&
     ctx?.surface === 'runtime' &&
     ctx.actor === 'runtime' &&
@@ -294,6 +293,8 @@ export function normalizeNewCardId(
 }
 
 export function buildNewCard({ input, id, depth, position, timestamp }: BuildNewCardParams): CardRecord {
+  const lifecycle = input.lifecycle ?? ({ status: input.status, result: null, error: null, completed_at: null } as CardLifecycleState);
+  if (input.status !== lifecycle.status) throw new Error(`New card status '${input.status}' must match lifecycle.status '${lifecycle.status}'.`);
   return {
     id,
     type: input.type,
@@ -316,15 +317,13 @@ export function buildNewCard({ input, id, depth, position, timestamp }: BuildNew
     blocks: [],
     related: input.related,
     acceptance: input.acceptance,
-    result: input.result ?? null,
+    lifecycle,
     metrics: input.metrics ?? null,
     artifacts: input.artifacts,
     attachments: input.attachments,
     estimate: input.estimate ?? null,
     started_at: input.started_at ?? null,
-    completed_at: input.completed_at ?? null,
     duration_ms: input.duration_ms ?? null,
-    error: input.error ?? null,
     status_text: input.status_text ?? null,
     status_text_updated_at: input.status_text_updated_at ?? null,
     status_text_author_session_id: input.status_text_author_session_id ?? null,

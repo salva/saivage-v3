@@ -59,7 +59,8 @@ export function summarizeEvidenceRefsForPlannerContext(refs: unknown[] | undefin
 }
 
 export function buildGoalEvidenceContext(input: { goalId: string; cards: RuntimeContextCardReader }): string {
-  const reviewState = input.cards.read(input.goalId)?.result?.review as Record<string, unknown> | undefined;
+  const goalResult = input.cards.read(input.goalId)?.lifecycle.result;
+  const reviewState = goalResult?.kind === 'reviewer_pass' ? goalResult : undefined;
   const children = input.cards
     .listChildren(input.goalId)
     .map((id) => input.cards.read(id))
@@ -69,8 +70,8 @@ export function buildGoalEvidenceContext(input: { goalId: string; cards: Runtime
       type: card.type,
       status: card.status,
       status_text: card.status_text ? truncatePlannerContextString(card.status_text) : null,
-      result_summary: summarizeForPlannerContext(card.result ?? null),
-      error: card.error ? truncatePlannerContextString(card.error) : null,
+      result_summary: summarizeForPlannerContext(card.lifecycle.result),
+      error: card.lifecycle.error ? truncatePlannerContextString(card.lifecycle.error) : null,
       artifacts: summarizeEvidenceRefsForPlannerContext(card.artifacts),
       attachments: summarizeEvidenceRefsForPlannerContext(card.attachments),
     }));
@@ -121,10 +122,7 @@ export function buildGoalContextPayload(input: {
 }): Record<string, unknown> | null {
   const goal = input.cards.read(input.goalId);
   if (!goal) return null;
-  const review =
-    goal.result && typeof goal.result === 'object'
-      ? (goal.result as { review?: unknown }).review
-      : null;
+  const review = goal.lifecycle.result?.kind === 'reviewer_pass' ? goal.lifecycle.result : null;
   return {
     id: goal.id,
     type: goal.type,

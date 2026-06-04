@@ -270,6 +270,9 @@ function parseCard(raw: unknown, path: string): CardRecord {
   }
   try {
     validatePersistedCardLifecycle(parsed.data);
+    if (parsed.data.status !== parsed.data.lifecycle.status) {
+      throw new Error(`status '${parsed.data.status}' does not match lifecycle.status '${parsed.data.lifecycle.status}'`);
+    }
     return parsed.data;
   } catch (err) {
     throw new CardStoreInvariantError(

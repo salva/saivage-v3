@@ -21,8 +21,8 @@
           <button type="button" class="retry-btn" @click="reloadDetail">Refresh card</button>
         </div>
         <StaleWarningRibbon :card-id="currentCard.id" />
-        <div v-if="lifecycle?.error || currentCard.error" class="detail-callout error" role="alert">
-          Card error: {{ lifecycle?.error || currentCard.error }}
+        <div v-if="lifecycle?.error || currentCard.lifecycle?.error" class="detail-callout error" role="alert">
+          Card error: {{ lifecycle?.error || currentCard.lifecycle?.error }}
         </div>
       </section>
 
@@ -45,7 +45,7 @@
           <div class="meta-item"><span class="meta-key">Updated</span><span class="meta-value" :title="timestampTitle(currentCard.updated_at)">{{ fmtDate(currentCard.updated_at) }}</span></div>
           <div class="meta-item"><span class="meta-key">Version</span><span class="meta-value">{{ currentCard.version_seq ?? 'unknown' }}</span></div>
           <div v-if="currentCard.started_at || lifecycle?.startedAt" class="meta-item"><span class="meta-key">Started</span><span class="meta-value" :title="timestampTitle(currentCard.started_at || lifecycle?.startedAt || '')">{{ fmtDate(currentCard.started_at || lifecycle?.startedAt || '') }}</span></div>
-          <div v-if="currentCard.completed_at || lifecycle?.completedAt" class="meta-item"><span class="meta-key">Completed</span><span class="meta-value" :title="timestampTitle(currentCard.completed_at || lifecycle?.completedAt || '')">{{ fmtDate(currentCard.completed_at || lifecycle?.completedAt || '') }}</span></div>
+          <div v-if="currentCard.lifecycle?.completed_at || lifecycle?.completedAt" class="meta-item"><span class="meta-key">Completed</span><span class="meta-value" :title="timestampTitle(currentCard.lifecycle?.completed_at || lifecycle?.completedAt || '')">{{ fmtDate(currentCard.lifecycle?.completed_at || lifecycle?.completedAt || '') }}</span></div>
           <div class="meta-item"><span class="meta-key">Priority</span><span class="meta-value" :class="{ high: currentCard.priority >= 80 }">{{ currentCard.priority }}</span></div>
           <div class="meta-item"><span class="meta-key">Urgency</span><span class="meta-value">{{ currentCard.urgency }}</span></div>
           <div v-if="currentCard.assigned_to" class="meta-item"><span class="meta-key">Assigned to</span><span class="meta-value">{{ currentCard.assigned_to }}</span></div>
@@ -254,9 +254,9 @@
         </div>
       </section>
 
-      <section v-if="currentCard.result" class="detail-section">
+      <section v-if="currentCard.lifecycle?.result" class="detail-section">
         <h3 class="section-heading">Result</h3>
-        <CodeBlock :code="formatJson(currentCard.result)" language="json" copyable />
+        <CodeBlock :code="formatJson(currentCard.lifecycle.result)" language="json" copyable />
       </section>
     </template>
   </div>

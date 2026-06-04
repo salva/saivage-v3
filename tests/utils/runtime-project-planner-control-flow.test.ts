@@ -71,7 +71,7 @@ describe('Runtime caller-edge reconstruction from unresolved activate_card calls
     const projectResults = projectActivateMessages.filter((m) => m.kind === 'tool_result');
     expect(activateToolCallIds(tmpDir, 'project')).toEqual([]);
     expect(projectResults).toHaveLength(0);
-    expect(harness.cardTestTools.read('project')?.result?.review).toBeUndefined();
+    expect(harness.cardTestTools.read('project')?.lifecycle.result?.review).toBeUndefined();
   });
 
   it('does not infer nested execution from backlog child statuses without activate_card edges', async () => {

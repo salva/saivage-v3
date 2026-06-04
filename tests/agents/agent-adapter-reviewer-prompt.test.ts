@@ -50,6 +50,7 @@ function minimalConfig(): SaivageConfig {
 }
 
 function makeCard(overrides: Partial<CardRecord> & { type: CardRecord['type']; title: string }): Omit<CardRecord, 'created_at' | 'updated_at' | 'id' | 'version_seq' | 'position'> & { id?: string } {
+  const lifecycle = overrides.lifecycle ?? ({ status: overrides.status ?? 'backlog', result: null, error: null, completed_at: null } as CardRecord['lifecycle']);
   return {
     parent: 'project',
     depth: 1,
@@ -66,15 +67,13 @@ function makeCard(overrides: Partial<CardRecord> & { type: CardRecord['type']; t
     blocks: [],
     related: [],
     acceptance: '',
-    result: null,
+    lifecycle,
     metrics: null,
     artifacts: [],
     attachments: [],
     estimate: null,
     started_at: null,
-    completed_at: null,
     duration_ms: null,
-    error: null,
     status_text: null,
     status_text_updated_at: null,
     status_text_author_session_id: null,
@@ -117,7 +116,7 @@ describe('AgentAdapter planner-control reviewer prompt contract', () => {
       parent: goal.id,
       depth: 2,
       status: 'done',
-      result: { executor: { summary: 'Implemented reviewer prompt wiring.' } },
+      lifecycle: { status: 'done', result: { kind: 'executor_success', executor: { summary: 'Implemented reviewer prompt wiring.' }, generated_files: [], verified_at: '2026-01-01T00:00:00.000Z', latest_self_report: { result: 'done', outcome: 'done', summary: 'Implemented reviewer prompt wiring.', status_text: 'done', at: '2026-01-01T00:00:00.000Z' }, warnings: [] }, error: null, completed_at: '2026-01-01T00:00:00.000Z' },
     }));
 
     const plannerReport = {

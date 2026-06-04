@@ -69,23 +69,22 @@ describe('application read models', () => {
     expect(list.cards.every((card) => Array.isArray(card.allowedActions))).toBe(true);
   });
 
-  it('exposes backward-compatible flat card fields plus derived lifecycle in operator read models', () => {
+  it('exposes canonical lifecycle in operator read models', () => {
     const store = new CardStore(root);
-    store.update('project', {
+    const lifecycle = {
       status: 'done',
-      result: { planning: { status: 'done', summary: 'complete' } },
-      completed_at: '2026-01-01T00:00:00.000Z',
+      result: { kind: 'planner_done' as const, created_cards: [] as string[], updated_cards: [] as string[], summary: 'complete' },
       error: null,
-    });
+      completed_at: '2026-01-01T00:00:00.000Z',
+    } as const;
+    store.commitTerminalLifecyclePatch('project', { status: 'done', lifecycle });
     const service = new CardsReadModelService(root);
 
-    const list = service.listCards().body as { cards: Array<{ id: string; status: string; result: unknown; error: unknown; completed_at: unknown; lifecycle?: unknown }> };
+    const list = service.listCards().body as { cards: Array<{ id: string; status: string; lifecycle: unknown }> };
     const project = list.cards.find((card) => card.id === 'project');
-    const detail = service.getCard('project').body as { card: { status: string; result: unknown; error: unknown; completed_at: unknown; lifecycle?: unknown } };
+    const detail = service.getCard('project').body as { card: { status: string; lifecycle: unknown } };
 
-    expect(project).toEqual(expect.objectContaining({ status: 'done', error: null, completed_at: '2026-01-01T00:00:00.000Z' }));
-    expect(project?.result).toEqual({ planning: { status: 'done', summary: 'complete' } });
-    expect(project?.lifecycle).toEqual(expect.objectContaining({ status: 'done', error: null, completed_at: '2026-01-01T00:00:00.000Z' }));
+    expect(project).toEqual(expect.objectContaining({ status: 'done', lifecycle }));
     expect(detail.card.lifecycle).toEqual(project?.lifecycle);
   });
 

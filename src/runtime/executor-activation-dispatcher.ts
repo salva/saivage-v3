@@ -121,7 +121,7 @@ export class ExecutorActivationDispatcher {
       execResult,
     );
     const ignoredEvidencePatch = buildIgnoredExecutorEvidencePatch({
-      existingResult: this.deps.cards.read(card.id)?.result,
+      existingLifecycle: (this.deps.cards.read(card.id) ?? card).lifecycle,
       ignoredArtifactRegistrations,
       ignoredAttachmentRegistrations,
     });

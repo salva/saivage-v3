@@ -63,8 +63,8 @@ describe('planner output actionability guard', () => {
 
     const project = harness.cardTestTools.read('project');
     expect(project?.status).toBe('blocked');
-    expect(project?.error).toContain('Planner returned continue without creating/updating cards');
-    expect(project?.result?.planning).toEqual(expect.objectContaining({
+    expect(project?.lifecycle.error).toContain('Planner returned continue without creating/updating cards');
+    expect(project?.lifecycle.result?.planning).toEqual(expect.objectContaining({
       status: 'blocked',
       resume_reason: 'non_actionable_continue',
       created_cards: [],
@@ -95,9 +95,9 @@ describe('planner output actionability guard', () => {
 
     const project = harness.cardTestTools.read('project');
     expect(project?.status).toBe('blocked');
-    expect(project?.error).toBe('test planner declared a durable blocker');
+    expect(project?.lifecycle.error).toBe('test planner declared a durable blocker');
     expect(project?.status_text).toBe('test planner declared a durable blocker');
-    expect(project?.result?.planning).toEqual(expect.objectContaining({
+    expect(project?.lifecycle.result?.planning).toEqual(expect.objectContaining({
       status: 'blocked',
       resume_reason: 'planner_blocked',
       blocked_reason: 'test planner declared a durable blocker',
@@ -130,18 +130,8 @@ describe('planner output actionability guard', () => {
     harness = createHarness(mapping, fakeAgent);
     harness.cardTestTools.update('project', {
       status: 'active',
-      error: reviewerBlockedReason,
+      lifecycle: { status: 'active', result: { kind: 'planner_blocked', blocked_reason: reviewerBlockedReason, resume_reason: 'reviewer_unavailable', created_cards: [], updated_cards: [] }, error: reviewerBlockedReason, completed_at: null },
       status_text: reviewerBlockedReason,
-      result: {
-        planning: {
-          status: 'blocked',
-          blocked_reason: reviewerBlockedReason,
-          resume_reason: 'reviewer_unavailable',
-          failure_kind: 'reviewer_invocation_failed',
-          created_cards: [],
-          updated_cards: [],
-        },
-      },
     });
 
     await harness.api.start();
@@ -149,17 +139,14 @@ describe('planner output actionability guard', () => {
 
     const project = harness.cardTestTools.read('project');
     expect(project?.status).toBe('blocked');
-    expect(project?.error).toBe(reviewerBlockedReason);
+    expect(project?.lifecycle.error).toBe(reviewerBlockedReason);
     expect(project?.status_text).toBe(reviewerBlockedReason);
-    expect(project?.result?.planning).toEqual(expect.objectContaining({
-      status: 'blocked',
+    expect(project?.lifecycle.result).toEqual(expect.objectContaining({
+      kind: 'planner_blocked',
       blocked_reason: reviewerBlockedReason,
       resume_reason: 'reviewer_unavailable',
-      failure_kind: 'reviewer_invocation_failed',
-      preserved_from_generic_planner_blocked: true,
-      generic_planner_blocked_reason: genericPlannerReason,
     }));
-    expect(project?.result?.planning).not.toEqual(expect.objectContaining({
+    expect(project?.lifecycle.result).not.toEqual(expect.objectContaining({
       resume_reason: 'planner_blocked',
     }));
   });
@@ -188,9 +175,9 @@ describe('planner output actionability guard', () => {
 
     const project = harness.cardTestTools.read('project');
     expect(project?.status).toBe('blocked');
-    expect(project?.error).toBe(reviewerCapacityReason);
+    expect(project?.lifecycle.error).toBe(reviewerCapacityReason);
     expect(project?.status_text).toBe(reviewerCapacityReason);
-    expect(project?.result?.planning).toEqual(expect.objectContaining({
+    expect(project?.lifecycle.result?.planning).toEqual(expect.objectContaining({
       status: 'blocked',
       blocked_reason: reviewerCapacityReason,
       resume_reason: 'reviewer_unavailable',
@@ -199,7 +186,7 @@ describe('planner output actionability guard', () => {
       created_cards: [],
       updated_cards: [],
     }));
-    expect(project?.result?.planning).not.toEqual(expect.objectContaining({
+    expect(project?.lifecycle.result?.planning).not.toEqual(expect.objectContaining({
       resume_reason: 'planner_blocked',
     }));
   });

@@ -231,7 +231,7 @@ export const useAnalystChat = defineStore('analyst-chat', () => {
     const blockers = [
       ...(Array.isArray(card.blocks) ? card.blocks.map((id) => `blocks:${id}`) : []),
       ...(Array.isArray(card.depends_on) ? card.depends_on.map((id) => `depends_on:${id}`) : []),
-      ...(card.error ? [`error:${card.error}`] : []),
+      ...(card.lifecycle.error ? [`error:${card.lifecycle.error}`] : []),
     ];
     const toolResult = {
       tool: 'get_card',

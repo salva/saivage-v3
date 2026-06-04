@@ -652,8 +652,8 @@ describe('Runtime Integration', () => {
 
       const goal = store.read('goal-blocked');
       expect(goal!.status).toBe('blocked');
-      expect(goal!.result?.planning).toMatchObject({
-        status: 'blocked',
+      expect(goal!.lifecycle.result).toMatchObject({
+        kind: 'planner_blocked',
         blocked_reason: 'Needs parent planner to choose a different strategy.',
       });
       expect(fakeAgent.getPlannerCount('goal-blocked')).toBe(1);

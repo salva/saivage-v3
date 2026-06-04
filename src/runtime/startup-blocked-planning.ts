@@ -1,8 +1,9 @@
 import type { CardRecord } from '../schemas/index.js';
-import { lifecyclePatch } from './terminal-commit/lifecycle-patch.js';
+import { lifecycleCardPatch } from './terminal-commit/lifecycle-patch.js';
 import { planClearActiveCardRunPatch } from './runtime-core.js';
 import { readRuntimeState } from './state.js';
 import { buildPlannerInvocationFailureBlocker } from './phases/planner-phase.js';
+import { getBlockedPlanning } from './planning-blockers.js';
 import type { RuntimeStateMutationPort } from './mutations.js';
 
 export function isPlannerTerminalToolExhaustion(error: unknown): boolean {
@@ -22,13 +23,13 @@ export async function alignBlockedPlanningCardStatuses(input: {
 }): Promise<void> {
   for (const card of input.cards.list()) {
     if (card.type !== 'project' && card.type !== 'goal') continue;
-    if (card.status === 'failed' && isPlannerTerminalToolExhaustion(card.error ?? '')) {
+    if (card.status === 'failed' && isPlannerTerminalToolExhaustion(card.lifecycle.error ?? '')) {
       const plannerFailureBlocker = buildPlannerInvocationFailureBlocker({
         tokenBudgetFailure: false,
         providerStatus: null,
       });
       await input.cards.repairTerminalLifecycle(card.id, {
-        ...lifecyclePatch({
+        ...lifecycleCardPatch({
           status: 'blocked',
           result: {
             kind: 'planner_blocked',
@@ -48,35 +49,22 @@ export async function alignBlockedPlanningCardStatuses(input: {
       continue;
     }
     if (card.status === 'blocked') continue;
-    const planning =
-      card.result && typeof card.result === 'object'
-        ? (card.result as { planning?: unknown }).planning
-        : null;
-    if (!planning || typeof planning !== 'object') continue;
-    const blockedPlanning = planning as {
-      status?: unknown;
-      resume_reason?: unknown;
-      failure_kind?: unknown;
-      blocked_reason?: unknown;
-    };
-    if (blockedPlanning.status !== 'blocked') continue;
-    const blockedReason =
-      typeof blockedPlanning.blocked_reason === 'string'
-        ? blockedPlanning.blocked_reason
-        : 'Planner context exceeded the selected LLM token budget before scheduler output could be produced; compact/trim planner context before resuming.';
+    const blockedPlanning = getBlockedPlanning(card);
+    if (!blockedPlanning) continue;
+    const blockedReason = blockedPlanning.blocked_reason || 'Planner context exceeded the selected LLM token budget before scheduler output could be produced; compact/trim planner context before resuming.';
     await input.transitionCard(card.id, 'block', { blocked_reason: blockedReason });
     input.finishOpenPlannerRun(card.id, 'blocked');
     await input.cards.repairTerminalLifecycle(card.id, {
-      ...lifecyclePatch({
+      ...lifecycleCardPatch({
         status: 'blocked',
         result: {
           kind: 'planner_blocked',
-          blocked_reason: card.error ?? blockedReason,
-          resume_reason: typeof blockedPlanning.resume_reason === 'string' && blockedPlanning.resume_reason ? blockedPlanning.resume_reason : 'planner_blocked',
+          blocked_reason: card.lifecycle.error ?? blockedReason,
+          resume_reason: blockedPlanning.resume_reason || 'planner_blocked',
           created_cards: [],
           updated_cards: [],
         },
-        error: card.error ?? blockedReason,
+        error: card.lifecycle.error ?? blockedReason,
         completed_at: null,
       }),
       status_text: card.status_text ?? blockedReason,

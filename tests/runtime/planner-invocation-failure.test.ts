@@ -21,7 +21,7 @@ describe('planner invocation failure handler', () => {
     const published: RuntimeRunRecord[] = [];
     const effects = testEffects({
       transitionCard: async (cardId, event, details) => { calls.push(`${event}:${cardId}:${details.blocked_reason ? 'blocked' : 'none'}`); },
-      updateCard: async (_cardId, patch) => { calls.push(`update:${patch.status}`); expect(patch.result).toMatchObject({ kind: 'planner_blocked', resume_reason: 'planner_context_length_exceeded' }); },
+      updateCard: async (_cardId, patch) => { calls.push(`update:${patch.status}`); expect(patch.lifecycle?.result).toMatchObject({ kind: 'planner_blocked', resume_reason: 'planner_context_length_exceeded' }); },
       updateRuntimeRun: (runId, updates) => ({ ...failedRun, run_id: runId, ...updates }) as RuntimeRunRecord,
       publishRuntimeRun: (run) => { published.push(run); },
       transitionRuntime: async (event, details) => { calls.push(`${event}:${details.reason}`); },
@@ -32,7 +32,7 @@ describe('planner invocation failure handler', () => {
       error: new Error('context length exceeded'),
       failureKind: 'token_budget',
       providerStatus: 400,
-      currentCard: baseCard({ id: 'goal-a', type: 'goal', result: { existing: true } }),
+      currentCard: baseCard({ id: 'goal-a', type: 'goal' }),
       failedRun,
       effects,
     });
@@ -80,6 +80,7 @@ function testEffects(overrides: Partial<PlannerInvocationFailureEffects> = {}): 
 }
 
 function baseCard(overrides: Partial<CardRecord> = {}): CardRecord {
+  const lifecycle = overrides.lifecycle ?? ({ status: overrides.status ?? 'running', result: null, error: null, completed_at: null } as CardRecord['lifecycle']);
   return {
     id: overrides.id ?? 'card-a',
     type: overrides.type ?? 'goal',
@@ -100,7 +101,7 @@ function baseCard(overrides: Partial<CardRecord> = {}): CardRecord {
     blocks: overrides.blocks ?? [],
     related: overrides.related ?? [],
     acceptance: overrides.acceptance ?? '',
-    result: overrides.result ?? null,
+    lifecycle,
     artifacts: overrides.artifacts ?? [],
     attachments: overrides.attachments ?? [],
     retries: overrides.retries ?? 0,

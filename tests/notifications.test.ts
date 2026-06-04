@@ -12,7 +12,7 @@ import { queueNotification, resolveRecipient } from '../src/notifications/notifi
 import type { CardRecord } from '../src/schemas/types.js';
 
 function makeCard(overrides: Partial<CardRecord> & { type: CardRecord['type']; title: string }): Omit<CardRecord, 'created_at' | 'updated_at' | 'id' | 'version_seq' | 'position'> & { id?: string } {
-  return { parent: 'project', depth: 1, description: '', status: 'backlog', subtype: null, instructions_file: null, tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', assigned_to: null, depends_on: [], blocks: [], related: [], acceptance: '', result: null, metrics: null, artifacts: [], attachments: [], estimate: null, started_at: null, completed_at: null, duration_ms: null, error: null, status_text: null, status_text_updated_at: null, status_text_author_session_id: null, latest_self_report: null, retries: 0, ...overrides };
+  return { parent: 'project', depth: 1, description: '', status: 'backlog', subtype: null, instructions_file: null, tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', assigned_to: null, depends_on: [], blocks: [], related: [], acceptance: '', lifecycle: ({ status: overrides.status ?? 'backlog', result: null, error: null, completed_at: null } as CardRecord['lifecycle']), metrics: null, artifacts: [], attachments: [], estimate: null, started_at: null, duration_ms: null, status_text: null, status_text_updated_at: null, status_text_author_session_id: null, latest_self_report: null, retries: 0, ...overrides };
 }
 
 function entry(kind: string, body = kind) {

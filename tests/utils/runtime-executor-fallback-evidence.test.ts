@@ -103,10 +103,10 @@ describe('Runtime executor fallback evidence persistence', () => {
 
     const codeCard = harness.cardTestTools.read('code-1') as CardRecord;
     expect(codeCard.status).toBe('needs_verification');
-    expect(codeCard.error).toBeNull();
-    expect(codeCard.completed_at).toBeNull();
+    expect(codeCard.lifecycle.error).toBeNull();
+    expect(codeCard.lifecycle.completed_at).toBeNull();
     expect(harness.cardTestTools.read('project')?.status).not.toBe('done');
-    expect(codeCard.result).toEqual(expect.objectContaining({
+    expect(codeCard.lifecycle.result).toEqual(expect.objectContaining({
       kind: 'executor_needs_verification',
       preserved_result: expect.objectContaining({
         generated_files: ['generated/output.txt'],
@@ -176,10 +176,10 @@ describe('Runtime executor fallback evidence persistence', () => {
 
     const codeCard = harness.cardTestTools.read('code-1') as CardRecord;
     expect(codeCard.status).toBe('done');
-    expect(codeCard.error).toBeNull();
+    expect(codeCard.lifecycle.error).toBeNull();
     expect(codeCard.artifacts).toEqual([]);
     expect(codeCard.attachments).toEqual([]);
-    expect(codeCard.result).toEqual(expect.objectContaining({
+    expect(codeCard.lifecycle.result).toEqual(expect.objectContaining({
       kind: 'executor_success',
       generated_files: ['generated/output.txt'],
       executor: expect.objectContaining({
@@ -241,9 +241,9 @@ describe('Runtime executor fallback evidence persistence', () => {
 
     const codeCard = harness.cardTestTools.read('code-active') as CardRecord;
     expect(codeCard.status).toBe('done');
-    expect(codeCard.completed_at).toEqual(expect.any(String));
-    expect(Date.parse(codeCard.completed_at!)).not.toBeNaN();
-    expect(codeCard.result).toEqual(expect.objectContaining({
+    expect(codeCard.lifecycle.completed_at).toEqual(expect.any(String));
+    expect(Date.parse(codeCard.lifecycle.completed_at!)).not.toBeNaN();
+    expect(codeCard.lifecycle.result).toEqual(expect.objectContaining({
       kind: 'executor_success',
       executor: expect.objectContaining({ evidence: 'active pending activation completed' }),
       latest_self_report: expect.objectContaining({ outcome: 'done' }),

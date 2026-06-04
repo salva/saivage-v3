@@ -25,7 +25,7 @@ export type RuntimeScheduler = RuntimeSchedulerPort;
 
 export interface RuntimeCardPort {
   readStatus(cardId: string): CardStatus | undefined;
-  readCard?(cardId: string): Pick<CardRecord, 'status' | 'error' | 'completed_at'> | null | undefined;
+  readCard?(cardId: string): Pick<CardRecord, 'status' | 'lifecycle'> | null | undefined;
   canTransition(from: CardStatus, to: CardStatus): boolean;
   setStatus(cardId: string, status: CardStatus): void;
 }
@@ -208,7 +208,8 @@ export class RuntimeStateMachine {
       return false;
     }
 
-    for (const target of plan.steps) this.cards.setStatus(cardId, target);
+    const lifecycleOwnedActions: RuntimeCardAction[] = ['block', 'complete', 'fail', 'executor_finish', 'executor_partial_finish'];
+    if (!lifecycleOwnedActions.includes(action)) for (const target of plan.steps) this.cards.setStatus(cardId, target);
     return true;
   }
 

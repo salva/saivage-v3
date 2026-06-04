@@ -2,7 +2,7 @@ import { isAbsolute, relative, resolve } from 'node:path';
 import { registerArtifact, registerAttachment } from '../../cards/artifact-api.js';
 import type { CardStore } from '../../cards/store-api.js';
 import type { ExecutorResult } from '../../contracts/index.js';
-import type { CardRecord } from '../../schemas/index.js';
+import type { CardLifecycleState, CardRecord } from '../../schemas/index.js';
 import { generatedFileValidationErrors, validateGeneratedFiles } from '../terminal-commit/validators.js';
 
 export interface ExecutorEvidenceRegistrationResult {
@@ -99,19 +99,14 @@ export function registerExecutorEvidence(deps: ExecutorEvidenceRegistrarDeps, ex
 }
 
 export function buildIgnoredExecutorEvidencePatch(input: {
-  existingResult: CardRecord['result'] | undefined;
+  existingLifecycle: CardLifecycleState;
   ignoredArtifactRegistrations: string[];
   ignoredAttachmentRegistrations: string[];
 }): Partial<CardRecord> | null {
   if (input.ignoredArtifactRegistrations.length === 0 && input.ignoredAttachmentRegistrations.length === 0) return null;
+  if (input.existingLifecycle.status !== 'active' && input.existingLifecycle.status !== 'running' && input.existingLifecycle.status !== 'changed') return null;
   return {
-    result: {
-      ...(input.existingResult ?? {}),
-      evidence_registration_ignored: {
-        artifacts: input.ignoredArtifactRegistrations,
-        attachments: input.ignoredAttachmentRegistrations,
-      },
-    },
+    lifecycle: { ...input.existingLifecycle, result: { ...(input.existingLifecycle.result ?? {}), evidence_registration_ignored: { artifacts: input.ignoredArtifactRegistrations, attachments: input.ignoredAttachmentRegistrations } } as CardLifecycleState['result'] },
   };
 }
 

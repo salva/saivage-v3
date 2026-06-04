@@ -420,7 +420,7 @@ describe('Runtime Adapter Wiring', () => {
 
       const card = store.read('code-lifecycle-1');
       expect(card!.status).toBe('done');
-      expect(card!.result).toEqual(expect.objectContaining({ success: true }));
+      expect(card!.lifecycle.result).toEqual(expect.objectContaining({ kind: 'executor_success' }));
 
       expect(goalCompleted).toBe(true);
 

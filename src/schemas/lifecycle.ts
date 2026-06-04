@@ -1,5 +1,4 @@
 import { z } from 'zod';
-import type { CardRecord } from './types.js';
 
 const arbitraryRecordSchema = z.record(z.string(), z.unknown());
 const nullableArbitraryRecordSchema = arbitraryRecordSchema.nullable();
@@ -212,30 +211,8 @@ export const runtimeRunOutcomeSchema: z.ZodType<RuntimeRunOutcome> = z.discrimin
   z.object({ outcome: z.literal('needs_verification'), reason: nonEmptyStringSchema, result: needsVerificationResultSchema }).strict(),
 ]);
 
-export type LifecycleProjectionInput = Pick<CardRecord, 'status' | 'updated_at' | 'result' | 'error' | 'completed_at'>;
-
-export function projectCardLifecycleState(card: LifecycleProjectionInput): CardLifecycleState {
-  switch (card.status) {
-    case 'drafting':
-    case 'backlog':
-      return cardLifecycleStateSchema.parse({ status: card.status, result: card.result, error: card.error, completed_at: card.completed_at });
-    case 'active':
-    case 'running':
-    case 'changed':
-      return cardLifecycleStateSchema.parse({ status: card.status, result: card.result, error: card.error, completed_at: card.completed_at });
-    case 'done':
-      return cardLifecycleStateSchema.parse({ status: 'done', result: card.result, error: card.error, completed_at: card.completed_at });
-    case 'failed':
-      return cardLifecycleStateSchema.parse({ status: 'failed', result: card.result, error: card.error, completed_at: card.completed_at });
-    case 'blocked':
-      return cardLifecycleStateSchema.parse({ status: 'blocked', result: card.result, error: card.error, completed_at: card.completed_at });
-    case 'needs_verification':
-      return cardLifecycleStateSchema.parse({ status: 'needs_verification', result: card.result, error: card.error, completed_at: card.completed_at });
-    case 'cancelled':
-      return cardLifecycleStateSchema.parse({ status: 'cancelled', result: card.result, error: card.error, completed_at: card.completed_at });
-  }
-}
-
-export function validatePersistedCardLifecycle(card: LifecycleProjectionInput): CardLifecycleState {
-  return projectCardLifecycleState(card);
+export function validatePersistedCardLifecycle(card: { status: string; lifecycle: unknown }): CardLifecycleState {
+  const lifecycle = cardLifecycleStateSchema.parse(card.lifecycle);
+  if (card.status !== lifecycle.status) throw new Error(`status '${card.status}' does not match lifecycle.status '${lifecycle.status}'`);
+  return lifecycle;
 }

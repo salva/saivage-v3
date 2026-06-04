@@ -66,7 +66,7 @@ export async function handleReviewerAssessmentDecision(input: {
         planning: typedPlannerContext(latestGoalCard),
         reviewSummary: input.reviewResult.assessment.summary,
         assessmentId: input.assessmentId,
-        completedAt: latestGoalCard.completed_at ?? input.effects.now(),
+        completedAt: latestGoalCard.lifecycle.completed_at ?? input.effects.now(),
         transitionDetails: { assessment: input.reviewResult.assessment },
         effects: input.effects,
       });
@@ -94,8 +94,8 @@ export async function handleReviewerAssessmentDecision(input: {
 }
 
 function typedPlannerContext(card: CardRecord): PlannerDoneResult | PlannerBlockedResult | null {
-  const result = card.result;
-  if (result?.kind === 'planner_done' || result?.kind === 'planner_blocked') return result as PlannerDoneResult | PlannerBlockedResult;
-  if (result?.kind === 'reviewer_pass') return (result as { planning?: PlannerDoneResult | PlannerBlockedResult }).planning ?? null;
+  const lifecycleResult = card.lifecycle.result;
+  if (lifecycleResult?.kind === 'planner_done' || lifecycleResult?.kind === 'planner_blocked') return lifecycleResult;
+  if (lifecycleResult?.kind === 'reviewer_pass') return lifecycleResult.planning;
   return null;
 }

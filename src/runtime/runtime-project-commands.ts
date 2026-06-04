@@ -88,7 +88,7 @@ export class RuntimeProjectCommandRunner {
       await this.deps.cards.repairTerminalLifecycle(
         PROJECT_CARD_ID,
         buildProjectPlannerRetryPatch({
-          existingResult: projectCard?.result,
+          existingLifecycle: projectCard?.lifecycle,
           retryingTokenBudgetBlocker: retryingTokenBudgetPlanningBlocker,
           compactedPersistedPlannerHistory: retryingTokenBudgetPlanningBlocker
             ? compactPersistedPlannerHistoryForRetry({

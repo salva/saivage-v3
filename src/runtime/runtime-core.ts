@@ -1,4 +1,4 @@
-import type { ActionableErrorEnvelope, CardLifecycleState, CardStatus, FreezeManifest, HandoffSummary, RuntimeActivationOutcomeSnapshot, RuntimeCommandRecord, RuntimeRunOutcomeSnapshot, RuntimeRunRecord, RuntimeState } from '../schemas/index.js';
+import type { ActionableErrorEnvelope, CardLifecycleState, CardRecord, CardStatus, FreezeManifest, HandoffSummary, RuntimeActivationOutcomeSnapshot, RuntimeCommandRecord, RuntimeRunOutcomeSnapshot, RuntimeRunRecord, RuntimeState } from '../schemas/index.js';
 import type { ActivationCompletionOutcome } from '../schemas/index.js';
 
 const TERMINAL_STATUSES: ReadonlySet<CardStatus> = new Set<CardStatus>(['done', 'failed', 'cancelled']);
@@ -387,7 +387,7 @@ export interface RuntimeInvariantObservation {
 export function observeRuntimeStateInvariants(input: {
   state: RuntimeState;
   currentCardStatus: CardStatus | null;
-  readCard?: (cardId: string) => { status: CardStatus; error?: string | null; completed_at?: string | null } | null;
+  readCard?: (cardId: string) => Pick<CardRecord, 'status' | 'lifecycle'> | null;
 }): RuntimeInvariantObservation[] {
   const observations: RuntimeInvariantObservation[] = [];
   const { state, currentCardStatus } = input;
@@ -430,11 +430,14 @@ export function observeRuntimeStateInvariants(input: {
     for (const cardId of cardIds) {
       const card = readCard(cardId);
       if (!card) continue;
-      if (card.status === 'done' && card.error != null) {
-        observations.push({ invariant: 'I5', key: cardId, details: { cardId, status: card.status, error: card.error } });
+      if (card.status !== card.lifecycle.status) {
+        observations.push({ invariant: 'I5', key: cardId, details: { cardId, status: card.status, lifecycleStatus: card.lifecycle.status } });
       }
-      if (card.status === 'failed' && (typeof card.error !== 'string' || card.error.length === 0)) {
-        observations.push({ invariant: 'I6', key: cardId, details: { cardId, status: card.status, error: card.error ?? null } });
+      if (card.status === 'done' && card.lifecycle.error != null) {
+        observations.push({ invariant: 'I5', key: cardId, details: { cardId, status: card.status, error: card.lifecycle.error } });
+      }
+      if (card.status === 'failed' && (typeof card.lifecycle.error !== 'string' || card.lifecycle.error.length === 0)) {
+        observations.push({ invariant: 'I6', key: cardId, details: { cardId, status: card.status, error: card.lifecycle.error ?? null } });
       }
     }
   }

@@ -108,7 +108,6 @@ export async function handlePlannerInvocationFailure(input: {
     error: errorMessage,
   });
   await input.effects.updateCard(input.goalId, {
-    error: errorMessage,
     status_text: `Planner failed: ${errorMessage}`,
   });
   if (input.failedRun) {

@@ -60,7 +60,7 @@ export class PlannerActivationRunner {
         goalId,
         buildPlannerActivationPlanningPatch({
           existingResult: setup.existingResult,
-          existingError: refreshed.error,
+          existingError: refreshed.lifecycle.error,
           existingStatusText: refreshed.status_text,
           retryingTokenBudgetBlocker: setup.retryingTokenBudgetBlocker,
           retryingTerminalToolBlocker: setup.retryingTerminalToolBlocker,

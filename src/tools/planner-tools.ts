@@ -14,7 +14,7 @@ import { CardStore } from '../cards/store-api.js';
 import { recordControlAction, stableStringify } from '../persistence/index.js';
 import { queueNotification } from '../notifications/index.js';
 import type { CardMutationContext } from '../cards/store-api.js';
-import { lifecyclePatch } from '../runtime/terminal-commit/lifecycle-patch.js';
+import { lifecycleCardPatch } from '../runtime/terminal-commit/lifecycle-patch.js';
 
 export type PlannerToolErrorKind =
   | 'subtree_not_ready'
@@ -113,7 +113,7 @@ function subtreeContainsActiveLeaf(
 
 function hasDurableEvidence(card: CardRecord): boolean {
   if (card.artifacts.length > 0 || card.attachments.length > 0) return true;
-  const result = card.result;
+  const result = card.lifecycle.result;
   if (!result || typeof result !== 'object') return false;
   if (card.type === 'goal' || card.type === 'project') {
     const review = (result as { review?: unknown }).review;
@@ -327,9 +327,7 @@ export class PlannerToolsService {
     }
     this.store.repairTerminalLifecycle(cardId, {
       status: 'backlog',
-      result: null,
-      error: null,
-      completed_at: null,
+      lifecycle: { status: 'backlog', result: null, error: null, completed_at: null },
     });
     const changes: Partial<CardRecord> = {
       duration_ms: null,
@@ -571,7 +569,7 @@ export class PlannerToolsService {
     const message = reviewerInvocationFailedMessage(goalId);
     requireCard(this.store, goalId);
     this.store.repairTerminalLifecycle(goalId, {
-      ...lifecyclePatch({
+      ...lifecycleCardPatch({
         status: 'blocked',
         result: {
           kind: 'planner_blocked',
@@ -642,7 +640,7 @@ export class PlannerToolsService {
     const lifecycle = reportLifecycle(status, report, statusText, completedAt);
     void assessment;
     return this.store.repairTerminalLifecycle(goal.id, {
-      ...lifecyclePatch(lifecycle),
+      ...lifecycleCardPatch(lifecycle),
       retries: 0,
       status_text: statusText,
       status_text_updated_at: completedAt,

@@ -2,7 +2,7 @@ import { describe, expect, it } from '@jest/globals';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type { CardRecord } from '../../src/schemas/index.js';
+import type { CardLifecycleState, CardRecord } from '../../src/schemas/index.js';
 import {
   commitExecutorParkedVerification,
   commitExecutorSuccess,
@@ -17,6 +17,7 @@ import {
 const now = '2026-01-01T00:00:00.000Z';
 
 function card(overrides: Partial<CardRecord> = {}): CardRecord {
+  const lifecycle = overrides.lifecycle ?? ({ status: overrides.status ?? 'running', result: null, error: null, completed_at: null } as CardLifecycleState);
   return {
     id: overrides.id ?? 'card-a',
     type: overrides.type ?? 'code',
@@ -40,15 +41,13 @@ function card(overrides: Partial<CardRecord> = {}): CardRecord {
     blocks: overrides.blocks ?? [],
     related: overrides.related ?? [],
     acceptance: overrides.acceptance ?? '',
-    result: overrides.result ?? null,
+    lifecycle,
     metrics: overrides.metrics ?? null,
     artifacts: overrides.artifacts ?? [],
     attachments: overrides.attachments ?? [],
     estimate: overrides.estimate ?? null,
     started_at: overrides.started_at ?? null,
-    completed_at: overrides.completed_at ?? null,
     duration_ms: overrides.duration_ms ?? null,
-    error: overrides.error ?? null,
     status_text: overrides.status_text ?? null,
     status_text_updated_at: overrides.status_text_updated_at ?? null,
     status_text_author_session_id: overrides.status_text_author_session_id ?? null,
@@ -113,10 +112,11 @@ describe('terminal commit validators', () => {
   });
 
   it('checks reviewer evidence completeness', () => {
-    const goal = card({ id: 'goal-a', type: 'goal', result: { evidence_card_ids: ['child-a', 'child-b'] } });
+    const goal = card({ id: 'goal-a', type: 'goal', lifecycle: { status: 'running', result: { kind: 'planner_done', created_cards: ['child-a', 'child-b'], updated_cards: [], summary: 'planned' }, error: null, completed_at: null } });
     const result = validateEvidenceCompleteness({
       card: goal,
-      readCard: (id) => id === 'child-a' ? card({ id, status: 'done', result: { ok: true } }) : card({ id, status: 'active' }),
+      evidenceCardIds: ['child-a', 'child-b'],
+      readCard: (id) => id === 'child-a' ? card({ id, status: 'done', lifecycle: { status: 'done', result: { kind: 'executor_success', executor: { ok: true }, generated_files: [], verified_at: now, latest_self_report: { result: 'done', outcome: 'done', summary: 'ok', status_text: 'done', at: now }, warnings: [] }, error: null, completed_at: now } }) : card({ id, status: 'active', lifecycle: { status: 'active', result: null, error: null, completed_at: null } }),
     });
     expect(result.semantically_complete).toBe(false);
     expect(result.reasons).toEqual(expect.arrayContaining([
@@ -141,16 +141,16 @@ describe('terminal commit functions', () => {
     });
 
     expect(receipt.lifecycle).toEqual(expect.objectContaining({ status: 'needs_verification', error: null, completed_at: null }));
-    expect(receipt.patch).toEqual(expect.objectContaining({ status: 'needs_verification', error: null, completed_at: null }));
-    expect(receipt.patch.result).toEqual(receipt.result);
-    expect(receipt.patch.result).not.toHaveProperty('success');
+    expect(receipt.patch).toEqual(expect.objectContaining({ status: 'needs_verification', lifecycle: expect.objectContaining({ status: 'needs_verification', error: null, completed_at: null }) }));
+    expect(receipt.patch.lifecycle?.result).toEqual(receipt.result);
+    expect(receipt.patch.lifecycle?.result).not.toHaveProperty('success');
     expect(fx.transitions[0]).toEqual(expect.objectContaining({ event: 'executor_partial_finish' }));
   });
 
   it('commits reviewer pass and clears stale card error', async () => {
     const fx = effects();
     const receipt = await commitReviewerPass({
-      card: card({ id: 'goal-a', type: 'goal', status: 'blocked', error: 'stale blocked reason' }),
+      card: card({ id: 'goal-a', type: 'goal', status: 'blocked', lifecycle: { status: 'blocked', result: { kind: 'planner_blocked', blocked_reason: 'stale blocked reason', resume_reason: 'planner_blocked', created_cards: [], updated_cards: [] }, error: 'stale blocked reason', completed_at: null } }),
       planning: { kind: 'planner_done', created_cards: [], updated_cards: [], summary: 'planned' },
       reviewSummary: 'passed',
       assessmentId: 'assessment-1',
@@ -159,14 +159,14 @@ describe('terminal commit functions', () => {
     });
 
     expect(receipt.lifecycle.error).toBeNull();
-    expect(receipt.patch).toEqual(expect.objectContaining({ status: 'done', error: null, completed_at: now }));
+    expect(receipt.patch).toEqual(expect.objectContaining({ status: 'done', lifecycle: expect.objectContaining({ status: 'done', error: null, completed_at: now }) }));
     expect(receipt.result).toEqual(expect.objectContaining({ kind: 'reviewer_pass', review_summary: 'passed' }));
   });
 
   it('rejects reviewer pass without typed planning context', async () => {
     const fx = effects();
     await expect(commitReviewerPass({
-      card: card({ id: 'goal-a', type: 'goal', result: { previous: true } }),
+      card: card({ id: 'goal-a', type: 'goal', lifecycle: { status: 'running', result: null, error: null, completed_at: null } }),
       planning: null,
       reviewSummary: 'passed',
       assessmentId: 'assessment-1',
@@ -200,7 +200,7 @@ describe('terminal commit functions', () => {
   it('commits planner blocked with only typed lifecycle result', async () => {
     const fx = effects();
     const receipt = await commitPlannerBlocked({
-      card: card({ id: 'goal-a', type: 'goal', result: { existing: true } }),
+      card: card({ id: 'goal-a', type: 'goal' }),
       blockedReason: 'token budget',
       resumeReason: 'planner_context_length_exceeded',
       createdCards: [],
@@ -211,9 +211,7 @@ describe('terminal commit functions', () => {
     expect(receipt.result).toEqual({ kind: 'planner_blocked', blocked_reason: 'token budget', resume_reason: 'planner_context_length_exceeded', created_cards: [], updated_cards: [] });
     expect(receipt.patch).toEqual(expect.objectContaining({
       status: 'blocked',
-      error: 'token budget',
-      completed_at: null,
-      result: { kind: 'planner_blocked', blocked_reason: 'token budget', resume_reason: 'planner_context_length_exceeded', created_cards: [], updated_cards: [] },
+      lifecycle: { status: 'blocked', error: 'token budget', completed_at: null, result: { kind: 'planner_blocked', blocked_reason: 'token budget', resume_reason: 'planner_context_length_exceeded', created_cards: [], updated_cards: [] } },
     }));
     expect(fx.transitions[0]).toEqual(expect.objectContaining({ event: 'block' }));
   });

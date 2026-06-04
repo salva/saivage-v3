@@ -224,7 +224,7 @@ describe('runtime core reducers', () => {
     expect(observeRuntimeStateInvariants({
       state: state({ runtime_activations: [activation()], runtime_runs: [run()] }),
       currentCardStatus: null,
-      readCard: () => ({ status: 'done', error: 'stale error', completed_at: '2026-05-26T01:00:00.000Z' }),
+      readCard: () => ({ status: 'done', lifecycle: { status: 'done', result: { kind: 'planner_done', created_cards: [], updated_cards: [], summary: 'done' }, error: null, completed_at: '2026-05-26T01:00:00.000Z' } }),
     })).toEqual(expect.arrayContaining([expect.objectContaining({ invariant: 'I5', key: 'child' })]));
   });
 

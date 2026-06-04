@@ -39,19 +39,23 @@ describe('executor evidence registration', () => {
 
   it('builds card result patches for ignored evidence registrations only when needed', () => {
     expect(buildIgnoredExecutorEvidencePatch({
-      existingResult: { previous: true },
+      existingLifecycle: { status: 'running', result: null, error: null, completed_at: null },
       ignoredArtifactRegistrations: ['artifact ignored'],
       ignoredAttachmentRegistrations: ['attachment ignored'],
     })).toEqual({
-      result: {
-        previous: true,
+      lifecycle: {
+        status: 'running',
+        error: null,
+        completed_at: null,
+        result: {
         evidence_registration_ignored: {
           artifacts: ['artifact ignored'],
           attachments: ['attachment ignored'],
         },
       },
+      },
     });
-    expect(buildIgnoredExecutorEvidencePatch({ existingResult: null, ignoredArtifactRegistrations: [], ignoredAttachmentRegistrations: [] })).toBeNull();
+    expect(buildIgnoredExecutorEvidencePatch({ existingLifecycle: { status: 'running', result: null, error: null, completed_at: null }, ignoredArtifactRegistrations: [], ignoredAttachmentRegistrations: [] })).toBeNull();
   });
 
   it('summarizes registration failure only for otherwise done executor results', () => {

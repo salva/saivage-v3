@@ -6,7 +6,7 @@ describe('planner post-dispatch handler', () => {
     const calls: string[] = [];
     const result = await handlePlannerPostDispatchDecision({
       goalId: 'goal-a',
-      decision: { kind: 'block', blockedReason: 'blocked', planning: { status: 'blocked' }, terminalReason: 'planner_blocked' },
+      decision: { kind: 'block', blockedReason: 'blocked', planning: { kind: 'planner_blocked', blocked_reason: 'blocked', resume_reason: 'planner_blocked', created_cards: [], updated_cards: [] }, terminalReason: 'planner_blocked' },
       effects: testEffects({ blockGoalWithPlanning: async (input) => { calls.push(`${input.goalId}:${input.terminalReason}`); } }),
     });
     expect(result).toEqual({ plannerDone: false, shouldReturn: true });
@@ -17,7 +17,7 @@ describe('planner post-dispatch handler', () => {
     const calls: string[] = [];
     const result = await handlePlannerPostDispatchDecision({
       goalId: 'goal-a',
-      decision: { kind: 'exit_with_unfinished_child_work', patch: { error: null }, terminalReason: 'planner_done_with_unfinished_child_work' },
+      decision: { kind: 'exit_with_unfinished_child_work', patch: { status_text: null }, terminalReason: 'planner_done_with_unfinished_child_work' },
       effects: testEffects({
         updateGoalCard: async (cardId) => { calls.push(`update:${cardId}`); },
         transitionGoalExit: async (cardId, reason) => { calls.push(`exit:${cardId}:${reason}`); },
@@ -31,7 +31,7 @@ describe('planner post-dispatch handler', () => {
     const calls: string[] = [];
     await expect(handlePlannerPostDispatchDecision({
       goalId: 'goal-a',
-      decision: { kind: 'continue', patch: { error: null } },
+      decision: { kind: 'continue', patch: { status_text: null } },
       effects: testEffects({ updateGoalCard: async (cardId) => { calls.push(`update:${cardId}`); } }),
     })).resolves.toEqual({ plannerDone: false, shouldReturn: false });
     await expect(handlePlannerPostDispatchDecision({

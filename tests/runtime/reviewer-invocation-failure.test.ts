@@ -8,10 +8,7 @@ describe('reviewer invocation failure handler', () => {
       transitionCard: async (cardId, event, details) => { calls.push(`${event}:${cardId}:${String(details.blocked_reason).slice(0, 35)}`); },
       updateCard: async (_cardId, patch) => {
         calls.push(`update:${patch.status}`);
-        expect(patch.result).toMatchObject({
-          existing: true,
-          planning: expect.objectContaining({ resume_reason: 'reviewer_unavailable', failure_kind: 'reviewer_invocation_failed' }),
-        });
+        expect(patch.lifecycle?.result).toMatchObject({ kind: 'planner_blocked', resume_reason: 'reviewer_unavailable' });
       },
       finishOpenPlannerRun: (goalId, result) => { calls.push(`finish:${goalId}:${result}`); },
       transitionRuntime: async (event, details) => { calls.push(`${event}:${details.reason}`); },
@@ -20,7 +17,7 @@ describe('reviewer invocation failure handler', () => {
     await handleReviewerInvocationFailure({
       goalId: 'goal-a',
       error: new Error('reviewer offline'),
-      existingResult: { existing: true },
+      existingLifecycle: { status: 'running', result: null, error: null, completed_at: null },
       effects,
     });
 

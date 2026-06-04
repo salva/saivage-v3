@@ -59,12 +59,7 @@ describe('planner prompt context compaction', () => {
         summary: longBlob,
         details: { nested: longBlob },
       },
-      result: {
-        review: {
-          summary: longBlob,
-          issues: Array.from({ length: 20 }, (_, index) => ({ index, detail: longBlob })),
-        },
-      },
+      lifecycle: { status: 'backlog', result: null, error: null, completed_at: null },
     });
     harness.cardTestTools.create({
       id: 'child-heavy',
@@ -85,11 +80,7 @@ describe('planner prompt context compaction', () => {
       attachments: Array.from({ length: 12 }, (_, index) => ({ id: `attachment-${index}`, card_id: 'child-heavy', mime: 'text/plain', title: `${index}:${longBlob}`, path: `.saivage-work/attachments/${index}.txt`, created_at: '2026-06-01T00:00:00.000Z' })),
       acceptance: '',
       retries: 0,
-      result: {
-        status: 'completed',
-        summary: longBlob,
-        checklist_results: Array.from({ length: 20 }, (_, index) => ({ item: `item-${index}`, note: longBlob })),
-      },
+      lifecycle: { status: 'done', result: { kind: 'executor_success', executor: { status: 'completed', summary: longBlob, checklist_results: Array.from({ length: 20 }, (_, index) => ({ item: `item-${index}`, note: longBlob })) }, generated_files: [], verified_at: '2026-06-01T00:00:00.000Z', latest_self_report: { result: 'done', outcome: 'done', summary: longBlob, status_text: 'done', at: '2026-06-01T00:00:00.000Z' }, warnings: [] }, error: null, completed_at: '2026-06-01T00:00:00.000Z' },
     });
 
     await harness.api.start();

@@ -25,7 +25,7 @@
               {{ formatDuration(event.card.duration_ms) }}
             </span>
           </div>
-          <div v-if="event.card.error" class="tl-error">{{ event.card.error }}</div>
+          <div v-if="event.card.lifecycle.error" class="tl-error">{{ event.card.lifecycle.error }}</div>
         </div>
       </div>
     </div>
@@ -74,7 +74,7 @@ const sortedEvents = computed<TimelineEvent[]>(() => {
   return props.cards
     .map((card) => ({
       card,
-      mostRecent: card.completed_at || card.started_at || card.updated_at || card.created_at,
+      mostRecent: card.lifecycle.completed_at || card.started_at || card.updated_at || card.created_at,
     }))
     .sort((a, b) => new Date(b.mostRecent).getTime() - new Date(a.mostRecent).getTime());
 });

@@ -93,6 +93,7 @@ describe('PlannerResultApplier', () => {
 });
 
 function baseCard(overrides: Partial<CardRecord> = {}): CardRecord {
+  const lifecycle = overrides.lifecycle ?? ({ status: overrides.status ?? 'running', result: null, error: null, completed_at: null } as CardRecord['lifecycle']);
   return {
     id: overrides.id ?? 'card-a',
     type: overrides.type ?? 'code',
@@ -113,7 +114,7 @@ function baseCard(overrides: Partial<CardRecord> = {}): CardRecord {
     blocks: overrides.blocks ?? [],
     related: overrides.related ?? [],
     acceptance: overrides.acceptance ?? '',
-    result: overrides.result ?? null,
+    lifecycle,
     artifacts: overrides.artifacts ?? [],
     attachments: overrides.attachments ?? [],
     retries: overrides.retries ?? 0,

@@ -1,6 +1,6 @@
 import type { AgentMessage, ActivationCompletionOutcome, CardLifecycleState, CardRecord, ReviewAssessment } from '../schemas/index.js';
 import type { RuntimeState } from '../schemas/index.js';
-import { createActivationCompletionEnvelope, parseActivationCompletionEnvelope, projectCardLifecycleState } from '../schemas/index.js';
+import { createActivationCompletionEnvelope, parseActivationCompletionEnvelope } from '../schemas/index.js';
 import { parseToolCallMessage } from '../contracts/persisted-tool-call.js';
 import type { SessionStamper } from '../contracts/session-stamper.js';
 import type { RuntimeStateMutationPort } from './mutations.js';
@@ -284,7 +284,7 @@ export class ActivationUnwindRunner {
       childCardId,
       outcome,
       completedAt: this.deps.now(),
-      lifecycle: lifecycle ?? (child ? projectCardLifecycleState(child) : null),
+      lifecycle: lifecycle ?? child?.lifecycle ?? null,
     });
   }
 
@@ -294,25 +294,20 @@ export class ActivationUnwindRunner {
     summary: string,
   ): string {
     const child = this.deps.cards.read(childCardId);
-    const failureKind =
-      child?.result &&
-      typeof child.result === 'object' &&
-      typeof (child.result as { failure_kind?: unknown }).failure_kind === 'string'
-        ? (child.result as { failure_kind: string }).failure_kind
-        : undefined;
+    const failureKind = child?.lifecycle.result?.kind === 'executor_failure' ? child.lifecycle.result.error : undefined;
     return JSON.stringify(
       createActivationCompletionEnvelope({
         child_card_id: childCardId,
         outcome,
         summary,
-        result: child?.result ?? null,
-        review: (child?.result?.review as ReviewAssessment | null | undefined) ?? null,
+        result: child?.lifecycle.result ?? null,
+        review: child?.lifecycle.result?.kind === 'reviewer_pass' ? ({ result: 'pass', summary: child.lifecycle.result.review_summary, achieved: [], issues: [], evidence_card_ids: [], assessment_id: child.lifecycle.result.assessment_id, at: child.lifecycle.completed_at ?? new Date().toISOString() } as ReviewAssessment) : null,
         artifacts: child?.artifacts ?? [],
         attachments: child?.attachments ?? [],
         evidence_card_ids: child
           ? [child.id, ...this.deps.cards.getDescendantIds(child.id)]
           : [childCardId],
-        error: child?.error ?? null,
+        error: child?.lifecycle.error ?? null,
         failure_kind: failureKind,
       }),
     );

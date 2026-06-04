@@ -136,7 +136,7 @@ describe('startup active run repair decisions', () => {
     const parentRun = { ...run('planner'), card_id: 'parent-a', planner_session_id: 'planner:parent-a' };
     const effects = testEffects({
       transitionCard: async (cardId, event) => { calls.push(`${event}:${cardId}`); },
-      repairTerminalLifecycle: async (cardId, patch) => { calls.push(`repair:${cardId}:${patch.error}`); },
+      repairTerminalLifecycle: async (cardId, patch) => { calls.push(`repair:${cardId}:${patch.lifecycle?.error}`); },
       appendChildUnwindToolResult: (cardId, outcome) => { calls.push(`unwind:${cardId}:${outcome}`); },
       parentPlannerRunFor: () => parentRun,
     });
