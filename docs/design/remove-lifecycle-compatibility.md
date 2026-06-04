@@ -1,14 +1,14 @@
 # Remove lifecycle compatibility bridges
 
-This plan removes the backward-compatibility code left behind by the terminal lifecycle migration. The target is a simpler runtime model: lifecycle state is canonical, lifecycle results are typed, persisted JSON is validated strictly, and API/read-model code does not carry legacy flat-result projections.
+This plan removes the backward-compatibility code left behind by the terminal lifecycle migration. The target is a clean Saivage v3 state model: lifecycle state is canonical, lifecycle results are typed, persisted JSON is validated strictly, and API/read-model code does not expose legacy flat-result projections.
 
-## Architecture target
+The implementation assumes old Saivage v3 deployments and project runtime state will be wiped. There is no requirement to load old `.saivage/cards/by-id/*.json`, historical runtime ledgers, or pre-cleanup API responses. Do not add dual-shape adapters, migration normalizers, or compatibility parsing to preserve old deployments.
 
-### Canonical card lifecycle
+## Architecture Target
 
-`CardRecord` should have one lifecycle source of truth. During the previous migration, flat fields (`status`, `result`, `error`, `completed_at`) stayed as the persisted shape and `CardLifecycleState` was projected from them. That was useful for migration, but it now creates two conceptual models.
+### Canonical Card Lifecycle
 
-Target shape:
+`CardRecord` should have one lifecycle source of truth.
 
 ```ts
 interface CardRecord {
@@ -16,15 +16,16 @@ interface CardRecord {
   type: CardType;
   parent: string | null;
   // structural/card metadata fields...
+  status: CardStatus; // derived from lifecycle.status for indexing and filtering
   lifecycle: CardLifecycleState;
 }
 ```
 
-If keeping top-level `status` is still useful for indexing and simple filtering, it must be derived from `lifecycle.status`, not independently mutable. There should be no independent `result`, `error`, or `completed_at` fields outside `lifecycle`.
+Keep top-level `status` as a derived denormalized field because indexing, filtering, transition checks, and operator summaries already use it heavily. It must always equal `lifecycle.status` and must not be independently mutable. Remove independent top-level `result`, `error`, and `completed_at` from `CardRecord`.
 
-### Strict typed results
+### Strict Typed Results
 
-Lifecycle results must be closed discriminated unions. No arbitrary record may satisfy a terminal result branch.
+Lifecycle terminal results are closed discriminated unions. Arbitrary records may exist inside typed payload fields, but an arbitrary record is never itself a valid lifecycle result.
 
 ```ts
 type CardResult =
@@ -43,79 +44,139 @@ type NeedsVerificationResult = ExecutorNeedsVerificationResult;
 
 `ReviewerCorrectionResult` remains outside `CardResult`; corrections belong to review assessment/history, not the current card lifecycle result.
 
-### Strict persisted-state boundary
+`ExecutorSuccessResult.executor`, `ExecutorNeedsVerificationResult.preserved_result`, and `ReviewerCorrectionResult.issues` may keep opaque record payloads, but use a clearly named schema such as `arbitraryRecordSchema`. Do not use that schema as a fallback lifecycle result variant.
 
-Loading card JSON must validate strict lifecycle state. It must not normalize invalid historical shapes, fill missing errors, clear stale errors, or synthesize empty results. Invalid persisted cards should fail fast with an actionable diagnostic.
+### Strict Persisted-State Boundary
 
-### Commit helpers own lifecycle writes
+Card loading validates the canonical shape and rejects invalid data. It must not normalize historical shapes, fill missing errors, fill missing results, clear stale errors, or synthesize timestamps. Existing deployments will be wiped, so invalid persisted cards should fail fast with actionable diagnostics.
 
-Lifecycle writes should flow through terminal/lifecycle commit helpers. Ordinary `CardStore.update()` and `mutateCard()` must not patch lifecycle-owned fields. Explicit repair paths may remain, but they should write canonical lifecycle state, not compatibility overlays.
+### Lifecycle Write Ownership
 
-### Runtime ledgers
+Lifecycle writes flow through explicit lifecycle commit or repair paths. Ordinary `CardStore.update()` and `mutateCard()` must not patch lifecycle-owned fields. Explicit repair paths may remain, but they write canonical lifecycle state and derived `status`, not legacy overlays.
 
-Runtime activations and runs currently carry both legacy status/result fields and `outcome_snapshot`. The long-term target is a single outcome representation for historical facts. Live scheduling state may still need a separate phase/status field, but terminal outcome facts should not be duplicated.
+### Runtime Ledgers
 
-## Removal stages
+Runtime activations and runs currently carry both legacy terminal fields and `outcome_snapshot`. The target is one canonical outcome representation for historical facts. Live scheduling can keep a separate status/phase if needed, but terminal outcome facts must not be duplicated.
 
-### Stage 1: Remove legacy result unions
+## Implementation Stages
+
+### Stage 0: Clean-State Boundary
 
 Files:
-- `src/schemas/lifecycle.ts`
-- `tests/schemas/lifecycle.test.ts`
+- Deployment/runbook docs as needed
+- Test fixtures that depend on old card JSON
 
 Changes:
-- Delete `LegacyCardResult`.
-- Remove `resultRecordSchema` from `cardResultSchema`, `doneResultSchema`, `failureResultSchema`, `blockedResultSchema`, and `needsVerificationResultSchema`.
-- Make result aliases strict as shown in the architecture target.
-- Remove tests that assert legacy flat result objects are valid lifecycle states.
-- Add negative tests proving arbitrary records are rejected for terminal lifecycle results.
+- Document that old Saivage v3 runtime state must be wiped before deploying this cleanup.
+- Do not write a compatibility converter.
+- Do not preserve loading of historical card/result shapes.
+- Keep fixtures only if they already use canonical lifecycle shape.
 
-Expected fallout:
-- Commit helpers and tests that still write `success`, `result.planning`, or preserved legacy blobs will fail until later stages.
+Acceptance:
+- The implementation can reject all pre-cleanup card files.
+- Operators have a clear reset/wipe step before using the new build.
 
-### Stage 2: Remove persisted lifecycle normalization
+### Stage 1: Make Persisted Card Loading Strict
 
 Files:
 - `src/schemas/lifecycle.ts`
 - `src/cards/state.ts`
+- `src/schemas/validators.ts`
 - `tests/schemas/lifecycle.test.ts`
 
 Changes:
 - Delete `normalizePersistedCardLifecycle()` and `NormalizedPersistedCardLifecycle`.
-- Change `parseCard()` to call `validatePersistedCardLifecycle()` and return the parsed strict card.
-- Remove tests that expect load-time repair of invalid cards.
-- Add tests that invalid persisted cards fail fast:
+- Delete `asResult()` and all logic that turns missing results into `{}`.
+- Make `validatePersistedCardLifecycle()` strictly validate the current canonical shape and reject invalid data.
+- Tighten `cardRecordSchema.result` at the persisted boundary. During the flat-field interim, it must validate as `cardResultSchema.nullable().optional()` rather than `z.record(...).nullable().optional()`.
+- Change `parseCard()` to validate strict lifecycle state after `cardRecordSchema` parsing and throw on invalid lifecycle fields.
+- Remove tests expecting load-time repair of invalid cards.
+- Add negative tests for:
   - `done` with non-null `error`
+  - `done` without valid result
   - `failed` without error
   - `blocked` without error
   - `needs_verification` with non-null `error`
-  - missing terminal `completed_at` where required
+  - missing required terminal `completed_at`
 
-Implementation note:
-- This stage may require test fixture updates. Do not add compatibility normalization for tests; fixtures should be corrected to canonical lifecycle state.
+Acceptance:
+- Loading invalid card JSON fails fast.
+- No load path repairs lifecycle fields.
 
-### Stage 3: Stop emitting legacy result overlays
+### Stage 2: Remove Legacy Result Fallbacks
+
+Files:
+- `src/schemas/lifecycle.ts`
+- `src/schemas/index.ts`
+- lifecycle schema tests
+
+Changes:
+- Delete `LegacyCardResult`.
+- Remove arbitrary-record fallback variants from `CardResult`, `DoneResult`, `FailureResult`, `BlockedResult`, and `NeedsVerificationResult`.
+- Remove arbitrary-record fallback members from `cardResultSchema`, `doneResultSchema`, `failureResultSchema`, `blockedResultSchema`, and `needsVerificationResultSchema`.
+- Rename the record helper used by intentionally opaque payload fields to `arbitraryRecordSchema` or equivalent.
+- Keep opaque payload fields only inside typed result variants:
+  - `ExecutorSuccessResult.executor`
+  - `ExecutorFailureResult.partial_result`
+  - `ExecutorNeedsVerificationResult.preserved_result`
+  - `ReviewerCorrectionResult.issues`
+- Add negative tests proving arbitrary records are rejected as lifecycle results.
+
+Acceptance:
+- No lifecycle schema accepts `{}` or `{ planning: ... }` as a result unless it is inside a typed `kind` variant.
+- `LegacyCardResult` is gone from public exports.
+
+### Stage 3: Stop Emitting Legacy Result Overlays
 
 Files:
 - `src/runtime/terminal-commit/commit-executor.ts`
 - `src/runtime/terminal-commit/commit-reviewer.ts`
 - `src/runtime/terminal-commit/commit-planner.ts`
+- `src/runtime/phases/planner-iteration-runner.ts`
+- `src/runtime/phases/planner-invocation-failure.ts`
+- `src/runtime/phases/reviewer-assessment-handler.ts`
 - `tests/runtime/terminal-commit.test.ts`
 - executor/reviewer/planner focused tests
 
 Changes:
-- In executor commits, remove top-level `success: true` and `success: false` from `result` patches.
+- In executor commits, remove result-level `success: true` and `success: false` overlays, including parked `needs_verification`.
 - In reviewer pass, remove `reviewerPassPlanningFallback()` and `legacyPlanningProjection()`.
-- Make `commitReviewerPass()` require typed planning context. If planning context is missing, fail with a clear error.
+- Make `commitReviewerPass()` require typed planning context. If planning context is missing, throw a clear error.
 - In planner commits, remove legacy `result.planning` embedding.
 - Remove `preservedResult` and `planning` inputs from `commitPlannerBlocked()`.
-- Ensure every commit helper writes exactly `lifecyclePatch(lifecycle)` plus non-lifecycle metadata (`status_text`, `latest_self_report`, etc.).
+- Update all callers that currently pass `preservedResult` or depend on fallback planning.
+- Delete helper predicates that exist only to parse legacy reviewer/planner result records.
+- Update `validateTerminalOverlay()` to use typed discriminants instead of untyped record-key checks. It should not reject `ReviewerPassResult.planning.kind === 'planner_blocked'`, because that is intentional historical context.
 
-Required behavior after stage:
-- `card.lifecycle.result.kind` is the way to distinguish result shape.
-- No code should inspect `card.result.success` or `card.result.planning.status`.
+Acceptance:
+- Commit helpers write only typed lifecycle results.
+- No commit helper writes `result.success` or `result.planning.status`.
+- No production caller depends on reviewer pass fallback planning.
 
-### Stage 4: Move from flat lifecycle fields to canonical lifecycle object
+### Stage 4: Remove Direct Lifecycle Field Patches Outside Commit Helpers
+
+Files:
+- `src/runtime/phases/planner-phase.ts`
+- `src/runtime/startup-blocked-planning.ts`
+- `src/runtime/startup-repair.ts`
+- `src/runtime/activation-repair.ts`
+- `src/runtime/phases/planner-failure-handler.ts`
+- `src/runtime/runtime-reviewers-dispatcher.ts`
+- `src/cards/card-store.ts`
+- `src/cards/lifecycle.ts`
+
+Changes:
+- Remove or replace planner-phase patch builders that directly set `result`, `error`, `completed_at`, or terminal `status`.
+- Make startup and repair paths write canonical lifecycle state through explicit repair helpers.
+- Keep `repairTerminalLifecycle()` only as an explicit canonical lifecycle repair path.
+- Remove the unused `_legacy` `CardStore` constructor parameter.
+- Ensure `CardStore.update()` and `mutateCard()` reject lifecycle-owned field mutations except through commit/repair contexts.
+
+Acceptance:
+- Searches show no non-commit/non-repair `Partial<CardRecord>` writes to lifecycle-owned fields.
+- Repair paths do not construct legacy result overlays.
+
+### Stage 5: Persist Canonical `lifecycle`
 
 Files:
 - `src/schemas/types.ts`
@@ -124,34 +185,74 @@ Files:
 - `src/cards/card-store.ts`
 - `src/cards/lifecycle.ts`
 - `src/runtime/terminal-commit/lifecycle-patch.ts`
-- read models and operator contracts
+- runtime lifecycle callers
+- card fixtures and tests
 
 Changes:
 - Add `lifecycle: CardLifecycleState` to `CardRecord`.
-- Remove independent `result`, `error`, and `completed_at` from `CardRecord`.
-- Decide whether `status` remains a top-level derived field. If it remains, enforce that `status === lifecycle.status` at schema boundaries and mutation boundaries.
-- Replace `lifecyclePatch()` with a function that writes `{ lifecycle }` and, only if needed, derived `status`.
-- Update card mutation validation to treat `lifecycle` as lifecycle-owned.
-- Remove `projectCardLifecycleState()` once all callers read `card.lifecycle` directly.
+- Keep top-level `status` as derived from `lifecycle.status`.
+- Remove top-level `result`, `error`, and `completed_at` from `CardRecord`.
+- Rename `lifecyclePatch()` to a new helper such as `lifecycleCardPatch()` that returns `{ lifecycle, status: lifecycle.status }`.
+- Update all commit and repair helpers to use the renamed helper.
+- Replace `projectCardLifecycleState(card)` callers with direct `card.lifecycle` reads.
+- Update runtime invariant checks to assert `card.status === card.lifecycle.status`.
+- Update all `CardRecord` fixtures to include canonical `lifecycle`.
 
-Migration policy:
-- No backward compatibility. Existing project state may need a one-time operator reset or explicit conversion script. Do not keep runtime adapters that accept both shapes.
+Acceptance:
+- `CardRecord['result']` no longer exists.
+- `projectCardLifecycleState()` is removed.
+- New cards are created with canonical `lifecycle`.
 
-### Stage 5: Remove read-model/API flat compatibility
+### Stage 6: Migrate Runtime Code To Typed Lifecycle Reads
+
+Files:
+- `src/runtime/phases/planner-phase.ts`
+- `src/runtime/planning-blockers.ts`
+- `src/runtime/startup-blocked-planning.ts`
+- `src/runtime/activation-repair.ts`
+- `src/runtime/phases/executor-completion-handler.ts`
+- `src/runtime/phases/executor-evidence.ts`
+- `src/runtime/activation-unwind.ts`
+- `src/runtime/context-builder.ts`
+- `src/runtime/terminal-commit/validators.ts`
+- `src/runtime/reviewer-assessment.ts`
+- `src/runtime/phases/reviewer-phase.ts`
+- `src/runtime/phases/reviewer-invocation-failure.ts`
+- `src/contracts/system-prompt.ts`
+
+Changes:
+- Replace untyped `card.result` reads with typed `card.lifecycle.result` discriminant checks.
+- Replace `result.planning` prompt text with the typed lifecycle result shape.
+- Replace `evidenceIdsFromResult()` with typed evidence extraction or explicit evidence parameters.
+- Remove unsafe casts to `Record<string, unknown>` and `CardRecord['result']`.
+
+Acceptance:
+- Searches show no `CardRecord['result']`, `card.result`, `result.planning`, or `goal.result.planning` production references outside historical docs.
+- Runtime code narrows lifecycle result by `kind`.
+
+### Stage 7: Remove Read-Model/API Flat Compatibility
 
 Files:
 - `src/application/read-models/cards-read-model.ts`
 - `src/contracts/operator-api-runtime-cards.ts`
-- server route tests and web client consumers
+- server route tests
+- `web/src/stores/cards.ts`
+- `web/src/api/types.ts`
+- `web/src/api/contracts.ts`
+- Vue components that read flat card lifecycle fields
 - `tests/application/read-models.test.ts`
 
 Changes:
 - Stop returning flat `result`, `error`, and `completed_at` as independent card fields.
-- Return canonical `lifecycle`.
+- Return canonical `lifecycle` and derived top-level `status`.
 - Update web/UI and tests to consume `card.lifecycle.status`, `card.lifecycle.result`, `card.lifecycle.error`, and `card.lifecycle.completed_at`.
 - Remove tests that assert backward-compatible flat fields.
 
-### Stage 6: Collapse runtime ledger outcome duplication
+Acceptance:
+- Operator API and web UI use canonical lifecycle state.
+- No read model synthesizes lifecycle from flat fields.
+
+### Stage 8: Collapse Runtime Ledger Outcome Duplication
 
 Files:
 - `src/schemas/types.ts`
@@ -170,40 +271,49 @@ Changes:
   - `outcome`: done/failed/blocked/cancelled/needs_verification once no longer running
 - Update invariant checks to validate canonical outcome only.
 
-This can be separate from card lifecycle cleanup if it is too broad for the first pass.
+Acceptance:
+- Runtime run and activation terminal outcomes are stored once.
+- Historical outcome facts are not recomputed from mutable card state on read.
 
-### Stage 7: Remove broader compatibility parsers where in scope
+### Stage 9: Remove Non-Lifecycle Compatibility Parsers
 
 Files:
 - `src/schemas/validators.ts`
+- `src/schemas/index.ts`
+- `src/observability/event-logger.ts`
 - event parsing tests
 
 Changes:
 - Remove `loggedEventCompatibilitySchema`, `LoggedEventCompatResult`, and `parseLoggedEventCompat()` unless a current non-compatibility requirement exists.
-- Reject unknown historical event kinds instead of accepting them.
+- Reject unknown event kinds instead of accepting them.
 
-This is not lifecycle-specific, but it violates the same rule.
+Acceptance:
+- Event parsing is strict.
 
-## Known compatibility tests to delete or rewrite
+## Search Checklist
+
+Before each commit, search for these strings and remove matches unless they are in this plan or historical docs:
+
+```bash
+rg "LegacyCardResult|legacyPlanningProjection|reviewerPassPlanningFallback|normalizePersistedCardLifecycle|asResult\(|result\.planning|goal\.result\.planning|CardRecord\['result'\]|card\.result|outcome_snapshot"
+rg "result:\s*\{\s*\.\.\.result,\s*success|success:\s*(true|false)" src tests
+```
+
+The second search has expected false positives for tool/API success flags. Only result overlays are in scope.
+
+## Tests To Delete Or Rewrite
 
 - `tests/schemas/lifecycle.test.ts`: legacy persisted normalization tests.
 - `tests/schemas/lifecycle.test.ts`: arbitrary flat planning result accepted by schema.
 - `tests/runtime/terminal-commit.test.ts`: reviewer fallback planning context.
 - `tests/runtime/terminal-commit.test.ts`: planner blocked preserving legacy nested planning metadata.
 - `tests/application/read-models.test.ts`: backward-compatible flat card fields plus derived lifecycle.
-- Any test expecting `card.result.success` or `card.result.planning.status`.
+- `tests/runtime/planner-phase.test.ts`: direct `card.result.planning` assertions.
+- `tests/runtime/planning-blockers.test.ts`: `CardRecord['result']` helpers.
+- `tests/utils/runtime-adapter-wiring.test.ts`: `card.result.success` assertions.
+- Runtime ledger tests that assert `outcome_snapshot`, once Stage 8 runs.
 
-## Search checklist
-
-Before each commit, search for these strings and remove matches unless they are in this plan or historical docs:
-
-```bash
-rg "LegacyCardResult|legacyPlanningProjection|reviewerPassPlanningFallback|normalizePersistedCardLifecycle|backward-compatible|compatibility|result\.planning|result\.success|success: true|success: false|outcome_snapshot"
-```
-
-`outcome_snapshot` may remain until Stage 6, but should be tracked as technical debt, not ignored.
-
-## Validation gates
+## Validation Gates
 
 Run after each stage:
 
@@ -222,22 +332,25 @@ npm run validate:ui-smoke
 npm run build
 ```
 
-If web/API contract changes are included, also run the relevant web tests and update operator API docs in the same commit.
+If web/API contracts change, run the relevant web tests and update operator API docs in the same commit.
 
 ## Risks
 
-- Existing `.saivage/cards/by-id/*.json` created before the cleanup may fail to load. This is acceptable under the no-backward-compatibility rule, but operators need a reset/conversion procedure.
+- Existing Saivage v3 runtime/card state will not load. This is intentional; deployments must be wiped/reset before using the new build.
 - Removing flat API fields will break current web consumers unless they are updated in the same stage.
-- Removing legacy run `result` fields may touch scheduler assumptions; keep that as a dedicated stage.
+- Removing legacy run `result` fields may touch scheduler assumptions; keep runtime ledger cleanup as a dedicated stage.
 - Strict result schemas may expose hidden code paths that still produce untyped records. Fix those producers rather than widening schemas.
 
-## Definition of done
+## Definition Of Done
 
+- Old deployments have been wiped/reset before the new build is used.
 - No `LegacyCardResult` type exists.
 - No lifecycle schema accepts arbitrary records as terminal results.
 - Card load does not normalize invalid lifecycle fields.
+- `CardRecord` stores canonical `lifecycle` plus derived `status`.
+- Top-level `result`, `error`, and `completed_at` are removed from `CardRecord` and operator card responses.
 - Commit helpers emit only typed lifecycle results.
 - Reviewer/planner/executor code consumes typed result `kind` variants.
-- Operator read models expose canonical lifecycle state without flat compatibility fields.
+- Operator read models and web UI consume canonical lifecycle state.
 - Lifecycle-owned mutation paths are explicit and minimal.
 - Tests no longer assert compatibility behavior.
