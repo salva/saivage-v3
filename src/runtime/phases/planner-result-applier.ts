@@ -22,7 +22,6 @@ export class PlannerResultApplier {
   async apply(goalId: string, plannerResult: PlannerResult): Promise<void> {
     if (plannerResult.created_cards) {
       for (const cardDef of plannerResult.created_cards) {
-        if (this.deps.cardStore.read(cardDef.id ?? '')) continue;
         this.deps.cardStore.create({
           id: cardDef.id,
           type: cardDef.type as CardRecord['type'],
