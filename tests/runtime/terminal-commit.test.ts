@@ -149,6 +149,24 @@ describe('terminal commit functions', () => {
     expect(receipt.result).toEqual(expect.objectContaining({ kind: 'reviewer_pass', review_summary: 'passed' }));
   });
 
+  it('commits reviewer pass with fallback planning context', async () => {
+    const fx = effects();
+    const receipt = await commitReviewerPass({
+      card: card({ id: 'goal-a', type: 'goal', result: { previous: true } }),
+      reviewSummary: 'passed',
+      assessmentId: 'assessment-1',
+      completedAt: now,
+      effects: fx,
+    });
+
+    expect(receipt.result).toEqual({
+      kind: 'reviewer_pass',
+      planning: { kind: 'planner_done', created_cards: [], updated_cards: [], summary: 'passed' },
+      review_summary: 'passed',
+      assessment_id: 'assessment-1',
+    });
+  });
+
   it('rejects planner done for parent goal and commits it for planning-only cards', async () => {
     const fx = effects();
     await expect(commitPlannerDone({

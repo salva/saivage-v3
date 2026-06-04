@@ -1,7 +1,8 @@
 import type { CardRecord, ReviewAssessment } from '../../schemas/index.js';
 import type { ReviewerResult } from '../../contracts/index.js';
+import { commitReviewerPass } from '../terminal-commit/index.js';
 import { buildReviewAssessment } from '../reviewer-assessment.js';
-import { buildReviewerPassCompletionPatch, type ReviewerPhaseDecision } from './reviewer-phase.js';
+import type { ReviewerPhaseDecision } from './reviewer-phase.js';
 
 export interface ReviewerAssessmentEffects {
   now(): string;
@@ -50,11 +51,6 @@ export async function handleReviewerAssessmentDecision(input: {
   }
 
   if (input.decision.kind === 'pass') {
-    if (input.effects.readCard(input.goalId)?.status !== 'done') {
-      await input.effects.transitionCard(input.goalId, 'complete', {
-        assessment: input.reviewResult.assessment,
-      });
-    }
     const assessment = buildReviewAssessment({
       goalId: input.goalId,
       assessmentId: input.assessmentId,
@@ -64,15 +60,16 @@ export async function handleReviewerAssessmentDecision(input: {
     });
     await input.effects.persistReviewState(input.goalId, assessment);
     const latestGoalCard = input.effects.readCard(input.goalId);
-    await input.effects.updateCard(
-      input.goalId,
-      buildReviewerPassCompletionPatch({
-        existingResult: latestGoalCard?.result,
-        existingCompletedAt: latestGoalCard?.completed_at,
-        completedAt: input.effects.now(),
+    if (latestGoalCard) {
+      await commitReviewerPass({
+        card: latestGoalCard,
         reviewSummary: input.reviewResult.assessment.summary,
-      }),
-    );
+        assessmentId: input.assessmentId,
+        completedAt: latestGoalCard.completed_at ?? input.effects.now(),
+        transitionDetails: { assessment: input.reviewResult.assessment },
+        effects: input.effects,
+      });
+    }
     input.effects.appendChildUnwindToolResult(input.goalId, 'done', input.reviewResult.assessment.summary);
     await input.effects.transitionRuntime('reviewer_finished', {
       goalId: input.goalId,

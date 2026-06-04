@@ -1,5 +1,5 @@
 import { describe, expect, it } from '@jest/globals';
-import { buildReviewerActiveRun, buildReviewerInvocationFailurePatch, buildReviewerPassCompletionPatch, decideReviewerPhase } from '../../src/runtime/phases/reviewer-phase.js';
+import { buildReviewerActiveRun, buildReviewerInvocationFailurePatch, decideReviewerPhase } from '../../src/runtime/phases/reviewer-phase.js';
 import type { ReviewerResult } from '../../src/contracts/index.js';
 
 function assessment(result: ReviewerResult['assessment']['result']): ReviewerResult['assessment'] {
@@ -33,35 +33,6 @@ describe('reviewer phase decisions', () => {
         },
       },
     });
-  });
-
-  it('builds reviewer pass completion card patch', () => {
-    expect(buildReviewerPassCompletionPatch({
-      existingResult: { previous: true },
-      existingCompletedAt: null,
-      completedAt: '2026-01-01T00:00:00.000Z',
-      reviewSummary: 'passed',
-    })).toEqual({
-      completed_at: '2026-01-01T00:00:00.000Z',
-      error: null,
-      result: {
-        previous: true,
-        planning: {
-          status: 'done',
-          created_cards: [],
-          review_summary: 'passed',
-        },
-      },
-    });
-  });
-
-  it('preserves existing reviewer completion timestamp', () => {
-    expect(buildReviewerPassCompletionPatch({
-      existingResult: null,
-      existingCompletedAt: 'already-complete',
-      completedAt: 'new-complete',
-      reviewSummary: 'passed',
-    }).completed_at).toBe('already-complete');
   });
 
   it('builds reviewer active-run state', () => {

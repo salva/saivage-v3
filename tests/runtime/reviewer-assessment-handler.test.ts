@@ -3,6 +3,8 @@ import { handleReviewerAssessmentDecision, type ReviewerAssessmentEffects } from
 import type { CardRecord, ReviewAssessment } from '../../src/schemas/types.js';
 import type { ReviewerResult } from '../../src/contracts/index.js';
 
+const now = '2026-01-01T00:00:00.000Z';
+
 function reviewResult(result: ReviewerResult['assessment']['result']): ReviewerResult {
   return {
     assessment: {
@@ -34,6 +36,7 @@ describe('reviewer assessment handler', () => {
 
   it('persists pass completion and emits completion effects', async () => {
     const calls: string[] = [];
+    const patches: Partial<CardRecord>[] = [];
     const outcome = await handleReviewerAssessmentDecision({
       goalId: 'goal-a',
       projectCardId: 'goal-a',
@@ -42,9 +45,9 @@ describe('reviewer assessment handler', () => {
       reviewResult: reviewResult('pass'),
       decision: { kind: 'pass' },
       effects: testEffects({
-        readCard: () => ({ id: 'goal-a', status: 'active', result: { previous: true }, completed_at: null } as unknown as CardRecord),
-        transitionCard: async (cardId, event) => { calls.push(`${event}:${cardId}`); },
-        updateCard: async (_cardId, patch) => { calls.push(`update:${patch.completed_at}`); expect(patch.result).toMatchObject({ previous: true, planning: { status: 'done', review_summary: 'review summary' } }); },
+        readCard: () => ({ id: 'goal-a', status: 'active', result: { previous: true }, completed_at: null, error: 'stale error' } as unknown as CardRecord),
+        transitionCard: async (cardId, event, details) => { calls.push(`${event}:${cardId}:${'assessment' in details}`); },
+        updateCard: async (_cardId, patch) => { patches.push(patch); calls.push(`update:${patch.completed_at}`); },
         appendChildUnwindToolResult: (cardId, outcomeKind) => { calls.push(`unwind:${cardId}:${outcomeKind}`); },
         transitionRuntime: async (event, details) => { calls.push(`${event}:${details.reason}`); },
         emitGoalCompleted: (cardId) => { calls.push(`completed:${cardId}`); },
@@ -54,19 +57,51 @@ describe('reviewer assessment handler', () => {
 
     expect(outcome).toEqual({ kind: 'completed' });
     expect(calls).toEqual([
-      'complete:goal-a',
-      'update:now',
+      'complete:goal-a:true',
+      `update:${now}`,
       'unwind:goal-a:done',
       'reviewer_finished:review_pass',
       'completed:goal-a',
       'project:goal-a',
     ]);
+    expect(patches[0]).toMatchObject({
+      status: 'done',
+      completed_at: now,
+      error: null,
+      result: {
+        kind: 'reviewer_pass',
+        planning: { kind: 'planner_done', created_cards: [], updated_cards: [], summary: 'review summary' },
+        review_summary: 'review summary',
+        assessment_id: 'assessment-goal-a-1',
+      },
+    });
+  });
+
+  it('persists correction assessment without committing correction as lifecycle result', async () => {
+    const persisted: ReviewAssessment[] = [];
+    const patches: Partial<CardRecord>[] = [];
+    const outcome = await handleReviewerAssessmentDecision({
+      goalId: 'goal-a',
+      projectCardId: 'project',
+      assessmentId: 'assessment-goal-a-1',
+      reviewerSessionId: 'reviewer:goal-a:assessment-goal-a-1',
+      reviewResult: reviewResult('needs_corrections'),
+      decision: { kind: 'needs_corrections' },
+      effects: testEffects({
+        persistReviewState: async (_goalId, assessment) => { persisted.push(assessment); },
+        updateCard: async (_cardId, patch) => { patches.push(patch); },
+      }),
+    });
+
+    expect(outcome).toEqual({ kind: 'continue_planner' });
+    expect(persisted).toEqual([expect.objectContaining({ result: 'needs_corrections', summary: 'review summary' })]);
+    expect(patches).toEqual([]);
   });
 });
 
 function testEffects(overrides: Partial<ReviewerAssessmentEffects> = {}): ReviewerAssessmentEffects {
   return {
-    now: () => 'now',
+    now: () => now,
     readCard: () => null,
     transitionCard: async () => undefined,
     updateCard: async () => undefined,

@@ -39,26 +39,6 @@ export function buildReviewerInvocationFailurePatch(input: {
   };
 }
 
-export function buildReviewerPassCompletionPatch(input: {
-  existingResult: CardRecord['result'] | undefined;
-  existingCompletedAt: string | null | undefined;
-  completedAt: string;
-  reviewSummary: string;
-}): Partial<CardRecord> {
-  return {
-    completed_at: input.existingCompletedAt ?? input.completedAt,
-    error: null,
-    result: {
-      ...(input.existingResult ?? {}),
-      planning: {
-        status: 'done',
-        created_cards: [],
-        review_summary: input.reviewSummary,
-      },
-    },
-  };
-}
-
 export function buildReviewerActiveRun(input: {
   goalId: string;
   reviewerSessionId: string;
