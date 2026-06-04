@@ -275,7 +275,7 @@ describe('ARCH-026 hierarchy graph authority', () => {
     expect(store.read(stable.id)!.position).toBe(1);
   });
 
-  it('refuses parent changes through mutateCard; bounded moves use moveCard', () => {
+  it('refuses parent changes through mutateCard', () => {
     const a = store.create(makeCard({ type: 'goal', title: 'A', parent: 'project' }));
     const b = store.create(makeCard({ type: 'goal', title: 'B', parent: 'project' }));
     const child = store.create(makeCard({ type: 'code', title: 'Child', parent: a.id }));
@@ -284,14 +284,7 @@ describe('ARCH-026 hierarchy graph authority', () => {
       child.id,
       { parent: b.id },
       { actor: 'analyst', surface: 'web-chat', reason: 'test reparent' },
-    )).toThrow(new RegExp('parent.*cannot be changed via update/mutateCard', 'i'));
-
-    const moved = store.moveCard(a.id, b.id, { actor: 'analyst', surface: 'web-chat', reason: 'test bounded move' });
-    expect(moved.ok).toBe(true);
-    expect(store.read(a.id)?.parent).toBe(b.id);
-    expect(store.listChildren('project')).not.toContain(a.id);
-    expect(store.listChildren(b.id)).toContain(a.id);
-    expect(store.getDescendantIds(b.id)).toContain(child.id);
+    )).toThrow(/card reparenting is not supported/i);
   });
 
   it('ignores stale boot-time children snapshots and uses by-id authority', () => {

@@ -340,44 +340,6 @@ export class PlannerToolsService {
     return this.store.setStatus(cardId, 'active');
   }
 
-  moveCard(
-    id: string,
-    newParent: string,
-    ctx: CardMutationContext & { toolCallId?: string; sessionId?: string },
-  ): Record<string, unknown> {
-    const r = this.store.moveCard(id, newParent, {
-      actor: 'planner',
-      surface: 'runtime',
-      reason: 'planner move_card',
-    });
-    recordControlAction(this.projectRoot ?? this.store.projectRoot, {
-      actor: 'planner',
-      surface: 'runtime',
-      action: 'card.move',
-      target_kind: 'card',
-      target_id: id,
-      params_summary: stableStringify({
-        id,
-        newParent,
-        toolCallId: ctx.toolCallId,
-        sessionId: ctx.sessionId,
-      }),
-      outcome: r.ok ? 'ok' : 'error',
-      outcome_summary: r.ok ? 'mutation applied' : r.message,
-      ...(r.ok ? {} : { error: r.message }),
-    });
-    if (r.ok) return { success: true, data: r.data };
-    return {
-      success: false,
-      data: {
-        reason: r.reason,
-        message: r.message,
-        current_parent: r.currentParent,
-        attempted_parent: r.attemptedParent,
-      },
-    };
-  }
-
   queueNotification(
     recipient: Recipient,
     kind: string,

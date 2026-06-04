@@ -126,7 +126,7 @@ describe('PlannerControlExecutor', () => {
   });
 
   it('rejects cancel_card when the target subtree contains the active runtime leaf', async () => {
-    const goal = store.create(makeCard({ type: 'goal', title: 'Goal', status: 'active' }));
+    const goal = store.create(makeCard({ id: 'goal', type: 'goal', title: 'Goal', status: 'active' }));
     const child = store.create(
       makeCard({ type: 'code', title: 'Child', parent: goal.id, depth: 2, status: 'active' }),
     );
@@ -140,7 +140,7 @@ describe('PlannerControlExecutor', () => {
       sessionId: 'planner:goal',
       toolCallId: 'call-cancel',
       toolName: 'cancel_card',
-      argumentsJson: JSON.stringify({ cardId: goal.id }),
+      argumentsJson: JSON.stringify({ cardId: child.id }),
     });
 
     expect(result).toMatchObject({
@@ -159,7 +159,7 @@ describe('PlannerControlExecutor', () => {
   });
 
   it('runs report_goal_done through reviewer assessment and passes session/assessment context', async () => {
-    const goal = store.create(makeCard({ type: 'goal', title: 'Goal', status: 'active' }));
+    const goal = store.create(makeCard({ id: 'goal', type: 'goal', title: 'Goal', status: 'active' }));
     const evidence = store.create(
       makeCard({
         type: 'code',
@@ -198,7 +198,6 @@ describe('PlannerControlExecutor', () => {
       toolCallId: 'call-report',
       toolName: 'report_goal_done',
       argumentsJson: JSON.stringify({
-        goalId: goal.id,
         status_text: 'complete',
         evidence_card_ids: [evidence.id],
       }),
@@ -230,7 +229,7 @@ describe('PlannerControlExecutor', () => {
   });
 
   it('persists a precise reviewer-capacity blocker when report_goal_done reviewer invocation fails', async () => {
-    const goal = store.create(makeCard({ type: 'goal', title: 'Goal', status: 'active' }));
+    const goal = store.create(makeCard({ id: 'goal', type: 'goal', title: 'Goal', status: 'active' }));
     const evidence = store.create(
       makeCard({
         type: 'code',
@@ -255,7 +254,6 @@ describe('PlannerControlExecutor', () => {
       toolCallId: 'call-report',
       toolName: 'report_goal_done',
       argumentsJson: JSON.stringify({
-        goalId: goal.id,
         status_text: 'complete',
         evidence_card_ids: [evidence.id],
       }),
@@ -295,7 +293,7 @@ describe('PlannerControlExecutor', () => {
 
   it('does not write legacy correction note files after reviewer retries are exhausted', async () => {
     const goal = store.create(
-      makeCard({ type: 'goal', title: 'Goal', status: 'active', retries: 1 }),
+      makeCard({ id: 'goal', type: 'goal', title: 'Goal', status: 'active', retries: 1 }),
     );
     store.setStatus(goal.id, 'running');
     const review: ReviewerResult = {
@@ -317,7 +315,7 @@ describe('PlannerControlExecutor', () => {
       sessionId: 'planner:goal',
       toolCallId: 'call-report',
       toolName: 'report_goal_done',
-      argumentsJson: JSON.stringify({ goalId: goal.id, status_text: 'complete' }),
+      argumentsJson: JSON.stringify({ status_text: 'complete' }),
     });
 
     expect(result.kind).toBe('tool_result');
@@ -440,7 +438,7 @@ describe('PlannerControlExecutor', () => {
 
   it('preserves service success and tool_error payload shapes', async () => {
     store.create(makeCard({ id: 'goal', type: 'goal', title: 'Goal', status: 'active' }));
-    const child = store.create(makeCard({ type: 'code', title: 'Child' }));
+    const child = store.create(makeCard({ type: 'code', title: 'Child', parent: 'goal', depth: 2 }));
     const blockedDep = store.create(makeCard({ type: 'code', title: 'Dep', status: 'blocked' }));
     const blockedTarget = store.create(
       makeCard({

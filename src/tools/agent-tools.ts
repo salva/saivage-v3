@@ -128,8 +128,8 @@ const allRuntimeRoles = ['planner', 'executor', 'reviewer', 'analyst'] as const;
 const toOutput = (result: ToolResult): AnalystToolResult => result;
 
 export const AGENT_TOOL_DEFINITIONS = [
-  tool({ name: 'create_card', input: createCardInput, roles: ['planner'], execute: create_card }),
-  tool({ name: 'edit_card', input: editCardInput, roles: ['planner'], execute: edit_card }),
+  tool({ name: 'create_card', input: createCardInput, roles: [], execute: create_card }),
+  tool({ name: 'edit_card', input: editCardInput, roles: [], execute: edit_card }),
   tool({ name: 'list_cards', input: listCardsInput, roles: ['planner'], execute: list_cards }),
   tool({ name: 'get_card', input: getCardInput, roles: ['planner'], execute: get_card }),
   tool({ name: 'get_tree', input: getTreeInput, roles: ['planner'], execute: get_tree }),

@@ -12,7 +12,6 @@ describe('RoleToolPolicy', () => {
     expect(RoleToolPolicy.listToolNamesForRole('planner')).toEqual([
       'create_card',
       'edit_card',
-      'move_card',
       'reorder_child',
       'queue_notification',
       'list_cards',
@@ -39,6 +38,8 @@ describe('RoleToolPolicy', () => {
     expect(RoleToolPolicy.listToolNamesForRole('executor')).toContain('mcp_tool_call');
     expect(RoleToolPolicy.listToolNamesForRole('reviewer')).toContain('mcp_tool_call');
     expect(RoleToolPolicy.listToolNamesForRole('analyst')).not.toContain('mcp_tool_call');
+    expect(RoleToolPolicy.listToolNamesForRole('analyst')).not.toContain('move_card');
+    expect(RoleToolPolicy.listToolNamesForRole('planner')).not.toContain('move_card');
   });
 
   it('uses stable safe denial reason codes for unknown tools and surfaces', () => {

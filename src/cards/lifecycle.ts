@@ -220,7 +220,7 @@ export function validateMutablePatch(
     }
   }
   if (changes.parent !== undefined && changes.parent !== existing.parent) {
-    throw new Error("Field 'parent' cannot be changed via update/mutateCard; use moveCard().");
+    throw new Error("Field 'parent' cannot be changed via update/mutateCard; card reparenting is not supported.");
   }
   return existing.depth;
 }

@@ -96,7 +96,7 @@ describe('AgentAdapter planner tool surface', () => {
   it('keeps the exported planner tool definition order stable for prompt reproducibility', () => {
     const toolNames = adapter.getToolNamesForRole('planner');
     expect(toolNames).toEqual([
-      'create_card', 'edit_card', 'move_card', 'reorder_child', 'queue_notification', 'list_cards', 'get_card', 'get_tree',
+      'create_card', 'edit_card', 'reorder_child', 'queue_notification', 'list_cards', 'get_card', 'get_tree',
       'list_card_history', 'get_card_history_entry', 'diff_card',
       'list_project_files', 'read_project_file', 'write_project_file', 'wait_for_process',
       'kill_process', 'start_and_wait', 'run_project_command',
@@ -110,8 +110,18 @@ describe('AgentAdapter planner tool surface', () => {
     for (const toolName of ['report_goal_done', 'report_goal_failed', 'report_goal_blocked']) {
       const tool = plannerTools.find((entry: { function: { name: string; parameters: { required?: string[] } } }) => entry.function.name === toolName);
       expect(tool).toBeDefined();
-      expect(tool.function.parameters.required).toEqual(expect.arrayContaining(['goalId', 'status_text']));
+      expect(tool.function.parameters.required).toEqual(['status_text']);
+      expect(tool.function.parameters.properties).not.toHaveProperty('goalId');
     }
+  });
+
+  it('advertises scoped planner card schemas without parent or move_card', () => {
+    const plannerTools = (adapter as any).buildToolsForRole('planner');
+    expect(plannerTools.map((entry: { function: { name: string } }) => entry.function.name)).not.toContain('move_card');
+    const create = plannerTools.find((entry: { function: { name: string } }) => entry.function.name === 'create_card');
+    const reorder = plannerTools.find((entry: { function: { name: string } }) => entry.function.name === 'reorder_child');
+    expect(create.function.parameters.properties).not.toHaveProperty('parent');
+    expect(reorder.function.parameters.properties).not.toHaveProperty('parentId');
   });
 
   it('returns activate_card as a durable activation record with deferred compatibility payload', async () => {
@@ -153,8 +163,9 @@ describe('AgentAdapter planner tool surface', () => {
   });
 
   it('routes planner delete_card through planner-control with the advertised cardId argument', async () => {
-    const card = store.create(makeCard({ type: 'code', title: 'Card to delete', status: 'backlog' }));
-    const result = await (adapter as any).processToolCall({ id: 'call-delete', type: 'function', function: { name: 'delete_card', arguments: JSON.stringify({ cardId: card.id }) } }, 'planner', 'planner-session', { goalId: card.id, cardId: card.id });
+    const goal = store.create(makeCard({ type: 'goal', title: 'Goal' }));
+    const card = store.create(makeCard({ type: 'code', title: 'Card to delete', status: 'backlog', parent: goal.id, depth: 2 }));
+    const result = await (adapter as any).processToolCall({ id: 'call-delete', type: 'function', function: { name: 'delete_card', arguments: JSON.stringify({ cardId: card.id }) } }, 'planner', 'planner-session', { goalId: goal.id, cardId: goal.id });
     expect(result).toMatchObject({ role: 'tool', kind: 'tool_result', tool: 'delete_card', tool_call_id: 'call-delete' });
     expect(JSON.parse(result.content)).toEqual(expect.objectContaining({ success: true, deleted: true, cardId: card.id }));
     expect(store.read(card.id)).toBeNull();
@@ -162,15 +173,17 @@ describe('AgentAdapter planner tool surface', () => {
 
   it('delegates planner-control tools through the facade while preserving policy gating', async () => {
     const goal = store.create(makeCard({ type: 'goal', title: 'Goal for cancellation' }));
-    const result = await (adapter as any).processToolCall({ id: 'call-cancel', type: 'function', function: { name: 'cancel_card', arguments: JSON.stringify({ cardId: goal.id }) } }, 'planner', 'planner-session', { goalId: goal.id, cardId: goal.id });
+    const child = store.create(makeCard({ type: 'code', title: 'Child for cancellation', parent: goal.id, depth: 2 }));
+    const result = await (adapter as any).processToolCall({ id: 'call-cancel', type: 'function', function: { name: 'cancel_card', arguments: JSON.stringify({ cardId: child.id }) } }, 'planner', 'planner-session', { goalId: goal.id, cardId: goal.id });
     expect(result).toMatchObject({ role: 'tool', kind: 'tool_result', tool: 'cancel_card', tool_call_id: 'call-cancel' });
-    expect(JSON.parse(result.content)).toEqual(expect.objectContaining({ success: true, card: expect.objectContaining({ id: goal.id, status: 'cancelled' }) }));
+    expect(JSON.parse(result.content)).toEqual(expect.objectContaining({ success: true, card: expect.objectContaining({ id: child.id, status: 'cancelled' }) }));
   });
 
 
   it('allows the advertised planner edit_card tool on the runtime surface', async () => {
-    const card = store.create(makeCard({ type: 'goal', title: 'Editable goal', status: 'backlog' }));
-    const result = await (adapter as any).processToolCall({ id: 'call-edit', type: 'function', function: { name: 'edit_card', arguments: JSON.stringify({ id: card.id, priority: 5 }) } }, 'planner', 'planner-session', { goalId: card.id, cardId: card.id });
+    const goal = store.create(makeCard({ type: 'goal', title: 'Goal' }));
+    const card = store.create(makeCard({ type: 'code', title: 'Editable child', status: 'backlog', parent: goal.id, depth: 2 }));
+    const result = await (adapter as any).processToolCall({ id: 'call-edit', type: 'function', function: { name: 'edit_card', arguments: JSON.stringify({ id: card.id, priority: 5 }) } }, 'planner', 'planner-session', { goalId: goal.id, cardId: goal.id });
     expect(result).toMatchObject({ role: 'tool', kind: 'tool_result', tool: 'edit_card', tool_call_id: 'call-edit' });
     expect(JSON.parse(result.content)).toEqual(expect.objectContaining({ success: true }));
     expect(store.read(card.id)?.priority).toBe(5);

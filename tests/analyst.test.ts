@@ -12,7 +12,7 @@ import { CardStore } from '../src/cards/card-store.js';
 import { listControlActions } from '../src/persistence/index.js';
 import { initRuntimeState, readRuntimeState, runtimeStatePath, updateRuntimeState } from '../src/runtime/state.js';
 import {
-  create_card, edit_card, delete_card, queue_notification, pause_runtime, resume_runtime, move_card, reorder_child,
+  create_card, edit_card, delete_card, queue_notification, pause_runtime, resume_runtime, reorder_child,
 } from '../src/agents/analyst-tools.js';
 import type { ToolContext } from '../src/agents/analyst-tools.js';
 
@@ -244,19 +244,15 @@ describe('Analyst Tools', () => {
     expect(audit?.params_summary).not.toContain('body that must not audit');
   });
 
-  it('audits analyst move_card and reorder_child with the calling surface', async () => {
-    const sibling = store.create({ type: 'goal', parent: 'project', title: 'Sibling Goal', description: '', status: 'backlog', depth: 0, tags: [], priority: 1, urgency: 'normal', created_by: 'analyst', acceptance: '', depends_on: [], blocks: [], related: [], artifacts: [], attachments: [], retries: 0, id: 'goal-2' });
+  it('audits analyst reorder_child with the calling surface', async () => {
     const childTwo = store.create({ type: 'code', parent: 'goal-1', title: 'Code Task 2', description: '', status: 'backlog', depth: 0, tags: [], priority: 1, urgency: 'normal', created_by: 'analyst', acceptance: '', depends_on: [], blocks: [], related: [], artifacts: [], attachments: [], retries: 0, id: 'code-2' });
 
     const reorderResult = await reorder_child(ctx(projectRoot, store), { parentId: 'goal-1', orderedChildIds: [childTwo.id, 'code-1'] });
     expect(reorderResult.success).toBe(true);
-    const moveResult = await move_card(ctx(projectRoot, store), { id: 'goal-1', newParent: sibling.id });
-    expect(moveResult.success).toBe(true);
 
     const audits = listControlActions(projectRoot);
     expect(audits).toEqual(expect.arrayContaining([
       expect.objectContaining({ actor: 'analyst', surface: 'web-chat', action: 'card.reorder_child', target_id: 'goal-1', outcome: 'ok' }),
-      expect.objectContaining({ actor: 'analyst', surface: 'web-chat', action: 'card.move', target_id: 'goal-1', outcome: 'ok' }),
     ]));
   });
 

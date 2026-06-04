@@ -87,7 +87,6 @@ Tools — card management:
 |---------------|------------------------------------------------|
 | `create_card` | Create a card at any level                     |
 | `edit_card`   | Edit fields (title, description, acceptance…)  |
-| `move_card`   | Re-parent a card in the tree                   |
 | `delete_card` | Remove a card (and its children)               |
 | `add_note`    | Append a note to a card's activity log         |
 | `list_cards`  | Query/filter the card tree                     |

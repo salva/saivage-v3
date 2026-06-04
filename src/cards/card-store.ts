@@ -81,12 +81,6 @@ export interface CardDiffEntry {
   after: unknown;
 }
 
-const BOUNDED_MOVE_REFUSAL_MESSAGE = 'Moves are restricted to the parent-child axis: move down into a current sibling, or move up out to the current grandparent.';
-
-export type MoveCardResult =
-  | { ok: true; data: CardRecord }
-  | { ok: false; reason: 'move_refused_root' | 'move_refused_cross_tree' | 'move_refused_self' | 'move_refused_descendant'; message: string; currentParent: string | null; attemptedParent: string };
-
 export type ReorderChildrenResult =
   | { ok: true; changed: number }
   | { ok: false; reason: 'reorder_set_mismatch'; missing: string[]; extra: string[] };
@@ -390,68 +384,6 @@ export class CardStore {
       surface: 'runtime',
       reason: 'terminal lifecycle repair',
     });
-  }
-
-  moveCard(id: string, newParent: string, ctx: CardMutationContext): MoveCardResult {
-    this.refreshState();
-    const card = this.state.get(id);
-    if (!card) throw new Error(`Card '${id}' not found.`);
-    const attemptedParent = newParent;
-    const currentParent = card.parent;
-    if (id === PROJECT_CARD_ID || currentParent === null || attemptedParent === null) {
-      return { ok: false, reason: 'move_refused_root', message: 'Root cards cannot be moved and cards cannot be moved to root.', currentParent, attemptedParent };
-    }
-    if (id === attemptedParent) {
-      return { ok: false, reason: 'move_refused_self', message: 'Cannot set a card as its own parent.', currentParent, attemptedParent };
-    }
-    const target = this.state.get(attemptedParent);
-    if (!target) throw new Error(`Parent card '${attemptedParent}' does not exist.`);
-    if (isTerminalType(target.type)) {
-      throw new Error(`Cannot move card under terminal card '${attemptedParent}' (type: ${target.type}). Terminal cards cannot have children.`);
-    }
-    if (this.state.descendantsOf(id).includes(attemptedParent)) {
-      return { ok: false, reason: 'move_refused_descendant', message: `Cannot move card under its own descendant '${attemptedParent}'.`, currentParent, attemptedParent };
-    }
-    const targetParent = target.parent;
-    const currentGrandparent = this.state.parentOf(currentParent);
-    const siblingDescent = targetParent === currentParent && targetParent !== null;
-    const grandparentAscent = currentGrandparent !== null && currentGrandparent === attemptedParent;
-    if (!siblingDescent && !grandparentAscent) {
-      return { ok: false, reason: 'move_refused_cross_tree', message: BOUNDED_MOVE_REFUSAL_MESSAGE, currentParent, attemptedParent };
-    }
-    const stamp = now();
-    const oldSiblings = this.state.childrenOf(currentParent);
-    const newPosition = this.state.childrenOf(attemptedParent).length;
-    const ops: ApplyMutationOp[] = [];
-    for (const siblingId of oldSiblings) {
-      if (siblingId === id) continue;
-      const sibling = this.state.get(siblingId);
-      if (!sibling || sibling.position <= card.position) continue;
-      ops.push(persistOp({ ...sibling, position: sibling.position - 1, updated_at: stamp, version_seq: sibling.version_seq + 1 }, ctx, ['position'], 'move_card'));
-    }
-    const newDepth = (this.state.depthOf(attemptedParent) ?? target.depth) + 1;
-    if (newDepth > this.maxDepth) {
-      throw new Error(`Cannot move card '${id}' to depth ${newDepth}. Maximum allowed depth is ${this.maxDepth}. Choose a parent at a shallower level.`);
-    }
-    const moved: CardRecord = { ...card, parent: attemptedParent, depth: newDepth, position: newPosition, updated_at: stamp, version_seq: card.version_seq + 1 };
-    const parsed = cardRecordSchema.safeParse(moved);
-    if (!parsed.success) throw new Error(`Card validation failed: ${parsed.error.message}`);
-    ops.push(persistOp(parsed.data, ctx, ['parent', 'depth', 'position'], 'move_card'));
-    const depthDelta = newDepth - card.depth;
-    if (depthDelta !== 0) {
-      for (const descendantId of this.state.descendantsOf(id)) {
-        const descendant = this.state.get(descendantId);
-        if (!descendant) continue;
-        const nextDepth = descendant.depth + depthDelta;
-        if (nextDepth > this.maxDepth) {
-          throw new Error(`Cannot move card '${id}' because descendant '${descendantId}' would reach depth ${nextDepth}. Maximum allowed depth is ${this.maxDepth}.`);
-        }
-        ops.push(persistOp({ ...descendant, depth: nextDepth, updated_at: stamp, version_seq: descendant.version_seq + 1 }, ctx, ['depth'], 'move_card'));
-      }
-    }
-    const results = applyMutationGroupSync(this.deps(), ops);
-    const persisted = results.map((result) => result.card).filter((c): c is CardRecord => c !== null).find((c) => c.id === id) ?? parsed.data;
-    return { ok: true, data: deepClone(persisted) };
   }
 
   reorderChildren(parentId: string, orderedChildIds: string[], ctx: CardMutationContext): ReorderChildrenResult {

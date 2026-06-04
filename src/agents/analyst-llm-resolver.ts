@@ -18,7 +18,7 @@ import type { LlmExchangeRecorder, LlmExchangeRecorderLogger } from './llm-excha
 import { buildLlmOptions } from './llm-options-factory.js';
 import {
   mark_goal_needs_corrections,
-  create_card, edit_card, move_card, delete_card, list_cards, get_card, get_tree, get_plan_diary, get_card_output, get_status,
+  create_card, edit_card, delete_card, list_cards, get_card, get_tree, get_plan_diary, get_card_output, get_status,
   list_card_history, get_card_history_entry, diff_card,
   start_project, stop_project, terminate_process, pause_runtime, resume_runtime, abort_goal_subtree, restart_card_or_subtree, restart_goal,
   read_file, list_directory, run_shell_command, read_runtime_events, read_runtime_errors, read_control_actions,
@@ -41,7 +41,6 @@ export const TOOL_REGISTRY: Record<string, ToolFn> = {
   mark_goal_needs_corrections: mark_goal_needs_corrections as unknown as ToolFn,
   create_card: create_card as unknown as ToolFn,
   edit_card: edit_card as unknown as ToolFn,
-  move_card: move_card as unknown as ToolFn,
   delete_card: delete_card as unknown as ToolFn,
   list_cards: list_cards as unknown as ToolFn,
   get_card: get_card as unknown as ToolFn,
@@ -87,7 +86,7 @@ const ANALYST_SYSTEM_PROMPT = `You are the Saivage Analyst — the user's conver
 Capability classes and registered tools:
 - Inspect: get_card, get_tree, get_plan_diary, get_card_output, get_status, list_card_history, get_card_history_entry, diff_card, read_file, list_directory, run_shell_command, read_runtime_events, read_runtime_errors, read_control_actions, list_processes_tool, list_agent_sessions, read_agent_session.
 - Navigate the workspace area: navigate_workspace, navigate_back.
-- Mutate cards: create_card, edit_card, move_card, delete_card, reorder_child, mark_goal_needs_corrections.
+- Mutate cards: create_card, edit_card, delete_card, reorder_child, mark_goal_needs_corrections.
 - Queue notifications: queue_notification.
 - Control the runtime: start_project, stop_project, pause_runtime, resume_runtime, abort_goal_subtree, restart_card_or_subtree, restart_goal, terminate_process, restart_server.
 - Reconfigure: show_config, reconfigure.

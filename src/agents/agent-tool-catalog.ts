@@ -31,10 +31,6 @@ function tool(
 }
 
 const PLANNER_CARD_TOOL_NAMES = new Set([
-  'create_card',
-  'edit_card',
-  'move_card',
-  'reorder_child',
   'list_cards',
   'get_card',
   'get_tree',
@@ -50,6 +46,41 @@ const PLANNER_CARD_TOOL_DEFINITIONS = ANALYST_TOOL_DEFINITIONS.filter((entry) =>
 export const PLANNER_TOOL_DEFINITIONS: ToolDefinition[] = [
   ...PLANNER_CARD_TOOL_DEFINITIONS,
   ...WORKSPACE_TOOL_DEFINITIONS,
+  tool(
+    'create_card',
+    'Create a direct child card under the current planner card. The parent is inferred from the planner session and cannot be supplied.',
+    {
+      type: { type: 'string', description: 'The card type.', enum: ['goal','architecture','code','test','doc','data','research','ops'] },
+      title: str('A short title.'),
+      description: str('A detailed description.'),
+      status: { type: 'string', description: 'Optional initial planner status.', enum: ['drafting','backlog','active','running','blocked','changed','done','failed','cancelled','needs_verification'] },
+      tags: arr(str('A tag string'), 'Optional tags.'),
+      priority: { type: 'integer', description: 'Optional priority value (0-100).' },
+      urgency: { type: 'string', description: 'Optional urgency level.', enum: ['low','normal','high','critical'] },
+      acceptance: str('Optional acceptance criteria text.'),
+      depends_on: arr(str('A card ID'), 'Optional dependency list.'),
+      related: arr(str('A card ID'), 'Optional related-card list.'),
+      id: str('Optional pre-assigned card ID.'),
+    },
+    ['type', 'title', 'description'],
+  ),
+  tool(
+    'edit_card',
+    'Edit one immediate child of the current planner card. The target must be a direct child; parent/depth changes are not accepted.',
+    {
+      id: str('The direct child card ID to edit.'),
+      title: str('New title.'),
+      description: str('New description.'),
+      status: { type: 'string', description: 'New planner status.', enum: ['drafting','backlog','active','running','blocked','changed','done','failed','cancelled','needs_verification'] },
+      tags: arr(str('A tag string'), 'New tags.'),
+      priority: { type: 'integer', description: 'New priority (0-100).' },
+      urgency: { type: 'string', description: 'New urgency level.', enum: ['low','normal','high','critical'] },
+      acceptance: str('New acceptance criteria.'),
+      depends_on: arr(str('A card ID'), 'New dependency list.'),
+      related: arr(str('A card ID'), 'New related-card list.'),
+    },
+    ['id'],
+  ),
   tool(
     'activate_card',
     'Activate a card so runtime can proceed with the next planner-controlled step.',
@@ -75,33 +106,20 @@ export const PLANNER_TOOL_DEFINITIONS: ToolDefinition[] = [
     ['cardId'],
   ),
   tool(
-    'move_card',
-    'Move a card to a current sibling or to the current grandparent. Root moves and cross-tree moves are refused.',
-    {
-      id: str('The ID of the card to move.'),
-      newParent: str(
-        'The ID of the new parent card. Must be either a current sibling or the current grandparent.',
-      ),
-    },
-    ['id', 'newParent'],
-  ),
-  tool(
     'reorder_child',
-    'Reorder the children of a parent card. orderedChildIds must be a permutation of the current child set.',
+    'Reorder the immediate children of the current planner card. orderedChildIds must be a permutation of that child set.',
     {
-      parentId: str('The parent whose children to reorder.'),
       orderedChildIds: arr(
         str('A child card ID in the new order.'),
         'New child id order; must be a permutation of the current child set.',
       ),
     },
-    ['parentId', 'orderedChildIds'],
+    ['orderedChildIds'],
   ),
   tool(
     'report_goal_done',
     'Report a goal or project as done. Requires non-empty status_text and optional evidence_card_ids.',
     {
-      goalId: str('The goal or project card ID to report done.'),
       status_text: str('Required concise terminal status shown on the goal card.'),
       summary: str('Optional summary for the goal self-report.'),
       evidence_card_ids: arr(
@@ -114,13 +132,12 @@ export const PLANNER_TOOL_DEFINITIONS: ToolDefinition[] = [
         additionalProperties: true,
       },
     },
-    ['goalId', 'status_text'],
+    ['status_text'],
   ),
   tool(
     'report_goal_failed',
     'Report a goal or project as failed. Requires non-empty status_text.',
     {
-      goalId: str('The goal or project card ID to report failed.'),
       status_text: str('Required concise terminal status shown on the goal card.'),
       summary: str('Optional summary for the goal self-report.'),
       evidence_card_ids: arr(
@@ -133,13 +150,12 @@ export const PLANNER_TOOL_DEFINITIONS: ToolDefinition[] = [
         additionalProperties: true,
       },
     },
-    ['goalId', 'status_text'],
+    ['status_text'],
   ),
   tool(
     'report_goal_blocked',
     'Report a goal or project as blocked. Requires non-empty status_text.',
     {
-      goalId: str('The goal or project card ID to report blocked.'),
       status_text: str('Required concise terminal status shown on the goal card.'),
       summary: str('Optional summary for the goal self-report.'),
       evidence_card_ids: arr(
@@ -152,7 +168,7 @@ export const PLANNER_TOOL_DEFINITIONS: ToolDefinition[] = [
         additionalProperties: true,
       },
     },
-    ['goalId', 'status_text'],
+    ['status_text'],
   ),
   tool(
     'queue_notification',
@@ -171,10 +187,11 @@ export const PLANNER_TOOL_DEFINITIONS: ToolDefinition[] = [
 
 export const PLANNER_CONTROL_TOOL_NAMES = new Set<string>([
   'activate_card',
+  'create_card',
+  'edit_card',
   'cancel_card',
   'delete_card',
   'restart_card',
-  'move_card',
   'reorder_child',
   'report_goal_done',
   'report_goal_failed',
@@ -198,7 +215,6 @@ export const ROLE_TOOL_NAMES = {
   planner: [
     'create_card',
     'edit_card',
-    'move_card',
     'reorder_child',
     'queue_notification',
     'list_cards',
