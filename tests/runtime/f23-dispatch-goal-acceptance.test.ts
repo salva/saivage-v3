@@ -45,7 +45,10 @@ describe('F23 — dispatchGoal acceptance', () => {
 
   it('F23 — restarts a failed goal cleanly via state-machine without writing activate-phase errors', async () => {
     const store = new CardStore(projectRoot);
-    store.update('project', { status: 'failed' });
+    store.repairTerminalLifecycle('project', {
+      status: 'failed',
+      lifecycle: { status: 'failed', result: { kind: 'executor_failure', error: 'failed', partial_result: null, latest_self_report: { result: 'failed', outcome: 'failed', summary: 'failed', status_text: 'failed', at: new Date().toISOString() } }, error: 'failed', completed_at: new Date().toISOString() },
+    });
 
     const plannerResult: PlannerResult = { status: 'done', created_cards: [], updated_cards: [] };
     const executorResult: ExecutorResult = { card_id: 'x', status: 'done', status_text: 'noop', artifacts: [], attachments: [], fallback_with_evidence: null };
@@ -72,7 +75,8 @@ describe('F23 — dispatchGoal acceptance', () => {
     const store = new CardStore(projectRoot);
     // 'active' is neither STARTABLE nor RESTARTABLE — dispatchGoal should treat it as already-active and proceed.
     // 'needs_verification' is neither STARTABLE nor RESTARTABLE — dispatchGoal should refuse loudly.
-    store.update('project', { status: 'running' });
+    store.setStatus('project', 'active');
+    store.setStatus('project', 'running');
     try { store.setStatus('project', 'needs_verification' as never); } catch { /* may reject */ }
 
     const plannerResult: PlannerResult = { status: 'done', created_cards: [], updated_cards: [] };

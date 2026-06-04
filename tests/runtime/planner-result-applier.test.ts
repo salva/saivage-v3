@@ -77,14 +77,16 @@ describe('PlannerResultApplier', () => {
         id: 'doc-a',
         patch: expect.objectContaining({
           status: 'done',
-          error: null,
-          completed_at: '2026-01-01T00:00:00.000Z',
-          result: expect.objectContaining({
-            kind: 'planner_done',
-            created_cards: [],
-            updated_cards: ['doc-a', 'goal-a'],
-            summary: 'planned doc closure',
-            planning: expect.objectContaining({ status: 'done' }),
+          lifecycle: expect.objectContaining({
+            status: 'done',
+            error: null,
+            completed_at: '2026-01-01T00:00:00.000Z',
+            result: expect.objectContaining({
+              kind: 'planner_done',
+              created_cards: [],
+              updated_cards: ['doc-a', 'goal-a'],
+              summary: 'planned doc closure',
+            }),
           }),
         }),
       }),

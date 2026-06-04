@@ -196,7 +196,7 @@ export function validateMutablePatch(
 
   if (isTerminalState(existing.status)) {
     for (const key of changedKeys) {
-      if (explicitLifecycleWrite && TERMINAL_LIFECYCLE_FIELDS.has(key)) continue;
+      if ((explicitLifecycleWrite || explicitStatusTransition) && TERMINAL_LIFECYCLE_FIELDS.has(key)) continue;
       if (key !== 'status' && !ALWAYS_ALLOWED_FIELDS.has(key)) {
         throw new Error(
           `Card '${existing.id}' is in status '${existing.status}'. Cards in this state cannot be edited. Use setStatus() to reopen the card first.`,

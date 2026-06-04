@@ -39,7 +39,7 @@ describe('planner invocation failure handler', () => {
 
     expect(result).toEqual({ kind: 'handled' });
     expect(calls).toEqual(['block:goal-a:blocked', 'update:blocked', 'card_terminated:planner_context_length_exceeded']);
-    expect(published).toEqual([expect.objectContaining({ run_id: 'run-a', phase: 'blocked', result: 'blocked' })]);
+    expect(published).toEqual([expect.objectContaining({ run_id: 'run-a', phase: 'blocked', outcome: expect.objectContaining({ kind: 'blocked' }) })]);
   });
 
   it('marks generic planner failures and asks caller to rethrow', async () => {

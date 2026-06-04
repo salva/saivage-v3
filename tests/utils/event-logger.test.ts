@@ -49,7 +49,7 @@ describe('EventLogger runtime event validation', () => {
 
       const events = logger.getEvents();
       expect(events.map((event) => event.kind)).toEqual(['started']);
-      expect(warn).toHaveBeenCalledWith(expect.stringContaining("Unknown historical runtime event kind 'legacy_historical_kind'"));
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining('Ignoring invalid runtime event log record'));
     } finally {
       logger.close();
     }

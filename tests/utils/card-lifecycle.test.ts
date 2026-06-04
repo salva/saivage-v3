@@ -90,7 +90,7 @@ describe('card lifecycle domain rules', () => {
 
   it('allows restart patches to clear lifecycle fields while reopening', () => {
     const blocked = baseCard({ status: 'blocked', lifecycle: { status: 'blocked', result: { kind: 'planner_blocked', blocked_reason: 'blocked', resume_reason: 'planner_blocked', created_cards: [], updated_cards: [] }, error: 'blocked', completed_at: null } });
-    expect(() => validateMutablePatch(blocked, { status: 'backlog', lifecycle: { status: 'backlog', result: null, error: null, completed_at: null } }, { childCount: 0 })).not.toThrow();
+    expect(() => validateMutablePatch(blocked, { status: 'backlog', lifecycle: { status: 'backlog', result: null, error: null, completed_at: null } }, { childCount: 0 }, { actor: 'runtime', surface: 'runtime', reason: 'status -> backlog' })).not.toThrow();
   });
 
   it('rejects project-card type drift and nested project creation identity', () => {

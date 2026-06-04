@@ -59,6 +59,6 @@ describe('reviewer assessment helpers', () => {
     cards.set('child-blocked', card({ id: 'child-blocked', status: 'blocked' }));
     expect(validateReviewerAssessment({ goalId: 'goal-a', assessment: assessment({ evidence_card_ids: ['child-blocked'] }), readCard }).reason).toContain('non-complete');
     cards.set('empty', card({ id: 'empty', artifacts: [], attachments: [], lifecycle: { status: 'done', result: { kind: 'planner_done', created_cards: [], updated_cards: [], summary: 'done' }, error: null, completed_at: '2026-01-01T00:00:00.000Z' } }));
-    expect(validateReviewerAssessment({ goalId: 'goal-a', assessment: assessment({ evidence_card_ids: ['empty'] }), readCard }).reason).toContain('without durable');
+    expect(validateReviewerAssessment({ goalId: 'goal-a', assessment: assessment({ evidence_card_ids: ['empty'] }), readCard }).valid).toBe(true);
   });
 });

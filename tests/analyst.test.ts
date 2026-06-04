@@ -48,8 +48,9 @@ function setupProject(projectRoot: string): void {
     description: '', status: 'backlog', subtype: null, tags: [], priority: 0,
     urgency: 'normal', created_by: 'analyst', created_at: now, updated_at: now,
     assigned_to: null, depends_on: [], blocks: [], related: [], acceptance: '',
-    result: null, metrics: null, artifacts: [], attachments: [], estimate: null,
-    started_at: null, completed_at: null, duration_ms: null, error: null, retries: 0, version_seq: 1,
+    lifecycle: { status: 'backlog', result: null, error: null, completed_at: null },
+    metrics: null, artifacts: [], attachments: [], estimate: null,
+    started_at: null, duration_ms: null, retries: 0, version_seq: 1,
   }));
   writeFileSync(join(sd, 'cards', 'index.json'), JSON.stringify({
     cards: { project: { id: 'project', type: 'project', parent: null, status: 'backlog', title: 'project' } },
@@ -172,7 +173,7 @@ describe('Analyst Tools', () => {
 
 
   it('denies delete_card for matrix-disallowed target states', async () => {
-    store.update('goal-1', { status: 'running' });
+    store.setStatus('goal-1', 'running');
 
     const result = await delete_card({ projectRoot, store, actor: 'runtime', surface: 'runtime' }, { ids: ['goal-1'] });
 
@@ -184,8 +185,9 @@ describe('Analyst Tools', () => {
   });
 
   it('denies delete_card when a descendant is matrix-disallowed', async () => {
-    store.update('goal-1', { status: 'backlog' });
-    store.update('code-1', { status: 'running' });
+    store.setStatus('goal-1', 'backlog');
+    store.setStatus('code-1', 'active');
+    store.setStatus('code-1', 'running');
 
     const result = await delete_card({ projectRoot, store, actor: 'runtime', surface: 'runtime' }, { ids: ['goal-1'] });
 

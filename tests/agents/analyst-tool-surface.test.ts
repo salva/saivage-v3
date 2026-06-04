@@ -35,7 +35,7 @@ function setupRoot(): string {
     server: { port: 8080, host: '127.0.0.1' },
   }, null, 2));
   const now = new Date().toISOString();
-  writeFileSync(join(sd, 'cards', 'by-id', 'project.json'), JSON.stringify({ id: 'project', type: 'project', parent: null, depth: 0, position: 0, title: 'project', description: '', status: 'backlog', subtype: null, tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', created_at: now, updated_at: now, assigned_to: null, depends_on: [], blocks: [], related: [], acceptance: '', result: null, metrics: null, artifacts: [], attachments: [], estimate: null, started_at: null, completed_at: null, duration_ms: null, error: null, retries: 0, version_seq: 1 }));
+  writeFileSync(join(sd, 'cards', 'by-id', 'project.json'), JSON.stringify({ id: 'project', type: 'project', parent: null, depth: 0, position: 0, title: 'project', description: '', status: 'backlog', lifecycle: { status: 'backlog', result: null, error: null, completed_at: null }, subtype: null, tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', created_at: now, updated_at: now, assigned_to: null, depends_on: [], blocks: [], related: [], acceptance: '', metrics: null, artifacts: [], attachments: [], estimate: null, started_at: null, duration_ms: null, retries: 0, version_seq: 1 }));
   writeFileSync(join(sd, 'cards', 'index.json'), JSON.stringify({ cards: { project: { id: 'project', type: 'project', parent: null, status: 'backlog', title: 'project' } } }));
   writeFileSync(join(sd, 'cards', 'tree', 'project.children.json'), JSON.stringify([]));
   writeFileSync(join(sd, 'cards', 'dependencies', 'depends-on.json'), JSON.stringify({}));
@@ -88,7 +88,8 @@ describe('Contract C2 partial-success reporting', () => {
       const store = seedDeleteCards(root);
       const proc = startProcess(root, 'sleep 30', { cardId: 'code-2', requiredForCardCompletion: true, ownerKind: 'runtime' });
       procId = proc.id;
-      store.update('code-2', { status: 'running' });
+      store.setStatus('code-2', 'active');
+      store.setStatus('code-2', 'running');
       const result = await delete_card({ projectRoot: root, store, actor: 'analyst', surface: 'web-chat' }, { ids: ['code-1', 'code-2', 'code-3'] });
       expect(result.success).toBe(true);
       expect(result.data).toMatchObject({ partial: true, total: 3, succeeded: 2 });
@@ -107,7 +108,8 @@ describe('Contract C2 partial-success reporting', () => {
       const store = seedDeleteCards(root);
       const proc = startProcess(root, 'sleep 30', { cardId: 'code-2', requiredForCardCompletion: true, ownerKind: 'runtime' });
       procId = proc.id;
-      store.update('code-2', { status: 'running' });
+      store.setStatus('code-2', 'active');
+      store.setStatus('code-2', 'running');
       jest.spyOn(globalThis, 'fetch').mockImplementation(async () => toolResponse('delete_card', { ids: ['code-1', 'code-2', 'code-3'] }));
       const handler = new AnalystHandler(root, createTestAnalystRuntime());
       const response = await handler.handleMessage('s-c2', 'delete code cards');

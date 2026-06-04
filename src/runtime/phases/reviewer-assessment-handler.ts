@@ -24,6 +24,7 @@ export async function handleReviewerAssessmentDecision(input: {
   reviewerSessionId: string;
   reviewResult: ReviewerResult;
   decision: ReviewerPhaseDecision;
+  planningContext?: PlannerDoneResult | PlannerBlockedResult | null;
   effects: ReviewerAssessmentEffects;
 }): Promise<{ kind: 'continue_planner' } | { kind: 'completed' }> {
   if (input.decision.kind === 'invalid_pass') {
@@ -63,7 +64,7 @@ export async function handleReviewerAssessmentDecision(input: {
     if (latestGoalCard) {
       await commitReviewerPass({
         card: latestGoalCard,
-        planning: typedPlannerContext(latestGoalCard),
+        planning: typedPlannerContext(latestGoalCard) ?? input.planningContext,
         reviewSummary: input.reviewResult.assessment.summary,
         assessmentId: input.assessmentId,
         completedAt: latestGoalCard.lifecycle.completed_at ?? input.effects.now(),

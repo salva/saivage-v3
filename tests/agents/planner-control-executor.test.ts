@@ -20,7 +20,10 @@ function makeCard(
 ): Omit<CardRecord, 'created_at' | 'updated_at' | 'id' | 'version_seq' | 'position'> & {
   id?: string;
 } {
-  const lifecycle = overrides.lifecycle ?? ({ status: overrides.status ?? 'backlog', result: null, error: null, completed_at: null } as CardRecord['lifecycle']);
+  const status = overrides.status ?? 'backlog';
+  const lifecycle = overrides.lifecycle ?? (status === 'blocked'
+    ? { status: 'blocked', result: { kind: 'planner_blocked', blocked_reason: 'blocked', resume_reason: 'planner_blocked', created_cards: [], updated_cards: [] }, error: 'blocked', completed_at: null }
+    : { status, result: null, error: null, completed_at: null } as CardRecord['lifecycle']);
   return {
     parent: 'project',
     depth: 1,
@@ -294,6 +297,7 @@ describe('PlannerControlExecutor', () => {
     const goal = store.create(
       makeCard({ type: 'goal', title: 'Goal', status: 'active', retries: 1 }),
     );
+    store.setStatus(goal.id, 'running');
     const review: ReviewerResult = {
       result: 'needs_corrections',
       summary: 'fix it',

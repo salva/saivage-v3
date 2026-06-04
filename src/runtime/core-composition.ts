@@ -51,7 +51,7 @@ export interface RuntimeCoreTestContainer extends RuntimeCoreContainer {
     emit(event: LoggedEvent): void;
     emitAnalystToolInvoked(payload: EventPayload<'analyst_tool_invoked'>): void;
   };
-  cardTestTools: Pick<CardStore, 'read' | 'update' | 'create' | 'setStatus'>;
+  cardTestTools: Pick<CardStore, 'read' | 'update' | 'create' | 'setStatus' | 'repairTerminalLifecycle'>;
   loggerTestTools: {
     isSameErrorLogger(errorLogger: ErrorLogger): boolean;
     appendError(input: Parameters<ErrorLogger['appendError']>[0]): void;

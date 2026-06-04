@@ -140,7 +140,15 @@ describe('runtime command ledger target contract (Wave 1)', () => {
       });
       cards.setStatus('project', 'active');
       cards.setStatus('project', 'running');
-      cards.setStatus('project', 'done');
+      cards.repairTerminalLifecycle('project', {
+        status: 'done',
+        lifecycle: {
+          status: 'done',
+          result: { kind: 'planner_done', created_cards: [], updated_cards: [], summary: 'seeded done' },
+          error: null,
+          completed_at: new Date().toISOString(),
+        },
+      });
 
       await api.start();
       await new Promise<void>((resolve, reject) => {
@@ -167,7 +175,7 @@ describe('runtime command ledger target contract (Wave 1)', () => {
             card_id: 'project',
             phase: 'completed',
             runtime_status: 'idle',
-            result: 'done',
+            outcome: expect.objectContaining({ kind: 'completed', result: 'done' }),
             finished_at: expect.any(String),
           }),
           expect.objectContaining({
@@ -175,7 +183,7 @@ describe('runtime command ledger target contract (Wave 1)', () => {
             card_id: 'project',
             phase: 'completed',
             runtime_status: 'idle',
-            result: 'done',
+            outcome: expect.objectContaining({ kind: 'completed', result: 'done' }),
             finished_at: expect.any(String),
           }),
         ]),
@@ -707,16 +715,14 @@ describe('runtime command ledger target contract (Wave 1)', () => {
       expect(state.current_card_id).toBeNull();
       expect(state.current_agent_session_id).toBeNull();
       expect(state.active_card_run).toBeNull();
-      expect(cards.read('project')).toEqual(
-        expect.objectContaining({ status: 'failed', error: 'planner boom' }),
-      );
+      expect(cards.read('project')).toEqual(expect.objectContaining({ status: 'running' }));
       expect(state.runtime_runs).toEqual(
         expect.arrayContaining([
           expect.objectContaining({
             run_id: 'run-root-failure',
             phase: 'failed',
             runtime_status: 'error',
-            result: 'failed',
+            outcome: expect.objectContaining({ kind: 'completed', result: 'failed', error: 'planner boom' }),
             session_id: 'planner:project',
             finished_at: expect.any(String),
           }),
@@ -793,7 +799,7 @@ describe('runtime command ledger target contract (Wave 1)', () => {
           command_id: result.command.command_id,
           phase: 'failed',
           runtime_status: 'error',
-          result: 'failed',
+          outcome: expect.objectContaining({ kind: 'completed', result: 'failed', error: 'planner start boom' }),
           session_id: 'planner:project',
           finished_at: expect.any(String),
         }),
@@ -804,7 +810,8 @@ describe('runtime command ledger target contract (Wave 1)', () => {
           event.run?.run_id === rootRun.run_id &&
           event.run.phase === 'failed' &&
           event.run.runtime_status === 'error' &&
-          event.run.result === 'failed',
+          (event.run as { outcome?: { kind?: string; result?: string } }).outcome?.kind === 'completed' &&
+          (event.run as { outcome?: { kind?: string; result?: string } }).outcome?.result === 'failed',
       );
       expect(terminalFailedRootEvents).toHaveLength(1);
       expect(state.status).toBe('idle');
@@ -812,7 +819,7 @@ describe('runtime command ledger target contract (Wave 1)', () => {
       expect(state.current_agent_session_id).toBeNull();
       expect(state.active_card_run).toBeNull();
       expect(cards.read('project')).toEqual(
-        expect.objectContaining({ status: 'failed', error: 'planner start boom' }),
+        expect.objectContaining({ status: 'running', status_text: 'Planner failed: planner start boom' }),
       );
       expect(state.runtime_intent).toEqual(
         expect.objectContaining({
@@ -893,7 +900,7 @@ describe('runtime command ledger target contract (Wave 1)', () => {
       expect(project.lifecycle.result).toEqual(
         expect.objectContaining({
           kind: 'planner_blocked',
-          resume_reason: 'non_actionable_project_done',
+            resume_reason: 'planner_non_actionable_project_done',
           created_cards: [],
           updated_cards: [],
         }),
@@ -912,7 +919,7 @@ describe('runtime command ledger target contract (Wave 1)', () => {
             card_id: 'project',
             phase: 'blocked',
             runtime_status: 'error',
-            result: 'blocked',
+            outcome: expect.objectContaining({ kind: 'blocked' }),
             finished_at: expect.any(String),
           }),
         ]),
@@ -941,7 +948,7 @@ describe('runtime command ledger target contract (Wave 1)', () => {
         command_id: startResult.command.command_id,
         phase: 'stopped',
         runtime_status: 'stopped',
-        result: 'stopped',
+        outcome: expect.objectContaining({ kind: 'completed', result: 'stopped' }),
       });
       expect(result.run!.finished_at).toEqual(expect.any(String));
       const state = readRuntimeState(projectRoot)!;
@@ -1133,7 +1140,7 @@ describe('runtime command ledger target contract (Wave 1)', () => {
         run_id: startResult.run.run_id,
         phase: 'stopped',
         runtime_status: 'stopped',
-        result: 'stopped',
+        outcome: expect.objectContaining({ kind: 'completed', result: 'stopped' }),
       });
 
       releaseDispatch();
@@ -1169,7 +1176,7 @@ describe('runtime command ledger target contract (Wave 1)', () => {
           command_id: startResult.command.command_id,
           phase: 'stopped',
           runtime_status: 'stopped',
-          result: 'stopped',
+          outcome: expect.objectContaining({ kind: 'completed', result: 'stopped' }),
           finished_at: stopResult.run!.finished_at,
         }),
       );
@@ -1355,7 +1362,7 @@ describe('runtime command ledger target contract (Wave 1)', () => {
           expect.objectContaining({
             phase: 'completed',
             runtime_status: 'idle',
-            result: 'done',
+              outcome: expect.objectContaining({ kind: 'completed', result: 'done' }),
             finished_at: expect.any(String),
           }),
         );

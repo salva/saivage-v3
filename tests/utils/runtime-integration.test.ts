@@ -492,6 +492,10 @@ describe('Runtime Integration', () => {
           status: 'done',
           summary: 'Goal acceptance is already satisfied.',
         },
+        {
+          status: 'done',
+          summary: 'Goal remains satisfied after reviewer correction.',
+        },
       ],
       reviewer: [
         {
@@ -629,7 +633,10 @@ describe('Runtime Integration', () => {
       makeGoalCard(store, 'goal-reopen', 'Reopen Blocked Goal');
       store.setStatus('goal-reopen', 'active');
       store.setStatus('goal-reopen', 'running');
-      store.setStatus('goal-reopen', 'blocked');
+      store.repairTerminalLifecycle('goal-reopen', {
+        status: 'blocked',
+        lifecycle: { status: 'blocked', result: { kind: 'planner_blocked', blocked_reason: 'blocked', resume_reason: 'planner_blocked', created_cards: [], updated_cards: [] }, error: 'blocked', completed_at: null },
+      });
 
       store.setStatus('goal-reopen', 'backlog');
 
@@ -665,6 +672,9 @@ describe('Runtime Integration', () => {
       createPlannerMarksGoalDoneFixture();
       const store = new CardStore(tmpDir);
       makeGoalCard(store, 'goal-planner-done', 'Planner Done Goal');
+      store.update('goal-planner-done', {
+        artifacts: [{ id: 'artifact-goal-planner-done', card_id: 'goal-planner-done', path: 'reports/goal-planner-done.md', type: 'report', description: 'review evidence', retain: true, created_at: new Date().toISOString() }],
+      });
 
       makeRuntime();
       await harness.api.start();

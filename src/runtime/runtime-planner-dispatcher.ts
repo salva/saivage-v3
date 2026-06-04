@@ -90,7 +90,7 @@ export class RuntimePlannerDispatcher {
       }
       plannerDone = iteration.plannerDone;
       if (plannerDone) {
-        const completed = await this.deps.reviewerDispatcher.runReviewer(goalId);
+        const completed = await this.deps.reviewerDispatcher.runReviewer(goalId, iteration.planningContext);
         if (completed) return;
         plannerDone = false;
       }

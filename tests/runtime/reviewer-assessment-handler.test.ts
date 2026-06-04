@@ -66,13 +66,16 @@ describe('reviewer assessment handler', () => {
     ]);
     expect(patches[0]).toMatchObject({
       status: 'done',
-      completed_at: now,
-      error: null,
-      result: {
-        kind: 'reviewer_pass',
-        planning: { kind: 'planner_done', created_cards: [], updated_cards: [], summary: 'review summary' },
-        review_summary: 'review summary',
-        assessment_id: 'assessment-goal-a-1',
+      lifecycle: {
+        status: 'done',
+        completed_at: now,
+        error: null,
+        result: {
+          kind: 'reviewer_pass',
+          planning: { kind: 'planner_done', created_cards: [], updated_cards: [], summary: 'review summary' },
+          review_summary: 'review summary',
+          assessment_id: 'assessment-goal-a-1',
+        },
       },
     });
   });

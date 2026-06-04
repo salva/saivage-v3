@@ -1,4 +1,5 @@
 import type { AgentExecutionPort, PlannerResult } from '../../contracts/index.js';
+import type { PlannerDoneResult } from '../../schemas/index.js';
 import { PROJECT_CARD_ID } from '../../cards/store-api.js';
 import type { RuntimeSkillsPort } from '../runtime-config.js';
 import type { RuntimeGoalContextCoordinator } from '../runtime-goal-context.js';
@@ -15,7 +16,7 @@ import { PlannerResultApplier } from './planner-result-applier.js';
 import { commitPlannerBlocked } from '../terminal-commit/index.js';
 
 export type PlannerIterationResult =
-  | { kind: 'continue'; plannerDone: boolean }
+  | { kind: 'continue'; plannerDone: boolean; planningContext: PlannerDoneResult | null }
   | { kind: 'planner_failure_handled' }
   | { kind: 'post_dispatch_return' }
   | { kind: 'paused' }
@@ -94,7 +95,11 @@ export class PlannerIterationRunner {
       },
     });
     if (postDispatch.shouldReturn) return { kind: 'post_dispatch_return' };
-    return { kind: 'continue', plannerDone: postDispatch.plannerDone };
+    return {
+      kind: 'continue',
+      plannerDone: postDispatch.plannerDone,
+      planningContext: postDispatch.plannerDone ? plannerDoneContext(plannerResult) : null,
+    };
   }
 
   private async blockGoalWithPlanning(input: {
@@ -122,4 +127,13 @@ export class PlannerIterationRunner {
       reason: input.terminalReason,
     });
   }
+}
+
+function plannerDoneContext(plannerResult: PlannerResult): PlannerDoneResult {
+  return {
+    kind: 'planner_done',
+    created_cards: (plannerResult.created_cards ?? []).map((card) => card.id).filter((id): id is string => Boolean(id)),
+    updated_cards: (plannerResult.updated_cards ?? []).map((card) => card.id).filter((id): id is string => Boolean(id)),
+    summary: plannerResult.summary ?? 'Planner marked goal done.',
+  };
 }

@@ -25,6 +25,8 @@ export async function handleExecutorCompletion(input: {
   registrationError: string | null;
   artifactRegistrationErrors: string[];
   attachmentRegistrationErrors: string[];
+  ignoredArtifactRegistrations?: string[];
+  ignoredAttachmentRegistrations?: string[];
   effects: ExecutorCompletionEffects;
 }): Promise<{ transitioned: boolean; executedTerminal: boolean; failed: boolean; outcome: ActivationCompletionOutcome | null }> {
   const outcomeDecision = decideExecutorOutcome({ execResult: input.execResult, registrationFailed: input.registrationFailed });
@@ -40,7 +42,7 @@ export async function handleExecutorCompletion(input: {
         projectRoot: input.projectRoot,
         card: latestCard,
         goalId: input.goalId,
-        executor: preservedExecutorResult(latestCard, input.execResult),
+        executor: preservedExecutorResult(latestCard, input.execResult, input),
         generatedFiles: resultGeneratedFiles(input.execResult),
         acceptedAt: input.acceptedAt,
         completedAt: latestCard.lifecycle.completed_at ?? input.effects.now(),
@@ -66,7 +68,7 @@ export async function handleExecutorCompletion(input: {
           card: latestCard,
           goalId: input.goalId,
           reason: outcomeDecision.reason ?? input.execResult.summary ?? input.execResult.status_text,
-          preservedResult: preservedVerificationResult(latestCard, input.execResult),
+          preservedResult: preservedVerificationResult(latestCard, input.execResult, input),
           fallbackReason: input.execResult.fallback_with_evidence?.reason ?? null,
           acceptedAt: input.acceptedAt,
           statusText: input.execResult.status_text,
@@ -98,18 +100,20 @@ function executorResultPayload(execResult: ExecutorResult): Record<string, unkno
   };
 }
 
-function preservedVerificationResult(card: CardRecord, execResult: ExecutorResult): Record<string, unknown> {
+function preservedVerificationResult(card: CardRecord, execResult: ExecutorResult, input: Parameters<typeof handleExecutorCompletion>[0]): Record<string, unknown> {
   return {
     ...recordResult(card.lifecycle.result),
     ...executorResultPayload(execResult),
+    ...ignoredEvidenceResult(input),
     fallback_with_evidence: execResult.fallback_with_evidence,
   };
 }
 
-function preservedExecutorResult(card: CardRecord, execResult: ExecutorResult): Record<string, unknown> {
+function preservedExecutorResult(card: CardRecord, execResult: ExecutorResult, input?: Parameters<typeof handleExecutorCompletion>[0]): Record<string, unknown> {
   return {
     ...recordResult(card.lifecycle.result),
     ...executorResultPayload(execResult),
+    ...ignoredEvidenceResult(input),
   };
 }
 
@@ -125,8 +129,17 @@ function failedPartialResult(input: Parameters<typeof handleExecutorCompletion>[
           },
         }
       : {}),
+    ...ignoredEvidenceResult(input),
   };
   return Object.keys(partial).length > 0 ? partial : null;
+}
+
+function ignoredEvidenceResult(input?: Pick<Parameters<typeof handleExecutorCompletion>[0], 'ignoredArtifactRegistrations' | 'ignoredAttachmentRegistrations'>): Record<string, unknown> {
+  const artifacts = input?.ignoredArtifactRegistrations ?? [];
+  const attachments = input?.ignoredAttachmentRegistrations ?? [];
+  return artifacts.length > 0 || attachments.length > 0
+    ? { evidence_registration_ignored: { artifacts, attachments } }
+    : {};
 }
 
 function recordResult(result: CardLifecycleState['result']): Record<string, unknown> {

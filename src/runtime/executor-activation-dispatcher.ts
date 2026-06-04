@@ -9,7 +9,6 @@ import {
 } from './phases/executor-phase.js';
 import { ExecutorPhaseRunner } from './phases/executor-phase-runner.js';
 import {
-  buildIgnoredExecutorEvidencePatch,
   createExecutorEvidenceRegistrar,
   registerExecutorEvidence,
   summarizeExecutorEvidenceRegistrationFailure,
@@ -120,12 +119,6 @@ export class ExecutorActivationDispatcher {
       }),
       execResult,
     );
-    const ignoredEvidencePatch = buildIgnoredExecutorEvidencePatch({
-      existingLifecycle: (this.deps.cards.read(card.id) ?? card).lifecycle,
-      ignoredArtifactRegistrations,
-      ignoredAttachmentRegistrations,
-    });
-    if (ignoredEvidencePatch) await this.deps.cards.update(card.id, ignoredEvidencePatch);
     const { registrationFailed, registrationError } = summarizeExecutorEvidenceRegistrationFailure({
       execStatus: execResult.status,
       artifactRegistrationErrors,
@@ -144,6 +137,8 @@ export class ExecutorActivationDispatcher {
       registrationError,
       artifactRegistrationErrors,
       attachmentRegistrationErrors,
+      ignoredArtifactRegistrations,
+      ignoredAttachmentRegistrations,
       effects: {
         now: this.deps.now,
         transitionCard: (cardId, event, details) => this.deps.stateMachine.transitionCard(cardId, event, details),

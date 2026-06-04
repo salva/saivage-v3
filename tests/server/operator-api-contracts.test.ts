@@ -61,7 +61,7 @@ const runtimeRun = {
   started_at: '2026-01-01T00:00:01.000Z',
   updated_at: '2026-01-01T00:00:01.000Z',
   finished_at: null,
-  result: null,
+  outcome: null,
 };
 
 const card = {
@@ -87,15 +87,13 @@ const card = {
   blocks: [],
   related: [],
   acceptance: '',
-  result: null,
+  lifecycle: { status: 'backlog', result: null, error: null, completed_at: null },
   metrics: null,
   artifacts: [],
   attachments: [],
   estimate: null,
   started_at: null,
-  completed_at: null,
   duration_ms: null,
-  error: null,
   retries: 0,
 };
 
@@ -393,7 +391,7 @@ describe('operator API contract registry', () => {
   });
 
   it('accepts needs_verification in runtime run and activation contract fields', () => {
-    const runWithVerification = { ...runtimeRun, phase: 'needs_verification', result: 'needs_verification' };
+    const runWithVerification = { ...runtimeRun, phase: 'needs_verification', outcome: { kind: 'paused', reason: 'needs_verification', detail: 'verification needed' } };
     const activationWithVerification = {
       activation_id: 'act-needs-verification',
       idempotency_key: 'run-1:planner:project:call-2:card-2',

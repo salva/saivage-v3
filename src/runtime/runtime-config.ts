@@ -31,7 +31,7 @@ export interface RuntimeCoreParts {
 }
 
 export interface RuntimeTestParts {
-  cards: Pick<CardStore, 'read' | 'update' | 'create' | 'setStatus'>;
+  cards: Pick<CardStore, 'read' | 'update' | 'create' | 'setStatus' | 'repairTerminalLifecycle'>;
   agentRuntime: AgentExecutionPort;
   errorLogger: ErrorLogger;
   eventLogger: EventLogger;

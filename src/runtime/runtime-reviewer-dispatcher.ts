@@ -1,5 +1,5 @@
 import type { AgentExecutionPort, ReviewerResult } from '../contracts/index.js';
-import type { CardRecord, ProjectRunCompletedPayload, ReviewAssessment } from '../schemas/index.js';
+import type { CardRecord, PlannerDoneResult, ProjectRunCompletedPayload, ReviewAssessment } from '../schemas/index.js';
 import { PROJECT_CARD_ID } from '../cards/store-api.js';
 import type { RuntimeSkillsPort } from './runtime-config.js';
 import type { RuntimeGoalContextCoordinator } from './runtime-goal-context.js';
@@ -61,7 +61,7 @@ export interface RuntimeReviewerDispatcherDeps extends Pick<RuntimeServices,
 export class RuntimeReviewerDispatcher {
   constructor(private readonly deps: RuntimeReviewerDispatcherDeps) {}
 
-  async runReviewer(goalId: string): Promise<boolean> {
+  async runReviewer(goalId: string, planningContext?: PlannerDoneResult | null): Promise<boolean> {
     const assessmentId = nextReviewerAssessmentId(goalId, this.deps.cards.read(goalId)?.lifecycle.result);
     const reviewerSessionId = makeReviewerSessionId(goalId, assessmentId);
     let reviewResult: ReviewerResult;
@@ -117,6 +117,7 @@ export class RuntimeReviewerDispatcher {
       reviewerSessionId,
       reviewResult,
       decision: reviewerDecision,
+      planningContext,
       effects: {
         now: this.deps.now,
         readCard: (cardId) => this.deps.cards.read(cardId),

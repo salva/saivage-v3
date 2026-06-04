@@ -7,6 +7,7 @@ import { initRuntimeState, readRuntimeState, updateRuntimeState } from '../../sr
 import { CardStore } from '../../src/cards/card-store.js';
 import { ErrorLogger } from '../../src/observability/error-logger.js';
 import type { RuntimeState } from '../../src/schemas/types.js';
+import type { CardLifecycleState } from '../../src/schemas/index.js';
 
 function root(): string { return mkdtempSync(join(tmpdir(), 'saivage-state-machine-')); }
 
@@ -164,6 +165,7 @@ describe('RuntimeStateMachine (Step 2 skeleton)', () => {
 
 describe('RuntimeStateMachine.transitionCard (Step 5 decomposition)', () => {
   function seed(cardStore: CardStore, id: string, status: import('../../src/schemas/types.js').CardStatus): void {
+    const now = new Date().toISOString();
     cardStore.create({
       id,
       type: 'code',
@@ -171,6 +173,7 @@ describe('RuntimeStateMachine.transitionCard (Step 5 decomposition)', () => {
       title: 't',
       description: 'd',
       status,
+      lifecycle: lifecycleForStatus(status, now),
       depends_on: [],
       priority: 5,
       tags: [],
@@ -184,6 +187,14 @@ describe('RuntimeStateMachine.transitionCard (Step 5 decomposition)', () => {
       depth: 0,
       blocks: [],
     });
+  }
+
+  function lifecycleForStatus(status: import('../../src/schemas/types.js').CardStatus, now: string): CardLifecycleState {
+    if (status === 'done') return { status, result: { kind: 'planner_done', created_cards: [], updated_cards: [], summary: 'done' }, error: null, completed_at: now };
+    if (status === 'failed') return { status, result: { kind: 'executor_failure', error: 'failed', partial_result: null, latest_self_report: { result: 'failed', outcome: 'failed', summary: 'failed', status_text: 'failed', at: now } }, error: 'failed', completed_at: now };
+    if (status === 'blocked') return { status, result: { kind: 'planner_blocked', blocked_reason: 'blocked', resume_reason: 'planner_blocked', created_cards: [], updated_cards: [] }, error: 'blocked', completed_at: null };
+    if (status === 'needs_verification') return { status, result: { kind: 'executor_needs_verification', reason: 'needs verification', preserved_result: {}, fallback_reason: null, latest_self_report: { result: 'needs_verification', outcome: 'needs_verification', summary: 'needs verification', status_text: 'needs verification', at: now } }, error: null, completed_at: null };
+    return { status, result: null, error: null, completed_at: status === 'cancelled' ? now : null } as CardLifecycleState;
   }
 
   function build(projectRoot: string): { cardStore: CardStore; machine: RuntimeStateMachine; setStatusCalls: Array<{ id: string; status: string }>; errorLogger: ErrorLogger } {
@@ -219,16 +230,16 @@ describe('RuntimeStateMachine.transitionCard (Step 5 decomposition)', () => {
     { name: 'start from backlog', from: 'backlog', action: 'start', expected: ['active', 'running'] },
     { name: 'restart from failed', from: 'failed', action: 'restart', expected: ['backlog', 'active', 'running'] },
     { name: 'restart from cancelled', from: 'cancelled', action: 'restart', expected: ['drafting', 'backlog', 'active', 'running'] },
-    { name: 'fail from running', from: 'running', action: 'fail', expected: ['failed'] },
-    { name: 'fail from drafting', from: 'drafting', action: 'fail', expected: ['backlog', 'active', 'running', 'failed'] },
-    { name: 'block from active', from: 'active', action: 'block', expected: ['running', 'blocked'] },
-    { name: 'block from running', from: 'running', action: 'block', expected: ['blocked'] },
-    { name: 'complete from active', from: 'active', action: 'complete', expected: ['running', 'done'] },
-    { name: 'complete from running', from: 'running', action: 'complete', expected: ['done'] },
+    { name: 'fail from running', from: 'running', action: 'fail', expected: [] },
+    { name: 'fail from drafting', from: 'drafting', action: 'fail', expected: [] },
+    { name: 'block from active', from: 'active', action: 'block', expected: [] },
+    { name: 'block from running', from: 'running', action: 'block', expected: [] },
+    { name: 'complete from active', from: 'active', action: 'complete', expected: [] },
+    { name: 'complete from running', from: 'running', action: 'complete', expected: [] },
     { name: 'cancel from blocked', from: 'blocked', action: 'cancel', expected: ['cancelled'] },
-    { name: 'executor_finish done', from: 'running', action: 'executor_finish', payload: { finalStatus: 'done' }, expected: ['done'] },
-    { name: 'executor_finish failed', from: 'running', action: 'executor_finish', payload: { finalStatus: 'failed' }, expected: ['failed'] },
-    { name: 'executor_partial_finish from running', from: 'running', action: 'executor_partial_finish', expected: ['needs_verification'] },
+    { name: 'executor_finish done', from: 'running', action: 'executor_finish', payload: { finalStatus: 'done' }, expected: [] },
+    { name: 'executor_finish failed', from: 'running', action: 'executor_finish', payload: { finalStatus: 'failed' }, expected: [] },
+    { name: 'executor_partial_finish from running', from: 'running', action: 'executor_partial_finish', expected: [] },
     { name: 'reviewer_repair_resume from active', from: 'active', action: 'reviewer_repair_resume', expected: ['running'] },
     { name: 'reviewer_repair_resume from running (no-op)', from: 'running', action: 'reviewer_repair_resume', expected: [] },
     { name: 'crash_recovery_drop_to_backlog from running', from: 'running', action: 'crash_recovery_drop_to_backlog', expected: ['backlog'] },
