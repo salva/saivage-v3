@@ -1,4 +1,4 @@
-import type { ActivationCompletionOutcome, CardRecord } from '../../schemas/index.js';
+import type { ActivationCompletionOutcome, CardLifecycleState, CardRecord } from '../../schemas/index.js';
 import type { ExecutorResult } from '../../contracts/index.js';
 import { commitExecutorFailure, commitExecutorParkedVerification, commitExecutorSuccess } from '../terminal-commit/index.js';
 import { decideExecutorOutcome } from './executor-phase.js';
@@ -9,6 +9,7 @@ export interface ExecutorCompletionEffects {
   readCard(cardId: string): CardRecord | null;
   updateCard(cardId: string, patch: Partial<CardRecord>): Promise<unknown> | unknown;
   appendChildUnwindToolResult(cardId: string, outcome: ActivationCompletionOutcome, summary: string): void;
+  recordChildActivationLifecycle?(cardId: string, lifecycle: CardLifecycleState): void;
   emitCardFailed(cardId: string, goalId: string): void;
 }
 
@@ -73,6 +74,7 @@ export async function handleExecutorCompletion(input: {
           effects: commonEffects,
         });
   if (!receipt.transitioned) return { transitioned: false, executedTerminal: false, failed: true, outcome: null };
+  input.effects.recordChildActivationLifecycle?.(input.cardId, receipt.lifecycle);
 
   if (outcome === 'needs_verification') {
     return { transitioned: true, executedTerminal: false, failed: false, outcome };

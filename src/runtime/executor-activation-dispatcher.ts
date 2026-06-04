@@ -150,6 +150,7 @@ export class ExecutorActivationDispatcher {
         readCard: (cardId) => this.deps.cards.read(cardId),
         updateCard: (cardId, patch) => this.deps.cards.update(cardId, patch),
         appendChildUnwindToolResult: (cardId, outcome, summary) => this.deps.activationUnwind.appendChildUnwindToolResult(cardId, outcome, summary),
+        recordChildActivationLifecycle: (cardId, lifecycle) => this.deps.activationUnwind.recordChildActivationLifecycle(cardId, lifecycle),
         emitCardFailed: (cardId, parentGoalId) => this.emitCardFailed(cardId, parentGoalId),
       },
     });

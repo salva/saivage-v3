@@ -1,4 +1,4 @@
-import type { ActivationCompletionOutcome, CardRecord, RuntimeState } from '../schemas/index.js';
+import type { ActivationCompletionOutcome, CardLifecycleState, CardRecord, RuntimeState } from '../schemas/index.js';
 import type { ExecutorResult, PlannerResult, ReviewerResult } from '../contracts/index.js';
 import type { RuntimeMutation } from './mutations.js';
 
@@ -25,7 +25,7 @@ export type ActivationEvent =
   | { type: 'pauseRequested' }
   | { type: 'cancelRequested'; reason: string }
   | { type: 'restartRepairRequested' }
-  | { type: 'complete'; outcome: ActivationCompletionOutcome };
+  | { type: 'complete'; outcome: ActivationCompletionOutcome; lifecycle?: CardLifecycleState | null };
 
 export type ActivationEffect =
   | { kind: 'invokePlanner'; cardId: string; plannerSessionId: string }
@@ -146,7 +146,7 @@ export function reduceActivation(state: ActivationState, event: ActivationEvent)
     return {
       state: { phase: 'completed', cardId: state.cardId, outcome: event.outcome },
       effects: [{ kind: 'unwindActivation', cardId: state.cardId, outcome: event.outcome }],
-      mutations: [{ kind: 'completeActivation', childCardId: state.cardId, outcome: event.outcome, completedAt }],
+      mutations: [{ kind: 'completeActivation', childCardId: state.cardId, outcome: event.outcome, completedAt, lifecycle: event.lifecycle ?? null }],
     };
   }
   return { state, effects: [], mutations: [] };

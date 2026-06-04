@@ -33,8 +33,22 @@ export type RuntimeActivationStatus = 'pending' | 'running' | 'completed' | 'fai
 export interface ActionableErrorEnvelope { code: string; message: string; acceptedValues?: string[]; currentState?: Record<string, unknown>; nextAction: string; docsRef?: string; runId?: string | null; sessionId?: string | null; cardId?: string | null; parentCardId?: string | null; childCardId?: string | null; }
 export interface RuntimeIntent { status: RuntimeIntentStatus; updated_at: string; source_command_id: string | null; reason?: string | null; }
 export interface RuntimeCommandRecord { command_id: string; command: RuntimeCommandName; status: RuntimeCommandStatus; requested_at: string; completed_at?: string | null; source: 'operator' | 'tool' | 'runtime' | 'analyst'; error?: ActionableErrorEnvelope | null; }
-export interface RuntimeRunRecord { run_id: string; kind: RuntimeRunKind; card_id: string; parent_run_id?: string | null; command_id?: string | null; activation_id?: string | null; phase: RuntimeRunPhase; runtime_status: RuntimeStatus | 'stopped' | 'cancelled'; session_id?: string | null; started_at: string; updated_at: string; finished_at?: string | null; result?: 'done' | 'failed' | 'blocked' | 'cancelled' | 'stopped' | 'needs_verification' | null; }
-export interface RuntimeActivationRecord { activation_id: string; idempotency_key: string; parent_card_id: string; parent_run_id: string; parent_session_id: string; parent_tool_call_id: string; child_card_id: string; status: RuntimeActivationStatus; requested_at: string; updated_at: string; precondition: 'accepted' | 'rejected'; runtime_run_id?: string | null; error?: ActionableErrorEnvelope | null; }
+export type RuntimeActivationOutcomeSnapshot =
+  | { kind: 'completed'; outcome: 'done'; card_id: string; completed_at: string }
+  | { kind: 'completed'; outcome: 'failed'; card_id: string; error: string; completed_at: string }
+  | { kind: 'completed'; outcome: 'cancelled'; card_id: string; completed_at: string | null }
+  | { kind: 'completed'; outcome: 'timed_out'; card_id: string; error: string; completed_at: string }
+  | { kind: 'paused'; reason: 'needs_verification'; card_id: string; detail: string }
+  | { kind: 'blocked'; card_id: string; error: string };
+export type RuntimeRunOutcomeSnapshot =
+  | { kind: 'completed'; result: 'done'; finished_at: string }
+  | { kind: 'completed'; result: 'failed'; error: string; finished_at: string }
+  | { kind: 'completed'; result: 'cancelled'; finished_at: string | null }
+  | { kind: 'completed'; result: 'stopped'; finished_at: string }
+  | { kind: 'blocked'; error: string }
+  | { kind: 'paused'; reason: 'needs_verification'; detail: string };
+export interface RuntimeRunRecord { run_id: string; kind: RuntimeRunKind; card_id: string; parent_run_id?: string | null; command_id?: string | null; activation_id?: string | null; phase: RuntimeRunPhase; runtime_status: RuntimeStatus | 'stopped' | 'cancelled'; session_id?: string | null; started_at: string; updated_at: string; finished_at?: string | null; result?: 'done' | 'failed' | 'blocked' | 'cancelled' | 'stopped' | 'needs_verification' | null; outcome_snapshot?: RuntimeRunOutcomeSnapshot | null; }
+export interface RuntimeActivationRecord { activation_id: string; idempotency_key: string; parent_card_id: string; parent_run_id: string; parent_session_id: string; parent_tool_call_id: string; child_card_id: string; status: RuntimeActivationStatus; requested_at: string; updated_at: string; precondition: 'accepted' | 'rejected'; runtime_run_id?: string | null; error?: ActionableErrorEnvelope | null; outcome_snapshot?: RuntimeActivationOutcomeSnapshot | null; }
 
 export type Urgency = 'low' | 'normal' | 'high' | 'critical';
 export type CreatedBy = 'user' | 'analyst' | 'planner';

@@ -104,6 +104,7 @@ describe('Runtime stale running-intent reconciliation', () => {
     expect(reconciledRun?.phase).toBe('completed');
     expect(reconciledRun?.runtime_status).toBe('idle');
     expect(reconciledRun?.result).toBe('done');
+    expect(reconciledRun?.outcome_snapshot).toEqual(expect.objectContaining({ kind: 'completed', result: 'done' }));
     expect(reconciledRun?.finished_at).toBeTruthy();
     expect(harness.diagnosticTestTools.getBackgroundDispatchCount()).toBe(0);
   });

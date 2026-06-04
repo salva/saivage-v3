@@ -1,4 +1,4 @@
-import type { CardStatus, RuntimeState } from '../schemas/index.js';
+import type { CardRecord, CardStatus, RuntimeState } from '../schemas/index.js';
 import { PROJECT_CARD_ID, type CardStore } from '../cards/store-api.js';
 import type { ErrorLogger } from '../observability/index.js';
 import { planProjectRootRedispatch, observeRuntimeStateInvariants, reduceRuntimeEvent, type RuntimeStateMachineEvent } from './runtime-core.js';
@@ -25,6 +25,7 @@ export type RuntimeScheduler = RuntimeSchedulerPort;
 
 export interface RuntimeCardPort {
   readStatus(cardId: string): CardStatus | undefined;
+  readCard?(cardId: string): Pick<CardRecord, 'status' | 'error' | 'completed_at'> | null | undefined;
   canTransition(from: CardStatus, to: CardStatus): boolean;
   setStatus(cardId: string, status: CardStatus): void;
 }
@@ -79,6 +80,7 @@ export function createRuntimeStateMachine(input: {
   };
   const runtimeCards: RuntimeCardPort = {
     readStatus: (cardId) => input.cards.read(cardId)?.status,
+    readCard: (cardId) => input.cards.read(cardId),
     canTransition: (from, to) => input.cards.canTransition(from, to),
     setStatus: (cardId, status) => {
       input.cards.setStatus(cardId, status);
@@ -220,7 +222,7 @@ export class RuntimeStateMachine {
       try { currentCardStatus = this.cards.readStatus(currentCardId) ?? null; } catch { currentCardStatus = null; }
     }
 
-    for (const observation of observeRuntimeStateInvariants({ state, currentCardStatus })) {
+    for (const observation of observeRuntimeStateInvariants({ state, currentCardStatus, readCard: (cardId) => this.cards.readCard?.(cardId) ?? null })) {
       this.logInvariantOnce(observation.invariant, observation.key, observation.details);
       if (observation.correction) this.state.patch(observation.correction as Partial<RuntimeState>);
     }
@@ -234,7 +236,7 @@ export class RuntimeStateMachine {
     try { this.redispatch.redispatch(decision.cardId); } catch { void 0; }
   }
 
-  private logInvariantOnce(invariant: 'I1' | 'I2' | 'I3' | 'I4', key: string, details: Record<string, unknown>): void {
+  private logInvariantOnce(invariant: ReturnType<typeof observeRuntimeStateInvariants>[number]['invariant'], key: string, details: Record<string, unknown>): void {
     const tuple = `${invariant}:${key}`;
     if (this._loggedInvariants.has(tuple)) return;
     this._loggedInvariants.add(tuple);

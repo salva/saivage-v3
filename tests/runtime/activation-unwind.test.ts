@@ -211,6 +211,7 @@ describe('activation unwind helpers', () => {
     expect(selectChildGoalActivationOutcome({ status: 'done' } as any)).toBe('done');
     expect(selectChildGoalActivationOutcome({ status: 'blocked' } as any)).toBe('blocked');
     expect(selectChildGoalActivationOutcome({ status: 'cancelled' } as any)).toBe('cancelled');
+    expect(selectChildGoalActivationOutcome({ status: 'needs_verification' } as any)).toBe('needs_verification');
     expect(selectChildGoalActivationOutcome({ status: 'failed' } as any)).toBe('failed');
     expect(selectChildGoalActivationOutcome(null)).toBe('failed');
   });

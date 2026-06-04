@@ -208,6 +208,21 @@ describe('runtime core reducers', () => {
       expect.objectContaining({ invariant: 'I2', key: 'c1', correction: expect.objectContaining({ active_card_run: null }) }),
       expect.objectContaining({ invariant: 'I3', key: 'c1|null' }),
     ]));
+    expect(observeRuntimeStateInvariants({
+      state: state({
+        runtime_activations: [activation({ status: 'needs_verification', outcome_snapshot: { kind: 'completed', outcome: 'done', card_id: 'child', completed_at: '2026-05-26T01:00:00.000Z' } })],
+        runtime_runs: [run({ result: 'needs_verification', outcome_snapshot: { kind: 'completed', result: 'done', finished_at: '2026-05-26T01:00:00.000Z' } })],
+      }),
+      currentCardStatus: null,
+    })).toEqual(expect.arrayContaining([
+      expect.objectContaining({ invariant: 'I7', key: 'act-1' }),
+      expect.objectContaining({ invariant: 'I8', key: 'run-1' }),
+    ]));
+    expect(observeRuntimeStateInvariants({
+      state: state({ runtime_activations: [activation()], runtime_runs: [run()] }),
+      currentCardStatus: null,
+      readCard: () => ({ status: 'done', error: 'stale error', completed_at: '2026-05-26T01:00:00.000Z' }),
+    })).toEqual(expect.arrayContaining([expect.objectContaining({ invariant: 'I5', key: 'child' })]));
   });
 
   it('plans canonical project-root redispatch for a running intent with an open or failed root run', () => {
@@ -298,19 +313,19 @@ describe('runtime core reducers', () => {
         run(),
       ],
     });
-    const next = reduceActivationCompletion(current, 'child', 'done', 't1');
-    expect(next?.runtime_activations?.[0]).toEqual(expect.objectContaining({ status: 'completed', updated_at: 't1' }));
-    expect(next?.runtime_runs?.[0]).toEqual(expect.objectContaining({ phase: 'completed', runtime_status: 'idle', result: 'done', finished_at: 't1', updated_at: 't1' }));
-    expect(next?.updated_at).toBe('t1');
+    const next = reduceActivationCompletion(current, 'child', 'done', '2026-05-26T01:00:00.000Z', { status: 'done', result: {}, error: null, completed_at: '2026-05-26T01:00:00.000Z' });
+    expect(next?.runtime_activations?.[0]).toEqual(expect.objectContaining({ status: 'completed', updated_at: '2026-05-26T01:00:00.000Z', outcome_snapshot: { kind: 'completed', outcome: 'done', card_id: 'child', completed_at: '2026-05-26T01:00:00.000Z' } }));
+    expect(next?.runtime_runs?.[0]).toEqual(expect.objectContaining({ phase: 'completed', runtime_status: 'idle', result: 'done', finished_at: '2026-05-26T01:00:00.000Z', updated_at: '2026-05-26T01:00:00.000Z', outcome_snapshot: { kind: 'completed', result: 'done', finished_at: '2026-05-26T01:00:00.000Z' } }));
+    expect(next?.updated_at).toBe('2026-05-26T01:00:00.000Z');
   });
 
-  it('maps needs_verification activation completion to error runtime result', () => {
+  it('maps needs_verification activation completion to paused outcome snapshots', () => {
     const next = reduceActivationCompletion(state({
       runtime_activations: [activation({ status: 'pending' })],
       runtime_runs: [run()],
-    }), 'child', 'needs_verification', 't1');
-    expect(next?.runtime_activations?.[0]).toEqual(expect.objectContaining({ status: 'needs_verification' }));
-    expect(next?.runtime_runs?.[0]).toEqual(expect.objectContaining({ phase: 'needs_verification', runtime_status: 'error', result: 'needs_verification' }));
+    }), 'child', 'needs_verification', '2026-05-26T01:00:00.000Z', { status: 'needs_verification', result: { kind: 'executor_needs_verification', reason: 'inspect evidence', preserved_result: {}, fallback_reason: null, latest_self_report: { result: 'needs_verification', outcome: 'needs_verification', summary: 'inspect evidence', status_text: 'verify', at: '2026-05-26T01:00:00.000Z' } }, error: null, completed_at: null });
+    expect(next?.runtime_activations?.[0]).toEqual(expect.objectContaining({ status: 'needs_verification', outcome_snapshot: { kind: 'paused', reason: 'needs_verification', card_id: 'child', detail: 'inspect evidence' } }));
+    expect(next?.runtime_runs?.[0]).toEqual(expect.objectContaining({ phase: 'needs_verification', runtime_status: 'error', result: 'needs_verification', outcome_snapshot: { kind: 'paused', reason: 'needs_verification', detail: 'inspect evidence' } }));
   });
 
   it('returns null when activation completion has no activation ledger', () => {

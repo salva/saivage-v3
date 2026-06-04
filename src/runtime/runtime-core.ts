@@ -1,4 +1,4 @@
-import type { ActionableErrorEnvelope, CardStatus, FreezeManifest, HandoffSummary, RuntimeCommandRecord, RuntimeRunRecord, RuntimeState } from '../schemas/index.js';
+import type { ActionableErrorEnvelope, CardLifecycleState, CardStatus, FreezeManifest, HandoffSummary, RuntimeActivationOutcomeSnapshot, RuntimeCommandRecord, RuntimeRunOutcomeSnapshot, RuntimeRunRecord, RuntimeState } from '../schemas/index.js';
 import type { ActivationCompletionOutcome } from '../schemas/index.js';
 
 const TERMINAL_STATUSES: ReadonlySet<CardStatus> = new Set<CardStatus>(['done', 'failed', 'cancelled']);
@@ -375,7 +375,7 @@ export function reduceRuntimeEvent(
   }
 }
 
-export type InvariantId = 'I1' | 'I2' | 'I3' | 'I4';
+export type InvariantId = 'I1' | 'I2' | 'I3' | 'I4' | 'I5' | 'I6' | 'I7' | 'I8';
 
 export interface RuntimeInvariantObservation {
   invariant: InvariantId;
@@ -387,6 +387,7 @@ export interface RuntimeInvariantObservation {
 export function observeRuntimeStateInvariants(input: {
   state: RuntimeState;
   currentCardStatus: CardStatus | null;
+  readCard?: (cardId: string) => { status: CardStatus; error?: string | null; completed_at?: string | null } | null;
 }): RuntimeInvariantObservation[] {
   const observations: RuntimeInvariantObservation[] = [];
   const { state, currentCardStatus } = input;
@@ -418,6 +419,53 @@ export function observeRuntimeStateInvariants(input: {
       details: { currentCardId, activeRunCardId: runCardId },
       correction: { status: 'idle', current_card_id: null, current_agent_session_id: null, active_card_run: null },
     });
+  }
+
+  const readCard = input.readCard;
+  if (readCard) {
+    const cardIds = new Set<string>();
+    if (currentCardId) cardIds.add(currentCardId);
+    for (const activation of state.runtime_activations ?? []) cardIds.add(activation.child_card_id);
+    for (const run of state.runtime_runs ?? []) cardIds.add(run.card_id);
+    for (const cardId of cardIds) {
+      const card = readCard(cardId);
+      if (!card) continue;
+      if (card.status === 'done' && card.error != null) {
+        observations.push({ invariant: 'I5', key: cardId, details: { cardId, status: card.status, error: card.error } });
+      }
+      if (card.status === 'failed' && (typeof card.error !== 'string' || card.error.length === 0)) {
+        observations.push({ invariant: 'I6', key: cardId, details: { cardId, status: card.status, error: card.error ?? null } });
+      }
+    }
+  }
+
+  for (const activation of state.runtime_activations ?? []) {
+    const snapshot = activation.outcome_snapshot ?? null;
+    if (activation.status === 'needs_verification' && snapshot?.kind !== 'paused') {
+      observations.push({ invariant: 'I7', key: activation.activation_id, details: { activationId: activation.activation_id, status: activation.status, outcomeSnapshot: snapshot } });
+    }
+    if (activation.status === 'completed' && snapshot && (snapshot.kind !== 'completed' || snapshot.outcome !== 'done')) {
+      observations.push({ invariant: 'I7', key: activation.activation_id, details: { activationId: activation.activation_id, status: activation.status, outcomeSnapshot: snapshot } });
+    }
+    if (activation.status === 'failed' && snapshot && (snapshot.kind !== 'completed' || snapshot.outcome !== 'failed')) {
+      observations.push({ invariant: 'I7', key: activation.activation_id, details: { activationId: activation.activation_id, status: activation.status, outcomeSnapshot: snapshot } });
+    }
+    if (activation.status === 'cancelled' && snapshot && (snapshot.kind !== 'completed' || snapshot.outcome !== 'cancelled')) {
+      observations.push({ invariant: 'I7', key: activation.activation_id, details: { activationId: activation.activation_id, status: activation.status, outcomeSnapshot: snapshot } });
+    }
+  }
+
+  for (const run of state.runtime_runs ?? []) {
+    const snapshot = run.outcome_snapshot ?? null;
+    if (run.result === 'needs_verification' && snapshot?.kind !== 'paused') {
+      observations.push({ invariant: 'I8', key: run.run_id, details: { runId: run.run_id, result: run.result, outcomeSnapshot: snapshot } });
+    }
+    if (run.result === 'done' && snapshot && (snapshot.kind !== 'completed' || snapshot.result !== 'done')) {
+      observations.push({ invariant: 'I8', key: run.run_id, details: { runId: run.run_id, result: run.result, outcomeSnapshot: snapshot } });
+    }
+    if (run.result === 'failed' && snapshot && (snapshot.kind !== 'completed' || snapshot.result !== 'failed')) {
+      observations.push({ invariant: 'I8', key: run.run_id, details: { runId: run.run_id, result: run.result, outcomeSnapshot: snapshot } });
+    }
   }
 
   return observations;
@@ -515,9 +563,11 @@ export interface IdleRunningRootRunReconciliationPlan {
 export function planIdleRunningRootRunReconciliation(input: {
   state: RuntimeState;
   projectTerminal: boolean;
+  projectLifecycle?: CardLifecycleState | null;
   nowIso: string;
 }): IdleRunningRootRunReconciliationPlan | null {
   const { state, projectTerminal, nowIso } = input;
+  const outcomeSnapshot = input.projectLifecycle ? runtimeRunOutcomeSnapshotFromLifecycle(input.projectLifecycle) : null;
   if (
     (state.runtime_intent?.status ?? 'stopped') !== 'running' ||
     state.status !== 'idle' ||
@@ -556,6 +606,7 @@ export function planIdleRunningRootRunReconciliation(input: {
         finished_at: nowIso,
         updated_at: nowIso,
         result: projectTerminal ? 'done' : 'failed',
+        ...(outcomeSnapshot ? { outcome_snapshot: outcomeSnapshot } : {}),
       },
     })),
     diagnosticMessage: projectTerminal
@@ -584,14 +635,63 @@ export function planProjectRootRedispatch(input: {
   return { shouldRedispatch: false };
 }
 
+export function activationOutcomeSnapshotFromLifecycle(input: {
+  cardId: string;
+  lifecycle: CardLifecycleState;
+}): RuntimeActivationOutcomeSnapshot | null {
+  const { cardId, lifecycle } = input;
+  switch (lifecycle.status) {
+    case 'done':
+      return { kind: 'completed', outcome: 'done', card_id: cardId, completed_at: lifecycle.completed_at };
+    case 'failed':
+      return { kind: 'completed', outcome: 'failed', card_id: cardId, error: lifecycle.error, completed_at: lifecycle.completed_at };
+    case 'cancelled':
+      return { kind: 'completed', outcome: 'cancelled', card_id: cardId, completed_at: lifecycle.completed_at };
+    case 'blocked':
+      return { kind: 'blocked', card_id: cardId, error: lifecycle.error };
+    case 'needs_verification':
+      return { kind: 'paused', reason: 'needs_verification', card_id: cardId, detail: needsVerificationDetail(lifecycle) };
+    default:
+      return null;
+  }
+}
+
+export function runtimeRunOutcomeSnapshotFromLifecycle(lifecycle: CardLifecycleState): RuntimeRunOutcomeSnapshot | null {
+  switch (lifecycle.status) {
+    case 'done':
+      return { kind: 'completed', result: 'done', finished_at: lifecycle.completed_at };
+    case 'failed':
+      return { kind: 'completed', result: 'failed', error: lifecycle.error, finished_at: lifecycle.completed_at };
+    case 'cancelled':
+      return lifecycle.completed_at ? { kind: 'completed', result: 'cancelled', finished_at: lifecycle.completed_at } : null;
+    case 'blocked':
+      return { kind: 'blocked', error: lifecycle.error };
+    case 'needs_verification':
+      return { kind: 'paused', reason: 'needs_verification', detail: needsVerificationDetail(lifecycle) };
+    default:
+      return null;
+  }
+}
+
+function needsVerificationDetail(lifecycle: Extract<CardLifecycleState, { status: 'needs_verification' }>): string {
+  const result = lifecycle.result;
+  if (result && typeof result === 'object' && typeof (result as { reason?: unknown }).reason === 'string' && (result as { reason: string }).reason.trim()) {
+    return (result as { reason: string }).reason;
+  }
+  return 'Card is parked for verification.';
+}
+
 export function reduceActivationCompletion(
   currentState: RuntimeState | null,
   childCardId: string,
   outcome: ActivationCompletionOutcome,
   nowIso: string,
+  lifecycle?: CardLifecycleState | null,
 ): RuntimeState | null {
   if (!currentState?.runtime_activations?.length) return null;
   const terminalStatus = outcome === 'done' ? 'completed' : outcome;
+  const activationSnapshot = lifecycle ? activationOutcomeSnapshotFromLifecycle({ cardId: childCardId, lifecycle }) : null;
+  const runSnapshot = lifecycle ? runtimeRunOutcomeSnapshotFromLifecycle(lifecycle) : null;
   const runResult: RuntimeRunRecord['result'] =
     outcome === 'done'
       ? 'done'
@@ -611,7 +711,7 @@ export function reduceActivationCompletion(
   const completedRunIds = new Set(transitioningActivations.map((activation) => activation.runtime_run_id).filter((runId): runId is string => typeof runId === 'string'));
   const activations = currentState.runtime_activations.map((activation) =>
     completedActivationIds.has(activation.activation_id)
-      ? { ...activation, status: terminalStatus as typeof activation.status, updated_at: nowIso }
+      ? { ...activation, status: terminalStatus as typeof activation.status, updated_at: nowIso, ...(activationSnapshot ? { outcome_snapshot: activationSnapshot } : {}) }
       : activation,
   );
   const runs = (currentState.runtime_runs ?? []).map((run) =>
@@ -625,6 +725,7 @@ export function reduceActivationCompletion(
           finished_at: nowIso,
           updated_at: nowIso,
           result: runResult,
+          ...(runSnapshot ? { outcome_snapshot: runSnapshot } : {}),
         }
       : run,
   );

@@ -95,7 +95,7 @@ describe('activation reducer and CardActivation shell', () => {
     expect(decision).toEqual({
       state: { phase: 'completed', cardId: 'goal-a', outcome: 'done' },
       effects: [{ kind: 'unwindActivation', cardId: 'goal-a', outcome: 'done' }],
-      mutations: [expect.objectContaining({ kind: 'completeActivation', childCardId: 'goal-a', outcome: 'done' })],
+      mutations: [expect.objectContaining({ kind: 'completeActivation', childCardId: 'goal-a', outcome: 'done', lifecycle: null })],
     });
   });
 

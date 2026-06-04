@@ -1,6 +1,6 @@
-import type { AgentMessage, ActivationCompletionOutcome, CardRecord, ReviewAssessment } from '../schemas/index.js';
+import type { AgentMessage, ActivationCompletionOutcome, CardLifecycleState, CardRecord, ReviewAssessment } from '../schemas/index.js';
 import type { RuntimeState } from '../schemas/index.js';
-import { createActivationCompletionEnvelope, parseActivationCompletionEnvelope } from '../schemas/index.js';
+import { createActivationCompletionEnvelope, parseActivationCompletionEnvelope, projectCardLifecycleState } from '../schemas/index.js';
 import { parseToolCallMessage } from '../contracts/persisted-tool-call.js';
 import type { SessionStamper } from '../contracts/session-stamper.js';
 import type { RuntimeStateMutationPort } from './mutations.js';
@@ -131,7 +131,25 @@ export function selectChildGoalActivationOutcome(card: Pick<CardRecord, 'status'
   if (card?.status === 'done') return 'done';
   if (card?.status === 'blocked') return 'blocked';
   if (card?.status === 'cancelled') return 'cancelled';
+  if (card?.status === 'needs_verification') return 'needs_verification';
   return 'failed';
+}
+
+function activationCompletionOutcomeFromLifecycle(lifecycle: CardLifecycleState): ActivationCompletionOutcome {
+  switch (lifecycle.status) {
+    case 'done':
+      return 'done';
+    case 'failed':
+      return 'failed';
+    case 'blocked':
+      return 'blocked';
+    case 'cancelled':
+      return 'cancelled';
+    case 'needs_verification':
+      return 'needs_verification';
+    default:
+      return 'failed';
+  }
 }
 
 export function selectTerminalActivationSynthesis(input: {
@@ -217,6 +235,10 @@ export class ActivationUnwindRunner {
     });
   }
 
+  recordChildActivationLifecycle(childCardId: string, lifecycle: CardLifecycleState): void {
+    this.markActivationComplete(childCardId, activationCompletionOutcomeFromLifecycle(lifecycle), lifecycle);
+  }
+
   synthesizeTerminalActivationResult(
     sessionId: string,
     toolCallId: string,
@@ -255,12 +277,14 @@ export class ActivationUnwindRunner {
     return buildParentPlannerActiveRun({ parentCardId, parent, at: this.deps.now() });
   }
 
-  private markActivationComplete(childCardId: string, outcome: ActivationCompletionOutcome): void {
+  private markActivationComplete(childCardId: string, outcome: ActivationCompletionOutcome, lifecycle?: CardLifecycleState | null): void {
+    const child = this.deps.cards.read(childCardId);
     this.deps.mutations.apply({
       kind: 'completeActivation',
       childCardId,
       outcome,
       completedAt: this.deps.now(),
+      lifecycle: lifecycle ?? (child ? projectCardLifecycleState(child) : null),
     });
   }
 

@@ -1,4 +1,4 @@
-import type { ActivationCompletionOutcome, RuntimeActivationRecord, RuntimeCommandRecord, RuntimeRunRecord, RuntimeState } from '../schemas/index.js';
+import type { ActivationCompletionOutcome, CardLifecycleState, RuntimeActivationRecord, RuntimeCommandRecord, RuntimeRunRecord, RuntimeState } from '../schemas/index.js';
 import { reduceActivationCompletion } from './runtime-core.js';
 import {
   appendRuntimeCommand,
@@ -19,7 +19,7 @@ type UpsertRuntimeActivationInput = Parameters<typeof upsertRuntimeActivation>[1
 type VoidRuntimeMutation =
   | { kind: 'patchRuntimeState'; patch: Partial<RuntimeState> }
   | { kind: 'replaceRuntimeState'; state: RuntimeState }
-  | { kind: 'completeActivation'; childCardId: string; outcome: ActivationCompletionOutcome; completedAt: string };
+  | { kind: 'completeActivation'; childCardId: string; outcome: ActivationCompletionOutcome; completedAt: string; lifecycle?: CardLifecycleState | null };
 
 type AppendRuntimeRunMutation = { kind: 'appendRuntimeRun'; run: AppendRuntimeRunInput };
 type UpdateRuntimeRunMutation = { kind: 'updateRuntimeRun'; runId: string; updates: Partial<RuntimeRunRecord> };
@@ -67,6 +67,7 @@ export function applyRuntimeMutation(projectRoot: string, mutation: RuntimeMutat
         mutation.childCardId,
         mutation.outcome,
         mutation.completedAt,
+        mutation.lifecycle ?? null,
       );
       if (next) saveRuntimeState(projectRoot, next);
       return;

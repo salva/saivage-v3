@@ -62,6 +62,7 @@ describe('runtime mutations', () => {
         childCardId: 'child',
         outcome: 'done',
         completedAt: '2026-01-01T00:01:00.000Z',
+        lifecycle: { status: 'done', result: {}, error: null, completed_at: '2026-01-01T00:01:00.000Z' },
       });
 
       expect(readRuntimeState(projectRoot)?.runtime_activations).toEqual([
@@ -70,6 +71,7 @@ describe('runtime mutations', () => {
           child_card_id: 'child',
           status: 'completed',
           updated_at: '2026-01-01T00:01:00.000Z',
+          outcome_snapshot: { kind: 'completed', outcome: 'done', card_id: 'child', completed_at: '2026-01-01T00:01:00.000Z' },
         }),
       ]);
     } finally {
