@@ -579,8 +579,9 @@ export function planIdleRunningRootRunReconciliation(input: {
   ) {
     return null;
   }
-  const openRootRuns = (state.runtime_runs ?? []).filter((run) => run.kind === 'root' && !run.finished_at);
-  if (openRootRuns.length === 0) {
+  const openRuns = (state.runtime_runs ?? []).filter((run) => run.runtime_status === 'running' && !run.finished_at);
+  const openRootRuns = openRuns.filter((run) => run.kind === 'root');
+  if (openRuns.length === 0) {
     if (!projectTerminal) return null;
     return {
       runUpdates: [],
@@ -601,19 +602,24 @@ export function planIdleRunningRootRunReconciliation(input: {
     };
   }
   return {
-    runUpdates: openRootRuns.map((run) => ({
-      runId: run.run_id,
-      updates: {
-        phase: projectTerminal ? 'completed' : 'failed',
-        runtime_status: projectTerminal ? 'idle' : 'error',
-        finished_at: nowIso,
-        updated_at: nowIso,
-        outcome: outcome ?? (projectTerminal ? { kind: 'completed', result: 'done', finished_at: nowIso } : { kind: 'completed', result: 'failed', error: 'Runtime was idle with an open root run.', finished_at: nowIso }),
-      },
-    })),
+    runUpdates: openRuns.map((run) => {
+      const isTerminalRootRun = run.kind === 'root' && projectTerminal;
+      return {
+        runId: run.run_id,
+        updates: {
+          phase: isTerminalRootRun ? 'completed' : 'failed',
+          runtime_status: isTerminalRootRun ? 'idle' : 'error',
+          finished_at: nowIso,
+          updated_at: nowIso,
+          outcome: isTerminalRootRun
+            ? outcome ?? { kind: 'completed', result: 'done', finished_at: nowIso }
+            : { kind: 'completed', result: 'failed', error: 'Runtime was idle with an open runtime run.', finished_at: nowIso },
+        },
+      };
+    }),
     diagnosticMessage: projectTerminal
       ? 'Reconciled running runtime intent to expected idle because the project card is terminal and no active card run exists.'
-      : 'Reconciled running runtime intent with open root run while runtime was idle and had no active card run.',
+      : 'Reconciled running runtime intent with open runtime run while runtime was idle and had no active card run.',
   };
 }
 

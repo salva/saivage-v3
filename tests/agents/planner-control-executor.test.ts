@@ -404,6 +404,40 @@ describe('PlannerControlExecutor', () => {
     expect(store.read(child.id)?.status).toBe('backlog');
   });
 
+  it('rejects activate_card for a non-child of the active parent planner', async () => {
+    store.create(makeCard({ id: 'goal', type: 'goal', title: 'Goal', status: 'active' }));
+    const nestedGoal = store.create(makeCard({ id: 'nested-goal', type: 'goal', title: 'Nested', parent: 'goal', depth: 2 }));
+    const grandchild = store.create(makeCard({ type: 'code', title: 'Grandchild', parent: nestedGoal.id, depth: 3 }));
+    appendActivePlannerRun(tmpDir);
+    const executor = new PlannerControlExecutor({
+      cardStore: store,
+      projectRoot: tmpDir,
+      activationLedger: activationLedger(tmpDir),
+    });
+
+    const result = await executor.execute({
+      sessionId: 'planner:goal',
+      toolCallId: 'call-grandchild',
+      toolName: 'activate_card',
+      parentCardId: 'goal',
+      argumentsJson: JSON.stringify({ cardId: grandchild.id }),
+    });
+
+    expect(result.kind).toBe('tool_error');
+    expect(JSON.parse(result.content)).toEqual(expect.objectContaining({
+      success: false,
+      actionable_error: expect.objectContaining({
+        code: 'activate_card_not_direct_child',
+        currentState: expect.objectContaining({
+          parentCardId: 'goal',
+          childCardId: grandchild.id,
+          actualParentId: nestedGoal.id,
+        }),
+      }),
+    }));
+    expect(readRuntimeState(tmpDir)?.runtime_runs?.filter((run) => run.card_id === grandchild.id)).toEqual([]);
+  });
+
   it('preserves service success and tool_error payload shapes', async () => {
     store.create(makeCard({ id: 'goal', type: 'goal', title: 'Goal', status: 'active' }));
     const child = store.create(makeCard({ type: 'code', title: 'Child' }));

@@ -103,6 +103,10 @@ export class PlannerControlExecutor {
             const error = actionable('activate_card_parent_not_active', `Cannot activate '${targetId}': no active parent planner runtime run owns this tool call.`, 'Only call activate_card from the currently running parent planner turn after the runtime has started that parent run.');
             return toolMessage('tool_error', JSON.stringify({ success: false, error: error.message, actionable_error: error }), invocation.toolName, invocation.toolCallId);
           }
+          if (target.parent !== parentCardId) {
+            const error = actionable('activate_card_not_direct_child', `Cannot activate '${targetId}': it is not a direct child of active parent planner '${parentCardId}'.`, 'Only call activate_card for immediate child cards of the currently running parent planner card.', { actualParentId: target.parent ?? null });
+            return toolMessage('tool_error', JSON.stringify({ success: false, error: error.message, actionable_error: error }), invocation.toolName, invocation.toolCallId);
+          }
           const depFailures: Array<{ dep_id: string; planner_state: string }> = [];
           for (const depId of (target.depends_on ?? [])) {
             const dep = this.context.cardStore.read(depId);

@@ -116,14 +116,15 @@ describe('AgentAdapter planner tool surface', () => {
 
   it('returns activate_card as a durable activation record with deferred compatibility payload', async () => {
     const goal = store.create(makeCard({ type: 'goal', title: 'Goal A' }));
+    const child = store.create(makeCard({ type: 'code', title: 'Code A', parent: goal.id, depth: 2 }));
     appendRuntimeRun(tmpDir, { run_id: 'run-parent', kind: 'root', card_id: goal.id, parent_run_id: null, command_id: 'cmd-parent', activation_id: null, phase: 'planner', runtime_status: 'running', session_id: 'planner-session' });
-    const result = await (adapter as any).processToolCall({ id: 'call-activate', type: 'function', function: { name: 'activate_card', arguments: JSON.stringify({ cardId: goal.id }) } }, 'planner', 'planner-session', { goalId: goal.id, cardId: goal.id });
+    const result = await (adapter as any).processToolCall({ id: 'call-activate', type: 'function', function: { name: 'activate_card', arguments: JSON.stringify({ cardId: child.id }) } }, 'planner', 'planner-session', { goalId: goal.id, cardId: goal.id });
     expect(result).toMatchObject({ role: 'tool', kind: 'tool_result', tool: 'activate_card', tool_call_id: 'call-activate' });
     const body = JSON.parse(result.content);
-    expect(body.activation).toEqual(expect.objectContaining({ parent_run_id: 'run-parent', parent_session_id: 'planner-session', child_card_id: goal.id, status: 'pending' }));
-    expect(parseDeferredActivationEnvelope(body.deferred)).toEqual(expect.objectContaining({ kind: 'deferred_activate_card', parent_card_id: goal.id, child_card_id: goal.id, planner_session_id: 'planner-session', tool_call_id: 'call-activate' }));
+    expect(body.activation).toEqual(expect.objectContaining({ parent_run_id: 'run-parent', parent_session_id: 'planner-session', child_card_id: child.id, status: 'pending' }));
+    expect(parseDeferredActivationEnvelope(body.deferred)).toEqual(expect.objectContaining({ kind: 'deferred_activate_card', parent_card_id: goal.id, child_card_id: child.id, planner_session_id: 'planner-session', tool_call_id: 'call-activate' }));
     expect(readRuntimeState(tmpDir)?.runtime_activations).toEqual(expect.arrayContaining([expect.objectContaining({ activation_id: body.activation.activation_id })]));
-    expect(store.read(goal.id)?.status).toBe('backlog');
+    expect(store.read(child.id)?.status).toBe('backlog');
   });
 
 
