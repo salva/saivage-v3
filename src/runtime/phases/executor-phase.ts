@@ -28,7 +28,7 @@ export function decideExecutorOutcome(input: {
   if (parkedForVerification) {
     return {
       parkedForVerification,
-      finalStatus: execResult.status,
+      finalStatus: 'needs_verification',
       outcome: 'needs_verification',
       transitionAction: 'executor_partial_finish',
       reason: `fallback_with_evidence:${execResult.fallback_with_evidence!.reason}`,
@@ -41,57 +41,6 @@ export function decideExecutorOutcome(input: {
     outcome: finalStatus === 'done' ? 'done' : 'failed',
     transitionAction: 'executor_finish',
     reason: registrationFailed ? 'evidence_registration_failed' : undefined,
-  };
-}
-
-export interface ExecutorCompletionPatchInput {
-  execResult: ExecutorResult;
-  existingResult: CardRecord['result'] | undefined;
-  existingCompletedAt: string | null | undefined;
-  acceptedAt: string;
-  lastSessionId: string | null;
-  terminalCompletedAt: string | null;
-  registrationFailed: boolean;
-  registrationError: string | null;
-  artifactRegistrationErrors: string[];
-  attachmentRegistrationErrors: string[];
-  parkedForVerification: boolean;
-}
-
-export function buildExecutorCompletionPatch(input: ExecutorCompletionPatchInput): Partial<CardRecord> {
-  const latestSelfReport = {
-    result: input.execResult.status,
-    outcome: input.execResult.status,
-    summary: input.execResult.summary ?? input.execResult.error ?? input.execResult.status_text,
-    status_text: input.execResult.status_text,
-    at: input.acceptedAt,
-  };
-  return {
-    result: {
-      ...(input.existingResult ?? {}),
-      ...(input.execResult.result ?? {}),
-      executor: input.execResult.result ?? null,
-      latest_self_report: latestSelfReport,
-      ...(input.registrationFailed
-        ? {
-            evidence_registration_failures: {
-              artifacts: input.artifactRegistrationErrors,
-              attachments: input.attachmentRegistrationErrors,
-            },
-          }
-        : {}),
-      ...(input.parkedForVerification
-        ? { fallback_with_evidence: input.execResult.fallback_with_evidence }
-        : {}),
-    },
-    ...(input.terminalCompletedAt
-      ? { completed_at: input.existingCompletedAt ?? input.terminalCompletedAt }
-      : {}),
-    error: input.registrationError ?? input.execResult.error ?? null,
-    status_text: input.execResult.status_text,
-    status_text_updated_at: input.acceptedAt,
-    status_text_author_session_id: input.lastSessionId,
-    latest_self_report: latestSelfReport,
   };
 }
 

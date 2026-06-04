@@ -3,6 +3,9 @@ import { handleExecutorCompletion, type ExecutorCompletionEffects } from '../../
 import type { CardRecord } from '../../src/schemas/types.js';
 import type { ExecutorResult } from '../../src/contracts/index.js';
 
+const acceptedAt = '2026-01-01T00:00:00.000Z';
+const completedAt = '2026-01-01T00:00:01.000Z';
+
 function execResult(status: ExecutorResult['status']): ExecutorResult {
   return { status, status_text: `${status} text`, summary: `${status} summary`, error: null, result: { output: true }, fallback_with_evidence: null } as unknown as ExecutorResult;
 }
@@ -11,10 +14,12 @@ describe('executor completion handler', () => {
   it('completes successful executor output with unwind result', async () => {
     const calls: string[] = [];
     const result = await handleExecutorCompletion({
+      projectRoot: process.cwd(),
+      card: cardRecord({ id: 'code-a' }),
       cardId: 'code-a',
       goalId: 'goal-a',
       execResult: execResult('done'),
-      acceptedAt: 'accepted',
+      acceptedAt,
       lastSessionId: 'executor-code-a',
       registrationFailed: false,
       registrationError: null,
@@ -22,23 +27,26 @@ describe('executor completion handler', () => {
       attachmentRegistrationErrors: [],
       effects: testEffects({
         transitionCard: async (cardId, event, details) => { calls.push(`${event}:${cardId}:${details.finalStatus}`); return true; },
-        readCard: () => ({ result: { previous: true }, completed_at: null } as unknown as CardRecord),
-        updateCard: async (_cardId, patch) => { calls.push(`update:${patch.completed_at}`); expect(patch.result).toMatchObject({ previous: true, output: true, latest_self_report: { result: 'done' } }); },
+        now: () => completedAt,
+        readCard: () => cardRecord({ id: 'code-a', result: { previous: true }, completed_at: null }),
+        updateCard: async (_cardId, patch) => { calls.push(`update:${patch.completed_at}`); expect(patch.result).toMatchObject({ kind: 'executor_success', executor: { output: true }, latest_self_report: { result: 'done' } }); },
         appendChildUnwindToolResult: (cardId, outcome) => { calls.push(`unwind:${cardId}:${outcome}`); },
       }),
     });
 
     expect(result).toEqual({ transitioned: true, executedTerminal: true, failed: false, outcome: 'done' });
-    expect(calls).toEqual(['executor_finish:code-a:done', 'update:now', 'unwind:code-a:done']);
+    expect(calls).toEqual([`executor_finish:code-a:done`, `update:${completedAt}`, 'unwind:code-a:done']);
   });
 
   it('turns evidence registration failure into failed completion and card_failed event', async () => {
     const calls: string[] = [];
     const result = await handleExecutorCompletion({
+      projectRoot: process.cwd(),
+      card: cardRecord({ id: 'code-a' }),
       cardId: 'code-a',
       goalId: 'goal-a',
       execResult: execResult('done'),
-      acceptedAt: 'accepted',
+      acceptedAt,
       lastSessionId: null,
       registrationFailed: true,
       registrationError: 'registration failed',
@@ -46,7 +54,8 @@ describe('executor completion handler', () => {
       attachmentRegistrationErrors: [],
       effects: testEffects({
         transitionCard: async (cardId, event, details) => { calls.push(`${event}:${cardId}:${details.finalStatus}:${details.reason}`); return true; },
-        updateCard: async (_cardId, patch) => { calls.push(`update:${patch.error}`); expect(patch.result).toMatchObject({ evidence_registration_failures: { artifacts: ['artifact failed'] } }); },
+        now: () => completedAt,
+        updateCard: async (_cardId, patch) => { calls.push(`update:${patch.error}`); expect(patch.result).toMatchObject({ kind: 'executor_failure', partial_result: { evidence_registration_failures: { artifacts: ['artifact failed'] } } }); },
         appendChildUnwindToolResult: (cardId, outcome) => { calls.push(`unwind:${cardId}:${outcome}`); },
         emitCardFailed: (cardId, goalId) => { calls.push(`failed:${cardId}:${goalId}`); },
       }),
@@ -60,6 +69,32 @@ describe('executor completion handler', () => {
       'failed:code-a:goal-a',
     ]);
   });
+
+  it('parks fallback evidence without terminal unwind or parent success', async () => {
+    const calls: string[] = [];
+    const result = await handleExecutorCompletion({
+      projectRoot: process.cwd(),
+      card: cardRecord({ id: 'code-a' }),
+      cardId: 'code-a',
+      goalId: 'goal-a',
+      execResult: { ...execResult('done'), fallback_with_evidence: { reason: 'parse_failure' } },
+      acceptedAt,
+      lastSessionId: 'executor-code-a',
+      registrationFailed: false,
+      registrationError: null,
+      artifactRegistrationErrors: [],
+      attachmentRegistrationErrors: [],
+      effects: testEffects({
+        transitionCard: async (cardId, event, details) => { calls.push(`${event}:${cardId}:${details.finalStatus}:${details.reason}`); return true; },
+        readCard: () => cardRecord({ id: 'code-a', result: { previous: true }, completed_at: null, error: 'stale' }),
+        updateCard: async (_cardId, patch) => { calls.push(`update:${patch.status}:${patch.error}:${patch.completed_at}`); expect(patch.result).toMatchObject({ kind: 'executor_needs_verification', preserved_result: { previous: true, output: true, fallback_with_evidence: { reason: 'parse_failure' } } }); },
+        appendChildUnwindToolResult: (cardId, outcome) => { calls.push(`unwind:${cardId}:${outcome}`); },
+      }),
+    });
+
+    expect(result).toEqual({ transitioned: true, executedTerminal: false, failed: false, outcome: 'needs_verification' });
+    expect(calls).toEqual(['executor_partial_finish:code-a:needs_verification:fallback_with_evidence:parse_failure', 'update:needs_verification:null:null']);
+  });
 });
 
 function testEffects(overrides: Partial<ExecutorCompletionEffects> = {}): ExecutorCompletionEffects {
@@ -71,5 +106,47 @@ function testEffects(overrides: Partial<ExecutorCompletionEffects> = {}): Execut
     appendChildUnwindToolResult: () => undefined,
     emitCardFailed: () => undefined,
     ...overrides,
+  };
+}
+
+function cardRecord(overrides: Partial<CardRecord> = {}): CardRecord {
+  return {
+    id: overrides.id ?? 'code-a',
+    type: overrides.type ?? 'code',
+    parent: overrides.parent ?? 'goal-a',
+    depth: overrides.depth ?? 1,
+    position: overrides.position ?? 0,
+    title: overrides.title ?? 'Code A',
+    description: overrides.description ?? '',
+    status: overrides.status ?? 'running',
+    subtype: overrides.subtype ?? null,
+    instructions_file: overrides.instructions_file ?? null,
+    tags: overrides.tags ?? [],
+    priority: overrides.priority ?? 0,
+    urgency: overrides.urgency ?? 'normal',
+    created_by: overrides.created_by ?? 'planner',
+    created_at: overrides.created_at ?? acceptedAt,
+    updated_at: overrides.updated_at ?? acceptedAt,
+    version_seq: overrides.version_seq ?? 1,
+    assigned_to: overrides.assigned_to ?? null,
+    depends_on: overrides.depends_on ?? [],
+    blocks: overrides.blocks ?? [],
+    related: overrides.related ?? [],
+    acceptance: overrides.acceptance ?? '',
+    result: overrides.result ?? null,
+    metrics: overrides.metrics ?? null,
+    artifacts: overrides.artifacts ?? [],
+    attachments: overrides.attachments ?? [],
+    estimate: overrides.estimate ?? null,
+    started_at: overrides.started_at ?? null,
+    completed_at: overrides.completed_at ?? null,
+    duration_ms: overrides.duration_ms ?? null,
+    error: overrides.error ?? null,
+    status_text: overrides.status_text ?? null,
+    status_text_updated_at: overrides.status_text_updated_at ?? null,
+    status_text_author_session_id: overrides.status_text_author_session_id ?? null,
+    latest_self_report: overrides.latest_self_report ?? null,
+    metadata: overrides.metadata ?? null,
+    retries: overrides.retries ?? 0,
   };
 }

@@ -103,28 +103,29 @@ describe('Runtime executor fallback evidence persistence', () => {
 
     const codeCard = harness.cardTestTools.read('code-1') as CardRecord;
     expect(codeCard.status).toBe('needs_verification');
+    expect(codeCard.error).toBeNull();
+    expect(codeCard.completed_at).toBeNull();
     expect(harness.cardTestTools.read('project')?.status).not.toBe('done');
     expect(codeCard.result).toEqual(expect.objectContaining({
-      generated_files: ['generated/output.txt'],
-      verification_commands: [expect.objectContaining({ command: 'npm test -- result-parser', process_id: 'proc-55', status: 'exited', exit_code: 0, timed_out: false })],
-      artifact_paths: [],
-      parse_failure: expect.objectContaining({ raw_response: '{"card_id":"code-1"}' }),
-      evidence_registration_ignored: expect.objectContaining({
-        artifacts: expect.arrayContaining([expect.stringContaining('generated/output.txt')]),
-        attachments: expect.arrayContaining([expect.stringContaining('logs/command-tail.txt')]),
+      kind: 'executor_needs_verification',
+      preserved_result: expect.objectContaining({
+        generated_files: ['generated/output.txt'],
+        verification_commands: [expect.objectContaining({ command: 'npm test -- result-parser', process_id: 'proc-55', status: 'exited', exit_code: 0, timed_out: false })],
+        artifact_paths: [],
+        parse_failure: expect.objectContaining({ raw_response: '{"card_id":"code-1"}' }),
+        evidence_registration_ignored: expect.objectContaining({
+          artifacts: expect.arrayContaining([expect.stringContaining('generated/output.txt')]),
+          attachments: expect.arrayContaining([expect.stringContaining('logs/command-tail.txt')]),
+        }),
       }),
     }));
     expect(codeCard.artifacts).toEqual([]);
     expect(codeCard.attachments).toEqual([]);
 
     const toolResult = getSessionMessages(join(projectRoot, '.saivage'), parentSession.id).find((message) => message.kind === 'tool_result' && message.tool_call_id === 'activate-project-code-1');
-    expect(toolResult).toBeDefined();
-    const completion = JSON.parse(toolResult!.content) as { result: Record<string, unknown>; artifacts: Array<{ description: string; path: string }> };
-    expect(completion.result).toEqual(expect.objectContaining({
-      generated_files: ['generated/output.txt'],
-      verification_commands: [expect.objectContaining({ command: 'npm test -- result-parser' })],
-    }));
-    expect(completion.artifacts).toEqual([]);
+    expect(toolResult).toBeUndefined();
+    const activation = readRuntimeState(projectRoot)?.runtime_activations?.find((record) => record.child_card_id === 'code-1');
+    expect(activation?.status).not.toBe('completed');
   });
 
   it('ignores project-file artifact claims without failing a done executor result', async () => {
@@ -179,10 +180,14 @@ describe('Runtime executor fallback evidence persistence', () => {
     expect(codeCard.artifacts).toEqual([]);
     expect(codeCard.attachments).toEqual([]);
     expect(codeCard.result).toEqual(expect.objectContaining({
+      kind: 'executor_success',
       generated_files: ['generated/output.txt'],
-      evidence_registration_ignored: expect.objectContaining({
-        artifacts: expect.arrayContaining([expect.stringContaining('generated/output.txt'), expect.stringContaining('generated')]),
-        attachments: expect.arrayContaining([expect.stringContaining('logs/command-tail.txt')]),
+      executor: expect.objectContaining({
+        generated_files: ['generated/output.txt'],
+        evidence_registration_ignored: expect.objectContaining({
+          artifacts: expect.arrayContaining([expect.stringContaining('generated/output.txt'), expect.stringContaining('generated')]),
+          attachments: expect.arrayContaining([expect.stringContaining('logs/command-tail.txt')]),
+        }),
       }),
     }));
 
@@ -239,7 +244,8 @@ describe('Runtime executor fallback evidence persistence', () => {
     expect(codeCard.completed_at).toEqual(expect.any(String));
     expect(Date.parse(codeCard.completed_at!)).not.toBeNaN();
     expect(codeCard.result).toEqual(expect.objectContaining({
-      evidence: 'active pending activation completed',
+      kind: 'executor_success',
+      executor: expect.objectContaining({ evidence: 'active pending activation completed' }),
       latest_self_report: expect.objectContaining({ outcome: 'done' }),
     }));
     const activation = readRuntimeState(projectRoot)?.runtime_activations?.find((record) => record.child_card_id === 'code-active');

@@ -133,6 +133,8 @@ export class ExecutorActivationDispatcher {
       generatedFileValidationErrors: validateExecutorGeneratedFiles(this.deps.projectRoot, execResult),
     });
     const completion = await handleExecutorCompletion({
+      projectRoot: this.deps.projectRoot,
+      card,
       cardId: card.id,
       goalId,
       execResult,
