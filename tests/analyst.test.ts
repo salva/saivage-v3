@@ -10,9 +10,20 @@ import { tmpdir } from 'node:os';
 
 import { CardStore } from '../src/cards/card-store.js';
 import { listControlActions } from '../src/persistence/index.js';
-import { initRuntimeState, readRuntimeState, runtimeStatePath, updateRuntimeState } from '../src/runtime/state.js';
 import {
-  create_card, edit_card, delete_card, queue_notification, pause_runtime, resume_runtime, reorder_child,
+  initRuntimeState,
+  readRuntimeState,
+  runtimeStatePath,
+  updateRuntimeState,
+} from '../src/runtime/state.js';
+import {
+  create_card,
+  edit_card,
+  delete_card,
+  queue_notification,
+  pause_runtime,
+  resume_runtime,
+  reorder_child,
 } from '../src/agents/analyst-tools.js';
 import type { ToolContext } from '../src/agents/analyst-tools.js';
 
@@ -22,39 +33,93 @@ import {
   ANALYST_ISSUE_SEVERITY_VALUES,
   CARD_STATUS_VALUES,
   CARD_TYPE_VALUES,
+  CREATE_CARD_TYPE_VALUES,
   NOTE_KIND_VALUES,
   URGENCY_VALUES,
 } from '../src/agents/analyst-tool-schemas.js';
-import { cardStatusSchema, cardTypeSchema,  urgencySchema } from '../src/schemas/validators.js';
-import { createTestAnalystRuntime, createTestRuntimeApplication } from './helpers/test-runtime-application.js';
+import { cardStatusSchema, cardTypeSchema, urgencySchema } from '../src/schemas/validators.js';
+import {
+  createTestAnalystRuntime,
+  createTestRuntimeApplication,
+} from './helpers/test-runtime-application.js';
 
 function uniqueDir(): string {
-  return join(tmpdir(), `saivage-analyst-test-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`);
+  return join(
+    tmpdir(),
+    `saivage-analyst-test-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+  );
 }
 
 function setupProject(projectRoot: string): void {
   const sd = join(projectRoot, '.saivage');
-  for (const d of ['cards/by-id','cards/tree','cards/dependencies','runtime','agents/sessions','agents/messages','diaries']) {
+  for (const d of [
+    'cards/by-id',
+    'cards/tree',
+    'cards/dependencies',
+    'runtime',
+    'agents/sessions',
+    'agents/messages',
+    'diaries',
+  ]) {
     mkdirSync(join(sd, d), { recursive: true });
   }
-  writeFileSync(join(sd, 'saivage.json'), JSON.stringify({
-    server: { port: 8080, host: '127.0.0.1' },
-    models: { default: ['test-model'] },
-    providers: {},
-  }));
+  writeFileSync(
+    join(sd, 'saivage.json'),
+    JSON.stringify({
+      server: { port: 8080, host: '127.0.0.1' },
+      models: { default: ['test-model'] },
+      providers: {},
+    }),
+  );
   const now = new Date().toISOString();
-  writeFileSync(join(sd, 'cards', 'by-id', 'project.json'), JSON.stringify({
-    id: 'project', type: 'project', parent: null, depth: 0, position: 0, title: 'project',
-    description: '', status: 'backlog', subtype: null, tags: [], priority: 0,
-    urgency: 'normal', created_by: 'analyst', created_at: now, updated_at: now,
-    assigned_to: null, depends_on: [], blocks: [], related: [], acceptance: '',
-    lifecycle: { status: 'backlog', result: null, error: null, completed_at: null },
-    metrics: null, artifacts: [], attachments: [], estimate: null,
-    started_at: null, duration_ms: null, retries: 0, version_seq: 1,
-  }));
-  writeFileSync(join(sd, 'cards', 'index.json'), JSON.stringify({
-    cards: { project: { id: 'project', type: 'project', parent: null, status: 'backlog', title: 'project' } },
-  }));
+  writeFileSync(
+    join(sd, 'cards', 'by-id', 'project.json'),
+    JSON.stringify({
+      id: 'project',
+      type: 'project',
+      parent: null,
+      depth: 0,
+      position: 0,
+      title: 'project',
+      description: '',
+      status: 'backlog',
+      subtype: null,
+      tags: [],
+      priority: 0,
+      urgency: 'normal',
+      created_by: 'analyst',
+      created_at: now,
+      updated_at: now,
+      assigned_to: null,
+      depends_on: [],
+      blocks: [],
+      related: [],
+      acceptance: '',
+      lifecycle: { status: 'backlog', result: null, error: null, completed_at: null },
+      metrics: null,
+      artifacts: [],
+      attachments: [],
+      estimate: null,
+      started_at: null,
+      duration_ms: null,
+      retries: 0,
+      version_seq: 1,
+    }),
+  );
+  writeFileSync(
+    join(sd, 'cards', 'index.json'),
+    JSON.stringify({
+      cards: {
+        project: {
+          id: 'project',
+          type: 'project',
+          parent: null,
+          status: 'backlog',
+          title: 'project',
+        },
+      },
+    }),
+  );
   writeFileSync(join(sd, 'cards', 'tree', 'project.children.json'), JSON.stringify([]));
   writeFileSync(join(sd, 'cards', 'dependencies', 'depends-on.json'), JSON.stringify({}));
   writeFileSync(join(sd, 'cards', 'dependencies', 'blocks.json'), JSON.stringify({}));
@@ -64,8 +129,46 @@ function setupProject(projectRoot: string): void {
 function setupTestProject(projectRoot: string): CardStore {
   setupProject(projectRoot);
   const store = new CardStore(projectRoot);
-  store.create({ type: 'goal', parent: 'project', title: 'Test Goal', description: 'A test goal', status: 'active', depth: 0, tags: [], priority: 1, urgency: 'normal', created_by: 'analyst', acceptance: '', depends_on: [], blocks: [], related: [], artifacts: [], attachments: [], retries: 0, id: 'goal-1' });
-  store.create({ type: 'code', parent: 'goal-1', title: 'Code Task 1', description: 'Implement feature', status: 'backlog', depth: 0, tags: ['code'], priority: 2, urgency: 'normal', created_by: 'analyst', acceptance: '', depends_on: [], blocks: [], related: [], artifacts: [], attachments: [], retries: 0, id: 'code-1' });
+  store.create({
+    type: 'goal',
+    parent: 'project',
+    title: 'Test Goal',
+    description: 'A test goal',
+    status: 'active',
+    depth: 0,
+    tags: [],
+    priority: 1,
+    urgency: 'normal',
+    created_by: 'analyst',
+    acceptance: '',
+    depends_on: [],
+    blocks: [],
+    related: [],
+    artifacts: [],
+    attachments: [],
+    retries: 0,
+    id: 'goal-1',
+  });
+  store.create({
+    type: 'code',
+    parent: 'goal-1',
+    title: 'Code Task 1',
+    description: 'Implement feature',
+    status: 'backlog',
+    depth: 0,
+    tags: ['code'],
+    priority: 2,
+    urgency: 'normal',
+    created_by: 'analyst',
+    acceptance: '',
+    depends_on: [],
+    blocks: [],
+    related: [],
+    artifacts: [],
+    attachments: [],
+    retries: 0,
+    id: 'code-1',
+  });
   return store;
 }
 
@@ -82,7 +185,6 @@ describe('Analyst Tool Definitions', () => {
     expect(toolNames).toContain('list_card_history');
   });
 
-
   function toolByName(name: string) {
     const definition = ANALYST_TOOL_DEFINITIONS.find((tool) => tool.function.name === name);
     expect(definition).toBeDefined();
@@ -90,7 +192,9 @@ describe('Analyst Tool Definitions', () => {
   }
 
   function propertiesFor(name: string): Record<string, Record<string, unknown>> {
-    const parameters = toolByName(name).function.parameters as { properties?: Record<string, Record<string, unknown>> };
+    const parameters = toolByName(name).function.parameters as {
+      properties?: Record<string, Record<string, unknown>>;
+    };
     expect(parameters.properties).toBeDefined();
     return parameters.properties!;
   }
@@ -104,20 +208,30 @@ describe('Analyst Tool Definitions', () => {
 
   it('emits enum JSON schema constraints and guidance for card, list, notification, and corrections tools', () => {
     const createProps = propertiesFor('create_card');
-    expect(createProps.type.enum).toEqual([...CARD_TYPE_VALUES]);
+    expect(createProps.type.enum).toEqual([...CREATE_CARD_TYPE_VALUES]);
+    expect(createProps.type.enum).not.toContain('project');
     expect(createProps.status.enum).toEqual([...CARD_STATUS_VALUES]);
     expect(createProps.urgency.enum).toEqual([...URGENCY_VALUES]);
-    expect(createProps.status.description).toContain('Allowed values: drafting, backlog, active, running, blocked, changed, done, failed, cancelled, needs_verification.');
+    expect(createProps.status.description).toContain(
+      'Allowed values: drafting, backlog, active, running, blocked, changed, done, failed, cancelled, needs_verification.',
+    );
+    expect(toolByName('create_card').function.description).toContain('use edit_card');
     expect(toolByName('create_card').function.description).toContain("There is no 'ready' status");
 
     const editProps = propertiesFor('edit_card');
     expect(editProps.status.enum).toEqual([...CARD_STATUS_VALUES]);
     expect(editProps.urgency.enum).toEqual([...URGENCY_VALUES]);
-    expect(toolByName('edit_card').function.description).toContain("There is no 'ready' or 'todo' status");
+    expect(toolByName('edit_card').function.description).toContain(
+      "There is no 'ready' or 'todo' status",
+    );
 
     const listProps = propertiesFor('list_cards');
-    const listStatus = listProps.status as { anyOf?: Array<{ enum?: unknown; items?: { enum?: unknown } }> };
-    const listType = listProps.type as { anyOf?: Array<{ enum?: unknown; items?: { enum?: unknown } }> };
+    const listStatus = listProps.status as {
+      anyOf?: Array<{ enum?: unknown; items?: { enum?: unknown } }>;
+    };
+    const listType = listProps.type as {
+      anyOf?: Array<{ enum?: unknown; items?: { enum?: unknown } }>;
+    };
     expect(listStatus.anyOf?.[0]?.enum).toEqual([...CARD_STATUS_VALUES]);
     expect(listStatus.anyOf?.[1]?.items?.enum).toEqual([...CARD_STATUS_VALUES]);
     expect(listType.anyOf?.[0]?.enum).toEqual([...CARD_TYPE_VALUES]);
@@ -128,9 +242,13 @@ describe('Analyst Tool Definitions', () => {
     expect(toolByName('queue_notification').function.description).toContain('Queue a notification');
 
     for (const name of ['mark_goal_needs_corrections']) {
-      const issues = propertiesFor(name).issues as { items?: { properties?: Record<string, Record<string, unknown>> } };
+      const issues = propertiesFor(name).issues as {
+        items?: { properties?: Record<string, Record<string, unknown>> };
+      };
       expect(issues.items?.properties?.severity.enum).toEqual([...ANALYST_ISSUE_SEVERITY_VALUES]);
-      expect(issues.items?.properties?.severity.description).toContain('Allowed values: info, warning, blocker.');
+      expect(issues.items?.properties?.severity.description).toContain(
+        'Allowed values: info, warning, blocker.',
+      );
     }
   });
 
@@ -140,7 +258,10 @@ describe('Analyst Tool Definitions', () => {
       expect(definition.function.name).toMatch(/^[a-z_]+$/);
       expect(typeof definition.function.description).toBe('string');
       expect(definition.function.description.length).toBeGreaterThan(0);
-      expect(definition.function.parameters).toMatchObject({ type: 'object', additionalProperties: false });
+      expect(definition.function.parameters).toMatchObject({
+        type: 'object',
+        additionalProperties: false,
+      });
       const params = definition.function.parameters as { properties?: unknown; required?: unknown };
       expect(params.properties).toBeDefined();
       expect(Array.isArray(params.required)).toBe(true);
@@ -157,11 +278,18 @@ describe('Analyst Tools', () => {
     store = setupTestProject(projectRoot);
   });
   afterEach(() => {
-    try { rmSync(projectRoot, { recursive: true, force: true }); } catch {}
+    try {
+      rmSync(projectRoot, { recursive: true, force: true });
+    } catch {}
   });
 
   it('creates a card under goal, returns success with card data', async () => {
-    const r = await create_card(ctx(projectRoot, store), { type: 'code', parent: 'goal-1', title: 'New Code Card', description: 'A new card' });
+    const r = await create_card(ctx(projectRoot, store), {
+      type: 'code',
+      parent: 'goal-1',
+      title: 'New Code Card',
+      description: 'A new card',
+    });
     expect(r.success).toBe(true);
     const c = r.data as Record<string, unknown>;
     expect(c.title).toBe('New Code Card');
@@ -170,15 +298,30 @@ describe('Analyst Tools', () => {
     expect(c.id).toMatch(/^code-/);
   });
 
+  it('rejects create_card for the initialized project card', async () => {
+    const result = await create_card(ctx(projectRoot, store), {
+      type: 'project',
+      parent: null,
+      title: 'Project',
+      description: 'New project instructions',
+    });
 
+    expect(result.success).toBe(false);
+    expect(result.error).toContain("create_card failed: field 'type' received 'project'");
+    expect(result.error).toContain(`Allowed values: ${CREATE_CARD_TYPE_VALUES.join(', ')}`);
+    expect(result.error).toContain("See the 'create_card' tool's parameter schema");
+  });
 
   it('denies delete_card for matrix-disallowed target states', async () => {
     store.setStatus('goal-1', 'running');
 
-    const result = await delete_card({ projectRoot, store, actor: 'runtime', surface: 'runtime' }, { ids: ['goal-1'] });
+    const result = await delete_card(
+      { projectRoot, store, actor: 'runtime', surface: 'runtime' },
+      { ids: ['goal-1'] },
+    );
 
     expect(result.success).toBe(false);
-    expect(result.error).toContain("delete_card denied by permission matrix");
+    expect(result.error).toContain('delete_card denied by permission matrix');
     expect(result.error).toContain("card 'goal-1'");
     expect(result.error).toContain("state 'running'");
     expect(store.read('goal-1')).not.toBeNull();
@@ -189,10 +332,13 @@ describe('Analyst Tools', () => {
     store.setStatus('code-1', 'active');
     store.setStatus('code-1', 'running');
 
-    const result = await delete_card({ projectRoot, store, actor: 'runtime', surface: 'runtime' }, { ids: ['goal-1'] });
+    const result = await delete_card(
+      { projectRoot, store, actor: 'runtime', surface: 'runtime' },
+      { ids: ['goal-1'] },
+    );
 
     expect(result.success).toBe(false);
-    expect(result.error).toContain("delete_card denied by permission matrix");
+    expect(result.error).toContain('delete_card denied by permission matrix');
     expect(result.error).toContain("card 'code-1'");
     expect(result.error).toContain("state 'running'");
     expect(store.read('goal-1')).not.toBeNull();
@@ -202,30 +348,39 @@ describe('Analyst Tools', () => {
   it('allows delete_card for a matrix-allowed state', async () => {
     store.update('code-1', { status: 'backlog' });
 
-    const result = await delete_card({ projectRoot, store, actor: 'runtime', surface: 'runtime' }, { ids: ['code-1'] });
+    const result = await delete_card(
+      { projectRoot, store, actor: 'runtime', surface: 'runtime' },
+      { ids: ['code-1'] },
+    );
 
     expect(result.success).toBe(true);
     expect(result.data).toEqual({ deleted: ['code-1'], top_level_deleted: ['code-1'] });
     expect(store.read('code-1')).toBeNull();
   });
 
-
-
   it('queues analyst notifications and audits metadata without body content', async () => {
-    const result = await queue_notification(ctx(projectRoot, store), { recipient: 'code-1', kind: 'heads_up', body: 'secret notification body' });
+    const result = await queue_notification(ctx(projectRoot, store), {
+      recipient: 'code-1',
+      kind: 'heads_up',
+      body: 'secret notification body',
+    });
 
     expect(result).toEqual({ success: true, data: { queued: true, recipient: 'code-1' } });
     const audits = listControlActions(projectRoot);
-    expect(audits).toEqual(expect.arrayContaining([
-      expect.objectContaining({
-        actor: 'analyst',
-        surface: 'web-chat',
-        action: 'notification.queue',
-        target_id: 'code-1',
-        outcome: 'ok',
-      }),
-    ]));
-    const audit = audits.find((entry) => entry.action === 'notification.queue' && entry.target_id === 'code-1');
+    expect(audits).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          actor: 'analyst',
+          surface: 'web-chat',
+          action: 'notification.queue',
+          target_id: 'code-1',
+          outcome: 'ok',
+        }),
+      ]),
+    );
+    const audit = audits.find(
+      (entry) => entry.action === 'notification.queue' && entry.target_id === 'code-1',
+    );
     expect(audit?.params_summary).toContain('heads_up');
     expect(audit?.params_summary).toContain('code-1');
     expect(audit?.outcome_summary).not.toContain('secret notification body');
@@ -233,11 +388,20 @@ describe('Analyst Tools', () => {
   });
 
   it('returns unknown_recipient for analyst queue_notification without queueing', async () => {
-    const result = await queue_notification(ctx(projectRoot, store), { recipient: 'missing-target', kind: 'heads_up', body: 'body that must not audit' });
+    const result = await queue_notification(ctx(projectRoot, store), {
+      recipient: 'missing-target',
+      kind: 'heads_up',
+      body: 'body that must not audit',
+    });
 
-    expect(result).toEqual({ success: false, data: { reason: 'unknown_recipient', recipient: 'missing-target' } });
+    expect(result).toEqual({
+      success: false,
+      data: { reason: 'unknown_recipient', recipient: 'missing-target' },
+    });
     const audits = listControlActions(projectRoot);
-    const audit = audits.find((entry) => entry.action === 'notification.queue' && entry.target_id === 'missing-target');
+    const audit = audits.find(
+      (entry) => entry.action === 'notification.queue' && entry.target_id === 'missing-target',
+    );
     expect(audit).toBeDefined();
     expect(audit?.outcome).toBe('error');
     expect(audit?.outcome_summary).not.toContain('body that must not audit');
@@ -245,15 +409,45 @@ describe('Analyst Tools', () => {
   });
 
   it('audits analyst reorder_child with the calling surface', async () => {
-    const childTwo = store.create({ type: 'code', parent: 'goal-1', title: 'Code Task 2', description: '', status: 'backlog', depth: 0, tags: [], priority: 1, urgency: 'normal', created_by: 'analyst', acceptance: '', depends_on: [], blocks: [], related: [], artifacts: [], attachments: [], retries: 0, id: 'code-2' });
+    const childTwo = store.create({
+      type: 'code',
+      parent: 'goal-1',
+      title: 'Code Task 2',
+      description: '',
+      status: 'backlog',
+      depth: 0,
+      tags: [],
+      priority: 1,
+      urgency: 'normal',
+      created_by: 'analyst',
+      acceptance: '',
+      depends_on: [],
+      blocks: [],
+      related: [],
+      artifacts: [],
+      attachments: [],
+      retries: 0,
+      id: 'code-2',
+    });
 
-    const reorderResult = await reorder_child(ctx(projectRoot, store), { parentId: 'goal-1', orderedChildIds: [childTwo.id, 'code-1'] });
+    const reorderResult = await reorder_child(ctx(projectRoot, store), {
+      parentId: 'goal-1',
+      orderedChildIds: [childTwo.id, 'code-1'],
+    });
     expect(reorderResult.success).toBe(true);
 
     const audits = listControlActions(projectRoot);
-    expect(audits).toEqual(expect.arrayContaining([
-      expect.objectContaining({ actor: 'analyst', surface: 'web-chat', action: 'card.reorder_child', target_id: 'goal-1', outcome: 'ok' }),
-    ]));
+    expect(audits).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          actor: 'analyst',
+          surface: 'web-chat',
+          action: 'card.reorder_child',
+          target_id: 'goal-1',
+          outcome: 'ok',
+        }),
+      ]),
+    );
   });
 
   it('returns actionable enum preflight errors for invalid create_card values', async () => {
@@ -267,23 +461,24 @@ describe('Analyst Tools', () => {
 
     expect(result.success).toBe(false);
     expect(result.error).toContain("create_card failed: field 'type' received 'task'");
-    expect(result.error).toContain(`Allowed values: ${CARD_TYPE_VALUES.join(', ')}`);
+    expect(result.error).toContain(`Allowed values: ${CREATE_CARD_TYPE_VALUES.join(', ')}`);
     expect(result.error).toContain("See the 'create_card' tool's parameter schema");
   });
 
   it('returns actionable enum preflight errors for invalid edit_card status', async () => {
-    const result = await edit_card({ projectRoot, store, actor: 'runtime', surface: 'runtime' }, {
-      id: 'code-1',
-      status: 'todo',
-    });
+    const result = await edit_card(
+      { projectRoot, store, actor: 'runtime', surface: 'runtime' },
+      {
+        id: 'code-1',
+        status: 'todo',
+      },
+    );
 
     expect(result.success).toBe(false);
     expect(result.error).toContain("edit_card failed: field 'status' received 'todo'");
     expect(result.error).toContain(`Allowed values: ${CARD_STATUS_VALUES.join(', ')}`);
     expect(result.error).toContain("See the 'edit_card' tool's parameter schema");
   });
-
-
 
   it('refuses resume_runtime while frozen and preserves frozen persisted state', async () => {
     updateRuntimeState(projectRoot, {
@@ -333,7 +528,9 @@ describe('Analyst Handler', () => {
     setupTestProject(projectRoot);
   });
   afterEach(() => {
-    try { rmSync(projectRoot, { recursive: true, force: true }); } catch {}
+    try {
+      rmSync(projectRoot, { recursive: true, force: true });
+    } catch {}
   });
 
   it('creates and reuses analyst sessions', () => {
@@ -372,7 +569,8 @@ describe('API Chat and WebSocket Integration', () => {
     await app.register(authPlugin);
 
     const { registerCardRoutes } = await import('../src/server/routes/cards.js');
-    const { registerChatsFilesDebugRoutes } = await import('../src/server/routes/chats-files-debug.js');
+    const { registerChatsFilesDebugRoutes } =
+      await import('../src/server/routes/chats-files-debug.js');
     const { registerWebSocket } = await import('../src/server/websocket.js');
 
     registerCardRoutes(app, projectRoot, createTestRuntimeApplication());
@@ -385,15 +583,28 @@ describe('API Chat and WebSocket Integration', () => {
 
   afterAll(async () => {
     await app.close();
-    try { rmSync(projectRoot, { recursive: true, force: true }); } catch {}
+    try {
+      rmSync(projectRoot, { recursive: true, force: true });
+    } catch {}
   }, 10000);
 
-  function apiUrl(path: string): string { return `http://127.0.0.1:${port}${path}`; }
-  function wsUrl(): string { const ticket = getAuthPolicy().issueWebSocketTicket().ticket; return `ws://127.0.0.1:${port}/ws?ticket=${ticket}`; }
-  function authHdr(): Record<string, string> { return { authorization: `Bearer ${authToken}` }; }
+  function apiUrl(path: string): string {
+    return `http://127.0.0.1:${port}${path}`;
+  }
+  function wsUrl(): string {
+    const ticket = getAuthPolicy().issueWebSocketTicket().ticket;
+    return `ws://127.0.0.1:${port}/ws?ticket=${ticket}`;
+  }
+  function authHdr(): Record<string, string> {
+    return { authorization: `Bearer ${authToken}` };
+  }
 
   it('returns a real analyst response message', async () => {
-    const res = await fetch(apiUrl('/api/chats/analyst'), { method: 'POST', headers: { ...authHdr(), 'content-type': 'application/json' }, body: JSON.stringify({ content: 'list all cards' }) });
+    const res = await fetch(apiUrl('/api/chats/analyst'), {
+      method: 'POST',
+      headers: { ...authHdr(), 'content-type': 'application/json' },
+      body: JSON.stringify({ content: 'list all cards' }),
+    });
     expect(res.status).toBe(200);
   });
 
@@ -402,9 +613,20 @@ describe('API Chat and WebSocket Integration', () => {
     let welcomed = false;
     ws.on('message', (raw) => {
       const data = JSON.parse(raw.toString()) as { type: string; content: Record<string, unknown> };
-      if (!welcomed && data.content.event === 'connected') { welcomed = true; ws.send(JSON.stringify({ type: 'message', content: { text: 'list all cards' } })); return; }
-      if (welcomed && data.type === 'message') { expect(data.content.content).toBeTruthy(); ws.close(); done(); }
+      if (!welcomed && data.content.event === 'connected') {
+        welcomed = true;
+        ws.send(JSON.stringify({ type: 'message', content: { text: 'list all cards' } }));
+        return;
+      }
+      if (welcomed && data.type === 'message') {
+        expect(data.content.content).toBeTruthy();
+        ws.close();
+        done();
+      }
     });
-    ws.on('error', (err) => { ws.close(); done(err); });
+    ws.on('error', (err) => {
+      ws.close();
+      done(err);
+    });
   }, 15000);
 });

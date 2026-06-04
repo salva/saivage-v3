@@ -10,12 +10,7 @@ import type { SaivageConfig } from '../../src/agents/config-schema.js';
 const NON_PLANNER_AGENT_ROLES: AgentRole[] = ['analyst', 'executor', 'reviewer'];
 const MATRIX_DOC = join(process.cwd(), 'docs', 'agents.md');
 
-const RETIRED_NOTE_TOOLS = [
-  'add_note',
-  '\x6cist_notes',
-  'get_note',
-  '\x6dark_note_handled',
-];
+const RETIRED_NOTE_TOOLS = ['add_note', '\x6cist_notes', 'get_note', '\x6dark_note_handled'];
 
 function createMinimalAdapter(): AgentAdapter {
   const minimalConfig = {
@@ -26,7 +21,8 @@ function createMinimalAdapter(): AgentAdapter {
       compactionThreshold: 0.8,
       maxCompactions: 3,
       recoveryDelayMs: 60000,
-      maxRecoveryRetries: 3, maxToolTurns: 16,
+      maxRecoveryRetries: 3,
+      maxToolTurns: 16,
       selfCheck: { planner: 0, executor: 0, reviewer: 0, analyst: 0 },
     },
     security: {},
@@ -46,42 +42,71 @@ function uniqueSorted(values: string[]): string[] {
 
 function extractAgentToolMatrix(): Map<string, string[]> {
   const docs = readFileSync(MATRIX_DOC, 'utf-8');
-  const section = docs.match(/<!-- saivage:agent-tools:start -->(?<body>[\s\S]*?)<!-- saivage:agent-tools:end -->/);
-  if (!section?.groups?.body) throw new Error('Unable to find docs/agents.md source-verified agent tool matrix block.');
+  const section = docs.match(
+    /<!-- saivage:agent-tools:start -->(?<body>[\s\S]*?)<!-- saivage:agent-tools:end -->/,
+  );
+  if (!section?.groups?.body)
+    throw new Error('Unable to find docs/agents.md source-verified agent tool matrix block.');
 
   const rows = new Map<string, string[]>();
-  for (const match of section.groups.body.matchAll(/^\| `([^`]+)` \| `([^`]+)` \| `([^`]+)` \|$/gm)) {
+  for (const match of section.groups.body.matchAll(
+    /^\| `([^`]+)` \| `([^`]+)` \| `([^`]+)` \|$/gm,
+  )) {
     const [, role, tools] = match;
-    rows.set(role, uniqueSorted(tools.split(',').map((toolName) => toolName.trim()).filter(Boolean)));
+    rows.set(
+      role,
+      uniqueSorted(
+        tools
+          .split(',')
+          .map((toolName) => toolName.trim())
+          .filter(Boolean),
+      ),
+    );
   }
   return rows;
 }
 
 function toolRuntimeDefinitionNames(): string[] {
   const source = readFileSync(join(process.cwd(), 'src', 'tools', 'agent-tools.ts'), 'utf-8');
-  return uniqueSorted([
-    ...source.matchAll(/name: '([a-z_]+)'/g),
-  ].map((entry) => entry[1]));
+  return uniqueSorted([...source.matchAll(/name: '([a-z_]+)'/g)].map((entry) => entry[1]));
 }
 
 function functionToolDefinitions(source: string, exportedConstantName: string): string[] {
-  const match = source.match(new RegExp(`export const ${exportedConstantName}[^=]*= \\[([\\s\\S]*?)\\n\\];`));
+  const match = source.match(
+    new RegExp(`export const ${exportedConstantName}[^=]*= \\[([\\s\\S]*?)\\n\\];`),
+  );
   if (!match) throw new Error(`Unable to find ${exportedConstantName} in source.`);
-  return uniqueSorted([...match[1].matchAll(/tool\('([a-z_]+)'/g)].map((entry) => entry[1]));
+  return uniqueSorted([...match[1].matchAll(/tool\(\s*'([a-z_]+)'/g)].map((entry) => entry[1]));
 }
 
 function processToolCallRoutedToolNames(): string[] {
-  const adapterSource = readFileSync(join(process.cwd(), 'src', 'agents', 'agent-adapter.ts'), 'utf-8');
-  const workspaceSource = readFileSync(join(process.cwd(), 'src', 'agents', 'workspace-tools.ts'), 'utf-8');
+  const adapterSource = readFileSync(
+    join(process.cwd(), 'src', 'agents', 'agent-adapter.ts'),
+    'utf-8',
+  );
+  const workspaceSource = readFileSync(
+    join(process.cwd(), 'src', 'agents', 'workspace-tools.ts'),
+    'utf-8',
+  );
   const skillSource = readFileSync(join(process.cwd(), 'src', 'agents', 'skill-tools.ts'), 'utf-8');
 
   const runtimeAgentTools = toolRuntimeDefinitionNames();
-  const workspaceTools = [...workspaceSource.matchAll(/name: '([a-z_]+)'/g)].map((match) => match[1]);
-  const explicitlyHandled = [...adapterSource.matchAll(/tc\.function\.name (?:===|!==) '([a-z_]+)'/g)].map((match) => match[1]);
+  const workspaceTools = [...workspaceSource.matchAll(/name: '([a-z_]+)'/g)].map(
+    (match) => match[1],
+  );
+  const explicitlyHandled = [
+    ...adapterSource.matchAll(/tc\.function\.name (?:===|!==) '([a-z_]+)'/g),
+  ].map((match) => match[1]);
   const switchCases = [...adapterSource.matchAll(/case '([a-z_]+)':/g)].map((match) => match[1]);
   const skillTools = [...skillSource.matchAll(/name:\s*'([a-z_]+)'/g)].map((match) => match[1]);
 
-  return uniqueSorted([...runtimeAgentTools, ...workspaceTools.filter((name) => explicitlyHandled.includes(name)), ...switchCases, ...skillTools, 'mcp_tool_call']);
+  return uniqueSorted([
+    ...runtimeAgentTools,
+    ...workspaceTools.filter((name) => explicitlyHandled.includes(name)),
+    ...switchCases,
+    ...skillTools,
+    'mcp_tool_call',
+  ]);
 }
 
 describe('AgentAdapter non-planner tool surface parity', () => {
@@ -92,8 +117,12 @@ describe('AgentAdapter non-planner tool surface parity', () => {
     for (const role of NON_PLANNER_AGENT_ROLES) {
       const documented = docsMatrix.get(role);
       expect(documented).toBeDefined();
-      expect(adapter.getToolNamesForRole(role)).not.toEqual(expect.arrayContaining(RETIRED_NOTE_TOOLS));
-      expect(uniqueSorted(adapter.getToolNamesForRole(role))).toEqual(uniqueSorted(adapter.getToolNamesForRole(role)));
+      expect(adapter.getToolNamesForRole(role)).not.toEqual(
+        expect.arrayContaining(RETIRED_NOTE_TOOLS),
+      );
+      expect(uniqueSorted(adapter.getToolNamesForRole(role))).toEqual(
+        uniqueSorted(adapter.getToolNamesForRole(role)),
+      );
     }
   });
 
@@ -116,12 +145,17 @@ describe('AgentAdapter non-planner tool surface parity', () => {
     expect(routedTools).toContain('queue_notification');
     expect(routedTools).not.toEqual(expect.arrayContaining(RETIRED_NOTE_TOOLS));
     for (const role of NON_PLANNER_AGENT_ROLES) {
-      expect(adapter.getToolNamesForRole(role)).not.toEqual(expect.arrayContaining(RETIRED_NOTE_TOOLS));
+      expect(adapter.getToolNamesForRole(role)).not.toEqual(
+        expect.arrayContaining(RETIRED_NOTE_TOOLS),
+      );
     }
   });
 
   it('keeps analyst schema definitions routed by the card-scoped analyst handler', () => {
-    const schemaSource = readFileSync(join(process.cwd(), 'src', 'agents', 'analyst-tool-schemas.ts'), 'utf-8');
+    const schemaSource = readFileSync(
+      join(process.cwd(), 'src', 'agents', 'analyst-tool-schemas.ts'),
+      'utf-8',
+    );
     const sourceDefinitions = functionToolDefinitions(schemaSource, 'ANALYST_TOOL_DEFINITIONS');
     expect(uniqueSorted(Object.keys(TOOL_REGISTRY))).toEqual(sourceDefinitions);
   });
