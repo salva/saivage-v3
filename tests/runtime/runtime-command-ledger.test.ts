@@ -35,6 +35,23 @@ function root(): string {
   return mkdtempSync(join(tmpdir(), 'saivage-runtime-command-'));
 }
 
+async function waitForBackgroundDispatchesToDrain(): Promise<void> {
+  await new Promise<void>((resolve, reject) => {
+    const deadline = Date.now() + 2000;
+    const poll = () => {
+      if (diagnostics.getBackgroundDispatchCount() === 0) return resolve();
+      if (Date.now() >= deadline)
+        return reject(
+          new Error(
+            `background dispatches did not drain; count=${diagnostics.getBackgroundDispatchCount()}`,
+          ),
+        );
+      setTimeout(poll, 10);
+    };
+    poll();
+  });
+}
+
 let dispatchTools: RuntimeCoreTestContainer['dispatchTestTools'];
 let diagnostics: RuntimeCoreTestContainer['diagnosticTestTools'];
 let cards: RuntimeCoreTestContainer['cardTestTools'];
@@ -1291,15 +1308,84 @@ describe('runtime command ledger target contract (Wave 1)', () => {
           }),
         ]),
       );
+      const rootBeforeShutdown = beforeShutdown.runtime_runs!.find(
+        (run) => run.run_id === parentRun.run_id,
+      )!;
 
       await api.shutdown();
 
       const afterShutdown = readRuntimeState(projectRoot)!;
-      expect(afterShutdown.status).toBe('idle');
-      expect(afterShutdown.runtime_intent).toEqual(beforeShutdown.runtime_intent);
-      expect(afterShutdown.runtime_commands).toEqual(beforeShutdown.runtime_commands);
-      expect(afterShutdown.runtime_runs).toEqual(beforeShutdown.runtime_runs);
-      expect(afterShutdown.runtime_activations).toEqual(beforeShutdown.runtime_activations);
+      await waitForBackgroundDispatchesToDrain();
+      const afterSettled = readRuntimeState(projectRoot)!;
+
+      expect(afterSettled.runtime_runs).toEqual(afterShutdown.runtime_runs);
+      expect(afterSettled.runtime_activations).toEqual(afterShutdown.runtime_activations);
+      expect(afterSettled.status).toBe('idle');
+      expect(afterSettled.runtime_intent).toEqual(beforeShutdown.runtime_intent);
+      expect(afterSettled.runtime_commands).toEqual(beforeShutdown.runtime_commands);
+      expect(afterSettled.runtime_runs).toHaveLength(beforeShutdown.runtime_runs!.length);
+      expect(afterSettled.runtime_activations).toHaveLength(
+        beforeShutdown.runtime_activations!.length,
+      );
+
+      for (const beforeRun of beforeShutdown.runtime_runs ?? []) {
+        expect(afterSettled.runtime_runs).toEqual(
+          expect.arrayContaining([expect.objectContaining({ run_id: beforeRun.run_id })]),
+        );
+      }
+      for (const beforeActivation of beforeShutdown.runtime_activations ?? []) {
+        expect(afterSettled.runtime_activations).toEqual(
+          expect.arrayContaining([
+            expect.objectContaining({ activation_id: beforeActivation.activation_id }),
+          ]),
+        );
+      }
+
+      const rootAfterSettled = afterSettled.runtime_runs!.find(
+        (run) => run.run_id === parentRun.run_id,
+      )!;
+      const childAfterSettled = afterSettled.runtime_runs!.find(
+        (run) => run.run_id === childRun.run_id,
+      )!;
+      const activationAfterSettled = afterSettled.runtime_activations!.find(
+        (record) => record.activation_id === activation.activation_id,
+      )!;
+
+      expect(rootAfterSettled).toEqual(
+        expect.objectContaining({
+          run_id: parentRun.run_id,
+          kind: 'root',
+          card_id: 'project',
+          command_id: result.command.command_id,
+        }),
+      );
+      if (rootAfterSettled.finished_at) {
+        expect(rootAfterSettled).toEqual(
+          expect.objectContaining({
+            phase: 'completed',
+            runtime_status: 'idle',
+            result: 'done',
+            finished_at: expect.any(String),
+          }),
+        );
+      } else {
+        expect(rootAfterSettled).toEqual(rootBeforeShutdown);
+      }
+      expect(childAfterSettled).toEqual(
+        expect.objectContaining({
+          run_id: childRun.run_id,
+          activation_id: activation.activation_id,
+          card_id: 'child-a',
+        }),
+      );
+      expect(activationAfterSettled).toEqual(
+        expect.objectContaining({
+          activation_id: activation.activation_id,
+          runtime_run_id: childRun.run_id,
+          parent_run_id: parentRun.run_id,
+          child_card_id: 'child-a',
+        }),
+      );
     } finally {
       rmSync(projectRoot, { recursive: true, force: true });
     }
