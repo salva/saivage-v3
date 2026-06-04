@@ -40,7 +40,7 @@ export class PlannerFailureHandler {
         appendRuntimeDiagnostic: (input) => this.deps.eventLogger.appendEvent({ kind: 'runtime_diagnostic', ...input }),
         appendError: (input) => this.deps.errorLogger.appendError(input),
         transitionCard: (cardId, event, details) => this.deps.stateMachine.transitionCard(cardId, event, details),
-        updateCard: (cardId, patch) => this.deps.cards.update(cardId, patch),
+        updateCard: (cardId, patch) => this.deps.cards.repairTerminalLifecycle(cardId, patch),
         updateRuntimeRun: (runId, updates) => this.deps.mutations.apply({ kind: 'updateRuntimeRun', runId, updates }),
         publishRuntimeRun: (run) => this.deps.publishRuntimeRun(run),
         transitionRuntime: (event, details) => this.deps.stateMachine.transition(event, details),

@@ -66,7 +66,7 @@ export class PlannerIterationRunner {
       cardStore: this.deps.cards,
       now: this.deps.now,
       transitionCard: (cardId, action, details) => this.deps.stateMachine.transitionCard(cardId, action, details),
-      updateCard: (cardId, patch) => this.deps.cards.update(cardId, patch),
+      updateCard: (cardId, patch) => this.deps.cards.commitTerminalLifecyclePatch(cardId, patch),
     }).apply(goalId, plannerResult);
     this.deps.mutations.apply({ kind: 'patchRuntimeState', patch: buildCurrentAgentSessionPatch(`planner:${goalId}`) });
     const execution = await this.deps.pendingActivations.dispatch(goalId);
@@ -115,7 +115,7 @@ export class PlannerIterationRunner {
       planning: input.planning,
       effects: {
         transitionCard: (cardId, event, details) => this.deps.stateMachine.transitionCard(cardId, event as 'block', details),
-        updateCard: (cardId, patch) => this.deps.cards.update(cardId, patch),
+        updateCard: (cardId, patch) => this.deps.cards.commitTerminalLifecyclePatch(cardId, patch),
       },
     });
     this.deps.runLedger.finishOpenPlannerRun(input.goalId, 'blocked');

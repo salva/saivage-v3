@@ -101,7 +101,7 @@ export class RuntimeReviewerDispatcher {
           appendRuntimeDiagnostic: (input) => this.deps.eventLogger.appendEvent({ kind: 'runtime_diagnostic', ...input }),
           appendError: (input) => this.deps.errorLogger.appendError(input),
           transitionCard: (cardId, event, details) => this.deps.stateMachine.transitionCard(cardId, event, details),
-          updateCard: (cardId, patch) => this.deps.cards.update(cardId, patch),
+          updateCard: (cardId, patch) => this.deps.cards.repairTerminalLifecycle(cardId, patch),
           finishOpenPlannerRun: (cardId, result) => this.deps.runLedger.finishOpenPlannerRun(cardId, result),
           transitionRuntime: (event, details) => this.deps.stateMachine.transition(event, details),
         },
@@ -121,7 +121,7 @@ export class RuntimeReviewerDispatcher {
         now: this.deps.now,
         readCard: (cardId) => this.deps.cards.read(cardId),
         transitionCard: (cardId, event, details) => this.deps.stateMachine.transitionCard(cardId, event, details),
-        updateCard: (cardId, patch) => this.deps.cards.update(cardId, patch),
+        updateCard: (cardId, patch) => this.deps.cards.commitTerminalLifecyclePatch(cardId, patch),
         persistReviewState: (cardId, assessment) => this.persistReviewState(cardId, assessment),
         emitReviewFailed: (cardId, assessment) => {
           this.deps.emit('review_failed', { goal_id: cardId, assessment });

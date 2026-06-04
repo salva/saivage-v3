@@ -81,6 +81,19 @@ describe('card lifecycle domain rules', () => {
     expect(() => validateMutablePatch(card, { depends_on: ['goal-2'] }, { childCount: 0 })).toThrow(/cannot be changed on a card in status 'active'/);
   });
 
+  it('locks terminal lifecycle fields behind explicit commit or repair contexts', () => {
+    const done = baseCard({ status: 'done', result: { ok: true }, completed_at: '2026-01-01T00:10:00.000Z' });
+    expect(() => validateMutablePatch(done, { error: 'stale' }, { childCount: 0 })).toThrow(/lifecycle-owned/);
+    expect(() => validateMutablePatch(done, { result: { ok: false } }, { childCount: 0 }, { actor: 'analyst', surface: 'web-chat', reason: 'analyst edit' })).toThrow(/lifecycle-owned/);
+    expect(() => validateMutablePatch(done, { completed_at: '2026-01-01T00:11:00.000Z' }, { childCount: 0 }, { actor: 'runtime', surface: 'runtime', reason: 'terminal lifecycle commit' })).not.toThrow();
+    expect(() => validateMutablePatch(done, { error: null }, { childCount: 0 }, { actor: 'runtime', surface: 'runtime', reason: 'terminal lifecycle repair' })).not.toThrow();
+  });
+
+  it('allows restart patches to clear lifecycle fields while reopening', () => {
+    const blocked = baseCard({ status: 'blocked', result: { planning: { status: 'blocked' } }, error: 'blocked' });
+    expect(() => validateMutablePatch(blocked, { status: 'backlog', result: null, error: null, completed_at: null }, { childCount: 0 })).not.toThrow();
+  });
+
   it('rejects project-card type drift and nested project creation identity', () => {
     expect(normalizeNewCardId('project', 'root-spec-plan-project', () => 'unused')).toBe('project');
     expect(() => validateMutablePatch(baseCard(), { type: 'project' }, { childCount: 0 })).toThrow(/canonical id 'project'|type 'project'/);

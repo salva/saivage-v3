@@ -148,7 +148,7 @@ export class ExecutorActivationDispatcher {
         now: this.deps.now,
         transitionCard: (cardId, event, details) => this.deps.stateMachine.transitionCard(cardId, event, details),
         readCard: (cardId) => this.deps.cards.read(cardId),
-        updateCard: (cardId, patch) => this.deps.cards.update(cardId, patch),
+        updateCard: (cardId, patch) => this.deps.cards.commitTerminalLifecyclePatch(cardId, patch),
         appendChildUnwindToolResult: (cardId, outcome, summary) => this.deps.activationUnwind.appendChildUnwindToolResult(cardId, outcome, summary),
         recordChildActivationLifecycle: (cardId, lifecycle) => this.deps.activationUnwind.recordChildActivationLifecycle(cardId, lifecycle),
         emitCardFailed: (cardId, parentGoalId) => this.emitCardFailed(cardId, parentGoalId),

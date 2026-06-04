@@ -377,6 +377,22 @@ export class CardStore {
     return this.applyPatch(id, changes, 'mutate', ctx);
   }
 
+  commitTerminalLifecyclePatch(id: string, changes: Partial<CardRecord>): CardRecord {
+    return this.applyPatch(id, changes, 'mutate', {
+      actor: 'runtime',
+      surface: 'runtime',
+      reason: 'terminal lifecycle commit',
+    });
+  }
+
+  repairTerminalLifecycle(id: string, changes: Partial<CardRecord>): CardRecord {
+    return this.applyPatch(id, changes, 'mutate', {
+      actor: 'runtime',
+      surface: 'runtime',
+      reason: 'terminal lifecycle repair',
+    });
+  }
+
   moveCard(id: string, newParent: string, ctx: CardMutationContext): MoveCardResult {
     this.refreshState();
     const card = this.state.get(id);
@@ -588,7 +604,7 @@ export class CardStore {
     const stamp = now();
     const candidate = buildUpdatedCard(existing, realChanges, stamp, {
       childCount: this.state.childrenOf(existing.id).length,
-    });
+    }, ctx);
     if (realChanges.depends_on !== undefined) {
       const cycle = this.detectCycles(existing.id, candidate.depends_on);
       if (cycle.length > 0) throw new Error(`Dependency cycle detected: ${cycle.join(' -> ')}`);

@@ -12,7 +12,7 @@ export function isPlannerTerminalToolExhaustion(error: unknown): boolean {
 export async function alignBlockedPlanningCardStatuses(input: {
   cards: {
     list(): CardRecord[];
-    update(cardId: string, patch: Partial<CardRecord>): Promise<unknown> | unknown;
+    repairTerminalLifecycle(cardId: string, patch: Partial<CardRecord>): Promise<unknown> | unknown;
   };
   transitionCard(cardId: string, event: 'block', details: Record<string, unknown>): Promise<unknown>;
   finishOpenPlannerRun(goalId: string, result: 'blocked'): void;
@@ -26,7 +26,7 @@ export async function alignBlockedPlanningCardStatuses(input: {
         tokenBudgetFailure: false,
         providerStatus: null,
       });
-      await input.cards.update(card.id, {
+      await input.cards.repairTerminalLifecycle(card.id, {
         status: 'blocked',
         error: plannerFailureBlocker.blockedReason,
         status_text: plannerFailureBlocker.blockedReason,
@@ -59,7 +59,7 @@ export async function alignBlockedPlanningCardStatuses(input: {
         : 'Planner context exceeded the selected LLM token budget before scheduler output could be produced; compact/trim planner context before resuming.';
     await input.transitionCard(card.id, 'block', { blocked_reason: blockedReason });
     input.finishOpenPlannerRun(card.id, 'blocked');
-    await input.cards.update(card.id, {
+    await input.cards.repairTerminalLifecycle(card.id, {
       status: 'blocked',
       error: card.error ?? blockedReason,
       status_text: card.status_text ?? blockedReason,

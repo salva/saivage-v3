@@ -1,6 +1,7 @@
 import { basename } from 'node:path';
 import { CardStore } from '../../cards/store-api.js';
-import type { CardHistoryEntry, CardRecord } from '../../schemas/index.js';
+import { projectCardLifecycleState } from '../../schemas/index.js';
+import type { CardHistoryEntry, CardLifecycleState, CardRecord } from '../../schemas/index.js';
 import { allowedActions } from '../../permissions/index.js';
 import { readRuntimeState } from '../../runtime/state-api.js';
 import { redactForOutbound } from '../../redaction/index.js';
@@ -8,8 +9,10 @@ import type { ServerAvailability } from '../../contracts/index.js';
 
 export type ReadModelResult<T> = { statusCode?: number; body: T };
 
-function withOperatorAllowedActions(card: CardRecord): CardRecord {
-  return { ...card, allowedActions: allowedActions('operator', card.status) };
+type CardReadModel = CardRecord & { lifecycle: CardLifecycleState };
+
+function withOperatorAllowedActions(card: CardRecord): CardReadModel {
+  return { ...card, lifecycle: projectCardLifecycleState(card), allowedActions: allowedActions('operator', card.status) };
 }
 
 function redactValue<T>(value: T, source = 'cards-read-model'): T {

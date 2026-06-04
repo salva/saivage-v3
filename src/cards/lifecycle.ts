@@ -22,10 +22,7 @@ const CRITICAL_FIELDS: ReadonlySet<string> = new Set([
 const ALWAYS_ALLOWED_FIELDS: ReadonlySet<string> = new Set([
   'artifacts',
   'attachments',
-  'result',
   'metrics',
-  'error',
-  'completed_at',
   'duration_ms',
   'started_at',
   'status_text',
@@ -35,6 +32,25 @@ const ALWAYS_ALLOWED_FIELDS: ReadonlySet<string> = new Set([
 ]);
 
 const FULL_EDIT_STATES: ReadonlySet<CardStatus> = new Set<CardStatus>(['drafting', 'backlog']);
+
+const LIFECYCLE_LOCKED_STATES: ReadonlySet<CardStatus> = new Set<CardStatus>([
+  'done',
+  'failed',
+  'blocked',
+  'needs_verification',
+  'cancelled',
+]);
+
+const TERMINAL_LIFECYCLE_FIELDS: ReadonlySet<string> = new Set([
+  'result',
+  'error',
+  'completed_at',
+]);
+
+const EXPLICIT_LIFECYCLE_WRITE_REASONS: ReadonlySet<string> = new Set([
+  'terminal lifecycle commit',
+  'terminal lifecycle repair',
+]);
 
 const TERMINAL_TYPES: ReadonlySet<CardType> = new Set<CardType>([
   'architecture',
@@ -139,6 +155,7 @@ export function validateMutablePatch(
   existing: CardRecord,
   changes: Partial<CardRecord>,
   facts: MutablePatchFacts,
+  ctx?: CardMutationContext,
 ): number {
   if ((changes as { type?: string }).type === 'plan') {
     throw new Error('Cannot change card type to plan: planning state lives on goal cards.');
@@ -151,8 +168,21 @@ export function validateMutablePatch(
       throw new Error(`Cannot change card '${existing.id}' to type 'project'. The project card must have canonical id '${PROJECT_CARD_ID}'.`);
     }
   }
+  const changedKeys = Object.keys(changes);
+  const changesLifecycleField = changedKeys.some((key) => TERMINAL_LIFECYCLE_FIELDS.has(key));
+  const reopensLifecycle = changes.status !== undefined && changes.status !== existing.status && !LIFECYCLE_LOCKED_STATES.has(changes.status);
+  const explicitLifecycleWrite = ctx?.surface === 'runtime' && ctx.actor === 'runtime' && !!ctx.reason && EXPLICIT_LIFECYCLE_WRITE_REASONS.has(ctx.reason);
+
+  if (LIFECYCLE_LOCKED_STATES.has(existing.status) && changesLifecycleField && !reopensLifecycle && !explicitLifecycleWrite) {
+    const fields = changedKeys.filter((key) => TERMINAL_LIFECYCLE_FIELDS.has(key));
+    throw new Error(
+      `Card '${existing.id}' is in status '${existing.status}'. Fields ${fields.join(', ')} are lifecycle-owned and can only be changed by terminal commit or explicit admin repair paths. Reopen the card before ordinary edits.`,
+    );
+  }
+
   if (isTerminalState(existing.status)) {
-    for (const key of Object.keys(changes)) {
+    for (const key of changedKeys) {
+      if (explicitLifecycleWrite && TERMINAL_LIFECYCLE_FIELDS.has(key)) continue;
       if (key !== 'status' && !ALWAYS_ALLOWED_FIELDS.has(key)) {
         throw new Error(
           `Card '${existing.id}' is in status '${existing.status}'. Cards in this state cannot be edited. Use setStatus() to reopen the card first.`,
@@ -160,7 +190,7 @@ export function validateMutablePatch(
       }
     }
   } else if (!FULL_EDIT_STATES.has(existing.status)) {
-    for (const key of Object.keys(changes)) {
+    for (const key of changedKeys) {
       if (CRITICAL_FIELDS.has(key)) {
         throw new Error(
           `Field '${key}' cannot be changed on a card in status '${existing.status}'. Cards in this state allow editing: status, title, description, priority, urgency, tags, and other non-structural fields.`,
@@ -186,8 +216,9 @@ export function buildUpdatedCard(
   changes: Partial<CardRecord>,
   stamp: string,
   facts: MutablePatchFacts,
+  ctx?: CardMutationContext,
 ): CardRecord {
-  const newDepth = validateMutablePatch(existing, changes, facts);
+  const newDepth = validateMutablePatch(existing, changes, facts, ctx);
   const newDependsOn =
     changes.depends_on !== undefined ? changes.depends_on : existing.depends_on;
   return {
