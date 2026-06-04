@@ -127,7 +127,6 @@ export class RuntimeProjectCommandRunner {
         phase: 'planner',
         runtime_status: 'running',
         session_id: null,
-        result: null,
       },
     });
     this.deps.publishRuntimeRun(run);

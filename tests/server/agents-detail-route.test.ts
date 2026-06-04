@@ -118,8 +118,8 @@ describe('GET /api/agents/:id', () => {
         last_turn_at: '2026-02-03T00:00:00.000Z',
       },
       runtime_runs: [
-        { run_id: 'run-active', kind: 'root', card_id: 'project', command_id: 'cmd-1', activation_id: null, parent_run_id: null, phase: 'planner', runtime_status: 'running', session_id: 'planner-active', started_at: '2026-02-03T00:00:00.000Z', updated_at: '2026-02-03T00:00:00.000Z', finished_at: null, result: null },
-        { run_id: 'run-waiting', kind: 'root', card_id: 'project', command_id: 'cmd-2', activation_id: null, parent_run_id: null, phase: 'planner', runtime_status: 'running', session_id: 'planner-waiting', started_at: '2026-02-02T00:00:00.000Z', updated_at: '2026-02-02T00:00:00.000Z', finished_at: null, result: null },
+        { run_id: 'run-active', kind: 'root', card_id: 'project', command_id: 'cmd-1', activation_id: null, parent_run_id: null, phase: 'planner', runtime_status: 'running', session_id: 'planner-active', started_at: '2026-02-03T00:00:00.000Z', updated_at: '2026-02-03T00:00:00.000Z', finished_at: null },
+        { run_id: 'run-waiting', kind: 'root', card_id: 'project', command_id: 'cmd-2', activation_id: null, parent_run_id: null, phase: 'planner', runtime_status: 'running', session_id: 'planner-waiting', started_at: '2026-02-02T00:00:00.000Z', updated_at: '2026-02-02T00:00:00.000Z', finished_at: null },
       ],
     });
 

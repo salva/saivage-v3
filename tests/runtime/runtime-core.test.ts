@@ -52,7 +52,6 @@ function run(overrides: Partial<NonNullable<RuntimeState['runtime_runs']>[number
     phase: 'executor',
     runtime_status: 'running',
     session_id: 'exec-1',
-    result: null,
     started_at: 't0',
     updated_at: 't0',
     ...overrides,
@@ -95,12 +94,12 @@ describe('runtime core reducers', () => {
     });
     expect(planRootRunDispatchSuccessUpdate({ state: runningState, runId: 'root', nowIso: 't1' })).toEqual({
       runId: 'root',
-      updates: { phase: 'completed', runtime_status: 'idle', finished_at: 't1', result: 'done' },
+      updates: { phase: 'completed', runtime_status: 'idle', finished_at: 't1', outcome: { kind: 'completed', result: 'done', finished_at: 't1' } },
     });
     expect(planRootRunDispatchSuccessUpdate({ state: state({ runtime_intent: { status: 'stopped', source_command_id: 'cmd-1', updated_at: 't0' } }), runId: 'root', nowIso: 't1' })).toBeNull();
     expect(planRootRunDispatchFailureUpdate({ state: runningState, runId: 'root', nowIso: 't2' })).toEqual({
       runId: 'root',
-      updates: { phase: 'failed', runtime_status: 'error', finished_at: 't2', result: 'failed' },
+      updates: { phase: 'failed', runtime_status: 'error', finished_at: 't2', outcome: { kind: 'completed', result: 'failed', error: 'Root run dispatch failed.', finished_at: 't2' } },
     });
     expect(planRootRunDispatchFailureUpdate({ state: state({ runtime_runs: [run({ run_id: 'root', runtime_status: 'error' })] }), runId: 'root', nowIso: 't2' })).toBeNull();
   });
@@ -116,7 +115,7 @@ describe('runtime core reducers', () => {
       }),
       nowIso: 't1',
     })).toEqual([
-      { runId: 'root-open', updates: { phase: 'stopped', runtime_status: 'stopped', finished_at: 't1', result: 'stopped' } },
+      { runId: 'root-open', updates: { phase: 'stopped', runtime_status: 'stopped', finished_at: 't1', outcome: { kind: 'completed', result: 'stopped', finished_at: 't1' } } },
     ]);
   });
 
@@ -213,8 +212,8 @@ describe('runtime core reducers', () => {
     ]));
     expect(observeRuntimeStateInvariants({
       state: state({
-        runtime_activations: [activation({ status: 'needs_verification', outcome_snapshot: { kind: 'completed', outcome: 'done', card_id: 'child', completed_at: '2026-05-26T01:00:00.000Z' } })],
-        runtime_runs: [run({ result: 'needs_verification', outcome_snapshot: { kind: 'completed', result: 'done', finished_at: '2026-05-26T01:00:00.000Z' } })],
+        runtime_activations: [activation({ status: 'needs_verification', outcome: { kind: 'completed', outcome: 'done', card_id: 'child', completed_at: '2026-05-26T01:00:00.000Z' } })],
+        runtime_runs: [run({ phase: 'needs_verification', outcome: { kind: 'completed', result: 'done', finished_at: '2026-05-26T01:00:00.000Z' } })],
       }),
       currentCardStatus: null,
     })).toEqual(expect.arrayContaining([
@@ -224,20 +223,20 @@ describe('runtime core reducers', () => {
     expect(observeRuntimeStateInvariants({
       state: state({ runtime_activations: [activation()], runtime_runs: [run()] }),
       currentCardStatus: null,
-      readCard: () => ({ status: 'done', lifecycle: { status: 'done', result: { kind: 'planner_done', created_cards: [], updated_cards: [], summary: 'done' }, error: null, completed_at: '2026-05-26T01:00:00.000Z' } }),
+      readCard: () => ({ status: 'done', lifecycle: { status: 'running', result: null, error: null, completed_at: null } }),
     })).toEqual(expect.arrayContaining([expect.objectContaining({ invariant: 'I5', key: 'child' })]));
   });
 
   it('plans canonical project-root redispatch for a running intent with an open or failed root run', () => {
     const runningRoot = state({
       runtime_intent: { status: 'running', source_command_id: 'cmd-1', updated_at: '2026-05-26T00:00:00.000Z' },
-      runtime_runs: [{ run_id: 'run-1', kind: 'root', card_id: 'project', parent_run_id: null, command_id: 'cmd-1', activation_id: null, phase: 'planner', runtime_status: 'running', session_id: null, result: null, started_at: 't', updated_at: 't' }],
+      runtime_runs: [{ run_id: 'run-1', kind: 'root', card_id: 'project', parent_run_id: null, command_id: 'cmd-1', activation_id: null, phase: 'planner', runtime_status: 'running', session_id: null, started_at: 't', updated_at: 't' }],
     });
     expect(planProjectRootRedispatch({ state: runningRoot, projectCardId: 'project' })).toEqual({ shouldRedispatch: true, cardId: 'project', reason: 'open_root_run' });
 
     const failedRoot = state({
       runtime_intent: { status: 'running', source_command_id: 'cmd-1', updated_at: '2026-05-26T00:00:00.000Z' },
-      runtime_runs: [{ run_id: 'run-1', kind: 'root', card_id: 'project', parent_run_id: null, command_id: 'cmd-1', activation_id: null, phase: 'failed', runtime_status: 'error', session_id: 'planner:project', result: 'failed', started_at: 't', updated_at: '2026-05-26T01:00:00.000Z', finished_at: '2026-05-26T01:00:00.000Z' }],
+      runtime_runs: [{ run_id: 'run-1', kind: 'root', card_id: 'project', parent_run_id: null, command_id: 'cmd-1', activation_id: null, phase: 'failed', runtime_status: 'error', session_id: 'planner:project', outcome: { kind: 'completed', result: 'failed', error: 'failed', finished_at: '2026-05-26T01:00:00.000Z' }, started_at: 't', updated_at: '2026-05-26T01:00:00.000Z', finished_at: '2026-05-26T01:00:00.000Z' }],
     });
     expect(planProjectRootRedispatch({ state: failedRoot, projectCardId: 'project' })).toEqual({ shouldRedispatch: true, cardId: 'project', reason: 'failed_root_run_with_running_intent' });
     expect(planProjectRootRedispatch({ state: state({ paused: true }), projectCardId: 'project' })).toEqual({ shouldRedispatch: false });
@@ -249,10 +248,10 @@ describe('runtime core reducers', () => {
       runtime_runs: [run({ run_id: 'root', kind: 'root', card_id: 'project', parent_run_id: null, activation_id: null, phase: 'planner', session_id: 'planner:project' })],
     });
     expect(planIdleRunningRootRunReconciliation({ state: current, projectTerminal: true, nowIso: 't1' })).toEqual({
-      runUpdates: [{ runId: 'root', updates: { phase: 'completed', runtime_status: 'idle', finished_at: 't1', updated_at: 't1', result: 'done' } }],
+      runUpdates: [{ runId: 'root', updates: { phase: 'completed', runtime_status: 'idle', finished_at: 't1', updated_at: 't1', outcome: { kind: 'completed', result: 'done', finished_at: 't1' } } }],
       diagnosticMessage: 'Reconciled running runtime intent to expected idle because the project card is terminal and no active card run exists.',
     });
-    expect(planIdleRunningRootRunReconciliation({ state: current, projectTerminal: false, nowIso: 't1' })?.runUpdates[0]?.updates).toEqual(expect.objectContaining({ phase: 'failed', runtime_status: 'error', result: 'failed' }));
+    expect(planIdleRunningRootRunReconciliation({ state: current, projectTerminal: false, nowIso: 't1' })?.runUpdates[0]?.updates).toEqual(expect.objectContaining({ phase: 'failed', runtime_status: 'error', outcome: { kind: 'completed', result: 'failed', error: 'Runtime was idle with an open root run.', finished_at: 't1' } }));
     expect(planIdleRunningRootRunReconciliation({ state: state({ runtime_intent: { status: 'stopped', source_command_id: null, updated_at: 't0' } }), projectTerminal: true, nowIso: 't1' })).toBeNull();
   });
 
@@ -260,7 +259,7 @@ describe('runtime core reducers', () => {
     expect(planIdleRunningRootRunReconciliation({
       state: state({
         runtime_intent: { status: 'running', source_command_id: 'cmd-1', updated_at: 't0' },
-        runtime_runs: [run({ run_id: 'root', kind: 'root', card_id: 'project', parent_run_id: null, activation_id: null, phase: 'completed', runtime_status: 'idle', session_id: 'planner:project', finished_at: 't0', result: 'done' })],
+        runtime_runs: [run({ run_id: 'root', kind: 'root', card_id: 'project', parent_run_id: null, activation_id: null, phase: 'completed', runtime_status: 'idle', session_id: 'planner:project', finished_at: 't0', outcome: { kind: 'completed', result: 'done', finished_at: 't0' } })],
       }),
       projectTerminal: true,
       nowIso: 't1',
@@ -303,7 +302,7 @@ describe('runtime core reducers', () => {
       nowIso: 't1',
     })).toEqual({
       runId: 'root-run',
-      updates: { phase: 'failed', runtime_status: 'error', finished_at: 't1', updated_at: 't1', result: 'failed' },
+      updates: { phase: 'failed', runtime_status: 'error', finished_at: 't1', updated_at: 't1', outcome: { kind: 'completed', result: 'failed', error: 'Planner run failed.', finished_at: 't1' } },
     });
   });
 
@@ -317,8 +316,8 @@ describe('runtime core reducers', () => {
       ],
     });
     const next = reduceActivationCompletion(current, 'child', 'done', '2026-05-26T01:00:00.000Z', { status: 'done', result: plannerDone, error: null, completed_at: '2026-05-26T01:00:00.000Z' });
-    expect(next?.runtime_activations?.[0]).toEqual(expect.objectContaining({ status: 'completed', updated_at: '2026-05-26T01:00:00.000Z', outcome_snapshot: { kind: 'completed', outcome: 'done', card_id: 'child', completed_at: '2026-05-26T01:00:00.000Z' } }));
-    expect(next?.runtime_runs?.[0]).toEqual(expect.objectContaining({ phase: 'completed', runtime_status: 'idle', result: 'done', finished_at: '2026-05-26T01:00:00.000Z', updated_at: '2026-05-26T01:00:00.000Z', outcome_snapshot: { kind: 'completed', result: 'done', finished_at: '2026-05-26T01:00:00.000Z' } }));
+    expect(next?.runtime_activations?.[0]).toEqual(expect.objectContaining({ status: 'completed', updated_at: '2026-05-26T01:00:00.000Z', outcome: { kind: 'completed', outcome: 'done', card_id: 'child', completed_at: '2026-05-26T01:00:00.000Z' } }));
+    expect(next?.runtime_runs?.[0]).toEqual(expect.objectContaining({ phase: 'completed', runtime_status: 'idle', finished_at: '2026-05-26T01:00:00.000Z', updated_at: '2026-05-26T01:00:00.000Z', outcome: { kind: 'completed', result: 'done', finished_at: '2026-05-26T01:00:00.000Z' } }));
     expect(next?.updated_at).toBe('2026-05-26T01:00:00.000Z');
   });
 
@@ -327,8 +326,8 @@ describe('runtime core reducers', () => {
       runtime_activations: [activation({ status: 'pending' })],
       runtime_runs: [run()],
     }), 'child', 'needs_verification', '2026-05-26T01:00:00.000Z', { status: 'needs_verification', result: { kind: 'executor_needs_verification', reason: 'inspect evidence', preserved_result: {}, fallback_reason: null, latest_self_report: { result: 'needs_verification', outcome: 'needs_verification', summary: 'inspect evidence', status_text: 'verify', at: '2026-05-26T01:00:00.000Z' } }, error: null, completed_at: null });
-    expect(next?.runtime_activations?.[0]).toEqual(expect.objectContaining({ status: 'needs_verification', outcome_snapshot: { kind: 'paused', reason: 'needs_verification', card_id: 'child', detail: 'inspect evidence' } }));
-    expect(next?.runtime_runs?.[0]).toEqual(expect.objectContaining({ phase: 'needs_verification', runtime_status: 'error', result: 'needs_verification', outcome_snapshot: { kind: 'paused', reason: 'needs_verification', detail: 'inspect evidence' } }));
+    expect(next?.runtime_activations?.[0]).toEqual(expect.objectContaining({ status: 'needs_verification', outcome: { kind: 'paused', reason: 'needs_verification', card_id: 'child', detail: 'inspect evidence' } }));
+    expect(next?.runtime_runs?.[0]).toEqual(expect.objectContaining({ phase: 'needs_verification', runtime_status: 'error', outcome: { kind: 'paused', reason: 'needs_verification', detail: 'inspect evidence' } }));
   });
 
   it('returns null when activation completion has no activation ledger', () => {
@@ -356,7 +355,8 @@ describe('runtime core reducers', () => {
         run({ run_id: 'run-2', activation_id: 'act-2', session_id: 'planner:other' }),
       ],
     }), 'child', 'blocked', 't1');
-    expect(next?.runtime_runs?.find((candidate) => candidate.run_id === 'run-1')).toEqual(expect.objectContaining({ phase: 'blocked', result: 'blocked' }));
-    expect(next?.runtime_runs?.find((candidate) => candidate.run_id === 'run-2')).toEqual(expect.objectContaining({ phase: 'executor', result: null, session_id: 'planner:other' }));
+    expect(next?.runtime_runs?.find((candidate) => candidate.run_id === 'run-1')).toEqual(expect.objectContaining({ phase: 'blocked', outcome: { kind: 'blocked', error: 'Activation blocked.' } }));
+    expect(next?.runtime_runs?.find((candidate) => candidate.run_id === 'run-2')).toEqual(expect.objectContaining({ phase: 'executor', session_id: 'planner:other' }));
+    expect(next?.runtime_runs?.find((candidate) => candidate.run_id === 'run-2')).not.toHaveProperty('outcome');
   });
 });

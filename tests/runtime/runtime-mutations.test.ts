@@ -74,7 +74,7 @@ describe('runtime mutations', () => {
           child_card_id: 'child',
           status: 'completed',
           updated_at: '2026-01-01T00:01:00.000Z',
-          outcome_snapshot: { kind: 'completed', outcome: 'done', card_id: 'child', completed_at: '2026-01-01T00:01:00.000Z' },
+          outcome: { kind: 'completed', outcome: 'done', card_id: 'child', completed_at: '2026-01-01T00:01:00.000Z' },
         }),
       ]);
     } finally {
@@ -120,13 +120,12 @@ describe('runtime mutations', () => {
           phase: 'planner',
           runtime_status: 'running',
           session_id: 'planner:goal-a',
-          result: null,
         },
       });
       const updatedRun = mutations.apply({
         kind: 'updateRuntimeRun',
         runId: run.run_id,
-        updates: { phase: 'completed', runtime_status: 'idle', result: 'done' },
+        updates: { phase: 'completed', runtime_status: 'idle', outcome: { kind: 'completed', result: 'done', finished_at: '2026-01-01T00:01:00.000Z' } },
       });
       const activation = mutations.apply({
         kind: 'upsertRuntimeActivation',
@@ -148,7 +147,7 @@ describe('runtime mutations', () => {
         run_id: run.run_id,
         phase: 'completed',
         runtime_status: 'idle',
-        result: 'done',
+        outcome: { kind: 'completed', result: 'done', finished_at: '2026-01-01T00:01:00.000Z' },
       }));
       expect(activation).toEqual(expect.objectContaining({
         idempotency_key: 'idem-1',

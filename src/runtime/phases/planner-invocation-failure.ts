@@ -88,11 +88,12 @@ export async function handlePlannerInvocationFailure(input: {
       },
     });
     if (input.failedRun) {
+      const finishedAt = input.effects.now();
       const updated = input.effects.updateRuntimeRun(input.failedRun.run_id, {
         phase: 'blocked',
         runtime_status: 'error',
-        finished_at: input.effects.now(),
-        result: 'blocked',
+        finished_at: finishedAt,
+        outcome: { kind: 'blocked', error: plannerFailureBlocker.blockedReason },
       });
       if (updated) input.effects.publishRuntimeRun(updated);
     }
@@ -111,11 +112,12 @@ export async function handlePlannerInvocationFailure(input: {
     status_text: `Planner failed: ${errorMessage}`,
   });
   if (input.failedRun) {
+    const finishedAt = input.effects.now();
     const updated = input.effects.updateRuntimeRun(input.failedRun.run_id, {
       phase: 'failed',
       runtime_status: 'error',
-      finished_at: input.effects.now(),
-      result: 'failed',
+      finished_at: finishedAt,
+      outcome: { kind: 'completed', result: 'failed', error: errorMessage, finished_at: finishedAt },
     });
     if (updated) input.effects.publishRuntimeRun(updated);
   }

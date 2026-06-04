@@ -69,7 +69,7 @@ describe('runtime redesign final golden behavior', () => {
       expect(JSON.parse(rejected.content).actionable_error.code).toBe('activate_card_parent_not_active');
       expect(readRuntimeState(ctx.projectRoot)?.runtime_runs ?? []).toHaveLength(0);
 
-      appendRuntimeRun(ctx.projectRoot, { run_id: 'run-parent', kind: 'root', card_id: 'goal-a', parent_run_id: null, command_id: 'cmd-a', activation_id: null, phase: 'planner', runtime_status: 'running', session_id: 'planner:goal-a', result: null });
+      appendRuntimeRun(ctx.projectRoot, { run_id: 'run-parent', kind: 'root', card_id: 'goal-a', parent_run_id: null, command_id: 'cmd-a', activation_id: null, phase: 'planner', runtime_status: 'running', session_id: 'planner:goal-a' });
       const accepted = await exec.execute({ toolName: 'activate_card', toolCallId: 'call-a', argumentsJson: JSON.stringify({ cardId: 'code-a' }), parentCardId: 'goal-a', sessionId: 'planner:goal-a' });
       expect(accepted.kind).toBe('tool_result');
       const body = JSON.parse(accepted.content);

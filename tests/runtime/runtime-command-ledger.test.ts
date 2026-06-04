@@ -133,7 +133,6 @@ describe('runtime command ledger target contract (Wave 1)', () => {
         phase: 'planner',
         runtime_status: 'running',
         session_id: 'planner:project',
-        result: null,
       });
       const calls: string[] = [];
       const api = makeRuntime(projectRoot, undefined, async (goalId: string) => {
@@ -261,7 +260,6 @@ describe('runtime command ledger target contract (Wave 1)', () => {
         phase: 'planner',
         runtime_status: 'running',
         session_id: 'planner:project',
-        result: null,
       });
       const calls: string[] = [];
       const api = makeRuntime(projectRoot, undefined, async (goalId: string) => {
@@ -346,7 +344,6 @@ describe('runtime command ledger target contract (Wave 1)', () => {
         phase: 'planner',
         runtime_status: 'running',
         session_id: null,
-        result: null,
       });
       appendRuntimeRun(projectRoot, {
         run_id: 'run-child-pending-same-card',
@@ -358,7 +355,6 @@ describe('runtime command ledger target contract (Wave 1)', () => {
         phase: 'planner',
         runtime_status: 'running',
         session_id: null,
-        result: null,
       });
       const observedSessionIds: Array<string | null | undefined> = [];
       const activationResults: unknown[] = [];
@@ -517,7 +513,6 @@ describe('runtime command ledger target contract (Wave 1)', () => {
         phase: 'pending',
         runtime_status: 'running',
         session_id: null,
-        result: null,
       });
       appendRuntimeRun(projectRoot, {
         run_id: 'run-child-other-bound',
@@ -529,7 +524,6 @@ describe('runtime command ledger target contract (Wave 1)', () => {
         phase: 'planner',
         runtime_status: 'running',
         session_id: 'planner:other-goal-a',
-        result: null,
       });
       const observedRuns: Array<{ phase?: string; session_id?: string | null }> = [];
       const activationResults: unknown[] = [];
@@ -668,7 +662,6 @@ describe('runtime command ledger target contract (Wave 1)', () => {
         phase: 'planner',
         runtime_status: 'running',
         session_id: null,
-        result: null,
       });
       const agentRuntime: AgentRuntime = {
         invokePlanner() {
@@ -1276,7 +1269,6 @@ describe('runtime command ledger target contract (Wave 1)', () => {
         phase: 'executor',
         runtime_status: 'running',
         session_id: 'executor-child-a',
-        result: null,
       });
       const activation = upsertRuntimeActivation(projectRoot, {
         activation_id: 'activation-a',

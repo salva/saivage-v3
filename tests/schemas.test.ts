@@ -75,6 +75,7 @@ describe('Core schemas still validate expected records', () => {
       title: 'Goal 1',
       description: '',
       status: 'backlog',
+      lifecycle: { status: 'backlog', result: null, error: null, completed_at: null },
       tags: [],
       priority: 0,
       position: 0,
@@ -105,6 +106,7 @@ describe('Core schemas still validate expected records', () => {
       title: 'Goal Meta',
       description: '',
       status: 'backlog',
+      lifecycle: { status: 'backlog', result: null, error: null, completed_at: null },
       tags: [],
       priority: 0,
       position: 0,
@@ -344,7 +346,6 @@ import {
   eventKindSchema,
   loggedEventSchema,
   loggedEventSchemaByKind,
-  parseLoggedEventCompat,
   runtimeEventKindSchema,
 } from '../src/schemas/validators.js';
 
@@ -369,14 +370,8 @@ describe('Runtime event catalog schemas', () => {
     expect(loggedEventSchema.parse({ id: 'evt-mcp', kind: 'mcp_tool_invocation', timestamp, session_id: 'sess-1', role: 'planner', server_name: 'planner-control', tool_name: 'activate_card', success: true })).toMatchObject({ kind: 'mcp_tool_invocation', tool_name: 'activate_card' });
   });
 
-  it('keeps tolerant historical parsing separate from strict current validation', () => {
+  it('rejects unknown event kinds under strict current validation', () => {
     const historical = { id: 'evt-old', kind: 'legacy_kind_from_old_log', timestamp, payload: { kept: true } };
     expect(loggedEventSchema.safeParse(historical).success).toBe(false);
-    const compat = parseLoggedEventCompat(historical);
-    expect(compat.ok).toBe(true);
-    if (compat.ok) {
-      expect(compat.compatibility).toBe('unknown-kind');
-      expect(compat.event.kind).toBe('legacy_kind_from_old_log');
-    }
   });
 });

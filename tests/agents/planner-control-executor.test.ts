@@ -104,7 +104,6 @@ function appendActivePlannerRun(projectRoot: string, cardId = 'goal'): void {
     phase: 'planner',
     runtime_status: 'running',
     session_id: `planner:${cardId}`,
-    result: null,
   });
 }
 

@@ -35,7 +35,6 @@ function run(overrides: Partial<RuntimeRunRecord>): RuntimeRunRecord {
     started_at: '2025-01-01T00:00:00Z',
     updated_at: '2025-01-01T00:00:00Z',
     finished_at: null,
-    result: null,
     ...overrides,
   };
 }

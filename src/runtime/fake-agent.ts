@@ -121,13 +121,13 @@ export class FakeAgentAdapter implements AgentExecutionPort {
     if (!this.config.saivageDir) return;
     const state = this.config.activationLedger?.readState();
     const parentRun = (state?.runtime_runs ?? []).find((run) => run.card_id === goalId && run.phase === 'planner' && run.runtime_status === 'running' && !run.finished_at)
-      ?? this.config.activationLedger?.appendRun({ kind: goalId === 'project' ? 'root' : 'child', card_id: goalId, parent_run_id: null, command_id: null, activation_id: null, phase: 'planner', runtime_status: 'running', session_id: plannerSessionId, result: null, run_id: `fixture-parent-run:${goalId}:${plannerSessionId}` });
+      ?? this.config.activationLedger?.appendRun({ kind: goalId === 'project' ? 'root' : 'child', card_id: goalId, parent_run_id: null, command_id: null, activation_id: null, phase: 'planner', runtime_status: 'running', session_id: plannerSessionId, run_id: `fixture-parent-run:${goalId}:${plannerSessionId}` });
     if (!parentRun) return;
     for (const call of toolCalls) {
       let childCardId = '';
       try { const args = JSON.parse(call.function.arguments); childCardId = String(args.cardId ?? args.card_id ?? ''); } catch { void 0; }
       if (!childCardId) continue;
-      const childRun = this.config.activationLedger?.appendRun({ kind: 'child', card_id: childCardId, parent_run_id: parentRun.run_id, command_id: null, activation_id: null, phase: 'pending', runtime_status: 'running', session_id: null, result: null, run_id: `fixture-child-run:${goalId}:${childCardId}:${call.id}` });
+      const childRun = this.config.activationLedger?.appendRun({ kind: 'child', card_id: childCardId, parent_run_id: parentRun.run_id, command_id: null, activation_id: null, phase: 'pending', runtime_status: 'running', session_id: null, run_id: `fixture-child-run:${goalId}:${childCardId}:${call.id}` });
       if (!childRun) continue;
       this.config.activationLedger?.upsertActivation({ idempotency_key: `fixture:${parentRun.run_id}:${plannerSessionId}:${call.id}:${childCardId}`, parent_card_id: goalId, parent_run_id: parentRun.run_id, parent_session_id: plannerSessionId, parent_tool_call_id: call.id, child_card_id: childCardId, status: 'pending', precondition: 'accepted', runtime_run_id: childRun.run_id, error: null });
     }

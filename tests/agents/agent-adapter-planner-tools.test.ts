@@ -116,7 +116,7 @@ describe('AgentAdapter planner tool surface', () => {
 
   it('returns activate_card as a durable activation record with deferred compatibility payload', async () => {
     const goal = store.create(makeCard({ type: 'goal', title: 'Goal A' }));
-    appendRuntimeRun(tmpDir, { run_id: 'run-parent', kind: 'root', card_id: goal.id, parent_run_id: null, command_id: 'cmd-parent', activation_id: null, phase: 'planner', runtime_status: 'running', session_id: 'planner-session', result: null });
+    appendRuntimeRun(tmpDir, { run_id: 'run-parent', kind: 'root', card_id: goal.id, parent_run_id: null, command_id: 'cmd-parent', activation_id: null, phase: 'planner', runtime_status: 'running', session_id: 'planner-session' });
     const result = await (adapter as any).processToolCall({ id: 'call-activate', type: 'function', function: { name: 'activate_card', arguments: JSON.stringify({ cardId: goal.id }) } }, 'planner', 'planner-session', { goalId: goal.id, cardId: goal.id });
     expect(result).toMatchObject({ role: 'tool', kind: 'tool_result', tool: 'activate_card', tool_call_id: 'call-activate' });
     const body = JSON.parse(result.content);

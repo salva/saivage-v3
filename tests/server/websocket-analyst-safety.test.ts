@@ -430,7 +430,6 @@ describe('websocket runtime event fanout compatibility', () => {
       session_id: 'planner:project',
       started_at: '2026-01-01T00:00:00.000Z',
       updated_at: '2026-01-01T00:00:01.000Z',
-      result: null,
     } satisfies import('../../src/schemas/types.js').RuntimeRunRecord;
     handlers[0]?.({ id: 'evt-bind', kind: 'runtime_run', timestamp: '2026-01-01T00:00:01.000Z', run });
 

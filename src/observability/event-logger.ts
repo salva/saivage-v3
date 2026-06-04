@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import type { LoggedEvent, EventKind } from '../schemas/index.js';
 import { redactForOutbound } from '../redaction/index.js';
-import { loggedEventSchema, parseLoggedEventCompat } from '../schemas/index.js';
+import { loggedEventSchema } from '../schemas/index.js';
 import { EventBus } from '../events/index.js';
 import { registerEventLogProjection } from '../projections/index.js';
 
@@ -138,11 +138,11 @@ export class EventLogger {
     let events: LoggedEvent[] = [];
     for (const line of raw.split('\n').filter(Boolean)) {
       try {
-        const parsed = parseLoggedEventCompat(JSON.parse(line));
-        if (parsed.ok && parsed.compatibility === 'strict') {
-          events.push(parsed.event);
-        } else if (parsed.ok) {
-          console.warn(parsed.warning);
+        const parsed = loggedEventSchema.safeParse(JSON.parse(line));
+        if (parsed.success) {
+          events.push(parsed.data);
+        } else {
+          console.warn(`Ignoring invalid runtime event log record: ${parsed.error.message}`);
         }
       } catch {
         // Skip malformed lines

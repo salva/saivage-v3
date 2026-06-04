@@ -67,9 +67,9 @@ export type {
   RuntimeIntent,
   RuntimeCommandRecord,
   RuntimeRunRecord,
-  RuntimeRunOutcomeSnapshot,
+  RuntimeLedgerRunOutcome,
   RuntimeActivationRecord,
-  RuntimeActivationOutcomeSnapshot,
+  RuntimeLedgerActivationOutcome,
   Urgency,
   CreatedBy,
   NoteAuthor,
@@ -304,11 +304,6 @@ export {
   mcpToolInvocationEventSchema,
   loggedEventSchemaByKind,
   loggedEventSchema,
-  loggedEventCompatibilitySchema,
-  parseLoggedEventCompat,
-} from './validators.js';
-export type {
-  LoggedEventCompatResult,
 } from './validators.js';
 export {
   normalizeSanitizedClearanceReport,

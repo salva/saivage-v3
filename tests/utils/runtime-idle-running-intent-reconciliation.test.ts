@@ -42,11 +42,11 @@ describe('Runtime stale running-intent reconciliation', () => {
     root = mkdtempSync(join(tmpdir(), 'saivage-idle-running-intent-'));
     initProjectTree(root);
     const cards = new CardStore(root);
-    cards.update('project', {
+    cards.repairTerminalLifecycle('project', {
       status: 'done',
-      status_text: 'project terminal for stale-intent regression',
       lifecycle: { status: 'done', result: { kind: 'planner_done', created_cards: [], updated_cards: [], summary: 'terminal project' }, error: null, completed_at: '2026-01-01T00:00:00.000Z' },
     });
+    cards.update('project', { status_text: 'project terminal for stale-intent regression' });
 
     const base = initRuntimeState(root);
     const rootRun = appendRuntimeRun(root, {
@@ -59,7 +59,6 @@ describe('Runtime stale running-intent reconciliation', () => {
       phase: 'planner',
       runtime_status: 'running',
       session_id: 'planner:project',
-      result: null,
     });
     saveRuntimeState(root, {
       ...(readRuntimeState(root) ?? base),
@@ -103,8 +102,7 @@ describe('Runtime stale running-intent reconciliation', () => {
     const reconciledRun = (reconciled?.runtime_runs ?? []).find((run) => run.run_id === rootRun.run_id);
     expect(reconciledRun?.phase).toBe('completed');
     expect(reconciledRun?.runtime_status).toBe('idle');
-    expect(reconciledRun?.result).toBe('done');
-    expect(reconciledRun?.outcome_snapshot).toEqual(expect.objectContaining({ kind: 'completed', result: 'done' }));
+    expect(reconciledRun?.outcome).toEqual(expect.objectContaining({ kind: 'completed', result: 'done' }));
     expect(reconciledRun?.finished_at).toBeTruthy();
     expect(harness.diagnosticTestTools.getBackgroundDispatchCount()).toBe(0);
   });
@@ -113,11 +111,11 @@ describe('Runtime stale running-intent reconciliation', () => {
     root = mkdtempSync(join(tmpdir(), 'saivage-idle-running-intent-closed-'));
     initProjectTree(root);
     const cards = new CardStore(root);
-    cards.update('project', {
+    cards.repairTerminalLifecycle('project', {
       status: 'done',
-      status_text: 'project terminal with closed root runs',
       lifecycle: { status: 'done', result: { kind: 'planner_done', created_cards: [], updated_cards: [], summary: 'terminal project' }, error: null, completed_at: '2026-01-01T00:00:00.000Z' },
     });
+    cards.update('project', { status_text: 'project terminal with closed root runs' });
 
     const base = initRuntimeState(root);
     appendRuntimeRun(root, {
@@ -131,7 +129,7 @@ describe('Runtime stale running-intent reconciliation', () => {
       runtime_status: 'idle',
       session_id: 'planner:project',
       finished_at: new Date().toISOString(),
-      result: 'done',
+      outcome: { kind: 'completed', result: 'done', finished_at: new Date().toISOString() },
     });
     saveRuntimeState(root, {
       ...(readRuntimeState(root) ?? base),

@@ -1,4 +1,4 @@
-import type { ActionableErrorEnvelope, CardLifecycleState, CardRecord, CardStatus, FreezeManifest, HandoffSummary, RuntimeActivationOutcomeSnapshot, RuntimeCommandRecord, RuntimeRunOutcomeSnapshot, RuntimeRunRecord, RuntimeState } from '../schemas/index.js';
+import type { ActionableErrorEnvelope, CardLifecycleState, CardRecord, CardStatus, FreezeManifest, HandoffSummary, RuntimeCommandRecord, RuntimeLedgerActivationOutcome, RuntimeLedgerRunOutcome, RuntimeRunRecord, RuntimeState } from '../schemas/index.js';
 import type { ActivationCompletionOutcome } from '../schemas/index.js';
 
 const TERMINAL_STATUSES: ReadonlySet<CardStatus> = new Set<CardStatus>(['done', 'failed', 'cancelled']);
@@ -87,16 +87,16 @@ export function planRootRunDispatchSuccessUpdate(input: {
     Boolean(currentRun?.finished_at) ||
     ['stopped', 'failed'].includes(currentRun?.phase ?? '') ||
     ['stopped', 'error'].includes(currentRun?.runtime_status ?? '') ||
-    ['stopped', 'failed'].includes(currentRun?.result ?? '');
+    (currentRun?.outcome?.kind === 'completed' && ['stopped', 'failed'].includes(currentRun.outcome.result));
   if (intentStopped || alreadyTerminal) return null;
   return {
     runId: input.runId,
-    updates: {
-      phase: 'completed',
-      runtime_status: 'idle',
-      finished_at: input.nowIso,
-      result: 'done',
-    },
+      updates: {
+        phase: 'completed',
+        runtime_status: 'idle',
+        finished_at: input.nowIso,
+        outcome: { kind: 'completed', result: 'done', finished_at: input.nowIso },
+      },
   };
 }
 
@@ -115,12 +115,12 @@ export function planRootRunDispatchFailureUpdate(input: {
   }
   return {
     runId: input.runId,
-    updates: {
-      phase: 'failed',
-      runtime_status: 'error',
-      finished_at: input.nowIso,
-      result: 'failed',
-    },
+      updates: {
+        phase: 'failed',
+        runtime_status: 'error',
+        finished_at: input.nowIso,
+        outcome: { kind: 'completed', result: 'failed', error: 'Root run dispatch failed.', finished_at: input.nowIso },
+      },
   };
 }
 
@@ -136,7 +136,7 @@ export function planOpenRootRunStopUpdates(input: {
         phase: 'stopped',
         runtime_status: 'stopped',
         finished_at: input.nowIso,
-        result: 'stopped',
+        outcome: { kind: 'completed', result: 'stopped', finished_at: input.nowIso },
       },
     }));
 }
@@ -443,31 +443,31 @@ export function observeRuntimeStateInvariants(input: {
   }
 
   for (const activation of state.runtime_activations ?? []) {
-    const snapshot = activation.outcome_snapshot ?? null;
-    if (activation.status === 'needs_verification' && snapshot?.kind !== 'paused') {
-      observations.push({ invariant: 'I7', key: activation.activation_id, details: { activationId: activation.activation_id, status: activation.status, outcomeSnapshot: snapshot } });
+    const outcome = activation.outcome ?? null;
+    if (activation.status === 'needs_verification' && outcome?.kind !== 'paused') {
+      observations.push({ invariant: 'I7', key: activation.activation_id, details: { activationId: activation.activation_id, status: activation.status, outcome } });
     }
-    if (activation.status === 'completed' && snapshot && (snapshot.kind !== 'completed' || snapshot.outcome !== 'done')) {
-      observations.push({ invariant: 'I7', key: activation.activation_id, details: { activationId: activation.activation_id, status: activation.status, outcomeSnapshot: snapshot } });
+    if (activation.status === 'completed' && outcome && (outcome.kind !== 'completed' || outcome.outcome !== 'done')) {
+      observations.push({ invariant: 'I7', key: activation.activation_id, details: { activationId: activation.activation_id, status: activation.status, outcome } });
     }
-    if (activation.status === 'failed' && snapshot && (snapshot.kind !== 'completed' || snapshot.outcome !== 'failed')) {
-      observations.push({ invariant: 'I7', key: activation.activation_id, details: { activationId: activation.activation_id, status: activation.status, outcomeSnapshot: snapshot } });
+    if (activation.status === 'failed' && outcome && (outcome.kind !== 'completed' || outcome.outcome !== 'failed')) {
+      observations.push({ invariant: 'I7', key: activation.activation_id, details: { activationId: activation.activation_id, status: activation.status, outcome } });
     }
-    if (activation.status === 'cancelled' && snapshot && (snapshot.kind !== 'completed' || snapshot.outcome !== 'cancelled')) {
-      observations.push({ invariant: 'I7', key: activation.activation_id, details: { activationId: activation.activation_id, status: activation.status, outcomeSnapshot: snapshot } });
+    if (activation.status === 'cancelled' && outcome && (outcome.kind !== 'completed' || outcome.outcome !== 'cancelled')) {
+      observations.push({ invariant: 'I7', key: activation.activation_id, details: { activationId: activation.activation_id, status: activation.status, outcome } });
     }
   }
 
   for (const run of state.runtime_runs ?? []) {
-    const snapshot = run.outcome_snapshot ?? null;
-    if (run.result === 'needs_verification' && snapshot?.kind !== 'paused') {
-      observations.push({ invariant: 'I8', key: run.run_id, details: { runId: run.run_id, result: run.result, outcomeSnapshot: snapshot } });
+    const outcome = run.outcome ?? null;
+    if (run.phase === 'needs_verification' && outcome?.kind !== 'paused') {
+      observations.push({ invariant: 'I8', key: run.run_id, details: { runId: run.run_id, phase: run.phase, outcome } });
     }
-    if (run.result === 'done' && snapshot && (snapshot.kind !== 'completed' || snapshot.result !== 'done')) {
-      observations.push({ invariant: 'I8', key: run.run_id, details: { runId: run.run_id, result: run.result, outcomeSnapshot: snapshot } });
+    if (run.phase === 'completed' && outcome && (outcome.kind !== 'completed' || outcome.result !== 'done')) {
+      observations.push({ invariant: 'I8', key: run.run_id, details: { runId: run.run_id, phase: run.phase, outcome } });
     }
-    if (run.result === 'failed' && snapshot && (snapshot.kind !== 'completed' || snapshot.result !== 'failed')) {
-      observations.push({ invariant: 'I8', key: run.run_id, details: { runId: run.run_id, result: run.result, outcomeSnapshot: snapshot } });
+    if (run.phase === 'failed' && outcome && (outcome.kind !== 'completed' || outcome.result !== 'failed')) {
+      observations.push({ invariant: 'I8', key: run.run_id, details: { runId: run.run_id, phase: run.phase, outcome } });
     }
   }
 
@@ -547,13 +547,13 @@ export function planOpenPlannerRunTerminalUpdate(input: {
   if (!openRun) return null;
   return {
     runId: openRun.run_id,
-    updates: {
-      phase: result,
-      runtime_status: 'error',
-      finished_at: nowIso,
-      updated_at: nowIso,
-      result,
-    },
+      updates: {
+        phase: result,
+        runtime_status: 'error',
+        finished_at: nowIso,
+        updated_at: nowIso,
+        outcome: result === 'blocked' ? { kind: 'blocked', error: 'Planner run blocked.' } : { kind: 'completed', result: 'failed', error: 'Planner run failed.', finished_at: nowIso },
+      },
   };
 }
 
@@ -570,7 +570,7 @@ export function planIdleRunningRootRunReconciliation(input: {
   nowIso: string;
 }): IdleRunningRootRunReconciliationPlan | null {
   const { state, projectTerminal, nowIso } = input;
-  const outcomeSnapshot = input.projectLifecycle ? runtimeRunOutcomeSnapshotFromLifecycle(input.projectLifecycle) : null;
+  const outcome = input.projectLifecycle ? runtimeRunOutcomeFromLifecycle(input.projectLifecycle) : null;
   if (
     (state.runtime_intent?.status ?? 'stopped') !== 'running' ||
     state.status !== 'idle' ||
@@ -608,8 +608,7 @@ export function planIdleRunningRootRunReconciliation(input: {
         runtime_status: projectTerminal ? 'idle' : 'error',
         finished_at: nowIso,
         updated_at: nowIso,
-        result: projectTerminal ? 'done' : 'failed',
-        ...(outcomeSnapshot ? { outcome_snapshot: outcomeSnapshot } : {}),
+        outcome: outcome ?? (projectTerminal ? { kind: 'completed', result: 'done', finished_at: nowIso } : { kind: 'completed', result: 'failed', error: 'Runtime was idle with an open root run.', finished_at: nowIso }),
       },
     })),
     diagnosticMessage: projectTerminal
@@ -632,16 +631,16 @@ export function planProjectRootRedispatch(input: {
   const openRootRun = rootRuns.find((run) => !run.finished_at);
   if (openRootRun) return { shouldRedispatch: true, cardId: projectCardId, reason: 'open_root_run' };
   const latestRootRun = rootRuns.slice().sort((a, b) => (b.updated_at ?? '').localeCompare(a.updated_at ?? ''))[0];
-  if (latestRootRun?.result === 'failed' || latestRootRun?.runtime_status === 'error' || latestRootRun?.phase === 'failed') {
+  if ((latestRootRun?.outcome?.kind === 'completed' && latestRootRun.outcome.result === 'failed') || latestRootRun?.runtime_status === 'error' || latestRootRun?.phase === 'failed') {
     return { shouldRedispatch: true, cardId: projectCardId, reason: 'failed_root_run_with_running_intent' };
   }
   return { shouldRedispatch: false };
 }
 
-export function activationOutcomeSnapshotFromLifecycle(input: {
+export function activationOutcomeFromLifecycle(input: {
   cardId: string;
   lifecycle: CardLifecycleState;
-}): RuntimeActivationOutcomeSnapshot | null {
+}): RuntimeLedgerActivationOutcome | null {
   const { cardId, lifecycle } = input;
   switch (lifecycle.status) {
     case 'done':
@@ -659,7 +658,7 @@ export function activationOutcomeSnapshotFromLifecycle(input: {
   }
 }
 
-export function runtimeRunOutcomeSnapshotFromLifecycle(lifecycle: CardLifecycleState): RuntimeRunOutcomeSnapshot | null {
+export function runtimeRunOutcomeFromLifecycle(lifecycle: CardLifecycleState): RuntimeLedgerRunOutcome | null {
   switch (lifecycle.status) {
     case 'done':
       return { kind: 'completed', result: 'done', finished_at: lifecycle.completed_at };
@@ -693,18 +692,8 @@ export function reduceActivationCompletion(
 ): RuntimeState | null {
   if (!currentState?.runtime_activations?.length) return null;
   const terminalStatus = outcome === 'done' ? 'completed' : outcome;
-  const activationSnapshot = lifecycle ? activationOutcomeSnapshotFromLifecycle({ cardId: childCardId, lifecycle }) : null;
-  const runSnapshot = lifecycle ? runtimeRunOutcomeSnapshotFromLifecycle(lifecycle) : null;
-  const runResult: RuntimeRunRecord['result'] =
-    outcome === 'done'
-      ? 'done'
-      : outcome === 'blocked'
-        ? 'blocked'
-        : outcome === 'cancelled'
-          ? 'cancelled'
-          : outcome === 'needs_verification'
-            ? 'needs_verification'
-            : 'failed';
+  const activationOutcome = lifecycle ? activationOutcomeFromLifecycle({ cardId: childCardId, lifecycle }) : activationOutcomeFromCompletion(childCardId, outcome, nowIso);
+  const runOutcome = lifecycle ? runtimeRunOutcomeFromLifecycle(lifecycle) : runtimeRunOutcomeFromCompletion(outcome, nowIso);
   const transitioningActivations = currentState.runtime_activations.filter(
     (activation) =>
       activation.child_card_id === childCardId &&
@@ -714,7 +703,7 @@ export function reduceActivationCompletion(
   const completedRunIds = new Set(transitioningActivations.map((activation) => activation.runtime_run_id).filter((runId): runId is string => typeof runId === 'string'));
   const activations = currentState.runtime_activations.map((activation) =>
     completedActivationIds.has(activation.activation_id)
-      ? { ...activation, status: terminalStatus as typeof activation.status, updated_at: nowIso, ...(activationSnapshot ? { outcome_snapshot: activationSnapshot } : {}) }
+      ? { ...activation, status: terminalStatus as typeof activation.status, updated_at: nowIso, ...(activationOutcome ? { outcome: activationOutcome } : {}) }
       : activation,
   );
   const runs = (currentState.runtime_runs ?? []).map((run) =>
@@ -727,8 +716,7 @@ export function reduceActivationCompletion(
           runtime_status: outcome === 'done' ? ('idle' as const) : ('error' as const),
           finished_at: nowIso,
           updated_at: nowIso,
-          result: runResult,
-          ...(runSnapshot ? { outcome_snapshot: runSnapshot } : {}),
+          ...(runOutcome ? { outcome: runOutcome } : {}),
         }
       : run,
   );
@@ -738,4 +726,34 @@ export function reduceActivationCompletion(
     runtime_runs: runs,
     updated_at: nowIso,
   };
+}
+
+function activationOutcomeFromCompletion(cardId: string, outcome: ActivationCompletionOutcome, completedAt: string): RuntimeLedgerActivationOutcome {
+  switch (outcome) {
+    case 'done':
+      return { kind: 'completed', outcome: 'done', card_id: cardId, completed_at: completedAt };
+    case 'blocked':
+      return { kind: 'blocked', card_id: cardId, error: 'Activation blocked.' };
+    case 'cancelled':
+      return { kind: 'completed', outcome: 'cancelled', card_id: cardId, completed_at: completedAt };
+    case 'needs_verification':
+      return { kind: 'paused', reason: 'needs_verification', card_id: cardId, detail: 'Card is parked for verification.' };
+    default:
+      return { kind: 'completed', outcome: 'failed', card_id: cardId, error: 'Activation failed.', completed_at: completedAt };
+  }
+}
+
+function runtimeRunOutcomeFromCompletion(outcome: ActivationCompletionOutcome, finishedAt: string): RuntimeLedgerRunOutcome {
+  switch (outcome) {
+    case 'done':
+      return { kind: 'completed', result: 'done', finished_at: finishedAt };
+    case 'blocked':
+      return { kind: 'blocked', error: 'Activation blocked.' };
+    case 'cancelled':
+      return { kind: 'completed', result: 'cancelled', finished_at: finishedAt };
+    case 'needs_verification':
+      return { kind: 'paused', reason: 'needs_verification', detail: 'Card is parked for verification.' };
+    default:
+      return { kind: 'completed', result: 'failed', error: 'Activation failed.', finished_at: finishedAt };
+  }
 }
