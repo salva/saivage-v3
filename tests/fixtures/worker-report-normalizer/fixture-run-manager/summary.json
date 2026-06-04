@@ -1,0 +1,15 @@
+{
+  "stage_id": "fixture-run-manager",
+  "result": "completed",
+  "summary": "Synthetic run manager fixture completed.",
+  "tasks_completed": [
+    "t1-sanitized-clearance-gate",
+    "t2-stage-review"
+  ],
+  "tasks_failed": [],
+  "outcomes_achieved": [
+    "Run manager artifacts normalize before schema-facing return."
+  ],
+  "outcomes_missed": [],
+  "issues": []
+}

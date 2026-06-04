@@ -1,0 +1,31 @@
+{
+  "task_id": "t1-sanitized-clearance-gate",
+  "stage_id": "fixture-clearance-gate",
+  "status": "completed",
+  "checklist_results": [
+    {
+      "item": "Inspect only sanitized state metadata for explicit operator clearance",
+      "required": true,
+      "passed": true,
+      "note": "Fixture reports only non-secret metadata and clearance-indicator key presence."
+    },
+    {
+      "item": "Confirm synthetic state does not include credentials",
+      "required": true,
+      "passed": true
+    },
+    {
+      "item": "Record halt status without advancing runtime state",
+      "required": true,
+      "passed": true
+    },
+    {
+      "item": "Summarize sanitized clearance result for reviewer",
+      "required": true,
+      "passed": true
+    }
+  ],
+  "issues_found": [],
+  "summary": "Synthetic clearance gate report completed.",
+  "failure_reason": null
+}

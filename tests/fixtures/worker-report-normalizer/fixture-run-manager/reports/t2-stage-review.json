@@ -1,0 +1,14 @@
+{
+  "task_id": "t2-stage-review",
+  "stage_id": "fixture-run-manager",
+  "status": "completed",
+  "checklist_results": [
+    {
+      "description": "Review manager-facing normalization output.",
+      "passed": true
+    }
+  ],
+  "issues_found": [],
+  "summary": "Synthetic manager-facing reviewer report completed.",
+  "failure_reason": null
+}

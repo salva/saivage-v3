@@ -1,0 +1,15 @@
+{
+  "stage_id": "fixture-prompt-repair",
+  "result": "completed",
+  "summary": "Synthetic prompt repair fixture completed.",
+  "tasks_completed": [
+    "t1-fix-prompt-asset-deploy",
+    "t2-stage-review"
+  ],
+  "tasks_failed": [],
+  "outcomes_achieved": [
+    "Prompt assets are packaged deterministically."
+  ],
+  "outcomes_missed": [],
+  "issues": []
+}

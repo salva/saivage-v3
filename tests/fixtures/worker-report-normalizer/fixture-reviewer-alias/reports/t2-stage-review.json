@@ -1,0 +1,15 @@
+{
+  "task_id": "t2-stage-review",
+  "stage_id": "fixture-reviewer-alias",
+  "status": "completed",
+  "checklist_results": [
+    {
+      "description": "Exercise dispatch normalization for a successful reviewer report.",
+      "required": true,
+      "passed": true
+    }
+  ],
+  "issues_found": [],
+  "summary": "Synthetic reviewer dispatch report completed.",
+  "failure_reason": null
+}

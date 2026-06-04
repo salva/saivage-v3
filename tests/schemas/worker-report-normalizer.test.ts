@@ -6,21 +6,14 @@ import { normalizeRunManagerArtifacts } from '../../src/schemas/manager-envelope
 import { normalizeWorkerDispatchTaskReport } from '../../src/schemas/worker-dispatch-envelope-normalizer.js';
 import { normalizeStageSummary, normalizeTaskReport } from '../../src/schemas/worker-report-normalizer.js';
 
-const repairStageRoot = join(process.cwd(), '.saivage', 'stages', 'repair-deployed-prompts-and-smoketest');
-const stage04Root = join(process.cwd(), '.saivage', 'stages', 'await-operator-clearance-smoketest-escalation-04');
-const stage07Root = join(process.cwd(), '.saivage', 'stages', 'await-operator-clearance-smoketest-escalation-07');
-const reviewerAliasStageRoot = join(process.cwd(), '.saivage', 'stages', 'harden-reviewer-status-alias-normalization');
+const fixtureRoot = join(process.cwd(), 'tests', 'fixtures', 'worker-report-normalizer');
+const promptRepairFixtureId = 'fixture-prompt-repair';
+const clearanceGateFixtureId = 'fixture-clearance-gate';
+const runManagerFixtureId = 'fixture-run-manager';
+const reviewerAliasFixtureId = 'fixture-reviewer-alias';
 
-function readRepairStageJson(relativePath: string): unknown {
-  return JSON.parse(readFileSync(join(repairStageRoot, relativePath), 'utf8'));
-}
-
-function readStage04Json(relativePath: string): unknown {
-  return JSON.parse(readFileSync(join(stage04Root, relativePath), 'utf8'));
-}
-
-function readReviewerAliasStageJson(relativePath: string): unknown {
-  return JSON.parse(readFileSync(join(reviewerAliasStageRoot, relativePath), 'utf8'));
+function readFixtureJson(fixtureId: string, relativePath: string): unknown {
+  return JSON.parse(readFileSync(join(fixtureRoot, fixtureId, relativePath), 'utf8'));
 }
 
 
@@ -41,12 +34,12 @@ const strictTaskReportSchema = z.object({
 }).passthrough();
 
 describe('worker report compatibility normalization', () => {
-  it('normalizes repair-stage StageSummary task id arrays into numeric task counts and preserves ids', () => {
-    const normalized = normalizeStageSummary(readRepairStageJson('summary.json'));
+  it('normalizes synthetic StageSummary task id arrays into numeric task counts and preserves ids', () => {
+    const normalized = normalizeStageSummary(readFixtureJson(promptRepairFixtureId, 'summary.json'));
 
     expect(normalized.ok).toBe(true);
     expect(normalized.data).toEqual(expect.objectContaining({
-      stage_id: 'repair-deployed-prompts-and-smoketest',
+      stage_id: promptRepairFixtureId,
       result: 'completed',
       tasks_completed: 2,
       tasks_failed: 0,
@@ -59,14 +52,14 @@ describe('worker report compatibility normalization', () => {
   });
 
   it('normalizes coder checklist item aliases and removes null failure_reason on successful reports', () => {
-    const normalized = normalizeTaskReport(readRepairStageJson('reports/t1-fix-prompt-asset-deploy.json'));
+    const normalized = normalizeTaskReport(readFixtureJson(promptRepairFixtureId, 'reports/t1-fix-prompt-asset-deploy.json'));
 
     expect(normalized.ok).toBe(true);
     expect(normalized.data?.status).toBe('completed');
     expect(normalized.data?.failure_reason).toBeUndefined();
     expect(normalized.data?.checklist_results).toHaveLength(6);
     expect(normalized.data?.checklist_results[0]).toEqual(expect.objectContaining({
-      description: 'Inspect prompt loading/build/deploy layout and implement deterministic prompt asset packaging.',
+      description: 'Inspect prompt packaging and implement deterministic asset copy behavior.',
       required: true,
       passed: true,
     }));
@@ -78,7 +71,7 @@ describe('worker report compatibility normalization', () => {
   it('normalizes reviewer status pass deterministically to completed for schema-facing validation', () => {
     const normalized = normalizeTaskReport({
       task_id: 't2-stage-review',
-      stage_id: 'harden-reviewer-status-alias-normalization',
+      stage_id: reviewerAliasFixtureId,
       status: 'pass',
       checklist_results: [
         {
@@ -99,7 +92,7 @@ describe('worker report compatibility normalization', () => {
   it('normalizes reviewer status passed deterministically to completed for schema-facing validation', () => {
     const normalized = normalizeTaskReport({
       task_id: 't2-stage-review',
-      stage_id: 'harden-reviewer-status-alias-normalization',
+      stage_id: reviewerAliasFixtureId,
       status: 'passed',
       checklist_results: [
         {
@@ -118,41 +111,41 @@ describe('worker report compatibility normalization', () => {
   });
 
   it('normalizes reviewer status passed deterministically to completed and preserves evidence', () => {
-    const normalized = normalizeTaskReport(readRepairStageJson('reports/t2-stage-review.json'));
+    const normalized = normalizeTaskReport(readFixtureJson(promptRepairFixtureId, 'reports/t2-stage-review.json'));
 
     expect(normalized.ok).toBe(true);
     expect(normalized.data?.status).toBe('completed');
     expect(normalized.data?.checklist_results[0]).toEqual(expect.objectContaining({
-      description: 'Prompt asset packaging fix is source-controlled and deterministic, not ad-hoc only',
+      description: 'Prompt asset packaging is deterministic and source-controlled.',
       required: true,
       passed: true,
       evidence: [
         't1-fix-prompt-asset-deploy',
         'scripts/copy-prompt-assets.js',
         'package.json',
-        'src/prompts/reviewer.md',
-        'src/prompts/planner.md',
-        'src/prompts/executor.md',
+        'src/prompts/example-reviewer.md',
+        'src/prompts/example-planner.md',
+        'src/prompts/example-executor.md',
       ],
     }));
     expect(normalized.diagnostics).toContain("status 'passed' normalized to 'completed'");
     expect(normalized.diagnostics).toContain('checklist_results[0].item normalized to description');
   });
 
-  it('normalizes the exact stage-04 Coder report item-only checklist entries for schema-facing serialization', () => {
-    const normalized = normalizeTaskReport(readStage04Json('reports/t1-sanitized-clearance-gate.json'));
+  it('normalizes synthetic Coder report item-only checklist entries for schema-facing serialization', () => {
+    const normalized = normalizeTaskReport(readFixtureJson(clearanceGateFixtureId, 'reports/t1-sanitized-clearance-gate.json'));
 
     expect(normalized.ok).toBe(true);
     expect(normalized.data?.task_id).toBe('t1-sanitized-clearance-gate');
-    expect(normalized.data?.stage_id).toBe('await-operator-clearance-smoketest-escalation-04');
+    expect(normalized.data?.stage_id).toBe(clearanceGateFixtureId);
     expect(normalized.data?.status).toBe('completed');
     expect(normalized.data?.failure_reason).toBeUndefined();
     expect(normalized.data?.checklist_results).toHaveLength(4);
     expect(normalized.data?.checklist_results[0]).toEqual({
-      description: 'Inspect only sanitized bootstrap-state metadata for explicit operator clearance',
+      description: 'Inspect only sanitized state metadata for explicit operator clearance',
       required: true,
       passed: true,
-      note: 'Used a Node.js filter to report only existence, JSON validity, phase, non-secret key names, smoke-test status/attempts, and clearance-indicator key presence.',
+      note: 'Fixture reports only non-secret metadata and clearance-indicator key presence.',
     });
     expect(normalized.data?.checklist_results.every((entry) => typeof entry.description === 'string' && entry.description.length > 0)).toBe(true);
 
@@ -168,12 +161,12 @@ describe('worker report compatibility normalization', () => {
     ]));
   });
 
-  it('normalizes the exact stage-04 Reviewer report item-only checklist and null failure_reason for schema-facing serialization', () => {
-    const normalized = normalizeTaskReport(readStage04Json('reports/t2-stage-review.json'));
+  it('normalizes synthetic Reviewer report item-only checklist and null failure_reason for schema-facing serialization', () => {
+    const normalized = normalizeTaskReport(readFixtureJson(clearanceGateFixtureId, 'reports/t2-stage-review.json'));
 
     expect(normalized.ok).toBe(true);
     expect(normalized.data?.task_id).toBe('t2-stage-review');
-    expect(normalized.data?.stage_id).toBe('await-operator-clearance-smoketest-escalation-04');
+    expect(normalized.data?.stage_id).toBe(clearanceGateFixtureId);
     expect(normalized.data?.status).toBe('completed');
     expect(normalized.data?.failure_reason).toBeUndefined();
     expect(normalized.data?.checklist_results).toEqual([
@@ -181,7 +174,7 @@ describe('worker report compatibility normalization', () => {
         description: 'Reviewer confirms no unauthorized state advancement or secret exposure occurred.',
         required: true,
         passed: true,
-        note: 't1-sanitized-clearance-gate.json and clearance-gate.json both record a policy halt with sanitized metadata only and no clearance indicators.',
+        note: 'Synthetic reports record a policy halt with sanitized metadata only and no clearance indicators.',
       },
     ]);
 
@@ -194,12 +187,12 @@ describe('worker report compatibility normalization', () => {
     ]));
   });
 
-  it('normalizes exact stage-07 run_manager-facing summary task arrays into numeric counts', () => {
-    const normalized = normalizeRunManagerArtifacts({ stageDirectory: stage07Root });
+  it('normalizes synthetic run_manager-facing summary task arrays into numeric counts', () => {
+    const normalized = normalizeRunManagerArtifacts({ stageDirectory: join(fixtureRoot, runManagerFixtureId) });
 
     expect(normalized.ok).toBe(true);
     expect(normalized.data?.stage_summary).toEqual(expect.objectContaining({
-      stage_id: 'await-operator-clearance-smoketest-escalation-07',
+      stage_id: runManagerFixtureId,
       result: 'completed',
       tasks_completed: 2,
       tasks_failed: 0,
@@ -215,8 +208,8 @@ describe('worker report compatibility normalization', () => {
     ]));
   });
 
-  it('normalizes exact stage-07 run_manager-facing worker reports before schema validation/return', () => {
-    const normalized = normalizeRunManagerArtifacts({ stageDirectory: stage07Root });
+  it('normalizes synthetic run_manager-facing worker reports before schema validation/return', () => {
+    const normalized = normalizeRunManagerArtifacts({ stageDirectory: join(fixtureRoot, runManagerFixtureId) });
 
     expect(normalized.ok).toBe(true);
     expect(normalized.data?.task_reports.map((report) => report.task_id)).toEqual([
@@ -239,9 +232,9 @@ describe('worker report compatibility normalization', () => {
   });
 
 
-  it('normalizes the recent Coder dispatch return report before strict schema validation', () => {
+  it('normalizes a synthetic Coder dispatch return report before strict schema validation', () => {
     const normalized = normalizeWorkerDispatchTaskReport(
-      readReviewerAliasStageJson('reports/t1-reviewer-status-alias-tests.json'),
+      readFixtureJson(reviewerAliasFixtureId, 'reports/t1-reviewer-status-alias-tests.json'),
       { source: 'reports/t1-reviewer-status-alias-tests.json' },
     );
 
@@ -255,9 +248,9 @@ describe('worker report compatibility normalization', () => {
     );
   });
 
-  it('normalizes the recent Reviewer dispatch return report before strict schema validation', () => {
+  it('normalizes a synthetic Reviewer dispatch return report before strict schema validation', () => {
     const normalized = normalizeWorkerDispatchTaskReport(
-      readReviewerAliasStageJson('reports/t2-stage-review.json'),
+      readFixtureJson(reviewerAliasFixtureId, 'reports/t2-stage-review.json'),
       { source: 'reports/t2-stage-review.json' },
     );
 
@@ -272,7 +265,7 @@ describe('worker report compatibility normalization', () => {
   });
 
   it('normalizes a successful Reviewer dispatch object before strict schema validation rejects failure_reason:null', () => {
-    const rawReport = readReviewerAliasStageJson('reports/t2-stage-review.json');
+    const rawReport = readFixtureJson(reviewerAliasFixtureId, 'reports/t2-stage-review.json');
 
     expect(strictTaskReportSchema.safeParse(rawReport).success).toBe(false);
 

@@ -1,0 +1,22 @@
+{
+  "task_id": "t2-stage-review",
+  "stage_id": "fixture-prompt-repair",
+  "status": "passed",
+  "checklist_results": [
+    {
+      "item": "Prompt asset packaging is deterministic and source-controlled.",
+      "required": true,
+      "passed": true,
+      "evidence": [
+        "t1-fix-prompt-asset-deploy",
+        "scripts/copy-prompt-assets.js",
+        "package.json",
+        "src/prompts/example-reviewer.md",
+        "src/prompts/example-planner.md",
+        "src/prompts/example-executor.md"
+      ]
+    }
+  ],
+  "issues_found": [],
+  "summary": "Synthetic reviewer report passed using a compatibility status alias."
+}

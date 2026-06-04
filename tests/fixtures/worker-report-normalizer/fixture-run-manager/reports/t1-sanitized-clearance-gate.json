@@ -1,0 +1,14 @@
+{
+  "task_id": "t1-sanitized-clearance-gate",
+  "stage_id": "fixture-run-manager",
+  "status": "completed",
+  "checklist_results": [
+    {
+      "description": "Return sanitized clearance metadata through the manager boundary.",
+      "passed": true
+    }
+  ],
+  "issues_found": [],
+  "summary": "Synthetic manager-facing coder report completed.",
+  "failure_reason": null
+}

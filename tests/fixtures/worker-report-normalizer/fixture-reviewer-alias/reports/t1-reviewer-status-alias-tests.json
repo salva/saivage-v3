@@ -1,0 +1,15 @@
+{
+  "task_id": "t1-reviewer-status-alias-tests",
+  "stage_id": "fixture-reviewer-alias",
+  "status": "completed",
+  "checklist_results": [
+    {
+      "description": "Exercise dispatch normalization for a successful coder report.",
+      "required": true,
+      "passed": true
+    }
+  ],
+  "issues_found": [],
+  "summary": "Synthetic coder dispatch report completed.",
+  "failure_reason": null
+}

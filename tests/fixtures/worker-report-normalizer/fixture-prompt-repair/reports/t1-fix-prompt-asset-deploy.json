@@ -1,0 +1,40 @@
+{
+  "task_id": "t1-fix-prompt-asset-deploy",
+  "stage_id": "fixture-prompt-repair",
+  "status": "completed",
+  "checklist_results": [
+    {
+      "item": "Inspect prompt packaging and implement deterministic asset copy behavior.",
+      "required": true,
+      "passed": true
+    },
+    {
+      "item": "Add a repeatable packaging command.",
+      "required": true,
+      "passed": true
+    },
+    {
+      "item": "Keep prompt paths stable across build output.",
+      "required": true,
+      "passed": true
+    },
+    {
+      "item": "Verify packaged prompt files are included.",
+      "required": true,
+      "passed": true
+    },
+    {
+      "item": "Document the fixture behavior in test assertions.",
+      "required": true,
+      "passed": true
+    },
+    {
+      "item": "Avoid ad-hoc runtime-only prompt copies.",
+      "required": true,
+      "passed": true
+    }
+  ],
+  "issues_found": [],
+  "summary": "Synthetic coder report completed.",
+  "failure_reason": null
+}

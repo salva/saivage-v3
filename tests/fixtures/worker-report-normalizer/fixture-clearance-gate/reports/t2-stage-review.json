@@ -1,0 +1,16 @@
+{
+  "task_id": "t2-stage-review",
+  "stage_id": "fixture-clearance-gate",
+  "status": "completed",
+  "checklist_results": [
+    {
+      "item": "Reviewer confirms no unauthorized state advancement or secret exposure occurred.",
+      "required": true,
+      "passed": true,
+      "note": "Synthetic reports record a policy halt with sanitized metadata only and no clearance indicators."
+    }
+  ],
+  "issues_found": [],
+  "summary": "Synthetic reviewer clearance report completed.",
+  "failure_reason": null
+}
