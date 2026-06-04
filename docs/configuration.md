@@ -1,12 +1,5 @@
 # Saivage v3 — Configuration Reference
 
-<!-- doc-authority
-status: current
-disposition: keep
-owner: docs-maintainers
-superseded_by: none
-last_verified_against: src/agents/config-schema.ts:1
--->
 
 Configuration is loaded from `.saivage/saivage.json` in the project root directory. The file is validated against a [Zod](https://zod.dev) schema with sensible defaults for every section. Environment variable references of the form `${ENV_VAR}` are interpolated at load time.
 

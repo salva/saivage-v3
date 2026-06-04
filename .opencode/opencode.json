@@ -1,0 +1,14 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "instructions": [
+    "/home/salva/g/ml/AGENTS.md",
+    "/home/salva/g/ml/saivage-v3/AGENTS.md",
+    "/home/salva/g/ml/WORKSPACE_HANDOFF.md",
+    "/home/salva/g/ml/CODEX_PROJECT_MEMORY.md"
+  ],
+  "skills": {
+    "paths": [
+      "/home/salva/g/ml/.github/skills"
+    ]
+  }
+}

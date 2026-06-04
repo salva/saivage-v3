@@ -1,12 +1,5 @@
 # Release
 
-<!-- doc-authority
-status: current
-disposition: keep
-owner: docs-maintainers
-superseded_by: none
-last_verified_against: package.json:1
--->
 
 Use this checklist for a release candidate against the current repaired system.
 

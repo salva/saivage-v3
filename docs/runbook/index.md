@@ -1,12 +1,5 @@
 # Saivage v3 Runbook
 
-<!-- doc-authority
-status: current
-disposition: keep
-owner: docs-maintainers
-superseded_by: none
-last_verified_against: scripts/check-runbook-curl-examples.js:1
--->
 
 This runbook is the current operator entry point for starting, controlling, diagnosing, and releasing Saivage v3. It consolidates the prior operation guide, operator runbook, troubleshooting guide, and release checklist while leaving source-of-truth architecture in [Agents and Runtime Architecture](/agents).
 

@@ -1,12 +1,5 @@
 # Analyst Operator Guide
 
-<!-- doc-authority
-status: current
-disposition: keep
-owner: docs-maintainers
-superseded_by: none
-last_verified_against: src/agents/analyst-handler.ts:1
--->
 
 Use the analyst as Saivage's **general operator chat agent**.
 

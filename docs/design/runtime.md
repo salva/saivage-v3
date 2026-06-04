@@ -1,12 +1,5 @@
 # Runtime
 
-<!-- doc-authority
-status: stale
-disposition: merge-into
-owner: docs-maintainers
-superseded_by: docs/goal-planning-runtime.md
-last_verified_against: src/runtime/runtime.ts:1
--->
 
 > **Authority status: stale.** This page is retained only as a pointer and limited provenance note. Do not use it for current runtime-control, operator, or implementation guidance.
 >

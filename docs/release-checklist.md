@@ -1,12 +1,5 @@
 # Saivage v3 — Release Checklist
 
-<!-- doc-authority
-status: current
-disposition: keep
-owner: docs-maintainers
-superseded_by: none
-last_verified_against: docs/runbook/release.md:1
--->
 
 Release validation has been consolidated into [Runbook: Release](/runbook/release).
 

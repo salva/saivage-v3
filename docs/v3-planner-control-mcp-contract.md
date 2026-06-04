@@ -1,12 +1,5 @@
 # Planner Control MCP Contract
 
-<!-- doc-authority
-status: current
-disposition: keep
-owner: docs-maintainers
-superseded_by: none
-last_verified_against: src/agents/planner-control-executor.ts:1
--->
 
 Planner control tools mutate planner/card state or request child runtime activation. They do not start the root project.
 

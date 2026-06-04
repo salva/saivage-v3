@@ -1,12 +1,5 @@
 # Agent Architecture
 
-<!-- doc-authority
-status: current
-disposition: keep
-owner: docs-maintainers
-superseded_by: none
-last_verified_against: src/agents/agent-adapter.ts:1
--->
 
 This document is the current Saivage v3 agent architecture reference. See historical: the companion implementation plan is preserved as [Planner Redesign Implementation Plan](./historical/2026-05-remediation-dossiers/planner-redesign-plan.md).
 

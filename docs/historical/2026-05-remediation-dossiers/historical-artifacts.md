@@ -1,12 +1,5 @@
 # Historical artifacts
 
-<!-- doc-authority
-status: historical
-disposition: keep
-owner: docs-maintainers
-superseded_by: docs/historical/README.md
-last_verified_against: docs/historical/README.md:1
--->
 
 > **Authority status: historical.** This page is retained for provenance only. Prefer `docs/historical/README.md` for current authority where applicable. See `docs/documentation-inventory.md` for disposition `keep`.
 

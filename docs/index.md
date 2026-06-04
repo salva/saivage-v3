@@ -1,12 +1,5 @@
 # Saivage v3 documentation
 
-<!-- doc-authority
-status: current
-disposition: keep
-owner: docs-maintainers
-superseded_by: none
-last_verified_against: docs/.vitepress/config.ts:1
--->
 
 Use this index as the current entry point for operator procedures, design references, provenance records, and remediation dossiers. Each prominent link is labeled before click-through as current authority, stale context, or historical provenance according to `docs/documentation-inventory.md`.
 
@@ -20,7 +13,6 @@ Use this index as the current entry point for operator procedures, design refere
 
 ## Design
 
-<!-- doc-authority-status:start -->
 | Link | Authority status | Reader guidance |
 |---|---|---|
 | [Design index](/design/) | current authority | Concept-level map for the consolidated design tree; follow each linked page status. |
@@ -28,6 +20,7 @@ Use this index as the current entry point for operator procedures, design refere
 | [Card lifecycle](/design/card-lifecycle) | stale context | Useful design-era context; prefer `docs/agents.md` and current planner-tool/runtime source behavior. |
 | [Agents](/design/agents) | stale context | Useful design-era context; prefer [Agents and runtime architecture](/agents). |
 | [Runtime](/design/runtime) | stale context | Useful design-era context; prefer [Agents and runtime architecture](/agents). |
+| [Terminal commit layer](/design/terminal-commit-layer) | current authority | Proposed current runtime architecture for semantic terminal commits across cards, runtime runs, activations, reviewer state, and events. |
 | [Security](/design/security) | stale context | Useful design-era context; prefer [Operation route inventory](/operation). |
 | [Configuration](/design/configuration) | stale context | Useful design-era context; prefer [Configuration reference](/configuration). |
 | [Skills](/design/skills) | stale context | Useful design-era context; prefer [Agents and runtime architecture](/agents). |
@@ -36,7 +29,6 @@ Use this index as the current entry point for operator procedures, design refere
 | [UX design](/design/ux-design) | stale context | Useful design-era context; prefer [Operation route inventory](/operation) and current web source behavior. |
 | [Decisions](/design/decisions) | historical provenance | Provenance-only design choices; prefer [Agents and runtime architecture](/agents) for current behavior. |
 | [Implementation plan](/design/implementation-plan) | historical provenance | Provenance-only delivery context; prefer current source, runbook, and remediation dossiers. |
-<!-- doc-authority-status:end -->
 
 ## Source-of-truth references
 

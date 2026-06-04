@@ -1,12 +1,5 @@
 # Saivage v3
 
-<!-- doc-authority
-status: current
-disposition: keep
-owner: docs-maintainers
-superseded_by: none
-last_verified_against: package.json:1
--->
 
 Saivage v3 is an autonomous multi-agent runtime for software-development work. A top-level planner decomposes goals into cards, executors perform scoped work, reviewers verify results, and the operator control room exposes cards, agents, files, timeline events, and runtime controls.
 
@@ -32,7 +25,6 @@ curl http://localhost:8080/health
 
 ## Current documentation
 
-<!-- doc-authority-status:start -->
 | Link | Authority status | Reader guidance |
 |---|---|---|
 | [Operator runbook](docs/runbook/index.md) | current authority | Start, pause, resume, diagnose, recover incidents, and release Saivage from the implemented runbook. |
@@ -40,7 +32,6 @@ curl http://localhost:8080/health
 | [Documentation index](docs/index.md) | current authority | Curated table of contents for current docs and findings dossiers. |
 | [Documentation inventory](docs/documentation-inventory.md) | current authority | Source-of-truth ledger for every root and `docs/` Markdown file classification/disposition. |
 | See historical: [Historical documentation](docs/historical/README.md) | historical provenance | Provenance-only plans, audits, and pre-consolidation designs; not current operator guidance. |
-<!-- doc-authority-status:end -->
 
 ## Key concepts
 

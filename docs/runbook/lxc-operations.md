@@ -1,12 +1,5 @@
 # LXC operations
 
-<!-- doc-authority
-status: current
-disposition: keep
-owner: docs-maintainers
-superseded_by: none
-last_verified_against: src/cli.ts:1
--->
 
 This page mirrors the workspace-local LXC operating pattern for Saivage deployments. Use it together with [Operations](./operations.md).
 

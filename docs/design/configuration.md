@@ -1,12 +1,5 @@
 # Configuration
 
-<!-- doc-authority
-status: stale
-disposition: merge-into
-owner: docs-maintainers
-superseded_by: docs/configuration.md
-last_verified_against: src/agents/config-schema.ts:1
--->
 
 > **Authority status: stale.** This page is retained for context only and is not current operator guidance. Prefer `docs/configuration.md` for current authority where applicable. See `docs/documentation-inventory.md` for disposition `merge-into`.
 

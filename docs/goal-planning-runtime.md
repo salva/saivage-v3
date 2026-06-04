@@ -1,12 +1,5 @@
 # Goal Planning Runtime
 
-<!-- doc-authority
-status: current
-disposition: keep
-owner: docs-maintainers
-superseded_by: none
-last_verified_against: src/runtime/runtime.ts:1
--->
 
 This page describes the current Saivage v3 runtime-control model. It supersedes older queue/status-driven descriptions.
 

@@ -3,13 +3,6 @@
 
 # Second Codebase Review Remediation Cycle
 
-<!-- doc-authority
-status: historical
-disposition: keep
-owner: docs-maintainers
-superseded_by: docs/historical/2026-05-remediation-dossiers/historical-artifacts.md
-last_verified_against: docs/historical/2026-05-remediation-dossiers/historical-artifacts.md:1
--->
 
 > **Authority status: historical.** This page is retained for provenance only. See `docs/historical/2026-05-remediation-dossiers/historical-artifacts.md` for the provenance index and `docs/documentation-inventory.md` for disposition `keep`.
 

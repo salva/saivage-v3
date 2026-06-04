@@ -1,3 +1,4 @@
+import { existsSync } from 'node:fs';
 import { isAbsolute, relative, resolve } from 'node:path';
 import { registerArtifact, registerAttachment } from '../../cards/artifact-api.js';
 import type { CardStore } from '../../cards/store-api.js';
@@ -114,18 +115,46 @@ export function buildIgnoredExecutorEvidencePatch(input: {
   };
 }
 
+function resultGeneratedFiles(execResult: ExecutorResult): string[] {
+  const result = execResult.result;
+  if (!result || typeof result !== 'object') return [];
+  const generatedFiles = (result as Record<string, unknown>).generated_files;
+  if (!Array.isArray(generatedFiles)) return [];
+  return generatedFiles.filter((file): file is string => typeof file === 'string');
+}
+
+export function validateExecutorGeneratedFiles(projectRoot: string, execResult: ExecutorResult): string[] {
+  const errors: string[] = [];
+  for (const filePath of resultGeneratedFiles(execResult)) {
+    if (!filePath.trim()) {
+      errors.push('Generated file claim is empty.');
+      continue;
+    }
+    const resolved = isAbsolute(filePath) ? resolve(filePath) : resolve(projectRoot, filePath);
+    if (!pathIsInside(projectRoot, resolved)) {
+      errors.push(`Generated file claim points outside project root: '${filePath}'.`);
+      continue;
+    }
+    if (!existsSync(resolved)) errors.push(`Generated file claim does not exist: '${filePath}'.`);
+  }
+  return errors;
+}
+
 export function summarizeExecutorEvidenceRegistrationFailure(input: {
   execStatus: ExecutorResult['status'];
   artifactRegistrationErrors: string[];
   attachmentRegistrationErrors: string[];
+  generatedFileValidationErrors?: string[];
 }): { registrationFailed: boolean; registrationError: string | null } {
   const registrationFailed =
     input.execStatus === 'done' &&
-    (input.artifactRegistrationErrors.length > 0 || input.attachmentRegistrationErrors.length > 0);
+    (input.artifactRegistrationErrors.length > 0 ||
+      input.attachmentRegistrationErrors.length > 0 ||
+      (input.generatedFileValidationErrors?.length ?? 0) > 0);
   return {
     registrationFailed,
     registrationError: registrationFailed
-      ? `Completion blocked by evidence registration failure. Artifacts: ${input.artifactRegistrationErrors.join(' | ') || 'none'}. Attachments: ${input.attachmentRegistrationErrors.join(' | ') || 'none'}.`
+      ? `Completion blocked by evidence registration failure. Artifacts: ${input.artifactRegistrationErrors.join(' | ') || 'none'}. Attachments: ${input.attachmentRegistrationErrors.join(' | ') || 'none'}. Generated files: ${input.generatedFileValidationErrors?.join(' | ') || 'none'}.`
       : null,
   };
 }

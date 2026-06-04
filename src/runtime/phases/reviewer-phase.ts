@@ -47,6 +47,7 @@ export function buildReviewerPassCompletionPatch(input: {
 }): Partial<CardRecord> {
   return {
     completed_at: input.existingCompletedAt ?? input.completedAt,
+    error: null,
     result: {
       ...(input.existingResult ?? {}),
       planning: {

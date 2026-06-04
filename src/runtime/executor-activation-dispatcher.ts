@@ -13,6 +13,7 @@ import {
   createExecutorEvidenceRegistrar,
   registerExecutorEvidence,
   summarizeExecutorEvidenceRegistrationFailure,
+  validateExecutorGeneratedFiles,
 } from './phases/executor-evidence.js';
 import { handleExecutorInvocationFailure } from './phases/executor-invocation-failure.js';
 import { handleExecutorCompletion } from './phases/executor-completion-handler.js';
@@ -129,6 +130,7 @@ export class ExecutorActivationDispatcher {
       execStatus: execResult.status,
       artifactRegistrationErrors,
       attachmentRegistrationErrors,
+      generatedFileValidationErrors: validateExecutorGeneratedFiles(this.deps.projectRoot, execResult),
     });
     const completion = await handleExecutorCompletion({
       cardId: card.id,

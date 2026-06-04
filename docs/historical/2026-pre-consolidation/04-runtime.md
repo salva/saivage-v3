@@ -1,12 +1,5 @@
 # Runtime
 
-<!-- doc-authority
-status: historical
-disposition: move-to-docs/historical/
-owner: docs-maintainers
-superseded_by: none
-last_verified_against: src/runtime/runtime.ts:1
--->
 
 > **Authority status: historical.** This page is retained for provenance only and has no current replacement yet. See `docs/documentation-inventory.md` for disposition `move-to-docs/historical/`.
 

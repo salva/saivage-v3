@@ -1,12 +1,5 @@
 # Documentation inventory
 
-<!-- doc-authority
-status: current
-disposition: keep
-owner: docs-maintainers
-superseded_by: none
-last_verified_against: scripts/check-doc-inventory.js:1
--->
 
 This inventory maps every tracked Markdown file in the repository root and `docs/` tree to its current source-of-truth status. Stage 22 moved the numbered root design documents into `docs/historical/2026-pre-consolidation/`; Stage 24 moved remediation and review dossiers into `docs/historical/2026-05-remediation-dossiers/` and added a historical-isolation guard; Stage 25 consolidated operator guidance into `docs/runbook/`; Stage 26 finalized the root landing page, curated docs index, consolidation summary, and global Markdown link guard.
 
@@ -37,6 +30,7 @@ This inventory maps every tracked Markdown file in the repository root and `docs
 | `docs/design/implementation-plan.md` | historical | The consolidated implementation plan is a delivery artifact superseded by current source and remediation dossiers. | docs/historical/2026-05-remediation-dossiers/planner-redesign-plan.md:1 | move-to-docs/historical/ |
 | `docs/design/index.md` | current | The design index is the Stage 22 canonical entry point for consolidated design-era concept documents. | docs/.vitepress/config.ts:1 | keep |
 | `docs/design/runtime.md` | stale | The consolidated runtime design has useful context but trails the current scheduler, safe-tick, runtime-state invariant, and HTTP response contracts. | src/runtime/runtime.ts:1 | merge-into |
+| `docs/design/terminal-commit-layer.md` | current | Current design proposal for centralizing semantic terminal commits across executor, reviewer, planner, card, runtime-run, activation, evidence, and event state. | src/runtime/phases/executor-evidence.ts:1 | keep |
 | `docs/design/security.md` | stale | The consolidated security overview omits later provider-error redaction, auth-banner, and path-denylist details now enforced in source. | src/observability/error-logger.ts:1 | merge-into |
 | `docs/design/server-api.md` | stale | The consolidated server API doc predates repaired runtime-control response shapes and the current route verification guard. | src/server/server.ts:1 | merge-into |
 | `docs/design/skills.md` | stale | The consolidated skills design is still conceptually relevant but lacks current workspace-tool and skill-engine implementation details. | src/agents/skills-engine.ts:1 | merge-into |

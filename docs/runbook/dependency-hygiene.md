@@ -1,12 +1,5 @@
 # Dependency hygiene runbook
 
-<!-- doc-authority
-status: current
-disposition: keep
-owner: platform-maintainers
-superseded_by: none
-last_verified_against: scripts/check-dependency-freshness.js:1
--->
 
 This runbook defines the ARCH-029 dependency hygiene gate for the root package graph (`package.json`) and web package graph (`web/package.json`). It is governance only: do not run `npm audit fix`, `npm update`, or broad dependency upgrades as part of the gate unless a separate dependency-remediation change is approved.
 

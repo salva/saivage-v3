@@ -1,12 +1,5 @@
 # Saivage v3 AI Agent Instructions
 
-<!-- doc-authority
-status: current
-disposition: keep
-owner: docs-maintainers
-superseded_by: none
-last_verified_against: scripts/check-doc-authority-metadata.js:1
--->
 
 Scope: `/home/salva/g/ml/saivage-v3`.
 
