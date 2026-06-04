@@ -32,6 +32,7 @@ import {
   CardStoreInvariantError,
   CardStoreState,
 } from './state.js';
+import { isReservedCardId } from './card-ids.js';
 import {
   unlinkCommitMarker,
   writeCommitMarker,
@@ -193,6 +194,11 @@ function applyMutationLocked(
     const card = cardRecordSchema.parse(op.card);
     if (state.has(card.id)) {
       throw new CardStoreInvariantError(`Cannot create card '${card.id}': already exists.`);
+    }
+    if (isReservedCardId(projectRoot, card.id, state.list().map((existing) => existing.id))) {
+      throw new CardStoreInvariantError(
+        `Cannot create card '${card.id}': card ids are durable and this id is already reserved by history or archive state.`,
+      );
     }
     if (card.version_seq !== 1) {
       throw new CardStoreInvariantError(

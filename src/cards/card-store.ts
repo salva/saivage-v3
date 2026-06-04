@@ -54,6 +54,7 @@ import {
   type GroupCommitMarker,
 } from './commit-marker.js';
 import { PROJECT_CARD_ID } from './project-card.js';
+import { collectReservedCardIds } from './card-ids.js';
 import {
   assertCanCreateCard,
   buildNewCard,
@@ -312,7 +313,15 @@ export class CardStore {
     assertCanCreateCard(input);
     this.refreshState();
     const nowStamp = now();
-    const id = normalizeNewCardId(input.type, input.id, () => generateId(input.type, this.state.list().map((c) => c.id)));
+    const liveIds = this.state.list().map((c) => c.id);
+    const reservedIds = collectReservedCardIds(this.projectRoot, liveIds);
+    const id = normalizeNewCardId(input.type, input.id, () => generateId(input.type, reservedIds));
+
+    if (reservedIds.includes(id) && !liveIds.includes(id)) {
+      throw new Error(
+        `Cannot create card '${id}': card ids are durable and this id is already reserved by history or archive state.`,
+      );
+    }
 
     if (input.type === 'project') {
       const existing = this.state.list().find((c) => c.type === 'project');

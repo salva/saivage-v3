@@ -205,6 +205,32 @@ describe('CardStore CRUD still works with validated indexes', () => {
     const card = store.create(makeCard({ type: 'goal', title: 'My Goal' }));
     expect(existsSync(join(tmpDir, '.saivage', 'cards', 'by-id', `${card.id}.json`))).toBe(true);
   });
+
+  it('does not reuse ids reserved by deleted card history', () => {
+    const deleted = store.create(makeCard({ type: 'goal', title: 'Deleted' }));
+    expect(deleted.id).toBe('goal-1');
+
+    store.delete(deleted.id);
+
+    const next = store.create(makeCard({ type: 'goal', title: 'Next' }));
+    expect(next.id).toBe('goal-2');
+    expect(() => store.create(makeCard({ id: deleted.id, type: 'goal', title: 'Explicit Reuse' }))).toThrow(
+      /already reserved by history or archive state/,
+    );
+  });
+
+  it('does not reuse ids reserved by archived cards', () => {
+    const archived = store.create(makeCard({ type: 'goal', title: 'Archived' }));
+    expect(archived.id).toBe('goal-1');
+
+    store.archiveAndDeleteSubtree([archived.id]);
+
+    const next = store.create(makeCard({ type: 'goal', title: 'Next' }));
+    expect(next.id).toBe('goal-2');
+    expect(() => store.create(makeCard({ id: archived.id, type: 'goal', title: 'Explicit Reuse' }))).toThrow(
+      /already reserved by history or archive state/,
+    );
+  });
 });
 
 describe('CardStore selective patch behavior', () => {
