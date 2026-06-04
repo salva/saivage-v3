@@ -39,9 +39,16 @@ export class PlannerPhaseRunner {
             : goalCard.instructions_file && goalCard.instructions_file.trim()
               ? await this.deps.skillsEngine.loadPlannerInstructions(goalCard.instructions_file.trim())
               : '';
+        const currentCardContract = [
+          `title: ${goalCard.title}`,
+          `description: ${goalCard.description}`,
+          goalCard.acceptance ? `acceptance: ${goalCard.acceptance}` : '',
+          goalCard.status_text ? `status_text: ${goalCard.status_text}` : '',
+          goalCard.instructions_file ? `instructions_file: ${goalCard.instructions_file}` : '',
+        ].filter(Boolean).join('\n');
         const skillsContent = await this.deps.skillsEngine.selectAndFormat({
-          goalDescription: goalCard.description,
-          cardDescription: goalCard.description,
+          goalDescription: currentCardContract,
+          cardDescription: currentCardContract,
           tags: goalCard.tags,
           filePaths: [],
           availableTools: ['list_project_files', 'read_project_file', 'load_skill', 'mcp_tool_call'],
