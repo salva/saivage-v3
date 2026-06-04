@@ -30,6 +30,7 @@ import type {
   LlmAttemptOutcome,
   LlmAttemptPayload,
   LlmFailureClass,
+  RuntimeState,
 } from '../schemas/index.js';
 import type { NotificationCenter } from '../notifications/index.js';
 import { invokeWithRecovery, type RecoveryContext } from './recovery.js';
@@ -64,6 +65,7 @@ import { getProjectNotificationCenter } from '../notifications/notification-deli
 import { CardStore } from '../cards/store-api.js';
 import { parseDeferredActivationEnvelope } from '../schemas/validators.js';
 import { injectQueuedSyntheticPlannerNotes } from '../agents/analyst-stage6.js';
+import { buildPlannerStateContextMessage } from './planner-state-context.js';
 import { PlannerControlExecutor } from './planner-control-executor.js';
 import type { Contract } from '../contracts/contract.js';
 import {
@@ -96,6 +98,8 @@ export interface AgentAdapterConfig {
   eventLogger?: EventLogger;
   activationLedger?: RuntimeActivationLedgerPort;
   candidateAvailability?: CandidateAvailability;
+  cardStore?: Pick<CardStore, 'read' | 'listChildren'>;
+  runtimeStateProvider?: () => RuntimeState | null;
 }
 function delayInvocationRecovery(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, Math.max(0, ms)));
@@ -105,85 +109,6 @@ const PLANNER_HISTORY_CONTEXT_LIMIT_TOKENS = 24000;
 const PLANNER_HISTORY_RECENT_MESSAGE_LIMIT = 16;
 const PLANNER_HISTORY_SNIPPET_LIMIT = 240;
 
-export type PlannerCompactionSource =
-  | 'system_prompt'
-  | 'active_card'
-  | 'direct_children'
-  | 'runtime_ledger'
-  | 'tool_contract'
-  | 'selected_skills'
-  | 'operator_directives'
-  | 'transcript_tail'
-  | 'transcript_body';
-
-export interface PlannerCompactionSourceDecision {
-  source: PlannerCompactionSource;
-  policy: 'include_rendered' | 'include_summary' | 'include_reference' | 'exclude';
-  reason: string;
-}
-
-export interface PlannerCompactionContextPolicy {
-  systemPromptIncluded?: boolean;
-  activeCardIncluded?: boolean;
-  directChildrenIncluded?: boolean;
-  runtimeLedgerIncluded?: boolean;
-  toolContractIncluded?: boolean;
-  selectedSkillsIncluded?: boolean;
-  operatorDirectivesIncluded?: boolean;
-}
-
-export function buildPlannerCompactionSourceDecisions(
-  policy: PlannerCompactionContextPolicy = {},
-): PlannerCompactionSourceDecision[] {
-  return [
-    {
-      source: 'system_prompt',
-      policy: policy.systemPromptIncluded === false ? 'include_reference' : 'include_rendered',
-      reason: 'The active planner role prompt and contract are baseline authority and are rendered outside transcript history.',
-    },
-    {
-      source: 'active_card',
-      policy: policy.activeCardIncluded === false ? 'include_reference' : 'include_rendered',
-      reason: 'The current goal card title, description, acceptance, dependencies, and lifecycle define the immediate planning job.',
-    },
-    {
-      source: 'direct_children',
-      policy: policy.directChildrenIncluded === false ? 'include_reference' : 'include_rendered',
-      reason: 'The direct child table is authoritative planner state and prevents recreating existing child work.',
-    },
-    {
-      source: 'runtime_ledger',
-      policy: policy.runtimeLedgerIncluded === false ? 'include_reference' : 'include_summary',
-      reason: 'Outstanding activations, active runs, and stale ledger warnings control whether the planner should wait, activate, or report.',
-    },
-    {
-      source: 'tool_contract',
-      policy: policy.toolContractIncluded === false ? 'include_reference' : 'include_rendered',
-      reason: 'Tool schemas are sent through the model tool channel; compaction records only the planner authority constraints.',
-    },
-    {
-      source: 'selected_skills',
-      policy: policy.selectedSkillsIncluded ? 'include_rendered' : 'include_reference',
-      reason: 'Only skills matched to the current card, role, tags, files, and tools belong in the active prompt; unrelated skills stay out.',
-    },
-    {
-      source: 'operator_directives',
-      policy: policy.operatorDirectivesIncluded === false ? 'include_reference' : 'include_summary',
-      reason: 'Current unresolved user/operator constraints must survive compaction, while stale transcript detail can be summarized.',
-    },
-    {
-      source: 'transcript_tail',
-      policy: 'include_summary',
-      reason: 'Recent turns are retained as bounded evidence for immediate tool outcomes and repair context.',
-    },
-    {
-      source: 'transcript_body',
-      policy: 'exclude',
-      reason: 'Older transcript body is not authority; convert it into decisions, completed work, blockers, and do-not-repeat facts.',
-    },
-  ];
-}
-
 function truncatePlannerHistorySnippet(content: string): string {
   if (content.length <= PLANNER_HISTORY_SNIPPET_LIMIT) return content;
   return `${content.slice(0, PLANNER_HISTORY_SNIPPET_LIMIT)}…[truncated ${content.length - PLANNER_HISTORY_SNIPPET_LIMIT} chars]`;
@@ -192,7 +117,6 @@ function truncatePlannerHistorySnippet(content: string): string {
 export function buildPlannerHistoryCompactionMessage(
   sessionId: string,
   messages: AgentMessage[],
-  contextPolicy: PlannerCompactionContextPolicy = {},
 ): AgentMessage {
   const roleKindCounts = new Map<string, number>();
   for (const message of messages) {
@@ -218,14 +142,13 @@ export function buildPlannerHistoryCompactionMessage(
     kind: 'context_compaction',
     content:
       '[PLANNER SESSION HISTORY COMPACTED IN MEMORY]\n' +
-      'The persisted planner conversation was too large to resend safely. The current system prompt contains the authoritative goal context, child-card tree, evidence summary, resume_reason, and scheduler-critical state. Older chat/tool transcript content is omitted from this model turn; re-read cards/files with tools if specific prior details are needed.\n\n' +
+      'Planner session history was compacted. Continue from the reconstructed context below. The structured state message is authoritative for current card/runtime state. Do not rely on earlier transcript content for current child state. The last real messages follow for immediate continuity.\n\n' +
       JSON.stringify(
         {
           original_message_count: messages.length,
           original_estimated_tokens: estimateMessageTokens(messages),
-          context_source_policy: buildPlannerCompactionSourceDecisions(contextPolicy),
           role_kind_counts: Object.fromEntries(roleKindCounts),
-          recent_message_summaries: recent,
+          recent_message_tail_preview: recent,
         },
         null,
         2,
@@ -237,15 +160,43 @@ export function buildPlannerHistoryCompactionMessage(
   };
 }
 
+function buildPlannerRecentMessageTail(messages: AgentMessage[]): AgentMessage[] {
+  return messages
+    .filter((message) => message.kind !== 'context_compaction')
+    .slice(-PLANNER_HISTORY_RECENT_MESSAGE_LIMIT)
+    .map((message, index) => ({
+      ...message,
+      id: `${message.id}-planner-tail-in-memory`,
+      content: truncatePlannerHistorySnippet(message.content),
+      message_index: index + 2,
+    }));
+}
+
 export function compactPlannerModelMessagesForContext(
   sessionId: string,
   messages: AgentMessage[],
   role?: AgentRole,
-  contextPolicy: PlannerCompactionContextPolicy = {},
+  options: {
+    projectRoot?: string;
+    goalId?: string;
+    cardStore?: Pick<CardStore, 'read' | 'listChildren'>;
+    runtimeStateProvider?: () => RuntimeState | null;
+  } = {},
 ): AgentMessage[] {
   if (role !== 'planner') return messages;
   if (estimateMessageTokens(messages) < PLANNER_HISTORY_CONTEXT_LIMIT_TOKENS) return messages;
-  return [buildPlannerHistoryCompactionMessage(sessionId, messages, contextPolicy)];
+  const goalId = options.goalId ?? sessionId.replace(/^planner:/, '');
+  return [
+    buildPlannerHistoryCompactionMessage(sessionId, messages),
+    buildPlannerStateContextMessage({
+      projectRoot: options.projectRoot ?? process.cwd(),
+      sessionId,
+      goalId,
+      cardStore: options.cardStore,
+      runtimeStateProvider: options.runtimeStateProvider,
+    }),
+    ...buildPlannerRecentMessageTail(messages),
+  ];
 }
 
 export class AgentAdapter implements AgentExecutionPort {
@@ -273,6 +224,8 @@ export class AgentAdapter implements AgentExecutionPort {
   private readonly roleRunner: AgentRoleRunner;
   private readonly fallbackCurrentRoundId = new Map<string, string>();
   private readonly fallbackBlockCounters = new Map<string, number>();
+  private readonly cardStore: Pick<CardStore, 'read' | 'listChildren'>;
+  private readonly runtimeStateProvider?: () => RuntimeState | null;
 
   constructor(cfg: AgentAdapterConfig) {
     this.projectRoot = cfg.projectRoot;
@@ -291,6 +244,8 @@ export class AgentAdapter implements AgentExecutionPort {
     this.eventBus = cfg.eventBus;
     this.eventLogger = cfg.eventLogger;
     this.activationLedger = cfg.activationLedger;
+    this.cardStore = cfg.cardStore ?? new CardStore(this.projectRoot);
+    this.runtimeStateProvider = cfg.runtimeStateProvider;
     this.toolRuntime = new ToolRuntime(
       { matrix: { decide: decideCardPermission }, bus: cfg.eventBus },
       AGENT_TOOL_DEFINITIONS,
@@ -603,16 +558,17 @@ export class AgentAdapter implements AgentExecutionPort {
     return this.toolExecutor.processToolCall(tc, role, sessionId, invocation);
   }
 
-  private buildModelMessages(
-    sessionId: string,
-    role?: AgentRole,
-    contextPolicy: PlannerCompactionContextPolicy = {},
-  ): AgentMessage[] {
+  private buildModelMessages(sessionId: string, role?: AgentRole, goalId?: string): AgentMessage[] {
     return compactPlannerModelMessagesForContext(
       sessionId,
       this.sessionCoordinator.buildModelMessages(sessionId),
       role,
-      contextPolicy,
+      {
+        projectRoot: this.projectRoot,
+        goalId,
+        cardStore: this.cardStore,
+        runtimeStateProvider: this.runtimeStateProvider,
+      },
     );
   }
 
@@ -822,15 +778,7 @@ export class AgentAdapter implements AgentExecutionPort {
                       abortController.signal,
                       undefined,
                     );
-                    const turnMessages = this.buildModelMessages(session.id, role, {
-                      systemPromptIncluded: true,
-                      activeCardIncluded: true,
-                      directChildrenIncluded: role === 'planner',
-                      runtimeLedgerIncluded: role === 'planner',
-                      toolContractIncluded: true,
-                      selectedSkillsIncluded: systemPrompt.includes('--- SKILL:'),
-                      operatorDirectivesIncluded: true,
-                    });
+                    const turnMessages = this.buildModelMessages(session.id, role, goalId);
                     return this.llmCallFn!(
                       candidate,
                       systemPrompt,
