@@ -1,6 +1,9 @@
 import { describe, expect, it } from '@jest/globals';
 import { buildCompletedRuntimeCommandState, buildCurrentAgentSessionPatch, buildDispatchPausedRuntimeStatePatch, buildFreezeManifest, buildFreezeRuntimeStatePatch, buildPauseRuntimeStatePatch, buildRejectedRuntimeCommandState, buildResumeFromFreezeRuntimeStatePatch, buildResumeHandoffContext, buildResumeRuntimeStatePatch, buildShutdownRuntimeStatePatch, makeRuntimePreconditionError, observeRuntimeStateInvariants, planClearActiveCardRunPatch, planIdleRunningRootRunReconciliation, planOpenPlannerRunTerminalUpdate, planOpenRootRunStopUpdates, planPlannerRunSessionBinding, planProjectRootRedispatch, planRootRunDispatchFailureUpdate, planRootRunDispatchSuccessUpdate, planStartProjectPrecondition, planSweptCurrentAgentSessionPatch, reduceActivationCompletion, reduceRuntimeEvent } from '../../src/runtime/runtime-core.js';
+import type { PlannerDoneResult } from '../../src/schemas/index.js';
 import type { RuntimeState } from '../../src/schemas/types.js';
+
+const plannerDone: PlannerDoneResult = { kind: 'planner_done', created_cards: [], updated_cards: [], summary: 'done' };
 
 function state(overrides: Partial<RuntimeState> = {}): RuntimeState {
   return {
@@ -313,7 +316,7 @@ describe('runtime core reducers', () => {
         run(),
       ],
     });
-    const next = reduceActivationCompletion(current, 'child', 'done', '2026-05-26T01:00:00.000Z', { status: 'done', result: {}, error: null, completed_at: '2026-05-26T01:00:00.000Z' });
+    const next = reduceActivationCompletion(current, 'child', 'done', '2026-05-26T01:00:00.000Z', { status: 'done', result: plannerDone, error: null, completed_at: '2026-05-26T01:00:00.000Z' });
     expect(next?.runtime_activations?.[0]).toEqual(expect.objectContaining({ status: 'completed', updated_at: '2026-05-26T01:00:00.000Z', outcome_snapshot: { kind: 'completed', outcome: 'done', card_id: 'child', completed_at: '2026-05-26T01:00:00.000Z' } }));
     expect(next?.runtime_runs?.[0]).toEqual(expect.objectContaining({ phase: 'completed', runtime_status: 'idle', result: 'done', finished_at: '2026-05-26T01:00:00.000Z', updated_at: '2026-05-26T01:00:00.000Z', outcome_snapshot: { kind: 'completed', result: 'done', finished_at: '2026-05-26T01:00:00.000Z' } }));
     expect(next?.updated_at).toBe('2026-05-26T01:00:00.000Z');

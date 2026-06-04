@@ -7,7 +7,7 @@ import { join } from 'node:path';
 import {
   cardHistoryEntrySchema,
   cardRecordSchema,
-  normalizePersistedCardLifecycle,
+  validatePersistedCardLifecycle,
   type CardHistoryEntry,
   type CardRecord,
 } from '../schemas/index.js';
@@ -269,8 +269,8 @@ function parseCard(raw: unknown, path: string): CardRecord {
     );
   }
   try {
-    const normalized = normalizePersistedCardLifecycle(parsed.data);
-    return normalized.card;
+    validatePersistedCardLifecycle(parsed.data);
+    return parsed.data;
   } catch (err) {
     throw new CardStoreInvariantError(
       `Card record at '${path}' has invalid lifecycle fields: ${(err as Error).message}`,

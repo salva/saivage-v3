@@ -5,6 +5,9 @@ import { join } from 'node:path';
 import { initProjectTree } from '../../src/persistence/file-tree.js';
 import { createRuntimeStateMutationPort } from '../../src/runtime/mutations.js';
 import { initRuntimeState, readRuntimeState, updateRuntimeState } from '../../src/runtime/state.js';
+import type { PlannerDoneResult } from '../../src/schemas/index.js';
+
+const plannerDone: PlannerDoneResult = { kind: 'planner_done', created_cards: [], updated_cards: [], summary: 'done' };
 
 describe('runtime mutations', () => {
   it('applies runtime state patches through the mutation port', () => {
@@ -62,7 +65,7 @@ describe('runtime mutations', () => {
         childCardId: 'child',
         outcome: 'done',
         completedAt: '2026-01-01T00:01:00.000Z',
-        lifecycle: { status: 'done', result: {}, error: null, completed_at: '2026-01-01T00:01:00.000Z' },
+        lifecycle: { status: 'done', result: plannerDone, error: null, completed_at: '2026-01-01T00:01:00.000Z' },
       });
 
       expect(readRuntimeState(projectRoot)?.runtime_activations).toEqual([

@@ -1,8 +1,8 @@
 import { z } from 'zod';
 import type { CardRecord } from './types.js';
 
-const resultRecordSchema = z.record(z.string(), z.unknown());
-const nullableResultRecordSchema = resultRecordSchema.nullable();
+const arbitraryRecordSchema = z.record(z.string(), z.unknown());
+const nullableArbitraryRecordSchema = arbitraryRecordSchema.nullable();
 const nonEmptyStringSchema = z.string().min(1);
 const timestampSchema = z.string().datetime();
 
@@ -14,7 +14,7 @@ export interface SelfReport {
   at: string;
 }
 
-export interface ExecutorSuccessResult {
+export interface ExecutorSuccessResult extends Record<string, unknown> {
   kind: 'executor_success';
   executor: Record<string, unknown>;
   generated_files: string[];
@@ -23,14 +23,14 @@ export interface ExecutorSuccessResult {
   warnings: string[];
 }
 
-export interface ExecutorFailureResult {
+export interface ExecutorFailureResult extends Record<string, unknown> {
   kind: 'executor_failure';
   error: string;
   partial_result: Record<string, unknown> | null;
   latest_self_report: SelfReport;
 }
 
-export interface ExecutorNeedsVerificationResult {
+export interface ExecutorNeedsVerificationResult extends Record<string, unknown> {
   kind: 'executor_needs_verification';
   reason: string;
   preserved_result: Record<string, unknown>;
@@ -38,14 +38,14 @@ export interface ExecutorNeedsVerificationResult {
   latest_self_report: SelfReport;
 }
 
-export interface PlannerDoneResult {
+export interface PlannerDoneResult extends Record<string, unknown> {
   kind: 'planner_done';
   created_cards: string[];
   updated_cards: string[];
   summary: string;
 }
 
-export interface PlannerBlockedResult {
+export interface PlannerBlockedResult extends Record<string, unknown> {
   kind: 'planner_blocked';
   blocked_reason: string;
   resume_reason: string;
@@ -53,7 +53,7 @@ export interface PlannerBlockedResult {
   updated_cards: string[];
 }
 
-export interface ReviewerPassResult {
+export interface ReviewerPassResult extends Record<string, unknown> {
   kind: 'reviewer_pass';
   planning: PlannerDoneResult | PlannerBlockedResult;
   review_summary: string;
@@ -67,22 +67,18 @@ export interface ReviewerCorrectionResult {
   assessment_id: string;
 }
 
-// Existing persisted CardRecord.result values are still flat, phase-owned records.
-// Keep accepting them at the boundary until phase handlers write typed variants.
-export type LegacyCardResult = Record<string, unknown>;
 export type CardResult =
   | ExecutorSuccessResult
   | ExecutorFailureResult
   | ExecutorNeedsVerificationResult
   | PlannerDoneResult
   | PlannerBlockedResult
-  | ReviewerPassResult
-  | LegacyCardResult;
+  | ReviewerPassResult;
 
-export type DoneResult = CardResult;
-export type FailureResult = ExecutorFailureResult | LegacyCardResult;
-export type BlockedResult = PlannerBlockedResult | LegacyCardResult;
-export type NeedsVerificationResult = ExecutorNeedsVerificationResult | LegacyCardResult;
+export type DoneResult = ExecutorSuccessResult | PlannerDoneResult | ReviewerPassResult;
+export type FailureResult = ExecutorFailureResult;
+export type BlockedResult = PlannerBlockedResult;
+export type NeedsVerificationResult = ExecutorNeedsVerificationResult;
 
 export type CardLifecycleState =
   | { status: 'drafting'; result: null; error: null; completed_at: null }
@@ -121,7 +117,7 @@ export const selfReportSchema: z.ZodType<SelfReport> = z.object({
 
 export const executorSuccessResultSchema: z.ZodType<ExecutorSuccessResult> = z.object({
   kind: z.literal('executor_success'),
-  executor: resultRecordSchema,
+  executor: arbitraryRecordSchema,
   generated_files: z.array(z.string()),
   verified_at: timestampSchema,
   latest_self_report: selfReportSchema,
@@ -131,14 +127,14 @@ export const executorSuccessResultSchema: z.ZodType<ExecutorSuccessResult> = z.o
 export const executorFailureResultSchema: z.ZodType<ExecutorFailureResult> = z.object({
   kind: z.literal('executor_failure'),
   error: nonEmptyStringSchema,
-  partial_result: nullableResultRecordSchema,
+  partial_result: nullableArbitraryRecordSchema,
   latest_self_report: selfReportSchema,
 }).strict();
 
 export const executorNeedsVerificationResultSchema: z.ZodType<ExecutorNeedsVerificationResult> = z.object({
   kind: z.literal('executor_needs_verification'),
   reason: nonEmptyStringSchema,
-  preserved_result: resultRecordSchema,
+  preserved_result: arbitraryRecordSchema,
   fallback_reason: z.string().nullable(),
   latest_self_report: selfReportSchema,
 }).strict();
@@ -167,7 +163,7 @@ export const reviewerPassResultSchema: z.ZodType<ReviewerPassResult> = z.object(
 
 export const reviewerCorrectionResultSchema: z.ZodType<ReviewerCorrectionResult> = z.object({
   kind: z.literal('reviewer_correction'),
-  issues: z.array(resultRecordSchema),
+  issues: z.array(arbitraryRecordSchema),
   summary: z.string(),
   assessment_id: nonEmptyStringSchema,
 }).strict();
@@ -179,13 +175,12 @@ export const cardResultSchema: z.ZodType<CardResult> = z.union([
   plannerDoneResultSchema,
   plannerBlockedResultSchema,
   reviewerPassResultSchema,
-  resultRecordSchema,
 ]);
 
-export const doneResultSchema: z.ZodType<DoneResult> = cardResultSchema;
-export const failureResultSchema: z.ZodType<FailureResult> = z.union([executorFailureResultSchema, resultRecordSchema]);
-export const blockedResultSchema: z.ZodType<BlockedResult> = z.union([plannerBlockedResultSchema, resultRecordSchema]);
-export const needsVerificationResultSchema: z.ZodType<NeedsVerificationResult> = z.union([executorNeedsVerificationResultSchema, resultRecordSchema]);
+export const doneResultSchema: z.ZodType<DoneResult> = z.union([executorSuccessResultSchema, plannerDoneResultSchema, reviewerPassResultSchema]);
+export const failureResultSchema: z.ZodType<FailureResult> = executorFailureResultSchema;
+export const blockedResultSchema: z.ZodType<BlockedResult> = plannerBlockedResultSchema;
+export const needsVerificationResultSchema: z.ZodType<NeedsVerificationResult> = executorNeedsVerificationResultSchema;
 
 export const cardLifecycleStateSchema: z.ZodType<CardLifecycleState> = z.discriminatedUnion('status', [
   z.object({ status: z.literal('drafting'), result: z.null(), error: z.null(), completed_at: z.null() }).strict(),
@@ -219,128 +214,28 @@ export const runtimeRunOutcomeSchema: z.ZodType<RuntimeRunOutcome> = z.discrimin
 
 export type LifecycleProjectionInput = Pick<CardRecord, 'status' | 'updated_at' | 'result' | 'error' | 'completed_at'>;
 
-export interface NormalizedPersistedCardLifecycle<T extends LifecycleProjectionInput = LifecycleProjectionInput> {
-  card: T;
-  diagnostics: string[];
-}
-
-function asResult(value: Record<string, unknown> | null | undefined): Record<string, unknown> {
-  return value ?? {};
-}
-
-function completionTimestamp(card: LifecycleProjectionInput): string {
-  return card.completed_at ?? card.updated_at;
-}
-
 export function projectCardLifecycleState(card: LifecycleProjectionInput): CardLifecycleState {
-  const result = card.result ?? null;
-  const error = card.error ?? null;
-  const completedAt = card.completed_at ?? null;
   switch (card.status) {
     case 'drafting':
     case 'backlog':
-      return cardLifecycleStateSchema.parse({ status: card.status, result: null, error: null, completed_at: null });
+      return cardLifecycleStateSchema.parse({ status: card.status, result: card.result, error: card.error, completed_at: card.completed_at });
     case 'active':
     case 'running':
     case 'changed':
-      return cardLifecycleStateSchema.parse({ status: card.status, result, error, completed_at: null });
+      return cardLifecycleStateSchema.parse({ status: card.status, result: card.result, error: card.error, completed_at: card.completed_at });
     case 'done':
-      if (card.error !== null && card.error !== undefined) throw new Error("Invalid card lifecycle: status 'done' cannot have error.");
-      return cardLifecycleStateSchema.parse({ status: 'done', result: asResult(card.result), error: null, completed_at: completionTimestamp(card) });
+      return cardLifecycleStateSchema.parse({ status: 'done', result: card.result, error: card.error, completed_at: card.completed_at });
     case 'failed':
-      if (typeof card.error !== 'string' || card.error.length === 0) throw new Error("Invalid card lifecycle: status 'failed' requires a non-empty error.");
-      return cardLifecycleStateSchema.parse({ status: 'failed', result: asResult(card.result), error: card.error, completed_at: completionTimestamp(card) });
+      return cardLifecycleStateSchema.parse({ status: 'failed', result: card.result, error: card.error, completed_at: card.completed_at });
     case 'blocked':
-      if (typeof card.error !== 'string' || card.error.length === 0) throw new Error("Invalid card lifecycle: status 'blocked' requires a non-empty error.");
-      return cardLifecycleStateSchema.parse({ status: 'blocked', result: asResult(card.result), error: card.error, completed_at: null });
+      return cardLifecycleStateSchema.parse({ status: 'blocked', result: card.result, error: card.error, completed_at: card.completed_at });
     case 'needs_verification':
-      if (card.error !== null && card.error !== undefined) throw new Error("Invalid card lifecycle: status 'needs_verification' cannot have error.");
-      return cardLifecycleStateSchema.parse({ status: 'needs_verification', result: asResult(card.result), error: null, completed_at: null });
+      return cardLifecycleStateSchema.parse({ status: 'needs_verification', result: card.result, error: card.error, completed_at: card.completed_at });
     case 'cancelled':
-      if (card.error !== null && card.error !== undefined) throw new Error("Invalid card lifecycle: status 'cancelled' cannot have error.");
-      return cardLifecycleStateSchema.parse({ status: 'cancelled', result: null, error: null, completed_at: completedAt });
+      return cardLifecycleStateSchema.parse({ status: 'cancelled', result: card.result, error: card.error, completed_at: card.completed_at });
   }
 }
 
 export function validatePersistedCardLifecycle(card: LifecycleProjectionInput): CardLifecycleState {
   return projectCardLifecycleState(card);
-}
-
-export function normalizePersistedCardLifecycle<T extends LifecycleProjectionInput>(card: T): NormalizedPersistedCardLifecycle<T> {
-  const diagnostics: string[] = [];
-  const normalized = { ...card };
-  const clear = (field: 'result' | 'error' | 'completed_at', value: null, reason: string): void => {
-    if (normalized[field] !== null && normalized[field] !== undefined) {
-      (normalized as Record<string, unknown>)[field] = value;
-      diagnostics.push(reason);
-    }
-  };
-
-  switch (normalized.status) {
-    case 'drafting':
-    case 'backlog':
-      clear('result', null, `Cleared stale result for non-running status '${normalized.status}'.`);
-      clear('error', null, `Cleared stale error for non-running status '${normalized.status}'.`);
-      clear('completed_at', null, `Cleared stale completed_at for non-terminal status '${normalized.status}'.`);
-      break;
-    case 'active':
-    case 'running':
-    case 'changed':
-      clear('completed_at', null, `Cleared stale completed_at for in-flight status '${normalized.status}'.`);
-      break;
-    case 'done':
-      if (normalized.result === null || normalized.result === undefined) {
-        normalized.result = {};
-        diagnostics.push("Added empty result for legacy done card.");
-      }
-      if (normalized.error !== null && normalized.error !== undefined) {
-        normalized.error = null;
-        diagnostics.push("Cleared stale error for done card.");
-      }
-      if (normalized.completed_at === null || normalized.completed_at === undefined) {
-        normalized.completed_at = normalized.updated_at;
-        diagnostics.push("Filled missing completed_at for done card from updated_at.");
-      }
-      break;
-    case 'failed':
-      if (normalized.result === null || normalized.result === undefined) {
-        normalized.result = {};
-        diagnostics.push("Added empty result for legacy failed card.");
-      }
-      if (typeof normalized.error !== 'string' || normalized.error.length === 0) {
-        normalized.error = 'Legacy failed card had no persisted error.';
-        diagnostics.push("Filled missing error for legacy failed card.");
-      }
-      if (normalized.completed_at === null || normalized.completed_at === undefined) {
-        normalized.completed_at = normalized.updated_at;
-        diagnostics.push("Filled missing completed_at for failed card from updated_at.");
-      }
-      break;
-    case 'blocked':
-      if (normalized.result === null || normalized.result === undefined) {
-        normalized.result = {};
-        diagnostics.push("Added empty result for legacy blocked card.");
-      }
-      if (typeof normalized.error !== 'string' || normalized.error.length === 0) {
-        normalized.error = 'Legacy blocked card had no persisted error.';
-        diagnostics.push("Filled missing error for legacy blocked card.");
-      }
-      clear('completed_at', null, "Cleared stale completed_at for blocked card.");
-      break;
-    case 'needs_verification':
-      if (normalized.result === null || normalized.result === undefined) {
-        normalized.result = {};
-        diagnostics.push("Added empty result for legacy needs_verification card.");
-      }
-      clear('error', null, "Cleared stale error for needs_verification card.");
-      clear('completed_at', null, "Cleared stale completed_at for needs_verification card.");
-      break;
-    case 'cancelled':
-      clear('result', null, "Cleared stale result for cancelled card.");
-      clear('error', null, "Cleared stale error for cancelled card.");
-      break;
-  }
-
-  validatePersistedCardLifecycle(normalized);
-  return { card: normalized, diagnostics };
 }

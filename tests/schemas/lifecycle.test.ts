@@ -4,15 +4,28 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { initProjectTree } from '../../src/persistence/file-tree.js';
 import { CardStore } from '../../src/cards/card-store.js';
+import { CardStoreInvariantError } from '../../src/cards/state.js';
 import {
+  cardRecordSchema,
+  cardResultSchema,
   cardLifecycleStateSchema,
   projectCardLifecycleState,
   validatePersistedCardLifecycle,
   type CardLifecycleState,
   type CardRecord,
+  type ExecutorFailureResult,
+  type ExecutorNeedsVerificationResult,
+  type PlannerBlockedResult,
+  type PlannerDoneResult,
 } from '../../src/schemas/index.js';
 
 const now = '2026-01-01T00:00:00.000Z';
+
+const selfReport = { result: 'done', outcome: 'done', summary: 'ok', status_text: 'done', at: now };
+const plannerDone: PlannerDoneResult = { kind: 'planner_done', created_cards: [], updated_cards: [], summary: 'done' };
+const plannerBlocked: PlannerBlockedResult = { kind: 'planner_blocked', blocked_reason: 'input needed', resume_reason: 'operator_input', created_cards: [], updated_cards: [] };
+const executorFailure: ExecutorFailureResult = { kind: 'executor_failure', error: 'boom', partial_result: null, latest_self_report: { ...selfReport, result: 'failed', outcome: 'failed', summary: 'boom', status_text: 'failed' } };
+const executorNeedsVerification: ExecutorNeedsVerificationResult = { kind: 'executor_needs_verification', reason: 'check output', preserved_result: {}, fallback_reason: null, latest_self_report: { ...selfReport, result: 'needs_verification', outcome: 'needs_verification', summary: 'check output', status_text: 'verify' } };
 
 function flatCard(overrides: Partial<CardRecord> = {}): CardRecord {
   return {
@@ -64,50 +77,50 @@ function writeCard(root: string, card: CardRecord): void {
 
 describe('card lifecycle schemas', () => {
   it('accepts valid done, failed, blocked, and needs_verification shapes', () => {
-    const done: CardLifecycleState = { status: 'done', result: { kind: 'planner_done', created_cards: [], updated_cards: [], summary: 'done' }, error: null, completed_at: now };
-    const failed: CardLifecycleState = { status: 'failed', result: { kind: 'executor_failure', error: 'boom', partial_result: null, latest_self_report: { result: 'failed', outcome: 'failed', summary: 'boom', status_text: 'failed', at: now } }, error: 'boom', completed_at: now };
-    const blocked: CardLifecycleState = { status: 'blocked', result: { kind: 'planner_blocked', blocked_reason: 'input needed', resume_reason: 'operator_input', created_cards: [], updated_cards: [] }, error: 'input needed', completed_at: null };
-    const needsVerification: CardLifecycleState = { status: 'needs_verification', result: { kind: 'executor_needs_verification', reason: 'check output', preserved_result: {}, fallback_reason: null, latest_self_report: { result: 'needs_verification', outcome: 'needs_verification', summary: 'check output', status_text: 'verify', at: now } }, error: null, completed_at: null };
+    const done: CardLifecycleState = { status: 'done', result: plannerDone, error: null, completed_at: now };
+    const failed: CardLifecycleState = { status: 'failed', result: executorFailure, error: 'boom', completed_at: now };
+    const blocked: CardLifecycleState = { status: 'blocked', result: plannerBlocked, error: 'input needed', completed_at: null };
+    const needsVerification: CardLifecycleState = { status: 'needs_verification', result: executorNeedsVerification, error: null, completed_at: null };
 
     for (const state of [done, failed, blocked, needsVerification]) {
       expect(cardLifecycleStateSchema.safeParse(state).success).toBe(true);
     }
   });
 
-  it('rejects done plus error and failed without error at the schema boundary', () => {
-    expect(cardLifecycleStateSchema.safeParse({ status: 'done', result: {}, error: 'stale', completed_at: now }).success).toBe(false);
-    expect(cardLifecycleStateSchema.safeParse({ status: 'failed', result: {}, error: null, completed_at: now }).success).toBe(false);
-    expect(cardLifecycleStateSchema.safeParse({ status: 'failed', result: {}, completed_at: now }).success).toBe(false);
+  it('rejects invalid terminal lifecycle shapes at the schema boundary', () => {
+    expect(cardLifecycleStateSchema.safeParse({ status: 'done', result: plannerDone, error: 'stale', completed_at: now }).success).toBe(false);
+    expect(cardLifecycleStateSchema.safeParse({ status: 'done', result: null, error: null, completed_at: now }).success).toBe(false);
+    expect(cardLifecycleStateSchema.safeParse({ status: 'done', result: {}, error: null, completed_at: now }).success).toBe(false);
+    expect(cardLifecycleStateSchema.safeParse({ status: 'failed', result: executorFailure, error: null, completed_at: now }).success).toBe(false);
+    expect(cardLifecycleStateSchema.safeParse({ status: 'failed', result: executorFailure, completed_at: now }).success).toBe(false);
+    expect(cardLifecycleStateSchema.safeParse({ status: 'blocked', result: plannerBlocked, error: null, completed_at: null }).success).toBe(false);
+    expect(cardLifecycleStateSchema.safeParse({ status: 'needs_verification', result: executorNeedsVerification, error: 'stale', completed_at: null }).success).toBe(false);
+    expect(cardLifecycleStateSchema.safeParse({ status: 'done', result: plannerDone, error: null }).success).toBe(false);
   });
 
-  it('projects current flat CardRecord shapes into normalized lifecycle states', () => {
+  it('projects current flat CardRecord fields into strict lifecycle states', () => {
     expect(projectCardLifecycleState(flatCard())).toEqual({ status: 'backlog', result: null, error: null, completed_at: null });
-    expect(projectCardLifecycleState(flatCard({ status: 'running', result: { generated_files: ['a.ts'] }, error: 'transient' }))).toEqual({ status: 'running', result: { generated_files: ['a.ts'] }, error: 'transient', completed_at: null });
-    expect(projectCardLifecycleState(flatCard({ status: 'done', result: { generated_files: ['a.ts'] } }))).toEqual({ status: 'done', result: { generated_files: ['a.ts'] }, error: null, completed_at: now });
-    expect(projectCardLifecycleState(flatCard({ status: 'failed', result: { partial: true }, error: 'boom' }))).toEqual({ status: 'failed', result: { partial: true }, error: 'boom', completed_at: now });
+    expect(projectCardLifecycleState(flatCard({ status: 'running', result: plannerDone }))).toEqual({ status: 'running', result: plannerDone, error: null, completed_at: null });
+    expect(projectCardLifecycleState(flatCard({ status: 'done', result: plannerDone, completed_at: now }))).toEqual({ status: 'done', result: plannerDone, error: null, completed_at: now });
+    expect(projectCardLifecycleState(flatCard({ status: 'failed', result: executorFailure, error: 'boom', completed_at: now }))).toEqual({ status: 'failed', result: executorFailure, error: 'boom', completed_at: now });
   });
 
-  it('normalizes legacy persisted flat cards when card store loads JSON', () => {
+  it('does not accept arbitrary records as lifecycle results', () => {
+    expect(cardResultSchema.safeParse({}).success).toBe(false);
+    expect(cardResultSchema.safeParse({ planning: { status: 'blocked', blocked_reason: 'legacy flat planning result' } }).success).toBe(false);
+    expect(cardRecordSchema.safeParse(flatCard({ status: 'done', result: {}, completed_at: now })).success).toBe(false);
+  });
+
+  it('strictly rejects invalid persisted flat cards without repair', () => {
     const root = mkdtempSync(join(tmpdir(), 'saivage-lifecycle-boundary-'));
     try {
       initProjectTree(root);
-      writeCard(root, flatCard({ id: 'card-1', status: 'done', error: 'stale', result: {} }));
-      const store = new CardStore(root);
-      expect(store.read('card-1')).toEqual(expect.objectContaining({ status: 'done', error: null, result: {}, completed_at: now }));
-      expect(() => validatePersistedCardLifecycle(flatCard({ status: 'failed', error: null }))).toThrow("status 'failed' requires");
+      writeCard(root, flatCard({ id: 'card-1', status: 'done', error: 'stale', result: plannerDone, completed_at: now }));
+      expect(() => new CardStore(root)).toThrow(CardStoreInvariantError);
+      expect(() => validatePersistedCardLifecycle(flatCard({ status: 'failed', result: executorFailure, error: null, completed_at: now }))).toThrow();
+      expect(() => validatePersistedCardLifecycle({ ...flatCard({ status: 'done', result: plannerDone }), completed_at: undefined })).toThrow();
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
-  });
-
-  it('keeps practical type/schema parity for constructed lifecycle values', () => {
-    const state = {
-      status: 'blocked',
-      result: { planning: { status: 'blocked', blocked_reason: 'legacy flat planning result' } },
-      error: 'legacy flat planning result',
-      completed_at: null,
-    } satisfies CardLifecycleState;
-
-    expect(cardLifecycleStateSchema.parse(state)).toEqual(state);
   });
 });

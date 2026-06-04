@@ -2,7 +2,7 @@ import { describe, expect, it } from '@jest/globals';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type { CardRecord } from '../../src/schemas/index.js';
+import type { CardRecord, DoneResult } from '../../src/schemas/index.js';
 import {
   commitExecutorParkedVerification,
   commitExecutorSuccess,
@@ -92,7 +92,7 @@ describe('terminal commit validators', () => {
   it('detects stale terminal contradictions in done overlays', () => {
     expect(validateTerminalOverlay(card(), {
       status: 'done',
-      result: { parse_failure: true, planning: { status: 'blocked' } },
+      result: { parse_failure: true, planning: { status: 'blocked' } } as unknown as DoneResult,
       error: null,
       completed_at: now,
     })).toEqual(expect.arrayContaining([
