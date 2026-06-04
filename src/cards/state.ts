@@ -55,6 +55,7 @@ export class CardStoreState {
   private readonly _childrenByParent = new Map<string, string[]>();
   private readonly _blocksInverse = new Map<string, string[]>();
   private readonly _depthCache = new Map<string, number>();
+  private readonly __RESERVED_IDS = new Set<string>();
   readonly maxDepth: number;
 
   constructor(maxDepth: number) {
@@ -149,7 +150,7 @@ export class CardStoreState {
     this._depthCache.clear();
   }
 
-  /** Remove a card and recompute adjacency. */
+  /** Remove a card and recompute adjacency. The removed ID becomes reserved. */
   remove(id: string): void {
     const prior = this._cards.get(id);
     if (!prior) return;
@@ -157,7 +158,25 @@ export class CardStoreState {
     this.removeBlocksEdges(id, prior.depends_on);
     this._cards.delete(id);
     this._blocksInverse.delete(id);
+    this.__RESERVED_IDS.add(id);
     this._depthCache.clear();
+  }
+
+  /** All IDs that are either live cards or reserved by history/archive. */
+  allKnownIds(): string[] {
+    const ids = new Set(this.__RESERVED_IDS);
+    for (const card of this._cards.values()) ids.add(card.id);
+    return [...ids].sort();
+  }
+
+  /** Mark an ID as reserved (used by history/archive at boot). */
+  addReservedId(id: string): void {
+    this.__RESERVED_IDS.add(id);
+  }
+
+  /** Check whether an ID is reserved by history or archive but not currently a live card. */
+  isReservedId(id: string): boolean {
+    return this.__RESERVED_IDS.has(id) && !this._cards.has(id);
   }
 
   private sortChildEdges(parent: string): void {
@@ -499,6 +518,25 @@ export function loadCardStoreState(
   // Per-card history contiguity invariant.
   for (const card of cardsRaw) {
     validateCardHistoryInvariant(card.id, card.version_seq, cardHistoryPath(projectRoot, card.id));
+  }
+  // Collect IDs that exist in history or archive but are NOT live cards.
+  // These are reserved: the generator must never reuse them.
+  const liveIdSet = new Set(cardsRaw.map((c) => c.id));
+  const historicDir = historyDir(projectRoot);
+  if (existsSync(historicDir)) {
+    for (const name of readdirSync(historicDir)) {
+      if (!name.endsWith('.history.jsonl')) continue;
+      const id = name.slice(0, -'.history.jsonl'.length);
+      if (!liveIdSet.has(id)) state.addReservedId(id);
+    }
+  }
+  const archiveDir = join(projectRoot, '.saivage', 'archive', 'cards');
+  if (existsSync(archiveDir)) {
+    for (const name of readdirSync(archiveDir)) {
+      if (!name.endsWith('.json')) continue;
+      const id = name.slice(0, -'.json'.length);
+      if (!liveIdSet.has(id)) state.addReservedId(id);
+    }
   }
   return state;
 }

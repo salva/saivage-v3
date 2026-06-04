@@ -231,6 +231,16 @@ describe('CardStore CRUD still works with validated indexes', () => {
       /already reserved by history or archive state/,
     );
   });
+
+  it('reserves ids from history after store reload', () => {
+    const first = store.create(makeCard({ type: 'goal', title: 'First' }));
+    expect(first.id).toBe('goal-1');
+    store.delete(first.id);
+
+    const reloaded = new CardStore(tmpDir);
+    const next = reloaded.create(makeCard({ type: 'goal', title: 'After Reload' }));
+    expect(next.id).toBe('goal-2');
+  });
 });
 
 describe('CardStore selective patch behavior', () => {

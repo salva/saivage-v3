@@ -102,4 +102,42 @@ describe('card history substrate', () => {
     writeFileSync(historyFilePath, `${lines.join('\n')}\n${JSON.stringify(badEntry)}\n`, 'utf-8');
     expect(() => new CardStore(root)).toThrow();
   });
+
+  it('allows archive-only history for a non-live archived card', () => {
+    const card = createCard();
+    store.archiveAndDeleteSubtree([card.id]);
+
+    const reloaded = new CardStore(root);
+    expect(reloaded.list().map((c) => c.id)).not.toContain(card.id);
+  });
+
+  it('allows delete-only history for a non-live deleted card', () => {
+    const card = createCard();
+    store.delete(card.id);
+
+    const reloaded = new CardStore(root);
+    expect(reloaded.list().map((c) => c.id)).not.toContain(card.id);
+  });
+
+  it('rejects a live version_seq=1 card with any history rows', () => {
+    const card = createCard();
+    const historyFilePath = join(root, '.saivage', 'cards', 'history', `${card.id}.history.jsonl`);
+    const mutatedCard = { ...card, version_seq: 1 };
+    const mutateEntry = {
+      entry_id: '00000000-0000-4000-8000-000000000099',
+      kind: 'mutate',
+      card_id: card.id,
+      version_seq: 1,
+      snapshot: mutatedCard,
+      changed_at: new Date().toISOString(),
+      changed_by_actor: 'analyst',
+      changed_by_surface: 'web-chat' as const,
+      change_reason: 'test injection',
+      changed_fields: ['title'],
+      change_summary: 'title updated',
+    };
+    writeFileSync(historyFilePath, JSON.stringify(mutateEntry) + '\n', 'utf-8');
+
+    expect(() => new CardStore(root)).toThrow(/version_seq=1.*history file/);
+  });
 });

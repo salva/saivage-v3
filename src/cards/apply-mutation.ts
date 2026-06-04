@@ -27,12 +27,11 @@ import { cardHistoryEntrySchema, cardRecordSchema } from '../schemas/index.js';
 import { ProjectLock, appendSyncIdempotent } from '../persistence/index.js';
 import type { LockHandle } from '../persistence/index.js';
 import {
+  CardStoreState,
   cardByIdPath,
   cardHistoryPath,
   CardStoreInvariantError,
-  CardStoreState,
 } from './state.js';
-import { isReservedCardId } from './card-ids.js';
 import {
   unlinkCommitMarker,
   writeCommitMarker,
@@ -195,7 +194,7 @@ function applyMutationLocked(
     if (state.has(card.id)) {
       throw new CardStoreInvariantError(`Cannot create card '${card.id}': already exists.`);
     }
-    if (isReservedCardId(projectRoot, card.id, state.list().map((existing) => existing.id))) {
+    if (state.isReservedId(card.id)) {
       throw new CardStoreInvariantError(
         `Cannot create card '${card.id}': card ids are durable and this id is already reserved by history or archive state.`,
       );
