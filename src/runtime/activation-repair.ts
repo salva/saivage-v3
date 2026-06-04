@@ -60,7 +60,7 @@ export class ActivationRepairRunner {
         repairOrphanActivateCardToolCalls: () => this.deps.activationUnwind.repairOrphanActivateCardToolCalls(),
         transitionCard: (cardId, event, details) =>
           this.deps.stateMachine.transitionCard(cardId, event, details),
-        updateCard: (cardId, patch) => this.deps.cards.repairTerminalLifecycle(cardId, patch),
+        repairTerminalLifecycle: (cardId, patch) => this.deps.cards.repairTerminalLifecycle(cardId, patch),
         appendChildUnwindToolResult: (cardId, outcome, summary) =>
           this.deps.activationUnwind.appendChildUnwindToolResult(cardId, outcome, summary),
         parentPlannerRunFor: (cardId) => this.deps.activationUnwind.parentPlannerRunFor(cardId),

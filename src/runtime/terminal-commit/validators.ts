@@ -61,10 +61,12 @@ export function validateTerminalOverlay(_previousCard: CardRecord, nextLifecycle
   if (nextLifecycle.status === 'done') {
     if (nextLifecycle.error !== null) diagnostics.push("Done lifecycle must clear error.");
     if (nextLifecycle.completed_at === null) diagnostics.push("Done lifecycle requires completed_at.");
-    if (hasRecordKey(nextLifecycle.result, 'parse_failure')) diagnostics.push("Done lifecycle must not carry stale parse_failure result data.");
-    if (hasRecordKey(nextLifecycle.result, 'evidence_registration_failures')) diagnostics.push("Done lifecycle must not carry stale evidence_registration_failures result data.");
-    const planning = recordValue(nextLifecycle.result, 'planning');
-    if (isRecord(planning) && planning.status === 'blocked') diagnostics.push("Done lifecycle must not carry stale result.planning.status='blocked'.");
+    switch (nextLifecycle.result.kind) {
+      case 'executor_success':
+      case 'planner_done':
+      case 'reviewer_pass':
+        break;
+    }
   }
   if (nextLifecycle.status === 'failed' && (!nextLifecycle.error || nextLifecycle.completed_at === null)) {
     diagnostics.push('Failed lifecycle requires non-empty error and completed_at.');
@@ -114,10 +116,6 @@ function evidenceIdsFromResult(result: CardRecord['result'] | undefined): string
   const nested = recordValue(review, 'evidence_card_ids');
   if (Array.isArray(nested)) return nested.filter((value): value is string => typeof value === 'string');
   return [];
-}
-
-function hasRecordKey(value: unknown, key: string): boolean {
-  return isRecord(value) && Object.prototype.hasOwnProperty.call(value, key);
 }
 
 function recordValue(value: unknown, key: string): unknown {

@@ -2,7 +2,7 @@ import { describe, expect, it } from '@jest/globals';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type { CardRecord, DoneResult } from '../../src/schemas/index.js';
+import type { CardRecord } from '../../src/schemas/index.js';
 import {
   commitExecutorParkedVerification,
   commitExecutorSuccess,
@@ -89,16 +89,27 @@ describe('terminal commit validators', () => {
     }
   });
 
-  it('detects stale terminal contradictions in done overlays', () => {
+  it('validates done overlays by typed result discriminant', () => {
     expect(validateTerminalOverlay(card(), {
       status: 'done',
-      result: { parse_failure: true, planning: { status: 'blocked' } } as unknown as DoneResult,
+      result: { kind: 'planner_blocked', blocked_reason: 'blocked', resume_reason: 'planner_blocked', created_cards: [], updated_cards: [] },
       error: null,
       completed_at: now,
-    })).toEqual(expect.arrayContaining([
-      'Done lifecycle must not carry stale parse_failure result data.',
-      "Done lifecycle must not carry stale result.planning.status='blocked'.",
+    } as never)).toEqual(expect.arrayContaining([
+      expect.stringContaining('Invalid lifecycle state:'),
     ]));
+
+    expect(validateTerminalOverlay(card(), {
+      status: 'done',
+      result: {
+        kind: 'reviewer_pass',
+        planning: { kind: 'planner_blocked', blocked_reason: 'blocked', resume_reason: 'planner_blocked', created_cards: [], updated_cards: [] },
+        review_summary: 'blocked planning reviewed',
+        assessment_id: 'assessment-1',
+      },
+      error: null,
+      completed_at: now,
+    })).toEqual([]);
   });
 
   it('checks reviewer evidence completeness', () => {
@@ -131,6 +142,8 @@ describe('terminal commit functions', () => {
 
     expect(receipt.lifecycle).toEqual(expect.objectContaining({ status: 'needs_verification', error: null, completed_at: null }));
     expect(receipt.patch).toEqual(expect.objectContaining({ status: 'needs_verification', error: null, completed_at: null }));
+    expect(receipt.patch.result).toEqual(receipt.result);
+    expect(receipt.patch.result).not.toHaveProperty('success');
     expect(fx.transitions[0]).toEqual(expect.objectContaining({ event: 'executor_partial_finish' }));
   });
 
@@ -150,22 +163,16 @@ describe('terminal commit functions', () => {
     expect(receipt.result).toEqual(expect.objectContaining({ kind: 'reviewer_pass', review_summary: 'passed' }));
   });
 
-  it('commits reviewer pass with fallback planning context', async () => {
+  it('rejects reviewer pass without typed planning context', async () => {
     const fx = effects();
-    const receipt = await commitReviewerPass({
+    await expect(commitReviewerPass({
       card: card({ id: 'goal-a', type: 'goal', result: { previous: true } }),
+      planning: null,
       reviewSummary: 'passed',
       assessmentId: 'assessment-1',
       completedAt: now,
       effects: fx,
-    });
-
-    expect(receipt.result).toEqual({
-      kind: 'reviewer_pass',
-      planning: { kind: 'planner_done', created_cards: [], updated_cards: [], summary: 'passed' },
-      review_summary: 'passed',
-      assessment_id: 'assessment-1',
-    });
+    })).rejects.toThrow("Cannot commit reviewer pass for card 'goal-a' without typed planner lifecycle context.");
   });
 
   it('rejects planner done for parent goal and commits it for planning-only cards', async () => {
@@ -190,17 +197,14 @@ describe('terminal commit functions', () => {
     expect(receipt.lifecycle.result).toEqual({ kind: 'planner_done', created_cards: ['child-a'], updated_cards: [], summary: 'doc planning done' });
   });
 
-  it('commits planner blocked and can preserve legacy nested planning metadata', async () => {
+  it('commits planner blocked with only typed lifecycle result', async () => {
     const fx = effects();
-    const planning = { status: 'blocked', blocked_reason: 'token budget', resume_reason: 'planner_context_length_exceeded', failure_kind: 'token_budget_exceeded', created_cards: [], updated_cards: [] };
     const receipt = await commitPlannerBlocked({
       card: card({ id: 'goal-a', type: 'goal', result: { existing: true } }),
       blockedReason: 'token budget',
       resumeReason: 'planner_context_length_exceeded',
       createdCards: [],
       updatedCards: [],
-      preservedResult: { existing: true },
-      planning,
       effects: fx,
     });
 
@@ -209,7 +213,7 @@ describe('terminal commit functions', () => {
       status: 'blocked',
       error: 'token budget',
       completed_at: null,
-      result: { existing: true, planning },
+      result: { kind: 'planner_blocked', blocked_reason: 'token budget', resume_reason: 'planner_context_length_exceeded', created_cards: [], updated_cards: [] },
     }));
     expect(fx.transitions[0]).toEqual(expect.objectContaining({ event: 'block' }));
   });

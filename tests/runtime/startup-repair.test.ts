@@ -136,7 +136,7 @@ describe('startup active run repair decisions', () => {
     const parentRun = { ...run('planner'), card_id: 'parent-a', planner_session_id: 'planner:parent-a' };
     const effects = testEffects({
       transitionCard: async (cardId, event) => { calls.push(`${event}:${cardId}`); },
-      updateCard: async (cardId, patch) => { calls.push(`update:${cardId}:${patch.error}`); },
+      repairTerminalLifecycle: async (cardId, patch) => { calls.push(`repair:${cardId}:${patch.error}`); },
       appendChildUnwindToolResult: (cardId, outcome) => { calls.push(`unwind:${cardId}:${outcome}`); },
       parentPlannerRunFor: () => parentRun,
     });
@@ -149,7 +149,7 @@ describe('startup active run repair decisions', () => {
 
     expect(calls).toEqual([
       'fail:card-a',
-      'update:card-a:Execution interrupted by service restart.',
+      'repair:card-a:Execution interrupted by service restart.',
       'unwind:card-a:failed',
     ]);
     expect(repaired).toEqual(expect.objectContaining({ current_card_id: 'parent-a', current_agent_session_id: 'planner:parent-a' }));
@@ -161,7 +161,7 @@ function testEffects(overrides: Partial<StartupActiveRunRepairEffects> = {}): St
     now: () => 'now',
     repairOrphanActivateCardToolCalls: () => undefined,
     transitionCard: async () => undefined,
-    updateCard: async () => undefined,
+    repairTerminalLifecycle: async () => undefined,
     appendChildUnwindToolResult: () => undefined,
     parentPlannerRunFor: () => null,
     findCallerEdge: () => null,

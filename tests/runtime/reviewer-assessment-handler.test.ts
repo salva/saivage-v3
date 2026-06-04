@@ -45,7 +45,7 @@ describe('reviewer assessment handler', () => {
       reviewResult: reviewResult('pass'),
       decision: { kind: 'pass' },
       effects: testEffects({
-        readCard: () => ({ id: 'goal-a', status: 'active', result: { previous: true }, completed_at: null, error: 'stale error' } as unknown as CardRecord),
+        readCard: () => ({ id: 'goal-a', status: 'active', result: { kind: 'planner_done', created_cards: [], updated_cards: [], summary: 'review summary' }, completed_at: null, error: 'stale error' } as unknown as CardRecord),
         transitionCard: async (cardId, event, details) => { calls.push(`${event}:${cardId}:${'assessment' in details}`); },
         updateCard: async (_cardId, patch) => { patches.push(patch); calls.push(`update:${patch.completed_at}`); },
         appendChildUnwindToolResult: (cardId, outcomeKind) => { calls.push(`unwind:${cardId}:${outcomeKind}`); },

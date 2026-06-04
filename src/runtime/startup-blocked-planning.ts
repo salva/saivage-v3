@@ -1,4 +1,5 @@
 import type { CardRecord } from '../schemas/index.js';
+import { lifecyclePatch } from './terminal-commit/lifecycle-patch.js';
 import { planClearActiveCardRunPatch } from './runtime-core.js';
 import { readRuntimeState } from './state.js';
 import { buildPlannerInvocationFailureBlocker } from './phases/planner-phase.js';
@@ -27,13 +28,19 @@ export async function alignBlockedPlanningCardStatuses(input: {
         providerStatus: null,
       });
       await input.cards.repairTerminalLifecycle(card.id, {
-        status: 'blocked',
-        error: plannerFailureBlocker.blockedReason,
+        ...lifecyclePatch({
+          status: 'blocked',
+          result: {
+            kind: 'planner_blocked',
+            blocked_reason: plannerFailureBlocker.blockedReason,
+            resume_reason: plannerFailureBlocker.resumeReason,
+            created_cards: [],
+            updated_cards: [],
+          },
+          error: plannerFailureBlocker.blockedReason,
+          completed_at: null,
+        }),
         status_text: plannerFailureBlocker.blockedReason,
-        result: {
-          ...(card.result ?? {}),
-          planning: plannerFailureBlocker.planning,
-        },
       });
       input.finishOpenPlannerRun(card.id, 'blocked');
       const patch = planClearActiveCardRunPatch({ state: readRuntimeState(input.projectRoot), cardId: card.id });
@@ -60,8 +67,18 @@ export async function alignBlockedPlanningCardStatuses(input: {
     await input.transitionCard(card.id, 'block', { blocked_reason: blockedReason });
     input.finishOpenPlannerRun(card.id, 'blocked');
     await input.cards.repairTerminalLifecycle(card.id, {
-      status: 'blocked',
-      error: card.error ?? blockedReason,
+      ...lifecyclePatch({
+        status: 'blocked',
+        result: {
+          kind: 'planner_blocked',
+          blocked_reason: card.error ?? blockedReason,
+          resume_reason: typeof blockedPlanning.resume_reason === 'string' && blockedPlanning.resume_reason ? blockedPlanning.resume_reason : 'planner_blocked',
+          created_cards: [],
+          updated_cards: [],
+        },
+        error: card.error ?? blockedReason,
+        completed_at: null,
+      }),
       status_text: card.status_text ?? blockedReason,
     });
     const patch = planClearActiveCardRunPatch({ state: readRuntimeState(input.projectRoot), cardId: card.id });

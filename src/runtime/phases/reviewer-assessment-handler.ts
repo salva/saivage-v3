@@ -1,4 +1,4 @@
-import type { CardRecord, ReviewAssessment } from '../../schemas/index.js';
+import type { CardRecord, PlannerBlockedResult, PlannerDoneResult, ReviewAssessment } from '../../schemas/index.js';
 import type { ReviewerResult } from '../../contracts/index.js';
 import { commitReviewerPass } from '../terminal-commit/index.js';
 import { buildReviewAssessment } from '../reviewer-assessment.js';
@@ -63,6 +63,7 @@ export async function handleReviewerAssessmentDecision(input: {
     if (latestGoalCard) {
       await commitReviewerPass({
         card: latestGoalCard,
+        planning: typedPlannerContext(latestGoalCard),
         reviewSummary: input.reviewResult.assessment.summary,
         assessmentId: input.assessmentId,
         completedAt: latestGoalCard.completed_at ?? input.effects.now(),
@@ -90,4 +91,11 @@ export async function handleReviewerAssessmentDecision(input: {
   await input.effects.persistReviewState(input.goalId, failedAssessment);
   input.effects.emitReviewFailed(input.goalId, failedAssessment);
   return { kind: 'continue_planner' };
+}
+
+function typedPlannerContext(card: CardRecord): PlannerDoneResult | PlannerBlockedResult | null {
+  const result = card.result;
+  if (result?.kind === 'planner_done' || result?.kind === 'planner_blocked') return result as PlannerDoneResult | PlannerBlockedResult;
+  if (result?.kind === 'reviewer_pass') return (result as { planning?: PlannerDoneResult | PlannerBlockedResult }).planning ?? null;
+  return null;
 }

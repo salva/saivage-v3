@@ -16,12 +16,12 @@ describe('planner invocation failure handler', () => {
     expect(selectPlannerInvocationFailureRun({ state, goalId: 'goal-a' })?.run_id).toBe('root-run');
   });
 
-  it('blocks token-budget failures and preserves existing result data', async () => {
+  it('blocks token-budget failures with typed planner-blocked lifecycle result', async () => {
     const calls: string[] = [];
     const published: RuntimeRunRecord[] = [];
     const effects = testEffects({
       transitionCard: async (cardId, event, details) => { calls.push(`${event}:${cardId}:${details.blocked_reason ? 'blocked' : 'none'}`); },
-      updateCard: async (_cardId, patch) => { calls.push(`update:${patch.status}`); expect(patch.result).toMatchObject({ existing: true, planning: expect.objectContaining({ resume_reason: 'planner_context_length_exceeded' }) }); },
+      updateCard: async (_cardId, patch) => { calls.push(`update:${patch.status}`); expect(patch.result).toMatchObject({ kind: 'planner_blocked', resume_reason: 'planner_context_length_exceeded' }); },
       updateRuntimeRun: (runId, updates) => ({ ...failedRun, run_id: runId, ...updates }) as RuntimeRunRecord,
       publishRuntimeRun: (run) => { published.push(run); },
       transitionRuntime: async (event, details) => { calls.push(`${event}:${details.reason}`); },

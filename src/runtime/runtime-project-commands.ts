@@ -85,7 +85,7 @@ export class RuntimeProjectCommandRunner {
     const { retryingPlanningBlocker, retryingTokenBudgetPlanningBlocker } = startDecision;
     if (retryingPlanningBlocker) {
       const retryDescription = describeProjectPlannerRetry({ retryingTokenBudgetBlocker: retryingTokenBudgetPlanningBlocker });
-      await this.deps.cards.update(
+      await this.deps.cards.repairTerminalLifecycle(
         PROJECT_CARD_ID,
         buildProjectPlannerRetryPatch({
           existingResult: projectCard?.result,

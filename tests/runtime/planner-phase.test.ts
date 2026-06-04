@@ -59,7 +59,7 @@ describe('planner phase decisions', () => {
     }));
   });
 
-  it('builds planner continue patches with retry metadata', () => {
+  it('does not build legacy planner continue lifecycle overlays', () => {
     expect(buildPlannerContinuePatch({
       existingResult: {
         previous: true,
@@ -73,33 +73,7 @@ describe('planner phase decisions', () => {
       hasGoalDispatch: false,
       createdCardIds: ['created-a'],
       updatedCardIds: ['updated-a'],
-    })).toEqual({
-      error: null,
-      result: {
-        previous: true,
-        planning: {
-          status: 'continue',
-          planner_declared_done: true,
-          has_unfinished_child_work: true,
-          resume_reason: 'review_completed',
-          persisted_history_compacted: true,
-          previous_failure_kind: 'token_budget_exceeded',
-          created_cards: ['created-a'],
-          updated_cards: ['updated-a'],
-        },
-      },
-    });
-  });
-
-  it('uses dispatch-completed resume reason after child dispatch', () => {
-    expect((buildPlannerContinuePatch({
-      existingResult: null,
-      plannerDeclaredDone: false,
-      hasUnfinishedChildWork: false,
-      hasGoalDispatch: true,
-      createdCardIds: [],
-      updatedCardIds: [],
-    }).result?.planning as Record<string, unknown>).resume_reason).toBe('dispatch_completed');
+    })).toEqual({});
   });
 
   it('decides post-dispatch blocked planner results', () => {
@@ -169,7 +143,7 @@ describe('planner phase decisions', () => {
       hasUnfinishedChildWork: false,
       executedTerminal: false,
       isProjectCard: false,
-    })).toEqual(expect.objectContaining({ kind: 'continue', patch: expect.objectContaining({ error: null }) }));
+    })).toEqual(expect.objectContaining({ kind: 'continue', patch: {} }));
 
     expect(decidePlannerPostDispatch({
       plannerResult: plannerResult('done'),
@@ -253,7 +227,7 @@ describe('planner phase decisions', () => {
     }));
   });
 
-  it('builds planner activation planning patches for retry blockers', () => {
+  it('builds planner activation patches without lifecycle overlays', () => {
     const patch = buildPlannerActivationPlanningPatch({
       existingResult: { previous: true },
       existingError: 'old error',
@@ -262,17 +236,7 @@ describe('planner phase decisions', () => {
       retryingTerminalToolBlocker: false,
       compactedPersistedPlannerHistory: true,
     });
-    expect(patch.error).toBeNull();
-    expect(patch.status_text).toBeNull();
-    expect(patch.result).toEqual(expect.objectContaining({
-      previous: true,
-      planning: expect.objectContaining({
-        status: 'continue',
-        resume_reason: 'planner_context_history_compacted_retry',
-        previous_failure_kind: 'token_budget_exceeded',
-        persisted_history_compacted: true,
-      }),
-    }));
+    expect(patch).toEqual({ status_text: null });
   });
 
   it('builds project planner retry patches and descriptions', () => {
@@ -281,15 +245,7 @@ describe('planner phase decisions', () => {
       retryingTokenBudgetBlocker: false,
       compactedPersistedPlannerHistory: true,
     });
-    expect(patch).toEqual(expect.objectContaining({ status: 'active', error: null, status_text: null }));
-    expect(patch.result).toEqual(expect.objectContaining({
-      previous: true,
-      planning: expect.objectContaining({
-        resume_reason: 'planner_terminal_tool_exhausted_retry',
-        previous_failure_kind: 'planner_contract_terminal_tool_exhausted',
-        persisted_history_compacted: false,
-      }),
-    }));
+    expect(patch).toEqual({ status: 'active', result: null, error: null, completed_at: null, status_text: null });
     expect(describeProjectPlannerRetry({ retryingTokenBudgetBlocker: true }).intentReason).toContain('token-budget blocker');
     expect(describeProjectPlannerRetry({ retryingTokenBudgetBlocker: false }).diagnosticMessage).toContain('terminal-tool exhaustion');
   });

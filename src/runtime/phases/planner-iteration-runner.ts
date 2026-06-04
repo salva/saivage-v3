@@ -111,8 +111,6 @@ export class PlannerIterationRunner {
       resumeReason: input.terminalReason,
       createdCards: Array.isArray(input.planning.created_cards) ? input.planning.created_cards.filter((id): id is string => typeof id === 'string') : [],
       updatedCards: Array.isArray(input.planning.updated_cards) ? input.planning.updated_cards.filter((id): id is string => typeof id === 'string') : [],
-      preservedResult: card.result,
-      planning: input.planning,
       effects: {
         transitionCard: (cardId, event, details) => this.deps.stateMachine.transitionCard(cardId, event as 'block', details),
         updateCard: (cardId, patch) => this.deps.cards.commitTerminalLifecyclePatch(cardId, patch),

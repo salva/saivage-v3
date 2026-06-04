@@ -7,12 +7,14 @@ import type {
   ReviewerResult,
   RuntimeState,
 } from '../schemas/index.js';
+import type { CardLifecycleState } from '../schemas/index.js';
 import type { Recipient } from '../notifications/index.js';
 import { decide } from '../permissions/index.js';
 import { CardStore } from '../cards/store-api.js';
 import { recordControlAction, stableStringify } from '../persistence/index.js';
 import { queueNotification } from '../notifications/index.js';
 import type { CardMutationContext } from '../cards/store-api.js';
+import { lifecyclePatch } from '../runtime/terminal-commit/lifecycle-patch.js';
 
 export type PlannerToolErrorKind =
   | 'subtree_not_ready'
@@ -89,11 +91,6 @@ const REPORTABLE_OUTCOMES: Record<
   report_goal_blocked: 'blocked',
 };
 
-function cloneResult(card: CardRecord): Record<string, unknown> {
-  const result = card.result;
-  return result && typeof result === 'object' ? { ...result } : {};
-}
-
 function requireCard(store: CardStore, cardId: string): CardRecord {
   const card = store.read(cardId);
   if (!card) throw new Error(`Card '${cardId}' not found.`);
@@ -129,6 +126,42 @@ function hasDurableEvidence(card: CardRecord): boolean {
 
 function reviewerInvocationFailedMessage(goalId: string): string {
   return `Reviewer invocation failed before assessment output could be produced for goal '${goalId}'; reviewer/provider capacity is unavailable for terminal acceptance.`;
+}
+
+function reportLifecycle(status: Extract<CardStatus, 'done' | 'failed' | 'blocked'>, report: GoalSelfReport, statusText: string, completedAt: string): CardLifecycleState {
+  if (status === 'done') {
+    return {
+      status,
+      result: { kind: 'planner_done', created_cards: [], updated_cards: [], summary: report.summary ?? statusText },
+      error: null,
+      completed_at: completedAt,
+    };
+  }
+  if (status === 'blocked') {
+    return {
+      status,
+      result: { kind: 'planner_blocked', blocked_reason: statusText, resume_reason: 'planner_report_blocked', created_cards: [], updated_cards: [] },
+      error: statusText,
+      completed_at: null,
+    };
+  }
+  return {
+    status,
+    result: {
+      kind: 'executor_failure',
+      error: statusText,
+      partial_result: report,
+      latest_self_report: {
+        result: 'failed',
+        outcome: 'failed',
+        summary: report.summary ?? statusText,
+        status_text: statusText,
+        at: completedAt,
+      },
+    },
+    error: statusText,
+    completed_at: completedAt,
+  };
 }
 
 function assertEvidenceCardsReady(
@@ -226,7 +259,7 @@ export class PlannerToolsService {
         `Card '${cardId}' is terminal and must be restarted before activation.`,
       );
     }
-    return this.store.update(cardId, { status: 'active' });
+    return this.store.setStatus(cardId, 'active');
   }
 
   cancelCard(cardId: string): CardRecord {
@@ -243,16 +276,16 @@ export class PlannerToolsService {
         `Card '${cardId}' cannot be cancelled while its subtree contains the active runtime leaf.`,
       );
     }
-    const changes: Partial<CardRecord> = { status: 'cancelled' };
+    const updated = this.store.setStatus(cardId, 'cancelled');
     if (!card.latest_self_report) {
-      changes.latest_self_report = {
+      return this.store.update(cardId, { latest_self_report: {
         result: 'failed',
         outcome: 'failed',
         reason: 'cancelled',
         at: new Date().toISOString(),
-      };
+      } });
     }
-    return this.store.update(cardId, changes);
+    return updated;
   }
 
   deleteCard(cardId: string): void {
@@ -292,14 +325,13 @@ export class PlannerToolsService {
         `Card '${cardId}' in status '${card.status}' cannot be restarted.`,
       );
     }
-    const currentResult = cloneResult(card);
-    if (isGoalLike(card)) delete currentResult.review;
-    else delete currentResult.executor;
-    this.store.update(cardId, { status: 'backlog' });
-    const changes: Partial<CardRecord> = {
-      result: Object.keys(currentResult).length > 0 ? currentResult : null,
+    this.store.repairTerminalLifecycle(cardId, {
+      status: 'backlog',
+      result: null,
       error: null,
       completed_at: null,
+    });
+    const changes: Partial<CardRecord> = {
       duration_ms: null,
       retries: 0,
     };
@@ -307,7 +339,7 @@ export class PlannerToolsService {
       changes.latest_self_report = null;
     }
     this.store.update(cardId, changes);
-    return this.store.update(cardId, { status: 'active' });
+    return this.store.setStatus(cardId, 'active');
   }
 
   moveCard(
@@ -537,23 +569,22 @@ export class PlannerToolsService {
   private persistReviewerInvocationBlock(goalId: string, err: unknown): PlannerToolError {
     if (err instanceof PlannerToolError) return err;
     const message = reviewerInvocationFailedMessage(goalId);
-    const current = requireCard(this.store, goalId);
-    this.store.update(goalId, {
-      status: 'blocked',
-      error: message,
-      status_text: message,
-      status_text_updated_at: new Date().toISOString(),
-      result: {
-        ...cloneResult(current),
-        planning: {
-          status: 'blocked',
+    requireCard(this.store, goalId);
+    this.store.repairTerminalLifecycle(goalId, {
+      ...lifecyclePatch({
+        status: 'blocked',
+        result: {
+          kind: 'planner_blocked',
           blocked_reason: message,
           resume_reason: 'reviewer_unavailable',
-          failure_kind: 'reviewer_invocation_failed',
           created_cards: [],
           updated_cards: [],
         },
-      },
+        error: message,
+        completed_at: null,
+      }),
+      status_text: message,
+      status_text_updated_at: new Date().toISOString(),
     });
     return new PlannerToolError('reviewer_invocation_failed', message);
   }
@@ -575,10 +606,6 @@ export class PlannerToolsService {
       reviewer_session_id: reviewerSessionId,
       goal_card_id: goal.id,
     };
-    this.store.update(goal.id, {
-      result: { ...cloneResult(requireCard(this.store, goal.id)), review: assessment },
-    });
-
     if (assessment.result === 'pass') {
       const updated = this.acceptReport(
         requireCard(this.store, goal.id),
@@ -596,7 +623,7 @@ export class PlannerToolsService {
     this.store.update(goal.id, { retries: attempts });
     if (attempts > this.maxReviewRetries) {
       this.writePendingSubtreeCorrectionNotes(goal.id, assessment.issues);
-      const changed = this.store.update(goal.id, { status: 'changed' });
+      const changed = this.store.setStatus(goal.id, 'changed');
       return { card: changed, accepted: true, assessment };
     }
     return { card: requireCard(this.store, goal.id), accepted: true, assessment };
@@ -610,16 +637,17 @@ export class PlannerToolsService {
     sessionId: string | undefined,
     assessment: ReviewAssessment | undefined,
   ): CardRecord {
-    const result: Record<string, unknown> = { ...cloneResult(goal), latest_self_report: report };
-    if (assessment) result.review = assessment;
-    return this.store.update(goal.id, {
-      status: REPORTABLE_OUTCOMES[toolName],
+    const completedAt = new Date().toISOString();
+    const status = REPORTABLE_OUTCOMES[toolName];
+    const lifecycle = reportLifecycle(status, report, statusText, completedAt);
+    void assessment;
+    return this.store.repairTerminalLifecycle(goal.id, {
+      ...lifecyclePatch(lifecycle),
       retries: 0,
       status_text: statusText,
-      status_text_updated_at: new Date().toISOString(),
+      status_text_updated_at: completedAt,
       status_text_author_session_id: sessionId ?? null,
       latest_self_report: report as Record<string, unknown>,
-      result,
     });
   }
 

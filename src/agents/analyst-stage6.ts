@@ -66,7 +66,7 @@ export function markGoalNeedsCorrections(projectRoot: string, originGoalId: stri
 ${sanitizeAnalystText(note, 1000)}` : ''}` });
   let status_transition: { from: CardStatus; to: CardStatus } | null = null;
   if (['done', 'running', 'blocked'].includes(origin.status)) {
-    store.update(originGoalId, { status: 'changed' });
+    store.setStatus(originGoalId, 'changed');
     status_transition = { from: origin.status, to: 'changed' };
   }
   return { origin_goal_id: originGoalId, notes_recorded_on_goal_ids: [], status_transition };
@@ -76,7 +76,7 @@ export function markDescendantChanged(projectRoot: string, affectedCardId: strin
   const store = new CardStore(projectRoot);
   const card = store.read(affectedCardId);
   if (!card) throw new Error(`Card '${affectedCardId}' not found.`);
-  if (card.status !== 'changed') store.update(affectedCardId, { status: 'changed' });
+  if (card.status !== 'changed') store.setStatus(affectedCardId, 'changed');
   const routed = findDeepestContainingPlanner(projectRoot, store, affectedCardId);
   if (routed) queueSyntheticPlannerNote(projectRoot, { target_planner_session_id: routed.session.id, target_goal_card_id: routed.goalId, kind: 'subtree_changed', affected_card_id: affectedCardId, descendant_card_ids: [affectedCardId], summary: sanitizeAnalystText(summary, 1000) });
 }

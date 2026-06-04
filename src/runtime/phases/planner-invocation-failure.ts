@@ -82,8 +82,6 @@ export async function handlePlannerInvocationFailure(input: {
       resumeReason: plannerFailureBlocker.resumeReason,
       createdCards: [],
       updatedCards: [],
-      preservedResult: input.currentCard.result,
-      planning: plannerFailureBlocker.planning,
       effects: {
         transitionCard: (cardId, event, details) => input.effects.transitionCard(cardId, event as 'block', details),
         updateCard: (cardId, patch) => input.effects.updateCard(cardId, patch),

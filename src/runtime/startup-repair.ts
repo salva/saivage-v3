@@ -1,5 +1,6 @@
 import type { CardRecord, RuntimeState } from '../schemas/index.js';
 import { CardActivation } from './card-activation.js';
+import { lifecyclePatch } from './terminal-commit/lifecycle-patch.js';
 
 export interface StartupActivationSnapshot {
   activation: CardActivation;
@@ -148,7 +149,7 @@ export interface StartupActiveRunRepairEffects {
   now(): string;
   repairOrphanActivateCardToolCalls(): void;
   transitionCard(cardId: string, event: 'reviewer_repair_resume' | 'fail', details: Record<string, unknown>): Promise<unknown>;
-  updateCard(cardId: string, patch: Partial<CardRecord>): Promise<unknown> | unknown;
+  repairTerminalLifecycle(cardId: string, patch: Partial<CardRecord>): Promise<unknown> | unknown;
   appendChildUnwindToolResult(cardId: string, outcome: 'done' | 'failed' | 'cancelled', summary: string): void;
   parentPlannerRunFor(cardId: string): RuntimeState['active_card_run'];
   findCallerEdge(cardId: string): { callerSessionId: string; callerToolCallId: string } | null;
@@ -206,13 +207,25 @@ export async function executeStartupActiveRunRepairDecision(input: {
           reason: 'service_restart',
           error: 'Execution interrupted by service restart.',
         });
-        await effects.updateCard(run.card_id, {
-          error: 'Execution interrupted by service restart.',
-          result: {
-            ...(decision.card.result ?? {}),
-            failure_kind: 'service_restart',
+        await effects.repairTerminalLifecycle(run.card_id, {
+          ...lifecyclePatch({
+            status: 'failed',
+            result: {
+              kind: 'executor_failure',
+              error: 'Execution interrupted by service restart.',
+              partial_result: { failure_kind: 'service_restart' },
+              latest_self_report: {
+                result: 'failed',
+                outcome: 'failed',
+                summary: 'Execution interrupted by service restart.',
+                status_text: 'Execution interrupted by service restart.',
+                at: effects.now(),
+              },
+            },
             error: 'Execution interrupted by service restart.',
-          },
+            completed_at: effects.now(),
+          }),
+          status_text: 'Execution interrupted by service restart.',
         });
       }
       effects.appendChildUnwindToolResult(

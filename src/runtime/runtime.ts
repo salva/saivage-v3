@@ -84,7 +84,6 @@ class Runtime {
     this.cardStore = new CardStore(
       config.projectRoot,
       config.maxGoalDepth,
-      undefined,
       this._events.eventBus,
     );
     this._sessionStamper = config.sessionStamper ?? new SessionStampCounter();

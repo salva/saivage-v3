@@ -188,7 +188,7 @@ export class CardStore {
   private state: CardStoreState;
   private readonly eventBus: EventBus;
 
-  constructor(projectRoot: string, maxGoalDepth?: number, _legacy?: unknown, eventBus?: EventBus) {
+  constructor(projectRoot: string, maxGoalDepth?: number, eventBus?: EventBus) {
     this.projectRoot = projectRoot;
     this.eventBus = eventBus ?? new EventBus();
     this.maxDepth = maxGoalDepth !== undefined && maxGoalDepth > 0 ? maxGoalDepth : 5;
@@ -212,7 +212,7 @@ export class CardStore {
     eventBus?: EventBus,
     maxGoalDepth?: number,
   ): Promise<CardStore> {
-    return new CardStore(projectRoot, maxGoalDepth, undefined, eventBus);
+    return new CardStore(projectRoot, maxGoalDepth, eventBus);
   }
 
   private deps(): ApplyMutationDeps {

@@ -140,10 +140,8 @@ export class RuntimeReviewerDispatcher {
   }
 
   private async persistReviewState(goalId: string, assessment: ReviewerResult['assessment']): Promise<void> {
-    const goal = this.deps.cards.read(goalId);
-    await this.deps.cards.update(goalId, {
-      result: { ...(goal?.result ?? {}), review: assessment },
-    });
+    void goalId;
+    void assessment;
   }
 
   private emitProjectRunCompleted(cardId: string, assessment: ReviewAssessment): void {

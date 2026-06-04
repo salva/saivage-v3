@@ -42,6 +42,7 @@ const LIFECYCLE_LOCKED_STATES: ReadonlySet<CardStatus> = new Set<CardStatus>([
 ]);
 
 const TERMINAL_LIFECYCLE_FIELDS: ReadonlySet<string> = new Set([
+  'status',
   'result',
   'error',
   'completed_at',
@@ -172,8 +173,22 @@ export function validateMutablePatch(
   const changesLifecycleField = changedKeys.some((key) => TERMINAL_LIFECYCLE_FIELDS.has(key));
   const reopensLifecycle = changes.status !== undefined && changes.status !== existing.status && !LIFECYCLE_LOCKED_STATES.has(changes.status);
   const explicitLifecycleWrite = ctx?.surface === 'runtime' && ctx.actor === 'runtime' && !!ctx.reason && EXPLICIT_LIFECYCLE_WRITE_REASONS.has(ctx.reason);
+  const explicitStatusTransition =
+    changedKeys.length === 1 &&
+    changes.status !== undefined &&
+    ctx?.surface === 'runtime' &&
+    ctx.actor === 'runtime' &&
+    typeof ctx.reason === 'string' &&
+    ctx.reason.startsWith('status -> ');
 
-  if (LIFECYCLE_LOCKED_STATES.has(existing.status) && changesLifecycleField && !reopensLifecycle && !explicitLifecycleWrite) {
+  if (changesLifecycleField && !explicitLifecycleWrite && !explicitStatusTransition) {
+    const fields = changedKeys.filter((key) => TERMINAL_LIFECYCLE_FIELDS.has(key));
+    throw new Error(
+      `Fields ${fields.join(', ')} are lifecycle-owned and can only be changed by terminal commit, explicit terminal repair, or setStatus transition paths.`,
+    );
+  }
+
+  if (LIFECYCLE_LOCKED_STATES.has(existing.status) && changesLifecycleField && !reopensLifecycle && !explicitLifecycleWrite && !explicitStatusTransition) {
     const fields = changedKeys.filter((key) => TERMINAL_LIFECYCLE_FIELDS.has(key));
     throw new Error(
       `Card '${existing.id}' is in status '${existing.status}'. Fields ${fields.join(', ')} are lifecycle-owned and can only be changed by terminal commit or explicit admin repair paths. Reopen the card before ordinary edits.`,

@@ -3,6 +3,7 @@ import type { PlannerResult } from '../../contracts/index.js';
 import { STARTABLE_STATES, RESTARTABLE_STATES } from '../../permissions/index.js';
 import { blockedPlanningReason, getBlockedPlanning, isReviewerCapacityPlannerBlocker, shouldPreservePrecisePlanningBlocker } from '../planning-blockers.js';
 import { activeRunFromActivationState, plannerActivationStateFromGoal } from '../activation-reducer.js';
+import { lifecyclePatch } from '../terminal-commit/lifecycle-patch.js';
 
 export type GoalActivationTransitionDecision =
   | { kind: 'none' }
@@ -158,35 +159,8 @@ export function buildPlannerContinuePatch(input: {
   createdCardIds: readonly string[];
   updatedCardIds: readonly string[];
 }): Partial<CardRecord> {
-  const previousPlanning =
-    input.existingResult &&
-    typeof input.existingResult === 'object' &&
-    input.existingResult.planning &&
-    typeof input.existingResult.planning === 'object'
-      ? (input.existingResult.planning as Record<string, unknown>)
-      : null;
-  const retryMetadata: Record<string, unknown> = {};
-  if (previousPlanning?.persisted_history_compacted) retryMetadata.persisted_history_compacted = true;
-  if (typeof previousPlanning?.previous_failure_kind === 'string') {
-    retryMetadata.previous_failure_kind = previousPlanning.previous_failure_kind;
-  } else if (previousPlanning?.persisted_history_compacted) {
-    retryMetadata.previous_failure_kind = 'token_budget_exceeded';
-  }
-  return {
-    error: null,
-    result: {
-      ...(input.existingResult ?? {}),
-      planning: {
-        status: 'continue',
-        planner_declared_done: input.plannerDeclaredDone,
-        has_unfinished_child_work: input.hasUnfinishedChildWork,
-        resume_reason: input.hasGoalDispatch ? 'dispatch_completed' : 'review_completed',
-        ...retryMetadata,
-        created_cards: [...input.createdCardIds],
-        updated_cards: [...input.updatedCardIds],
-      },
-    },
-  };
+  void input;
+  return {};
 }
 
 export type PlannerPostDispatchDecision =
@@ -408,30 +382,7 @@ export function buildPlannerActivationPlanningPatch(input: {
 }): Partial<CardRecord> {
   const retryingPlanningBlocker = input.retryingTokenBudgetBlocker || input.retryingTerminalToolBlocker;
   return {
-    error: retryingPlanningBlocker ? null : input.existingError,
     status_text: retryingPlanningBlocker ? null : input.existingStatusText,
-    result: {
-      ...input.existingResult,
-      planning: {
-        status: 'continue',
-        summary: null,
-        blocked_reason: null,
-        resume_reason: input.retryingTokenBudgetBlocker
-          ? 'planner_context_history_compacted_retry'
-          : input.retryingTerminalToolBlocker
-            ? 'planner_terminal_tool_exhausted_retry'
-            : 'initial',
-        previous_failure_kind: input.retryingTokenBudgetBlocker
-          ? 'token_budget_exceeded'
-          : input.retryingTerminalToolBlocker
-            ? 'planner_contract_terminal_tool_exhausted'
-            : undefined,
-        persisted_history_compacted: input.compactedPersistedPlannerHistory,
-        created_cards: [],
-        updated_cards: [],
-        updated_at: new Date().toISOString(),
-      },
-    } as CardRecord['result'],
   };
 }
 
@@ -440,31 +391,10 @@ export function buildProjectPlannerRetryPatch(input: {
   retryingTokenBudgetBlocker: boolean;
   compactedPersistedPlannerHistory: boolean;
 }): Partial<CardRecord> {
-  const previousFailureKind = input.retryingTokenBudgetBlocker
-    ? 'token_budget_exceeded'
-    : 'planner_contract_terminal_tool_exhausted';
+  void input;
   return {
-    status: 'active',
-    error: null,
+    ...lifecyclePatch({ status: 'active', result: null, error: null, completed_at: null }),
     status_text: null,
-    result: {
-      ...(input.existingResult && typeof input.existingResult === 'object' ? input.existingResult : {}),
-      planning: {
-        status: 'continue',
-        summary: null,
-        blocked_reason: null,
-        resume_reason: input.retryingTokenBudgetBlocker
-          ? 'planner_context_history_compacted_retry'
-          : 'planner_terminal_tool_exhausted_retry',
-        previous_failure_kind: previousFailureKind,
-        persisted_history_compacted: input.retryingTokenBudgetBlocker
-          ? input.compactedPersistedPlannerHistory
-          : false,
-        created_cards: [],
-        updated_cards: [],
-        updated_at: new Date().toISOString(),
-      },
-    } as CardRecord['result'],
   };
 }
 
