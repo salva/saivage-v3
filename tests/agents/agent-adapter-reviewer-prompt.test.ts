@@ -150,16 +150,19 @@ describe('AgentAdapter planner-control reviewer prompt contract', () => {
           }) } }],
         };
       }
-      return {
-        kind: 'tool_calls',
-        tool_calls: [{ id: 'call-planner-done', type: 'function', function: { name: 'emit_planner_result', arguments: JSON.stringify({ status: 'done', summary: 'Planner accepted reviewer assessment.', created_cards: [], updated_cards: [] }) } }],
-      };
+      throw new Error(`unexpected LLM call for session ${sessionId}`);
     };
     adapter.setLlmCallFn(llmCallFn);
 
     const result = await adapter.invokePlanner(goal.id, 'planner-system-prompt');
 
-    expect(result).toEqual(expect.objectContaining({ status: 'done', summary: 'Planner accepted reviewer assessment.' }));
+    expect(result).toEqual(expect.objectContaining({
+      status: 'done',
+      summary: `report_goal_done accepted for goal ${goal.id}.`,
+      created_cards: [],
+      updated_cards: [],
+    }));
+    expect(llmCalls.filter((call) => call.sessionId === `planner:${goal.id}`)).toHaveLength(1);
     const reviewerCall = llmCalls.find((call) => call.sessionId.startsWith(`reviewer:${goal.id}:`));
     expect(reviewerCall).toBeDefined();
     expect(reviewerCall?.sessionId).toMatch(new RegExp(`^reviewer:${goal.id}:.+`));
