@@ -1,9 +1,9 @@
-import { existsSync } from 'node:fs';
 import { isAbsolute, relative, resolve } from 'node:path';
 import { registerArtifact, registerAttachment } from '../../cards/artifact-api.js';
 import type { CardStore } from '../../cards/store-api.js';
 import type { ExecutorResult } from '../../contracts/index.js';
 import type { CardRecord } from '../../schemas/index.js';
+import { generatedFileValidationErrors, validateGeneratedFiles } from '../terminal-commit/validators.js';
 
 export interface ExecutorEvidenceRegistrationResult {
   artifactRegistrationErrors: string[];
@@ -124,20 +124,7 @@ function resultGeneratedFiles(execResult: ExecutorResult): string[] {
 }
 
 export function validateExecutorGeneratedFiles(projectRoot: string, execResult: ExecutorResult): string[] {
-  const errors: string[] = [];
-  for (const filePath of resultGeneratedFiles(execResult)) {
-    if (!filePath.trim()) {
-      errors.push('Generated file claim is empty.');
-      continue;
-    }
-    const resolved = isAbsolute(filePath) ? resolve(filePath) : resolve(projectRoot, filePath);
-    if (!pathIsInside(projectRoot, resolved)) {
-      errors.push(`Generated file claim points outside project root: '${filePath}'.`);
-      continue;
-    }
-    if (!existsSync(resolved)) errors.push(`Generated file claim does not exist: '${filePath}'.`);
-  }
-  return errors;
+  return generatedFileValidationErrors(validateGeneratedFiles(projectRoot, resultGeneratedFiles(execResult)));
 }
 
 export function summarizeExecutorEvidenceRegistrationFailure(input: {
