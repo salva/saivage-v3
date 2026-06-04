@@ -368,7 +368,7 @@ export function reduceRuntimeEvent(
       const goalId = (payload.goalId as string | undefined) ?? null;
       const reviewerSessionId = (payload.reviewerSessionId as string | undefined) ?? null;
       const activeCardRun = (payload.activeCardRun ?? null) as RuntimeState['active_card_run'];
-      return { current_card_id: goalId, current_agent_session_id: reviewerSessionId, active_card_run: activeCardRun };
+      return { status: 'running', current_card_id: goalId, current_agent_session_id: reviewerSessionId, active_card_run: activeCardRun };
     }
     case 'reviewer_finished':
       return { status: 'idle', current_card_id: null, current_agent_session_id: null, active_card_run: null };
@@ -398,6 +398,15 @@ export function observeRuntimeStateInvariants(input: {
       key: 'global',
       details: { status: state.status },
       correction: { status: 'idle', current_card_id: null, current_agent_session_id: null },
+    });
+  }
+
+  if (state.status === 'idle' && (state.active_card_run ?? null) !== null) {
+    observations.push({
+      invariant: 'I1',
+      key: 'global',
+      details: { status: state.status, activeRunCardId: state.active_card_run?.card_id ?? null, activeRunStatus: state.active_card_run?.runtime_status ?? null },
+      correction: { status: 'running' },
     });
   }
 

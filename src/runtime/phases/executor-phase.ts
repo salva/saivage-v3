@@ -50,8 +50,11 @@ export function buildExecutorActiveRunPatch(input: {
   callerEdge: { callerSessionId: string; callerToolCallId: string } | null | undefined;
   at: string;
 }): Partial<RuntimeState> {
+  const executorSessionId = `executor-${input.card.id}`;
   return {
+    status: 'running',
     current_card_id: input.card.id,
+    current_agent_session_id: executorSessionId,
     active_card_run: {
       card_id: input.card.id,
       card_type: input.card.type,
@@ -59,7 +62,7 @@ export function buildExecutorActiveRunPatch(input: {
       phase: 'executor',
       caller_session_id: input.callerEdge?.callerSessionId ?? `planner:${input.goalId}`,
       caller_tool_call_id: input.callerEdge?.callerToolCallId ?? null,
-      executor_session_id: `executor-${input.card.id}`,
+      executor_session_id: executorSessionId,
       correction_attempts: 0,
       started_at: input.at,
       last_turn_at: input.at,

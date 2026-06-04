@@ -200,12 +200,23 @@ describe('runtime core reducers', () => {
     expect(reduceRuntimeEvent(state(), 'paused', {}, '2026-05-26T01:00:00.000Z')).toEqual({ status: 'paused', paused: true, paused_at: '2026-05-26T01:00:00.000Z' });
     expect(reduceRuntimeEvent(state({ active_card_run: { card_id: 'c1', card_type: 'goal', runtime_status: 'running', phase: 'planner', caller_session_id: null, caller_tool_call_id: null, planner_session_id: 'planner:c1', correction_attempts: 0, started_at: 't', last_turn_at: 't' } }), 'resumed', {}, 'now')).toEqual({ status: 'running', paused: false, paused_at: null });
     expect(reduceRuntimeEvent(state(), 'goal_exit', {}, 'now')).toEqual({ status: 'idle', current_card_id: null, current_agent_session_id: null, active_card_run: null });
+    expect(reduceRuntimeEvent(state(), 'reviewer_started', {
+      goalId: 'goal-a',
+      reviewerSessionId: 'reviewer:goal-a',
+      activeCardRun: { card_id: 'goal-a', card_type: 'goal', runtime_status: 'running', phase: 'reviewer', caller_session_id: null, caller_tool_call_id: null, reviewer_session_id: 'reviewer:goal-a', correction_attempts: 0, started_at: 'now', last_turn_at: 'now' },
+    }, 'now')).toEqual(expect.objectContaining({ status: 'running', current_card_id: 'goal-a', current_agent_session_id: 'reviewer:goal-a', active_card_run: expect.objectContaining({ card_id: 'goal-a' }) }));
   });
 
   it('plans invariant observations and corrections as data', () => {
     expect(observeRuntimeStateInvariants({ state: state({ status: 'running', active_card_run: null }), currentCardStatus: null })).toEqual([
       expect.objectContaining({ invariant: 'I1', key: 'global', correction: expect.objectContaining({ status: 'idle' }) }),
     ]);
+    expect(observeRuntimeStateInvariants({
+      state: state({ status: 'idle', current_card_id: 'code-a', active_card_run: { card_id: 'code-a', card_type: 'code', runtime_status: 'running', phase: 'executor', caller_session_id: 'planner:goal-a', caller_tool_call_id: null, executor_session_id: 'executor-code-a', correction_attempts: 0, started_at: 't', last_turn_at: 't' } }),
+      currentCardStatus: 'running',
+    })).toEqual(expect.arrayContaining([
+      expect.objectContaining({ invariant: 'I1', key: 'global', correction: { status: 'running' } }),
+    ]));
     expect(observeRuntimeStateInvariants({ state: state({ current_card_id: 'c1' }), currentCardStatus: 'done' })).toEqual(expect.arrayContaining([
       expect.objectContaining({ invariant: 'I2', key: 'c1', correction: expect.objectContaining({ active_card_run: null }) }),
       expect.objectContaining({ invariant: 'I3', key: 'c1|null' }),
