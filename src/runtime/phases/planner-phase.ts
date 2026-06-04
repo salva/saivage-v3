@@ -71,13 +71,19 @@ export function buildPlannerBlockedDecision(input: {
   const blockedReason = preservePreciseBlocker
     ? typeof preservedPlanning?.blocked_reason === 'string'
       ? preservedPlanning.blocked_reason
-      : (input.currentCard?.error ?? input.plannerBlockedReason)
+      : (input.currentCard?.error ?? input.currentCard?.status_text ?? input.plannerBlockedReason)
     : input.plannerBlockedReason;
   if (preservePreciseBlocker) {
     return {
       blockedReason,
       planning: {
         ...preservedPlanning,
+        status: 'blocked',
+        blocked_reason: blockedReason,
+        resume_reason: 'reviewer_unavailable',
+        failure_kind: 'reviewer_invocation_failed',
+        created_cards: input.createdCardIds,
+        updated_cards: input.updatedCardIds,
         preserved_from_generic_planner_blocked: true,
         generic_planner_blocked_reason: input.plannerBlockedReason,
       },
@@ -163,6 +169,8 @@ export function buildPlannerContinuePatch(input: {
   if (previousPlanning?.persisted_history_compacted) retryMetadata.persisted_history_compacted = true;
   if (typeof previousPlanning?.previous_failure_kind === 'string') {
     retryMetadata.previous_failure_kind = previousPlanning.previous_failure_kind;
+  } else if (previousPlanning?.persisted_history_compacted) {
+    retryMetadata.previous_failure_kind = 'token_budget_exceeded';
   }
   return {
     error: null,

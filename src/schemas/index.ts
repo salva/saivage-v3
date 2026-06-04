@@ -45,6 +45,7 @@ export {
   executorSuccessResultSchema,
   failureResultSchema,
   needsVerificationResultSchema,
+  normalizePersistedCardLifecycle,
   plannerBlockedResultSchema,
   plannerDoneResultSchema,
   projectCardLifecycleState,

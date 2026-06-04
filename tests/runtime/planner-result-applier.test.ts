@@ -79,7 +79,13 @@ describe('PlannerResultApplier', () => {
           status: 'done',
           error: null,
           completed_at: '2026-01-01T00:00:00.000Z',
-          result: { kind: 'planner_done', created_cards: [], updated_cards: ['doc-a', 'goal-a'], summary: 'planned doc closure' },
+          result: expect.objectContaining({
+            kind: 'planner_done',
+            created_cards: [],
+            updated_cards: ['doc-a', 'goal-a'],
+            summary: 'planned doc closure',
+            planning: expect.objectContaining({ status: 'done' }),
+          }),
         }),
       }),
     ]);

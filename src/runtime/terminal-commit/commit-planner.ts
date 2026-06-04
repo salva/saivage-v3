@@ -18,7 +18,7 @@ export async function commitPlannerDone(input: {
   const lifecycle = { status: 'done', result, error: null, completed_at: input.completedAt } satisfies Extract<CardLifecycleState, { status: 'done' }>;
   assertNoTerminalOverlayErrors(input.card, lifecycle);
   const transitioned = await input.effects.transitionCard(input.card.id, 'complete', { summary: input.summary });
-  const patch = { ...lifecyclePatch(lifecycle), status_text: input.summary };
+  const patch = { ...lifecyclePatch(lifecycle), result: { ...result, planning: { status: 'done', created_cards: input.createdCards, updated_cards: input.updatedCards, summary: input.summary } }, status_text: input.summary };
   await input.effects.updateCard(input.card.id, patch);
   return { lifecycle, result, patch, transitioned: transitioned !== false };
 }

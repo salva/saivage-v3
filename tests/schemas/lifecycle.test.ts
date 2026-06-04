@@ -3,7 +3,7 @@ import { mkdtempSync, writeFileSync, rmSync, mkdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { initProjectTree } from '../../src/persistence/file-tree.js';
-import { CardStore, CardStoreInvariantError } from '../../src/cards/card-store.js';
+import { CardStore } from '../../src/cards/card-store.js';
 import {
   cardLifecycleStateSchema,
   projectCardLifecycleState,
@@ -87,12 +87,13 @@ describe('card lifecycle schemas', () => {
     expect(projectCardLifecycleState(flatCard({ status: 'failed', result: { partial: true }, error: 'boom' }))).toEqual({ status: 'failed', result: { partial: true }, error: 'boom', completed_at: now });
   });
 
-  it('validates persisted flat cards when card store loads JSON', () => {
+  it('normalizes legacy persisted flat cards when card store loads JSON', () => {
     const root = mkdtempSync(join(tmpdir(), 'saivage-lifecycle-boundary-'));
     try {
       initProjectTree(root);
       writeCard(root, flatCard({ id: 'card-1', status: 'done', error: 'stale', result: {} }));
-      expect(() => new CardStore(root)).toThrow(CardStoreInvariantError);
+      const store = new CardStore(root);
+      expect(store.read('card-1')).toEqual(expect.objectContaining({ status: 'done', error: null, result: {}, completed_at: now }));
       expect(() => validatePersistedCardLifecycle(flatCard({ status: 'failed', error: null }))).toThrow("status 'failed' requires");
     } finally {
       rmSync(root, { recursive: true, force: true });

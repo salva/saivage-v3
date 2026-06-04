@@ -18,7 +18,7 @@ export async function commitReviewerPass(input: {
   const transitioned = input.card.status === 'done'
     ? true
     : await input.effects.transitionCard(input.card.id, 'complete', input.transitionDetails ?? { assessment_id: input.assessmentId });
-  const patch = { ...lifecyclePatch(lifecycle), status_text: input.reviewSummary };
+  const patch = { ...lifecyclePatch(lifecycle), result: { ...result, planning: legacyPlanningProjection(result.planning, input.reviewSummary) }, status_text: input.reviewSummary };
   await input.effects.updateCard(input.card.id, patch);
   return { lifecycle, result, patch, transitioned: transitioned !== false };
 }
@@ -82,6 +82,26 @@ function isPlannerBlockedResult(result: unknown): result is PlannerBlockedResult
 
 function isReviewerPassResult(result: unknown): result is ReviewerPassResult {
   return !!result && typeof result === 'object' && (result as { kind?: unknown }).kind === 'reviewer_pass' && 'planning' in result;
+}
+
+function legacyPlanningProjection(planning: PlannerDoneResult | PlannerBlockedResult, fallbackSummary: string): Record<string, unknown> {
+  if (planning.kind === 'planner_blocked') {
+    return {
+      kind: planning.kind,
+      status: 'blocked',
+      blocked_reason: planning.blocked_reason,
+      resume_reason: planning.resume_reason,
+      created_cards: planning.created_cards,
+      updated_cards: planning.updated_cards,
+    };
+  }
+  return {
+    kind: planning.kind,
+    status: 'done',
+    created_cards: planning.created_cards,
+    updated_cards: planning.updated_cards,
+    summary: planning.summary || fallbackSummary,
+  };
 }
 
 function stringArray(value: unknown): string[] {

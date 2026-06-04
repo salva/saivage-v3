@@ -87,7 +87,7 @@ export type NeedsVerificationResult = ExecutorNeedsVerificationResult | LegacyCa
 export type CardLifecycleState =
   | { status: 'drafting'; result: null; error: null; completed_at: null }
   | { status: 'backlog'; result: null; error: null; completed_at: null }
-  | { status: 'active'; result: null; error: null; completed_at: null }
+  | { status: 'active'; result: CardResult | null; error: string | null; completed_at: null }
   | { status: 'running'; result: CardResult | null; error: string | null; completed_at: null }
   | { status: 'changed'; result: CardResult | null; error: string | null; completed_at: null }
   | { status: 'done'; result: DoneResult; error: null; completed_at: string }
@@ -190,7 +190,7 @@ export const needsVerificationResultSchema: z.ZodType<NeedsVerificationResult> =
 export const cardLifecycleStateSchema: z.ZodType<CardLifecycleState> = z.discriminatedUnion('status', [
   z.object({ status: z.literal('drafting'), result: z.null(), error: z.null(), completed_at: z.null() }).strict(),
   z.object({ status: z.literal('backlog'), result: z.null(), error: z.null(), completed_at: z.null() }).strict(),
-  z.object({ status: z.literal('active'), result: z.null(), error: z.null(), completed_at: z.null() }).strict(),
+  z.object({ status: z.literal('active'), result: cardResultSchema.nullable(), error: z.string().nullable(), completed_at: z.null() }).strict(),
   z.object({ status: z.literal('running'), result: cardResultSchema.nullable(), error: z.string().nullable(), completed_at: z.null() }).strict(),
   z.object({ status: z.literal('changed'), result: cardResultSchema.nullable(), error: z.string().nullable(), completed_at: z.null() }).strict(),
   z.object({ status: z.literal('done'), result: doneResultSchema, error: z.null(), completed_at: timestampSchema }).strict(),
@@ -219,6 +219,11 @@ export const runtimeRunOutcomeSchema: z.ZodType<RuntimeRunOutcome> = z.discrimin
 
 export type LifecycleProjectionInput = Pick<CardRecord, 'status' | 'updated_at' | 'result' | 'error' | 'completed_at'>;
 
+export interface NormalizedPersistedCardLifecycle<T extends LifecycleProjectionInput = LifecycleProjectionInput> {
+  card: T;
+  diagnostics: string[];
+}
+
 function asResult(value: Record<string, unknown> | null | undefined): Record<string, unknown> {
   return value ?? {};
 }
@@ -234,8 +239,8 @@ export function projectCardLifecycleState(card: LifecycleProjectionInput): CardL
   switch (card.status) {
     case 'drafting':
     case 'backlog':
-    case 'active':
       return cardLifecycleStateSchema.parse({ status: card.status, result: null, error: null, completed_at: null });
+    case 'active':
     case 'running':
     case 'changed':
       return cardLifecycleStateSchema.parse({ status: card.status, result, error, completed_at: null });
@@ -259,4 +264,83 @@ export function projectCardLifecycleState(card: LifecycleProjectionInput): CardL
 
 export function validatePersistedCardLifecycle(card: LifecycleProjectionInput): CardLifecycleState {
   return projectCardLifecycleState(card);
+}
+
+export function normalizePersistedCardLifecycle<T extends LifecycleProjectionInput>(card: T): NormalizedPersistedCardLifecycle<T> {
+  const diagnostics: string[] = [];
+  const normalized = { ...card };
+  const clear = (field: 'result' | 'error' | 'completed_at', value: null, reason: string): void => {
+    if (normalized[field] !== null && normalized[field] !== undefined) {
+      (normalized as Record<string, unknown>)[field] = value;
+      diagnostics.push(reason);
+    }
+  };
+
+  switch (normalized.status) {
+    case 'drafting':
+    case 'backlog':
+      clear('result', null, `Cleared stale result for non-running status '${normalized.status}'.`);
+      clear('error', null, `Cleared stale error for non-running status '${normalized.status}'.`);
+      clear('completed_at', null, `Cleared stale completed_at for non-terminal status '${normalized.status}'.`);
+      break;
+    case 'active':
+    case 'running':
+    case 'changed':
+      clear('completed_at', null, `Cleared stale completed_at for in-flight status '${normalized.status}'.`);
+      break;
+    case 'done':
+      if (normalized.result === null || normalized.result === undefined) {
+        normalized.result = {};
+        diagnostics.push("Added empty result for legacy done card.");
+      }
+      if (normalized.error !== null && normalized.error !== undefined) {
+        normalized.error = null;
+        diagnostics.push("Cleared stale error for done card.");
+      }
+      if (normalized.completed_at === null || normalized.completed_at === undefined) {
+        normalized.completed_at = normalized.updated_at;
+        diagnostics.push("Filled missing completed_at for done card from updated_at.");
+      }
+      break;
+    case 'failed':
+      if (normalized.result === null || normalized.result === undefined) {
+        normalized.result = {};
+        diagnostics.push("Added empty result for legacy failed card.");
+      }
+      if (typeof normalized.error !== 'string' || normalized.error.length === 0) {
+        normalized.error = 'Legacy failed card had no persisted error.';
+        diagnostics.push("Filled missing error for legacy failed card.");
+      }
+      if (normalized.completed_at === null || normalized.completed_at === undefined) {
+        normalized.completed_at = normalized.updated_at;
+        diagnostics.push("Filled missing completed_at for failed card from updated_at.");
+      }
+      break;
+    case 'blocked':
+      if (normalized.result === null || normalized.result === undefined) {
+        normalized.result = {};
+        diagnostics.push("Added empty result for legacy blocked card.");
+      }
+      if (typeof normalized.error !== 'string' || normalized.error.length === 0) {
+        normalized.error = 'Legacy blocked card had no persisted error.';
+        diagnostics.push("Filled missing error for legacy blocked card.");
+      }
+      clear('completed_at', null, "Cleared stale completed_at for blocked card.");
+      break;
+    case 'needs_verification':
+      if (normalized.result === null || normalized.result === undefined) {
+        normalized.result = {};
+        diagnostics.push("Added empty result for legacy needs_verification card.");
+      }
+      clear('error', null, "Cleared stale error for needs_verification card.");
+      clear('completed_at', null, "Cleared stale completed_at for needs_verification card.");
+      break;
+    case 'cancelled':
+      clear('result', null, "Cleared stale result for cancelled card.");
+      clear('error', null, "Cleared stale error for cancelled card.");
+      break;
+  }
+
+  validatePersistedCardLifecycle(normalized);
+  return { card: normalized, diagnostics };
 }
