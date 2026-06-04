@@ -2,10 +2,8 @@
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import path from 'node:path';
 
-const INVENTORY_ROW_RE = /^\|\s*`([^`]+)`\s*\|\s*(current|stale)\s*\|/;
 const HISTORICAL_REF_RE = /(?:docs\/historical|\.\.?\/historical|\/historical\/|\]\([^)]*historical\/|\]\([^)]*historical-artifacts)/i;
 const PREFIX_RE = /See historical:/i;
-const EXEMPT_DOCS = new Set(['docs/documentation-inventory.md']);
 
 const DEFAULT_CURRENT_DOCS = [
   'README.md',
@@ -50,26 +48,7 @@ function printHelp() {
 }
 
 function inventoryCurrentDocs(root) {
-  const inventoryPath = path.join(root, 'docs/documentation-inventory.md');
-  if (!existsSync(inventoryPath)) {
-    return DEFAULT_CURRENT_DOCS.filter((docPath) => !EXEMPT_DOCS.has(docPath) && existsSync(path.join(root, docPath)));
-  }
-  const content = readFileSync(inventoryPath, 'utf8');
-  const docs = [];
-  for (const line of content.split('\n')) {
-    const match = line.match(INVENTORY_ROW_RE);
-    if (!match) continue;
-    const docPath = match[1];
-    if (
-      docPath.endsWith('.md') &&
-      !docPath.startsWith('docs/historical/') &&
-      !EXEMPT_DOCS.has(docPath) &&
-      existsSync(path.join(root, docPath))
-    ) {
-      docs.push(docPath);
-    }
-  }
-  return Array.from(new Set(docs)).sort((a, b) => a.localeCompare(b));
+  return DEFAULT_CURRENT_DOCS.filter((docPath) => existsSync(path.join(root, docPath)));
 }
 
 function directMarkdownDocs(root, relativePath) {

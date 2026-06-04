@@ -1,7 +1,7 @@
 # Planner Redesign Implementation Plan
 
 
-> **Authority status: historical.** This page is retained for provenance only. Prefer `docs/agents.md` for current authority where applicable. See `docs/documentation-inventory.md` for disposition `keep`.
+> **Authority status: historical.** This page is retained for provenance only. Prefer `docs/agents.md` for current authority where applicable.
 
 This is the implementation plan for the Saivage v3 planner redesign.
 The central rule is simple: a planner does not call another planner or

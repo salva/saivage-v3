@@ -1,7 +1,7 @@
 # Implementation Plan
 
 
-> **Authority status: historical.** This page is retained for provenance only. Prefer `docs/historical/2026-05-remediation-dossiers/planner-redesign-plan.md` for current authority where applicable. See `docs/documentation-inventory.md` for disposition `move-to-docs/historical/`.
+> **Authority status: historical.** This page is retained for provenance only. Prefer `docs/historical/2026-05-remediation-dossiers/planner-redesign-plan.md` for current authority where applicable.
 
 This plan stages Saivage v3 implementation from a verifiable local
 kernel to the full autonomous control room. Each stage has clear bounds

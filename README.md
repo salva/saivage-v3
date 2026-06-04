@@ -1,6 +1,5 @@
 # Saivage v3
 
-
 Saivage v3 is an autonomous multi-agent runtime for software-development work. A top-level planner decomposes goals into cards, executors perform scoped work, reviewers verify results, and the operator control room exposes cards, agents, files, timeline events, and runtime controls.
 
 ## Quick start
@@ -30,7 +29,6 @@ curl http://localhost:8080/health
 | [Operator runbook](docs/runbook/index.md) | current authority | Start, pause, resume, diagnose, recover incidents, and release Saivage from the implemented runbook. |
 | [Design documentation](docs/design/index.md) | current authority | Use as the concept map for design-era pages; follow status labels before relying on linked topic pages. |
 | [Documentation index](docs/index.md) | current authority | Curated table of contents for current docs and findings dossiers. |
-| [Documentation inventory](docs/documentation-inventory.md) | current authority | Source-of-truth ledger for every root and `docs/` Markdown file classification/disposition. |
 | See historical: [Historical documentation](docs/historical/README.md) | historical provenance | Provenance-only plans, audits, and pre-consolidation designs; not current operator guidance. |
 
 ## Key concepts
@@ -72,4 +70,4 @@ npm test
 npm run web:test:operator-smoke
 ```
 
-`npm run docs:verify` builds VitePress and checks documentation inventory completeness, authority metadata/status surfaces, route/role/config/runtime anchors, historical isolation, runbook curl examples, design-doc link boundaries, global Markdown internal links, documented validation-command parity, and docs:verify sub-guard entry points. It verifies that `npm run web:test:operator-smoke` exists and is documented, but intentionally does not execute that Vitest smoke guard so routine docs verification stays lightweight. Run `npm run web:test:operator-smoke` directly after operator-dashboard changes and during release sign-off.
+`npm run docs:verify` builds VitePress and checks route/role/config/runtime anchors, historical isolation, runbook curl examples, design-doc link boundaries, global Markdown internal links, documented validation-command parity, and docs:verify sub-guard entry points. It verifies that `npm run web:test:operator-smoke` exists and is documented, but intentionally does not execute that Vitest smoke guard so routine docs verification stays lightweight. Run `npm run web:test:operator-smoke` directly after operator-dashboard changes and during release sign-off.

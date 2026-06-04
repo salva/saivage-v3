@@ -1,7 +1,7 @@
 # Decisions & Deferred Items
 
 
-> **Authority status: historical.** This page is retained for provenance only. Prefer `docs/agents.md` for current authority where applicable. See `docs/documentation-inventory.md` for disposition `move-to-docs/historical/`.
+> **Authority status: historical.** This page is retained for provenance only. Prefer `docs/agents.md` for current authority where applicable.
 
 This document records architectural decisions and items explicitly
 deferred from the initial design.

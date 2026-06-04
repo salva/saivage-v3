@@ -4,7 +4,7 @@
 # Second Codebase Review Remediation Cycle
 
 
-> **Authority status: historical.** This page is retained for provenance only. See `docs/historical/2026-05-remediation-dossiers/historical-artifacts.md` for the provenance index and `docs/documentation-inventory.md` for disposition `keep`.
+> **Authority status: historical.** This page is retained for provenance only. See `docs/historical/2026-05-remediation-dossiers/historical-artifacts.md` for the provenance index.
 
 This cycle followed the same review-plan-fix-validate loop as the first full remediation pass, with special attention to the live analyst conversation quality and agent context propagation.
 

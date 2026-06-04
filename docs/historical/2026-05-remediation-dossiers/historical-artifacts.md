@@ -1,7 +1,7 @@
 # Historical artifacts
 
 
-> **Authority status: historical.** This page is retained for provenance only. Prefer `docs/historical/README.md` for current authority where applicable. See `docs/documentation-inventory.md` for disposition `keep`.
+> **Authority status: historical.** This page is retained for provenance only. Prefer `docs/historical/README.md` for current authority where applicable.
 
 > **Historical/Audit Artifact Policy**  
 > Documents listed here are preserved as audit evidence, redesign notes, incident records, or superseded remediation plans. They are **not** current operator instructions unless a current active doc explicitly revalidates them against current source and tests.
@@ -17,7 +17,6 @@ For current behavior and supported procedures, use:
 - [Operator Runbook](/operator-runbook)
 - [Troubleshooting](/troubleshooting)
 - [Release Checklist](/release-checklist)
-- [Documentation Inventory](/documentation-inventory)
 
 ## Historical docs kept for provenance
 

@@ -8,7 +8,6 @@ set -euo pipefail
 #   - VitePress build output for top-level docs/*.md pages.
 #   - VitePress dist artifact policy: docs/.vitepress/dist is ignored generated output.
 #   - Operator route, agent-tool, runtime-control, config-schema, and anchor parity.
-#   - Documentation inventory completeness for root/docs Markdown.
 #   - Design-doc allowed-link boundaries.
 #   - Historical-link isolation for current/stale docs.
 #   - Runbook curl/example route and response-shape checks.
@@ -72,12 +71,6 @@ echo ""
 node scripts/verify-doc-routes.js || ALL_OK=false
 
 echo ""
-node scripts/check-doc-inventory.js || ALL_OK=false
-
-echo ""
-node scripts/check-doc-authority-metadata.js || ALL_OK=false
-
-echo ""
 node scripts/check-design-doc-links.js || ALL_OK=false
 
 echo ""
@@ -109,7 +102,7 @@ node scripts/check-validation-cadence.js || ALL_OK=false
 
 echo ""
 if $ALL_OK; then
-  echo "✓ docs:verify passed — docs build output, VitePress dist artifact policy, route/role/config/runtime anchors, documentation inventory, authority metadata/status surfaces, design links, historical isolation, runbook examples, operator API response contracts, planner and non-planner agent tool docs/source parity, global Markdown links, README.md/docs source anchors, and validation cadence are valid"
+  echo "✓ docs:verify passed — docs build output, VitePress dist artifact policy, route/role/config/runtime anchors, design links, historical isolation, runbook examples, operator API response contracts, planner and non-planner agent tool docs/source parity, global Markdown links, README.md/docs source anchors, and validation cadence are valid"
 else
   echo "✗ docs:verify FAILED — one or more documentation build or drift guards failed"
   exit 1

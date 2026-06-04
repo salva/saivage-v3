@@ -1,7 +1,7 @@
 # Agents
 
 
-> **Authority status: stale.** This page is retained for context only and is not current operator guidance. Prefer `docs/agents.md` for current authority where applicable. See `docs/documentation-inventory.md` for disposition `merge-into`.
+> **Authority status: stale.** This page is retained for context only and is not current operator guidance. Prefer `docs/agents.md` for current authority where applicable.
 
 > Canonical design document consolidated from `docs/design/agents.md` during Stage 22. Stage 23 will reconcile detailed source anchors where needed.
 

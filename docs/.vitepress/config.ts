@@ -13,7 +13,6 @@ export default defineConfig({
       { text: 'Design', link: '/design/' },
       { text: 'Runbook', link: '/runbook/' },
       { text: 'Analyst Guide', link: '/analyst' },
-      { text: 'Docs Policy', link: '/documentation-inventory' },
     ],
 
     sidebar: {
@@ -39,6 +38,7 @@ export default defineConfig({
             { text: 'Server API', link: '/design/server-api' },
             { text: 'Data Model', link: '/design/data-model' },
             { text: 'UX Design', link: '/design/ux-design' },
+            { text: 'Terminal Commit Layer', link: '/design/terminal-commit-layer' },
             { text: 'Decisions', link: '/design/decisions' },
             { text: 'Implementation Plan', link: '/design/implementation-plan' },
           ],
@@ -60,7 +60,6 @@ export default defineConfig({
           text: 'Release and Governance',
           items: [
             { text: 'Legacy Release Forwarder', link: '/release-checklist' },
-            { text: 'Documentation Inventory', link: '/documentation-inventory' },
           ],
         },
         {

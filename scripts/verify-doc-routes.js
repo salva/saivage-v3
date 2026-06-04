@@ -98,19 +98,7 @@ export function extractImplementedRoutes(projectRoot = process.cwd()) {
 }
 
 export function activeOperatorDocPaths(projectRoot = process.cwd()) {
-  const inventoryPath = join(projectRoot, 'docs/documentation-inventory.md');
-  if (!existsSync(inventoryPath)) return fallbackOperatorDocPaths(projectRoot);
-  const inventory = readFileSync(inventoryPath, 'utf-8');
-  const activePaths = [];
-  for (const line of inventory.split('\n')) {
-    const match = line.match(INVENTORY_ROW_RE);
-    if (!match) continue;
-    const docPath = match[1];
-    if (!markdownInventoryPath(docPath)) continue;
-    if (!existsSync(join(projectRoot, docPath))) continue;
-    activePaths.push(docPath);
-  }
-  return activePaths.length > 0 ? Array.from(new Set(activePaths)) : fallbackOperatorDocPaths(projectRoot);
+  return fallbackOperatorDocPaths(projectRoot);
 }
 
 export function extractDocumentedRoutes(projectRoot = process.cwd(), docPaths = activeOperatorDocPaths(projectRoot)) {

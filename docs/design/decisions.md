@@ -1,7 +1,7 @@
 # Decisions & Deferred Items
 
 
-> **Authority status: historical.** This page is retained for provenance only. Prefer `docs/agents.md` for current authority where applicable. See `docs/documentation-inventory.md` for disposition `move-to-docs/historical/`.
+> **Authority status: historical.** This page is retained for provenance only. Prefer `docs/agents.md` for current authority where applicable.
 
 > Canonical design document consolidated from `docs/design/decisions.md` during Stage 22. Stage 23 will reconcile detailed source anchors where needed.
 

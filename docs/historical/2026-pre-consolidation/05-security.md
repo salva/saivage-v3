@@ -1,7 +1,7 @@
 # Security & Content Supervision
 
 
-> **Authority status: historical.** This page is retained for provenance only and has no current replacement yet. See `docs/documentation-inventory.md` for disposition `move-to-docs/historical/`.
+> **Authority status: historical.** This page is retained for provenance only and has no current replacement yet.
 
 ## Content Supervisor
 

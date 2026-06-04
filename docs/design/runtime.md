@@ -9,8 +9,6 @@
 > - [`docs/operation.md`](../operation.md) for operator REST controls, runtime state snapshots, Runtime Console use, and live observational WebSocket runtime ledger events.
 > - [`docs/agents.md`](../agents.md) for current agent lifecycles and planner-owned `activate_card` behavior.
 > - [`docs/v3-planner-control-mcp-contract.md`](../v3-planner-control-mcp-contract.md) for planner-control tool contracts and actionable `activate_card` errors.
->
-> See [`docs/documentation-inventory.md`](../documentation-inventory.md) for this page's `merge-into` disposition.
 
 ## Current runtime-control model
 

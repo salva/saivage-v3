@@ -4,7 +4,7 @@
 # Executor Workspace Tooling Failure Report
 
 
-> **Authority status: historical.** This page is retained for provenance only and has no current replacement yet. See `docs/documentation-inventory.md` for disposition `keep`.
+> **Authority status: historical.** This page is retained for provenance only and has no current replacement yet.
 
 Date: 2026-05-15
 

@@ -1,13 +1,12 @@
 # 2026 documentation consolidation summary
 
 
-> **Authority status: historical.** This page is retained for provenance only and has no current replacement yet. See `docs/documentation-inventory.md` for disposition `keep`.
+> **Authority status: historical.** This page is retained for provenance only and has no current replacement yet.
 
 This historical note summarizes the Stage 21-26 documentation consolidation. It is provenance only; current operator guidance starts at [the runbook](../runbook/index.md) and current design navigation starts at [the design index](../design/index.md).
 
 ## Outcome
 
-- Stage 21 refreshed `docs/documentation-inventory.md` so every tracked root and `docs/` Markdown file has a classification, justification, source anchor, and disposition.
 - Stage 22 moved the original numbered design series into `docs/historical/2026-pre-consolidation/` and created the canonical `docs/design/` tree.
 - Stage 23 reconciled active operator/source-of-truth docs with implemented HTTP routes, agent tools, runtime-control shapes, and configuration schema anchors.
 - Stage 24 isolated historical remediation and review dossiers under `docs/historical/` and added the `See historical:` convention for links from active docs.

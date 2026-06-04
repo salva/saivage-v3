@@ -4,7 +4,7 @@
 # Top-Level Planner Control Flow Review
 
 
-> **Authority status: historical.** This page is retained for provenance only and has no current replacement yet. See `docs/documentation-inventory.md` for disposition `keep`.
+> **Authority status: historical.** This page is retained for provenance only and has no current replacement yet.
 
 Status note: this is a working recovery note, not an authoritative specification. Existing specs, plans, and docs may be stale; source code, live runtime behavior, and the user's latest instructions take precedence until the documentation is audited and updated.
 

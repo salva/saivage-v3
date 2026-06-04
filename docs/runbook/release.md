@@ -7,7 +7,6 @@ Use this checklist for a release candidate against the current repaired system.
 
 - [ ] Active docs reflect current source and tests.
 - [ ] No active doc presents historical plans or remediation notes as current authority.
-- [ ] `docs/documentation-inventory.md` is updated when doc scope changes.
 - [ ] Historical material is linked only with an explicit `See historical:` prefix.
 - [ ] The runbook examples pass the docs verification drift guard.
 - [ ] Documented validation commands still resolve to package scripts or executable script entry points.

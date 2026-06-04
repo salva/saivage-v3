@@ -1,7 +1,6 @@
 # Historical documentation
 
-
-> **Authority status: historical.** This page is retained for provenance only. Prefer `docs/historical/README.md` for current authority where applicable. See `docs/documentation-inventory.md` for disposition `keep`.
+> **Authority status: historical.** This page is retained for provenance only, not current operator guidance.
 
 This directory preserves Saivage design notes, audit records, remediation plans, and generated review artifacts for provenance only.
 

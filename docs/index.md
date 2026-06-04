@@ -1,7 +1,6 @@
 # Saivage v3 documentation
 
-
-Use this index as the current entry point for operator procedures, design references, provenance records, and remediation dossiers. Each prominent link is labeled before click-through as current authority, stale context, or historical provenance according to `docs/documentation-inventory.md`.
+Use this index as the current entry point for operator procedures, design references, provenance records, and remediation dossiers.
 
 ## Runbook
 
@@ -37,7 +36,6 @@ Use this index as the current entry point for operator procedures, design refere
 - [Configuration reference](/configuration) — current authority: schema-aligned configuration details.
 - [Operation route inventory](/operation) — current authority: documented operator-facing HTTP and WebSocket routes.
 - [Goal planning runtime](/goal-planning-runtime) — stale context: legacy runtime summary retained for context; prefer [Agents and runtime architecture](/agents).
-- [Documentation inventory](/documentation-inventory) — current authority: classification and disposition for every root and `docs/` Markdown file.
 
 ## Provenance
 

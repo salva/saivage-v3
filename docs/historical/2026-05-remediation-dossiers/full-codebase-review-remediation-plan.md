@@ -4,7 +4,7 @@
 # Full Codebase Review and Remediation Plan
 
 
-> **Authority status: historical.** This page is retained for provenance only. See `docs/historical/2026-05-remediation-dossiers/historical-artifacts.md` for the provenance index and `docs/documentation-inventory.md` for disposition `keep`.
+> **Authority status: historical.** This page is retained for provenance only. See `docs/historical/2026-05-remediation-dossiers/historical-artifacts.md` for the provenance index.
 
 Date: 2026-05-13
 Scope: Saivage v3 source, tests, authored documentation, generated docs behavior, and live the target project deployment smoke checks.
