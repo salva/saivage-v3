@@ -50,7 +50,7 @@ Agent output
   -> contract parser
   -> PhaseOutcome projection (typed domain outcome)
   -> shared semantic validators (runtime checks: file existence, path safety)
-  -> typed commit functions (write CardLifecycleState, derived activation outcome)
+  -> typed commit functions (write CardLifecycleState, snapshot activation/run outcome)
   -> state machine status transition
   -> events / diagnostics
 ```
@@ -59,7 +59,7 @@ Phase handlers remain responsible for their domain logic. An executor knows what
 
 1. **Data structure constraints** — the type system prevents constructing a `done` state with `error: 'stale'` or a `failed` state without an error message.
 2. **Semantic validation** — pure functions check facts the LLM cannot verify (file existence, path safety, stale field clearing).
-3. **Durable mutation** — commit functions write the typed terminal state, derive activation/run outcomes, and emit events in a consistent order.
+3. **Durable mutation** — commit functions write the typed lifecycle state, snapshot activation/run outcomes, and emit events in a consistent order.
 
 The state machine remains the single authority for allowed status transitions. Commit functions call it; they do not bypass it.
 
@@ -118,11 +118,11 @@ type CardLifecycleState =
   | { status: 'running'; result: CardResult | null; error: string | null; completed_at: null }
   | { status: 'changed'; result: CardResult | null; error: string | null; completed_at: null }
 
-  // Terminal states: each shape guarantees the invariants that matter
+  // Completed, blocked, and parked states: each shape guarantees the invariants that matter
   | { status: 'done'; result: DoneResult; error: null; completed_at: string }
   | { status: 'failed'; result: FailureResult; error: string; completed_at: string }
   | { status: 'blocked'; result: BlockedResult; error: string; completed_at: null }
-  | { status: 'needs_verification'; result: NeedsVerificationResult; error: string; completed_at: null }
+  | { status: 'needs_verification'; result: NeedsVerificationResult; error: null; completed_at: null }
   | { status: 'cancelled'; result: null; error: null; completed_at: string | null };
 ```
 
@@ -131,8 +131,17 @@ Key invariants enforced by the type:
 - A `done` card structurally requires `error: null` and `completed_at: string`.
 - A `failed` card structurally requires `error: string` and `completed_at: string`.
 - A `blocked` card structurally requires `error: string` and `completed_at: null`.
+- A `needs_verification` card structurally requires `error: null` and `completed_at: null`; the reason lives in `NeedsVerificationResult.reason`, because this is a parked review state rather than a failure.
 - Stale error merging on a `done` card becomes a type error.
-- Forgetting `completed_at` on a terminal card becomes a type error.
+- Forgetting `completed_at` on a completed success or failure becomes a type error.
+
+### Runtime validation for persisted state
+
+Discriminated unions enforce invariants at compile-time construction sites, but card files are persisted as JSON and reloaded from disk. The card store must validate deserialized data before trusting it.
+
+- Zod schemas derived from `CardLifecycleState`, `CardResult`, `ActivationOutcome`, and `RuntimeRunOutcome` validate card JSON at load time. A card with `status: 'done'` and `error: 'stale'` is caught and either normalized or rejected.
+- Historical state that predates migration may not satisfy the new invariants. The load adapter normalizes missing or contradictory flat fields into valid `CardLifecycleState` branches and logs warnings for manual review.
+- The Zod schemas live alongside the type definitions in `src/schemas/lifecycle.ts` so they stay synchronized.
 
 ### Typed CardResult variants
 
@@ -212,7 +221,7 @@ interface ReviewerCorrectionResult {
 
 Key properties:
 
-- `result.planning.status: 'blocked'` surviving on a `done` card becomes impossible because `ReviewerPassResult.planning` is explicitly typed, not merged from arbitrary keys.
+- Arbitrary `result.planning.status: 'blocked'` surviving on a `done` card becomes impossible because `ReviewerPassResult.planning` is explicitly typed, not merged from arbitrary keys. A reviewer pass may still carry `PlannerBlockedResult` intentionally as historical planning context.
 - `result.generated_files` on a `failed` card is impossible because `ExecutorFailureResult` has no `generated_files` field.
 - `result.parse_failure` on a `done` card is impossible because `ExecutorSuccessResult` has no `parse_failure` field.
 - `result.evidence_registration_failures` on a `done` card becomes `warnings: string[]` which is semantically accurate: registration warnings are not failure facts.
@@ -226,7 +235,9 @@ type DoneResult =
   | ReviewerPassResult;
 ```
 
-A `done` card can only carry result kinds that are semantically compatible with success. A `blocked` planner state cannot appear inside a `DoneResult` because `ReviewerPassResult.planning` is explicitly `PlannerDoneResult | PlannerBlockedResult` — the type makes the planner state visible and intentional, not accidentally merged.
+A `done` card can only carry result kinds that are semantically compatible with success. `ReviewerPassResult.planning` can contain `PlannerBlockedResult`, which represents the planning state at the time of review — this is intentional historical context, not an invariant violation. A reviewer pass confirms the goal's deliverables despite blocked planning; the blocked state is carried to preserve what happened, not to claim the goal is still blocked.
+
+`PlannerDoneResult` is a valid `DoneResult` for planning-only cards (task cards that execute directly without child goals). For parent goal cards, planner completion is not terminal because children and review may still be pending. `commitPlannerDone` enforces this domain rule: parent goals transition to `active` or `changed`, not `done`, when the planner finishes.
 
 The `FailureResult` type:
 
@@ -237,21 +248,21 @@ type FailureResult =
 
 A `failed` card can only carry failure-specific result data.
 
-### Derived activation outcome
+### Snapshot activation and run outcomes
 
-Currently runtime activations have an independent `status` field that can drift from card status. Restructure so that terminal card status is the source of truth for activation outcome.
+Currently runtime activations have an independent `status` field that can drift from card status. Restructure so that the card transition is the source of truth at commit time, and the activation stores a historical snapshot of that outcome. Activation and run outcomes must not be recomputed from the card's current status on read, because cards can be reopened or retried later.
 
 ```ts
 type ActivationOutcome =
   | { kind: 'completed'; outcome: 'done'; card_id: string; completed_at: string }
   | { kind: 'completed'; outcome: 'failed'; card_id: string; error: string; completed_at: string }
-  | { kind: 'completed'; outcome: 'needs_verification'; card_id: string; reason: string }
+  | { kind: 'paused'; reason: 'needs_verification'; card_id: string; detail: string }
   | { kind: 'running'; card_id: string; phase: 'executor' | 'reviewer'; started_at: string }
   | { kind: 'pending'; card_id: string; precondition: 'accepted' }
   | { kind: 'blocked'; card_id: string; error: string };
 ```
 
-When a card transitions to `done`, the activation outcome must be `completed/done`. When a card transitions to `failed`, the activation outcome must be `completed/failed`. The commit function that transitions the card also transitions the activation, and the types enforce they agree.
+When a card transitions to `done`, the activation outcome snapshot must be `completed/done`. When a card transitions to `failed`, the activation outcome snapshot must be `completed/failed`. When a card transitions to `needs_verification`, the activation is parked as `paused/needs_verification` because verification work remains. The commit function that transitions the card also records the activation snapshot, and the types enforce they agree at that point in time.
 
 Similarly for runtime runs:
 
@@ -259,13 +270,13 @@ Similarly for runtime runs:
 type RuntimeRunOutcome =
   | { kind: 'completed'; result: 'done'; finished_at: string }
   | { kind: 'completed'; result: 'failed'; error: string; finished_at: string }
-  | { kind: 'completed'; result: 'blocked'; error: string }
-  | { kind: 'completed'; result: 'needs_verification'; reason: string }
+  | { kind: 'blocked'; error: string }
+  | { kind: 'paused'; reason: 'needs_verification'; detail: string }
   | { kind: 'completed'; result: 'stopped' }
   | { kind: 'running'; phase: RuntimeRunPhase; started_at: string };
 ```
 
-A root run cannot be `done` while the project card is `running` because the run outcome would require pairing with a project card terminal state.
+A root run cannot be `done` while the project card is `running` because the run outcome snapshot would require pairing with a project card terminal state at commit time.
 
 ## Phase handler boundary layer
 
@@ -318,7 +329,7 @@ Validators do not write state, transition cards, or emit events. They answer que
 
 ### Typed commit functions
 
-Small, domain-specific functions that write the discriminated union lifecycle state. Each function handles one terminal transition and produces the derived activation/run outcomes.
+Small, domain-specific functions that write the discriminated union lifecycle state. Each function handles one lifecycle transition and records activation/run outcome snapshots.
 
 ```ts
 function commitExecutorSuccess(context: ExecutorSuccessContext): ExecutorCommitReceipt;
@@ -335,7 +346,7 @@ Each commit function:
 1. Validates preconditions (the card can transition, the outcome is semantically sound).
 2. Calls `stateMachine.transitionCard()` for the status change.
 3. Writes the `CardLifecycleState` discriminated union, guaranteeing invariants like `error: null` for `done`.
-4. Derives the activation outcome and run outcome from the card's terminal state.
+4. Records activation and run outcome snapshots from the card's lifecycle state at commit time.
 5. Persists review assessment if applicable.
 6. Emits events and diagnostics.
 
@@ -363,8 +374,8 @@ An executor success can commit `done` only when all semantic validators pass.
 - `ExecutorSuccessResult.generated_files` has been validated against the workspace.
 - `ExecutorSuccessResult.verified_at` records when file existence was checked.
 - Stale `parse_failure` and `evidence_registration_failures` keys are impossible because `ExecutorSuccessResult` has no such fields. Registration warnings go into `warnings: string[]`.
-- The activation outcome is derived as `{ kind: 'completed'; outcome: 'done'; card_id; completed_at }`.
-- The run outcome is derived as `{ kind: 'completed'; result: 'done'; finished_at }`.
+- The activation outcome snapshot is `{ kind: 'completed'; outcome: 'done'; card_id; completed_at }`.
+- The run outcome snapshot is `{ kind: 'completed'; result: 'done'; finished_at }`.
 
 If a generated file claim is missing or unsafe, the outcome is downgraded. The existing guard converts it to failure through evidence-registration failure semantics; this design makes that policy explicit and testable through the commit function's validation path.
 
@@ -376,9 +387,10 @@ If a generated file claim is missing or unsafe, the outcome is downgraded. The e
 
 ### Executor needs verification
 
-- The commit function writes `{ status: 'needs_verification'; result: ExecutorNeedsVerificationResult; error: string; completed_at: null }`.
+- The commit function writes `{ status: 'needs_verification'; result: ExecutorNeedsVerificationResult; error: null; completed_at: null }`.
 - Preserved evidence is explicitly typed as untrusted/fallback.
-- The activation outcome is `{ kind: 'completed'; outcome: 'needs_verification'; card_id; reason }`.
+- The activation outcome is `{ kind: 'paused'; reason: 'needs_verification'; card_id; detail }`.
+- This state is intentionally nonterminal: no `completed_at`, no failure `error`, and no parent planner receives a completed child result until verification resolves.
 
 ### Reviewer pass
 
@@ -394,9 +406,10 @@ If a generated file claim is missing or unsafe, the outcome is downgraded. The e
 
 ### Planner done
 
-- Terminal planner state is committed through `commitPlannerDone`, which writes a `CardLifecycleState` with `result: PlannerDoneResult`.
+- Planner completion is committed through `commitPlannerDone`, which writes a `CardLifecycleState` with `result: PlannerDoneResult`.
 - If the goal has terminal child cards, reviewer scheduling is triggered.
 - Planner blockage clears only when a valid outcome supersedes it.
+- **Domain validation**: `PlannerDoneResult` in `DoneResult` is valid for planning-only cards (task cards whose type is not a parent goal). For parent goal cards, planner completion means children and review are still pending — `commitPlannerDone` must validate that the card type permits planner-done-as-terminal, and transition to `active` or `changed` instead of `done` for parent goals that still require child completion and review.
 
 ### Planner blocked
 
@@ -405,18 +418,26 @@ If a generated file claim is missing or unsafe, the outcome is downgraded. The e
 
 ## Invariants enforced by the data structure
 
-These invariants move from runtime checks to compile-time guarantees:
+These invariants move from runtime checks to **compile-time construction guarantees**. TypeScript enforces them at every code path that constructs a `CardLifecycleState`, `CardResult`, `ActivationOutcome`, or `RuntimeRunOutcome`. However, discriminated unions cannot enforce invariants on persisted JSON that is deserialized at runtime. The card store must validate loaded data against Zod schemas derived from these types before trusting it.
+
+Compile-time guarantees (enforced at every construction site):
 
 - A `done` card has `error: null` — enforced by the `CardLifecycleState` discriminated union.
 - A `done` card has `completed_at: string` — enforced by the discriminated union.
 - A `failed` card has `error: string` — enforced by the discriminated union.
 - A `done` card cannot carry `parse_failure` or `evidence_registration_failures` as active completion facts — enforced because `ExecutorSuccessResult` has no such fields.
-- A `done` card cannot accidentally retain `result.planning.status: 'blocked'` — enforced because `ReviewerPassResult.planning` is an explicit type, not an arbitrary key.
+- A `done` card cannot accidentally merge unrelated keys into `result` — enforced by the `CardResult` discriminated union. `ReviewerPassResult.planning` may explicitly carry `PlannerBlockedResult` as intentional historical context; this is not an invariant violation because the type makes the state visible rather than accidentally merged.
 - A `done` card's `result.generated_files` field exists only in `ExecutorSuccessResult` — enforced by the type union.
 - A completed activation outcome matches the card's terminal status — enforced by the `ActivationOutcome` discriminated union.
 - A completed runtime run outcome matches the card's terminal status — enforced by the `RuntimeRunOutcome` discriminated union.
 
-These invariants are still checked at runtime for filesystem truths (file existence, path safety) and cross-entity alignment (activation/run matching), but the type system prevents the structural inconsistencies that caused the observed bugs.
+Runtime validation guarantees (enforced at deserialization for persisted state):
+
+- Zod schemas derived from the discriminated union types validate card JSON loaded from disk. Any card that violates the invariants (e.g. a `done` card with non-null `error`, or a `failed` card with empty `error`) is either normalized or rejected at load time.
+- Historical state that predates the migration may not satisfy the new invariants. The load adapter normalizes missing or contradictory flat fields into valid `CardLifecycleState` branches, and logs warnings for manual review.
+- Filesystem truths (file existence, path safety) and cross-entity alignment (activation/run matching) remain runtime checks.
+
+The type system prevents structural inconsistencies in new code paths. Zod validation prevents stale or corrupted persisted state from entering the runtime. Both are needed.
 
 ## Required code changes
 
@@ -430,6 +451,7 @@ Add `src/schemas/lifecycle.ts` defining:
 - `ActivationOutcome` discriminated union.
 - `RuntimeRunOutcome` discriminated union.
 - `SelfReport` type.
+- Zod schemas for every persisted lifecycle branch and result variant. These schemas are the runtime boundary for JSON loaded from disk; TypeScript types alone are not enough.
 
 ### New terminal-commit module
 
@@ -445,9 +467,10 @@ Add `src/runtime/terminal-commit/` with:
 ### Card store migration
 
 - `src/cards/card-store.ts` gains read/write adapters that convert between the old flat `CardRecord` and the new `CardLifecycleState`-enriched record.
+- The read adapter validates persisted JSON with the Zod lifecycle schemas before returning cards to runtime code. Historical invalid state is normalized only when the normalization is deterministic; otherwise the card is rejected with a diagnostic.
 - New code writes through the discriminated union. Old code still reads the flat fields during migration.
 - `src/cards/lifecycle.ts` gains lifecycle-state-aware validation: transitioning to `done` requires a `DoneResult`, transitioning to `failed` requires a non-empty error string.
-- After all terminal writes go through commit functions, `ALWAYS_ALLOWED_FIELDS` is narrowed so phase code cannot directly patch `result`, `error`, or `completed_at` on terminal cards.
+- After all lifecycle writes go through commit functions, `ALWAYS_ALLOWED_FIELDS` is narrowed so phase code cannot directly patch `result`, `error`, or `completed_at` on completed, blocked, or parked cards.
 
 ### Executor path
 
@@ -465,32 +488,32 @@ Add `src/runtime/terminal-commit/` with:
 ### Planner path
 
 - `src/runtime/phases/planner-result-applier.ts` remains responsible for card creation and edits.
-- Terminal planner status is committed through `commitPlannerDone` or `commitPlannerBlocked`.
+- Planner completion and blockage state is committed through `commitPlannerDone` or `commitPlannerBlocked`.
 - `src/runtime/phases/planner-invocation-failure.ts` uses `commitPlannerBlocked` instead of building its own patch.
 
 ### Runtime state machine
 
 - `transitionCard()` continues validating allowed status paths.
-- `observeRuntimeStateInvariants()` gains invariants that check `CardLifecycleState` alignment: `done` cards have `error === null`, `failed` cards have non-empty `error`, completed activations match their card status, root run outcomes match project card status.
-- `planProjectRootRedispatch()` uses root completion facts from derived `RuntimeRunOutcome` and review state.
+- `observeRuntimeStateInvariants()` gains invariants that check `CardLifecycleState` alignment: `done` cards have `error === null`, `failed` cards have non-empty `error`, `needs_verification` cards have paused outcomes, completed activations match their card status at commit time, and root run outcomes match project card status at commit time.
+- `planProjectRootRedispatch()` uses root completion facts from snapshotted `RuntimeRunOutcome` and review state.
 
 ### Activation and run ledgers
 
-- `src/runtime/activation-unwind.ts` and `src/runtime/activation-reducer.ts` gain `ActivationOutcome` derivation: when a card transitions to terminal, the activation outcome is computed from the card's `CardLifecycleState`.
-- `src/runtime/runtime-run-ledger.ts` gains `RuntimeRunOutcome` derivation: when a run completes, its result is computed from the card's terminal state.
+- `src/runtime/activation-unwind.ts` and `src/runtime/activation-reducer.ts` gain `ActivationOutcome` snapshotting: when a card transitions, the activation outcome is computed once from the new `CardLifecycleState` and then stored as historical data.
+- `src/runtime/runtime-run-ledger.ts` gains `RuntimeRunOutcome` snapshotting: when a run completes or pauses, its result is computed once from the card lifecycle state at commit time.
 - Parent planner tool results are generated from the activation outcome, not independently set.
 
 ### API and web UI
 
 - Card read responses can expose both the flat legacy fields and the new `lifecycle` object during migration.
-- Once all terminal writes go through the discriminated union, the flat fields become read-only derived fields for backward compatibility.
+- Once all lifecycle writes go through the discriminated union, the flat fields become read-only derived fields for backward compatibility.
 - Eventually the flat fields can be deprecated and removed in a later release.
 
 ## Migration plan
 
 ### Step 1: Introduce CardLifecycleState and CardResult types alongside the flat fields
 
-Add `src/schemas/lifecycle.ts` with the discriminated union types. Add read/write adapters in the card store that convert between flat `CardRecord` and the enriched structure. New code writes through the discriminated union; old code still reads the flat fields. No behavior change yet.
+Add `src/schemas/lifecycle.ts` with the discriminated union types and matching Zod schemas. Add read/write adapters in the card store that convert between flat `CardRecord` and the enriched structure. New code writes through the discriminated union; old code still reads the flat fields. The read adapter validates and normalizes historical JSON so runtime code never receives an invalid lifecycle branch. No behavior change yet beyond diagnostics for invalid persisted state.
 
 ### step 2: Extract shared validators
 
@@ -508,21 +531,21 @@ Replace `handleExecutorCompletion` and the executor activation dispatcher's dire
 
 Replace `handleReviewerAssessmentDecision`'s direct card transitions and runtime patches with `commitReviewerPass`/`commitReviewerCorrection`. Remove `buildReviewerPassCompletionPatch`.
 
-### step 6: Migrate planner terminal states
+### step 6: Migrate planner lifecycle writes
 
 Introduce `commitPlannerDone`/`commitPlannerBlocked` and migrate planner-result and planner-invocation-failure handlers.
 
 ### step 7: Add lifecycle invariant observer
 
-Extend `observeRuntimeStateInvariants()` to check `CardLifecycleState` alignment. Violations are logged but not auto-repaired. Once all terminal writes go through the discriminated union, invariant violations should only come from historical state or operator intervention.
+Extend `observeRuntimeStateInvariants()` to check `CardLifecycleState` alignment. Violations are logged but not auto-repaired. Once all lifecycle writes go through the discriminated union, invariant violations should only come from historical state or operator intervention.
 
 ### step 8: Tighten card mutation rules
 
-After all phase paths use commit functions, narrow `ALWAYS_ALLOWED_FIELDS` to exclude `result`, `error`, and `completed_at` on terminal-status cards that carry a `CardLifecycleState`. Leave explicit operator/admin repair paths.
+After all phase paths use commit functions, narrow `ALWAYS_ALLOWED_FIELDS` to exclude `result`, `error`, and `completed_at` on completed, blocked, and parked cards that carry a `CardLifecycleState`. Leave explicit operator/admin repair paths.
 
-### step 9: Derive activation and run outcomes from card state
+### step 9: Snapshot activation and run outcomes from card state
 
-Change `ActivationRecord.status` and `RuntimeRunRecord.result` to be derived from the card's `CardLifecycleState` at commit time, using the `ActivationOutcome` and `RuntimeRunOutcome` discriminated unions. This prevents drift between card status and activation/run status.
+Change `ActivationRecord.status` and `RuntimeRunRecord.result` to be computed from the card's `CardLifecycleState` at commit time, using the `ActivationOutcome` and `RuntimeRunOutcome` discriminated unions. Store the computed outcome as historical data. Do not recompute old activation or run outcomes from the card's current status on read; reopened cards must not rewrite history.
 
 ### step 10: Deprecate flat terminal fields in the API
 
@@ -531,17 +554,56 @@ Once all clients read from the `lifecycle` object, the flat `status`, `error`, `
 ## Testing strategy
 
 - Unit-test the `CardLifecycleState` discriminated union: verify that the type system prevents constructing a `done` state with `error: 'stale'` or a `failed` state without an error string.
+- Unit-test the Zod lifecycle schemas against persisted JSON examples: valid current cards, historical flat cards that can be normalized, and invalid contradictory cards that must be rejected with diagnostics.
 - Unit-test each semantic validator with synthetic cards, files, and stale result objects.
+- Unit-test `needs_verification` semantics: it has `error: null`, `completed_at: null`, a non-empty `NeedsVerificationResult.reason`, and paused activation/run outcomes.
+- Unit-test `commitPlannerDone` domain validation: planning-only cards may complete with `PlannerDoneResult`, while parent goal cards with unresolved children transition to `active` or `changed` and schedule follow-up work instead of becoming `done`.
 - Unit-test each commit function by checking the full set of side effects (lifecycle state, status transition, activation outcome, run outcome, events) against expected output.
 - Unit-test commit ordering with fake ports that record writes and simulate failures.
+- Unit-test activation/run snapshot semantics: reopening or retrying a card does not mutate historical activation or runtime run outcomes.
 - Add integration tests for: executor success, executor missing-file downgrade, executor fallback verification, reviewer invalid pass, reviewer valid pass, planner blocked recovery, and root completion reconciliation.
 - Add regression tests for the observed inconsistency class: `done` plus stale error, `done` plus missing generated file, goal `done` plus active planning blockage, runtime idle plus running intent, and root run complete plus project card running.
 - The type system prevents many of these at compile time; runtime tests cover the remaining filesystem and cross-entity checks.
 
 ## Open design questions
 
-- Should `needs_verification` be a terminal runtime run result or a paused/nonterminal runtime run state?
+- Should `needs_verification` remain a paused/nonterminal runtime state permanently, or should a later operator workflow be able to convert it into a terminal failure after timeout or explicit rejection?
 - How much historical failure data should remain accessible on a card after success, and under which field? The current design puts warnings in `ExecutorSuccessResult.warnings`, but review/failure details from prior attempts may need a separate history log.
 - Should reviewer evidence cite card IDs only, or should it cite normalized evidence handles within card results?
 - Which operator actions should be allowed to override terminal lifecycle state for manual repair, and should those overrides go through the commit functions or through a separate admin path?
 - Should the `CardLifecycleState` discriminated union be persisted directly in the JSON card file, or should the card file continue to use flat fields during migration and only convert internally?
+
+### Future direction: immutable CardAttempt and AttemptOutcome
+
+The current design ties terminal state to the mutable `CardRecord`. This solves the immediate bug class (contradictory flat fields on the same card), but a card may undergo multiple executor attempts, review attempts, or planner blockage attempts over its lifetime. Reopening a card and transitioning it again overwrites the previous terminal state in-place.
+
+A stronger model would introduce an immutable `CardAttempt` entity:
+
+```ts
+interface CardAttempt {
+  attempt_id: string;
+  card_id: string;
+  role: 'planner' | 'executor' | 'reviewer';
+  runtime_run_id: string | null;
+  activation_id: string | null;
+  started_at: string;
+  finished_at: string | null;
+  outcome: AttemptOutcome | null;
+}
+
+type AttemptOutcome =
+  | { kind: 'executor_success'; generated_files: VerifiedGeneratedFile[]; payload: Record<string, unknown> }
+  | { kind: 'executor_failure'; error: string; partial_payload: Record<string, unknown> | null }
+  | { kind: 'planner_blocked'; blocked_reason: string; resume_reason: string }
+  | { kind: 'planner_ready_for_review'; summary: string; child_card_ids: string[] }
+  | { kind: 'reviewer_pass'; assessment_id: string; evidence_outcome_ids: string[] }
+  | { kind: 'reviewer_needs_corrections'; assessment_id: string; issues: ReviewerIssue[] };
+```
+
+Under this model:
+- `CardRecord.state` would reference the `attempt_id` and `outcome_id` of the current or terminal attempt, not embed the result directly.
+- Activations and runtime runs would reference `attempt_id` and `outcome_id`, preventing drift when cards are reopened.
+- Reviewer assessments would cite immutable `outcome_id`s, not mutable card IDs.
+- The event log (`events.jsonl`) already captures attempt-level history, but first-class `CardAttempt` records would allow structured querying.
+
+This is a larger scope change (new persistent entity, migration for activations/runs to reference `attempt_id`, card store CRUD) and is not a prerequisite for solving the current inconsistency class. The discriminated union approach in this document solves structural contradictions on the current card record. The `CardAttempt` model would solve historical integrity and cross-entity drift as a future step, once the current migration is stable.
