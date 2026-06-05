@@ -39,6 +39,11 @@ export interface CommitMarker {
   group?: CommitMarkerGroupRef;
 }
 
+/**
+ * Non-authoritative breadcrumb for an in-progress mutation group. Boot recovery
+ * replays per-card markers independently; this marker does not provide group
+ * atomicity, and `per_card_tokens` is intentionally empty in current writes.
+ */
 export interface GroupCommitMarker {
   group_token: string;
   total: number;

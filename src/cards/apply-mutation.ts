@@ -34,6 +34,7 @@ import {
 } from './state.js';
 import {
   unlinkCommitMarker,
+  unlinkGroupCommitMarker,
   writeCommitMarker,
   writeGroupCommitMarker,
   type CommitMarker,
@@ -309,9 +310,10 @@ function applyMutationLocked(
 }
 
 /**
- * Per F13 r5 §"Multi-card mutation atomicity" — apply a sequence of single-card
- * ops under one mutex+lock cycle, governed by a group-marker. Events are
- * emitted after both locks release in the order the ops were applied.
+ * Apply a sequence of single-card ops under one lock cycle. The group marker is
+ * only a non-authoritative recovery breadcrumb; per-card markers remain the
+ * authoritative recovery records. Events are emitted after the lock releases in
+ * the order the ops were applied.
  */
 export async function applyMutationGroup(
   deps: ApplyMutationDeps,
@@ -341,6 +343,7 @@ export function applyMutationGroupSync(
       results.push({ card: outcome.card, historyEntry: outcome.historyEntry });
       if (outcome.event !== null) events.push(outcome.event);
     }
+    unlinkGroupCommitMarker(deps.projectRoot, groupToken);
   });
   for (const evt of events) deps.eventBus.emit('card_history_appended', evt);
   return results;
