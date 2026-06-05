@@ -477,24 +477,35 @@ export class CardStore {
         `Cannot delete card '${id}' because it has ${children.length} child(ren). Delete children first.`,
       );
     }
-    applyMutationSync(this.deps(), {
+    const ctx: CardMutationContext = { actor: 'runtime', surface: 'runtime', reason: 'delete' };
+    const deleteOp: ApplyMutationOp = {
       kind: 'delete',
       cardId: id,
       historyKind: 'delete',
       finalSnapshot: card,
-      ctx: { actor: 'runtime', surface: 'runtime', reason: 'delete' },
+      ctx,
       changeSummary: 'card deleted',
-    });
-    this.compactSiblingPositions(card.parent, { actor: 'runtime', surface: 'runtime', reason: 'delete position compaction' });
+    };
+    const compactionOps = this.projectedCompactionOps(
+      card.parent,
+      new Set([id]),
+      { ...ctx, reason: 'delete position compaction' },
+    );
+    applyMutationGroupSync(this.deps(), [deleteOp, ...compactionOps]);
   }
 
   archiveAndDeleteSubtree(ids: string[]): void {
+    this.refreshState();
     const idSet = new Set(ids);
-    const cards = ids.map((id) => {
-      const c = this.read(id);
-      if (!c) throw new Error(`Card '${id}' not found.`);
-      return c;
-    });
+    const cards: CardRecord[] = [];
+    for (const id of ids) {
+      const card = this.state.get(id);
+      if (!card) {
+        if (existsSync(archiveCardPath(this.projectRoot, id))) continue;
+        throw new Error(`Card '${id}' not found.`);
+      }
+      cards.push(deepClone(card));
+    }
     for (const card of cards) {
       for (const childId of this.state.childrenOf(card.id)) {
         if (!idSet.has(childId)) {
@@ -503,12 +514,12 @@ export class CardStore {
           );
         }
       }
-      const archivePath = archiveCardPath(this.projectRoot, card.id);
-      if (existsSync(archivePath)) throw new Error(`Archive already exists for card '${card.id}'.`);
     }
     const archiveDir = join(this.projectRoot, '.saivage', 'archive', 'cards');
     mkdirSync(archiveDir, { recursive: true });
+    const ctx: CardMutationContext = { actor: 'runtime', surface: 'runtime', reason: 'archive subtree' };
     for (const card of cards) {
+      if (!this.state.get(card.id)) continue;
       const historyFile = cardHistoryPath(this.projectRoot, card.id);
       const archivePayload = {
         archived_at: now(),
@@ -520,25 +531,34 @@ export class CardStore {
       };
       writeFileAtomic(archiveCardPath(this.projectRoot, card.id), JSON.stringify(archivePayload, null, 2) + '\n');
     }
-    const sorted = [...cards].sort((a, b) => b.depth - a.depth);
-    const ops: ApplyMutationOp[] = sorted.map((card) => ({
+    const liveCards = cards.filter((card) => this.state.get(card.id));
+    const sorted = [...liveCards].sort((a, b) => b.depth - a.depth);
+    const deleteOps: ApplyMutationOp[] = sorted.map((card) => ({
       kind: 'delete',
       cardId: card.id,
       historyKind: 'archive',
       finalSnapshot: card,
-      ctx: { actor: 'runtime', surface: 'runtime', reason: 'archive subtree' },
+      ctx,
       changeSummary: 'card archived',
     }));
-    applyMutationGroupSync(this.deps(), ops);
-    for (const parent of new Set(cards.map((card) => card.parent))) this.compactSiblingPositions(parent, { actor: 'runtime', surface: 'runtime', reason: 'archive position compaction' });
+    const removed = new Set(liveCards.map((card) => card.id));
+    const compactionOps: ApplyMutationOp[] = [];
+    for (const parent of new Set(liveCards.map((card) => card.parent))) {
+      compactionOps.push(...this.projectedCompactionOps(parent, removed, { ...ctx, reason: 'archive position compaction' }));
+    }
+    applyMutationGroupSync(this.deps(), [...deleteOps, ...compactionOps]);
   }
 
   // ── Internals ───────────────────────────────────────────────
 
 
-  private compactSiblingPositions(parentId: string | null, ctx: CardMutationContext): void {
-    if (parentId === null) return;
-    const childIds = this.state.childrenOf(parentId);
+  private projectedCompactionOps(
+    parentId: string | null,
+    removedChildIds: ReadonlySet<string>,
+    ctx: CardMutationContext,
+  ): ApplyMutationOp[] {
+    if (parentId === null) return [];
+    const childIds = this.state.childrenOf(parentId).filter((childId) => !removedChildIds.has(childId));
     const ops: ApplyMutationOp[] = [];
     const stamp = now();
     childIds.forEach((childId, index) => {
@@ -546,7 +566,7 @@ export class CardStore {
       if (!child || child.position === index) return;
       ops.push(persistOp({ ...child, position: index, updated_at: stamp, version_seq: child.version_seq + 1 }, ctx, ['position'], 'compact_child_positions'));
     });
-    applyMutationGroupSync(this.deps(), ops);
+    return ops;
   }
 
 
