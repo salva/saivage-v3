@@ -1,4 +1,8 @@
 import { describe, it, expect } from '@jest/globals';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
+import { CardStore } from '../../src/cards/card-store.js';
 import {
   buildNewCard,
   buildUpdatedCard,
@@ -12,6 +16,7 @@ import {
   validateMutablePatch,
   validateTransition,
 } from '../../src/cards/lifecycle.js';
+import { initProjectTree } from '../../src/persistence/file-tree.js';
 import type { CardLifecycleState, CardRecord } from '../../src/schemas/index.js';
 
 function baseCard(overrides: Partial<CardRecord> = {}): CardRecord {
@@ -124,5 +129,64 @@ describe('card lifecycle domain rules', () => {
     expect(card.depth).toBe(2);
     expect(card.position).toBe(3);
     expect(card.version_seq).toBe(1);
+  });
+
+  it('setStatus to blocked produces a schema-valid record', () => {
+    const root = mkdtempSync(join(tmpdir(), 'card-lifecycle-blocked-'));
+    try {
+      initProjectTree(root);
+      const store = new CardStore(root);
+      store.create({ ...baseCard({ id: 'project', type: 'project', parent: null, depth: 0 }) });
+      const card = store.create({ ...baseCard({ id: undefined, title: 'G' }) });
+      store.setStatus(card.id, 'active');
+      store.setStatus(card.id, 'running');
+
+      const blocked = store.setStatus(card.id, 'blocked');
+
+      expect(blocked.status).toBe('blocked');
+      expect(blocked.lifecycle.status).toBe('blocked');
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('setStatus to needs_verification produces a schema-valid record', () => {
+    const root = mkdtempSync(join(tmpdir(), 'card-lifecycle-needs-verification-'));
+    try {
+      initProjectTree(root);
+      const store = new CardStore(root);
+      store.create({ ...baseCard({ id: 'project', type: 'project', parent: null, depth: 0 }) });
+      const card = store.create({ ...baseCard({ id: undefined, title: 'G2' }) });
+      store.setStatus(card.id, 'active');
+      store.setStatus(card.id, 'running');
+
+      const needsVerification = store.setStatus(card.id, 'needs_verification');
+
+      expect(needsVerification.status).toBe('needs_verification');
+      expect(needsVerification.lifecycle.status).toBe('needs_verification');
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('setStatus refuses done/failed and directs callers to terminal commit', () => {
+    const root = mkdtempSync(join(tmpdir(), 'card-lifecycle-terminal-refusal-'));
+    try {
+      initProjectTree(root);
+      const store = new CardStore(root);
+      store.create({ ...baseCard({ id: 'project', type: 'project', parent: null, depth: 0 }) });
+      const card = store.create({ ...baseCard({ id: undefined, title: 'G3' }) });
+      store.setStatus(card.id, 'active');
+      store.setStatus(card.id, 'running');
+
+      expect(() => store.setStatus(card.id, 'done')).toThrow(
+        /terminal lifecycle commit|not supported/i,
+      );
+      expect(() => store.setStatus(card.id, 'failed')).toThrow(
+        /terminal lifecycle commit|not supported/i,
+      );
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 });

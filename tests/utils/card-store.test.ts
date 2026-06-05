@@ -269,6 +269,40 @@ describe('CardStore CRUD still works with validated indexes', () => {
     const next = reloaded.create(makeCard({ type: 'goal', title: 'After Reload' }));
     expect(next.id).toBe('goal-2');
   });
+
+  it('leaves no group commit marker after a successful reorder', () => {
+    const a = store.create(makeCard({ type: 'goal', title: 'A', parent: 'project' }));
+    const b = store.create(makeCard({ type: 'goal', title: 'B', parent: 'project' }));
+    const c = store.create(makeCard({ type: 'goal', title: 'C', parent: 'project' }));
+
+    store.reorderChildren('project', [c.id, a.id, b.id], {
+      actor: 'analyst',
+      surface: 'web-chat',
+      reason: 'test successful reorder marker cleanup',
+    });
+
+    const commitDir = join(tmpDir, '.saivage', 'cards', '.commit');
+    const groupMarkers = existsSync(commitDir)
+      ? readdirSync(commitDir).filter((name) => name.startsWith('group-'))
+      : [];
+    expect(groupMarkers).toEqual([]);
+  });
+
+  it('keeps sibling positions contiguous after deleting a middle child and after reload', () => {
+    const a = store.create(makeCard({ type: 'goal', title: 'A', parent: 'project' }));
+    const b = store.create(makeCard({ type: 'goal', title: 'B', parent: 'project' }));
+    const c = store.create(makeCard({ type: 'goal', title: 'C', parent: 'project' }));
+    expect([a.position, b.position, c.position]).toEqual([0, 1, 2]);
+
+    store.delete(b.id);
+
+    const reloaded = new CardStore(tmpDir);
+    const positions = reloaded
+      .listChildren('project')
+      .map((id) => reloaded.read(id)!.position)
+      .sort((x, y) => x - y);
+    expect(positions).toEqual([0, 1]);
+  });
 });
 
 describe('CardStore selective patch behavior', () => {

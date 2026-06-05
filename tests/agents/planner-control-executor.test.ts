@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from '@jest/globals';
-import { mkdtempSync, mkdirSync, rmSync, existsSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, rmSync, existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
@@ -321,6 +321,46 @@ describe('PlannerControlExecutor', () => {
     expect(result.kind).toBe('tool_result');
     expect(store.read(goal.id)?.status).toBe('changed');
     expect(existsSync(join(tmpDir, '.saivage', 'notes'))).toBe(false);
+  });
+
+  it('queues a pending-subtree-correction synthetic note after reviewer retries are exhausted', async () => {
+    const goal = store.create(
+      makeCard({ id: 'goal', type: 'goal', title: 'Goal', status: 'active', retries: 1 }),
+    );
+    store.setStatus(goal.id, 'running');
+    const review: ReviewerResult = {
+      result: 'needs_corrections',
+      summary: 'fix it',
+      achieved: [],
+      issues: [{ summary: 'missing evidence', severity: 'blocker' }],
+      evidence_card_ids: [],
+    };
+    const executor = new PlannerControlExecutor({
+      cardStore: store,
+      projectRoot: tmpDir,
+      maxReviewRetries: 1,
+      assessmentIdFactory: () => 'assessment-fail',
+      reviewer: () => review,
+    });
+
+    const result = await executor.execute({
+      sessionId: 'planner:goal',
+      toolCallId: 'call-report',
+      toolName: 'report_goal_done',
+      argumentsJson: JSON.stringify({ status_text: 'complete' }),
+    });
+
+    expect(result.kind).toBe('tool_result');
+    const queue = JSON.parse(
+      readFileSync(join(tmpDir, '.saivage', 'runtime', 'synthetic-notes.json'), 'utf-8'),
+    ) as { notes: Array<{ kind: string; affected_card_id: string; summary: string }> };
+    expect(queue.notes).toEqual([
+      expect.objectContaining({
+        kind: 'pending_subtree_correction',
+        affected_card_id: goal.id,
+        summary: expect.stringContaining('missing evidence'),
+      }),
+    ]);
   });
 
   it('dispatches queue_notification through planner-control and audits planner runtime surface', async () => {
