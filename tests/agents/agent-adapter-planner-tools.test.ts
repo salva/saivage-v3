@@ -8,7 +8,7 @@ import {
   readRuntimeState,
   upsertRuntimeActivation,
 } from '../../src/runtime/state.js';
-import { AgentAdapter } from '../../src/agents/agent-adapter.js';
+import { AgentAdapter, synthesizeReportGoalEnvelope } from '../../src/agents/agent-adapter.js';
 import { initProjectTree } from '../../src/persistence/file-tree.js';
 import { CardStore } from '../../src/cards/card-store.js';
 import type { CardRecord } from '../../src/schemas/types.js';
@@ -398,5 +398,54 @@ describe('AgentAdapter planner tool surface', () => {
     );
     expect(result.kind).toBe('tool_error');
     expect(result.content).toContain("Unknown planner tool 'set_status_text'");
+  });
+});
+
+describe('synthesizeReportGoalEnvelope', () => {
+  it('maps report_goal_* accepted statuses to planner envelopes', () => {
+    expect(synthesizeReportGoalEnvelope('report_goal_done', 'goal-1', 'done')).toEqual({
+      kind: 'result',
+      payload: {
+        status: 'done',
+        created_cards: [],
+        updated_cards: [],
+        summary: 'report_goal_done accepted for goal goal-1.',
+      },
+    });
+
+    expect(synthesizeReportGoalEnvelope('report_goal_done', 'goal-1', 'changed')).toEqual({
+      kind: 'result',
+      payload: {
+        status: 'continue',
+        created_cards: [],
+        updated_cards: [],
+        summary: 'report_goal_done: goal goal-1 needs re-planning (review corrections exhausted); continuing.',
+      },
+    });
+
+    expect(synthesizeReportGoalEnvelope('report_goal_blocked', 'goal-1', 'blocked')).toEqual({
+      kind: 'result',
+      payload: {
+        status: 'blocked',
+        blocked_reason: 'report_goal_blocked accepted with goal status blocked.',
+        created_cards: [],
+        updated_cards: [],
+        summary: 'report_goal_blocked accepted for goal goal-1.',
+      },
+    });
+
+    expect(synthesizeReportGoalEnvelope('report_goal_failed', 'goal-1', 'failed')).toEqual({
+      kind: 'result',
+      payload: {
+        status: 'blocked',
+        blocked_reason: 'report_goal_failed accepted with goal status failed.',
+        created_cards: [],
+        updated_cards: [],
+        summary: 'report_goal_failed accepted for goal goal-1.',
+      },
+    });
+
+    expect(synthesizeReportGoalEnvelope('report_goal_done', 'goal-1', 'active')).toBeNull();
+    expect(synthesizeReportGoalEnvelope('report_goal_done', 'goal-1', undefined)).toBeNull();
   });
 });

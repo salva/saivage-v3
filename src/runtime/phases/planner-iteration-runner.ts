@@ -18,6 +18,7 @@ import { commitPlannerBlocked } from '../terminal-commit/index.js';
 
 export type PlannerIterationResult =
   | { kind: 'continue'; plannerDone: boolean; planningContext: PlannerDoneResult | null }
+  | { kind: 'replan' }
   | { kind: 'planner_failure_handled' }
   | { kind: 'post_dispatch_return' }
   | { kind: 'paused' }
@@ -79,6 +80,7 @@ export class PlannerIterationRunner {
     const execution = await this.deps.pendingActivations.dispatch(goalId);
     if (this.deps.lifecycle.shuttingDown) return { kind: 'shutdown' };
     if (this.deps.lifecycle.paused) return { kind: 'paused' };
+    if (this.deps.cards.read(goalId)?.status === 'changed') return { kind: 'replan' };
 
     const postDispatchSummary = summarizePlannerPostDispatch({ plannerResult, childCards: this.deps.cards.list(), goalId });
     const postDispatchDecision = decidePlannerPostDispatch({

@@ -48,6 +48,7 @@ import type {
   ExecutorResult,
   ReviewerResult,
 } from '../contracts/index.js';
+import type { PlannerResultEnvelope } from '../contracts/planner-envelope.js';
 import type { LlmCallFn } from './llm-contracts.js';
 import { buildLlmOptions } from './llm-options-factory.js';
 import { serializeToolCallMessage } from './persisted-tool-call.js';
@@ -64,7 +65,7 @@ import type { McpToolInvocationPort } from '../mcp/manager-api.js';
 import { SkillsEngine } from './skills-engine.js';
 import { getProjectNotificationCenter } from '../notifications/notification-delivery.js';
 import { CardStore } from '../cards/store-api.js';
-import { injectQueuedSyntheticPlannerNotes } from '../agents/analyst-stage6.js';
+import { injectQueuedSyntheticPlannerNotes } from '../runtime/synthetic-planner-notes.js';
 import { buildPlannerStateContextMessage } from './planner-state-context.js';
 import { PlannerControlExecutor } from './planner-control-executor.js';
 import type { Contract } from '../contracts/contract.js';
@@ -102,6 +103,44 @@ export interface AgentAdapterConfig {
   cardStore?: Pick<CardStore, 'read' | 'listChildren'>;
   runtimeStateProvider?: () => RuntimeState | null;
 }
+
+export function synthesizeReportGoalEnvelope(
+  toolName: string,
+  goalId: string,
+  status: string | undefined,
+): { kind: 'result'; payload: PlannerResultEnvelope } | null {
+  if (status === 'done') {
+    return {
+      kind: 'result',
+      payload: { status: 'done', created_cards: [], updated_cards: [], summary: `${toolName} accepted for goal ${goalId}.` },
+    };
+  }
+  if (status === 'changed') {
+    return {
+      kind: 'result',
+      payload: {
+        status: 'continue',
+        created_cards: [],
+        updated_cards: [],
+        summary: `${toolName}: goal ${goalId} needs re-planning (review corrections exhausted); continuing.`,
+      },
+    };
+  }
+  if (status === 'blocked' || status === 'failed') {
+    return {
+      kind: 'result',
+      payload: {
+        status: 'blocked',
+        blocked_reason: `${toolName} accepted with goal status ${String(status)}.`,
+        created_cards: [],
+        updated_cards: [],
+        summary: `${toolName} accepted for goal ${goalId}.`,
+      },
+    };
+  }
+  return null;
+}
+
 function delayInvocationRecovery(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, Math.max(0, ms)));
 }
@@ -893,30 +932,13 @@ export class AgentAdapter implements AgentExecutionPort {
                             card?: { status?: unknown };
                           };
                           const status = body.card?.status;
-                          if (body.accepted === true && status === 'done')
-                            pendingPlannerRuntimeEnvelope = {
-                              kind: 'result',
-                              payload: {
-                                status: 'done',
-                                created_cards: [],
-                                updated_cards: [],
-                                summary: `${tc.function.name} accepted for goal ${goalId}.`,
-                              },
-                            };
-                          else if (
-                            body.accepted === true &&
-                            (status === 'blocked' || status === 'failed' || status === 'changed')
-                          )
-                            pendingPlannerRuntimeEnvelope = {
-                              kind: 'result',
-                              payload: {
-                                status: 'blocked',
-                                blocked_reason: `${tc.function.name} accepted with goal status ${String(status)}.`,
-                                created_cards: [],
-                                updated_cards: [],
-                                summary: `${tc.function.name} accepted for goal ${goalId}.`,
-                              },
-                            };
+                          if (body.accepted === true) {
+                            pendingPlannerRuntimeEnvelope = synthesizeReportGoalEnvelope(
+                              tc.function.name,
+                              goalId,
+                              typeof status === 'string' ? status : undefined,
+                            ) ?? pendingPlannerRuntimeEnvelope;
+                          }
                         } catch {
                           void 0;
                         }

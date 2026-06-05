@@ -55,17 +55,20 @@ export class PlannerActivationRunner {
           eventLogger: this.deps.eventLogger,
         })
       : false;
-    if (setup.shouldUpdatePlanning) {
+    if (setup.shouldUpdatePlanning || currentStatus === 'changed') {
       await this.deps.cards.update(
         goalId,
-        buildPlannerActivationPlanningPatch({
+        {
+          ...buildPlannerActivationPlanningPatch({
           existingResult: setup.existingResult,
           existingError: refreshed.lifecycle.error,
           existingStatusText: refreshed.status_text,
           retryingTokenBudgetBlocker: setup.retryingTokenBudgetBlocker,
           retryingTerminalToolBlocker: setup.retryingTerminalToolBlocker,
           compactedPersistedPlannerHistory,
-        }),
+          }),
+          ...(currentStatus === 'changed' ? { retries: 0 } : {}),
+        },
       );
     }
     const planCard = this.deps.cards.read(goalId);

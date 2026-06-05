@@ -1,5 +1,5 @@
 import { CardStore } from '../cards/store-api.js';
-import { consumeChangedCardActivation } from '../agents/analyst-stage6.js';
+import { consumeChangedCardActivation } from '../runtime/synthetic-planner-notes.js';
 import { PlannerToolError, PlannerToolsService, type PlannerToolsServiceOptions } from '../tools/index.js';
 import { createActionableErrorEnvelope } from '../schemas/index.js';
 import type { RuntimeActivationLedgerPort } from '../contracts/index.js';
