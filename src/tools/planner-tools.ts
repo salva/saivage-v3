@@ -15,6 +15,7 @@ import { recordControlAction, stableStringify } from '../persistence/index.js';
 import { queueNotification } from '../notifications/index.js';
 import type { CardMutationContext } from '../cards/store-api.js';
 import { lifecycleCardPatch } from '../runtime/terminal-commit/lifecycle-patch.js';
+import { findDeepestContainingPlanner, queueSyntheticPlannerNote } from '../runtime/synthetic-planner-notes.js';
 
 export type PlannerToolErrorKind =
   | 'subtree_not_ready'
@@ -442,10 +443,6 @@ export class PlannerToolsService {
     if (toolName === 'report_goal_done') {
       const reasons = collectSubtreeReadinessReasons(this.store, goalId);
       if (reasons.length > 0) {
-        this.appendSyntheticNote(
-          goalId,
-          `subtree_not_ready: ${reasons.map((r) => `${r.card_id} is ${r.status}`).join(', ')}`,
-        );
         throw new PlannerToolError(
           'subtree_not_ready',
           `Goal '${goalId}' cannot be reported done while descendants are blocked or changed.`,
@@ -576,7 +573,7 @@ export class PlannerToolsService {
     const attempts = current.retries + 1;
     this.store.update(goal.id, { retries: attempts });
     if (attempts > this.maxReviewRetries) {
-      this.writePendingSubtreeCorrectionNotes(goal.id, assessment.issues);
+      this.writePendingSubtreeCorrectionNotes(goal.id, assessment.issues, sessionId);
       const changed = this.store.setStatus(goal.id, 'changed');
       return { card: changed, accepted: true, assessment };
     }
@@ -605,13 +602,28 @@ export class PlannerToolsService {
     });
   }
 
-  private appendSyntheticNote(_cardId: string, _content: string): void {
-    return;
-  }
-
-  private writePendingSubtreeCorrectionNotes(originId: string, issues: ReviewerIssue[]): void {
-    const body = `pending_subtree_correction from ${originId}: ${issues.map((issue) => issue.summary).join('; ')}`;
-    const targets = [originId, ...this.store.getAncestors(originId)];
-    for (const target of targets) this.appendSyntheticNote(target, body);
+  private writePendingSubtreeCorrectionNotes(originId: string, issues: ReviewerIssue[], sessionId?: string): void {
+    const projectRoot = this.projectRoot ?? this.store.projectRoot;
+    const routed = findDeepestContainingPlanner(projectRoot, this.store, originId);
+    const fallbackGoalId = sessionId?.startsWith('planner:') ? sessionId.slice('planner:'.length) : null;
+    const fallbackGoal = fallbackGoalId ? this.store.read(fallbackGoalId) : null;
+    const fallbackContainsOrigin = Boolean(
+      fallbackGoal &&
+        (fallbackGoal.type === 'goal' || fallbackGoal.type === 'project') &&
+        (fallbackGoal.id === originId || this.store.getDescendantIds(fallbackGoal.id).includes(originId)),
+    );
+    const target = routed ?? (sessionId && fallbackGoal && fallbackContainsOrigin
+      ? { sessionId, goalId: fallbackGoal.id }
+      : null);
+    if (!target) return; // PLAN-NOTE: no live planner owns this subtree, so there is nothing to inject into.
+    const summary = issues.map((issue) => issue.summary).join('; ');
+    queueSyntheticPlannerNote(projectRoot, {
+      target_planner_session_id: 'session' in target ? target.session.id : target.sessionId,
+      target_goal_card_id: target.goalId,
+      kind: 'pending_subtree_correction',
+      affected_card_id: originId,
+      descendant_card_ids: [],
+      summary: `pending_subtree_correction from ${originId}: ${summary}`,
+    });
   }
 }

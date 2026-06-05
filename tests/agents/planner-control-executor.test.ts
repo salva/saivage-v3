@@ -13,6 +13,7 @@ import {
 import { CardStore } from '../../src/cards/card-store.js';
 import { initProjectTree } from '../../src/persistence/file-tree.js';
 import { listControlActions } from '../../src/persistence/control-action-audit.js';
+import { createSession } from '../../src/runtime/session-persistence.js';
 
 function makeCard(
   overrides: Partial<CardRecord> & { type: CardRecord['type']; title: string },
@@ -296,6 +297,7 @@ describe('PlannerControlExecutor', () => {
       makeCard({ id: 'goal', type: 'goal', title: 'Goal', status: 'active', retries: 1 }),
     );
     store.setStatus(goal.id, 'running');
+    createSession(join(tmpDir, '.saivage'), 'planner', goal.id, goal.id);
     const review: ReviewerResult = {
       result: 'needs_corrections',
       summary: 'fix it',

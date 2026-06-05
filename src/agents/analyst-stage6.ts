@@ -1,11 +1,9 @@
-import { join } from 'node:path';
 import { z } from 'zod';
-import type { AgentSession, CardRecord, CardStatus, RuntimeStatus } from '../schemas/index.js';
+import type { CardStatus, RuntimeStatus } from '../schemas/index.js';
 import { CardStore } from '../cards/store-api.js';
-import { findPlannerSessionForCard, getSession, listSessions } from './session-persistence.js';
 import { sanitizeAnalystPayload, sanitizeAnalystText } from './analyst-sanitization.js';
 import { readRuntimeState } from '../runtime/state-api.js';
-import { consumeChangedCardActivation, discardSubtreeChangedSyntheticNotes, drainSyntheticPlannerNotes, injectQueuedSyntheticPlannerNotes, queueSyntheticPlannerNote, type SyntheticPlannerNote } from '../runtime/synthetic-planner-notes.js';
+import { consumeChangedCardActivation, discardSubtreeChangedSyntheticNotes, drainSyntheticPlannerNotes, findDeepestContainingPlanner, injectQueuedSyntheticPlannerNotes, queueSyntheticPlannerNote, type SyntheticPlannerNote } from '../runtime/synthetic-planner-notes.js';
 
 export const analystIssueSchema = z.object({
   summary: z.string().min(1),
@@ -16,8 +14,6 @@ export const analystIssueSchema = z.object({
 export const analystIssuesSchema = z.array(analystIssueSchema);
 
 export type AnalystIssue = z.infer<typeof analystIssueSchema>;
-
-function saivageDir(projectRoot: string): string { return join(projectRoot, '.saivage'); }
 
 export function normalizeAnalystIssues(input: unknown): AnalystIssue[] {
   const parsed = analystIssuesSchema.parse(input);
@@ -31,30 +27,7 @@ export function runtimeStatusForApi(projectRoot: string): 'idle' | 'running' | '
   return 'idle';
 }
 
-function contains(store: CardStore, goalId: string, affectedCardId: string): boolean {
-  return goalId === affectedCardId || store.getDescendantIds(goalId).includes(affectedCardId);
-}
-
-export function findDeepestContainingPlanner(projectRoot: string, store: CardStore, affectedCardId: string): { session: AgentSession; goalId: string } | null {
-  const sessions = listSessions(saivageDir(projectRoot))
-    .map((id) => getSession(saivageDir(projectRoot), id))
-    .filter((session): session is AgentSession => Boolean(session && session.role === 'planner' && session.goal_card_id));
-  const candidates = sessions
-    .map((session) => ({ session, goalId: session.goal_card_id as string, card: store.read(session.goal_card_id as string) }))
-    .filter((entry): entry is { session: AgentSession; goalId: string; card: CardRecord } => Boolean(entry.card && contains(store, entry.goalId, affectedCardId)))
-    .sort((a, b) => b.card.depth - a.card.depth);
-  if (candidates[0]) return { session: candidates[0].session, goalId: candidates[0].goalId };
-  const ancestors = [affectedCardId, ...store.getAncestors(affectedCardId)];
-  for (const id of ancestors) {
-    const card = store.read(id);
-    if (!card || (card.type !== 'goal' && card.type !== 'project')) continue;
-    const session = findPlannerSessionForCard(saivageDir(projectRoot), id);
-    if (session) return { session, goalId: id };
-  }
-  return null;
-}
-
-export { consumeChangedCardActivation, discardSubtreeChangedSyntheticNotes, drainSyntheticPlannerNotes, injectQueuedSyntheticPlannerNotes, queueSyntheticPlannerNote };
+export { consumeChangedCardActivation, discardSubtreeChangedSyntheticNotes, drainSyntheticPlannerNotes, findDeepestContainingPlanner, injectQueuedSyntheticPlannerNotes, queueSyntheticPlannerNote };
 
 export function markGoalNeedsCorrections(projectRoot: string, originGoalId: string, issues: AnalystIssue[], note?: string): { origin_goal_id: string; notes_recorded_on_goal_ids: string[]; status_transition: { from: CardStatus; to: CardStatus } | null } {
   const store = new CardStore(projectRoot);
