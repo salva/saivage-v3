@@ -17,7 +17,6 @@ describe('startup active run repair decisions', () => {
     const snapshot = rehydrateStartupActivation(state(run('planner')));
 
     expect(snapshot?.run).toEqual(expect.objectContaining({ phase: 'planner', card_id: 'card-a' }));
-    expect(snapshot?.activation.state).toEqual(expect.objectContaining({ phase: 'planner', cardId: 'card-a' }));
     expect(rehydrateStartupActivation(state(null))).toBeNull();
   });
 

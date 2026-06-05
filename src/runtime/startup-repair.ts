@@ -1,16 +1,13 @@
 import type { CardRecord, RuntimeState } from '../schemas/index.js';
-import { CardActivation } from './card-activation.js';
 import { lifecycleCardPatch } from './terminal-commit/lifecycle-patch.js';
 
 export interface StartupActivationSnapshot {
-  activation: CardActivation;
   run: NonNullable<RuntimeState['active_card_run']>;
 }
 
 export function rehydrateStartupActivation(previousState: RuntimeState | null): StartupActivationSnapshot | null {
   const run = previousState?.active_card_run ?? null;
-  const activation = CardActivation.fromActiveRun(run);
-  return activation && run ? { activation, run } : null;
+  return run ? { run } : null;
 }
 
 export type StartupActiveRunRepairDecision =
