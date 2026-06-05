@@ -19,6 +19,7 @@ import { handleExecutorCompletion } from './phases/executor-completion-handler.j
 import { buildCardContextBlock } from './context-builder.js';
 import { readRuntimeState } from './state.js';
 import type { RuntimeServices } from './runtime-services.js';
+import { planClearActiveCardRunPatch } from './runtime-core.js';
 
 export interface ExecutorActivationDispatcherDeps extends Pick<RuntimeServices,
   | 'projectRoot'
@@ -84,6 +85,10 @@ export class ExecutorActivationDispatcher {
           appendError: (effectInput) => this.deps.errorLogger.appendError(effectInput),
           transitionCard: (cardId, event, details) => this.deps.stateMachine.transitionCard(cardId, event, details),
           appendChildUnwindToolResult: (cardId, outcome, summary) => this.deps.activationUnwind.appendChildUnwindToolResult(cardId, outcome, summary),
+          clearActiveCardRun: (cardId) => {
+            const patch = planClearActiveCardRunPatch({ state: readRuntimeState(this.deps.projectRoot), cardId });
+            if (patch) this.deps.mutations.apply({ kind: 'patchRuntimeState', patch });
+          },
           emitCardFailed: (cardId, parentGoalId) => this.emitCardFailed(cardId, parentGoalId),
         },
       });

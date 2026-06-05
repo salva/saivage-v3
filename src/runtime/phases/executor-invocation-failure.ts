@@ -4,6 +4,7 @@ export interface ExecutorInvocationFailureEffects {
   appendError(input: { message: string; cardId: string; goalId: string; phase: 'executor' }): void;
   transitionCard(cardId: string, event: 'fail', details: Record<string, unknown>): Promise<unknown>;
   appendChildUnwindToolResult(cardId: string, outcome: 'failed', summary: string): void;
+  clearActiveCardRun(cardId: string): void;
   emitCardFailed(cardId: string, goalId: string): void;
 }
 
@@ -19,5 +20,6 @@ export async function handleExecutorInvocationFailure(input: {
   input.effects.appendError({ message: errorMessage, cardId: input.cardId, goalId: input.goalId, phase: 'executor' });
   await input.effects.transitionCard(input.cardId, 'fail', { reason: 'executor_exception', error: errorMessage });
   input.effects.appendChildUnwindToolResult(input.cardId, 'failed', `Terminal card ${input.cardId} execution failed before producing a result.`);
+  input.effects.clearActiveCardRun(input.cardId);
   input.effects.emitCardFailed(input.cardId, input.goalId);
 }
