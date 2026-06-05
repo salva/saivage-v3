@@ -440,8 +440,14 @@ export class CardStore {
   setStatus(id: string, newStatus: CardStatus): CardRecord {
     const card = this.read(id);
     if (!card) throw new Error(`Card '${id}' not found.`);
+    if (newStatus === 'done' || newStatus === 'failed') {
+      throw new Error(
+        `setStatus does not support '${newStatus}'; use the terminal lifecycle commit path instead.`,
+      );
+    }
     this.validateTransition(card.status, newStatus);
     if (card.status === newStatus) return card;
+    const stamp = now();
     const lifecycle = (() => {
       switch (newStatus) {
         case 'drafting':
@@ -451,6 +457,42 @@ export class CardStore {
         case 'changed':
         case 'cancelled':
           return { status: newStatus, result: null, error: null, completed_at: null } as CardRecord['lifecycle'];
+        case 'blocked': {
+          const blockedReason = `Card '${id}' was marked blocked via setStatus.`;
+          return {
+            status: 'blocked',
+            result: {
+              kind: 'planner_blocked',
+              blocked_reason: blockedReason,
+              resume_reason: 'planner_blocked',
+              created_cards: [],
+              updated_cards: [],
+            },
+            error: blockedReason,
+            completed_at: null,
+          } as CardRecord['lifecycle'];
+        }
+        case 'needs_verification': {
+          const reason = `Card '${id}' was marked as needing verification via setStatus.`;
+          return {
+            status: 'needs_verification',
+            result: {
+              kind: 'executor_needs_verification',
+              reason,
+              preserved_result: {},
+              fallback_reason: null,
+              latest_self_report: {
+                result: 'needs_verification',
+                outcome: 'needs_verification',
+                summary: reason,
+                status_text: reason,
+                at: stamp,
+              },
+            },
+            error: null,
+            completed_at: null,
+          } as CardRecord['lifecycle'];
+        }
         default:
           return card.lifecycle;
       }
