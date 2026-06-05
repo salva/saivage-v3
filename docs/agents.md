@@ -533,9 +533,8 @@ There is no notification-acknowledgement gate. Notifications never
 block `report_goal_done` and are not part of the activation contract.
 Operator observability rollups are non-blocking: Debug derives
 per-session-per-minute notification summaries from failure/error timeline
-events in `web/src/stores/debug.ts`, while
-`web/src/__tests__/notifications-panel.test.ts` verifies latest-message
-selection and multi-session/minute bucketing.
+events in `web/src/stores/debug.ts`; current stale-operator-visibility UI
+coverage lives in `web/src/__tests__/stale-warning-ribbon.test.ts`.
 
 ### 8.2 Runtime Acceptance Gates
 
@@ -570,11 +569,11 @@ Gate order on `report_goal_done` is:
 
 1. `subtree_not_ready` (§8.2).
 2. `invalid_evidence` (§8.1).
-3. Reviewer phase (plan §7.4).
+3. Reviewer phase (§10).
 
 ## 9. Goal Context
 
-Goal Context is generated on planner creation and every runtime resume. The enforcing implementation is `src/runtime/runtime.ts` (`buildGoalContextPayload`, `buildGoalContextBlock`, `appendPlannerResumeContext`), with recursive shape/resume regression coverage in `tests/utils/runtime-restart-orphan-repair.test.ts` and ancestor/HTTP status mirroring coverage in `tests/utils/runtime-integration.test.ts`.
+Goal Context is generated on planner creation and every runtime resume. The enforcing implementation is `src/runtime/runtime-goal-context.ts` and the context builders it calls, with restart/repair coverage in `tests/runtime/startup-repair.test.ts` and recursive context coverage in `tests/runtime/goal-context.test.ts`.
 It is intentionally basic:
 
 ```ts
@@ -684,7 +683,7 @@ reviewer:<goal_card_id>:<assessment_id>
 
 The runtime preallocates `assessment_id` before invocation; restart recovery records the interrupted stable reviewer session id in the synthetic `reviewer_interrupted` note before clearing `active_card_run.reviewer_session_id`.
 
-The canonical reviewer result schema is `reviewerResultSchema` in `src/schemas/validators.ts` and is wrapped by `parseReviewerResult()` as `{ assessment: ReviewerResult }` in `src/agents/result-parser.ts`. Legacy `{ fail: ... }` / `{ missing: ... }` result shapes are invalid and must be rejected with a typed parse error.
+The canonical reviewer result schema is `reviewerResultSchema` in `src/schemas/validators.ts`, surfaced through `ReviewerResultEnvelopeSchema` in `src/contracts/reviewer-envelope.ts`, and prompted by `createReviewerContract()` in `src/contracts/reviewer-contract.ts`. Legacy `{ fail: ... }` / `{ missing: ... }` result shapes are invalid and must be rejected with a typed parse error.
 
 Reviewer result schema:
 
@@ -709,10 +708,10 @@ On `pass`, the runtime stores `result.review`, marks the goal `done`,
 clears retry counters, updates `latest_self_report` and `status_text`
 from the accepted `report_goal_done` call, and returns `done` from
 the activation. Executor terminal mirroring is implemented in
-`src/runtime/runtime.ts` (`dispatchPendingActivations`) and planner report mirroring
-in `src/tools/planner-tools.ts` (`reportGoal`/`acceptReport`); destructive
-restart/cancel/delete preservation is guarded by
-`tests/utils/planner-tools.test.ts`.
+`src/runtime/pending-activation-dispatcher.ts` and planner report handling in
+`src/tools/planner-tools.ts`; planner/non-planner tool-surface regressions are
+guarded by `tests/agents/agent-adapter-planner-tools.test.ts` and
+`tests/agents/agent-adapter-non-planner-tools.test.ts`.
 
 On `needs_corrections`, the runtime stores `result.review`, increments
 `correction_attempts`, and either resumes the same planner inside the
@@ -822,17 +821,17 @@ persisted. Assistant tool calls are persisted as one row per call so
 history assembly can preserve ordered call/output pairs while runtime
 serializes any later tool calls behind barrier completion.
 
-Source anchors: `src/agents/agent-adapter.ts:329`
-(`handleToolCallsLoop`, repeated-fingerprint, maximum-round, synchronous
-`activate_card` barrier, and per-call persistence paths),
-`src/agents/llm-codex-parser.ts:9` (`codexMessages` matched-call/output
-filter), and `src/agents/llm-openai-codex-gateway.ts:172`
-(`max_output_tokens` unsupported-parameter retry). Provider HTTP error
-bodies are sanitized before log-facing errors in
-`src/agents/llm-errors.ts:6` and before agent persistence/events in
-`src/agents/agent-adapter.ts:215`. Regression anchors:
-`tests/agents/agent-adapter-force-final-answer.test.ts`,
-`tests/agents/codex-deferred-activate-card.test.ts`, and
+Source anchors: `src/agents/agent-loop-driver.ts` and
+`src/agents/agent-loop-state.ts` own the role-loop driver and no-progress
+state, while `src/agents/agent-adapter.ts` wires tool dispatch, synchronous
+`activate_card` barriers, and per-call persistence. Codex/OpenAI message
+assembly lives in `src/agents/llm-openai-codex-gateway.ts` (`codexMessages`).
+Provider HTTP error bodies are sanitized before log-facing errors in
+`src/agents/llm-errors.ts` and before agent persistence/events in
+`src/agents/agent-adapter.ts`. Regression anchors include
+`tests/agents/agent-loop-driver.test.ts`,
+`tests/agents/agent-loop-state.test.ts`,
+`tests/agents/agent-adapter-recovery.test.ts`, and
 `tests/agents/llm-client-integration.test.ts`.
 
 ## 12. Restart and Orphan Repair
@@ -865,7 +864,7 @@ returns to idle if no `active_card_run` remains. Startup repair must not
 consume directive files, scan card status, or dispatch the project planner
 before repair settles. The source guard is `repairStartupActiveCardRun()` plus
 `safeTick()` in `src/runtime/runtime.ts`, with regression coverage in
-`tests/utils/runtime-restart-orphan-repair.test.ts`.
+`tests/runtime/startup-repair.test.ts`.
 
 Runtime pause is global (`RuntimeState.paused`). It does not change
 `active_card_run`, `card.status`, or any session's lifecycle state; it
@@ -1033,9 +1032,9 @@ role:
 | File | Responsibility |
 |---|---|
 | `src/runtime/runtime.ts` | Runtime bootstrap, explicit start/stop commands, activation records, reviewer loop, single active card-run, restart repair. |
-| `src/agents/agent-runtime.ts` | Runtime-facing agent interface: activate cards, ensure planners, invoke executors/reviewers, persist verdicts. |
+| `src/contracts/agent-execution.ts` | Runtime-facing agent execution port and planner/executor/reviewer invocation contracts. |
 | `src/agents/agent-adapter.ts` | Session loop, tool dispatch, single-active-planner enforcement hooks. |
-| `src/agents/planner-tools.ts` | Planner tool registry: card tools, workspace tools, `activate_card`, report tools (each carrying `status_text`). |
+| `src/tools/planner-tools.ts` | Planner tool registry: card tools, workspace tools, `activate_card`, report tools (each carrying `status_text`). |
 | `src/agents/system-prompt.ts` | Planner and project-planner prompts. |
 | `src/schemas/types.ts` | `RuntimeState`, `ActiveCardRun`, clean session and process schemas. |
 | `src/schemas/validators.ts` | Validators for clean schemas, reviewer/evidence results, and subtree-readiness reasons. |
