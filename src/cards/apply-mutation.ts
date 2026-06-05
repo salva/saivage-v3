@@ -1,9 +1,9 @@
 // F13 r5 §"On-disk write sequence" + §"Boot recovery" — the canonical
-// `applyMutation` step machine. Owns the outer ProjectMutex + inner cross-process
-// withLock, stages by-id files via fsynced .tmp.<token>, writes a commit-marker,
+// `applyMutation` step machine. Owns the cross-process withLock, stages by-id
+// files via fsynced .tmp.<token>, writes a commit-marker,
 // performs the atomic rename / unlink, appends to per-card history with
 // `appendSyncIdempotent`, unlinks the marker, mutates `CardStoreState`, releases
-// both locks, and emits a `card_history_appended` event AFTER both locks drop.
+// the lock, and emits a `card_history_appended` event AFTER the lock drops.
 
 import {
   closeSync,
@@ -39,7 +39,6 @@ import {
   writeGroupCommitMarker,
   type CommitMarker,
 } from './commit-marker.js';
-import { ProjectMutex } from './project-mutex.js';
 
 export interface CardMutationContext {
   actor: import('../schemas/index.js').NoteAuthor;
@@ -72,7 +71,6 @@ export type ApplyMutationOp =
 export interface ApplyMutationDeps {
   projectRoot: string;
   state: CardStoreState;
-  mutex: ProjectMutex;
   projectLock: ProjectLock;
   eventBus: EventBus;
 }
@@ -154,8 +152,8 @@ function withLockOnly<T>(
  * Per F13 r5 §"On-disk write sequence" steps 1–10 for a single-card mutation.
  * For `create`, no history row is written and no event is emitted.
  *
- * NOTE (Batch 2b deviation): the outer ProjectMutex is dropped here. JavaScript
- * single-thread serialization already protects the sync body, and the inner
+ * NOTE (Batch 2b deviation): JavaScript
+ * single-thread serialization already protects the sync body, and
  * `withLockSync` provides cross-process serialization. Callers receive a
  * synchronous result — the function returns an already-resolved Promise solely
  * for API stability.

@@ -4,7 +4,6 @@ import { EventBus } from '../events/index.js';
 import { ProjectLock } from '../persistence/index.js';
 import { cardRecordSchema, type CardRecord } from '../schemas/index.js';
 import { applyMutationGroupSync, type ApplyMutationOp } from './apply-mutation.js';
-import { ProjectMutex } from './project-mutex.js';
 import { CardStoreState } from './state.js';
 
 function cardsByIdDir(projectRoot: string): string {
@@ -47,7 +46,6 @@ function siblingGroups(state: CardStoreState): Map<string, string[]> {
 export function repairSiblingPositions(
   projectRoot: string,
   maxDepth: number,
-  mutex: ProjectMutex,
   projectLock: ProjectLock,
   eventBus: EventBus,
 ): void {
@@ -82,5 +80,5 @@ export function repairSiblingPositions(
     });
   }
 
-  applyMutationGroupSync({ projectRoot, state, mutex, projectLock, eventBus }, ops);
+  applyMutationGroupSync({ projectRoot, state, projectLock, eventBus }, ops);
 }

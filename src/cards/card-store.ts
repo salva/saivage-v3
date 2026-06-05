@@ -28,7 +28,6 @@ import type {
 } from '../schemas/index.js';
 import { EventBus } from '../events/index.js';
 import { queueNotification } from '../notifications/index.js';
-import { ProjectMutex } from './project-mutex.js';
 import { repairSiblingPositions } from './position-repair.js';
 import {
   CardStoreInvariantError,
@@ -179,7 +178,6 @@ function recoverCommitMarkers(projectRoot: string): void {
 export class CardStore {
   readonly maxDepth: number;
   readonly projectRoot: string;
-  private readonly mutex: ProjectMutex;
   private readonly projectLock: ProjectLock;
   private state: CardStoreState;
   private readonly eventBus: EventBus;
@@ -189,9 +187,8 @@ export class CardStore {
     this.eventBus = eventBus ?? new EventBus();
     this.maxDepth = maxGoalDepth !== undefined && maxGoalDepth > 0 ? maxGoalDepth : 5;
     recoverCommitMarkers(projectRoot);
-    this.mutex = new ProjectMutex();
     this.projectLock = new ProjectLock(join(projectRoot, '.saivage', 'project.lock'));
-    repairSiblingPositions(projectRoot, this.maxDepth, this.mutex, this.projectLock, this.eventBus);
+    repairSiblingPositions(projectRoot, this.maxDepth, this.projectLock, this.eventBus);
     this.state = loadCardStoreState(projectRoot, { maxDepth: this.maxDepth });
   }
 
@@ -216,7 +213,6 @@ export class CardStore {
     return {
       projectRoot: this.projectRoot,
       state: this.state,
-      mutex: this.mutex,
       projectLock: this.projectLock,
       eventBus: this.eventBus,
     };
