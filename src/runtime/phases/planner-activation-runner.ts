@@ -68,7 +68,8 @@ export class PlannerActivationRunner {
         }),
       );
     }
-    const planCard = this.deps.cards.read(goalId)!;
+    const planCard = this.deps.cards.read(goalId);
+    if (!planCard) throw new Error(`Card '${goalId}' disappeared after activation update.`);
     this.deps.mutations.apply({
       kind: 'patchRuntimeState',
       patch: buildPlannerActiveRunPatch({ goal: planCard, plannerSessionId: setup.plannerSessionId, at: this.deps.now() }),

@@ -95,7 +95,7 @@ export class RuntimeReviewerDispatcher {
       await handleReviewerInvocationFailure({
         goalId,
         error: err,
-          existingLifecycle: this.deps.cards.read(goalId)!.lifecycle,
+          existingLifecycle: this.deps.cards.read(goalId)?.lifecycle ?? { status: 'active', result: null, error: null, completed_at: null },
         effects: {
           emitRuntimeDiagnostic: (input) => this.deps.emitRuntimeDiagnostic(input),
           appendRuntimeDiagnostic: (input) => this.deps.eventLogger.appendEvent({ kind: 'runtime_diagnostic', ...input }),

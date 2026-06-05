@@ -18,6 +18,7 @@ import type {
   ReviewerResult,
 } from '../../src/contracts/index.js';
 import { createRuntimeCoreTestContainer, type RuntimeCoreTestContainer } from '../../src/runtime/core-composition.js';
+import { materializeProjectCard } from '../helpers/materialize-project-card.js';
 import type { CardRecord, CardStatus } from '../../src/schemas/index.js';
 
 function plannerBlockedPatch(
@@ -60,6 +61,7 @@ class TerminalToolExhaustionPlannerAdapter extends FakeAgentAdapter {
 
 class ContinuePlannerCapturingAdapter extends FakeAgentAdapter {
   capturedPrompt = '';
+  private invoked = false;
 
   invokePlanner(request: PlannerInvocationRequest): PlannerResult;
   invokePlanner(goalId: string, systemPrompt?: string): PlannerResult;
@@ -71,19 +73,23 @@ class ContinuePlannerCapturingAdapter extends FakeAgentAdapter {
       typeof requestOrGoalId === 'string'
         ? (systemPrompt ?? '')
         : (requestOrGoalId.systemPrompt ?? '');
+    const created_cards = this.invoked
+      ? []
+      : [
+          {
+            id: 'next-safe-work',
+            type: 'code' as const,
+            title: 'Next safe work',
+            description: 'A scheduler-critical child created after compacting planner history.',
+            status: 'backlog' as const,
+            priority: 0,
+            depends_on: [],
+          },
+        ];
+    this.invoked = true;
     return {
       status: 'continue',
-      created_cards: [
-        {
-          id: 'next-safe-work',
-          type: 'code',
-          title: 'Next safe work',
-          description: 'A scheduler-critical child created after compacting planner history.',
-          status: 'backlog',
-          priority: 0,
-          depends_on: [],
-        },
-      ],
+      created_cards,
       updated_cards: [],
       summary: 'planner retry proceeded after compaction',
     };
@@ -135,6 +141,7 @@ describe('planner context-length failures', () => {
     tmpDir = mkdtempSync(join(tmpdir(), 'saivage-planner-context-length-'));
     mkdirSync(join(tmpDir, 'fixtures'), { recursive: true });
     initProjectTree(tmpDir);
+    materializeProjectCard(tmpDir);
   });
 
   afterEach(async () => {

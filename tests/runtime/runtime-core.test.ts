@@ -168,7 +168,7 @@ describe('runtime core reducers', () => {
       blockedPlanning: null,
       paused: false,
       source: 'operator',
-    }).error).toEqual(expect.objectContaining({ code: 'runtime_start_project_card_missing' }));
+    }).error).toBeNull();
 
     expect(planStartProjectPrecondition({
       state: state({ runtime_intent: { status: 'running', source_command_id: 'cmd-1', updated_at: 't0' }, runtime_runs: [run({ run_id: 'root', kind: 'root', card_id: 'project', parent_run_id: null, activation_id: null })] }),

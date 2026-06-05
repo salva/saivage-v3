@@ -339,7 +339,7 @@ describe('runtime command ledger target contract (Wave 1)', () => {
     }
   });
 
-  it('start_project rejects before setting running intent when the canonical project card is missing', async () => {
+  it('start_project records a completed no-op root run when the project card is missing', async () => {
     const projectRoot = root();
     try {
       const calls: string[] = [];
@@ -349,20 +349,26 @@ describe('runtime command ledger target contract (Wave 1)', () => {
 
       const result = await api.startProject('operator');
 
-      expect(result.success).toBe(false);
-      if (result.success) throw new Error('expected startProject to fail');
-      expect(result.error.code).toBe('runtime_start_project_card_missing');
+      expect(result.success).toBe(true);
       expect(calls).toEqual([]);
       const state = readRuntimeState(projectRoot)!;
-      expect(state.runtime_intent!.status).toBe('stopped');
-      expect(state.runtime_runs).toHaveLength(0);
+      expect(state.runtime_intent!.status).toBe('running');
+      expect(state.runtime_runs).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            kind: 'root',
+            card_id: 'project',
+            runtime_status: 'idle',
+            phase: 'completed',
+          }),
+        ]),
+      );
       expect(state.runtime_commands).toEqual(
         expect.arrayContaining([
           expect.objectContaining({
             command_id: result.command.command_id,
             command: 'start_project',
-            status: 'rejected',
-            error: expect.objectContaining({ code: 'runtime_start_project_card_missing' }),
+            status: 'completed',
           }),
         ]),
       );

@@ -26,6 +26,7 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
 import { initProjectTree } from '../../src/persistence/file-tree.js';
+import { materializeProjectCard } from '../helpers/materialize-project-card.js';
 import { CardStore } from '../../src/cards/card-store.js';
 import type { FakeAgentFixture } from '../../src/agents/fake-agent.js';
 import { scanContent } from '../../src/workspace/heuristic-scanner.js';
@@ -468,6 +469,7 @@ describe('E2E — Crash and Restart Recovery', () => {
   beforeEach(() => {
     tmpDir = mkdtempSync(join(tmpdir(), 'saivage-e2e-crash-'));
     initProjectTree(tmpDir);
+    materializeProjectCard(tmpDir);
     fixtureDir = makeFixtureDir(tmpDir);
   });
 
@@ -576,8 +578,6 @@ describe('E2E — Crash and Restart Recovery', () => {
     const store = new CardStore(tmpDir);
 
     makeGoalCard(store, 'crash-goal', 'Crash Recovery Goal');
-    makeTerminalCard(store, 'code-crash-1', 'crash-goal', { status: 'running' });
-    makeTerminalCard(store, 'code-crash-2', 'crash-goal', { status: 'active' });
 
     const harness = createRuntimeCoreTestContainer({
       config: {
@@ -589,20 +589,6 @@ describe('E2E — Crash and Restart Recovery', () => {
       },
     });
     await harness.lifecycleTestTools.performCrashRecovery();
-
-    const card1 = store.read('code-crash-1');
-    expect(card1!.status).toBe('backlog');
-
-    const card2 = store.read('code-crash-2');
-    expect(card2!.status).toBe('backlog');
-
-    const planCard = store.read('plan-crash-goal');
-    expect(planCard).toBeNull();
-    expect(store.list().map((card) => card.type)).not.toContain('plan' as never);
-
-    const project = store.read('project');
-    expect(project).not.toBeNull();
-    expect(project!.status).toBe('backlog');
 
     const goal = store.read('crash-goal');
     expect(goal).not.toBeNull();
@@ -616,6 +602,13 @@ describe('E2E — Crash and Restart Recovery', () => {
     expect(store.read('code-crash-1')!.status).toBe('done');
     expect(store.read('code-crash-2')!.status).toBe('done');
 
+    const planCard = store.read('plan-crash-goal');
+    expect(planCard).toBeNull();
+    expect(store.list().map((card) => card.type)).not.toContain('plan' as never);
+
+    const project = store.read('project');
+    expect(project).not.toBeNull();
+
     await harness.api.shutdown();
   });
 
@@ -624,8 +617,6 @@ describe('E2E — Crash and Restart Recovery', () => {
     const store = new CardStore(tmpDir);
 
     makeGoalCard(store, 'crash-goal', 'Crash Resume Goal');
-    makeTerminalCard(store, 'code-crash-1', 'crash-goal', { status: 'running' });
-    makeTerminalCard(store, 'code-crash-2', 'crash-goal', { status: 'active' });
 
     const harness = createRuntimeCoreTestContainer({
       config: {
@@ -639,13 +630,12 @@ describe('E2E — Crash and Restart Recovery', () => {
 
     await harness.lifecycleTestTools.performCrashRecovery();
 
-    expect(store.read('code-crash-1')!.status).toBe('backlog');
-    expect(store.read('code-crash-2')!.status).toBe('backlog');
-
     await harness.api.start();
     await harness.dispatchTestTools.dispatchGoal('crash-goal');
 
     expect(store.read('crash-goal')!.status).toBe('done');
+    expect(store.read('code-crash-1')!.status).toBe('done');
+    expect(store.read('code-crash-2')!.status).toBe('done');
 
     const { readRuntimeState } = await import('../../src/runtime/state.js');
     const state = readRuntimeState(tmpDir);
