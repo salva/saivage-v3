@@ -80,8 +80,8 @@ describe('reviewer assessment handler', () => {
     });
   });
 
-  it('persists correction assessment without committing correction as lifecycle result', async () => {
-    const persisted: ReviewAssessment[] = [];
+  it('emits correction assessment without committing correction as lifecycle result', async () => {
+    const failed: ReviewAssessment[] = [];
     const patches: Partial<CardRecord>[] = [];
     const outcome = await handleReviewerAssessmentDecision({
       goalId: 'goal-a',
@@ -91,13 +91,13 @@ describe('reviewer assessment handler', () => {
       reviewResult: reviewResult('needs_corrections'),
       decision: { kind: 'needs_corrections' },
       effects: testEffects({
-        persistReviewState: async (_goalId, assessment) => { persisted.push(assessment); },
+        emitReviewFailed: (_goalId, assessment) => { failed.push(assessment); },
         updateCard: async (_cardId, patch) => { patches.push(patch); },
       }),
     });
 
     expect(outcome).toEqual({ kind: 'continue_planner' });
-    expect(persisted).toEqual([expect.objectContaining({ result: 'needs_corrections', summary: 'review summary' })]);
+    expect(failed).toEqual([expect.objectContaining({ result: 'needs_corrections', summary: 'review summary' })]);
     expect(patches).toEqual([]);
   });
 });
@@ -108,7 +108,6 @@ function testEffects(overrides: Partial<ReviewerAssessmentEffects> = {}): Review
     readCard: () => null,
     transitionCard: async () => undefined,
     updateCard: async () => undefined,
-    persistReviewState: async () => undefined,
     emitReviewFailed: () => undefined,
     emitGoalCompleted: () => undefined,
     appendChildUnwindToolResult: () => undefined,

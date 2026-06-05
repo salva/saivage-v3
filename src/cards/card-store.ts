@@ -25,8 +25,6 @@ import type {
   CardHistoryEntry,
   CardRecord,
   CardStatus,
-  ControlActionSurface,
-  NoteAuthor,
 } from '../schemas/index.js';
 import { EventBus } from '../events/index.js';
 import { queueNotification } from '../notifications/index.js';
@@ -70,14 +68,11 @@ import {
   prunePartialPatch,
   summarizeChangedFields,
   validateTransition as validateLifecycleTransition,
+  type CardMutationContext,
   type NewCardInput,
 } from './lifecycle.js';
 
-export interface CardMutationContext {
-  actor: NoteAuthor;
-  surface: ControlActionSurface;
-  reason?: string;
-}
+export type { CardMutationContext };
 
 export interface CardDiffEntry {
   field: string;

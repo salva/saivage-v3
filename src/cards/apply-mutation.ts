@@ -39,12 +39,7 @@ import {
   writeGroupCommitMarker,
   type CommitMarker,
 } from './commit-marker.js';
-
-export interface CardMutationContext {
-  actor: import('../schemas/index.js').NoteAuthor;
-  surface: import('../schemas/index.js').ControlActionSurface;
-  reason?: string;
-}
+import type { CardMutationContext } from './lifecycle.js';
 
 export type ApplyMutationOp =
   | {

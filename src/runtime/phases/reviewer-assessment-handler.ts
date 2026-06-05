@@ -9,7 +9,6 @@ export interface ReviewerAssessmentEffects {
   readCard(cardId: string): CardRecord | null;
   transitionCard(cardId: string, event: 'complete', details: Record<string, unknown>): Promise<unknown>;
   updateCard(cardId: string, patch: Partial<CardRecord>): Promise<unknown> | unknown;
-  persistReviewState(goalId: string, assessment: ReviewAssessment): Promise<void> | void;
   emitReviewFailed(goalId: string, assessment: ReviewAssessment): void;
   emitGoalCompleted(goalId: string, assessment: ReviewAssessment): void;
   appendChildUnwindToolResult(goalId: string, outcome: 'done', summary: string): void;
@@ -46,7 +45,6 @@ export async function handleReviewerAssessmentDecision(input: {
         ],
       },
     });
-    await input.effects.persistReviewState(input.goalId, invalidAssessment);
     input.effects.emitReviewFailed(input.goalId, invalidAssessment);
     return { kind: 'continue_planner' };
   }
@@ -59,7 +57,6 @@ export async function handleReviewerAssessmentDecision(input: {
       result: input.reviewResult.assessment,
       nowIso: input.effects.now(),
     });
-    await input.effects.persistReviewState(input.goalId, assessment);
     const latestGoalCard = input.effects.readCard(input.goalId);
     if (latestGoalCard) {
       await commitReviewerPass({
@@ -89,7 +86,6 @@ export async function handleReviewerAssessmentDecision(input: {
     result: input.reviewResult.assessment,
     nowIso: input.effects.now(),
   });
-  await input.effects.persistReviewState(input.goalId, failedAssessment);
   input.effects.emitReviewFailed(input.goalId, failedAssessment);
   return { kind: 'continue_planner' };
 }

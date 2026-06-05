@@ -123,7 +123,6 @@ export class RuntimeReviewerDispatcher {
         readCard: (cardId) => this.deps.cards.read(cardId),
         transitionCard: (cardId, event, details) => this.deps.stateMachine.transitionCard(cardId, event, details),
         updateCard: (cardId, patch) => this.deps.cards.commitTerminalLifecyclePatch(cardId, patch),
-        persistReviewState: (cardId, assessment) => this.persistReviewState(cardId, assessment),
         emitReviewFailed: (cardId, assessment) => {
           this.deps.emit('review_failed', { goal_id: cardId, assessment });
           this.deps.eventLogger.appendEvent({ kind: 'review_failed', goal_id: cardId, assessment });
@@ -138,11 +137,6 @@ export class RuntimeReviewerDispatcher {
       },
     });
     return reviewerOutcome.kind === 'completed';
-  }
-
-  private async persistReviewState(goalId: string, assessment: ReviewerResult['assessment']): Promise<void> {
-    void goalId;
-    void assessment;
   }
 
   private emitProjectRunCompleted(cardId: string, assessment: ReviewAssessment): void {

@@ -143,6 +143,8 @@ export function createAgentLoopDriver<Envelope, TypedResult>(
 
       // Execute non-terminal action tools alongside the terminal call.
       await io.executeActionToolCalls(result);
+      // A mixed terminal + runtime-signalled turn must not carry a stale runtime envelope into a later repair turn.
+      takeRuntimeDone();
 
       const parse = io.verifier.parseDoneArgs(
         extraction.toolCallId!,

@@ -164,4 +164,38 @@ describe('agent-loop-driver', () => {
     if (outcome.kind !== 'succeeded') return;
     expect(outcome.envelope).toBe(runtimeEnvelope);
   });
+
+  it('drains runtime envelopes queued during a rejected terminal turn', async () => {
+    const runtimeEnvelope = { status: 'done', summary: 'stale-runtime', artifacts: [], attachments: [] } as unknown as ExecutorResultEnvelope;
+    let turn = 0;
+    let queued: ExecutorResultEnvelope | null = null;
+    const { io } = makeIO({
+      invokeTurn: async () => {
+        turn += 1;
+        if (turn === 1) {
+          return toolCalls([
+            { id: 'tc-1', name: 'read_file', args: '{}' },
+            { id: 'tc-2', name: 'emit_executor_result', args: '{"status":"bogus"}' },
+          ]);
+        }
+        return toolCalls([{ id: 'tc-3', name: 'emit_executor_result', args: JSON.stringify({ status: 'done', status_text: 'ok', summary: 'terminal', card_id: 'c1' }) }]);
+      },
+      executeActionToolCalls: async () => {
+        if (turn === 1) queued = runtimeEnvelope;
+        return { runtimeSignalledDone: queued !== null };
+      },
+      takeRuntimeDoneEnvelope: () => {
+        const current = queued;
+        queued = null;
+        return current;
+      },
+    });
+
+    const outcome = await createAgentLoopDriver(io).run();
+
+    expect(outcome.kind).toBe('succeeded');
+    if (outcome.kind !== 'succeeded') return;
+    expect(outcome.envelope).not.toBe(runtimeEnvelope);
+    expect(outcome.result.summary).toBe('terminal');
+  });
 });
