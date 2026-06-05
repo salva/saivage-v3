@@ -1,6 +1,6 @@
 export { AtomicJsonFile } from './atomic-json-file.js';
 export type { AtomicJsonFileOptions } from './atomic-json-file.js';
-export { JsonlLedger, appendSyncIdempotent, lastLineSync } from './jsonl-ledger.js';
+export { JsonlLedger, appendSyncIdempotent, appendSyncIdempotentByKey, lastLineSync } from './jsonl-ledger.js';
 export type { Cursor, JsonlLedgerOptions } from './jsonl-ledger.js';
 export { PersistentQueue } from './persistent-queue.js';
 export type { PersistentQueueOptions } from './persistent-queue.js';

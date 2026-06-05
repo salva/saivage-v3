@@ -23,9 +23,11 @@ function cleanup() {
 }
 
 let mod: typeof import('../../src/agents/session-persistence.js');
+let persistenceMod: typeof import('../../src/persistence/index.js');
 
 beforeAll(async () => {
   mod = await import('../../src/agents/session-persistence.js');
+  persistenceMod = await import('../../src/persistence/index.js');
 });
 
 beforeEach(() => {
@@ -238,6 +240,14 @@ describe('session-persistence', () => {
   });
 
   describe('appendMessage', () => {
+    function sessionMessagesPath(sessionId: string): string {
+      return join(SAIVAGE_DIR, 'agents', 'messages', `${sessionId}.jsonl`);
+    }
+
+    function nonEmptyLineCount(path: string): number {
+      return readFileSync(path, 'utf8').split('\n').filter((line) => line.trim() !== '').length;
+    }
+
     it('should append a message to a session', () => {
       const session = mod.createSession(SAIVAGE_DIR, 'planner');
       const msg = mod.appendMessage(SAIVAGE_DIR, session.id, {
@@ -259,6 +269,48 @@ describe('session-persistence', () => {
       expect(messages).toHaveLength(2);
       expect(messages[0].content).toBe('First');
       expect(messages[1].content).toBe('Second');
+    });
+
+    it('appends one JSONL line per new message without adding entry_id', () => {
+      const session = mod.createSession(SAIVAGE_DIR, 'planner');
+      const first = mod.appendMessage(SAIVAGE_DIR, session.id, { role: 'user', kind: 'text', content: 'First' }, { round_id: 'r-user-00000000000000000000000000000001', message_index: 0, block_index: 0 });
+      const mp = sessionMessagesPath(session.id);
+      const before = readFileSync(mp, 'utf8');
+
+      const second = mod.appendMessage(SAIVAGE_DIR, session.id, { role: 'assistant', kind: 'text', content: 'Second' }, { round_id: 'r-user-00000000000000000000000000000001', message_index: 1, block_index: 0 });
+      const after = readFileSync(mp, 'utf8');
+      const secondLine = JSON.parse(after.split('\n').filter((line) => line.trim() !== '')[1]) as Record<string, unknown>;
+
+      expect(nonEmptyLineCount(mp)).toBe(2);
+      expect(after.startsWith(before)).toBe(true);
+      expect(first.id).toBe(`msg-${session.id}-1`);
+      expect(second.id).toBe(`msg-${session.id}-2`);
+      expect(secondLine.id).toBe(second.id);
+      expect(secondLine.entry_id).toBeUndefined();
+    });
+
+    it('idempotently skips a duplicate append with the same message id', () => {
+      const session = mod.createSession(SAIVAGE_DIR, 'planner');
+      mod.appendMessage(SAIVAGE_DIR, session.id, { role: 'user', kind: 'text', content: 'First' }, { round_id: 'r-user-00000000000000000000000000000001', message_index: 0, block_index: 0 });
+      const mp = sessionMessagesPath(session.id);
+      const existingMessage = JSON.parse(readFileSync(mp, 'utf8').trim()) as Record<string, unknown>;
+
+      persistenceMod.appendSyncIdempotentByKey(mp, existingMessage, 'id');
+
+      expect(nonEmptyLineCount(mp)).toBe(1);
+      expect(mod.getSessionMessages(SAIVAGE_DIR, session.id)).toHaveLength(1);
+    });
+
+    it('fails clearly instead of appending over a corrupt JSONL tail', () => {
+      const session = mod.createSession(SAIVAGE_DIR, 'planner');
+      mod.appendMessage(SAIVAGE_DIR, session.id, { role: 'user', kind: 'text', content: 'First' }, { round_id: 'r-user-00000000000000000000000000000001', message_index: 0, block_index: 0 });
+      const mp = sessionMessagesPath(session.id);
+      const corruptContent = readFileSync(mp, 'utf8') + '{"id":"partial"';
+      writeFileSync(mp, corruptContent);
+
+      expect(() => mod.getSessionMessages(SAIVAGE_DIR, session.id)).toThrow(/malformed session message JSONL at line 2/);
+      expect(() => mod.appendMessage(SAIVAGE_DIR, session.id, { role: 'assistant', kind: 'text', content: 'Second' }, { round_id: 'r-user-00000000000000000000000000000001', message_index: 1, block_index: 0 })).toThrow(/malformed session message JSONL at line 2/);
+      expect(readFileSync(mp, 'utf8')).toBe(corruptContent);
     });
   });
 

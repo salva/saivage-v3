@@ -2,7 +2,7 @@ import { existsSync, readFileSync, unlinkSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { agentSessionSchema, agentMessageSchema } from '../schemas/index.js';
 import { generateRoundId } from '../schemas/round-id-server.js';
-import { explainLegacyStateRejection, writeFileAtomic } from '../persistence/index.js';
+import { appendSyncIdempotentByKey, explainLegacyStateRejection, PersistenceReadError, writeFileAtomic } from '../persistence/index.js';
 import { parseToolCallMessage } from '../contracts/persisted-tool-call.js';
 import type {
   AgentSession,
@@ -278,13 +278,7 @@ export function appendMessage(
   agentMessageSchema.parse(msg);
 
   const mp = messagesPath(saivageDir, sessionId);
-  const line = JSON.stringify(msg) + '\n';
-  if (existsSync(mp)) {
-    const existingContent = readFileSync(mp, 'utf-8');
-    writeFileAtomic(mp, existingContent + line);
-  } else {
-    writeFileAtomic(mp, line);
-  }
+  appendSyncIdempotentByKey(mp, msg as unknown as Record<string, unknown>, 'id');
 
   appendRecorder?.recordAppend(msg);
   return msg;
@@ -301,9 +295,26 @@ export function getSessionMessages(
   if (raw.trim() === '') return [];
 
   const lines = raw.split('\n').filter((line) => line.trim() !== '');
-  return lines.map((line) => {
-    const obj = JSON.parse(line);
-    return agentMessageSchema.parse(obj);
+  return lines.map((line, index) => {
+    let obj: unknown;
+    try {
+      obj = JSON.parse(line);
+    } catch (error) {
+      throw new PersistenceReadError(
+        mp,
+        `malformed session message JSONL at line ${index + 1} for session ${sessionId}`,
+        { cause: error },
+      );
+    }
+    try {
+      return agentMessageSchema.parse(obj);
+    } catch (error) {
+      throw new PersistenceReadError(
+        mp,
+        `invalid session message JSONL at line ${index + 1} for session ${sessionId}`,
+        { cause: error },
+      );
+    }
   });
 }
 

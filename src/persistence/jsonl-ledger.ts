@@ -206,3 +206,46 @@ export function appendSyncIdempotent(
     if (fd !== null) closeSync(fd);
   }
 }
+
+export function appendSyncIdempotentByKey<T extends Record<string, unknown>>(
+  jsonlPath: string,
+  entry: T,
+  idField: keyof T & string,
+): void {
+  const entryId = entry[idField];
+  if (typeof entryId !== 'string' || entryId.length === 0) {
+    throw new PersistenceValidationError(jsonlPath, `id field '${idField}' must be a non-empty string`);
+  }
+
+  const tail = lastLineSync(jsonlPath);
+  if (!tail.endsWithNewline) {
+    throw new PersistenceReadError(
+      jsonlPath,
+      `JSONL file has a partial tail; refusing to append ${idField}=${entryId}`,
+    );
+  }
+  if (tail.line !== null) {
+    let parsed: Record<string, unknown> | null = null;
+    try {
+      parsed = JSON.parse(tail.line) as Record<string, unknown>;
+    } catch {
+      throw new PersistenceReadError(
+        jsonlPath,
+        `last complete JSONL line is unparseable; refusing to append ${idField}=${entryId}`,
+      );
+    }
+    if (parsed && parsed[idField] === entryId) return;
+  }
+
+  mkdirSync(dirname(jsonlPath), { recursive: true });
+  let fd: number | null = null;
+  try {
+    fd = openSync(jsonlPath, 'a');
+    appendFileSync(fd, JSON.stringify(entry) + '\n', 'utf-8');
+    fsyncSync(fd);
+  } catch (error) {
+    throw new PersistenceWriteError(jsonlPath, (error as Error).message, { cause: error });
+  } finally {
+    if (fd !== null) closeSync(fd);
+  }
+}
