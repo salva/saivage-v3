@@ -2,7 +2,7 @@ import { existsSync, readFileSync, unlinkSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { agentSessionSchema, agentMessageSchema } from '../schemas/index.js';
 import { generateRoundId } from '../schemas/round-id-server.js';
-import { appendSyncIdempotentByKey, explainLegacyStateRejection, PersistenceReadError, writeFileAtomic } from '../persistence/index.js';
+import { appendSyncIdempotentByKey, explainLegacyStateRejection, PersistenceReadError, writeFileSyncDurable } from '../persistence/index.js';
 import { parseToolCallMessage } from '../contracts/persisted-tool-call.js';
 import type {
   AgentSession,
@@ -90,7 +90,7 @@ export function createSession(
   agentSessionSchema.parse(session);
 
   const sp = sessionPath(saivageDir, session.id);
-  writeFileAtomic(sp, JSON.stringify(session, null, 2) + '\n');
+  writeFileSyncDurable(sp, JSON.stringify(session, null, 2) + '\n');
 
   return session;
 }
@@ -132,7 +132,7 @@ export function completeSession(
   };
 
   agentSessionSchema.parse(updated);
-  writeFileAtomic(
+  writeFileSyncDurable(
     sessionPath(saivageDir, sessionId),
     JSON.stringify(updated, null, 2) + '\n',
   );
@@ -157,7 +157,7 @@ export function setSessionStatus(
   };
 
   agentSessionSchema.parse(updated);
-  writeFileAtomic(
+  writeFileSyncDurable(
     sessionPath(saivageDir, sessionId),
     JSON.stringify(updated, null, 2) + '\n',
   );
@@ -233,7 +233,7 @@ export function updateSessionModel(
 
   const updated: AgentSession = { ...session, model };
   agentSessionSchema.parse(updated);
-  writeFileAtomic(
+  writeFileSyncDurable(
     sessionPath(saivageDir, sessionId),
     JSON.stringify(updated, null, 2) + '\n',
   );
@@ -328,7 +328,7 @@ export function replaceSessionMessages(
   const content =
     validated.map((m) => JSON.stringify(m)).join('\n') +
     (validated.length > 0 ? '\n' : '');
-  writeFileAtomic(mp, content);
+  writeFileSyncDurable(mp, content);
 }
 
 export function getSessionTokenCount(

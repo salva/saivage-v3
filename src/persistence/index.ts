@@ -21,6 +21,7 @@ export {
   isInitialized,
   readProjectFileAtomic,
   writeFileAtomic,
+  writeFileSyncDurable,
 } from './file-tree.js';
 export { findProjectRoot } from './discovery.js';
 export { listControlActions, recordControlAction, stableStringify } from './control-action-audit.js';

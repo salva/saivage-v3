@@ -14,7 +14,7 @@ import {
   unlinkSync,
 } from 'node:fs';
 import { join } from 'node:path';
-import { ProjectLock, appendSyncIdempotent, writeFileAtomic } from '../persistence/index.js';
+import { ProjectLock, appendSyncIdempotent, writeFileSyncDurable } from '../persistence/index.js';
 import {
   cardHistoryEntrySchema,
   cardRecordSchema,
@@ -657,7 +657,7 @@ export class CardStore {
         result: card.lifecycle.result,
         evidence_refs: { artifacts: card.artifacts, attachments: card.attachments },
       };
-      writeFileAtomic(archiveCardPath(this.projectRoot, card.id), JSON.stringify(archivePayload, null, 2) + '\n');
+      writeFileSyncDurable(archiveCardPath(this.projectRoot, card.id), JSON.stringify(archivePayload, null, 2) + '\n');
     }
     const liveCards = cards.filter((card) => this.state.get(card.id));
     const sorted = [...liveCards].sort((a, b) => b.depth - a.depth);

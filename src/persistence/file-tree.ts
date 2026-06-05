@@ -1,13 +1,17 @@
 import {
+  closeSync,
   mkdirSync,
   existsSync,
+  fsyncSync,
+  openSync,
   writeFileSync,
   renameSync,
   readFileSync,
   readdirSync,
   statSync,
+  unlinkSync,
 } from 'node:fs';
-import { isAbsolute, join, relative, resolve } from 'node:path';
+import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { randomBytes } from 'node:crypto';
 import type { ProjectConfig } from '../schemas/index.js';
 import { projectConfigSchema } from '../schemas/index.js';
@@ -22,6 +26,51 @@ export function writeFileAtomic(targetPath: string, data: string): void {
   const tmpPath = `${targetPath}.tmp.${suffix}`;
   writeFileSync(tmpPath, data, 'utf-8');
   renameSync(tmpPath, targetPath);
+}
+
+function fsyncDirectory(path: string): void {
+  let fd: number | null = null;
+  try {
+    fd = openSync(path, 'r');
+    fsyncSync(fd);
+  } catch {
+    // Some platforms/filesystems do not allow directory fsync; file fsync + rename is still atomic.
+  } finally {
+    try {
+      if (fd !== null) closeSync(fd);
+    } catch {
+      // Directory fsync is best-effort.
+    }
+  }
+}
+
+export function writeFileSyncDurable(targetPath: string, data: string): void {
+  const dir = dirname(targetPath);
+  mkdirSync(dir, { recursive: true });
+  const suffix = randomBytes(8).toString('hex');
+  const tmpPath = `${targetPath}.tmp.${suffix}`;
+  let fd: number | null = null;
+  try {
+    fd = openSync(tmpPath, 'w');
+    writeFileSync(fd, data, 'utf-8');
+    fsyncSync(fd);
+    closeSync(fd);
+    fd = null;
+    renameSync(tmpPath, targetPath);
+    fsyncDirectory(dir);
+  } catch (error) {
+    try {
+      if (fd !== null) closeSync(fd);
+    } catch {
+      // Preserve the original write failure.
+    }
+    try {
+      if (existsSync(tmpPath)) unlinkSync(tmpPath);
+    } catch {
+      // Preserve the original write failure.
+    }
+    throw error;
+  }
 }
 
 export function readProjectFileAtomic(

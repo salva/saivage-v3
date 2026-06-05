@@ -1,6 +1,6 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { writeFileAtomic } from '../persistence/index.js';
+import { writeFileSyncDurable } from '../persistence/index.js';
 import { appendMessage, findPlannerSessionForCard, getSession, listSessions } from './session-persistence.js';
 import type { RoundStamp } from '../contracts/session-stamper.js';
 import type { AgentSession, CardRecord } from '../schemas/index.js';
@@ -24,7 +24,7 @@ function syntheticQueuePath(projectRoot: string): string { return join(saivageDi
 function now(): string { return new Date().toISOString(); }
 function readJson<T>(path: string, fallback: T): T { if (!existsSync(path)) return fallback; try { return JSON.parse(readFileSync(path, 'utf-8')) as T; } catch { return fallback; } }
 function readSyntheticQueue(projectRoot: string): SyntheticQueue { return readJson<SyntheticQueue>(syntheticQueuePath(projectRoot), { notes: [] }); }
-function writeSyntheticQueue(projectRoot: string, queue: SyntheticQueue): void { writeFileAtomic(syntheticQueuePath(projectRoot), JSON.stringify(queue, null, 2) + '\n'); }
+function writeSyntheticQueue(projectRoot: string, queue: SyntheticQueue): void { writeFileSyncDurable(syntheticQueuePath(projectRoot), JSON.stringify(queue, null, 2) + '\n'); }
 
 function contains(store: CardStore, goalId: string, affectedCardId: string): boolean {
   return goalId === affectedCardId || store.getDescendantIds(goalId).includes(affectedCardId);

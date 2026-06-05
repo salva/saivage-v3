@@ -12,7 +12,7 @@ import {
   unlinkSync,
 } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { writeFileAtomic } from '../persistence/index.js';
+import { writeFileSyncDurable } from '../persistence/index.js';
 import type { CardHistoryEntry } from '../schemas/index.js';
 
 export type CommitMarkerByIdPlan =
@@ -78,14 +78,14 @@ function fsyncDir(dirPath: string): void {
 export function writeCommitMarker(projectRoot: string, marker: CommitMarker): void {
   const path = commitMarkerPath(projectRoot, marker.token);
   mkdirSync(dirname(path), { recursive: true });
-  writeFileAtomic(path, JSON.stringify(marker, null, 2) + '\n');
+  writeFileSyncDurable(path, JSON.stringify(marker, null, 2) + '\n');
   fsyncDir(commitMarkerDir(projectRoot));
 }
 
 export function writeGroupCommitMarker(projectRoot: string, marker: GroupCommitMarker): void {
   const path = groupCommitMarkerPath(projectRoot, marker.group_token);
   mkdirSync(dirname(path), { recursive: true });
-  writeFileAtomic(path, JSON.stringify(marker, null, 2) + '\n');
+  writeFileSyncDurable(path, JSON.stringify(marker, null, 2) + '\n');
   fsyncDir(commitMarkerDir(projectRoot));
 }
 
