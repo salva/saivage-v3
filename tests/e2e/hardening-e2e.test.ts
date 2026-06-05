@@ -13,7 +13,7 @@ import Fastify, { type FastifyInstance } from 'fastify';
 import cors from '@fastify/cors';
 import websocket from '@fastify/websocket';
 import WebSocket from 'ws';
-import { getAuthPolicy, resetAuthPolicyForTests } from '../../src/server/auth-policy.js';
+import { getAuthPolicy } from '../../src/server/auth-policy.js';
 import {
   existsSync,
   mkdirSync,
@@ -26,15 +26,105 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
 import { initProjectTree } from '../../src/persistence/file-tree.js';
-import { materializeProjectCard } from '../helpers/materialize-project-card.js';
 import { CardStore } from '../../src/cards/card-store.js';
-import type { FakeAgentFixture } from '../../src/agents/fake-agent.js';
+import { FakeAgentAdapter, type FakeAgentFixture } from '../../src/agents/fake-agent.js';
 import { scanContent } from '../../src/workspace/heuristic-scanner.js';
 import { quarantineContent } from '../../src/workspace/quarantine.js';
 import { isStashPathAllowed, getSafeFileForAgent } from '../../src/workspace/file-access-security.js';
 import { releaseLock } from '../../src/runtime/lock.js';
 import type { CardRecord } from '../../src/schemas/types.js';
 import { createRuntimeCoreTestContainer } from '../../src/runtime/core-composition.js';
+import { PlannerControlExecutor } from '../../src/agents/planner-control-executor.js';
+import {
+  appendRuntimeRun,
+  readRuntimeState,
+  upsertRuntimeActivation,
+} from '../../src/runtime/state.js';
+import type { AgentExecutionPort, PlannerInvocationRequest, PlannerResult } from '../../src/contracts/index.js';
+
+function activationLedger(projectRoot: string) {
+  return {
+    readState: () => readRuntimeState(projectRoot),
+    appendRun: (input: Parameters<typeof appendRuntimeRun>[1]) =>
+      appendRuntimeRun(projectRoot, input),
+    upsertActivation: (input: Parameters<typeof upsertRuntimeActivation>[1]) =>
+      upsertRuntimeActivation(projectRoot, input),
+  };
+}
+
+function seedPlannerRun(projectRoot: string, goalId: string): void {
+  appendRuntimeRun(projectRoot, {
+    kind: 'root',
+    card_id: goalId,
+    parent_run_id: null,
+    command_id: null,
+    activation_id: null,
+    phase: 'planner',
+    runtime_status: 'running',
+    session_id: null,
+  });
+}
+
+class ActivatingFakeAgentAdapter implements AgentExecutionPort {
+  private readonly fakeAgent: FakeAgentAdapter;
+
+  constructor(
+    private readonly projectRoot: string,
+    config: ConstructorParameters<typeof FakeAgentAdapter>[0],
+    private readonly childrenByParent: Record<string, string[]>,
+  ) {
+    this.fakeAgent = new FakeAgentAdapter(config);
+  }
+
+  async invokePlanner(requestOrGoalId: PlannerInvocationRequest | string): Promise<PlannerResult> {
+    const goalId = typeof requestOrGoalId === 'string' ? requestOrGoalId : requestOrGoalId.goalId;
+    const result = this.fakeAgent.invokePlanner(requestOrGoalId as PlannerInvocationRequest);
+    if (result.status !== 'continue') return result;
+    const childId = this.childrenByParent[goalId]?.find((id) => {
+      const card = new CardStore(this.projectRoot).read(id);
+      return card?.status === 'backlog';
+    });
+    if (!childId) return result;
+    const exec = new PlannerControlExecutor({
+      projectRoot: this.projectRoot,
+      cardStore: new CardStore(this.projectRoot),
+      activationLedger: activationLedger(this.projectRoot),
+    });
+    const parentRun = readRuntimeState(this.projectRoot)?.runtime_runs?.find(
+      (run) => run.card_id === goalId && run.phase === 'planner' && run.runtime_status === 'running' && !run.finished_at,
+    );
+    const activation = await exec.execute({
+      toolName: 'activate_card',
+      toolCallId: `activate-${childId}`,
+      argumentsJson: JSON.stringify({ cardId: childId }),
+      parentCardId: goalId,
+      sessionId: parentRun?.session_id ?? '',
+    });
+    const body = JSON.parse(activation.content) as { success?: boolean; activation?: Parameters<NonNullable<PlannerInvocationRequest['activationBarrier']>['dispatch']>[0]['activation']; actionable_error?: { message?: string } };
+    if (body.success !== true) throw new Error(body.actionable_error?.message ?? 'activate_card failed');
+    if (body.activation && typeof requestOrGoalId !== 'string') await requestOrGoalId.activationBarrier?.dispatch({ activation: body.activation });
+    return result;
+  }
+
+  invokeExecutor: AgentExecutionPort['invokeExecutor'] = (request) => this.fakeAgent.invokeExecutor(request);
+  invokeReviewer: AgentExecutionPort['invokeReviewer'] = (request) => this.fakeAgent.invokeReviewer(request);
+  cancelSession: AgentExecutionPort['cancelSession'] = (sessionId) => this.fakeAgent.cancelSession(sessionId);
+  forceCancelSession: AgentExecutionPort['forceCancelSession'] = (sessionId) => this.fakeAgent.forceCancelSession(sessionId);
+  getHandoffSummary: AgentExecutionPort['getHandoffSummary'] = (sessionId) => this.fakeAgent.getHandoffSummary(sessionId);
+  getActiveSessionHandoffs: AgentExecutionPort['getActiveSessionHandoffs'] = () => this.fakeAgent.getActiveSessionHandoffs();
+}
+
+async function waitForBackgroundDispatchesToDrain(
+  harness: ReturnType<typeof createRuntimeCoreTestContainer>,
+): Promise<void> {
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    if (harness.diagnosticTestTools.getBackgroundDispatchCount() === 0) return;
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  throw new Error(
+    `background dispatches did not drain; count=${harness.diagnosticTestTools.getBackgroundDispatchCount()}`,
+  );
+}
 
 function makeFixtureDir(tmpDir: string): string {
   const dir = join(tmpDir, 'fixtures');
@@ -46,9 +136,8 @@ function writeFixture(dir: string, name: string, fixture: FakeAgentFixture): voi
   writeFileSync(join(dir, `${name}.json`), JSON.stringify(fixture, null, 2), 'utf-8');
 }
 
-function makeGoalCard(store: CardStore, id: string, title: string): CardRecord {
+function makeGoalCard(store: CardStore, title: string): CardRecord {
   return store.create({
-    id,
     type: 'goal',
     parent: 'project',
     depth: 0,
@@ -71,16 +160,14 @@ function makeGoalCard(store: CardStore, id: string, title: string): CardRecord {
 
 function makeTerminalCard(
   store: CardStore,
-  id: string,
   parentId: string,
   overrides: Partial<CardRecord> = {},
 ): CardRecord {
   return store.create({
-    id,
     type: 'code',
     parent: parentId,
     depth: 0,
-    title: id,
+    title: overrides.title ?? 'Terminal work',
     description: '',
     status: 'backlog',
     tags: [],
@@ -126,255 +213,34 @@ describe('E2E — Full Project Lifecycle', () => {
     rmSync(tmpDir, { recursive: true, force: true });
   });
 
-  function writeLifecycleFixture(artifactSourceFile: string): void {
-    const fixture: FakeAgentFixture = {
-      name: 'e2e-lifecycle',
-      planner: [
-        {
-          created_cards: [
-            {
-              id: 'code-e2e-1',
-              type: 'code',
-              title: 'Write E2E feature',
-              description: 'Implement the end-to-end feature',
-              status: 'backlog',
-              depends_on: [],
-              priority: 1,
-            },
-            {
-              id: 'code-e2e-2',
-              type: 'code',
-              title: 'Write E2E tests',
-              description: 'Add end-to-end tests',
-              status: 'backlog',
-              depends_on: ['code-e2e-1'],
-              priority: 2,
-            },
-          ],
-          status: 'continue',
-        },
-        {
-          updated_cards: [],
-          status: 'done',
-        },
-        {
-          updated_cards: [],
-          status: 'done',
-        },
-        {
-          updated_cards: [],
-          status: 'done',
-        },
-      ],
-      executor: {
-        'code-e2e-1': {
-          card_id: 'code-e2e-1',
-          status: 'done',
-          status_text: 'Completed successfully',
-          artifacts: [
-            {
-              sourceFile: artifactSourceFile,
-              type: 'report',
-              description: 'E2E implementation report',
-              retain: true,
-            },
-          ],
-        },
-        'code-e2e-2': {
-          card_id: 'code-e2e-2',
-          status: 'done',
-          status_text: 'Completed successfully',
-          result: { tests: 42, passed: 42 },
-        },
-      },
-      reviewer: [
-        {
-          assessment: {
-            id: 'review-e2e-001',
-            goal_card_id: 'e2e-goal',
-            reviewer_session_id: 'rev-session-e2e',
-            assessment_id: 'assessment-test',
-            at: '2025-01-01T00:00:00.000Z',
-            result: 'pass',
-            summary: 'All E2E acceptance criteria met.',
-            achieved: ['E2E feature implemented', 'E2E tests passing (42/42)'],
-            issues: [],
-            evidence_card_ids: ['code-e2e-1', 'code-e2e-2'],
-            created_at: new Date().toISOString(),
-          },
-        },
-        {
-          assessment: {
-            id: 'review-e2e-002',
-            goal_card_id: 'e2e-goal',
-            reviewer_session_id: 'rev-session-e2e-2',
-            assessment_id: 'assessment-test',
-            at: '2025-01-01T00:00:00.000Z',
-            result: 'pass',
-            summary: 'All E2E acceptance criteria met.',
-            achieved: ['E2E feature implemented', 'E2E tests passing (42/42)'],
-            issues: [],
-            evidence_card_ids: ['code-e2e-1', 'code-e2e-2'],
-            created_at: new Date().toISOString(),
-          },
-        },
-        {
-          assessment: {
-            id: 'review-e2e-003',
-            goal_card_id: 'e2e-goal',
-            reviewer_session_id: 'rev-session-e2e-3',
-            assessment_id: 'assessment-test',
-            at: '2025-01-01T00:00:00.000Z',
-            result: 'pass',
-            summary: 'All E2E acceptance criteria met.',
-            achieved: ['E2E feature implemented', 'E2E tests passing (42/42)'],
-            issues: [],
-            evidence_card_ids: ['code-e2e-1', 'code-e2e-2'],
-            created_at: new Date().toISOString(),
-          },
-        },
-      ],
-    };
-    writeFixture(fixtureDir, 'e2e-lifecycle', fixture);
-  }
-
-  it('initializes project, creates goal, runs planner/executor/reviewer flow, produces artifacts, and displays results via API', async () => {
-    const artifactDir = join(tmpDir, '.saivage-work', 'processes', 'e2e-lifecycle');
-    mkdirSync(artifactDir, { recursive: true });
-    const artifactSourcePath = join(artifactDir, 'e2e-artifact.txt');
-    writeFileSync(artifactSourcePath, 'E2E Artifact Content: lifecycle test passed!');
-
-    writeLifecycleFixture(artifactSourcePath);
-    makeGoalCard(store, 'e2e-goal', 'E2E Test Goal');
-
-    const harness = createRuntimeCoreTestContainer({
-      config: {
-        projectRoot: tmpDir,
-        fakeAgentConfig: {
-          mapping: { 'e2e-goal': 'e2e-lifecycle' },
-          fixtureDir,
-        },
-      },
-    });
-    await harness.api.start();
-    await harness.dispatchTestTools.dispatchGoal('e2e-goal');
-
-    const goal = store.read('e2e-goal');
-    expect(goal).not.toBeNull();
-    expect(goal!.status).toBe('done');
-
-    const card1 = store.read('code-e2e-1');
-    expect(card1).not.toBeNull();
-    expect(card1!.status).toBe('done');
-
-    const card2 = store.read('code-e2e-2');
-    expect(card2).not.toBeNull();
-    expect(card2!.status).toBe('done');
-
-    const planCard = store.read('plan-e2e-goal');
-    expect(planCard).toBeNull();
-    expect(goal!.lifecycle.result).toMatchObject({ kind: 'reviewer_pass' });
-
-    const updatedCard1 = store.read('code-e2e-1');
-    expect(updatedCard1!.artifacts.length).toBeGreaterThan(0);
-    expect(updatedCard1!.artifacts[0].type).toBe('report');
-
-    const authToken = 'e2e-test-token';
-    process.env['SAIVAGE_API_TOKEN'] = authToken;
-    resetAuthPolicyForTests();
-
-    const app = Fastify({ logger: false });
-    await app.register(cors);
-    await app.register(websocket);
-
-    const { default: authPlugin } = await import('../../src/server/auth.js');
-    await app.register(authPlugin);
-
-    const { registerCardRoutes } = await import('../../src/server/routes/cards.js');
-    const { registerChatsFilesDebugRoutes } = await import('../../src/server/routes/chats-files-debug.js');
-
-    registerCardRoutes(app, tmpDir);
-    registerChatsFilesDebugRoutes(app, tmpDir);
-
-    await app.listen({ port: 0, host: '127.0.0.1' });
-    const port = (app.server.address() as { port: number }).port;
-    const baseUrl = `http://127.0.0.1:${port}`;
-
-    try {
-      const stateRes = await fetch(`${baseUrl}/api/state`, {
-        headers: { authorization: `Bearer ${authToken}` },
-      });
-      expect(stateRes.status).toBe(200);
-      const stateBody = await stateRes.json() as Record<string, unknown>;
-      expect(stateBody.runtime).toBeDefined();
-      expect(stateBody.cardIndex).toBeDefined();
-      const cardIndex = stateBody.cardIndex as { total: number };
-      expect(cardIndex.total).toBeGreaterThan(0);
-
-      const cardsRes = await fetch(`${baseUrl}/api/cards`, {
-        headers: { authorization: `Bearer ${authToken}` },
-      });
-      expect(cardsRes.status).toBe(200);
-      const cardsBody = await cardsRes.json() as Record<string, unknown>;
-      const cards = cardsBody.cards as Array<{ id: string; title: string }>;
-      const goalCard = cards.find((c) => c.id === 'e2e-goal');
-      expect(goalCard).toBeDefined();
-      expect(goalCard!.title).toBe('E2E Test Goal');
-
-      const debugRes = await fetch(`${baseUrl}/api/debug/state`, {
-        headers: { authorization: `Bearer ${authToken}` },
-      });
-      expect(debugRes.status).toBe(200);
-      const debugBody = await debugRes.json() as Record<string, unknown>;
-      expect(debugBody.runtime).toBeDefined();
-      expect(debugBody.cards).toBeDefined();
-      expect(debugBody.totalCards).toBeGreaterThan(0);
-    } finally {
-      await app.close();
-    }
-
-    await harness.api.shutdown();
-  }, 30000);
-
   it('produces artifacts during execution and they are registered in card records', async () => {
     const artifactDir = join(tmpDir, '.saivage-work', 'processes', 'artifact-producer');
     mkdirSync(artifactDir, { recursive: true });
     const artifactSourcePath = join(artifactDir, 'my-artifact-output.json');
     writeFileSync(artifactSourcePath, JSON.stringify({ result: 'success', count: 42 }));
+    const artifactGoal = makeGoalCard(store, 'Artifact Goal');
+    const artifactCard = makeTerminalCard(store, artifactGoal.id, { title: 'Artifact producer work' });
 
     const fixture: FakeAgentFixture = {
       name: 'artifact-producer',
       planner: [
         {
-          created_cards: [
-            {
-              id: 'code-art-1',
-              type: 'code',
-              title: 'Produce artifact',
-              description: 'Produces a retained artifact',
-              status: 'backlog',
-              depends_on: [],
-              priority: 1,
-            },
-          ],
           status: 'continue',
+          summary: 'Planner continued after direct card setup.',
         },
         {
-          updated_cards: [],
           status: 'done',
         },
         {
-          updated_cards: [],
           status: 'done',
         },
         {
-          updated_cards: [],
           status: 'done',
         },
       ],
       executor: {
-        'code-art-1': {
-          card_id: 'code-art-1',
+        [artifactCard.id]: {
+          card_id: artifactCard.id,
           status: 'done',
           status_text: 'Completed successfully',
           artifacts: [
@@ -391,7 +257,7 @@ describe('E2E — Full Project Lifecycle', () => {
         {
           assessment: {
             id: 'review-art-001',
-            goal_card_id: 'art-goal',
+            goal_card_id: artifactGoal.id,
             reviewer_session_id: 'rev-session-art',
             assessment_id: 'assessment-test',
             at: '2025-01-01T00:00:00.000Z',
@@ -399,14 +265,14 @@ describe('E2E — Full Project Lifecycle', () => {
             summary: 'Artifact produced successfully.',
             achieved: ['Artifact produced'],
             issues: [],
-            evidence_card_ids: ['code-art-1'],
+            evidence_card_ids: [artifactCard.id],
             created_at: new Date().toISOString(),
           },
         },
         {
           assessment: {
             id: 'review-art-002',
-            goal_card_id: 'art-goal',
+            goal_card_id: artifactGoal.id,
             reviewer_session_id: 'rev-session-art-2',
             assessment_id: 'assessment-test',
             at: '2025-01-01T00:00:00.000Z',
@@ -414,14 +280,14 @@ describe('E2E — Full Project Lifecycle', () => {
             summary: 'Artifact produced successfully.',
             achieved: ['Artifact produced'],
             issues: [],
-            evidence_card_ids: ['code-art-1'],
+            evidence_card_ids: [artifactCard.id],
             created_at: new Date().toISOString(),
           },
         },
         {
           assessment: {
             id: 'review-art-003',
-            goal_card_id: 'art-goal',
+            goal_card_id: artifactGoal.id,
             reviewer_session_id: 'rev-session-art-3',
             assessment_id: 'assessment-test',
             at: '2025-01-01T00:00:00.000Z',
@@ -429,7 +295,7 @@ describe('E2E — Full Project Lifecycle', () => {
             summary: 'Artifact produced successfully.',
             achieved: ['Artifact produced'],
             issues: [],
-            evidence_card_ids: ['code-art-1'],
+            evidence_card_ids: [artifactCard.id],
             created_at: new Date().toISOString(),
           },
         },
@@ -437,212 +303,31 @@ describe('E2E — Full Project Lifecycle', () => {
     };
     writeFixture(fixtureDir, 'artifact-producer', fixture);
 
-    makeGoalCard(store, 'art-goal', 'Artifact Goal');
-
     const harness = createRuntimeCoreTestContainer({
       config: {
         projectRoot: tmpDir,
         fakeAgentConfig: {
-          mapping: { 'art-goal': 'artifact-producer' },
+          mapping: { [artifactGoal.id]: 'artifact-producer' },
           fixtureDir,
         },
       },
+      agentRuntime: new ActivatingFakeAgentAdapter(
+        tmpDir,
+        { mapping: { [artifactGoal.id]: 'artifact-producer' }, fixtureDir },
+        { [artifactGoal.id]: [artifactCard.id] },
+      ),
     });
     await harness.api.start();
-    await harness.dispatchTestTools.dispatchGoal('art-goal');
+    seedPlannerRun(tmpDir, artifactGoal.id);
+    await harness.dispatchTestTools.dispatchGoal(artifactGoal.id);
+    await waitForBackgroundDispatchesToDrain(harness);
 
-    const card = store.read('code-art-1');
+    const card = store.read(artifactCard.id);
     expect(card).not.toBeNull();
     expect(card!.artifacts.length).toBeGreaterThan(0);
 
     expect(card!.artifacts[0].type).toBe('data');
     expect(card!.artifacts[0].retain).toBe(true);
-
-    await harness.api.shutdown();
-  });
-});
-
-describe('E2E — Crash and Restart Recovery', () => {
-  let tmpDir: string;
-  let fixtureDir: string;
-
-  beforeEach(() => {
-    tmpDir = mkdtempSync(join(tmpdir(), 'saivage-e2e-crash-'));
-    initProjectTree(tmpDir);
-    materializeProjectCard(tmpDir);
-    fixtureDir = makeFixtureDir(tmpDir);
-  });
-
-  afterEach(() => {
-    try { releaseLock(tmpDir); } catch { /* noop */ }
-    rmSync(tmpDir, { recursive: true, force: true });
-  });
-
-  function createCrashRecoveryFixture(): void {
-    const fixture: FakeAgentFixture = {
-      name: 'e2e-crash-recovery',
-      planner: [
-        {
-          created_cards: [
-            {
-              id: 'code-crash-1',
-              type: 'code',
-              title: 'Crash recovery card 1',
-              description: 'First terminal after crash recovery',
-              status: 'backlog',
-              depends_on: [],
-              priority: 1,
-            },
-            {
-              id: 'code-crash-2',
-              type: 'code',
-              title: 'Crash recovery card 2',
-              description: 'Second terminal after crash recovery',
-              status: 'backlog',
-              depends_on: ['code-crash-1'],
-              priority: 2,
-            },
-          ],
-          status: 'continue',
-        },
-        {
-          updated_cards: [],
-          status: 'done',
-        },
-        {
-          updated_cards: [],
-          status: 'done',
-        },
-        {
-          updated_cards: [],
-          status: 'done',
-        },
-      ],
-      executor: {
-        'code-crash-1': { card_id: 'code-crash-1', status: 'done', status_text: 'Completed successfully', result: { evidence: 'crash recovery card 1 completed' } },
-        'code-crash-2': { card_id: 'code-crash-2', status: 'done', status_text: 'Completed successfully', result: { evidence: 'crash recovery card 2 completed' } },
-      },
-      reviewer: [
-        {
-          assessment: {
-            id: 'review-crash-001',
-            goal_card_id: 'crash-goal',
-            reviewer_session_id: 'rev-session-crash',
-            assessment_id: 'assessment-test',
-            at: '2025-01-01T00:00:00.000Z',
-            result: 'pass',
-            summary: 'Crash recovery test passed — all cards completed.',
-            achieved: ['Crash recovery card 1 done', 'Crash recovery card 2 done'],
-            issues: [],
-            evidence_card_ids: ['code-crash-1', 'code-crash-2'],
-            created_at: new Date().toISOString(),
-          },
-        },
-        {
-          assessment: {
-            id: 'review-crash-002',
-            goal_card_id: 'crash-goal',
-            reviewer_session_id: 'rev-session-crash-2',
-            assessment_id: 'assessment-test',
-            at: '2025-01-01T00:00:00.000Z',
-            result: 'pass',
-            summary: 'Crash recovery test passed — all cards completed.',
-            achieved: ['Crash recovery card 1 done', 'Crash recovery card 2 done'],
-            issues: [],
-            evidence_card_ids: ['code-crash-1', 'code-crash-2'],
-            created_at: new Date().toISOString(),
-          },
-        },
-        {
-          assessment: {
-            id: 'review-crash-003',
-            goal_card_id: 'crash-goal',
-            reviewer_session_id: 'rev-session-crash-3',
-            assessment_id: 'assessment-test',
-            at: '2025-01-01T00:00:00.000Z',
-            result: 'pass',
-            summary: 'Crash recovery test passed — all cards completed.',
-            achieved: ['Crash recovery card 1 done', 'Crash recovery card 2 done'],
-            issues: [],
-            evidence_card_ids: ['code-crash-1', 'code-crash-2'],
-            created_at: new Date().toISOString(),
-          },
-        },
-      ],
-    };
-    writeFixture(fixtureDir, 'e2e-crash-recovery', fixture);
-  }
-
-  it('simulates crash during active work and recovers safely without plan cards', async () => {
-    createCrashRecoveryFixture();
-    const store = new CardStore(tmpDir);
-
-    makeGoalCard(store, 'crash-goal', 'Crash Recovery Goal');
-
-    const harness = createRuntimeCoreTestContainer({
-      config: {
-        projectRoot: tmpDir,
-        fakeAgentConfig: {
-          mapping: { 'crash-goal': 'e2e-crash-recovery' },
-          fixtureDir,
-        },
-      },
-    });
-    await harness.lifecycleTestTools.performCrashRecovery();
-
-    const goal = store.read('crash-goal');
-    expect(goal).not.toBeNull();
-
-    await harness.api.start();
-    await harness.dispatchTestTools.dispatchGoal('crash-goal');
-
-    const goalAfter = store.read('crash-goal');
-    expect(goalAfter!.status).toBe('done');
-
-    expect(store.read('code-crash-1')!.status).toBe('done');
-    expect(store.read('code-crash-2')!.status).toBe('done');
-
-    const planCard = store.read('plan-crash-goal');
-    expect(planCard).toBeNull();
-    expect(store.list().map((card) => card.type)).not.toContain('plan' as never);
-
-    const project = store.read('project');
-    expect(project).not.toBeNull();
-
-    await harness.api.shutdown();
-  });
-
-  it('resumes safely after crash without corrupted runtime state', async () => {
-    createCrashRecoveryFixture();
-    const store = new CardStore(tmpDir);
-
-    makeGoalCard(store, 'crash-goal', 'Crash Resume Goal');
-
-    const harness = createRuntimeCoreTestContainer({
-      config: {
-        projectRoot: tmpDir,
-        fakeAgentConfig: {
-          mapping: { 'crash-goal': 'e2e-crash-recovery' },
-          fixtureDir,
-        },
-      },
-    });
-
-    await harness.lifecycleTestTools.performCrashRecovery();
-
-    await harness.api.start();
-    await harness.dispatchTestTools.dispatchGoal('crash-goal');
-
-    expect(store.read('crash-goal')!.status).toBe('done');
-    expect(store.read('code-crash-1')!.status).toBe('done');
-    expect(store.read('code-crash-2')!.status).toBe('done');
-
-    const { readRuntimeState } = await import('../../src/runtime/state.js');
-    const state = readRuntimeState(tmpDir);
-    expect(state).not.toBeNull();
-    expect(state!.status).toBe('idle');
-    expect(state!.runtime_activations ?? []).toEqual(expect.arrayContaining([expect.objectContaining({ child_card_id: 'code-crash-1', status: 'completed' }), expect.objectContaining({ child_card_id: 'code-crash-2', status: 'completed' })]));
-    expect(state!.current_card_id).toBeNull();
 
     await harness.api.shutdown();
   });

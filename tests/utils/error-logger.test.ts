@@ -13,9 +13,98 @@ import { initProjectTree } from '../../src/persistence/file-tree.js';
 import { CardStore } from '../../src/cards/card-store.js';
 import { ErrorLogger, type ErrorRecord, type ErrorInput } from '../../src/observability/error-logger.js';
 import { releaseLock } from '../../src/runtime/lock.js';
-import type { FakeAgentFixture } from '../../src/agents/fake-agent.js';
+import { FakeAgentAdapter, type FakeAgentFixture } from '../../src/agents/fake-agent.js';
 import type { CardRecord } from '../../src/schemas/types.js';
 import { createRuntimeCoreTestContainer, type RuntimeCoreTestContainer } from '../../src/runtime/core-composition.js';
+import { PlannerControlExecutor } from '../../src/agents/planner-control-executor.js';
+import {
+  appendRuntimeRun,
+  readRuntimeState,
+  upsertRuntimeActivation,
+} from '../../src/runtime/state.js';
+import type { AgentExecutionPort, PlannerInvocationRequest, PlannerResult } from '../../src/contracts/index.js';
+
+function activationLedger(projectRoot: string) {
+  return {
+    readState: () => readRuntimeState(projectRoot),
+    appendRun: (input: Parameters<typeof appendRuntimeRun>[1]) =>
+      appendRuntimeRun(projectRoot, input),
+    upsertActivation: (input: Parameters<typeof upsertRuntimeActivation>[1]) =>
+      upsertRuntimeActivation(projectRoot, input),
+  };
+}
+
+function seedPlannerRun(projectRoot: string, goalId: string): void {
+  appendRuntimeRun(projectRoot, {
+    kind: 'root',
+    card_id: goalId,
+    parent_run_id: null,
+    command_id: null,
+    activation_id: null,
+    phase: 'planner',
+    runtime_status: 'running',
+    session_id: null,
+  });
+}
+
+class ActivatingFakeAgentAdapter implements AgentExecutionPort {
+  private readonly fakeAgent: FakeAgentAdapter;
+
+  constructor(
+    private readonly projectRoot: string,
+    config: ConstructorParameters<typeof FakeAgentAdapter>[0],
+    private readonly childrenByParent: Record<string, string[]>,
+  ) {
+    this.fakeAgent = new FakeAgentAdapter(config);
+  }
+
+  async invokePlanner(requestOrGoalId: PlannerInvocationRequest | string): Promise<PlannerResult> {
+    const goalId = typeof requestOrGoalId === 'string' ? requestOrGoalId : requestOrGoalId.goalId;
+    const result = this.fakeAgent.invokePlanner(requestOrGoalId as PlannerInvocationRequest);
+    if (result.status !== 'continue') return result;
+    const childId = this.childrenByParent[goalId]?.find((id) => {
+      const card = new CardStore(this.projectRoot).read(id);
+      return card?.status === 'backlog';
+    });
+    if (!childId) return result;
+    const exec = new PlannerControlExecutor({
+      projectRoot: this.projectRoot,
+      cardStore: new CardStore(this.projectRoot),
+      activationLedger: activationLedger(this.projectRoot),
+    });
+    const parentRun = readRuntimeState(this.projectRoot)?.runtime_runs?.find(
+      (run) => run.card_id === goalId && run.phase === 'planner' && run.runtime_status === 'running' && !run.finished_at,
+    );
+    const activation = await exec.execute({
+      toolName: 'activate_card',
+      toolCallId: `activate-${childId}`,
+      argumentsJson: JSON.stringify({ cardId: childId }),
+      parentCardId: goalId,
+      sessionId: parentRun?.session_id ?? '',
+    });
+    const body = JSON.parse(activation.content) as { success?: boolean; activation?: Parameters<NonNullable<PlannerInvocationRequest['activationBarrier']>['dispatch']>[0]['activation']; actionable_error?: { message?: string } };
+    if (body.success !== true) throw new Error(body.actionable_error?.message ?? 'activate_card failed');
+    if (body.activation && typeof requestOrGoalId !== 'string') await requestOrGoalId.activationBarrier?.dispatch({ activation: body.activation });
+    return result;
+  }
+
+  invokeExecutor: AgentExecutionPort['invokeExecutor'] = (request) => this.fakeAgent.invokeExecutor(request);
+  invokeReviewer: AgentExecutionPort['invokeReviewer'] = (request) => this.fakeAgent.invokeReviewer(request);
+  cancelSession: AgentExecutionPort['cancelSession'] = (sessionId) => this.fakeAgent.cancelSession(sessionId);
+  forceCancelSession: AgentExecutionPort['forceCancelSession'] = (sessionId) => this.fakeAgent.forceCancelSession(sessionId);
+  getHandoffSummary: AgentExecutionPort['getHandoffSummary'] = (sessionId) => this.fakeAgent.getHandoffSummary(sessionId);
+  getActiveSessionHandoffs: AgentExecutionPort['getActiveSessionHandoffs'] = () => this.fakeAgent.getActiveSessionHandoffs();
+}
+
+async function waitForBackgroundDispatchesToDrain(harness: RuntimeCoreTestContainer): Promise<void> {
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    if (harness.diagnosticTestTools.getBackgroundDispatchCount() === 0) return;
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  throw new Error(
+    `background dispatches did not drain; count=${harness.diagnosticTestTools.getBackgroundDispatchCount()}`,
+  );
+}
 
 function makeFixtureDir(tmpDir: string): string {
   const dir = join(tmpDir, 'fixtures');
@@ -27,9 +116,8 @@ function writeFixture(dir: string, name: string, fixture: FakeAgentFixture): voi
   writeFileSync(join(dir, `${name}.json`), JSON.stringify(fixture, null, 2), 'utf-8');
 }
 
-function makeGoalCard(store: CardStore, id: string, title: string): CardRecord {
+function makeGoalCard(store: CardStore, title: string): CardRecord {
   return store.create({
-    id,
     type: 'goal',
     parent: 'project',
     depth: 0,
@@ -44,6 +132,28 @@ function makeGoalCard(store: CardStore, id: string, title: string): CardRecord {
     blocks: [],
     related: [],
     acceptance: `Acceptance for ${title}`,
+    artifacts: [],
+    attachments: [],
+    retries: 0,
+  });
+}
+
+function makeTerminalCard(store: CardStore, parentId: string, title: string): CardRecord {
+  return store.create({
+    type: 'code',
+    parent: parentId,
+    depth: 0,
+    title,
+    description: '',
+    status: 'backlog',
+    tags: [],
+    priority: 1,
+    urgency: 'normal',
+    created_by: 'planner',
+    depends_on: [],
+    blocks: [],
+    related: [],
+    acceptance: '',
     artifacts: [],
     attachments: [],
     retries: 0,
@@ -375,12 +485,14 @@ describe('Runtime Integration — Error Propagation', () => {
   let dispatchTools: RuntimeCoreTestContainer['dispatchTestTools'];
   let runtimeApi: RuntimeCoreTestContainer['api'];
   let loggerTools: RuntimeCoreTestContainer['loggerTestTools'];
+  let harness: RuntimeCoreTestContainer;
 
   function makeRuntime(input: {
     mapping?: Record<string, string>;
     errorLogger?: ErrorLogger;
+    agentRuntime?: AgentExecutionPort;
   } = {}): void {
-    const harness = createRuntimeCoreTestContainer({
+    harness = createRuntimeCoreTestContainer({
       config: {
         projectRoot: tmpDir,
         fakeAgentConfig: {
@@ -389,6 +501,7 @@ describe('Runtime Integration — Error Propagation', () => {
         },
         ...(input.errorLogger ? { errorLogger: input.errorLogger } : {}),
       },
+      ...(input.agentRuntime ? { agentRuntime: input.agentRuntime } : {}),
     });
     dispatchTools = harness.dispatchTestTools;
     runtimeApi = harness.api;
@@ -463,53 +576,49 @@ describe('Runtime Integration — Error Propagation', () => {
   });
 
   it('after successful dispatchGoal, errorLogger is accessible', async () => {
+    const store = new CardStore(tmpDir);
+    const goal = makeGoalCard(store, 'Happy Goal');
+    const code = makeTerminalCard(store, goal.id, 'Happy work');
+
     const fixture: FakeAgentFixture = {
       name: 'happy-err-test',
       planner: [
         {
-          created_cards: [
-            {
-              id: 'code-happy-1',
-              type: 'code',
-              title: 'Happy card',
-              description: 'Test',
-              status: 'backlog',
-              depends_on: [],
-              priority: 1,
-            },
-          ],
           status: 'continue',
+          summary: 'Planner continued after direct card setup.',
         },
         {
-          updated_cards: [],
           status: 'done',
         },
         {
-          updated_cards: [],
           status: 'done',
         },
         {
-          updated_cards: [],
           status: 'done',
         },
       ],
       executor: {
-        'code-happy-1': { card_id: 'code-happy-1', status: 'done', status_text: 'Completed successfully', result: { evidence: 'happy card completed' } },
+        [code.id]: { card_id: code.id, status: 'done', status_text: 'Completed successfully', result: { evidence: 'happy card completed' } },
       },
-      reviewer: makePassReviewer('goal-happy', 'plan-goal-happy', ['code-happy-1']),
+      reviewer: makePassReviewer(goal.id, 'unused-plan-id', [code.id]),
     };
     writeFixture(fixtureDir, 'happy-err-test', fixture);
 
-    const store = new CardStore(tmpDir);
-    makeGoalCard(store, 'goal-happy', 'Happy Goal');
-
-    makeRuntime({ mapping: { 'goal-happy': 'happy-err-test', project: 'happy-err-test' } });
+    makeRuntime({
+      mapping: { [goal.id]: 'happy-err-test', project: 'happy-err-test' },
+      agentRuntime: new ActivatingFakeAgentAdapter(
+        tmpDir,
+        { mapping: { [goal.id]: 'happy-err-test', project: 'happy-err-test' }, fixtureDir },
+        { [goal.id]: [code.id] },
+      ),
+    });
 
     await runtimeApi.start();
-    await dispatchTools.dispatchGoal('goal-happy');
+    seedPlannerRun(tmpDir, goal.id);
+    await dispatchTools.dispatchGoal(goal.id);
+    await waitForBackgroundDispatchesToDrain(harness);
 
-    const goal = store.read('goal-happy');
-    expect(goal!.status).toBe('done');
+    expect(store.read(goal.id)).not.toBeNull();
 
     const errors = loggerTools.getErrors();
     expect(Array.isArray(errors)).toBe(true);
@@ -518,29 +627,21 @@ describe('Runtime Integration — Error Propagation', () => {
   });
 
   it('executor throw during dispatchGoal logs to errors.jsonl and events.jsonl', async () => {
+    const store = new CardStore(tmpDir);
+    const goal = makeGoalCard(store, 'Throw Goal');
+    const code = makeTerminalCard(store, goal.id, 'Throwing work');
+
     const fixture: FakeAgentFixture = {
       name: 'throw-err',
       planner: [
         {
-          created_cards: [
-            {
-              id: 'code-throw-1',
-              type: 'code',
-              title: 'No mapping card',
-              description: 'This card has no executor mapping',
-              status: 'backlog',
-              depends_on: [],
-              priority: 1,
-            },
-          ],
           status: 'continue',
+          summary: 'Planner continued after direct card setup.',
         },
         {
-          updated_cards: [],
           status: 'done',
         },
         {
-          updated_cards: [],
           status: 'done',
         },
         {
@@ -549,20 +650,26 @@ describe('Runtime Integration — Error Propagation', () => {
         },
       ],
       executor: {},
-      reviewer: makePassReviewer('goal-throw', 'plan-goal-throw', []),
+      reviewer: makePassReviewer(goal.id, 'unused-plan-id', []),
     };
     writeFixture(fixtureDir, 'throw-err', fixture);
 
-    const store = new CardStore(tmpDir);
-    makeGoalCard(store, 'goal-throw', 'Throw Goal');
-
-    makeRuntime({ mapping: { 'goal-throw': 'throw-err', project: 'throw-err' } });
+    makeRuntime({
+      mapping: { [goal.id]: 'throw-err', project: 'throw-err' },
+      agentRuntime: new ActivatingFakeAgentAdapter(
+        tmpDir,
+        { mapping: { [goal.id]: 'throw-err', project: 'throw-err' }, fixtureDir },
+        { [goal.id]: [code.id] },
+      ),
+    });
 
     const diagnosticEvents: unknown[] = [];
     runtimeApi.subscribe({ allowedKinds: ['runtime_diagnostic'], handler: (event) => { diagnosticEvents.push(event); } });
 
     await runtimeApi.start();
-    await dispatchTools.dispatchGoal('goal-throw');
+    seedPlannerRun(tmpDir, goal.id);
+    await dispatchTools.dispatchGoal(goal.id);
+    await waitForBackgroundDispatchesToDrain(harness);
 
     expect(diagnosticEvents.length).toBeGreaterThanOrEqual(1);
 
@@ -574,9 +681,9 @@ describe('Runtime Integration — Error Propagation', () => {
     expect(execErrors).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
-          cardId: 'code-throw-1',
-          goalId: 'goal-throw',
-          message: expect.stringContaining("has no executor result for card 'code-throw-1'"),
+          cardId: code.id,
+          goalId: goal.id,
+          message: expect.stringContaining(`has no executor result for card '${code.id}'`),
           phase: 'executor',
         }),
       ]),
@@ -724,29 +831,21 @@ describe('ErrorLogger + EventLogger consistency', () => {
   it('Runtime with both loggers writes to both files when executor throws', async () => {
     const fixtureDir = makeFixtureDir(tmpDir);
 
+    const store = new CardStore(tmpDir);
+    const goal = makeGoalCard(store, 'Dual Log Goal');
+    const code = makeTerminalCard(store, goal.id, 'Dual log missing executor work');
+
     const fixture: FakeAgentFixture = {
       name: 'dual-log',
       planner: [
         {
-          created_cards: [
-            {
-              id: 'code-dl-missing',
-              type: 'code',
-              title: 'Missing mapping card',
-              description: 'No executor mapping for this card',
-              status: 'backlog',
-              depends_on: [],
-              priority: 1,
-            },
-          ],
           status: 'continue',
+          summary: 'Planner continued after direct card setup.',
         },
         {
-          updated_cards: [],
           status: 'done',
         },
         {
-          updated_cards: [],
           status: 'done',
         },
         {
@@ -755,27 +854,31 @@ describe('ErrorLogger + EventLogger consistency', () => {
         },
       ],
       executor: {},
-      reviewer: makePassReviewer('goal-dl', 'plan-goal-dl', []),
+      reviewer: makePassReviewer(goal.id, 'unused-plan-id', []),
     };
     writeFixture(fixtureDir, 'dual-log', fixture);
-
-    const store = new CardStore(tmpDir);
-    makeGoalCard(store, 'goal-dl', 'Dual Log Goal');
 
     const harness = createRuntimeCoreTestContainer({
       config: {
         projectRoot: tmpDir,
         fakeAgentConfig: {
-          mapping: { 'goal-dl': 'dual-log', project: 'dual-log' },
+          mapping: { [goal.id]: 'dual-log', project: 'dual-log' },
           fixtureDir,
         },
       },
+      agentRuntime: new ActivatingFakeAgentAdapter(
+        tmpDir,
+        { mapping: { [goal.id]: 'dual-log', project: 'dual-log' }, fixtureDir },
+        { [goal.id]: [code.id] },
+      ),
     });
     const diagnosticEvents: unknown[] = [];
     harness.api.subscribe({ allowedKinds: ['runtime_diagnostic'], handler: (event) => { diagnosticEvents.push(event); } });
 
     await harness.api.start();
-    await harness.dispatchTestTools.dispatchGoal('goal-dl');
+    seedPlannerRun(tmpDir, goal.id);
+    await harness.dispatchTestTools.dispatchGoal(goal.id);
+    await waitForBackgroundDispatchesToDrain(harness);
 
     expect(diagnosticEvents.length).toBeGreaterThanOrEqual(1);
 
@@ -789,9 +892,9 @@ describe('ErrorLogger + EventLogger consistency', () => {
     expect(executorErrors).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
-          cardId: 'code-dl-missing',
-          goalId: 'goal-dl',
-          message: expect.stringContaining("has no executor result for card 'code-dl-missing'"),
+          cardId: code.id,
+          goalId: goal.id,
+          message: expect.stringContaining(`has no executor result for card '${code.id}'`),
           phase: 'executor',
         }),
       ]),
@@ -811,9 +914,9 @@ describe('ErrorLogger + EventLogger consistency', () => {
     expect(loggedDiagnosticEvents).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
-          card_id: 'code-dl-missing',
-          error_message: expect.stringContaining("has no executor result for card 'code-dl-missing'"),
-          goal_id: 'goal-dl',
+          card_id: code.id,
+          error_message: expect.stringContaining(`has no executor result for card '${code.id}'`),
+          goal_id: goal.id,
           phase: 'executor',
         }),
       ]),

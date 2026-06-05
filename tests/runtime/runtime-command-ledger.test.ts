@@ -36,7 +36,6 @@ function initProjectWithRoot(projectRoot: string): void {
   initProjectTree(projectRoot);
   const store = new CardStore(projectRoot);
   store.create({
-    id: 'project',
     type: 'project',
     parent: null,
     depth: 0,
@@ -168,8 +167,6 @@ describe('runtime command ledger target contract (Wave 1)', () => {
           status: 'done',
           result: {
             kind: 'planner_done',
-            created_cards: [],
-            updated_cards: [],
             summary: 'seeded done',
           },
           error: null,
@@ -400,6 +397,7 @@ describe('runtime command ledger target contract (Wave 1)', () => {
       const observedSessionIds: Array<string | null | undefined> = [];
       const activationResults: unknown[] = [];
       const ledgerEvents: unknown[] = [];
+      let childId = '';
       const agentRuntime: AgentRuntime = {
         async invokePlanner(request) {
           const goalId = request.goalId;
@@ -420,7 +418,7 @@ describe('runtime command ledger target contract (Wave 1)', () => {
           const msg = await exec.execute({
             toolName: 'activate_card',
             toolCallId: 'call-child-a',
-            argumentsJson: JSON.stringify({ cardId: 'child-a' }),
+            argumentsJson: JSON.stringify({ cardId: childId }),
             parentCardId: goalId,
             sessionId: 'planner:project',
           });
@@ -428,8 +426,6 @@ describe('runtime command ledger target contract (Wave 1)', () => {
           return {
             status: 'blocked',
             blocked_reason: 'stop after observing parent run ownership',
-            created_cards: [],
-            updated_cards: [],
           };
         },
         invokeExecutor() {
@@ -452,8 +448,7 @@ describe('runtime command ledger target contract (Wave 1)', () => {
         },
       };
       makeRuntime(projectRoot, agentRuntime);
-      cards.create({
-        id: 'child-a',
+      const child = cards.create({
         type: 'code',
         parent: 'project',
         depth: 1,
@@ -472,6 +467,7 @@ describe('runtime command ledger target contract (Wave 1)', () => {
         acceptance: '',
         retries: 0,
       });
+      childId = child.id;
       const sub = subscribe({
         allowedKinds: ['runtime_run'],
         handler: (event) => {
@@ -489,7 +485,7 @@ describe('runtime command ledger target contract (Wave 1)', () => {
           activation: expect.objectContaining({
             parent_run_id: 'run-root-sessionless',
             parent_session_id: 'planner:project',
-            child_card_id: 'child-a',
+            child_card_id: childId,
           }),
         }),
       ]);
@@ -513,7 +509,7 @@ describe('runtime command ledger target contract (Wave 1)', () => {
         state.runtime_runs?.filter(
           (run) =>
             run.kind === 'child' &&
-            run.card_id === 'child-a' &&
+            run.card_id === childId &&
             run.parent_run_id === 'run-root-sessionless',
         ),
       ).toHaveLength(1);
@@ -544,33 +540,13 @@ describe('runtime command ledger target contract (Wave 1)', () => {
     const projectRoot = root();
     try {
       initProjectWithRoot(projectRoot);
-      appendRuntimeRun(projectRoot, {
-        run_id: 'run-child-pending',
-        kind: 'child',
-        card_id: 'goal-a',
-        parent_run_id: 'run-root',
-        command_id: null,
-        activation_id: 'activation-goal-a',
-        phase: 'pending',
-        runtime_status: 'running',
-        session_id: null,
-      });
-      appendRuntimeRun(projectRoot, {
-        run_id: 'run-child-other-bound',
-        kind: 'child',
-        card_id: 'goal-a',
-        parent_run_id: 'run-other-parent',
-        command_id: null,
-        activation_id: 'activation-other-goal-a',
-        phase: 'planner',
-        runtime_status: 'running',
-        session_id: 'planner:other-goal-a',
-      });
+      let goalId = '';
+      let grandchildId = '';
       const observedRuns: Array<{ phase?: string; session_id?: string | null }> = [];
       const activationResults: unknown[] = [];
       const agentRuntime: AgentRuntime = {
         async invokePlanner(request) {
-          const goalId = request.goalId;
+          const currentGoalId = request.goalId;
           const parentRun = readRuntimeState(projectRoot)!.runtime_runs!.find(
             (run) => run.run_id === 'run-child-pending',
           );
@@ -583,16 +559,14 @@ describe('runtime command ledger target contract (Wave 1)', () => {
           const msg = await exec.execute({
             toolName: 'activate_card',
             toolCallId: 'call-grandchild-a',
-            argumentsJson: JSON.stringify({ cardId: 'grandchild-a' }),
-            parentCardId: goalId,
-            sessionId: 'planner:goal-a',
+            argumentsJson: JSON.stringify({ cardId: grandchildId }),
+            parentCardId: currentGoalId,
+            sessionId: `planner:${goalId}`,
           });
           activationResults.push(JSON.parse(msg.content));
           return {
             status: 'blocked',
             blocked_reason: 'stop after observing child run ownership',
-            created_cards: [],
-            updated_cards: [],
           };
         },
         invokeExecutor() {
@@ -615,8 +589,7 @@ describe('runtime command ledger target contract (Wave 1)', () => {
         },
       };
       makeRuntime(projectRoot, agentRuntime);
-      cards.create({
-        id: 'goal-a',
+      const goal = cards.create({
         type: 'goal',
         parent: 'project',
         depth: 1,
@@ -635,10 +608,10 @@ describe('runtime command ledger target contract (Wave 1)', () => {
         acceptance: '',
         retries: 0,
       });
-      cards.create({
-        id: 'grandchild-a',
+      goalId = goal.id;
+      const grandchild = cards.create({
         type: 'code',
-        parent: 'goal-a',
+        parent: goal.id,
         depth: 2,
         title: 'Grandchild A',
         description: '',
@@ -655,17 +628,39 @@ describe('runtime command ledger target contract (Wave 1)', () => {
         acceptance: '',
         retries: 0,
       });
+      grandchildId = grandchild.id;
+      appendRuntimeRun(projectRoot, {
+        run_id: 'run-child-pending',
+        kind: 'child',
+        card_id: goal.id,
+        parent_run_id: 'run-root',
+        command_id: null,
+        activation_id: 'activation-goal-a',
+        phase: 'pending',
+        runtime_status: 'running',
+        session_id: null,
+      });
+      appendRuntimeRun(projectRoot, {
+        run_id: 'run-child-other-bound',
+        kind: 'child',
+        card_id: goal.id,
+        parent_run_id: 'run-other-parent',
+        command_id: null,
+        activation_id: 'activation-other-goal-a',
+        phase: 'planner',
+        runtime_status: 'running',
+        session_id: `planner:other-${goal.id}`,
+      });
+      await dispatchTools.dispatchGoal(goal.id);
 
-      await dispatchTools.dispatchGoal('goal-a');
-
-      expect(observedRuns).toEqual([{ phase: 'planner', session_id: 'planner:goal-a' }]);
+      expect(observedRuns).toEqual([{ phase: 'planner', session_id: `planner:${goal.id}` }]);
       expect(activationResults).toEqual([
         expect.objectContaining({
           success: true,
           activation: expect.objectContaining({
             parent_run_id: 'run-child-pending',
-            parent_session_id: 'planner:goal-a',
-            child_card_id: 'grandchild-a',
+            parent_session_id: `planner:${goal.id}`,
+            child_card_id: grandchild.id,
           }),
         }),
       ]);
@@ -675,12 +670,12 @@ describe('runtime command ledger target contract (Wave 1)', () => {
           expect.objectContaining({
             run_id: 'run-child-pending',
             phase: 'planner',
-            session_id: 'planner:goal-a',
+            session_id: `planner:${goal.id}`,
           }),
           expect.objectContaining({
             run_id: 'run-child-other-bound',
             phase: 'planner',
-            session_id: 'planner:other-goal-a',
+            session_id: `planner:other-${goal.id}`,
           }),
         ]),
       );
@@ -899,8 +894,6 @@ describe('runtime command ledger target contract (Wave 1)', () => {
         invokePlanner() {
           return {
             status: 'done',
-            created_cards: [],
-            updated_cards: [],
             summary: 'no next work declared',
           };
         },
@@ -947,8 +940,6 @@ describe('runtime command ledger target contract (Wave 1)', () => {
         expect.objectContaining({
           kind: 'planner_blocked',
           resume_reason: 'planner_non_actionable_project_done',
-          created_cards: [],
-          updated_cards: [],
         }),
       );
       expect(project.lifecycle.error).toContain(
@@ -1044,8 +1035,6 @@ describe('runtime command ledger target contract (Wave 1)', () => {
           return {
             status: 'blocked',
             blocked_reason: 'stop after cancellation observation',
-            created_cards: [],
-            updated_cards: [],
           };
         },
         invokeExecutor() {
@@ -1116,8 +1105,6 @@ describe('runtime command ledger target contract (Wave 1)', () => {
           return {
             status: 'blocked',
             blocked_reason: 'shutdown after cancellation observation',
-            created_cards: [],
-            updated_cards: [],
           };
         },
         invokeExecutor() {

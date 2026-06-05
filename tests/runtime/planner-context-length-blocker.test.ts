@@ -30,7 +30,7 @@ function plannerBlockedPatch(
     status,
     lifecycle: {
       status,
-      result: { kind: 'planner_blocked', blocked_reason: blockedReason, resume_reason: resumeReason, created_cards: [], updated_cards: [] },
+      result: { kind: 'planner_blocked', blocked_reason: blockedReason, resume_reason: resumeReason },
       error: blockedReason,
       completed_at: null,
     },
@@ -73,24 +73,9 @@ class ContinuePlannerCapturingAdapter extends FakeAgentAdapter {
       typeof requestOrGoalId === 'string'
         ? (systemPrompt ?? '')
         : (requestOrGoalId.systemPrompt ?? '');
-    const created_cards = this.invoked
-      ? []
-      : [
-          {
-            id: 'next-safe-work',
-            type: 'code' as const,
-            title: 'Next safe work',
-            description: 'A scheduler-critical child created after compacting planner history.',
-            status: 'backlog' as const,
-            priority: 0,
-            depends_on: [],
-          },
-        ];
     this.invoked = true;
     return {
       status: 'continue',
-      created_cards,
-      updated_cards: [],
       summary: 'planner retry proceeded after compaction',
     };
   }
@@ -102,8 +87,6 @@ class DonePlannerWithPassingReviewerAdapter extends FakeAgentAdapter {
   invokePlanner(): PlannerResult {
     return {
       status: 'done',
-      created_cards: [],
-      updated_cards: [],
       summary: 'Planner incorrectly tried to finish despite a persisted planning blocker.',
     };
   }
@@ -135,6 +118,28 @@ describe('planner context-length failures', () => {
 
   function createRuntime(fakeAgent: FakeAgentAdapter): void {
     harness = createHarness(fakeAgent);
+  }
+
+  function createNextSafeWork(): CardRecord {
+    return harness.cardTestTools.create({
+      type: 'code',
+      parent: 'project',
+      depth: 1,
+      title: 'Next safe work',
+      description: '',
+      status: 'backlog',
+      tags: [],
+      priority: 0,
+      urgency: 'normal',
+      created_by: 'planner',
+      depends_on: [],
+      related: [],
+      blocks: [],
+      artifacts: [],
+      attachments: [],
+      acceptance: '',
+      retries: 0,
+    });
   }
 
   beforeEach(() => {
@@ -177,8 +182,6 @@ describe('planner context-length failures', () => {
     expect(project?.lifecycle.result).toEqual(
       expect.objectContaining({
         resume_reason: 'planner_context_length_exceeded',
-        created_cards: [],
-        updated_cards: [],
       }),
     );
     expect(harness.stateTestTools.read()?.active_card_run).toBeNull();
@@ -202,8 +205,6 @@ describe('planner context-length failures', () => {
     expect(project?.lifecycle.result).toEqual(
       expect.objectContaining({
         resume_reason: 'planner_terminal_tool_exhausted',
-        created_cards: [],
-        updated_cards: [],
       }),
     );
     expect(harness.stateTestTools.read()?.status).toBe('idle');
@@ -417,6 +418,7 @@ describe('planner context-length failures', () => {
       fixtureDir,
     });
     createRuntime(fakeAgent);
+    const nextSafeWork = createNextSafeWork();
     const saivageDir = join(tmpDir, '.saivage');
     createSession(saivageDir, 'planner', 'project', 'project', undefined, 'planner:project');
     for (let index = 0; index < 40; index += 1) {
@@ -457,7 +459,7 @@ describe('planner context-length failures', () => {
     expect(project?.lifecycle.result).toBeNull();
     expect(fakeAgent.capturedPrompt).toContain('Parent Resume Context');
     expect(fakeAgent.capturedPrompt).toContain('resume_reason');
-    expect(harness.cardTestTools.read('next-safe-work')?.parent).toBe('project');
+    expect(harness.cardTestTools.read(nextSafeWork.id)?.parent).toBe('project');
   });
 
   it('explicit start_project retries a blocked token-budget project after clearing stale planning metadata', async () => {
@@ -467,6 +469,7 @@ describe('planner context-length failures', () => {
       fixtureDir,
     });
     createRuntime(fakeAgent);
+    const nextSafeWork = createNextSafeWork();
     const blockedReason =
       'Planner context exceeded the selected LLM token budget before scheduler output could be produced; compact/trim planner context before resuming.';
     harness.cardTestTools.repairTerminalLifecycle('project', {
@@ -483,7 +486,7 @@ describe('planner context-length failures', () => {
     expect(project?.status).not.toBe('blocked');
     expect(project?.lifecycle.error).toBeNull();
     expect(project?.lifecycle.result).toBeNull();
-    expect(harness.cardTestTools.read('next-safe-work')?.parent).toBe('project');
+    expect(harness.cardTestTools.read(nextSafeWork.id)?.parent).toBe('project');
   });
 
 
@@ -494,6 +497,7 @@ describe('planner context-length failures', () => {
       fixtureDir,
     });
     createRuntime(fakeAgent);
+    const nextSafeWork = createNextSafeWork();
     const blockedReason =
       'Planner did not emit a terminal scheduler tool within the allowed repair turns; operator or runtime repair must restore a contract-valid planner response before continuing backlog promotion.';
     harness.cardTestTools.repairTerminalLifecycle('project', {
@@ -510,7 +514,7 @@ describe('planner context-length failures', () => {
     expect(project?.status).not.toBe('blocked');
     expect(project?.lifecycle.error).toBeNull();
     expect(project?.lifecycle.result).toBeNull();
-    expect(harness.cardTestTools.read('next-safe-work')?.parent).toBe('project');
+    expect(harness.cardTestTools.read(nextSafeWork.id)?.parent).toBe('project');
   });
 
   it('runtime source start_project does not automatically retry a blocked terminal-tool project', async () => {
@@ -545,7 +549,6 @@ describe('planner context-length failures', () => {
 
     expect(startResult.success).toBe(false);
     expect(harness.cardTestTools.read('project')?.status).toBe('blocked');
-    expect(harness.cardTestTools.read('next-safe-work')).toBeNull();
     expect(harness.diagnosticTestTools.getBackgroundDispatchCount()).toBe(0);
   });
 
@@ -581,7 +584,6 @@ describe('planner context-length failures', () => {
 
     expect(startResult.success).toBe(false);
     expect(harness.cardTestTools.read('project')?.status).toBe('blocked');
-    expect(harness.cardTestTools.read('next-safe-work')).toBeNull();
     expect(harness.diagnosticTestTools.getBackgroundDispatchCount()).toBe(0);
   });
 
@@ -603,12 +605,6 @@ describe('planner context-length failures', () => {
 
     const project = harness.cardTestTools.read('project');
     expect(project?.status).toBe('blocked');
-    expect(project?.lifecycle.error).toContain(
-      'Project planner returned done without creating/updating cards',
-    );
-    expect(project?.status_text).toContain(
-      'Project planner returned done without creating/updating cards',
-    );
     expect(project?.lifecycle.result).toEqual(
       expect.objectContaining({
         resume_reason: 'planner_non_actionable_project_done',
