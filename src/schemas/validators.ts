@@ -47,14 +47,8 @@ export const messageKindSchema = z.enum(['text', 'activity', 'tool_call', 'tool_
 export const entityLinkSchema = z.object({ entity_type: z.enum(['card', 'process', 'artifact', 'attachment', 'quarantine']), entity_id: z.string().min(1), label: z.string().optional() });
 export const agentMessageSchema = z.object({ id: z.string().min(1), session_id: z.string().min(1), role: messageRoleSchema, kind: messageKindSchema, content: z.string(), round_id: z.string().regex(roundIdGrammar), message_index: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER), block_index: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER), tool: z.string().optional(), tool_call_id: z.string().optional(), timestamp: z.string().datetime(), links: z.array(entityLinkSchema).optional(), model_spec: z.string().optional(), requested_model_spec: z.string().optional() }).superRefine((message, ctx) => { if ((message.kind === 'tool_call' || message.kind === 'tool_result' || message.kind === 'tool_error') && message.tool_call_id !== undefined && typeof message.tool_call_id !== 'string') ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'tool_call_id must be a scalar string when present on tool entries', path: ['tool_call_id'] }); });
 
-export const deferredActivationEnvelopeV1Schema: z.ZodType<import('./types.js').DeferredActivationEnvelopeV1> = z.object({ kind: z.literal('deferred_activate_card'), version: z.literal(1), parent_card_id: z.string().min(1), child_card_id: z.string().min(1), planner_session_id: z.string().min(1), tool_call_id: z.string().min(1), requested_at: z.string().datetime() }).strict();
 export const activationCompletionOutcomeSchema = z.enum(['done', 'failed', 'blocked', 'cancelled', 'timed_out', 'needs_verification']);
 export const activationCompletionEnvelopeV1Schema: z.ZodType<import('./types.js').ActivationCompletionEnvelopeV1> = z.object({ kind: z.literal('activate_card_completion'), version: z.literal(1), child_card_id: z.string().min(1), outcome: activationCompletionOutcomeSchema, summary: z.string(), result: z.record(z.string(), z.unknown()).nullable().optional(), review: z.lazy(() => reviewAssessmentSchema).nullable().optional(), artifacts: z.array(artifactRefSchema).optional(), attachments: z.array(attachmentRefSchema).optional(), evidence_card_ids: z.array(z.string()).optional(), error: z.string().nullable().optional(), completed_by_session_id: z.string().nullable().optional(), success: z.boolean(), cardId: z.string().min(1), failure_kind: z.string().optional() }).strict();
-
-
-export function createDeferredActivationEnvelope(input: { parent_card_id: string; child_card_id: string; planner_session_id: string; tool_call_id: string; requested_at?: string }): import('./types.js').DeferredActivationEnvelopeV1 {
-  return deferredActivationEnvelopeV1Schema.parse({ kind: 'deferred_activate_card', version: 1, parent_card_id: input.parent_card_id, child_card_id: input.child_card_id, planner_session_id: input.planner_session_id, tool_call_id: input.tool_call_id, requested_at: input.requested_at ?? new Date().toISOString() });
-}
 
 export function createActivationCompletionEnvelope(input: { child_card_id: string; outcome: import('./types.js').ActivationCompletionOutcome; summary: string; result?: Record<string, unknown> | null; review?: import('./types.js').ReviewAssessment | null; artifacts?: import('./types.js').ArtifactRef[]; attachments?: import('./types.js').AttachmentRef[]; evidence_card_ids?: string[]; error?: string | null; completed_by_session_id?: string | null; failure_kind?: string }): import('./types.js').ActivationCompletionEnvelopeV1 {
   const payload: import('./types.js').ActivationCompletionEnvelopeV1 = { kind: 'activate_card_completion', version: 1, child_card_id: input.child_card_id, outcome: input.outcome, summary: input.summary, result: input.result ?? null, review: input.review ?? null, artifacts: input.artifacts ?? [], attachments: input.attachments ?? [], evidence_card_ids: input.evidence_card_ids ?? [input.child_card_id], error: input.error ?? null, completed_by_session_id: input.completed_by_session_id ?? null, success: input.outcome !== 'failed', cardId: input.child_card_id };
@@ -62,33 +56,13 @@ export function createActivationCompletionEnvelope(input: { child_card_id: strin
   return activationCompletionEnvelopeV1Schema.parse(payload);
 }
 
-export function parseDeferredActivationEnvelope(value: unknown): import('./types.js').DeferredActivationEnvelopeV1 | null {
-  const raw = typeof value === 'string' ? safeParseJson(value) : value;
-  const parsed = deferredActivationEnvelopeV1Schema.safeParse(raw);
-  return parsed.success ? parsed.data : null;
-}
-
 export function parseActivationCompletionEnvelope(value: unknown): import('./types.js').ActivationCompletionEnvelopeV1 | null {
   const raw = typeof value === 'string' ? safeParseJson(value) : value;
   const parsed = activationCompletionEnvelopeV1Schema.safeParse(raw);
-  if (parsed.success) return parsed.data;
-  if (raw && typeof raw === 'object') {
-    const rec = raw as Record<string, unknown>;
-    const child = rec.child_card_id ?? rec.cardId ?? rec.card_id;
-    const outcome = rec.outcome ?? (rec.success === true ? 'done' : rec.success === false ? 'failed' : undefined);
-    if (typeof child === 'string' && child.length > 0 && typeof outcome === 'string' && activationCompletionOutcomeSchema.safeParse(outcome).success) {
-      return createActivationCompletionEnvelope({ child_card_id: child, outcome: outcome as import('./types.js').ActivationCompletionOutcome, summary: typeof rec.summary === 'string' ? rec.summary : '', result: isRecord(rec.result) ? rec.result : null, review: rec.review as import('./types.js').ReviewAssessment | null | undefined, artifacts: Array.isArray(rec.artifacts) ? rec.artifacts as import('./types.js').ArtifactRef[] : [], attachments: Array.isArray(rec.attachments) ? rec.attachments as import('./types.js').AttachmentRef[] : [], evidence_card_ids: Array.isArray(rec.evidence_card_ids) ? rec.evidence_card_ids.map(String) : [child], error: typeof rec.error === 'string' ? rec.error : null, completed_by_session_id: typeof rec.completed_by_session_id === 'string' ? rec.completed_by_session_id : null, failure_kind: typeof rec.failure_kind === 'string' ? rec.failure_kind : undefined });
-    }
-  }
-  return null;
-}
-
-export function parseActivationEnvelopeContent(content: string): { deferred: import('./types.js').DeferredActivationEnvelopeV1 | null; completion: import('./types.js').ActivationCompletionEnvelopeV1 | null } {
-  return { deferred: parseDeferredActivationEnvelope(content), completion: parseActivationCompletionEnvelope(content) };
+  return parsed.success ? parsed.data : null;
 }
 
 function safeParseJson(value: string): unknown { try { return JSON.parse(value); } catch { return null; } }
-function isRecord(value: unknown): value is Record<string, unknown> { return Boolean(value) && typeof value === 'object' && !Array.isArray(value); }
 export const runtimeStatusSchema = z.enum(['idle', 'running', 'paused', 'error', 'frozen']);
 export const activeCardRunRuntimeStatusSchema = z.enum(['idle', 'running', 'paused', 'error', 'frozen', 'stopped', 'cancelled']);
 export const runtimeIntentStatusSchema = z.enum(['running', 'stopped']);

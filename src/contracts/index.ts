@@ -263,6 +263,8 @@ export type {
 export type {
   AgentExecutionPort,
   PlannerInvocationRequest,
+  PlannerActivationBarrier,
+  PlannerActivationBarrierRequest,
   ExecutorInvocationRequest,
   ReviewerInvocationRequest,
   SessionReinvokeRequest,

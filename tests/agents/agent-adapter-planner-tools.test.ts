@@ -3,7 +3,6 @@ import { rmSync, mkdtempSync, mkdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
-import { parseDeferredActivationEnvelope } from '../../src/schemas/validators.js';
 import {
   appendRuntimeRun,
   readRuntimeState,
@@ -210,7 +209,7 @@ describe('AgentAdapter planner tool surface', () => {
     expect(reorder.function.parameters.properties).not.toHaveProperty('parentId');
   });
 
-  it('returns activate_card as a durable activation record with deferred compatibility payload', async () => {
+  it('returns activate_card as a durable activation record without deferred payload', async () => {
     const goal = store.create(makeCard({ type: 'goal', title: 'Goal A' }));
     const child = store.create(
       makeCard({ type: 'code', title: 'Code A', parent: goal.id, depth: 2 }),
@@ -243,21 +242,13 @@ describe('AgentAdapter planner tool surface', () => {
       tool_call_id: 'call-activate',
     });
     const body = JSON.parse(result.content);
+    expect(body.deferred).toBeUndefined();
     expect(body.activation).toEqual(
       expect.objectContaining({
         parent_run_id: 'run-parent',
         parent_session_id: 'planner-session',
         child_card_id: child.id,
         status: 'pending',
-      }),
-    );
-    expect(parseDeferredActivationEnvelope(body.deferred)).toEqual(
-      expect.objectContaining({
-        kind: 'deferred_activate_card',
-        parent_card_id: goal.id,
-        child_card_id: child.id,
-        planner_session_id: 'planner-session',
-        tool_call_id: 'call-activate',
       }),
     );
     expect(readRuntimeState(tmpDir)?.runtime_activations).toEqual(

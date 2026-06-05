@@ -19,9 +19,9 @@ describe('done-signal-tool', () => {
       expect(tools[0].function.parameters).toEqual(expect.objectContaining({ type: 'object' }));
     });
 
-    it('returns one tool per planner terminal (multi-terminal contract)', () => {
+    it('returns the planner result terminal', () => {
       const tools = buildDoneSignalTools(planner);
-      expect(tools.map((t) => t.function.name)).toEqual(['emit_planner_result', 'emit_planner_deferred']);
+      expect(tools.map((t) => t.function.name)).toEqual(['emit_planner_result']);
     });
 
     it('returns one tool for the reviewer terminal', () => {
@@ -53,9 +53,9 @@ describe('done-signal-tool', () => {
       expect(isDoneSignalToolName(executor, 'read_file')).toBe(false);
     });
 
-    it('returns true for both planner terminals', () => {
+    it('returns true for the planner result terminal only', () => {
       expect(isDoneSignalToolName(planner, 'emit_planner_result')).toBe(true);
-      expect(isDoneSignalToolName(planner, 'emit_planner_deferred')).toBe(true);
+      expect(isDoneSignalToolName(planner, 'emit_planner_deferred')).toBe(false);
       expect(isDoneSignalToolName(planner, 'emit_reviewer_result')).toBe(false);
     });
 

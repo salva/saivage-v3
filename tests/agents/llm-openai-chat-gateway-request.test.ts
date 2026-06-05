@@ -43,7 +43,7 @@ const SAMPLE_TOOL: ToolDefinition = {
 };
 
 describe('buildOpenAIChatRequest wire shape', () => {
-  it('terminal phase: nested tool_choice, parallel_tool_calls:false, no response_format', () => {
+  it('terminal phase: nested tool_choice, parallel tool calls allowed, no response_format', () => {
     const opts: LlmCompleteOptions = {
       phase: 'terminal',
       contract_id: 'test.v1',
@@ -56,7 +56,7 @@ describe('buildOpenAIChatRequest wire shape', () => {
 
     expect(JSON.stringify(body)).not.toContain('response_format');
     expect(Object.prototype.hasOwnProperty.call(body, 'response_format')).toBe(false);
-    expect(body.parallel_tool_calls).toBe(false);
+    expect(Object.prototype.hasOwnProperty.call(body, 'parallel_tool_calls')).toBe(false);
     expect(body.tool_choice).toEqual({
       type: 'function',
       function: { name: 'emit_planner_result' },
@@ -85,7 +85,7 @@ describe('buildOpenAIChatRequest wire shape', () => {
     const body = buildOpenAIChatRequest(CANDIDATE, SYSTEM, MESSAGES, opts) as unknown as Record<string, unknown>;
 
     expect(body.tool_choice).toBe('auto');
-    expect(body.parallel_tool_calls).toBe(false);
+    expect(Object.prototype.hasOwnProperty.call(body, 'parallel_tool_calls')).toBe(false);
     expect(JSON.stringify(body)).not.toContain('response_format');
   });
 

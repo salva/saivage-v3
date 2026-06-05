@@ -43,6 +43,7 @@ import type {
   ReviewerInvocationRequest,
   SessionReinvokeRequest,
   RuntimeActivationLedgerPort,
+  PlannerActivationBarrier,
   PlannerResult,
   ExecutorResult,
   ReviewerResult,
@@ -63,7 +64,6 @@ import type { McpToolInvocationPort } from '../mcp/manager-api.js';
 import { SkillsEngine } from './skills-engine.js';
 import { getProjectNotificationCenter } from '../notifications/notification-delivery.js';
 import { CardStore } from '../cards/store-api.js';
-import { parseDeferredActivationEnvelope } from '../schemas/validators.js';
 import { injectQueuedSyntheticPlannerNotes } from '../agents/analyst-stage6.js';
 import { buildPlannerStateContextMessage } from './planner-state-context.js';
 import { PlannerControlExecutor } from './planner-control-executor.js';
@@ -87,6 +87,7 @@ import { AgentToolExecutor } from './agent-tool-executor.js';
 import { AgentLlmInvocationGateway } from './agent-llm-gateway.js';
 import { AgentRoleRunner } from './agent-role-runner.js';
 import { decide as decideCardPermission } from '../permissions/index.js';
+import { createToolTurnRecord, updateToolCallExecution } from './tool-turn-ledger.js';
 
 export type AgentRole = OperationalAgentRole;
 export type InvokableAgentRole = AgentInvocationRole;
@@ -431,6 +432,8 @@ export class AgentAdapter implements AgentExecutionPort {
       request.systemPrompt ?? '',
       request.contextMessages ?? [],
       contract,
+      undefined,
+      request.activationBarrier,
     );
     return typedResult.result;
   }
@@ -624,6 +627,7 @@ export class AgentAdapter implements AgentExecutionPort {
     contextMessages: AgentMessage[],
     contract: Contract<E, R>,
     requestedSessionId?: string,
+    activationBarrier?: PlannerActivationBarrier,
   ): Promise<R> {
     if (!this.llmCallFn)
       throw new Error('No LLM call function registered. Call setLlmCallFn() first.');
@@ -707,6 +711,7 @@ export class AgentAdapter implements AgentExecutionPort {
     let lastFailedFailureClass: LlmFailureClass | undefined;
     let lastRepairAttempts = 0;
     let pendingPlannerRuntimeEnvelope: PlannerEnvelope | null = null;
+    let activeToolTurnId: string | null = null;
     let lastContractVerdict: 'satisfied' | 'repair_exhausted' | 'no_progress' | undefined;
     const recordAttemptOutcome = (payload: LlmAttemptPayload): void => {
       attemptOutcomeCount += 1;
@@ -789,6 +794,7 @@ export class AgentAdapter implements AgentExecutionPort {
                   },
                   persistAssistantToolCalls: (result) => {
                     if (result.kind !== 'tool_calls') return;
+                    const persisted: AgentMessage[] = [];
                     for (const tc of result.tool_calls) {
                       let parsedArgs: Record<string, unknown>;
                       try {
@@ -802,7 +808,7 @@ export class AgentAdapter implements AgentExecutionPort {
                       } catch {
                         parsedArgs = {};
                       }
-                      this.appendSessionMessage(session.id, {
+                      const message = this.appendSessionMessage(session.id, {
                         role: 'assistant',
                         kind: 'tool_call',
                         content: JSON.stringify(
@@ -815,6 +821,23 @@ export class AgentAdapter implements AgentExecutionPort {
                         tool: tc.function.name,
                         tool_call_id: tc.id,
                       });
+                      persisted.push(message);
+                    }
+                    const first = persisted[0];
+                    if (first) {
+                      activeToolTurnId = createToolTurnRecord({
+                        saivageDir: this.saivageDir,
+                        sessionId: session.id,
+                        role,
+                        cardId,
+                        assistantRoundId: first.round_id,
+                        calls: result.tool_calls.map((tc) => ({
+                          id: tc.id,
+                          name: tc.function.name,
+                          argumentsJson: tc.function.arguments,
+                          barrier: role === 'planner' && tc.function.name === 'activate_card',
+                        })),
+                      }).turn_id;
                     }
                   },
                   persistAssistantText: (content) => {
@@ -828,33 +851,34 @@ export class AgentAdapter implements AgentExecutionPort {
                     if (result.kind !== 'tool_calls') return { runtimeSignalledDone: false };
                     for (const tc of result.tool_calls) {
                       if (contract.isTerminalToolName(tc.function.name)) continue;
+                      if (activeToolTurnId) updateToolCallExecution({ saivageDir: this.saivageDir, turnId: activeToolTurnId, toolCallId: tc.id, status: 'running' });
                       const msg = await this.processToolCall(tc, role, session.id, {
                         goalId,
                         cardId,
                       });
-                      this.appendSessionMessage(session.id, {
+                      if (role === 'planner' && tc.function.name === 'activate_card' && msg.kind === 'tool_result' && activationBarrier) {
+                        let activation: unknown;
+                        try {
+                          const body = JSON.parse(msg.content) as { activation?: unknown };
+                          activation = body.activation;
+                        } catch {
+                          activation = null;
+                        }
+                        if (activation && typeof activation === 'object' && 'activation_id' in activation) {
+                          if (activeToolTurnId) updateToolCallExecution({ saivageDir: this.saivageDir, turnId: activeToolTurnId, toolCallId: tc.id, status: 'waiting_barrier', activationId: String((activation as { activation_id: unknown }).activation_id) });
+                          await activationBarrier.dispatch({ activation: activation as import('../schemas/index.js').RuntimeActivationRecord });
+                          if (activeToolTurnId) updateToolCallExecution({ saivageDir: this.saivageDir, turnId: activeToolTurnId, toolCallId: tc.id, status: 'completed' });
+                          continue;
+                        }
+                      }
+                      const persistedToolResult = this.appendSessionMessage(session.id, {
                         role: msg.role,
                         kind: msg.kind,
                         content: msg.content,
                         tool: msg.tool,
                         tool_call_id: msg.tool_call_id,
                       });
-                      if (role === 'planner' && tc.function.name === 'activate_card') {
-                        try {
-                          const body = JSON.parse(msg.content) as { deferred?: unknown };
-                          const deferred =
-                            msg.kind === 'tool_result'
-                              ? parseDeferredActivationEnvelope(body.deferred)
-                              : null;
-                          if (deferred)
-                            pendingPlannerRuntimeEnvelope = {
-                              kind: 'deferred',
-                              payload: deferred,
-                            };
-                        } catch {
-                          void 0;
-                        }
-                      }
+                      if (activeToolTurnId) updateToolCallExecution({ saivageDir: this.saivageDir, turnId: activeToolTurnId, toolCallId: tc.id, status: msg.kind === 'tool_error' ? 'failed' : 'completed', resultMessageId: persistedToolResult.id, errorMessage: msg.kind === 'tool_error' ? msg.content : null });
                       if (
                         role === 'planner' &&
                         msg.kind === 'tool_result' &&

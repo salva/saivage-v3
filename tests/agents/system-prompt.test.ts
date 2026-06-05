@@ -61,7 +61,7 @@ describe('System Prompt Builder', () => {
       const prompt = buildPlannerPrompt(plannerContract);
       expect(prompt).toContain('Terminal Tools (Contract)');
       expect(prompt).toContain('emit_planner_result');
-      expect(prompt).toContain('emit_planner_deferred');
+      expect(prompt).not.toContain('emit_planner_deferred');
     });
 
     it('is accessible via systemPromptBuilder namespace', () => {

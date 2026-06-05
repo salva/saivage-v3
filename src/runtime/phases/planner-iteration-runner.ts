@@ -1,4 +1,5 @@
 import type { AgentExecutionPort, PlannerResult } from '../../contracts/index.js';
+import type { PlannerActivationBarrierRequest } from '../../contracts/index.js';
 import type { PlannerDoneResult } from '../../schemas/index.js';
 import { PROJECT_CARD_ID } from '../../cards/store-api.js';
 import type { RuntimeSkillsPort } from '../runtime-config.js';
@@ -55,6 +56,11 @@ export class PlannerIterationRunner {
         consumeResumeHandoffContext: () => consumeResumeHandoffContext(this.deps.lifecycle),
         injectSyntheticPlannerNotes: (cardId) => {
           this.deps.goalContext.injectQueuedPlannerNotes(`planner:${cardId}`);
+        },
+        activationBarrier: {
+          dispatch: async ({ activation }: PlannerActivationBarrierRequest) => {
+            await this.deps.pendingActivations.dispatchActivation(activation);
+          },
         },
       }).run({ goalId, iteration });
     } catch (err) {

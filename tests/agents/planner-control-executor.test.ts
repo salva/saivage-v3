@@ -4,7 +4,6 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
 import { PlannerControlExecutor } from '../../src/agents/planner-control-executor.js';
-import { parseDeferredActivationEnvelope } from '../../src/schemas/validators.js';
 import type { CardRecord, ReviewerResult, RuntimeState } from '../../src/schemas/types.js';
 import {
   appendRuntimeRun,
@@ -119,6 +118,7 @@ describe('PlannerControlExecutor', () => {
     mkdirSync(join(tmpDir, '.saivage'), { recursive: true });
     initProjectTree(tmpDir);
     store = new CardStore(tmpDir);
+    store.create(makeCard({ id: 'project', type: 'project', parent: null, depth: 0, title: 'project' }));
   });
 
   afterEach(() => {
@@ -363,7 +363,7 @@ describe('PlannerControlExecutor', () => {
     expect(audit?.outcome_summary).not.toContain('planner body must not audit');
   });
 
-  it('returns successful activate_card as a shared deferred activation envelope without mutating status', async () => {
+  it('returns successful activate_card as a durable activation record without mutating status', async () => {
     store.create(makeCard({ id: 'goal', type: 'goal', title: 'Goal', status: 'active' }));
     const child = store.create(
       makeCard({ type: 'code', title: 'Child', parent: 'goal', depth: 2 }),
@@ -391,14 +391,14 @@ describe('PlannerControlExecutor', () => {
     });
     const body = JSON.parse(result.content);
     expect(body.success).toBe(true);
-    expect(parseDeferredActivationEnvelope(JSON.stringify(body.deferred))).toEqual(
-      expect.objectContaining({
-        parent_card_id: 'goal',
-        child_card_id: child.id,
-        planner_session_id: 'planner:goal',
-        tool_call_id: 'call-activate',
-      }),
-    );
+    expect(body.deferred).toBeUndefined();
+    expect(body.activation).toEqual(expect.objectContaining({
+      parent_card_id: 'goal',
+      child_card_id: child.id,
+      parent_session_id: 'planner:goal',
+      parent_tool_call_id: 'call-activate',
+      status: 'pending',
+    }));
     expect(store.read(child.id)?.status).toBe('backlog');
   });
 

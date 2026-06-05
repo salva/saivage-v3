@@ -344,10 +344,11 @@ final-answer prompt that forbids further tool calls, and requires the
 next assistant payload to be the normal planner result envelope. The
 runtime parses only that coerced envelope (`status`, `summary`,
 `created_cards`, `updated_cards`, and optional `blocked_reason`); raw
-`toolCalls` objects are never a runtime state transition. If the only
-planner tool call is a deferred `activate_card`, the adapter instead
-synthesizes the same `status: 'continue'` envelope so the active card
-run remains coherent while the child activation proceeds.
+`toolCalls` objects are never a runtime state transition. `activate_card`
+is a synchronous barrier from the planner perspective: runtime persists
+the activation, runs the child to a terminal outcome, appends exactly one
+`activate_card` tool result with that outcome, and only then resumes the
+parent planner.
 Force-cancel emits exactly one synthetic `failed` tool_result to the
 leaf's parent and clears `active_card_run`; the parent then becomes
 `Running` again on its next turn. If the cancelled leaf is the
@@ -814,19 +815,16 @@ escape hatch for no-progress tool loops: on a repeated tool-call
 fingerprint or after the maximum tool rounds, it appends diagnostics to
 the session, asks the model for a final answer with tools disabled by
 instruction, and persists/parses only the returned planner envelope.
-If a planner emits only a deferred `activate_card`, no follow-up LLM
-turn is required; the adapter synthesizes
-`{ status: 'continue', summary, created_cards: [], updated_cards: [] }`
-so the parent planner can await the child without leaking an
-unparseable `{ toolCalls: [...] }` object into result parsing or
-runtime state. Assistant tool calls are persisted as one row per call
-so Codex history assembly can drop only deferred `activate_card` calls
-that have no matching tool output while preserving executed sibling
-call/output pairs.
+If a planner emits `activate_card`, runtime treats it as a synchronous
+barrier. The parent planner is not invoked again until the child reaches
+a terminal outcome and the matching `activate_card` tool result is
+persisted. Assistant tool calls are persisted as one row per call so
+history assembly can preserve ordered call/output pairs while runtime
+serializes any later tool calls behind barrier completion.
 
 Source anchors: `src/agents/agent-adapter.ts:329`
-(`handleToolCallsLoop`, repeated-fingerprint, maximum-round, deferred
-`activate_card`, and per-call persistence paths),
+(`handleToolCallsLoop`, repeated-fingerprint, maximum-round, synchronous
+`activate_card` barrier, and per-call persistence paths),
 `src/agents/llm-codex-parser.ts:9` (`codexMessages` matched-call/output
 filter), and `src/agents/llm-openai-codex-gateway.ts:172`
 (`max_output_tokens` unsupported-parameter retry). Provider HTTP error

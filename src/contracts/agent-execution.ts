@@ -1,7 +1,7 @@
 import type {
   AgentMessage,
-  HandoffSummary,
   RuntimeActivationRecord,
+  HandoffSummary,
   RuntimeRunRecord,
   RuntimeState,
 } from '../schemas/index.js';
@@ -37,6 +37,14 @@ export interface PlannerResult {
   created_cards: PlannerCardCreate[];
   updated_cards: PlannerCardUpdate[];
   summary?: string;
+}
+
+export interface PlannerActivationBarrierRequest {
+  activation: RuntimeActivationRecord;
+}
+
+export interface PlannerActivationBarrier {
+  dispatch(input: PlannerActivationBarrierRequest): Promise<void> | void;
 }
 
 export interface ExecutorArtifactDef {
@@ -91,6 +99,7 @@ export interface PlannerInvocationRequest {
   systemPrompt?: string;
   contextMessages?: AgentMessage[];
   contract: Contract<PlannerEnvelope, PlannerTypedResult>;
+  activationBarrier?: PlannerActivationBarrier;
 }
 
 export interface ExecutorInvocationRequest {

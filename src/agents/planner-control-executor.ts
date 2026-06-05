@@ -1,7 +1,7 @@
 import { CardStore } from '../cards/store-api.js';
 import { consumeChangedCardActivation } from '../agents/analyst-stage6.js';
 import { PlannerToolError, PlannerToolsService, type PlannerToolsServiceOptions } from '../tools/index.js';
-import { createActionableErrorEnvelope, createDeferredActivationEnvelope } from '../schemas/index.js';
+import { createActionableErrorEnvelope } from '../schemas/index.js';
 import type { RuntimeActivationLedgerPort } from '../contracts/index.js';
 import type { LoggedEvent } from '../schemas/index.js';
 import { resolveRecipient } from '../notifications/index.js';
@@ -146,7 +146,7 @@ export class PlannerControlExecutor {
           const existingActivation = (this.context.activationLedger?.readState()?.runtime_activations ?? this.context.runtimeStateProvider?.()?.runtime_activations ?? [])
             .find((activation) => activation.idempotency_key === idempotencyKey && UNRESOLVED_ACTIVATION_STATUSES.has(activation.status));
           if (existingActivation) {
-            result = { success: true, activation: existingActivation, deferred: createDeferredActivationEnvelope({ parent_card_id: parentCardId, child_card_id: targetId, planner_session_id: sessionId || existingActivation.parent_session_id, tool_call_id: invocation.toolCallId, requested_at: existingActivation.requested_at }) };
+            result = { success: true, activation: existingActivation };
             break;
           }
           if (!this.context.activationLedger) throw new Error('runtime_activation_ledger_missing: activate_card requires RuntimeActivationLedgerPort.');
@@ -157,7 +157,7 @@ export class PlannerControlExecutor {
           const activationEvent = this.context.eventLogger?.appendEvent({ kind: 'runtime_activation', activation });
           if (activationEvent) (this.context.eventBus ?? this.context.eventBusProvider?.())?.emit(activationEvent);
           consumeChangedCardActivation(this.context.projectRoot, targetId);
-          result = { success: true, activation, deferred: createDeferredActivationEnvelope({ parent_card_id: parentCardId, child_card_id: targetId, planner_session_id: sessionId || activation.parent_session_id, tool_call_id: invocation.toolCallId, requested_at: activation.requested_at }) };
+          result = { success: true, activation };
           break;
         }
         case 'create_card': {

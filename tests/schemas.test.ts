@@ -14,40 +14,23 @@ import {
   runtimeStateSchema,
   processReconciledDeadEventSchema,
   processReattachRejectedEventSchema,
-  createDeferredActivationEnvelope,
   createActivationCompletionEnvelope,
-  parseDeferredActivationEnvelope,
   parseActivationCompletionEnvelope,
-  parseActivationEnvelopeContent,
 } from '../src/schemas/validators.js';
 import { initProjectTree } from '../src/persistence/file-tree.js';
 import { readRuntimeState } from '../src/runtime/state.js';
 
 
 describe('Activation envelope schemas', () => {
-  it('creates and parses typed deferred activation envelopes and rejects malformed payloads', () => {
-    const envelope = createDeferredActivationEnvelope({ parent_card_id: 'goal-a', child_card_id: 'code-a', planner_session_id: 'planner:goal-a', tool_call_id: 'call-a', requested_at: '2025-01-01T00:00:00.000Z' });
-    expect(envelope).toEqual({ kind: 'deferred_activate_card', version: 1, parent_card_id: 'goal-a', child_card_id: 'code-a', planner_session_id: 'planner:goal-a', tool_call_id: 'call-a', requested_at: '2025-01-01T00:00:00.000Z' });
-    expect(parseDeferredActivationEnvelope(JSON.stringify(envelope))?.child_card_id).toBe('code-a');
-    expect(parseDeferredActivationEnvelope(JSON.stringify({ kind: 'deferred_activate_card', version: 1, child_card_id: 'code-a' }))).toBeNull();
-  });
-
-  it('parses legacy completion JSON into typed envelopes', () => {
-    const completion = parseActivationCompletionEnvelope(JSON.stringify({ success: false, cardId: 'legacy-child', outcome: 'failed', summary: 'old', failure_kind: 'service_restart' }));
-    expect(completion).toEqual(expect.objectContaining({ kind: 'activate_card_completion', version: 1, child_card_id: 'legacy-child', cardId: 'legacy-child', success: false, failure_kind: 'service_restart' }));
-  });
-
-
-
-  it('rejects completion envelopes and legacy completion JSON with unplanned outcomes', () => {
+  it('rejects completion envelopes with unplanned outcomes', () => {
     expect(() => createActivationCompletionEnvelope({ child_card_id: 'code-a', outcome: 'unknown' as any, summary: 'bad outcome' })).toThrow();
-    expect(parseActivationCompletionEnvelope(JSON.stringify({ success: true, cardId: 'legacy-child', outcome: 'unknown', summary: 'old' }))).toBeNull();
+    expect(parseActivationCompletionEnvelope(JSON.stringify({ kind: 'activate_card_completion', version: 1, child_card_id: 'code-a', cardId: 'code-a', success: true, outcome: 'unknown', summary: 'bad' }))).toBeNull();
   });
 
-  it('creates typed completion envelopes with compatibility aliases', () => {
+  it('creates and parses typed completion envelopes', () => {
     const envelope = createActivationCompletionEnvelope({ child_card_id: 'code-a', outcome: 'done', summary: 'complete', result: { ok: true }, failure_kind: undefined });
     expect(envelope).toEqual(expect.objectContaining({ kind: 'activate_card_completion', version: 1, child_card_id: 'code-a', cardId: 'code-a', success: true, outcome: 'done' }));
-    expect(parseActivationEnvelopeContent(JSON.stringify(envelope)).completion?.child_card_id).toBe('code-a');
+    expect(parseActivationCompletionEnvelope(JSON.stringify(envelope))?.child_card_id).toBe('code-a');
   });
 });
 

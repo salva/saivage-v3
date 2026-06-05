@@ -1,4 +1,4 @@
-import type { AgentExecutionPort, PlannerResult } from '../../contracts/index.js';
+import type { AgentExecutionPort, PlannerActivationBarrier, PlannerResult } from '../../contracts/index.js';
 import { createPlannerContract } from '../../contracts/planner-contract.js';
 import { buildPlannerPrompt } from '../../contracts/system-prompt.js';
 import type { CardRecord } from '../../schemas/index.js';
@@ -15,6 +15,7 @@ export interface PlannerPhaseRunnerDeps {
   inferResumeReason(goalId: string, fallback: GoalResumeReason): GoalResumeReason;
   consumeResumeHandoffContext(): string | null;
   injectSyntheticPlannerNotes(goalId: string): void;
+  activationBarrier?: PlannerActivationBarrier;
 }
 
 export class PlannerPhaseRunner {
@@ -65,7 +66,7 @@ export class PlannerPhaseRunner {
       void 0;
     }
     this.deps.injectSyntheticPlannerNotes(input.goalId);
-    const result = this.deps.agentRuntime.invokePlanner({ goalId: input.goalId, systemPrompt: plannerPrompt, contract: plannerContract });
+    const result = this.deps.agentRuntime.invokePlanner({ goalId: input.goalId, systemPrompt: plannerPrompt, contract: plannerContract, activationBarrier: this.deps.activationBarrier });
     return result instanceof Promise ? await result : result;
   }
 }

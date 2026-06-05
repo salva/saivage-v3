@@ -1,4 +1,4 @@
-import type { ActivationCompletionOutcome, CardRecord } from '../schemas/index.js';
+import type { ActivationCompletionOutcome, CardRecord, RuntimeActivationRecord } from '../schemas/index.js';
 import type { ActivationUnwindRunner } from './activation-unwind.js';
 import {
   selectChildGoalActivationOutcome,
@@ -42,6 +42,29 @@ interface PendingActivationDispatcherDeps extends Pick<RuntimeServices, 'project
 
 export class PendingActivationDispatcher {
   constructor(private readonly deps: PendingActivationDispatcherDeps) {}
+
+  async dispatchActivation(activation: RuntimeActivationRecord): Promise<{ dispatchedGoal: boolean; executedTerminal: boolean; failed: boolean }> {
+    if (this.deps.lifecycle.shuttingDown) return { dispatchedGoal: false, executedTerminal: false, failed: true };
+    if (this.deps.lifecycle.paused) return { dispatchedGoal: false, executedTerminal: false, failed: false };
+    const card = this.deps.cards.read(activation.child_card_id);
+    if (!card) return { dispatchedGoal: false, executedTerminal: false, failed: true };
+    const goalCard = this.deps.cards.read(activation.parent_card_id);
+    const callerEdge = this.deps.activationUnwind.findCallerEdge(card.id);
+    if (card.type === 'goal') {
+      const handoff = await deliverChildGoalActivationHandoff({
+        childCardId: card.id,
+        effects: {
+          dispatchGoal: (childCardId) => this.deps.dispatchGoalThroughScheduler(childCardId),
+          readCard: (childCardId) => this.deps.cards.read(childCardId),
+          appendChildUnwindToolResult: (childCardId, outcome, summary) =>
+            this.deps.activationUnwind.appendChildUnwindToolResult(childCardId, outcome, summary),
+        },
+      });
+      return { dispatchedGoal: true, executedTerminal: false, failed: !handoff.completedSuccessfully };
+    }
+    const terminalDispatch = await this.deps.executorActivations.dispatch({ goalId: activation.parent_card_id, goalCard, card, callerEdge });
+    return { dispatchedGoal: false, executedTerminal: terminalDispatch.executedTerminal, failed: terminalDispatch.failed };
+  }
 
   async dispatch(goalId: string): Promise<{ dispatchedGoal: boolean; executedTerminal: boolean; failed: boolean }> {
     let activationCards = this.getPendingActivationCards(goalId);
