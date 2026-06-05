@@ -12,6 +12,7 @@ import {
   completeSession,
   appendMessage as appendPersistentMessage,
   getSession,
+  getSessionMessages,
   estimateMessageTokens,
   markSessionWaiting,
   setSessionStatus,
@@ -31,6 +32,7 @@ import type {
   LlmAttemptPayload,
   LlmFailureClass,
   RuntimeState,
+  RuntimeActivationRecord,
 } from '../schemas/index.js';
 import type { NotificationCenter } from '../notifications/index.js';
 import { invokeWithRecovery, type RecoveryContext } from './recovery.js';
@@ -88,6 +90,9 @@ import { AgentToolExecutor } from './agent-tool-executor.js';
 import { AgentLlmInvocationGateway } from './agent-llm-gateway.js';
 import { decide as decideCardPermission } from '../permissions/index.js';
 import { createToolTurnRecord, updateToolCallExecution } from './tool-turn-ledger.js';
+import { applyRuntimeMutation } from '../runtime/mutations.js';
+import { planClearActiveCardRunPatch } from '../runtime/runtime-core.js';
+import { readRuntimeState } from '../runtime/state.js';
 
 export type AgentRole = OperationalAgentRole;
 export type InvokableAgentRole = AgentInvocationRole;
@@ -647,6 +652,48 @@ export class AgentAdapter implements AgentExecutionPort {
     return appendPersistentMessage(this.saivageDir, sessionId, message, stamp);
   }
 
+  private compensateActivationBarrierThrow(
+    sessionId: string,
+    toolCallId: string,
+    activation: RuntimeActivationRecord,
+    error: unknown,
+  ): void {
+    const messages = getSessionMessages(this.saivageDir, sessionId);
+    const alreadyResolved = messages.some(
+      (message) =>
+        (message.kind === 'tool_result' || message.kind === 'tool_error') &&
+        message.tool_call_id === toolCallId,
+    );
+    if (!alreadyResolved) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      this.appendSessionMessage(sessionId, {
+        role: 'tool',
+        kind: 'tool_error',
+        content: JSON.stringify({
+          error: 'activation_barrier_dispatch_failed',
+          message: this.redactProviderErrorMessage(errorMessage),
+          child_card_id: activation.child_card_id,
+          activation_id: activation.activation_id,
+        }),
+        tool: 'activate_card',
+        tool_call_id: toolCallId,
+      });
+    }
+
+    const now = new Date().toISOString();
+    applyRuntimeMutation(this.projectRoot, {
+      kind: 'completeActivation',
+      childCardId: activation.child_card_id,
+      outcome: 'failed',
+      completedAt: now,
+    });
+    const clearPatch = planClearActiveCardRunPatch({
+      state: readRuntimeState(this.projectRoot),
+      cardId: activation.child_card_id,
+    });
+    if (clearPatch) applyRuntimeMutation(this.projectRoot, { kind: 'patchRuntimeState', patch: clearPatch });
+  }
+
   private async invokeAgent<E, R>(
     role: AgentRole,
     goalId: string,
@@ -893,9 +940,15 @@ export class AgentAdapter implements AgentExecutionPort {
                         }
                         if (activation && typeof activation === 'object' && 'activation_id' in activation) {
                           if (activeToolTurnId) updateToolCallExecution({ saivageDir: this.saivageDir, turnId: activeToolTurnId, toolCallId: tc.id, status: 'waiting_barrier', activationId: String((activation as { activation_id: unknown }).activation_id) });
-                          markSessionWaiting(this.saivageDir, session.id);
-                          await activationBarrier.dispatch({ activation: activation as import('../schemas/index.js').RuntimeActivationRecord });
-                          if (activeToolTurnId) updateToolCallExecution({ saivageDir: this.saivageDir, turnId: activeToolTurnId, toolCallId: tc.id, status: 'completed' });
+                          try {
+                            markSessionWaiting(this.saivageDir, session.id);
+                            await activationBarrier.dispatch({ activation: activation as RuntimeActivationRecord });
+                            if (activeToolTurnId) updateToolCallExecution({ saivageDir: this.saivageDir, turnId: activeToolTurnId, toolCallId: tc.id, status: 'completed' });
+                          } catch (err) {
+                            this.compensateActivationBarrierThrow(session.id, tc.id, activation as RuntimeActivationRecord, err);
+                            if (activeToolTurnId) updateToolCallExecution({ saivageDir: this.saivageDir, turnId: activeToolTurnId, toolCallId: tc.id, status: 'failed', errorMessage: err instanceof Error ? err.message : String(err) });
+                            throw err;
+                          }
                           continue;
                         }
                       }
