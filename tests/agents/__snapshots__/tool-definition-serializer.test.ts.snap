@@ -50,7 +50,7 @@ exports[`tool-definition-serializer snapshots Chat wire shape for sample catalog
   },
   {
     "function": {
-      "description": "Create a new card in the card tree. Status defaults to 'drafting'. Card status is planner metadata only; it does not start runtime work. There is no 'ready' status.",
+      "description": "Create a direct child card under the current planner card. The parent is inferred from the planner session and cannot be supplied.",
       "name": "create_card",
       "parameters": {
         "additionalProperties": false,
@@ -75,16 +75,20 @@ exports[`tool-definition-serializer snapshots Chat wire shape for sample catalog
             "description": "Optional pre-assigned card ID.",
             "type": "string",
           },
-          "parent": {
-            "description": "The ID of the parent card. Use null only for a root project card.",
-            "type": "string",
-          },
           "priority": {
             "description": "Optional priority value (0-100).",
             "type": "integer",
           },
+          "related": {
+            "description": "Optional related-card list.",
+            "items": {
+              "description": "A card ID",
+              "type": "string",
+            },
+            "type": "array",
+          },
           "status": {
-            "description": "Optional initial status. Allowed values: drafting, backlog, active, running, blocked, changed, done, failed, cancelled, needs_verification.",
+            "description": "Optional initial planner status.",
             "enum": [
               "drafting",
               "backlog",
@@ -112,9 +116,8 @@ exports[`tool-definition-serializer snapshots Chat wire shape for sample catalog
             "type": "string",
           },
           "type": {
-            "description": "The card type. Allowed values: project, goal, architecture, code, test, doc, data, research, ops.",
+            "description": "The card type.",
             "enum": [
-              "project",
               "goal",
               "architecture",
               "code",
@@ -127,7 +130,7 @@ exports[`tool-definition-serializer snapshots Chat wire shape for sample catalog
             "type": "string",
           },
           "urgency": {
-            "description": "Optional urgency level. Allowed values: low, normal, high, critical.",
+            "description": "Optional urgency level.",
             "enum": [
               "low",
               "normal",
@@ -215,7 +218,7 @@ exports[`tool-definition-serializer snapshots Codex wire shape for sample catalo
     "type": "function",
   },
   {
-    "description": "Create a new card in the card tree. Status defaults to 'drafting'. Card status is planner metadata only; it does not start runtime work. There is no 'ready' status.",
+    "description": "Create a direct child card under the current planner card. The parent is inferred from the planner session and cannot be supplied.",
     "name": "create_card",
     "parameters": {
       "additionalProperties": false,
@@ -240,16 +243,20 @@ exports[`tool-definition-serializer snapshots Codex wire shape for sample catalo
           "description": "Optional pre-assigned card ID.",
           "type": "string",
         },
-        "parent": {
-          "description": "The ID of the parent card. Use null only for a root project card.",
-          "type": "string",
-        },
         "priority": {
           "description": "Optional priority value (0-100).",
           "type": "integer",
         },
+        "related": {
+          "description": "Optional related-card list.",
+          "items": {
+            "description": "A card ID",
+            "type": "string",
+          },
+          "type": "array",
+        },
         "status": {
-          "description": "Optional initial status. Allowed values: drafting, backlog, active, running, blocked, changed, done, failed, cancelled, needs_verification.",
+          "description": "Optional initial planner status.",
           "enum": [
             "drafting",
             "backlog",
@@ -277,9 +284,8 @@ exports[`tool-definition-serializer snapshots Codex wire shape for sample catalo
           "type": "string",
         },
         "type": {
-          "description": "The card type. Allowed values: project, goal, architecture, code, test, doc, data, research, ops.",
+          "description": "The card type.",
           "enum": [
-            "project",
             "goal",
             "architecture",
             "code",
@@ -292,7 +298,7 @@ exports[`tool-definition-serializer snapshots Codex wire shape for sample catalo
           "type": "string",
         },
         "urgency": {
-          "description": "Optional urgency level. Allowed values: low, normal, high, critical.",
+          "description": "Optional urgency level.",
           "enum": [
             "low",
             "normal",
