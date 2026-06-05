@@ -34,6 +34,9 @@ export const ANALYST_ISSUE_SEVERITY_VALUES = ['info', 'warning', 'blocker'] as c
 function str(description: string): Record<string, unknown> {
   return { type: 'string', description };
 }
+function nullableStr(description: string): Record<string, unknown> {
+  return { description, anyOf: [{ type: 'string' }, { type: 'null' }] };
+}
 function strEnum(description: string, values: readonly string[]): Record<string, unknown> {
   return {
     type: 'string',
@@ -97,11 +100,11 @@ export const ANALYST_TOOL_DEFINITIONS: ToolDefinition[] = [
   ),
   tool(
     'create_card',
-    `Create a new card in the card tree. The first root project card may be created with type 'project' and parent null; after that, use edit_card with id 'project' to change project instructions. Status defaults to 'drafting'. Card status is planner metadata only; it does not start runtime work. There is no 'ready' status.`,
+    `Create a new card in the card tree. The first root project card must be created with type 'project' and parent null; after that, use edit_card with id 'project' to change project instructions. Use parent 'project' for top-level goals. Status defaults to 'drafting'. Card status is planner metadata only; it does not start runtime work. There is no 'ready' status.`,
     {
       type: strEnum('The non-project card type.', CREATE_CARD_TYPE_VALUES),
-      parent: str(
-        "The ID of the parent card. Use 'project' for top-level goals; null is not valid for create_card.",
+      parent: nullableStr(
+        "The ID of the parent card. Use null only when creating the root project card; use 'project' for top-level goals.",
       ),
       title: str('A short title.'),
       description: str('A detailed description.'),

@@ -212,10 +212,13 @@ describe('Analyst Tool Definitions', () => {
     expect(createProps.type.enum).toContain('project');
     expect(createProps.status.enum).toEqual([...CARD_STATUS_VALUES]);
     expect(createProps.urgency.enum).toEqual([...URGENCY_VALUES]);
+    expect(createProps.parent.anyOf).toEqual([{ type: 'string' }, { type: 'null' }]);
+    expect(createProps.parent.description).toContain('Use null only when creating the root project card');
     expect(createProps.status.description).toContain(
       'Allowed values: drafting, backlog, active, running, blocked, changed, done, failed, cancelled, needs_verification.',
     );
     expect(toolByName('create_card').function.description).toContain('use edit_card');
+    expect(toolByName('create_card').function.description).toContain("parent 'project' for top-level goals");
     expect(toolByName('create_card').function.description).toContain("There is no 'ready' status");
 
     const editProps = propertiesFor('edit_card');
