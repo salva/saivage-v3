@@ -10,8 +10,6 @@ import type { RuntimeApi } from './runtime-api.js';
 import type { SessionStamper } from '../contracts/session-stamper.js';
 import { initRuntimeState, readRuntimeState } from './state.js';
 import {
-  buildCompletedRuntimeCommandState,
-  buildRejectedRuntimeCommandState,
   planOpenRootRunStopUpdates,
   planRootRunDispatchFailureUpdate,
   planRootRunDispatchSuccessUpdate,
@@ -74,9 +72,7 @@ export class RuntimeProjectCommandRunner {
     if (startDecision.error) {
       const error = startDecision.error;
       const rejectedAt = this.deps.now();
-      const rejection = buildRejectedRuntimeCommandState({ state, command, error, at: rejectedAt });
-      const rejectedCommand = rejection.rejectedCommand;
-      this.deps.mutations.apply({ kind: 'replaceRuntimeState', state: rejection.state });
+      const rejectedCommand = this.deps.mutations.apply({ kind: 'rejectRuntimeCommand', command, error, at: rejectedAt });
       this.deps.publishRuntimeCommand(rejectedCommand);
       this.deps.publishActionableError(error);
       return { success: false, command: rejectedCommand, error };
@@ -170,9 +166,7 @@ export class RuntimeProjectCommandRunner {
     }
     const current = readRuntimeState(this.deps.projectRoot) ?? state;
     const completedAt = this.deps.now();
-    const completion = buildCompletedRuntimeCommandState({ state: current, command, at: completedAt });
-    const completedCommand = completion.completedCommand;
-    this.deps.mutations.apply({ kind: 'replaceRuntimeState', state: completion.state });
+    const completedCommand = this.deps.mutations.apply({ kind: 'completeRuntimeCommand', command, at: completedAt });
     this.deps.publishRuntimeCommand(completedCommand);
     const persisted = readRuntimeState(this.deps.projectRoot) ?? current;
     return {
@@ -207,8 +201,8 @@ export class RuntimeProjectCommandRunner {
     }
     const current = readRuntimeState(this.deps.projectRoot) ?? state;
     const completedAt = this.deps.now();
-    const completion = buildCompletedRuntimeCommandState({
-      state: current,
+    const completedCommand = this.deps.mutations.apply({
+      kind: 'completeRuntimeCommand',
       command,
       at: completedAt,
       statePatch: {
@@ -218,8 +212,6 @@ export class RuntimeProjectCommandRunner {
         current_agent_session_id: null,
       },
     });
-    const completedCommand = completion.completedCommand;
-    this.deps.mutations.apply({ kind: 'replaceRuntimeState', state: completion.state });
     this.deps.publishRuntimeCommand(completedCommand);
     this.deps.lifecycle.shuttingDown = false;
     const persisted = readRuntimeState(this.deps.projectRoot) ?? current;

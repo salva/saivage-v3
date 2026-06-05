@@ -156,52 +156,84 @@ export function updateRuntimeState(
   });
 }
 
+const UNSET_DERIVED_RESULT = Symbol('unset runtime-state derived result');
+
+export function updateRuntimeStateLockedDeriving<T>(
+  projectRoot: string,
+  reducer: (current: RuntimeState) => { state: RuntimeState; result: T },
+): T {
+  assertNoMixedRuntimeStateLayout(projectRoot);
+  const lock = runtimeStateLock(projectRoot);
+  const file = new AtomicJsonFile(runtimeStatePath(projectRoot), runtimeStatePersistenceSchema, lock, { version: 1 });
+  let result: T | typeof UNSET_DERIVED_RESULT = UNSET_DERIVED_RESULT;
+  lock.withLockSync((handle) => {
+    if (!existsSync(runtimeStatePath(projectRoot))) {
+      file.writeSync(handle, defaultRuntimeState());
+    }
+    file.updateSync(handle, (current) => {
+      const reduced = reducer(current);
+      result = reduced.result;
+      return assertRuntimeStateInvariants(reduced.state);
+    });
+  });
+  if (result === UNSET_DERIVED_RESULT) {
+    throw new Error('Runtime state locked reducer did not set a result.');
+  }
+  return result;
+}
+
 function runtimeRecordId(prefix: string): string {
   return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
-function ensureRuntimeState(projectRoot: string): RuntimeState {
-  return readRuntimeState(projectRoot) ?? initRuntimeState(projectRoot);
-}
-
 export function appendRuntimeCommand(projectRoot: string, command: RuntimeCommandName, source: 'operator' | 'tool' | 'runtime' | 'analyst' = 'runtime'): RuntimeCommandRecord {
-  const state = ensureRuntimeState(projectRoot);
   const at = new Date().toISOString();
   const record: RuntimeCommandRecord = { command_id: runtimeRecordId('cmd'), command, status: 'accepted', requested_at: at, completed_at: null, source, error: null };
-  saveRuntimeState(projectRoot, { ...state, runtime_commands: [...(state.runtime_commands ?? []), record], updated_at: at });
-  return record;
+  return updateRuntimeStateLockedDeriving(projectRoot, (state) => ({
+    state: { ...state, runtime_commands: [...(state.runtime_commands ?? []), record], updated_at: at },
+    result: record,
+  }));
 }
 
 export function upsertRuntimeIntent(projectRoot: string, status: NonNullable<RuntimeState['runtime_intent']>['status'], sourceCommandId: string | null, reason?: string): RuntimeState {
-  const state = ensureRuntimeState(projectRoot);
   const at = new Date().toISOString();
-  return saveRuntimeState(projectRoot, { ...state, runtime_intent: { status, updated_at: at, source_command_id: sourceCommandId, reason: reason ?? null }, updated_at: at });
+  return updateRuntimeStateLockedDeriving(projectRoot, (state) => {
+    const next = { ...state, runtime_intent: { status, updated_at: at, source_command_id: sourceCommandId, reason: reason ?? null }, updated_at: at };
+    return { state: next, result: next };
+  });
 }
 
 export function appendRuntimeRun(projectRoot: string, input: Omit<RuntimeRunRecord, 'run_id' | 'started_at' | 'updated_at'> & { run_id?: string; started_at?: string; updated_at?: string }): RuntimeRunRecord {
-  const state = ensureRuntimeState(projectRoot);
   const at = new Date().toISOString();
   const record: RuntimeRunRecord = { ...input, run_id: input.run_id ?? runtimeRecordId('run'), started_at: input.started_at ?? at, updated_at: input.updated_at ?? at };
-  saveRuntimeState(projectRoot, { ...state, runtime_runs: [...(state.runtime_runs ?? []).filter((run) => run.run_id !== record.run_id), record], updated_at: at });
-  return record;
+  return updateRuntimeStateLockedDeriving(projectRoot, (state) => ({
+    state: { ...state, runtime_runs: [...(state.runtime_runs ?? []).filter((run) => run.run_id !== record.run_id), record], updated_at: at },
+    result: record,
+  }));
 }
 
 export function updateRuntimeRun(projectRoot: string, runId: string, changes: Partial<RuntimeRunRecord>): RuntimeRunRecord | null {
-  const state = ensureRuntimeState(projectRoot);
-  const existing = (state.runtime_runs ?? []).find((run) => run.run_id === runId);
-  if (!existing) return null;
   const at = new Date().toISOString();
-  const updated = { ...existing, ...changes, updated_at: at };
-  saveRuntimeState(projectRoot, { ...state, runtime_runs: (state.runtime_runs ?? []).map((run) => run.run_id === runId ? updated : run), updated_at: at });
-  return updated;
+  return updateRuntimeStateLockedDeriving(projectRoot, (state) => {
+    const existing = (state.runtime_runs ?? []).find((run) => run.run_id === runId);
+    if (!existing) return { state, result: null };
+    const updated = { ...existing, ...changes, updated_at: at };
+    return {
+      state: { ...state, runtime_runs: (state.runtime_runs ?? []).map((run) => run.run_id === runId ? updated : run), updated_at: at },
+      result: updated,
+    };
+  });
 }
 
 export function upsertRuntimeActivation(projectRoot: string, input: Omit<RuntimeActivationRecord, 'activation_id' | 'requested_at' | 'updated_at'> & { activation_id?: string; requested_at?: string; updated_at?: string }): RuntimeActivationRecord {
-  const state = ensureRuntimeState(projectRoot);
-  const existing = (state.runtime_activations ?? []).find((activation) => activation.idempotency_key === input.idempotency_key && !['completed', 'failed', 'blocked', 'cancelled'].includes(activation.status));
-  if (existing) return existing;
   const at = new Date().toISOString();
   const record: RuntimeActivationRecord = { ...input, activation_id: input.activation_id ?? runtimeRecordId('act'), requested_at: input.requested_at ?? at, updated_at: input.updated_at ?? at };
-  saveRuntimeState(projectRoot, { ...state, runtime_activations: [...(state.runtime_activations ?? []), record], updated_at: at });
-  return record;
+  return updateRuntimeStateLockedDeriving(projectRoot, (state) => {
+    const existing = (state.runtime_activations ?? []).find((activation) => activation.idempotency_key === input.idempotency_key && !['completed', 'failed', 'blocked', 'cancelled'].includes(activation.status));
+    if (existing) return { state, result: existing };
+    return {
+      state: { ...state, runtime_activations: [...(state.runtime_activations ?? []), record], updated_at: at },
+      result: record,
+    };
+  });
 }

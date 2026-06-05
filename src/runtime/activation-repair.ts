@@ -67,8 +67,7 @@ export class ActivationRepairRunner {
         finishOpenPlannerRun: (cardId, result) => this.deps.runLedger.finishOpenPlannerRun(cardId, result),
         queueSyntheticPlannerNote: (note) => queueSyntheticPlannerNote(this.deps.projectRoot, note),
         saveState: (state) => {
-          this.deps.mutations.apply({ kind: 'replaceRuntimeState', state });
-          return state;
+          return this.deps.mutations.apply({ kind: 'mergeRuntimeStateSnapshot', state });
         },
       },
     });

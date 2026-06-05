@@ -191,4 +191,89 @@ describe('runtime mutations', () => {
       rmSync(projectRoot, { recursive: true, force: true });
     }
   });
+
+  it('completes commands from the locked current state without dropping intervening runs', () => {
+    const projectRoot = mkdtempSync(join(tmpdir(), 'runtime-mutations-command-current-'));
+    try {
+      initProjectTree(projectRoot);
+      initRuntimeState(projectRoot);
+
+      const mutations = createRuntimeStateMutationPort(projectRoot);
+      const command = mutations.apply({ kind: 'appendRuntimeCommand', commandKind: 'start_project', source: 'operator' });
+      const run = mutations.apply({
+        kind: 'appendRuntimeRun',
+        run: {
+          run_id: 'run-added-after-command-snapshot',
+          card_id: 'project',
+          kind: 'root',
+          parent_run_id: null,
+          command_id: command.command_id,
+          activation_id: null,
+          phase: 'planner',
+          runtime_status: 'running',
+          session_id: 'planner:project',
+        },
+      });
+
+      const completed = mutations.apply({
+        kind: 'completeRuntimeCommand',
+        command,
+        at: '2026-01-01T00:02:00.000Z',
+      });
+
+      expect(completed).toEqual(expect.objectContaining({
+        command_id: command.command_id,
+        status: 'completed',
+        completed_at: '2026-01-01T00:02:00.000Z',
+      }));
+      expect(readRuntimeState(projectRoot)).toEqual(expect.objectContaining({
+        runtime_commands: [expect.objectContaining({ command_id: command.command_id, status: 'completed' })],
+        runtime_runs: [expect.objectContaining({ run_id: run.run_id })],
+      }));
+    } finally {
+      rmSync(projectRoot, { recursive: true, force: true });
+    }
+  });
+
+  it('merges startup repair snapshots without replacing newer ledger arrays', () => {
+    const projectRoot = mkdtempSync(join(tmpdir(), 'runtime-mutations-merge-snapshot-'));
+    try {
+      initProjectTree(projectRoot);
+      const staleSnapshot = initRuntimeState(projectRoot);
+      const mutations = createRuntimeStateMutationPort(projectRoot);
+      const command = mutations.apply({ kind: 'appendRuntimeCommand', commandKind: 'stop_project', source: 'runtime' });
+      const run = mutations.apply({
+        kind: 'appendRuntimeRun',
+        run: {
+          run_id: 'run-preserved-from-current-state',
+          card_id: 'project',
+          kind: 'root',
+          parent_run_id: null,
+          command_id: command.command_id,
+          activation_id: null,
+          phase: 'planner',
+          runtime_status: 'running',
+          session_id: 'planner:project',
+        },
+      });
+
+      const merged = mutations.apply({
+        kind: 'mergeRuntimeStateSnapshot',
+        state: {
+          ...staleSnapshot,
+          paused: true,
+          updated_at: '2026-01-01T00:03:00.000Z',
+        },
+      });
+
+      expect(merged).toEqual(expect.objectContaining({ paused: true }));
+      expect(readRuntimeState(projectRoot)).toEqual(expect.objectContaining({
+        paused: true,
+        runtime_commands: [expect.objectContaining({ command_id: command.command_id })],
+        runtime_runs: [expect.objectContaining({ run_id: run.run_id })],
+      }));
+    } finally {
+      rmSync(projectRoot, { recursive: true, force: true });
+    }
+  });
 });
