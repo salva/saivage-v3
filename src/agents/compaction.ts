@@ -228,7 +228,8 @@ function createFallbackMessages(
   stamp: RoundStamp,
 ): AgentMessage[] {
   const keepCount = Math.max(1, Math.floor(messages.length * keepFraction));
-  const keptMessages = messages.slice(-keepCount);
+  const initialTail = messages.slice(-keepCount);
+  const keptMessages = trimLeadingOrphanToolRows(initialTail);
 
   return [createCompactionMessage(
     sessionId,
@@ -238,10 +239,30 @@ function createFallbackMessages(
 
 ` +
       `The conversation history has been truncated to conserve context. ` +
-      `${messages.length - keepCount} older messages were removed. ` +
-      `Only the most recent ${keepCount} messages are preserved below. ` +
+      `${messages.length - keptMessages.length} older messages were removed. ` +
+      `Only the most recent ${keptMessages.length} messages are preserved below. ` +
       `Please re-read authoritative state from disk if you need context from earlier in the conversation.`,
   ), ...keptMessages];
+}
+
+
+function trimLeadingOrphanToolRows(messages: AgentMessage[]): AgentMessage[] {
+  let start = 0;
+
+  while (start < messages.length) {
+    const message = messages[start];
+    if (message.kind !== 'tool_result' && message.kind !== 'tool_error') break;
+
+    const toolCallId = message.tool_call_id;
+    const hasRetainedPriorToolCall = typeof toolCallId === 'string' && messages
+      .slice(0, start)
+      .some((prior) => prior.kind === 'tool_call' && prior.tool_call_id === toolCallId);
+    if (hasRetainedPriorToolCall) break;
+
+    start++;
+  }
+
+  return messages.slice(start);
 }
 
 

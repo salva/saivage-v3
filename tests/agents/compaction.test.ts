@@ -10,6 +10,7 @@ import { createTestAnalystRuntime } from '../helpers/test-runtime-application.js
 
 const TEST_ROOT = join(tmpdir(), `saivage-compaction-test-${Date.now()}`);
 const SAIVAGE_DIR = join(TEST_ROOT, '.saivage');
+const TEST_STAMP = { round_id: 'r-user-00000000000000000000000000000001', message_index: 0, block_index: 0 };
 
 let compaction: typeof import('../../src/agents/compaction.js');
 let sessionMod: typeof import('../../src/agents/session-persistence.js');
@@ -36,6 +37,14 @@ beforeEach(() => {
   setup();
 });
 afterEach(() => cleanup());
+
+function appendLargeTextMessage(sessionId: string, index: number) {
+  sessionMod.appendMessage(SAIVAGE_DIR, sessionId, {
+    role: index % 2 === 0 ? 'user' : 'assistant',
+    kind: 'text',
+    content: `Message ${index}: ` + 'x'.repeat(200),
+  }, TEST_STAMP);
+}
 
 describe('needsCompaction', () => {
   it('should return true when tokens exceed threshold', () => {
@@ -192,6 +201,99 @@ describe('compactSession', () => {
 
     expect(result.usedFallback).toBe(true);
     expect(result.compacted).toBe(true);
+  });
+
+  it('fallback truncation drops leading orphan tool_result', async () => {
+    const session = sessionMod.createSession(SAIVAGE_DIR, 'planner', 'goal-1');
+
+    for (let i = 0; i < 8; i++) appendLargeTextMessage(session.id, i);
+    sessionMod.appendMessage(SAIVAGE_DIR, session.id, {
+      role: 'tool',
+      kind: 'tool_result',
+      tool: 'read_project_file',
+      tool_call_id: 'call-dropped',
+      content: 'orphan result ' + 'x'.repeat(200),
+    }, TEST_STAMP);
+    sessionMod.appendMessage(SAIVAGE_DIR, session.id, {
+      role: 'assistant',
+      kind: 'text',
+      content: 'final retained text ' + 'x'.repeat(200),
+    }, TEST_STAMP);
+
+    const result = await compaction.compactSession(SAIVAGE_DIR, session.id, {
+      contextLimit: 1000,
+      threshold: 0.01,
+      maxCompactions: 3,
+    }, createTestAnalystRuntime().stamper);
+
+    const messages = sessionMod.getSessionMessages(SAIVAGE_DIR, session.id);
+    expect(result.usedFallback).toBe(true);
+    expect(messages.map((message) => message.kind)).toEqual(['context_compaction', 'text']);
+    expect(messages[0].content).toContain('Only the most recent 1 messages are preserved below.');
+  });
+
+  it('fallback truncation preserves tool_call/tool_result pair when both are retained', async () => {
+    const session = sessionMod.createSession(SAIVAGE_DIR, 'planner', 'goal-1');
+
+    for (let i = 0; i < 8; i++) appendLargeTextMessage(session.id, i);
+    sessionMod.appendMessage(SAIVAGE_DIR, session.id, {
+      role: 'assistant',
+      kind: 'tool_call',
+      tool: 'read_project_file',
+      tool_call_id: 'call-retained',
+      content: 'call retained ' + 'x'.repeat(200),
+    }, TEST_STAMP);
+    sessionMod.appendMessage(SAIVAGE_DIR, session.id, {
+      role: 'tool',
+      kind: 'tool_result',
+      tool: 'read_project_file',
+      tool_call_id: 'call-retained',
+      content: 'result retained ' + 'x'.repeat(200),
+    }, TEST_STAMP);
+
+    const result = await compaction.compactSession(SAIVAGE_DIR, session.id, {
+      contextLimit: 1000,
+      threshold: 0.01,
+      maxCompactions: 3,
+    }, createTestAnalystRuntime().stamper);
+
+    const messages = sessionMod.getSessionMessages(SAIVAGE_DIR, session.id);
+    expect(result.usedFallback).toBe(true);
+    expect(messages.map((message) => message.kind)).toEqual(['context_compaction', 'tool_call', 'tool_result']);
+    expect(messages[1].tool_call_id).toBe('call-retained');
+    expect(messages[2].tool_call_id).toBe('call-retained');
+    expect(messages[0].content).toContain('Only the most recent 2 messages are preserved below.');
+  });
+
+  it('fallback truncation drops multiple leading orphan tool rows', async () => {
+    const session = sessionMod.createSession(SAIVAGE_DIR, 'planner', 'goal-1');
+
+    for (let i = 0; i < 8; i++) appendLargeTextMessage(session.id, i);
+    sessionMod.appendMessage(SAIVAGE_DIR, session.id, {
+      role: 'tool',
+      kind: 'tool_result',
+      tool: 'read_project_file',
+      tool_call_id: 'call-dropped-1',
+      content: 'orphan result ' + 'x'.repeat(200),
+    }, TEST_STAMP);
+    sessionMod.appendMessage(SAIVAGE_DIR, session.id, {
+      role: 'tool',
+      kind: 'tool_error',
+      tool: 'read_project_file',
+      tool_call_id: 'call-dropped-2',
+      content: 'orphan error ' + 'x'.repeat(200),
+    }, TEST_STAMP);
+
+    const result = await compaction.compactSession(SAIVAGE_DIR, session.id, {
+      contextLimit: 1000,
+      threshold: 0.01,
+      maxCompactions: 3,
+    }, createTestAnalystRuntime().stamper);
+
+    const messages = sessionMod.getSessionMessages(SAIVAGE_DIR, session.id);
+    expect(result.usedFallback).toBe(true);
+    expect(messages.map((message) => message.kind)).toEqual(['context_compaction']);
+    expect(messages[0].content).toContain('Only the most recent 0 messages are preserved below.');
   });
 });
 
