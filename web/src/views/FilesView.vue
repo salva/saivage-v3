@@ -96,10 +96,11 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, watch } from 'vue';
+import { computed, onMounted, onUnmounted, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { storeToRefs } from 'pinia';
 import { useFileStore } from '../stores/files';
+import { useSyncStore } from '../stores/sync';
 import { useCardStore } from '../stores/cards';
 import { selectChildrenOf } from '../stores/card-read-model';
 import { formatTimestamp, isRecentTimestamp, timestampTitle } from '../utils/timestamp';
@@ -113,6 +114,7 @@ type FileRoot = 'meta' | 'output';
 const route = useRoute();
 const router = useRouter();
 const fileStore = useFileStore();
+const syncStore = useSyncStore();
 const cardsStore = useCardStore();
 const {
   metaFiles, metaLoading, metaBreadcrumbs,
@@ -272,8 +274,13 @@ function applyQueryPath(): void {
     .catch(() => {});
 }
 
+let unregisterFiles: (() => void) | null = null;
 onMounted(() => {
-  fileStore.setupWsListener();
+  unregisterFiles = syncStore.registerResource({ resource: 'files', scope: 'active', refetch: fileStore.refetch });
+});
+
+onUnmounted(() => {
+  unregisterFiles?.();
 });
 
 watch(() => [route.query.root, route.query.path], () => {

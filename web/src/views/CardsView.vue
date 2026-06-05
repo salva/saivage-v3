@@ -167,7 +167,6 @@ function handleNavigate(id: string): void {
 // ── Lifecycle ─────────────────────────────────────────────
 
 onMounted(async () => {
-  cardStore.setupWsListener();
   try {
     await cardStore.fetchCards();
   } catch {

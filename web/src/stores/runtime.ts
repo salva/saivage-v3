@@ -3,7 +3,7 @@
  *
  * Tracks the Saivage runtime snapshot plus command/run/activation summary state,
  * card index, and global pause state.
- * Subscribes to WebSocket status events for live updates.
+ * Live updates are driven by SyncClient invalidation + REST refetch.
  */
 
 import { defineStore } from 'pinia';
@@ -24,11 +24,9 @@ import {
   getRuntimeState,
   ApiError,
 } from '../api/client';
-import { useWsStore } from './ws';
+import { useSyncStore } from './sync';
 import { createLogger } from '../utils/logger';
-import { parseCoveredRuntimeStatusContent, parseKnownWsContent } from '../api/contracts';
 import {
-  reduceRuntimeWsEvent,
   selectAvailabilityDetail,
   selectLiveUpdateDetail,
   selectLiveUpdateLabel,
@@ -65,8 +63,6 @@ export const useRuntimeStore = defineStore('runtime', () => {
   const lastCommand = ref<RuntimeCommandRecord | null>(null);
   const lastActionableError = ref<ActionableErrorEnvelope | null>(null);
   const commandInFlight = ref<RuntimeCommandRecord['command'] | null>(null);
-
-  let statusBeforePause: RuntimeStatus | null = null;
 
   const status = computed<RuntimeStatus>(() => runtime.value?.status ?? 'idle');
   const isRunning = computed(() => status.value === 'running');
@@ -105,12 +101,12 @@ export const useRuntimeStore = defineStore('runtime', () => {
     availabilityDetail: availabilityDetail.value,
   }));
   const liveUpdateState = computed(() => {
-    const ws = useWsStore();
+    const sync = useSyncStore();
     return selectLiveUpdateState({
-      connectionState: ws.connectionState,
+      connectionState: sync.connectionState ?? 'offline',
       unauthorized: unauthorized.value,
       stale: isStale.value,
-      wsStale: ws.stale,
+      wsStale: false,
     });
   });
   const liveUpdateLabel = computed(() => selectLiveUpdateLabel(liveUpdateState.value));
@@ -137,11 +133,6 @@ export const useRuntimeStore = defineStore('runtime', () => {
   function markRestSync(): void {
     lastFetchedAt.value = nowIso();
     lastUpdatedBy.value = 'rest';
-  }
-
-  function markWsSync(): void {
-    lastWsEventAt.value = nowIso();
-    lastUpdatedBy.value = lastFetchedAt.value ? 'mixed' : 'ws';
   }
 
   async function fetchState(): Promise<void> {
@@ -171,65 +162,7 @@ export const useRuntimeStore = defineStore('runtime', () => {
       loading.value = false;
     }
   }
-
-
-
-  let wsUnsubscribe: (() => void) | null = null;
-  let reconnectUnsubscribe: (() => void) | null = null;
-  let wsStatusBeforePause: RuntimeStatus | null = null;
-
-  function handleWsRuntimeEnvelope(envelope: { content?: Record<string, unknown> }): void {
-    const parsedContent = parseCoveredRuntimeStatusContent(envelope.content);
-    const content = parsedContent ?? (envelope.content || {});
-    const event = typeof content.event === 'string' ? content.event : '';
-    markWsSync();
-
-    const knownContent = parseKnownWsContent(envelope.content);
-    const reduction = reduceRuntimeWsEvent({
-      runtime: runtime.value,
-      cardIndex: cardIndex.value,
-      serverAvailability: serverAvailability.value,
-      intent: intent.value,
-      currentRun: currentRun.value,
-      activeChildRuns: activeChildRuns.value,
-      activations: activations.value,
-      lastCommand: lastCommand.value,
-      lastActionableError: lastActionableError.value,
-      statusBeforePause: wsStatusBeforePause,
-    }, content as Record<string, unknown>, knownContent as Record<string, unknown> | null | undefined);
-
-    runtime.value = reduction.state.runtime;
-    cardIndex.value = reduction.state.cardIndex;
-    serverAvailability.value = reduction.state.serverAvailability;
-    intent.value = reduction.state.intent;
-    currentRun.value = reduction.state.currentRun;
-    activeChildRuns.value = reduction.state.activeChildRuns;
-    activations.value = reduction.state.activations;
-    lastCommand.value = reduction.state.lastCommand;
-    lastActionableError.value = reduction.state.lastActionableError;
-    wsStatusBeforePause = reduction.state.statusBeforePause;
-
-    if (reduction.shouldRefreshState) {
-      fetchState().catch(() => {});
-    }
-  }
-  function setupWsListener(): void {
-    const ws = useWsStore();
-    if (!reconnectUnsubscribe) {
-      reconnectUnsubscribe = ws.onReconnect(() => {
-        fetchState().catch(() => {});
-      });
-    }
-    if (wsUnsubscribe) return;
-    const unsubscribers = [
-      ws.onType('status', handleWsRuntimeEnvelope),
-      ws.onType('activity', handleWsRuntimeEnvelope),
-      ws.onType('error', handleWsRuntimeEnvelope),
-    ];
-    wsUnsubscribe = () => {
-      for (const unsubscribe of unsubscribers) unsubscribe();
-    };
-  }
+  const refetch = fetchState;
 
   return {
     runtime: readonly(runtime),
@@ -270,6 +203,6 @@ export const useRuntimeStore = defineStore('runtime', () => {
     pauseActionDisabledReason,
     commandDisabledReason,
     fetchState,
-    setupWsListener,
+    refetch,
   };
 });

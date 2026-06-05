@@ -12,7 +12,7 @@
 import type { WsConnectionState, WsEnvelope, WsEventType } from './types';
 import { issueWebSocketTicket } from './client';
 import { getAuthToken } from './auth';
-import { buildInboundAnalystMessageEnvelope, parseKnownWsEnvelope, parseWsEnvelope } from './contracts';
+import { buildInboundAnalystMessageEnvelope, LiveSyncInvalidateFrameSchema, parseKnownWsEnvelope, parseWsEnvelope, type LiveSyncInvalidateFrame } from './contracts';
 import { createLogger } from '../utils/logger';
 
 // ── Re-export auth helper ────────────────────────────────────
@@ -22,6 +22,9 @@ export { getAuthToken };
 // ── Types ─────────────────────────────────────────────────────
 
 export type WsEventHandler = (envelope: WsEnvelope) => void;
+export type WsStateHandler = (state: WsConnectionState) => void;
+export type WsOpenHandler = () => void;
+export type WsSyncFrameHandler = (frame: LiveSyncInvalidateFrame) => void;
 
 export interface WsConnectionManager {
   /** Current connection state (reactive ref). */
@@ -42,8 +45,20 @@ export interface WsConnectionManager {
   /** Send a chat message to the analyst via WebSocket. */
   sendMessage(text: string): void;
 
+  /** Send a low-level JSON payload over the socket. */
+  sendRaw(payload: unknown): boolean;
+
   /** Register an event handler for all incoming events. */
   onEvent(handler: WsEventHandler): () => void;
+
+  /** Register a handler for live-sync invalidate frames. */
+  onSyncFrame(handler: WsSyncFrameHandler): () => void;
+
+  /** Register a handler fired when the socket opens. */
+  onOpen(handler: WsOpenHandler): () => void;
+
+  /** Register a handler fired whenever connection state changes. */
+  onState(handler: WsStateHandler): () => void;
 
   /** Register a handler for a specific event type. */
   onType(type: WsEventType, handler: WsEventHandler): () => void;
@@ -76,8 +91,19 @@ export function createWsConnection(): WsConnectionManager {
   let shouldReconnect = true;
   let connectAttempt = 0;
   const handlers = new Set<WsEventHandler>();
+  const syncHandlers = new Set<WsSyncFrameHandler>();
+  const openHandlers = new Set<WsOpenHandler>();
+  const stateHandlers = new Set<WsStateHandler>();
 
   const log = createLogger('ws');
+
+  function setState(next: WsConnectionState): void {
+    if (state.value === next) return;
+    state.value = next;
+    for (const handler of stateHandlers) {
+      try { handler(next); } catch (err) { log.error('WS state handler error', err); }
+    }
+  }
 
   // ── Connection ────────────────────────────────────────────
 
@@ -87,7 +113,7 @@ export function createWsConnection(): WsConnectionManager {
     }
 
     shouldReconnect = true;
-    state.value = 'connecting';
+    setState('connecting');
     const attempt = ++connectAttempt;
 
     void openWithFreshTicket(attempt);
@@ -109,9 +135,12 @@ export function createWsConnection(): WsConnectionManager {
       ws = new WebSocket(wsUrl.toString());
 
       ws.onopen = () => {
-        state.value = 'connected';
+        setState('connected');
         reconnectAttempts.value = 0;
         log.info('WebSocket connected');
+        for (const handler of openHandlers) {
+          try { handler(); } catch (err) { log.error('WS open handler error', err); }
+        }
       };
 
       ws.onclose = (event) => {
@@ -120,14 +149,14 @@ export function createWsConnection(): WsConnectionManager {
 
         if (event.code === 1008) {
           // Policy violation — authentication failure
-          state.value = 'unauthorized';
+          setState('unauthorized');
           sessionId.value = null;
           shouldReconnect = false;
         } else if (shouldReconnect) {
-          state.value = 'connecting';
+          setState('connecting');
           scheduleReconnect();
         } else {
-          state.value = 'offline';
+          setState('offline');
         }
       };
 
@@ -142,6 +171,14 @@ export function createWsConnection(): WsConnectionManager {
             ? event.data
             : new TextDecoder().decode(event.data as ArrayBuffer);
           const rawEnvelope = JSON.parse(data) as unknown;
+          const syncFrame = LiveSyncInvalidateFrameSchema.safeParse(rawEnvelope);
+          if (syncFrame.success) {
+            for (const handler of syncHandlers) {
+              try { handler(syncFrame.data); } catch (err) { log.error('WS sync frame handler error', err); }
+            }
+            return;
+          }
+
           const envelope = parseWsEnvelope(rawEnvelope);
           if (!envelope) {
             log.warn('Dropped structurally invalid WS envelope');
@@ -173,7 +210,7 @@ export function createWsConnection(): WsConnectionManager {
       };
     } catch (err) {
       log.error('Failed to create WebSocket', err);
-      state.value = 'unauthorized';
+      setState('unauthorized');
       sessionId.value = null;
       shouldReconnect = false;
     }
@@ -214,7 +251,7 @@ export function createWsConnection(): WsConnectionManager {
       ws.close(1000, 'Client disconnect');
       ws = null;
     }
-    state.value = 'offline';
+    setState('offline');
     sessionId.value = null;
     reconnectAttempts.value = 0;
   }
@@ -222,14 +259,16 @@ export function createWsConnection(): WsConnectionManager {
   // ── Send Message ──────────────────────────────────────────
 
   function sendMessage(text: string): void {
+    sendRaw(buildInboundAnalystMessageEnvelope(text));
+  }
+
+  function sendRaw(payload: unknown): boolean {
     if (!ws || ws.readyState !== WebSocket.OPEN) {
-      log.warn('Cannot send message: WebSocket not connected');
-      return;
+      log.warn('Cannot send payload: WebSocket not connected');
+      return false;
     }
-
-    const envelope = buildInboundAnalystMessageEnvelope(text);
-
-    ws.send(JSON.stringify(envelope));
+    ws.send(JSON.stringify(payload));
+    return true;
   }
 
   // ── Event Handlers ────────────────────────────────────────
@@ -239,6 +278,21 @@ export function createWsConnection(): WsConnectionManager {
     return () => {
       handlers.delete(handler);
     };
+  }
+
+  function onSyncFrame(handler: WsSyncFrameHandler): () => void {
+    syncHandlers.add(handler);
+    return () => syncHandlers.delete(handler);
+  }
+
+  function onOpen(handler: WsOpenHandler): () => void {
+    openHandlers.add(handler);
+    return () => openHandlers.delete(handler);
+  }
+
+  function onState(handler: WsStateHandler): () => void {
+    stateHandlers.add(handler);
+    return () => stateHandlers.delete(handler);
   }
 
   function onType(type: WsEventType, handler: WsEventHandler): () => void {
@@ -260,7 +314,11 @@ export function createWsConnection(): WsConnectionManager {
     connect,
     disconnect,
     sendMessage,
+    sendRaw,
     onEvent,
+    onSyncFrame,
+    onOpen,
+    onState,
     onType,
   };
 }

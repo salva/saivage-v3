@@ -9,4 +9,4 @@ export { useDebugStore } from './debug';
 export { useFileStore } from './files';
 export { useMcpStore } from './mcp';
 export { useRuntimeStore } from './runtime';
-export { useWsStore } from './ws';
+export { useSyncStore } from './sync';

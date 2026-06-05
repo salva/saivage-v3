@@ -104,7 +104,6 @@ watch(() => route.params.id, (nid) => {
 }, { immediate: true });
 
 onMounted(() => {
-  agentStore.setupWsListener();
   agentStore.fetchSessions().catch((err) => {
     log.warn('fetchSessions failed', err);
   });

@@ -1,26 +1,17 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { mount } from '@vue/test-utils';
-import { createPinia } from 'pinia';
+import { createPinia, setActivePinia } from 'pinia';
 import AnalystToaster from '../components/chat/AnalystToaster.vue';
-
-const handlers = new Set<(envelope: any) => void>();
-vi.mock('../stores/ws', () => ({
-  useWsStore: () => ({
-    onType: (_type: string, handler: (envelope: any) => void) => {
-      handlers.add(handler);
-      return () => handlers.delete(handler);
-    },
-  }),
-}));
+import { useAnalystChat } from '../stores/analystChat';
 
 function emit(content: Record<string, unknown>): void {
-  for (const handler of handlers) handler({ type: 'activity', content });
+  useAnalystChat().ingestWsEvent(content);
 }
 
 describe('AnalystToaster', () => {
   beforeEach(() => {
     vi.useFakeTimers();
-    handlers.clear();
+    setActivePinia(createPinia());
   });
 
   afterEach(() => {

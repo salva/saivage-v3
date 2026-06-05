@@ -36,19 +36,9 @@ vi.mock('../api/client', () => {
   };
 });
 
-// Mock the WebSocket store — DebugView calls useWsStore
-vi.mock('../stores/ws', () => ({
-  useWsStore: () => ({
-    onType: vi.fn(() => vi.fn()),
-    connectionState: { value: 'offline' },
-    startPolling: vi.fn(),
-    stopPolling: vi.fn(),
-    fetchMcpData: vi.fn(),
-    connect: vi.fn(),
-    disconnect: vi.fn(),
-    sendMessage: vi.fn(),
-    isConnected: () => false,
-    isConnecting: () => false,
+vi.mock('../stores/sync', () => ({
+  useSyncStore: () => ({
+    registerResource: vi.fn(() => vi.fn()),
   }),
 }));
 

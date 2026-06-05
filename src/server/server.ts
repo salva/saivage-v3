@@ -13,6 +13,8 @@ import { startTelegramNotifications } from './composition/telegram-lifecycle.js'
 import { registerServerRoutes } from './composition/route-composition.js';
 import { stopServerResources } from './composition/server-shutdown.js';
 import type { ServerAvailabilityInputs } from './availability.js';
+import { LiveSyncSocket } from './live-sync-socket.js';
+import { SyncHub } from './sync-hub.js';
 
 export interface ServerConfig { host: string; port: number; projectRoot: string; }
 export interface CreateServerOptions { environment: Environment; createRuntime?: boolean; scope?: ResourceScope; }
@@ -50,6 +52,8 @@ export async function createServer(optionsOrProjectRoot: CreateServerOptions | s
   configureAuthPolicy({ apiToken: environment.auth.apiToken });
 
   const fastify = await createFastifyApp(environment);
+  const liveSyncSocket = new LiveSyncSocket();
+  const syncHub = new SyncHub(liveSyncSocket);
   async function stop(): Promise<void> { await scope.dispose(); }
   const requestRestart = async (): Promise<void> => {
     setImmediate(async () => {
@@ -65,7 +69,7 @@ export async function createServer(optionsOrProjectRoot: CreateServerOptions | s
     mcpStartupFailure: () => mcpStartupFailure,
   };
 
-  const runtimeStartup = await startRuntimeApplication({ createRuntime, projectRoot, saivageConfig, fastify });
+  const runtimeStartup = await startRuntimeApplication({ createRuntime, projectRoot, saivageConfig, fastify, syncHub });
   const runtimeApplication = runtimeStartup.runtimeApplication;
   const runtimeStartupFailure = runtimeStartup.startupFailure;
 
@@ -85,9 +89,10 @@ export async function createServer(optionsOrProjectRoot: CreateServerOptions | s
     saivageConfig,
     configWarnings: environment.configWarnings,
     requestServerRestart: requestRestart,
+    liveSyncSocket,
   });
 
-  scope.add({ dispose: () => stopServerResources({ projectRoot, fastify, runtimeApplication, mcpManager, telegramBot }) }, { name: 'server-stop' });
+  scope.add({ dispose: () => stopServerResources({ projectRoot, fastify, runtimeApplication, mcpManager, telegramBot, liveSyncSocket, syncHub }) }, { name: 'server-stop' });
 
   return { fastify, config: serverConfig, saivageConfig, scope, mcpManager, telegramBot, runtimeApplication, stop, requestRestart };
 }

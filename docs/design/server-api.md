@@ -225,9 +225,9 @@ accepted in WebSocket URLs; `/ws?token=<token>` is rejected. Invalid,
 missing, expired, or replayed tickets close with code `1008` (enforced by
 `src/server/websocket.ts` and `tests/server/websocket-analyst-safety.test.ts`).
 
-### Message envelope
+### Frame formats
 
-All messages use a JSON envelope:
+Analyst chat and activity messages use a JSON envelope:
 
 ```json
 {
@@ -236,6 +236,20 @@ All messages use a JSON envelope:
 }
 ```
 
+Live-state synchronization uses invalidate-only frames:
+
+```json
+{ "t": "invalidate", "resource": "runtime" }
+```
+
+Scoped conversation invalidations include the session id:
+
+```json
+{ "t": "invalidate", "resource": "conversation", "id": "planner:project" }
+```
+
+Clients subscribe to scoped conversations with `{ "t": "subscribe", "resource": "conversation", "id": "..." }` and unsubscribe with the matching `unsubscribe` frame. The server never streams runtime/card snapshots on WebSocket; clients refetch REST resources after invalidation.
+
 ### Event types
 
 | Type       | Direction      | Content                                    |
@@ -243,19 +257,15 @@ All messages use a JSON envelope:
 | `message`  | server → client | Chat message from an agent or system       |
 | `activity` | server → client | Agent activity update (tool call, progress) |
 | `thinking` | server → client | Agent reasoning trace (if enabled)         |
-| `status`   | server → client | Runtime status change                      |
+| `status`   | server → client | Connection status and analyst status messages |
 | `error`    | server → client | Error notification                         |
 | `message`  | client → server | User chat message to the analyst           |
-| `card_history_appended` | server → client | A tracked card mutation appended history |
-| `notification_added` | server → client | Operator/session notification added |
-| `notification_acknowledged` | server → client | Operator notification acknowledged |
 | `control_action_recorded` | server → client | Mutating control action audited |
+| `invalidate` | server → client | Live-sync hint; client refetches REST resource |
 
 The server serializes analyst `message` turns per WebSocket connection, so two rapid client messages on the same socket are handled and replied to in send order. Analyst response, activity, and tool-invocation payloads are sanitized before `ws.send`/broadcast: secret-key fields are redacted, secret paths/literals are masked, activity strings are bounded, assistant messages keep the documented 200,000-character cap, and arrays are truncated for safe operator display. This contract is enforced by `src/server/websocket.ts`, `src/agents/analyst-sanitization.ts`, and `tests/server/websocket-analyst-safety.test.ts`.
 
-The web UI subscribes to all types and renders them in the
-appropriate panels (chat, activity feed, status bar, history and
-notification surfaces).
+The web UI keeps one socket but separates chat envelopes from live-sync frames. Core resources (`runtime`, `cards`, `agents`) stay registered for the app lifetime. Active resources (`timeline`, `processes`, `files`, scoped `conversation`) register only while the corresponding view/panel is open.
 
 ---
 

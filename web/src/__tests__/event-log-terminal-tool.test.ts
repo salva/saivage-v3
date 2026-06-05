@@ -38,7 +38,6 @@ async function mountDebugView(events: DebugTimelineEvent[]) {
   vi.mocked(client.getDebugTimeline).mockResolvedValue({ events, total: events.length });
   const debugStore = useDebugStore();
   const mcpStore = useMcpStore();
-  vi.spyOn(debugStore, 'setupWsListener').mockImplementation(() => {});
   vi.spyOn(mcpStore, 'fetchMcpData').mockResolvedValue(undefined);
   vi.spyOn(mcpStore, 'startPolling').mockImplementation(() => {});
   vi.spyOn(mcpStore, 'stopPolling').mockImplementation(() => {});

@@ -10,7 +10,6 @@ import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
 import type { FileEntry, FileContent, FilesListResponse, FreshnessState } from '../api/types';
 import { listFiles, getFileContent, ApiError } from '../api/client';
-import { useWsStore } from './ws';
 import { createLogger } from '../utils/logger';
 
 const log = createLogger('store:files');
@@ -239,19 +238,9 @@ export const useFileStore = defineStore('files', () => {
     viewerError.value = null;
   }
 
-  let reconnectUnsubscribe: (() => void) | null = null;
-  function setupWsListener(): void {
-    if (reconnectUnsubscribe) return;
-    const ws = useWsStore();
-    reconnectUnsubscribe = ws.onReconnect(() => {
-      lastWsEventAt.value = nowIso();
-      lastUpdatedBy.value = 'mixed';
-      fetchMetaFiles().catch(() => {});
-      fetchOutputFiles().catch(() => {});
-      if (viewedFilePath.value) {
-        fetchFileContent(viewedFilePath.value).catch(() => {});
-      }
-    });
+  async function refetch(): Promise<void> {
+    await Promise.all([fetchMetaFiles(), fetchOutputFiles()]);
+    if (viewedFilePath.value) await fetchFileContent(viewedFilePath.value);
   }
 
   return {
@@ -293,6 +282,6 @@ export const useFileStore = defineStore('files', () => {
     navigateOutputUp,
     fetchFileContent,
     clearViewedFile,
-    setupWsListener,
+    refetch,
   };
 });

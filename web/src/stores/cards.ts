@@ -29,7 +29,6 @@ import {
   getCardDiff,
   ApiError,
 } from '../api/client';
-import { useWsStore } from './ws';
 import { createLogger } from '../utils/logger';
 import {
   buildDetailError,
@@ -104,9 +103,6 @@ export const useCardStore = defineStore('cards', () => {
     return cardId ? staleNotificationByCard.value[cardId] === true : false;
   });
 
-  let mutationGen = 0;
-  function bumpGen(): number { return ++mutationGen; }
-
   function resetDetailFreshness(): void {
     currentDetailFreshness.value = createFreshDetailState(new Date().toISOString());
   }
@@ -155,22 +151,6 @@ export const useCardStore = defineStore('cards', () => {
 
   function isStale(cardId: string): boolean {
     return staleNotificationByCard.value[cardId] === true;
-  }
-
-  function safeBackgroundRefresh(genAtStart: number): void {
-    const params: { status?: string; type?: string; parent?: string; tag?: string } = {};
-    if (filterStatus.value) params.status = filterStatus.value;
-    if (filterType.value) params.type = filterType.value;
-    if (filterParent.value) params.parent = filterParent.value;
-    if (filterTag.value) params.tag = filterTag.value;
-
-    fetchCardsInternal(Object.keys(params).length > 0 ? params : undefined)
-      .then((response) => {
-        if (mutationGen !== genAtStart) return;
-        cards.value = response.cards;
-        total.value = response.total;
-      })
-      .catch(() => {});
   }
 
   async function fetchCardsInternal(params?: { status?: string; type?: string; parent?: string; tag?: string }): Promise<CardListResponse> {
@@ -298,62 +278,18 @@ export const useCardStore = defineStore('cards', () => {
     searchQuery.value = '';
   }
 
-  let wsUnsubscribe: (() => void) | null = null;
-  function setupWsListener(): void {
-    if (wsUnsubscribe) return;
-    const ws = useWsStore();
-    wsUnsubscribe = ws.onType('activity', (envelope) => {
-      const content = envelope.content || {};
-      const event = content.event as string;
-
-      if (event === 'card-created' && content.card) {
-        const newCard = content.card as CardRecord;
-        const exists = cards.value.some((c) => c.id === newCard.id);
-        if (!exists) {
-          cards.value = [newCard, ...cards.value];
-          total.value++;
-        }
-        const gen = bumpGen();
-        safeBackgroundRefresh(gen);
-      } else if (event === 'card-updated' && content.card) {
-        const updated = content.card as CardRecord;
-        const idx = cards.value.findIndex((c) => c.id === updated.id);
-        if (idx !== -1) {
-          cards.value[idx] = updated;
-          cards.value = [...cards.value];
-        }
-        if (currentCard.value?.id === updated.id) {
-          currentCard.value = { ...currentCard.value, ...updated };
-          clearCurrentCardStaleNotification(updated.id);
-          markDetailStale('ws-card-updated');
-        }
-        const gen = bumpGen();
-        safeBackgroundRefresh(gen);
-      } else if (event === 'card-deleted' && content.id) {
-        const deletedId = content.id as string;
-        const beforeLen = cards.value.length;
-        cards.value = cards.value.filter((c) => c.id !== deletedId && c.parent !== deletedId);
-        const removedCount = beforeLen - cards.value.length;
-        total.value = Math.max(0, total.value - removedCount);
-        if (currentCard.value?.id === deletedId) {
-          clearCurrentDetail();
-        }
-        const gen = bumpGen();
-        safeBackgroundRefresh(gen);
-      } else if (event === 'card_history_appended') {
-        const cardId = content.card_id as string | undefined;
-        if (cardId && currentCard.value?.id === cardId) {
-          void refreshCardHistory(cardId).catch(() => {});
-          clearCurrentCardStaleNotification(cardId);
-          markDetailStale('ws-card-updated');
-        }
-      } else if (event === 'notification_added') {
-        const relatedCardId = (content.related_card_id as string | undefined) ?? null;
-        if (relatedCardId) {
-          setCardStaleNotification(relatedCardId, true);
-        }
-      }
-    });
+  async function refetch(): Promise<void> {
+    const params: { status?: string; type?: string; parent?: string; tag?: string } = {};
+    if (filterStatus.value) params.status = filterStatus.value;
+    if (filterType.value) params.type = filterType.value;
+    if (filterParent.value) params.parent = filterParent.value;
+    if (filterTag.value) params.tag = filterTag.value;
+    await fetchCards(Object.keys(params).length > 0 ? params : undefined);
+    const currentId = currentCard.value?.id;
+    if (currentId) {
+      await fetchCardDetail(currentId);
+      await refreshCardHistory(currentId).catch(() => {});
+    }
   }
 
   return {
@@ -401,7 +337,7 @@ export const useCardStore = defineStore('cards', () => {
     refreshCardHistory,
     applyFilters,
     clearFilters,
-    setupWsListener,
+    refetch,
     markDetailStale,
     clearCardHistoryState,
     setCardStaleNotification,

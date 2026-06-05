@@ -287,7 +287,7 @@ test.describe('saivage-v3 live deployment — failure-mode coverage', () => {
     expect(Number.isFinite(Date.parse(body.expiresAt))).toBe(true);
   });
 
-  test('WS /ws delivers a connected envelope and a runtime-state snapshot on open', async ({ baseURL }) => {
+  test('WS /ws delivers a connected envelope on open', async ({ baseURL }) => {
     const wsURL = (baseURL ?? 'http://10.0.3.170:8080').replace(/^http/i, 'ws') + '/ws';
     const ws = new WebSocket(wsURL);
     const frames: unknown[] = [];
@@ -298,10 +298,10 @@ test.describe('saivage-v3 live deployment — failure-mode coverage', () => {
         ws.once('error', (err) => { clearTimeout(timer); reject(err); });
       });
       await new Promise<void>((resolve, reject) => {
-        const timer = setTimeout(() => reject(new Error(`WS did not deliver 2 frames; got ${frames.length}`)), 10_000);
+        const timer = setTimeout(() => reject(new Error(`WS did not deliver connected frame; got ${frames.length}`)), 10_000);
         ws.on('message', (raw: Buffer) => {
           try { frames.push(JSON.parse(raw.toString('utf-8'))); } catch { /* keep raw */ }
-          if (frames.length >= 2) { clearTimeout(timer); resolve(); }
+          if (frames.some((f) => (f as { type?: string; content?: { event?: string } }).content?.event === 'connected')) { clearTimeout(timer); resolve(); }
         });
       });
     } finally {
@@ -309,7 +309,6 @@ test.describe('saivage-v3 live deployment — failure-mode coverage', () => {
     }
     const events = frames.map((f) => (f as { type?: string; content?: { event?: string } }).content?.event);
     expect(events).toContain('connected');
-    expect(events.some((e) => e && e !== 'connected')).toBe(true);
   });
 
   test('POST /api/chats/analyst with malformed JSON body returns a clean 400', async ({ request }) => {

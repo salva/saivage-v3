@@ -49,6 +49,10 @@ export type {
   RuntimeRunRecord,
   RuntimeState,
   RuntimeStatus,
+  LiveSyncClientFrame,
+  LiveSyncInvalidateFrame,
+  LiveSyncInvalidateTarget,
+  LiveSyncUnscopedResource,
   ServerAvailability,
 } from './contracts';
 
@@ -549,6 +553,5 @@ export type DebugErrorsResponse = Omit<OperatorApiSuccess<'debug.errors'>, 'erro
 export type DebugTimelineResponse = Omit<OperatorApiSuccess<'debug.timeline'>, 'events'> & { events: DebugTimelineEvent[]; };
 export interface ProcessListResponse { processes: ProcessView[]; }
 export interface ProcessDetailResponse { process: ProcessView; }
-
 
 

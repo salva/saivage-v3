@@ -36,28 +36,12 @@ vi.mock('../api/client', () => ({
   },
 }));
 
-const wsReconnectHandlers = new Set<() => void>();
-
-vi.mock('../stores/ws', () => ({
-  useWsStore: vi.fn(() => ({
-    onReconnect: (handler: () => void) => {
-      wsReconnectHandlers.add(handler);
-      return () => wsReconnectHandlers.delete(handler);
-    },
-  })),
-}));
-
 import { listFiles, getFileContent, ApiError } from '../api/client';
 import { useFileStore } from '../stores/files';
 
 function setupStore() {
   setActivePinia(createPinia());
-  wsReconnectHandlers.clear();
   return useFileStore();
-}
-
-function fireReconnect() {
-  for (const handler of wsReconnectHandlers) handler();
 }
 
 const mockMetaRootFiles = {
@@ -142,7 +126,6 @@ const plainTextContent = {
 describe('useFileStore', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    wsReconnectHandlers.clear();
   });
 
   afterEach(() => {
@@ -903,8 +886,8 @@ describe('useFileStore', () => {
     });
   });
 
-  describe('setupWsListener()', () => {
-    it('registers one reconnect handler idempotently and refreshes current views on reconnect', async () => {
+  describe('refetch()', () => {
+    it('refreshes current views through the sync refetch hook', async () => {
       const store = setupStore();
       store.viewedFilePath = '.saivage/plan.json';
       vi.mocked(listFiles)
@@ -912,13 +895,7 @@ describe('useFileStore', () => {
         .mockResolvedValueOnce(mockOutputRootFiles);
       vi.mocked(getFileContent).mockResolvedValueOnce(jsonContent);
 
-      store.setupWsListener();
-      store.setupWsListener();
-      expect(wsReconnectHandlers.size).toBe(1);
-
-      fireReconnect();
-      await Promise.resolve();
-      await Promise.resolve();
+      await store.refetch();
 
       expect(listFiles).toHaveBeenNthCalledWith(1, '.saivage');
       expect(listFiles).toHaveBeenNthCalledWith(2, '.saivage-work');

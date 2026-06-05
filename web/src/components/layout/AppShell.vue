@@ -62,15 +62,19 @@ import ApiTokenEntry from '../auth/ApiTokenEntry.vue';
 import AnalystChatPanel from '../chat/AnalystChatPanel.vue';
 import AnalystToaster from '../chat/AnalystToaster.vue';
 import Button from '../ui/Button.vue';
-import { useWsStore } from '../../stores/ws';
+import { useSyncStore } from '../../stores/sync';
 import { useRuntimeStore } from '../../stores/runtime';
+import { useCardStore } from '../../stores/cards';
+import { useAgentStore } from '../../stores/agents';
 import { getAuthToken } from '../../api/auth';
 import type { WsConnectionState } from '../../api/types';
 import { API_AUTH_REQUIRED_EVENT, dismissAuthBannerForSession, isAuthBannerDismissedForSession } from '../../utils/auth-events';
 
-const wsStore = useWsStore();
+const syncStore = useSyncStore();
 const runtimeStore = useRuntimeStore();
-const { connectionState } = storeToRefs(wsStore);
+const cardStore = useCardStore();
+const agentStore = useAgentStore();
+const { connectionState } = storeToRefs(syncStore);
 const {
   statusLabel,
   status,
@@ -98,6 +102,7 @@ const showTokenDialog = ref(false);
 const projectName = computed(() => 'saivage-v3');
 const hasToken = computed(() => Boolean(getAuthToken()));
 const showAuthBanner = ref(false);
+const coreUnregisters = ref<Array<() => void>>([]);
 
 const sectionLabels: Record<string, string> = {
   dashboard: 'Dashboard',
@@ -114,7 +119,7 @@ const currentSectionTitle = computed(() => {
   return sectionLabels[name] ?? name ?? 'Saivage';
 });
 
-const wsConnectionState = computed<WsConnectionState>(() => connectionState.value);
+const wsConnectionState = computed<WsConnectionState>(() => connectionState.value ?? 'offline');
 const runtimeStatus = computed<string | null>(() => status.value ?? null);
 const runtimeStatusLabel = computed(() => statusLabel.value);
 const isRuntimeStale = computed(() => isStale.value);
@@ -155,9 +160,9 @@ function dismissAuthBanner(): void {
 }
 
 function refreshAuthDependentConnections(): void {
-  wsStore.disconnect();
-  wsStore.connect();
-  runtimeStore.fetchState().catch(() => {});
+  syncStore.disconnect();
+  syncStore.connect();
+  runtimeStore.refetch().catch(() => {});
 }
 
 function handleTokenSaved(): void {
@@ -171,15 +176,20 @@ function handleTokenCleared(): void {
 }
 
 onMounted(() => {
-  wsStore.connect();
-  runtimeStore.setupWsListener();
-  runtimeStore.fetchState().catch(() => {});
+  const unregisterRuntime = syncStore.registerResource({ resource: 'runtime', scope: 'core', refetch: runtimeStore.refetch });
+  const unregisterCards = syncStore.registerResource({ resource: 'cards', scope: 'core', refetch: cardStore.refetch });
+  const unregisterAgents = syncStore.registerResource({ resource: 'agents', scope: 'core', refetch: agentStore.refetch });
+  coreUnregisters.value = [unregisterRuntime, unregisterCards, unregisterAgents];
+  syncStore.connect();
+  runtimeStore.refetch().catch(() => {});
   window.addEventListener('keydown', globalKeyHandler);
   window.addEventListener(API_AUTH_REQUIRED_EVENT, handleApiAuthRequired);
 });
 
 onUnmounted(() => {
-  wsStore.disconnect();
+  for (const unregister of coreUnregisters.value) unregister();
+  coreUnregisters.value = [];
+  syncStore.disconnect();
   window.removeEventListener('keydown', globalKeyHandler);
   window.removeEventListener(API_AUTH_REQUIRED_EVENT, handleApiAuthRequired);
 });

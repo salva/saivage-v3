@@ -1,21 +1,33 @@
 import { z } from 'zod';
-import { operatorBroadcastEventKindValues, type OperatorBroadcastEventKind } from '../events/index.js';
-import {
-  actionableErrorEnvelopeSchema,
-  cardStatusSchema,
-  cardTypeSchema,
-  loggedEventSchemaByKind,
-  runtimeActivationRecordSchema,
-  runtimeCommandRecordSchema,
-  runtimeRunRecordSchema,
-} from '../schemas/index.js';
-import { CardIndexSummarySchema, RuntimeGetStateResponseSchema, ServerAvailabilitySchema } from './operator-api.js';
 
 export const WsEventTypeSchema = z.enum(['message', 'activity', 'thinking', 'status', 'error']);
 export const WsEnvelopeSchema = z.object({
   type: WsEventTypeSchema,
   content: z.record(z.string(), z.unknown()),
 });
+
+export const LiveSyncUnscopedResourceSchema = z.enum(['runtime', 'cards', 'agents', 'timeline', 'processes', 'files']);
+export const LiveSyncInvalidateFrameSchema = z.union([
+  z.object({ t: z.literal('invalidate'), resource: LiveSyncUnscopedResourceSchema }).strict(),
+  z.object({ t: z.literal('invalidate'), resource: z.literal('conversation'), id: z.string().min(1) }).strict(),
+]);
+export const LiveSyncSubscribeFrameSchema = z.object({ t: z.literal('subscribe'), resource: z.literal('conversation'), id: z.string().min(1) }).strict();
+export const LiveSyncUnsubscribeFrameSchema = z.object({ t: z.literal('unsubscribe'), resource: z.literal('conversation'), id: z.string().min(1) }).strict();
+export const LiveSyncClientFrameSchema = z.union([LiveSyncSubscribeFrameSchema, LiveSyncUnsubscribeFrameSchema]);
+
+export type LiveSyncUnscopedResource = z.infer<typeof LiveSyncUnscopedResourceSchema>;
+export type LiveSyncInvalidateFrame = z.infer<typeof LiveSyncInvalidateFrameSchema>;
+export type LiveSyncClientFrame = z.infer<typeof LiveSyncClientFrameSchema>;
+export type LiveSyncInvalidateTarget = LiveSyncInvalidateFrame extends infer T
+  ? T extends { t: 'invalidate' }
+    ? Omit<T, 't'>
+    : never
+  : never;
+
+export function parseLiveSyncClientFrame(input: unknown): LiveSyncClientFrame | null {
+  const parsed = LiveSyncClientFrameSchema.safeParse(input);
+  return parsed.success ? parsed.data : null;
+}
 
 const stringOrNullSchema = z.string().nullable();
 const optionalStringSchema = z.string().optional();
@@ -31,78 +43,6 @@ export const ConnectedStatusContentSchema = z.object({
 export const ConnectedStatusEnvelopeSchema = z.object({
   type: z.literal('status'),
   content: ConnectedStatusContentSchema,
-});
-
-export const RuntimeStateStatusEventSchema = z.object({
-  type: z.literal('status'),
-  content: z.object({
-    event: z.literal('runtime-state'),
-    runtime: RuntimeGetStateResponseSchema.shape.runtime.optional(),
-    cardIndex: CardIndexSummarySchema.optional(),
-    serverAvailability: ServerAvailabilitySchema.optional(),
-  }).passthrough(),
-});
-
-export const RuntimePausedStatusEventSchema = z.object({
-  type: z.literal('status'),
-  content: z.object({
-    event: z.literal('runtime-paused'),
-  }).passthrough(),
-});
-
-export const RuntimeResumedStatusEventSchema = z.object({
-  type: z.literal('status'),
-  content: z.object({
-    event: z.literal('runtime-resumed'),
-  }).passthrough(),
-});
-
-export const RuntimeCommandEventSchema = z.object({
-  type: z.literal('activity'),
-  content: z.object({
-    event: z.literal('runtime.command'),
-    command: runtimeCommandRecordSchema,
-  }).passthrough(),
-});
-
-export const RuntimeRunEventSchema = z.object({
-  type: z.literal('status'),
-  content: z.object({
-    event: z.literal('runtime.run'),
-    run: runtimeRunRecordSchema,
-  }).passthrough(),
-});
-
-export const RuntimeActivationEventSchema = z.object({
-  type: z.literal('activity'),
-  content: z.object({
-    event: z.literal('runtime.activation'),
-    activation: runtimeActivationRecordSchema,
-  }).passthrough(),
-});
-
-export const RuntimeActionableErrorEventSchema = z.object({
-  type: z.literal('error'),
-  content: z.object({
-    event: z.literal('runtime.actionable_error'),
-    actionable_error: actionableErrorEnvelopeSchema,
-  }).passthrough(),
-});
-
-export const CardPlannerStateChangedEventSchema = z.object({
-  type: z.literal('status'),
-  content: z.object({
-    event: z.literal('card.planner_state_changed'),
-    card: z.object({ id: z.string().min(1), planner_state: cardStatusSchema.optional(), plannerState: cardStatusSchema.optional(), type: cardTypeSchema.optional(), title: z.string().optional() }).passthrough().optional(),
-  }).passthrough(),
-});
-
-export const CardStatusChangedEventSchema = z.object({
-  type: z.literal('status'),
-  content: z.object({
-    event: z.literal('card-status-changed'),
-    card: z.object({ id: z.string().min(1), status: cardStatusSchema.optional(), type: cardTypeSchema.optional(), title: z.string().optional() }).passthrough().optional(),
-  }).passthrough(),
 });
 
 export const AnalystActivityEventNames = [
@@ -191,118 +131,43 @@ export const ErrorEnvelopeSchema = z.object({
   content: passthroughRecordSchema,
 });
 
-export const OperatorBroadcastEventKindSchema = z.enum(operatorBroadcastEventKindValues as [OperatorBroadcastEventKind, ...OperatorBroadcastEventKind[]]);
-
-export const RuntimeFanoutContentSchema = z.object({
-  event: OperatorBroadcastEventKindSchema,
-}).passthrough();
-
-export const RuntimeFanoutWsEnvelopeSchema = z.union([
-  z.object({ type: z.literal('status'), content: RuntimeFanoutContentSchema }),
-  z.object({ type: z.literal('activity'), content: RuntimeFanoutContentSchema }),
-  z.object({ type: z.literal('error'), content: RuntimeFanoutContentSchema }),
-]);
-
-export const CoveredRuntimeStatusEventSchema = z.discriminatedUnion('event', [
-  RuntimeStateStatusEventSchema.shape.content,
-  RuntimePausedStatusEventSchema.shape.content,
-  RuntimeResumedStatusEventSchema.shape.content,
-  RuntimeRunEventSchema.shape.content,
-  CardPlannerStateChangedEventSchema.shape.content,
-  CardStatusChangedEventSchema.shape.content,
-]);
-
-export const CoveredWsEnvelopeSchema = z.union([
-  RuntimeStateStatusEventSchema,
-  RuntimePausedStatusEventSchema,
-  RuntimeResumedStatusEventSchema,
-  RuntimeRunEventSchema,
-  CardPlannerStateChangedEventSchema,
-  CardStatusChangedEventSchema,
-]);
-
-export const KnownStatusWsEnvelopeSchema = z.union([
-  ConnectedStatusEnvelopeSchema,
-  RuntimeStateStatusEventSchema,
-  RuntimePausedStatusEventSchema,
-  RuntimeResumedStatusEventSchema,
-  RuntimeRunEventSchema,
-  CardPlannerStateChangedEventSchema,
-  CardStatusChangedEventSchema,
-]);
-
-export const RuntimeExecutionActivityContentSchema = z.union([RuntimeCommandEventSchema.shape.content, RuntimeActivationEventSchema.shape.content]);
-export const RuntimeExecutionErrorContentSchema = RuntimeActionableErrorEventSchema.shape.content;
+export const KnownStatusWsEnvelopeSchema = ConnectedStatusEnvelopeSchema;
 
 export const KnownWsContentSchema = z.union([
   ConnectedStatusContentSchema,
-  CoveredRuntimeStatusEventSchema,
   AnalystActivityContentSchema,
-  RuntimeExecutionActivityContentSchema,
-  RuntimeExecutionErrorContentSchema,
-  RuntimeFanoutContentSchema,
 ]);
-
-export const RuntimeExecutionActivityEnvelopeSchema = z.union([RuntimeCommandEventSchema, RuntimeActivationEventSchema]);
-export const RuntimeExecutionErrorEnvelopeSchema = RuntimeActionableErrorEventSchema;
 
 export const KnownWsEnvelopeSchema = z.union([
   KnownStatusWsEnvelopeSchema,
   AnalystActivityEnvelopeSchema,
-  RuntimeExecutionActivityEnvelopeSchema,
-  RuntimeExecutionErrorEnvelopeSchema,
-  RuntimeFanoutWsEnvelopeSchema,
   InboundAnalystMessageEnvelopeSchema,
   AnalystMessageEnvelopeSchema,
   ErrorEnvelopeSchema,
 ]);
 
-export const knownRuntimeFanoutEventNames = [...operatorBroadcastEventKindValues] as const;
 export const knownWsContentEventNames = [
   'connected',
-  'runtime-state',
-  'runtime-paused',
-  'runtime-resumed',
-  'runtime.command',
-  'runtime.run',
-  'runtime.activation',
-  'runtime.actionable_error',
-  'card.planner_state_changed',
-  'card-status-changed',
   ...AnalystActivityEventNames,
-  ...knownRuntimeFanoutEventNames,
 ] as const;
 
 const knownWsContentEventNameSet = new Set<string>(knownWsContentEventNames);
 const analystActivityEventNameSet = new Set<string>(AnalystActivityEventNames);
-const runtimeFanoutEventNameSet = new Set<string>(knownRuntimeFanoutEventNames);
 
 export type WsEventType = z.infer<typeof WsEventTypeSchema>;
 export type WsEnvelopeContract = z.infer<typeof WsEnvelopeSchema>;
 export type WsEnvelope = WsEnvelopeContract;
-export type CoveredWsEnvelope = z.infer<typeof CoveredWsEnvelopeSchema>;
-export type CoveredRuntimeStatusEvent = z.infer<typeof CoveredRuntimeStatusEventSchema>;
 export type KnownWsEnvelope = z.infer<typeof KnownWsEnvelopeSchema>;
 export type KnownWsContent = z.infer<typeof KnownWsContentSchema>;
 export type KnownStatusWsEnvelope = z.infer<typeof KnownStatusWsEnvelopeSchema>;
 export type KnownActivityWsEnvelope = z.infer<typeof AnalystActivityEnvelopeSchema>;
 export type InboundAnalystMessageEnvelope = z.infer<typeof InboundAnalystMessageEnvelopeSchema>;
-export type RuntimeFanoutWsEnvelope = z.infer<typeof RuntimeFanoutWsEnvelopeSchema>;
 export type AnalystActivityContent = z.infer<typeof AnalystActivityContentSchema>;
 
 function getContentEvent(content: unknown): string | null {
   if (!content || typeof content !== 'object') return null;
   const event = (content as Record<string, unknown>).event;
   return typeof event === 'string' ? event : null;
-}
-
-function validateRuntimeFanoutContent(content: unknown): RuntimeFanoutWsEnvelope['content'] {
-  const base = RuntimeFanoutContentSchema.parse(content);
-  const event = base.event;
-  const eventPayload = { ...base, kind: event, id: '__ws_projection__', timestamp: new Date(0).toISOString() };
-  delete (eventPayload as Record<string, unknown>).event;
-  loggedEventSchemaByKind[event as keyof typeof loggedEventSchemaByKind].parse(eventPayload);
-  return base;
 }
 
 export function parseWsEnvelope(input: unknown): WsEnvelopeContract | null {
@@ -315,7 +180,6 @@ export function parseKnownWsContent(content: unknown): KnownWsContent | null {
   if (!event || !knownWsContentEventNameSet.has(event)) return null;
   const known = KnownWsContentSchema.safeParse(content);
   if (known.success) return known.data;
-  if (runtimeFanoutEventNameSet.has(event)) return validateRuntimeFanoutContent(content);
   return KnownWsContentSchema.parse(content);
 }
 
@@ -334,24 +198,6 @@ export function parseKnownWsEnvelope(envelope: unknown): KnownWsEnvelope | null 
   return null;
 }
 
-export function parseCoveredWsEnvelope(envelope: unknown): CoveredWsEnvelope | null {
-  const base = WsEnvelopeSchema.safeParse(envelope);
-  if (!base.success) return null;
-  const event = base.data.content.event;
-  if (event !== 'runtime-state' && event !== 'runtime-paused' && event !== 'runtime-resumed' && event !== 'runtime.run' && event !== 'card.planner_state_changed' && event !== 'card-status-changed') {
-    return null;
-  }
-  return CoveredWsEnvelopeSchema.parse(envelope);
-}
-
-export function parseCoveredRuntimeStatusContent(content: unknown): CoveredRuntimeStatusEvent | null {
-  const event = getContentEvent(content);
-  if (event !== 'runtime-state' && event !== 'runtime-paused' && event !== 'runtime-resumed' && event !== 'runtime.run' && event !== 'card.planner_state_changed' && event !== 'card-status-changed') {
-    return null;
-  }
-  return CoveredRuntimeStatusEventSchema.parse(content);
-}
-
 export function validateKnownWsEnvelope(envelope: WsEnvelopeContract): WsEnvelopeContract {
   parseKnownWsEnvelope(envelope);
   return envelope;
@@ -360,11 +206,6 @@ export function validateKnownWsEnvelope(envelope: WsEnvelopeContract): WsEnvelop
 export function isAnalystActivityContent(content: unknown): content is AnalystActivityContent {
   const event = getContentEvent(content);
   return Boolean(event && analystActivityEventNameSet.has(event) && AnalystActivityContentSchema.safeParse(content).success);
-}
-
-export function isRuntimeFanoutContent(content: unknown): content is RuntimeFanoutWsEnvelope['content'] {
-  const event = getContentEvent(content);
-  return Boolean(event && runtimeFanoutEventNameSet.has(event) && RuntimeFanoutContentSchema.safeParse(content).success);
 }
 
 export function isConnectedEnvelope(envelope: unknown): envelope is z.infer<typeof ConnectedStatusEnvelopeSchema> {
@@ -385,15 +226,6 @@ export function buildConnectedEnvelope(input: { sessionId: string; timestamp?: s
 
 export function buildInboundAnalystMessageEnvelope(text: string): InboundAnalystMessageEnvelope {
   return InboundAnalystMessageEnvelopeSchema.parse({ type: 'message', content: { text } });
-}
-
-export function buildRuntimeFanoutEnvelope(input: { type?: 'status' | 'activity' | 'error'; event: OperatorBroadcastEventKind; content?: Record<string, unknown> }): RuntimeFanoutWsEnvelope {
-  const envelope = { type: input.type ?? 'status', content: { event: input.event, ...(input.content ?? {}) } };
-  const parsed = parseKnownWsEnvelope(envelope);
-  if (!parsed) {
-    throw new Error(`Unknown operator runtime fanout event: ${String(envelope.content.event)}`);
-  }
-  return parsed as RuntimeFanoutWsEnvelope;
 }
 
 export const wsContractFixtures = {

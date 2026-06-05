@@ -15,31 +15,13 @@ const apiMockState = vi.hoisted(() => ({
   listError: null as Error | null,
 }));
 
-let wsTypeHandlers = new Map<string, Set<(envelope: any) => void>>();
-
 function resetTestState() {
-  wsTypeHandlers = new Map();
   apiMockState.listError = null;
 }
 
-vi.mock('../stores/ws', () => ({
-  useWsStore: () => ({
-    connectionState: 'connected',
-    sessionId: 'sess-agents-001',
-    reconnectAttempts: 0,
-    onType: (type: string, handler: (envelope: any) => void) => {
-      let set = wsTypeHandlers.get(type);
-      if (!set) { set = new Set(); wsTypeHandlers.set(type, set); }
-      set.add(handler);
-      return () => { set?.delete(handler); };
-    },
-    onReconnect: vi.fn(() => () => {}),
-    sendMessage: vi.fn(),
-    isConnected: () => true,
-    isConnecting: () => false,
-    connect: vi.fn(),
-    disconnect: vi.fn(),
-    stale: false,
+vi.mock('../stores/sync', () => ({
+  useSyncStore: () => ({
+    openConversation: vi.fn(() => vi.fn()),
   }),
 }));
 

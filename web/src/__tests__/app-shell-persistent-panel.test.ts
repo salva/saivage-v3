@@ -14,17 +14,17 @@ vi.mock('../api/client', () => ({
   ApiError: class extends Error { status: number; body: Record<string, unknown>; constructor(status: number, message: string, body: Record<string, unknown> = {}) { super(message); this.status = status; this.body = body; } get isUnauthorized() { return this.status === 401; } },
 }));
 
-vi.mock('../stores/ws', () => ({
-  useWsStore: () => ({
+vi.mock('../stores/sync', () => ({
+  useSyncStore: () => ({
     connect: vi.fn(),
     disconnect: vi.fn(),
-    onType: vi.fn(() => () => {}),
+    registerResource: vi.fn(() => vi.fn()),
     connectionState: ref('connected'),
   }),
 }));
 vi.mock('../stores/runtime', () => ({
   useRuntimeStore: () => ({
-    setupWsListener: vi.fn(),
+    refetch: vi.fn(async () => undefined),
     fetchState: vi.fn(async () => undefined),
     resume: vi.fn(async () => undefined),
     pause: vi.fn(async () => undefined),
@@ -40,6 +40,8 @@ vi.mock('../stores/runtime', () => ({
     pauseActionDisabledReason: computed(() => null),
   }),
 }));
+vi.mock('../stores/cards', () => ({ useCardStore: () => ({ refetch: vi.fn(async () => undefined) }) }));
+vi.mock('../stores/agents', () => ({ useAgentStore: () => ({ refetch: vi.fn(async () => undefined) }) }));
 
 const router = createRouter({
   history: createMemoryHistory(),

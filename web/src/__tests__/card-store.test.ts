@@ -8,12 +8,10 @@ vi.mock('../api/client', () => ({
 }));
 
 import { getCard, ApiError } from '../api/client';
-const wsTypeHandlers = new Map<string, Set<(e: any) => void>>();
-vi.mock('../stores/ws', () => ({ useWsStore: vi.fn(() => ({ onType: (type: string, handler: (e: any) => void) => { let set = wsTypeHandlers.get(type); if (!set) { set = new Set(); wsTypeHandlers.set(type, set); } set.add(handler); return () => set?.delete(handler); } })) }));
 import { useCardStore } from '../stores/cards';
 import { selectChildrenOf } from '../stores/card-read-model';
 
-function setupStore() { setActivePinia(createPinia()); wsTypeHandlers.clear(); vi.clearAllMocks(); return useCardStore(); }
+function setupStore() { setActivePinia(createPinia()); vi.clearAllMocks(); return useCardStore(); }
 function makeCard(overrides: Partial<CardRecord> = {}): CardRecord { const id = overrides.id || 'c1'; return { id, type: 'code', parent: null, depth: 0, position: 0, title: `Card ${id}`, description: 'test', status: 'active', tags: [], priority: 5, urgency: 'normal', created_by: 'user', created_at: '2025-01-01T00:00:00Z', updated_at: '2025-01-01T00:00:00Z', version_seq: 1, depends_on: [], blocks: [], related: [], acceptance: '', artifacts: [], attachments: [], retries: 0, ...overrides, lifecycle: overrides.lifecycle ?? { status: overrides.status ?? 'active', result: null, error: null, completed_at: null } as CardRecord['lifecycle'] }; }
 function mlr(cards: CardRecord[], total?: number): CardListResponse { return { cards, total: total ?? cards.length }; }
 function mdr(card: CardRecord, children: CardRecord[] = [], ancestorIds: string[] = [], evidence?: CardEvidence, lifecycle?: CardLifecycleSummary, review?: CardReviewSummary, dispatches?: DispatchSummary, planning: CardPlanningSummary | null = null): CardDetailResponse { return { card, children, ancestorIds, evidence, lifecycle: lifecycle || { status: card.status, terminal: false, phase: 'ready', explanation: 'test', completionState: 'in-progress', error: null, startedAt: null, completedAt: null, durationMs: null, retries: 0, childCounts: { drafting: 0, backlog: 0, active: 0, running: 0, blocked: 0, changed: 0, done: 0, failed: 0, cancelled: 0, needs_verification: 0 }, hasActiveChildren: false, hasBlockingChildren: false, dependencyIds: [], blockedByDependencyIds: [] }, review: review || { status: 'not-run', review: null, evidenceStatus: 'none', summary: 'No reviewer assessment is recorded for this card.' }, planning, dispatches: dispatches || { outgoing: [], incoming: [] } }; }
@@ -21,7 +19,7 @@ function mdr(card: CardRecord, children: CardRecord[] = [], ancestorIds: string[
 const A = makeCard({ id: 'card-a', title: 'Alpha' });
 
 describe('useCardStore evidence support', () => {
-  beforeEach(() => { vi.clearAllMocks(); wsTypeHandlers.clear(); });
+  beforeEach(() => { vi.clearAllMocks(); });
   afterEach(() => { vi.restoreAllMocks(); });
 
   it('stores evidence and typed detail fields from fetchCardDetail', async () => {
@@ -51,17 +49,6 @@ describe('useCardStore evidence support', () => {
     vi.mocked(getCard).mockRejectedValue(new ApiError(401, 'Unauthorized', {}));
     await expect(s.fetchCardDetail('card-a')).rejects.toBeTruthy();
     expect(s.currentDetailError).toEqual({ kind: 'unauthorized', status: 401, message: 'Unauthorized' });
-  });
-
-  it('marks current detail stale on websocket card-updated events', async () => {
-    const s = setupStore();
-    s.currentCard = A;
-    s.setupWsListener();
-    const handler = Array.from(wsTypeHandlers.get('activity') || [])[0];
-    handler({ type: 'activity', content: { event: 'card-updated', card: { ...A, title: 'Changed' } } });
-    expect(s.currentCard?.title).toBe('Changed');
-    expect(s.currentDetailFreshness.isStale).toBe(true);
-    expect(s.currentDetailFreshness.staleReason).toBe('ws-card-updated');
   });
 
   it('reports per-card stale notifications through isStale', () => {

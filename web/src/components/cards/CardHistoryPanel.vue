@@ -85,10 +85,9 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
+import { computed, onMounted, ref, watch } from 'vue';
 import { storeToRefs } from 'pinia';
 import { useCardStore } from '../../stores/cards';
-import { useWsStore } from '../../stores/ws';
 import type { CardHistoryHeader } from '../../api/types';
 import { formatTimestamp, isRecentTimestamp, timestampTitle } from '../../utils/timestamp';
 import { formatJson } from '../../utils/format-json';
@@ -97,7 +96,6 @@ import CodeBlock from '../content/CodeBlock.vue';
 
 const props = defineProps<{ cardId: string }>();
 const cardStore = useCardStore();
-const wsStore = useWsStore();
 const {
   cardHistory,
   cardHistoryLoading,
@@ -139,24 +137,8 @@ async function reloadAll(): Promise<void> {
   await loadHistory();
 }
 
-const unsubscribe = wsStore.onType('activity', (envelope) => {
-  const event = envelope.content?.event;
-  const cardId = typeof envelope.content?.card_id === 'string'
-    ? envelope.content.card_id
-    : typeof envelope.content?.related_card_id === 'string'
-      ? envelope.content.related_card_id
-      : null;
-  if ((event === 'card_history_appended' || event === 'analyst_tool_invoked') && cardId === props.cardId) {
-    void loadHistory().catch(() => {});
-  }
-});
-
 onMounted(async () => {
   await loadHistory();
-});
-
-onUnmounted(() => {
-  unsubscribe();
 });
 
 watch(() => props.cardId, async () => {

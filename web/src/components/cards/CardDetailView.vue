@@ -266,10 +266,9 @@
 import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue';
 import { useAnalystChat } from '../../stores/analystChat';
 import { useCardStore } from '../../stores/cards';
-import { useWsStore } from '../../stores/ws';
 import { storeToRefs } from 'pinia';
 import { getFileContent, ApiError } from '../../api/client';
-import type { GeneratedFileRef, VerificationCommandRef, DetailErrorState, CardStatus, WsEnvelope } from '../../api/types';
+import type { GeneratedFileRef, VerificationCommandRef, DetailErrorState, CardStatus } from '../../api/types';
 import { createLogger } from '../../utils/logger';
 import { formatTimestamp, isRecentTimestamp, timestampTitle } from '../../utils/timestamp';
 import CardHistoryPanel from './CardHistoryPanel.vue';
@@ -282,7 +281,6 @@ const props = defineProps<{ cardId: string }>();
 const emit = defineEmits<{ navigate: [id: string] }>();
 const cardStore = useCardStore();
 const analystChat = useAnalystChat();
-const wsStore = useWsStore();
 const {
   currentCard,
   currentChildren,
@@ -295,7 +293,6 @@ const {
   currentDetailError,
   currentDetailFreshness,
   loading,
-  cardHistorySelectedSeq,
 } = storeToRefs(cardStore);
 
 const detailError = computed<DetailErrorState | null>(() => currentDetailError.value);
@@ -304,9 +301,7 @@ const detailFreshness = computed(() => currentDetailFreshness.value);
 const selectedPath = ref<string | null>(null);
 const liveHighlighted = ref(false);
 const previewState = ref<{ status: 'idle' } | { status: 'loading'; path: string } | { status: 'ready'; path: string; size: number; contentType: string; content: string; redactedHint: boolean } | { status: 'missing' | 'blocked' | 'directory' | 'too_large' | 'binary' | 'error'; path: string; message: string }>({ status: 'idle' });
-let wsUnsubscribe: (() => void) | null = null;
 let highlightTimer: ReturnType<typeof setTimeout> | null = null;
-let refreshTicket = 0;
 
 const TYPE_ICONS: Record<string, string> = { project: '(P)', goal: '(G)', architecture: '(A)', code: '(C)', test: '(T)', doc: '(D)', data: '(DA)', research: '(R)', ops: '(O)' };
 function typeIcon(type: string): string { return TYPE_ICONS[type] || '(?)'; }
@@ -437,52 +432,6 @@ function clearHighlightTimer(): void {
   }
 }
 
-function pulseHighlight(): void {
-  clearHighlightTimer();
-  liveHighlighted.value = true;
-  highlightTimer = setTimeout(() => {
-    liveHighlighted.value = false;
-    highlightTimer = null;
-  }, 1800);
-}
-
-async function softRefreshForCard(cardId: string): Promise<void> {
-  const ticket = ++refreshTicket;
-  const selectedSeq = cardHistorySelectedSeq.value;
-  pulseHighlight();
-  await Promise.allSettled([
-    cardStore.fetchCardDetail(cardId),
-    cardStore.fetchCardHistoryForCard(cardId),
-  ]);
-  if (refreshTicket !== ticket) return;
-  if (selectedSeq != null) {
-    const historyStillContainsSelection = cardStore.cardHistory.some((entry) => entry.version_seq === selectedSeq);
-    if (historyStillContainsSelection) {
-      await cardStore.selectCardHistoryVersion(cardId, selectedSeq).catch(() => {});
-    }
-  }
-}
-
-function isMatchingCardActivity(envelope: WsEnvelope): boolean {
-  const content = envelope.content || {};
-  const event = typeof content.event === 'string' ? content.event : null;
-  if (event === 'card_history_appended') {
-    return content.card_id === props.cardId;
-  }
-  if (event === 'analyst_tool_invoked') {
-    return content.related_card_id === props.cardId;
-  }
-  return false;
-}
-
-function subscribeToActivity(): void {
-  wsUnsubscribe?.();
-  wsUnsubscribe = wsStore.onType('activity', (envelope) => {
-    if (!isMatchingCardActivity(envelope)) return;
-    void softRefreshForCard(props.cardId).catch((err) => log.error('soft refresh failed', err));
-  });
-}
-
 async function seedAnalystForCard(): Promise<void> {
   if (!currentCard.value) return;
   if (analystChat.hasDraft && typeof window !== 'undefined') {
@@ -499,21 +448,15 @@ async function seedAnalystForCard(): Promise<void> {
 
 
 onMounted(async () => {
-  subscribeToActivity();
   await reloadDetail();
 });
 
 onBeforeUnmount(() => {
-  wsUnsubscribe?.();
-  wsUnsubscribe = null;
   clearHighlightTimer();
 });
 
 watch(() => props.cardId, async (nid, oldId) => {
-  if (oldId !== undefined) {
-    wsUnsubscribe?.();
-  }
-  subscribeToActivity();
+  void oldId;
   liveHighlighted.value = false;
   clearHighlightTimer();
   selectedPath.value = null;

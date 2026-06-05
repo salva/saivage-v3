@@ -3,7 +3,6 @@ import { ref, computed } from 'vue';
 import type { AgentSession, AgentRole, AgentStatus, AgentConversationResponse, ActivityStatus, ConversationEntry, FreshnessState } from '../api/types';
 import { listAgentSessions, getAgentConversation, getAgentLlmExchange, ApiError } from '../api/client';
 import type { LlmExchange } from '../api/contracts';
-import { useWsStore } from './ws';
 import { createLogger } from '../utils/logger';
 
 const log = createLogger('store:agents');
@@ -88,20 +87,8 @@ export const useAgentStore = defineStore('agents', () => {
   async function fetchLlmExchange(sessionId: string): Promise<void> { llmExchangeSessionId.value = sessionId; llmExchangeLoading.value = true; llmExchangeError.value = null; try { const { exchange } = await getAgentLlmExchange(sessionId); if (llmExchangeSessionId.value === sessionId) currentLlmExchange.value = exchange; } catch (err) { if (llmExchangeSessionId.value !== sessionId) return; currentLlmExchange.value = null; llmExchangeError.value = err instanceof ApiError && err.isNotFound ? null : err instanceof Error ? err.message : String(err); } finally { if (llmExchangeSessionId.value === sessionId) llmExchangeLoading.value = false; } }
   function clearLlmExchange(): void { currentLlmExchange.value = null; llmExchangeLoading.value = false; llmExchangeError.value = null; llmExchangeSessionId.value = null; }
 
-  let statusUnsubscribe: (() => void) | null = null;
-  let thinkingUnsubscribe: (() => void) | null = null;
-  let activityUnsubscribe: (() => void) | null = null;
-  let reconnectUnsubscribe: (() => void) | null = null;
-  function bindWs(): void {
-    const ws = useWsStore();
-    if (!reconnectUnsubscribe) reconnectUnsubscribe = ws.onReconnect(() => { fetchSessions().catch(() => {}); if (currentSession.value?.id) refreshConversation(currentSession.value.id).catch(() => {}); });
-    if (statusUnsubscribe) return;
-    statusUnsubscribe = ws.onType('status', (envelope) => { const content = envelope.content || {}; const event = content.event as string; markWsSync(); if (event === 'agent-session-started' && content.session) addSession(content.session as AgentSession); if (event === 'agent-session-completed' && content.sessionId) updateSessionStatus(content.sessionId as string, 'done'); if (event === 'agent-session-failed' && content.sessionId) updateSessionStatus(content.sessionId as string, 'failed'); });
-    const ingest = (envelope: { content?: Record<string, unknown> }) => { const content = envelope.content || {}; if (content.sessionId && content.entry) appendEntry(content.entry as ConversationEntry); if (content.activity_status) setActivityStatus(content.activity_status as ActivityStatus); };
-    thinkingUnsubscribe = ws.onType('thinking', ingest);
-    activityUnsubscribe = ws.onType('activity', ingest);
-  }
-  const setupWsListener = bindWs;
+  async function refetchConversation(sessionId = currentSession.value?.id): Promise<void> { if (sessionId) await fetchConversation(sessionId); }
+  async function refetch(): Promise<void> { await fetchSessions(); if (currentSession.value?.id) await refetchConversation(currentSession.value.id); }
 
-  return { sessions, entries, activityStatus, currentSession, loading, error, lastFetchedAt, lastWsEventAt, lastUpdatedBy, unauthorized, conversationWarning, currentLlmExchange, llmExchangeLoading, llmExchangeError, llmExchangeSessionId, sessionsByRole, activeSessions, completedSessions, attentionSessions, isStale, fetchSessions, fetchConversation, refreshConversation, addSession, updateSessionStatus, appendEntry, setActivityStatus, bindWs, setupWsListener, fetchLlmExchange, clearLlmExchange };
+  return { sessions, entries, activityStatus, currentSession, loading, error, lastFetchedAt, lastWsEventAt, lastUpdatedBy, unauthorized, conversationWarning, currentLlmExchange, llmExchangeLoading, llmExchangeError, llmExchangeSessionId, sessionsByRole, activeSessions, completedSessions, attentionSessions, isStale, fetchSessions, fetchConversation, refreshConversation, refetchConversation, refetch, addSession, updateSessionStatus, appendEntry, setActivityStatus, fetchLlmExchange, clearLlmExchange };
 });

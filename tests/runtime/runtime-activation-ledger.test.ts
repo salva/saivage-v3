@@ -10,8 +10,6 @@ import { appendRuntimeRun, readRuntimeState, upsertRuntimeActivation } from '../
 import { EventBus } from '../../src/events/index.js';
 import { EventLogger } from '../../src/observability/event-logger.js';
 import { loggedEventSchema } from '../../src/schemas/validators.js';
-import { createRuntimeEnvelope } from '../../src/server/websocket.js';
-import { RuntimeActivationEventSchema, RuntimeRunEventSchema, parseKnownWsEnvelope } from '../../src/contracts/operator-events.js';
 import type { SaivageConfig } from '../../src/agents/config-schema.js';
 
 function setup() {
@@ -190,10 +188,6 @@ describe('runtime activation ledger target contract (Wave 1)', () => {
       expect(persistedActivationEvents).toEqual([expect.objectContaining({ kind: events[1].kind, activation: events[1].activation })]);
       expect((persistedActivationEvents[0] as any).activation.idempotency_key).toBe(activation?.idempotency_key);
 
-      const projected = events.map((event) => createRuntimeEnvelope(event.kind, event as unknown as Record<string, unknown>));
-      expect(RuntimeRunEventSchema.parse(projected[0]).content.run).toEqual(childRun);
-      expect(RuntimeActivationEventSchema.parse(projected[1]).content.activation).toEqual(activation);
-      for (const envelope of projected) expect(parseKnownWsEnvelope(envelope)).toEqual(envelope);
     } finally {
       logger?.close();
       rmSync(ctx.projectRoot, { recursive: true, force: true });

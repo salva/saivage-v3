@@ -40,7 +40,6 @@ import {
   listControlActions,
   ApiError,
 } from '../api/client';
-import { useWsStore } from './ws';
 import { createLogger } from '../utils/logger';
 import { redactObservabilityValue } from '../utils/observabilityRedaction';
 import {
@@ -364,32 +363,9 @@ export const useDebugStore = defineStore('debug', () => {
     activeTab.value = tab;
   }
 
-  let wsUnsubscribe: (() => void) | null = null;
-  function setupWsListener(): void {
-    if (wsUnsubscribe) return;
-    const ws = useWsStore();
-
-    wsUnsubscribe = ws.onType('activity', (envelope) => {
-      const content = envelope.content || {};
-      const event = content.event as string;
-
-      timelineEvents.value = [{ kind: `ws:${event}`, card_id: content.cardId as string | undefined, timestamp: new Date().toISOString(), ...content }, ...timelineEvents.value].slice(0, 500);
-
-      if (event === 'control_action_recorded') {
-        void fetchControlActions().catch(() => {});
-      }
-      if (event === 'error' && content.message) {
-        errors.value = [{
-          source: content.source as string || 'runtime',
-          type: content.errorType as string || 'runtime-error',
-          severity: content.severity as string || 'error',
-          message: content.message as string,
-          details: content.details as string | undefined,
-          timestamp: new Date().toISOString(),
-        }, ...errors.value].slice(0, 200);
-      }
-    });
-  }
+  const refetch = fetchAll;
+  const refetchTimeline = fetchTimeline;
+  const refetchProcesses = fetchProcesses;
 
   return {
     debugRuntime: readonly(debugRuntime),
@@ -446,12 +422,14 @@ export const useDebugStore = defineStore('debug', () => {
     fetchErrors,
     fetchTimeline,
     fetchProcesses,
+    refetchTimeline,
+    refetchProcesses,
     fetchDoctor,
     fetchSupervision,
     fetchControlActions,
     fetchOperatorControl,
     fetchAll,
+    refetch,
     setActiveTab,
-    setupWsListener,
   };
 });

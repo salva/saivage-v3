@@ -52,6 +52,13 @@ The browser then connects to `/ws?ticket=wst_<opaque-ticket>`. The ticket is not
 
 If no API token is configured, the server only allows tokenless startup on localhost-style bindings.
 
+The `/ws` transport carries two frame families:
+
+- analyst chat envelopes use `{ "type": "message" | "activity" | "status" | "error", "content": { ... } }` and preserve the existing chat response/activity/error contract;
+- live-state synchronization uses invalidate frames only: `{ "t": "invalidate", "resource": "runtime" | "cards" | "agents" | "timeline" | "processes" | "files" }` or `{ "t": "invalidate", "resource": "conversation", "id": "<session-id>" }`.
+
+The server does not stream runtime/card snapshots over WebSocket. Clients treat invalidate frames as hints and refetch authoritative REST resources. Core resources are `runtime`, `cards`, and `agents`; active view resources are `timeline`, `processes`, `files`, and scoped `conversation`. Conversation subscriptions are explicit client frames: `{ "t": "subscribe", "resource": "conversation", "id": "<session-id>" }` and matching `unsubscribe`.
+
 ## Runtime status surfaces
 
 ### `/health`

@@ -4,7 +4,9 @@ import type { McpManager } from '../../mcp/manager-api.js';
 import type { TelegramBot } from '../../telegram/index.js';
 import { clearProjectNotificationDeliveryAdapters } from '../../notifications/index.js';
 import { resetChatRouteState } from '../routes/chats-files-debug.js';
-import { resetRuntimeEventSubscriptions, resetWebSocketState } from '../websocket.js';
+import { resetAnalystWebSocketState } from '../websocket.js';
+import type { LiveSyncSocket } from '../live-sync-socket.js';
+import type { SyncHub } from '../sync-hub.js';
 
 export async function stopServerResources(options: {
   projectRoot: string;
@@ -12,12 +14,15 @@ export async function stopServerResources(options: {
   runtimeApplication?: RuntimeApplication;
   mcpManager?: McpManager;
   telegramBot?: TelegramBot;
+  liveSyncSocket?: LiveSyncSocket;
+  syncHub?: SyncHub;
 }): Promise<void> {
-  const { projectRoot, fastify, runtimeApplication, mcpManager, telegramBot } = options;
+  const { projectRoot, fastify, runtimeApplication, mcpManager, telegramBot, liveSyncSocket, syncHub } = options;
   resetChatRouteState(projectRoot);
-  resetWebSocketState(projectRoot);
+  liveSyncSocket?.dispose();
+  resetAnalystWebSocketState(projectRoot);
   clearProjectNotificationDeliveryAdapters(projectRoot);
-  if (runtimeApplication) resetRuntimeEventSubscriptions(runtimeApplication.runtimeApi);
+  if (runtimeApplication) syncHub?.dispose(runtimeApplication.runtimeApi);
 
   try {
     await fastify.close();

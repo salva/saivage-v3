@@ -5,17 +5,16 @@
 </template>
 
 <script setup lang="ts">
-import { onUnmounted, ref } from 'vue';
-import { useWsStore } from '../../stores/ws';
+import { onUnmounted, watch } from 'vue';
+import { storeToRefs } from 'pinia';
+import { useAnalystChat } from '../../stores/analystChat';
 
-interface ToastItem { id: string; label: string; }
-
-const wsStore = useWsStore();
-const toasts = ref<ToastItem[]>([]);
+const analystChat = useAnalystChat();
+const { toasts } = storeToRefs(analystChat);
 const timers = new Map<string, ReturnType<typeof setTimeout>>();
 
 function removeToast(id: string): void {
-  toasts.value = toasts.value.filter((item) => item.id !== id);
+  analystChat.removeToast(id);
   const timer = timers.get(id);
   if (timer) {
     clearTimeout(timer);
@@ -23,20 +22,15 @@ function removeToast(id: string): void {
   }
 }
 
-const unsubscribe = wsStore.onType('activity', (envelope) => {
-  if (envelope.content?.event !== 'control_action_recorded') return;
-  if (envelope.content?.actor !== 'analyst' || envelope.content?.surface !== 'web-chat') return;
-  const action = typeof envelope.content?.action === 'string' ? envelope.content.action : 'action';
-  const targetId = typeof envelope.content?.target_id === 'string' ? envelope.content.target_id : 'unknown';
-  const id = typeof envelope.content?.id === 'string' ? envelope.content.id : `${Date.now()}`;
-  const item = { id, label: `Analyst ${action} on ${targetId}` };
-  toasts.value = [...toasts.value, item].slice(-3);
-  const timer = setTimeout(() => removeToast(id), 4000);
-  timers.set(id, timer);
-});
+watch(toasts, (items) => {
+  for (const item of items) {
+    if (timers.has(item.id)) continue;
+    const timer = setTimeout(() => removeToast(item.id), 4000);
+    timers.set(item.id, timer);
+  }
+}, { immediate: true });
 
 onUnmounted(() => {
-  unsubscribe();
   for (const timer of timers.values()) clearTimeout(timer);
   timers.clear();
 });

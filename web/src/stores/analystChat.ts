@@ -36,6 +36,8 @@ interface TimelineBadge {
   timestamp: string;
 }
 
+export interface AnalystToastItem { id: string; label: string; }
+
 function nowIso(): string {
   return new Date().toISOString();
 }
@@ -153,6 +155,7 @@ export const useAnalystChat = defineStore('analyst-chat', () => {
   const pendingToolInvocations = ref<PendingToolInvocation[]>([]);
   const messageBadges = ref<Record<string, TimelineBadge[]>>({});
   const pendingCardSeed = ref<{ sessionId: string; cardId: string } | null>(null);
+  const toasts = ref<AnalystToastItem[]>([]);
 
   const hasDraft = computed(() => draft.value.trim().length > 0);
   const activeSession = computed(() => sessions.value.find((session) => session.id === activeSessionId.value) ?? null);
@@ -342,6 +345,14 @@ export const useAnalystChat = defineStore('analyst-chat', () => {
     messageBadges.value = next;
   }
 
+  function addToast(item: AnalystToastItem): void {
+    toasts.value = [...toasts.value.filter((toast) => toast.id !== item.id), item].slice(-3);
+  }
+
+  function removeToast(id: string): void {
+    toasts.value = toasts.value.filter((toast) => toast.id !== id);
+  }
+
   function ingestWsEvent(payload: Record<string, unknown>): void {
     const event = typeof payload.event === 'string' ? payload.event : null;
     const payloadSessionId = typeof payload.session_id === 'string'
@@ -386,6 +397,12 @@ export const useAnalystChat = defineStore('analyst-chat', () => {
     }
     if (event === 'control_action_recorded') {
       addBadgeForActiveSession('control action recorded', 'control-action');
+      if (payload.actor === 'analyst' && payload.surface === 'web-chat') {
+        const action = typeof payload.action === 'string' ? payload.action : 'action';
+        const targetId = typeof payload.target_id === 'string' ? payload.target_id : 'unknown';
+        const id = typeof payload.id === 'string' ? payload.id : `${Date.now()}`;
+        addToast({ id, label: `Analyst ${action} on ${targetId}` });
+      }
       if (payloadSessionId === activeSessionId.value || activeSessionId.value) {
         void fetchMessages().catch(() => {});
       }
@@ -409,6 +426,7 @@ export const useAnalystChat = defineStore('analyst-chat', () => {
     pendingToolInvocations,
     messageBadges,
     pendingCardSeed,
+    toasts,
     activeSessionWritable: computed(() => isWritableSession(activeSession.value)),
     setDraft,
     fetchSessions,
@@ -419,5 +437,6 @@ export const useAnalystChat = defineStore('analyst-chat', () => {
     consumeSyntheticHint,
     sendMessage,
     ingestWsEvent,
+    removeToast,
   };
 });

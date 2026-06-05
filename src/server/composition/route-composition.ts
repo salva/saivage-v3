@@ -3,6 +3,7 @@ import type { SaivageConfig } from '../../agents/config-api.js';
 import type { RuntimeApplication } from '../../application/runtime-composition.js';
 import type { McpManager } from '../../mcp/manager-api.js';
 import type { ServerAvailabilityInputs } from '../availability.js';
+import type { LiveSyncSocket } from '../live-sync-socket.js';
 import { buildServerAvailability } from '../availability.js';
 import { registerOperatorContractRoutes } from '../routes/operator-contracts.js';
 import { registerInternalDebugRoutes } from '../routes/chats-files-debug.js';
@@ -17,6 +18,7 @@ export function registerServerRoutes(options: {
   saivageConfig: SaivageConfig;
   configWarnings: readonly string[];
   requestServerRestart: () => Promise<void>;
+  liveSyncSocket: LiveSyncSocket;
 }): void {
   const serverAvailabilityProvider = () => buildServerAvailability(options.availabilityInputs);
 
@@ -32,5 +34,5 @@ export function registerServerRoutes(options: {
     configWarnings: options.configWarnings,
   });
   registerInternalDebugRoutes(options.fastify, options.projectRoot);
-  registerWebSocket(options.fastify, options.projectRoot, options.runtimeApplicationProvider(), options.requestServerRestart);
+  registerWebSocket(options.fastify, options.projectRoot, options.liveSyncSocket, options.runtimeApplicationProvider(), options.requestServerRestart);
 }

@@ -10,7 +10,6 @@ vi.mock('../api/client', () => ({
   listCardHistory: vi.fn(), getCardHistoryEntry: vi.fn(), getCardDiff: vi.fn(),
   ApiError: class extends Error { status: number; body: Record<string, unknown>; constructor(status: number, message: string, body: Record<string, unknown> = {}) { super(message); this.status = status; this.body = body; } get isUnauthorized() { return this.status === 401; } get isNotFound() { return this.status === 404; } },
 }));
-vi.mock('../stores/ws', () => ({ useWsStore: () => ({ onType: vi.fn(() => vi.fn()) }) }));
 vi.mock('../stores/analystChat', () => ({ useAnalystChat: () => ({ hasDraft: false, seedCardContext: vi.fn(), fetchMessages: vi.fn(async () => undefined), activeSessionId: 'analyst' }) }));
 vi.mock('../utils/logger', () => ({ createLogger: () => ({ error: vi.fn() }) }));
 vi.mock('../components/cards/CardHistoryPanel.vue', () => ({ default: { template: '<section />', props: ['cardId'] } }));

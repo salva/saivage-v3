@@ -252,7 +252,6 @@ async function refreshRuntime(): Promise<void> {
 
 onMounted(async () => {
   await refreshRuntime();
-  runtimeStore.setupWsListener();
 });
 </script>
 

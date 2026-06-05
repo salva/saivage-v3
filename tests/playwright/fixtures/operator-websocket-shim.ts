@@ -1,9 +1,8 @@
 import type { Page } from '@playwright/test';
 import {
   buildConnectedEnvelope,
-  parseKnownWsEnvelope,
   wsContractFixtures,
-  type WsEnvelope,
+  type LiveSyncInvalidateFrame,
 } from '../../../src/contracts/operator-events.js';
 
 const connectedEnvelope = buildConnectedEnvelope({
@@ -11,40 +10,13 @@ const connectedEnvelope = buildConnectedEnvelope({
   timestamp: '2026-05-19T12:00:00.000Z',
   clientCount: 1,
 });
-const runtimeUpdateEnvelope = parseKnownWsEnvelope({
-  type: 'status',
-  content: {
-    event: 'runtime-state',
-    runtime: {
-      status: 'running',
-      project_id: 'project',
-      pid: 4242,
-      started_at: '2026-05-19T12:00:00.000Z',
-      current_card_id: 'card-smoke',
-      current_agent_session_id: 'planner-smoke',
-      paused: false,
-      paused_at: null,
-      updated_at: '2026-05-19T12:01:00.000Z',
-      runtime_intent: { status: 'running', updated_at: '2026-05-19T12:01:00.000Z', source_command_id: null, reason: null },
-      runtime_commands: [],
-      runtime_runs: [],
-      runtime_activations: [],
-    },
-    cardIndex: { total: 3, byStatus: { running: 2, done: 1 }, byType: { project: 1, code: 2 } },
-  },
-}) as WsEnvelope;
-const cardChangedEnvelope = parseKnownWsEnvelope({
-  type: 'status',
-  content: {
-    event: 'card-status-changed',
-    card: { id: 'card-smoke', status: 'running', type: 'code', title: 'Synthetic dashboard smoke card' },
-  },
-}) as WsEnvelope;
+const runtimeUpdateEnvelope: LiveSyncInvalidateFrame = { t: 'invalidate', resource: 'runtime' };
+const cardChangedEnvelope: LiveSyncInvalidateFrame = { t: 'invalidate', resource: 'cards' };
 
 export async function installOperatorWebSocketShim(page: Page): Promise<void> {
   await page.addInitScript(({ connected, runtimeUpdate, cardChanged, inboundFixture }) => {
     type Listener = (event: Event) => void;
-    type FixtureEnvelope = { type: string; content: Record<string, unknown> };
+    type FixtureFrame = Record<string, unknown>;
 
     const NativeWebSocket = window.WebSocket;
     const sockets: Array<SaivageFixtureWebSocket> = [];
@@ -91,7 +63,7 @@ export async function installOperatorWebSocketShim(page: Page): Promise<void> {
           if (this.readyState !== SaivageFixtureWebSocket.CONNECTING) return;
           this.readyState = SaivageFixtureWebSocket.OPEN;
           this.dispatchSynthetic('open', new Event('open'));
-          this.emit(connected as FixtureEnvelope);
+          this.emit(connected as FixtureFrame);
         }, 0);
       }
 
@@ -127,7 +99,7 @@ export async function installOperatorWebSocketShim(page: Page): Promise<void> {
         }, 0);
       }
 
-      emit(envelope: FixtureEnvelope): void {
+      emit(envelope: FixtureFrame): void {
         if (this.readyState !== SaivageFixtureWebSocket.OPEN) return;
         this.dispatchSynthetic('message', new FixtureMessageEvent(JSON.stringify(envelope)) as MessageEvent);
       }
@@ -148,15 +120,15 @@ export async function installOperatorWebSocketShim(page: Page): Promise<void> {
     window.__saivageWsFixture = {
       sockets,
       outbound,
-      connectedEnvelope: connected as FixtureEnvelope,
-      inboundAnalystFixture: inboundFixture as FixtureEnvelope,
+      connectedEnvelope: connected as FixtureFrame,
+      inboundAnalystFixture: inboundFixture as FixtureFrame,
       emitRuntimeUpdate() {
-        for (const socket of sockets) socket.emit(runtimeUpdate as FixtureEnvelope);
+        for (const socket of sockets) socket.emit(runtimeUpdate as FixtureFrame);
       },
       emitCardChanged() {
-        for (const socket of sockets) socket.emit(cardChanged as FixtureEnvelope);
+        for (const socket of sockets) socket.emit(cardChanged as FixtureFrame);
       },
-      emit(envelope: FixtureEnvelope) {
+      emit(envelope: FixtureFrame) {
         for (const socket of sockets) socket.emit(envelope);
       },
       closeAll() {

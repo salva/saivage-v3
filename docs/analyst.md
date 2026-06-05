@@ -209,7 +209,7 @@ Use these suites for focused analyst UI regression checks:
 - `src/__tests__/analyst-toaster.test.ts` — live analyst mutation toaster behavior
 - `src/__tests__/card-detail-view.test.ts` — card detail live refresh, `analyst_tool_invoked` reactions, and attribution-adjacent updates
 - `src/__tests__/card-history-panel-analyst-filter.test.ts` — analyst-authored card history filtering and attribution copy
-- `src/__tests__/ws-store.test.ts` — WebSocket store routing, reconnect, stale, and unauthorized behavior used by the analyst surfaces
+- `src/__tests__/sync-client.test.ts` — live-sync invalidation, reconnect refetch, and scoped conversation subscription behavior
 
 Canonical focused command from the web workspace:
 
@@ -221,7 +221,7 @@ npm test -- src/__tests__/analyst-chat-panel.test.ts \
   src/__tests__/analyst-toaster.test.ts \
   src/__tests__/card-detail-view.test.ts \
   src/__tests__/card-history-panel-analyst-filter.test.ts \
-  src/__tests__/ws-store.test.ts
+  src/__tests__/sync-client.test.ts
 ```
 
 Optional root convenience wrapper:

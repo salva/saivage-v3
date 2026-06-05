@@ -9,7 +9,6 @@ vi.mock('../../api/client', () => ({
   getAgentLlmExchange: vi.fn(),
   ApiError: class extends Error { status: number; constructor(status: number, message: string) { super(message); this.status = status; } get isUnauthorized() { return this.status === 401; } get isNotFound() { return this.status === 404; } },
 }));
-vi.mock('../../stores/ws', () => ({ useWsStore: () => ({ onType: vi.fn(() => vi.fn()), onReconnect: vi.fn(() => vi.fn()) }) }));
 import { getAgentConversation, listAgentSessions } from '../../api/client';
 
 const session: AgentSession = { id: 's1', role: 'planner', status: 'active', started_at: '2026-01-01T00:00:00.000Z' };

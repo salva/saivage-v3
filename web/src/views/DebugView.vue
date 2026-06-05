@@ -348,6 +348,7 @@ import { onMounted, onUnmounted } from 'vue';
 import { useRouter } from 'vue-router';
 import { storeToRefs } from 'pinia';
 import { useDebugStore } from '../stores/debug';
+import { useSyncStore } from '../stores/sync';
 import { useCardStore } from '../stores/cards';
 import { useDebugReadModel } from '../composables/useDebugReadModel';
 import { formatTimestamp, isRecentTimestamp } from '../utils/timestamp';
@@ -358,6 +359,7 @@ import CodeBlock from '../components/content/CodeBlock.vue';
 import type { DebugTimelineEvent, ProcessView } from '../api/types';
 
 const debugStore = useDebugStore();
+const syncStore = useSyncStore();
 const cardsStore = useCardStore();
 const mcpStore = useMcpStore();
 const router = useRouter();
@@ -422,8 +424,20 @@ function eventTerminalTool(event: DebugTimelineEvent): string | null {
 }
 function timelineDetails(event: DebugTimelineEvent): Record<string, unknown> { const details: Record<string, unknown> = {}; for (const [key, value] of Object.entries(event)) { if (['id', 'kind', 'timestamp', 'card_id', 'goal_id', 'session_id', 'terminal_tool'].includes(key)) continue; if (value === undefined || value === null) continue; details[key] = value; } return redactObservabilityValue(details); }
 
-onMounted(async () => { debugStore.setupWsListener(); await debugStore.fetchAll(); mcpStore.fetchMcpData().catch(() => {}); mcpStore.startPolling(15000); });
-onUnmounted(() => { mcpStore.stopPolling(); });
+let unregisterTimeline: (() => void) | null = null;
+let unregisterProcesses: (() => void) | null = null;
+onMounted(async () => {
+  unregisterTimeline = syncStore.registerResource({ resource: 'timeline', scope: 'active', refetch: debugStore.refetchTimeline });
+  unregisterProcesses = syncStore.registerResource({ resource: 'processes', scope: 'active', refetch: debugStore.refetchProcesses });
+  await debugStore.fetchAll();
+  mcpStore.fetchMcpData().catch(() => {});
+  mcpStore.startPolling(15000);
+});
+onUnmounted(() => {
+  unregisterTimeline?.();
+  unregisterProcesses?.();
+  mcpStore.stopPolling();
+});
 </script>
 
 <style scoped>
@@ -580,4 +594,3 @@ onUnmounted(() => { mcpStore.stopPolling(); });
 .process-empty-note { font-size:12px; color:var(--text-muted); line-height:1.5; }
 .process-controls { margin-top:8px; }
 </style>
-

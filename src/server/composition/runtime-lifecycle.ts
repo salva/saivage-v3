@@ -1,7 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import type { SaivageConfig } from '../../agents/config-api.js';
 import { createRuntimeApplication, type RuntimeApplication } from '../../application/runtime-composition.js';
-import { wireRuntimeEvents } from '../websocket.js';
+import type { SyncHub } from '../sync-hub.js';
 
 export type StartupFailure = { code: string; error: unknown };
 
@@ -15,13 +15,14 @@ export async function startRuntimeApplication(options: {
   projectRoot: string;
   saivageConfig: SaivageConfig;
   fastify: FastifyInstance;
+  syncHub?: SyncHub;
 }): Promise<RuntimeStartupResult> {
   if (!options.createRuntime) return {};
 
   try {
     const runtimeApplication = createRuntimeApplication(options.projectRoot, options.saivageConfig);
     await runtimeApplication.runtimeApi.start();
-    wireRuntimeEvents(runtimeApplication.runtimeApi);
+    options.syncHub?.wire(runtimeApplication.runtimeApi);
     options.fastify.log.info('Runtime application started');
     return { runtimeApplication };
   } catch (err) {
